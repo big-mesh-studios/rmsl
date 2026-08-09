@@ -20,7 +20,7 @@ let wgsl = compileWGSL(prog());
 
 ## Features
 
-- **Type-safe** - TypeScript types for all shader types (float, vec2-4, mat2-4, sampler2D, int, uint, bool)
+- **Type-safe** - TypeScript types for all shader types (float, vec2-4, mat2-4, sampler2D/sampler3D, int, uint, bool)
 - **Dual backend** - Compile to GLSL ES 3.0 or WGSL from the same node graph
 - **Constant folding** - Math on literal values is evaluated at compile time
 - **Control flow** - `If`/`Else If`/`Else`, `For`, `While`, `discard`, `break`/`continue`

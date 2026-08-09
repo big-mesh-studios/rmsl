@@ -167,3 +167,13 @@ describe("declared variables", () => {
     expectTypeOf(uniform("mat4").mult(vec4(1, 2, 3, 4))).toEqualTypeOf<Node<"vec4">>();
   });
 });
+
+describe("texture sampling", () => {
+  // A sampler samples at a coordinate of its own dimension and always returns
+  // a vec4. sampler3D takes a volume coordinate, like a cube map.
+  it("types a sampler3D's sample as a vec4", () => {
+    expectTypeOf(uniform("sampler3D").texture(vec3(1, 2, 3))).toEqualTypeOf<Node<"vec4">>();
+    expectTypeOf(uniform("sampler3D").textureLod(vec3(1, 2, 3), float(0))).toEqualTypeOf<Node<"vec4">>();
+    expectTypeOf(uniform("sampler2D").texture(vec2(1, 2))).toEqualTypeOf<Node<"vec4">>();
+  });
+});

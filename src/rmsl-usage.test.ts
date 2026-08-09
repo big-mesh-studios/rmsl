@@ -323,6 +323,38 @@ describe("RMSL", () => {
     expect(glsl).toContain("textureLod(");
   });
 
+  // A 3D texture samples with a volume coordinate — a vec3, like a cube map —
+  // and maps to sampler3D / texture_3d<f32>.
+  it("compiles sampler3D sampling to GLSL", () => {
+    let prog = Fn(() => {
+      let tex = uniform("sampler3D");
+      return tex.texture(vec3(0.5, 0.5, 0.5)).toVar();
+    });
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("uniform sampler3D");
+    expect(glsl).toContain("texture(");
+  });
+
+  it("compiles sampler3D textureLod to GLSL", () => {
+    let prog = Fn(() => {
+      let tex = uniform("sampler3D");
+      return tex.textureLod(vec3(0.5, 0.5, 0.5), float(0.0)).toVar();
+    });
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("uniform sampler3D");
+    expect(glsl).toContain("textureLod(");
+  });
+
+  it("compiles sampler3D sampling to WGSL", () => {
+    let prog = Fn(() => {
+      let tex = uniform("sampler3D");
+      return tex.texture(vec3(0.5, 0.5, 0.5)).toVar();
+    });
+    let wgsl = compileWGSL(prog());
+    expect(wgsl).toContain("texture_3d<f32>");
+    expect(wgsl).toContain("textureSample(");
+  });
+
   // === Phase 1.3: Matrix * vec3 ===
   it("compiles mat4 * vec3 with implicit promotion", () => {
     let prog = Fn(() => {
@@ -678,6 +710,17 @@ describe("RMSL", () => {
     expect(wgsl).toContain("@group(0) @binding(0) var<uniform>");
     expect(wgsl).toContain("@group(1) @binding(0) var ");
     expect(wgsl).toContain("@group(2) @binding(0) var ");
+  });
+
+  it("WGSL gives a sampler3D a texture binding and a companion sampler", () => {
+    let prog = Fn(() => {
+      let tex = uniform("sampler3D");
+      return tex.texture(vec3(0, 0, 0));
+    });
+    let wgsl = compileWGSL.fragment(prog());
+    expect(wgsl).toMatch(/@group\(1\) @binding\(0\) var \S+: texture_3d<f32>;/);
+    expect(wgsl).toMatch(/@group\(2\) @binding\(0\) var \S+_s: sampler;/);
+    expect(wgsl).toContain("textureSample(");
   });
 
   it("plain number literals are float in WGSL", () => {
@@ -1645,11 +1688,23 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
 @fragment fn main() -> @location(0) vec4<f32> { return sample(); }`);
   });
 
+  it("keeps a sampler3D out of the uniform struct in a standalone function", () => {
+    let wgsl = compileWGSLFn(() => uniform("sampler3D").texture(vec3(0.5, 0.5, 0.5)), {
+      name: "sample3D", params: [],
+    });
+    expect(wgsl).toMatch(/var \S+: texture_3d<f32>;/);
+    expect(wgsl).not.toMatch(/struct \S+ \{[^}]*texture_3d/s);
+
+    recordShaderSource("wgsl", "fragment", `${wgsl}
+@fragment fn main() -> @location(0) vec4<f32> { return sample3D(); }`);
+  });
+
   // Neither backend has a way to express this that the other shares: WGSL has
   // no plain array of textures in the uniform address space, and emitting one
   // produced a reference to a struct that does not hold it.
   it("refuses an array of textures", () => {
     expect(() => uniformArray("sampler2D", 2)).toThrow(/texture|sampler/i);
+    expect(() => uniformArray("sampler3D", 2)).toThrow(/texture|sampler/i);
     expect(() => uniformArray("samplerCube", 2)).toThrow(/texture|sampler/i);
   });
 

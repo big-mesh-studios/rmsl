@@ -144,6 +144,15 @@ Same as IntOps but with `Node<"uint">` inputs/outputs.
 | `.texture(coords)` | `vec4` | Sample texture at coordinates |
 | `.textureLod(coords, lod)` | `vec4` | Sample with explicit LOD |
 
+### Sampler3DOps (sampler3D)
+
+A 3D texture is sampled at its volume coordinate — a `vec3`, as with a cube map.
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `.texture(coords)` | `vec4` | Sample texture at volume coordinates |
+| `.textureLod(coords, lod)` | `vec4` | Sample with explicit LOD |
+
 ### BoolOps
 
 | Method | Returns | Description |

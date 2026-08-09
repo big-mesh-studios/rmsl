@@ -212,6 +212,8 @@ float scale(float v) {
 | `int`, `uint`, `bool` | same |
 | `mat2`–`mat4`, `mat2x3`, etc. | same |
 | `sampler2D` | `sampler2D` |
+| `sampler3D` | `sampler3D` |
+| `samplerCube` | `samplerCube` |
 
 ### WGSL types
 
@@ -230,6 +232,8 @@ float scale(float v) {
 | `mat2x3` | `mat2x3<f32>` |
 | etc. | `<N>x<M><f32>` |
 | `sampler2D` | `texture_2d<f32>` |
+| `sampler3D` | `texture_3d<f32>` |
+| `samplerCube` | `texture_cube<f32>` |
 
 ## Constant Folding
 

@@ -8,7 +8,7 @@ export type ShaderType =
   | "mat2" | "mat2x3" | "mat2x4"
   | "mat3x2" | "mat3" | "mat3x4"
   | "mat4x2" | "mat4x3" | "mat4"
-  | "sampler2D" | "samplerCube"
+  | "sampler2D" | "sampler3D" | "samplerCube"
   | "void";
 
 // === Like types (raw JS values | Node) ===
@@ -22,6 +22,7 @@ export type BooleanLike = boolean | BaseNode<"bool">;
 export type Mat3Like = number[] | BaseNode<"mat3">;
 export type Mat4Like = number[] | BaseNode<"mat4">;
 export type Sampler2DLike = BaseNode<"sampler2D"> | Node<"sampler2D">;
+export type Sampler3DLike = BaseNode<"sampler3D"> | Node<"sampler3D">;
 
 // === BaseNode ===
 export interface BaseNode<A extends ShaderType> {
@@ -126,6 +127,7 @@ interface NodeOps {
   mat4x3: RectMatOps<"vec4", "vec3", "mat3x4">;
   mat4: MatOps<"mat4", "vec4">;
   sampler2D: SamplerOps;
+  sampler3D: Sampler3DOps;
   samplerCube: CubeSamplerOps;
   void: {};
 }
@@ -247,6 +249,12 @@ interface RectMatOps<
 
 /** A cube map is sampled with a direction rather than a surface coordinate. */
 interface CubeSamplerOps {
+  texture(coords: Vec3Like): Node<"vec4">;
+  textureLod(coords: Vec3Like, lod: FloatLike): Node<"vec4">;
+}
+
+/** A 3D texture is sampled at its volume coordinate. */
+interface Sampler3DOps {
   texture(coords: Vec3Like): Node<"vec4">;
   textureLod(coords: Vec3Like, lod: FloatLike): Node<"vec4">;
 }
@@ -981,7 +989,7 @@ export function uniformArray<T extends ShaderType>(
   if (!Number.isInteger(length) || length < 1) {
     throw new Error(`[RMSL] uniformArray length must be a positive integer, got ${length}`);
   }
-  if (shaderType === "sampler2D" || shaderType === "samplerCube") {
+  if (shaderType === "sampler2D" || shaderType === "sampler3D" || shaderType === "samplerCube") {
     throw new Error(
       `[RMSL] uniformArray cannot hold a texture. WGSL has no array of separate`
       + ` texture bindings without an extension, so there is no spelling both`
@@ -1282,7 +1290,7 @@ let typeToGLSL: Record<string, string> = {
   mat2: "mat2", mat2x3: "mat2x3", mat2x4: "mat2x4",
   mat3x2: "mat3x2", mat3: "mat3", mat3x4: "mat3x4",
   mat4x2: "mat4x2", mat4x3: "mat4x3", mat4: "mat4",
-  sampler2D: "sampler2D", samplerCube: "samplerCube",
+  sampler2D: "sampler2D", sampler3D: "sampler3D", samplerCube: "samplerCube",
   void: "void",
 };
 
@@ -2073,6 +2081,20 @@ function compileGLSLWithStage(
   let lines: string[] = [];
   lines.push("#version 300 es");
   lines.push("precision highp float;");
+  // No default precision covers every sampler. GLSL ES predeclares one for
+  // sampler2D and samplerCube in a fragment stage, but not sampler3D, and the
+  // vertex language predeclares none; Chromium's WebGL2 compiler rejects a
+  // sampler with no precision at all ("No precision specified"). Each sampler
+  // type a shader actually uses gets a high precision declared for the stages
+  // that use it.
+  let glslSamplerTypes = [...new Set(
+    [...ctx.uniforms.values()]
+      .map(info => info.type)
+      .filter(t => t === "sampler2D" || t === "sampler3D" || t === "samplerCube"),
+  )].sort();
+  for (let samplerType of glslSamplerTypes) {
+    lines.push(`precision highp ${samplerType};`);
+  }
   lines.push("");
 
   ctx.uniforms.forEach((info) => {
@@ -2184,7 +2206,7 @@ let typeToWGSL: Record<string, string> = {
   mat2: "mat2x2<f32>", mat2x3: "mat2x3<f32>", mat2x4: "mat2x4<f32>",
   mat3x2: "mat3x2<f32>", mat3: "mat3x3<f32>", mat3x4: "mat3x4<f32>",
   mat4x2: "mat4x2<f32>", mat4x3: "mat4x3<f32>", mat4: "mat4x4<f32>",
-  sampler2D: "texture_2d<f32>", samplerCube: "texture_cube<f32>",
+  sampler2D: "texture_2d<f32>", sampler3D: "texture_3d<f32>", samplerCube: "texture_cube<f32>",
   void: "void",
 };
 
@@ -2339,7 +2361,7 @@ function wgslMemberType(m: WgslUniformMember): string {
  * the two cannot disagree about it.
  */
 function isWgslTexture(type: string): boolean {
-  return type === "texture_2d<f32>" || type === "texture_cube<f32>";
+  return type === "texture_2d<f32>" || type === "texture_3d<f32>" || type === "texture_cube<f32>";
 }
 
 export function wgslUniformLayout(
@@ -2524,7 +2546,7 @@ function compileWGSLNode(
       // Value uniforms are members of one struct rather than a binding each, so
       // their references are qualified. Textures keep a binding of their own —
       // they cannot live in the uniform address space — and stay unqualified.
-      let isTexture = v.shaderType === "sampler2D" || v.shaderType === "samplerCube";
+      let isTexture = v.shaderType === "sampler2D" || v.shaderType === "sampler3D" || v.shaderType === "samplerCube";
       let ref = isTexture ? v.slot : `${WGSL_UNIFORM_BINDING}.${v.slot}`;
       return {
         decls: [],
