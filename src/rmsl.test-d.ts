@@ -221,13 +221,20 @@ describe("integer vectors", () => {
 
 describe("integer samplers", () => {
   // Integer textures are not filterable, so sampling returns the signed or
-  // unsigned integer vector the fetch produces rather than a float vec4.
+  // unsigned integer vector the fetch produces rather than a float vec4. The
+  // coordinate follows the GLSL texture() signature — a float vector of the
+  // sampler's width — not the integer coordinate texelFetch takes.
   it("types isampler and usampler samples as integer vectors", () => {
-    expectTypeOf(uniform("isampler2D").texture(ivec2(1, 2))).toEqualTypeOf<Node<"ivec4">>();
-    expectTypeOf(uniform("isampler3D").texture(ivec3(1, 2, 3))).toEqualTypeOf<Node<"ivec4">>();
-    expectTypeOf(uniform("isamplerCube").textureLod(ivec3(1, 2, 3), int(0))).toEqualTypeOf<Node<"ivec4">>();
-    expectTypeOf(uniform("usampler2D").texture(uvec2(1, 2))).toEqualTypeOf<Node<"uvec4">>();
-    expectTypeOf(uniform("usampler3D").texture(uvec3(1, 2, 3))).toEqualTypeOf<Node<"uvec4">>();
+    expectTypeOf(uniform("isampler2D").texture(vec2(1, 2))).toEqualTypeOf<Node<"ivec4">>();
+    expectTypeOf(uniform("isampler3D").texture(vec3(1, 2, 3))).toEqualTypeOf<Node<"ivec4">>();
+    expectTypeOf(uniform("isamplerCube").textureLod(vec3(1, 2, 3), float(0))).toEqualTypeOf<Node<"ivec4">>();
+    expectTypeOf(uniform("usampler2D").texture(vec2(1, 2))).toEqualTypeOf<Node<"uvec4">>();
+    expectTypeOf(uniform("usampler3D").texture(vec3(1, 2, 3))).toEqualTypeOf<Node<"uvec4">>();
+    // Integer coordinates are texelFetch's domain, not texture()'s.
+    // @ts-expect-error integer coordinates do not change with the sampler type
+    uniform("isampler2D").texture(ivec2(1, 2));
+    // @ts-expect-error a 2D sampler takes a vec2, not a vec3
+    uniform("usampler2D").texture(vec3(1, 2, 3));
   });
 });
 

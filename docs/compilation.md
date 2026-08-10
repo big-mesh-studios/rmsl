@@ -246,12 +246,14 @@ float scale(float v) {
 ### Integer texture sampling
 
 Integer textures are not filterable in either language, so `texture()`/`textureLod()`
-compile to an unfiltered fetch at **integer texel coordinates**:
+compile to an unfiltered fetch. The coordinate is a **float** vector — as in GLSL's
+`texture()`/`textureLod()`, the input coordinate type does not change with the
+sampler type — and is truncated to the integer texel coordinate the fetch takes:
 
 | RMSL | GLSL | WGSL |
 |------|------|------|
-| `isampler2D.texture(ivec2)` | `texelFetch(s, ivec2, 0)` | `textureLoad(t, vec2<i32>, 0i)` |
-| `usampler3D.textureLod(uvec3, lod)` | `texelFetch(s, ivec3, int(lod))` | `textureLoad(t, vec3<i32>, i32(lod))` |
+| `isampler2D.texture(vec2)` | `texelFetch(s, ivec2(P), 0)` | `textureLoad(t, vec2<i32>(P), 0i)` |
+| `usampler3D.textureLod(vec3, lod)` | `texelFetch(s, ivec3(P), int(lod))` | `textureLoad(t, vec3<i32>(P), i32(lod))` |
 
 The result is `ivec4` for `isampler*` and `uvec4` for `usampler*`. WGSL binds no
 sampler for these — only the texture — because `textureLoad` does not take one.

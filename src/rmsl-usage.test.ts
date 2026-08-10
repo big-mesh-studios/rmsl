@@ -1847,7 +1847,7 @@ describe("integer samplers", () => {
   it("compiles isampler3D sampling to a GLSL texelFetch", () => {
     let prog = Fn(() => {
       let tex = uniform("isampler3D");
-      return tex.texture(ivec3(1, 2, 3)).toVar();
+      return tex.texture(vec3(1, 2, 3)).toVar();
     });
     let glsl = compileGLSL(prog());
     expect(glsl).toContain("uniform isampler3D");
@@ -1857,7 +1857,7 @@ describe("integer samplers", () => {
   it("compiles usampler3D sampling to a GLSL texelFetch with an lod", () => {
     let prog = Fn(() => {
       let tex = uniform("usampler3D");
-      return tex.textureLod(uvec3(1, 2, 3), int(0)).toVar();
+      return tex.textureLod(vec3(1, 2, 3), float(0)).toVar();
     });
     let glsl = compileGLSL(prog());
     expect(glsl).toContain("uniform usampler3D");
@@ -1867,7 +1867,7 @@ describe("integer samplers", () => {
   it("compiles isampler2D to a WGSL textureLoad with no sampler", () => {
     let prog = Fn(() => {
       let tex = uniform("isampler2D");
-      return tex.texture(ivec2(1, 2)).toVar();
+      return tex.texture(vec2(1, 2)).toVar();
     });
     let wgsl = compileWGSL(prog());
     expect(wgsl).toContain("texture_2d<i32>");
@@ -1878,7 +1878,7 @@ describe("integer samplers", () => {
   it("declares high precision for integer samplers in GLSL", () => {
     let prog = Fn(() => {
       let tex = uniform("usampler2D");
-      return tex.texture(uvec2(1, 2)).toVar();
+      return tex.texture(vec2(1, 2)).toVar();
     });
     let glsl = compileGLSL(prog());
     expect(glsl).toContain("precision highp usampler2D;");
