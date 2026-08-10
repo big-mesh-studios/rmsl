@@ -1,8 +1,9 @@
 import { describe, it, expect, afterAll } from "vitest";
 import {
-  Fn, float, vec2, vec3, vec4, int, boolean,
+  Fn, float, vec2, vec3, vec4, int, uint, boolean,
+  ivec2, ivec3, ivec4, uvec2, uvec3, uvec4,
   mat2, mat2x3, mat2x4, mat3, mat3x2, mat3x4, mat4, mat4x2, mat4x3,
-  If, For, While, discard, break_, continue_,
+  If, For, While, Switch, discard, break_, continue_,
   uniform, attribute, varying, output, builtinPosition, builtinFragDepth,
   isUniformNode, isAttributeNode, isVaryingNode,
   compileGLSLFn, compileWGSLFn, uniformRaw, wgslUniformLayout, uniformArray,
@@ -1787,5 +1788,232 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
       { name: "only", type: "vec4<f32>", offset: 0, size: 16 },
     ]);
     expect(layout.size).toBe(16);
+  });
+});
+
+describe("integer vectors", () => {
+  it("compiles ivec and uvec constructors to GLSL", () => {
+    let prog = Fn(() => ivec3(1, 2, 3).toVar());
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("ivec3(1, 2, 3)");
+  });
+
+  it("compiles ivec and uvec constructors to WGSL", () => {
+    let prog = Fn(() => uvec2(4, 5).toVar());
+    let wgsl = compileWGSL(prog());
+    expect(wgsl).toContain("vec2<u32>(4u, 5u)");
+  });
+
+  it("adds an integer scalar to an integer vector", () => {
+    let prog = Fn(() => ivec2(1, 2).add(3).toVar());
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("ivec2(1, 2) + 3");
+  });
+
+  it("compiles integer vector comparison to a boolean vector", () => {
+    let prog = Fn(() => ivec3(1, 2, 3).lessThan(ivec3(4, 5, 6)).all().toVar());
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("lessThan(");
+    expect(glsl).toContain("all(");
+  });
+
+  it("compiles an integer vector swizzle to the integer scalar", () => {
+    let prog = Fn(() => uvec3(1, 2, 3).y.toVar());
+    let wgsl = compileWGSL(prog());
+    expect(wgsl).toContain("vec3<u32>(1u, 2u, 3u)");
+    expect(wgsl).toContain(".y");
+  });
+
+  it("rejects a non-whole number beside an integer vector", () => {
+    let prog = () => ivec2(1, 2).add(0.5).toVar();
+    expect(() => prog()).toThrow(/not a whole number/);
+  });
+
+  it("rejects a negative literal beside an unsigned vector", () => {
+    expect(() => uvec2(1, 2).add(-1).toVar()).toThrow(/unsigned/);
+  });
+
+  it("indexes an integer vector by element", () => {
+    let prog = Fn(() => {
+      let v = ivec3(7, 8, 9).toVar();
+      return v.element(1).toVar();
+    });
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("[1]");
+  });
+});
+
+describe("integer samplers", () => {
+  it("compiles isampler3D sampling to a GLSL texelFetch", () => {
+    let prog = Fn(() => {
+      let tex = uniform("isampler3D");
+      return tex.texture(ivec3(1, 2, 3)).toVar();
+    });
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("uniform isampler3D");
+    expect(glsl).toContain("texelFetch(");
+  });
+
+  it("compiles usampler3D sampling to a GLSL texelFetch with an lod", () => {
+    let prog = Fn(() => {
+      let tex = uniform("usampler3D");
+      return tex.textureLod(uvec3(1, 2, 3), int(0)).toVar();
+    });
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("uniform usampler3D");
+    expect(glsl).toContain("texelFetch(");
+  });
+
+  it("compiles isampler2D to a WGSL textureLoad with no sampler", () => {
+    let prog = Fn(() => {
+      let tex = uniform("isampler2D");
+      return tex.texture(ivec2(1, 2)).toVar();
+    });
+    let wgsl = compileWGSL(prog());
+    expect(wgsl).toContain("texture_2d<i32>");
+    expect(wgsl).toContain("textureLoad(");
+    expect(wgsl).not.toContain("_s: sampler;");
+  });
+
+  it("declares high precision for integer samplers in GLSL", () => {
+    let prog = Fn(() => {
+      let tex = uniform("usampler2D");
+      return tex.texture(uvec2(1, 2)).toVar();
+    });
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("precision highp usampler2D;");
+  });
+
+  it("refuses to hold an integer sampler in a uniform array", () => {
+    expect(() => uniformArray("usampler3D", 4)).toThrow(/cannot hold a texture/);
+  });
+});
+
+describe("casts and conversions", () => {
+  it("casts a float to an int in GLSL and WGSL", () => {
+    let prog = Fn(() => {
+      let x = float(2.9).toVar();
+      return x.toInt().toVar();
+    });
+    expect(compileGLSL(prog())).toContain("int(");
+    expect(compileWGSL(prog())).toContain("i32(");
+  });
+
+  it("constructs a uint from a float", () => {
+    let prog = Fn(() => uint(float(3.0)).toVar());
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("uint(");
+  });
+
+  it("casts a bool from an int", () => {
+    let prog = Fn(() => boolean(int(1)).toVar());
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("bool(");
+  });
+
+  it("casts between float and integer vectors", () => {
+    let prog = Fn(() => ivec3(1, 2, 3).toVec3().toVar());
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("vec3(");
+    let back = Fn(() => vec3(1, 2, 3).toIVec3().toVar());
+    let wgsl = compileWGSL(back());
+    expect(wgsl).toContain("vec3<i32>(");
+  });
+
+  it("converts a value with convert()", () => {
+    let prog = Fn(() => vec3(1, 2, 3).convert("uvec3").toVar());
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("uvec3(");
+  });
+
+  it("rejects a negative uint literal", () => {
+    expect(() => uint(-1)).toThrow(/unsigned/);
+  });
+
+  it("mixes signed and unsigned operands by converting explicitly", () => {
+    let prog = Fn(() => int(5).add(uniform("uint").toInt()).toVar());
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("int(");
+  });
+});
+
+describe("new math builtins", () => {
+  it("compiles round, trunc and the hyperbolic functions", () => {
+    let prog = Fn(() => {
+      let x = float(0.5).toVar();
+      return x.round().add(x.trunc()).add(x.sinh()).add(x.tanh()).toVar();
+    });
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("round(");
+    expect(glsl).toContain("trunc(");
+    expect(glsl).toContain("sinh(");
+    expect(glsl).toContain("tanh(");
+  });
+
+  it("emits WGSL's derivative spellings", () => {
+    let prog = Fn(() => float(0.5).dFdx().toVar());
+    let wgsl = compileWGSL(prog());
+    expect(wgsl).toContain("dpdx(");
+    let glsl = compileGLSL(Fn(() => float(0.5).dFdy().toVar())());
+    expect(glsl).toContain("dFdy(");
+  });
+
+  it("composes saturate, oneMinus, reciprocal and pow2", () => {
+    let prog = Fn(() => {
+      let x = float(0.5).toVar();
+      return x.saturate().add(x.oneMinus()).add(x.reciprocal()).add(x.pow2()).toVar();
+    });
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("clamp(");
+    expect(glsl).toContain("1.0 - ");
+    expect(glsl).toContain(" / ");
+  });
+
+  it("computes a matrix determinant", () => {
+    let prog = Fn(() => mat2(1, 2, 3, 4).determinant().toVar());
+    expect(compileGLSL(prog())).toContain("determinant(");
+    expect(compileWGSL(Fn(() => mat3().determinant().toVar())())).toContain("determinant(");
+  });
+
+  it("computes a bitwise not on an integer", () => {
+    let prog = Fn(() => int(5).bitNot().toVar());
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("~");
+    let wgsl = compileWGSL(Fn(() => ivec2(1, 2).bitNot().toVar())());
+    expect(wgsl).toContain("~");
+  });
+
+  it("computes a logical xor", () => {
+    let prog = Fn(() => boolean(true).xor(boolean(false)).toVar());
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("&&");
+    expect(glsl).toContain("||");
+  });
+
+  it("folds a lengthSq on a scalar to its squared value", () => {
+    let prog = Fn(() => float(3).lengthSq().toVar());
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("9");
+  });
+});
+
+describe("Switch", () => {
+  it("branches on an integer selector as an if/else chain", () => {
+    let prog = Fn(() => {
+      let out = float(0).toVar();
+      Switch(int(1), (s) => {
+        s.Case(0, () => { out.assign(float(10)); });
+        s.Case([1, 2], () => { out.assign(float(20)); });
+        s.Default(() => { out.assign(float(30)); });
+      });
+      return out;
+    });
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("if (");
+    expect(glsl).toContain("==");
+    expect(glsl).toContain("||");
+    expect(glsl).toContain("else {");
+    let wgsl = compileWGSL(prog());
+    expect(wgsl).toContain("==");
   });
 });

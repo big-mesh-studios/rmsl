@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, afterAll } from "vitest";
-import { Fn, float, For, If, While, break_, continue_, type Node } from "./rmsl";
+import { Fn, float, int, For, If, While, Switch, break_, continue_, type Node } from "./rmsl";
 import {
   evaluateBoth, closeEvaluators, floatTolerance, EVALUATION_SKIPPED,
 } from "./testing/shader-eval";
@@ -63,6 +63,31 @@ describe.skipIf(EVALUATION_SKIPPED)("RMSL evaluation", () => {
     await expectValue((a) => a.sin(), [0.5], Math.sin(0.5));
     await expectValue((a) => a.cos(), [0.5], Math.cos(0.5));
     await expectValue((a, b) => a.pow(b), [2, 10], 1024);
+  }, 60_000);
+
+  // These are the ops the TSL parity pass added; a compile-only check cannot
+  // tell sinh from cosh, so their values are pinned here too.
+  it("computes the parity-pass math builtins", async () => {
+    await expectValue((a) => a.round(), [2.4], 2);
+    await expectValue((a) => a.round(), [2.6], 3);
+    await expectValue((a) => a.trunc(), [-2.7], -2);
+    await expectValue((a) => a.sinh(), [0.5], Math.sinh(0.5));
+    await expectValue((a) => a.cosh(), [0.5], Math.cosh(0.5));
+    await expectValue((a) => a.tanh(), [0.5], Math.tanh(0.5));
+    await expectValue((a) => a.saturate(), [2.5], 1);
+    await expectValue((a) => a.oneMinus(), [0.25], 0.75);
+    await expectValue((a) => a.reciprocal(), [4], 0.25);
+    await expectValue((a) => a.lengthSq(), [3], 9);
+    await expectValue((a) => a.cbrt(), [27], 3);
+  }, 60_000);
+
+  // Casts truncate toward zero on both backends: int(2.7) is 2, int(-2.7) is -2.
+  it("casts float to int and back", async () => {
+    await expectValue((a) => a.toInt().toFloat(), [2.7], 2);
+    await expectValue((a) => a.toInt().toFloat(), [-2.7], -2);
+    await expectValue((a) => a.toUint().toFloat(), [2.7], 2);
+    await expectValue((a) => a.toInt().toBool().toFloat(), [1.5], 1);
+    await expectValue((a) => a.toInt().toBool().toFloat(), [0], 0);
   }, 60_000);
 
   // Argument order is the thing worth pinning: GLSL takes the value last in
@@ -190,6 +215,20 @@ describe.skipIf(EVALUATION_SKIPPED)("RMSL evaluation", () => {
 
     await expectValue(countdown, [4], 4);
     await expectValue(countdown, [0], 0);
+  }, 60_000);
+
+  it("takes the branch Switch selects", async () => {
+    const classify = () => Fn(() => {
+      const out = float(0).toVar();
+      Switch(int(1), (s) => {
+        s.Case(0, () => { out.assign(float(10)); });
+        s.Case([1, 2], () => { out.assign(float(20)); });
+        s.Default(() => { out.assign(float(30)); });
+      });
+      return out;
+    })();
+
+    await expectValue(classify, [], 20);
   }, 60_000);
 
   // break_ and continue_ change which iterations contribute, so the sum says

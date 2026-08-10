@@ -8,7 +8,8 @@
 |----------|-----------|-------------|
 | `float` | `(v: number \| Node<"int">) => Node<"float">` | Float literal or cast from int |
 | `int` | `(v: number \| Node<"float">) => Node<"int">` | Int literal or cast from float |
-| `boolean` | `(v: boolean) => Node<"bool">` | Bool literal |
+| `uint` | `(v: number \| Node<"float"> \| Node<"int">) => Node<"uint">` | Unsigned literal or cast; refuses negatives |
+| `boolean` | `(v: boolean \| Node<"float"> \| Node<"int"> \| Node<"uint">) => Node<"bool">` | Bool literal or cast from a number |
 
 `bvec2`, `bvec3` and `bvec4` complete the type set. They have no constructor:
 they are what a component-wise comparison produces. See
@@ -21,9 +22,19 @@ they are what a component-wise comparison produces. See
 | `vec2` | `(x, y?) => Node<"vec2">` | From 2 scalars, 1 scalar, or another vector |
 | `vec3` | `(x, y?, z?) => Node<"vec3">` | From 3 scalars, 1 scalar, or another vector |
 | `vec4` | `(x, y?, z?, w?) => Node<"vec4">` | From 4 scalars, 1 scalar, or another vector |
+| `ivec2` | `(x, y?) => Node<"ivec2">` | Signed integer vector |
+| `ivec3` | `(x, y?, z?) => Node<"ivec3">` | Signed integer vector |
+| `ivec4` | `(x, y?, z?, w?) => Node<"ivec4">` | Signed integer vector |
+| `uvec2` | `(x, y?) => Node<"uvec2">` | Unsigned integer vector; refuses negatives |
+| `uvec3` | `(x, y?, z?) => Node<"uvec3">` | Unsigned integer vector; refuses negatives |
+| `uvec4` | `(x, y?, z?, w?) => Node<"uvec4">` | Unsigned integer vector; refuses negatives |
 
 `vec3(1.0)` creates a vector with all components set to `1.0`.
 `vec3(vec4(1,2,3,4))` truncates to 3 components.
+
+Integer vectors are not interchangeable with float vectors: `ivec3(vec3)` and
+`vec3(ivec3)` are explicit casts. A plain number beside an integer vector is
+typed as its component (`ivec2(1, 2).add(3)` adds the integer `3`).
 
 ### Matrices
 
@@ -44,7 +55,7 @@ they are what a component-wise comparison produces. See
 
 ## Operations
 
-### ArithOps (float, vec2, vec3, vec4)
+### ArithOps (float, vec2, vec3, vec4, ivec2/3/4, uvec2/3/4)
 
 | Method | Returns | Description |
 |--------|---------|-------------|
@@ -54,15 +65,22 @@ they are what a component-wise comparison produces. See
 | `.div(other)` | Self | Division |
 | `.negate()` | Self | Negation |
 
+Integer vectors carry `.negate()` and `.abs()` only in their signed forms —
+WGSL has no `abs` or unary minus for `u32`. All types accept an operand that
+is a scalar of the same kind (`ivec2.add(3)`), which both backends broadcast.
+
 ### FloatMathOps (float, vec2, vec3, vec4)
 
-**Trig:** `.sin()`, `.cos()`, `.tan()`, `.asin()`, `.acos()`, `.atan()`
+**Trig:** `.sin()`, `.cos()`, `.tan()`, `.asin()`, `.acos()`, `.atan()`, `.sinh()`, `.cosh()`, `.tanh()`, `.asinh()`, `.acosh()`, `.atanh()`
 
-**Utility:** `.abs()`, `.sign()`, `.floor()`, `.ceil()`, `.fract()`
+**Utility:** `.abs()`, `.sign()`, `.floor()`, `.ceil()`, `.fract()`, `.round()`, `.trunc()`, `.radians()`, `.degrees()`
 
-**Exponential:** `.sqrt()`, `.inversesqrt()`, `.exp()`, `.log()`, `.exp2()`, `.log2()`
+**Exponential:** `.sqrt()`, `.inversesqrt()`, `.exp()`, `.log()`, `.exp2()`, `.log2()`, `.cbrt()`
 
-**Binary:** `.pow(e)`, `.min(other)`, `.max(other)`, `.mod(other)`
+**Derived:** `.reciprocal()` (1/x), `.oneMinus()` (1−x), `.lengthSq()` (dot of self),
+`.saturate()` (clamp to 0…1), `.pow2()`, `.pow3()`, `.pow4()`
+
+**Binary:** `.pow(e)`, `.min(other)`, `.max(other)`, `.mod(other)`, `.difference(other)` (abs of the difference)
 
 `.mod()` on floats is floored, following GLSL's `mod()`, so the result takes the
 sign of the divisor: `float(-7.5).mod(float(2))` is `0.5`, not `-1.5`. On `int`
@@ -71,7 +89,7 @@ and which GLSL leaves undefined when either operand is negative.
 
 **Interpolation:** `.mix(b, t)`, `.clamp(min, max)`, `.step(edge)`, `.smoothstep(edge0, edge1)`
 
-**Derivative:** `.fwidth()`
+**Derivative:** `.fwidth()`, `.dFdx()`, `.dFdy()`
 
 **Comparisons:**
 `.lessThan(other)`, `.greaterThan(other)`, `.lessThanEqual(other)`, `.greaterThanEqual(other)`, `.equal(other)`, `.notEqual(other)`
@@ -106,6 +124,7 @@ let inside = pos.lessThan(vec3(1, 1, 1)).all();   // Node<"bool">
 | `.refract(normal, eta)` | Self | Refraction vector |
 | `.clamp(min, max)` | Self | Component-wise clamp |
 | `.mix(b, t)` | Self | Linear interpolation |
+| `.element(i)` | `float` | Component at runtime index `i` (`v[i]`) |
 
 ### Vec3Ops (vec3)
 
@@ -113,7 +132,7 @@ let inside = pos.lessThan(vec3(1, 1, 1)).all();   // Node<"bool">
 |--------|---------|-------------|
 | `.cross(other)` | `vec3` | Cross product |
 
-### MatOps (mat3, mat4)
+### MatOps (mat2, mat3, mat4)
 
 | Method | Returns | Description |
 |--------|---------|-------------|
@@ -122,12 +141,13 @@ let inside = pos.lessThan(vec3(1, 1, 1)).all();   // Node<"bool">
 | `.multVec4(vec4)` | `vec4` | Matrix x vec4 |
 | `.inverse()` | Self | Matrix inverse |
 | `.transpose()` | Self | Matrix transpose |
+| `.determinant()` | `float` | Scalar determinant |
 
 ### IntOps
 
-Arithmetic: `.add()`, `.sub()`, `.mult()`, `.div()`, `.mod()`
+Arithmetic: `.add()`, `.sub()`, `.mult()`, `.div()`, `.mod()`, `.negate()`, `.abs()`, `.min()`, `.max()`, `.clamp()`
 
-Bitwise: `.bitAnd()`, `.bitOr()`, `.bitXor()`, `.shiftLeft()`, `.shiftRight()`
+Bitwise: `.bitAnd()`, `.bitOr()`, `.bitXor()`, `.shiftLeft()`, `.shiftRight()`, `.bitNot()`
 
 Comparisons: `.lessThan()`, `.greaterThan()`, `.lessThanEqual()`, `.greaterThanEqual()`, `.equal()`, `.notEqual()`
 
@@ -135,7 +155,26 @@ All return `Node<"int">` (arithmetic/bitwise) or `Node<"bool">` (comparisons).
 
 ### UintOps
 
-Same as IntOps but with `Node<"uint">` inputs/outputs.
+Arithmetic: `.add()`, `.sub()`, `.mult()`, `.div()`, `.mod()`, `.min()`, `.max()`, `.clamp()`
+
+Bitwise: `.bitAnd()`, `.bitOr()`, `.bitXor()`, `.shiftLeft()`, `.shiftRight()`, `.bitNot()`
+
+Comparisons: `.lessThan()`, `.greaterThan()`, `.lessThanEqual()`, `.greaterThanEqual()`, `.equal()`, `.notEqual()`
+
+Same result types as IntOps but unsigned. There is deliberately no `.negate()`/
+`.abs()`: WGSL has neither for `u32`.
+
+### IVecOps (ivec2, ivec3, ivec4)
+
+Component-wise integer vectors. Arithmetic `.add/sub/mult/div/mod`, bitwise
+`.bitAnd/bitOr/bitXor/shiftLeft/shiftRight/bitNot`, plus `.negate()`, `.abs()`,
+`.min()`, `.max()`, `.clamp()`, and `.element(i)` → `Node<"int">`. Comparisons
+reduce to `bvecN`. An operand that is an `int` scalar is broadcast.
+
+### UVecOps (uvec2, uvec3, uvec4)
+
+As IVecOps but unsigned and without `.negate()`/`.abs()`; `.element(i)` →
+`Node<"uint">`.
 
 ### SamplerOps (sampler2D)
 
@@ -153,6 +192,23 @@ A 3D texture is sampled at its volume coordinate — a `vec3`, as with a cube ma
 | `.texture(coords)` | `vec4` | Sample texture at volume coordinates |
 | `.textureLod(coords, lod)` | `vec4` | Sample with explicit LOD |
 
+### Integer samplers (isampler2D/3D/Cube, usampler2D/3D/Cube)
+
+Signed and unsigned integer textures. Integer textures are not filterable, so
+`.texture()`/`.textureLod()` compile to an unfiltered fetch — `texelFetch` in
+GLSL, `textureLoad` in WGSL, which there needs **no sampler binding**. They take
+integer texel coordinates and return an integer vector:
+
+| Sampler | `.texture()` returns |
+|---------|---------------------|
+| `isampler2D/3D/Cube` | `Node<"ivec4">` |
+| `usampler2D/3D/Cube` | `Node<"uvec4">` |
+
+```typescript
+let voxel = uniform("usampler3D");
+let density = voxel.texture(uvec3(x, y, z));   // Node<"uvec4">
+```
+
 ### BoolOps
 
 | Method | Returns | Description |
@@ -160,6 +216,7 @@ A 3D texture is sampled at its volume coordinate — a `vec3`, as with a cube ma
 | `.and(other)` | `bool` | Logical AND |
 | `.or(other)` | `bool` | Logical OR |
 | `.not()` | `bool` | Logical NOT |
+| `.xor(other)` | `bool` | Logical XOR (lowered to `(a\|\|b) && !(a&&b)`) |
 
 ### BoolVecOps (bvec2, bvec3, bvec4)
 
@@ -172,6 +229,7 @@ reduction is spelled out.
 | `.all()` | `bool` | True when every component is true |
 | `.any()` | `bool` | True when at least one component is true |
 | `.not()` | Self | Negates each component |
+| `.xor(other)` | Self | Component-wise logical XOR |
 
 ```typescript
 let allInside = pos.lessThan(bounds).all();
@@ -187,6 +245,10 @@ which does apply to `vecN<bool>`.
 
 **vec4:** `.x`, `.y`, `.z`, `.w`, `.r`, `.g`, `.b`, `.a`, `.xy`, `.xz`, `.xw`, `.yz`, `.yw`, `.zw`, `.xyz`, `.xyw`, `.xzw`, `.yzw`, `.rgb`, `.rgba`
 
+Integer vectors carry the same swizzle sets, typed by their component: a single
+component of an `ivecN` is `Node<"int">`, of a `uvecN` `Node<"uint">`, and a
+multi-component swizzle is the matching integer vector (`ivec3.xy` → `ivec2`).
+
 Swizzles are read-only. Use `.assign()` for swizzle writes:
 
 ```typescript
@@ -199,8 +261,15 @@ a.xy.assign(b.xy);  // compiles to a.xy = b.xy;
 |--------|-------------|
 | `.toVar()` | Assigns expression to a temp variable, returns the variable reference |
 | `.assign(value)` | Assigns a value to an existing variable or swizzle |
+| `.toFloat()`, `.toInt()`, `.toUint()`, `.toBool()` | Cast to a scalar type |
+| `.toVec2()`, `.toVec3()`, `.toVec4()` | Cast to a float vector (narrowing a vec4 drops components) |
+| `.toIVec2/3/4()`, `.toUVec2/3/4()`, `.toBVec2/3/4()` | Cast to an integer or boolean vector |
+| `.toMat2()`, `.toMat3()`, `.toMat4()` | Cast to a matrix |
+| `.convert(type)` | Cast to any type by name |
 
-These only work inside an `Fn` scope.
+These only work inside an `Fn` scope. Casts compile to the target constructor —
+`int(x)` in GLSL, `i32(x)` in WGSL — truncating toward zero where that is what
+the constructor does.
 
 ## Control Flow
 
@@ -215,6 +284,19 @@ If(cond, () => {
   // else branch
 });
 ```
+
+### Switch
+
+```typescript
+Switch(int(level), (s) => {
+  s.Case(0, () => { colour.assign(black); });
+  s.Case([1, 2], () => { colour.assign(grey); });   // several values, one body
+  s.Default(() => { colour.assign(white); });
+});
+```
+
+Compiles to an if/else-if chain comparing the selector with each case value —
+the same lowering TSL uses — so there is no fall-through and no `break_()`.
 
 ### For
 

@@ -145,12 +145,14 @@ provided a test exercises them.
    coerce to it. `wrapValue` reads arrays by length, so an array-shaped type
    collides with the existing 2/3/4/9/16 mapping.
 9. **Swizzle map**, if the type is swizzleable. The runtime `swizzle()` derives
-   its result from pattern length alone, so the type-level map is what keeps a
-   wrong swizzle unreachable.
+   its result from pattern length and from the source type's `ivec`/`uvec`
+   prefix (a single component of an integer vector is that integer scalar), so
+   the type-level map is what keeps a wrong swizzle unreachable.
 10. **Backend special cases.** Grep for `_t ===`: `comparisonGLSL`, the GLSL
     `not` case, the WGSL `construct` narrowing, the WGSL uniform workaround that
-    stores `bool` as `u32`, `MATRIX_DIMENSIONS`, and the coercion ladders in the
-    binary and ternary emitters.
+    stores `bool` as `u32`, `isWgslTexture` / `isSamplerType` (integer textures
+    take no WGSL sampler and fetch with `textureLoad`), `MATRIX_DIMENSIONS`,
+    and the coercion ladders in the binary and ternary emitters.
 11. **Document** in `docs/api.md` and the type tables in `docs/compilation.md`.
 12. **Test** through the aliased compilers — the only automated check that steps
     3, 4, 5 and 10 were done.

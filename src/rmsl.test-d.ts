@@ -9,7 +9,8 @@
 
 import { describe, it, expectTypeOf } from "vitest";
 import {
-  Fn, float, vec2, vec3, vec4, int, uniform, mat3, mat4,
+  Fn, float, vec2, vec3, vec4, int, uint, boolean, ivec2, ivec3, ivec4,
+  uvec2, uvec3, uvec4, uniform, mat3, mat4,
   compileGLSL, compileWGSL, type Node,
 } from "./rmsl";
 
@@ -175,5 +176,79 @@ describe("texture sampling", () => {
     expectTypeOf(uniform("sampler3D").texture(vec3(1, 2, 3))).toEqualTypeOf<Node<"vec4">>();
     expectTypeOf(uniform("sampler3D").textureLod(vec3(1, 2, 3), float(0))).toEqualTypeOf<Node<"vec4">>();
     expectTypeOf(uniform("sampler2D").texture(vec2(1, 2))).toEqualTypeOf<Node<"vec4">>();
+  });
+});
+
+describe("integer vectors", () => {
+  it("constructs with the right type", () => {
+    expectTypeOf(ivec2(1, 2)).toEqualTypeOf<Node<"ivec2">>();
+    expectTypeOf(ivec3(1, 2, 3)).toEqualTypeOf<Node<"ivec3">>();
+    expectTypeOf(ivec4(1, 2, 3, 4)).toEqualTypeOf<Node<"ivec4">>();
+    expectTypeOf(uvec2(1, 2)).toEqualTypeOf<Node<"uvec2">>();
+    expectTypeOf(uvec3(1, 2, 3)).toEqualTypeOf<Node<"uvec3">>();
+    expectTypeOf(uvec4(1, 2, 3, 4)).toEqualTypeOf<Node<"uvec4">>();
+  });
+
+  // Comparisons stay component-wise, so an integer vector yields a boolean
+  // vector like a float one does.
+  it("types comparisons as boolean vectors", () => {
+    expectTypeOf(ivec3(1, 2, 3).lessThan(ivec3(4, 5, 6))).toEqualTypeOf<Node<"bvec3">>();
+    expectTypeOf(uvec4(1, 2, 3, 4).equal(uvec4(1, 2, 3, 4))).toEqualTypeOf<Node<"bvec4">>();
+    expectTypeOf(ivec2(1, 2).greaterThan(0)).toEqualTypeOf<Node<"bvec2">>();
+  });
+
+  // A single component of an integer vector is that integer scalar, not a float.
+  it("types swizzle components as the integer scalar", () => {
+    expectTypeOf(ivec3(1, 2, 3).x).toEqualTypeOf<Node<"int">>();
+    expectTypeOf(ivec4(1, 2, 3, 4).xy).toEqualTypeOf<Node<"ivec2">>();
+    expectTypeOf(ivec4(1, 2, 3, 4).rgb).toEqualTypeOf<Node<"ivec3">>();
+    expectTypeOf(uvec3(1, 2, 3).z).toEqualTypeOf<Node<"uint">>();
+    expectTypeOf(uvec4(1, 2, 3, 4).xy).toEqualTypeOf<Node<"uvec2">>();
+  });
+
+  it("types element() as the integer scalar", () => {
+    expectTypeOf(ivec3(1, 2, 3).element(0)).toEqualTypeOf<Node<"int">>();
+    expectTypeOf(uvec3(1, 2, 3).element(0)).toEqualTypeOf<Node<"uint">>();
+    expectTypeOf(vec3(1, 2, 3).element(0)).toEqualTypeOf<Node<"float">>();
+  });
+
+  it("types integer arithmetic as integer vectors", () => {
+    expectTypeOf(ivec2(1, 2).add(ivec2(3, 4))).toEqualTypeOf<Node<"ivec2">>();
+    expectTypeOf(ivec2(1, 2).add(3)).toEqualTypeOf<Node<"ivec2">>();
+    expectTypeOf(uvec3(1, 2, 3).bitAnd(uvec3(1, 2, 3))).toEqualTypeOf<Node<"uvec3">>();
+  });
+});
+
+describe("integer samplers", () => {
+  // Integer textures are not filterable, so sampling returns the signed or
+  // unsigned integer vector the fetch produces rather than a float vec4.
+  it("types isampler and usampler samples as integer vectors", () => {
+    expectTypeOf(uniform("isampler2D").texture(ivec2(1, 2))).toEqualTypeOf<Node<"ivec4">>();
+    expectTypeOf(uniform("isampler3D").texture(ivec3(1, 2, 3))).toEqualTypeOf<Node<"ivec4">>();
+    expectTypeOf(uniform("isamplerCube").textureLod(ivec3(1, 2, 3), int(0))).toEqualTypeOf<Node<"ivec4">>();
+    expectTypeOf(uniform("usampler2D").texture(uvec2(1, 2))).toEqualTypeOf<Node<"uvec4">>();
+    expectTypeOf(uniform("usampler3D").texture(uvec3(1, 2, 3))).toEqualTypeOf<Node<"uvec4">>();
+  });
+});
+
+describe("casts and conversions", () => {
+  it("types the scalar constructors", () => {
+    expectTypeOf(uint(5)).toEqualTypeOf<Node<"uint">>();
+    expectTypeOf(uint(float(2.5))).toEqualTypeOf<Node<"uint">>();
+    expectTypeOf(int(float(2.5))).toEqualTypeOf<Node<"int">>();
+    expectTypeOf(boolean(int(1))).toEqualTypeOf<Node<"bool">>();
+  });
+
+  it("types the chained conversions", () => {
+    expectTypeOf(float(2.5).toInt()).toEqualTypeOf<Node<"int">>();
+    expectTypeOf(int(2).toFloat()).toEqualTypeOf<Node<"float">>();
+    expectTypeOf(float(2.5).toUint()).toEqualTypeOf<Node<"uint">>();
+    expectTypeOf(int(1).toBool()).toEqualTypeOf<Node<"bool">>();
+    expectTypeOf(ivec3(1, 2, 3).toVec3()).toEqualTypeOf<Node<"vec3">>();
+    expectTypeOf(vec3(1, 2, 3).toIVec3()).toEqualTypeOf<Node<"ivec3">>();
+    expectTypeOf(uvec4(1, 2, 3, 4).toVec4()).toEqualTypeOf<Node<"vec4">>();
+    expectTypeOf(vec4(1, 2, 3, 4).toBVec4()).toEqualTypeOf<Node<"bvec4">>();
+    expectTypeOf(float(1).toMat4()).toEqualTypeOf<Node<"mat4">>();
+    expectTypeOf(float(1).convert("uvec3")).toEqualTypeOf<Node<"uvec3">>();
   });
 });
