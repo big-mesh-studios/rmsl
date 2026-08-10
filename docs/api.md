@@ -285,6 +285,36 @@ If(cond, () => {
 });
 ```
 
+Every keyword that collides with a JavaScript reserved word has a lowercase
+alias with a trailing underscore, so control flow can read like a language:
+
+```typescript
+if_(cond, () => { /* then */ })
+  .elseIf(otherCond, () => { /* else-if */ })
+  .else_(() => { /* else */ });
+
+while_(cond, () => { /* body */ });
+for_(init, cond, update, body);
+switch_(level, (s) => {
+  s.case_(0, () => { /* */ });
+  s.default_(() => { /* */ });
+});
+```
+
+| Capitalized | Lowercase alias |
+|-------------|-----------------|
+| `If` | `if_` |
+| `.ElseIf` | `.elseIf` |
+| `.Else` | `.else_` |
+| `While` | `while_` |
+| `For` | `for_` |
+| `Switch` | `switch_` |
+| `.Case` | `.case_` |
+| `.Default` | `.default_` |
+
+`elseIf` is a valid identifier on its own, so it needs no underscore; the rest
+would collide with `if`, `else`, `while`, `for`, `switch`, `case` and `default`.
+
 ### Switch
 
 ```typescript

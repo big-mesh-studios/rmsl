@@ -3,7 +3,7 @@ import {
   Fn, float, vec2, vec3, vec4, int, uint, boolean,
   ivec2, ivec3, ivec4, uvec2, uvec3, uvec4,
   mat2, mat2x3, mat2x4, mat3, mat3x2, mat3x4, mat4, mat4x2, mat4x3,
-  If, For, While, Switch, discard, break_, continue_,
+  If, For, While, Switch, if_, for_, while_, switch_, discard, break_, continue_,
   uniform, attribute, varying, output, builtinPosition, builtinFragDepth,
   isUniformNode, isAttributeNode, isVaryingNode,
   compileGLSLFn, compileWGSLFn, uniformRaw, wgslUniformLayout, uniformArray,
@@ -2015,5 +2015,60 @@ describe("Switch", () => {
     expect(glsl).toContain("else {");
     let wgsl = compileWGSL(prog());
     expect(wgsl).toContain("==");
+  });
+});
+
+describe("lowercase keyword aliases", () => {
+  it("if_ / elseIf / else_ emit the same if/else as If", () => {
+    let prog = Fn(() => {
+      let out = float(0).toVar();
+      if_(float(1).greaterThan(0), () => { out.assign(float(10)); })
+        .elseIf(float(1).lessThan(0), () => { out.assign(float(20)); })
+        .else_(() => { out.assign(float(30)); });
+      return out;
+    });
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("if (");
+    expect(glsl).toContain("else {");
+  });
+
+  it("for_ runs a loop like For", () => {
+    let prog = Fn(() => {
+      let total = float(0).toVar();
+      for_(
+        () => float(0).toVar(),
+        (i) => i.lessThan(4),
+        (i) => i.assign(i.add(1)),
+        (i) => { total.assign(total.add(i)); },
+      );
+      return total;
+    });
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("for (");
+  });
+
+  it("while_ runs a loop like While", () => {
+    let prog = Fn(() => {
+      let n = float(3).toVar();
+      while_(n.greaterThan(0), () => { n.assign(n.sub(1)); });
+      return n;
+    });
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("while (");
+  });
+
+  it("switch_ / case_ / default_ branch like Switch", () => {
+    let prog = Fn(() => {
+      let out = float(0).toVar();
+      switch_(int(2), (s) => {
+        s.case_([1, 2], () => { out.assign(float(20)); });
+        s.default_(() => { out.assign(float(30)); });
+      });
+      return out;
+    });
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("==");
+    expect(glsl).toContain("||");
+    expect(glsl).toContain("else {");
   });
 });

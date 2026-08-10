@@ -24,7 +24,7 @@ let wgsl = compileWGSL(prog());
 - **Dual backend** - Compile to GLSL ES 3.0 or WGSL from the same node graph
 - **Casts & conversions** - `uint()`, `ivec3(vec3)`, and chained `.toInt()`/`.toVec3()`/`.toUVec4()`/… for any type
 - **Constant folding** - Math on literal values is evaluated at compile time
-- **Control flow** - `If`/`Else If`/`Else`, `Switch`/`Case`/`Default`, `For`, `While`, `discard`, `break`/`continue`
+- **Control flow** - `If`/`Else If`/`Else`, `Switch`/`Case`/`Default`, `For`, `While`, `discard`, `break`/`continue` — with keyword-style lowercase aliases (`if_`, `while_`, `for_`, `switch_`, `.elseIf`, `.else_`, `.case_`, `.default_`)
 - **Swizzles** - `.xyz`, `.rgba`, `.xy`, etc. on vec3/vec4, ivecN and uvecN (read and write)
 - **Integer textures** - isampler*/usampler* sample to ivec4/uvec4 via unfiltered texelFetch/textureLoad
 - **Vertex/fragment** - Separate vertex and fragment compilation with proper I/O

@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, afterAll } from "vitest";
-import { Fn, float, int, For, If, While, Switch, break_, continue_, type Node } from "./rmsl";
+import { Fn, float, int, For, If, While, Switch, if_, for_, while_, switch_, break_, continue_, type Node } from "./rmsl";
 import {
   evaluateBoth, closeEvaluators, floatTolerance, EVALUATION_SKIPPED,
 } from "./testing/shader-eval";
@@ -228,6 +228,55 @@ describe.skipIf(EVALUATION_SKIPPED)("RMSL evaluation", () => {
       return out;
     })();
 
+    await expectValue(classify, [], 20);
+  }, 60_000);
+
+  // The lowercase aliases are the same nodes, so they must compute the same
+  // results — an alias that silently did nothing would fail here.
+  it("computes the same results through the lowercase aliases", async () => {
+    const branch = (x: Node<"float">) => Fn(() => {
+      const out = float(0).toVar();
+      if_(x.greaterThan(1), () => { out.assign(float(10)); })
+        .elseIf(x.greaterThan(0), () => { out.assign(float(20)); })
+        .else_(() => { out.assign(float(30)); });
+      return out;
+    })();
+    await expectValue(branch, [2], 10);
+    await expectValue(branch, [0.5], 20);
+    await expectValue(branch, [-1], 30);
+
+    const sum = (n: Node<"float">) => Fn(() => {
+      const total = float(0).toVar();
+      for_(
+        () => float(0).toVar(),
+        (i) => i.lessThan(n),
+        (i) => i.assign(i.add(1)),
+        (i) => { total.assign(total.add(i)); },
+      );
+      return total;
+    })();
+    await expectValue(sum, [5], 10);
+
+    const countdown = (n: Node<"float">) => Fn(() => {
+      const left = n.toVar();
+      const steps = float(0).toVar();
+      while_(left.greaterThan(0), () => {
+        left.assign(left.sub(1));
+        steps.assign(steps.add(1));
+      });
+      return steps;
+    })();
+    await expectValue(countdown, [4], 4);
+
+    const classify = () => Fn(() => {
+      const out = float(0).toVar();
+      switch_(int(2), (s) => {
+        s.case_(0, () => { out.assign(float(10)); });
+        s.case_([1, 2], () => { out.assign(float(20)); });
+        s.default_(() => { out.assign(float(30)); });
+      });
+      return out;
+    })();
     await expectValue(classify, [], 20);
   }, 60_000);
 

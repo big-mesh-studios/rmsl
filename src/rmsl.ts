@@ -1439,7 +1439,9 @@ export function builtinFragDepth(): Node<"float"> {
 
 type ElseIfChain = {
   ElseIf: (cond: BooleanLike, body: () => void) => ElseIfChain;
+  elseIf: (cond: BooleanLike, body: () => void) => ElseIfChain;
   Else: (body: () => void) => void;
+  else_: (body: () => void) => void;
 };
 
 export function If(cond: BooleanLike, body: () => void): ElseIfChain {
@@ -1467,11 +1469,36 @@ export function If(cond: BooleanLike, body: () => void): ElseIfChain {
       deepestIf = nextIf;
       return chain;
     },
+    elseIf: (nextCond, nextBody) => {
+      let nextIf = node({
+        _t: "void",
+        type: "if",
+        params: [
+          wrapValue(nextCond) as BaseNode<ShaderType>,
+          buildBlock(nextBody) as BaseNode<ShaderType>,
+        ],
+      });
+      deepestIf.params![2] = nextIf as BaseNode<ShaderType>;
+      deepestIf = nextIf;
+      return chain;
+    },
     Else: (elseBody) => {
+      deepestIf.params![2] = buildBlock(elseBody) as BaseNode<ShaderType>;
+    },
+    else_: (elseBody) => {
       deepestIf.params![2] = buildBlock(elseBody) as BaseNode<ShaderType>;
     },
   };
   return chain;
+}
+
+/**
+ * Lowercase alias for `If`, so control flow reads like keywords:
+ * `if_ (cond) { ... }.elseIf (...).else_ (...)`. The trailing underscore avoids
+ * the reserved word `if`; `elseIf` needs none.
+ */
+export function if_(cond: BooleanLike, body: () => void): ElseIfChain {
+  return If(cond, body);
 }
 
 export function For<T extends Node<ShaderType>>(
@@ -1502,6 +1529,16 @@ export function For<T extends Node<ShaderType>>(
   });
 }
 
+/** Lowercase alias for `For` — `for_` avoids the reserved word `for`. */
+export function for_<T extends Node<ShaderType>>(
+  init: () => T,
+  cond: (v: T) => BooleanLike,
+  update: (v: T) => void,
+  body: (v: T) => void,
+): void {
+  return For(init, cond, update, body);
+}
+
 export function While(cond: BooleanLike, body: () => void): void {
   assertBlockScope("While", (scope) => {
     let condNode = wrapValue(cond) as BaseNode<ShaderType>;
@@ -1514,11 +1551,18 @@ export function While(cond: BooleanLike, body: () => void): void {
   });
 }
 
+/** Lowercase alias for `While` — `while_` avoids the reserved word `while`. */
+export function while_(cond: BooleanLike, body: () => void): void {
+  return While(cond, body);
+}
+
 type SwitchCase = { values: BaseNode<ShaderType>[]; body: Node<"void"> };
 
 type SwitchChain = {
   Case: (values: IntLike | readonly IntLike[], body: () => void) => SwitchChain;
+  case_: (values: IntLike | readonly IntLike[], body: () => void) => SwitchChain;
   Default: (body: () => void) => void;
+  default_: (body: () => void) => void;
 };
 
 /**
@@ -1540,16 +1584,19 @@ export function Switch(
 ): SwitchChain {
   let cases: SwitchCase[] = [];
   let defaultBody: Node<"void"> | undefined;
+  const addCase = (values: IntLike | readonly IntLike[], caseBody: () => void): SwitchChain => {
+    let vals = (Array.isArray(values) ? values : [values]) as IntLike[];
+    cases.push({
+      values: vals.map(v => wrapValue(v) as BaseNode<ShaderType>),
+      body: buildBlock(caseBody),
+    });
+    return chain;
+  };
   const chain: SwitchChain = {
-    Case: (values, caseBody) => {
-      let vals = (Array.isArray(values) ? values : [values]) as IntLike[];
-      cases.push({
-        values: vals.map(v => wrapValue(v) as BaseNode<ShaderType>),
-        body: buildBlock(caseBody),
-      });
-      return chain;
-    },
+    Case: addCase,
+    case_: addCase,
     Default: (dBody) => { defaultBody = buildBlock(dBody); },
+    default_: (dBody) => { defaultBody = buildBlock(dBody); },
   };
   body(chain);
 
@@ -1572,6 +1619,17 @@ export function Switch(
   let switchNode = root.params![2] as BaseNode<ShaderType>;
   assertBlockScope("Switch", (scope) => { scope.push(switchNode); });
   return chain;
+}
+
+/**
+ * Lowercase alias for `Switch` — `switch_` avoids the reserved word `switch`.
+ * Inside the body, `case_` and `default_` mirror `Case` and `Default`.
+ */
+export function switch_(
+  selector: Node<"int"> | Node<"uint">,
+  body: (chain: SwitchChain) => void,
+): SwitchChain {
+  return Switch(selector, body);
 }
 
 export function discard(): void {
