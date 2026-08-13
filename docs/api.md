@@ -196,22 +196,19 @@ A 3D texture is sampled at its volume coordinate — a `vec3`, as with a cube ma
 
 Signed and unsigned integer textures. Integer textures are not filterable, so
 `.texture()`/`.textureLod()` compile to an unfiltered fetch — `texelFetch` in
-GLSL, `textureLoad` in WGSL, which there needs **no sampler binding**. Their
-signatures follow GLSL's `texture()`/`textureLod()`: the coordinate is a float
-vector of the sampler's width (`vec2` for 2D, `vec3` for 3D/Cube) — it does not
-change with the sampler type — and the LOD is a float. They return an integer
-vector:
+GLSL, `textureLoad` in WGSL, which there needs **no sampler binding**. They take
+integer texel coordinates of the sampler's width and return an integer vector:
 
 | Sampler | `.texture()` returns | Coordinates |
 |---------|---------------------|-------------|
-| `isampler2D` | `Node<"ivec4">` | `vec2` |
-| `isampler3D`/`isamplerCube` | `Node<"ivec4">` | `vec3` |
-| `usampler2D` | `Node<"uvec4">` | `vec2` |
-| `usampler3D`/`usamplerCube` | `Node<"uvec4">` | `vec3` |
+| `isampler2D` | `Node<"ivec4">` | `ivec2` |
+| `isampler3D`/`isamplerCube` | `Node<"ivec4">` | `ivec3` |
+| `usampler2D` | `Node<"uvec4">` | `uvec2` |
+| `usampler3D`/`usamplerCube` | `Node<"uvec4">` | `uvec3` |
 
 ```typescript
 let voxel = uniform("usampler3D");
-let density = voxel.texture(vec3(x, y, z));   // Node<"uvec4">
+let density = voxel.texture(uvec3(x, y, z));   // Node<"uvec4">
 ```
 
 ### BoolOps

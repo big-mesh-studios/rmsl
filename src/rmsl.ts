@@ -444,41 +444,41 @@ interface SamplerOps {
  * A signed or unsigned integer texture. Integer textures are not filterable in
  * either language, so `texture()`/`textureLod()` compile to an unfiltered
  * fetch (`texelFetch` in GLSL, `textureLoad` in WGSL — which there needs no
- * sampler) and return an integer vector. Their signatures follow the GLSL
- * `texture()`/`textureLod()`: the coordinate is a float vector of the
- * sampler's width (`vec2` for 2D, `vec3` for 3D/Cube), never an integer one,
- * and the LOD is a float. Each is written out per dimension so a 2D sampler
- * cannot be given a `vec3` — a conditional would make the checker expand the
- * whole `Node` intersection at every use, exhausting its heap.
+ * sampler) and return an integer vector. Coordinates are texel coordinates and
+ * must be integers, matching how the underlying fetch is parameterised in both
+ * languages, and the LOD is an int. Each is written out per dimension so a 2D
+ * sampler cannot be given an `ivec3`/`uvec3` — a conditional would make the
+ * checker expand the whole `Node` intersection at every use, exhausting its
+ * heap.
  */
 interface ISampler2DOps {
-  texture(coords: Vec2Like): Node<"ivec4">;
-  textureLod(coords: Vec2Like, lod: FloatLike | IntLike): Node<"ivec4">;
+  texture(coords: IVec2Like): Node<"ivec4">;
+  textureLod(coords: IVec2Like, lod: IntLike): Node<"ivec4">;
 }
 
 interface ISampler3DOps {
-  texture(coords: Vec3Like): Node<"ivec4">;
-  textureLod(coords: Vec3Like, lod: FloatLike | IntLike): Node<"ivec4">;
+  texture(coords: IVec3Like): Node<"ivec4">;
+  textureLod(coords: IVec3Like, lod: IntLike): Node<"ivec4">;
 }
 
 interface ISamplerCubeOps {
-  texture(coords: Vec3Like): Node<"ivec4">;
-  textureLod(coords: Vec3Like, lod: FloatLike | IntLike): Node<"ivec4">;
+  texture(coords: IVec3Like): Node<"ivec4">;
+  textureLod(coords: IVec3Like, lod: IntLike): Node<"ivec4">;
 }
 
 interface USampler2DOps {
-  texture(coords: Vec2Like): Node<"uvec4">;
-  textureLod(coords: Vec2Like, lod: FloatLike | IntLike): Node<"uvec4">;
+  texture(coords: UVec2Like): Node<"uvec4">;
+  textureLod(coords: UVec2Like, lod: IntLike): Node<"uvec4">;
 }
 
 interface USampler3DOps {
-  texture(coords: Vec3Like): Node<"uvec4">;
-  textureLod(coords: Vec3Like, lod: FloatLike | IntLike): Node<"uvec4">;
+  texture(coords: UVec3Like): Node<"uvec4">;
+  textureLod(coords: UVec3Like, lod: IntLike): Node<"uvec4">;
 }
 
 interface USamplerCubeOps {
-  texture(coords: Vec3Like): Node<"uvec4">;
-  textureLod(coords: Vec3Like, lod: FloatLike | IntLike): Node<"uvec4">;
+  texture(coords: UVec3Like): Node<"uvec4">;
+  textureLod(coords: UVec3Like, lod: IntLike): Node<"uvec4">;
 }
 
 interface BoolOps {
