@@ -3,10 +3,10 @@
 [![npm version](https://badge.fury.io/js/%40random-mesh%2Frmsl.svg)](https://www.npmjs.com/package/@random-mesh/rmsl)
 [![GitHub Repo stars](https://img.shields.io/github/stars/clinuxrulz/rmsl?style=social)](https://github.com/clinuxrulz/rmsl)
 
-A TypeScript DSL for building shader programs. Define a node graph in TypeScript and compile it to **GLSL** (WebGL 2) or **WGSL** (WebGPU).
+A TypeScript DSL for building shader programs. Define a node graph in TypeScript and compile it to **GLSL** (WebGL 2), **WGSL** (WebGPU), or **JavaScript** (a CPU callable for screen picking and other per-pixel host-side work).
 
 ```typescript
-import { Fn, float, vec4, uniform, compileGLSL, compileWGSL } from "rmsl";
+import { Fn, float, vec4, uniform, compileGLSL, compileWGSL, compileJS } from "rmsl";
 
 let prog = Fn(() => {
   let color = uniform("vec4");
@@ -16,12 +16,14 @@ let prog = Fn(() => {
 
 let glsl = compileGLSL(prog());
 let wgsl = compileWGSL(prog());
+let js = compileJS(() => prog());   // fn(ctx) -> color, run on the CPU
 ```
 
 ## Features
 
 - **Type-safe** - TypeScript types for all shader types: float/int/uint/bool, vec2-4, ivec2-4, uvec2-4, mat2-4, and float/integer samplers (sampler2D/3D/Cube, isampler2D/3D/Cube, usampler2D/3D/Cube)
-- **Dual backend** - Compile to GLSL ES 3.0 or WGSL from the same node graph
+- **Three backends** - Compile to GLSL ES 3.0, WGSL, or JavaScript from the same node graph
+- **CPU / JS target** - `compileJS`/`compileJSFn` turn an `Fn` into a callable that runs on the CPU, one fragment at a time — for screen picking from a ray-marched scene without a GPU round-trip. Per-call evaluation allocates nothing (hoisted scratch slots + out-parameter vector helpers)
 - **Casts & conversions** - `uint()`, `ivec3(vec3)`, and chained `.toInt()`/`.toVec3()`/`.toUVec4()`/… for any type
 - **Constant folding** - Math on literal values is evaluated at compile time
 - **Control flow** - `If`/`Else If`/`Else`, `Switch`/`Case`/`Default`, `For`, `While`, `discard`, `break`/`continue` — with keyword-style lowercase aliases (`if_`, `while_`, `for_`, `switch_`, `.elseIf`, `.else_`, `.case_`, `.default_`)

@@ -6,7 +6,7 @@ import {
   If, For, While, Switch, if_, for_, while_, switch_, discard, break_, continue_,
   uniform, attribute, varying, output, builtinPosition, builtinFragDepth,
   isUniformNode, isAttributeNode, isVaryingNode,
-  compileGLSLFn, compileWGSLFn, uniformRaw, wgslUniformLayout, uniformArray,
+  compileGLSLFn, compileWGSLFn, compileJSFn, uniformRaw, wgslUniformLayout, uniformArray,
 } from "./rmsl";
 // Recording stand-ins for the real compilers: each returns the language it is
 // named for and additionally compiles the program to the other, so every shader
@@ -2070,5 +2070,102 @@ describe("lowercase keyword aliases", () => {
     expect(glsl).toContain("==");
     expect(glsl).toContain("||");
     expect(glsl).toContain("else {");
+  });
+});
+
+describe("JS target", () => {
+  it("emits a callable expression reading inputs from ctx", () => {
+    let src = compileJSFn((a: any, b: any) => a.add(b), {
+      name: "add2", params: [{ name: "a", type: "float" }, { name: "b", type: "float" }],
+    });
+    expect(src).toContain("function add2(ctx)");
+    expect(src).toContain("ctx.params");
+    expect(src).toContain("return function add2");
+  });
+
+  it("hoists internal variables into a scratch block", () => {
+    let prog = Fn(() => {
+      let x = vec3(1, 2, 3).toVar();
+      let y = x.add(vec3(1, 1, 1)).toVar();
+      return y;
+    });
+    let src = compileJSFn(() => prog(), { name: "main", params: [] });
+    // The scratch block lives outside the callable, one zeroed array per slot.
+    expect(src).toMatch(/let _rmsl_\d+ = \[0, 0, 0\];/);
+    // Assignments write into the hoisted slots rather than declaring them.
+    expect(src).not.toContain("let _rmsl_0 = [1, 2, 3]");
+  });
+
+  it("emits out-parameter vector helpers for assignments", () => {
+    let prog = Fn(() => {
+      let x = vec3(1, 2, 3).toVar();
+      x.assign(x.add(vec3(1, 1, 1)));
+      return x;
+    });
+    let src = compileJSFn(() => prog(), { name: "main", params: [] });
+    expect(src).toContain("function _v3add(a, b, out)");
+    // The assignment passes the hoisted slot as the output.
+    expect(src).toMatch(/_v3add\([^)]*,\s*_rmsl_\d+\);/);
+  });
+
+  it("uses Math builtins for scalar math", () => {
+    let src = compileJSFn((a: any) => a.sin(), {
+      name: "main", params: [{ name: "a", type: "float" }],
+    });
+    expect(src).toContain("Math.sin");
+  });
+
+  it("reads uniforms from ctx.uniforms by slot", () => {
+    let u!: any;
+    let prog = Fn(() => {
+      u = uniform("float");
+      return u.mult(2);
+    });
+    let src = compileJSFn(() => prog(), { name: "main", params: [] });
+    expect(src).toContain(`ctx.uniforms["${u.name}"]`);
+  });
+
+  it("returns a result object when the program writes outputs or depth", () => {
+    let prog = Fn(() => {
+      let out = output("vec4");
+      out.assign(vec4(1, 1, 1, 1));
+      let d = builtinFragDepth();
+      d.assign(float(0.5));
+      return out;
+    });
+    let src = compileJSFn(() => prog(), { name: "main", params: [] });
+    expect(src).toContain("var res = { outputs: {}, varyings: {} };");
+    expect(src).toContain("res.outputs");
+    expect(src).toContain("res.fragDepth");
+    expect(src).toContain("res.value");
+  });
+
+  it("emits return null for discard", () => {
+    let prog = Fn(() => {
+      discard();
+      return float(1);
+    });
+    let src = compileJSFn(() => prog(), { name: "main", params: [] });
+    expect(src).toContain("return null;");
+  });
+
+  it("reentrant mode declares variables inside the callable", () => {
+    let prog = Fn(() => {
+      let x = vec3(1, 2, 3).toVar();
+      return x;
+    });
+    let src = compileJSFn(() => prog(), { name: "main", params: [], reentrant: true });
+    expect(src).toMatch(/var _rmsl_\d+ = \[0, 0, 0\];/);
+  });
+
+  it("throws on derivative ops unless told to zero them", () => {
+    let prog = Fn(() => {
+      let x = vec2(1, 2).toVar();
+      return x.fwidth();
+    });
+    expect(() => compileJSFn(() => prog(), { name: "main", params: [] }))
+      .toThrow(/CPU target/);
+    let src = compileJSFn(() => prog(), { name: "main", params: [], derivatives: "zero" });
+    expect(src).toContain("0");
   });
 });

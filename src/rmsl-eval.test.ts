@@ -13,7 +13,7 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { Fn, float, int, For, If, While, Switch, if_, for_, while_, switch_, break_, continue_, type Node } from "./rmsl";
 import {
-  evaluateBoth, closeEvaluators, floatTolerance, EVALUATION_SKIPPED,
+  evaluateAll, closeEvaluators, floatTolerance, EVALUATION_SKIPPED,
 } from "./testing/shader-eval";
 
 afterAll(async () => {
@@ -30,13 +30,18 @@ type Build = (...args: Node<"float">[]) => Node<"float">;
  * already 1.2e-4 — while being far looser than needed near zero.
  */
 async function expectValue(build: Build, args: number[], want: number) {
-  const { glsl, wgsl } = await evaluateBoth(build, args);
+  const { glsl, wgsl, js } = await evaluateAll(build, args);
+  // The CPU target runs the same program in-process. It computes exact f64, so
+  // a disagreement with the GPU backends is a defect in whichever side differs
+  // — and it arbitrates when the two GPUs differ.
   const tolerance = floatTolerance(want);
   expect(Math.abs(glsl - want), `GLSL computed ${glsl}, wanted ${want}`)
     .toBeLessThan(tolerance);
   expect(Math.abs(wgsl - want), `WGSL computed ${wgsl}, wanted ${want}`)
     .toBeLessThan(tolerance);
   expect(Math.abs(glsl - wgsl), `backends disagree: ${glsl} vs ${wgsl}`)
+    .toBeLessThan(tolerance);
+  expect(Math.abs(js - want), `JS computed ${js}, wanted ${want}`)
     .toBeLessThan(tolerance);
 }
 

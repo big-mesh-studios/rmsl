@@ -1772,6 +1772,21 @@ interface CompileCtx {
   positionWritten: boolean;
   inFn: boolean;
   fragDepthUsed: boolean;
+  /** Fn parameter names, which the JS target reads from `ctx.params`. */
+  jsParams: Set<string>;
+  /** Names of JS helper functions the compiled function needs. */
+  jsHelpers: Set<string>;
+  /**
+   * Slot a vector/matrix-typed expression should be written into, when the JS
+   * target is lowering an assignment. `null` means a plain expression.
+   */
+  outTarget: string | null;
+  /** What derivative ops (dFdx/dFdy/fwidth) compile to on the CPU. */
+  derivatives: "throw" | "zero";
+  /** Per-call variable bindings instead of hoisted per-program scratch. */
+  reentrant: boolean;
+  /** Whether the program writes outputs/position/fragDepth via a result object. */
+  jsNeedsRes: boolean;
 }
 
 let typeToGLSL: Record<string, string> = {
@@ -2636,6 +2651,12 @@ function compileGLSLWithStage(
     positionWritten: false,
     inFn: false,
     fragDepthUsed: false,
+    jsParams: new Set(),
+    jsHelpers: new Set(),
+    outTarget: null,
+    derivatives: "throw",
+    reentrant: false,
+    jsNeedsRes: false,
   };
 
   let nodes = Array.isArray(root) ? root : [root];
@@ -3896,6 +3917,12 @@ function compileWGSLWithStage(
     positionWritten: false,
     inFn: false,
     fragDepthUsed: false,
+    jsParams: new Set(),
+    jsHelpers: new Set(),
+    outTarget: null,
+    derivatives: "throw",
+    reentrant: false,
+    jsNeedsRes: false,
   };
 
   let nodes = Array.isArray(root) ? root : [root];
@@ -4064,6 +4091,1297 @@ export const compileWGSL: {
   },
 );
 
+// ========== JS Compiler ==========
+/**
+ * The third backend: compile a node graph to a JavaScript function that the
+ * host can call on the CPU, one fragment at a time. Its purpose is screen
+ * picking from a ray-marched scene — feed the per-pixel varyings and uniforms
+ * into the compiled function and read the colour/depth back, no GPU round-trip.
+ *
+ * Values are plain numbers (scalars), arrays (vectors) and flat column-major
+ * arrays (matrices) — the same representation `wrapValue` and the apps use.
+ * Internal `toVar()` variables live in per-program scratch slots outside the
+ * callable, and vector/matrix helpers write into a caller-supplied output
+ * array, so a per-pixel evaluation allocates nothing beyond the result.
+ */
+
+/** Which component each swizzle accessor names, in both spellings. */
+const JS_COMPONENT_INDEX: Record<string, number> = {
+  x: 0, y: 1, z: 2, w: 3, r: 0, g: 1, b: 2, a: 3,
+};
+
+/** Length of the JS array a value of this type occupies (0 for a scalar). */
+function jsArrayLength(brand: string | undefined): number {
+  if (!brand) return 0;
+  let width = TYPE_WIDTH[brand];
+  if (width) return width;
+  let shape = MATRIX_DIMENSIONS[brand];
+  if (shape) return shape[0] * shape[1];
+  return 0;
+}
+
+/** Whether a value of this type is carried as a JS array rather than a number. */
+function jsIsArrayType(brand: string | undefined): boolean {
+  return jsArrayLength(brand) > 1;
+}
+
+/** Zero-array initializer for a hoisted scratch slot, "" for a scalar. */
+function jsScratchLiteral(brand: string | undefined): string {
+  let n = jsArrayLength(brand);
+  return n > 1 ? `[${Array(n).fill(0).join(", ")}]` : "";
+}
+
+/** Node types that read an existing array rather than producing one. */
+const JS_ARRAY_LEAF_TYPES = new Set([
+  "vec2", "vec3", "vec4", "ivec2", "ivec3", "ivec4",
+  "uvec2", "uvec3", "uvec4", "bvec2", "bvec3", "bvec4",
+  "mat2", "mat2x3", "mat2x4", "mat3x2", "mat3", "mat3x4",
+  "mat4x2", "mat4x3", "mat4",
+  "var", "uniform", "uniformArray", "uniformArrayElement",
+  "attribute", "varying", "output", "builtinPosition",
+]);
+
+function isJSArrayLeaf(node: any): boolean {
+  return !!node && JS_ARRAY_LEAF_TYPES.has(node.type);
+}
+
+/** Element-wise operations the JS vector helpers implement, per index. */
+const JS_ELEM: Record<string, { argc: number; fn: (xs: string[]) => string }> = {
+  add: { argc: 2, fn: xs => `${xs[0]} + ${xs[1]}` },
+  sub: { argc: 2, fn: xs => `${xs[0]} - ${xs[1]}` },
+  mul: { argc: 2, fn: xs => `${xs[0]} * ${xs[1]}` },
+  div: { argc: 2, fn: xs => `${xs[0]} / ${xs[1]}` },
+  // Integer division truncates, following GLSL/WGSL, not JS's float `/`.
+  idiv: { argc: 2, fn: xs => `Math.trunc(${xs[0]} / ${xs[1]})` },
+  min: { argc: 2, fn: xs => `Math.min(${xs[0]}, ${xs[1]})` },
+  max: { argc: 2, fn: xs => `Math.max(${xs[0]}, ${xs[1]})` },
+  pow: { argc: 2, fn: xs => `Math.pow(${xs[0]}, ${xs[1]})` },
+  // Floored, matching GLSL's mod() — JS % truncates toward zero.
+  mod: { argc: 2, fn: xs => `${xs[0]} - ${xs[1]} * Math.floor(${xs[0]} / ${xs[1]})` },
+  imod: { argc: 2, fn: xs => `${xs[0]} % ${xs[1]}` },
+  // step(edge, x): 0 while x < edge, 1 from there on.
+  step: { argc: 2, fn: xs => `${xs[1]} < ${xs[0]} ? 0 : 1` },
+  clamp: { argc: 3, fn: xs => `Math.min(Math.max(${xs[0]}, ${xs[1]}), ${xs[2]})` },
+  mix: { argc: 3, fn: xs => `${xs[0]} + ${xs[2]} * (${xs[1]} - ${xs[0]})` },
+  smoothstep: {
+    argc: 3,
+    fn: xs => `(function(t){ return t * t * (3 - 2 * t); })(Math.min(Math.max((${xs[2]} - ${xs[0]}) / (${xs[1]} - ${xs[0]}), 0), 1))`,
+  },
+  neg: { argc: 1, fn: xs => `-${xs[0]}` },
+  abs: { argc: 1, fn: xs => `Math.abs(${xs[0]})` },
+  sign: { argc: 1, fn: xs => `Math.sign(${xs[0]})` },
+  floor: { argc: 1, fn: xs => `Math.floor(${xs[0]})` },
+  ceil: { argc: 1, fn: xs => `Math.ceil(${xs[0]})` },
+  round: { argc: 1, fn: xs => `Math.round(${xs[0]})` },
+  trunc: { argc: 1, fn: xs => `Math.trunc(${xs[0]})` },
+  fract: { argc: 1, fn: xs => `${xs[0]} - Math.floor(${xs[0]})` },
+  sqrt: { argc: 1, fn: xs => `Math.sqrt(${xs[0]})` },
+  rsqrt: { argc: 1, fn: xs => `1 / Math.sqrt(${xs[0]})` },
+  exp: { argc: 1, fn: xs => `Math.exp(${xs[0]})` },
+  log: { argc: 1, fn: xs => `Math.log(${xs[0]})` },
+  exp2: { argc: 1, fn: xs => `Math.pow(2, ${xs[0]})` },
+  log2: { argc: 1, fn: xs => `Math.log2(${xs[0]})` },
+  sin: { argc: 1, fn: xs => `Math.sin(${xs[0]})` },
+  cos: { argc: 1, fn: xs => `Math.cos(${xs[0]})` },
+  tan: { argc: 1, fn: xs => `Math.tan(${xs[0]})` },
+  asin: { argc: 1, fn: xs => `Math.asin(${xs[0]})` },
+  acos: { argc: 1, fn: xs => `Math.acos(${xs[0]})` },
+  atan: { argc: 1, fn: xs => `Math.atan(${xs[0]})` },
+  sinh: { argc: 1, fn: xs => `Math.sinh(${xs[0]})` },
+  cosh: { argc: 1, fn: xs => `Math.cosh(${xs[0]})` },
+  tanh: { argc: 1, fn: xs => `Math.tanh(${xs[0]})` },
+  asinh: { argc: 1, fn: xs => `Math.asinh(${xs[0]})` },
+  acosh: { argc: 1, fn: xs => `Math.acosh(${xs[0]})` },
+  atanh: { argc: 1, fn: xs => `Math.atanh(${xs[0]})` },
+};
+
+function jsZeroes(width: number): string {
+  return Array(width).fill(0).join(", ");
+}
+
+/**
+ * Source for one JS helper function, named for what it computes.
+ *
+ * Every array-producing helper takes a trailing `out` array it writes into —
+ * the slot the caller allocated — and returns it. Called without `out`, it
+ * allocates one itself, which is the path expressions take. So an assignment
+ * compiled with a target slot allocates nothing.
+ */
+function jsHelperSource(name: string): string {
+  let m = /^v(\d+)([a-zA-Z]+)$/.exec(name);
+  if (m) {
+    let width = Number(m[1]);
+    let op = m[2];
+    let e = JS_ELEM[op];
+    if (e) {
+      let args = "abcdef".slice(0, e.argc).split("");
+      let lines: string[] = [];
+      for (let i = 0; i < width; i++) {
+        let xs = args.map(a => `(typeof ${a} === "number" ? ${a} : ${a}[${i}])`);
+        lines.push(`  out[${i}] = ${e.fn(xs)};`);
+      }
+      return `function _${name}(${args.join(", ")}, out) {\n`
+        + `  out = out || [${jsZeroes(width)}];\n${lines.join("\n")}\n  return out;\n}`;
+    }
+    if (op === "norm") {
+      // Read the length before writing out, so out may alias the input.
+      return `function _${name}(a, out) {\n`
+        + `  out = out || new Array(${width});\n`
+        + `  let l = 0;\n`
+        + `  for (let i = 0; i < ${width}; i++) l += a[i] * a[i];\n`
+        + `  l = Math.sqrt(l);\n`
+        + `  if (l > 0) { for (let i = 0; i < ${width}; i++) out[i] = a[i] / l; }\n`
+        + `  else { for (let i = 0; i < ${width}; i++) out[i] = a[i]; }\n`
+        + `  return out;\n}`;
+    }
+    if (op === "reflect") {
+      // reflect(i, n) = i - 2 * dot(n, i) * n
+      return `function _${name}(i, n, out) {\n`
+        + `  out = out || new Array(${width});\n`
+        + `  let d = 0;\n`
+        + `  for (let j = 0; j < ${width}; j++) d += n[j] * i[j];\n`
+        + `  for (let j = 0; j < ${width}; j++) out[j] = i[j] - 2 * d * n[j];\n`
+        + `  return out;\n}`;
+    }
+    if (op === "refract") {
+      // refract(i, n, eta): k = 1 - eta^2 (1 - dot^2); eta*i - (eta*dot + sqrt(k))*n
+      return `function _${name}(i, n, eta, out) {\n`
+        + `  out = out || new Array(${width});\n`
+        + `  let d = 0;\n`
+        + `  for (let j = 0; j < ${width}; j++) d += n[j] * i[j];\n`
+        + `  let k = 1 - eta * eta * (1 - d * d);\n`
+        + `  if (k < 0) { for (let j = 0; j < ${width}; j++) out[j] = 0; }\n`
+        + `  else { let r = eta * d + Math.sqrt(k); for (let j = 0; j < ${width}; j++) out[j] = eta * i[j] - r * n[j]; }\n`
+        + `  return out;\n}`;
+    }
+    if (op === "faceforward") {
+      // faceforward(n, i, nref) = dot(nref, i) < 0 ? n : -n
+      return `function _${name}(n, i, nref, out) {\n`
+        + `  out = out || new Array(${width});\n`
+        + `  let d = 0;\n`
+        + `  for (let j = 0; j < ${width}; j++) d += nref[j] * i[j];\n`
+        + `  let s = d < 0 ? 1 : -1;\n`
+        + `  for (let j = 0; j < ${width}; j++) out[j] = s * n[j];\n`
+        + `  return out;\n}`;
+    }
+    if (op === "cross") {
+      if (width !== 3) {
+        throw new Error(`[RMSL] cross() needs a vec3 on the JS target, got width ${width}.`);
+      }
+      return `function _v3cross(a, b, out) {\n`
+        + `  out = out || [0, 0, 0];\n`
+        + `  out[0] = a[1] * b[2] - a[2] * b[1];\n`
+        + `  out[1] = a[2] * b[0] - a[0] * b[2];\n`
+        + `  out[2] = a[0] * b[1] - a[1] * b[0];\n`
+        + `  return out;\n}`;
+    }
+    throw new Error(`[RMSL] Unknown JS vector helper: ${name}`);
+  }
+
+  let bm = /^b(\d+)(and|or|not|eq|neq)$/.exec(name);
+  if (bm) {
+    let width = Number(bm[1]);
+    let op = bm[2];
+    let oneArg = op === "not";
+    let params = oneArg ? "a" : "a, b";
+    let lines: string[] = [];
+    for (let i = 0; i < width; i++) {
+      let body = oneArg
+        ? `!a[${i}]`
+        : op === "and" ? `a[${i}] && b[${i}]`
+        : op === "or" ? `a[${i}] || b[${i}]`
+        : op === "eq" ? `a[${i}] === b[${i}]`
+        : `a[${i}] !== b[${i}]`;
+      lines.push(`  out[${i}] = ${body};`);
+    }
+    return `function _${name}(${params}, out) {\n`
+      + `  out = out || [${Array(width).fill("false").join(", ")}];\n${lines.join("\n")}\n  return out;\n}`;
+  }
+
+  switch (name) {
+    case "copy":
+      return `function _copy(src, out) {\n  for (let i = 0; i < src.length; i++) out[i] = src[i];\n  return out;\n}`;
+    case "vdot":
+      return `function _vdot(a, b) {\n  let s = 0;\n  for (let i = 0; i < a.length; i++) s += a[i] * b[i];\n  return s;\n}`;
+    case "vlen":
+      return `function _vlen(a) {\n  let s = 0;\n  for (let i = 0; i < a.length; i++) s += a[i] * a[i];\n  return Math.sqrt(s);\n}`;
+    case "vdist":
+      return `function _vdist(a, b) {\n  let s = 0;\n  for (let i = 0; i < a.length; i++) { let d = a[i] - b[i]; s += d * d; }\n  return Math.sqrt(s);\n}`;
+    case "ball":
+      return `function _ball(v) {\n  for (let i = 0; i < v.length; i++) if (!v[i]) return false;\n  return true;\n}`;
+    case "bany":
+      return `function _bany(v) {\n  for (let i = 0; i < v.length; i++) if (v[i]) return true;\n  return false;\n}`;
+    case "matDiag":
+      return `function _matDiag(s, size, stride) {\n  let m = new Array(size).fill(0);\n  for (let i = 0; i < size; i += stride) m[i] = s;\n  return m;\n}`;
+    case "tex2d":
+      return `function _tex2d(tex, uv, out) {\n  out = out || [0, 0, 0, 0];\n  let x = Math.max(0, Math.min(tex.width - 1, Math.floor(uv[0] * tex.width)));\n  let y = Math.max(0, Math.min(tex.height - 1, Math.floor(uv[1] * tex.height)));\n  let o = (y * tex.width + x) * 4;\n  out[0] = tex.data[o];\n  out[1] = tex.data[o + 1];\n  out[2] = tex.data[o + 2];\n  out[3] = tex.data[o + 3];\n  return out;\n}`;
+    case "texFetch2d":
+      return `function _texFetch2d(tex, uv, out) {\n  out = out || [0, 0, 0, 0];\n  let x = Math.floor(uv[0]);\n  let y = Math.floor(uv[1]);\n  if (x < 0 || y < 0 || x >= tex.width || y >= tex.height) return out;\n  let o = (y * tex.width + x) * 4;\n  out[0] = tex.data[o];\n  out[1] = tex.data[o + 1];\n  out[2] = tex.data[o + 2];\n  out[3] = tex.data[o + 3];\n  return out;\n}`;
+    case "tex3d":
+      return `function _tex3d(tex, uvw, out) {\n  out = out || [0, 0, 0, 0];\n  let x = Math.max(0, Math.min(tex.width - 1, Math.floor(uvw[0] * tex.width)));\n  let y = Math.max(0, Math.min(tex.height - 1, Math.floor(uvw[1] * tex.height)));\n  let z = Math.max(0, Math.min(tex.depth - 1, Math.floor(uvw[2] * tex.depth)));\n  let o = ((z * tex.height + y) * tex.width + x) * 4;\n  out[0] = tex.data[o];\n  out[1] = tex.data[o + 1];\n  out[2] = tex.data[o + 2];\n  out[3] = tex.data[o + 3];\n  return out;\n}`;
+    case "texFetch3d":
+      return `function _texFetch3d(tex, uvw, out) {\n  out = out || [0, 0, 0, 0];\n  let x = Math.floor(uvw[0]);\n  let y = Math.floor(uvw[1]);\n  let z = Math.floor(uvw[2]);\n  if (x < 0 || y < 0 || z < 0 || x >= tex.width || y >= tex.height || z >= tex.depth) return out;\n  let o = ((z * tex.height + y) * tex.width + x) * 4;\n  out[0] = tex.data[o];\n  out[1] = tex.data[o + 1];\n  out[2] = tex.data[o + 2];\n  out[3] = tex.data[o + 3];\n  return out;\n}`;
+    case "mat2x2inv":
+      return `function _mat2x2inv(m, out) {\n  out = out || new Array(4);\n  let det = m[0] * m[3] - m[1] * m[2];\n  let inv = 1 / det;\n  out[0] = m[3] * inv;\n  out[1] = -m[1] * inv;\n  out[2] = -m[2] * inv;\n  out[3] = m[0] * inv;\n  return out;\n}`;
+    case "mat3x3inv":
+      return `function _mat3x3inv(m, out) {\n  out = out || new Array(9);\n  let a00 = m[0], a01 = m[1], a02 = m[2];\n  let a10 = m[3], a11 = m[4], a12 = m[5];\n  let a20 = m[6], a21 = m[7], a22 = m[8];\n  let b01 = a22 * a11 - a12 * a21;\n  let b11 = -a22 * a10 + a12 * a20;\n  let b21 = a21 * a10 - a11 * a20;\n  let det = a00 * b01 + a01 * b11 + a02 * b21;\n  let inv = 1 / det;\n  out[0] = b01 * inv;\n  out[1] = (-a22 * a01 + a02 * a21) * inv;\n  out[2] = (a12 * a01 - a02 * a11) * inv;\n  out[3] = b11 * inv;\n  out[4] = (a22 * a00 - a02 * a20) * inv;\n  out[5] = (-a12 * a00 + a02 * a10) * inv;\n  out[6] = b21 * inv;\n  out[7] = (-a21 * a00 + a01 * a20) * inv;\n  out[8] = (a11 * a00 - a01 * a10) * inv;\n  return out;\n}`;
+    case "mat4x4inv":
+      return `function _mat4x4inv(m, out) {\n  out = out || new Array(16);\n  let a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3];\n  let a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7];\n  let a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11];\n  let a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15];\n  let b00 = a00 * a11 - a01 * a10;\n  let b01 = a00 * a12 - a02 * a10;\n  let b02 = a00 * a13 - a03 * a10;\n  let b03 = a01 * a12 - a02 * a11;\n  let b04 = a01 * a13 - a03 * a11;\n  let b05 = a02 * a13 - a03 * a12;\n  let b06 = a20 * a31 - a21 * a30;\n  let b07 = a20 * a32 - a22 * a30;\n  let b08 = a20 * a33 - a23 * a30;\n  let b09 = a21 * a32 - a22 * a31;\n  let b10 = a21 * a33 - a23 * a31;\n  let b11 = a22 * a33 - a23 * a32;\n  let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;\n  let inv = 1 / det;\n  out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * inv;\n  out[1] = (-a01 * b11 + a02 * b10 - a03 * b09) * inv;\n  out[2] = (a31 * b05 - a32 * b04 + a33 * b03) * inv;\n  out[3] = (-a21 * b05 + a22 * b04 - a23 * b03) * inv;\n  out[4] = (-a10 * b11 + a12 * b08 - a13 * b07) * inv;\n  out[5] = (a00 * b11 - a02 * b08 + a03 * b07) * inv;\n  out[6] = (-a30 * b05 + a32 * b02 - a33 * b01) * inv;\n  out[7] = (a20 * b05 - a22 * b02 + a23 * b01) * inv;\n  out[8] = (a10 * b10 - a11 * b08 + a13 * b06) * inv;\n  out[9] = (-a00 * b10 + a01 * b08 - a03 * b06) * inv;\n  out[10] = (a30 * b04 - a31 * b02 + a33 * b00) * inv;\n  out[11] = (-a20 * b04 + a21 * b02 - a23 * b00) * inv;\n  out[12] = (-a10 * b09 + a11 * b07 - a12 * b06) * inv;\n  out[13] = (a00 * b09 - a01 * b07 + a02 * b06) * inv;\n  out[14] = (-a30 * b03 + a31 * b01 - a32 * b00) * inv;\n  out[15] = (a20 * b03 - a21 * b01 + a22 * b00) * inv;\n  return out;\n}`;
+    case "mat2x2det":
+      return `function _mat2x2det(m) {\n  return m[0] * m[3] - m[1] * m[2];\n}`;
+    case "mat3x3det":
+      return `function _mat3x3det(m) {\n  let a00 = m[0], a01 = m[1], a02 = m[2];\n  let a10 = m[3], a11 = m[4], a12 = m[5];\n  let a20 = m[6], a21 = m[7], a22 = m[8];\n  return a00 * (a11 * a22 - a12 * a21) - a01 * (a10 * a22 - a12 * a20) + a02 * (a10 * a21 - a11 * a20);\n}`;
+    case "mat4x4det":
+      return `function _mat4x4det(m) {\n  let a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3];\n  let a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7];\n  let a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11];\n  let a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15];\n  let b00 = a00 * a11 - a01 * a10;\n  let b01 = a00 * a12 - a02 * a10;\n  let b02 = a00 * a13 - a03 * a10;\n  let b03 = a01 * a12 - a02 * a11;\n  let b04 = a01 * a13 - a03 * a11;\n  let b05 = a02 * a13 - a03 * a12;\n  let b06 = a20 * a31 - a21 * a30;\n  let b07 = a20 * a32 - a22 * a30;\n  let b08 = a20 * a33 - a23 * a30;\n  let b09 = a21 * a32 - a22 * a31;\n  let b10 = a21 * a33 - a23 * a31;\n  let b11 = a22 * a33 - a23 * a32;\n  return b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;\n}`;
+  }
+
+  let mm = /^mat(\d+)x(\d+)(mul|T)$/.exec(name);
+  if (mm) {
+    let cols = Number(mm[1]);
+    let rows = Number(mm[2]);
+    if (mm[3] === "mul") {
+      // Column-major product: out[col*rows + row] = sum_k a[k*rows+row] * b[col*cols+k].
+      let lines: string[] = [];
+      for (let col = 0; col < cols; col++) {
+        for (let row = 0; row < rows; row++) {
+          let terms: string[] = [];
+          for (let k = 0; k < cols; k++) terms.push(`a[${k * rows + row}] * b[${col * cols + k}]`);
+          lines.push(`  out[${col * rows + row}] = ${terms.join(" + ")};`);
+        }
+      }
+      return `function _${name}(a, b, out) {\n`
+        + `  out = out || new Array(${cols * rows});\n`
+        + `  if (out === a) a = a.slice();\n`
+        + `  if (out === b) b = b.slice();\n${lines.join("\n")}\n  return out;\n}`;
+    }
+    // Transpose: out[r*cols + c] = m[c*rows + r].
+    let lines: string[] = [];
+    for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) {
+      lines.push(`  out[${r * cols + c}] = m[${c * rows + r}];`);
+    }
+    return `function _${name}(m, out) {\n`
+      + `  out = out || new Array(${cols * rows});\n${lines.join("\n")}\n  return out;\n}`;
+  }
+
+  let mvm = /^mat(\d+)x(\d+)mv(\d+)$/.exec(name);
+  if (mvm) {
+    let cols = Number(mvm[1]);
+    let rows = Number(mvm[2]);
+    let vlen = Number(mvm[3]);
+    // A shorter vector (mat4 * vec3) implies w = 1 and drops the w row.
+    let outRows = vlen < cols ? vlen : rows;
+    let locals = Array.from({ length: vlen }, (_, i) => `x${i} = v[${i}]`);
+    let lines: string[] = [];
+    for (let row = 0; row < outRows; row++) {
+      let terms: string[] = [];
+      for (let c = 0; c < vlen; c++) terms.push(`m[${c * rows + row}] * x${c}`);
+      if (vlen < cols) terms.push(`m[${vlen * rows + row}]`);
+      lines.push(`  out[${row}] = ${terms.join(" + ")};`);
+    }
+    return `function _${name}(m, v, out) {\n`
+      + `  out = out || new Array(${outRows});\n`
+      + `  let ${locals.join(", ")};\n${lines.join("\n")}\n  return out;\n}`;
+  }
+
+  throw new Error(`[RMSL] Unknown JS helper: ${name}`);
+}
+
+function jsRequireHelper(ctx: CompileCtx, name: string): void {
+  ctx.jsHelpers.add(name);
+}
+
+/** A fresh hoisted slot for an intermediate value, registered for preallocation. */
+function jsNewTemp(ctx: CompileCtx, brand: string): string {
+  let name = `_rmsl_t${ctx.nextId++}`;
+  ctx.varDefs.set(name, brand);
+  return name;
+}
+
+/**
+ * Compile an operand for a vector/matrix operation.
+ *
+ * In a plain expression (`outTarget` null) operands compile as expressions and
+ * allocate. Under an assignment, an array-typed operand that itself computes
+ * something needs its own scratch slot — the parent's helper writes into the
+ * target while reading its operands, so an operand may never share that slot.
+ * Leaves (variables, uniforms, literals) are references and need no slot.
+ */
+function jsCompileOperand(node: any, ctx: CompileCtx): CompiledNode {
+  let saved = ctx.outTarget;
+  let isArrayOp = jsIsArrayType(node?._t) && !isJSArrayLeaf(node);
+  if (ctx.outTarget && isArrayOp) {
+    let temp = jsNewTemp(ctx, node._t);
+    ctx.outTarget = temp;
+    let result = compileJSStage(node, ctx);
+    ctx.outTarget = saved;
+    return result;
+  }
+  ctx.outTarget = null;
+  let result = compileJSStage(node, ctx);
+  ctx.outTarget = saved;
+  return result;
+}
+
+/** A leaf reference read as a value — copied into the target under out-mode. */
+function jsLeafRef(expr: string, brand: string | undefined, ctx: CompileCtx): CompiledNode {
+  if (ctx.outTarget && jsIsArrayType(brand)) {
+    jsRequireHelper(ctx, "copy");
+    return { decls: [], body: [`_copy(${expr}, ${ctx.outTarget});`], expr: ctx.outTarget };
+  }
+  return { decls: [], body: [], expr };
+}
+
+function isPlainJSIdentifier(s: string): boolean {
+  return /^[_$a-zA-Z][_$a-zA-Z0-9]*$/.test(s);
+}
+
+function jsScalarBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string): CompiledNode {
+  let a = compileJSStage(node.params![0], ctx);
+  let b = compileJSStage(node.params![1], ctx);
+  let c = node.params![2] ? compileJSStage(node.params![2], ctx) : null;
+  let decls = [...a.decls, ...b.decls, ...(c ? c.decls : [])];
+  let body = [...a.body, ...b.body, ...(c ? c.body : [])];
+  let expr: string;
+  switch (op) {
+    case "add": case "sub": case "mul": case "div": {
+      let sym = op === "add" ? "+" : op === "sub" ? "-" : op === "mul" ? "*" : "/";
+      let prec = PRECEDENCE[node.type] ?? 0;
+      expr = `${wrapExpr(a.prec, prec, a.expr)} ${sym} ${wrapExpr(b.prec, prec, b.expr)}`;
+      break;
+    }
+    case "idiv": expr = `Math.trunc(${a.expr} / ${b.expr})`; break;
+    case "min": expr = `Math.min(${a.expr}, ${b.expr})`; break;
+    case "max": expr = `Math.max(${a.expr}, ${b.expr})`; break;
+    case "pow": expr = `Math.pow(${a.expr}, ${b.expr})`; break;
+    case "mod": expr = `(${a.expr} - ${b.expr} * Math.floor(${a.expr} / ${b.expr}))`; break;
+    case "imod": expr = `(${a.expr} % ${b.expr})`; break;
+    case "step": expr = `(${b.expr} < ${a.expr} ? 0 : 1)`; break;
+    case "clamp": expr = `Math.min(Math.max(${a.expr}, ${b.expr}), ${c!.expr})`; break;
+    case "mix": expr = `(${a.expr} + ${c!.expr} * (${b.expr} - ${a.expr}))`; break;
+    case "smoothstep":
+      expr = `(function(t){ return t * t * (3 - 2 * t); })(Math.min(Math.max((${c!.expr} - ${a.expr}) / (${b.expr} - ${a.expr}), 0), 1))`;
+      break;
+    default: throw new Error(`[RMSL] Unknown JS scalar op: ${op}`);
+  }
+  return { decls, body, expr, prec: PRECEDENCE[node.type] };
+}
+
+function jsVectorBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string, width: number): CompiledNode {
+  let a = jsCompileOperand(node.params![0], ctx);
+  let b = jsCompileOperand(node.params![1], ctx);
+  let c = node.params![2] ? jsCompileOperand(node.params![2], ctx) : null;
+  jsRequireHelper(ctx, `v${width}${op}`);
+  let args = c ? `${a.expr}, ${b.expr}, ${c.expr}` : `${a.expr}, ${b.expr}`;
+  let decls = [...a.decls, ...b.decls, ...(c ? c.decls : [])];
+  let body = [...a.body, ...b.body, ...(c ? c.body : [])];
+  if (ctx.outTarget) {
+    return { decls, body: [...body, `_v${width}${op}(${args}, ${ctx.outTarget});`], expr: ctx.outTarget };
+  }
+  return { decls, body, expr: `_v${width}${op}(${args})` };
+}
+
+function jsBinaryOp(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string): CompiledNode {
+  let width = Math.max(
+    jsArrayLength(node.params![0]?._t),
+    jsArrayLength(node.params![1]?._t),
+  );
+  if (width <= 1) return jsScalarBinary(node, ctx, op);
+  return jsVectorBinary(node, ctx, op, width);
+}
+
+/** Matrix times matrix (square), a separate operator from element-wise mult. */
+function jsMatMul(node: BaseNode<ShaderType>, ctx: CompileCtx): CompiledNode {
+  let brand = node.params![0]?._t;
+  let [c, r] = MATRIX_DIMENSIONS[brand];
+  if (c !== r) {
+    throw new Error("[RMSL] The JS target does not yet support non-square matrix multiplication.");
+  }
+  let a = jsCompileOperand(node.params![0], ctx);
+  let b = jsCompileOperand(node.params![1], ctx);
+  let name = `mat${c}x${r}mul`;
+  jsRequireHelper(ctx, name);
+  if (ctx.outTarget) {
+    return {
+      decls: [...a.decls, ...b.decls],
+      body: [...a.body, ...b.body, `_${name}(${a.expr}, ${b.expr}, ${ctx.outTarget});`],
+      expr: ctx.outTarget,
+    };
+  }
+  return { decls: [...a.decls, ...b.decls], body: [...a.body, ...b.body], expr: `_${name}(${a.expr}, ${b.expr})` };
+}
+
+function jsMatrixUnary(node: BaseNode<ShaderType>, ctx: CompileCtx, suffix: string): CompiledNode {
+  let brand = node.params![0]?._t;
+  let [c, r] = MATRIX_DIMENSIONS[brand];
+  let name = `mat${c}x${r}${suffix}`;
+  jsRequireHelper(ctx, name);
+  let a = jsCompileOperand(node.params![0], ctx);
+  if (ctx.outTarget) {
+    return {
+      decls: a.decls,
+      body: [...a.body, `_${name}(${a.expr}, ${ctx.outTarget});`],
+      expr: ctx.outTarget,
+    };
+  }
+  return { decls: a.decls, body: a.body, expr: `_${name}(${a.expr})` };
+}
+
+function jsUnaryMath(node: BaseNode<ShaderType>, ctx: CompileCtx, suffix: string): CompiledNode {
+  let width = jsArrayLength(node.params![0]?._t);
+  if (width <= 1) {
+    let a = compileJSStage(node.params![0], ctx);
+    let e = JS_ELEM[suffix];
+    if (!e) throw new Error(`[RMSL] Unknown JS unary op: ${suffix}`);
+    return { decls: a.decls, body: a.body, expr: e.fn([`(${a.expr})`]) };
+  }
+  jsRequireHelper(ctx, `v${width}${suffix}`);
+  let a = jsCompileOperand(node.params![0], ctx);
+  if (ctx.outTarget) {
+    return {
+      decls: a.decls,
+      body: [...a.body, `_v${width}${suffix}(${a.expr}, ${ctx.outTarget});`],
+      expr: ctx.outTarget,
+    };
+  }
+  return { decls: a.decls, body: a.body, expr: `_v${width}${suffix}(${a.expr})` };
+}
+
+/** A unary operation producing a vector written through an `out` slot. */
+function jsVecOutOp(node: BaseNode<ShaderType>, ctx: CompileCtx, suffix: string): CompiledNode {
+  let width = jsArrayLength(node.params![0]?._t);
+  jsRequireHelper(ctx, `v${width}${suffix}`);
+  let args = (node.params ?? []).map(p => jsCompileOperand(p, ctx));
+  let decls = args.flatMap(a => a.decls);
+  let body = args.flatMap(a => a.body);
+  if (ctx.outTarget) {
+    return {
+      decls,
+      body: [...body, `_v${width}${suffix}(${args.map(a => a.expr).join(", ")}, ${ctx.outTarget});`],
+      expr: ctx.outTarget,
+    };
+  }
+  return { decls, body, expr: `_v${width}${suffix}(${args.map(a => a.expr).join(", ")})` };
+}
+
+/** dot/length/distance — reduce to a scalar, so never written into a target. */
+function jsVecReduce(node: BaseNode<ShaderType>, ctx: CompileCtx, helper: string): CompiledNode {
+  jsRequireHelper(ctx, helper);
+  let a = jsCompileOperand(node.params![0], ctx);
+  let b = node.params![1] ? jsCompileOperand(node.params![1], ctx) : null;
+  let decls = b ? [...a.decls, ...b.decls] : a.decls;
+  let body = b ? [...a.body, ...b.body] : a.body;
+  return {
+    decls,
+    body,
+    expr: b ? `_${helper}(${a.expr}, ${b.expr})` : `_${helper}(${a.expr})`,
+  };
+}
+
+function jsComparison(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string): CompiledNode {
+  let width = Math.max(
+    jsArrayLength(node.params![0]?._t),
+    jsArrayLength(node.params![1]?._t),
+  );
+  if (width <= 1) {
+    let a = compileJSStage(node.params![0], ctx);
+    let b = compileJSStage(node.params![1], ctx);
+    let prec = PRECEDENCE[node.type] ?? 0;
+    return {
+      decls: [...a.decls, ...b.decls],
+      body: [...a.body, ...b.body],
+      expr: `${wrapExpr(a.prec, prec, a.expr)} ${op} ${wrapExpr(b.prec, prec, b.expr)}`,
+      prec,
+    };
+  }
+  let a = jsCompileOperand(node.params![0], ctx);
+  let b = jsCompileOperand(node.params![1], ctx);
+  if (ctx.outTarget) {
+    let lines = Array.from({ length: width }, (_, i) => `${ctx.outTarget}[${i}] = ${a.expr}[${i}] ${op} ${b.expr}[${i}];`);
+    return {
+      decls: [...a.decls, ...b.decls],
+      body: [...a.body, ...b.body, ...lines],
+      expr: ctx.outTarget,
+    };
+  }
+  let pieces = Array.from({ length: width }, (_, i) => `${a.expr}[${i}] ${op} ${b.expr}[${i}]`).join(", ");
+  return {
+    decls: [...a.decls, ...b.decls],
+    body: [...a.body, ...b.body],
+    expr: `[${pieces}]`,
+  };
+}
+
+function jsBitwise(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string): CompiledNode {
+  let a = compileJSStage(node.params![0], ctx);
+  let isUint = node._t === "uint";
+  let mask = isUint ? ">>> 0" : "| 0";
+  if (op === "~") {
+    return { decls: a.decls, body: a.body, expr: `(~(${a.expr})) ${mask}`, prec: PREC_UNARY };
+  }
+  let b = compileJSStage(node.params![1], ctx);
+  let sym = op === ">>" && isUint ? ">>>" : op;
+  return {
+    decls: [...a.decls, ...b.decls],
+    body: [...a.body, ...b.body],
+    expr: `((${a.expr}) ${sym} (${b.expr})) ${mask}`,
+    prec: PRECEDENCE[node.type] ?? 0,
+  };
+}
+
+function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
+  if (node === undefined || node === null) {
+    return { decls: [], body: [], expr: "0" };
+  }
+  if (typeof node === "boolean") {
+    return { decls: [], body: [], expr: node ? "true" : "false" };
+  }
+  if (typeof node === "number") {
+    return { decls: [], body: [], expr: String(node) };
+  }
+  if (Array.isArray(node)) {
+    return { decls: [], body: [], expr: `[${node.join(", ")}]` };
+  }
+
+  let seen = ctx.memo.get(node);
+  if (seen) return { decls: [], body: [], expr: seen.expr, prec: seen.prec };
+
+  let result = compileJSNode(node, ctx);
+  ctx.memo.set(node, result);
+  return result;
+}
+
+function compileJSNode(
+  node: BaseNode<ShaderType> | ShaderType extends never ? never : any,
+  ctx: CompileCtx,
+): CompiledNode {
+  let folded = tryFold(node);
+  if (folded) node = folded;
+
+  switch (node.type) {
+    case "float": return { decls: [], body: [], expr: String(node.value) };
+    case "int": return { decls: [], body: [], expr: String(node.value) };
+    case "uint": return { decls: [], body: [], expr: String(node.value) };
+    case "bool": return { decls: [], body: [], expr: node.value ? "true" : "false" };
+    case "vec2": case "vec3": case "vec4":
+    case "ivec2": case "ivec3": case "ivec4":
+    case "uvec2": case "uvec3": case "uvec4":
+    case "bvec2": case "bvec3": case "bvec4":
+    case "mat2": case "mat2x3": case "mat2x4":
+    case "mat3x2": case "mat3": case "mat3x4":
+    case "mat4x2": case "mat4x3": case "mat4": {
+      let values = node.value as number[];
+      if (ctx.outTarget) {
+        let lines = values.map((v, i) => `${ctx.outTarget}[${i}] = ${JSON.stringify(v)};`);
+        return { decls: [], body: lines, expr: ctx.outTarget };
+      }
+      return { decls: [], body: [], expr: `[${values.map(v => JSON.stringify(v)).join(", ")}]` };
+    }
+    case "void": return { decls: [], body: [], expr: "0" };
+
+    case "construct": {
+      let targetType = node._t as string;
+      // Scalar conversions (float/int/uint/bool casts).
+      if ((TYPE_WIDTH[targetType] ?? 0) === 1) {
+        let p = compileJSStage(node.params![0], ctx);
+        let expr = p.expr;
+        // A boolean becomes 1/0 first, matching float(bool)/int(bool) casts.
+        if (node.params![0]?._t === "bool") expr = `(${expr} ? 1 : 0)`;
+        if (targetType === "bool") expr = `(${expr} !== 0)`;
+        else if (targetType === "int") expr = `Math.trunc(${expr})`;
+        else if (targetType === "uint") expr = `(${expr} >>> 0)`;
+        return { decls: p.decls, body: p.body, expr };
+      }
+      let width = TYPE_WIDTH[targetType];
+      if (width !== undefined) {
+        // Vector construct: expand every operand's components into one array.
+        let compiled = (node.params ?? []).map((p: BaseNode<ShaderType>) => ({ c: jsCompileOperand(p, ctx), w: TYPE_WIDTH[p?._t] ?? 1 }));
+        let pieces: string[] = [];
+        let decls: string[] = [];
+        let body: string[] = [];
+        for (let { c, w } of compiled) {
+          decls.push(...c.decls);
+          body.push(...c.body);
+          if (w <= 1) pieces.push(c.expr);
+          else for (let i = 0; i < w; i++) pieces.push(`${c.expr}[${i}]`);
+        }
+        while (pieces.length < width) pieces.push("0");
+        pieces = pieces.slice(0, width);
+        if (ctx.outTarget) {
+          let writes = pieces.map((piece, i) => `${ctx.outTarget}[${i}] = ${piece};`);
+          return { decls, body: [...body, ...writes], expr: ctx.outTarget };
+        }
+        return { decls, body, expr: `[${pieces.join(", ")}]` };
+      }
+      let shape = MATRIX_DIMENSIONS[targetType];
+      if (shape) {
+        let [cols, rows] = shape;
+        let size = cols * rows;
+        if ((node.params ?? []).length === 1) {
+          let src = node.params![0];
+          if (MATRIX_DIMENSIONS[src?._t] !== undefined) {
+            // A matrix source: copy (or truncate/extend through the same shape).
+            let c = compileJSStage(src, ctx);
+            if (ctx.outTarget) {
+              jsRequireHelper(ctx, "copy");
+              return { decls: c.decls, body: [...c.body, `_copy(${c.expr}, ${ctx.outTarget});`], expr: ctx.outTarget };
+            }
+            return { decls: c.decls, body: c.body, expr: `${c.expr}.slice()` };
+          }
+          // A scalar source: the diagonal. Zero the whole slot first — it is a
+          // hoisted slot and could carry stale off-diagonal values from a
+          // previous call.
+          let s = compileJSStage(src, ctx);
+          if (ctx.outTarget) {
+            let zeroAll = Array(size).fill(0).map((_, i) => `${ctx.outTarget}[${i}] = 0;`);
+            let diag: string[] = [];
+            for (let col = 0; col < cols; col++) for (let row = 0; row < rows; row++) {
+              if (col === row) diag.push(`${ctx.outTarget}[${col * rows + row}] = ${s.expr};`);
+            }
+            return { decls: s.decls, body: [...s.body, ...zeroAll, ...diag], expr: ctx.outTarget };
+          }
+          jsRequireHelper(ctx, "matDiag");
+          return { decls: s.decls, body: s.body, expr: `_matDiag(${s.expr}, ${size}, ${rows + 1})` };
+        }
+        // Column-wise construction: each param is one column vector.
+        let compiled = (node.params ?? []).map((p: BaseNode<ShaderType>) => jsCompileOperand(p, ctx));
+        let decls = compiled.flatMap((c: CompiledNode) => c.decls);
+        let body = compiled.flatMap((c: CompiledNode) => c.body);
+        // Column-major flat layout: column 0's components first, then column 1.
+        let pieces: string[] = [];
+        for (let col = 0; col < cols; col++) for (let row = 0; row < rows; row++) {
+          pieces.push(`${compiled[col].expr}[${row}]`);
+        }
+        if (ctx.outTarget) {
+          let writes = pieces.map((piece, i) => `${ctx.outTarget}[${i}] = ${piece};`);
+          return { decls, body: [...body, ...writes], expr: ctx.outTarget };
+        }
+        return { decls, body, expr: `[${pieces.join(", ")}]` };
+      }
+      throw new Error(`[RMSL] Unsupported construct target in JS compiler: "${targetType}"`);
+    }
+
+    case "var": {
+      let varInfo = node.value as any;
+      let varName = varInfo?.varName;
+      if (ctx.jsParams.has(varName)) {
+        return { decls: [], body: [], expr: `ctx.params[${JSON.stringify(varName)}]` };
+      }
+      return jsLeafRef(varName, node._t, ctx);
+    }
+
+    case "uniform":
+    case "uniformArray": {
+      let v = node.value as any;
+      return jsLeafRef(`ctx.uniforms[${JSON.stringify(v.slot)}]`, v.shaderType ?? node._t, ctx);
+    }
+
+    case "uniformArrayElement": {
+      let arr = jsCompileOperand(node.params![0], ctx);
+      let idx = jsCompileOperand(node.params![1], ctx);
+      let element = `${arr.expr}[${idx.expr}]`;
+      if (ctx.outTarget && jsIsArrayType(node._t)) {
+        jsRequireHelper(ctx, "copy");
+        return { decls: [...arr.decls, ...idx.decls], body: [...arr.body, ...idx.body, `_copy(${element}, ${ctx.outTarget});`], expr: ctx.outTarget };
+      }
+      return { decls: [...arr.decls, ...idx.decls], body: [...arr.body, ...idx.body], expr: element };
+    }
+
+    case "attribute": {
+      let v = node.value as any;
+      return jsLeafRef(`ctx.attributes[${JSON.stringify(v.slot)}]`, v.shaderType ?? node._t, ctx);
+    }
+
+    case "varying": {
+      let v = node.value as any;
+      let slot = v?.slot;
+      // In a vertex stage a varying is an output, collected in the result so
+      // the host can read it back; in a fragment stage it is an input.
+      if (ctx.shaderStage === "vertex") {
+        ctx.jsNeedsRes = true;
+        return jsLeafRef(`res.varyings[${JSON.stringify(slot)}]`, v.shaderType ?? node._t, ctx);
+      }
+      return jsLeafRef(`ctx.varyings[${JSON.stringify(slot)}]`, v.shaderType ?? node._t, ctx);
+    }
+
+    case "output": {
+      let v = node.value as any;
+      ctx.jsNeedsRes = true;
+      return jsLeafRef(`res.outputs[${JSON.stringify(v.slot)}]`, v.shaderType ?? node._t, ctx);
+    }
+
+    case "builtinPosition": {
+      assertPositionIsReadable(ctx);
+      ctx.jsNeedsRes = true;
+      return jsLeafRef("res.position", "vec4", ctx);
+    }
+
+    case "builtinFragDepth": {
+      if (ctx.shaderStage !== "fragment") {
+        throw new Error("builtinFragDepth() can only be used in fragment shaders");
+      }
+      ctx.jsNeedsRes = true;
+      return { decls: [], body: [], expr: "res.fragDepth" };
+    }
+
+    case "swizzle": {
+      let src = jsCompileOperand(node.params![0], ctx);
+      let pattern = node.value as string;
+      let srcExpr = (src.prec ?? PREC_ATOM) < PREC_ATOM ? `(${src.expr})` : src.expr;
+      if (pattern.length === 1) {
+        return { decls: src.decls, body: src.body, expr: `${srcExpr}[${JS_COMPONENT_INDEX[pattern]}]` };
+      }
+      let idx = [...pattern].map(ch => JS_COMPONENT_INDEX[ch]);
+      if (ctx.outTarget) {
+        let lines = idx.map((j, i) => `${ctx.outTarget}[${i}] = ${srcExpr}[${j}];`);
+        return { decls: src.decls, body: [...src.body, ...lines], expr: ctx.outTarget };
+      }
+      return { decls: src.decls, body: src.body, expr: `[${idx.map(j => `${srcExpr}[${j}]`).join(", ")}]` };
+    }
+
+    case "negate": {
+      if (jsArrayLength(node.params![0]?._t) <= 1) {
+        let a = compileJSStage(node.params![0], ctx);
+        return { decls: a.decls, body: a.body, expr: `-${wrapExpr(a.prec, PREC_UNARY, a.expr)}`, prec: PREC_UNARY };
+      }
+      return jsUnaryMath(node, ctx, "neg");
+    }
+
+    case "not": {
+      let width = jsArrayLength(node.params![0]?._t);
+      if (width <= 1) {
+        let a = compileJSStage(node.params![0], ctx);
+        return { decls: a.decls, body: a.body, expr: `!${wrapExpr(a.prec, PREC_UNARY, a.expr)}`, prec: PREC_UNARY };
+      }
+      jsRequireHelper(ctx, `b${width}not`);
+      let a = jsCompileOperand(node.params![0], ctx);
+      if (ctx.outTarget) {
+        return { decls: a.decls, body: [...a.body, `_b${width}not(${a.expr}, ${ctx.outTarget});`], expr: ctx.outTarget };
+      }
+      return { decls: a.decls, body: a.body, expr: `_b${width}not(${a.expr})` };
+    }
+
+    case "all": return jsVecReduce(node, ctx, "ball");
+    case "any": return jsVecReduce(node, ctx, "bany");
+
+    case "add": return jsBinaryOp(node, ctx, "add");
+    case "sub": return jsBinaryOp(node, ctx, "sub");
+    case "mult": {
+      let aType = node.params![0]?._t;
+      let bType = node.params![1]?._t;
+      let aIsMat = MATRIX_DIMENSIONS[aType] !== undefined;
+      let bIsMat = MATRIX_DIMENSIONS[bType] !== undefined;
+      if (aIsMat && bIsMat) return jsMatMul(node, ctx);
+      if (aIsMat || bIsMat) {
+        // Matrix times scalar scales every element.
+        return jsVectorBinary(node, ctx, "mul", jsArrayLength(aIsMat ? aType : bType));
+      }
+      return jsBinaryOp(node, ctx, "mul");
+    }
+    case "div": {
+      let t = node.params![0]?._t;
+      return jsBinaryOp(node, ctx, t === "int" || t === "uint" ? "idiv" : "div");
+    }
+    case "mod": {
+      let t = node.params![0]?._t;
+      return jsBinaryOp(node, ctx, t === "int" || t === "uint" ? "imod" : "mod");
+    }
+    case "pow": return jsBinaryOp(node, ctx, "pow");
+    case "min": return jsBinaryOp(node, ctx, "min");
+    case "max": return jsBinaryOp(node, ctx, "max");
+    case "dot": return jsVecReduce(node, ctx, "vdot");
+    case "cross": return jsVecOutOp(node, ctx, "cross");
+    case "distance": return jsVecReduce(node, ctx, "vdist");
+    case "reflect": return jsVecOutOp(node, ctx, "reflect");
+    case "refract": return jsVecOutOp(node, ctx, "refract");
+    case "mix": return jsBinaryOp(node, ctx, "mix");
+    case "step": return jsBinaryOp(node, ctx, "step");
+    case "smoothstep": return jsBinaryOp(node, ctx, "smoothstep");
+    case "clamp": return jsBinaryOp(node, ctx, "clamp");
+    case "faceForward": return jsVecOutOp(node, ctx, "faceforward");
+
+    case "lessThan": return jsComparison(node, ctx, "<");
+    case "greaterThan": return jsComparison(node, ctx, ">");
+    case "lessThanEqual": return jsComparison(node, ctx, "<=");
+    case "greaterThanEqual": return jsComparison(node, ctx, ">=");
+    case "equal": return jsComparison(node, ctx, "===");
+    case "notEqual": return jsComparison(node, ctx, "!==");
+
+    case "and": {
+      let width = jsArrayLength(node.params![0]?._t);
+      if (width <= 1) {
+        let a = compileJSStage(node.params![0], ctx);
+        let b = compileJSStage(node.params![1], ctx);
+        let prec = PRECEDENCE[node.type] ?? 0;
+        return {
+          decls: [...a.decls, ...b.decls],
+          body: [...a.body, ...b.body],
+          expr: `${wrapExpr(a.prec, prec, a.expr)} && ${wrapExpr(b.prec, prec, b.expr)}`,
+          prec,
+        };
+      }
+      jsRequireHelper(ctx, `b${width}and`);
+      let a = jsCompileOperand(node.params![0], ctx);
+      let b = jsCompileOperand(node.params![1], ctx);
+      if (ctx.outTarget) {
+        return { decls: [...a.decls, ...b.decls], body: [...a.body, ...b.body, `_b${width}and(${a.expr}, ${b.expr}, ${ctx.outTarget});`], expr: ctx.outTarget };
+      }
+      return { decls: [...a.decls, ...b.decls], body: [...a.body, ...b.body], expr: `_b${width}and(${a.expr}, ${b.expr})` };
+    }
+    case "or": {
+      let width = jsArrayLength(node.params![0]?._t);
+      if (width <= 1) {
+        let a = compileJSStage(node.params![0], ctx);
+        let b = compileJSStage(node.params![1], ctx);
+        let prec = PRECEDENCE[node.type] ?? 0;
+        return {
+          decls: [...a.decls, ...b.decls],
+          body: [...a.body, ...b.body],
+          expr: `${wrapExpr(a.prec, prec, a.expr)} || ${wrapExpr(b.prec, prec, b.expr)}`,
+          prec,
+        };
+      }
+      jsRequireHelper(ctx, `b${width}or`);
+      let a = jsCompileOperand(node.params![0], ctx);
+      let b = jsCompileOperand(node.params![1], ctx);
+      if (ctx.outTarget) {
+        return { decls: [...a.decls, ...b.decls], body: [...a.body, ...b.body, `_b${width}or(${a.expr}, ${b.expr}, ${ctx.outTarget});`], expr: ctx.outTarget };
+      }
+      return { decls: [...a.decls, ...b.decls], body: [...a.body, ...b.body], expr: `_b${width}or(${a.expr}, ${b.expr})` };
+    }
+
+    case "bitAnd": return jsBitwise(node, ctx, "&");
+    case "bitOr": return jsBitwise(node, ctx, "|");
+    case "bitXor": return jsBitwise(node, ctx, "^");
+    case "shiftLeft": return jsBitwise(node, ctx, "<<");
+    case "shiftRight": return jsBitwise(node, ctx, ">>");
+    case "bitNot": return jsBitwise(node, ctx, "~");
+
+    case "matVecMul": {
+      let aType = node.params![0]?._t;
+      let bType = node.params![1]?._t;
+      let [c, r] = MATRIX_DIMENSIONS[aType];
+      let vlen = TYPE_WIDTH[bType] ?? c;
+      let mat = jsCompileOperand(node.params![0], ctx);
+      let vec = jsCompileOperand(node.params![1], ctx);
+      let name = `mat${c}x${r}mv${vlen}`;
+      jsRequireHelper(ctx, name);
+      if (ctx.outTarget) {
+        return {
+          decls: [...mat.decls, ...vec.decls],
+          body: [...mat.body, ...vec.body, `_${name}(${mat.expr}, ${vec.expr}, ${ctx.outTarget});`],
+          expr: ctx.outTarget,
+        };
+      }
+      return { decls: [...mat.decls, ...vec.decls], body: [...mat.body, ...vec.body], expr: `_${name}(${mat.expr}, ${vec.expr})` };
+    }
+
+    case "sin": return jsUnaryMath(node, ctx, "sin");
+    case "cos": return jsUnaryMath(node, ctx, "cos");
+    case "tan": return jsUnaryMath(node, ctx, "tan");
+    case "asin": return jsUnaryMath(node, ctx, "asin");
+    case "acos": return jsUnaryMath(node, ctx, "acos");
+    case "atan": return jsUnaryMath(node, ctx, "atan");
+    case "sinh": return jsUnaryMath(node, ctx, "sinh");
+    case "cosh": return jsUnaryMath(node, ctx, "cosh");
+    case "tanh": return jsUnaryMath(node, ctx, "tanh");
+    case "asinh": return jsUnaryMath(node, ctx, "asinh");
+    case "acosh": return jsUnaryMath(node, ctx, "acosh");
+    case "atanh": return jsUnaryMath(node, ctx, "atanh");
+    case "abs": return jsUnaryMath(node, ctx, "abs");
+    case "sign": return jsUnaryMath(node, ctx, "sign");
+    case "floor": return jsUnaryMath(node, ctx, "floor");
+    case "ceil": return jsUnaryMath(node, ctx, "ceil");
+    case "fract": return jsUnaryMath(node, ctx, "fract");
+    case "round": return jsUnaryMath(node, ctx, "round");
+    case "trunc": return jsUnaryMath(node, ctx, "trunc");
+    case "sqrt": return jsUnaryMath(node, ctx, "sqrt");
+    case "inversesqrt": return jsUnaryMath(node, ctx, "rsqrt");
+    case "exp": return jsUnaryMath(node, ctx, "exp");
+    case "log": return jsUnaryMath(node, ctx, "log");
+    case "exp2": return jsUnaryMath(node, ctx, "exp2");
+    case "log2": return jsUnaryMath(node, ctx, "log2");
+    case "normalize": return jsVecOutOp(node, ctx, "norm");
+    case "length": return jsVecReduce(node, ctx, "vlen");
+    case "transpose": return jsMatrixUnary(node, ctx, "T");
+    case "inverse":
+      assertSquareMatrix(node.params![0]?._t);
+      return jsMatrixUnary(node, ctx, "inv");
+    case "determinant": {
+      let brand = node.params![0]?._t;
+      let [c, r] = MATRIX_DIMENSIONS[brand];
+      let name = `mat${c}x${r}det`;
+      jsRequireHelper(ctx, name);
+      let a = compileJSStage(node.params![0], ctx);
+      return { decls: a.decls, body: a.body, expr: `_${name}(${a.expr})` };
+    }
+
+    case "fwidth":
+    case "dFdx":
+    case "dFdy": {
+      if (ctx.derivatives === "zero") {
+        let width = jsArrayLength(node.params![0]?._t);
+        if (width > 1) {
+          if (ctx.outTarget) {
+            let lines = Array.from({ length: width }, (_, i) => `${ctx.outTarget}[${i}] = 0;`);
+            return { decls: [], body: lines, expr: ctx.outTarget };
+          }
+          return { decls: [], body: [], expr: `[${jsZeroes(width)}]` };
+        }
+        return { decls: [], body: [], expr: "0" };
+      }
+      throw new Error(
+        `[RMSL] ${node.type} has no meaning on the CPU target. Compile with `
+        + `{ derivatives: "zero" } to evaluate it as 0.`,
+      );
+    }
+
+    case "matrixElement": {
+      let mat = jsCompileOperand(node.params![0], ctx);
+      let idx = jsCompileOperand(node.params![1], ctx);
+      let brand = node.params![0]?._t;
+      let [, rows] = MATRIX_DIMENSIONS[brand];
+      let matExpr = (mat.prec ?? PREC_ATOM) < PREC_ATOM ? `(${mat.expr})` : mat.expr;
+      if (ctx.outTarget) {
+        let lines = Array.from({ length: rows }, (_, row) => `${ctx.outTarget}[${row}] = ${matExpr}[(${idx.expr}) * ${rows} + ${row}];`);
+        return { decls: [...mat.decls, ...idx.decls], body: [...mat.body, ...idx.body, ...lines], expr: ctx.outTarget };
+      }
+      return {
+        decls: [...mat.decls, ...idx.decls],
+        body: [...mat.body, ...idx.body],
+        expr: `${matExpr}.slice((${idx.expr}) * ${rows}, (${idx.expr}) * ${rows} + ${rows})`,
+      };
+    }
+
+    case "vectorElement": {
+      let src = jsCompileOperand(node.params![0], ctx);
+      let idx = jsCompileOperand(node.params![1], ctx);
+      let srcExpr = (src.prec ?? PREC_ATOM) < PREC_ATOM ? `(${src.expr})` : src.expr;
+      return { decls: [...src.decls, ...idx.decls], body: [...src.body, ...idx.body], expr: `${srcExpr}[${idx.expr}]` };
+    }
+
+    case "texture":
+    case "textureLod": {
+      let samplerNode = node.params![0];
+      let samplerType = samplerNode?._t || "sampler2D";
+      let slot = (samplerNode.value as any)?.slot;
+      let isInteger = samplerType.startsWith("isampler") || samplerType.startsWith("usampler");
+      let is3D = samplerType.endsWith("3D");
+      if (!samplerType.endsWith("2D") && !is3D) {
+        throw new Error("[RMSL] The JS target supports sampler2D/sampler3D textures only.");
+      }
+      let texRef = `ctx.textures[${JSON.stringify(slot)}]`;
+      let coords = jsCompileOperand(node.params![1], ctx);
+      let helper = is3D ? (isInteger ? "texFetch3d" : "tex3d") : (isInteger ? "texFetch2d" : "tex2d");
+      jsRequireHelper(ctx, helper);
+      if (ctx.outTarget) {
+        return {
+          decls: coords.decls,
+          body: [...coords.body, `_${helper}(${texRef}, ${coords.expr}, ${ctx.outTarget});`],
+          expr: ctx.outTarget,
+        };
+      }
+      return { decls: coords.decls, body: coords.body, expr: `_${helper}(${texRef}, ${coords.expr})` };
+    }
+
+    case "let": {
+      let lhsNode = node.params![0];
+      let varName = (lhsNode.value as any)?.varName || (lhsNode as any)?.name;
+      ctx.varDefs.set(varName, lhsNode._t);
+      let rhsNode = node.params![1];
+      if (jsIsArrayType(rhsNode?._t)) {
+        let saved = ctx.outTarget;
+        ctx.outTarget = varName;
+        let rhs = compileJSStage(rhsNode, ctx);
+        ctx.outTarget = saved;
+        if (rhs.expr !== varName) {
+          jsRequireHelper(ctx, "copy");
+          return { decls: rhs.decls, body: [...rhs.body, `_copy(${rhs.expr}, ${varName});`], expr: varName };
+        }
+        return { decls: rhs.decls, body: rhs.body, expr: varName };
+      }
+      let rhs = compileJSStage(rhsNode, ctx);
+      return { decls: rhs.decls, body: [...rhs.body, `${varName} = ${rhs.expr};`], expr: varName };
+    }
+
+    case "assign": {
+      let targetNode = node.params![0];
+      if (targetNode?.type === "builtinPosition") ctx.positionWritten = true;
+      let rhsNode = node.params![1];
+
+      // A swizzle target: single components assign directly, multi-component
+      // ones split into per-component writes (JS has no `v.xy = e`).
+      if (targetNode?.type === "swizzle") {
+        let resolved = resolveSwizzleTarget(targetNode);
+        let base = compileJSStage(resolved.base, ctx);
+        if (resolved.pattern.length === 1) {
+          let rhs = compileJSStage(rhsNode, ctx);
+          return {
+            decls: [...base.decls, ...rhs.decls],
+            body: [...base.body, ...rhs.body, `${base.expr}[${JS_COMPONENT_INDEX[resolved.pattern[0]]}] = ${rhs.expr};`],
+            expr: base.expr,
+          };
+        }
+        let temp = jsNewTemp(ctx, rhsNode?._t || "float");
+        let saved = ctx.outTarget;
+        ctx.outTarget = temp;
+        let rhs = compileJSStage(rhsNode, ctx);
+        ctx.outTarget = saved;
+        let fill = rhs.expr === temp ? [] : [`${temp} = ${rhs.expr};`];
+        let writes = [...resolved.pattern].map((ch, i) => `${base.expr}[${JS_COMPONENT_INDEX[ch]}] = ${temp}[${i}];`);
+        return {
+          decls: [...base.decls, ...rhs.decls],
+          body: [...base.body, ...rhs.body, ...fill, ...writes],
+          expr: base.expr,
+        };
+      }
+
+      let lhs = compileJSStage(targetNode, ctx);
+      // Only a plain variable slot is written through out-mode helpers; an
+      // external sink (res.position, res.outputs[...], ctx.varyings[...]) takes
+      // the whole value in one assignment.
+      if (jsIsArrayType(rhsNode?._t) && isPlainJSIdentifier(lhs.expr)) {
+        let saved = ctx.outTarget;
+        ctx.outTarget = lhs.expr;
+        let rhs = compileJSStage(rhsNode, ctx);
+        ctx.outTarget = saved;
+        if (rhs.expr !== lhs.expr) {
+          jsRequireHelper(ctx, "copy");
+          return {
+            decls: [...lhs.decls, ...rhs.decls],
+            body: [...lhs.body, ...rhs.body, `_copy(${rhs.expr}, ${lhs.expr});`],
+            expr: lhs.expr,
+          };
+        }
+        return { decls: [...lhs.decls, ...rhs.decls], body: [...lhs.body, ...rhs.body], expr: lhs.expr };
+      }
+      let rhs = compileJSStage(rhsNode, ctx);
+      return {
+        decls: [...lhs.decls, ...rhs.decls],
+        body: [...lhs.body, ...rhs.body, `${lhs.expr} = ${rhs.expr};`],
+        expr: lhs.expr,
+      };
+    }
+
+    case "seq": {
+      let params = node.params ?? [];
+      let allDecls: string[] = [];
+      let allBody: string[] = [];
+      let expr = "0";
+      for (let p of params) {
+        let r = compileJSStage(p, ctx);
+        allDecls.push(...r.decls);
+        allBody.push(...r.body);
+        expr = r.expr;
+      }
+      return { decls: allDecls, body: allBody, expr };
+    }
+
+    case "if": {
+      let cond = compileJSStage(node.params![0], ctx);
+      let body = compileJSStage(node.params![1], ctx);
+      let elseBody = node.params!.length >= 3 && node.params![2] !== undefined
+        ? compileJSStage(node.params![2], ctx)
+        : { decls: [] as string[], body: [] as string[], expr: "0" };
+      let lines: string[] = [
+        ...cond.body,
+        `if (${cond.expr}) {`,
+        ...body.body.map(l => "  " + l),
+        "}",
+      ];
+      if (elseBody.body.length > 0) {
+        lines.push("else {");
+        lines.push(...elseBody.body.map(l => "  " + l));
+        lines.push("}");
+      }
+      return {
+        decls: [...cond.decls, ...body.decls, ...elseBody.decls],
+        body: lines,
+        expr: "0",
+      };
+    }
+
+    case "for": {
+      let init = compileJSStage(node.params![0], ctx);
+      let cond = compileJSStage(node.params![1], ctx);
+      let update = compileJSStage(node.params![2], ctx);
+      let body = compileJSStage(node.params![3], ctx);
+      let initExpr = init.expr;
+      let initBody = init.body;
+      if (init.body.length > 0) {
+        let lastStmt = init.body[init.body.length - 1];
+        if (lastStmt.endsWith(";")) {
+          initExpr = lastStmt.slice(0, -1);
+          initBody = init.body.slice(0, -1);
+        }
+      }
+      return {
+        decls: [...init.decls, ...cond.decls, ...update.decls, ...body.decls],
+        body: [
+          ...initBody,
+          ...cond.body,
+          `for (${initExpr}; ${cond.expr}; ${forUpdateStatements(update).map(withoutSemicolon).join(", ")}) {`,
+          ...body.body.map(l => "  " + l),
+          "}",
+        ],
+        expr: "0",
+      };
+    }
+
+    case "while": {
+      let cond = compileJSStage(node.params![0], ctx);
+      let body = compileJSStage(node.params![1], ctx);
+      return {
+        decls: [...cond.decls, ...body.decls],
+        body: [
+          ...cond.body,
+          `while (${cond.expr}) {`,
+          ...body.body.map(l => "  " + l),
+          "}",
+        ],
+        expr: "0",
+      };
+    }
+
+    case "discard": {
+      return { decls: [], body: ["return null;"], expr: "0" };
+    }
+
+    case "break": {
+      return { decls: [], body: ["break;"], expr: "0" };
+    }
+
+    case "continue": {
+      return { decls: [], body: ["continue;"], expr: "0" };
+    }
+
+    default:
+      throw new Error(`[RMSL] Unsupported node type in JS compiler: "${node.type}"`);
+  }
+}
+
+/** Values a host supplies to a compiled JS function. */
+export type JsShaderContext = {
+  params?: Record<string, unknown>;
+  uniforms?: Record<string, unknown>;
+  varyings?: Record<string, unknown>;
+  attributes?: Record<string, unknown>;
+  textures?: Record<string, JsTextureData>;
+};
+
+/** Texture data the JS target samples from. */
+export type JsTextureData = {
+  data: ArrayLike<number>;
+  width: number;
+  height: number;
+  depth?: number;
+};
+
+/**
+ * What a compiled JS function returns when the program writes outputs, a
+ * position or the fragment depth; otherwise the Fn's bare return value.
+ */
+export type JsShaderResult = {
+  value?: unknown;
+  outputs?: Record<string, unknown>;
+  varyings?: Record<string, unknown>;
+  position?: number[];
+  fragDepth?: number;
+};
+
+export type CompileJSOptions = CompileFnOptions & {
+  stage?: "vertex" | "fragment";
+  derivatives?: "throw" | "zero";
+  reentrant?: boolean;
+};
+
+/**
+ * Compile an Fn to JavaScript: a self-contained expression that evaluates to
+ * the callable. The expression is the scratch slots and helper functions in a
+ * closure, then `return function <name>(ctx) { ... }`, so a caller evaluates
+ * it with `new Function(source)()` or embeds it and assigns the result.
+ */
+export function compileJSFn(fn: (...args: any[]) => Node<ShaderType>, options: CompileJSOptions): string {
+  let stage = options.stage ?? "fragment";
+  let derivatives = options.derivatives ?? "throw";
+  let reentrant = options.reentrant ?? false;
+  const paramNodes = options.params.map(p => var_(p.name, p.type));
+  const result = fn(...paramNodes);
+  if (Array.isArray(result)) {
+    throw new Error(
+      "compileJSFn does not support multi-return functions. Define separate "
+      + "functions for each return value, or write to output()/builtinFragDepth().",
+    );
+  }
+
+  const ctx: CompileCtx = {
+    nextId: 0,
+    shaderStage: stage,
+    uniforms: new Map(),
+    attributes: new Map(),
+    varyings: new Map(),
+    outputs: new Map(),
+    wgslSamplers: new Map(),
+    varDefs: new Map(),
+    memo: new Map(),
+    wgslHelpers: new Set(),
+    positionWritten: false,
+    inFn: false,
+    fragDepthUsed: false,
+    jsParams: new Set(options.params.map(p => p.name)),
+    jsHelpers: new Set(),
+    outTarget: null,
+    derivatives,
+    reentrant,
+    jsNeedsRes: false,
+  };
+
+  const compiled = compileJSStage(result, ctx);
+  assertStageResult(stage, (result as any)?._t, ctx.positionWritten);
+
+  const body: string[] = [];
+  if (ctx.jsNeedsRes) body.push("var res = { outputs: {}, varyings: {} };");
+  if (reentrant) {
+    for (const [v, brand] of ctx.varDefs) {
+      let init = jsScratchLiteral(brand);
+      body.push(init ? `var ${v} = ${init};` : `var ${v} = 0;`);
+    }
+  }
+  body.push(...compiled.decls, ...compiled.body);
+  if (ctx.jsNeedsRes) {
+    body.push(`res.value = ${compiled.expr};`);
+    body.push("return res;");
+  } else {
+    body.push(`return ${compiled.expr};`);
+  }
+
+  let scratch = reentrant ? "" : [...ctx.varDefs].map(([v, brand]) => {
+    let init = jsScratchLiteral(brand);
+    return init ? `let ${v} = ${init};` : `let ${v};`;
+  }).join("\n");
+  let helpers = [...ctx.jsHelpers].sort().map(name => jsHelperSource(name)).join("\n\n");
+
+  let parts: string[] = [];
+  if (scratch) parts.push(scratch);
+  if (helpers) parts.push(helpers);
+  parts.push(`return function ${options.name}(ctx) {\n${body.map(l => "  " + l).join("\n")}\n};`);
+  return parts.join("\n\n");
+}
+
+/**
+ * Compile an Fn to an actual callable function, with the scratch slots and
+ * helper functions baked into its closure.
+ *
+ * The result is called as `fn(ctx)` where `ctx` is a `JsShaderContext`. Its
+ * scratch slots are shared across calls, so a call must finish before the next
+ * one starts — for screen picking one call per click that is the point. Pass
+ * `{ reentrant: true }` for per-call bindings instead.
+ */
+export function compileJS(fn: (...args: any[]) => Node<ShaderType>, options: CompileJSOptions): (ctx: JsShaderContext) => unknown {
+  const source = compileJSFn(fn, options);
+  const factory = new Function(source) as () => (ctx: JsShaderContext) => unknown;
+  return factory();
+}
+
 // === Standalone function compilers (for Three.js glslFn/wgslFn embedding) ===
 
 export type CompileFnOptions = {
@@ -4099,6 +5417,12 @@ function compileFnBody(
       positionWritten: false,
       inFn: false,
       fragDepthUsed: false,
+      jsParams: new Set(),
+      jsHelpers: new Set(),
+      outTarget: null,
+      derivatives: "throw",
+      reentrant: false,
+      jsNeedsRes: false,
     };
     const compiled = compileGLSLStage(result, ctx);
     const returnType = glslType((result as any)._t || "float");
@@ -4138,6 +5462,12 @@ function compileFnBody(
       positionWritten: false,
       inFn: false,
       fragDepthUsed: false,
+      jsParams: new Set(),
+      jsHelpers: new Set(),
+      outTarget: null,
+      derivatives: "throw",
+      reentrant: false,
+      jsNeedsRes: false,
     };
     const compiled = compileWGSLStage(result, ctx);
     const returnType = wgslType((result as any)._t || "float");

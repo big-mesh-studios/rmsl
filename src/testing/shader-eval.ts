@@ -12,7 +12,7 @@
  */
 
 import {
-  compileGLSLFn, compileWGSLFn, type Node,
+  compileGLSLFn, compileWGSLFn, compileJSFn, type Node,
 } from "../rmsl";
 
 // Written to rather than console.warn: vitest intercepts console output and
@@ -183,6 +183,24 @@ export async function runWGSL(code: string): Promise<number> {
 }
 
 /**
+ * Run an expression on the JS backend — in-process, no GPU, no browser.
+ *
+ * The result is exact JS f64 rather than the f32 the GPU backends return, so
+ * it is the natural arbiter when the two GPUs disagree: whatever the shaders
+ * compute, the CPU must agree with the caller's arithmetic.
+ */
+export function evaluateJS(build: Build, args: number[] = []): number {
+  const fn = compileJSFn(build, { name: "rmsl_eval", params: params(args.length) });
+  const callable = new Function(fn)() as (ctx: { params: Record<string, number> }) => number;
+  const ctx = { params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) };
+  const value = callable(ctx);
+  if (typeof value === "number") return value;
+  // A vector result: the first component, the same channel the GPU paths read.
+  if (Array.isArray(value)) return value[0] as number;
+  return value as unknown as number;
+}
+
+/**
  * Run an expression on both backends.
  *
  * Comparing the two against each other is the part text assertions cannot do:
@@ -198,6 +216,22 @@ export async function evaluateBoth(
     evaluateWGSL(build, args),
   ]);
   return { glsl, wgsl };
+}
+
+/**
+ * Run an expression on all three backends, for the cross-check a single pair
+ * cannot do alone: when GLSL and WGSL disagree, the JS result decides which is
+ * wrong.
+ */
+export async function evaluateAll(
+  build: Build,
+  args: number[] = [],
+): Promise<{ glsl: number; wgsl: number; js: number }> {
+  const [glsl, wgsl] = await Promise.all([
+    evaluateGLSL(build, args),
+    evaluateWGSL(build, args),
+  ]);
+  return { glsl, wgsl, js: evaluateJS(build, args) };
 }
 
 /** Release the browser and the graphics device held open across evaluations. */

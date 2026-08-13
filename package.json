@@ -9,6 +9,8 @@
     "webgpu",
     "webgl",
     "gpu",
+    "cpu",
+    "javascript",
     "node-graph",
     "typescript"
   ],

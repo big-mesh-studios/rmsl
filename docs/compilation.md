@@ -1,6 +1,6 @@
 # Compilation
 
-RMSL compiles node graphs to **GLSL** (WebGL 2 / OpenGL ES 3.0) or **WGSL** (WebGPU).
+RMSL compiles node graphs to **GLSL** (WebGL 2 / OpenGL ES 3.0), **WGSL** (WebGPU), or **JavaScript** (a CPU callable — see [JS / CPU Target](#js--cpu-target)).
 
 ## Compiler API
 
@@ -201,6 +201,129 @@ float scale(float v) {
   return (v * uScale);
 }
 ```
+
+## JS / CPU Target
+
+RMSL also compiles an `Fn` to a JavaScript callable that runs on the CPU — one
+fragment at a time. Its purpose is screen picking from a ray-marched scene:
+feed the per-pixel varyings and uniforms into the compiled function and read
+the colour/depth back, with no GPU round-trip.
+
+```typescript
+import { compileJS, compileJSFn, Fn, uniform, output, builtinFragDepth } from "rmsl";
+
+let pickFn = compileJS(calcColourAndDepth, { name: "pick", params: [] });
+// On pointerdown:
+let r = pickFn({
+  uniforms: {
+    _rmsl_u0: cameraPosition,          // each slot is the uniform's .name
+    _rmsl_u1: cameraViewMatrix,        // flat column-major arrays
+    // ...
+  },
+  varyings: { _rmsl_v0: positionGeometry },  // per-pixel, from the fragment coord
+});
+let colour = r.value;   // the Fn's return value (e.g. the ray-marched colour)
+let depth = r.fragDepth; // written via builtinFragDepth(), for the world pick point
+```
+
+### Value model
+
+| RMSL | JavaScript |
+|------|------------|
+| `float`/`int`/`uint`/`bool` | number / boolean |
+| `vec2`–`vec4`, `ivecN`, `uvecN`, `bvecN` | arrays `[x, y, z]` |
+| `matCxR` | flat column-major array of numbers |
+| `sampler2D`/`sampler3D` (and integer variants) | sampled from `ctx.textures[slot]` |
+
+Vectors and matrices are plain arrays, matching the flat `Float32Array`
+conventions the apps already use.
+
+### API
+
+```typescript
+compileJSFn(fn, options): string
+// A self-contained expression that evaluates to the callable:
+//   const fn = new Function(source)();
+
+compileJS(fn, options): (ctx) => value | result
+// The real callable, scratch and helpers baked into its closure.
+```
+
+Options extend the `Fn` compilers':
+
+- `stage`: `"fragment"` (default) or `"vertex"`.
+- `derivatives`: `"throw"` (default) or `"zero"`. Derivative ops have no meaning
+  for a single CPU evaluation; compile with `"zero"` to make shaders that use
+  `fwidth`/`dFdx`/`dFdy` runnable.
+- `reentrant`: `false` (default) or `true`. See *Scratch & reentrancy*.
+
+### The context object
+
+```typescript
+ctx = {
+  params?: Record<string, number | number[]>,
+  uniforms?: Record<string, number | number[]>,
+  varyings?: Record<string, number | number[]>,
+  attributes?: Record<string, number | number[]>,
+  textures?: Record<string, { data, width, height, depth? }>,
+}
+```
+
+Every key is the node's `.name` (`_rmsl_u0`, `_rmsl_v0`, …), which is how the
+host knows which slot holds which value. Scalars are numbers, vectors/matrices
+are arrays.
+
+### Return value
+
+If the program writes no `output()`, `builtinPosition()` or
+`builtinFragDepth()`, the callable returns the Fn's value directly. If it
+writes any of them, it returns:
+
+```typescript
+{
+  value:    <the Fn's return value>,
+  outputs:  { [slot]: <value> },   // from output()
+  varyings: { [slot]: <value> },   // from varying() in a vertex stage
+  position: <vec4>,                // from builtinPosition()
+  fragDepth: <number>,             // from builtinFragDepth()
+}
+```
+
+This is what surfaces the picking depth: `calcColourAndDepth` assigns
+`builtinFragDepth()`, so `result.fragDepth` gives the distance along the ray.
+
+### Scratch & reentrancy
+
+Internal `toVar()` variables live in per-program scratch slots *outside* the
+callable, preallocated once (scalars as bare `let`s, vectors/matrices as
+zeroed arrays). Vector/matrix helpers take a trailing output array, so an
+assignment writes in place: a per-pixel call allocates nothing beyond the
+result. Because shaders cannot recurse, no compiled function can clobber its
+own scratch through nested calls.
+
+The trade-off: the scratch is shared across calls, so two *overlapping* calls
+to the same function must not be in flight at once. For a pick handler that is
+one call per click — the point. If you need re-entrant use (e.g. a pick
+triggered from inside another pick), compile with `{ reentrant: true }`, which
+declares the variables inside the callable instead.
+
+### Sampling
+
+Float textures sample with nearest-neighbour lookup at normalized coordinates;
+integer textures (`isampler*`/`usampler*`) fetch at texel coordinates. The
+`textureLod` LOD argument is ignored. Data is RGBA in a flat array.
+
+### Caveats
+
+- The JS target computes f64, the GPUs f32 — results can differ by a ULP or
+  two, which is why the evaluation tests compare within a tolerance.
+- `compileJS` uses `new Function`, which a strict Content-Security-Policy can
+  block; `compileJSFn` returns the source so you can embed it in an approved
+  context instead.
+- `discard()` compiles to `return null;` — the host treats `null` as
+  "no fragment".
+- Non-square matrix multiplication, samplerCube and mirror/repeat texture
+  wrapping are not supported yet.
 
 ## Type Mappings
 
