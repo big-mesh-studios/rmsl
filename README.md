@@ -1,7 +1,7 @@
 # RMSL (Random Mesh Shading Language)
 
 [![npm version](https://badge.fury.io/js/%40random-mesh%2Frmsl.svg)](https://www.npmjs.com/package/@random-mesh/rmsl)
-[![GitHub Repo stars](https://img.shields.io/github/stars/clinuxrulz/rmsl?style=social)](https://github.com/clinuxrulz/rmsl)
+[![GitHub Repo stars](https://img.shields.io/github/stars/big-mesh-studios/rmsl?style=social)](https://github.com/big-mesh-studios/rmsl)
 
 A TypeScript DSL for building shader programs. Define a node graph in TypeScript and compile it to **GLSL** (WebGL 2), **WGSL** (WebGPU), or **JavaScript** (a CPU callable for screen picking and other per-pixel host-side work).
 
@@ -34,12 +34,12 @@ let js = compileJS(() => prog());   // fn(ctx) -> color, run on the CPU
 
 ## Documentation
 
-- [Getting Started](https://github.com/clinuxrulz/rmsl/blob/main/docs/getting-started.md) - Quick setup and hello world
-- [API Reference](https://github.com/clinuxrulz/rmsl/blob/main/docs/api.md) - Full type system, constructors, and operations
-- [Compilation](https://github.com/clinuxrulz/rmsl/blob/main/docs/compilation.md) - GLSL/WGSL output, type mappings, binding model
-- [Contributing](https://github.com/clinuxrulz/rmsl/blob/main/CONTRIBUTING.md) - Test setup, and how to add an operation or a shader type
+- [Getting Started](https://github.com/big-mesh-studios/rmsl/blob/main/docs/getting-started.md) - Quick setup and hello world
+- [API Reference](https://github.com/big-mesh-studios/rmsl/blob/main/docs/api.md) - Full type system, constructors, and operations
+- [Compilation](https://github.com/big-mesh-studios/rmsl/blob/main/docs/compilation.md) - GLSL/WGSL output, type mappings, binding model
+- [Contributing](https://github.com/big-mesh-studios/rmsl/blob/main/CONTRIBUTING.md) - Test setup, and how to add an operation or a shader type
 
 ## Links
 
-- [GitHub Repository](https://github.com/clinuxrulz/rmsl)
+- [GitHub Repository](https://github.com/big-mesh-studios/rmsl)
 - [npm Package](https://www.npmjs.com/package/@random-mesh/rmsl)
