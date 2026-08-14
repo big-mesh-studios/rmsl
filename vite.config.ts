@@ -4,18 +4,20 @@ import dts from 'vite-plugin-dts'
 export default defineConfig({
   build: {
     lib: {
-      entry: 'src/rmsl.ts',
-      name: 'rmsl',
-      fileName: 'rmsl',
+      entry: {
+        rmsl: 'src/rmsl.ts',
+        vite: 'src/vite.ts',
+      },
       formats: ['es'],
+      fileName: (_format, entryName) => `${entryName}.js`,
     },
     rollupOptions: {
-      external: [],
+      external: ['esbuild', 'vite'],
     },
   },
   plugins: [
     dts({
-      include: ['src/rmsl.ts'],
+      include: ['src/rmsl.ts', 'src/vite.ts'],
       outDir: 'dist',
       rollupTypes: true,
     }),
