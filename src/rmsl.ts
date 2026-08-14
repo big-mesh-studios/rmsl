@@ -5022,8 +5022,20 @@ function compileJSNode(
       }
       let width = TYPE_WIDTH[targetType];
       if (width !== undefined) {
+        let params = node.params ?? [];
+        // GLSL and WGSL broadcast a lone scalar operand across every component
+        // — vec3(2.0) is (2.0, 2.0, 2.0) — so the JS backend must too. Multiple
+        // operands instead fill components in order, zero-filling the rest.
+        if (params.length === 1 && (TYPE_WIDTH[params[0]?._t] ?? 1) <= 1) {
+          let c = jsCompileOperand(params[0], ctx);
+          if (ctx.outTarget) {
+            let writes = Array.from({ length: width }, (_, i) => `${ctx.outTarget}[${i}] = ${c.expr};`);
+            return { decls: c.decls, body: [...c.body, ...writes], expr: ctx.outTarget };
+          }
+          return { decls: c.decls, body: c.body, expr: `[${Array(width).fill(c.expr).join(", ")}]` };
+        }
         // Vector construct: expand every operand's components into one array.
-        let compiled = (node.params ?? []).map((p: BaseNode<ShaderType>) => ({ c: jsCompileOperand(p, ctx), w: TYPE_WIDTH[p?._t] ?? 1 }));
+        let compiled = params.map((p: BaseNode<ShaderType>) => ({ c: jsCompileOperand(p, ctx), w: TYPE_WIDTH[p?._t] ?? 1 }));
         let pieces: string[] = [];
         let decls: string[] = [];
         let body: string[] = [];

@@ -120,6 +120,16 @@ describe("JS backend: vector arithmetic", () => {
     expect(h({ params: { a: [5, 5, 5] } })).toEqual([4, 4, 4]);
   });
 
+  it("broadcasts a lone scalar vector constructor across every component", () => {
+    // GLSL/WGSL vec3(2.0) is (2.0, 2.0, 2.0), and the JS backend must match.
+    const f = compileJS(() => vec3(2), { name: "main", params: [] });
+    expect(f({})).toEqual([2, 2, 2]);
+    const g = compileJS(() => vec4(0.5), { name: "main", params: [] });
+    expect(g({})).toEqual([0.5, 0.5, 0.5, 0.5]);
+    const v = compileJS(() => vec2(-1), { name: "main", params: [] });
+    expect(v({})).toEqual([-1, -1]);
+  });
+
   it("computes dot, cross, length, distance and normalize", () => {
     const dot = compileJS((a: any, b: any) => a.dot(b), {
       name: "main", params: [{ name: "a", type: "vec3" }, { name: "b", type: "vec3" }],
