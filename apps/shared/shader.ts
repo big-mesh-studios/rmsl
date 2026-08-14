@@ -1,6 +1,6 @@
 import {
   float, Fn, If, uniform, varying, output,
-  attribute, boolean, Node, vec2, vec3, vec4, builtinFragDepth,
+  attribute, bool, Node, vec2, vec3, vec4, builtinFragDepth,
 } from "@random-mesh/rmsl";
 
 // === I/O declarations ===
@@ -25,11 +25,11 @@ export let getGrid = Fn((size: Node<"float">, p: Node<"vec3">, fw: Node<"vec2">)
   let r = p.xz.div(size).toVar();
   let grid = r.sub(0.5).fract().sub(0.5).abs().div(fw.div(size));
   let line = grid.x.min(grid.y);
-  return float(1.0).sub(line.mult(0.5).min(1.0));
+  return float(1.0).sub(line.mul(0.5).min(1.0));
 });
 
 export let calcColourAndDepth = Fn(() => {
-  let isOrthographic = boolean(false).toVar();
+  let isOrthographic = bool(false).toVar();
 
   let skyColour = vec3(0.3, 0.4, 0.6);
   let horizSkyColour = vec3(0.5, 0.5, 0.6);
@@ -46,13 +46,13 @@ export let calcColourAndDepth = Fn(() => {
     ro.assign(positionWorld);
   }).Else(() => {
     ro.assign(cameraPosition);
-    let viewPos = cameraProjectionMatrixInverse.mult(vec4(positionGeometry.x, positionGeometry.y, -1.0, 1.0));
-    let worldDir = cameraWorldMatrix.mult(vec4(viewPos.x, viewPos.y, viewPos.z, 0.0));
+    let viewPos = cameraProjectionMatrixInverse.mul(vec4(positionGeometry.x, positionGeometry.y, -1.0, 1.0));
+    let worldDir = cameraWorldMatrix.mul(vec4(viewPos.x, viewPos.y, viewPos.z, 0.0));
     rd.assign(worldDir.xyz.normalize());
   });
 
   // Compute ground intersection and its screen-space derivative (uniform control flow)
-  let p = ro.add(rd.mult(ro.y.negate().div(rd.y))).toVar();
+  let p = ro.add(rd.mul(ro.y.negate().div(rd.y))).toVar();
   let pFWidth = p.xz.fwidth().toVar();
 
   let colour = vec3(0.7, 0.7, 0.7).toVar();
@@ -90,14 +90,14 @@ export let calcColourAndDepth = Fn(() => {
       If(isOrthographic, () => {
         refDist.assign(float(1.0).div(cameraProjectionMatrix.element(0).x.abs().max(float(0.001))));
       }).Else(() => {
-        refDist.assign(cameraPosition.y.abs().mult(0.1).max(float(0.001)));
+        refDist.assign(cameraPosition.y.abs().mul(0.1).max(float(0.001)));
       });
       let exponent = refDist.log().div(float(Math.log(10))).floor().clamp(-3, 6);
       let minorSize = float(10.0).pow(exponent);
       let g1 = getGrid(minorSize, p, pFWidth).toVar();
-      let g2 = getGrid(minorSize.mult(10.0), p, pFWidth).toVar();
-      let fc = vec4(1.0, 1.0, 1.0, g2.mix(g1, g1).mult(fadeFactor)).toVar();
-      let fca = fc.a.mult(0.5).mix(fc.a, g2);
+      let g2 = getGrid(minorSize.mul(10.0), p, pFWidth).toVar();
+      let fc = vec4(1.0, 1.0, 1.0, g2.mix(g1, g1).mul(fadeFactor)).toVar();
+      let fca = fc.a.mul(0.5).mix(fc.a, g2);
       If(fca.lessThanEqual(0.0), () => {
         colour.assign(groundColour);
       }).Else(() => {
@@ -108,10 +108,10 @@ export let calcColourAndDepth = Fn(() => {
 
   If(rd.y.lessThan(-0.001), () => {
     let t = ro.y.negate().div(rd.y);
-    let p = ro.add(rd.mult(t));
-    let clipPos = cameraProjectionMatrix.mult(cameraViewMatrix).mult(vec4(p.x, p.y, p.z, 1.0)).toVar();
+    let p = ro.add(rd.mul(t));
+    let clipPos = cameraProjectionMatrix.mul(cameraViewMatrix).mul(vec4(p.x, p.y, p.z, 1.0)).toVar();
     let ndcZ = clipPos.z.div(clipPos.w);
-    fragDepth.assign(ndcZ.mult(0.5).add(0.5));
+    fragDepth.assign(ndcZ.mul(0.5).add(0.5));
   });
 
   outColor.assign(vec4(colour, 1.0));
@@ -119,7 +119,7 @@ export let calcColourAndDepth = Fn(() => {
 });
 
 // === Matrix math utilities (column-major Float32Array) ===
-export function mat4Perspective(fovY: number, aspect: number, near: number, far: number): Float32Array {
+export function mat4Perspective(fovY: number, aspect: number, near: number, far: number): Float32Array<ArrayBuffer> {
   let f = 1 / Math.tan(fovY / 2);
   let nf = 1 / (near - far);
   return new Float32Array([
@@ -130,7 +130,7 @@ export function mat4Perspective(fovY: number, aspect: number, near: number, far:
   ]);
 }
 
-export function mat4LookAt(eyeX: number, eyeY: number, eyeZ: number, cx: number, cy: number, cz: number, upX: number, upY: number, upZ: number): Float32Array {
+export function mat4LookAt(eyeX: number, eyeY: number, eyeZ: number, cx: number, cy: number, cz: number, upX: number, upY: number, upZ: number): Float32Array<ArrayBuffer> {
   let zx = eyeX - cx, zy = eyeY - cy, zz = eyeZ - cz;
   let zl = Math.sqrt(zx * zx + zy * zy + zz * zz);
   zx /= zl; zy /= zl; zz /= zl;
@@ -153,7 +153,7 @@ export function mat4LookAt(eyeX: number, eyeY: number, eyeZ: number, cx: number,
   ]);
 }
 
-export function mat4Inverse(m: Float32Array): Float32Array {
+export function mat4Inverse(m: Float32Array): Float32Array<ArrayBuffer> {
   let a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3];
   let a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7];
   let a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11];

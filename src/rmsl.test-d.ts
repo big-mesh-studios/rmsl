@@ -9,9 +9,10 @@
 
 import { describe, it, expectTypeOf } from "vitest";
 import {
-  Fn, float, vec2, vec3, vec4, int, uint, boolean, ivec2, ivec3, ivec4,
+  Fn, float, vec2, vec3, vec4, int, uint, bool, ivec2, ivec3, ivec4,
   uvec2, uvec3, uvec4, uniform, mat3, mat4,
-  compileGLSL, compileWGSL, type Node,
+  mul, dot, length, distance, all, any, determinant,
+  compileGLSL, compileWGSL, type Node, type ShaderType,
 } from "./rmsl";
 
 describe("comparison result types", () => {
@@ -147,9 +148,9 @@ describe("matrix operations", () => {
 
   // Multiplying takes one component per column and gives one per row.
   it("types a matrix times a vector by the matrix's shape", () => {
-    expectTypeOf(uniform("mat2x3").mult(vec2(1, 2))).toEqualTypeOf<Node<"vec3">>();
-    expectTypeOf(uniform("mat3x2").mult(vec3(1, 2, 3))).toEqualTypeOf<Node<"vec2">>();
-    expectTypeOf(uniform("mat4").mult(vec4(1, 2, 3, 4))).toEqualTypeOf<Node<"vec4">>();
+    expectTypeOf(uniform("mat2x3").mul(vec2(1, 2))).toEqualTypeOf<Node<"vec3">>();
+    expectTypeOf(uniform("mat3x2").mul(vec3(1, 2, 3))).toEqualTypeOf<Node<"vec2">>();
+    expectTypeOf(uniform("mat4").mul(vec4(1, 2, 3, 4))).toEqualTypeOf<Node<"vec4">>();
   });
 
   // Only a square matrix has an inverse, and the compiler refuses the rest.
@@ -165,7 +166,7 @@ describe("declared variables", () => {
     expectTypeOf(uniform("vec3").name).toEqualTypeOf<string>();
     expectTypeOf(uniform("vec3").x).toEqualTypeOf<Node<"float">>();
     expectTypeOf(uniform("vec3").normalize()).toEqualTypeOf<Node<"vec3">>();
-    expectTypeOf(uniform("mat4").mult(vec4(1, 2, 3, 4))).toEqualTypeOf<Node<"vec4">>();
+    expectTypeOf(uniform("mat4").mul(vec4(1, 2, 3, 4))).toEqualTypeOf<Node<"vec4">>();
   });
 });
 
@@ -248,7 +249,7 @@ describe("casts and conversions", () => {
     expectTypeOf(uint(5)).toEqualTypeOf<Node<"uint">>();
     expectTypeOf(uint(float(2.5))).toEqualTypeOf<Node<"uint">>();
     expectTypeOf(int(float(2.5))).toEqualTypeOf<Node<"int">>();
-    expectTypeOf(boolean(int(1))).toEqualTypeOf<Node<"bool">>();
+    expectTypeOf(bool(int(1))).toEqualTypeOf<Node<"bool">>();
   });
 
   it("types the chained conversions", () => {
@@ -262,5 +263,36 @@ describe("casts and conversions", () => {
     expectTypeOf(vec4(1, 2, 3, 4).toBVec4()).toEqualTypeOf<Node<"bvec4">>();
     expectTypeOf(float(1).toMat4()).toEqualTypeOf<Node<"mat4">>();
     expectTypeOf(float(1).convert("uvec3")).toEqualTypeOf<Node<"uvec3">>();
+  });
+});
+
+describe("TSL free-function API", () => {
+  it("types the reducing free functions", () => {
+    expectTypeOf(dot(vec3(1, 2, 3), vec3(4, 5, 6))).toEqualTypeOf<Node<"float">>();
+    expectTypeOf(length(vec3(1, 2, 3))).toEqualTypeOf<Node<"float">>();
+    expectTypeOf(distance(vec2(0, 0), vec2(1, 1))).toEqualTypeOf<Node<"float">>();
+    expectTypeOf(all(vec3(1, 2, 3).greaterThan(0))).toEqualTypeOf<Node<"bool">>();
+    expectTypeOf(any(vec3(1, 2, 3).lessThan(0))).toEqualTypeOf<Node<"bool">>();
+    expectTypeOf(determinant(uniform("mat4"))).toEqualTypeOf<Node<"float">>();
+  });
+
+  it("accepts raw numbers and arrays", () => {
+    expectTypeOf(mul(2, 3)).toMatchTypeOf<Node<ShaderType>>();
+    expectTypeOf(dot(vec3(1, 0, 0), [1, 2, 3])).toEqualTypeOf<Node<"float">>();
+  });
+
+  it("types the matrix multiply overloads", () => {
+    expectTypeOf(uniform("mat4").mul(vec4(1, 2, 3, 4))).toEqualTypeOf<Node<"vec4">>();
+    expectTypeOf(uniform("mat4").mul(vec3(1, 2, 3))).toEqualTypeOf<Node<"vec3">>();
+    expectTypeOf(uniform("mat3").mul(vec2(1, 2))).toEqualTypeOf<Node<"vec2">>();
+    expectTypeOf(uniform("mat4").mul(uniform("mat4"))).toEqualTypeOf<Node<"mat4">>();
+  });
+
+  it("types stpq swizzles by the source type", () => {
+    expectTypeOf(vec4(1, 2, 3, 4).stpq).toEqualTypeOf<Node<"vec4">>();
+    expectTypeOf(vec4(1, 2, 3, 4).st).toEqualTypeOf<Node<"vec2">>();
+    expectTypeOf(vec3(1, 2, 3).p).toEqualTypeOf<Node<"float">>();
+    expectTypeOf(ivec3(1, 2, 3).stp).toEqualTypeOf<Node<"ivec3">>();
+    expectTypeOf(uvec2(1, 2).st).toEqualTypeOf<Node<"uvec2">>();
   });
 });

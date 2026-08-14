@@ -19,7 +19,7 @@ let isDragging = false;
 let lastMX = 0;
 let lastMY = 0;
 
-function getViewMatrix(): Float32Array {
+function getViewMatrix(): Float32Array<ArrayBuffer> {
   let eyeX = radius * Math.sin(theta) * Math.cos(phi);
   let eyeY = radius * Math.sin(phi);
   let eyeZ = radius * Math.cos(theta) * Math.cos(phi);

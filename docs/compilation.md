@@ -186,7 +186,7 @@ Uniforms referenced inside the function body are declared automatically with the
 let glsl = compileGLSLFn(
   (v) => {
     let u = uniformRaw("uScale", "float");
-    return v.mult(u);
+    return v.mul(u);
   },
   { name: "scale", params: [{ name: "v", type: "float" }] },
 );
@@ -320,7 +320,7 @@ integer textures (`isampler*`/`usampler*`) fetch at texel coordinates. The
 - `compileJS` uses `new Function`, which a strict Content-Security-Policy can
   block; `compileJSFn` returns the source so you can embed it in an approved
   context instead.
-- `discard()` compiles to `return null;` — the host treats `null` as
+- `Discard()` compiles to `return null;` — the host treats `null` as
   "no fragment".
 - Non-square matrix multiplication, samplerCube and mirror/repeat texture
   wrapping are not supported yet.
@@ -390,7 +390,7 @@ let y = int(5).add(int(3));           // -> 8
 let z = float(0.5).sin();             // -> ~0.479
 ```
 
-This applies to: `add`, `sub`, `mult`, `div`, `mod`, `negate`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `abs`, `sign`, `floor`, `ceil`, `round`, `trunc`, `fract`, `sqrt`, `inversesqrt`, `exp`, `log`, `exp2`, `log2`, `pow`, `min`, `max`, `dot` (on scalars, via `lengthSq`).
+This applies to: `add`, `sub`, `mul`, `div`, `mod`, `negate`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `abs`, `sign`, `floor`, `ceil`, `round`, `trunc`, `fract`, `sqrt`, `inverseSqrt`, `exp`, `log`, `exp2`, `log2`, `pow`, `min`, `max`, `dot` (on scalars, via `lengthSq`).
 
 ## Type Coercion (WGSL)
 

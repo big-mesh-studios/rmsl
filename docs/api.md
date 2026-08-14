@@ -9,10 +9,10 @@
 | `float` | `(v: number \| Node<"int">) => Node<"float">` | Float literal or cast from int |
 | `int` | `(v: number \| Node<"float">) => Node<"int">` | Int literal or cast from float |
 | `uint` | `(v: number \| Node<"float"> \| Node<"int">) => Node<"uint">` | Unsigned literal or cast; refuses negatives |
-| `boolean` | `(v: boolean \| Node<"float"> \| Node<"int"> \| Node<"uint">) => Node<"bool">` | Bool literal or cast from a number |
+| `bool` | `(v: boolean \| Node<"float"> \| Node<"int"> \| Node<"uint">) => Node<"bool">` | Bool literal or cast from a number |
 
-`bvec2`, `bvec3` and `bvec4` complete the type set. They have no constructor:
-they are what a component-wise comparison produces. See
+`bvec2`, `bvec3` and `bvec4` are what a component-wise comparison produces and
+can also be built directly with `bvec2(...)`, `bvec3(...)`, `bvec4(...)`. See
 [BoolVecOps](#boolvecops-bvec2-bvec3-bvec4).
 
 ### Vectors
@@ -61,7 +61,7 @@ typed as its component (`ivec2(1, 2).add(3)` adds the integer `3`).
 |--------|---------|-------------|
 | `.add(other)` | Self | Addition |
 | `.sub(other)` | Self | Subtraction |
-| `.mult(other)` | Self | Multiplication |
+| `.mul(other)` | Self | Multiplication |
 | `.div(other)` | Self | Division |
 | `.negate()` | Self | Negation |
 
@@ -75,7 +75,7 @@ is a scalar of the same kind (`ivec2.add(3)`), which both backends broadcast.
 
 **Utility:** `.abs()`, `.sign()`, `.floor()`, `.ceil()`, `.fract()`, `.round()`, `.trunc()`, `.radians()`, `.degrees()`
 
-**Exponential:** `.sqrt()`, `.inversesqrt()`, `.exp()`, `.log()`, `.exp2()`, `.log2()`, `.cbrt()`
+**Exponential:** `.sqrt()`, `.inverseSqrt()` (`.inversesqrt()` kept as an alias, as TSL keeps it), `.exp()`, `.log()`, `.exp2()`, `.log2()`, `.cbrt()`
 
 **Derived:** `.reciprocal()` (1/x), `.oneMinus()` (1−x), `.lengthSq()` (dot of self),
 `.saturate()` (clamp to 0…1), `.pow2()`, `.pow3()`, `.pow4()`
@@ -136,16 +136,14 @@ let inside = pos.lessThan(vec3(1, 1, 1)).all();   // Node<"bool">
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `.mult(other)` | Self | Matrix multiplication |
-| `.multVec(vec3)` | `vec3` | Matrix x vec3 (promotes to vec4 with w=1) |
-| `.multVec4(vec4)` | `vec4` | Matrix x vec4 |
+| `.mul(other)` | Self / vec | Matrix multiplication. A matrix times a vector of its column width gives that vector's result; a vector one component shorter (e.g. `mat4 * vec3`) is a position with its homogeneous `w = 1` implied, promoted and truncated by the compilers. |
 | `.inverse()` | Self | Matrix inverse |
 | `.transpose()` | Self | Matrix transpose |
 | `.determinant()` | `float` | Scalar determinant |
 
 ### IntOps
 
-Arithmetic: `.add()`, `.sub()`, `.mult()`, `.div()`, `.mod()`, `.negate()`, `.abs()`, `.min()`, `.max()`, `.clamp()`
+Arithmetic: `.add()`, `.sub()`, `.mul()`, `.div()`, `.mod()`, `.negate()`, `.abs()`, `.min()`, `.max()`, `.clamp()`
 
 Bitwise: `.bitAnd()`, `.bitOr()`, `.bitXor()`, `.shiftLeft()`, `.shiftRight()`, `.bitNot()`
 
@@ -155,7 +153,7 @@ All return `Node<"int">` (arithmetic/bitwise) or `Node<"bool">` (comparisons).
 
 ### UintOps
 
-Arithmetic: `.add()`, `.sub()`, `.mult()`, `.div()`, `.mod()`, `.min()`, `.max()`, `.clamp()`
+Arithmetic: `.add()`, `.sub()`, `.mul()`, `.div()`, `.mod()`, `.min()`, `.max()`, `.clamp()`
 
 Bitwise: `.bitAnd()`, `.bitOr()`, `.bitXor()`, `.shiftLeft()`, `.shiftRight()`, `.bitNot()`
 
@@ -166,7 +164,7 @@ Same result types as IntOps but unsigned. There is deliberately no `.negate()`/
 
 ### IVecOps (ivec2, ivec3, ivec4)
 
-Component-wise integer vectors. Arithmetic `.add/sub/mult/div/mod`, bitwise
+Component-wise integer vectors. Arithmetic `.add/sub/mul/div/mod`, bitwise
 `.bitAnd/bitOr/bitXor/shiftLeft/shiftRight/bitNot`, plus `.negate()`, `.abs()`,
 `.min()`, `.max()`, `.clamp()`, and `.element(i)` → `Node<"int">`. Comparisons
 reduce to `bvecN`. An operand that is an `int` scalar is broadcast.
@@ -243,9 +241,17 @@ which does apply to `vecN<bool>`.
 
 ## Swizzles
 
-**vec3:** `.x`, `.y`, `.z`, `.r`, `.g`, `.b`, `.xy`, `.xz`, `.yz`, `.xyz`, `.rgb`
+All three component spellings are available, matching GLSL/WGSL and TSL:
 
-**vec4:** `.x`, `.y`, `.z`, `.w`, `.r`, `.g`, `.b`, `.a`, `.xy`, `.xz`, `.xw`, `.yz`, `.yw`, `.zw`, `.xyz`, `.xyw`, `.xzw`, `.yzw`, `.rgb`, `.rgba`
+| Set | Components |
+|-----|-----------|
+| `xyzw` | `.x`, `.y`, `.z`, `.w` |
+| `rgba` | `.r`, `.g`, `.b`, `.a` |
+| `stpq` | `.s`, `.t`, `.p`, `.q` |
+
+**vec3:** `.x/.y/.z` (or `.r/.g/.b` or `.s/.t/.p`), `.xy`, `.xz`, `.yz`, `.st`, `.sp`, `.tp`, `.xyz`, `.rgb`, `.stp`
+
+**vec4:** `.x/.y/.z/.w` (or `.r/.g/.b/.a` or `.s/.t/.p/.q`), `.xy`, `.xz`, `.xw`, `.yz`, `.yw`, `.zw`, `.st`, `.sp`, `.sq`, `.tp`, `.tq`, `.pq`, `.xyz`, `.xyw`, `.xzw`, `.yzw`, `.stp`, `.stq`, `.spq`, `.tpq`, `.rgb`, `.rgba`, `.stpq`
 
 Integer vectors carry the same swizzle sets, typed by their component: a single
 component of an `ivecN` is `Node<"int">`, of a `uvecN` `Node<"uint">`, and a
@@ -262,7 +268,9 @@ a.xy.assign(b.xy);  // compiles to a.xy = b.xy;
 | Method | Description |
 |--------|-------------|
 | `.toVar()` | Assigns expression to a temp variable, returns the variable reference |
+| `.var()` | TSL's shorthand for `.toVar()` |
 | `.assign(value)` | Assigns a value to an existing variable or swizzle |
+| `.addAssign(v)` / `.subAssign(v)` / `.mulAssign(v)` / `.divAssign(v)` / `.modAssign(v)` | Compound assignment, as TSL's `addAssign`/`mulAssign`/… |
 | `.toFloat()`, `.toInt()`, `.toUint()`, `.toBool()` | Cast to a scalar type |
 | `.toVec2()`, `.toVec3()`, `.toVec4()` | Cast to a float vector (narrowing a vec4 drops components) |
 | `.toIVec2/3/4()`, `.toUVec2/3/4()`, `.toBVec2/3/4()` | Cast to an integer or boolean vector |
@@ -272,6 +280,53 @@ a.xy.assign(b.xy);  // compiles to a.xy = b.xy;
 These only work inside an `Fn` scope. Casts compile to the target constructor —
 `int(x)` in GLSL, `i32(x)` in WGSL — truncating toward zero where that is what
 the constructor does.
+
+## TSL free-function API
+
+Every operation is also available as a free function, named exactly as in
+`three/tsl`, so a shader written against TSL can be ported by changing its
+import. Each takes nodes or raw values (numbers, booleans, arrays) and compiles
+to the same nodes as the method form.
+
+**Operators:** `add(a, b)`, `sub(a, b)`, `mul(a, b)`, `div(a, b)`, `mod(a, b)`
+(arithmetic ones accept further operands — `add(a, b, c)`)
+
+**Comparisons:** `equal`, `notEqual`, `lessThan`, `greaterThan`,
+`lessThanEqual`, `greaterThanEqual`
+
+**Logic / bitwise:** `and(a, b)`, `or(a, b)`, `xor(a, b)`, `not(a)`,
+`bitAnd`, `bitOr`, `bitXor`, `bitNot`, `shiftLeft`, `shiftRight`
+
+**Unary math:** `abs`, `sign`, `floor`, `ceil`, `fract`, `round`, `trunc`,
+`radians`, `degrees`, `sqrt`, `inverseSqrt` (and `inversesqrt`), `exp`, `log`,
+`exp2`, `log2`, `negate`, `oneMinus`, `reciprocal`, `cbrt`, `saturate`,
+`lengthSq`, `normalize`, `length`, `dFdx`, `dFdy`, `fwidth`
+
+**Trig:** `sin`, `cos`, `tan`, `asin`, `acos`, `atan` (`atan(y, x)` compiles to
+`atan2`), `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`
+
+**Binary math:** `pow(x, e)`, `pow2`, `pow3`, `pow4`, `min`, `max`,
+`step(edge, x)`, `reflect`, `distance`, `difference`, `dot`, `cross`
+
+**Ternary math:** `mix(a, b, t)`, `clamp(x, low, high)`, `refract`,
+`smoothstep(low, high, x)`, `faceForward(n, i, nref)`
+
+**Reductions:** `all(x)`, `any(x)`
+
+**Matrix:** `transpose`, `determinant`, `inverse`
+
+**Element:** `element(a, i)`
+
+The argument order follows TSL — `step(edge, x)`, `smoothstep(low, high, x)`
+and `mix(a, b, t)` take the value last, as both GLSL and WGSL spell them.
+
+The general free functions return a loosely-typed node (their type cannot be
+known until the operands are inspected); the operations that reduce — `dot`,
+`length`, `distance`, `all`, `any`, `determinant` — are typed to their narrower
+result.
+
+**Constants:** `PI`, `TWO_PI` (and the deprecated `PI2`), `HALF_PI`, `EPSILON`,
+`INFINITY` — all `float()` nodes, as in TSL.
 
 ## Control Flow
 
@@ -287,35 +342,21 @@ If(cond, () => {
 });
 ```
 
-Every keyword that collides with a JavaScript reserved word has a lowercase
-alias with a trailing underscore, so control flow can read like a language:
+The names are the capitalized TSL ones, so a shader written against
+`three/tsl`'s `If`/`ElseIf`/`Else`/`While`/`For`/`Switch`/`Case`/`Default`
+migrates unchanged.
+
+### Loop
+
+TSL's counting loop:
 
 ```typescript
-if_(cond, () => { /* then */ })
-  .elseIf(otherCond, () => { /* else-if */ })
-  .else_(() => { /* else */ });
-
-while_(cond, () => { /* body */ });
-for_(init, cond, update, body);
-switch_(level, (s) => {
-  s.case_(0, () => { /* */ });
-  s.default_(() => { /* */ });
+Loop(int(10), (i) => {
+  // body, `i` is the int index from 0 to 9
 });
 ```
 
-| Capitalized | Lowercase alias |
-|-------------|-----------------|
-| `If` | `if_` |
-| `.ElseIf` | `.elseIf` |
-| `.Else` | `.else_` |
-| `While` | `while_` |
-| `For` | `for_` |
-| `Switch` | `switch_` |
-| `.Case` | `.case_` |
-| `.Default` | `.default_` |
-
-`elseIf` is a valid identifier on its own, so it needs no underscore; the rest
-would collide with `if`, `else`, `while`, `for`, `switch`, `case` and `default`.
+It lowers to the same `For` machinery.
 
 ### Switch
 
@@ -328,7 +369,7 @@ Switch(int(level), (s) => {
 ```
 
 Compiles to an if/else-if chain comparing the selector with each case value —
-the same lowering TSL uses — so there is no fall-through and no `break_()`.
+the same lowering TSL uses — so there is no fall-through and no `Break()`.
 
 ### For
 
@@ -353,9 +394,10 @@ While(condition, () => {
 
 ### Other
 
-- **`discard()`** - fragment discard (like GLSL `discard`)
-- **`break_()`** - break from loop (`break` is a JS reserved word)
-- **`continue_()`** - continue to next iteration (`continue` is a JS reserved word)
+- **`Discard()`** - fragment discard (like GLSL `discard`)
+- **`Break()`** - break from a loop
+- **`Continue()`** - continue to the next iteration
+- **`Return()`** - early return from an `Fn`
 
 ## I/O
 
@@ -368,11 +410,11 @@ While(condition, () => {
 | `output(type)` | `Node<T>` | Declares a fragment output with `@location(N)` |
 | `builtinPosition()` | `Node<"vec4">` | Maps to `gl_Position` / `@builtin(position)` |
 
-A declared variable carries every method of its type (`.add()`, `.mult()`, `.x`,
+A declared variable carries every method of its type (`.add()`, `.mul()`, `.x`,
 `.xyz`, ...) alongside `.name`:
 
 ```typescript
 let u = uniform("mat4");
 let uName = u.name;             // "_rmsl_u0"
-let result = u.mult(otherNode); // methods are available directly
+let result = u.mul(otherNode); // methods are available directly
 ```

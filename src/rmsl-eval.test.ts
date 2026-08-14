@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, afterAll } from "vitest";
-import { Fn, float, int, For, If, While, Switch, if_, for_, while_, switch_, break_, continue_, type Node } from "./rmsl";
+import { Fn, float, int, For, If, While, Switch, Break, Continue, type Node } from "./rmsl";
 import {
   evaluateAll, closeEvaluators, floatTolerance, EVALUATION_SKIPPED,
 } from "./testing/shader-eval";
@@ -49,7 +49,7 @@ describe.skipIf(EVALUATION_SKIPPED)("RMSL evaluation", () => {
   it("computes arithmetic", async () => {
     await expectValue((a, b) => a.add(b), [2, 3], 5);
     await expectValue((a, b) => a.sub(b), [7, 3], 4);
-    await expectValue((a, b) => a.mult(b), [3, 4], 12);
+    await expectValue((a, b) => a.mul(b), [3, 4], 12);
     await expectValue((a, b) => a.div(b), [8, 2], 4);
     await expectValue((a) => a.negate(), [3], -3);
   }, 60_000);
@@ -241,9 +241,9 @@ describe.skipIf(EVALUATION_SKIPPED)("RMSL evaluation", () => {
   it("computes the same results through the lowercase aliases", async () => {
     const branch = (x: Node<"float">) => Fn(() => {
       const out = float(0).toVar();
-      if_(x.greaterThan(1), () => { out.assign(float(10)); })
-        .elseIf(x.greaterThan(0), () => { out.assign(float(20)); })
-        .else_(() => { out.assign(float(30)); });
+      If(x.greaterThan(1), () => { out.assign(float(10)); })
+        .ElseIf(x.greaterThan(0), () => { out.assign(float(20)); })
+        .Else(() => { out.assign(float(30)); });
       return out;
     })();
     await expectValue(branch, [2], 10);
@@ -252,7 +252,7 @@ describe.skipIf(EVALUATION_SKIPPED)("RMSL evaluation", () => {
 
     const sum = (n: Node<"float">) => Fn(() => {
       const total = float(0).toVar();
-      for_(
+      For(
         () => float(0).toVar(),
         (i) => i.lessThan(n),
         (i) => i.assign(i.add(1)),
@@ -265,7 +265,7 @@ describe.skipIf(EVALUATION_SKIPPED)("RMSL evaluation", () => {
     const countdown = (n: Node<"float">) => Fn(() => {
       const left = n.toVar();
       const steps = float(0).toVar();
-      while_(left.greaterThan(0), () => {
+      While(left.greaterThan(0), () => {
         left.assign(left.sub(1));
         steps.assign(steps.add(1));
       });
@@ -275,10 +275,10 @@ describe.skipIf(EVALUATION_SKIPPED)("RMSL evaluation", () => {
 
     const classify = () => Fn(() => {
       const out = float(0).toVar();
-      switch_(int(2), (s) => {
-        s.case_(0, () => { out.assign(float(10)); });
-        s.case_([1, 2], () => { out.assign(float(20)); });
-        s.default_(() => { out.assign(float(30)); });
+      Switch(int(2), (s) => {
+        s.Case(0, () => { out.assign(float(10)); });
+        s.Case([1, 2], () => { out.assign(float(20)); });
+        s.Default(() => { out.assign(float(30)); });
       });
       return out;
     })();
@@ -295,7 +295,7 @@ describe.skipIf(EVALUATION_SKIPPED)("RMSL evaluation", () => {
         (i) => i.lessThan(100),
         (i) => i.assign(i.add(1)),
         (i) => {
-          If(i.greaterThanEqual(limit), () => { break_(); });
+          If(i.greaterThanEqual(limit), () => { Break(); });
           total.assign(total.add(i));
         },
       );
@@ -312,7 +312,7 @@ describe.skipIf(EVALUATION_SKIPPED)("RMSL evaluation", () => {
         (i) => i.lessThan(n),
         (i) => i.assign(i.add(1)),
         (i) => {
-          If(i.lessThan(2), () => { continue_(); });
+          If(i.lessThan(2), () => { Continue(); });
           total.assign(total.add(i));
         },
       );

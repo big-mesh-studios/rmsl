@@ -85,12 +85,36 @@ export function isVaryingNode<T extends ShaderType>(node: Node<T> | VariableNode
 }
 
 // === Per-type swizzle sets ===
+/**
+ * The `stpq` spelling of the texture-coordinate accessors, shared across the
+ * float and integer vector types. Each letter is one component, so a
+ * single-letter pattern is that scalar and a multi-letter one is the matching
+ * vector of the same prefix — `ivec3.st` is an `ivec2`, like `.xy`.
+ */
+type Stpq2<S extends ShaderType, V extends ShaderType> = {
+  readonly s: Node<S>; readonly t: Node<S>;
+  readonly st: Node<V>;
+};
+
+type Stpq3<S extends ShaderType, V2 extends ShaderType, V3 extends ShaderType> = Stpq2<S, V2> & {
+  readonly p: Node<S>;
+  readonly sp: Node<V2>; readonly tp: Node<V2>;
+  readonly stp: Node<V3>;
+};
+
+type Stpq4<S extends ShaderType, V2 extends ShaderType, V3 extends ShaderType, V4 extends ShaderType> = Stpq3<S, V2, V3> & {
+  readonly q: Node<S>;
+  readonly sq: Node<V2>; readonly tq: Node<V2>; readonly pq: Node<V2>;
+  readonly stq: Node<V3>; readonly spq: Node<V3>; readonly tpq: Node<V3>;
+  readonly stpq: Node<V4>;
+};
+
 type Vec3Swizzles = {
   readonly x: Node<"float">; readonly y: Node<"float">; readonly z: Node<"float">;
   readonly r: Node<"float">; readonly g: Node<"float">; readonly b: Node<"float">;
   readonly xy: Node<"vec2">; readonly xz: Node<"vec2">; readonly yz: Node<"vec2">;
   readonly xyz: Node<"vec3">; readonly rgb: Node<"vec3">;
-};
+} & Stpq3<"float", "vec2", "vec3">;
 
 type Vec4Swizzles = {
   readonly x: Node<"float">; readonly y: Node<"float">; readonly z: Node<"float">; readonly w: Node<"float">;
@@ -99,39 +123,39 @@ type Vec4Swizzles = {
   readonly yz: Node<"vec2">; readonly yw: Node<"vec2">; readonly zw: Node<"vec2">;
   readonly xyz: Node<"vec3">; readonly xyw: Node<"vec3">; readonly xzw: Node<"vec3">; readonly yzw: Node<"vec3">;
   readonly rgba: Node<"vec4">; readonly rgb: Node<"vec3">;
-};
+} & Stpq4<"float", "vec2", "vec3", "vec4">;
 
 type Vec2Swizzles = {
   readonly x: Node<"float">; readonly y: Node<"float">;
   readonly r: Node<"float">; readonly g: Node<"float">;
   readonly xy: Node<"vec2">;
-};
+} & Stpq2<"float", "vec2">;
 
 type IVec2Swizzles = {
   readonly x: Node<"int">; readonly y: Node<"int">;
   readonly r: Node<"int">; readonly g: Node<"int">;
   readonly xy: Node<"ivec2">;
-};
+} & Stpq2<"int", "ivec2">;
 
 type UVec2Swizzles = {
   readonly x: Node<"uint">; readonly y: Node<"uint">;
   readonly r: Node<"uint">; readonly g: Node<"uint">;
   readonly xy: Node<"uvec2">;
-};
+} & Stpq2<"uint", "uvec2">;
 
 type IVec3Swizzles = {
   readonly x: Node<"int">; readonly y: Node<"int">; readonly z: Node<"int">;
   readonly r: Node<"int">; readonly g: Node<"int">; readonly b: Node<"int">;
   readonly xy: Node<"ivec2">; readonly xz: Node<"ivec2">; readonly yz: Node<"ivec2">;
   readonly xyz: Node<"ivec3">; readonly rgb: Node<"ivec3">;
-};
+} & Stpq3<"int", "ivec2", "ivec3">;
 
 type UVec3Swizzles = {
   readonly x: Node<"uint">; readonly y: Node<"uint">; readonly z: Node<"uint">;
   readonly r: Node<"uint">; readonly g: Node<"uint">; readonly b: Node<"uint">;
   readonly xy: Node<"uvec2">; readonly xz: Node<"uvec2">; readonly yz: Node<"uvec2">;
   readonly xyz: Node<"uvec3">; readonly rgb: Node<"uvec3">;
-};
+} & Stpq3<"uint", "uvec2", "uvec3">;
 
 type IVec4Swizzles = {
   readonly x: Node<"int">; readonly y: Node<"int">; readonly z: Node<"int">; readonly w: Node<"int">;
@@ -140,7 +164,7 @@ type IVec4Swizzles = {
   readonly yz: Node<"ivec2">; readonly yw: Node<"ivec2">; readonly zw: Node<"ivec2">;
   readonly xyz: Node<"ivec3">; readonly xyw: Node<"ivec3">; readonly xzw: Node<"ivec3">; readonly yzw: Node<"ivec3">;
   readonly rgba: Node<"ivec4">; readonly rgb: Node<"ivec3">;
-};
+} & Stpq4<"int", "ivec2", "ivec3", "ivec4">;
 
 type UVec4Swizzles = {
   readonly x: Node<"uint">; readonly y: Node<"uint">; readonly z: Node<"uint">; readonly w: Node<"uint">;
@@ -149,7 +173,7 @@ type UVec4Swizzles = {
   readonly yz: Node<"uvec2">; readonly yw: Node<"uvec2">; readonly zw: Node<"uvec2">;
   readonly xyz: Node<"uvec3">; readonly xyw: Node<"uvec3">; readonly xzw: Node<"uvec3">; readonly yzw: Node<"uvec3">;
   readonly rgba: Node<"uvec4">; readonly rgb: Node<"uvec3">;
-};
+} & Stpq4<"uint", "uvec2", "uvec3", "uvec4">;
 
 // === Node (branded + conditional methods + swizzles) ===
 /**
@@ -183,11 +207,11 @@ interface NodeOps {
   mat2x3: RectMatOps<"vec2", "vec3", "mat3x2">;
   mat2x4: RectMatOps<"vec2", "vec4", "mat4x2">;
   mat3x2: RectMatOps<"vec3", "vec2", "mat2x3">;
-  mat3: MatOps<"mat3", "vec3">;
+  mat3: MatOps<"mat3", "vec3", "vec2">;
   mat3x4: RectMatOps<"vec3", "vec4", "mat4x3">;
   mat4x2: RectMatOps<"vec4", "vec2", "mat2x4">;
   mat4x3: RectMatOps<"vec4", "vec3", "mat3x4">;
-  mat4: MatOps<"mat4", "vec4">;
+  mat4: MatOps<"mat4", "vec4", "vec3">;
   sampler2D: SamplerOps;
   sampler3D: Sampler3DOps;
   samplerCube: CubeSamplerOps;
@@ -206,21 +230,21 @@ export type Node<A extends ShaderType> = BaseNode<A> & NodeOps[A] & NodeMethods<
 interface ArithOps<A extends ShaderType> {
   add(other: FloatLike | Vec2Like | Vec3Like | Vec4Like): Node<A>;
   sub(other: FloatLike | Vec2Like | Vec3Like | Vec4Like): Node<A>;
-  mult(other: FloatLike | Vec2Like | Vec3Like | Vec4Like): Node<A>;
+  mul(other: FloatLike | Vec2Like | Vec3Like | Vec4Like): Node<A>;
   div(other: FloatLike | Vec2Like | Vec3Like | Vec4Like): Node<A>;
   negate(): Node<A>;
 }
 
 interface FloatMathOps<A extends ShaderType> {
   sin(): Node<A>; cos(): Node<A>; tan(): Node<A>;
-  asin(): Node<A>; acos(): Node<A>; atan(): Node<A>;
+  asin(): Node<A>; acos(): Node<A>; atan(other?: FloatLike): Node<A>;
   sinh(): Node<A>; cosh(): Node<A>; tanh(): Node<A>;
   asinh(): Node<A>; acosh(): Node<A>; atanh(): Node<A>;
   abs(): Node<A>; sign(): Node<A>;
   floor(): Node<A>; ceil(): Node<A>; fract(): Node<A>;
   round(): Node<A>; trunc(): Node<A>;
   radians(): Node<A>; degrees(): Node<A>;
-  sqrt(): Node<A>; inversesqrt(): Node<A>;
+  sqrt(): Node<A>; inverseSqrt(): Node<A>; inversesqrt(): Node<A>;
   exp(): Node<A>; log(): Node<A>; exp2(): Node<A>; log2(): Node<A>;
   cbrt(): Node<A>;
   reciprocal(): Node<A>;
@@ -284,6 +308,7 @@ interface VecCommonOps<A extends "vec2" | "vec3" | "vec4"> {
   distance(other: Node<A>): Node<"float">;
   reflect(normal: Node<A>): Node<A>;
   refract(normal: Node<A>, eta: FloatLike): Node<A>;
+  faceForward(incident: Node<A>, reference: Node<A>): Node<A>;
   clamp(min: Node<A> | FloatLike, max: Node<A> | FloatLike): Node<A>;
   mix(b: Node<A>, t: FloatLike): Node<A>;
   element(i: IntLike): Node<"float">;
@@ -298,12 +323,16 @@ interface Vec3Ops {
 /**
  * A square matrix. `Vec` is the vector of its own width: what one of its
  * columns is, and what multiplying it by a vector both takes and gives.
+ *
+ * `Shorter` is the vector one component short of a column — a position with its
+ * homogeneous coordinate implied. `mat4 * vec3` and `mat3 * vec2` are both the
+ * ordinary "transform a position" multiply, so they are spelled `mul` like any
+ * other vector multiply rather than a method of their own.
  */
-interface MatOps<Self extends ShaderType, Vec extends ShaderType> {
-  mult(other: Node<Self>): Node<Self>;
-  mult(other: Node<Vec>): Node<Vec>;
-  multVec(other: Node<"vec3">): Node<"vec3">;
-  multVec4(other: Node<"vec4">): Node<"vec4">;
+interface MatOps<Self extends ShaderType, Vec extends ShaderType, Shorter extends ShaderType = never> {
+  mul(other: Node<Self>): Node<Self>;
+  mul(other: Node<Vec>): Node<Vec>;
+  mul(other: Node<Shorter>): Node<Shorter>;
   element(i: IntLike): Node<Vec>;
   inverse(): Node<Self>;
   transpose(): Node<Self>;
@@ -327,7 +356,7 @@ interface RectMatOps<
   Column extends ShaderType,
   Transposed extends ShaderType,
 > {
-  mult(other: Node<Operand>): Node<Column>;
+  mul(other: Node<Operand>): Node<Column>;
   element(i: IntLike): Node<Column>;
   transpose(): Node<Transposed>;
 }
@@ -347,7 +376,7 @@ interface Sampler3DOps {
 interface IntOps {
   add(other: IntLike): Node<"int">;
   sub(other: IntLike): Node<"int">;
-  mult(other: IntLike): Node<"int">;
+  mul(other: IntLike): Node<"int">;
   div(other: IntLike): Node<"int">;
   mod(other: IntLike): Node<"int">;
   negate(): Node<"int">;
@@ -372,7 +401,7 @@ interface IntOps {
 interface UintOps {
   add(other: UintLike): Node<"uint">;
   sub(other: UintLike): Node<"uint">;
-  mult(other: UintLike): Node<"uint">;
+  mul(other: UintLike): Node<"uint">;
   div(other: UintLike): Node<"uint">;
   mod(other: UintLike): Node<"uint">;
   min(other: UintLike): Node<"uint">;
@@ -400,7 +429,7 @@ interface UintOps {
 interface IVecOps<A extends "ivec2" | "ivec3" | "ivec4"> {
   add(other: IntLike | IVec2Like | IVec3Like | IVec4Like): Node<A>;
   sub(other: IntLike | IVec2Like | IVec3Like | IVec4Like): Node<A>;
-  mult(other: IntLike | IVec2Like | IVec3Like | IVec4Like): Node<A>;
+  mul(other: IntLike | IVec2Like | IVec3Like | IVec4Like): Node<A>;
   div(other: IntLike | IVec2Like | IVec3Like | IVec4Like): Node<A>;
   mod(other: IntLike | IVec2Like | IVec3Like | IVec4Like): Node<A>;
   negate(): Node<A>;
@@ -420,7 +449,7 @@ interface IVecOps<A extends "ivec2" | "ivec3" | "ivec4"> {
 interface UVecOps<A extends "uvec2" | "uvec3" | "uvec4"> {
   add(other: UintLike | UVec2Like | UVec3Like | UVec4Like): Node<A>;
   sub(other: UintLike | UVec2Like | UVec3Like | UVec4Like): Node<A>;
-  mult(other: UintLike | UVec2Like | UVec3Like | UVec4Like): Node<A>;
+  mul(other: UintLike | UVec2Like | UVec3Like | UVec4Like): Node<A>;
   div(other: UintLike | UVec2Like | UVec3Like | UVec4Like): Node<A>;
   mod(other: UintLike | UVec2Like | UVec3Like | UVec4Like): Node<A>;
   min(other: UintLike | UVec2Like | UVec3Like | UVec4Like): Node<A>;
@@ -506,7 +535,15 @@ interface BoolVecOps<A extends ShaderType> {
 
 interface NodeMethods<A extends ShaderType> {
   toVar(): Node<A>;
+  /** TSL's shorthand for `toVar()`. */
+  var(): Node<A>;
   assign(value: BaseNode<A> | Node<A>): void;
+  // === Compound assignments (as TSL's `addAssign`/`mulAssign`/...) ===
+  addAssign(other: FloatLike | IntLike | UintLike | Vec2Like | Vec3Like | Vec4Like): void;
+  subAssign(other: FloatLike | IntLike | UintLike | Vec2Like | Vec3Like | Vec4Like): void;
+  mulAssign(other: FloatLike | IntLike | UintLike | Vec2Like | Vec3Like | Vec4Like): void;
+  divAssign(other: FloatLike | IntLike | UintLike | Vec2Like | Vec3Like | Vec4Like): void;
+  modAssign(other: FloatLike | IntLike | UintLike | Vec2Like | Vec3Like | Vec4Like): void;
   // === Conversions (cast to a different type) ===
   toFloat(): Node<"float">;
   toInt(): Node<"int">;
@@ -548,22 +585,42 @@ class NodeImpl<A extends ShaderType> implements BaseNode<A> {
   // === ArithOps ===
   add(other: any): any { return op("add", this, other); }
   sub(other: any): any { return op("sub", this, other); }
-  mult(other: any): any {
+  mul(other: any): any {
     // A matCxR times a vecC gives a vecR. The result type is determined by the
-    // vector dimension, not the matrix type.
+    // vector dimension, not the matrix type. A vector one component short of
+    // the column width is a position with its homogeneous coordinate implied —
+    // `mat4 * vec3` and `mat3 * vec2` — promoted here and truncated by the
+    // compilers' matVecMul cases.
     let shape = MATRIX_DIMENSIONS[this._t];
     let otherType = other?._t;
     if (
       shape !== undefined && typeof otherType === "string"
-      && otherType.startsWith("vec") && TYPE_WIDTH[otherType] === shape[0]
+      && otherType.startsWith("vec")
     ) {
-      return node({
-        _t: `vec${shape[1]}`,
-        type: "matVecMul",
-        params: [this as BaseNode<ShaderType>, wrapValue(other) as BaseNode<ShaderType>],
-      });
+      let width = TYPE_WIDTH[otherType];
+      let columns = shape[0];
+      let rows = shape[1];
+      if (width === columns) {
+        return node({
+          _t: `vec${rows}`,
+          type: "matVecMul",
+          params: [this as BaseNode<ShaderType>, wrapValue(other) as BaseNode<ShaderType>],
+        });
+      }
+      if (width === columns - 1) {
+        return node({
+          _t: `vec${Math.min(rows, width)}`,
+          type: "matVecMul",
+          params: [this as BaseNode<ShaderType>, wrapValue(other) as BaseNode<ShaderType>],
+        });
+      }
+      throw new Error(
+        `[RMSL] A ${this._t} cannot multiply a ${otherType}: the vector must have `
+        + `the matrix's column width or one fewer component (a position with its `
+        + `homogeneous coordinate implied).`,
+      );
     }
-    return op("mult", this, other);
+    return op("mul", this, other);
   }
   div(other: any): any { return op("div", this, other); }
   negate(): any { return op("negate", this); }
@@ -574,7 +631,7 @@ class NodeImpl<A extends ShaderType> implements BaseNode<A> {
   tan() { return op1("tan", this); }
   asin() { return op1("asin", this); }
   acos() { return op1("acos", this); }
-  atan() { return op1("atan", this); }
+  atan(other?: any) { return other === undefined ? op1("atan", this) : op("atan2", this, other); }
   sinh() { return op1("sinh", this); }
   cosh() { return op1("cosh", this); }
   tanh() { return op1("tanh", this); }
@@ -588,31 +645,32 @@ class NodeImpl<A extends ShaderType> implements BaseNode<A> {
   fract() { return op1("fract", this); }
   round() { return op1("round", this); }
   trunc() { return op1("trunc", this); }
-  radians() { return op("mult", this, 0.017453292519943295); }
-  degrees() { return op("mult", this, 57.29577951308232); }
+  radians() { return op("mul", this, 0.017453292519943295); }
+  degrees() { return op("mul", this, 57.29577951308232); }
   sqrt() { return op1("sqrt", this); }
-  inversesqrt() { return op1("inversesqrt", this); }
+  inverseSqrt() { return op1("inverseSqrt", this); }
+  inversesqrt() { return op1("inverseSqrt", this); }
   exp() { return op1("exp", this); }
   log() { return op1("log", this); }
   exp2() { return op1("exp2", this); }
   log2() { return op1("log2", this); }
-  cbrt() { return op("mult", this.sign(), op("pow", this.abs(), 1.0 / 3.0)); }
+  cbrt() { return op("mul", this.sign(), op("pow", this.abs(), 1.0 / 3.0)); }
   reciprocal() { return op("div", 1, this); }
   oneMinus() { return op("sub", 1, this); }
   difference(other: any) { return op1("abs", op("sub", this, other)); }
   lengthSq(): any {
     // For a vector this is the squared length, the dot of itself; for a scalar
     // it is simply its square — neither language offers a scalar `dot`.
-    return (TYPE_WIDTH[this._t] ?? 1) > 1 ? op("dot", this, this) : op("mult", this, this);
+    return (TYPE_WIDTH[this._t] ?? 1) > 1 ? op("dot", this, this) : op("mul", this, this);
   }
   saturate() { return op("clamp", this, 0, 1); }
   pow(e: any) { return op("pow", this, e); }
-  pow2() { return op("mult", this, this); }
-  pow3() { return op("mult", this, this, this); }
-  pow4() { return op("mult", this, this, this, this); }
+  pow2() { return op("mul", this, this); }
+  pow3() { return op("mul", this, this, this); }
+  pow4() { return op("mul", this, this, this, this); }
   min(other: any) { return op("min", this, other); }
   max(other: any) { return op("max", this, other); }
-  mod(other: any) { return op("mod", this, other); }
+  mod(other: any): any { return op("mod", this, other); }
   dFdx() { return op1("dFdx", this); }
   dFdy() { return op1("dFdy", this); }
 
@@ -631,6 +689,7 @@ class NodeImpl<A extends ShaderType> implements BaseNode<A> {
   distance(other: any): any { return op("distance", this, other); }
   reflect(normal: any): any { return op("reflect", this, normal); }
   refract(normal: any, eta: any): any { return op("refract", this, normal, eta); }
+  faceForward(incident: any, reference: any): any { return op("faceForward", this, incident, reference); }
   clamp(minV: any, maxV: any): any { return op("clamp", this, minV, maxV); }
   mix(b: any, t: any): any { return op("mix", this, b, t); }
   step(edge: any): any { return op("step", edge, this); }
@@ -641,12 +700,6 @@ class NodeImpl<A extends ShaderType> implements BaseNode<A> {
   cross(other: any): any { return op("cross", this, other); }
 
   // === MatOps ===
-  multVec(other: any): any {
-    return node({ _t: "vec3", type: "matVecMul", params: [this as BaseNode<ShaderType>, wrapValue(other) as BaseNode<ShaderType>] });
-  }
-  multVec4(other: any): any {
-    return node({ _t: "vec4", type: "matVecMul", params: [this as BaseNode<ShaderType>, wrapValue(other) as BaseNode<ShaderType>] });
-  }
   // The argument is an index, so a plain number is always typed as an integer.
   // A matrix indexes to one of its columns; a vector to one of its components.
   element(i: any): any {
@@ -729,6 +782,15 @@ class NodeImpl<A extends ShaderType> implements BaseNode<A> {
     return v!;
   }
 
+  var(): Node<A> { return this.toVar(); }
+
+  // === Compound assignments ===
+  addAssign(other: any) { this.assign(this.add(other)); }
+  subAssign(other: any) { this.assign(this.sub(other)); }
+  mulAssign(other: any) { this.assign(this.mul(other)); }
+  divAssign(other: any) { this.assign(this.div(other)); }
+  modAssign(other: any) { this.assign(this.mod(other)); }
+
   // === Conversions (cast to a different type) ===
   toFloat(): any { return node({ _t: "float", type: "construct", params: [this as BaseNode<ShaderType>] }); }
   toInt(): any { return node({ _t: "int", type: "construct", params: [this as BaseNode<ShaderType>] }); }
@@ -774,6 +836,16 @@ class NodeImpl<A extends ShaderType> implements BaseNode<A> {
   get yzw(): Node<"vec3"> { return swizzle(this, "yzw"); }
   get rgba(): Node<"vec4"> { return swizzle(this, "rgba"); }
   get rgb(): Node<"vec3"> { return swizzle(this, "rgb"); }
+}
+
+// The `stpq` swizzles are added on the prototype rather than written out as
+// getters, so the 25 patterns share one definition. The `swizzle()` helper
+// types the result from the source's prefix and the pattern's length, which is
+// what the explicit `x`/`xy`/`xyz` getters above do individually.
+for (const pattern of ["s", "t", "p", "q", "st", "sp", "sq", "tp", "tq", "pq", "stp", "stq", "spq", "tpq", "stpq"]) {
+  Object.defineProperty(NodeImpl.prototype, pattern, {
+    get(this: NodeImpl<ShaderType>) { return swizzle(this, pattern); },
+  });
 }
 
 // Cast constructor so `new Node<T>(...)` returns `Node<T>` with conditional methods
@@ -1276,7 +1348,7 @@ export const ivec4 = makeIntVecConstructor<"ivec4">("ivec4", 4, "int");
 export const uvec2 = makeIntVecConstructor<"uvec2">("uvec2", 2, "uint");
 export const uvec3 = makeIntVecConstructor<"uvec3">("uvec3", 3, "uint");
 export const uvec4 = makeIntVecConstructor<"uvec4">("uvec4", 4, "uint");
-export function boolean(v: boolean | Node<"float"> | Node<"int"> | Node<"uint">): Node<"bool"> {
+export function bool(v: boolean | Node<"float"> | Node<"int"> | Node<"uint">): Node<"bool"> {
   if (isNode(v)) {
     return node({ _t: "bool", type: "construct", params: [v] }) as Node<"bool">;
   }
@@ -1333,6 +1405,263 @@ export function mat4(...args: any[]): Node<"mat4"> {
   }
   return node({ _t: "mat4", type: "mat4", value: args }) as Node<"mat4">;
 }
+
+function makeBoolVecConstructor<T extends ShaderType>(t: T, width: number): (...args: any[]) => Node<T> {
+  return (...args: any[]): Node<T> => {
+    if (args.length === 0) {
+      return node({
+        _t: t,
+        type: "construct",
+        params: [node({ _t: "bool", type: "bool", value: false })],
+      }) as Node<T>;
+    }
+    if (args.length === 1 && isNode(args[0])) {
+      return node({ _t: t, type: "construct", params: [args[0] as BaseNode<ShaderType>] }) as Node<T>;
+    }
+    if (args.length <= width && args.every((a) => typeof a === "boolean")) {
+      return node({ _t: t, type: t, value: args }) as Node<T>;
+    }
+    return node({
+      _t: t,
+      type: "construct",
+      params: args.map((a: any) =>
+        isNode(a) ? a as BaseNode<ShaderType> : wrapValue(a) as BaseNode<ShaderType>,
+      ),
+    }) as Node<T>;
+  };
+}
+
+export const bvec2 = makeBoolVecConstructor<"bvec2">("bvec2", 2);
+export const bvec3 = makeBoolVecConstructor<"bvec3">("bvec3", 3);
+export const bvec4 = makeBoolVecConstructor<"bvec4">("bvec4", 4);
+
+// === TSL free-function API ===
+/**
+ * The free-function forms Three.js's TSL exports, so `mul(a, b)`, `sin(x)`,
+ * `mix(a, b, t)` and the rest compile as they do in `three/tsl`. Each delegates
+ * to the equivalent method on a wrapped operand, so a plain number, boolean or
+ * array is accepted anywhere a node is.
+ *
+ * The argument order follows TSL — `step(edge, x)`, `smoothstep(low, high, x)`
+ * and `mix(a, b, t)` all take the value last, as both GLSL and WGSL spell them.
+ */
+type MathLike =
+  | number
+  | boolean
+  | readonly number[]
+  | Node<ShaderType>;
+
+/**
+ * Wrap a raw value as a node for method delegation. The free functions then
+ * call the matching method on it. Their results are typed `any` — a node whose
+ * type is not known until its operands are inspected cannot be narrowed to a
+ * single `Node<A>`, and the union `Node<ShaderType>` has no methods — so the
+ * operations that reduce (dot, length, all, ...) declare the narrower type and
+ * the rest leave the node untyped, the way TSL's own free functions do.
+ */
+function toNode(v: MathLike): any {
+  return wrapValue(v);
+}
+
+export function add(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
+  let r = toNode(a).add(b);
+  for (const x of rest) r = r.add(x);
+  return r;
+}
+export function sub(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
+  let r = toNode(a).sub(b);
+  for (const x of rest) r = r.sub(x);
+  return r;
+}
+export function mul(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
+  let r = toNode(a).mul(b);
+  for (const x of rest) r = r.mul(x);
+  return r;
+}
+export function div(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
+  let r = toNode(a).div(b);
+  for (const x of rest) r = r.div(x);
+  return r;
+}
+export function mod(a: MathLike, b: MathLike): any {
+  return toNode(a).mod(b);
+}
+
+export function equal(a: MathLike, b: MathLike): any {
+  return toNode(a).equal(b);
+}
+export function notEqual(a: MathLike, b: MathLike): any {
+  return toNode(a).notEqual(b);
+}
+export function lessThan(a: MathLike, b: MathLike): any {
+  return toNode(a).lessThan(b);
+}
+export function greaterThan(a: MathLike, b: MathLike): any {
+  return toNode(a).greaterThan(b);
+}
+export function lessThanEqual(a: MathLike, b: MathLike): any {
+  return toNode(a).lessThanEqual(b);
+}
+export function greaterThanEqual(a: MathLike, b: MathLike): any {
+  return toNode(a).greaterThanEqual(b);
+}
+
+export function and(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
+  let r = toNode(a).and(b);
+  for (const x of rest) r = r.and(x);
+  return r;
+}
+export function or(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
+  let r = toNode(a).or(b);
+  for (const x of rest) r = r.or(x);
+  return r;
+}
+export function xor(a: MathLike, b: MathLike): any {
+  return toNode(a).xor(b);
+}
+export function not(a: MathLike): any {
+  return toNode(a).not();
+}
+
+export function bitAnd(a: MathLike, b: MathLike): any {
+  return toNode(a).bitAnd(b);
+}
+export function bitOr(a: MathLike, b: MathLike): any {
+  return toNode(a).bitOr(b);
+}
+export function bitXor(a: MathLike, b: MathLike): any {
+  return toNode(a).bitXor(b);
+}
+export function bitNot(a: MathLike): any {
+  return toNode(a).bitNot();
+}
+export function shiftLeft(a: MathLike, b: MathLike): any {
+  return toNode(a).shiftLeft(b);
+}
+export function shiftRight(a: MathLike, b: MathLike): any {
+  return toNode(a).shiftRight(b);
+}
+
+export function abs(a: MathLike): any { return toNode(a).abs(); }
+export function sign(a: MathLike): any { return toNode(a).sign(); }
+export function floor(a: MathLike): any { return toNode(a).floor(); }
+export function ceil(a: MathLike): any { return toNode(a).ceil(); }
+export function fract(a: MathLike): any { return toNode(a).fract(); }
+export function round(a: MathLike): any { return toNode(a).round(); }
+export function trunc(a: MathLike): any { return toNode(a).trunc(); }
+export function radians(a: MathLike): any { return toNode(a).radians(); }
+export function degrees(a: MathLike): any { return toNode(a).degrees(); }
+export function sqrt(a: MathLike): any { return toNode(a).sqrt(); }
+export function inverseSqrt(a: MathLike): any { return toNode(a).inverseSqrt(); }
+/** GLSL-style alias for `inverseSqrt`, which TSL also exports. */
+export function inversesqrt(a: MathLike): any { return toNode(a).inverseSqrt(); }
+export function exp(a: MathLike): any { return toNode(a).exp(); }
+export function log(a: MathLike): any { return toNode(a).log(); }
+export function exp2(a: MathLike): any { return toNode(a).exp2(); }
+export function log2(a: MathLike): any { return toNode(a).log2(); }
+export function negate(a: MathLike): any { return toNode(a).negate(); }
+export function oneMinus(a: MathLike): any { return toNode(a).oneMinus(); }
+export function reciprocal(a: MathLike): any { return toNode(a).reciprocal(); }
+export function cbrt(a: MathLike): any { return toNode(a).cbrt(); }
+export function saturate(a: MathLike): any { return toNode(a).saturate(); }
+export function lengthSq(a: MathLike): any { return toNode(a).lengthSq(); }
+export function normalize(a: MathLike): any { return toNode(a).normalize(); }
+export function dFdx(a: MathLike): any { return toNode(a).dFdx(); }
+export function dFdy(a: MathLike): any { return toNode(a).dFdy(); }
+export function fwidth(a: MathLike): any { return toNode(a).fwidth(); }
+
+export function sin(a: MathLike): any { return toNode(a).sin(); }
+export function cos(a: MathLike): any { return toNode(a).cos(); }
+export function tan(a: MathLike): any { return toNode(a).tan(); }
+export function asin(a: MathLike): any { return toNode(a).asin(); }
+export function acos(a: MathLike): any { return toNode(a).acos(); }
+export function sinh(a: MathLike): any { return toNode(a).sinh(); }
+export function cosh(a: MathLike): any { return toNode(a).cosh(); }
+export function tanh(a: MathLike): any { return toNode(a).tanh(); }
+export function asinh(a: MathLike): any { return toNode(a).asinh(); }
+export function acosh(a: MathLike): any { return toNode(a).acosh(); }
+export function atanh(a: MathLike): any { return toNode(a).atanh(); }
+
+/** `atan(y)` is the single-argument arctangent; `atan(y, x)` is `atan2`. */
+export function atan(y: MathLike, x?: MathLike): any {
+  return x === undefined ? toNode(y).atan() : toNode(y).atan(x);
+}
+
+export function pow(x: MathLike, e: MathLike): any { return toNode(x).pow(e); }
+export function pow2(x: MathLike): any { return toNode(x).pow2(); }
+export function pow3(x: MathLike): any { return toNode(x).pow3(); }
+export function pow4(x: MathLike): any { return toNode(x).pow4(); }
+export function min(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
+  let r = toNode(a).min(b);
+  for (const x of rest) r = r.min(x);
+  return r;
+}
+export function max(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
+  let r = toNode(a).max(b);
+  for (const x of rest) r = r.max(x);
+  return r;
+}
+export function step(edge: MathLike, x: MathLike): any {
+  return toNode(x).step(edge);
+}
+export function reflect(incident: MathLike, normal: MathLike): any {
+  return toNode(incident).reflect(normal);
+}
+export function refract(incident: MathLike, normal: MathLike, eta: MathLike): any {
+  return toNode(incident).refract(normal, eta);
+}
+export function faceForward(n: MathLike, incident: MathLike, reference: MathLike): any {
+  return toNode(n).faceForward(incident, reference);
+}
+export function difference(a: MathLike, b: MathLike): any {
+  return toNode(a).difference(b);
+}
+export function dot(a: MathLike, b: MathLike): Node<"float"> {
+  return toNode(a).dot(b);
+}
+export function cross(a: MathLike, b: MathLike): any {
+  return toNode(a).cross(b);
+}
+export function distance(a: MathLike, b: MathLike): Node<"float"> {
+  return toNode(a).distance(b);
+}
+export function length(a: MathLike): Node<"float"> {
+  return toNode(a).length();
+}
+export function mix(a: MathLike, b: MathLike, t: MathLike): any {
+  return toNode(a).mix(b, t);
+}
+export function clamp(x: MathLike, low: MathLike = 0, high: MathLike = 1): any {
+  return toNode(x).clamp(low, high);
+}
+export function smoothstep(low: MathLike, high: MathLike, x: MathLike): any {
+  return toNode(x).smoothstep(low, high);
+}
+
+export function all(x: MathLike): Node<"bool"> { return toNode(x).all(); }
+export function any(x: MathLike): Node<"bool"> { return toNode(x).any(); }
+
+export function transpose(m: MathLike): any { return toNode(m).transpose(); }
+export function determinant(m: MathLike): Node<"float"> { return toNode(m).determinant(); }
+export function inverse(m: MathLike): any { return toNode(m).inverse(); }
+
+export function element(a: MathLike, i: IntLike): any {
+  return toNode(a).element(i);
+}
+
+// === TSL constants ===
+/** π as a float node. */
+export const PI = float(Math.PI);
+/** 2π as a float node. */
+export const TWO_PI = float(Math.PI * 2);
+/** @deprecated Alias for `TWO_PI`, kept because TSL still exports it. */
+export const PI2 = float(Math.PI * 2);
+/** π/2 as a float node. */
+export const HALF_PI = float(Math.PI * 0.5);
+/** A small float used to handle floating-point precision errors. */
+export const EPSILON = float(1e-6);
+/** A large float standing in for infinity, as TSL uses it. */
+export const INFINITY = float(1e6);
 
 // === Uniforms, Attributes, Varyings ===
 let nextUniformId = 0;
@@ -1463,9 +1792,7 @@ export function builtinFragDepth(): Node<"float"> {
 
 type ElseIfChain = {
   ElseIf: (cond: BooleanLike, body: () => void) => ElseIfChain;
-  elseIf: (cond: BooleanLike, body: () => void) => ElseIfChain;
   Else: (body: () => void) => void;
-  else_: (body: () => void) => void;
 };
 
 export function If(cond: BooleanLike, body: () => void): ElseIfChain {
@@ -1493,36 +1820,11 @@ export function If(cond: BooleanLike, body: () => void): ElseIfChain {
       deepestIf = nextIf;
       return chain;
     },
-    elseIf: (nextCond, nextBody) => {
-      let nextIf = node({
-        _t: "void",
-        type: "if",
-        params: [
-          wrapValue(nextCond) as BaseNode<ShaderType>,
-          buildBlock(nextBody) as BaseNode<ShaderType>,
-        ],
-      });
-      deepestIf.params![2] = nextIf as BaseNode<ShaderType>;
-      deepestIf = nextIf;
-      return chain;
-    },
     Else: (elseBody) => {
-      deepestIf.params![2] = buildBlock(elseBody) as BaseNode<ShaderType>;
-    },
-    else_: (elseBody) => {
       deepestIf.params![2] = buildBlock(elseBody) as BaseNode<ShaderType>;
     },
   };
   return chain;
-}
-
-/**
- * Lowercase alias for `If`, so control flow reads like keywords:
- * `if_ (cond) { ... }.elseIf (...).else_ (...)`. The trailing underscore avoids
- * the reserved word `if`; `elseIf` needs none.
- */
-export function if_(cond: BooleanLike, body: () => void): ElseIfChain {
-  return If(cond, body);
 }
 
 export function For<T extends Node<ShaderType>>(
@@ -1553,14 +1855,20 @@ export function For<T extends Node<ShaderType>>(
   });
 }
 
-/** Lowercase alias for `For` — `for_` avoids the reserved word `for`. */
-export function for_<T extends Node<ShaderType>>(
-  init: () => T,
-  cond: (v: T) => BooleanLike,
-  update: (v: T) => void,
-  body: (v: T) => void,
+/**
+ * TSL's counting loop: `Loop(count, (i) => { ... })` iterates `count` times
+ * with `i` an `int` index from 0. Lowered to the same `For` machinery.
+ */
+export function Loop(
+  count: IntLike | FloatLike,
+  body: (i: Node<"int">) => void,
 ): void {
-  return For(init, cond, update, body);
+  For(
+    () => int(0).toVar(),
+    (i) => i.lessThan(count as any),
+    (i) => { i.assign(i.add(int(1))); },
+    (i) => body(i),
+  );
 }
 
 export function While(cond: BooleanLike, body: () => void): void {
@@ -1575,18 +1883,11 @@ export function While(cond: BooleanLike, body: () => void): void {
   });
 }
 
-/** Lowercase alias for `While` — `while_` avoids the reserved word `while`. */
-export function while_(cond: BooleanLike, body: () => void): void {
-  return While(cond, body);
-}
-
 type SwitchCase = { values: BaseNode<ShaderType>[]; body: Node<"void"> };
 
 type SwitchChain = {
   Case: (values: IntLike | readonly IntLike[], body: () => void) => SwitchChain;
-  case_: (values: IntLike | readonly IntLike[], body: () => void) => SwitchChain;
   Default: (body: () => void) => void;
-  default_: (body: () => void) => void;
 };
 
 /**
@@ -1600,7 +1901,7 @@ type SwitchChain = {
  *
  * Compiles to an if/else-if chain comparing the selector with each case value —
  * the same lowering Three.js's TSL uses for its `Switch`/`Case`/`Default` — so
- * there is no fall-through and no `break_()` inside a case.
+ * there is no fall-through and no `Break()` inside a case.
  */
 export function Switch(
   selector: Node<"int"> | Node<"uint">,
@@ -1618,9 +1919,7 @@ export function Switch(
   };
   const chain: SwitchChain = {
     Case: addCase,
-    case_: addCase,
     Default: (dBody) => { defaultBody = buildBlock(dBody); },
-    default_: (dBody) => { defaultBody = buildBlock(dBody); },
   };
   body(chain);
 
@@ -1645,32 +1944,27 @@ export function Switch(
   return chain;
 }
 
-/**
- * Lowercase alias for `Switch` — `switch_` avoids the reserved word `switch`.
- * Inside the body, `case_` and `default_` mirror `Case` and `Default`.
- */
-export function switch_(
-  selector: Node<"int"> | Node<"uint">,
-  body: (chain: SwitchChain) => void,
-): SwitchChain {
-  return Switch(selector, body);
-}
-
-export function discard(): void {
-  assertBlockScope("discard", (scope) => {
+export function Discard(): void {
+  assertBlockScope("Discard", (scope) => {
     scope.push(node({ _t: "void", type: "discard" }));
   });
 }
 
-export function break_(): void {
-  assertBlockScope("break", (scope) => {
+export function Break(): void {
+  assertBlockScope("Break", (scope) => {
     scope.push(node({ _t: "void", type: "break" }));
   });
 }
 
-export function continue_(): void {
-  assertBlockScope("continue", (scope) => {
+export function Continue(): void {
+  assertBlockScope("Continue", (scope) => {
     scope.push(node({ _t: "void", type: "continue" }));
+  });
+}
+
+export function Return(): void {
+  assertBlockScope("Return", (scope) => {
+    scope.push(node({ _t: "void", type: "return" }));
   });
 }
 
@@ -1712,7 +2006,7 @@ const PRECEDENCE: Record<string, number> = {
   shiftRight: 70,
   add: 80,
   sub: 80,
-  mult: 90,
+  mul: 90,
   div: 90,
   mod: 90,
 };
@@ -1825,7 +2119,7 @@ function tryFold(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
     switch (n.type) {
       case "add": return mkNode({ _t: t, type: t, value: t === "int" || t === "uint" ? (a + b) | 0 : a + b });
       case "sub": return mkNode({ _t: t, type: t, value: t === "int" || t === "uint" ? (a - b) | 0 : a - b });
-      case "mult": return mkNode({ _t: t, type: t, value: t === "int" || t === "uint" ? (a * b) | 0 : a * b });
+      case "mul": return mkNode({ _t: t, type: t, value: t === "int" || t === "uint" ? (a * b) | 0 : a * b });
       case "div": return mkNode({ _t: t, type: t, value: t === "int" || t === "uint" ? (a / b) | 0 : a / b });
       case "negate": return mkNode({ _t: t, type: t, value: t === "int" || t === "uint" ? (-a) | 0 : -a });
       // JavaScript's % truncates toward zero. The float operation is floored,
@@ -1858,7 +2152,8 @@ function tryFold(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
       case "trunc": return mkNode({ _t: t, type: t, value: Math.trunc(a) });
       case "fract": return mkNode({ _t: t, type: t, value: a - Math.floor(a) });
       case "sqrt": return mkNode({ _t: t, type: t, value: Math.sqrt(a) });
-      case "inversesqrt": return mkNode({ _t: t, type: t, value: 1 / Math.sqrt(a) });
+      case "inverseSqrt": return mkNode({ _t: t, type: t, value: 1 / Math.sqrt(a) });
+      case "atan2": return mkNode({ _t: t, type: t, value: Math.atan2(a, b) });
       case "exp": return mkNode({ _t: t, type: t, value: Math.exp(a) });
       case "log": return mkNode({ _t: t, type: t, value: Math.log(a) });
       case "exp2": return mkNode({ _t: t, type: t, value: Math.pow(2, a) });
@@ -1941,10 +2236,11 @@ function assertStageResult(
   );
 }
 
-/** Which component each accessor letter names, in both spellings. */
+/** Which component each accessor letter names, in all three spellings. */
 const COMPONENT_INDEX: Record<string, number> = {
   x: 0, y: 1, z: 2, w: 3,
   r: 0, g: 1, b: 2, a: 3,
+  s: 0, t: 1, p: 2, q: 3,
 };
 
 /**
@@ -2055,6 +2351,9 @@ function compileGLSLNode(
     case "uvec2": return { decls: [], body: [], expr: `uvec2(${(node.value as number[]).map(v => `${v}u`).join(", ")})` };
     case "uvec3": return { decls: [], body: [], expr: `uvec3(${(node.value as number[]).map(v => `${v}u`).join(", ")})` };
     case "uvec4": return { decls: [], body: [], expr: `uvec4(${(node.value as number[]).map(v => `${v}u`).join(", ")})` };
+    case "bvec2": return { decls: [], body: [], expr: `bvec2(${(node.value as boolean[]).map(v => v ? "true" : "false").join(", ")})` };
+    case "bvec3": return { decls: [], body: [], expr: `bvec3(${(node.value as boolean[]).map(v => v ? "true" : "false").join(", ")})` };
+    case "bvec4": return { decls: [], body: [], expr: `bvec4(${(node.value as boolean[]).map(v => v ? "true" : "false").join(", ")})` };
     case "mat2": return { decls: [], body: [], expr: `mat2(${(node.value as number[]).join(", ")})` };
     case "mat2x3": return { decls: [], body: [], expr: `mat2x3(${(node.value as number[]).join(", ")})` };
     case "mat2x4": return { decls: [], body: [], expr: `mat2x4(${(node.value as number[]).join(", ")})` };
@@ -2196,8 +2495,9 @@ function compileGLSLNode(
     // Binary math ops (same pattern for all)
     case "add": return binaryGLSL(node, ctx, "+");
     case "sub": return binaryGLSL(node, ctx, "-");
-    case "mult": return binaryGLSL(node, ctx, "*");
+    case "mul": return binaryGLSL(node, ctx, "*");
     case "div": return binaryGLSL(node, ctx, "/");
+    case "atan2": return binaryGLSL(node, ctx, "atan", true);
     case "mod": {
       // GLSL's % is integer-only; floats need the mod() builtin.
       let operandType = (node.params![0] as any)?._t;
@@ -2239,14 +2539,21 @@ function compileGLSLNode(
       let vec = compileGLSLStage(node.params![1], ctx);
       let matType = (node.params![0] as any)?._t || "mat4";
       let vecType = (node.params![1] as any)?._t || "vec3";
-      let prec = PRECEDENCE.mult;
+      let prec = PRECEDENCE.mul;
       let matExpr = wrapExpr(mat.prec, prec, mat.expr);
       let vecExpr = wrapExpr(vec.prec, prec, vec.expr);
-      if (matType === "mat4" && vecType === "vec3") {
+      let shape = MATRIX_DIMENSIONS[matType];
+      let width = TYPE_WIDTH[vecType] ?? 0;
+      if (shape !== undefined && width === shape[0] - 1) {
+        // A position vector one component short of the matrix's column width is
+        // promoted with an implied homogeneous 1, and the extra result component
+        // dropped — `mat4 * vec3` compiles to `(m * vec4(v, 1.0)).xyz`.
+        let expr = `(${matExpr} * vec${shape[0]}(${vecExpr}, 1.0))`;
+        if (width < shape[1]) expr += `.${"xyzw".slice(0, width)}`;
         return {
           decls: [...mat.decls, ...vec.decls],
           body: [...mat.body, ...vec.body],
-          expr: `(${matExpr} * vec4(${vec.expr}, 1.0)).xyz`,
+          expr,
           prec: PREC_ATOM,
         };
       }
@@ -2279,7 +2586,7 @@ function compileGLSLNode(
     case "round": return unaryGLSL(node, ctx, "round");
     case "trunc": return unaryGLSL(node, ctx, "trunc");
     case "sqrt": return unaryGLSL(node, ctx, "sqrt");
-    case "inversesqrt": return unaryGLSL(node, ctx, "inversesqrt");
+    case "inverseSqrt": return unaryGLSL(node, ctx, "inversesqrt");
     case "exp": return unaryGLSL(node, ctx, "exp");
     case "log": return unaryGLSL(node, ctx, "log");
     case "exp2": return unaryGLSL(node, ctx, "exp2");
@@ -2502,6 +2809,10 @@ function compileGLSLNode(
 
     case "continue": {
       return { decls: [], body: ["continue;"], expr: "0.0" };
+    }
+
+    case "return": {
+      return { decls: [], body: ["return;"], expr: "0.0" };
     }
 
     default:
@@ -3097,6 +3408,9 @@ function compileWGSLNode(
     case "uvec2": return { decls: [], body: [], expr: `vec2<u32>(${(node.value as number[]).map(v => `${v}u`).join(", ")})` };
     case "uvec3": return { decls: [], body: [], expr: `vec3<u32>(${(node.value as number[]).map(v => `${v}u`).join(", ")})` };
     case "uvec4": return { decls: [], body: [], expr: `vec4<u32>(${(node.value as number[]).map(v => `${v}u`).join(", ")})` };
+    case "bvec2": return { decls: [], body: [], expr: `vec2<bool>(${(node.value as boolean[]).map(v => v ? "true" : "false").join(", ")})` };
+    case "bvec3": return { decls: [], body: [], expr: `vec3<bool>(${(node.value as boolean[]).map(v => v ? "true" : "false").join(", ")})` };
+    case "bvec4": return { decls: [], body: [], expr: `vec4<bool>(${(node.value as boolean[]).map(v => v ? "true" : "false").join(", ")})` };
     case "mat2": return { decls: [], body: [], expr: `mat2x2<f32>(${(node.value as number[]).join(", ")})` };
     case "mat2x3": return { decls: [], body: [], expr: `mat2x3<f32>(${(node.value as number[]).join(", ")})` };
     case "mat2x4": return { decls: [], body: [], expr: `mat2x4<f32>(${(node.value as number[]).join(", ")})` };
@@ -3285,8 +3599,9 @@ function compileWGSLNode(
 
     case "add": return binaryWGSL(node, ctx, "+");
     case "sub": return binaryWGSL(node, ctx, "-");
-    case "mult": return binaryWGSL(node, ctx, "*");
+    case "mul": return binaryWGSL(node, ctx, "*");
     case "div": return binaryWGSL(node, ctx, "/");
+    case "atan2": return binaryWGSL(node, ctx, "atan2", true);
     case "mod": {
       let operandType = (node.params![0] as any)?._t;
       if (operandType === "int" || operandType === "uint") {
@@ -3340,14 +3655,21 @@ function compileWGSLNode(
       let vec = compileWGSLStage(node.params![1], ctx);
       let matType = (node.params![0] as any)?._t || "mat4";
       let vecType = (node.params![1] as any)?._t || "vec3";
-      let prec = PRECEDENCE.mult;
+      let prec = PRECEDENCE.mul;
       let matExpr = wrapExpr(mat.prec, prec, mat.expr);
       let vecExpr = wrapExpr(vec.prec, prec, vec.expr);
-      if (matType === "mat4" && vecType === "vec3") {
+      let shape = MATRIX_DIMENSIONS[matType];
+      let width = TYPE_WIDTH[vecType] ?? 0;
+      if (shape !== undefined && width === shape[0] - 1) {
+        // A position vector one component short of the matrix's column width is
+        // promoted with an implied homogeneous 1, and the extra result component
+        // dropped — `mat4 * vec3` compiles to `(m * vec4<f32>(v, 1.0)).xyz`.
+        let expr = `(${matExpr} * vec${shape[0]}<f32>(${vecExpr}, 1.0))`;
+        if (width < shape[1]) expr += `.${"xyzw".slice(0, width)}`;
         return {
           decls: [...mat.decls, ...vec.decls],
           body: [...mat.body, ...vec.body],
-          expr: `(${matExpr} * vec4<f32>(${vec.expr}, 1.0)).xyz`,
+          expr,
           prec: PREC_ATOM,
         };
       }
@@ -3379,7 +3701,7 @@ function compileWGSLNode(
     case "round": return unaryWGSL(node, ctx, "round");
     case "trunc": return unaryWGSL(node, ctx, "trunc");
     case "sqrt": return unaryWGSL(node, ctx, "sqrt");
-    case "inversesqrt": return unaryWGSL(node, ctx, "inverseSqrt");
+    case "inverseSqrt": return unaryWGSL(node, ctx, "inverseSqrt");
     case "exp": return unaryWGSL(node, ctx, "exp");
     case "log": return unaryWGSL(node, ctx, "log");
     case "exp2": return unaryWGSL(node, ctx, "exp2");
@@ -3696,6 +4018,10 @@ function compileWGSLNode(
 
     case "continue": {
       return { decls: [], body: ["continue;"], expr: "0.0" };
+    }
+
+    case "return": {
+      return { decls: [], body: ["return;"], expr: "0.0" };
     }
 
     default:
@@ -4105,9 +4431,10 @@ export const compileWGSL: {
  * array, so a per-pixel evaluation allocates nothing beyond the result.
  */
 
-/** Which component each swizzle accessor names, in both spellings. */
+/** Which component each swizzle accessor names, in all three spellings. */
 const JS_COMPONENT_INDEX: Record<string, number> = {
   x: 0, y: 1, z: 2, w: 3, r: 0, g: 1, b: 2, a: 3,
+  s: 0, t: 1, p: 2, q: 3,
 };
 
 /** Length of the JS array a value of this type occupies (0 for a scalar). */
@@ -4156,6 +4483,7 @@ const JS_ELEM: Record<string, { argc: number; fn: (xs: string[]) => string }> = 
   min: { argc: 2, fn: xs => `Math.min(${xs[0]}, ${xs[1]})` },
   max: { argc: 2, fn: xs => `Math.max(${xs[0]}, ${xs[1]})` },
   pow: { argc: 2, fn: xs => `Math.pow(${xs[0]}, ${xs[1]})` },
+  atan2: { argc: 2, fn: xs => `Math.atan2(${xs[0]}, ${xs[1]})` },
   // Floored, matching GLSL's mod() — JS % truncates toward zero.
   mod: { argc: 2, fn: xs => `${xs[0]} - ${xs[1]} * Math.floor(${xs[0]} / ${xs[1]})` },
   imod: { argc: 2, fn: xs => `${xs[0]} % ${xs[1]}` },
@@ -4453,6 +4781,7 @@ function jsScalarBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string)
     case "min": expr = `Math.min(${a.expr}, ${b.expr})`; break;
     case "max": expr = `Math.max(${a.expr}, ${b.expr})`; break;
     case "pow": expr = `Math.pow(${a.expr}, ${b.expr})`; break;
+    case "atan2": expr = `Math.atan2(${a.expr}, ${b.expr})`; break;
     case "mod": expr = `(${a.expr} - ${b.expr} * Math.floor(${a.expr} / ${b.expr}))`; break;
     case "imod": expr = `(${a.expr} % ${b.expr})`; break;
     case "step": expr = `(${b.expr} < ${a.expr} ? 0 : 1)`; break;
@@ -4865,7 +5194,7 @@ function compileJSNode(
 
     case "add": return jsBinaryOp(node, ctx, "add");
     case "sub": return jsBinaryOp(node, ctx, "sub");
-    case "mult": {
+    case "mul": {
       let aType = node.params![0]?._t;
       let bType = node.params![1]?._t;
       let aIsMat = MATRIX_DIMENSIONS[aType] !== undefined;
@@ -4886,6 +5215,7 @@ function compileJSNode(
       return jsBinaryOp(node, ctx, t === "int" || t === "uint" ? "imod" : "mod");
     }
     case "pow": return jsBinaryOp(node, ctx, "pow");
+    case "atan2": return jsBinaryOp(node, ctx, "atan2");
     case "min": return jsBinaryOp(node, ctx, "min");
     case "max": return jsBinaryOp(node, ctx, "max");
     case "dot": return jsVecReduce(node, ctx, "vdot");
@@ -4995,7 +5325,7 @@ function compileJSNode(
     case "round": return jsUnaryMath(node, ctx, "round");
     case "trunc": return jsUnaryMath(node, ctx, "trunc");
     case "sqrt": return jsUnaryMath(node, ctx, "sqrt");
-    case "inversesqrt": return jsUnaryMath(node, ctx, "rsqrt");
+    case "inverseSqrt": return jsUnaryMath(node, ctx, "rsqrt");
     case "exp": return jsUnaryMath(node, ctx, "exp");
     case "log": return jsUnaryMath(node, ctx, "log");
     case "exp2": return jsUnaryMath(node, ctx, "exp2");
@@ -5252,6 +5582,10 @@ function compileJSNode(
 
     case "continue": {
       return { decls: [], body: ["continue;"], expr: "0" };
+    }
+
+    case "return": {
+      return { decls: [], body: ["return;"], expr: "0" };
     }
 
     default:

@@ -14,9 +14,12 @@
 import { describe, it, expect } from "vitest";
 import {
   compileJS, compileJSFn, Fn, float, int, vec2, vec3, vec4, mat4,
-  If, For, While, Switch, if_, for_, while_, switch_, break_, continue_,
+  If, For, While, Switch, Loop, Break, Continue, Return,
   uniform, uniformArray, varying, attribute, output, builtinPosition,
-  builtinFragDepth, discard, ivec2,
+  builtinFragDepth, Discard, ivec2,
+  mul, add, sub, sin, mix, clamp, step, smoothstep, dot, cross,
+  normalize, length, distance, reflect, refract, faceForward,
+  atan, inverseSqrt, all, any, min, max, pow,
   type Node,
 } from "./rmsl";
 
@@ -44,7 +47,7 @@ describe("JS backend: scalar arithmetic", () => {
   it("computes arithmetic", () => {
     expect(evalScalar((a, b) => a.add(b), [2, 3])).toBe(5);
     expect(evalScalar((a, b) => a.sub(b), [7, 3])).toBe(4);
-    expect(evalScalar((a, b) => a.mult(b), [3, 4])).toBe(12);
+    expect(evalScalar((a, b) => a.mul(b), [3, 4])).toBe(12);
     expect(evalScalar((a, b) => a.div(b), [8, 2])).toBe(4);
     expect(evalScalar((a) => a.negate(), [3])).toBe(-3);
   });
@@ -106,7 +109,7 @@ describe("JS backend: vector arithmetic", () => {
     });
     expect(f({ params: { a: [1, 2, 3], b: [10, 20, 30] } })).toEqual([11, 22, 33]);
 
-    const g = compileJS((a: any) => a.mult(2), {
+    const g = compileJS((a: any) => a.mul(2), {
       name: "main", params: [{ name: "a", type: "vec3" }],
     });
     expect(g({ params: { a: [1, 2, 3] } })).toEqual([2, 4, 6]);
@@ -175,12 +178,12 @@ describe("JS backend: vector arithmetic", () => {
 describe("JS backend: matrices", () => {
   it("multiplies mat4 by vec4 and vec3", () => {
     const m = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 6, 7, 1];
-    const f4 = compileJS((a: any, v: any) => a.mult(v), {
+    const f4 = compileJS((a: any, v: any) => a.mul(v), {
       name: "main", params: [{ name: "a", type: "mat4" }, { name: "v", type: "vec4" }],
     });
     expect(f4({ params: { a: m, v: [1, 2, 3, 1] } })).toEqual([6, 8, 10, 1]);
 
-    const f3 = compileJS((a: any, v: any) => a.multVec(v), {
+    const f3 = compileJS((a: any, v: any) => a.mul(v), {
       name: "main", params: [{ name: "a", type: "mat4" }, { name: "v", type: "vec3" }],
     });
     expect(f3({ params: { a: m, v: [1, 2, 3] } })).toEqual([6, 8, 10]);
@@ -188,7 +191,7 @@ describe("JS backend: matrices", () => {
 
   it("multiplies matrices", () => {
     const id = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-    const f = compileJS((a: any, b: any) => a.mult(b), {
+    const f = compileJS((a: any, b: any) => a.mul(b), {
       name: "main", params: [{ name: "a", type: "mat4" }, { name: "b", type: "mat4" }],
     });
     expect(f({ params: { a: id, b: id } })).toEqual(id);
@@ -315,7 +318,7 @@ describe("JS backend: control flow", () => {
         (i) => i.lessThan(100),
         (i) => i.assign(i.add(1)),
         (i) => {
-          If(i.greaterThanEqual(limit), () => { break_(); });
+          If(i.greaterThanEqual(limit), () => { Break(); });
           total.assign(total.add(i));
         },
       );
@@ -331,7 +334,7 @@ describe("JS backend: control flow", () => {
         (i) => i.lessThan(n),
         (i) => i.assign(i.add(1)),
         (i) => {
-          If(i.lessThan(2), () => { continue_(); });
+          If(i.lessThan(2), () => { Continue(); });
           total.assign(total.add(i));
         },
       );
@@ -343,9 +346,9 @@ describe("JS backend: control flow", () => {
   it("computes the same results through the lowercase aliases", () => {
     const branch = (x: Node<"float">) => Fn(() => {
       const out = float(0).toVar();
-      if_(x.greaterThan(1), () => { out.assign(float(10)); })
-        .elseIf(x.greaterThan(0), () => { out.assign(float(20)); })
-        .else_(() => { out.assign(float(30)); });
+      If(x.greaterThan(1), () => { out.assign(float(10)); })
+        .ElseIf(x.greaterThan(0), () => { out.assign(float(20)); })
+        .Else(() => { out.assign(float(30)); });
       return out;
     })();
     expect(evalScalar(branch, [2])).toBe(10);
@@ -354,7 +357,7 @@ describe("JS backend: control flow", () => {
 
     const sum = (n: Node<"float">) => Fn(() => {
       const total = float(0).toVar();
-      for_(
+      For(
         () => float(0).toVar(),
         (i) => i.lessThan(n),
         (i) => i.assign(i.add(1)),
@@ -366,10 +369,10 @@ describe("JS backend: control flow", () => {
 
     const classify = () => Fn(() => {
       const out = float(0).toVar();
-      switch_(int(2), (s) => {
-        s.case_(0, () => { out.assign(float(10)); });
-        s.case_([1, 2], () => { out.assign(float(20)); });
-        s.default_(() => { out.assign(float(30)); });
+      Switch(int(2), (s) => {
+        s.Case(0, () => { out.assign(float(10)); });
+        s.Case([1, 2], () => { out.assign(float(20)); });
+        s.Default(() => { out.assign(float(30)); });
       });
       return out;
     })();
@@ -383,7 +386,7 @@ describe("JS backend: shader I/O", () => {
     let u!: any;
     const prog = Fn(() => {
       u = uniform("float");
-      return u.mult(2);
+      return u.mul(2);
     })();
     const fn = compileJS(() => prog, { name: "main", params: [] });
     expect(fn({ uniforms: { [u.name]: 21 } })).toBe(42);
@@ -455,7 +458,7 @@ describe("JS backend: shader I/O", () => {
 describe("JS backend: CPU-specific behaviour", () => {
   it("discard returns null", () => {
     const prog = Fn(() => {
-      If(float(1).greaterThan(0), () => discard());
+      If(float(1).greaterThan(0), () => Discard());
       return float(5);
     })();
     const fn = compileJS(() => prog, { name: "main", params: [] });
@@ -555,7 +558,7 @@ describe("JS backend: screen-picking workflow", () => {
       const ro = vec3(0, 2, 0).toVar();          // camera above the plane
       const rd = vec3(0, -1, 0).toVar();         // straight down
       const t = ro.y.negate().div(rd.y).toVar(); // distance to y = 0
-      const hit = ro.add(rd.mult(t)).toVar();
+      const hit = ro.add(rd.mul(t)).toVar();
       const d = builtinFragDepth();
       d.assign(t);
       return hit;
@@ -572,11 +575,101 @@ describe("JS backend: screen-picking workflow", () => {
       const ro = vec3(0, 1, 0).toVar();
       const rd = vec3(0, -1, 0).toVar();
       const t = ro.y.negate().div(rd.y).toVar();
-      return ro.add(rd.mult(t));
+      return ro.add(rd.mul(t));
     })();
     const fn = compileJS(() => prog, { name: "pick", params: [] });
     for (let i = 0; i < 100; i++) {
       expect(fn({})).toEqual([0, 0, 0]);
     }
+  });
+});
+
+describe("JS backend: TSL free functions", () => {
+  it("computes arithmetic free functions", () => {
+    expect(evalScalar((a, b) => add(a, b), [2, 3])).toBe(5);
+    expect(evalScalar((a, b) => sub(a, b), [7, 3])).toBe(4);
+    expect(evalScalar((a, b) => mul(a, b), [3, 4])).toBe(12);
+    expect(evalScalar((a, b) => mul(a, b, a), [3, 4])).toBe(36);
+  });
+
+  it("computes math free functions", () => {
+    expect(approx(evalScalar((a) => sin(a), [Math.PI / 2]), 1));
+    expect(evalScalar((a) => inverseSqrt(a), [4])).toBe(0.5);
+    expect(approx(evalScalar((a, b) => atan(a, b), [1, 1]), Math.PI / 4));
+    expect(evalScalar((a, b) => min(a, b), [3, 1])).toBe(1);
+    expect(evalScalar((a, b) => max(a, b), [3, 1])).toBe(3);
+    expect(evalScalar((a, b) => pow(a, b), [2, 3])).toBe(8);
+  });
+
+  it("computes interpolation free functions", () => {
+    expect(evalScalar((a, b) => mix(a, b, 0.5), [0, 10])).toBe(5);
+    expect(evalScalar((a, b) => clamp(a, 0, 1), [2])).toBe(1);
+    expect(evalScalar((a, b) => step(0.5, a), [1])).toBe(1);
+    expect(evalScalar((a, b) => smoothstep(0, 1, a), [0.5])).toBeCloseTo(0.5);
+  });
+
+  it("computes vector free functions", () => {
+    const fn = compileJS(() => Fn(() => {
+      const a = vec3(1, 2, 3).toVar();
+      return dot(a, a).add(length(a)).toVar();
+    })(), { name: "v2", params: [] });
+    expect(fn({})).toBeCloseTo(14 + Math.sqrt(14));
+  });
+
+  it("computes cross/reflect/normalize/faceForward", () => {
+    const fn = compileJS(() => Fn(() => {
+      const a = vec3(1, 0, 0).toVar();
+      return cross(a, vec3(0, 1, 0)).add(normalize(vec3(0, 0, 2))).toVar();
+    })(), { name: "v3", params: [] });
+    const c = fn({}) as number[];
+    // cross((1,0,0),(0,1,0)) = (0,0,1), normalize(0,0,2) = (0,0,1).
+    expect(c.map((x) => Math.abs(x))).toEqual([0, 0, 2]);
+    const ff = compileJS(() => Fn(() => {
+      const n = vec3(0, 1, 0).toVar();
+      return faceForward(n, vec3(0, 1, 0), vec3(1, 0, 0)).toVar();
+    })(), { name: "v4", params: [] });
+    // faceforward flips n because dot(nref, i) > 0; sign flips leave signed zero.
+    expect((ff({}) as number[]).map((x) => (x === 0 ? 0 : x))).toEqual([0, -1, 0]);
+  });
+
+  it("computes all/any reductions", () => {
+    const fn = compileJS(() => Fn(() => {
+      const a = vec3(1, 2, 3).toVar();
+      return all(a.greaterThan(0)).toInt().add(any(a.lessThan(0)).toInt()).toVar();
+    })(), { name: "r", params: [] });
+    expect(fn({})).toBe(1);
+  });
+});
+
+describe("JS backend: TSL loop and return", () => {
+  it("Loop(count, (i) => ...) sums 0..3", () => {
+    const fn = compileJS(() => Fn(() => {
+      let total = float(0).toVar();
+      Loop(int(4), (i) => { total.assign(total.add(float(i))); });
+      return total;
+    })(), { name: "loop", params: [] });
+    expect(fn({})).toBe(6);
+  });
+
+  it("Return() exits the function early", () => {
+    const fn = compileJS(() => Fn(() => {
+      const out = float(0).toVar();
+      If(float(1).greaterThan(0), () => { Return(); });
+      out.assign(float(1));
+      return out;
+    })(), { name: "ret", params: [] });
+    // The `return;` fires before the trailing return, so the function is
+    // undefined rather than 1.
+    expect(fn({})).toBeUndefined();
+  });
+
+  it("Discard() returns null", () => {
+    const fn = compileJS(() => Fn(() => {
+      const out = float(1).toVar();
+      If(float(1).greaterThan(0), () => { Discard(); });
+      out.assign(float(2));
+      return out;
+    })(), { name: "disc", params: [] });
+    expect(fn({})).toBe(null);
   });
 });
