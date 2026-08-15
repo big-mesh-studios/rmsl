@@ -203,6 +203,14 @@ export class WebGLRenderer {
     const is3D = samplerType.endsWith("3D");
     const target = is3D ? gl.TEXTURE_3D : gl.TEXTURE_2D;
     const integer = isIntegerSampler(samplerType);
+    // Take the unit this texture will be read from before touching it. Setting
+    // a texture up binds it, and a bind always lands on the active unit — which
+    // until this call belongs to the sampler bound just before. Uploading first
+    // would leave that sampler reading this texture instead of its own for the
+    // draw: a wrong image where the two are alike, and an invalid draw that
+    // writes nothing where one is integer and the other is not.
+    const unit = this.nextTextureUnit();
+    gl.activeTexture(gl.TEXTURE0 + unit);
     let glTexture = this.textures.get(texture);
     if (!glTexture || texture.needsUpdate) {
       if (!glTexture) {
@@ -240,9 +248,6 @@ export class WebGLRenderer {
       }
       texture.needsUpdate = false;
     }
-    // Find a free texture unit and bind.
-    const unit = this.nextTextureUnit();
-    gl.activeTexture(gl.TEXTURE0 + unit);
     gl.bindTexture(target, glTexture);
     return unit;
   }
