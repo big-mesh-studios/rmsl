@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lines &middot; RMSL scene</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #101318; }
+    canvas { display: block; user-select: none; -webkit-user-select: none; touch-action: none; }
+
+    #ui {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 10;
+      font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: #d8d8e0;
+      background: rgba(16, 16, 24, 0.82);
+      border: 1px solid #2a2a3a;
+      border-radius: 8px;
+      padding: 12px 14px;
+      min-width: 230px;
+      backdrop-filter: blur(4px);
+    }
+    #ui h1 { margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #fff; }
+    #ui p { margin: 0 0 10px; font-size: 11px; color: #8a8a9a; }
+    label { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; cursor: pointer; }
+    .row { margin-bottom: 8px; }
+    .row label { margin-bottom: 2px; display: flex; justify-content: space-between; }
+    .row span { color: #9ac7ff; }
+    input[type="range"] { width: 100%; }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <h1>Wide lines &mdash; LineSegments2 / Line2</h1>
+    <p>Node-based line materials from three.js&rsquo;s webgpu module. Drag to orbit, scroll to zoom.</p>
+    <label><input type="checkbox" id="dashed" checked /> Dashed (accumulated line distances)</label>
+    <label><input type="checkbox" id="worldUnits" checked /> World-units width (helix)</label>
+    <label><input type="checkbox" id="vertexColors" checked /> Vertex colors (spokes)</label>
+    <div class="row">
+      <label>Pixel width <span id="pixelWidthVal">3</span></label>
+      <input type="range" id="pixelWidth" min="1" max="12" step="0.5" value="3" />
+    </div>
+    <div class="row">
+      <label>World width <span id="worldWidthVal">0.06</span></label>
+      <input type="range" id="worldWidth" min="0.01" max="0.2" step="0.01" value="0.06" />
+    </div>
+    <div class="row">
+      <label>Dash size <span id="dashSizeVal">0.4</span></label>
+      <input type="range" id="dashSize" min="0.05" max="1" step="0.05" value="0.4" />
+    </div>
+    <div class="row">
+      <label>Gap size <span id="gapSizeVal">0.22</span></label>
+      <input type="range" id="gapSize" min="0.05" max="1" step="0.05" value="0.22" />
+    </div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

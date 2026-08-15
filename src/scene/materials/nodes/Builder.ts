@@ -6,7 +6,7 @@ import type { Camera } from "../../cameras/Camera";
 import type { Mesh } from "../../objects/Mesh";
 import type { Texture } from "../../textures/Texture";
 
-export type UniformScope = "camera" | "object" | "material";
+export type UniformScope = "camera" | "object" | "material" | "renderer";
 
 export interface UniformContext {
   camera: Camera;
@@ -25,6 +25,13 @@ export interface UniformBinding {
 export interface AttributeBinding {
   node: AttributeNode<ShaderType>;
   name: string;
+  /**
+   * How the GPU advances the buffer: `"instance"` fetches one element per
+   * instance (three.js's `InstancedBufferAttribute`), `"vertex"` one per
+   * vertex. The material declares this — the renderer's pipeline layout and
+   * draw calls depend on it.
+   */
+  stepMode: "vertex" | "instance";
 }
 
 export interface VaryingBinding {
@@ -71,11 +78,11 @@ export class Builder {
    */
   stage: "vertex" | "fragment" = "vertex";
 
-  attribute<T extends ShaderType>(name: string, type: T): AttributeNode<T> {
+  attribute<T extends ShaderType>(name: string, type: T, stepMode: "vertex" | "instance" = "vertex"): AttributeNode<T> {
     let existing = this.attributes.get(name);
     if (!existing) {
       const node = attribute(type);
-      this.attributes.set(name, { node, name });
+      this.attributes.set(name, { node, name, stepMode });
       existing = this.attributes.get(name)!;
     }
     return existing.node as AttributeNode<T>;
@@ -113,6 +120,15 @@ export class Builder {
     value: (ctx: UniformContext) => number | number[],
   ): UniformNode<T> {
     return this.uniform(name, type, "material", value);
+  }
+
+  /**
+   * A renderer-scoped uniform (canvas resolution, device pixel ratio, ...).
+   * The renderer supplies the value by name at draw time; no per-material
+   * value function is involved.
+   */
+  rendererUniform<T extends ShaderType>(name: string, type: T): UniformNode<T> {
+    return this.uniform(name, type, "renderer");
   }
 
   /** A `sampler2D` uniform bound to a texture supplied by `texture`. */

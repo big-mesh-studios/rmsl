@@ -19,6 +19,12 @@ export class BufferGeometry {
   attributes: Record<string, BufferAttribute> = {};
   index: BufferAttribute | null = null;
   name = "";
+  /**
+   * How many times the vertex data is drawn, one vertex pass per instance.
+   * Instanced attributes (`stepMode === "instance"`) advance once per
+   * instance; the default of 1 is an ordinary non-instanced draw.
+   */
+  instanceCount = 1;
 
   setAttribute(name: string, attribute: BufferAttribute): this {
     this.attributes[name] = attribute;

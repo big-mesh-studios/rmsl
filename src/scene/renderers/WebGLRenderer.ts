@@ -1,5 +1,6 @@
 import { compileGLSL } from "../../rmsl";
 import { Color } from "../math/Color";
+import { Vector4 } from "../math/Vector4";
 import type { Scene } from "../scenes/Scene";
 import type { Camera } from "../cameras/Camera";
 import type { Mesh } from "../objects/Mesh";
@@ -9,6 +10,7 @@ import type { NodeMaterial, MaterialProgram } from "../materials/NodeMaterial";
 import { Blending, Side } from "../materials/Material";
 import {
   cameraUniformValue, isIntegerSampler, objectUniformValue, lightsSignature, toBufferView, uniformUploadValue,
+  rendererUniformValue,
 } from "./common";
 
 interface ProgramEntry {
@@ -96,8 +98,20 @@ export class WebGLRenderer {
     gl.enable(gl.DEPTH_TEST);
 
     scene.traverseVisible((object) => {
-      if (object.isMesh) this.drawMesh(object as Mesh, scene, camera);
+      if (object.isMesh) {
+        const mesh = object as Mesh;
+        // Give objects a chance to update per-draw state (line resolution, ...).
+        mesh.onBeforeRender?.(this, scene, camera);
+        this.drawMesh(mesh, scene, camera);
+      }
     });
+  }
+
+  /** The drawing surface viewport: `(x, y, width, height)` in device pixels. */
+  getViewport(target = new Vector4()): Vector4 {
+    const gl = this.gl;
+    target.set(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+    return target;
   }
 
   private drawMesh(mesh: Mesh, scene: Scene, camera: Camera): void {
@@ -116,9 +130,9 @@ export class WebGLRenderer {
     if (geometry.index) {
       const indexView = toBufferView(geometry.index.array, true) as Uint16Array | Uint32Array;
       const type = indexView instanceof Uint16Array ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT;
-      gl.drawElements(gl.TRIANGLES, indexView.length, type, 0);
+      gl.drawElementsInstanced(gl.TRIANGLES, indexView.length, type, 0, geometry.instanceCount);
     } else {
-      gl.drawArrays(gl.TRIANGLES, 0, geometry.attributes.position?.count ?? 0);
+      gl.drawArraysInstanced(gl.TRIANGLES, 0, geometry.attributes.position?.count ?? 0, geometry.instanceCount);
     }
   }
 
@@ -155,6 +169,8 @@ export class WebGLRenderer {
         value = cameraUniformValue(binding.name, camera);
       } else if (binding.scope === "object") {
         value = objectUniformValue(binding.name, mesh);
+      } else if (binding.scope === "renderer") {
+        value = rendererUniformValue(binding.name, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
       } else {
         value = binding.value?.({ camera, mesh }) ?? [];
       }
@@ -338,6 +354,7 @@ export class WebGLRenderer {
       }
       gl.enableVertexAttribArray(location);
       gl.vertexAttribPointer(location, geometryAttribute.itemSize, gl.FLOAT, geometryAttribute.normalized, 0, 0);
+      gl.vertexAttribDivisor(location, attribute.stepMode === "instance" ? 1 : 0);
     }
 
     if (geometry.index) {

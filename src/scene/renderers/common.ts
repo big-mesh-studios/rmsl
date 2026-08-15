@@ -43,6 +43,20 @@ export function objectUniformValue(name: string, mesh: Mesh): number[] {
 const _normalMatrix = new Matrix3();
 
 /**
+ * The value a renderer-scoped uniform should hold this frame, given its
+ * logical name and the drawing surface's device-pixel size. Unknown names
+ * return an empty array, which the renderer treats as "nothing to upload".
+ */
+export function rendererUniformValue(name: string, width: number, height: number): number[] {
+  switch (name) {
+    case "resolution":
+      return [width, height];
+    default:
+      return [];
+  }
+}
+
+/**
  * A signature of a scene's light set, in traversal order. When it changes the
  * shaders a material compiled against (light uniforms are baked in) must be
  * rebuilt.

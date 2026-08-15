@@ -33,10 +33,13 @@ renderer.setAnimationLoop(() => renderer.render(scene, camera));
 
 - **Scene graph** — `Object3D` (position/quaternion/scale, world matrices),
   `Group`, `Scene`, `Camera` / `PerspectiveCamera` / `OrthographicCamera`,
-  `Mesh`, lights (`AmbientLight`, `DirectionalLight`, `PointLight`).
-- **Geometry** — `BufferGeometry` + `BufferAttribute`, and the primitives
-  `BoxGeometry`, `SphereGeometry`, `PlaneGeometry`, `CylinderGeometry`,
-  `ConeGeometry`, `TorusGeometry`, `CircleGeometry` (normals and UVs included).
+  `Mesh`, lights (`AmbientLight`, `DirectionalLight`, `PointLight`), and the
+  wide-line objects `LineSegments2` / `Line2` (see below).
+- **Geometry** — `BufferGeometry` + `BufferAttribute` (with `stepMode` for
+  instanced attributes), the primitives `BoxGeometry`, `SphereGeometry`,
+  `PlaneGeometry`, `CylinderGeometry`, `ConeGeometry`, `TorusGeometry`,
+  `CircleGeometry` (normals and UVs included), and `LineSegmentsGeometry` /
+  `LineGeometry` for lines.
 - **Math** — `Vector2/3/4`, `Matrix3/4`, `Quaternion`, `Euler`, `Color`,
   `Spherical`, `MathUtils`, all in the column-major `number[]`/`Float32Array`
   convention the rest of the library already uses.
@@ -123,8 +126,62 @@ build time. Each lit material declares a fixed set of light uniforms; when the
 scene's light set changes the renderer rebuilds the affected programs. Point
 lights support `distance` (0 = no cutoff) and `decay` (default 2).
 
+## Wide lines
+
+`LineSegments2` draws line segments with arbitrary width, ported from
+three.js's `examples/jsm/lines/webgpu` module and rendered by **both** the
+WebGL2 and WebGPU renderers (the shaders are node graphs, so they compile to
+GLSL and WGSL from the same material):
+
+```typescript
+import { Scene, PerspectiveCamera, LineSegments2, LineSegmentsGeometry,
+  Line2NodeMaterial, Line2, LineGeometry } from "@random-mesh/rmsl/scene";
+
+const scene = new Scene();
+
+// A single pair of segments.
+const segments = new LineSegments2(
+  new LineSegmentsGeometry().setPositions([-1, 0, 0, 1, 0, 0, 0, -1, 0, 0, 1, 0]),
+  new Line2NodeMaterial({ color: 0x44aaff, linewidth: 3 }),
+);
+scene.add(segments);
+
+// A polyline built from consecutive points.
+const line = new Line2(new LineGeometry([-2, -1, 0, 0, 0, 0, 2, -1, 0]),
+  new Line2NodeMaterial({ color: 0xff8833, linewidth: 2, worldUnits: true }));
+scene.add(line);
+```
+
+- **`linewidth`** — width in device pixels by default; with `worldUnits: true`
+  it is measured in world units and the ribbon stays a constant world width.
+- **`dashed`** — requires `line.computeLineDistances()` so the geometry can
+  record accumulated distances; configure `dashSize`, `gapSize`, `dashOffset`,
+  `dashScale`.
+- **`vertexColors`** — requires `geometry.setColors(...)`; multiplies the color
+  by per-segment start/end colors.
+- Node slots `colorNode`, `lineWidthNode`, `dashSizeNode`, `gapSizeNode`,
+  `dashOffsetNode`, `dashScaleNode`, `offsetNode` override the material
+  properties, like the other node materials.
+- `alphaToCoverage` is accepted for three.js parity but currently renders the
+  MSAA-less hard-edge variant (the renderers expose no sample count yet), and
+  transparent lines are not supported (`NoBlending`).
+
+### How the wide-line shader works
+
+Each segment is an *instance*: the geometry stores `instanceStart`/`instanceEnd`
+(vec3, `stepMode: "instance"`) per segment, and the material expands the shared
+quad strip into a screen- or world-width ribbon in the vertex stage, then
+discards fragments outside the line (round endcaps, dashes, world-units
+distance) in the fragment stage. This required plumbing **instanced attributes**
+through the scene graph: `BufferAttribute.stepMode` and
+`BufferGeometry.instanceCount`, with the renderers issuing instanced draws
+(`drawElementsInstanced`, `draw(..., instanceCount)`). A `resolution` uniform
+(scoped to the renderer) feeds the pixel-width expansion.
+
 ## Limitations
 
+- `LineSegments2.raycast` is not ported yet (no `Raycaster`/`Ray` in the scene
+  graph); pick against lines is a follow-up.
 - The lighting model is deliberately simple: Lambert diffuse plus a
   three.js-style simplified GGX specular, no image-based lighting or shadows.
 - Custom uniforms must be reachable through the builder so the renderer knows

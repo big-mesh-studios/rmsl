@@ -64,6 +64,33 @@ globalThis.__rmslIntRun = () => {
 };
 `;
 
+const ENTRY_LINES = `
+import { WebGLRenderer, Scene, PerspectiveCamera,
+  LineSegments2, LineSegmentsGeometry, Line2NodeMaterial } from "./index";
+globalThis.__rmslLineRun = () => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 32;
+  canvas.height = 32;
+  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  renderer.setClearColor(0x000000);
+  const scene = new Scene();
+  const geometry = new LineSegmentsGeometry();
+  geometry.setPositions([-0.8, 0, 0, 0.8, 0, 0]);
+  const line = new LineSegments2(geometry, new Line2NodeMaterial({ color: 0xff0000, linewidth: 4 }));
+  scene.add(line);
+  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 4);
+  camera.lookAt(0, 0, 0);
+  renderer.render(scene, camera);
+  const gl = renderer.gl;
+  const center = new Uint8Array(4);
+  gl.readPixels(16, 16, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, center);
+  const corner = new Uint8Array(4);
+  gl.readPixels(2, 2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, corner);
+  return { center: [center[0], center[1], center[2]], corner: [corner[0], corner[1], corner[2]] };
+};
+`;
+
 async function bundleEntry(source: string): Promise<string> {
   const result = await build({
     stdin: {
@@ -110,6 +137,22 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     // widening to a float color writes solid blue, not black.
     expect(pixel.b).toBeGreaterThan(200);
     expect(pixel.r).toBeLessThan(60);
+  }, 60_000);
+
+  it("renders a wide line across the canvas via instanced draws", async () => {
+    const page = await gpuPage();
+    const code = await bundleEntry(ENTRY_LINES);
+    const pixel = await page.evaluate(async (source: string) => {
+      // eslint-disable-next-line no-new-func
+      const fn = new Function(source);
+      fn();
+      return (globalThis as any).__rmslLineRun();
+    }, code);
+
+    // The horizontal red line crosses the center but not the corners.
+    expect(pixel.center[0]).toBeGreaterThan(100);
+    expect(pixel.center[1]).toBeLessThan(60);
+    expect(pixel.corner[0]).toBeLessThan(60);
   }, 60_000);
 });
 

@@ -1,6 +1,7 @@
 /// <reference types="@webgpu/types" />
 import { compileWGSL, wgslUniformLayout } from "../../rmsl";
 import { Color } from "../math/Color";
+import { Vector4 } from "../math/Vector4";
 import type { Scene } from "../scenes/Scene";
 import type { Camera } from "../cameras/Camera";
 import type { Mesh } from "../objects/Mesh";
@@ -12,6 +13,7 @@ import { Side } from "../materials/Material";
 import {
   cameraUniformValue, isIntegerSampler, objectUniformValue, lightsSignature,
   samplerDimension, samplerSampleType, wgslTypeName, toBufferView,
+  rendererUniformValue,
 } from "./common";
 
 interface PipelineEntry {
@@ -24,7 +26,7 @@ interface PipelineEntry {
   slotSize: number;
   slots: number;
   layoutMembers: { name: string; offset: number }[];
-  vertexFormats: { name: string; shaderLocation: number; format: GPUVertexFormat }[];
+  vertexFormats: { name: string; shaderLocation: number; format: GPUVertexFormat; stepMode: GPUVertexStepMode }[];
 }
 
 interface GeometryBuffers {
@@ -106,6 +108,12 @@ export class WebGPURenderer {
     }
   }
 
+  /** The drawing surface viewport: `(x, y, width, height)` in device pixels. */
+  getViewport(target = new Vector4()): Vector4 {
+    target.set(0, 0, this.canvas.width, this.canvas.height);
+    return target;
+  }
+
   render(scene: Scene, camera: Camera): void {
     scene.updateMatrixWorld(true);
     camera.updateMatrixWorld(true);
@@ -125,6 +133,9 @@ export class WebGPURenderer {
       if (!(material as NodeMaterial).isNodeMaterial) return;
       const entry = this.ensurePipeline(material as NodeMaterial, scene);
       if (!entry) return;
+
+      // Give objects a chance to update per-draw state (line resolution, ...).
+      mesh.onBeforeRender?.(this, scene, camera);
 
       this.packUniforms(entry, mesh, camera, slotIndex);
 
@@ -152,9 +163,9 @@ export class WebGPURenderer {
       if (geometry.index) {
         const buffers = this.ensureGeometryBuffers(geometry);
         pass.setIndexBuffer(buffers.index!, buffers.indexFormat as GPUIndexFormat, 0);
-        pass.drawIndexed(geometry.index.count);
+        pass.drawIndexed(geometry.index.count, geometry.instanceCount);
       } else {
-        pass.draw(geometry.attributes.position?.count ?? 0);
+        pass.draw(geometry.attributes.position?.count ?? 0, geometry.instanceCount);
       }
       pass.end();
 
@@ -174,6 +185,8 @@ export class WebGPURenderer {
         value = cameraUniformValue(binding.name, camera);
       } else if (binding.scope === "object") {
         value = objectUniformValue(binding.name, mesh);
+      } else if (binding.scope === "renderer") {
+        value = rendererUniformValue(binding.name, this.canvas.width, this.canvas.height);
       } else {
         value = binding.value?.({ camera, mesh }) ?? [];
       }
@@ -202,9 +215,13 @@ export class WebGPURenderer {
     const vertexModule = device.createShaderModule({ code: compileWGSL.vertex(program.vertexRoot) });
     const fragmentModule = device.createShaderModule({ code: compileWGSL.fragment(program.fragmentRoot) });
 
-    // The uniform struct the compiler emits, member offsets included.
+    // The uniform struct the compiler emits, member offsets included. The
+    // compiler lays out members from its own alphabetical sort of the slots,
+    // so the same sorted order must be fed to `wgslUniformLayout` here or the
+    // byte offsets drift from what the WGSL struct actually declares.
+    const uniforms = [...program.uniforms].sort((a, b) => a.node.name.localeCompare(b.node.name));
     const layout = wgslUniformLayout(
-      program.uniforms.map((u) => ({ slot: u.node.name, type: wgslTypeName(u.node._t) })),
+      uniforms.map((u) => ({ slot: u.node.name, type: wgslTypeName(u.node._t) })),
     );
     const layoutMembers = layout.members.map((m) => ({ name: m.name, offset: m.offset }));
 
@@ -271,6 +288,7 @@ export class WebGPURenderer {
       name: attribute.name,
       shaderLocation: i,
       format: vertexFormatFromType(attribute.node._t),
+      stepMode: attribute.stepMode,
     }));
 
     const cullMode: GPUCullMode = material.side === Side.FrontSide
@@ -284,6 +302,7 @@ export class WebGPURenderer {
         entryPoint: "main",
         buffers: vertexFormats.map((v) => ({
           arrayStride: strideForFormat(v.format),
+          stepMode: v.stepMode,
           attributes: [{ shaderLocation: v.shaderLocation, offset: 0, format: v.format }],
         })),
       },
