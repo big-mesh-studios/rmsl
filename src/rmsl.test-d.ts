@@ -296,3 +296,22 @@ describe("TSL free-function API", () => {
     expectTypeOf(uvec2(1, 2).st).toEqualTypeOf<Node<"uvec2">>();
   });
 });
+
+describe("scalar-broadcast result types", () => {
+  // `1 - vec3` (oneMinus) and `1 / vec3` (reciprocal) must stay vec3: the
+  // operand defining the result is the widest, not the first. Before the fix
+  // these declared float, which made the JS target multiply an array by a
+  // scalar (NaN) and mis-typed any intermediate variable.
+  it("types oneMinus and reciprocal from a vector receiver", () => {
+    expectTypeOf(vec3(1, 2, 3).oneMinus()).toEqualTypeOf<Node<"vec3">>();
+    expectTypeOf(vec3(1, 2, 3).reciprocal()).toEqualTypeOf<Node<"vec3">>();
+    expectTypeOf(vec4(1, 2, 3, 4).oneMinus()).toEqualTypeOf<Node<"vec4">>();
+    expectTypeOf(float(0.5).oneMinus()).toEqualTypeOf<Node<"float">>();
+    expectTypeOf(float(0.5).reciprocal()).toEqualTypeOf<Node<"float">>();
+  });
+
+  it("keeps a float step/smoothstep value operand type", () => {
+    expectTypeOf(vec3(1, 2, 3).step(float(0.5))).toEqualTypeOf<Node<"vec3">>();
+    expectTypeOf(vec3(1, 2, 3).smoothstep(float(0), float(1))).toEqualTypeOf<Node<"vec3">>();
+  });
+});

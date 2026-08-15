@@ -1087,9 +1087,18 @@ function op(type: string, ...args: any[]): Node<ShaderType> {
   let params = [first, ...args.slice(1).map(a => typedOperand(a, firstT))];
   // The operand that defines the op's type — usually the first, but `step` and
   // `smoothstep` take the value last because that is the argument order both
-  // languages expect.
+  // languages expect. The result of a type-preserving op follows the *widest*
+  // operand, so a scalar broadcast beside a vector keeps the vector type:
+  // `1 - vec3` (oneMinus) and `1 / vec3` (reciprocal) are still vec3.
   let valueIndex = VALUE_OPERAND[type] ?? 0;
   let valueT = (params[valueIndex] as any)?._t ?? firstT;
+  let widthOf = (p: BaseNode<ShaderType>) =>
+    TYPE_WIDTH[(p as any)?._t] ?? (MATRIX_DIMENSIONS[(p as any)?._t] ? 16 : 1);
+  let widest = params[0];
+  for (const p of params) {
+    if (widthOf(p) > widthOf(widest)) widest = p;
+  }
+  valueT = (widest as any)?._t ?? valueT;
 
   if (UNIFORM_OPERAND_OPS.has(type) && (TYPE_WIDTH[valueT] ?? 1) > 1) {
     params = params.map(p =>

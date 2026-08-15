@@ -25,6 +25,7 @@ let js = compileJS(() => prog());   // fn(ctx) -> color, run on the CPU
 - **Three backends** - Compile to GLSL ES 3.0, WGSL, or JavaScript from the same node graph
 - **CPU / JS target** - `compileJS`/`compileJSFn` turn an `Fn` into a callable that runs on the CPU, one fragment at a time — for screen picking from a ray-marched scene without a GPU round-trip. Per-call evaluation allocates nothing (hoisted scratch slots + out-parameter vector helpers)
 - **Post-processing effects** - `import { fxaa, gaussianBlur, crt, ... } from "@random-mesh/rmsl/effects"` provides a port of three.js's `examples/jsm/tsl/display` color effects as pure node graphs (no renderer inside — you draw the quad), plus `fragCoord()`/`screenUV()`/`textureLoad()`/`textureSize()` and friends in the core DSL
+- **Scene graph & node materials** - `import { Scene, Mesh, WebGLRenderer, ... } from "@random-mesh/rmsl/scene"` provides three.js-style scene-graph objects and **node-based materials** — a material is an RMSL node graph (`colorNode`, `roughnessNode`, `fragmentNode`, ...) compiled by the same DSL compiler, with WebGL2 and WebGPU renderers that bind geometry, upload uniforms and draw
 - **Vite plugins** - `import { precompileShaders, precompileJS } from "@random-mesh/rmsl/vite"` compiles the node graph at build time, so the browser ships plain GLSL/WGSL strings and JS callables instead of rmsl itself
 - **Casts & conversions** - `uint()`, `ivec3(vec3)`, and chained `.toInt()`/`.toVec3()`/`.toUVec4()`/… for any type
 - **Constant folding** - Math on literal values is evaluated at compile time
@@ -42,6 +43,7 @@ let js = compileJS(() => prog());   // fn(ctx) -> color, run on the CPU
 - [TSL Migration](https://github.com/big-mesh-studios/rmsl/blob/main/docs/tsl-migration.md) - Porting a Three.js TSL shader to RMSL
 - [Compilation](https://github.com/big-mesh-studios/rmsl/blob/main/docs/compilation.md) - GLSL/WGSL output, type mappings, binding model
 - [Effects](https://github.com/big-mesh-studios/rmsl/blob/main/docs/effects.md) - Post-processing effects ported from three.js TSL (`@random-mesh/rmsl/effects`)
+- [Scene Graph](https://github.com/big-mesh-studios/rmsl/blob/main/docs/scene.md) - three.js-style scene objects and node-based materials (`@random-mesh/rmsl/scene`)
 - [Vite Plugins](https://github.com/big-mesh-studios/rmsl/blob/main/docs/vite-plugins.md) - Precompiling shaders and CPU callables at build time so rmsl is never shipped
 - [Contributing](https://github.com/big-mesh-studios/rmsl/blob/main/CONTRIBUTING.md) - Test setup, and how to add an operation or a shader type
 

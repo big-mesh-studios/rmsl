@@ -32,6 +32,10 @@
     "./effects": {
       "import": "./dist/effects.js",
       "types": "./dist/effects/index.d.ts"
+    },
+    "./scene": {
+      "import": "./dist/scene.js",
+      "types": "./dist/scene/index.d.ts"
     }
   },
   "scripts": {
@@ -48,6 +52,7 @@
     "test:mutate:deep": "stryker run --timeoutMS 120000"
   },
   "dependencies": {
+    "@webgpu/types": "^0.1.71",
     "esbuild": "^0.28.1"
   },
   "devDependencies": {

@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@webgpu/types':
+        specifier: ^0.1.71
+        version: 0.1.71
       esbuild:
         specifier: ^0.28.1
         version: 0.28.1
@@ -80,6 +83,19 @@ importers:
         version: 7.3.6
 
   apps/mandelbrot:
+    dependencies:
+      '@random-mesh/rmsl':
+        specifier: workspace:*
+        version: link:../..
+    devDependencies:
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vite:
+        specifier: ^7.1.4
+        version: 7.3.6
+
+  apps/scene-demo:
     dependencies:
       '@random-mesh/rmsl':
         specifier: workspace:*

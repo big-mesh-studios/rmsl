@@ -93,11 +93,13 @@ in TSL:
 - **`output()`** — TSL's `output()` is the render output node; RMSL's
   `output(type)` declares a fragment output with `@location(N)`. The name is
   the same; the shape differs.
-- **No renderer built-ins.** `position`, `normal`, `uv`, `cameraPosition`,
-  `modelViewMatrix` and the rest of TSL's geometry/material accessors have no
-  RMSL equivalent — RMSL has no scene graph. Pass those values in as
+- **No renderer built-ins in the core.** `position`, `normal`, `uv`,
+  `cameraPosition`, `modelViewMatrix` and the rest of TSL's geometry/material
+  accessors have no RMSL-core equivalent — pass those values in as
   `attribute`/`varying`/`uniform` instead. `builtinPosition()` and
-  `builtinFragDepth()` cover the two true built-ins.
+  `builtinFragDepth()` cover the two true built-ins. The scene-graph layer
+  (`@random-mesh/rmsl/scene`) resolves the same accessors automatically inside
+  its node-based materials; see [scene.md](./scene.md).
 - **`Loop`** takes `(count, (i) => …)` with `i` as a direct `int` node, not an
   object to destructure. The `{ start, end, update }` and nested-loop forms of
   TSL's `Loop` are not implemented; use `For`/`While` for those.
