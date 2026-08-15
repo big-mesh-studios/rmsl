@@ -37,6 +37,19 @@ importers:
         specifier: ^4.1.3
         version: 4.1.10(vite@7.3.6)
 
+  apps/bomb-bloom:
+    dependencies:
+      '@random-mesh/rmsl':
+        specifier: workspace:*
+        version: link:../..
+    devDependencies:
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vite:
+        specifier: ^7.1.4
+        version: 7.3.6
+
   apps/infinite-grid:
     dependencies:
       '@random-mesh/rmsl':

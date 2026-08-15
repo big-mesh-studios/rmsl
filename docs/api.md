@@ -311,6 +311,18 @@ to the same nodes as the method form.
 **Ternary math:** `mix(a, b, t)`, `clamp(x, low, high)`, `refract`,
 `smoothstep(low, high, x)`, `faceForward(n, i, nref)`
 
+**Conditional:** `select(cond, a, b)` — `a` when `cond`, else `b`. The
+condition may be a `bool` or a boolean vector (component-wise selection).
+
+**Colour / noise:** `luminance(color)` (Rec. 709 dot product),
+`rand(uv)` (a hash in `[0, 1)`), `interleavedGradientNoise(position)`
+(Jimenez 2014 dithering hash, takes a pixel-space position),
+`premultiplyAlpha(color)`, `unpremultiplyAlpha(color)`
+
+**Texel access:** `textureSize(sampler)` → the texture's dimensions as a
+`uvec2`/`uvec3`, and `textureLoad(sampler, ivec2|ivec3)` → an unfiltered texel
+fetch at integer coordinates.
+
 **Reductions:** `all(x)`, `any(x)`
 
 **Matrix:** `transpose`, `determinant`, `inverse`
@@ -409,6 +421,12 @@ While(condition, () => {
 | `varying(type)` | `VaryingNode<T>` | Declares a varying (vertex→fragment interpolant). Use `.name` for the generated name (e.g., `_rmsl_v0`); methods and swizzles are available directly. |
 | `output(type)` | `Node<T>` | Declares a fragment output with `@location(N)` |
 | `builtinPosition()` | `Node<"vec4">` | Maps to `gl_Position` / `@builtin(position)` |
+| `builtinFragDepth()` | `Node<"float">` | Maps to `gl_FragDepth` / `@builtin(frag_depth)` |
+| `fragCoord()` | `Node<"vec2">` | The fragment's framebuffer position in pixels (`gl_FragCoord.xy` / WGSL `@builtin(position)`). Fragment stage only. Alias: `screenCoordinate()`. |
+| `screenSize()` | `Node<"vec2">` | The drawing-buffer size in pixels, as a `vec2` uniform the host binds. |
+| `screenUV()` | `Node<"vec2">` | `fragCoord() / screenSize()` — the normalized screen position. |
+| `uv()` | `Node<"vec2">` | The fullscreen-quad UV: the normalized screen position, as TSL's `uv()`. |
+| `time()` | `Node<"float">` | A shared per-frame clock (seconds), as a `float` uniform the host updates. |
 
 A declared variable carries every method of its type (`.add()`, `.mul()`, `.x`,
 `.xyz`, ...) alongside `.name`:

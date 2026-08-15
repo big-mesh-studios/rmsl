@@ -52,7 +52,8 @@ inversesqrt exp log exp2 log2 negate oneMinus reciprocal cbrt saturate lengthSq
 normalize length dFdx dFdy fwidth sin cos tan asin acos atan sinh cosh tanh
 asinh acosh atanh pow pow2 pow3 pow4 min max step reflect distance difference
 dot cross mix clamp refract smoothstep faceForward all any transpose determinant
-inverse element`
+inverse element select luminance rand interleavedGradientNoise
+premultiplyAlpha unpremultiplyAlpha textureLoad textureSize`
 
 Argument order matches TSL: `step(edge, x)`, `smoothstep(low, high, x)`,
 `mix(a, b, t)`, `clamp(x, low, high)`, `faceForward(n, i, nref)`, `atan(y, x)`.
@@ -106,5 +107,14 @@ in TSL:
   the homogeneous component, as TSL's matrix·vector multiply does. Other
   vector widths narrower than the matrix's columns are not supported.
 - **`property()`, `uniformArray(values)` (value-owned), `buffer()`,
-  `compute()`, `pass()`, `debug()` and the post-processing functions** are not
-  implemented; RMSL compiles a node graph, it does not drive a renderer.
+  `compute()`, `pass()`, `debug()`** are not implemented; RMSL compiles a node
+  graph, it does not drive a renderer.
+- **Post-processing** is available from the `@random-mesh/rmsl/effects`
+  subpath. The effects are pure node graphs — pass sampler uniforms and
+  parameters, get a color node. See [effects.md](./effects.md) for the
+  mapping of three.js's renderer-bound wrappers (`convertToTexture`,
+  `passTexture`, `uv()`, `time`, ...) to RMSL.
+- **`textureLoad(tex, coords)` / `textureSize(tex)`** are supported as free
+  functions, and `select(cond, a, b)`, `luminance`, `rand`,
+  `interleavedGradientNoise`, `premultiplyAlpha` / `unpremultiplyAlpha` mirror
+  the TSL names.

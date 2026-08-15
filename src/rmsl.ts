@@ -565,6 +565,15 @@ interface NodeMethods<A extends ShaderType> {
   toMat3(): Node<"mat3">;
   toMat4(): Node<"mat4">;
   convert<T extends ShaderType>(target: T): Node<T>;
+  /**
+   * TSL's `select()`: a conditional value. `cond.select(a, b)` is `a` when
+   * `cond` is true and `b` otherwise. The condition may be a single bool or a
+   * boolean vector, in which case the selection is component-wise.
+   */
+  select<T extends ShaderType>(
+    ifTrue: BaseNode<T> | number | readonly number[],
+    ifFalse: BaseNode<T> | number | readonly number[],
+  ): Node<T>;
 }
 
 // === NodeImpl - defines all methods, Node<A> hides typed subset ===
@@ -813,6 +822,18 @@ class NodeImpl<A extends ShaderType> implements BaseNode<A> {
   toMat4(): any { return node({ _t: "mat4", type: "construct", params: [this as BaseNode<ShaderType>] }); }
   convert<T extends ShaderType>(target: T): any {
     return node({ _t: target, type: "construct", params: [this as BaseNode<ShaderType>] });
+  }
+  select(ifTrue: any, ifFalse: any): any {
+    let a = wrapValue(ifTrue) as BaseNode<ShaderType>;
+    let b = wrapValue(ifFalse) as BaseNode<ShaderType>;
+    // The result type follows the branches, not the condition. `vec3(0).equal(1).select(v, w)`
+    // is a vec3 no matter that the selector is a bvec3.
+    let t = (a as any)?._t || (b as any)?._t || this._t;
+    return node({
+      _t: t,
+      type: "select",
+      params: [this as BaseNode<ShaderType>, a, b],
+    });
   }
 
   // === Swizzles (gated by Node<"vec3"> / Node<"vec4"> type) ===
@@ -1649,6 +1670,92 @@ export function element(a: MathLike, i: IntLike): any {
   return toNode(a).element(i);
 }
 
+/** TSL's conditional: `select(cond, a, b)` is `a` when `cond`, else `b`. */
+export function select(cond: MathLike, a: MathLike, b: MathLike): any {
+  return toNode(cond).select(a, b);
+}
+
+/**
+ * Rec. 709 luminance of a colour. A vec4 is reduced over its rgb; a vec3 (or
+ * anything narrower) is used as it is. The coefficients match the current
+ * working colour space's primaries in three.js, which for both sRGB and
+ * linear-sRGB is Rec. 709.
+ */
+export function luminance(color: MathLike, luminanceCoefficients: MathLike = [0.2126, 0.7152, 0.0722]): Node<"float"> {
+  let c = toNode(color);
+  let rgb = (c as any)?._t === "vec4" ? c.rgb : c;
+  return dot(rgb, luminanceCoefficients);
+}
+
+/**
+ * A deterministic hash of the given uv, in `[0, 1)`, from TSL's `rand`.
+ */
+export function rand(uv: MathLike): Node<"float"> {
+  let dt = dot(toNode(uv).xy, vec2(12.9898, 78.233));
+  return fract(sin(mod(dt, PI)).mul(43758.5453));
+}
+
+/**
+ * Interleaved gradient noise (Jimenez 2014), a cheap per-pixel dithering hash
+ * in `[0, 1)`. Takes a pixel-space position.
+ */
+export function interleavedGradientNoise(position: MathLike): Node<"float"> {
+  return fract(float(52.9829189).mul(fract(dot(toNode(position), vec2(0.06711056, 0.00583715)))));
+}
+
+/** Multiply a colour's rgb by its alpha, leaving alpha alone. */
+export function premultiplyAlpha(color: MathLike): any {
+  let c = toNode(color);
+  return vec4(c.rgb.mul(c.a), c.a);
+}
+
+/** Reverse `premultiplyAlpha`, guarding against a zero alpha. */
+export function unpremultiplyAlpha(color: MathLike): any {
+  let c = toNode(color);
+  return c.a.equal(0).select(vec4(0), vec4(c.rgb.div(c.a), c.a));
+}
+
+/**
+ * Fetch a single texel at integer coordinates, without filtering — TSL's
+ * `textureLoad`. The float-sampler counterpart of the integer samplers' texel
+ * fetch; both backends emit their unfiltered load (`texelFetch` / `textureLoad`).
+ */
+export function textureLoad(samplerNode: Sampler2DLike, coords: IVec2Like | UVec2Like): Node<"vec4">;
+export function textureLoad(samplerNode: Sampler3DLike, coords: IVec3Like | UVec3Like): Node<"vec4">;
+export function textureLoad(samplerNode: ISampler2DLike, coords: IVec2Like): Node<"ivec4">;
+export function textureLoad(samplerNode: USampler3DLike, coords: UVec3Like): Node<"uvec4">;
+export function textureLoad(
+  samplerNode: Sampler2DLike | Sampler3DLike | ISampler2DLike | USampler3DLike,
+  coords: IVec2Like | IVec3Like | UVec2Like | UVec3Like,
+): any {
+  let sampler: any = samplerNode;
+  let samplerType = (sampler as any)?._t || "sampler2D";
+  return node({
+    _t: textureResultType(samplerType),
+    type: "textureLoad",
+    params: [sampler as BaseNode<ShaderType>, wrapValue(coords) as BaseNode<ShaderType>],
+  });
+}
+
+/**
+ * Dimensions of a texture, in texels — `uvec2` for a 2D or cube texture,
+ * `uvec3` for a 3D one.
+ */
+export function textureSize(samplerNode: Sampler2DLike): Node<"uvec2">;
+export function textureSize(samplerNode: Sampler3DLike): Node<"uvec3">;
+export function textureSize(
+  samplerNode: Sampler2DLike | Sampler3DLike | ISampler2DLike | USampler3DLike,
+): any {
+  let sampler: any = samplerNode;
+  let samplerType = (sampler as any)?._t || "sampler2D";
+  let width = samplerType.endsWith("2D") || samplerType.endsWith("Cube") ? 2 : 3;
+  return node({
+    _t: width === 2 ? "uvec2" : "uvec3",
+    type: "textureSize",
+    params: [sampler as BaseNode<ShaderType>],
+  });
+}
+
 // === TSL constants ===
 /** π as a float node. */
 export const PI = float(Math.PI);
@@ -1740,6 +1847,16 @@ export function uniformRaw<T extends ShaderType>(name: string, shaderType: T): U
   return result as unknown as UniformNode<T>;
 }
 
+/**
+ * A shared per-frame clock, seconds since the start, as TSL's `time`. One node
+ * for every shader that references it, so the host updates a single uniform.
+ * Created lazily so merely importing rmsl never consumes a uniform slot.
+ */
+let _timeUniform: UniformNode<"float"> | undefined;
+export function time(): UniformNode<"float"> {
+  return (_timeUniform ??= uniform("float"));
+}
+
 export function attribute<T extends ShaderType>(shaderType: T): AttributeNode<T> {
   let id = nextAttrId++;
   const result = node({
@@ -1786,6 +1903,41 @@ export function builtinFragDepth(): Node<"float"> {
     _t: "float",
     type: "builtinFragDepth",
   }) as Node<"float">;
+}
+
+/**
+ * The fragment's position in the framebuffer, in pixels — `gl_FragCoord.xy`.
+ * The origin is the lower-left of the framebuffer on both backends, which is
+ * what a screen-space pass samples its texture with.
+ */
+export function fragCoord(): Node<"vec2"> {
+  return node({
+    _t: "vec2",
+    type: "fragCoord",
+  }) as Node<"vec2">;
+}
+
+/**
+ * Pixel coordinates of the current fragment (a fragment-stage-only builtin).
+ * Alias of `fragCoord()`, named as TSL does.
+ */
+export function screenCoordinate(): Node<"vec2"> {
+  return fragCoord();
+}
+
+/** Drawing-buffer size in pixels, a `vec2` uniform the host must bind. */
+export function screenSize(): Node<"vec2"> {
+  return uniform("vec2");
+}
+
+/** Normalized fragment coordinate — `fragCoord() / screenSize()`. */
+export function screenUV(): Node<"vec2"> {
+  return div(screenCoordinate(), screenSize());
+}
+
+/** TSL's fullscreen-quad `uv()`: the normalized screen position. */
+export function uv(): Node<"vec2"> {
+  return screenUV();
 }
 
 // === Control Flow ===
@@ -1991,6 +2143,9 @@ interface CompiledNode {
  * GLSL and WGSL share the same relative ordering, so one table covers both.
  */
 const PRECEDENCE: Record<string, number> = {
+  // The ternary is looser than every binary operator — the branch runs across
+  // the whole conditional — so it binds loosest of all.
+  select: 5,
   or: 10,
   and: 20,
   bitOr: 30,
@@ -2066,6 +2221,8 @@ interface CompileCtx {
   positionWritten: boolean;
   inFn: boolean;
   fragDepthUsed: boolean;
+  /** Whether the shader reads the fragment's screen position. */
+  fragCoordUsed: boolean;
   /** Fn parameter names, which the JS target reads from `ctx.params`. */
   jsParams: Set<string>;
   /** Names of JS helper functions the compiled function needs. */
@@ -2108,6 +2265,13 @@ function isLeafLiteral(n: BaseNode<ShaderType>): boolean {
 }
 
 function tryFold(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+  // A select with a literal condition collapses to the chosen branch, whatever
+  // the branches are — the guard below only admits scalar literals, so this is
+  // checked before it.
+  if (n.type === "select") {
+    let cond = n.params?.[0];
+    if (cond && isLeafLiteral(cond)) return (cond.value ? n.params![1] : n.params![2]) ?? null;
+  }
   let params = n.params ?? [];
   if (!params.every(isLeafLiteral)) return null;
   let p0 = params[0]?.value;
@@ -2458,6 +2622,13 @@ function compileGLSLNode(
       return { decls: [], body: [], expr: "gl_FragDepth" };
     }
 
+    case "fragCoord": {
+      if (ctx.shaderStage !== "fragment") {
+        throw new Error("fragCoord() can only be used in fragment shaders");
+      }
+      return { decls: [], body: [], expr: "gl_FragCoord.xy" };
+    }
+
     case "swizzle": {
       let src = compileGLSLStage(node.params![0], ctx);
       let pattern = node.value as string;
@@ -2518,6 +2689,51 @@ function compileGLSLNode(
     case "step": return binaryGLSL(node, ctx, "step", true);
     case "smoothstep": return ternaryGLSL(node, ctx, "smoothstep");
     case "clamp": return ternaryGLSL(node, ctx, "clamp");
+    case "select": {
+      let cond = compileGLSLStage(node.params![0], ctx);
+      let a = compileGLSLStage(node.params![1], ctx);
+      let b = compileGLSLStage(node.params![2], ctx);
+      let condType = (node.params![0] as any)?._t || "bool";
+      // A boolean vector selects component-wise. GLSL's `?:` takes a scalar
+      // bool only, so a vector condition is widened to a float vector and mixed
+      // — the branches swap because mix(x, y, a) picks y where the selector is
+      // nonzero, and the branch here is `cond ? a : b`.
+      if (condType !== "bool") {
+        let width = TYPE_WIDTH[(node.params![1] as any)?._t] ?? 3;
+        let aExpr = a.expr;
+        let bExpr = b.expr;
+        let condExpr = cond.expr;
+        // Mixed scalar/vector branches are promoted to the wider of the two.
+        let aW = TYPE_WIDTH[(node.params![1] as any)?._t] ?? 1;
+        let bW = TYPE_WIDTH[(node.params![2] as any)?._t] ?? 1;
+        let w = Math.max(aW, bW, width);
+        if (aW === 1 && w > 1) aExpr = `vec${w}(${aExpr})`;
+        if (bW === 1 && w > 1) bExpr = `vec${w}(${bExpr})`;
+        let cExpr = (condType.startsWith("bvec") || condType.startsWith("vec"))
+          ? `vec${w}(${condExpr})`
+          : condExpr;
+        return {
+          decls: [...cond.decls, ...a.decls, ...b.decls],
+          body: [...cond.body, ...a.body, ...b.body],
+          expr: `mix(${bExpr}, ${aExpr}, ${cExpr})`,
+          prec: PREC_ATOM,
+        };
+      }
+      let prec = PRECEDENCE[node.type] ?? 0;
+      let condExpr = wrapExpr(cond.prec, prec, cond.expr);
+      let aExpr = wrapExpr(a.prec, prec, a.expr);
+      let bExpr = wrapExpr(b.prec, prec, b.expr);
+      return {
+        decls: [...cond.decls, ...a.decls, ...b.decls],
+        body: [...cond.body, ...a.body, ...b.body],
+        expr: `${condExpr} ? ${aExpr} : ${bExpr}`,
+        // The ternary binds loosest, so a select nested inside any operator
+        // must be wrapped by that operator. Advertising PREC_ATOM would leave
+        // `a * (c ? x : y)` unparenthesised — `a * c ? x : y` is a different
+        // expression.
+        prec,
+      };
+    }
     // Comparison ops
     case "lessThan": return comparisonGLSL(node, ctx, "<", "lessThan");
     case "greaterThan": return comparisonGLSL(node, ctx, ">", "greaterThan");
@@ -2684,6 +2900,32 @@ function compileGLSLNode(
         decls: [...sampler.decls, ...coords.decls, ...lod.decls],
         body: [...sampler.body, ...coords.body, ...lod.body],
         expr: `texelFetch(${sampler.expr}, ${idxExpr}, ${lodExpr})`,
+      };
+    }
+    case "textureLoad": {
+      // Unfiltered texel fetch at integer coordinates — the float-sampler
+      // counterpart of the integer texelFetch above.
+      let sampler = compileGLSLStage(node.params![0], ctx);
+      let coords = compileGLSLStage(node.params![1], ctx);
+      let samplerType = (node.params![0] as any)?._t || "sampler2D";
+      let width = samplerType.endsWith("2D") ? 2 : 3;
+      let idxExpr = coords.expr;
+      let idxType = (node.params![1] as any)?._t || "ivec2";
+      if (idxType !== `ivec${width}` && idxType !== `uvec${width}`) idxExpr = `ivec${width}(${idxExpr})`;
+      return {
+        decls: [...sampler.decls, ...coords.decls],
+        body: [...sampler.body, ...coords.body],
+        expr: `texelFetch(${sampler.expr}, ${idxExpr}, 0)`,
+        prec: PREC_ATOM,
+      };
+    }
+    case "textureSize": {
+      let sampler = compileGLSLStage(node.params![0], ctx);
+      return {
+        decls: sampler.decls,
+        body: sampler.body,
+        expr: `textureSize(${sampler.expr}, 0)`,
+        prec: PREC_ATOM,
       };
     }
 
@@ -2962,6 +3204,7 @@ function compileGLSLWithStage(
     positionWritten: false,
     inFn: false,
     fragDepthUsed: false,
+    fragCoordUsed: false,
     jsParams: new Set(),
     jsHelpers: new Set(),
     outTarget: null,
@@ -3568,6 +3811,14 @@ function compileWGSLNode(
       return { decls: [], body: [], expr: "result._rmsl_fragDepth" };
     }
 
+    case "fragCoord": {
+      if (ctx.shaderStage !== "fragment") {
+        throw new Error("fragCoord() can only be used in fragment shaders");
+      }
+      ctx.fragCoordUsed = true;
+      return { decls: [], body: [], expr: "_rmsl_fragCoordInput.xy" };
+    }
+
     case "swizzle": {
       let src = compileWGSLStage(node.params![0], ctx);
       let pattern = node.value as string;
@@ -3632,6 +3883,26 @@ function compileWGSLNode(
     case "step": return binaryWGSL(node, ctx, "step", true);
     case "smoothstep": return ternaryWGSL(node, ctx, "smoothstep");
     case "clamp": return ternaryWGSL(node, ctx, "clamp");
+    case "select": {
+      let cond = compileWGSLStage(node.params![0], ctx);
+      let a = compileWGSLStage(node.params![1], ctx);
+      let b = compileWGSLStage(node.params![2], ctx);
+      // WGSL's select takes the false value first and supports vector selectors
+      // natively — `select(b, a, cond)` is `cond ? a : b`.
+      let aW = TYPE_WIDTH[(node.params![1] as any)?._t] ?? 1;
+      let bW = TYPE_WIDTH[(node.params![2] as any)?._t] ?? 1;
+      let w = Math.max(aW, bW);
+      let aExpr = a.expr;
+      let bExpr = b.expr;
+      if (aW === 1 && w > 1) aExpr = `vec${w}<f32>(${aExpr})`;
+      if (bW === 1 && w > 1) bExpr = `vec${w}<f32>(${bExpr})`;
+      return {
+        decls: [...cond.decls, ...a.decls, ...b.decls],
+        body: [...cond.body, ...a.body, ...b.body],
+        expr: `select(${bExpr}, ${aExpr}, ${cond.expr})`,
+        prec: PREC_ATOM,
+      };
+    }
     // Comparison ops
     case "lessThan": return binaryWGSL(node, ctx, "<");
     case "greaterThan": return binaryWGSL(node, ctx, ">");
@@ -3820,6 +4091,33 @@ function compileWGSLNode(
           expr: `textureSampleLevel(${samplerCompiled.expr}, ${samplerName}, ${coords.expr}, ${lod.expr})`,
         };
       }
+    }
+    case "textureLoad": {
+      // Unfiltered texel fetch; like the integer samplers above this needs no
+      // sampler binding.
+      let samplerNode = node.params![0];
+      let samplerCompiled = compileWGSLStage(samplerNode, ctx);
+      let coords = compileWGSLStage(node.params![1], ctx);
+      let samplerType = (samplerNode as any)?._t || "sampler2D";
+      let width = samplerType.endsWith("2D") ? 2 : 3;
+      let coordsType = (node.params![1] as any)?._t || `ivec${width}`;
+      let coordsExpr = coords.expr;
+      if (coordsType !== `ivec${width}` && coordsType !== `uvec${width}`) coordsExpr = `vec${width}<i32>(${coordsExpr})`;
+      return {
+        decls: [...samplerCompiled.decls, ...coords.decls],
+        body: [...samplerCompiled.body, ...coords.body],
+        expr: `textureLoad(${samplerCompiled.expr}, ${coordsExpr}, 0)`,
+        prec: PREC_ATOM,
+      };
+    }
+    case "textureSize": {
+      let sampler = compileWGSLStage(node.params![0], ctx);
+      return {
+        decls: sampler.decls,
+        body: sampler.body,
+        expr: `textureDimensions(${sampler.expr})`,
+        prec: PREC_ATOM,
+      };
     }
 
     case "let": {
@@ -4243,6 +4541,7 @@ function compileWGSLWithStage(
     positionWritten: false,
     inFn: false,
     fragDepthUsed: false,
+    fragCoordUsed: false,
     jsParams: new Set(),
     jsHelpers: new Set(),
     outTarget: null,
@@ -4383,6 +4682,12 @@ function compileWGSLWithStage(
     for (let [, info] of sortedFVaryings) {
       if (fragParams) fragParams += ", ";
       fragParams += `@location(${fragVaryingLoc++}) ${info.slot}: ${info.type}`;
+    }
+    // fragCoord() reads the fragment's position in the framebuffer, which WGSL
+    // passes in as a builtin parameter rather than a global.
+    if (ctx.fragCoordUsed) {
+      if (fragParams) fragParams += ", ";
+      fragParams += "@builtin(position) _rmsl_fragCoordInput: vec4<f32>";
     }
     lines.push(`fn main(${fragParams})${hasFragmentOutput ? " -> FragmentOutput" : ""} {`);
     if (hasFragmentOutput) {
@@ -4637,6 +4942,8 @@ function jsHelperSource(name: string): string {
       return `function _vdist(a, b) {\n  let s = 0;\n  for (let i = 0; i < a.length; i++) { let d = a[i] - b[i]; s += d * d; }\n  return Math.sqrt(s);\n}`;
     case "ball":
       return `function _ball(v) {\n  for (let i = 0; i < v.length; i++) if (!v[i]) return false;\n  return true;\n}`;
+    case "bselect":
+      return `function _bselect(cond, a, b, out) {\n  out = out || new Array(a.length);\n  for (let i = 0; i < a.length; i++) out[i] = cond[i] ? a[i] : b[i];\n  return out;\n}`;
     case "bany":
       return `function _bany(v) {\n  for (let i = 0; i < v.length; i++) if (v[i]) return true;\n  return false;\n}`;
     case "matDiag":
@@ -4649,6 +4956,8 @@ function jsHelperSource(name: string): string {
       return `function _tex3d(tex, uvw, out) {\n  out = out || [0, 0, 0, 0];\n  let x = Math.max(0, Math.min(tex.width - 1, Math.floor(uvw[0] * tex.width)));\n  let y = Math.max(0, Math.min(tex.height - 1, Math.floor(uvw[1] * tex.height)));\n  let z = Math.max(0, Math.min(tex.depth - 1, Math.floor(uvw[2] * tex.depth)));\n  let o = ((z * tex.height + y) * tex.width + x) * 4;\n  out[0] = tex.data[o];\n  out[1] = tex.data[o + 1];\n  out[2] = tex.data[o + 2];\n  out[3] = tex.data[o + 3];\n  return out;\n}`;
     case "texFetch3d":
       return `function _texFetch3d(tex, uvw, out) {\n  out = out || [0, 0, 0, 0];\n  let x = Math.floor(uvw[0]);\n  let y = Math.floor(uvw[1]);\n  let z = Math.floor(uvw[2]);\n  if (x < 0 || y < 0 || z < 0 || x >= tex.width || y >= tex.height || z >= tex.depth) return out;\n  let o = ((z * tex.height + y) * tex.width + x) * 4;\n  out[0] = tex.data[o];\n  out[1] = tex.data[o + 1];\n  out[2] = tex.data[o + 2];\n  out[3] = tex.data[o + 3];\n  return out;\n}`;
+    case "texSize":
+      return `function _texSize(tex, out) {\n  out = out || [0, 0, 0];\n  out[0] = tex.width;\n  out[1] = tex.height;\n  if (tex.depth !== undefined) out[2] = tex.depth;\n  return out;\n}`;
     case "mat2x2inv":
       return `function _mat2x2inv(m, out) {\n  out = out || new Array(4);\n  let det = m[0] * m[3] - m[1] * m[2];\n  let inv = 1 / det;\n  out[0] = m[3] * inv;\n  out[1] = -m[1] * inv;\n  out[2] = -m[2] * inv;\n  out[3] = m[0] * inv;\n  return out;\n}`;
     case "mat3x3inv":
@@ -5164,6 +5473,15 @@ function compileJSNode(
       return { decls: [], body: [], expr: "res.fragDepth" };
     }
 
+    case "fragCoord": {
+      if (ctx.shaderStage !== "fragment") {
+        throw new Error("fragCoord() can only be used in fragment shaders");
+      }
+      // The CPU target has no framebuffer; the caller passes the pixel being
+      // evaluated as ctx.fragCoord, defaulting to the origin.
+      return { decls: [], body: [], expr: "(ctx.fragCoord || [0, 0])" };
+    }
+
     case "swizzle": {
       let src = jsCompileOperand(node.params![0], ctx);
       let pattern = node.value as string;
@@ -5239,6 +5557,27 @@ function compileJSNode(
     case "step": return jsBinaryOp(node, ctx, "step");
     case "smoothstep": return jsBinaryOp(node, ctx, "smoothstep");
     case "clamp": return jsBinaryOp(node, ctx, "clamp");
+    case "select": {
+      let cond = jsCompileOperand(node.params![0], ctx);
+      let a = jsCompileOperand(node.params![1], ctx);
+      let b = jsCompileOperand(node.params![2], ctx);
+      let condType = (node.params![0] as any)?._t || "bool";
+      // A scalar condition is a plain ternary; a boolean vector selects per
+      // component, which JS has no operator for, so a helper walks the arrays.
+      if (condType !== "bool") {
+        jsRequireHelper(ctx, "bselect");
+        return {
+          decls: [...cond.decls, ...a.decls, ...b.decls],
+          body: [...cond.body, ...a.body, ...b.body],
+          expr: `_bselect(${cond.expr}, ${a.expr}, ${b.expr})`,
+        };
+      }
+      return {
+        decls: [...cond.decls, ...a.decls, ...b.decls],
+        body: [...cond.body, ...a.body, ...b.body],
+        expr: `(${cond.expr} ? ${a.expr} : ${b.expr})`,
+      };
+    }
     case "faceForward": return jsVecOutOp(node, ctx, "faceforward");
 
     case "lessThan": return jsComparison(node, ctx, "<");
@@ -5423,6 +5762,44 @@ function compileJSNode(
         };
       }
       return { decls: coords.decls, body: coords.body, expr: `_${helper}(${texRef}, ${coords.expr})` };
+    }
+
+    case "textureLoad": {
+      let samplerNode = node.params![0];
+      let samplerType = samplerNode?._t || "sampler2D";
+      let slot = (samplerNode.value as any)?.slot;
+      if (!samplerType.endsWith("2D") && !samplerType.endsWith("3D")) {
+        throw new Error("[RMSL] The JS target supports sampler2D/sampler3D textures only.");
+      }
+      let is3D = samplerType.endsWith("3D");
+      let helper = is3D ? "texFetch3d" : "texFetch2d";
+      jsRequireHelper(ctx, helper);
+      let texRef = `ctx.textures[${JSON.stringify(slot)}]`;
+      let coords = jsCompileOperand(node.params![1], ctx);
+      if (ctx.outTarget) {
+        return {
+          decls: coords.decls,
+          body: [...coords.body, `_${helper}(${texRef}, ${coords.expr}, ${ctx.outTarget});`],
+          expr: ctx.outTarget,
+        };
+      }
+      return { decls: coords.decls, body: coords.body, expr: `_${helper}(${texRef}, ${coords.expr})` };
+    }
+
+    case "textureSize": {
+      let samplerNode = node.params![0];
+      let slot = (samplerNode.value as any)?.slot;
+      let is3D = (samplerNode as any)?._t?.endsWith("3D");
+      jsRequireHelper(ctx, "texSize");
+      let texRef = `ctx.textures[${JSON.stringify(slot)}]`;
+      if (ctx.outTarget) {
+        return {
+          decls: [],
+          body: [`_texSize(${texRef}, ${ctx.outTarget});`],
+          expr: ctx.outTarget,
+        };
+      }
+      return { decls: [], body: [], expr: `_texSize(${texRef})` };
     }
 
     case "let": {
@@ -5612,6 +5989,8 @@ export type JsShaderContext = {
   varyings?: Record<string, unknown>;
   attributes?: Record<string, unknown>;
   textures?: Record<string, JsTextureData>;
+  /** Pixel being evaluated, which `fragCoord()` reads on the CPU target. */
+  fragCoord?: [number, number];
 };
 
 /** Texture data the JS target samples from. */
@@ -5673,6 +6052,7 @@ export function compileJSFn(fn: (...args: any[]) => Node<ShaderType>, options: C
     positionWritten: false,
     inFn: false,
     fragDepthUsed: false,
+    fragCoordUsed: false,
     jsParams: new Set(options.params.map(p => p.name)),
     jsHelpers: new Set(),
     outTarget: null,
@@ -5763,6 +6143,7 @@ function compileFnBody(
       positionWritten: false,
       inFn: false,
       fragDepthUsed: false,
+    fragCoordUsed: false,
       jsParams: new Set(),
       jsHelpers: new Set(),
       outTarget: null,
@@ -5808,6 +6189,7 @@ function compileFnBody(
       positionWritten: false,
       inFn: false,
       fragDepthUsed: false,
+    fragCoordUsed: false,
       jsParams: new Set(),
       jsHelpers: new Set(),
       outTarget: null,

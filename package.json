@@ -28,6 +28,10 @@
     "./vite": {
       "import": "./dist/vite.js",
       "types": "./dist/vite.d.ts"
+    },
+    "./effects": {
+      "import": "./dist/effects.js",
+      "types": "./dist/effects/index.d.ts"
     }
   },
   "scripts": {

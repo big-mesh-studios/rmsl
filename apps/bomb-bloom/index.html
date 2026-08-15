@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bomb &middot; RMSL Bloom</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #08080f; }
+    canvas { display: block; user-select: none; -webkit-user-select: none; touch-action: none; }
+
+    #ui {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 10;
+      font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: #d8d8e0;
+      background: rgba(16, 16, 24, 0.82);
+      border: 1px solid #2a2a3a;
+      border-radius: 8px;
+      padding: 12px 14px;
+      min-width: 210px;
+      backdrop-filter: blur(4px);
+    }
+    #ui h1 { margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #fff; }
+    #ui p { margin: 0 0 10px; font-size: 11px; color: #8a8a9a; }
+    label { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; cursor: pointer; }
+    .row { margin-bottom: 8px; }
+    .row label { margin-bottom: 2px; display: flex; justify-content: space-between; }
+    .row span { color: #9ac7ff; }
+    input[type="range"] { width: 100%; }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <h1>Bomb &mdash; RMSL bloom</h1>
+    <p>Flame shader ported from melty-karts; bloom via <code>@random-mesh/rmsl/effects</code>.</p>
+    <label><input type="checkbox" id="bloomToggle" checked /> Bloom on</label>
+    <div class="row">
+      <label>Strength <span id="strengthVal">1.2</span></label>
+      <input type="range" id="strength" min="0" max="3" step="0.05" value="1.2" />
+    </div>
+    <div class="row">
+      <label>Radius <span id="radiusVal">0.5</span></label>
+      <input type="range" id="radius" min="0" max="1" step="0.01" value="0.5" />
+    </div>
+    <div class="row">
+      <label>Threshold <span id="thresholdVal">0.5</span></label>
+      <input type="range" id="threshold" min="0" max="1" step="0.01" value="0.5" />
+    </div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

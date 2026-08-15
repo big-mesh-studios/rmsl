@@ -7,6 +7,7 @@ export default defineConfig({
       entry: {
         rmsl: 'src/rmsl.ts',
         vite: 'src/vite.ts',
+        effects: 'src/effects/index.ts',
       },
       formats: ['es'],
       fileName: (_format, entryName) => `${entryName}.js`,
@@ -17,7 +18,8 @@ export default defineConfig({
   },
   plugins: [
     dts({
-      include: ['src/rmsl.ts', 'src/vite.ts'],
+      include: ['src/rmsl.ts', 'src/vite.ts', 'src/effects/index.ts', 'src/effects/*.ts'],
+      exclude: ['src/**/*.test.ts'],
       outDir: 'dist',
       rollupTypes: true,
     }),
