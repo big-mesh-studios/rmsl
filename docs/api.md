@@ -267,8 +267,8 @@ a.xy.assign(b.xy);  // compiles to a.xy = b.xy;
 
 | Method | Description |
 |--------|-------------|
-| `.toVar()` | Assigns expression to a temp variable, returns the variable reference |
-| `.var()` | TSL's shorthand for `.toVar()` |
+| `.toVar(name?)` | Assigns an expression to a variable, returns the variable reference. Without a name it gets a generated `_rmsl_N` slot; a name is emitted verbatim into the shader for debugging, and a duplicate name gets a number appended (`color`, `color1`, …) |
+| `.var(name?)` | TSL's shorthand for `.toVar()` |
 | `.assign(value)` | Assigns a value to an existing variable or swizzle |
 | `.addAssign(v)` / `.subAssign(v)` / `.mulAssign(v)` / `.divAssign(v)` / `.modAssign(v)` | Compound assignment, as TSL's `addAssign`/`mulAssign`/… |
 | `.toFloat()`, `.toInt()`, `.toUint()`, `.toBool()` | Cast to a scalar type |
@@ -280,6 +280,13 @@ a.xy.assign(b.xy);  // compiles to a.xy = b.xy;
 These only work inside an `Fn` scope. Casts compile to the target constructor —
 `int(x)` in GLSL, `i32(x)` in WGSL — truncating toward zero where that is what
 the constructor does.
+
+A `toVar(name)` name must be a valid identifier and must not use the reserved
+`_rmsl_` prefix the compiler keeps for its own uniforms, attributes, varyings,
+outputs and scratch variables. It also must not collide with an explicitly
+named uniform (`uniformRaw`, or a scene-graph sampler) in the same GLSL shader,
+which shares the same global namespace — the deduplication only covers other
+`toVar` names.
 
 ## TSL free-function API
 

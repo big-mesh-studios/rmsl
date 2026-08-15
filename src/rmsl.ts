@@ -534,9 +534,16 @@ interface BoolVecOps<A extends ShaderType> {
 }
 
 interface NodeMethods<A extends ShaderType> {
-  toVar(): Node<A>;
+  /**
+   * Assigns the expression to a variable and returns its reference.
+   *
+   * Without a name the variable gets an auto-generated `_rmsl_N` slot. A name
+   * is emitted verbatim into the shader for easier debugging; a duplicate name
+   * gets a number appended (`color`, `color1`, `color2`, ...).
+   */
+  toVar(name?: string): Node<A>;
   /** TSL's shorthand for `toVar()`. */
-  var(): Node<A>;
+  var(name?: string): Node<A>;
   assign(value: BaseNode<A> | Node<A>): void;
   // === Compound assignments (as TSL's `addAssign`/`mulAssign`/...) ===
   addAssign(other: FloatLike | IntLike | UintLike | Vec2Like | Vec3Like | Vec4Like): void;
@@ -777,11 +784,11 @@ class NodeImpl<A extends ShaderType> implements BaseNode<A> {
     });
   }
 
-  toVar(): Node<A> {
+  toVar(name?: string): Node<A> {
     let v: Node<A>;
     assertBlockScope("toVar", (blockScope) => {
-      let name = `_rmsl_${nextVarId++}`;
-      v = var_(name, this._t) as Node<A>;
+      let varName = claimVarName(name);
+      v = var_(varName, this._t) as Node<A>;
       blockScope.push(new NodeImpl({
         _t: "void",
         type: "let",
@@ -791,7 +798,7 @@ class NodeImpl<A extends ShaderType> implements BaseNode<A> {
     return v!;
   }
 
-  var(): Node<A> { return this.toVar(); }
+  var(name?: string): Node<A> { return this.toVar(name); }
 
   // === Compound assignments ===
   addAssign(other: any) { this.assign(this.add(other)); }
@@ -1170,6 +1177,53 @@ function swizzle<A extends ShaderType>(src: BaseNode<ShaderType>, pattern: strin
 let blockScope: BaseNode<ShaderType>[] | undefined = undefined;
 let nextVarId = 0;
 
+/**
+ * Variable names already claimed by `toVar()` in the current top-level `Fn`.
+ *
+ * Cleared whenever a top-level `Fn` starts, so the same source produces the
+ * same names in every compile. User-supplied names are deduped here by appending
+ * a number; the `_rmsl_` generated names are checked against it too so the two
+ * sources can never collide.
+ */
+let usedVarNames = new Set<string>();
+
+/**
+ * The `_rmsl_` prefix is reserved for everything the compiler invents —
+ * uniforms, attributes, varyings, outputs, scratch vars and helpers. A user
+ * variable name must not use it, or it could collide with one of those.
+ */
+const RESERVED_VAR_PREFIX = "_rmsl_";
+
+/** Pick a name for a `toVar()`, claiming it in `usedVarNames`. */
+function claimVarName(name: string | undefined): string {
+  if (name !== undefined) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+      throw new Error(
+        `toVar("${name}") must be a valid identifier (letters, digits and ` +
+        `underscore, not starting with a digit).`,
+      );
+    }
+    if (name.startsWith(RESERVED_VAR_PREFIX)) {
+      throw new Error(
+        `toVar("${name}") uses the reserved "${RESERVED_VAR_PREFIX}" prefix, ` +
+        `which the compiler keeps for its own names.`,
+      );
+    }
+    let candidate = name;
+    for (let i = 1; usedVarNames.has(candidate); i++) {
+      candidate = `${name}${i}`;
+    }
+    usedVarNames.add(candidate);
+    return candidate;
+  }
+  let candidate = `_rmsl_${nextVarId++}`;
+  while (usedVarNames.has(candidate)) {
+    candidate = `_rmsl_${nextVarId++}`;
+  }
+  usedVarNames.add(candidate);
+  return candidate;
+}
+
 export function assertBlockScope(
   fnName: string,
   fn: (blockScope: BaseNode<ShaderType>[]) => void,
@@ -1187,6 +1241,10 @@ export function assertBlockScope(
 export function Fn<T extends any[], const R>(fn: (...args: T) => R): (...args: T) => R {
   return ((...args: T) => {
     let oldBlockScope = blockScope;
+    // A top-level Fn starts a fresh name registry, so each compiled program
+    // gets its own deterministic set of user-named variables. Nested Fns keep
+    // the outer registry, since their variables share the outer program.
+    if (oldBlockScope === undefined) usedVarNames.clear();
     try {
       let scope: BaseNode<ShaderType>[] = [];
       blockScope = scope;

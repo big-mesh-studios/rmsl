@@ -2472,3 +2472,75 @@ describe("JS target", () => {
     expect(src).toContain("0");
   });
 });
+
+describe("named toVar variables", () => {
+  it("emits a user-provided name in GLSL", () => {
+    let prog = Fn(() => {
+      let color = vec3(1, 2, 3).toVar("color");
+      return color.add(vec3(1)).toVar();
+    });
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("vec3 color = vec3(1, 2, 3);");
+  });
+
+  it("emits a user-provided name in WGSL", () => {
+    let prog = Fn(() => {
+      let color = vec3(1, 2, 3).toVar("color");
+      return color.add(vec3(1)).toVar();
+    });
+    let wgsl = compileWGSL(prog());
+    expect(wgsl).toContain("var color: vec3<f32> = vec3<f32>(1, 2, 3);");
+  });
+
+  it("appends a number when the name is already taken", () => {
+    let prog = Fn(() => {
+      let a = float(1).toVar("x");
+      let b = float(2).toVar("x");
+      let c = float(3).toVar("x");
+      return a.add(b).add(c).toVar();
+    });
+    let glsl = compileGLSL(prog());
+    expect(glsl).toContain("float x = 1.0;");
+    expect(glsl).toContain("float x1 = 2.0;");
+    expect(glsl).toContain("float x2 = 3.0;");
+  });
+
+  it("the var() alias takes a name too", () => {
+    let prog = Fn(() => {
+      let uv = vec2(1, 2).var("uv");
+      return uv;
+    });
+    expect(compileGLSL(prog())).toContain("vec2 uv = vec2(1, 2);");
+    expect(compileWGSL(prog())).toContain("var uv: vec2<f32>");
+  });
+
+  it("rejects a name that is not a valid identifier", () => {
+    let bad = () => Fn(() => float(1).toVar("my var"))();
+    expect(() => compileGLSL(bad())).toThrow(/valid identifier/);
+  });
+
+  it("rejects a leading digit", () => {
+    let bad = () => Fn(() => float(1).toVar("2x"))();
+    expect(() => compileGLSL(bad())).toThrow(/valid identifier/);
+  });
+
+  it("rejects the reserved _rmsl_ prefix", () => {
+    let bad = () => Fn(() => float(1).toVar("_rmsl_0"))();
+    expect(() => compileGLSL(bad())).toThrow(/reserved/);
+  });
+
+  it("gives the same name to separate compiles", () => {
+    let build = () => Fn(() => float(1).toVar("color"))();
+    expect(compileGLSL(build())).toContain("float color = 1.0;");
+    expect(compileGLSL(build())).toContain("float color = 1.0;");
+  });
+
+  it("emits a named variable into the JS scratch block", () => {
+    let prog = Fn(() => {
+      let x = vec3(1, 2, 3).toVar("local");
+      return x;
+    });
+    let src = compileJSFn(() => prog(), { name: "main", params: [] });
+    expect(src).toMatch(/let local = \[0, 0, 0\];/);
+  });
+});
