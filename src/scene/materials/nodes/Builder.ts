@@ -32,9 +32,23 @@ export interface VaryingBinding {
   name: string;
 }
 
-export interface SamplerBinding {
-  node: UniformNode<"sampler2D">;
+/**
+ * The sampler shader types the scene graph can bind a texture to. Integer
+ * samplers read unfiltered texels and return integer vectors; 3D samplers
+ * take a volume coordinate.
+ */
+export type SamplerShaderType =
+  | "sampler2D" | "sampler3D"
+  | "isampler2D" | "isampler3D"
+  | "usampler2D" | "usampler3D";
+
+/** A sampler binding narrowed to no particular type, for whole-program lists. */
+export type AnySamplerBinding = SamplerBinding<SamplerShaderType>;
+
+export interface SamplerBinding<T extends SamplerShaderType = "sampler2D"> {
+  node: UniformNode<T>;
   name: string;
+  type: T;
   texture: () => Texture | null;
 }
 
@@ -48,7 +62,7 @@ export class Builder {
   readonly uniforms = new Map<string, UniformBinding>();
   readonly attributes = new Map<string, AttributeBinding>();
   readonly varyings = new Map<string, VaryingBinding>();
-  readonly samplers = new Map<string, SamplerBinding>();
+  readonly samplers = new Map<string, AnySamplerBinding>();
 
   attribute<T extends ShaderType>(name: string, type: T): AttributeNode<T> {
     let existing = this.attributes.get(name);
@@ -94,18 +108,36 @@ export class Builder {
     return this.uniform(name, type, "material", value);
   }
 
-  /** A sampler uniform bound to a texture supplied by `texture`. */
+  /** A `sampler2D` uniform bound to a texture supplied by `texture`. */
   sampler(
     name: string,
     texture: () => Texture | null,
-  ): UniformNode<"sampler2D"> {
+  ): UniformNode<"sampler2D">;
+  /**
+   * A sampler uniform of the given type (integer or 3D) bound to a texture
+   * supplied by `texture`.
+   */
+  sampler<T extends SamplerShaderType>(
+    name: string,
+    type: T,
+    texture: () => Texture | null,
+  ): UniformNode<T>;
+  sampler<T extends SamplerShaderType>(
+    name: string,
+    typeOrTexture: T | (() => Texture | null),
+    texture?: () => Texture | null,
+  ): UniformNode<T> {
+    const type: SamplerShaderType = typeof typeOrTexture === "string" ? typeOrTexture : "sampler2D";
+    const textureFn = typeof typeOrTexture === "string"
+      ? texture!
+      : typeOrTexture;
     let existing = this.samplers.get(name);
     if (!existing) {
-      const node = uniformRaw(name, "sampler2D");
-      this.samplers.set(name, { node, name, texture });
+      const node = uniformRaw(name, type);
+      this.samplers.set(name, { node, name, type, texture: textureFn });
       existing = this.samplers.get(name)!;
     }
-    return existing.node;
+    return existing.node as UniformNode<T>;
   }
 
   // === Built-in attribute accessors ===

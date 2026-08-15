@@ -12,6 +12,7 @@ import {
   WebGLRenderer, WebGPURenderer,
   Vector3, Matrix4, Quaternion, Euler,
   type MaterialProgram,
+  type SamplerBinding,
 } from "./index";
 import type { Node, UniformNode, VaryingNode, AttributeNode, ShaderType } from "../rmsl";
 import type { BufferGeometry } from "./geometries/BufferGeometry";
@@ -86,6 +87,26 @@ describe("node materials", () => {
     expectTypeOf(b.viewMatrix).toEqualTypeOf<UniformNode<"mat4">>();
     expectTypeOf(b.modelMatrix).toEqualTypeOf<UniformNode<"mat4">>();
     expectTypeOf(b.normalMatrix).toEqualTypeOf<UniformNode<"mat3">>();
+  });
+
+  it("types the builder sampler overloads by sampler type", () => {
+    const b = new Builder();
+    // The two-argument form stays a sampler2D.
+    expectTypeOf(b.sampler("map", () => null)).toEqualTypeOf<UniformNode<"sampler2D">>();
+    expectTypeOf(b.sampler("s3", "sampler3D", () => null)).toEqualTypeOf<UniformNode<"sampler3D">>();
+    expectTypeOf(b.sampler("is2", "isampler2D", () => null)).toEqualTypeOf<UniformNode<"isampler2D">>();
+    expectTypeOf(b.sampler("is3", "isampler3D", () => null)).toEqualTypeOf<UniformNode<"isampler3D">>();
+    expectTypeOf(b.sampler("us2", "usampler2D", () => null)).toEqualTypeOf<UniformNode<"usampler2D">>();
+    expectTypeOf(b.sampler("us3", "usampler3D", () => null)).toEqualTypeOf<UniformNode<"usampler3D">>();
+    // @ts-expect-error a non-sampler shader type is not a sampler type
+    b.sampler("bad", "vec3", () => null);
+  });
+
+  it("material program samplers carry their sampler type", () => {
+    const scene = new Scene();
+    const program = new MeshBasicMaterial().build(scene);
+    const binding = program.samplers[0] as SamplerBinding<"sampler2D"> | undefined;
+    if (binding) expectTypeOf(binding.type).toEqualTypeOf<"sampler2D">();
   });
 
   it("color slots are vec3-typed", () => {

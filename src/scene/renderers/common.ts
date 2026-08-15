@@ -79,6 +79,26 @@ export function wgslTypeName(type: string): string {
   }
 }
 
+/** Whether a sampler type reads an integer texture (unfiltered texels). */
+export function isIntegerSampler(type: string): boolean {
+  return type.startsWith("isampler") || type.startsWith("usampler");
+}
+
+/**
+ * The WebGPU `GPUTextureSampleType` a sampler type requires: integer textures
+ * are `sint`/`uint`, everything else samples as floats.
+ */
+export function samplerSampleType(type: string): "float" | "sint" | "uint" {
+  if (type.startsWith("isampler")) return "sint";
+  if (type.startsWith("usampler")) return "uint";
+  return "float";
+}
+
+/** Whether a sampler type addresses a volume rather than a surface. */
+export function samplerDimension(type: string): "2d" | "3d" {
+  return type.endsWith("3D") ? "3d" : "2d";
+}
+
 /**
  * A scalar uniform value uploads as a single element; vector/matrix values as
  * their component array. `scalar` is non-null exactly for a bare number, so a

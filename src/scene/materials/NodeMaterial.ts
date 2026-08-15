@@ -5,11 +5,11 @@ import {
 import { Material } from "./Material";
 import {
   Builder,
+  type AnySamplerBinding,
   type AttributeBinding, type UniformBinding, type VaryingBinding,
 } from "./nodes/Builder";
 import { collectNodes } from "./nodes/graph";
 import type { Scene } from "../scenes/Scene";
-import type { Texture } from "../textures/Texture";
 
 export type SlotValue<T extends Node<any>> = T | ((b: Builder) => T);
 
@@ -23,7 +23,7 @@ export interface MaterialProgram {
   uniforms: UniformBinding[];
   attributes: AttributeBinding[];
   varyings: VaryingBinding[];
-  samplers: { node: Node<"sampler2D">; name: string; texture: () => Texture | null }[];
+  samplers: AnySamplerBinding[];
 }
 
 /** Evaluate a material slot, running builder functions in the active pass. */

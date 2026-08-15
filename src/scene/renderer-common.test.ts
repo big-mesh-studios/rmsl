@@ -7,6 +7,7 @@ import {
 } from "./index";
 import {
   cameraUniformValue, objectUniformValue, lightsSignature, wgslTypeName,
+  isIntegerSampler, samplerSampleType, samplerDimension,
   uniformUploadValue,
 } from "./renderers/common";
 
@@ -66,6 +67,31 @@ describe("wgslTypeName", () => {
     expect(wgslTypeName("mat4")).toBe("mat4x4<f32>");
     expect(wgslTypeName("mat3")).toBe("mat3x3<f32>");
     expect(wgslTypeName("ivec2")).toBe("vec2<i32>");
+  });
+});
+
+describe("sampler classification", () => {
+  it("recognises the integer samplers", () => {
+    expect(isIntegerSampler("isampler2D")).toBe(true);
+    expect(isIntegerSampler("isampler3D")).toBe(true);
+    expect(isIntegerSampler("usampler2D")).toBe(true);
+    expect(isIntegerSampler("usampler3D")).toBe(true);
+    expect(isIntegerSampler("sampler2D")).toBe(false);
+    expect(isIntegerSampler("sampler3D")).toBe(false);
+  });
+
+  it("maps each sampler to its WebGPU sample type", () => {
+    expect(samplerSampleType("isampler2D")).toBe("sint");
+    expect(samplerSampleType("usampler3D")).toBe("uint");
+    expect(samplerSampleType("sampler2D")).toBe("float");
+    expect(samplerSampleType("sampler3D")).toBe("float");
+  });
+
+  it("maps each sampler to its dimension", () => {
+    expect(samplerDimension("usampler3D")).toBe("3d");
+    expect(samplerDimension("isampler3D")).toBe("3d");
+    expect(samplerDimension("usampler2D")).toBe("2d");
+    expect(samplerDimension("sampler2D")).toBe("2d");
   });
 });
 

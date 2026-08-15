@@ -7,7 +7,9 @@ import type { BufferGeometry } from "../geometries/BufferGeometry";
 import type { Texture } from "../textures/Texture";
 import type { NodeMaterial, MaterialProgram } from "../materials/NodeMaterial";
 import { Blending, Side } from "../materials/Material";
-import { cameraUniformValue, objectUniformValue, lightsSignature, toBufferView, uniformUploadValue } from "./common";
+import {
+  cameraUniformValue, isIntegerSampler, objectUniformValue, lightsSignature, toBufferView, uniformUploadValue,
+} from "./common";
 
 interface ProgramEntry {
   signature: string;
@@ -165,7 +167,7 @@ export class WebGLRenderer {
       const texture = sampler.texture();
       const location = entry.uniformLocations.get(sampler.name);
       if (!texture || location == null) continue;
-      const unit = this.bindTexture(texture);
+      const unit = this.bindTexture(texture, sampler.type);
       gl.uniform1i(location, unit);
     }
   }
@@ -196,25 +198,44 @@ export class WebGLRenderer {
     }
   }
 
-  private bindTexture(texture: Texture): number {
+  private bindTexture(texture: Texture, samplerType: string): number {
     const gl = this.gl;
+    const is3D = samplerType.endsWith("3D");
+    const target = is3D ? gl.TEXTURE_3D : gl.TEXTURE_2D;
+    const integer = isIntegerSampler(samplerType);
     let glTexture = this.textures.get(texture);
     if (!glTexture || texture.needsUpdate) {
       if (!glTexture) {
         glTexture = gl.createTexture()!;
         this.textures.set(texture, glTexture);
       }
-      gl.bindTexture(gl.TEXTURE_2D, glTexture);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.bindTexture(target, glTexture);
+      gl.texParameteri(target, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(target, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      if (is3D) gl.texParameteri(target, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE);
+      // Integer textures are not filterable, so they must use NEAREST.
+      const filter = integer ? gl.NEAREST : gl.LINEAR;
+      gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, filter);
+      gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, filter);
       const image = texture.image;
       if (ArrayBuffer.isView(image)) {
         const width = (texture as { width?: number }).width ?? 1;
         const height = (texture as { height?: number }).height ?? 1;
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, image as ArrayBufferView);
-      } else if (image != null) {
+        if (integer) {
+          const { internalFormat, type } = integerInternalFormat(gl, samplerType.startsWith("isampler"), image);
+          if (is3D) {
+            const depth = (texture as { depth?: number }).depth ?? 1;
+            gl.texImage3D(target, 0, internalFormat, width, height, depth, 0, gl.RGBA_INTEGER, type, image as ArrayBufferView);
+          } else {
+            gl.texImage2D(target, 0, internalFormat, width, height, 0, gl.RGBA_INTEGER, type, image as ArrayBufferView);
+          }
+        } else if (is3D) {
+          const depth = (texture as { depth?: number }).depth ?? 1;
+          gl.texImage3D(target, 0, gl.RGBA, width, height, depth, 0, gl.RGBA, gl.UNSIGNED_BYTE, image as ArrayBufferView);
+        } else {
+          gl.texImage2D(target, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, image as ArrayBufferView);
+        }
+      } else if (image != null && !is3D && !integer) {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image as TexImageSource);
       }
       texture.needsUpdate = false;
@@ -222,7 +243,7 @@ export class WebGLRenderer {
     // Find a free texture unit and bind.
     const unit = this.nextTextureUnit();
     gl.activeTexture(gl.TEXTURE0 + unit);
-    gl.bindTexture(gl.TEXTURE_2D, glTexture);
+    gl.bindTexture(target, glTexture);
     return unit;
   }
 
@@ -341,4 +362,26 @@ export class WebGLRenderer {
     this.geometryBuffers.clear();
     this.textures.clear();
   }
+}
+
+/**
+ * The WebGL2 internal format and upload type for an integer RGBA texture,
+ * from the bit depth of its data view and the sampler's signedness. The
+ * format name ends in `UI` for unsigned and `I` for signed, each sized to the
+ * element.
+ */
+function integerInternalFormat(
+  gl: WebGL2RenderingContext,
+  signed: boolean,
+  view: ArrayBufferView,
+): { internalFormat: number; type: number } {
+  const bytes = (view as { BYTES_PER_ELEMENT?: number }).BYTES_PER_ELEMENT ?? 1;
+  if (signed) {
+    if (bytes === 1) return { internalFormat: gl.RGBA8I, type: gl.BYTE };
+    if (bytes === 2) return { internalFormat: gl.RGBA16I, type: gl.SHORT };
+    return { internalFormat: gl.RGBA32I, type: gl.INT };
+  }
+  if (bytes === 1) return { internalFormat: gl.RGBA8UI, type: gl.UNSIGNED_BYTE };
+  if (bytes === 2) return { internalFormat: gl.RGBA16UI, type: gl.UNSIGNED_SHORT };
+  return { internalFormat: gl.RGBA32UI, type: gl.UNSIGNED_INT };
 }

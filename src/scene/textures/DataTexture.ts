@@ -4,11 +4,14 @@ import { Texture } from "./Texture";
 export class DataTexture extends Texture {
   width: number;
   height: number;
+  /** Depth for a 3D texture; 1 for a 2D one. */
+  depth: number;
 
-  constructor(data: ArrayBufferView | null = null, width = 1, height = 1) {
+  constructor(data: ArrayBufferView | null = null, width = 1, height = 1, depth = 1) {
     super();
     this.image = data;
     this.width = width;
     this.height = height;
+    this.depth = depth;
   }
 }

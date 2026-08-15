@@ -10,7 +10,8 @@ import { DataTexture } from "../textures/DataTexture";
 import type { NodeMaterial, MaterialProgram } from "../materials/NodeMaterial";
 import { Side } from "../materials/Material";
 import {
-  cameraUniformValue, objectUniformValue, lightsSignature, wgslTypeName, toBufferView,
+  cameraUniformValue, isIntegerSampler, objectUniformValue, lightsSignature,
+  samplerDimension, samplerSampleType, wgslTypeName, toBufferView,
 } from "./common";
 
 interface PipelineEntry {
@@ -58,7 +59,7 @@ export class WebGPURenderer {
   private clearAlpha = 1;
   private animationCallback: ((time: number) => void) | null = null;
   private animationHandle: number | null = null;
-  private blankTextureObject: DataTexture | null = null;
+  private blankTextures = new Map<string, DataTexture>();
 
   constructor(canvas: HTMLCanvasElement, device: GPUDevice) {
     this.canvas = canvas;
@@ -215,12 +216,16 @@ export class WebGPURenderer {
     });
 
     // The compiler numbers textures (group 1) by alphabetical slot name and
-    // samplers (group 2) in the order the graph samples them.
+    // samplers (group 2) in the order the graph samples them. Integer
+    // textures are read with textureLoad, which takes no sampler, so the WGSL
+    // declares no companion sampler for them — the bindings must mirror that.
     const textureBindings = program.samplers
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name))
+      .map((s, i) => ({ name: s.name, type: s.type, binding: i }));
+    const samplerBindings = program.samplers
+      .filter((s) => !isIntegerSampler(s.type))
       .map((s, i) => ({ name: s.name, binding: i }));
-    const samplerBindings = program.samplers.map((s, i) => ({ name: s.name, binding: i }));
 
     const bindGroupLayoutEntries: GPUBindGroupLayoutEntry[] = [{
       binding: 0,
@@ -231,7 +236,10 @@ export class WebGPURenderer {
       bindGroupLayoutEntries.push({
         binding: t.binding,
         visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: "float", viewDimension: "2d" },
+        texture: {
+          sampleType: samplerSampleType(t.type),
+          viewDimension: samplerDimension(t.type),
+        },
       });
     }
     for (const s of samplerBindings) {
@@ -251,7 +259,7 @@ export class WebGPURenderer {
     }];
     for (const t of textureBindings) {
       const sampler = program.samplers.find((s) => s.name === t.name)!;
-      bindGroupResources.push({ binding: t.binding, resource: this.ensureGpuTexture(sampler.texture()).view });
+      bindGroupResources.push({ binding: t.binding, resource: this.ensureGpuTexture(sampler.texture(), t.type).view });
     }
     for (const s of samplerBindings) {
       const sampler = program.samplers.find((x) => x.name === s.name)!;
@@ -352,38 +360,89 @@ export class WebGPURenderer {
     }
   }
 
-  private ensureGpuTexture(texture: Texture | null): { view: GPUTextureView } {
-    const t = texture ?? this.blankTexture();
+  private ensureGpuTexture(texture: Texture | null, samplerType: string): { view: GPUTextureView } {
+    const t = texture ?? this.blankTexture(samplerType);
+    const integer = isIntegerSampler(samplerType);
+    const dimension = samplerDimension(samplerType);
     let gpu = this.textures.get(t);
     if (!gpu || t.needsUpdate) {
       const width = ArrayBuffer.isView(t.image) ? (t as DataTexture).width ?? 1 : 1;
       const height = ArrayBuffer.isView(t.image) ? (t as DataTexture).height ?? 1 : 1;
+      const depth = dimension === "3d" ? (t as DataTexture).depth ?? 1 : 1;
+      const format = integer ? integerGpuFormat(samplerType, ArrayBuffer.isView(t.image) ? t.image : null) : "rgba8unorm";
       if (!gpu) {
         gpu = this.device.createTexture({
-          size: [width, height],
-          format: "rgba8unorm",
+          size: [width, height, depth],
+          format,
           usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
         });
         this.textures.set(t, gpu);
       }
       if (ArrayBuffer.isView(t.image)) {
-        this.device.queue.writeTexture(
-          { texture: gpu },
-          t.image as unknown as ArrayBufferView<ArrayBuffer>,
-          { bytesPerRow: width * 4 },
-          [width, height],
-        );
+        this.writeTexture(gpu, t.image as unknown as ArrayBufferView<ArrayBuffer>, width, height, depth, format);
       }
       t.needsUpdate = false;
     }
     return { view: gpu.createView() };
   }
 
-  private blankTexture(): DataTexture {
-    if (!this.blankTextureObject) {
-      this.blankTextureObject = new DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+  /**
+   * Copy texture data to the GPU. A 3D write needs a 256-aligned row stride —
+   * the natural `width * bytesPerTexel` rarely is one — so the data is
+   * repacked into a padded buffer first.
+   */
+  private writeTexture(
+    texture: GPUTexture,
+    image: ArrayBufferView<ArrayBuffer>,
+    width: number,
+    height: number,
+    depth: number,
+    format: GPUTextureFormat,
+  ): void {
+    const bytesPerTexel = format === "rgba32uint" || format === "rgba32sint" ? 16
+      : format === "rgba16uint" || format === "rgba16sint" ? 8
+      : 4;
+    const bytesPerRow = width * bytesPerTexel;
+    if (depth === 1) {
+      this.device.queue.writeTexture(
+        { texture },
+        image,
+        { bytesPerRow },
+        [width, height, 1],
+      );
+      return;
     }
-    return this.blankTextureObject;
+    const paddedBytesPerRow = Math.ceil(bytesPerRow / 256) * 256;
+    const padded = new Uint8Array(paddedBytesPerRow * height * depth);
+    const src = new Uint8Array(image.buffer, image.byteOffset, image.byteLength);
+    for (let z = 0; z < depth; z++) {
+      for (let y = 0; y < height; y++) {
+        const row = (z * height + y) * bytesPerRow;
+        padded.set(src.subarray(row, row + bytesPerRow), (z * height + y) * paddedBytesPerRow);
+      }
+    }
+    this.device.queue.writeTexture(
+      { texture },
+      padded,
+      { bytesPerRow: paddedBytesPerRow, rowsPerImage: height },
+      [width, height, depth],
+    );
+  }
+
+  /**
+   * A 1×1 fallback texture, created per format and dimension so an integer or
+   * 3D sampler with no texture still gets a valid resource.
+   */
+  private blankTexture(samplerType = "sampler2D"): DataTexture {
+    const key = `${samplerDimension(samplerType)}:${samplerSampleType(samplerType)}`;
+    let blank = this.blankTextures.get(key);
+    if (!blank) {
+      const sampleType = samplerSampleType(samplerType);
+      const data = sampleType === "sint" ? new Int8Array([0, 0, 0, -1]) : new Uint8Array([0, 0, 0, 255]);
+      blank = new DataTexture(data, 1, 1, 1);
+      this.blankTextures.set(key, blank);
+    }
+    return blank;
   }
 
   private ensureSampler(texture: Texture | null): GPUSampler {
@@ -448,4 +507,21 @@ function strideForFormat(format: GPUVertexFormat): number {
     case "float32x3": return 12;
     default: return 16;
   }
+}
+
+/**
+ * The WebGPU format for an integer RGBA texture, from the bit depth of its
+ * data view and the sampler's signedness.
+ */
+function integerGpuFormat(samplerType: string, view: ArrayBufferView | null): GPUTextureFormat {
+  const signed = samplerType.startsWith("isampler");
+  const bytes = (view as { BYTES_PER_ELEMENT?: number } | null)?.BYTES_PER_ELEMENT ?? 1;
+  if (signed) {
+    if (bytes === 1) return "rgba8sint";
+    if (bytes === 2) return "rgba16sint";
+    return "rgba32sint";
+  }
+  if (bytes === 1) return "rgba8uint";
+  if (bytes === 2) return "rgba16uint";
+  return "rgba32uint";
 }

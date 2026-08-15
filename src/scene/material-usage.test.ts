@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { Fn, vec3, vec4, mix, compileJS } from "../rmsl";
+import { Fn, vec3, vec4, mix, compileJS, ivec2, ivec3, uvec2, uvec3 } from "../rmsl";
 import {
   recordingGLSL as compileGLSL,
   recordingWGSL as compileWGSL,
@@ -10,9 +10,12 @@ import {
   BoxGeometry, PlaneGeometry,
   AmbientLight, DirectionalLight, PointLight,
   MeshBasicMaterial, MeshLambertMaterial, MeshStandardMaterial,
+  NodeMaterial, Builder,
   PerspectiveCamera,
   Color, Vector3,
+  DataTexture,
   cameraUniformValue, objectUniformValue,
+  type MaterialProgram,
 } from "./index";
 
 afterAll(async () => {
@@ -203,5 +206,62 @@ describe("node materials", () => {
     for (const channel of color) expect(Number.isFinite(channel)).toBe(true);
     // The sunlit top face must be visibly lit, not black.
     expect(color[0]).toBeGreaterThan(0.1);
+  });
+
+  it("registers and compiles the integer and 3D samplers", () => {
+    const texture = () => new DataTexture(new Uint8Array([1, 2, 3, 4]), 1, 1);
+    const cases: {
+      type: "isampler2D" | "isampler3D" | "usampler2D" | "usampler3D";
+      coords: ReturnType<typeof ivec2 | typeof ivec3 | typeof uvec2 | typeof uvec3>;
+      wgsl: string;
+    }[] = [
+      { type: "isampler2D", coords: ivec2(0, 0), wgsl: "texture_2d<i32>" },
+      { type: "isampler3D", coords: ivec3(0, 0, 0), wgsl: "texture_3d<i32>" },
+      { type: "usampler2D", coords: uvec2(0, 0), wgsl: "texture_2d<u32>" },
+      { type: "usampler3D", coords: uvec3(0, 0, 0), wgsl: "texture_3d<u32>" },
+    ];
+    for (const { type, coords, wgsl } of cases) {
+      const material = new MeshBasicMaterial();
+      material.fragmentNode = (b) => {
+        const tex = b.sampler("data", type, texture);
+        return tex.texture(coords as never).toVec4();
+      };
+      const program = material.build(new Scene());
+      const binding = program.samplers.find((s) => s.name === "data")!;
+      expect(binding.type).toBe(type);
+      expect(binding.node._t).toBe(type);
+
+      const { glsl, wgsl: compiled } = compileMaterial(program);
+      expect(glsl).toContain(`uniform ${type} data;`);
+      expect(glsl).toContain("texelFetch(");
+      expect(compiled).toContain(wgsl);
+      // Integer textures are read with textureLoad, so no companion sampler
+      // binding is declared for them.
+      expect(compiled).not.toContain("data_s: sampler");
+      expect(compiled).not.toMatch(/@group\(2\)/);
+    }
+  });
+
+  it("keeps the two-argument sampler form as a sampler2D and supports sampler3D", () => {
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => {
+      const flat = b.sampler("flat", () => new DataTexture(new Uint8Array(4), 1, 1));
+      const volume = b.sampler("volume", "sampler3D", () => new DataTexture(new Uint8Array(8), 2, 2, 2));
+      return flat.texture(b.uv).add(volume.texture(vec3(0, 0, 0)));
+    };
+    const program = material.build(new Scene());
+    const flat = program.samplers.find((s) => s.name === "flat")!;
+    const volume = program.samplers.find((s) => s.name === "volume")!;
+    expect(flat.type).toBe("sampler2D");
+    expect(flat.node._t).toBe("sampler2D");
+    expect(volume.type).toBe("sampler3D");
+    expect(volume.node._t).toBe("sampler3D");
+
+    const { glsl, wgsl } = compileMaterial(program);
+    expect(glsl).toContain("uniform sampler2D flat;");
+    expect(glsl).toContain("uniform sampler3D volume;");
+    expect(wgsl).toContain("texture_2d<f32>");
+    expect(wgsl).toContain("texture_3d<f32>");
+    expect(wgsl).toContain("volume_s: sampler");
   });
 });
