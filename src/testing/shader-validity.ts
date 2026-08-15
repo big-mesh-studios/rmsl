@@ -70,7 +70,15 @@ let nextPair = 0;
  * without removing its entry is itself reported, so the list cannot outlive
  * the problems it documents.
  */
-export const KNOWN_INVALID: Record<string, string> = {};
+export const KNOWN_INVALID: Record<string, string> = {
+  // FXAA's whole algorithm is data-dependent: it decides whether a pixel sits
+  // on an edge from sampled luminance, then walks that edge. WebGPU requires
+  // texture sampling to happen in uniform control flow, so Dawn rejects every
+  // sample that ends up inside the skip-pixel guard or an edge branch. A
+  // branchless (select-based) port would satisfy it, but that is a rewrite of
+  // the algorithm, not a codegen fix.
+  "wgsl:texture-based effects > fxaa": "WGSL forbids textureSample in the non-uniform control flow FXAA's edge detection requires",
+};
 
 /**
  * Compile a program to *both* backends, whichever one the test asked for.
@@ -298,7 +306,14 @@ export function validationReport(
   });
 
   const unexpected = [...failed].filter(([key]) => !(key in known));
-  const fixed = Object.keys(known).filter((key) => !failed.has(key));
+  // An entry is only "fixed" when the shader it names was actually recorded and
+  // validated in this run. KNOWN_INVALID is shared across every test file, and
+  // each file only records its own shaders — an entry for a shader this file
+  // never compiled would otherwise read as "now compiles" every single run.
+  const recordedKeys = new Set(recorded.map((r) => `${r.lang}:${r.test}`));
+  const fixed = Object.keys(known).filter(
+    (key) => recordedKeys.has(key) && !failed.has(key),
+  );
 
   if (unexpected.length === 0 && fixed.length === 0) return null;
 

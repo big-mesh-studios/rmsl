@@ -166,7 +166,11 @@ describe("texture-based effects", () => {
   it("fxaa", () => {
     const glsl = compileGLSL(fxaa(tex()));
     expect(glsl).toContain("texture(");
-    expect(glsl).toContain("break;");
+    // The edge walk cannot break out of a sampling loop in WGSL, so it steps
+    // every iteration and selects the state once the edge is found — the GLSL
+    // emitter spells select as a ternary, the WGSL one keeps the builtin.
+    const wgsl = compileWGSL(fxaa(tex()));
+    expect(wgsl).toContain("select(");
   });
 
   it("sobel", () => {
@@ -292,7 +296,7 @@ describe("bloom", () => {
   it("accepts a custom high-pass filter", () => {
     const graph = bloom(uniform("sampler2D"), {
       highPassFn: (input, threshold, smoothWidth) =>
-        vec4(luminance(input.rgb).mul(threshold).add(smoothWidth), 1),
+        vec4(vec3(luminance(input.rgb).mul(threshold).add(smoothWidth)), 1),
     });
     const glsl = compileGLSL(graph.passes[0].color);
     expect(glsl).toContain("0.2126"); // luminance coefficients of the custom filter

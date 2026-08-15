@@ -1,4 +1,4 @@
-import {Break, For, Fn, If, abs, bool, clamp, dot, float, int, max, min, select, smoothstep, textureSize, uv, vec2, vec3, type Node} from "../rmsl";
+import {For, Fn, If, abs, bool, clamp, dot, float, int, max, min, select, smoothstep, textureSize, uv, vec2, vec3, type Node} from "../rmsl";
 import { f, type FloatIn, type IntIn, type Vec2In, type Sampler2D, type Sampler3D } from "./util";
 
 const EDGE_STEP_COUNT = 6;
@@ -141,15 +141,21 @@ export const fxaa = (textureNode: Sampler2D): Node<"vec4"> => {
     const pLuminanceDelta = SampleLuminance(puv).sub(edgeLuminance).toVar();
     const pAtEnd = abs(pLuminanceDelta).greaterThanEqual(gradientThreshold).toVar();
 
+    // WGSL refuses to sample from non-uniform control flow, so the edge walk
+    // cannot `break` out of the loop. Instead every step samples and `select`
+    // keeps the previous state once the edge has been found — the sample is
+    // still executed, just discarded, and the control flow stays uniform.
     For(
       () => int(1).toVar(),
       (i) => i.lessThan(int(EDGE_STEP_COUNT)),
       (i) => { i.assign(i.add(1)); },
       (i) => {
-        If(pAtEnd, () => { Break(); });
-        puv.addAssign(edgeStep.mul(edgeStepAt(i)));
-        pLuminanceDelta.assign(SampleLuminance(puv).sub(edgeLuminance));
-        pAtEnd.assign(abs(pLuminanceDelta).greaterThanEqual(gradientThreshold));
+        const nextUv = puv.add(edgeStep.mul(edgeStepAt(i))).toVar();
+        const nextDelta = SampleLuminance(nextUv).sub(edgeLuminance);
+        const nextAtEnd = abs(nextDelta).greaterThanEqual(gradientThreshold);
+        puv.assign(select(pAtEnd, puv, nextUv));
+        pLuminanceDelta.assign(select(pAtEnd, pLuminanceDelta, nextDelta));
+        pAtEnd.assign(select(pAtEnd, pAtEnd, nextAtEnd));
       },
     );
 
@@ -166,10 +172,12 @@ export const fxaa = (textureNode: Sampler2D): Node<"vec4"> => {
       (i) => i.lessThan(int(EDGE_STEP_COUNT)),
       (i) => { i.assign(i.add(1)); },
       (i) => {
-        If(nAtEnd, () => { Break(); });
-        nuv.subAssign(edgeStep.mul(edgeStepAt(i)));
-        nLuminanceDelta.assign(SampleLuminance(nuv).sub(edgeLuminance));
-        nAtEnd.assign(abs(nLuminanceDelta).greaterThanEqual(gradientThreshold));
+        const nextUv = nuv.sub(edgeStep.mul(edgeStepAt(i))).toVar();
+        const nextDelta = SampleLuminance(nextUv).sub(edgeLuminance);
+        const nextAtEnd = abs(nextDelta).greaterThanEqual(gradientThreshold);
+        nuv.assign(select(nAtEnd, nuv, nextUv));
+        nLuminanceDelta.assign(select(nAtEnd, nLuminanceDelta, nextDelta));
+        nAtEnd.assign(select(nAtEnd, nAtEnd, nextAtEnd));
       },
     );
 

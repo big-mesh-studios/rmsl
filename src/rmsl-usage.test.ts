@@ -2309,13 +2309,17 @@ describe("TSL additions", () => {
   it("exposes stpq swizzles", () => {
     let prog = Fn(() => {
       let v = vec4(1, 2, 3, 4).toVar();
-      return v.stpq.add(v.st).add(v.p).toVar();
+      // stpq is the texture-coordinate spelling of xyzw: st is a vec2, p a
+      // scalar, so the sum has to rebuild a vec4 rather than add across widths.
+      return v.stpq.add(vec4(v.st, v.p, 1)).toVar();
     });
     let glsl = compileGLSL(prog());
     expect(glsl).toContain(".stpq");
     expect(glsl).toContain(".st");
     let wgsl = compileWGSL(prog());
-    expect(wgsl).toContain(".stpq");
+    // WGSL only knows the xyzw and rgba spellings, so stpq is mapped to xyzw.
+    expect(wgsl).toContain(".xyzw");
+    expect(wgsl).toContain(".xy");
   });
 
   it("supports compound assignments", () => {

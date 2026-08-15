@@ -245,12 +245,14 @@ describe("node materials", () => {
   it("keeps the two-argument sampler form as a sampler2D and supports sampler3D", () => {
     const material = new MeshBasicMaterial();
     material.fragmentNode = (b) => {
-      const flat = b.sampler("flat", () => new DataTexture(new Uint8Array(4), 1, 1));
+      // Named `diffuse`, not `flat` — the latter is a GLSL ES interpolation
+      // qualifier and reserved.
+      const flat = b.sampler("diffuse", () => new DataTexture(new Uint8Array(4), 1, 1));
       const volume = b.sampler("volume", "sampler3D", () => new DataTexture(new Uint8Array(8), 2, 2, 2));
       return flat.texture(b.uv).add(volume.texture(vec3(0, 0, 0)));
     };
     const program = material.build(new Scene());
-    const flat = program.samplers.find((s) => s.name === "flat")!;
+    const flat = program.samplers.find((s) => s.name === "diffuse")!;
     const volume = program.samplers.find((s) => s.name === "volume")!;
     expect(flat.type).toBe("sampler2D");
     expect(flat.node._t).toBe("sampler2D");
@@ -258,7 +260,7 @@ describe("node materials", () => {
     expect(volume.node._t).toBe("sampler3D");
 
     const { glsl, wgsl } = compileMaterial(program);
-    expect(glsl).toContain("uniform sampler2D flat;");
+    expect(glsl).toContain("uniform sampler2D diffuse;");
     expect(glsl).toContain("uniform sampler3D volume;");
     expect(wgsl).toContain("texture_2d<f32>");
     expect(wgsl).toContain("texture_3d<f32>");

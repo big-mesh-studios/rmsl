@@ -2826,7 +2826,9 @@ function compileGLSLNode(
     case "fwidth": return unaryGLSL(node, ctx, "fwidth");
     case "dFdx": return unaryGLSL(node, ctx, "dFdx");
     case "dFdy": return unaryGLSL(node, ctx, "dFdy");
-    case "faceForward": return binaryGLSL(node, ctx, "faceforward", true);
+    // faceforward(n, i, nref) takes three vectors, so a binary emitter would
+    // silently drop the reference — the exact bug the validator exists to catch.
+    case "faceForward": return ternaryGLSL(node, ctx, "faceforward");
     case "bitNot": {
       let a = compileGLSLStage(node.params![0], ctx);
       let childExpr = wrapExpr(a.prec, PREC_UNARY, a.expr);
@@ -3610,6 +3612,29 @@ function wgslType(brand: any): string {
   return typeToWGSL[brand as string] ?? "f32";
 }
 
+/**
+ * WGSL only allows the `xyzw` and `rgba` swizzle spellings, so the texture-
+ * coordinate `stpq` set has to be translated before it is emitted. `s` is the
+ * same component as `x` and so on.
+ */
+function wgslSwizzle(pattern: string): string {
+  let out = "";
+  for (const c of pattern) {
+    out += c === "s" ? "x" : c === "t" ? "y" : c === "p" ? "z" : c === "q" ? "w" : c;
+  }
+  return out;
+}
+
+/**
+ * A varying's inter-stage location, taken from its slot id (`_rmsl_v3` is
+ * location 3). The vertex and fragment both compute this from the same slot
+ * name, so a fragment reading a subset of the varyings still numbers them the
+ * same way the vertex does.
+ */
+function varyingLocation(slot: string): number {
+  return Number(/^_rmsl_v(\d+)$/.exec(slot)?.[1] ?? 0);
+}
+
 function compileWGSLStage(
   node: BaseNode<ShaderType> | any,
   ctx: CompileCtx,
@@ -3830,7 +3855,7 @@ function compileWGSLNode(
 
     case "swizzle": {
       let src = compileWGSLStage(node.params![0], ctx);
-      let pattern = node.value as string;
+      let pattern = wgslSwizzle(node.value as string);
       let srcExpr = (src.prec ?? PREC_ATOM) < PREC_ATOM ? `(${src.expr})` : src.expr;
       return { decls: src.decls, body: src.body, expr: `${srcExpr}.${pattern}`, prec: PREC_ATOM };
     }
@@ -3920,8 +3945,8 @@ function compileWGSLNode(
     case "equal": return binaryWGSL(node, ctx, "==");
     case "notEqual": return binaryWGSL(node, ctx, "!=");
 
-    case "and": return binaryWGSL(node, ctx, "&&");
-    case "or": return binaryWGSL(node, ctx, "||");
+    case "and": return logicalWGSL(node, ctx, "&&");
+    case "or": return logicalWGSL(node, ctx, "||");
     case "bitAnd": return binaryWGSL(node, ctx, "&");
     case "bitOr": return binaryWGSL(node, ctx, "|");
     case "bitXor": return binaryWGSL(node, ctx, "^");
@@ -4006,7 +4031,9 @@ function compileWGSLNode(
     case "fwidth": return unaryWGSL(node, ctx, "fwidth");
     case "dFdx": return unaryWGSL(node, ctx, "dpdx");
     case "dFdy": return unaryWGSL(node, ctx, "dpdy");
-    case "faceForward": return binaryWGSL(node, ctx, "faceForward", true);
+    // faceForward(n, i, nref) takes three vectors; a binary emitter would drop
+    // the reference and hand Dawn a call it refuses to compile.
+    case "faceForward": return ternaryWGSL(node, ctx, "faceForward");
     case "bitNot": {
       let a = compileWGSLStage(node.params![0], ctx);
       let childExpr = wrapExpr(a.prec, PREC_UNARY, a.expr);
@@ -4450,6 +4477,35 @@ function shiftWGSL(
   };
 }
 
+/**
+ * A WGSL logical operator.
+ *
+ * WGSL gives `&&` and `||` the *same* precedence, and refuses to mix them in
+ * one expression without explicit parentheses — unlike C/GLSL, where `&&`
+ * binds tighter. An `and` nested under an `or` (as xor's expansion produces)
+ * therefore must be parenthesised even though its precedence number is higher
+ * than its parent's.
+ */
+function logicalWGSL(
+  node: BaseNode<ShaderType>,
+  ctx: CompileCtx,
+  op: string,
+): CompiledNode {
+  let lhs = compileWGSLStage(node.params![0], ctx);
+  let rhs = compileWGSLStage(node.params![1], ctx);
+  let prec = PRECEDENCE[node.type] ?? 0;
+  const child = (c: CompiledNode, raw: BaseNode<ShaderType> | undefined): string => {
+    if (raw?.type === "and" || raw?.type === "or") return `(${c.expr})`;
+    return wrapExpr(c.prec, prec, c.expr);
+  };
+  return {
+    decls: [...lhs.decls, ...rhs.decls],
+    body: [...lhs.body, ...rhs.body],
+    expr: `${child(lhs, node.params![0])} ${op} ${child(rhs, node.params![1])}`,
+    prec,
+  };
+}
+
 function binaryWGSL(
   node: BaseNode<ShaderType>,
   ctx: CompileCtx,
@@ -4626,13 +4682,17 @@ function compileWGSLWithStage(
     }
     lines.push("struct VertexOutput {");
     lines.push("  @builtin(position) position: vec4<f32>,");
-    // Everything the stage passes on shares one set of slots, because they all
-    // become members of this one structure. Numbering varyings and declared
-    // outputs separately handed the same slot to one of each.
-    let outgoingLocation = 0;
+    // A varying's location is its slot id — `_rmsl_v2` lives at location 2 —
+    // not its rank in this stage's sorted list. The fragment numbers its inputs
+    // the same way, so a stage reading a subset of the vertex's varyings still
+    // agrees on where each one is; rank-based numbering only matched when both
+    // stages carried the full set. Declared outputs share the struct, so they
+    // start one past the highest varying slot.
     let sortedVaryings = [...ctx.varyings.entries()].sort((a, b) => a[1].slot.localeCompare(b[1].slot));
+    let outgoingLocation = 0;
     for (let [, info] of sortedVaryings) {
-      lines.push(`  @location(${outgoingLocation++}) ${info.slot}: ${info.type},`);
+      outgoingLocation = Math.max(outgoingLocation, varyingLocation(info.slot) + 1);
+      lines.push(`  @location(${varyingLocation(info.slot)}) ${info.slot}: ${info.type},`);
     }
     ctx.outputs.forEach((info) => {
       if (info && info.slot && info.type) {
@@ -4686,11 +4746,10 @@ function compileWGSLWithStage(
 
     lines.push("@fragment");
     let fragParams = "";
-    let fragVaryingLoc = 0;
     let sortedFVaryings = [...ctx.varyings.entries()].sort((a, b) => a[1].slot.localeCompare(b[1].slot));
     for (let [, info] of sortedFVaryings) {
       if (fragParams) fragParams += ", ";
-      fragParams += `@location(${fragVaryingLoc++}) ${info.slot}: ${info.type}`;
+      fragParams += `@location(${varyingLocation(info.slot)}) ${info.slot}: ${info.type}`;
     }
     // fragCoord() reads the fragment's position in the framebuffer, which WGSL
     // passes in as a builtin parameter rather than a global.

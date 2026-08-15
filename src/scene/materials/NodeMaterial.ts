@@ -81,7 +81,9 @@ export class NodeMaterial extends Material {
     const b = new Builder();
     this.setup(b, scene);
 
+    b.stage = "vertex";
     const vertex = Fn(() => this.vertexNode ? this.vertexNode(b) : this.buildVertexBody(b))() as Node<"vec4">;
+    b.stage = "fragment";
     const fragment = Fn(() => {
       const outColor = output("vec4");
       const color = this.fragmentNode ? this.fragmentNode(b) : this.buildFragmentBody(b);

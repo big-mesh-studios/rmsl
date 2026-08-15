@@ -64,6 +64,13 @@ export class Builder {
   readonly varyings = new Map<string, VaryingBinding>();
   readonly samplers = new Map<string, AnySamplerBinding>();
 
+  /**
+   * The shader stage currently being built. The built-in geometry accessors
+   * resolve differently per stage: a vertex reads the raw attribute, while a
+   * fragment can only read the interpolated varying the vertex stage wrote.
+   */
+  stage: "vertex" | "fragment" = "vertex";
+
   attribute<T extends ShaderType>(name: string, type: T): AttributeNode<T> {
     let existing = this.attributes.get(name);
     if (!existing) {
@@ -141,16 +148,28 @@ export class Builder {
   }
 
   // === Built-in attribute accessors ===
+  //
+  // Each resolves to the raw attribute in the vertex stage and to the varying
+  // the vertex writes in the fragment stage — the fragment cannot read a vertex
+  // input, so `b.uv.x` inside a `colorNode` or `fragmentNode` must mean the
+  // interpolated uv, not the geometry attribute.
+
   get position(): AttributeNode<"vec3"> {
-    return this.attribute("position", "vec3");
+    return this.stage === "vertex"
+      ? this.attribute("position", "vec3")
+      : this.varying("positionWorld", "vec3");
   }
 
   get normal(): AttributeNode<"vec3"> {
-    return this.attribute("normal", "vec3");
+    return this.stage === "vertex"
+      ? this.attribute("normal", "vec3")
+      : this.varying("normalWorld", "vec3");
   }
 
   get uv(): AttributeNode<"vec2"> {
-    return this.attribute("uv", "vec2");
+    return this.stage === "vertex"
+      ? this.attribute("uv", "vec2")
+      : this.varying("uv", "vec2");
   }
 
   // === Built-in varying accessors (vertex writes, fragment reads) ===
