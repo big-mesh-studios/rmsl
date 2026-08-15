@@ -1935,6 +1935,17 @@ export function attribute<T extends ShaderType>(shaderType: T): AttributeNode<T>
   return result as unknown as AttributeNode<T>;
 }
 
+export function attributeRaw<T extends ShaderType>(name: string, shaderType: T): AttributeNode<T> {
+  let id = nextAttrId++;
+  const result = node({
+    _t: shaderType,
+    type: "attribute",
+    value: { id, slot: name, shaderType },
+    name: name,
+  });
+  return result as unknown as AttributeNode<T>;
+}
+
 export function varying<T extends ShaderType>(shaderType: T): VaryingNode<T> {
   let id = nextVaryingId++;
   const result = node({
@@ -1942,6 +1953,17 @@ export function varying<T extends ShaderType>(shaderType: T): VaryingNode<T> {
     type: "varying",
     value: { id, slot: `_rmsl_v${id}`, shaderType },
     name: `_rmsl_v${id}`,
+  });
+  return result as unknown as VaryingNode<T>;
+}
+
+export function varyingRaw<T extends ShaderType>(name: string, shaderType: T): VaryingNode<T> {
+  let id = nextVaryingId++;
+  const result = node({
+    _t: shaderType,
+    type: "varying",
+    value: { id, slot: name, shaderType },
+    name: name,
   });
   return result as unknown as VaryingNode<T>;
 }
@@ -2257,7 +2279,7 @@ interface CompileCtx {
   /** `length` is set only for uniform arrays, and gives their element count. */
   uniforms: Map<number, { type: string; slot: string; length?: number }>;
   attributes: Map<number, { type: string; slot: string }>;
-  varyings: Map<number, { type: string; slot: string }>;
+  varyings: Map<number, { id: number; type: string; slot: string }>;
   outputs: Map<number, { type: string; slot: string; location: number }>;
   wgslSamplers: Map<string, { textureSlot: string; samplerSlot: string }>;
   varDefs: Map<string, string>;
@@ -2664,7 +2686,7 @@ function compileGLSLNode(
     case "varying": {
       let v = node.value as any;
       if (!ctx.varyings.has(v.id)) {
-        ctx.varyings.set(v.id, { type: glslType(v.shaderType), slot: v.slot });
+        ctx.varyings.set(v.id, { id: v.id, type: glslType(v.shaderType), slot: v.slot });
       }
       return { decls: [], body: [], expr: v.slot };
     }
@@ -3684,13 +3706,15 @@ function wgslSwizzle(pattern: string): string {
 }
 
 /**
- * A varying's inter-stage location, taken from its slot id (`_rmsl_v3` is
- * location 3). The vertex and fragment both compute this from the same slot
- * name, so a fragment reading a subset of the varyings still numbers them the
- * same way the vertex does.
+ * A varying's inter-stage location. Generated varyings carry their slot id in
+ * their name (`_rmsl_v3` is location 3); a `varyingRaw` one has no numeric
+ * suffix, so the id stored alongside the slot is used instead. Either way the
+ * vertex and fragment both compute the location from the same value, so a
+ * fragment reading a subset of the varyings still numbers them the same way
+ * the vertex does.
  */
-function varyingLocation(slot: string): number {
-  return Number(/^_rmsl_v(\d+)$/.exec(slot)?.[1] ?? 0);
+function varyingLocation(info: { id?: number; slot: string }): number {
+  return info.id ?? Number(/^_rmsl_v(\d+)$/.exec(info.slot)?.[1] ?? 0);
 }
 
 function compileWGSLStage(
@@ -3873,7 +3897,7 @@ function compileWGSLNode(
     case "varying": {
       let v = node.value as any;
       if (v && v.id != null && !ctx.varyings.has(v.id)) {
-        ctx.varyings.set(v.id, { type: wgslType(v.shaderType), slot: v.slot });
+        ctx.varyings.set(v.id, { id: v.id, type: wgslType(v.shaderType), slot: v.slot });
       }
       let slot = v?.slot || "vec3<f32>(0.0, 0.0, 0.0)";
       let expr = ctx.shaderStage === "vertex" ? `result.${slot}` : slot;
@@ -4749,8 +4773,8 @@ function compileWGSLWithStage(
     let sortedVaryings = [...ctx.varyings.entries()].sort((a, b) => a[1].slot.localeCompare(b[1].slot));
     let outgoingLocation = 0;
     for (let [, info] of sortedVaryings) {
-      outgoingLocation = Math.max(outgoingLocation, varyingLocation(info.slot) + 1);
-      lines.push(`  @location(${varyingLocation(info.slot)}) ${info.slot}: ${info.type},`);
+      outgoingLocation = Math.max(outgoingLocation, varyingLocation(info) + 1);
+      lines.push(`  @location(${varyingLocation(info)}) ${info.slot}: ${info.type},`);
     }
     ctx.outputs.forEach((info) => {
       if (info && info.slot && info.type) {
@@ -4807,7 +4831,7 @@ function compileWGSLWithStage(
     let sortedFVaryings = [...ctx.varyings.entries()].sort((a, b) => a[1].slot.localeCompare(b[1].slot));
     for (let [, info] of sortedFVaryings) {
       if (fragParams) fragParams += ", ";
-      fragParams += `@location(${varyingLocation(info.slot)}) ${info.slot}: ${info.type}`;
+      fragParams += `@location(${varyingLocation(info)}) ${info.slot}: ${info.type}`;
     }
     // fragCoord() reads the fragment's position in the framebuffer, which WGSL
     // passes in as a builtin parameter rather than a global.

@@ -5,8 +5,9 @@ import {
   mat2, mat2x3, mat2x4, mat3, mat3x2, mat3x4, mat4, mat4x2, mat4x3,
   If, For, While, Switch, Loop, Discard, Break, Continue, Return,
   uniform, attribute, varying, output, builtinPosition, builtinFragDepth,
+  uniformRaw, attributeRaw, varyingRaw,
   isUniformNode, isAttributeNode, isVaryingNode,
-  compileGLSLFn, compileWGSLFn, compileJSFn, uniformRaw, wgslUniformLayout, uniformArray,
+  compileGLSLFn, compileWGSLFn, compileJSFn, wgslUniformLayout, uniformArray,
   add, sub, mul, div, mod, min, max, pow, pow2, pow3, pow4,
   abs, sign, floor, ceil, fract, round, trunc, radians, degrees,
   sqrt, inverseSqrt, inversesqrt, exp, log, exp2, log2, cbrt,
@@ -1087,6 +1088,59 @@ precision highp float;
 layout(location=0) out vec4 outColor;
 ${glsl}
 void main(void) { outColor = vec4(scale(2.0)); }`);
+  });
+
+  // attributeRaw / varyingRaw name their own slots, as uniformRaw does.
+  it("attributeRaw declares a custom-named attribute", () => {
+    let tex = attributeRaw("tex", "vec2");
+    expect(tex.name).toBe("tex");
+    let prog = Fn(() => vec4(tex.x, tex.y, 0, 1));
+    expect(compileGLSL.vertex(prog())).toContain("in vec2 tex;");
+    expect(compileWGSL.vertex(prog())).toContain("tex: vec2<f32>");
+  });
+
+  it("varyingRaw emits its name in both stages", () => {
+    let v = varyingRaw("myNormal", "vec3");
+    expect(v.name).toBe("myNormal");
+    let vertex = Fn(() => {
+      v.assign(vec3(0, 1, 0));
+      return vec4(0, 0, 0, 1);
+    });
+    let fragment = Fn(() => vec4(v, 1));
+    expect(compileGLSL.vertex(vertex())).toContain("out vec3 myNormal;");
+    expect(compileGLSL.fragment(fragment())).toContain("in vec3 myNormal;");
+  });
+
+  it("two raw varyings get distinct locations both stages agree on", () => {
+    let a = varyingRaw("aVal", "vec3");
+    let b = varyingRaw("bVal", "vec4");
+    let vertex = Fn(() => {
+      a.assign(vec3(1, 0, 0));
+      b.assign(vec4(0, 1, 0, 1));
+      return vec4(0, 0, 0, 1);
+    });
+    let fragment = Fn(() => vec4(a, 1).add(b).toVar());
+    const locations = (src: string) =>
+      Object.fromEntries(
+        [...src.matchAll(/@location\((\d+)\) (\w+):/g)].map((m) => [m[2], Number(m[1])]),
+      );
+    let vloc = locations(compileWGSL.vertex(vertex()));
+    let floc = locations(compileWGSL.fragment(fragment()));
+    expect(vloc.aVal).not.toBe(vloc.bVal);
+    expect(vloc.aVal).toBe(floc.aVal);
+    expect(vloc.bVal).toBe(floc.bVal);
+  });
+
+  it("raw attribute and varying feed the JS backend by name", () => {
+    let vertex = Fn(() => {
+      let uv = attributeRaw("tex", "vec2");
+      let n = varyingRaw("myNormal", "vec3");
+      n.assign(vec3(uv.x, uv.y, 1));
+      return vec4(0, 0, 0, 1);
+    });
+    let src = compileJSFn(() => vertex(), { name: "main", params: [], stage: "vertex" });
+    expect(src).toContain('ctx.attributes["tex"]');
+    expect(src).toContain('res.varyings["myNormal"]');
   });
 
   // Refused by the signature as well as at runtime. Written as a directive

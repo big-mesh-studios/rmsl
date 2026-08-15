@@ -425,7 +425,9 @@ While(condition, () => {
 | `uniform(type)` | `UniformNode<T>` | Declares a uniform (constant buffer input). Use `.name` for the generated name (e.g., `_rmsl_u0`); methods and swizzles are available directly. |
 | `uniformRaw(name, type)` | `UniformNode<T>` | Declares a uniform with a custom name/slot (e.g., `uniformRaw("uMVP", "mat4")` emits `uniform mat4 uMVP`). Use `.name` for the custom name; methods and swizzles are available directly. |
 | `attribute(type)` | `AttributeNode<T>` | Declares a vertex attribute. Use `.name` for the generated name (e.g., `_rmsl_a0`); methods and swizzles are available directly. |
+| `attributeRaw(name, type)` | `AttributeNode<T>` | Declares a vertex attribute with a custom name/slot (e.g., `attributeRaw("tex", "vec2")` emits `in vec2 tex`). Use `.name` for the custom name; methods and swizzles are available directly. |
 | `varying(type)` | `VaryingNode<T>` | Declares a varying (vertex→fragment interpolant). Use `.name` for the generated name (e.g., `_rmsl_v0`); methods and swizzles are available directly. |
+| `varyingRaw(name, type)` | `VaryingNode<T>` | Declares a varying with a custom name/slot (e.g., `varyingRaw("myNormal", "vec3")` emits `out/in vec3 myNormal`). Use `.name` for the custom name; methods and swizzles are available directly. |
 | `output(type)` | `Node<T>` | Declares a fragment output with `@location(N)` |
 | `builtinPosition()` | `Node<"vec4">` | Maps to `gl_Position` / `@builtin(position)` |
 | `builtinFragDepth()` | `Node<"float">` | Maps to `gl_FragDepth` / `@builtin(frag_depth)` |
