@@ -88,6 +88,47 @@ globalThis.__rmslLineRun = () => {
   const corner = new Uint8Array(4);
   gl.readPixels(2, 2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, corner);
   return { center: [center[0], center[1], center[2]], corner: [corner[0], corner[1], corner[2]] };
+`;
+
+// Three samplers whose textures are all uploaded during the same draw, each
+// written to its own colour channel. A sampler reading a texture other than its
+// own shows up as a channel holding another channel's value.
+const ENTRY_SAMPLERS = `
+import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
+  MeshBasicMaterial, DataTexture } from "./index";
+import { float, uvec2, vec2, vec4 } from "../rmsl";
+globalThis.__rmslSamplersRun = () => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 16;
+  canvas.height = 16;
+  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  renderer.setClearColor(0x000000);
+  const scene = new Scene();
+  const first = new DataTexture(new Uint8Array([20, 0, 0, 0]), 1, 1);
+  const second = new DataTexture(new Uint8Array([120, 0, 0, 0]), 1, 1);
+  const third = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
+  const material = new MeshBasicMaterial();
+  material.fragmentNode = (b) => {
+    const a = b.sampler("first", "usampler2D", () => first);
+    const c = b.sampler("second", "usampler2D", () => second);
+    const d = b.sampler("third", "sampler2D", () => third);
+    return vec4(
+      a.texture(uvec2(0, 0)).r.toFloat().div(float(255)),
+      c.texture(uvec2(0, 0)).r.toFloat().div(float(255)),
+      d.texture(vec2(0.5, 0.5)).b,
+      float(1),
+    );
+  };
+  const mesh = new Mesh(new PlaneGeometry(2, 2), material);
+  scene.add(mesh);
+  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 1);
+  camera.lookAt(0, 0, 0);
+  renderer.render(scene, camera);
+  const pixels = new Uint8Array(4);
+  const gl = renderer.gl;
+  gl.readPixels(8, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+  return { r: pixels[0], g: pixels[1], b: pixels[2], error: gl.getError() };
 };
 `;
 
@@ -153,6 +194,29 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     expect(pixel.center[0]).toBeGreaterThan(100);
     expect(pixel.center[1]).toBeLessThan(60);
     expect(pixel.corner[0]).toBeLessThan(60);
+  }, 60_000);
+
+  it("gives each sampler its own texture when several upload in one draw", async () => {
+    const page = await gpuPage();
+    const code = await bundleEntry(ENTRY_SAMPLERS);
+    const pixel = await page.evaluate(async (source: string) => {
+      // eslint-disable-next-line no-new-func
+      const fn = new Function(source);
+      fn();
+      return (globalThis as any).__rmslLineRun();
+    }, code);
+
+    // Each channel carries the texture its own sampler was given: 20 from the
+    // first, 120 from the second, 220 from the third. A sampler left pointing
+    // at a neighbour's texture puts that neighbour's value in the channel, and
+    // an unsigned sampler left pointing at a float texture is an invalid draw
+    // that writes nothing at all.
+    expect(pixel.error).toBe(0);
+    expect(pixel.r).toBeGreaterThan(10);
+    expect(pixel.r).toBeLessThan(40);
+    expect(pixel.g).toBeGreaterThan(100);
+    expect(pixel.g).toBeLessThan(140);
+    expect(pixel.b).toBeGreaterThan(200);
   }, 60_000);
 });
 
