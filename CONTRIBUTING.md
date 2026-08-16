@@ -66,23 +66,34 @@ anything that reduces, anything whose defining operand is not the first.
 
 ### Skipping the GPU layers
 
-Both GPU-backed layers can be turned off, which is what makes a fast inner loop
-and a workable mutation run:
+The layers that need a graphics device are **on by default**, so a plain
+`vitest run` — what an editor runs, and what you get without reading this file
+— hands every shader to a real compiler. They were opt-in once, and two
+renderer tests reached main broken because a normal run never executed them.
+
+Turn them off only where the machine cannot run them, or to get a fast inner
+loop and a workable mutation run:
 
 | Variable | Turns off |
 |---|---|
-| `RMSL_SKIP_GPU` | both |
+| `RMSL_SKIP_GPU` | every layer needing a device or a browser |
 | `RMSL_SKIP_SHADER_VALIDATION` | validity only |
-| `RMSL_SKIP_SHADER_EVALUATION` | evaluation only |
+| `RMSL_SKIP_SHADER_EVALUATION` | evaluating the two shading languages |
 
 ```bash
+pnpm test          # everything, including the GPU layers
 pnpm test:fast     # RMSL_SKIP_GPU=1, well under a second
-pnpm test:mutate   # mutation testing with both layers off
+pnpm test:mutate   # mutation testing with those layers off
 ```
 
-Skipping is announced on stderr, because a run without these layers proves much
-less than it appears to — the score from a mutation run measures the text
-assertions alone. Run the full `pnpm test` before opening a pull request.
+Nothing turns off the CPU target: it needs no hardware, so it evaluates on
+every run, and the two shading languages are checked against what it computed.
+
+Skipping is announced on stderr, and says how much went unchecked, because a
+run without these layers proves much less than it appears to — the score from a
+mutation run measures the text assertions alone. On a machine with no graphics
+device, set `RMSL_SKIP_GPU=1` and say so in the pull request, since the full run
+is what a change is judged on.
 
 ## Adding an operation
 

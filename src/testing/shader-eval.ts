@@ -375,19 +375,18 @@ export function recordedEvaluationSummary(): { total: number; cpuOnly: number } 
 }
 
 /**
- * Whether to skip the evaluation tests.
+ * Whether to skip evaluating on the two shading languages.
  *
- * Evaluation needs a GPU, and validation needs a browser, so both are worth
- * skipping in a mutation run. They are separate switches because they check
- * separate things: `RMSL_GPU` enables them, and each layer has its own
- * flag for disabling just that one.
+ * Evaluation needs a graphics device and validation needs a browser, so both
+ * are worth turning off in a mutation run. `RMSL_SKIP_GPU` turns off every
+ * layer that needs hardware, and each layer also has a flag of its own for
+ * turning off just that one.
  *
- * Skipping is announced. This layer is the only thing checking what a shader
- * computes rather than whether it compiles, so a run without it silently
- * proves much less than it appears to.
+ * Skipping is announced, and says how many programs went unchecked. The CPU
+ * target is not covered by any of this — it needs nothing, so it always runs.
  */
 export const GPU_EVALUATION_SKIPPED =
-  !process.env.RMSL_GPU || !!process.env.RMSL_SKIP_SHADER_EVALUATION;
+  !!process.env.RMSL_SKIP_GPU || !!process.env.RMSL_SKIP_SHADER_EVALUATION;
 
 /**
  * Kept under its former name for the tests that evaluate eagerly, which have to

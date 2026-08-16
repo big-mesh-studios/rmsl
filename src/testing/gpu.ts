@@ -52,7 +52,7 @@ export function gpuDevice(): Promise<any> {
       gpu = await import("@kmamal/gpu");
     } catch {
       throw new Error(
-        "@kmamal/gpu is not installed. Set RMSL_GPU=1 only on systems with GPU support."
+        `@kmamal/gpu is not installed, so WGSL cannot be handed to a real compiler. Set RMSL_SKIP_GPU=1 to run without the layers that need a graphics device.`
       );
     }
     const adapter = await gpu.create([]).requestAdapter();
@@ -110,5 +110,18 @@ export async function releaseGpu(): Promise<void> {
   if (device) (await device).destroy?.();
 }
 
-/** Whether GPU support is enabled. */
-export const GPU_ENABLED = !!process.env.RMSL_GPU;
+/**
+ * Whether the layers that need a graphics device run.
+ *
+ * On unless `RMSL_SKIP_GPU` says otherwise. It used to be off unless
+ * `RMSL_GPU=1` said otherwise, which meant a plain `vitest run` — what an
+ * editor runs, and what anyone gets who has not read the scripts — silently
+ * skipped every test that hands a shader to a real compiler. Two renderer tests
+ * reached main broken because of it: both failed the moment they were actually
+ * run, and neither had been.
+ *
+ * A machine without a graphics device sets `RMSL_SKIP_GPU=1` and gets the old
+ * behaviour. That is the right way round: skipping is a choice someone makes
+ * about their machine, not the default everyone inherits.
+ */
+export const GPU_ENABLED = !process.env.RMSL_SKIP_GPU;

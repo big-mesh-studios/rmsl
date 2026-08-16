@@ -44,11 +44,11 @@
     "type-check": "tsc --noEmit",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "test": "RMSL_GPU=1 vitest run",
+    "test": "vitest run",
     "test:setup": "playwright install chromium",
-    "test:fast": "vitest run",
+    "test:fast": "RMSL_SKIP_GPU=1 vitest run",
     "test:types": "vitest --typecheck.only --run",
-    "test:mutate": "stryker run",
+    "test:mutate": "RMSL_SKIP_GPU=1 stryker run",
     "test:mutate:deep": "stryker run --timeoutMS 120000"
   },
   "dependencies": {

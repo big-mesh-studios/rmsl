@@ -210,11 +210,11 @@ async function validateWGSL(items: Recorded[]): Promise<(string | null)[]> {
  * invalid shaders differs from `KNOWN_INVALID` in either direction.
  */
 export async function assertRecordedShadersValid(): Promise<void> {
-  // GPU validation is opt-in via RMSL_GPU=1, to support development on
-  // systems where @kmamal/gpu is not available (e.g. Android Termux).
-  // Skipping is announced rather than silent, so a run without shader
-  // checking cannot be mistaken for one with it.
-  if (!process.env.RMSL_GPU || process.env.RMSL_SKIP_SHADER_VALIDATION) {
+  // Validation runs unless a machine says it cannot, via RMSL_SKIP_GPU — for
+  // one without a graphics device or a browser to install, such as Android
+  // under Termux. Skipping is announced rather than silent, so a run without
+  // shader checking cannot be mistaken for one with it.
+  if (process.env.RMSL_SKIP_GPU || process.env.RMSL_SKIP_SHADER_VALIDATION) {
     process.stderr.write(
       `\n[shader-validity] SKIPPED — ${recorded.length} shaders were recorded` +
         ` but never handed to a real compiler.\n`,

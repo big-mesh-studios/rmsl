@@ -189,5 +189,5 @@ through the scene graph: `BufferAttribute.stepMode` and
   the builder never sees will not be bound.
 - `WebGPURenderer` texture support covers `DataTexture` (and the WebGL renderer
   additionally accepts `HTMLImageElement`s).
-- The full test suite validates every material shader on real Chromium/Dawn
-  drivers with `RMSL_GPU=1` (see `CONTRIBUTING.md`).
+- The test suite validates every material shader on real Chromium/Dawn drivers
+  by default; `RMSL_SKIP_GPU=1` turns that off (see `CONTRIBUTING.md`).
