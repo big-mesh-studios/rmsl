@@ -13,12 +13,14 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { Fn, float, int, For, If, While, Switch, Break, Continue, type Node } from "./rmsl";
 import {
-  evaluateAll, closeEvaluators, floatTolerance, EVALUATION_SKIPPED,
+  evaluateRecording, assertRecordedEvaluationsAgree, closeEvaluators,
+  floatTolerance,
 } from "./testing/shader-eval";
 
 afterAll(async () => {
+  await assertRecordedEvaluationsAgree();
   await closeEvaluators();
-});
+}, 120_000);
 
 type Build = (...args: Node<"float">[]) => Node<"float">;
 
@@ -30,22 +32,18 @@ type Build = (...args: Node<"float">[]) => Node<"float">;
  * already 1.2e-4 — while being far looser than needed near zero.
  */
 async function expectValue(build: Build, args: number[], want: number) {
-  const { glsl, wgsl, js } = await evaluateAll(build, args);
-  // The CPU target runs the same program in-process. It computes exact f64, so
-  // a disagreement with the GPU backends is a defect in whichever side differs
-  // — and it arbitrates when the two GPUs differ.
+  // The CPU target runs the same program in-process, needs no hardware, and
+  // computes exact f64 — so it answers now, and it is the arbiter. The program
+  // is recorded, and the `afterAll` above holds both shading languages to this
+  // same value, which is what lets one assertion cover three backends without
+  // the test waiting on a device.
+  const js = evaluateRecording(build, args);
   const tolerance = floatTolerance(want);
-  expect(Math.abs(glsl - want), `GLSL computed ${glsl}, wanted ${want}`)
-    .toBeLessThan(tolerance);
-  expect(Math.abs(wgsl - want), `WGSL computed ${wgsl}, wanted ${want}`)
-    .toBeLessThan(tolerance);
-  expect(Math.abs(glsl - wgsl), `backends disagree: ${glsl} vs ${wgsl}`)
-    .toBeLessThan(tolerance);
-  expect(Math.abs(js - want), `JS computed ${js}, wanted ${want}`)
+  expect(Math.abs(js - want), `CPU target computed ${js}, wanted ${want}`)
     .toBeLessThan(tolerance);
 }
 
-describe.skipIf(EVALUATION_SKIPPED)("RMSL evaluation", () => {
+describe("RMSL evaluation", () => {
   it("computes arithmetic", async () => {
     await expectValue((a, b) => a.add(b), [2, 3], 5);
     await expectValue((a, b) => a.sub(b), [7, 3], 4);

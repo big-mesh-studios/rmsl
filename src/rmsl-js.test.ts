@@ -11,7 +11,11 @@
  * driver's — but never for plain `a + b`.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
+import {
+  evaluateRecording, assertRecordedEvaluationsAgree, closeEvaluators,
+  type CpuOnlyReason,
+} from "./testing/shader-eval";
 import {
   compileJS, compileJSFn, Fn, float, int, vec2, vec3, vec4, mat4,
   If, For, While, Switch, Loop, Break, Continue, Return,
@@ -32,16 +36,42 @@ function slot(n: any): string {
 
 type ScalarBuild = (...args: Node<"float">[]) => Node<"float">;
 
-/** Evaluate a scalar Fn on the JS backend with the given argument values. */
-function evalScalar(build: ScalarBuild, args: number[] = [], opts: any = {}): number {
-  const params = args.map((_, i) => ({ name: `a${i}`, type: "float" as const }));
-  const fn = compileJS(build as any, { name: "main", params, ...opts });
-  const ctx: any = { params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) };
-  const value = fn(ctx);
-  if (typeof value === "number") return value;
-  if (Array.isArray(value)) return value[0] as number;
-  return value as unknown as number;
+/**
+ * Evaluate a scalar expression, and hold every backend to the answer.
+ *
+ * The value comes back from the CPU target, which needs no hardware and so runs
+ * on every test run. The same program is recorded, and the `afterAll` below
+ * replays it on both shading languages and requires them to agree — so an
+ * assertion written here covers all three backends without saying so.
+ *
+ * `opts.cpuOnly` names a reason for a case that cannot run on a GPU. Passing a
+ * reason rather than a flag keeps those exclusions countable, since the whole
+ * point of this arrangement is that opting out is visible.
+ */
+function evalScalar(
+  build: ScalarBuild,
+  args: number[] = [],
+  opts: { cpuOnly?: CpuOnlyReason } & Record<string, any> = {},
+): number {
+  const { cpuOnly, ...compileOpts } = opts;
+  // A case passing compiler options wants that exact compilation, so it is run
+  // directly rather than through the shared path, which compiles its own.
+  if (Object.keys(compileOpts).length > 0) {
+    const params = args.map((_, i) => ({ name: `a${i}`, type: "float" as const }));
+    const fn = compileJS(build as any, { name: "main", params, ...compileOpts });
+    const ctx: any = { params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) };
+    const value = fn(ctx);
+    if (typeof value === "number") return value;
+    if (Array.isArray(value)) return value[0] as number;
+    return value as unknown as number;
+  }
+  return evaluateRecording(build as any, args, cpuOnly);
 }
+
+afterAll(async () => {
+  await assertRecordedEvaluationsAgree();
+  await closeEvaluators();
+}, 120_000);
 
 describe("JS backend: scalar arithmetic", () => {
   it("computes arithmetic", () => {

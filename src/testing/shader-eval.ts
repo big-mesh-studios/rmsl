@@ -11,6 +11,7 @@
  * only tolerance needed is for f32 against JS's f64.
  */
 
+import { expect } from "vitest";
 import {
   compileGLSLFn, compileWGSLFn, compileJSFn, type Node,
 } from "../rmsl";
@@ -240,6 +241,139 @@ export async function closeEvaluators(): Promise<void> {
   await releaseGpu();
 }
 
+// === Recording evaluation ===
+//
+// The problem this solves is that depth used to be a property of which file a
+// test was written in. Evaluating on a GPU is asynchronous and needs hardware,
+// so the tests that ran on every backend were gated behind `RMSL_GPU` and
+// stayed few, while the breadth of the language accumulated in a file that ran
+// only on the CPU because that one needed nothing. Neither covered an operand
+// that was itself an expression, and five operations computed the wrong answer
+// on the CPU target for a year.
+//
+// So the same arrangement `shader-validity.ts` uses for compilation is used
+// here for evaluation: the CPU result is computed immediately and returned, and
+// the program is recorded so the GPU backends can be checked against it in an
+// `afterAll`. A test calls one synchronous function and is covered everywhere,
+// without knowing that is what it is doing.
+
+/** One recorded program, with what the CPU target computed for it. */
+interface RecordedEvaluation {
+  test: string;
+  build: Build;
+  args: number[];
+  js: number;
+  /** Set when the case deliberately does not run on the GPU backends. */
+  cpuOnly?: string;
+}
+
+const recordedEvaluations: RecordedEvaluation[] = [];
+
+/**
+ * Why a case runs on the CPU target alone.
+ *
+ * Taking a reason rather than a flag keeps the exclusions listable: every case
+ * that opted out says here why, so the set can be read and argued with rather
+ * than growing quietly whenever a case is inconvenient.
+ */
+export type CpuOnlyReason =
+  | "derivatives"
+  | "reentrant"
+  | "texture"
+  | "js-only-api"
+  | "exceeds-float32";
+
+/**
+ * Evaluate on the CPU target and record the program for the GPU backends.
+ *
+ * Returns the CPU result, which is exact f64 and so is the value a caller's
+ * assertion pins. The GPU backends are compared against that same value later,
+ * which is what makes one assertion cover three backends.
+ */
+export function evaluateRecording(
+  build: Build,
+  args: number[] = [],
+  cpuOnly?: CpuOnlyReason,
+): number {
+  const js = evaluateJS(build, args);
+  recordedEvaluations.push({
+    test: currentTestName(),
+    build,
+    args,
+    js,
+    cpuOnly,
+  });
+  return js;
+}
+
+function currentTestName(): string {
+  return expect.getState().currentTestName ?? "<unknown test>";
+}
+
+/**
+ * Replay every recorded program on the GPU backends and report disagreements.
+ *
+ * Compared against the CPU result rather than against a separately written
+ * expectation, because the caller already pinned that result with an assertion
+ * of its own. So a mismatch here means the backends disagree about a program
+ * whose answer is already known to be right.
+ */
+export async function assertRecordedEvaluationsAgree(): Promise<void> {
+  const runnable = recordedEvaluations.filter(r => r.cpuOnly === undefined);
+  if (GPU_EVALUATION_SKIPPED) {
+    process.stderr.write(
+      `\n[shader-eval] SKIPPED — ${runnable.length} programs ran on the CPU target only; neither shading language was evaluated.\n`,
+    );
+    return;
+  }
+  // Recording nothing is not the same as everything agreeing. A file that
+  // stopped going through the shared helper would otherwise finish green having
+  // checked one backend of three, which is the arrangement this replaced.
+  if (recordedEvaluations.length === 0) {
+    throw new Error(
+      `Evaluated no programs at all. Either the run was filtered down to tests that evaluate nothing, or a test file stopped calling the shared evaluation helper in src/testing/shader-eval.ts. Set RMSL_SKIP_SHADER_EVALUATION=1 if skipping evaluation is what you meant.`,
+    );
+  }
+  if (runnable.length === 0) return;
+
+  const failures: string[] = [];
+  for (const item of runnable) {
+    const tolerance = floatTolerance(item.js);
+    let glsl: number;
+    let wgsl: number;
+    try {
+      [glsl, wgsl] = await Promise.all([
+        evaluateGLSL(item.build, item.args),
+        evaluateWGSL(item.build, item.args),
+      ]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      failures.push(`  ${item.test}\n      did not evaluate — ${message}`);
+      continue;
+    }
+    if (Math.abs(glsl - item.js) >= tolerance) {
+      failures.push(`  ${item.test}\n      GLSL computed ${glsl}, CPU computed ${item.js}`);
+    }
+    if (Math.abs(wgsl - item.js) >= tolerance) {
+      failures.push(`  ${item.test}\n      WGSL computed ${wgsl}, CPU computed ${item.js}`);
+    }
+  }
+
+  if (failures.length > 0) {
+    throw new Error(
+      `Evaluated ${runnable.length} recorded programs on both shading languages; ${failures.length} disagreed with the CPU target:\n\n${failures.join("\n")}`,
+    );
+  }
+}
+
+/** How many programs were recorded, and how many opted out of the GPU backends. */
+export function recordedEvaluationSummary(): { total: number; cpuOnly: number } {
+  return {
+    total: recordedEvaluations.length,
+    cpuOnly: recordedEvaluations.filter(r => r.cpuOnly !== undefined).length,
+  };
+}
+
 /**
  * Whether to skip the evaluation tests.
  *
@@ -252,12 +386,15 @@ export async function closeEvaluators(): Promise<void> {
  * computes rather than whether it compiles, so a run without it silently
  * proves much less than it appears to.
  */
-export const EVALUATION_SKIPPED =
+export const GPU_EVALUATION_SKIPPED =
   !process.env.RMSL_GPU || !!process.env.RMSL_SKIP_SHADER_EVALUATION;
 
-if (EVALUATION_SKIPPED) {
-  process.stderr.write(
-    "\n[shader-eval] SKIPPED — nothing is checking what the shaders compute,"
-    + " only that they compile.\n",
-  );
-}
+/**
+ * Kept under its former name for the tests that evaluate eagerly, which have to
+ * skip outright because they await a GPU in the body of the test itself.
+ *
+ * The recording path above does not use it: the CPU target needs no hardware,
+ * so it runs whatever this says, and only the comparison against the two
+ * shading languages waits on a device.
+ */
+export const EVALUATION_SKIPPED = GPU_EVALUATION_SKIPPED;
