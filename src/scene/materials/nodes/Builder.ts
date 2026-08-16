@@ -78,6 +78,17 @@ export class Builder {
    */
   stage: "vertex" | "fragment" = "vertex";
 
+  /**
+   * Whether the mesh this material draws is an `InstancedMesh`. Set by the
+   * material build from the renderer's per-object flags; the vertex body uses
+   * it to multiply by `instanceMatrix` and the accessors below only resolve
+   * to real attributes when it is true.
+   */
+  instancing = false;
+
+  /** Whether the instanced mesh carries a per-instance color. */
+  instancingColor = false;
+
   attribute<T extends ShaderType>(name: string, type: T, stepMode: "vertex" | "instance" = "vertex"): AttributeNode<T> {
     let existing = this.attributes.get(name);
     if (!existing) {
@@ -188,6 +199,23 @@ export class Builder {
       : this.varying("uv", "vec2");
   }
 
+  /**
+   * The per-instance transform of an `InstancedMesh`, an instanced `mat4`
+   * attribute. Only meaningful when the mesh is instanced (`this.instancing`).
+   */
+  get instanceMatrix(): AttributeNode<"mat4"> {
+    return this.attribute("instanceMatrix", "mat4", "instance");
+  }
+
+  /**
+   * The per-instance color of an `InstancedMesh`, an instanced `vec3`
+   * attribute. Only meaningful when the mesh carries instance colors
+   * (`this.instancingColor`).
+   */
+  get instanceColor(): AttributeNode<"vec3"> {
+    return this.attribute("instanceColor", "vec3", "instance");
+  }
+
   // === Built-in varying accessors (vertex writes, fragment reads) ===
   get positionWorld(): VaryingNode<"vec3"> {
     return this.varying("positionWorld", "vec3");
@@ -199,6 +227,15 @@ export class Builder {
 
   get uvVarying(): VaryingNode<"vec2"> {
     return this.varying("uv", "vec2");
+  }
+
+  /**
+   * The per-instance color carried from the vertex stage, where the instanced
+   * `instanceColor` attribute lives, into the fragment stage. Only written
+   * when the mesh carries instance colors (`this.instancingColor`).
+   */
+  get instanceColorVarying(): VaryingNode<"vec3"> {
+    return this.varying("instanceColor", "vec3");
   }
 
   // === Built-in uniform accessors ===

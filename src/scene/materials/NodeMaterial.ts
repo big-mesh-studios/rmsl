@@ -1,5 +1,5 @@
 import {
-  Fn, output, vec4,
+  Fn, mat3, output, vec4,
   type Node,
 } from "../../rmsl";
 import { Material } from "./Material";
@@ -64,11 +64,16 @@ export class NodeMaterial extends Material {
   protected buildVertexBody(b: Builder): Node<"vec4"> {
     const position = resolveSlot(this.positionNode, b) ?? b.position;
     const position4 = vec4(position, 1);
-    const worldPosition = b.modelMatrix.mul(position4);
+    // The instance matrix applies first, in local space, and the mesh's own
+    // model matrix follows — for a plain mesh the instance transform is absent.
+    const localPosition = b.instancing ? b.instanceMatrix.mul(position4) : position4;
+    const worldPosition = b.modelMatrix.mul(localPosition);
     b.positionWorld.assign(worldPosition.xyz);
-    const normal = resolveSlot(this.normalNode, b) ?? b.normal;
+    let normal = resolveSlot(this.normalNode, b) ?? b.normal;
+    if (b.instancing) normal = mat3(b.instanceMatrix).mul(normal);
     b.normalWorld.assign(b.normalMatrix.mul(normal).normalize());
     b.uvVarying.assign(b.uv);
+    if (b.instancingColor) b.instanceColorVarying.assign(b.instanceColor);
     return b.projectionMatrix.mul(b.viewMatrix.mul(worldPosition));
   }
 
@@ -77,8 +82,21 @@ export class NodeMaterial extends Material {
     return vec4(1, 1, 1, 1);
   }
 
-  build(scene: Scene): MaterialProgram {
+  /**
+   * Compiles this material's graph into a `MaterialProgram`. `options`
+   * describe the drawable the program is being built for: an `InstancedMesh`
+   * (`instancing`) and whether it carries per-instance colors
+   * (`instancingColor`) pull the corresponding instanced attributes and the
+   * instance transform into the shaders. The renderer derives them per object;
+   * a plain mesh compiles the same graph without them.
+   */
+  build(
+    scene: Scene,
+    options: { instancing?: boolean; instancingColor?: boolean } = {},
+  ): MaterialProgram {
     const b = new Builder();
+    b.instancing = options.instancing ?? false;
+    b.instancingColor = options.instancingColor ?? false;
     this.setup(b, scene);
 
     b.stage = "vertex";
@@ -87,7 +105,11 @@ export class NodeMaterial extends Material {
     const fragment = Fn(() => {
       const outColor = output("vec4");
       const color = this.fragmentNode ? this.fragmentNode(b) : this.buildFragmentBody(b);
-      outColor.assign(color);
+      // The per-instance color tints the material's color, whatever it is.
+      const tinted = b.instancingColor
+        ? vec4(color.rgb.mul(b.instanceColorVarying), color.a)
+        : color;
+      outColor.assign(tinted);
       return outColor;
     })() as Node<"vec4">;
 

@@ -1,7 +1,10 @@
 import { Matrix3 } from "../math/Matrix3";
 import type { Camera } from "../cameras/Camera";
 import type { Mesh } from "../objects/Mesh";
+import type { InstancedMesh } from "../objects/InstancedMesh";
 import type { Scene } from "../scenes/Scene";
+import type { BufferGeometry } from "../geometries/BufferGeometry";
+import type { BufferAttribute } from "../geometries/BufferAttribute";
 import { AmbientLight } from "../lights/AmbientLight";
 import { DirectionalLight } from "../lights/DirectionalLight";
 import { PointLight } from "../lights/PointLight";
@@ -40,6 +43,24 @@ export function objectUniformValue(name: string, mesh: Mesh): number[] {
   }
 }
 
+/**
+ * The attribute a shader input reads from, for a drawable and its geometry.
+ * An `InstancedMesh` keeps `instanceMatrix`/`instanceColor` on the object
+ * rather than the geometry (three.js does the same), so those two names fall
+ * back to the object when the geometry does not carry them.
+ */
+export function geometryAttribute(
+  mesh: Mesh,
+  geometry: BufferGeometry,
+  name: string,
+): BufferAttribute | undefined {
+  const fromGeometry = geometry.attributes[name];
+  if (fromGeometry) return fromGeometry;
+  if (name === "instanceMatrix") return (mesh as InstancedMesh).instanceMatrix;
+  if (name === "instanceColor") return (mesh as InstancedMesh).instanceColor ?? undefined;
+  return undefined;
+}
+
 const _normalMatrix = new Matrix3();
 
 /**
@@ -69,6 +90,17 @@ export function lightsSignature(scene: Scene): string {
     else if (object instanceof PointLight) signature += "p";
   });
   return signature;
+}
+
+/**
+ * The signature identifying one compiled program: the scene's light set plus
+ * the drawable's instancing flags. A shared material therefore compiles one
+ * program per distinct combination — a plain mesh and an `InstancedMesh` with
+ * the same material get different shaders, exactly as the per-instance
+ * attributes only exist for the instanced one.
+ */
+export function programSignature(lights: string, instancing: boolean, instancingColor: boolean): string {
+  return `${lights}|${instancing ? "i" : ""}${instancingColor ? "c" : ""}`;
 }
 
 /** The WGSL spelling of an RMSL shader type, for uniform struct members. */

@@ -5,17 +5,19 @@
 
 import { describe, it, expectTypeOf } from "vitest";
 import {
-  Scene, Group, Mesh, PerspectiveCamera, OrthographicCamera,
+  Scene, Group, Mesh, InstancedMesh, PerspectiveCamera, OrthographicCamera,
   AmbientLight, DirectionalLight, PointLight,
   MeshBasicMaterial, MeshStandardMaterial, NodeMaterial,
   Builder, Color,
   WebGLRenderer, WebGPURenderer,
   Vector3, Matrix4, Quaternion, Euler,
+  BoxGeometry,
   type MaterialProgram,
   type SamplerBinding,
 } from "./index";
 import type { Node, UniformNode, VaryingNode, AttributeNode, ShaderType } from "../rmsl";
 import type { BufferGeometry } from "./geometries/BufferGeometry";
+import type { BufferAttribute } from "./geometries/BufferAttribute";
 import { float } from "../rmsl";
 
 describe("scene graph classes", () => {
@@ -37,6 +39,19 @@ describe("scene graph classes", () => {
     expectTypeOf(perspective.isPerspectiveCamera).toBeBoolean();
     expectTypeOf(orthographic.isOrthographicCamera).toBeBoolean();
     expectTypeOf(perspective.projectionMatrix).toMatchTypeOf<Matrix4>();
+  });
+
+  it("instanced meshes are meshes with object-owned instance data", () => {
+    const mesh = new InstancedMesh(new BoxGeometry(), new MeshBasicMaterial(), 4);
+    expectTypeOf(mesh.isInstancedMesh).toBeBoolean();
+    expectTypeOf(mesh.isMesh).toBeBoolean();
+    expectTypeOf(mesh.count).toEqualTypeOf<number>();
+    expectTypeOf(mesh.instanceMatrix).toEqualTypeOf<BufferAttribute>();
+    expectTypeOf(mesh.instanceColor).toEqualTypeOf<BufferAttribute | null>();
+    expectTypeOf(mesh.setMatrixAt(0, new Matrix4())).toEqualTypeOf<InstancedMesh>();
+    expectTypeOf(mesh.getMatrixAt(0, new Matrix4())).toEqualTypeOf<Matrix4>();
+    expectTypeOf(mesh.setColorAt(0, new Color())).toEqualTypeOf<InstancedMesh>();
+    expectTypeOf(mesh.getColorAt(0, new Color())).toEqualTypeOf<Color>();
   });
 
   it("lights carry a color and an intensity", () => {
@@ -87,6 +102,15 @@ describe("node materials", () => {
     expectTypeOf(b.viewMatrix).toEqualTypeOf<UniformNode<"mat4">>();
     expectTypeOf(b.modelMatrix).toEqualTypeOf<UniformNode<"mat4">>();
     expectTypeOf(b.normalMatrix).toEqualTypeOf<UniformNode<"mat3">>();
+  });
+
+  it("types the instanced builder accessors", () => {
+    const b = new Builder();
+    b.instancing = true;
+    b.instancingColor = true;
+    expectTypeOf(b.instanceMatrix).toEqualTypeOf<AttributeNode<"mat4">>();
+    expectTypeOf(b.instanceColor).toEqualTypeOf<AttributeNode<"vec3">>();
+    expectTypeOf(b.instanceColorVarying).toEqualTypeOf<VaryingNode<"vec3">>();
   });
 
   it("types the builder sampler overloads by sampler type", () => {

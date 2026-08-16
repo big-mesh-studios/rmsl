@@ -4,17 +4,18 @@ import { Vector4 } from "../math/Vector4";
 import type { Scene } from "../scenes/Scene";
 import type { Camera } from "../cameras/Camera";
 import type { Mesh } from "../objects/Mesh";
+import type { InstancedMesh } from "../objects/InstancedMesh";
 import type { BufferGeometry } from "../geometries/BufferGeometry";
+import type { BufferAttribute } from "../geometries/BufferAttribute";
 import type { Texture } from "../textures/Texture";
 import type { NodeMaterial, MaterialProgram } from "../materials/NodeMaterial";
 import { Blending, Side } from "../materials/Material";
 import {
   cameraUniformValue, isIntegerSampler, objectUniformValue, lightsSignature, toBufferView, uniformUploadValue,
-  rendererUniformValue,
+  rendererUniformValue, programSignature, geometryAttribute,
 } from "./common";
 
 interface ProgramEntry {
-  signature: string;
   program: MaterialProgram;
   glProgram: WebGLProgram;
   uniformLocations: Map<string, WebGLUniformLocation | null>;
@@ -38,8 +39,14 @@ export class WebGLRenderer {
   canvas: HTMLCanvasElement;
   gl: WebGL2RenderingContext;
 
-  private programs = new Map<NodeMaterial, ProgramEntry>();
+  private programs = new Map<NodeMaterial, Map<string, ProgramEntry>>();
   private geometryBuffers = new Map<BufferGeometry, GeometryBuffers>();
+  /**
+   * Buffers for attributes that live on the object rather than the geometry —
+   * an `InstancedMesh`'s `instanceMatrix`/`instanceColor`. Keyed by the
+   * attribute so two instanced meshes sharing a geometry keep separate buffers.
+   */
+  private attributeBuffers = new Map<BufferAttribute, WebGLBuffer>();
   private textures = new Map<Texture, WebGLTexture>();
   private clearColor = new Color(0, 0, 0);
   private clearAlpha = 1;
@@ -117,22 +124,25 @@ export class WebGLRenderer {
   private drawMesh(mesh: Mesh, scene: Scene, camera: Camera): void {
     const material = mesh.material;
     if (!(material as NodeMaterial).isNodeMaterial) return;
+    const instancing = (mesh as InstancedMesh).isInstancedMesh === true;
+    const instancingColor = instancing && (mesh as InstancedMesh).instanceColor !== null;
     this.usedTextureUnits.clear();
-    const entry = this.ensureProgram(material as NodeMaterial, scene);
+    const entry = this.ensureProgram(material as NodeMaterial, scene, instancing, instancingColor);
     const gl = this.gl;
 
     gl.useProgram(entry.glProgram);
     this.setRenderState(material);
     this.uploadUniforms(entry, mesh, camera);
-    this.bindGeometry(entry, mesh.geometry);
+    this.bindGeometry(mesh, entry, mesh.geometry);
 
     const geometry = mesh.geometry;
+    const instanceCount = instancing ? (mesh as InstancedMesh).count : geometry.instanceCount;
     if (geometry.index) {
       const indexView = toBufferView(geometry.index.array, true) as Uint16Array | Uint32Array;
       const type = indexView instanceof Uint16Array ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT;
-      gl.drawElementsInstanced(gl.TRIANGLES, indexView.length, type, 0, geometry.instanceCount);
+      gl.drawElementsInstanced(gl.TRIANGLES, indexView.length, type, 0, instanceCount);
     } else {
-      gl.drawArraysInstanced(gl.TRIANGLES, 0, geometry.attributes.position?.count ?? 0, geometry.instanceCount);
+      gl.drawArraysInstanced(gl.TRIANGLES, 0, geometry.attributes.position?.count ?? 0, instanceCount);
     }
   }
 
@@ -281,14 +291,20 @@ export class WebGLRenderer {
 
   private usedTextureUnits = new Set<number>();
 
-  private ensureProgram(material: NodeMaterial, scene: Scene): ProgramEntry {
-    let entry = this.programs.get(material);
-    const signature = lightsSignature(scene);
-    if (entry && entry.signature === signature && !material.needsUpdate) {
+  private ensureProgram(
+    material: NodeMaterial,
+    scene: Scene,
+    instancing: boolean,
+    instancingColor: boolean,
+  ): ProgramEntry {
+    const signature = programSignature(lightsSignature(scene), instancing, instancingColor);
+    let bySignature = this.programs.get(material);
+    const entry = bySignature?.get(signature);
+    if (entry && !material.needsUpdate) {
       return entry;
     }
 
-    const program = material.build(scene);
+    const program = material.build(scene, { instancing, instancingColor });
     const gl = this.gl;
 
     const vertexShader = this.compileShader(compileGLSL.vertex(program.vertexRoot), gl.VERTEX_SHADER);
@@ -314,10 +330,14 @@ export class WebGLRenderer {
       attributeLocations.set(attribute.node.name, gl.getAttribLocation(glProgram, attribute.node.name));
     }
 
-    entry = { signature, program, glProgram, uniformLocations, attributeLocations };
-    this.programs.set(material, entry);
+    const built: ProgramEntry = { program, glProgram, uniformLocations, attributeLocations };
+    if (!bySignature) {
+      bySignature = new Map();
+      this.programs.set(material, bySignature);
+    }
+    bySignature.set(signature, built);
     material.needsUpdate = false;
-    return entry;
+    return built;
   }
 
   private compileShader(source: string, type: number): WebGLShader {
@@ -331,7 +351,7 @@ export class WebGLRenderer {
     return shader;
   }
 
-  private bindGeometry(entry: ProgramEntry, geometry: BufferGeometry): void {
+  private bindGeometry(mesh: Mesh, entry: ProgramEntry, geometry: BufferGeometry): void {
     const gl = this.gl;
     let buffers = this.geometryBuffers.get(geometry);
     if (!buffers) {
@@ -343,23 +363,45 @@ export class WebGLRenderer {
       || Object.values(geometry.attributes).some((a) => a.needsUpdate);
 
     for (const attribute of entry.program.attributes) {
-      const geometryAttribute = geometry.attributes[attribute.name];
+      const attr = geometryAttribute(mesh, geometry, attribute.name);
       const location = entry.attributeLocations.get(attribute.node.name);
-      if (!geometryAttribute || location == null) continue;
+      if (!attr || location == null) continue;
 
-      let buffer = buffers.attributes.get(attribute.name);
+      // `instanceMatrix`/`instanceColor` live on the object rather than the
+      // geometry, so their buffers are cached per attribute (not per geometry).
+      const ownedByGeometry = geometry.attributes[attribute.name] !== undefined;
+      let buffer = ownedByGeometry
+        ? buffers.attributes.get(attribute.name)
+        : this.attributeBuffers.get(attr);
+      const isNewBuffer = buffer === undefined;
       if (!buffer) {
         buffer = gl.createBuffer()!;
-        buffers.attributes.set(attribute.name, buffer);
+        if (ownedByGeometry) buffers.attributes.set(attribute.name, buffer);
+        else this.attributeBuffers.set(attr, buffer);
       }
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-      if (needsUpload) {
-        gl.bufferData(gl.ARRAY_BUFFER, toBufferView(geometryAttribute.array), gl.STATIC_DRAW);
-        geometryAttribute.needsUpdate = false;
+      if (ownedByGeometry ? needsUpload : isNewBuffer || attr.needsUpdate) {
+        gl.bufferData(gl.ARRAY_BUFFER, toBufferView(attr.array), gl.STATIC_DRAW);
+        attr.needsUpdate = false;
       }
-      gl.enableVertexAttribArray(location);
-      gl.vertexAttribPointer(location, geometryAttribute.itemSize, gl.FLOAT, geometryAttribute.normalized, 0, 0);
-      gl.vertexAttribDivisor(location, attribute.stepMode === "instance" ? 1 : 0);
+
+      // A mat4 attribute spans four consecutive vertex attribute locations;
+      // each is fed from one column of the 64-byte instance record. The GLSL
+      // linker handed the base location, so the columns land at location..+3.
+      const locationSize = attribute.node._t === "mat4" ? 4 : 1;
+      const stride = attr.itemSize * 4;
+      for (let i = 0; i < locationSize; i++) {
+        gl.enableVertexAttribArray(location + i);
+        gl.vertexAttribPointer(
+          location + i,
+          attr.itemSize / locationSize,
+          gl.FLOAT,
+          attr.normalized,
+          stride,
+          (attr.itemSize / locationSize) * i * 4,
+        );
+        gl.vertexAttribDivisor(location + i, attribute.stepMode === "instance" ? 1 : 0);
+      }
     }
 
     if (geometry.index) {
@@ -374,14 +416,18 @@ export class WebGLRenderer {
 
   dispose(): void {
     const gl = this.gl;
-    for (const entry of this.programs.values()) gl.deleteProgram(entry.glProgram);
+    for (const bySignature of this.programs.values()) {
+      for (const entry of bySignature.values()) gl.deleteProgram(entry.glProgram);
+    }
     for (const buffers of this.geometryBuffers.values()) {
       for (const buffer of buffers.attributes.values()) gl.deleteBuffer(buffer);
       if (buffers.index) gl.deleteBuffer(buffers.index);
     }
+    for (const buffer of this.attributeBuffers.values()) gl.deleteBuffer(buffer);
     for (const texture of this.textures.values()) gl.deleteTexture(texture);
     this.programs.clear();
     this.geometryBuffers.clear();
+    this.attributeBuffers.clear();
     this.textures.clear();
   }
 }

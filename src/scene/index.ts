@@ -7,6 +7,7 @@ export * from "./cameras/Camera";
 export * from "./cameras/PerspectiveCamera";
 export * from "./cameras/OrthographicCamera";
 export * from "./objects/Mesh";
+export * from "./objects/InstancedMesh";
 export * from "./objects/LineSegments2";
 export * from "./objects/Line2";
 export * from "./lights/Light";

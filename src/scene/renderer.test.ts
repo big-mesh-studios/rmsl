@@ -92,6 +92,40 @@ globalThis.__rmslLineRun = () => {
 };
 `;
 
+// Two instances of one box, offset left and right and tinted red and blue via
+// instanceColor: a single InstancedMesh must draw both, each with its own
+// transform and colour, in one instanced draw.
+const ENTRY_INSTANCED = `
+import { WebGLRenderer, Scene, PerspectiveCamera, InstancedMesh,
+  BoxGeometry, MeshBasicMaterial, Matrix4, Color } from "./index";
+globalThis.__rmslInstancedRun = () => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 32;
+  canvas.height = 32;
+  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  renderer.setClearColor(0x000000);
+  const scene = new Scene();
+  const mesh = new InstancedMesh(new BoxGeometry(), new MeshBasicMaterial(), 2);
+  mesh.setMatrixAt(0, new Matrix4().makeTranslation(-1.1, 0, 0));
+  mesh.setMatrixAt(1, new Matrix4().makeTranslation(1.1, 0, 0));
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.setColorAt(0, new Color().setRGB(1, 0, 0));
+  mesh.setColorAt(1, new Color().setRGB(0, 0, 1));
+  mesh.instanceColor.needsUpdate = true;
+  scene.add(mesh);
+  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 4);
+  camera.lookAt(0, 0, 0);
+  renderer.render(scene, camera);
+  const gl = renderer.gl;
+  const left = new Uint8Array(4);
+  gl.readPixels(8, 16, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, left);
+  const right = new Uint8Array(4);
+  gl.readPixels(24, 16, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, right);
+  return { left: [left[0], left[1], left[2]], right: [right[0], right[1], right[2]] };
+};
+`;
+
 // Three samplers whose textures are all uploaded during the same draw, each
 // written to its own colour channel. A sampler reading a texture other than its
 // own shows up as a channel holding another channel's value.
@@ -196,6 +230,24 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     expect(pixel.center[0]).toBeGreaterThan(100);
     expect(pixel.center[1]).toBeLessThan(60);
     expect(pixel.corner[0]).toBeLessThan(60);
+  }, 60_000);
+
+  it("draws each InstancedMesh instance with its own transform and color", async () => {
+    const page = await gpuPage();
+    const code = await bundleEntry(ENTRY_INSTANCED);
+    const pixel = await page.evaluate(async (source: string) => {
+      // eslint-disable-next-line no-new-func
+      const fn = new Function(source);
+      fn();
+      return (globalThis as any).__rmslInstancedRun();
+    }, code);
+
+    // The left box is red where the right box is blue; the shared material is
+    // tinted per instance rather than drawing the same box twice.
+    expect(pixel.left[0]).toBeGreaterThan(100);
+    expect(pixel.left[2]).toBeLessThan(60);
+    expect(pixel.right[2]).toBeGreaterThan(100);
+    expect(pixel.right[0]).toBeLessThan(60);
   }, 60_000);
 
   it("gives each sampler its own texture when several upload in one draw", async () => {

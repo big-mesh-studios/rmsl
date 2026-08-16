@@ -5,7 +5,9 @@ import { Vector4 } from "../math/Vector4";
 import type { Scene } from "../scenes/Scene";
 import type { Camera } from "../cameras/Camera";
 import type { Mesh } from "../objects/Mesh";
+import type { InstancedMesh } from "../objects/InstancedMesh";
 import type { BufferGeometry } from "../geometries/BufferGeometry";
+import type { BufferAttribute } from "../geometries/BufferAttribute";
 import type { Texture } from "../textures/Texture";
 import { DataTexture } from "../textures/DataTexture";
 import type { NodeMaterial, MaterialProgram } from "../materials/NodeMaterial";
@@ -13,11 +15,10 @@ import { Side } from "../materials/Material";
 import {
   cameraUniformValue, isIntegerSampler, objectUniformValue, lightsSignature,
   samplerDimension, samplerSampleType, wgslTypeName, toBufferView,
-  rendererUniformValue,
+  rendererUniformValue, programSignature, geometryAttribute,
 } from "./common";
 
 interface PipelineEntry {
-  signature: string;
   program: MaterialProgram;
   pipeline: GPURenderPipeline;
   bindGroup: GPUBindGroup;
@@ -26,7 +27,22 @@ interface PipelineEntry {
   slotSize: number;
   slots: number;
   layoutMembers: { name: string; offset: number }[];
-  vertexFormats: { name: string; shaderLocation: number; format: GPUVertexFormat; stepMode: GPUVertexStepMode }[];
+  vertexFormats: VertexBufferLayout[];
+}
+
+/**
+ * One vertex buffer slot of a render pipeline, mirroring a
+ * `GPUVertexBufferLayout`. A `mat4` attribute (an `InstancedMesh`'s
+ * instanceMatrix) spans four consecutive shader locations from a single
+ * 64-byte-strided buffer, so it is one slot with four entries — the WGSL
+ * `mat4x4<f32>` input occupies locations `n..n+3`, each fed by one
+ * `float32x4` column of the record.
+ */
+interface VertexBufferLayout {
+  name: string;
+  stepMode: GPUVertexStepMode;
+  arrayStride: number;
+  attributes: { shaderLocation: number; offset: number; format: GPUVertexFormat }[];
 }
 
 interface GeometryBuffers {
@@ -51,8 +67,14 @@ export class WebGPURenderer {
   context: GPUCanvasContext;
   format: GPUTextureFormat;
 
-  private pipelines = new Map<NodeMaterial, PipelineEntry>();
+  private pipelines = new Map<NodeMaterial, Map<string, PipelineEntry>>();
   private geometryBuffers = new Map<BufferGeometry, GeometryBuffers>();
+  /**
+   * Buffers for attributes that live on the object rather than the geometry —
+   * an `InstancedMesh`'s `instanceMatrix`/`instanceColor`. Keyed by the
+   * attribute so two instanced meshes sharing a geometry keep separate buffers.
+   */
+  private attributeBuffers = new Map<BufferAttribute, GPUBuffer>();
   private textures = new Map<Texture, GPUTexture>();
   private samplers = new Map<Texture, GPUSampler>();
   private depthTexture: GPUTexture | null = null;
@@ -131,7 +153,9 @@ export class WebGPURenderer {
       const mesh = object as Mesh;
       const material = mesh.material;
       if (!(material as NodeMaterial).isNodeMaterial) return;
-      const entry = this.ensurePipeline(material as NodeMaterial, scene);
+      const instancing = (mesh as InstancedMesh).isInstancedMesh === true;
+      const instancingColor = instancing && (mesh as InstancedMesh).instanceColor !== null;
+      const entry = this.ensurePipeline(material as NodeMaterial, scene, instancing, instancingColor);
       if (!entry) return;
 
       // Give objects a chance to update per-draw state (line resolution, ...).
@@ -157,15 +181,16 @@ export class WebGPURenderer {
 
       pass.setPipeline(entry.pipeline);
       pass.setBindGroup(0, entry.bindGroup, [slotIndex * entry.slotSize]);
-      this.setVertexBuffers(pass, entry, mesh.geometry);
+      this.setVertexBuffers(pass, entry, mesh);
 
       const geometry = mesh.geometry;
+      const instanceCount = instancing ? (mesh as InstancedMesh).count : geometry.instanceCount;
       if (geometry.index) {
         const buffers = this.ensureGeometryBuffers(geometry);
         pass.setIndexBuffer(buffers.index!, buffers.indexFormat as GPUIndexFormat, 0);
-        pass.drawIndexed(geometry.index.count, geometry.instanceCount);
+        pass.drawIndexed(geometry.index.count, instanceCount);
       } else {
-        pass.draw(geometry.attributes.position?.count ?? 0, geometry.instanceCount);
+        pass.draw(geometry.attributes.position?.count ?? 0, instanceCount);
       }
       pass.end();
 
@@ -202,14 +227,20 @@ export class WebGPURenderer {
     this.device.queue.writeBuffer(entry.ringBuffer, slotIndex * entry.slotSize, floats, 0, entry.slotSize / 4);
   }
 
-  private ensurePipeline(material: NodeMaterial, scene: Scene): PipelineEntry | null {
-    let entry = this.pipelines.get(material);
-    const signature = lightsSignature(scene);
-    if (entry && entry.signature === signature && !material.needsUpdate) {
+  private ensurePipeline(
+    material: NodeMaterial,
+    scene: Scene,
+    instancing: boolean,
+    instancingColor: boolean,
+  ): PipelineEntry | null {
+    const signature = programSignature(lightsSignature(scene), instancing, instancingColor);
+    let bySignature = this.pipelines.get(material);
+    const entry = bySignature?.get(signature);
+    if (entry && !material.needsUpdate) {
       return entry;
     }
 
-    const program = material.build(scene);
+    const program = material.build(scene, { instancing, instancingColor });
     const device = this.device;
 
     const vertexModule = device.createShaderModule({ code: compileWGSL.vertex(program.vertexRoot) });
@@ -284,12 +315,34 @@ export class WebGPURenderer {
     }
     const bindGroup = device.createBindGroup({ layout: bindGroupLayout, entries: bindGroupResources });
 
-    const vertexFormats: PipelineEntry["vertexFormats"] = program.attributes.map((attribute, i) => ({
-      name: attribute.name,
-      shaderLocation: i,
-      format: vertexFormatFromType(attribute.node._t),
-      stepMode: attribute.stepMode,
-    }));
+    // The vertex buffer layout: one slot per shader attribute, in the same
+    // order the WGSL `VertexInput` struct numbers its `@location`s (and with
+    // the same spacing — a mat4 attribute spans four consecutive locations).
+    // The compiler and this allocation must agree, or the pipeline layout
+    // points at locations the shader put something else on.
+    const vertexFormats: PipelineEntry["vertexFormats"] = [];
+    let shaderLocation = 0;
+    for (const attribute of program.attributes) {
+      if (attribute.node._t === "mat4") {
+        // An InstancedMesh's instanceMatrix is a 64-byte record per instance;
+        // its four columns feed locations n..n+3 as float32x4.
+        const columns: VertexBufferLayout["attributes"] = [];
+        for (let i = 0; i < 4; i++) {
+          columns.push({ shaderLocation: shaderLocation + i, offset: i * 16, format: "float32x4" });
+        }
+        vertexFormats.push({ name: attribute.name, stepMode: attribute.stepMode, arrayStride: 64, attributes: columns });
+        shaderLocation += 4;
+      } else {
+        const format = vertexFormatFromType(attribute.node._t);
+        vertexFormats.push({
+          name: attribute.name,
+          stepMode: attribute.stepMode,
+          arrayStride: strideForFormat(format),
+          attributes: [{ shaderLocation, offset: 0, format }],
+        });
+        shaderLocation += 1;
+      }
+    }
 
     const cullMode: GPUCullMode = material.side === Side.FrontSide
       ? "back"
@@ -301,9 +354,9 @@ export class WebGPURenderer {
         module: vertexModule,
         entryPoint: "main",
         buffers: vertexFormats.map((v) => ({
-          arrayStride: strideForFormat(v.format),
+          arrayStride: v.arrayStride,
           stepMode: v.stepMode,
-          attributes: [{ shaderLocation: v.shaderLocation, offset: 0, format: v.format }],
+          attributes: v.attributes,
         })),
       },
       fragment: {
@@ -319,8 +372,7 @@ export class WebGPURenderer {
       },
     });
 
-    entry = {
-      signature,
+    const built: PipelineEntry = {
       program,
       pipeline,
       bindGroup,
@@ -330,9 +382,13 @@ export class WebGPURenderer {
       layoutMembers,
       vertexFormats,
     };
-    this.pipelines.set(material, entry);
+    if (!bySignature) {
+      bySignature = new Map();
+      this.pipelines.set(material, bySignature);
+    }
+    bySignature.set(signature, built);
     material.needsUpdate = false;
-    return entry;
+    return built;
   }
 
   private ensureGeometryBuffers(geometry: BufferGeometry): GeometryBuffers {
@@ -371,12 +427,44 @@ export class WebGPURenderer {
     return buffers;
   }
 
-  private setVertexBuffers(pass: GPURenderPassEncoder, entry: PipelineEntry, geometry: BufferGeometry): void {
-    const buffers = this.ensureGeometryBuffers(geometry);
-    for (const format of entry.vertexFormats) {
-      const buffer = buffers.attributes.get(format.name);
-      if (buffer) pass.setVertexBuffer(format.shaderLocation, buffer);
+  private setVertexBuffers(pass: GPURenderPassEncoder, entry: PipelineEntry, mesh: Mesh): void {
+    const buffers = this.ensureGeometryBuffers(mesh.geometry);
+    // Each `vertexFormats` entry is one vertex buffer slot, so the buffer is
+    // bound at its slot index (the loop position) rather than any shader
+    // location — a mat4 entry spans several locations from a single buffer.
+    for (let slot = 0; slot < entry.vertexFormats.length; slot++) {
+      const layout = entry.vertexFormats[slot];
+      const buffer = this.attributeBuffer(mesh, layout.name, buffers);
+      if (buffer) pass.setVertexBuffer(slot, buffer);
     }
+  }
+
+  /**
+   * The GPU buffer a shader attribute reads, uploading it when first created
+   * or when the attribute asks for an update. Geometry attributes come from
+   * the per-geometry cache; an `InstancedMesh`'s `instanceMatrix`/
+   * `instanceColor` live on the object, so those use a per-attribute cache.
+   */
+  private attributeBuffer(mesh: Mesh, name: string, buffers: GeometryBuffers): GPUBuffer | null {
+    const attr = geometryAttribute(mesh, mesh.geometry, name);
+    if (!attr) return null;
+    if (mesh.geometry.attributes[name] !== undefined) {
+      return buffers.attributes.get(name) ?? null;
+    }
+    let buffer = this.attributeBuffers.get(attr);
+    const isNew = buffer === undefined;
+    if (!buffer) {
+      buffer = this.device.createBuffer({
+        size: Math.max(toBufferView(attr.array).byteLength, 4),
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      });
+      this.attributeBuffers.set(attr, buffer);
+    }
+    if (isNew || attr.needsUpdate) {
+      this.device.queue.writeBuffer(buffer, 0, toBufferView(attr.array));
+      attr.needsUpdate = false;
+    }
+    return buffer;
   }
 
   private ensureGpuTexture(texture: Texture | null, samplerType: string): { view: GPUTextureView } {
@@ -493,15 +581,19 @@ export class WebGPURenderer {
   }
 
   dispose(): void {
-    for (const entry of this.pipelines.values()) entry.ringBuffer.destroy();
+    for (const bySignature of this.pipelines.values()) {
+      for (const entry of bySignature.values()) entry.ringBuffer.destroy();
+    }
     for (const buffers of this.geometryBuffers.values()) {
       for (const buffer of buffers.attributes.values()) buffer.destroy();
       buffers.index?.destroy();
     }
+    for (const buffer of this.attributeBuffers.values()) buffer.destroy();
     for (const texture of this.textures.values()) texture.destroy();
     this.depthTexture?.destroy();
     this.pipelines.clear();
     this.geometryBuffers.clear();
+    this.attributeBuffers.clear();
     this.textures.clear();
     this.samplers.clear();
     this.depthTexture = null;

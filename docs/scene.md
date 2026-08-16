@@ -33,8 +33,9 @@ renderer.setAnimationLoop(() => renderer.render(scene, camera));
 
 - **Scene graph** — `Object3D` (position/quaternion/scale, world matrices),
   `Group`, `Scene`, `Camera` / `PerspectiveCamera` / `OrthographicCamera`,
-  `Mesh`, lights (`AmbientLight`, `DirectionalLight`, `PointLight`), and the
-  wide-line objects `LineSegments2` / `Line2` (see below).
+  `Mesh`, `InstancedMesh`, lights (`AmbientLight`, `DirectionalLight`,
+  `PointLight`), and the wide-line objects `LineSegments2` / `Line2` (see
+  below).
 - **Geometry** — `BufferGeometry` + `BufferAttribute` (with `stepMode` for
   instanced attributes), the primitives `BoxGeometry`, `SphereGeometry`,
   `PlaneGeometry`, `CylinderGeometry`, `ConeGeometry`, `TorusGeometry`,
@@ -178,10 +179,62 @@ through the scene graph: `BufferAttribute.stepMode` and
 (`drawElementsInstanced`, `draw(..., instanceCount)`). A `resolution` uniform
 (scoped to the renderer) feeds the pixel-width expansion.
 
+## Instancing
+
+`InstancedMesh` draws one geometry `count` times with a shared material, each
+instance carrying its own transform (and optionally color) — the way to render
+a large crowd of identical objects in one draw call. Like three.js, the
+per-instance data lives on the **object**, not the geometry:
+
+```typescript
+import { Scene, PerspectiveCamera, InstancedMesh, BoxGeometry,
+  MeshStandardMaterial, Matrix4, Color, AmbientLight, DirectionalLight }
+  from "@random-mesh/rmsl/scene";
+
+const scene = new Scene();
+scene.add(new AmbientLight(0xffffff, 0.25));
+const sun = new DirectionalLight(0xfff3e0, 2);
+sun.position.set(4, 8, 6);
+scene.add(sun);
+
+const mesh = new InstancedMesh(new BoxGeometry(0.4, 0.4, 0.4),
+  new MeshStandardMaterial({ roughness: 0.3 }), 100);
+
+// One matrix per instance; the instance transform applies before the mesh's
+// own world transform. After editing, flag the update like three.js.
+for (let i = 0; i < mesh.count; i++) {
+  mesh.setMatrixAt(i, new Matrix4().makeTranslation((i % 10 - 5) * 1.1, Math.floor(i / 10) * 1.1, 0));
+}
+mesh.instanceMatrix.needsUpdate = true;
+
+// Optional per-instance colors, tinting the material's color in the fragment
+// stage. Same manual needsUpdate convention.
+mesh.setColorAt(0, new Color().setHex(0xff5533));
+mesh.instanceColor.needsUpdate = true;
+
+scene.add(mesh);
+```
+
+- **`setMatrixAt(i, matrix)` / `getMatrixAt(i, target)`** — per-instance local
+  transforms, initialized to the identity. `instanceMatrix` is a
+  `BufferAttribute` with `stepMode: "instance"` and 16 floats per instance.
+- **`setColorAt(i, color)` / `getColorAt(i, target)`** — per-instance colors.
+  Calling `setColorAt` creates the `instanceColor` attribute lazily; uncolored
+  instances read back white. `instanceColor` is only compiled into the shader
+  when at least one instance has a color.
+- The material shader multiplies the local position by `instanceMatrix` (then
+  by the mesh's `modelMatrix`) and the normal by `mat3(instanceMatrix)`, and
+  tints the fragment color by `instanceColor`. The renderer draws `count`
+  instances in a single instanced draw, and compiles one program per
+  instancing variant of a material — so a plain mesh and an `InstancedMesh`
+  sharing one material each get the shader that matches it.
+
 ## Limitations
 
-- `LineSegments2.raycast` is not ported yet (no `Raycaster`/`Ray` in the scene
-  graph); pick against lines is a follow-up.
+- `LineSegments2.raycast` and `InstancedMesh.raycast` are not ported yet (no
+  `Raycaster`/`Ray` in the scene graph), and `InstancedMesh` has no
+  `computeBoundingBox`/`computeBoundingSphere` (no `Box3`/`Sphere`); pick
+  against instances is a follow-up.
 - The lighting model is deliberately simple: Lambert diffuse plus a
   three.js-style simplified GGX specular, no image-based lighting or shadows.
 - Custom uniforms must be reachable through the builder so the renderer knows

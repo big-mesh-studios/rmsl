@@ -3478,6 +3478,18 @@ const MATRIX_DIMENSIONS: Record<string, [number, number]> = {
 };
 
 /**
+ * The vertex input locations a WGSL attribute consumes. A matrix occupies one
+ * per column — a `mat4x4<f32>` spans four consecutive `@location`s — so the
+ * location counter advances by its column count rather than one.
+ */
+function wgslAttributeLocationCount(type: string): number {
+  if (type === "mat2x2<f32>") return 2;
+  if (type === "mat3x3<f32>") return 3;
+  if (type === "mat4x4<f32>") return 4;
+  return 1;
+}
+
+/**
  * Expand a single-scalar matrix constructor for WGSL.
  *
  * GLSL reads `mat4(1.0)` as a diagonal — the identity scaled by the scalar.
@@ -4755,10 +4767,18 @@ function compileWGSLWithStage(
   if (shaderStage === "vertex") {
     if (ctx.attributes.size > 0) {
       lines.push("struct VertexInput {");
+      // Attributes are emitted in creation order (numeric slot id), not the
+      // order the graph first referenced them — the renderer's pipeline layout
+      // numbers its vertex buffers from the material's attribute list, which is
+      // creation order too, so the two must line up. This order is also the one
+      // `@location` values are handed out in, so a mat4 skipping four shifts
+      // only what follows it.
       let attrLoc = 0;
-      ctx.attributes.forEach((info) => {
-        lines.push(`  @location(${attrLoc++}) ${info.slot}: ${info.type},`);
-      });
+      const vertexInputs = [...ctx.attributes.entries()].sort((a, b) => a[0] - b[0]);
+      for (const [, info] of vertexInputs) {
+        lines.push(`  @location(${attrLoc}) ${info.slot}: ${info.type},`);
+        attrLoc += wgslAttributeLocationCount(info.type);
+      }
       lines.push("};");
       lines.push("");
     }

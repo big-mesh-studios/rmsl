@@ -1,15 +1,17 @@
 import { describe, it, expect } from "vitest";
 import { wgslUniformLayout } from "../rmsl";
 import {
-  Scene, Mesh, BoxGeometry, MeshStandardMaterial,
+  Scene, Mesh, InstancedMesh, BoxGeometry, MeshStandardMaterial,
+  MeshBasicMaterial,
   AmbientLight, DirectionalLight, PointLight,
-  PerspectiveCamera, Vector3, Matrix4, Matrix3,
+  PerspectiveCamera, Vector3, Matrix4, Matrix3, Color,
 } from "./index";
 import {
   cameraUniformValue, objectUniformValue, lightsSignature, wgslTypeName,
   isIntegerSampler, samplerSampleType, samplerDimension,
-  uniformUploadValue,
+  uniformUploadValue, programSignature, geometryAttribute,
 } from "./renderers/common";
+import { BufferAttribute } from "./geometries/BufferAttribute";
 
 describe("cameraUniformValue", () => {
   it("returns the projection, view and position", () => {
@@ -57,6 +59,42 @@ describe("lightsSignature", () => {
     expect(lightsSignature(scene)).toBe("ad");
     scene.add(new PointLight());
     expect(lightsSignature(scene)).toBe("adp");
+  });
+});
+
+describe("programSignature", () => {
+  it("combines the light set with the drawable's instancing flags", () => {
+    expect(programSignature("", false, false)).toBe("|");
+    expect(programSignature("adp", false, false)).toBe("adp|");
+    expect(programSignature("a", true, false)).toBe("a|i");
+    expect(programSignature("a", false, true)).toBe("a|c");
+    expect(programSignature("a", true, true)).toBe("a|ic");
+  });
+});
+
+describe("geometryAttribute", () => {
+  it("falls back to an instanced mesh's object-owned attributes", () => {
+    const geometry = new BoxGeometry();
+    const mesh = new InstancedMesh(geometry, new MeshBasicMaterial(), 2);
+    expect(geometryAttribute(mesh, geometry, "instanceMatrix")).toBe(mesh.instanceMatrix);
+    expect(geometryAttribute(mesh, geometry, "instanceColor")).toBeUndefined();
+    mesh.setColorAt(0, new Color());
+    expect(geometryAttribute(mesh, geometry, "instanceColor")).toBe(mesh.instanceColor);
+  });
+
+  it("prefers a geometry attribute over the object fallback", () => {
+    const geometry = new BoxGeometry();
+    const attr = new BufferAttribute(new Float32Array(6), 3);
+    geometry.setAttribute("instanceMatrix", attr);
+    const mesh = new InstancedMesh(geometry, new MeshBasicMaterial(), 2);
+    expect(geometryAttribute(mesh, geometry, "instanceMatrix")).toBe(attr);
+  });
+
+  it("returns nothing for a plain mesh's missing attributes", () => {
+    const geometry = new BoxGeometry();
+    const mesh = new Mesh(geometry, new MeshBasicMaterial());
+    expect(geometryAttribute(mesh, geometry, "instanceMatrix")).toBeUndefined();
+    expect(geometryAttribute(mesh, geometry, "instanceColor")).toBeUndefined();
   });
 });
 
