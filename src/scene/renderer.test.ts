@@ -88,6 +88,7 @@ globalThis.__rmslLineRun = () => {
   const corner = new Uint8Array(4);
   gl.readPixels(2, 2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, corner);
   return { center: [center[0], center[1], center[2]], corner: [corner[0], corner[1], corner[2]] };
+};
 `;
 
 // Three samplers whose textures are all uploaded during the same draw, each
@@ -203,7 +204,7 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
       // eslint-disable-next-line no-new-func
       const fn = new Function(source);
       fn();
-      return (globalThis as any).__rmslLineRun();
+      return (globalThis as any).__rmslSamplersRun();
     }, code);
 
     // Each channel carries the texture its own sampler was given: 20 from the
