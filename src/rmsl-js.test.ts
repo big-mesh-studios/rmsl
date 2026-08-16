@@ -683,3 +683,52 @@ describe("JS backend: TSL loop and return", () => {
     expect(fn({})).toBe(null);
   });
 });
+
+/**
+ * Operands that are themselves expressions.
+ *
+ * Every other test here passes bare parameters, so an operand always arrives as
+ * a single identifier and drops into any template unchanged. A compound operand
+ * does not: written into `a - b * Math.floor(a / b)` without brackets, the
+ * division binds to the last term of the sum rather than to the whole of it.
+ *
+ * The operations at risk are the ones written as a formula rather than as a
+ * call, since a call's arguments are separated by commas and need no brackets.
+ */
+describe("JS backend: operands that are themselves expressions", () => {
+  const floored = (x: number, y: number) => x - y * Math.floor(x / y);
+
+  it("computes modulo of a sum", () => {
+    // (7 + 5) mod 4 is 0, not 7 + 5 - 4 * floor(7 + 5 / 4)
+    expect(evalScalar((a, b, m) => a.add(b).mod(m), [7, 5, 4]))
+      .toBe(floored(7 + 5, 4));
+  });
+
+  it("computes modulo by a sum", () => {
+    expect(evalScalar((a, b, c) => a.mod(b.add(c)), [17, 3, 2]))
+      .toBe(floored(17, 3 + 2));
+  });
+
+  it("computes whole-number division and modulo of a sum", () => {
+    expect(evalScalar((a, b, m) => a.toInt().add(b.toInt()).div(m.toInt()).toFloat(), [7, 5, 4]))
+      .toBe(Math.trunc((7 + 5) / 4));
+    expect(evalScalar((a, b, m) => a.toInt().add(b.toInt()).mod(m.toInt()).toFloat(), [7, 5, 4]))
+      .toBe((7 + 5) % 4);
+  });
+
+  it("mixes between sums", () => {
+    // mix(3, 10, 0.25) is 4.75
+    approx(
+      evalScalar((a, b, c, d, t) => a.add(b).mix(c.add(d), t), [1, 2, 4, 6, 0.25]),
+      3 + 0.25 * (10 - 3),
+    );
+  });
+
+  it("smoothsteps across a sum edge", () => {
+    // smoothstep(2, 6, 4): t is 0.5, so the result is 0.5
+    approx(
+      evalScalar((v, e0a, e0b, e1) => v.smoothstep(e0a.add(e0b), e1), [4, 1, 1, 6]),
+      0.5,
+    );
+  });
+});

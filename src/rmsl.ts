@@ -5222,6 +5222,23 @@ function isPlainJSIdentifier(s: string): boolean {
   return /^[_$a-zA-Z][_$a-zA-Z0-9]*$/.test(s);
 }
 
+/**
+ * An operand safe to drop into a formula.
+ *
+ * A call's arguments are separated by commas, so an operand of any shape can go
+ * there unchanged. A formula is different: written into
+ * `a - b * Math.floor(a / b)`, an operand that is itself a sum binds to the
+ * neighbouring term rather than arriving whole, and `(x + y) mod m` quietly
+ * becomes `x + y - m * floor(x + y / m)`.
+ *
+ * So anything that is not already a single value gets brackets. A literal, a
+ * variable and a call are left alone, which is what the absent precedence on
+ * those means.
+ */
+function jsOperand(compiled: CompiledNode): string {
+  return (compiled.prec ?? PREC_ATOM) < PREC_ATOM ? `(${compiled.expr})` : compiled.expr;
+}
+
 function jsScalarBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string): CompiledNode {
   let a = compileJSStage(node.params![0], ctx);
   let b = compileJSStage(node.params![1], ctx);
@@ -5236,18 +5253,21 @@ function jsScalarBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string)
       expr = `${wrapExpr(a.prec, prec, a.expr)} ${sym} ${wrapExpr(b.prec, prec, b.expr)}`;
       break;
     }
-    case "idiv": expr = `Math.trunc(${a.expr} / ${b.expr})`; break;
+    // The formula-shaped cases below take their operands through jsOperand, so
+    // an operand that is itself an expression arrives whole. The call-shaped
+    // ones do not need it: a comma already separates their arguments.
+    case "idiv": expr = `Math.trunc(${jsOperand(a)} / ${jsOperand(b)})`; break;
     case "min": expr = `Math.min(${a.expr}, ${b.expr})`; break;
     case "max": expr = `Math.max(${a.expr}, ${b.expr})`; break;
     case "pow": expr = `Math.pow(${a.expr}, ${b.expr})`; break;
     case "atan2": expr = `Math.atan2(${a.expr}, ${b.expr})`; break;
-    case "mod": expr = `(${a.expr} - ${b.expr} * Math.floor(${a.expr} / ${b.expr}))`; break;
-    case "imod": expr = `(${a.expr} % ${b.expr})`; break;
+    case "mod": expr = `(${jsOperand(a)} - ${jsOperand(b)} * Math.floor(${jsOperand(a)} / ${jsOperand(b)}))`; break;
+    case "imod": expr = `(${jsOperand(a)} % ${jsOperand(b)})`; break;
     case "step": expr = `(${b.expr} < ${a.expr} ? 0 : 1)`; break;
     case "clamp": expr = `Math.min(Math.max(${a.expr}, ${b.expr}), ${c!.expr})`; break;
-    case "mix": expr = `(${a.expr} + ${c!.expr} * (${b.expr} - ${a.expr}))`; break;
+    case "mix": expr = `(${jsOperand(a)} + ${jsOperand(c!)} * (${jsOperand(b)} - ${jsOperand(a)}))`; break;
     case "smoothstep":
-      expr = `(function(t){ return t * t * (3 - 2 * t); })(Math.min(Math.max((${c!.expr} - ${a.expr}) / (${b.expr} - ${a.expr}), 0), 1))`;
+      expr = `(function(t){ return t * t * (3 - 2 * t); })(Math.min(Math.max((${jsOperand(c!)} - ${jsOperand(a)}) / (${jsOperand(b)} - ${jsOperand(a)}), 0), 1))`;
       break;
     default: throw new Error(`[RMSL] Unknown JS scalar op: ${op}`);
   }
