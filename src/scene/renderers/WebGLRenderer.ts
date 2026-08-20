@@ -8,6 +8,7 @@ import type { InstancedMesh } from "../objects/InstancedMesh";
 import type { BufferGeometry } from "../geometries/BufferGeometry";
 import type { BufferAttribute } from "../geometries/BufferAttribute";
 import type { Texture } from "../textures/Texture";
+import { RedIntegerFormat } from "../textures/constants";
 import type { NodeMaterial, MaterialProgram } from "../materials/NodeMaterial";
 import { Blending, Side } from "../materials/Material";
 import {
@@ -256,12 +257,13 @@ export class WebGLRenderer {
         const width = (texture as { width?: number }).width ?? 1;
         const height = (texture as { height?: number }).height ?? 1;
         if (integer) {
-          const { internalFormat, type } = integerInternalFormat(gl, samplerType.startsWith("isampler"), image);
+          const singleChannel = (texture as { format?: number }).format === RedIntegerFormat;
+          const { internalFormat, format, type } = integerInternalFormat(gl, samplerType.startsWith("isampler"), image, singleChannel);
           if (is3D) {
             const depth = (texture as { depth?: number }).depth ?? 1;
-            gl.texImage3D(target, 0, internalFormat, width, height, depth, 0, gl.RGBA_INTEGER, type, image as ArrayBufferView);
+            gl.texImage3D(target, 0, internalFormat, width, height, depth, 0, format, type, image as ArrayBufferView);
           } else {
-            gl.texImage2D(target, 0, internalFormat, width, height, 0, gl.RGBA_INTEGER, type, image as ArrayBufferView);
+            gl.texImage2D(target, 0, internalFormat, width, height, 0, format, type, image as ArrayBufferView);
           }
         } else if (is3D) {
           const depth = (texture as { depth?: number }).depth ?? 1;
@@ -433,23 +435,27 @@ export class WebGLRenderer {
 }
 
 /**
- * The WebGL2 internal format and upload type for an integer RGBA texture,
- * from the bit depth of its data view and the sampler's signedness. The
- * format name ends in `UI` for unsigned and `I` for signed, each sized to the
- * element.
+ * The WebGL2 internal format, texel format, and upload type for an integer
+ * texture, from the bit depth of its data view and the sampler's signedness.
+ * A `RedIntegerFormat` data view is single-channel (`R8UI`/`R8I`, read with
+ * `RED_INTEGER`); anything else is treated as RGBA. The format name ends in
+ * `UI` for unsigned and `I` for signed, each sized to the element.
  */
 function integerInternalFormat(
   gl: WebGL2RenderingContext,
   signed: boolean,
   view: ArrayBufferView,
-): { internalFormat: number; type: number } {
+  singleChannel: boolean,
+): { internalFormat: number; format: number; type: number } {
   const bytes = (view as { BYTES_PER_ELEMENT?: number }).BYTES_PER_ELEMENT ?? 1;
   if (signed) {
-    if (bytes === 1) return { internalFormat: gl.RGBA8I, type: gl.BYTE };
-    if (bytes === 2) return { internalFormat: gl.RGBA16I, type: gl.SHORT };
-    return { internalFormat: gl.RGBA32I, type: gl.INT };
+    if (singleChannel) return { internalFormat: gl.R8I, format: gl.RED_INTEGER, type: gl.BYTE };
+    if (bytes === 1) return { internalFormat: gl.RGBA8I, format: gl.RGBA_INTEGER, type: gl.BYTE };
+    if (bytes === 2) return { internalFormat: gl.RGBA16I, format: gl.RGBA_INTEGER, type: gl.SHORT };
+    return { internalFormat: gl.RGBA32I, format: gl.RGBA_INTEGER, type: gl.INT };
   }
-  if (bytes === 1) return { internalFormat: gl.RGBA8UI, type: gl.UNSIGNED_BYTE };
-  if (bytes === 2) return { internalFormat: gl.RGBA16UI, type: gl.UNSIGNED_SHORT };
-  return { internalFormat: gl.RGBA32UI, type: gl.UNSIGNED_INT };
+  if (singleChannel) return { internalFormat: gl.R8UI, format: gl.RED_INTEGER, type: gl.UNSIGNED_BYTE };
+  if (bytes === 1) return { internalFormat: gl.RGBA8UI, format: gl.RGBA_INTEGER, type: gl.UNSIGNED_BYTE };
+  if (bytes === 2) return { internalFormat: gl.RGBA16UI, format: gl.RGBA_INTEGER, type: gl.UNSIGNED_SHORT };
+  return { internalFormat: gl.RGBA32UI, format: gl.RGBA_INTEGER, type: gl.UNSIGNED_INT };
 }

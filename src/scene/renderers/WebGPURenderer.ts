@@ -10,6 +10,7 @@ import type { BufferGeometry } from "../geometries/BufferGeometry";
 import type { BufferAttribute } from "../geometries/BufferAttribute";
 import type { Texture } from "../textures/Texture";
 import { DataTexture } from "../textures/DataTexture";
+import { RedIntegerFormat } from "../textures/constants";
 import type { NodeMaterial, MaterialProgram } from "../materials/NodeMaterial";
 import { Side } from "../materials/Material";
 import {
@@ -476,7 +477,11 @@ export class WebGPURenderer {
       const width = ArrayBuffer.isView(t.image) ? (t as DataTexture).width ?? 1 : 1;
       const height = ArrayBuffer.isView(t.image) ? (t as DataTexture).height ?? 1 : 1;
       const depth = dimension === "3d" ? (t as DataTexture).depth ?? 1 : 1;
-      const format = integer ? integerGpuFormat(samplerType, ArrayBuffer.isView(t.image) ? t.image : null) : "rgba8unorm";
+      const format = integer
+        ? t instanceof DataTexture && t.format === RedIntegerFormat
+          ? samplerType.startsWith("isampler") ? "r8sint" : "r8uint"
+          : integerGpuFormat(samplerType, ArrayBuffer.isView(t.image) ? t.image : null)
+        : "rgba8unorm";
       if (!gpu) {
         gpu = this.device.createTexture({
           size: [width, height, depth],
@@ -508,6 +513,7 @@ export class WebGPURenderer {
   ): void {
     const bytesPerTexel = format === "rgba32uint" || format === "rgba32sint" ? 16
       : format === "rgba16uint" || format === "rgba16sint" ? 8
+      : format === "r8uint" || format === "r8sint" ? 1
       : 4;
     const bytesPerRow = width * bytesPerTexel;
     if (depth === 1) {

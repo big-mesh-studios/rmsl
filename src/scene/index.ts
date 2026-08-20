@@ -35,6 +35,7 @@ export * from "./materials/nodes/Builder";
 export * from "./materials/nodes/lighting";
 export * from "./textures/Texture";
 export * from "./textures/DataTexture";
+export * from "./textures/constants";
 export * from "./renderers/WebGLRenderer";
 export * from "./renderers/WebGPURenderer";
 export * from "./renderers/common";

@@ -65,6 +65,39 @@ globalThis.__rmslIntRun = () => {
 };
 `;
 
+// A 1×1 single-channel unsigned texture, declared with the three.js-style
+// RedIntegerFormat + UnsignedByteType pair, must upload as R8UI: reading its
+// texel through a usampler2D yields the stored value in .r and zero elsewhere.
+const ENTRY_R8UI = `
+import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
+  MeshBasicMaterial, DataTexture, RedIntegerFormat, UnsignedByteType } from "./index";
+import { uvec2 } from "../rmsl";
+globalThis.__rmslR8UIRun = () => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 16;
+  canvas.height = 16;
+  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  renderer.setClearColor(0x000000);
+  const scene = new Scene();
+  const material = new MeshBasicMaterial();
+  material.fragmentNode = (b) => {
+    const tex = b.sampler("data", "usampler2D",
+      () => new DataTexture(new Uint8Array([255]), 1, 1, 1, RedIntegerFormat, UnsignedByteType));
+    return tex.texture(uvec2(0, 0)).toVec4();
+  };
+  const mesh = new Mesh(new PlaneGeometry(2, 2), material);
+  scene.add(mesh);
+  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 1);
+  camera.lookAt(0, 0, 0);
+  renderer.render(scene, camera);
+  const pixels = new Uint8Array(4);
+  const gl = renderer.gl;
+  gl.readPixels(8, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+  return { r: pixels[0], g: pixels[1], b: pixels[2] };
+};
+`;
+
 const ENTRY_LINES = `
 import { WebGLRenderer, Scene, PerspectiveCamera,
   LineSegments2, LineSegmentsGeometry, Line2NodeMaterial } from "./index";
@@ -214,6 +247,23 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     // widening to a float color writes solid blue, not black.
     expect(pixel.b).toBeGreaterThan(200);
     expect(pixel.r).toBeLessThan(60);
+  }, 60_000);
+
+  it("renders an R8UI DataTexture from its single stored byte", async () => {
+    const page = await gpuPage();
+    const code = await bundleEntry(ENTRY_R8UI);
+    const pixel = await page.evaluate(async (source: string) => {
+      // eslint-disable-next-line no-new-func
+      const fn = new Function(source);
+      fn();
+      return (globalThis as any).__rmslR8UIRun();
+    }, code);
+
+    // The single-channel texel holds 255 in .r, so the BGRA read must come
+    // back solid red — proving it uploaded as R8UI, not a 4-byte RGBA8UI.
+    expect(pixel.r).toBeGreaterThan(200);
+    expect(pixel.g).toBeLessThan(60);
+    expect(pixel.b).toBeLessThan(60);
   }, 60_000);
 
   it("renders a wide line across the canvas via instanced draws", async () => {
