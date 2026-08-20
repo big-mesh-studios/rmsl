@@ -122,6 +122,27 @@ describe("what a vertex stage accepts", () => {
   });
 });
 
+describe("compileGLSL precision options", () => {
+  // The options mirror three.js's `precision` setting (`"highp" | "mediump" |
+  // "lowp"`); every compileGLSL call takes them, and a value outside the union
+  // is refused at the type level.
+  it("accepts a precision option on every call shape", () => {
+    const root = Fn(() => vec4(1, 2, 3, 4).toVar())();
+    expectTypeOf(compileGLSL(root, { precision: "mediump" })).toEqualTypeOf<string>();
+    expectTypeOf(compileGLSL.fragment(root, { precision: "lowp" })).toEqualTypeOf<string>();
+    expectTypeOf(compileGLSL.vertex(root, { precision: "highp" })).toEqualTypeOf<string>();
+    expectTypeOf(compileGLSL(root)).toEqualTypeOf<string>();
+  });
+
+  it("refuses an unknown precision value", () => {
+    const root = Fn(() => vec4(1, 2, 3, 4).toVar())();
+    // @ts-expect-error "high" is not a precision
+    compileGLSL(root, { precision: "high" });
+    // @ts-expect-error a number is not a precision
+    compileGLSL.vertex(root, { precision: 1 });
+  });
+});
+
 describe("matrix operations", () => {
   // Every matrix type carries these at runtime, but only the two square ones
   // were declared to, so the rest had to be reached through a cast — which

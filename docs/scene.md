@@ -64,6 +64,18 @@ material.roughnessNode = () => float(0.3);
 Available slots: `colorNode`, `opacityNode`, `roughnessNode`, `metalnessNode`,
 `emissiveNode`, `normalNode`, `positionNode`, `uvNode`.
 
+Every material also carries a `precision` property (`"highp" | "mediump" |
+"lowp" | null`, default `null`), mirroring three.js's `Material.precision`: it
+overrides the renderer's default shader precision (see WebGLRenderer below), and
+can be passed to any material constructor. Assigning it flags the program for a
+rebuild.
+
+```typescript
+const material = new MeshStandardMaterial({ color: 0xeeeeee, precision: "mediump" });
+// or, later:
+material.precision = "lowp";  // needsUpdate is set for you
+```
+
 ### Built-in accessors
 
 Inside a slot (or an escape-hatch function) the `Builder` (`b`) exposes the
@@ -104,10 +116,11 @@ object, material) and build the WebGPU uniform-buffer layout.
 
 ### WebGLRenderer
 
-`new WebGLRenderer(canvas?, options?)` — WebGL2. `setClearColor`, `setSize`,
-`setAnimationLoop`, `render(scene, camera)`. Programs are compiled per material
-and cached; geometry buffers per geometry; uniforms are uploaded per draw,
-grouped by scope:
+`new WebGLRenderer(canvas?, options?)` — WebGL2. Options: `antialias`,
+`depth`, and `precision` (`"highp" | "mediump" | "lowp"`, default `"highp"`).
+`setClearColor`, `setSize`, `setAnimationLoop`, `render(scene, camera)`.
+Programs are compiled per material and cached; geometry buffers per geometry;
+uniforms are uploaded per draw, grouped by scope:
 
 - **camera** — `projectionMatrix`, `viewMatrix`, `cameraPosition`
 - **object** — `modelMatrix`, `normalMatrix` (per mesh)

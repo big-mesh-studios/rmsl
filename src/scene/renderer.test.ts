@@ -201,6 +201,39 @@ globalThis.__rmslSamplersRun = () => {
 };
 `;
 
+// A lit mesh rendered with a `mediump` renderer and a `lowp` material pressing
+// the material override: if either stage failed to compile or link at the
+// lowered precision, the render would throw or `getError()` would carry the
+// error, and the box would stay black.
+const ENTRY_PRECISION = `
+import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
+  MeshBasicMaterial, AmbientLight, DirectionalLight } from "./index";
+globalThis.__rmslPrecisionRun = () => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 32;
+  canvas.height = 32;
+  const renderer = new WebGLRenderer(canvas, { antialias: false, precision: "mediump" });
+  renderer.setClearColor(0x000000);
+  const scene = new Scene();
+  scene.add(new AmbientLight(0xffffff, 0.3));
+  const sun = new DirectionalLight(0xffffff, 1.5);
+  sun.position.set(2, 4, 3);
+  scene.add(sun);
+  const mesh = new Mesh(new PlaneGeometry(2, 2), new MeshBasicMaterial({
+    color: 0xff0000, precision: "lowp",
+  }));
+  scene.add(mesh);
+  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 1);
+  camera.lookAt(0, 0, 0);
+  renderer.render(scene, camera);
+  const pixels = new Uint8Array(4);
+  const gl = renderer.gl;
+  gl.readPixels(16, 16, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+  return { r: pixels[0], g: pixels[1], b: pixels[2], error: gl.getError() };
+};
+`;
+
 async function bundleEntry(source: string): Promise<string> {
   const result = await build({
     stdin: {
@@ -321,6 +354,24 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     expect(pixel.g).toBeGreaterThan(100);
     expect(pixel.g).toBeLessThan(140);
     expect(pixel.b).toBeGreaterThan(200);
+  }, 60_000);
+
+  it("renders with lowered precision from the renderer and a material override", async () => {
+    const page = await gpuPage();
+    const code = await bundleEntry(ENTRY_PRECISION);
+    const pixel = await page.evaluate(async (source: string) => {
+      // eslint-disable-next-line no-new-func
+      const fn = new Function(source);
+      fn();
+      return (globalThis as any).__rmslPrecisionRun();
+    }, code);
+
+    // The mediump renderer + lowp material shaders linked and drew the red
+    // box with no WebGL error; a failed link/compile would have thrown.
+    expect(pixel.error).toBe(0);
+    expect(pixel.r).toBeGreaterThan(150);
+    expect(pixel.g).toBeLessThan(60);
+    expect(pixel.b).toBeLessThan(60);
   }, 60_000);
 });
 

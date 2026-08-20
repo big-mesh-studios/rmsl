@@ -1,6 +1,6 @@
 import {
   vec3, vec4,
-  type Node, type UniformNode,
+  type Node, type UniformNode, type GLSLPrecision,
 } from "../../rmsl";
 import { NodeMaterial, resolveSlot } from "./NodeMaterial";
 import { Builder } from "./nodes/Builder";
@@ -40,6 +40,7 @@ export class MeshStandardMaterial extends NodeMaterial {
     opacity?: number;
     transparent?: boolean;
     side?: Side;
+    precision?: GLSLPrecision;
   } = {}) {
     super();
     if (parameters.color !== undefined) {
@@ -57,6 +58,7 @@ export class MeshStandardMaterial extends NodeMaterial {
     if (parameters.opacity !== undefined) this.opacity = parameters.opacity;
     if (parameters.transparent !== undefined) this.transparent = parameters.transparent;
     if (parameters.side !== undefined) this.side = parameters.side;
+    if (parameters.precision !== undefined) this.precision = parameters.precision;
   }
 
   protected setup(b: Builder, scene: Scene): void {

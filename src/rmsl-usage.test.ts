@@ -1955,6 +1955,52 @@ describe("integer samplers", () => {
   });
 });
 
+describe("GLSL precision", () => {
+  // The compileGLSL options mirror three.js's `precision` setting: the float
+  // and every declared sampler precision follow it, defaulting to "highp".
+  // WGSL has no precision qualifiers, so nothing here applies to it.
+
+  it("defaults to highp", () => {
+    let prog = Fn(() => float(1).toVar());
+    expect(compileGLSL(prog())).toContain("precision highp float;");
+  });
+
+  it("emits mediump float precision", () => {
+    let prog = Fn(() => float(1).toVar());
+    let glsl = compileGLSL(prog(), { precision: "mediump" });
+    expect(glsl).toContain("precision mediump float;");
+    expect(glsl).not.toContain("precision highp float;");
+  });
+
+  it("emits lowp precision for an explicit fragment stage", () => {
+    let prog = Fn(() => float(1).toVar());
+    let glsl = compileGLSL.fragment(prog(), { precision: "lowp" });
+    expect(glsl).toContain("precision lowp float;");
+  });
+
+  it("emits the configured precision for vertex shaders", () => {
+    let prog = Fn(() => vec4(0, 0, 0, 1).toVar());
+    let glsl = compileGLSL.vertex(prog(), { precision: "mediump" });
+    expect(glsl).toContain("precision mediump float;");
+    expect(glsl).not.toContain("precision highp float;");
+  });
+
+  it("applies the configured precision to sampler declarations", () => {
+    let prog = Fn(() => uniform("sampler2D").texture(vec2(0, 0)).toVar());
+    let glsl = compileGLSL(prog(), { precision: "lowp" });
+    expect(glsl).toContain("precision lowp float;");
+    expect(glsl).toContain("precision lowp sampler2D;");
+    expect(glsl).not.toContain("precision highp");
+  });
+
+  it("rejects an unknown precision", () => {
+    let prog = Fn(() => float(1).toVar());
+    expect(() => compileGLSL(prog(), { precision: "high" as any })).toThrow(
+      /precision/,
+    );
+  });
+});
+
 describe("casts and conversions", () => {
   it("casts a float to an int in GLSL and WGSL", () => {
     let prog = Fn(() => {

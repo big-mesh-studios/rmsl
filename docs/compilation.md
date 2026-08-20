@@ -24,6 +24,22 @@ compileGLSL.vertex(root)
 compileWGSL.vertex(root)
 ```
 
+### Shader precision (GLSL)
+
+GLSL output defaults to `highp`. To compile with `mediump` or `lowp` — the
+usual choice on mobile GPUs, mirroring three.js's `precision` option — pass an
+options object to any of the `compileGLSL` forms:
+
+```typescript
+compileGLSL(root, { precision: "mediump" })                 // fragment
+compileGLSL.fragment(root, { precision: "lowp" })
+compileGLSL.vertex(root, { precision: "mediump" })
+```
+
+The configured precision is applied to the `float` declaration and to every
+sampler the shader declares. WGSL and the JS target have no precision
+qualifiers, so `compileWGSL` and `compileJS` take no such option.
+
 ### Multiple return values
 
 ```typescript
@@ -42,7 +58,7 @@ compileGLSL.vertex([a, b]);  // pass array of roots
 
 ```glsl
 #version 300 es
-precision highp float;
+precision highp float;          // or mediump / lowp via { precision }
 
 // uniforms, attributes, varyings, outputs...
 

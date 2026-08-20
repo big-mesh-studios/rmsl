@@ -8,6 +8,20 @@ import type { BufferAttribute } from "../geometries/BufferAttribute";
 import { AmbientLight } from "../lights/AmbientLight";
 import { DirectionalLight } from "../lights/DirectionalLight";
 import { PointLight } from "../lights/PointLight";
+import type { NodeMaterial } from "../materials/NodeMaterial";
+import type { GLSLPrecision } from "../../rmsl";
+
+/**
+ * Which shader precision a program compiles with, mirroring three.js: a
+ * material's own `precision` overrides the renderer's default (which is what a
+ * `null` material precision keeps).
+ */
+export function shaderPrecision(
+  material: NodeMaterial,
+  rendererPrecision: GLSLPrecision,
+): GLSLPrecision {
+  return material.precision ?? rendererPrecision;
+}
 
 /**
  * The value a camera-scoped uniform should hold this frame, given its logical

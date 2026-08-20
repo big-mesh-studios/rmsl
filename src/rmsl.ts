@@ -3277,10 +3277,34 @@ function unaryGLSL(
   };
 }
 
+/**
+ * Which shader precision a GLSL program is compiled with. Mirrors three.js's
+ * `precision` option: `"highp"` for the most accurate math, `"mediump"`/`"lowp"`
+ * for the faster, cheaper fragment math that mobile GPUs often need. WGSL has
+ * no precision qualifiers, so it applies to GLSL output only.
+ */
+export type GLSLPrecision = "lowp" | "mediump" | "highp";
+
+/** Options for the GLSL shader compilers. */
+export interface CompileGLSLOptions {
+  /**
+   * The float and sampler precision to declare in the shader header. Defaults
+   * to `"highp"`.
+   */
+  precision?: GLSLPrecision;
+}
+
 function compileGLSLWithStage(
   root: Node<ShaderType> | readonly Node<ShaderType>[],
   shaderStage: "vertex" | "fragment",
+  options: CompileGLSLOptions = {},
 ): string {
+  const precision = options.precision ?? "highp";
+  if (precision !== "lowp" && precision !== "mediump" && precision !== "highp") {
+    throw new Error(
+      `[RMSL] unknown precision "${precision}" — use "lowp", "mediump" or "highp".`,
+    );
+  }
   let ctx: CompileCtx = {
     nextId: 0,
     shaderStage,
@@ -3331,20 +3355,20 @@ function compileGLSLWithStage(
 
   let lines: string[] = [];
   lines.push("#version 300 es");
-  lines.push("precision highp float;");
+  lines.push(`precision ${precision} float;`);
   // No default precision covers every sampler. GLSL ES predeclares one for
   // sampler2D and samplerCube in a fragment stage, but not sampler3D, and the
   // vertex language predeclares none; Chromium's WebGL2 compiler rejects a
   // sampler with no precision at all ("No precision specified"). Each sampler
-  // type a shader actually uses gets a high precision declared for the stages
-  // that use it.
+  // type a shader actually uses gets a precision declared for the stages that
+  // use it.
   let glslSamplerTypes = [...new Set(
     [...ctx.uniforms.values()]
       .map(info => info.type)
       .filter(t => /^(i|u)?sampler2D$|^(i|u)?sampler3D$|^(i|u)?samplerCube$/.test(t)),
   )].sort();
   for (let samplerType of glslSamplerTypes) {
-    lines.push(`precision highp ${samplerType};`);
+    lines.push(`precision ${precision} ${samplerType};`);
   }
   lines.push("");
 
@@ -3436,16 +3460,19 @@ export type VertexRoot =
   | void;
 
 export const compileGLSL: {
-  (root: Node<ShaderType> | readonly Node<ShaderType>[]): string;
-  vertex(root: VertexRoot): string;
-  fragment(root: Node<ShaderType> | readonly Node<ShaderType>[]): string;
+  (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileGLSLOptions): string;
+  vertex(root: VertexRoot, options?: CompileGLSLOptions): string;
+  fragment(root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileGLSLOptions): string;
 } = Object.assign(
-  (root: Node<ShaderType> | readonly Node<ShaderType>[]) => compileGLSLWithStage(root, "fragment"),
+  (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileGLSLOptions) =>
+    compileGLSLWithStage(root, "fragment", options),
   {
     // The value is always a node; void only describes a body that returned
     // nothing, which still compiles to one.
-    vertex: (root: VertexRoot) => compileGLSLWithStage(root as Node<ShaderType>, "vertex"),
-    fragment: (root: Node<ShaderType> | readonly Node<ShaderType>[]) => compileGLSLWithStage(root, "fragment"),
+    vertex: (root: VertexRoot, options?: CompileGLSLOptions) =>
+      compileGLSLWithStage(root as Node<ShaderType>, "vertex", options),
+    fragment: (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileGLSLOptions) =>
+      compileGLSLWithStage(root, "fragment", options),
   },
 );
 

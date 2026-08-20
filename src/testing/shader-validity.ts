@@ -28,6 +28,7 @@ import { expect } from "vitest";
 import {
   compileGLSL,
   compileWGSL,
+  type CompileGLSLOptions,
   type Node,
   type ShaderType,
   type VertexRoot,
@@ -86,19 +87,28 @@ export const KNOWN_INVALID: Record<string, string> = {
  * Compiling both here makes parity structural — a new test gets it for free —
  * while the test's own assertions still run against the language it chose.
  */
-function recordBoth(root: any, stage: ShaderStage, want: ShaderLang): string {
+function recordBoth(
+  root: any,
+  stage: ShaderStage,
+  want: ShaderLang,
+  glslOptions?: CompileGLSLOptions,
+): string {
   const test = expect.getState().currentTestName ?? "<unknown test>";
   const pair = nextPair++;
   const entries: Recorded[] = [];
 
-  for (const [lang, compile] of [
-    ["glsl", compileGLSL] as const,
-    ["wgsl", compileWGSL] as const,
-  ]) {
+  for (const lang of ["glsl", "wgsl"] as const) {
     const entry: Recorded = { test, lang, stage, pair, src: null };
     try {
+      // Precision is a GLSL concept; the WGSL compiler takes no options.
       entry.src =
-        stage === "vertex" ? compile.vertex(root) : compile.fragment(root);
+        lang === "glsl"
+          ? stage === "vertex"
+            ? compileGLSL.vertex(root, glslOptions)
+            : compileGLSL.fragment(root, glslOptions)
+          : stage === "vertex"
+            ? compileWGSL.vertex(root)
+            : compileWGSL.fragment(root);
     } catch (error) {
       // A backend refusing to compile is itself a signal, so it is recorded
       // rather than swallowed.
@@ -148,19 +158,20 @@ export function recordShaderSource(
  * real driver would have cost it the type checker.
  */
 interface Compiler {
-  (root: Node<ShaderType> | readonly Node<ShaderType>[]): string;
-  vertex(root: VertexRoot): string;
-  fragment(root: Node<ShaderType> | readonly Node<ShaderType>[]): string;
+  (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileGLSLOptions): string;
+  vertex(root: VertexRoot, options?: CompileGLSLOptions): string;
+  fragment(root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileGLSLOptions): string;
 }
 
 function wrap(lang: ShaderLang): Compiler {
   return Object.assign(
-    (root: Node<ShaderType> | readonly Node<ShaderType>[]) =>
-      recordBoth(root, "fragment", lang),
+    (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileGLSLOptions) =>
+      recordBoth(root, "fragment", lang, options),
     {
-      vertex: (root: VertexRoot) => recordBoth(root as any, "vertex", lang),
-      fragment: (root: Node<ShaderType> | readonly Node<ShaderType>[]) =>
-        recordBoth(root, "fragment", lang),
+      vertex: (root: VertexRoot, options?: CompileGLSLOptions) =>
+        recordBoth(root as any, "vertex", lang, options),
+      fragment: (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileGLSLOptions) =>
+        recordBoth(root, "fragment", lang, options),
     },
   );
 }

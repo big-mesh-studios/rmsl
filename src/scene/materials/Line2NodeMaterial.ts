@@ -1,6 +1,6 @@
 import {
   float, vec2, vec3, vec4, element, If, Discard, mix,
-  type Node, type UniformNode,
+  type Node, type UniformNode, type GLSLPrecision,
 } from "../../rmsl";
 import { NodeMaterial, resolveSlot, type SlotValue } from "./NodeMaterial";
 import { Builder } from "./nodes/Builder";
@@ -67,6 +67,7 @@ export class Line2NodeMaterial extends NodeMaterial {
     alphaToCoverage?: boolean;
     opacity?: number;
     transparent?: boolean;
+    precision?: GLSLPrecision;
   } = {}) {
     super();
     this.side = Side.DoubleSide;
@@ -86,6 +87,7 @@ export class Line2NodeMaterial extends NodeMaterial {
     if (parameters.alphaToCoverage !== undefined) this._alphaToCoverage = parameters.alphaToCoverage;
     if (parameters.opacity !== undefined) this.opacity = parameters.opacity;
     if (parameters.transparent !== undefined) this.transparent = parameters.transparent;
+    if (parameters.precision !== undefined) this.precision = parameters.precision;
   }
 
   /** Whether the lines are sized in world units (`true`) or pixels (`false`). */

@@ -1,4 +1,4 @@
-import { compileGLSL } from "../../rmsl";
+import { compileGLSL, type GLSLPrecision } from "../../rmsl";
 import { Color } from "../math/Color";
 import { Vector4 } from "../math/Vector4";
 import type { Scene } from "../scenes/Scene";
@@ -12,7 +12,8 @@ import { RedIntegerFormat } from "../textures/constants";
 import type { NodeMaterial, MaterialProgram } from "../materials/NodeMaterial";
 import { Blending, Side } from "../materials/Material";
 import {
-  cameraUniformValue, isIntegerSampler, objectUniformValue, lightsSignature, toBufferView, uniformUploadValue,
+  cameraUniformValue, isIntegerSampler, objectUniformValue, lightsSignature,
+  shaderPrecision, toBufferView, uniformUploadValue,
   rendererUniformValue, programSignature, geometryAttribute,
 } from "./common";
 
@@ -53,9 +54,18 @@ export class WebGLRenderer {
   private clearAlpha = 1;
   private animationCallback: ((time: number) => void) | null = null;
   private animationHandle: number | null = null;
+  /**
+   * The shader precision compiled into every program unless a material
+   * overrides it, like three.js's `WebGLRenderer` `precision` option.
+   */
+  readonly precision: GLSLPrecision;
 
-  constructor(canvas?: HTMLCanvasElement, options: { antialias?: boolean; depth?: boolean } = {}) {
+  constructor(
+    canvas?: HTMLCanvasElement,
+    options: { antialias?: boolean; depth?: boolean; precision?: GLSLPrecision } = {},
+  ) {
     this.canvas = canvas ?? document.createElement("canvas");
+    this.precision = options.precision ?? "highp";
     const gl = this.canvas.getContext("webgl2", {
       antialias: options.antialias ?? true,
       depth: options.depth ?? true,
@@ -308,9 +318,10 @@ export class WebGLRenderer {
 
     const program = material.build(scene, { instancing, instancingColor });
     const gl = this.gl;
+    const precision = shaderPrecision(material, this.precision);
 
-    const vertexShader = this.compileShader(compileGLSL.vertex(program.vertexRoot), gl.VERTEX_SHADER);
-    const fragmentShader = this.compileShader(compileGLSL.fragment(program.fragmentRoot), gl.FRAGMENT_SHADER);
+    const vertexShader = this.compileShader(compileGLSL.vertex(program.vertexRoot, { precision }), gl.VERTEX_SHADER);
+    const fragmentShader = this.compileShader(compileGLSL.fragment(program.fragmentRoot, { precision }), gl.FRAGMENT_SHADER);
     const glProgram = gl.createProgram()!;
     gl.attachShader(glProgram, vertexShader);
     gl.attachShader(glProgram, fragmentShader);

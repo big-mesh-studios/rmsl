@@ -15,6 +15,7 @@ import {
   Color, Vector3,
   DataTexture,
   cameraUniformValue, objectUniformValue,
+  shaderPrecision,
   type MaterialProgram,
 } from "./index";
 
@@ -265,5 +266,42 @@ describe("node materials", () => {
     expect(wgsl).toContain("texture_2d<f32>");
     expect(wgsl).toContain("texture_3d<f32>");
     expect(wgsl).toContain("volume_s: sampler");
+  });
+});
+
+describe("shader precision", () => {
+  // Mirror of three.js: the renderer supplies the default precision and a
+  // material's `precision` overrides it. WGSL has no precision qualifiers, so
+  // the material compile options only reach the GLSL side.
+  it("goes with the renderer default when the material sets none", () => {
+    const material = new MeshStandardMaterial();
+    expect(shaderPrecision(material, "highp")).toBe("highp");
+    expect(shaderPrecision(material, "mediump")).toBe("mediump");
+    expect(shaderPrecision(material, "lowp")).toBe("lowp");
+  });
+
+  it("lets a material override the renderer default", () => {
+    const material = new MeshStandardMaterial({ precision: "lowp" });
+    expect(material.precision).toBe("lowp");
+    expect(shaderPrecision(material, "highp")).toBe("lowp");
+
+    material.precision = null;
+    expect(shaderPrecision(material, "mediump")).toBe("mediump");
+  });
+
+  it("accepts a precision in every material constructor", () => {
+    const basic = new MeshBasicMaterial({ precision: "mediump" });
+    const lambert = new MeshLambertMaterial({ precision: "mediump" });
+    const standard = new MeshStandardMaterial({ precision: "mediump" });
+    expect(basic.precision).toBe("mediump");
+    expect(lambert.precision).toBe("mediump");
+    expect(standard.precision).toBe("mediump");
+  });
+
+  it("flags a rebuild when the precision changes", () => {
+    const material = new MeshBasicMaterial();
+    expect(material.needsUpdate).toBe(false);
+    material.precision = "lowp";
+    expect(material.needsUpdate).toBe(true);
   });
 });
