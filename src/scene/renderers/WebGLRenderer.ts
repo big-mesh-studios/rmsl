@@ -49,6 +49,9 @@ export class WebGLRenderer {
    * attribute so two instanced meshes sharing a geometry keep separate buffers.
    */
   private attributeBuffers = new Map<BufferAttribute, WebGLBuffer>();
+  /** Bytes allocated per `WebGLBuffer`, so a buffer that grew past its first
+   * upload is re-allocated only when the new data no longer fits. */
+  private bufferCapacities = new WeakMap<WebGLBuffer, number>();
   private textures = new Map<Texture, WebGLTexture>();
   /** The framebuffer, color texture, and depth renderbuffer behind each render target, at its bound size. */
   private renderTargets = new Map<
@@ -502,11 +505,23 @@ export class WebGLRenderer {
         if (ownedByGeometry) buffers.attributes.set(attribute.name, buffer);
         else this.attributeBuffers.set(attr, buffer);
       }
-      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-      if (ownedByGeometry ? needsUpload : isNewBuffer || attr.needsUpdate) {
-        gl.bufferData(gl.ARRAY_BUFFER, toBufferView(attr.array), gl.STATIC_DRAW);
+      if (isNewBuffer || attr.needsUpdate) {
+        const data = toBufferView(attr.array);
+        buffer = this.uploadSlice(
+          gl,
+          gl.ARRAY_BUFFER,
+          buffer,
+          data,
+          this.uploadRangeOf(data, attr, isNewBuffer),
+        );
+        if (ownedByGeometry) buffers.attributes.set(attribute.name, buffer);
+        else this.attributeBuffers.set(attr, buffer);
         attr.needsUpdate = false;
       }
+      // The attribute pointers below capture whatever buffer is bound when
+      // they run, so bind this attribute's buffer on every draw, whether or
+      // not its data changed this frame.
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
 
       // A mat4 attribute spans four consecutive vertex attribute locations;
       // each is fed from one column of the 64-byte instance record. The GLSL
@@ -528,13 +543,87 @@ export class WebGLRenderer {
     }
 
     if (geometry.index) {
-      if (!buffers.index) buffers.index = gl.createBuffer()!;
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.index);
-      if (needsUpload) {
-        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, toBufferView(geometry.index.array, true), gl.STATIC_DRAW);
+      const isNewIndex = buffers.index === null;
+      const indexBuffer = buffers.index ?? (buffers.index = gl.createBuffer()!);
+      if (isNewIndex || needsUpload || geometry.index.needsUpdate) {
+        const data = toBufferView(geometry.index.array, true);
+        buffers.index = this.uploadSlice(
+          gl,
+          gl.ELEMENT_ARRAY_BUFFER,
+          indexBuffer,
+          data,
+          this.uploadRangeOf(data, geometry.index, isNewIndex),
+        );
+        geometry.index.needsUpdate = false;
       }
+      // The element buffer binding must name this geometry's indices when the
+      // draw runs, whatever the previous draw left bound.
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.index!);
     }
     buffers.needsUpload = false;
+  }
+
+  /** The byte window of `data` an update should send, per `updateRange`. */
+  private uploadRangeOf(
+    data: ArrayBufferView,
+    attr: BufferAttribute,
+    full: boolean,
+  ): { byteOffset: number; byteEnd: number } {
+    if (full || attr.updateRange.count === -1) {
+      return { byteOffset: 0, byteEnd: data.byteLength };
+    }
+    const bytes = (data as unknown as { BYTES_PER_ELEMENT: number }).BYTES_PER_ELEMENT;
+    const byteOffset = Math.min(
+      data.byteLength,
+      Math.max(0, attr.updateRange.offset) * bytes,
+    );
+    const byteEnd = Math.min(
+      data.byteLength,
+      byteOffset + Math.max(0, attr.updateRange.count) * bytes,
+    );
+    return { byteOffset, byteEnd };
+  }
+
+  /**
+   * Uploads the `[byteOffset, byteEnd)` slice of `data` into `buffer`. The
+   * first upload sizes the buffer to the whole array; a later upload that no
+   * longer fits re-allocates (doubling, so a growing attribute's re-sends
+   * amortize) and re-sends everything, and one that fits sends only its slice.
+   * Returns the buffer to keep, which differs from `buffer` when it grew.
+   */
+  private uploadSlice(
+    gl: WebGL2RenderingContext,
+    target: number,
+    buffer: WebGLBuffer,
+    data: ArrayBufferView,
+    { byteOffset, byteEnd }: { byteOffset: number; byteEnd: number },
+  ): WebGLBuffer {
+    gl.bindBuffer(target, buffer);
+    const capacity = this.bufferCapacities.get(buffer);
+    if (capacity === undefined) {
+      gl.bufferData(target, data, gl.STATIC_DRAW);
+      this.bufferCapacities.set(buffer, data.byteLength);
+      return buffer;
+    }
+    if (byteEnd > capacity) {
+      const size = Math.max(byteEnd, capacity * 2);
+      const next = gl.createBuffer()!;
+      gl.bindBuffer(target, next);
+      gl.bufferData(target, size, gl.STATIC_DRAW);
+      gl.bufferSubData(target, 0, data);
+      gl.deleteBuffer(buffer);
+      this.bufferCapacities.set(next, size);
+      return next;
+    }
+    if (byteEnd > byteOffset) {
+      const view = data as unknown as { BYTES_PER_ELEMENT: number; subarray(a: number, b: number): ArrayBufferView };
+      gl.bufferSubData(
+        target,
+        byteOffset,
+        view.subarray(byteOffset / view.BYTES_PER_ELEMENT, byteEnd / view.BYTES_PER_ELEMENT),
+      );
+    }
+    return buffer;
   }
 
   private deleteRenderTarget(

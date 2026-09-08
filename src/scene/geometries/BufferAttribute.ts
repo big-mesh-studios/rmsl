@@ -16,6 +16,15 @@ export class BufferAttribute {
   count: number;
   stepMode: "vertex" | "instance";
   needsUpdate = false;
+  /**
+   * The slice of `array` to re-upload when `needsUpdate` is set, in array
+   * elements: `offset` is where the new data begins and `count` how many
+   * elements of it. `count` of `-1` (the default) uploads the whole array.
+   * The renderer grows the GPU buffer as needed, so an attribute whose array
+   * only grew can re-send just its tail; the caller promises the leading
+   * elements still hold what the GPU already has.
+   */
+  updateRange = { offset: 0, count: -1 };
 
   constructor(array: ArrayLike<number>, itemSize: number, normalized = false, stepMode: "vertex" | "instance" = "vertex") {
     this.array = array;
