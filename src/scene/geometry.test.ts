@@ -4,6 +4,21 @@ import {
   ConeGeometry, TorusGeometry, CircleGeometry, BufferGeometry,
 } from "./index";
 
+describe("geometry disposal", () => {
+  it("announces a dispose to the renderers listening for it", () => {
+    const geometry = new BufferGeometry();
+    const heard: unknown[] = [];
+    const listener = (event: unknown) => heard.push(event);
+    geometry.addEventListener("dispose", listener);
+    geometry.dispose();
+    expect(heard.length).toBe(1);
+    expect((heard[0] as { type: string }).type).toBe("dispose");
+    geometry.removeEventListener("dispose", listener);
+    geometry.dispose();
+    expect(heard.length).toBe(1);
+  });
+});
+
 describe("geometry primitives", () => {
   it("box has 24 vertices and 36 indices", () => {
     const geo = new BoxGeometry();

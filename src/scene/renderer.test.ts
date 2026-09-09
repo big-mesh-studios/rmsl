@@ -455,6 +455,47 @@ globalThis.__rmslRangeRun = () => {
 };
 `;
 
+// Disposing a geometry must free the vertex and index buffers the renderer made
+// for it, and leave the geometry itself usable: the second render uploads its
+// attributes into fresh buffers, so the blue quad still reaches the color
+// target.
+const ENTRY_GEOMETRY_DISPOSE = `
+import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
+  MeshBasicMaterial } from "./index";
+globalThis.__rmslGeometryDisposeRun = () => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 16;
+  canvas.height = 16;
+  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  renderer.setClearColor(0x000000);
+  const scene = new Scene();
+  const geometry = new PlaneGeometry(2, 2);
+  const mesh = new Mesh(geometry, new MeshBasicMaterial({ color: 0x0000dc }));
+  scene.add(mesh);
+  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 1);
+  camera.lookAt(0, 0, 0);
+  renderer.render(scene, camera);
+
+  const gl = renderer.gl;
+  const uploaded = renderer.geometryBuffers.get(geometry);
+  const held = [...uploaded.attributes.values(), uploaded.index];
+  const liveBefore = held.every((buffer) => gl.isBuffer(buffer));
+  geometry.dispose();
+  const liveAfter = held.some((buffer) => gl.isBuffer(buffer));
+  const trackedAfter = renderer.geometryBuffers.size;
+
+  renderer.render(scene, camera);
+  const pixels = new Uint8Array(4);
+  gl.readPixels(8, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+  return {
+    liveBefore, liveAfter, trackedAfter,
+    trackedAgain: renderer.geometryBuffers.size,
+    b: pixels[2], error: gl.getError(),
+  };
+};
+`;
+
 async function bundleEntry(source: string): Promise<string> {
   const result = await build({
     stdin: {
@@ -668,6 +709,25 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
 
     expect(pixel.error).toBe(0);
     expect(pixel.targetR).toBeGreaterThan(150);
+  }, 60_000);
+
+  it("frees a disposed geometry's buffers and re-uploads them on the next render", async () => {
+    const page = await gpuPage();
+    const code = await bundleEntry(ENTRY_GEOMETRY_DISPOSE);
+    const result = await page.evaluate(async (source: string) => {
+      // eslint-disable-next-line no-new-func
+      const fn = new Function(source);
+      fn();
+      return (globalThis as any).__rmslGeometryDisposeRun();
+    }, code);
+
+    expect(result.liveBefore).toBe(true);
+    expect(result.liveAfter).toBe(false);
+    expect(result.trackedAfter).toBe(0);
+    // The next render made fresh buffers for the same geometry object.
+    expect(result.trackedAgain).toBe(1);
+    expect(result.b).toBeGreaterThan(150);
+    expect(result.error).toBe(0);
   }, 60_000);
 
   it("draws only the slice a mesh's drawRange selects from a shared geometry", async () => {

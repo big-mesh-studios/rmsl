@@ -446,6 +446,23 @@ export class WebGLRenderer {
     texture.removeEventListener("dispose", this.onTextureDispose);
   };
 
+  /**
+   * Free the vertex and index buffers a disposed `BufferGeometry` owns, and
+   * stop listening to it. Drawing with the geometry again is allowed:
+   * `bindGeometry` finds no buffers for it and uploads its attributes into new
+   * ones.
+   */
+  private onGeometryDispose = (event: unknown): void => {
+    const geometry = (event as { target: BufferGeometry }).target;
+    const buffers = this.geometryBuffers.get(geometry);
+    if (buffers) {
+      for (const buffer of buffers.attributes.values()) this.gl.deleteBuffer(buffer);
+      if (buffers.index) this.gl.deleteBuffer(buffers.index);
+    }
+    this.geometryBuffers.delete(geometry);
+    geometry.removeEventListener("dispose", this.onGeometryDispose);
+  };
+
   private nextTextureUnit(): number {
     const gl = this.gl;
     const units = gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) as number;
@@ -526,6 +543,7 @@ export class WebGLRenderer {
     if (!buffers) {
       buffers = { attributes: new Map(), index: null, needsUpload: true };
       this.geometryBuffers.set(geometry, buffers);
+      geometry.addEventListener("dispose", this.onGeometryDispose);
     }
 
     const needsUpload = buffers.needsUpload
@@ -685,9 +703,10 @@ export class WebGLRenderer {
     for (const bySignature of this.programs.values()) {
       for (const entry of bySignature.values()) gl.deleteProgram(entry.glProgram);
     }
-    for (const buffers of this.geometryBuffers.values()) {
+    for (const [geometry, buffers] of this.geometryBuffers) {
       for (const buffer of buffers.attributes.values()) gl.deleteBuffer(buffer);
       if (buffers.index) gl.deleteBuffer(buffers.index);
+      geometry.removeEventListener("dispose", this.onGeometryDispose);
     }
     for (const buffer of this.attributeBuffers.values()) gl.deleteBuffer(buffer);
     for (const [texture, glTexture] of this.textures) {

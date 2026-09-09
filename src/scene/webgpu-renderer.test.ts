@@ -11,7 +11,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { vec2 } from "../rmsl";
 import {
-  WebGPURenderer, Scene, MeshBasicMaterial, DataTexture,
+  WebGPURenderer, Scene, MeshBasicMaterial, DataTexture, PlaneGeometry,
   NearestFilter, RepeatWrapping, MirroredRepeatWrapping,
 } from "./index";
 
@@ -26,9 +26,17 @@ interface StubTexture {
   destroy: () => void;
 }
 
+/** A GPUBuffer stand-in: the size it was asked for, and whether it was destroyed. */
+interface StubBuffer {
+  size: number;
+  destroyed: boolean;
+  destroy: () => void;
+}
+
 interface StubDevice {
   device: any;
   textures: StubTexture[];
+  buffers: StubBuffer[];
   bindGroups: unknown[];
   /** One entry per `createSampler`: the descriptor it was asked for. */
   samplers: any[];
@@ -38,12 +46,21 @@ interface StubDevice {
 
 function stubDevice(): StubDevice {
   const textures: StubTexture[] = [];
+  const buffers: StubBuffer[] = [];
   const bindGroups: unknown[] = [];
   const samplers: any[] = [];
   const writes: { texture: StubTexture; data: ArrayBufferView }[] = [];
   const device = {
     createShaderModule: () => ({}),
-    createBuffer: () => ({ destroy: () => {} }),
+    createBuffer: (descriptor: any = {}) => {
+      const buffer: StubBuffer = {
+        size: descriptor.size ?? 0,
+        destroyed: false,
+        destroy: () => { buffer.destroyed = true; },
+      };
+      buffers.push(buffer);
+      return buffer;
+    },
     createBindGroupLayout: () => ({}),
     createPipelineLayout: () => ({}),
     createRenderPipeline: () => ({}),
@@ -77,7 +94,7 @@ function stubDevice(): StubDevice {
       writeBuffer: () => {},
     },
   };
-  return { device, textures, bindGroups, samplers, writes };
+  return { device, textures, buffers, bindGroups, samplers, writes };
 }
 
 function stubCanvas(): any {
@@ -303,5 +320,40 @@ describe("WebGPURenderer texture disposal", () => {
     renderer.dispose();
     expect(textures[0].destroyed).toBe(true);
     expect(texture.hasEventListener("dispose", renderer.onTextureDispose)).toBe(false);
+  });
+});
+
+describe("WebGPURenderer geometry disposal", () => {
+  it("destroys the vertex and index buffers and uploads again on the next draw", () => {
+    const { device, buffers } = stubDevice();
+    const renderer = new WebGPURenderer(stubCanvas(), device) as any;
+    const geometry = new PlaneGeometry(2, 2);
+
+    const uploaded = renderer.ensureGeometryBuffers(geometry);
+    // One buffer per attribute, plus the index.
+    const held = [...uploaded.attributes.values(), uploaded.index];
+    expect(held).toHaveLength(Object.keys(geometry.attributes).length + 1);
+    expect(held.every((buffer: StubBuffer) => !buffer.destroyed)).toBe(true);
+
+    geometry.dispose();
+    expect(held.every((buffer: StubBuffer) => buffer.destroyed)).toBe(true);
+    expect(renderer.geometryBuffers.size).toBe(0);
+
+    // Drawing with the same geometry again fills fresh buffers.
+    const madeBefore = buffers.length;
+    const after = renderer.ensureGeometryBuffers(geometry);
+    expect(renderer.geometryBuffers.size).toBe(1);
+    expect(buffers.length).toBe(madeBefore * 2);
+    expect(after.index).not.toBe(uploaded.index);
+  });
+
+  it("stops listening to the geometries it frees when the renderer is disposed", () => {
+    const { device } = stubDevice();
+    const renderer = new WebGPURenderer(stubCanvas(), device) as any;
+    const geometry = new PlaneGeometry(2, 2);
+    renderer.ensureGeometryBuffers(geometry);
+
+    renderer.dispose();
+    expect(geometry.hasEventListener("dispose", renderer.onGeometryDispose)).toBe(false);
   });
 });

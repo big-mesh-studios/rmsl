@@ -1,3 +1,4 @@
+import { EventDispatcher } from "../core/EventDispatcher";
 import { BufferAttribute } from "./BufferAttribute";
 
 function maxOf(values: ArrayLike<number>): number {
@@ -13,7 +14,7 @@ function maxOf(values: ArrayLike<number>): number {
  * Vertex data for a drawable: named `BufferAttribute`s (position, normal, uv,
  * ...) plus an optional index. Mirrors three.js's `BufferGeometry`.
  */
-export class BufferGeometry {
+export class BufferGeometry extends EventDispatcher {
   readonly isBufferGeometry = true;
 
   attributes: Record<string, BufferAttribute> = {};
@@ -98,5 +99,23 @@ export class BufferGeometry {
   get drawCount(): number {
     if (this.index) return this.index.count;
     return this.attributes.position?.count ?? 0;
+  }
+
+  /**
+   * Release the vertex and index buffers every renderer holds for this
+   * geometry, like three.js's `BufferGeometry.dispose()`. Renderers listen for
+   * the `dispose` event and delete their own buffers, so a geometry drawn by
+   * two renderers frees both.
+   *
+   * The geometry object itself stays usable: drawing with it again uploads its
+   * attributes to fresh buffers. Call this when a geometry leaves the scene for
+   * good, rather than waiting for `renderer.dispose()`, which frees everything
+   * the renderer holds at once. A renderer keys its buffers by geometry object,
+   * so a geometry dropped without this is held by the renderer — with its
+   * buffers and the arrays its attributes point at — for as long as the
+   * renderer lives.
+   */
+  dispose(): void {
+    this.dispatchEvent({ type: "dispose" });
   }
 }

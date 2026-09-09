@@ -519,6 +519,23 @@ export class WebGPURenderer {
   };
 
   /**
+   * Destroy the vertex and index buffers a disposed `BufferGeometry` owns, and
+   * stop listening to it. Drawing with the geometry again is allowed:
+   * `ensureGeometryBuffers` finds no buffers for it and uploads its attributes
+   * into new ones. No bind group names a vertex buffer, so none is invalidated.
+   */
+  private onGeometryDispose = (event: unknown): void => {
+    const geometry = (event as { target: BufferGeometry }).target;
+    const buffers = this.geometryBuffers.get(geometry);
+    if (buffers) {
+      for (const buffer of buffers.attributes.values()) buffer.destroy();
+      buffers.index?.destroy();
+    }
+    this.geometryBuffers.delete(geometry);
+    geometry.removeEventListener("dispose", this.onGeometryDispose);
+  };
+
+  /**
    * Drop the bind group of every cached pipeline that binds this texture, so
    * the next `ensurePipeline` builds one that names whatever GPU texture the
    * `Texture` has now — or none at all, if it was disposed.
@@ -538,6 +555,7 @@ export class WebGPURenderer {
     if (!buffers) {
       buffers = { attributes: new Map(), index: null, indexFormat: null, needsUpload: true };
       this.geometryBuffers.set(geometry, buffers);
+      geometry.addEventListener("dispose", this.onGeometryDispose);
     }
     const needsUpload = buffers.needsUpload
       || Object.values(geometry.attributes).some((a) => a.needsUpdate);
@@ -754,9 +772,10 @@ export class WebGPURenderer {
     for (const bySignature of this.pipelines.values()) {
       for (const entry of bySignature.values()) entry.ringBuffer.destroy();
     }
-    for (const buffers of this.geometryBuffers.values()) {
+    for (const [geometry, buffers] of this.geometryBuffers) {
       for (const buffer of buffers.attributes.values()) buffer.destroy();
       buffers.index?.destroy();
+      geometry.removeEventListener("dispose", this.onGeometryDispose);
     }
     for (const buffer of this.attributeBuffers.values()) buffer.destroy();
     for (const [texture, gpu] of this.textures) {
