@@ -204,6 +204,49 @@ export class WebGLRenderer {
     return buffer;
   }
 
+  /**
+   * Copies a render target's color buffer into a `Uint8Array` without
+   * stalling the pipeline: the transfer goes through a pixel buffer object,
+   * and the returned promise resolves once a GPU fence confirms it landed,
+   * typically a frame or a few after the call rather than within it. Suits a
+   * sample that tolerates that lag (a colour-coded occlusion pass) in place
+   * of `readPixels`, whose stall a caller can't otherwise avoid.
+   */
+  readPixelsAsync(target: WebGLRenderTarget, out?: Uint8Array): Promise<Uint8Array> {
+    const gl = this.gl;
+    const buffer = out ?? new Uint8Array(target.width * target.height * 4);
+    const pbo = gl.createBuffer()!;
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo);
+    gl.bufferData(gl.PIXEL_PACK_BUFFER, buffer.byteLength, gl.STREAM_READ);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.renderTargetFramebuffer(target));
+    gl.readPixels(0, 0, target.width, target.height, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
+    gl.flush();
+    return new Promise<Uint8Array>((resolve, reject) => {
+      const poll = (): void => {
+        const status = gl.clientWaitSync(sync, 0, 0);
+        if (status === gl.TIMEOUT_EXPIRED) {
+          requestAnimationFrame(poll);
+          return;
+        }
+        gl.deleteSync(sync);
+        if (status === gl.WAIT_FAILED) {
+          gl.deleteBuffer(pbo);
+          reject(new Error("[RMSL/scene] readPixelsAsync: GPU sync wait failed"));
+          return;
+        }
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo);
+        gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, buffer);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        gl.deleteBuffer(pbo);
+        resolve(buffer);
+      };
+      poll();
+    });
+  }
+
   private drawMesh(mesh: Mesh, scene: Scene, camera: Camera): void {
     const material = mesh.material;
     if (!(material as NodeMaterial).isNodeMaterial) return;

@@ -369,6 +369,39 @@ globalThis.__rmslTargetRun = () => {
 `;
 
 /**
+ * The async, PBO-backed readback returns the same pixels as `readPixels` for
+ * the same render, without stalling the pipeline to get them.
+ */
+const ENTRY_TARGET_ASYNC = `
+import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
+  MeshBasicMaterial, WebGLRenderTarget } from "./index";
+globalThis.__rmslTargetAsyncRun = async () => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 32;
+  canvas.height = 32;
+  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  renderer.setClearColor(0x000000);
+  const scene = new Scene();
+  scene.add(new Mesh(new PlaneGeometry(2, 2),
+    new MeshBasicMaterial({ color: 0xff0000 })));
+  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 1);
+  camera.lookAt(0, 0, 0);
+
+  const target = new WebGLRenderTarget(8, 8);
+  renderer.render(scene, camera, target);
+  const offscreen = await renderer.readPixelsAsync(target);
+  const gl = renderer.gl;
+
+  const center = (4 + 4 * 8) * 4;
+  return {
+    targetR: offscreen[center],
+    error: gl.getError(),
+  };
+};
+`;
+
+/**
  * Two meshes share one uploaded geometry and draw adjacent slices of it via
  * their draw ranges: left half red, right half blue. A draw-range not honored
  * draws the whole geometry for each — the blue (drawn last) covers the red
@@ -621,6 +654,20 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     expect(pixel.error).toBe(0);
     expect(pixel.targetR).toBeGreaterThan(150);
     expect(pixel.canvasR).toBeGreaterThan(150);
+  }, 60_000);
+
+  it("reads a render target's pixels back asynchronously without stalling", async () => {
+    const page = await gpuPage();
+    const code = await bundleEntry(ENTRY_TARGET_ASYNC);
+    const pixel = await page.evaluate(async (source: string) => {
+      // eslint-disable-next-line no-new-func
+      const fn = new Function(source);
+      fn();
+      return (globalThis as any).__rmslTargetAsyncRun();
+    }, code);
+
+    expect(pixel.error).toBe(0);
+    expect(pixel.targetR).toBeGreaterThan(150);
   }, 60_000);
 
   it("draws only the slice a mesh's drawRange selects from a shared geometry", async () => {
