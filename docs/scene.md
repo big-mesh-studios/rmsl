@@ -129,6 +129,15 @@ uniforms are uploaded per draw, grouped by scope:
 - **material** — color/roughness/metalness/emissive, lights, and any custom
   uniforms declared through the builder
 
+`render(scene, camera, target?)` draws onto a `WebGLRenderTarget` instead of
+the canvas when one is given, keeping its own color and depth. Read a
+target's pixels back with `readPixels(target, out?)`, which copies the GPU's
+answer to a `Uint8Array` and stalls the pipeline until it is ready — fine for
+an occasional sample, not for every frame. `readPixelsAsync(target, out?)`
+reads the same pixels without the stall, at the cost of not having them yet
+when the call returns: it resolves the returned promise once a GPU fence
+confirms the transfer landed, typically a frame or a few later.
+
 ### WebGPURenderer
 
 `await WebGPURenderer.init(canvas?)`. Same API. Uniform values are packed into
