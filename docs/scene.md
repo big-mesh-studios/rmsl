@@ -210,6 +210,30 @@ texture that drops out of a scene — an atlas swapped for another, a layer torn
 down — rather than waiting for `renderer.dispose()`, which frees everything the
 renderer holds at once.
 
+### Geometry lifetime
+
+A renderer creates the vertex and index buffers behind a `BufferGeometry` the
+first time it draws with it, and keys them by the geometry object — so filling
+the same geometry again (`needsUpdate` on an attribute) reuses the buffers it
+already has, and a growing attribute re-allocates only when the data no longer
+fits.
+
+That cache holds the geometry, so a geometry dropped from the scene keeps its
+buffers, and the arrays its attributes point at, alive for as long as the
+renderer lives. `geometry.dispose()` gives both back:
+
+```typescript
+const geometry = new BufferGeometry();
+// ... draw with it ...
+geometry.dispose(); // every renderer that uploaded it frees its buffers
+```
+
+Like a texture's, it dispatches a `dispose` event that each renderer answers for
+its own GPU objects, and the geometry object stays usable: drawing with it again
+uploads its attributes into fresh buffers. Use it for a geometry that leaves the
+scene for good — a chunk of terrain scrolled out of the world, a mesh torn down
+— rather than waiting for `renderer.dispose()`.
+
 ### Lights
 
 Ambient, directional and point lights in the scene are collected at material
