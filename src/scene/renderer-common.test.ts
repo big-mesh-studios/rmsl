@@ -13,6 +13,7 @@ import {
   cameraUniformValue, objectUniformValue, lightsSignature, wgslTypeName,
   isIntegerSampler, samplerSampleType, samplerDimension, samplerState,
   textureChannels, uniformUploadValue, programSignature, geometryAttribute,
+  VERTEX_FORMATS, vertexFormatOf, type VertexFormatSpec,
 } from "./renderers/common";
 import { BufferAttribute } from "./geometries/BufferAttribute";
 
@@ -275,5 +276,95 @@ describe("material program → uniform layout", () => {
     expect(layout.size).toBe(64);
     expect(layout.members[0].size).toBe(64);
     expect(layout.members[0].offset).toBe(0);
+  });
+});
+
+describe("VERTEX_FORMATS", () => {
+  it("holds only formats a buffer of its own can carry", () => {
+    for (const [name, spec] of Object.entries(VERTEX_FORMATS)) {
+      // A buffer holding one attribute has this stride, and WebGPU takes only a
+      // multiple of four. A format failing this could not be bound alone.
+      const stride = spec.count * spec.bytes;
+      expect(`${name} stride ${stride}`)
+        .toBe(`${name} stride ${Math.ceil(stride / 4) * 4}`);
+      // Below 32 bits WebGPU has no three-component format, which the stride
+      // rule alone would not forbid at every width.
+      if (spec.bytes < 4) {
+        expect(`${name} count ${spec.count}`).not.toBe(`${name} count 3`);
+      }
+    }
+  });
+
+  it("gives each format the WebGL type its own name describes", () => {
+    const expected: Record<string, VertexFormatSpec["gl"]> = {
+      float32: "FLOAT",
+      float16: "HALF_FLOAT",
+      snorm8: "BYTE",
+      unorm8: "UNSIGNED_BYTE",
+      snorm16: "SHORT",
+      unorm16: "UNSIGNED_SHORT",
+    };
+    for (const [name, spec] of Object.entries(VERTEX_FORMATS)) {
+      const prefix = name.split("x")[0];
+      expect(`${name} -> ${spec.gl}`).toBe(`${name} -> ${expected[prefix]}`);
+      // The bit width in the name is the byte width in the row.
+      const bits = Number(prefix.replace(/^[a-z]+/, ""));
+      expect(`${name} bytes ${spec.bytes}`).toBe(`${name} bytes ${bits / 8}`);
+      // Only the norm formats scale on the way in.
+      expect(`${name} normalized ${spec.normalized}`)
+        .toBe(`${name} normalized ${/^[su]norm/.test(prefix)}`);
+    }
+  });
+});
+
+describe("vertexFormatOf", () => {
+  it("reads a float attribute's format off its width", () => {
+    const of = (itemSize: number): string =>
+      vertexFormatOf(new BufferAttribute(new Float32Array(itemSize * 2), itemSize));
+    expect(of(1)).toBe("float32");
+    expect(of(2)).toBe("float32x2");
+    expect(of(3)).toBe("float32x3");
+    expect(of(4)).toBe("float32x4");
+  });
+
+  it("treats a plain number array as the floats it uploads as", () => {
+    expect(vertexFormatOf(new BufferAttribute([0, 1, 2], 3))).toBe("float32x3");
+  });
+
+  it("reads a normalized integer attribute as its norm format", () => {
+    expect(vertexFormatOf(new BufferAttribute(new Uint8Array(8), 4, true))).toBe("unorm8x4");
+    expect(vertexFormatOf(new BufferAttribute(new Int8Array(8), 4, true))).toBe("snorm8x4");
+    expect(vertexFormatOf(new BufferAttribute(new Uint16Array(4), 2, true))).toBe("unorm16x2");
+    expect(vertexFormatOf(new BufferAttribute(new Int16Array(4), 2, true))).toBe("snorm16x2");
+  });
+
+  it("takes a mat4's column width rather than its whole item size", () => {
+    const attr = new BufferAttribute(new Float32Array(32), 16, false, "instance");
+    expect(vertexFormatOf(attr, 4)).toBe("float32x4");
+  });
+
+  it("lets an attribute declare a format its array type cannot say", () => {
+    // Half floats held in a Uint16Array are indistinguishable from normalized
+    // integers, which is the case the field exists for.
+    const attr = new BufferAttribute(new Uint16Array([0x3c00, 0x3400]), 2, true);
+    expect(vertexFormatOf(attr)).toBe("unorm16x2");
+    attr.format = "float16x2";
+    expect(vertexFormatOf(attr)).toBe("float16x2");
+  });
+
+  it("carries a declared format through a clone", () => {
+    const attr = new BufferAttribute(new Uint16Array([0x3c00, 0x3400]), 2, true);
+    attr.format = "float16x2";
+    expect(attr.clone().format).toBe("float16x2");
+  });
+
+  it("refuses a raw integer array, which would not be floats in the shader", () => {
+    expect(() => vertexFormatOf(new BufferAttribute(new Uint8Array(8), 4)))
+      .toThrow(/normalized/);
+  });
+
+  it("refuses a width no format covers", () => {
+    expect(() => vertexFormatOf(new BufferAttribute(new Uint8Array(6), 3, true)))
+      .toThrow(/unorm8x3/);
   });
 });

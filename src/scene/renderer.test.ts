@@ -496,6 +496,81 @@ globalThis.__rmslGeometryDisposeRun = () => {
 };
 `;
 
+// Two quads whose colour arrives in a narrower attribute than a float: the left
+// from a normalized Uint8Array bound as unorm8x4, the right from half floats
+// held in a Uint16Array that says so with `format`. Both encode the same
+// colour, so both must read back as it. Bound as floats — what every attribute
+// used to be — each would read four times its own bytes per vertex and draw
+// nothing recognisable; bound unnormalized, the byte 255 would arrive as 255.0
+// rather than 1.0 and clamp the left quad's green to full.
+const ENTRY_PACKED = `
+import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, BufferGeometry,
+  BufferAttribute, MeshBasicMaterial, Side } from "./index";
+import { vec4 } from "../rmsl";
+globalThis.__rmslPackedRun = () => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 32;
+  canvas.height = 32;
+  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  renderer.setClearColor(0x000000);
+  const scene = new Scene();
+
+  const quad = (x0, x1) => new Float32Array([
+    x0, -1, 0,  x1, -1, 0,  x1, 1, 0,  x0, 1, 0,
+  ]);
+  const indices = () => new BufferAttribute(new Uint16Array([0, 1, 2, 0, 2, 3]), 1);
+
+  // Left: one byte a channel, scaled into 0..1 on the way in.
+  const byteGeometry = new BufferGeometry();
+  byteGeometry.setAttribute("position", new BufferAttribute(quad(-1.6, -0.2), 3));
+  byteGeometry.setAttribute("tint", new BufferAttribute(new Uint8Array([
+    255, 64, 0, 255,  255, 64, 0, 255,  255, 64, 0, 255,  255, 64, 0, 255,
+  ]), 4, true));
+  byteGeometry.setIndex(indices());
+  const byteMaterial = new MeshBasicMaterial({ side: Side.DoubleSide });
+  byteMaterial.vertexNode = (b) => {
+    b.varying("tint", "vec4").assign(b.attribute("tint", "vec4"));
+    return b.projectionMatrix.mul(b.viewMatrix.mul(b.modelMatrix.mul(vec4(b.position, 1))));
+  };
+  byteMaterial.fragmentNode = (b) => b.varying("tint", "vec4");
+  scene.add(new Mesh(byteGeometry, byteMaterial));
+
+  // Right: 1.0 and 0.25 as half floats, which only \`format\` can distinguish
+  // from a Uint16Array of normalized integers.
+  const halfGeometry = new BufferGeometry();
+  halfGeometry.setAttribute("position", new BufferAttribute(quad(0.2, 1.6), 3));
+  const halves = new BufferAttribute(new Uint16Array([
+    0x3c00, 0x3400,  0x3c00, 0x3400,  0x3c00, 0x3400,  0x3c00, 0x3400,
+  ]), 2);
+  halves.format = "float16x2";
+  halfGeometry.setAttribute("shade", halves);
+  halfGeometry.setIndex(indices());
+  const halfMaterial = new MeshBasicMaterial({ side: Side.DoubleSide });
+  halfMaterial.vertexNode = (b) => {
+    b.varying("shade", "vec2").assign(b.attribute("shade", "vec2"));
+    return b.projectionMatrix.mul(b.viewMatrix.mul(b.modelMatrix.mul(vec4(b.position, 1))));
+  };
+  halfMaterial.fragmentNode = (b) => {
+    const shade = b.varying("shade", "vec2");
+    return vec4(shade.x, shade.y, 0, 1);
+  };
+  scene.add(new Mesh(halfGeometry, halfMaterial));
+
+  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 4);
+  camera.lookAt(0, 0, 0);
+  renderer.render(scene, camera);
+
+  const gl = renderer.gl;
+  const pixels = new Uint8Array(4);
+  gl.readPixels(8, 16, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+  const bytes = [pixels[0], pixels[1], pixels[2]];
+  gl.readPixels(24, 16, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+  const half = [pixels[0], pixels[1], pixels[2]];
+  return { bytes, half, error: gl.getError() };
+};
+`;
+
 async function bundleEntry(source: string): Promise<string> {
   const result = await build({
     stdin: {
@@ -526,6 +601,30 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     // The lit red box against a black background must have written red.
     expect(pixel.r).toBeGreaterThan(50);
     expect(pixel.b).toBeLessThan(60);
+  }, 60_000);
+
+  it("reads a packed attribute at its own width, not as floats", async () => {
+    const page = await gpuPage();
+    const code = await bundleEntry(ENTRY_PACKED);
+    const result = await page.evaluate(async (source: string) => {
+      // eslint-disable-next-line no-new-func
+      const fn = new Function(source);
+      fn();
+      return (globalThis as any).__rmslPackedRun();
+    }, code);
+
+    expect(result.error).toBe(0);
+    // 255 and 64 as bytes are 1.0 and ~0.251 in the shader, which come back as
+    // the bytes they started from. Read unnormalized both would clamp to full.
+    expect(result.bytes[0]).toBeGreaterThan(250);
+    expect(result.bytes[1]).toBeGreaterThan(56);
+    expect(result.bytes[1]).toBeLessThan(72);
+    expect(result.bytes[2]).toBeLessThan(6);
+    // The half floats encode the same colour by a different route.
+    expect(result.half[0]).toBeGreaterThan(250);
+    expect(result.half[1]).toBeGreaterThan(56);
+    expect(result.half[1]).toBeLessThan(72);
+    expect(result.half[2]).toBeLessThan(6);
   }, 60_000);
 
   it("renders a usampler2D texture to the color target", async () => {

@@ -15,6 +15,7 @@ import {
   cameraUniformValue, isIntegerSampler, objectUniformValue, lightsSignature,
   shaderPrecision, toBufferView, samplerState, textureChannels, type TextureWrap,
   rendererUniformValue, programSignature, geometryAttribute,
+  VERTEX_FORMATS, vertexFormatOf,
 } from "./common";
 
 interface ProgramEntry {
@@ -588,16 +589,22 @@ export class WebGLRenderer {
       // each is fed from one column of the 64-byte instance record. The GLSL
       // linker handed the base location, so the columns land at location..+3.
       const locationSize = attribute.node._t === "mat4" ? 4 : 1;
-      const stride = attr.itemSize * 4;
+      const components = attr.itemSize / locationSize;
+      const format = VERTEX_FORMATS[vertexFormatOf(attr, components)];
+      // One buffer carries one attribute, so its stride is the whole record and
+      // consecutive locations start a component-width apart inside it. An
+      // interleaved attribute would take both numbers from the attribute rather
+      // than deriving them here.
+      const stride = attr.itemSize * format.bytes;
       for (let i = 0; i < locationSize; i++) {
         gl.enableVertexAttribArray(location + i);
         gl.vertexAttribPointer(
           location + i,
-          attr.itemSize / locationSize,
-          gl.FLOAT,
-          attr.normalized,
+          components,
+          gl[format.gl],
+          format.normalized,
           stride,
-          (attr.itemSize / locationSize) * i * 4,
+          components * i * format.bytes,
         );
         gl.vertexAttribDivisor(location + i, attribute.stepMode === "instance" ? 1 : 0);
       }

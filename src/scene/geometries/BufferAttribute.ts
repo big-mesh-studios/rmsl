@@ -1,3 +1,5 @@
+import type { VertexFormat } from "../renderers/common";
+
 /**
  * One interleaved-or-flat attribute of a geometry: a typed array of `itemSize`
  * components per vertex. Mirrors three.js's `BufferAttribute`.
@@ -16,6 +18,14 @@ export class BufferAttribute {
   count: number;
   stepMode: "vertex" | "instance";
   needsUpdate = false;
+  /**
+   * The vertex format these bytes are in, for the cases the array's own type
+   * cannot say. A `Uint16Array` of half floats is the one that needs it: it is
+   * indistinguishable from a `Uint16Array` of normalized integers, and only the
+   * author knows which. Left undefined, `vertexFormatOf` reads the format off
+   * the array type, the item size and `normalized`.
+   */
+  format?: VertexFormat;
   /**
    * The slice of `array` to re-upload when `needsUpdate` is set, in array
    * elements: `offset` is where the new data begins and `count` how many
@@ -55,6 +65,8 @@ export class BufferAttribute {
     const array = (this.array as number[]).slice
       ? (this.array as number[]).slice()
       : Array.from(this.array);
-    return new BufferAttribute(array, this.itemSize, this.normalized, this.stepMode);
+    const clone = new BufferAttribute(array, this.itemSize, this.normalized, this.stepMode);
+    clone.format = this.format;
+    return clone;
   }
 }

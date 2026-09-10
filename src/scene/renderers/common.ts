@@ -273,3 +273,132 @@ export function toBufferView(
   }
   return new Float32Array(array);
 }
+
+/**
+ * One vertex attribute's layout, under the name WebGPU gives it. The set is
+ * limited to the formats that reach a shader as floats on both backends, which
+ * is the set a program whose attribute types are *declared* can bind: a
+ * material asks for a `vec4` and gets one from `unorm8x4` under either backend,
+ * where `uint8x4` would be a `vec4` in GLSL and a `vec4<u32>` in WGSL and only
+ * one of those is what the material asked for. Admitting the integer formats
+ * means deriving each attribute's shader type from its buffer and compiling the
+ * program per geometry, which is a larger change than this one.
+ */
+export type VertexFormat =
+  | "float32" | "float32x2" | "float32x3" | "float32x4"
+  | "float16x2" | "float16x4"
+  | "snorm8x4" | "unorm8x4"
+  | "snorm16x2" | "snorm16x4"
+  | "unorm16x2" | "unorm16x4";
+
+/** What one vertex format is made of, in the terms each backend binds it by. */
+export interface VertexFormatSpec {
+  /** Components one vertex holds. */
+  count: number;
+  /** Bytes one component occupies. */
+  bytes: number;
+  /** Whether the stored integer is scaled into 0..1 or -1..1 on the way in. */
+  normalized: boolean;
+  /** The WebGL component type, by its `WebGL2RenderingContext` key. */
+  gl: "BYTE" | "UNSIGNED_BYTE" | "SHORT" | "UNSIGNED_SHORT" | "HALF_FLOAT" | "FLOAT";
+}
+
+/**
+ * Every vertex format both backends can be handed, and what each is made of.
+ *
+ * `count * bytes` is the stride of a buffer holding this attribute and nothing
+ * else, which is how both renderers bind one, and WebGPU requires that stride
+ * to be a multiple of four. That is what shapes this list: no three-component
+ * format below 32 bits, and the byte-wide formats only four components wide. An
+ * attribute narrower than four bytes packs into the spare lanes of a wider one
+ * — a face index and a light level sharing a `unorm8x4` — rather than taking a
+ * buffer to itself.
+ *
+ * WebGPU defines two-component byte formats as well, and they are absent here
+ * for that same reason: a buffer of one alone would have a stride of two. What
+ * would admit them is a `BufferAttribute` able to carry a stride and an offset,
+ * so that several attributes share one buffer — the rule constrains the buffer,
+ * not each attribute inside it, so a `unorm8x2` at byte 16 of a 24-byte record
+ * is fine where the same format alone is not.
+ */
+export const VERTEX_FORMATS: Record<VertexFormat, VertexFormatSpec> = {
+  float32: { count: 1, bytes: 4, normalized: false, gl: "FLOAT" },
+  float32x2: { count: 2, bytes: 4, normalized: false, gl: "FLOAT" },
+  float32x3: { count: 3, bytes: 4, normalized: false, gl: "FLOAT" },
+  float32x4: { count: 4, bytes: 4, normalized: false, gl: "FLOAT" },
+  float16x2: { count: 2, bytes: 2, normalized: false, gl: "HALF_FLOAT" },
+  float16x4: { count: 4, bytes: 2, normalized: false, gl: "HALF_FLOAT" },
+  snorm8x4: { count: 4, bytes: 1, normalized: true, gl: "BYTE" },
+  unorm8x4: { count: 4, bytes: 1, normalized: true, gl: "UNSIGNED_BYTE" },
+  snorm16x2: { count: 2, bytes: 2, normalized: true, gl: "SHORT" },
+  snorm16x4: { count: 4, bytes: 2, normalized: true, gl: "SHORT" },
+  unorm16x2: { count: 2, bytes: 2, normalized: true, gl: "UNSIGNED_SHORT" },
+  unorm16x4: { count: 4, bytes: 2, normalized: true, gl: "UNSIGNED_SHORT" },
+};
+
+/**
+ * The format family an attribute's array belongs to, or nothing where its bytes
+ * cannot reach a shader as floats. A plain `number[]` is whatever
+ * `toBufferView` will make of it, which is a `Float32Array`.
+ */
+function formatPrefix(
+  array: ArrayLike<number>,
+  normalized: boolean,
+): string | undefined {
+  if (!ArrayBuffer.isView(array)) return "float32";
+  if (array instanceof Float32Array) return "float32";
+  if (typeof Float16Array !== "undefined" && array instanceof Float16Array) return "float16";
+  // An integer array reaches a float attribute only by being scaled on the way
+  // in. Read raw it would be an integer in the shader too, which is the type
+  // the material did not declare.
+  if (!normalized) return undefined;
+  if (array instanceof Int8Array) return "snorm8";
+  if (array instanceof Uint8Array) return "unorm8";
+  if (array instanceof Int16Array) return "snorm16";
+  if (array instanceof Uint16Array) return "unorm16";
+  return undefined;
+}
+
+/**
+ * The vertex format an attribute's bytes are in: its own `format` where it
+ * declares one, and otherwise the format its array type, component count and
+ * `normalized` flag imply.
+ *
+ * @param count Components one shader location consumes, which is the attribute's
+ *   `itemSize` except for a `mat4`, whose four locations each take four of its
+ *   sixteen.
+ * @throws When the attribute's bytes have no format in `VERTEX_FORMATS` — a raw
+ *   integer array, or a width no format covers. Both are silent bugs otherwise:
+ *   the bytes get read as something they are not.
+ */
+export function vertexFormatOf(
+  attr: BufferAttribute,
+  count = attr.itemSize,
+): VertexFormat {
+  if (attr.format !== undefined) return attr.format;
+  const prefix = formatPrefix(attr.array, attr.normalized);
+  if (prefix === undefined) {
+    throw new Error(
+      `rmsl: a ${arrayTypeName(attr.array)} attribute has no vertex format. `
+      + "An integer array reaches a float attribute only when it is scaled on "
+      + "the way in: set `normalized: true`, or set `format` to say what its "
+      + "bytes hold.",
+    );
+  }
+  const name = prefix === "float32" && count === 1 ? "float32" : `${prefix}x${count}`;
+  if (!(name in VERTEX_FORMATS)) {
+    throw new Error(
+      `rmsl: no vertex format "${name}" for a ${arrayTypeName(attr.array)} `
+      + `attribute of ${count} component${count === 1 ? "" : "s"}. A buffer `
+      + "carrying one attribute must have a stride that is a multiple of four, "
+      + "so a narrow attribute packs into the spare lanes of a four-component "
+      + "one rather than taking a buffer of its own.",
+    );
+  }
+  return name as VertexFormat;
+}
+
+/** What to call an attribute's array in a message about it. */
+function arrayTypeName(array: ArrayLike<number>): string {
+  return ArrayBuffer.isView(array) ? array.constructor.name : "number[]";
+}
