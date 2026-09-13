@@ -262,10 +262,13 @@ export function compileWasmFn(
   const scratchAddress = new WeakMap<object, number>();
   let memCursor = 0;
 
-  function allocateFor(t: string): number {
+  function allocateBytes(size: number): number {
     const addr = memCursor;
-    memCursor += componentCountOf(t) * componentSizeOf(elementKindOf(t));
+    memCursor += size;
     return addr;
+  }
+  function allocateFor(t: string): number {
+    return allocateBytes(componentCountOf(t) * componentSizeOf(elementKindOf(t)));
   }
 
   function addParam(spec: WasmParam, key: string): void {
@@ -293,6 +296,7 @@ export function compileWasmFn(
     if (node.type === "construct") return true;
     if (node.type === t) return true; // literal vector/matrix
     if (node.type === "swizzle" && (node.value as string).length > 1) return true;
+    if (node.type === "cross" || node.type === "reflect" || node.type === "normalize") return true;
     return node.type === "add" || node.type === "sub" || node.type === "mul" || node.type === "div";
   }
 
@@ -339,7 +343,14 @@ export function compileWasmFn(
       importsUsed.add("pow");
     }
     if (isScratchNode(node) && !scratchAddress.has(node)) {
-      scratchAddress.set(node, allocateFor(node._t as string));
+      const addr = allocateFor(node._t as string);
+      // `normalize`/`reflect` each need one scalar (the length, the
+      // reflection dot product) read back multiple times while computing
+      // every output component — rather than inventing a WASM-local scratch
+      // mechanism, one extra f64 slot right after the node's own output
+      // components holds it, computed once.
+      if (node.type === "normalize" || node.type === "reflect") allocateBytes(8);
+      scratchAddress.set(node, addr);
     }
     if (Array.isArray(node.params)) for (const p of node.params) collect(p);
   }
@@ -414,6 +425,12 @@ export function compileWasmFn(
       case "mul":
       case "div":
         return emitComponentwiseStores(node, nodeAddress(node));
+      case "cross":
+        return emitCrossStores(node, nodeAddress(node));
+      case "normalize":
+        return emitNormalizeStores(node, nodeAddress(node));
+      case "reflect":
+        return emitReflectStores(node, nodeAddress(node));
       default:
         if (node.type === node._t && Array.isArray(node.value)) {
           return emitLiteralStores(node, nodeAddress(node));
@@ -534,6 +551,89 @@ export function compileWasmFn(
       const aBytes = aWidth > 1 ? loadComponent(aAddr!, targetKind, k * compSize) : walkExpr(a);
       const bBytes = bWidth > 1 ? loadComponent(bAddr!, targetKind, k * compSize) : walkExpr(b);
       out.push(...storeComponent(addr, targetKind, k * compSize, [...aBytes, ...bBytes, opcode]));
+    }
+    return out;
+  }
+
+  /** `cross(a, b)` — vec3 only, matching GLSL/the JS backend. Each of a's
+   * and b's three components is used in exactly two of the three outputs;
+   * materializing once and reloading by index for each use is cheap enough
+   * not to need anything smarter. */
+  function emitCrossStores(node: any, addr: number): number[] {
+    const [a, b] = node.params;
+    const width = componentCountOf(node._t as string);
+    if (width !== 3) {
+      throw new Error(`[RMSL] compileWasmFn: cross() needs a vec3, got width ${width}`);
+    }
+    const out = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
+    const aAddr = nodeAddress(a), bAddr = nodeAddress(b);
+    const load = (n: number, k: number) => loadComponent(n, "float", k * 8);
+    const term = (a0: number[], b0: number[], a1: number[], b1: number[]) => [...a0, ...b0, WASM_OP.f64Mul, ...a1, ...b1, WASM_OP.f64Mul, WASM_OP.f64Sub];
+    out.push(...storeComponent(addr, "float", 0, term(load(aAddr, 1), load(bAddr, 2), load(aAddr, 2), load(bAddr, 1))));
+    out.push(...storeComponent(addr, "float", 8, term(load(aAddr, 2), load(bAddr, 0), load(aAddr, 0), load(bAddr, 2))));
+    out.push(...storeComponent(addr, "float", 16, term(load(aAddr, 0), load(bAddr, 1), load(aAddr, 1), load(bAddr, 0))));
+    return out;
+  }
+
+  /** `normalize(v)` — `v / length(v)`, or `v` unchanged where the length is
+   * zero (matching the JS backend's div-by-zero guard). The length is
+   * computed once into the one extra f64 slot `isScratchNode`'s caller
+   * reserved right after this node's own output components (see
+   * `collect()`), then read back by each component's `select` instead of
+   * being recomputed — recomputing a sum-of-`width`-squares per component
+   * would cost `O(width^2)`, unlike this file's usual "recompute a value
+   * used twice" tradeoff. */
+  function emitNormalizeStores(node: any, addr: number): number[] {
+    const src = node.params[0];
+    const kind = elementKindOf(node._t as string);
+    const compSize = componentSizeOf(kind);
+    const width = componentCountOf(node._t as string);
+    const lengthAddr = addr + width * compSize;
+    const out = [...materializeIfNeeded(src)];
+    const srcAddr = nodeAddress(src);
+    let sumSq: number[] = [];
+    for (let k = 0; k < width; k++) {
+      const term = [...loadComponent(srcAddr, kind, k * compSize), ...loadComponent(srcAddr, kind, k * compSize), WASM_OP.f64Mul];
+      sumSq = k === 0 ? term : [...sumSq, ...term, WASM_OP.f64Add];
+    }
+    out.push(...storeComponent(lengthAddr, "float", 0, [...sumSq, WASM_OP.f64Sqrt]));
+    for (let k = 0; k < width; k++) {
+      const srcK = loadComponent(srcAddr, kind, k * compSize);
+      const cond = [...loadComponent(lengthAddr, "float", 0), ...f64ConstBytes(0), WASM_OP.f64Gt];
+      const whenPositive = [...srcK, ...loadComponent(lengthAddr, "float", 0), WASM_OP.f64Div];
+      out.push(...storeComponent(addr, kind, k * compSize, selectExpr(whenPositive, srcK, cond)));
+    }
+    return out;
+  }
+
+  /** `reflect(i, n) = i - 2 * dot(n, i) * n`. Same "one extra scratch slot"
+   * treatment as `normalize` for the dot product, reused across all `width`
+   * output components. */
+  function emitReflectStores(node: any, addr: number): number[] {
+    const [i, n] = node.params;
+    const kind = elementKindOf(node._t as string);
+    const compSize = componentSizeOf(kind);
+    const width = componentCountOf(node._t as string);
+    const dotAddr = addr + width * compSize;
+    const out = [...materializeIfNeeded(i), ...materializeIfNeeded(n)];
+    const iAddr = nodeAddress(i), nAddr = nodeAddress(n);
+    let dot: number[] = [];
+    for (let k = 0; k < width; k++) {
+      const term = [...loadComponent(nAddr, kind, k * compSize), ...loadComponent(iAddr, kind, k * compSize), WASM_OP.f64Mul];
+      dot = k === 0 ? term : [...dot, ...term, WASM_OP.f64Add];
+    }
+    out.push(...storeComponent(dotAddr, "float", 0, dot));
+    for (let k = 0; k < width; k++) {
+      const bytes = [
+        ...loadComponent(iAddr, kind, k * compSize),
+        ...f64ConstBytes(2),
+        ...loadComponent(dotAddr, "float", 0),
+        WASM_OP.f64Mul,
+        ...loadComponent(nAddr, kind, k * compSize),
+        WASM_OP.f64Mul,
+        WASM_OP.f64Sub,
+      ];
+      out.push(...storeComponent(addr, kind, k * compSize, bytes));
     }
     return out;
   }
@@ -756,6 +856,32 @@ export function compileWasmFn(
           acc = k === 0 ? term : [...acc, ...term, WASM_OP.f64Add];
         }
         return [...pre, ...acc];
+      }
+      case "length": {
+        const src = node.params[0];
+        const width = componentCountOf(src._t);
+        const pre = materializeIfNeeded(src);
+        const addr = nodeAddress(src);
+        let sumSq: number[] = [];
+        for (let k = 0; k < width; k++) {
+          const term = [...loadComponent(addr, "float", k * 8), ...loadComponent(addr, "float", k * 8), WASM_OP.f64Mul];
+          sumSq = k === 0 ? term : [...sumSq, ...term, WASM_OP.f64Add];
+        }
+        return [...pre, ...sumSq, WASM_OP.f64Sqrt];
+      }
+      case "distance": {
+        const a = node.params[0], b = node.params[1];
+        const width = componentCountOf(a._t);
+        const pre = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
+        const aAddr = nodeAddress(a);
+        const bAddr = nodeAddress(b);
+        let sumSq: number[] = [];
+        for (let k = 0; k < width; k++) {
+          const diff = [...loadComponent(aAddr, "float", k * 8), ...loadComponent(bAddr, "float", k * 8), WASM_OP.f64Sub];
+          const term = [...diff, ...diff, WASM_OP.f64Mul];
+          sumSq = k === 0 ? term : [...sumSq, ...term, WASM_OP.f64Add];
+        }
+        return [...pre, ...sumSq, WASM_OP.f64Sqrt];
       }
       default:
         throw new Error(`[RMSL] compileWasmFn: unsupported node type in expression position: "${node.type}"`);

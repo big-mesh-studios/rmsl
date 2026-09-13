@@ -163,13 +163,16 @@ control flow:
   `Switch(selector, chain)` need no separate handling: both desugar to
   `For`/`if`-chains before this backend ever sees them (`rmsl-core.ts`), so
   they already worked once `for`/`if` did.
+- `cross` (vec3 only), `length`, `distance`, `normalize` (leaves a
+  zero-length vector unchanged rather than dividing by zero, matching the
+  JS backend), and `reflect`.
 
 **What throws today** (deliberately — see the Phase list below for when each
-lands): `cross`/`length`/`normalize`/`distance`/`reflect`, matrix×vector and
-matrix×matrix multiply, `clamp`/`mix`/`step`/`smoothstep` (composite ops
-with no single WASM opcode — deliberately out of Phase 2's "has a direct
-opcode" scope), `uniformArray`, `output()`/`varying()`/`attribute()`/
-`builtinPosition()`/`builtinFragDepth()`/`fragCoord()`,
+lands): matrix×vector and matrix×matrix multiply, `clamp`/`mix`/`step`/
+`smoothstep` (composite ops with no single WASM opcode — deliberately out
+of Phase 2's "has a direct opcode" scope), `uniformArray`,
+`output()`/`varying()`/`attribute()`/`builtinPosition()`/
+`builtinFragDepth()`/`fragCoord()`,
 `textureLoad`/`texture`/`textureSize`, multi-return, and any non-scalar
 function *result* (only intermediate values are first-class aggregates now
 — the root a compiled `Fn` returns must still be a scalar). `compileWasmFn`

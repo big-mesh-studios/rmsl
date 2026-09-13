@@ -24,6 +24,7 @@ import {
   compileWasm, compileJS, Fn, If, For, While, Loop, Break, Continue, Return, Discard,
   float, int, uint, bool, uniform, vec2, vec3, vec4,
   ivec3, uvec3, bvec3, mat2, mat3, mat4, sin, clamp,
+  cross, length, normalize, distance, reflect,
   type Node, type ShaderType,
 } from "./rmsl";
 
@@ -499,5 +500,37 @@ describe("WASM backend: aggregate function params", () => {
   it("reads a vec3 function param via memory, not a WASM arg", () => {
     const fn = compileWasm((v: any) => v.dot(v), { name: "main", params: [{ name: "v", type: "vec3" }] });
     expect(fn({ params: { v: [1, 2, 3] } })).toBe(14);
+  });
+});
+
+describe("WASM backend: cross, length, normalize, distance, reflect", () => {
+  it("computes a cross product", () => {
+    expect(run(() => cross(vec3(1, 0, 0), vec3(0, 1, 0)).dot(vec3(0, 0, 1)) as any)).toBe(1);
+    expect(run(() => cross(vec3(1, 0, 0), vec3(0, 1, 0)).dot(vec3(1, 0, 0)) as any)).toBe(0);
+  });
+
+  it("throws for cross() on a non-vec3", () => {
+    expect(() => compileWasm(() => (cross(vec2(1, 0) as any, vec2(0, 1) as any) as any).dot(vec2(0, 1) as any), { name: "main", params: [] }))
+      .toThrow(/cross\(\) needs a vec3/);
+  });
+
+  it("computes length and distance", () => {
+    expect(run(() => length(vec3(3, 4, 0)) as any)).toBe(5);
+    expect(run(() => distance(vec3(0, 0, 0), vec3(3, 4, 0)) as any)).toBe(5);
+  });
+
+  it("normalizes a vector", () => {
+    expect(run(() => normalize(vec3(3, 4, 0)).dot(normalize(vec3(3, 4, 0))) as any)).toBeCloseTo(1, 9);
+    expect(run(() => normalize(vec3(3, 4, 0)).x as any)).toBeCloseTo(0.6, 9);
+  });
+
+  it("leaves a zero-length vector unchanged rather than dividing by zero", () => {
+    expect(run(() => normalize(vec3(0, 0, 0)).x as any)).toBe(0);
+  });
+
+  it("reflects a vector off a normal", () => {
+    // reflect(I, N) = I - 2*dot(N,I)*N; I=(1,-1,0), N=(0,1,0) -> (1,1,0)
+    expect(run(() => reflect(vec3(1, -1, 0), vec3(0, 1, 0)).dot(vec3(1, 1, 0)) as any)).toBe(2);
+    expect(run(() => reflect(vec3(1, -1, 0), vec3(0, 1, 0)).y as any)).toBe(1);
   });
 });
