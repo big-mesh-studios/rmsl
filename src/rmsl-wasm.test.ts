@@ -57,9 +57,14 @@ describe("WASM backend: scalar arithmetic", () => {
       .toThrow(/multi-return/);
   });
 
-  it("rejects a non-scalar result", () => {
-    expect(() => compileWasm(() => vec3(1, 2, 3) as any, { name: "main", params: [] }))
-      .toThrow(/scalar result/);
+  it("supports a plain non-scalar result, through the same memory-based path a stage program uses", () => {
+    // A plain WASM function can only ever return one scalar, so an
+    // aggregate root goes through `needsResult` mode automatically —
+    // this is what lets a per-pixel `vec4` color work with `.draw()` (see
+    // that describe block below) with no stage/output() involved at all.
+    const fn = compileWasm(() => vec3(1, 2, 3) as any, { name: "main", params: [] });
+    const result = fn({}) as any;
+    expect(result.value).toEqual([1, 2, 3]);
   });
 
   it("rejects an op outside this backend's coverage so far", () => {
@@ -1036,5 +1041,72 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
     })();
     expect(() => compileWasm(build as any, { name: "main", params: [] }))
       .toThrow(/sampler2D\/sampler3D/);
+  });
+});
+
+describe("WASM backend: .draw() — render a whole grid in one call", () => {
+  it("renders a scalar per pixel, fragCoord at pixel centers", () => {
+    const build = () => Fn(() => fragCoord().x)();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const out = fn.draw({}, 3, 2);
+    expect(out.length).toBe(3 * 2);
+    // Row-major, (y*width+x): x+0.5 regardless of row.
+    expect(Array.from(out)).toEqual([0.5, 1.5, 2.5, 0.5, 1.5, 2.5]);
+  });
+
+  it("renders both fragCoord axes packed into a vec4 per pixel, with no stage or output() involved", () => {
+    const build = () => Fn(() => vec4(fragCoord().x, fragCoord().y, 0, 1))();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const out = fn.draw({}, 2, 2);
+    expect(out.length).toBe(2 * 2 * 4);
+    expect(Array.from(out)).toEqual([
+      0.5, 0.5, 0, 1, // (0,0)
+      1.5, 0.5, 0, 1, // (1,0)
+      0.5, 1.5, 0, 1, // (0,1)
+      1.5, 1.5, 0, 1, // (1,1)
+    ]);
+  });
+
+  it("reads a uniform every pixel and reflects a changed uniform on the next call", () => {
+    const scale = uniform("float");
+    const build = () => Fn(() => fragCoord().x.mul(scale))();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    expect(Array.from(fn.draw({ uniforms: { [scale.name]: 2 } }, 2, 1))).toEqual([1, 3]);
+    expect(Array.from(fn.draw({ uniforms: { [scale.name]: 10 } }, 2, 1))).toEqual([5, 15]);
+  });
+
+  it("picks dimensions per call, not at compile time", () => {
+    const build = () => Fn(() => fragCoord().x)();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    expect(Array.from(fn.draw({}, 2, 1))).toEqual([0.5, 1.5]);
+    expect(Array.from(fn.draw({}, 4, 1))).toEqual([0.5, 1.5, 2.5, 3.5]);
+    expect(Array.from(fn.draw({}, 1, 1))).toEqual([0.5]);
+  });
+
+  it("the same compiled function still works as a plain single-pixel call — draw() is a choice per call, not a compile mode", () => {
+    const scale = uniform("float");
+    const build = () => Fn(() => fragCoord().x.mul(scale))();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    expect(fn({ uniforms: { [scale.name]: 2 }, fragCoord: [3, 0] })).toBe(6);
+    expect(Array.from(fn.draw({ uniforms: { [scale.name]: 2 } }, 2, 1))).toEqual([1, 3]);
+  });
+
+  it("grows memory for a large grid without corrupting earlier pixels", () => {
+    const build = () => Fn(() => fragCoord().x.add(fragCoord().y))();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const small = fn.draw({}, 2, 1);
+    expect(Array.from(small)).toEqual([1, 2]); // (0.5+0.5), (1.5+0.5)
+    const width = 300, height = 300;
+    const big = fn.draw({}, width, height);
+    expect(big.length).toBe(width * height);
+    expect(big[0]).toBe(1); // (0.5 + 0.5)
+    expect(big[width * height - 1]).toBe((width - 0.5) + (height - 0.5));
+  });
+
+  it("throws when the function produces no value to render", () => {
+    const build = () => Fn(() => { output("float").assign(float(1)); })();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    expect(() => fn.draw({}, 1, 1))
+      .toThrow(/produces no value to render/);
   });
 });

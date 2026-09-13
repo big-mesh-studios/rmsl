@@ -85,6 +85,13 @@ export type CompiledWasm = {
    * every call, growing the module's memory first if needed. Meaningless
    * when `params` has no `"textureMemory"` entry. */
   textureHeapBase: number;
+  /** Present whenever the Fn produces a non-`"void"` value (regardless of
+   * whether `compileWasm`'s `.draw()` ever actually gets called) — the
+   * exported `"draw"` function shares `main`'s own compiled body via a
+   * real WASM `call`, rendering a `width x height` grid (both runtime
+   * arguments, decided per call) into this buffer instead of one call per
+   * pixel. `compileWasm` uses this to build its `.draw()` method. */
+  draw?: { bufferBase: number; componentCount: number; kind: "float" | "int" | "uint" | "bool" };
 };
 
 export const WASM_OP = {
@@ -470,7 +477,12 @@ export function compileWasmFn(
   // program does — a vertex stage's own result always maps to the implicit
   // position unless `builtinPosition()` was written some other way
   // (`assertStageResult`), so it's never just a plain WASM return value.
-  let needsResult = options.stage === "vertex";
+  // An aggregate root (`vec4`, ...) seeds it too: a plain WASM function can
+  // only ever return one scalar, so anything wider always has to go
+  // through memory regardless of stage — this is what lets `draw()` (see
+  // `compileWasm`) support a per-pixel `vec4` color with no stage/output()
+  // involved at all.
+  let needsResult = options.stage === "vertex" || isAggregate(root._t as string);
   let positionWritten = false;
   const outputAddress = new Map<string, number>();
   const varyingOutputAddress = new Map<string, number>();
@@ -828,6 +840,14 @@ export function compileWasmFn(
    * own immediate offset is always 0. */
   function loadDynamic(addrBytes: number[], kind: ScalarKind): number[] {
     return [...addrBytes, kind === "float" ? WASM_OP.f64Load : WASM_OP.i32Load, 0x00, 0x00];
+  }
+
+  /** The dynamic-address counterpart of `storeComponent`, mirroring
+   * `loadDynamic` — needed for `draw`'s per-pixel output buffer, whose
+   * write address depends on the loop's own runtime `x`/`y` counters
+   * rather than being a compile-time constant. */
+  function storeDynamic(addrBytes: number[], kind: ScalarKind, valueBytes: number[]): number[] {
+    return [...addrBytes, ...valueBytes, kind === "float" ? WASM_OP.f64Store : WASM_OP.i32Store, 0x00, 0x00];
   }
 
   /** Populate `nodeAddress(node)` with `node`'s value, for any node type
@@ -2126,25 +2146,124 @@ export function compileWasmFn(
   const resultTypes = needsResult ? [] : [[wasmTypeOf(resultKind)]];
   const mainTypeIdx = typeEntries.length;
   typeEntries.push([WASM_FUNC, ...wasmVec(paramTypes), ...wasmVec(resultTypes)]);
+  // Function indices: imports occupy 0..importNames.length-1, so `main` —
+  // the first locally-defined function — is at `importNames.length`,
+  // exactly the index the export section below already uses for it.
+  const mainFuncIndex = importNames.length;
+
+  /**
+   * A second exported function, `"draw"`, sharing `main`'s own compiled
+   * body via a real WASM `call` rather than a separate compile mode —
+   * `compileWasm` exposes it as `.draw(ctx, width, height)` on the
+   * callable it returns, decided per call, not baked in at compile time.
+   * Only built when there is a per-pixel value to render at all
+   * (`root._t !== "void"` — a pure `output()`-writing stage program has
+   * nothing for `draw` to put anywhere).
+   *
+   * `draw`'s own signature is `main`'s scalar params, followed by
+   * `width`/`height` (both runtime `i32` values, not compile-time
+   * constants — an image's dimensions are picked per call, the same way
+   * any other input is). Its body is a `y`/`x` loop: write this
+   * iteration's pixel coordinate into `fragCoordAddress` (skipped
+   * entirely when the compiled program never calls `fragCoord()` at
+   * all — nothing needs it), `call` `main` with the same scalar
+   * arguments `draw` itself received, and copy the result — read
+   * straight off `main`'s own WASM return value when `!needsResult`
+   * (a plain scalar), or from `valueAddress` in memory when `needsResult`
+   * (anything wider, or a stage program) — into a growable output
+   * buffer, one dynamic-address store per component (`storeDynamic`, the
+   * write-side counterpart of the texture heap's `loadDynamic`).
+   *
+   * The buffer's base address (`drawBufferBase`) is a fixed compile-time
+   * constant — like the texture heap's own base, sized per call instead
+   * of at compile time, since an image's dimensions aren't known until
+   * `.draw()` is actually called — but unlike the texture heap, this
+   * backend does not yet support a function using *both* a texture and
+   * `draw()` together: both anchor at the same post-allocation address,
+   * so combining them would let one silently corrupt the other. Untested
+   * and unsupported for now, not a design this pass tried to solve.
+   */
+  let drawTypeIdx: number | undefined;
+  let drawFuncBody: number[] | undefined;
+  const drawComponentCount = root._t === "void" ? 0 : componentCountOf(root._t as string);
+  const drawComponentKind: ScalarKind = root._t === "void" ? "float" : (isAggregate(root._t as string) ? elementKindOf(root._t as string) : scalarKindOf(root._t as string));
+  const drawBufferBase = memCursor;
+  if (root._t !== "void") {
+    const drawFuncIndex = mainFuncIndex + 1;
+    const widthIdx = params.length;
+    const heightIdx = params.length + 1;
+    const xIdx = params.length + 2;
+    const yIdx = params.length + 3;
+    const getX = [WASM_OP.localGet, ...wasmUleb128(xIdx)];
+    const getY = [WASM_OP.localGet, ...wasmUleb128(yIdx)];
+    const compSize = componentSizeOf(drawComponentKind);
+    const passThroughArgs = params.map((_, i) => [WASM_OP.localGet, ...wasmUleb128(i)]).flat();
+    const callMain = [...passThroughArgs, WASM_OP.call, ...wasmUleb128(mainFuncIndex)];
+    const writeFragCoord = fragCoordAddress === undefined ? [] : [
+      ...storeComponent(fragCoordAddress, "float", 0, [...getX, WASM_OP.f64ConvertI32S, ...f64ConstBytes(0.5), WASM_OP.f64Add]),
+      ...storeComponent(fragCoordAddress, "float", 8, [...getY, WASM_OP.f64ConvertI32S, ...f64ConstBytes(0.5), WASM_OP.f64Add]),
+    ];
+    // Byte offset of this pixel's first component within the draw buffer:
+    // (y*width + x) * componentCount * componentSize — `width` is
+    // `draw`'s own runtime argument now, not a compile-time constant.
+    const pixelByteOffset = [
+      ...getY, WASM_OP.localGet, ...wasmUleb128(widthIdx), WASM_OP.i32Mul, ...getX, WASM_OP.i32Add,
+      ...i32ConstBytes(drawComponentCount * compSize), WASM_OP.i32Mul,
+    ];
+    const destAddr = (k: number) => [...i32ConstBytes(drawBufferBase), ...pixelByteOffset, WASM_OP.i32Add, ...i32ConstBytes(k * compSize), WASM_OP.i32Add];
+    const copyResult: number[] = needsResult
+      ? [...callMain, ...Array.from({ length: drawComponentCount }, (_, k) =>
+        storeDynamic(destAddr(k), drawComponentKind, loadComponent(valueAddress!, drawComponentKind, k * compSize))).flat()]
+      : storeDynamic(destAddr(0), drawComponentKind, callMain); // always exactly 1 component here
+    const perPixel = [...writeFragCoord, ...copyResult];
+    const innerLoop = [ // x: 0..width
+      WASM_OP.block, WASM_BLOCKTYPE_VOID,
+      WASM_OP.loop, WASM_BLOCKTYPE_VOID,
+      ...getX, WASM_OP.localGet, ...wasmUleb128(widthIdx), WASM_OP.i32GeS, WASM_OP.brIf, ...wasmUleb128(1),
+      ...perPixel,
+      ...getX, ...i32ConstBytes(1), WASM_OP.i32Add, WASM_OP.localSet, ...wasmUleb128(xIdx),
+      WASM_OP.br, ...wasmUleb128(0),
+      WASM_OP.end,
+      WASM_OP.end,
+    ];
+    const outerLoop = [ // y: 0..height
+      WASM_OP.block, WASM_BLOCKTYPE_VOID,
+      WASM_OP.loop, WASM_BLOCKTYPE_VOID,
+      ...getY, WASM_OP.localGet, ...wasmUleb128(heightIdx), WASM_OP.i32GeS, WASM_OP.brIf, ...wasmUleb128(1),
+      ...i32ConstBytes(0), WASM_OP.localSet, ...wasmUleb128(xIdx),
+      ...innerLoop,
+      ...getY, ...i32ConstBytes(1), WASM_OP.i32Add, WASM_OP.localSet, ...wasmUleb128(yIdx),
+      WASM_OP.br, ...wasmUleb128(0),
+      WASM_OP.end,
+      WASM_OP.end,
+    ];
+    const drawCode = [...i32ConstBytes(0), WASM_OP.localSet, ...wasmUleb128(yIdx), ...outerLoop];
+    const drawLocalsDecl = wasmVec([[...wasmUleb128(1), WASM_I32], [...wasmUleb128(1), WASM_I32]]);
+    drawFuncBody = [...drawLocalsDecl, ...drawCode, WASM_OP.end];
+    drawTypeIdx = typeEntries.length;
+    typeEntries.push([WASM_FUNC, ...wasmVec([...paramTypes, [WASM_I32], [WASM_I32]]), ...wasmVec([])]);
+  }
 
   const typeSection = wasmSection(1, wasmVec(typeEntries));
   const importSection = importEntries.length > 0 ? wasmSection(2, wasmVec(importEntries)) : [];
-  const funcSection = wasmSection(3, wasmVec([[mainTypeIdx]]));
+  const funcSection = wasmSection(3, wasmVec(drawTypeIdx === undefined ? [[mainTypeIdx]] : [[mainTypeIdx], [drawTypeIdx]]));
   const memoryPages = Math.max(1, Math.ceil(memCursor / 65536));
   const memorySection = wasmSection(5, wasmVec([[0x00, ...wasmUleb128(memoryPages)]]));
   const nameBytes = wasmStrBytes(options.name);
-  const exportSection = wasmSection(7, wasmVec([
-    [...nameBytes, 0x00, ...wasmUleb128(importNames.length)],
+  const exportEntries = [
+    [...nameBytes, 0x00, ...wasmUleb128(mainFuncIndex)],
     [...wasmStrBytes("memory"), 0x02, ...wasmUleb128(0)],
-  ]));
+  ];
+  if (drawTypeIdx !== undefined) exportEntries.push([...wasmStrBytes("draw"), 0x00, ...wasmUleb128(mainFuncIndex + 1)]);
+  const exportSection = wasmSection(7, wasmVec(exportEntries));
   // One group per local rather than run-length-compressing consecutive
   // same-type locals — larger than it needs to be, but every group is
   // independently correct, and there's no shared-type run to get wrong.
   const localsDecl = wasmVec(localSlots.map(name => [...wasmUleb128(1), wasmTypeOf(localType.get(name)!)]));
   const funcBody = [...localsDecl, ...code, WASM_OP.end];
-  const codeSection = wasmSection(10, wasmVec([
-    [...wasmUleb128(funcBody.length), ...funcBody],
-  ]));
+  const codeEntries = [[...wasmUleb128(funcBody.length), ...funcBody]];
+  if (drawFuncBody !== undefined) codeEntries.push([...wasmUleb128(drawFuncBody.length), ...drawFuncBody]);
+  const codeSection = wasmSection(10, wasmVec(codeEntries));
 
   const bytes = new Uint8Array([
     0x00, 0x61, 0x73, 0x6d, // "\0asm"
@@ -2157,7 +2276,10 @@ export function compileWasmFn(
     ...codeSection,
   ]);
 
-  return { bytes, params: [...params, ...memoryParams], resultType: root._t, textureHeapBase: memCursor };
+  return {
+    bytes, params: [...params, ...memoryParams], resultType: root._t, textureHeapBase: memCursor,
+    draw: drawTypeIdx === undefined ? undefined : { bufferBase: drawBufferBase, componentCount: drawComponentCount, kind: drawComponentKind },
+  };
 }
 
 /** Write an aggregate value's components into `view` at `address`, using
@@ -2258,26 +2380,38 @@ function textureByteSize(tex: JsTextureData): number {
 }
 
 /**
- * Compile an Fn to a callable, `(ctx) => number | boolean`, matching
- * `compileJS`'s call signature for the subset of the DSL this backend
- * covers so far — a `JsShaderContext`'s `params`/`uniforms` in, a scalar out.
- * A program that uses `output()`/a vertex `varying()`/`builtinPosition()`/
- * `builtinFragDepth()` instead returns a `JsShaderResult`, exactly matching
- * what `compileJS` returns for the same program.
+ * The callable `compileWasm` returns: `(ctx) => number | boolean` for the
+ * subset of the DSL this backend covers so far, matching `compileJS`'s
+ * call signature (a `JsShaderContext`'s `params`/`uniforms` in, a scalar
+ * out) — or a `JsShaderResult` for a program that uses `output()`/a
+ * vertex `varying()`/`builtinPosition()`/`builtinFragDepth()`, exactly
+ * matching what `compileJS` returns for the same program. `.draw()` is
+ * always present alongside it: render a `width x height` grid in one call
+ * instead of one call per pixel, sharing the exact same compiled body —
+ * see `CompiledWasm.draw`'s doc comment (`compileWasmFn`) for the design.
+ */
+export type WasmCallable = ((ctx: JsShaderContext) => number | boolean | JsShaderResult) & {
+  draw(ctx: JsShaderContext, width: number, height: number): Float64Array | Int32Array | Uint32Array;
+};
+
+/**
+ * Compile an Fn to a `WasmCallable` (see its own doc comment).
  */
 export function compileWasm(
   fn: (...args: any[]) => Node<ShaderType>,
   options: CompileWasmFnOptions,
-): (ctx: JsShaderContext) => number | boolean | JsShaderResult {
-  const { bytes, params, resultType, textureHeapBase } = compileWasmFn(fn, options);
+): WasmCallable {
+  const { bytes, params, resultType, textureHeapBase, draw } = compileWasmFn(fn, options);
   // A module that imports nothing ignores an unused "math" namespace, so
   // this is passed unconditionally rather than only when needed. `Math`'s
   // own methods have the same names, so it's handed over directly.
   const instance = new WebAssembly.Instance(new WebAssembly.Module(bytes.buffer as ArrayBuffer), { math: Math as unknown as WebAssembly.ModuleImports });
   const wasmMain = instance.exports[options.name] as (...args: number[]) => number;
+  const wasmDraw = draw ? (instance.exports.draw as (...args: number[]) => void) : undefined;
   const memory = instance.exports.memory as WebAssembly.Memory;
-  // Reassigned (not `const`) because growing `memory` for texture data
-  // (below) detaches the buffer this `DataView` was built on.
+  // Reassigned (not `const`) because growing `memory` for texture data or
+  // a `.draw()` output buffer (below) detaches the buffer this `DataView`
+  // was built on.
   let view = new DataView(memory.buffer);
   // Fixed for this compiled function — never varies call to call — so
   // computed once rather than re-scanning `params` on every call.
@@ -2290,7 +2424,12 @@ export function compileWasm(
   // and write everything, the same as if this cache didn't exist.
   const lastTexture: (JsTextureData | undefined)[] = new Array(textureParams.length);
   let lastSizes: number[] | null = null;
-  return (ctx: JsShaderContext): number | boolean | JsShaderResult => {
+
+  /** Shared between a plain call and `.draw()`: write every uniform/param/
+   * texture this compiled function needs into linear memory (or into the
+   * scalar `args` list a WASM call itself takes), growing `memory` first
+   * if a texture needs more room than it currently has. */
+  function marshalInputs(ctx: JsShaderContext): number[] {
     // Texture data is call-time-sized, unlike every other param kind here,
     // so it's packed into a growable heap (starting at `textureHeapBase`)
     // rather than at a compile-time-fixed address. A program with no
@@ -2361,10 +2500,23 @@ export function compileWasm(
           writeAggregateToMemory(view, p.address, p.shaderType, (ctx.varyings as any)?.[p.slot]);
           break;
         case "fragCoordMemory":
+          // Not written for a `.draw()` call — `draw`'s own loop overwrites
+          // this same address fresh every pixel regardless, so there is
+          // nothing for this line to usefully do there. Harmless either
+          // way (it would just be overwritten immediately), but `.draw()`
+          // calls `wasmDraw` directly rather than through this function's
+          // ordinary post-`marshalInputs` path, never reaching this case
+          // with a meaningfully different `ctx.fragCoord` per pixel to
+          // begin with.
           writeAggregateToMemory(view, p.address, "vec2", ctx.fragCoord ?? [0, 0]);
           break;
       }
     }
+    return args;
+  }
+
+  const callable = ((ctx: JsShaderContext): number | boolean | JsShaderResult => {
+    const args = marshalInputs(ctx);
     const result = wasmMain(...args);
     if (outputParams.length === 0) {
       // The JS/WASM call boundary always surfaces an i32 return as a signed
@@ -2402,5 +2554,29 @@ export function compileWasm(
       }
     }
     return shaderResult;
+  }) as WasmCallable;
+
+  callable.draw = (ctx: JsShaderContext, width: number, height: number): Float64Array | Int32Array | Uint32Array => {
+    if (!draw || !wasmDraw) {
+      throw new Error("[RMSL] compileWasm: this function produces no value to render — draw() needs a non-\"void\" result.");
+    }
+    const args = marshalInputs(ctx);
+    const pixelCount = width * height * draw.componentCount;
+    const neededBytes = draw.bufferBase + pixelCount * componentSizeOf(draw.kind);
+    if (neededBytes > memory.buffer.byteLength) {
+      memory.grow(Math.ceil((neededBytes - memory.buffer.byteLength) / 65536));
+      view = new DataView(memory.buffer);
+    }
+    wasmDraw(...args, width, height);
+    // A fresh, lightweight view every call (not a copy, and not cached
+    // outside this method) rather than one built once — `memory.grow`
+    // above, or one triggered by a texture in the same `ctx`, detaches
+    // whatever buffer an earlier view pointed at, so only reading
+    // `memory.buffer` fresh here is guaranteed never to be stale.
+    if (draw.kind === "float") return new Float64Array(memory.buffer, draw.bufferBase, pixelCount);
+    if (draw.kind === "uint") return new Uint32Array(memory.buffer, draw.bufferBase, pixelCount);
+    return new Int32Array(memory.buffer, draw.bufferBase, pixelCount);
   };
+
+  return callable;
 }
