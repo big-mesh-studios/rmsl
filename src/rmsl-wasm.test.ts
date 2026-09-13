@@ -25,7 +25,7 @@ import {
   float, int, uint, bool, uniform, vec2, vec3, vec4,
   ivec3, uvec3, bvec3, mat2, mat3, mat4, sin, clamp,
   cross, length, normalize, distance, reflect, dFdx, dFdy, fwidth,
-  attribute, varying, fragCoord,
+  attribute, varying, fragCoord, output, builtinPosition, builtinFragDepth,
   type Node, type ShaderType,
 } from "./rmsl";
 import type { CompileWasmFnOptions } from "./rmsl-wasm";
@@ -33,7 +33,7 @@ import type { CompileWasmFnOptions } from "./rmsl-wasm";
 function run(build: (...args: any[]) => Node<ShaderType>, args: number[] = [], types: ShaderType[] = []): number | boolean {
   const params = args.map((_, i) => ({ name: `a${i}`, type: types[i] ?? "float" as const }));
   const fn = compileWasm(build, { name: "main", params });
-  return fn({ params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) });
+  return fn({ params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) }) as number | boolean;
 }
 
 describe("WASM backend: scalar arithmetic", () => {
@@ -618,5 +618,91 @@ describe("WASM backend: input direction (attribute/varying/fragCoord)", () => {
   it("throws for fragCoord() in a vertex stage", () => {
     expect(() => compileWasm(() => fragCoord().x as any, { name: "main", params: [], stage: "vertex" }))
       .toThrow(/fragCoord\(\) can only be used in fragment shaders/);
+  });
+});
+
+describe("WASM backend: output direction (output/varying/builtinPosition/builtinFragDepth)", () => {
+  it("writes to output(), scalar and aggregate, alongside a plain value", () => {
+    const build = () => Fn(() => {
+      const colorOut = output("vec4");
+      const idOut = output("float");
+      colorOut.assign(vec4(1, 0, 0, 1));
+      idOut.assign(float(7));
+      return float(42);
+    })();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const result = fn({}) as any;
+    const values = Object.values(result.outputs as Record<string, unknown>);
+    expect(values).toContainEqual([1, 0, 0, 1]);
+    expect(values).toContainEqual(7);
+    expect(result.value).toBe(42);
+  });
+
+  it("writes position and a varying in a vertex stage, matching compileJS's own test", () => {
+    const build = () => Fn(() => {
+      const v = varying("vec3");
+      v.assign(vec3(1, 2, 3));
+      const p = builtinPosition();
+      p.assign(vec4(0, 0, 0, 1));
+      return p;
+    })();
+    const fn = compileWasm(build as any, { name: "main", params: [], stage: "vertex" });
+    const result = fn({}) as any;
+    expect(result.position).toEqual([0, 0, 0, 1]);
+    expect(Object.values(result.varyings as Record<string, unknown>)).toEqual([[1, 2, 3]]);
+  });
+
+  it("treats a plain vec4 result as the implicit position when builtinPosition() is never used", () => {
+    const build = () => Fn(() => vec4(5, 6, 7, 8))();
+    const fn = compileWasm(build as any, { name: "main", params: [], stage: "vertex" });
+    const result = fn({}) as any;
+    expect(result.position).toEqual([5, 6, 7, 8]);
+    expect(result.value).toBeUndefined();
+  });
+
+  it("allows a vertex stage's result to be non-vec4 once position is written", () => {
+    const build = () => Fn(() => {
+      builtinPosition().assign(vec4(1, 2, 3, 4));
+      return float(0);
+    })();
+    const fn = compileWasm(build as any, { name: "main", params: [], stage: "vertex" });
+    const result = fn({}) as any;
+    expect(result.position).toEqual([1, 2, 3, 4]);
+    expect(result.value).toBe(0);
+  });
+
+  it("throws when a vertex stage's result is neither vec4 nor paired with a written position", () => {
+    const build = () => Fn(() => float(0))();
+    expect(() => compileWasm(build as any, { name: "main", params: [], stage: "vertex" }))
+      .toThrow(/vertex shader has to produce a position/);
+  });
+
+  it("writes builtinFragDepth in a fragment stage", () => {
+    const build = () => Fn(() => {
+      builtinFragDepth().assign(float(0.25));
+      return float(1);
+    })();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const result = fn({}) as any;
+    expect(result.fragDepth).toBe(0.25);
+    expect(result.value).toBe(1);
+  });
+
+  it("throws for builtinFragDepth() in a vertex stage", () => {
+    const build = () => Fn(() => {
+      builtinFragDepth().assign(float(0));
+      return float(0);
+    })();
+    expect(() => compileWasm(build as any, { name: "main", params: [], stage: "vertex" }))
+      .toThrow(/builtinFragDepth\(\) can only be used in fragment shaders/);
+  });
+
+  it("throws reading builtinPosition() from a fragment stage", () => {
+    const build = () => Fn(() => {
+      builtinPosition().assign(vec4(0, 0, 0, 1));
+      return builtinPosition().x;
+    })();
+    expect(() => compileWasm(build as any, { name: "main", params: [] }))
+      .toThrow(/fragment stage cannot read it/);
   });
 });

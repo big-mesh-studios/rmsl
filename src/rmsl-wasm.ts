@@ -1,6 +1,6 @@
 import { Node, ShaderType, TYPE_WIDTH, MATRIX_DIMENSIONS, var_ } from "./rmsl-core";
-import { CompileFnOptions, COMPONENT_INDEX, resolveSwizzleTarget } from "./rmsl-compiler-shared";
-import { JsShaderContext } from "./rmsl-compile-js";
+import { CompileFnOptions, COMPONENT_INDEX, resolveSwizzleTarget, assertStageResult } from "./rmsl-compiler-shared";
+import { JsShaderContext, JsShaderResult } from "./rmsl-compile-js";
 import { AllocRules, planLayout } from "./rmsl-layout";
 // === WASM backend (see ROADMAP.md for what this does and doesn't cover yet) ===
 //
@@ -49,7 +49,18 @@ export type WasmParam =
   | { kind: "attributeMemory"; slot: string; shaderType: ShaderType; address: number }
   | { kind: "varying"; slot: string; shaderType: ShaderType }
   | { kind: "varyingMemory"; slot: string; shaderType: ShaderType; address: number }
-  | { kind: "fragCoordMemory"; address: number };
+  | { kind: "fragCoordMemory"; address: number }
+  // Phase 5 output direction — the mirror image: `compileWasm` reads these
+  // *after* the call, assembling a `JsShaderResult`-shaped object instead
+  // of returning a bare value. Only present when the compiled function
+  // actually used one of `output()`/a vertex `varying()`/`builtinPosition()`/
+  // `builtinFragDepth()`, or has a value-producing result alongside them —
+  // see `needsResult` in `compileWasmFn`.
+  | { kind: "outputMemory"; slot: string; shaderType: ShaderType; address: number }
+  | { kind: "varyingOutputMemory"; slot: string; shaderType: ShaderType; address: number }
+  | { kind: "positionMemory"; address: number }
+  | { kind: "fragDepthMemory"; address: number }
+  | { kind: "valueMemory"; shaderType: ShaderType; address: number };
 
 export type CompiledWasm = {
   /** The raw WASM binary module, exporting `options.name` and `"memory"`. */
@@ -339,10 +350,11 @@ export function compileWasmFn(
   if (Array.isArray(root)) {
     throw new Error("[RMSL] compileWasmFn does not support multi-return functions.");
   }
-  const resultKind = scalarKindOf(root._t);
-  if (root._t !== "float" && root._t !== "int" && root._t !== "uint" && root._t !== "bool") {
-    throw new Error(`[RMSL] compileWasmFn only supports a scalar result so far, got "${root._t}".`);
-  }
+  // The "root must be a plain scalar" check used to happen right here — it
+  // now has to wait until after `collect()` (below) has run, since whether
+  // that restriction still applies at all depends on `needsResult`, which
+  // isn't known until the whole tree has been walked once (see the check
+  // right after `collect(root)`).
 
   const paramTypeByName = new Map(options.params.map(p => [p.name, p.type]));
   const fnParamNames = new Set(options.params.map(p => p.name));
@@ -386,6 +398,25 @@ export function compileWasmFn(
   // the same input, so one address serves all of them, unlike every other
   // node type here which is keyed by slot or by node identity.
   let fragCoordAddress: number | undefined;
+  // Phase 5 output direction: written during the function body, read back
+  // by `compileWasm` *after* the call — the first backend direction that
+  // ever needs that. `needsResult` mirrors `compileJS`'s own
+  // `ctx.jsNeedsRes`: false for every program that never touches any of
+  // these (every existing test), in which case the function keeps its
+  // original single-scalar-result shape untouched; true the moment any of
+  // them is used, switching the compiled function to a zero-result shape
+  // with everything read back from memory instead (see the `code`/type
+  // section assembly near the end of this function). An explicit `"vertex"`
+  // stage seeds this `true` unconditionally, even if nothing else in the
+  // program does — a vertex stage's own result always maps to the implicit
+  // position unless `builtinPosition()` was written some other way
+  // (`assertStageResult`), so it's never just a plain WASM return value.
+  let needsResult = options.stage === "vertex";
+  let positionWritten = false;
+  const outputAddress = new Map<string, number>();
+  const varyingOutputAddress = new Map<string, number>();
+  let positionAddress: number | undefined;
+  let fragDepthAddress: number | undefined;
   const scratchAddress = new WeakMap<object, number>();
   // Reserve [0, totalSize) for a caller-supplied GPU uniform layout, if any
   // — everything this backend places itself starts after it, so it can
@@ -507,6 +538,47 @@ export function compileWasmFn(
         fragCoordAddress = allocateFor("vec2");
         memoryParams.push({ kind: "fragCoordMemory", address: fragCoordAddress });
       }
+    } else if (node.type === "output") {
+      needsResult = true;
+      const v = node.value;
+      if (!outputAddress.has(v.slot)) {
+        const addr = allocateFor(v.shaderType);
+        outputAddress.set(v.slot, addr);
+        memoryParams.push({ kind: "outputMemory", slot: v.slot, shaderType: v.shaderType, address: addr });
+      }
+    } else if (node.type === "varying" && effectiveStage === "vertex") {
+      // Output-direction here (see the fragment-stage "varying" branch
+      // above for the read direction) — allocated on first encounter
+      // whether that's a read-back or the assign that writes it, exactly
+      // like "output" above.
+      needsResult = true;
+      const v = node.value;
+      if (!varyingOutputAddress.has(v.slot)) {
+        const addr = allocateFor(v.shaderType);
+        varyingOutputAddress.set(v.slot, addr);
+        memoryParams.push({ kind: "varyingOutputMemory", slot: v.slot, shaderType: v.shaderType, address: addr });
+      }
+    } else if (node.type === "builtinPosition") {
+      needsResult = true;
+      if (positionAddress === undefined) {
+        positionAddress = allocateFor("vec4");
+        memoryParams.push({ kind: "positionMemory", address: positionAddress });
+      }
+    } else if (node.type === "builtinFragDepth") {
+      if (effectiveStage !== "fragment") {
+        throw new Error("[RMSL] compileWasmFn: builtinFragDepth() can only be used in fragment shaders");
+      }
+      needsResult = true;
+      if (fragDepthAddress === undefined) {
+        fragDepthAddress = allocateFor("float");
+        memoryParams.push({ kind: "fragDepthMemory", address: fragDepthAddress });
+      }
+    } else if (node.type === "assign" && node.params[0].type === "builtinPosition") {
+      // The one thing that specifically depends on *writing* rather than
+      // merely referencing builtinPosition — `assertStageResult` below
+      // needs to know a vertex stage supplied its own position, so its
+      // result doesn't have to be a vec4 too.
+      positionWritten = true;
     } else if (node.type === "let") {
       const targetNode = node.params[0];
       const t = targetNode._t as string;
@@ -537,6 +609,37 @@ export function compileWasmFn(
     if (Array.isArray(node.params)) for (const p of node.params) collect(p);
   }
   collect(root);
+
+  // Now that the whole tree has been walked once, `needsResult` is settled
+  // — decide what the root is actually allowed to be, and where its own
+  // value (if it has one) will live.
+  let resultKind: ScalarKind;
+  let valueAddress: number | undefined;
+  if (needsResult) {
+    assertStageResult(effectiveStage, root._t === "void" ? undefined : (root._t as string), positionWritten);
+    resultKind = "float"; // unused for the function's own WASM result type in this mode (see below) — a value, never read as a bare WASM return.
+    if (effectiveStage === "vertex" && !positionWritten) {
+      // "Otherwise the result becomes the position" (assertStageResult's
+      // own wording) — already required to be a vec4 by the check above,
+      // so it's written directly into the position slot instead of a
+      // separate "value" one; `JsShaderResult.value` stays unset here,
+      // matching `compileJS`.
+      if (positionAddress === undefined) {
+        positionAddress = allocateFor("vec4");
+        memoryParams.push({ kind: "positionMemory", address: positionAddress });
+      }
+      valueAddress = positionAddress;
+    } else if (root._t !== "void") {
+      const t = root._t as string;
+      valueAddress = isAggregate(t) ? allocateFor(t) : allocateBytes(componentSizeOf(scalarKindOf(t)));
+      memoryParams.push({ kind: "valueMemory", shaderType: t as ShaderType, address: valueAddress });
+    }
+  } else {
+    if (root._t !== "float" && root._t !== "int" && root._t !== "uint" && root._t !== "bool") {
+      throw new Error(`[RMSL] compileWasmFn only supports a scalar result so far, got "${root._t}".`);
+    }
+    resultKind = scalarKindOf(root._t);
+  }
 
   const importNames = [...importsUsed].sort();
   const importIndexOf = new Map(importNames.map((name, i) => [name, i]));
@@ -586,6 +689,35 @@ export function compileWasmFn(
       if (fragCoordAddress === undefined) throw new Error("[RMSL] compileWasmFn: internal error, unaddressed fragCoord");
       return fragCoordAddress;
     }
+    if (node.type === "output") {
+      const addr = outputAddress.get(node.value.slot);
+      if (addr === undefined) throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed output "${node.value.slot}"`);
+      return addr;
+    }
+    if (node.type === "varying" && effectiveStage === "vertex") {
+      const addr = varyingOutputAddress.get(node.value.slot);
+      if (addr === undefined) throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed varying "${node.value.slot}"`);
+      return addr;
+    }
+    if (node.type === "builtinPosition") {
+      // Only a vertex stage may *read* its own position back — matches
+      // `compileJS`'s `assertPositionIsReadable` exactly; writing it (the
+      // `walkStmt` assign-target case) never calls `nodeAddress`, so this
+      // check only ever fires for a read.
+      if (effectiveStage !== "vertex") {
+        throw new Error(
+          "[RMSL] compileWasmFn: builtinPosition() is the vertex stage's output position, and a "
+          + "fragment stage cannot read it. Pass the value you need through a "
+          + "varying() instead.",
+        );
+      }
+      if (positionAddress === undefined) throw new Error("[RMSL] compileWasmFn: internal error, unaddressed builtinPosition");
+      return positionAddress;
+    }
+    if (node.type === "builtinFragDepth") {
+      if (fragDepthAddress === undefined) throw new Error("[RMSL] compileWasmFn: internal error, unaddressed builtinFragDepth");
+      return fragDepthAddress;
+    }
     const addr = scratchAddress.get(node);
     if (addr === undefined) throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed node "${node.type}"`);
     return addr;
@@ -620,10 +752,15 @@ export function compileWasmFn(
       case "fragCoord":
         return [];
       case "varying":
-        // Only reachable here as a read, i.e. the fragment-stage direction
-        // (a vertex-stage `varying()` is a write, never on this side of an
-        // expression) — data already valid, written by `compileWasm`
-        // before the call, exactly like an attribute or uniform.
+      case "output":
+      case "builtinPosition":
+      case "builtinFragDepth":
+        // A fragment-stage `varying()` read: data already valid, written by
+        // `compileWasm` before the call, exactly like an attribute or
+        // uniform. Every other case here is output-direction, read back
+        // *after* an earlier `.assign()` within the same program — no work
+        // needed either way, since nothing needs converting or copying to
+        // make a prior write visible to a later read of the same address.
         return [];
       case "construct":
         return emitConstructStores(node, nodeAddress(node));
@@ -1045,7 +1182,18 @@ export function compileWasmFn(
       case "attribute":
         return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`attribute:${node.value.slot}`))];
       case "varying":
-        return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`varying:${node.value.slot}`))];
+        // Fragment stage: a scalar varying is a WASM function argument, like
+        // a scalar uniform/attribute. Vertex stage: it's output-direction,
+        // read back (after an earlier `.assign()`) from its own address —
+        // there is no WASM argument for it at all.
+        if (effectiveStage === "fragment") {
+          return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`varying:${node.value.slot}`))];
+        }
+        return loadComponent(varyingOutputAddress.get(node.value.slot)!, scalarKindOf(node._t), 0);
+      case "output":
+        return loadComponent(outputAddress.get(node.value.slot)!, scalarKindOf(node._t), 0);
+      case "builtinFragDepth":
+        return loadComponent(fragDepthAddress!, "float", 0);
 
       case "add": return binaryArith(node, WASM_OP.f64Add, WASM_OP.i32Add);
       case "sub": return binaryArith(node, WASM_OP.f64Sub, WASM_OP.i32Sub);
@@ -1316,22 +1464,53 @@ export function compileWasmFn(
           return out;
         }
 
-        const targetType = target._t as string;
-        const varName = target.value.varName;
-        if (isAggregate(targetType)) {
-          const destAddr = fnParamNames.has(varName) ? paramAddress.get(varName)! : varAddress.get(varName)!;
-          const kind = elementKindOf(targetType);
-          const compSize = componentSizeOf(kind);
-          const width = componentCountOf(targetType);
-          const out = [...materializeIfNeeded(rhs)];
-          const rhsAddr = nodeAddress(rhs);
-          for (let k = 0; k < width; k++) {
-            out.push(...storeComponent(destAddr, kind, k * compSize, loadComponent(rhsAddr, kind, k * compSize)));
+        // Phase 5 output direction: `output()`/a vertex-stage `varying()`/
+        // `builtinPosition()`/`builtinFragDepth()` are all assign targets
+        // with their own reserved address (allocated in `collect()`) rather
+        // than a `"var"` node's `value.varName` — resolve the destination
+        // address and type once, then the aggregate-vs-scalar copy below is
+        // identical either way.
+        let targetType: string;
+        let destAddr: number;
+        if (target.type === "output") {
+          targetType = target._t as string;
+          destAddr = outputAddress.get(target.value.slot)!;
+        } else if (target.type === "varying") {
+          if (effectiveStage !== "vertex") {
+            throw new Error("[RMSL] compileWasmFn: varying() cannot be assigned to outside a vertex stage");
           }
-          return out;
+          targetType = target._t as string;
+          destAddr = varyingOutputAddress.get(target.value.slot)!;
+        } else if (target.type === "builtinPosition") {
+          targetType = "vec4";
+          destAddr = positionAddress!;
+        } else if (target.type === "builtinFragDepth") {
+          targetType = "float";
+          destAddr = fragDepthAddress!;
+        } else {
+          targetType = target._t as string;
+          const varName = target.value.varName;
+          if (!isAggregate(targetType)) {
+            return [...walkExpr(rhs), WASM_OP.localSet, ...wasmUleb128(localSlotIndex(varName))];
+          }
+          destAddr = fnParamNames.has(varName) ? paramAddress.get(varName)! : varAddress.get(varName)!;
         }
 
-        return [...walkExpr(rhs), WASM_OP.localSet, ...wasmUleb128(localSlotIndex(varName))];
+        if (!isAggregate(targetType)) {
+          // A scalar output-like target (e.g. builtinFragDepth, or a plain
+          // float output()) — write its value directly, no address/
+          // materialize machinery needed for a single scalar.
+          return storeComponent(destAddr, elementKindOf(targetType), 0, walkExpr(rhs));
+        }
+        const kind = elementKindOf(targetType);
+        const compSize = componentSizeOf(kind);
+        const width = componentCountOf(targetType);
+        const out = [...materializeIfNeeded(rhs)];
+        const rhsAddr = nodeAddress(rhs);
+        for (let k = 0; k < width; k++) {
+          out.push(...storeComponent(destAddr, kind, k * compSize, loadComponent(rhsAddr, kind, k * compSize)));
+        }
+        return out;
       }
       case "if": {
         const cond = walkExpr(node.params[0]);
@@ -1369,19 +1548,44 @@ export function compileWasmFn(
       case "return":
       case "discard": {
         // Neither carries a value in this DSL (there is no `Return(value)`
-        // overload), but the compiled function always declares a real
-        // result type, so an early exit still has to leave one on the
-        // stack — a zero/false sentinel of the result kind, matching what
-        // ROADMAP.md already anticipated for `Discard`. `Discard`'s real
-        // "no fragment output" meaning has no representation yet; it
-        // compiles identically to `Return()` until Phase 5's shader-stage
-        // surface gives it one.
-        const sentinel = resultKind === "float" ? f64ConstBytes(0) : i32ConstBytes(0);
+        // overload). A plain scalar-returning function's exit block still
+        // expects one value on exit — a zero/false sentinel of the result
+        // kind, matching what ROADMAP.md already anticipated for
+        // `Discard`. A stage-mode function's exit block is void instead:
+        // whatever result it has already lives in memory (via `assign()`s
+        // that ran before this point, if any), so there's nothing to leave
+        // on the stack at all. `Discard`'s real "no fragment output"
+        // meaning still has no representation yet; it compiles identically
+        // to `Return()` either way.
+        const sentinel = needsResult ? [] : (resultKind === "float" ? f64ConstBytes(0) : i32ConstBytes(0));
         return [...sentinel, WASM_OP.br, ...wasmUleb128(depth - EXIT_BLOCK_DEPTH)];
       }
       default:
         throw new Error(`[RMSL] compileWasmFn: unsupported node type in statement position: "${node.type}"`);
     }
+  }
+
+  /** The root's own final value: `!needsResult` leaves it on the WASM
+   * stack exactly as before (becomes the function's one return value).
+   * `needsResult` instead writes it into `valueAddress` (skipped
+   * entirely for a `"void"` root — a stage program with no value beyond
+   * whatever it wrote to `output()`/etc.) and leaves nothing on the
+   * stack, matching the function's now-zero-result signature below. */
+  function finalValueBytes(valueNode: any): number[] {
+    if (!needsResult) return walkExpr(valueNode);
+    if (valueNode._t === "void" || valueAddress === undefined) return [];
+    if (isAggregate(valueNode._t as string)) {
+      const kind = elementKindOf(valueNode._t as string);
+      const compSize = componentSizeOf(kind);
+      const width = componentCountOf(valueNode._t as string);
+      const out = [...materializeIfNeeded(valueNode)];
+      const srcAddr = nodeAddress(valueNode);
+      for (let k = 0; k < width; k++) {
+        out.push(...storeComponent(valueAddress, kind, k * compSize, loadComponent(srcAddr, kind, k * compSize)));
+      }
+      return out;
+    }
+    return storeComponent(valueAddress, scalarKindOf(valueNode._t as string), 0, walkExpr(valueNode));
   }
 
   // A program built with `Fn(() => { ...; return x; })()` is a "seq" node of
@@ -1391,13 +1595,15 @@ export function compileWasmFn(
   // Top-level statements compile at EXIT_BLOCK_DEPTH (1), since the whole
   // body is wrapped in the one exit block "return"/"discard" branch to.
   const bodyBytes = root.type === "seq"
-    ? [...(root.params.slice(0, -1) as any[]).flatMap((s: any) => walkStmt(s, EXIT_BLOCK_DEPTH)), ...walkExpr(root.params[root.params.length - 1])]
-    : walkExpr(root);
+    ? [...(root.params.slice(0, -1) as any[]).flatMap((s: any) => walkStmt(s, EXIT_BLOCK_DEPTH)), ...finalValueBytes(root.params[root.params.length - 1])]
+    : finalValueBytes(root);
   // Wrapping unconditionally (rather than only when "return"/"discard"
   // appear) costs 3 bytes and is a no-op when neither is used — the exact
   // same bytes run inside a block nothing branches out of — so there's one
-  // code path here, not two.
-  const code = [WASM_OP.block, wasmTypeOf(resultKind), ...bodyBytes, WASM_OP.end];
+  // code path here, not two. `needsResult` makes the block (and the
+  // function around it) void instead of single-result.
+  const exitBlockType = needsResult ? WASM_BLOCKTYPE_VOID : wasmTypeOf(resultKind);
+  const code = [WASM_OP.block, exitBlockType, ...bodyBytes, WASM_OP.end];
 
   // --- assemble the module: type section (main's signature, plus one shared
   // signature per import arity actually used), import section, function
@@ -1426,9 +1632,12 @@ export function compileWasmFn(
   });
 
   const paramTypes = params.map(p => [wasmTypeOf(scalarKindOf(p.shaderType))]);
-  const resultWasmType = wasmTypeOf(resultKind);
+  // `needsResult`: the function's own value (if any) and everything else it
+  // produces all live in memory, read back after the call — the exported
+  // function itself declares zero results, not one.
+  const resultTypes = needsResult ? [] : [[wasmTypeOf(resultKind)]];
   const mainTypeIdx = typeEntries.length;
-  typeEntries.push([WASM_FUNC, ...wasmVec(paramTypes), ...wasmVec([[resultWasmType]])]);
+  typeEntries.push([WASM_FUNC, ...wasmVec(paramTypes), ...wasmVec(resultTypes)]);
 
   const typeSection = wasmSection(1, wasmVec(typeEntries));
   const importSection = importEntries.length > 0 ? wasmSection(2, wasmVec(importEntries)) : [];
@@ -1487,15 +1696,54 @@ function writeAggregateToMemory(view: DataView, address: number, shaderType: Sha
   }
 }
 
+/** The mirror image of `writeAggregateToMemory`: read an aggregate value's
+ * components back out, converting a `bool`-kind component back to a real
+ * boolean and a `uint`-kind one back to its unsigned reading — the
+ * output-direction half of Phase 5, read after every call instead of
+ * written before it. */
+function readAggregateFromMemory(view: DataView, address: number, shaderType: ShaderType): (number | boolean)[] {
+  const kind = elementKindOf(shaderType);
+  const compSize = componentSizeOf(kind);
+  const width = componentCountOf(shaderType);
+  const out: (number | boolean)[] = [];
+  for (let i = 0; i < width; i++) {
+    if (kind === "float") {
+      out.push(view.getFloat64(address + i * compSize, true));
+    } else {
+      const raw = view.getInt32(address + i * compSize, true);
+      out.push(kind === "bool" ? raw !== 0 : kind === "uint" ? raw >>> 0 : raw);
+    }
+  }
+  return out;
+}
+
+/** A plain scalar's own kind (`scalarKindOf`, not `elementKindOf` —
+ * `elementKindOf` is only correct for a genuine aggregate type's prefix,
+ * and would misread e.g. a bare `"int"` as float-width). */
+function readScalarFromMemory(view: DataView, address: number, shaderType: ShaderType): number | boolean {
+  const kind = scalarKindOf(shaderType);
+  if (kind === "float") return view.getFloat64(address, true);
+  const raw = view.getInt32(address, true);
+  if (kind === "bool") return raw !== 0;
+  return kind === "uint" ? raw >>> 0 : raw;
+}
+
+function readValueFromMemory(view: DataView, address: number, shaderType: ShaderType): unknown {
+  return isAggregate(shaderType) ? readAggregateFromMemory(view, address, shaderType) : readScalarFromMemory(view, address, shaderType);
+}
+
 /**
  * Compile an Fn to a callable, `(ctx) => number | boolean`, matching
  * `compileJS`'s call signature for the subset of the DSL this backend
  * covers so far — a `JsShaderContext`'s `params`/`uniforms` in, a scalar out.
+ * A program that uses `output()`/a vertex `varying()`/`builtinPosition()`/
+ * `builtinFragDepth()` instead returns a `JsShaderResult`, exactly matching
+ * what `compileJS` returns for the same program.
  */
 export function compileWasm(
   fn: (...args: any[]) => Node<ShaderType>,
   options: CompileWasmFnOptions,
-): (ctx: JsShaderContext) => number | boolean {
+): (ctx: JsShaderContext) => number | boolean | JsShaderResult {
   const { bytes, params, resultType } = compileWasmFn(fn, options);
   // A module that imports nothing ignores an unused "math" namespace, so
   // this is passed unconditionally rather than only when needed. `Math`'s
@@ -1504,7 +1752,11 @@ export function compileWasm(
   const wasmMain = instance.exports.main as (...args: number[]) => number;
   const memory = instance.exports.memory as WebAssembly.Memory;
   const view = new DataView(memory.buffer);
-  return (ctx: JsShaderContext): number | boolean => {
+  // Fixed for this compiled function — never varies call to call — so
+  // computed once rather than re-scanning `params` on every call.
+  const outputParams = params.filter((p): p is Extract<WasmParam, { kind: "outputMemory" | "varyingOutputMemory" | "positionMemory" | "fragDepthMemory" | "valueMemory" }> =>
+    p.kind === "outputMemory" || p.kind === "varyingOutputMemory" || p.kind === "positionMemory" || p.kind === "fragDepthMemory" || p.kind === "valueMemory");
+  return (ctx: JsShaderContext): number | boolean | JsShaderResult => {
     const args: number[] = [];
     for (const p of params) {
       switch (p.kind) {
@@ -1538,13 +1790,41 @@ export function compileWasm(
       }
     }
     const result = wasmMain(...args);
-    // The JS/WASM call boundary always surfaces an i32 return as a signed
-    // number; a "uint" result above 2^31-1 needs reinterpreting as unsigned,
-    // the same way ctx.uniforms/ctx.params values are read as unsigned going
-    // in (JS numbers don't distinguish, so no equivalent step is needed
-    // there — only coming back out through a fixed-width return does).
-    if (resultType === "bool") return result !== 0;
-    if (resultType === "uint") return result >>> 0;
-    return result;
+    if (outputParams.length === 0) {
+      // The JS/WASM call boundary always surfaces an i32 return as a signed
+      // number; a "uint" result above 2^31-1 needs reinterpreting as
+      // unsigned, the same way ctx.uniforms/ctx.params values are read as
+      // unsigned going in (JS numbers don't distinguish, so no equivalent
+      // step is needed there — only coming back out through a fixed-width
+      // return does).
+      if (resultType === "bool") return result !== 0;
+      if (resultType === "uint") return result >>> 0;
+      return result;
+    }
+    // `needsResult` mode: the function declared zero WASM results — its
+    // value (if any) and everything else it produced all live in memory,
+    // read back here into exactly the shape `compileJS` returns for the
+    // same program.
+    const shaderResult: JsShaderResult = {};
+    for (const p of outputParams) {
+      switch (p.kind) {
+        case "outputMemory":
+          (shaderResult.outputs ??= {})[p.slot] = readValueFromMemory(view, p.address, p.shaderType);
+          break;
+        case "varyingOutputMemory":
+          (shaderResult.varyings ??= {})[p.slot] = readValueFromMemory(view, p.address, p.shaderType);
+          break;
+        case "positionMemory":
+          shaderResult.position = readAggregateFromMemory(view, p.address, "vec4") as number[];
+          break;
+        case "fragDepthMemory":
+          shaderResult.fragDepth = view.getFloat64(p.address, true);
+          break;
+        case "valueMemory":
+          shaderResult.value = readValueFromMemory(view, p.address, p.shaderType);
+          break;
+      }
+    }
+    return shaderResult;
   };
 }
