@@ -360,25 +360,72 @@ stage program uses instead of throwing — which is what lets a per-pixel
 all.
 
 `src/rmsl-wasm-draw.bench.ts` measures a `sqrt(distance to a uniform
-center)` program over a 128x128 grid, two runs, otherwise idle machine:
+center)` program, swept across a 128x128 and a 512x512 grid (a 16x
+difference in pixel count, to check the win holds at scale rather than
+resting on one arbitrarily chosen size), two runs, otherwise idle machine.
+The per-pixel comparison loops reuse one `ctx` object and mutate its
+`fragCoord` array in place rather than allocating a fresh one per pixel —
+an earlier version of this measurement didn't, which piled up real
+garbage-collection pressure unrelated to either backend's own per-pixel
+cost, one that grew with the grid size and made an early size sweep
+actively misleading (see the file's own history for the numbers that
+mistake produced):
 
-| Scenario | Run 1 | Run 2 |
-|---|---|---|
-| `.draw()` vs. `compileWasm` called once per pixel | 55.01x faster | 54.46x faster |
-| `.draw()` vs. `compileJS` called once per pixel | 7.13x faster | 7.15x faster |
+| Scenario | 128x128, Run 1 | 128x128, Run 2 | 512x512, Run 1 | 512x512, Run 2 |
+|---|---|---|---|---|
+| `.draw()` vs. `compileWasm` called once per pixel | 52.31x faster | 52.71x faster | 59.44x faster | 58.86x faster |
+| `.draw()` vs. `compileJS` called once per pixel | 5.49x faster | 5.49x faster | 10.54x faster | 10.42x faster |
 
 The second row is the comparison that actually matters — `compileJS`
 called once per pixel is the realistic alternative anyone would reach for
-today, not a per-pixel `compileWasm` loop, and `.draw()` beats it by
-roughly 7x on this workload, not just the ~55x it wins by against
-`compileWasm`'s own weaker baseline.
+today, not a per-pixel `compileWasm` loop — and here `.draw()`'s win
+against it actually *grows* with grid size (~5.5x at 128x128, ~10.5x at
+512x512): `compileJS`'s own per-pixel call overhead scales with the pixel
+count same as anything else, so amortizing it across a bigger single
+`.draw()` call pays off more, not less, at scale.
 
-One documented, accepted gap: a function using *both* a texture uniform
-and `.draw()` together is untested and unsupported for now — the texture
-heap and the draw buffer both anchor at the same post-allocation address,
-so combining them today would let one silently corrupt the other. Neither
-growable region's size is known at compile time, so giving them
-non-colliding placements needs real design work this pass didn't attempt.
+**Fixed**: a texture uniform and `.draw()` now work together. The draw
+buffer's base address became a third runtime argument to the exported
+`"draw"` function (after `width`/`height`) instead of a compile-time
+constant, computed fresh on every `.draw()` call as wherever that call's
+own texture heap actually ends — `textureHeapBase` itself, unchanged, when
+there are no textures at all. Finding this also surfaced a real,
+previously-latent bug: the offset handed to a `Float64Array` constructor
+must be a multiple of 8, and nothing about this backend's own compile-time
+bump allocator keeps addresses aligned (a texture's 44-byte metadata block
+is the concrete case that doesn't) — any `.draw()`-returning function
+whose compile-time allocation happened to land on a non-8-aligned address
+would have thrown the first time a result was actually read back. Fixed by
+rounding the computed buffer base up to the next multiple of 8.
+
+Combining the two is correct, but the performance story is the opposite
+of the texture-free case above — worth knowing plainly rather than
+assuming `.draw()` is simply always faster. Same benchmark file, a
+scenario sampling a texture sized to match the grid once per pixel via
+`textureLoad()`, same two grid sizes, two runs each:
+
+| Scenario | 128x128, Run 1 | 128x128, Run 2 | 512x512, Run 1 | 512x512, Run 2 |
+|---|---|---|---|---|
+| `.draw()` + `textureLoad()` vs. `compileJS` + `textureLoad()`, once per pixel | `compileJS` 1.26x faster | `compileJS` 1.33x faster | `.draw()` 1.08x faster | `.draw()` 1.07x faster |
+
+**At 128x128, `compileJS` actually wins** — the one case found so far
+where `.draw()` is the wrong choice. Not a caching bug (confirmed
+directly: timing repeated calls with the same texture shows the first
+call paying a real copy-in cost and every call after it roughly 4x
+cheaper, exactly the reference-equality cache working as designed) but a
+genuine, reproducible finding: `.draw()` eliminates *per-call* marshalling
+overhead, and that's still true here, but `textureLoad()`'s own
+*per-pixel* cost (a bounds-checked, dynamically-addressed fetch — several
+`select`s and a memory load, see `emitTexelFetchStores`) is real work that
+doesn't go away, and at this grid size it happens to outweigh the
+marshalling savings entirely. Growing the grid to 512x512 flips it back to
+a `.draw()` win, but only barely (~1.07x) — nowhere near the ~10x the
+texture-free scenario shows at the same size. The practical read: for a
+texture-fetch-dominated per-pixel workload specifically, don't assume
+`.draw()` wins without measuring the actual grid size in question — the
+per-pixel cost this backend's texture sampling still carries (see the
+texture performance section above) matters more here than the per-call
+cost `.draw()` was built to eliminate.
 
 ## Status: Phase 1 through Phase 7 landed (except multi-return)
 
