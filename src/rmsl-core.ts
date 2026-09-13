@@ -2158,7 +2158,14 @@ export function Switch(
   const addCase = (values: IntLike | readonly IntLike[], caseBody: () => void): SwitchChain => {
     let vals = (Array.isArray(values) ? values : [values]) as IntLike[];
     cases.push({
-      values: vals.map(v => wrapValue(v) as BaseNode<ShaderType>),
+      // `typedOperand`, not `wrapValue`: a bare number here is a case value
+      // beside an int/uint selector, the exact situation `typedOperand`
+      // exists for — `wrapValue` alone always defaults a plain number to
+      // `float`, which would type every case value as `float` regardless of
+      // the selector, silently mismatched against it (GLSL/WGSL happened to
+      // paper over this with an implicit cast at comparison codegen; the
+      // WASM backend does not, and surfaced it as a real type error).
+      values: vals.map(v => typedOperand(v, selector._t) as BaseNode<ShaderType>),
       body: buildBlock(caseBody),
     });
     return chain;
