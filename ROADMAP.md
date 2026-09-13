@@ -27,6 +27,53 @@ Root cause, as far as the prototype dug: `compileJS`'s uniform reads are
 operand; WASM gets a plain `local.get`. That gap is wide enough that
 splitting a vector into scalars and taking a branch don't close it.
 
+**These two numbers are from the original prototype, before Phase 3's real
+linear memory existed and before `compileWasm` had its current ctx-
+marshalling wrapper — they no longer reproduce and should not be quoted as
+the current state.** A re-measurement below, pinned to a specific commit,
+supersedes them for anything but historical interest.
+
+### Re-measured at commit `0ef7fc1` (2026-09-13, Phase 1-4 landed)
+
+Same two scenarios, run several times each (Node, `performance.now()`
+around 2,000,000 calls per backend, 1,000-call warmup first), plus a loop
+case exercising Phase 4:
+
+| Scenario | Result |
+|---|---|
+| Scalar `sqrt(a*a+b*b+c*c)`, three float params | **WASM 10-30x slower** than `compileJS` |
+| Same, calling the raw exported WASM function directly (positional args, bypassing `compileWasm`'s wrapper) | WASM ~2-4x slower |
+| vec3 `dot` + `If`/`Else` (uniforms, through Phase 3's linear memory) | **WASM ~15-25x slower** |
+| `For` loop, 64 iterations of `sum += sqrt(i)` per call | **WASM 2-6x faster** |
+
+So the original claim is not just stale, it's currently backwards for a
+cheap call — and the cause has two separable parts:
+
+1. **`compileWasm`'s JS-side wrapper dominates for trivial calls.** Every
+   call iterates the `params` array, branches on each entry's `kind`, and
+   does a property lookup by name into `ctx.params`/`ctx.uniforms` — more
+   JS work than a 3-float `sqrt` itself. Calling the raw exported WASM
+   function directly closes most of the gap (~15x slower down to ~2-4x).
+2. **Even the raw call has real overhead** for something this cheap: V8
+   JITs the `compileJS`-generated function extremely well for trivial
+   arithmetic, and this backend's current bytecode has no constant-folding
+   or shared sub-expression caching (both already documented, deliberate
+   simplifications — see "No sub-expression caching" above) — neither
+   closes the remaining gap for a function this small.
+
+The loop case flips the result because 64 iterations of real work amortize
+the fixed call/wrapper overhead, and actual instruction execution — the
+part WASM was always expected to win at — dominates instead.
+
+**Practical read:** at Phase 1-4, this backend is a poor fit for the exact
+"cheap function, called once per pixel/click" pattern its own opening
+paragraph names as the target niche, and a good fit once there's a loop or
+enough per-call work to amortize the wrapper. Revisit before recommending
+`compileWasm` over `compileJS` for that niche specifically — either the
+wrapper needs to get cheaper (Phase 7 territory: this is exactly the "real
+workload, not a microbenchmark" gap that phase already flags), or the
+niche description needs updating.
+
 ## Status: Phase 1 through Phase 4 landed
 
 `compileWasmFn` and `compileWasm` exist in `src/rmsl-wasm.ts`, next to
@@ -256,7 +303,12 @@ already are (see CONTRIBUTING.md's "Validity"/"Values" test layers), so a
 case written once in `rmsl-js.test.ts`-style files is checked against WASM
 automatically instead of needing its own file. Also: benchmark against
 realistic workloads, not the microbenchmarks that shaped Phase 1 — a real
-picking scene's actual call pattern, not a tight synthetic loop.
+picking scene's actual call pattern, not a tight synthetic loop. See the
+"Re-measured at commit `0ef7fc1`" findings under "Why" above: the current
+`compileWasm` wrapper loses badly on a cheap per-call microbenchmark and
+only wins once there's a loop, so this phase's benchmarking work should
+specifically pin down where the crossover point is and whether the wrapper
+itself can get cheaper, not just confirm a win on a friendlier workload.
 
 ### Phase 8 — tooling and docs
 A `docs/wasm.md` page (or a section in `docs/compilation.md`), and a vite
