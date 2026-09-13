@@ -310,6 +310,76 @@ pass. Roughly halving the JS-vs-WASM gap (6.3x down to ~3.1x) came from
 that — fewer round trips through the `params` array outweighing the added
 `DataView` write.
 
+### A whole grid in one call: `.draw()`
+
+Every measurement above points the same direction: `compileWasm`'s own
+per-call marshalling cost is what makes it lose to `compileJS` for a
+cheap, called-once function, and it wins as soon as there's enough work
+in one call to amortize that cost — the crossover benchmark found a
+handful of loop iterations was already enough, and the exact same cost
+was what made filtered texture sampling look far worse than it actually
+was until that got fixed too (see both sections above). Rendering a
+`width x height` image one pixel at a time is the same problem at a much
+larger scale — tens of thousands to millions of calls instead of one — so
+`compileWasm`'s returned callable has a `.draw(ctx, width, height)` method
+that moves the pixel loop inside the compiled module instead of leaving
+it in JS.
+
+The design settled on two things worth being explicit about, since an
+earlier version of this did both differently:
+
+- **Dimensions are a per-call argument, not a compile-time constant.**
+  `width`/`height` are ordinary runtime `i32` values passed to a second
+  exported WASM function, `"draw"`, not baked into the loop bound at
+  compile time — the same compiled function can render a `2x2` grid on
+  one call and a `1920x1080` one on the next.
+- **Every compiled function can do both a single-pixel call and a
+  whole-grid `.draw()` — there is no separate compile mode to choose
+  between.** `"draw"` shares `main`'s own compiled body through a real
+  WASM `call` instruction rather than a copy of its bytecode inlined into
+  a loop: `main` compiles exactly as it always has, and `"draw"`'s loop
+  writes each iteration's pixel coordinate into the same fixed
+  `fragCoord()` address `main` already reads, then `call`s `main` once
+  per pixel and copies its result into a growable output buffer (grown
+  the same way the texture heap already grows, since a draw buffer's size
+  isn't known until the `width`/`height` for that particular call are).
+  Sharing `main`'s bytecode via a real call, rather than re-inlining a
+  copy of it wrapped in extra loop structure, also sidesteps an entire
+  class of bug an earlier version had to solve by hand: nothing about
+  `Return()`/`Discard()`/`Break()`/`Continue()`'s branch-depth bookkeeping
+  inside `main`'s body needs to change at all, regardless of whether
+  `draw` ever calls it.
+
+One real, useful side effect: a plain (non-stage) function returning an
+aggregate type used to throw `"only supports a scalar result"`, since a
+WASM function can only return one scalar natively. `needsResult` now
+recognizes an aggregate root the same way it already recognizes an
+explicit vertex stage, routing it through the same memory-based path a
+stage program uses instead of throwing — which is what lets a per-pixel
+`vec4` color work with `.draw()` with no stage or `output()` involved at
+all.
+
+`src/rmsl-wasm-draw.bench.ts` measures a `sqrt(distance to a uniform
+center)` program over a 128x128 grid, two runs, otherwise idle machine:
+
+| Scenario | Run 1 | Run 2 |
+|---|---|---|
+| `.draw()` vs. `compileWasm` called once per pixel | 55.01x faster | 54.46x faster |
+| `.draw()` vs. `compileJS` called once per pixel | 7.13x faster | 7.15x faster |
+
+The second row is the comparison that actually matters — `compileJS`
+called once per pixel is the realistic alternative anyone would reach for
+today, not a per-pixel `compileWasm` loop, and `.draw()` beats it by
+roughly 7x on this workload, not just the ~55x it wins by against
+`compileWasm`'s own weaker baseline.
+
+One documented, accepted gap: a function using *both* a texture uniform
+and `.draw()` together is untested and unsupported for now — the texture
+heap and the draw buffer both anchor at the same post-allocation address,
+so combining them today would let one silently corrupt the other. Neither
+growable region's size is known at compile time, so giving them
+non-colliding placements needs real design work this pass didn't attempt.
+
 ## Status: Phase 1 through Phase 7 landed (except multi-return)
 
 `compileWasmFn` and `compileWasm` exist in `src/rmsl-wasm.ts`, next to
@@ -535,6 +605,16 @@ which is also the fastest way to find the next thing worth doing here.
   (`rmsl-compiler-shared.ts`) is reused directly, unmodified — it only
   ever needed plain primitives (`shaderStage`/`lastType`/`positionWritten`),
   not a full `CompileCtx`.
+- **`.draw()` is a second exported function sharing `main`'s bytecode via
+  `call`, not a second compile mode or a copy of `main`'s body.**
+  `collect()`/`walkStmt`/`walkExpr` compile `main` exactly as they always
+  have; the module-assembly step at the end of `compileWasmFn` separately
+  builds a `"draw"` function (only when the root produces a value at all)
+  whose own body is just a `y`/`x` loop writing `fragCoord()`, calling
+  `main` by function index, and copying the result into a growable output
+  buffer. `compileWasm` exposes it as `.draw(ctx, width, height)` on the
+  callable it returns. See "A whole grid in one call: `.draw()`" above for
+  the design and the measured speedup.
 
 ## Phased plan
 
