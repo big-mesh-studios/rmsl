@@ -520,6 +520,43 @@ going to ship a `.wasm` asset rather than generate one at runtime.
   first place (see that section) — so this isn't a small follow-up, it's a
   real tradeoff to make consciously if the standalone/native use case ever
   becomes a real target rather than exploratory. Revisit then, not before.
+- **Audio/DSP and multi-backend "audiovisual" use cases.** Purely
+  exploratory — not scoped into any phase above, a set of ideas that came
+  up while dreaming about what compiling one shared source to both WASM and
+  WGSL/GLSL could open up:
+  - An `AudioWorklet`'s real-time, per-block call pattern (`process()`
+    called at a fixed rate, one call per 128-sample block) is exactly the
+    "called in a loop, GC pauses are unacceptable" profile the
+    wasm-vs-js benchmarks (see "Why" above) found this backend actually
+    winning at, unlike the cheap-single-call case it currently loses.
+  - Persistent DSP state (a delay line, a filter's history) needs no new
+    backend capability — it's the same shape as GPU feedback (a buffer
+    that lives outside the shader/kernel, read in and written back out
+    each invocation, not state the shader itself holds): Phase 5's
+    `output()`/`uniform()` round-trip already covers a scalar bit of
+    state; Phase 6's texture/heap machinery already generalizes that to a
+    whole buffer.
+  - The "audiovisual" idea itself: the same source compiled once to both
+    WASM (driving an audio thread) and WGSL (driving a visual shader),
+    each independently fed the *same* time/parameter values by the
+    harness, rather than any data flowing between the two at runtime. When
+    a program's feedback recurrence only ever depends on values both sides
+    already have, this is just deterministic parallel simulation — same
+    rule, same inputs, so the two trajectories agree without ever
+    synchronizing, the same trick lockstep multiplayer netcode uses (sync
+    inputs, not state). Two things would break that agreement in practice:
+    numerical precision (this backend computes in f64, WGSL in f32 — a
+    one-shot rounding difference is cheap, per
+    `docs/design-shared-layout-ir.md`'s own finding, but compounded over
+    thousands of feedback iterations in a resonant filter or delay line
+    could genuinely drift the two apart), and step rate (audio's
+    recurrence naturally advances per-sample or per-block, far finer-
+    grained than a visual frame, so the visual side replaying "the same"
+    recurrence has to decide whether it steps at audio rate internally too
+    or uses a different effective rule at frame rate).
+
+  None of this is scoped, designed, or planned — recorded so the
+  exploration isn't lost, not as a commitment to build any of it.
 
 ## Known issues found along the way (not WASM-specific)
 
