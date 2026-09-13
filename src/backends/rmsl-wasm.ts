@@ -1,30 +1,21 @@
+/**
+ * RMSL CPU backend: compiles an RMSL function into a small WebAssembly
+ * module. Scalars flow through WASM params/locals; vectors, matrices and
+ * pipeline I/O live at fixed offsets in an exported linear memory that the
+ * host reads and writes around each call. Opcodes below are verified
+ * empirically against a known answer, not quoted from memory: a
+ * wrong-but-valid opcode runs and silently miscompiles.
+ */
 import { MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, var_ } from "../rmsl-core";
 import { AllocRules, planLayout } from "../rmsl-layout";
 import { JsShaderContext, JsShaderResult, JsTextureData, JsTextureWrap } from "./rmsl-compile-js";
 import { assertStageResult, CompileFnOptions, COMPONENT_INDEX, resolveSwizzleTarget } from "./shared";
-// === WASM backend (see ROADMAP.md for what this does and doesn't cover yet) ===
-//
-// Compiles a plain, non-stage Fn straight to a WASM binary module instead of
-// JS source, for the same CPU-eval niche `compileJS` serves (screen picking,
-// ray-march hit tests) where per-call overhead matters. Phase 3 added a real
-// WASM linear memory: every vector/matrix value lives at a compile-time-fixed
-// byte address, and vector/matrix ops compile to loads/stores at that address
-// rather than juggling N separate scalar values. ROADMAP.md maps what's next.
-//
-// Every opcode below was checked empirically (a minimal module built and run
-// against a known answer) before use, not taken from memory — a
-// wrong-but-still-valid opcode produces a module that *runs* and gives the
-// wrong number, which is exactly the silent-miscompile failure mode
-// CONTRIBUTING.md's testing section is about.
 
 /**
- * One entry per parameter/uniform the compiled module needs data for.
- * `"param"`/`"uniform"` are scalar and occupy an actual WASM function
- * argument, in call order among themselves. `"paramMemory"`/`"uniformMemory"`
- * are aggregate (vector/matrix) values that never touch the WASM argument
- * list at all — they live at a fixed address in the module's exported
- * linear memory, and `compileWasm` writes their components there directly
- * via a `DataView` before every call.
+ * How a value crosses the module boundary. Scalar kinds are WASM params;
+ * "Memory" kinds live at fixed linear-memory offsets. The output/varying/
+ * position/fragDepth/value kinds are written by the call and read back
+ * after it; "narrow" floats are stored as f32 instead of f64.
  */
 export type WasmParam =
   | { kind: "param"; name: string; shaderType: ShaderType }
@@ -35,70 +26,34 @@ export type WasmParam =
       slot: string;
       shaderType: ShaderType;
       address: number;
-      /** Set only for a `gpuUniformLayout`-placed uniform: `address` is a raw
-       * GPU-shaped slot (e.g. `f32` per float component, half this backend's
-       * usual `f64`) rather than this backend's own packed representation —
-       * `compileWasm` writes the narrower width there instead of its usual
-       * one. See `GpuUniformLayout`. */
+
       narrow?: boolean;
     }
-  // Phase 5 input direction — `compileWasm` writes these before the call,
-  // exactly like a "param"/"uniform" pair, just sourced from
-  // `ctx.attributes`/`ctx.varyings`/`ctx.fragCoord` instead of
-  // `ctx.params`/`ctx.uniforms`. `varying` here is only ever the
-  // fragment-stage (read) direction — a vertex stage's `varying()` is
-  // output-direction, a different `WasmParam` kind entirely.
   | { kind: "attribute"; slot: string; shaderType: ShaderType }
   | { kind: "attributeMemory"; slot: string; shaderType: ShaderType; address: number }
   | { kind: "varying"; slot: string; shaderType: ShaderType }
   | { kind: "varyingMemory"; slot: string; shaderType: ShaderType; address: number }
   | { kind: "fragCoordMemory"; address: number }
-  // Phase 5 output direction — the mirror image: `compileWasm` reads these
-  // *after* the call, assembling a `JsShaderResult`-shaped object instead
-  // of returning a bare value. Only present when the compiled function
-  // actually used one of `output()`/a vertex `varying()`/`builtinPosition()`/
-  // `builtinFragDepth()`, or has a value-producing result alongside them —
-  // see `needsResult` in `compileWasmFn`.
   | { kind: "outputMemory"; slot: string; shaderType: ShaderType; address: number }
   | { kind: "varyingOutputMemory"; slot: string; shaderType: ShaderType; address: number }
   | { kind: "positionMemory"; address: number }
   | { kind: "fragDepthMemory"; address: number }
   | { kind: "valueMemory"; shaderType: ShaderType; address: number }
-  // Phase 6: a texture uniform. Unlike every other uniform kind, its data
-  // (dimensions, pixels) isn't fixed-size at compile time, so it gets no
-  // ordinary scratch address for its *value* — only a small, fixed-size
-  // metadata block (see `TEXTURE_META_*` byte offsets) recording where its
-  // pixel data currently lives in the growable texture heap
-  // (`compileWasm`'s wrapper places it fresh before every call) plus its
-  // shape (width/height/depth/channels/filter/wrap). `compileWasm` writes
-  // this block *and* the pixel data every call, exactly like a `uniform`
-  // value, just shaped differently.
   | { kind: "textureMemory"; slot: string; samplerType: ShaderType; metadataAddress: number };
 
+/**
+ * A compiled module: raw bytes plus the contract the host uses to marshal
+ * values, and "draw" metadata when whole-image rendering is available.
+ */
 export type CompiledWasm = {
-  /** The raw WASM binary module, exporting `options.name` and `"memory"`. */
   bytes: Uint8Array;
   params: WasmParam[];
-  /** The Fn's declared return type — `compileWasm` reads this to convert a
-   * `"bool"` result's 0/1 back to a real boolean, matching `compileJS`. */
+
   resultType: ShaderType;
-  /** Phase 6: the byte address right after every compile-time-fixed
-   * allocation (scratch, uniforms, texture metadata, ...) — where
-   * `compileWasm`'s wrapper starts packing texture pixel data fresh before
-   * every call, growing the module's memory first if needed. Meaningless
-   * when `params` has no `"textureMemory"` entry. */
-  textureHeapBase: number;
-  /** Present whenever the Fn produces a non-`"void"` value (regardless of
-   * whether `compileWasm`'s `.draw()` ever actually gets called) — the
-   * exported `"draw"` function shares `main`'s own compiled body via a
-   * real WASM `call`, rendering a `width x height` grid (both runtime
-   * arguments, decided per call) into a buffer instead of one call per
-   * pixel. That buffer's base address is *also* a runtime argument to
-   * `"draw"` (not included here) — `compileWasm` computes it fresh every
-   * call as `textureHeapBase` plus however many bytes that call's own
-   * textures occupy, so a texture-using `.draw()` call places its output
-   * right after wherever that call's texture heap actually ends. */
-  draw?: { componentCount: number; kind: "float" | "int" | "uint" | "bool" };
+
+  textureHeapBase: number; // heap starts at this offset; below it is the compile-time layout
+
+  draw?: { componentCount: number; kind: "float" | "int" | "uint" | "bool" }; // set when "draw" is exported
 };
 
 export const WASM_OP = {
@@ -183,8 +138,6 @@ export const WASM_I32 = 0x7f;
 export const WASM_FUNC = 0x60;
 export const WASM_BLOCKTYPE_VOID = 0x40;
 
-/** A node's scalar value kind — everything at this phase is one of these
- * four, stored as either f64 (`float`) or i32 (the other three). */
 type ScalarKind = "float" | "int" | "uint" | "bool";
 
 function scalarKindOf(t: string | undefined): ScalarKind {
@@ -195,23 +148,20 @@ function wasmTypeOf(kind: ScalarKind): number {
   return kind === "float" ? WASM_F64 : WASM_I32;
 }
 
-/** The scalar kind an aggregate type's components are stored as — the
- * `vec/mat` prefix says nothing else about layout, only this. */
+/** Element kind of a shader type's components; non-int vectors default to float. */
 function elementKindOf(t: string): ScalarKind {
   if (t.startsWith("ivec")) return "int";
   if (t.startsWith("uvec")) return "uint";
   if (t.startsWith("bvec")) return "bool";
-  return "float"; // vecN and every matM are float-component.
+  return "float";
 }
 
-/** Bytes one component of `t` occupies in linear memory: 8 for a float
- * component (f64), 4 for int/uint/bool (i32). */
+/** Bytes per component: 8 for float, 4 for int/uint/bool. */
 function componentSizeOf(kind: ScalarKind): number {
   return kind === "float" ? 8 : 4;
 }
 
-/** Total scalar component count of `t` — 1 for a plain scalar, vector width
- * for a vecN, `cols*rows` for a matrix. */
+/** Component count: 1 for scalars, TYPE_WIDTH for vectors, rows*cols for matrices. */
 function componentCountOf(t: string): number {
   const width = TYPE_WIDTH[t];
   if (width !== undefined) return width;
@@ -224,27 +174,15 @@ function isAggregate(t: string): boolean {
   return componentCountOf(t) > 1;
 }
 
-/** A texture uniform's `shaderType` is never an aggregate `componentCountOf`
- * knows how to size (samplers carry no component count at all) — this is
- * the separate check `collect()` runs first to route it to texture-metadata
- * handling instead of the ordinary aggregate/scalar uniform paths. */
 function isSamplerType(t: string): boolean {
   return t.startsWith("sampler") || t.startsWith("isampler") || t.startsWith("usampler");
 }
 
-/** An integer texture (`isampler*`/`usampler*`) is never filterable in
- * either language — `texture()`/`textureLod()` on one takes the same
- * unfiltered-fetch path `textureLoad()` always takes, matching `compileJS`
- * exactly (see the doc comment on `ISampler2DOps`, `rmsl-core.ts`). */
 function isIntegerSamplerType(t: string): boolean {
   return t.startsWith("isampler") || t.startsWith("usampler");
 }
 
-/** `texture()`/`textureLoad()` support every 2D/3D sampler kind — float,
- * signed, and unsigned — exactly like `compileJS` does (an integer sampler
- * just takes the unfiltered-fetch path instead of the wrap/filter one,
- * since integer textures aren't filterable in either language). Only cube
- * samplers are unsupported, matching `compileJS`'s own restriction. */
+/** Sampling only supports 2D/3D textures — reject 1D/cube/texture-arrays early. */
 function assertSampled2Dor3D(t: string): void {
   if (!t.endsWith("2D") && !t.endsWith("3D")) {
     throw new Error(
@@ -253,30 +191,25 @@ function assertSampled2Dor3D(t: string): void {
   }
 }
 
-/** Fixed byte layout of a texture uniform's metadata block (44 bytes,
- * allocated once per slot via `allocateBytes`). `dataAddr` and every other
- * field are rewritten by `compileWasm`'s wrapper before every call — none
- * of it is known at compile time beyond "this slot exists". */
-const TEX_META_UNORM_DIVISOR = 0; // f64: 255 for Uint8Array/Uint8ClampedArray source data, 1 otherwise
-const TEX_META_DATA_ADDR = 8; // i32: this call's heap offset for the pixel data
-const TEX_META_WIDTH = 12; // i32
-const TEX_META_HEIGHT = 16; // i32
-const TEX_META_DEPTH = 20; // i32: 0 for a 2D texture
-const TEX_META_CHANNELS = 24; // i32: 1-4
-const TEX_META_FILTER = 28; // i32: 0 = nearest, 1 = linear (magFilter only — minFilter is unused, matching compileJS)
-const TEX_META_WRAP_S = 32; // i32: 0 = clamp, 1 = repeat, 2 = mirror
-const TEX_META_WRAP_T = 36; // i32
-const TEX_META_WRAP_R = 40; // i32: 3D only
+// Per-texture metadata block written by writeTextureToMemory(), reserved
+// per sampler slot. TEX_META_DATA_ADDR points at the heap-relative pixel
+// data (stored as f64 per channel); TEX_META_UNORM_DIVISOR is 255 for
+// byte data and 1 for float data.
+const TEX_META_UNORM_DIVISOR = 0;
+const TEX_META_DATA_ADDR = 8;
+const TEX_META_WIDTH = 12;
+const TEX_META_HEIGHT = 16;
+const TEX_META_DEPTH = 20;
+const TEX_META_CHANNELS = 24;
+const TEX_META_FILTER = 28;
+const TEX_META_WRAP_S = 32;
+const TEX_META_WRAP_T = 36;
+const TEX_META_WRAP_R = 40;
 const TEXTURE_META_STRIDE = 44;
 
 /**
- * This backend's placement rules for `planLayout` (src/rmsl-layout.ts):
- * declaration order (never reordered — nothing here shares a struct with a
- * GPU buffer, so there's no padding to minimize), no array-element widening,
- * no stride rounding, and no whole-allocation alignment requirement — matching
- * the file's existing "no padding, byte-packed" design (see
- * `ROADMAP.md`, "Vectors and matrices live in linear memory now"). `type`
- * here is always an RMSL `ShaderType`.
+ * Packed layout (no alignment padding, no reorder): WASM linear memory has
+ * no struct type, so aggregates are stored as flat byte runs.
  */
 const PACKED_RULES: AllocRules = {
   sizeAndAlignOf(type) {
@@ -286,11 +219,7 @@ const PACKED_RULES: AllocRules = {
   structAlignMinimum: 1,
 };
 
-/**
- * Math functions with no WASM opcode, called through an import named
- * `"math"` — the same names as `Math`'s own, so `compileWasm` can hand the
- * real `Math` object as the import's namespace with no translation.
- */
+/** Math.* functions imported from the host and called by index (exp2 lowers to pow). */
 const MATH_UNARY_IMPORTS = new Set([
   "sin",
   "cos",
@@ -321,8 +250,7 @@ function wasmUleb128(n: number): number[] {
   return out;
 }
 
-/** Signed LEB128, for `i32.const` — a plain `wasmUleb128` would encode a
- * negative operand as an enormous positive one instead of sign-extending. */
+/** Signed LEB128 — i32.const needs it so negative operands sign-extend. */
 function wasmSleb128(n: number): number[] {
   const out: number[] = [];
   let more = true;
@@ -336,6 +264,7 @@ function wasmSleb128(n: number): number[] {
   return out;
 }
 
+/** Little-endian f64 bytes, as used by f64.const. */
 export function wasmF64Bytes(value: number): number[] {
   const buf = new ArrayBuffer(8);
   new DataView(buf).setFloat64(0, value, true);
@@ -356,106 +285,57 @@ function wasmStrBytes(s: string): number[] {
 }
 
 /**
- * Compile an Fn to a raw WASM binary module. `fn` must return a plain
- * scalar (`"float"`, `"int"`, `"uint"`, or `"bool"`) — no multi-return, no
- * `output()`/`varying()`/`attribute()`, and no control flow beyond
- * `If`/`Else` (see ROADMAP.md for the rest). Vectors and matrices are fully
- * first-class as *intermediate* values (construct, `toVar()`, `assign()`,
- * swizzle read/write, `dot`, componentwise `add`/`sub`/`mul`/`div`) — only
- * the function's own result must still be a scalar.
- */
-/**
- * Stage 2 of `docs/design-shared-layout-ir.md`: place specific *aggregate*
- * uniforms at caller-given byte offsets (typically from `wgslUniformLayout`)
- * instead of this backend's own packed allocation, so the JS host can write
- * a GPU-shaped uniform buffer's bytes directly, with no repacking step for
- * this backend to read them. Experimental — not part of the stable API.
- *
- * `wgslUniformLayout`'s offsets assume each `float` component is WGSL's
- * 4-byte `f32`; this backend's own arithmetic is always f64 (`ROADMAP.md`,
- * "`float` is f64"), and an earlier version of this option used the
- * caller's raw offset as this backend's *only* address for that uniform —
- * safe for offset placement, but a real correctness bug once two
- * GPU-adjacent, 4-byte-spaced members met this backend's 8-byte-per-
- * component writes: one could spill straight over the next (see git
- * history around `rmsl-layout-interop.test.ts`'s original corruption
- * case). Fixed by giving a GPU-placed uniform *two* addresses instead of
- * one: the caller's raw offset, exactly `narrow` (`f32`) as the caller
- * expects and never touched by this backend's arithmetic directly, and an
- * ordinary packed scratch address like any other uniform gets. Reading the
- * uniform promotes narrow → f64 once, into that scratch address (see
- * `materializeIfNeeded`'s `"uniform"` case) — every consumer downstream
- * (`dot`, swizzles, `emitConstructStores`, ...) reads the ordinary scratch
- * address exactly as it always has, with no awareness a GPU-facing
- * representation exists at all.
+ * Offsets where the host will store GPU-placed uniforms (float as f32),
+ * reserving a memory region sized by totalSize. Reading such a uniform
+ * promotes it into the packed scratch layout instead of reading in place.
  */
 export type GpuUniformLayout = {
-  /** Byte offset for each overridden uniform, keyed by slot (the `.name`
-   * on the `uniform()` node) — everything `wgslUniformLayout` already
-   * reports as `WgslUniformMember.name`/`.offset`. */
   offsets: Record<string, number>;
-  /** The whole layout's total size (`wgslUniformLayout`'s `.size`) — the
-   * bump allocator for everything else this function needs (locals,
-   * scratch, non-overridden uniforms) starts right after it, so nothing it
-   * places can ever land inside the reserved region. */
+
   totalSize: number;
 };
 
+/**
+ * stage: vertex makes varying/builtinPosition etc. OUTPUTS, fragment makes
+ * them inputs (default). derivatives: CPU has no derivatives — throw
+ * (default) or evaluate to 0. reentrant: accepted for parity, no effect —
+ * WASM locals are fresh per call frame, so there is no shared scratch to
+ * privatize.
+ */
 export type CompileWasmFnOptions = CompileFnOptions & {
   gpuUniformLayout?: GpuUniformLayout;
-  /** Phase 5 of `ROADMAP.md`: `undefined` (the default) is today's plain
-   * scalar-returning function — every existing behavior stays exactly as
-   * it was. Set to compile a full vertex or fragment stage instead:
-   * `varying()` becomes a write (collected into the result) in `"vertex"`
-   * and a read (from `ctx.varyings`) in `"fragment"`; `builtinPosition()`
-   * is only writable in `"vertex"`; `builtinFragDepth()`/`fragCoord()`
-   * only in `"fragment"`; and the function's own result no longer has to
-   * be a scalar — it becomes the stage's `res.value`, exactly matching
-   * `compileJS`'s `CompileJSOptions.stage`. */
+
   stage?: "vertex" | "fragment";
-  /** `dFdx`/`dFdy`/`fwidth` have no meaning on a CPU target. `"throw"`
-   * (the default, matching `compileJS`) rejects them; `"zero"` evaluates
-   * them as `0` instead — matching `compileJS`'s own two options exactly. */
+
   derivatives?: "throw" | "zero";
-  /**
-   * Accepted for API parity with `compileJS`'s `CompileJSOptions` —
-   * **has no effect**. `compileJS`'s `reentrant` exists because its
-   * default hoists scratch to module-scope `let`s shared across every
-   * call; this backend's WASM locals are already allocated fresh per call
-   * frame by the VM itself, so there is no shared-scratch hazard to opt
-   * out of here regardless of this option's value (see `ROADMAP.md`'s
-   * former "Reentrancy" open question, now resolved this way).
-   */
+
   reentrant?: boolean;
 };
 
+/**
+ * Compiles an RMSL function into a WASM module in two passes: "collect"
+ * walks the AST once, giving each scalar a param/local slot and each
+ * aggregate a fixed memory address; the emit helpers then generate bytes
+ * against that frozen layout. When the root is an aggregate or the stage
+ * writes pipeline outputs, the module declares zero results and values
+ * round-trip through the linear memory instead.
+ */
 export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options: CompileWasmFnOptions): CompiledWasm {
   const paramNodes = options.params.map((p) => var_(p.name, p.type));
   const root = fn(...paramNodes) as any;
   if (Array.isArray(root)) {
     throw new Error("[RMSL] compileWasmFn does not support multi-return functions.");
   }
-  // The "root must be a plain scalar" check used to happen right here — it
-  // now has to wait until after `collect()` (below) has run, since whether
-  // that restriction still applies at all depends on `needsResult`, which
-  // isn't known until the whole tree has been walked once (see the check
-  // right after `collect(root)`).
 
   const paramTypeByName = new Map(options.params.map((p) => [p.name, p.type]));
   const fnParamNames = new Set(options.params.map((p) => p.name));
-  // Matches `compileJS`'s own default exactly (`compileJSFn`: `options.stage
-  // ?? "fragment"`) — a program can read fragment-only builtins without
-  // having to pass `stage` explicitly, the same as compileJS allows today.
+
   const effectiveStage: "vertex" | "fragment" = options.stage ?? "fragment";
 
-  // --- pass 1: collect the WASM param/local index space, every math import
-  // the program needs, and every linear-memory address a vector/matrix value
-  // needs (uniforms, params, `let`-bound vars, and one scratch slot per
-  // vector/matrix-producing expression node) — all in first-seen order,
-  // before any instruction bytes reference an index or address. ---
-  // Scalar-only — these are the ones that actually occupy a WASM function
-  // argument; every kind here always carries `shaderType`, unlike the wider
-  // `WasmParam` union (a memory-only kind like `"fragCoordMemory"` doesn't).
+  // Pass 1 scratch state. Scalars land in the WASM param space (params) or
+  // the WASM local space (localSlots); aggregates and stage I/O get fixed
+  // memory addresses recorded in the *Address maps. Everything is resolved
+  // up front so the byte emitters never need to re-plan.
   type ScalarWasmParam = Extract<WasmParam, { kind: "param" | "uniform" | "attribute" | "varying" }>;
   const params: ScalarWasmParam[] = [];
   const paramIndex = new Map<string, number>();
@@ -464,81 +344,52 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
   const localType = new Map<string, ScalarKind>();
   const importsUsed = new Set<string>();
 
-  const memoryParams: WasmParam[] = [];
+  const memoryParams: WasmParam[] = []; // memory-kind params, host-written before the call (or read after)
   const paramAddress = new Map<string, number>();
   const varAddress = new Map<string, number>();
   const uniformAddress = new Map<string, number>();
-  // Present only for a `gpuUniformLayout`-placed uniform: its caller-given,
-  // narrow (f32-per-float-component) raw offset — `uniformAddress` above
-  // still holds its *own*, ordinary packed scratch address; this map is
-  // only consulted by `materializeIfNeeded`'s promotion step.
-  const gpuRawUniformAddress = new Map<string, number>();
-  // Phase 5 input direction: `attribute()` always reads from `ctx.attributes`
-  // regardless of stage; `varying()` reads from `ctx.varyings` only in a
-  // fragment stage (a vertex stage's `varying()` is output-direction — see
-  // the "varying"/"builtinPosition" handling in `walkStmt`'s assign case).
+
+  const gpuRawUniformAddress = new Map<string, number>(); // host offsets of GPU-placed uniforms (f32)
+
   const attributeAddress = new Map<string, number>();
   const varyingAddress = new Map<string, number>();
-  // `fragCoord()` has no per-call slot — every reference in one program is
-  // the same input, so one address serves all of them, unlike every other
-  // node type here which is keyed by slot or by node identity.
-  let fragCoordAddress: number | undefined;
-  // Phase 5 output direction: written during the function body, read back
-  // by `compileWasm` *after* the call — the first backend direction that
-  // ever needs that. `needsResult` mirrors `compileJS`'s own
-  // `ctx.jsNeedsRes`: false for every program that never touches any of
-  // these (every existing test), in which case the function keeps its
-  // original single-scalar-result shape untouched; true the moment any of
-  // them is used, switching the compiled function to a zero-result shape
-  // with everything read back from memory instead (see the `code`/type
-  // section assembly near the end of this function). An explicit `"vertex"`
-  // stage seeds this `true` unconditionally, even if nothing else in the
-  // program does — a vertex stage's own result always maps to the implicit
-  // position unless `builtinPosition()` was written some other way
-  // (`assertStageResult`), so it's never just a plain WASM return value.
-  // An aggregate root (`vec4`, ...) seeds it too: a plain WASM function can
-  // only ever return one scalar, so anything wider always has to go
-  // through memory regardless of stage — this is what lets `draw()` (see
-  // `compileWasm`) support a per-pixel `vec4` color with no stage/output()
-  // involved at all.
+
+  let fragCoordAddress: number | undefined; // one shared per-pixel input slot, allocated on first use
+
+  // needsResult: the WASM function returns nothing; the result is written
+  // to memory (valueAddress below) and read back by the host.
   let needsResult = options.stage === "vertex" || isAggregate(root._t as string);
   let positionWritten = false;
   const outputAddress = new Map<string, number>();
   const varyingOutputAddress = new Map<string, number>();
   let positionAddress: number | undefined;
   let fragDepthAddress: number | undefined;
-  // Phase 6: each texture uniform slot's fixed metadata-block address (see
-  // `TEXTURE_META_*`). The pixel data itself gets no compile-time address —
-  // it lives in a growable heap `compileWasm`'s wrapper packs fresh before
-  // every call (see `textureHeapBase` below and `CompiledWasm.textureHeapBase`).
+
   const textureMetadataAddress = new Map<string, number>();
   const scratchAddress = new WeakMap<object, number>();
-  // Reserve [0, totalSize) for a caller-supplied GPU uniform layout, if any
-  // — everything this backend places itself starts after it, so it can
-  // never collide with an overridden uniform's address.
-  let memCursor = options.gpuUniformLayout?.totalSize ?? 0;
 
+  let memCursor = options.gpuUniformLayout?.totalSize ?? 0; // cursor past the host's reserved region
+
+  /** Advances a fixed-size region from the cursor. */
   function allocateBytes(size: number): number {
     const addr = memCursor;
     memCursor += size;
     return addr;
   }
+  /** Bytes needed to store one value of type t under PACKED_RULES. */
   function allocateFor(t: string): number {
-    // A single-member call: with `reorderByAlignment: false` there's nothing
-    // to reorder against, so this is exactly `allocateBytes(size)` for the
-    // one type's own byte size — routed through the shared allocator so this
-    // backend's sizing rules live in one place (`PACKED_RULES`) instead of
-    // being computed inline here too.
     const { size } = planLayout([{ slot: t, type: t }], PACKED_RULES);
     return allocateBytes(size);
   }
 
+  /** Registers a scalar into the WASM param space, deduped by key. */
   function addParam(spec: ScalarWasmParam, key: string): void {
     if (!paramIndex.has(key)) {
       paramIndex.set(key, params.length);
       params.push(spec);
     }
   }
+  /** Registers a scalar WASM local, deduped by var name. */
   function addLocal(varName: string, kind: ScalarKind): void {
     if (!localIndex.has(varName)) {
       localIndex.set(varName, localSlots.length);
@@ -547,16 +398,16 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     }
   }
 
-  /** Every node whose value is an aggregate that isn't already addressed by
-   * `paramAddress`/`varAddress`/`uniformAddress` — a construct, a literal
-   * vector/matrix, a multi-component swizzle read, or a componentwise
-   * arithmetic op — gets its own dedicated scratch address, keyed by node
-   * identity so a repeated reference (`dot(v, v)`) shares one slot. */
+  /**
+   * True for aggregate-typed expressions that are anonymous results (not a
+   * var/uniform/param...) and therefore need their own fixed address to be
+   * materialized into before any component can be read.
+   */
   function isScratchNode(node: any): boolean {
     const t = node._t as string;
     if (!isAggregate(t)) return false;
     if (node.type === "construct") return true;
-    if (node.type === t) return true; // literal vector/matrix
+    if (node.type === t) return true;
     if (node.type === "swizzle" && (node.value as string).length > 1) return true;
     if (node.type === "cross" || node.type === "reflect" || node.type === "normalize" || node.type === "matVecMul")
       return true;
@@ -567,6 +418,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return node.type === "add" || node.type === "sub" || node.type === "mul" || node.type === "div";
   }
 
+  /** Pass 1: walk the AST, allocating every slot/address the emitters will use. */
   function collect(node: any): void {
     if (node === null || typeof node !== "object") return;
     if (node.type === "var" && fnParamNames.has(node.value?.varName)) {
@@ -582,10 +434,6 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         addParam({ kind: "param", name, shaderType: t }, `param:${name}`);
       }
     } else if (node.type === "uniform" && isSamplerType(node.value.shaderType)) {
-      // No 2D/3D-only restriction here — `textureSize()` works for any
-      // sampler kind including cube, matching `compileJS`'s own
-      // `_texSize` (no restriction at all). Only `texture()`/`textureLoad()`
-      // restrict to 2D/3D, checked where those node types are compiled.
       const v = node.value;
       if (!textureMetadataAddress.has(v.slot)) {
         const addr = allocateBytes(TEXTURE_META_STRIDE);
@@ -596,11 +444,6 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       const v = node.value;
       if (isAggregate(v.shaderType)) {
         if (!uniformAddress.has(v.slot)) {
-          // A GPU-placed uniform gets its own ordinary packed scratch
-          // address like any other uniform — `nodeAddress`/every consumer
-          // reads that, never the raw GPU offset directly (see
-          // `materializeIfNeeded`'s "uniform" case for the narrow -> f64
-          // promotion that keeps the two in sync).
           const addr = allocateFor(v.shaderType);
           uniformAddress.set(v.slot, addr);
           const gpuOffset = options.gpuUniformLayout?.offsets[v.slot];
@@ -632,10 +475,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         addParam({ kind: "attribute", slot: v.slot, shaderType: v.shaderType }, `attribute:${v.slot}`);
       }
     } else if (node.type === "varying" && effectiveStage === "fragment") {
-      // A vertex stage's `varying()` is output-direction instead — handled
-      // in `walkStmt`'s assign case, not here (nothing to collect on read,
-      // since it's never read in a vertex stage program the way it's
-      // written here for a fragment one).
+      // fragment: varyings are per-call inputs, written by the host
       const v = node.value;
       if (isAggregate(v.shaderType)) {
         if (!varyingAddress.has(v.slot)) {
@@ -647,6 +487,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         addParam({ kind: "varying", slot: v.slot, shaderType: v.shaderType }, `varying:${v.slot}`);
       }
     } else if (node.type === "fragCoord") {
+      // fragment-only shared per-pixel input slot
       if (effectiveStage !== "fragment") {
         throw new Error("[RMSL] compileWasmFn: fragCoord() can only be used in fragment shaders");
       }
@@ -655,6 +496,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         memoryParams.push({ kind: "fragCoordMemory", address: fragCoordAddress });
       }
     } else if (node.type === "output") {
+      // pipeline output: forces needsResult so the host can read it
       needsResult = true;
       const v = node.value;
       if (!outputAddress.has(v.slot)) {
@@ -663,10 +505,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         memoryParams.push({ kind: "outputMemory", slot: v.slot, shaderType: v.shaderType, address: addr });
       }
     } else if (node.type === "varying" && effectiveStage === "vertex") {
-      // Output-direction here (see the fragment-stage "varying" branch
-      // above for the read direction) — allocated on first encounter
-      // whether that's a read-back or the assign that writes it, exactly
-      // like "output" above.
+      // vertex: varyings are outputs the host reads back
       needsResult = true;
       const v = node.value;
       if (!varyingOutputAddress.has(v.slot)) {
@@ -675,12 +514,14 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         memoryParams.push({ kind: "varyingOutputMemory", slot: v.slot, shaderType: v.shaderType, address: addr });
       }
     } else if (node.type === "builtinPosition") {
+      // vertex output (gl_Position), write-only in the vertex stage
       needsResult = true;
       if (positionAddress === undefined) {
         positionAddress = allocateFor("vec4");
         memoryParams.push({ kind: "positionMemory", address: positionAddress });
       }
     } else if (node.type === "builtinFragDepth") {
+      // fragment output (gl_FragDepth)
       if (effectiveStage !== "fragment") {
         throw new Error("[RMSL] compileWasmFn: builtinFragDepth() can only be used in fragment shaders");
       }
@@ -690,12 +531,10 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         memoryParams.push({ kind: "fragDepthMemory", address: fragDepthAddress });
       }
     } else if (node.type === "assign" && node.params[0].type === "builtinPosition") {
-      // The one thing that specifically depends on *writing* rather than
-      // merely referencing builtinPosition — `assertStageResult` below
-      // needs to know a vertex stage supplied its own position, so its
-      // result doesn't have to be a vec4 too.
+      // remember a direct gl_Position write
       positionWritten = true;
     } else if (node.type === "let") {
+      // aggregate let reserves a varAddress slot; scalar lets become WASM locals
       const targetNode = node.params[0];
       const t = targetNode._t as string;
       if (isAggregate(t)) {
@@ -707,56 +546,26 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     } else if (MATH_UNARY_IMPORTS.has(node.type) || MATH_BINARY_IMPORTS.has(node.type)) {
       importsUsed.add(node.type);
     } else if (node.type === "exp2") {
-      // exp2(x) compiles to a call to the imported pow(2, x) — see walkExpr —
-      // so that import has to be registered here too, even though "exp2"
-      // itself isn't one of the imported names.
-      importsUsed.add("pow");
+      importsUsed.add("pow"); // exp2(x) = pow(2, x) via the host import
     } else if (node.type === "smoothstep") {
-      // One shared local for every `smoothstep` call site in this function
-      // (nested ones included) — `t` is computed once per call via
-      // `local.tee` and read back twice more via `local.get`, instead of
-      // recomputing the whole `clamp((x-e0)/(e1-e0), 0, 1)` three times
-      // for `t*t*(3-2*t)`. Safe to share: every use is "compute, then
-      // immediately consume 3 times, done" before the bytecode for any
-      // other `smoothstep` call site — nested or sibling — ever runs,
-      // since this is a single sequential instruction stream, never
-      // concurrent or re-entrant. `addLocal` itself is idempotent (a
-      // second call for the same name is a no-op), so this only actually
-      // reserves a slot on the first `smoothstep` found.
-      addLocal("$smoothstep_t", "float");
+      addLocal("$smoothstep_t", "float"); // one shared temp local for t (dedup keeps it single)
     }
     if (isScratchNode(node) && !scratchAddress.has(node)) {
       const addr = allocateFor(node._t as string);
-      // `normalize`/`reflect` each need one scalar (the length, the
-      // reflection dot product) read back multiple times while computing
-      // every output component — rather than inventing a WASM-local scratch
-      // mechanism, one extra f64 slot right after the node's own output
-      // components holds it, computed once.
+
+      // Extra scratch right after the value slot: 8 for normalize/reflect
+      // (length/dot), 60 for filtered sampling, 8 for texel fetch.
       if (node.type === "normalize" || node.type === "reflect") allocateBytes(8);
       if (
         (node.type === "texture" || node.type === "textureLod") &&
         !isIntegerSamplerType(node.params[0]._t as string)
       ) {
-        // Scratch for every value `emitTextureSampleStores` computes once
-        // per sample and every one of the 4 channels then reuses — nearest
-        // mode's own wrapped x/y/z, bilinear/trilinear's wrapped tap
-        // indices, and the blend weights — instead of each channel
-        // recomputing all of it from scratch. Same "extra scratch right
-        // after the node's own result" treatment as normalize/reflect
-        // above, just a lot more of it (3 nearest indices + 6 tap indices,
-        // all i32, plus 3 f64 blend weights = 60 bytes).
         allocateBytes(60);
       }
       if (
         node.type === "textureLoad" ||
         ((node.type === "texture" || node.type === "textureLod") && isIntegerSamplerType(node.params[0]._t as string))
       ) {
-        // Scratch for the two values `emitTexelFetchStores` computes once
-        // per texel and every one of the 4 channels then reuses — the
-        // out-of-range flag and the safe, clamped texel index — instead of
-        // each channel redoing the bounds check and index arithmetic from
-        // scratch (the exact same redundancy `texture()`'s own filtered
-        // path above already had, fixed the same way here).
         allocateBytes(8);
       }
       scratchAddress.set(node, addr);
@@ -765,20 +574,13 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
   }
   collect(root);
 
-  // Now that the whole tree has been walked once, `needsResult` is settled
-  // — decide what the root is actually allowed to be, and where its own
-  // value (if it has one) will live.
   let resultKind: ScalarKind;
   let valueAddress: number | undefined;
   if (needsResult) {
     assertStageResult(effectiveStage, root._t === "void" ? undefined : (root._t as string), positionWritten);
-    resultKind = "float"; // unused for the function's own WASM result type in this mode (see below) — a value, never read as a bare WASM return.
+    resultKind = "float"; // placeholder: with needsResult the module returns void, so it is never used
     if (effectiveStage === "vertex" && !positionWritten) {
-      // "Otherwise the result becomes the position" (assertStageResult's
-      // own wording) — already required to be a vec4 by the check above,
-      // so it's written directly into the position slot instead of a
-      // separate "value" one; `JsShaderResult.value` stays unset here,
-      // matching `compileJS`.
+      // vertex fn that never wrote gl_Position: route its value there anyway
       if (positionAddress === undefined) {
         positionAddress = allocateFor("vec4");
         memoryParams.push({ kind: "positionMemory", address: positionAddress });
@@ -799,12 +601,10 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
   const importNames = [...importsUsed].sort();
   const importIndexOf = new Map(importNames.map((name, i) => [name, i]));
 
-  // --- pass 2: emit instruction bytes against the now-fixed index/address
-  // space. ---
   function localSlotIndex(varName: string): number {
     const i = localIndex.get(varName);
     if (i === undefined) throw new Error(`[RMSL] compileWasmFn: read of undeclared var "${varName}"`);
-    return params.length + i;
+    return params.length + i; // WASM indexes locals after the params, hence + params.length
   }
   function paramSlotIndex(key: string): number {
     const i = paramIndex.get(key);
@@ -815,9 +615,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return [WASM_OP.call, ...wasmUleb128(importIndexOf.get(name)!)];
   }
 
-  /** The fixed byte address of an aggregate-valued node — a pure
-   * compile-time lookup, never bytecode, since nothing in this phase needs
-   * a dynamically-computed address. */
+  /** Fixed linear-memory address of an aggregate-typed node, from the map for its kind. */
   function nodeAddress(node: any): number {
     if (node.type === "var") {
       const name = node.value.varName;
@@ -861,10 +659,6 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       return addr;
     }
     if (node.type === "builtinPosition") {
-      // Only a vertex stage may *read* its own position back — matches
-      // `compileJS`'s `assertPositionIsReadable` exactly; writing it (the
-      // `walkStmt` assign-target case) never calls `nodeAddress`, so this
-      // check only ever fires for a read.
       if (effectiveStage !== "vertex") {
         throw new Error(
           "[RMSL] compileWasmFn: builtinPosition() is the vertex stage's output position, and a " +
@@ -886,6 +680,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return addr;
   }
 
+  /** [base, load, memarg: align=0, offset] — loads one component at a constant address. */
   function loadComponent(addr: number, kind: ScalarKind, byteOffset: number): number[] {
     return [
       ...i32ConstBytes(addr),
@@ -894,6 +689,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       ...wasmUleb128(byteOffset),
     ];
   }
+  /** [base, value, store, align=0, offset] — stores one component at a constant address. */
   function storeComponent(addr: number, kind: ScalarKind, byteOffset: number, valueBytes: number[]): number[] {
     return [
       ...i32ConstBytes(addr),
@@ -904,42 +700,28 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     ];
   }
 
-  /** The dynamic-address counterpart of `loadComponent`: every other load in
-   * this file targets a compile-time-constant address (`i32ConstBytes(addr)`
-   * pushed as the base, with the component's own byte offset folded into
-   * the load instruction's immediate) — texture heap access is the first
-   * case where the address itself is only known at run time (it depends on
-   * `compileWasm`'s per-call heap packing), so `addrBytes` is arbitrary
-   * bytecode leaving the full address on the stack and the instruction's
-   * own immediate offset is always 0. */
+  /** As the static helpers, but the base address is itself computed at runtime (texture heap, draw output). */
   function loadDynamic(addrBytes: number[], kind: ScalarKind): number[] {
     return [...addrBytes, kind === "float" ? WASM_OP.f64Load : WASM_OP.i32Load, 0x00, 0x00];
   }
 
-  /** The dynamic-address counterpart of `storeComponent`, mirroring
-   * `loadDynamic` — needed for `draw`'s per-pixel output buffer, whose
-   * write address depends on the loop's own runtime `x`/`y` counters
-   * rather than being a compile-time constant. */
+  /** As the static helpers, but the base address is itself computed at runtime (texture heap, draw output). */
   function storeDynamic(addrBytes: number[], kind: ScalarKind, valueBytes: number[]): number[] {
     return [...addrBytes, ...valueBytes, kind === "float" ? WASM_OP.f64Store : WASM_OP.i32Store, 0x00, 0x00];
   }
 
-  /** Populate `nodeAddress(node)` with `node`'s value, for any node type
-   * `isScratchNode` addresses — a `"var"` needs no work (its data is
-   * already valid, set by a prior `let`/`assign`), and an ordinary
-   * `"uniform"` needs none either (`compileWasm`'s JS wrapper already
-   * wrote it at `nodeAddress(node)` before the call) — but a
-   * `gpuUniformLayout`-placed one needs its narrow (f32) components
-   * promoted into that ordinary address first; see `emitGpuUniformPromote`.
-   * Always materializes an aggregate sub-node exactly once, however many
-   * of its components end up read, so nesting doesn't blow up
-   * proportionally to width. */
+  /**
+   * Emits the stores that guarantee node's aggregate value sits in memory
+   * at nodeAddress(node). Most inputs already live there; gpu-placed
+   * uniforms get promoted, and pure expressions are computed into their
+   * scratch address on first use.
+   */
   function materializeIfNeeded(node: any): number[] {
     switch (node.type) {
       case "var":
         return [];
       case "uniform": {
-        const rawAddr = gpuRawUniformAddress.get(node.value.slot);
+        const rawAddr = gpuRawUniformAddress.get(node.value.slot); // host f32 region: promote it on read
         return rawAddr === undefined ? [] : emitGpuUniformPromote(node, nodeAddress(node), rawAddr);
       }
       case "attribute":
@@ -949,12 +731,6 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       case "output":
       case "builtinPosition":
       case "builtinFragDepth":
-        // A fragment-stage `varying()` read: data already valid, written by
-        // `compileWasm` before the call, exactly like an attribute or
-        // uniform. Every other case here is output-direction, read back
-        // *after* an earlier `.assign()` within the same program — no work
-        // needed either way, since nothing needs converting or copying to
-        // make a prior write visible to a later read of the same address.
         return [];
       case "construct":
         return emitConstructStores(node, nodeAddress(node));
@@ -968,11 +744,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       case "div":
         return emitComponentwiseStores(node, nodeAddress(node));
       case "mul":
-        // Componentwise `mul` covers vector±vector and vector±scalar
-        // broadcast (see emitComponentwiseStores), but a matrix times
-        // another matrix means a real matrix product, not a per-component
-        // one — `mat.mul(scalar)` stays componentwise (only one operand is
-        // a matrix there).
+        // a true matrix product only when BOTH operands are matrices
         if (MATRIX_DIMENSIONS[node.params[0]._t] !== undefined && MATRIX_DIMENSIONS[node.params[1]._t] !== undefined) {
           return emitMatMatMulStores(node, nodeAddress(node));
         }
@@ -1006,21 +778,14 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         return emitSmoothstepStores(node, nodeAddress(node));
       default:
         if (node.type === node._t && Array.isArray(node.value)) {
+          // node.type matching the type name with an array value identifies a literal
           return emitLiteralStores(node, nodeAddress(node));
         }
         throw new Error(`[RMSL] compileWasmFn: unsupported node type in vector position: "${node.type}"`);
     }
   }
 
-  /** Promote a `gpuUniformLayout`-placed uniform's narrow (`f32`) components
-   * at `rawAddr` into its own ordinary packed (`f64`) scratch address
-   * `addr`, so every consumer downstream reads `addr` exactly like any
-   * other uniform, unaware a narrower representation exists at all. Only
-   * float-family uniforms need this — `wgslUniformLayout`'s `i32`/`u32`
-   * component width already matches this backend's own, so an int/uint
-   * uniform (not reachable here today, since `GpuUniformLayout` is
-   * aggregate-only, but kept correct for when it is) would need no
-   * conversion, just a plain same-width copy. */
+  /** Promotes a gpu-placed uniform from the host's narrow f32 region into the packed f64 layout. */
   function emitGpuUniformPromote(node: any, addr: number, rawAddr: number): number[] {
     const kind = elementKindOf(node._t as string);
     const width = componentCountOf(node._t as string);
@@ -1043,6 +808,11 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return out;
   }
 
+  /**
+   * Stores a constructor's result. Matrices are column-major with one
+   * column per param (a single scalar param builds a diagonal matrix);
+   * vector targets copy each param component-wise, spread from scalars.
+   */
   function emitConstructStores(node: any, addr: number): number[] {
     const targetType = node._t as string;
     const matShape = MATRIX_DIMENSIONS[targetType];
@@ -1055,10 +825,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       }
       const out: number[] = [];
       if (node.params.length === 1) {
-        // A single scalar param means a diagonal matrix — every off-diagonal
-        // cell is zero, and the scalar expression is recomputed per
-        // diagonal cell (no sub-expression caching, same tradeoff the rest
-        // of this file already accepts).
+        // single scalar param -> diagonal matrix (identity-scaled)
         for (let c = 0; c < cols; c++) {
           for (let r = 0; r < rows; r++) {
             const valueBytes = c === r ? walkExpr(node.params[0]) : f64ConstBytes(0);
@@ -1067,7 +834,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         }
         return out;
       }
-      // One param per column.
+
       node.params.forEach((colNode: any, c: number) => {
         out.push(...materializeIfNeeded(colNode));
         const colAddr = nodeAddress(colNode);
@@ -1111,18 +878,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return out;
   }
 
-  /**
-   * Convert a value already on the stack from `fromKind` to `toKind` for a
-   * `construct` whose target type differs from a param's own — e.g.
-   * `vec3(...).toIVec3()`, a per-component float-to-int truncation the
-   * source vec3's own components don't carry. Matches GLSL/WGSL/JS's own
-   * scalar-cast semantics: truncation toward zero into an integer, exact
-   * widening into a float. `int`/`uint`/`bool` share one representation
-   * (i32) so converting between those three is always a no-op; a `bool`
-   * on either side of a float boundary is not a case any construct in this
-   * DSL exercises today, so it stays untouched rather than guessing a
-   * semantics nothing currently tests.
-   */
+  /** Casts one scalar to another kind: f64<->i32 via trunc/convert; bools stay as raw bit values. */
   function convertComponent(valueBytes: number[], fromKind: ScalarKind, toKind: ScalarKind): number[] {
     if (fromKind === toKind || fromKind === "bool" || toKind === "bool") return valueBytes;
     if (fromKind === "float") {
@@ -1131,16 +887,10 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     if (toKind === "float") {
       return [...valueBytes, fromKind === "uint" ? WASM_OP.f64ConvertI32U : WASM_OP.f64ConvertI32S];
     }
-    return valueBytes; // int <-> uint: identical bit pattern.
+    return valueBytes;
   }
 
-  /** `dFdx`/`dFdy`/`fwidth` have no meaning on a CPU target — only reachable
-   * when `options.derivatives === "zero"` was explicitly chosen (the
-   * default, `"throw"`, is checked at the top of `walkExpr`'s scalar case,
-   * which every aggregate reference to one of these nodes also passes
-   * through first via `readComponent`/`dot`/etc. calling `materializeIfNeeded`
-   * — but a purely aggregate derivative, e.g. `dFdx(vec3)`, never visits
-   * `walkExpr` at all, so the check is repeated here too). */
+  /** CPU has no derivative opcodes: throw, or emit zeros under { derivatives: "zero" }. */
   function assertDerivativesAllowed(node: any): void {
     if (options.derivatives === "zero") return;
     throw new Error(
@@ -1161,15 +911,16 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return out;
   }
 
-  /** `textureSize()` needs no sampling math at all — just a read of the
-   * dimensions `compileWasm`'s wrapper already wrote into this texture's
-   * metadata block before the call. */
+  /**
+   * textureSize(): copies width/height(/depth) out of the metadata block as
+   * uints. No 2D/3D restriction — valid for cube too, matching compileJS.
+   */
   function emitTextureSizeStores(node: any, addr: number): number[] {
     const metaAddr = textureMetadataAddress.get(node.params[0].value.slot);
     if (metaAddr === undefined) {
       throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed texture "${node.params[0].value.slot}"`);
     }
-    const width = componentCountOf(node._t as string); // 2 for uvec2, 3 for uvec3
+    const width = componentCountOf(node._t as string);
     const out: number[] = [];
     const fieldOffset = [TEX_META_WIDTH, TEX_META_HEIGHT, TEX_META_DEPTH];
     for (let k = 0; k < width; k++) {
@@ -1179,29 +930,10 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
   }
 
   /**
-   * Shared bytecode for an unfiltered texel fetch: `textureLoad()` for any
-   * sampler kind, and `texture()`/`textureLod()` on an integer sampler
-   * (`emitTextureSampleStores` routes the float-sampler, filtered case
-   * elsewhere). Mirrors `_texFetch2d`/`_texFetch3d`/`_texFetchUnorm2d`/
-   * `_texFetchUnorm3d` (`rmsl-compile-js.ts`) exactly: coordinates are
-   * already texel-space integers (no UV scaling), every axis is
-   * bounds-checked against the metadata's width/height/depth, and — only
-   * when every axis is in range — up to 4 channels are read (missing
-   * green/blue default to 0, missing alpha to 1), a float sampler's raw
-   * value divided by its unorm divisor. Out of range gives a literal
-   * all-zero result (including alpha), matching `compileJS` — the
-   * "alpha defaults to 1" rule is a missing-*channel* fallback, not a
-   * missing-*texel* one.
-   *
-   * Every conditional here is a `select`, not a branch, matching this
-   * file's existing ternary/min/max style — which means both the "in
-   * range" and "out of range" values are always computed, so the memory
-   * address actually dereferenced is always clamped into range first
-   * (`safeAxis`) regardless of how wild the real coordinate is; the real,
-   * unclamped coordinate only ever feeds the bounds comparison, never an
-   * address. Every helper below re-emits its bytecode fresh on each call
-   * (recompute, not cache) — consistent with this file's existing
-   * `selectExpr`/`minOrMax`, which already accept the same tradeoff.
+   * textureLoad(texture, coord): raw, unfiltered per-texel fetch. OOB
+   * coords yield zero (alpha included); missing channels default to 0
+   * (alpha 1). Integer samplers truncate the stored f64 channels; float
+   * samplers divide each channel by its unorm divisor.
    */
   function emitTexelFetchStores(node: any, addr: number): number[] {
     const samplerNode = node.params[0];
@@ -1210,11 +942,9 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     assertSampled2Dor3D(samplerType);
     const is3D = samplerType.endsWith("3D");
     const isInteger = isIntegerSamplerType(samplerType);
-    // A plain `const` narrowed by an `if` loses that narrowing inside the
-    // nested `function` declarations below (hoisted, so TS can't assume
-    // they only run after the check) — resolving it to a definite `number`
-    // up front sidesteps that instead.
+
     const metaAddr: number = ((): number => {
+      // IIFE: keeps a definitely-narrowed const usable inside the nested function declarations below
       const a = textureMetadataAddress.get(samplerNode.value.slot);
       if (a === undefined)
         throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed texture "${samplerNode.value.slot}"`);
@@ -1222,15 +952,16 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     })();
     const materialize = materializeIfNeeded(coordsNode);
     const coordsAddr = nodeAddress(coordsNode);
-    const coordKind = elementKindOf(coordsNode._t as string); // "int" or "uint"
+    const coordKind = elementKindOf(coordsNode._t as string);
     const dims = is3D ? [TEX_META_WIDTH, TEX_META_HEIGHT, TEX_META_DEPTH] : [TEX_META_WIDTH, TEX_META_HEIGHT];
 
     const rawAxis = (k: number) => loadComponent(coordsAddr, "int", k * 4);
     const dimAxis = (offset: number) => loadComponent(metaAddr, "int", offset);
 
+    // out of range when coord < 0 or coord >= dim; unsigned coords skip the low bound
     function axisOOB(k: number): number[] {
       const tooHigh = [...rawAxis(k), ...dimAxis(dims[k]), coordKind === "uint" ? WASM_OP.i32GeU : WASM_OP.i32GeS];
-      if (coordKind === "uint") return tooHigh; // never negative — the "< 0" half is always false
+      if (coordKind === "uint") return tooHigh;
       const tooLow = [...rawAxis(k), ...i32ConstBytes(0), WASM_OP.i32LtS];
       return [...tooLow, ...tooHigh, WASM_OP.i32Or];
     }
@@ -1240,8 +971,8 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       return flag;
     }
 
-    // clamp(raw, 0, dim-1) — a safe index to dereference even when `raw`
-    // itself is wildly out of range (see the doc comment above).
+    // clamp coord into [0, dim-1] first: selects evaluate BOTH sides, so an
+    // out-of-range index must never reach a memory load
     function safeAxis(k: number): number[] {
       const raw = rawAxis(k);
       const dimMinus1 = [...dimAxis(dims[k]), ...i32ConstBytes(1), WASM_OP.i32Sub];
@@ -1252,8 +983,6 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       return selectExpr(dimMinus1, nonNegative, tooHigh);
     }
 
-    // (y*width + x), or ((z*height + y)*width + x) for 3D — `_texFetch2d`/
-    // `_texFetch3d`'s index formula exactly.
     function texelIndexBytes(): number[] {
       const x = safeAxis(0);
       const y = safeAxis(1);
@@ -1266,15 +995,8 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
 
     const targetKind = elementKindOf(node._t as string);
     const compSize = componentSizeOf(targetKind);
-    // Scratch right after this node's own result (`collect`'s
-    // `isScratchNode` extra-allocation block reserves 8 bytes there for
-    // exactly this) — `oobFlag()`/`texelIndexBytes()` don't depend on
-    // which of the 4 channels is being read, so they're computed exactly
-    // once per texel here and read back cheaply by every channel, instead
-    // of each one redoing the bounds check and index arithmetic from
-    // scratch (the same fix `texture()`'s own filtered path already
-    // needed — see `emitTextureSampleStores`).
-    const scratch = addr + componentCountOf(node._t as string) * compSize;
+
+    const scratch = addr + componentCountOf(node._t as string) * compSize; // slots right after the value: an OOB flag + clamped linear texel index
     const OOB_FLAG = scratch;
     const TEXEL_INDEX = scratch + 4;
     const setup = [
@@ -1282,8 +1004,6 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       ...storeComponent(TEXEL_INDEX, "int", 0, texelIndexBytes()),
     ];
 
-    // dataAddr + (texelIndex*channels + i) * 8 — the heap always stores
-    // one f64 per component, regardless of sampler kind.
     function elemAddrBytes(i: number): number[] {
       const dataAddr = loadComponent(metaAddr, "int", TEX_META_DATA_ADDR);
       const channels = loadComponent(metaAddr, "int", TEX_META_CHANNELS);
@@ -1294,10 +1014,11 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         ...i32ConstBytes(i),
         WASM_OP.i32Add,
       ];
-      const byteOffset = [...elemOffset, ...i32ConstBytes(3), WASM_OP.i32Shl]; // * 8
+      const byteOffset = [...elemOffset, ...i32ConstBytes(3), WASM_OP.i32Shl];
       return [...dataAddr, ...byteOffset, WASM_OP.i32Add];
     }
 
+    // missing channels default to 0 (alpha -> 1); OOB coords yield all-zero
     function channelValue(i: number): number[] {
       const present = [...i32ConstBytes(i), ...loadComponent(metaAddr, "int", TEX_META_CHANNELS), WASM_OP.i32LtS];
       const oob = loadComponent(OOB_FLAG, "int", 0);
@@ -1323,37 +1044,10 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
   }
 
   /**
-   * `texture()`/`textureLod()` on a float sampler: wrap-addressed,
-   * optionally bilinear/trilinear-filtered sampling, porting `_tex2d`/
-   * `_tex3d`/`_wrap`/`_lerp2` (`rmsl-compile-js.ts`) to bytecode. An
-   * integer sampler is never filterable in either language and instead
-   * takes the exact same unfiltered path `textureLoad()` uses (see
-   * `emitTexelFetchStores`) — `texture()`'s coordinates on an integer
-   * sampler are already texel-space, not normalized UVs (`ISampler2DOps`'s
-   * doc comment, `rmsl-core.ts`), so no wrap/UV-scaling code ever applies
-   * to them regardless.
-   *
-   * Unlike `textureLoad()`, wrapping (not clamping-for-safety) already
-   * guarantees every tap index this function computes is in `[0, dim)`, so
-   * no separate "safe address" step is needed here — the wrapped index
-   * *is* the safe index. And there's no "out of range" case at all: a
-   * `texture()` call always returns some in-range, wrap-addressed sample.
-   *
-   * Every conditional except `magFilter` (wrap mode, missing-channel
-   * default) is a `select`, matching this file's existing ternary/min/max
-   * style and this phase's own `emitTexelFetchStores`. What is *not*
-   * duplicated any more: every value that doesn't depend on which of the
-   * 4 channels is being read — the wrapped tap indices, the blend
-   * weights, nearest mode's own wrapped index — is computed exactly once
-   * per sample into fixed scratch addresses right after this node's own
-   * result (see `collect`'s `isScratchNode` extra-allocation block), and
-   * every channel just loads it back. Before this, each of the 4 channels
-   * recomputed all of that from scratch, which a benchmark showed was
-   * most of filtered sampling's remaining cost after the `magFilter`
-   * branch and lerp-reformulation fixes (see `ROADMAP.md`'s texture
-   * performance section) — this is the first place in this file using a
-   * scratch address as a genuine compiler-managed temporary rather than
-   * a node's own output value.
+   * texture()/textureLod(): bilinear filtering (trilinear for 3D) with
+   * per-axis wrap modes. The four/eight corner indices and blend factors
+   * are precomputed into scratch once, then reused per channel. Integer
+   * samplers get no filtering, so they fall through to the raw fetch.
    */
   function emitTextureSampleStores(node: any, addr: number): number[] {
     const samplerNode = node.params[0];
@@ -1364,6 +1058,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
 
     const is3D = samplerType.endsWith("3D");
     const metaAddr: number = ((): number => {
+      // IIFE: keeps a definitely-narrowed const usable inside the nested function declarations below
       const a = textureMetadataAddress.get(samplerNode.value.slot);
       if (a === undefined)
         throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed texture "${samplerNode.value.slot}"`);
@@ -1376,11 +1071,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     const dimI32 = (offset: number): number[] => loadComponent(metaAddr, "int", offset);
     const dimF64 = (offset: number): number[] => [...dimI32(offset), WASM_OP.f64ConvertI32S];
 
-    // Scratch right after this node's own vec4 result (`collect`'s
-    // `isScratchNode` extra-allocation block reserves 60 bytes there for
-    // exactly this) — every per-sample value below, computed once and
-    // read back cheaply by every channel instead of being recomputed.
-    const scratch = addr + 32;
+    const scratch = addr + 32; // scratch right after the value: corner indices + blend factors reused per channel
     const NEAREST_X = scratch,
       NEAREST_Y = scratch + 4,
       NEAREST_Z = scratch + 8;
@@ -1394,8 +1085,8 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       TY = scratch + 44,
       TZ = scratch + 52;
 
-    // repeat/mirror/clamp, dispatched on a runtime mode value (0/1/2) —
-    // every formula computed unconditionally, picked with nested `select`s.
+    // wraps a texel index per mode: 0 clamp, 1 repeat, 2 mirror. Mirror works
+    // on a period of 2*dim: idx % 2d cycles, then reflects back into [0, d).
     function wrapAxis(idxBytes: number[], dimOffset: number, wrapOffset: number): number[] {
       const dim = (): number[] => dimI32(dimOffset);
       const mode = (): number[] => dimI32(wrapOffset);
@@ -1427,16 +1118,13 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       return selectExpr(clampVal, repeatOrMirror, modeIsClamp);
     }
 
-    // Half-texel-offset sample point, split into a floor'd integer part and
-    // a [0,1) fractional blend weight — `_tex2d`/`_tex3d`'s own `fx`/`x0`/`tx`.
+    // pixel-space index = uv*dim - 0.5 (half-texel center); i0 = floor, t = fract in [0,1)
     function fracAxis(k: number, dimOffset: number): { i0: number[]; t: number[] } {
       const f = [...uv(k), ...dimF64(dimOffset), WASM_OP.f64Mul, ...f64ConstBytes(0.5), WASM_OP.f64Sub];
       const f0 = [...f, WASM_OP.f64Floor];
       return { i0: [...f0, WASM_OP.i32TruncF64S], t: [...f, ...f0, WASM_OP.f64Sub] };
     }
 
-    // --- Everything above this point is channel-independent — computed
-    // exactly once per sample and stored, never recomputed per channel. ---
     const nearestX = wrapAxis(
       [...uv(0), ...dimF64(TEX_META_WIDTH), WASM_OP.f64Mul, WASM_OP.f64Floor, WASM_OP.i32TruncF64S],
       TEX_META_WIDTH,
@@ -1480,7 +1168,6 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       );
     }
 
-    // (y*width + x), or ((z*height + y)*width + x) for 3D.
     function texelIndexBytes(x: number[], y: number[], z: number[] | null): number[] {
       const yx = [...y, ...dimI32(TEX_META_WIDTH), WASM_OP.i32Mul, ...x, WASM_OP.i32Add];
       if (!z) return yx;
@@ -1488,9 +1175,6 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       return [...zy, ...dimI32(TEX_META_WIDTH), WASM_OP.i32Mul, ...x, WASM_OP.i32Add];
     }
 
-    // One channel's raw, unorm-divided value at an already in-range texel —
-    // no bounds handling needed here, unlike `emitTexelFetchStores`,
-    // because every index this function ever passes in came from `wrapAxis`.
     function texelChannelRaw(x: number[], y: number[], z: number[] | null, i: number): number[] {
       const dataAddr = dimI32(TEX_META_DATA_ADDR);
       const channels = dimI32(TEX_META_CHANNELS);
@@ -1512,17 +1196,8 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       return selectExpr(texelChannelRaw(x, y, z, i), missingChannelDefault, present);
     }
 
-    /**
-     * `a + (b-a)*t` — the form `_lerp2`/`_tex2d`/`_tex3d` use
-     * (`rmsl-compile-js.ts`) — needs `a`'s own bytecode twice: once as the
-     * base, once inside the subtraction. Harmless there (JS just reads the
-     * same array slot twice, cheaply); costly here, where `a`/`b` are
-     * often a full `texelChannel` fetch (a dynamically-addressed memory
-     * load, a channel-present `select`, a divide) rather than a plain
-     * value. `a*(1-t) + b*t` is the same value and needs `a` and `b` each
-     * exactly once, duplicating only the cheap blend weight `t` instead.
-     */
     function lerp(a: number[], b: number[], t: number[]): number[] {
+      // a*(1-t) + b*t — recomposed so a and b are each emitted exactly once
       return [
         ...a,
         ...f64ConstBytes(1),
@@ -1554,8 +1229,6 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       return lerp(lower, upper, ty);
     }
 
-    // --- Per-channel: reads the setup above back (a fixed-address load,
-    // cheap to repeat) instead of recomputing it. ---
     const nx = loadComponent(NEAREST_X, "int", 0),
       ny = loadComponent(NEAREST_Y, "int", 0);
     const nz = is3D ? loadComponent(NEAREST_Z, "int", 0) : null;
@@ -1566,13 +1239,6 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     const txBytes = loadComponent(TX, "float", 0),
       tyBytes = loadComponent(TY, "float", 0);
 
-    // `magFilter` is a real runtime `if`/`else`, not a `select` like every
-    // other choice in this function — deliberately, unlike the rest of
-    // this file's usual branchless style. `select` requires both operands
-    // already computed, which for the nearest/linear choice means paying
-    // for the far more expensive bilinear/trilinear path even when a
-    // texture asks for nearest filtering. An `if`/`else` only ever
-    // executes the branch actually taken.
     const linearStores: number[] = [];
     const nearestStores: number[] = [];
     for (let i = 0; i < 4; i++) {
@@ -1593,6 +1259,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return [
       ...materialize,
       ...setup,
+      // real if/else, not select: the nearest path is cheap, and select would always compute both
       ...dimI32(TEX_META_FILTER),
       WASM_OP.if_,
       WASM_BLOCKTYPE_VOID,
@@ -1633,10 +1300,11 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return out;
   }
 
-  /** Componentwise `add`/`sub`/`mul`/`div` on a vector — a scalar operand
-   * (`vec3.mul(2.0)`) is broadcast by recomputing its expression per
-   * component; an aggregate operand is materialized once, then read by
-   * index. */
+  /**
+   * Element-wise op over same-width vectors, with scalar operands broadcast
+   * by re-evaluating them (walkExpr) per component; aggregate operands are
+   * materialized once and loaded per component.
+   */
   function emitComponentwiseStores(node: any, addr: number): number[] {
     const [a, b] = node.params;
     const targetKind = elementKindOf(node._t as string);
@@ -1662,7 +1330,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     } else if (node.type === "add") opcode = WASM_OP.i32Add;
     else if (node.type === "sub") opcode = WASM_OP.i32Sub;
     else if (node.type === "mul") opcode = WASM_OP.i32Mul;
-    else opcode = targetKind === "uint" ? WASM_OP.i32DivU : WASM_OP.i32DivS;
+    else opcode = targetKind === "uint" ? WASM_OP.i32DivU : WASM_OP.i32DivS; // div needs the unsigned variant; add/sub/mul share the same bits
     for (let k = 0; k < width; k++) {
       const aBytes = aWidth > 1 ? loadComponent(aAddr!, targetKind, k * compSize) : walkExpr(a);
       const bBytes = bWidth > 1 ? loadComponent(bAddr!, targetKind, k * compSize) : walkExpr(b);
@@ -1671,13 +1339,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return out;
   }
 
-  /** `clamp(x, lo, hi) = min(max(x, lo), hi)` — componentwise. `x`/`lo`/`hi`
-   * are always the same width by the time this file ever sees them:
-   * `rmsl-core.ts`'s `UNIFORM_OPERAND_OPS` broadcasts a scalar `lo`/`hi`
-   * onto a vector `x` at AST-construction time, for `clamp` along with
-   * `min`/`max`/`step`/`smoothstep`/`pow`/`mod` — so unlike
-   * `emitComponentwiseStores` above, there is no scalar-vs-vector branch
-   * to handle here. */
+  /** clamp = max(x, lo) then min(hi); an rmsl-core guarantee keeps all three params the same width. */
   function emitClampStores(node: any, addr: number): number[] {
     const [x, lo, hi] = node.params;
     const targetKind = elementKindOf(node._t as string);
@@ -1703,16 +1365,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return out;
   }
 
-  /** `mix(a, b, t) = a + t*(b-a)` — the same formula `compileJS`'s own
-   * `mix` uses (`rmsl-compile-js.ts`'s `JS_ELEM.mix`), componentwise.
-   * Float-only, matching `mix`'s own signature (no int/uint overload
-   * exists, unlike `clamp`). `t` is the one operand `UNIFORM_OPERAND_OPS`
-   * deliberately excludes from broadcasting (`rmsl-core.ts`'s own doc
-   * comment: `mix(a, b, t)` declares `t` genuinely scalar-shaped, not
-   * matching `a`/`b`'s width) — `mix(vec3, vec3, float)` blends every
-   * component by the same factor, `mix(vec3, vec3, vec3)` blends each by
-   * its own, so `t`'s own width decides whether it's read once and reused
-   * across components or read fresh per component here. */
+  /** mix(a, b, t) = a + t*(b - a) per component; t may be scalar (re-evaluated) or same-width vector. */
   function emitMixStores(node: any, addr: number): number[] {
     const [a, b, t] = node.params;
     const width = componentCountOf(node._t as string);
@@ -1741,9 +1394,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return out;
   }
 
-  /** `step(edge, x) = x < edge ? 0 : 1` — the same formula `compileJS` uses,
-   * componentwise. Float-only; `edge`/`x` are already the same width (see
-   * `emitClampStores`'s own doc comment). */
+  /** step(edge, x) = 0.0 when x < edge, else 1.0. */
   function emitStepStores(node: any, addr: number): number[] {
     const [edge, x] = node.params;
     const width = componentCountOf(node._t as string);
@@ -1765,11 +1416,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return out;
   }
 
-  /** `smoothstep(e0, e1, x)`, componentwise — see `emitSmoothstepValue`'s
-   * own doc comment for the formula and why `t` is computed once via a
-   * shared local rather than recomputed for each of its 3 uses.
-   * Float-only; `e0`/`e1`/`x` are already the same width (see
-   * `emitClampStores`'s own doc comment). */
+  /** smoothstep(e0, e1, x) per component, via the shared t computation in emitSmoothstepValue. */
   function emitSmoothstepStores(node: any, addr: number): number[] {
     const [e0, e1, x] = node.params;
     const width = componentCountOf(node._t as string);
@@ -1788,10 +1435,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return out;
   }
 
-  /** `mat.mul(mat)` — a real matrix product, square only (matching the
-   * JS backend's own limit: `jsMatMul` throws for a non-square operand). A
-   * matrix times a *scalar* never reaches here — that's still componentwise
-   * (see the "mul" case in `materializeIfNeeded`). */
+  /** Square matrix product: C[col,row] = sum_k A[k,row] * B[col,k]. */
   function emitMatMatMulStores(node: any, addr: number): number[] {
     const [a, b] = node.params;
     const aType = a._t as string,
@@ -1823,11 +1467,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return out;
   }
 
-  /** `mat.mul(vec)` — always float, column-major. A vector one component
-   * shorter than the matrix's column count is a position with its
-   * homogeneous coordinate implied (`mat4 * vec3`) — `node._t` (computed in
-   * rmsl-core.ts) already reflects the resulting, possibly-truncated width,
-   * so the output row count is read from there rather than re-derived. */
+  /** mat * vec per row: outRow = sum_c mat[row,c]*vec[c]; a narrow vec ends with an implicit 1. */
   function emitMatVecMulStores(node: any, addr: number): number[] {
     const [matNode, vecNode] = node.params;
     const [cols, rows] = MATRIX_DIMENSIONS[matNode._t as string];
@@ -1847,8 +1487,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         terms = c === 0 ? term : [...terms, ...term, WASM_OP.f64Add];
       }
       if (vecWidth < cols) {
-        // The implied homogeneous coordinate is 1, so its term is just the
-        // matrix's own entry for that row, added unmultiplied.
+        // e.g. mat4*vec3: the vec ends with an implicit 1, so this picks up the translation column
         terms = [...terms, ...loadComponent(matAddr, "float", (vecWidth * rows + row) * 8), WASM_OP.f64Add];
       }
       out.push(...storeComponent(addr, "float", row * 8, terms));
@@ -1856,10 +1495,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return out;
   }
 
-  /** `cross(a, b)` — vec3 only, matching GLSL/the JS backend. Each of a's
-   * and b's three components is used in exactly two of the three outputs;
-   * materializing once and reloading by index for each use is cheap enough
-   * not to need anything smarter. */
+  /** cross(a, b): the standard component formula (vec3 only). */
   function emitCrossStores(node: any, addr: number): number[] {
     const [a, b] = node.params;
     const width = componentCountOf(node._t as string);
@@ -1887,14 +1523,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return out;
   }
 
-  /** `normalize(v)` — `v / length(v)`, or `v` unchanged where the length is
-   * zero (matching the JS backend's div-by-zero guard). The length is
-   * computed once into the one extra f64 slot `isScratchNode`'s caller
-   * reserved right after this node's own output components (see
-   * `collect()`), then read back by each component's `select` instead of
-   * being recomputed — recomputing a sum-of-`width`-squares per component
-   * would cost `O(width^2)`, unlike this file's usual "recompute a value
-   * used twice" tradeoff. */
+  /** v / |v| with a zero-length guard (f64 division of 0 traps): keeps the source vector. */
   function emitNormalizeStores(node: any, addr: number): number[] {
     const src = node.params[0];
     const kind = elementKindOf(node._t as string);
@@ -1922,9 +1551,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return out;
   }
 
-  /** `reflect(i, n) = i - 2 * dot(n, i) * n`. Same "one extra scratch slot"
-   * treatment as `normalize` for the dot product, reused across all `width`
-   * output components. */
+  /** reflect(i, n) = i - 2*dot(n, i)*n; the dot is cached in the slot right after the value. */
   function emitReflectStores(node: any, addr: number): number[] {
     const [i, n] = node.params;
     const kind = elementKindOf(node._t as string);
@@ -1959,11 +1586,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return out;
   }
 
-  /** One scalar component of an aggregate node's value, materializing it
-   * first if needed. Only used where a node's components are each read
-   * exactly once — anywhere a component is read more than once
-   * (`emitConstructStores`, `dot`, ...) materializes once up front instead
-   * and calls `loadComponent` directly, to avoid re-materializing per read. */
+  /** Loads component k, materializing the aggregate into memory first if needed. */
   function readComponent(node: any, k: number): number[] {
     const out = [...materializeIfNeeded(node)];
     const kind = elementKindOf(node._t as string);
@@ -1971,29 +1594,20 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return out;
   }
 
-  /** `add`/`sub`/`mul` share one opcode across int and uint (two's-complement
-   * arithmetic doesn't care about signedness), and one across bool too, since
-   * a bool operand only ever reaches these through `select`'s condition —
-   * never directly — so only float-vs-not distinguishes the opcode. */
+  /** f64 op for float operands, the i32 op otherwise — int/uint/bool share bit patterns for add/sub/mul. */
   function binaryArith(node: any, f64op: number, i32op: number): number[] {
     const op = scalarKindOf(node.params[0]._t) === "float" ? f64op : i32op;
     return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), op];
   }
 
-  /** A comparison needs a third, unsigned variant when the operand type is
-   * `uint` — `<`/`>`/`<=`/`>=` read a negative int's top bit as a sign, an
-   * unsigned one as magnitude, and those disagree. */
+  /** Comparisons pick the unsigned opcodes for uints; bools compare as ints. */
   function comparison(node: any, f64op: number, i32sOp: number, i32uOp: number): number[] {
     const kind = scalarKindOf(node.params[0]._t);
     const op = kind === "float" ? f64op : kind === "uint" ? i32uOp : i32sOp;
     return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), op];
   }
 
-  /** `select`'s stack order is `[whenTrue, whenFalse, cond]`; the two
-   * branches are plain expression bytes recomputed inline (this backend
-   * doesn't yet cache a shared sub-expression in a temp local — see
-   * ROADMAP.md), which is only a size/speed cost, never a correctness one,
-   * since nothing in this DSL's expression position has a side effect. */
+  /** WASM select pops [whenTrue, whenFalse, cond]; note BOTH value arms are always evaluated. */
   function selectExpr(whenTrue: number[], whenFalse: number[], cond: number[]): number[] {
     return [...whenTrue, ...whenFalse, ...cond, WASM_OP.select];
   }
@@ -2005,8 +1619,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return [WASM_OP.f64Const, ...wasmF64Bytes(n)];
   }
 
-  /** `min`/`max` have a native opcode for float; int and uint have none, so
-   * they're built from a comparison and `select`. */
+  /** float min/max use native f64.min/max; int/uint fall back to a compare + select. */
   function minOrMax(a: any, b: any, kind: ScalarKind, pick: "min" | "max"): number[] {
     if (kind === "float") {
       return [...walkExpr(a), ...walkExpr(b), pick === "min" ? WASM_OP.f64Min : WASM_OP.f64Max];
@@ -2022,11 +1635,6 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return selectExpr(walkExpr(a), walkExpr(b), [...walkExpr(a), ...walkExpr(b), cmp]);
   }
 
-  /** The byte-level counterpart of `minOrMax`, for `clamp`'s nested
-   * `min(max(x, lo), hi)`: `minOrMax` takes AST nodes and calls `walkExpr`
-   * itself, which has no way to feed one call's *result* in as another's
-   * operand — `clamp` needs exactly that, so this takes already-computed
-   * bytes instead. */
   function minMaxBytes(a: number[], b: number[], kind: ScalarKind, pick: "min" | "max"): number[] {
     if (kind === "float") return [...a, ...b, pick === "min" ? WASM_OP.f64Min : WASM_OP.f64Max];
     const cmp =
@@ -2040,16 +1648,9 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return selectExpr(a, b, [...a, ...b, cmp]);
   }
 
-  /** `smoothstep(e0, e1, x)`: `t = clamp((x-e0)/(e1-e0), 0, 1)`, then
-   * `t*t*(3-2*t)`. `t` is computed exactly once — `local.tee` both stores
-   * it into the shared `$smoothstep_t` local (reserved in `collect()`)
-   * and leaves it on the stack for its first use, so the other two uses
-   * in the final formula are a cheap `local.get` instead of recomputing
-   * the whole `clamp((x-e0)/(e1-e0), 0, 1)` two more times. `e0` still
-   * appears twice — inherent to the formula itself (once directly, once
-   * inside `e1-e0`), not this function's own doing, and cheap enough not
-   * to need the same treatment. */
   function emitSmoothstepValue(e0Bytes: number[], e1Bytes: number[], xBytes: number[]): number[] {
+    // result is t^2 * (3 - 2t). localTee caches the clamped t in the shared
+    // $smoothstep_t local so the caller's x bytes are never re-evaluated.
     const tSlot = localSlotIndex("$smoothstep_t");
     const rawT = [...xBytes, ...e0Bytes, WASM_OP.f64Sub, ...e1Bytes, ...e0Bytes, WASM_OP.f64Sub, WASM_OP.f64Div];
     const clampedT = minMaxBytes(minMaxBytes(rawT, f64ConstBytes(0), "float", "max"), f64ConstBytes(1), "float", "min");
@@ -2068,8 +1669,11 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     ];
   }
 
-  /** Expression context: leaves exactly one value (f64, or i32 for a bool or
-   * an int/uint) on the stack. */
+  /**
+   * Expression pass: evaluates a node down to one value on the WASM stack —
+   * an f64 for floats, an i32 for int/uint/bool. A component of an aggregate
+   * is read through readComponent/materialize, never held on the stack.
+   */
   function walkExpr(node: any): number[] {
     switch (node.type) {
       case "float":
@@ -2089,16 +1693,12 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       case "attribute":
         return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`attribute:${node.value.slot}`))];
       case "varying":
-        // Fragment stage: a scalar varying is a WASM function argument, like
-        // a scalar uniform/attribute. Vertex stage: it's output-direction,
-        // read back (after an earlier `.assign()`) from its own address —
-        // there is no WASM argument for it at all.
         if (effectiveStage === "fragment") {
           return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`varying:${node.value.slot}`))];
         }
-        return loadComponent(varyingOutputAddress.get(node.value.slot)!, scalarKindOf(node._t), 0);
+        return loadComponent(varyingOutputAddress.get(node.value.slot)!, scalarKindOf(node._t), 0); // vertex: re-read our own written output
       case "output":
-        return loadComponent(outputAddress.get(node.value.slot)!, scalarKindOf(node._t), 0);
+        return loadComponent(outputAddress.get(node.value.slot)!, scalarKindOf(node._t), 0); // read back a previously written output
       case "builtinFragDepth":
         return loadComponent(fragDepthAddress!, "float", 0);
 
@@ -2126,11 +1726,10 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
             kind === "uint" ? WASM_OP.i32RemU : WASM_OP.i32RemS,
           ];
         }
-        // Floored, matching GLSL's mod() (JS backend's "mod", not "imod"):
-        // a - b * floor(a / b). a and b are each evaluated twice, same
-        // tradeoff as selectExpr above.
+
         const a = node.params[0],
           b = node.params[1];
+        // floored modulo (GLSL): a - b*floor(a/b); a plain f64.rem would truncate toward zero
         return [
           ...walkExpr(a),
           ...walkExpr(b),
@@ -2148,8 +1747,6 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         return minOrMax(node.params[0], node.params[1], scalarKindOf(node.params[0]._t), "max");
 
       case "clamp": {
-        // min(max(x, lo), hi) — kind-aware like min/max themselves, since
-        // clamp (unlike mix/step/smoothstep) has real int/uint overloads.
         const kind = scalarKindOf(node._t as string);
         const x = walkExpr(node.params[0]);
         const lo = walkExpr(node.params[1]);
@@ -2157,9 +1754,6 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         return minMaxBytes(minMaxBytes(x, lo, kind, "max"), hi, kind, "min");
       }
       case "mix": {
-        // a + t*(b-a) — the same formula compileJS uses. Float-only; `a`
-        // is evaluated twice, the same tradeoff `mod` below already
-        // accepts for its own two operands.
         const [a, b, t] = node.params;
         return [
           ...walkExpr(a),
@@ -2172,13 +1766,10 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         ];
       }
       case "step": {
-        // x < edge ? 0 : 1 — the same formula compileJS uses. Float-only.
         const [edge, x] = node.params;
         return selectExpr(f64ConstBytes(0), f64ConstBytes(1), [...walkExpr(x), ...walkExpr(edge), WASM_OP.f64Lt]);
       }
       case "smoothstep": {
-        // See emitSmoothstepValue's own doc comment: t is computed once,
-        // via a shared local, not recomputed for each of its 3 uses.
         const [e0, e1, x] = node.params;
         return emitSmoothstepValue(walkExpr(e0), walkExpr(e1), walkExpr(x));
       }
@@ -2221,11 +1812,11 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         return [...walkExpr(node.params[0]), WASM_OP.f64Trunc];
       case "fract": {
         const x = node.params[0];
+        // x - floor(x); x is emitted twice to keep the stack flat — cheap, side-effect free
         return [...walkExpr(x), ...walkExpr(x), WASM_OP.f64Floor, WASM_OP.f64Sub];
       }
       case "round": {
-        // Math.round semantics (round-half-up), not f64.nearest's
-        // round-half-to-even, so this is floor(x + 0.5), not that opcode.
+        // GLSL round = floor(x + 0.5), not f64.nearest (which rounds half-to-even)
         return [...walkExpr(node.params[0]), ...f64ConstBytes(0.5), WASM_OP.f64Add, WASM_OP.f64Floor];
       }
       case "sqrt":
@@ -2233,7 +1824,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       case "inverseSqrt":
         return [...f64ConstBytes(1), ...walkExpr(node.params[0]), WASM_OP.f64Sqrt, WASM_OP.f64Div];
       case "exp2":
-        return [...f64ConstBytes(2), ...walkExpr(node.params[0]), ...callImport("pow")];
+        return [...f64ConstBytes(2), ...walkExpr(node.params[0]), ...callImport("pow")]; // exp2(x) = pow(2, x)
 
       case "sin":
       case "cos":
@@ -2295,6 +1886,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       }
 
       case "construct": {
+        // scalar casts: float<->int via trunc/convert; bool tests "!= 0"; int/uint need no conversion
         const targetKind = scalarKindOf(node._t);
         const source = node.params[0];
         const sourceKind = scalarKindOf(source._t);
@@ -2309,13 +1901,13 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         if (!sourceIsFloat && targetIsFloat) {
           return [...bytes, sourceKind === "uint" ? WASM_OP.f64ConvertI32U : WASM_OP.f64ConvertI32S];
         }
-        // int <-> uint <-> bool: same i32 bits, except a bool target needs an
-        // actual "is this nonzero" test rather than a raw reinterpretation.
+
         if (targetKind === "bool") return [...bytes, ...i32ConstBytes(0), WASM_OP.i32Ne];
         return bytes;
       }
 
       case "swizzle": {
+        // single-component swizzle evaluates as a scalar component load
         const pattern = node.value as string;
         if (pattern.length !== 1) {
           throw new Error(
@@ -2347,7 +1939,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       case "dFdy":
       case "fwidth": {
         assertDerivativesAllowed(node);
-        const kind = scalarKindOf(node._t);
+        const kind = scalarKindOf(node._t); // derivatives always evaluate to zero here
         return kind === "float" ? f64ConstBytes(0) : i32ConstBytes(0);
       }
       case "length": {
@@ -2386,26 +1978,15 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     }
   }
 
-  // The whole function body is wrapped in one outer `block` so `Return`/
-  // `Discard` always have somewhere to `br` to (see the `code` assembly
-  // below) — its content begins at depth 1, the depth every top-level
-  // statement is now compiled at.
-  const EXIT_BLOCK_DEPTH = 1;
+  const EXIT_BLOCK_DEPTH = 1; // the root body sits in one outer block; return/discard branch out of it
 
-  // Per-open-loop `br`/`br_if` targets, as the WASM label-nesting depth at
-  // which that loop's break/continue block's *content* begins (see
-  // `emitLoop`) — pushed on entering a "for"/"while", popped on leaving.
-  // `Break`/`Continue` resolve their relative branch index against the top
-  // entry; empty means neither is inside a loop.
-  const loopStack: { breakDepth: number; continueDepth: number }[] = [];
+  const loopStack: { breakDepth: number; continueDepth: number }[] = []; // break/continue targets of the currently nested loops
 
   /**
-   * `for`/`while` share this lowering: a `block` (the `Break` target)
-   * wrapping a `loop` (re-tests `cond` each iteration) wrapping a `block`
-   * (the `Continue` target) around `body` — the inner block exists so
-   * `Continue` skips straight to `update` (still running it) rather than
-   * jumping back to `cond` directly, which would skip a `for`'s update
-   * clause entirely.
+   * Lowers a for/while loop to block{loop{cond; brIf <exit>; block{body};
+   * update; br <top>}}. break exits via the outer block, continue via the
+   * loop label (which re-runs the update). The recorded break/continue
+   * depths account for the two extra nested levels inside the body.
    */
   function emitLoop(
     initBytes: number[],
@@ -2443,12 +2024,11 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     ];
   }
 
-  /** Statement context: leaves no net stack effect. `depth` is the WASM
-   * label-nesting depth of the structured blocks `node` itself sits
-   * directly inside — needed so `break`/`continue`/`return`/`discard` can
-   * compute the relative branch index `br`/`br_if` require. The whole
-   * function body is wrapped in one exit block (see the `code` assembly
-   * below), so depth starts at 1, not 0. */
+  /**
+   * Statement pass: emits code that leaves no net value on the stack, and
+   * records the depth so break/continue/return can compute relative branch
+   * targets.
+   */
   function walkStmt(node: any, depth: number): number[] {
     switch (node.type) {
       case "seq": {
@@ -2490,12 +2070,6 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
           return out;
         }
 
-        // Phase 5 output direction: `output()`/a vertex-stage `varying()`/
-        // `builtinPosition()`/`builtinFragDepth()` are all assign targets
-        // with their own reserved address (allocated in `collect()`) rather
-        // than a `"var"` node's `value.varName` — resolve the destination
-        // address and type once, then the aggregate-vs-scalar copy below is
-        // identical either way.
         let targetType: string;
         let destAddr: number;
         if (target.type === "output") {
@@ -2523,9 +2097,6 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         }
 
         if (!isAggregate(targetType)) {
-          // A scalar output-like target (e.g. builtinFragDepth, or a plain
-          // float output()) — write its value directly, no address/
-          // materialize machinery needed for a single scalar.
           return storeComponent(destAddr, elementKindOf(targetType), 0, walkExpr(rhs));
         }
         const kind = elementKindOf(targetType);
@@ -2540,10 +2111,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       }
       case "if": {
         const cond = walkExpr(node.params[0]);
-        // "if"/"else" are themselves structured WASM blocks and occupy a
-        // label index, so anything nested inside — a "break"/"continue"/
-        // "return" reached via `if (x) { Break(); }` inside a loop — must
-        // count this level too.
+
         const thenBytes = walkStmt(node.params[1], depth + 1);
         const elseNode = node.params[2];
         return [
@@ -2575,17 +2143,9 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       }
       case "return":
       case "discard": {
-        // Neither carries a value in this DSL (there is no `Return(value)`
-        // overload). A plain scalar-returning function's exit block still
-        // expects one value on exit — a zero/false sentinel of the result
-        // kind, matching what ROADMAP.md already anticipated for
-        // `Discard`. A stage-mode function's exit block is void instead:
-        // whatever result it has already lives in memory (via `assign()`s
-        // that ran before this point, if any), so there's nothing to leave
-        // on the stack at all. `Discard`'s real "no fragment output"
-        // meaning still has no representation yet; it compiles identically
-        // to `Return()` either way.
-        const sentinel = needsResult ? [] : resultKind === "float" ? f64ConstBytes(0) : i32ConstBytes(0);
+        // discard has no distinct "no fragment output" meaning yet: it leaves
+        // early exactly like return, with the same exit sentinel.
+        const sentinel = needsResult ? [] : resultKind === "float" ? f64ConstBytes(0) : i32ConstBytes(0); // needsResult exits a void block; otherwise carry a zero for the block's result type
         return [...sentinel, WASM_OP.br, ...wasmUleb128(depth - EXIT_BLOCK_DEPTH)];
       }
       default:
@@ -2593,12 +2153,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     }
   }
 
-  /** The root's own final value: `!needsResult` leaves it on the WASM
-   * stack exactly as before (becomes the function's one return value).
-   * `needsResult` instead writes it into `valueAddress` (skipped
-   * entirely for a `"void"` root — a stage program with no value beyond
-   * whatever it wrote to `output()`/etc.) and leaves nothing on the
-   * stack, matching the function's now-zero-result signature below. */
+  /** Puts the function's result where expected: the stack (scalar mode) or valueAddress (aggregate/stage mode). */
   function finalValueBytes(valueNode: any): number[] {
     if (!needsResult) return walkExpr(valueNode);
     if (valueNode._t === "void" || valueAddress === undefined) return [];
@@ -2616,12 +2171,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return storeComponent(valueAddress, scalarKindOf(valueNode._t as string), 0, walkExpr(valueNode));
   }
 
-  // A program built with `Fn(() => { ...; return x; })()` is a "seq" node of
-  // [...priorStatements, returnValue] (see the Fn implementation in
-  // rmsl-core.ts); one built as a bare expression (no Fn wrapper, no
-  // statements) is just that expression. Both are valid roots here.
-  // Top-level statements compile at EXIT_BLOCK_DEPTH (1), since the whole
-  // body is wrapped in the one exit block "return"/"discard" branch to.
+  // a seq root is a list of statements whose last element is the value expression
   const bodyBytes =
     root.type === "seq"
       ? [
@@ -2629,21 +2179,17 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
           ...finalValueBytes(root.params[root.params.length - 1]),
         ]
       : finalValueBytes(root);
-  // Wrapping unconditionally (rather than only when "return"/"discard"
-  // appear) costs 3 bytes and is a no-op when neither is used — the exact
-  // same bytes run inside a block nothing branches out of — so there's one
-  // code path here, not two. `needsResult` makes the block (and the
-  // function around it) void instead of single-result.
-  const exitBlockType = needsResult ? WASM_BLOCKTYPE_VOID : wasmTypeOf(resultKind);
+
+  const exitBlockType = needsResult ? WASM_BLOCKTYPE_VOID : wasmTypeOf(resultKind); // the outer block carries the function's result type (or void)
   const code = [WASM_OP.block, exitBlockType, ...bodyBytes, WASM_OP.end];
 
-  // --- assemble the module: type section (main's signature, plus one shared
-  // signature per import arity actually used), import section, function
-  // section, memory section, export section (function + memory), code
-  // section. ---
+  // Module assembly: type section, math imports, the main function (whose type
+  // carries every scalar param and, when !needsResult, one result), a linear
+  // memory sized for memCursor, exports, and the code section.
   const typeEntries: number[][] = [];
   let unaryImportType: number | null = null;
   let binaryImportType: number | null = null;
+  // import signatures are shared and deduped: (f64)->f64 and (f64,f64)->f64
   function unaryImportTypeIdx(): number {
     if (unaryImportType === null) {
       unaryImportType = typeEntries.length;
@@ -2664,51 +2210,13 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
   });
 
   const paramTypes = params.map((p) => [wasmTypeOf(scalarKindOf(p.shaderType))]);
-  // `needsResult`: the function's own value (if any) and everything else it
-  // produces all live in memory, read back after the call — the exported
-  // function itself declares zero results, not one.
+
   const resultTypes = needsResult ? [] : [[wasmTypeOf(resultKind)]];
   const mainTypeIdx = typeEntries.length;
   typeEntries.push([WASM_FUNC, ...wasmVec(paramTypes), ...wasmVec(resultTypes)]);
-  // Function indices: imports occupy 0..importNames.length-1, so `main` —
-  // the first locally-defined function — is at `importNames.length`,
-  // exactly the index the export section below already uses for it.
-  const mainFuncIndex = importNames.length;
 
-  /**
-   * A second exported function, `"draw"`, sharing `main`'s own compiled
-   * body via a real WASM `call` rather than a separate compile mode —
-   * `compileWasm` exposes it as `.draw(ctx, width, height)` on the
-   * callable it returns, decided per call, not baked in at compile time.
-   * Only built when there is a per-pixel value to render at all
-   * (`root._t !== "void"` — a pure `output()`-writing stage program has
-   * nothing for `draw` to put anywhere).
-   *
-   * `draw`'s own signature is `main`'s scalar params, followed by
-   * `width`/`height` (both runtime `i32` values, not compile-time
-   * constants — an image's dimensions are picked per call, the same way
-   * any other input is). Its body is a `y`/`x` loop: write this
-   * iteration's pixel coordinate into `fragCoordAddress` (skipped
-   * entirely when the compiled program never calls `fragCoord()` at
-   * all — nothing needs it), `call` `main` with the same scalar
-   * arguments `draw` itself received, and copy the result — read
-   * straight off `main`'s own WASM return value when `!needsResult`
-   * (a plain scalar), or from `valueAddress` in memory when `needsResult`
-   * (anything wider, or a stage program) — into a growable output
-   * buffer, one dynamic-address store per component (`storeDynamic`, the
-   * write-side counterpart of the texture heap's `loadDynamic`).
-   *
-   * The buffer's base address is a *third* runtime argument (after
-   * `width`/`height`), not a compile-time constant — `compileWasm`
-   * computes it fresh every `.draw()` call as `textureHeapBase` plus
-   * however many bytes the current call's textures actually occupy (0 for
-   * a function using no textures, recovering exactly the "starts right
-   * after every other compile-time allocation" placement this had before
-   * texture support needed to share the same space), so a function using
-   * *both* a texture uniform and `.draw()` together places the draw
-   * buffer right after wherever that call's texture heap actually ends,
-   * rather than the two colliding at the same fixed address.
-   */
+  const mainFuncIndex = importNames.length; // imports come first in the module's function index space
+
   let drawTypeIdx: number | undefined;
   let drawFuncBody: number[] | undefined;
   const drawComponentCount = root._t === "void" ? 0 : componentCountOf(root._t as string);
@@ -2718,6 +2226,9 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       : isAggregate(root._t as string)
         ? elementKindOf(root._t as string)
         : scalarKindOf(root._t as string);
+  // A "draw(width, height, bufferBase)" export: loops every pixel, runs the
+  // main function (feeding the pixel in as fragCoord), and stores the output
+  // into the caller's buffer — the CPU path for whole-image rendering.
   if (root._t !== "void") {
     const drawFuncIndex = mainFuncIndex + 1;
     const widthIdx = params.length;
@@ -2730,6 +2241,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     const compSize = componentSizeOf(drawComponentKind);
     const passThroughArgs = params.map((_, i) => [WASM_OP.localGet, ...wasmUleb128(i)]).flat();
     const callMain = [...passThroughArgs, WASM_OP.call, ...wasmUleb128(mainFuncIndex)];
+    // pixel centers land at (x + 0.5, y + 0.5) — the same convention rmsl-compile-js uses
     const writeFragCoord =
       fragCoordAddress === undefined
         ? []
@@ -2747,9 +2259,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
               WASM_OP.f64Add,
             ]),
           ];
-    // Byte offset of this pixel's first component within the draw buffer:
-    // (y*width + x) * componentCount * componentSize — `width` is
-    // `draw`'s own runtime argument now, not a compile-time constant.
+
     const pixelByteOffset = [
       ...getY,
       WASM_OP.localGet,
@@ -2775,10 +2285,9 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
             storeDynamic(destAddr(k), drawComponentKind, loadComponent(valueAddress!, drawComponentKind, k * compSize)),
           ).flat(),
         ]
-      : storeDynamic(destAddr(0), drawComponentKind, callMain); // always exactly 1 component here
+      : storeDynamic(destAddr(0), drawComponentKind, callMain);
     const perPixel = [...writeFragCoord, ...copyResult];
     const innerLoop = [
-      // x: 0..width
       WASM_OP.block,
       WASM_BLOCKTYPE_VOID,
       WASM_OP.loop,
@@ -2801,7 +2310,6 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       WASM_OP.end,
     ];
     const outerLoop = [
-      // y: 0..height
       WASM_OP.block,
       WASM_BLOCKTYPE_VOID,
       WASM_OP.loop,
@@ -2828,7 +2336,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     ];
     const drawCode = [...i32ConstBytes(0), WASM_OP.localSet, ...wasmUleb128(yIdx), ...outerLoop];
     const drawLocalsDecl = wasmVec([
-      [...wasmUleb128(1), WASM_I32],
+      [...wasmUleb128(1), WASM_I32], // one local group per loop counter (xIdx, yIdx)
       [...wasmUleb128(1), WASM_I32],
     ]);
     drawFuncBody = [...drawLocalsDecl, ...drawCode, WASM_OP.end];
@@ -2842,7 +2350,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     3,
     wasmVec(drawTypeIdx === undefined ? [[mainTypeIdx]] : [[mainTypeIdx], [drawTypeIdx]]),
   );
-  const memoryPages = Math.max(1, Math.ceil(memCursor / 65536));
+  const memoryPages = Math.max(1, Math.ceil(memCursor / 65536)); // 65536 bytes per WASM memory page
   const memorySection = wasmSection(5, wasmVec([[0x00, ...wasmUleb128(memoryPages)]]));
   const nameBytes = wasmStrBytes(options.name);
   const exportEntries = [
@@ -2851,9 +2359,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
   ];
   if (drawTypeIdx !== undefined) exportEntries.push([...wasmStrBytes("draw"), 0x00, ...wasmUleb128(mainFuncIndex + 1)]);
   const exportSection = wasmSection(7, wasmVec(exportEntries));
-  // One group per local rather than run-length-compressing consecutive
-  // same-type locals — larger than it needs to be, but every group is
-  // independently correct, and there's no shared-type run to get wrong.
+
   const localsDecl = wasmVec(localSlots.map((name) => [...wasmUleb128(1), wasmTypeOf(localType.get(name)!)]));
   const funcBody = [...localsDecl, ...code, WASM_OP.end];
   const codeEntries = [[...wasmUleb128(funcBody.length), ...funcBody]];
@@ -2864,11 +2370,11 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     0x00,
     0x61,
     0x73,
-    0x6d, // "\0asm"
-    0x01,
+    0x6d, // "\0asm" magic
+    0x01, // version 1
     0x00,
     0x00,
-    0x00, // version 1
+    0x00,
     ...typeSection,
     ...importSection,
     ...funcSection,
@@ -2881,15 +2387,16 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     bytes,
     params: [...params, ...memoryParams],
     resultType: root._t,
-    textureHeapBase: memCursor,
+    textureHeapBase: memCursor, // host texture heaps are appended at the end of the compile-time layout
     draw: drawTypeIdx === undefined ? undefined : { componentCount: drawComponentCount, kind: drawComponentKind },
   };
 }
 
-/** Write an aggregate value's components into `view` at `address`, using
- * `shaderType` to pick the storage kind/width — the JS-side half of the
- * linear-memory design, run before every call since uniform/param values
- * can change between calls. */
+/**
+ * Host-side: packs an array value into linear memory. With `narrow` plus a
+ * float type, components are stored as f32 (truncating to match the GPU
+ * layout); otherwise they mirror the WASM f64/i32 layout exactly.
+ */
 function writeAggregateToMemory(
   view: DataView,
   address: number,
@@ -2898,10 +2405,7 @@ function writeAggregateToMemory(
   narrow?: boolean,
 ): void {
   const kind = elementKindOf(shaderType);
-  // A `narrow` (GPU-shaped) uniform's float component is WGSL's 4-byte
-  // f32, not this backend's usual 8-byte f64 — real, lossy rounding of the
-  // f64 JS number, same as any real GPU uniform buffer would apply to this
-  // exact value. int/uint/bool are already 4 bytes either way.
+
   const compSize = narrow && kind === "float" ? 4 : componentSizeOf(kind);
   const arr = value as ArrayLike<number | boolean>;
   for (let i = 0; i < arr.length; i++) {
@@ -2916,11 +2420,7 @@ function writeAggregateToMemory(
   }
 }
 
-/** The mirror image of `writeAggregateToMemory`: read an aggregate value's
- * components back out, converting a `bool`-kind component back to a real
- * boolean and a `uint`-kind one back to its unsigned reading — the
- * output-direction half of Phase 5, read after every call instead of
- * written before it. */
+/** Host-side: reads an array value back, converting i32 bits to bool/uint as needed. */
 function readAggregateFromMemory(view: DataView, address: number, shaderType: ShaderType): (number | boolean)[] {
   const kind = elementKindOf(shaderType);
   const compSize = componentSizeOf(kind);
@@ -2937,9 +2437,7 @@ function readAggregateFromMemory(view: DataView, address: number, shaderType: Sh
   return out;
 }
 
-/** A plain scalar's own kind (`scalarKindOf`, not `elementKindOf` —
- * `elementKindOf` is only correct for a genuine aggregate type's prefix,
- * and would misread e.g. a bare `"int"` as float-width). */
+/** Host-side: reads one scalar component back from memory. */
 function readScalarFromMemory(view: DataView, address: number, shaderType: ShaderType): number | boolean {
   const kind = scalarKindOf(shaderType);
   if (kind === "float") return view.getFloat64(address, true);
@@ -2954,15 +2452,13 @@ function readValueFromMemory(view: DataView, address: number, shaderType: Shader
     : readScalarFromMemory(view, address, shaderType);
 }
 
-const WRAP_MODE_CODE: Record<JsTextureWrap, number> = { clamp: 0, repeat: 1, mirror: 2 };
+const WRAP_MODE_CODE: Record<JsTextureWrap, number> = { clamp: 0, repeat: 1, mirror: 2 }; // codes the wrapAxis() loop switches on
 
-/** Write one texture uniform's metadata block and pixel data into `view` at
- * `heapAddr` — the linear-memory counterpart of `writeAggregateToMemory`,
- * run fresh before every call since a texture's shape and data can change
- * call to call, just like a uniform's value can. Defaults mirror
- * `compileJS`'s own exactly (`_chan`/`_unorm`, `rmsl-compile-js.ts`):
- * channels default to 4, filter/wrap default to nearest/clamp, and the
- * unorm divisor is 255 only for `Uint8Array`/`Uint8ClampedArray` data. */
+/**
+ * Host-side: writes a texture's metadata block and pixel data into the heap
+ * region reserved by marshalInputs. Channels default to 4; the unorm
+ * divisor is 255 for byte arrays and 1 for float data.
+ */
 function writeTextureToMemory(view: DataView, metaAddr: number, heapAddr: number, tex: JsTextureData): void {
   const channels = tex.channels ?? 4;
   const depth = tex.depth ?? 0;
@@ -2983,49 +2479,37 @@ function writeTextureToMemory(view: DataView, metaAddr: number, heapAddr: number
   }
 }
 
-/** Total bytes one texture's pixel data occupies in the heap, stored as f64
- * per component regardless of its own source `TypedArray`'s width —
- * matches this backend's existing "float is f64" convention and keeps
- * sampling arithmetic free of any per-texture width bookkeeping. */
+/** Heap bytes for a texture: f64 per component. */
 function textureByteSize(tex: JsTextureData): number {
   return tex.width * tex.height * (tex.depth || 1) * (tex.channels ?? 4) * 8;
 }
 
 /**
- * The callable `compileWasm` returns: `(ctx) => number | boolean` for the
- * subset of the DSL this backend covers so far, matching `compileJS`'s
- * call signature (a `JsShaderContext`'s `params`/`uniforms` in, a scalar
- * out) — or a `JsShaderResult` for a program that uses `output()`/a
- * vertex `varying()`/`builtinPosition()`/`builtinFragDepth()`, exactly
- * matching what `compileJS` returns for the same program. `.draw()` is
- * always present alongside it: render a `width x height` grid in one call
- * instead of one call per pixel, sharing the exact same compiled body —
- * see `CompiledWasm.draw`'s doc comment (`compileWasmFn`) for the design.
+ * The runtime face of a compiled function: a plain callable per invocation,
+ * plus draw() for rendering the result to a full pixel buffer.
  */
 export type WasmCallable = ((ctx: JsShaderContext) => number | boolean | JsShaderResult) & {
   draw(ctx: JsShaderContext, width: number, height: number): Float64Array | Int32Array | Uint32Array;
 };
 
 /**
- * Compile an Fn to a `WasmCallable` (see its own doc comment).
+ * Instantiates a compiled module and binds it to JS: marshals params and
+ * textures into memory/args, calls the function, and reads results back
+ * into a JsShaderResult.
  */
 export function compileWasm(fn: (...args: any[]) => Node<ShaderType>, options: CompileWasmFnOptions): WasmCallable {
   const { bytes, params, resultType, textureHeapBase, draw } = compileWasmFn(fn, options);
-  // A module that imports nothing ignores an unused "math" namespace, so
-  // this is passed unconditionally rather than only when needed. `Math`'s
-  // own methods have the same names, so it's handed over directly.
+
   const instance = new WebAssembly.Instance(new WebAssembly.Module(bytes.buffer as ArrayBuffer), {
-    math: Math as unknown as WebAssembly.ModuleImports,
+    math: Math as unknown as WebAssembly.ModuleImports, // host "math" namespace serving the sin/pow/... imports
   });
   const wasmMain = instance.exports[options.name] as (...args: number[]) => number;
   const wasmDraw = draw ? (instance.exports.draw as (...args: number[]) => void) : undefined;
   const memory = instance.exports.memory as WebAssembly.Memory;
-  // Reassigned (not `const`) because growing `memory` for texture data or
-  // a `.draw()` output buffer (below) detaches the buffer this `DataView`
-  // was built on.
+
   let view = new DataView(memory.buffer);
-  // Fixed for this compiled function — never varies call to call — so
-  // computed once rather than re-scanning `params` on every call.
+
+  // outputs read back after each call; textures repacked per call
   const outputParams = params.filter(
     (
       p,
@@ -3042,28 +2526,18 @@ export function compileWasm(fn: (...args: any[]) => Node<ShaderType>, options: C
   const textureParams = params.filter(
     (p): p is Extract<WasmParam, { kind: "textureMemory" }> => p.kind === "textureMemory",
   );
-  // Per-slot cache for the texture heap below: which JsTextureData object
-  // (by reference) currently occupies each slot's region, and the byte
-  // size that layout was packed for. `null` forces the first call to pack
-  // and write everything, the same as if this cache didn't exist.
+
+  // texture cache: skip re-uploading an unchanged texture object, and only
+  // grow the module memory when the total footprint changes between calls
   const lastTexture: (JsTextureData | undefined)[] = new Array(textureParams.length);
   let lastSizes: number[] | null = null;
 
-  /** Shared between a plain call and `.draw()`: write every uniform/param/
-   * texture this compiled function needs into linear memory (or into the
-   * scalar `args` list a WASM call itself takes), growing `memory` first
-   * if a texture needs more room than it currently has. Also reports
-   * where the texture heap actually ends for this call — `textureHeapBase`
-   * when there are no textures at all — which `.draw()` uses as the base
-   * for its own output buffer, so the two never collide even though
-   * neither's size is known until call time. */
+  /**
+   * Appends each texture's pixels after the compiled layout (growing memory
+   * when the total footprint changes) and collects the scalar WASM args.
+   * Returns the heap end — where the draw buffer starts.
+   */
   function marshalInputs(ctx: JsShaderContext): { args: number[]; textureHeapEnd: number } {
-    // Texture data is call-time-sized, unlike every other param kind here,
-    // so it's packed into a growable heap (starting at `textureHeapBase`)
-    // rather than at a compile-time-fixed address. A program with no
-    // texture uniforms never touches any of this — `textureParams` is
-    // empty, `memory` never grows, byte-for-byte identical to before this
-    // existed.
     let textureHeapEnd = textureHeapBase;
     if (textureParams.length > 0) {
       const textures = textureParams.map((p) => (ctx.textures as any)?.[p.slot] as JsTextureData);
@@ -3075,25 +2549,13 @@ export function compileWasm(fn: (...args: any[]) => Node<ShaderType>, options: C
         heapCursor += size;
       }
       textureHeapEnd = heapCursor;
-      // A texture's *placement* depends on every earlier slot's current
-      // size (they're packed back to back), so a size change anywhere
-      // forces every slot to be rewritten at its (possibly new) offset —
-      // not just the slot whose size actually changed. This only happens
-      // the first call, and again only if some texture's dimensions
-      // change call to call, which real usage (bind once, sample every
-      // frame with different coordinates) does not do.
+
       const needsRepack = lastSizes === null || sizes.some((s, i) => s !== lastSizes![i]);
       if (needsRepack && heapCursor > memory.buffer.byteLength) {
         memory.grow(Math.ceil((heapCursor - memory.buffer.byteLength) / 65536));
-        view = new DataView(memory.buffer);
+        view = new DataView(memory.buffer); // growing detaches the old buffer, so the view is rebuilt
       }
       textureParams.forEach((p, i) => {
-        // A slot whose texture object is the exact same reference as last
-        // call needs no work at all — its metadata and pixel bytes in
-        // linear memory are still exactly what they were. This is the
-        // whole point of the cache: the realistic pattern (bind a texture
-        // once, call the compiled function repeatedly with different
-        // coordinates) skips the entire copy on every call but the first.
         if (!needsRepack && textures[i] === lastTexture[i]) return;
         writeTextureToMemory(view, p.metadataAddress, heapOffsets[i], textures[i]);
         lastTexture[i] = textures[i];
@@ -3104,7 +2566,7 @@ export function compileWasm(fn: (...args: any[]) => Node<ShaderType>, options: C
     for (const p of params) {
       switch (p.kind) {
         case "textureMemory":
-          break; // written above, before this loop, not per-argument here
+          break;
         case "param":
           args.push((ctx.params as any)?.[p.name] as number);
           break;
@@ -3130,14 +2592,7 @@ export function compileWasm(fn: (...args: any[]) => Node<ShaderType>, options: C
           writeAggregateToMemory(view, p.address, p.shaderType, (ctx.varyings as any)?.[p.slot]);
           break;
         case "fragCoordMemory":
-          // Not written for a `.draw()` call — `draw`'s own loop overwrites
-          // this same address fresh every pixel regardless, so there is
-          // nothing for this line to usefully do there. Harmless either
-          // way (it would just be overwritten immediately), but `.draw()`
-          // calls `wasmDraw` directly rather than through this function's
-          // ordinary post-`marshalInputs` path, never reaching this case
-          // with a meaningfully different `ctx.fragCoord` per pixel to
-          // begin with.
+          // the host's fragCoord for CPU invocations; draw() overwrites it per pixel — harmless
           writeAggregateToMemory(view, p.address, "vec2", ctx.fragCoord ?? [0, 0]);
           break;
       }
@@ -3148,21 +2603,14 @@ export function compileWasm(fn: (...args: any[]) => Node<ShaderType>, options: C
   const callable = ((ctx: JsShaderContext): number | boolean | JsShaderResult => {
     const { args } = marshalInputs(ctx);
     const result = wasmMain(...args);
+    // scalar mode: reinterpret the raw i32 — the WASM boundary returns it
+    // signed, so a uint result needs a >>> 0 re-read
     if (outputParams.length === 0) {
-      // The JS/WASM call boundary always surfaces an i32 return as a signed
-      // number; a "uint" result above 2^31-1 needs reinterpreting as
-      // unsigned, the same way ctx.uniforms/ctx.params values are read as
-      // unsigned going in (JS numbers don't distinguish, so no equivalent
-      // step is needed there — only coming back out through a fixed-width
-      // return does).
       if (resultType === "bool") return result !== 0;
       if (resultType === "uint") return result >>> 0;
       return result;
     }
-    // `needsResult` mode: the function declared zero WASM results — its
-    // value (if any) and everything else it produced all live in memory,
-    // read back here into exactly the shape `compileJS` returns for the
-    // same program.
+
     const shaderResult: JsShaderResult = {};
     for (const p of outputParams) {
       switch (p.kind) {
@@ -3193,32 +2641,16 @@ export function compileWasm(fn: (...args: any[]) => Node<ShaderType>, options: C
       );
     }
     const { args, textureHeapEnd } = marshalInputs(ctx);
-    // The draw buffer starts right after wherever this call's texture heap
-    // actually ends — `textureHeapBase` itself when there are no textures
-    // at all, recovering exactly the placement this had before texture
-    // support needed to share the same space. Computed fresh every call,
-    // same as the texture heap's own placement already is, so the two
-    // never collide regardless of how either one's size changes call to
-    // call. Rounded up to a multiple of 8: nothing about this backend's
-    // own compile-time bump allocator keeps addresses aligned (a texture's
-    // 44-byte metadata block is the concrete case that doesn't), but
-    // `Float64Array`'s constructor requires an 8-byte-aligned offset, and
-    // rounding up here is the one place that needs to know or care —
-    // `draw`'s own bytecode has no alignment requirement of its own, so it
-    // takes whatever value this computes exactly as given.
-    const bufferBase = Math.ceil(textureHeapEnd / 8) * 8;
+
+    const bufferBase = Math.ceil(textureHeapEnd / 8) * 8; // align to 8 bytes — the typed-array constructors require it
     const pixelCount = width * height * draw.componentCount;
     const neededBytes = bufferBase + pixelCount * componentSizeOf(draw.kind);
     if (neededBytes > memory.buffer.byteLength) {
       memory.grow(Math.ceil((neededBytes - memory.buffer.byteLength) / 65536));
-      view = new DataView(memory.buffer);
+      view = new DataView(memory.buffer); // growing detaches the old buffer, so the view is rebuilt
     }
     wasmDraw(...args, width, height, bufferBase);
-    // A fresh, lightweight view every call (not a copy, and not cached
-    // outside this method) rather than one built once — `memory.grow`
-    // above, or one triggered by a texture in the same `ctx`, detaches
-    // whatever buffer an earlier view pointed at, so only reading
-    // `memory.buffer` fresh here is guaranteed never to be stale.
+
     if (draw.kind === "float") return new Float64Array(memory.buffer, bufferBase, pixelCount);
     if (draw.kind === "uint") return new Uint32Array(memory.buffer, bufferBase, pixelCount);
     return new Int32Array(memory.buffer, bufferBase, pixelCount);
