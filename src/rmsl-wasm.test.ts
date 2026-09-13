@@ -26,6 +26,7 @@ import {
   ivec3, uvec3, bvec3, mat2, mat3, mat4, sin, clamp,
   cross, length, normalize, distance, reflect, dFdx, dFdy, fwidth,
   attribute, varying, fragCoord, output, builtinPosition, builtinFragDepth,
+  textureSize,
   type Node, type ShaderType,
 } from "./rmsl";
 import type { CompileWasmFnOptions } from "./rmsl-wasm";
@@ -704,5 +705,46 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
     })();
     expect(() => compileWasm(build as any, { name: "main", params: [] }))
       .toThrow(/fragment stage cannot read it/);
+  });
+});
+
+describe("WASM backend: texture uniforms (Phase 6 — metadata plumbing)", () => {
+  it("reads a sampler2D texture's dimensions via textureSize()", () => {
+    const tex = uniform("sampler2D");
+    const build = () => Fn(() => {
+      const s = textureSize(tex).toVar();
+      return s.x.add(s.y);
+    })();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const result = fn({ textures: { [tex.name]: { data: new Float32Array(4 * 3), width: 4, height: 3 } } });
+    expect(result).toBe(7);
+  });
+
+  it("reads a sampler3D texture's dimensions via textureSize()", () => {
+    const tex = uniform("sampler3D");
+    const build = () => Fn(() => {
+      const s = textureSize(tex).toVar();
+      return s.x.add(s.y).add(s.z);
+    })();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const result = fn({ textures: { [tex.name]: { data: new Float32Array(2 * 3 * 4), width: 2, height: 3, depth: 4 } } });
+    expect(result).toBe(9);
+  });
+
+  it("grows WASM memory to fit a larger texture across calls without corrupting metadata", () => {
+    const tex = uniform("sampler2D");
+    const build = () => Fn(() => textureSize(tex).x)();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    expect(fn({ textures: { [tex.name]: { data: new Float32Array(4 * 4), width: 4, height: 4 } } })).toBe(4);
+    // A much larger texture forces `memory.grow` — must not corrupt the
+    // compile-time-fixed metadata address or throw.
+    expect(fn({ textures: { [tex.name]: { data: new Float32Array(2000 * 2000), width: 2000, height: 2000 } } })).toBe(2000);
+  });
+
+  it("supports textureSize() for a samplerCube uniform, matching compileJS's own lack of restriction there", () => {
+    const tex = uniform("samplerCube");
+    const build = () => Fn(() => (textureSize as any)(tex).x)();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    expect(fn({ textures: { [tex.name]: { data: new Float32Array(4 * 4 * 6), width: 4, height: 4 } } })).toBe(4);
   });
 });

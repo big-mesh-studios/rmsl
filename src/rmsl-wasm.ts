@@ -1,6 +1,6 @@
 import { Node, ShaderType, TYPE_WIDTH, MATRIX_DIMENSIONS, var_ } from "./rmsl-core";
 import { CompileFnOptions, COMPONENT_INDEX, resolveSwizzleTarget, assertStageResult } from "./rmsl-compiler-shared";
-import { JsShaderContext, JsShaderResult } from "./rmsl-compile-js";
+import { JsShaderContext, JsShaderResult, JsTextureData, JsTextureWrap } from "./rmsl-compile-js";
 import { AllocRules, planLayout } from "./rmsl-layout";
 // === WASM backend (see ROADMAP.md for what this does and doesn't cover yet) ===
 //
@@ -60,7 +60,17 @@ export type WasmParam =
   | { kind: "varyingOutputMemory"; slot: string; shaderType: ShaderType; address: number }
   | { kind: "positionMemory"; address: number }
   | { kind: "fragDepthMemory"; address: number }
-  | { kind: "valueMemory"; shaderType: ShaderType; address: number };
+  | { kind: "valueMemory"; shaderType: ShaderType; address: number }
+  // Phase 6: a texture uniform. Unlike every other uniform kind, its data
+  // (dimensions, pixels) isn't fixed-size at compile time, so it gets no
+  // ordinary scratch address for its *value* — only a small, fixed-size
+  // metadata block (see `TEXTURE_META_*` byte offsets) recording where its
+  // pixel data currently lives in the growable texture heap
+  // (`compileWasm`'s wrapper places it fresh before every call) plus its
+  // shape (width/height/depth/channels/filter/wrap). `compileWasm` writes
+  // this block *and* the pixel data every call, exactly like a `uniform`
+  // value, just shaped differently.
+  | { kind: "textureMemory"; slot: string; samplerType: ShaderType; metadataAddress: number };
 
 export type CompiledWasm = {
   /** The raw WASM binary module, exporting `options.name` and `"memory"`. */
@@ -69,6 +79,12 @@ export type CompiledWasm = {
   /** The Fn's declared return type — `compileWasm` reads this to convert a
    * `"bool"` result's 0/1 back to a real boolean, matching `compileJS`. */
   resultType: ShaderType;
+  /** Phase 6: the byte address right after every compile-time-fixed
+   * allocation (scratch, uniforms, texture metadata, ...) — where
+   * `compileWasm`'s wrapper starts packing texture pixel data fresh before
+   * every call, growing the module's memory first if needed. Meaningless
+   * when `params` has no `"textureMemory"` entry. */
+  textureHeapBase: number;
 };
 
 export const WASM_OP = {
@@ -192,6 +208,41 @@ function componentCountOf(t: string): number {
 function isAggregate(t: string): boolean {
   return componentCountOf(t) > 1;
 }
+
+/** A texture uniform's `shaderType` is never an aggregate `componentCountOf`
+ * knows how to size (samplers carry no component count at all) — this is
+ * the separate check `collect()` runs first to route it to texture-metadata
+ * handling instead of the ordinary aggregate/scalar uniform paths. */
+function isSamplerType(t: string): boolean {
+  return t.startsWith("sampler") || t.startsWith("isampler") || t.startsWith("usampler");
+}
+
+/** `texture()`/`textureLoad()` support every 2D/3D sampler kind — float,
+ * signed, and unsigned — exactly like `compileJS` does (an integer sampler
+ * just takes the unfiltered-fetch path instead of the wrap/filter one,
+ * since integer textures aren't filterable in either language). Only cube
+ * samplers are unsupported, matching `compileJS`'s own restriction. */
+function assertSampled2Dor3D(t: string): void {
+  if (!t.endsWith("2D") && !t.endsWith("3D")) {
+    throw new Error("[RMSL] compileWasmFn: texture uniforms support sampler2D/sampler3D (and their integer variants) only.");
+  }
+}
+
+/** Fixed byte layout of a texture uniform's metadata block (44 bytes,
+ * allocated once per slot via `allocateBytes`). `dataAddr` and every other
+ * field are rewritten by `compileWasm`'s wrapper before every call — none
+ * of it is known at compile time beyond "this slot exists". */
+const TEX_META_UNORM_DIVISOR = 0; // f64: 255 for Uint8Array/Uint8ClampedArray source data, 1 otherwise
+const TEX_META_DATA_ADDR = 8; // i32: this call's heap offset for the pixel data
+const TEX_META_WIDTH = 12; // i32
+const TEX_META_HEIGHT = 16; // i32
+const TEX_META_DEPTH = 20; // i32: 0 for a 2D texture
+const TEX_META_CHANNELS = 24; // i32: 1-4
+const TEX_META_FILTER = 28; // i32: 0 = nearest, 1 = linear (magFilter only — minFilter is unused, matching compileJS)
+const TEX_META_WRAP_S = 32; // i32: 0 = clamp, 1 = repeat, 2 = mirror
+const TEX_META_WRAP_T = 36; // i32
+const TEX_META_WRAP_R = 40; // i32: 3D only
+const TEXTURE_META_STRIDE = 44;
 
 /**
  * This backend's placement rules for `planLayout` (src/rmsl-layout.ts):
@@ -417,6 +468,11 @@ export function compileWasmFn(
   const varyingOutputAddress = new Map<string, number>();
   let positionAddress: number | undefined;
   let fragDepthAddress: number | undefined;
+  // Phase 6: each texture uniform slot's fixed metadata-block address (see
+  // `TEXTURE_META_*`). The pixel data itself gets no compile-time address —
+  // it lives in a growable heap `compileWasm`'s wrapper packs fresh before
+  // every call (see `textureHeapBase` below and `CompiledWasm.textureHeapBase`).
+  const textureMetadataAddress = new Map<string, number>();
   const scratchAddress = new WeakMap<object, number>();
   // Reserve [0, totalSize) for a caller-supplied GPU uniform layout, if any
   // — everything this backend places itself starts after it, so it can
@@ -465,6 +521,7 @@ export function compileWasmFn(
     if (node.type === "swizzle" && (node.value as string).length > 1) return true;
     if (node.type === "cross" || node.type === "reflect" || node.type === "normalize" || node.type === "matVecMul") return true;
     if (node.type === "dFdx" || node.type === "dFdy" || node.type === "fwidth") return true;
+    if (node.type === "textureSize") return true;
     return node.type === "add" || node.type === "sub" || node.type === "mul" || node.type === "div";
   }
 
@@ -481,6 +538,17 @@ export function compileWasmFn(
         }
       } else {
         addParam({ kind: "param", name, shaderType: t }, `param:${name}`);
+      }
+    } else if (node.type === "uniform" && isSamplerType(node.value.shaderType)) {
+      // No 2D/3D-only restriction here — `textureSize()` works for any
+      // sampler kind including cube, matching `compileJS`'s own
+      // `_texSize` (no restriction at all). Only `texture()`/`textureLoad()`
+      // restrict to 2D/3D, checked where those node types are compiled.
+      const v = node.value;
+      if (!textureMetadataAddress.has(v.slot)) {
+        const addr = allocateBytes(TEXTURE_META_STRIDE);
+        textureMetadataAddress.set(v.slot, addr);
+        memoryParams.push({ kind: "textureMemory", slot: v.slot, samplerType: v.shaderType, metadataAddress: addr });
       }
     } else if (node.type === "uniform") {
       const v = node.value;
@@ -795,6 +863,8 @@ export function compileWasmFn(
       case "dFdy":
       case "fwidth":
         return emitDerivativeZeroStores(node, nodeAddress(node));
+      case "textureSize":
+        return emitTextureSizeStores(node, nodeAddress(node));
       default:
         if (node.type === node._t && Array.isArray(node.value)) {
           return emitLiteralStores(node, nodeAddress(node));
@@ -906,6 +976,23 @@ export function compileWasmFn(
     const out: number[] = [];
     for (let k = 0; k < width; k++) {
       out.push(...storeComponent(addr, kind, k * compSize, kind === "float" ? f64ConstBytes(0) : i32ConstBytes(0)));
+    }
+    return out;
+  }
+
+  /** `textureSize()` needs no sampling math at all — just a read of the
+   * dimensions `compileWasm`'s wrapper already wrote into this texture's
+   * metadata block before the call. */
+  function emitTextureSizeStores(node: any, addr: number): number[] {
+    const metaAddr = textureMetadataAddress.get(node.params[0].value.slot);
+    if (metaAddr === undefined) {
+      throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed texture "${node.params[0].value.slot}"`);
+    }
+    const width = componentCountOf(node._t as string); // 2 for uvec2, 3 for uvec3
+    const out: number[] = [];
+    const fieldOffset = [TEX_META_WIDTH, TEX_META_HEIGHT, TEX_META_DEPTH];
+    for (let k = 0; k < width; k++) {
+      out.push(...storeComponent(addr, "uint", k * 4, loadComponent(metaAddr, "uint", fieldOffset[k])));
     }
     return out;
   }
@@ -1669,7 +1756,7 @@ export function compileWasmFn(
     ...codeSection,
   ]);
 
-  return { bytes, params: [...params, ...memoryParams], resultType: root._t };
+  return { bytes, params: [...params, ...memoryParams], resultType: root._t, textureHeapBase: memCursor };
 }
 
 /** Write an aggregate value's components into `view` at `address`, using
@@ -1732,6 +1819,43 @@ function readValueFromMemory(view: DataView, address: number, shaderType: Shader
   return isAggregate(shaderType) ? readAggregateFromMemory(view, address, shaderType) : readScalarFromMemory(view, address, shaderType);
 }
 
+const WRAP_MODE_CODE: Record<JsTextureWrap, number> = { clamp: 0, repeat: 1, mirror: 2 };
+
+/** Write one texture uniform's metadata block and pixel data into `view` at
+ * `heapAddr` — the linear-memory counterpart of `writeAggregateToMemory`,
+ * run fresh before every call since a texture's shape and data can change
+ * call to call, just like a uniform's value can. Defaults mirror
+ * `compileJS`'s own exactly (`_chan`/`_unorm`, `rmsl-compile-js.ts`):
+ * channels default to 4, filter/wrap default to nearest/clamp, and the
+ * unorm divisor is 255 only for `Uint8Array`/`Uint8ClampedArray` data. */
+function writeTextureToMemory(view: DataView, metaAddr: number, heapAddr: number, tex: JsTextureData): void {
+  const channels = tex.channels ?? 4;
+  const depth = tex.depth ?? 0;
+  const isByteData = tex.data instanceof Uint8Array || tex.data instanceof Uint8ClampedArray;
+  view.setFloat64(metaAddr + TEX_META_UNORM_DIVISOR, isByteData ? 255 : 1, true);
+  view.setInt32(metaAddr + TEX_META_DATA_ADDR, heapAddr, true);
+  view.setInt32(metaAddr + TEX_META_WIDTH, tex.width, true);
+  view.setInt32(metaAddr + TEX_META_HEIGHT, tex.height, true);
+  view.setInt32(metaAddr + TEX_META_DEPTH, depth, true);
+  view.setInt32(metaAddr + TEX_META_CHANNELS, channels, true);
+  view.setInt32(metaAddr + TEX_META_FILTER, tex.magFilter === "linear" ? 1 : 0, true);
+  view.setInt32(metaAddr + TEX_META_WRAP_S, WRAP_MODE_CODE[tex.wrapS ?? "clamp"], true);
+  view.setInt32(metaAddr + TEX_META_WRAP_T, WRAP_MODE_CODE[tex.wrapT ?? "clamp"], true);
+  view.setInt32(metaAddr + TEX_META_WRAP_R, WRAP_MODE_CODE[tex.wrapR ?? "clamp"], true);
+  const count = tex.width * tex.height * (depth || 1) * channels;
+  for (let i = 0; i < count; i++) {
+    view.setFloat64(heapAddr + i * 8, tex.data[i] as number, true);
+  }
+}
+
+/** Total bytes one texture's pixel data occupies in the heap, stored as f64
+ * per component regardless of its own source `TypedArray`'s width —
+ * matches this backend's existing "float is f64" convention and keeps
+ * sampling arithmetic free of any per-texture width bookkeeping. */
+function textureByteSize(tex: JsTextureData): number {
+  return tex.width * tex.height * (tex.depth || 1) * (tex.channels ?? 4) * 8;
+}
+
 /**
  * Compile an Fn to a callable, `(ctx) => number | boolean`, matching
  * `compileJS`'s call signature for the subset of the DSL this backend
@@ -1744,22 +1868,47 @@ export function compileWasm(
   fn: (...args: any[]) => Node<ShaderType>,
   options: CompileWasmFnOptions,
 ): (ctx: JsShaderContext) => number | boolean | JsShaderResult {
-  const { bytes, params, resultType } = compileWasmFn(fn, options);
+  const { bytes, params, resultType, textureHeapBase } = compileWasmFn(fn, options);
   // A module that imports nothing ignores an unused "math" namespace, so
   // this is passed unconditionally rather than only when needed. `Math`'s
   // own methods have the same names, so it's handed over directly.
   const instance = new WebAssembly.Instance(new WebAssembly.Module(bytes.buffer as ArrayBuffer), { math: Math as unknown as WebAssembly.ModuleImports });
   const wasmMain = instance.exports.main as (...args: number[]) => number;
   const memory = instance.exports.memory as WebAssembly.Memory;
-  const view = new DataView(memory.buffer);
+  // Reassigned (not `const`) because growing `memory` for texture data
+  // (below) detaches the buffer this `DataView` was built on.
+  let view = new DataView(memory.buffer);
   // Fixed for this compiled function — never varies call to call — so
   // computed once rather than re-scanning `params` on every call.
   const outputParams = params.filter((p): p is Extract<WasmParam, { kind: "outputMemory" | "varyingOutputMemory" | "positionMemory" | "fragDepthMemory" | "valueMemory" }> =>
     p.kind === "outputMemory" || p.kind === "varyingOutputMemory" || p.kind === "positionMemory" || p.kind === "fragDepthMemory" || p.kind === "valueMemory");
+  const textureParams = params.filter((p): p is Extract<WasmParam, { kind: "textureMemory" }> => p.kind === "textureMemory");
   return (ctx: JsShaderContext): number | boolean | JsShaderResult => {
+    // Texture data is call-time-sized, unlike every other param kind here,
+    // so it's packed into a growable heap (starting at `textureHeapBase`)
+    // fresh before every call, rather than at a compile-time-fixed address.
+    // A program with no texture uniforms never touches this — `textureParams`
+    // is empty, `memory` never grows, byte-for-byte identical to before
+    // this existed.
+    if (textureParams.length > 0) {
+      const textures = textureParams.map(p => (ctx.textures as any)?.[p.slot] as JsTextureData);
+      const heapOffsets: number[] = [];
+      let heapCursor = textureHeapBase;
+      for (const tex of textures) {
+        heapOffsets.push(heapCursor);
+        heapCursor += textureByteSize(tex);
+      }
+      if (heapCursor > memory.buffer.byteLength) {
+        memory.grow(Math.ceil((heapCursor - memory.buffer.byteLength) / 65536));
+        view = new DataView(memory.buffer);
+      }
+      textureParams.forEach((p, i) => writeTextureToMemory(view, p.metadataAddress, heapOffsets[i], textures[i]));
+    }
     const args: number[] = [];
     for (const p of params) {
       switch (p.kind) {
+        case "textureMemory":
+          break; // written above, before this loop, not per-argument here
         case "param":
           args.push((ctx.params as any)?.[p.name] as number);
           break;
