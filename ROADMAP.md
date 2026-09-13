@@ -117,7 +117,7 @@ pass. Roughly halving the JS-vs-WASM gap (6.3x down to ~3.1x) came from
 that — fewer round trips through the `params` array outweighing the added
 `DataView` write.
 
-## Status: Phase 1 through Phase 6 landed (except multi-return)
+## Status: Phase 1 through Phase 6 landed (except multi-return); Phase 7's recording hookup also landed
 
 `compileWasmFn` and `compileWasm` exist in `src/rmsl-wasm.ts`, next to
 `rmsl-glsl.ts`/`rmsl-wgsl.ts`/`rmsl-compile-js.ts` (see CONTRIBUTING.md for
@@ -456,22 +456,72 @@ call" above for what shipped: `textureSize`/`textureLoad`/`texture`/
 `textureLod` at the same scope `compileJS` itself has (`sampler2D`/
 `sampler3D`, float and integer variants, no cube maps, no mipmap/LOD).
 
-### Phase 7 — parity testing infrastructure
-Once coverage is broad enough, hook `compileWasm` into
-`src/testing/shader-eval.ts`'s recording the way `compileGLSL`/`compileWGSL`
-already are (see CONTRIBUTING.md's "Validity"/"Values" test layers), so a
-case written once in `rmsl-js.test.ts`-style files is checked against WASM
-automatically instead of needing its own file. Also: benchmark against
-realistic workloads, not the microbenchmarks that shaped Phase 1 — a real
-picking scene's actual call pattern, not a tight synthetic loop. See
-`src/rmsl-wasm-vs-js.bench.ts`/`rmsl-wasm-loop.bench.ts` and the
-re-measurement under "Why" above: the current `compileWasm` wrapper loses
+### ~~Phase 7 — parity testing infrastructure~~ — recording hookup done, benchmarking not started
+`compileWasm` is now a third backend checked by
+`src/testing/shader-eval.ts`'s recording, alongside `compileGLSL`/
+`compileWGSL` (see CONTRIBUTING.md's "Validity"/"Values" test layers) — a
+case written once in `rmsl-js.test.ts`/`rmsl-eval.test.ts`-style files is
+now checked against WASM automatically too, with no change needed to any
+existing call site. `evaluateWASM` (`shader-eval.ts`) runs synchronously
+alongside the CPU target, needing no browser or graphics device, so it
+isn't gated by `RMSL_SKIP_GPU`/`RMSL_SKIP_SHADER_EVALUATION` the way
+GLSL/WGSL are. Its result is compared against the CPU target with exact
+equality, not `floatTolerance` — this backend's `float` is f64, matching
+`compileJS`'s own JS-number arithmetic bit for bit (including the
+transcendental functions, which both backends call through the literal
+same `Math` object), so a real difference is a bug, never rounding.
+
+Coverage wasn't "broad enough" yet in the sense the phase originally
+imagined — several recorded cases exercise `clamp`/`mix`/`step`/
+`smoothstep`/`uniformArray`/non-square matrix multiply, none of which
+`compileWasmFn` supports (see "What throws today" above). Rather than
+wait, a `compileWasmFn`-thrown error (always prefixed `"[RMSL]
+compileWasmFn"`, confirmed across every throw site in `rmsl-wasm.ts`) is
+treated as a countable, visible skip instead of a failure — reported as a
+`[shader-eval] WASM: N of M ... not yet supported` line — while anything
+else (a genuine `WebAssembly.RuntimeError` trap, a `CompileError`/
+`LinkError`, or a numeric mismatch) still fails the run exactly like a
+GLSL/WGSL disagreement does. This is what let the hookup land now instead
+of waiting for full coverage, without weakening what the suite actually
+guarantees.
+
+This immediately found two real, previously undetected bugs, exactly the
+value this phase was for:
+- `compileWasm`'s wrapper looked up the compiled export as the literal
+  string `instance.exports.main`, ignoring `options.name` entirely — silently
+  broken for any function name other than `"main"`, undetected until now
+  because every existing WASM test happened to use that exact name.
+- `Switch`'s `Case()` (`rmsl-core.ts`) typed every case value as `float`
+  regardless of the selector's actual `int`/`uint` type (`wrapValue`
+  defaults a bare number to `float`, and nothing corrected it afterward).
+  GLSL and WGSL both silently papered over the resulting type mismatch
+  with an implicit cast at comparison codegen, so it never produced a
+  wrong answer there — only the WASM backend's comparison codegen, which
+  assumes both operands already match, turned it into a `WebAssembly.
+  CompileError`. Fixed at the source (`typedOperand(v, selector._t)`
+  instead of `wrapValue(v)`), which also removed the now-unnecessary casts
+  from GLSL/WGSL's own output.
+- A third, unrelated gap found by the same process: `emitConstructStores`
+  (`rmsl-wasm.ts`) copied a construct's components straight from source to
+  target with no conversion at all, so `vec3(...).toIVec3()` tried to
+  `i32.store` a raw `f64.load`'s bits — a real `CompileError`, not a wrong
+  number, but still a case that had simply never been exercised by
+  `rmsl-wasm.test.ts`'s own hand-written cases before this. Fixed
+  (`convertComponent`) for float↔int/uint; see "Open questions" for the
+  one case deliberately left unhandled (a `bool` on either side of that
+  conversion).
+
+The realistic-workload benchmarking half of this phase (pinning down the
+JS-vs-WASM crossover point, using/extending `src/rmsl-wasm-vs-js.bench.ts`/
+`rmsl-wasm-loop.bench.ts`) is unchanged from the original writeup below and
+was deliberately left for a separate pass — see "Why" above for the
+re-measurement it should build on: the current `compileWasm` wrapper loses
 to `compileJS` on a cheap per-call microbenchmark and only wins once
-there's a loop, so this phase's benchmarking work should specifically pin
-down where the crossover point is and whether the wrapper itself can get
-cheaper, not just confirm a win on a friendlier workload — and should keep
-using (or extending) these committed bench files rather than another
-throwaway script, so results stay reproducible run to run.
+there's a loop, so this work should specifically pin down where the
+crossover point is and whether the wrapper itself can get cheaper, not
+just confirm a win on a friendlier workload — and should keep using (or
+extending) the committed bench files rather than another throwaway script,
+so results stay reproducible run to run.
 
 ### Phase 8 — tooling and docs
 A `docs/wasm.md` page (or a section in `docs/compilation.md`), and a vite
@@ -520,6 +570,20 @@ going to ship a `.wasm` asset rather than generate one at runtime.
   first place (see that section) — so this isn't a small follow-up, it's a
   real tradeoff to make consciously if the standalone/native use case ever
   becomes a real target rather than exploratory. Revisit then, not before.
+- **A `construct` converting between a `bool` component and a `float` one
+  has no defined WASM behavior.** Found while fixing `emitConstructStores`
+  (`rmsl-wasm.ts`) for the real bug Phase 7's cross-backend recording
+  hookup surfaced, `vec3(...).toIVec3()` truncating incorrectly because
+  the float-to-int/uint conversion it needs was simply missing. The fix
+  (`convertComponent`) handles float↔int and float↔uint (truncate toward
+  zero one way, exact widening the other, matching GLSL/WGSL/JS), but
+  deliberately leaves a `bool` on either side of that boundary untouched —
+  not because it's known to work, but because no construct in the DSL
+  exercises it today (nothing in the recorded test suite hit it, so there
+  was nothing to fix against). Revisit if a real case shows up: the open
+  question is what it should even mean (`float(someBool)` as 0.0/1.0 is an
+  obvious guess, `bool(someFloat)` is less obvious — truncate-then-nonzero,
+  like C, or exactly nonzero, which differ for values in (-1, 0) ∪ (0, 1)).
 - **Audio/DSP and multi-backend "audiovisual" use cases.** Purely
   exploratory — not scoped into any phase above, a set of ideas that came
   up while dreaming about what compiling one shared source to both WASM and
