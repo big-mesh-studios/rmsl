@@ -24,9 +24,10 @@ import {
   compileWasm, compileJS, Fn, If, For, While, Loop, Break, Continue, Return, Discard,
   float, int, uint, bool, uniform, vec2, vec3, vec4,
   ivec3, uvec3, bvec3, mat2, mat3, mat4, sin, clamp,
-  cross, length, normalize, distance, reflect,
+  cross, length, normalize, distance, reflect, dFdx, dFdy, fwidth,
   type Node, type ShaderType,
 } from "./rmsl";
+import type { CompileWasmFnOptions } from "./rmsl-wasm";
 
 function run(build: (...args: any[]) => Node<ShaderType>, args: number[] = [], types: ShaderType[] = []): number | boolean {
   const params = args.map((_, i) => ({ name: `a${i}`, type: types[i] ?? "float" as const }));
@@ -560,5 +561,35 @@ describe("WASM backend: matrix×vector and matrix×matrix multiplication", () =>
     const product = (a as any).mul(b);
     // Extract the first column via matVecMul with the (1,0) basis vector.
     expect(run(() => (product as any).mul(vec2(1, 0)).dot(vec2(1, 1)))).toBe(57); // 23+34
+  });
+});
+
+describe("WASM backend: derivatives option", () => {
+  it("throws by default, matching compileJS's own message shape", () => {
+    expect(() => compileWasm(() => dFdx(float(1)), { name: "main", params: [] }))
+      .toThrow(/dFdx\(\) has no meaning on the CPU target/);
+  });
+
+  it("evaluates dFdx/dFdy/fwidth as 0 when derivatives: \"zero\"", () => {
+    const options: CompileWasmFnOptions = { name: "main", params: [], derivatives: "zero" };
+    expect(compileWasm(() => dFdx(float(3)), options)({})).toBe(0);
+    expect(compileWasm(() => dFdy(float(3)), options)({})).toBe(0);
+    expect(compileWasm(() => fwidth(float(3)), options)({})).toBe(0);
+  });
+
+  it("evaluates an aggregate dFdx as a zero vector when derivatives: \"zero\"", () => {
+    const options: CompileWasmFnOptions = { name: "main", params: [], derivatives: "zero" };
+    expect(compileWasm(() => dFdx(vec3(1, 2, 3)).dot(vec3(1, 1, 1)) as any, options)({})).toBe(0);
+  });
+});
+
+describe("WASM backend: reentrant option accepted as a no-op", () => {
+  it("compiles and runs identically whether reentrant is set or not", () => {
+    const build = (a: Node<"float">) => a.mul(2);
+    const params = [{ name: "a", type: "float" as const }];
+    const plain = compileWasm(build as any, { name: "main", params });
+    const reentrant = compileWasm(build as any, { name: "main", params, reentrant: true });
+    expect(plain({ params: { a: 21 } })).toBe(42);
+    expect(reentrant({ params: { a: 21 } })).toBe(42);
   });
 });

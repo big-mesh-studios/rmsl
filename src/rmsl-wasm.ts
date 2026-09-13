@@ -293,6 +293,30 @@ export type GpuUniformLayout = {
 
 export type CompileWasmFnOptions = CompileFnOptions & {
   gpuUniformLayout?: GpuUniformLayout;
+  /** Phase 5 of `ROADMAP.md`: `undefined` (the default) is today's plain
+   * scalar-returning function — every existing behavior stays exactly as
+   * it was. Set to compile a full vertex or fragment stage instead:
+   * `varying()` becomes a write (collected into the result) in `"vertex"`
+   * and a read (from `ctx.varyings`) in `"fragment"`; `builtinPosition()`
+   * is only writable in `"vertex"`; `builtinFragDepth()`/`fragCoord()`
+   * only in `"fragment"`; and the function's own result no longer has to
+   * be a scalar — it becomes the stage's `res.value`, exactly matching
+   * `compileJS`'s `CompileJSOptions.stage`. */
+  stage?: "vertex" | "fragment";
+  /** `dFdx`/`dFdy`/`fwidth` have no meaning on a CPU target. `"throw"`
+   * (the default, matching `compileJS`) rejects them; `"zero"` evaluates
+   * them as `0` instead — matching `compileJS`'s own two options exactly. */
+  derivatives?: "throw" | "zero";
+  /**
+   * Accepted for API parity with `compileJS`'s `CompileJSOptions` —
+   * **has no effect**. `compileJS`'s `reentrant` exists because its
+   * default hoists scratch to module-scope `let`s shared across every
+   * call; this backend's WASM locals are already allocated fresh per call
+   * frame by the VM itself, so there is no shared-scratch hazard to opt
+   * out of here regardless of this option's value (see `ROADMAP.md`'s
+   * former "Reentrancy" open question, now resolved this way).
+   */
+  reentrant?: boolean;
 };
 
 export function compileWasmFn(
@@ -380,6 +404,7 @@ export function compileWasmFn(
     if (node.type === t) return true; // literal vector/matrix
     if (node.type === "swizzle" && (node.value as string).length > 1) return true;
     if (node.type === "cross" || node.type === "reflect" || node.type === "normalize" || node.type === "matVecMul") return true;
+    if (node.type === "dFdx" || node.type === "dFdy" || node.type === "fwidth") return true;
     return node.type === "add" || node.type === "sub" || node.type === "mul" || node.type === "div";
   }
 
@@ -543,6 +568,10 @@ export function compileWasmFn(
         return emitNormalizeStores(node, nodeAddress(node));
       case "reflect":
         return emitReflectStores(node, nodeAddress(node));
+      case "dFdx":
+      case "dFdy":
+      case "fwidth":
+        return emitDerivativeZeroStores(node, nodeAddress(node));
       default:
         if (node.type === node._t && Array.isArray(node.value)) {
           return emitLiteralStores(node, nodeAddress(node));
@@ -627,6 +656,33 @@ export function compileWasmFn(
           compIndex++;
         }
       }
+    }
+    return out;
+  }
+
+  /** `dFdx`/`dFdy`/`fwidth` have no meaning on a CPU target — only reachable
+   * when `options.derivatives === "zero"` was explicitly chosen (the
+   * default, `"throw"`, is checked at the top of `walkExpr`'s scalar case,
+   * which every aggregate reference to one of these nodes also passes
+   * through first via `readComponent`/`dot`/etc. calling `materializeIfNeeded`
+   * — but a purely aggregate derivative, e.g. `dFdx(vec3)`, never visits
+   * `walkExpr` at all, so the check is repeated here too). */
+  function assertDerivativesAllowed(node: any): void {
+    if (options.derivatives === "zero") return;
+    throw new Error(
+      `[RMSL] compileWasmFn: ${node.type}() has no meaning on the CPU target. `
+      + `Compile with { derivatives: "zero" } to evaluate it as 0.`,
+    );
+  }
+
+  function emitDerivativeZeroStores(node: any, addr: number): number[] {
+    assertDerivativesAllowed(node);
+    const kind = elementKindOf(node._t as string);
+    const compSize = componentSizeOf(kind);
+    const width = componentCountOf(node._t as string);
+    const out: number[] = [];
+    for (let k = 0; k < width; k++) {
+      out.push(...storeComponent(addr, kind, k * compSize, kind === "float" ? f64ConstBytes(0) : i32ConstBytes(0)));
     }
     return out;
   }
@@ -1047,6 +1103,13 @@ export function compileWasmFn(
           acc = k === 0 ? term : [...acc, ...term, WASM_OP.f64Add];
         }
         return [...pre, ...acc];
+      }
+      case "dFdx":
+      case "dFdy":
+      case "fwidth": {
+        assertDerivativesAllowed(node);
+        const kind = scalarKindOf(node._t);
+        return kind === "float" ? f64ConstBytes(0) : i32ConstBytes(0);
       }
       case "length": {
         const src = node.params[0];
