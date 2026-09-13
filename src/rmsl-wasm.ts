@@ -89,9 +89,13 @@ export type CompiledWasm = {
    * whether `compileWasm`'s `.draw()` ever actually gets called) — the
    * exported `"draw"` function shares `main`'s own compiled body via a
    * real WASM `call`, rendering a `width x height` grid (both runtime
-   * arguments, decided per call) into this buffer instead of one call per
-   * pixel. `compileWasm` uses this to build its `.draw()` method. */
-  draw?: { bufferBase: number; componentCount: number; kind: "float" | "int" | "uint" | "bool" };
+   * arguments, decided per call) into a buffer instead of one call per
+   * pixel. That buffer's base address is *also* a runtime argument to
+   * `"draw"` (not included here) — `compileWasm` computes it fresh every
+   * call as `textureHeapBase` plus however many bytes that call's own
+   * textures occupy, so a texture-using `.draw()` call places its output
+   * right after wherever that call's texture heap actually ends. */
+  draw?: { componentCount: number; kind: "float" | "int" | "uint" | "bool" };
 };
 
 export const WASM_OP = {
@@ -2174,26 +2178,28 @@ export function compileWasmFn(
    * buffer, one dynamic-address store per component (`storeDynamic`, the
    * write-side counterpart of the texture heap's `loadDynamic`).
    *
-   * The buffer's base address (`drawBufferBase`) is a fixed compile-time
-   * constant — like the texture heap's own base, sized per call instead
-   * of at compile time, since an image's dimensions aren't known until
-   * `.draw()` is actually called — but unlike the texture heap, this
-   * backend does not yet support a function using *both* a texture and
-   * `draw()` together: both anchor at the same post-allocation address,
-   * so combining them would let one silently corrupt the other. Untested
-   * and unsupported for now, not a design this pass tried to solve.
+   * The buffer's base address is a *third* runtime argument (after
+   * `width`/`height`), not a compile-time constant — `compileWasm`
+   * computes it fresh every `.draw()` call as `textureHeapBase` plus
+   * however many bytes the current call's textures actually occupy (0 for
+   * a function using no textures, recovering exactly the "starts right
+   * after every other compile-time allocation" placement this had before
+   * texture support needed to share the same space), so a function using
+   * *both* a texture uniform and `.draw()` together places the draw
+   * buffer right after wherever that call's texture heap actually ends,
+   * rather than the two colliding at the same fixed address.
    */
   let drawTypeIdx: number | undefined;
   let drawFuncBody: number[] | undefined;
   const drawComponentCount = root._t === "void" ? 0 : componentCountOf(root._t as string);
   const drawComponentKind: ScalarKind = root._t === "void" ? "float" : (isAggregate(root._t as string) ? elementKindOf(root._t as string) : scalarKindOf(root._t as string));
-  const drawBufferBase = memCursor;
   if (root._t !== "void") {
     const drawFuncIndex = mainFuncIndex + 1;
     const widthIdx = params.length;
     const heightIdx = params.length + 1;
-    const xIdx = params.length + 2;
-    const yIdx = params.length + 3;
+    const bufferBaseIdx = params.length + 2;
+    const xIdx = params.length + 3;
+    const yIdx = params.length + 4;
     const getX = [WASM_OP.localGet, ...wasmUleb128(xIdx)];
     const getY = [WASM_OP.localGet, ...wasmUleb128(yIdx)];
     const compSize = componentSizeOf(drawComponentKind);
@@ -2210,7 +2216,7 @@ export function compileWasmFn(
       ...getY, WASM_OP.localGet, ...wasmUleb128(widthIdx), WASM_OP.i32Mul, ...getX, WASM_OP.i32Add,
       ...i32ConstBytes(drawComponentCount * compSize), WASM_OP.i32Mul,
     ];
-    const destAddr = (k: number) => [...i32ConstBytes(drawBufferBase), ...pixelByteOffset, WASM_OP.i32Add, ...i32ConstBytes(k * compSize), WASM_OP.i32Add];
+    const destAddr = (k: number) => [WASM_OP.localGet, ...wasmUleb128(bufferBaseIdx), ...pixelByteOffset, WASM_OP.i32Add, ...i32ConstBytes(k * compSize), WASM_OP.i32Add];
     const copyResult: number[] = needsResult
       ? [...callMain, ...Array.from({ length: drawComponentCount }, (_, k) =>
         storeDynamic(destAddr(k), drawComponentKind, loadComponent(valueAddress!, drawComponentKind, k * compSize))).flat()]
@@ -2241,7 +2247,7 @@ export function compileWasmFn(
     const drawLocalsDecl = wasmVec([[...wasmUleb128(1), WASM_I32], [...wasmUleb128(1), WASM_I32]]);
     drawFuncBody = [...drawLocalsDecl, ...drawCode, WASM_OP.end];
     drawTypeIdx = typeEntries.length;
-    typeEntries.push([WASM_FUNC, ...wasmVec([...paramTypes, [WASM_I32], [WASM_I32]]), ...wasmVec([])]);
+    typeEntries.push([WASM_FUNC, ...wasmVec([...paramTypes, [WASM_I32], [WASM_I32], [WASM_I32]]), ...wasmVec([])]);
   }
 
   const typeSection = wasmSection(1, wasmVec(typeEntries));
@@ -2278,7 +2284,7 @@ export function compileWasmFn(
 
   return {
     bytes, params: [...params, ...memoryParams], resultType: root._t, textureHeapBase: memCursor,
-    draw: drawTypeIdx === undefined ? undefined : { bufferBase: drawBufferBase, componentCount: drawComponentCount, kind: drawComponentKind },
+    draw: drawTypeIdx === undefined ? undefined : { componentCount: drawComponentCount, kind: drawComponentKind },
   };
 }
 
@@ -2428,14 +2434,19 @@ export function compileWasm(
   /** Shared between a plain call and `.draw()`: write every uniform/param/
    * texture this compiled function needs into linear memory (or into the
    * scalar `args` list a WASM call itself takes), growing `memory` first
-   * if a texture needs more room than it currently has. */
-  function marshalInputs(ctx: JsShaderContext): number[] {
+   * if a texture needs more room than it currently has. Also reports
+   * where the texture heap actually ends for this call — `textureHeapBase`
+   * when there are no textures at all — which `.draw()` uses as the base
+   * for its own output buffer, so the two never collide even though
+   * neither's size is known until call time. */
+  function marshalInputs(ctx: JsShaderContext): { args: number[]; textureHeapEnd: number } {
     // Texture data is call-time-sized, unlike every other param kind here,
     // so it's packed into a growable heap (starting at `textureHeapBase`)
     // rather than at a compile-time-fixed address. A program with no
     // texture uniforms never touches any of this — `textureParams` is
     // empty, `memory` never grows, byte-for-byte identical to before this
     // existed.
+    let textureHeapEnd = textureHeapBase;
     if (textureParams.length > 0) {
       const textures = textureParams.map(p => (ctx.textures as any)?.[p.slot] as JsTextureData);
       const sizes = textures.map(textureByteSize);
@@ -2445,6 +2456,7 @@ export function compileWasm(
         heapOffsets.push(heapCursor);
         heapCursor += size;
       }
+      textureHeapEnd = heapCursor;
       // A texture's *placement* depends on every earlier slot's current
       // size (they're packed back to back), so a size change anywhere
       // forces every slot to be rewritten at its (possibly new) offset —
@@ -2512,11 +2524,11 @@ export function compileWasm(
           break;
       }
     }
-    return args;
+    return { args, textureHeapEnd };
   }
 
   const callable = ((ctx: JsShaderContext): number | boolean | JsShaderResult => {
-    const args = marshalInputs(ctx);
+    const { args } = marshalInputs(ctx);
     const result = wasmMain(...args);
     if (outputParams.length === 0) {
       // The JS/WASM call boundary always surfaces an i32 return as a signed
@@ -2560,22 +2572,36 @@ export function compileWasm(
     if (!draw || !wasmDraw) {
       throw new Error("[RMSL] compileWasm: this function produces no value to render — draw() needs a non-\"void\" result.");
     }
-    const args = marshalInputs(ctx);
+    const { args, textureHeapEnd } = marshalInputs(ctx);
+    // The draw buffer starts right after wherever this call's texture heap
+    // actually ends — `textureHeapBase` itself when there are no textures
+    // at all, recovering exactly the placement this had before texture
+    // support needed to share the same space. Computed fresh every call,
+    // same as the texture heap's own placement already is, so the two
+    // never collide regardless of how either one's size changes call to
+    // call. Rounded up to a multiple of 8: nothing about this backend's
+    // own compile-time bump allocator keeps addresses aligned (a texture's
+    // 44-byte metadata block is the concrete case that doesn't), but
+    // `Float64Array`'s constructor requires an 8-byte-aligned offset, and
+    // rounding up here is the one place that needs to know or care —
+    // `draw`'s own bytecode has no alignment requirement of its own, so it
+    // takes whatever value this computes exactly as given.
+    const bufferBase = Math.ceil(textureHeapEnd / 8) * 8;
     const pixelCount = width * height * draw.componentCount;
-    const neededBytes = draw.bufferBase + pixelCount * componentSizeOf(draw.kind);
+    const neededBytes = bufferBase + pixelCount * componentSizeOf(draw.kind);
     if (neededBytes > memory.buffer.byteLength) {
       memory.grow(Math.ceil((neededBytes - memory.buffer.byteLength) / 65536));
       view = new DataView(memory.buffer);
     }
-    wasmDraw(...args, width, height);
+    wasmDraw(...args, width, height, bufferBase);
     // A fresh, lightweight view every call (not a copy, and not cached
     // outside this method) rather than one built once — `memory.grow`
     // above, or one triggered by a texture in the same `ctx`, detaches
     // whatever buffer an earlier view pointed at, so only reading
     // `memory.buffer` fresh here is guaranteed never to be stale.
-    if (draw.kind === "float") return new Float64Array(memory.buffer, draw.bufferBase, pixelCount);
-    if (draw.kind === "uint") return new Uint32Array(memory.buffer, draw.bufferBase, pixelCount);
-    return new Int32Array(memory.buffer, draw.bufferBase, pixelCount);
+    if (draw.kind === "float") return new Float64Array(memory.buffer, bufferBase, pixelCount);
+    if (draw.kind === "uint") return new Uint32Array(memory.buffer, bufferBase, pixelCount);
+    return new Int32Array(memory.buffer, bufferBase, pixelCount);
   };
 
   return callable;

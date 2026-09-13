@@ -1109,4 +1109,41 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
     expect(() => fn.draw({}, 1, 1))
       .toThrow(/produces no value to render/);
   });
+
+  it("samples a texture correctly during draw(), without colliding with the output buffer", () => {
+    const tex = uniform("sampler2D") as any;
+    const build = () => Fn(() => textureLoad(tex, ivec2(1, 0)).x.add(fragCoord().x))();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const texture = { data: [10, 99], width: 2, height: 1, channels: 1 as const };
+    const out = fn.draw({ textures: { [tex.name]: texture } }, 3, 1);
+    // texel(1,0) = 99, plus fragCoord().x per pixel (0.5, 1.5, 2.5).
+    expect(Array.from(out)).toEqual([99.5, 100.5, 101.5]);
+  });
+
+  it("keeps the texture heap and the draw buffer correctly separated across memory growth in both", () => {
+    const tex = uniform("sampler2D") as any;
+    const build = () => Fn(() => textureLoad(tex, ivec2(0, 0)).x)();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const smallTex = { data: [7], width: 1, height: 1, channels: 1 as const };
+    expect(Array.from(fn.draw({ textures: { [tex.name]: smallTex } }, 2, 2))).toEqual([7, 7, 7, 7]);
+    // A much bigger texture and a much bigger draw grid together, forcing
+    // both growable regions to grow in the same call.
+    const width = 200, height = 200;
+    const texSize = 500;
+    const bigTex = { data: new Float64Array(texSize * texSize).fill(42), width: texSize, height: texSize, channels: 1 as const };
+    const out = fn.draw({ textures: { [tex.name]: bigTex } }, width, height);
+    expect(out.length).toBe(width * height);
+    expect(out[0]).toBe(42);
+    expect(out[out.length - 1]).toBe(42);
+  });
+
+  it("interleaves a plain texture-sampling call with draw() using the same texture correctly", () => {
+    const tex = uniform("sampler2D") as any;
+    const build = () => Fn(() => textureLoad(tex, ivec2(0, 0)).x)();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const texture = { data: [55], width: 1, height: 1, channels: 1 as const };
+    expect(fn({ textures: { [tex.name]: texture } })).toBe(55);
+    expect(Array.from(fn.draw({ textures: { [tex.name]: texture } }, 2, 2))).toEqual([55, 55, 55, 55]);
+    expect(fn({ textures: { [tex.name]: texture } })).toBe(55);
+  });
 });
