@@ -1,15 +1,23 @@
 # A shared layout IR for uniforms, instance data, and textures
 
-**Status: exploratory, stage 1 landed.** This started as a design sketch,
-not a committed roadmap item — no phase number depends on it. It came out
-of a conversation about where RMSL's CPU/GPU backend split could go next,
-starting from the observation that a byte layout derived from a
-`ShaderType` is a real code entity (`src/rmsl-wasm.ts`'s Phase 3 memory
-design, `src/rmsl-wgsl.ts`'s `wgslUniformLayout`) that today gets computed
-independently, and slightly differently, in more than one place. Stage 1
-below (the behavior-preserving refactor, `src/rmsl-layout.ts`) has since
-been built; stage 2 (proving the interop claim) has not, so this doc still
-describes speculative capabilities, not shipped ones.
+**Status: exploratory, stage 1 landed, stage 2 landed and found a real
+gap.** This started as a design sketch, not a committed roadmap item — no
+phase number depends on it. It came out of a conversation about where
+RMSL's CPU/GPU backend split could go next, starting from the observation
+that a byte layout derived from a `ShaderType` is a real code entity
+(`src/rmsl-wasm.ts`'s Phase 3 memory design, `src/rmsl-wgsl.ts`'s
+`wgslUniformLayout`) that today gets computed independently, and slightly
+differently, in more than one place. Stage 1 (the behavior-preserving
+refactor, `src/rmsl-layout.ts`) proved the placement *algorithm* can be
+shared. Stage 2 (below) tried to prove the actual interop claim — a WASM
+computation's uniforms landing at the exact byte offsets a real WGSL
+uniform buffer would use — and found it's only half true: offsets can
+match exactly, but this backend's `float` storage (f64) is twice the width
+`wgslUniformLayout`'s offsets assume (`f32`), so two GPU-adjacent uniforms
+placed at those offsets can end up overlapping in this backend's actual
+writes and corrupting each other. The zero-copy capability this doc
+originally pitched does **not** hold today without also closing that
+width gap — see "Stage 2" below for what was actually built and found.
 
 ## The problem
 
@@ -207,16 +215,45 @@ however that target already does. Unifying that vocabulary is exactly what
 stage 2 would force, since sharing one `members` list between a WGSL call
 and a WASM call means both need to agree on how a type is spelled.
 
-## Stage 2 — not started
+## Stage 2 — landed, claim half-confirmed
 
-Prove the interop claim, not just the refactor: take a small set of
-uniforms, compute `planLayout(members, WGSL_UNIFORM_RULES)` once, and have
-the WASM backend write its values at *those* offsets instead of its own —
-confirmed correct only by a byte-for-byte comparison against a buffer
-packed by hand to WGSL's spec, since "the refactor didn't crash" and "the
-bytes are actually GPU-compatible" are different claims and only the
-second one is the point. This is where the type-vocabulary mismatch above
-has to actually get resolved, not sidestepped.
+`compileWasmFn`/`compileWasm` gained an experimental option,
+`gpuUniformLayout: { offsets, totalSize }` (`src/rmsl-wasm.ts`), that
+places specific aggregate uniforms at caller-given byte offsets instead of
+this backend's own packed allocation — everything else it needs (locals,
+scratch, non-overridden uniforms) starts its own bump-allocated region
+right after `totalSize`, so it can never collide with an overridden
+address. `src/rmsl-layout-interop.test.ts` is the actual proof:
+
+- **What holds**: given a real `wgslUniformLayout` computation for two
+  differently-aligned uniforms (a `vec3` and a `vec2`, deliberately chosen
+  so WGSL's alignment rules reorder them), the WASM backend's own
+  `WasmParam` addresses come back *exactly* equal to `wgslUniformLayout`'s
+  offsets — not re-derived, not coincidentally equal for a trivial
+  single-member case, and correctly reordered (the `vec3` lands before the
+  `vec2` despite being declared second).
+- **What doesn't**: `wgslUniformLayout`'s offsets assume each `float`
+  component is WGSL's 4-byte `f32`; this backend always stores `float` as
+  an 8-byte f64 (`ROADMAP.md`, "`float` is f64"). A `vec3` at GPU offset 0
+  occupies 12 bytes in a real WGSL buffer but 24 in this backend's actual
+  memory — enough to spill straight over a `vec2` GPU-placed at offset 16,
+  the very next member. The second test in that file demonstrates this
+  concretely: real uniform values go in, and the computed result comes
+  back neither correct nor derived from those values at all, because one
+  uniform's write clobbered the other's before it was ever read.
+
+So the zero-copy capability pitched earlier in this doc is **not achieved
+by stage 2 alone** — matching offsets was necessary but not sufficient.
+Closing the gap needs this backend to store a GPU-bound `float` as an f32
+(new `f32.load`/`f32.store` WASM opcodes, and a conversion wherever such a
+value re-enters this backend's otherwise-all-f64 internal computation) —
+a separate, materially bigger change than an address override, not
+attempted here. `GpuUniformLayout`'s doc comment in `rmsl-wasm.ts` carries
+this warning directly, since the option as it exists today is unsafe to
+use with real `wgslUniformLayout` offsets whenever two members end up
+GPU-adjacent closer together than this backend's f64 spacing needs.
 
 No GPU storage-buffer rules, no instance-buffer unification, nothing
-cross-language yet — those only matter once stage 2 has actually held up.
+cross-language yet, and no f32 storage — all of those wait on the width
+gap above actually getting closed, which is the real next step if this
+gets picked up again, not any of the items originally listed here.

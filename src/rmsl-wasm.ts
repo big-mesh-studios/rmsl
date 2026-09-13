@@ -244,9 +244,45 @@ function wasmStrBytes(s: string): number[] {
  * swizzle read/write, `dot`, componentwise `add`/`sub`/`mul`/`div`) — only
  * the function's own result must still be a scalar.
  */
+/**
+ * Stage 2 of `docs/design-shared-layout-ir.md`: place specific *aggregate*
+ * uniforms at caller-given byte offsets (typically from `wgslUniformLayout`)
+ * instead of this backend's own packed allocation. Experimental — proves
+ * (and, as it turns out, partly disproves) the interop claim the design
+ * doc makes; not part of the stable API.
+ *
+ * **This does not yet give safe, byte-identical GPU interop, and using it
+ * with real `wgslUniformLayout` offsets today can corrupt adjacent
+ * uniforms.** `wgslUniformLayout`'s offsets assume each `float` component
+ * is 4 bytes (WGSL's `f32`); this backend always stores `float` as an f64
+ * (8 bytes — a deliberate choice, see "`float` is f64" in `ROADMAP.md`).
+ * Two GPU-adjacent members spaced 4-bytes-per-component apart can end up
+ * with this backend's actual (8-bytes-per-component) writes for one
+ * overlapping the other's reserved region entirely — see
+ * `rmsl-layout-interop.test.ts` for a worked example. Only the *offset*
+ * half of the interop claim holds; the *component width* half does not,
+ * and closing that gap (storing as f32 for a GPU-bound uniform) is a
+ * separate, bigger change this option does not attempt.
+ */
+export type GpuUniformLayout = {
+  /** Byte offset for each overridden uniform, keyed by slot (the `.name`
+   * on the `uniform()` node) — everything `wgslUniformLayout` already
+   * reports as `WgslUniformMember.name`/`.offset`. */
+  offsets: Record<string, number>;
+  /** The whole layout's total size (`wgslUniformLayout`'s `.size`) — the
+   * bump allocator for everything else this function needs (locals,
+   * scratch, non-overridden uniforms) starts right after it, so nothing it
+   * places can ever land inside the reserved region. */
+  totalSize: number;
+};
+
+export type CompileWasmFnOptions = CompileFnOptions & {
+  gpuUniformLayout?: GpuUniformLayout;
+};
+
 export function compileWasmFn(
   fn: (...args: any[]) => Node<ShaderType>,
-  options: CompileFnOptions,
+  options: CompileWasmFnOptions,
 ): CompiledWasm {
   const paramNodes = options.params.map(p => var_(p.name, p.type));
   const root = fn(...paramNodes) as any;
@@ -278,7 +314,10 @@ export function compileWasmFn(
   const varAddress = new Map<string, number>();
   const uniformAddress = new Map<string, number>();
   const scratchAddress = new WeakMap<object, number>();
-  let memCursor = 0;
+  // Reserve [0, totalSize) for a caller-supplied GPU uniform layout, if any
+  // — everything this backend places itself starts after it, so it can
+  // never collide with an overridden uniform's address.
+  let memCursor = options.gpuUniformLayout?.totalSize ?? 0;
 
   function allocateBytes(size: number): number {
     const addr = memCursor;
@@ -342,7 +381,7 @@ export function compileWasmFn(
       const v = node.value;
       if (isAggregate(v.shaderType)) {
         if (!uniformAddress.has(v.slot)) {
-          const addr = allocateFor(v.shaderType);
+          const addr = options.gpuUniformLayout?.offsets[v.slot] ?? allocateFor(v.shaderType);
           uniformAddress.set(v.slot, addr);
           memoryParams.push({ kind: "uniformMemory", slot: v.slot, shaderType: v.shaderType, address: addr });
         }
@@ -1232,7 +1271,7 @@ function writeAggregateToMemory(view: DataView, address: number, shaderType: Sha
  */
 export function compileWasm(
   fn: (...args: any[]) => Node<ShaderType>,
-  options: CompileFnOptions,
+  options: CompileWasmFnOptions,
 ): (ctx: JsShaderContext) => number | boolean {
   const { bytes, params, resultType } = compileWasmFn(fn, options);
   // A module that imports nothing ignores an unused "math" namespace, so
