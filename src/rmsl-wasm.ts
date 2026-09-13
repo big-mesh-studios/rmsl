@@ -1280,14 +1280,34 @@ export function compileWasmFn(
       const f0 = [...f, WASM_OP.f64Floor];
       return { i0: [...f0, WASM_OP.i32TruncF64S], t: [...f, ...f0, WASM_OP.f64Sub] };
     }
+    /**
+     * `a + (b-a)*t` — the form `_lerp2`/`_tex2d`/`_tex3d` use
+     * (`rmsl-compile-js.ts`) — needs `a`'s own bytecode twice: once as the
+     * base, once inside the subtraction. Harmless there (JS just reads the
+     * same array slot twice, cheaply); costly here, where `a`/`b` are
+     * often a full `texelChannel` fetch (a dynamically-addressed memory
+     * load, a channel-present `select`, a divide) rather than a plain
+     * value. `a*(1-t) + b*t` is the same value and needs `a` and `b` each
+     * exactly once, duplicating only the cheap blend weight `t` instead —
+     * confirmed by benchmark to matter: this was most of what remained of
+     * filtered `texture()` sampling's cost after the `magFilter` branch
+     * fix (see `ROADMAP.md`'s texture performance section).
+     */
+    function lerp(a: number[], b: number[], t: number[]): number[] {
+      return [
+        ...a, ...f64ConstBytes(1), ...t, WASM_OP.f64Sub, WASM_OP.f64Mul,
+        ...b, ...t, WASM_OP.f64Mul,
+        WASM_OP.f64Add,
+      ];
+    }
     function bilinear(xa: number[], xb: number[], ya: number[], yb: number[], z: number[] | null, tx: number[], ty: number[], i: number): number[] {
       const taa = texelChannel(xa, ya, z, i);
       const tba = texelChannel(xb, ya, z, i);
       const tab = texelChannel(xa, yb, z, i);
       const tbb = texelChannel(xb, yb, z, i);
-      const lower = [...taa, ...tba, ...taa, WASM_OP.f64Sub, ...tx, WASM_OP.f64Mul, WASM_OP.f64Add];
-      const upper = [...tab, ...tbb, ...tab, WASM_OP.f64Sub, ...tx, WASM_OP.f64Mul, WASM_OP.f64Add];
-      return [...lower, ...upper, ...lower, WASM_OP.f64Sub, ...ty, WASM_OP.f64Mul, WASM_OP.f64Add];
+      const lower = lerp(taa, tba, tx);
+      const upper = lerp(tab, tbb, tx);
+      return lerp(lower, upper, ty);
     }
     function linearChannel(i: number): number[] {
       const fx = fracAxis(0, TEX_META_WIDTH);
@@ -1302,7 +1322,7 @@ export function compileWasmFn(
       const zb = wrapAxis([...fz.i0, ...i32ConstBytes(1), WASM_OP.i32Add], TEX_META_DEPTH, TEX_META_WRAP_R);
       const near = bilinear(xa, xb, ya, yb, za, fx.t, fy.t, i);
       const far = bilinear(xa, xb, ya, yb, zb, fx.t, fy.t, i);
-      return [...near, ...far, ...near, WASM_OP.f64Sub, ...fz.t, WASM_OP.f64Mul, WASM_OP.f64Add];
+      return lerp(near, far, fz.t);
     }
 
     // `magFilter` is a real runtime `if`/`else`, not a `select` like every
