@@ -137,7 +137,7 @@ case (`rmsl-wasm-vs-js.bench.ts`'s scalar scenario), not a general one —
 left for a separate pass, since narrowing where to look was this
 benchmark's job, not fixing it.
 
-### Texture sampling was dramatically slower than `compileJS` — two fixes landed, one gap left
+### Texture sampling was dramatically slower than `compileJS` — three fixes landed, one gap left
 
 `src/rmsl-wasm-texture.bench.ts` at commit `3f0ef46` first measured the
 three Phase 6 texture operations against an 8x8 texture (`npx vitest bench
@@ -212,13 +212,34 @@ expected once it no longer pays for bilinear math it never uses. Bilinear
 itself improved too, a smaller but real amount (13x → ~12x), since it no
 longer wastes time computing the now-unused nearest path either.
 
-What's left — bilinear/trilinear sampling still costing ~12x more than
+A third fix, at commit `8062a35`: `bilinear()`'s lerp used the same
+`a + (b-a)*t` form `compileJS`'s `_lerp2`/`_tex2d`/`_tex3d` use — harmless
+there (JS just reads the same array slot a second time), but `a`/`b` here
+are usually a full `texelChannel` fetch (a dynamically-addressed memory
+load, a channel-present `select`, a divide), so duplicating it is
+expensive — and the two horizontal lerps were then duplicated *again* by
+the outer vertical lerp, so one corner's fetch was emitted **four times**
+per channel (the 3D case duplicated its two bilinear results the same way
+on top of that). `a*(1-t) + b*t` is the same value needing `a`/`b` each
+exactly once, duplicating only the cheap blend weight `t` instead —
+applied at all three lerp levels via one shared `lerp()` helper.
+Re-measured, two runs:
+
+| Scenario | Run 1 | Run 2 |
+|---|---|---|
+| `texture()`, bilinear filtering | `compileJS` 6.79x faster | `compileJS` 6.80x faster |
+
+Bilinear's gap nearly halved again (~12x → ~6.8x) — `compileWasm`'s own
+raw throughput almost doubled (1.35M → 2.46M hz), from a pure arithmetic
+reformulation needing no new capability at all (no locals, no branches).
+
+What's left — bilinear/trilinear sampling still costing ~6.8x more than
 `compileJS` — is a real, separate follow-up: introducing some form of
 temporary-caching this file doesn't have yet for *any* codegen, not just
 textures, to stop `linearChannel` recomputing the same wrap-addressed tap
 coordinates once per channel (4 times over, for values that don't depend
 on the channel at all). Left for its own pass rather than attempted
-alongside the two fixes actually made in this one.
+alongside the fixes actually made in this one.
 
 One real limit on how bad any of this is in practice, worth stating
 precisely regardless of which part is fixed: even before the copy-caching
@@ -601,17 +622,20 @@ call" above for what shipped: `textureSize`/`textureLoad`/`texture`/
 `textureLod` at the same scope `compileJS` itself has (`sampler2D`/
 `sampler3D`, float and integer variants, no cube maps, no mipmap/LOD).
 Correct throughout; performance was initially 11-19x slower than
-`compileJS` per call. Two fixes landed — caching the last-copied texture
+`compileJS` per call. Three fixes landed — caching the last-copied texture
 per slot by reference (fixed `textureSize()`/`textureLoad()` down to
 ~2-3x, roughly the ordinary per-call wrapper overhead every scalar call
 already has, and nearest-filtered `texture()` down to ~3.6x alongside it),
-and branching on `magFilter` with a real `if`/`else` instead of computing
-both the nearest and the filtered value on every sample (fixed the case
-that caching alone didn't touch). See "Why" above, "Texture sampling was
-dramatically slower than `compileJS` — two fixes landed, one gap left".
-Bilinear/trilinear `texture()` sampling is still ~12x slower, for a
-different, not-yet-fixed reason (redundant per-channel recomputation of
-the same wrap-addressed tap coordinates) — left for its own follow-up.
+branching on `magFilter` with a real `if`/`else` instead of computing both
+the nearest and the filtered value on every sample, and reformulating the
+bilinear/trilinear lerp to stop duplicating an expensive fetched value
+(`a + (b-a)*t` needs `a` twice; `a*(1-t) + b*t` needs it once). See "Why"
+above, "Texture sampling was dramatically slower than `compileJS` — three
+fixes landed, one gap left". Bilinear/trilinear `texture()` sampling is
+down to ~6.8x slower, for a different, not-yet-fixed reason (redundant
+per-channel recomputation of the same wrap-addressed tap coordinates,
+independent of the lerp-duplication issue just fixed) — left for its own
+follow-up.
 
 ### ~~Phase 7 — parity testing infrastructure~~ — done
 `compileWasm` is now a third backend checked by
