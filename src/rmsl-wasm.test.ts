@@ -26,7 +26,7 @@ import {
   ivec3, uvec3, bvec3, mat2, mat3, mat4, sin, clamp,
   cross, length, normalize, distance, reflect, dFdx, dFdy, fwidth,
   attribute, varying, fragCoord, output, builtinPosition, builtinFragDepth,
-  textureSize,
+  textureSize, textureLoad, ivec2,
   type Node, type ShaderType,
 } from "./rmsl";
 import type { CompileWasmFnOptions } from "./rmsl-wasm";
@@ -746,5 +746,97 @@ describe("WASM backend: texture uniforms (Phase 6 — metadata plumbing)", () =>
     const build = () => Fn(() => (textureSize as any)(tex).x)();
     const fn = compileWasm(build as any, { name: "main", params: [] });
     expect(fn({ textures: { [tex.name]: { data: new Float32Array(4 * 4 * 6), width: 4, height: 4 } } })).toBe(4);
+  });
+});
+
+describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
+  // A 2x2, 4-channel texture: (1,0)'s texel is [2,3,5,7], every other texel
+  // is uniform filler so a wrong index reads something recognizably wrong.
+  const checkerData = [1, 1, 1, 1, 2, 3, 5, 7, 9, 9, 9, 9, 9, 9, 9, 9];
+
+  it("fetches an in-bounds texel's 4 channels", () => {
+    const tex = uniform("sampler2D");
+    const build = () => Fn(() => {
+      const v = textureLoad(tex, ivec2(1, 0)).toVar();
+      return v.x.mul(1).add(v.y.mul(10)).add(v.z.mul(100)).add(v.w.mul(1000));
+    })();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const result = fn({ textures: { [tex.name]: { data: checkerData, width: 2, height: 2 } } });
+    expect(result).toBe(2 + 30 + 500 + 7000);
+  });
+
+  it("returns all zero for an out-of-bounds texel, including alpha", () => {
+    const tex = uniform("sampler2D");
+    const build = () => Fn(() => {
+      const v = textureLoad(tex, ivec2(5, 5)).toVar();
+      return v.x.mul(1).add(v.y.mul(10)).add(v.z.mul(100)).add(v.w.mul(1000));
+    })();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const result = fn({ textures: { [tex.name]: { data: checkerData, width: 2, height: 2 } } });
+    expect(result).toBe(0);
+  });
+
+  it("returns all zero for a negative coordinate on an ivec2-coordinate fetch", () => {
+    const tex = uniform("sampler2D");
+    const build = () => Fn(() => {
+      const v = textureLoad(tex, ivec2(-1, 0)).toVar();
+      return v.x.mul(1).add(v.y.mul(10)).add(v.z.mul(100)).add(v.w.mul(1000));
+    })();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const result = fn({ textures: { [tex.name]: { data: checkerData, width: 2, height: 2 } } });
+    expect(result).toBe(0);
+  });
+
+  it("defaults missing green/blue to 0 and missing alpha to 1 for a 1-channel texture", () => {
+    const tex = uniform("sampler2D");
+    const build = () => Fn(() => {
+      const v = textureLoad(tex, ivec2(1, 0)).toVar();
+      return v.x.mul(1).add(v.y.mul(10)).add(v.z.mul(100)).add(v.w.mul(1000));
+    })();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const result = fn({ textures: { [tex.name]: { data: [42, 84], width: 2, height: 1, channels: 1 } } });
+    expect(result).toBe(84 + 0 + 0 + 1000);
+  });
+
+  it("divides a Uint8Array-backed texture's value by 255 (unorm)", () => {
+    const tex = uniform("sampler2D");
+    const build = () => Fn(() => textureLoad(tex, ivec2(0, 0)).x)();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const result = fn({ textures: { [tex.name]: { data: new Uint8Array([128]), width: 1, height: 1, channels: 1 } } });
+    expect(result).toBeCloseTo(128 / 255, 10);
+  });
+
+  it("fetches a signed integer sampler's raw value with no division", () => {
+    const tex = uniform("isampler2D");
+    const build = () => Fn(() => textureLoad(tex, ivec2(1, 0)).x)();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const result = fn({ textures: { [tex.name]: { data: [100, -50], width: 2, height: 1, channels: 1 } } });
+    expect(result).toBe(-50);
+  });
+
+  it("fetches an unsigned integer sampler's value above the int32 range correctly", () => {
+    const tex = uniform("usampler2D") as any;
+    const build = () => Fn(() => (textureLoad(tex, ivec2(0, 0) as any) as any).x)();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const result = fn({ textures: { [tex.name]: { data: [4000000000], width: 1, height: 1, channels: 1 } } });
+    expect(result).toBe(4000000000);
+  });
+
+  it("fetches from a sampler3D texture", () => {
+    const tex = uniform("sampler3D");
+    const build = () => Fn(() => textureLoad(tex, ivec3(1, 0, 1)).x)();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    // width=2, height=1, depth=2, 1 channel: index (z*height+y)*width+x.
+    // (1,0,1) -> (1*1+0)*2+1 = 3.
+    const data = [10, 20, 30, 40];
+    const result = fn({ textures: { [tex.name]: { data, width: 2, height: 1, depth: 2, channels: 1 } } });
+    expect(result).toBe(40);
+  });
+
+  it("throws for a samplerCube uniform", () => {
+    const tex = uniform("samplerCube") as any;
+    const build = () => Fn(() => textureLoad(tex, ivec2(0, 0) as any).x)();
+    expect(() => compileWasm(build as any, { name: "main", params: [] }))
+      .toThrow(/sampler2D\/sampler3D/);
   });
 });

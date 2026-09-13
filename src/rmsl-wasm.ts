@@ -217,6 +217,14 @@ function isSamplerType(t: string): boolean {
   return t.startsWith("sampler") || t.startsWith("isampler") || t.startsWith("usampler");
 }
 
+/** An integer texture (`isampler*`/`usampler*`) is never filterable in
+ * either language — `texture()`/`textureLod()` on one takes the same
+ * unfiltered-fetch path `textureLoad()` always takes, matching `compileJS`
+ * exactly (see the doc comment on `ISampler2DOps`, `rmsl-core.ts`). */
+function isIntegerSamplerType(t: string): boolean {
+  return t.startsWith("isampler") || t.startsWith("usampler");
+}
+
 /** `texture()`/`textureLoad()` support every 2D/3D sampler kind — float,
  * signed, and unsigned — exactly like `compileJS` does (an integer sampler
  * just takes the unfiltered-fetch path instead of the wrap/filter one,
@@ -521,7 +529,7 @@ export function compileWasmFn(
     if (node.type === "swizzle" && (node.value as string).length > 1) return true;
     if (node.type === "cross" || node.type === "reflect" || node.type === "normalize" || node.type === "matVecMul") return true;
     if (node.type === "dFdx" || node.type === "dFdy" || node.type === "fwidth") return true;
-    if (node.type === "textureSize") return true;
+    if (node.type === "textureSize" || node.type === "textureLoad") return true;
     return node.type === "add" || node.type === "sub" || node.type === "mul" || node.type === "div";
   }
 
@@ -798,6 +806,18 @@ export function compileWasmFn(
     return [...i32ConstBytes(addr), ...valueBytes, kind === "float" ? WASM_OP.f64Store : WASM_OP.i32Store, 0x00, ...wasmUleb128(byteOffset)];
   }
 
+  /** The dynamic-address counterpart of `loadComponent`: every other load in
+   * this file targets a compile-time-constant address (`i32ConstBytes(addr)`
+   * pushed as the base, with the component's own byte offset folded into
+   * the load instruction's immediate) — texture heap access is the first
+   * case where the address itself is only known at run time (it depends on
+   * `compileWasm`'s per-call heap packing), so `addrBytes` is arbitrary
+   * bytecode leaving the full address on the stack and the instruction's
+   * own immediate offset is always 0. */
+  function loadDynamic(addrBytes: number[], kind: ScalarKind): number[] {
+    return [...addrBytes, kind === "float" ? WASM_OP.f64Load : WASM_OP.i32Load, 0x00, 0x00];
+  }
+
   /** Populate `nodeAddress(node)` with `node`'s value, for any node type
    * `isScratchNode` addresses — a `"var"` needs no work (its data is
    * already valid, set by a prior `let`/`assign`), and an ordinary
@@ -865,6 +885,8 @@ export function compileWasmFn(
         return emitDerivativeZeroStores(node, nodeAddress(node));
       case "textureSize":
         return emitTextureSizeStores(node, nodeAddress(node));
+      case "textureLoad":
+        return emitTexelFetchStores(node, nodeAddress(node));
       default:
         if (node.type === node._t && Array.isArray(node.value)) {
           return emitLiteralStores(node, nodeAddress(node));
@@ -993,6 +1015,124 @@ export function compileWasmFn(
     const fieldOffset = [TEX_META_WIDTH, TEX_META_HEIGHT, TEX_META_DEPTH];
     for (let k = 0; k < width; k++) {
       out.push(...storeComponent(addr, "uint", k * 4, loadComponent(metaAddr, "uint", fieldOffset[k])));
+    }
+    return out;
+  }
+
+  /**
+   * Shared bytecode for an unfiltered texel fetch: `textureLoad()` for any
+   * sampler kind, and `texture()`/`textureLod()` on an integer sampler
+   * (`emitTextureSampleStores` routes the float-sampler, filtered case
+   * elsewhere). Mirrors `_texFetch2d`/`_texFetch3d`/`_texFetchUnorm2d`/
+   * `_texFetchUnorm3d` (`rmsl-compile-js.ts`) exactly: coordinates are
+   * already texel-space integers (no UV scaling), every axis is
+   * bounds-checked against the metadata's width/height/depth, and — only
+   * when every axis is in range — up to 4 channels are read (missing
+   * green/blue default to 0, missing alpha to 1), a float sampler's raw
+   * value divided by its unorm divisor. Out of range gives a literal
+   * all-zero result (including alpha), matching `compileJS` — the
+   * "alpha defaults to 1" rule is a missing-*channel* fallback, not a
+   * missing-*texel* one.
+   *
+   * Every conditional here is a `select`, not a branch, matching this
+   * file's existing ternary/min/max style — which means both the "in
+   * range" and "out of range" values are always computed, so the memory
+   * address actually dereferenced is always clamped into range first
+   * (`safeAxis`) regardless of how wild the real coordinate is; the real,
+   * unclamped coordinate only ever feeds the bounds comparison, never an
+   * address. Every helper below re-emits its bytecode fresh on each call
+   * (recompute, not cache) — consistent with this file's existing
+   * `selectExpr`/`minOrMax`, which already accept the same tradeoff.
+   */
+  function emitTexelFetchStores(node: any, addr: number): number[] {
+    const samplerNode = node.params[0];
+    const coordsNode = node.params[1];
+    const samplerType = samplerNode._t as string;
+    assertSampled2Dor3D(samplerType);
+    const is3D = samplerType.endsWith("3D");
+    const isInteger = isIntegerSamplerType(samplerType);
+    // A plain `const` narrowed by an `if` loses that narrowing inside the
+    // nested `function` declarations below (hoisted, so TS can't assume
+    // they only run after the check) — resolving it to a definite `number`
+    // up front sidesteps that instead.
+    const metaAddr: number = ((): number => {
+      const a = textureMetadataAddress.get(samplerNode.value.slot);
+      if (a === undefined) throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed texture "${samplerNode.value.slot}"`);
+      return a;
+    })();
+    const materialize = materializeIfNeeded(coordsNode);
+    const coordsAddr = nodeAddress(coordsNode);
+    const coordKind = elementKindOf(coordsNode._t as string); // "int" or "uint"
+    const dims = is3D ? [TEX_META_WIDTH, TEX_META_HEIGHT, TEX_META_DEPTH] : [TEX_META_WIDTH, TEX_META_HEIGHT];
+
+    const rawAxis = (k: number) => loadComponent(coordsAddr, "int", k * 4);
+    const dimAxis = (offset: number) => loadComponent(metaAddr, "int", offset);
+
+    function axisOOB(k: number): number[] {
+      const tooHigh = [...rawAxis(k), ...dimAxis(dims[k]), coordKind === "uint" ? WASM_OP.i32GeU : WASM_OP.i32GeS];
+      if (coordKind === "uint") return tooHigh; // never negative — the "< 0" half is always false
+      const tooLow = [...rawAxis(k), ...i32ConstBytes(0), WASM_OP.i32LtS];
+      return [...tooLow, ...tooHigh, WASM_OP.i32Or];
+    }
+    function oobFlag(): number[] {
+      let flag = axisOOB(0);
+      for (let k = 1; k < dims.length; k++) flag = [...flag, ...axisOOB(k), WASM_OP.i32Or];
+      return flag;
+    }
+
+    // clamp(raw, 0, dim-1) — a safe index to dereference even when `raw`
+    // itself is wildly out of range (see the doc comment above).
+    function safeAxis(k: number): number[] {
+      const raw = rawAxis(k);
+      const dimMinus1 = [...dimAxis(dims[k]), ...i32ConstBytes(1), WASM_OP.i32Sub];
+      const nonNegative = coordKind === "uint" ? raw : selectExpr(i32ConstBytes(0), raw, [...raw, ...i32ConstBytes(0), WASM_OP.i32LtS]);
+      const tooHigh = coordKind === "uint" ? [...raw, ...dimMinus1, WASM_OP.i32GtU] : [...nonNegative, ...dimMinus1, WASM_OP.i32GtS];
+      return selectExpr(dimMinus1, nonNegative, tooHigh);
+    }
+
+    // (y*width + x), or ((z*height + y)*width + x) for 3D — `_texFetch2d`/
+    // `_texFetch3d`'s index formula exactly.
+    function texelIndexBytes(): number[] {
+      const x = safeAxis(0);
+      const y = safeAxis(1);
+      const yx = [...y, ...dimAxis(TEX_META_WIDTH), WASM_OP.i32Mul, ...x, WASM_OP.i32Add];
+      if (!is3D) return yx;
+      const z = safeAxis(2);
+      const zy = [...z, ...dimAxis(TEX_META_HEIGHT), WASM_OP.i32Mul, ...y, WASM_OP.i32Add];
+      return [...zy, ...dimAxis(TEX_META_WIDTH), WASM_OP.i32Mul, ...x, WASM_OP.i32Add];
+    }
+
+    // dataAddr + (texelIndex*channels + i) * 8 — the heap always stores
+    // one f64 per component, regardless of sampler kind.
+    function elemAddrBytes(i: number): number[] {
+      const dataAddr = loadComponent(metaAddr, "int", TEX_META_DATA_ADDR);
+      const channels = loadComponent(metaAddr, "int", TEX_META_CHANNELS);
+      const elemOffset = [...texelIndexBytes(), ...channels, WASM_OP.i32Mul, ...i32ConstBytes(i), WASM_OP.i32Add];
+      const byteOffset = [...elemOffset, ...i32ConstBytes(3), WASM_OP.i32Shl]; // * 8
+      return [...dataAddr, ...byteOffset, WASM_OP.i32Add];
+    }
+
+    function channelValue(i: number): number[] {
+      const present = [...i32ConstBytes(i), ...loadComponent(metaAddr, "int", TEX_META_CHANNELS), WASM_OP.i32LtS];
+      if (isInteger) {
+        const truncOp = samplerType.startsWith("isampler") ? WASM_OP.i32TruncF64S : WASM_OP.i32TruncF64U;
+        const fetched = [...loadDynamic(elemAddrBytes(i), "float"), truncOp];
+        const missingChannelDefault = i === 3 ? i32ConstBytes(1) : i32ConstBytes(0);
+        const inRange = selectExpr(fetched, missingChannelDefault, present);
+        return selectExpr(i32ConstBytes(0), inRange, oobFlag());
+      }
+      const divisor = loadComponent(metaAddr, "float", TEX_META_UNORM_DIVISOR);
+      const fetched = [...loadDynamic(elemAddrBytes(i), "float"), ...divisor, WASM_OP.f64Div];
+      const missingChannelDefault = i === 3 ? f64ConstBytes(1) : f64ConstBytes(0);
+      const inRange = selectExpr(fetched, missingChannelDefault, present);
+      return selectExpr(f64ConstBytes(0), inRange, oobFlag());
+    }
+
+    const targetKind = elementKindOf(node._t as string);
+    const compSize = componentSizeOf(targetKind);
+    const out = [...materialize];
+    for (let i = 0; i < 4; i++) {
+      out.push(...storeComponent(addr, targetKind, i * compSize, channelValue(i)));
     }
     return out;
   }
