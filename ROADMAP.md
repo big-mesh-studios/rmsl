@@ -117,7 +117,7 @@ pass. Roughly halving the JS-vs-WASM gap (6.3x down to ~3.1x) came from
 that — fewer round trips through the `params` array outweighing the added
 `DataView` write.
 
-## Status: Phase 1 through Phase 5 landed (except multi-return)
+## Status: Phase 1 through Phase 6 landed (except multi-return)
 
 `compileWasmFn` and `compileWasm` exist in `src/rmsl-wasm.ts`, next to
 `rmsl-glsl.ts`/`rmsl-wgsl.ts`/`rmsl-compile-js.ts` (see CONTRIBUTING.md for
@@ -126,7 +126,7 @@ the file layout). Tests are in `src/rmsl-wasm.test.ts` and
 
 **What it covers**, Phase 1's validated slice, Phase 2's full scalar op
 parity, Phase 3's vectors/matrices as first-class values, Phase 4's control
-flow, and Phase 5's shader-stage surface:
+flow, Phase 5's shader-stage surface, and Phase 6's texture sampling:
 
 - `compileWasmFn(fn, options: CompileWasmFnOptions): { bytes: Uint8Array,
   params: WasmParam[], resultType: ShaderType }` — the module plus a
@@ -191,12 +191,20 @@ flow, and Phase 5's shader-stage surface:
   is the one thing from the original Phase 5 wishlist *not* included —
   `compileJS` doesn't have it either, so there was nothing to port; see
   the Phase 5 writeup below for why.
+- `textureSize`, `textureLoad`, and `texture`/`textureLod` (nearest,
+  bilinear, and trilinear filtering; `repeat`/`mirror`/`clamp` wrapping) for
+  `sampler2D`/`sampler3D` and their integer (`isampler*`/`usampler*`)
+  variants — matching `compileJS`'s own scope exactly: no cube maps, no
+  mipmap/LOD (`textureLod`'s third argument is compiled nowhere, same as
+  `compileJS`). Texture pixel data is copied into the compiled module's own
+  linear memory rather than sampled through a call back into JavaScript —
+  see "Texture data lives in linear memory, not behind a host call" below.
 
 **What throws today** (deliberately — see the Phase list below for when each
 lands): non-square or mismatched-shape matrix×matrix multiply,
 `clamp`/`mix`/`step`/`smoothstep` (composite ops with no single WASM
 opcode — deliberately out of Phase 2's "has a direct opcode" scope),
-`uniformArray`, `textureLoad`/`texture`/`textureSize`, and multi-return.
+`uniformArray`, cube-map sampling, and multi-return.
 `compileWasmFn` throws `[RMSL] compileWasmFn: unsupported node type in
 <expr|vector|statement> position: "<type>"` naming exactly what's missing,
 which is also the fastest way to find the next thing worth doing here.
@@ -404,16 +412,49 @@ Two design points worth remembering if this gets touched again:
   case — `Fn(() => float(0))()` compiled with `stage: "vertex"` did not
   throw until `needsResult` was seeded from `options.stage === "vertex"`
   directly, not solely from what nodes the program happened to use.
+- **Texture data lives in linear memory, not behind a host call.** An
+  earlier option considered for Phase 6 was sampling through a JS host
+  import, the same way the transcendental math functions already work —
+  smaller to build, but it would mean a texture-sampling shader could never
+  run standalone (no texture data without a JS engine to call back into),
+  which cuts against part of why this backend exists in the first place.
+  Instead, a texture uniform gets a small, fixed-size **metadata block** at
+  a compile-time address (recording where its pixel data currently sits
+  plus its width/height/depth/channel count/filter/wrap settings) and a
+  share of a separate, **growable heap** for the pixel data itself, both
+  populated by `compileWasm`'s wrapper before every call — unlike every
+  other uniform kind here, a texture's size isn't fixed at compile time, so
+  it can't get an ordinary Phase-3-style scratch address. The heap starts
+  right after every compile-time-fixed allocation and is packed fresh each
+  call (`compileWasm` sums the bound textures' byte sizes, calls the
+  module's own `memory.grow` if the current buffer is too small, then
+  refreshes its `DataView` — growing detaches the old `ArrayBuffer`).
+  Pixel data is always stored as `f64` regardless of the source
+  `TypedArray`'s own width, matching this backend's existing "`float` is
+  f64" convention and keeping the sampling bytecode itself free of any
+  per-texture width bookkeeping. A program that never uses a texture never
+  touches any of this — no heap, no `memory.grow` call, byte-for-byte
+  identical to before Phase 6.
+- **Every sampling conditional is a `select`, matching the rest of this
+  file's style.** Wrap mode (`clamp`/`repeat`/`mirror`) and the
+  nearest-versus-linear filter choice are both runtime values read from a
+  texture's own metadata, and — like this file's existing ternary/`min`/
+  `max` handling — both outcomes are always computed and `select` just
+  picks one, rather than branching. `textureLoad()`'s out-of-range case
+  needed one extra safety step this pattern doesn't need elsewhere: since
+  `select`'s "not taken" branch still executes, the address it reads must
+  already be in range even when the real coordinate is wild, so the actual
+  memory address always comes from a *clamped* copy of the coordinate,
+  while the real, unclamped one only ever feeds the bounds comparison
+  itself. `texture()`/`textureLod()` need no such clamp — wrapping already
+  guarantees an in-range tap index by construction, so the wrapped index
+  doubles as the safe one.
 
-### Phase 6 — texture sampling
-Phase 3's linear memory is sized for a handful of fixed-size aggregates,
-laid out once at compile time; `JsTextureData` is arbitrary-sized pixel
-data, unknown until a texture uniform is actually bound. Needs its own
-memory region (likely grown with `memory.grow` rather than baked into the
-Phase 3 bump allocator's compile-time total), a way to copy a texture's
-data into WASM memory before each call (or keep it resident and re-copy
-only on change), and filtering/wrap logic implemented either in emitted
-WASM or as an imported host function.
+### ~~Phase 6 — texture sampling~~ — done
+See "Status" and "Texture data lives in linear memory, not behind a host
+call" above for what shipped: `textureSize`/`textureLoad`/`texture`/
+`textureLod` at the same scope `compileJS` itself has (`sampler2D`/
+`sampler3D`, float and integer variants, no cube maps, no mipmap/LOD).
 
 ### Phase 7 — parity testing infrastructure
 Once coverage is broad enough, hook `compileWasm` into
