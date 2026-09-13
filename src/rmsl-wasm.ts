@@ -708,6 +708,15 @@ export function compileWasmFn(
         // all i32, plus 3 f64 blend weights = 60 bytes).
         allocateBytes(60);
       }
+      if (node.type === "textureLoad" || ((node.type === "texture" || node.type === "textureLod") && isIntegerSamplerType(node.params[0]._t as string))) {
+        // Scratch for the two values `emitTexelFetchStores` computes once
+        // per texel and every one of the 4 channels then reuses — the
+        // out-of-range flag and the safe, clamped texel index — instead of
+        // each channel redoing the bounds check and index arithmetic from
+        // scratch (the exact same redundancy `texture()`'s own filtered
+        // path above already had, fixed the same way here).
+        allocateBytes(8);
+      }
       scratchAddress.set(node, addr);
     }
     if (Array.isArray(node.params)) for (const p of node.params) collect(p);
@@ -1165,35 +1174,52 @@ export function compileWasmFn(
       return [...zy, ...dimAxis(TEX_META_WIDTH), WASM_OP.i32Mul, ...x, WASM_OP.i32Add];
     }
 
+    const targetKind = elementKindOf(node._t as string);
+    const compSize = componentSizeOf(targetKind);
+    // Scratch right after this node's own result (`collect`'s
+    // `isScratchNode` extra-allocation block reserves 8 bytes there for
+    // exactly this) — `oobFlag()`/`texelIndexBytes()` don't depend on
+    // which of the 4 channels is being read, so they're computed exactly
+    // once per texel here and read back cheaply by every channel, instead
+    // of each one redoing the bounds check and index arithmetic from
+    // scratch (the same fix `texture()`'s own filtered path already
+    // needed — see `emitTextureSampleStores`).
+    const scratch = addr + componentCountOf(node._t as string) * compSize;
+    const OOB_FLAG = scratch;
+    const TEXEL_INDEX = scratch + 4;
+    const setup = [
+      ...storeComponent(OOB_FLAG, "int", 0, oobFlag()),
+      ...storeComponent(TEXEL_INDEX, "int", 0, texelIndexBytes()),
+    ];
+
     // dataAddr + (texelIndex*channels + i) * 8 — the heap always stores
     // one f64 per component, regardless of sampler kind.
     function elemAddrBytes(i: number): number[] {
       const dataAddr = loadComponent(metaAddr, "int", TEX_META_DATA_ADDR);
       const channels = loadComponent(metaAddr, "int", TEX_META_CHANNELS);
-      const elemOffset = [...texelIndexBytes(), ...channels, WASM_OP.i32Mul, ...i32ConstBytes(i), WASM_OP.i32Add];
+      const elemOffset = [...loadComponent(TEXEL_INDEX, "int", 0), ...channels, WASM_OP.i32Mul, ...i32ConstBytes(i), WASM_OP.i32Add];
       const byteOffset = [...elemOffset, ...i32ConstBytes(3), WASM_OP.i32Shl]; // * 8
       return [...dataAddr, ...byteOffset, WASM_OP.i32Add];
     }
 
     function channelValue(i: number): number[] {
       const present = [...i32ConstBytes(i), ...loadComponent(metaAddr, "int", TEX_META_CHANNELS), WASM_OP.i32LtS];
+      const oob = loadComponent(OOB_FLAG, "int", 0);
       if (isInteger) {
         const truncOp = samplerType.startsWith("isampler") ? WASM_OP.i32TruncF64S : WASM_OP.i32TruncF64U;
         const fetched = [...loadDynamic(elemAddrBytes(i), "float"), truncOp];
         const missingChannelDefault = i === 3 ? i32ConstBytes(1) : i32ConstBytes(0);
         const inRange = selectExpr(fetched, missingChannelDefault, present);
-        return selectExpr(i32ConstBytes(0), inRange, oobFlag());
+        return selectExpr(i32ConstBytes(0), inRange, oob);
       }
       const divisor = loadComponent(metaAddr, "float", TEX_META_UNORM_DIVISOR);
       const fetched = [...loadDynamic(elemAddrBytes(i), "float"), ...divisor, WASM_OP.f64Div];
       const missingChannelDefault = i === 3 ? f64ConstBytes(1) : f64ConstBytes(0);
       const inRange = selectExpr(fetched, missingChannelDefault, present);
-      return selectExpr(f64ConstBytes(0), inRange, oobFlag());
+      return selectExpr(f64ConstBytes(0), inRange, oob);
     }
 
-    const targetKind = elementKindOf(node._t as string);
-    const compSize = componentSizeOf(targetKind);
-    const out = [...materialize];
+    const out = [...materialize, ...setup];
     for (let i = 0; i < 4; i++) {
       out.push(...storeComponent(addr, targetKind, i * compSize, channelValue(i)));
     }
