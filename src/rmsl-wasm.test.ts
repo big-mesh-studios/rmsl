@@ -2,23 +2,32 @@
  * Evaluates the WASM (CPU) backend in-process.
  *
  * Unlike the JS backend in rmsl-js.test.ts, this one is not yet part of the
- * DSL's breadth — it covers only the narrow op set ROADMAP.md's Phase 1
- * promoted out of a throwaway prototype: float arithmetic, function params,
- * float/vec3 uniforms, `If`/`Else`, and vec3 `dot`. Cases here check
+ * DSL's breadth — it covers the op set ROADMAP.md's Phase 1 and Phase 2
+ * describe: scalar float/int/uint/bool arithmetic and casts, function
+ * params, float/vec3 uniforms, `If`/`Else`, and vec3 `dot`. Cases here check
  * `compileWasm` against `compileJS` directly rather than through the shared
  * shader-eval recording, since a WASM case using an op this backend doesn't
  * support yet would fail the other backends' replay for the wrong reason.
+ *
+ * Comparisons involving `uint` are the one place this backend's coverage can
+ * diverge from `compileJS` on purpose: the JS backend computes every
+ * declared type as a plain JS number, so a uint holding a value above
+ * 2^31-1 compares correctly as a large positive number, while a naive WASM
+ * int comparison reading the same bit pattern as signed would see a negative
+ * one. Phase 2 threads the unsigned opcode variant through for exactly this
+ * reason — the tests below with a uint above that boundary are checking that
+ * distinction, not just parroting compileJS.
  */
 
 import { describe, it, expect } from "vitest";
 import {
-  compileWasm, compileJS, Fn, If, float, uniform, vec3, sin,
+  compileWasm, compileJS, Fn, If, float, int, uint, bool, uniform, vec3, sin, clamp,
   type Node, type ShaderType,
 } from "./rmsl";
 
-function run(build: (...args: Node<"float">[]) => Node<ShaderType>, args: number[] = []): number {
-  const params = args.map((_, i) => ({ name: `a${i}`, type: "float" as const }));
-  const fn = compileWasm(build as any, { name: "main", params });
+function run(build: (...args: any[]) => Node<ShaderType>, args: number[] = [], types: ShaderType[] = []): number | boolean {
+  const params = args.map((_, i) => ({ name: `a${i}`, type: types[i] ?? "float" as const }));
+  const fn = compileWasm(build, { name: "main", params });
   return fn({ params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) });
 }
 
@@ -42,15 +51,163 @@ describe("WASM backend: scalar arithmetic", () => {
       .toThrow(/multi-return/);
   });
 
-  it("rejects a non-float result", () => {
+  it("rejects a non-scalar result", () => {
     expect(() => compileWasm(() => vec3(1, 2, 3) as any, { name: "main", params: [] }))
-      .toThrow(/"float" result/);
+      .toThrow(/scalar result/);
   });
 
   it("rejects an op outside this backend's coverage so far", () => {
-    const build = () => sin(uniform("float"));
+    const build = () => clamp(uniform("float"), float(0), float(1));
     expect(() => compileWasm(build as any, { name: "main", params: [] }))
       .toThrow(/unsupported node type/);
+  });
+});
+
+describe("WASM backend: div, mod, min, max, sign, abs, round-trip", () => {
+  it("divides and mods floats, floored", () => {
+    expect(run((a, b) => a.div(b), [7, 2])).toBe(3.5);
+    expect(run((a, b) => a.mod(b), [-1, 3])).toBe(2); // floored, not truncated
+  });
+
+  it("divides and mods ints, truncated toward zero", () => {
+    expect(run((a, b) => a.div(b), [-7, 2], ["int", "int"])).toBe(-3);
+    expect(run((a, b) => a.mod(b), [-7, 2], ["int", "int"])).toBe(-1);
+  });
+
+  it("divides uints unsigned", () => {
+    // As a signed 32-bit read this bit pattern is negative; unsigned it's
+    // the large positive value it's meant to be.
+    expect(run((a, b) => a.div(b), [4000000000, 2], ["uint", "uint"])).toBe(2000000000);
+  });
+
+  it("takes min/max of floats and ints", () => {
+    expect(run((a, b) => a.min(b), [3, 4])).toBe(3);
+    expect(run((a, b) => a.max(b), [3, 4])).toBe(4);
+    expect(run((a, b) => a.min(b), [-3, 4], ["int", "int"])).toBe(-3);
+    expect(run((a, b) => a.max(b), [-3, 4], ["int", "int"])).toBe(4);
+  });
+
+  it("takes min/max of uints unsigned", () => {
+    expect(run((a, b) => a.min(b), [4000000000, 2], ["uint", "uint"])).toBe(2);
+    expect(run((a, b) => a.max(b), [4000000000, 2], ["uint", "uint"])).toBe(4000000000);
+  });
+
+  it("computes sign and abs for floats and ints", () => {
+    expect(run(a => a.sign(), [-5])).toBe(-1);
+    expect(run(a => a.sign(), [0])).toBe(0);
+    expect(run(a => a.sign(), [5])).toBe(1);
+    expect(run(a => a.abs(), [-5])).toBe(5);
+    expect(run(a => a.sign(), [-5], ["int"])).toBe(-1);
+    expect(run(a => a.abs(), [-5], ["int"])).toBe(5);
+  });
+
+  it("floors, ceils, truncs, fracts, and rounds", () => {
+    expect(run(a => a.floor(), [3.7])).toBe(3);
+    expect(run(a => a.ceil(), [3.2])).toBe(4);
+    expect(run(a => a.trunc(), [-3.7])).toBe(-3);
+    expect(run(a => a.fract(), [3.25])).toBeCloseTo(0.25, 9);
+    expect(run(a => a.round(), [2.5])).toBe(3);
+    expect(run(a => a.round(), [-2.5])).toBe(-2);
+  });
+});
+
+describe("WASM backend: comparisons, logical, bitwise", () => {
+  it("compares floats and ints", () => {
+    expect(run((a, b) => a.lessThan(b), [1, 2])).toBe(true);
+    expect(run((a, b) => a.lessThanEqual(b), [2, 2])).toBe(true);
+    expect(run((a, b) => a.greaterThanEqual(b), [1, 2])).toBe(false);
+    expect(run((a, b) => a.equal(b), [2, 2])).toBe(true);
+    expect(run((a, b) => a.notEqual(b), [2, 2])).toBe(false);
+  });
+
+  it("compares uints unsigned", () => {
+    // 4000000000 reads as negative under a signed comparison; unsigned it's
+    // correctly greater than 2.
+    expect(run((a, b) => a.lessThan(b), [4000000000, 2], ["uint", "uint"])).toBe(false);
+    expect(run((a, b) => a.greaterThan(b), [4000000000, 2], ["uint", "uint"])).toBe(true);
+  });
+
+  it("combines booleans with and/or/not", () => {
+    const build = (a: Node<"float">, b: Node<"float">) => a.greaterThan(0).and(b.greaterThan(0));
+    expect(run(build, [1, 1])).toBe(true);
+    expect(run(build, [1, -1])).toBe(false);
+    expect(run((a: Node<"float">) => a.greaterThan(0).not(), [1])).toBe(false);
+    expect(run((a: Node<"float">, b: Node<"float">) => a.greaterThan(0).or(b.greaterThan(0)), [-1, 1])).toBe(true);
+  });
+
+  it("does bitwise and shifts on ints", () => {
+    expect(run((a, b) => a.bitAnd(b), [6, 3], ["int", "int"])).toBe(2);
+    expect(run((a, b) => a.bitOr(b), [6, 3], ["int", "int"])).toBe(7);
+    expect(run((a, b) => a.bitXor(b), [6, 3], ["int", "int"])).toBe(5);
+    expect(run(a => a.bitNot(), [6], ["int"])).toBe(-7);
+    expect(run((a, b) => a.shiftLeft(b), [1, 4], ["int", "int"])).toBe(16);
+  });
+
+  it("shifts uints logically, ints arithmetically", () => {
+    expect(run((a, b) => a.shiftRight(b), [-16, 2], ["int", "int"])).toBe(-4);
+    expect(run((a, b) => a.shiftRight(b), [4000000000, 2], ["uint", "uint"])).toBe(1000000000);
+  });
+});
+
+describe("WASM backend: transcendentals via host import", () => {
+  it("calls Math functions through a WASM import", () => {
+    expect(run(a => a.sin(), [1.2345])).toBeCloseTo(Math.sin(1.2345), 9);
+    expect(run(a => a.cos(), [1.2345])).toBeCloseTo(Math.cos(1.2345), 9);
+    expect(run(a => a.exp(), [2])).toBeCloseTo(Math.exp(2), 9);
+    expect(run(a => a.log(), [2])).toBeCloseTo(Math.log(2), 9);
+    expect(run((a, b) => a.pow(b), [2, 10])).toBe(1024);
+    expect(run(a => a.exp2(), [10])).toBe(1024);
+  });
+
+  it("agrees with compileJS on a transcendental", () => {
+    // Built once: compileWasm and compileJS each call their `fn` argument
+    // themselves, and a `build` that calls uniform() itself would mint a
+    // fresh, differently-named uniform for each backend instead of sharing
+    // one, so the graph is built up front and handed to both as `() => node`.
+    const u = uniform("float");
+    const node = sin(u).mul(u.cos());
+    const wasmFn = compileWasm(() => node, { name: "main", params: [] });
+    const jsFn = compileJS(() => node as any, { name: "main", params: [] });
+    const ctx = { uniforms: { [u.name]: 0.6 } };
+    expect(wasmFn(ctx)).toBeCloseTo(jsFn(ctx) as number, 9);
+  });
+});
+
+describe("WASM backend: int/uint/bool values and casts", () => {
+  it("returns int/uint/bool results, and reads int/uint/bool uniforms", () => {
+    let iu!: any;
+    const intResult = compileWasm(() => { iu = uniform("int"); return iu.add(int(1)); }, { name: "main", params: [] });
+    expect(intResult({ uniforms: { [iu.name]: 5 } })).toBe(6);
+
+    let uu!: any;
+    const uintResult = compileWasm(() => { uu = uniform("uint"); return uu.add(uint(1)); }, { name: "main", params: [] });
+    expect(uintResult({ uniforms: { [uu.name]: 5 } })).toBe(6);
+
+    let bu!: any;
+    const boolResult = compileWasm(() => { bu = uniform("bool"); return bu.not(); }, { name: "main", params: [] });
+    expect(boolResult({ uniforms: { [bu.name]: true } })).toBe(false);
+  });
+
+  it("casts between float, int, uint, and bool", () => {
+    expect(run(a => a.toInt(), [3.9])).toBe(3); // truncates
+    expect(run(a => a.toFloat(), [3], ["int"])).toBe(3);
+    expect(run(a => a.toBool(), [0], ["float"])).toBe(false);
+    expect(run(a => a.toBool(), [5], ["float"])).toBe(true);
+    expect(run(a => a.toBool(), [0], ["int"])).toBe(false);
+    expect(run(a => a.toInt(), [1], ["bool"])).toBe(1);
+  });
+
+  it("agrees with compileJS across an int/uint/bool expression", () => {
+    const build = (x: Node<"float">) => {
+      const asInt = x.toInt();
+      const doubled = asInt.mul(int(2));
+      return doubled.greaterThan(int(4)).and(bool(true));
+    };
+    for (const x of [1, 3, -2]) {
+      const wasmFn = compileWasm(build as any, { name: "main", params: [{ name: "x", type: "float" }] });
+      const jsFn = compileJS(build as any, { name: "main", params: [{ name: "x", type: "float" }] });
+      expect(wasmFn({ params: { x } })).toBe(jsFn({ params: { x } }));
+    }
   });
 });
 
@@ -64,20 +221,6 @@ describe("WASM backend: control flow", () => {
     })();
     expect(run(branch, [2])).toBe(10);
     expect(run(branch, [0])).toBe(20);
-  });
-
-  it("agrees with compileJS across both branches", () => {
-    const branch = (x: Node<"float">) => Fn(() => {
-      const out = float(0).toVar();
-      If(x.greaterThan(1), () => { out.assign(float(10)); })
-        .Else(() => { out.assign(float(20)); });
-      return out;
-    })();
-    for (const x of [0, 2]) {
-      const wasmFn = compileWasm((xx: any) => branch(xx), { name: "main", params: [{ name: "x", type: "float" }] });
-      const jsFn = compileJS((xx: any) => branch(xx), { name: "main", params: [{ name: "x", type: "float" }] });
-      expect(wasmFn({ params: { x } })).toBe(jsFn({ params: { x } }));
-    }
   });
 });
 

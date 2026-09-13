@@ -27,36 +27,49 @@ Root cause, as far as the prototype dug: `compileJS`'s uniform reads are
 operand; WASM gets a plain `local.get`. That gap is wide enough that
 splitting a vector into scalars and taking a branch don't close it.
 
-## Status: Phase 1 landed
+## Status: Phase 1 and Phase 2 landed
 
-`compileWasmFn` and `compileWasm` exist in `src/rmsl.ts`, next to
-`compileGLSLFn`/`compileWGSLFn` (CONTRIBUTING.md: "almost everything lives in
-`src/rmsl.ts`" — this follows that rather than introducing a new module).
-Tests are in `src/rmsl-wasm.test.ts`.
+`compileWasmFn` and `compileWasm` exist in `src/rmsl-wasm.ts`, next to
+`rmsl-glsl.ts`/`rmsl-wgsl.ts`/`rmsl-compile-js.ts` (see CONTRIBUTING.md for
+the file layout). Tests are in `src/rmsl-wasm.test.ts`.
 
-**What it covers**, exactly the prototype's validated slice, promoted to the
-real API shape:
+**What it covers**, Phase 1's validated slice plus Phase 2's full scalar op
+parity:
 
-- `compileWasmFn(fn, options): { bytes: Uint8Array, params: WasmParam[] }` —
-  the module plus a description of what each exported-function argument
-  means.
-- `compileWasm(fn, options): (ctx: JsShaderContext) => number` — same call
-  signature as `compileJS`, for drop-in comparison on the ops it supports.
-- Explicit function params (`options.params`), float uniforms, and vec3
-  uniforms (split into three f64 params — see "Vectors have no home yet"
-  below).
-- `+`, `-`, `*`, `sqrt`, `greaterThan`, vec3 `dot`.
+- `compileWasmFn(fn, options): { bytes: Uint8Array, params: WasmParam[],
+  resultType: ShaderType }` — the module plus a description of what each
+  exported-function argument (and the result) means.
+- `compileWasm(fn, options): (ctx: JsShaderContext) => number | boolean` —
+  same call signature as `compileJS`, for drop-in comparison on the ops it
+  supports. A `"bool"` result comes back as a real boolean and a `"uint"`
+  one is reinterpreted from WASM's always-signed i32 return, matching what
+  `compileJS` hands back for the same declared types.
+- Explicit function params (`options.params`), scalar float/int/uint/bool
+  uniforms and params, and vec3 uniforms (split into three f64 params — see
+  "Vectors have no home yet" below).
+- Full scalar arithmetic: `+ - * / %`, `min`/`max`, `sqrt`/`inverseSqrt`,
+  `abs`/`sign`/`negate`/`floor`/`ceil`/`trunc`/`fract`/`round`, every
+  comparison, `and`/`or`/`not`, every bitwise op, and the transcendental
+  family (`sin`/`cos`/`tan`/.../`exp`/`log`/`log2`/`exp2`/`pow`/`atan2`) via
+  a WASM import calling the real `Math` object — see "Transcendentals import
+  `Math`, they don't get a polynomial" below. `int`/`uint` use real `i32`,
+  with signed/unsigned opcode variants chosen per operand type and explicit
+  conversions for `float(int)`/`int(float)`/etc. casts.
+- vec3 `dot`.
 - `If`/`Else` via `toVar()`/`.assign()`, compiled to WASM's structured
-  `if`/`else`/`end` — the same shape the prototype validated.
+  `if`/`else`/`end`.
 
 **What throws today** (deliberately — see the Phase list below for when each
-lands): every other binary/unary op, `for`/`while`/`Loop`/`Switch`, vec2/vec4/
-mat*, int/uint/bool, `uniformArray`, swizzles, `output()`/`varying()`/
-`attribute()`/`builtinPosition()`/`builtinFragDepth()`/`fragCoord()`,
-`textureLoad`/`texture`/`textureSize`, multi-return, and any non-`"float"`
-result. `compileWasmFn` throws `[RMSL] compileWasmFn: unsupported node type
-in <expr|vec3|statement> position: "<type>"` naming exactly what's missing,
-which is also the fastest way to find the next thing worth doing here.
+lands): `for`/`while`/`Loop`/`Switch`, vec2/vec4/mat* as first-class values
+(a vec3 exists only long enough to feed `dot`), `clamp`/`mix`/`step`/
+`smoothstep` (composite ops with no single WASM opcode — deliberately out of
+Phase 2's "has a direct opcode" scope), `uniformArray`, swizzles,
+`output()`/`varying()`/`attribute()`/`builtinPosition()`/`builtinFragDepth()`/
+`fragCoord()`, `textureLoad`/`texture`/`textureSize`, multi-return, and any
+non-scalar result. `compileWasmFn` throws `[RMSL] compileWasmFn: unsupported
+node type in <expr|vec3|statement> position: "<type>"` naming exactly what's
+missing, which is also the fastest way to find the next thing worth doing
+here.
 
 ## Design decisions already made
 
@@ -67,15 +80,41 @@ which is also the fastest way to find the next thing worth doing here.
   untyped internal node shape (`node.type`/`node.params`/`node.value`)
   `compileJSNode` already switches on, imported from `rmsl-core.ts` and
   `rmsl-compiler-shared.ts` — no new node representation to keep in sync.
-- **f64 everywhere, for now** — but only because Phase 1 never touches
-  anything but `"float"`. This matches the JS backend's exact-arithmetic
-  semantics (no tolerance needed comparing the two, only for transcendentals
-  later — see CONTRIBUTING.md's testing section on this same point for
-  `compileJS`), but the JS backend collapses `int`/`uint` to the same f64
-  representation as `float` only because JS numbers have no other option.
-  WASM does have another option — real `i32` — and Phase 2 uses it: see the
-  "int/uint use real i32" decision there. So "f64 everywhere" describes
-  Phase 1's actual scope, not a permanent design stance.
+- **`float` is f64, `int`/`uint`/`bool` are real `i32`** — not the JS
+  backend's approach of collapsing every declared type into one JS number.
+  GLSL/WGSL already carry each node's declared type through to their output;
+  WASM has that same type information (`node._t`) and, unlike JavaScript, an
+  actual integer type to put it in. This also matches GLSL/WGSL's 32-bit
+  integer wraparound on overflow, which a WASM int stored as f64 would not.
+  Every op picks its opcode from the operand's `scalarKindOf(node._t)` — see
+  `compileWasmFn`'s `binaryArith`/`comparison`/`minOrMax` helpers — and a
+  scalar `construct` node (a `float(x)`/`int(x)`/etc. cast) becomes an
+  explicit conversion or comparison, not a no-op, whenever the source and
+  target aren't both f64 or both i32. `bool` is i32 0/1, the same
+  representation WASM's own comparison opcodes and `if` condition already
+  use, so it needed no separate representation of its own.
+- **Transcendentals import `Math`, they don't get a polynomial.** `sin`,
+  `cos`, `exp`, `log`, `pow`, and the rest of that family have no WASM
+  opcode. Rather than hand-roll an approximation — real risk in a codebase
+  whose own testing philosophy is built around "most mistakes here are
+  silent" (CONTRIBUTING.md) — the compiled module imports them from a
+  namespace named `"math"`, and `compileWasm` hands the real `Math` object
+  as that namespace's implementation, unchanged: `Math.sin`, `Math.cos`, etc.
+  already have the right names, so no translation layer is needed. A module
+  that ends up needing none of them declares no imports at all and simply
+  ignores the namespace it was handed. `exp2(x)` reuses the `pow` import as
+  `pow(2, x)`, matching how the JS backend implements it (`Math.pow(2, x)`);
+  `inverseSqrt(x)` and `round(x)` stay opcode-only (`1 / sqrt(x)`,
+  `floor(x + 0.5)` — the latter because `f64.nearest` rounds half-to-even,
+  not `Math.round`'s round-half-up).
+- **No sub-expression caching.** Where a value is needed twice with no WASM
+  opcode that takes it once — `select`'s two branches, `sign`'s two
+  comparisons, float `mod`'s `a - b * floor(a / b)` — the operand's bytes
+  are just emitted again rather than computed once into a scratch local
+  (compare `compileJS`'s `jsNewTemp`, which this backend has no equivalent
+  of yet). Always correct, since nothing in this DSL's expression position
+  has a side effect to duplicate; only ever a size/speed cost, and one this
+  early backend hasn't needed to solve yet.
 - **Synchronous instantiation** (`new WebAssembly.Instance(new
   WebAssembly.Module(bytes))`), matching `compileJS`'s synchronous `new
   Function(source)()`. Fine for the module sizes here; revisit if a module
@@ -100,31 +139,15 @@ which is also the fastest way to find the next thing worth doing here.
 Roughly ordered by what unblocks the most; not a commitment to build all of
 it.
 
-### Phase 2 — full scalar op parity
-Every remaining `jsBinaryOp`/`jsUnaryMath` entry in the JS backend that has a
-direct WASM opcode: `div`, `mod`, `min`, `max`, `pow`, the trig/exponential
-family (`sin`/`cos`/.../`exp`/`log` have no native WASM opcode — decide
-per-op whether to hand-roll a polynomial approximation or import a host
-function, mirroring how a real wasm toolchain's libm would), comparisons
-(`lessThan`, `equal`, ...), logical (`and`/`or`/`not`), bitwise.
-
-**`int`/`uint` use real `i32`, not f64** — mirroring GLSL/WGSL, not the JS
-backend. GLSL/WGSL already know each node's declared type (`node._t`) and
-use it to pick `int`/`i32` text over `float`/`f32`; WASM has that same type
-information available and, unlike JS, a real integer type to put it in. The
-JS backend gets away with f64-only because JS numbers don't distinguish
-int from float at all and its bitwise operators silently coerce through
-`ToInt32` — WASM has no such coercion, and every instruction (`f64.add` vs
-`i32.add`) is a distinct, explicitly-chosen opcode. Copying JS's approach
-here would also cost real correctness: GLSL/WGSL integers wrap at 32 bits
-on overflow and f64 arithmetic doesn't, so an f64-collapsed WASM int would
-silently disagree with the other three backends on any shader relying on
-wraparound. This is the first place the backend needs to track a concrete
-WASM storage type (`f64` vs `i32`) per node rather than assuming one type
-for everything, including explicit conversions where an expression mixes
-the two (`float(intValue)`, `intValue.mul(floatValue)`, ...). `bool` likely
-rides along as `i32` too, matching WASM's own boolean-as-i32 convention
-(which Phase 1's comparison ops — `f64.gt` etc. — already produce).
+### ~~Phase 2 — full scalar op parity~~ — done
+See "Status" and "Design decisions already made" above for what landed:
+every remaining `jsBinaryOp`/`jsUnaryMath` entry with a direct WASM opcode
+(or a trivial derivation of one, like float `mod`/`round`/`fract`), every
+comparison, logical, and bitwise op, and `int`/`uint`/`bool` as real `i32`.
+Explicitly *not* included, and not planned for a later phase to sneak back
+in under this name: `clamp`/`mix`/`step`/`smoothstep` — composite ops with
+no single opcode, closer in spirit to Phase 3's vector work than to this
+phase's "one opcode per op" scope.
 
 ### Phase 3 — vectors and matrices as first-class values
 The load-bearing decision: keep the "split into N scalar slots" approach
