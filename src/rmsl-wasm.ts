@@ -30,7 +30,15 @@ export type WasmParam =
   | { kind: "param"; name: string; shaderType: ShaderType }
   | { kind: "uniform"; slot: string; shaderType: ShaderType }
   | { kind: "paramMemory"; name: string; shaderType: ShaderType; address: number }
-  | { kind: "uniformMemory"; slot: string; shaderType: ShaderType; address: number };
+  | {
+    kind: "uniformMemory"; slot: string; shaderType: ShaderType; address: number;
+    /** Set only for a `gpuUniformLayout`-placed uniform: `address` is a raw
+     * GPU-shaped slot (e.g. `f32` per float component, half this backend's
+     * usual `f64`) rather than this backend's own packed representation —
+     * `compileWasm` writes the narrower width there instead of its usual
+     * one. See `GpuUniformLayout`. */
+    narrow?: boolean;
+  };
 
 export type CompiledWasm = {
   /** The raw WASM binary module, exporting `options.name` and `"memory"`. */
@@ -56,9 +64,11 @@ export const WASM_OP = {
   f64Const: 0x44,
 
   i32Load: 0x28,
+  f32Load: 0x2a,
   f64Load: 0x2b,
   i32Store: 0x36,
   f64Store: 0x39,
+  f64PromoteF32: 0xbb,
 
   i32Eqz: 0x45,
   i32Eq: 0x46,
@@ -247,22 +257,27 @@ function wasmStrBytes(s: string): number[] {
 /**
  * Stage 2 of `docs/design-shared-layout-ir.md`: place specific *aggregate*
  * uniforms at caller-given byte offsets (typically from `wgslUniformLayout`)
- * instead of this backend's own packed allocation. Experimental — proves
- * (and, as it turns out, partly disproves) the interop claim the design
- * doc makes; not part of the stable API.
+ * instead of this backend's own packed allocation, so the JS host can write
+ * a GPU-shaped uniform buffer's bytes directly, with no repacking step for
+ * this backend to read them. Experimental — not part of the stable API.
  *
- * **This does not yet give safe, byte-identical GPU interop, and using it
- * with real `wgslUniformLayout` offsets today can corrupt adjacent
- * uniforms.** `wgslUniformLayout`'s offsets assume each `float` component
- * is 4 bytes (WGSL's `f32`); this backend always stores `float` as an f64
- * (8 bytes — a deliberate choice, see "`float` is f64" in `ROADMAP.md`).
- * Two GPU-adjacent members spaced 4-bytes-per-component apart can end up
- * with this backend's actual (8-bytes-per-component) writes for one
- * overlapping the other's reserved region entirely — see
- * `rmsl-layout-interop.test.ts` for a worked example. Only the *offset*
- * half of the interop claim holds; the *component width* half does not,
- * and closing that gap (storing as f32 for a GPU-bound uniform) is a
- * separate, bigger change this option does not attempt.
+ * `wgslUniformLayout`'s offsets assume each `float` component is WGSL's
+ * 4-byte `f32`; this backend's own arithmetic is always f64 (`ROADMAP.md`,
+ * "`float` is f64"), and an earlier version of this option used the
+ * caller's raw offset as this backend's *only* address for that uniform —
+ * safe for offset placement, but a real correctness bug once two
+ * GPU-adjacent, 4-byte-spaced members met this backend's 8-byte-per-
+ * component writes: one could spill straight over the next (see git
+ * history around `rmsl-layout-interop.test.ts`'s original corruption
+ * case). Fixed by giving a GPU-placed uniform *two* addresses instead of
+ * one: the caller's raw offset, exactly `narrow` (`f32`) as the caller
+ * expects and never touched by this backend's arithmetic directly, and an
+ * ordinary packed scratch address like any other uniform gets. Reading the
+ * uniform promotes narrow → f64 once, into that scratch address (see
+ * `materializeIfNeeded`'s `"uniform"` case) — every consumer downstream
+ * (`dot`, swizzles, `emitConstructStores`, ...) reads the ordinary scratch
+ * address exactly as it always has, with no awareness a GPU-facing
+ * representation exists at all.
  */
 export type GpuUniformLayout = {
   /** Byte offset for each overridden uniform, keyed by slot (the `.name`
@@ -313,6 +328,11 @@ export function compileWasmFn(
   const paramAddress = new Map<string, number>();
   const varAddress = new Map<string, number>();
   const uniformAddress = new Map<string, number>();
+  // Present only for a `gpuUniformLayout`-placed uniform: its caller-given,
+  // narrow (f32-per-float-component) raw offset — `uniformAddress` above
+  // still holds its *own*, ordinary packed scratch address; this map is
+  // only consulted by `materializeIfNeeded`'s promotion step.
+  const gpuRawUniformAddress = new Map<string, number>();
   const scratchAddress = new WeakMap<object, number>();
   // Reserve [0, totalSize) for a caller-supplied GPU uniform layout, if any
   // — everything this backend places itself starts after it, so it can
@@ -381,9 +401,20 @@ export function compileWasmFn(
       const v = node.value;
       if (isAggregate(v.shaderType)) {
         if (!uniformAddress.has(v.slot)) {
-          const addr = options.gpuUniformLayout?.offsets[v.slot] ?? allocateFor(v.shaderType);
+          // A GPU-placed uniform gets its own ordinary packed scratch
+          // address like any other uniform — `nodeAddress`/every consumer
+          // reads that, never the raw GPU offset directly (see
+          // `materializeIfNeeded`'s "uniform" case for the narrow -> f64
+          // promotion that keeps the two in sync).
+          const addr = allocateFor(v.shaderType);
           uniformAddress.set(v.slot, addr);
-          memoryParams.push({ kind: "uniformMemory", slot: v.slot, shaderType: v.shaderType, address: addr });
+          const gpuOffset = options.gpuUniformLayout?.offsets[v.slot];
+          if (gpuOffset !== undefined) {
+            gpuRawUniformAddress.set(v.slot, gpuOffset);
+            memoryParams.push({ kind: "uniformMemory", slot: v.slot, shaderType: v.shaderType, address: gpuOffset, narrow: true });
+          } else {
+            memoryParams.push({ kind: "uniformMemory", slot: v.slot, shaderType: v.shaderType, address: addr });
+          }
         }
       } else {
         addParam({ kind: "uniform", slot: v.slot, shaderType: v.shaderType }, `uniform:${v.slot}`);
@@ -466,16 +497,23 @@ export function compileWasmFn(
   }
 
   /** Populate `nodeAddress(node)` with `node`'s value, for any node type
-   * `isScratchNode` addresses — a `"var"`/`"uniform"` needs no work (its
-   * data is already valid, set by a prior `let`/`assign` or by
-   * `compileWasm`'s JS wrapper before the call). Always materializes an
-   * aggregate sub-node exactly once, however many of its components end up
-   * read, so nesting doesn't blow up proportionally to width. */
+   * `isScratchNode` addresses — a `"var"` needs no work (its data is
+   * already valid, set by a prior `let`/`assign`), and an ordinary
+   * `"uniform"` needs none either (`compileWasm`'s JS wrapper already
+   * wrote it at `nodeAddress(node)` before the call) — but a
+   * `gpuUniformLayout`-placed one needs its narrow (f32) components
+   * promoted into that ordinary address first; see `emitGpuUniformPromote`.
+   * Always materializes an aggregate sub-node exactly once, however many
+   * of its components end up read, so nesting doesn't blow up
+   * proportionally to width. */
   function materializeIfNeeded(node: any): number[] {
     switch (node.type) {
       case "var":
-      case "uniform":
         return [];
+      case "uniform": {
+        const rawAddr = gpuRawUniformAddress.get(node.value.slot);
+        return rawAddr === undefined ? [] : emitGpuUniformPromote(node, nodeAddress(node), rawAddr);
+      }
       case "construct":
         return emitConstructStores(node, nodeAddress(node));
       case "swizzle":
@@ -511,6 +549,30 @@ export function compileWasmFn(
         }
         throw new Error(`[RMSL] compileWasmFn: unsupported node type in vector position: "${node.type}"`);
     }
+  }
+
+  /** Promote a `gpuUniformLayout`-placed uniform's narrow (`f32`) components
+   * at `rawAddr` into its own ordinary packed (`f64`) scratch address
+   * `addr`, so every consumer downstream reads `addr` exactly like any
+   * other uniform, unaware a narrower representation exists at all. Only
+   * float-family uniforms need this — `wgslUniformLayout`'s `i32`/`u32`
+   * component width already matches this backend's own, so an int/uint
+   * uniform (not reachable here today, since `GpuUniformLayout` is
+   * aggregate-only, but kept correct for when it is) would need no
+   * conversion, just a plain same-width copy. */
+  function emitGpuUniformPromote(node: any, addr: number, rawAddr: number): number[] {
+    const kind = elementKindOf(node._t as string);
+    const width = componentCountOf(node._t as string);
+    const rawCompSize = kind === "float" ? 4 : componentSizeOf(kind);
+    const compSize = componentSizeOf(kind);
+    const out: number[] = [];
+    for (let k = 0; k < width; k++) {
+      const rawBytes = kind === "float"
+        ? [...i32ConstBytes(rawAddr + k * rawCompSize), WASM_OP.f32Load, 0x00, ...wasmUleb128(0), WASM_OP.f64PromoteF32]
+        : loadComponent(rawAddr, kind, k * rawCompSize);
+      out.push(...storeComponent(addr, kind, k * compSize, rawBytes));
+    }
+    return out;
   }
 
   function emitConstructStores(node: any, addr: number): number[] {
@@ -1252,15 +1314,23 @@ export function compileWasmFn(
  * `shaderType` to pick the storage kind/width — the JS-side half of the
  * linear-memory design, run before every call since uniform/param values
  * can change between calls. */
-function writeAggregateToMemory(view: DataView, address: number, shaderType: ShaderType, value: any): void {
+function writeAggregateToMemory(view: DataView, address: number, shaderType: ShaderType, value: any, narrow?: boolean): void {
   const kind = elementKindOf(shaderType);
-  const compSize = componentSizeOf(kind);
+  // A `narrow` (GPU-shaped) uniform's float component is WGSL's 4-byte
+  // f32, not this backend's usual 8-byte f64 — real, lossy rounding of the
+  // f64 JS number, same as any real GPU uniform buffer would apply to this
+  // exact value. int/uint/bool are already 4 bytes either way.
+  const compSize = narrow && kind === "float" ? 4 : componentSizeOf(kind);
   const arr = value as ArrayLike<number | boolean>;
   for (let i = 0; i < arr.length; i++) {
     const raw = arr[i];
     const num = typeof raw === "boolean" ? (raw ? 1 : 0) : (raw as number);
-    if (kind === "float") view.setFloat64(address + i * compSize, num, true);
-    else view.setInt32(address + i * compSize, num, true);
+    if (kind === "float") {
+      if (narrow) view.setFloat32(address + i * compSize, num, true);
+      else view.setFloat64(address + i * compSize, num, true);
+    } else {
+      view.setInt32(address + i * compSize, num, true);
+    }
   }
 }
 
@@ -1291,7 +1361,7 @@ export function compileWasm(
       } else if (p.kind === "paramMemory") {
         writeAggregateToMemory(view, p.address, p.shaderType, (ctx.params as any)?.[p.name]);
       } else {
-        writeAggregateToMemory(view, p.address, p.shaderType, (ctx.uniforms as any)?.[p.slot]);
+        writeAggregateToMemory(view, p.address, p.shaderType, (ctx.uniforms as any)?.[p.slot], p.narrow);
       }
     }
     const result = wasmMain(...args);
