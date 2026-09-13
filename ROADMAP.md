@@ -117,26 +117,33 @@ pass. Roughly halving the JS-vs-WASM gap (6.3x down to ~3.1x) came from
 that — fewer round trips through the `params` array outweighing the added
 `DataView` write.
 
-## Status: Phase 1 through Phase 4 landed
+## Status: Phase 1 through Phase 5 landed (except multi-return)
 
 `compileWasmFn` and `compileWasm` exist in `src/rmsl-wasm.ts`, next to
 `rmsl-glsl.ts`/`rmsl-wgsl.ts`/`rmsl-compile-js.ts` (see CONTRIBUTING.md for
-the file layout). Tests are in `src/rmsl-wasm.test.ts`.
+the file layout). Tests are in `src/rmsl-wasm.test.ts` and
+`src/rmsl-layout-interop.test.ts`.
 
 **What it covers**, Phase 1's validated slice, Phase 2's full scalar op
-parity, Phase 3's vectors/matrices as first-class values, and Phase 4's
-control flow:
+parity, Phase 3's vectors/matrices as first-class values, Phase 4's control
+flow, and Phase 5's shader-stage surface:
 
-- `compileWasmFn(fn, options): { bytes: Uint8Array, params: WasmParam[],
-  resultType: ShaderType }` — the module plus a description of what each
-  exported-function argument (and the result) means.
-- `compileWasm(fn, options): (ctx: JsShaderContext) => number | boolean` —
-  same call signature as `compileJS`, for drop-in comparison on the ops it
-  supports. A `"bool"` result comes back as a real boolean and a `"uint"`
-  one is reinterpreted from WASM's always-signed i32 return, matching what
-  `compileJS` hands back for the same declared types.
-- Explicit function params (`options.params`), and scalar float/int/uint/
-  bool uniforms and params.
+- `compileWasmFn(fn, options: CompileWasmFnOptions): { bytes: Uint8Array,
+  params: WasmParam[], resultType: ShaderType }` — the module plus a
+  description of what each exported-function argument (and the result)
+  means.
+- `compileWasm(fn, options): (ctx: JsShaderContext) => number | boolean |
+  JsShaderResult` — same call signature as `compileJS`. A plain
+  scalar-returning program returns the bare value (a `"bool"` result comes
+  back as a real boolean, a `"uint"` one reinterpreted from WASM's
+  always-signed i32 return, matching `compileJS`); a program using the
+  shader-stage surface returns a `JsShaderResult`, identical in shape to
+  what `compileJS` returns for the same program.
+- Explicit function params (`options.params`), scalar float/int/uint/
+  bool uniforms and params, and `attribute()`/a fragment-stage
+  `varying()`/`fragCoord()` as further inputs — see "The shader-stage
+  surface: one direction reuses uniform-marshalling, the other reads
+  memory back after the call" below.
 - Full scalar arithmetic: `+ - * / %`, `min`/`max`, `sqrt`/`inverseSqrt`,
   `abs`/`sign`/`negate`/`floor`/`ceil`/`trunc`/`fract`/`round`, every
   comparison, `and`/`or`/`not`, every bitwise op, and the transcendental
@@ -175,17 +182,22 @@ control flow:
   dispatch treated it as componentwise multiplication instead, since
   nothing distinguished "two matrix operands" from "vector operands" before
   this landed; `mat.mul(scalar)` was already correct and is untouched).
+- `stage`/`derivatives`/`reentrant` options, matching `CompileJSOptions`;
+  `attribute()`/a fragment-stage `varying()`/`fragCoord()` as inputs;
+  `output()`/a vertex-stage `varying()`/`builtinPosition()`/
+  `builtinFragDepth()` as outputs, including a program's own result
+  becoming the implicit vertex position when `builtinPosition()` was never
+  written explicitly — see "The shader-stage surface" below. Multi-return
+  is the one thing from the original Phase 5 wishlist *not* included —
+  `compileJS` doesn't have it either, so there was nothing to port; see
+  the Phase 5 writeup below for why.
 
 **What throws today** (deliberately — see the Phase list below for when each
 lands): non-square or mismatched-shape matrix×matrix multiply,
 `clamp`/`mix`/`step`/`smoothstep` (composite ops with no single WASM
 opcode — deliberately out of Phase 2's "has a direct opcode" scope),
-`uniformArray`, `output()`/`varying()`/`attribute()`/`builtinPosition()`/
-`builtinFragDepth()`/`fragCoord()`,
-`textureLoad`/`texture`/`textureSize`, multi-return, and any non-scalar
-function *result* (only intermediate values are first-class aggregates now
-— the root a compiled `Fn` returns must still be a scalar). `compileWasmFn`
-throws `[RMSL] compileWasmFn: unsupported node type in
+`uniformArray`, `textureLoad`/`texture`/`textureSize`, and multi-return.
+`compileWasmFn` throws `[RMSL] compileWasmFn: unsupported node type in
 <expr|vector|statement> position: "<type>"` naming exactly what's missing,
 which is also the fastest way to find the next thing worth doing here.
 
@@ -284,19 +296,44 @@ which is also the fastest way to find the next thing worth doing here.
   `If(x, () => Break())` inside a loop must count the `if`'s own label) and
   a `loopStack` recording each open loop's break/continue target depths.
   `Return()`/`Discard()` carry no value in this DSL (there's no
-  `Return(value)` — only a bare early-exit) but a compiled `Fn` always
-  declares a real scalar WASM result type, so both push a zero/false
-  sentinel of that type and `br` to one function-exit `block` wrapped
-  unconditionally around the whole body (3 bytes, a no-op for any function
-  that never uses either) — `Discard`'s real "no fragment output" meaning
-  still has no representation and won't until Phase 5's shader-stage
-  surface exists; for now it's identical to `Return()`.
-- **No shader-stage concept yet.** `compileWasmFn`'s options are
-  `CompileFnOptions` (`name` + `params`), the same shape
-  `compileGLSLFn`/`compileWGSLFn` use for standalone functions — not
-  `CompileJSOptions`'s `stage`/`derivatives`/`reentrant`. A plain
-  float-returning function is a much smaller surface than a full fragment/
-  vertex stage; Phase 5 is where that gap gets closed.
+  `Return(value)` — only a bare early-exit), so both `br` to one
+  function-exit `block` wrapped unconditionally around the whole body (a
+  no-op for any function that never uses either) — pushing a zero/false
+  sentinel first when the function still declares a real scalar WASM
+  result (a plain function, `!needsResult`), or nothing at all when it
+  doesn't (a stage-mode function, `needsResult` — see the next bullet;
+  its own result, if any, already lives in memory by then). `Discard`'s
+  real "no fragment output" meaning still has no representation; it
+  remains identical to `Return()`.
+- **The shader-stage surface: one direction reuses uniform-marshalling,
+  the other reads memory back after the call.** `attribute()` and a
+  fragment-stage `varying()` are input-direction — same shape as a
+  uniform (`WasmParam`'s `"attribute"`/`"attributeMemory"`/
+  `"varying"`/`"varyingMemory"` kinds), just sourced from
+  `ctx.attributes`/`ctx.varyings`. `fragCoord()` is the same, with one
+  canonical address instead of one per slot, since every reference in a
+  program is the same input. `output()`, a vertex-stage `varying()`,
+  `builtinPosition()`, and `builtinFragDepth()` are output-direction —
+  the first time this backend ever needed to read its own memory back
+  *after* a call, not just write it before one. A `needsResult` flag
+  (mirroring `compileJS`'s own `ctx.jsNeedsRes`) tracks whether any of
+  these were used, or whether an explicit `"vertex"` stage was requested
+  at all (a vertex stage's own result always maps to its position one way
+  or another, so it's never just a plain WASM return, even if
+  `builtinPosition()` itself is never mentioned — found by a test that
+  didn't initially catch a vertex-stage program failing to produce a
+  position, until `needsResult` was seeded from `options.stage ===
+  "vertex"` directly rather than solely from which nodes a program
+  happened to use). `needsResult` false (every pre-Phase-5 program, and
+  any fragment-stage one that only reads inputs) keeps the function's
+  original single-scalar-result shape, byte-for-byte; true switches it to
+  a zero-result shape, with `output()`/`varying()`/`builtinPosition()`/
+  `builtinFragDepth()`/the function's own value all read back by
+  `compileWasm` afterward into a `JsShaderResult` — identical to what
+  `compileJS` already returns for the same program. `assertStageResult`
+  (`rmsl-compiler-shared.ts`) is reused directly, unmodified — it only
+  ever needed plain primitives (`shaderStage`/`lastType`/`positionWritten`),
+  not a full `CompileCtx`.
 
 ## Phased plan
 
@@ -334,12 +371,39 @@ this backend. `Discard` still has no real scalar-function equivalent — it
 compiles to the same zero/false-sentinel early exit `Return()` does, a
 placeholder until Phase 5's shader-stage surface gives it actual meaning.
 
-### Phase 5 — shader-stage surface
+### ~~Phase 5 — shader-stage surface~~ — done, except multi-return
 `output()`, `varying()`, `attribute()`, `builtinPosition()`,
-`builtinFragDepth()`, `fragCoord()`, multi-return, the `stage`/`derivatives`/
-`reentrant` options `compileJS` has. This is what turns "compiles a plain
-function" into "is an alternative to `compileJS` for a real shader graph,"
-matching `CompileJSOptions` instead of `CompileFnOptions`.
+`builtinFragDepth()`, `fragCoord()`, and the `stage`/`derivatives`/
+`reentrant` options all landed, matching `CompileJSOptions` instead of
+`CompileFnOptions` — this is now a real alternative to `compileJS` for a
+full vertex or fragment stage, not just a plain function.
+
+Multi-return was explicitly **not** ported here, on purpose, not as an
+oversight: research while planning this phase found `compileJS` itself
+doesn't support it either — `compileJSFn` throws the identical "does not
+support multi-return functions" error `compileWasmFn` already gave. Real
+multi-return only exists one layer up, in `compileGLSL.vertex`/
+`compileWGSL.vertex`'s stage-root (`Node | readonly Node[]`) handling, which
+is genuinely new ground beyond `compileJS` parity, not a port of something
+`compileJS` already has — left for a separate, later decision rather than
+folded into this phase under the same name.
+
+Two design points worth remembering if this gets touched again:
+- **`compileWasmFn`'s "root must be a scalar" restriction only applies when
+  `needsResult` is false** (mirroring `compileJS`'s own `ctx.jsNeedsRes`) —
+  the moment a program touches `output()`/a vertex `varying()`/
+  `builtinPosition()`/`builtinFragDepth()`, or an explicit `"vertex"` stage
+  is requested at all, the compiled function's result arity switches from
+  one (a plain WASM return) to zero, with everything (the function's own
+  value included) read back from memory afterward instead.
+- **A vertex stage's own result is the implicit position** whenever
+  `builtinPosition()` was never explicitly written — `assertStageResult`
+  requires it to be a `vec4` in exactly that case, and it's written directly
+  into the same memory `builtinPosition()` would use, not a separate
+  "value" slot. This was found by a test that initially didn't catch the
+  case — `Fn(() => float(0))()` compiled with `stage: "vertex"` did not
+  throw until `needsResult` was seeded from `options.stage === "vertex"`
+  directly, not solely from what nodes the program happened to use.
 
 ### Phase 6 — texture sampling
 Phase 3's linear memory is sized for a handful of fixed-size aggregates,
