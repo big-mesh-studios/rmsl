@@ -268,6 +268,18 @@ setup each closed a real, distinct, measured piece of the gap, none of
 them needing to guess at what the next bottleneck would be before
 measuring it.
 
+A fifth, found later while investigating why `.draw()` combined with a
+texture was slower than expected (see "A whole grid in one call:
+`.draw()`" below): `emitTexelFetchStores` — `textureLoad()`'s own
+codegen, and also what `texture()`/`textureLod()` fall back to for an
+integer sampler — had the exact same per-channel redundancy the filtered
+path above was already fixed for (its bounds check and safe, clamped
+texel index recomputed once per channel instead of once per texel), just
+never applied there. A single isolated call barely shows it (wrapper
+overhead dominates one call, masking savings on a small amount of
+per-texel work), but it mattered once many texel fetches happen inside
+one `.draw()` call, where wrapper overhead is already amortized away.
+
 One real limit on how bad any of this is in practice, worth stating
 precisely regardless of which part is fixed: even before the copy-caching
 fix, the copy happened once per **call** to the compiled function, not
@@ -398,34 +410,41 @@ whose compile-time allocation happened to land on a non-8-aligned address
 would have thrown the first time a result was actually read back. Fixed by
 rounding the computed buffer base up to the next multiple of 8.
 
-Combining the two is correct, but the performance story is the opposite
-of the texture-free case above — worth knowing plainly rather than
-assuming `.draw()` is simply always faster. Same benchmark file, a
-scenario sampling a texture sized to match the grid once per pixel via
+Combining the two is correct. Its first measurement found a real
+performance surprise, since fixed — worth recording both states plainly
+rather than only the final number. Same benchmark file, a scenario
+sampling a texture sized to match the grid once per pixel via
 `textureLoad()`, same two grid sizes, two runs each:
 
 | Scenario | 128x128, Run 1 | 128x128, Run 2 | 512x512, Run 1 | 512x512, Run 2 |
 |---|---|---|---|---|
-| `.draw()` + `textureLoad()` vs. `compileJS` + `textureLoad()`, once per pixel | `compileJS` 1.26x faster | `compileJS` 1.33x faster | `.draw()` 1.08x faster | `.draw()` 1.07x faster |
+| First measurement | `compileJS` 1.26x faster | `compileJS` 1.33x faster | `.draw()` 1.08x faster | `.draw()` 1.07x faster |
+| After the fix below | `.draw()` 1.12x faster | `.draw()` 1.13x faster | `.draw()` 1.62x faster | `.draw()` 1.64x faster |
 
-**At 128x128, `compileJS` actually wins** — the one case found so far
-where `.draw()` is the wrong choice. Not a caching bug (confirmed
-directly: timing repeated calls with the same texture shows the first
-call paying a real copy-in cost and every call after it roughly 4x
-cheaper, exactly the reference-equality cache working as designed) but a
-genuine, reproducible finding: `.draw()` eliminates *per-call* marshalling
+The first measurement found `compileJS` actually winning at 128x128 — the
+first case found where `.draw()` was the wrong choice. Not a caching bug
+(confirmed directly: timing repeated calls with the same texture shows
+the first call paying a real copy-in cost and every call after it roughly
+4x cheaper, exactly the reference-equality cache working as designed) but
+a real, reproducible finding: `.draw()` eliminates *per-call* marshalling
 overhead, and that's still true here, but `textureLoad()`'s own
 *per-pixel* cost (a bounds-checked, dynamically-addressed fetch — several
-`select`s and a memory load, see `emitTexelFetchStores`) is real work that
-doesn't go away, and at this grid size it happens to outweigh the
-marshalling savings entirely. Growing the grid to 512x512 flips it back to
-a `.draw()` win, but only barely (~1.07x) — nowhere near the ~10x the
-texture-free scenario shows at the same size. The practical read: for a
-texture-fetch-dominated per-pixel workload specifically, don't assume
-`.draw()` wins without measuring the actual grid size in question — the
-per-pixel cost this backend's texture sampling still carries (see the
-texture performance section above) matters more here than the per-call
-cost `.draw()` was built to eliminate.
+`select`s and a memory load) was real work that didn't go away, and at
+this grid size it outweighed the marshalling savings entirely.
+
+The cause turned out to be fixable, not inherent: `emitTexelFetchStores`
+(`rmsl-wasm.ts`) recomputed its bounds check and its safe, clamped texel
+index once per channel — 4 times over, for values that don't depend on
+which channel is being read — the exact same redundancy `texture()`'s own
+filtered sampling path had already been fixed for (see "Texture sampling
+was dramatically slower..." above), just not yet applied to the unfiltered
+path. Computing both exactly once per texel instead (the same "extra
+scratch right after the node's own result" treatment used throughout this
+file) flipped the result at both grid sizes: `.draw()` now wins by
+roughly 1.1x at 128x128 and roughly 1.6x at 512x512, up from ~1.07x. Still
+nowhere near the texture-free scenario's ~10x at the same size — a real,
+inherent per-pixel cost for texture sampling remains — but `.draw()` is no
+longer the wrong choice for this workload at either size measured.
 
 ## Status: Phase 1 through Phase 7 landed (except multi-return)
 
