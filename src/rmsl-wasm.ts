@@ -963,7 +963,8 @@ export function compileWasmFn(
     for (const p of node.params) {
       const pWidth = componentCountOf(p._t);
       if (pWidth === 1) {
-        out.push(...storeComponent(addr, targetKind, compIndex * compSize, walkExpr(p)));
+        const pKind = scalarKindOf(p._t as string);
+        out.push(...storeComponent(addr, targetKind, compIndex * compSize, convertComponent(walkExpr(p), pKind, targetKind)));
         compIndex++;
       } else {
         out.push(...materializeIfNeeded(p));
@@ -971,12 +972,35 @@ export function compileWasmFn(
         const pKind = elementKindOf(p._t);
         const pCompSize = componentSizeOf(pKind);
         for (let k = 0; k < pWidth; k++) {
-          out.push(...storeComponent(addr, targetKind, compIndex * compSize, loadComponent(pAddr, pKind, k * pCompSize)));
+          out.push(...storeComponent(addr, targetKind, compIndex * compSize, convertComponent(loadComponent(pAddr, pKind, k * pCompSize), pKind, targetKind)));
           compIndex++;
         }
       }
     }
     return out;
+  }
+
+  /**
+   * Convert a value already on the stack from `fromKind` to `toKind` for a
+   * `construct` whose target type differs from a param's own — e.g.
+   * `vec3(...).toIVec3()`, a per-component float-to-int truncation the
+   * source vec3's own components don't carry. Matches GLSL/WGSL/JS's own
+   * scalar-cast semantics: truncation toward zero into an integer, exact
+   * widening into a float. `int`/`uint`/`bool` share one representation
+   * (i32) so converting between those three is always a no-op; a `bool`
+   * on either side of a float boundary is not a case any construct in this
+   * DSL exercises today, so it stays untouched rather than guessing a
+   * semantics nothing currently tests.
+   */
+  function convertComponent(valueBytes: number[], fromKind: ScalarKind, toKind: ScalarKind): number[] {
+    if (fromKind === toKind || fromKind === "bool" || toKind === "bool") return valueBytes;
+    if (fromKind === "float") {
+      return [...valueBytes, toKind === "uint" ? WASM_OP.i32TruncF64U : WASM_OP.i32TruncF64S];
+    }
+    if (toKind === "float") {
+      return [...valueBytes, fromKind === "uint" ? WASM_OP.f64ConvertI32U : WASM_OP.f64ConvertI32S];
+    }
+    return valueBytes; // int <-> uint: identical bit pattern.
   }
 
   /** `dFdx`/`dFdy`/`fwidth` have no meaning on a CPU target — only reachable
@@ -2169,7 +2193,7 @@ export function compileWasm(
   // this is passed unconditionally rather than only when needed. `Math`'s
   // own methods have the same names, so it's handed over directly.
   const instance = new WebAssembly.Instance(new WebAssembly.Module(bytes.buffer as ArrayBuffer), { math: Math as unknown as WebAssembly.ModuleImports });
-  const wasmMain = instance.exports.main as (...args: number[]) => number;
+  const wasmMain = instance.exports[options.name] as (...args: number[]) => number;
   const memory = instance.exports.memory as WebAssembly.Memory;
   // Reassigned (not `const`) because growing `memory` for texture data
   // (below) detaches the buffer this `DataView` was built on.
