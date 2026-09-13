@@ -506,6 +506,20 @@ going to ship a `.wasm` asset rather than generate one at runtime.
   scalar-op-emitting function in `rmsl-wasm.ts`, not one contained seam like
   the uniform-boundary case. No known driving use case yet — revisit only if
   one shows up.
+- **Transcendentals still call back into JavaScript.** Phase 6 rejected a
+  host-import design for texture sampling specifically because it would
+  keep a texture-using shader from ever running standalone, without a JS
+  engine behind it — but `sin`/`cos`/`exp`/`log`/`pow`/etc. (Phase 1, see
+  "Transcendentals import `Math`, they don't get a polynomial" above) still
+  work exactly that way, and Phase 6 didn't revisit it. So the "runs without
+  a JS engine" property Phase 6 bought for textures doesn't actually hold
+  yet for any program that also uses a transcendental function — the
+  backend is inconsistent on this point right now, not fully standalone.
+  Closing it would mean hand-rolling polynomial approximations, which is
+  exactly the risk that made the `Math`-import choice deliberate in the
+  first place (see that section) — so this isn't a small follow-up, it's a
+  real tradeoff to make consciously if the standalone/native use case ever
+  becomes a real target rather than exploratory. Revisit then, not before.
 
 ## Known issues found along the way (not WASM-specific)
 
