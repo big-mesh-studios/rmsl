@@ -1159,15 +1159,16 @@ export function comp(type: string, a: any, b: any): Node<ShaderType> {
 }
 
 export function swizzle<A extends ShaderType>(src: BaseNode<ShaderType>, pattern: string): Node<A> {
-  // A single component of an integer vector is that integer scalar, not a
-  // float, so the result type is derived from the source's component prefix
-  // rather than assumed float.
+  // A single component of an integer or boolean vector is that scalar type,
+  // not a float, so the result type is derived from the source's component
+  // prefix rather than assumed float.
   let srcT = (src as any)?._t || "float";
-  let prefix = /^ivec/.test(srcT) ? "i" : /^uvec/.test(srcT) ? "u" : "";
+  let prefix = /^ivec/.test(srcT) ? "i" : /^uvec/.test(srcT) ? "u" : /^bvec/.test(srcT) ? "b" : "";
   let outType = pattern.length === 1
-    ? prefix === "i" ? "int" as const : prefix === "u" ? "uint" as const : "float" as const
+    ? prefix === "i" ? "int" as const : prefix === "u" ? "uint" as const : prefix === "b" ? "bool" as const : "float" as const
     : prefix === "i" ? `ivec${pattern.length}` as const
     : prefix === "u" ? `uvec${pattern.length}` as const
+    : prefix === "b" ? `bvec${pattern.length}` as const
     : `vec${pattern.length}` as const;
   return node({
     _t: outType,

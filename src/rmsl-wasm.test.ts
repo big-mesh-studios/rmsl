@@ -22,7 +22,7 @@
 import { describe, it, expect } from "vitest";
 import {
   compileWasm, compileJS, Fn, If, float, int, uint, bool, uniform, vec2, vec3, vec4,
-  ivec3, uvec3, mat2, mat3, mat4, sin, clamp,
+  ivec3, uvec3, bvec3, mat2, mat3, mat4, sin, clamp,
   type Node, type ShaderType,
 } from "./rmsl";
 
@@ -323,13 +323,10 @@ describe("WASM backend: swizzle read", () => {
     expect(run(() => Fn(() => vec3(1, 2, 3).toVar().z as any)())).toBe(3);
   });
 
-  it("reads int/uint vector components", () => {
-    // bvec's single-component swizzle is typed "float" not "bool" by
-    // rmsl-core's swizzle() (it only special-cases ivec/uvec prefixes) —
-    // a pre-existing core quirk, not something this backend introduces, so
-    // bvec swizzle reads aren't exercised here.
+  it("reads int/uint/bool vector components", () => {
     expect(run(() => ivec3(1, -2, 3).y as any)).toBe(-2);
     expect(run(() => uvec3(1, 2, 3).z as any)).toBe(3);
+    expect(run(() => (bvec3(true, false, true) as any).y)).toBe(false);
   });
 });
 
