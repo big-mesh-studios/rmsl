@@ -177,16 +177,29 @@ at the same commit, two runs:
 mostly gone (what's left is likely the same ordinary per-call wrapper
 overhead the plain-scalar benchmark already found, ~2.5-3.4x). `texture()`
 barely moved (19x → 13x), which is itself informative: its cost was never
-mainly the copy, so removing the copy couldn't fix it. The likely
-remaining cause is `emitTextureSampleStores`'s own doc comment
-(`rmsl-wasm.ts`) admitting it upfront — every wrap-mode/filter-mode
-`select` computes *both* branches, and each branch's bytecode is
-re-emitted (not cached in a temporary) at every use site, so a bilinear
-sample's four texel corners each redundantly recompute their own wrap
-math from scratch. Not fixed here — a real, separate follow-up
-(introducing some form of temporary-caching this file doesn't have yet
-for *any* codegen, not just textures), left for its own pass rather than
-attempted alongside the copy-caching fix that was actually diagnosed here.
+mainly the copy, so removing the copy couldn't fix it.
+
+Confirmed directly, not just suspected: a fourth scenario added to the same
+benchmark compares `texture()` sampling the same texture with
+`magFilter: "nearest"` against the existing `magFilter: "linear"` case.
+`compileWasm`'s own raw throughput is the same for both, within noise,
+across two runs (`compileWasm`: 1,244,856/1,263,353 hz nearest vs
+1,258,009/1,266,390 hz bilinear), while `compileJS` gets measurably
+*cheaper* for nearest (its own codegen actually takes a shorter branch) —
+which is exactly why nearest's ratio (17.47x/19.25x) looks *worse* than
+bilinear's (13.09-13.36x): `compileJS` improved and `compileWasm` didn't
+move at all. This directly confirms `emitTextureSampleStores`'s own doc
+comment: it computes *both* the nearest and the bilinear value
+unconditionally on every sample and only `select`s between them at run
+time on the texture's own `magFilter`, so the expensive path's bytecode
+runs whether or not a program ever asks for it — the cost isn't "bilinear
+filtering is expensive", it's "this codegen always pays bilinear's cost".
+
+Not fixed here — a real, separate follow-up (introducing some form of
+temporary-caching this file doesn't have yet for *any* codegen, not just
+textures, to stop recomputing the same wrap-addressed tap coordinates once
+per channel), left for its own pass rather than attempted alongside the
+copy-caching fix that was actually diagnosed and fixed in this same pass.
 
 One real limit on how bad any of this is in practice, worth stating
 precisely regardless of which part is fixed: even before the copy-caching
