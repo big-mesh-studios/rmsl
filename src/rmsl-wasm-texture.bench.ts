@@ -13,14 +13,21 @@
  * per-call cost `compileJS` doesn't, independent of loop length — worth
  * measuring on its own rather than assuming it away.
  *
- * Three scenarios, cheapest to most expensive sampling math, all against
+ * Four scenarios, cheapest to most expensive sampling math, all against
  * the same 8x8 RGBA texture: `textureSize()` (metadata only, no per-texel
  * math or heap indexing at all), `textureLoad()` (unfiltered, one texel),
- * and `texture()` with bilinear filtering (four texel reads and three
- * lerps). If the per-call copy cost dominates, all three should show a
- * similar WASM/JS ratio; if it doesn't, the ratio should widen as the
- * sampling math gets more expensive, the same way `rmsl-wasm-vs-js.bench.ts`'s
- * scalar case shows the wrapper cost separately from call-boundary cost.
+ * `texture()` with nearest filtering (the same wrap addressing as
+ * `textureLoad()`, but through `emitTextureSampleStores`'s codegen rather
+ * than `emitTexelFetchStores`'s), and `texture()` with bilinear filtering
+ * (four texel reads and three lerps). The nearest-vs-bilinear pair is
+ * deliberate: `emitTextureSampleStores` computes *both* the nearest and
+ * the bilinear value unconditionally and `select`s between them at run
+ * time on the texture's own `magFilter` (matching this file's existing
+ * branchless style) — so if the WASM/JS ratio for nearest sampling through
+ * `texture()` is close to bilinear's rather than to `textureLoad()`'s,
+ * that's direct evidence the bilinear math's cost is paid regardless of
+ * which filter mode is actually selected at run time, not only when it's
+ * actually used.
  *
  * Run with `npx vitest bench src/rmsl-wasm-texture.bench.ts`.
  */
@@ -30,7 +37,9 @@ import { compileWasm, compileJS, Fn, uniform, vec2, ivec2, textureSize, textureL
 const size = 8;
 const data = new Float32Array(size * size * 4);
 for (let i = 0; i < data.length; i++) data[i] = (i % 97) / 97;
-const texture: JsTextureData = { data, width: size, height: size, magFilter: "linear" };
+const linearTexture: JsTextureData = { data, width: size, height: size, magFilter: "linear" };
+const nearestTexture: JsTextureData = { data, width: size, height: size, magFilter: "nearest" };
+const texture = linearTexture; // kept for the two scenarios below that don't care which filter mode
 
 describe("textureSize(): metadata round trip only, no sampling math", () => {
   const tex = uniform("sampler2D") as any;
@@ -54,12 +63,23 @@ describe("textureLoad(): one unfiltered texel", () => {
   bench("compileJS", () => { jsFn(ctx); });
 });
 
+describe("texture(): nearest-filtered sample", () => {
+  const tex = uniform("sampler2D") as any;
+  const build = () => Fn(() => tex.texture(vec2(0.3, 0.7)).x)();
+  const wasmFn = compileWasm(build as any, { name: "main", params: [] });
+  const jsFn = compileJS(build as any, { name: "main", params: [] });
+  const ctx = { textures: { [tex.name]: nearestTexture } };
+
+  bench("compileWasm", () => { wasmFn(ctx); });
+  bench("compileJS", () => { jsFn(ctx); });
+});
+
 describe("texture(): bilinear-filtered sample", () => {
   const tex = uniform("sampler2D") as any;
   const build = () => Fn(() => tex.texture(vec2(0.3, 0.7)).x)();
   const wasmFn = compileWasm(build as any, { name: "main", params: [] });
   const jsFn = compileJS(build as any, { name: "main", params: [] });
-  const ctx = { textures: { [tex.name]: texture } };
+  const ctx = { textures: { [tex.name]: linearTexture } };
 
   bench("compileWasm", () => { wasmFn(ctx); });
   bench("compileJS", () => { jsFn(ctx); });
