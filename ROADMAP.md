@@ -27,14 +27,14 @@ Root cause, as far as the prototype dug: `compileJS`'s uniform reads are
 operand; WASM gets a plain `local.get`. That gap is wide enough that
 splitting a vector into scalars and taking a branch don't close it.
 
-## Status: Phase 1 and Phase 2 landed
+## Status: Phase 1, Phase 2, and Phase 3 landed
 
 `compileWasmFn` and `compileWasm` exist in `src/rmsl-wasm.ts`, next to
 `rmsl-glsl.ts`/`rmsl-wgsl.ts`/`rmsl-compile-js.ts` (see CONTRIBUTING.md for
 the file layout). Tests are in `src/rmsl-wasm.test.ts`.
 
-**What it covers**, Phase 1's validated slice plus Phase 2's full scalar op
-parity:
+**What it covers**, Phase 1's validated slice, Phase 2's full scalar op
+parity, and Phase 3's vectors/matrices as first-class values:
 
 - `compileWasmFn(fn, options): { bytes: Uint8Array, params: WasmParam[],
   resultType: ShaderType }` — the module plus a description of what each
@@ -55,21 +55,32 @@ parity:
   `Math`, they don't get a polynomial" below. `int`/`uint` use real `i32`,
   with signed/unsigned opcode variants chosen per operand type and explicit
   conversions for `float(int)`/`int(float)`/etc. casts.
-- vec3 `dot`.
+- vec2/vec3/vec4/mat2/mat3/mat4 (and `ivec*`/`uvec*`/`bvec*`) as first-class
+  intermediate values, backed by a real WASM linear memory: construct
+  (mixed-arity, matrix-from-columns, matrix-from-scalar diagonal), literal
+  vectors/matrices, `toVar()`/`.assign()` (including reuse across an
+  `If`/`Else` branch), swizzle read and write (single- and multi-component,
+  including a swizzled assignment target), `dot` (any width, not just
+  vec3), and componentwise `add`/`sub`/`mul`/`div` (vector±vector and
+  vector±scalar broadcast). Aggregate function params work the same way as
+  aggregate uniforms — see "Vectors and matrices live in linear memory now"
+  below.
 - `If`/`Else` via `toVar()`/`.assign()`, compiled to WASM's structured
   `if`/`else`/`end`.
 
 **What throws today** (deliberately — see the Phase list below for when each
-lands): `for`/`while`/`Loop`/`Switch`, vec2/vec4/mat* as first-class values
-(a vec3 exists only long enough to feed `dot`), `clamp`/`mix`/`step`/
-`smoothstep` (composite ops with no single WASM opcode — deliberately out of
-Phase 2's "has a direct opcode" scope), `uniformArray`, swizzles,
-`output()`/`varying()`/`attribute()`/`builtinPosition()`/`builtinFragDepth()`/
-`fragCoord()`, `textureLoad`/`texture`/`textureSize`, multi-return, and any
-non-scalar result. `compileWasmFn` throws `[RMSL] compileWasmFn: unsupported
-node type in <expr|vec3|statement> position: "<type>"` naming exactly what's
-missing, which is also the fastest way to find the next thing worth doing
-here.
+lands): `for`/`while`/`Loop`/`Switch`, `cross`/`length`/`normalize`/
+`distance`/`reflect`, matrix×vector and matrix×matrix multiply,
+`clamp`/`mix`/`step`/`smoothstep` (composite ops with no single WASM
+opcode — deliberately out of Phase 2's "has a direct opcode" scope),
+`uniformArray`, `output()`/`varying()`/`attribute()`/`builtinPosition()`/
+`builtinFragDepth()`/`fragCoord()`, `textureLoad`/`texture`/`textureSize`,
+multi-return, and any non-scalar function *result* (only intermediate
+values are first-class aggregates now — the root a compiled `Fn` returns
+must still be a scalar). `compileWasmFn` throws `[RMSL] compileWasmFn:
+unsupported node type in <expr|vector|statement> position: "<type>"` naming
+exactly what's missing, which is also the fastest way to find the next
+thing worth doing here.
 
 ## Design decisions already made
 
@@ -120,13 +131,34 @@ here.
   Function(source)()`. Fine for the module sizes here; revisit if a module
   grows large enough that sync compilation stalls a browser main thread (see
   Open questions).
-- **Vectors have no home yet.** There is no linear memory in this backend
-  yet, so a vec3 uniform becomes three separate f64 WASM params rather than
-  one aggregate — `WasmParam`'s `{ kind: "uniform", slot, axis }` shape
-  records which. This is a deliberate, load-bearing simplification, not an
-  oversight: it's what let Phase 1 ship without first deciding a memory
-  layout. It will need to change before uniform arrays, textures, or a
-  `toVar()`'d vector are possible (see Phase 3 and Phase 6).
+- **Vectors and matrices live in linear memory now.** Phase 3 settled the
+  ROADMAP's own open question in favor of a real WASM linear memory (one
+  memory, declared and exported as `"memory"`) over the cheaper
+  "split into N scalar slots" alternative. Every address is a **compile-time
+  constant** — there's no dynamic allocation, stack pointer, or (until
+  `uniformArray`/loops need one) dynamically-computed offset. A bump
+  allocator during the existing collect pass hands out byte offsets to:
+  aggregate uniforms and function params (keyed by slot/name — `WasmParam`
+  gained `"paramMemory"`/`"uniformMemory"` variants that carry an `address`
+  and never occupy a WASM function argument at all; `compileWasm` writes
+  their components straight into the instance's exported memory via a
+  `DataView` before every call), `let`-bound aggregate vars (keyed by
+  varName), and one dedicated scratch slot per vector/matrix-*producing*
+  expression node (construct, literal, multi-component swizzle,
+  componentwise arithmetic — keyed by node object identity via a `WeakMap`,
+  so a repeated reference like `dot(v, v)` shares one slot). Components are
+  stored at their natural width (f64 for float-family types, i32 for
+  int/uint/bool-family types), with no padding — every load/store uses
+  `align=0` since the allocator doesn't guarantee natural alignment, and
+  WASM's alignment immediate is only a perf hint, not a correctness
+  requirement. Scratch slots are never freed or reused (no arena/stack —
+  there's no recursion, and a future loop iteration just re-runs the same
+  static address), and every aggregate sub-node is materialized (its store
+  bytecode emitted) *exactly once* per syntactic use regardless of how many
+  of its components get read afterward, so nesting doesn't blow up
+  proportionally to width — see `materializeIfNeeded`/`nodeAddress` in
+  `src/rmsl-wasm.ts`. Scalar locals/params/uniforms are untouched by any of
+  this; only aggregate values moved into memory.
 - **No shader-stage concept yet.** `compileWasmFn`'s options are
   `CompileFnOptions` (`name` + `params`), the same shape
   `compileGLSLFn`/`compileWGSLFn` use for standalone functions — not
@@ -149,15 +181,18 @@ in under this name: `clamp`/`mix`/`step`/`smoothstep` — composite ops with
 no single opcode, closer in spirit to Phase 3's vector work than to this
 phase's "one opcode per op" scope.
 
-### Phase 3 — vectors and matrices as first-class values
-The load-bearing decision: keep the "split into N scalar slots" approach
-(cheap, no memory, but doesn't scale to `uniformArray`, swizzled writes, or a
-`toVar()`'d vector reused across a branch) or introduce WASM linear memory
-with a fixed struct layout (an aggregate finally has one address, but now
-every read/write is a `load`/`store` at an offset instead of a `local.get`,
-and offsets have to be planned). Prototype's dot-product test dodged this by
-never storing a vector, only reducing it immediately — a `toVar()`'d vec3
-forces the question. vec2/vec4/mat2-4 follow whichever layout gets picked.
+### ~~Phase 3 — vectors and matrices as first-class values~~ — done
+See "Status" and "Vectors and matrices live in linear memory now" above for
+the layout that shipped and what it covers: construct/literal/`toVar()`/
+`.assign()`/swizzle read+write/`dot`/componentwise `add`/`sub`/`mul`/`div`
+across vec2/vec3/vec4/mat2/mat3/mat4 (+ `ivec*`/`uvec*`/`bvec*`), backed by
+a real WASM linear memory rather than the scalar-slot-splitting Phase 1/2
+used for vec3. Explicitly *not* included, and left for a later phase:
+`cross`/`length`/`normalize`/`distance`/`reflect`, matrix×vector/
+matrix×matrix multiply, and `uniformArray` (the memory design leaves room
+for it — an array element's address just needs a dynamically-computed
+offset, which nothing in this phase's scope required — but it wasn't
+implemented here).
 
 ### Phase 4 — control flow parity
 `for`/`while`/`Loop`/`Break`/`Continue`/`Return`/`Switch`/`Discard`. WASM's
@@ -174,11 +209,14 @@ function" into "is an alternative to `compileJS` for a real shader graph,"
 matching `CompileJSOptions` instead of `CompileFnOptions`.
 
 ### Phase 6 — texture sampling
-The one place linear memory stops being optional: `JsTextureData` is
-arbitrary-sized pixel data, not a handful of scalars. Needs a real memory
-layout, a way to copy a texture's data into WASM memory before each call (or
-keep it resident and re-copy only on change), and filtering/wrap logic
-implemented either in emitted WASM or as an imported host function.
+Phase 3's linear memory is sized for a handful of fixed-size aggregates,
+laid out once at compile time; `JsTextureData` is arbitrary-sized pixel
+data, unknown until a texture uniform is actually bound. Needs its own
+memory region (likely grown with `memory.grow` rather than baked into the
+Phase 3 bump allocator's compile-time total), a way to copy a texture's
+data into WASM memory before each call (or keep it resident and re-copy
+only on change), and filtering/wrap logic implemented either in emitted
+WASM or as an imported host function.
 
 ### Phase 7 — parity testing infrastructure
 Once coverage is broad enough, hook `compileWasm` into

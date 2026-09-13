@@ -21,7 +21,8 @@
 
 import { describe, it, expect } from "vitest";
 import {
-  compileWasm, compileJS, Fn, If, float, int, uint, bool, uniform, vec3, sin, clamp,
+  compileWasm, compileJS, Fn, If, float, int, uint, bool, uniform, vec2, vec3, vec4,
+  ivec3, uvec3, mat2, mat3, mat4, sin, clamp,
   type Node, type ShaderType,
 } from "./rmsl";
 
@@ -252,5 +253,106 @@ describe("WASM backend: vec3 dot", () => {
     });
     expect(fn(ctx([1, 0, 0], [1, 0, 0], 0.5))).toBe(1); // parallel: dot=1
     expect(fn(ctx([1, 0, 0], [0, 1, 0], 0.5))).toBe(0); // perpendicular: dot=0
+  });
+});
+
+/**
+ * Phase 3: vectors/matrices as first-class values, backed by real WASM
+ * linear memory (see ROADMAP.md). Every case below verifies memory layout
+ * indirectly, by dotting a constructed/stored value against itself (or a
+ * probe vector) and checking a hand-computed number — the same style the
+ * Phase 1/2 vec3-dot tests above already use, generalized to every width
+ * and to vars/swizzles/componentwise ops that go through the new
+ * materialize-into-memory mechanism instead of the old vec3-only path.
+ */
+describe("WASM backend: vector/matrix construct and literals", () => {
+  it("dots a vec2/vec3/vec4 literal against itself", () => {
+    expect(run(() => vec2(3, 4).dot(vec2(3, 4)) as any)).toBe(25);
+    expect(run(() => vec3(1, 2, 3).dot(vec3(1, 2, 3)) as any)).toBe(14);
+    expect(run(() => vec4(1, 2, 3, 4).dot(vec4(1, 2, 3, 4)) as any)).toBe(30);
+  });
+
+  it("dots a mixed-arity construct (vec3-from-vec2, vec4-from-vec3) against itself", () => {
+    expect(run(() => (vec3 as any)(vec2(1, 2), 3).dot(vec3(1, 2, 3)))).toBe(14);
+    expect(run(() => vec4(vec3(1, 2, 3), 4).dot(vec4(1, 2, 3, 4)) as any)).toBe(30);
+  });
+
+  it("dots a matrix (Frobenius inner product) built from columns or a scalar diagonal", () => {
+    const m = () => mat3(vec3(1, 2, 3), vec3(4, 5, 6), vec3(7, 8, 9));
+    expect(run(() => (m() as any).dot(m() as any))).toBe(285); // sum of squares 1..9
+    expect(run(() => (mat2(2) as any).dot(mat2(2) as any))).toBe(8); // diag(2,2) -> 4+4
+    expect(run(() => (mat4(3) as any).dot(mat4(3) as any))).toBe(36); // diag(3,3,3,3) -> 4*9
+  });
+});
+
+describe("WASM backend: toVar/assign on vectors", () => {
+  it("reuses a toVar'd vector across an If/Else branch", () => {
+    const branch = (x: Node<"float">) => Fn(() => {
+      const v = vec3(0, 0, 0).toVar();
+      If(x.greaterThan(0), () => { v.assign(vec3(1, 2, 3)); })
+        .Else(() => { v.assign(vec3(4, 5, 6)); });
+      return v.dot(v) as any;
+    })();
+    expect(run(branch, [1])).toBe(14); // 1+4+9
+    expect(run(branch, [-1])).toBe(77); // 16+25+36
+  });
+
+  it("assigns a multi-component swizzle target", () => {
+    const build = () => Fn(() => {
+      const v = vec3(1, 2, 3).toVar();
+      v.xy.assign(vec2(10, 20));
+      return v.dot(v) as any;
+    })();
+    expect(run(build)).toBe(509); // 100+400+9
+  });
+
+  it("assigns a single-component swizzle target", () => {
+    const build = () => Fn(() => {
+      const v = vec3(1, 2, 3).toVar();
+      v.y.assign(float(99));
+      return v.dot(v) as any;
+    })();
+    expect(run(build)).toBe(9811); // 1+9801+9
+  });
+});
+
+describe("WASM backend: swizzle read", () => {
+  it("reads single and multi-component swizzles, skipping components", () => {
+    expect(run(() => vec4(1, 2, 3, 4).y as any)).toBe(2);
+    expect(run(() => vec4(1, 2, 3, 4).yz.dot(vec2(1, 1)) as any)).toBe(5); // 2+3, skips x and w
+    expect(run(() => Fn(() => vec3(1, 2, 3).toVar().z as any)())).toBe(3);
+  });
+
+  it("reads int/uint vector components", () => {
+    // bvec's single-component swizzle is typed "float" not "bool" by
+    // rmsl-core's swizzle() (it only special-cases ivec/uvec prefixes) —
+    // a pre-existing core quirk, not something this backend introduces, so
+    // bvec swizzle reads aren't exercised here.
+    expect(run(() => ivec3(1, -2, 3).y as any)).toBe(-2);
+    expect(run(() => uvec3(1, 2, 3).z as any)).toBe(3);
+  });
+});
+
+describe("WASM backend: componentwise vector arithmetic", () => {
+  it("adds/subs/muls/divs vector-vector", () => {
+    expect(run(() => vec3(1, 2, 3).add(vec3(4, 5, 6)).dot(vec3(1, 2, 3).add(vec3(4, 5, 6))) as any)).toBe(155);
+    expect(run(() => vec3(2, 4, 6).sub(vec3(1, 1, 1)).dot(vec3(1, 3, 5)) as any)).toBe(35);
+    expect(run(() => vec2(3, 4).mul(vec2(2, 2)).dot(vec2(6, 8)) as any)).toBe(100);
+  });
+
+  it("broadcasts a scalar across a vector for mul/div", () => {
+    expect(run(() => vec3(1, 2, 3).mul(2).dot(vec3(2, 4, 6)) as any)).toBe(56);
+    expect(run(() => vec3(2, 4, 6).div(2).dot(vec3(1, 2, 3)) as any)).toBe(14);
+  });
+
+  it("adds int vectors componentwise", () => {
+    expect(run(() => ivec3(1, 2, 3).add(ivec3(10, 20, 30)).y as any)).toBe(22);
+  });
+});
+
+describe("WASM backend: aggregate function params", () => {
+  it("reads a vec3 function param via memory, not a WASM arg", () => {
+    const fn = compileWasm((v: any) => v.dot(v), { name: "main", params: [{ name: "v", type: "vec3" }] });
+    expect(fn({ params: { v: [1, 2, 3] } })).toBe(14);
   });
 });
