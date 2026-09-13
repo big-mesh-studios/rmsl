@@ -365,6 +365,138 @@ function wasmStrBytes(s: string): number[] {
   return [...wasmUleb128(b.length), ...b];
 }
 
+/** Emits i32.const plus the signed LEB128 operand. */
+function i32ConstBytes(n: number): number[] {
+  return [WASM_OP.i32Const, ...wasmSleb128(n | 0)];
+}
+
+/** Emits f64.const plus the raw 8-byte little-endian operand. */
+function f64ConstBytes(n: number): number[] {
+  return [WASM_OP.f64Const, ...wasmF64Bytes(n)];
+}
+
+/** WASM select pops [whenTrue, whenFalse, cond]; note BOTH value arms are always evaluated. */
+function selectExpr(whenTrue: number[], whenFalse: number[], cond: number[]): number[] {
+  return [...whenTrue, ...whenFalse, ...cond, WASM_OP.select];
+}
+
+/** [base, load, memarg: align=0, offset] — loads one component at a constant address. */
+function loadComponent(addr: number, kind: ScalarKind, byteOffset: number): number[] {
+  return [
+    ...i32ConstBytes(addr),
+    kind === "float" ? WASM_OP.f64Load : WASM_OP.i32Load,
+    0x00,
+    ...wasmUleb128(byteOffset),
+  ];
+}
+
+/** [base, value, store, align=0, offset] — stores one component at a constant address. */
+function storeComponent(addr: number, kind: ScalarKind, byteOffset: number, valueBytes: number[]): number[] {
+  return [
+    ...i32ConstBytes(addr),
+    ...valueBytes,
+    kind === "float" ? WASM_OP.f64Store : WASM_OP.i32Store,
+    0x00,
+    ...wasmUleb128(byteOffset),
+  ];
+}
+
+/**
+ * As the static helpers, but the base address is itself computed at runtime
+ * (texture heap, draw output).
+ */
+function loadDynamic(addrBytes: number[], kind: ScalarKind): number[] {
+  return [...addrBytes, kind === "float" ? WASM_OP.f64Load : WASM_OP.i32Load, 0x00, 0x00];
+}
+
+/**
+ * As the static helpers, but the base address is itself computed at runtime
+ * (texture heap, draw output).
+ */
+function storeDynamic(addrBytes: number[], kind: ScalarKind, valueBytes: number[]): number[] {
+  return [...addrBytes, ...valueBytes, kind === "float" ? WASM_OP.f64Store : WASM_OP.i32Store, 0x00, 0x00];
+}
+
+/** Casts one scalar to another kind: f64<->i32 via trunc/convert; bools stay as raw bit values. */
+function convertComponent(valueBytes: number[], fromKind: ScalarKind, toKind: ScalarKind): number[] {
+  if (fromKind === toKind || fromKind === "bool" || toKind === "bool") return valueBytes;
+  if (fromKind === "float") {
+    return [...valueBytes, toKind === "uint" ? WASM_OP.i32TruncF64U : WASM_OP.i32TruncF64S];
+  }
+  if (toKind === "float") {
+    return [...valueBytes, fromKind === "uint" ? WASM_OP.f64ConvertI32U : WASM_OP.f64ConvertI32S];
+  }
+  return valueBytes;
+}
+
+/** float min/max use native f64.min/max; int/uint fall back to a compare + select (bytes in). */
+function minMaxBytes(a: number[], b: number[], kind: ScalarKind, pick: "min" | "max"): number[] {
+  if (kind === "float") return [...a, ...b, pick === "min" ? WASM_OP.f64Min : WASM_OP.f64Max];
+  const cmp =
+    kind === "uint"
+      ? pick === "min"
+        ? WASM_OP.i32LtU
+        : WASM_OP.i32GtU
+      : pick === "min"
+        ? WASM_OP.i32LtS
+        : WASM_OP.i32GtS;
+  return selectExpr(a, b, [...a, ...b, cmp]);
+}
+
+/**
+ * True for aggregate-typed expressions that are anonymous results (not a
+ * var/uniform/param...) and therefore need their own fixed address to be
+ * materialized into before any component can be read.
+ */
+function isScratchNode(node: any): boolean {
+  const t = node._t as string;
+  if (!isAggregate(t)) return false;
+  if (node.type === "construct") return true;
+  if (node.type === t) return true;
+  if (node.type === "swizzle" && (node.value as string).length > 1) return true;
+  if (node.type === "cross" || node.type === "reflect" || node.type === "normalize" || node.type === "matVecMul")
+    return true;
+  if (node.type === "dFdx" || node.type === "dFdy" || node.type === "fwidth") return true;
+  if (node.type === "textureSize" || node.type === "textureLoad") return true;
+  if (node.type === "texture" || node.type === "textureLod") return true;
+  if (node.type === "clamp" || node.type === "mix" || node.type === "step" || node.type === "smoothstep") return true;
+  return node.type === "add" || node.type === "sub" || node.type === "mul" || node.type === "div";
+}
+
+/**
+ * Promotes a gpu-placed uniform from the host's narrow f32 region into the
+ * packed f64 layout.
+ */
+function emitGpuUniformPromote(node: any, addr: number, rawAddr: number): number[] {
+  const kind = elementKindOf(node._t as string);
+  const width = componentCountOf(node._t as string);
+  const rawCompSize = kind === "float" ? 4 : componentSizeOf(kind);
+  const compSize = componentSizeOf(kind);
+  const out: number[] = [];
+  for (let k = 0; k < width; k++) {
+    const rawBytes =
+      kind === "float"
+        ? [...i32ConstBytes(rawAddr + k * rawCompSize), WASM_OP.f32Load, 0x00, ...wasmUleb128(0), WASM_OP.f64PromoteF32]
+        : loadComponent(rawAddr, kind, k * rawCompSize);
+    out.push(...storeComponent(addr, kind, k * compSize, rawBytes));
+  }
+  return out;
+}
+
+/** Stores a literal aggregate component-wise at addr. */
+function emitLiteralStores(node: any, addr: number): number[] {
+  const kind = elementKindOf(node._t as string);
+  const compSize = componentSizeOf(kind);
+  const values = node.value as (number | boolean)[];
+  const out: number[] = [];
+  values.forEach((v, i) => {
+    const num = typeof v === "boolean" ? (v ? 1 : 0) : v;
+    const bytes = kind === "float" ? f64ConstBytes(num) : i32ConstBytes(num);
+    out.push(...storeComponent(addr, kind, i * compSize, bytes));
+  });
+  return out;
+}
+
 /**
  * Offsets where the host will store GPU-placed uniforms (float as f32),
  * reserving a memory region sized by totalSize. Reading such a uniform
@@ -479,157 +611,179 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     }
   }
 
-  /**
-   * True for aggregate-typed expressions that are anonymous results (not a
-   * var/uniform/param...) and therefore need their own fixed address to be
-   * materialized into before any component can be read.
-   */
-  function isScratchNode(node: any): boolean {
-    const t = node._t as string;
-    if (!isAggregate(t)) return false;
-    if (node.type === "construct") return true;
-    if (node.type === t) return true;
-    if (node.type === "swizzle" && (node.value as string).length > 1) return true;
-    if (node.type === "cross" || node.type === "reflect" || node.type === "normalize" || node.type === "matVecMul")
-      return true;
-    if (node.type === "dFdx" || node.type === "dFdy" || node.type === "fwidth") return true;
-    if (node.type === "textureSize" || node.type === "textureLoad") return true;
-    if (node.type === "texture" || node.type === "textureLod") return true;
-    if (node.type === "clamp" || node.type === "mix" || node.type === "step" || node.type === "smoothstep") return true;
-    return node.type === "add" || node.type === "sub" || node.type === "mul" || node.type === "div";
-  }
-
-  /** Pass 1: walk the AST, allocating every slot/address the emitters will use. */
+  /** Walk the AST, allocating every slot/address the emitters will use. */
   function collect(node: any): void {
     if (node === null || typeof node !== "object") return;
-    if (node.type === "var" && fnParamNames.has(node.value?.varName)) {
-      const name = node.value.varName;
-      const t = paramTypeByName.get(name)!;
-      if (isAggregate(t)) {
-        if (!paramAddress.has(name)) {
-          const addr = allocateFor(t);
-          paramAddress.set(name, addr);
-          memoryParams.push({ kind: "paramMemory", name, shaderType: t, address: addr });
+    switch (node.type) {
+      case "var": {
+        if (!fnParamNames.has(node.value?.varName)) break;
+        const name = node.value.varName;
+        const t = paramTypeByName.get(name)!;
+        if (isAggregate(t)) {
+          if (!paramAddress.has(name)) {
+            const addr = allocateFor(t);
+            paramAddress.set(name, addr);
+            memoryParams.push({ kind: "paramMemory", name, shaderType: t, address: addr });
+          }
+        } else {
+          addParam({ kind: "param", name, shaderType: t }, `param:${name}`);
         }
-      } else {
-        addParam({ kind: "param", name, shaderType: t }, `param:${name}`);
+        break;
       }
-    } else if (node.type === "uniform" && isSamplerType(node.value.shaderType)) {
-      const v = node.value;
-      if (!textureMetadataAddress.has(v.slot)) {
-        const addr = allocateBytes(TEXTURE_META_STRIDE);
-        textureMetadataAddress.set(v.slot, addr);
-        memoryParams.push({ kind: "textureMemory", slot: v.slot, samplerType: v.shaderType, metadataAddress: addr });
-      }
-    } else if (node.type === "uniform") {
-      const v = node.value;
-      if (isAggregate(v.shaderType)) {
-        if (!uniformAddress.has(v.slot)) {
-          const addr = allocateFor(v.shaderType);
-          uniformAddress.set(v.slot, addr);
-          const gpuOffset = options.gpuUniformLayout?.offsets[v.slot];
-          if (gpuOffset !== undefined) {
-            gpuRawUniformAddress.set(v.slot, gpuOffset);
+
+      case "uniform": {
+        const v = node.value;
+        if (isSamplerType(v.shaderType)) {
+          if (!textureMetadataAddress.has(v.slot)) {
+            const addr = allocateBytes(TEXTURE_META_STRIDE);
+            textureMetadataAddress.set(v.slot, addr);
             memoryParams.push({
-              kind: "uniformMemory",
+              kind: "textureMemory",
               slot: v.slot,
-              shaderType: v.shaderType,
-              address: gpuOffset,
-              narrow: true,
+              samplerType: v.shaderType,
+              metadataAddress: addr,
             });
+          }
+        } else if (isAggregate(v.shaderType)) {
+          if (!uniformAddress.has(v.slot)) {
+            const addr = allocateFor(v.shaderType);
+            uniformAddress.set(v.slot, addr);
+            const gpuOffset = options.gpuUniformLayout?.offsets[v.slot];
+            if (gpuOffset !== undefined) {
+              gpuRawUniformAddress.set(v.slot, gpuOffset);
+              memoryParams.push({
+                kind: "uniformMemory",
+                slot: v.slot,
+                shaderType: v.shaderType,
+                address: gpuOffset,
+                narrow: true,
+              });
+            } else {
+              memoryParams.push({ kind: "uniformMemory", slot: v.slot, shaderType: v.shaderType, address: addr });
+            }
+          }
+        } else {
+          addParam({ kind: "uniform", slot: v.slot, shaderType: v.shaderType }, `uniform:${v.slot}`);
+        }
+        break;
+      }
+
+      case "attribute": {
+        const v = node.value;
+        if (isAggregate(v.shaderType)) {
+          if (!attributeAddress.has(v.slot)) {
+            const addr = allocateFor(v.shaderType);
+            attributeAddress.set(v.slot, addr);
+            memoryParams.push({ kind: "attributeMemory", slot: v.slot, shaderType: v.shaderType, address: addr });
+          }
+        } else {
+          addParam({ kind: "attribute", slot: v.slot, shaderType: v.shaderType }, `attribute:${v.slot}`);
+        }
+        break;
+      }
+
+      case "varying": {
+        const v = node.value;
+        if (effectiveStage === "fragment") {
+          // fragment: varyings are per-call inputs, written by the host
+          if (isAggregate(v.shaderType)) {
+            if (!varyingAddress.has(v.slot)) {
+              const addr = allocateFor(v.shaderType);
+              varyingAddress.set(v.slot, addr);
+              memoryParams.push({ kind: "varyingMemory", slot: v.slot, shaderType: v.shaderType, address: addr });
+            }
           } else {
-            memoryParams.push({ kind: "uniformMemory", slot: v.slot, shaderType: v.shaderType, address: addr });
+            addParam({ kind: "varying", slot: v.slot, shaderType: v.shaderType }, `varying:${v.slot}`);
+          }
+        } else {
+          // vertex: varyings are outputs the host reads back
+          needsResult = true;
+          if (!varyingOutputAddress.has(v.slot)) {
+            const addr = allocateFor(v.shaderType);
+            varyingOutputAddress.set(v.slot, addr);
+            memoryParams.push({ kind: "varyingOutputMemory", slot: v.slot, shaderType: v.shaderType, address: addr });
           }
         }
-      } else {
-        addParam({ kind: "uniform", slot: v.slot, shaderType: v.shaderType }, `uniform:${v.slot}`);
+        break;
       }
-    } else if (node.type === "attribute") {
-      const v = node.value;
-      if (isAggregate(v.shaderType)) {
-        if (!attributeAddress.has(v.slot)) {
-          const addr = allocateFor(v.shaderType);
-          attributeAddress.set(v.slot, addr);
-          memoryParams.push({ kind: "attributeMemory", slot: v.slot, shaderType: v.shaderType, address: addr });
+
+      case "fragCoord": {
+        // fragment-only shared per-pixel input slot
+        if (effectiveStage !== "fragment") {
+          throw new Error("[RMSL] compileWasmFn: fragCoord() can only be used in fragment shaders");
         }
-      } else {
-        addParam({ kind: "attribute", slot: v.slot, shaderType: v.shaderType }, `attribute:${v.slot}`);
-      }
-    } else if (node.type === "varying" && effectiveStage === "fragment") {
-      // fragment: varyings are per-call inputs, written by the host
-      const v = node.value;
-      if (isAggregate(v.shaderType)) {
-        if (!varyingAddress.has(v.slot)) {
-          const addr = allocateFor(v.shaderType);
-          varyingAddress.set(v.slot, addr);
-          memoryParams.push({ kind: "varyingMemory", slot: v.slot, shaderType: v.shaderType, address: addr });
+        if (fragCoordAddress === undefined) {
+          fragCoordAddress = allocateFor("vec2");
+          memoryParams.push({ kind: "fragCoordMemory", address: fragCoordAddress });
         }
-      } else {
-        addParam({ kind: "varying", slot: v.slot, shaderType: v.shaderType }, `varying:${v.slot}`);
+        break;
       }
-    } else if (node.type === "fragCoord") {
-      // fragment-only shared per-pixel input slot
-      if (effectiveStage !== "fragment") {
-        throw new Error("[RMSL] compileWasmFn: fragCoord() can only be used in fragment shaders");
+
+      case "output": {
+        // pipeline output: forces needsResult so the host can read it
+        needsResult = true;
+        const v = node.value;
+        if (!outputAddress.has(v.slot)) {
+          const addr = allocateFor(v.shaderType);
+          outputAddress.set(v.slot, addr);
+          memoryParams.push({ kind: "outputMemory", slot: v.slot, shaderType: v.shaderType, address: addr });
+        }
+        break;
       }
-      if (fragCoordAddress === undefined) {
-        fragCoordAddress = allocateFor("vec2");
-        memoryParams.push({ kind: "fragCoordMemory", address: fragCoordAddress });
+
+      case "builtinPosition": {
+        // vertex output (gl_Position), write-only in the vertex stage
+        needsResult = true;
+        if (positionAddress === undefined) {
+          positionAddress = allocateFor("vec4");
+          memoryParams.push({ kind: "positionMemory", address: positionAddress });
+        }
+        break;
       }
-    } else if (node.type === "output") {
-      // pipeline output: forces needsResult so the host can read it
-      needsResult = true;
-      const v = node.value;
-      if (!outputAddress.has(v.slot)) {
-        const addr = allocateFor(v.shaderType);
-        outputAddress.set(v.slot, addr);
-        memoryParams.push({ kind: "outputMemory", slot: v.slot, shaderType: v.shaderType, address: addr });
+
+      case "builtinFragDepth": {
+        // fragment output (gl_FragDepth)
+        if (effectiveStage !== "fragment") {
+          throw new Error("[RMSL] compileWasmFn: builtinFragDepth() can only be used in fragment shaders");
+        }
+        needsResult = true;
+        if (fragDepthAddress === undefined) {
+          fragDepthAddress = allocateFor("float");
+          memoryParams.push({ kind: "fragDepthMemory", address: fragDepthAddress });
+        }
+        break;
       }
-    } else if (node.type === "varying" && effectiveStage === "vertex") {
-      // vertex: varyings are outputs the host reads back
-      needsResult = true;
-      const v = node.value;
-      if (!varyingOutputAddress.has(v.slot)) {
-        const addr = allocateFor(v.shaderType);
-        varyingOutputAddress.set(v.slot, addr);
-        memoryParams.push({ kind: "varyingOutputMemory", slot: v.slot, shaderType: v.shaderType, address: addr });
+
+      case "assign": {
+        // remember a direct gl_Position write
+        if (node.params[0].type === "builtinPosition") positionWritten = true;
+        break;
       }
-    } else if (node.type === "builtinPosition") {
-      // vertex output (gl_Position), write-only in the vertex stage
-      needsResult = true;
-      if (positionAddress === undefined) {
-        positionAddress = allocateFor("vec4");
-        memoryParams.push({ kind: "positionMemory", address: positionAddress });
+
+      case "let": {
+        // aggregate let reserves a varAddress slot; scalar lets become WASM locals
+        const targetNode = node.params[0];
+        const t = targetNode._t as string;
+        if (isAggregate(t)) {
+          const varName = targetNode.value.varName;
+          if (!varAddress.has(varName)) varAddress.set(varName, allocateFor(t));
+        } else {
+          addLocal(targetNode.value.varName, scalarKindOf(t));
+        }
+        break;
       }
-    } else if (node.type === "builtinFragDepth") {
-      // fragment output (gl_FragDepth)
-      if (effectiveStage !== "fragment") {
-        throw new Error("[RMSL] compileWasmFn: builtinFragDepth() can only be used in fragment shaders");
-      }
-      needsResult = true;
-      if (fragDepthAddress === undefined) {
-        fragDepthAddress = allocateFor("float");
-        memoryParams.push({ kind: "fragDepthMemory", address: fragDepthAddress });
-      }
-    } else if (node.type === "assign" && node.params[0].type === "builtinPosition") {
-      // remember a direct gl_Position write
-      positionWritten = true;
-    } else if (node.type === "let") {
-      // aggregate let reserves a varAddress slot; scalar lets become WASM locals
-      const targetNode = node.params[0];
-      const t = targetNode._t as string;
-      if (isAggregate(t)) {
-        const varName = targetNode.value.varName;
-        if (!varAddress.has(varName)) varAddress.set(varName, allocateFor(t));
-      } else {
-        addLocal(targetNode.value.varName, scalarKindOf(t));
-      }
-    } else if (MATH_UNARY_IMPORTS.has(node.type) || MATH_BINARY_IMPORTS.has(node.type)) {
-      importsUsed.add(node.type);
-    } else if (node.type === "exp2") {
-      importsUsed.add("pow"); // exp2(x) = pow(2, x) via the host import
-    } else if (node.type === "smoothstep") {
-      addLocal("$smoothstep_t", "float"); // one shared temp local for t (dedup keeps it single)
+
+      case "exp2":
+        importsUsed.add("pow"); // exp2(x) = pow(2, x) via the host import
+        break;
+
+      case "smoothstep":
+        addLocal("$smoothstep_t", "float"); // one shared temp local for t (dedup keeps it single)
+        break;
+
+      default:
+        if (MATH_UNARY_IMPORTS.has(node.type) || MATH_BINARY_IMPORTS.has(node.type)) importsUsed.add(node.type);
+        break;
     }
     if (isScratchNode(node) && !scratchAddress.has(node)) {
       const addr = allocateFor(node._t as string);
@@ -698,97 +852,80 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
 
   /** Fixed linear-memory address of an aggregate-typed node, from the map for its kind. */
   function nodeAddress(node: any): number {
-    if (node.type === "var") {
-      const name = node.value.varName;
-      const addr = fnParamNames.has(name) ? paramAddress.get(name) : varAddress.get(name);
-      if (addr === undefined) throw new Error(`[RMSL] compileWasmFn: read of undeclared aggregate var "${name}"`);
-      return addr;
-    }
-    if (node.type === "uniform") {
-      const addr = uniformAddress.get(node.value.slot);
-      if (addr === undefined)
-        throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed uniform "${node.value.slot}"`);
-      return addr;
-    }
-    if (node.type === "attribute") {
-      const addr = attributeAddress.get(node.value.slot);
-      if (addr === undefined)
-        throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed attribute "${node.value.slot}"`);
-      return addr;
-    }
-    if (node.type === "varying" && effectiveStage === "fragment") {
-      const addr = varyingAddress.get(node.value.slot);
-      if (addr === undefined)
-        throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed varying "${node.value.slot}"`);
-      return addr;
-    }
-    if (node.type === "fragCoord") {
-      if (fragCoordAddress === undefined)
-        throw new Error("[RMSL] compileWasmFn: internal error, unaddressed fragCoord");
-      return fragCoordAddress;
-    }
-    if (node.type === "output") {
-      const addr = outputAddress.get(node.value.slot);
-      if (addr === undefined)
-        throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed output "${node.value.slot}"`);
-      return addr;
-    }
-    if (node.type === "varying" && effectiveStage === "vertex") {
-      const addr = varyingOutputAddress.get(node.value.slot);
-      if (addr === undefined)
-        throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed varying "${node.value.slot}"`);
-      return addr;
-    }
-    if (node.type === "builtinPosition") {
-      if (effectiveStage !== "vertex") {
-        throw new Error(
-          "[RMSL] compileWasmFn: builtinPosition() is the vertex stage's output position, and a " +
-            "fragment stage cannot read it. Pass the value you need through a " +
-            "varying() instead.",
-        );
+    switch (node.type) {
+      case "var": {
+        const name = node.value.varName;
+        const addr = fnParamNames.has(name) ? paramAddress.get(name) : varAddress.get(name);
+        if (addr === undefined) throw new Error(`[RMSL] compileWasmFn: read of undeclared aggregate var "${name}"`);
+        return addr;
       }
-      if (positionAddress === undefined)
-        throw new Error("[RMSL] compileWasmFn: internal error, unaddressed builtinPosition");
-      return positionAddress;
+
+      case "uniform": {
+        const addr = uniformAddress.get(node.value.slot);
+        if (addr === undefined)
+          throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed uniform "${node.value.slot}"`);
+        return addr;
+      }
+
+      case "attribute": {
+        const addr = attributeAddress.get(node.value.slot);
+        if (addr === undefined)
+          throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed attribute "${node.value.slot}"`);
+        return addr;
+      }
+
+      case "varying": {
+        if (effectiveStage === "fragment") {
+          const addr = varyingAddress.get(node.value.slot);
+          if (addr === undefined)
+            throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed varying "${node.value.slot}"`);
+          return addr;
+        }
+        const addr = varyingOutputAddress.get(node.value.slot);
+        if (addr === undefined)
+          throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed varying "${node.value.slot}"`);
+        return addr;
+      }
+
+      case "fragCoord": {
+        if (fragCoordAddress === undefined)
+          throw new Error("[RMSL] compileWasmFn: internal error, unaddressed fragCoord");
+        return fragCoordAddress;
+      }
+
+      case "output": {
+        const addr = outputAddress.get(node.value.slot);
+        if (addr === undefined)
+          throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed output "${node.value.slot}"`);
+        return addr;
+      }
+
+      case "builtinPosition": {
+        if (effectiveStage !== "vertex") {
+          throw new Error(
+            "[RMSL] compileWasmFn: builtinPosition() is the vertex stage's output position, and a " +
+              "fragment stage cannot read it. Pass the value you need through a " +
+              "varying() instead.",
+          );
+        }
+        if (positionAddress === undefined)
+          throw new Error("[RMSL] compileWasmFn: internal error, unaddressed builtinPosition");
+        return positionAddress;
+      }
+
+      case "builtinFragDepth": {
+        if (fragDepthAddress === undefined)
+          throw new Error("[RMSL] compileWasmFn: internal error, unaddressed builtinFragDepth");
+        return fragDepthAddress;
+      }
+
+      default: {
+        const addr = scratchAddress.get(node);
+        if (addr === undefined)
+          throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed node "${node.type}"`);
+        return addr;
+      }
     }
-    if (node.type === "builtinFragDepth") {
-      if (fragDepthAddress === undefined)
-        throw new Error("[RMSL] compileWasmFn: internal error, unaddressed builtinFragDepth");
-      return fragDepthAddress;
-    }
-    const addr = scratchAddress.get(node);
-    if (addr === undefined) throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed node "${node.type}"`);
-    return addr;
-  }
-
-  /** [base, load, memarg: align=0, offset] — loads one component at a constant address. */
-  function loadComponent(addr: number, kind: ScalarKind, byteOffset: number): number[] {
-    return [
-      ...i32ConstBytes(addr),
-      kind === "float" ? WASM_OP.f64Load : WASM_OP.i32Load,
-      0x00,
-      ...wasmUleb128(byteOffset),
-    ];
-  }
-  /** [base, value, store, align=0, offset] — stores one component at a constant address. */
-  function storeComponent(addr: number, kind: ScalarKind, byteOffset: number, valueBytes: number[]): number[] {
-    return [
-      ...i32ConstBytes(addr),
-      ...valueBytes,
-      kind === "float" ? WASM_OP.f64Store : WASM_OP.i32Store,
-      0x00,
-      ...wasmUleb128(byteOffset),
-    ];
-  }
-
-  /** As the static helpers, but the base address is itself computed at runtime (texture heap, draw output). */
-  function loadDynamic(addrBytes: number[], kind: ScalarKind): number[] {
-    return [...addrBytes, kind === "float" ? WASM_OP.f64Load : WASM_OP.i32Load, 0x00, 0x00];
-  }
-
-  /** As the static helpers, but the base address is itself computed at runtime (texture heap, draw output). */
-  function storeDynamic(addrBytes: number[], kind: ScalarKind, valueBytes: number[]): number[] {
-    return [...addrBytes, ...valueBytes, kind === "float" ? WASM_OP.f64Store : WASM_OP.i32Store, 0x00, 0x00];
   }
 
   /**
@@ -866,29 +1003,6 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     }
   }
 
-  /** Promotes a gpu-placed uniform from the host's narrow f32 region into the packed f64 layout. */
-  function emitGpuUniformPromote(node: any, addr: number, rawAddr: number): number[] {
-    const kind = elementKindOf(node._t as string);
-    const width = componentCountOf(node._t as string);
-    const rawCompSize = kind === "float" ? 4 : componentSizeOf(kind);
-    const compSize = componentSizeOf(kind);
-    const out: number[] = [];
-    for (let k = 0; k < width; k++) {
-      const rawBytes =
-        kind === "float"
-          ? [
-              ...i32ConstBytes(rawAddr + k * rawCompSize),
-              WASM_OP.f32Load,
-              0x00,
-              ...wasmUleb128(0),
-              WASM_OP.f64PromoteF32,
-            ]
-          : loadComponent(rawAddr, kind, k * rawCompSize);
-      out.push(...storeComponent(addr, kind, k * compSize, rawBytes));
-    }
-    return out;
-  }
-
   /**
    * Stores a constructor's result. Matrices are column-major with one
    * column per param (a single scalar param builds a diagonal matrix);
@@ -957,18 +1071,6 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       }
     }
     return out;
-  }
-
-  /** Casts one scalar to another kind: f64<->i32 via trunc/convert; bools stay as raw bit values. */
-  function convertComponent(valueBytes: number[], fromKind: ScalarKind, toKind: ScalarKind): number[] {
-    if (fromKind === toKind || fromKind === "bool" || toKind === "bool") return valueBytes;
-    if (fromKind === "float") {
-      return [...valueBytes, toKind === "uint" ? WASM_OP.i32TruncF64U : WASM_OP.i32TruncF64S];
-    }
-    if (toKind === "float") {
-      return [...valueBytes, fromKind === "uint" ? WASM_OP.f64ConvertI32U : WASM_OP.f64ConvertI32S];
-    }
-    return valueBytes;
   }
 
   /** CPU has no derivative opcodes: throw, or emit zeros under { derivatives: "zero" }. */
@@ -1351,19 +1453,6 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     ];
   }
 
-  function emitLiteralStores(node: any, addr: number): number[] {
-    const kind = elementKindOf(node._t as string);
-    const compSize = componentSizeOf(kind);
-    const values = node.value as (number | boolean)[];
-    const out: number[] = [];
-    values.forEach((v, i) => {
-      const num = typeof v === "boolean" ? (v ? 1 : 0) : v;
-      const bytes = kind === "float" ? f64ConstBytes(num) : i32ConstBytes(num);
-      out.push(...storeComponent(addr, kind, i * compSize, bytes));
-    });
-    return out;
-  }
-
   function emitSwizzleStores(node: any, addr: number): number[] {
     const src = node.params[0];
     const pattern = node.value as string;
@@ -1688,18 +1777,6 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), op];
   }
 
-  /** WASM select pops [whenTrue, whenFalse, cond]; note BOTH value arms are always evaluated. */
-  function selectExpr(whenTrue: number[], whenFalse: number[], cond: number[]): number[] {
-    return [...whenTrue, ...whenFalse, ...cond, WASM_OP.select];
-  }
-
-  function i32ConstBytes(n: number): number[] {
-    return [WASM_OP.i32Const, ...wasmSleb128(n | 0)];
-  }
-  function f64ConstBytes(n: number): number[] {
-    return [WASM_OP.f64Const, ...wasmF64Bytes(n)];
-  }
-
   /** float min/max use native f64.min/max; int/uint fall back to a compare + select. */
   function minOrMax(a: any, b: any, kind: ScalarKind, pick: "min" | "max"): number[] {
     if (kind === "float") {
@@ -1714,19 +1791,6 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
           ? WASM_OP.i32LtS
           : WASM_OP.i32GtS;
     return selectExpr(walkExpr(a), walkExpr(b), [...walkExpr(a), ...walkExpr(b), cmp]);
-  }
-
-  function minMaxBytes(a: number[], b: number[], kind: ScalarKind, pick: "min" | "max"): number[] {
-    if (kind === "float") return [...a, ...b, pick === "min" ? WASM_OP.f64Min : WASM_OP.f64Max];
-    const cmp =
-      kind === "uint"
-        ? pick === "min"
-          ? WASM_OP.i32LtU
-          : WASM_OP.i32GtU
-        : pick === "min"
-          ? WASM_OP.i32LtS
-          : WASM_OP.i32GtS;
-    return selectExpr(a, b, [...a, ...b, cmp]);
   }
 
   function emitSmoothstepValue(e0Bytes: number[], e1Bytes: number[], xBytes: number[]): number[] {
@@ -2449,15 +2513,12 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
   if (drawFuncBody !== undefined) codeEntries.push([...wasmUleb128(drawFuncBody.length), ...drawFuncBody]);
   const codeSection = wasmSection(10, wasmVec(codeEntries));
 
+  // prettier-ignore
   const bytes = new Uint8Array([
-    0x00,
-    0x61,
-    0x73,
-    0x6d, // "\0asm" magic
-    0x01, // version 1
-    0x00,
-    0x00,
-    0x00,
+    // "\0asm" magic
+    0x00, 0x61, 0x73, 0x6d,
+    // version 1 (u32, little-endian)
+    0x01, 0x00, 0x00, 0x00,
     ...typeSection,
     ...importSection,
     ...funcSection,
