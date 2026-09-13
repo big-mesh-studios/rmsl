@@ -1,12 +1,15 @@
 # A shared layout IR for uniforms, instance data, and textures
 
-**Status: exploratory.** This is a design sketch, not a committed roadmap
-item — nothing here is scheduled, and no phase number depends on it. It
-came out of a conversation about where RMSL's CPU/GPU backend split could
-go next, starting from the observation that a byte layout derived from a
+**Status: exploratory, stage 1 landed.** This started as a design sketch,
+not a committed roadmap item — no phase number depends on it. It came out
+of a conversation about where RMSL's CPU/GPU backend split could go next,
+starting from the observation that a byte layout derived from a
 `ShaderType` is a real code entity (`src/rmsl-wasm.ts`'s Phase 3 memory
 design, `src/rmsl-wgsl.ts`'s `wgslUniformLayout`) that today gets computed
-independently, and slightly differently, in more than one place.
+independently, and slightly differently, in more than one place. Stage 1
+below (the behavior-preserving refactor, `src/rmsl-layout.ts`) has since
+been built; stage 2 (proving the interop claim) has not, so this doc still
+describes speculative capabilities, not shipped ones.
 
 ## The problem
 
@@ -27,10 +30,18 @@ implementations already exist:
   everywhere, because nothing on the WASM side ever needed to match a GPU
   buffer's alignment rules — it only ever talks to itself and to
   `compileWasm`'s JS-side `DataView` writer.
-- **Instance/attribute buffers** (`src/scene/geometries/BufferAttribute.ts`,
-  and the per-instance packing in `WebGLRenderer.ts`/`WebGPURenderer.ts`)
-  hand-roll a third notion of "stride and offset for this field," specific
-  to vertex/instance buffers rather than uniform blocks.
+- **`WebGLRenderer.ts`'s vertex/instance attribute stride** computes a
+  third, simpler version of the same "how big is this value" question
+  (`stride = attr.itemSize * format.bytes`) — simpler because this codebase
+  doesn't interleave multiple attributes into one buffer today (confirmed
+  in the code itself: "One buffer carries one attribute... An interleaved
+  attribute would take both numbers from the attribute rather than deriving
+  them here"), so there's no multi-member placement problem here yet, only
+  a third place computing one value's own byte size. GLSL/WebGL uniforms
+  don't go through a packed buffer at all — `rmsl-glsl.ts` emits one
+  `uniform` declaration per value, set individually via `gl.uniformXfv`,
+  so there's nothing to pack there either, unless this ever adopts WebGL2
+  uniform buffer objects.
 
 None of these are wrong for what they do today. They're just three
 independent answers to a question — "where does this value's Nth component
@@ -165,28 +176,47 @@ changing what address an existing packed-only value gets today.
   four backends, not just WASM, so it doesn't belong under that
   WASM-specific roadmap.
 
-## If this ever gets picked up
+## Stage 1 — landed
 
-Smallest possible first step, in two stages:
+`src/rmsl-layout.ts` now has `planLayout(members, rules)`.
+`wgslUniformLayout` (`src/rmsl-wgsl.ts`) is a thin wrapper over
+`planLayout(members, WGSL_UNIFORM_RULES)` — same reordering, same
+array-widening, same offsets it always produced, now expressed as an
+`AllocRules` value instead of hard-coded into the function. Phase 3's WASM
+`allocateFor` (`src/rmsl-wasm.ts`) calls
+`planLayout([{slot: t, type: t}], PACKED_RULES)` — a single-member list,
+not a batch of everything `collect()` discovers, which is a deliberately
+smaller change than first planned: `collect()` walks the AST and
+discovers uniforms/vars/scratch nodes one at a time as it encounters them,
+so batching them into one `planLayout` call would mean restructuring that
+walk into two passes (discover the full list, *then* place it) — real
+extra risk for a change meant to be behavior-preserving. A single-member
+call to the same shared algorithm gets identical addresses (with
+`reorderByAlignment: false`, a length-one list can't be reordered) at much
+lower risk, and still means both backends' sizing rules live in one place
+instead of two. Confirmed behavior-preserving by the full existing test
+suite passing unchanged — no new test needed, since nothing observable was
+supposed to change.
 
-1. **Refactor, no new capability.** Extract `wgslUniformLayout`'s
-   reorder-and-place algorithm into `planLayout(members, rules)`, and have
-   `wgslUniformLayout` itself become a thin wrapper (struct-text emission
-   over `planLayout(members, WGSL_UNIFORM_RULES)`). Separately, have Phase
-   3's WASM `collect()` build its address maps from
-   `planLayout(members, PACKED_RULES)` instead of its own inline bump loop.
-   Both should be behavior-preserving — verified by the existing
-   `rmsl-wgsl.test.ts`/`rmsl-wasm.test.ts` suites producing identical
-   output, not a new test needed to prove it.
-2. **Prove the interop claim, not just the refactor.** With `planLayout`
-   shared, take a small set of uniforms, compute
-   `planLayout(members, WGSL_UNIFORM_RULES)` once, and have the WASM
-   backend write its values at *those* offsets instead of its own —
-   confirmed correct only by a byte-for-byte comparison against a buffer
-   packed by hand to WGSL's spec, since "the refactor didn't crash" and
-   "the bytes are actually GPU-compatible" are different claims and only
-   the second one is the point.
+The type-vocabulary mismatch flagged above is still unresolved by this
+step, on purpose: `wgslUniformLayout`'s callers already hand it WGSL-spelled
+type strings (`"vec3<f32>"`), Phase 3's callers already use RMSL's own
+`ShaderType` (`"vec3"`), and `planLayout` stays agnostic — a member's
+`type` is an opaque string its own `rules.sizeAndAlignOf` interprets
+however that target already does. Unifying that vocabulary is exactly what
+stage 2 would force, since sharing one `members` list between a WGSL call
+and a WASM call means both need to agree on how a type is spelled.
+
+## Stage 2 — not started
+
+Prove the interop claim, not just the refactor: take a small set of
+uniforms, compute `planLayout(members, WGSL_UNIFORM_RULES)` once, and have
+the WASM backend write its values at *those* offsets instead of its own —
+confirmed correct only by a byte-for-byte comparison against a buffer
+packed by hand to WGSL's spec, since "the refactor didn't crash" and "the
+bytes are actually GPU-compatible" are different claims and only the
+second one is the point. This is where the type-vocabulary mismatch above
+has to actually get resolved, not sidestepped.
 
 No GPU storage-buffer rules, no instance-buffer unification, nothing
-cross-language yet at either stage — those only matter once stage 2 has
-actually held up.
+cross-language yet — those only matter once stage 2 has actually held up.
