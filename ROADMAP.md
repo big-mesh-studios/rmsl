@@ -377,6 +377,30 @@ going to ship a `.wasm` asset rather than generate one at runtime.
   per-call-frame, so this concern may simply not exist here — confirm once
   Phase 5 needs the option to make sense of at all.
 
+## Known issues found along the way (not WASM-specific)
+
+- **`mat2`/`mat2x3`/`mat2x4`/`mat3x2`/`mat3x4`/`mat4x2`/`mat4x3` have no
+  "columns of vector nodes" constructor overload.** `mat3(colA, colB, colC)`
+  and `mat4(colA, colB, colC, colD)` are hand-written functions in
+  `rmsl-core.ts` with a dedicated `args.every(isNode)` branch for exactly
+  this; every other matrix type is built by the generic
+  `makeMatConstructor`, which only special-cases a single node/number
+  argument (diagonal) or zero arguments (identity) — anything else,
+  including column-vector nodes, falls through to
+  `node({_t: t, type: t, value: args})`, a *literal* node whose `value`
+  ends up holding `Node` objects instead of numbers. Nothing validates this
+  at construction time, so `mat2(vec2(1,2), vec2(3,4))` builds silently and
+  only breaks downstream — found while writing a WASM backend test for
+  matrix multiply, where it surfaced as every component reading back `NaN`.
+  Affects every backend (GLSL/WGSL/JS), not just WASM: this is a gap in
+  `rmsl-core.ts`'s public API, not something a compiler backend can work
+  around. Not fixed here — filed as a note rather than a fix since it's
+  outside this roadmap's scope (the WASM backend) and deserves its own
+  look at whether to extend `makeMatConstructor` with the same
+  `args.every(isNode)` branch `mat3`/`mat4` already have, or to make the
+  literal-fallback path throw when given non-number args instead of
+  silently accepting them.
+
 ## Non-goals
 
 Not a GPU-side WASM or SPIR-V backend — this is CPU-only, the same niche
