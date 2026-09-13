@@ -388,6 +388,19 @@ going to ship a `.wasm` asset rather than generate one at runtime.
   scratch slots are shared across calls by default. WASM locals are already
   per-call-frame, so this concern may simply not exist here — confirm once
   Phase 5 needs the option to make sense of at all.
+- **Whole-function f32 arithmetic mode.** `GpuUniformLayout` (stage 2 of
+  `docs/design-shared-layout-ir.md`) only narrows a uniform's *storage* to
+  f32 at the memory boundary — internal arithmetic always stays f64
+  (matching `compileJS`), same as an ordinary uniform. A different,
+  materially bigger idea came up alongside it: a per-`Fn` mode where *every*
+  scalar float op (`add`/`mul`/`sqrt`/...) actually computes in f32
+  throughout, matching what a real GPU shader would compute bit-for-bit at
+  every intermediate step, not just at the uniform boundary — useful for a
+  CPU-side computation meant to verify or shadow a GPU one exactly. Not
+  designed or started: it would need an f32 variant of nearly every
+  scalar-op-emitting function in `rmsl-wasm.ts`, not one contained seam like
+  the uniform-boundary case. No known driving use case yet — revisit only if
+  one shows up.
 
 ## Known issues found along the way (not WASM-specific)
 
