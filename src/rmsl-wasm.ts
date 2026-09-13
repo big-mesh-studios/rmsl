@@ -681,6 +681,17 @@ export function compileWasmFn(
       // mechanism, one extra f64 slot right after the node's own output
       // components holds it, computed once.
       if (node.type === "normalize" || node.type === "reflect") allocateBytes(8);
+      if ((node.type === "texture" || node.type === "textureLod") && !isIntegerSamplerType(node.params[0]._t as string)) {
+        // Scratch for every value `emitTextureSampleStores` computes once
+        // per sample and every one of the 4 channels then reuses — nearest
+        // mode's own wrapped x/y/z, bilinear/trilinear's wrapped tap
+        // indices, and the blend weights — instead of each channel
+        // recomputing all of it from scratch. Same "extra scratch right
+        // after the node's own result" treatment as normalize/reflect
+        // above, just a lot more of it (3 nearest indices + 6 tap indices,
+        // all i32, plus 3 f64 blend weights = 60 bytes).
+        allocateBytes(60);
+      }
       scratchAddress.set(node, addr);
     }
     if (Array.isArray(node.params)) for (const p of node.params) collect(p);
@@ -1182,14 +1193,21 @@ export function compileWasmFn(
    * *is* the safe index. And there's no "out of range" case at all: a
    * `texture()` call always returns some in-range, wrap-addressed sample.
    *
-   * Every conditional (wrap mode, nearest-vs-linear, missing-channel
+   * Every conditional except `magFilter` (wrap mode, missing-channel
    * default) is a `select`, matching this file's existing ternary/min/max
-   * style and this phase's own `emitTexelFetchStores` — so every branch's
-   * bytecode is always emitted and always executes, duplicated at each use
-   * site rather than cached in a temporary (this file doesn't yet have a
-   * mechanism for that, and hasn't needed one before this). That's a real,
-   * accepted code-size cost for a filtered 3D sample (a handful of nested
-   * `select`s over up to 8 texel corners) — not a correctness one.
+   * style and this phase's own `emitTexelFetchStores`. What is *not*
+   * duplicated any more: every value that doesn't depend on which of the
+   * 4 channels is being read — the wrapped tap indices, the blend
+   * weights, nearest mode's own wrapped index — is computed exactly once
+   * per sample into fixed scratch addresses right after this node's own
+   * result (see `collect`'s `isScratchNode` extra-allocation block), and
+   * every channel just loads it back. Before this, each of the 4 channels
+   * recomputed all of that from scratch, which a benchmark showed was
+   * most of filtered sampling's remaining cost after the `magFilter`
+   * branch and lerp-reformulation fixes (see `ROADMAP.md`'s texture
+   * performance section) — this is the first place in this file using a
+   * scratch address as a genuine compiler-managed temporary rather than
+   * a node's own output value.
    */
   function emitTextureSampleStores(node: any, addr: number): number[] {
     const samplerNode = node.params[0];
@@ -1210,6 +1228,15 @@ export function compileWasmFn(
     const uv = (k: number): number[] => loadComponent(coordsAddr, "float", k * 8);
     const dimI32 = (offset: number): number[] => loadComponent(metaAddr, "int", offset);
     const dimF64 = (offset: number): number[] => [...dimI32(offset), WASM_OP.f64ConvertI32S];
+
+    // Scratch right after this node's own vec4 result (`collect`'s
+    // `isScratchNode` extra-allocation block reserves 60 bytes there for
+    // exactly this) — every per-sample value below, computed once and
+    // read back cheaply by every channel instead of being recomputed.
+    const scratch = addr + 32;
+    const NEAREST_X = scratch, NEAREST_Y = scratch + 4, NEAREST_Z = scratch + 8;
+    const XA = scratch + 12, XB = scratch + 16, YA = scratch + 20, YB = scratch + 24, ZA = scratch + 28, ZB = scratch + 32;
+    const TX = scratch + 36, TY = scratch + 44, TZ = scratch + 52;
 
     // repeat/mirror/clamp, dispatched on a runtime mode value (0/1/2) —
     // every formula computed unconditionally, picked with nested `select`s.
@@ -1234,6 +1261,47 @@ export function compileWasmFn(
       const modeIsClamp = [...mode(), ...i32ConstBytes(0), WASM_OP.i32Eq];
       const repeatOrMirror = selectExpr(mirrorVal, repeatVal, modeIsMirror);
       return selectExpr(clampVal, repeatOrMirror, modeIsClamp);
+    }
+
+    // Half-texel-offset sample point, split into a floor'd integer part and
+    // a [0,1) fractional blend weight — `_tex2d`/`_tex3d`'s own `fx`/`x0`/`tx`.
+    function fracAxis(k: number, dimOffset: number): { i0: number[]; t: number[] } {
+      const f = [...uv(k), ...dimF64(dimOffset), WASM_OP.f64Mul, ...f64ConstBytes(0.5), WASM_OP.f64Sub];
+      const f0 = [...f, WASM_OP.f64Floor];
+      return { i0: [...f0, WASM_OP.i32TruncF64S], t: [...f, ...f0, WASM_OP.f64Sub] };
+    }
+
+    // --- Everything above this point is channel-independent — computed
+    // exactly once per sample and stored, never recomputed per channel. ---
+    const nearestX = wrapAxis([...uv(0), ...dimF64(TEX_META_WIDTH), WASM_OP.f64Mul, WASM_OP.f64Floor, WASM_OP.i32TruncF64S], TEX_META_WIDTH, TEX_META_WRAP_S);
+    const nearestY = wrapAxis([...uv(1), ...dimF64(TEX_META_HEIGHT), WASM_OP.f64Mul, WASM_OP.f64Floor, WASM_OP.i32TruncF64S], TEX_META_HEIGHT, TEX_META_WRAP_T);
+    const fx = fracAxis(0, TEX_META_WIDTH);
+    const fy = fracAxis(1, TEX_META_HEIGHT);
+    const xa = wrapAxis(fx.i0, TEX_META_WIDTH, TEX_META_WRAP_S);
+    const xb = wrapAxis([...fx.i0, ...i32ConstBytes(1), WASM_OP.i32Add], TEX_META_WIDTH, TEX_META_WRAP_S);
+    const ya = wrapAxis(fy.i0, TEX_META_HEIGHT, TEX_META_WRAP_T);
+    const yb = wrapAxis([...fy.i0, ...i32ConstBytes(1), WASM_OP.i32Add], TEX_META_HEIGHT, TEX_META_WRAP_T);
+    const setup: number[] = [
+      ...storeComponent(NEAREST_X, "int", 0, nearestX),
+      ...storeComponent(NEAREST_Y, "int", 0, nearestY),
+      ...storeComponent(XA, "int", 0, xa),
+      ...storeComponent(XB, "int", 0, xb),
+      ...storeComponent(YA, "int", 0, ya),
+      ...storeComponent(YB, "int", 0, yb),
+      ...storeComponent(TX, "float", 0, fx.t),
+      ...storeComponent(TY, "float", 0, fy.t),
+    ];
+    if (is3D) {
+      const nearestZ = wrapAxis([...uv(2), ...dimF64(TEX_META_DEPTH), WASM_OP.f64Mul, WASM_OP.f64Floor, WASM_OP.i32TruncF64S], TEX_META_DEPTH, TEX_META_WRAP_R);
+      const fz = fracAxis(2, TEX_META_DEPTH);
+      const za = wrapAxis(fz.i0, TEX_META_DEPTH, TEX_META_WRAP_R);
+      const zb = wrapAxis([...fz.i0, ...i32ConstBytes(1), WASM_OP.i32Add], TEX_META_DEPTH, TEX_META_WRAP_R);
+      setup.push(
+        ...storeComponent(NEAREST_Z, "int", 0, nearestZ),
+        ...storeComponent(ZA, "int", 0, za),
+        ...storeComponent(ZB, "int", 0, zb),
+        ...storeComponent(TZ, "float", 0, fz.t),
+      );
     }
 
     // (y*width + x), or ((z*height + y)*width + x) for 3D.
@@ -1262,24 +1330,6 @@ export function compileWasmFn(
       return selectExpr(texelChannelRaw(x, y, z, i), missingChannelDefault, present);
     }
 
-    function nearestAxis(k: number, dimOffset: number, wrapOffset: number): number[] {
-      const scaled = [...uv(k), ...dimF64(dimOffset), WASM_OP.f64Mul, WASM_OP.f64Floor, WASM_OP.i32TruncF64S];
-      return wrapAxis(scaled, dimOffset, wrapOffset);
-    }
-    function nearestChannel(i: number): number[] {
-      const x = nearestAxis(0, TEX_META_WIDTH, TEX_META_WRAP_S);
-      const y = nearestAxis(1, TEX_META_HEIGHT, TEX_META_WRAP_T);
-      const z = is3D ? nearestAxis(2, TEX_META_DEPTH, TEX_META_WRAP_R) : null;
-      return texelChannel(x, y, z, i);
-    }
-
-    // Half-texel-offset sample point, split into a floor'd integer part and
-    // a [0,1) fractional blend weight — `_tex2d`/`_tex3d`'s own `fx`/`x0`/`tx`.
-    function fracAxis(k: number, dimOffset: number): { i0: number[]; t: number[] } {
-      const f = [...uv(k), ...dimF64(dimOffset), WASM_OP.f64Mul, ...f64ConstBytes(0.5), WASM_OP.f64Sub];
-      const f0 = [...f, WASM_OP.f64Floor];
-      return { i0: [...f0, WASM_OP.i32TruncF64S], t: [...f, ...f0, WASM_OP.f64Sub] };
-    }
     /**
      * `a + (b-a)*t` — the form `_lerp2`/`_tex2d`/`_tex3d` use
      * (`rmsl-compile-js.ts`) — needs `a`'s own bytecode twice: once as the
@@ -1288,10 +1338,7 @@ export function compileWasmFn(
      * often a full `texelChannel` fetch (a dynamically-addressed memory
      * load, a channel-present `select`, a divide) rather than a plain
      * value. `a*(1-t) + b*t` is the same value and needs `a` and `b` each
-     * exactly once, duplicating only the cheap blend weight `t` instead —
-     * confirmed by benchmark to matter: this was most of what remained of
-     * filtered `texture()` sampling's cost after the `magFilter` branch
-     * fix (see `ROADMAP.md`'s texture performance section).
+     * exactly once, duplicating only the cheap blend weight `t` instead.
      */
     function lerp(a: number[], b: number[], t: number[]): number[] {
       return [
@@ -1309,41 +1356,41 @@ export function compileWasmFn(
       const upper = lerp(tab, tbb, tx);
       return lerp(lower, upper, ty);
     }
-    function linearChannel(i: number): number[] {
-      const fx = fracAxis(0, TEX_META_WIDTH);
-      const fy = fracAxis(1, TEX_META_HEIGHT);
-      const xa = wrapAxis(fx.i0, TEX_META_WIDTH, TEX_META_WRAP_S);
-      const xb = wrapAxis([...fx.i0, ...i32ConstBytes(1), WASM_OP.i32Add], TEX_META_WIDTH, TEX_META_WRAP_S);
-      const ya = wrapAxis(fy.i0, TEX_META_HEIGHT, TEX_META_WRAP_T);
-      const yb = wrapAxis([...fy.i0, ...i32ConstBytes(1), WASM_OP.i32Add], TEX_META_HEIGHT, TEX_META_WRAP_T);
-      if (!is3D) return bilinear(xa, xb, ya, yb, null, fx.t, fy.t, i);
-      const fz = fracAxis(2, TEX_META_DEPTH);
-      const za = wrapAxis(fz.i0, TEX_META_DEPTH, TEX_META_WRAP_R);
-      const zb = wrapAxis([...fz.i0, ...i32ConstBytes(1), WASM_OP.i32Add], TEX_META_DEPTH, TEX_META_WRAP_R);
-      const near = bilinear(xa, xb, ya, yb, za, fx.t, fy.t, i);
-      const far = bilinear(xa, xb, ya, yb, zb, fx.t, fy.t, i);
-      return lerp(near, far, fz.t);
-    }
+
+    // --- Per-channel: reads the setup above back (a fixed-address load,
+    // cheap to repeat) instead of recomputing it. ---
+    const nx = loadComponent(NEAREST_X, "int", 0), ny = loadComponent(NEAREST_Y, "int", 0);
+    const nz = is3D ? loadComponent(NEAREST_Z, "int", 0) : null;
+    const xaBytes = loadComponent(XA, "int", 0), xbBytes = loadComponent(XB, "int", 0);
+    const yaBytes = loadComponent(YA, "int", 0), ybBytes = loadComponent(YB, "int", 0);
+    const txBytes = loadComponent(TX, "float", 0), tyBytes = loadComponent(TY, "float", 0);
 
     // `magFilter` is a real runtime `if`/`else`, not a `select` like every
-    // other choice in this function — deliberately, unlike the rest of this
-    // file's usual branchless style. `select` requires both operands
-    // already computed, which for `nearestChannel`/`linearChannel` means
-    // paying for the far more expensive bilinear/trilinear path even when
-    // a texture asks for nearest filtering (confirmed by benchmark: a
-    // nearest-filtered `texture()` sample ran exactly as slow as a
-    // bilinear one before this — see `ROADMAP.md`'s texture performance
-    // section). An `if`/`else` only ever executes the branch actually
-    // taken, so nearest sampling now costs what `textureLoad()` costs, and
-    // the bilinear/trilinear cost is only ever paid when it's asked for.
+    // other choice in this function — deliberately, unlike the rest of
+    // this file's usual branchless style. `select` requires both operands
+    // already computed, which for the nearest/linear choice means paying
+    // for the far more expensive bilinear/trilinear path even when a
+    // texture asks for nearest filtering. An `if`/`else` only ever
+    // executes the branch actually taken.
     const linearStores: number[] = [];
     const nearestStores: number[] = [];
     for (let i = 0; i < 4; i++) {
-      linearStores.push(...storeComponent(addr, "float", i * 8, linearChannel(i)));
-      nearestStores.push(...storeComponent(addr, "float", i * 8, nearestChannel(i)));
+      let linearValue: number[];
+      if (!is3D) {
+        linearValue = bilinear(xaBytes, xbBytes, yaBytes, ybBytes, null, txBytes, tyBytes, i);
+      } else {
+        const zaBytes = loadComponent(ZA, "int", 0), zbBytes = loadComponent(ZB, "int", 0);
+        const tzBytes = loadComponent(TZ, "float", 0);
+        const near = bilinear(xaBytes, xbBytes, yaBytes, ybBytes, zaBytes, txBytes, tyBytes, i);
+        const far = bilinear(xaBytes, xbBytes, yaBytes, ybBytes, zbBytes, txBytes, tyBytes, i);
+        linearValue = lerp(near, far, tzBytes);
+      }
+      linearStores.push(...storeComponent(addr, "float", i * 8, linearValue));
+      nearestStores.push(...storeComponent(addr, "float", i * 8, texelChannel(nx, ny, nz, i)));
     }
     return [
       ...materialize,
+      ...setup,
       ...dimI32(TEX_META_FILTER), WASM_OP.if_, WASM_BLOCKTYPE_VOID,
       ...linearStores,
       WASM_OP.else_, ...nearestStores,
