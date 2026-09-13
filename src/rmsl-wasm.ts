@@ -1305,16 +1305,30 @@ export function compileWasmFn(
       return [...near, ...far, ...near, WASM_OP.f64Sub, ...fz.t, WASM_OP.f64Mul, WASM_OP.f64Add];
     }
 
-    function channelValue(i: number): number[] {
-      const filterLinear = dimI32(TEX_META_FILTER);
-      return selectExpr(linearChannel(i), nearestChannel(i), filterLinear);
-    }
-
-    const out = [...materialize];
+    // `magFilter` is a real runtime `if`/`else`, not a `select` like every
+    // other choice in this function — deliberately, unlike the rest of this
+    // file's usual branchless style. `select` requires both operands
+    // already computed, which for `nearestChannel`/`linearChannel` means
+    // paying for the far more expensive bilinear/trilinear path even when
+    // a texture asks for nearest filtering (confirmed by benchmark: a
+    // nearest-filtered `texture()` sample ran exactly as slow as a
+    // bilinear one before this — see `ROADMAP.md`'s texture performance
+    // section). An `if`/`else` only ever executes the branch actually
+    // taken, so nearest sampling now costs what `textureLoad()` costs, and
+    // the bilinear/trilinear cost is only ever paid when it's asked for.
+    const linearStores: number[] = [];
+    const nearestStores: number[] = [];
     for (let i = 0; i < 4; i++) {
-      out.push(...storeComponent(addr, "float", i * 8, channelValue(i)));
+      linearStores.push(...storeComponent(addr, "float", i * 8, linearChannel(i)));
+      nearestStores.push(...storeComponent(addr, "float", i * 8, nearestChannel(i)));
     }
-    return out;
+    return [
+      ...materialize,
+      ...dimI32(TEX_META_FILTER), WASM_OP.if_, WASM_BLOCKTYPE_VOID,
+      ...linearStores,
+      WASM_OP.else_, ...nearestStores,
+      WASM_OP.end,
+    ];
   }
 
   function emitLiteralStores(node: any, addr: number): number[] {
