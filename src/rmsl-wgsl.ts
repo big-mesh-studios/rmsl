@@ -5,6 +5,7 @@ import {
   assertPositionIsReadable, assertSquareMatrix, assertStageResult,
   forUpdateStatements, resolveSwizzleTarget, tryFold, withoutSemicolon, wrapExpr,
 } from "./rmsl-compiler-shared";
+import { AllocRules, planLayout } from "./rmsl-layout";
 export let typeToWGSL: Record<string, string> = {
   float: "f32", vec2: "vec2<f32>", vec3: "vec3<f32>", vec4: "vec4<f32>",
   int: "i32", uint: "u32", bool: "bool",
@@ -213,65 +214,49 @@ export function isWgslTexture(type: string): boolean {
     || type === "texture_2d<u32>" || type === "texture_3d<u32>" || type === "texture_cube<u32>";
 }
 
-export function wgslUniformLayout(
-  members: { slot: string; type: string; length?: number }[],
-): { members: WgslUniformMember[]; size: number } {
-  // An array in the uniform address space has its element stride rounded up to
-  // 16, so `array<f32, 4>` occupies 64 bytes rather than 16 — each element sits
-  // in its own 16-byte slot. Callers writing the buffer need the stride, not
-  // just the element size.
-  const shapeOf = (m: { type: string; length?: number }) => {
-    // An element too narrow to align is stored widened, so its footprint
-    // follows what it is stored as rather than what it was declared as.
-    const stored = m.length === undefined
-      ? m.type
-      : WGSL_ARRAY_PADDING[m.type]?.stored ?? m.type;
-    const base = WGSL_LAYOUT[stored];
+/**
+ * WGSL's placement rules for `planLayout` (src/rmsl-layout.ts): reorder by
+ * descending alignment to minimize padding, widen an array element too
+ * narrow to align (see `WGSL_ARRAY_PADDING`), round an array element's
+ * stride up to 16, and align the whole struct to at least 4. `type` here is
+ * always a WGSL type spelling (`"f32"`, `"vec3<f32>"`, ...), matching what
+ * every caller of `wgslUniformLayout` already has on hand.
+ */
+const WGSL_UNIFORM_RULES: AllocRules = {
+  sizeAndAlignOf(type) {
+    const base = WGSL_LAYOUT[type];
     // Guessing here is the worst thing this function could do. A wrong size is
     // not a shader that fails to build, it is one that reads whatever happens
     // to lie at that address, and the caller has no way to notice.
     if (base === undefined) {
       throw new Error(
-        `[RMSL] no uniform layout is known for ${m.type}. Its size and`
+        `[RMSL] no uniform layout is known for ${type}. Its size and`
         + ` alignment have to be added to WGSL_LAYOUT before it can be packed`
         + ` into a uniform buffer.`,
       );
     }
-    if (m.length === undefined) return { ...base, stride: base.size };
-    const stride = Math.ceil(base.size / 16) * 16;
-    return { size: stride * m.length, align: Math.max(base.align, 16), stride };
-  };
+    return base;
+  },
+  reorderByAlignment: true,
+  widenNarrowArrayElements: type => WGSL_ARRAY_PADDING[type]?.stored ?? type,
+  arrayStrideRoundedTo: 16,
+  structAlignMinimum: 4,
+};
 
-  // Widest alignment first, so the gaps between members stay small. Members
-  // that align the same keep the order they were declared in.
-  const ordered = members
-    .map((m, declaredAt) => ({ m, declaredAt }))
-    .sort((a, b) => {
-      const byAlign = shapeOf(b.m).align - shapeOf(a.m).align;
-      return byAlign !== 0 ? byAlign : a.declaredAt - b.declaredAt;
-    })
-    .map(({ m }) => m);
-
-  const out: WgslUniformMember[] = [];
-  let offset = 0;
-  for (const m of ordered) {
-    const { size, align, stride } = shapeOf(m);
-    offset = Math.ceil(offset / align) * align;
-    out.push({
+export function wgslUniformLayout(
+  members: { slot: string; type: string; length?: number }[],
+): { members: WgslUniformMember[]; size: number } {
+  const placed = planLayout(members.map(m => ({ slot: m.slot, type: m.type, length: m.length })), WGSL_UNIFORM_RULES);
+  return {
+    members: placed.members.map(m => ({
       name: m.slot,
       type: m.type,
-      offset,
-      size,
-      ...(m.length !== undefined ? { length: m.length, stride } : {}),
-    });
-    offset += size;
-  }
-  // A uniform struct is itself aligned to its largest member, and an array
-  // member aligns to sixteen whatever it holds — so this has to ask for the
-  // member's real alignment rather than its element type's, or the struct comes
-  // out shorter than the buffer the shader reads.
-  const structAlign = ordered.reduce((a, m) => Math.max(a, shapeOf(m).align), 4);
-  return { members: out, size: Math.ceil(offset / structAlign) * structAlign };
+      offset: m.offset,
+      size: m.size,
+      ...(m.length !== undefined ? { length: m.length, stride: m.stride } : {}),
+    })),
+    size: placed.size,
+  };
 }
 
 export function wgslType(brand: any): string {

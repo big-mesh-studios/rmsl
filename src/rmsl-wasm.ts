@@ -1,6 +1,7 @@
 import { Node, ShaderType, TYPE_WIDTH, MATRIX_DIMENSIONS, var_ } from "./rmsl-core";
 import { CompileFnOptions, COMPONENT_INDEX, resolveSwizzleTarget } from "./rmsl-compiler-shared";
 import { JsShaderContext } from "./rmsl-compile-js";
+import { AllocRules, planLayout } from "./rmsl-layout";
 // === WASM backend (see ROADMAP.md for what this does and doesn't cover yet) ===
 //
 // Compiles a plain, non-stage Fn straight to a WASM binary module instead of
@@ -161,6 +162,23 @@ function isAggregate(t: string): boolean {
 }
 
 /**
+ * This backend's placement rules for `planLayout` (src/rmsl-layout.ts):
+ * declaration order (never reordered — nothing here shares a struct with a
+ * GPU buffer, so there's no padding to minimize), no array-element widening,
+ * no stride rounding, and no whole-allocation alignment requirement — matching
+ * the file's existing "no padding, byte-packed" design (see
+ * `ROADMAP.md`, "Vectors and matrices live in linear memory now"). `type`
+ * here is always an RMSL `ShaderType`.
+ */
+const PACKED_RULES: AllocRules = {
+  sizeAndAlignOf(type) {
+    return { size: componentCountOf(type) * componentSizeOf(elementKindOf(type)), align: 1 };
+  },
+  reorderByAlignment: false,
+  structAlignMinimum: 1,
+};
+
+/**
  * Math functions with no WASM opcode, called through an import named
  * `"math"` — the same names as `Math`'s own, so `compileWasm` can hand the
  * real `Math` object as the import's namespace with no translation.
@@ -268,7 +286,13 @@ export function compileWasmFn(
     return addr;
   }
   function allocateFor(t: string): number {
-    return allocateBytes(componentCountOf(t) * componentSizeOf(elementKindOf(t)));
+    // A single-member call: with `reorderByAlignment: false` there's nothing
+    // to reorder against, so this is exactly `allocateBytes(size)` for the
+    // one type's own byte size — routed through the shared allocator so this
+    // backend's sizing rules live in one place (`PACKED_RULES`) instead of
+    // being computed inline here too.
+    const { size } = planLayout([{ slot: t, type: t }], PACKED_RULES);
+    return allocateBytes(size);
   }
 
   function addParam(spec: WasmParam, key: string): void {
