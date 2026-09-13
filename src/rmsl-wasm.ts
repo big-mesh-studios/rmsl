@@ -38,7 +38,18 @@ export type WasmParam =
      * `compileWasm` writes the narrower width there instead of its usual
      * one. See `GpuUniformLayout`. */
     narrow?: boolean;
-  };
+  }
+  // Phase 5 input direction — `compileWasm` writes these before the call,
+  // exactly like a "param"/"uniform" pair, just sourced from
+  // `ctx.attributes`/`ctx.varyings`/`ctx.fragCoord` instead of
+  // `ctx.params`/`ctx.uniforms`. `varying` here is only ever the
+  // fragment-stage (read) direction — a vertex stage's `varying()` is
+  // output-direction, a different `WasmParam` kind entirely.
+  | { kind: "attribute"; slot: string; shaderType: ShaderType }
+  | { kind: "attributeMemory"; slot: string; shaderType: ShaderType; address: number }
+  | { kind: "varying"; slot: string; shaderType: ShaderType }
+  | { kind: "varyingMemory"; slot: string; shaderType: ShaderType; address: number }
+  | { kind: "fragCoordMemory"; address: number };
 
 export type CompiledWasm = {
   /** The raw WASM binary module, exporting `options.name` and `"memory"`. */
@@ -335,13 +346,21 @@ export function compileWasmFn(
 
   const paramTypeByName = new Map(options.params.map(p => [p.name, p.type]));
   const fnParamNames = new Set(options.params.map(p => p.name));
+  // Matches `compileJS`'s own default exactly (`compileJSFn`: `options.stage
+  // ?? "fragment"`) — a program can read fragment-only builtins without
+  // having to pass `stage` explicitly, the same as compileJS allows today.
+  const effectiveStage: "vertex" | "fragment" = options.stage ?? "fragment";
 
   // --- pass 1: collect the WASM param/local index space, every math import
   // the program needs, and every linear-memory address a vector/matrix value
   // needs (uniforms, params, `let`-bound vars, and one scratch slot per
   // vector/matrix-producing expression node) — all in first-seen order,
   // before any instruction bytes reference an index or address. ---
-  const params: WasmParam[] = [];
+  // Scalar-only — these are the ones that actually occupy a WASM function
+  // argument; every kind here always carries `shaderType`, unlike the wider
+  // `WasmParam` union (a memory-only kind like `"fragCoordMemory"` doesn't).
+  type ScalarWasmParam = Extract<WasmParam, { kind: "param" | "uniform" | "attribute" | "varying" }>;
+  const params: ScalarWasmParam[] = [];
   const paramIndex = new Map<string, number>();
   const localSlots: string[] = [];
   const localIndex = new Map<string, number>();
@@ -357,6 +376,16 @@ export function compileWasmFn(
   // still holds its *own*, ordinary packed scratch address; this map is
   // only consulted by `materializeIfNeeded`'s promotion step.
   const gpuRawUniformAddress = new Map<string, number>();
+  // Phase 5 input direction: `attribute()` always reads from `ctx.attributes`
+  // regardless of stage; `varying()` reads from `ctx.varyings` only in a
+  // fragment stage (a vertex stage's `varying()` is output-direction — see
+  // the "varying"/"builtinPosition" handling in `walkStmt`'s assign case).
+  const attributeAddress = new Map<string, number>();
+  const varyingAddress = new Map<string, number>();
+  // `fragCoord()` has no per-call slot — every reference in one program is
+  // the same input, so one address serves all of them, unlike every other
+  // node type here which is keyed by slot or by node identity.
+  let fragCoordAddress: number | undefined;
   const scratchAddress = new WeakMap<object, number>();
   // Reserve [0, totalSize) for a caller-supplied GPU uniform layout, if any
   // — everything this backend places itself starts after it, so it can
@@ -378,7 +407,7 @@ export function compileWasmFn(
     return allocateBytes(size);
   }
 
-  function addParam(spec: WasmParam, key: string): void {
+  function addParam(spec: ScalarWasmParam, key: string): void {
     if (!paramIndex.has(key)) {
       paramIndex.set(key, params.length);
       params.push(spec);
@@ -443,6 +472,40 @@ export function compileWasmFn(
         }
       } else {
         addParam({ kind: "uniform", slot: v.slot, shaderType: v.shaderType }, `uniform:${v.slot}`);
+      }
+    } else if (node.type === "attribute") {
+      const v = node.value;
+      if (isAggregate(v.shaderType)) {
+        if (!attributeAddress.has(v.slot)) {
+          const addr = allocateFor(v.shaderType);
+          attributeAddress.set(v.slot, addr);
+          memoryParams.push({ kind: "attributeMemory", slot: v.slot, shaderType: v.shaderType, address: addr });
+        }
+      } else {
+        addParam({ kind: "attribute", slot: v.slot, shaderType: v.shaderType }, `attribute:${v.slot}`);
+      }
+    } else if (node.type === "varying" && effectiveStage === "fragment") {
+      // A vertex stage's `varying()` is output-direction instead — handled
+      // in `walkStmt`'s assign case, not here (nothing to collect on read,
+      // since it's never read in a vertex stage program the way it's
+      // written here for a fragment one).
+      const v = node.value;
+      if (isAggregate(v.shaderType)) {
+        if (!varyingAddress.has(v.slot)) {
+          const addr = allocateFor(v.shaderType);
+          varyingAddress.set(v.slot, addr);
+          memoryParams.push({ kind: "varyingMemory", slot: v.slot, shaderType: v.shaderType, address: addr });
+        }
+      } else {
+        addParam({ kind: "varying", slot: v.slot, shaderType: v.shaderType }, `varying:${v.slot}`);
+      }
+    } else if (node.type === "fragCoord") {
+      if (effectiveStage !== "fragment") {
+        throw new Error("[RMSL] compileWasmFn: fragCoord() can only be used in fragment shaders");
+      }
+      if (fragCoordAddress === undefined) {
+        fragCoordAddress = allocateFor("vec2");
+        memoryParams.push({ kind: "fragCoordMemory", address: fragCoordAddress });
       }
     } else if (node.type === "let") {
       const targetNode = node.params[0];
@@ -509,6 +572,20 @@ export function compileWasmFn(
       if (addr === undefined) throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed uniform "${node.value.slot}"`);
       return addr;
     }
+    if (node.type === "attribute") {
+      const addr = attributeAddress.get(node.value.slot);
+      if (addr === undefined) throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed attribute "${node.value.slot}"`);
+      return addr;
+    }
+    if (node.type === "varying" && effectiveStage === "fragment") {
+      const addr = varyingAddress.get(node.value.slot);
+      if (addr === undefined) throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed varying "${node.value.slot}"`);
+      return addr;
+    }
+    if (node.type === "fragCoord") {
+      if (fragCoordAddress === undefined) throw new Error("[RMSL] compileWasmFn: internal error, unaddressed fragCoord");
+      return fragCoordAddress;
+    }
     const addr = scratchAddress.get(node);
     if (addr === undefined) throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed node "${node.type}"`);
     return addr;
@@ -539,6 +616,15 @@ export function compileWasmFn(
         const rawAddr = gpuRawUniformAddress.get(node.value.slot);
         return rawAddr === undefined ? [] : emitGpuUniformPromote(node, nodeAddress(node), rawAddr);
       }
+      case "attribute":
+      case "fragCoord":
+        return [];
+      case "varying":
+        // Only reachable here as a read, i.e. the fragment-stage direction
+        // (a vertex-stage `varying()` is a write, never on this side of an
+        // expression) — data already valid, written by `compileWasm`
+        // before the call, exactly like an attribute or uniform.
+        return [];
       case "construct":
         return emitConstructStores(node, nodeAddress(node));
       case "swizzle":
@@ -956,6 +1042,10 @@ export function compileWasmFn(
         return [WASM_OP.localGet, ...wasmUleb128(localSlotIndex(node.value.varName))];
       case "uniform":
         return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`uniform:${node.value.slot}`))];
+      case "attribute":
+        return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`attribute:${node.value.slot}`))];
+      case "varying":
+        return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`varying:${node.value.slot}`))];
 
       case "add": return binaryArith(node, WASM_OP.f64Add, WASM_OP.i32Add);
       case "sub": return binaryArith(node, WASM_OP.f64Sub, WASM_OP.i32Sub);
@@ -1417,14 +1507,34 @@ export function compileWasm(
   return (ctx: JsShaderContext): number | boolean => {
     const args: number[] = [];
     for (const p of params) {
-      if (p.kind === "param") {
-        args.push((ctx.params as any)?.[p.name] as number);
-      } else if (p.kind === "uniform") {
-        args.push((ctx.uniforms as any)?.[p.slot] as number);
-      } else if (p.kind === "paramMemory") {
-        writeAggregateToMemory(view, p.address, p.shaderType, (ctx.params as any)?.[p.name]);
-      } else {
-        writeAggregateToMemory(view, p.address, p.shaderType, (ctx.uniforms as any)?.[p.slot], p.narrow);
+      switch (p.kind) {
+        case "param":
+          args.push((ctx.params as any)?.[p.name] as number);
+          break;
+        case "uniform":
+          args.push((ctx.uniforms as any)?.[p.slot] as number);
+          break;
+        case "attribute":
+          args.push((ctx.attributes as any)?.[p.slot] as number);
+          break;
+        case "varying":
+          args.push((ctx.varyings as any)?.[p.slot] as number);
+          break;
+        case "paramMemory":
+          writeAggregateToMemory(view, p.address, p.shaderType, (ctx.params as any)?.[p.name]);
+          break;
+        case "uniformMemory":
+          writeAggregateToMemory(view, p.address, p.shaderType, (ctx.uniforms as any)?.[p.slot], p.narrow);
+          break;
+        case "attributeMemory":
+          writeAggregateToMemory(view, p.address, p.shaderType, (ctx.attributes as any)?.[p.slot]);
+          break;
+        case "varyingMemory":
+          writeAggregateToMemory(view, p.address, p.shaderType, (ctx.varyings as any)?.[p.slot]);
+          break;
+        case "fragCoordMemory":
+          writeAggregateToMemory(view, p.address, "vec2", ctx.fragCoord ?? [0, 0]);
+          break;
       }
     }
     const result = wasmMain(...args);

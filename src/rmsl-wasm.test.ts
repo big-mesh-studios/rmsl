@@ -25,6 +25,7 @@ import {
   float, int, uint, bool, uniform, vec2, vec3, vec4,
   ivec3, uvec3, bvec3, mat2, mat3, mat4, sin, clamp,
   cross, length, normalize, distance, reflect, dFdx, dFdy, fwidth,
+  attribute, varying, fragCoord,
   type Node, type ShaderType,
 } from "./rmsl";
 import type { CompileWasmFnOptions } from "./rmsl-wasm";
@@ -591,5 +592,31 @@ describe("WASM backend: reentrant option accepted as a no-op", () => {
     const reentrant = compileWasm(build as any, { name: "main", params, reentrant: true });
     expect(plain({ params: { a: 21 } })).toBe(42);
     expect(reentrant({ params: { a: 21 } })).toBe(42);
+  });
+});
+
+describe("WASM backend: input direction (attribute/varying/fragCoord)", () => {
+  it("reads scalar and aggregate attributes", () => {
+    const a = attribute("float");
+    const b = attribute("vec3");
+    const fn = compileWasm(() => a.add(b.dot(b)) as any, { name: "main", params: [] });
+    expect(fn({ attributes: { [a.name]: 10, [b.name]: [1, 2, 3] } })).toBe(24); // 10 + (1+4+9)
+  });
+
+  it("reads a varying in the default (fragment) stage", () => {
+    const v = varying("vec2");
+    const fn = compileWasm(() => v.x.add(v.y) as any, { name: "main", params: [] });
+    expect(fn({ varyings: { [v.name]: [3, 4] } })).toBe(7);
+  });
+
+  it("reads fragCoord, defaulting to [0, 0]", () => {
+    const fn = compileWasm(() => fragCoord().x.add(fragCoord().y) as any, { name: "main", params: [] });
+    expect(fn({ fragCoord: [5, 6] })).toBe(11);
+    expect(fn({})).toBe(0);
+  });
+
+  it("throws for fragCoord() in a vertex stage", () => {
+    expect(() => compileWasm(() => fragCoord().x as any, { name: "main", params: [], stage: "vertex" }))
+      .toThrow(/fragCoord\(\) can only be used in fragment shaders/);
   });
 });
