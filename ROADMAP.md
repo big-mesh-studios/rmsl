@@ -60,13 +60,22 @@ which is also the fastest way to find the next thing worth doing here.
 
 ## Design decisions already made
 
-- **Lives in `src/rmsl.ts`, not a separate module.** Matches the existing
-  GLSL/WGSL/JS convention, and reuses the same untyped internal node shape
-  (`node.type`/`node.params`/`node.value`) `compileJSNode` already switches
-  on — no new node representation to keep in sync.
-- **f64 everywhere**, matching the JS backend's exact-arithmetic semantics
-  (no tolerance needed comparing the two, only for transcendentals later —
-  see CONTRIBUTING.md's testing section on this same point for `compileJS`).
+- **Lives in `src/rmsl-wasm.ts`, alongside `src/rmsl-glsl.ts`/`rmsl-wgsl.ts`/
+  `rmsl-compile-js.ts`** — the compiler was later split out of the original
+  single `src/rmsl.ts` file by concern (see `CONTRIBUTING.md`), and this
+  backend followed the same one-file-per-backend pattern. It reuses the same
+  untyped internal node shape (`node.type`/`node.params`/`node.value`)
+  `compileJSNode` already switches on, imported from `rmsl-core.ts` and
+  `rmsl-compiler-shared.ts` — no new node representation to keep in sync.
+- **f64 everywhere, for now** — but only because Phase 1 never touches
+  anything but `"float"`. This matches the JS backend's exact-arithmetic
+  semantics (no tolerance needed comparing the two, only for transcendentals
+  later — see CONTRIBUTING.md's testing section on this same point for
+  `compileJS`), but the JS backend collapses `int`/`uint` to the same f64
+  representation as `float` only because JS numbers have no other option.
+  WASM does have another option — real `i32` — and Phase 2 uses it: see the
+  "int/uint use real i32" decision there. So "f64 everywhere" describes
+  Phase 1's actual scope, not a permanent design stance.
 - **Synchronous instantiation** (`new WebAssembly.Instance(new
   WebAssembly.Module(bytes))`), matching `compileJS`'s synchronous `new
   Function(source)()`. Fine for the module sizes here; revisit if a module
@@ -97,10 +106,25 @@ direct WASM opcode: `div`, `mod`, `min`, `max`, `pow`, the trig/exponential
 family (`sin`/`cos`/.../`exp`/`log` have no native WASM opcode — decide
 per-op whether to hand-roll a polynomial approximation or import a host
 function, mirroring how a real wasm toolchain's libm would), comparisons
-(`lessThan`, `equal`, ...), logical (`and`/`or`/`not`), bitwise (needs i32,
-not just f64 — first real type-mixing decision). `int`/`uint`/`bool` as
-values likely rides along with this phase, since several of these ops need
-them.
+(`lessThan`, `equal`, ...), logical (`and`/`or`/`not`), bitwise.
+
+**`int`/`uint` use real `i32`, not f64** — mirroring GLSL/WGSL, not the JS
+backend. GLSL/WGSL already know each node's declared type (`node._t`) and
+use it to pick `int`/`i32` text over `float`/`f32`; WASM has that same type
+information available and, unlike JS, a real integer type to put it in. The
+JS backend gets away with f64-only because JS numbers don't distinguish
+int from float at all and its bitwise operators silently coerce through
+`ToInt32` — WASM has no such coercion, and every instruction (`f64.add` vs
+`i32.add`) is a distinct, explicitly-chosen opcode. Copying JS's approach
+here would also cost real correctness: GLSL/WGSL integers wrap at 32 bits
+on overflow and f64 arithmetic doesn't, so an f64-collapsed WASM int would
+silently disagree with the other three backends on any shader relying on
+wraparound. This is the first place the backend needs to track a concrete
+WASM storage type (`f64` vs `i32`) per node rather than assuming one type
+for everything, including explicit conversions where an expression mixes
+the two (`float(intValue)`, `intValue.mul(floatValue)`, ...). `bool` likely
+rides along as `i32` too, matching WASM's own boolean-as-i32 convention
+(which Phase 1's comparison ops — `f64.gt` etc. — already produce).
 
 ### Phase 3 — vectors and matrices as first-class values
 The load-bearing decision: keep the "split into N scalar slots" approach
@@ -158,10 +182,6 @@ going to ship a `.wasm` asset rather than generate one at runtime.
   becoming four, a `compileWasm` export from the package root) or does it
   stay an internal/experimental path indefinitely? Depends on how far the
   phases above get and whether the win keeps holding as coverage grows.
-- **i32 vs f64 for int/uint.** The JS backend computes everything as JS
-  numbers regardless of declared type; WASM has real i32, which could be
-  faster for integer-heavy code but reopens the "what type is this value"
-  question the current f64-everywhere design sidesteps entirely.
 - **Reentrancy.** `compileJS`'s `reentrant` option exists because its
   scratch slots are shared across calls by default. WASM locals are already
   per-call-frame, so this concern may simply not exist here — confirm once
