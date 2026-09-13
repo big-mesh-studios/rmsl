@@ -166,12 +166,21 @@ control flow:
 - `cross` (vec3 only), `length`, `distance`, `normalize` (leaves a
   zero-length vector unchanged rather than dividing by zero, matching the
   JS backend), and `reflect`.
+- `mat.mul(vec)` (`matVecMul` — a dedicated node type, not the generic
+  `"mul"`; correctly implies a homogeneous `w=1` and drops a row for a
+  vector one component short of the matrix's column count, e.g.
+  `mat4 * vec3`) and `mat.mul(mat)` (a real matrix product for two
+  same-shape square matrices, matching the JS backend's own square-only
+  limit — **was previously a silent miscompile**: the generic `"mul"`
+  dispatch treated it as componentwise multiplication instead, since
+  nothing distinguished "two matrix operands" from "vector operands" before
+  this landed; `mat.mul(scalar)` was already correct and is untouched).
 
 **What throws today** (deliberately — see the Phase list below for when each
-lands): matrix×vector and matrix×matrix multiply, `clamp`/`mix`/`step`/
-`smoothstep` (composite ops with no single WASM opcode — deliberately out
-of Phase 2's "has a direct opcode" scope), `uniformArray`,
-`output()`/`varying()`/`attribute()`/`builtinPosition()`/
+lands): non-square or mismatched-shape matrix×matrix multiply,
+`clamp`/`mix`/`step`/`smoothstep` (composite ops with no single WASM
+opcode — deliberately out of Phase 2's "has a direct opcode" scope),
+`uniformArray`, `output()`/`varying()`/`attribute()`/`builtinPosition()`/
 `builtinFragDepth()`/`fragCoord()`,
 `textureLoad`/`texture`/`textureSize`, multi-return, and any non-scalar
 function *result* (only intermediate values are first-class aggregates now

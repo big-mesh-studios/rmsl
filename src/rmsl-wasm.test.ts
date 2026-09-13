@@ -534,3 +534,31 @@ describe("WASM backend: cross, length, normalize, distance, reflect", () => {
     expect(run(() => reflect(vec3(1, -1, 0), vec3(0, 1, 0)).y as any)).toBe(1);
   });
 });
+
+describe("WASM backend: matrix×vector and matrix×matrix multiplication", () => {
+  it("multiplies a square matrix by a full-width vector", () => {
+    const identity = mat3(vec3(1, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1));
+    expect(run(() => (identity as any).mul(vec3(7, 8, 9)).dot(vec3(7, 8, 9)))).toBe(194);
+  });
+
+  it("multiplies a mat4 by a vec3, implying w=1 and dropping the w row", () => {
+    // Translation matrix: columns (1,0,0,0),(0,1,0,0),(0,0,1,0),(10,20,30,1).
+    const translate = mat4(vec4(1, 0, 0, 0), vec4(0, 1, 0, 0), vec4(0, 0, 1, 0), vec4(10, 20, 30, 1));
+    const transformed = (translate as any).mul(vec3(1, 2, 3));
+    expect(run(() => transformed.dot(vec3(11, 22, 33)))).toBe(1694); // (11,22,33) . itself
+  });
+
+  it("computes a real matrix product, not a componentwise one", () => {
+    // A = columns (1,2),(3,4); B = columns (5,6),(7,8) — mat2's flat literal
+    // value is already column-major, so these are just the flattened columns
+    // in order (mat2's own constructor has no "columns of vector nodes"
+    // overload the way mat3/mat4 do, only a flat-numbers literal).
+    // Real A*B = columns (23,34),(31,46). A wrongly-componentwise A*B would
+    // be columns (5,12),(21,32) instead.
+    const a = mat2(1, 2, 3, 4);
+    const b = mat2(5, 6, 7, 8);
+    const product = (a as any).mul(b);
+    // Extract the first column via matVecMul with the (1,0) basis vector.
+    expect(run(() => (product as any).mul(vec2(1, 0)).dot(vec2(1, 1)))).toBe(57); // 23+34
+  });
+});

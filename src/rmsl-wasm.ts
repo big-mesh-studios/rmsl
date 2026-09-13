@@ -296,7 +296,7 @@ export function compileWasmFn(
     if (node.type === "construct") return true;
     if (node.type === t) return true; // literal vector/matrix
     if (node.type === "swizzle" && (node.value as string).length > 1) return true;
-    if (node.type === "cross" || node.type === "reflect" || node.type === "normalize") return true;
+    if (node.type === "cross" || node.type === "reflect" || node.type === "normalize" || node.type === "matVecMul") return true;
     return node.type === "add" || node.type === "sub" || node.type === "mul" || node.type === "div";
   }
 
@@ -422,9 +422,20 @@ export function compileWasmFn(
         return emitSwizzleStores(node, nodeAddress(node));
       case "add":
       case "sub":
-      case "mul":
       case "div":
         return emitComponentwiseStores(node, nodeAddress(node));
+      case "mul":
+        // Componentwise `mul` covers vector±vector and vector±scalar
+        // broadcast (see emitComponentwiseStores), but a matrix times
+        // another matrix means a real matrix product, not a per-component
+        // one — `mat.mul(scalar)` stays componentwise (only one operand is
+        // a matrix there).
+        if (MATRIX_DIMENSIONS[node.params[0]._t] !== undefined && MATRIX_DIMENSIONS[node.params[1]._t] !== undefined) {
+          return emitMatMatMulStores(node, nodeAddress(node));
+        }
+        return emitComponentwiseStores(node, nodeAddress(node));
+      case "matVecMul":
+        return emitMatVecMulStores(node, nodeAddress(node));
       case "cross":
         return emitCrossStores(node, nodeAddress(node));
       case "normalize":
@@ -551,6 +562,61 @@ export function compileWasmFn(
       const aBytes = aWidth > 1 ? loadComponent(aAddr!, targetKind, k * compSize) : walkExpr(a);
       const bBytes = bWidth > 1 ? loadComponent(bAddr!, targetKind, k * compSize) : walkExpr(b);
       out.push(...storeComponent(addr, targetKind, k * compSize, [...aBytes, ...bBytes, opcode]));
+    }
+    return out;
+  }
+
+  /** `mat.mul(mat)` — a real matrix product, square only (matching the
+   * JS backend's own limit: `jsMatMul` throws for a non-square operand). A
+   * matrix times a *scalar* never reaches here — that's still componentwise
+   * (see the "mul" case in `materializeIfNeeded`). */
+  function emitMatMatMulStores(node: any, addr: number): number[] {
+    const [a, b] = node.params;
+    const aType = a._t as string, bType = b._t as string;
+    const [cols, rows] = MATRIX_DIMENSIONS[aType];
+    if (aType !== bType || cols !== rows) {
+      throw new Error(`[RMSL] compileWasmFn: does not yet support non-square or mismatched-shape matrix multiplication ("${aType}" x "${bType}")`);
+    }
+    const n = cols;
+    const out = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
+    const aAddr = nodeAddress(a), bAddr = nodeAddress(b);
+    for (let col = 0; col < n; col++) {
+      for (let row = 0; row < n; row++) {
+        let terms: number[] = [];
+        for (let k = 0; k < n; k++) {
+          const term = [...loadComponent(aAddr, "float", (k * n + row) * 8), ...loadComponent(bAddr, "float", (col * n + k) * 8), WASM_OP.f64Mul];
+          terms = k === 0 ? term : [...terms, ...term, WASM_OP.f64Add];
+        }
+        out.push(...storeComponent(addr, "float", (col * n + row) * 8, terms));
+      }
+    }
+    return out;
+  }
+
+  /** `mat.mul(vec)` — always float, column-major. A vector one component
+   * shorter than the matrix's column count is a position with its
+   * homogeneous coordinate implied (`mat4 * vec3`) — `node._t` (computed in
+   * rmsl-core.ts) already reflects the resulting, possibly-truncated width,
+   * so the output row count is read from there rather than re-derived. */
+  function emitMatVecMulStores(node: any, addr: number): number[] {
+    const [matNode, vecNode] = node.params;
+    const [cols, rows] = MATRIX_DIMENSIONS[matNode._t as string];
+    const vecWidth = componentCountOf(vecNode._t);
+    const outRows = componentCountOf(node._t as string);
+    const out = [...materializeIfNeeded(matNode), ...materializeIfNeeded(vecNode)];
+    const matAddr = nodeAddress(matNode), vecAddr = nodeAddress(vecNode);
+    for (let row = 0; row < outRows; row++) {
+      let terms: number[] = [];
+      for (let c = 0; c < vecWidth; c++) {
+        const term = [...loadComponent(matAddr, "float", (c * rows + row) * 8), ...loadComponent(vecAddr, "float", c * 8), WASM_OP.f64Mul];
+        terms = c === 0 ? term : [...terms, ...term, WASM_OP.f64Add];
+      }
+      if (vecWidth < cols) {
+        // The implied homogeneous coordinate is 1, so its term is just the
+        // matrix's own entry for that row, added unmultiplied.
+        terms = [...terms, ...loadComponent(matAddr, "float", (vecWidth * rows + row) * 8), WASM_OP.f64Add];
+      }
+      out.push(...storeComponent(addr, "float", row * 8, terms));
     }
     return out;
   }
