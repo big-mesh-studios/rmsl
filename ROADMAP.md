@@ -27,14 +27,15 @@ Root cause, as far as the prototype dug: `compileJS`'s uniform reads are
 operand; WASM gets a plain `local.get`. That gap is wide enough that
 splitting a vector into scalars and taking a branch don't close it.
 
-## Status: Phase 1, Phase 2, and Phase 3 landed
+## Status: Phase 1 through Phase 4 landed
 
 `compileWasmFn` and `compileWasm` exist in `src/rmsl-wasm.ts`, next to
 `rmsl-glsl.ts`/`rmsl-wgsl.ts`/`rmsl-compile-js.ts` (see CONTRIBUTING.md for
 the file layout). Tests are in `src/rmsl-wasm.test.ts`.
 
 **What it covers**, Phase 1's validated slice, Phase 2's full scalar op
-parity, and Phase 3's vectors/matrices as first-class values:
+parity, Phase 3's vectors/matrices as first-class values, and Phase 4's
+control flow:
 
 - `compileWasmFn(fn, options): { bytes: Uint8Array, params: WasmParam[],
   resultType: ShaderType }` — the module plus a description of what each
@@ -44,9 +45,8 @@ parity, and Phase 3's vectors/matrices as first-class values:
   supports. A `"bool"` result comes back as a real boolean and a `"uint"`
   one is reinterpreted from WASM's always-signed i32 return, matching what
   `compileJS` hands back for the same declared types.
-- Explicit function params (`options.params`), scalar float/int/uint/bool
-  uniforms and params, and vec3 uniforms (split into three f64 params — see
-  "Vectors have no home yet" below).
+- Explicit function params (`options.params`), and scalar float/int/uint/
+  bool uniforms and params.
 - Full scalar arithmetic: `+ - * / %`, `min`/`max`, `sqrt`/`inverseSqrt`,
   `abs`/`sign`/`negate`/`floor`/`ceil`/`trunc`/`fract`/`round`, every
   comparison, `and`/`or`/`not`, every bitwise op, and the transcendental
@@ -67,20 +67,25 @@ parity, and Phase 3's vectors/matrices as first-class values:
   below.
 - `If`/`Else` via `toVar()`/`.assign()`, compiled to WASM's structured
   `if`/`else`/`end`.
+- `for`/`while`/`Break`/`Continue`/`Return`/`Discard`, compiled to WASM's
+  structured `block`/`loop`/`br`/`br_if` — see "Control flow compiles
+  through one loop shape and one exit block" below. `Loop(count, body)` and
+  `Switch(selector, chain)` need no separate handling: both desugar to
+  `For`/`if`-chains before this backend ever sees them (`rmsl-core.ts`), so
+  they already worked once `for`/`if` did.
 
 **What throws today** (deliberately — see the Phase list below for when each
-lands): `for`/`while`/`Loop`/`Switch`, `cross`/`length`/`normalize`/
-`distance`/`reflect`, matrix×vector and matrix×matrix multiply,
-`clamp`/`mix`/`step`/`smoothstep` (composite ops with no single WASM
-opcode — deliberately out of Phase 2's "has a direct opcode" scope),
-`uniformArray`, `output()`/`varying()`/`attribute()`/`builtinPosition()`/
-`builtinFragDepth()`/`fragCoord()`, `textureLoad`/`texture`/`textureSize`,
-multi-return, and any non-scalar function *result* (only intermediate
-values are first-class aggregates now — the root a compiled `Fn` returns
-must still be a scalar). `compileWasmFn` throws `[RMSL] compileWasmFn:
-unsupported node type in <expr|vector|statement> position: "<type>"` naming
-exactly what's missing, which is also the fastest way to find the next
-thing worth doing here.
+lands): `cross`/`length`/`normalize`/`distance`/`reflect`, matrix×vector and
+matrix×matrix multiply, `clamp`/`mix`/`step`/`smoothstep` (composite ops
+with no single WASM opcode — deliberately out of Phase 2's "has a direct
+opcode" scope), `uniformArray`, `output()`/`varying()`/`attribute()`/
+`builtinPosition()`/`builtinFragDepth()`/`fragCoord()`,
+`textureLoad`/`texture`/`textureSize`, multi-return, and any non-scalar
+function *result* (only intermediate values are first-class aggregates now
+— the root a compiled `Fn` returns must still be a scalar). `compileWasmFn`
+throws `[RMSL] compileWasmFn: unsupported node type in
+<expr|vector|statement> position: "<type>"` naming exactly what's missing,
+which is also the fastest way to find the next thing worth doing here.
 
 ## Design decisions already made
 
@@ -159,6 +164,31 @@ thing worth doing here.
   proportionally to width — see `materializeIfNeeded`/`nodeAddress` in
   `src/rmsl-wasm.ts`. Scalar locals/params/uniforms are untouched by any of
   this; only aggregate values moved into memory.
+- **Control flow compiles through one loop shape and one exit block.**
+  `Loop`/`Switch` needed no work at all — both desugar to `For`/nested
+  `"if"` nodes in `rmsl-core.ts` before this backend ever sees them, so the
+  real new surface was `for`/`while`/`break`/`continue`/`return`/`discard`.
+  `for` and `while` both compile through the same nested shape, `block
+  { loop { <cond>; br_if (out to block) ; block { <body> } ; <update>; br
+  (back to loop) } }` — the inner `block` around `body` exists specifically
+  so `Continue` (`br` to that block) still runs a `for`'s `update` clause
+  before re-testing the condition, rather than skipping it by jumping
+  straight back to the condition check. `Break`/`Continue` need WASM's
+  `br`/`br_if` **relative label index** (how many enclosing structured
+  blocks to jump out through, fixed at compile time, not a runtime target),
+  computed via a `depth` parameter threaded through `walkStmt` (incremented
+  for every enclosing `if`/`for`/`while`, not just loops — an `if`'s
+  branches are structured WASM blocks too, so a `Break()` inside
+  `If(x, () => Break())` inside a loop must count the `if`'s own label) and
+  a `loopStack` recording each open loop's break/continue target depths.
+  `Return()`/`Discard()` carry no value in this DSL (there's no
+  `Return(value)` — only a bare early-exit) but a compiled `Fn` always
+  declares a real scalar WASM result type, so both push a zero/false
+  sentinel of that type and `br` to one function-exit `block` wrapped
+  unconditionally around the whole body (3 bytes, a no-op for any function
+  that never uses either) — `Discard`'s real "no fragment output" meaning
+  still has no representation and won't until Phase 5's shader-stage
+  surface exists; for now it's identical to `Return()`.
 - **No shader-stage concept yet.** `compileWasmFn`'s options are
   `CompileFnOptions` (`name` + `params`), the same shape
   `compileGLSLFn`/`compileWGSLFn` use for standalone functions — not
@@ -194,12 +224,13 @@ for it — an array element's address just needs a dynamically-computed
 offset, which nothing in this phase's scope required — but it wasn't
 implemented here).
 
-### Phase 4 — control flow parity
-`for`/`while`/`Loop`/`Break`/`Continue`/`Return`/`Switch`/`Discard`. WASM's
-structured `loop`/`br`/`br_if` map reasonably directly to `for`/`while`; the
-prototype's `if`/`else` precedent shows the shape. `Discard` has no scalar-
-function equivalent — needs a sentinel return or Phase 5's stage concept to
-mean anything.
+### ~~Phase 4 — control flow parity~~ — done
+See "Status" and "Control flow compiles through one loop shape and one exit
+block" above for what shipped: `for`/`while`/`Break`/`Continue`/`Return`/
+`Discard`, plus `Loop`/`Switch` for free since they desugar before reaching
+this backend. `Discard` still has no real scalar-function equivalent — it
+compiles to the same zero/false-sentinel early exit `Return()` does, a
+placeholder until Phase 5's shader-stage surface gives it actual meaning.
 
 ### Phase 5 — shader-stage surface
 `output()`, `varying()`, `attribute()`, `builtinPosition()`,

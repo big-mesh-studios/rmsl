@@ -21,7 +21,8 @@
 
 import { describe, it, expect } from "vitest";
 import {
-  compileWasm, compileJS, Fn, If, float, int, uint, bool, uniform, vec2, vec3, vec4,
+  compileWasm, compileJS, Fn, If, For, While, Loop, Break, Continue, Return, Discard,
+  float, int, uint, bool, uniform, vec2, vec3, vec4,
   ivec3, uvec3, bvec3, mat2, mat3, mat4, sin, clamp,
   type Node, type ShaderType,
 } from "./rmsl";
@@ -222,6 +223,153 @@ describe("WASM backend: control flow", () => {
     })();
     expect(run(branch, [2])).toBe(10);
     expect(run(branch, [0])).toBe(20);
+  });
+});
+
+/**
+ * Phase 4: control flow parity (see ROADMAP.md). `Loop`/`Switch` desugar to
+ * `For`/`If` chains at build time (rmsl-core.ts) and never reach the WASM
+ * backend as their own node types, so only `for`/`while`/`break`/
+ * `continue`/`return`/`discard` are new here.
+ */
+describe("WASM backend: loops", () => {
+  it("sums a range with For", () => {
+    const build = (n: Node<"float">) => Fn(() => {
+      const sum = float(0).toVar();
+      For(
+        () => int(0).toVar(),
+        (i) => i.lessThan(n.toInt()),
+        (i) => { i.assign(i.add(int(1))); },
+        (i) => { sum.assign(sum.add(i.toFloat())); },
+      );
+      return sum;
+    })();
+    expect(run(build, [5])).toBe(10); // 0+1+2+3+4
+  });
+
+  it("sums the same range via the Loop sugar", () => {
+    const build = (n: Node<"float">) => Fn(() => {
+      const sum = float(0).toVar();
+      Loop(n.toInt(), (i) => { sum.assign(sum.add(i.toFloat())); });
+      return sum;
+    })();
+    expect(run(build, [5])).toBe(10);
+  });
+
+  it("sums the same range with While", () => {
+    const build = (n: Node<"float">) => Fn(() => {
+      const i = int(0).toVar();
+      const sum = float(0).toVar();
+      While(i.lessThan(n.toInt()), () => {
+        sum.assign(sum.add(i.toFloat()));
+        i.assign(i.add(int(1)));
+      });
+      return sum;
+    })();
+    expect(run(build, [5])).toBe(10);
+  });
+
+  it("breaks a loop directly, and from inside a nested If", () => {
+    const directBreak = (n: Node<"float">) => Fn(() => {
+      const sum = float(0).toVar();
+      For(
+        () => int(0).toVar(),
+        (i) => i.lessThan(n.toInt()),
+        (i) => { i.assign(i.add(int(1))); },
+        (i) => { Break(); sum.assign(sum.add(i.toFloat())); },
+      );
+      return sum;
+    })();
+    expect(run(directBreak, [5])).toBe(0); // breaks before ever adding
+
+    const ifBreak = (n: Node<"float">) => Fn(() => {
+      const sum = float(0).toVar();
+      For(
+        () => int(0).toVar(),
+        (i) => i.lessThan(n.toInt()),
+        (i) => { i.assign(i.add(int(1))); },
+        (i) => {
+          If(i.equal(int(3)), () => { Break(); });
+          sum.assign(sum.add(i.toFloat()));
+        },
+      );
+      return sum;
+    })();
+    expect(run(ifBreak, [10])).toBe(3); // 0+1+2, stops before adding 3
+  });
+
+  it("continues a For loop, still running the update clause", () => {
+    const build = (n: Node<"float">) => Fn(() => {
+      const sum = float(0).toVar();
+      For(
+        () => int(0).toVar(),
+        (i) => i.lessThan(n.toInt()),
+        (i) => { i.assign(i.add(int(1))); },
+        (i) => {
+          If(i.equal(int(2)), () => { Continue(); });
+          sum.assign(sum.add(i.toFloat()));
+        },
+      );
+      return sum;
+    })();
+    // 0+1+3+4, skipping 2. If Continue skipped the update clause instead of
+    // running it, `i` would never advance past 2 and this would hang.
+    expect(run(build, [5])).toBe(8);
+  });
+
+  it("breaks only the innermost loop when loops are nested", () => {
+    const build = (n: Node<"float">) => Fn(() => {
+      const count = float(0).toVar();
+      For(
+        () => int(0).toVar(),
+        (i) => i.lessThan(n.toInt()),
+        (i) => { i.assign(i.add(int(1))); },
+        () => {
+          For(
+            () => int(0).toVar(),
+            (j) => j.lessThan(int(10)),
+            (j) => { j.assign(j.add(int(1))); },
+            (j) => {
+              If(j.equal(int(2)), () => { Break(); });
+              count.assign(count.add(float(1)));
+            },
+          );
+        },
+      );
+      return count;
+    })();
+    // The inner loop always runs exactly 2 iterations (j=0,1) before
+    // breaking, regardless of the outer loop, so the total is n * 2 — an
+    // outer-loop-breaking bug would instead give exactly 2.
+    expect(run(build, [3])).toBe(6);
+  });
+
+  it("throws when Break/Continue appear outside a loop", () => {
+    expect(() => compileWasm(() => Fn(() => { Break(); return float(0); })(), { name: "main", params: [] }))
+      .toThrow(/"Break" outside a loop/);
+    expect(() => compileWasm(() => Fn(() => { Continue(); return float(0); })(), { name: "main", params: [] }))
+      .toThrow(/"Continue" outside a loop/);
+  });
+});
+
+describe("WASM backend: Return and Discard", () => {
+  it("returns early with a zero sentinel from inside an If", () => {
+    const build = (x: Node<"float">) => Fn(() => {
+      const v = float(5).toVar();
+      If(x.greaterThan(0), () => { Return(); });
+      v.assign(float(99));
+      return v;
+    })();
+    expect(run(build, [1])).toBe(0); // Return fires: sentinel, v never reassigned
+    expect(run(build, [-1])).toBe(99); // Return doesn't fire: normal path runs
+  });
+
+  it("compiles Discard to the same early-exit sentinel", () => {
+    const build = () => Fn(() => {
+      Discard();
+      return float(42);
+    })();
+    expect(run(build)).toBe(0);
   });
 });
 

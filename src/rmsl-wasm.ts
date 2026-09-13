@@ -42,6 +42,10 @@ export type CompiledWasm = {
 
 export const WASM_OP = {
   end: 0x0b,
+  block: 0x02,
+  loop: 0x03,
+  br: 0x0c,
+  brIf: 0x0d,
   localGet: 0x20,
   localSet: 0x21,
   call: 0x10,
@@ -758,15 +762,64 @@ export function compileWasmFn(
     }
   }
 
-  /** Statement context: leaves no net stack effect. */
-  function walkStmt(node: any): number[] {
+  // The whole function body is wrapped in one outer `block` so `Return`/
+  // `Discard` always have somewhere to `br` to (see the `code` assembly
+  // below) — its content begins at depth 1, the depth every top-level
+  // statement is now compiled at.
+  const EXIT_BLOCK_DEPTH = 1;
+
+  // Per-open-loop `br`/`br_if` targets, as the WASM label-nesting depth at
+  // which that loop's break/continue block's *content* begins (see
+  // `emitLoop`) — pushed on entering a "for"/"while", popped on leaving.
+  // `Break`/`Continue` resolve their relative branch index against the top
+  // entry; empty means neither is inside a loop.
+  const loopStack: { breakDepth: number; continueDepth: number }[] = [];
+
+  /**
+   * `for`/`while` share this lowering: a `block` (the `Break` target)
+   * wrapping a `loop` (re-tests `cond` each iteration) wrapping a `block`
+   * (the `Continue` target) around `body` — the inner block exists so
+   * `Continue` skips straight to `update` (still running it) rather than
+   * jumping back to `cond` directly, which would skip a `for`'s update
+   * clause entirely.
+   */
+  function emitLoop(initBytes: number[], condNode: any, bodyNode: any, updateNode: any | null, depth: number): number[] {
+    const breakDepth = depth + 1;
+    const continueDepth = depth + 3;
+    loopStack.push({ breakDepth, continueDepth });
+    const condBytes = walkExpr(condNode);
+    const bodyBytes = walkStmt(bodyNode, continueDepth);
+    const updateBytes = updateNode ? walkStmt(updateNode, depth + 2) : [];
+    loopStack.pop();
+    return [
+      ...initBytes,
+      WASM_OP.block, WASM_BLOCKTYPE_VOID,
+      WASM_OP.loop, WASM_BLOCKTYPE_VOID,
+      ...condBytes, WASM_OP.i32Eqz, WASM_OP.brIf, ...wasmUleb128(1),
+      WASM_OP.block, WASM_BLOCKTYPE_VOID,
+      ...bodyBytes,
+      WASM_OP.end,
+      ...updateBytes,
+      WASM_OP.br, ...wasmUleb128(0),
+      WASM_OP.end,
+      WASM_OP.end,
+    ];
+  }
+
+  /** Statement context: leaves no net stack effect. `depth` is the WASM
+   * label-nesting depth of the structured blocks `node` itself sits
+   * directly inside — needed so `break`/`continue`/`return`/`discard` can
+   * compute the relative branch index `br`/`br_if` require. The whole
+   * function body is wrapped in one exit block (see the `code` assembly
+   * below), so depth starts at 1, not 0. */
+  function walkStmt(node: any, depth: number): number[] {
     switch (node.type) {
       case "seq": {
         const list = node.params ?? [];
         if (node._t !== "void") {
           throw new Error("[RMSL] compileWasmFn: a value-producing seq belongs at the root, not in statement position");
         }
-        return list.flatMap(walkStmt);
+        return list.flatMap((s: any) => walkStmt(s, depth));
       }
       case "let":
       case "assign": {
@@ -812,14 +865,49 @@ export function compileWasmFn(
       }
       case "if": {
         const cond = walkExpr(node.params[0]);
-        const thenBytes = walkStmt(node.params[1]);
+        // "if"/"else" are themselves structured WASM blocks and occupy a
+        // label index, so anything nested inside — a "break"/"continue"/
+        // "return" reached via `if (x) { Break(); }` inside a loop — must
+        // count this level too.
+        const thenBytes = walkStmt(node.params[1], depth + 1);
         const elseNode = node.params[2];
         return [
           ...cond, WASM_OP.if_, WASM_BLOCKTYPE_VOID,
           ...thenBytes,
-          ...(elseNode ? [WASM_OP.else_, ...walkStmt(elseNode)] : []),
+          ...(elseNode ? [WASM_OP.else_, ...walkStmt(elseNode, depth + 1)] : []),
           WASM_OP.end,
         ];
+      }
+      case "for": {
+        const [initNode, condNode, updateNode, bodyNode] = node.params;
+        return emitLoop(walkStmt(initNode, depth), condNode, bodyNode, updateNode, depth);
+      }
+      case "while": {
+        const [condNode, bodyNode] = node.params;
+        return emitLoop([], condNode, bodyNode, null, depth);
+      }
+      case "break": {
+        const top = loopStack[loopStack.length - 1];
+        if (!top) throw new Error('[RMSL] compileWasmFn: "Break" outside a loop');
+        return [WASM_OP.br, ...wasmUleb128(depth - top.breakDepth)];
+      }
+      case "continue": {
+        const top = loopStack[loopStack.length - 1];
+        if (!top) throw new Error('[RMSL] compileWasmFn: "Continue" outside a loop');
+        return [WASM_OP.br, ...wasmUleb128(depth - top.continueDepth)];
+      }
+      case "return":
+      case "discard": {
+        // Neither carries a value in this DSL (there is no `Return(value)`
+        // overload), but the compiled function always declares a real
+        // result type, so an early exit still has to leave one on the
+        // stack — a zero/false sentinel of the result kind, matching what
+        // ROADMAP.md already anticipated for `Discard`. `Discard`'s real
+        // "no fragment output" meaning has no representation yet; it
+        // compiles identically to `Return()` until Phase 5's shader-stage
+        // surface gives it one.
+        const sentinel = resultKind === "float" ? f64ConstBytes(0) : i32ConstBytes(0);
+        return [...sentinel, WASM_OP.br, ...wasmUleb128(depth - EXIT_BLOCK_DEPTH)];
       }
       default:
         throw new Error(`[RMSL] compileWasmFn: unsupported node type in statement position: "${node.type}"`);
@@ -830,9 +918,16 @@ export function compileWasmFn(
   // [...priorStatements, returnValue] (see the Fn implementation in
   // rmsl-core.ts); one built as a bare expression (no Fn wrapper, no
   // statements) is just that expression. Both are valid roots here.
-  const code = root.type === "seq"
-    ? [...(root.params.slice(0, -1) as any[]).flatMap(walkStmt), ...walkExpr(root.params[root.params.length - 1])]
+  // Top-level statements compile at EXIT_BLOCK_DEPTH (1), since the whole
+  // body is wrapped in the one exit block "return"/"discard" branch to.
+  const bodyBytes = root.type === "seq"
+    ? [...(root.params.slice(0, -1) as any[]).flatMap((s: any) => walkStmt(s, EXIT_BLOCK_DEPTH)), ...walkExpr(root.params[root.params.length - 1])]
     : walkExpr(root);
+  // Wrapping unconditionally (rather than only when "return"/"discard"
+  // appear) costs 3 bytes and is a no-op when neither is used — the exact
+  // same bytes run inside a block nothing branches out of — so there's one
+  // code path here, not two.
+  const code = [WASM_OP.block, wasmTypeOf(resultKind), ...bodyBytes, WASM_OP.end];
 
   // --- assemble the module: type section (main's signature, plus one shared
   // signature per import arity actually used), import section, function
