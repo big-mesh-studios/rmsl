@@ -371,7 +371,7 @@ stage program uses instead of throwing — which is what lets a per-pixel
 `vec4` color work with `.draw()` with no stage or `output()` involved at
 all.
 
-`src/rmsl-wasm-draw.bench.ts` measures a `sqrt(distance to a uniform
+`src/benches/rmsl-wasm-draw.bench.ts` measures a `sqrt(distance to a uniform
 center)` program, swept across a 128x128 and a 512x512 grid (a 16x
 difference in pixel count, to check the win holds at scale rather than
 resting on one arbitrarily chosen size), two runs, otherwise idle machine.

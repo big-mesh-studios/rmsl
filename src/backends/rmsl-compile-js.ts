@@ -1,12 +1,12 @@
 // ========== JS Compiler ==========
 // The third backend: compile a node graph to a JavaScript function that the
 // host can call on the CPU, one fragment at a time.
-import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, node, var_, wrapValue } from "./rmsl-core";
+import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, node, var_, wrapValue } from "../rmsl-core";
 import {
   CompileCtx, CompiledNode, CompileFnOptions, PRECEDENCE, PREC_ATOM, PREC_UNARY,
   assertPositionIsReadable, assertSquareMatrix, assertStageResult,
   forUpdateStatements, resolveSwizzleTarget, tryFold, withoutSemicolon, wrapExpr,
-} from "./rmsl-compiler-shared";
+} from "../rmsl-compiler-shared";
 // ========== JS Compiler ==========
 /**
  * The third backend: compile a node graph to a JavaScript function that the

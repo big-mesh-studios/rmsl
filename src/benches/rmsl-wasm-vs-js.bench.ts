@@ -22,7 +22,7 @@ import { bench, describe } from "vitest";
 import {
   compileWasm, compileWasmFn, compileJS, Fn, If, uniform, float, sqrt,
   type Node,
-} from "./rmsl";
+} from "../rmsl";
 
 describe("scalar arithmetic: sqrt(a*a + b*b + c*c)", () => {
   const build = (a: Node<"float">, b: Node<"float">, c: Node<"float">) =>

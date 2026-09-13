@@ -28,7 +28,7 @@ import {
   attribute, varying, fragCoord, output, builtinPosition, builtinFragDepth,
   textureSize, textureLoad, ivec2,
   type Node, type ShaderType,
-} from "./rmsl";
+} from "../rmsl";
 import type { CompileWasmFnOptions } from "./rmsl-wasm";
 
 function run(build: (...args: any[]) => Node<ShaderType>, args: number[] = [], types: ShaderType[] = []): number | boolean {

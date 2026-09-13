@@ -40,16 +40,16 @@ export {
 
 export type { VertexRoot, CompileFnOptions } from "./rmsl-compiler-shared";
 
-export type { GLSLPrecision, CompileGLSLOptions } from "./rmsl-glsl";
-export { compileGLSL } from "./rmsl-glsl";
+export type { GLSLPrecision, CompileGLSLOptions } from "./backends/rmsl-glsl";
+export { compileGLSL } from "./backends/rmsl-glsl";
 
-export type { WgslUniformMember, WgslUniformDeclaration, CompileWGSLOptions } from "./rmsl-wgsl";
-export { wgslUniformLayout, compileWGSL } from "./rmsl-wgsl";
+export type { WgslUniformMember, WgslUniformDeclaration, CompileWGSLOptions } from "./backends/rmsl-wgsl";
+export { wgslUniformLayout, compileWGSL } from "./backends/rmsl-wgsl";
 
-export type { JsShaderContext, JsTextureWrap, JsTextureData, JsShaderResult, CompileJSOptions } from "./rmsl-compile-js";
-export { compileJSFn, compileJS } from "./rmsl-compile-js";
+export type { JsShaderContext, JsTextureWrap, JsTextureData, JsShaderResult, CompileJSOptions } from "./backends/rmsl-compile-js";
+export { compileJSFn, compileJS } from "./backends/rmsl-compile-js";
 
 export { compileGLSLFn, compileWGSLFn } from "./rmsl-standalone-fn";
 
-export type { WasmParam, CompiledWasm } from "./rmsl-wasm";
-export { compileWasmFn, compileWasm } from "./rmsl-wasm";
+export type { WasmParam, CompiledWasm } from "./backends/rmsl-wasm";
+export { compileWasmFn, compileWasm } from "./backends/rmsl-wasm";

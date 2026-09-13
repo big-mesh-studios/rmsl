@@ -4,8 +4,8 @@
 sketch, not a committed roadmap item — no phase number depends on it. It
 came out of a conversation about where RMSL's CPU/GPU backend split could
 go next, starting from the observation that a byte layout derived from a
-`ShaderType` is a real code entity (`src/rmsl-wasm.ts`'s Phase 3 memory
-design, `src/rmsl-wgsl.ts`'s `wgslUniformLayout`) that today gets computed
+`ShaderType` is a real code entity (`src/backends/rmsl-wasm.ts`'s Phase 3 memory
+design, `src/backends/rmsl-wgsl.ts`'s `wgslUniformLayout`) that today gets computed
 independently, and slightly differently, in more than one place. Stage 1
 (the behavior-preserving refactor, `src/rmsl-layout.ts`) proved the
 placement *algorithm* can be shared. Stage 2 tried to prove the actual
@@ -30,13 +30,13 @@ WASM), but "the byte layout of a `vec3`/`mat4`/instance struct" is not one
 of the things that gets shared across them. Three real, separate
 implementations already exist:
 
-- **`wgslUniformLayout`** (`src/rmsl-wgsl.ts:216`) computes WGSL's
+- **`wgslUniformLayout`** (`src/backends/rmsl-wgsl.ts:216`) computes WGSL's
   uniform-address-space layout rules (16-byte array-stride rounding, widened
   storage for anything too narrow to align) so the generated `struct` and
   whatever writes the actual uniform buffer agree on offsets. Its own
   comment notes three separate places already have to agree with each
   other by construction, not by sharing code.
-- **Phase 3's WASM linear-memory allocator** (`src/rmsl-wasm.ts`,
+- **Phase 3's WASM linear-memory allocator** (`src/backends/rmsl-wasm.ts`,
   `allocateFor`/`componentSizeOf`/`elementKindOf`) computes a *different*
   layout for the same shader types: byte-packed, no padding, `align=0`
   everywhere, because nothing on the WASM side ever needed to match a GPU
@@ -191,11 +191,11 @@ changing what address an existing packed-only value gets today.
 ## Stage 1 — landed
 
 `src/rmsl-layout.ts` now has `planLayout(members, rules)`.
-`wgslUniformLayout` (`src/rmsl-wgsl.ts`) is a thin wrapper over
+`wgslUniformLayout` (`src/backends/rmsl-wgsl.ts`) is a thin wrapper over
 `planLayout(members, WGSL_UNIFORM_RULES)` — same reordering, same
 array-widening, same offsets it always produced, now expressed as an
 `AllocRules` value instead of hard-coded into the function. Phase 3's WASM
-`allocateFor` (`src/rmsl-wasm.ts`) calls
+`allocateFor` (`src/backends/rmsl-wasm.ts`) calls
 `planLayout([{slot: t, type: t}], PACKED_RULES)` — a single-member list,
 not a batch of everything `collect()` discovers, which is a deliberately
 smaller change than first planned: `collect()` walks the AST and
@@ -222,7 +222,7 @@ and a WASM call means both need to agree on how a type is spelled.
 ## Stage 2 — landed
 
 `compileWasmFn`/`compileWasm` gained an experimental option,
-`gpuUniformLayout: { offsets, totalSize }` (`src/rmsl-wasm.ts`), that
+`gpuUniformLayout: { offsets, totalSize }` (`src/backends/rmsl-wasm.ts`), that
 places specific aggregate uniforms at caller-given byte offsets instead of
 this backend's own packed allocation — everything else it needs (locals,
 scratch, non-overridden uniforms) starts its own bump-allocated region

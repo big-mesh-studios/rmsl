@@ -1,13 +1,17 @@
 # Contributing to RMSL
 
 RMSL builds a shader node graph in TypeScript and emits GLSL ES 3.00 and WGSL.
-The compiler lives in `src/rmsl-*.ts`: `rmsl-core.ts` is the DSL (types, the
-node graph, the TSL-style API); `rmsl-compiler-shared.ts` is the context and
-helpers all four backends use; `rmsl-glsl.ts`, `rmsl-wgsl.ts`,
-`rmsl-compile-js.ts`, and `rmsl-wasm.ts` are the backends themselves;
-`rmsl-standalone-fn.ts` covers `compileGLSLFn`/`compileWGSLFn`. `rmsl.ts`
-is a thin barrel re-exporting the public surface from all of them — it's
-what a consumer imports, but not where to go looking for an implementation.
+The compiler lives in `src/rmsl-*.ts` and `src/backends/`: `rmsl-core.ts` is
+the DSL (types, the node graph, the TSL-style API); `rmsl-compiler-shared.ts`
+is the context and helpers all four backends use;
+`src/backends/rmsl-glsl.ts`, `src/backends/rmsl-wgsl.ts`,
+`src/backends/rmsl-compile-js.ts`, and `src/backends/rmsl-wasm.ts` are the
+backends themselves, each with its own test file colocated next to it (e.g.
+`src/backends/rmsl-wasm.test.ts`); `rmsl-standalone-fn.ts` covers
+`compileGLSLFn`/`compileWGSLFn`. `rmsl.ts` is a thin barrel re-exporting the
+public surface from all of them — it's what a consumer imports, but not
+where to go looking for an implementation. `src/benches/` holds the
+`*.bench.ts` performance benchmarks (run with `npx vitest bench <path>`).
 
 Most mistakes here are silent: a wrong result type or a missing table entry
 produces a shader that reads fine and that no driver accepts. The test setup

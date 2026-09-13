@@ -1,11 +1,11 @@
 // ========== WGSL Compiler ==========
-import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, isSamplerType } from "./rmsl-core";
+import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, isSamplerType } from "../rmsl-core";
 import {
   CompileCtx, CompiledNode, PRECEDENCE, PREC_ATOM, PREC_UNARY, VertexRoot,
   assertPositionIsReadable, assertSquareMatrix, assertStageResult,
   forUpdateStatements, resolveSwizzleTarget, tryFold, withoutSemicolon, wrapExpr,
-} from "./rmsl-compiler-shared";
-import { AllocRules, planLayout } from "./rmsl-layout";
+} from "../rmsl-compiler-shared";
+import { AllocRules, planLayout } from "../rmsl-layout";
 export let typeToWGSL: Record<string, string> = {
   float: "f32", vec2: "vec2<f32>", vec3: "vec3<f32>", vec4: "vec4<f32>",
   int: "i32", uint: "u32", bool: "bool",

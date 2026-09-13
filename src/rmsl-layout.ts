@@ -1,13 +1,13 @@
 // === Shared memory-layout allocator (see docs/design-shared-layout-ir.md) ===
 //
 // Stage 1 of that design: extract the placement algorithm `wgslUniformLayout`
-// (src/rmsl-wgsl.ts) already implements — reorder members by alignment,
-// accumulate offsets with padding, widen/round array elements — into one
-// function, configurable per target instead of hard-coded into that one
-// backend. `src/rmsl-wasm.ts`'s Phase 3 memory allocator uses it too, with
-// its own rules (no reordering, no padding), so both are now thin callers of
-// the same algorithm instead of two independent implementations that happen
-// to overlap in what they're actually deciding.
+// (src/backends/rmsl-wgsl.ts) already implements — reorder members by
+// alignment, accumulate offsets with padding, widen/round array elements —
+// into one function, configurable per target instead of hard-coded into that
+// one backend. `src/backends/rmsl-wasm.ts`'s Phase 3 memory allocator uses it
+// too, with its own rules (no reordering, no padding), so both are now thin
+// callers of the same algorithm instead of two independent implementations
+// that happen to overlap in what they're actually deciding.
 //
 // Deliberately generic over the *type string* a member carries: WGSL's
 // existing caller already spells types its own way (`"vec3<f32>"`) and

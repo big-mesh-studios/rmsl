@@ -20,8 +20,8 @@
  */
 import { describe, it, expect } from "vitest";
 import { Fn, uniform, wgslUniformLayout } from "./rmsl";
-import { wgslType } from "./rmsl-wgsl";
-import { compileWasm, compileWasmFn, type CompileWasmFnOptions } from "./rmsl-wasm";
+import { wgslType } from "./backends/rmsl-wgsl";
+import { compileWasm, compileWasmFn, type CompileWasmFnOptions } from "./backends/rmsl-wasm";
 
 describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
   it("places two differently-aligned aggregate uniforms at wgslUniformLayout's exact offsets", () => {

@@ -22,7 +22,7 @@
  * Run with `npx vitest bench src/rmsl-wasm-draw.bench.ts`.
  */
 import { bench, describe } from "vitest";
-import { compileWasm, compileJS, Fn, uniform, fragCoord, sqrt, ivec2, textureLoad, type JsTextureData, type JsShaderContext } from "./rmsl";
+import { compileWasm, compileJS, Fn, uniform, fragCoord, sqrt, ivec2, textureLoad, type JsTextureData, type JsShaderContext } from "../rmsl";
 
 for (const SIZE of [128, 512]) {
   describe(`draw() vs one call per pixel: sqrt(fragCoord distance) over a ${SIZE}x${SIZE} grid`, () => {

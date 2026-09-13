@@ -7,7 +7,7 @@
  * "unsupported node type" before Phase 4 landed.
  */
 import { bench, describe } from "vitest";
-import { compileWasm, compileJS, Fn, For, float, int, sqrt } from "./rmsl";
+import { compileWasm, compileJS, Fn, For, float, int, sqrt } from "../rmsl";
 
 describe("loop: sum of sqrt(i) for i in [0, 64)", () => {
   const build = () => Fn(() => {
