@@ -840,3 +840,165 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
       .toThrow(/sampler2D\/sampler3D/);
   });
 });
+
+// Mirrors rmsl-js.test.ts's own texture()/textureLod() cases directly —
+// same inputs, same expected outputs — since both backends implement the
+// exact same sampling semantics (rmsl-compile-js.ts's _tex2d/_tex3d/_wrap),
+// just ported to different targets.
+describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
+  function checksum4(v: any) {
+    return v.x.add(v.y.mul(10)).add(v.z.mul(100)).add(v.w.mul(1000));
+  }
+
+  it("samples textures with nearest-neighbour lookup", () => {
+    let tex: any;
+    const build = () => Fn(() => {
+      tex = uniform("sampler2D");
+      return checksum4(tex.texture(vec2(0.5, 0.5)).toVar());
+    })();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    // 2x2 RGBA; uv (0.5, 0.5) -> texel (1, 1).
+    const data = [1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4];
+    expect(fn({ textures: { [tex.name]: { data, width: 2, height: 2 } } })).toBe(4 + 40 + 400 + 4000);
+  });
+
+  it("reads a byte texture through a float sampler as 0 to 1", () => {
+    let tex: any;
+    const build = () => Fn(() => {
+      tex = uniform("sampler2D");
+      return checksum4(tex.texture(vec2(0.5, 0.5)).toVar());
+    })();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const data = new Uint8Array([0, 128, 255, 255]);
+    const result = fn({ textures: { [tex.name]: { data, width: 1, height: 1 } } }) as number;
+    expect(result).toBeCloseTo(0 + (128 / 255) * 10 + 1 * 100 + 1 * 1000, 9);
+  });
+
+  it("leaves a float texture that already holds float data alone", () => {
+    let tex: any;
+    const build = () => Fn(() => {
+      tex = uniform("sampler2D");
+      return checksum4(tex.texture(vec2(0.5, 0.5)).toVar());
+    })();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const data = new Float32Array([0, 0.5, 1, 1]);
+    const result = fn({ textures: { [tex.name]: { data, width: 1, height: 1 } } }) as number;
+    expect(result).toBeCloseTo(0 + 0.5 * 10 + 1 * 100 + 1 * 1000, 9);
+  });
+
+  it("fetches integer textures at texel coordinates via texture()", () => {
+    let tex: any;
+    const build = () => Fn(() => {
+      tex = uniform("isampler2D");
+      return checksum4(tex.texture(ivec2(1, 0)).toVar());
+    })();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+    expect(fn({ textures: { [tex.name]: { data, width: 2, height: 2 } } })).toBe(5 + 60 + 700 + 8000);
+  });
+
+  it("strides by the channels a texel holds, not by four", () => {
+    let tex: any;
+    const build = () => Fn(() => {
+      tex = uniform("usampler2D");
+      return checksum4(tex.texture(ivec2(2, 0)).toVar());
+    })();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const data = new Uint8Array([10, 20, 30, 40]);
+    const result = fn({ textures: { [tex.name]: { data, width: 4, height: 1, channels: 1 } } });
+    expect(result).toBe(30 + 0 + 0 + 1000);
+  });
+
+  it("blends a single-channel texture without reading its neighbours' channels", () => {
+    let tex: any;
+    const build = () => Fn(() => {
+      tex = uniform("sampler2D");
+      return checksum4(tex.texture(vec2(0.5, 0.5)).toVar());
+    })();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const texture = { data: [0, 100], width: 2, height: 1, channels: 1 as const };
+    expect(fn({ textures: { [tex.name]: texture } })).toBe(100 + 0 + 0 + 1000);
+    expect(fn({ textures: { [tex.name]: { ...texture, magFilter: "linear" as const } } }))
+      .toBe(50 + 0 + 0 + 1000);
+  });
+
+  it("normalizes a byte texture fetched with textureLod too", () => {
+    let tex: any;
+    const build = () => Fn(() => {
+      tex = uniform("sampler2D");
+      return checksum4(tex.textureLod(vec2(0.5, 0.5), float(0)).toVar());
+    })();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const data = new Uint8Array([0, 128, 255, 255]);
+    const result = fn({ textures: { [tex.name]: { data, width: 1, height: 1 } } }) as number;
+    expect(result).toBeCloseTo(0 + (128 / 255) * 10 + 1 * 100 + 1 * 1000, 9);
+  });
+
+  it("blends neighbouring texels when the texture asks for linear filtering", () => {
+    let tex: any;
+    const build = () => Fn(() => {
+      tex = uniform("sampler2D");
+      return tex.texture(vec2(0.5, 0.5)).x;
+    })();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    // Two texels, 0 and 100, whose centres sit at 0.25 and 0.75. Sampling
+    // halfway between them lands in the second texel outright without
+    // filtering, and is half of each with it.
+    const data = [0, 0, 0, 0, 100, 100, 100, 100];
+    const texture = { data, width: 2, height: 1 };
+    expect(fn({ textures: { [tex.name]: texture } })).toBe(100);
+    expect(fn({ textures: { [tex.name]: { ...texture, magFilter: "linear" as const } } })).toBe(50);
+  });
+
+  it("wraps a coordinate past the edge the way the texture asks", () => {
+    let tex: any;
+    const build = () => Fn(() => {
+      tex = uniform("sampler2D");
+      return tex.texture(vec2(1.25, 0.5)).x;
+    })();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const texture = { data: [10, 10, 10, 10, 20, 20, 20, 20], width: 2, height: 1 };
+    const red = (t: any) => fn({ textures: { [tex.name]: t } });
+    // A quarter past the right edge: the last texel stretched, the image
+    // tiled back to the first, or tiled and flipped back to the last.
+    expect(red(texture)).toBe(20);
+    expect(red({ ...texture, wrapS: "repeat" as const })).toBe(10);
+    expect(red({ ...texture, wrapS: "mirror" as const })).toBe(20);
+  });
+
+  it("wraps behind the left edge too", () => {
+    let tex: any;
+    const build = () => Fn(() => {
+      tex = uniform("sampler2D");
+      return tex.texture(vec2(-0.25, 0.5)).x;
+    })();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const texture = { data: [10, 10, 10, 10, 20, 20, 20, 20], width: 2, height: 1 };
+    const red = (t: any) => fn({ textures: { [tex.name]: t } });
+    expect(red(texture)).toBe(10);
+    expect(red({ ...texture, wrapS: "repeat" as const })).toBe(20);
+    expect(red({ ...texture, wrapS: "mirror" as const })).toBe(10);
+  });
+
+  it("blends across the depth of a 3D texture", () => {
+    let tex: any;
+    const build = () => Fn(() => {
+      tex = uniform("sampler3D");
+      return tex.texture(vec3(0.5, 0.5, 0.5)).x;
+    })();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    // Two slices, 0 and 100, sampled halfway between their centres.
+    const texture = { data: [0, 0, 0, 0, 100, 100, 100, 100], width: 1, height: 1, depth: 2, magFilter: "linear" as const };
+    expect(fn({ textures: { [tex.name]: texture } })).toBe(50);
+  });
+
+  it("throws for a samplerCube uniform", () => {
+    let tex: any;
+    const build = () => Fn(() => {
+      tex = uniform("samplerCube");
+      return tex.texture(vec3(0, 0, 0)).x;
+    })();
+    expect(() => compileWasm(build as any, { name: "main", params: [] }))
+      .toThrow(/sampler2D\/sampler3D/);
+  });
+});

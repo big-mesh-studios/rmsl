@@ -530,6 +530,7 @@ export function compileWasmFn(
     if (node.type === "cross" || node.type === "reflect" || node.type === "normalize" || node.type === "matVecMul") return true;
     if (node.type === "dFdx" || node.type === "dFdy" || node.type === "fwidth") return true;
     if (node.type === "textureSize" || node.type === "textureLoad") return true;
+    if (node.type === "texture" || node.type === "textureLod") return true;
     return node.type === "add" || node.type === "sub" || node.type === "mul" || node.type === "div";
   }
 
@@ -887,6 +888,9 @@ export function compileWasmFn(
         return emitTextureSizeStores(node, nodeAddress(node));
       case "textureLoad":
         return emitTexelFetchStores(node, nodeAddress(node));
+      case "texture":
+      case "textureLod":
+        return emitTextureSampleStores(node, nodeAddress(node));
       default:
         if (node.type === node._t && Array.isArray(node.value)) {
           return emitLiteralStores(node, nodeAddress(node));
@@ -1133,6 +1137,158 @@ export function compileWasmFn(
     const out = [...materialize];
     for (let i = 0; i < 4; i++) {
       out.push(...storeComponent(addr, targetKind, i * compSize, channelValue(i)));
+    }
+    return out;
+  }
+
+  /**
+   * `texture()`/`textureLod()` on a float sampler: wrap-addressed,
+   * optionally bilinear/trilinear-filtered sampling, porting `_tex2d`/
+   * `_tex3d`/`_wrap`/`_lerp2` (`rmsl-compile-js.ts`) to bytecode. An
+   * integer sampler is never filterable in either language and instead
+   * takes the exact same unfiltered path `textureLoad()` uses (see
+   * `emitTexelFetchStores`) — `texture()`'s coordinates on an integer
+   * sampler are already texel-space, not normalized UVs (`ISampler2DOps`'s
+   * doc comment, `rmsl-core.ts`), so no wrap/UV-scaling code ever applies
+   * to them regardless.
+   *
+   * Unlike `textureLoad()`, wrapping (not clamping-for-safety) already
+   * guarantees every tap index this function computes is in `[0, dim)`, so
+   * no separate "safe address" step is needed here — the wrapped index
+   * *is* the safe index. And there's no "out of range" case at all: a
+   * `texture()` call always returns some in-range, wrap-addressed sample.
+   *
+   * Every conditional (wrap mode, nearest-vs-linear, missing-channel
+   * default) is a `select`, matching this file's existing ternary/min/max
+   * style and this phase's own `emitTexelFetchStores` — so every branch's
+   * bytecode is always emitted and always executes, duplicated at each use
+   * site rather than cached in a temporary (this file doesn't yet have a
+   * mechanism for that, and hasn't needed one before this). That's a real,
+   * accepted code-size cost for a filtered 3D sample (a handful of nested
+   * `select`s over up to 8 texel corners) — not a correctness one.
+   */
+  function emitTextureSampleStores(node: any, addr: number): number[] {
+    const samplerNode = node.params[0];
+    const coordsNode = node.params[1];
+    const samplerType = samplerNode._t as string;
+    assertSampled2Dor3D(samplerType);
+    if (isIntegerSamplerType(samplerType)) return emitTexelFetchStores(node, addr);
+
+    const is3D = samplerType.endsWith("3D");
+    const metaAddr: number = ((): number => {
+      const a = textureMetadataAddress.get(samplerNode.value.slot);
+      if (a === undefined) throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed texture "${samplerNode.value.slot}"`);
+      return a;
+    })();
+    const materialize = materializeIfNeeded(coordsNode);
+    const coordsAddr = nodeAddress(coordsNode);
+
+    const uv = (k: number): number[] => loadComponent(coordsAddr, "float", k * 8);
+    const dimI32 = (offset: number): number[] => loadComponent(metaAddr, "int", offset);
+    const dimF64 = (offset: number): number[] => [...dimI32(offset), WASM_OP.f64ConvertI32S];
+
+    // repeat/mirror/clamp, dispatched on a runtime mode value (0/1/2) —
+    // every formula computed unconditionally, picked with nested `select`s.
+    function wrapAxis(idxBytes: number[], dimOffset: number, wrapOffset: number): number[] {
+      const dim = (): number[] => dimI32(dimOffset);
+      const mode = (): number[] => dimI32(wrapOffset);
+      const dimMinus1 = (): number[] => [...dim(), ...i32ConstBytes(1), WASM_OP.i32Sub];
+      const clampVal = selectExpr(
+        i32ConstBytes(0),
+        selectExpr(dimMinus1(), idxBytes, [...idxBytes, ...dimMinus1(), WASM_OP.i32GtS]),
+        [...idxBytes, ...i32ConstBytes(0), WASM_OP.i32LtS],
+      );
+      const repeatVal = [...[...[...idxBytes, ...dim(), WASM_OP.i32RemS], ...dim(), WASM_OP.i32Add], ...dim(), WASM_OP.i32RemS];
+      const twoDim = (): number[] => [...dim(), ...i32ConstBytes(2), WASM_OP.i32Mul];
+      const period = [...[...[...idxBytes, ...twoDim(), WASM_OP.i32RemS], ...twoDim(), WASM_OP.i32Add], ...twoDim(), WASM_OP.i32RemS];
+      const mirrorVal = selectExpr(
+        period,
+        [...twoDim(), ...i32ConstBytes(1), WASM_OP.i32Sub, ...period, WASM_OP.i32Sub],
+        [...period, ...dim(), WASM_OP.i32LtS],
+      );
+      const modeIsMirror = [...mode(), ...i32ConstBytes(2), WASM_OP.i32Eq];
+      const modeIsClamp = [...mode(), ...i32ConstBytes(0), WASM_OP.i32Eq];
+      const repeatOrMirror = selectExpr(mirrorVal, repeatVal, modeIsMirror);
+      return selectExpr(clampVal, repeatOrMirror, modeIsClamp);
+    }
+
+    // (y*width + x), or ((z*height + y)*width + x) for 3D.
+    function texelIndexBytes(x: number[], y: number[], z: number[] | null): number[] {
+      const yx = [...y, ...dimI32(TEX_META_WIDTH), WASM_OP.i32Mul, ...x, WASM_OP.i32Add];
+      if (!z) return yx;
+      const zy = [...z, ...dimI32(TEX_META_HEIGHT), WASM_OP.i32Mul, ...y, WASM_OP.i32Add];
+      return [...zy, ...dimI32(TEX_META_WIDTH), WASM_OP.i32Mul, ...x, WASM_OP.i32Add];
+    }
+
+    // One channel's raw, unorm-divided value at an already in-range texel —
+    // no bounds handling needed here, unlike `emitTexelFetchStores`,
+    // because every index this function ever passes in came from `wrapAxis`.
+    function texelChannelRaw(x: number[], y: number[], z: number[] | null, i: number): number[] {
+      const dataAddr = dimI32(TEX_META_DATA_ADDR);
+      const channels = dimI32(TEX_META_CHANNELS);
+      const elemOffset = [...texelIndexBytes(x, y, z), ...channels, WASM_OP.i32Mul, ...i32ConstBytes(i), WASM_OP.i32Add];
+      const byteOffset = [...elemOffset, ...i32ConstBytes(3), WASM_OP.i32Shl];
+      const addrBytes = [...dataAddr, ...byteOffset, WASM_OP.i32Add];
+      const divisor = loadComponent(metaAddr, "float", TEX_META_UNORM_DIVISOR);
+      return [...loadDynamic(addrBytes, "float"), ...divisor, WASM_OP.f64Div];
+    }
+    function texelChannel(x: number[], y: number[], z: number[] | null, i: number): number[] {
+      const present = [...i32ConstBytes(i), ...dimI32(TEX_META_CHANNELS), WASM_OP.i32LtS];
+      const missingChannelDefault = i === 3 ? f64ConstBytes(1) : f64ConstBytes(0);
+      return selectExpr(texelChannelRaw(x, y, z, i), missingChannelDefault, present);
+    }
+
+    function nearestAxis(k: number, dimOffset: number, wrapOffset: number): number[] {
+      const scaled = [...uv(k), ...dimF64(dimOffset), WASM_OP.f64Mul, WASM_OP.f64Floor, WASM_OP.i32TruncF64S];
+      return wrapAxis(scaled, dimOffset, wrapOffset);
+    }
+    function nearestChannel(i: number): number[] {
+      const x = nearestAxis(0, TEX_META_WIDTH, TEX_META_WRAP_S);
+      const y = nearestAxis(1, TEX_META_HEIGHT, TEX_META_WRAP_T);
+      const z = is3D ? nearestAxis(2, TEX_META_DEPTH, TEX_META_WRAP_R) : null;
+      return texelChannel(x, y, z, i);
+    }
+
+    // Half-texel-offset sample point, split into a floor'd integer part and
+    // a [0,1) fractional blend weight — `_tex2d`/`_tex3d`'s own `fx`/`x0`/`tx`.
+    function fracAxis(k: number, dimOffset: number): { i0: number[]; t: number[] } {
+      const f = [...uv(k), ...dimF64(dimOffset), WASM_OP.f64Mul, ...f64ConstBytes(0.5), WASM_OP.f64Sub];
+      const f0 = [...f, WASM_OP.f64Floor];
+      return { i0: [...f0, WASM_OP.i32TruncF64S], t: [...f, ...f0, WASM_OP.f64Sub] };
+    }
+    function bilinear(xa: number[], xb: number[], ya: number[], yb: number[], z: number[] | null, tx: number[], ty: number[], i: number): number[] {
+      const taa = texelChannel(xa, ya, z, i);
+      const tba = texelChannel(xb, ya, z, i);
+      const tab = texelChannel(xa, yb, z, i);
+      const tbb = texelChannel(xb, yb, z, i);
+      const lower = [...taa, ...tba, ...taa, WASM_OP.f64Sub, ...tx, WASM_OP.f64Mul, WASM_OP.f64Add];
+      const upper = [...tab, ...tbb, ...tab, WASM_OP.f64Sub, ...tx, WASM_OP.f64Mul, WASM_OP.f64Add];
+      return [...lower, ...upper, ...lower, WASM_OP.f64Sub, ...ty, WASM_OP.f64Mul, WASM_OP.f64Add];
+    }
+    function linearChannel(i: number): number[] {
+      const fx = fracAxis(0, TEX_META_WIDTH);
+      const fy = fracAxis(1, TEX_META_HEIGHT);
+      const xa = wrapAxis(fx.i0, TEX_META_WIDTH, TEX_META_WRAP_S);
+      const xb = wrapAxis([...fx.i0, ...i32ConstBytes(1), WASM_OP.i32Add], TEX_META_WIDTH, TEX_META_WRAP_S);
+      const ya = wrapAxis(fy.i0, TEX_META_HEIGHT, TEX_META_WRAP_T);
+      const yb = wrapAxis([...fy.i0, ...i32ConstBytes(1), WASM_OP.i32Add], TEX_META_HEIGHT, TEX_META_WRAP_T);
+      if (!is3D) return bilinear(xa, xb, ya, yb, null, fx.t, fy.t, i);
+      const fz = fracAxis(2, TEX_META_DEPTH);
+      const za = wrapAxis(fz.i0, TEX_META_DEPTH, TEX_META_WRAP_R);
+      const zb = wrapAxis([...fz.i0, ...i32ConstBytes(1), WASM_OP.i32Add], TEX_META_DEPTH, TEX_META_WRAP_R);
+      const near = bilinear(xa, xb, ya, yb, za, fx.t, fy.t, i);
+      const far = bilinear(xa, xb, ya, yb, zb, fx.t, fy.t, i);
+      return [...near, ...far, ...near, WASM_OP.f64Sub, ...fz.t, WASM_OP.f64Mul, WASM_OP.f64Add];
+    }
+
+    function channelValue(i: number): number[] {
+      const filterLinear = dimI32(TEX_META_FILTER);
+      return selectExpr(linearChannel(i), nearestChannel(i), filterLinear);
+    }
+
+    const out = [...materialize];
+    for (let i = 0; i < 4; i++) {
+      out.push(...storeComponent(addr, "float", i * 8, channelValue(i)));
     }
     return out;
   }
