@@ -23,6 +23,13 @@ export default defineConfig({
     dts({
       include: [
         'src/rmsl.ts',
+        'src/rmsl-core.ts',
+        'src/rmsl-compiler-shared.ts',
+        'src/rmsl-glsl.ts',
+        'src/rmsl-wgsl.ts',
+        'src/rmsl-compile-js.ts',
+        'src/rmsl-standalone-fn.ts',
+        'src/rmsl-wasm.ts',
         'src/vite.ts',
         'src/effects/index.ts',
         'src/effects/*.ts',
