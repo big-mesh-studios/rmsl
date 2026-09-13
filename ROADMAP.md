@@ -137,6 +137,50 @@ case (`rmsl-wasm-vs-js.bench.ts`'s scalar scenario), not a general one —
 left for a separate pass, since narrowing where to look was this
 benchmark's job, not fixing it.
 
+### Texture sampling is dramatically slower than `compileJS` — and the cause is known
+
+`src/rmsl-wasm-texture.bench.ts` at commit `3f0ef46` measures the three
+Phase 6 texture operations against an 8x8 texture (`npx vitest bench
+src/rmsl-wasm-texture.bench.ts`, two runs, otherwise idle machine):
+
+| Scenario | Run 1 | Run 2 |
+|---|---|---|
+| `textureSize()` (metadata only, no sampling math) | `compileJS` 11.12x faster | `compileJS` 11.08x faster |
+| `textureLoad()` (one unfiltered texel) | `compileJS` 14.57x faster | `compileJS` 14.57x faster |
+| `texture()` (bilinear filtering) | `compileJS` 18.66x faster | `compileJS` 19.12x faster |
+
+Both runs agree closely. This is a real regression from the "runs
+standalone, no host call needed" story Phase 6 was built around, not
+noise — but the cause is precise, not mysterious: `compileWasm`'s wrapper
+unconditionally copies the *entire* bound texture into its linear-memory
+heap on **every call**, regardless of whether the same texture was just
+copied in the call before. Even `textureSize()`, whose own sampling math
+is nothing more than reading two `i32` fields, already loses by 11x —
+proof the copy itself, not the per-texel math, is most of the cost; the
+gap widening through `textureLoad()` to filtered `texture()` is the
+sampling math adding on top of that fixed floor, the same shape as the
+scalar-vs-wrapper split in the plain-arithmetic benchmark above.
+
+Not yet fixed here — a likely, low-risk fix worth trying next: cache the
+last-copied texture per slot by reference (`ctx.textures[slot] ===` what
+was copied in last call) and skip the copy entirely when it's unchanged.
+The realistic pattern this backend's own niche implies — bind a texture
+once, call the compiled function repeatedly with different coordinates —
+is exactly the case that fix targets, and `compileJS` needs no equivalent
+because it never copies at all. Left as a documented, actionable gap
+rather than attempted in the same pass as measuring it, so the
+before/after can be its own clean comparison against this file at this
+commit.
+
+One real limit on how bad this is in practice, worth stating precisely:
+the copy happens once per **call** to the compiled function, not once per
+**texture() invocation** inside it — a function that samples the same
+bound texture many times in a loop (a blur kernel, several ray-march
+steps) pays this cost exactly once for the whole call, not once per
+sample, so this benchmark's single-sample-per-call numbers are a
+worst case for how the copy cost amortizes, not a representative one for
+every texture-using program.
+
 ### A/B: what Phase 3's linear memory itself cost or saved
 
 The re-measurement above doesn't separate linear memory's own effect from
@@ -502,11 +546,16 @@ Two design points worth remembering if this gets touched again:
   guarantees an in-range tap index by construction, so the wrapped index
   doubles as the safe one.
 
-### ~~Phase 6 — texture sampling~~ — done
+### ~~Phase 6 — texture sampling~~ — done, performance not yet acceptable
 See "Status" and "Texture data lives in linear memory, not behind a host
 call" above for what shipped: `textureSize`/`textureLoad`/`texture`/
 `textureLod` at the same scope `compileJS` itself has (`sampler2D`/
 `sampler3D`, float and integer variants, no cube maps, no mipmap/LOD).
+Correct, but currently 11-19x slower than `compileJS` per call — see "Why"
+above, "Texture sampling is dramatically slower than `compileJS` — and the
+cause is known", for the measurement and the specific, likely fix
+(per-slot reference-equality caching to skip re-copying an unchanged
+texture) left for a follow-up pass.
 
 ### ~~Phase 7 — parity testing infrastructure~~ — done
 `compileWasm` is now a third backend checked by
