@@ -16,7 +16,7 @@ export function inverseLerp(x: number, y: number, value: number): number {
 }
 
 export function mapLinear(x: number, a1: number, a2: number, b1: number, b2: number): number {
-  return b1 + (x - a1) * (b2 - b1) / (a2 - a1);
+  return b1 + ((x - a1) * (b2 - b1)) / (a2 - a1);
 }
 
 export function smoothstep(x: number, min: number, max: number): number {
@@ -34,11 +34,11 @@ export function smootherstep(x: number, min: number, max: number): number {
 }
 
 export function degToRad(degrees: number): number {
-  return degrees * Math.PI / 180;
+  return (degrees * Math.PI) / 180;
 }
 
 export function radToDeg(radians: number): number {
-  return radians * 180 / Math.PI;
+  return (radians * 180) / Math.PI;
 }
 
 export function damp(x: number, y: number, lambda: number, dt: number): number {
@@ -60,7 +60,7 @@ export function pingpong(x: number, length = 1): number {
 let _seed = 1234567;
 export function seededRandom(s: number): number {
   if (s !== undefined) _seed = s % 2147483647;
-  _seed = _seed * 16807 % 2147483647;
+  _seed = (_seed * 16807) % 2147483647;
   return (_seed - 1) / 2147483646;
 }
 

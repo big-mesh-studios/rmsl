@@ -14,10 +14,7 @@ export class Line2 extends LineSegments2 {
 
   declare geometry: LineGeometry;
 
-  constructor(
-    geometry: LineGeometry = new LineGeometry(),
-    material: Line2NodeMaterial = new Line2NodeMaterial(),
-  ) {
+  constructor(geometry: LineGeometry = new LineGeometry(), material: Line2NodeMaterial = new Line2NodeMaterial()) {
     super(geometry, material);
   }
 }

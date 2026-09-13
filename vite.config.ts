@@ -1,44 +1,44 @@
-import { defineConfig } from 'vite'
-import { writeFileSync, readFileSync } from 'fs'
-import dts from 'vite-plugin-dts'
+import { defineConfig } from "vite";
+import { writeFileSync, readFileSync } from "fs";
+import dts from "vite-plugin-dts";
 
 export default defineConfig({
   build: {
     lib: {
       entry: {
-        rmsl: 'src/rmsl.ts',
-        vite: 'src/vite.ts',
-        effects: 'src/effects/index.ts',
-        scene: 'src/scene/index.ts',
-        test: 'src/test/index.ts',
+        rmsl: "src/rmsl.ts",
+        vite: "src/vite.ts",
+        effects: "src/effects/index.ts",
+        scene: "src/scene/index.ts",
+        test: "src/test/index.ts",
       },
-      formats: ['es'],
+      formats: ["es"],
       fileName: (_format, entryName) => `${entryName}.js`,
     },
     rollupOptions: {
-      external: ['esbuild', 'vite'],
+      external: ["esbuild", "vite"],
     },
   },
   plugins: [
     dts({
       include: [
-        'src/rmsl.ts',
-        'src/rmsl-core.ts',
-        'src/backends/shared.ts',
-        'src/backends/rmsl-glsl.ts',
-        'src/backends/rmsl-wgsl.ts',
-        'src/backends/rmsl-compile-js.ts',
-        'src/rmsl-standalone-fn.ts',
-        'src/backends/rmsl-wasm.ts',
-        'src/vite.ts',
-        'src/effects/index.ts',
-        'src/effects/*.ts',
-        'src/scene/index.ts',
-        'src/scene/**/*.ts',
-        'src/test/index.ts',
+        "src/rmsl.ts",
+        "src/rmsl-core.ts",
+        "src/backends/shared.ts",
+        "src/backends/rmsl-glsl.ts",
+        "src/backends/rmsl-wgsl.ts",
+        "src/backends/rmsl-compile-js.ts",
+        "src/rmsl-standalone-fn.ts",
+        "src/backends/rmsl-wasm.ts",
+        "src/vite.ts",
+        "src/effects/index.ts",
+        "src/effects/*.ts",
+        "src/scene/index.ts",
+        "src/scene/**/*.ts",
+        "src/test/index.ts",
       ],
-      exclude: ['src/**/*.test.ts'],
-      outDir: 'dist',
+      exclude: ["src/**/*.test.ts"],
+      outDir: "dist",
       rollupTypes: true,
     }),
     {
@@ -46,18 +46,15 @@ export default defineConfig({
       // declaration files, so consumers of the scene barrel would otherwise see
       // `GPUDevice` and friends as unknown. The WebGPURenderer's ambient GPU
       // types are re-required from the emitted declarations directly.
-      name: 'rmsl-scene-webgpu-types',
+      name: "rmsl-scene-webgpu-types",
       closeBundle() {
-        const targets = [
-          'dist/scene/index.d.ts',
-          'dist/scene/renderers/WebGPURenderer.d.ts',
-        ]
+        const targets = ["dist/scene/index.d.ts", "dist/scene/renderers/WebGPURenderer.d.ts"];
         for (const target of targets) {
-          const file = readFileSync(target, 'utf8')
-          if (file.startsWith('/// <reference')) continue
-          writeFileSync(target, `/// <reference types="@webgpu/types" />\n${file}`)
+          const file = readFileSync(target, "utf8");
+          if (file.startsWith("/// <reference")) continue;
+          writeFileSync(target, `/// <reference types="@webgpu/types" />\n${file}`);
         }
       },
     },
   ],
-})
+});

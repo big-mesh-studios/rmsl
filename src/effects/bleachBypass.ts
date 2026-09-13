@@ -1,4 +1,4 @@
-import {float, max, min, mix, oneMinus, vec3, vec4, luminance, type Node} from "../rmsl";
+import { float, max, min, mix, oneMinus, vec3, vec4, luminance, type Node } from "../rmsl";
 import { f, type FloatIn, type IntIn, type Vec2In, type Sampler2D, type Sampler3D } from "./util";
 
 /**

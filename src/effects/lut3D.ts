@@ -1,5 +1,5 @@
 import { f, type FloatIn, type IntIn, type Vec2In, type Sampler2D, type Sampler3D } from "./util";
-import {float, mix, vec3, vec4, type Node} from "../rmsl";
+import { float, mix, vec3, vec4, type Node } from "../rmsl";
 
 /**
  * Post-processing effect for color grading via a 3D lookup table.

@@ -19,7 +19,11 @@ describe("bound values", () => {
     const tint = uniform("vec3");
     const flag = uniform("bool");
     evaluate(() => tint.mul(scale), {
-      uniforms: [[scale, 2], [tint, [1, 0, 0]], [flag, true]],
+      uniforms: [
+        [scale, 2],
+        [tint, [1, 0, 0]],
+        [flag, true],
+      ],
     });
   });
 

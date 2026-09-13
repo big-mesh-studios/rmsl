@@ -36,7 +36,12 @@ export class BufferAttribute {
    */
   updateRange = { offset: 0, count: -1 };
 
-  constructor(array: ArrayLike<number>, itemSize: number, normalized = false, stepMode: "vertex" | "instance" = "vertex") {
+  constructor(
+    array: ArrayLike<number>,
+    itemSize: number,
+    normalized = false,
+    stepMode: "vertex" | "instance" = "vertex",
+  ) {
     this.array = array;
     this.itemSize = itemSize;
     this.normalized = normalized;
@@ -56,15 +61,21 @@ export class BufferAttribute {
     return this;
   }
 
-  getX(index: number): number { return this.array[index * this.itemSize]; }
-  getY(index: number): number { return this.array[index * this.itemSize + 1]; }
-  getZ(index: number): number { return this.array[index * this.itemSize + 2]; }
-  getW(index: number): number { return this.array[index * this.itemSize + 3]; }
+  getX(index: number): number {
+    return this.array[index * this.itemSize];
+  }
+  getY(index: number): number {
+    return this.array[index * this.itemSize + 1];
+  }
+  getZ(index: number): number {
+    return this.array[index * this.itemSize + 2];
+  }
+  getW(index: number): number {
+    return this.array[index * this.itemSize + 3];
+  }
 
   clone(): BufferAttribute {
-    const array = (this.array as number[]).slice
-      ? (this.array as number[]).slice()
-      : Array.from(this.array);
+    const array = (this.array as number[]).slice ? (this.array as number[]).slice() : Array.from(this.array);
     const clone = new BufferAttribute(array, this.itemSize, this.normalized, this.stepMode);
     clone.format = this.format;
     return clone;

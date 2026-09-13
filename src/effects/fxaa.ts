@@ -1,4 +1,23 @@
-import {For, Fn, If, abs, bool, clamp, dot, float, int, max, min, select, smoothstep, textureSize, uv, vec2, vec3, type Node} from "../rmsl";
+import {
+  For,
+  Fn,
+  If,
+  abs,
+  bool,
+  clamp,
+  dot,
+  float,
+  int,
+  max,
+  min,
+  select,
+  smoothstep,
+  textureSize,
+  uv,
+  vec2,
+  vec3,
+  type Node,
+} from "../rmsl";
 import { f, type FloatIn, type IntIn, type Vec2In, type Sampler2D, type Sampler3D } from "./util";
 
 const EDGE_STEP_COUNT = 6;
@@ -21,15 +40,13 @@ export const fxaa = (textureNode: Sampler2D): Node<"vec4"> => {
   const _SubpixelBlending = float(1.0);
 
   const Sample = (u: Node<"vec2">): Node<"vec4"> => textureNode.texture(u);
-  const SampleLuminance = (u: Node<"vec2">): Node<"float"> =>
-    dot(Sample(u).rgb, vec3(0.3, 0.59, 0.11));
+  const SampleLuminance = (u: Node<"vec2">): Node<"float"> => dot(Sample(u).rgb, vec3(0.3, 0.59, 0.11));
   const SampleLuminanceOffset = (
     texSize: Node<"vec2">,
     u: Node<"vec2">,
     uOffset: FloatIn,
     vOffset: FloatIn,
-  ): Node<"float"> =>
-    SampleLuminance(u.add(texSize.mul(vec2(uOffset, vOffset))));
+  ): Node<"float"> => SampleLuminance(u.add(texSize.mul(vec2(uOffset, vOffset))));
 
   // EDGE_STEPS.element(i) is a constant table; a select chain stands in for the
   // uniform array so the effect carries no host data.
@@ -42,15 +59,21 @@ export const fxaa = (textureNode: Sampler2D): Node<"vec4"> => {
   };
 
   interface LuminanceNeighborhood {
-    m: Node<"float">; n: Node<"float">; e: Node<"float">; s: Node<"float">; w: Node<"float">;
-    ne: Node<"float">; nw: Node<"float">; se: Node<"float">; sw: Node<"float">;
-    highest: Node<"float">; lowest: Node<"float">; contrast: Node<"float">;
+    m: Node<"float">;
+    n: Node<"float">;
+    e: Node<"float">;
+    s: Node<"float">;
+    w: Node<"float">;
+    ne: Node<"float">;
+    nw: Node<"float">;
+    se: Node<"float">;
+    sw: Node<"float">;
+    highest: Node<"float">;
+    lowest: Node<"float">;
+    contrast: Node<"float">;
   }
 
-  const SampleLuminanceNeighborhood = (
-    texSize: Node<"vec2">,
-    u: Node<"vec2">,
-  ): LuminanceNeighborhood => {
+  const SampleLuminanceNeighborhood = (texSize: Node<"vec2">, u: Node<"vec2">): LuminanceNeighborhood => {
     const m = SampleLuminance(u);
     const n = SampleLuminanceOffset(texSize, u, 0.0, -1.0);
     const e = SampleLuminanceOffset(texSize, u, 1.0, 0.0);
@@ -90,9 +113,11 @@ export const fxaa = (textureNode: Sampler2D): Node<"vec4"> => {
     oppositeLuminance: Node<"float">;
     gradient: Node<"float">;
   } => {
-    const horizontal = abs(l.s.add(l.n).sub(l.m.mul(2.0))).mul(2.0)
+    const horizontal = abs(l.s.add(l.n).sub(l.m.mul(2.0)))
+      .mul(2.0)
       .add(abs(l.se.add(l.ne).sub(l.e.mul(2.0))).add(abs(l.sw.add(l.nw).sub(l.w.mul(2.0)))));
-    const vertical = abs(l.e.add(l.w).sub(l.m.mul(2.0))).mul(2.0)
+    const vertical = abs(l.e.add(l.w).sub(l.m.mul(2.0)))
+      .mul(2.0)
       .add(abs(l.se.add(l.sw).sub(l.s.mul(2.0))).add(abs(l.ne.add(l.nw).sub(l.n.mul(2.0)))));
 
     const isHorizontal = horizontal.greaterThanEqual(vertical);
@@ -148,7 +173,9 @@ export const fxaa = (textureNode: Sampler2D): Node<"vec4"> => {
     For(
       () => int(1).toVar(),
       (i) => i.lessThan(int(EDGE_STEP_COUNT)),
-      (i) => { i.assign(i.add(1)); },
+      (i) => {
+        i.assign(i.add(1));
+      },
       (i) => {
         const nextUv = puv.add(edgeStep.mul(edgeStepAt(i))).toVar();
         const nextDelta = SampleLuminance(nextUv).sub(edgeLuminance);
@@ -170,7 +197,9 @@ export const fxaa = (textureNode: Sampler2D): Node<"vec4"> => {
     For(
       () => int(1).toVar(),
       (i) => i.lessThan(int(EDGE_STEP_COUNT)),
-      (i) => { i.assign(i.add(1)); },
+      (i) => {
+        i.assign(i.add(1));
+      },
       (i) => {
         const nextUv = nuv.sub(edgeStep.mul(edgeStepAt(i))).toVar();
         const nextDelta = SampleLuminance(nextUv).sub(edgeLuminance);

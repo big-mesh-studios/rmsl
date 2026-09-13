@@ -9,10 +9,34 @@
 
 import { describe, it, expectTypeOf } from "vitest";
 import {
-  Fn, float, vec2, vec3, vec4, int, uint, bool, ivec2, ivec3, ivec4,
-  uvec2, uvec3, uvec4, uniform, mat3, mat4,
-  mul, dot, length, distance, all, any, determinant,
-  compileGLSL, compileWGSL, type Node, type ShaderType,
+  Fn,
+  float,
+  vec2,
+  vec3,
+  vec4,
+  int,
+  uint,
+  bool,
+  ivec2,
+  ivec3,
+  ivec4,
+  uvec2,
+  uvec3,
+  uvec4,
+  uniform,
+  mat3,
+  mat4,
+  mul,
+  dot,
+  length,
+  distance,
+  all,
+  any,
+  determinant,
+  compileGLSL,
+  compileWGSL,
+  type Node,
+  type ShaderType,
 } from "./rmsl";
 
 describe("comparison result types", () => {
@@ -80,24 +104,25 @@ describe("what a vertex stage accepts", () => {
   // Its result becomes the position, so anything that cannot be one is refused
   // where it is written rather than when the compiler runs.
   it("takes a vec4 result", () => {
-    expectTypeOf(compileGLSL.vertex(Fn(() => vec4(1, 2, 3, 4).toVar())()))
-      .toEqualTypeOf<string>();
+    expectTypeOf(compileGLSL.vertex(Fn(() => vec4(1, 2, 3, 4).toVar())())).toEqualTypeOf<string>();
   });
 
   // The other way to satisfy it: assign the position and return nothing. A
   // body that returns nothing has type void, which is why void is admitted.
   it("takes a program that returns nothing", () => {
-    expectTypeOf(compileWGSL.vertex(Fn(() => { vec4(1, 2, 3, 4).toVar(); })()))
-      .toEqualTypeOf<string>();
+    expectTypeOf(
+      compileWGSL.vertex(
+        Fn(() => {
+          vec4(1, 2, 3, 4).toVar();
+        })(),
+      ),
+    ).toEqualTypeOf<string>();
   });
 
   // Several values can be returned at once, and the last becomes the position.
   // The values before it are whatever the shader needed on the way there.
   it("takes several values, of which the last is the position", () => {
-    expectTypeOf(compileGLSL.vertex(Fn(() => [
-      float(1).toVar(),
-      vec4(0, 0, 0, 1).toVar(),
-    ])())).toEqualTypeOf<string>();
+    expectTypeOf(compileGLSL.vertex(Fn(() => [float(1).toVar(), vec4(0, 0, 0, 1).toVar()])())).toEqualTypeOf<string>();
   });
 
   it("refuses several values that do not end in a position", () => {
@@ -117,8 +142,7 @@ describe("what a vertex stage accepts", () => {
   // A fragment stage has no such requirement: a shader with no colour output is
   // legal, so any result is allowed through.
   it("puts no such requirement on a fragment stage", () => {
-    expectTypeOf(compileGLSL.fragment(Fn(() => float(1).toVar())()))
-      .toEqualTypeOf<string>();
+    expectTypeOf(compileGLSL.fragment(Fn(() => float(1).toVar())())).toEqualTypeOf<string>();
   });
 });
 

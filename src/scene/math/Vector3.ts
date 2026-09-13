@@ -29,20 +29,31 @@ export class Vector3 {
 
   setComponent(index: number, value: number): this {
     switch (index) {
-      case 0: this.x = value; break;
-      case 1: this.y = value; break;
-      case 2: this.z = value; break;
-      default: throw new Error(`index is out of range: ${index}`);
+      case 0:
+        this.x = value;
+        break;
+      case 1:
+        this.y = value;
+        break;
+      case 2:
+        this.z = value;
+        break;
+      default:
+        throw new Error(`index is out of range: ${index}`);
     }
     return this;
   }
 
   getComponent(index: number): number {
     switch (index) {
-      case 0: return this.x;
-      case 1: return this.y;
-      case 2: return this.z;
-      default: throw new Error(`index is out of range: ${index}`);
+      case 0:
+        return this.x;
+      case 1:
+        return this.y;
+      case 2:
+        return this.z;
+      default:
+        throw new Error(`index is out of range: ${index}`);
     }
   }
 
@@ -116,8 +127,12 @@ export class Vector3 {
   }
 
   crossVectors(a: Vector3, b: Vector3): this {
-    const ax = a.x, ay = a.y, az = a.z;
-    const bx = b.x, by = b.y, bz = b.z;
+    const ax = a.x,
+      ay = a.y,
+      az = a.z;
+    const bx = b.x,
+      by = b.y,
+      bz = b.z;
     this.x = ay * bz - az * by;
     this.y = az * bx - ax * bz;
     this.z = ax * by - ay * bx;
@@ -159,7 +174,9 @@ export class Vector3 {
   }
 
   applyMatrix3(m: Matrix3): this {
-    const x = this.x, y = this.y, z = this.z;
+    const x = this.x,
+      y = this.y,
+      z = this.z;
     const e = m.elements;
     this.x = e[0] * x + e[3] * y + e[6] * z;
     this.y = e[1] * x + e[4] * y + e[7] * z;
@@ -168,7 +185,9 @@ export class Vector3 {
   }
 
   applyMatrix4(m: Matrix4): this {
-    const x = this.x, y = this.y, z = this.z;
+    const x = this.x,
+      y = this.y,
+      z = this.z;
     const e = m.elements;
     const w = 1 / (e[3] * x + e[7] * y + e[11] * z + e[15]);
 
@@ -179,8 +198,13 @@ export class Vector3 {
   }
 
   applyQuaternion(q: Quaternion): this {
-    const x = this.x, y = this.y, z = this.z;
-    const qx = q.x, qy = q.y, qz = q.z, qw = q.w;
+    const x = this.x,
+      y = this.y,
+      z = this.z;
+    const qx = q.x,
+      qy = q.y,
+      qz = q.z,
+      qw = q.w;
     const ix = qw * x + qy * z - qz * y;
     const iy = qw * y + qz * x - qx * z;
     const iz = qw * z + qx * y - qy * x;
@@ -192,7 +216,9 @@ export class Vector3 {
   }
 
   transformDirection(m: Matrix4): this {
-    const x = this.x, y = this.y, z = this.z;
+    const x = this.x,
+      y = this.y,
+      z = this.z;
     const e = m.elements;
     this.x = e[0] * x + e[4] * y + e[8] * z;
     this.y = e[1] * x + e[5] * y + e[9] * z;

@@ -32,7 +32,17 @@
  * Run with `npx vitest bench src/rmsl-wasm-texture.bench.ts`.
  */
 import { bench, describe } from "vitest";
-import { compileWasm, compileJS, Fn, uniform, vec2, ivec2, textureSize, textureLoad, type JsTextureData } from "../rmsl";
+import {
+  compileWasm,
+  compileJS,
+  Fn,
+  uniform,
+  vec2,
+  ivec2,
+  textureSize,
+  textureLoad,
+  type JsTextureData,
+} from "../rmsl";
 
 const size = 8;
 const data = new Float32Array(size * size * 4);
@@ -48,8 +58,12 @@ describe("textureSize(): metadata round trip only, no sampling math", () => {
   const jsFn = compileJS(build as any, { name: "main", params: [] });
   const ctx = { textures: { [tex.name]: texture } };
 
-  bench("compileWasm", () => { wasmFn(ctx); });
-  bench("compileJS", () => { jsFn(ctx); });
+  bench("compileWasm", () => {
+    wasmFn(ctx);
+  });
+  bench("compileJS", () => {
+    jsFn(ctx);
+  });
 });
 
 describe("textureLoad(): one unfiltered texel", () => {
@@ -59,8 +73,12 @@ describe("textureLoad(): one unfiltered texel", () => {
   const jsFn = compileJS(build as any, { name: "main", params: [] });
   const ctx = { textures: { [tex.name]: texture } };
 
-  bench("compileWasm", () => { wasmFn(ctx); });
-  bench("compileJS", () => { jsFn(ctx); });
+  bench("compileWasm", () => {
+    wasmFn(ctx);
+  });
+  bench("compileJS", () => {
+    jsFn(ctx);
+  });
 });
 
 describe("texture(): nearest-filtered sample", () => {
@@ -70,8 +88,12 @@ describe("texture(): nearest-filtered sample", () => {
   const jsFn = compileJS(build as any, { name: "main", params: [] });
   const ctx = { textures: { [tex.name]: nearestTexture } };
 
-  bench("compileWasm", () => { wasmFn(ctx); });
-  bench("compileJS", () => { jsFn(ctx); });
+  bench("compileWasm", () => {
+    wasmFn(ctx);
+  });
+  bench("compileJS", () => {
+    jsFn(ctx);
+  });
 });
 
 describe("texture(): bilinear-filtered sample", () => {
@@ -81,6 +103,10 @@ describe("texture(): bilinear-filtered sample", () => {
   const jsFn = compileJS(build as any, { name: "main", params: [] });
   const ctx = { textures: { [tex.name]: linearTexture } };
 
-  bench("compileWasm", () => { wasmFn(ctx); });
-  bench("compileJS", () => { jsFn(ctx); });
+  bench("compileWasm", () => {
+    wasmFn(ctx);
+  });
+  bench("compileJS", () => {
+    jsFn(ctx);
+  });
 });

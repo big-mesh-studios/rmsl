@@ -12,9 +12,7 @@
  */
 
 import { expect } from "vitest";
-import {
-  compileGLSLFn, compileWGSLFn, compileJSFn, compileWasm, type Node,
-} from "../rmsl";
+import { compileGLSLFn, compileWGSLFn, compileJSFn, compileWasm, type Node } from "../rmsl";
 
 // Written to rather than console.warn: vitest intercepts console output and
 // does not surface it here, so a warning sent that way is not seen at all.
@@ -50,7 +48,7 @@ function params(count: number) {
 function callExpr(args: number[]) {
   // Emitted as literals. Whether the driver folds them is immaterial: if the
   // wrong operator was emitted the answer is wrong either way.
-  return `rmsl_eval(${args.map(a => (Number.isInteger(a) ? a.toFixed(1) : String(a))).join(", ")})`;
+  return `rmsl_eval(${args.map((a) => (Number.isInteger(a) ? a.toFixed(1) : String(a))).join(", ")})`;
 }
 
 /** Compile, run and read back one float from the GLSL backend. */
@@ -155,25 +153,31 @@ export async function runWGSL(code: string): Promise<number> {
   // this has been checked.
   const compileFailure = gpu.popErrorScope();
 
-  const STORAGE = 0x80, COPY_SRC = 0x4, MAP_READ = 0x1, COPY_DST = 0x8;
+  const STORAGE = 0x80,
+    COPY_SRC = 0x4,
+    MAP_READ = 0x1,
+    COPY_DST = 0x8;
   const storage = gpu.createBuffer({ size: 4, usage: STORAGE | COPY_SRC });
   const readback = gpu.createBuffer({ size: 4, usage: MAP_READ | COPY_DST });
   try {
     const encoder = gpu.createCommandEncoder();
     const pass = encoder.beginComputePass();
     pass.setPipeline(pipeline);
-    pass.setBindGroup(0, gpu.createBindGroup({
-      layout: pipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: storage } }],
-    }));
+    pass.setBindGroup(
+      0,
+      gpu.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: { buffer: storage } }],
+      }),
+    );
     pass.dispatchWorkgroups(1);
     pass.end();
     encoder.copyBufferToBuffer(storage, 0, readback, 0, 4);
     gpu.queue.submit([encoder.finish()]);
     const [failure] = await Promise.all([compileFailure, readback.mapAsync(MAP_READ)]);
     if (failure) {
-      const detail = failure.message.split("\n").find((l: string) => l.includes("error:"))
-        ?? failure.message.split("\n")[0];
+      const detail =
+        failure.message.split("\n").find((l: string) => l.includes("error:")) ?? failure.message.split("\n")[0];
       throw new Error(`WGSL shader failed to compile: ${detail.trim()}`);
     }
     return new Float32Array(readback.getMappedRange())[0];
@@ -247,14 +251,8 @@ function isWasmUnsupported(error: unknown): boolean {
  * one RMSL program has one meaning, so any disagreement is a defect in
  * whichever backend differs from the arithmetic the caller expected.
  */
-export async function evaluateBoth(
-  build: Build,
-  args: number[] = [],
-): Promise<{ glsl: number; wgsl: number }> {
-  const [glsl, wgsl] = await Promise.all([
-    evaluateGLSL(build, args),
-    evaluateWGSL(build, args),
-  ]);
+export async function evaluateBoth(build: Build, args: number[] = []): Promise<{ glsl: number; wgsl: number }> {
+  const [glsl, wgsl] = await Promise.all([evaluateGLSL(build, args), evaluateWGSL(build, args)]);
   return { glsl, wgsl };
 }
 
@@ -267,10 +265,7 @@ export async function evaluateAll(
   build: Build,
   args: number[] = [],
 ): Promise<{ glsl: number; wgsl: number; js: number }> {
-  const [glsl, wgsl] = await Promise.all([
-    evaluateGLSL(build, args),
-    evaluateWGSL(build, args),
-  ]);
+  const [glsl, wgsl] = await Promise.all([evaluateGLSL(build, args), evaluateWGSL(build, args)]);
   return { glsl, wgsl, js: evaluateJS(build, args) };
 }
 
@@ -315,12 +310,7 @@ const recordedEvaluations: RecordedEvaluation[] = [];
  * that opted out says here why, so the set can be read and argued with rather
  * than growing quietly whenever a case is inconvenient.
  */
-export type CpuOnlyReason =
-  | "derivatives"
-  | "reentrant"
-  | "texture"
-  | "js-only-api"
-  | "exceeds-float32";
+export type CpuOnlyReason = "derivatives" | "reentrant" | "texture" | "js-only-api" | "exceeds-float32";
 
 /**
  * Evaluate on the CPU target and record the program for the GPU backends.
@@ -329,11 +319,7 @@ export type CpuOnlyReason =
  * assertion pins. The GPU backends are compared against that same value later,
  * which is what makes one assertion cover three backends.
  */
-export function evaluateRecording(
-  build: Build,
-  args: number[] = [],
-  cpuOnly?: CpuOnlyReason,
-): number {
+export function evaluateRecording(build: Build, args: number[] = [], cpuOnly?: CpuOnlyReason): number {
   const js = evaluateJS(build, args);
   recordedEvaluations.push({
     test: currentTestName(),
@@ -358,7 +344,7 @@ function currentTestName(): string {
  * whose answer is already known to be right.
  */
 export async function assertRecordedEvaluationsAgree(): Promise<void> {
-  const runnable = recordedEvaluations.filter(r => r.cpuOnly === undefined);
+  const runnable = recordedEvaluations.filter((r) => r.cpuOnly === undefined);
   // Recording nothing is not the same as everything agreeing. A file that
   // stopped going through the shared helper would otherwise finish green having
   // checked one backend of three, which is the arrangement this replaced.
@@ -405,10 +391,7 @@ export async function assertRecordedEvaluationsAgree(): Promise<void> {
       let glsl: number;
       let wgsl: number;
       try {
-        [glsl, wgsl] = await Promise.all([
-          evaluateGLSL(item.build, item.args),
-          evaluateWGSL(item.build, item.args),
-        ]);
+        [glsl, wgsl] = await Promise.all([evaluateGLSL(item.build, item.args), evaluateWGSL(item.build, item.args)]);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         failures.push(`  ${item.test}\n      did not evaluate — ${message}`);
@@ -434,7 +417,7 @@ export async function assertRecordedEvaluationsAgree(): Promise<void> {
 export function recordedEvaluationSummary(): { total: number; cpuOnly: number } {
   return {
     total: recordedEvaluations.length,
-    cpuOnly: recordedEvaluations.filter(r => r.cpuOnly !== undefined).length,
+    cpuOnly: recordedEvaluations.filter((r) => r.cpuOnly !== undefined).length,
   };
 }
 
@@ -449,8 +432,7 @@ export function recordedEvaluationSummary(): { total: number; cpuOnly: number } 
  * Skipping is announced, and says how many programs went unchecked. The CPU
  * target is not covered by any of this — it needs nothing, so it always runs.
  */
-export const GPU_EVALUATION_SKIPPED =
-  !!process.env.RMSL_SKIP_GPU || !!process.env.RMSL_SKIP_SHADER_EVALUATION;
+export const GPU_EVALUATION_SKIPPED = !!process.env.RMSL_SKIP_GPU || !!process.env.RMSL_SKIP_SHADER_EVALUATION;
 
 /**
  * Kept under its former name for the tests that evaluate eagerly, which have to

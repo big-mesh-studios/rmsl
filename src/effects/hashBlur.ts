@@ -1,4 +1,20 @@
-import {For, Fn, cos, degrees, div, float, mul, premultiplyAlpha, rand, sin, unpremultiplyAlpha, uv, vec2, vec4, type Node} from "../rmsl";
+import {
+  For,
+  Fn,
+  cos,
+  degrees,
+  div,
+  float,
+  mul,
+  premultiplyAlpha,
+  rand,
+  sin,
+  unpremultiplyAlpha,
+  uv,
+  vec2,
+  vec4,
+  type Node,
+} from "../rmsl";
 import { f, type FloatIn, type IntIn, type Vec2In, type Sampler2D, type Sampler3D } from "./util";
 
 export interface HashBlurOptions {
@@ -43,7 +59,9 @@ export const hashBlur = (
     For(
       () => float(0).toVar(),
       (i) => i.lessThan(repeatsF),
-      (i) => { i.assign(i.add(1)); },
+      (i) => {
+        i.assign(i.add(1));
+      },
       (i) => {
         const angle = degrees(mul(div(i, repeatsF), 360));
         const dir = vec2(cos(angle), sin(angle));

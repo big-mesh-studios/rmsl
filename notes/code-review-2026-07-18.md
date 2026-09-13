@@ -13,54 +13,54 @@ Now: typecheck clean, 191 tests plus 17 type tests green, suite ~8s.
 
 ## Status
 
-| # | Finding | Status |
-|---|---|---|
-| 1 | Nodes reached twice were compiled twice | `2c1d820` |
-| 2 | Matrix-from-matrix constructor expanded as a diagonal | `6c79295` |
-| 3 | `compileWGSLFn` called a helper it never emitted | `a24ae1b` |
-| 4 | GLSL fragment emitted no colour write | `19e66e8` |
-| 5 | GLSL wrote the stage result into every declared output | `19e66e8` |
-| 6 | `mod` meant three different things | `5b64632`, `c7b2f4c` |
-| 7 | Comparison result type contradicted its signature | `27d503f` |
-| 8 | `"0.0"` sentinel collides with a real zero | `8f33709` |
-| 9 | Vertex guard rejects an explicit `builtinPosition()` write | `8f33709` |
-| 10 | WGSL drops all but the last loop update statement | `027d1d1` |
-| 11 | `REDUCING_OPS` omits `matrixElement` | `85ff9fd` |
-| 12 | Integer-literal typing absent in `comp()`, too narrow in `op()` | `271c43c` |
-| 13 | `bvec` uniforms are non-host-shareable in WGSL | `3685249` |
-| 14 | Nested swizzle assignment emits an unassignable target | `1a2e2b3` |
-| 15 | `builtinPosition()` in a fragment stage is undeclared | `1a2e2b3` |
-| 16 | `evaluateWGSL` returned 0 for a shader that never compiled | `027d63c` |
-| 17 | An empty GLSL info log read as a valid shader | `03143d9` |
-| 18 | Only the last failing shader per test was reported | `03143d9` |
-| 19 | A run that recorded nothing passed | `03143d9` |
-| 20 | One flag silently disabled both GPU layers | `b1b52f4` |
-| 21 | The graphics device was never released | `b1b52f4` |
-| 22 | Tolerance was tighter than one float's last place | `b1b52f4` |
-| 23 | The Stryker skip flag was never set | `b1b52f4` |
-| 24 | WGSL validation ran one round trip per shader | `fce6519` |
-| 25 | `evaluateGLSL` opens a browser page per call | `4a1e1ca` |
-| 26 | Version not bumped despite breaking changes | not ours |
-| 27 | `docs/compilation.md` vertex example now throws | PR note |
-| 28 | `inverse()` sends every non-mat3 to the mat4 helper | `9fe75ae` |
-| 29 | The two `case "let"` arms return different expressions | **open** |
-| 30 | Shared subexpressions are re-emitted rather than named | follow-up |
-| 31 | `NodeOps` denies operations the runtime implements | `42da16c` |
-| 32 | The raw-array test's assertions cannot fail | **open** |
-| 33 | The two testing modules duplicate their GPU setup | `4a1e1ca` |
-| 34 | Stage-output typing is a runtime throw, not a signature | `1288d0e` |
-| 35 | Nothing ensures a new test file gets validated | **open** |
-| 36 | Check-then-act race on the browser singleton | `4a1e1ca` |
-| 37 | `op()` and `comp()` allocate on every operator call | **open** |
-| 38 | Uniform bindings ordered by string comparison | **open** |
-| 39 | Skip warnings were invisible | `b1b52f4` |
-| 40 | Thirty-four casts to any in the tests, hiding checks | `7670845` |
-| 41 | `Node<any>` let the standalone compilers accept anything | `d6477a2` |
-| 42 | The recording stand-ins were typed as taking anything | `1288d0e` |
-| 43 | A vertex stage returning nothing was never checked | `1288d0e` |
-| 44 | Caching the rendering context made the suite flaky | `fd36c06` |
-| 45 | Matrix-vector transforms are never value-checked | **open** |
-| 46 | The value harness reads back one float, so only floats are checked | **open** |
+| #   | Finding                                                            | Status               |
+| --- | ------------------------------------------------------------------ | -------------------- |
+| 1   | Nodes reached twice were compiled twice                            | `2c1d820`            |
+| 2   | Matrix-from-matrix constructor expanded as a diagonal              | `6c79295`            |
+| 3   | `compileWGSLFn` called a helper it never emitted                   | `a24ae1b`            |
+| 4   | GLSL fragment emitted no colour write                              | `19e66e8`            |
+| 5   | GLSL wrote the stage result into every declared output             | `19e66e8`            |
+| 6   | `mod` meant three different things                                 | `5b64632`, `c7b2f4c` |
+| 7   | Comparison result type contradicted its signature                  | `27d503f`            |
+| 8   | `"0.0"` sentinel collides with a real zero                         | `8f33709`            |
+| 9   | Vertex guard rejects an explicit `builtinPosition()` write         | `8f33709`            |
+| 10  | WGSL drops all but the last loop update statement                  | `027d1d1`            |
+| 11  | `REDUCING_OPS` omits `matrixElement`                               | `85ff9fd`            |
+| 12  | Integer-literal typing absent in `comp()`, too narrow in `op()`    | `271c43c`            |
+| 13  | `bvec` uniforms are non-host-shareable in WGSL                     | `3685249`            |
+| 14  | Nested swizzle assignment emits an unassignable target             | `1a2e2b3`            |
+| 15  | `builtinPosition()` in a fragment stage is undeclared              | `1a2e2b3`            |
+| 16  | `evaluateWGSL` returned 0 for a shader that never compiled         | `027d63c`            |
+| 17  | An empty GLSL info log read as a valid shader                      | `03143d9`            |
+| 18  | Only the last failing shader per test was reported                 | `03143d9`            |
+| 19  | A run that recorded nothing passed                                 | `03143d9`            |
+| 20  | One flag silently disabled both GPU layers                         | `b1b52f4`            |
+| 21  | The graphics device was never released                             | `b1b52f4`            |
+| 22  | Tolerance was tighter than one float's last place                  | `b1b52f4`            |
+| 23  | The Stryker skip flag was never set                                | `b1b52f4`            |
+| 24  | WGSL validation ran one round trip per shader                      | `fce6519`            |
+| 25  | `evaluateGLSL` opens a browser page per call                       | `4a1e1ca`            |
+| 26  | Version not bumped despite breaking changes                        | not ours             |
+| 27  | `docs/compilation.md` vertex example now throws                    | PR note              |
+| 28  | `inverse()` sends every non-mat3 to the mat4 helper                | `9fe75ae`            |
+| 29  | The two `case "let"` arms return different expressions             | **open**             |
+| 30  | Shared subexpressions are re-emitted rather than named             | follow-up            |
+| 31  | `NodeOps` denies operations the runtime implements                 | `42da16c`            |
+| 32  | The raw-array test's assertions cannot fail                        | **open**             |
+| 33  | The two testing modules duplicate their GPU setup                  | `4a1e1ca`            |
+| 34  | Stage-output typing is a runtime throw, not a signature            | `1288d0e`            |
+| 35  | Nothing ensures a new test file gets validated                     | **open**             |
+| 36  | Check-then-act race on the browser singleton                       | `4a1e1ca`            |
+| 37  | `op()` and `comp()` allocate on every operator call                | **open**             |
+| 38  | Uniform bindings ordered by string comparison                      | **open**             |
+| 39  | Skip warnings were invisible                                       | `b1b52f4`            |
+| 40  | Thirty-four casts to any in the tests, hiding checks               | `7670845`            |
+| 41  | `Node<any>` let the standalone compilers accept anything           | `d6477a2`            |
+| 42  | The recording stand-ins were typed as taking anything              | `1288d0e`            |
+| 43  | A vertex stage returning nothing was never checked                 | `1288d0e`            |
+| 44  | Caching the rendering context made the suite flaky                 | `fd36c06`            |
+| 45  | Matrix-vector transforms are never value-checked                   | **open**             |
+| 46  | The value harness reads back one float, so only floats are checked | **open**             |
 
 Thirty-six fixed, seven open, one deferred. Items 40 to 44 were found while fixing the
 others; 44 was introduced by the fix for 25 and 33 rather than found in the
@@ -132,7 +132,7 @@ Deliberately out of scope for this branch, which is about the compiler emitting
 correct shaders. Reducing common subexpressions is an optimisation, and mixing
 one in would blur what the branch is for.
 
-Memoisation stops a node's *statements* being emitted twice, but a pure
+Memoisation stops a node's _statements_ being emitted twice, but a pure
 expression reached from several places still has its text substituted at each
 one. Measured on `apps/shared/shader.ts`: the generated GLSL contains
 `_rmsl_u2 * vec4(_rmsl_v1.x, _rmsl_v1.y, -1.0, 1.0)` three times on one line, so
@@ -168,7 +168,7 @@ the value checks read back a single float, so they never look. See #46.
 
 `evaluateGLSL` renders to a one-pixel target and returns the red channel;
 `evaluateWGSL` reads one f32 from a storage buffer. So the only expressions
-whose *result* is ever checked are those reducing to a float. Everything vector
+whose _result_ is ever checked are those reducing to a float. Everything vector
 or matrix valued is checked for compiling and nothing else.
 
 Reading back all four channels, and a vec4 from the storage buffer, would cover
@@ -204,7 +204,7 @@ per file, so a second file cannot share the existing hook; every future test fil
 must repeat both the aliasing and the `afterAll`, and forgetting either fails
 open.
 
-#19 added a floor for the case where *nothing* is recorded, which catches the
+#19 added a floor for the case where _nothing_ is recorded, which catches the
 alias being lost from the existing file but not a new file that never had it.
 A vitest setup file, or a lint rule, would close the rest.
 

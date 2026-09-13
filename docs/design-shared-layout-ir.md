@@ -8,7 +8,7 @@ go next, starting from the observation that a byte layout derived from a
 design, `src/backends/rmsl-wgsl.ts`'s `wgslUniformLayout`) that today gets computed
 independently, and slightly differently, in more than one place. Stage 1
 (the behavior-preserving refactor, `src/rmsl-layout.ts`) proved the
-placement *algorithm* can be shared. Stage 2 tried to prove the actual
+placement _algorithm_ can be shared. Stage 2 tried to prove the actual
 interop claim — a WASM computation's uniforms landing at the exact byte
 offsets a real WGSL uniform buffer would use — and its first attempt
 found a real bug: offsets matched exactly, but this backend's `float`
@@ -16,7 +16,7 @@ storage (f64) is twice the width `wgslUniformLayout`'s offsets assume
 (`f32`), so two GPU-adjacent uniforms placed at those offsets overlapped
 in this backend's actual writes and corrupted each other. That's fixed
 now (see "Stage 2" below) — a GPU-placed uniform gets its own narrow raw
-address *and* an ordinary packed one, with a promotion step bridging
+address _and_ an ordinary packed one, with a promotion step bridging
 them, so every other consumer in this backend stays completely unaware a
 narrower representation exists. What's left, and is real rather than a
 bug: reading a GPU-placed uniform is only as precise as f32 allows — the
@@ -37,7 +37,7 @@ implementations already exist:
   comment notes three separate places already have to agree with each
   other by construction, not by sharing code.
 - **Phase 3's WASM linear-memory allocator** (`src/backends/rmsl-wasm.ts`,
-  `allocateFor`/`componentSizeOf`/`elementKindOf`) computes a *different*
+  `allocateFor`/`componentSizeOf`/`elementKindOf`) computes a _different_
   layout for the same shader types: byte-packed, no padding, `align=0`
   everywhere, because nothing on the WASM side ever needed to match a GPU
   buffer's alignment rules — it only ever talks to itself and to
@@ -67,7 +67,7 @@ re-deriving.
 Not a real API — a shape to argue about. The first sketch of this
 (`layoutOf(type, rules)`) computed one type's own size and alignment in
 isolation. That's too narrow: `wgslUniformLayout` isn't just a size table —
-it's an *allocator* over a whole list of heterogeneous members, and the
+it's an _allocator_ over a whole list of heterogeneous members, and the
 part of it worth sharing is the placement algorithm, not just a lookup.
 
 ```ts
@@ -76,16 +76,13 @@ type PlacedMember = Member & { offset: number; size: number; stride?: number };
 
 type AllocRules = {
   sizeAndAlignOf(type: ShaderType): { size: number; align: number };
-  reorderByAlignment: boolean;       // WGSL: true, to minimize padding.
+  reorderByAlignment: boolean; // WGSL: true, to minimize padding.
   widenNarrowArrayElements: boolean; // WGSL's f32[] -> vec4<f32>[] quirk.
-  arrayStrideRoundedTo?: number;     // WGSL: 16. Packed/CPU rules: none.
-  structAlignMinimum: number;        // WGSL: 4. Packed/CPU rules: 1.
+  arrayStrideRoundedTo?: number; // WGSL: 16. Packed/CPU rules: none.
+  structAlignMinimum: number; // WGSL: 4. Packed/CPU rules: 1.
 };
 
-function planLayout(
-  members: Member[],
-  rules: AllocRules,
-): { members: PlacedMember[]; size: number; align: number };
+function planLayout(members: Member[], rules: AllocRules): { members: PlacedMember[]; size: number; align: number };
 ```
 
 `AllocRules` is the part that has to stay pluggable, not unified away: GPU
@@ -93,7 +90,7 @@ uniform-address-space rules (std140-ish, WGSL's own variant), GPU
 storage-buffer rules (std430-ish, tighter), and "no constraint, just pack
 tightly in declaration order" (what WASM and a plain JS array both want)
 are genuinely different answers, not implementation accidents to paper
-over. The win isn't "one layout for everything" — it's "one *allocator*
+over. The win isn't "one layout for everything" — it's "one _allocator_
 that knows how to run any of them, instead of one hand-written struct
 packer (WGSL) and one hand-written bump allocator (WASM) that happen to
 overlap in what they're actually deciding."
@@ -110,10 +107,10 @@ its own placement logic:
   bump behavior) feeding the existing address maps — no change in what
   addresses it hands out today.
 - `BufferAttribute`/instance packing becomes `planLayout(members,
-  VERTEX_RULES)`.
+VERTEX_RULES)`.
 
 The capability this unlocks that a per-type-only sketch couldn't: a WASM
-computation that needs to feed a *specific* WGSL uniform struct can call
+computation that needs to feed a _specific_ WGSL uniform struct can call
 `planLayout(sameMembers, WGSL_UNIFORM_RULES)` itself — same reordering,
 same widening, same offsets `wgslUniformLayout` would produce for that
 struct — and write its output there, instead of computing its own
@@ -126,7 +123,7 @@ struct — and write its output there, instead of computing its own
   packed rules, the exact bytes `compileWasm` (or a future "compile a whole
   CPU stage" mode) writes could go straight into
   `device.queue.writeBuffer(gpuBuffer, 0, wasmMemory.buffer, offset,
-  length)` — no JS-side repacking step between "WASM computed this" and
+length)` — no JS-side repacking step between "WASM computed this" and
   "GPU can read this."
 - **One placement algorithm for instancing**, instead of
   `BufferAttribute`/`WebGLRenderer`/`WebGPURenderer` each carrying their
@@ -145,7 +142,7 @@ struct — and write its output there, instead of computing its own
   surprises stop being tribal knowledge per backend and become one thing a
   layout inspector can print, for any `AllocRules`.
 
-**What this does *not* give you: one live GPU buffer shared between WebGL
+**What this does _not_ give you: one live GPU buffer shared between WebGL
 and WebGPU.** Those are separate browser APIs with separate buffer objects
 (`WebGLBuffer` vs `GPUBuffer`) — there is no browser API to hand one GPU
 allocation to both, no matter how identical the layout is. What a shared
@@ -165,12 +162,12 @@ Phase 3's WASM memory design explicitly chose **no padding, `align=0`
 everywhere, declaration order, no reordering** (`ROADMAP.md`, "Vectors and
 matrices live in linear memory now") — a deliberate simplification, correct
 because nothing on that side ever needed to match a GPU buffer. Making
-WASM's layout GPU-compatible *by default* — including running the same
+WASM's layout GPU-compatible _by default_ — including running the same
 alignment-driven reordering WGSL does — would be a real,
 backwards-incompatible change to an already-shipped, tested design's
 addresses, not a free generalization. Any version of this that ships has
 to keep "tightly packed, declaration order, CPU-only" as one of the
-pluggable `AllocRules` — the WASM backend should only opt a *specific*
+pluggable `AllocRules` — the WASM backend should only opt a _specific_
 buffer into GPU-shaped placement (and thus GPU-shaped reordering) when
 that buffer is actually headed to the GPU, never universally, and never by
 changing what address an existing packed-only value gets today.
@@ -179,7 +176,7 @@ changing what address an existing packed-only value gets today.
 
 - Not a proposal to change how any backend already declares or packs
   layout today — this is additive (a shared function multiple call sites
-  *could* adopt) not a rewrite.
+  _could_ adopt) not a rewrite.
 - Not the async GPU↔CPU scheduling problem from the same conversation
   (readback latency, auto-partitioning a graph across backends) — that's a
   separate, harder problem this doesn't attempt to solve, even though a
@@ -201,7 +198,7 @@ not a batch of everything `collect()` discovers, which is a deliberately
 smaller change than first planned: `collect()` walks the AST and
 discovers uniforms/vars/scratch nodes one at a time as it encounters them,
 so batching them into one `planLayout` call would mean restructuring that
-walk into two passes (discover the full list, *then* place it) — real
+walk into two passes (discover the full list, _then_ place it) — real
 extra risk for a change meant to be behavior-preserving. A single-member
 call to the same shared algorithm gets identical addresses (with
 `reorderByAlignment: false`, a length-one list can't be reordered) at much
@@ -233,7 +230,7 @@ parts:
 - **Offsets match exactly**: given a real `wgslUniformLayout` computation
   for two differently-aligned uniforms (a `vec3` and a `vec2`, deliberately
   chosen so WGSL's alignment rules reorder them), the WASM backend's own
-  `WasmParam` addresses come back *exactly* equal to `wgslUniformLayout`'s
+  `WasmParam` addresses come back _exactly_ equal to `wgslUniformLayout`'s
   offsets — not re-derived, not coincidentally equal for a trivial
   single-member case, and correctly reordered (the `vec3` lands before the
   `vec2` despite being declared second).
@@ -241,12 +238,12 @@ parts:
   since fixed**: `wgslUniformLayout`'s offsets assume each `float`
   component is WGSL's 4-byte `f32`; this backend always stores `float` as
   an 8-byte f64 (`ROADMAP.md`, "`float` is f64"). Using the caller's raw
-  offset as this backend's *only* address for a GPU-placed uniform meant a
+  offset as this backend's _only_ address for a GPU-placed uniform meant a
   `vec3` at offset 0 (12 bytes in a real WGSL buffer, 24 in this backend's
   actual writes) spilled straight over a `vec2` at offset 16, the very
   next member — a real, demonstrated data-corruption bug (see git history
   around that test file), not just "reads back the wrong number." The fix:
-  a GPU-placed uniform gets *two* addresses — the caller's raw, narrow one
+  a GPU-placed uniform gets _two_ addresses — the caller's raw, narrow one
   (touched only by one small promotion step) and an ordinary packed
   scratch address like every other uniform gets (touched by everything
   else, exactly as before). No other emit function in `rmsl-wasm.ts` (the

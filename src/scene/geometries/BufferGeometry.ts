@@ -56,10 +56,7 @@ export class BufferGeometry extends EventDispatcher {
       // UNSIGNED_SHORT or UNSIGNED_INT from its type. A plain number array
       // carries neither, so it is converted up front.
       const needsUint32 = index.length > 0 && maxOf(index) > 65535;
-      this.index = new BufferAttribute(
-        needsUint32 ? new Uint32Array(index) : new Uint16Array(index),
-        1,
-      );
+      this.index = new BufferAttribute(needsUint32 ? new Uint32Array(index) : new Uint16Array(index), 1);
     }
     return this;
   }

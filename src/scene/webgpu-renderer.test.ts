@@ -11,8 +11,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { vec2 } from "../rmsl";
 import {
-  WebGPURenderer, Scene, MeshBasicMaterial, DataTexture, PlaneGeometry,
-  NearestFilter, RepeatWrapping, MirroredRepeatWrapping,
+  WebGPURenderer,
+  Scene,
+  MeshBasicMaterial,
+  DataTexture,
+  PlaneGeometry,
+  NearestFilter,
+  RepeatWrapping,
+  MirroredRepeatWrapping,
 } from "./index";
 
 /** A GPUTexture stand-in: its size and format, and whether it was destroyed. */
@@ -56,7 +62,9 @@ function stubDevice(): StubDevice {
       const buffer: StubBuffer = {
         size: descriptor.size ?? 0,
         destroyed: false,
-        destroy: () => { buffer.destroyed = true; },
+        destroy: () => {
+          buffer.destroyed = true;
+        },
       };
       buffers.push(buffer);
       return buffer;
@@ -82,7 +90,9 @@ function stubDevice(): StubDevice {
         format: descriptor.format,
         destroyed: false,
         createView: () => ({ texture }),
-        destroy: () => { texture.destroyed = true; },
+        destroy: () => {
+          texture.destroyed = true;
+        },
       };
       textures.push(texture);
       return texture;

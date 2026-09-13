@@ -1,30 +1,61 @@
 // ========== GLSL Compiler ==========
 import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH } from "../rmsl-core";
 import {
-  CompileCtx, CompiledNode, PRECEDENCE, PREC_ATOM, PREC_UNARY, VertexRoot,
-  assertPositionIsReadable, assertSquareMatrix, assertStageResult,
+  CompileCtx,
+  CompiledNode,
+  PRECEDENCE,
+  PREC_ATOM,
+  PREC_UNARY,
+  VertexRoot,
+  assertPositionIsReadable,
+  assertSquareMatrix,
+  assertStageResult,
   forUpdateStatements,
-  tryFold, withoutSemicolon, wrapExpr
+  tryFold,
+  withoutSemicolon,
+  wrapExpr,
 } from "./shared";
 export let typeToGLSL: Record<string, string> = {
-  float: "float", vec2: "vec2", vec3: "vec3", vec4: "vec4",
-  int: "int", uint: "uint", bool: "bool",
-  ivec2: "ivec2", ivec3: "ivec3", ivec4: "ivec4",
-  uvec2: "uvec2", uvec3: "uvec3", uvec4: "uvec4",
-  bvec2: "bvec2", bvec3: "bvec3", bvec4: "bvec4",
-  mat2: "mat2", mat2x3: "mat2x3", mat2x4: "mat2x4",
-  mat3x2: "mat3x2", mat3: "mat3", mat3x4: "mat3x4",
-  mat4x2: "mat4x2", mat4x3: "mat4x3", mat4: "mat4",
-  sampler2D: "sampler2D", sampler3D: "sampler3D", samplerCube: "samplerCube",
-  isampler2D: "isampler2D", isampler3D: "isampler3D", isamplerCube: "isamplerCube",
-  usampler2D: "usampler2D", usampler3D: "usampler3D", usamplerCube: "usamplerCube",
+  float: "float",
+  vec2: "vec2",
+  vec3: "vec3",
+  vec4: "vec4",
+  int: "int",
+  uint: "uint",
+  bool: "bool",
+  ivec2: "ivec2",
+  ivec3: "ivec3",
+  ivec4: "ivec4",
+  uvec2: "uvec2",
+  uvec3: "uvec3",
+  uvec4: "uvec4",
+  bvec2: "bvec2",
+  bvec3: "bvec3",
+  bvec4: "bvec4",
+  mat2: "mat2",
+  mat2x3: "mat2x3",
+  mat2x4: "mat2x4",
+  mat3x2: "mat3x2",
+  mat3: "mat3",
+  mat3x4: "mat3x4",
+  mat4x2: "mat4x2",
+  mat4x3: "mat4x3",
+  mat4: "mat4",
+  sampler2D: "sampler2D",
+  sampler3D: "sampler3D",
+  samplerCube: "samplerCube",
+  isampler2D: "isampler2D",
+  isampler3D: "isampler3D",
+  isamplerCube: "isamplerCube",
+  usampler2D: "usampler2D",
+  usampler3D: "usampler3D",
+  usamplerCube: "usamplerCube",
   void: "void",
 };
 
 export function glslType(brand: any): string {
   return typeToGLSL[brand as string] ?? "float";
 }
-
 
 export function compileGLSLStage(
   node: BaseNode<ShaderType> | ShaderType extends never ? never : any,
@@ -65,34 +96,71 @@ export function compileGLSLNode(
   switch (node.type) {
     case "float": {
       let s = String(node.value);
-      if (!s.includes('.') && !s.includes('e')) s += '.0';
+      if (!s.includes(".") && !s.includes("e")) s += ".0";
       return { decls: [], body: [], expr: s };
     }
-    case "int": return { decls: [], body: [], expr: String(node.value) };
-    case "uint": return { decls: [], body: [], expr: String(node.value) + "u" };
-    case "bool": return { decls: [], body: [], expr: node.value ? "true" : "false" };
-    case "vec2": return { decls: [], body: [], expr: `vec2(${(node.value as number[]).join(", ")})` };
-    case "vec3": return { decls: [], body: [], expr: `vec3(${(node.value as number[]).join(", ")})` };
-    case "vec4": return { decls: [], body: [], expr: `vec4(${(node.value as number[]).join(", ")})` };
-    case "ivec2": return { decls: [], body: [], expr: `ivec2(${(node.value as number[]).join(", ")})` };
-    case "ivec3": return { decls: [], body: [], expr: `ivec3(${(node.value as number[]).join(", ")})` };
-    case "ivec4": return { decls: [], body: [], expr: `ivec4(${(node.value as number[]).join(", ")})` };
-    case "uvec2": return { decls: [], body: [], expr: `uvec2(${(node.value as number[]).map(v => `${v}u`).join(", ")})` };
-    case "uvec3": return { decls: [], body: [], expr: `uvec3(${(node.value as number[]).map(v => `${v}u`).join(", ")})` };
-    case "uvec4": return { decls: [], body: [], expr: `uvec4(${(node.value as number[]).map(v => `${v}u`).join(", ")})` };
-    case "bvec2": return { decls: [], body: [], expr: `bvec2(${(node.value as boolean[]).map(v => v ? "true" : "false").join(", ")})` };
-    case "bvec3": return { decls: [], body: [], expr: `bvec3(${(node.value as boolean[]).map(v => v ? "true" : "false").join(", ")})` };
-    case "bvec4": return { decls: [], body: [], expr: `bvec4(${(node.value as boolean[]).map(v => v ? "true" : "false").join(", ")})` };
-    case "mat2": return { decls: [], body: [], expr: `mat2(${(node.value as number[]).join(", ")})` };
-    case "mat2x3": return { decls: [], body: [], expr: `mat2x3(${(node.value as number[]).join(", ")})` };
-    case "mat2x4": return { decls: [], body: [], expr: `mat2x4(${(node.value as number[]).join(", ")})` };
-    case "mat3x2": return { decls: [], body: [], expr: `mat3x2(${(node.value as number[]).join(", ")})` };
-    case "mat3": return { decls: [], body: [], expr: `mat3(${(node.value as number[]).join(", ")})` };
-    case "mat3x4": return { decls: [], body: [], expr: `mat3x4(${(node.value as number[]).join(", ")})` };
-    case "mat4x2": return { decls: [], body: [], expr: `mat4x2(${(node.value as number[]).join(", ")})` };
-    case "mat4x3": return { decls: [], body: [], expr: `mat4x3(${(node.value as number[]).join(", ")})` };
-    case "mat4": return { decls: [], body: [], expr: `mat4(${(node.value as number[]).join(", ")})` };
-    case "void": return { decls: [], body: [], expr: "0.0" };
+    case "int":
+      return { decls: [], body: [], expr: String(node.value) };
+    case "uint":
+      return { decls: [], body: [], expr: String(node.value) + "u" };
+    case "bool":
+      return { decls: [], body: [], expr: node.value ? "true" : "false" };
+    case "vec2":
+      return { decls: [], body: [], expr: `vec2(${(node.value as number[]).join(", ")})` };
+    case "vec3":
+      return { decls: [], body: [], expr: `vec3(${(node.value as number[]).join(", ")})` };
+    case "vec4":
+      return { decls: [], body: [], expr: `vec4(${(node.value as number[]).join(", ")})` };
+    case "ivec2":
+      return { decls: [], body: [], expr: `ivec2(${(node.value as number[]).join(", ")})` };
+    case "ivec3":
+      return { decls: [], body: [], expr: `ivec3(${(node.value as number[]).join(", ")})` };
+    case "ivec4":
+      return { decls: [], body: [], expr: `ivec4(${(node.value as number[]).join(", ")})` };
+    case "uvec2":
+      return { decls: [], body: [], expr: `uvec2(${(node.value as number[]).map((v) => `${v}u`).join(", ")})` };
+    case "uvec3":
+      return { decls: [], body: [], expr: `uvec3(${(node.value as number[]).map((v) => `${v}u`).join(", ")})` };
+    case "uvec4":
+      return { decls: [], body: [], expr: `uvec4(${(node.value as number[]).map((v) => `${v}u`).join(", ")})` };
+    case "bvec2":
+      return {
+        decls: [],
+        body: [],
+        expr: `bvec2(${(node.value as boolean[]).map((v) => (v ? "true" : "false")).join(", ")})`,
+      };
+    case "bvec3":
+      return {
+        decls: [],
+        body: [],
+        expr: `bvec3(${(node.value as boolean[]).map((v) => (v ? "true" : "false")).join(", ")})`,
+      };
+    case "bvec4":
+      return {
+        decls: [],
+        body: [],
+        expr: `bvec4(${(node.value as boolean[]).map((v) => (v ? "true" : "false")).join(", ")})`,
+      };
+    case "mat2":
+      return { decls: [], body: [], expr: `mat2(${(node.value as number[]).join(", ")})` };
+    case "mat2x3":
+      return { decls: [], body: [], expr: `mat2x3(${(node.value as number[]).join(", ")})` };
+    case "mat2x4":
+      return { decls: [], body: [], expr: `mat2x4(${(node.value as number[]).join(", ")})` };
+    case "mat3x2":
+      return { decls: [], body: [], expr: `mat3x2(${(node.value as number[]).join(", ")})` };
+    case "mat3":
+      return { decls: [], body: [], expr: `mat3(${(node.value as number[]).join(", ")})` };
+    case "mat3x4":
+      return { decls: [], body: [], expr: `mat3x4(${(node.value as number[]).join(", ")})` };
+    case "mat4x2":
+      return { decls: [], body: [], expr: `mat4x2(${(node.value as number[]).join(", ")})` };
+    case "mat4x3":
+      return { decls: [], body: [], expr: `mat4x3(${(node.value as number[]).join(", ")})` };
+    case "mat4":
+      return { decls: [], body: [], expr: `mat4(${(node.value as number[]).join(", ")})` };
+    case "void":
+      return { decls: [], body: [], expr: "0.0" };
 
     case "construct": {
       let params = (node.params ?? []).map((p: any) => compileGLSLStage(p, ctx));
@@ -106,7 +174,7 @@ export function compileGLSLNode(
     }
 
     case "var": {
-      let varInfo = (node.value as any);
+      let varInfo = node.value as any;
       let varName = varInfo?.varName;
       if (varName && !ctx.varDefs.has(varName)) {
         ctx.varDefs.set(varName, varInfo?.varType || "float");
@@ -141,9 +209,7 @@ export function compileGLSLNode(
       let index = compileGLSLStage(node.params![1], ctx);
       // GLSL indexes with an int; a float loop counter has to be converted.
       let indexType = (node.params![1] as any)?._t;
-      let indexExpr = indexType === "int" || indexType === "uint"
-        ? index.expr
-        : `int(${index.expr})`;
+      let indexExpr = indexType === "int" || indexType === "uint" ? index.expr : `int(${index.expr})`;
       return {
         decls: [...arr.decls, ...index.decls],
         body: [...arr.body, ...index.body],
@@ -229,31 +295,46 @@ export function compileGLSLNode(
     }
 
     // Binary math ops (same pattern for all)
-    case "add": return binaryGLSL(node, ctx, "+");
-    case "sub": return binaryGLSL(node, ctx, "-");
-    case "mul": return binaryGLSL(node, ctx, "*");
-    case "div": return binaryGLSL(node, ctx, "/");
-    case "atan2": return binaryGLSL(node, ctx, "atan", true);
+    case "add":
+      return binaryGLSL(node, ctx, "+");
+    case "sub":
+      return binaryGLSL(node, ctx, "-");
+    case "mul":
+      return binaryGLSL(node, ctx, "*");
+    case "div":
+      return binaryGLSL(node, ctx, "/");
+    case "atan2":
+      return binaryGLSL(node, ctx, "atan", true);
     case "mod": {
       // GLSL's % is integer-only; floats need the mod() builtin.
       let operandType = (node.params![0] as any)?._t;
       let isInteger = operandType === "int" || operandType === "uint";
-      return isInteger
-        ? binaryGLSL(node, ctx, "%")
-        : binaryGLSL(node, ctx, "mod", true);
+      return isInteger ? binaryGLSL(node, ctx, "%") : binaryGLSL(node, ctx, "mod", true);
     }
-    case "pow": return binaryGLSL(node, ctx, "pow", true);
-    case "min": return binaryGLSL(node, ctx, "min", true);
-    case "max": return binaryGLSL(node, ctx, "max", true);
-    case "dot": return binaryGLSL(node, ctx, "dot", true);
-    case "cross": return binaryGLSL(node, ctx, "cross", true);
-    case "distance": return binaryGLSL(node, ctx, "distance", true);
-    case "reflect": return binaryGLSL(node, ctx, "reflect", true);
-    case "refract": return ternaryGLSL(node, ctx, "refract");
-    case "mix": return ternaryGLSL(node, ctx, "mix");
-    case "step": return binaryGLSL(node, ctx, "step", true);
-    case "smoothstep": return ternaryGLSL(node, ctx, "smoothstep");
-    case "clamp": return ternaryGLSL(node, ctx, "clamp");
+    case "pow":
+      return binaryGLSL(node, ctx, "pow", true);
+    case "min":
+      return binaryGLSL(node, ctx, "min", true);
+    case "max":
+      return binaryGLSL(node, ctx, "max", true);
+    case "dot":
+      return binaryGLSL(node, ctx, "dot", true);
+    case "cross":
+      return binaryGLSL(node, ctx, "cross", true);
+    case "distance":
+      return binaryGLSL(node, ctx, "distance", true);
+    case "reflect":
+      return binaryGLSL(node, ctx, "reflect", true);
+    case "refract":
+      return ternaryGLSL(node, ctx, "refract");
+    case "mix":
+      return ternaryGLSL(node, ctx, "mix");
+    case "step":
+      return binaryGLSL(node, ctx, "step", true);
+    case "smoothstep":
+      return ternaryGLSL(node, ctx, "smoothstep");
+    case "clamp":
+      return ternaryGLSL(node, ctx, "clamp");
     case "select": {
       let cond = compileGLSLStage(node.params![0], ctx);
       let a = compileGLSLStage(node.params![1], ctx);
@@ -274,9 +355,7 @@ export function compileGLSLNode(
         let w = Math.max(aW, bW, width);
         if (aW === 1 && w > 1) aExpr = `vec${w}(${aExpr})`;
         if (bW === 1 && w > 1) bExpr = `vec${w}(${bExpr})`;
-        let cExpr = (condType.startsWith("bvec") || condType.startsWith("vec"))
-          ? `vec${w}(${condExpr})`
-          : condExpr;
+        let cExpr = condType.startsWith("bvec") || condType.startsWith("vec") ? `vec${w}(${condExpr})` : condExpr;
         return {
           decls: [...cond.decls, ...a.decls, ...b.decls],
           body: [...cond.body, ...a.body, ...b.body],
@@ -300,20 +379,33 @@ export function compileGLSLNode(
       };
     }
     // Comparison ops
-    case "lessThan": return comparisonGLSL(node, ctx, "<", "lessThan");
-    case "greaterThan": return comparisonGLSL(node, ctx, ">", "greaterThan");
-    case "lessThanEqual": return comparisonGLSL(node, ctx, "<=", "lessThanEqual");
-    case "greaterThanEqual": return comparisonGLSL(node, ctx, ">=", "greaterThanEqual");
-    case "equal": return comparisonGLSL(node, ctx, "==", "equal");
-    case "notEqual": return comparisonGLSL(node, ctx, "!=", "notEqual");
+    case "lessThan":
+      return comparisonGLSL(node, ctx, "<", "lessThan");
+    case "greaterThan":
+      return comparisonGLSL(node, ctx, ">", "greaterThan");
+    case "lessThanEqual":
+      return comparisonGLSL(node, ctx, "<=", "lessThanEqual");
+    case "greaterThanEqual":
+      return comparisonGLSL(node, ctx, ">=", "greaterThanEqual");
+    case "equal":
+      return comparisonGLSL(node, ctx, "==", "equal");
+    case "notEqual":
+      return comparisonGLSL(node, ctx, "!=", "notEqual");
 
-    case "and": return binaryGLSL(node, ctx, "&&");
-    case "or": return binaryGLSL(node, ctx, "||");
-    case "bitAnd": return binaryGLSL(node, ctx, "&");
-    case "bitOr": return binaryGLSL(node, ctx, "|");
-    case "bitXor": return binaryGLSL(node, ctx, "^");
-    case "shiftLeft": return binaryGLSL(node, ctx, "<<");
-    case "shiftRight": return binaryGLSL(node, ctx, ">>");
+    case "and":
+      return binaryGLSL(node, ctx, "&&");
+    case "or":
+      return binaryGLSL(node, ctx, "||");
+    case "bitAnd":
+      return binaryGLSL(node, ctx, "&");
+    case "bitOr":
+      return binaryGLSL(node, ctx, "|");
+    case "bitXor":
+      return binaryGLSL(node, ctx, "^");
+    case "shiftLeft":
+      return binaryGLSL(node, ctx, "<<");
+    case "shiftRight":
+      return binaryGLSL(node, ctx, ">>");
 
     case "matVecMul": {
       let mat = compileGLSLStage(node.params![0], ctx);
@@ -347,44 +439,77 @@ export function compileGLSLNode(
     }
 
     // Unary math ops
-    case "sin": return unaryGLSL(node, ctx, "sin");
-    case "cos": return unaryGLSL(node, ctx, "cos");
-    case "tan": return unaryGLSL(node, ctx, "tan");
-    case "asin": return unaryGLSL(node, ctx, "asin");
-    case "acos": return unaryGLSL(node, ctx, "acos");
-    case "atan": return unaryGLSL(node, ctx, "atan");
-    case "sinh": return unaryGLSL(node, ctx, "sinh");
-    case "cosh": return unaryGLSL(node, ctx, "cosh");
-    case "tanh": return unaryGLSL(node, ctx, "tanh");
-    case "asinh": return unaryGLSL(node, ctx, "asinh");
-    case "acosh": return unaryGLSL(node, ctx, "acosh");
-    case "atanh": return unaryGLSL(node, ctx, "atanh");
-    case "abs": return unaryGLSL(node, ctx, "abs");
-    case "sign": return unaryGLSL(node, ctx, "sign");
-    case "floor": return unaryGLSL(node, ctx, "floor");
-    case "ceil": return unaryGLSL(node, ctx, "ceil");
-    case "fract": return unaryGLSL(node, ctx, "fract");
-    case "round": return unaryGLSL(node, ctx, "round");
-    case "trunc": return unaryGLSL(node, ctx, "trunc");
-    case "sqrt": return unaryGLSL(node, ctx, "sqrt");
-    case "inverseSqrt": return unaryGLSL(node, ctx, "inversesqrt");
-    case "exp": return unaryGLSL(node, ctx, "exp");
-    case "log": return unaryGLSL(node, ctx, "log");
-    case "exp2": return unaryGLSL(node, ctx, "exp2");
-    case "log2": return unaryGLSL(node, ctx, "log2");
-    case "normalize": return unaryGLSL(node, ctx, "normalize");
-    case "length": return unaryGLSL(node, ctx, "length");
-    case "transpose": return unaryGLSL(node, ctx, "transpose");
+    case "sin":
+      return unaryGLSL(node, ctx, "sin");
+    case "cos":
+      return unaryGLSL(node, ctx, "cos");
+    case "tan":
+      return unaryGLSL(node, ctx, "tan");
+    case "asin":
+      return unaryGLSL(node, ctx, "asin");
+    case "acos":
+      return unaryGLSL(node, ctx, "acos");
+    case "atan":
+      return unaryGLSL(node, ctx, "atan");
+    case "sinh":
+      return unaryGLSL(node, ctx, "sinh");
+    case "cosh":
+      return unaryGLSL(node, ctx, "cosh");
+    case "tanh":
+      return unaryGLSL(node, ctx, "tanh");
+    case "asinh":
+      return unaryGLSL(node, ctx, "asinh");
+    case "acosh":
+      return unaryGLSL(node, ctx, "acosh");
+    case "atanh":
+      return unaryGLSL(node, ctx, "atanh");
+    case "abs":
+      return unaryGLSL(node, ctx, "abs");
+    case "sign":
+      return unaryGLSL(node, ctx, "sign");
+    case "floor":
+      return unaryGLSL(node, ctx, "floor");
+    case "ceil":
+      return unaryGLSL(node, ctx, "ceil");
+    case "fract":
+      return unaryGLSL(node, ctx, "fract");
+    case "round":
+      return unaryGLSL(node, ctx, "round");
+    case "trunc":
+      return unaryGLSL(node, ctx, "trunc");
+    case "sqrt":
+      return unaryGLSL(node, ctx, "sqrt");
+    case "inverseSqrt":
+      return unaryGLSL(node, ctx, "inversesqrt");
+    case "exp":
+      return unaryGLSL(node, ctx, "exp");
+    case "log":
+      return unaryGLSL(node, ctx, "log");
+    case "exp2":
+      return unaryGLSL(node, ctx, "exp2");
+    case "log2":
+      return unaryGLSL(node, ctx, "log2");
+    case "normalize":
+      return unaryGLSL(node, ctx, "normalize");
+    case "length":
+      return unaryGLSL(node, ctx, "length");
+    case "transpose":
+      return unaryGLSL(node, ctx, "transpose");
     case "inverse":
       assertSquareMatrix((node.params![0] as any)?._t);
       return unaryGLSL(node, ctx, "inverse");
-    case "determinant": return unaryGLSL(node, ctx, "determinant");
-    case "fwidth": return unaryGLSL(node, ctx, "fwidth");
-    case "dFdx": return unaryGLSL(node, ctx, "dFdx");
-    case "dFdy": return unaryGLSL(node, ctx, "dFdy");
+    case "determinant":
+      return unaryGLSL(node, ctx, "determinant");
+    case "fwidth":
+      return unaryGLSL(node, ctx, "fwidth");
+    case "dFdx":
+      return unaryGLSL(node, ctx, "dFdx");
+    case "dFdy":
+      return unaryGLSL(node, ctx, "dFdy");
     // faceforward(n, i, nref) takes three vectors, so a binary emitter would
     // silently drop the reference — the exact bug the validator exists to catch.
-    case "faceForward": return ternaryGLSL(node, ctx, "faceforward");
+    case "faceForward":
+      return ternaryGLSL(node, ctx, "faceforward");
     case "bitNot": {
       let a = compileGLSLStage(node.params![0], ctx);
       let childExpr = wrapExpr(a.prec, PREC_UNARY, a.expr);
@@ -545,18 +670,14 @@ export function compileGLSLNode(
     case "if": {
       let cond = compileGLSLStage(node.params![0], ctx);
       let body = compileGLSLStage(node.params![1], ctx);
-      let elseBody = node.params!.length >= 3 && node.params![2] !== undefined
-        ? compileGLSLStage(node.params![2], ctx)
-        : { decls: [] as string[], body: [] as string[], expr: "" };
-      let lines: string[] = [
-        ...cond.body,
-        `if (${cond.expr}) {`,
-        ...body.body.map(l => "  " + l),
-        "}",
-      ];
+      let elseBody =
+        node.params!.length >= 3 && node.params![2] !== undefined
+          ? compileGLSLStage(node.params![2], ctx)
+          : { decls: [] as string[], body: [] as string[], expr: "" };
+      let lines: string[] = [...cond.body, `if (${cond.expr}) {`, ...body.body.map((l) => "  " + l), "}"];
       if (elseBody.body.length > 0) {
         lines.push("else {");
-        lines.push(...elseBody.body.map(l => "  " + l));
+        lines.push(...elseBody.body.map((l) => "  " + l));
         lines.push("}");
       }
       return {
@@ -575,7 +696,7 @@ export function compileGLSLNode(
       let initBody = init.body;
       if (init.body.length > 0) {
         let lastStmt = init.body[init.body.length - 1];
-        if (lastStmt.endsWith(';')) {
+        if (lastStmt.endsWith(";")) {
           initExpr = lastStmt.slice(0, -1);
           initBody = init.body.slice(0, -1);
         }
@@ -586,7 +707,7 @@ export function compileGLSLNode(
           ...initBody,
           ...cond.body,
           `for (${initExpr}; ${cond.expr}; ${forUpdateStatements(update).map(withoutSemicolon).join(", ")}) {`,
-          ...body.body.map(l => "  " + l),
+          ...body.body.map((l) => "  " + l),
           "}",
         ],
         expr: "0.0",
@@ -598,12 +719,7 @@ export function compileGLSLNode(
       let body = compileGLSLStage(node.params![1], ctx);
       return {
         decls: [...cond.decls, ...body.decls],
-        body: [
-          ...cond.body,
-          `while (${cond.expr}) {`,
-          ...body.body.map(l => "  " + l),
-          "}",
-        ],
+        body: [...cond.body, `while (${cond.expr}) {`, ...body.body.map((l) => "  " + l), "}"],
         expr: "0.0",
       };
     }
@@ -633,12 +749,7 @@ export function compileGLSLNode(
   }
 }
 
-export function binaryGLSL(
-  node: BaseNode<ShaderType>,
-  ctx: CompileCtx,
-  op: string,
-  isFn?: boolean,
-): CompiledNode {
+export function binaryGLSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string, isFn?: boolean): CompiledNode {
   let lhs = compileGLSLStage(node.params![0], ctx);
   let rhs = compileGLSLStage(node.params![1], ctx);
   let lhsType = (node.params![0] as any)?._t || "float";
@@ -674,12 +785,7 @@ export function binaryGLSL(
   };
 }
 
-export function comparisonGLSL(
-  node: BaseNode<ShaderType>,
-  ctx: CompileCtx,
-  op: string,
-  fnName: string,
-): CompiledNode {
+export function comparisonGLSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string, fnName: string): CompiledNode {
   let a = compileGLSLStage(node.params![0], ctx);
   let b = compileGLSLStage(node.params![1], ctx);
   let lhsType = (node.params![0] as any)?._t || "float";
@@ -731,7 +837,9 @@ export function ternaryGLSL(
     if (cType === "int" || cType === "uint") cExpr = `float(${cExpr})`;
   } else if (aType === "int" || aType === "uint") {
     if (bType === "float") aExpr = `float(${aExpr})`;
-    if (cType === "float") { /* keep as-is or convert both */ }
+    if (cType === "float") {
+      /* keep as-is or convert both */
+    }
   }
   return {
     decls: [...a.decls, ...b.decls, ...c.decls],
@@ -777,9 +885,7 @@ export function compileGLSLWithStage(
 ): string {
   const precision = options.precision ?? "highp";
   if (precision !== "lowp" && precision !== "mediump" && precision !== "highp") {
-    throw new Error(
-      `[RMSL] unknown precision "${precision}" — use "lowp", "mediump" or "highp".`,
-    );
+    throw new Error(`[RMSL] unknown precision "${precision}" — use "lowp", "mediump" or "highp".`);
   }
   let ctx: CompileCtx = {
     nextId: 0,
@@ -805,7 +911,7 @@ export function compileGLSLWithStage(
   };
 
   let nodes = Array.isArray(root) ? root : [root];
-  let results = nodes.map(n => compileGLSLStage(n, ctx));
+  let results = nodes.map((n) => compileGLSLStage(n, ctx));
   let allBody: string[] = [];
   let lastExpr = "0.0";
   // The stage output is a fixed type (vec4 for gl_Position and the implicit
@@ -826,8 +932,7 @@ export function compileGLSLWithStage(
   // A fragment stage that declares no output of its own still has to put its
   // colour somewhere, and GLSL ES 3.00 removed gl_FragColor, so an output is
   // declared for it.
-  let emitImplicitColor =
-    shaderStage === "fragment" && ctx.outputs.size === 0 && hasVec4Result;
+  let emitImplicitColor = shaderStage === "fragment" && ctx.outputs.size === 0 && hasVec4Result;
 
   let lines: string[] = [];
   lines.push("#version 300 es");
@@ -838,11 +943,13 @@ export function compileGLSLWithStage(
   // sampler with no precision at all ("No precision specified"). Each sampler
   // type a shader actually uses gets a precision declared for the stages that
   // use it.
-  let glslSamplerTypes = [...new Set(
-    [...ctx.uniforms.values()]
-      .map(info => info.type)
-      .filter(t => /^(i|u)?sampler2D$|^(i|u)?sampler3D$|^(i|u)?samplerCube$/.test(t)),
-  )].sort();
+  let glslSamplerTypes = [
+    ...new Set(
+      [...ctx.uniforms.values()]
+        .map((info) => info.type)
+        .filter((t) => /^(i|u)?sampler2D$|^(i|u)?sampler3D$|^(i|u)?samplerCube$/.test(t)),
+    ),
+  ].sort();
   for (let samplerType of glslSamplerTypes) {
     lines.push(`precision ${precision} ${samplerType};`);
   }
@@ -872,18 +979,17 @@ export function compileGLSLWithStage(
       // The qualifier names a draw buffer, which only a fragment stage has.
       // GLSL ES 3.00 rejects one on a vertex output, where the value is simply
       // another thing passed on to the fragment stage.
-      lines.push(shaderStage === "fragment"
-        ? `layout(location=${outputLocation++}) out ${info.type} ${info.slot};`
-        : `out ${info.type} ${info.slot};`);
+      lines.push(
+        shaderStage === "fragment"
+          ? `layout(location=${outputLocation++}) out ${info.type} ${info.slot};`
+          : `out ${info.type} ${info.slot};`,
+      );
     }
   });
   if (emitImplicitColor) {
     lines.push("layout(location=0) out vec4 _rmsl_fragColor;");
   }
-  if (
-    ctx.uniforms.size > 0 || ctx.attributes.size > 0 || ctx.outputs.size > 0
-    || emitImplicitColor
-  ) {
+  if (ctx.uniforms.size > 0 || ctx.attributes.size > 0 || ctx.outputs.size > 0 || emitImplicitColor) {
     lines.push("");
   }
 
@@ -913,7 +1019,6 @@ export function compileGLSLWithStage(
   return lines.join("\n");
 }
 
-
 export const compileGLSL: {
   (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileGLSLOptions): string;
   vertex(root: VertexRoot, options?: CompileGLSLOptions): string;
@@ -930,4 +1035,3 @@ export const compileGLSL: {
       compileGLSLWithStage(root, "fragment", options),
   },
 );
-

@@ -26,9 +26,7 @@ export class OrthographicCamera extends Camera {
   }
 
   updateProjectionMatrix(): void {
-    this.projectionMatrix.makeOrthographic(
-      this.left, this.right, this.top, this.bottom, this.near, this.far,
-    );
+    this.projectionMatrix.makeOrthographic(this.left, this.right, this.top, this.bottom, this.near, this.far);
     this.projectionMatrixInverse.copy(this.projectionMatrix).invert();
   }
 }

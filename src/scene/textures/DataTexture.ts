@@ -29,4 +29,3 @@ export class DataTexture extends Texture {
     this.type = type;
   }
 }
-

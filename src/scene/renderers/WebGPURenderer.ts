@@ -14,10 +14,21 @@ import type { NodeMaterial, MaterialProgram } from "../materials/NodeMaterial";
 import type { SamplerShaderType } from "../materials/nodes/Builder";
 import { Side } from "../materials/Material";
 import {
-  cameraUniformValue, isIntegerSampler, objectUniformValue, lightsSignature,
-  samplerDimension, samplerSampleType, wgslTypeName, toBufferView,
-  rendererUniformValue, programSignature, geometryAttribute,
-  samplerState, textureChannels, type SamplerState, type TextureWrap,
+  cameraUniformValue,
+  isIntegerSampler,
+  objectUniformValue,
+  lightsSignature,
+  samplerDimension,
+  samplerSampleType,
+  wgslTypeName,
+  toBufferView,
+  rendererUniformValue,
+  programSignature,
+  geometryAttribute,
+  samplerState,
+  textureChannels,
+  type SamplerState,
+  type TextureWrap,
 } from "./common";
 
 interface PipelineEntry {
@@ -190,12 +201,14 @@ export class WebGPURenderer {
       this.packUniforms(entry, mesh, camera, slotIndex);
 
       const pass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: colorView,
-          clearValue: { r: this.clearColor.r, g: this.clearColor.g, b: this.clearColor.b, a: this.clearAlpha },
-          loadOp: firstPass ? "clear" : "load",
-          storeOp: "store",
-        }],
+        colorAttachments: [
+          {
+            view: colorView,
+            clearValue: { r: this.clearColor.r, g: this.clearColor.g, b: this.clearColor.b, a: this.clearAlpha },
+            loadOp: firstPass ? "clear" : "load",
+            storeOp: "store",
+          },
+        ],
         depthStencilAttachment: {
           view: this.depthView!,
           depthClearValue: 1.0,
@@ -328,29 +341,37 @@ export class WebGPURenderer {
     // claiming binding 0 and a pipeline layout that reaches neither of the
     // groups the shader reads.
     const uniformLayout = device.createBindGroupLayout({
-      entries: [{
-        binding: 0,
-        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-        buffer: { type: "uniform", hasDynamicOffset: true },
-      }],
-    });
-    const textureLayout = textureBindings.length === 0 ? null : device.createBindGroupLayout({
-      entries: textureBindings.map((t) => ({
-        binding: t.binding,
-        visibility: GPUShaderStage.FRAGMENT,
-        texture: {
-          sampleType: samplerSampleType(t.type),
-          viewDimension: samplerDimension(t.type),
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: "uniform", hasDynamicOffset: true },
         },
-      })),
+      ],
     });
-    const samplerLayout = samplerBindings.length === 0 ? null : device.createBindGroupLayout({
-      entries: samplerBindings.map((s) => ({
-        binding: s.binding,
-        visibility: GPUShaderStage.FRAGMENT,
-        sampler: { type: "filtering" },
-      })),
-    });
+    const textureLayout =
+      textureBindings.length === 0
+        ? null
+        : device.createBindGroupLayout({
+            entries: textureBindings.map((t) => ({
+              binding: t.binding,
+              visibility: GPUShaderStage.FRAGMENT,
+              texture: {
+                sampleType: samplerSampleType(t.type),
+                viewDimension: samplerDimension(t.type),
+              },
+            })),
+          });
+    const samplerLayout =
+      samplerBindings.length === 0
+        ? null
+        : device.createBindGroupLayout({
+            entries: samplerBindings.map((s) => ({
+              binding: s.binding,
+              visibility: GPUShaderStage.FRAGMENT,
+              sampler: { type: "filtering" },
+            })),
+          });
     const groupLayouts = [uniformLayout];
     if (textureLayout) groupLayouts.push(textureLayout);
     if (samplerLayout) groupLayouts.push(samplerLayout);
@@ -371,7 +392,12 @@ export class WebGPURenderer {
         for (let i = 0; i < 4; i++) {
           columns.push({ shaderLocation: shaderLocation + i, offset: i * 16, format: "float32x4" });
         }
-        vertexFormats.push({ name: attribute.name, stepMode: attribute.stepMode, arrayStride: 64, attributes: columns });
+        vertexFormats.push({
+          name: attribute.name,
+          stepMode: attribute.stepMode,
+          arrayStride: 64,
+          attributes: columns,
+        });
         shaderLocation += 4;
       } else {
         const format = vertexFormatFromType(attribute.node._t);
@@ -385,9 +411,8 @@ export class WebGPURenderer {
       }
     }
 
-    const cullMode: GPUCullMode = material.side === Side.FrontSide
-      ? "back"
-      : material.side === Side.BackSide ? "front" : "none";
+    const cullMode: GPUCullMode =
+      material.side === Side.FrontSide ? "back" : material.side === Side.BackSide ? "front" : "none";
 
     const pipeline = device.createRenderPipeline({
       layout: pipelineLayout,
@@ -557,8 +582,7 @@ export class WebGPURenderer {
       this.geometryBuffers.set(geometry, buffers);
       geometry.addEventListener("dispose", this.onGeometryDispose);
     }
-    const needsUpload = buffers.needsUpload
-      || Object.values(geometry.attributes).some((a) => a.needsUpdate);
+    const needsUpload = buffers.needsUpload || Object.values(geometry.attributes).some((a) => a.needsUpdate);
     if (!needsUpload) return buffers;
 
     for (const [name, attribute] of Object.entries(geometry.attributes)) {
@@ -581,7 +605,10 @@ export class WebGPURenderer {
         });
       }
       this.device.queue.writeBuffer(buffers.index, 0, toBufferView(geometry.index.array, true));
-      buffers.indexFormat = (toBufferView(geometry.index.array, true) as Uint16Array | Uint32Array).BYTES_PER_ELEMENT === 2 ? "uint16" : "uint32";
+      buffers.indexFormat =
+        (toBufferView(geometry.index.array, true) as Uint16Array | Uint32Array).BYTES_PER_ELEMENT === 2
+          ? "uint16"
+          : "uint32";
     }
     buffers.needsUpload = false;
     return buffers;
@@ -637,20 +664,24 @@ export class WebGPURenderer {
     const dimension = samplerDimension(samplerType);
     let gpu = this.textures.get(t);
     if (!gpu || t.needsUpdate) {
-      const width = ArrayBuffer.isView(t.image) ? (t as DataTexture).width ?? 1 : 1;
-      const height = ArrayBuffer.isView(t.image) ? (t as DataTexture).height ?? 1 : 1;
-      const depth = dimension === "3d" ? (t as DataTexture).depth ?? 1 : 1;
+      const width = ArrayBuffer.isView(t.image) ? ((t as DataTexture).width ?? 1) : 1;
+      const height = ArrayBuffer.isView(t.image) ? ((t as DataTexture).height ?? 1) : 1;
+      const depth = dimension === "3d" ? ((t as DataTexture).depth ?? 1) : 1;
       const format = integer
         ? textureChannels(t) === 1
-          ? samplerType.startsWith("isampler") ? "r8sint" : "r8uint"
+          ? samplerType.startsWith("isampler")
+            ? "r8sint"
+            : "r8uint"
           : integerGpuFormat(samplerType, ArrayBuffer.isView(t.image) ? t.image : null)
         : "rgba8unorm";
       // A WebGPU texture's size and format are fixed when it is created, so an
       // image that changed shape cannot be written into the texture it had
       // before: that one is destroyed and replaced. Whatever bound it has to
       // be rebound, since a bind group names a texture that no longer exists.
-      if (gpu && (gpu.width !== width || gpu.height !== height
-        || gpu.depthOrArrayLayers !== depth || gpu.format !== format)) {
+      if (
+        gpu &&
+        (gpu.width !== width || gpu.height !== height || gpu.depthOrArrayLayers !== depth || gpu.format !== format)
+      ) {
         gpu.destroy();
         this.textures.delete(t);
         this.invalidateBindGroups(t);
@@ -686,18 +717,17 @@ export class WebGPURenderer {
     depth: number,
     format: GPUTextureFormat,
   ): void {
-    const bytesPerTexel = format === "rgba32uint" || format === "rgba32sint" ? 16
-      : format === "rgba16uint" || format === "rgba16sint" ? 8
-      : format === "r8uint" || format === "r8sint" ? 1
-      : 4;
+    const bytesPerTexel =
+      format === "rgba32uint" || format === "rgba32sint"
+        ? 16
+        : format === "rgba16uint" || format === "rgba16sint"
+          ? 8
+          : format === "r8uint" || format === "r8sint"
+            ? 1
+            : 4;
     const bytesPerRow = width * bytesPerTexel;
     if (depth === 1) {
-      this.device.queue.writeTexture(
-        { texture },
-        image,
-        { bytesPerRow },
-        [width, height, 1],
-      );
+      this.device.queue.writeTexture({ texture }, image, { bytesPerRow }, [width, height, 1]);
       return;
     }
     const paddedBytesPerRow = Math.ceil(bytesPerRow / 256) * 256;
@@ -709,12 +739,11 @@ export class WebGPURenderer {
         padded.set(src.subarray(row, row + bytesPerRow), (z * height + y) * paddedBytesPerRow);
       }
     }
-    this.device.queue.writeTexture(
-      { texture },
-      padded,
-      { bytesPerRow: paddedBytesPerRow, rowsPerImage: height },
-      [width, height, depth],
-    );
+    this.device.queue.writeTexture({ texture }, padded, { bytesPerRow: paddedBytesPerRow, rowsPerImage: height }, [
+      width,
+      height,
+      depth,
+    ]);
   }
 
   /**
@@ -797,9 +826,12 @@ export class WebGPURenderer {
 /** A wrapping mode as the sampler descriptor's spelling of it. */
 function gpuAddressMode(wrap: TextureWrap): GPUAddressMode {
   switch (wrap) {
-    case "repeat": return "repeat";
-    case "mirror": return "mirror-repeat";
-    default: return "clamp-to-edge";
+    case "repeat":
+      return "repeat";
+    case "mirror":
+      return "mirror-repeat";
+    default:
+      return "clamp-to-edge";
   }
 }
 
@@ -810,20 +842,29 @@ function samplerKey(state: SamplerState): string {
 
 function vertexFormatFromType(type: string): GPUVertexFormat {
   switch (type) {
-    case "float": return "float32";
-    case "vec2": return "float32x2";
-    case "vec3": return "float32x3";
-    case "vec4": return "float32x4";
-    default: return "float32x3";
+    case "float":
+      return "float32";
+    case "vec2":
+      return "float32x2";
+    case "vec3":
+      return "float32x3";
+    case "vec4":
+      return "float32x4";
+    default:
+      return "float32x3";
   }
 }
 
 function strideForFormat(format: GPUVertexFormat): number {
   switch (format) {
-    case "float32": return 4;
-    case "float32x2": return 8;
-    case "float32x3": return 12;
-    default: return 16;
+    case "float32":
+      return 4;
+    case "float32x2":
+      return 8;
+    case "float32x3":
+      return 12;
+    default:
+      return 16;
   }
 }
 

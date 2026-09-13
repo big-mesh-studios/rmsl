@@ -13,7 +13,9 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { Fn, float, int, For, If, While, Switch, Break, Continue, type Node } from "./rmsl";
 import {
-  evaluateRecording, assertRecordedEvaluationsAgree, closeEvaluators,
+  evaluateRecording,
+  assertRecordedEvaluationsAgree,
+  closeEvaluators,
   floatTolerance,
 } from "./testing/shader-eval";
 
@@ -39,8 +41,7 @@ async function expectValue(build: Build, args: number[], want: number) {
   // the test waiting on a device.
   const js = evaluateRecording(build, args);
   const tolerance = floatTolerance(want);
-  expect(Math.abs(js - want), `CPU target computed ${js}, wanted ${want}`)
-    .toBeLessThan(tolerance);
+  expect(Math.abs(js - want), `CPU target computed ${js}, wanted ${want}`).toBeLessThan(tolerance);
 }
 
 describe("RMSL evaluation", () => {
@@ -96,8 +97,8 @@ describe("RMSL evaluation", () => {
   // Argument order is the thing worth pinning: GLSL takes the value last in
   // step(edge, x), so an emitter that passes them the other way still compiles.
   it("computes step, smoothstep and mix with operands in the right order", async () => {
-    await expectValue((a, b) => b.step(a), [0.5, 2], 1);   // x above edge -> 1
-    await expectValue((a, b) => b.step(a), [2, 0.5], 0);   // x below edge -> 0
+    await expectValue((a, b) => b.step(a), [0.5, 2], 1); // x above edge -> 1
+    await expectValue((a, b) => b.step(a), [2, 0.5], 0); // x below edge -> 0
     await expectValue((a, b) => a.mix(b, 0.25), [0, 4], 1);
     await expectValue((a, b) => a.mix(b, 0.75), [0, 4], 3);
     await expectValue((a) => a.smoothstep(0, 1), [0.5], 0.5);
@@ -146,59 +147,79 @@ describe("RMSL evaluation", () => {
   // terminates without risking one that does not.
 
   it("runs a for loop the right number of times", async () => {
-    const sumTo = (n: Node<"float">) => Fn(() => {
-      const total = float(0).toVar();
-      For(
-        () => float(0).toVar(),
-        (i) => i.lessThan(n),
-        (i) => i.assign(i.add(1)),
-        (i) => { total.assign(total.add(i)); },
-      );
-      return total;
-    })();
+    const sumTo = (n: Node<"float">) =>
+      Fn(() => {
+        const total = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (i) => i.lessThan(n),
+          (i) => i.assign(i.add(1)),
+          (i) => {
+            total.assign(total.add(i));
+          },
+        );
+        return total;
+      })();
 
-    await expectValue(sumTo, [5], 10);   // 0+1+2+3+4
+    await expectValue(sumTo, [5], 10); // 0+1+2+3+4
     await expectValue(sumTo, [10], 45);
-    await expectValue(sumTo, [0], 0);    // condition false on entry
+    await expectValue(sumTo, [0], 0); // condition false on entry
   }, 60_000);
 
   // A loop whose update does two things: advance the counter, and tally
   // alongside it. Both run four times, so the tally ends at 4.
   it("runs every statement of a loop update", async () => {
-    const tallyLoop = () => Fn(() => {
-      const tally = float(0).toVar();
-      For(
-        () => float(0).toVar(),
-        (i) => i.lessThan(4),
-        (i) => { tally.assign(tally.add(1)); i.assign(i.add(1)); },
-        (i) => { tally.assign(tally.add(0)); },
-      );
-      return tally;
-    })();
+    const tallyLoop = () =>
+      Fn(() => {
+        const tally = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (i) => i.lessThan(4),
+          (i) => {
+            tally.assign(tally.add(1));
+            i.assign(i.add(1));
+          },
+          (i) => {
+            tally.assign(tally.add(0));
+          },
+        );
+        return tally;
+      })();
 
     await expectValue(tallyLoop, [], 4);
   }, 60_000);
 
   it("takes the branch the condition selects", async () => {
-    const branch = (x: Node<"float">) => Fn(() => {
-      const out = float(0).toVar();
-      If(x.greaterThan(1), () => { out.assign(float(10)); })
-        .Else(() => { out.assign(float(20)); });
-      return out;
-    })();
+    const branch = (x: Node<"float">) =>
+      Fn(() => {
+        const out = float(0).toVar();
+        If(x.greaterThan(1), () => {
+          out.assign(float(10));
+        }).Else(() => {
+          out.assign(float(20));
+        });
+        return out;
+      })();
 
     await expectValue(branch, [2], 10);
     await expectValue(branch, [0], 20);
   }, 60_000);
 
   it("walks an if/else-if/else chain in order", async () => {
-    const classify = (x: Node<"float">) => Fn(() => {
-      const out = float(0).toVar();
-      If(x.lessThan(10), () => { out.assign(float(1)); })
-        .ElseIf(x.lessThan(20), () => { out.assign(float(2)); })
-        .Else(() => { out.assign(float(3)); });
-      return out;
-    })();
+    const classify = (x: Node<"float">) =>
+      Fn(() => {
+        const out = float(0).toVar();
+        If(x.lessThan(10), () => {
+          out.assign(float(1));
+        })
+          .ElseIf(x.lessThan(20), () => {
+            out.assign(float(2));
+          })
+          .Else(() => {
+            out.assign(float(3));
+          });
+        return out;
+      })();
 
     await expectValue(classify, [5], 1);
     await expectValue(classify, [15], 2);
@@ -206,30 +227,38 @@ describe("RMSL evaluation", () => {
   }, 60_000);
 
   it("runs a while loop until its condition fails", async () => {
-    const countdown = (n: Node<"float">) => Fn(() => {
-      const left = n.toVar();
-      const steps = float(0).toVar();
-      While(left.greaterThan(0), () => {
-        left.assign(left.sub(1));
-        steps.assign(steps.add(1));
-      });
-      return steps;
-    })();
+    const countdown = (n: Node<"float">) =>
+      Fn(() => {
+        const left = n.toVar();
+        const steps = float(0).toVar();
+        While(left.greaterThan(0), () => {
+          left.assign(left.sub(1));
+          steps.assign(steps.add(1));
+        });
+        return steps;
+      })();
 
     await expectValue(countdown, [4], 4);
     await expectValue(countdown, [0], 0);
   }, 60_000);
 
   it("takes the branch Switch selects", async () => {
-    const classify = () => Fn(() => {
-      const out = float(0).toVar();
-      Switch(int(1), (s) => {
-        s.Case(0, () => { out.assign(float(10)); });
-        s.Case([1, 2], () => { out.assign(float(20)); });
-        s.Default(() => { out.assign(float(30)); });
-      });
-      return out;
-    })();
+    const classify = () =>
+      Fn(() => {
+        const out = float(0).toVar();
+        Switch(int(1), (s) => {
+          s.Case(0, () => {
+            out.assign(float(10));
+          });
+          s.Case([1, 2], () => {
+            out.assign(float(20));
+          });
+          s.Default(() => {
+            out.assign(float(30));
+          });
+        });
+        return out;
+      })();
 
     await expectValue(classify, [], 20);
   }, 60_000);
@@ -237,86 +266,110 @@ describe("RMSL evaluation", () => {
   // The lowercase aliases are the same nodes, so they must compute the same
   // results — an alias that silently did nothing would fail here.
   it("computes the same results through the lowercase aliases", async () => {
-    const branch = (x: Node<"float">) => Fn(() => {
-      const out = float(0).toVar();
-      If(x.greaterThan(1), () => { out.assign(float(10)); })
-        .ElseIf(x.greaterThan(0), () => { out.assign(float(20)); })
-        .Else(() => { out.assign(float(30)); });
-      return out;
-    })();
+    const branch = (x: Node<"float">) =>
+      Fn(() => {
+        const out = float(0).toVar();
+        If(x.greaterThan(1), () => {
+          out.assign(float(10));
+        })
+          .ElseIf(x.greaterThan(0), () => {
+            out.assign(float(20));
+          })
+          .Else(() => {
+            out.assign(float(30));
+          });
+        return out;
+      })();
     await expectValue(branch, [2], 10);
     await expectValue(branch, [0.5], 20);
     await expectValue(branch, [-1], 30);
 
-    const sum = (n: Node<"float">) => Fn(() => {
-      const total = float(0).toVar();
-      For(
-        () => float(0).toVar(),
-        (i) => i.lessThan(n),
-        (i) => i.assign(i.add(1)),
-        (i) => { total.assign(total.add(i)); },
-      );
-      return total;
-    })();
+    const sum = (n: Node<"float">) =>
+      Fn(() => {
+        const total = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (i) => i.lessThan(n),
+          (i) => i.assign(i.add(1)),
+          (i) => {
+            total.assign(total.add(i));
+          },
+        );
+        return total;
+      })();
     await expectValue(sum, [5], 10);
 
-    const countdown = (n: Node<"float">) => Fn(() => {
-      const left = n.toVar();
-      const steps = float(0).toVar();
-      While(left.greaterThan(0), () => {
-        left.assign(left.sub(1));
-        steps.assign(steps.add(1));
-      });
-      return steps;
-    })();
+    const countdown = (n: Node<"float">) =>
+      Fn(() => {
+        const left = n.toVar();
+        const steps = float(0).toVar();
+        While(left.greaterThan(0), () => {
+          left.assign(left.sub(1));
+          steps.assign(steps.add(1));
+        });
+        return steps;
+      })();
     await expectValue(countdown, [4], 4);
 
-    const classify = () => Fn(() => {
-      const out = float(0).toVar();
-      Switch(int(2), (s) => {
-        s.Case(0, () => { out.assign(float(10)); });
-        s.Case([1, 2], () => { out.assign(float(20)); });
-        s.Default(() => { out.assign(float(30)); });
-      });
-      return out;
-    })();
+    const classify = () =>
+      Fn(() => {
+        const out = float(0).toVar();
+        Switch(int(2), (s) => {
+          s.Case(0, () => {
+            out.assign(float(10));
+          });
+          s.Case([1, 2], () => {
+            out.assign(float(20));
+          });
+          s.Default(() => {
+            out.assign(float(30));
+          });
+        });
+        return out;
+      })();
     await expectValue(classify, [], 20);
   }, 60_000);
 
   // break_ and continue_ change which iterations contribute, so the sum says
   // whether they landed.
   it("honours break_ and continue_", async () => {
-    const sumUntilBreak = (limit: Node<"float">) => Fn(() => {
-      const total = float(0).toVar();
-      For(
-        () => float(0).toVar(),
-        (i) => i.lessThan(100),
-        (i) => i.assign(i.add(1)),
-        (i) => {
-          If(i.greaterThanEqual(limit), () => { Break(); });
-          total.assign(total.add(i));
-        },
-      );
-      return total;
-    })();
+    const sumUntilBreak = (limit: Node<"float">) =>
+      Fn(() => {
+        const total = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (i) => i.lessThan(100),
+          (i) => i.assign(i.add(1)),
+          (i) => {
+            If(i.greaterThanEqual(limit), () => {
+              Break();
+            });
+            total.assign(total.add(i));
+          },
+        );
+        return total;
+      })();
 
-    await expectValue(sumUntilBreak, [5], 10);  // stops before i === 5
-    await expectValue(sumUntilBreak, [1], 0);   // breaks immediately
+    await expectValue(sumUntilBreak, [5], 10); // stops before i === 5
+    await expectValue(sumUntilBreak, [1], 0); // breaks immediately
 
-    const sumSkippingFirst = (n: Node<"float">) => Fn(() => {
-      const total = float(0).toVar();
-      For(
-        () => float(0).toVar(),
-        (i) => i.lessThan(n),
-        (i) => i.assign(i.add(1)),
-        (i) => {
-          If(i.lessThan(2), () => { Continue(); });
-          total.assign(total.add(i));
-        },
-      );
-      return total;
-    })();
+    const sumSkippingFirst = (n: Node<"float">) =>
+      Fn(() => {
+        const total = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (i) => i.lessThan(n),
+          (i) => i.assign(i.add(1)),
+          (i) => {
+            If(i.lessThan(2), () => {
+              Continue();
+            });
+            total.assign(total.add(i));
+          },
+        );
+        return total;
+      })();
 
-    await expectValue(sumSkippingFirst, [5], 9);  // 2+3+4, skipping 0,1
+    await expectValue(sumSkippingFirst, [5], 9); // 2+3+4, skipping 0,1
   }, 60_000);
 });

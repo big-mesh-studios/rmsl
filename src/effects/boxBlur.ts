@@ -1,4 +1,17 @@
-import {For, Fn, float, int, max, premultiplyAlpha, textureSize, unpremultiplyAlpha, uv, vec2, vec4, type Node} from "../rmsl";
+import {
+  For,
+  Fn,
+  float,
+  int,
+  max,
+  premultiplyAlpha,
+  textureSize,
+  unpremultiplyAlpha,
+  uv,
+  vec2,
+  vec4,
+  type Node,
+} from "../rmsl";
 import { f, type FloatIn, type IntIn, type Vec2In, type Sampler2D, type Sampler3D } from "./util";
 
 export interface BoxBlurOptions {
@@ -24,10 +37,7 @@ export interface BoxBlurOptions {
  * @param options - Options for the effect.
  * @return The blurred color.
  */
-export const boxBlur = (
-  textureNode: Sampler2D,
-  options: BoxBlurOptions = {},
-): Node<"vec4"> => {
+export const boxBlur = (textureNode: Sampler2D, options: BoxBlurOptions = {}): Node<"vec4"> => {
   const size = typeof options.size === "number" ? int(options.size) : (options.size ?? int(1));
   const separation = options.separation ?? 1;
   const premultipliedAlpha = options.premultipliedAlpha ?? false;
@@ -47,12 +57,16 @@ export const boxBlur = (
     For(
       () => size.negate().toVar(),
       (i) => i.lessThanEqual(size),
-      (i) => { i.assign(i.add(1)); },
+      (i) => {
+        i.assign(i.add(1));
+      },
       (i) => {
         For(
           () => size.negate().toVar(),
           (j) => j.lessThanEqual(size),
-          (j) => { j.assign(j.add(1)); },
+          (j) => {
+            j.assign(j.add(1));
+          },
           (j) => {
             const uvs = targetUV.add(vec2(i.toFloat(), j.toFloat()).mul(pixelStep).mul(sep));
             result.addAssign(tap(uvs));

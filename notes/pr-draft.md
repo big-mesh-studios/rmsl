@@ -26,29 +26,29 @@ Assertions on generated source cannot tell valid-looking text from a shader a dr
 
 ## Overview
 
-| | Change | Action needed |
-|---|---|---|
-| **New** | Component-wise comparisons, and the `bvec2` / `bvec3` / `bvec4` types they produce | — |
-| **New** | `uniformArray(type, length)` — one uniform holding several values | — |
-| **New** | `wgslUniformLayout()` — byte offsets for filling a uniform buffer | **Yes**, for WGSL — it is how you fill the shared buffer |
-| **New** | Driver-backed checks over the test suite | — |
-| **Output changed** | WGSL uniforms share one binding, in one structure | **Yes** — rewrite buffer setup |
-| **Output changed** | A GLSL fragment shader writes its colour output | Only if you relied on it writing nothing |
-| **Output changed** | A GLSL declared `output()` receives only what you assign to it | Only if you relied on the result being copied in |
-| **Output changed** | Output locations start at 0 in each shader | Only if attachment indices are hardcoded |
-| **Output changed** | A GLSL vertex output carries no `layout(location=…)` qualifier | — |
-| **Output changed** | A whole-number literal takes its operand's type instead of becoming a float | — |
-| **Output changed** | `mod` on floats is floored in both backends | Only if you depend on negative operands |
-| **Now refused** | A vertex result that is not a `vec4` | Wrap it |
-| **Now refused** | A fractional literal beside an integer operand | Convert explicitly |
-| **Now refused** | A negative literal beside an **unsigned** operand | Use a signed operand |
-| **Now refused** | `builtinPosition()` in a fragment stage | Pass through a `varying()` |
-| **Now refused** | `inverse()` on a matrix that is not square | Use a square matrix — there is no inverse to compute |
-| **Now refused** | A uniform array of textures | Declare them separately |
-| **Now refused** | A scalar compared against a vector (at the type level) | Broadcast explicitly |
-| **API changed** | `.node()` removed — `Node<A>` no longer needs it | Delete the call |
-| **API changed** | A vector comparison returns a `bvec`, not a `bool` | Reduce with `.all()` / `.any()` |
-| **API changed** | TypeScript 5.0 or newer required | Upgrade if older |
+|                    | Change                                                                             | Action needed                                            |
+| ------------------ | ---------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| **New**            | Component-wise comparisons, and the `bvec2` / `bvec3` / `bvec4` types they produce | —                                                        |
+| **New**            | `uniformArray(type, length)` — one uniform holding several values                  | —                                                        |
+| **New**            | `wgslUniformLayout()` — byte offsets for filling a uniform buffer                  | **Yes**, for WGSL — it is how you fill the shared buffer |
+| **New**            | Driver-backed checks over the test suite                                           | —                                                        |
+| **Output changed** | WGSL uniforms share one binding, in one structure                                  | **Yes** — rewrite buffer setup                           |
+| **Output changed** | A GLSL fragment shader writes its colour output                                    | Only if you relied on it writing nothing                 |
+| **Output changed** | A GLSL declared `output()` receives only what you assign to it                     | Only if you relied on the result being copied in         |
+| **Output changed** | Output locations start at 0 in each shader                                         | Only if attachment indices are hardcoded                 |
+| **Output changed** | A GLSL vertex output carries no `layout(location=…)` qualifier                     | —                                                        |
+| **Output changed** | A whole-number literal takes its operand's type instead of becoming a float        | —                                                        |
+| **Output changed** | `mod` on floats is floored in both backends                                        | Only if you depend on negative operands                  |
+| **Now refused**    | A vertex result that is not a `vec4`                                               | Wrap it                                                  |
+| **Now refused**    | A fractional literal beside an integer operand                                     | Convert explicitly                                       |
+| **Now refused**    | A negative literal beside an **unsigned** operand                                  | Use a signed operand                                     |
+| **Now refused**    | `builtinPosition()` in a fragment stage                                            | Pass through a `varying()`                               |
+| **Now refused**    | `inverse()` on a matrix that is not square                                         | Use a square matrix — there is no inverse to compute     |
+| **Now refused**    | A uniform array of textures                                                        | Declare them separately                                  |
+| **Now refused**    | A scalar compared against a vector (at the type level)                             | Broadcast explicitly                                     |
+| **API changed**    | `.node()` removed — `Node<A>` no longer needs it                                   | Delete the call                                          |
+| **API changed**    | A vector comparison returns a `bvec`, not a `bool`                                 | Reduce with `.all()` / `.any()`                          |
+| **API changed**    | TypeScript 5.0 or newer required                                                   | Upgrade if older                                         |
 
 Everything under **Now refused** previously produced a shader that a driver rejects, or one that silently computed something else — with one exception: a scalar compared against a vector broadcast correctly at runtime and still does. That row is a type-level refusal only, and untyped callers see no change.
 
@@ -65,24 +65,21 @@ The emitted expressions were always right; the declared type was not. RMSL typed
 **Uniform arrays.** `uniformArray(type, length)` declares one uniform holding several values, indexed by a constant or by a value the shader computes:
 
 ```typescript
-let bricks = uniformArray("vec4", 24);   // 24 elements of vec4
+let bricks = uniformArray("vec4", 24); // 24 elements of vec4
 let colour = bricks.element(index);
 ```
 
 Declaring those values as separate uniforms costs a slot each, and the guaranteed ceiling is low — WebGL2 promises only 224 uniform vectors in a fragment stage. A scene with a uniform per object runs out well before it runs out of anything else.
 
-Narrower elements are widened invisibly — an array of `float` is physically `array<vec4<f32>, N>`, read back from the leading component, so a caller who asked for a float still gets a float. This matters when filling the buffer; see `stride` below. A uniform array of *textures* is refused at declaration: WGSL has no array of them in the uniform address space while GLSL accepts one, so there is no spelling the two backends share.
+Narrower elements are widened invisibly — an array of `float` is physically `array<vec4<f32>, N>`, read back from the leading component, so a caller who asked for a float still gets a float. This matters when filling the buffer; see `stride` below. A uniform array of _textures_ is refused at declaration: WGSL has no array of them in the uniform address space while GLSL accepts one, so there is no spelling the two backends share.
 
 **Driver-backed checks.** The tests import the compilers under an alias, so no individual test changes:
 
 ```typescript
-import {
-  recordingGLSL as compileGLSL,
-  recordingWGSL as compileWGSL,
-} from "./testing/shader-validity";
+import { recordingGLSL as compileGLSL, recordingWGSL as compileWGSL } from "./testing/shader-validity";
 ```
 
-These wrappers are internal to the test suite and are not published. Each compiles its program to *both* backends whatever the test asserts on, and records the source; at the end of the run every recorded shader is compiled by a driver, and a rejection fails the run. A test written against GLSL therefore has its WGSL output checked too. A run records 681 shaders across the two backends.
+These wrappers are internal to the test suite and are not published. Each compiles its program to _both_ backends whatever the test asserts on, and records the source; at the end of the run every recorded shader is compiled by a driver, and a rejection fails the run. A test written against GLSL therefore has its WGSL output checked too. A run records 681 shaders across the two backends.
 
 `src/rmsl-eval.test.ts` goes further and executes expressions, comparing the number returned by each backend against the other and against the expected value — emitting `-` where `+` was meant produces a valid shader, and is caught here. `src/rmsl.test-d.ts` asserts result types, so a signature promising `Node<"bool">` while the compiler builds a `bvec3` is a failure rather than a surprise.
 
@@ -117,8 +114,8 @@ let uColor = uniform("vec3");
 let uBricks = uniformArray("float", 4);
 
 let layout = wgslUniformLayout([
-  { slot: uTime.name,   type: "f32" },
-  { slot: uColor.name,  type: "vec3<f32>" },
+  { slot: uTime.name, type: "f32" },
+  { slot: uColor.name, type: "vec3<f32>" },
   { slot: uBricks.name, type: "f32", length: 4 },
 ]);
 // {
@@ -147,7 +144,7 @@ for (const m of layout.members) {
 }
 ```
 
-The `type` strings are WGSL names — `"f32"`, `"vec3<f32>"`, `"mat3x3<f32>"` — not RMSL's `"float"`, `"vec3"`, `"mat3"`. Accepted: `f32`, `i32`, `u32`, the `vec2`/`vec3`/`vec4` forms of each, and every `mat`*N*`x`*M*`<f32>` from 2×2 to 4×4, square or not. A `mat3x3<f32>` is 48 bytes, not 36 — WGSL pads each column to 16, and the layout accounts for it. An unrecognised name throws rather than being guessed, since a wrong guess is silent and its consequence invisible.
+The `type` strings are WGSL names — `"f32"`, `"vec3<f32>"`, `"mat3x3<f32>"` — not RMSL's `"float"`, `"vec3"`, `"mat3"`. Accepted: `f32`, `i32`, `u32`, the `vec2`/`vec3`/`vec4` forms of each, and every `mat`_N_`x`_M_`<f32>` from 2×2 to 4×4, square or not. A `mat3x3<f32>` is 48 bytes, not 36 — WGSL pads each column to 16, and the layout accounts for it. An unrecognised name throws rather than being guessed, since a wrong guess is silent and its consequence invisible.
 
 Three rules:
 
@@ -159,7 +156,7 @@ Read every offset from `layout.members`; do not compute one.
 
 **An array element occupies 16 bytes whatever it holds.** `uniformArray("float", 4)` spans 64 bytes, because WGSL rounds an array's stride up to 16 in the uniform address space and each element sits alone in its slot. `stride` reports this.
 
-**A boolean uniform travels as unsigned integers.** WGSL admits only host-shareable types in the uniform address space, and neither a `bool` nor a boolean vector is one — GLSL accepted them, so such a program ran on WebGL and failed to build a shader module on WebGPU. A `bool` is now carried as `u32` and a `bvec`*n* as `vec`*n*`<u32>`, with boolean array elements stored as `vec4<u32>`. Write unsigned integers for these, and pass the *carrier* type to `wgslUniformLayout()` — `"u32"`, not `"bool"`, which throws. (`{ type: "bool", length: 4 }` is accepted for arrays, so the scalar and array cases are asymmetric.)
+**A boolean uniform travels as unsigned integers.** WGSL admits only host-shareable types in the uniform address space, and neither a `bool` nor a boolean vector is one — GLSL accepted them, so such a program ran on WebGL and failed to build a shader module on WebGPU. A `bool` is now carried as `u32` and a `bvec`_n_ as `vec`_n_`<u32>`, with boolean array elements stored as `vec4<u32>`. Write unsigned integers for these, and pass the _carrier_ type to `wgslUniformLayout()` — `"u32"`, not `"bool"`, which throws. (`{ type: "bool", length: 4 }` is accepted for arrays, so the scalar and array cases are asymmetric.)
 
 ### A GLSL fragment shader writes its colour
 
@@ -167,7 +164,7 @@ GLSL ES 3.00 has no `gl_FragColor`, so a `vec4` result needs an output to land i
 
 ### A declared GLSL `output()` receives only what you assign to it
 
-The other half of the same change, and again GLSL catching up: the GLSL fragment backend wrote the trailing expression into *every* declared output slot, whatever its type and whatever the program had already stored there. WGSL never did.
+The other half of the same change, and again GLSL catching up: the GLSL fragment backend wrote the trailing expression into _every_ declared output slot, whatever its type and whatever the program had already stored there. WGSL never did.
 
 That produced two failures. A shader that wrote its output explicitly and then returned a different value emitted both assignments, so the returned value won. A shader whose result was not a `vec4` emitted a float into a `vec4` output, which does not compile.
 
@@ -226,18 +223,18 @@ The check also moved to the signature, so a bad vertex result is refused where i
 
 ```typescript
 // before
-Fn(() => mvp.multVec(position));             // multVec returns a vec3
+Fn(() => mvp.multVec(position)); // multVec returns a vec3
 // after
 Fn(() => vec4(mvp.multVec(position), 1.0));
 ```
 
-Returning several values still works: each is computed, and the *last* becomes the position — so the last one has to be the `vec4`, while the values before it are unconstrained. Returning the position first and something else after it is refused; the compiler used to ignore it quietly.
+Returning several values still works: each is computed, and the _last_ becomes the position — so the last one has to be the `vec4`, while the values before it are unconstrained. Returning the position first and something else after it is refused; the compiler used to ignore it quietly.
 
 Returning nothing is accepted only for a shader that assigns `builtinPosition()` itself. A stage that returns nothing and never assigns a position compiles to a `main` that sets none at all — the draw-nothing shader this check exists to catch — and is refused, with a message saying which of the two things to do.
 
 ### A literal takes its operand's type
 
-A whole-number literal beside an integer operand now *is* an integer, where it used to default to float:
+A whole-number literal beside an integer operand now _is_ an integer, where it used to default to float:
 
 ```glsl
 // before, from uniform("int").mod(2)
@@ -264,8 +261,12 @@ Two literals have no such type, and are refused when the shader is built:
 ```typescript
 interface NodeOps {
   float: ArithOps<"float"> & FloatMathOps<"float"> & ComparisonOps<"bool", FloatLike>;
-  vec3: ArithOps<"vec3"> & FloatMathOps<"vec3"> & ComparisonOps<"bvec3", Vec3Like | FloatLike>
-      & VecCommonOps<"vec3"> & Vec3Ops & Vec3Swizzles;
+  vec3: ArithOps<"vec3"> &
+    FloatMathOps<"vec3"> &
+    ComparisonOps<"bvec3", Vec3Like | FloatLike> &
+    VecCommonOps<"vec3"> &
+    Vec3Ops &
+    Vec3Swizzles;
   // one row per shader type
 }
 
@@ -291,7 +292,7 @@ interface Mine<A extends ShaderType> extends UniformNode<A> {}  // TS2312
 declare module "rmsl" { interface UniformNode<A> { … } }        // TS2300
 ```
 
-Extending with a concrete shader type still works. Extending *generically*, and augmenting the interface by declaration merging, do not. Use an intersection instead: `type Mine<A extends ShaderType> = UniformNode<A> & { extra: number }`.
+Extending with a concrete shader type still works. Extending _generically_, and augmenting the interface by declaration merging, do not. Use an intersection instead: `type Mine<A extends ShaderType> = UniformNode<A> & { extra: number }`.
 
 ### A vector comparison returns a boolean vector
 
@@ -325,7 +326,7 @@ Known gaps, for a later change:
 - A sub-expression used twice is emitted twice, so a value read three times is computed three times in the generated shader. Measured on `apps/shared/shader.ts`: one matrix-vector product written in the source appears three times in the generated GLSL, so every fragment runs 48 multiply-adds where it wrote 16. The memo map already knows which nodes are reached more than once, so the information needed is in hand; spilling those into generated temporaries is the remaining work.
 - Execution reads back a single float, so only expressions reducing to a float have their result checked. Matrix-vector transforms, swizzles and constructors are verified as valid but not as correct — and two mutations of the matrix-times-vector emitter go unnoticed by the whole suite: transposing the multiplication, and turning `vec4(v, 1.0)` into `vec4(v, 0.0)`, which is the difference between transforming a point and a direction. Both compile.
 - One test asserting that raw arrays are wrapped by their length cannot fail: it checks for a type name that appears in the output regardless.
-- Nothing prevents a new test file from importing the compilers directly and skipping the *recording* step silently, so its shaders never reach the batch driver check. `src/rmsl-eval.test.ts` already does this — it executes what it compiles, so its shaders are exercised more deeply than most, but they are not among the ones the recorded batch compiles.
+- Nothing prevents a new test file from importing the compilers directly and skipping the _recording_ step silently, so its shaders never reach the batch driver check. `src/rmsl-eval.test.ts` already does this — it executes what it compiles, so its shaders are exercised more deeply than most, but they are not among the ones the recorded batch compiles.
 - The two `case "let"` arms return different expressions — GLSL `lhs.expr`, WGSL `varName`. They coincide today, so this is latent, but the arms are otherwise identical code.
 - `op()` and `comp()` allocate on every operator call, roughly 3.5× the pre-branch shape — about 0.08ms per 200-line shader, so worth doing only while the file is open for another reason.
 - **The compiler sorts uniforms by `localeCompare` of the generated slot name before laying them out**, so `_rmsl_u10` precedes `_rmsl_u2` and a shader with ten or more uniforms is laid out in an order no caller would guess. `wgslUniformLayout()` breaks alignment ties by the order it is handed, so it faithfully preserves this; the fix for the unstable tie-break therefore does not reach compiled output. The regression test covers `wgslUniformLayout()` in isolation and so does not catch it. Either the sort should go, or the compiler should hand back the layout it used instead of asking callers to reconstruct one.

@@ -1,19 +1,49 @@
 import { describe, it, expect } from "vitest";
 import { wgslUniformLayout } from "../rmsl";
 import {
-  Scene, Mesh, InstancedMesh, BoxGeometry, MeshStandardMaterial,
-  MeshBasicMaterial, Texture, DataTexture, RedIntegerFormat, RGBAFormat,
-  AmbientLight, DirectionalLight, PointLight,
-  PerspectiveCamera, Vector3, Matrix4, Matrix3, Color,
-  NearestFilter, LinearFilter, RepeatWrapping, MirroredRepeatWrapping,
-  LinearMipmapLinearFilter, LinearMipmapNearestFilter,
-  NearestMipmapLinearFilter, NearestMipmapNearestFilter,
+  Scene,
+  Mesh,
+  InstancedMesh,
+  BoxGeometry,
+  MeshStandardMaterial,
+  MeshBasicMaterial,
+  Texture,
+  DataTexture,
+  RedIntegerFormat,
+  RGBAFormat,
+  AmbientLight,
+  DirectionalLight,
+  PointLight,
+  PerspectiveCamera,
+  Vector3,
+  Matrix4,
+  Matrix3,
+  Color,
+  NearestFilter,
+  LinearFilter,
+  RepeatWrapping,
+  MirroredRepeatWrapping,
+  LinearMipmapLinearFilter,
+  LinearMipmapNearestFilter,
+  NearestMipmapLinearFilter,
+  NearestMipmapNearestFilter,
 } from "./index";
 import {
-  cameraUniformValue, objectUniformValue, lightsSignature, wgslTypeName,
-  isIntegerSampler, samplerSampleType, samplerDimension, samplerState,
-  textureChannels, uniformUploadValue, programSignature, geometryAttribute,
-  VERTEX_FORMATS, vertexFormatOf, type VertexFormatSpec,
+  cameraUniformValue,
+  objectUniformValue,
+  lightsSignature,
+  wgslTypeName,
+  isIntegerSampler,
+  samplerSampleType,
+  samplerDimension,
+  samplerState,
+  textureChannels,
+  uniformUploadValue,
+  programSignature,
+  geometryAttribute,
+  VERTEX_FORMATS,
+  vertexFormatOf,
+  type VertexFormatSpec,
 } from "./renderers/common";
 import { BufferAttribute } from "./geometries/BufferAttribute";
 
@@ -258,9 +288,7 @@ describe("material program → uniform layout", () => {
       const member = layout.members.find((m) => m.name === binding.node.name);
       expect(member).toBeDefined();
       // The value a getter yields must fit the member's footprint.
-      const value = binding.scope === "material"
-        ? binding.value!({ camera: new PerspectiveCamera(), mesh })
-        : [];
+      const value = binding.scope === "material" ? binding.value!({ camera: new PerspectiveCamera(), mesh }) : [];
       const expectedFloats = member!.size / 4;
       if (typeof value === "number") {
         expect(expectedFloats).toBeGreaterThanOrEqual(1);
@@ -285,8 +313,7 @@ describe("VERTEX_FORMATS", () => {
       // A buffer holding one attribute has this stride, and WebGPU takes only a
       // multiple of four. A format failing this could not be bound alone.
       const stride = spec.count * spec.bytes;
-      expect(`${name} stride ${stride}`)
-        .toBe(`${name} stride ${Math.ceil(stride / 4) * 4}`);
+      expect(`${name} stride ${stride}`).toBe(`${name} stride ${Math.ceil(stride / 4) * 4}`);
       // Below 32 bits WebGPU has no three-component format, which the stride
       // rule alone would not forbid at every width.
       if (spec.bytes < 4) {
@@ -311,8 +338,7 @@ describe("VERTEX_FORMATS", () => {
       const bits = Number(prefix.replace(/^[a-z]+/, ""));
       expect(`${name} bytes ${spec.bytes}`).toBe(`${name} bytes ${bits / 8}`);
       // Only the norm formats scale on the way in.
-      expect(`${name} normalized ${spec.normalized}`)
-        .toBe(`${name} normalized ${/^[su]norm/.test(prefix)}`);
+      expect(`${name} normalized ${spec.normalized}`).toBe(`${name} normalized ${/^[su]norm/.test(prefix)}`);
     }
   });
 });
@@ -359,12 +385,10 @@ describe("vertexFormatOf", () => {
   });
 
   it("refuses a raw integer array, which would not be floats in the shader", () => {
-    expect(() => vertexFormatOf(new BufferAttribute(new Uint8Array(8), 4)))
-      .toThrow(/normalized/);
+    expect(() => vertexFormatOf(new BufferAttribute(new Uint8Array(8), 4))).toThrow(/normalized/);
   });
 
   it("refuses a width no format covers", () => {
-    expect(() => vertexFormatOf(new BufferAttribute(new Uint8Array(6), 3, true)))
-      .toThrow(/unorm8x3/);
+    expect(() => vertexFormatOf(new BufferAttribute(new Uint8Array(6), 3, true))).toThrow(/unorm8x3/);
   });
 });

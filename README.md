@@ -16,7 +16,7 @@ let prog = Fn(() => {
 
 let glsl = compileGLSL(prog());
 let wgsl = compileWGSL(prog());
-let js = compileJS(() => prog());   // fn(ctx) -> color, run on the CPU
+let js = compileJS(() => prog()); // fn(ctx) -> color, run on the CPU
 ```
 
 ## Features

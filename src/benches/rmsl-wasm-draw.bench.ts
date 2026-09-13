@@ -22,17 +22,29 @@
  * Run with `npx vitest bench src/rmsl-wasm-draw.bench.ts`.
  */
 import { bench, describe } from "vitest";
-import { compileWasm, compileJS, Fn, uniform, fragCoord, sqrt, ivec2, textureLoad, type JsTextureData, type JsShaderContext } from "../rmsl";
+import {
+  compileWasm,
+  compileJS,
+  Fn,
+  uniform,
+  fragCoord,
+  sqrt,
+  ivec2,
+  textureLoad,
+  type JsTextureData,
+  type JsShaderContext,
+} from "../rmsl";
 
 for (const SIZE of [128, 512]) {
   describe(`draw() vs one call per pixel: sqrt(fragCoord distance) over a ${SIZE}x${SIZE} grid`, () => {
     const cx = uniform("float");
     const cy = uniform("float");
-    const build = () => Fn(() => {
-      const dx = fragCoord().x.sub(cx);
-      const dy = fragCoord().y.sub(cy);
-      return sqrt(dx.mul(dx).add(dy.mul(dy)));
-    })();
+    const build = () =>
+      Fn(() => {
+        const dx = fragCoord().x.sub(cx);
+        const dy = fragCoord().y.sub(cy);
+        return sqrt(dx.mul(dx).add(dy.mul(dy)));
+      })();
 
     const wasmFn = compileWasm(build as any, { name: "main", params: [] });
     const jsFn = compileJS(build as any, { name: "main", params: [] });
@@ -81,7 +93,12 @@ for (const SIZE of [128, 512]) {
     const build = () => Fn(() => textureLoad(tex, ivec2(fragCoord().x.toInt(), fragCoord().y.toInt())).x)();
     const wasmFn = compileWasm(build as any, { name: "main", params: [] });
     const jsFn = compileJS(build as any, { name: "main", params: [] });
-    const texture: JsTextureData = { data: new Float64Array(SIZE * SIZE).fill(1), width: SIZE, height: SIZE, channels: 1 };
+    const texture: JsTextureData = {
+      data: new Float64Array(SIZE * SIZE).fill(1),
+      width: SIZE,
+      height: SIZE,
+      channels: 1,
+    };
     const drawCtx = { textures: { [tex.name]: texture } };
     const perPixelCtx: JsShaderContext = { textures: drawCtx.textures, fragCoord: [0, 0] };
 

@@ -41,7 +41,9 @@ export function collectLights(b: Builder, scene: Scene): LightUniforms {
   });
 
   const ambient = b.materialUniform("ambientColor", "vec3", () => {
-    let r = 0, g = 0, bl = 0;
+    let r = 0,
+      g = 0,
+      bl = 0;
     for (const light of ambientLights) {
       r += light.color.r * light.intensity;
       g += light.color.g * light.intensity;
@@ -56,10 +58,7 @@ export function collectLights(b: Builder, scene: Scene): LightUniforms {
       return [r * light.intensity, g * light.intensity, bl * light.intensity];
     }),
     direction: b.materialUniform(`directionalDirection${i}`, "vec3", () =>
-      light.getWorldPosition()
-        .sub(light.target.getWorldPosition())
-        .normalize()
-        .toArray(),
+      light.getWorldPosition().sub(light.target.getWorldPosition()).normalize().toArray(),
     ),
   }));
 
@@ -68,9 +67,7 @@ export function collectLights(b: Builder, scene: Scene): LightUniforms {
       const [r, g, bl] = light.color.toArray();
       return [r * light.intensity, g * light.intensity, bl * light.intensity];
     }),
-    position: b.materialUniform(`pointPosition${i}`, "vec3", () =>
-      light.getWorldPosition().toArray(),
-    ),
+    position: b.materialUniform(`pointPosition${i}`, "vec3", () => light.getWorldPosition().toArray()),
     distance: b.materialUniform(`pointDistance${i}`, "float", () => light.distance),
     decay: b.materialUniform(`pointDecay${i}`, "float", () => light.decay),
   }));

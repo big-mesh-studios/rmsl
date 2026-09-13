@@ -18,7 +18,7 @@ export class CircleGeometry extends BufferGeometry {
     uvs.push(0.5, 0.5);
 
     for (let s = 0; s <= segments; s++) {
-      const segment = thetaStart + s / segments * thetaLength;
+      const segment = thetaStart + (s / segments) * thetaLength;
       vertices.push(radius * Math.cos(segment), radius * Math.sin(segment), 0);
       normals.push(0, 0, 1);
       uvs.push(Math.cos(segment) * 0.5 + 0.5, Math.sin(segment) * 0.5 + 0.5);

@@ -65,8 +65,8 @@ export function precompileShaders(options: PrecompileShadersOptions = {}): Plugi
       const serialized = JSON.stringify(shaders);
       if (serialized === undefined) {
         throw new Error(
-          `${id}'s default export is not JSON-serializable; export plain data such as `
-          + "compiled shader strings and slot names",
+          `${id}'s default export is not JSON-serializable; export plain data such as ` +
+            "compiled shader strings and slot names",
         );
       }
 

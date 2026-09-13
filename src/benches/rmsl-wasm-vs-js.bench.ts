@@ -19,14 +19,10 @@
  * against a pre-Phase-4 commit. See `rmsl-wasm-loop.bench.ts` for that.
  */
 import { bench, describe } from "vitest";
-import {
-  compileWasm, compileWasmFn, compileJS, Fn, If, uniform, float, sqrt,
-  type Node,
-} from "../rmsl";
+import { compileWasm, compileWasmFn, compileJS, Fn, If, uniform, float, sqrt, type Node } from "../rmsl";
 
 describe("scalar arithmetic: sqrt(a*a + b*b + c*c)", () => {
-  const build = (a: Node<"float">, b: Node<"float">, c: Node<"float">) =>
-    sqrt(a.mul(a).add(b.mul(b)).add(c.mul(c)));
+  const build = (a: Node<"float">, b: Node<"float">, c: Node<"float">) => sqrt(a.mul(a).add(b.mul(b)).add(c.mul(c)));
   const params = [
     { name: "a", type: "float" as const },
     { name: "b", type: "float" as const },
@@ -43,9 +39,15 @@ describe("scalar arithmetic: sqrt(a*a + b*b + c*c)", () => {
   const instance = new WebAssembly.Instance(new WebAssembly.Module(bytes.buffer as ArrayBuffer), { math: Math as any });
   const rawMain = instance.exports.main as (a: number, b: number, c: number) => number;
 
-  bench("compileWasm", () => { wasmFn(ctx); });
-  bench("compileWasm, raw exported function (no ctx wrapper)", () => { rawMain(3, 4, 12); });
-  bench("compileJS", () => { jsFn(ctx); });
+  bench("compileWasm", () => {
+    wasmFn(ctx);
+  });
+  bench("compileWasm, raw exported function (no ctx wrapper)", () => {
+    rawMain(3, 4, 12);
+  });
+  bench("compileJS", () => {
+    jsFn(ctx);
+  });
 });
 
 describe("vector dot + branch: If(dir.dot(target) > threshold)", () => {
@@ -58,14 +60,21 @@ describe("vector dot + branch: If(dir.dot(target) > threshold)", () => {
   const threshold = uniform("float");
   const node = Fn(() => {
     const out = float(0).toVar();
-    If(dir.dot(target).greaterThan(threshold), () => { out.assign(float(1)); })
-      .Else(() => { out.assign(float(0)); });
+    If(dir.dot(target).greaterThan(threshold), () => {
+      out.assign(float(1));
+    }).Else(() => {
+      out.assign(float(0));
+    });
     return out;
   })();
   const wasmFn = compileWasm(() => node as any, { name: "main", params: [] });
   const jsFn = compileJS(() => node as any, { name: "main", params: [] });
   const ctx = { uniforms: { [dir.name]: [1, 0, 0], [target.name]: [0.9, 0.1, 0], [threshold.name]: 0.5 } };
 
-  bench("compileWasm", () => { wasmFn(ctx); });
-  bench("compileJS", () => { jsFn(ctx); });
+  bench("compileWasm", () => {
+    wasmFn(ctx);
+  });
+  bench("compileJS", () => {
+    jsFn(ctx);
+  });
 });

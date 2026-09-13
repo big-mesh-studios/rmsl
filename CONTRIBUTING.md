@@ -38,13 +38,10 @@ weak — `refract(I, N)` still contains `refract(`.
 under an alias:
 
 ```typescript
-import {
-  recordingGLSL as compileGLSL,
-  recordingWGSL as compileWGSL,
-} from "./testing/shader-validity";
+import { recordingGLSL as compileGLSL, recordingWGSL as compileWGSL } from "./testing/shader-validity";
 ```
 
-The stand-ins compile every program to *both* backends and record it. An
+The stand-ins compile every program to _both_ backends and record it. An
 `afterAll` hands the whole set to Chromium's WebGL2 compiler and to Dawn, and
 fails the run on any rejection. A test asserting only on GLSL still has its WGSL
 output checked by a real driver.
@@ -82,7 +79,7 @@ SwiftShader, the WebGPU one through a real adapter.
 Getting WebGPU there took two things that are not flags, and both are in
 `src/testing/gpu.ts`. `navigator.gpu` is exposed only to a secure context, so
 the page is served from `http://127.0.0.1` rather than being `about:blank` like
-the GLSL one. And Playwright's default browser is the headless *shell*, which
+the GLSL one. And Playwright's default browser is the headless _shell_, which
 has no adapter behind `navigator.gpu`, so the WebGPU browser is launched with
 `channel: "chromium"` — and separately from the GLSL browser, whose SwiftShader
 arguments take the WebGPU adapter away.
@@ -103,11 +100,11 @@ renderer tests reached main broken because a normal run never executed them.
 Turn them off only where the machine cannot run them, or to get a fast inner
 loop and a workable mutation run:
 
-| Variable | Turns off |
-|---|---|
-| `RMSL_SKIP_GPU` | every layer needing a device or a browser, drawing included |
-| `RMSL_SKIP_SHADER_VALIDATION` | validity only |
-| `RMSL_SKIP_SHADER_EVALUATION` | evaluating the two shading languages |
+| Variable                      | Turns off                                                   |
+| ----------------------------- | ----------------------------------------------------------- |
+| `RMSL_SKIP_GPU`               | every layer needing a device or a browser, drawing included |
+| `RMSL_SKIP_SHADER_VALIDATION` | validity only                                               |
+| `RMSL_SKIP_SHADER_EVALUATION` | evaluating the two shading languages                        |
 
 ```bash
 pnpm test          # everything, including the GPU layers
@@ -129,7 +126,7 @@ is what a change is judged on.
 A method on `Node` — `.mix()`, `.length()`, `.lessThan()`.
 
 1. **Declare it** on an operation interface (`ArithOps`, `FloatMathOps`,
-   `ComparisonOps`, `VecCommonOps`, `MatOps`, …). Declare the *result* type:
+   `ComparisonOps`, `VecCommonOps`, `MatOps`, …). Declare the _result_ type:
    `length(): Node<"float">`. Do not declare one operation on two interfaces
    that both apply to the same type — the checker picks one arbitrarily, which
    is how `step` once shipped broken.
@@ -199,16 +196,16 @@ provided a test exercises them.
 
 ## What catches what
 
-| Mistake | Caught by |
-|---|---|
-| `ShaderType` with no `NodeOps` row | `tsc` |
-| Missing `NodeImpl` method | test run — `TypeError` |
-| Missing backend switch case | test run — throws, if exercised |
-| Missing `REDUCING_OPS` / `VALUE_OPERAND` | real-compiler validation |
-| Missing `UNIFORM_OPERAND_OPS` | Dawn only |
-| Missing `typeToGLSL` / `typeToWGSL` / `TYPE_WIDTH` | real-compiler validation |
-| Declared but never implemented | nothing |
-| Wrong folding arithmetic, or swapped operands | evaluation layer |
+| Mistake                                            | Caught by                       |
+| -------------------------------------------------- | ------------------------------- |
+| `ShaderType` with no `NodeOps` row                 | `tsc`                           |
+| Missing `NodeImpl` method                          | test run — `TypeError`          |
+| Missing backend switch case                        | test run — throws, if exercised |
+| Missing `REDUCING_OPS` / `VALUE_OPERAND`           | real-compiler validation        |
+| Missing `UNIFORM_OPERAND_OPS`                      | Dawn only                       |
+| Missing `typeToGLSL` / `typeToWGSL` / `TYPE_WIDTH` | real-compiler validation        |
+| Declared but never implemented                     | nothing                         |
+| Wrong folding arithmetic, or swapped operands      | evaluation layer                |
 
 The further down that table, the more your test needs to go through
 `src/rmsl-usage.test.ts`.

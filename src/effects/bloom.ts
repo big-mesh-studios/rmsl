@@ -1,4 +1,18 @@
-import { Fn, add, float, luminance, mix, smoothstep, textureSize, uniform, uv, vec2, vec3, vec4, type Node } from "../rmsl";
+import {
+  Fn,
+  add,
+  float,
+  luminance,
+  mix,
+  smoothstep,
+  textureSize,
+  uniform,
+  uv,
+  vec2,
+  vec3,
+  vec4,
+  type Node,
+} from "../rmsl";
 import { type FloatIn, type Sampler2D, type Vec3In, vec3In } from "./util";
 import { getGaussianCoefficients, type PassDescriptor, type PassGraph } from "./passes";
 
@@ -13,11 +27,7 @@ import { getGaussianCoefficients, type PassDescriptor, type PassGraph } from "./
  * @param smoothWidth - Edge softness of the threshold.
  * @return The bright-pass color.
  */
-export type HighPassFn = (
-  input: Node<"vec4">,
-  threshold: FloatIn,
-  smoothWidth: FloatIn,
-) => Node<"vec4">;
+export type HighPassFn = (input: Node<"vec4">, threshold: FloatIn, smoothWidth: FloatIn) => Node<"vec4">;
 
 export const luminosityHighPass: HighPassFn = (input, threshold, smoothWidth) => {
   const alpha = smoothstep(threshold, add(threshold, smoothWidth), luminance(input.rgb));
@@ -41,7 +51,11 @@ export interface BloomOptions {
 
 const BLOOM_FACTORS = [1.0, 0.8, 0.6, 0.4, 0.2];
 const DEFAULT_TINTS: readonly [Vec3In, Vec3In, Vec3In, Vec3In, Vec3In] = [
-  [1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1],
+  [1, 1, 1],
+  [1, 1, 1],
+  [1, 1, 1],
+  [1, 1, 1],
+  [1, 1, 1],
 ];
 const MIP_KERNELS = [6, 10, 14, 18, 22];
 
@@ -147,7 +161,9 @@ function bloomBlurPass(
 
   const color = Fn(() => {
     const uvNode = uv();
-    const invSize = vec2(1).div(vec2(textureSize(inputTex).toVec2())).mul(pixelScale);
+    const invSize = vec2(1)
+      .div(vec2(textureSize(inputTex).toVec2()))
+      .mul(pixelScale);
     const dir = vec2(direction[0], direction[1]);
 
     const diffuseSum = inputTex.texture(uvNode).rgb.mul(coefficients[0]).toVar();

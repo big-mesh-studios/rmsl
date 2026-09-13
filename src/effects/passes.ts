@@ -1,4 +1,4 @@
-import {Fn, float, premultiplyAlpha, textureSize, unpremultiplyAlpha, uniform, uv, vec2, type Node} from "../rmsl";
+import { Fn, float, premultiplyAlpha, textureSize, unpremultiplyAlpha, uniform, uv, vec2, type Node } from "../rmsl";
 import { f, type FloatIn, type IntIn, type Vec2In, type Sampler2D, type Sampler3D } from "./util";
 
 /**
@@ -140,7 +140,7 @@ export function getGaussianCoefficients(kernelRadius: number): number[] {
   const coefficients: number[] = [];
   const sigma = kernelRadius / 3;
   for (let i = 0; i < kernelRadius; i++) {
-    coefficients.push(0.39894 * Math.exp(-0.5 * i * i / (sigma * sigma)) / sigma);
+    coefficients.push((0.39894 * Math.exp((-0.5 * i * i) / (sigma * sigma))) / sigma);
   }
   return coefficients;
 }

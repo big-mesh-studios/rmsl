@@ -49,12 +49,12 @@ runs agreeing within a few percent (rme ≤ ~1.7% throughout — reproduce with
 `npx vitest bench src/rmsl-wasm-vs-js.bench.ts src/rmsl-wasm-loop.bench.ts`
 at this commit):
 
-| Scenario | Result |
-|---|---|
-| Scalar `sqrt(a*a+b*b+c*c)`, three float params, through `compileWasm` | `compileJS` **~2.5-3.4x faster** |
-| Same, calling the raw exported WASM function directly (bypassing `compileWasm`'s ctx wrapper) | `compileJS` ~1.0-1.15x faster — essentially a tie |
-| vec3 `dot` + `If`/`Else` (uniforms, through Phase 3's linear memory), through `compileWasm` | `compileJS` **~3.1-3.2x faster** |
-| `For` loop, 64 iterations of `sum += sqrt(i)` per call | `compileWasm` **~4.05x faster**, both runs agreeing to 2 decimal places |
+| Scenario                                                                                      | Result                                                                  |
+| --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Scalar `sqrt(a*a+b*b+c*c)`, three float params, through `compileWasm`                         | `compileJS` **~2.5-3.4x faster**                                        |
+| Same, calling the raw exported WASM function directly (bypassing `compileWasm`'s ctx wrapper) | `compileJS` ~1.0-1.15x faster — essentially a tie                       |
+| vec3 `dot` + `If`/`Else` (uniforms, through Phase 3's linear memory), through `compileWasm`   | `compileJS` **~3.1-3.2x faster**                                        |
+| `For` loop, 64 iterations of `sum += sqrt(i)` per call                                        | `compileWasm` **~4.05x faster**, both runs agreeing to 2 decimal places |
 
 So the original claim doesn't hold for a cheap, called-once function — it's
 backwards, though nowhere near as dramatically as the disregarded noisy
@@ -97,16 +97,16 @@ same `sum of sqrt(i)` loop workload across iteration counts, each compiled
 once up front (`npx vitest bench src/rmsl-wasm-crossover.bench.ts`, two
 runs, otherwise idle machine):
 
-| Loop length | Run 1 | Run 2 |
-|---|---|---|
-| 1 | `compileJS` 1.24x faster | `compileJS` 1.25x faster |
-| 2 | `compileJS` 1.28x faster | `compileJS` 1.25x faster |
-| 4 | `compileWasm` 1.08x faster | `compileWasm` 1.21x faster |
-| 8 | `compileWasm` 1.41x faster | `compileWasm` 1.47x faster |
-| 16 | `compileWasm` 2.30x faster | `compileWasm` 2.46x faster |
-| 32 | `compileWasm` 2.87x faster | `compileWasm` 3.14x faster |
-| 64 | `compileWasm` 3.57x faster | `compileWasm` 4.08x faster |
-| 128 | `compileWasm` 4.24x faster | `compileWasm` 4.37x faster |
+| Loop length | Run 1                      | Run 2                      |
+| ----------- | -------------------------- | -------------------------- |
+| 1           | `compileJS` 1.24x faster   | `compileJS` 1.25x faster   |
+| 2           | `compileJS` 1.28x faster   | `compileJS` 1.25x faster   |
+| 4           | `compileWasm` 1.08x faster | `compileWasm` 1.21x faster |
+| 8           | `compileWasm` 1.41x faster | `compileWasm` 1.47x faster |
+| 16          | `compileWasm` 2.30x faster | `compileWasm` 2.46x faster |
+| 32          | `compileWasm` 2.87x faster | `compileWasm` 3.14x faster |
+| 64          | `compileWasm` 3.57x faster | `compileWasm` 4.08x faster |
+| 128         | `compileWasm` 4.24x faster | `compileWasm` 4.37x faster |
 
 Both runs agree on which side of the crossover every length falls on
 (only 4 iterations wobbles between a 1.08x and a 1.21x win, never a loss),
@@ -118,7 +118,7 @@ do with looping specifically: the moment a program is loop-shaped at all
 break-even, and three or four iterations of real work tip it into a win.
 
 One structural point worth being precise about, not blurring together:
-this crossover is measured entirely *within* loop-shaped programs (1
+this crossover is measured entirely _within_ loop-shaped programs (1
 through 128 iterations of the same `For`), not as a continuous sweep
 starting from the loop-free scalar case above — a 1-iteration `for` loop
 and a loop-free function are different compiled shapes (the former still
@@ -143,15 +143,15 @@ benchmark's job, not fixing it.
 three Phase 6 texture operations against an 8x8 texture (`npx vitest bench
 src/rmsl-wasm-texture.bench.ts`, two runs, otherwise idle machine):
 
-| Scenario | Run 1 | Run 2 |
-|---|---|---|
+| Scenario                                          | Run 1                     | Run 2                     |
+| ------------------------------------------------- | ------------------------- | ------------------------- |
 | `textureSize()` (metadata only, no sampling math) | `compileJS` 11.12x faster | `compileJS` 11.08x faster |
-| `textureLoad()` (one unfiltered texel) | `compileJS` 14.57x faster | `compileJS` 14.57x faster |
-| `texture()` (bilinear filtering) | `compileJS` 18.66x faster | `compileJS` 19.12x faster |
+| `textureLoad()` (one unfiltered texel)            | `compileJS` 14.57x faster | `compileJS` 14.57x faster |
+| `texture()` (bilinear filtering)                  | `compileJS` 18.66x faster | `compileJS` 19.12x faster |
 
 This was a real regression from the "runs standalone, no host call needed"
 story Phase 6 was built around, not noise — but the cause was precise, not
-mysterious: `compileWasm`'s wrapper unconditionally copied the *entire*
+mysterious: `compileWasm`'s wrapper unconditionally copied the _entire_
 bound texture into its linear-memory heap on **every call**, regardless of
 whether the same texture had just been copied in the call before. Even
 `textureSize()`, whose own sampling math is nothing more than reading two
@@ -166,10 +166,10 @@ texture once, call the compiled function repeatedly with different
 coordinates) now pays the copy exactly once, not every call. Re-measured
 at the same commit, two runs:
 
-| Scenario | Run 1 | Run 2 |
-|---|---|---|
-| `textureSize()` | `compileJS` 2.07x faster | `compileJS` 2.12x faster |
-| `textureLoad()` | `compileJS` 3.33x faster | `compileJS` 3.25x faster |
+| Scenario                         | Run 1                     | Run 2                     |
+| -------------------------------- | ------------------------- | ------------------------- |
+| `textureSize()`                  | `compileJS` 2.07x faster  | `compileJS` 2.12x faster  |
+| `textureLoad()`                  | `compileJS` 3.33x faster  | `compileJS` 3.25x faster  |
 | `texture()` (bilinear filtering) | `compileJS` 13.16x faster | `compileJS` 13.09x faster |
 
 `textureSize()` and `textureLoad()` improved dramatically (11x → ~2x,
@@ -185,11 +185,11 @@ benchmark compares `texture()` sampling the same texture with
 `compileWasm`'s own raw throughput is the same for both, within noise,
 across two runs (`compileWasm`: 1,244,856/1,263,353 hz nearest vs
 1,258,009/1,266,390 hz bilinear), while `compileJS` gets measurably
-*cheaper* for nearest (its own codegen actually takes a shorter branch) —
-which is exactly why nearest's ratio (17.47x/19.25x) looks *worse* than
+_cheaper_ for nearest (its own codegen actually takes a shorter branch) —
+which is exactly why nearest's ratio (17.47x/19.25x) looks _worse_ than
 bilinear's (13.09-13.36x): `compileJS` improved and `compileWasm` didn't
 move at all. This directly confirms `emitTextureSampleStores`'s own doc
-comment: it computes *both* the nearest and the bilinear value
+comment: it computes _both_ the nearest and the bilinear value
 unconditionally on every sample and only `select`s between them at run
 time on the texture's own `magFilter`, so the expensive path's bytecode
 runs whether or not a program ever asks for it — the cost isn't "bilinear
@@ -201,9 +201,9 @@ and `select`ing — the one deliberate departure from this function's
 otherwise-branchless style, exactly because `select` was the mechanism
 paying for the unused path. Re-measured at the same commit, two runs:
 
-| Scenario | Run 1 | Run 2 |
-|---|---|---|
-| `texture()`, nearest filtering | `compileJS` 3.60x faster | `compileJS` 3.68x faster |
+| Scenario                        | Run 1                     | Run 2                     |
+| ------------------------------- | ------------------------- | ------------------------- |
+| `texture()`, nearest filtering  | `compileJS` 3.60x faster  | `compileJS` 3.68x faster  |
 | `texture()`, bilinear filtering | `compileJS` 11.73x faster | `compileJS` 12.04x faster |
 
 Nearest sampling through `texture()` dropped from ~17-19x slower to
@@ -217,7 +217,7 @@ A third fix, at commit `8062a35`: `bilinear()`'s lerp used the same
 there (JS just reads the same array slot a second time), but `a`/`b` here
 are usually a full `texelChannel` fetch (a dynamically-addressed memory
 load, a channel-present `select`, a divide), so duplicating it is
-expensive — and the two horizontal lerps were then duplicated *again* by
+expensive — and the two horizontal lerps were then duplicated _again_ by
 the outer vertical lerp, so one corner's fetch was emitted **four times**
 per channel (the 3D case duplicated its two bilinear results the same way
 on top of that). `a*(1-t) + b*t` is the same value needing `a`/`b` each
@@ -225,8 +225,8 @@ exactly once, duplicating only the cheap blend weight `t` instead —
 applied at all three lerp levels via one shared `lerp()` helper.
 Re-measured, two runs:
 
-| Scenario | Run 1 | Run 2 |
-|---|---|---|
+| Scenario                        | Run 1                    | Run 2                    |
+| ------------------------------- | ------------------------ | ------------------------ |
 | `texture()`, bilinear filtering | `compileJS` 6.79x faster | `compileJS` 6.80x faster |
 
 Bilinear's gap nearly halved again (~12x → ~6.8x) — `compileWasm`'s own
@@ -248,9 +248,9 @@ rather than a node's own output value — closing the gap the file's former
 "no sub-expression caching" design note called out as accepted but
 unaddressed. Re-measured, two runs:
 
-| Scenario | Run 1 | Run 2 |
-|---|---|---|
-| `texture()`, nearest filtering | `compileJS` 3.02x faster | `compileJS` 3.01x faster |
+| Scenario                        | Run 1                    | Run 2                    |
+| ------------------------------- | ------------------------ | ------------------------ |
+| `texture()`, nearest filtering  | `compileJS` 3.02x faster | `compileJS` 3.01x faster |
 | `texture()`, bilinear filtering | `compileJS` 2.62x faster | `compileJS` 2.59x faster |
 
 Bilinear's gap dropped sharply again (~6.8x → ~2.6x, `compileWasm`'s own
@@ -300,10 +300,10 @@ as of commit `7b90863` was copied unmodified — `git show
 `9b845b7` (the commit immediately before linear memory landed, `f58c93b`)
 and run there, two runs, same idle-machine conditions:
 
-| Scenario | Before linear memory (`9b845b7`) | After (`7b90863`) |
-|---|---|---|
-| Scalar `sqrt(...)`, through `compileWasm`'s wrapper | `compileJS` ~2.5x faster | `compileJS` ~2.5-3.4x faster — **slightly worse** |
-| vec3 `dot` + `If`/`Else`, through `compileWasm`'s wrapper | `compileJS` ~6.3x faster | `compileJS` ~3.1-3.2x faster — **roughly 2x better** |
+| Scenario                                                  | Before linear memory (`9b845b7`) | After (`7b90863`)                                    |
+| --------------------------------------------------------- | -------------------------------- | ---------------------------------------------------- |
+| Scalar `sqrt(...)`, through `compileWasm`'s wrapper       | `compileJS` ~2.5x faster         | `compileJS` ~2.5-3.4x faster — **slightly worse**    |
+| vec3 `dot` + `If`/`Else`, through `compileWasm`'s wrapper | `compileJS` ~6.3x faster         | `compileJS` ~3.1-3.2x faster — **roughly 2x better** |
 
 Linear memory is not the source of the scalar-function slowdown — a
 function with no aggregate values touches none of it, and the modest
@@ -383,15 +383,15 @@ cost, one that grew with the grid size and made an early size sweep
 actively misleading (see the file's own history for the numbers that
 mistake produced):
 
-| Scenario | 128x128, Run 1 | 128x128, Run 2 | 512x512, Run 1 | 512x512, Run 2 |
-|---|---|---|---|---|
-| `.draw()` vs. `compileWasm` called once per pixel | 52.31x faster | 52.71x faster | 59.44x faster | 58.86x faster |
-| `.draw()` vs. `compileJS` called once per pixel | 5.49x faster | 5.49x faster | 10.54x faster | 10.42x faster |
+| Scenario                                          | 128x128, Run 1 | 128x128, Run 2 | 512x512, Run 1 | 512x512, Run 2 |
+| ------------------------------------------------- | -------------- | -------------- | -------------- | -------------- |
+| `.draw()` vs. `compileWasm` called once per pixel | 52.31x faster  | 52.71x faster  | 59.44x faster  | 58.86x faster  |
+| `.draw()` vs. `compileJS` called once per pixel   | 5.49x faster   | 5.49x faster   | 10.54x faster  | 10.42x faster  |
 
 The second row is the comparison that actually matters — `compileJS`
 called once per pixel is the realistic alternative anyone would reach for
 today, not a per-pixel `compileWasm` loop — and here `.draw()`'s win
-against it actually *grows* with grid size (~5.5x at 128x128, ~10.5x at
+against it actually _grows_ with grid size (~5.5x at 128x128, ~10.5x at
 512x512): `compileJS`'s own per-pixel call overhead scales with the pixel
 count same as anything else, so amortizing it across a bigger single
 `.draw()` call pays off more, not less, at scale.
@@ -416,19 +416,19 @@ rather than only the final number. Same benchmark file, a scenario
 sampling a texture sized to match the grid once per pixel via
 `textureLoad()`, same two grid sizes, two runs each:
 
-| Scenario | 128x128, Run 1 | 128x128, Run 2 | 512x512, Run 1 | 512x512, Run 2 |
-|---|---|---|---|---|
-| First measurement | `compileJS` 1.26x faster | `compileJS` 1.33x faster | `.draw()` 1.08x faster | `.draw()` 1.07x faster |
-| After the fix below | `.draw()` 1.12x faster | `.draw()` 1.13x faster | `.draw()` 1.62x faster | `.draw()` 1.64x faster |
+| Scenario            | 128x128, Run 1           | 128x128, Run 2           | 512x512, Run 1         | 512x512, Run 2         |
+| ------------------- | ------------------------ | ------------------------ | ---------------------- | ---------------------- |
+| First measurement   | `compileJS` 1.26x faster | `compileJS` 1.33x faster | `.draw()` 1.08x faster | `.draw()` 1.07x faster |
+| After the fix below | `.draw()` 1.12x faster   | `.draw()` 1.13x faster   | `.draw()` 1.62x faster | `.draw()` 1.64x faster |
 
 The first measurement found `compileJS` actually winning at 128x128 — the
 first case found where `.draw()` was the wrong choice. Not a caching bug
 (confirmed directly: timing repeated calls with the same texture shows
 the first call paying a real copy-in cost and every call after it roughly
 4x cheaper, exactly the reference-equality cache working as designed) but
-a real, reproducible finding: `.draw()` eliminates *per-call* marshalling
+a real, reproducible finding: `.draw()` eliminates _per-call_ marshalling
 overhead, and that's still true here, but `textureLoad()`'s own
-*per-pixel* cost (a bounds-checked, dynamically-addressed fetch — several
+_per-pixel_ cost (a bounds-checked, dynamically-addressed fetch — several
 `select`s and a memory load) was real work that didn't go away, and at
 this grid size it outweighed the marshalling savings entirely.
 
@@ -458,11 +458,11 @@ parity, Phase 3's vectors/matrices as first-class values, Phase 4's control
 flow, Phase 5's shader-stage surface, and Phase 6's texture sampling:
 
 - `compileWasmFn(fn, options: CompileWasmFnOptions): { bytes: Uint8Array,
-  params: WasmParam[], resultType: ShaderType }` — the module plus a
+params: WasmParam[], resultType: ShaderType }` — the module plus a
   description of what each exported-function argument (and the result)
   means.
 - `compileWasm(fn, options): (ctx: JsShaderContext) => number | boolean |
-  JsShaderResult` — same call signature as `compileJS`. A plain
+JsShaderResult` — same call signature as `compileJS`. A plain
   scalar-returning program returns the bare value (a `"bool"` result comes
   back as a real boolean, a `"uint"` one reinterpreted from WASM's
   always-signed i32 return, matching `compileJS`); a program using the
@@ -517,7 +517,7 @@ flow, Phase 5's shader-stage surface, and Phase 6's texture sampling:
   `builtinFragDepth()` as outputs, including a program's own result
   becoming the implicit vertex position when `builtinPosition()` was never
   written explicitly — see "The shader-stage surface" below. Multi-return
-  is the one thing from the original Phase 5 wishlist *not* included —
+  is the one thing from the original Phase 5 wishlist _not_ included —
   `compileJS` doesn't have it either, so there was nothing to port; see
   the Phase 5 writeup below for why.
 - `textureSize`, `textureLoad`, and `texture`/`textureLod` (nearest,
@@ -581,8 +581,8 @@ which is also the fastest way to find the next thing worth doing here.
   has a side effect to duplicate; only ever a size/speed cost, and one this
   early backend hasn't needed to solve yet.
 - **Synchronous instantiation** (`new WebAssembly.Instance(new
-  WebAssembly.Module(bytes))`), matching `compileJS`'s synchronous `new
-  Function(source)()`. Fine for the module sizes here; revisit if a module
+WebAssembly.Module(bytes))`), matching `compileJS`'s synchronous `new
+Function(source)()`. Fine for the module sizes here; revisit if a module
   grows large enough that sync compilation stalls a browser main thread (see
   Open questions).
 - **Vectors and matrices live in linear memory now.** Phase 3 settled the
@@ -597,7 +597,7 @@ which is also the fastest way to find the next thing worth doing here.
   and never occupy a WASM function argument at all; `compileWasm` writes
   their components straight into the instance's exported memory via a
   `DataView` before every call), `let`-bound aggregate vars (keyed by
-  varName), and one dedicated scratch slot per vector/matrix-*producing*
+  varName), and one dedicated scratch slot per vector/matrix-_producing_
   expression node (construct, literal, multi-component swizzle,
   componentwise arithmetic — keyed by node object identity via a `WeakMap`,
   so a repeated reference like `dot(v, v)` shares one slot). Components are
@@ -608,7 +608,7 @@ which is also the fastest way to find the next thing worth doing here.
   requirement. Scratch slots are never freed or reused (no arena/stack —
   there's no recursion, and a future loop iteration just re-runs the same
   static address), and every aggregate sub-node is materialized (its store
-  bytecode emitted) *exactly once* per syntactic use regardless of how many
+  bytecode emitted) _exactly once_ per syntactic use regardless of how many
   of its components get read afterward, so nesting doesn't blow up
   proportionally to width — see `materializeIfNeeded`/`nodeAddress` in
   `src/rmsl-wasm.ts`. Scalar locals/params/uniforms are untouched by any of
@@ -618,8 +618,8 @@ which is also the fastest way to find the next thing worth doing here.
   `"if"` nodes in `rmsl-core.ts` before this backend ever sees them, so the
   real new surface was `for`/`while`/`break`/`continue`/`return`/`discard`.
   `for` and `while` both compile through the same nested shape, `block
-  { loop { <cond>; br_if (out to block) ; block { <body> } ; <update>; br
-  (back to loop) } }` — the inner `block` around `body` exists specifically
+{ loop { <cond>; br_if (out to block) ; block { <body> } ; <update>; br
+(back to loop) } }` — the inner `block` around `body` exists specifically
   so `Continue` (`br` to that block) still runs a `for`'s `update` clause
   before re-testing the condition, rather than skipping it by jumping
   straight back to the condition check. `Break`/`Continue` need WASM's
@@ -650,7 +650,7 @@ which is also the fastest way to find the next thing worth doing here.
   program is the same input. `output()`, a vertex-stage `varying()`,
   `builtinPosition()`, and `builtinFragDepth()` are output-direction —
   the first time this backend ever needed to read its own memory back
-  *after* a call, not just write it before one. A `needsResult` flag
+  _after_ a call, not just write it before one. A `needsResult` flag
   (mirroring `compileJS`'s own `ctx.jsNeedsRes`) tracks whether any of
   these were used, or whether an explicit `"vertex"` stage was requested
   at all (a vertex stage's own result always maps to its position one way
@@ -658,7 +658,7 @@ which is also the fastest way to find the next thing worth doing here.
   `builtinPosition()` itself is never mentioned — found by a test that
   didn't initially catch a vertex-stage program failing to produce a
   position, until `needsResult` was seeded from `options.stage ===
-  "vertex"` directly rather than solely from which nodes a program
+"vertex"` directly rather than solely from which nodes a program
   happened to use). `needsResult` false (every pre-Phase-5 program, and
   any fragment-stage one that only reads inputs) keeps the function's
   original single-scalar-result shape, byte-for-byte; true switches it to
@@ -693,7 +693,7 @@ which is also the fastest way to find the next thing worth doing here.
   leaves the value on the WASM stack, matching how every other scalar op
   here already works. `UNIFORM_OPERAND_OPS` (`rmsl-core.ts`) already
   broadcasts a scalar operand to match the defining operand's width at
-  AST-construction time for all of these *except* `mix`'s `t`, which is
+  AST-construction time for all of these _except_ `mix`'s `t`, which is
   deliberately left unbroadcast so a single scale factor can drive a
   vector `mix` — so `mix`'s codegen is the one of the four that checks
   `componentCountOf(t._t) === 1` and reads `t` once instead of
@@ -714,11 +714,12 @@ Roughly ordered by what unblocks the most; not a commitment to build all of
 it.
 
 ### ~~Phase 2 — full scalar op parity~~ — done
+
 See "Status" and "Design decisions already made" above for what landed:
 every remaining `jsBinaryOp`/`jsUnaryMath` entry with a direct WASM opcode
 (or a trivial derivation of one, like float `mod`/`round`/`fract`), every
 comparison, logical, and bitwise op, and `int`/`uint`/`bool` as real `i32`.
-Explicitly *not* included at the time: `clamp`/`mix`/`step`/`smoothstep` —
+Explicitly _not_ included at the time: `clamp`/`mix`/`step`/`smoothstep` —
 composite ops with no single opcode, closer in spirit to Phase 3's vector
 work than to this phase's "one opcode per op" scope. These four landed
 later, after Phase 6 (see "`clamp`/`mix`/`step`/`smoothstep` compile through
@@ -727,12 +728,13 @@ the same aggregate-value machinery vectors already use" below), reusing the
 needing anything new of their own.
 
 ### ~~Phase 3 — vectors and matrices as first-class values~~ — done
+
 See "Status" and "Vectors and matrices live in linear memory now" above for
 the layout that shipped and what it covers: construct/literal/`toVar()`/
 `.assign()`/swizzle read+write/`dot`/componentwise `add`/`sub`/`mul`/`div`
 across vec2/vec3/vec4/mat2/mat3/mat4 (+ `ivec*`/`uvec*`/`bvec*`), backed by
 a real WASM linear memory rather than the scalar-slot-splitting Phase 1/2
-used for vec3. Explicitly *not* included, and left for a later phase:
+used for vec3. Explicitly _not_ included, and left for a later phase:
 `cross`/`length`/`normalize`/`distance`/`reflect`, matrix×vector/
 matrix×matrix multiply, and `uniformArray` (the memory design leaves room
 for it — an array element's address just needs a dynamically-computed
@@ -740,6 +742,7 @@ offset, which nothing in this phase's scope required — but it wasn't
 implemented here).
 
 ### ~~Phase 4 — control flow parity~~ — done
+
 See "Status" and "Control flow compiles through one loop shape and one exit
 block" above for what shipped: `for`/`while`/`Break`/`Continue`/`Return`/
 `Discard`, plus `Loop`/`Switch` for free since they desugar before reaching
@@ -748,6 +751,7 @@ compiles to the same zero/false-sentinel early exit `Return()` does, a
 placeholder until Phase 5's shader-stage surface gives it actual meaning.
 
 ### ~~Phase 5 — shader-stage surface~~ — done, except multi-return
+
 `output()`, `varying()`, `attribute()`, `builtinPosition()`,
 `builtinFragDepth()`, `fragCoord()`, and the `stage`/`derivatives`/
 `reentrant` options all landed, matching `CompileJSOptions` instead of
@@ -765,6 +769,7 @@ is genuinely new ground beyond `compileJS` parity, not a port of something
 folded into this phase under the same name.
 
 Two design points worth remembering if this gets touched again:
+
 - **`compileWasmFn`'s "root must be a scalar" restriction only applies when
   `needsResult` is false** (mirroring `compileJS`'s own `ctx.jsNeedsRes`) —
   the moment a program touches `output()`/a vertex `varying()`/
@@ -812,13 +817,14 @@ Two design points worth remembering if this gets touched again:
   needed one extra safety step this pattern doesn't need elsewhere: since
   `select`'s "not taken" branch still executes, the address it reads must
   already be in range even when the real coordinate is wild, so the actual
-  memory address always comes from a *clamped* copy of the coordinate,
+  memory address always comes from a _clamped_ copy of the coordinate,
   while the real, unclamped one only ever feeds the bounds comparison
   itself. `texture()`/`textureLod()` need no such clamp — wrapping already
   guarantees an in-range tap index by construction, so the wrapped index
   doubles as the safe one.
 
 ### ~~Phase 6 — texture sampling~~ — done, performance now comparable to any other call
+
 See "Status" and "Texture data lives in linear memory, not behind a host
 call" above for what shipped: `textureSize`/`textureLoad`/`texture`/
 `textureLod` at the same scope `compileJS` itself has (`sampler2D`/
@@ -837,6 +843,7 @@ now cost roughly what any other `compileWasm` call costs (~2-3.5x
 already has) instead of a distinct, much larger penalty.
 
 ### ~~Phase 7 — parity testing infrastructure~~ — done
+
 `compileWasm` is now a third backend checked by
 `src/testing/shader-eval.ts`'s recording, alongside `compileGLSL`/
 `compileWGSL` (see CONTRIBUTING.md's "Validity"/"Values" test layers) — a
@@ -867,6 +874,7 @@ guarantees.
 
 This immediately found two real, previously undetected bugs, exactly the
 value this phase was for:
+
 - `compileWasm`'s wrapper looked up the compiled export as the literal
   string `instance.exports.main`, ignoring `options.name` entirely — silently
   broken for any function name other than `"main"`, undetected until now
@@ -878,7 +886,7 @@ value this phase was for:
   with an implicit cast at comparison codegen, so it never produced a
   wrong answer there — only the WASM backend's comparison codegen, which
   assumes both operands already match, turned it into a `WebAssembly.
-  CompileError`. Fixed at the source (`typedOperand(v, selector._t)`
+CompileError`. Fixed at the source (`typedOperand(v, selector._t)`
   instead of `wrapValue(v)`), which also removed the now-unnecessary casts
   from GLSL/WGSL's own output.
 - A third, unrelated gap found by the same process: `emitConstructStores`
@@ -901,6 +909,7 @@ cheaper" narrows to specifically the loop-free, called-once case
 work left for later rather than folded into this phase.
 
 ### ~~Phase 7.5 — `clamp`/`mix`/`step`/`smoothstep`~~ — done
+
 See "`clamp`/`mix`/`step`/`smoothstep` compile through the same
 aggregate-value machinery vectors already use" above for the design. All
 four now work in both scalar and componentwise vector form, verified by
@@ -912,6 +921,7 @@ non-square matrix multiply cases, still open per "What throws today"
 above.
 
 ### Phase 8 — tooling and docs
+
 A `docs/wasm.md` page (or a section in `docs/compilation.md`), and a vite
 precompile story analogous to `precompileShaders`/`precompileJS` if this is
 going to ship a `.wasm` asset rather than generate one at runtime.
@@ -932,10 +942,10 @@ going to ship a `.wasm` asset rather than generate one at runtime.
   per-call-frame, so this concern may simply not exist here — confirm once
   Phase 5 needs the option to make sense of at all.
 - **Whole-function f32 arithmetic mode.** `GpuUniformLayout` (stage 2 of
-  `docs/design-shared-layout-ir.md`) only narrows a uniform's *storage* to
+  `docs/design-shared-layout-ir.md`) only narrows a uniform's _storage_ to
   f32 at the memory boundary — internal arithmetic always stays f64
   (matching `compileJS`), same as an ordinary uniform. A different,
-  materially bigger idea came up alongside it: a per-`Fn` mode where *every*
+  materially bigger idea came up alongside it: a per-`Fn` mode where _every_
   scalar float op (`add`/`mul`/`sqrt`/...) actually computes in f32
   throughout, matching what a real GPU shader would compute bit-for-bit at
   every intermediate step, not just at the uniform boundary — useful for a
@@ -990,7 +1000,7 @@ going to ship a `.wasm` asset rather than generate one at runtime.
     whole buffer.
   - The "audiovisual" idea itself: the same source compiled once to both
     WASM (driving an audio thread) and WGSL (driving a visual shader),
-    each independently fed the *same* time/parameter values by the
+    each independently fed the _same_ time/parameter values by the
     harness, rather than any data flowing between the two at runtime. When
     a program's feedback recurrence only ever depends on values both sides
     already have, this is just deterministic parallel simulation — same
@@ -1020,7 +1030,7 @@ going to ship a `.wasm` asset rather than generate one at runtime.
   `makeMatConstructor`, which only special-cases a single node/number
   argument (diagonal) or zero arguments (identity) — anything else,
   including column-vector nodes, falls through to
-  `node({_t: t, type: t, value: args})`, a *literal* node whose `value`
+  `node({_t: t, type: t, value: args})`, a _literal_ node whose `value`
   ends up holding `Node` objects instead of numbers. Nothing validates this
   at construction time, so `mat2(vec2(1,2), vec2(3,4))` builds silently and
   only breaks downstream — found while writing a WASM backend test for

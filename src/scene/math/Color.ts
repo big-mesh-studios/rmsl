@@ -39,8 +39,8 @@ export class Color {
 
   setHex(hex: number): this {
     hex = Math.floor(hex);
-    this.r = (hex >> 16 & 255) / 255;
-    this.g = (hex >> 8 & 255) / 255;
+    this.r = ((hex >> 16) & 255) / 255;
+    this.g = ((hex >> 8) & 255) / 255;
     this.b = (hex & 255) / 255;
     return this;
   }

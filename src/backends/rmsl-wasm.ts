@@ -31,14 +31,17 @@ export type WasmParam =
   | { kind: "uniform"; slot: string; shaderType: ShaderType }
   | { kind: "paramMemory"; name: string; shaderType: ShaderType; address: number }
   | {
-    kind: "uniformMemory"; slot: string; shaderType: ShaderType; address: number;
-    /** Set only for a `gpuUniformLayout`-placed uniform: `address` is a raw
-     * GPU-shaped slot (e.g. `f32` per float component, half this backend's
-     * usual `f64`) rather than this backend's own packed representation —
-     * `compileWasm` writes the narrower width there instead of its usual
-     * one. See `GpuUniformLayout`. */
-    narrow?: boolean;
-  }
+      kind: "uniformMemory";
+      slot: string;
+      shaderType: ShaderType;
+      address: number;
+      /** Set only for a `gpuUniformLayout`-placed uniform: `address` is a raw
+       * GPU-shaped slot (e.g. `f32` per float component, half this backend's
+       * usual `f64`) rather than this backend's own packed representation —
+       * `compileWasm` writes the narrower width there instead of its usual
+       * one. See `GpuUniformLayout`. */
+      narrow?: boolean;
+    }
   // Phase 5 input direction — `compileWasm` writes these before the call,
   // exactly like a "param"/"uniform" pair, just sourced from
   // `ctx.attributes`/`ctx.varyings`/`ctx.fragCoord` instead of
@@ -244,7 +247,9 @@ function isIntegerSamplerType(t: string): boolean {
  * samplers are unsupported, matching `compileJS`'s own restriction. */
 function assertSampled2Dor3D(t: string): void {
   if (!t.endsWith("2D") && !t.endsWith("3D")) {
-    throw new Error("[RMSL] compileWasmFn: texture uniforms support sampler2D/sampler3D (and their integer variants) only.");
+    throw new Error(
+      "[RMSL] compileWasmFn: texture uniforms support sampler2D/sampler3D (and their integer variants) only.",
+    );
   }
 }
 
@@ -287,9 +292,21 @@ const PACKED_RULES: AllocRules = {
  * real `Math` object as the import's namespace with no translation.
  */
 const MATH_UNARY_IMPORTS = new Set([
-  "sin", "cos", "tan", "asin", "acos", "atan",
-  "sinh", "cosh", "tanh", "asinh", "acosh", "atanh",
-  "exp", "log", "log2",
+  "sin",
+  "cos",
+  "tan",
+  "asin",
+  "acos",
+  "atan",
+  "sinh",
+  "cosh",
+  "tanh",
+  "asinh",
+  "acosh",
+  "atanh",
+  "exp",
+  "log",
+  "log2",
 ]);
 const MATH_BINARY_IMPORTS = new Set(["pow", "atan2"]);
 
@@ -412,11 +429,8 @@ export type CompileWasmFnOptions = CompileFnOptions & {
   reentrant?: boolean;
 };
 
-export function compileWasmFn(
-  fn: (...args: any[]) => Node<ShaderType>,
-  options: CompileWasmFnOptions,
-): CompiledWasm {
-  const paramNodes = options.params.map(p => var_(p.name, p.type));
+export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options: CompileWasmFnOptions): CompiledWasm {
+  const paramNodes = options.params.map((p) => var_(p.name, p.type));
   const root = fn(...paramNodes) as any;
   if (Array.isArray(root)) {
     throw new Error("[RMSL] compileWasmFn does not support multi-return functions.");
@@ -427,8 +441,8 @@ export function compileWasmFn(
   // isn't known until the whole tree has been walked once (see the check
   // right after `collect(root)`).
 
-  const paramTypeByName = new Map(options.params.map(p => [p.name, p.type]));
-  const fnParamNames = new Set(options.params.map(p => p.name));
+  const paramTypeByName = new Map(options.params.map((p) => [p.name, p.type]));
+  const fnParamNames = new Set(options.params.map((p) => p.name));
   // Matches `compileJS`'s own default exactly (`compileJSFn`: `options.stage
   // ?? "fragment"`) — a program can read fragment-only builtins without
   // having to pass `stage` explicitly, the same as compileJS allows today.
@@ -544,7 +558,8 @@ export function compileWasmFn(
     if (node.type === "construct") return true;
     if (node.type === t) return true; // literal vector/matrix
     if (node.type === "swizzle" && (node.value as string).length > 1) return true;
-    if (node.type === "cross" || node.type === "reflect" || node.type === "normalize" || node.type === "matVecMul") return true;
+    if (node.type === "cross" || node.type === "reflect" || node.type === "normalize" || node.type === "matVecMul")
+      return true;
     if (node.type === "dFdx" || node.type === "dFdy" || node.type === "fwidth") return true;
     if (node.type === "textureSize" || node.type === "textureLoad") return true;
     if (node.type === "texture" || node.type === "textureLod") return true;
@@ -591,7 +606,13 @@ export function compileWasmFn(
           const gpuOffset = options.gpuUniformLayout?.offsets[v.slot];
           if (gpuOffset !== undefined) {
             gpuRawUniformAddress.set(v.slot, gpuOffset);
-            memoryParams.push({ kind: "uniformMemory", slot: v.slot, shaderType: v.shaderType, address: gpuOffset, narrow: true });
+            memoryParams.push({
+              kind: "uniformMemory",
+              slot: v.slot,
+              shaderType: v.shaderType,
+              address: gpuOffset,
+              narrow: true,
+            });
           } else {
             memoryParams.push({ kind: "uniformMemory", slot: v.slot, shaderType: v.shaderType, address: addr });
           }
@@ -712,7 +733,10 @@ export function compileWasmFn(
       // mechanism, one extra f64 slot right after the node's own output
       // components holds it, computed once.
       if (node.type === "normalize" || node.type === "reflect") allocateBytes(8);
-      if ((node.type === "texture" || node.type === "textureLod") && !isIntegerSamplerType(node.params[0]._t as string)) {
+      if (
+        (node.type === "texture" || node.type === "textureLod") &&
+        !isIntegerSamplerType(node.params[0]._t as string)
+      ) {
         // Scratch for every value `emitTextureSampleStores` computes once
         // per sample and every one of the 4 channels then reuses — nearest
         // mode's own wrapped x/y/z, bilinear/trilinear's wrapped tap
@@ -723,7 +747,10 @@ export function compileWasmFn(
         // all i32, plus 3 f64 blend weights = 60 bytes).
         allocateBytes(60);
       }
-      if (node.type === "textureLoad" || ((node.type === "texture" || node.type === "textureLod") && isIntegerSamplerType(node.params[0]._t as string))) {
+      if (
+        node.type === "textureLoad" ||
+        ((node.type === "texture" || node.type === "textureLod") && isIntegerSamplerType(node.params[0]._t as string))
+      ) {
         // Scratch for the two values `emitTexelFetchStores` computes once
         // per texel and every one of the 4 channels then reuses — the
         // out-of-range flag and the safe, clamped texel index — instead of
@@ -800,31 +827,37 @@ export function compileWasmFn(
     }
     if (node.type === "uniform") {
       const addr = uniformAddress.get(node.value.slot);
-      if (addr === undefined) throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed uniform "${node.value.slot}"`);
+      if (addr === undefined)
+        throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed uniform "${node.value.slot}"`);
       return addr;
     }
     if (node.type === "attribute") {
       const addr = attributeAddress.get(node.value.slot);
-      if (addr === undefined) throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed attribute "${node.value.slot}"`);
+      if (addr === undefined)
+        throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed attribute "${node.value.slot}"`);
       return addr;
     }
     if (node.type === "varying" && effectiveStage === "fragment") {
       const addr = varyingAddress.get(node.value.slot);
-      if (addr === undefined) throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed varying "${node.value.slot}"`);
+      if (addr === undefined)
+        throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed varying "${node.value.slot}"`);
       return addr;
     }
     if (node.type === "fragCoord") {
-      if (fragCoordAddress === undefined) throw new Error("[RMSL] compileWasmFn: internal error, unaddressed fragCoord");
+      if (fragCoordAddress === undefined)
+        throw new Error("[RMSL] compileWasmFn: internal error, unaddressed fragCoord");
       return fragCoordAddress;
     }
     if (node.type === "output") {
       const addr = outputAddress.get(node.value.slot);
-      if (addr === undefined) throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed output "${node.value.slot}"`);
+      if (addr === undefined)
+        throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed output "${node.value.slot}"`);
       return addr;
     }
     if (node.type === "varying" && effectiveStage === "vertex") {
       const addr = varyingOutputAddress.get(node.value.slot);
-      if (addr === undefined) throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed varying "${node.value.slot}"`);
+      if (addr === undefined)
+        throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed varying "${node.value.slot}"`);
       return addr;
     }
     if (node.type === "builtinPosition") {
@@ -834,16 +867,18 @@ export function compileWasmFn(
       // check only ever fires for a read.
       if (effectiveStage !== "vertex") {
         throw new Error(
-          "[RMSL] compileWasmFn: builtinPosition() is the vertex stage's output position, and a "
-          + "fragment stage cannot read it. Pass the value you need through a "
-          + "varying() instead.",
+          "[RMSL] compileWasmFn: builtinPosition() is the vertex stage's output position, and a " +
+            "fragment stage cannot read it. Pass the value you need through a " +
+            "varying() instead.",
         );
       }
-      if (positionAddress === undefined) throw new Error("[RMSL] compileWasmFn: internal error, unaddressed builtinPosition");
+      if (positionAddress === undefined)
+        throw new Error("[RMSL] compileWasmFn: internal error, unaddressed builtinPosition");
       return positionAddress;
     }
     if (node.type === "builtinFragDepth") {
-      if (fragDepthAddress === undefined) throw new Error("[RMSL] compileWasmFn: internal error, unaddressed builtinFragDepth");
+      if (fragDepthAddress === undefined)
+        throw new Error("[RMSL] compileWasmFn: internal error, unaddressed builtinFragDepth");
       return fragDepthAddress;
     }
     const addr = scratchAddress.get(node);
@@ -852,10 +887,21 @@ export function compileWasmFn(
   }
 
   function loadComponent(addr: number, kind: ScalarKind, byteOffset: number): number[] {
-    return [...i32ConstBytes(addr), kind === "float" ? WASM_OP.f64Load : WASM_OP.i32Load, 0x00, ...wasmUleb128(byteOffset)];
+    return [
+      ...i32ConstBytes(addr),
+      kind === "float" ? WASM_OP.f64Load : WASM_OP.i32Load,
+      0x00,
+      ...wasmUleb128(byteOffset),
+    ];
   }
   function storeComponent(addr: number, kind: ScalarKind, byteOffset: number, valueBytes: number[]): number[] {
-    return [...i32ConstBytes(addr), ...valueBytes, kind === "float" ? WASM_OP.f64Store : WASM_OP.i32Store, 0x00, ...wasmUleb128(byteOffset)];
+    return [
+      ...i32ConstBytes(addr),
+      ...valueBytes,
+      kind === "float" ? WASM_OP.f64Store : WASM_OP.i32Store,
+      0x00,
+      ...wasmUleb128(byteOffset),
+    ];
   }
 
   /** The dynamic-address counterpart of `loadComponent`: every other load in
@@ -982,9 +1028,16 @@ export function compileWasmFn(
     const compSize = componentSizeOf(kind);
     const out: number[] = [];
     for (let k = 0; k < width; k++) {
-      const rawBytes = kind === "float"
-        ? [...i32ConstBytes(rawAddr + k * rawCompSize), WASM_OP.f32Load, 0x00, ...wasmUleb128(0), WASM_OP.f64PromoteF32]
-        : loadComponent(rawAddr, kind, k * rawCompSize);
+      const rawBytes =
+        kind === "float"
+          ? [
+              ...i32ConstBytes(rawAddr + k * rawCompSize),
+              WASM_OP.f32Load,
+              0x00,
+              ...wasmUleb128(0),
+              WASM_OP.f64PromoteF32,
+            ]
+          : loadComponent(rawAddr, kind, k * rawCompSize);
       out.push(...storeComponent(addr, kind, k * compSize, rawBytes));
     }
     return out;
@@ -996,7 +1049,9 @@ export function compileWasmFn(
     if (matShape) {
       const [cols, rows] = matShape;
       if (node.params.length === 1 && componentCountOf(node.params[0]._t) > 1) {
-        throw new Error('[RMSL] compileWasmFn: unsupported node type in vector position: "matrix-from-matrix construct"');
+        throw new Error(
+          '[RMSL] compileWasmFn: unsupported node type in vector position: "matrix-from-matrix construct"',
+        );
       }
       const out: number[] = [];
       if (node.params.length === 1) {
@@ -1031,7 +1086,9 @@ export function compileWasmFn(
       const pWidth = componentCountOf(p._t);
       if (pWidth === 1) {
         const pKind = scalarKindOf(p._t as string);
-        out.push(...storeComponent(addr, targetKind, compIndex * compSize, convertComponent(walkExpr(p), pKind, targetKind)));
+        out.push(
+          ...storeComponent(addr, targetKind, compIndex * compSize, convertComponent(walkExpr(p), pKind, targetKind)),
+        );
         compIndex++;
       } else {
         out.push(...materializeIfNeeded(p));
@@ -1039,7 +1096,14 @@ export function compileWasmFn(
         const pKind = elementKindOf(p._t);
         const pCompSize = componentSizeOf(pKind);
         for (let k = 0; k < pWidth; k++) {
-          out.push(...storeComponent(addr, targetKind, compIndex * compSize, convertComponent(loadComponent(pAddr, pKind, k * pCompSize), pKind, targetKind)));
+          out.push(
+            ...storeComponent(
+              addr,
+              targetKind,
+              compIndex * compSize,
+              convertComponent(loadComponent(pAddr, pKind, k * pCompSize), pKind, targetKind),
+            ),
+          );
           compIndex++;
         }
       }
@@ -1080,8 +1144,8 @@ export function compileWasmFn(
   function assertDerivativesAllowed(node: any): void {
     if (options.derivatives === "zero") return;
     throw new Error(
-      `[RMSL] compileWasmFn: ${node.type}() has no meaning on the CPU target. `
-      + `Compile with { derivatives: "zero" } to evaluate it as 0.`,
+      `[RMSL] compileWasmFn: ${node.type}() has no meaning on the CPU target. ` +
+        `Compile with { derivatives: "zero" } to evaluate it as 0.`,
     );
   }
 
@@ -1152,7 +1216,8 @@ export function compileWasmFn(
     // up front sidesteps that instead.
     const metaAddr: number = ((): number => {
       const a = textureMetadataAddress.get(samplerNode.value.slot);
-      if (a === undefined) throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed texture "${samplerNode.value.slot}"`);
+      if (a === undefined)
+        throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed texture "${samplerNode.value.slot}"`);
       return a;
     })();
     const materialize = materializeIfNeeded(coordsNode);
@@ -1180,8 +1245,10 @@ export function compileWasmFn(
     function safeAxis(k: number): number[] {
       const raw = rawAxis(k);
       const dimMinus1 = [...dimAxis(dims[k]), ...i32ConstBytes(1), WASM_OP.i32Sub];
-      const nonNegative = coordKind === "uint" ? raw : selectExpr(i32ConstBytes(0), raw, [...raw, ...i32ConstBytes(0), WASM_OP.i32LtS]);
-      const tooHigh = coordKind === "uint" ? [...raw, ...dimMinus1, WASM_OP.i32GtU] : [...nonNegative, ...dimMinus1, WASM_OP.i32GtS];
+      const nonNegative =
+        coordKind === "uint" ? raw : selectExpr(i32ConstBytes(0), raw, [...raw, ...i32ConstBytes(0), WASM_OP.i32LtS]);
+      const tooHigh =
+        coordKind === "uint" ? [...raw, ...dimMinus1, WASM_OP.i32GtU] : [...nonNegative, ...dimMinus1, WASM_OP.i32GtS];
       return selectExpr(dimMinus1, nonNegative, tooHigh);
     }
 
@@ -1220,7 +1287,13 @@ export function compileWasmFn(
     function elemAddrBytes(i: number): number[] {
       const dataAddr = loadComponent(metaAddr, "int", TEX_META_DATA_ADDR);
       const channels = loadComponent(metaAddr, "int", TEX_META_CHANNELS);
-      const elemOffset = [...loadComponent(TEXEL_INDEX, "int", 0), ...channels, WASM_OP.i32Mul, ...i32ConstBytes(i), WASM_OP.i32Add];
+      const elemOffset = [
+        ...loadComponent(TEXEL_INDEX, "int", 0),
+        ...channels,
+        WASM_OP.i32Mul,
+        ...i32ConstBytes(i),
+        WASM_OP.i32Add,
+      ];
       const byteOffset = [...elemOffset, ...i32ConstBytes(3), WASM_OP.i32Shl]; // * 8
       return [...dataAddr, ...byteOffset, WASM_OP.i32Add];
     }
@@ -1292,7 +1365,8 @@ export function compileWasmFn(
     const is3D = samplerType.endsWith("3D");
     const metaAddr: number = ((): number => {
       const a = textureMetadataAddress.get(samplerNode.value.slot);
-      if (a === undefined) throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed texture "${samplerNode.value.slot}"`);
+      if (a === undefined)
+        throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed texture "${samplerNode.value.slot}"`);
       return a;
     })();
     const materialize = materializeIfNeeded(coordsNode);
@@ -1307,9 +1381,18 @@ export function compileWasmFn(
     // exactly this) — every per-sample value below, computed once and
     // read back cheaply by every channel instead of being recomputed.
     const scratch = addr + 32;
-    const NEAREST_X = scratch, NEAREST_Y = scratch + 4, NEAREST_Z = scratch + 8;
-    const XA = scratch + 12, XB = scratch + 16, YA = scratch + 20, YB = scratch + 24, ZA = scratch + 28, ZB = scratch + 32;
-    const TX = scratch + 36, TY = scratch + 44, TZ = scratch + 52;
+    const NEAREST_X = scratch,
+      NEAREST_Y = scratch + 4,
+      NEAREST_Z = scratch + 8;
+    const XA = scratch + 12,
+      XB = scratch + 16,
+      YA = scratch + 20,
+      YB = scratch + 24,
+      ZA = scratch + 28,
+      ZB = scratch + 32;
+    const TX = scratch + 36,
+      TY = scratch + 44,
+      TZ = scratch + 52;
 
     // repeat/mirror/clamp, dispatched on a runtime mode value (0/1/2) —
     // every formula computed unconditionally, picked with nested `select`s.
@@ -1322,9 +1405,17 @@ export function compileWasmFn(
         selectExpr(dimMinus1(), idxBytes, [...idxBytes, ...dimMinus1(), WASM_OP.i32GtS]),
         [...idxBytes, ...i32ConstBytes(0), WASM_OP.i32LtS],
       );
-      const repeatVal = [...[...[...idxBytes, ...dim(), WASM_OP.i32RemS], ...dim(), WASM_OP.i32Add], ...dim(), WASM_OP.i32RemS];
+      const repeatVal = [
+        ...[...[...idxBytes, ...dim(), WASM_OP.i32RemS], ...dim(), WASM_OP.i32Add],
+        ...dim(),
+        WASM_OP.i32RemS,
+      ];
       const twoDim = (): number[] => [...dim(), ...i32ConstBytes(2), WASM_OP.i32Mul];
-      const period = [...[...[...idxBytes, ...twoDim(), WASM_OP.i32RemS], ...twoDim(), WASM_OP.i32Add], ...twoDim(), WASM_OP.i32RemS];
+      const period = [
+        ...[...[...idxBytes, ...twoDim(), WASM_OP.i32RemS], ...twoDim(), WASM_OP.i32Add],
+        ...twoDim(),
+        WASM_OP.i32RemS,
+      ];
       const mirrorVal = selectExpr(
         period,
         [...twoDim(), ...i32ConstBytes(1), WASM_OP.i32Sub, ...period, WASM_OP.i32Sub],
@@ -1346,8 +1437,16 @@ export function compileWasmFn(
 
     // --- Everything above this point is channel-independent — computed
     // exactly once per sample and stored, never recomputed per channel. ---
-    const nearestX = wrapAxis([...uv(0), ...dimF64(TEX_META_WIDTH), WASM_OP.f64Mul, WASM_OP.f64Floor, WASM_OP.i32TruncF64S], TEX_META_WIDTH, TEX_META_WRAP_S);
-    const nearestY = wrapAxis([...uv(1), ...dimF64(TEX_META_HEIGHT), WASM_OP.f64Mul, WASM_OP.f64Floor, WASM_OP.i32TruncF64S], TEX_META_HEIGHT, TEX_META_WRAP_T);
+    const nearestX = wrapAxis(
+      [...uv(0), ...dimF64(TEX_META_WIDTH), WASM_OP.f64Mul, WASM_OP.f64Floor, WASM_OP.i32TruncF64S],
+      TEX_META_WIDTH,
+      TEX_META_WRAP_S,
+    );
+    const nearestY = wrapAxis(
+      [...uv(1), ...dimF64(TEX_META_HEIGHT), WASM_OP.f64Mul, WASM_OP.f64Floor, WASM_OP.i32TruncF64S],
+      TEX_META_HEIGHT,
+      TEX_META_WRAP_T,
+    );
     const fx = fracAxis(0, TEX_META_WIDTH);
     const fy = fracAxis(1, TEX_META_HEIGHT);
     const xa = wrapAxis(fx.i0, TEX_META_WIDTH, TEX_META_WRAP_S);
@@ -1365,7 +1464,11 @@ export function compileWasmFn(
       ...storeComponent(TY, "float", 0, fy.t),
     ];
     if (is3D) {
-      const nearestZ = wrapAxis([...uv(2), ...dimF64(TEX_META_DEPTH), WASM_OP.f64Mul, WASM_OP.f64Floor, WASM_OP.i32TruncF64S], TEX_META_DEPTH, TEX_META_WRAP_R);
+      const nearestZ = wrapAxis(
+        [...uv(2), ...dimF64(TEX_META_DEPTH), WASM_OP.f64Mul, WASM_OP.f64Floor, WASM_OP.i32TruncF64S],
+        TEX_META_DEPTH,
+        TEX_META_WRAP_R,
+      );
       const fz = fracAxis(2, TEX_META_DEPTH);
       const za = wrapAxis(fz.i0, TEX_META_DEPTH, TEX_META_WRAP_R);
       const zb = wrapAxis([...fz.i0, ...i32ConstBytes(1), WASM_OP.i32Add], TEX_META_DEPTH, TEX_META_WRAP_R);
@@ -1391,7 +1494,13 @@ export function compileWasmFn(
     function texelChannelRaw(x: number[], y: number[], z: number[] | null, i: number): number[] {
       const dataAddr = dimI32(TEX_META_DATA_ADDR);
       const channels = dimI32(TEX_META_CHANNELS);
-      const elemOffset = [...texelIndexBytes(x, y, z), ...channels, WASM_OP.i32Mul, ...i32ConstBytes(i), WASM_OP.i32Add];
+      const elemOffset = [
+        ...texelIndexBytes(x, y, z),
+        ...channels,
+        WASM_OP.i32Mul,
+        ...i32ConstBytes(i),
+        WASM_OP.i32Add,
+      ];
       const byteOffset = [...elemOffset, ...i32ConstBytes(3), WASM_OP.i32Shl];
       const addrBytes = [...dataAddr, ...byteOffset, WASM_OP.i32Add];
       const divisor = loadComponent(metaAddr, "float", TEX_META_UNORM_DIVISOR);
@@ -1415,12 +1524,27 @@ export function compileWasmFn(
      */
     function lerp(a: number[], b: number[], t: number[]): number[] {
       return [
-        ...a, ...f64ConstBytes(1), ...t, WASM_OP.f64Sub, WASM_OP.f64Mul,
-        ...b, ...t, WASM_OP.f64Mul,
+        ...a,
+        ...f64ConstBytes(1),
+        ...t,
+        WASM_OP.f64Sub,
+        WASM_OP.f64Mul,
+        ...b,
+        ...t,
+        WASM_OP.f64Mul,
         WASM_OP.f64Add,
       ];
     }
-    function bilinear(xa: number[], xb: number[], ya: number[], yb: number[], z: number[] | null, tx: number[], ty: number[], i: number): number[] {
+    function bilinear(
+      xa: number[],
+      xb: number[],
+      ya: number[],
+      yb: number[],
+      z: number[] | null,
+      tx: number[],
+      ty: number[],
+      i: number,
+    ): number[] {
       const taa = texelChannel(xa, ya, z, i);
       const tba = texelChannel(xb, ya, z, i);
       const tab = texelChannel(xa, yb, z, i);
@@ -1432,11 +1556,15 @@ export function compileWasmFn(
 
     // --- Per-channel: reads the setup above back (a fixed-address load,
     // cheap to repeat) instead of recomputing it. ---
-    const nx = loadComponent(NEAREST_X, "int", 0), ny = loadComponent(NEAREST_Y, "int", 0);
+    const nx = loadComponent(NEAREST_X, "int", 0),
+      ny = loadComponent(NEAREST_Y, "int", 0);
     const nz = is3D ? loadComponent(NEAREST_Z, "int", 0) : null;
-    const xaBytes = loadComponent(XA, "int", 0), xbBytes = loadComponent(XB, "int", 0);
-    const yaBytes = loadComponent(YA, "int", 0), ybBytes = loadComponent(YB, "int", 0);
-    const txBytes = loadComponent(TX, "float", 0), tyBytes = loadComponent(TY, "float", 0);
+    const xaBytes = loadComponent(XA, "int", 0),
+      xbBytes = loadComponent(XB, "int", 0);
+    const yaBytes = loadComponent(YA, "int", 0),
+      ybBytes = loadComponent(YB, "int", 0);
+    const txBytes = loadComponent(TX, "float", 0),
+      tyBytes = loadComponent(TY, "float", 0);
 
     // `magFilter` is a real runtime `if`/`else`, not a `select` like every
     // other choice in this function — deliberately, unlike the rest of
@@ -1452,7 +1580,8 @@ export function compileWasmFn(
       if (!is3D) {
         linearValue = bilinear(xaBytes, xbBytes, yaBytes, ybBytes, null, txBytes, tyBytes, i);
       } else {
-        const zaBytes = loadComponent(ZA, "int", 0), zbBytes = loadComponent(ZB, "int", 0);
+        const zaBytes = loadComponent(ZA, "int", 0),
+          zbBytes = loadComponent(ZB, "int", 0);
         const tzBytes = loadComponent(TZ, "float", 0);
         const near = bilinear(xaBytes, xbBytes, yaBytes, ybBytes, zaBytes, txBytes, tyBytes, i);
         const far = bilinear(xaBytes, xbBytes, yaBytes, ybBytes, zbBytes, txBytes, tyBytes, i);
@@ -1464,9 +1593,12 @@ export function compileWasmFn(
     return [
       ...materialize,
       ...setup,
-      ...dimI32(TEX_META_FILTER), WASM_OP.if_, WASM_BLOCKTYPE_VOID,
+      ...dimI32(TEX_META_FILTER),
+      WASM_OP.if_,
+      WASM_BLOCKTYPE_VOID,
       ...linearStores,
-      WASM_OP.else_, ...nearestStores,
+      WASM_OP.else_,
+      ...nearestStores,
       WASM_OP.end,
     ];
   }
@@ -1494,7 +1626,9 @@ export function compileWasmFn(
     const srcKind = elementKindOf(src._t as string);
     const srcCompSize = componentSizeOf(srcKind);
     [...pattern].forEach((ch, i) => {
-      out.push(...storeComponent(addr, kind, i * compSize, loadComponent(srcAddr, srcKind, COMPONENT_INDEX[ch] * srcCompSize)));
+      out.push(
+        ...storeComponent(addr, kind, i * compSize, loadComponent(srcAddr, srcKind, COMPONENT_INDEX[ch] * srcCompSize)),
+      );
     });
     return out;
   }
@@ -1517,8 +1651,14 @@ export function compileWasmFn(
     const bAddr = bWidth > 1 ? nodeAddress(b) : undefined;
     let opcode: number;
     if (targetKind === "float") {
-      opcode = node.type === "add" ? WASM_OP.f64Add : node.type === "sub" ? WASM_OP.f64Sub
-        : node.type === "mul" ? WASM_OP.f64Mul : WASM_OP.f64Div;
+      opcode =
+        node.type === "add"
+          ? WASM_OP.f64Add
+          : node.type === "sub"
+            ? WASM_OP.f64Sub
+            : node.type === "mul"
+              ? WASM_OP.f64Mul
+              : WASM_OP.f64Div;
     } else if (node.type === "add") opcode = WASM_OP.i32Add;
     else if (node.type === "sub") opcode = WASM_OP.i32Sub;
     else if (node.type === "mul") opcode = WASM_OP.i32Mul;
@@ -1544,12 +1684,21 @@ export function compileWasmFn(
     const compSize = componentSizeOf(targetKind);
     const width = componentCountOf(node._t as string);
     const out = [...materializeIfNeeded(x), ...materializeIfNeeded(lo), ...materializeIfNeeded(hi)];
-    const xAddr = nodeAddress(x), loAddr = nodeAddress(lo), hiAddr = nodeAddress(hi);
+    const xAddr = nodeAddress(x),
+      loAddr = nodeAddress(lo),
+      hiAddr = nodeAddress(hi);
     for (let k = 0; k < width; k++) {
       const xk = loadComponent(xAddr, targetKind, k * compSize);
       const lok = loadComponent(loAddr, targetKind, k * compSize);
       const hik = loadComponent(hiAddr, targetKind, k * compSize);
-      out.push(...storeComponent(addr, targetKind, k * compSize, minMaxBytes(minMaxBytes(xk, lok, targetKind, "max"), hik, targetKind, "min")));
+      out.push(
+        ...storeComponent(
+          addr,
+          targetKind,
+          k * compSize,
+          minMaxBytes(minMaxBytes(xk, lok, targetKind, "max"), hik, targetKind, "min"),
+        ),
+      );
     }
     return out;
   }
@@ -1570,13 +1719,24 @@ export function compileWasmFn(
     const tWidth = componentCountOf(t._t as string);
     const out = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
     if (tWidth > 1) out.push(...materializeIfNeeded(t));
-    const aAddr = nodeAddress(a), bAddr = nodeAddress(b);
+    const aAddr = nodeAddress(a),
+      bAddr = nodeAddress(b);
     const tAddr = tWidth > 1 ? nodeAddress(t) : undefined;
     for (let k = 0; k < width; k++) {
       const ak = loadComponent(aAddr, "float", k * 8);
       const bk = loadComponent(bAddr, "float", k * 8);
       const tk = tWidth > 1 ? loadComponent(tAddr!, "float", k * 8) : walkExpr(t);
-      out.push(...storeComponent(addr, "float", k * 8, [...ak, ...tk, ...bk, ...ak, WASM_OP.f64Sub, WASM_OP.f64Mul, WASM_OP.f64Add]));
+      out.push(
+        ...storeComponent(addr, "float", k * 8, [
+          ...ak,
+          ...tk,
+          ...bk,
+          ...ak,
+          WASM_OP.f64Sub,
+          WASM_OP.f64Mul,
+          WASM_OP.f64Add,
+        ]),
+      );
     }
     return out;
   }
@@ -1588,11 +1748,19 @@ export function compileWasmFn(
     const [edge, x] = node.params;
     const width = componentCountOf(node._t as string);
     const out = [...materializeIfNeeded(edge), ...materializeIfNeeded(x)];
-    const edgeAddr = nodeAddress(edge), xAddr = nodeAddress(x);
+    const edgeAddr = nodeAddress(edge),
+      xAddr = nodeAddress(x);
     for (let k = 0; k < width; k++) {
       const ek = loadComponent(edgeAddr, "float", k * 8);
       const xk = loadComponent(xAddr, "float", k * 8);
-      out.push(...storeComponent(addr, "float", k * 8, selectExpr(f64ConstBytes(0), f64ConstBytes(1), [...xk, ...ek, WASM_OP.f64Lt])));
+      out.push(
+        ...storeComponent(
+          addr,
+          "float",
+          k * 8,
+          selectExpr(f64ConstBytes(0), f64ConstBytes(1), [...xk, ...ek, WASM_OP.f64Lt]),
+        ),
+      );
     }
     return out;
   }
@@ -1606,7 +1774,9 @@ export function compileWasmFn(
     const [e0, e1, x] = node.params;
     const width = componentCountOf(node._t as string);
     const out = [...materializeIfNeeded(e0), ...materializeIfNeeded(e1), ...materializeIfNeeded(x)];
-    const e0Addr = nodeAddress(e0), e1Addr = nodeAddress(e1), xAddr = nodeAddress(x);
+    const e0Addr = nodeAddress(e0),
+      e1Addr = nodeAddress(e1),
+      xAddr = nodeAddress(x);
     for (let k = 0; k < width; k++) {
       const value = emitSmoothstepValue(
         loadComponent(e0Addr, "float", k * 8),
@@ -1624,19 +1794,27 @@ export function compileWasmFn(
    * (see the "mul" case in `materializeIfNeeded`). */
   function emitMatMatMulStores(node: any, addr: number): number[] {
     const [a, b] = node.params;
-    const aType = a._t as string, bType = b._t as string;
+    const aType = a._t as string,
+      bType = b._t as string;
     const [cols, rows] = MATRIX_DIMENSIONS[aType];
     if (aType !== bType || cols !== rows) {
-      throw new Error(`[RMSL] compileWasmFn: does not yet support non-square or mismatched-shape matrix multiplication ("${aType}" x "${bType}")`);
+      throw new Error(
+        `[RMSL] compileWasmFn: does not yet support non-square or mismatched-shape matrix multiplication ("${aType}" x "${bType}")`,
+      );
     }
     const n = cols;
     const out = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
-    const aAddr = nodeAddress(a), bAddr = nodeAddress(b);
+    const aAddr = nodeAddress(a),
+      bAddr = nodeAddress(b);
     for (let col = 0; col < n; col++) {
       for (let row = 0; row < n; row++) {
         let terms: number[] = [];
         for (let k = 0; k < n; k++) {
-          const term = [...loadComponent(aAddr, "float", (k * n + row) * 8), ...loadComponent(bAddr, "float", (col * n + k) * 8), WASM_OP.f64Mul];
+          const term = [
+            ...loadComponent(aAddr, "float", (k * n + row) * 8),
+            ...loadComponent(bAddr, "float", (col * n + k) * 8),
+            WASM_OP.f64Mul,
+          ];
           terms = k === 0 ? term : [...terms, ...term, WASM_OP.f64Add];
         }
         out.push(...storeComponent(addr, "float", (col * n + row) * 8, terms));
@@ -1656,11 +1834,16 @@ export function compileWasmFn(
     const vecWidth = componentCountOf(vecNode._t);
     const outRows = componentCountOf(node._t as string);
     const out = [...materializeIfNeeded(matNode), ...materializeIfNeeded(vecNode)];
-    const matAddr = nodeAddress(matNode), vecAddr = nodeAddress(vecNode);
+    const matAddr = nodeAddress(matNode),
+      vecAddr = nodeAddress(vecNode);
     for (let row = 0; row < outRows; row++) {
       let terms: number[] = [];
       for (let c = 0; c < vecWidth; c++) {
-        const term = [...loadComponent(matAddr, "float", (c * rows + row) * 8), ...loadComponent(vecAddr, "float", c * 8), WASM_OP.f64Mul];
+        const term = [
+          ...loadComponent(matAddr, "float", (c * rows + row) * 8),
+          ...loadComponent(vecAddr, "float", c * 8),
+          WASM_OP.f64Mul,
+        ];
         terms = c === 0 ? term : [...terms, ...term, WASM_OP.f64Add];
       }
       if (vecWidth < cols) {
@@ -1684,12 +1867,23 @@ export function compileWasmFn(
       throw new Error(`[RMSL] compileWasmFn: cross() needs a vec3, got width ${width}`);
     }
     const out = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
-    const aAddr = nodeAddress(a), bAddr = nodeAddress(b);
+    const aAddr = nodeAddress(a),
+      bAddr = nodeAddress(b);
     const load = (n: number, k: number) => loadComponent(n, "float", k * 8);
-    const term = (a0: number[], b0: number[], a1: number[], b1: number[]) => [...a0, ...b0, WASM_OP.f64Mul, ...a1, ...b1, WASM_OP.f64Mul, WASM_OP.f64Sub];
+    const term = (a0: number[], b0: number[], a1: number[], b1: number[]) => [
+      ...a0,
+      ...b0,
+      WASM_OP.f64Mul,
+      ...a1,
+      ...b1,
+      WASM_OP.f64Mul,
+      WASM_OP.f64Sub,
+    ];
     out.push(...storeComponent(addr, "float", 0, term(load(aAddr, 1), load(bAddr, 2), load(aAddr, 2), load(bAddr, 1))));
     out.push(...storeComponent(addr, "float", 8, term(load(aAddr, 2), load(bAddr, 0), load(aAddr, 0), load(bAddr, 2))));
-    out.push(...storeComponent(addr, "float", 16, term(load(aAddr, 0), load(bAddr, 1), load(aAddr, 1), load(bAddr, 0))));
+    out.push(
+      ...storeComponent(addr, "float", 16, term(load(aAddr, 0), load(bAddr, 1), load(aAddr, 1), load(bAddr, 0))),
+    );
     return out;
   }
 
@@ -1711,7 +1905,11 @@ export function compileWasmFn(
     const srcAddr = nodeAddress(src);
     let sumSq: number[] = [];
     for (let k = 0; k < width; k++) {
-      const term = [...loadComponent(srcAddr, kind, k * compSize), ...loadComponent(srcAddr, kind, k * compSize), WASM_OP.f64Mul];
+      const term = [
+        ...loadComponent(srcAddr, kind, k * compSize),
+        ...loadComponent(srcAddr, kind, k * compSize),
+        WASM_OP.f64Mul,
+      ];
       sumSq = k === 0 ? term : [...sumSq, ...term, WASM_OP.f64Add];
     }
     out.push(...storeComponent(lengthAddr, "float", 0, [...sumSq, WASM_OP.f64Sqrt]));
@@ -1734,10 +1932,15 @@ export function compileWasmFn(
     const width = componentCountOf(node._t as string);
     const dotAddr = addr + width * compSize;
     const out = [...materializeIfNeeded(i), ...materializeIfNeeded(n)];
-    const iAddr = nodeAddress(i), nAddr = nodeAddress(n);
+    const iAddr = nodeAddress(i),
+      nAddr = nodeAddress(n);
     let dot: number[] = [];
     for (let k = 0; k < width; k++) {
-      const term = [...loadComponent(nAddr, kind, k * compSize), ...loadComponent(iAddr, kind, k * compSize), WASM_OP.f64Mul];
+      const term = [
+        ...loadComponent(nAddr, kind, k * compSize),
+        ...loadComponent(iAddr, kind, k * compSize),
+        WASM_OP.f64Mul,
+      ];
       dot = k === 0 ? term : [...dot, ...term, WASM_OP.f64Add];
     }
     out.push(...storeComponent(dotAddr, "float", 0, dot));
@@ -1808,8 +2011,14 @@ export function compileWasmFn(
     if (kind === "float") {
       return [...walkExpr(a), ...walkExpr(b), pick === "min" ? WASM_OP.f64Min : WASM_OP.f64Max];
     }
-    const cmp = kind === "uint" ? (pick === "min" ? WASM_OP.i32LtU : WASM_OP.i32GtU)
-      : (pick === "min" ? WASM_OP.i32LtS : WASM_OP.i32GtS);
+    const cmp =
+      kind === "uint"
+        ? pick === "min"
+          ? WASM_OP.i32LtU
+          : WASM_OP.i32GtU
+        : pick === "min"
+          ? WASM_OP.i32LtS
+          : WASM_OP.i32GtS;
     return selectExpr(walkExpr(a), walkExpr(b), [...walkExpr(a), ...walkExpr(b), cmp]);
   }
 
@@ -1820,8 +2029,14 @@ export function compileWasmFn(
    * bytes instead. */
   function minMaxBytes(a: number[], b: number[], kind: ScalarKind, pick: "min" | "max"): number[] {
     if (kind === "float") return [...a, ...b, pick === "min" ? WASM_OP.f64Min : WASM_OP.f64Max];
-    const cmp = kind === "uint" ? (pick === "min" ? WASM_OP.i32LtU : WASM_OP.i32GtU)
-      : (pick === "min" ? WASM_OP.i32LtS : WASM_OP.i32GtS);
+    const cmp =
+      kind === "uint"
+        ? pick === "min"
+          ? WASM_OP.i32LtU
+          : WASM_OP.i32GtU
+        : pick === "min"
+          ? WASM_OP.i32LtS
+          : WASM_OP.i32GtS;
     return selectExpr(a, b, [...a, ...b, cmp]);
   }
 
@@ -1841,8 +2056,14 @@ export function compileWasmFn(
     const computeAndTee = [...clampedT, WASM_OP.localTee, ...wasmUleb128(tSlot)];
     const getT = [WASM_OP.localGet, ...wasmUleb128(tSlot)];
     return [
-      ...computeAndTee, ...getT, WASM_OP.f64Mul,
-      ...f64ConstBytes(3), ...f64ConstBytes(2), ...getT, WASM_OP.f64Mul, WASM_OP.f64Sub,
+      ...computeAndTee,
+      ...getT,
+      WASM_OP.f64Mul,
+      ...f64ConstBytes(3),
+      ...f64ConstBytes(2),
+      ...getT,
+      WASM_OP.f64Mul,
+      WASM_OP.f64Sub,
       WASM_OP.f64Mul,
     ];
   }
@@ -1851,9 +2072,13 @@ export function compileWasmFn(
    * an int/uint) on the stack. */
   function walkExpr(node: any): number[] {
     switch (node.type) {
-      case "float": return f64ConstBytes(node.value);
-      case "int": case "uint": return i32ConstBytes(node.value);
-      case "bool": return i32ConstBytes(node.value ? 1 : 0);
+      case "float":
+        return f64ConstBytes(node.value);
+      case "int":
+      case "uint":
+        return i32ConstBytes(node.value);
+      case "bool":
+        return i32ConstBytes(node.value ? 1 : 0);
       case "var":
         if (fnParamNames.has(node.value.varName)) {
           return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`param:${node.value.varName}`))];
@@ -1877,23 +2102,35 @@ export function compileWasmFn(
       case "builtinFragDepth":
         return loadComponent(fragDepthAddress!, "float", 0);
 
-      case "add": return binaryArith(node, WASM_OP.f64Add, WASM_OP.i32Add);
-      case "sub": return binaryArith(node, WASM_OP.f64Sub, WASM_OP.i32Sub);
-      case "mul": return binaryArith(node, WASM_OP.f64Mul, WASM_OP.i32Mul);
+      case "add":
+        return binaryArith(node, WASM_OP.f64Add, WASM_OP.i32Add);
+      case "sub":
+        return binaryArith(node, WASM_OP.f64Sub, WASM_OP.i32Sub);
+      case "mul":
+        return binaryArith(node, WASM_OP.f64Mul, WASM_OP.i32Mul);
       case "div": {
         const kind = scalarKindOf(node.params[0]._t);
         if (kind === "float") return binaryArith(node, WASM_OP.f64Div, WASM_OP.f64Div);
-        return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), kind === "uint" ? WASM_OP.i32DivU : WASM_OP.i32DivS];
+        return [
+          ...walkExpr(node.params[0]),
+          ...walkExpr(node.params[1]),
+          kind === "uint" ? WASM_OP.i32DivU : WASM_OP.i32DivS,
+        ];
       }
       case "mod": {
         const kind = scalarKindOf(node.params[0]._t);
         if (kind !== "float") {
-          return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), kind === "uint" ? WASM_OP.i32RemU : WASM_OP.i32RemS];
+          return [
+            ...walkExpr(node.params[0]),
+            ...walkExpr(node.params[1]),
+            kind === "uint" ? WASM_OP.i32RemU : WASM_OP.i32RemS,
+          ];
         }
         // Floored, matching GLSL's mod() (JS backend's "mod", not "imod"):
         // a - b * floor(a / b). a and b are each evaluated twice, same
         // tradeoff as selectExpr above.
-        const a = node.params[0], b = node.params[1];
+        const a = node.params[0],
+          b = node.params[1];
         return [
           ...walkExpr(a),
           ...walkExpr(b),
@@ -1905,8 +2142,10 @@ export function compileWasmFn(
           WASM_OP.f64Sub,
         ];
       }
-      case "min": return minOrMax(node.params[0], node.params[1], scalarKindOf(node.params[0]._t), "min");
-      case "max": return minOrMax(node.params[0], node.params[1], scalarKindOf(node.params[0]._t), "max");
+      case "min":
+        return minOrMax(node.params[0], node.params[1], scalarKindOf(node.params[0]._t), "min");
+      case "max":
+        return minOrMax(node.params[0], node.params[1], scalarKindOf(node.params[0]._t), "max");
 
       case "clamp": {
         // min(max(x, lo), hi) — kind-aware like min/max themselves, since
@@ -1922,7 +2161,15 @@ export function compileWasmFn(
         // is evaluated twice, the same tradeoff `mod` below already
         // accepts for its own two operands.
         const [a, b, t] = node.params;
-        return [...walkExpr(a), ...walkExpr(t), ...walkExpr(b), ...walkExpr(a), WASM_OP.f64Sub, WASM_OP.f64Mul, WASM_OP.f64Add];
+        return [
+          ...walkExpr(a),
+          ...walkExpr(t),
+          ...walkExpr(b),
+          ...walkExpr(a),
+          WASM_OP.f64Sub,
+          WASM_OP.f64Mul,
+          WASM_OP.f64Add,
+        ];
       }
       case "step": {
         // x < edge ? 0 : 1 — the same formula compileJS uses. Float-only.
@@ -1955,18 +2202,23 @@ export function compileWasmFn(
         const zero = kind === "float" ? f64ConstBytes(0) : i32ConstBytes(0);
         const one = kind === "float" ? f64ConstBytes(1) : i32ConstBytes(1);
         const minusOne = kind === "float" ? f64ConstBytes(-1) : i32ConstBytes(-1);
-        const gtZero = kind === "float"
-          ? [...walkExpr(x), ...f64ConstBytes(0), WASM_OP.f64Gt]
-          : [...walkExpr(x), ...i32ConstBytes(0), (kind === "uint" ? WASM_OP.i32GtU : WASM_OP.i32GtS)];
-        const ltZero = kind === "float"
-          ? [...walkExpr(x), ...f64ConstBytes(0), WASM_OP.f64Lt]
-          : [...walkExpr(x), ...i32ConstBytes(0), (kind === "uint" ? WASM_OP.i32LtU : WASM_OP.i32LtS)];
+        const gtZero =
+          kind === "float"
+            ? [...walkExpr(x), ...f64ConstBytes(0), WASM_OP.f64Gt]
+            : [...walkExpr(x), ...i32ConstBytes(0), kind === "uint" ? WASM_OP.i32GtU : WASM_OP.i32GtS];
+        const ltZero =
+          kind === "float"
+            ? [...walkExpr(x), ...f64ConstBytes(0), WASM_OP.f64Lt]
+            : [...walkExpr(x), ...i32ConstBytes(0), kind === "uint" ? WASM_OP.i32LtU : WASM_OP.i32LtS];
         const positiveOrZero = selectExpr(one, zero, gtZero);
         return selectExpr(minusOne, positiveOrZero, ltZero);
       }
-      case "floor": return [...walkExpr(node.params[0]), WASM_OP.f64Floor];
-      case "ceil": return [...walkExpr(node.params[0]), WASM_OP.f64Ceil];
-      case "trunc": return [...walkExpr(node.params[0]), WASM_OP.f64Trunc];
+      case "floor":
+        return [...walkExpr(node.params[0]), WASM_OP.f64Floor];
+      case "ceil":
+        return [...walkExpr(node.params[0]), WASM_OP.f64Ceil];
+      case "trunc":
+        return [...walkExpr(node.params[0]), WASM_OP.f64Trunc];
       case "fract": {
         const x = node.params[0];
         return [...walkExpr(x), ...walkExpr(x), WASM_OP.f64Floor, WASM_OP.f64Sub];
@@ -1976,38 +2228,70 @@ export function compileWasmFn(
         // round-half-to-even, so this is floor(x + 0.5), not that opcode.
         return [...walkExpr(node.params[0]), ...f64ConstBytes(0.5), WASM_OP.f64Add, WASM_OP.f64Floor];
       }
-      case "sqrt": return [...walkExpr(node.params[0]), WASM_OP.f64Sqrt];
-      case "inverseSqrt": return [...f64ConstBytes(1), ...walkExpr(node.params[0]), WASM_OP.f64Sqrt, WASM_OP.f64Div];
-      case "exp2": return [...f64ConstBytes(2), ...walkExpr(node.params[0]), ...callImport("pow")];
+      case "sqrt":
+        return [...walkExpr(node.params[0]), WASM_OP.f64Sqrt];
+      case "inverseSqrt":
+        return [...f64ConstBytes(1), ...walkExpr(node.params[0]), WASM_OP.f64Sqrt, WASM_OP.f64Div];
+      case "exp2":
+        return [...f64ConstBytes(2), ...walkExpr(node.params[0]), ...callImport("pow")];
 
-      case "sin": case "cos": case "tan":
-      case "asin": case "acos": case "atan":
-      case "sinh": case "cosh": case "tanh":
-      case "asinh": case "acosh": case "atanh":
-      case "exp": case "log": case "log2":
+      case "sin":
+      case "cos":
+      case "tan":
+      case "asin":
+      case "acos":
+      case "atan":
+      case "sinh":
+      case "cosh":
+      case "tanh":
+      case "asinh":
+      case "acosh":
+      case "atanh":
+      case "exp":
+      case "log":
+      case "log2":
         return [...walkExpr(node.params[0]), ...callImport(node.type)];
-      case "pow": case "atan2":
+      case "pow":
+      case "atan2":
         return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), ...callImport(node.type)];
 
-      case "lessThan": return comparison(node, WASM_OP.f64Lt, WASM_OP.i32LtS, WASM_OP.i32LtU);
-      case "greaterThan": return comparison(node, WASM_OP.f64Gt, WASM_OP.i32GtS, WASM_OP.i32GtU);
-      case "lessThanEqual": return comparison(node, WASM_OP.f64Le, WASM_OP.i32LeS, WASM_OP.i32LeU);
-      case "greaterThanEqual": return comparison(node, WASM_OP.f64Ge, WASM_OP.i32GeS, WASM_OP.i32GeU);
-      case "equal": return comparison(node, WASM_OP.f64Eq, WASM_OP.i32Eq, WASM_OP.i32Eq);
-      case "notEqual": return comparison(node, WASM_OP.f64Ne, WASM_OP.i32Ne, WASM_OP.i32Ne);
+      case "lessThan":
+        return comparison(node, WASM_OP.f64Lt, WASM_OP.i32LtS, WASM_OP.i32LtU);
+      case "greaterThan":
+        return comparison(node, WASM_OP.f64Gt, WASM_OP.i32GtS, WASM_OP.i32GtU);
+      case "lessThanEqual":
+        return comparison(node, WASM_OP.f64Le, WASM_OP.i32LeS, WASM_OP.i32LeU);
+      case "greaterThanEqual":
+        return comparison(node, WASM_OP.f64Ge, WASM_OP.i32GeS, WASM_OP.i32GeU);
+      case "equal":
+        return comparison(node, WASM_OP.f64Eq, WASM_OP.i32Eq, WASM_OP.i32Eq);
+      case "notEqual":
+        return comparison(node, WASM_OP.f64Ne, WASM_OP.i32Ne, WASM_OP.i32Ne);
 
-      case "and": return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), WASM_OP.i32And];
-      case "or": return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), WASM_OP.i32Or];
-      case "not": return [...walkExpr(node.params[0]), WASM_OP.i32Eqz];
+      case "and":
+        return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), WASM_OP.i32And];
+      case "or":
+        return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), WASM_OP.i32Or];
+      case "not":
+        return [...walkExpr(node.params[0]), WASM_OP.i32Eqz];
 
-      case "bitAnd": return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), WASM_OP.i32And];
-      case "bitOr": return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), WASM_OP.i32Or];
-      case "bitXor": return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), WASM_OP.i32Xor];
-      case "bitNot": return [...walkExpr(node.params[0]), ...i32ConstBytes(-1), WASM_OP.i32Xor];
-      case "shiftLeft": return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), WASM_OP.i32Shl];
+      case "bitAnd":
+        return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), WASM_OP.i32And];
+      case "bitOr":
+        return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), WASM_OP.i32Or];
+      case "bitXor":
+        return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), WASM_OP.i32Xor];
+      case "bitNot":
+        return [...walkExpr(node.params[0]), ...i32ConstBytes(-1), WASM_OP.i32Xor];
+      case "shiftLeft":
+        return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), WASM_OP.i32Shl];
       case "shiftRight": {
         const kind = scalarKindOf(node.params[0]._t);
-        return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), kind === "uint" ? WASM_OP.i32ShrU : WASM_OP.i32ShrS];
+        return [
+          ...walkExpr(node.params[0]),
+          ...walkExpr(node.params[1]),
+          kind === "uint" ? WASM_OP.i32ShrU : WASM_OP.i32ShrS,
+        ];
       }
 
       case "construct": {
@@ -2034,20 +2318,27 @@ export function compileWasmFn(
       case "swizzle": {
         const pattern = node.value as string;
         if (pattern.length !== 1) {
-          throw new Error('[RMSL] compileWasmFn: unsupported node type in expression position: "swizzle" (multi-component)');
+          throw new Error(
+            '[RMSL] compileWasmFn: unsupported node type in expression position: "swizzle" (multi-component)',
+          );
         }
         return readComponent(node.params[0], COMPONENT_INDEX[pattern]);
       }
 
       case "dot": {
-        const a = node.params[0], b = node.params[1];
+        const a = node.params[0],
+          b = node.params[1];
         const width = componentCountOf(a._t);
         const pre = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
         const aAddr = nodeAddress(a);
         const bAddr = nodeAddress(b);
         let acc: number[] = [];
         for (let k = 0; k < width; k++) {
-          const term = [...loadComponent(aAddr, "float", k * 8), ...loadComponent(bAddr, "float", k * 8), WASM_OP.f64Mul];
+          const term = [
+            ...loadComponent(aAddr, "float", k * 8),
+            ...loadComponent(bAddr, "float", k * 8),
+            WASM_OP.f64Mul,
+          ];
           acc = k === 0 ? term : [...acc, ...term, WASM_OP.f64Add];
         }
         return [...pre, ...acc];
@@ -2072,14 +2363,19 @@ export function compileWasmFn(
         return [...pre, ...sumSq, WASM_OP.f64Sqrt];
       }
       case "distance": {
-        const a = node.params[0], b = node.params[1];
+        const a = node.params[0],
+          b = node.params[1];
         const width = componentCountOf(a._t);
         const pre = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
         const aAddr = nodeAddress(a);
         const bAddr = nodeAddress(b);
         let sumSq: number[] = [];
         for (let k = 0; k < width; k++) {
-          const diff = [...loadComponent(aAddr, "float", k * 8), ...loadComponent(bAddr, "float", k * 8), WASM_OP.f64Sub];
+          const diff = [
+            ...loadComponent(aAddr, "float", k * 8),
+            ...loadComponent(bAddr, "float", k * 8),
+            WASM_OP.f64Sub,
+          ];
           const term = [...diff, ...diff, WASM_OP.f64Mul];
           sumSq = k === 0 ? term : [...sumSq, ...term, WASM_OP.f64Add];
         }
@@ -2111,7 +2407,13 @@ export function compileWasmFn(
    * jumping back to `cond` directly, which would skip a `for`'s update
    * clause entirely.
    */
-  function emitLoop(initBytes: number[], condNode: any, bodyNode: any, updateNode: any | null, depth: number): number[] {
+  function emitLoop(
+    initBytes: number[],
+    condNode: any,
+    bodyNode: any,
+    updateNode: any | null,
+    depth: number,
+  ): number[] {
     const breakDepth = depth + 1;
     const continueDepth = depth + 3;
     loopStack.push({ breakDepth, continueDepth });
@@ -2121,14 +2423,21 @@ export function compileWasmFn(
     loopStack.pop();
     return [
       ...initBytes,
-      WASM_OP.block, WASM_BLOCKTYPE_VOID,
-      WASM_OP.loop, WASM_BLOCKTYPE_VOID,
-      ...condBytes, WASM_OP.i32Eqz, WASM_OP.brIf, ...wasmUleb128(1),
-      WASM_OP.block, WASM_BLOCKTYPE_VOID,
+      WASM_OP.block,
+      WASM_BLOCKTYPE_VOID,
+      WASM_OP.loop,
+      WASM_BLOCKTYPE_VOID,
+      ...condBytes,
+      WASM_OP.i32Eqz,
+      WASM_OP.brIf,
+      ...wasmUleb128(1),
+      WASM_OP.block,
+      WASM_BLOCKTYPE_VOID,
       ...bodyBytes,
       WASM_OP.end,
       ...updateBytes,
-      WASM_OP.br, ...wasmUleb128(0),
+      WASM_OP.br,
+      ...wasmUleb128(0),
       WASM_OP.end,
       WASM_OP.end,
     ];
@@ -2169,7 +2478,14 @@ export function compileWasmFn(
           const out = [...materializeIfNeeded(rhs)];
           const rhsAddr = nodeAddress(rhs);
           [...pattern].forEach((ch, i) => {
-            out.push(...storeComponent(baseAddr, kind, COMPONENT_INDEX[ch] * compSize, loadComponent(rhsAddr, kind, i * compSize)));
+            out.push(
+              ...storeComponent(
+                baseAddr,
+                kind,
+                COMPONENT_INDEX[ch] * compSize,
+                loadComponent(rhsAddr, kind, i * compSize),
+              ),
+            );
           });
           return out;
         }
@@ -2231,7 +2547,9 @@ export function compileWasmFn(
         const thenBytes = walkStmt(node.params[1], depth + 1);
         const elseNode = node.params[2];
         return [
-          ...cond, WASM_OP.if_, WASM_BLOCKTYPE_VOID,
+          ...cond,
+          WASM_OP.if_,
+          WASM_BLOCKTYPE_VOID,
           ...thenBytes,
           ...(elseNode ? [WASM_OP.else_, ...walkStmt(elseNode, depth + 1)] : []),
           WASM_OP.end,
@@ -2267,7 +2585,7 @@ export function compileWasmFn(
         // on the stack at all. `Discard`'s real "no fragment output"
         // meaning still has no representation yet; it compiles identically
         // to `Return()` either way.
-        const sentinel = needsResult ? [] : (resultKind === "float" ? f64ConstBytes(0) : i32ConstBytes(0));
+        const sentinel = needsResult ? [] : resultKind === "float" ? f64ConstBytes(0) : i32ConstBytes(0);
         return [...sentinel, WASM_OP.br, ...wasmUleb128(depth - EXIT_BLOCK_DEPTH)];
       }
       default:
@@ -2304,9 +2622,13 @@ export function compileWasmFn(
   // statements) is just that expression. Both are valid roots here.
   // Top-level statements compile at EXIT_BLOCK_DEPTH (1), since the whole
   // body is wrapped in the one exit block "return"/"discard" branch to.
-  const bodyBytes = root.type === "seq"
-    ? [...(root.params.slice(0, -1) as any[]).flatMap((s: any) => walkStmt(s, EXIT_BLOCK_DEPTH)), ...finalValueBytes(root.params[root.params.length - 1])]
-    : finalValueBytes(root);
+  const bodyBytes =
+    root.type === "seq"
+      ? [
+          ...(root.params.slice(0, -1) as any[]).flatMap((s: any) => walkStmt(s, EXIT_BLOCK_DEPTH)),
+          ...finalValueBytes(root.params[root.params.length - 1]),
+        ]
+      : finalValueBytes(root);
   // Wrapping unconditionally (rather than only when "return"/"discard"
   // appear) costs 3 bytes and is a no-op when neither is used — the exact
   // same bytes run inside a block nothing branches out of — so there's one
@@ -2341,7 +2663,7 @@ export function compileWasmFn(
     return [...wasmStrBytes("math"), ...wasmStrBytes(name), 0x00, ...wasmUleb128(typeIdx)];
   });
 
-  const paramTypes = params.map(p => [wasmTypeOf(scalarKindOf(p.shaderType))]);
+  const paramTypes = params.map((p) => [wasmTypeOf(scalarKindOf(p.shaderType))]);
   // `needsResult`: the function's own value (if any) and everything else it
   // produces all live in memory, read back after the call — the exported
   // function itself declares zero results, not one.
@@ -2390,7 +2712,12 @@ export function compileWasmFn(
   let drawTypeIdx: number | undefined;
   let drawFuncBody: number[] | undefined;
   const drawComponentCount = root._t === "void" ? 0 : componentCountOf(root._t as string);
-  const drawComponentKind: ScalarKind = root._t === "void" ? "float" : (isAggregate(root._t as string) ? elementKindOf(root._t as string) : scalarKindOf(root._t as string));
+  const drawComponentKind: ScalarKind =
+    root._t === "void"
+      ? "float"
+      : isAggregate(root._t as string)
+        ? elementKindOf(root._t as string)
+        : scalarKindOf(root._t as string);
   if (root._t !== "void") {
     const drawFuncIndex = mainFuncIndex + 1;
     const widthIdx = params.length;
@@ -2403,46 +2730,107 @@ export function compileWasmFn(
     const compSize = componentSizeOf(drawComponentKind);
     const passThroughArgs = params.map((_, i) => [WASM_OP.localGet, ...wasmUleb128(i)]).flat();
     const callMain = [...passThroughArgs, WASM_OP.call, ...wasmUleb128(mainFuncIndex)];
-    const writeFragCoord = fragCoordAddress === undefined ? [] : [
-      ...storeComponent(fragCoordAddress, "float", 0, [...getX, WASM_OP.f64ConvertI32S, ...f64ConstBytes(0.5), WASM_OP.f64Add]),
-      ...storeComponent(fragCoordAddress, "float", 8, [...getY, WASM_OP.f64ConvertI32S, ...f64ConstBytes(0.5), WASM_OP.f64Add]),
-    ];
+    const writeFragCoord =
+      fragCoordAddress === undefined
+        ? []
+        : [
+            ...storeComponent(fragCoordAddress, "float", 0, [
+              ...getX,
+              WASM_OP.f64ConvertI32S,
+              ...f64ConstBytes(0.5),
+              WASM_OP.f64Add,
+            ]),
+            ...storeComponent(fragCoordAddress, "float", 8, [
+              ...getY,
+              WASM_OP.f64ConvertI32S,
+              ...f64ConstBytes(0.5),
+              WASM_OP.f64Add,
+            ]),
+          ];
     // Byte offset of this pixel's first component within the draw buffer:
     // (y*width + x) * componentCount * componentSize — `width` is
     // `draw`'s own runtime argument now, not a compile-time constant.
     const pixelByteOffset = [
-      ...getY, WASM_OP.localGet, ...wasmUleb128(widthIdx), WASM_OP.i32Mul, ...getX, WASM_OP.i32Add,
-      ...i32ConstBytes(drawComponentCount * compSize), WASM_OP.i32Mul,
+      ...getY,
+      WASM_OP.localGet,
+      ...wasmUleb128(widthIdx),
+      WASM_OP.i32Mul,
+      ...getX,
+      WASM_OP.i32Add,
+      ...i32ConstBytes(drawComponentCount * compSize),
+      WASM_OP.i32Mul,
     ];
-    const destAddr = (k: number) => [WASM_OP.localGet, ...wasmUleb128(bufferBaseIdx), ...pixelByteOffset, WASM_OP.i32Add, ...i32ConstBytes(k * compSize), WASM_OP.i32Add];
+    const destAddr = (k: number) => [
+      WASM_OP.localGet,
+      ...wasmUleb128(bufferBaseIdx),
+      ...pixelByteOffset,
+      WASM_OP.i32Add,
+      ...i32ConstBytes(k * compSize),
+      WASM_OP.i32Add,
+    ];
     const copyResult: number[] = needsResult
-      ? [...callMain, ...Array.from({ length: drawComponentCount }, (_, k) =>
-        storeDynamic(destAddr(k), drawComponentKind, loadComponent(valueAddress!, drawComponentKind, k * compSize))).flat()]
+      ? [
+          ...callMain,
+          ...Array.from({ length: drawComponentCount }, (_, k) =>
+            storeDynamic(destAddr(k), drawComponentKind, loadComponent(valueAddress!, drawComponentKind, k * compSize)),
+          ).flat(),
+        ]
       : storeDynamic(destAddr(0), drawComponentKind, callMain); // always exactly 1 component here
     const perPixel = [...writeFragCoord, ...copyResult];
-    const innerLoop = [ // x: 0..width
-      WASM_OP.block, WASM_BLOCKTYPE_VOID,
-      WASM_OP.loop, WASM_BLOCKTYPE_VOID,
-      ...getX, WASM_OP.localGet, ...wasmUleb128(widthIdx), WASM_OP.i32GeS, WASM_OP.brIf, ...wasmUleb128(1),
+    const innerLoop = [
+      // x: 0..width
+      WASM_OP.block,
+      WASM_BLOCKTYPE_VOID,
+      WASM_OP.loop,
+      WASM_BLOCKTYPE_VOID,
+      ...getX,
+      WASM_OP.localGet,
+      ...wasmUleb128(widthIdx),
+      WASM_OP.i32GeS,
+      WASM_OP.brIf,
+      ...wasmUleb128(1),
       ...perPixel,
-      ...getX, ...i32ConstBytes(1), WASM_OP.i32Add, WASM_OP.localSet, ...wasmUleb128(xIdx),
-      WASM_OP.br, ...wasmUleb128(0),
+      ...getX,
+      ...i32ConstBytes(1),
+      WASM_OP.i32Add,
+      WASM_OP.localSet,
+      ...wasmUleb128(xIdx),
+      WASM_OP.br,
+      ...wasmUleb128(0),
       WASM_OP.end,
       WASM_OP.end,
     ];
-    const outerLoop = [ // y: 0..height
-      WASM_OP.block, WASM_BLOCKTYPE_VOID,
-      WASM_OP.loop, WASM_BLOCKTYPE_VOID,
-      ...getY, WASM_OP.localGet, ...wasmUleb128(heightIdx), WASM_OP.i32GeS, WASM_OP.brIf, ...wasmUleb128(1),
-      ...i32ConstBytes(0), WASM_OP.localSet, ...wasmUleb128(xIdx),
+    const outerLoop = [
+      // y: 0..height
+      WASM_OP.block,
+      WASM_BLOCKTYPE_VOID,
+      WASM_OP.loop,
+      WASM_BLOCKTYPE_VOID,
+      ...getY,
+      WASM_OP.localGet,
+      ...wasmUleb128(heightIdx),
+      WASM_OP.i32GeS,
+      WASM_OP.brIf,
+      ...wasmUleb128(1),
+      ...i32ConstBytes(0),
+      WASM_OP.localSet,
+      ...wasmUleb128(xIdx),
       ...innerLoop,
-      ...getY, ...i32ConstBytes(1), WASM_OP.i32Add, WASM_OP.localSet, ...wasmUleb128(yIdx),
-      WASM_OP.br, ...wasmUleb128(0),
+      ...getY,
+      ...i32ConstBytes(1),
+      WASM_OP.i32Add,
+      WASM_OP.localSet,
+      ...wasmUleb128(yIdx),
+      WASM_OP.br,
+      ...wasmUleb128(0),
       WASM_OP.end,
       WASM_OP.end,
     ];
     const drawCode = [...i32ConstBytes(0), WASM_OP.localSet, ...wasmUleb128(yIdx), ...outerLoop];
-    const drawLocalsDecl = wasmVec([[...wasmUleb128(1), WASM_I32], [...wasmUleb128(1), WASM_I32]]);
+    const drawLocalsDecl = wasmVec([
+      [...wasmUleb128(1), WASM_I32],
+      [...wasmUleb128(1), WASM_I32],
+    ]);
     drawFuncBody = [...drawLocalsDecl, ...drawCode, WASM_OP.end];
     drawTypeIdx = typeEntries.length;
     typeEntries.push([WASM_FUNC, ...wasmVec([...paramTypes, [WASM_I32], [WASM_I32], [WASM_I32]]), ...wasmVec([])]);
@@ -2450,7 +2838,10 @@ export function compileWasmFn(
 
   const typeSection = wasmSection(1, wasmVec(typeEntries));
   const importSection = importEntries.length > 0 ? wasmSection(2, wasmVec(importEntries)) : [];
-  const funcSection = wasmSection(3, wasmVec(drawTypeIdx === undefined ? [[mainTypeIdx]] : [[mainTypeIdx], [drawTypeIdx]]));
+  const funcSection = wasmSection(
+    3,
+    wasmVec(drawTypeIdx === undefined ? [[mainTypeIdx]] : [[mainTypeIdx], [drawTypeIdx]]),
+  );
   const memoryPages = Math.max(1, Math.ceil(memCursor / 65536));
   const memorySection = wasmSection(5, wasmVec([[0x00, ...wasmUleb128(memoryPages)]]));
   const nameBytes = wasmStrBytes(options.name);
@@ -2463,15 +2854,21 @@ export function compileWasmFn(
   // One group per local rather than run-length-compressing consecutive
   // same-type locals — larger than it needs to be, but every group is
   // independently correct, and there's no shared-type run to get wrong.
-  const localsDecl = wasmVec(localSlots.map(name => [...wasmUleb128(1), wasmTypeOf(localType.get(name)!)]));
+  const localsDecl = wasmVec(localSlots.map((name) => [...wasmUleb128(1), wasmTypeOf(localType.get(name)!)]));
   const funcBody = [...localsDecl, ...code, WASM_OP.end];
   const codeEntries = [[...wasmUleb128(funcBody.length), ...funcBody]];
   if (drawFuncBody !== undefined) codeEntries.push([...wasmUleb128(drawFuncBody.length), ...drawFuncBody]);
   const codeSection = wasmSection(10, wasmVec(codeEntries));
 
   const bytes = new Uint8Array([
-    0x00, 0x61, 0x73, 0x6d, // "\0asm"
-    0x01, 0x00, 0x00, 0x00, // version 1
+    0x00,
+    0x61,
+    0x73,
+    0x6d, // "\0asm"
+    0x01,
+    0x00,
+    0x00,
+    0x00, // version 1
     ...typeSection,
     ...importSection,
     ...funcSection,
@@ -2481,7 +2878,10 @@ export function compileWasmFn(
   ]);
 
   return {
-    bytes, params: [...params, ...memoryParams], resultType: root._t, textureHeapBase: memCursor,
+    bytes,
+    params: [...params, ...memoryParams],
+    resultType: root._t,
+    textureHeapBase: memCursor,
     draw: drawTypeIdx === undefined ? undefined : { componentCount: drawComponentCount, kind: drawComponentKind },
   };
 }
@@ -2490,7 +2890,13 @@ export function compileWasmFn(
  * `shaderType` to pick the storage kind/width — the JS-side half of the
  * linear-memory design, run before every call since uniform/param values
  * can change between calls. */
-function writeAggregateToMemory(view: DataView, address: number, shaderType: ShaderType, value: any, narrow?: boolean): void {
+function writeAggregateToMemory(
+  view: DataView,
+  address: number,
+  shaderType: ShaderType,
+  value: any,
+  narrow?: boolean,
+): void {
   const kind = elementKindOf(shaderType);
   // A `narrow` (GPU-shaped) uniform's float component is WGSL's 4-byte
   // f32, not this backend's usual 8-byte f64 — real, lossy rounding of the
@@ -2543,7 +2949,9 @@ function readScalarFromMemory(view: DataView, address: number, shaderType: Shade
 }
 
 function readValueFromMemory(view: DataView, address: number, shaderType: ShaderType): unknown {
-  return isAggregate(shaderType) ? readAggregateFromMemory(view, address, shaderType) : readScalarFromMemory(view, address, shaderType);
+  return isAggregate(shaderType)
+    ? readAggregateFromMemory(view, address, shaderType)
+    : readScalarFromMemory(view, address, shaderType);
 }
 
 const WRAP_MODE_CODE: Record<JsTextureWrap, number> = { clamp: 0, repeat: 1, mirror: 2 };
@@ -2601,15 +3009,14 @@ export type WasmCallable = ((ctx: JsShaderContext) => number | boolean | JsShade
 /**
  * Compile an Fn to a `WasmCallable` (see its own doc comment).
  */
-export function compileWasm(
-  fn: (...args: any[]) => Node<ShaderType>,
-  options: CompileWasmFnOptions,
-): WasmCallable {
+export function compileWasm(fn: (...args: any[]) => Node<ShaderType>, options: CompileWasmFnOptions): WasmCallable {
   const { bytes, params, resultType, textureHeapBase, draw } = compileWasmFn(fn, options);
   // A module that imports nothing ignores an unused "math" namespace, so
   // this is passed unconditionally rather than only when needed. `Math`'s
   // own methods have the same names, so it's handed over directly.
-  const instance = new WebAssembly.Instance(new WebAssembly.Module(bytes.buffer as ArrayBuffer), { math: Math as unknown as WebAssembly.ModuleImports });
+  const instance = new WebAssembly.Instance(new WebAssembly.Module(bytes.buffer as ArrayBuffer), {
+    math: Math as unknown as WebAssembly.ModuleImports,
+  });
   const wasmMain = instance.exports[options.name] as (...args: number[]) => number;
   const wasmDraw = draw ? (instance.exports.draw as (...args: number[]) => void) : undefined;
   const memory = instance.exports.memory as WebAssembly.Memory;
@@ -2619,9 +3026,22 @@ export function compileWasm(
   let view = new DataView(memory.buffer);
   // Fixed for this compiled function — never varies call to call — so
   // computed once rather than re-scanning `params` on every call.
-  const outputParams = params.filter((p): p is Extract<WasmParam, { kind: "outputMemory" | "varyingOutputMemory" | "positionMemory" | "fragDepthMemory" | "valueMemory" }> =>
-    p.kind === "outputMemory" || p.kind === "varyingOutputMemory" || p.kind === "positionMemory" || p.kind === "fragDepthMemory" || p.kind === "valueMemory");
-  const textureParams = params.filter((p): p is Extract<WasmParam, { kind: "textureMemory" }> => p.kind === "textureMemory");
+  const outputParams = params.filter(
+    (
+      p,
+    ): p is Extract<
+      WasmParam,
+      { kind: "outputMemory" | "varyingOutputMemory" | "positionMemory" | "fragDepthMemory" | "valueMemory" }
+    > =>
+      p.kind === "outputMemory" ||
+      p.kind === "varyingOutputMemory" ||
+      p.kind === "positionMemory" ||
+      p.kind === "fragDepthMemory" ||
+      p.kind === "valueMemory",
+  );
+  const textureParams = params.filter(
+    (p): p is Extract<WasmParam, { kind: "textureMemory" }> => p.kind === "textureMemory",
+  );
   // Per-slot cache for the texture heap below: which JsTextureData object
   // (by reference) currently occupies each slot's region, and the byte
   // size that layout was packed for. `null` forces the first call to pack
@@ -2646,7 +3066,7 @@ export function compileWasm(
     // existed.
     let textureHeapEnd = textureHeapBase;
     if (textureParams.length > 0) {
-      const textures = textureParams.map(p => (ctx.textures as any)?.[p.slot] as JsTextureData);
+      const textures = textureParams.map((p) => (ctx.textures as any)?.[p.slot] as JsTextureData);
       const sizes = textures.map(textureByteSize);
       const heapOffsets: number[] = [];
       let heapCursor = textureHeapBase;
@@ -2768,7 +3188,9 @@ export function compileWasm(
 
   callable.draw = (ctx: JsShaderContext, width: number, height: number): Float64Array | Int32Array | Uint32Array => {
     if (!draw || !wasmDraw) {
-      throw new Error("[RMSL] compileWasm: this function produces no value to render — draw() needs a non-\"void\" result.");
+      throw new Error(
+        '[RMSL] compileWasm: this function produces no value to render — draw() needs a non-"void" result.',
+      );
     }
     const { args, textureHeapEnd } = marshalInputs(ctx);
     // The draw buffer starts right after wherever this call's texture heap

@@ -41,7 +41,7 @@ that made the change. Expect more cases like `.node()`.
 Two errors of the same family were already found by checking against `origin/main`
 rather than memory:
 
-- A vertex result becoming the position is *pre-existing*; only the check is new.
+- A vertex result becoming the position is _pre-existing_; only the check is new.
 - The implicit fragment colour output already existed on the WGSL side; only GLSL
   gained it, so that change is the two backends agreeing.
 

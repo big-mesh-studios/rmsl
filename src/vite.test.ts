@@ -62,17 +62,13 @@ describe("precompileShaders", () => {
   it("throws when the module has no default export", async () => {
     const plugin = asPlugin(precompileShaders({ include: "no-default.ts" }));
     const id = `${SHADERS_PATH.replace("shaders.ts", "")}no-default.ts`;
-    await expect(plugin.transform("export const x = 1;\n", id)).rejects.toThrow(
-      /must have a default export/,
-    );
+    await expect(plugin.transform("export const x = 1;\n", id)).rejects.toThrow(/must have a default export/);
   });
 
   it("throws when the default export is not JSON-serializable", async () => {
     const plugin = asPlugin(precompileShaders({ include: "fn-default.ts" }));
     const id = `${SHADERS_PATH.replace("shaders.ts", "")}fn-default.ts`;
-    await expect(plugin.transform("export default () => 1;\n", id)).rejects.toThrow(
-      /not JSON-serializable/,
-    );
+    await expect(plugin.transform("export default () => 1;\n", id)).rejects.toThrow(/not JSON-serializable/);
   });
 });
 
@@ -102,9 +98,7 @@ describe("precompileJS", () => {
 
     // `uniform("vec3")` inside the fixture gets the first auto slot, _rmsl_u0.
     expect(mod.brightness({ uniforms: { _rmsl_u0: [1, 2, 3] } })).toEqual([0.5, 1, 1.5]);
-    expect(
-      mod.mixColours({ params: { a: [0, 0, 0], b: [1, 1, 1], t: 0.5 } }),
-    ).toEqual([0.5, 0.5, 0.5]);
+    expect(mod.mixColours({ params: { a: [0, 0, 0], b: [1, 1, 1], t: 0.5 } })).toEqual([0.5, 0.5, 0.5]);
   });
 
   it("leaves non-matching modules alone", async () => {
@@ -116,23 +110,19 @@ describe("precompileJS", () => {
   it("throws when the module has no code export", async () => {
     const plugin = asPlugin(precompileJS({ include: "no-code.ts" }));
     const id = `${CPU_FNS_PATH.replace("cpu-fns.ts", "")}no-code.ts`;
-    await expect(plugin.transform("export const x = 1;\n", id)).rejects.toThrow(
-      /must export __RMSL_JS_CODE/,
-    );
+    await expect(plugin.transform("export const x = 1;\n", id)).rejects.toThrow(/must export __RMSL_JS_CODE/);
   });
 
   it("throws when the code export is not a map of strings", async () => {
     const plugin = asPlugin(precompileJS({ include: "bad-code.ts" }));
     const id = `${CPU_FNS_PATH.replace("cpu-fns.ts", "")}bad-code.ts`;
-    await expect(
-      plugin.transform('export const __RMSL_JS_CODE = { f: 1 };\n', id),
-    ).rejects.toThrow(/map value for f must be a string/);
+    await expect(plugin.transform("export const __RMSL_JS_CODE = { f: 1 };\n", id)).rejects.toThrow(
+      /map value for f must be a string/,
+    );
   });
 
   it("reads the code map from a custom export name", async () => {
-    const plugin = asPlugin(
-      precompileJS({ include: "custom-code.ts", codeExport: "CPU_FNS" }),
-    );
+    const plugin = asPlugin(precompileJS({ include: "custom-code.ts", codeExport: "CPU_FNS" }));
     const id = `${CPU_FNS_PATH.replace("cpu-fns.ts", "")}custom-code.ts`;
     const code = source.replaceAll("__RMSL_JS_CODE", "CPU_FNS");
     const result = await plugin.transform(code, id);

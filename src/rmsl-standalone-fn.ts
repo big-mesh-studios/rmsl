@@ -1,8 +1,14 @@
 // === Standalone function compilers (for Three.js glslFn/wgslFn embedding) ===
 import { compileGLSLStage, glslType } from "./backends/rmsl-glsl";
 import {
-  WGSL_HELPERS, WGSL_UNIFORM_BINDING, WGSL_UNIFORM_STRUCT, compileWGSLStage,
-  isWgslTexture, wgslMemberType, wgslType, wgslUniformLayout,
+  WGSL_HELPERS,
+  WGSL_UNIFORM_BINDING,
+  WGSL_UNIFORM_STRUCT,
+  compileWGSLStage,
+  isWgslTexture,
+  wgslMemberType,
+  wgslType,
+  wgslUniformLayout,
 } from "./backends/rmsl-wgsl";
 import { CompileCtx, CompileFnOptions } from "./backends/shared";
 import { Node, ShaderType, var_ } from "./rmsl-core";
@@ -15,8 +21,8 @@ export function compileFnBody(
 ): string {
   if (Array.isArray(result)) {
     throw new Error(
-      "compileGLSLFn/compileWGSLFn does not support multi-return functions. "
-      + "Define separate functions for each return value.",
+      "compileGLSLFn/compileWGSLFn does not support multi-return functions. " +
+        "Define separate functions for each return value.",
     );
   }
 
@@ -35,7 +41,7 @@ export function compileFnBody(
       positionWritten: false,
       inFn: false,
       fragDepthUsed: false,
-    fragCoordUsed: false,
+      fragCoordUsed: false,
       jsParams: new Set(),
       jsHelpers: new Set(),
       outTarget: null,
@@ -45,12 +51,13 @@ export function compileFnBody(
     };
     const compiled = compileGLSLStage(result, ctx);
     const returnType = glslType((result as any)._t || "float");
-    const paramStr = params.map(p => `${glslType(p.type)} ${p.name}`).join(", ");
+    const paramStr = params.map((p) => `${glslType(p.type)} ${p.name}`).join(", ");
     let code = "";
     ctx.uniforms.forEach((info) => {
-      code += info.length !== undefined
-        ? `uniform ${info.type} ${info.slot}[${info.length}];\n`
-        : `uniform ${info.type} ${info.slot};\n`;
+      code +=
+        info.length !== undefined
+          ? `uniform ${info.type} ${info.slot}[${info.length}];\n`
+          : `uniform ${info.type} ${info.slot};\n`;
     });
     if (ctx.uniforms.size > 0) {
       code += "\n";
@@ -81,7 +88,7 @@ export function compileFnBody(
       positionWritten: false,
       inFn: false,
       fragDepthUsed: false,
-    fragCoordUsed: false,
+      fragCoordUsed: false,
       jsParams: new Set(),
       jsHelpers: new Set(),
       outTarget: null,
@@ -91,7 +98,7 @@ export function compileFnBody(
     };
     const compiled = compileWGSLStage(result, ctx);
     const returnType = wgslType((result as any)._t || "float");
-    const paramStr = params.map(p => `${p.name}: ${wgslType(p.type)}`).join(", ");
+    const paramStr = params.map((p) => `${p.name}: ${wgslType(p.type)}`).join(", ");
     // Helpers standing in for GLSL builtins WGSL lacks, emitted ahead of the
     // function that calls them. The whole-shader path does the same at its own
     // top level; a function emitted on its own has to carry them itself, or it
@@ -133,34 +140,26 @@ export function compileFnBody(
     if (textureDecls || samplerDecls) code = textureDecls + samplerDecls + "\n" + code;
     let plainUniforms = sortedUniforms.filter(([, i]) => !isWgslTexture(i.type));
     if (plainUniforms.length > 0) {
-      let layout = wgslUniformLayout(
-        plainUniforms.map(([, i]) => ({ slot: i.slot, type: i.type, length: i.length })),
-      );
-      let struct = `struct ${WGSL_UNIFORM_STRUCT} {\n`
-        + layout.members.map(m => `  ${m.name}: ${wgslMemberType(m)},\n`).join("")
-        + `};\n`
-        + `@group(0) @binding(0) var<uniform> ${WGSL_UNIFORM_BINDING}: ${WGSL_UNIFORM_STRUCT};\n\n`;
+      let layout = wgslUniformLayout(plainUniforms.map(([, i]) => ({ slot: i.slot, type: i.type, length: i.length })));
+      let struct =
+        `struct ${WGSL_UNIFORM_STRUCT} {\n` +
+        layout.members.map((m) => `  ${m.name}: ${wgslMemberType(m)},\n`).join("") +
+        `};\n` +
+        `@group(0) @binding(0) var<uniform> ${WGSL_UNIFORM_BINDING}: ${WGSL_UNIFORM_STRUCT};\n\n`;
       code = struct + code;
     }
     return code;
   }
 }
 
-export function compileGLSLFn(
-  fn: (...args: any[]) => Node<ShaderType>,
-  options: CompileFnOptions,
-): string {
-  const paramNodes = options.params.map(p => var_(p.name, p.type));
+export function compileGLSLFn(fn: (...args: any[]) => Node<ShaderType>, options: CompileFnOptions): string {
+  const paramNodes = options.params.map((p) => var_(p.name, p.type));
   const result = fn(...paramNodes);
   return compileFnBody(result, options.params, options.name, "glsl");
 }
 
-export function compileWGSLFn(
-  fn: (...args: any[]) => Node<ShaderType>,
-  options: CompileFnOptions,
-): string {
-  const paramNodes = options.params.map(p => var_(p.name, p.type));
+export function compileWGSLFn(fn: (...args: any[]) => Node<ShaderType>, options: CompileFnOptions): string {
+  const paramNodes = options.params.map((p) => var_(p.name, p.type));
   const result = fn(...paramNodes);
   return compileFnBody(result, options.params, options.name, "wgsl");
 }
-

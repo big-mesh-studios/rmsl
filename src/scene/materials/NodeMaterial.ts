@@ -1,12 +1,11 @@
-import {
-  Fn, mat3, output, vec4,
-  type Node,
-} from "../../rmsl";
+import { Fn, mat3, output, vec4, type Node } from "../../rmsl";
 import { Material } from "./Material";
 import {
   Builder,
   type AnySamplerBinding,
-  type AttributeBinding, type UniformBinding, type VaryingBinding,
+  type AttributeBinding,
+  type UniformBinding,
+  type VaryingBinding,
 } from "./nodes/Builder";
 import { collectNodes } from "./nodes/graph";
 import type { Scene } from "../scenes/Scene";
@@ -27,10 +26,7 @@ export interface MaterialProgram {
 }
 
 /** Evaluate a material slot, running builder functions in the active pass. */
-export function resolveSlot<T extends Node<any>>(
-  slot: SlotValue<T> | undefined,
-  b: Builder,
-): T | undefined {
+export function resolveSlot<T extends Node<any>>(slot: SlotValue<T> | undefined, b: Builder): T | undefined {
   if (slot === undefined) return undefined;
   return typeof slot === "function" ? (slot as (b: Builder) => T)(b) : slot;
 }
@@ -90,25 +86,20 @@ export class NodeMaterial extends Material {
    * instance transform into the shaders. The renderer derives them per object;
    * a plain mesh compiles the same graph without them.
    */
-  build(
-    scene: Scene,
-    options: { instancing?: boolean; instancingColor?: boolean } = {},
-  ): MaterialProgram {
+  build(scene: Scene, options: { instancing?: boolean; instancingColor?: boolean } = {}): MaterialProgram {
     const b = new Builder();
     b.instancing = options.instancing ?? false;
     b.instancingColor = options.instancingColor ?? false;
     this.setup(b, scene);
 
     b.stage = "vertex";
-    const vertex = Fn(() => this.vertexNode ? this.vertexNode(b) : this.buildVertexBody(b))() as Node<"vec4">;
+    const vertex = Fn(() => (this.vertexNode ? this.vertexNode(b) : this.buildVertexBody(b)))() as Node<"vec4">;
     b.stage = "fragment";
     const fragment = Fn(() => {
       const outColor = output("vec4");
       const color = this.fragmentNode ? this.fragmentNode(b) : this.buildFragmentBody(b);
       // The per-instance color tints the material's color, whatever it is.
-      const tinted = b.instancingColor
-        ? vec4(color.rgb.mul(b.instanceColorVarying), color.a)
-        : color;
+      const tinted = b.instancingColor ? vec4(color.rgb.mul(b.instanceColorVarying), color.a) : color;
       outColor.assign(tinted);
       return outColor;
     })() as Node<"vec4">;
@@ -122,12 +113,9 @@ export class NodeMaterial extends Material {
     return {
       vertexRoot: vertex,
       fragmentRoot: fragment,
-      uniforms: [...b.uniforms.values()]
-        .filter((binding) => usedUniforms.has(binding.node)),
-      attributes: [...b.attributes.values()]
-        .filter((binding) => usedAttributes.has(binding.node)),
-      varyings: [...b.varyings.values()]
-        .filter((binding) => usedVaryings.has(binding.node)),
+      uniforms: [...b.uniforms.values()].filter((binding) => usedUniforms.has(binding.node)),
+      attributes: [...b.attributes.values()].filter((binding) => usedAttributes.has(binding.node)),
+      varyings: [...b.varyings.values()].filter((binding) => usedVaryings.has(binding.node)),
       samplers: [...b.samplers.values()],
     };
   }

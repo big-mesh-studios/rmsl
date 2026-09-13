@@ -1,6 +1,15 @@
 import {
-  float, vec2, vec3, vec4, element, If, Discard, mix,
-  type Node, type UniformNode, type GLSLPrecision,
+  float,
+  vec2,
+  vec3,
+  vec4,
+  element,
+  If,
+  Discard,
+  mix,
+  type Node,
+  type UniformNode,
+  type GLSLPrecision,
 } from "../../rmsl";
 import { NodeMaterial, resolveSlot, type SlotValue } from "./NodeMaterial";
 import { Builder } from "./nodes/Builder";
@@ -54,27 +63,28 @@ export class Line2NodeMaterial extends NodeMaterial {
   private _vertexColors = false;
   private _alphaToCoverage = true;
 
-  constructor(parameters: {
-    color?: Color | number;
-    linewidth?: number;
-    worldUnits?: boolean;
-    dashed?: boolean;
-    dashSize?: number;
-    gapSize?: number;
-    dashOffset?: number;
-    dashScale?: number;
-    vertexColors?: boolean;
-    alphaToCoverage?: boolean;
-    opacity?: number;
-    transparent?: boolean;
-    precision?: GLSLPrecision;
-  } = {}) {
+  constructor(
+    parameters: {
+      color?: Color | number;
+      linewidth?: number;
+      worldUnits?: boolean;
+      dashed?: boolean;
+      dashSize?: number;
+      gapSize?: number;
+      dashOffset?: number;
+      dashScale?: number;
+      vertexColors?: boolean;
+      alphaToCoverage?: boolean;
+      opacity?: number;
+      transparent?: boolean;
+      precision?: GLSLPrecision;
+    } = {},
+  ) {
     super();
     this.side = Side.DoubleSide;
     if (parameters.color !== undefined) {
-      this.color = typeof parameters.color === "number"
-        ? new Color().setHex(parameters.color)
-        : parameters.color.clone();
+      this.color =
+        typeof parameters.color === "number" ? new Color().setHex(parameters.color) : parameters.color.clone();
     }
     if (parameters.linewidth !== undefined) this.linewidth = parameters.linewidth;
     if (parameters.dashSize !== undefined) this.dashSize = parameters.dashSize;
@@ -91,21 +101,36 @@ export class Line2NodeMaterial extends NodeMaterial {
   }
 
   /** Whether the lines are sized in world units (`true`) or pixels (`false`). */
-  get worldUnits(): boolean { return this._worldUnits; }
+  get worldUnits(): boolean {
+    return this._worldUnits;
+  }
   set worldUnits(value: boolean) {
-    if (this._worldUnits !== value) { this._worldUnits = value; this.needsUpdate = true; }
+    if (this._worldUnits !== value) {
+      this._worldUnits = value;
+      this.needsUpdate = true;
+    }
   }
 
   /** Whether dashed line rendering is enabled. */
-  get dashed(): boolean { return this._dashed; }
+  get dashed(): boolean {
+    return this._dashed;
+  }
   set dashed(value: boolean) {
-    if (this._dashed !== value) { this._dashed = value; this.needsUpdate = true; }
+    if (this._dashed !== value) {
+      this._dashed = value;
+      this.needsUpdate = true;
+    }
   }
 
   /** Whether the per-segment colors from `instanceColorStart/End` are used. */
-  get vertexColors(): boolean { return this._vertexColors; }
+  get vertexColors(): boolean {
+    return this._vertexColors;
+  }
   set vertexColors(value: boolean) {
-    if (this._vertexColors !== value) { this._vertexColors = value; this.needsUpdate = true; }
+    if (this._vertexColors !== value) {
+      this._vertexColors = value;
+      this.needsUpdate = true;
+    }
   }
 
   /**
@@ -113,9 +138,14 @@ export class Line2NodeMaterial extends NodeMaterial {
    * no MSAA sample count, so this currently compiles to the hard-discard
    * variant (the `samples === 0` behaviour in three.js).
    */
-  get alphaToCoverage(): boolean { return this._alphaToCoverage; }
+  get alphaToCoverage(): boolean {
+    return this._alphaToCoverage;
+  }
   set alphaToCoverage(value: boolean) {
-    if (this._alphaToCoverage !== value) { this._alphaToCoverage = value; this.needsUpdate = true; }
+    if (this._alphaToCoverage !== value) {
+      this._alphaToCoverage = value;
+      this.needsUpdate = true;
+    }
   }
 
   protected setup(b: Builder, _scene: Scene): void {
@@ -176,7 +206,8 @@ export class Line2NodeMaterial extends NodeMaterial {
     if (this._dashed) {
       const dashScale = resolveSlot(this.dashScaleNode, b) ?? this.dashScaleUniform!;
       const offset = resolveSlot(this.offsetNode, b) ?? this.dashOffsetUniform!;
-      const lineDist = quadY.lessThan(0.5)
+      const lineDist = quadY
+        .lessThan(0.5)
         .select(dashScale.mul(distanceStart!), dashScale.mul(distanceEnd!))
         .add(offset);
       b.varying("lineDistance", "float").assign(lineDist);
@@ -205,14 +236,16 @@ export class Line2NodeMaterial extends NodeMaterial {
 
       // height offset
       const halfWidth = lineWidth.mul(0.5);
-      worldPos.assign(worldPos.add(vec4(quadX.lessThan(0.0)
-        .select(worldUp.mul(halfWidth), worldUp.mul(halfWidth).negate()), 0)));
+      worldPos.assign(
+        worldPos.add(vec4(quadX.lessThan(0.0).select(worldUp.mul(halfWidth), worldUp.mul(halfWidth).negate()), 0)),
+      );
 
       // don't extend the line when rendering dashes — the endcaps are dropped
       if (!this._dashed) {
         // cap extension
-        worldPos.assign(worldPos.add(vec4(quadY.lessThan(0.5)
-          .select(worldDir.mul(halfWidth).negate(), worldDir.mul(halfWidth)), 0)));
+        worldPos.assign(
+          worldPos.add(vec4(quadY.lessThan(0.5).select(worldDir.mul(halfWidth).negate(), worldDir.mul(halfWidth)), 0)),
+        );
         // add width to the box
         worldPos.assign(worldPos.add(vec4(worldFwd.mul(halfWidth), 0)));
         // endcaps
@@ -264,8 +297,7 @@ export class Line2NodeMaterial extends NodeMaterial {
     if (this._vertexColors) {
       const colorStart = b.attribute("instanceColorStart", "vec3", "instance");
       const colorEnd = b.attribute("instanceColorEnd", "vec3", "instance");
-      b.varying("instanceColor", "vec3")
-        .assign(quadY.lessThan(0.5).select(colorStart, colorEnd));
+      b.varying("instanceColor", "vec3").assign(quadY.lessThan(0.5).select(colorStart, colorEnd));
     }
 
     return clip;
@@ -280,8 +312,12 @@ export class Line2NodeMaterial extends NodeMaterial {
       const lineDistance = b.varying("lineDistance", "float");
 
       // discard the endcaps, then the gaps
-      If(vUv.y.lessThan(-1.0).or(vUv.y.greaterThan(1.0)), () => { Discard(); });
-      If(lineDistance.mod(dashSize.add(gapSize)).greaterThan(dashSize), () => { Discard(); });
+      If(vUv.y.lessThan(-1.0).or(vUv.y.greaterThan(1.0)), () => {
+        Discard();
+      });
+      If(lineDistance.mod(dashSize.add(gapSize)).greaterThan(dashSize), () => {
+        Discard();
+      });
     }
 
     const lineWidth = resolveSlot(this.lineWidthNode, b) ?? this.lineWidthUniform!;
@@ -302,14 +338,18 @@ export class Line2NodeMaterial extends NodeMaterial {
 
       // Alpha-to-coverage would smooth the edge under MSAA; without a sample
       // count the hard discard variant is used (three.js with samples === 0).
-      If(norm.greaterThan(0.5), () => { Discard(); });
+      If(norm.greaterThan(0.5), () => {
+        Discard();
+      });
     } else {
       // round endcaps
       If(vUv.y.abs().greaterThan(1.0), () => {
         const a = vUv.x;
         const bb = vUv.y.greaterThan(0.0).select(vUv.y.sub(1.0), vUv.y.add(1.0));
         const len2 = a.mul(a).add(bb.mul(bb));
-        If(len2.greaterThan(1.0), () => { Discard(); });
+        If(len2.greaterThan(1.0), () => {
+          Discard();
+        });
       });
     }
 
@@ -330,8 +370,7 @@ function trimSegmentAlpha(b: Builder, start: Node<"vec4">, end: Node<"vec4">): N
   const a = element(element(b.projectionMatrix, 2), 2);
   const bb = element(element(b.projectionMatrix, 3), 2);
   // `a` is positive with a reversed depth buffer, so it picks the branch.
-  const nearEstimate = a.greaterThan(0)
-    .select(bb.negate().div(a.add(1)), bb.mul(-0.5).div(a));
+  const nearEstimate = a.greaterThan(0).select(bb.negate().div(a.add(1)), bb.mul(-0.5).div(a));
   return nearEstimate.sub(start.z).div(end.z.sub(start.z));
 }
 
@@ -339,10 +378,7 @@ function trimSegmentAlpha(b: Builder, start: Node<"vec4">, end: Node<"vec4">): N
  * The closest points on two 3D lines, as parametric coordinates — three.js's
  * `closestLineToLine`. Used for the world-units distance check.
  */
-function closestLineToLine(
-  p1: Node<"vec3">, p2: Node<"vec3">,
-  p3: Node<"vec3">, p4: Node<"vec3">,
-): Node<"vec2"> {
+function closestLineToLine(p1: Node<"vec3">, p2: Node<"vec3">, p3: Node<"vec3">, p4: Node<"vec3">): Node<"vec2"> {
   const p13 = p1.sub(p3);
   const p43 = p4.sub(p3);
   const p21 = p2.sub(p1);

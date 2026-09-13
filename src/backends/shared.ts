@@ -56,11 +56,7 @@ export const PREC_ATOM = 200;
  * Wrap a child expression in parens when its precedence is lower than (or equal
  * to) the parent operator's, otherwise the child would be parsed differently.
  */
-export function wrapExpr(
-  childPrec: number | undefined,
-  parentPrec: number,
-  expr: string,
-): string {
+export function wrapExpr(childPrec: number | undefined, parentPrec: number, expr: string): string {
   return (childPrec ?? PREC_ATOM) <= parentPrec ? `(${expr})` : expr;
 }
 
@@ -120,7 +116,6 @@ export interface CompileCtx {
   jsNeedsRes: boolean;
 }
 
-
 // === Constant folding ===
 export function isLeafLiteral(n: BaseNode<ShaderType>): boolean {
   return (n.type === "float" || n.type === "int" || n.type === "uint" || n.type === "bool") && !n.params;
@@ -143,58 +138,104 @@ export function tryFold(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
     let a = p0 as number;
     let b = p1 as number;
     switch (n.type) {
-      case "add": return mkNode({ _t: t, type: t, value: t === "int" || t === "uint" ? (a + b) | 0 : a + b });
-      case "sub": return mkNode({ _t: t, type: t, value: t === "int" || t === "uint" ? (a - b) | 0 : a - b });
-      case "mul": return mkNode({ _t: t, type: t, value: t === "int" || t === "uint" ? (a * b) | 0 : a * b });
-      case "div": return mkNode({ _t: t, type: t, value: t === "int" || t === "uint" ? (a / b) | 0 : a / b });
-      case "negate": return mkNode({ _t: t, type: t, value: t === "int" || t === "uint" ? (-a) | 0 : -a });
+      case "add":
+        return mkNode({ _t: t, type: t, value: t === "int" || t === "uint" ? (a + b) | 0 : a + b });
+      case "sub":
+        return mkNode({ _t: t, type: t, value: t === "int" || t === "uint" ? (a - b) | 0 : a - b });
+      case "mul":
+        return mkNode({ _t: t, type: t, value: t === "int" || t === "uint" ? (a * b) | 0 : a * b });
+      case "div":
+        return mkNode({ _t: t, type: t, value: t === "int" || t === "uint" ? (a / b) | 0 : a / b });
+      case "negate":
+        return mkNode({ _t: t, type: t, value: t === "int" || t === "uint" ? -a | 0 : -a });
       // JavaScript's % truncates toward zero. The float operation is floored,
       // following GLSL's mod(), so folding it with % would give a literal that
       // disagrees with what the same expression computes when its operands are
       // not constants. The integer path keeps % because that is what both
       // backends emit for integers.
-      case "mod": return mkNode({
-        _t: t,
-        type: t,
-        value: t === "int" || t === "uint" ? (a % b) | 0 : a - b * Math.floor(a / b),
-      });
-      case "sin": return mkNode({ _t: t, type: t, value: Math.sin(a) });
-      case "cos": return mkNode({ _t: t, type: t, value: Math.cos(a) });
-      case "tan": return mkNode({ _t: t, type: t, value: Math.tan(a) });
-      case "asin": return mkNode({ _t: t, type: t, value: Math.asin(a) });
-      case "acos": return mkNode({ _t: t, type: t, value: Math.acos(a) });
-      case "atan": return mkNode({ _t: t, type: t, value: Math.atan(a) });
-      case "sinh": return mkNode({ _t: t, type: t, value: Math.sinh(a) });
-      case "cosh": return mkNode({ _t: t, type: t, value: Math.cosh(a) });
-      case "tanh": return mkNode({ _t: t, type: t, value: Math.tanh(a) });
-      case "asinh": return mkNode({ _t: t, type: t, value: Math.asinh(a) });
-      case "acosh": return mkNode({ _t: t, type: t, value: Math.acosh(a) });
-      case "atanh": return mkNode({ _t: t, type: t, value: Math.atanh(a) });
-      case "abs": return mkNode({ _t: t, type: t, value: Math.abs(a) });
-      case "sign": return mkNode({ _t: t, type: t, value: Math.sign(a) });
-      case "floor": return mkNode({ _t: t, type: t, value: Math.floor(a) });
-      case "ceil": return mkNode({ _t: t, type: t, value: Math.ceil(a) });
-      case "round": return mkNode({ _t: t, type: t, value: Math.round(a) });
-      case "trunc": return mkNode({ _t: t, type: t, value: Math.trunc(a) });
-      case "fract": return mkNode({ _t: t, type: t, value: a - Math.floor(a) });
-      case "sqrt": return mkNode({ _t: t, type: t, value: Math.sqrt(a) });
-      case "inverseSqrt": return mkNode({ _t: t, type: t, value: 1 / Math.sqrt(a) });
-      case "atan2": return mkNode({ _t: t, type: t, value: Math.atan2(a, b) });
-      case "exp": return mkNode({ _t: t, type: t, value: Math.exp(a) });
-      case "log": return mkNode({ _t: t, type: t, value: Math.log(a) });
-      case "exp2": return mkNode({ _t: t, type: t, value: Math.pow(2, a) });
-      case "log2": return mkNode({ _t: t, type: t, value: Math.log2(a) });
-      case "pow": return mkNode({ _t: t, type: t, value: Math.pow(a, b) });
-      case "min": return mkNode({ _t: t, type: t, value: Math.min(a, b) });
-      case "max": return mkNode({ _t: t, type: t, value: Math.max(a, b) });
-      case "dot": return mkNode({ _t: t, type: t, value: a * b });
+      case "mod":
+        return mkNode({
+          _t: t,
+          type: t,
+          value: t === "int" || t === "uint" ? (a % b) | 0 : a - b * Math.floor(a / b),
+        });
+      case "sin":
+        return mkNode({ _t: t, type: t, value: Math.sin(a) });
+      case "cos":
+        return mkNode({ _t: t, type: t, value: Math.cos(a) });
+      case "tan":
+        return mkNode({ _t: t, type: t, value: Math.tan(a) });
+      case "asin":
+        return mkNode({ _t: t, type: t, value: Math.asin(a) });
+      case "acos":
+        return mkNode({ _t: t, type: t, value: Math.acos(a) });
+      case "atan":
+        return mkNode({ _t: t, type: t, value: Math.atan(a) });
+      case "sinh":
+        return mkNode({ _t: t, type: t, value: Math.sinh(a) });
+      case "cosh":
+        return mkNode({ _t: t, type: t, value: Math.cosh(a) });
+      case "tanh":
+        return mkNode({ _t: t, type: t, value: Math.tanh(a) });
+      case "asinh":
+        return mkNode({ _t: t, type: t, value: Math.asinh(a) });
+      case "acosh":
+        return mkNode({ _t: t, type: t, value: Math.acosh(a) });
+      case "atanh":
+        return mkNode({ _t: t, type: t, value: Math.atanh(a) });
+      case "abs":
+        return mkNode({ _t: t, type: t, value: Math.abs(a) });
+      case "sign":
+        return mkNode({ _t: t, type: t, value: Math.sign(a) });
+      case "floor":
+        return mkNode({ _t: t, type: t, value: Math.floor(a) });
+      case "ceil":
+        return mkNode({ _t: t, type: t, value: Math.ceil(a) });
+      case "round":
+        return mkNode({ _t: t, type: t, value: Math.round(a) });
+      case "trunc":
+        return mkNode({ _t: t, type: t, value: Math.trunc(a) });
+      case "fract":
+        return mkNode({ _t: t, type: t, value: a - Math.floor(a) });
+      case "sqrt":
+        return mkNode({ _t: t, type: t, value: Math.sqrt(a) });
+      case "inverseSqrt":
+        return mkNode({ _t: t, type: t, value: 1 / Math.sqrt(a) });
+      case "atan2":
+        return mkNode({ _t: t, type: t, value: Math.atan2(a, b) });
+      case "exp":
+        return mkNode({ _t: t, type: t, value: Math.exp(a) });
+      case "log":
+        return mkNode({ _t: t, type: t, value: Math.log(a) });
+      case "exp2":
+        return mkNode({ _t: t, type: t, value: Math.pow(2, a) });
+      case "log2":
+        return mkNode({ _t: t, type: t, value: Math.log2(a) });
+      case "pow":
+        return mkNode({ _t: t, type: t, value: Math.pow(a, b) });
+      case "min":
+        return mkNode({ _t: t, type: t, value: Math.min(a, b) });
+      case "max":
+        return mkNode({ _t: t, type: t, value: Math.max(a, b) });
+      case "dot":
+        return mkNode({ _t: t, type: t, value: a * b });
     }
   }
   return null;
 }
 
-export function mkNode(config: { _t?: string; type: string; params?: BaseNode<ShaderType>[]; value?: unknown }): BaseNode<ShaderType> {
-  return new NodeImpl({ _t: config._t ?? config.type, type: config.type, params: config.params, value: config.value }) as BaseNode<ShaderType>;
+export function mkNode(config: {
+  _t?: string;
+  type: string;
+  params?: BaseNode<ShaderType>[];
+  value?: unknown;
+}): BaseNode<ShaderType> {
+  return new NodeImpl({
+    _t: config._t ?? config.type,
+    type: config.type,
+    params: config.params,
+    value: config.value,
+  }) as BaseNode<ShaderType>;
 }
 
 /**
@@ -212,10 +253,10 @@ export function forUpdateStatements(update: CompiledNode): string[] {
   // A nested block cannot go in either language's update slot: GLSL's takes an
   // expression, and accepting one in WGSL alone would make a program that runs
   // on one backend and not the other.
-  if (update.body.some(line => line.includes("{"))) {
+  if (update.body.some((line) => line.includes("{"))) {
     throw new Error(
-      "[RMSL] A for-loop's update cannot contain a block. Move the branch into "
-      + "the loop body, or write the loop with While.",
+      "[RMSL] A for-loop's update cannot contain a block. Move the branch into " +
+        "the loop body, or write the loop with While.",
     );
   }
   return update.body;
@@ -253,20 +294,28 @@ export function assertStageResult(
   // it compiled to. A vertex shader returning zero or returning nothing both
   // fail the same check.
   throw new Error(
-    `[RMSL] A vertex shader has to produce a position. This one `
-    + (lastType === undefined || lastType === "void"
-      ? `returns nothing and never assigns builtinPosition(). Return a vec4, or `
-        + `assign builtinPosition() yourself.`
-      : `returns ${lastType}, which cannot become one. Wrap it — for example `
-        + `vec4(value, 1.0).`),
+    `[RMSL] A vertex shader has to produce a position. This one ` +
+      (lastType === undefined || lastType === "void"
+        ? `returns nothing and never assigns builtinPosition(). Return a vec4, or ` +
+          `assign builtinPosition() yourself.`
+        : `returns ${lastType}, which cannot become one. Wrap it — for example ` + `vec4(value, 1.0).`),
   );
 }
 
 /** Which component each accessor letter names, in all three spellings. */
 export const COMPONENT_INDEX: Record<string, number> = {
-  x: 0, y: 1, z: 2, w: 3,
-  r: 0, g: 1, b: 2, a: 3,
-  s: 0, t: 1, p: 2, q: 3,
+  x: 0,
+  y: 1,
+  z: 2,
+  w: 3,
+  r: 0,
+  g: 1,
+  b: 2,
+  a: 3,
+  s: 0,
+  t: 1,
+  p: 2,
+  q: 3,
 };
 
 /**
@@ -277,14 +326,12 @@ export const COMPONENT_INDEX: Record<string, number> = {
  * composing the patterns: the outer pattern indexes into the inner one, so
  * `a.yzw.xy` selects the first two of y, z, w, which is `a.yz`.
  */
-export function resolveSwizzleTarget(
-  target: any,
-): { base: BaseNode<ShaderType>; pattern: string } {
+export function resolveSwizzleTarget(target: any): { base: BaseNode<ShaderType>; pattern: string } {
   let pattern = target.value as string;
   let base = target.params![0];
   while (base?.type === "swizzle") {
     let inner = base.value as string;
-    pattern = [...pattern].map(c => inner[COMPONENT_INDEX[c]]).join("");
+    pattern = [...pattern].map((c) => inner[COMPONENT_INDEX[c]]).join("");
     base = base.params![0];
   }
   return { base, pattern };
@@ -301,10 +348,7 @@ export function resolveSwizzleTarget(
 export function assertSquareMatrix(operandType: string | undefined): number {
   let shape = MATRIX_DIMENSIONS[operandType as string];
   if (shape === undefined || shape[0] !== shape[1]) {
-    throw new Error(
-      `[RMSL] inverse() needs a square matrix, but this one is `
-      + `${operandType ?? "untyped"}.`,
-    );
+    throw new Error(`[RMSL] inverse() needs a square matrix, but this one is ` + `${operandType ?? "untyped"}.`);
   }
   return shape[0];
 }
@@ -317,12 +361,11 @@ export function assertSquareMatrix(operandType: string | undefined): number {
 export function assertPositionIsReadable(ctx: CompileCtx): void {
   if (ctx.shaderStage === "vertex") return;
   throw new Error(
-    "[RMSL] builtinPosition() is the vertex stage's output position, and a "
-    + "fragment stage cannot read it. Pass the value you need through a "
-    + "varying() instead.",
+    "[RMSL] builtinPosition() is the vertex stage's output position, and a " +
+      "fragment stage cannot read it. Pass the value you need through a " +
+      "varying() instead.",
   );
 }
-
 
 /**
  * What a vertex stage may be handed.
@@ -341,14 +384,9 @@ export function assertPositionIsReadable(ctx: CompileCtx): void {
  * whatever the shader needed on the way there. Saying so requires knowing which
  * value is last, which is why `Fn` infers an array return as a tuple.
  */
-export type VertexRoot =
-  | Node<"vec4">
-  | readonly [...Node<ShaderType>[], Node<"vec4">]
-  | void;
-
+export type VertexRoot = Node<"vec4"> | readonly [...Node<ShaderType>[], Node<"vec4">] | void;
 
 export type CompileFnOptions = {
   name: string;
   params: Array<{ name: string; type: ShaderType }>;
 };
-

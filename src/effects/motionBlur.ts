@@ -1,5 +1,5 @@
 import { f, type FloatIn, type IntIn, type Vec2In, type Sampler2D, type Sampler3D } from "./util";
-import {For, Fn, float, int, uv, type Node} from "../rmsl";
+import { For, Fn, float, int, uv, type Node } from "../rmsl";
 
 /**
  * Applies a motion blur effect to the given texture node.
@@ -14,11 +14,7 @@ import {For, Fn, float, int, uv, type Node} from "../rmsl";
  *                     results in better quality but is also more expensive.
  * @return The blurred color.
  */
-export const motionBlur = (
-  inputNode: Sampler2D,
-  velocity: Node<"vec2">,
-  numSamples: IntIn = 16,
-): Node<"vec4"> => {
+export const motionBlur = (inputNode: Sampler2D, velocity: Node<"vec2">, numSamples: IntIn = 16): Node<"vec4"> => {
   const n = typeof numSamples === "number" ? int(numSamples) : numSamples;
   return Fn(() => {
     const uvs = uv();
@@ -28,7 +24,9 @@ export const motionBlur = (
     For(
       () => int(1).toVar(),
       (i) => i.lessThanEqual(n),
-      (i) => { i.assign(i.add(1)); },
+      (i) => {
+        i.assign(i.add(1));
+      },
       (i) => {
         const offset = velocity.mul(float(i).div(fSamples.sub(1)).sub(0.5));
         colorResult.addAssign(inputNode.texture(uvs.add(offset)));

@@ -33,7 +33,9 @@ export class Material {
    * the rendering code can tell "not set" from the property being absent.
    * Assigning a value flags the program for a rebuild.
    */
-  get precision(): GLSLPrecision | null { return this._precision; }
+  get precision(): GLSLPrecision | null {
+    return this._precision;
+  }
   set precision(value: GLSLPrecision | null) {
     if (this._precision !== value) {
       this._precision = value;

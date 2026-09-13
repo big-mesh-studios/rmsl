@@ -1,5 +1,5 @@
 import { f, type FloatIn, type IntIn, type Vec2In, type Sampler2D, type Sampler3D } from "./util";
-import {dot, vec3, vec4, type Node} from "../rmsl";
+import { dot, vec3, vec4, type Node } from "../rmsl";
 
 /**
  * Applies a sepia effect to the given color node.

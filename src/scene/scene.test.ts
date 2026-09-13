@@ -1,9 +1,22 @@
 import { describe, it, expect } from "vitest";
 import {
-  Scene, Group, Mesh, PerspectiveCamera, OrthographicCamera,
-  AmbientLight, DirectionalLight, PointLight,
-  BufferGeometry, BufferAttribute, DataTexture, Texture,
-  Vector3, Quaternion, Matrix4, Color, degToRad,
+  Scene,
+  Group,
+  Mesh,
+  PerspectiveCamera,
+  OrthographicCamera,
+  AmbientLight,
+  DirectionalLight,
+  PointLight,
+  BufferGeometry,
+  BufferAttribute,
+  DataTexture,
+  Texture,
+  Vector3,
+  Quaternion,
+  Matrix4,
+  Color,
+  degToRad,
 } from "./index";
 
 function expectClose(a: number[], b: number[], eps = 1e-6): void {
@@ -196,8 +209,12 @@ describe("Texture", () => {
   it("notifies every listener, so two renderers each free their own copy", () => {
     const texture = new DataTexture(new Uint8Array([1, 2, 3, 4]), 1, 1);
     let count = 0;
-    const first = (): void => { count++; };
-    const second = (): void => { count++; };
+    const first = (): void => {
+      count++;
+    };
+    const second = (): void => {
+      count++;
+    };
     texture.addEventListener("dispose", first);
     texture.addEventListener("dispose", second);
     texture.dispose();

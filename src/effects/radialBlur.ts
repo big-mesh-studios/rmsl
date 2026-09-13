@@ -1,4 +1,17 @@
-import {Fn, Loop, float, interleavedGradientNoise, mix, premultiplyAlpha, screenCoordinate, unpremultiplyAlpha, uv, vec2, vec4, type Node} from "../rmsl";
+import {
+  Fn,
+  Loop,
+  float,
+  interleavedGradientNoise,
+  mix,
+  premultiplyAlpha,
+  screenCoordinate,
+  unpremultiplyAlpha,
+  uv,
+  vec2,
+  vec4,
+  type Node,
+} from "../rmsl";
 import { f, type FloatIn, type IntIn, type Vec2In, type Sampler2D, type Sampler3D } from "./util";
 
 export interface RadialBlurOptions {
@@ -26,10 +39,7 @@ export interface RadialBlurOptions {
  * @param options - Options for the effect.
  * @return The blurred color.
  */
-export const radialBlur = (
-  textureNode: Sampler2D,
-  options: RadialBlurOptions = {},
-): Node<"vec4"> => {
+export const radialBlur = (textureNode: Sampler2D, options: RadialBlurOptions = {}): Node<"vec4"> => {
   const center = options.center ?? [0.5, 0.5];
   const weight = options.weight ?? 0.9;
   const decay = options.decay ?? 0.95;

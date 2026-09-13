@@ -83,7 +83,7 @@ function testOrigin(): Promise<{ url: string; close: () => void }> {
     // The project carries no Node type definitions — see the `process`
     // declaration above — so the module is reached through a specifier TypeScript
     // does not try to resolve, and what is used of it is described inline.
-    const http = await import("node:http" as string) as {
+    const http = (await import("node:http" as string)) as {
       createServer(handler: (request: unknown, response: any) => void): HttpServer;
     };
     const server = http.createServer((_request: unknown, response: any) => {
@@ -133,7 +133,7 @@ export function gpuDevice(): Promise<any> {
       gpu = await import("@kmamal/gpu");
     } catch {
       throw new Error(
-        `@kmamal/gpu is not installed, so WGSL cannot be handed to a real compiler. Set RMSL_SKIP_GPU=1 to run without the layers that need a graphics device.`
+        `@kmamal/gpu is not installed, so WGSL cannot be handed to a real compiler. Set RMSL_SKIP_GPU=1 to run without the layers that need a graphics device.`,
       );
     }
     const adapter = await gpu.create([]).requestAdapter();
@@ -150,9 +150,7 @@ export function gpuDevice(): Promise<any> {
  * including the ones where the driver says nothing: an empty message would be
  * falsy, and a caller testing for truth would read a failure as a success.
  */
-export async function compileGLSLInPage(
-  items: { src: string; stage: string }[],
-): Promise<(string | null)[]> {
+export async function compileGLSLInPage(items: { src: string; stage: string }[]): Promise<(string | null)[]> {
   if (items.length === 0) return [];
   const page = await gpuPage();
   return await page.evaluate((list: { src: string; stage: string }[]) => {
@@ -164,9 +162,7 @@ export async function compileGLSLInPage(
       if (gl.isContextLost()) {
         throw new Error("WebGL2 context was lost during validation");
       }
-      const shader = gl.createShader(
-        stage === "vertex" ? gl.VERTEX_SHADER : gl.FRAGMENT_SHADER,
-      );
+      const shader = gl.createShader(stage === "vertex" ? gl.VERTEX_SHADER : gl.FRAGMENT_SHADER);
       if (!shader) return "could not create a shader object";
       gl.shaderSource(shader, src);
       gl.compileShader(shader);

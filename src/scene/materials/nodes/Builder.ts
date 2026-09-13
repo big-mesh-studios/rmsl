@@ -1,6 +1,11 @@
 import {
-  attribute, uniformRaw, varying,
-  type AttributeNode, type ShaderType, type UniformNode, type VaryingNode,
+  attribute,
+  uniformRaw,
+  varying,
+  type AttributeNode,
+  type ShaderType,
+  type UniformNode,
+  type VaryingNode,
 } from "../../../rmsl";
 import type { Camera } from "../../cameras/Camera";
 import type { Mesh } from "../../objects/Mesh";
@@ -44,10 +49,7 @@ export interface VaryingBinding {
  * samplers read unfiltered texels and return integer vectors; 3D samplers
  * take a volume coordinate.
  */
-export type SamplerShaderType =
-  | "sampler2D" | "sampler3D"
-  | "isampler2D" | "isampler3D"
-  | "usampler2D" | "usampler3D";
+export type SamplerShaderType = "sampler2D" | "sampler3D" | "isampler2D" | "isampler3D" | "usampler2D" | "usampler3D";
 
 /** A sampler binding narrowed to no particular type, for whole-program lists. */
 export type AnySamplerBinding = SamplerBinding<SamplerShaderType>;
@@ -143,28 +145,19 @@ export class Builder {
   }
 
   /** A `sampler2D` uniform bound to a texture supplied by `texture`. */
-  sampler(
-    name: string,
-    texture: () => Texture | null,
-  ): UniformNode<"sampler2D">;
+  sampler(name: string, texture: () => Texture | null): UniformNode<"sampler2D">;
   /**
    * A sampler uniform of the given type (integer or 3D) bound to a texture
    * supplied by `texture`.
    */
-  sampler<T extends SamplerShaderType>(
-    name: string,
-    type: T,
-    texture: () => Texture | null,
-  ): UniformNode<T>;
+  sampler<T extends SamplerShaderType>(name: string, type: T, texture: () => Texture | null): UniformNode<T>;
   sampler<T extends SamplerShaderType>(
     name: string,
     typeOrTexture: T | (() => Texture | null),
     texture?: () => Texture | null,
   ): UniformNode<T> {
     const type: SamplerShaderType = typeof typeOrTexture === "string" ? typeOrTexture : "sampler2D";
-    const textureFn = typeof typeOrTexture === "string"
-      ? texture!
-      : typeOrTexture;
+    const textureFn = typeof typeOrTexture === "string" ? texture! : typeOrTexture;
     let existing = this.samplers.get(name);
     if (!existing) {
       const node = uniformRaw(name, type);
@@ -182,21 +175,15 @@ export class Builder {
   // interpolated uv, not the geometry attribute.
 
   get position(): AttributeNode<"vec3"> {
-    return this.stage === "vertex"
-      ? this.attribute("position", "vec3")
-      : this.varying("positionWorld", "vec3");
+    return this.stage === "vertex" ? this.attribute("position", "vec3") : this.varying("positionWorld", "vec3");
   }
 
   get normal(): AttributeNode<"vec3"> {
-    return this.stage === "vertex"
-      ? this.attribute("normal", "vec3")
-      : this.varying("normalWorld", "vec3");
+    return this.stage === "vertex" ? this.attribute("normal", "vec3") : this.varying("normalWorld", "vec3");
   }
 
   get uv(): AttributeNode<"vec2"> {
-    return this.stage === "vertex"
-      ? this.attribute("uv", "vec2")
-      : this.varying("uv", "vec2");
+    return this.stage === "vertex" ? this.attribute("uv", "vec2") : this.varying("uv", "vec2");
   }
 
   /**

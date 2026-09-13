@@ -1,9 +1,28 @@
 import { describe, it, expect, afterAll } from "vitest";
 import {
-  Fn, float, int, uint, vec2, vec3, vec4, bool,
-  uniform, If, Loop, select, luminance, rand, interleavedGradientNoise,
-  textureSize, textureLoad, fragCoord, uv, screenCoordinate, time,
-  compileGLSLFn, compileWGSLFn,
+  Fn,
+  float,
+  int,
+  uint,
+  vec2,
+  vec3,
+  vec4,
+  bool,
+  uniform,
+  If,
+  Loop,
+  select,
+  luminance,
+  rand,
+  interleavedGradientNoise,
+  textureSize,
+  textureLoad,
+  fragCoord,
+  uv,
+  screenCoordinate,
+  time,
+  compileGLSLFn,
+  compileWGSLFn,
 } from "../rmsl";
 import {
   recordingGLSL as compileGLSL,
@@ -11,9 +30,26 @@ import {
   assertRecordedShadersValid,
 } from "../testing/shader-validity";
 import {
-  sepia, bleach, dotScreen, rgbShift, lut3D, sobel, chromaticAberration,
-  transition, film, crt, motionBlur, circle, sharpen, fxaa,
-  boxBlur, hashBlur, radialBlur, gaussianBlur, bloom, luminosityHighPass,
+  sepia,
+  bleach,
+  dotScreen,
+  rgbShift,
+  lut3D,
+  sobel,
+  chromaticAberration,
+  transition,
+  film,
+  crt,
+  motionBlur,
+  circle,
+  sharpen,
+  fxaa,
+  boxBlur,
+  hashBlur,
+  radialBlur,
+  gaussianBlur,
+  bloom,
+  luminosityHighPass,
 } from "./index";
 
 afterAll(async () => {
@@ -258,13 +294,16 @@ describe("bloom", () => {
     expect(graph.passes[0].name).toBe("bloom.highpass");
     expect(graph.passes[0].scale).toBe(0.5);
     // Mip 0 does not halve relative to the high pass; later horizontal passes do.
-    expect(graph.passes[1].scale).toBe(1);   // mip0.horizontal
+    expect(graph.passes[1].scale).toBe(1); // mip0.horizontal
     expect(graph.passes[3].scale).toBe(0.5); // mip1.horizontal
     expect(graph.passes[11].name).toBe("bloom.composite");
     // The composite reads the five vertical mips.
     expect(Object.keys(graph.passes[11].inputs)).toEqual([
-      "bloom.mip0.vertical", "bloom.mip1.vertical", "bloom.mip2.vertical",
-      "bloom.mip3.vertical", "bloom.mip4.vertical",
+      "bloom.mip0.vertical",
+      "bloom.mip1.vertical",
+      "bloom.mip2.vertical",
+      "bloom.mip3.vertical",
+      "bloom.mip4.vertical",
     ]);
   });
 

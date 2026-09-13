@@ -6,12 +6,34 @@
 
 import { describe, it, expectTypeOf } from "vitest";
 import {
-  float, vec2, vec3, vec4, uniform,
-  select, luminance, rand, interleavedGradientNoise,
-  textureSize, textureLoad, fragCoord, uv, screenCoordinate, time,
+  float,
+  vec2,
+  vec3,
+  vec4,
+  uniform,
+  select,
+  luminance,
+  rand,
+  interleavedGradientNoise,
+  textureSize,
+  textureLoad,
+  fragCoord,
+  uv,
+  screenCoordinate,
+  time,
   type Node,
 } from "../rmsl";
-import { sepia, bleach, dotScreen, rgbShift, gaussianBlur, bloom, circle, type PassGraph, type HighPassFn } from "./index";
+import {
+  sepia,
+  bleach,
+  dotScreen,
+  rgbShift,
+  gaussianBlur,
+  bloom,
+  circle,
+  type PassGraph,
+  type HighPassFn,
+} from "./index";
 
 describe("effects primitives", () => {
   it("select follows the branch type", () => {

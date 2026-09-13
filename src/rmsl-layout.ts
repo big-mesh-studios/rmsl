@@ -65,7 +65,9 @@ export function planLayout(
     }
     const storedType = rules.widenNarrowArrayElements ? rules.widenNarrowArrayElements(m.type) : m.type;
     const base = rules.sizeAndAlignOf(storedType);
-    const stride = rules.arrayStrideRoundedTo ? Math.ceil(base.size / rules.arrayStrideRoundedTo) * rules.arrayStrideRoundedTo : base.size;
+    const stride = rules.arrayStrideRoundedTo
+      ? Math.ceil(base.size / rules.arrayStrideRoundedTo) * rules.arrayStrideRoundedTo
+      : base.size;
     const align = rules.arrayStrideRoundedTo ? Math.max(base.align, rules.arrayStrideRoundedTo) : base.align;
     return { size: stride * m.length, align, stride };
   };
@@ -76,12 +78,12 @@ export function planLayout(
   // whole point there, not an incidental side effect of a stable sort.
   const ordered = rules.reorderByAlignment
     ? members
-      .map((m, declaredAt) => ({ m, declaredAt }))
-      .sort((a, b) => {
-        const byAlign = shapeOf(b.m).align - shapeOf(a.m).align;
-        return byAlign !== 0 ? byAlign : a.declaredAt - b.declaredAt;
-      })
-      .map(({ m }) => m)
+        .map((m, declaredAt) => ({ m, declaredAt }))
+        .sort((a, b) => {
+          const byAlign = shapeOf(b.m).align - shapeOf(a.m).align;
+          return byAlign !== 0 ? byAlign : a.declaredAt - b.declaredAt;
+        })
+        .map(({ m }) => m)
     : members;
 
   const out: PlacedLayoutMember[] = [];

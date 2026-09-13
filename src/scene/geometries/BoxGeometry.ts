@@ -24,10 +24,16 @@ export class BoxGeometry extends BufferGeometry {
     buildPlane("x", "y", "z", -1, -1, width, height, -depth, widthSegments, heightSegments);
 
     function buildPlane(
-      u: string, v: string, w: string,
-      udir: number, vdir: number,
-      width: number, height: number, depth: number,
-      gridX: number, gridY: number,
+      u: string,
+      v: string,
+      w: string,
+      udir: number,
+      vdir: number,
+      width: number,
+      height: number,
+      depth: number,
+      gridX: number,
+      gridY: number,
     ): void {
       const segmentWidth = width / gridX;
       const segmentHeight = height / gridY;

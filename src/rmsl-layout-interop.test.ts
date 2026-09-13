@@ -35,7 +35,7 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
       { slot: scale.name, type: wgslType("vec2") },
       { slot: dir.name, type: wgslType("vec3") },
     ]);
-    const offsetOf = (slot: string) => layout.members.find(m => m.name === slot)!.offset;
+    const offsetOf = (slot: string) => layout.members.find((m) => m.name === slot)!.offset;
 
     const options: CompileWasmFnOptions = {
       name: "main",
@@ -53,8 +53,8 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
     // one case (vec3 landing before vec2 despite being declared second is
     // exactly what a naive "don't reorder" implementation would get wrong).
     const { params } = compileWasmFn(build as any, options);
-    const dirAddr = (params.find(p => p.kind === "uniformMemory" && p.slot === dir.name) as any).address;
-    const scaleAddr = (params.find(p => p.kind === "uniformMemory" && p.slot === scale.name) as any).address;
+    const dirAddr = (params.find((p) => p.kind === "uniformMemory" && p.slot === dir.name) as any).address;
+    const scaleAddr = (params.find((p) => p.kind === "uniformMemory" && p.slot === scale.name) as any).address;
     expect(dirAddr).toBe(offsetOf(dir.name));
     expect(scaleAddr).toBe(offsetOf(scale.name));
     expect(dirAddr).toBeLessThan(scaleAddr); // vec3 really did get reordered ahead of vec2
@@ -67,8 +67,8 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
       { slot: dir.name, type: wgslType("vec3") },
       { slot: scale.name, type: wgslType("vec2") },
     ]);
-    const dirOffset = layout.members.find(m => m.name === dir.name)!.offset;
-    const scaleOffset = layout.members.find(m => m.name === scale.name)!.offset;
+    const dirOffset = layout.members.find((m) => m.name === dir.name)!.offset;
+    const scaleOffset = layout.members.find((m) => m.name === scale.name)!.offset;
     // WGSL's vec3<f32> occupies 12 bytes — tighter than this backend's own
     // vec3 (3 x f64 = 24 bytes) would need if it used this offset as its
     // only address, which is exactly the case the old, broken version got
@@ -76,7 +76,8 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
     expect(scaleOffset - dirOffset).toBeLessThan(24);
 
     const options: CompileWasmFnOptions = {
-      name: "main", params: [],
+      name: "main",
+      params: [],
       gpuUniformLayout: {
         offsets: { [dir.name]: dirOffset, [scale.name]: scaleOffset },
         totalSize: layout.size,
@@ -92,7 +93,8 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
     const scale = uniform("vec2");
     const layout = wgslUniformLayout([{ slot: scale.name, type: wgslType("vec2") }]);
     const options: CompileWasmFnOptions = {
-      name: "main", params: [],
+      name: "main",
+      params: [],
       gpuUniformLayout: { offsets: { [scale.name]: layout.members[0].offset }, totalSize: layout.size },
     };
     // 0.1 has no exact f32 (or f64) representation; Math.fround is JS's own

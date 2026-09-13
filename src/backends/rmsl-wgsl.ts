@@ -2,26 +2,58 @@
 import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, isSamplerType } from "../rmsl-core";
 import { AllocRules, planLayout } from "../rmsl-layout";
 import {
-  CompileCtx, CompiledNode, PRECEDENCE, PREC_ATOM, PREC_UNARY, VertexRoot,
-  assertPositionIsReadable, assertSquareMatrix, assertStageResult,
-  forUpdateStatements, resolveSwizzleTarget, tryFold, withoutSemicolon, wrapExpr,
+  CompileCtx,
+  CompiledNode,
+  PRECEDENCE,
+  PREC_ATOM,
+  PREC_UNARY,
+  VertexRoot,
+  assertPositionIsReadable,
+  assertSquareMatrix,
+  assertStageResult,
+  forUpdateStatements,
+  resolveSwizzleTarget,
+  tryFold,
+  withoutSemicolon,
+  wrapExpr,
 } from "./shared";
 export let typeToWGSL: Record<string, string> = {
-  float: "f32", vec2: "vec2<f32>", vec3: "vec3<f32>", vec4: "vec4<f32>",
-  int: "i32", uint: "u32", bool: "bool",
-  ivec2: "vec2<i32>", ivec3: "vec3<i32>", ivec4: "vec4<i32>",
-  uvec2: "vec2<u32>", uvec3: "vec3<u32>", uvec4: "vec4<u32>",
-  bvec2: "vec2<bool>", bvec3: "vec3<bool>", bvec4: "vec4<bool>",
-  mat2: "mat2x2<f32>", mat2x3: "mat2x3<f32>", mat2x4: "mat2x4<f32>",
-  mat3x2: "mat3x2<f32>", mat3: "mat3x3<f32>", mat3x4: "mat3x4<f32>",
-  mat4x2: "mat4x2<f32>", mat4x3: "mat4x3<f32>", mat4: "mat4x4<f32>",
-  sampler2D: "texture_2d<f32>", sampler3D: "texture_3d<f32>", samplerCube: "texture_cube<f32>",
-  isampler2D: "texture_2d<i32>", isampler3D: "texture_3d<i32>", isamplerCube: "texture_cube<i32>",
-  usampler2D: "texture_2d<u32>", usampler3D: "texture_3d<u32>", usamplerCube: "texture_cube<u32>",
+  float: "f32",
+  vec2: "vec2<f32>",
+  vec3: "vec3<f32>",
+  vec4: "vec4<f32>",
+  int: "i32",
+  uint: "u32",
+  bool: "bool",
+  ivec2: "vec2<i32>",
+  ivec3: "vec3<i32>",
+  ivec4: "vec4<i32>",
+  uvec2: "vec2<u32>",
+  uvec3: "vec3<u32>",
+  uvec4: "vec4<u32>",
+  bvec2: "vec2<bool>",
+  bvec3: "vec3<bool>",
+  bvec4: "vec4<bool>",
+  mat2: "mat2x2<f32>",
+  mat2x3: "mat2x3<f32>",
+  mat2x4: "mat2x4<f32>",
+  mat3x2: "mat3x2<f32>",
+  mat3: "mat3x3<f32>",
+  mat3x4: "mat3x4<f32>",
+  mat4x2: "mat4x2<f32>",
+  mat4x3: "mat4x3<f32>",
+  mat4: "mat4x4<f32>",
+  sampler2D: "texture_2d<f32>",
+  sampler3D: "texture_3d<f32>",
+  samplerCube: "texture_cube<f32>",
+  isampler2D: "texture_2d<i32>",
+  isampler3D: "texture_3d<i32>",
+  isamplerCube: "texture_cube<i32>",
+  usampler2D: "texture_2d<u32>",
+  usampler3D: "texture_3d<u32>",
+  usamplerCube: "texture_cube<u32>",
   void: "void",
 };
-
-
 
 /**
  * The vertex input locations a WGSL attribute consumes. A matrix occupies one
@@ -83,11 +115,7 @@ export function wgslMatrixNarrowing(target: string, source: string | undefined):
   return helper in WGSL_HELPERS ? helper : null;
 }
 
-export function wgslMatrixArgs(
-  type: string,
-  args: string[],
-  sourceType: string | undefined,
-): string[] {
+export function wgslMatrixArgs(type: string, args: string[], sourceType: string | undefined): string[] {
   let shape = MATRIX_DIMENSIONS[type];
   if (shape === undefined || args.length !== 1) return args;
   if (TYPE_WIDTH[sourceType as string] !== 1) return args;
@@ -167,24 +195,21 @@ export interface WgslUniformMember {
  *
  * The same approach TSL takes, where it is called the padded type.
  */
-export const WGSL_ARRAY_PADDING: Record<
-  string,
-  { stored: string; read: (element: string) => string }
-> = {
-  f32: { stored: "vec4<f32>", read: e => `${e}.x` },
-  i32: { stored: "vec4<i32>", read: e => `${e}.x` },
-  u32: { stored: "vec4<u32>", read: e => `${e}.x` },
-  "vec2<f32>": { stored: "vec4<f32>", read: e => `${e}.xy` },
-  "vec2<i32>": { stored: "vec4<i32>", read: e => `${e}.xy` },
-  "vec2<u32>": { stored: "vec4<u32>", read: e => `${e}.xy` },
+export const WGSL_ARRAY_PADDING: Record<string, { stored: string; read: (element: string) => string }> = {
+  f32: { stored: "vec4<f32>", read: (e) => `${e}.x` },
+  i32: { stored: "vec4<i32>", read: (e) => `${e}.x` },
+  u32: { stored: "vec4<u32>", read: (e) => `${e}.x` },
+  "vec2<f32>": { stored: "vec4<f32>", read: (e) => `${e}.xy` },
+  "vec2<i32>": { stored: "vec4<i32>", read: (e) => `${e}.xy` },
+  "vec2<u32>": { stored: "vec4<u32>", read: (e) => `${e}.xy` },
   // A bool is not host-shareable at all, so it travels as an unsigned integer
   // and is compared back, the same substitution a single bool uniform makes.
   // Reading is a comparison rather than a suffix, which is why these are
   // written as functions.
-  bool: { stored: "vec4<u32>", read: e => `(${e}.x != 0u)` },
-  "vec2<bool>": { stored: "vec4<u32>", read: e => `(${e}.xy != vec2<u32>(0u))` },
-  "vec3<bool>": { stored: "vec4<u32>", read: e => `(${e}.xyz != vec3<u32>(0u))` },
-  "vec4<bool>": { stored: "vec4<u32>", read: e => `(${e} != vec4<u32>(0u))` },
+  bool: { stored: "vec4<u32>", read: (e) => `(${e}.x != 0u)` },
+  "vec2<bool>": { stored: "vec4<u32>", read: (e) => `(${e}.xy != vec2<u32>(0u))` },
+  "vec3<bool>": { stored: "vec4<u32>", read: (e) => `(${e}.xyz != vec3<u32>(0u))` },
+  "vec4<bool>": { stored: "vec4<u32>", read: (e) => `(${e} != vec4<u32>(0u))` },
 };
 
 /** How a member is written in the struct: `array<T, N>` for arrays, else `T`. */
@@ -207,11 +232,18 @@ export function wgslMemberType(m: WgslUniformMember): string {
  * writing the buffer has no other way to know them.
  */
 
-
 export function isWgslTexture(type: string): boolean {
-  return type === "texture_2d<f32>" || type === "texture_3d<f32>" || type === "texture_cube<f32>"
-    || type === "texture_2d<i32>" || type === "texture_3d<i32>" || type === "texture_cube<i32>"
-    || type === "texture_2d<u32>" || type === "texture_3d<u32>" || type === "texture_cube<u32>";
+  return (
+    type === "texture_2d<f32>" ||
+    type === "texture_3d<f32>" ||
+    type === "texture_cube<f32>" ||
+    type === "texture_2d<i32>" ||
+    type === "texture_3d<i32>" ||
+    type === "texture_cube<i32>" ||
+    type === "texture_2d<u32>" ||
+    type === "texture_3d<u32>" ||
+    type === "texture_cube<u32>"
+  );
 }
 
 /**
@@ -230,25 +262,29 @@ const WGSL_UNIFORM_RULES: AllocRules = {
     // to lie at that address, and the caller has no way to notice.
     if (base === undefined) {
       throw new Error(
-        `[RMSL] no uniform layout is known for ${type}. Its size and`
-        + ` alignment have to be added to WGSL_LAYOUT before it can be packed`
-        + ` into a uniform buffer.`,
+        `[RMSL] no uniform layout is known for ${type}. Its size and` +
+          ` alignment have to be added to WGSL_LAYOUT before it can be packed` +
+          ` into a uniform buffer.`,
       );
     }
     return base;
   },
   reorderByAlignment: true,
-  widenNarrowArrayElements: type => WGSL_ARRAY_PADDING[type]?.stored ?? type,
+  widenNarrowArrayElements: (type) => WGSL_ARRAY_PADDING[type]?.stored ?? type,
   arrayStrideRoundedTo: 16,
   structAlignMinimum: 4,
 };
 
-export function wgslUniformLayout(
-  members: { slot: string; type: string; length?: number }[],
-): { members: WgslUniformMember[]; size: number } {
-  const placed = planLayout(members.map(m => ({ slot: m.slot, type: m.type, length: m.length })), WGSL_UNIFORM_RULES);
+export function wgslUniformLayout(members: { slot: string; type: string; length?: number }[]): {
+  members: WgslUniformMember[];
+  size: number;
+} {
+  const placed = planLayout(
+    members.map((m) => ({ slot: m.slot, type: m.type, length: m.length })),
+    WGSL_UNIFORM_RULES,
+  );
   return {
-    members: placed.members.map(m => ({
+    members: placed.members.map((m) => ({
       name: m.slot,
       type: m.type,
       offset: m.offset,
@@ -288,10 +324,7 @@ export function varyingLocation(info: { id?: number; slot: string }): number {
   return info.id ?? Number(/^_rmsl_v(\d+)$/.exec(info.slot)?.[1] ?? 0);
 }
 
-export function compileWGSLStage(
-  node: BaseNode<ShaderType> | any,
-  ctx: CompileCtx,
-): CompiledNode {
+export function compileWGSLStage(node: BaseNode<ShaderType> | any, ctx: CompileCtx): CompiledNode {
   if (node === undefined || node === null) {
     return { decls: [], body: [], expr: "0.0" };
   }
@@ -316,41 +349,76 @@ export function compileWGSLStage(
   return result;
 }
 
-export function compileWGSLNode(
-  node: BaseNode<ShaderType> | any,
-  ctx: CompileCtx,
-): CompiledNode {
+export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCtx): CompiledNode {
   // Constant folding
   let folded = tryFold(node);
   if (folded) node = folded;
 
   switch (node.type) {
-    case "float": return { decls: [], body: [], expr: `${node.value}f` };
-    case "int": return { decls: [], body: [], expr: `${node.value}i` };
-    case "uint": return { decls: [], body: [], expr: `${node.value}u` };
-    case "bool": return { decls: [], body: [], expr: node.value ? "true" : "false" };
-    case "vec2": return { decls: [], body: [], expr: `vec2<f32>(${(node.value as number[]).join(", ")})` };
-    case "vec3": return { decls: [], body: [], expr: `vec3<f32>(${(node.value as number[]).join(", ")})` };
-    case "vec4": return { decls: [], body: [], expr: `vec4<f32>(${(node.value as number[]).join(", ")})` };
-    case "ivec2": return { decls: [], body: [], expr: `vec2<i32>(${(node.value as number[]).map(v => `${v}i`).join(", ")})` };
-    case "ivec3": return { decls: [], body: [], expr: `vec3<i32>(${(node.value as number[]).map(v => `${v}i`).join(", ")})` };
-    case "ivec4": return { decls: [], body: [], expr: `vec4<i32>(${(node.value as number[]).map(v => `${v}i`).join(", ")})` };
-    case "uvec2": return { decls: [], body: [], expr: `vec2<u32>(${(node.value as number[]).map(v => `${v}u`).join(", ")})` };
-    case "uvec3": return { decls: [], body: [], expr: `vec3<u32>(${(node.value as number[]).map(v => `${v}u`).join(", ")})` };
-    case "uvec4": return { decls: [], body: [], expr: `vec4<u32>(${(node.value as number[]).map(v => `${v}u`).join(", ")})` };
-    case "bvec2": return { decls: [], body: [], expr: `vec2<bool>(${(node.value as boolean[]).map(v => v ? "true" : "false").join(", ")})` };
-    case "bvec3": return { decls: [], body: [], expr: `vec3<bool>(${(node.value as boolean[]).map(v => v ? "true" : "false").join(", ")})` };
-    case "bvec4": return { decls: [], body: [], expr: `vec4<bool>(${(node.value as boolean[]).map(v => v ? "true" : "false").join(", ")})` };
-    case "mat2": return { decls: [], body: [], expr: `mat2x2<f32>(${(node.value as number[]).join(", ")})` };
-    case "mat2x3": return { decls: [], body: [], expr: `mat2x3<f32>(${(node.value as number[]).join(", ")})` };
-    case "mat2x4": return { decls: [], body: [], expr: `mat2x4<f32>(${(node.value as number[]).join(", ")})` };
-    case "mat3x2": return { decls: [], body: [], expr: `mat3x2<f32>(${(node.value as number[]).join(", ")})` };
-    case "mat3": return { decls: [], body: [], expr: `mat3x3<f32>(${(node.value as number[]).join(", ")})` };
-    case "mat3x4": return { decls: [], body: [], expr: `mat3x4<f32>(${(node.value as number[]).join(", ")})` };
-    case "mat4x2": return { decls: [], body: [], expr: `mat4x2<f32>(${(node.value as number[]).join(", ")})` };
-    case "mat4x3": return { decls: [], body: [], expr: `mat4x3<f32>(${(node.value as number[]).join(", ")})` };
-    case "mat4": return { decls: [], body: [], expr: `mat4x4<f32>(${(node.value as number[]).join(", ")})` };
-    case "void": return { decls: [], body: [], expr: "0.0" };
+    case "float":
+      return { decls: [], body: [], expr: `${node.value}f` };
+    case "int":
+      return { decls: [], body: [], expr: `${node.value}i` };
+    case "uint":
+      return { decls: [], body: [], expr: `${node.value}u` };
+    case "bool":
+      return { decls: [], body: [], expr: node.value ? "true" : "false" };
+    case "vec2":
+      return { decls: [], body: [], expr: `vec2<f32>(${(node.value as number[]).join(", ")})` };
+    case "vec3":
+      return { decls: [], body: [], expr: `vec3<f32>(${(node.value as number[]).join(", ")})` };
+    case "vec4":
+      return { decls: [], body: [], expr: `vec4<f32>(${(node.value as number[]).join(", ")})` };
+    case "ivec2":
+      return { decls: [], body: [], expr: `vec2<i32>(${(node.value as number[]).map((v) => `${v}i`).join(", ")})` };
+    case "ivec3":
+      return { decls: [], body: [], expr: `vec3<i32>(${(node.value as number[]).map((v) => `${v}i`).join(", ")})` };
+    case "ivec4":
+      return { decls: [], body: [], expr: `vec4<i32>(${(node.value as number[]).map((v) => `${v}i`).join(", ")})` };
+    case "uvec2":
+      return { decls: [], body: [], expr: `vec2<u32>(${(node.value as number[]).map((v) => `${v}u`).join(", ")})` };
+    case "uvec3":
+      return { decls: [], body: [], expr: `vec3<u32>(${(node.value as number[]).map((v) => `${v}u`).join(", ")})` };
+    case "uvec4":
+      return { decls: [], body: [], expr: `vec4<u32>(${(node.value as number[]).map((v) => `${v}u`).join(", ")})` };
+    case "bvec2":
+      return {
+        decls: [],
+        body: [],
+        expr: `vec2<bool>(${(node.value as boolean[]).map((v) => (v ? "true" : "false")).join(", ")})`,
+      };
+    case "bvec3":
+      return {
+        decls: [],
+        body: [],
+        expr: `vec3<bool>(${(node.value as boolean[]).map((v) => (v ? "true" : "false")).join(", ")})`,
+      };
+    case "bvec4":
+      return {
+        decls: [],
+        body: [],
+        expr: `vec4<bool>(${(node.value as boolean[]).map((v) => (v ? "true" : "false")).join(", ")})`,
+      };
+    case "mat2":
+      return { decls: [], body: [], expr: `mat2x2<f32>(${(node.value as number[]).join(", ")})` };
+    case "mat2x3":
+      return { decls: [], body: [], expr: `mat2x3<f32>(${(node.value as number[]).join(", ")})` };
+    case "mat2x4":
+      return { decls: [], body: [], expr: `mat2x4<f32>(${(node.value as number[]).join(", ")})` };
+    case "mat3x2":
+      return { decls: [], body: [], expr: `mat3x2<f32>(${(node.value as number[]).join(", ")})` };
+    case "mat3":
+      return { decls: [], body: [], expr: `mat3x3<f32>(${(node.value as number[]).join(", ")})` };
+    case "mat3x4":
+      return { decls: [], body: [], expr: `mat3x4<f32>(${(node.value as number[]).join(", ")})` };
+    case "mat4x2":
+      return { decls: [], body: [], expr: `mat4x2<f32>(${(node.value as number[]).join(", ")})` };
+    case "mat4x3":
+      return { decls: [], body: [], expr: `mat4x3<f32>(${(node.value as number[]).join(", ")})` };
+    case "mat4":
+      return { decls: [], body: [], expr: `mat4x4<f32>(${(node.value as number[]).join(", ")})` };
+    case "void":
+      return { decls: [], body: [], expr: "0.0" };
 
     case "construct": {
       let params = (node.params ?? []).map((p: any) => compileWGSLStage(p, ctx));
@@ -364,9 +432,12 @@ export function compileWGSLNode(
       let sourceType = (node.params?.[0] as any)?._t;
       let source = TYPE_WIDTH[sourceType];
       if (
-        params.length === 1 && target !== undefined && source !== undefined
-        && source > target && target >= 1
-        && /^(vec|ivec|uvec|bvec)/.test(sourceType ?? "")
+        params.length === 1 &&
+        target !== undefined &&
+        source !== undefined &&
+        source > target &&
+        target >= 1 &&
+        /^(vec|ivec|uvec|bvec)/.test(sourceType ?? "")
       ) {
         let narrowed = `${params[0].expr}.${"xyzw".slice(0, target)}`;
         return {
@@ -378,9 +449,7 @@ export function compileWGSLNode(
 
       // The same narrowing one step up: a matrix cut down to a smaller matrix,
       // which GLSL spells as a constructor and WGSL has no spelling for.
-      let narrowing = params.length === 1
-        ? wgslMatrixNarrowing(node._t as string, sourceType)
-        : null;
+      let narrowing = params.length === 1 ? wgslMatrixNarrowing(node._t as string, sourceType) : null;
       if (narrowing) {
         ctx.wgslHelpers.add(narrowing);
         return {
@@ -403,7 +472,7 @@ export function compileWGSLNode(
     }
 
     case "var": {
-      let varInfo = (node.value as any);
+      let varInfo = node.value as any;
       let varName = varInfo?.varName;
       if (varName && !ctx.varDefs.has(varName)) {
         ctx.varDefs.set(varName, wgslType(varInfo?.varType || "float"));
@@ -458,9 +527,7 @@ export function compileWGSLNode(
       let index = compileWGSLStage(node.params![1], ctx);
       // WGSL indexes with i32 or u32; a float loop counter has to be converted.
       let indexType = (node.params![1] as any)?._t;
-      let indexExpr = indexType === "int" || indexType === "uint"
-        ? index.expr
-        : `i32(${index.expr})`;
+      let indexExpr = indexType === "int" || indexType === "uint" ? index.expr : `i32(${index.expr})`;
       // An element too narrow to align is stored widened, so the value is read
       // back out of the leading components — the padding never reaches the
       // caller, who asked for a float and gets a float.
@@ -556,11 +623,16 @@ export function compileWGSLNode(
       return { decls: a.decls, body: a.body, expr: `any(${a.expr})` };
     }
 
-    case "add": return binaryWGSL(node, ctx, "+");
-    case "sub": return binaryWGSL(node, ctx, "-");
-    case "mul": return binaryWGSL(node, ctx, "*");
-    case "div": return binaryWGSL(node, ctx, "/");
-    case "atan2": return binaryWGSL(node, ctx, "atan2", true);
+    case "add":
+      return binaryWGSL(node, ctx, "+");
+    case "sub":
+      return binaryWGSL(node, ctx, "-");
+    case "mul":
+      return binaryWGSL(node, ctx, "*");
+    case "div":
+      return binaryWGSL(node, ctx, "/");
+    case "atan2":
+      return binaryWGSL(node, ctx, "atan2", true);
     case "mod": {
       let operandType = (node.params![0] as any)?._t;
       if (operandType === "int" || operandType === "uint") {
@@ -579,18 +651,30 @@ export function compileWGSLNode(
       }
       return binaryWGSL(node, ctx, "%");
     }
-    case "pow": return binaryWGSL(node, ctx, "pow", true);
-    case "min": return binaryWGSL(node, ctx, "min", true);
-    case "max": return binaryWGSL(node, ctx, "max", true);
-    case "dot": return binaryWGSL(node, ctx, "dot", true);
-    case "cross": return binaryWGSL(node, ctx, "cross", true);
-    case "distance": return binaryWGSL(node, ctx, "distance", true);
-    case "reflect": return binaryWGSL(node, ctx, "reflect", true);
-    case "refract": return ternaryWGSL(node, ctx, "refract");
-    case "mix": return ternaryWGSL(node, ctx, "mix");
-    case "step": return binaryWGSL(node, ctx, "step", true);
-    case "smoothstep": return ternaryWGSL(node, ctx, "smoothstep");
-    case "clamp": return ternaryWGSL(node, ctx, "clamp");
+    case "pow":
+      return binaryWGSL(node, ctx, "pow", true);
+    case "min":
+      return binaryWGSL(node, ctx, "min", true);
+    case "max":
+      return binaryWGSL(node, ctx, "max", true);
+    case "dot":
+      return binaryWGSL(node, ctx, "dot", true);
+    case "cross":
+      return binaryWGSL(node, ctx, "cross", true);
+    case "distance":
+      return binaryWGSL(node, ctx, "distance", true);
+    case "reflect":
+      return binaryWGSL(node, ctx, "reflect", true);
+    case "refract":
+      return ternaryWGSL(node, ctx, "refract");
+    case "mix":
+      return ternaryWGSL(node, ctx, "mix");
+    case "step":
+      return binaryWGSL(node, ctx, "step", true);
+    case "smoothstep":
+      return ternaryWGSL(node, ctx, "smoothstep");
+    case "clamp":
+      return ternaryWGSL(node, ctx, "clamp");
     case "select": {
       let cond = compileWGSLStage(node.params![0], ctx);
       let a = compileWGSLStage(node.params![1], ctx);
@@ -612,22 +696,35 @@ export function compileWGSLNode(
       };
     }
     // Comparison ops
-    case "lessThan": return binaryWGSL(node, ctx, "<");
-    case "greaterThan": return binaryWGSL(node, ctx, ">");
-    case "lessThanEqual": return binaryWGSL(node, ctx, "<=");
-    case "greaterThanEqual": return binaryWGSL(node, ctx, ">=");
-    case "equal": return binaryWGSL(node, ctx, "==");
-    case "notEqual": return binaryWGSL(node, ctx, "!=");
+    case "lessThan":
+      return binaryWGSL(node, ctx, "<");
+    case "greaterThan":
+      return binaryWGSL(node, ctx, ">");
+    case "lessThanEqual":
+      return binaryWGSL(node, ctx, "<=");
+    case "greaterThanEqual":
+      return binaryWGSL(node, ctx, ">=");
+    case "equal":
+      return binaryWGSL(node, ctx, "==");
+    case "notEqual":
+      return binaryWGSL(node, ctx, "!=");
 
-    case "and": return logicalWGSL(node, ctx, "&&");
-    case "or": return logicalWGSL(node, ctx, "||");
-    case "bitAnd": return binaryWGSL(node, ctx, "&");
-    case "bitOr": return binaryWGSL(node, ctx, "|");
-    case "bitXor": return binaryWGSL(node, ctx, "^");
+    case "and":
+      return logicalWGSL(node, ctx, "&&");
+    case "or":
+      return logicalWGSL(node, ctx, "||");
+    case "bitAnd":
+      return binaryWGSL(node, ctx, "&");
+    case "bitOr":
+      return binaryWGSL(node, ctx, "|");
+    case "bitXor":
+      return binaryWGSL(node, ctx, "^");
     // WGSL takes the shift amount as u32 even when the value shifted is i32,
     // so the right operand is converted. GLSL accepts either.
-    case "shiftLeft": return shiftWGSL(node, ctx, "<<");
-    case "shiftRight": return shiftWGSL(node, ctx, ">>");
+    case "shiftLeft":
+      return shiftWGSL(node, ctx, "<<");
+    case "shiftRight":
+      return shiftWGSL(node, ctx, ">>");
 
     case "matVecMul": {
       let mat = compileWGSLStage(node.params![0], ctx);
@@ -660,34 +757,62 @@ export function compileWGSLNode(
       };
     }
 
-    case "sin": return unaryWGSL(node, ctx, "sin");
-    case "cos": return unaryWGSL(node, ctx, "cos");
-    case "tan": return unaryWGSL(node, ctx, "tan");
-    case "asin": return unaryWGSL(node, ctx, "asin");
-    case "acos": return unaryWGSL(node, ctx, "acos");
-    case "atan": return unaryWGSL(node, ctx, "atan");
-    case "sinh": return unaryWGSL(node, ctx, "sinh");
-    case "cosh": return unaryWGSL(node, ctx, "cosh");
-    case "tanh": return unaryWGSL(node, ctx, "tanh");
-    case "asinh": return unaryWGSL(node, ctx, "asinh");
-    case "acosh": return unaryWGSL(node, ctx, "acosh");
-    case "atanh": return unaryWGSL(node, ctx, "atanh");
-    case "abs": return unaryWGSL(node, ctx, "abs");
-    case "sign": return unaryWGSL(node, ctx, "sign");
-    case "floor": return unaryWGSL(node, ctx, "floor");
-    case "ceil": return unaryWGSL(node, ctx, "ceil");
-    case "fract": return unaryWGSL(node, ctx, "fract");
-    case "round": return unaryWGSL(node, ctx, "round");
-    case "trunc": return unaryWGSL(node, ctx, "trunc");
-    case "sqrt": return unaryWGSL(node, ctx, "sqrt");
-    case "inverseSqrt": return unaryWGSL(node, ctx, "inverseSqrt");
-    case "exp": return unaryWGSL(node, ctx, "exp");
-    case "log": return unaryWGSL(node, ctx, "log");
-    case "exp2": return unaryWGSL(node, ctx, "exp2");
-    case "log2": return unaryWGSL(node, ctx, "log2");
-    case "normalize": return unaryWGSL(node, ctx, "normalize");
-    case "length": return unaryWGSL(node, ctx, "length");
-    case "transpose": return unaryWGSL(node, ctx, "transpose");
+    case "sin":
+      return unaryWGSL(node, ctx, "sin");
+    case "cos":
+      return unaryWGSL(node, ctx, "cos");
+    case "tan":
+      return unaryWGSL(node, ctx, "tan");
+    case "asin":
+      return unaryWGSL(node, ctx, "asin");
+    case "acos":
+      return unaryWGSL(node, ctx, "acos");
+    case "atan":
+      return unaryWGSL(node, ctx, "atan");
+    case "sinh":
+      return unaryWGSL(node, ctx, "sinh");
+    case "cosh":
+      return unaryWGSL(node, ctx, "cosh");
+    case "tanh":
+      return unaryWGSL(node, ctx, "tanh");
+    case "asinh":
+      return unaryWGSL(node, ctx, "asinh");
+    case "acosh":
+      return unaryWGSL(node, ctx, "acosh");
+    case "atanh":
+      return unaryWGSL(node, ctx, "atanh");
+    case "abs":
+      return unaryWGSL(node, ctx, "abs");
+    case "sign":
+      return unaryWGSL(node, ctx, "sign");
+    case "floor":
+      return unaryWGSL(node, ctx, "floor");
+    case "ceil":
+      return unaryWGSL(node, ctx, "ceil");
+    case "fract":
+      return unaryWGSL(node, ctx, "fract");
+    case "round":
+      return unaryWGSL(node, ctx, "round");
+    case "trunc":
+      return unaryWGSL(node, ctx, "trunc");
+    case "sqrt":
+      return unaryWGSL(node, ctx, "sqrt");
+    case "inverseSqrt":
+      return unaryWGSL(node, ctx, "inverseSqrt");
+    case "exp":
+      return unaryWGSL(node, ctx, "exp");
+    case "log":
+      return unaryWGSL(node, ctx, "log");
+    case "exp2":
+      return unaryWGSL(node, ctx, "exp2");
+    case "log2":
+      return unaryWGSL(node, ctx, "log2");
+    case "normalize":
+      return unaryWGSL(node, ctx, "normalize");
+    case "length":
+      return unaryWGSL(node, ctx, "length");
+    case "transpose":
+      return unaryWGSL(node, ctx, "transpose");
     case "inverse": {
       // No inverse() builtin in WGSL, so one is written out per matrix size and
       // pulled in on demand.
@@ -701,13 +826,18 @@ export function compileWGSLNode(
         expr: `${helper}(${operand.expr})`,
       };
     }
-    case "determinant": return unaryWGSL(node, ctx, "determinant");
-    case "fwidth": return unaryWGSL(node, ctx, "fwidth");
-    case "dFdx": return unaryWGSL(node, ctx, "dpdx");
-    case "dFdy": return unaryWGSL(node, ctx, "dpdy");
+    case "determinant":
+      return unaryWGSL(node, ctx, "determinant");
+    case "fwidth":
+      return unaryWGSL(node, ctx, "fwidth");
+    case "dFdx":
+      return unaryWGSL(node, ctx, "dpdx");
+    case "dFdy":
+      return unaryWGSL(node, ctx, "dpdy");
     // faceForward(n, i, nref) takes three vectors; a binary emitter would drop
     // the reference and hand Dawn a call it refuses to compile.
-    case "faceForward": return ternaryWGSL(node, ctx, "faceForward");
+    case "faceForward":
+      return ternaryWGSL(node, ctx, "faceForward");
     case "bitNot": {
       let a = compileWGSLStage(node.params![0], ctx);
       let childExpr = wrapExpr(a.prec, PREC_UNARY, a.expr);
@@ -812,7 +942,8 @@ export function compileWGSLNode(
       let width = samplerType.endsWith("2D") ? 2 : 3;
       let coordsType = (node.params![1] as any)?._t || `ivec${width}`;
       let coordsExpr = coords.expr;
-      if (coordsType !== `ivec${width}` && coordsType !== `uvec${width}`) coordsExpr = `vec${width}<i32>(${coordsExpr})`;
+      if (coordsType !== `ivec${width}` && coordsType !== `uvec${width}`)
+        coordsExpr = `vec${width}<i32>(${coordsExpr})`;
       return {
         decls: [...samplerCompiled.decls, ...coords.decls],
         body: [...samplerCompiled.body, ...coords.body],
@@ -872,11 +1003,7 @@ export function compileWGSLNode(
         if (resolved.pattern.length === 1) {
           return {
             decls: [...base.decls, ...rhs.decls],
-            body: [
-              ...base.body,
-              ...rhs.body,
-              `${base.expr}.${resolved.pattern} = ${rhs.expr};`,
-            ],
+            body: [...base.body, ...rhs.body, `${base.expr}.${resolved.pattern} = ${rhs.expr};`],
             expr: base.expr,
           };
         }
@@ -887,9 +1014,7 @@ export function compileWGSLNode(
           ...base.body,
           ...rhs.body,
           `var ${temp}: ${rhsType} = ${rhs.expr};`,
-          ...[...resolved.pattern].map(
-            (component, i) => `${base.expr}.${component} = ${temp}[${i}];`,
-          ),
+          ...[...resolved.pattern].map((component, i) => `${base.expr}.${component} = ${temp}[${i}];`),
         ];
         return {
           decls: [...base.decls, ...rhs.decls],
@@ -923,18 +1048,14 @@ export function compileWGSLNode(
     case "if": {
       let cd = compileWGSLStage(node.params![0], ctx);
       let body = compileWGSLStage(node.params![1], ctx);
-      let elseBody = node.params!.length >= 3 && node.params![2] !== undefined
-        ? compileWGSLStage(node.params![2], ctx)
-        : { decls: [] as string[], body: [] as string[], expr: "" };
-      let lines: string[] = [
-        ...cd.body,
-        `if (${cd.expr}) {`,
-        ...body.body.map(l => "  " + l),
-        "}",
-      ];
+      let elseBody =
+        node.params!.length >= 3 && node.params![2] !== undefined
+          ? compileWGSLStage(node.params![2], ctx)
+          : { decls: [] as string[], body: [] as string[], expr: "" };
+      let lines: string[] = [...cd.body, `if (${cd.expr}) {`, ...body.body.map((l) => "  " + l), "}"];
       if (elseBody.body.length > 0) {
         lines.push("else {");
-        lines.push(...elseBody.body.map(l => "  " + l));
+        lines.push(...elseBody.body.map((l) => "  " + l));
         lines.push("}");
       }
       return {
@@ -953,7 +1074,7 @@ export function compileWGSLNode(
       let initBody = init.body;
       if (init.body.length > 0) {
         let lastStmt = init.body[init.body.length - 1];
-        if (lastStmt.endsWith(';')) {
+        if (lastStmt.endsWith(";")) {
           let converted = lastStmt.slice(0, -1);
           // WGSL for-init needs var not let (skip let prefix)
           initExpr = converted;
@@ -975,11 +1096,11 @@ export function compileWGSLNode(
             "{",
             `  ${initExpr};`,
             "  loop {",
-            ...cd.body.map(l => "    " + l),
+            ...cd.body.map((l) => "    " + l),
             `    if (!(${cd.expr})) { break; }`,
-            ...body.body.map(l => "    " + l),
+            ...body.body.map((l) => "    " + l),
             "    continuing {",
-            ...updates.map(l => "      " + l),
+            ...updates.map((l) => "      " + l),
             "    }",
             "  }",
             "}",
@@ -991,12 +1112,7 @@ export function compileWGSLNode(
       let header = updates.length === 1 ? withoutSemicolon(updates[0]) : "";
       return {
         decls,
-        body: [
-          ...initBody,
-          `for (${initExpr}; ${cd.expr}; ${header}) {`,
-          ...body.body.map(l => "  " + l),
-          "}",
-        ],
+        body: [...initBody, `for (${initExpr}; ${cd.expr}; ${header}) {`, ...body.body.map((l) => "  " + l), "}"],
         expr: "0.0",
       };
     }
@@ -1006,12 +1122,7 @@ export function compileWGSLNode(
       let body = compileWGSLStage(node.params![1], ctx);
       return {
         decls: [...cd.decls, ...body.decls],
-        body: [
-          ...cd.body,
-          `while (${cd.expr}) {`,
-          ...body.body.map(l => "  " + l),
-          "}",
-        ],
+        body: [...cd.body, `while (${cd.expr}) {`, ...body.body.map((l) => "  " + l), "}"],
         expr: "0.0",
       };
     }
@@ -1143,11 +1254,7 @@ export const WGSL_HELPERS: Record<string, string> = {
  * u32 — `i32 << i32` has no overload — so the right operand is converted when
  * it is not already unsigned.
  */
-export function shiftWGSL(
-  node: BaseNode<ShaderType>,
-  ctx: CompileCtx,
-  op: string,
-): CompiledNode {
+export function shiftWGSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string): CompiledNode {
   let lhs = compileWGSLStage(node.params![0], ctx);
   let rhs = compileWGSLStage(node.params![1], ctx);
   let amountType = (node.params![1] as any)?._t;
@@ -1172,11 +1279,7 @@ export function shiftWGSL(
  * therefore must be parenthesised even though its precedence number is higher
  * than its parent's.
  */
-export function logicalWGSL(
-  node: BaseNode<ShaderType>,
-  ctx: CompileCtx,
-  op: string,
-): CompiledNode {
+export function logicalWGSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string): CompiledNode {
   let lhs = compileWGSLStage(node.params![0], ctx);
   let rhs = compileWGSLStage(node.params![1], ctx);
   let prec = PRECEDENCE[node.type] ?? 0;
@@ -1192,12 +1295,7 @@ export function logicalWGSL(
   };
 }
 
-export function binaryWGSL(
-  node: BaseNode<ShaderType>,
-  ctx: CompileCtx,
-  op: string,
-  isFn?: boolean,
-): CompiledNode {
+export function binaryWGSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string, isFn?: boolean): CompiledNode {
   let lhs = compileWGSLStage(node.params![0], ctx);
   let rhs = compileWGSLStage(node.params![1], ctx);
   let lhsType = (node.params![0] as any)?._t || "float";
@@ -1303,7 +1401,7 @@ export function compileWGSLWithStage(
   };
 
   let nodes = Array.isArray(root) ? root : [root];
-  let results = nodes.map(n => compileWGSLStage(n, ctx));
+  let results = nodes.map((n) => compileWGSLStage(n, ctx));
   let allBody: string[] = [];
   let lastExpr = "0.0";
   // The stage output is a fixed type (vec4 for gl_Position and the implicit
@@ -1342,7 +1440,10 @@ export function compileWGSLWithStage(
   // the program's whole uniform set makes all three agree — a member a stage
   // never reads costs it nothing.
   let declared = options?.uniforms
-    ? sharedUniformMembers(options.uniforms, plain.map(([, i]) => i))
+    ? sharedUniformMembers(
+        options.uniforms,
+        plain.map(([, i]) => i),
+      )
     : plain.map(([, i]) => ({ slot: i.slot, type: i.type, length: i.length }));
   if (declared.length > 0) {
     let layout = wgslUniformLayout(declared);
@@ -1379,7 +1480,9 @@ export function compileWGSLWithStage(
         const matrix = wgslMatrixColumns(info.type);
         if (matrix) {
           for (let column = 0; column < matrix.count; column++) {
-            lines.push(`  @location(${attrLoc + column}) ${wgslMatrixColumnSlot(info.slot, column)}: ${matrix.columnType},`);
+            lines.push(
+              `  @location(${attrLoc + column}) ${wgslMatrixColumnSlot(info.slot, column)}: ${matrix.columnType},`,
+            );
           }
         } else {
           lines.push(`  @location(${attrLoc}) ${info.slot}: ${info.type},`);
@@ -1487,7 +1590,7 @@ export function compileWGSLWithStage(
     if (emitImplicitColor) {
       lines.push(`  result._rmsl_fragColor = ${lastExpr};`);
     }
-    if (ctx.fragDepthUsed && !allBody.some(l => l.includes("_rmsl_fragDepth ="))) {
+    if (ctx.fragDepthUsed && !allBody.some((l) => l.includes("_rmsl_fragDepth ="))) {
       lines.push("  result._rmsl_fragDepth = 1.0;");
     }
     if (hasFragmentOutput) {
@@ -1546,16 +1649,15 @@ export function sharedUniformMembers(
   declared: WgslUniformDeclaration[],
   used: { slot: string; type: string; length?: number }[],
 ): WgslUniformDeclaration[] {
-  let names = new Set(declared.map(u => u.slot));
+  let names = new Set(declared.map((u) => u.slot));
   for (let uniform of used) {
     if (!names.has(uniform.slot)) {
       throw new Error(
-        `[RMSL] the uniform "${uniform.slot}" is read by this stage but missing`
-        + ` from the uniforms passed to the compiler. Pass every uniform of the`
-        + ` program, so both stages and the host agree on the buffer layout.`,
+        `[RMSL] the uniform "${uniform.slot}" is read by this stage but missing` +
+          ` from the uniforms passed to the compiler. Pass every uniform of the` +
+          ` program, so both stages and the host agree on the buffer layout.`,
       );
     }
   }
   return declared;
 }
-
