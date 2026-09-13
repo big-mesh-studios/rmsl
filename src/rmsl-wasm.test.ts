@@ -741,6 +741,42 @@ describe("WASM backend: texture uniforms (Phase 6 — metadata plumbing)", () =>
     expect(fn({ textures: { [tex.name]: { data: new Float32Array(2000 * 2000), width: 2000, height: 2000 } } })).toBe(2000);
   });
 
+  it("keeps sampling correctly across repeated calls with the same texture object (the cached, skip-the-copy path)", () => {
+    const tex = uniform("sampler2D");
+    const build = () => Fn(() => textureLoad(tex, ivec2(1, 0)).x)();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const texture = { data: [10, 20], width: 2, height: 1, channels: 1 as const };
+    // Same object reference every call — after the first, the wrapper skips
+    // re-copying it entirely, so this also checks that skip never leaves a
+    // call reading stale or uninitialized memory.
+    for (let i = 0; i < 5; i++) {
+      expect(fn({ textures: { [tex.name]: texture } })).toBe(20);
+    }
+  });
+
+  it("picks up a different, same-size texture bound to the same slot", () => {
+    const tex = uniform("sampler2D");
+    const build = () => Fn(() => textureLoad(tex, ivec2(1, 0)).x)();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const first = { data: [10, 20], width: 2, height: 1, channels: 1 as const };
+    const second = { data: [10, 99], width: 2, height: 1, channels: 1 as const };
+    expect(fn({ textures: { [tex.name]: first } })).toBe(20);
+    // A different object, same byte size — the layout doesn't need to
+    // repack, but this slot's bytes must still be rewritten rather than
+    // reusing `first`'s now-stale ones.
+    expect(fn({ textures: { [tex.name]: second } })).toBe(99);
+  });
+
+  it("does not notice a texture's data mutated in place without swapping the object — a known, deliberate limitation of the reference-equality cache", () => {
+    const tex = uniform("sampler2D");
+    const build = () => Fn(() => textureLoad(tex, ivec2(1, 0)).x)();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const texture = { data: [10, 20], width: 2, height: 1, channels: 1 as const };
+    expect(fn({ textures: { [tex.name]: texture } })).toBe(20);
+    texture.data[1] = 55; // mutated in place — same object reference
+    expect(fn({ textures: { [tex.name]: texture } })).toBe(20); // stale on purpose
+  });
+
   it("supports textureSize() for a samplerCube uniform, matching compileJS's own lack of restriction there", () => {
     const tex = uniform("samplerCube");
     const build = () => Fn(() => (textureSize as any)(tex).x)();

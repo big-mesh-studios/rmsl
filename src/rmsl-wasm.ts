@@ -2203,26 +2203,52 @@ export function compileWasm(
   const outputParams = params.filter((p): p is Extract<WasmParam, { kind: "outputMemory" | "varyingOutputMemory" | "positionMemory" | "fragDepthMemory" | "valueMemory" }> =>
     p.kind === "outputMemory" || p.kind === "varyingOutputMemory" || p.kind === "positionMemory" || p.kind === "fragDepthMemory" || p.kind === "valueMemory");
   const textureParams = params.filter((p): p is Extract<WasmParam, { kind: "textureMemory" }> => p.kind === "textureMemory");
+  // Per-slot cache for the texture heap below: which JsTextureData object
+  // (by reference) currently occupies each slot's region, and the byte
+  // size that layout was packed for. `null` forces the first call to pack
+  // and write everything, the same as if this cache didn't exist.
+  const lastTexture: (JsTextureData | undefined)[] = new Array(textureParams.length);
+  let lastSizes: number[] | null = null;
   return (ctx: JsShaderContext): number | boolean | JsShaderResult => {
     // Texture data is call-time-sized, unlike every other param kind here,
     // so it's packed into a growable heap (starting at `textureHeapBase`)
-    // fresh before every call, rather than at a compile-time-fixed address.
-    // A program with no texture uniforms never touches this — `textureParams`
-    // is empty, `memory` never grows, byte-for-byte identical to before
-    // this existed.
+    // rather than at a compile-time-fixed address. A program with no
+    // texture uniforms never touches any of this — `textureParams` is
+    // empty, `memory` never grows, byte-for-byte identical to before this
+    // existed.
     if (textureParams.length > 0) {
       const textures = textureParams.map(p => (ctx.textures as any)?.[p.slot] as JsTextureData);
+      const sizes = textures.map(textureByteSize);
       const heapOffsets: number[] = [];
       let heapCursor = textureHeapBase;
-      for (const tex of textures) {
+      for (const size of sizes) {
         heapOffsets.push(heapCursor);
-        heapCursor += textureByteSize(tex);
+        heapCursor += size;
       }
-      if (heapCursor > memory.buffer.byteLength) {
+      // A texture's *placement* depends on every earlier slot's current
+      // size (they're packed back to back), so a size change anywhere
+      // forces every slot to be rewritten at its (possibly new) offset —
+      // not just the slot whose size actually changed. This only happens
+      // the first call, and again only if some texture's dimensions
+      // change call to call, which real usage (bind once, sample every
+      // frame with different coordinates) does not do.
+      const needsRepack = lastSizes === null || sizes.some((s, i) => s !== lastSizes![i]);
+      if (needsRepack && heapCursor > memory.buffer.byteLength) {
         memory.grow(Math.ceil((heapCursor - memory.buffer.byteLength) / 65536));
         view = new DataView(memory.buffer);
       }
-      textureParams.forEach((p, i) => writeTextureToMemory(view, p.metadataAddress, heapOffsets[i], textures[i]));
+      textureParams.forEach((p, i) => {
+        // A slot whose texture object is the exact same reference as last
+        // call needs no work at all — its metadata and pixel bytes in
+        // linear memory are still exactly what they were. This is the
+        // whole point of the cache: the realistic pattern (bind a texture
+        // once, call the compiled function repeatedly with different
+        // coordinates) skips the entire copy on every call but the first.
+        if (!needsRepack && textures[i] === lastTexture[i]) return;
+        writeTextureToMemory(view, p.metadataAddress, heapOffsets[i], textures[i]);
+        lastTexture[i] = textures[i];
+      });
+      lastSizes = sizes;
     }
     const args: number[] = [];
     for (const p of params) {
