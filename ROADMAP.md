@@ -83,7 +83,59 @@ one once there's a loop or enough per-call work to amortize the wrapper.
 Revisit before recommending `compileWasm` over `compileJS` for that niche
 specifically — either the wrapper needs to get cheaper (Phase 7 territory:
 this is exactly the "real workload, not a microbenchmark" gap that phase
-already flags), or the niche description needs updating.
+already flags), or the niche description needs updating. **Refined by the
+crossover measurement right below: the "enough per-call work" threshold
+turns out to be very low — a handful of loop iterations, not dozens.**
+
+### Crossover point: how many loop iterations before `compileWasm` wins
+
+The numbers above pin down exactly two points — a loop-free scalar call
+(`compileJS` wins) and one arbitrarily chosen 64-iteration loop
+(`compileWasm` wins) — without saying where between them the win actually
+starts. `src/rmsl-wasm-crossover.bench.ts` at commit `b629a19` sweeps the
+same `sum of sqrt(i)` loop workload across iteration counts, each compiled
+once up front (`npx vitest bench src/rmsl-wasm-crossover.bench.ts`, two
+runs, otherwise idle machine):
+
+| Loop length | Run 1 | Run 2 |
+|---|---|---|
+| 1 | `compileJS` 1.24x faster | `compileJS` 1.25x faster |
+| 2 | `compileJS` 1.28x faster | `compileJS` 1.25x faster |
+| 4 | `compileWasm` 1.08x faster | `compileWasm` 1.21x faster |
+| 8 | `compileWasm` 1.41x faster | `compileWasm` 1.47x faster |
+| 16 | `compileWasm` 2.30x faster | `compileWasm` 2.46x faster |
+| 32 | `compileWasm` 2.87x faster | `compileWasm` 3.14x faster |
+| 64 | `compileWasm` 3.57x faster | `compileWasm` 4.08x faster |
+| 128 | `compileWasm` 4.24x faster | `compileWasm` 4.37x faster |
+
+Both runs agree on which side of the crossover every length falls on
+(only 4 iterations wobbles between a 1.08x and a 1.21x win, never a loss),
+so the crossover for this workload sits **between 2 and 4 loop iterations**
+— strikingly low. Most of the fixed wrapper cost the earlier scalar-call
+measurement blamed for `compileWasm`'s loss turns out to have nothing to
+do with looping specifically: the moment a program is loop-shaped at all
+(even a loop that only runs once or twice), it's already close to
+break-even, and three or four iterations of real work tip it into a win.
+
+One structural point worth being precise about, not blurring together:
+this crossover is measured entirely *within* loop-shaped programs (1
+through 128 iterations of the same `For`), not as a continuous sweep
+starting from the loop-free scalar case above — a 1-iteration `for` loop
+and a loop-free function are different compiled shapes (the former still
+emits `block`/`loop`/`br` structure WASM has to set up and JS has to
+enter), not two points on one line. So the accurate statement is: **a
+loop-free scalar call stays a `compileJS` win by ~2.5-3.4x; a loop of any
+length 4 or more, for this workload, is already a `compileWasm` win** —
+not "compileWasm needs N iterations of amortization starting from zero."
+
+This directly narrows the other half of Phase 7's original question —
+whether the wrapper itself needs to get cheaper before `compileWasm` is a
+reasonable default. For any workload that loops at all, it already isn't
+the bottleneck this benchmark can find; whether it's worth cheapening
+further is now specifically a question about the loop-free, called-once
+case (`rmsl-wasm-vs-js.bench.ts`'s scalar scenario), not a general one —
+left for a separate pass, since narrowing where to look was this
+benchmark's job, not fixing it.
 
 ### A/B: what Phase 3's linear memory itself cost or saved
 
@@ -117,7 +169,7 @@ pass. Roughly halving the JS-vs-WASM gap (6.3x down to ~3.1x) came from
 that — fewer round trips through the `params` array outweighing the added
 `DataView` write.
 
-## Status: Phase 1 through Phase 6 landed (except multi-return); Phase 7's recording hookup also landed
+## Status: Phase 1 through Phase 7 landed (except multi-return)
 
 `compileWasmFn` and `compileWasm` exist in `src/rmsl-wasm.ts`, next to
 `rmsl-glsl.ts`/`rmsl-wgsl.ts`/`rmsl-compile-js.ts` (see CONTRIBUTING.md for
@@ -456,7 +508,7 @@ call" above for what shipped: `textureSize`/`textureLoad`/`texture`/
 `textureLod` at the same scope `compileJS` itself has (`sampler2D`/
 `sampler3D`, float and integer variants, no cube maps, no mipmap/LOD).
 
-### ~~Phase 7 — parity testing infrastructure~~ — recording hookup done, benchmarking not started
+### ~~Phase 7 — parity testing infrastructure~~ — done
 `compileWasm` is now a third backend checked by
 `src/testing/shader-eval.ts`'s recording, alongside `compileGLSL`/
 `compileWGSL` (see CONTRIBUTING.md's "Validity"/"Values" test layers) — a
@@ -511,17 +563,14 @@ value this phase was for:
   one case deliberately left unhandled (a `bool` on either side of that
   conversion).
 
-The realistic-workload benchmarking half of this phase (pinning down the
-JS-vs-WASM crossover point, using/extending `src/rmsl-wasm-vs-js.bench.ts`/
-`rmsl-wasm-loop.bench.ts`) is unchanged from the original writeup below and
-was deliberately left for a separate pass — see "Why" above for the
-re-measurement it should build on: the current `compileWasm` wrapper loses
-to `compileJS` on a cheap per-call microbenchmark and only wins once
-there's a loop, so this work should specifically pin down where the
-crossover point is and whether the wrapper itself can get cheaper, not
-just confirm a win on a friendlier workload — and should keep using (or
-extending) the committed bench files rather than another throwaway script,
-so results stay reproducible run to run.
+The realistic-workload benchmarking half landed too — see "Why" above,
+"Crossover point: how many loop iterations before `compileWasm` wins".
+The crossover for a `sum of sqrt(i)`-shaped loop turned out to be between
+2 and 4 iterations, far lower than the 64-iteration case that originally
+established a win existed at all — so "does the wrapper need to get
+cheaper" narrows to specifically the loop-free, called-once case
+(`rmsl-wasm-vs-js.bench.ts`'s scalar scenario), which is real, separate
+work left for later rather than folded into this phase.
 
 ### Phase 8 — tooling and docs
 A `docs/wasm.md` page (or a section in `docs/compilation.md`), and a vite
