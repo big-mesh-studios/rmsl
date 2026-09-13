@@ -137,7 +137,7 @@ case (`rmsl-wasm-vs-js.bench.ts`'s scalar scenario), not a general one —
 left for a separate pass, since narrowing where to look was this
 benchmark's job, not fixing it.
 
-### Texture sampling was dramatically slower than `compileJS` — three fixes landed, one gap left
+### Texture sampling was dramatically slower than `compileJS` — fixed
 
 `src/rmsl-wasm-texture.bench.ts` at commit `3f0ef46` first measured the
 three Phase 6 texture operations against an 8x8 texture (`npx vitest bench
@@ -233,13 +233,40 @@ Bilinear's gap nearly halved again (~12x → ~6.8x) — `compileWasm`'s own
 raw throughput almost doubled (1.35M → 2.46M hz), from a pure arithmetic
 reformulation needing no new capability at all (no locals, no branches).
 
-What's left — bilinear/trilinear sampling still costing ~6.8x more than
-`compileJS` — is a real, separate follow-up: introducing some form of
-temporary-caching this file doesn't have yet for *any* codegen, not just
-textures, to stop `linearChannel` recomputing the same wrap-addressed tap
-coordinates once per channel (4 times over, for values that don't depend
-on the channel at all). Left for its own pass rather than attempted
-alongside the fixes actually made in this one.
+A fourth fix, at commit `1c19984`: `emitTextureSampleStores` recomputed
+every wrap-addressed tap coordinate — nearest mode's own wrapped index,
+bilinear/trilinear's wrapped tap indices, the blend weights — fresh inside
+each of the 4 channels' own call, even though none of it depends on which
+channel is being read. These are now computed exactly once per sample and
+stored into fixed scratch addresses right after the node's own vec4 result
+(60 bytes, reserved the same way `normalize`/`reflect` already reserve one
+scratch scalar for themselves), with every channel just loading them back
+— a fixed-address load being cheap to repeat, unlike the
+floor/multiply/wrap chain it replaces. This is the first place in this
+file using a scratch address as a genuine compiler-managed temporary
+rather than a node's own output value — closing the gap the file's former
+"no sub-expression caching" design note called out as accepted but
+unaddressed. Re-measured, two runs:
+
+| Scenario | Run 1 | Run 2 |
+|---|---|---|
+| `texture()`, nearest filtering | `compileJS` 3.02x faster | `compileJS` 3.01x faster |
+| `texture()`, bilinear filtering | `compileJS` 2.62x faster | `compileJS` 2.59x faster |
+
+Bilinear's gap dropped sharply again (~6.8x → ~2.6x, `compileWasm`'s own
+throughput nearly tripling, 2.46M → 6.36M hz) — filtered `texture()`
+sampling is now in the same range as this backend's ordinary per-call
+wrapper overhead (`textureSize()`/`textureLoad()` are ~2-3.3x, the plain
+scalar case is ~2.5-3.4x), rather than a distinct, much larger cost.
+Nearest filtering improved too (~3.7x → ~3.0x), for the same reason: its
+own wrapped index was also being recomputed per channel before this.
+
+Four fixes, one investigation: from an initial 11-19x, texture sampling
+now costs roughly what any other `compileWasm` call costs — the copy
+cache, the `magFilter` branch, the lerp reformulation, and this per-sample
+setup each closed a real, distinct, measured piece of the gap, none of
+them needing to guess at what the next bottleneck would be before
+measuring it.
 
 One real limit on how bad any of this is in practice, worth stating
 precisely regardless of which part is fixed: even before the copy-caching
@@ -616,26 +643,23 @@ Two design points worth remembering if this gets touched again:
   guarantees an in-range tap index by construction, so the wrapped index
   doubles as the safe one.
 
-### ~~Phase 6 — texture sampling~~ — done, filtered sampling still slower than compileJS
+### ~~Phase 6 — texture sampling~~ — done, performance now comparable to any other call
 See "Status" and "Texture data lives in linear memory, not behind a host
 call" above for what shipped: `textureSize`/`textureLoad`/`texture`/
 `textureLod` at the same scope `compileJS` itself has (`sampler2D`/
 `sampler3D`, float and integer variants, no cube maps, no mipmap/LOD).
 Correct throughout; performance was initially 11-19x slower than
-`compileJS` per call. Three fixes landed — caching the last-copied texture
-per slot by reference (fixed `textureSize()`/`textureLoad()` down to
-~2-3x, roughly the ordinary per-call wrapper overhead every scalar call
-already has, and nearest-filtered `texture()` down to ~3.6x alongside it),
-branching on `magFilter` with a real `if`/`else` instead of computing both
-the nearest and the filtered value on every sample, and reformulating the
-bilinear/trilinear lerp to stop duplicating an expensive fetched value
-(`a + (b-a)*t` needs `a` twice; `a*(1-t) + b*t` needs it once). See "Why"
-above, "Texture sampling was dramatically slower than `compileJS` — three
-fixes landed, one gap left". Bilinear/trilinear `texture()` sampling is
-down to ~6.8x slower, for a different, not-yet-fixed reason (redundant
-per-channel recomputation of the same wrap-addressed tap coordinates,
-independent of the lerp-duplication issue just fixed) — left for its own
-follow-up.
+`compileJS` per call. Four fixes landed — caching the last-copied texture
+per slot by reference, branching on `magFilter` with a real `if`/`else`
+instead of computing both the nearest and the filtered value on every
+sample, reformulating the bilinear/trilinear lerp to stop duplicating an
+expensive fetched value (`a + (b-a)*t` needs `a` twice; `a*(1-t) + b*t`
+needs it once), and computing every per-sample wrap-addressed coordinate
+once instead of once per channel. See "Why" above, "Texture sampling was
+dramatically slower than `compileJS` — fixed". All four texture operations
+now cost roughly what any other `compileWasm` call costs (~2-3.5x
+`compileJS`'s own per-call cost, the same range the plain scalar case
+already has) instead of a distinct, much larger penalty.
 
 ### ~~Phase 7 — parity testing infrastructure~~ — done
 `compileWasm` is now a third backend checked by
