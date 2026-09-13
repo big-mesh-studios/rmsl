@@ -39,85 +39,118 @@ idea explored here is making that question have one answer, computed once,
 that every backend and every buffer-packing call site reads instead of
 re-deriving.
 
-## Sketch of the IR
+## Sketch of the allocator
 
-Not a real API — a shape to argue about. For a given `ShaderType`:
+Not a real API — a shape to argue about. The first sketch of this
+(`layoutOf(type, rules)`) computed one type's own size and alignment in
+isolation. That's too narrow: `wgslUniformLayout` isn't just a size table —
+it's an *allocator* over a whole list of heterogeneous members, and the
+part of it worth sharing is the placement algorithm, not just a lookup.
 
 ```ts
-type FieldLayout = {
-  byteOffset: number;
-  byteSize: number;
-  componentKind: "f32" | "f64" | "i32" | "u32" | "bool32";
-  componentCount: number;
+type Member = { slot: string; type: ShaderType; length?: number };
+type PlacedMember = Member & { offset: number; size: number; stride?: number };
+
+type AllocRules = {
+  sizeAndAlignOf(type: ShaderType): { size: number; align: number };
+  reorderByAlignment: boolean;       // WGSL: true, to minimize padding.
+  widenNarrowArrayElements: boolean; // WGSL's f32[] -> vec4<f32>[] quirk.
+  arrayStrideRoundedTo?: number;     // WGSL: 16. Packed/CPU rules: none.
+  structAlignMinimum: number;        // WGSL: 4. Packed/CPU rules: 1.
 };
 
-type TypeLayout = {
-  byteSize: number;
-  align: number;               // 0 = unconstrained (today's WASM choice)
-  fields: FieldLayout[];        // one per scalar component, in declared order
-};
-
-function layoutOf(type: ShaderType, rules: LayoutRules): TypeLayout;
+function planLayout(
+  members: Member[],
+  rules: AllocRules,
+): { members: PlacedMember[]; size: number; align: number };
 ```
 
-`LayoutRules` is the part that has to stay pluggable, not unified away:
-GPU uniform-address-space rules (std140-ish, WGSL's own variant), GPU
+`AllocRules` is the part that has to stay pluggable, not unified away: GPU
+uniform-address-space rules (std140-ish, WGSL's own variant), GPU
 storage-buffer rules (std430-ish, tighter), and "no constraint, just pack
-tightly" (what WASM and a plain JS array both want) are genuinely different
-answers for the same type, not implementation accidents to paper over. The
-win isn't "one layout for everything" — it's "one *function* that knows how
-to compute any of them, instead of three hand-written ones that happen to
-overlap."
+tightly in declaration order" (what WASM and a plain JS array both want)
+are genuinely different answers, not implementation accidents to paper
+over. The win isn't "one layout for everything" — it's "one *allocator*
+that knows how to run any of them, instead of one hand-written struct
+packer (WGSL) and one hand-written bump allocator (WASM) that happen to
+overlap in what they're actually deciding."
 
-Every current consumer becomes a thin renderer over `TypeLayout` instead of
-its own layout logic:
+Every current consumer becomes a thin wrapper over `planLayout` instead of
+its own placement logic:
 
-- `wgslUniformLayout` becomes `layoutOf(type, WGSL_UNIFORM_RULES)` plus the
-  existing struct-text emission.
-- Phase 3's WASM allocator becomes `layoutOf(type, PACKED_RULES)` plus the
-  existing bump allocator (which only needs `byteSize`/`align` from it, not
-  a redesign of `allocateFor`).
-- `BufferAttribute`/instance packing becomes `layoutOf(type,
+- `wgslUniformLayout` becomes `planLayout(members, WGSL_UNIFORM_RULES)`
+  plus the existing struct-text emission — the same reordering and
+  array-widening it already does, just factored out as data (`AllocRules`)
+  instead of hard-coded into the function.
+- Phase 3's WASM allocator becomes `planLayout(members, PACKED_RULES)`
+  (`reorderByAlignment: false`, matching its current declaration-order
+  bump behavior) feeding the existing address maps — no change in what
+  addresses it hands out today.
+- `BufferAttribute`/instance packing becomes `planLayout(members,
   VERTEX_RULES)`.
+
+The capability this unlocks that a per-type-only sketch couldn't: a WASM
+computation that needs to feed a *specific* WGSL uniform struct can call
+`planLayout(sameMembers, WGSL_UNIFORM_RULES)` itself — same reordering,
+same widening, same offsets `wgslUniformLayout` would produce for that
+struct — and write its output there, instead of computing its own
+(differently-ordered) packed layout and hoping it happens to match.
 
 ## What this could open up
 
-- **Zero-copy CPU→GPU data flow.** If a WASM module's linear memory used
-  `layoutOf(type, GPU_STORAGE_RULES)` for a given buffer instead of the
+- **Zero-copy CPU→GPU data flow.** If a WASM module allocated a given
+  buffer via `planLayout(members, GPU_STORAGE_RULES)` instead of its own
   packed rules, the exact bytes `compileWasm` (or a future "compile a whole
   CPU stage" mode) writes could go straight into
   `device.queue.writeBuffer(gpuBuffer, 0, wasmMemory.buffer, offset,
   length)` — no JS-side repacking step between "WASM computed this" and
   "GPU can read this."
-- **One stride/offset derivation for instancing**, instead of
+- **One placement algorithm for instancing**, instead of
   `BufferAttribute`/`WebGLRenderer`/`WebGPURenderer` each carrying their
   own version that can drift out of sync by hand-edit.
 - **CPU reads of GPU-authored textures with guaranteed-matching layout.**
   Phase 6 (texture sampling, `ROADMAP.md`) already needs a real memory
-  layout for WASM; if it's `layoutOf` under the GPU's own texture rules, a
+  layout for WASM; if it's planned under the GPU's own texture rules, a
   WASM-side heightmap raycast reads the identical bytes the GPU is
   sampling, with no separately-maintained CPU copy to keep in sync.
-- **A cross-language ABI, not just a TS convenience.** `LayoutRules` are
+- **A cross-language ABI, not just a TS convenience.** `AllocRules` are
   just data — a generated `#[repr(C)]` Rust struct or a C header could
   describe the same layout, which matters directly for the
   wgpu-native/"no JS engine" native-build idea from the same conversation
   this came out of.
 - **Alignment-bug tooling.** std140's "why is my vec3 secretly 16 bytes"
   surprises stop being tribal knowledge per backend and become one thing a
-  layout inspector can print, for any `LayoutRules`.
+  layout inspector can print, for any `AllocRules`.
+
+**What this does *not* give you: one live GPU buffer shared between WebGL
+and WebGPU.** Those are separate browser APIs with separate buffer objects
+(`WebGLBuffer` vs `GPUBuffer`) — there is no browser API to hand one GPU
+allocation to both, no matter how identical the layout is. What a shared
+allocator gets you there is narrower but still real: compute the packed
+bytes once and have `gl.bufferData()` and `queue.writeBuffer()` both read
+from that same source, instead of two hand-written, independently-drifting
+packing routines for a material that has to render through both backends.
+True zero-copy sharing of one GPU allocation between two different GPU
+APIs is a real capability (DMA-BUF, Vulkan/D3D external-memory extensions,
+`IOSurface`) — just not one reachable from a browser tab; it only exists
+off the web platform entirely, which is the native/wgpu-native thread from
+the same conversation, not something this design touches.
 
 ## Real tension to design around, not gloss over
 
 Phase 3's WASM memory design explicitly chose **no padding, `align=0`
-everywhere** (`ROADMAP.md`, "Vectors and matrices live in linear memory
-now") — a deliberate simplification, correct because nothing on that side
-ever needed to match a GPU buffer. Making WASM's layout GPU-compatible
-*by default* would be a real, backwards-incompatible change to an
-already-shipped, tested design, not a free generalization. Any version of
-this that ships has to keep "tightly packed, CPU-only" as one of the
-pluggable `LayoutRules` — the WASM backend should only switch to a
-GPU-shaped layout for a specific buffer that's actually headed to the GPU,
-not universally.
+everywhere, declaration order, no reordering** (`ROADMAP.md`, "Vectors and
+matrices live in linear memory now") — a deliberate simplification, correct
+because nothing on that side ever needed to match a GPU buffer. Making
+WASM's layout GPU-compatible *by default* — including running the same
+alignment-driven reordering WGSL does — would be a real,
+backwards-incompatible change to an already-shipped, tested design's
+addresses, not a free generalization. Any version of this that ships has
+to keep "tightly packed, declaration order, CPU-only" as one of the
+pluggable `AllocRules` — the WASM backend should only opt a *specific*
+buffer into GPU-shaped placement (and thus GPU-shaped reordering) when
+that buffer is actually headed to the GPU, never universally, and never by
+changing what address an existing packed-only value gets today.
 
 ## Non-goals (for now)
 
@@ -134,11 +167,26 @@ not universally.
 
 ## If this ever gets picked up
 
-Smallest possible first step: extract `wgslUniformLayout`'s core
-offset/stride computation and Phase 3's WASM `allocateFor` into calls to
-one shared `layoutOf(type, rules)`, with each backend's existing
-`LayoutRules` (WGSL uniform rules; WASM's packed rules) as the only two
-`rules` values that exist at first — no GPU storage-buffer rules, no
-instance-buffer unification, nothing cross-language yet. That proves the
-one-function-many-rules shape holds before spending any effort on the
-capabilities above.
+Smallest possible first step, in two stages:
+
+1. **Refactor, no new capability.** Extract `wgslUniformLayout`'s
+   reorder-and-place algorithm into `planLayout(members, rules)`, and have
+   `wgslUniformLayout` itself become a thin wrapper (struct-text emission
+   over `planLayout(members, WGSL_UNIFORM_RULES)`). Separately, have Phase
+   3's WASM `collect()` build its address maps from
+   `planLayout(members, PACKED_RULES)` instead of its own inline bump loop.
+   Both should be behavior-preserving — verified by the existing
+   `rmsl-wgsl.test.ts`/`rmsl-wasm.test.ts` suites producing identical
+   output, not a new test needed to prove it.
+2. **Prove the interop claim, not just the refactor.** With `planLayout`
+   shared, take a small set of uniforms, compute
+   `planLayout(members, WGSL_UNIFORM_RULES)` once, and have the WASM
+   backend write its values at *those* offsets instead of its own —
+   confirmed correct only by a byte-for-byte comparison against a buffer
+   packed by hand to WGSL's spec, since "the refactor didn't crash" and
+   "the bytes are actually GPU-compatible" are different claims and only
+   the second one is the point.
+
+No GPU storage-buffer rules, no instance-buffer unification, nothing
+cross-language yet at either stage — those only matter once stage 2 has
+actually held up.
