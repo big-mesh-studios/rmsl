@@ -24,7 +24,7 @@ export default defineConfig({
       include: [
         'src/rmsl.ts',
         'src/rmsl-core.ts',
-        'src/rmsl-compiler-shared.ts',
+        'src/backends/shared.ts',
         'src/backends/rmsl-glsl.ts',
         'src/backends/rmsl-wgsl.ts',
         'src/backends/rmsl-compile-js.ts',

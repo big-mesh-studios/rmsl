@@ -3,8 +3,9 @@ import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH } from "../rm
 import {
   CompileCtx, CompiledNode, PRECEDENCE, PREC_ATOM, PREC_UNARY, VertexRoot,
   assertPositionIsReadable, assertSquareMatrix, assertStageResult,
-  forUpdateStatements, resolveSwizzleTarget, tryFold, withoutSemicolon, wrapExpr,
-} from "../rmsl-compiler-shared";
+  forUpdateStatements,
+  tryFold, withoutSemicolon, wrapExpr
+} from "./shared";
 export let typeToGLSL: Record<string, string> = {
   float: "float", vec2: "vec2", vec3: "vec3", vec4: "vec4",
   int: "int", uint: "uint", bool: "bool",

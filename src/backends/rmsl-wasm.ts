@@ -1,7 +1,7 @@
-import { Node, ShaderType, TYPE_WIDTH, MATRIX_DIMENSIONS, var_ } from "../rmsl-core";
-import { CompileFnOptions, COMPONENT_INDEX, resolveSwizzleTarget, assertStageResult } from "../rmsl-compiler-shared";
-import { JsShaderContext, JsShaderResult, JsTextureData, JsTextureWrap } from "./rmsl-compile-js";
+import { MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, var_ } from "../rmsl-core";
 import { AllocRules, planLayout } from "../rmsl-layout";
+import { JsShaderContext, JsShaderResult, JsTextureData, JsTextureWrap } from "./rmsl-compile-js";
+import { assertStageResult, CompileFnOptions, COMPONENT_INDEX, resolveSwizzleTarget } from "./shared";
 // === WASM backend (see ROADMAP.md for what this does and doesn't cover yet) ===
 //
 // Compiles a plain, non-stage Fn straight to a WASM binary module instead of

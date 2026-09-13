@@ -12,44 +12,27 @@
  * which every `interface`/`type` here is.
  */
 
-export type {
-  ShaderType, FloatLike, Vec2Like, Vec3Like, Vec4Like, IntLike, UintLike, BooleanLike,
-  IVec2Like, IVec3Like, IVec4Like, UVec2Like, UVec3Like, UVec4Like, Mat3Like, Mat4Like,
-  Sampler2DLike, Sampler3DLike, ISampler2DLike, USampler3DLike,
-  BaseNode, VariableNode, UniformNode, UniformArrayNode, AttributeNode, VaryingNode,
-} from "./rmsl-core";
 export {
-  isUniformNode, isAttributeNode, isVaryingNode,
-  Node, var_, assertBlockScope, Fn,
-  float, vec2, vec3, vec4, int, uint, ivec2, ivec3, ivec4, uvec2, uvec3, uvec4, bool,
-  mat2, mat2x3, mat2x4, mat3x2, mat3, mat3x4, mat4x2, mat4x3, mat4, bvec2, bvec3, bvec4,
-  add, sub, mul, div, mod, equal, notEqual, lessThan, greaterThan, lessThanEqual, greaterThanEqual,
-  and, or, xor, not, bitAnd, bitOr, bitXor, bitNot, shiftLeft, shiftRight,
-  abs, sign, floor, ceil, fract, round, trunc, radians, degrees, sqrt, inverseSqrt, inversesqrt,
-  exp, log, exp2, log2, negate, oneMinus, reciprocal, cbrt, saturate, lengthSq, normalize,
-  dFdx, dFdy, fwidth, sin, cos, tan, asin, acos, sinh, cosh, tanh, asinh, acosh, atanh, atan,
-  pow, pow2, pow3, pow4, min, max, step, reflect, refract, faceForward, difference,
-  dot, cross, distance, length, mix, clamp, smoothstep, all, any, transpose, determinant,
-  inverse, element, select, luminance, rand, interleavedGradientNoise,
-  premultiplyAlpha, unpremultiplyAlpha, textureLoad, textureSize,
-  PI, TWO_PI, PI2, HALF_PI, EPSILON, INFINITY,
-  uniformArray, uniform, uniformRaw, time, attribute, attributeRaw, varying, varyingRaw,
-  output, builtinPosition, builtinFragDepth, fragCoord, screenCoordinate, screenSize, screenUV, uv,
-  If, For, Loop, While, Switch, Discard, Break, Continue, Return,
+  abs, acos, acosh, add, all, and, any, asin, asinh, assertBlockScope, atan, atanh, attribute, attributeRaw, bitAnd, bitNot, bitOr, bitXor, bool, Break, builtinFragDepth, builtinPosition, bvec2, bvec3, bvec4, cbrt, ceil, clamp, Continue, cos, cosh, cross, degrees, determinant, dFdx, dFdy, difference, Discard, distance, div, dot, element, EPSILON, equal, exp, exp2, faceForward, float, floor, Fn, For, fract, fragCoord, fwidth, greaterThan, greaterThanEqual, HALF_PI, If, INFINITY, int, interleavedGradientNoise, inverse, inverseSqrt, inversesqrt, isAttributeNode, isUniformNode, isVaryingNode, ivec2, ivec3, ivec4, length, lengthSq, lessThan, lessThanEqual, log, log2, Loop, luminance, mat2, mat2x3, mat2x4, mat3, mat3x2, mat3x4, mat4, mat4x2, mat4x3, max, min, mix, mod, mul, negate, Node, normalize, not, notEqual, oneMinus, or, output, PI, PI2, pow, pow2, pow3, pow4, premultiplyAlpha, radians, rand, reciprocal, reflect, refract, Return, round, saturate, screenCoordinate, screenSize, screenUV, select, shiftLeft, shiftRight, sign, sin, sinh, smoothstep, sqrt, step, sub, Switch, tan, tanh, textureLoad, textureSize, time, transpose, trunc, TWO_PI, uint, uniform, uniformArray, uniformRaw, unpremultiplyAlpha, uv, uvec2, uvec3, uvec4, var_, varying, varyingRaw, vec2, vec3, vec4, While, xor
+} from "./rmsl-core";
+export type {
+  AttributeNode, BaseNode, BooleanLike, FloatLike, IntLike, ISampler2DLike, IVec2Like, IVec3Like, IVec4Like, Mat3Like, Mat4Like,
+  Sampler2DLike, Sampler3DLike, ShaderType, UintLike, UniformArrayNode, UniformNode, USampler3DLike, UVec2Like, UVec3Like, UVec4Like, VariableNode, VaryingNode, Vec2Like, Vec3Like, Vec4Like
 } from "./rmsl-core";
 
-export type { VertexRoot, CompileFnOptions } from "./rmsl-compiler-shared";
+export type { CompileFnOptions, VertexRoot } from "./backends/shared";
 
-export type { GLSLPrecision, CompileGLSLOptions } from "./backends/rmsl-glsl";
 export { compileGLSL } from "./backends/rmsl-glsl";
+export type { CompileGLSLOptions, GLSLPrecision } from "./backends/rmsl-glsl";
 
-export type { WgslUniformMember, WgslUniformDeclaration, CompileWGSLOptions } from "./backends/rmsl-wgsl";
-export { wgslUniformLayout, compileWGSL } from "./backends/rmsl-wgsl";
+export { compileWGSL, wgslUniformLayout } from "./backends/rmsl-wgsl";
+export type { CompileWGSLOptions, WgslUniformDeclaration, WgslUniformMember } from "./backends/rmsl-wgsl";
 
-export type { JsShaderContext, JsTextureWrap, JsTextureData, JsShaderResult, CompileJSOptions } from "./backends/rmsl-compile-js";
-export { compileJSFn, compileJS } from "./backends/rmsl-compile-js";
+export { compileJS, compileJSFn } from "./backends/rmsl-compile-js";
+export type { CompileJSOptions, JsShaderContext, JsShaderResult, JsTextureData, JsTextureWrap } from "./backends/rmsl-compile-js";
 
 export { compileGLSLFn, compileWGSLFn } from "./rmsl-standalone-fn";
 
-export type { WasmParam, CompiledWasm } from "./backends/rmsl-wasm";
-export { compileWasmFn, compileWasm } from "./backends/rmsl-wasm";
+export { compileWasm, compileWasmFn } from "./backends/rmsl-wasm";
+export type { CompiledWasm, WasmParam } from "./backends/rmsl-wasm";
+

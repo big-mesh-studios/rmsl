@@ -2,7 +2,7 @@
 
 RMSL builds a shader node graph in TypeScript and emits GLSL ES 3.00 and WGSL.
 The compiler lives in `src/rmsl-*.ts` and `src/backends/`: `rmsl-core.ts` is
-the DSL (types, the node graph, the TSL-style API); `rmsl-compiler-shared.ts`
+the DSL (types, the node graph, the TSL-style API); `src/backends/shared.ts`
 is the context and helpers all four backends use;
 `src/backends/rmsl-glsl.ts`, `src/backends/rmsl-wgsl.ts`,
 `src/backends/rmsl-compile-js.ts`, and `src/backends/rmsl-wasm.ts` are the

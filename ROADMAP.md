@@ -544,7 +544,7 @@ which is also the fastest way to find the next thing worth doing here.
   backend followed the same one-file-per-backend pattern. It reuses the same
   untyped internal node shape (`node.type`/`node.params`/`node.value`)
   `compileJSNode` already switches on, imported from `rmsl-core.ts` and
-  `rmsl-compiler-shared.ts` — no new node representation to keep in sync.
+  `src/backends/shared.ts` — no new node representation to keep in sync.
 - **`float` is f64, `int`/`uint`/`bool` are real `i32`** — not the JS
   backend's approach of collapsing every declared type into one JS number.
   GLSL/WGSL already carry each node's declared type through to their output;
@@ -666,7 +666,7 @@ which is also the fastest way to find the next thing worth doing here.
   `builtinFragDepth()`/the function's own value all read back by
   `compileWasm` afterward into a `JsShaderResult` — identical to what
   `compileJS` already returns for the same program. `assertStageResult`
-  (`rmsl-compiler-shared.ts`) is reused directly, unmodified — it only
+  (`src/backends/shared.ts`) is reused directly, unmodified — it only
   ever needed plain primitives (`shaderStage`/`lastType`/`positionWritten`),
   not a full `CompileCtx`.
 - **`.draw()` is a second exported function sharing `main`'s bytecode via
