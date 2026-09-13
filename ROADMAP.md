@@ -531,8 +531,6 @@ flow, Phase 5's shader-stage surface, and Phase 6's texture sampling:
 
 **What throws today** (deliberately — see the Phase list below for when each
 lands): non-square or mismatched-shape matrix×matrix multiply,
-`clamp`/`mix`/`step`/`smoothstep` (composite ops with no single WASM
-opcode — deliberately out of Phase 2's "has a direct opcode" scope),
 `uniformArray`, cube-map sampling, and multi-return.
 `compileWasmFn` throws `[RMSL] compileWasmFn: unsupported node type in
 <expr|vector|statement> position: "<type>"` naming exactly what's missing,
@@ -681,6 +679,34 @@ which is also the fastest way to find the next thing worth doing here.
   buffer. `compileWasm` exposes it as `.draw(ctx, width, height)` on the
   callable it returns. See "A whole grid in one call: `.draw()`" above for
   the design and the measured speedup.
+- **`clamp`/`mix`/`step`/`smoothstep` compile through the same
+  aggregate-value machinery vectors already use.** Each is a composite
+  formula rather than a single opcode (`clamp`: nested `min`/`max`; `mix`:
+  `a*(1-t)+b*t`; `step`: a `select` on `x < edge`; `smoothstep`: `clamp`
+  then `t*t*(3-2*t)`), so each gets its own `isScratchNode` entry, a
+  `materializeIfNeeded` case, and an `emit*Stores` function that walks its
+  operands componentwise into a scratch address — exactly the pattern
+  `emitComponentwiseStores` already established for plain vector
+  arithmetic, just with a formula in place of a single opcode per
+  component. A scalar-only fast path (`walkExpr`'s own `"clamp"`/`"mix"`/
+  `"step"`/`"smoothstep"` cases) skips the scratch address entirely and
+  leaves the value on the WASM stack, matching how every other scalar op
+  here already works. `UNIFORM_OPERAND_OPS` (`rmsl-core.ts`) already
+  broadcasts a scalar operand to match the defining operand's width at
+  AST-construction time for all of these *except* `mix`'s `t`, which is
+  deliberately left unbroadcast so a single scale factor can drive a
+  vector `mix` — so `mix`'s codegen is the one of the four that checks
+  `componentCountOf(t._t) === 1` and reads `t` once instead of
+  once per component. `smoothstep`'s `t` is computed once per call site
+  and reused for its other two uses via a shared WASM local (`local.tee`
+  followed by two `local.get`s) rather than recomputed three times —
+  the one place this backend caches a sub-expression instead of following
+  its usual "recompute, don't cache" style (see `mod`'s comment), because
+  `t` here is itself a composite expression and WASM's own execution model
+  (locals are per call frame, execution is strictly sequential — no
+  reentrancy hazard even for a nested `smoothstep` call) makes the local
+  safe to share across every call site rather than needing one local per
+  site.
 
 ## Phased plan
 
@@ -692,10 +718,13 @@ See "Status" and "Design decisions already made" above for what landed:
 every remaining `jsBinaryOp`/`jsUnaryMath` entry with a direct WASM opcode
 (or a trivial derivation of one, like float `mod`/`round`/`fract`), every
 comparison, logical, and bitwise op, and `int`/`uint`/`bool` as real `i32`.
-Explicitly *not* included, and not planned for a later phase to sneak back
-in under this name: `clamp`/`mix`/`step`/`smoothstep` — composite ops with
-no single opcode, closer in spirit to Phase 3's vector work than to this
-phase's "one opcode per op" scope.
+Explicitly *not* included at the time: `clamp`/`mix`/`step`/`smoothstep` —
+composite ops with no single opcode, closer in spirit to Phase 3's vector
+work than to this phase's "one opcode per op" scope. These four landed
+later, after Phase 6 (see "`clamp`/`mix`/`step`/`smoothstep` compile through
+the same aggregate-value machinery vectors already use" below), reusing the
+`materializeIfNeeded`/scratch-address machinery Phase 3 built rather than
+needing anything new of their own.
 
 ### ~~Phase 3 — vectors and matrices as first-class values~~ — done
 See "Status" and "Vectors and matrices live in linear memory now" above for
@@ -870,6 +899,17 @@ established a win existed at all — so "does the wrapper need to get
 cheaper" narrows to specifically the loop-free, called-once case
 (`rmsl-wasm-vs-js.bench.ts`'s scalar scenario), which is real, separate
 work left for later rather than folded into this phase.
+
+### ~~Phase 7.5 — `clamp`/`mix`/`step`/`smoothstep`~~ — done
+See "`clamp`/`mix`/`step`/`smoothstep` compile through the same
+aggregate-value machinery vectors already use" above for the design. All
+four now work in both scalar and componentwise vector form, verified by
+`rmsl-wasm.test.ts`'s dedicated test block and by Phase 7's cross-backend
+recording (`npx vitest run src/rmsl-js.test.ts src/rmsl-eval.test.ts`),
+whose `[shader-eval] WASM: N of 79 ... not yet supported` count dropped
+from 17 to 3 as a direct result — the remaining 3 are `uniformArray`/
+non-square matrix multiply cases, still open per "What throws today"
+above.
 
 ### Phase 8 — tooling and docs
 A `docs/wasm.md` page (or a section in `docs/compilation.md`), and a vite

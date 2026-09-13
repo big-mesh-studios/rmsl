@@ -106,6 +106,7 @@ export const WASM_OP = {
   brIf: 0x0d,
   localGet: 0x20,
   localSet: 0x21,
+  localTee: 0x22,
   call: 0x10,
   select: 0x1b,
 
@@ -547,6 +548,7 @@ export function compileWasmFn(
     if (node.type === "dFdx" || node.type === "dFdy" || node.type === "fwidth") return true;
     if (node.type === "textureSize" || node.type === "textureLoad") return true;
     if (node.type === "texture" || node.type === "textureLod") return true;
+    if (node.type === "clamp" || node.type === "mix" || node.type === "step" || node.type === "smoothstep") return true;
     return node.type === "add" || node.type === "sub" || node.type === "mul" || node.type === "div";
   }
 
@@ -688,6 +690,19 @@ export function compileWasmFn(
       // so that import has to be registered here too, even though "exp2"
       // itself isn't one of the imported names.
       importsUsed.add("pow");
+    } else if (node.type === "smoothstep") {
+      // One shared local for every `smoothstep` call site in this function
+      // (nested ones included) — `t` is computed once per call via
+      // `local.tee` and read back twice more via `local.get`, instead of
+      // recomputing the whole `clamp((x-e0)/(e1-e0), 0, 1)` three times
+      // for `t*t*(3-2*t)`. Safe to share: every use is "compute, then
+      // immediately consume 3 times, done" before the bytecode for any
+      // other `smoothstep` call site — nested or sibling — ever runs,
+      // since this is a single sequential instruction stream, never
+      // concurrent or re-entrant. `addLocal` itself is idempotent (a
+      // second call for the same name is a no-op), so this only actually
+      // reserves a slot on the first `smoothstep` found.
+      addLocal("$smoothstep_t", "float");
     }
     if (isScratchNode(node) && !scratchAddress.has(node)) {
       const addr = allocateFor(node._t as string);
@@ -935,6 +950,14 @@ export function compileWasmFn(
       case "texture":
       case "textureLod":
         return emitTextureSampleStores(node, nodeAddress(node));
+      case "clamp":
+        return emitClampStores(node, nodeAddress(node));
+      case "mix":
+        return emitMixStores(node, nodeAddress(node));
+      case "step":
+        return emitStepStores(node, nodeAddress(node));
+      case "smoothstep":
+        return emitSmoothstepStores(node, nodeAddress(node));
       default:
         if (node.type === node._t && Array.isArray(node.value)) {
           return emitLiteralStores(node, nodeAddress(node));
@@ -1508,6 +1531,93 @@ export function compileWasmFn(
     return out;
   }
 
+  /** `clamp(x, lo, hi) = min(max(x, lo), hi)` — componentwise. `x`/`lo`/`hi`
+   * are always the same width by the time this file ever sees them:
+   * `rmsl-core.ts`'s `UNIFORM_OPERAND_OPS` broadcasts a scalar `lo`/`hi`
+   * onto a vector `x` at AST-construction time, for `clamp` along with
+   * `min`/`max`/`step`/`smoothstep`/`pow`/`mod` — so unlike
+   * `emitComponentwiseStores` above, there is no scalar-vs-vector branch
+   * to handle here. */
+  function emitClampStores(node: any, addr: number): number[] {
+    const [x, lo, hi] = node.params;
+    const targetKind = elementKindOf(node._t as string);
+    const compSize = componentSizeOf(targetKind);
+    const width = componentCountOf(node._t as string);
+    const out = [...materializeIfNeeded(x), ...materializeIfNeeded(lo), ...materializeIfNeeded(hi)];
+    const xAddr = nodeAddress(x), loAddr = nodeAddress(lo), hiAddr = nodeAddress(hi);
+    for (let k = 0; k < width; k++) {
+      const xk = loadComponent(xAddr, targetKind, k * compSize);
+      const lok = loadComponent(loAddr, targetKind, k * compSize);
+      const hik = loadComponent(hiAddr, targetKind, k * compSize);
+      out.push(...storeComponent(addr, targetKind, k * compSize, minMaxBytes(minMaxBytes(xk, lok, targetKind, "max"), hik, targetKind, "min")));
+    }
+    return out;
+  }
+
+  /** `mix(a, b, t) = a + t*(b-a)` — the same formula `compileJS`'s own
+   * `mix` uses (`rmsl-compile-js.ts`'s `JS_ELEM.mix`), componentwise.
+   * Float-only, matching `mix`'s own signature (no int/uint overload
+   * exists, unlike `clamp`). `t` is the one operand `UNIFORM_OPERAND_OPS`
+   * deliberately excludes from broadcasting (`rmsl-core.ts`'s own doc
+   * comment: `mix(a, b, t)` declares `t` genuinely scalar-shaped, not
+   * matching `a`/`b`'s width) — `mix(vec3, vec3, float)` blends every
+   * component by the same factor, `mix(vec3, vec3, vec3)` blends each by
+   * its own, so `t`'s own width decides whether it's read once and reused
+   * across components or read fresh per component here. */
+  function emitMixStores(node: any, addr: number): number[] {
+    const [a, b, t] = node.params;
+    const width = componentCountOf(node._t as string);
+    const tWidth = componentCountOf(t._t as string);
+    const out = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
+    if (tWidth > 1) out.push(...materializeIfNeeded(t));
+    const aAddr = nodeAddress(a), bAddr = nodeAddress(b);
+    const tAddr = tWidth > 1 ? nodeAddress(t) : undefined;
+    for (let k = 0; k < width; k++) {
+      const ak = loadComponent(aAddr, "float", k * 8);
+      const bk = loadComponent(bAddr, "float", k * 8);
+      const tk = tWidth > 1 ? loadComponent(tAddr!, "float", k * 8) : walkExpr(t);
+      out.push(...storeComponent(addr, "float", k * 8, [...ak, ...tk, ...bk, ...ak, WASM_OP.f64Sub, WASM_OP.f64Mul, WASM_OP.f64Add]));
+    }
+    return out;
+  }
+
+  /** `step(edge, x) = x < edge ? 0 : 1` — the same formula `compileJS` uses,
+   * componentwise. Float-only; `edge`/`x` are already the same width (see
+   * `emitClampStores`'s own doc comment). */
+  function emitStepStores(node: any, addr: number): number[] {
+    const [edge, x] = node.params;
+    const width = componentCountOf(node._t as string);
+    const out = [...materializeIfNeeded(edge), ...materializeIfNeeded(x)];
+    const edgeAddr = nodeAddress(edge), xAddr = nodeAddress(x);
+    for (let k = 0; k < width; k++) {
+      const ek = loadComponent(edgeAddr, "float", k * 8);
+      const xk = loadComponent(xAddr, "float", k * 8);
+      out.push(...storeComponent(addr, "float", k * 8, selectExpr(f64ConstBytes(0), f64ConstBytes(1), [...xk, ...ek, WASM_OP.f64Lt])));
+    }
+    return out;
+  }
+
+  /** `smoothstep(e0, e1, x)`, componentwise — see `emitSmoothstepValue`'s
+   * own doc comment for the formula and why `t` is computed once via a
+   * shared local rather than recomputed for each of its 3 uses.
+   * Float-only; `e0`/`e1`/`x` are already the same width (see
+   * `emitClampStores`'s own doc comment). */
+  function emitSmoothstepStores(node: any, addr: number): number[] {
+    const [e0, e1, x] = node.params;
+    const width = componentCountOf(node._t as string);
+    const out = [...materializeIfNeeded(e0), ...materializeIfNeeded(e1), ...materializeIfNeeded(x)];
+    const e0Addr = nodeAddress(e0), e1Addr = nodeAddress(e1), xAddr = nodeAddress(x);
+    for (let k = 0; k < width; k++) {
+      const value = emitSmoothstepValue(
+        loadComponent(e0Addr, "float", k * 8),
+        loadComponent(e1Addr, "float", k * 8),
+        loadComponent(xAddr, "float", k * 8),
+      );
+      out.push(...storeComponent(addr, "float", k * 8, value));
+    }
+    return out;
+  }
+
   /** `mat.mul(mat)` — a real matrix product, square only (matching the
    * JS backend's own limit: `jsMatMul` throws for a non-square operand). A
    * matrix times a *scalar* never reaches here — that's still componentwise
@@ -1703,6 +1813,40 @@ export function compileWasmFn(
     return selectExpr(walkExpr(a), walkExpr(b), [...walkExpr(a), ...walkExpr(b), cmp]);
   }
 
+  /** The byte-level counterpart of `minOrMax`, for `clamp`'s nested
+   * `min(max(x, lo), hi)`: `minOrMax` takes AST nodes and calls `walkExpr`
+   * itself, which has no way to feed one call's *result* in as another's
+   * operand — `clamp` needs exactly that, so this takes already-computed
+   * bytes instead. */
+  function minMaxBytes(a: number[], b: number[], kind: ScalarKind, pick: "min" | "max"): number[] {
+    if (kind === "float") return [...a, ...b, pick === "min" ? WASM_OP.f64Min : WASM_OP.f64Max];
+    const cmp = kind === "uint" ? (pick === "min" ? WASM_OP.i32LtU : WASM_OP.i32GtU)
+      : (pick === "min" ? WASM_OP.i32LtS : WASM_OP.i32GtS);
+    return selectExpr(a, b, [...a, ...b, cmp]);
+  }
+
+  /** `smoothstep(e0, e1, x)`: `t = clamp((x-e0)/(e1-e0), 0, 1)`, then
+   * `t*t*(3-2*t)`. `t` is computed exactly once — `local.tee` both stores
+   * it into the shared `$smoothstep_t` local (reserved in `collect()`)
+   * and leaves it on the stack for its first use, so the other two uses
+   * in the final formula are a cheap `local.get` instead of recomputing
+   * the whole `clamp((x-e0)/(e1-e0), 0, 1)` two more times. `e0` still
+   * appears twice — inherent to the formula itself (once directly, once
+   * inside `e1-e0`), not this function's own doing, and cheap enough not
+   * to need the same treatment. */
+  function emitSmoothstepValue(e0Bytes: number[], e1Bytes: number[], xBytes: number[]): number[] {
+    const tSlot = localSlotIndex("$smoothstep_t");
+    const rawT = [...xBytes, ...e0Bytes, WASM_OP.f64Sub, ...e1Bytes, ...e0Bytes, WASM_OP.f64Sub, WASM_OP.f64Div];
+    const clampedT = minMaxBytes(minMaxBytes(rawT, f64ConstBytes(0), "float", "max"), f64ConstBytes(1), "float", "min");
+    const computeAndTee = [...clampedT, WASM_OP.localTee, ...wasmUleb128(tSlot)];
+    const getT = [WASM_OP.localGet, ...wasmUleb128(tSlot)];
+    return [
+      ...computeAndTee, ...getT, WASM_OP.f64Mul,
+      ...f64ConstBytes(3), ...f64ConstBytes(2), ...getT, WASM_OP.f64Mul, WASM_OP.f64Sub,
+      WASM_OP.f64Mul,
+    ];
+  }
+
   /** Expression context: leaves exactly one value (f64, or i32 for a bool or
    * an int/uint) on the stack. */
   function walkExpr(node: any): number[] {
@@ -1763,6 +1907,34 @@ export function compileWasmFn(
       }
       case "min": return minOrMax(node.params[0], node.params[1], scalarKindOf(node.params[0]._t), "min");
       case "max": return minOrMax(node.params[0], node.params[1], scalarKindOf(node.params[0]._t), "max");
+
+      case "clamp": {
+        // min(max(x, lo), hi) — kind-aware like min/max themselves, since
+        // clamp (unlike mix/step/smoothstep) has real int/uint overloads.
+        const kind = scalarKindOf(node._t as string);
+        const x = walkExpr(node.params[0]);
+        const lo = walkExpr(node.params[1]);
+        const hi = walkExpr(node.params[2]);
+        return minMaxBytes(minMaxBytes(x, lo, kind, "max"), hi, kind, "min");
+      }
+      case "mix": {
+        // a + t*(b-a) — the same formula compileJS uses. Float-only; `a`
+        // is evaluated twice, the same tradeoff `mod` below already
+        // accepts for its own two operands.
+        const [a, b, t] = node.params;
+        return [...walkExpr(a), ...walkExpr(t), ...walkExpr(b), ...walkExpr(a), WASM_OP.f64Sub, WASM_OP.f64Mul, WASM_OP.f64Add];
+      }
+      case "step": {
+        // x < edge ? 0 : 1 — the same formula compileJS uses. Float-only.
+        const [edge, x] = node.params;
+        return selectExpr(f64ConstBytes(0), f64ConstBytes(1), [...walkExpr(x), ...walkExpr(edge), WASM_OP.f64Lt]);
+      }
+      case "smoothstep": {
+        // See emitSmoothstepValue's own doc comment: t is computed once,
+        // via a shared local, not recomputed for each of its 3 uses.
+        const [e0, e1, x] = node.params;
+        return emitSmoothstepValue(walkExpr(e0), walkExpr(e1), walkExpr(x));
+      }
 
       case "negate": {
         const kind = scalarKindOf(node.params[0]._t);

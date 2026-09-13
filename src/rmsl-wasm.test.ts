@@ -22,7 +22,7 @@
 import { describe, it, expect } from "vitest";
 import {
   compileWasm, compileJS, Fn, If, For, While, Loop, Break, Continue, Return, Discard,
-  float, int, uint, bool, uniform, vec2, vec3, vec4,
+  float, int, uint, bool, uniform, uniformArray, vec2, vec3, vec4,
   ivec3, uvec3, bvec3, mat2, mat3, mat4, sin, clamp,
   cross, length, normalize, distance, reflect, dFdx, dFdy, fwidth,
   attribute, varying, fragCoord, output, builtinPosition, builtinFragDepth,
@@ -68,7 +68,7 @@ describe("WASM backend: scalar arithmetic", () => {
   });
 
   it("rejects an op outside this backend's coverage so far", () => {
-    const build = () => clamp(uniform("float"), float(0), float(1));
+    const build = () => uniformArray("float", 4).element(int(0));
     expect(() => compileWasm(build as any, { name: "main", params: [] }))
       .toThrow(/unsupported node type/);
   });
@@ -119,6 +119,81 @@ describe("WASM backend: div, mod, min, max, sign, abs, round-trip", () => {
     expect(run(a => a.fract(), [3.25])).toBeCloseTo(0.25, 9);
     expect(run(a => a.round(), [2.5])).toBe(3);
     expect(run(a => a.round(), [-2.5])).toBe(-2);
+  });
+});
+
+describe("WASM backend: clamp, mix, step, smoothstep", () => {
+  it("clamps floats and ints (min(max(x, lo), hi))", () => {
+    expect(run(a => a.clamp(0, 1), [0.5])).toBe(0.5);
+    expect(run(a => a.clamp(0, 1), [-0.5])).toBe(0);
+    expect(run(a => a.clamp(0, 1), [1.5])).toBe(1);
+    expect(run(a => a.clamp(0, 10), [15], ["int"])).toBe(10);
+  });
+
+  it("clamps uints unsigned", () => {
+    // Reads negative under a signed comparison; unsigned it's correctly
+    // above the clamp's own upper bound.
+    expect(run(a => a.clamp(0, 10), [4000000000], ["uint"])).toBe(10);
+  });
+
+  it("mixes (linear interpolation) at any blend factor, including outside 0..1", () => {
+    expect(run((a, b) => a.mix(b, 0.25), [0, 4])).toBe(1);
+    expect(run((a, b) => a.mix(b, 0.75), [0, 4])).toBe(3);
+    expect(run((a, b) => a.mix(b, 0), [0, 4])).toBe(0);
+    expect(run((a, b) => a.mix(b, 1), [0, 4])).toBe(4);
+    expect(run((a, b) => a.mix(b, 2), [0, 4])).toBe(8); // extrapolates past b
+  });
+
+  it("steps: 0 below the edge, 1 at or above it", () => {
+    expect(run(a => a.step(0.5), [0.2])).toBe(0);
+    expect(run(a => a.step(0.5), [0.8])).toBe(1);
+    expect(run(a => a.step(0.5), [0.5])).toBe(1); // "x < edge", so equal is 1
+  });
+
+  it("smoothsteps: clamped, cubic-eased, matching compileJS bit for bit", () => {
+    expect(run(a => a.smoothstep(0, 1), [-0.5])).toBe(0);
+    expect(run(a => a.smoothstep(0, 1), [1.5])).toBe(1);
+    expect(run(a => a.smoothstep(0, 1), [0.5])).toBe(0.5);
+    // Not a round number — checks the exact formula, not just the clamped ends.
+    expect(run(a => a.smoothstep(0, 1), [0.1])).toBeCloseTo(0.028, 9);
+  });
+
+  it("shares one local across nested smoothstep() calls without corrupting either", () => {
+    // The inner smoothstep's own t-computation runs to completion (using
+    // the shared local) before the outer one starts computing its own —
+    // this would misbehave if the local were live across both instead.
+    expect(run(a => a.smoothstep(0, 1).smoothstep(0, 1), [0.5])).toBe(0.5);
+  });
+
+  it("clamps a vector componentwise, operands already broadcast to match by rmsl-core.ts", () => {
+    const build = () => Fn(() => vec3(0.5, -0.5, 1.5).clamp(vec3(0, 0, 0), vec3(1, 1, 1)))();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const result = fn({}) as any;
+    expect(result.value).toEqual([0.5, 0, 1]);
+  });
+
+  it("mixes a vector with a scalar blend factor, broadcasting it to every component", () => {
+    const build = () => Fn(() => vec3(0, 0, 0).mix(vec3(4, 8, 12), float(0.25)))();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    expect((fn({}) as any).value).toEqual([1, 2, 3]);
+  });
+
+  it("mixes a vector with a per-component vector blend factor", () => {
+    // `.mix()`'s own TS signature only declares a scalar `t` — the runtime
+    // (`rmsl-core.ts`'s own doc comment on `UNIFORM_OPERAND_OPS`, and
+    // `compileJS`'s `_v3mix`) supports a per-component one too, so this is
+    // a real, if untyped, case worth covering.
+    const build = () => Fn(() => (vec3(0, 0, 0).mix as any)(vec3(4, 8, 12), vec3(0.25, 0.5, 1)))();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    expect((fn({}) as any).value).toEqual([1, 4, 12]);
+  });
+
+  it("steps and smoothsteps a vector componentwise", () => {
+    const stepBuild = () => Fn(() => vec3(0.2, 0.8, 0.5).step(vec3(0.5, 0.5, 0.5)))();
+    expect((compileWasm(stepBuild as any, { name: "main", params: [] })({}) as any).value).toEqual([0, 1, 1]);
+
+    const smoothBuild = () => Fn(() => vec3(-0.5, 0.5, 1.5).smoothstep(vec3(0, 0, 0), vec3(1, 1, 1)))();
+    expect((compileWasm(smoothBuild as any, { name: "main", params: [] })({}) as any).value).toEqual([0, 0.5, 1]);
   });
 });
 
