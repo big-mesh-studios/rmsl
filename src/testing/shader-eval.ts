@@ -13,7 +13,7 @@
 
 import { expect } from "vitest";
 import {
-  compileGLSLFn, compileWGSLFn, compileJSFn, type Node,
+  compileGLSLFn, compileWGSLFn, compileJSFn, compileWasm, type Node,
 } from "../rmsl";
 
 // Written to rather than console.warn: vitest intercepts console output and
@@ -202,6 +202,45 @@ export function evaluateJS(build: Build, args: number[] = []): number {
 }
 
 /**
+ * Run an expression on the WASM backend — in-process, no GPU, no browser,
+ * same as `evaluateJS`.
+ *
+ * This backend's `float` is f64, matching `compileJS`'s plain JS-number
+ * arithmetic bit for bit (`ROADMAP.md`, "`float` is f64") — including the
+ * transcendental functions, which both backends call through the literal
+ * same `Math` object. So unlike the GLSL/WGSL comparison, nothing here
+ * should ever need `floatTolerance`: a real difference is a bug, not
+ * rounding.
+ */
+export function evaluateWASM(build: Build, args: number[] = []): number {
+  const fn = compileWasm(build, { name: "rmsl_eval", params: params(args.length) });
+  const ctx = { params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) };
+  const value = fn(ctx);
+  if (typeof value === "number") return value;
+  if (Array.isArray(value)) return value[0] as number;
+  return value as unknown as number;
+}
+
+/**
+ * Whether a `compileWasm`/`compileWasmFn` failure means "not supported by
+ * this backend yet" rather than a real bug.
+ *
+ * Every deliberate "can't compile this (yet)" throw in `rmsl-wasm.ts` — for
+ * an unsupported node type, a non-square matrix multiply, a multi-return
+ * function, and so on — is constructed with this exact prefix (confirmed:
+ * every `throw new Error(...)` in that file uses it, whether the case is a
+ * known coverage gap or an internal-misuse check). A genuine WASM engine
+ * trap (`WebAssembly.RuntimeError`, thrown by the VM itself when a compiled
+ * module actually executes a trapping instruction) or a `CompileError`/
+ * `LinkError` (malformed bytecode — a real codegen bug) never carries this
+ * prefix, so this check only ever recognizes "doesn't compile", never
+ * "crashed" or "computed the wrong answer".
+ */
+function isWasmUnsupported(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith("[RMSL] compileWasmFn");
+}
+
+/**
  * Run an expression on both backends.
  *
  * Comparing the two against each other is the part text assertions cannot do:
@@ -320,12 +359,6 @@ function currentTestName(): string {
  */
 export async function assertRecordedEvaluationsAgree(): Promise<void> {
   const runnable = recordedEvaluations.filter(r => r.cpuOnly === undefined);
-  if (GPU_EVALUATION_SKIPPED) {
-    process.stderr.write(
-      `\n[shader-eval] SKIPPED — ${runnable.length} programs ran on the CPU target only; neither shading language was evaluated.\n`,
-    );
-    return;
-  }
   // Recording nothing is not the same as everything agreeing. A file that
   // stopped going through the shared helper would otherwise finish green having
   // checked one backend of three, which is the arrangement this replaced.
@@ -334,34 +367,65 @@ export async function assertRecordedEvaluationsAgree(): Promise<void> {
       `Evaluated no programs at all. Either the run was filtered down to tests that evaluate nothing, or a test file stopped calling the shared evaluation helper in src/testing/shader-eval.ts. Set RMSL_SKIP_SHADER_EVALUATION=1 if skipping evaluation is what you meant.`,
     );
   }
-  if (runnable.length === 0) return;
 
   const failures: string[] = [];
+
+  // WASM needs neither a browser nor a graphics device, so — unlike GLSL/WGSL
+  // below — it always runs, even under RMSL_SKIP_GPU/RMSL_SKIP_SHADER_EVALUATION
+  // (those exist specifically to skip hardware-dependent work). A case this
+  // backend doesn't compile yet is a countable, visible skip, never a silent
+  // one — see `isWasmUnsupported`'s doc comment for why that's safe to do
+  // without also hiding a real bug.
+  let wasmUnsupported = 0;
   for (const item of runnable) {
-    const tolerance = floatTolerance(item.js);
-    let glsl: number;
-    let wgsl: number;
     try {
-      [glsl, wgsl] = await Promise.all([
-        evaluateGLSL(item.build, item.args),
-        evaluateWGSL(item.build, item.args),
-      ]);
+      const wasm = evaluateWASM(item.build, item.args);
+      // Exact equality, not floatTolerance — see `evaluateWASM`'s doc comment.
+      if (wasm !== item.js) {
+        failures.push(`  ${item.test}\n      WASM computed ${wasm}, CPU computed ${item.js}`);
+      }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      failures.push(`  ${item.test}\n      did not evaluate — ${message}`);
-      continue;
+      if (!isWasmUnsupported(error)) throw error;
+      wasmUnsupported++;
     }
-    if (Math.abs(glsl - item.js) >= tolerance) {
-      failures.push(`  ${item.test}\n      GLSL computed ${glsl}, CPU computed ${item.js}`);
-    }
-    if (Math.abs(wgsl - item.js) >= tolerance) {
-      failures.push(`  ${item.test}\n      WGSL computed ${wgsl}, CPU computed ${item.js}`);
+  }
+  if (wasmUnsupported > 0) {
+    process.stderr.write(
+      `\n[shader-eval] WASM: ${wasmUnsupported} of ${runnable.length} recorded programs are not supported by this backend yet (skipped, not failed) — see ROADMAP.md.\n`,
+    );
+  }
+
+  if (GPU_EVALUATION_SKIPPED) {
+    process.stderr.write(
+      `\n[shader-eval] SKIPPED — ${runnable.length} programs ran on the CPU and WASM targets only; neither shading language was evaluated.\n`,
+    );
+  } else if (runnable.length > 0) {
+    for (const item of runnable) {
+      const tolerance = floatTolerance(item.js);
+      let glsl: number;
+      let wgsl: number;
+      try {
+        [glsl, wgsl] = await Promise.all([
+          evaluateGLSL(item.build, item.args),
+          evaluateWGSL(item.build, item.args),
+        ]);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        failures.push(`  ${item.test}\n      did not evaluate — ${message}`);
+        continue;
+      }
+      if (Math.abs(glsl - item.js) >= tolerance) {
+        failures.push(`  ${item.test}\n      GLSL computed ${glsl}, CPU computed ${item.js}`);
+      }
+      if (Math.abs(wgsl - item.js) >= tolerance) {
+        failures.push(`  ${item.test}\n      WGSL computed ${wgsl}, CPU computed ${item.js}`);
+      }
     }
   }
 
   if (failures.length > 0) {
     throw new Error(
-      `Evaluated ${runnable.length} recorded programs on both shading languages; ${failures.length} disagreed with the CPU target:\n\n${failures.join("\n")}`,
+      `Evaluated ${runnable.length} recorded programs; ${failures.length} disagreed with the CPU target:\n\n${failures.join("\n")}`,
     );
   }
 }
