@@ -446,7 +446,7 @@ nowhere near the texture-free scenario's ~10x at the same size — a real,
 inherent per-pixel cost for texture sampling remains — but `.draw()` is no
 longer the wrong choice for this workload at either size measured.
 
-## Status: Phase 1 through Phase 8 landed (except multi-return)
+## Status: Phase 1 through Phase 8 landed
 
 `compileWasmFn` and `compileWasm` exist in `src/wasm.ts`, next to
 `glsl.ts`/`wgsl.ts`/`js.ts` (see CONTRIBUTING.md for
@@ -516,10 +516,12 @@ CpuShaderResult` — same call signature as `compileJS`. A plain
   `output()`/a vertex-stage `varying()`/`builtinPosition()`/
   `builtinFragDepth()` as outputs, including a program's own result
   becoming the implicit vertex position when `builtinPosition()` was never
-  written explicitly — see "The shader-stage surface" below. Multi-return
-  is the one thing from the original Phase 5 wishlist _not_ included —
-  `compileJS` doesn't have it either, so there was nothing to port; see
-  the Phase 5 writeup below for why.
+  written explicitly — see "The shader-stage surface" below. A stage root
+  can also be an array of nodes (the `Fn(() => [a, b])` pattern
+  `compileGLSL.vertex`/`compileWGSL.vertex` already accept): every entry
+  compiles for its side effects, and only the last one's value and type
+  feed the stage's single result slot — matching `compileJS`, whose own
+  multi-return support landed alongside this one.
 - `textureSize`, `textureLoad`, and `texture`/`textureLod` (nearest,
   bilinear, and trilinear filtering; `repeat`/`mirror`/`clamp` wrapping) for
   `sampler2D`/`sampler3D`/`samplerCube` and the 2D/3D integer
@@ -532,9 +534,9 @@ CpuShaderResult` — same call signature as `compileJS`. A plain
   call" below.
 
 **What throws today** (deliberately — see the Phase list below for when each
-lands): `isamplerCube`/`usamplerCube` and multi-return. (Non-square
-matrix×matrix multiply and float `samplerCube` sampling used to be on this
-list; both are supported now — the shape check that remains in
+lands): `isamplerCube`/`usamplerCube`. (Non-square matrix×matrix multiply,
+float `samplerCube` sampling, and multi-return used to be on this list; all
+three are supported now — the shape check that remains in
 `emitMatMatMulStores` is defense-in-depth against a hand-built node, since
 core already rejects a mismatched product at construction.)
 `compileWasmFn` throws `[RMSL] compileWasmFn: unsupported node type in
@@ -755,7 +757,7 @@ this backend. `Discard` still has no real scalar-function equivalent — it
 compiles to the same zero/false-sentinel early exit `Return()` does, a
 placeholder until Phase 5's shader-stage surface gives it actual meaning.
 
-### ~~Phase 5 — shader-stage surface~~ — done, except multi-return
+### ~~Phase 5 — shader-stage surface~~ — done (multi-return followed later, see below)
 
 `output()`, `varying()`, `attribute()`, `builtinPosition()`,
 `builtinFragDepth()`, `fragCoord()`, and the `stage`/`derivatives`/
@@ -772,6 +774,16 @@ multi-return only exists one layer up, in `compileGLSL.vertex`/
 is genuinely new ground beyond `compileJS` parity, not a port of something
 `compileJS` already has — left for a separate, later decision rather than
 folded into this phase under the same name.
+
+That later decision landed: both `compileJS` and `compileWasmFn`/
+`compileWasm` now accept a stage root of `Node | readonly Node[]`, matching
+`compileGLSL`/`compileWGSL`'s own convention — every array entry compiles in
+order for its side effects, and only the last entry's value and type reach
+the stage's single result slot. `compileWasmFn` gets this for free from the
+existing seq handling: `Fn`'s array-return sugar wraps every returned item
+in its own `"seq"` node carrying the _same_ captured statements plus that
+item as its tail value, so the last item alone already reproduces the whole
+body — no separate multi-root planning pass was needed.
 
 Two design points worth remembering if this gets touched again:
 

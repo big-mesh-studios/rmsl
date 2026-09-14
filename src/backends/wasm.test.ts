@@ -103,10 +103,15 @@ describe("WASM backend: scalar arithmetic", () => {
     expect(fn({ uniforms: { [u.name]: 21 } })).toBe(42);
   });
 
-  it("rejects a multi-return function", () => {
-    expect(() => compileWasm((() => [float(1), float(2)]) as any, { name: "main", params: [] })).toThrow(
-      /multi-return/,
-    );
+  it("supports a multi-return function, keeping only the last value as the result", () => {
+    let side!: any;
+    const build = () => {
+      side = float(1.0).toVar();
+      let last = float(2.0).toVar();
+      return [side, last];
+    };
+    const fn = compileWasm(Fn(build) as any, { name: "main", params: [] });
+    expect(fn({})).toBe(2);
   });
 
   it("supports a plain non-scalar result, through the same memory-based path a stage program uses", () => {

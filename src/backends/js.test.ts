@@ -1024,9 +1024,15 @@ describe("JS backend: CPU-specific behaviour", () => {
     expect(fn({ textures: { [tex.name]: { data, width: 2, height: 2 } } })).toEqual([5, 6, 7, 8]);
   });
 
-  it("rejects multi-return functions", () => {
-    const prog = Fn(() => [float(1), float(2)])();
-    expect(() => compileJS(() => prog as any, { name: "main", params: [] })).toThrow(/multi-return/);
+  it("supports multi-return functions, keeping only the last value as the result", () => {
+    let side!: any;
+    const prog = Fn(() => {
+      side = float(1.0).toVar();
+      let last = float(2.0).toVar();
+      return [side, last];
+    })();
+    const fn = compileJS(() => prog as any, { name: "main", params: [] });
+    expect(fn({})).toBe(2);
   });
 
   it("compileJSFn emits a self-contained expression evaluating to the callable", () => {

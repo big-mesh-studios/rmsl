@@ -1764,20 +1764,15 @@ export type CompileJSOptions = CompileFnOptions & {
  * pointing at a second, different uniform than the one actually compiled in.
  */
 function compileJSFnDetailed(
-  fn: (...args: any[]) => Node<ShaderType>,
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
 ): { source: string; resultType: ShaderType | undefined } {
   let stage = options.stage ?? "fragment";
   let derivatives = options.derivatives ?? "throw";
   let reentrant = options.reentrant ?? false;
   const paramNodes = options.params.map((p) => var_(p.name, p.type));
-  const result = fn(...paramNodes);
-  if (Array.isArray(result)) {
-    throw new Error(
-      "compileJSFn does not support multi-return functions. Define separate " +
-        "functions for each return value, or write to output()/builtinFragDepth().",
-    );
-  }
+  const rawResult = fn(...paramNodes);
+  const resultNodes: Node<ShaderType>[] = Array.isArray(rawResult) ? rawResult : [rawResult];
 
   const ctx: CompileCtx = {
     nextId: 0,
@@ -1802,8 +1797,10 @@ function compileJSFnDetailed(
     jsNeedsRes: false,
   };
 
-  const compiled = compileJSStage(result, ctx);
-  assertStageResult(stage, (result as any)?._t, ctx.positionWritten);
+  const compiledList = resultNodes.map((n) => compileJSStage(n, ctx));
+  const lastCompiled = compiledList[compiledList.length - 1];
+  const lastType = (resultNodes[resultNodes.length - 1] as any)?._t;
+  assertStageResult(stage, lastType, ctx.positionWritten);
 
   const body: string[] = [];
   if (ctx.jsNeedsRes) body.push("var res = { outputs: {}, varyings: {} };");
@@ -1813,12 +1810,12 @@ function compileJSFnDetailed(
       body.push(init ? `var ${v} = ${init};` : `var ${v} = 0;`);
     }
   }
-  body.push(...compiled.decls, ...compiled.body);
+  for (const compiled of compiledList) body.push(...compiled.decls, ...compiled.body);
   if (ctx.jsNeedsRes) {
-    body.push(`res.value = ${compiled.expr};`);
+    body.push(`res.value = ${lastCompiled.expr};`);
     body.push("return res;");
   } else {
-    body.push(`return ${compiled.expr};`);
+    body.push(`return ${lastCompiled.expr};`);
   }
 
   let scratch = reentrant
@@ -1840,13 +1837,14 @@ function compileJSFnDetailed(
   parts.push(`return function ${options.name}(ctx) {\n${body.map((l) => "  " + l).join("\n")}\n};`);
   return {
     source: parts.join("\n\n"),
-    resultType: Array.isArray(result)
-      ? undefined
-      : ((result as unknown as { _t?: string })?._t as ShaderType | undefined),
+    resultType: lastType as ShaderType | undefined,
   };
 }
 
-export function compileJSFn(fn: (...args: any[]) => Node<ShaderType>, options: CompileJSOptions): string {
+export function compileJSFn(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileJSOptions,
+): string {
   return compileJSFnDetailed(fn, options).source;
 }
 
@@ -1863,7 +1861,10 @@ export function compileJSFn(fn: (...args: any[]) => Node<ShaderType>, options: C
  * result has: one JS call per pixel, feeding `fragCoord` in and packing every
  * result into one flat row-major buffer — see `CpuRenderer`.
  */
-export function compileJS(fn: (...args: any[]) => Node<ShaderType>, options: CompileJSOptions): CpuRenderer {
+export function compileJS(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileJSOptions,
+): CpuRenderer {
   const { source, resultType } = compileJSFnDetailed(fn, options);
   const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuShaderResult;
   const callable = factory() as CpuRenderer;

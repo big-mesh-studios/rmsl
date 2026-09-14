@@ -692,13 +692,18 @@ export function wasmVec(items: number[][]): number[] {
  * writes pipeline outputs, the module declares zero results and values
  * round-trip through the linear memory instead.
  */
-export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options: CompileWasmFnOptions): CompiledWasm {
+export function compileWasmFn(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileWasmFnOptions,
+): CompiledWasm {
   const paramNodes = options.params.map((p) => var_(p.name, p.type));
-  const root = fn(...paramNodes) as any;
-
-  if (Array.isArray(root)) {
-    throw new Error("[RMSL] compileWasmFn does not support multi-return functions.");
-  }
+  const rawResult = fn(...paramNodes) as any;
+  // Fn's array-return sugar wraps every returned item in its own "seq" node
+  // carrying the *same* captured statements plus that item as its tail value
+  // (src/core.ts's Fn), so the last item alone already reproduces the whole
+  // body: only its value feeds the stage's single result slot, matching
+  // compileGLSL/compileWGSL's "last array entry wins" convention.
+  const root = Array.isArray(rawResult) ? rawResult[rawResult.length - 1] : rawResult;
 
   const paramTypeByName = new Map(options.params.map((p) => [p.name, p.type]));
   const fnParamNames = new Set(options.params.map((p) => p.name));
@@ -3099,6 +3104,9 @@ export function instantiateWasm(compiled: CompiledWasm, name: string): CpuRender
 }
 
 /** Compiles an `Fn` to WASM and instantiates it in one step — see `instantiateWasm`. */
-export function compileWasm(fn: (...args: any[]) => Node<ShaderType>, options: CompileWasmFnOptions): CpuRenderer {
+export function compileWasm(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileWasmFnOptions,
+): CpuRenderer {
   return instantiateWasm(compileWasmFn(fn, options), options.name);
 }

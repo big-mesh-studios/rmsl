@@ -339,8 +339,8 @@ export function evaluateWASM(build: Build, args: number[] = []): number | number
  * this backend yet" rather than a real bug.
  *
  * Every deliberate "can't compile this (yet)" throw in `wasm.ts` — for
- * an unsupported node type, a non-square matrix multiply, a multi-return
- * function, and so on — is constructed with this exact prefix (confirmed:
+ * an unsupported node type, an integer cube-map sampler, and so on — is
+ * constructed with this exact prefix (confirmed:
  * every `throw new Error(...)` in that file uses it, whether the case is a
  * known coverage gap or an internal-misuse check). A genuine WASM engine
  * trap (`WebAssembly.RuntimeError`, thrown by the VM itself when a compiled
