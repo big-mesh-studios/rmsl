@@ -204,6 +204,17 @@ describe("WASM backend: uniform arrays", () => {
     const values = Array.from({ length: 24 }, (_, i) => [i, 0, 0, 0]);
     expect(fn({ uniforms: { [arr.name]: values } })).toBe(276); // sum of 0..23
   });
+
+  it("supports a uniform array element as the function root", () => {
+    let arr!: any;
+    const build = () => {
+      arr = uniformArray("vec3", 3);
+      return arr.element(int(1));
+    };
+    const fn = compileWasm(build, { name: "main", params: [] });
+    const result = fn({ uniforms: { [arr.name]: [[1, 2, 3], [4, 5, 6], [7, 8, 9]] } }) as any;
+    expect(result.value).toEqual([4, 5, 6]);
+  });
 });
 
 describe("WASM backend: div, mod, min, max, sign, abs, round-trip", () => {
