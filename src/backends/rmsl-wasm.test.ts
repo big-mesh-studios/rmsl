@@ -172,6 +172,16 @@ describe("WASM backend: uniform arrays", () => {
       }),
     ).toBe(4);
   });
+
+  it("converts a plain-number (float) index", () => {
+    let arr!: any;
+    const build = () => {
+      arr = uniformArray("float", 4);
+      return arr.element(2.0);
+    };
+    const fn = compileWasm(build, { name: "main", params: [] });
+    expect(fn({ uniforms: { [arr.name]: [10, 20, 30, 40] } })).toBe(30);
+  });
 });
 
 describe("WASM backend: div, mod, min, max, sign, abs, round-trip", () => {
