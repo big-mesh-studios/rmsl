@@ -2801,14 +2801,19 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
  * Instantiates a compiled module and binds it to JS: marshals params and
  * textures into memory/args, calls the function, and reads results back
  * into a CpuShaderResult.
+ *
+ * Split out from `compileWasm` so a build-time precompile step (see
+ * `precompileWasm` in `../vite/vite.ts`) can ship just the compiled bytes
+ * and this instantiation glue — never the graph builder or bytecode
+ * emitter that produced them.
  */
-export function compileWasm(fn: (...args: any[]) => Node<ShaderType>, options: CompileWasmFnOptions): CpuRenderer {
-  const { bytes, params, resultType, textureHeapBase, draw } = compileWasmFn(fn, options);
+export function instantiateWasm(compiled: CompiledWasm, name: string): CpuRenderer {
+  const { bytes, params, resultType, textureHeapBase, draw } = compiled;
 
   const instance = new WebAssembly.Instance(new WebAssembly.Module(bytes.buffer as ArrayBuffer), {
     math: Math as unknown as WebAssembly.ModuleImports, // host "math" namespace serving the sin/pow/... imports
   });
-  const wasmMain = instance.exports[options.name] as (...args: number[]) => number;
+  const wasmMain = instance.exports[name] as (...args: number[]) => number;
   const wasmDraw = draw ? (instance.exports.draw as (...args: number[]) => void) : undefined;
   const memory = instance.exports.memory as WebAssembly.Memory;
 
@@ -2973,4 +2978,9 @@ export function compileWasm(fn: (...args: any[]) => Node<ShaderType>, options: C
   };
 
   return callable;
+}
+
+/** Compiles an `Fn` to WASM and instantiates it in one step — see `instantiateWasm`. */
+export function compileWasm(fn: (...args: any[]) => Node<ShaderType>, options: CompileWasmFnOptions): CpuRenderer {
+  return instantiateWasm(compileWasmFn(fn, options), options.name);
 }

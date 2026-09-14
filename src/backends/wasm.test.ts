@@ -22,6 +22,8 @@
 import { describe, it, expect } from "vitest";
 import {
   compileWasm,
+  compileWasmFn,
+  instantiateWasm,
   compileJS,
   Fn,
   If,
@@ -1588,5 +1590,39 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
     expect(fn({ textures: { [tex.name]: texture } })).toBe(55);
     expect(Array.from(fn.draw({ textures: { [tex.name]: texture } }, 2, 2))).toEqual([55, 55, 55, 55]);
     expect(fn({ textures: { [tex.name]: texture } })).toBe(55);
+  });
+});
+
+describe("WASM backend: instantiateWasm — compile and instantiate as separate steps", () => {
+  it("compileWasmFn + instantiateWasm behaves exactly like compileWasm", () => {
+    const build = (a: any, b: any) => a.add(b).mul(2);
+    const options = {
+      name: "main",
+      params: [
+        { name: "a", type: "float" as const },
+        { name: "b", type: "float" as const },
+      ],
+    };
+    const compiled = compileWasmFn(build, options);
+    const fn = instantiateWasm(compiled, options.name);
+    expect(fn({ params: { a: 3, b: 4 } })).toBe(14);
+  });
+
+  it("instantiates the same compiled bytes more than once, independently", () => {
+    const build = (a: any) => a.mul(a);
+    const compiled = compileWasmFn(build, { name: "square", params: [{ name: "a", type: "float" }] });
+    const first = instantiateWasm(compiled, "square");
+    const second = instantiateWasm(compiled, "square");
+    expect(first({ params: { a: 5 } })).toBe(25);
+    expect(second({ params: { a: 6 } })).toBe(36);
+    // Independent instances: calling one again doesn't reflect the other's call.
+    expect(first({ params: { a: 5 } })).toBe(25);
+  });
+
+  it("draw() still works when instantiated separately from compilation", () => {
+    const build = () => Fn(() => fragCoord().x)();
+    const compiled = compileWasmFn(build as any, { name: "main", params: [] });
+    const fn = instantiateWasm(compiled, "main");
+    expect(Array.from(fn.draw({}, 2, 1))).toEqual([0.5, 1.5]);
   });
 });

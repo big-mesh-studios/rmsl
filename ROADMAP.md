@@ -446,7 +446,7 @@ nowhere near the texture-free scenario's ~10x at the same size — a real,
 inherent per-pixel cost for texture sampling remains — but `.draw()` is no
 longer the wrong choice for this workload at either size measured.
 
-## Status: Phase 1 through Phase 7 landed (except multi-return)
+## Status: Phase 1 through Phase 8 landed (except multi-return)
 
 `compileWasmFn` and `compileWasm` exist in `src/wasm.ts`, next to
 `glsl.ts`/`wgsl.ts`/`js.ts` (see CONTRIBUTING.md for
@@ -925,11 +925,20 @@ matrix multiply cases, still open per "What throws today" above.
 program exercised it; it has since landed for the WASM backend anyway —
 see `docs/superpowers/specs/2026-09-14-uniform-array-wasm-design.md`.)
 
-### Phase 8 — tooling and docs
+### ~~Phase 8 — tooling and docs~~ — done
 
-A `docs/wasm.md` page (or a section in `docs/compilation.md`), and a vite
-precompile story analogous to `precompileShaders`/`precompileJS` if this is
-going to ship a `.wasm` asset rather than generate one at runtime.
+`docs/wasm.md` documents `compileWasm`/`compileWasmFn`/`instantiateWasm`,
+`CpuRenderer`, `.draw()`, and how it differs from the JS target;
+`docs/compilation.md` and `README.md` point to it and no longer say "three
+backends". The vite precompile story landed too: `precompileWasm` (in
+`src/vite/vite.ts`, documented in `docs/vite-plugins.md`) does ship a
+`.wasm` asset rather than generating one at runtime — the compiled bytes
+go out via Rollup's `emitFile` as a real binary asset, not inlined as a
+string, fetched once and handed to `instantiateWasm` at module load.
+`instantiateWasm` is `compileWasm`'s own instantiate-and-marshal step,
+split out into its own export specifically so a precompiled module's
+runtime glue never needs the graph builder or bytecode emitter that
+produced the bytes.
 
 ## Open questions
 
@@ -938,10 +947,6 @@ going to ship a `.wasm` asset rather than generate one at runtime.
   `new WebAssembly.Module()` blocks the main thread past some size. Revisit
   once real programs are large enough to measure this, rather than guessing
   now.
-- **Does this ever reach the public API surface** (README's "Three backends"
-  becoming four, a `compileWasm` export from the package root) or does it
-  stay an internal/experimental path indefinitely? Depends on how far the
-  phases above get and whether the win keeps holding as coverage grows.
 - **Reentrancy.** `compileJS`'s `reentrant` option exists because its
   scratch slots are shared across calls by default. WASM locals are already
   per-call-frame, so this concern may simply not exist here — confirm once

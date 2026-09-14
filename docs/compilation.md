@@ -1,6 +1,6 @@
 # Compilation
 
-RMSL compiles node graphs to **GLSL** (WebGL 2 / OpenGL ES 3.0), **WGSL** (WebGPU), or **JavaScript** (a CPU callable — see [JS / CPU Target](#js--cpu-target)).
+RMSL compiles node graphs to **GLSL** (WebGL 2 / OpenGL ES 3.0), **WGSL** (WebGPU), **JavaScript** (a CPU callable — see [JS / CPU Target](#js--cpu-target)), or **WebAssembly** (a second CPU target, same contract — see [WASM / CPU Target](wasm.md)).
 
 ## Compiler API
 
@@ -382,6 +382,16 @@ writes any of them, it returns:
 This is what surfaces the picking depth: `calcColourAndDepth` assigns
 `builtinFragDepth()`, so `result.fragDepth` gives the distance along the ray.
 
+### Rendering a whole grid
+
+`compileJS`'s result also has `.draw(ctx, width, height)`: call the compiled
+function once per pixel over a `width x height` grid instead of driving the
+loop yourself, packed into one flat, row-major typed array. It's the same
+method [`compileWasm`'s result](wasm.md#cpurenderer) has — both satisfy one
+`CpuRenderer` interface — documented there since WASM's version has the more
+interesting implementation (it shares the compiled function's own bytecode
+rather than looping in JS).
+
 ### Scratch & reentrancy
 
 Internal `toVar()` variables live in per-program scratch slots _outside_ the
@@ -469,8 +479,7 @@ tolerant comparisons. See [Testing](testing.md).
   context instead.
 - `Discard()` compiles to `return null;` — the host treats `null` as
   "no fragment".
-- Non-square matrix multiplication, samplerCube and mirror/repeat texture
-  wrapping are not supported yet.
+- `samplerCube` is not supported yet.
 
 ## Type Mappings
 

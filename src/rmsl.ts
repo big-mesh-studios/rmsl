@@ -219,5 +219,5 @@ export type {
 
 export { compileGLSLFn, compileWGSLFn } from "./standalone-fn";
 
-export { compileWasm, compileWasmFn } from "./backends/wasm";
+export { compileWasm, compileWasmFn, instantiateWasm } from "./backends/wasm";
 export type { CompiledWasm, WasmParam } from "./backends/wasm";
