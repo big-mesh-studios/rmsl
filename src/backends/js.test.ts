@@ -22,7 +22,7 @@ import {
   assertRecordedEvaluationsAgree,
   closeEvaluators,
   type CpuOnlyReason,
-} from "./testing/shader-eval";
+} from "../testing/shader-eval";
 import {
   compileJS,
   compileJSFn,
@@ -83,7 +83,7 @@ import {
   textureLoad,
   type Node,
   type CpuTextureData,
-} from "./rmsl";
+} from "../rmsl";
 
 const approx = (actual: number, want: number) => expect(actual).toBeCloseTo(want, 9);
 

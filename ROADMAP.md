@@ -917,7 +917,7 @@ See "`clamp`/`mix`/`step`/`smoothstep` compile through the same
 aggregate-value machinery vectors already use" above for the design. All
 four now work in both scalar and componentwise vector form, verified by
 `wasm.test.ts`'s dedicated test block and by Phase 7's cross-backend
-recording (`npx vitest run src/js.test.ts src/eval.test.ts`),
+recording (`npx vitest run src/backends/js.test.ts src/eval.test.ts`),
 whose `[shader-eval] WASM: N of 79 ... not yet supported` count dropped
 from 17 to 3 as a direct result — the remaining 3 are the non-square
 matrix multiply cases, still open per "What throws today" above.
