@@ -115,9 +115,14 @@ describe("WASM backend: scalar arithmetic", () => {
     expect(result.value).toEqual([1, 2, 3]);
   });
 
-  it("rejects an op outside this backend's coverage so far", () => {
-    const build = () => uniformArray("float", 4).element(int(0));
-    expect(() => compileWasm(build as any, { name: "main", params: [] })).toThrow(/unsupported node type/);
+  it("reads a float uniform array element by a constant index", () => {
+    let arr!: any;
+    const build = () => {
+      arr = uniformArray("float", 4);
+      return arr.element(int(1));
+    };
+    const fn = compileWasm(build, { name: "main", params: [] });
+    expect(fn({ uniforms: { [arr.name]: [10, 20, 30, 40] } })).toBe(20);
   });
 });
 

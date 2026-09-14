@@ -41,7 +41,16 @@ export type WasmParam =
   | { kind: "positionMemory"; address: number }
   | { kind: "fragDepthMemory"; address: number }
   | { kind: "valueMemory"; shaderType: ShaderType; address: number }
-  | { kind: "textureMemory"; slot: string; samplerType: ShaderType; metadataAddress: number };
+  | { kind: "textureMemory"; slot: string; samplerType: ShaderType; metadataAddress: number }
+  | {
+      kind: "uniformArrayMemory";
+      slot: string;
+      shaderType: ShaderType;
+      length: number;
+      address: number;
+      elementStride: number;
+      narrow?: boolean;
+    };
 
 /**
  * A compiled module: raw bytes plus the contract the host uses to marshal
@@ -441,6 +450,11 @@ function storeDynamic(addrBytes: number[], kind: ScalarKind, valueBytes: number[
   return [...addrBytes, ...valueBytes, kind === "float" ? WASM_OP.f64Store : WASM_OP.i32Store, 0x00, 0x00];
 }
 
+/** Bytes computing `base + index * elementStride` — a uniform array element's first component address. */
+function uniformArrayElementAddress(base: number, elementStride: number, indexBytes: number[]): number[] {
+  return [...i32ConstBytes(base), ...indexBytes, ...i32ConstBytes(elementStride), WASM_OP.i32Mul, WASM_OP.i32Add];
+}
+
 /** Casts one scalar to another kind: f64<->i32 via trunc/convert; bools stay as raw bit values. */
 function convertComponent(valueBytes: number[], fromKind: ScalarKind, toKind: ScalarKind): number[] {
   if (fromKind === toKind || fromKind === "bool" || toKind === "bool") return valueBytes;
@@ -545,6 +559,48 @@ function writeAggregateToMemory(
       else view.setFloat64(address + i * compSize, num, true);
     } else {
       view.setInt32(address + i * compSize, num, true);
+    }
+  }
+}
+
+/** Host-side: writes a uniform array (array of elements, or bare scalars for a scalar element type) into linear memory. */
+function writeArrayToMemory(
+  view: DataView,
+  address: number,
+  shaderType: ShaderType,
+  length: number,
+  value: any,
+  elementStride: number,
+  narrow?: boolean,
+): void {
+  const kind = elementKindOf(shaderType);
+  const compSize = narrow && kind === "float" ? 4 : componentSizeOf(kind);
+  const width = componentCountOf(shaderType);
+  const arr = value as ArrayLike<any>;
+  const n = Math.min(arr.length, length); // a shorter host array leaves the tail untouched
+  for (let i = 0; i < n; i++) {
+    const el = arr[i];
+    const base = address + i * elementStride;
+    if (width === 1) {
+      const num = typeof el === "boolean" ? (el ? 1 : 0) : (el as number);
+      if (kind === "float") {
+        if (narrow) view.setFloat32(base, num, true);
+        else view.setFloat64(base, num, true);
+      } else {
+        view.setInt32(base, num, true);
+      }
+    } else {
+      for (let k = 0; k < width; k++) {
+        const raw = el[k];
+        const num = typeof raw === "boolean" ? (raw ? 1 : 0) : (raw as number);
+        const at = base + k * compSize;
+        if (kind === "float") {
+          if (narrow) view.setFloat32(at, num, true);
+          else view.setFloat64(at, num, true);
+        } else {
+          view.setInt32(at, num, true);
+        }
+      }
     }
   }
 }
@@ -665,6 +721,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
   const paramAddress = new Map<string, number>();
   const varAddress = new Map<string, number>();
   const uniformAddress = new Map<string, number>();
+  const uniformArrayInfo = new Map<string, { base: number; elementStride: number; narrow: boolean }>();
 
   // host offsets of GPU-placed uniforms (f32)
   const gpuRawUniformAddress = new Map<string, number>();
@@ -1023,6 +1080,27 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         } else {
           addParam({ kind: "uniform", slot: v.slot, shaderType: v.shaderType }, `uniform:${v.slot}`);
         }
+        break;
+      }
+
+      case "uniformArray": {
+        if (uniformArrayInfo.has(node.value.slot)) break;
+        const shaderType = node.value.shaderType as ShaderType;
+        const length = node.value.length as number;
+        const elementSize = componentCountOf(shaderType) * componentSizeOf(elementKindOf(shaderType));
+        if (options.gpuUniformLayout?.offsets[node.value.slot] !== undefined) {
+          throw new Error("[RMSL] compileWasmFn: GPU-placed uniform arrays are not implemented yet");
+        }
+        const address = allocateBytes(elementSize * length);
+        uniformArrayInfo.set(node.value.slot, { base: address, elementStride: elementSize, narrow: false });
+        memoryParams.push({
+          kind: "uniformArrayMemory",
+          slot: node.value.slot,
+          shaderType,
+          length,
+          address,
+          elementStride: elementSize,
+        });
         break;
       }
 
@@ -2455,6 +2533,19 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         }
         return [...pre, ...sumSq, WASM_OP.f64Sqrt];
       }
+      case "uniformArrayElement": {
+        const info = uniformArrayInfo.get(node.params[0].value.slot);
+        if (info === undefined) {
+          throw new Error(
+            `[RMSL] compileWasmFn: internal error, unaddressed uniform array "${node.params[0].value.slot}"`,
+          );
+        }
+        const kind = elementKindOf(node._t as string);
+        const index = node.params[1];
+        const indexBytes =
+          scalarKindOf(index._t as string) === "float" ? [...walkExpr(index), WASM_OP.i32TruncF64S] : walkExpr(index);
+        return loadDynamic(uniformArrayElementAddress(info.base, info.elementStride, indexBytes), kind);
+      }
       default:
         throw new Error(`[RMSL] compileWasmFn: unsupported node type in expression position: "${node.type}"`);
     }
@@ -2759,6 +2850,17 @@ export function compileWasm(fn: (...args: any[]) => Node<ShaderType>, options: C
           break;
         case "uniformMemory":
           writeAggregateToMemory(view, p.address, p.shaderType, (ctx.uniforms as any)?.[p.slot], p.narrow);
+          break;
+        case "uniformArrayMemory":
+          writeArrayToMemory(
+            view,
+            p.address,
+            p.shaderType,
+            p.length,
+            (ctx.uniforms as any)?.[p.slot],
+            p.elementStride,
+            p.narrow,
+          );
           break;
         case "attributeMemory":
           writeAggregateToMemory(view, p.address, p.shaderType, (ctx.attributes as any)?.[p.slot]);
