@@ -382,6 +382,24 @@ describe("JS backend: matrices", () => {
     expect(f({ params: { a: translate, b: id } })).toEqual(translate);
   });
 
+  it("multiplies non-square matrices at the product shape", () => {
+    // mat2x3 (2 cols x 3 rows): a = [[1,2,3],[4,5,6]], column-major.
+    const a = [1, 2, 3, 4, 5, 6];
+    // mat3x2 (3 cols x 2 rows): b = [[1,0],[0,1],[1,1]], column-major.
+    const b = [1, 0, 0, 1, 1, 1];
+    const f = compileJS((a: any, b: any) => a.mul(b), {
+      name: "main",
+      params: [
+        { name: "a", type: "mat2x3" },
+        { name: "b", type: "mat3x2" },
+      ],
+    });
+    // a (3x2) * b (2x3) = product is mat3 (3x3), column-major.
+    // A rows = [1,4],[2,5],[3,6]; B cols = [1,0],[0,1],[1,1].
+    // col0 = A*b0 = [1,2,3]; col1 = A*b1 = [4,5,6]; col2 = A*(b0+b1) = [5,7,9].
+    expect(f({ params: { a, b } })).toEqual([1, 2, 3, 4, 5, 6, 5, 7, 9]);
+  });
+
   it("inverts, transposes and takes determinants", () => {
     const inv = compileJS((a: any) => a.inverse(), {
       name: "main",

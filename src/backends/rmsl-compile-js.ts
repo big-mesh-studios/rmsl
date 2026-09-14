@@ -434,27 +434,34 @@ export function jsHelperSource(name: string): string {
       return `function _mat4x4det(m) {\n  let a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3];\n  let a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7];\n  let a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11];\n  let a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15];\n  let b00 = a00 * a11 - a01 * a10;\n  let b01 = a00 * a12 - a02 * a10;\n  let b02 = a00 * a13 - a03 * a10;\n  let b03 = a01 * a12 - a02 * a11;\n  let b04 = a01 * a13 - a03 * a11;\n  let b05 = a02 * a13 - a03 * a12;\n  let b06 = a20 * a31 - a21 * a30;\n  let b07 = a20 * a32 - a22 * a30;\n  let b08 = a20 * a33 - a23 * a30;\n  let b09 = a21 * a32 - a22 * a31;\n  let b10 = a21 * a33 - a23 * a31;\n  let b11 = a22 * a33 - a23 * a32;\n  return b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;\n}`;
   }
 
-  let mm = /^mat(\d+)x(\d+)(mul|T)$/.exec(name);
-  if (mm) {
-    let cols = Number(mm[1]);
-    let rows = Number(mm[2]);
-    if (mm[3] === "mul") {
-      // Column-major product: out[col*rows + row] = sum_k a[k*rows+row] * b[col*cols+k].
-      let lines: string[] = [];
-      for (let col = 0; col < cols; col++) {
-        for (let row = 0; row < rows; row++) {
-          let terms: string[] = [];
-          for (let k = 0; k < cols; k++) terms.push(`a[${k * rows + row}] * b[${col * cols + k}]`);
-          lines.push(`  out[${col * rows + row}] = ${terms.join(" + ")};`);
-        }
+  // A matCLxRL times a matCRxRR (CL === RR) is a matCRxRL product.
+  let mmMul = /^matmul(\d+)x(\d+)x(\d+)x(\d+)$/.exec(name);
+  if (mmMul) {
+    let cL = Number(mmMul[1]);
+    let rL = Number(mmMul[2]);
+    let cR = Number(mmMul[3]);
+    let rR = Number(mmMul[4]);
+    // Column-major product: out[col*rL + row] = sum_k a[k*rL+row] * b[col*rR+k].
+    let lines: string[] = [];
+    for (let col = 0; col < cR; col++) {
+      for (let row = 0; row < rL; row++) {
+        let terms: string[] = [];
+        for (let k = 0; k < cL; k++) terms.push(`a[${k * rL + row}] * b[${col * rR + k}]`);
+        lines.push(`  out[${col * rL + row}] = ${terms.join(" + ")};`);
       }
-      return (
-        `function _${name}(a, b, out) {\n` +
-        `  out = out || new Array(${cols * rows});\n` +
-        `  if (out === a) a = a.slice();\n` +
-        `  if (out === b) b = b.slice();\n${lines.join("\n")}\n  return out;\n}`
-      );
     }
+    return (
+      `function _${name}(a, b, out) {\n` +
+      `  out = out || new Array(${cR * rL});\n` +
+      `  if (out === a) a = a.slice();\n` +
+      `  if (out === b) b = b.slice();\n${lines.join("\n")}\n  return out;\n}`
+    );
+  }
+
+  let mmT = /^mat(\d+)x(\d+)T$/.exec(name);
+  if (mmT) {
+    let cols = Number(mmT[1]);
+    let rows = Number(mmT[2]);
     // Transpose: out[r*cols + c] = m[c*rows + r].
     let lines: string[] = [];
     for (let c = 0; c < cols; c++)
@@ -667,16 +674,15 @@ export function jsBinaryOp(node: BaseNode<ShaderType>, ctx: CompileCtx, op: stri
   return jsVectorBinary(node, ctx, op, width);
 }
 
-/** Matrix times matrix (square), a separate operator from element-wise mult. */
+/** Matrix times matrix, a separate operator from element-wise mult. */
 export function jsMatMul(node: BaseNode<ShaderType>, ctx: CompileCtx): CompiledNode {
-  let brand = node.params![0]?._t;
-  let [c, r] = MATRIX_DIMENSIONS[brand];
-  if (c !== r) {
-    throw new Error("[RMSL] The JS target does not yet support non-square matrix multiplication.");
-  }
+  let aType = node.params![0]?._t;
+  let bType = node.params![1]?._t;
+  let [cL, rL] = MATRIX_DIMENSIONS[aType];
+  let [cR, rR] = MATRIX_DIMENSIONS[bType];
   let a = jsCompileOperand(node.params![0], ctx);
   let b = jsCompileOperand(node.params![1], ctx);
-  let name = `mat${c}x${r}mul`;
+  let name = `matmul${cL}x${rL}x${cR}x${rR}`;
   jsRequireHelper(ctx, name);
   if (ctx.outTarget) {
     return {
