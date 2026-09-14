@@ -32,7 +32,12 @@ import {
   vec2,
   vec3,
   vec4,
+  mat2,
+  mat2x3,
+  mat2x4,
+  mat3x2,
   mat4,
+  mat4x2,
   If,
   For,
   While,
@@ -116,6 +121,14 @@ function evalScalar(
     return value as unknown as number;
   }
   return evaluateRecording(build as any, args, cpuOnly) as number;
+}
+
+/**
+ * Evaluate a matrix (or vector) expression and hold every backend to the
+ * answer, the same way `evalScalar` does for a scalar root.
+ */
+function evalMatrix(build: (...args: Node<"float">[]) => any, args: number[] = []): number[] {
+  return evaluateRecording(build as any, args) as number[];
 }
 
 afterAll(async () => {
@@ -445,6 +458,33 @@ describe("JS backend: matrices", () => {
     });
     const m = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
     expect(f({ params: { a: m } })).toEqual([5, 6, 7, 8]);
+  });
+});
+
+describe("cross-backend: non-square matrix multiply", () => {
+  it("multiplies a mat2x3 by a mat3x2 into a mat3", () => {
+    const build = () => mat2x3(1, 2, 3, 4, 5, 6).mul(mat3x2(1, 0, 0, 1, 1, 1));
+    expect(evalMatrix(build)).toEqual([1, 2, 3, 4, 5, 6, 5, 7, 9]);
+  });
+
+  it("multiplies a mat3x2 by a mat2x3 into a mat2", () => {
+    const build = () => mat3x2(1, 2, 3, 4, 5, 6).mul(mat2x3(1, 0, 0, 0, 1, 1));
+    expect(evalMatrix(build)).toEqual([1, 2, 8, 10]);
+  });
+
+  it("multiplies a mat2 by a mat3x2 into a mat3x2", () => {
+    const build = () => mat2(2, 0, 0, 3).mul(mat3x2(1, 2, 3, 4, 5, 6));
+    expect(evalMatrix(build)).toEqual([2, 6, 6, 12, 10, 18]);
+  });
+
+  it("multiplies a mat4 by a mat2x4 into a mat2x4", () => {
+    const build = () => mat4(1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 4).mul(mat2x4(1, 2, 3, 4, 5, 6, 7, 8));
+    expect(evalMatrix(build)).toEqual([1, 4, 9, 16, 5, 12, 21, 32]);
+  });
+
+  it("multiplies a mat2x4 by a mat4x2 into a mat4", () => {
+    const build = () => mat2x4(1, 2, 3, 4, 5, 6, 7, 8).mul(mat4x2(1, 0, 0, 1, 1, 1, 2, 0));
+    expect(evalMatrix(build)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 6, 8, 10, 12, 2, 4, 6, 8]);
   });
 });
 
