@@ -7,7 +7,7 @@ export default defineConfig({
     lib: {
       entry: {
         rmsl: "src/rmsl.ts",
-        vite: "src/vite.ts",
+        vite: "src/vite/vite.ts",
         effects: "src/effects/index.ts",
         scene: "src/scene/index.ts",
         test: "src/test/index.ts",
@@ -30,7 +30,7 @@ export default defineConfig({
         "src/backends/js.ts",
         "src/standalone-fn.ts",
         "src/backends/wasm.ts",
-        "src/vite.ts",
+        "src/vite/vite.ts",
         "src/effects/index.ts",
         "src/effects/*.ts",
         "src/scene/index.ts",

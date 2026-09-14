@@ -1,4 +1,4 @@
-import { Fn, attribute, compileGLSL, uniformRaw, varying, vec2, vec4 } from "../rmsl";
+import { Fn, attribute, compileGLSL, uniformRaw, varying, vec2, vec4 } from "../../rmsl";
 
 // This module is compiled once at build time by vite's precompileShaders plugin
 // and replaced with JSON, so the rmsl graph is never built (and rmsl is never

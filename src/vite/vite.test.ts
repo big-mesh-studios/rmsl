@@ -1,6 +1,6 @@
 /**
  * Tests the vite plugins in `./vite` by driving their `transform` hook with the
- * real fixture modules. The fixtures import from `../rmsl`, so the build-time
+ * real fixture modules. The fixtures import from `../../rmsl`, so the build-time
  * evaluation path (esbuild bundle + data: URL import) is exercised against real
  * rmsl code, not stubs.
  */
@@ -8,8 +8,8 @@
 /// <reference types="vite/client" />
 import { describe, it, expect } from "vitest";
 import { precompileShaders, precompileJS } from "./vite";
-import shadersSource from "./vite-fixtures/shaders.ts?raw";
-import cpuFnsSource from "./vite-fixtures/cpu-fns.ts?raw";
+import shadersSource from "./fixtures/shaders.ts?raw";
+import cpuFnsSource from "./fixtures/cpu-fns.ts?raw";
 
 type TransformResult = { code: string; map: null } | null;
 type TestablePlugin = { transform(code: string, id: string): Promise<TransformResult> };
@@ -21,14 +21,14 @@ const importDataUrl = async (code: string) =>
 
 // The id must be a real path on disk so esbuild can resolve the fixture's
 // `../rmsl` import during build-time evaluation.
-const SHADERS_PATH = new URL("./vite-fixtures/shaders.ts", import.meta.url).pathname;
-const CPU_FNS_PATH = new URL("./vite-fixtures/cpu-fns.ts", import.meta.url).pathname;
+const SHADERS_PATH = new URL("./fixtures/shaders.ts", import.meta.url).pathname;
+const CPU_FNS_PATH = new URL("./fixtures/cpu-fns.ts", import.meta.url).pathname;
 
 describe("precompileShaders", () => {
   const source = shadersSource;
 
   it("rewrites a matching module to a JSON constant", async () => {
-    const plugin = asPlugin(precompileShaders({ include: "vite-fixtures/shaders.ts" }));
+    const plugin = asPlugin(precompileShaders({ include: "fixtures/shaders.ts" }));
     const result = await plugin.transform(source, SHADERS_PATH);
 
     expect(result).not.toBeNull();
@@ -54,7 +54,7 @@ describe("precompileShaders", () => {
   });
 
   it("leaves non-matching modules alone", async () => {
-    const plugin = asPlugin(precompileShaders({ include: "vite-fixtures/shaders.ts" }));
+    const plugin = asPlugin(precompileShaders({ include: "fixtures/shaders.ts" }));
     const result = await plugin.transform(source, "/elsewhere/other.ts");
     expect(result).toBeNull();
   });
@@ -76,7 +76,7 @@ describe("precompileJS", () => {
   const source = cpuFnsSource;
 
   it("inlines each compileJSFn output as a plain function", async () => {
-    const plugin = asPlugin(precompileJS({ include: "vite-fixtures/cpu-fns.ts" }));
+    const plugin = asPlugin(precompileJS({ include: "fixtures/cpu-fns.ts" }));
     const result = await plugin.transform(source, CPU_FNS_PATH);
 
     expect(result).not.toBeNull();
@@ -102,7 +102,7 @@ describe("precompileJS", () => {
   });
 
   it("leaves non-matching modules alone", async () => {
-    const plugin = asPlugin(precompileJS({ include: "vite-fixtures/cpu-fns.ts" }));
+    const plugin = asPlugin(precompileJS({ include: "fixtures/cpu-fns.ts" }));
     const result = await plugin.transform(source, "/elsewhere/other.ts");
     expect(result).toBeNull();
   });
