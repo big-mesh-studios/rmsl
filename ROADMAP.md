@@ -982,6 +982,24 @@ going to ship a `.wasm` asset rather than generate one at runtime.
   question is what it should even mean (`float(someBool)` as 0.0/1.0 is an
   obvious guess, `bool(someFloat)` is less obvious — truncate-then-nonzero,
   like C, or exactly nonzero, which differ for values in (-1, 0) ∪ (0, 1)).
+- **WebGL2 uniform buffer objects, if the renderer ever gains them, should
+  go through the same shared allocator (`rmsl-layout.ts`), not a fork.**
+  `WebGLRenderer` today uploads every uniform with a per-uniform
+  `gl.uniform*v` call against its `uniformLocations` map and never writes a
+  packed byte region, so it has nothing to do with `gpuUniformLayout` — but
+  WebGL2's `std140` block rules are the rules WGSL's uniform address space
+  mirrors, so they agree with the shared allocator's WGSL rules on every
+  axis except one: std140 offsets follow **declaration order**, while the
+  WGSL rules reorder members by alignment to minimize padding. That axis is
+  already a knob (`AllocRules.reorderByAlignment: false`), which is exactly
+  what an `std140` rule set would set — alongside GLSL's own type spellings
+  in `sizeAndAlignOf` and the GLSL backend emitting its uniform block in
+  declaration order. The payoff would be a third consumer of `planLayout`
+  placing WebGL buffered draws at the same byte offsets the WASM
+  `gpuUniformLayout` seam already reads, so one CPU shadow could back both
+  WebGPU and WebGL UBO draws. Not scoped or started — the renderer has no
+  UBO path to hook into yet, so record the design implication, don't build
+  it.
 - **Audio/DSP and multi-backend "audiovisual" use cases.** Purely
   exploratory — not scoped into any phase above, a set of ideas that came
   up while dreaming about what compiling one shared source to both WASM and
