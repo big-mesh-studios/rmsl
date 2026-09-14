@@ -64,17 +64,23 @@ Run: `pnpm test:types` — expect a compile error (no generic `mul` overload exi
 Near the existing matrix type definitions, add:
 
 ```ts
-export type MatrixType =
-  | "mat2" | "mat3" | "mat4"
-  | "mat2x3" | "mat2x4" | "mat3x2" | "mat3x4" | "mat4x2" | "mat4x3";
+export type MatrixType = "mat2" | "mat3" | "mat4" | "mat2x3" | "mat2x4" | "mat3x2" | "mat3x4" | "mat4x2" | "mat4x3";
 
 type MatrixColumns<M extends MatrixType> = M extends `mat${infer C}x${string}`
-  ? C extends `${infer N extends number}` ? N : never
-  : M extends `mat${infer N extends number}` ? N : never;
+  ? C extends `${infer N extends number}`
+    ? N
+    : never
+  : M extends `mat${infer N extends number}`
+    ? N
+    : never;
 
 type MatrixRows<M extends MatrixType> = M extends `mat${string}x${infer R}`
-  ? R extends `${infer N extends number}` ? N : never
-  : M extends `mat${infer N extends number}` ? N : never;
+  ? R extends `${infer N extends number}`
+    ? N
+    : never
+  : M extends `mat${infer N extends number}`
+    ? N
+    : never;
 
 type MatName<C extends number, R extends number> = C extends R ? `mat${C}` : `mat${C}x${R}`;
 
@@ -102,7 +108,7 @@ Run `pnpm test:types` — Step 1's pins should now pass.
 
 In `src/rmsl-usage.test.ts`, add pins that: (a) construct `uniform("mat2x3").mul(uniform("mat3x2"))` and assert `._t === "mat3x3"`; (b) assert `uniform("mat2x3").mul(uniform("mat2x4"))` throws, with a message naming both types and the shape mismatch (columns vs rows); (c) compile a non-square product through GLSL and WGSL and assert the emitted source `toContain("mat3x3")`.
 
-Run the test file — expect failure (today `NodeImpl.mul` for mat×mat falls through to `op("mul", this, other)`, which types/builds at the *left operand's* type, not the product).
+Run the test file — expect failure (today `NodeImpl.mul` for mat×mat falls through to `op("mul", this, other)`, which types/builds at the _left operand's_ type, not the product).
 
 - [ ] **Step 5: Implement the runtime branch**
 
@@ -213,8 +219,7 @@ if (mmT) {
   for (let c = 0; c < cols; c++)
     for (let r = 0; r < rows; r++) lines.push(`  out[${r * cols + c}] = m[${c * rows + r}];`);
   return (
-    `function _${name}(m, out) {\n` +
-    `  out = out || new Array(${cols * rows});\n${lines.join("\n")}\n  return out;\n}`
+    `function _${name}(m, out) {\n` + `  out = out || new Array(${cols * rows});\n${lines.join("\n")}\n  return out;\n}`
   );
 }
 ```
@@ -241,10 +246,19 @@ Run — expect failure: today's harness only round-trips scalars (`Node<"float">
 
 ```ts
 export type EvaluableRoot =
-  | Node<"float"> | Node<"vec2"> | Node<"vec3"> | Node<"vec4">
-  | Node<"mat2"> | Node<"mat2x3"> | Node<"mat2x4">
-  | Node<"mat3"> | Node<"mat3x2"> | Node<"mat3x4">
-  | Node<"mat4"> | Node<"mat4x2"> | Node<"mat4x3">;
+  | Node<"float">
+  | Node<"vec2">
+  | Node<"vec3">
+  | Node<"vec4">
+  | Node<"mat2">
+  | Node<"mat2x3">
+  | Node<"mat2x4">
+  | Node<"mat3">
+  | Node<"mat3x2">
+  | Node<"mat3x4">
+  | Node<"mat4">
+  | Node<"mat4x2">
+  | Node<"mat4x3">;
 
 export type Build = (...args: Node<"float">[]) => EvaluableRoot;
 
@@ -339,9 +353,7 @@ function emitMatMatMulStores(node: any, addr: number): number[] {
   let [cL, rL] = MATRIX_DIMENSIONS[aType];
   let [cR, rR] = MATRIX_DIMENSIONS[bType];
   if (cL !== rR) {
-    throw new Error(
-      `[RMSL] compileWasmFn: internal error, mismatched matrix product ("${aType}" x "${bType}")`,
-    );
+    throw new Error(`[RMSL] compileWasmFn: internal error, mismatched matrix product ("${aType}" x "${bType}")`);
   }
   let out = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
   let aAddr = nodeAddress(a);

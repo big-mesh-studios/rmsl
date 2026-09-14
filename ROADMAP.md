@@ -530,8 +530,11 @@ JsShaderResult` — same call signature as `compileJS`. A plain
   see "Texture data lives in linear memory, not behind a host call" below.
 
 **What throws today** (deliberately — see the Phase list below for when each
-lands): non-square or mismatched-shape matrix×matrix multiply,
-cube-map sampling, and multi-return.
+lands): cube-map sampling and multi-return. (Non-square matrix×matrix
+multiply used to be on this list; it's supported now — the shape check
+that remains in `emitMatMatMulStores` is defense-in-depth against a
+hand-built node, since core already rejects a mismatched product at
+construction.)
 `compileWasmFn` throws `[RMSL] compileWasmFn: unsupported node type in
 <expr|vector|statement> position: "<type>"` naming exactly what's missing,
 which is also the fastest way to find the next thing worth doing here.
@@ -1012,7 +1015,7 @@ going to ship a `.wasm` asset rather than generate one at runtime.
   works, but it keys behaviour off message text. A real `RmslError`
   hierarchy (or adding a `kind`/`code` field) was considered for the
   matrix-shape validation added alongside non-square matrix multiply and
-  deliberately *not* chosen — the shapes are rejected at node construction
+  deliberately _not_ chosen — the shapes are rejected at node construction
   for every backend at once, so no backend needed to read the error's kind.
   Revisit only if the public API needs to expose and dispatch on failure
   kind in its own code.

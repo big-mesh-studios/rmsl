@@ -12,10 +12,10 @@ backends are the ones that lack the loop shapes:
   and its helper name / loop only encode one square shape.
 - **WASM** (`rmsl-wasm.ts:2081`): `emitMatMatMulStores` throws
   `[RMSL] compileWasmFn: does not yet support non-square or mismatched-shape
-  matrix multiplication` when `aType !== bType || cols !== rows`.
+matrix multiplication` when `aType !== bType || cols !== rows`.
 
 On top of the missing loops there is a typing gap: a `mat.mul(mat)` node is
-built by `op("mul")`, which types the result as the *widest* operand and
+built by `op("mul")`, which types the result as the _widest_ operand and
 which for two matrices means the left operand's type. That is harmless for
 `mat4 * mat4` but wrong for a valid non-square product (`mat2x3 * mat3x2`
 must produce `mat3x3`, not `mat2x3`) and silently wrong for a mismatched pair
@@ -54,14 +54,14 @@ fall-through to `op("mul")`, mirroring the existing `matVecMul` branch:
 - compute `[cL, rL]` and `[cR, rR]` from the two types;
 - if `cL !== rR`, throw the house-style untyped error, e.g.
   `[RMSL] A mat2x3 cannot multiply a mat2x4: the left has 2 columns but the
-  right has 4 rows, and matrix multiplication needs the left's columns to
-  equal the right's rows.`;
+right has 4 rows, and matrix multiplication needs the left's columns to
+equal the right's rows.`;
 - otherwise return a `"mul"` node built directly with
   `_t = "mat" + cR + "x" + rL`, bypassing `op()`'s widest operand typing.
 
 Consequences:
 
-- GLSL/WGSL need no change — they keep emitting native `*`, and the 
+- GLSL/WGSL need no change — they keep emitting native `*`, and the
   construction-time reject makes the invalid-combo emission path unreachable.
 - The erroneous `op()` typing is fixed for every backend at once.
 - The DSL's static types stay loose (`ArithOps.mul` returns `Node<A>`),
@@ -88,7 +88,7 @@ Rejected alternatives:
   (the existing name `mat{c}x{r}mul` only encodes the square shape);
 - `jsCompileHelper` (`rmsl-compile-js.ts:437`) gets the matching case and
   emits the general column-major loop from the product rule (`out[col*rL+row]
-  = Σ_k a[k*rL+row] * b[col*rR+k]`);
+= Σ_k a[k*rL+row] * b[col*rR+k]`);
 - the non-square throw is removed; a mismatched inner-dims check stays as an
   internal-invariant throw (unreachable now that construction rejects it).
 
@@ -145,7 +145,7 @@ Design:
 - **WGSL (`evaluateWGSL`).** For an aggregate root, emit the compiled fn plus
   `var<storage, read_write> result: array<f32>` and a main that stores each
   component via unrolled constant-index writes per column (`result[i] =
-  r[col].x`, … — storage arrays accept constant indices; matrices in WGSL do
+r[col].x`, … — storage arrays accept constant indices; matrices in WGSL do
   not support runtime column indexing). Scalar root keeps `result[0] = …`.
 - **Comparison.** In `assertRecordedEvaluationsAgree`: element-wise — exact
   for WASM vs CPU, `floatTolerance(js[i])` per element for GLSL/WGSL; lengths
