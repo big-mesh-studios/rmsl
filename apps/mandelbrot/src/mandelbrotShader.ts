@@ -20,87 +20,75 @@ import {
 // Split constant for Dekker's split of f32: 2^13 + 1 = 8193.0
 const SPLIT = float(8193.0);
 
-// ds_add/ds_sub/ds_mul and mandelbrotColorAt below are deliberately plain
-// functions, not Fn(...)-wrapped ones — every call site is itself inside
-// another Fn's body, and a nested Fn call's result is a "seq" node (its
-// captured statements plus a final value), which every backend but WASM
-// happens to inline correctly wherever it's used as an expression. WASM
-// only unwraps a seq at the root of the function being compiled; nested,
-// it throws `unsupported node type in vector position: "seq"`. A plain
-// function has no such wrapping — its toVar()/If/While calls push directly
-// onto whichever Fn's block scope is active when it runs, i.e. the
-// caller's, so calling it inlines exactly the way GLSL/WGSL/JS already
-// treated a nested Fn call, and WASM gets the same inlining for free.
-
 /**
  * Double-Single (DS) Addition: (a.x + a.y) + (b.x + b.y)
  * Using Knuth's TwoSum algorithm translated from WASM demo
  */
-export function ds_add(a: Node<"vec2">, b: Node<"vec2">): Node<"vec2"> {
-  let x = a.x.add(b.x).toVar();
-  let bv = x.sub(a.x).toVar();
-  let av = x.sub(bv).toVar();
-  let br = b.x.sub(bv).toVar();
-  let ar = a.x.sub(av).toVar();
-  let y = ar.add(br).toVar();
-  let lo = y.add(a.y).add(b.y).toVar();
-  let t = x.add(lo).toVar();
+export const ds_add = Fn((a: Node<"vec2">, b: Node<"vec2">): Node<"vec2"> => {
+  const x = a.x.add(b.x).toVar();
+  const bv = x.sub(a.x).toVar();
+  const av = x.sub(bv).toVar();
+  const br = b.x.sub(bv).toVar();
+  const ar = a.x.sub(av).toVar();
+  const y = ar.add(br).toVar();
+  const lo = y.add(a.y).add(b.y).toVar();
+  const t = x.add(lo).toVar();
   return vec2(t, x.sub(t).add(lo));
-}
+});
 
 /**
  * Double-Single (DS) Subtraction: a - b
  */
-export function ds_sub(a: Node<"vec2">, b: Node<"vec2">): Node<"vec2"> {
+export const ds_sub = Fn((a: Node<"vec2">, b: Node<"vec2">): Node<"vec2"> => {
   return ds_add(a, vec2(b.x.negate(), b.y.negate()));
-}
+});
 
 /**
  * Double-Single (DS) Multiplication: (a.x + a.y) * (b.x + b.y)
  * Dekker's TwoProd algorithm adapted to 2x float32
  */
-export function ds_mul(a: Node<"vec2">, b: Node<"vec2">): Node<"vec2"> {
-  let t1 = SPLIT.mul(a.x).toVar();
-  let a1 = t1.sub(t1.sub(a.x)).toVar();
-  let a0 = a.x.sub(a1).toVar();
+export const ds_mul = Fn((a: Node<"vec2">, b: Node<"vec2">): Node<"vec2"> => {
+  const t1 = SPLIT.mul(a.x).toVar();
+  const a1 = t1.sub(t1.sub(a.x)).toVar();
+  const a0 = a.x.sub(a1).toVar();
 
-  let t2 = SPLIT.mul(b.x).toVar();
-  let b1 = t2.sub(t2.sub(b.x)).toVar();
-  let b0 = b.x.sub(b1).toVar();
+  const t2 = SPLIT.mul(b.x).toVar();
+  const b1 = t2.sub(t2.sub(b.x)).toVar();
+  const b0 = b.x.sub(b1).toVar();
 
-  let p_hi = a.x.mul(b.x).toVar();
-  let p_lo = a1.mul(b1).sub(p_hi).add(a1.mul(b0)).add(a0.mul(b1)).add(a0.mul(b0)).toVar();
-  let p_lo2 = p_lo.add(a.x.mul(b.y)).add(a.y.mul(b.x)).toVar();
+  const p_hi = a.x.mul(b.x).toVar();
+  const p_lo = a1.mul(b1).sub(p_hi).add(a1.mul(b0)).add(a0.mul(b1)).add(a0.mul(b0)).toVar();
+  const p_lo2 = p_lo.add(a.x.mul(b.y)).add(a.y.mul(b.x)).toVar();
 
-  let h = p_hi.add(p_lo2).toVar();
-  let dstLo = p_lo2.sub(h.sub(p_hi)).toVar();
-  let dstHi = h;
+  const h = p_hi.add(p_lo2).toVar();
+  const dstLo = p_lo2.sub(h.sub(p_hi)).toVar();
+  const dstHi = h;
   return vec2(dstHi, dstLo);
-}
+});
 
 // Full-screen quad attributes & varyings
-export let quadPos = attribute("vec2");
-export let v_pos = varying("vec2");
+export const quadPos = attribute("vec2");
+export const v_pos = varying("vec2");
 
-export let vertexMain = Fn(() => {
+export const vertexMain = Fn(() => {
   v_pos.assign(quadPos);
   return vec4(quadPos.x, quadPos.y, 0.0, 1.0);
 });
 
 // Uniform declarations
-export let u_resolution = uniform("vec2");
-export let u_maxIter = uniform("int");
-export let u_useHighPrecision = uniform("int");
-export let u_pan_hi = uniform("vec2");
-export let u_pan_lo = uniform("vec2");
-export let u_scale_hi = uniform("vec2");
-export let u_scale_lo = uniform("vec2");
-export let u_palette = uniform("int");
+export const u_resolution = uniform("vec2");
+export const u_maxIter = uniform("int");
+export const u_useHighPrecision = uniform("int");
+export const u_pan_hi = uniform("vec2");
+export const u_pan_lo = uniform("vec2");
+export const u_scale_hi = uniform("vec2");
+export const u_scale_lo = uniform("vec2");
+export const u_palette = uniform("int");
 // CPU-only: how many rows above this call's own row 0 the caller's row range
 // actually starts at — 0 for a normal single-call draw, or a worker's row
 // offset when a worker-pool splits one frame's rows across several draw()
 // calls into disjoint slices of one shared output buffer.
-export let u_rowOffset = uniform("float");
+export const u_rowOffset = uniform("float");
 
 /**
  * The colour at a pixel `(dx, dy)` pixels from the view's center, shared by
@@ -108,30 +96,30 @@ export let u_rowOffset = uniform("float");
  * varying) and the CPU targets' `.draw()` (whose `dx`/`dy` come from
  * `fragCoord()` directly, with no vertex/varying stage at all).
  */
-export function mandelbrotColorAt(dx: Node<"float">, dy: Node<"float">): Node<"vec4"> {
-  let iter = int(0).toVar();
-  let magSq = float(0.0).toVar();
-  let escaped = bool(false).toVar();
+export const mandelbrotColorAt = Fn((dx: Node<"float">, dy: Node<"float">): Node<"vec4"> => {
+  const iter = int(0).toVar();
+  const magSq = float(0.0).toVar();
+  const escaped = bool(false).toVar();
 
   If(u_useHighPrecision.equal(int(1)), () => {
-    let dx_ds = vec2(dx, 0.0);
-    let dy_ds = vec2(dy, 0.0);
+    const dx_ds = vec2(dx, 0.0);
+    const dy_ds = vec2(dy, 0.0);
 
-    let cx_ds = vec2(u_pan_hi.x, u_pan_lo.x);
-    let cy_ds = vec2(u_pan_hi.y, u_pan_lo.y);
-    let scaleX_ds = vec2(u_scale_hi.x, u_scale_lo.x);
-    let scaleY_ds = vec2(u_scale_hi.y, u_scale_lo.y);
+    const cx_ds = vec2(u_pan_hi.x, u_pan_lo.x);
+    const cy_ds = vec2(u_pan_hi.y, u_pan_lo.y);
+    const scaleX_ds = vec2(u_scale_hi.x, u_scale_lo.x);
+    const scaleY_ds = vec2(u_scale_hi.y, u_scale_lo.y);
 
-    let cx = ds_add(cx_ds, ds_mul(scaleX_ds, dx_ds)).toVar();
-    let cy = ds_add(cy_ds, ds_mul(scaleY_ds, dy_ds)).toVar();
+    const cx = ds_add(cx_ds, ds_mul(scaleX_ds, dx_ds)).toVar();
+    const cy = ds_add(cy_ds, ds_mul(scaleY_ds, dy_ds)).toVar();
 
-    let zx = vec2(0.0, 0.0).toVar();
-    let zy = vec2(0.0, 0.0).toVar();
+    const zx = vec2(0.0, 0.0).toVar();
+    const zy = vec2(0.0, 0.0).toVar();
 
     While(iter.lessThan(u_maxIter), () => {
-      let zx2 = ds_mul(zx, zx).toVar();
-      let zy2 = ds_mul(zy, zy).toVar();
-      let magDS = ds_add(zx2, zy2).toVar();
+      const zx2 = ds_mul(zx, zx).toVar();
+      const zy2 = ds_mul(zy, zy).toVar();
+      const magDS = ds_add(zx2, zy2).toVar();
 
       If(magDS.x.greaterThan(4.0), () => {
         escaped.assign(bool(true));
@@ -139,27 +127,27 @@ export function mandelbrotColorAt(dx: Node<"float">, dy: Node<"float">): Node<"v
         Break();
       });
 
-      let diff = ds_sub(zx2, zy2).toVar();
-      let new_zx = ds_add(diff, cx).toVar();
+      const diff = ds_sub(zx2, zy2).toVar();
+      const new_zx = ds_add(diff, cx).toVar();
 
-      let prod = ds_mul(zx, zy).toVar();
-      let prod2 = ds_add(prod, prod).toVar();
-      let new_zy = ds_add(prod2, cy).toVar();
+      const prod = ds_mul(zx, zy).toVar();
+      const prod2 = ds_add(prod, prod).toVar();
+      const new_zy = ds_add(prod2, cy).toVar();
 
       zx.assign(new_zx);
       zy.assign(new_zy);
       iter.assign(iter.add(int(1)));
     });
   }).Else(() => {
-    let cx_f = u_pan_hi.x.add(dx.mul(u_scale_hi.x)).toVar();
-    let cy_f = u_pan_hi.y.add(dy.mul(u_scale_hi.y)).toVar();
-    let zx_f = float(0.0).toVar();
-    let zy_f = float(0.0).toVar();
+    const cx_f = u_pan_hi.x.add(dx.mul(u_scale_hi.x)).toVar();
+    const cy_f = u_pan_hi.y.add(dy.mul(u_scale_hi.y)).toVar();
+    const zx_f = float(0.0).toVar();
+    const zy_f = float(0.0).toVar();
 
     While(iter.lessThan(u_maxIter), () => {
-      let zx2_f = zx_f.mul(zx_f).toVar();
-      let zy2_f = zy_f.mul(zy_f).toVar();
-      let mag_f = zx2_f.add(zy2_f).toVar();
+      const zx2_f = zx_f.mul(zx_f).toVar();
+      const zy2_f = zy_f.mul(zy_f).toVar();
+      const mag_f = zx2_f.add(zy2_f).toVar();
 
       If(mag_f.greaterThan(4.0), () => {
         escaped.assign(bool(true));
@@ -167,8 +155,8 @@ export function mandelbrotColorAt(dx: Node<"float">, dy: Node<"float">): Node<"v
         Break();
       });
 
-      let new_zy_f = float(2.0).mul(zx_f).mul(zy_f).add(cy_f).toVar();
-      let new_zx_f = zx2_f.sub(zy2_f).add(cx_f).toVar();
+      const new_zy_f = float(2.0).mul(zx_f).mul(zy_f).add(cy_f).toVar();
+      const new_zx_f = zx2_f.sub(zy2_f).add(cx_f).toVar();
 
       zx_f.assign(new_zx_f);
       zy_f.assign(new_zy_f);
@@ -176,38 +164,38 @@ export function mandelbrotColorAt(dx: Node<"float">, dy: Node<"float">): Node<"v
     });
   });
 
-  let finalColor = vec4(0.0, 0.0, 0.0, 1.0).toVar();
+  const finalColor = vec4(0.0, 0.0, 0.0, 1.0).toVar();
 
   If(escaped, () => {
-    let logMag = magSq.log().mul(0.5).toVar();
-    let nu = logMag.log().div(float(Math.LN2)).toVar();
-    let smoothIter = float(iter).add(float(1.0)).sub(nu).toVar();
+    const logMag = magSq.log().mul(0.5).toVar();
+    const nu = logMag.log().div(float(Math.LN2)).toVar();
+    const smoothIter = float(iter).add(float(1.0)).sub(nu).toVar();
 
-    let t = smoothIter.mul(0.05).toVar();
-    let color = vec3(0.0, 0.0, 0.0).toVar();
+    const t = smoothIter.mul(0.05).toVar();
+    const color = vec3(0.0, 0.0, 0.0).toVar();
 
     If(u_palette.equal(int(0)), () => {
-      let r = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(0.0).cos()));
-      let g = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(2.0943951).cos()));
-      let b = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(4.1887902).cos()));
+      const r = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(0.0).cos()));
+      const g = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(2.0943951).cos()));
+      const b = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(4.1887902).cos()));
       color.assign(vec3(r, g, b));
     })
       .ElseIf(u_palette.equal(int(1)), () => {
-        let r = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(0.0).cos()));
-        let g = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(0.6).cos()));
-        let b = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(1.2).cos()));
+        const r = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(0.0).cos()));
+        const g = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(0.6).cos()));
+        const b = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(1.2).cos()));
         color.assign(vec3(r, g, b));
       })
       .ElseIf(u_palette.equal(int(2)), () => {
-        let r = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(3.0).cos()));
-        let g = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(4.0).cos()));
-        let b = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(1.0).cos()));
+        const r = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(3.0).cos()));
+        const g = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(4.0).cos()));
+        const b = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(1.0).cos()));
         color.assign(vec3(r, g, b));
       })
       .Else(() => {
-        let r = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(0.0).cos()));
-        let g = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(2.0).cos()));
-        let b = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(4.0).cos()));
+        const r = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(0.0).cos()));
+        const g = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(2.0).cos()));
+        const b = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(4.0).cos()));
         color.assign(vec3(r, g, b));
       });
 
@@ -217,15 +205,15 @@ export function mandelbrotColorAt(dx: Node<"float">, dy: Node<"float">): Node<"v
   });
 
   return finalColor;
-}
+});
 
 /** The GPU fragment stage: `dx`/`dy` come from the rasterizer-interpolated `v_pos`. */
-export let calcMandelbrot = Fn(() => {
-  let outColor = output("vec4");
+export const calcMandelbrot = Fn(() => {
+  const outColor = output("vec4");
 
   // Offset in pixels relative to center
-  let dx = v_pos.x.mul(0.5).mul(u_resolution.x).toVar();
-  let dy = v_pos.y.mul(0.5).mul(u_resolution.y).toVar();
+  const dx = v_pos.x.mul(0.5).mul(u_resolution.x).toVar();
+  const dy = v_pos.y.mul(0.5).mul(u_resolution.y).toVar();
 
   outColor.assign(mandelbrotColorAt(dx, dy));
   return outColor;
@@ -239,8 +227,8 @@ export let calcMandelbrot = Fn(() => {
  * two convert to the same pixel-offset convention with a subtraction rather
  * than a multiply.
  */
-export let calcMandelbrotCpu = Fn(() => {
-  let dx = fragCoord().x.sub(u_resolution.x.mul(0.5)).toVar();
-  let dy = u_resolution.y.mul(0.5).sub(fragCoord().y.add(u_rowOffset)).toVar();
+export const calcMandelbrotCpu = Fn(() => {
+  const dx = fragCoord().x.sub(u_resolution.x.mul(0.5)).toVar();
+  const dy = u_resolution.y.mul(0.5).sub(fragCoord().y.add(u_rowOffset)).toVar();
   return mandelbrotColorAt(dx, dy);
 });

@@ -803,6 +803,19 @@ describe("WASM backend: swizzle read", () => {
     expect(run(() => Fn(() => vec3(1, 2, 3).toVar().z as any)())).toBe(3);
   });
 
+  it("inlines a nested Fn call's seq result used mid-expression (scalar)", () => {
+    // Unlike the case above, the nested Fn call here isn't the compiled
+    // root — it's one operand of `.add`, so its "seq" node (statements +
+    // final value) has to be lowered from inside expression position.
+    const inner = Fn(() => float(2).toVar().mul(3));
+    expect(run(() => inner().add(1) as any)).toBe(7);
+  });
+
+  it("inlines a nested Fn call's seq result used mid-expression (vector)", () => {
+    const inner = Fn(() => vec3(10, 20, 30).toVar());
+    expect(run(() => vec3(1, 2, 3).add(inner()).y as any)).toBe(22);
+  });
+
   it("reads int/uint/bool vector components", () => {
     expect(run(() => ivec3(1, -2, 3).y as any)).toBe(-2);
     expect(run(() => uvec3(1, 2, 3).z as any)).toBe(3);

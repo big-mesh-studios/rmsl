@@ -822,6 +822,12 @@ export function compileWasmFn(
   // branch out of it, and loopStack tracks break/continue targets.
   const EXIT_BLOCK_DEPTH = 1;
   const loopStack: { breakDepth: number; continueDepth: number }[] = [];
+  // Tracks the block depth in scope wherever expression evaluation currently
+  // sits, so a "seq" node encountered mid-expression (a nested Fn call's
+  // result) can lower its leading statements with walkStmt at the right
+  // depth. walkStmt refreshes it on every call, so it's always accurate by
+  // the time a nested seq is walked from within that statement.
+  let currentStmtDepth = EXIT_BLOCK_DEPTH;
   const bodyBytes =
     root.type === "seq"
       ? [
@@ -1396,6 +1402,11 @@ export function compileWasmFn(
         return fragDepthAddress;
       }
 
+      case "seq":
+        // a nested Fn call's result wraps its statements + final value in a
+        // seq node; its address is just wherever its final value already lives.
+        return nodeAddress(node.params[node.params.length - 1]);
+
       default: {
         const addr = scratchAddress.get(node);
         if (addr === undefined)
@@ -1501,6 +1512,13 @@ export function compileWasmFn(
         return emitStepStores(node, nodeAddress(node));
       case "smoothstep":
         return emitSmoothstepStores(node, nodeAddress(node));
+      case "seq": {
+        // a nested Fn call's aggregate result: statements, then materialize
+        // the final value (which nodeAddress() already resolves to for this node).
+        const stmts = node.params.slice(0, -1) as any[];
+        const final = node.params[node.params.length - 1];
+        return [...stmts.flatMap((s) => walkStmt(s, currentStmtDepth)), ...materializeIfNeeded(final)];
+      }
       default:
         if (node.type === node._t && Array.isArray(node.value)) {
           // node.type matching the type name with an array value identifies a literal
@@ -2748,6 +2766,14 @@ export function compileWasmFn(
         }
         return loadDynamic(addrBytes, kind);
       }
+      case "seq": {
+        // a nested Fn call's result: its captured statements, then its final
+        // value evaluated as this expression's value.
+        const stmts = node.params.slice(0, -1) as any[];
+        const final = node.params[node.params.length - 1];
+        return [...stmts.flatMap((s) => walkStmt(s, currentStmtDepth)), ...walkExpr(final)];
+      }
+
       default:
         throw new Error(`[RMSL] compileWasmFn: unsupported node type in expression position: "${node.type}"`);
     }
@@ -2801,6 +2827,7 @@ export function compileWasmFn(
    * targets.
    */
   function walkStmt(node: any, depth: number): number[] {
+    currentStmtDepth = depth;
     switch (node.type) {
       case "seq": {
         const list = node.params ?? [];
