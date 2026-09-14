@@ -27,7 +27,7 @@ export default defineConfig({
         "src/backends/shared.ts",
         "src/backends/glsl.ts",
         "src/backends/wgsl.ts",
-        "src/backends/compile-js.ts",
+        "src/backends/js.ts",
         "src/standalone-fn.ts",
         "src/backends/wasm.ts",
         "src/vite.ts",

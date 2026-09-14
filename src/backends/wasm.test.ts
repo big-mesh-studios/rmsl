@@ -1290,7 +1290,7 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
 
 // Mirrors js.test.ts's own texture()/textureLod() cases directly —
 // same inputs, same expected outputs — since both backends implement the
-// exact same sampling semantics (compile-js.ts's _tex2d/_tex3d/_wrap),
+// exact same sampling semantics (js.ts's _tex2d/_tex3d/_wrap),
 // just ported to different targets.
 describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
   function checksum4(v: any) {

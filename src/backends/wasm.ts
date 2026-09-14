@@ -821,7 +821,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     const compSize = componentSizeOf(drawComponentKind);
     const passThroughArgs = params.map((_, i) => [WASM_OP.localGet, ...wasmUleb128(i)]).flat();
     const callMain = [...passThroughArgs, WASM_OP.call, ...wasmUleb128(mainFuncIndex)];
-    // pixel centers land at (x + 0.5, y + 0.5) — the same convention compile-js uses
+    // pixel centers land at (x + 0.5, y + 0.5) — the same convention js uses
     const writeFragCoord =
       fragCoordAddress === undefined
         ? []

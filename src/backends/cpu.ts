@@ -1,5 +1,5 @@
 /**
- * Shared types for the two CPU backends (`compile-js.ts` and
+ * Shared types for the two CPU backends (`js.ts` and
  * `wasm.ts`): what a host passes in and reads back, and the shape a
  * compiled function itself takes.
  *

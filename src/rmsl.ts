@@ -205,8 +205,8 @@ export type { CompileGLSLOptions, GLSLPrecision } from "./backends/glsl";
 export { compileWGSL, wgslUniformLayout } from "./backends/wgsl";
 export type { CompileWGSLOptions, WgslUniformDeclaration, WgslUniformMember } from "./backends/wgsl";
 
-export { compileJS, compileJSFn } from "./backends/compile-js";
-export type { CompileJSOptions } from "./backends/compile-js";
+export { compileJS, compileJSFn } from "./backends/js";
+export type { CompileJSOptions } from "./backends/js";
 
 export type {
   CpuDrawBuffer,

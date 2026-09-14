@@ -449,7 +449,7 @@ longer the wrong choice for this workload at either size measured.
 ## Status: Phase 1 through Phase 7 landed (except multi-return)
 
 `compileWasmFn` and `compileWasm` exist in `src/wasm.ts`, next to
-`glsl.ts`/`wgsl.ts`/`compile-js.ts` (see CONTRIBUTING.md for
+`glsl.ts`/`wgsl.ts`/`js.ts` (see CONTRIBUTING.md for
 the file layout). Tests are in `src/wasm.test.ts` and
 `src/layout-interop.test.ts`.
 
@@ -542,7 +542,7 @@ which is also the fastest way to find the next thing worth doing here.
 ## Design decisions already made
 
 - **Lives in `src/wasm.ts`, alongside `src/glsl.ts`/`wgsl.ts`/
-  `compile-js.ts`** — the compiler was later split out of the original
+  `js.ts`** — the compiler was later split out of the original
   single `src/rmsl.ts` file by concern (see `CONTRIBUTING.md`), and this
   backend followed the same one-file-per-backend pattern. It reuses the same
   untyped internal node shape (`node.type`/`node.params`/`node.value`)

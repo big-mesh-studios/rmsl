@@ -5,7 +5,7 @@ The compiler lives in `src/rmsl-*.ts` and `src/backends/`: `core.ts` is
 the DSL (types, the node graph, the TSL-style API); `src/backends/shared.ts`
 is the context and helpers all four backends use;
 `src/backends/glsl.ts`, `src/backends/wgsl.ts`,
-`src/backends/compile-js.ts`, and `src/backends/wasm.ts` are the
+`src/backends/js.ts`, and `src/backends/wasm.ts` are the
 backends themselves, each with its own test file colocated next to it (e.g.
 `src/backends/wasm.test.ts`); `standalone-fn.ts` covers
 `compileGLSLFn`/`compileWGSLFn`. `rmsl.ts` is a thin barrel re-exporting the
