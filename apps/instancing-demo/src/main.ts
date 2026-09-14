@@ -1,18 +1,14 @@
-// RMSL instancing demo: an InstancedMesh grid with per-instance transforms
-// and colors, rendered by WebGLRenderer.
-//
-// Run with `pnpm --filter instancing-demo dev`.
 import {
-  WebGLRenderer,
-  Scene,
-  PerspectiveCamera,
-  InstancedMesh,
-  BoxGeometry,
-  MeshStandardMaterial,
   AmbientLight,
-  DirectionalLight,
-  Matrix4,
+  BoxGeometry,
   Color,
+  DirectionalLight,
+  InstancedMesh,
+  Matrix4,
+  MeshStandardMaterial,
+  PerspectiveCamera,
+  Scene,
+  WebGLRenderer,
 } from "@random-mesh/rmsl/scene";
 
 const canvas = document.createElement("canvas");

@@ -1,22 +1,16 @@
 import { compileWGSL } from "@random-mesh/rmsl";
 import {
-  vertexMain,
   calcColourAndDepth,
-  quadPos,
-  cameraProjectionMatrix,
-  cameraViewMatrix,
-  cameraProjectionMatrixInverse,
-  cameraWorldMatrix,
-  cameraPosition,
-  quadVerts,
-  mat4Perspective,
-  mat4LookAt,
   mat4Inverse,
+  mat4LookAt,
+  mat4Perspective,
+  quadVerts,
+  vertexMain,
 } from "../../shared/shader";
 
 // === Compile shaders ===
-let vsWGSL = compileWGSL.vertex(vertexMain());
-let fsWGSL = compileWGSL.fragment(calcColourAndDepth());
+const vsWGSL = compileWGSL.vertex(vertexMain());
+const fsWGSL = compileWGSL.fragment(calcColourAndDepth());
 
 // === Orbital camera state ===
 let theta = 0;

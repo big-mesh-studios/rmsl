@@ -1,22 +1,22 @@
 import { compileGLSL } from "@random-mesh/rmsl";
 import {
-  vertexMain,
   calcColourAndDepth,
-  quadPos,
-  cameraProjectionMatrix,
-  cameraViewMatrix,
-  cameraProjectionMatrixInverse,
-  cameraWorldMatrix,
   cameraPosition,
-  quadVerts,
-  mat4Perspective,
-  mat4LookAt,
+  cameraProjectionMatrix,
+  cameraProjectionMatrixInverse,
+  cameraViewMatrix,
+  cameraWorldMatrix,
   mat4Inverse,
+  mat4LookAt,
+  mat4Perspective,
+  quadPos,
+  quadVerts,
+  vertexMain,
 } from "../../shared/shader";
 
 // === Compile shaders ===
-let vsGLSL = compileGLSL.vertex(vertexMain());
-let fsGLSL = compileGLSL.fragment(calcColourAndDepth());
+const vsGLSL = compileGLSL.vertex(vertexMain());
+const fsGLSL = compileGLSL.fragment(calcColourAndDepth());
 
 // === Orbital camera state ===
 let theta = 0;
@@ -27,9 +27,9 @@ let lastMX = 0;
 let lastMY = 0;
 
 function getViewMatrix(): Float32Array {
-  let eyeX = radius * Math.sin(theta) * Math.cos(phi);
-  let eyeY = radius * Math.sin(phi);
-  let eyeZ = radius * Math.cos(theta) * Math.cos(phi);
+  const eyeX = radius * Math.sin(theta) * Math.cos(phi);
+  const eyeY = radius * Math.sin(phi);
+  const eyeZ = radius * Math.cos(theta) * Math.cos(phi);
   return mat4LookAt(eyeX, eyeY, eyeZ, 0, 0, 0, 0, 1, 0);
 }
 
@@ -38,7 +38,7 @@ function getCameraPosition(): [number, number, number] {
 }
 
 // === WebGL2 setup ===
-let canvas = document.createElement("canvas");
+const canvas = document.createElement("canvas");
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 canvas.style.position = "fixed";
@@ -49,14 +49,14 @@ canvas.style.touchAction = "none";
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 document.body.appendChild(canvas);
 
-let gl = canvas.getContext("webgl2")!;
+const gl = canvas.getContext("webgl2")!;
 if (!gl) {
   document.body.innerHTML = "<h1>WebGL2 not supported</h1>";
   throw new Error("WebGL2 not supported");
 }
 
 function compileShader(src: string, type: number): WebGLShader {
-  let s = gl.createShader(type)!;
+  const s = gl.createShader(type)!;
   gl.shaderSource(s, src);
   gl.compileShader(s);
   if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
@@ -66,9 +66,9 @@ function compileShader(src: string, type: number): WebGLShader {
   return s;
 }
 
-let vs = compileShader(vsGLSL, gl.VERTEX_SHADER);
-let fs = compileShader(fsGLSL, gl.FRAGMENT_SHADER);
-let program = gl.createProgram()!;
+const vs = compileShader(vsGLSL, gl.VERTEX_SHADER);
+const fs = compileShader(fsGLSL, gl.FRAGMENT_SHADER);
+const program = gl.createProgram()!;
 gl.attachShader(program, vs);
 gl.attachShader(program, fs);
 gl.linkProgram(program);
@@ -79,17 +79,17 @@ if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
 gl.useProgram(program);
 
 // Full-screen quad VBO
-let vao = gl.createVertexArray();
+const vao = gl.createVertexArray();
 gl.bindVertexArray(vao);
-let vbo = gl.createBuffer();
+const vbo = gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
 gl.bufferData(gl.ARRAY_BUFFER, quadVerts, gl.STATIC_DRAW);
-let attrLoc = gl.getAttribLocation(program, quadPos.name);
+const attrLoc = gl.getAttribLocation(program, quadPos.name);
 gl.enableVertexAttribArray(attrLoc);
 gl.vertexAttribPointer(attrLoc, 2, gl.FLOAT, false, 0, 0);
 
 // Uniform locations
-let uniforms = {
+const uniforms = {
   projection: gl.getUniformLocation(program, cameraProjectionMatrix.name),
   view: gl.getUniformLocation(program, cameraViewMatrix.name),
   projInv: gl.getUniformLocation(program, cameraProjectionMatrixInverse.name),
@@ -112,8 +112,8 @@ canvas.addEventListener("pointerdown", (e) => {
 canvas.addEventListener("pointermove", (e) => {
   e.preventDefault();
   if (!isDragging) return;
-  let dx = e.clientX - lastMX;
-  let dy = e.clientY - lastMY;
+  const dx = e.clientX - lastMX;
+  const dy = e.clientY - lastMY;
   theta -= dx * 0.005;
   phi = Math.max(-1.5, Math.min(1.5, phi - dy * 0.005));
   lastMX = e.clientX;
@@ -157,20 +157,20 @@ window.addEventListener("resize", () => {
 
 // === Render loop ===
 function render() {
-  let w = canvas.width;
-  let h = canvas.height;
+  const w = canvas.width;
+  const h = canvas.height;
   gl.viewport(0, 0, w, h);
   gl.clear(gl.DEPTH_BUFFER_BIT);
 
-  let aspect = w / h;
-  let near = 0.1;
-  let far = 1000;
-  let fov = 0.6;
-  let proj = mat4Perspective(fov, aspect, near, far);
-  let view = getViewMatrix();
-  let projInv = mat4Inverse(proj);
-  let world = mat4Inverse(view);
-  let camPos = getCameraPosition();
+  const aspect = w / h;
+  const near = 0.1;
+  const far = 1000;
+  const fov = 0.6;
+  const proj = mat4Perspective(fov, aspect, near, far);
+  const view = getViewMatrix();
+  const projInv = mat4Inverse(proj);
+  const world = mat4Inverse(view);
+  const camPos = getCameraPosition();
 
   gl.uniformMatrix4fv(uniforms.projection, false, proj);
   gl.uniformMatrix4fv(uniforms.view, false, view);

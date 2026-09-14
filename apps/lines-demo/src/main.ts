@@ -1,23 +1,13 @@
-// RMSL wide-lines demo: `LineSegments2` / `Line2` with `Line2NodeMaterial`.
-//
-// The same node materials render on WebGL2 and WebGPU — the demo uses the
-// WebGL renderer so it runs anywhere. Each line object demonstrates a feature:
-//   - cube     pixel-width segments (screen-space `linewidth`)
-//   - ring     dashed polyline (from `computeLineDistances`)
-//   - helix    world-units polyline (constant world `linewidth`)
-//   - spokes   per-segment vertex colors
-//
-// Run with `pnpm --filter lines-demo dev`.
 import {
-  WebGLRenderer,
-  Scene,
-  PerspectiveCamera,
+  Color,
+  Line2,
+  Line2NodeMaterial,
+  LineGeometry,
   LineSegments2,
   LineSegmentsGeometry,
-  Line2,
-  LineGeometry,
-  Line2NodeMaterial,
-  Color,
+  PerspectiveCamera,
+  Scene,
+  WebGLRenderer,
 } from "@random-mesh/rmsl/scene";
 
 const canvas = document.createElement("canvas");

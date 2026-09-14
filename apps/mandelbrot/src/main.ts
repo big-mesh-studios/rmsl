@@ -1,18 +1,18 @@
 import { compileGLSL, compileJS, compileWasm, compileWGSL, wgslUniformLayout } from "@random-mesh/rmsl";
 import {
-  vertexMain,
   calcMandelbrot,
   calcMandelbrotCpu,
   quadPos,
-  u_resolution,
   u_maxIter,
-  u_useHighPrecision,
+  u_palette,
   u_pan_hi,
   u_pan_lo,
+  u_resolution,
+  u_rowOffset,
   u_scale_hi,
   u_scale_lo,
-  u_palette,
-  u_rowOffset,
+  u_useHighPrecision,
+  vertexMain,
 } from "./mandelbrotShader";
 import { WasmWorkerPool } from "./wasmWorkerPool";
 

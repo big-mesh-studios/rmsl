@@ -1,10 +1,13 @@
 import { float, Fn, fragCoord, If, int, Node, TWO_PI, uniform } from "@random-mesh/rmsl";
 
 export const u_freq = uniform("float");
-export const u_startPhase = uniform("float"); // phase [0,1) at sample/vertex index 0
+// phase [0,1) at sample/vertex index 0
+export const u_startPhase = uniform("float");
 export const u_sampleRate = uniform("float");
-export const u_waveform = uniform("int"); // 0 sine, 1 saw, 2 square, 3 triangle
-export const u_gain = uniform("float"); // part of the shared graph, not a post-multiply either side applies on its own
+// 0 sine, 1 saw, 2 square, 3 triangle
+export const u_waveform = uniform("int");
+// part of the shared graph, not a post-multiply either side applies on its own
+export const u_gain = uniform("float");
 
 /**
  * One sample of a band-naive oscillator at `sampleIndex` samples after
@@ -30,7 +33,8 @@ export function oscillatorSample(
   gain: Node<"float">,
 ): Node<"float"> {
   const phase = startPhase.add(sampleIndex.mul(freq).div(sampleRate)).toVar();
-  phase.assign(phase.sub(phase.floor())); // wrap to [0, 1)
+  // wrap to [0, 1)
+  phase.assign(phase.sub(phase.floor()));
 
   const sample = float(0.0).toVar();
 
@@ -38,7 +42,8 @@ export function oscillatorSample(
     sample.assign(phase.mul(TWO_PI).sin());
   })
     .ElseIf(waveform.equal(int(1)), () => {
-      sample.assign(phase.mul(2.0).sub(1.0)); // saw: -1 -> 1
+      // saw: -1 -> 1
+      sample.assign(phase.mul(2.0).sub(1.0));
     })
     .ElseIf(waveform.equal(int(2)), () => {
       If(phase.lessThan(0.5), () => {
@@ -48,8 +53,8 @@ export function oscillatorSample(
       });
     })
     .Else(() => {
-      // triangle
-      const t = phase.mul(2.0).toVar(); // 0 -> 2
+      // triangle: 0 -> 2
+      const t = phase.mul(2.0).toVar();
       If(t.lessThan(1.0), () => {
         sample.assign(t.mul(2.0).sub(1.0));
       }).Else(() => {
