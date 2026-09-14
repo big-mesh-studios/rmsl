@@ -1002,6 +1002,20 @@ going to ship a `.wasm` asset rather than generate one at runtime.
   WebGPU and WebGL UBO draws. Not scoped or started — the renderer has no
   UBO path to hook into yet, so record the design implication, don't build
   it.
+- **Typed errors, if programmatic consumers ever need to tell failure
+  kinds apart.** Today every `[RMSL]`-prefixed `new Error` is untyped: a
+  caller can only distinguish a validation failure (bad operand types,
+  invalid shapes) from a backend coverage gap (`compileWasmFn`-prefixed
+  throws) or an internal misuse ("internal error") by string-matching
+  `message`, which is exactly what `isWasmUnsupported` in
+  `src/testing/shader-eval.ts` already does for the coverage-gap case. That
+  works, but it keys behaviour off message text. A real `RmslError`
+  hierarchy (or adding a `kind`/`code` field) was considered for the
+  matrix-shape validation added alongside non-square matrix multiply and
+  deliberately *not* chosen — the shapes are rejected at node construction
+  for every backend at once, so no backend needed to read the error's kind.
+  Revisit only if the public API needs to expose and dispatch on failure
+  kind in its own code.
 - **Audio/DSP and multi-backend "audiovisual" use cases.** Purely
   exploratory — not scoped into any phase above, a set of ideas that came
   up while dreaming about what compiling one shared source to both WASM and
