@@ -62,7 +62,7 @@ export function wrapExpr(childPrec: number | undefined, parentPrec: number, expr
 
 export interface CompileCtx {
   nextId: number;
-  shaderStage: "vertex" | "fragment";
+  shaderStage: "vertex" | "fragment" | "compute";
   /** `length` is set only for uniform arrays, and gives their element count. */
   uniforms: Map<number, { type: string; slot: string; length?: number }>;
   attributes: Map<number, { type: string; slot: string }>;
@@ -280,7 +280,7 @@ export function withoutSemicolon(statement: string): string {
  * is legal, so "no result" there is a choice rather than a mistake.
  */
 export function assertStageResult(
-  shaderStage: "vertex" | "fragment",
+  shaderStage: "vertex" | "fragment" | "compute",
   lastType: string | undefined,
   positionWritten: boolean,
 ): void {

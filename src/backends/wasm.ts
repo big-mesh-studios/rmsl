@@ -504,20 +504,37 @@ function minMaxBytes(a: number[], b: number[], kind: ScalarKind, pick: "min" | "
  * var/uniform/param...) and therefore need their own fixed address to be
  * materialized into before any component can be read.
  */
+const SCRATCH_NODE_TYPES = new Set([
+  "construct",
+  "uniformArrayElement",
+  "cross",
+  "reflect",
+  "normalize",
+  "matVecMul",
+  "dFdx",
+  "dFdy",
+  "fwidth",
+  "textureSize",
+  "textureLoad",
+  "texture",
+  "textureLod",
+  "clamp",
+  "mix",
+  "step",
+  "smoothstep",
+  "select",
+  "add",
+  "sub",
+  "mul",
+  "div",
+]);
+
 function isScratchNode(node: any): boolean {
   const t = node._t as string;
   if (!isAggregate(t)) return false;
-  if (node.type === "construct") return true;
-  if (node.type === "uniformArrayElement") return true;
   if (node.type === t) return true;
-  if (node.type === "swizzle" && (node.value as string).length > 1) return true;
-  if (node.type === "cross" || node.type === "reflect" || node.type === "normalize" || node.type === "matVecMul")
-    return true;
-  if (node.type === "dFdx" || node.type === "dFdy" || node.type === "fwidth") return true;
-  if (node.type === "textureSize" || node.type === "textureLoad") return true;
-  if (node.type === "texture" || node.type === "textureLod") return true;
-  if (node.type === "clamp" || node.type === "mix" || node.type === "step" || node.type === "smoothstep") return true;
-  return node.type === "add" || node.type === "sub" || node.type === "mul" || node.type === "div";
+  if (node.type === "swizzle") return (node.value as string).length > 1;
+  return SCRATCH_NODE_TYPES.has(node.type);
 }
 
 /**
@@ -1512,6 +1529,8 @@ export function compileWasmFn(
         return emitStepStores(node, nodeAddress(node));
       case "smoothstep":
         return emitSmoothstepStores(node, nodeAddress(node));
+      case "select":
+        return emitSelectStores(node, nodeAddress(node));
       case "seq": {
         // a nested Fn call's aggregate result: statements, then materialize
         // the final value (which nodeAddress() already resolves to for this node).
@@ -2212,6 +2231,31 @@ export function compileWasmFn(
     return out;
   }
 
+  /**
+   * select(cond, a, b) = a when cond, else b, per component. `cond`'s width
+   * follows core.ts's `select`: a scalar bool broadcasts, a bvecN selects
+   * component-by-component against a and b's (equal, matching) width.
+   */
+  function emitSelectStores(node: any, addr: number): number[] {
+    const [cond, a, b] = node.params;
+    const targetKind = elementKindOf(node._t as string);
+    const compSize = componentSizeOf(targetKind);
+    const width = componentCountOf(node._t as string);
+    const condWidth = componentCountOf(cond._t as string);
+    const out = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
+    if (condWidth > 1) out.push(...materializeIfNeeded(cond));
+    const aAddr = nodeAddress(a),
+      bAddr = nodeAddress(b);
+    const condAddr = condWidth > 1 ? nodeAddress(cond) : undefined;
+    for (let k = 0; k < width; k++) {
+      const ak = loadComponent(aAddr, targetKind, k * compSize);
+      const bk = loadComponent(bAddr, targetKind, k * compSize);
+      const condK = condWidth > 1 ? loadComponent(condAddr!, "bool", k * componentSizeOf("bool")) : walkExpr(cond);
+      out.push(...storeComponent(addr, targetKind, k * compSize, selectExpr(ak, bk, condK)));
+    }
+    return out;
+  }
+
   /** smoothstep(e0, e1, x) per component, via the shared t computation in emitSmoothstepValue. */
   function emitSmoothstepStores(node: any, addr: number): number[] {
     const [e0, e1, x] = node.params;
@@ -2547,6 +2591,10 @@ export function compileWasmFn(
       case "smoothstep": {
         const [e0, e1, x] = node.params;
         return emitSmoothstepValue(walkExpr(e0), walkExpr(e1), walkExpr(x));
+      }
+      case "select": {
+        const [cond, a, b] = node.params;
+        return selectExpr(walkExpr(a), walkExpr(b), walkExpr(cond));
       }
 
       case "negate": {

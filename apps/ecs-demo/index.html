@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ECS demo (JS / WASM / WGSL compute)</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: #101318;
+        color: #e8e8ee;
+        font-family: system-ui, sans-serif;
+      }
+      canvas {
+        display: block;
+      }
+      #hud {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        background: rgba(16, 19, 24, 0.75);
+        padding: 8px 12px;
+        border-radius: 8px;
+        font-size: 13px;
+      }
+      #stats {
+        white-space: pre;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="hud">
+      <label>
+        backend
+        <select id="backend">
+          <option value="js">JS (CPU)</option>
+          <option value="wasm">WASM (CPU)</option>
+          <option value="wgsl">WGSL compute (GPU)</option>
+        </select>
+      </label>
+      <label>
+        entities
+        <input id="entityCount" type="number" min="1" max="200000" step="1" value="1500" />
+      </label>
+      <span id="stats"></span>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

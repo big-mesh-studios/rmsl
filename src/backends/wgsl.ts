@@ -546,6 +546,9 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       if (v && v.id != null && !ctx.attributes.has(v.id)) {
         ctx.attributes.set(v.id, { type: wgslType(v.shaderType), slot: v.slot });
       }
+      // A compute stage has no VertexInput struct — attributes stand for
+      // storage buffers there, indexed by the invocation's entity id.
+      if (ctx.shaderStage === "compute") return { decls: [], body: [], expr: `${v.slot}[_rmsl_index]` };
       if (ctx.shaderStage !== "vertex") return { decls: [], body: [], expr: v.slot };
       // A matrix attribute is rebuilt from its columns at the top of `main`,
       // under its own slot name, so a reference to it is a plain local read.
@@ -568,6 +571,9 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       if (v && v.id != null && !ctx.outputs.has(v.id)) {
         ctx.outputs.set(v.id, { type: wgslType(v.shaderType), slot: v.slot, location: v.location });
       }
+      // A compute stage writes an output storage buffer in place, rather than
+      // a struct field collected at the end of `main`.
+      if (ctx.shaderStage === "compute") return { decls: [], body: [], expr: `${v?.slot}[_rmsl_index]` };
       return { decls: [], body: [], expr: `result.${v?.slot}` };
     }
 
@@ -1374,7 +1380,7 @@ export function unaryWGSL(
 
 export function compileWGSLWithStage(
   root: Node<ShaderType> | readonly Node<ShaderType>[],
-  shaderStage: "vertex" | "fragment",
+  shaderStage: "vertex" | "fragment" | "compute",
   options?: CompileWGSLOptions,
 ): string {
   let ctx: CompileCtx = {
@@ -1539,6 +1545,33 @@ export function compileWGSLWithStage(
     }
     lines.push("  return result;");
     lines.push("}");
+  } else if (shaderStage === "compute") {
+    // Every input and output is a storage buffer at group 1, indexed by the
+    // invocation id — no VertexInput/FragmentOutput struct machinery applies.
+    let binding = 0;
+    for (let [, info] of [...ctx.attributes.entries()].sort((a, b) => a[0] - b[0])) {
+      lines.push(`@group(1) @binding(${binding++}) var<storage, read> ${info.slot}: array<${info.type}>;`);
+    }
+    ctx.outputs.forEach((info) => {
+      lines.push(`@group(1) @binding(${binding++}) var<storage, read_write> ${info.slot}: array<${info.type}>;`);
+    });
+    lines.push("");
+    lines.push("@compute @workgroup_size(64)");
+    lines.push("fn main(@builtin(global_invocation_id) _rmsl_globalId: vec3<u32>) {");
+    lines.push("  let _rmsl_index = _rmsl_globalId.x;");
+    // Bounds-checked against whichever buffer is bound first — every input and
+    // output buffer is expected to hold one entry per entity, so any of them
+    // gives the same length.
+    let firstAttr = [...ctx.attributes.values()][0];
+    let firstOut = [...ctx.outputs.values()][0];
+    let lengthSlot = firstAttr?.slot ?? firstOut?.slot;
+    if (lengthSlot) {
+      lines.push(`  if (_rmsl_index >= arrayLength(&${lengthSlot})) { return; }`);
+    }
+    for (let line of allBody) {
+      lines.push("  " + line);
+    }
+    lines.push("}");
   } else {
     // A fragment stage only gets a return struct when it has something to put
     // in it. WGSL forbids empty structs, so a shader with no declared output
@@ -1626,6 +1659,7 @@ export const compileWGSL: {
   (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileWGSLOptions): string;
   vertex(root: VertexRoot, options?: CompileWGSLOptions): string;
   fragment(root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileWGSLOptions): string;
+  compute(root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileWGSLOptions): string;
 } = Object.assign(
   (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileWGSLOptions) =>
     compileWGSLWithStage(root, "fragment", options),
@@ -1634,6 +1668,8 @@ export const compileWGSL: {
       compileWGSLWithStage(root as Node<ShaderType>, "vertex", options),
     fragment: (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileWGSLOptions) =>
       compileWGSLWithStage(root, "fragment", options),
+    compute: (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileWGSLOptions) =>
+      compileWGSLWithStage(root, "compute", options),
   },
 );
 
