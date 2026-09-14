@@ -41,14 +41,14 @@ import {
   ivec2,
   textureSize,
   textureLoad,
-  type JsTextureData,
+  type CpuTextureData,
 } from "../rmsl";
 
 const size = 8;
 const data = new Float32Array(size * size * 4);
 for (let i = 0; i < data.length; i++) data[i] = (i % 97) / 97;
-const linearTexture: JsTextureData = { data, width: size, height: size, magFilter: "linear" };
-const nearestTexture: JsTextureData = { data, width: size, height: size, magFilter: "nearest" };
+const linearTexture: CpuTextureData = { data, width: size, height: size, magFilter: "linear" };
+const nearestTexture: CpuTextureData = { data, width: size, height: size, magFilter: "nearest" };
 const texture = linearTexture; // kept for the two scenarios below that don't care which filter mode
 
 describe("textureSize(): metadata round trip only, no sampling math", () => {

@@ -8,10 +8,20 @@
  */
 import { MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, var_ } from "../rmsl-core";
 import { AllocRules, planLayout } from "../rmsl-layout";
-import { JsShaderContext, JsShaderResult, JsTextureData, JsTextureWrap } from "./rmsl-compile-js";
+import {
+  componentCountOf,
+  CpuDrawBuffer,
+  CpuRenderer,
+  CpuShaderContext,
+  CpuShaderResult,
+  CpuTextureData,
+  CpuTextureWrap,
+  elementKindOf,
+  isAggregate,
+  ScalarKind,
+  scalarKindOf,
+} from "./cpu";
 import { assertStageResult, CompileFnOptions, COMPONENT_INDEX, resolveSwizzleTarget } from "./shared";
-
-type ScalarKind = "float" | "int" | "uint" | "bool";
 
 /**
  * How a value crosses the module boundary. Scalar kinds are WASM params;
@@ -101,14 +111,6 @@ export type CompileWasmFnOptions = CompileFnOptions & {
   reentrant?: boolean;
 };
 
-/**
- * The runtime face of a compiled function: a plain callable per invocation,
- * plus draw() for rendering the result to a full pixel buffer.
- */
-export type WasmCallable = ((ctx: JsShaderContext) => number | boolean | JsShaderResult) & {
-  draw(ctx: JsShaderContext, width: number, height: number): Float64Array | Int32Array | Uint32Array;
-};
-
 // Per-texture metadata block written by writeTextureToMemory(), reserved
 // per sampler slot. TEX_META_DATA_ADDR points at the heap-relative pixel
 // data (stored as f64 per channel); TEX_META_UNORM_DIVISOR is 255 for
@@ -159,7 +161,7 @@ const MATH_UNARY_IMPORTS = new Set([
 
 const MATH_BINARY_IMPORTS = new Set(["pow", "atan2"]);
 
-const WRAP_MODE_CODE: Record<JsTextureWrap, number> = { clamp: 0, repeat: 1, mirror: 2 }; // codes the wrapAxis() loop switches on
+const WRAP_MODE_CODE: Record<CpuTextureWrap, number> = { clamp: 0, repeat: 1, mirror: 2 }; // codes the wrapAxis() loop switches on
 
 export const WASM_F64 = 0x7c;
 export const WASM_I32 = 0x7f;
@@ -309,42 +311,13 @@ export const WASM_OP = {
   else_: 0x05,
 } as const;
 
-function scalarKindOf(t: string | undefined): ScalarKind {
-  return t === "int" || t === "uint" || t === "bool" ? t : "float";
-}
-
 function wasmTypeOf(kind: ScalarKind): number {
   return kind === "float" ? WASM_F64 : WASM_I32;
-}
-
-/** Element kind of a shader type's components; non-int vectors default to float. */
-function elementKindOf(t: string): ScalarKind {
-  if (t.startsWith("ivec")) return "int";
-  if (t.startsWith("uvec")) return "uint";
-  if (t.startsWith("bvec")) return "bool";
-  return "float";
 }
 
 /** Bytes per component: 8 for float, 4 for int/uint/bool. */
 function componentSizeOf(kind: ScalarKind): number {
   return kind === "float" ? 8 : 4;
-}
-
-/** Component count: 1 for scalars, TYPE_WIDTH for vectors, rows*cols for matrices. */
-function componentCountOf(t: string): number {
-  const width = TYPE_WIDTH[t];
-  if (width !== undefined) return width;
-  const shape = MATRIX_DIMENSIONS[t];
-  if (shape !== undefined) return shape[0] * shape[1];
-  return 1;
-}
-
-/**
- * True when the type is an aggregate: a vector or matrix made up of more than
- * one scalar component (as opposed to a single scalar like f32/i32/u32/b32).
- */
-function isAggregate(t: string): boolean {
-  return componentCountOf(t) > 1;
 }
 
 function isSamplerType(t: string): boolean {
@@ -650,7 +623,7 @@ function readValueFromMemory(view: DataView, address: number, shaderType: Shader
  * region reserved by marshalInputs. Channels default to 4; the unorm
  * divisor is 255 for byte arrays and 1 for float data.
  */
-function writeTextureToMemory(view: DataView, metaAddr: number, heapAddr: number, tex: JsTextureData): void {
+function writeTextureToMemory(view: DataView, metaAddr: number, heapAddr: number, tex: CpuTextureData): void {
   const channels = tex.channels ?? 4;
   const depth = tex.depth ?? 0;
   const isByteData = tex.data instanceof Uint8Array || tex.data instanceof Uint8ClampedArray;
@@ -671,7 +644,7 @@ function writeTextureToMemory(view: DataView, metaAddr: number, heapAddr: number
 }
 
 /** Heap bytes for a texture: f64 per component. */
-function textureByteSize(tex: JsTextureData): number {
+function textureByteSize(tex: CpuTextureData): number {
   return tex.width * tex.height * (tex.depth || 1) * (tex.channels ?? 4) * 8;
 }
 
@@ -2827,9 +2800,9 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
 /**
  * Instantiates a compiled module and binds it to JS: marshals params and
  * textures into memory/args, calls the function, and reads results back
- * into a JsShaderResult.
+ * into a CpuShaderResult.
  */
-export function compileWasm(fn: (...args: any[]) => Node<ShaderType>, options: CompileWasmFnOptions): WasmCallable {
+export function compileWasm(fn: (...args: any[]) => Node<ShaderType>, options: CompileWasmFnOptions): CpuRenderer {
   const { bytes, params, resultType, textureHeapBase, draw } = compileWasmFn(fn, options);
 
   const instance = new WebAssembly.Instance(new WebAssembly.Module(bytes.buffer as ArrayBuffer), {
@@ -2861,7 +2834,7 @@ export function compileWasm(fn: (...args: any[]) => Node<ShaderType>, options: C
 
   // texture cache: skip re-uploading an unchanged texture object, and only
   // grow the module memory when the total footprint changes between calls
-  const lastTexture: (JsTextureData | undefined)[] = new Array(textureParams.length);
+  const lastTexture: (CpuTextureData | undefined)[] = new Array(textureParams.length);
   let lastSizes: number[] | null = null;
 
   /**
@@ -2869,10 +2842,10 @@ export function compileWasm(fn: (...args: any[]) => Node<ShaderType>, options: C
    * when the total footprint changes) and collects the scalar WASM args.
    * Returns the heap end — where the draw buffer starts.
    */
-  function marshalInputs(ctx: JsShaderContext): { args: number[]; textureHeapEnd: number } {
+  function marshalInputs(ctx: CpuShaderContext): { args: number[]; textureHeapEnd: number } {
     let textureHeapEnd = textureHeapBase;
     if (textureParams.length > 0) {
-      const textures = textureParams.map((p) => (ctx.textures as any)?.[p.slot] as JsTextureData);
+      const textures = textureParams.map((p) => (ctx.textures as any)?.[p.slot] as CpuTextureData);
       const sizes = textures.map(textureByteSize);
       const heapOffsets: number[] = [];
       let heapCursor = textureHeapBase;
@@ -2943,7 +2916,7 @@ export function compileWasm(fn: (...args: any[]) => Node<ShaderType>, options: C
     return { args, textureHeapEnd };
   }
 
-  function callable(ctx: JsShaderContext): number | boolean | JsShaderResult {
+  function callable(ctx: CpuShaderContext): number | boolean | CpuShaderResult {
     const { args } = marshalInputs(ctx);
     const result = wasmMain(...args);
     // scalar mode: reinterpret the raw i32 — the WASM boundary returns it
@@ -2954,7 +2927,7 @@ export function compileWasm(fn: (...args: any[]) => Node<ShaderType>, options: C
       return result;
     }
 
-    const shaderResult: JsShaderResult = {};
+    const shaderResult: CpuShaderResult = {};
     for (const p of outputParams) {
       switch (p.kind) {
         case "outputMemory":
@@ -2977,7 +2950,7 @@ export function compileWasm(fn: (...args: any[]) => Node<ShaderType>, options: C
     return shaderResult;
   }
 
-  callable.draw = (ctx: JsShaderContext, width: number, height: number): Float64Array | Int32Array | Uint32Array => {
+  callable.draw = (ctx: CpuShaderContext, width: number, height: number): CpuDrawBuffer => {
     if (!draw || !wasmDraw) {
       throw new Error(
         '[RMSL] compileWasm: this function produces no value to render — draw() needs a non-"void" result.',

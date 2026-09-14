@@ -26,6 +26,7 @@ import {
 import {
   compileJS,
   compileJSFn,
+  compileWasm,
   Fn,
   float,
   int,
@@ -38,6 +39,7 @@ import {
   mat3x2,
   mat4,
   mat4x2,
+  fragCoord,
   If,
   For,
   While,
@@ -80,7 +82,7 @@ import {
   pow,
   textureLoad,
   type Node,
-  type JsTextureData,
+  type CpuTextureData,
 } from "./rmsl";
 
 const approx = (actual: number, want: number) => expect(actual).toBeCloseTo(want, 9);
@@ -926,7 +928,7 @@ describe("JS backend: CPU-specific behaviour", () => {
     })();
     const fn = compileJS(() => prog, { name: "main", params: [] });
     const texture = { data: [10, 10, 10, 10, 20, 20, 20, 20], width: 2, height: 1 };
-    const red = (t: JsTextureData): number => (fn({ textures: { [tex.name]: t } }) as number[])[0];
+    const red = (t: CpuTextureData): number => (fn({ textures: { [tex.name]: t } }) as number[])[0];
 
     // A quarter past the right edge: the last texel stretched, the image
     // tiled back to the first, or tiled and flipped back to the last.
@@ -943,7 +945,7 @@ describe("JS backend: CPU-specific behaviour", () => {
     })();
     const fn = compileJS(() => prog, { name: "main", params: [] });
     const texture = { data: [10, 10, 10, 10, 20, 20, 20, 20], width: 2, height: 1 };
-    const red = (t: JsTextureData): number => (fn({ textures: { [tex.name]: t } }) as number[])[0];
+    const red = (t: CpuTextureData): number => (fn({ textures: { [tex.name]: t } }) as number[])[0];
 
     expect(red(texture)).toBe(10);
     expect(red({ ...texture, wrapS: "repeat" as const })).toBe(20);
@@ -958,7 +960,7 @@ describe("JS backend: CPU-specific behaviour", () => {
     })();
     const fn = compileJS(() => prog, { name: "main", params: [] });
     // Two slices, 0 and 100, sampled halfway between their centres.
-    const texture: JsTextureData = {
+    const texture: CpuTextureData = {
       data: [0, 0, 0, 0, 100, 100, 100, 100],
       width: 1,
       height: 1,
@@ -1215,5 +1217,72 @@ describe("JS backend: operands that are themselves expressions", () => {
       evalScalar((v, e0a, e0b, e1) => v.smoothstep(e0a.add(e0b), e1), [4, 1, 1, 6]),
       0.5,
     );
+  });
+});
+
+describe("JS backend: .draw() — render a whole grid in one call", () => {
+  it("renders a scalar per pixel, fragCoord at pixel centers", () => {
+    const build = () => Fn(() => fragCoord().x)();
+    const fn = compileJS(build as any, { name: "main", params: [] });
+    const out = fn.draw({}, 3, 2);
+    expect(out.length).toBe(3 * 2);
+    // Row-major, (y*width+x): x+0.5 regardless of row.
+    expect(Array.from(out)).toEqual([0.5, 1.5, 2.5, 0.5, 1.5, 2.5]);
+  });
+
+  it("renders both fragCoord axes packed into a vec4 per pixel, with no stage or output() involved", () => {
+    const build = () => Fn(() => vec4(fragCoord().x, fragCoord().y, 0, 1))();
+    const fn = compileJS(build as any, { name: "main", params: [] });
+    const out = fn.draw({}, 2, 2);
+    expect(out.length).toBe(2 * 2 * 4);
+    expect(Array.from(out)).toEqual([
+      0.5,
+      0.5,
+      0,
+      1, // (0,0)
+      1.5,
+      0.5,
+      0,
+      1, // (1,0)
+      0.5,
+      1.5,
+      0,
+      1, // (0,1)
+      1.5,
+      1.5,
+      0,
+      1, // (1,1)
+    ]);
+  });
+
+  it("reads a uniform every pixel and reflects a changed uniform on the next call", () => {
+    const scale = uniform("float");
+    const build = () => Fn(() => fragCoord().x.mul(scale))();
+    const fn = compileJS(build as any, { name: "main", params: [] });
+    expect(Array.from(fn.draw({ uniforms: { [scale.name]: 2 } }, 2, 1))).toEqual([1, 3]);
+    expect(Array.from(fn.draw({ uniforms: { [scale.name]: 10 } }, 2, 1))).toEqual([5, 15]);
+  });
+
+  it("picks dimensions per call, not at compile time", () => {
+    const build = () => Fn(() => fragCoord().x)();
+    const fn = compileJS(build as any, { name: "main", params: [] });
+    expect(Array.from(fn.draw({}, 2, 1))).toEqual([0.5, 1.5]);
+    expect(Array.from(fn.draw({}, 4, 1))).toEqual([0.5, 1.5, 2.5, 3.5]);
+    expect(Array.from(fn.draw({}, 1, 1))).toEqual([0.5]);
+  });
+
+  it("the same compiled function still works as a plain single-pixel call — draw() is a choice per call, not a compile mode", () => {
+    const scale = uniform("float");
+    const build = () => Fn(() => fragCoord().x.mul(scale))();
+    const fn = compileJS(build as any, { name: "main", params: [] });
+    expect(fn({ uniforms: { [scale.name]: 2 }, fragCoord: [3, 0] })).toBe(6);
+    expect(Array.from(fn.draw({ uniforms: { [scale.name]: 2 } }, 2, 1))).toEqual([1, 3]);
+  });
+
+  it("matches compileWasm's draw() output for the same program", () => {
+    const build = () => Fn(() => fragCoord().x.add(fragCoord().y.mul(2)))();
+    const jsFn = compileJS(build as any, { name: "main", params: [] });
+    const wasmFn = compileWasm(build as any, { name: "main", params: [] });
+    expect(Array.from(jsFn.draw({}, 3, 3))).toEqual(Array.from(wasmFn.draw({}, 3, 3)));
   });
 });

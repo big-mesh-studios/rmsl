@@ -206,13 +206,16 @@ export { compileWGSL, wgslUniformLayout } from "./backends/rmsl-wgsl";
 export type { CompileWGSLOptions, WgslUniformDeclaration, WgslUniformMember } from "./backends/rmsl-wgsl";
 
 export { compileJS, compileJSFn } from "./backends/rmsl-compile-js";
+export type { CompileJSOptions } from "./backends/rmsl-compile-js";
+
 export type {
-  CompileJSOptions,
-  JsShaderContext,
-  JsShaderResult,
-  JsTextureData,
-  JsTextureWrap,
-} from "./backends/rmsl-compile-js";
+  CpuDrawBuffer,
+  CpuRenderer,
+  CpuShaderContext,
+  CpuShaderResult,
+  CpuTextureData,
+  CpuTextureWrap,
+} from "./backends/cpu";
 
 export { compileGLSLFn, compileWGSLFn } from "./rmsl-standalone-fn";
 

@@ -31,8 +31,8 @@ import {
   sqrt,
   ivec2,
   textureLoad,
-  type JsTextureData,
-  type JsShaderContext,
+  type CpuTextureData,
+  type CpuShaderContext,
 } from "../rmsl";
 
 for (const SIZE of [128, 512]) {
@@ -51,7 +51,7 @@ for (const SIZE of [128, 512]) {
     const drawCtx = { uniforms: { [cx.name]: SIZE / 2, [cy.name]: SIZE / 2 } };
     // Reused across every pixel in the loops below — only `fragCoord`'s
     // two numbers change, in place, so no per-pixel allocation at all.
-    const perPixelCtx: JsShaderContext = { uniforms: drawCtx.uniforms, fragCoord: [0, 0] };
+    const perPixelCtx: CpuShaderContext = { uniforms: drawCtx.uniforms, fragCoord: [0, 0] };
 
     bench("draw() — one call for the whole grid", () => {
       wasmFn.draw(drawCtx, SIZE, SIZE);
@@ -93,14 +93,14 @@ for (const SIZE of [128, 512]) {
     const build = () => Fn(() => textureLoad(tex, ivec2(fragCoord().x.toInt(), fragCoord().y.toInt())).x)();
     const wasmFn = compileWasm(build as any, { name: "main", params: [] });
     const jsFn = compileJS(build as any, { name: "main", params: [] });
-    const texture: JsTextureData = {
+    const texture: CpuTextureData = {
       data: new Float64Array(SIZE * SIZE).fill(1),
       width: SIZE,
       height: SIZE,
       channels: 1,
     };
     const drawCtx = { textures: { [tex.name]: texture } };
-    const perPixelCtx: JsShaderContext = { textures: drawCtx.textures, fragCoord: [0, 0] };
+    const perPixelCtx: CpuShaderContext = { textures: drawCtx.textures, fragCoord: [0, 0] };
 
     bench("draw() — one call for the whole grid, sampling a texture", () => {
       wasmFn.draw(drawCtx, SIZE, SIZE);

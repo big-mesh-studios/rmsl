@@ -27,8 +27,8 @@ import {
   type Node,
   type ShaderType,
   type VariableNode,
-  type JsShaderContext,
-  type JsTextureData,
+  type CpuShaderContext,
+  type CpuTextureData,
 } from "../rmsl";
 // How a texture asks to be read is the renderers' question too, and they
 // already answer it without a device — so a shader tested here samples by the
@@ -61,7 +61,7 @@ export type ShaderValue<A extends ShaderType> = A extends "float" | "int" | "uin
  * and wrapping constants are read as the CPU target's names for them.
  */
 export type TextureData =
-  | JsTextureData
+  | CpuTextureData
   | {
       /**
        * Pixels as a scene texture carries them, which is where a `DataTexture`
@@ -589,7 +589,7 @@ const RENDERER_DEFAULTS: Record<string, unknown> = {
  * nothing without a browser, and a sampler bound to one is left unbound rather
  * than bound to something empty.
  */
-function toTextureData(texture: unknown, samplerType = "sampler2D"): JsTextureData | null {
+function toTextureData(texture: unknown, samplerType = "sampler2D"): CpuTextureData | null {
   if (typeof texture !== "object" || texture === null) return null;
   const candidate = texture as Record<string, unknown>;
   const pixels = candidate.data ?? candidate.image;
@@ -597,7 +597,7 @@ function toTextureData(texture: unknown, samplerType = "sampler2D"): JsTextureDa
   if (typeof candidate.width !== "number" || typeof candidate.height !== "number") return null;
   const image = { data: pixels as ArrayLike<number>, width: candidate.width, height: candidate.height };
   if (!statesTextureConstants(candidate)) {
-    return { ...(candidate as unknown as JsTextureData), ...image };
+    return { ...(candidate as unknown as CpuTextureData), ...image };
   }
   const scene = texture as Texture;
   return {
@@ -758,7 +758,7 @@ function mergeContext(
   inputs: ShaderInputs,
   names: NameMaps | undefined,
   reads: ReadContext,
-): JsShaderContext {
+): CpuShaderContext {
   return {
     uniforms: bound("uniform", "uniforms", slots(names?.uniforms, defaults.uniforms, inputs.uniforms), reads),
     varyings: bound("varying", "varyings", slots(names?.varyings, defaults.varyings, inputs.varyings), reads),
@@ -825,8 +825,8 @@ function slots(
 function textureSlots(
   names: Map<string, string> | undefined,
   ...given: (readonly TextureBinding[] | Record<string, TextureData> | undefined)[]
-): Record<string, JsTextureData> {
-  const record: Record<string, JsTextureData> = {};
+): Record<string, CpuTextureData> {
+  const record: Record<string, CpuTextureData> = {};
   for (const values of given) {
     if (values === undefined) continue;
     const pairs: [string, TextureData][] = Array.isArray(values)

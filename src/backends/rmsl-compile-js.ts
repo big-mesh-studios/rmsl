@@ -3,6 +3,16 @@
 // host can call on the CPU, one fragment at a time.
 import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, var_ } from "../rmsl-core";
 import {
+  componentCountOf,
+  CpuDrawBuffer,
+  CpuRenderer,
+  CpuShaderContext,
+  CpuShaderResult,
+  elementKindOf,
+  isAggregate,
+  scalarKindOf,
+} from "./cpu";
+import {
   CompileCtx,
   CompileFnOptions,
   CompiledNode,
@@ -1663,69 +1673,6 @@ export function compileJSNode(
   }
 }
 
-/** Values a host supplies to a compiled JS function. */
-export type JsShaderContext = {
-  params?: Record<string, unknown>;
-  uniforms?: Record<string, unknown>;
-  varyings?: Record<string, unknown>;
-  attributes?: Record<string, unknown>;
-  textures?: Record<string, JsTextureData>;
-  /** Pixel being evaluated, which `fragCoord()` reads on the CPU target. */
-  fragCoord?: [number, number];
-};
-
-/** How a coordinate outside the image is turned into one inside it. */
-export type JsTextureWrap = "clamp" | "repeat" | "mirror";
-
-/**
- * Texture data the JS target samples from.
- *
- * Sampling is described the way the renderers describe it to themselves —
- * the `SamplerState` the scene layer derives from a texture's three.js
- * constants — so all three backends are driven by one reading of what the
- * texture asked for, rather than each deciding for itself what a constant
- * means.
- */
-export type JsTextureData = {
-  data: ArrayLike<number>;
-  width: number;
-  height: number;
-  depth?: number;
-  /**
-   * How many of the four channels each texel stores, which is what says where
-   * one texel ends and the next begins. Four by default; a single-channel
-   * texture is one. The channels a texel does not store read the way a sampler
-   * reports them on a device: zero for green and blue, one for alpha.
-   */
-  channels?: 1 | 2 | 3 | 4;
-  /**
-   * What to do when the sampled point falls between texels: `"nearest"` (the
-   * default) takes the texel it lands in, `"linear"` blends the neighbours.
-   *
-   * `minFilter` is accepted so a sampler state can be handed over whole, and
-   * ignored: choosing between the two needs the footprint of the pixel being
-   * shaded, which a single CPU evaluation has no way to know.
-   */
-  magFilter?: "nearest" | "linear";
-  minFilter?: "nearest" | "linear";
-  /** What happens outside `0..1`, per axis. All default to `"clamp"`. */
-  wrapS?: JsTextureWrap;
-  wrapT?: JsTextureWrap;
-  wrapR?: JsTextureWrap;
-};
-
-/**
- * What a compiled JS function returns when the program writes outputs, a
- * position or the fragment depth; otherwise the Fn's bare return value.
- */
-export type JsShaderResult = {
-  value?: unknown;
-  outputs?: Record<string, unknown>;
-  varyings?: Record<string, unknown>;
-  position?: number[];
-  fragDepth?: number;
-};
-
 export type CompileJSOptions = CompileFnOptions & {
   stage?: "vertex" | "fragment";
   derivatives?: "throw" | "zero";
@@ -1817,16 +1764,59 @@ export function compileJSFn(fn: (...args: any[]) => Node<ShaderType>, options: C
  * Compile an Fn to an actual callable function, with the scratch slots and
  * helper functions baked into its closure.
  *
- * The result is called as `fn(ctx)` where `ctx` is a `JsShaderContext`. Its
+ * The result is called as `fn(ctx)` where `ctx` is a `CpuShaderContext`. Its
  * scratch slots are shared across calls, so a call must finish before the next
  * one starts — for screen picking one call per click that is the point. Pass
  * `{ reentrant: true }` for per-call bindings instead.
+ *
+ * Also carries `draw()`, the same whole-image entry point `compileWasm`'s
+ * result has: one JS call per pixel, feeding `fragCoord` in and packing every
+ * result into one flat row-major buffer — see `CpuRenderer`.
  */
-export function compileJS(
-  fn: (...args: any[]) => Node<ShaderType>,
-  options: CompileJSOptions,
-): (ctx: JsShaderContext) => unknown {
+export function compileJS(fn: (...args: any[]) => Node<ShaderType>, options: CompileJSOptions): CpuRenderer {
   const source = compileJSFn(fn, options);
-  const factory = new Function(source) as () => (ctx: JsShaderContext) => unknown;
-  return factory();
+  const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuShaderResult;
+  const callable = factory() as CpuRenderer;
+
+  // Rebuilt purely to read the root node's `_t` — compileJSFn discards it
+  // once compiled to source, and the graph construction itself is pure.
+  const paramNodes = options.params.map((p) => var_(p.name, p.type));
+  const root = fn(...paramNodes);
+  const resultType = Array.isArray(root)
+    ? undefined
+    : ((root as unknown as { _t?: string })?._t as ShaderType | undefined);
+
+  callable.draw = (ctx: CpuShaderContext, width: number, height: number): CpuDrawBuffer => {
+    if (resultType === undefined) {
+      throw new Error("[RMSL] compileJS: this function produces no value to render — draw() needs a result.");
+    }
+    const componentCount = componentCountOf(resultType);
+    const kind = isAggregate(resultType) ? elementKindOf(resultType) : scalarKindOf(resultType);
+    const buffer: CpuDrawBuffer =
+      kind === "float"
+        ? new Float64Array(width * height * componentCount)
+        : kind === "uint"
+          ? new Uint32Array(width * height * componentCount)
+          : new Int32Array(width * height * componentCount);
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        // pixel centers land at (x + 0.5, y + 0.5) — the same convention
+        // compileWasm's draw() and fragCoordMemory in rmsl-wasm.ts use.
+        const result = callable({ ...ctx, fragCoord: [x + 0.5, y + 0.5] });
+        const raw =
+          typeof result === "object" && result !== null && "value" in result
+            ? (result as CpuShaderResult).value
+            : result;
+        const values = Array.isArray(raw) ? raw : [raw];
+        const base = (y * width + x) * componentCount;
+        for (let k = 0; k < componentCount; k++) {
+          buffer[base + k] = kind === "bool" ? (values[k] ? 1 : 0) : (values[k] as number);
+        }
+      }
+    }
+    return buffer;
+  };
+
+  return callable;
 }
