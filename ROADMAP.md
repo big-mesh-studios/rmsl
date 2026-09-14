@@ -1059,27 +1059,27 @@ going to ship a `.wasm` asset rather than generate one at runtime.
 
 ## Known issues found along the way (not WASM-specific)
 
-- **`mat2`/`mat2x3`/`mat2x4`/`mat3x2`/`mat3x4`/`mat4x2`/`mat4x3` have no
-  "columns of vector nodes" constructor overload.** `mat3(colA, colB, colC)`
-  and `mat4(colA, colB, colC, colD)` are hand-written functions in
-  `core.ts` with a dedicated `args.every(isNode)` branch for exactly
-  this; every other matrix type is built by the generic
-  `makeMatConstructor`, which only special-cases a single node/number
+- ~~**`mat2`/`mat2x3`/`mat2x4`/`mat3x2`/`mat3x4`/`mat4x2`/`mat4x3` have no
+  "columns of vector nodes" constructor overload.**~~ — fixed.
+  `mat3(colA, colB, colC)` and `mat4(colA, colB, colC, colD)` were
+  hand-written functions in `core.ts` with a dedicated `args.every(isNode)`
+  branch for exactly this; every other matrix type was built by the generic
+  `makeMatConstructor`, which only special-cased a single node/number
   argument (diagonal) or zero arguments (identity) — anything else,
-  including column-vector nodes, falls through to
+  including column-vector nodes, fell through to
   `node({_t: t, type: t, value: args})`, a _literal_ node whose `value`
-  ends up holding `Node` objects instead of numbers. Nothing validates this
-  at construction time, so `mat2(vec2(1,2), vec2(3,4))` builds silently and
-  only breaks downstream — found while writing a WASM backend test for
+  ended up holding `Node` objects instead of numbers. Nothing validated this
+  at construction time, so `mat2(vec2(1,2), vec2(3,4))` built silently and
+  only broke downstream — found while writing a WASM backend test for
   matrix multiply, where it surfaced as every component reading back `NaN`.
-  Affects every backend (GLSL/WGSL/JS), not just WASM: this is a gap in
-  `core.ts`'s public API, not something a compiler backend can work
-  around. Not fixed here — filed as a note rather than a fix since it's
-  outside this roadmap's scope (the WASM backend) and deserves its own
-  look at whether to extend `makeMatConstructor` with the same
-  `args.every(isNode)` branch `mat3`/`mat4` already have, or to make the
-  literal-fallback path throw when given non-number args instead of
-  silently accepting them.
+  Affected every backend (GLSL/WGSL/JS), not just WASM: it was a gap in
+  `core.ts`'s public API, not something a compiler backend could work
+  around. `makeMatConstructor` now takes the type's column count and gets
+  the same `args.length === columns && args.every(isNode)` branch
+  `mat3`/`mat4` already had, routing a columns-of-vectors call through
+  `"construct"` instead of the broken literal fallback — see
+  `usage.test.ts`'s "builds every matrix shape from columns of vector
+  nodes, not just mat3/mat4".
 
 ## Non-goals
 

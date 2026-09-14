@@ -1901,14 +1901,29 @@ export function bool(v: boolean | Node<"float"> | Node<"int"> | Node<"uint">): N
   }
   return node({ _t: "bool", type: "bool", value: v }) as Node<"bool">;
 }
+/**
+ * Build a matrix constructor. `columns` is what a "columns of vector nodes"
+ * call takes — `mat2(colA, colB)`, not `mat2(4-number-literal)` — the same
+ * overload `mat3`/`mat4` hand-write for themselves below. Without it, that
+ * call fell through to the number-literal branch and built a broken literal
+ * node holding `Node` objects instead of numbers, silently.
+ */
 export function makeMatConstructor<T extends ShaderType>(
   t: T,
   size: number,
+  columns: number,
   defaultVal: number[],
 ): (...args: any[]) => Node<T> {
   return (...args: any[]): Node<T> => {
     if (args.length === 1 && isNode(args[0])) {
       return node({ _t: t, type: "construct", params: [args[0] as BaseNode<ShaderType>] }) as Node<T>;
+    }
+    if (args.length === columns && args.every((a: any) => isNode(a))) {
+      return node({
+        _t: t,
+        type: "construct",
+        params: args.map((a: any) => a as BaseNode<ShaderType>),
+      }) as Node<T>;
     }
     if (args.length === 1 && typeof args[0] === "number") {
       return node({ _t: t, type: "construct", params: [wrapValue(args[0])] }) as Node<T>;
@@ -1919,10 +1934,10 @@ export function makeMatConstructor<T extends ShaderType>(
     return node({ _t: t, type: t, value: args }) as Node<T>;
   };
 }
-export const mat2 = makeMatConstructor("mat2", 4, [1, 0, 0, 1]);
-export const mat2x3 = makeMatConstructor("mat2x3", 6, [1, 0, 0, 0, 1, 0]);
-export const mat2x4 = makeMatConstructor("mat2x4", 8, [1, 0, 0, 0, 0, 1, 0, 0]);
-export const mat3x2 = makeMatConstructor("mat3x2", 6, [1, 0, 0, 0, 1, 0]);
+export const mat2 = makeMatConstructor("mat2", 4, 2, [1, 0, 0, 1]);
+export const mat2x3 = makeMatConstructor("mat2x3", 6, 2, [1, 0, 0, 0, 1, 0]);
+export const mat2x4 = makeMatConstructor("mat2x4", 8, 2, [1, 0, 0, 0, 0, 1, 0, 0]);
+export const mat3x2 = makeMatConstructor("mat3x2", 6, 3, [1, 0, 0, 0, 1, 0]);
 export function mat3(...args: any[]): Node<"mat3"> {
   if (args.length === 1 && isNode(args[0])) {
     return node({ _t: "mat3", type: "construct", params: [args[0] as BaseNode<ShaderType>] }) as Node<"mat3">;
@@ -1942,9 +1957,9 @@ export function mat3(...args: any[]): Node<"mat3"> {
   }
   return node({ _t: "mat3", type: "mat3", value: args }) as Node<"mat3">;
 }
-export const mat3x4 = makeMatConstructor("mat3x4", 12, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);
-export const mat4x2 = makeMatConstructor("mat4x2", 8, [1, 0, 0, 0, 0, 1, 0, 0]);
-export const mat4x3 = makeMatConstructor("mat4x3", 12, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);
+export const mat3x4 = makeMatConstructor("mat3x4", 12, 3, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);
+export const mat4x2 = makeMatConstructor("mat4x2", 8, 4, [1, 0, 0, 0, 0, 1, 0, 0]);
+export const mat4x3 = makeMatConstructor("mat4x3", 12, 4, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);
 export function mat4(...args: any[]): Node<"mat4"> {
   if (args.length === 1 && isNode(args[0])) {
     return node({ _t: "mat4", type: "construct", params: [args[0] as BaseNode<ShaderType>] }) as Node<"mat4">;

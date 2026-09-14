@@ -17,6 +17,7 @@ import {
   bvec4,
   clamp,
   compileGLSLFn,
+  compileJS,
   compileJSFn,
   compileWGSLFn,
   Continue,
@@ -935,6 +936,24 @@ describe("RMSL", () => {
     let prog = Fn(() => mat2x3(1, 0, 0, 0, 1, 0).toVar());
     let glsl = compileGLSL(prog());
     expect(glsl).toContain("mat2x3(");
+  });
+
+  // Every matrix constructor accepts its own columns as vector nodes, not
+  // just mat3/mat4 (which hand-write the overload) — makeMatConstructor's
+  // generic version used to fall through to a broken literal node holding
+  // Node objects instead of numbers for every other matrix shape.
+  it("builds every matrix shape from columns of vector nodes, not just mat3/mat4", () => {
+    let square = compileJS(() => mat2(vec2(1, 2), vec2(3, 4)), { name: "main", params: [] });
+    expect(square({})).toEqual([1, 2, 3, 4]);
+
+    let rect = compileJS(() => mat2x3(vec3(1, 2, 3), vec3(4, 5, 6)), { name: "main", params: [] });
+    expect(rect({})).toEqual([1, 2, 3, 4, 5, 6]);
+
+    let rectOtherWay = compileJS(() => mat3x2(vec2(1, 2), vec2(3, 4), vec2(5, 6)), { name: "main", params: [] });
+    expect(rectOtherWay({})).toEqual([1, 2, 3, 4, 5, 6]);
+
+    let glsl = compileGLSL(Fn(() => mat2x4(vec4(1, 0, 0, 0), vec4(0, 1, 0, 0)).toVar())());
+    expect(glsl).toContain("mat2x4(vec4(");
   });
 
   // === Phase 6: Infrastructure — Comprehensive coverage ===
