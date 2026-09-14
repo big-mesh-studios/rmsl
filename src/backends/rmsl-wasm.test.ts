@@ -182,6 +182,28 @@ describe("WASM backend: uniform arrays", () => {
     const fn = compileWasm(build, { name: "main", params: [] });
     expect(fn({ uniforms: { [arr.name]: [10, 20, 30, 40] } })).toBe(30);
   });
+
+  it("indexes a vec4 uniform array with a runtime index inside a loop", () => {
+    let arr!: any;
+    const build = () => {
+      arr = uniformArray("vec4", 24);
+      return Fn(() => {
+        let total = vec4(0, 0, 0, 0).toVar();
+        For(
+          () => float(0).toVar(),
+          (i) => i.lessThan(24),
+          (i) => i.assign(i.add(1)),
+          (i) => {
+            total.assign(total.add(arr.element(i)));
+          },
+        );
+        return total.x;
+      })();
+    };
+    const fn = compileWasm(build, { name: "main", params: [] });
+    const values = Array.from({ length: 24 }, (_, i) => [i, 0, 0, 0]);
+    expect(fn({ uniforms: { [arr.name]: values } })).toBe(276); // sum of 0..23
+  });
 });
 
 describe("WASM backend: div, mod, min, max, sign, abs, round-trip", () => {
