@@ -203,7 +203,7 @@ element type), and the codegen multiply would be wrong.
   and no corruption of an adjacent member).
 - Phase 7's cross-backend recording: run `rmsl-js.test.ts` /
   `rmsl-eval.test.ts` — the `[shader-eval] WASM: N of 79 ... not yet
-  supported` count drops, leaving only the non-square matrix-multiply
+supported` count drops, leaving only the non-square matrix-multiply
   case(s).
 
 ## Future note (WebGL2 UBO, recorded in ROADMAP.md)

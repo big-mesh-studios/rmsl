@@ -124,6 +124,16 @@ describe("WASM backend: scalar arithmetic", () => {
     const fn = compileWasm(build, { name: "main", params: [] });
     expect(fn({ uniforms: { [arr.name]: [10, 20, 30, 40] } })).toBe(20);
   });
+
+  it("reads a bool uniform array element by a constant index", () => {
+    let arr!: any;
+    const build = () => {
+      arr = uniformArray("bool", 4);
+      return arr.element(int(1));
+    };
+    const fn = compileWasm(build, { name: "main", params: [] });
+    expect(fn({ uniforms: { [arr.name]: [true, false, true, false] } })).toBe(false);
+  });
 });
 
 describe("WASM backend: div, mod, min, max, sign, abs, round-trip", () => {

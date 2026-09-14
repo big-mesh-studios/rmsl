@@ -9,6 +9,7 @@
 **Tech Stack:** TypeScript, hand-encoded WASM bytecode (no wabt/binaryen), Vitest, Prettier, pnpm. Spec: `docs/superpowers/specs/2026-09-14-uniform-array-wasm-design.md`.
 
 **Verification commands used throughout:**
+
 - Fast per-file test: `pnpm vitest run src/backends/rmsl-wasm.test.ts`
 - Type check: `pnpm type-check`
 - Format check: `pnpm format:check`
@@ -28,6 +29,7 @@
 ## Task 1: Scalar array element read, constant index (MVP)
 
 **Files:**
+
 - Modify: `src/backends/rmsl-wasm.ts` (add `WasmParam` variant, `uniformArrayInfo` map, `uniformArrayElementAddress` helper, `writeArrayToMemory`, `collect` `"uniformArray"` case, `walkExpr` `"uniformArrayElement"` case, `marshalInputs` case)
 - Test: `src/backends/rmsl-wasm.test.ts:118-121`
 
@@ -203,6 +205,7 @@ git commit -m "Read scalar uniform array elements over linear memory in the WASM
 ## Task 2: Aggregate (vec4) element read via scratch
 
 **Files:**
+
 - Modify: `src/backends/rmsl-wasm.ts` (`isScratchNode`, `materializeIfNeeded`)
 - Test: `src/backends/rmsl-wasm.test.ts`
 
@@ -235,7 +238,17 @@ describe("WASM backend: uniform arrays", () => {
       return arr.element(int(1)).toVar().x;
     };
     const fn = compileWasm(build, { name: "main", params: [] });
-    expect(fn({ uniforms: { [arr.name]: [[1, 2, 3], [4, 5, 6], [7, 8, 9]] } })).toBe(4);
+    expect(
+      fn({
+        uniforms: {
+          [arr.name]: [
+            [1, 2, 3],
+            [4, 5, 6],
+            [7, 8, 9],
+          ],
+        },
+      }),
+    ).toBe(4);
   });
 });
 ```
@@ -304,6 +317,7 @@ git commit -m "Materialize aggregate uniform array elements into a scratch addre
 ## Task 3: Float index conversion and bool arrays
 
 **Files:**
+
 - Test: `src/backends/rmsl-wasm.test.ts`
 
 The conversion itself already landed in Task 1/2 (`i32.trunc_f64_s`); this task pins it and the bool element kind.
@@ -351,6 +365,7 @@ git commit -m "Pin float-index truncation and bool elements for uniform arrays"
 ## Task 4: Runtime index in a `For` loop
 
 **Files:**
+
 - Test: `src/backends/rmsl-wasm.test.ts`
 
 - [ ] **Step 1: Write the failing test**
@@ -398,6 +413,7 @@ git commit -m "Test a runtime uniform array index inside a WASM loop"
 ## Task 5: Uniform array element as function root
 
 **Files:**
+
 - Test: `src/backends/rmsl-wasm.test.ts`
 
 This likely passes already (aggregate root flows through `finalValueBytes` → `materializeIfNeeded`, both covered since Task 2); it pins the behavior.
@@ -412,7 +428,15 @@ it("supports a uniform array element as the function root", () => {
     return arr.element(int(1));
   };
   const fn = compileWasm(build, { name: "main", params: [] });
-  const result = fn({ uniforms: { [arr.name]: [[1, 2, 3], [4, 5, 6], [7, 8, 9]] } }) as any;
+  const result = fn({
+    uniforms: {
+      [arr.name]: [
+        [1, 2, 3],
+        [4, 5, 6],
+        [7, 8, 9],
+      ],
+    },
+  }) as any;
   expect(result.value).toEqual([4, 5, 6]);
 });
 ```
@@ -434,6 +458,7 @@ git commit -m "Pin a uniform array element as the WASM function root"
 ## Task 6: GPU-layout path for arrays
 
 **Files:**
+
 - Modify: `src/backends/rmsl-wasm.ts` (`GpuUniformLayout.strides`, `collect` GPU branch, narrow promote in `materializeIfNeeded`/`walkExpr`)
 - Test: `src/rmsl-layout-interop.test.ts`
 
@@ -459,7 +484,16 @@ it("places a uniform array at wgslUniformLayout's offset and stride, f32-accurat
   };
   const fn = compileWasm(() => Fn(() => arr.element(int(1)).x)() as any, options);
   // 0.1 is not exact in f32; the GPU path stores f32, so it reads back fround(0.1).
-  expect(fn({ uniforms: { [arr.name]: [[0, 0, 0, 0], [0.1, 0, 0, 0]] } })).toBe(Math.fround(0.1));
+  expect(
+    fn({
+      uniforms: {
+        [arr.name]: [
+          [0, 0, 0, 0],
+          [0.1, 0, 0, 0],
+        ],
+      },
+    }),
+  ).toBe(Math.fround(0.1));
   expect(Math.fround(0.1)).not.toBe(0.1);
 });
 ```
@@ -483,54 +517,54 @@ In the `GpuUniformLayout` type (`src/backends/rmsl-wasm.ts`, ~line 66), add:
 Replace the acts in the `"uniformArray"` collect case added in Task 1:
 
 ```ts
-  if (options.gpuUniformLayout?.offsets[node.value.slot] !== undefined) {
-    throw new Error("[RMSL] compileWasmFn: GPU-placed uniform arrays are not implemented yet");
-  }
-  const address = allocateBytes(elementSize * length);
-  uniformArrayInfo.set(node.value.slot, { base: address, elementStride: elementSize, narrow: false });
-  memoryParams.push({
-    kind: "uniformArrayMemory",
-    slot: node.value.slot,
-    shaderType,
-    length,
-    address,
-    elementStride: elementSize,
-  });
+if (options.gpuUniformLayout?.offsets[node.value.slot] !== undefined) {
+  throw new Error("[RMSL] compileWasmFn: GPU-placed uniform arrays are not implemented yet");
+}
+const address = allocateBytes(elementSize * length);
+uniformArrayInfo.set(node.value.slot, { base: address, elementStride: elementSize, narrow: false });
+memoryParams.push({
+  kind: "uniformArrayMemory",
+  slot: node.value.slot,
+  shaderType,
+  length,
+  address,
+  elementStride: elementSize,
+});
 ```
 
 with:
 
 ```ts
-  const gpuOffset = options.gpuUniformLayout?.offsets[node.value.slot];
-  if (gpuOffset !== undefined) {
-    const gpuStride = options.gpuUniformLayout?.strides?.[node.value.slot];
-    if (gpuStride === undefined) {
-      throw new Error(
-        `[RMSL] compileWasmFn: gpuUniformLayout for uniform array "${node.value.slot}" needs a matching strides value`,
-      );
-    }
-    uniformArrayInfo.set(node.value.slot, { base: gpuOffset, elementStride: gpuStride, narrow: true });
-    memoryParams.push({
-      kind: "uniformArrayMemory",
-      slot: node.value.slot,
-      shaderType,
-      length,
-      address: gpuOffset,
-      elementStride: gpuStride,
-      narrow: true,
-    });
-    break;
+const gpuOffset = options.gpuUniformLayout?.offsets[node.value.slot];
+if (gpuOffset !== undefined) {
+  const gpuStride = options.gpuUniformLayout?.strides?.[node.value.slot];
+  if (gpuStride === undefined) {
+    throw new Error(
+      `[RMSL] compileWasmFn: gpuUniformLayout for uniform array "${node.value.slot}" needs a matching strides value`,
+    );
   }
-  const address = allocateBytes(elementSize * length);
-  uniformArrayInfo.set(node.value.slot, { base: address, elementStride: elementSize, narrow: false });
+  uniformArrayInfo.set(node.value.slot, { base: gpuOffset, elementStride: gpuStride, narrow: true });
   memoryParams.push({
     kind: "uniformArrayMemory",
     slot: node.value.slot,
     shaderType,
     length,
-    address,
-    elementStride: elementSize,
+    address: gpuOffset,
+    elementStride: gpuStride,
+    narrow: true,
   });
+  break;
+}
+const address = allocateBytes(elementSize * length);
+uniformArrayInfo.set(node.value.slot, { base: address, elementStride: elementSize, narrow: false });
+memoryParams.push({
+  kind: "uniformArrayMemory",
+  slot: node.value.slot,
+  shaderType,
+  length,
+  address,
+  elementStride: elementSize,
+});
 ```
 
 - [ ] **Step 5: Add the f32 promote to both read paths**
@@ -557,11 +591,11 @@ In `materializeIfNeeded`'s `"uniformArrayElement"` case, change the loop body so
 In `walkExpr`'s `"uniformArrayElement"` case, change the return so a narrow float promotes:
 
 ```ts
-  const addrBytes = uniformArrayElementAddress(info.base, info.elementStride, indexBytes);
-  if (info.narrow && kind === "float") {
-    return [...addrBytes, WASM_OP.f32Load, 0x00, 0x00, WASM_OP.f64PromoteF32];
-  }
-  return loadDynamic(addrBytes, kind);
+const addrBytes = uniformArrayElementAddress(info.base, info.elementStride, indexBytes);
+if (info.narrow && kind === "float") {
+  return [...addrBytes, WASM_OP.f32Load, 0x00, 0x00, WASM_OP.f64PromoteF32];
+}
+return loadDynamic(addrBytes, kind);
 ```
 
 - [ ] **Step 6: Run to verify it passes**

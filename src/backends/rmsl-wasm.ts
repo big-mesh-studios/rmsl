@@ -573,7 +573,7 @@ function writeArrayToMemory(
   elementStride: number,
   narrow?: boolean,
 ): void {
-  const kind = elementKindOf(shaderType);
+  const kind = isAggregate(shaderType) ? elementKindOf(shaderType) : scalarKindOf(shaderType);
   const compSize = narrow && kind === "float" ? 4 : componentSizeOf(kind);
   const width = componentCountOf(shaderType);
   const arr = value as ArrayLike<any>;
@@ -1087,7 +1087,9 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         if (uniformArrayInfo.has(node.value.slot)) break;
         const shaderType = node.value.shaderType as ShaderType;
         const length = node.value.length as number;
-        const elementSize = componentCountOf(shaderType) * componentSizeOf(elementKindOf(shaderType));
+        const elementSize =
+          componentCountOf(shaderType) *
+          componentSizeOf(isAggregate(shaderType) ? elementKindOf(shaderType) : scalarKindOf(shaderType));
         if (options.gpuUniformLayout?.offsets[node.value.slot] !== undefined) {
           throw new Error("[RMSL] compileWasmFn: GPU-placed uniform arrays are not implemented yet");
         }
@@ -2540,7 +2542,8 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
             `[RMSL] compileWasmFn: internal error, unaddressed uniform array "${node.params[0].value.slot}"`,
           );
         }
-        const kind = elementKindOf(node._t as string);
+        const type = node._t as string;
+        const kind = isAggregate(type) ? elementKindOf(type) : scalarKindOf(type);
         const index = node.params[1];
         const indexBytes =
           scalarKindOf(index._t as string) === "float" ? [...walkExpr(index), WASM_OP.i32TruncF64S] : walkExpr(index);
