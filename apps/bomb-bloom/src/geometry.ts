@@ -10,7 +10,7 @@ export interface Mesh {
 
 export interface FlameGeometry {
   positions: Float32Array; // base particle positions
-  corners: Float32Array;   // billboard corner (-1..1)
+  corners: Float32Array; // billboard corner (-1..1)
   drifts: Float32Array;
   lives: Float32Array;
   offsets: Float32Array;
@@ -27,11 +27,7 @@ function vec3Sub(a: number[], b: number[]): number[] {
 }
 
 function vec3Cross(a: number[], b: number[]): number[] {
-  return [
-    a[1] * b[2] - a[2] * b[1],
-    a[2] * b[0] - a[0] * b[2],
-    a[0] * b[1] - a[1] * b[0],
-  ];
+  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 }
 
 function vec3Normalize(v: number[]): number[] {
@@ -57,9 +53,21 @@ export function catmullRom(points: number[][], samplesPerSegment: number): numbe
       const t2 = t * t;
       const t3 = t2 * t;
       out.push([
-        0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
-        0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3),
-        0.5 * ((2 * p1[2]) + (-p0[2] + p2[2]) * t + (2 * p0[2] - 5 * p1[2] + 4 * p2[2] - p3[2]) * t2 + (-p0[2] + 3 * p1[2] - 3 * p2[2] + p3[2]) * t3),
+        0.5 *
+          (2 * p1[0] +
+            (-p0[0] + p2[0]) * t +
+            (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 +
+            (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
+        0.5 *
+          (2 * p1[1] +
+            (-p0[1] + p2[1]) * t +
+            (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 +
+            (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3),
+        0.5 *
+          (2 * p1[2] +
+            (-p0[2] + p2[2]) * t +
+            (2 * p0[2] - 5 * p1[2] + 4 * p2[2] - p3[2]) * t2 +
+            (-p0[2] + 3 * p1[2] - 3 * p2[2] + p3[2]) * t3),
       ]);
     }
   }
@@ -86,7 +94,8 @@ export function buildTube(curve: number[][], radius: number, radialSegments: num
     const normal = vec3Cross(binormal, t);
     for (let s = 0; s < radialSegments; s++) {
       const a = (s / radialSegments) * Math.PI * 2;
-      const nx = Math.cos(a), ny = Math.sin(a);
+      const nx = Math.cos(a),
+        ny = Math.sin(a);
       positions.push(
         p[0] + radius * (nx * normal[0] + ny * binormal[0]),
         p[1] + radius * (nx * normal[1] + ny * binormal[1]),
@@ -149,12 +158,16 @@ export function buildCylinder(r: number, height: number, segments: number): Mesh
   const indices: number[] = [];
   for (let i = 0; i <= segments; i++) {
     const a = (i / segments) * Math.PI * 2;
-    const x = Math.cos(a), z = Math.sin(a);
+    const x = Math.cos(a),
+      z = Math.sin(a);
     positions.push(x * r, 0, z * r, x * r, height, z * r);
     normals.push(x, 0, z, x, 0, z);
   }
   for (let i = 0; i < segments; i++) {
-    const a = i * 2, b = i * 2 + 1, c = i * 2 + 2, d = i * 2 + 3;
+    const a = i * 2,
+      b = i * 2 + 1,
+      c = i * 2 + 2,
+      d = i * 2 + 3;
     indices.push(a, b, c, b, d, c);
   }
   // Top and bottom caps.
@@ -163,7 +176,8 @@ export function buildCylinder(r: number, height: number, segments: number): Mesh
   positions.push(0, height, 0, 0, 0, 0);
   normals.push(0, 1, 0, 0, -1, 0);
   for (let i = 0; i < segments; i++) {
-    const a = i * 2, c = i * 2 + 2;
+    const a = i * 2,
+      c = i * 2 + 2;
     indices.push(topIdx, c, a);
     indices.push(bottomIdx, a, c);
   }
@@ -206,7 +220,12 @@ export function buildFlameParticles(): FlameGeometry {
   const quadSpin = new Float32Array(quad);
   const quadIndices = new Uint16Array(particleCount * 6);
 
-  const cornerData = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+  const cornerData = [
+    [-1, -1],
+    [1, -1],
+    [1, 1],
+    [-1, 1],
+  ];
 
   for (let i = 0; i < particleCount; i++) {
     const v0 = i * 4;

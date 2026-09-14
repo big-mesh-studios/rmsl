@@ -3,14 +3,21 @@
 // pointerdown, then verify the ray actually lands on the y = 0 plane.
 import { compileJS } from "@random-mesh/rmsl";
 import {
-  calcColourAndDepth, positionGeometry, positionWorld,
-  cameraProjectionMatrix, cameraViewMatrix,
-  cameraProjectionMatrixInverse, cameraWorldMatrix, cameraPosition,
-  mat4Perspective, mat4LookAt, mat4Inverse,
+  calcColourAndDepth,
+  positionGeometry,
+  positionWorld,
+  cameraProjectionMatrix,
+  cameraViewMatrix,
+  cameraProjectionMatrixInverse,
+  cameraWorldMatrix,
+  cameraPosition,
+  mat4Perspective,
+  mat4LookAt,
+  mat4Inverse,
 } from "../shared/shader.ts";
 
 const cameraPositionValue = [0, 5, 10];
-const proj = mat4Perspective(60 * Math.PI / 180, 16 / 9, 0.1, 1000);
+const proj = mat4Perspective((60 * Math.PI) / 180, 16 / 9, 0.1, 1000);
 const view = mat4LookAt(...cameraPositionValue, 0, 0, 0, 0, 1, 0);
 const invProj = mat4Inverse(proj);
 const world = mat4Inverse(view);

@@ -4,11 +4,19 @@
 import { vec3, mix, float } from "@random-mesh/rmsl";
 import {
   WebGLRenderer,
-  Scene, Group, Mesh,
+  Scene,
+  Group,
+  Mesh,
   PerspectiveCamera,
-  BoxGeometry, SphereGeometry, TorusGeometry, PlaneGeometry,
-  MeshStandardMaterial, MeshBasicMaterial,
-  AmbientLight, DirectionalLight, PointLight,
+  BoxGeometry,
+  SphereGeometry,
+  TorusGeometry,
+  PlaneGeometry,
+  MeshStandardMaterial,
+  MeshBasicMaterial,
+  AmbientLight,
+  DirectionalLight,
+  PointLight,
   DataTexture,
   Color,
 } from "@random-mesh/rmsl/scene";
@@ -57,11 +65,7 @@ const gold = new MeshStandardMaterial({ color: 0xffaa00, roughness: 0.15, metaln
 // A node-driven material: the color comes from the surface normal, which is
 // the node-based material setup — the same graph that compiles to GLSL.
 const normalGradient = new MeshStandardMaterial({ roughness: 0.4, metalness: 0.0 });
-normalGradient.colorNode = (b) => mix(
-  vec3(0.1, 0.2, 0.5),
-  vec3(0.9, 0.4, 0.1),
-  b.normalWorld.y.add(1).mul(0.5),
-);
+normalGradient.colorNode = (b) => mix(vec3(0.1, 0.2, 0.5), vec3(0.9, 0.4, 0.1), b.normalWorld.y.add(1).mul(0.5));
 normalGradient.emissiveNode = (b) => b.normalWorld.mul(0.05);
 
 // An unlit, wireframe-ish material using the fragmentNode escape hatch.
@@ -121,7 +125,11 @@ canvas.addEventListener("pointerdown", (e) => {
   isDragging = true;
   lastMX = e.clientX;
   lastMY = e.clientY;
-  try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  try {
+    canvas.setPointerCapture(e.pointerId);
+  } catch {
+    /* ignore */
+  }
 });
 canvas.addEventListener("pointermove", (e) => {
   if (!isDragging) return;
@@ -130,12 +138,18 @@ canvas.addEventListener("pointermove", (e) => {
   lastMX = e.clientX;
   lastMY = e.clientY;
 });
-const endDrag = () => { isDragging = false; };
+const endDrag = () => {
+  isDragging = false;
+};
 canvas.addEventListener("pointerup", endDrag);
 canvas.addEventListener("pointercancel", endDrag);
-canvas.addEventListener("wheel", (e) => {
-  radius = Math.max(4, Math.min(30, radius * (1 + e.deltaY * 0.001)));
-}, { passive: false });
+canvas.addEventListener(
+  "wheel",
+  (e) => {
+    radius = Math.max(4, Math.min(30, radius * (1 + e.deltaY * 0.001)));
+  },
+  { passive: false },
+);
 
 // === Render loop ===
 renderer.setAnimationLoop((time) => {

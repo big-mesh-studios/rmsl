@@ -16,7 +16,10 @@ export let a_index = attribute("float");
 
 export let scopeVertex = Fn(() => {
   let sample = oscillatorSample(a_index, u_startPhase, u_freq, u_sampleRate, u_waveform, u_gain).toVar();
-  let x = a_index.div(float(SCOPE_VERTEX_COUNT - 1)).mul(2.0).sub(1.0);
+  let x = a_index
+    .div(float(SCOPE_VERTEX_COUNT - 1))
+    .mul(2.0)
+    .sub(1.0);
   return vec4(x, sample, 0.0, 1.0);
 });
 

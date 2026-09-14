@@ -1,10 +1,17 @@
 import { compileGLSL } from "@random-mesh/rmsl";
 import {
-  vertexMain, calcColourAndDepth,
-  quadPos, cameraProjectionMatrix, cameraViewMatrix,
-  cameraProjectionMatrixInverse, cameraWorldMatrix, cameraPosition,
+  vertexMain,
+  calcColourAndDepth,
+  quadPos,
+  cameraProjectionMatrix,
+  cameraViewMatrix,
+  cameraProjectionMatrixInverse,
+  cameraWorldMatrix,
+  cameraPosition,
   quadVerts,
-  mat4Perspective, mat4LookAt, mat4Inverse,
+  mat4Perspective,
+  mat4LookAt,
+  mat4Inverse,
 } from "../../shared/shader";
 
 // === Compile shaders ===
@@ -27,11 +34,7 @@ function getViewMatrix(): Float32Array {
 }
 
 function getCameraPosition(): [number, number, number] {
-  return [
-    radius * Math.sin(theta) * Math.cos(phi),
-    radius * Math.sin(phi),
-    radius * Math.cos(theta) * Math.cos(phi),
-  ];
+  return [radius * Math.sin(theta) * Math.cos(phi), radius * Math.sin(phi), radius * Math.cos(theta) * Math.cos(phi)];
 }
 
 // === WebGL2 setup ===

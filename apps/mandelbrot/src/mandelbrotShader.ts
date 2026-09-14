@@ -9,8 +9,11 @@ import {
   int,
   Node,
   output,
-  uniform, varying,
-  vec2, vec3, vec4,
+  uniform,
+  varying,
+  vec2,
+  vec3,
+  vec4,
   While,
 } from "@random-mesh/rmsl";
 
@@ -188,22 +191,25 @@ export function mandelbrotColorAt(dx: Node<"float">, dy: Node<"float">): Node<"v
       let g = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(2.0943951).cos()));
       let b = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(4.1887902).cos()));
       color.assign(vec3(r, g, b));
-    }).ElseIf(u_palette.equal(int(1)), () => {
-      let r = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(0.0).cos()));
-      let g = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(0.6).cos()));
-      let b = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(1.2).cos()));
-      color.assign(vec3(r, g, b));
-    }).ElseIf(u_palette.equal(int(2)), () => {
-      let r = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(3.0).cos()));
-      let g = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(4.0).cos()));
-      let b = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(1.0).cos()));
-      color.assign(vec3(r, g, b));
-    }).Else(() => {
-      let r = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(0.0).cos()));
-      let g = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(2.0).cos()));
-      let b = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(4.0).cos()));
-      color.assign(vec3(r, g, b));
-    });
+    })
+      .ElseIf(u_palette.equal(int(1)), () => {
+        let r = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(0.0).cos()));
+        let g = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(0.6).cos()));
+        let b = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(1.2).cos()));
+        color.assign(vec3(r, g, b));
+      })
+      .ElseIf(u_palette.equal(int(2)), () => {
+        let r = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(3.0).cos()));
+        let g = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(4.0).cos()));
+        let b = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(1.0).cos()));
+        color.assign(vec3(r, g, b));
+      })
+      .Else(() => {
+        let r = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(0.0).cos()));
+        let g = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(2.0).cos()));
+        let b = float(0.5).add(float(0.5).mul(t.mul(6.2831853).add(4.0).cos()));
+        color.assign(vec3(r, g, b));
+      });
 
     finalColor.assign(vec4(color, 1.0));
   }).Else(() => {

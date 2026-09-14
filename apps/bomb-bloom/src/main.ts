@@ -6,17 +6,39 @@
 import { compileGLSL, uniform } from "@random-mesh/rmsl";
 import { bloom } from "@random-mesh/rmsl/effects";
 import {
-  bodyVertex, bodyFragment,
-  bodyModelViewMatrix, bodyProjectionMatrix, bodyLightDir, bodyAlbedo,
-  aPosition, aNormal,
-  flameVertex, flameFragment,
-  uTime, uIsPerspective, flameModelViewMatrix, flameProjectionMatrix, flameScreenSize,
-  aParticlePos, aCorner, aDrift, aLife, aOffset, aSize, aSpin, aUv,
+  bodyVertex,
+  bodyFragment,
+  bodyModelViewMatrix,
+  bodyProjectionMatrix,
+  bodyLightDir,
+  bodyAlbedo,
+  aPosition,
+  aNormal,
+  flameVertex,
+  flameFragment,
+  uTime,
+  uIsPerspective,
+  flameModelViewMatrix,
+  flameProjectionMatrix,
+  flameScreenSize,
+  aParticlePos,
+  aCorner,
+  aDrift,
+  aLife,
+  aOffset,
+  aSize,
+  aSpin,
+  aUv,
 } from "./shader";
 import { buildSphere, buildCylinder, buildTube, catmullRom, buildFlameParticles } from "./geometry";
 import {
-  mat4Perspective, mat4LookAt, mat4Multiply, mat4Translation, mat4RotationZ,
-  mat3TransformDirection, quadVerts,
+  mat4Perspective,
+  mat4LookAt,
+  mat4Multiply,
+  mat4Translation,
+  mat4RotationZ,
+  mat3TransformDirection,
+  quadVerts,
 } from "./matrix";
 import { BloomExecutor } from "./bloom";
 
@@ -62,14 +84,8 @@ function createProgram(vsSource: string, fsSource: string, attrib0?: string): We
 }
 
 // === Shaders (RMSL -> GLSL) ===
-const bodyProgram = createProgram(
-  compileGLSL.vertex(bodyVertex()),
-  compileGLSL.fragment(bodyFragment()),
-);
-const flameProgram = createProgram(
-  compileGLSL.vertex(flameVertex()),
-  compileGLSL.fragment(flameFragment()),
-);
+const bodyProgram = createProgram(compileGLSL.vertex(bodyVertex()), compileGLSL.fragment(bodyFragment()));
+const flameProgram = createProgram(compileGLSL.vertex(flameVertex()), compileGLSL.fragment(flameFragment()));
 
 // === Geometry ===
 const grey = [0.43, 0.43, 0.43];
@@ -78,13 +94,21 @@ const white = [1.0, 1.0, 1.0];
 const sphere = buildSphere(0.3, 24, 32);
 const cylinder = buildCylinder(0.07, 0.07, 16);
 const wickCurve = catmullRom(
-  [[0, 0, 0], [0, 0.1, 0], [0.1, 0.15, 0], [0.12, 0.2, 0]],
+  [
+    [0, 0, 0],
+    [0, 0.1, 0],
+    [0.1, 0.15, 0],
+    [0.12, 0.2, 0],
+  ],
   8,
 );
 const wick = buildTube(wickCurve, 0.01, 8);
 const flameGeo = buildFlameParticles();
 
-interface MeshBuffers { vao: WebGLVertexArrayObject; count: number; }
+interface MeshBuffers {
+  vao: WebGLVertexArrayObject;
+  count: number;
+}
 
 function createMeshVao(
   program: WebGLProgram,
@@ -109,28 +133,44 @@ function createMeshVao(
   return { vao, count: indices.length };
 }
 
-const sphereVao = createMeshVao(bodyProgram, [
-  [aPosition.name, sphere.positions, 3],
-  [aNormal.name, sphere.normals, 3],
-], sphere.indices);
-const cylinderVao = createMeshVao(bodyProgram, [
-  [aPosition.name, cylinder.positions, 3],
-  [aNormal.name, cylinder.normals, 3],
-], cylinder.indices);
-const wickVao = createMeshVao(bodyProgram, [
-  [aPosition.name, wick.positions, 3],
-  [aNormal.name, wick.normals, 3],
-], wick.indices);
-const flameVao = createMeshVao(flameProgram, [
-  [aParticlePos.name, flameGeo.positions, 3],
-  [aCorner.name, flameGeo.corners, 2],
-  [aDrift.name, flameGeo.drifts, 3],
-  [aLife.name, flameGeo.lives, 1],
-  [aOffset.name, flameGeo.offsets, 1],
-  [aSize.name, flameGeo.sizes, 1],
-  [aSpin.name, flameGeo.spins, 1],
-  [aUv.name, flameGeo.uvs, 2],
-], flameGeo.indices);
+const sphereVao = createMeshVao(
+  bodyProgram,
+  [
+    [aPosition.name, sphere.positions, 3],
+    [aNormal.name, sphere.normals, 3],
+  ],
+  sphere.indices,
+);
+const cylinderVao = createMeshVao(
+  bodyProgram,
+  [
+    [aPosition.name, cylinder.positions, 3],
+    [aNormal.name, cylinder.normals, 3],
+  ],
+  cylinder.indices,
+);
+const wickVao = createMeshVao(
+  bodyProgram,
+  [
+    [aPosition.name, wick.positions, 3],
+    [aNormal.name, wick.normals, 3],
+  ],
+  wick.indices,
+);
+const flameVao = createMeshVao(
+  flameProgram,
+  [
+    [aParticlePos.name, flameGeo.positions, 3],
+    [aCorner.name, flameGeo.corners, 2],
+    [aDrift.name, flameGeo.drifts, 3],
+    [aLife.name, flameGeo.lives, 1],
+    [aOffset.name, flameGeo.offsets, 1],
+    [aSize.name, flameGeo.sizes, 1],
+    [aSpin.name, flameGeo.spins, 1],
+    [aUv.name, flameGeo.uvs, 2],
+  ],
+  flameGeo.indices,
+);
 
 // === Model matrices (the bomb group: z-rotation -45°, parts offset as in
 // melty-karts; the flame is counter-rotated so it stays upright) ===
@@ -138,10 +178,7 @@ const group = mat4RotationZ(-Math.PI / 4);
 const sphereModel = group;
 const cylinderModel = mat4Multiply(group, mat4Translation(0, 0.32, 0));
 const wickModel = mat4Multiply(group, mat4Translation(0, 0.35, 0));
-const flameModel = mat4Multiply(
-  mat4Multiply(group, mat4Translation(0.12, 0.55, 0)),
-  mat4RotationZ(Math.PI / 4),
-);
+const flameModel = mat4Multiply(mat4Multiply(group, mat4Translation(0.12, 0.55, 0)), mat4RotationZ(Math.PI / 4));
 
 // === Scene render target (color + depth), recreated on resize ===
 let sceneW = 0;
@@ -156,7 +193,11 @@ let sceneDepth: WebGLRenderbuffer | null = null;
 
 function ensureSceneTarget(w: number, h: number): void {
   if (sceneFbo && sceneW === w && sceneH === h) return;
-  if (sceneTex) { gl.deleteTexture(sceneTex); gl.deleteFramebuffer(sceneFbo); gl.deleteRenderbuffer(sceneDepth); }
+  if (sceneTex) {
+    gl.deleteTexture(sceneTex);
+    gl.deleteFramebuffer(sceneFbo);
+    gl.deleteRenderbuffer(sceneDepth);
+  }
   sceneW = w;
   sceneH = h;
   sceneTex = gl.createTexture()!;
@@ -244,7 +285,11 @@ canvas.addEventListener("pointerdown", (e) => {
   isDragging = true;
   lastMX = e.clientX;
   lastMY = e.clientY;
-  try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  try {
+    canvas.setPointerCapture(e.pointerId);
+  } catch {
+    /* ignore */
+  }
 });
 canvas.addEventListener("pointermove", (e) => {
   if (!isDragging) return;
@@ -255,14 +300,20 @@ canvas.addEventListener("pointermove", (e) => {
   lastMX = e.clientX;
   lastMY = e.clientY;
 });
-const endDrag = () => { isDragging = false; };
+const endDrag = () => {
+  isDragging = false;
+};
 canvas.addEventListener("pointerup", endDrag);
 canvas.addEventListener("pointercancel", endDrag);
 canvas.addEventListener("pointerleave", endDrag);
-canvas.addEventListener("wheel", (e) => {
-  e.preventDefault();
-  radius = Math.max(1.2, Math.min(12, radius * (1 + e.deltaY * 0.001)));
-}, { passive: false });
+canvas.addEventListener(
+  "wheel",
+  (e) => {
+    e.preventDefault();
+    radius = Math.max(1.2, Math.min(12, radius * (1 + e.deltaY * 0.001)));
+  },
+  { passive: false },
+);
 
 // === UI ===
 const bloomOn = document.getElementById("bloomToggle") as HTMLInputElement;
@@ -377,7 +428,7 @@ function frame(now: number): void {
   const eyeY = radius * Math.sin(phi);
   const eyeZ = radius * Math.cos(theta) * Math.cos(phi);
   const view = mat4LookAt(eyeX, eyeY, eyeZ, 0, 0.35, 0, 0, 1, 0);
-  const proj = mat4Perspective(45 * Math.PI / 180, canvas.width / canvas.height, 0.1, 100);
+  const proj = mat4Perspective((45 * Math.PI) / 180, canvas.width / canvas.height, 0.1, 100);
 
   ensureSceneTarget(canvas.width, canvas.height);
   renderScene(view, proj, time);

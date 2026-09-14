@@ -3,9 +3,30 @@
 // body is a small lit-mesh shader. Every Fn compiles with compileGLSL.vertex /
 // compileGLSL.fragment to a complete GLSL ES 3.00 shader.
 import {
-  Fn, add, attribute, clamp, cos, div, length, max, mix, mod, mul, normalize,
-  output, pow, reciprocal, sin, smoothstep, sub, uniform, varying,
-  vec2, vec3, vec4, dot,
+  Fn,
+  add,
+  attribute,
+  clamp,
+  cos,
+  div,
+  length,
+  max,
+  mix,
+  mod,
+  mul,
+  normalize,
+  output,
+  pow,
+  reciprocal,
+  sin,
+  smoothstep,
+  sub,
+  uniform,
+  varying,
+  vec2,
+  vec3,
+  vec4,
+  dot,
 } from "@random-mesh/rmsl";
 
 // === Shared transform uniforms (bound by slot name, `_rmsl_uN`) ===

@@ -1,8 +1,18 @@
 import { compileGLSL, compileJS, compileWasm, compileWGSL, wgslUniformLayout } from "@random-mesh/rmsl";
 import {
-  vertexMain, calcMandelbrot, calcMandelbrotCpu, quadPos,
-  u_resolution, u_maxIter, u_useHighPrecision,
-  u_pan_hi, u_pan_lo, u_scale_hi, u_scale_lo, u_palette, u_rowOffset,
+  vertexMain,
+  calcMandelbrot,
+  calcMandelbrotCpu,
+  quadPos,
+  u_resolution,
+  u_maxIter,
+  u_useHighPrecision,
+  u_pan_hi,
+  u_pan_lo,
+  u_scale_hi,
+  u_scale_lo,
+  u_palette,
+  u_rowOffset,
 } from "./mandelbrotShader";
 import { WasmWorkerPool } from "./wasmWorkerPool";
 
@@ -82,12 +92,7 @@ let renderScale = 0.5;
 let lastFrameMs: number | null = null;
 
 // Quad geometry (-1..1)
-const quadVerts = new Float32Array([
-  -1, -1,
-   1, -1,
-  -1,  1,
-   1,  1,
-]);
+const quadVerts = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
 
 // === WebGL2 setup ===
 const canvas = document.getElementById("c") as HTMLCanvasElement;
@@ -148,7 +153,10 @@ const wgslDeclaredUniforms = [
 ].sort((a, b) => a.slot.localeCompare(b.slot));
 
 /** Byte-pack `values` into `layout`'s struct, per each member's own WGSL type. */
-function packUniformBytes(layout: ReturnType<typeof wgslUniformLayout>, values: Record<string, number | number[]>): ArrayBuffer {
+function packUniformBytes(
+  layout: ReturnType<typeof wgslUniformLayout>,
+  values: Record<string, number | number[]>,
+): ArrayBuffer {
   const bytes = new ArrayBuffer(layout.size);
   const view = new DataView(bytes);
   for (const member of layout.members) {
@@ -439,10 +447,7 @@ interact.addEventListener("pointerdown", (e) => {
     isPinching = true;
     panStart = null;
     const pointers = [...activePointers.values()];
-    lastPinchDist = Math.hypot(
-      pointers[0].clientX - pointers[1].clientX,
-      pointers[0].clientY - pointers[1].clientY
-    );
+    lastPinchDist = Math.hypot(pointers[0].clientX - pointers[1].clientX, pointers[0].clientY - pointers[1].clientY);
 
     const rect = interact.getBoundingClientRect();
     const screenX = cssToRenderPx((pointers[0].clientX + pointers[1].clientX) / 2 - rect.left);
@@ -463,10 +468,7 @@ interact.addEventListener("pointermove", (e) => {
 
   if (isPinching && activePointers.size === 2) {
     const pointers = [...activePointers.values()];
-    const dist = Math.hypot(
-      pointers[0].clientX - pointers[1].clientX,
-      pointers[0].clientY - pointers[1].clientY
-    );
+    const dist = Math.hypot(pointers[0].clientX - pointers[1].clientX, pointers[0].clientY - pointers[1].clientY);
 
     const rect = interact.getBoundingClientRect();
     const screenX = cssToRenderPx((pointers[0].clientX + pointers[1].clientX) / 2 - rect.left);
@@ -539,30 +541,34 @@ interact.addEventListener("pointercancel", (e) => {
   endPointer(e.pointerId);
 });
 
-interact.addEventListener("wheel", (e) => {
-  e.preventDefault();
-  const rect = interact.getBoundingClientRect();
-  const screenX = cssToRenderPx(e.clientX - rect.left);
-  const screenY = cssToRenderPx(e.clientY - rect.top);
+interact.addEventListener(
+  "wheel",
+  (e) => {
+    e.preventDefault();
+    const rect = interact.getBoundingClientRect();
+    const screenX = cssToRenderPx(e.clientX - rect.left);
+    const screenY = cssToRenderPx(e.clientY - rect.top);
 
-  const dx = screenX - canvas.width / 2;
-  const dy = canvas.height / 2 - screenY;
+    const dx = screenX - canvas.width / 2;
+    const dy = canvas.height / 2 - screenY;
 
-  const minDim = Math.min(canvas.width, canvas.height);
-  const oldScale = zoom / minDim;
+    const minDim = Math.min(canvas.width, canvas.height);
+    const oldScale = zoom / minDim;
 
-  const mX = panX + dx * oldScale;
-  const mY = panY + dy * oldScale;
+    const mX = panX + dx * oldScale;
+    const mY = panY + dy * oldScale;
 
-  const factor = Math.pow(1.0015, e.deltaY);
-  zoom *= factor;
+    const factor = Math.pow(1.0015, e.deltaY);
+    zoom *= factor;
 
-  const newScale = zoom / minDim;
-  panX = mX - dx * newScale;
-  panY = mY - dy * newScale;
+    const newScale = zoom / minDim;
+    panX = mX - dx * newScale;
+    panY = mY - dy * newScale;
 
-  updateUI();
-}, { passive: false });
+    updateUI();
+  },
+  { passive: false },
+);
 
 // Every canvas' *backing store* is sized to renderScale fraction of the
 // window's own pixels; its CSS size (100vw/100vh, set once in the

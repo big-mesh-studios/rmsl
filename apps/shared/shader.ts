@@ -1,6 +1,17 @@
 import {
-  float, Fn, If, uniform, varying, output,
-  attribute, bool, Node, vec2, vec3, vec4, builtinFragDepth,
+  float,
+  Fn,
+  If,
+  uniform,
+  varying,
+  output,
+  attribute,
+  bool,
+  Node,
+  vec2,
+  vec3,
+  vec4,
+  builtinFragDepth,
 } from "@random-mesh/rmsl";
 
 // === I/O declarations ===
@@ -38,11 +49,11 @@ export let calcColourAndDepth = Fn(() => {
   let rd = vec3().toVar();
 
   If(isOrthographic, () => {
-    rd.assign(vec3(
-      cameraViewMatrix.element(0).z,
-      cameraViewMatrix.element(1).z,
-      cameraViewMatrix.element(2).z,
-    ).negate().normalize());
+    rd.assign(
+      vec3(cameraViewMatrix.element(0).z, cameraViewMatrix.element(1).z, cameraViewMatrix.element(2).z)
+        .negate()
+        .normalize(),
+    );
     ro.assign(positionWorld);
   }).Else(() => {
     ro.assign(cameraPosition);
@@ -70,46 +81,60 @@ export let calcColourAndDepth = Fn(() => {
 
   If(isPerspective.and(ro.y.lessThan(0.0)), () => {
     colour.assign(skyColour);
-  }).ElseIf(isPerspective.and(rd.y.greaterThan(0.3)), () => {
-    colour.assign(skyColour);
-  }).ElseIf(isPerspective.and(rd.y.greaterThan(0.0)), () => {
-    let t = rd.y.div(0.03).clamp(0, 1);
-    colour.assign(horizSkyColour.mix(skyColour, t));
-  }).Else(() => {
-    let fadeFactor = float(1.0).toVar();
-    If(isOrthographic, () => {
-      fadeFactor.assign(rd.y.abs());
-    }).Else(() => {
-      fadeFactor.assign(float(1.0).sub(ro.y.div(float(8000.0))).clamp(0.0, 1.0));
-      fadeFactor.assign(fadeFactor.pow(3.0));
-    });
-    If(rd.y.abs().lessThan(0.0001), () => {
-      colour.assign(groundColour);
-    }).Else(() => {
-      let refDist = float(1.0).toVar();
+  })
+    .ElseIf(isPerspective.and(rd.y.greaterThan(0.3)), () => {
+      colour.assign(skyColour);
+    })
+    .ElseIf(isPerspective.and(rd.y.greaterThan(0.0)), () => {
+      let t = rd.y.div(0.03).clamp(0, 1);
+      colour.assign(horizSkyColour.mix(skyColour, t));
+    })
+    .Else(() => {
+      let fadeFactor = float(1.0).toVar();
       If(isOrthographic, () => {
-        refDist.assign(float(1.0).div(cameraProjectionMatrix.element(0).x.abs().max(float(0.001))));
+        fadeFactor.assign(rd.y.abs());
       }).Else(() => {
-        refDist.assign(cameraPosition.y.abs().mul(0.1).max(float(0.001)));
+        fadeFactor.assign(
+          float(1.0)
+            .sub(ro.y.div(float(8000.0)))
+            .clamp(0.0, 1.0),
+        );
+        fadeFactor.assign(fadeFactor.pow(3.0));
       });
-      let exponent = refDist.log().div(float(Math.log(10))).floor().clamp(-3, 6);
-      let minorSize = float(10.0).pow(exponent);
-      let g1 = getGrid(minorSize, p, pFWidth).toVar();
-      let g2 = getGrid(minorSize.mul(10.0), p, pFWidth).toVar();
-      let fc = vec4(1.0, 1.0, 1.0, g2.mix(g1, g1).mul(fadeFactor)).toVar();
-      let fca = fc.a.mul(0.5).mix(fc.a, g2);
-      If(fca.lessThanEqual(0.0), () => {
+      If(rd.y.abs().lessThan(0.0001), () => {
         colour.assign(groundColour);
       }).Else(() => {
-        colour.assign(groundColour.mix(gridColour, fca));
+        let refDist = float(1.0).toVar();
+        If(isOrthographic, () => {
+          refDist.assign(float(1.0).div(cameraProjectionMatrix.element(0).x.abs().max(float(0.001))));
+        }).Else(() => {
+          refDist.assign(cameraPosition.y.abs().mul(0.1).max(float(0.001)));
+        });
+        let exponent = refDist
+          .log()
+          .div(float(Math.log(10)))
+          .floor()
+          .clamp(-3, 6);
+        let minorSize = float(10.0).pow(exponent);
+        let g1 = getGrid(minorSize, p, pFWidth).toVar();
+        let g2 = getGrid(minorSize.mul(10.0), p, pFWidth).toVar();
+        let fc = vec4(1.0, 1.0, 1.0, g2.mix(g1, g1).mul(fadeFactor)).toVar();
+        let fca = fc.a.mul(0.5).mix(fc.a, g2);
+        If(fca.lessThanEqual(0.0), () => {
+          colour.assign(groundColour);
+        }).Else(() => {
+          colour.assign(groundColour.mix(gridColour, fca));
+        });
       });
     });
-  });
 
   If(rd.y.lessThan(-0.001), () => {
     let t = ro.y.negate().div(rd.y);
     let p = ro.add(rd.mul(t));
-    let clipPos = cameraProjectionMatrix.mul(cameraViewMatrix).mul(vec4(p.x, p.y, p.z, 1.0)).toVar();
+    let clipPos = cameraProjectionMatrix
+      .mul(cameraViewMatrix)
+      .mul(vec4(p.x, p.y, p.z, 1.0))
+      .toVar();
     let ndcZ = clipPos.z.div(clipPos.w);
     fragDepth.assign(ndcZ.mul(0.5).add(0.5));
   });
@@ -122,30 +147,50 @@ export let calcColourAndDepth = Fn(() => {
 export function mat4Perspective(fovY: number, aspect: number, near: number, far: number): Float32Array<ArrayBuffer> {
   let f = 1 / Math.tan(fovY / 2);
   let nf = 1 / (near - far);
-  return new Float32Array([
-    f / aspect, 0, 0, 0,
-    0, f, 0, 0,
-    0, 0, (far + near) * nf, -1,
-    0, 0, 2 * far * near * nf, 0,
-  ]);
+  return new Float32Array([f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0]);
 }
 
-export function mat4LookAt(eyeX: number, eyeY: number, eyeZ: number, cx: number, cy: number, cz: number, upX: number, upY: number, upZ: number): Float32Array<ArrayBuffer> {
-  let zx = eyeX - cx, zy = eyeY - cy, zz = eyeZ - cz;
+export function mat4LookAt(
+  eyeX: number,
+  eyeY: number,
+  eyeZ: number,
+  cx: number,
+  cy: number,
+  cz: number,
+  upX: number,
+  upY: number,
+  upZ: number,
+): Float32Array<ArrayBuffer> {
+  let zx = eyeX - cx,
+    zy = eyeY - cy,
+    zz = eyeZ - cz;
   let zl = Math.sqrt(zx * zx + zy * zy + zz * zz);
-  zx /= zl; zy /= zl; zz /= zl;
+  zx /= zl;
+  zy /= zl;
+  zz /= zl;
   let xx = upY * zz - upZ * zy;
   let xy = upZ * zx - upX * zz;
   let xz = upX * zy - upY * zx;
   let xl = Math.sqrt(xx * xx + xy * xy + xz * xz);
-  xx /= xl; xy /= xl; xz /= xl;
+  xx /= xl;
+  xy /= xl;
+  xz /= xl;
   let yx = zy * xz - zz * xy;
   let yy = zz * xx - zx * xz;
   let yz = zx * xy - zy * xx;
   return new Float32Array([
-    xx, yx, zx, 0,
-    xy, yy, zy, 0,
-    xz, yz, zz, 0,
+    xx,
+    yx,
+    zx,
+    0,
+    xy,
+    yy,
+    zy,
+    0,
+    xz,
+    yz,
+    zz,
+    0,
     -(xx * eyeX + xy * eyeY + xz * eyeZ),
     -(yx * eyeX + yy * eyeY + yz * eyeZ),
     -(zx * eyeX + zy * eyeY + zz * eyeZ),
@@ -154,10 +199,22 @@ export function mat4LookAt(eyeX: number, eyeY: number, eyeZ: number, cx: number,
 }
 
 export function mat4Inverse(m: Float32Array): Float32Array<ArrayBuffer> {
-  let a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3];
-  let a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7];
-  let a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11];
-  let a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15];
+  let a00 = m[0],
+    a01 = m[1],
+    a02 = m[2],
+    a03 = m[3];
+  let a10 = m[4],
+    a11 = m[5],
+    a12 = m[6],
+    a13 = m[7];
+  let a20 = m[8],
+    a21 = m[9],
+    a22 = m[10],
+    a23 = m[11];
+  let a30 = m[12],
+    a31 = m[13],
+    a32 = m[14],
+    a33 = m[15];
   let b00 = a00 * a11 - a01 * a10;
   let b01 = a00 * a12 - a02 * a10;
   let b02 = a00 * a13 - a03 * a10;

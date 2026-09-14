@@ -46,11 +46,7 @@ const color = new Color();
 for (let r = 0; r < rows; r++) {
   for (let c = 0; c < cols; c++) {
     const i = r * cols + c;
-    mesh.setMatrixAt(i, matrix.makeTranslation(
-      (c - cols / 2) * spacing,
-      (r - rows / 2) * spacing,
-      0,
-    ));
+    mesh.setMatrixAt(i, matrix.makeTranslation((c - cols / 2) * spacing, (r - rows / 2) * spacing, 0));
     // A per-instance color gradient instead of a flat material color.
     color.setRGB(c / cols, (cols - c) / cols, r / rows);
     mesh.setColorAt(i, color);
@@ -88,7 +84,11 @@ canvas.addEventListener("pointerdown", (e) => {
   isDragging = true;
   lastMX = e.clientX;
   lastMY = e.clientY;
-  try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  try {
+    canvas.setPointerCapture(e.pointerId);
+  } catch {
+    /* ignore */
+  }
 });
 canvas.addEventListener("pointermove", (e) => {
   if (!isDragging) return;
@@ -97,12 +97,18 @@ canvas.addEventListener("pointermove", (e) => {
   lastMX = e.clientX;
   lastMY = e.clientY;
 });
-const endDrag = () => { isDragging = false; };
+const endDrag = () => {
+  isDragging = false;
+};
 canvas.addEventListener("pointerup", endDrag);
 canvas.addEventListener("pointercancel", endDrag);
-canvas.addEventListener("wheel", (e) => {
-  radius = Math.max(8, Math.min(60, radius * (1 + e.deltaY * 0.001)));
-}, { passive: false });
+canvas.addEventListener(
+  "wheel",
+  (e) => {
+    radius = Math.max(8, Math.min(60, radius * (1 + e.deltaY * 0.001)));
+  },
+  { passive: false },
+);
 
 // === Render loop ===
 // Only the instance matrices change; the geometry and material stay put.

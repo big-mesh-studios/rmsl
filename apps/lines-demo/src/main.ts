@@ -12,8 +12,10 @@ import {
   WebGLRenderer,
   Scene,
   PerspectiveCamera,
-  LineSegments2, LineSegmentsGeometry,
-  Line2, LineGeometry,
+  LineSegments2,
+  LineSegmentsGeometry,
+  Line2,
+  LineGeometry,
   Line2NodeMaterial,
   Color,
 } from "@random-mesh/rmsl/scene";
@@ -36,13 +38,28 @@ window.addEventListener("resize", () => renderer.setSize(window.innerWidth, wind
 function boxEdges(size: number): number[] {
   const s = size / 2;
   const c = [
-    [-s, -s, -s], [s, -s, -s], [s, s, -s], [-s, s, -s],
-    [-s, -s, s], [s, -s, s], [s, s, s], [-s, s, s],
+    [-s, -s, -s],
+    [s, -s, -s],
+    [s, s, -s],
+    [-s, s, -s],
+    [-s, -s, s],
+    [s, -s, s],
+    [s, s, s],
+    [-s, s, s],
   ];
   const edges = [
-    [0, 1], [1, 2], [2, 3], [3, 0],
-    [4, 5], [5, 6], [6, 7], [7, 4],
-    [0, 4], [1, 5], [2, 6], [3, 7],
+    [0, 1],
+    [1, 2],
+    [2, 3],
+    [3, 0],
+    [4, 5],
+    [5, 6],
+    [6, 7],
+    [7, 4],
+    [0, 4],
+    [1, 5],
+    [2, 6],
+    [3, 7],
   ];
   const out: number[] = [];
   for (const [a, b] of edges) out.push(...c[a], ...c[b]);
@@ -76,12 +93,18 @@ function hueColor(h: number): [number, number, number] {
   const f = h * 6 - i;
   const q = 1 - f;
   switch (i % 6) {
-    case 0: return [1, f, 0];
-    case 1: return [q, 1, 0];
-    case 2: return [0, 1, f];
-    case 3: return [0, q, 1];
-    case 4: return [f, 0, 1];
-    default: return [1, 0, q];
+    case 0:
+      return [1, f, 0];
+    case 1:
+      return [q, 1, 0];
+    case 2:
+      return [0, 1, f];
+    case 3:
+      return [0, q, 1];
+    case 4:
+      return [f, 0, 1];
+    default:
+      return [1, 0, q];
   }
 }
 
@@ -150,7 +173,11 @@ canvas.addEventListener("pointerdown", (e) => {
   isDragging = true;
   lastMX = e.clientX;
   lastMY = e.clientY;
-  try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  try {
+    canvas.setPointerCapture(e.pointerId);
+  } catch {
+    /* ignore */
+  }
 });
 canvas.addEventListener("pointermove", (e) => {
   if (!isDragging) return;
@@ -159,12 +186,18 @@ canvas.addEventListener("pointermove", (e) => {
   lastMX = e.clientX;
   lastMY = e.clientY;
 });
-const endDrag = () => { isDragging = false; };
+const endDrag = () => {
+  isDragging = false;
+};
 canvas.addEventListener("pointerup", endDrag);
 canvas.addEventListener("pointercancel", endDrag);
-canvas.addEventListener("wheel", (e) => {
-  radius = Math.max(4, Math.min(30, radius * (1 + e.deltaY * 0.001)));
-}, { passive: false });
+canvas.addEventListener(
+  "wheel",
+  (e) => {
+    radius = Math.max(4, Math.min(30, radius * (1 + e.deltaY * 0.001)));
+  },
+  { passive: false },
+);
 
 // === UI ===
 function bindCheckbox(id: string, apply: (checked: boolean) => void): void {
@@ -185,18 +218,30 @@ function bindSlider(id: string, valueId: string, apply: (value: number) => void)
 }
 
 // Toggling these changes the shader, so the material's setters flag a rebuild.
-bindCheckbox("dashed", (checked) => { ringMaterial.dashed = checked; });
-bindCheckbox("worldUnits", (checked) => { helixMaterial.worldUnits = checked; });
-bindCheckbox("vertexColors", (checked) => { spokeMaterial.vertexColors = checked; });
+bindCheckbox("dashed", (checked) => {
+  ringMaterial.dashed = checked;
+});
+bindCheckbox("worldUnits", (checked) => {
+  helixMaterial.worldUnits = checked;
+});
+bindCheckbox("vertexColors", (checked) => {
+  spokeMaterial.vertexColors = checked;
+});
 
 // Widths and dash sizes are live material uniforms — no shader recompile.
 bindSlider("pixelWidth", "pixelWidthVal", (value) => {
   cubeMaterial.linewidth = value;
   ringMaterial.linewidth = value + 1;
 });
-bindSlider("worldWidth", "worldWidthVal", (value) => { helixMaterial.linewidth = value; });
-bindSlider("dashSize", "dashSizeVal", (value) => { ringMaterial.dashSize = value; });
-bindSlider("gapSize", "gapSizeVal", (value) => { ringMaterial.gapSize = value; });
+bindSlider("worldWidth", "worldWidthVal", (value) => {
+  helixMaterial.linewidth = value;
+});
+bindSlider("dashSize", "dashSizeVal", (value) => {
+  ringMaterial.dashSize = value;
+});
+bindSlider("gapSize", "gapSizeVal", (value) => {
+  ringMaterial.gapSize = value;
+});
 
 // === Render loop ===
 renderer.setAnimationLoop((time) => {

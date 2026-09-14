@@ -1,10 +1,17 @@
 import { compileWGSL } from "@random-mesh/rmsl";
 import {
-  vertexMain, calcColourAndDepth,
-  quadPos, cameraProjectionMatrix, cameraViewMatrix,
-  cameraProjectionMatrixInverse, cameraWorldMatrix, cameraPosition,
+  vertexMain,
+  calcColourAndDepth,
+  quadPos,
+  cameraProjectionMatrix,
+  cameraViewMatrix,
+  cameraProjectionMatrixInverse,
+  cameraWorldMatrix,
+  cameraPosition,
   quadVerts,
-  mat4Perspective, mat4LookAt, mat4Inverse,
+  mat4Perspective,
+  mat4LookAt,
+  mat4Inverse,
 } from "../../shared/shader";
 
 // === Compile shaders ===
@@ -27,11 +34,7 @@ function getViewMatrix(): Float32Array<ArrayBuffer> {
 }
 
 function getCameraPosition(): [number, number, number] {
-  return [
-    radius * Math.sin(theta) * Math.cos(phi),
-    radius * Math.sin(phi),
-    radius * Math.cos(theta) * Math.cos(phi),
-  ];
+  return [radius * Math.sin(theta) * Math.cos(phi), radius * Math.sin(phi), radius * Math.cos(theta) * Math.cos(phi)];
 }
 
 // === WebGPU setup ===
@@ -78,11 +81,11 @@ let vertexBuffer = device.createBuffer({
 device.queue.writeBuffer(vertexBuffer, 0, quadVerts);
 
 let uniformSizes = [64, 64, 64, 64, 16];
-let uniformBuffers = uniformSizes.map(size =>
+let uniformBuffers = uniformSizes.map((size) =>
   device.createBuffer({
     size,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-  })
+  }),
 );
 
 let bindGroupLayout = device.createBindGroupLayout({
@@ -108,14 +111,18 @@ let pipeline = device.createRenderPipeline({
   vertex: {
     module: vertexModule,
     entryPoint: "main",
-    buffers: [{
-      arrayStride: 8,
-      attributes: [{
-        shaderLocation: 0,
-        offset: 0,
-        format: "float32x2",
-      }],
-    }],
+    buffers: [
+      {
+        arrayStride: 8,
+        attributes: [
+          {
+            shaderLocation: 0,
+            offset: 0,
+            format: "float32x2",
+          },
+        ],
+      },
+    ],
   },
   fragment: {
     module: fragmentModule,
@@ -220,12 +227,14 @@ function render() {
 
   let commandEncoder = device.createCommandEncoder();
   let renderPass = commandEncoder.beginRenderPass({
-    colorAttachments: [{
-      view: context!.getCurrentTexture().createView(),
-      clearValue: { r: 0, g: 0, b: 0, a: 1 },
-      loadOp: "clear",
-      storeOp: "store",
-    }],
+    colorAttachments: [
+      {
+        view: context!.getCurrentTexture().createView(),
+        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+        loadOp: "clear",
+        storeOp: "store",
+      },
+    ],
     depthStencilAttachment: {
       view: depthTexture.createView(),
       depthClearValue: 1.0,

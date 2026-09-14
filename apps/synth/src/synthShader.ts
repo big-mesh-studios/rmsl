@@ -1,10 +1,10 @@
 import { float, Fn, fragCoord, If, int, Node, TWO_PI, uniform } from "@random-mesh/rmsl";
 
-export let u_freq = uniform("float");
-export let u_startPhase = uniform("float"); // phase [0,1) at sample/vertex index 0
-export let u_sampleRate = uniform("float");
-export let u_waveform = uniform("int"); // 0 sine, 1 saw, 2 square, 3 triangle
-export let u_gain = uniform("float"); // part of the shared graph, not a post-multiply either side applies on its own
+export const u_freq = uniform("float");
+export const u_startPhase = uniform("float"); // phase [0,1) at sample/vertex index 0
+export const u_sampleRate = uniform("float");
+export const u_waveform = uniform("int"); // 0 sine, 1 saw, 2 square, 3 triangle
+export const u_gain = uniform("float"); // part of the shared graph, not a post-multiply either side applies on its own
 
 /**
  * One sample of a band-naive oscillator at `sampleIndex` samples after
@@ -29,10 +29,10 @@ export function oscillatorSample(
   waveform: Node<"int">,
   gain: Node<"float">,
 ): Node<"float"> {
-  let phase = startPhase.add(sampleIndex.mul(freq).div(sampleRate)).toVar();
+  const phase = startPhase.add(sampleIndex.mul(freq).div(sampleRate)).toVar();
   phase.assign(phase.sub(phase.floor())); // wrap to [0, 1)
 
-  let sample = float(0.0).toVar();
+  const sample = float(0.0).toVar();
 
   If(waveform.equal(int(0)), () => {
     sample.assign(phase.mul(TWO_PI).sin());
@@ -49,7 +49,7 @@ export function oscillatorSample(
     })
     .Else(() => {
       // triangle
-      let t = phase.mul(2.0).toVar(); // 0 -> 2
+      const t = phase.mul(2.0).toVar(); // 0 -> 2
       If(t.lessThan(1.0), () => {
         sample.assign(t.mul(2.0).sub(1.0));
       }).Else(() => {
@@ -67,7 +67,7 @@ export function oscillatorSample(
  * advances `u_startPhase` by this block's length between calls — the
  * oscillator's only persistent state lives on the host, not in the shader.
  */
-export let synthCpu = Fn(() => {
-  let sampleIndex = fragCoord().x.sub(0.5).toVar(); // undo draw()'s pixel-center (+0.5) offset
+export const synthCpu = Fn(() => {
+  const sampleIndex = fragCoord().x.sub(0.5).toVar(); // undo draw()'s pixel-center (+0.5) offset
   return oscillatorSample(sampleIndex, u_startPhase, u_freq, u_sampleRate, u_waveform, u_gain);
 });

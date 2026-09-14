@@ -54,9 +54,7 @@ export class BloomExecutor {
     for (const pass of this.graph.passes) {
       const first = Object.entries(pass.inputs)[0];
       const firstKey = first[0];
-      const firstSize = firstKey === "input"
-        ? [input.sceneWidth, input.sceneHeight]
-        : this.sizeOf(firstKey);
+      const firstSize = firstKey === "input" ? [input.sceneWidth, input.sceneHeight] : this.sizeOf(firstKey);
       const w = pass.size ? pass.size[0] : Math.max(1, Math.round(firstSize[0] * (pass.scale ?? 1)));
       const h = pass.size ? pass.size[1] : Math.max(1, Math.round(firstSize[1] * (pass.scale ?? 1)));
 

@@ -61,7 +61,11 @@ if (gl) {
   // The vertex's position in the sweep never changes — just 0..N-1, once.
   const indexBuffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, indexBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, Float32Array.from({ length: SCOPE_VERTEX_COUNT }, (_, i) => i), gl.STATIC_DRAW);
+  gl.bufferData(
+    gl.ARRAY_BUFFER,
+    Float32Array.from({ length: SCOPE_VERTEX_COUNT }, (_, i) => i),
+    gl.STATIC_DRAW,
+  );
   glIndexLoc = gl.getAttribLocation(glProgram, a_index.name);
   gl.enableVertexAttribArray(glIndexLoc);
   gl.vertexAttribPointer(glIndexLoc, 1, gl.FLOAT, false, 0, 0);
