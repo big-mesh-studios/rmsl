@@ -90,7 +90,7 @@ function writeArrayToMemory(
   elementStride: number,
   narrow?: boolean,
 ): void {
-  const kind = elementKindOf(shaderType);
+  const kind = isAggregate(shaderType) ? elementKindOf(shaderType) : scalarKindOf(shaderType);
   const compSize = narrow && kind === "float" ? 4 : componentSizeOf(kind);
   const width = componentCountOf(shaderType);
   const arr = value as ArrayLike<any>;
@@ -140,7 +140,8 @@ case "uniformArray": {
   if (uniformArrayInfo.has(node.value.slot)) break;
   const shaderType = node.value.shaderType as string;
   const length = node.value.length as number;
-  const elementSize = componentCountOf(shaderType) * componentSizeOf(elementKindOf(shaderType));
+  const elementSize =
+    componentCountOf(shaderType) * componentSizeOf(isAggregate(shaderType) ? elementKindOf(shaderType) : scalarKindOf(shaderType));
   if (options.gpuUniformLayout?.offsets[node.value.slot] !== undefined) {
     throw new Error("[RMSL] compileWasmFn: GPU-placed uniform arrays are not implemented yet");
   }
@@ -168,7 +169,8 @@ case "uniformArrayElement": {
   if (info === undefined) {
     throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed uniform array "${node.params[0].value.slot}"`);
   }
-  const kind = elementKindOf(node._t as string);
+  const type = node._t as string;
+  const kind = isAggregate(type) ? elementKindOf(type) : scalarKindOf(type);
   const index = node.params[1];
   const indexBytes =
     scalarKindOf(index._t as string) === "float"
@@ -320,9 +322,9 @@ git commit -m "Materialize aggregate uniform array elements into a scratch addre
 
 - Test: `src/backends/rmsl-wasm.test.ts`
 
-The conversion itself already landed in Task 1/2 (`i32.trunc_f64_s`); this task pins it and the bool element kind.
+The conversion landed in Tasks 1/2 (`i32.trunc_f64_s`), and the kind-selection fix (with its bool regression test) landed with the Task 1 quality-fix commit; this task pins the float-index conversion.
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Write the failing test**
 
 Add to the `"WASM backend: uniform arrays"` describe:
 
@@ -336,22 +338,14 @@ it("converts a plain-number (float) index", () => {
   const fn = compileWasm(build, { name: "main", params: [] });
   expect(fn({ uniforms: { [arr.name]: [10, 20, 30, 40] } })).toBe(30);
 });
-
-it("reads a bool uniform array element", () => {
-  let arr!: any;
-  const build = () => {
-    arr = uniformArray("bool", 4);
-    return arr.element(int(1));
-  };
-  const fn = compileWasm(build, { name: "main", params: [] });
-  expect(fn({ uniforms: { [arr.name]: [true, false, true, false] } })).toBe(false);
-});
 ```
+
+The bool-element regression test already exists (added with the Task 1 kind-selection fix) — do not duplicate it.
 
 - [ ] **Step 2: Run to verify it passes**
 
 Run: `pnpm vitest run src/backends/rmsl-wasm.test.ts`
-Expected: PASS — `2.0` truncates to `2` (reads `30`); bool is stored/read as i32 0/1 and the `"bool"` result comes back via `compileWasm`'s `result !== 0`.
+Expected: PASS — `2.0` truncates to `2` (reads `30`). Also confirm the existing bool-element test (uniformArray of type `bool`) still passes.
 
 - [ ] **Step 3: Commit**
 
