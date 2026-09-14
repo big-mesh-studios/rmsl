@@ -993,6 +993,37 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
     expect(result.value).toBe(42);
   });
 
+  it("writes int and bool scalar outputs with their own kind", () => {
+    const build = () =>
+      Fn(() => {
+        const nOut = output("int");
+        const bOut = output("bool");
+        nOut.assign(int(7));
+        bOut.assign(bool(true));
+        return float(1);
+      })();
+    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const result = fn({}) as any;
+    const values = Object.values(result.outputs as Record<string, unknown>);
+    expect(values).toContainEqual(7);
+    expect(values).toContainEqual(true);
+    expect(result.value).toBe(1);
+  });
+
+  it("writes a scalar int varying in a vertex stage with its own kind", () => {
+    const build = () =>
+      Fn(() => {
+        const v = varying("int");
+        v.assign(int(9));
+        const p = builtinPosition();
+        p.assign(vec4(0, 0, 0, 1));
+        return p;
+      })();
+    const fn = compileWasm(build as any, { name: "main", params: [], stage: "vertex" });
+    const result = fn({}) as any;
+    expect(Object.values(result.varyings as Record<string, unknown>)).toEqual([9]);
+  });
+
   it("writes position and a varying in a vertex stage, matching compileJS's own test", () => {
     const build = () =>
       Fn(() => {

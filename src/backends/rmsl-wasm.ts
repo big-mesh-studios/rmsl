@@ -131,7 +131,8 @@ const TEXTURE_META_STRIDE = 44;
  */
 const PACKED_RULES: AllocRules = {
   sizeAndAlignOf(type) {
-    return { size: componentCountOf(type) * componentSizeOf(elementKindOf(type)), align: 1 };
+    const kind = isAggregate(type) ? elementKindOf(type) : scalarKindOf(type);
+    return { size: componentCountOf(type) * componentSizeOf(kind), align: 1 };
   },
   reorderByAlignment: false,
   structAlignMinimum: 1,
@@ -2727,7 +2728,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         }
 
         if (!isAggregate(targetType)) {
-          return storeComponent(destAddr, elementKindOf(targetType), 0, walkExpr(rhs));
+          return storeComponent(destAddr, scalarKindOf(targetType), 0, walkExpr(rhs));
         }
         const kind = elementKindOf(targetType);
         const compSize = componentSizeOf(kind);
