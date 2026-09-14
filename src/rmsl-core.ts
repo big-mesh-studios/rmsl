@@ -323,13 +323,13 @@ export interface NodeOps {
   bvec3: BoolVecOps<"bvec3">;
   bvec4: BoolVecOps<"bvec4">;
   mat2: MatOps<"mat2", "vec2">;
-  mat2x3: RectMatOps<"vec2", "vec3", "mat3x2">;
-  mat2x4: RectMatOps<"vec2", "vec4", "mat4x2">;
-  mat3x2: RectMatOps<"vec3", "vec2", "mat2x3">;
+  mat2x3: RectMatOps<"mat2x3", "vec2", "vec3", "mat3x2">;
+  mat2x4: RectMatOps<"mat2x4", "vec2", "vec4", "mat4x2">;
+  mat3x2: RectMatOps<"mat3x2", "vec3", "vec2", "mat2x3">;
   mat3: MatOps<"mat3", "vec3", "vec2">;
-  mat3x4: RectMatOps<"vec3", "vec4", "mat4x3">;
-  mat4x2: RectMatOps<"vec4", "vec2", "mat2x4">;
-  mat4x3: RectMatOps<"vec4", "vec3", "mat3x4">;
+  mat3x4: RectMatOps<"mat3x4", "vec3", "vec4", "mat4x3">;
+  mat4x2: RectMatOps<"mat4x2", "vec4", "vec2", "mat2x4">;
+  mat4x3: RectMatOps<"mat4x3", "vec4", "vec3", "mat3x4">;
   mat4: MatOps<"mat4", "vec4", "vec3">;
   sampler2D: SamplerOps;
   sampler3D: Sampler3DOps;
@@ -468,8 +468,35 @@ export interface Vec3Ops {
  * ordinary "transform a position" multiply, so they are spelled `mul` like any
  * other vector multiply rather than a method of their own.
  */
-export interface MatOps<Self extends ShaderType, Vec extends ShaderType, Shorter extends ShaderType = never> {
-  mul(other: Node<Self>): Node<Self>;
+export type MatrixType = "mat2" | "mat3" | "mat4" | "mat2x3" | "mat2x4" | "mat3x2" | "mat3x4" | "mat4x2" | "mat4x3";
+
+type MatrixColumns<M extends MatrixType> = M extends `mat${infer C}x${string}`
+  ? C extends `${infer N extends number}`
+    ? N
+    : never
+  : M extends `mat${infer N extends number}`
+    ? N
+    : never;
+
+type MatrixRows<M extends MatrixType> = M extends `mat${string}x${infer R}`
+  ? R extends `${infer N extends number}`
+    ? N
+    : never
+  : M extends `mat${infer N extends number}`
+    ? N
+    : never;
+
+type MatName<C extends number, R extends number> = C extends R ? `mat${C}` : `mat${C}x${R}`;
+
+/** The result type of a matCxR times a matC2xR2, or `never` when the shapes don't meet. */
+export type MatrixProduct<A extends MatrixType, B extends MatrixType> =
+  MatrixColumns<A> extends MatrixRows<B> ? MatName<MatrixColumns<B>, MatrixRows<A>> : never;
+
+type MatMulResult<Self extends MatrixType, O extends MatrixType> =
+  MatrixProduct<Self, O> extends infer P ? (P extends ShaderType ? Node<P> : never) : never;
+
+export interface MatOps<Self extends MatrixType, Vec extends ShaderType, Shorter extends ShaderType = never> {
+  mul<O extends MatrixType>(other: Node<O>): MatMulResult<Self, O>;
   mul(other: Node<Vec>): Node<Vec>;
   mul(other: Node<Shorter>): Node<Shorter>;
   element(i: IntLike): Node<Vec>;
@@ -490,7 +517,13 @@ export interface MatOps<Self extends ShaderType, Vec extends ShaderType, Shorter
  * conditional that resolves to a `Node` makes the checker expand the whole
  * intersection at every use, which is what exhausted its heap before.
  */
-export interface RectMatOps<Operand extends ShaderType, Column extends ShaderType, Transposed extends ShaderType> {
+export interface RectMatOps<
+  Self extends MatrixType,
+  Operand extends ShaderType,
+  Column extends ShaderType,
+  Transposed extends ShaderType,
+> {
+  mul<O extends MatrixType>(other: Node<O>): MatMulResult<Self, O>;
   mul(other: Node<Operand>): Node<Column>;
   element(i: IntLike): Node<Column>;
   transpose(): Node<Transposed>;
@@ -771,6 +804,24 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
           `the matrix's column width or one fewer component (a position with its ` +
           `homogeneous coordinate implied).`,
       );
+    }
+    let otherShape = typeof otherType === "string" ? MATRIX_DIMENSIONS[otherType] : undefined;
+    if (shape !== undefined && otherShape !== undefined) {
+      let [c1, r1] = shape;
+      let [c2, r2] = otherShape;
+      if (c1 !== r2) {
+        throw new Error(
+          `[RMSL] A ${this._t} cannot multiply a ${otherType}: the left has ${c1} ` +
+            `column(s) but the right has ${r2} row(s), and a matrix product needs ` +
+            `the left's columns to equal the right's rows.`,
+        );
+      }
+      let resultType = c2 === r1 ? `mat${c2}` : `mat${c2}x${r1}`;
+      return node({
+        _t: resultType,
+        type: "mul",
+        params: [this as BaseNode<ShaderType>, wrapValue(other) as BaseNode<ShaderType>],
+      });
     }
     return op("mul", this, other);
   }

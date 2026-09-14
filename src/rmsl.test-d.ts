@@ -333,6 +333,19 @@ describe("TSL free-function API", () => {
     expectTypeOf(uniform("mat4").mul(uniform("mat4"))).toEqualTypeOf<Node<"mat4">>();
   });
 
+  it("types a matrix times a matrix by the column/row product", () => {
+    expectTypeOf(uniform("mat2x3").mul(uniform("mat3x2"))).toEqualTypeOf<Node<"mat3">>();
+    expectTypeOf(uniform("mat3x2").mul(uniform("mat2x3"))).toEqualTypeOf<Node<"mat2">>();
+    expectTypeOf(uniform("mat2").mul(uniform("mat3x2"))).toEqualTypeOf<Node<"mat3x2">>();
+    expectTypeOf(uniform("mat4").mul(uniform("mat2x4"))).toEqualTypeOf<Node<"mat2x4">>();
+    expectTypeOf(uniform("mat2x4").mul(uniform("mat4x2"))).toEqualTypeOf<Node<"mat4">>();
+    expectTypeOf(uniform("mat4").mul(uniform("mat4"))).toEqualTypeOf<Node<"mat4">>();
+  });
+
+  it("rejects a matrix product whose shapes do not meet", () => {
+    expectTypeOf(uniform("mat2x3").mul(uniform("mat2x4"))).toEqualTypeOf<never>();
+  });
+
   it("types stpq swizzles by the source type", () => {
     expectTypeOf(vec4(1, 2, 3, 4).stpq).toEqualTypeOf<Node<"vec4">>();
     expectTypeOf(vec4(1, 2, 3, 4).st).toEqualTypeOf<Node<"vec2">>();

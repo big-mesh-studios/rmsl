@@ -1083,6 +1083,26 @@ describe("RMSL", () => {
     expect(compileGLSL(Fn(() => m.mul(v).toVar())())).toContain("*");
   });
 
+  it("a matCxR times a matRxS types at the product shape", () => {
+    let product = mat2x3(1, 0, 0, 1, 0, 0).mul(mat3x2(1, 0, 0, 1, 0, 0));
+    expect(product._t).toBe("mat3");
+  });
+
+  it("rejects a matrix product whose shapes do not meet", () => {
+    let a = mat2x3(1, 0, 0, 1, 0, 0);
+    let b = mat2x4(1, 0, 0, 1, 0, 0, 0, 0);
+    expect(() => (a as any).mul(b)).toThrow(/mat2x3.*mat2x4|column.*row/);
+  });
+
+  it("a non-square matrix product compiles to GLSL and WGSL at the product type", () => {
+    let a = uniform("mat2x3");
+    let b = uniform("mat3x2");
+    let glsl = compileGLSL(Fn(() => a.mul(b).toVar())());
+    let wgsl = compileWGSL(Fn(() => a.mul(b).toVar())());
+    expect(glsl).toContain("mat3");
+    expect(wgsl).toContain("mat3x3<f32>");
+  });
+
   // -- IntOps --
   it.each([
     ["add", 8],
