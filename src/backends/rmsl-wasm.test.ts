@@ -136,6 +136,44 @@ describe("WASM backend: scalar arithmetic", () => {
   });
 });
 
+describe("WASM backend: uniform arrays", () => {
+  it("reads a vec4 uniform array element by a constant index", () => {
+    let arr!: any;
+    const build = () => {
+      arr = uniformArray("vec4", 4);
+      return arr.element(int(2)).x;
+    };
+    const fn = compileWasm(build, { name: "main", params: [] });
+    const values = [
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [7, 8, 9, 10],
+      [0, 0, 0, 0],
+    ];
+    expect(fn({ uniforms: { [arr.name]: values } })).toBe(7);
+  });
+
+  it("lets a uniform array element back a toVar()", () => {
+    let arr!: any;
+    const build = () => {
+      arr = uniformArray("vec3", 3);
+      return Fn(() => arr.element(int(1)).toVar().x)();
+    };
+    const fn = compileWasm(build, { name: "main", params: [] });
+    expect(
+      fn({
+        uniforms: {
+          [arr.name]: [
+            [1, 2, 3],
+            [4, 5, 6],
+            [7, 8, 9],
+          ],
+        },
+      }),
+    ).toBe(4);
+  });
+});
+
 describe("WASM backend: div, mod, min, max, sign, abs, round-trip", () => {
   it("divides and mods floats, floored", () => {
     expect(run((a, b) => a.div(b), [7, 2])).toBe(3.5);

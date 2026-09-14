@@ -490,6 +490,7 @@ function isScratchNode(node: any): boolean {
   const t = node._t as string;
   if (!isAggregate(t)) return false;
   if (node.type === "construct") return true;
+  if (node.type === "uniformArrayElement") return true;
   if (node.type === t) return true;
   if (node.type === "swizzle" && (node.value as string).length > 1) return true;
   if (node.type === "cross" || node.type === "reflect" || node.type === "normalize" || node.type === "matVecMul")
@@ -1353,6 +1354,31 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       case "uniform": {
         const rawAddr = gpuRawUniformAddress.get(node.value.slot); // host f32 region: promote it on read
         return rawAddr === undefined ? [] : emitGpuUniformPromote(node, nodeAddress(node), rawAddr);
+      }
+      case "uniformArrayElement": {
+        const info = uniformArrayInfo.get(node.params[0].value.slot);
+        if (info === undefined) {
+          throw new Error(
+            `[RMSL] compileWasmFn: internal error, unaddressed uniform array "${node.params[0].value.slot}"`,
+          );
+        }
+        const kind = elementKindOf(node._t as string);
+        const compSize = componentSizeOf(kind);
+        const width = componentCountOf(node._t as string);
+        const index = node.params[1];
+        const indexBytes =
+          scalarKindOf(index._t as string) === "float" ? [...walkExpr(index), WASM_OP.i32TruncF64S] : walkExpr(index);
+        const baseAddr = nodeAddress(node);
+        const out: number[] = [];
+        for (let k = 0; k < width; k++) {
+          const addrBytes = [
+            ...uniformArrayElementAddress(info.base, info.elementStride, indexBytes),
+            ...i32ConstBytes(k * compSize),
+            WASM_OP.i32Add,
+          ];
+          out.push(...storeComponent(baseAddr, kind, k * compSize, loadDynamic(addrBytes, kind)));
+        }
+        return out;
       }
       case "attribute":
       case "fragCoord":
