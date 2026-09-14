@@ -531,7 +531,7 @@ JsShaderResult` — same call signature as `compileJS`. A plain
 
 **What throws today** (deliberately — see the Phase list below for when each
 lands): non-square or mismatched-shape matrix×matrix multiply,
-`uniformArray`, cube-map sampling, and multi-return.
+cube-map sampling, and multi-return.
 `compileWasmFn` throws `[RMSL] compileWasmFn: unsupported node type in
 <expr|vector|statement> position: "<type>"` naming exactly what's missing,
 which is also the fastest way to find the next thing worth doing here.
@@ -916,9 +916,11 @@ four now work in both scalar and componentwise vector form, verified by
 `rmsl-wasm.test.ts`'s dedicated test block and by Phase 7's cross-backend
 recording (`npx vitest run src/rmsl-js.test.ts src/rmsl-eval.test.ts`),
 whose `[shader-eval] WASM: N of 79 ... not yet supported` count dropped
-from 17 to 3 as a direct result — the remaining 3 are `uniformArray`/
-non-square matrix multiply cases, still open per "What throws today"
-above.
+from 17 to 3 as a direct result — the remaining 3 are the non-square
+matrix multiply cases, still open per "What throws today" above.
+(`uniformArray` was expected to be among those gaps but no recorded
+program exercised it; it has since landed for the WASM backend anyway —
+see `docs/superpowers/specs/2026-09-14-uniform-array-wasm-design.md`.)
 
 ### Phase 8 — tooling and docs
 
