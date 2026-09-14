@@ -1,7 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
-  BoxGeometry, SphereGeometry, PlaneGeometry, CylinderGeometry,
-  ConeGeometry, TorusGeometry, CircleGeometry, BufferGeometry,
+  BoxGeometry,
+  SphereGeometry,
+  PlaneGeometry,
+  CylinderGeometry,
+  ConeGeometry,
+  TorusGeometry,
+  CircleGeometry,
+  BufferGeometry,
 } from "./index";
 
 describe("geometry disposal", () => {
@@ -31,7 +37,9 @@ describe("geometry primitives", () => {
   it("box positions respect the requested size", () => {
     const geo = new BoxGeometry(2, 4, 6);
     const pos = geo.attributes.position!;
-    let maxX = 0, maxY = 0, maxZ = 0;
+    let maxX = 0,
+      maxY = 0,
+      maxZ = 0;
     for (let i = 0; i < pos.count; i++) {
       maxX = Math.max(maxX, Math.abs(pos.getX(i)));
       maxY = Math.max(maxY, Math.abs(pos.getY(i)));
@@ -64,7 +72,10 @@ describe("geometry primitives", () => {
   it("plane lies in the XY plane at z = 0 and is centered on the origin", () => {
     const geo = new PlaneGeometry(2, 3);
     const pos = geo.attributes.position!;
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    let minX = Infinity,
+      maxX = -Infinity,
+      minY = Infinity,
+      maxY = -Infinity;
     for (let i = 0; i < pos.count; i++) {
       expect(pos.getZ(i)).toBe(0);
       minX = Math.min(minX, pos.getX(i));

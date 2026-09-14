@@ -7,8 +7,16 @@ lights, geometry primitives, math classes) and — the headline feature —
 WGSL by the same compiler the rest of the library uses.
 
 ```typescript
-import { WebGLRenderer, Scene, Mesh, PerspectiveCamera,
-  BoxGeometry, MeshStandardMaterial, AmbientLight, DirectionalLight } from "@random-mesh/rmsl/scene";
+import {
+  WebGLRenderer,
+  Scene,
+  Mesh,
+  PerspectiveCamera,
+  BoxGeometry,
+  MeshStandardMaterial,
+  AmbientLight,
+  DirectionalLight,
+} from "@random-mesh/rmsl/scene";
 
 const renderer = new WebGLRenderer();
 renderer.setClearColor(0x101318);
@@ -75,7 +83,7 @@ rebuild.
 ```typescript
 const material = new MeshStandardMaterial({ color: 0xeeeeee, precision: "mediump" });
 // or, later:
-material.precision = "lowp";  // needsUpdate is set for you
+material.precision = "lowp"; // needsUpdate is set for you
 ```
 
 ### Built-in accessors
@@ -84,15 +92,15 @@ Inside a slot (or an escape-hatch function) the `Builder` (`b`) exposes the
 values a scene material needs, resolving them to ordinary RMSL
 attribute/uniform/varying nodes:
 
-| Accessor | Kind | Meaning |
-|----------|------|---------|
-| `b.position`, `b.normal`, `b.uv` | attribute | geometry inputs |
-| `b.positionWorld`, `b.normalWorld` | varying | world space, from the vertex stage |
-| `b.cameraPosition` | uniform | camera position (world) |
-| `b.projectionMatrix`, `b.viewMatrix` | uniform | camera matrices |
-| `b.modelMatrix`, `b.normalMatrix` | uniform | object matrices |
-| `b.modelViewMatrix` | computed | `viewMatrix * modelMatrix` |
-| `b.viewDirection` | computed | normalized direction to the camera |
+| Accessor                             | Kind      | Meaning                            |
+| ------------------------------------ | --------- | ---------------------------------- |
+| `b.position`, `b.normal`, `b.uv`     | attribute | geometry inputs                    |
+| `b.positionWorld`, `b.normalWorld`   | varying   | world space, from the vertex stage |
+| `b.cameraPosition`                   | uniform   | camera position (world)            |
+| `b.projectionMatrix`, `b.viewMatrix` | uniform   | camera matrices                    |
+| `b.modelMatrix`, `b.normalMatrix`    | uniform   | object matrices                    |
+| `b.modelViewMatrix`                  | computed  | `viewMatrix * modelMatrix`         |
+| `b.viewDirection`                    | computed  | normalized direction to the camera |
 
 ### Escape hatches
 
@@ -110,7 +118,7 @@ material.fragmentNode = (b) => Fn(() => vec4(b.uv.x, b.uv.y, 0.5, 1))();
 `material.build(scene)` compiles the graph and returns a `MaterialProgram`:
 the vertex and fragment roots plus the exact set of uniforms, attributes,
 varyings and sampler bindings the compiled shaders reference — filtered to what
-is *actually used*, which is also what the compilers emit. The renderers use
+is _actually used_, which is also what the compilers emit. The renderers use
 this to bind geometry attributes, upload uniforms (grouped by scope: camera,
 object, material) and build the WebGPU uniform-buffer layout.
 
@@ -154,9 +162,9 @@ three.js texture means the same thing here:
 import { DataTexture, NearestFilter, RepeatWrapping } from "@random-mesh/rmsl/scene";
 
 const texture = new DataTexture(pixels, 16, 16);
-texture.magFilter = NearestFilter;   // square texels, for pixel art
+texture.magFilter = NearestFilter; // square texels, for pixel art
 texture.minFilter = NearestFilter;
-texture.wrapS = RepeatWrapping;      // the image tiles past 1
+texture.wrapS = RepeatWrapping; // the image tiles past 1
 texture.wrapT = RepeatWrapping;
 ```
 
@@ -190,7 +198,7 @@ Three things to know:
 A renderer creates the GPU texture behind a `Texture` the first time it draws
 with it, and uploads the image again on the next render whenever
 `needsUpdate` is set, at a new size if the image changed shape. Pointing a
-material at a *different* `Texture` object instead needs
+material at a _different_ `Texture` object instead needs
 `material.needsUpdate = true`, so the renderer rebuilds what the shader reads
 from.
 
@@ -249,8 +257,15 @@ WebGL2 and WebGPU renderers (the shaders are node graphs, so they compile to
 GLSL and WGSL from the same material):
 
 ```typescript
-import { Scene, PerspectiveCamera, LineSegments2, LineSegmentsGeometry,
-  Line2NodeMaterial, Line2, LineGeometry } from "@random-mesh/rmsl/scene";
+import {
+  Scene,
+  PerspectiveCamera,
+  LineSegments2,
+  LineSegmentsGeometry,
+  Line2NodeMaterial,
+  Line2,
+  LineGeometry,
+} from "@random-mesh/rmsl/scene";
 
 const scene = new Scene();
 
@@ -262,8 +277,10 @@ const segments = new LineSegments2(
 scene.add(segments);
 
 // A polyline built from consecutive points.
-const line = new Line2(new LineGeometry([-2, -1, 0, 0, 0, 0, 2, -1, 0]),
-  new Line2NodeMaterial({ color: 0xff8833, linewidth: 2, worldUnits: true }));
+const line = new Line2(
+  new LineGeometry([-2, -1, 0, 0, 0, 0, 2, -1, 0]),
+  new Line2NodeMaterial({ color: 0xff8833, linewidth: 2, worldUnits: true }),
+);
 scene.add(line);
 ```
 
@@ -283,7 +300,7 @@ scene.add(line);
 
 ### How the wide-line shader works
 
-Each segment is an *instance*: the geometry stores `instanceStart`/`instanceEnd`
+Each segment is an _instance_: the geometry stores `instanceStart`/`instanceEnd`
 (vec3, `stepMode: "instance"`) per segment, and the material expands the shared
 quad strip into a screen- or world-width ribbon in the vertex stage, then
 discards fragments outside the line (round endcaps, dashes, world-units
@@ -301,9 +318,17 @@ a large crowd of identical objects in one draw call. Like three.js, the
 per-instance data lives on the **object**, not the geometry:
 
 ```typescript
-import { Scene, PerspectiveCamera, InstancedMesh, BoxGeometry,
-  MeshStandardMaterial, Matrix4, Color, AmbientLight, DirectionalLight }
-  from "@random-mesh/rmsl/scene";
+import {
+  Scene,
+  PerspectiveCamera,
+  InstancedMesh,
+  BoxGeometry,
+  MeshStandardMaterial,
+  Matrix4,
+  Color,
+  AmbientLight,
+  DirectionalLight,
+} from "@random-mesh/rmsl/scene";
 
 const scene = new Scene();
 scene.add(new AmbientLight(0xffffff, 0.25));
@@ -311,13 +336,12 @@ const sun = new DirectionalLight(0xfff3e0, 2);
 sun.position.set(4, 8, 6);
 scene.add(sun);
 
-const mesh = new InstancedMesh(new BoxGeometry(0.4, 0.4, 0.4),
-  new MeshStandardMaterial({ roughness: 0.3 }), 100);
+const mesh = new InstancedMesh(new BoxGeometry(0.4, 0.4, 0.4), new MeshStandardMaterial({ roughness: 0.3 }), 100);
 
 // One matrix per instance; the instance transform applies before the mesh's
 // own world transform. After editing, flag the update like three.js.
 for (let i = 0; i < mesh.count; i++) {
-  mesh.setMatrixAt(i, new Matrix4().makeTranslation((i % 10 - 5) * 1.1, Math.floor(i / 10) * 1.1, 0));
+  mesh.setMatrixAt(i, new Matrix4().makeTranslation(((i % 10) - 5) * 1.1, Math.floor(i / 10) * 1.1, 0));
 }
 mesh.instanceMatrix.needsUpdate = true;
 

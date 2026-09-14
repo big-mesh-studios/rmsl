@@ -22,9 +22,13 @@
  */
 
 import {
-  compileJS, compileJSFn,
-  type Node, type ShaderType, type VariableNode,
-  type JsShaderContext, type JsTextureData,
+  compileJS,
+  compileJSFn,
+  type Node,
+  type ShaderType,
+  type VariableNode,
+  type CpuShaderContext,
+  type CpuTextureData,
 } from "../rmsl";
 // How a texture asks to be read is the renderers' question too, and they
 // already answer it without a device — so a shader tested here samples by the
@@ -39,37 +43,43 @@ import type { Texture } from "../scene/textures/Texture";
  * (or booleans), vectors and matrices are flat arrays — matrices in the
  * column-major order the rest of the library uses.
  */
-export type ShaderValue<A extends ShaderType> =
-  A extends "float" | "int" | "uint" ? number
-    : A extends "bool" ? boolean
-      : A extends "bvec2" | "bvec3" | "bvec4" ? boolean[]
-        : A extends `${string}sampler${string}` ? TextureData
-          : A extends "void" ? never
-            : number[];
+export type ShaderValue<A extends ShaderType> = A extends "float" | "int" | "uint"
+  ? number
+  : A extends "bool"
+    ? boolean
+    : A extends "bvec2" | "bvec3" | "bvec4"
+      ? boolean[]
+      : A extends `${string}sampler${string}`
+        ? TextureData
+        : A extends "void"
+          ? never
+          : number[];
 
 /**
  * Texture data to sample from. A scene `DataTexture` fits as it stands: its
  * `image` is read when `data` is absent, and its three.js format, filtering
  * and wrapping constants are read as the CPU target's names for them.
  */
-export type TextureData = JsTextureData | {
-  /**
-   * Pixels as a scene texture carries them, which is where a `DataTexture`
-   * keeps its data. The sources only a browser could decode — an
-   * `HTMLImageElement`, a canvas — are part of that type and are refused when
-   * the texture is bound, since there is nothing here to read them with.
-   */
-  image: Texture["image"] | ArrayLike<number>;
-  width: number;
-  height: number;
-  depth?: number;
-  format?: number;
-  magFilter?: number;
-  minFilter?: number;
-  wrapS?: number;
-  wrapT?: number;
-  wrapR?: number;
-};
+export type TextureData =
+  | CpuTextureData
+  | {
+      /**
+       * Pixels as a scene texture carries them, which is where a `DataTexture`
+       * keeps its data. The sources only a browser could decode — an
+       * `HTMLImageElement`, a canvas — are part of that type and are refused when
+       * the texture is bound, since there is nothing here to read them with.
+       */
+      image: Texture["image"] | ArrayLike<number>;
+      width: number;
+      height: number;
+      depth?: number;
+      format?: number;
+      magFilter?: number;
+      minFilter?: number;
+      wrapS?: number;
+      wrapT?: number;
+      wrapR?: number;
+    };
 
 /**
  * A value for one uniform, varying or attribute, given as the node itself —
@@ -77,12 +87,12 @@ export type TextureData = JsTextureData | {
  * generated `_rmsl_u0` names.
  */
 export type ValueBinding = {
-  [A in ShaderType]: readonly [VariableNode<A>, ShaderValue<A>]
+  [A in ShaderType]: readonly [VariableNode<A>, ShaderValue<A>];
 }[ShaderType];
 
 /** A texture for one sampler node. */
 export type TextureBinding = {
-  [A in Extract<ShaderType, `${string}sampler${string}`>]: readonly [VariableNode<A>, TextureData]
+  [A in Extract<ShaderType, `${string}sampler${string}`>]: readonly [VariableNode<A>, TextureData];
 }[Extract<ShaderType, `${string}sampler${string}`>];
 
 // === Inputs ===
@@ -158,10 +168,7 @@ const RUNNER = Symbol.for("rmsl.test.runner");
  * The graph is given as a thunk, so a function taking arguments is tested by
  * calling it: `runner(() => myFn(float(2), vec2(1, 0)))`.
  */
-export function runner<A extends ShaderType>(
-  graph: () => Node<A>,
-  options: RunnerOptions = {},
-): ShaderRunner<A> {
+export function runner<A extends ShaderType>(graph: () => Node<A>, options: RunnerOptions = {}): ShaderRunner<A> {
   return compileRunner(graph, options);
 }
 
@@ -316,9 +323,14 @@ export function render<A extends ShaderType>(
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const fragCoord: [number, number] = [x + 0.5, y + 0.5];
-      const perFragment = options.inputs?.({
-        x, y, u: fragCoord[0] / width, v: fragCoord[1] / height, fragCoord,
-      }) ?? {};
+      const perFragment =
+        options.inputs?.({
+          x,
+          y,
+          u: fragCoord[0] / width,
+          v: fragCoord[1] / height,
+          fragCoord,
+        }) ?? {};
       const result = run({ fragCoord, ...perFragment });
       const index = y * width + x;
       results[index] = result;
@@ -500,11 +512,15 @@ export function fromProgram(program: ProgramLike, options: ProgramOptions = {}):
     else unbound.push(sampler.name);
   }
 
-  const run = compileRunner<"vec4">(() => root, {
-    ...options,
-    uniforms: { ...uniforms, ...given },
-    textures: { ...textures, ...passed },
-  }, names);
+  const run = compileRunner<"vec4">(
+    () => root,
+    {
+      ...options,
+      uniforms: { ...uniforms, ...given },
+      textures: { ...textures, ...passed },
+    },
+    names,
+  );
 
   return Object.defineProperties(run, {
     unbound: { value: unbound, enumerable: true },
@@ -573,7 +589,7 @@ const RENDERER_DEFAULTS: Record<string, unknown> = {
  * nothing without a browser, and a sampler bound to one is left unbound rather
  * than bound to something empty.
  */
-function toTextureData(texture: unknown, samplerType = "sampler2D"): JsTextureData | null {
+function toTextureData(texture: unknown, samplerType = "sampler2D"): CpuTextureData | null {
   if (typeof texture !== "object" || texture === null) return null;
   const candidate = texture as Record<string, unknown>;
   const pixels = candidate.data ?? candidate.image;
@@ -581,7 +597,7 @@ function toTextureData(texture: unknown, samplerType = "sampler2D"): JsTextureDa
   if (typeof candidate.width !== "number" || typeof candidate.height !== "number") return null;
   const image = { data: pixels as ArrayLike<number>, width: candidate.width, height: candidate.height };
   if (!statesTextureConstants(candidate)) {
-    return { ...(candidate as unknown as JsTextureData), ...image };
+    return { ...(candidate as unknown as CpuTextureData), ...image };
   }
   const scene = texture as Texture;
   return {
@@ -597,10 +613,12 @@ function toTextureData(texture: unknown, samplerType = "sampler2D"): JsTextureDa
  * texture carries — rather than in the words the CPU target samples by.
  */
 function statesTextureConstants(texture: Record<string, unknown>): boolean {
-  return texture.isTexture === true
-    || typeof texture.format === "number"
-    || typeof texture.magFilter === "number"
-    || typeof texture.wrapS === "number";
+  return (
+    texture.isTexture === true ||
+    typeof texture.format === "number" ||
+    typeof texture.magFilter === "number" ||
+    typeof texture.wrapS === "number"
+  );
 }
 
 /**
@@ -655,11 +673,7 @@ export function tolerance(magnitude: number): number {
 }
 
 /** Whether two shader values agree, within `options.tolerance`. */
-export function closeTo(
-  actual: unknown,
-  expected: unknown,
-  options: { tolerance?: number } = {},
-): boolean {
+export function closeTo(actual: unknown, expected: unknown, options: { tolerance?: number } = {}): boolean {
   return difference(actual, expected, options.tolerance) === null;
 }
 
@@ -667,10 +681,7 @@ export function closeTo(
  * A predicate for one expected value, for a matcher that takes one:
  * `expect(result.value).toSatisfy(approx([1, 0, 0, 1]))`.
  */
-export function approx(
-  expected: unknown,
-  options: { tolerance?: number } = {},
-): (actual: unknown) => boolean {
+export function approx(expected: unknown, options: { tolerance?: number } = {}): (actual: unknown) => boolean {
   return (actual: unknown) => closeTo(actual, expected, options);
 }
 
@@ -687,9 +698,7 @@ export function assertClose(
   if (reason === null) return;
   const prefix = options.message ? `${options.message}: ` : "";
   throw new Error(
-    `[RMSL/test] ${prefix}${reason}`
-    + `\n  expected: ${format(expected)}`
-    + `\n  actual:   ${format(actual)}`,
+    `[RMSL/test] ${prefix}${reason}` + `\n  expected: ${format(expected)}` + `\n  actual:   ${format(actual)}`,
   );
 }
 
@@ -730,7 +739,7 @@ function asRunner<A extends ShaderType>(
   options: RunnerOptions,
 ): ShaderRunner<A> {
   return (graph as unknown as Record<symbol, unknown>)[RUNNER]
-    ? graph as ShaderRunner<A>
+    ? (graph as ShaderRunner<A>)
     : runner(graph as () => Node<A>, options);
 }
 
@@ -749,16 +758,17 @@ function mergeContext(
   inputs: ShaderInputs,
   names: NameMaps | undefined,
   reads: ReadContext,
-): JsShaderContext {
+): CpuShaderContext {
   return {
-    uniforms: bound("uniform", "uniforms",
-      slots(names?.uniforms, defaults.uniforms, inputs.uniforms), reads),
-    varyings: bound("varying", "varyings",
-      slots(names?.varyings, defaults.varyings, inputs.varyings), reads),
-    attributes: bound("attribute", "attributes",
-      slots(names?.attributes, defaults.attributes, inputs.attributes), reads),
-    textures: bound("texture", "textures",
-      textureSlots(names?.textures, defaults.textures, inputs.textures), reads),
+    uniforms: bound("uniform", "uniforms", slots(names?.uniforms, defaults.uniforms, inputs.uniforms), reads),
+    varyings: bound("varying", "varyings", slots(names?.varyings, defaults.varyings, inputs.varyings), reads),
+    attributes: bound(
+      "attribute",
+      "attributes",
+      slots(names?.attributes, defaults.attributes, inputs.attributes),
+      reads,
+    ),
+    textures: bound("texture", "textures", textureSlots(names?.textures, defaults.textures, inputs.textures), reads),
     fragCoord: (inputs.fragCoord ?? defaults.fragCoord) as [number, number] | undefined,
   };
 }
@@ -773,12 +783,7 @@ function mergeContext(
  * on the missing value rather than three frames later on the `NaN` or the
  * `undefined[0]` it turns into.
  */
-function bound<A extends object>(
-  kind: string,
-  field: keyof ShaderInputs,
-  values: A,
-  reads: ReadContext,
-): A {
+function bound<A extends object>(kind: string, field: keyof ShaderInputs, values: A, reads: ReadContext): A {
   return new Proxy(values, {
     get(target, key) {
       // `in`, not `undefined`: an inherited `toString` is how a debugger or a
@@ -788,13 +793,10 @@ function bound<A extends object>(
         // Without a program there is no name but the generated slot, and a
         // generated name is no use to bind by: point at the node instead.
         const wanted = name
-          ? `reads the ${kind} "${name}", which nothing bound. `
-            + `Pass it under \`${field}\`.`
-          : `reads a ${kind} nothing bound, in the slot the compiler generated `
-            + `as "${key}". Pass its node under \`${field}\`, as [node, value].`;
-        const listed = reads.named && field === "uniforms"
-          ? " It is listed in the runner's `unbound`."
-          : "";
+          ? `reads the ${kind} "${name}", which nothing bound. ` + `Pass it under \`${field}\`.`
+          : `reads a ${kind} nothing bound, in the slot the compiler generated ` +
+            `as "${key}". Pass its node under \`${field}\`, as [node, value].`;
+        const listed = reads.named && field === "uniforms" ? " It is listed in the runner's `unbound`." : "";
         throw new Error(`[RMSL/test] the ${reads.stage} stage ${wanted}${listed}`);
       }
       return (target as Record<string, unknown>)[key as string];
@@ -823,8 +825,8 @@ function slots(
 function textureSlots(
   names: Map<string, string> | undefined,
   ...given: (readonly TextureBinding[] | Record<string, TextureData> | undefined)[]
-): Record<string, JsTextureData> {
-  const record: Record<string, JsTextureData> = {};
+): Record<string, CpuTextureData> {
+  const record: Record<string, CpuTextureData> = {};
   for (const values of given) {
     if (values === undefined) continue;
     const pairs: [string, TextureData][] = Array.isArray(values)
@@ -864,10 +866,7 @@ function named(
  * value directly unless the program writes an output, a position or a fragment
  * depth, and `null` for a discarded fragment.
  */
-function readResult<A extends ShaderType>(
-  raw: unknown,
-  varyingNames?: Map<string, string>,
-): EvaluationResult<A> {
+function readResult<A extends ShaderType>(raw: unknown, varyingNames?: Map<string, string>): EvaluationResult<A> {
   if (raw === null) {
     return { value: null, discarded: true, outputs: {}, varyings: {} };
   }
@@ -908,7 +907,7 @@ function toRGBA(result: EvaluationResult<ShaderType>): [number, number, number, 
   if (Array.isArray(value)) {
     const channel = (i: number): number => {
       const component = value[i];
-      return typeof component === "boolean" ? (component ? 1 : 0) : (component ?? 0) as number;
+      return typeof component === "boolean" ? (component ? 1 : 0) : ((component ?? 0) as number);
     };
     return [channel(0), channel(1), channel(2), value.length > 3 ? channel(3) : 1];
   }

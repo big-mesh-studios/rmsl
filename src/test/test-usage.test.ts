@@ -6,18 +6,31 @@
 
 import { describe, it, expect } from "vitest";
 import {
-  Fn, If, Discard, float, vec2, vec3, vec4, ivec2, uvec3,
-  uniform, varying, attribute, output, builtinPosition, builtinFragDepth,
-  fragCoord, mix, step, uv, length, smoothstep,
+  Fn,
+  If,
+  Discard,
+  float,
+  vec2,
+  vec3,
+  vec4,
+  ivec2,
+  uvec3,
+  uniform,
+  varying,
+  attribute,
+  output,
+  builtinPosition,
+  builtinFragDepth,
+  fragCoord,
+  mix,
+  step,
+  uv,
+  length,
+  smoothstep,
 } from "../rmsl";
 import { DataTexture } from "../scene/textures/DataTexture";
-import {
-  LinearFilter, NearestMipmapNearestFilter, RedIntegerFormat,
-} from "../scene/textures/constants";
-import {
-  evaluate, render, runner, uniformsIn,
-  approx, assertClose, closeTo, tolerance,
-} from "./index";
+import { LinearFilter, NearestMipmapNearestFilter, RedIntegerFormat } from "../scene/textures/constants";
+import { evaluate, render, runner, uniformsIn, approx, assertClose, closeTo, tolerance } from "./index";
 
 describe("evaluate", () => {
   it("returns the value a graph computes", () => {
@@ -29,8 +42,7 @@ describe("evaluate", () => {
   it("binds a uniform by its node, not by its slot name", () => {
     const tint = uniform("vec3");
     const graph = vec4(tint.mul(0.5), 1);
-    expect(evaluate(() => graph, { uniforms: [[tint, [1, 0.5, 0]]] }).value)
-      .toEqual([0.5, 0.25, 0, 1]);
+    expect(evaluate(() => graph, { uniforms: [[tint, [1, 0.5, 0]]] }).value).toEqual([0.5, 0.25, 0, 1]);
   });
 
   it("binds varyings and attributes the same way", () => {
@@ -61,8 +73,12 @@ describe("evaluate", () => {
     const map = uniform("sampler2D");
     const graph = map.texture(vec2(0.5, 0.5));
     const data = new Uint8Array([0, 128, 255, 255]);
-    expect(evaluate(() => graph, { textures: [[map, { data, width: 1, height: 1 }]] }).value)
-      .toEqual([0, 128 / 255, 1, 1]);
+    expect(evaluate(() => graph, { textures: [[map, { data, width: 1, height: 1 }]] }).value).toEqual([
+      0,
+      128 / 255,
+      1,
+      1,
+    ]);
   });
 
   it("takes a texture in the shape a scene DataTexture already has", () => {
@@ -95,16 +111,16 @@ describe("evaluate", () => {
     // counts as its base filter, which is `samplerState`'s rule, not a second
     // one written here.
     texture.magFilter = LinearFilter;
-    expect(evaluate(() => graph, { textures: [[map, texture]] }).value)
-      .toEqual([0.5, 0.5, 0.5, 0.5]);
+    expect(evaluate(() => graph, { textures: [[map, texture]] }).value).toEqual([0.5, 0.5, 0.5, 0.5]);
     texture.magFilter = NearestMipmapNearestFilter;
-    expect(evaluate(() => graph, { textures: [[map, texture]] }).value)
-      .toEqual([1, 1, 1, 1]);
+    expect(evaluate(() => graph, { textures: [[map, texture]] }).value).toEqual([1, 1, 1, 1]);
   });
 
   it("reports a discarded fragment rather than a bare null", () => {
     const graph = Fn(() => {
-      If(float(1).greaterThan(0), () => { Discard(); });
+      If(float(1).greaterThan(0), () => {
+        Discard();
+      });
       return float(5);
     })();
     const result = evaluate(() => graph);
@@ -235,8 +251,9 @@ describe("render", () => {
     const fade = varying("float");
     // No program, so there is no name but the generated slot — which is still
     // better than the NaN this used to shade with.
-    expect(() => evaluate(() => vec4(vec3(1), fade)))
-      .toThrow(/fragment stage reads a varying nothing bound.*\[node, value\]/s);
+    expect(() => evaluate(() => vec4(vec3(1), fade))).toThrow(
+      /fragment stage reads a varying nothing bound.*\[node, value\]/s,
+    );
   });
 
   it("draws a shape that lives in alpha", () => {
@@ -267,7 +284,9 @@ describe("render", () => {
 
   it("marks the fragments that discarded, and leaves them black", () => {
     const graph = Fn(() => {
-      If(fragCoord().x.greaterThan(2), () => { Discard(); });
+      If(fragCoord().x.greaterThan(2), () => {
+        Discard();
+      });
       return vec4(1, 1, 1, 1);
     })();
     const image = render(() => graph, { width: 4, height: 1 });
@@ -346,10 +365,10 @@ describe("comparing values", () => {
   });
 
   it("names the component that differs when it throws", () => {
-    expect(() => assertClose([1, 0, 0, 1], [1, 0, 1, 1], { message: "tint" }))
-      .toThrow(/tint: component 2: expected 1, got 0/);
-    expect(() => assertClose([1, 0, 0, 1], [1, 0, 1, 1]))
-      .toThrow(/expected: \[1, 0, 1, 1\]/);
+    expect(() => assertClose([1, 0, 0, 1], [1, 0, 1, 1], { message: "tint" })).toThrow(
+      /tint: component 2: expected 1, got 0/,
+    );
+    expect(() => assertClose([1, 0, 0, 1], [1, 0, 1, 1])).toThrow(/expected: \[1, 0, 1, 1\]/);
     expect(() => assertClose(1, 1)).not.toThrow();
   });
 });

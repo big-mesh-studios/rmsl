@@ -44,8 +44,14 @@ export class Quaternion {
   }
 
   multiplyQuaternions(a: Quaternion, b: Quaternion): this {
-    const qax = a.x, qay = a.y, qaz = a.z, qaw = a.w;
-    const qbx = b.x, qby = b.y, qbz = b.z, qbw = b.w;
+    const qax = a.x,
+      qay = a.y,
+      qaz = a.z,
+      qaw = a.w;
+    const qbx = b.x,
+      qby = b.y,
+      qbz = b.z,
+      qbw = b.w;
 
     this.x = qax * qbw + qaw * qbx + qay * qbz - qaz * qby;
     this.y = qay * qbw + qaw * qby + qaz * qbx - qax * qbz;
@@ -95,7 +101,9 @@ export class Quaternion {
   }
 
   setFromEuler(euler: Euler): this {
-    const x = euler.x, y = euler.y, z = euler.z;
+    const x = euler.x,
+      y = euler.y,
+      z = euler.z;
     const order = euler.order;
 
     const c1 = Math.cos(x / 2);
@@ -161,9 +169,15 @@ export class Quaternion {
 
   setFromRotationMatrix(m: Matrix4): this {
     const te = m.elements;
-    const m11 = te[0], m12 = te[4], m13 = te[8];
-    const m21 = te[1], m22 = te[5], m23 = te[9];
-    const m31 = te[2], m32 = te[6], m33 = te[10];
+    const m11 = te[0],
+      m12 = te[4],
+      m13 = te[8];
+    const m21 = te[1],
+      m22 = te[5],
+      m23 = te[9];
+    const m31 = te[2],
+      m32 = te[6],
+      m33 = te[10];
     const trace = m11 + m22 + m33;
 
     if (trace > 0) {
@@ -198,7 +212,10 @@ export class Quaternion {
     if (t === 0) return this;
     if (t === 1) return this.copy(qb);
 
-    const x = this.x, y = this.y, z = this.z, w = this.w;
+    const x = this.x,
+      y = this.y,
+      z = this.z,
+      w = this.w;
     let cosHalfTheta = w * qb.w + x * qb.x + y * qb.y + z * qb.z;
     if (cosHalfTheta < 0) {
       this.w = -qb.w;

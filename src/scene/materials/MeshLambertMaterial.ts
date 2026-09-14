@@ -1,7 +1,4 @@
-import {
-  vec3, vec4,
-  type Node, type UniformNode, type GLSLPrecision,
-} from "../../rmsl";
+import { vec3, vec4, type Node, type UniformNode, type GLSLPrecision } from "../../rmsl";
 import { NodeMaterial, resolveSlot } from "./NodeMaterial";
 import { Builder } from "./nodes/Builder";
 import { collectLights, type LightUniforms } from "./nodes/lights";
@@ -25,24 +22,24 @@ export class MeshLambertMaterial extends NodeMaterial {
   protected emissiveUniform?: UniformNode<"vec3">;
   protected lights?: LightUniforms;
 
-  constructor(parameters: {
-    color?: Color | number;
-    emissive?: Color | number;
-    opacity?: number;
-    transparent?: boolean;
-    side?: Side;
-    precision?: GLSLPrecision;
-  } = {}) {
+  constructor(
+    parameters: {
+      color?: Color | number;
+      emissive?: Color | number;
+      opacity?: number;
+      transparent?: boolean;
+      side?: Side;
+      precision?: GLSLPrecision;
+    } = {},
+  ) {
     super();
     if (parameters.color !== undefined) {
-      this.color = typeof parameters.color === "number"
-        ? new Color().setHex(parameters.color)
-        : parameters.color.clone();
+      this.color =
+        typeof parameters.color === "number" ? new Color().setHex(parameters.color) : parameters.color.clone();
     }
     if (parameters.emissive !== undefined) {
-      this.emissive = typeof parameters.emissive === "number"
-        ? new Color().setHex(parameters.emissive)
-        : parameters.emissive.clone();
+      this.emissive =
+        typeof parameters.emissive === "number" ? new Color().setHex(parameters.emissive) : parameters.emissive.clone();
     }
     if (parameters.opacity !== undefined) this.opacity = parameters.opacity;
     if (parameters.transparent !== undefined) this.transparent = parameters.transparent;

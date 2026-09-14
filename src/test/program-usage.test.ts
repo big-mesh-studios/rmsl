@@ -10,8 +10,14 @@ import { describe, it, expect } from "vitest";
 import { uniform, vec2, vec4 } from "../rmsl";
 import { sepia } from "../effects";
 import {
-  Scene, DataTexture, MeshBasicMaterial, MeshStandardMaterial, DirectionalLight, AmbientLight,
-  NearestFilter, RepeatWrapping,
+  Scene,
+  DataTexture,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  DirectionalLight,
+  AmbientLight,
+  NearestFilter,
+  RepeatWrapping,
 } from "../scene";
 import { fromProgram, fromPass, render, closeTo, uniformsIn } from "./index";
 
@@ -34,10 +40,9 @@ describe("fromProgram", () => {
     scene.add(light);
     scene.updateMatrixWorld(true);
 
-    const shade = fromProgram(
-      build(new MeshStandardMaterial({ color: 0xffffff, roughness: 1 }), scene),
-      { uniforms: { cameraPosition: [0, 0, 5] } },
-    );
+    const shade = fromProgram(build(new MeshStandardMaterial({ color: 0xffffff, roughness: 1 }), scene), {
+      uniforms: { cameraPosition: [0, 0, 5] },
+    });
     const brightness = (normal: number[]): number => {
       const result = shade({ varyings: { normalWorld: normal, positionWorld: [0, 0, 0] } });
       return (result.value as number[])[0];
@@ -83,10 +88,11 @@ describe("fromProgram", () => {
 
   it("renders a material across a grid, varying the surface per fragment", () => {
     const material = new MeshBasicMaterial({ color: 0xffffff });
-    material.map = new DataTexture(new Uint8Array([
-      0, 0, 0, 255, 255, 255, 255, 255,
-      0, 0, 0, 255, 255, 255, 255, 255,
-    ]), 2, 2);
+    material.map = new DataTexture(
+      new Uint8Array([0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255]),
+      2,
+      2,
+    );
     const shade = fromProgram(build(material));
     const image = render(shade, {
       width: 2,
@@ -146,12 +152,14 @@ describe("fromProgram", () => {
     const project = fromProgram(build(new MeshBasicMaterial()), { stage: "vertex" });
     // The vertex stage transforms the normal, and nothing here handed it one.
     // What used to come out of this is a TypeError inside a matrix multiply.
-    expect(() => project({ attributes: { position: [0, 0, 0], uv: [0, 0] } }))
-      .toThrow(/vertex stage reads the attribute "normal".*attributes/s);
+    expect(() => project({ attributes: { position: [0, 0, 0], uv: [0, 0] } })).toThrow(
+      /vertex stage reads the attribute "normal".*attributes/s,
+    );
 
     const shade = fromProgram(build(new MeshStandardMaterial()));
-    expect(() => shade({ varyings: { normalWorld: [0, 1, 0] } }))
-      .toThrow(/fragment stage reads the varying "positionWorld"/);
+    expect(() => shade({ varyings: { normalWorld: [0, 1, 0] } })).toThrow(
+      /fragment stage reads the varying "positionWorld"/,
+    );
   });
 
   it("points at `unbound` for an input the program was meant to bring", () => {
@@ -178,8 +186,7 @@ describe("fromProgram", () => {
 
   it("refuses a stage the program has no root for", () => {
     const program = build(new MeshBasicMaterial());
-    expect(() => fromProgram({ fragmentRoot: program.fragmentRoot }, { stage: "vertex" }))
-      .toThrow(/no vertex root/);
+    expect(() => fromProgram({ fragmentRoot: program.fragmentRoot }, { stage: "vertex" })).toThrow(/no vertex root/);
   });
 });
 
@@ -202,9 +209,12 @@ describe("fromPass", () => {
   it("renders a pass over a grid, its screen size bound by hand", () => {
     const source = uniform("sampler2D");
     const pass = { color: vec4(source.texture(vec2(0.5, 0.5)).rgb, 1), inputs: { source } };
-    const image = render(fromPass(pass, {
-      textures: { source: { data: [0, 128 / 255, 1, 1], width: 1, height: 1 } },
-    }), { width: 2, height: 2 });
+    const image = render(
+      fromPass(pass, {
+        textures: { source: { data: [0, 128 / 255, 1, 1], width: 1, height: 1 } },
+      }),
+      { width: 2, height: 2 },
+    );
     expect(closeTo(image.at(1, 1), [0, 128 / 255, 1, 1])).toBe(true);
   });
 

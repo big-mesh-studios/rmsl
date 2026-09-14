@@ -4,11 +4,7 @@ import {
   recordingWGSL as compileWGSL,
   assertRecordedShadersValid,
 } from "../testing/shader-validity";
-import {
-  Scene,
-  LineSegmentsGeometry, LineGeometry,
-  Line2NodeMaterial, LineSegments2, Line2,
-} from "./index";
+import { Scene, LineSegmentsGeometry, LineGeometry, Line2NodeMaterial, LineSegments2, Line2 } from "./index";
 
 afterAll(async () => {
   await assertRecordedShadersValid();
@@ -16,12 +12,8 @@ afterAll(async () => {
 
 function compileMaterial(material: Line2NodeMaterial, scene = new Scene()): { glsl: string; wgsl: string } {
   const program = material.build(scene);
-  const glsl = compileGLSL.vertex(program.vertexRoot)
-    + "\n---\n"
-    + compileGLSL.fragment(program.fragmentRoot);
-  const wgsl = compileWGSL.vertex(program.vertexRoot)
-    + "\n---\n"
-    + compileWGSL.fragment(program.fragmentRoot);
+  const glsl = compileGLSL.vertex(program.vertexRoot) + "\n---\n" + compileGLSL.fragment(program.fragmentRoot);
+  const wgsl = compileWGSL.vertex(program.vertexRoot) + "\n---\n" + compileWGSL.fragment(program.fragmentRoot);
   return { glsl, wgsl };
 }
 

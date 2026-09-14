@@ -1,42 +1,121 @@
-import { describe, it, expect, afterAll } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import {
-  Fn, float, vec2, vec3, vec4, int, uint, bool,
-  ivec2, ivec3, ivec4, uvec2, uvec3, uvec4, bvec2, bvec3, bvec4,
-  mat2, mat2x3, mat2x4, mat3, mat3x2, mat3x4, mat4, mat4x2, mat4x3,
-  If, For, While, Switch, Loop, Discard, Break, Continue, Return,
-  uniform, attribute, varying, output, builtinPosition, builtinFragDepth,
-  uniformRaw, attributeRaw, varyingRaw,
-  isUniformNode, isAttributeNode, isVaryingNode,
-  compileGLSLFn, compileWGSLFn, compileJSFn, wgslUniformLayout, uniformArray,
-  add, sub, mul, div, mod, min, max, pow, pow2, pow3, pow4,
-  abs, sign, floor, ceil, fract, round, trunc, radians, degrees,
-  sqrt, inverseSqrt, inversesqrt, exp, log, exp2, log2, cbrt,
-  negate, oneMinus, reciprocal, saturate, lengthSq, difference,
-  sin, cos, tan, asin, acos, atan, sinh, cosh, tanh, asinh, acosh, atanh,
-  normalize, length, distance, dot, cross, reflect, refract, faceForward,
-  mix, clamp, step, smoothstep, all, any,
-  and, or, not, xor, equal, notEqual, lessThan, greaterThan,
-  lessThanEqual, greaterThanEqual,
-  bitAnd, bitOr, bitXor, bitNot, shiftLeft, shiftRight,
-  transpose, determinant, inverse, element,
-  PI, TWO_PI, HALF_PI, EPSILON, INFINITY,
+  abs,
+  add,
+  all,
+  and,
+  any,
+  atan,
+  attribute,
+  attributeRaw,
+  bool,
+  Break,
+  builtinFragDepth,
+  builtinPosition,
+  bvec2,
+  bvec3,
+  bvec4,
+  clamp,
+  compileGLSLFn,
+  compileJS,
+  compileJSFn,
+  compileWGSLFn,
+  Continue,
+  cos,
+  cross,
+  determinant,
+  Discard,
+  distance,
+  div,
+  dot,
+  EPSILON,
+  equal,
+  faceForward,
+  float,
+  floor,
+  Fn,
+  For,
+  greaterThanEqual,
+  HALF_PI,
+  If,
+  INFINITY,
+  int,
+  inverse,
+  inverseSqrt,
+  inversesqrt,
+  isAttributeNode,
+  isUniformNode,
+  isVaryingNode,
+  ivec2,
+  ivec3,
+  length,
+  lengthSq,
+  lessThan,
+  Loop,
+  mat2,
+  mat2x3,
+  mat2x4,
+  mat3,
+  mat3x2,
+  mat3x4,
+  mat4,
+  mat4x2,
+  mat4x3,
+  max,
+  min,
+  mix,
+  mul,
+  normalize,
+  not,
+  notEqual,
+  or,
+  output,
+  PI,
+  pow,
+  pow2,
+  pow3,
+  pow4,
+  reflect,
+  refract,
+  Return,
+  sin,
+  smoothstep,
+  sqrt,
+  step,
+  sub,
+  Switch,
+  transpose,
+  TWO_PI,
+  uint,
+  uniform,
+  uniformArray,
+  uniformRaw,
+  uvec2,
+  uvec3,
+  varying,
+  varyingRaw,
+  vec2,
+  vec3,
+  vec4,
+  wgslUniformLayout,
+  While,
+  xor,
 } from "./rmsl";
 // Recording stand-ins for the real compilers: each returns the language it is
 // named for and additionally compiles the program to the other, so every shader
 // the tests generate is checked by a real GLSL and WGSL implementation in the
 // afterAll below. Aliasing at the import means the tests need no changes.
 import {
+  assertRecordedShadersValid,
   recordingGLSL as compileGLSL,
   recordingWGSL as compileWGSL,
-  recordShaderSource,
   expectCompileRejection,
-  assertRecordedShadersValid,
+  recordShaderSource,
 } from "./testing/shader-validity";
 
 afterAll(async () => {
   await assertRecordedShadersValid();
 }, 120_000);
-
 
 describe("RMSL", () => {
   it("compiles a simple float expression to GLSL", () => {
@@ -195,20 +274,32 @@ describe("RMSL", () => {
   // bvecN rather than a bool. GLSL spells it with a function; WGSL uses the
   // operator directly. Both yield a boolean vector.
   it("compiles vec3 lessThan to GLSL (vector path)", () => {
-    let prog = Fn(() => vec3(1,2,3).lessThan(vec3(4,5,6)).toVar());
+    let prog = Fn(() =>
+      vec3(1, 2, 3)
+        .lessThan(vec3(4, 5, 6))
+        .toVar(),
+    );
     let glsl = compileGLSL(prog());
     expect(glsl).toContain("lessThan(");
     expect(glsl).toContain("bvec3 ");
   });
 
   it("compiles vec3 lessThan to WGSL (vector path)", () => {
-    let prog = Fn(() => vec3(1,2,3).lessThan(vec3(4,5,6)).toVar());
+    let prog = Fn(() =>
+      vec3(1, 2, 3)
+        .lessThan(vec3(4, 5, 6))
+        .toVar(),
+    );
     let wgsl = compileWGSL(prog());
     expect(wgsl).toContain("vec3<bool>");
   });
 
   it("compiles vec3 equal/notEqual to GLSL", () => {
-    let prog = Fn(() => vec3(1,2,3).equal(vec3(1,2,3)).toVar());
+    let prog = Fn(() =>
+      vec3(1, 2, 3)
+        .equal(vec3(1, 2, 3))
+        .toVar(),
+    );
     let glsl = compileGLSL(prog());
     expect(glsl).toContain("equal(");
     expect(glsl).toContain("bvec3 ");
@@ -216,8 +307,14 @@ describe("RMSL", () => {
 
   it("reduces a boolean vector with all()/any() in GLSL", () => {
     let prog = Fn(() => [
-      vec3(1,2,3).lessThan(vec3(4,5,6)).all().toVar(),
-      vec3(1,2,3).greaterThan(vec3(4,5,6)).any().toVar(),
+      vec3(1, 2, 3)
+        .lessThan(vec3(4, 5, 6))
+        .all()
+        .toVar(),
+      vec3(1, 2, 3)
+        .greaterThan(vec3(4, 5, 6))
+        .any()
+        .toVar(),
     ]);
     let [a, b] = prog();
     let glsl = compileGLSL([a, b]);
@@ -227,7 +324,12 @@ describe("RMSL", () => {
   });
 
   it("reduces a boolean vector with all()/any() in WGSL", () => {
-    let prog = Fn(() => vec3(1,2,3).lessThan(vec3(4,5,6)).all().toVar());
+    let prog = Fn(() =>
+      vec3(1, 2, 3)
+        .lessThan(vec3(4, 5, 6))
+        .all()
+        .toVar(),
+    );
     let wgsl = compileWGSL(prog());
     expect(wgsl).toContain("all(");
     expect(wgsl).toContain(": bool");
@@ -235,20 +337,33 @@ describe("RMSL", () => {
 
   // GLSL's `!` is scalar-only, so negating a boolean vector needs not().
   it("negates a boolean vector component-wise in both backends", () => {
-    let prog = Fn(() => vec3(1,2,3).lessThan(vec3(4,5,6)).not().toVar());
+    let prog = Fn(() =>
+      vec3(1, 2, 3)
+        .lessThan(vec3(4, 5, 6))
+        .not()
+        .toVar(),
+    );
     expect(compileGLSL(prog())).toContain("not(lessThan(");
     expect(compileWGSL(prog())).toContain("!(");
   });
 
   // refract(I, N, eta) takes three arguments.
   it("compiles refract with all three arguments to GLSL", () => {
-    let prog = Fn(() => vec3(1,0,0).refract(vec3(0,1,0), 0.5).toVar());
+    let prog = Fn(() =>
+      vec3(1, 0, 0)
+        .refract(vec3(0, 1, 0), 0.5)
+        .toVar(),
+    );
     let glsl = compileGLSL(prog());
     expect(glsl).toContain("refract(vec3(1, 0, 0), vec3(0, 1, 0), 0.5)");
   });
 
   it("compiles refract with all three arguments to WGSL", () => {
-    let prog = Fn(() => vec3(1,0,0).refract(vec3(0,1,0), 0.5).toVar());
+    let prog = Fn(() =>
+      vec3(1, 0, 0)
+        .refract(vec3(0, 1, 0), 0.5)
+        .toVar(),
+    );
     let wgsl = compileWGSL(prog());
     expect(wgsl).toContain("refract(vec3<f32>(1, 0, 0), vec3<f32>(0, 1, 0), 0.5f)");
   });
@@ -262,12 +377,14 @@ describe("RMSL", () => {
         () => float(0).toVar(),
         (i) => i.lessThan(4),
         (i) => i.assign(i.add(1)),
-        (i) => { total.assign(total.add(i)); },
+        (i) => {
+          total.assign(total.add(i));
+        },
       );
       return total;
     });
     let glsl = compileGLSL(prog());
-    let header = glsl.split("\n").find(l => l.includes("for ("))!;
+    let header = glsl.split("\n").find((l) => l.includes("for ("))!;
     expect(header).toMatch(/;\s*(\S+) = \1 \+ 1\.0\) \{$/);
   });
 
@@ -278,12 +395,14 @@ describe("RMSL", () => {
         () => float(0).toVar(),
         (i) => i.lessThan(4),
         (i) => i.assign(i.add(1)),
-        (i) => { total.assign(total.add(i)); },
+        (i) => {
+          total.assign(total.add(i));
+        },
       );
       return total;
     });
     let wgsl = compileWGSL(prog());
-    let header = wgsl.split("\n").find(l => l.includes("for ("))!;
+    let header = wgsl.split("\n").find((l) => l.includes("for ("))!;
     expect(header).toMatch(/;\s*(\S+) = \1 \+ 1f\) \{$/);
   });
 
@@ -419,13 +538,13 @@ describe("RMSL", () => {
   });
 
   it("vec4 from vec3 + scalar", () => {
-    let prog = Fn(() => vec4(vec3(1,2,3), 1.0).toVar());
+    let prog = Fn(() => vec4(vec3(1, 2, 3), 1.0).toVar());
     let glsl = compileGLSL(prog());
     expect(glsl).toContain("vec4(vec3(1, 2, 3), 1");
   });
 
   it("vec3 from vec4 truncation", () => {
-    let prog = Fn(() => vec3(vec4(1,2,3,4)).toVar());
+    let prog = Fn(() => vec3(vec4(1, 2, 3, 4)).toVar());
     let glsl = compileGLSL(prog());
     expect(glsl).toContain("vec3(vec4(");
   });
@@ -474,7 +593,7 @@ describe("RMSL", () => {
   });
 
   it("compileWGSL.vertex emits @vertex and VertexOutput", () => {
-    let prog = Fn(() => vec4(1,2,3,4));
+    let prog = Fn(() => vec4(1, 2, 3, 4));
     let wgsl = compileWGSL.vertex(prog());
     expect(wgsl).toContain("@vertex");
     expect(wgsl).toContain("VertexOutput");
@@ -494,7 +613,7 @@ describe("RMSL", () => {
   it("output() creates output variable in GLSL fragment", () => {
     let prog = Fn(() => {
       let outColor = output("vec4");
-      outColor.assign(vec4(1,0,0,1));
+      outColor.assign(vec4(1, 0, 0, 1));
       return outColor;
     });
     let glsl = compileGLSL.fragment(prog());
@@ -539,16 +658,17 @@ describe("RMSL", () => {
 
   // Everything a vertex stage passes onward shares one set of numbered slots.
   it("numbers everything a vertex stage passes on without collision", () => {
-    let build = () => Fn(() => {
-      let v = varying("vec2");
-      v.assign(vec2(1, 2));
-      let o = output("vec4");
-      o.assign(vec4(1, 0, 0, 1));
-      return vec4(0, 0, 0, 1);
-    });
+    let build = () =>
+      Fn(() => {
+        let v = varying("vec2");
+        v.assign(vec2(1, 2));
+        let o = output("vec4");
+        o.assign(vec4(1, 0, 0, 1));
+        return vec4(0, 0, 0, 1);
+      });
 
     let wgsl = compileWGSL.vertex(build()());
-    let slots = [...wgsl.matchAll(/@location\((\d+)\)/g)].map(m => m[1]);
+    let slots = [...wgsl.matchAll(/@location\((\d+)\)/g)].map((m) => m[1]);
     expect(slots.length, "two values are passed on").toBe(2);
     expect(new Set(slots).size, "each slot used once").toBe(slots.length);
 
@@ -560,7 +680,7 @@ describe("RMSL", () => {
   it("output() creates output in WGSL fragment", () => {
     let prog = Fn(() => {
       let outColor = output("vec4");
-      outColor.assign(vec4(1,0,0,1));
+      outColor.assign(vec4(1, 0, 0, 1));
       return outColor;
     });
     let wgsl = compileWGSL.fragment(prog());
@@ -639,24 +759,22 @@ describe("RMSL", () => {
   // A vertex shader must produce a position, and zero is not a valid position.
   it("rejects a vertex result of zero, like any other non-position", () => {
     // @ts-expect-error a float cannot become a position, zero included
-    expect(() => compileGLSL.vertex(Fn(() => float(0))()))
-      .toThrow(/vertex shader/);
+    expect(() => compileGLSL.vertex(Fn(() => float(0))())).toThrow(/vertex shader/);
     // @ts-expect-error a float cannot become a position, zero included
-    expect(() => compileWGSL.vertex(Fn(() => float(0))()))
-      .toThrow(/vertex shader/);
+    expect(() => compileWGSL.vertex(Fn(() => float(0))())).toThrow(/vertex shader/);
   });
 
   it("rejects a vertex result that folds to zero", () => {
     // @ts-expect-error a folded zero is still a float
-    expect(() => compileGLSL.vertex(Fn(() => float(2).sub(float(2)))()))
-      .toThrow(/vertex shader/);
+    expect(() => compileGLSL.vertex(Fn(() => float(2).sub(float(2)))())).toThrow(/vertex shader/);
   });
 
   // Writing the position explicitly is the documented way to set it.
   it("allows a vertex shader that writes the position itself", () => {
-    let build = () => Fn(() => {
-      builtinPosition().assign(vec4(1, 2, 3, 4));
-    });
+    let build = () =>
+      Fn(() => {
+        builtinPosition().assign(vec4(1, 2, 3, 4));
+      });
     let glsl = compileGLSL.vertex(build()());
     expect(glsl.match(/gl_Position = /g) ?? [], "written once").toHaveLength(1);
     expect(glsl).toContain("vec4(1, 2, 3, 4)");
@@ -668,14 +786,15 @@ describe("RMSL", () => {
   // With no explicit write, the result still has to be able to become one.
   it("still requires a position when the shader writes none", () => {
     // @ts-expect-error a float cannot become a position
-    expect(() => compileGLSL.vertex(Fn(() => float(1))()))
-      .toThrow(/vertex shader/);
+    expect(() => compileGLSL.vertex(Fn(() => float(1))())).toThrow(/vertex shader/);
   });
 
   // A vertex shader that returns nothing and never writes a position fails
   // validation.
   it("rejects a vertex shader that produces no position at all", () => {
-    let prog = Fn(() => { float(1).toVar(); });
+    let prog = Fn(() => {
+      float(1).toVar();
+    });
     expect(() => compileGLSL.vertex(prog())).toThrow(/vertex shader/);
     expect(() => compileWGSL.vertex(prog())).toThrow(/vertex shader/);
   });
@@ -814,18 +933,50 @@ describe("RMSL", () => {
   });
 
   it("mat2x3 constructor compiles to GLSL", () => {
-    let prog = Fn(() => mat2x3(1,0,0,0,1,0).toVar());
+    let prog = Fn(() => mat2x3(1, 0, 0, 0, 1, 0).toVar());
     let glsl = compileGLSL(prog());
     expect(glsl).toContain("mat2x3(");
+  });
+
+  // Every matrix constructor accepts its own columns as vector nodes, not
+  // just mat3/mat4 (which hand-write the overload) — makeMatConstructor's
+  // generic version used to fall through to a broken literal node holding
+  // Node objects instead of numbers for every other matrix shape.
+  it("builds every matrix shape from columns of vector nodes, not just mat3/mat4", () => {
+    let square = compileJS(() => mat2(vec2(1, 2), vec2(3, 4)), { name: "main", params: [] });
+    expect(square({})).toEqual([1, 2, 3, 4]);
+
+    let rect = compileJS(() => mat2x3(vec3(1, 2, 3), vec3(4, 5, 6)), { name: "main", params: [] });
+    expect(rect({})).toEqual([1, 2, 3, 4, 5, 6]);
+
+    let rectOtherWay = compileJS(() => mat3x2(vec2(1, 2), vec2(3, 4), vec2(5, 6)), { name: "main", params: [] });
+    expect(rectOtherWay({})).toEqual([1, 2, 3, 4, 5, 6]);
+
+    let glsl = compileGLSL(Fn(() => mat2x4(vec4(1, 0, 0, 0), vec4(0, 1, 0, 0)).toVar())());
+    expect(glsl).toContain("mat2x4(vec4(");
   });
 
   // === Phase 6: Infrastructure — Comprehensive coverage ===
 
   // -- All FloatMathOps (constant-folded with literals) --
   it.each([
-    "sin", "cos", "tan", "asin", "acos", "atan",
-    "abs", "sign", "floor", "ceil", "fract",
-    "sqrt", "inversesqrt", "exp", "log", "exp2", "log2",
+    "sin",
+    "cos",
+    "tan",
+    "asin",
+    "acos",
+    "atan",
+    "abs",
+    "sign",
+    "floor",
+    "ceil",
+    "fract",
+    "sqrt",
+    "inversesqrt",
+    "exp",
+    "log",
+    "exp2",
+    "log2",
   ])("float.%s() compiles to GLSL (constant-folded)", (op) => {
     let prog = Fn(() => (float(0.5) as any)[op]().toVar());
     let glsl = compileGLSL(prog());
@@ -849,11 +1000,9 @@ describe("RMSL", () => {
   });
 
   // -- VecCommonOps --
-  it.each([
-    "dot", "length", "normalize", "distance",
-  ])("vec3.%s() compiles to GLSL", (op) => {
+  it.each(["dot", "length", "normalize", "distance"])("vec3.%s() compiles to GLSL", (op) => {
     let prog = Fn(() => {
-      let a = vec3(1,2,3).toVar();
+      let a = vec3(1, 2, 3).toVar();
       return (a as any)[op](op === "dot" || op === "distance" ? a : undefined).toVar();
     });
     let glsl = compileGLSL(prog());
@@ -889,12 +1038,12 @@ describe("RMSL", () => {
   });
 
   it("vec3.reflect/refract/clamp/mix/step/smoothstep compile to GLSL", () => {
-    let v = vec3(1,2,3);
-    let n = vec3(0,1,0);
+    let v = vec3(1, 2, 3);
+    let n = vec3(0, 1, 0);
     expect(compileGLSL(Fn(() => v.reflect(n).toVar())())).toContain("reflect");
     expect(compileGLSL(Fn(() => v.refract(n, float(0.5)).toVar())())).toContain("refract");
-    let zero = vec3(0,0,0);
-    let one = vec3(1,1,1);
+    let zero = vec3(0, 0, 0);
+    let one = vec3(1, 1, 1);
     expect(compileGLSL(Fn(() => v.clamp(zero, one).toVar())())).toContain("clamp");
     expect(compileGLSL(Fn(() => v.mix(one, float(0.5)).toVar())())).toContain("mix");
     expect(compileGLSL(Fn(() => v.step(one).toVar())())).toContain("step");
@@ -902,7 +1051,13 @@ describe("RMSL", () => {
   });
 
   it("mix/clamp/smoothstep emit 3 args in GLSL", () => {
-    let glsl_mix = compileGLSL(Fn(() => vec3(1,0,0).mix(vec3(0,1,0), float(0.5)).toVar())());
+    let glsl_mix = compileGLSL(
+      Fn(() =>
+        vec3(1, 0, 0)
+          .mix(vec3(0, 1, 0), float(0.5))
+          .toVar(),
+      )(),
+    );
     expect(glsl_mix).toContain("mix(");
     expect(glsl_mix).not.toContain("mix(vec3(1, 0, 0), vec3(0, 1, 0))");
     let glsl_clamp = compileGLSL(Fn(() => float(0.5).clamp(float(0), float(1)).toVar())());
@@ -922,28 +1077,58 @@ describe("RMSL", () => {
   });
 
   it("vec3.cross compiles to GLSL", () => {
-    let glsl = compileGLSL(Fn(() => vec3(1,0,0).cross(vec3(0,1,0)).toVar())());
+    let glsl = compileGLSL(
+      Fn(() =>
+        vec3(1, 0, 0)
+          .cross(vec3(0, 1, 0))
+          .toVar(),
+      )(),
+    );
     expect(glsl).toContain("cross");
   });
 
   // -- MatOps --
   it("mat3.inverse/transpose compiles to GLSL", () => {
-    let m = mat3(1,0,0,0,1,0,0,0,1);
+    let m = mat3(1, 0, 0, 0, 1, 0, 0, 0, 1);
     expect(compileGLSL(Fn(() => m.inverse().toVar())())).toContain("inverse");
     expect(compileGLSL(Fn(() => m.transpose().toVar())())).toContain("transpose");
   });
 
   it("mat4.inverse/transpose/mul compiles to GLSL", () => {
     let m = mat4(1);
-    let v = vec4(1,2,3,4);
+    let v = vec4(1, 2, 3, 4);
     expect(compileGLSL(Fn(() => m.inverse().toVar())())).toContain("inverse");
     expect(compileGLSL(Fn(() => m.transpose().toVar())())).toContain("transpose");
     expect(compileGLSL(Fn(() => m.mul(v).toVar())())).toContain("*");
   });
 
+  it("a matCxR times a matRxS types at the product shape", () => {
+    let product = mat2x3(1, 0, 0, 1, 0, 0).mul(mat3x2(1, 0, 0, 1, 0, 0));
+    expect(product._t).toBe("mat3");
+  });
+
+  it("rejects a matrix product whose shapes do not meet", () => {
+    let a = mat2x3(1, 0, 0, 1, 0, 0);
+    let b = mat2x4(1, 0, 0, 1, 0, 0, 0, 0);
+    expect(() => (a as any).mul(b)).toThrow(/mat2x3.*mat2x4|column.*row/);
+  });
+
+  it("a non-square matrix product compiles to GLSL and WGSL at the product type", () => {
+    let a = uniform("mat2x3");
+    let b = uniform("mat3x2");
+    let glsl = compileGLSL(Fn(() => a.mul(b).toVar())());
+    let wgsl = compileWGSL(Fn(() => a.mul(b).toVar())());
+    expect(glsl).toContain("mat3");
+    expect(wgsl).toContain("mat3x3<f32>");
+  });
+
   // -- IntOps --
   it.each([
-    ["add", 8], ["sub", 2], ["mul", 15], ["div", 1], ["mod", 2],
+    ["add", 8],
+    ["sub", 2],
+    ["mul", 15],
+    ["div", 1],
+    ["mod", 2],
   ])("int.%s() compiles to GLSL (constant-folded)", (op, expected) => {
     let prog = Fn(() => (int(5) as any)[op](int(3)).toVar());
     let glsl = compileGLSL(prog());
@@ -951,7 +1136,11 @@ describe("RMSL", () => {
   });
 
   it.each([
-    ["bitAnd", "&"], ["bitOr", "|"], ["bitXor", "^"], ["shiftLeft", "<<"], ["shiftRight", ">>"],
+    ["bitAnd", "&"],
+    ["bitOr", "|"],
+    ["bitXor", "^"],
+    ["shiftLeft", "<<"],
+    ["shiftRight", ">>"],
   ])("int.%s() compiles to GLSL (bitwise)", (op, expected) => {
     let prog = Fn(() => (int(5) as any)[op](int(3)).toVar());
     let glsl = compileGLSL(prog());
@@ -970,12 +1159,12 @@ describe("RMSL", () => {
   // -- Type literals --
   it("int/uint/bool/vec2 literals compile to GLSL", () => {
     expect(compileGLSL(Fn(() => int(42).toVar())())).toContain("42");
-    expect(compileGLSL(Fn(() => vec2(1,2).toVar())())).toContain("vec2(1, 2)");
+    expect(compileGLSL(Fn(() => vec2(1, 2).toVar())())).toContain("vec2(1, 2)");
   });
 
   it("int/uint/bool/vec2 literals compile to WGSL", () => {
     expect(compileWGSL(Fn(() => int(42).toVar())())).toContain("42i");
-    expect(compileWGSL(Fn(() => vec2(1,2).toVar())())).toContain("vec2<f32>(1, 2)");
+    expect(compileWGSL(Fn(() => vec2(1, 2).toVar())())).toContain("vec2<f32>(1, 2)");
   });
 
   // -- Control flow: While, discard --
@@ -993,7 +1182,9 @@ describe("RMSL", () => {
 
   it("discard compiles to GLSL", () => {
     let prog = Fn(() => {
-      If(bool(true), () => { Discard(); });
+      If(bool(true), () => {
+        Discard();
+      });
       return float(1.0);
     });
     let glsl = compileGLSL(prog());
@@ -1002,7 +1193,9 @@ describe("RMSL", () => {
 
   it("discard compiles to WGSL", () => {
     let prog = Fn(() => {
-      If(bool(true), () => { Discard(); });
+      If(bool(true), () => {
+        Discard();
+      });
       return float(1.0);
     });
     let wgsl = compileWGSL(prog());
@@ -1011,7 +1204,9 @@ describe("RMSL", () => {
 
   // -- Edge cases --
   it("empty Fn does not throw", () => {
-    expect(() => { Fn(() => {}); }).not.toThrow();
+    expect(() => {
+      Fn(() => {});
+    }).not.toThrow();
   });
 
   it("single-statement Fn compiles", () => {
@@ -1048,30 +1243,44 @@ describe("RMSL", () => {
   it("compileGLSLFn emits a named function with typed params", () => {
     let glsl = compileGLSLFn((a: any, b: any) => a.add(b).sin(), {
       name: "myFunc",
-      params: [{ name: "a", type: "float" }, { name: "b", type: "float" }],
+      params: [
+        { name: "a", type: "float" },
+        { name: "b", type: "float" },
+      ],
     });
     expect(glsl).toContain("float myFunc(float a, float b)");
     expect(glsl).toContain("return sin(a + b);");
 
-    recordShaderSource("glsl", "fragment", `#version 300 es
+    recordShaderSource(
+      "glsl",
+      "fragment",
+      `#version 300 es
 precision highp float;
 layout(location=0) out vec4 outColor;
 ${glsl}
-void main(void) { outColor = vec4(myFunc(1.0, 2.0)); }`);
+void main(void) { outColor = vec4(myFunc(1.0, 2.0)); }`,
+    );
   });
 
   it("compileWGSLFn emits a named function with typed params", () => {
     let wgsl = compileWGSLFn((a: any, b: any) => a.add(b).sin(), {
       name: "myFunc",
-      params: [{ name: "a", type: "float" }, { name: "b", type: "float" }],
+      params: [
+        { name: "a", type: "float" },
+        { name: "b", type: "float" },
+      ],
     });
     expect(wgsl).toContain("fn myFunc(a: f32, b: f32) -> f32");
     expect(wgsl).toContain("return sin(a + b);");
 
-    recordShaderSource("wgsl", "fragment", `${wgsl}
+    recordShaderSource(
+      "wgsl",
+      "fragment",
+      `${wgsl}
 @fragment fn main() -> @location(0) vec4<f32> {
   return vec4<f32>(myFunc(1.0, 2.0));
-}`);
+}`,
+    );
   });
 
   // uniformRaw names its own slot, unlike uniform() which generates one.
@@ -1084,11 +1293,15 @@ void main(void) { outColor = vec4(myFunc(1.0, 2.0)); }`);
     expect(glsl).toContain("float scale(float v)");
     expect(uniformRaw("uOther", "vec3").name).toBe("uOther");
 
-    recordShaderSource("glsl", "fragment", `#version 300 es
+    recordShaderSource(
+      "glsl",
+      "fragment",
+      `#version 300 es
 precision highp float;
 layout(location=0) out vec4 outColor;
 ${glsl}
-void main(void) { outColor = vec4(scale(2.0)); }`);
+void main(void) { outColor = vec4(scale(2.0)); }`,
+    );
   });
 
   // attributeRaw / varyingRaw name their own slots, as uniformRaw does.
@@ -1122,9 +1335,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
     });
     let fragment = Fn(() => vec4(a, 1).add(b).toVar());
     const locations = (src: string) =>
-      Object.fromEntries(
-        [...src.matchAll(/@location\((\d+)\) (\w+):/g)].map((m) => [m[2], Number(m[1])]),
-      );
+      Object.fromEntries([...src.matchAll(/@location\((\d+)\) (\w+):/g)].map((m) => [m[2], Number(m[1])]));
     let vloc = locations(compileWGSL.vertex(vertex()));
     let floc = locations(compileWGSL.fragment(fragment()));
     expect(vloc.aVal).not.toBe(vloc.bVal);
@@ -1163,10 +1374,14 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
     expect(wgsl).toContain("_rmsl_inverse4(m)");
     expect(wgsl).toContain("fn _rmsl_inverse4(");
 
-    recordShaderSource("wgsl", "fragment", `${wgsl}
+    recordShaderSource(
+      "wgsl",
+      "fragment",
+      `${wgsl}
 @fragment fn main() -> @location(0) vec4<f32> {
   return invert(mat4x4<f32>(1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f))[0];
-}`);
+}`,
+    );
   });
 
   it("compileWGSLFn emits the mat3 helper for a mat3 operand", () => {
@@ -1187,9 +1402,23 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
   // Driven by a uniform because constant folding collapses these on literals.
   it("compiles every unary math builtin", () => {
     let ops = [
-      "sin", "cos", "tan", "asin", "acos", "atan", "abs", "sign",
-      "floor", "ceil", "fract", "sqrt", "inversesqrt",
-      "exp", "log", "exp2", "log2",
+      "sin",
+      "cos",
+      "tan",
+      "asin",
+      "acos",
+      "atan",
+      "abs",
+      "sign",
+      "floor",
+      "ceil",
+      "fract",
+      "sqrt",
+      "inversesqrt",
+      "exp",
+      "log",
+      "exp2",
+      "log2",
     ] as const;
     for (let op of ops) {
       let prog = Fn(() => (uniform("float") as any)[op]().toVar());
@@ -1202,9 +1431,15 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
 
   it("compiles every matrix type, including the non-square ones", () => {
     let cases: [string, (...v: number[]) => any, number][] = [
-      ["mat2", mat2, 4], ["mat2x3", mat2x3, 6], ["mat2x4", mat2x4, 8],
-      ["mat3x2", mat3x2, 6], ["mat3", mat3, 9], ["mat3x4", mat3x4, 12],
-      ["mat4x2", mat4x2, 8], ["mat4x3", mat4x3, 12], ["mat4", mat4, 16],
+      ["mat2", mat2, 4],
+      ["mat2x3", mat2x3, 6],
+      ["mat2x4", mat2x4, 8],
+      ["mat3x2", mat3x2, 6],
+      ["mat3", mat3, 9],
+      ["mat3x4", mat3x4, 12],
+      ["mat4x2", mat4x2, 8],
+      ["mat4x3", mat4x3, 12],
+      ["mat4", mat4, 16],
     ];
     for (let [name, ctor, count] of cases) {
       let values = Array.from({ length: count }, (_, i) => i);
@@ -1283,11 +1518,14 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
   // exists. Each shared node has to be emitted exactly once.
 
   it("emits a shared If body once, not once per root", () => {
-    let build = () => Fn(() => {
-      let acc = float(0).toVar();
-      If(bool(true), () => { acc.assign(acc.add(10)); });
-      return [acc, acc.mul(2)];
-    });
+    let build = () =>
+      Fn(() => {
+        let acc = float(0).toVar();
+        If(bool(true), () => {
+          acc.assign(acc.add(10));
+        });
+        return [acc, acc.mul(2)];
+      });
     let glsl = compileGLSL(build()());
     expect(glsl.match(/if \(true\)/g) ?? []).toHaveLength(1);
     expect(glsl.match(/\+ 10\.0/g) ?? []).toHaveLength(1);
@@ -1301,11 +1539,15 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
   // the block twice while declaring only once and the second copy reads a name
   // scoped to the first — `_rmsl_2` used outside the `if` that declared it.
   it("keeps a variable declared inside a shared block in scope", () => {
-    let build = () => Fn(() => {
-      let a = float(1).toVar();
-      If(bool(true), () => { let b = a.add(2).toVar(); a.assign(b); });
-      return [a, a.mul(2)];
-    });
+    let build = () =>
+      Fn(() => {
+        let a = float(1).toVar();
+        If(bool(true), () => {
+          let b = a.add(2).toVar();
+          a.assign(b);
+        });
+        return [a, a.mul(2)];
+      });
     let glsl = compileGLSL(build()());
     expect(glsl.match(/if \(true\)/g) ?? []).toHaveLength(1);
     // The declaration and its only use are both inside the single block.
@@ -1321,16 +1563,19 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
   // while suppressing the declaration produced `for (_rmsl_4; ...)`, whose
   // counter belongs to the first loop's scope.
   it("emits a shared For loop once, with its init intact", () => {
-    let build = () => Fn(() => {
-      let total = float(0).toVar();
-      For(
-        () => float(0).toVar(),
-        (i) => i.lessThan(4),
-        (i) => i.assign(i.add(1)),
-        (i) => { total.assign(total.add(i)); },
-      );
-      return [total, total.mul(2)];
-    });
+    let build = () =>
+      Fn(() => {
+        let total = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (i) => i.lessThan(4),
+          (i) => i.assign(i.add(1)),
+          (i) => {
+            total.assign(total.add(i));
+          },
+        );
+        return [total, total.mul(2)];
+      });
     let glsl = compileGLSL(build()());
     expect(glsl.match(/for \(/g) ?? []).toHaveLength(1);
     expect(glsl).toMatch(/for \(float _rmsl_\d+ = 0\.0;/);
@@ -1374,10 +1619,17 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
         () => float(0).toVar(),
         (i) => i.lessThan(4),
         (i) => {
-          if (counterFirst) { i.assign(i.add(1)); other.assign(other.add(1)); }
-          else { other.assign(other.add(1)); i.assign(i.add(1)); }
+          if (counterFirst) {
+            i.assign(i.add(1));
+            other.assign(other.add(1));
+          } else {
+            other.assign(other.add(1));
+            i.assign(i.add(1));
+          }
         },
-        (i) => { total.assign(total.add(i)); },
+        (i) => {
+          total.assign(total.add(i));
+        },
       );
       return total;
     });
@@ -1388,7 +1640,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
       let label = counterFirst ? "counter first" : "counter last";
 
       let glsl = compileGLSL(twoStepLoop(counterFirst)());
-      let glslHeader = glsl.split("\n").find(l => l.includes("for ("))!;
+      let glslHeader = glsl.split("\n").find((l) => l.includes("for ("))!;
       expect(glslHeader, label).toMatch(/\+ 1\.0,.*\+ 1\.0/);
 
       // WGSL takes one statement in the header, so more than one moves into a
@@ -1407,7 +1659,9 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
         () => float(0).toVar(),
         (i) => i.lessThan(4),
         (i) => i.assign(i.add(1)),
-        (i) => { total.assign(total.add(i)); },
+        (i) => {
+          total.assign(total.add(i));
+        },
       );
       return total;
     });
@@ -1430,15 +1684,13 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
 
   // A literal that is not a whole number cannot take an integer type.
   it("refuses a fractional literal beside an integer operand", () => {
-    expect(() => Fn(() => uniform("int").add(2.5).toVar())())
-      .toThrow(/whole number|integer/i);
+    expect(() => Fn(() => uniform("int").add(2.5).toVar())()).toThrow(/whole number|integer/i);
   });
 
   // Negative literals stay signed: an unsigned type has no negative values,
   // and WGSL has no unary minus for one either.
   it("refuses a negative literal beside an unsigned operand", () => {
-    expect(() => Fn(() => uniform("uint").add(-1).toVar())())
-      .toThrow(/negative|unsigned/i);
+    expect(() => Fn(() => uniform("uint").add(-1).toVar())()).toThrow(/negative|unsigned/i);
   });
 
   // WGSL makes a single component assignable but not a multi-component
@@ -1536,10 +1788,8 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
     expect(wgsl2).toContain("fn _rmsl_inverse2(");
     expect(wgsl2).not.toContain("_rmsl_inverse4");
 
-    expect(compileWGSL(Fn(() => uniform("mat3").inverse().toVar())()))
-      .toContain("fn _rmsl_inverse3(");
-    expect(compileWGSL(Fn(() => uniform("mat4").inverse().toVar())()))
-      .toContain("fn _rmsl_inverse4(");
+    expect(compileWGSL(Fn(() => uniform("mat3").inverse().toVar())())).toContain("fn _rmsl_inverse3(");
+    expect(compileWGSL(Fn(() => uniform("mat4").inverse().toVar())())).toContain("fn _rmsl_inverse4(");
   });
 
   // Folding runs on literal operands; the integer branch truncates with `| 0`.
@@ -1568,7 +1818,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
     });
     let wgsl = compileWGSL(prog());
 
-    let bindings = wgsl.split("\n").filter(l => l.includes("var<uniform>"));
+    let bindings = wgsl.split("\n").filter((l) => l.includes("var<uniform>"));
     expect(bindings, "one binding no matter how many uniforms").toHaveLength(1);
     expect(wgsl).toContain("struct _RmslUniforms {");
     // Every reference goes through the struct.
@@ -1615,11 +1865,13 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
       { slot: "d", type: "vec4<f32>" },
     ]);
 
-    expect(layout.members.map(m => m.name), "ordered by descending alignment")
-      .toEqual(["c", "d", "b", "a"]);
-    expect(layout.members.map(m => m.offset)).toEqual([0, 16, 32, 40]);
+    expect(
+      layout.members.map((m) => m.name),
+      "ordered by descending alignment",
+    ).toEqual(["c", "d", "b", "a"]);
+    expect(layout.members.map((m) => m.offset)).toEqual([0, 16, 32, 40]);
     // vec3 occupies 12 bytes but aligns to 16, so d starts at 16 not 12.
-    expect(layout.members.find(m => m.name === "c")!.size).toBe(12);
+    expect(layout.members.find((m) => m.name === "c")!.size).toBe(12);
     // Struct is rounded up to its largest member's alignment.
     expect(layout.size).toBe(48);
   });
@@ -1638,7 +1890,9 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
         () => float(0).toVar(),
         (i) => i.lessThan(24),
         (i) => i.assign(i.add(1)),
-        (i) => { total.assign(total.add(items.element(i))); },
+        (i) => {
+          total.assign(total.add(items.element(i)));
+        },
       );
       let out = output("vec4");
       out.assign(total);
@@ -1654,7 +1908,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
     expect(wgsl).toMatch(/_rmsl_u\d+: array<vec4<f32>, 24>,/);
     expect(wgsl).toMatch(/_rmsl_uniforms\._rmsl_u\d+\[i32\(\S+\)\]/);
     // Still a single binding, which is the whole point.
-    expect(wgsl.split("\n").filter(l => l.includes("var<uniform>"))).toHaveLength(1);
+    expect(wgsl.split("\n").filter((l) => l.includes("var<uniform>"))).toHaveLength(1);
   });
 
   it("indexes a uniform array by a constant", () => {
@@ -1747,24 +2001,34 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
   // function path packed everything it had, textures included.
   it("keeps a texture out of the uniform struct in a standalone function", () => {
     let wgsl = compileWGSLFn(() => uniform("sampler2D").texture(vec2(0.5, 0.5)), {
-      name: "sample", params: [],
+      name: "sample",
+      params: [],
     });
     expect(wgsl).toMatch(/var \S+: texture_2d<f32>;/);
     expect(wgsl).not.toMatch(/struct \S+ \{[^}]*texture_2d/s);
 
-    recordShaderSource("wgsl", "fragment", `${wgsl}
-@fragment fn main() -> @location(0) vec4<f32> { return sample(); }`);
+    recordShaderSource(
+      "wgsl",
+      "fragment",
+      `${wgsl}
+@fragment fn main() -> @location(0) vec4<f32> { return sample(); }`,
+    );
   });
 
   it("keeps a sampler3D out of the uniform struct in a standalone function", () => {
     let wgsl = compileWGSLFn(() => uniform("sampler3D").texture(vec3(0.5, 0.5, 0.5)), {
-      name: "sample3D", params: [],
+      name: "sample3D",
+      params: [],
     });
     expect(wgsl).toMatch(/var \S+: texture_3d<f32>;/);
     expect(wgsl).not.toMatch(/struct \S+ \{[^}]*texture_3d/s);
 
-    recordShaderSource("wgsl", "fragment", `${wgsl}
-@fragment fn main() -> @location(0) vec4<f32> { return sample3D(); }`);
+    recordShaderSource(
+      "wgsl",
+      "fragment",
+      `${wgsl}
+@fragment fn main() -> @location(0) vec4<f32> { return sample3D(); }`,
+    );
   });
 
   // Neither backend has a way to express this that the other shares: WGSL has
@@ -1786,11 +2050,9 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
   // size for vec4, but the layout reports it rather than leaving the host to
   // assume the two are the same.
   it("reports the stride of an array member", () => {
-    let layout = wgslUniformLayout([
-      { slot: "vectors", type: "vec4<f32>", length: 2 },
-    ]);
+    let layout = wgslUniformLayout([{ slot: "vectors", type: "vec4<f32>", length: 2 }]);
 
-    let vectors = layout.members.find(m => m.name === "vectors")!;
+    let vectors = layout.members.find((m) => m.name === "vectors")!;
     expect(vectors.stride, "a vec4 is already 16").toBe(16);
     expect(vectors.size).toBe(32);
 
@@ -1807,14 +2069,13 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
       { slot: "m", type: "mat2x3<f32>" },
       { slot: "v", type: "vec4<f32>" },
     ]);
-    let m = layout.members.find(x => x.name === "m")!;
+    let m = layout.members.find((x) => x.name === "m")!;
     expect(m.size, "two columns of sixteen").toBe(32);
     expect(layout.size).toBe(48);
   });
 
   it("refuses a type it has no layout for, rather than guessing", () => {
-    expect(() => wgslUniformLayout([{ slot: "x", type: "mat9x9<f32>" }]))
-      .toThrow(/layout/i);
+    expect(() => wgslUniformLayout([{ slot: "x", type: "mat9x9<f32>" }])).toThrow(/layout/i);
   });
 
   // An array's alignment is raised to sixteen whatever it holds, and the struct
@@ -1825,7 +2086,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
       { slot: "a", type: "f32", length: 3 },
       { slot: "b", type: "f32" },
     ]);
-    expect(layout.members.find(x => x.name === "a")!.size, "three slots of 16").toBe(48);
+    expect(layout.members.find((x) => x.name === "a")!.size, "three slots of 16").toBe(48);
     expect(layout.size, "rounded up to sixteen").toBe(64);
   });
 
@@ -1838,22 +2099,20 @@ void main(void) { outColor = vec4(scale(2.0)); }`);
       { slot: "_rmsl_u9", type: "f32" },
       { slot: "_rmsl_u10", type: "f32" },
     ]);
-    expect(byName.members.map(m => m.name)).toEqual(["_rmsl_u9", "_rmsl_u10"]);
-    expect(byName.members.map(m => m.offset)).toEqual([0, 4]);
+    expect(byName.members.map((m) => m.name)).toEqual(["_rmsl_u9", "_rmsl_u10"]);
+    expect(byName.members.map((m) => m.offset)).toEqual([0, 4]);
   });
 
   it("gives a boolean array the footprint of what it travels as", () => {
     let layout = wgslUniformLayout([{ slot: "flags", type: "bool", length: 4 }]);
-    let flags = layout.members.find(m => m.name === "flags")!;
+    let flags = layout.members.find((m) => m.name === "flags")!;
     expect(flags.stride, "widened to a four-component vector").toBe(16);
     expect(flags.size).toBe(64);
   });
 
   it("gives a single uniform offset zero", () => {
     let layout = wgslUniformLayout([{ slot: "only", type: "vec4<f32>" }]);
-    expect(layout.members).toEqual([
-      { name: "only", type: "vec4<f32>", offset: 0, size: 16 },
-    ]);
+    expect(layout.members).toEqual([{ name: "only", type: "vec4<f32>", offset: 0, size: 16 }]);
     expect(layout.size).toBe(16);
   });
 });
@@ -1878,7 +2137,12 @@ describe("integer vectors", () => {
   });
 
   it("compiles integer vector comparison to a boolean vector", () => {
-    let prog = Fn(() => ivec3(1, 2, 3).lessThan(ivec3(4, 5, 6)).all().toVar());
+    let prog = Fn(() =>
+      ivec3(1, 2, 3)
+        .lessThan(ivec3(4, 5, 6))
+        .all()
+        .toVar(),
+    );
     let glsl = compileGLSL(prog());
     expect(glsl).toContain("lessThan(");
     expect(glsl).toContain("all(");
@@ -1999,11 +2263,7 @@ describe("GLSL precision", () => {
     // so this is a refusal WGSL has no way to join in on, and the validity
     // layer would read the pair as GLSL failing on what WGSL accepted.
     let prog = Fn(() => float(1).toVar());
-    expect(
-      expectCompileRejection(() =>
-        compileGLSL(prog(), { precision: "high" as any }),
-      ),
-    ).toMatch(/precision/);
+    expect(expectCompileRejection(() => compileGLSL(prog(), { precision: "high" as any }))).toMatch(/precision/);
   });
 });
 
@@ -2013,7 +2273,11 @@ describe("matrix narrowing", () => {
     // matrix constructor at all, so the columns are truncated in a helper —
     // once, however large the expression handed to it.
     let model = uniform("mat4");
-    let prog = Fn(() => mat3(model).mul(vec3(0, 1, 0)).toVar());
+    let prog = Fn(() =>
+      mat3(model)
+        .mul(vec3(0, 1, 0))
+        .toVar(),
+    );
     let glsl = compileGLSL(prog());
     let wgsl = compileWGSL(prog());
 
@@ -2032,8 +2296,16 @@ describe("matrix narrowing", () => {
 
   it("leaves a matrix built from columns or a scalar alone", () => {
     // Only a matrix cut down from a bigger one needs the helper.
-    let columns = Fn(() => mat3(vec3(1, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1)).mul(vec3(1, 1, 1)).toVar());
-    let scaled = Fn(() => mat3(float(2)).mul(vec3(1, 1, 1)).toVar());
+    let columns = Fn(() =>
+      mat3(vec3(1, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1))
+        .mul(vec3(1, 1, 1))
+        .toVar(),
+    );
+    let scaled = Fn(() =>
+      mat3(float(2))
+        .mul(vec3(1, 1, 1))
+        .toVar(),
+    );
     expect(compileWGSL(columns())).not.toContain("_from_mat");
     expect(compileWGSL(scaled())).not.toContain("_from_mat");
   });
@@ -2152,9 +2424,15 @@ describe("Switch", () => {
     let prog = Fn(() => {
       let out = float(0).toVar();
       Switch(int(1), (s) => {
-        s.Case(0, () => { out.assign(float(10)); });
-        s.Case([1, 2], () => { out.assign(float(20)); });
-        s.Default(() => { out.assign(float(30)); });
+        s.Case(0, () => {
+          out.assign(float(10));
+        });
+        s.Case([1, 2], () => {
+          out.assign(float(20));
+        });
+        s.Default(() => {
+          out.assign(float(30));
+        });
       });
       return out;
     });
@@ -2172,9 +2450,15 @@ describe("TSL control flow", () => {
   it("If / ElseIf / Else emit an if/else chain", () => {
     let prog = Fn(() => {
       let out = float(0).toVar();
-      If(float(1).greaterThan(0), () => { out.assign(float(10)); })
-        .ElseIf(float(1).lessThan(0), () => { out.assign(float(20)); })
-        .Else(() => { out.assign(float(30)); });
+      If(float(1).greaterThan(0), () => {
+        out.assign(float(10));
+      })
+        .ElseIf(float(1).lessThan(0), () => {
+          out.assign(float(20));
+        })
+        .Else(() => {
+          out.assign(float(30));
+        });
       return out;
     });
     let glsl = compileGLSL(prog());
@@ -2189,7 +2473,9 @@ describe("TSL control flow", () => {
         () => float(0).toVar(),
         (i) => i.lessThan(4),
         (i) => i.assign(i.add(1)),
-        (i) => { total.assign(total.add(i)); },
+        (i) => {
+          total.assign(total.add(i));
+        },
       );
       return total;
     });
@@ -2200,7 +2486,9 @@ describe("TSL control flow", () => {
   it("While runs a conditional loop", () => {
     let prog = Fn(() => {
       let n = float(3).toVar();
-      While(n.greaterThan(0), () => { n.assign(n.sub(1)); });
+      While(n.greaterThan(0), () => {
+        n.assign(n.sub(1));
+      });
       return n;
     });
     let glsl = compileGLSL(prog());
@@ -2210,7 +2498,9 @@ describe("TSL control flow", () => {
   it("Loop(count, (i) => ...) iterates like TSL's counting loop", () => {
     let prog = Fn(() => {
       let total = float(0).toVar();
-      Loop(int(4), (i) => { total.assign(total.add(float(i))); });
+      Loop(int(4), (i) => {
+        total.assign(total.add(float(i)));
+      });
       return total;
     });
     let glsl = compileGLSL(prog());
@@ -2223,8 +2513,12 @@ describe("TSL control flow", () => {
     let prog = Fn(() => {
       let out = float(0).toVar();
       Switch(int(2), (s) => {
-        s.Case([1, 2], () => { out.assign(float(20)); });
-        s.Default(() => { out.assign(float(30)); });
+        s.Case([1, 2], () => {
+          out.assign(float(20));
+        });
+        s.Default(() => {
+          out.assign(float(30));
+        });
       });
       return out;
     });
@@ -2242,8 +2536,12 @@ describe("TSL control flow", () => {
         (i) => i.lessThan(10),
         (i) => i.assign(i.add(int(1))),
         (i) => {
-          If(i.greaterThanEqual(8), () => { Break(); });
-          If(i.lessThan(2), () => { Continue(); });
+          If(i.greaterThanEqual(8), () => {
+            Break();
+          });
+          If(i.lessThan(2), () => {
+            Continue();
+          });
           total.assign(total.add(1));
         },
       );
@@ -2260,7 +2558,9 @@ describe("TSL control flow", () => {
   it("Return emits an early return", () => {
     let prog = Fn(() => {
       let out = float(0).toVar();
-      If(float(1).greaterThan(0), () => { Return(); });
+      If(float(1).greaterThan(0), () => {
+        Return();
+      });
       out.assign(float(1));
       return out;
     });
@@ -2273,7 +2573,9 @@ describe("TSL control flow", () => {
   it("Discard emits the fragment discard", () => {
     let prog = Fn(() => {
       let out = float(0).toVar();
-      If(float(1).greaterThan(0), () => { Discard(); });
+      If(float(1).greaterThan(0), () => {
+        Discard();
+      });
       out.assign(float(1));
       return out;
     });
@@ -2300,7 +2602,11 @@ describe("TSL free-function API", () => {
   it("compiles min/max/pow and the powers", () => {
     let prog = Fn(() => {
       let u = uniform("float");
-      return max(min(u, float(5)), pow(u, float(3))).add(pow2(u)).add(pow3(u)).add(pow4(u)).toVar();
+      return max(min(u, float(5)), pow(u, float(3)))
+        .add(pow2(u))
+        .add(pow3(u))
+        .add(pow4(u))
+        .toVar();
     });
     let glsl = compileGLSL(prog());
     expect(glsl).toContain("max(");
@@ -2325,7 +2631,11 @@ describe("TSL free-function API", () => {
   it("compiles step/smoothstep/clamp/mix with TSL argument order", () => {
     let prog = Fn(() => {
       let x = float(0.5).toVar();
-      return step(float(0.25), x).add(smoothstep(float(0), float(1), x)).add(clamp(x, float(0), float(1))).add(mix(float(0), float(1), x)).toVar();
+      return step(float(0.25), x)
+        .add(smoothstep(float(0), float(1), x))
+        .add(clamp(x, float(0), float(1)))
+        .add(mix(float(0), float(1), x))
+        .toVar();
     });
     let glsl = compileGLSL(prog());
     // step(edge, x): the edge is the first emitted argument.
@@ -2338,7 +2648,13 @@ describe("TSL free-function API", () => {
   it("compiles vector free functions", () => {
     let prog = Fn(() => {
       let v = vec3(1, 2, 3).toVar();
-      return normalize(v).mul(dot(v, v)).add(cross(v, vec3(0, 1, 0))).add(distance(v, vec3(0, 0, 0))).add(length(v)).add(lengthSq(v)).toVar();
+      return normalize(v)
+        .mul(dot(v, v))
+        .add(cross(v, vec3(0, 1, 0)))
+        .add(distance(v, vec3(0, 0, 0)))
+        .add(length(v))
+        .add(lengthSq(v))
+        .toVar();
     });
     let glsl = compileGLSL(prog());
     expect(glsl).toContain("normalize(");
@@ -2353,7 +2669,10 @@ describe("TSL free-function API", () => {
   it("compiles reflect/refract/faceForward", () => {
     let prog = Fn(() => {
       let v = vec3(1, 0, 0).toVar();
-      return reflect(v, vec3(0, 1, 0)).add(refract(v, vec3(0, 1, 0), 0.9)).add(faceForward(v, vec3(0, 1, 0), vec3(1, 0, 0))).toVar();
+      return reflect(v, vec3(0, 1, 0))
+        .add(refract(v, vec3(0, 1, 0), 0.9))
+        .add(faceForward(v, vec3(0, 1, 0), vec3(1, 0, 0)))
+        .toVar();
     });
     let glsl = compileGLSL(prog());
     expect(glsl).toContain("reflect(");
@@ -2378,7 +2697,12 @@ describe("TSL free-function API", () => {
     let prog = Fn(() => {
       let a = float(1).toVar();
       let b = float(2).toVar();
-      return equal(a, b).toInt().add(lessThan(a, b).toInt()).add(not(greaterThanEqual(a, b)).toInt()).add(and(notEqual(a, b), or(a.lessThan(b), xor(a.lessThan(b), a.greaterThan(b)))).toInt()).toVar();
+      return equal(a, b)
+        .toInt()
+        .add(lessThan(a, b).toInt())
+        .add(not(greaterThanEqual(a, b)).toInt())
+        .add(and(notEqual(a, b), or(a.lessThan(b), xor(a.lessThan(b), a.greaterThan(b)))).toInt())
+        .toVar();
     });
     let glsl = compileGLSL(prog());
     expect(glsl).toContain("==");
@@ -2392,7 +2716,10 @@ describe("TSL free-function API", () => {
   it("compiles all/any reductions", () => {
     let prog = Fn(() => {
       let v = vec3(1, 2, 3).toVar();
-      return all(v.greaterThan(0)).toInt().add(any(v.lessThan(0)).toInt()).toVar();
+      return all(v.greaterThan(0))
+        .toInt()
+        .add(any(v.lessThan(0)).toInt())
+        .toVar();
     });
     let glsl = compileGLSL(prog());
     expect(glsl).toContain("all(");
@@ -2402,7 +2729,12 @@ describe("TSL free-function API", () => {
   });
 
   it("compiles matrix free functions", () => {
-    let prog = Fn(() => determinant(mat4(1)).add(determinant(transpose(mat3(1)))).add(determinant(inverse(mat4(1)))).toVar());
+    let prog = Fn(() =>
+      determinant(mat4(1))
+        .add(determinant(transpose(mat3(1))))
+        .add(determinant(inverse(mat4(1))))
+        .toVar(),
+    );
     let glsl = compileGLSL(prog());
     expect(glsl).toContain("determinant(");
     expect(glsl).toContain("transpose(");
@@ -2435,7 +2767,14 @@ describe("TSL additions", () => {
   });
 
   it("constructs boolean vectors", () => {
-    let prog = Fn(() => bvec2(true, false).all().toInt().add(bvec3(true, true, false).any().toInt()).add(bvec4(false, false, false, false).any().toInt()).toVar());
+    let prog = Fn(() =>
+      bvec2(true, false)
+        .all()
+        .toInt()
+        .add(bvec3(true, true, false).any().toInt())
+        .add(bvec4(false, false, false, false).any().toInt())
+        .toVar(),
+    );
     let glsl = compileGLSL(prog());
     expect(glsl).toContain("bvec2(");
     expect(glsl).toContain("bvec3(");
@@ -2517,7 +2856,11 @@ describe("TSL additions", () => {
 describe("JS target", () => {
   it("emits a callable expression reading inputs from ctx", () => {
     let src = compileJSFn((a: any, b: any) => a.add(b), {
-      name: "add2", params: [{ name: "a", type: "float" }, { name: "b", type: "float" }],
+      name: "add2",
+      params: [
+        { name: "a", type: "float" },
+        { name: "b", type: "float" },
+      ],
     });
     expect(src).toContain("function add2(ctx)");
     expect(src).toContain("ctx.params");
@@ -2551,7 +2894,8 @@ describe("JS target", () => {
 
   it("uses Math builtins for scalar math", () => {
     let src = compileJSFn((a: any) => a.sin(), {
-      name: "main", params: [{ name: "a", type: "float" }],
+      name: "main",
+      params: [{ name: "a", type: "float" }],
     });
     expect(src).toContain("Math.sin");
   });
@@ -2604,8 +2948,7 @@ describe("JS target", () => {
       let x = vec2(1, 2).toVar();
       return x.fwidth();
     });
-    expect(() => compileJSFn(() => prog(), { name: "main", params: [] }))
-      .toThrow(/CPU target/);
+    expect(() => compileJSFn(() => prog(), { name: "main", params: [] })).toThrow(/CPU target/);
     let src = compileJSFn(() => prog(), { name: "main", params: [], derivatives: "zero" });
     expect(src).toContain("0");
   });

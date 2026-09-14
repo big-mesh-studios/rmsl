@@ -16,30 +16,30 @@ differences](#behavioural-differences).
 
 ## Methods on nodes
 
-| TSL | RMSL | Notes |
-|-----|------|-------|
-| `.add()` / `.sub()` / `.mul()` / `.div()` / `.mod()` | same | |
-| `.negate()` | same | |
-| `.abs() .sign() .floor() .ceil() .fract() .round() .trunc()` | same | |
-| `.radians() .degrees()` | same | |
-| `.sqrt() .inverseSqrt() .exp() .log() .exp2() .log2() .cbrt()` | same | `.inversesqrt()` also kept as an alias |
-| `.sin() .cos() .tan() .asin() .acos() .atan() .sinh() .cosh() .tanh() .asinh() .acosh() .atanh()` | same | `.atan(x)` is `atan2` |
-| `.min() .max() .pow() .pow2() .pow3() .pow4()` | same | |
-| `.step(edge) .smoothstep(lo, hi) .mix(b, t) .clamp(lo, hi)` | same | value-last, as in TSL |
-| `.saturate() .oneMinus() .reciprocal() .lengthSq() .difference()` | same | |
-| `.normalize() .length() .distance() .dot() .cross()` | same | |
-| `.reflect() .refract() .faceForward()` | same | |
-| `.transpose() .determinant() .inverse()` | same | |
-| `.all() .any()` | same | |
-| `.and() .or() .not() .xor()` | same | |
-| `.bitAnd() .bitOr() .bitXor() .bitNot() .shiftLeft() .shiftRight()` | same | |
-| `.equal() .notEqual() .lessThan() .greaterThan() .lessThanEqual() .greaterThanEqual()` | same | |
-| `.element(i)` | same | |
-| `.toVar()` / `.var()` | same | |
-| `.assign()` | same | must be called inside an `Fn` |
-| `.addAssign() .subAssign() .mulAssign() .divAssign() .modAssign()` | same | |
-| `.toFloat() .toInt() .toUint() .toBool() .toVec2() … .toMat4()` | same | |
-| swizzles `.xyzw .rgba .stpq` | same | all three spellings |
+| TSL                                                                                               | RMSL | Notes                                  |
+| ------------------------------------------------------------------------------------------------- | ---- | -------------------------------------- |
+| `.add()` / `.sub()` / `.mul()` / `.div()` / `.mod()`                                              | same |                                        |
+| `.negate()`                                                                                       | same |                                        |
+| `.abs() .sign() .floor() .ceil() .fract() .round() .trunc()`                                      | same |                                        |
+| `.radians() .degrees()`                                                                           | same |                                        |
+| `.sqrt() .inverseSqrt() .exp() .log() .exp2() .log2() .cbrt()`                                    | same | `.inversesqrt()` also kept as an alias |
+| `.sin() .cos() .tan() .asin() .acos() .atan() .sinh() .cosh() .tanh() .asinh() .acosh() .atanh()` | same | `.atan(x)` is `atan2`                  |
+| `.min() .max() .pow() .pow2() .pow3() .pow4()`                                                    | same |                                        |
+| `.step(edge) .smoothstep(lo, hi) .mix(b, t) .clamp(lo, hi)`                                       | same | value-last, as in TSL                  |
+| `.saturate() .oneMinus() .reciprocal() .lengthSq() .difference()`                                 | same |                                        |
+| `.normalize() .length() .distance() .dot() .cross()`                                              | same |                                        |
+| `.reflect() .refract() .faceForward()`                                                            | same |                                        |
+| `.transpose() .determinant() .inverse()`                                                          | same |                                        |
+| `.all() .any()`                                                                                   | same |                                        |
+| `.and() .or() .not() .xor()`                                                                      | same |                                        |
+| `.bitAnd() .bitOr() .bitXor() .bitNot() .shiftLeft() .shiftRight()`                               | same |                                        |
+| `.equal() .notEqual() .lessThan() .greaterThan() .lessThanEqual() .greaterThanEqual()`            | same |                                        |
+| `.element(i)`                                                                                     | same |                                        |
+| `.toVar()` / `.var()`                                                                             | same |                                        |
+| `.assign()`                                                                                       | same | must be called inside an `Fn`          |
+| `.addAssign() .subAssign() .mulAssign() .divAssign() .modAssign()`                                | same |                                        |
+| `.toFloat() .toInt() .toUint() .toBool() .toVec2() … .toMat4()`                                   | same |                                        |
+| swizzles `.xyzw .rgba .stpq`                                                                      | same | all three spellings                    |
 
 ## Free functions
 
@@ -60,25 +60,25 @@ Argument order matches TSL: `step(edge, x)`, `smoothstep(low, high, x)`,
 
 ## Constructors and constants
 
-| TSL | RMSL |
-|-----|------|
-| `float int uint bool` | same |
-| `vec2 vec3 vec4 ivec2 ivec3 ivec4 uvec2 uvec3 uvec4 bvec2 bvec3 bvec4` | same |
-| `mat2 mat3 mat4` | same (RMSL also exports the non-square `mat2x3` … `mat4x3`) |
-| `PI TWO_PI PI2 HALF_PI EPSILON INFINITY` | same |
+| TSL                                                                    | RMSL                                                        |
+| ---------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `float int uint bool`                                                  | same                                                        |
+| `vec2 vec3 vec4 ivec2 ivec3 ivec4 uvec2 uvec3 uvec4 bvec2 bvec3 bvec4` | same                                                        |
+| `mat2 mat3 mat4`                                                       | same (RMSL also exports the non-square `mat2x3` … `mat4x3`) |
+| `PI TWO_PI PI2 HALF_PI EPSILON INFINITY`                               | same                                                        |
 
 ## Control flow
 
-| TSL | RMSL |
-|-----|------|
-| `Fn(() => { … })` | same |
-| `If(cond, () => …).ElseIf(cond, () => …).Else(() => …)` | same |
-| `Switch(x, (s) => { s.Case(…); s.Default(…) })` | same |
-| `Loop(count, ({ i }) => …)` | `Loop(count, (i) => …)` — `i` is passed directly rather than destructured |
-| `While(cond, () => …)` | same |
-| `For(…)` | same |
-| `Break()` / `Continue()` | same |
-| `Discard()` / `Return()` | same |
+| TSL                                                     | RMSL                                                                      |
+| ------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `Fn(() => { … })`                                       | same                                                                      |
+| `If(cond, () => …).ElseIf(cond, () => …).Else(() => …)` | same                                                                      |
+| `Switch(x, (s) => { s.Case(…); s.Default(…) })`         | same                                                                      |
+| `Loop(count, ({ i }) => …)`                             | `Loop(count, (i) => …)` — `i` is passed directly rather than destructured |
+| `While(cond, () => …)`                                  | same                                                                      |
+| `For(…)`                                                | same                                                                      |
+| `Break()` / `Continue()`                                | same                                                                      |
+| `Discard()` / `Return()`                                | same                                                                      |
 
 ## Behavioural differences
 
@@ -86,7 +86,7 @@ Most differences are in the input/output plumbing, which is renderer-specific
 in TSL:
 
 - **`uniform` / `attribute` / `varying` are type-first.** TSL's `uniform(name,
-  value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
+value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
   renderer. RMSL declares a slot: `uniform("vec4")`, `attribute("vec3")`,
   `varying("vec2")`, and `uniformRaw(name, type)` for a custom name. Change the
   argument order, not the name.

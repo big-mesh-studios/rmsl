@@ -1,12 +1,7 @@
-import {
-  vec3, vec4,
-  type Node, type UniformNode, type GLSLPrecision,
-} from "../../rmsl";
+import { vec3, vec4, type Node, type UniformNode, type GLSLPrecision } from "../../rmsl";
 import { NodeMaterial, resolveSlot } from "./NodeMaterial";
 import { Builder } from "./nodes/Builder";
-import {
-  collectLights, type LightUniforms,
-} from "./nodes/lights";
+import { collectLights, type LightUniforms } from "./nodes/lights";
 import { pointLightAttenuation, standardLight } from "./nodes/lighting";
 import { Color } from "../math/Color";
 import { Side } from "./Material";
@@ -32,28 +27,28 @@ export class MeshStandardMaterial extends NodeMaterial {
   protected emissiveUniform?: UniformNode<"vec3">;
   protected lights?: LightUniforms;
 
-  constructor(parameters: {
-    color?: Color | number;
-    roughness?: number;
-    metalness?: number;
-    emissive?: Color | number;
-    opacity?: number;
-    transparent?: boolean;
-    side?: Side;
-    precision?: GLSLPrecision;
-  } = {}) {
+  constructor(
+    parameters: {
+      color?: Color | number;
+      roughness?: number;
+      metalness?: number;
+      emissive?: Color | number;
+      opacity?: number;
+      transparent?: boolean;
+      side?: Side;
+      precision?: GLSLPrecision;
+    } = {},
+  ) {
     super();
     if (parameters.color !== undefined) {
-      this.color = typeof parameters.color === "number"
-        ? new Color().setHex(parameters.color)
-        : parameters.color.clone();
+      this.color =
+        typeof parameters.color === "number" ? new Color().setHex(parameters.color) : parameters.color.clone();
     }
     if (parameters.roughness !== undefined) this.roughness = parameters.roughness;
     if (parameters.metalness !== undefined) this.metalness = parameters.metalness;
     if (parameters.emissive !== undefined) {
-      this.emissive = typeof parameters.emissive === "number"
-        ? new Color().setHex(parameters.emissive)
-        : parameters.emissive.clone();
+      this.emissive =
+        typeof parameters.emissive === "number" ? new Color().setHex(parameters.emissive) : parameters.emissive.clone();
     }
     if (parameters.opacity !== undefined) this.opacity = parameters.opacity;
     if (parameters.transparent !== undefined) this.transparent = parameters.transparent;
@@ -92,7 +87,9 @@ export class MeshStandardMaterial extends NodeMaterial {
     for (const light of this.lights!.points) {
       const dir = light.position.sub(b.positionWorld).normalize();
       const attenuation = pointLightAttenuation(light.position, b.positionWorld, light.distance, light.decay);
-      color.addAssign(standardLight(albedo, normal, viewDir, dir, light.color, roughness, metalness, f0).mul(attenuation));
+      color.addAssign(
+        standardLight(albedo, normal, viewDir, dir, light.color, roughness, metalness, f0).mul(attenuation),
+      );
     }
 
     return vec4(color, opacity);

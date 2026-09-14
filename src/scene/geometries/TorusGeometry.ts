@@ -22,8 +22,8 @@ export class TorusGeometry extends BufferGeometry {
 
     for (let j = 0; j <= radialSegments; j++) {
       for (let i = 0; i <= tubularSegments; i++) {
-        const u = i / tubularSegments * arc;
-        const v = j / radialSegments * Math.PI * 2;
+        const u = (i / tubularSegments) * arc;
+        const v = (j / radialSegments) * Math.PI * 2;
 
         center.x = radius * Math.cos(u);
         center.y = radius * Math.sin(u);

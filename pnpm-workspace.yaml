@@ -1,6 +1,6 @@
 packages:
-  - 'apps/*'
+  - "apps/*"
 allowBuilds:
   # Native Dawn (WebGPU) binding; used only to validate generated WGSL in tests.
-  '@kmamal/gpu': true
+  "@kmamal/gpu": true
   esbuild: true

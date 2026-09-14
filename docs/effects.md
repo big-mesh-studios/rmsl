@@ -20,41 +20,41 @@ Three.js wraps every effect in a renderer-bound node that owns render targets,
 per-frame updates and a fullscreen quad. RMSL keeps only the shader: the
 renderer machinery is replaced with explicit arguments.
 
-| three.js | RMSL |
-|----------|------|
-| `convertToTexture(node)` | Nothing to convert — pass a `uniform("sampler2D")` (or `"sampler3D"` for a LUT) directly. |
-| `uv()` / `screenUV()` | `uv()` — the normalized screen position (`fragCoord / screenSize`). |
-| `screenCoordinate` | `screenCoordinate()` / `fragCoord()` — pixel position. |
-| `uniform(1.57)` (value-owned) | A plain number or node parameter. |
-| `uniform(new Vector2())` (resolution) | Derived in-shader from `textureSize(...)`. |
-| `time` | `time()` — a shared `float` uniform the host updates. |
-| `passTexture` / `RenderTarget` | A `PassGraph` of data-only pass descriptors (see below). |
-| `Loop({ start, end, condition }, ({ i }) => ...)` | RMSL `For(...)` / `Loop(count, (i) => ...)`. |
-| `.toConst()` | Free — RMSL constant-folds. |
+| three.js                                          | RMSL                                                                                      |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `convertToTexture(node)`                          | Nothing to convert — pass a `uniform("sampler2D")` (or `"sampler3D"` for a LUT) directly. |
+| `uv()` / `screenUV()`                             | `uv()` — the normalized screen position (`fragCoord / screenSize`).                       |
+| `screenCoordinate`                                | `screenCoordinate()` / `fragCoord()` — pixel position.                                    |
+| `uniform(1.57)` (value-owned)                     | A plain number or node parameter.                                                         |
+| `uniform(new Vector2())` (resolution)             | Derived in-shader from `textureSize(...)`.                                                |
+| `time`                                            | `time()` — a shared `float` uniform the host updates.                                     |
+| `passTexture` / `RenderTarget`                    | A `PassGraph` of data-only pass descriptors (see below).                                  |
+| `Loop({ start, end, condition }, ({ i }) => ...)` | RMSL `For(...)` / `Loop(count, (i) => ...)`.                                              |
+| `.toConst()`                                      | Free — RMSL constant-folds.                                                               |
 
 ## Single-pass effects
 
 These take an input color node or a sampler and return the output color:
 
-| Function | Input | Notes |
-|----------|-------|-------|
-| `sepia(color)` | color | |
-| `bleach(color, opacity?)` | color | Bleach bypass. |
-| `dotScreen(color, angle?, scale?)` | color | Uses the screen coordinate. |
-| `film(color, intensity?, uv?)` | color | Film grain; needs `time()`. |
-| `circle(scale?, softness?, coord?)` | — | Radial gradient utility. |
-| `rgbShift(texture, amount?, angle?)` | sampler | |
-| `chromaticAberration(texture, strength?, center?, scale?)` | sampler | |
-| `sobel(texture)` | sampler | Edge detection. |
-| `lut3D(color, lut3DSampler, size, intensity?)` | color + `sampler3D` | 3D LUT grading. |
-| `transition(textureA, textureB, mixTexture, ratio, threshold, useTexture)` | samplers | |
-| `crt(texture, options?)` | sampler | Barrel distortion + bleeding + scanlines + vignette. |
-| `motionBlur(texture, velocity, numSamples?)` | sampler + `vec2` | |
-| `sharpen(texture, sharpness?, denoise?)` | sampler | RCAS. |
-| `fxaa(texture)` | sampler | Requires sRGB input. |
-| `boxBlur(texture, options?)` | sampler | |
-| `hashBlur(texture, bluramount?, options?)` | sampler | |
-| `radialBlur(texture, options?)` | sampler | |
+| Function                                                                   | Input               | Notes                                                |
+| -------------------------------------------------------------------------- | ------------------- | ---------------------------------------------------- |
+| `sepia(color)`                                                             | color               |                                                      |
+| `bleach(color, opacity?)`                                                  | color               | Bleach bypass.                                       |
+| `dotScreen(color, angle?, scale?)`                                         | color               | Uses the screen coordinate.                          |
+| `film(color, intensity?, uv?)`                                             | color               | Film grain; needs `time()`.                          |
+| `circle(scale?, softness?, coord?)`                                        | —                   | Radial gradient utility.                             |
+| `rgbShift(texture, amount?, angle?)`                                       | sampler             |                                                      |
+| `chromaticAberration(texture, strength?, center?, scale?)`                 | sampler             |                                                      |
+| `sobel(texture)`                                                           | sampler             | Edge detection.                                      |
+| `lut3D(color, lut3DSampler, size, intensity?)`                             | color + `sampler3D` | 3D LUT grading.                                      |
+| `transition(textureA, textureB, mixTexture, ratio, threshold, useTexture)` | samplers            |                                                      |
+| `crt(texture, options?)`                                                   | sampler             | Barrel distortion + bleeding + scanlines + vignette. |
+| `motionBlur(texture, velocity, numSamples?)`                               | sampler + `vec2`    |                                                      |
+| `sharpen(texture, sharpness?, denoise?)`                                   | sampler             | RCAS.                                                |
+| `fxaa(texture)`                                                            | sampler             | Requires sRGB input.                                 |
+| `boxBlur(texture, options?)`                                               | sampler             |                                                      |
+| `hashBlur(texture, bluramount?, options?)`                                 | sampler             |                                                      |
+| `radialBlur(texture, options?)`                                            | sampler             |                                                      |
 
 Textures are declared by the caller and passed in:
 
@@ -74,10 +74,10 @@ bloom) return a **`PassGraph`** — pure data, not a renderer:
 ```typescript
 interface PassDescriptor {
   name: string;
-  color: Node<"vec4">;                    // the pass's fragment color
-  inputs: Record<string, Sampler2DLike>;  // samplers to bind for this pass
-  size?: [number, number];                // optional render-target size in pixels
-  scale?: number;                         // optional size as a fraction of the input
+  color: Node<"vec4">; // the pass's fragment color
+  inputs: Record<string, Sampler2DLike>; // samplers to bind for this pass
+  size?: [number, number]; // optional render-target size in pixels
+  scale?: number; // optional size as a fraction of the input
 }
 
 interface PassGraph {
@@ -134,7 +134,7 @@ Because the mip chain shrinks each step, bloom passes carry a `scale` on the
 (its first input's size when `scale` is absent, and the drawing buffer when it
 has no inputs). The high pass is `0.5`, the vertical passes and mip 0 are `1`,
 and each halving horizontal pass is `0.5`. `size` (absolute pixels) wins over
-`scale` when both are set. Pass inputs are keyed by the *producer pass's name*
+`scale` when both are set. Pass inputs are keyed by the _producer pass's name_
 for internal links — `{ "bloom.mip0.vertical": ... }` — and by any other name
 (e.g. `input`) for external textures, so an executor can bind a pass's output
 target to the next pass mechanically.
@@ -153,7 +153,7 @@ camera). The single-pass color family, the blur family, and bloom are.
 through the recording compilers, so the whole set is handed to real GLSL and
 WGSL drivers in the GPU validation layer.
 
-What an effect *computes* can be checked without a device at all: an effect is
+What an effect _computes_ can be checked without a device at all: an effect is
 a function of nodes, so it evaluates on the CPU, and one pass of a pass graph
 runs with its input textures given by name.
 

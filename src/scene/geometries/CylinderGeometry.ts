@@ -6,7 +6,16 @@ import { BufferAttribute } from "./BufferAttribute";
  * three.js's `CylinderGeometry`.
  */
 export class CylinderGeometry extends BufferGeometry {
-  constructor(radiusTop = 1, radiusBottom = 1, height = 1, radialSegments = 32, heightSegments = 1, openEnded = false, thetaStart = 0, thetaLength = Math.PI * 2) {
+  constructor(
+    radiusTop = 1,
+    radiusBottom = 1,
+    height = 1,
+    radialSegments = 32,
+    heightSegments = 1,
+    openEnded = false,
+    thetaStart = 0,
+    thetaLength = Math.PI * 2,
+  ) {
     super();
 
     radialSegments = Math.floor(radialSegments);
@@ -70,7 +79,7 @@ export class CylinderGeometry extends BufferGeometry {
       const centerIndexStart = index;
 
       for (let x = 1; x <= radialSegments; x++) {
-        vertices.push(0, sign * height / 2, 0);
+        vertices.push(0, (sign * height) / 2, 0);
         normals.push(0, sign, 0);
         uvs.push(0.5, 0.5);
         index++;
@@ -83,7 +92,7 @@ export class CylinderGeometry extends BufferGeometry {
         const theta = u * thetaLength + thetaStart;
         const cosTheta = Math.cos(theta);
         const sinTheta = Math.sin(theta);
-        vertices.push(sinTheta * radius, sign * height / 2, cosTheta * radius);
+        vertices.push(sinTheta * radius, (sign * height) / 2, cosTheta * radius);
         normals.push(0, sign, 0);
         uvs.push(cosTheta * 0.5 + 0.5, sinTheta * 0.5 * sign + 0.5);
         index++;

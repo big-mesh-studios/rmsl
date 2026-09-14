@@ -9,10 +9,35 @@
 
 import { describe, it, expectTypeOf } from "vitest";
 import {
-  Fn, float, vec2, vec3, vec4, int, uint, bool, ivec2, ivec3, ivec4,
-  uvec2, uvec3, uvec4, uniform, mat3, mat4,
-  mul, dot, length, distance, all, any, determinant,
-  compileGLSL, compileWGSL, type Node, type ShaderType,
+  Fn,
+  float,
+  vec2,
+  vec3,
+  vec4,
+  int,
+  uint,
+  bool,
+  ivec2,
+  builtinPosition,
+  ivec3,
+  ivec4,
+  uvec2,
+  uvec3,
+  uvec4,
+  uniform,
+  mat3,
+  mat4,
+  mul,
+  dot,
+  length,
+  distance,
+  all,
+  any,
+  determinant,
+  compileGLSL,
+  compileWGSL,
+  type Node,
+  type ShaderType,
 } from "./rmsl";
 
 describe("comparison result types", () => {
@@ -80,24 +105,42 @@ describe("what a vertex stage accepts", () => {
   // Its result becomes the position, so anything that cannot be one is refused
   // where it is written rather than when the compiler runs.
   it("takes a vec4 result", () => {
-    expectTypeOf(compileGLSL.vertex(Fn(() => vec4(1, 2, 3, 4).toVar())()))
-      .toEqualTypeOf<string>();
+    expectTypeOf(compileGLSL.vertex(Fn(() => vec4(1, 2, 3, 4).toVar())())).toEqualTypeOf<string>();
   });
 
   // The other way to satisfy it: assign the position and return nothing. A
   // body that returns nothing has type void, which is why void is admitted.
   it("takes a program that returns nothing", () => {
-    expectTypeOf(compileWGSL.vertex(Fn(() => { vec4(1, 2, 3, 4).toVar(); })()))
-      .toEqualTypeOf<string>();
+    expectTypeOf(
+      compileWGSL.vertex(
+        Fn(() => {
+          vec4(1, 2, 3, 4).toVar();
+        })(),
+      ),
+    ).toEqualTypeOf<string>();
+  });
+
+  // A body with no return, and one that assigns the position but likewise
+  // returns nothing, both give the call itself — not just what a compiler
+  // accepts — the type void.
+  it("types a program that returns nothing as void", () => {
+    expectTypeOf(
+      Fn(() => {
+        float(1).toVar();
+      })(),
+    ).toEqualTypeOf<void>();
+
+    expectTypeOf(
+      Fn(() => {
+        builtinPosition().assign(vec4(1, 2, 3, 4));
+      })(),
+    ).toEqualTypeOf<void>();
   });
 
   // Several values can be returned at once, and the last becomes the position.
   // The values before it are whatever the shader needed on the way there.
   it("takes several values, of which the last is the position", () => {
-    expectTypeOf(compileGLSL.vertex(Fn(() => [
-      float(1).toVar(),
-      vec4(0, 0, 0, 1).toVar(),
-    ])())).toEqualTypeOf<string>();
+    expectTypeOf(compileGLSL.vertex(Fn(() => [float(1).toVar(), vec4(0, 0, 0, 1).toVar()])())).toEqualTypeOf<string>();
   });
 
   it("refuses several values that do not end in a position", () => {
@@ -117,8 +160,7 @@ describe("what a vertex stage accepts", () => {
   // A fragment stage has no such requirement: a shader with no colour output is
   // legal, so any result is allowed through.
   it("puts no such requirement on a fragment stage", () => {
-    expectTypeOf(compileGLSL.fragment(Fn(() => float(1).toVar())()))
-      .toEqualTypeOf<string>();
+    expectTypeOf(compileGLSL.fragment(Fn(() => float(1).toVar())())).toEqualTypeOf<string>();
   });
 });
 
@@ -307,6 +349,19 @@ describe("TSL free-function API", () => {
     expectTypeOf(uniform("mat4").mul(vec3(1, 2, 3))).toEqualTypeOf<Node<"vec3">>();
     expectTypeOf(uniform("mat3").mul(vec2(1, 2))).toEqualTypeOf<Node<"vec2">>();
     expectTypeOf(uniform("mat4").mul(uniform("mat4"))).toEqualTypeOf<Node<"mat4">>();
+  });
+
+  it("types a matrix times a matrix by the column/row product", () => {
+    expectTypeOf(uniform("mat2x3").mul(uniform("mat3x2"))).toEqualTypeOf<Node<"mat3">>();
+    expectTypeOf(uniform("mat3x2").mul(uniform("mat2x3"))).toEqualTypeOf<Node<"mat2">>();
+    expectTypeOf(uniform("mat2").mul(uniform("mat3x2"))).toEqualTypeOf<Node<"mat3x2">>();
+    expectTypeOf(uniform("mat4").mul(uniform("mat2x4"))).toEqualTypeOf<Node<"mat2x4">>();
+    expectTypeOf(uniform("mat2x4").mul(uniform("mat4x2"))).toEqualTypeOf<Node<"mat4">>();
+    expectTypeOf(uniform("mat4").mul(uniform("mat4"))).toEqualTypeOf<Node<"mat4">>();
+  });
+
+  it("rejects a matrix product whose shapes do not meet", () => {
+    expectTypeOf(uniform("mat2x3").mul(uniform("mat2x4"))).toEqualTypeOf<never>();
   });
 
   it("types stpq swizzles by the source type", () => {

@@ -1,5 +1,5 @@
 import { f, type FloatIn, type IntIn, type Vec2In, type Sampler2D, type Sampler3D } from "./util";
-import {mul, smoothstep, sub, uv, vec2, type Node} from "../rmsl";
+import { mul, smoothstep, sub, uv, vec2, type Node } from "../rmsl";
 
 /**
  * Returns a radial gradient from center (white) to edges (black). Useful for
@@ -12,16 +12,8 @@ import {mul, smoothstep, sub, uv, vec2, type Node} from "../rmsl";
  * @param coord - The input UV coordinates; defaults to the screen uv.
  * @return 1.0 at center, 0.0 at edges.
  */
-export const circle = (
-  scale: FloatIn = 1.0,
-  softness: FloatIn = 0.5,
-  coord: Vec2In | null = null,
-): Node<"float"> => {
-  const c = coord === null
-    ? uv()
-    : Array.isArray(coord)
-      ? vec2(coord[0], coord[1])
-      : coord;
+export const circle = (scale: FloatIn = 1.0, softness: FloatIn = 0.5, coord: Vec2In | null = null): Node<"float"> => {
+  const c = coord === null ? uv() : Array.isArray(coord) ? vec2(coord[0], coord[1]) : coord;
   // Center the UV coordinates (-0.5 to 0.5).
   const centered = c.sub(0.5);
   // Distance from center (0 at center, ~0.707 at corners).

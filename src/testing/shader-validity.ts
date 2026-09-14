@@ -79,7 +79,8 @@ export const KNOWN_INVALID: Record<string, string> = {
   // sample that ends up inside the skip-pixel guard or an edge branch. A
   // branchless (select-based) port would satisfy it, but that is a rewrite of
   // the algorithm, not a codegen fix.
-  "wgsl:texture-based effects > fxaa": "WGSL forbids textureSample in the non-uniform control flow FXAA's edge detection requires",
+  "wgsl:texture-based effects > fxaa":
+    "WGSL forbids textureSample in the non-uniform control flow FXAA's edge detection requires",
 };
 
 /**
@@ -88,12 +89,7 @@ export const KNOWN_INVALID: Record<string, string> = {
  * Compiling both here makes parity structural — a new test gets it for free —
  * while the test's own assertions still run against the language it chose.
  */
-function recordBoth(
-  root: any,
-  stage: ShaderStage,
-  want: ShaderLang,
-  glslOptions?: CompileGLSLOptions,
-): string {
+function recordBoth(root: any, stage: ShaderStage, want: ShaderLang, glslOptions?: CompileGLSLOptions): string {
   const test = expect.getState().currentTestName ?? "<unknown test>";
   const pair = nextPair++;
   const entries: Recorded[] = [];
@@ -113,8 +109,7 @@ function recordBoth(
     } catch (error) {
       // A backend refusing to compile is itself a signal, so it is recorded
       // rather than swallowed.
-      entry.compileError =
-        error instanceof Error ? error.message : String(error);
+      entry.compileError = error instanceof Error ? error.message : String(error);
     }
     entries.push(entry);
     recorded.push(entry);
@@ -135,11 +130,7 @@ function recordBoth(
  * function in a minimal shader and pass it here, which checks the thing that
  * actually matters about them: that what they produce compiles when embedded.
  */
-export function recordShaderSource(
-  lang: ShaderLang,
-  stage: ShaderStage,
-  src: string,
-): string {
+export function recordShaderSource(lang: ShaderLang, stage: ShaderStage, src: string): string {
   recorded.push({
     test: expect.getState().currentTestName ?? "<unknown test>",
     lang,
@@ -181,8 +172,7 @@ export function expectCompileRejection(compile: () => string): string {
 
   if (error === undefined) {
     throw new Error(
-      "expectCompileRejection: expected the compiler to reject this" +
-        ` program, but it returned source:\n${source}`,
+      "expectCompileRejection: expected the compiler to reject this" + ` program, but it returned source:\n${source}`,
     );
   }
   return error instanceof Error ? error.message : String(error);
@@ -212,8 +202,7 @@ function wrap(lang: ShaderLang): Compiler {
     (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileGLSLOptions) =>
       recordBoth(root, "fragment", lang, options),
     {
-      vertex: (root: VertexRoot, options?: CompileGLSLOptions) =>
-        recordBoth(root as any, "vertex", lang, options),
+      vertex: (root: VertexRoot, options?: CompileGLSLOptions) => recordBoth(root as any, "vertex", lang, options),
       fragment: (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileGLSLOptions) =>
         recordBoth(root, "fragment", lang, options),
     },
@@ -282,10 +271,7 @@ export async function assertRecordedShadersValid(): Promise<void> {
   const glsl = recorded.filter((r) => r.lang === "glsl" && r.src !== null);
   const wgsl = recorded.filter((r) => r.lang === "wgsl" && r.src !== null);
 
-  const [glslErrors, wgslErrors] = await Promise.all([
-    validateGLSL(glsl),
-    validateWGSL(wgsl),
-  ]);
+  const [glslErrors, wgslErrors] = await Promise.all([validateGLSL(glsl), validateWGSL(wgsl)]);
 
   // Validation runs once, from an afterAll hook, so what it opened is released
   // here rather than left for the process to reclaim.
@@ -341,14 +327,9 @@ export function validationReport(
     // Both backends refusing a program is consistent, and some tests assert
     // exactly that — builtinFragDepth() in a vertex stage, for one. Only one
     // backend refusing what the other accepts is a gap worth reporting.
-    const counterpart = recorded.find(
-      (r) => r.pair === entry.pair && r.lang !== entry.lang,
-    );
+    const counterpart = recorded.find((r) => r.pair === entry.pair && r.lang !== entry.lang);
     if (counterpart?.compileError) continue;
-    fail(
-      `${entry.lang}:${entry.test}`,
-      `did not compile — ${entry.compileError}`,
-    );
+    fail(`${entry.lang}:${entry.test}`, `did not compile — ${entry.compileError}`);
   }
   // Compared against null rather than tested for truthiness: an empty string is
   // a failure whose driver said nothing, and treating it as valid is how a lost
@@ -366,9 +347,7 @@ export function validationReport(
   // each file only records its own shaders — an entry for a shader this file
   // never compiled would otherwise read as "now compiles" every single run.
   const recordedKeys = new Set(recorded.map((r) => `${r.lang}:${r.test}`));
-  const fixed = Object.keys(known).filter(
-    (key) => recordedKeys.has(key) && !failed.has(key),
-  );
+  const fixed = Object.keys(known).filter((key) => recordedKeys.has(key) && !failed.has(key));
 
   if (unexpected.length === 0 && fixed.length === 0) return null;
 

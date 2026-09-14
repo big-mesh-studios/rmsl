@@ -1,7 +1,19 @@
 import { describe, it, expect } from "vitest";
 import {
-  Vector2, Vector3, Vector4, Matrix3, Matrix4, Quaternion, Euler,
-  Color, Spherical, degToRad, radToDeg, clamp, lerp, isPowerOfTwo,
+  Vector2,
+  Vector3,
+  Vector4,
+  Matrix3,
+  Matrix4,
+  Quaternion,
+  Euler,
+  Color,
+  Spherical,
+  degToRad,
+  radToDeg,
+  clamp,
+  lerp,
+  isPowerOfTwo,
 } from "./math";
 
 function expectClose(a: number[], b: number[], eps = 1e-6): void {
@@ -47,9 +59,7 @@ describe("Vector3", () => {
 
 describe("Matrix4", () => {
   it("is identity by default", () => {
-    expect(new Matrix4().elements).toEqual([
-      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
-    ]);
+    expect(new Matrix4().elements).toEqual([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
   });
 
   it("multiplies matrices in the right order", () => {
@@ -75,7 +85,9 @@ describe("Matrix4", () => {
     const rot = new Quaternion().setFromEuler(new Euler(0.3, 0.5, 0.7));
     const scale = new Vector3(2, 3, 4);
     const m = new Matrix4().compose(pos, rot, scale);
-    const p = new Vector3(), q = new Quaternion(), s = new Vector3();
+    const p = new Vector3(),
+      q = new Quaternion(),
+      s = new Vector3();
     m.decompose(p, q, s);
     expectClose(p.toArray(), pos.toArray());
     expectClose(s.toArray(), scale.toArray());

@@ -1,0 +1,7 @@
+dist
+node_modules
+.stryker-tmp
+reports
+.worktrees
+apps
+pnpm-lock.yaml

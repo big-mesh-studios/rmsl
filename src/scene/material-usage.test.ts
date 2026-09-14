@@ -6,15 +6,25 @@ import {
   assertRecordedShadersValid,
 } from "../testing/shader-validity";
 import {
-  Scene, Group, Mesh,
-  BoxGeometry, PlaneGeometry,
-  AmbientLight, DirectionalLight, PointLight,
-  MeshBasicMaterial, MeshLambertMaterial, MeshStandardMaterial,
-  NodeMaterial, Builder,
+  Scene,
+  Group,
+  Mesh,
+  BoxGeometry,
+  PlaneGeometry,
+  AmbientLight,
+  DirectionalLight,
+  PointLight,
+  MeshBasicMaterial,
+  MeshLambertMaterial,
+  MeshStandardMaterial,
+  NodeMaterial,
+  Builder,
   PerspectiveCamera,
-  Color, Vector3,
+  Color,
+  Vector3,
   DataTexture,
-  cameraUniformValue, objectUniformValue,
+  cameraUniformValue,
+  objectUniformValue,
   shaderPrecision,
   type MaterialProgram,
 } from "./index";
@@ -40,12 +50,8 @@ function litScene(): Scene {
 }
 
 function compileMaterial(program: { vertexRoot: any; fragmentRoot: any }): { glsl: string; wgsl: string } {
-  const glsl = compileGLSL.vertex(program.vertexRoot)
-    + "\n---\n"
-    + compileGLSL.fragment(program.fragmentRoot);
-  const wgsl = compileWGSL.vertex(program.vertexRoot)
-    + "\n---\n"
-    + compileWGSL.fragment(program.fragmentRoot);
+  const glsl = compileGLSL.vertex(program.vertexRoot) + "\n---\n" + compileGLSL.fragment(program.fragmentRoot);
+  const wgsl = compileWGSL.vertex(program.vertexRoot) + "\n---\n" + compileWGSL.fragment(program.fragmentRoot);
   return { glsl, wgsl };
 }
 
@@ -165,12 +171,8 @@ describe("node materials", () => {
     const scene = litScene();
     const material = new MeshLambertMaterial();
     const program = material.build(scene);
-    expect(program.attributes.map((a) => a.name)).toEqual(
-      expect.arrayContaining(["position", "normal"]),
-    );
-    expect(program.varyings.map((v) => v.name)).toEqual(
-      expect.arrayContaining(["positionWorld", "normalWorld"]),
-    );
+    expect(program.attributes.map((a) => a.name)).toEqual(expect.arrayContaining(["position", "normal"]));
+    expect(program.varyings.map((v) => v.name)).toEqual(expect.arrayContaining(["positionWorld", "normalWorld"]));
   });
 
   it("the standard material evaluates to a finite color on the CPU", () => {
@@ -184,7 +186,10 @@ describe("node materials", () => {
     scene.updateMatrixWorld(true);
     camera.updateMatrixWorld(true);
 
-    const mesh = new Mesh(new BoxGeometry(), new MeshStandardMaterial({ color: 0xff5533, roughness: 0.25, metalness: 0.6 }));
+    const mesh = new Mesh(
+      new BoxGeometry(),
+      new MeshStandardMaterial({ color: 0xff5533, roughness: 0.25, metalness: 0.6 }),
+    );
     mesh.position.set(0, 1.4, 0);
     scene.add(mesh);
 

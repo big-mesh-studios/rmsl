@@ -227,11 +227,14 @@ async function bundleEntry(source: string): Promise<string> {
 async function runInBrowser(source: string, entryPoint: string): Promise<any> {
   const page = await webgpuPage();
   const code = await bundleEntry(source);
-  return await page.evaluate(async ([bundle, name]: [string, string]) => {
-    // eslint-disable-next-line no-new-func
-    new Function(bundle)();
-    return await (globalThis as any)[name]();
-  }, [code, entryPoint] as [string, string]);
+  return await page.evaluate(
+    async ([bundle, name]: [string, string]) => {
+      // eslint-disable-next-line no-new-func
+      new Function(bundle)();
+      return await (globalThis as any)[name]();
+    },
+    [code, entryPoint] as [string, string],
+  );
 }
 
 describe.skipIf(!WEBGPU)("WebGPURenderer on a real adapter", () => {

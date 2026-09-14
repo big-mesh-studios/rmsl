@@ -30,10 +30,7 @@ describe("validation reporting", () => {
   // dozens each. Failures are keyed by test name and shader index to avoid
   // overwriting.
   it("reports every failing shader from one test, not just the last", () => {
-    const recorded = [
-      shader("compiles every builtin", "wgsl", 0),
-      shader("compiles every builtin", "wgsl", 1),
-    ];
+    const recorded = [shader("compiles every builtin", "wgsl", 0), shader("compiles every builtin", "wgsl", 1)];
     const report = validationReport(recorded, [], ["no overload for 'refract'", "no overload for 'lessThan'"], {});
     expect(report).not.toBeNull();
     expect(report).toContain("refract");
@@ -103,8 +100,6 @@ describe("expected rejections", () => {
   });
 
   it("fails when the compile it expected to be refused succeeds", () => {
-    expect(() => expectCompileRejection(() => "fn main() {}")).toThrow(
-      /returned source/,
-    );
+    expect(() => expectCompileRejection(() => "fn main() {}")).toThrow(/returned source/);
   });
 });

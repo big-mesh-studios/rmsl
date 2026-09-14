@@ -1,4 +1,4 @@
-import {Fn, If, add, clamp, div, equal, int, mix, mul, sub, uv, vec4, type Node} from "../rmsl";
+import { Fn, If, add, clamp, div, equal, int, mix, mul, sub, uv, vec4, type Node } from "../rmsl";
 import { f, type FloatIn, type IntIn, type Vec2In, type Sampler2D, type Sampler3D } from "./util";
 
 /**

@@ -11,6 +11,7 @@
     "@random-mesh/rmsl": "workspace:*"
   },
   "devDependencies": {
+    "@webgpu/types": "^0.1.71",
     "typescript": "^5.7.2",
     "vite": "^7.1.4"
   }

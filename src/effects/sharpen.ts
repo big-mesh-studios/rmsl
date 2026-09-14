@@ -1,4 +1,22 @@
-import {Fn, abs, bool, exp2, float, floor, int, ivec2, max, min, textureLoad, textureSize, uv, vec3, vec4, type BooleanLike, type Node} from "../rmsl";
+import {
+  Fn,
+  abs,
+  bool,
+  exp2,
+  float,
+  floor,
+  int,
+  ivec2,
+  max,
+  min,
+  textureLoad,
+  textureSize,
+  uv,
+  vec3,
+  vec4,
+  type BooleanLike,
+  type Node,
+} from "../rmsl";
 import { f, type FloatIn, type IntIn, type Vec2In, type Sampler2D, type Sampler3D } from "./util";
 
 /**
@@ -59,21 +77,27 @@ export const sharpen = (
     const hitMax = vec3(1.0).sub(max(mx4, e.rgb)).div(mn4.mul(4.0).sub(4.0));
     const lobeRGB = max(hitMin.negate(), hitMax);
 
-    const lobe = max(
-      RCAS_LIMIT.negate(),
-      min(max(lobeRGB.r, max(lobeRGB.g, lobeRGB.b)), float(0.0)),
-    ).mul(con);
+    const lobe = max(RCAS_LIMIT.negate(), min(max(lobeRGB.r, max(lobeRGB.g, lobeRGB.b)), float(0.0))).mul(con);
 
     // Noise attenuation.
     const nz = bL.add(dL).add(fL).add(hL).mul(0.25).sub(eL);
-    const nzRange = max(max(bL, dL), max(eL, max(fL, hL)))
-      .sub(min(min(bL, dL), min(eL, min(fL, hL))));
-    const nzFactor = float(1.0).sub(abs(nz).div(max(nzRange, float(1.0 / 65536.0))).saturate().mul(0.5));
+    const nzRange = max(max(bL, dL), max(eL, max(fL, hL))).sub(min(min(bL, dL), min(eL, min(fL, hL))));
+    const nzFactor = float(1.0).sub(
+      abs(nz)
+        .div(max(nzRange, float(1.0 / 65536.0)))
+        .saturate()
+        .mul(0.5),
+    );
 
     const effectiveLobe = denoiseNode.select(lobe.mul(nzFactor), lobe) as Node<"vec3">;
 
     // Resolve: weighted blend of cross neighbors and center.
-    const result = b.rgb.add(d.rgb).add(f.rgb).add(h.rgb).mul(effectiveLobe).add(e.rgb)
+    const result = b.rgb
+      .add(d.rgb)
+      .add(f.rgb)
+      .add(h.rgb)
+      .mul(effectiveLobe)
+      .add(e.rgb)
       .div(effectiveLobe.mul(4.0).add(1.0));
 
     return vec4(result, e.a);

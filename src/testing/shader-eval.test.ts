@@ -8,8 +8,16 @@
 
 import { describe, it, expect, afterAll } from "vitest";
 import {
-  runWGSL, closeEvaluators, floatTolerance, EVALUATION_SKIPPED,
+  runWGSL,
+  closeEvaluators,
+  floatTolerance,
+  EVALUATION_SKIPPED,
+  evaluateJS,
+  evaluateGLSL,
+  evaluateWGSL,
+  evaluateWASM,
 } from "./shader-eval";
+import { vec3, mat3 } from "../rmsl";
 
 afterAll(async () => {
   await closeEvaluators();
@@ -25,8 +33,7 @@ describe("float tolerance", () => {
 
   it("allows at least one unit in the last place, at every magnitude", () => {
     for (const magnitude of [1, 10, 1024, 65536, 1e6]) {
-      expect(floatTolerance(magnitude), `magnitude ${magnitude}`)
-        .toBeGreaterThan(ulp(magnitude));
+      expect(floatTolerance(magnitude), `magnitude ${magnitude}`).toBeGreaterThan(ulp(magnitude));
     }
   });
 
@@ -51,12 +58,38 @@ describe("float tolerance", () => {
   });
 });
 
+describe("aggregate evaluation (vectors and matrices)", () => {
+  it("round-trips a vec3 through the CPU (JS/WASM) backends", () => {
+    const build = (a: any, b: any) => vec3(a, a, a).add(vec3(b, b, b));
+    expect(evaluateJS(build, [1, 2])).toEqual([3, 3, 3]);
+    expect(evaluateWASM(build, [1, 2])).toEqual([3, 3, 3]);
+  });
+
+  it("round-trips a mat3 through the CPU (JS/WASM) backends", () => {
+    const build = (a: any) => mat3(a);
+    expect(evaluateJS(build, [1])).toEqual([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    expect(evaluateWASM(build, [1])).toEqual([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+  });
+
+  describe.skipIf(EVALUATION_SKIPPED)("on the GPU backends", () => {
+    it("round-trips a vec3 through GLSL and WGSL", async () => {
+      const build = (a: any, b: any) => vec3(a, a, a).add(vec3(b, b, b));
+      expect(await evaluateGLSL(build, [1, 2])).toEqual([3, 3, 3]);
+      expect(await evaluateWGSL(build, [1, 2])).toEqual([3, 3, 3]);
+    }, 60_000);
+
+    it("round-trips a mat3 through GLSL and WGSL", async () => {
+      const build = (a: any) => mat3(a);
+      expect(await evaluateGLSL(build, [1])).toEqual([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+      expect(await evaluateWGSL(build, [1])).toEqual([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    }, 60_000);
+  });
+});
+
 describe.skipIf(EVALUATION_SKIPPED)("WGSL evaluation harness", () => {
   // A failed compile is reported as an error, not silently returned as zero.
   it("reports a shader that does not compile instead of returning zero", async () => {
-    await expect(
-      runWGSL(`@compute @workgroup_size(1) fn main() { this is not wgsl }`),
-    ).rejects.toThrow(/WGSL/i);
+    await expect(runWGSL(`@compute @workgroup_size(1) fn main() { this is not wgsl }`)).rejects.toThrow(/WGSL/i);
   }, 60_000);
 
   // A type error rather than a syntax error: the parser accepts it and only

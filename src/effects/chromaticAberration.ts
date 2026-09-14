@@ -19,11 +19,7 @@ export const chromaticAberration = (
   center: Vec2In | null = null,
   scale: FloatIn = 1.1,
 ): Node<"vec4"> => {
-  const centerNode = center === null
-    ? vec2(0.5, 0.5)
-    : Array.isArray(center)
-      ? vec2(center[0], center[1])
-      : center;
+  const centerNode = center === null ? vec2(0.5, 0.5) : Array.isArray(center) ? vec2(center[0], center[1]) : center;
   const uvNode = uv();
 
   // Distance from center, and stepped scaling zones per channel.

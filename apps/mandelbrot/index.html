@@ -37,9 +37,47 @@
 
     canvas {
       display: block;
+      position: absolute;
+      top: 0;
+      left: 0;
       width: 100vw;
       height: 100vh;
+    }
+
+    canvas.hidden {
+      display: none;
+    }
+
+    #interact {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 5;
       touch-action: none;
+    }
+
+    .mode-switch {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .mode-btn {
+      padding: 8px 6px;
+      font-size: 0.75rem;
+    }
+
+    .mode-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .mode-btn.active {
+      background: rgba(56, 189, 248, 0.2);
+      border-color: rgba(56, 189, 248, 0.4);
+      color: var(--accent);
     }
 
     .ui-panel {
@@ -195,10 +233,13 @@
 </head>
 <body>
   <canvas id="c"></canvas>
+  <canvas id="cCpu" class="hidden"></canvas>
+  <canvas id="cWebgpu" class="hidden"></canvas>
+  <div id="interact"></div>
 
   <div class="ui-panel">
     <div class="ui-title">
-      Mandelbrot <span class="ui-badge">RMSL GLSL</span>
+      Mandelbrot <span id="rendererBadge" class="ui-badge">RMSL GLSL</span>
     </div>
 
     <button id="precisionBtn" class="btn btn-toggle">
@@ -211,6 +252,14 @@
         <span id="iterVal" class="ui-val">256</span>
       </div>
       <input id="iterInput" type="range" min="32" max="2048" step="16" value="256" />
+    </div>
+
+    <div class="ui-group">
+      <div class="ui-label">
+        <span>Resolution</span>
+        <span id="scaleVal" class="ui-val">50%</span>
+      </div>
+      <input id="scaleInput" type="range" min="5" max="100" step="5" value="50" />
     </div>
 
     <div class="ui-group">
@@ -228,11 +277,25 @@
     <button id="resetBtn" class="btn">
       Reset View
     </button>
+
+    <div class="ui-group">
+      <div class="ui-label">
+        <span>Renderer</span>
+      </div>
+      <div class="mode-switch">
+        <button id="modeWebgpu" class="btn mode-btn" data-mode="webgpu">WebGPU</button>
+        <button id="modeWebgl" class="btn mode-btn active" data-mode="webgl">WebGL</button>
+        <button id="modeJs" class="btn mode-btn" data-mode="js">JS (CPU)</button>
+        <button id="modeWasm" class="btn mode-btn" data-mode="wasm">WASM (CPU)</button>
+      </div>
+    </div>
   </div>
 
   <div class="hud-panel">
     <div class="hud-item">Zoom: <span id="hudZoom">1.0x</span></div>
     <div class="hud-item">Pan: <span id="hudPan">(-0.75, 0.00)</span></div>
+    <div class="hud-item">Frame: <span id="hudFrame">-</span></div>
+    <div class="hud-item">Res: <span id="hudRes">-</span></div>
   </div>
 
   <script type="module" src="/src/main.ts"></script>

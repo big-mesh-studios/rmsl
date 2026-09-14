@@ -16,11 +16,7 @@ export const film = (
   intensity: FloatIn | null = null,
   uvNode: Vec2In | null = null,
 ): Node<"vec4"> => {
-  const u = uvNode === null
-    ? uv()
-    : Array.isArray(uvNode)
-      ? vec2(uvNode[0], uvNode[1])
-      : uvNode;
+  const u = uvNode === null ? uv() : Array.isArray(uvNode) ? vec2(uvNode[0], uvNode[1]) : uvNode;
   const base = inputNode.rgb;
   const noise = rand(fract(u.add(time())));
   const grained = base.add(base.mul(clamp(noise.add(0.1), 0, 1)));

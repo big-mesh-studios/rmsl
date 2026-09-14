@@ -12,10 +12,20 @@ import type { Texture } from "../textures/Texture";
 import type { NodeMaterial, MaterialProgram } from "../materials/NodeMaterial";
 import { Blending, Side } from "../materials/Material";
 import {
-  cameraUniformValue, isIntegerSampler, objectUniformValue, lightsSignature,
-  shaderPrecision, toBufferView, samplerState, textureChannels, type TextureWrap,
-  rendererUniformValue, programSignature, geometryAttribute,
-  VERTEX_FORMATS, vertexFormatOf,
+  cameraUniformValue,
+  isIntegerSampler,
+  objectUniformValue,
+  lightsSignature,
+  shaderPrecision,
+  toBufferView,
+  samplerState,
+  textureChannels,
+  type TextureWrap,
+  rendererUniformValue,
+  programSignature,
+  geometryAttribute,
+  VERTEX_FORMATS,
+  vertexFormatOf,
 } from "./common";
 
 interface ProgramEntry {
@@ -271,27 +281,33 @@ export class WebGLRenderer {
       const indexView = toBufferView(geometry.index.array, true) as Uint16Array | Uint32Array;
       const type = indexView instanceof Uint16Array ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT;
       const count = Number.isFinite(range.count) ? range.count : indexView.length;
-      gl.drawElementsInstanced(
-        gl.TRIANGLES,
-        count,
-        type,
-        range.start * indexView.BYTES_PER_ELEMENT,
-        instanceCount,
-      );
+      gl.drawElementsInstanced(gl.TRIANGLES, count, type, range.start * indexView.BYTES_PER_ELEMENT, instanceCount);
     } else {
-      const count = Number.isFinite(range.count)
-        ? range.count
-        : geometry.attributes.position?.count ?? 0;
+      const count = Number.isFinite(range.count) ? range.count : (geometry.attributes.position?.count ?? 0);
       gl.drawArraysInstanced(gl.TRIANGLES, range.start, count, instanceCount);
     }
   }
 
-  private setRenderState(material: { side: Side; blending: Blending; depthTest: boolean; depthWrite: boolean; transparent: boolean }): void {
+  private setRenderState(material: {
+    side: Side;
+    blending: Blending;
+    depthTest: boolean;
+    depthWrite: boolean;
+    transparent: boolean;
+  }): void {
     const gl = this.gl;
     switch (material.side) {
-      case Side.FrontSide: gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK); break;
-      case Side.BackSide: gl.enable(gl.CULL_FACE); gl.cullFace(gl.FRONT); break;
-      default: gl.disable(gl.CULL_FACE); break;
+      case Side.FrontSide:
+        gl.enable(gl.CULL_FACE);
+        gl.cullFace(gl.BACK);
+        break;
+      case Side.BackSide:
+        gl.enable(gl.CULL_FACE);
+        gl.cullFace(gl.FRONT);
+        break;
+      default:
+        gl.disable(gl.CULL_FACE);
+        break;
     }
     if (material.depthTest) gl.enable(gl.DEPTH_TEST);
     else gl.disable(gl.DEPTH_TEST);
@@ -346,11 +362,17 @@ export class WebGLRenderer {
     // uploaded directly.
     if (typeof value === "number") {
       switch (type) {
-        case "float": gl.uniform1f(location, value); break;
-        case "int": case "bool": gl.uniform1i(location, value); break;
+        case "float":
+          gl.uniform1f(location, value);
+          break;
+        case "int":
+        case "bool":
+          gl.uniform1i(location, value);
+          break;
         // A bare number is not a vector or a matrix, and an unknown type is
         // skipped rather than guessed.
-        default: break;
+        default:
+          break;
       }
       return;
     }
@@ -361,18 +383,42 @@ export class WebGLRenderer {
     // typed arrays a second. Only the matrix forms have no component
     // equivalent, and both a plain array and a typed array are accepted there.
     switch (type) {
-      case "float": gl.uniform1f(location, value[0]); break;
-      case "int": gl.uniform1i(location, value[0]); break;
-      case "bool": gl.uniform1i(location, value[0]); break;
-      case "vec2": gl.uniform2f(location, value[0], value[1]); break;
-      case "vec3": gl.uniform3f(location, value[0], value[1], value[2]); break;
-      case "vec4": gl.uniform4f(location, value[0], value[1], value[2], value[3]); break;
-      case "ivec2": gl.uniform2i(location, value[0], value[1]); break;
-      case "ivec3": gl.uniform3i(location, value[0], value[1], value[2]); break;
-      case "ivec4": gl.uniform4i(location, value[0], value[1], value[2], value[3]); break;
-      case "mat2": gl.uniformMatrix2fv(location, false, value); break;
-      case "mat3": gl.uniformMatrix3fv(location, false, value); break;
-      case "mat4": gl.uniformMatrix4fv(location, false, value); break;
+      case "float":
+        gl.uniform1f(location, value[0]);
+        break;
+      case "int":
+        gl.uniform1i(location, value[0]);
+        break;
+      case "bool":
+        gl.uniform1i(location, value[0]);
+        break;
+      case "vec2":
+        gl.uniform2f(location, value[0], value[1]);
+        break;
+      case "vec3":
+        gl.uniform3f(location, value[0], value[1], value[2]);
+        break;
+      case "vec4":
+        gl.uniform4f(location, value[0], value[1], value[2], value[3]);
+        break;
+      case "ivec2":
+        gl.uniform2i(location, value[0], value[1]);
+        break;
+      case "ivec3":
+        gl.uniform3i(location, value[0], value[1], value[2]);
+        break;
+      case "ivec4":
+        gl.uniform4i(location, value[0], value[1], value[2], value[3]);
+        break;
+      case "mat2":
+        gl.uniformMatrix2fv(location, false, value);
+        break;
+      case "mat3":
+        gl.uniformMatrix3fv(location, false, value);
+        break;
+      case "mat4":
+        gl.uniformMatrix4fv(location, false, value);
+        break;
       default:
         // Unknown types are skipped rather than guessed.
         break;
@@ -412,7 +458,12 @@ export class WebGLRenderer {
         const height = (texture as { height?: number }).height ?? 1;
         if (integer) {
           const singleChannel = textureChannels(texture) === 1;
-          const { internalFormat, format, type } = integerInternalFormat(gl, samplerType.startsWith("isampler"), image, singleChannel);
+          const { internalFormat, format, type } = integerInternalFormat(
+            gl,
+            samplerType.startsWith("isampler"),
+            image,
+            singleChannel,
+          );
           if (is3D) {
             const depth = (texture as { depth?: number }).depth ?? 1;
             gl.texImage3D(target, 0, internalFormat, width, height, depth, 0, format, type, image as ArrayBufferView);
@@ -421,7 +472,18 @@ export class WebGLRenderer {
           }
         } else if (is3D) {
           const depth = (texture as { depth?: number }).depth ?? 1;
-          gl.texImage3D(target, 0, gl.RGBA, width, height, depth, 0, gl.RGBA, gl.UNSIGNED_BYTE, image as ArrayBufferView);
+          gl.texImage3D(
+            target,
+            0,
+            gl.RGBA,
+            width,
+            height,
+            depth,
+            0,
+            gl.RGBA,
+            gl.UNSIGNED_BYTE,
+            image as ArrayBufferView,
+          );
         } else {
           gl.texImage2D(target, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, image as ArrayBufferView);
         }
@@ -495,7 +557,10 @@ export class WebGLRenderer {
     const precision = shaderPrecision(material, this.precision);
 
     const vertexShader = this.compileShader(compileGLSL.vertex(program.vertexRoot, { precision }), gl.VERTEX_SHADER);
-    const fragmentShader = this.compileShader(compileGLSL.fragment(program.fragmentRoot, { precision }), gl.FRAGMENT_SHADER);
+    const fragmentShader = this.compileShader(
+      compileGLSL.fragment(program.fragmentRoot, { precision }),
+      gl.FRAGMENT_SHADER,
+    );
     const glProgram = gl.createProgram()!;
     gl.attachShader(glProgram, vertexShader);
     gl.attachShader(glProgram, fragmentShader);
@@ -547,8 +612,7 @@ export class WebGLRenderer {
       geometry.addEventListener("dispose", this.onGeometryDispose);
     }
 
-    const needsUpload = buffers.needsUpload
-      || Object.values(geometry.attributes).some((a) => a.needsUpdate);
+    const needsUpload = buffers.needsUpload || Object.values(geometry.attributes).some((a) => a.needsUpdate);
 
     for (const attribute of entry.program.attributes) {
       const attr = geometryAttribute(mesh, geometry, attribute.name);
@@ -558,9 +622,7 @@ export class WebGLRenderer {
       // `instanceMatrix`/`instanceColor` live on the object rather than the
       // geometry, so their buffers are cached per attribute (not per geometry).
       const ownedByGeometry = geometry.attributes[attribute.name] !== undefined;
-      let buffer = ownedByGeometry
-        ? buffers.attributes.get(attribute.name)
-        : this.attributeBuffers.get(attr);
+      let buffer = ownedByGeometry ? buffers.attributes.get(attribute.name) : this.attributeBuffers.get(attr);
       const isNewBuffer = buffer === undefined;
       if (!buffer) {
         buffer = gl.createBuffer()!;
@@ -569,13 +631,7 @@ export class WebGLRenderer {
       }
       if (isNewBuffer || attr.needsUpdate) {
         const data = toBufferView(attr.array);
-        buffer = this.uploadSlice(
-          gl,
-          gl.ARRAY_BUFFER,
-          buffer,
-          data,
-          this.uploadRangeOf(data, attr, isNewBuffer),
-        );
+        buffer = this.uploadSlice(gl, gl.ARRAY_BUFFER, buffer, data, this.uploadRangeOf(data, attr, isNewBuffer));
         if (ownedByGeometry) buffers.attributes.set(attribute.name, buffer);
         else this.attributeBuffers.set(attr, buffer);
         attr.needsUpdate = false;
@@ -641,14 +697,8 @@ export class WebGLRenderer {
       return { byteOffset: 0, byteEnd: data.byteLength };
     }
     const bytes = (data as unknown as { BYTES_PER_ELEMENT: number }).BYTES_PER_ELEMENT;
-    const byteOffset = Math.min(
-      data.byteLength,
-      Math.max(0, attr.updateRange.offset) * bytes,
-    );
-    const byteEnd = Math.min(
-      data.byteLength,
-      byteOffset + Math.max(0, attr.updateRange.count) * bytes,
-    );
+    const byteOffset = Math.min(data.byteLength, Math.max(0, attr.updateRange.offset) * bytes);
+    const byteEnd = Math.min(data.byteLength, byteOffset + Math.max(0, attr.updateRange.count) * bytes);
     return { byteOffset, byteEnd };
   }
 
@@ -731,9 +781,12 @@ export class WebGLRenderer {
 /** A wrapping mode as the `texParameteri` constant that sets it. */
 function glWrap(gl: WebGL2RenderingContext, wrap: TextureWrap): number {
   switch (wrap) {
-    case "repeat": return gl.REPEAT;
-    case "mirror": return gl.MIRRORED_REPEAT;
-    default: return gl.CLAMP_TO_EDGE;
+    case "repeat":
+      return gl.REPEAT;
+    case "mirror":
+      return gl.MIRRORED_REPEAT;
+    default:
+      return gl.CLAMP_TO_EDGE;
   }
 }
 

@@ -12,10 +12,7 @@ import { circle } from "./shape";
  * @param coord - The input UV coordinates.
  * @return The distorted UV coordinates.
  */
-export const barrelUV = (
-  curvature: FloatIn = 0.1,
-  coord: Vec2In | null = null,
-): Node<"vec2"> => {
+export const barrelUV = (curvature: FloatIn = 0.1, coord: Vec2In | null = null): Node<"vec2"> => {
   const c = coord === null ? uv() : Array.isArray(coord) ? vec2(coord[0], coord[1]) : coord;
   // Center the UV coordinates (-1 to 1).
   const centered = c.sub(0.5).mul(2.0);
@@ -35,7 +32,8 @@ export const barrelUV = (
  * @return 1.0 if inside bounds, 0.0 if outside.
  */
 export const barrelMask = (coord: Node<"vec2">): Node<"float"> => {
-  const outOfBounds = coord.x.lessThan(0.0)
+  const outOfBounds = coord.x
+    .lessThan(0.0)
     .or(coord.x.greaterThan(1.0))
     .or(coord.y.lessThan(0.0))
     .or(coord.y.greaterThan(1.0));
@@ -50,10 +48,7 @@ export const barrelMask = (coord: Node<"vec2">): Node<"float"> => {
  * @param amount - The amount of color bleeding (0-0.01).
  * @return The color with bleeding applied.
  */
-export const colorBleeding = (
-  color: Sampler2D,
-  amount: FloatIn = 0.002,
-): Node<"vec3"> => {
+export const colorBleeding = (color: Sampler2D, amount: FloatIn = 0.002): Node<"vec3"> => {
   const original = color.texture(screenUV()).rgb;
   const left1 = color.texture(screenUV().sub(vec2(amount, 0.0))).rgb;
   const left2 = color.texture(screenUV().sub(vec2(mul(amount, 2.0), 0.0))).rgb;
@@ -137,10 +132,7 @@ export interface CrtOptions {
  * @param options - Tuning knobs for the sub-effects.
  * @return The CRT-styled color.
  */
-export const crt = (
-  textureNode: Sampler2D,
-  options: CrtOptions = {},
-): Node<"vec4"> => {
+export const crt = (textureNode: Sampler2D, options: CrtOptions = {}): Node<"vec4"> => {
   const distorted = barrelUV(options.curvature ?? 0.1);
   const masked = barrelMask(distorted);
   const bled = colorBleeding(textureNode, options.colorBleedingAmount ?? 0.002);
@@ -151,12 +143,7 @@ export const crt = (
     options.scanlineSpeed ?? 0.0,
     distorted,
   );
-  const vignetted = vignette(
-    scanned,
-    options.vignetteIntensity ?? 0.4,
-    options.vignetteSmoothness ?? 0.5,
-    distorted,
-  );
+  const vignetted = vignette(scanned, options.vignetteIntensity ?? 0.4, options.vignetteSmoothness ?? 0.5, distorted);
   const alpha = textureNode.texture(distorted).a;
   return vec4(vignetted.mul(masked), alpha);
 };

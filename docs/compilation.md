@@ -1,6 +1,6 @@
 # Compilation
 
-RMSL compiles node graphs to **GLSL** (WebGL 2 / OpenGL ES 3.0), **WGSL** (WebGPU), or **JavaScript** (a CPU callable — see [JS / CPU Target](#js--cpu-target)).
+RMSL compiles node graphs to **GLSL** (WebGL 2 / OpenGL ES 3.0), **WGSL** (WebGPU), **JavaScript** (a CPU callable — see [JS / CPU Target](#js--cpu-target)), or **WebAssembly** (a second CPU target, same contract — see [WASM / CPU Target](wasm.md)).
 
 ## Compiler API
 
@@ -11,17 +11,17 @@ import { compileGLSL, compileWGSL } from "rmsl";
 ### Fragment shader (default)
 
 ```typescript
-compileGLSL(root)           // fragment shader
-compileGLSL.fragment(root)  // explicit fragment
-compileWGSL(root)           // fragment shader
-compileWGSL.fragment(root)  // explicit fragment
+compileGLSL(root); // fragment shader
+compileGLSL.fragment(root); // explicit fragment
+compileWGSL(root); // fragment shader
+compileWGSL.fragment(root); // explicit fragment
 ```
 
 ### Vertex shader
 
 ```typescript
-compileGLSL.vertex(root)
-compileWGSL.vertex(root)
+compileGLSL.vertex(root);
+compileWGSL.vertex(root);
 ```
 
 ### Shader precision (GLSL)
@@ -31,9 +31,9 @@ usual choice on mobile GPUs, mirroring three.js's `precision` option — pass an
 options object to any of the `compileGLSL` forms:
 
 ```typescript
-compileGLSL(root, { precision: "mediump" })                 // fragment
-compileGLSL.fragment(root, { precision: "lowp" })
-compileGLSL.vertex(root, { precision: "mediump" })
+compileGLSL(root, { precision: "mediump" }); // fragment
+compileGLSL.fragment(root, { precision: "lowp" });
+compileGLSL.vertex(root, { precision: "mediump" });
 ```
 
 The configured precision is applied to the `float` declaration and to every
@@ -49,7 +49,7 @@ let prog = Fn(() => {
   return [a, b];
 });
 let [a, b] = prog();
-compileGLSL.vertex([a, b]);  // pass array of roots
+compileGLSL.vertex([a, b]); // pass array of roots
 ```
 
 ## GLSL Output
@@ -90,8 +90,8 @@ The returned node has a `.name` property for the generated name, and carries its
 
 ```typescript
 let uTime = uniform("float");
-console.log(uTime.name);      // outputs "_rmsl_u0"
-let x = uTime.add(1.0);      // methods and swizzles are available directly
+console.log(uTime.name); // outputs "_rmsl_u0"
+let x = uTime.add(1.0); // methods and swizzles are available directly
 ```
 
 ### Varyings
@@ -102,8 +102,8 @@ Access `.name` for the generated name; methods and swizzles are available direct
 
 ```typescript
 let v = varying("vec3");
-console.log(v.name);       // outputs "_rmsl_v0"
-let x = v.x;               // swizzles are available directly
+console.log(v.name); // outputs "_rmsl_v0"
+let x = v.x; // swizzles are available directly
 ```
 
 ## WGSL Output
@@ -147,8 +147,8 @@ Attributes are declared in the `VertexInput` struct in WGSL. Use `.name` for the
 
 ```typescript
 let pos = attribute("vec3");
-console.log(pos.name);       // outputs "_rmsl_a0"
-let x = pos.x;               // swizzles are available directly
+console.log(pos.name); // outputs "_rmsl_a0"
+let x = pos.x; // swizzles are available directly
 ```
 
 This produces:
@@ -198,8 +198,8 @@ fn _rmsl_mat3_from_mat4(m: mat4x4<f32>) -> mat3x3<f32> {
 
 ## Binding Model (WGSL)
 
-| Resource | Group | Binding |
-|----------|-------|---------|
+| Resource | Group       | Binding       |
+| -------- | ----------- | ------------- |
 | Uniforms | `@group(0)` | `@binding(N)` |
 | Textures | `@group(1)` | `@binding(N)` |
 | Samplers | `@group(2)` | `@binding(N)` |
@@ -230,10 +230,10 @@ const uniforms = [
 
 const vertex = compileWGSL.vertex(vertexRoot, { uniforms });
 const fragment = compileWGSL.fragment(fragmentRoot, { uniforms });
-const layout = wgslUniformLayout(uniforms);  // the offsets to write at
+const layout = wgslUniformLayout(uniforms); // the offsets to write at
 ```
 
-A member a stage never reads costs it nothing. A uniform a stage *does* read but
+A member a stage never reads costs it nothing. A uniform a stage _does_ read but
 the list leaves out is an error, named by slot, rather than a shader that fails
 to compile in the driver. `@random-mesh/rmsl/scene`'s WebGPU renderer does this
 for every material it draws.
@@ -245,10 +245,13 @@ For use with Three.js `glslFn`/`wgslFn` or other embedding scenarios, RMSL provi
 ```typescript
 import { compileGLSLFn, compileWGSLFn, float, var_ } from "rmsl";
 
-let glsl = compileGLSLFn(
-  (a, b) => a.add(b).sin(),
-  { name: "myFunc", params: [{ name: "a", type: "float" }, { name: "b", type: "float" }] },
-);
+let glsl = compileGLSLFn((a, b) => a.add(b).sin(), {
+  name: "myFunc",
+  params: [
+    { name: "a", type: "float" },
+    { name: "b", type: "float" },
+  ],
+});
 ```
 
 ### GLSL output
@@ -303,24 +306,24 @@ let pickFn = compileJS(calcColourAndDepth, { name: "pick", params: [] });
 // On pointerdown:
 let r = pickFn({
   uniforms: {
-    _rmsl_u0: cameraPosition,          // each slot is the uniform's .name
-    _rmsl_u1: cameraViewMatrix,        // flat column-major arrays
+    _rmsl_u0: cameraPosition, // each slot is the uniform's .name
+    _rmsl_u1: cameraViewMatrix, // flat column-major arrays
     // ...
   },
-  varyings: { _rmsl_v0: positionGeometry },  // per-pixel, from the fragment coord
+  varyings: { _rmsl_v0: positionGeometry }, // per-pixel, from the fragment coord
 });
-let colour = r.value;   // the Fn's return value (e.g. the ray-marched colour)
+let colour = r.value; // the Fn's return value (e.g. the ray-marched colour)
 let depth = r.fragDepth; // written via builtinFragDepth(), for the world pick point
 ```
 
 ### Value model
 
-| RMSL | JavaScript |
-|------|------------|
-| `float`/`int`/`uint`/`bool` | number / boolean |
-| `vec2`–`vec4`, `ivecN`, `uvecN`, `bvecN` | arrays `[x, y, z]` |
-| `matCxR` | flat column-major array of numbers |
-| `sampler2D`/`sampler3D` (and integer variants) | sampled from `ctx.textures[slot]` (see *Sampling*) |
+| RMSL                                           | JavaScript                                         |
+| ---------------------------------------------- | -------------------------------------------------- |
+| `float`/`int`/`uint`/`bool`                    | number / boolean                                   |
+| `vec2`–`vec4`, `ivecN`, `uvecN`, `bvecN`       | arrays `[x, y, z]`                                 |
+| `matCxR`                                       | flat column-major array of numbers                 |
+| `sampler2D`/`sampler3D` (and integer variants) | sampled from `ctx.textures[slot]` (see _Sampling_) |
 
 Vectors and matrices are plain arrays, matching the flat `Float32Array`
 conventions the apps already use.
@@ -342,7 +345,7 @@ Options extend the `Fn` compilers':
 - `derivatives`: `"throw"` (default) or `"zero"`. Derivative ops have no meaning
   for a single CPU evaluation; compile with `"zero"` to make shaders that use
   `fwidth`/`dFdx`/`dFdy` runnable.
-- `reentrant`: `false` (default) or `true`. See *Scratch & reentrancy*.
+- `reentrant`: `false` (default) or `true`. See _Scratch & reentrancy_.
 
 ### The context object
 
@@ -379,16 +382,26 @@ writes any of them, it returns:
 This is what surfaces the picking depth: `calcColourAndDepth` assigns
 `builtinFragDepth()`, so `result.fragDepth` gives the distance along the ray.
 
+### Rendering a whole grid
+
+`compileJS`'s result also has `.draw(ctx, width, height)`: call the compiled
+function once per pixel over a `width x height` grid instead of driving the
+loop yourself, packed into one flat, row-major typed array. It's the same
+method [`compileWasm`'s result](wasm.md#cpurenderer) has — both satisfy one
+`CpuRenderer` interface — documented there since WASM's version has the more
+interesting implementation (it shares the compiled function's own bytecode
+rather than looping in JS).
+
 ### Scratch & reentrancy
 
-Internal `toVar()` variables live in per-program scratch slots *outside* the
+Internal `toVar()` variables live in per-program scratch slots _outside_ the
 callable, preallocated once (scalars as bare `let`s, vectors/matrices as
 zeroed arrays). Vector/matrix helpers take a trailing output array, so an
 assignment writes in place: a per-pixel call allocates nothing beyond the
 result. Because shaders cannot recurse, no compiled function can clobber its
 own scratch through nested calls.
 
-The trade-off: the scratch is shared across calls, so two *overlapping* calls
+The trade-off: the scratch is shared across calls, so two _overlapping_ calls
 to the same function must not be in flight at once. For a pick handler that is
 one call per click — the point. If you need re-entrant use (e.g. a pick
 triggered from inside another pick), compile with `{ reentrant: true }`, which
@@ -406,11 +419,13 @@ GPU:
 
 ```typescript
 ctx.textures[map.name] = {
-  data, width: 64, height: 64,
-  channels: 4,         // 4 (the default) | 3 | 2 | 1
+  data,
+  width: 64,
+  height: 64,
+  channels: 4, // 4 (the default) | 3 | 2 | 1
   magFilter: "linear", // "nearest" (the default) | "linear"
-  wrapS: "repeat",     // "clamp" (the default) | "repeat" | "mirror"
-  wrapT: "repeat",     // and wrapR for a 3D texture
+  wrapS: "repeat", // "clamp" (the default) | "repeat" | "mirror"
+  wrapT: "repeat", // and wrapR for a 3D texture
 };
 ```
 
@@ -464,47 +479,47 @@ tolerant comparisons. See [Testing](testing.md).
   context instead.
 - `Discard()` compiles to `return null;` — the host treats `null` as
   "no fragment".
-- Non-square matrix multiplication, samplerCube and mirror/repeat texture
-  wrapping are not supported yet.
+- `isamplerCube`/`usamplerCube` are not supported yet — `texelFetch` has no
+  cube-map overload in GLSL, so there's no direct-fetch equivalent to build on.
 
 ## Type Mappings
 
 ### GLSL types
 
-| RMSL | GLSL |
-|------|------|
-| `float`, `vec2`, `vec3`, `vec4` | same |
-| `int`, `uint`, `bool` | same |
-| `ivec2`, `ivec3`, `ivec4` | same |
-| `uvec2`, `uvec3`, `uvec4` | same |
-| `mat2`–`mat4`, `mat2x3`, etc. | same |
-| `sampler2D` | `sampler2D` |
-| `sampler3D` | `sampler3D` |
-| `samplerCube` | `samplerCube` |
-| `isampler2D`, `isampler3D`, `isamplerCube` | same |
-| `usampler2D`, `usampler3D`, `usamplerCube` | same |
+| RMSL                                       | GLSL          |
+| ------------------------------------------ | ------------- |
+| `float`, `vec2`, `vec3`, `vec4`            | same          |
+| `int`, `uint`, `bool`                      | same          |
+| `ivec2`, `ivec3`, `ivec4`                  | same          |
+| `uvec2`, `uvec3`, `uvec4`                  | same          |
+| `mat2`–`mat4`, `mat2x3`, etc.              | same          |
+| `sampler2D`                                | `sampler2D`   |
+| `sampler3D`                                | `sampler3D`   |
+| `samplerCube`                              | `samplerCube` |
+| `isampler2D`, `isampler3D`, `isamplerCube` | same          |
+| `usampler2D`, `usampler3D`, `usamplerCube` | same          |
 
 ### WGSL types
 
-| RMSL | WGSL |
-|------|------|
-| `float` | `f32` |
-| `vec2` | `vec2<f32>` |
-| `vec3` | `vec3<f32>` |
-| `vec4` | `vec4<f32>` |
-| `int` | `i32` |
-| `uint` | `u32` |
-| `bool` | `bool` |
-| `ivec2`, `ivec3`, `ivec4` | `vec2<i32>`, `vec3<i32>`, `vec4<i32>` |
-| `uvec2`, `uvec3`, `uvec4` | `vec2<u32>`, `vec3<u32>`, `vec4<u32>` |
-| `mat2` | `mat2x2<f32>` |
-| `mat3` | `mat3x3<f32>` |
-| `mat4` | `mat4x4<f32>` |
-| `mat2x3` | `mat2x3<f32>` |
-| etc. | `<N>x<M><f32>` |
-| `sampler2D` | `texture_2d<f32>` |
-| `sampler3D` | `texture_3d<f32>` |
-| `samplerCube` | `texture_cube<f32>` |
+| RMSL                                       | WGSL                                                      |
+| ------------------------------------------ | --------------------------------------------------------- |
+| `float`                                    | `f32`                                                     |
+| `vec2`                                     | `vec2<f32>`                                               |
+| `vec3`                                     | `vec3<f32>`                                               |
+| `vec4`                                     | `vec4<f32>`                                               |
+| `int`                                      | `i32`                                                     |
+| `uint`                                     | `u32`                                                     |
+| `bool`                                     | `bool`                                                    |
+| `ivec2`, `ivec3`, `ivec4`                  | `vec2<i32>`, `vec3<i32>`, `vec4<i32>`                     |
+| `uvec2`, `uvec3`, `uvec4`                  | `vec2<u32>`, `vec3<u32>`, `vec4<u32>`                     |
+| `mat2`                                     | `mat2x2<f32>`                                             |
+| `mat3`                                     | `mat3x3<f32>`                                             |
+| `mat4`                                     | `mat4x4<f32>`                                             |
+| `mat2x3`                                   | `mat2x3<f32>`                                             |
+| etc.                                       | `<N>x<M><f32>`                                            |
+| `sampler2D`                                | `texture_2d<f32>`                                         |
+| `sampler3D`                                | `texture_3d<f32>`                                         |
+| `samplerCube`                              | `texture_cube<f32>`                                       |
 | `isampler2D`, `isampler3D`, `isamplerCube` | `texture_2d<i32>`, `texture_3d<i32>`, `texture_cube<i32>` |
 | `usampler2D`, `usampler3D`, `usamplerCube` | `texture_2d<u32>`, `texture_3d<u32>`, `texture_cube<u32>` |
 
@@ -513,9 +528,9 @@ tolerant comparisons. See [Testing](testing.md).
 Integer textures are not filterable in either language, so `texture()`/`textureLod()`
 compile to an unfiltered fetch at **integer texel coordinates**:
 
-| RMSL | GLSL | WGSL |
-|------|------|------|
-| `isampler2D.texture(ivec2)` | `texelFetch(s, ivec2, 0)` | `textureLoad(t, vec2<i32>, 0i)` |
+| RMSL                                | GLSL                             | WGSL                                  |
+| ----------------------------------- | -------------------------------- | ------------------------------------- |
+| `isampler2D.texture(ivec2)`         | `texelFetch(s, ivec2, 0)`        | `textureLoad(t, vec2<i32>, 0i)`       |
 | `usampler3D.textureLod(uvec3, lod)` | `texelFetch(s, ivec3, int(lod))` | `textureLoad(t, vec3<i32>, i32(lod))` |
 
 The result is `ivec4` for `isampler*` and `uvec4` for `usampler*`. WGSL binds no
@@ -527,9 +542,9 @@ When all inputs to an operation are literal values, RMSL evaluates it at compile
 
 ```typescript
 // These all fold to literal values:
-let x = float(2.0).pow(float(3.0));   // -> 8
-let y = int(5).add(int(3));           // -> 8
-let z = float(0.5).sin();             // -> ~0.479
+let x = float(2.0).pow(float(3.0)); // -> 8
+let y = int(5).add(int(3)); // -> 8
+let z = float(0.5).sin(); // -> ~0.479
 ```
 
 This applies to: `add`, `sub`, `mul`, `div`, `mod`, `negate`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `abs`, `sign`, `floor`, `ceil`, `round`, `trunc`, `fract`, `sqrt`, `inverseSqrt`, `exp`, `log`, `exp2`, `log2`, `pow`, `min`, `max`, `dot` (on scalars, via `lengthSq`).

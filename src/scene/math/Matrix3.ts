@@ -27,14 +27,26 @@ export class Matrix3 {
   }
 
   set(
-    n11: number, n21: number, n31: number,
-    n12: number, n22: number, n32: number,
-    n13: number, n23: number, n33: number,
+    n11: number,
+    n21: number,
+    n31: number,
+    n12: number,
+    n22: number,
+    n32: number,
+    n13: number,
+    n23: number,
+    n33: number,
   ): this {
     const te = this.elements;
-    te[0] = n11; te[3] = n12; te[6] = n13;
-    te[1] = n21; te[4] = n22; te[7] = n23;
-    te[2] = n31; te[5] = n32; te[8] = n33;
+    te[0] = n11;
+    te[3] = n12;
+    te[6] = n13;
+    te[1] = n21;
+    te[4] = n22;
+    te[7] = n23;
+    te[2] = n31;
+    te[5] = n32;
+    te[8] = n33;
     return this;
   }
 
@@ -51,13 +63,25 @@ export class Matrix3 {
     const be = b.elements;
     const te = this.elements;
 
-    const a11 = ae[0], a12 = ae[3], a13 = ae[6];
-    const a21 = ae[1], a22 = ae[4], a23 = ae[7];
-    const a31 = ae[2], a32 = ae[5], a33 = ae[8];
+    const a11 = ae[0],
+      a12 = ae[3],
+      a13 = ae[6];
+    const a21 = ae[1],
+      a22 = ae[4],
+      a23 = ae[7];
+    const a31 = ae[2],
+      a32 = ae[5],
+      a33 = ae[8];
 
-    const b11 = be[0], b12 = be[3], b13 = be[6];
-    const b21 = be[1], b22 = be[4], b23 = be[7];
-    const b31 = be[2], b32 = be[5], b33 = be[8];
+    const b11 = be[0],
+      b12 = be[3],
+      b13 = be[6];
+    const b21 = be[1],
+      b22 = be[4],
+      b23 = be[7];
+    const b31 = be[2],
+      b32 = be[5],
+      b33 = be[8];
 
     te[0] = a11 * b11 + a12 * b21 + a13 * b31;
     te[3] = a11 * b12 + a12 * b22 + a13 * b32;
@@ -75,17 +99,29 @@ export class Matrix3 {
 
   determinant(): number {
     const te = this.elements;
-    const a = te[0], b = te[1], c = te[2];
-    const d = te[3], e = te[4], f = te[5];
-    const g = te[6], h = te[7], i = te[8];
+    const a = te[0],
+      b = te[1],
+      c = te[2];
+    const d = te[3],
+      e = te[4],
+      f = te[5];
+    const g = te[6],
+      h = te[7],
+      i = te[8];
     return a * e * i - a * f * h - b * d * i + b * f * g + c * d * h - c * e * g;
   }
 
   invert(): this {
     const te = this.elements;
-    const a = te[0], b = te[1], c = te[2];
-    const d = te[3], e = te[4], f = te[5];
-    const g = te[6], h = te[7], i = te[8];
+    const a = te[0],
+      b = te[1],
+      c = te[2];
+    const d = te[3],
+      e = te[4],
+      f = te[5];
+    const g = te[6],
+      h = te[7],
+      i = te[8];
     const n11 = e * i - f * h;
     const n12 = f * g - d * i;
     const n13 = d * h - e * g;
@@ -107,19 +143,21 @@ export class Matrix3 {
   transpose(): this {
     let tmp;
     const m = this.elements;
-    tmp = m[1]; m[1] = m[3]; m[3] = tmp;
-    tmp = m[2]; m[2] = m[6]; m[6] = tmp;
-    tmp = m[5]; m[5] = m[7]; m[7] = tmp;
+    tmp = m[1];
+    m[1] = m[3];
+    m[3] = tmp;
+    tmp = m[2];
+    m[2] = m[6];
+    m[6] = tmp;
+    tmp = m[5];
+    m[5] = m[7];
+    m[7] = tmp;
     return this;
   }
 
   setFromMatrix4(m: Matrix4): this {
     const me = m.elements;
-    this.set(
-      me[0], me[4], me[8],
-      me[1], me[5], me[9],
-      me[2], me[6], me[10],
-    );
+    this.set(me[0], me[4], me[8], me[1], me[5], me[9], me[2], me[6], me[10]);
     return this;
   }
 

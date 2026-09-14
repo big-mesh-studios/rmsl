@@ -4,12 +4,12 @@
 
 ### Scalars
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `float` | `(v: number \| Node<"int">) => Node<"float">` | Float literal or cast from int |
-| `int` | `(v: number \| Node<"float">) => Node<"int">` | Int literal or cast from float |
-| `uint` | `(v: number \| Node<"float"> \| Node<"int">) => Node<"uint">` | Unsigned literal or cast; refuses negatives |
-| `bool` | `(v: boolean \| Node<"float"> \| Node<"int"> \| Node<"uint">) => Node<"bool">` | Bool literal or cast from a number |
+| Function | Signature                                                                      | Description                                 |
+| -------- | ------------------------------------------------------------------------------ | ------------------------------------------- |
+| `float`  | `(v: number \| Node<"int">) => Node<"float">`                                  | Float literal or cast from int              |
+| `int`    | `(v: number \| Node<"float">) => Node<"int">`                                  | Int literal or cast from float              |
+| `uint`   | `(v: number \| Node<"float"> \| Node<"int">) => Node<"uint">`                  | Unsigned literal or cast; refuses negatives |
+| `bool`   | `(v: boolean \| Node<"float"> \| Node<"int"> \| Node<"uint">) => Node<"bool">` | Bool literal or cast from a number          |
 
 `bvec2`, `bvec3` and `bvec4` are what a component-wise comparison produces and
 can also be built directly with `bvec2(...)`, `bvec3(...)`, `bvec4(...)`. See
@@ -17,17 +17,17 @@ can also be built directly with `bvec2(...)`, `bvec3(...)`, `bvec4(...)`. See
 
 ### Vectors
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `vec2` | `(x, y?) => Node<"vec2">` | From 2 scalars, 1 scalar, or another vector |
-| `vec3` | `(x, y?, z?) => Node<"vec3">` | From 3 scalars, 1 scalar, or another vector |
-| `vec4` | `(x, y?, z?, w?) => Node<"vec4">` | From 4 scalars, 1 scalar, or another vector |
-| `ivec2` | `(x, y?) => Node<"ivec2">` | Signed integer vector |
-| `ivec3` | `(x, y?, z?) => Node<"ivec3">` | Signed integer vector |
-| `ivec4` | `(x, y?, z?, w?) => Node<"ivec4">` | Signed integer vector |
-| `uvec2` | `(x, y?) => Node<"uvec2">` | Unsigned integer vector; refuses negatives |
-| `uvec3` | `(x, y?, z?) => Node<"uvec3">` | Unsigned integer vector; refuses negatives |
-| `uvec4` | `(x, y?, z?, w?) => Node<"uvec4">` | Unsigned integer vector; refuses negatives |
+| Function | Signature                          | Description                                 |
+| -------- | ---------------------------------- | ------------------------------------------- |
+| `vec2`   | `(x, y?) => Node<"vec2">`          | From 2 scalars, 1 scalar, or another vector |
+| `vec3`   | `(x, y?, z?) => Node<"vec3">`      | From 3 scalars, 1 scalar, or another vector |
+| `vec4`   | `(x, y?, z?, w?) => Node<"vec4">`  | From 4 scalars, 1 scalar, or another vector |
+| `ivec2`  | `(x, y?) => Node<"ivec2">`         | Signed integer vector                       |
+| `ivec3`  | `(x, y?, z?) => Node<"ivec3">`     | Signed integer vector                       |
+| `ivec4`  | `(x, y?, z?, w?) => Node<"ivec4">` | Signed integer vector                       |
+| `uvec2`  | `(x, y?) => Node<"uvec2">`         | Unsigned integer vector; refuses negatives  |
+| `uvec3`  | `(x, y?, z?) => Node<"uvec3">`     | Unsigned integer vector; refuses negatives  |
+| `uvec4`  | `(x, y?, z?, w?) => Node<"uvec4">` | Unsigned integer vector; refuses negatives  |
 
 `vec3(1.0)` creates a vector with all components set to `1.0`.
 `vec3(vec4(1,2,3,4))` truncates to 3 components.
@@ -38,17 +38,17 @@ typed as its component (`ivec2(1, 2).add(3)` adds the integer `3`).
 
 ### Matrices
 
-| Function | Components | Default (identity) |
-|----------|-----------|-------------------|
-| `mat2` | 2x2 | `[1,0,0,1]` |
-| `mat2x3` | 2x3 | `[1,0,0,0,1,0]` |
-| `mat2x4` | 2x4 | `[1,0,0,0,0,1,0,0]` |
-| `mat3x2` | 3x2 | `[1,0,0,0,1,0]` |
-| `mat3` | 3x3 | `[1,0,0,0,1,0,0,0,1]` |
-| `mat3x4` | 3x4 | `[1,0,0,0,0,1,0,0,0,0,1,0]` |
-| `mat4x2` | 4x2 | `[1,0,0,0,0,1,0,0]` |
-| `mat4x3` | 4x3 | `[1,0,0,0,0,1,0,0,0,0,1,0]` |
-| `mat4` | 4x4 | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |
+| Function | Components | Default (identity)                  |
+| -------- | ---------- | ----------------------------------- |
+| `mat2`   | 2x2        | `[1,0,0,1]`                         |
+| `mat2x3` | 2x3        | `[1,0,0,0,1,0]`                     |
+| `mat2x4` | 2x4        | `[1,0,0,0,0,1,0,0]`                 |
+| `mat3x2` | 3x2        | `[1,0,0,0,1,0]`                     |
+| `mat3`   | 3x3        | `[1,0,0,0,1,0,0,0,1]`               |
+| `mat3x4` | 3x4        | `[1,0,0,0,0,1,0,0,0,0,1,0]`         |
+| `mat4x2` | 4x2        | `[1,0,0,0,0,1,0,0]`                 |
+| `mat4x3` | 4x3        | `[1,0,0,0,0,1,0,0,0,0,1,0]`         |
+| `mat4`   | 4x4        | `[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]` |
 
 `mat4(1.0)` fills the diagonal with `1.0` (scalar constructor).
 `mat4(v4, v4, v4, v4)` constructs from column vectors.
@@ -57,13 +57,13 @@ typed as its component (`ivec2(1, 2).add(3)` adds the integer `3`).
 
 ### ArithOps (float, vec2, vec3, vec4, ivec2/3/4, uvec2/3/4)
 
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `.add(other)` | Self | Addition |
-| `.sub(other)` | Self | Subtraction |
-| `.mul(other)` | Self | Multiplication |
-| `.div(other)` | Self | Division |
-| `.negate()` | Self | Negation |
+| Method        | Returns | Description    |
+| ------------- | ------- | -------------- |
+| `.add(other)` | Self    | Addition       |
+| `.sub(other)` | Self    | Subtraction    |
+| `.mul(other)` | Self    | Multiplication |
+| `.div(other)` | Self    | Division       |
+| `.negate()`   | Self    | Negation       |
 
 Integer vectors carry `.negate()` and `.abs()` only in their signed forms —
 WGSL has no `abs` or unary minus for `u32`. All types accept an operand that
@@ -97,9 +97,9 @@ and which GLSL leaves undefined when either operand is negative.
 Comparisons are component-wise, so the result has one boolean per component.
 Only scalars reduce to a single `bool`:
 
-| Receiver | Returns |
-|----------|---------|
-| `float`  | `Node<"bool">` |
+| Receiver | Returns         |
+| -------- | --------------- |
+| `float`  | `Node<"bool">`  |
 | `vec2`   | `Node<"bvec2">` |
 | `vec3`   | `Node<"bvec3">` |
 | `vec4`   | `Node<"bvec4">` |
@@ -109,37 +109,37 @@ both yielding a boolean vector. A scalar compared against a vector is broadcast
 to the vector's width, since neither language compares the two directly.
 
 ```typescript
-let inside = pos.lessThan(vec3(1, 1, 1)).all();   // Node<"bool">
+let inside = pos.lessThan(vec3(1, 1, 1)).all(); // Node<"bool">
 ```
 
 ### VecCommonOps (vec2, vec3, vec4)
 
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `.dot(other)` | `float` | Dot product |
-| `.length()` | `float` | Vector length |
-| `.normalize()` | Self | Unit vector |
-| `.distance(other)` | `float` | Distance between vectors |
-| `.reflect(normal)` | Self | Reflection vector |
-| `.refract(normal, eta)` | Self | Refraction vector |
-| `.clamp(min, max)` | Self | Component-wise clamp |
-| `.mix(b, t)` | Self | Linear interpolation |
-| `.element(i)` | `float` | Component at runtime index `i` (`v[i]`) |
+| Method                  | Returns | Description                             |
+| ----------------------- | ------- | --------------------------------------- |
+| `.dot(other)`           | `float` | Dot product                             |
+| `.length()`             | `float` | Vector length                           |
+| `.normalize()`          | Self    | Unit vector                             |
+| `.distance(other)`      | `float` | Distance between vectors                |
+| `.reflect(normal)`      | Self    | Reflection vector                       |
+| `.refract(normal, eta)` | Self    | Refraction vector                       |
+| `.clamp(min, max)`      | Self    | Component-wise clamp                    |
+| `.mix(b, t)`            | Self    | Linear interpolation                    |
+| `.element(i)`           | `float` | Component at runtime index `i` (`v[i]`) |
 
 ### Vec3Ops (vec3)
 
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `.cross(other)` | `vec3` | Cross product |
+| Method          | Returns | Description   |
+| --------------- | ------- | ------------- |
+| `.cross(other)` | `vec3`  | Cross product |
 
 ### MatOps (mat2, mat3, mat4)
 
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `.mul(other)` | Self / vec | Matrix multiplication. A matrix times a vector of its column width gives that vector's result; a vector one component shorter (e.g. `mat4 * vec3`) is a position with its homogeneous `w = 1` implied, promoted and truncated by the compilers. |
-| `.inverse()` | Self | Matrix inverse |
-| `.transpose()` | Self | Matrix transpose |
-| `.determinant()` | `float` | Scalar determinant |
+| Method           | Returns    | Description                                                                                                                                                                                                                                     |
+| ---------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.mul(other)`    | Self / vec | Matrix multiplication. A matrix times a vector of its column width gives that vector's result; a vector one component shorter (e.g. `mat4 * vec3`) is a position with its homogeneous `w = 1` implied, promoted and truncated by the compilers. |
+| `.inverse()`     | Self       | Matrix inverse                                                                                                                                                                                                                                  |
+| `.transpose()`   | Self       | Matrix transpose                                                                                                                                                                                                                                |
+| `.determinant()` | `float`    | Scalar determinant                                                                                                                                                                                                                              |
 
 ### IntOps
 
@@ -176,19 +176,19 @@ As IVecOps but unsigned and without `.negate()`/`.abs()`; `.element(i)` →
 
 ### SamplerOps (sampler2D)
 
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `.texture(coords)` | `vec4` | Sample texture at coordinates |
-| `.textureLod(coords, lod)` | `vec4` | Sample with explicit LOD |
+| Method                     | Returns | Description                   |
+| -------------------------- | ------- | ----------------------------- |
+| `.texture(coords)`         | `vec4`  | Sample texture at coordinates |
+| `.textureLod(coords, lod)` | `vec4`  | Sample with explicit LOD      |
 
 ### Sampler3DOps (sampler3D)
 
 A 3D texture is sampled at its volume coordinate — a `vec3`, as with a cube map.
 
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `.texture(coords)` | `vec4` | Sample texture at volume coordinates |
-| `.textureLod(coords, lod)` | `vec4` | Sample with explicit LOD |
+| Method                     | Returns | Description                          |
+| -------------------------- | ------- | ------------------------------------ |
+| `.texture(coords)`         | `vec4`  | Sample texture at volume coordinates |
+| `.textureLod(coords, lod)` | `vec4`  | Sample with explicit LOD             |
 
 ### Integer samplers (isampler2D/3D/Cube, usampler2D/3D/Cube)
 
@@ -197,26 +197,26 @@ Signed and unsigned integer textures. Integer textures are not filterable, so
 GLSL, `textureLoad` in WGSL, which there needs **no sampler binding**. They take
 integer texel coordinates of the sampler's width and return an integer vector:
 
-| Sampler | `.texture()` returns | Coordinates |
-|---------|---------------------|-------------|
-| `isampler2D` | `Node<"ivec4">` | `ivec2` |
-| `isampler3D`/`isamplerCube` | `Node<"ivec4">` | `ivec3` |
-| `usampler2D` | `Node<"uvec4">` | `uvec2` |
-| `usampler3D`/`usamplerCube` | `Node<"uvec4">` | `uvec3` |
+| Sampler                     | `.texture()` returns | Coordinates |
+| --------------------------- | -------------------- | ----------- |
+| `isampler2D`                | `Node<"ivec4">`      | `ivec2`     |
+| `isampler3D`/`isamplerCube` | `Node<"ivec4">`      | `ivec3`     |
+| `usampler2D`                | `Node<"uvec4">`      | `uvec2`     |
+| `usampler3D`/`usamplerCube` | `Node<"uvec4">`      | `uvec3`     |
 
 ```typescript
 let voxel = uniform("usampler3D");
-let density = voxel.texture(uvec3(x, y, z));   // Node<"uvec4">
+let density = voxel.texture(uvec3(x, y, z)); // Node<"uvec4">
 ```
 
 ### BoolOps
 
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `.and(other)` | `bool` | Logical AND |
-| `.or(other)` | `bool` | Logical OR |
-| `.not()` | `bool` | Logical NOT |
-| `.xor(other)` | `bool` | Logical XOR (lowered to `(a\|\|b) && !(a&&b)`) |
+| Method        | Returns | Description                                    |
+| ------------- | ------- | ---------------------------------------------- |
+| `.and(other)` | `bool`  | Logical AND                                    |
+| `.or(other)`  | `bool`  | Logical OR                                     |
+| `.not()`      | `bool`  | Logical NOT                                    |
+| `.xor(other)` | `bool`  | Logical XOR (lowered to `(a\|\|b) && !(a&&b)`) |
 
 ### BoolVecOps (bvec2, bvec3, bvec4)
 
@@ -224,12 +224,12 @@ The result of a component-wise comparison. There is no implicit path back to
 `bool` — "is this vector less than that one" has no single answer — so the
 reduction is spelled out.
 
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `.all()` | `bool` | True when every component is true |
-| `.any()` | `bool` | True when at least one component is true |
-| `.not()` | Self | Negates each component |
-| `.xor(other)` | Self | Component-wise logical XOR |
+| Method        | Returns | Description                              |
+| ------------- | ------- | ---------------------------------------- |
+| `.all()`      | `bool`  | True when every component is true        |
+| `.any()`      | `bool`  | True when at least one component is true |
+| `.not()`      | Self    | Negates each component                   |
+| `.xor(other)` | Self    | Component-wise logical XOR               |
 
 ```typescript
 let allInside = pos.lessThan(bounds).all();
@@ -243,8 +243,8 @@ which does apply to `vecN<bool>`.
 
 All three component spellings are available, matching GLSL/WGSL and TSL:
 
-| Set | Components |
-|-----|-----------|
+| Set    | Components             |
+| ------ | ---------------------- |
 | `xyzw` | `.x`, `.y`, `.z`, `.w` |
 | `rgba` | `.r`, `.g`, `.b`, `.a` |
 | `stpq` | `.s`, `.t`, `.p`, `.q` |
@@ -260,22 +260,22 @@ multi-component swizzle is the matching integer vector (`ivec3.xy` → `ivec2`).
 Swizzles are read-only. Use `.assign()` for swizzle writes:
 
 ```typescript
-a.xy.assign(b.xy);  // compiles to a.xy = b.xy;
+a.xy.assign(b.xy); // compiles to a.xy = b.xy;
 ```
 
 ## Node Methods
 
-| Method | Description |
-|--------|-------------|
-| `.toVar(name?)` | Assigns an expression to a variable, returns the variable reference. Without a name it gets a generated `_rmsl_N` slot; a name is emitted verbatim into the shader for debugging, and a duplicate name gets a number appended (`color`, `color1`, …) |
-| `.var(name?)` | TSL's shorthand for `.toVar()` |
-| `.assign(value)` | Assigns a value to an existing variable or swizzle |
-| `.addAssign(v)` / `.subAssign(v)` / `.mulAssign(v)` / `.divAssign(v)` / `.modAssign(v)` | Compound assignment, as TSL's `addAssign`/`mulAssign`/… |
-| `.toFloat()`, `.toInt()`, `.toUint()`, `.toBool()` | Cast to a scalar type |
-| `.toVec2()`, `.toVec3()`, `.toVec4()` | Cast to a float vector (narrowing a vec4 drops components) |
-| `.toIVec2/3/4()`, `.toUVec2/3/4()`, `.toBVec2/3/4()` | Cast to an integer or boolean vector |
-| `.toMat2()`, `.toMat3()`, `.toMat4()` | Cast to a matrix |
-| `.convert(type)` | Cast to any type by name |
+| Method                                                                                  | Description                                                                                                                                                                                                                                          |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.toVar(name?)`                                                                         | Assigns an expression to a variable, returns the variable reference. Without a name it gets a generated `_rmsl_N` slot; a name is emitted verbatim into the shader for debugging, and a duplicate name gets a number appended (`color`, `color1`, …) |
+| `.var(name?)`                                                                           | TSL's shorthand for `.toVar()`                                                                                                                                                                                                                       |
+| `.assign(value)`                                                                        | Assigns a value to an existing variable or swizzle                                                                                                                                                                                                   |
+| `.addAssign(v)` / `.subAssign(v)` / `.mulAssign(v)` / `.divAssign(v)` / `.modAssign(v)` | Compound assignment, as TSL's `addAssign`/`mulAssign`/…                                                                                                                                                                                              |
+| `.toFloat()`, `.toInt()`, `.toUint()`, `.toBool()`                                      | Cast to a scalar type                                                                                                                                                                                                                                |
+| `.toVec2()`, `.toVec3()`, `.toVec4()`                                                   | Cast to a float vector (narrowing a vec4 drops components)                                                                                                                                                                                           |
+| `.toIVec2/3/4()`, `.toUVec2/3/4()`, `.toBVec2/3/4()`                                    | Cast to an integer or boolean vector                                                                                                                                                                                                                 |
+| `.toMat2()`, `.toMat3()`, `.toMat4()`                                                   | Cast to a matrix                                                                                                                                                                                                                                     |
+| `.convert(type)`                                                                        | Cast to any type by name                                                                                                                                                                                                                             |
 
 These only work inside an `Fn` scope. Casts compile to the target constructor —
 `int(x)` in GLSL, `i32(x)` in WGSL — truncating toward zero where that is what
@@ -354,11 +354,13 @@ result.
 ```typescript
 If(cond, () => {
   // then branch
-}).ElseIf(otherCond, () => {
-  // else-if branch
-}).Else(() => {
-  // else branch
-});
+})
+  .ElseIf(otherCond, () => {
+    // else-if branch
+  })
+  .Else(() => {
+    // else branch
+  });
 ```
 
 The names are the capitalized TSL ones, so a shader written against
@@ -381,9 +383,15 @@ It lowers to the same `For` machinery.
 
 ```typescript
 Switch(int(level), (s) => {
-  s.Case(0, () => { colour.assign(black); });
-  s.Case([1, 2], () => { colour.assign(grey); });   // several values, one body
-  s.Default(() => { colour.assign(white); });
+  s.Case(0, () => {
+    colour.assign(black);
+  });
+  s.Case([1, 2], () => {
+    colour.assign(grey);
+  }); // several values, one body
+  s.Default(() => {
+    colour.assign(white);
+  });
 });
 ```
 
@@ -394,10 +402,13 @@ the same lowering TSL uses — so there is no fall-through and no `Break()`.
 
 ```typescript
 For(
-  () => int(0).toVar(),                // init - returns loop variable
-  (i) => i.lessThan(int(10)),          // condition - receives variable
-  (i) => { i.assign(i.add(int(1))); }, // update - receives variable
-  (i) => {                              // body - receives variable
+  () => int(0).toVar(), // init - returns loop variable
+  (i) => i.lessThan(int(10)), // condition - receives variable
+  (i) => {
+    i.assign(i.add(int(1)));
+  }, // update - receives variable
+  (i) => {
+    // body - receives variable
     // loop body
   },
 );
@@ -420,28 +431,28 @@ While(condition, () => {
 
 ## I/O
 
-| Function | Returns | Description |
-|----------|---------|-------------|
-| `uniform(type)` | `UniformNode<T>` | Declares a uniform (constant buffer input). Use `.name` for the generated name (e.g., `_rmsl_u0`); methods and swizzles are available directly. |
-| `uniformRaw(name, type)` | `UniformNode<T>` | Declares a uniform with a custom name/slot (e.g., `uniformRaw("uMVP", "mat4")` emits `uniform mat4 uMVP`). Use `.name` for the custom name; methods and swizzles are available directly. |
-| `attribute(type)` | `AttributeNode<T>` | Declares a vertex attribute. Use `.name` for the generated name (e.g., `_rmsl_a0`); methods and swizzles are available directly. |
-| `attributeRaw(name, type)` | `AttributeNode<T>` | Declares a vertex attribute with a custom name/slot (e.g., `attributeRaw("tex", "vec2")` emits `in vec2 tex`). Use `.name` for the custom name; methods and swizzles are available directly. |
-| `varying(type)` | `VaryingNode<T>` | Declares a varying (vertex→fragment interpolant). Use `.name` for the generated name (e.g., `_rmsl_v0`); methods and swizzles are available directly. |
-| `varyingRaw(name, type)` | `VaryingNode<T>` | Declares a varying with a custom name/slot (e.g., `varyingRaw("myNormal", "vec3")` emits `out/in vec3 myNormal`). Use `.name` for the custom name; methods and swizzles are available directly. |
-| `output(type)` | `Node<T>` | Declares a fragment output with `@location(N)` |
-| `builtinPosition()` | `Node<"vec4">` | Maps to `gl_Position` / `@builtin(position)` |
-| `builtinFragDepth()` | `Node<"float">` | Maps to `gl_FragDepth` / `@builtin(frag_depth)` |
-| `fragCoord()` | `Node<"vec2">` | The fragment's framebuffer position in pixels (`gl_FragCoord.xy` / WGSL `@builtin(position)`). Fragment stage only. Alias: `screenCoordinate()`. |
-| `screenSize()` | `Node<"vec2">` | The drawing-buffer size in pixels, as a `vec2` uniform the host binds. |
-| `screenUV()` | `Node<"vec2">` | `fragCoord() / screenSize()` — the normalized screen position. |
-| `uv()` | `Node<"vec2">` | The fullscreen-quad UV: the normalized screen position, as TSL's `uv()`. |
-| `time()` | `Node<"float">` | A shared per-frame clock (seconds), as a `float` uniform the host updates. |
+| Function                   | Returns            | Description                                                                                                                                                                                     |
+| -------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `uniform(type)`            | `UniformNode<T>`   | Declares a uniform (constant buffer input). Use `.name` for the generated name (e.g., `_rmsl_u0`); methods and swizzles are available directly.                                                 |
+| `uniformRaw(name, type)`   | `UniformNode<T>`   | Declares a uniform with a custom name/slot (e.g., `uniformRaw("uMVP", "mat4")` emits `uniform mat4 uMVP`). Use `.name` for the custom name; methods and swizzles are available directly.        |
+| `attribute(type)`          | `AttributeNode<T>` | Declares a vertex attribute. Use `.name` for the generated name (e.g., `_rmsl_a0`); methods and swizzles are available directly.                                                                |
+| `attributeRaw(name, type)` | `AttributeNode<T>` | Declares a vertex attribute with a custom name/slot (e.g., `attributeRaw("tex", "vec2")` emits `in vec2 tex`). Use `.name` for the custom name; methods and swizzles are available directly.    |
+| `varying(type)`            | `VaryingNode<T>`   | Declares a varying (vertex→fragment interpolant). Use `.name` for the generated name (e.g., `_rmsl_v0`); methods and swizzles are available directly.                                           |
+| `varyingRaw(name, type)`   | `VaryingNode<T>`   | Declares a varying with a custom name/slot (e.g., `varyingRaw("myNormal", "vec3")` emits `out/in vec3 myNormal`). Use `.name` for the custom name; methods and swizzles are available directly. |
+| `output(type)`             | `Node<T>`          | Declares a fragment output with `@location(N)`                                                                                                                                                  |
+| `builtinPosition()`        | `Node<"vec4">`     | Maps to `gl_Position` / `@builtin(position)`                                                                                                                                                    |
+| `builtinFragDepth()`       | `Node<"float">`    | Maps to `gl_FragDepth` / `@builtin(frag_depth)`                                                                                                                                                 |
+| `fragCoord()`              | `Node<"vec2">`     | The fragment's framebuffer position in pixels (`gl_FragCoord.xy` / WGSL `@builtin(position)`). Fragment stage only. Alias: `screenCoordinate()`.                                                |
+| `screenSize()`             | `Node<"vec2">`     | The drawing-buffer size in pixels, as a `vec2` uniform the host binds.                                                                                                                          |
+| `screenUV()`               | `Node<"vec2">`     | `fragCoord() / screenSize()` — the normalized screen position.                                                                                                                                  |
+| `uv()`                     | `Node<"vec2">`     | The fullscreen-quad UV: the normalized screen position, as TSL's `uv()`.                                                                                                                        |
+| `time()`                   | `Node<"float">`    | A shared per-frame clock (seconds), as a `float` uniform the host updates.                                                                                                                      |
 
 A declared variable carries every method of its type (`.add()`, `.mul()`, `.x`,
 `.xyz`, ...) alongside `.name`:
 
 ```typescript
 let u = uniform("mat4");
-let uName = u.name;             // "_rmsl_u0"
+let uName = u.name; // "_rmsl_u0"
 let result = u.mul(otherNode); // methods are available directly
 ```

@@ -9,7 +9,21 @@ export { Color } from "./Color";
 export { Spherical } from "./Spherical";
 export * as MathUtils from "./MathUtils";
 export {
-  clamp, euclideanModulo, lerp, inverseLerp, mapLinear, smoothstep, smootherstep,
-  degToRad, radToDeg, damp, randFloat, randInt, pingpong, seededRandom,
-  ceilPowerOfTwo, floorPowerOfTwo, isPowerOfTwo,
+  clamp,
+  euclideanModulo,
+  lerp,
+  inverseLerp,
+  mapLinear,
+  smoothstep,
+  smootherstep,
+  degToRad,
+  radToDeg,
+  damp,
+  randFloat,
+  randInt,
+  pingpong,
+  seededRandom,
+  ceilPowerOfTwo,
+  floorPowerOfTwo,
+  isPowerOfTwo,
 } from "./MathUtils";

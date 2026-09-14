@@ -1,7 +1,17 @@
 # Contributing to RMSL
 
 RMSL builds a shader node graph in TypeScript and emits GLSL ES 3.00 and WGSL.
-Almost everything lives in `src/rmsl.ts`.
+The compiler lives in `src/rmsl-*.ts` and `src/backends/`: `core.ts` is
+the DSL (types, the node graph, the TSL-style API); `src/backends/shared.ts`
+is the context and helpers all four backends use;
+`src/backends/glsl.ts`, `src/backends/wgsl.ts`,
+`src/backends/js.ts`, and `src/backends/wasm.ts` are the
+backends themselves, each with its own test file colocated next to it (e.g.
+`src/backends/wasm.test.ts`); `standalone-fn.ts` covers
+`compileGLSLFn`/`compileWGSLFn`. `rmsl.ts` is a thin barrel re-exporting the
+public surface from all of them — it's what a consumer imports, but not
+where to go looking for an implementation. `src/benches/` holds the
+`*.bench.ts` performance benchmarks (run with `npx vitest bench <path>`).
 
 Most mistakes here are silent: a wrong result type or a missing table entry
 produces a shader that reads fine and that no driver accepts. The test setup
@@ -21,28 +31,25 @@ pnpm test
 
 Three layers.
 
-**Text.** `src/rmsl-usage.test.ts` asserts on the generated source. Cheap and
+**Text.** `src/usage.test.ts` asserts on the generated source. Cheap and
 weak — `refract(I, N)` still contains `refract(`.
 
 **Validity.** Automatic, and the important one. That file imports the compilers
 under an alias:
 
 ```typescript
-import {
-  recordingGLSL as compileGLSL,
-  recordingWGSL as compileWGSL,
-} from "./testing/shader-validity";
+import { recordingGLSL as compileGLSL, recordingWGSL as compileWGSL } from "./testing/shader-validity";
 ```
 
-The stand-ins compile every program to *both* backends and record it. An
+The stand-ins compile every program to _both_ backends and record it. An
 `afterAll` hands the whole set to Chromium's WebGL2 compiler and to Dawn, and
 fails the run on any rejection. A test asserting only on GLSL still has its WGSL
 output checked by a real driver.
 
-So: **write codegen tests in `src/rmsl-usage.test.ts`.** A new file importing
+So: **write codegen tests in `src/usage.test.ts`.** A new file importing
 `compileGLSL` from `../rmsl` directly gets the text layer only, silently.
 
-**Values.** `src/rmsl-eval.test.ts` runs the expression on real hardware and
+**Values.** `src/eval.test.ts` runs the expression on real hardware and
 reads the number back from both backends. Text and validity both pass for a
 shader that computes the wrong thing — swapping `min` for `max` is invisible to
 them. Operands arrive as function parameters, not literals, or constant folding
@@ -72,7 +79,7 @@ SwiftShader, the WebGPU one through a real adapter.
 Getting WebGPU there took two things that are not flags, and both are in
 `src/testing/gpu.ts`. `navigator.gpu` is exposed only to a secure context, so
 the page is served from `http://127.0.0.1` rather than being `about:blank` like
-the GLSL one. And Playwright's default browser is the headless *shell*, which
+the GLSL one. And Playwright's default browser is the headless _shell_, which
 has no adapter behind `navigator.gpu`, so the WebGPU browser is launched with
 `channel: "chromium"` — and separately from the GLSL browser, whose SwiftShader
 arguments take the WebGPU adapter away.
@@ -93,11 +100,11 @@ renderer tests reached main broken because a normal run never executed them.
 Turn them off only where the machine cannot run them, or to get a fast inner
 loop and a workable mutation run:
 
-| Variable | Turns off |
-|---|---|
-| `RMSL_SKIP_GPU` | every layer needing a device or a browser, drawing included |
-| `RMSL_SKIP_SHADER_VALIDATION` | validity only |
-| `RMSL_SKIP_SHADER_EVALUATION` | evaluating the two shading languages |
+| Variable                      | Turns off                                                   |
+| ----------------------------- | ----------------------------------------------------------- |
+| `RMSL_SKIP_GPU`               | every layer needing a device or a browser, drawing included |
+| `RMSL_SKIP_SHADER_VALIDATION` | validity only                                               |
+| `RMSL_SKIP_SHADER_EVALUATION` | evaluating the two shading languages                        |
 
 ```bash
 pnpm test          # everything, including the GPU layers
@@ -119,7 +126,7 @@ is what a change is judged on.
 A method on `Node` — `.mix()`, `.length()`, `.lessThan()`.
 
 1. **Declare it** on an operation interface (`ArithOps`, `FloatMathOps`,
-   `ComparisonOps`, `VecCommonOps`, `MatOps`, …). Declare the *result* type:
+   `ComparisonOps`, `VecCommonOps`, `MatOps`, …). Declare the _result_ type:
    `length(): Node<"float">`. Do not declare one operation on two interfaces
    that both apply to the same type — the checker picks one arbitrarily, which
    is how `step` once shipped broken.
@@ -150,7 +157,7 @@ A method on `Node` — `.mix()`, `.length()`, `.lessThan()`.
     vectors; WGSL shifts take `u32`; WGSL has no `inverse()` and pulls a helper
     from `WGSL_HELPERS`.
 11. **Document** in `docs/api.md`.
-12. **Test** in `src/rmsl-usage.test.ts`, driven from a `uniform(...)` — with
+12. **Test** in `src/usage.test.ts`, driven from a `uniform(...)` — with
     literals the expression folds and codegen never runs.
 
 Both switches throw on an unhandled node type, so steps 8 and 9 fail loudly —
@@ -189,19 +196,19 @@ provided a test exercises them.
 
 ## What catches what
 
-| Mistake | Caught by |
-|---|---|
-| `ShaderType` with no `NodeOps` row | `tsc` |
-| Missing `NodeImpl` method | test run — `TypeError` |
-| Missing backend switch case | test run — throws, if exercised |
-| Missing `REDUCING_OPS` / `VALUE_OPERAND` | real-compiler validation |
-| Missing `UNIFORM_OPERAND_OPS` | Dawn only |
-| Missing `typeToGLSL` / `typeToWGSL` / `TYPE_WIDTH` | real-compiler validation |
-| Declared but never implemented | nothing |
-| Wrong folding arithmetic, or swapped operands | evaluation layer |
+| Mistake                                            | Caught by                       |
+| -------------------------------------------------- | ------------------------------- |
+| `ShaderType` with no `NodeOps` row                 | `tsc`                           |
+| Missing `NodeImpl` method                          | test run — `TypeError`          |
+| Missing backend switch case                        | test run — throws, if exercised |
+| Missing `REDUCING_OPS` / `VALUE_OPERAND`           | real-compiler validation        |
+| Missing `UNIFORM_OPERAND_OPS`                      | Dawn only                       |
+| Missing `typeToGLSL` / `typeToWGSL` / `TYPE_WIDTH` | real-compiler validation        |
+| Declared but never implemented                     | nothing                         |
+| Wrong folding arithmetic, or swapped operands      | evaluation layer                |
 
 The further down that table, the more your test needs to go through
-`src/rmsl-usage.test.ts`.
+`src/usage.test.ts`.
 
 ## Pull requests
 
