@@ -18,6 +18,7 @@ import {
   uint,
   bool,
   ivec2,
+  builtinPosition,
   ivec3,
   ivec4,
   uvec2,
@@ -117,6 +118,23 @@ describe("what a vertex stage accepts", () => {
         })(),
       ),
     ).toEqualTypeOf<string>();
+  });
+
+  // A body with no return, and one that assigns the position but likewise
+  // returns nothing, both give the call itself — not just what a compiler
+  // accepts — the type void.
+  it("types a program that returns nothing as void", () => {
+    expectTypeOf(
+      Fn(() => {
+        float(1).toVar();
+      })(),
+    ).toEqualTypeOf<void>();
+
+    expectTypeOf(
+      Fn(() => {
+        builtinPosition().assign(vec4(1, 2, 3, 4));
+      })(),
+    ).toEqualTypeOf<void>();
   });
 
   // Several values can be returned at once, and the last becomes the position.
