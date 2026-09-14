@@ -1,18 +1,39 @@
 import {
-  float, int, vec2, vec3, vec4, bool,
-  Fn, If, While, Break,
-  attribute, uniform, varying, output,
+  attribute,
+  bool,
+  Break,
+  float,
+  Fn,
+  fragCoord,
+  If,
+  int,
   Node,
+  output,
+  uniform, varying,
+  vec2, vec3, vec4,
+  While,
 } from "@random-mesh/rmsl";
 
 // Split constant for Dekker's split of f32: 2^13 + 1 = 8193.0
 const SPLIT = float(8193.0);
 
+// ds_add/ds_sub/ds_mul and mandelbrotColorAt below are deliberately plain
+// functions, not Fn(...)-wrapped ones — every call site is itself inside
+// another Fn's body, and a nested Fn call's result is a "seq" node (its
+// captured statements plus a final value), which every backend but WASM
+// happens to inline correctly wherever it's used as an expression. WASM
+// only unwraps a seq at the root of the function being compiled; nested,
+// it throws `unsupported node type in vector position: "seq"`. A plain
+// function has no such wrapping — its toVar()/If/While calls push directly
+// onto whichever Fn's block scope is active when it runs, i.e. the
+// caller's, so calling it inlines exactly the way GLSL/WGSL/JS already
+// treated a nested Fn call, and WASM gets the same inlining for free.
+
 /**
  * Double-Single (DS) Addition: (a.x + a.y) + (b.x + b.y)
  * Using Knuth's TwoSum algorithm translated from WASM demo
  */
-export const ds_add = Fn((a: Node<"vec2">, b: Node<"vec2">) => {
+export function ds_add(a: Node<"vec2">, b: Node<"vec2">): Node<"vec2"> {
   let x = a.x.add(b.x).toVar();
   let bv = x.sub(a.x).toVar();
   let av = x.sub(bv).toVar();
@@ -22,20 +43,20 @@ export const ds_add = Fn((a: Node<"vec2">, b: Node<"vec2">) => {
   let lo = y.add(a.y).add(b.y).toVar();
   let t = x.add(lo).toVar();
   return vec2(t, x.sub(t).add(lo));
-});
+}
 
 /**
  * Double-Single (DS) Subtraction: a - b
  */
-export const ds_sub = Fn((a: Node<"vec2">, b: Node<"vec2">) => {
+export function ds_sub(a: Node<"vec2">, b: Node<"vec2">): Node<"vec2"> {
   return ds_add(a, vec2(b.x.negate(), b.y.negate()));
-});
+}
 
 /**
  * Double-Single (DS) Multiplication: (a.x + a.y) * (b.x + b.y)
  * Dekker's TwoProd algorithm adapted to 2x float32
  */
-export const ds_mul = Fn((a: Node<"vec2">, b: Node<"vec2">) => {
+export function ds_mul(a: Node<"vec2">, b: Node<"vec2">): Node<"vec2"> {
   let t1 = SPLIT.mul(a.x).toVar();
   let a1 = t1.sub(t1.sub(a.x)).toVar();
   let a0 = a.x.sub(a1).toVar();
@@ -52,7 +73,7 @@ export const ds_mul = Fn((a: Node<"vec2">, b: Node<"vec2">) => {
   let dstLo = p_lo2.sub(h.sub(p_hi)).toVar();
   let dstHi = h;
   return vec2(dstHi, dstLo);
-});
+}
 
 // Full-screen quad attributes & varyings
 export let quadPos = attribute("vec2");
@@ -73,13 +94,13 @@ export let u_scale_hi = uniform("vec2");
 export let u_scale_lo = uniform("vec2");
 export let u_palette = uniform("int");
 
-export let calcMandelbrot = Fn(() => {
-  let outColor = output("vec4");
-
-  // Offset in pixels relative to center
-  let dx = v_pos.x.mul(0.5).mul(u_resolution.x).toVar();
-  let dy = v_pos.y.mul(0.5).mul(u_resolution.y).toVar();
-
+/**
+ * The colour at a pixel `(dx, dy)` pixels from the view's center, shared by
+ * the GPU fragment stage (whose `dx`/`dy` come from an interpolated
+ * varying) and the CPU targets' `.draw()` (whose `dx`/`dy` come from
+ * `fragCoord()` directly, with no vertex/varying stage at all).
+ */
+export function mandelbrotColorAt(dx: Node<"float">, dy: Node<"float">): Node<"vec4"> {
   let iter = int(0).toVar();
   let magSq = float(0.0).toVar();
   let escaped = bool(false).toVar();
@@ -147,6 +168,8 @@ export let calcMandelbrot = Fn(() => {
     });
   });
 
+  let finalColor = vec4(0.0, 0.0, 0.0, 1.0).toVar();
+
   If(escaped, () => {
     let logMag = magSq.log().mul(0.5).toVar();
     let nu = logMag.log().div(float(Math.LN2)).toVar();
@@ -177,10 +200,36 @@ export let calcMandelbrot = Fn(() => {
       color.assign(vec3(r, g, b));
     });
 
-    outColor.assign(vec4(color, 1.0));
+    finalColor.assign(vec4(color, 1.0));
   }).Else(() => {
-    outColor.assign(vec4(0.0, 0.0, 0.0, 1.0));
+    finalColor.assign(vec4(0.0, 0.0, 0.0, 1.0));
   });
 
+  return finalColor;
+}
+
+/** The GPU fragment stage: `dx`/`dy` come from the rasterizer-interpolated `v_pos`. */
+export let calcMandelbrot = Fn(() => {
+  let outColor = output("vec4");
+
+  // Offset in pixels relative to center
+  let dx = v_pos.x.mul(0.5).mul(u_resolution.x).toVar();
+  let dy = v_pos.y.mul(0.5).mul(u_resolution.y).toVar();
+
+  outColor.assign(mandelbrotColorAt(dx, dy));
   return outColor;
+});
+
+/**
+ * The CPU-target entry point: no vertex stage, no varying — `.draw()` feeds
+ * each pixel's center in as `fragCoord()` directly. `fragCoord().y` grows
+ * downward (row 0 is the top row, matching `ImageData`'s layout), the
+ * opposite of `v_pos.y` (which grows upward, matching GL clip space), so the
+ * two convert to the same pixel-offset convention with a subtraction rather
+ * than a multiply.
+ */
+export let calcMandelbrotCpu = Fn(() => {
+  let dx = fragCoord().x.sub(u_resolution.x.mul(0.5)).toVar();
+  let dy = u_resolution.y.mul(0.5).sub(fragCoord().y).toVar();
+  return mandelbrotColorAt(dx, dy);
 });
