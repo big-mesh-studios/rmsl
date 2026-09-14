@@ -451,7 +451,7 @@ longer the wrong choice for this workload at either size measured.
 `compileWasmFn` and `compileWasm` exist in `src/wasm.ts`, next to
 `glsl.ts`/`wgsl.ts`/`js.ts` (see CONTRIBUTING.md for
 the file layout). Tests are in `src/wasm.test.ts` and
-`src/layout-interop.test.ts`.
+`src/layout.test.ts`.
 
 **What it covers**, Phase 1's validated slice, Phase 2's full scalar op
 parity, Phase 3's vectors/matrices as first-class values, Phase 4's control
