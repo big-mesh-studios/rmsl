@@ -461,12 +461,12 @@ flow, Phase 5's shader-stage surface, and Phase 6's texture sampling:
 params: WasmParam[], resultType: ShaderType }` — the module plus a
   description of what each exported-function argument (and the result)
   means.
-- `compileWasm(fn, options): (ctx: JsShaderContext) => number | boolean |
-JsShaderResult` — same call signature as `compileJS`. A plain
+- `compileWasm(fn, options): (ctx: CpuShaderContext) => number | boolean |
+CpuShaderResult` — same call signature as `compileJS`. A plain
   scalar-returning program returns the bare value (a `"bool"` result comes
   back as a real boolean, a `"uint"` one reinterpreted from WASM's
   always-signed i32 return, matching `compileJS`); a program using the
-  shader-stage surface returns a `JsShaderResult`, identical in shape to
+  shader-stage surface returns a `CpuShaderResult`, identical in shape to
   what `compileJS` returns for the same program.
 - Explicit function params (`options.params`), scalar float/int/uint/
   bool uniforms and params, and `attribute()`/a fragment-stage
@@ -667,7 +667,7 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
   original single-scalar-result shape, byte-for-byte; true switches it to
   a zero-result shape, with `output()`/`varying()`/`builtinPosition()`/
   `builtinFragDepth()`/the function's own value all read back by
-  `compileWasm` afterward into a `JsShaderResult` — identical to what
+  `compileWasm` afterward into a `CpuShaderResult` — identical to what
   `compileJS` already returns for the same program. `assertStageResult`
   (`src/backends/shared.ts`) is reused directly, unmodified — it only
   ever needed plain primitives (`shaderStage`/`lastType`/`positionWritten`),
