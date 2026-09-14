@@ -1,5 +1,5 @@
 // ========== GLSL Compiler ==========
-import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH } from "../rmsl-core";
+import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH } from "../core";
 import {
   CompileCtx,
   CompiledNode,

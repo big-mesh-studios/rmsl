@@ -1,6 +1,6 @@
 /**
- * Shared types for the two CPU backends (`rmsl-compile-js.ts` and
- * `rmsl-wasm.ts`): what a host passes in and reads back, and the shape a
+ * Shared types for the two CPU backends (`compile-js.ts` and
+ * `wasm.ts`): what a host passes in and reads back, and the shape a
  * compiled function itself takes.
  *
  * Both backends read the same host-supplied context and texture data, and
@@ -8,7 +8,7 @@
  * value, or `draw()` it once per pixel over a whole image — so the contract
  * is described here once rather than per backend.
  */
-import { MATRIX_DIMENSIONS, TYPE_WIDTH } from "../rmsl-core";
+import { MATRIX_DIMENSIONS, TYPE_WIDTH } from "../core";
 
 /** Values a host supplies to a compiled CPU function. */
 export type CpuShaderContext = {

@@ -1,6 +1,6 @@
 /**
  * Stage 2 of docs/design-shared-layout-ir.md: does the shared allocator
- * (src/rmsl-layout.ts) actually let a WASM computation place its uniforms
+ * (src/layout.ts) actually let a WASM computation place its uniforms
  * at the exact byte offsets a real WGSL uniform buffer would use for the
  * same members, rather than just sharing the placement *algorithm* the way
  * stage 1 already proved?
@@ -10,7 +10,7 @@
  * but corrupted adjacent uniforms: this backend's `float` is f64 (8 bytes)
  * while `wgslUniformLayout`'s offsets assume `f32` (4 bytes), so two
  * GPU-adjacent members spaced 4 bytes apart overlapped in this backend's
- * wider writes. The fix (`rmsl-wasm.ts`'s `GpuUniformLayout` doc comment)
+ * wider writes. The fix (`wasm.ts`'s `GpuUniformLayout` doc comment)
  * gives such a uniform *two* addresses: the caller's raw, narrow one
  * (never touched by this backend's arithmetic directly) and an ordinary
  * packed scratch address like any other uniform gets, with a promotion
@@ -20,8 +20,8 @@
  */
 import { describe, it, expect } from "vitest";
 import { Fn, uniform, uniformArray, int, wgslUniformLayout } from "./rmsl";
-import { wgslType } from "./backends/rmsl-wgsl";
-import { compileWasm, compileWasmFn, type CompileWasmFnOptions } from "./backends/rmsl-wasm";
+import { wgslType } from "./backends/wgsl";
+import { compileWasm, compileWasmFn, type CompileWasmFnOptions } from "./backends/wasm";
 
 describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
   it("places two differently-aligned aggregate uniforms at wgslUniformLayout's exact offsets", () => {

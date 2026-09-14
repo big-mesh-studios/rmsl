@@ -34,7 +34,7 @@ the current state.** A re-measurement below, using committed, reproducible
 benchmark files pinned to a specific commit, supersedes them for anything
 but historical interest.
 
-### Re-measured with `src/rmsl-wasm-vs-js.bench.ts`/`rmsl-wasm-loop.bench.ts` at commit `7b90863`
+### Re-measured with `src/wasm-vs-js.bench.ts`/`wasm-loop.bench.ts` at commit `7b90863`
 
 An earlier attempt at this re-measurement used a one-off script and
 `performance.now()`, on a machine that turned out to be under heavy,
@@ -46,7 +46,7 @@ below are from `npx vitest bench` (tinybench under the hood, which runs
 each case for a time budget rather than a fixed count and reports relative
 margin of error), two runs each, on an otherwise idle machine, with the two
 runs agreeing within a few percent (rme ≤ ~1.7% throughout — reproduce with
-`npx vitest bench src/rmsl-wasm-vs-js.bench.ts src/rmsl-wasm-loop.bench.ts`
+`npx vitest bench src/wasm-vs-js.bench.ts src/wasm-loop.bench.ts`
 at this commit):
 
 | Scenario                                                                                      | Result                                                                  |
@@ -92,9 +92,9 @@ turns out to be very low — a handful of loop iterations, not dozens.**
 The numbers above pin down exactly two points — a loop-free scalar call
 (`compileJS` wins) and one arbitrarily chosen 64-iteration loop
 (`compileWasm` wins) — without saying where between them the win actually
-starts. `src/rmsl-wasm-crossover.bench.ts` at commit `b629a19` sweeps the
+starts. `src/wasm-crossover.bench.ts` at commit `b629a19` sweeps the
 same `sum of sqrt(i)` loop workload across iteration counts, each compiled
-once up front (`npx vitest bench src/rmsl-wasm-crossover.bench.ts`, two
+once up front (`npx vitest bench src/wasm-crossover.bench.ts`, two
 runs, otherwise idle machine):
 
 | Loop length | Run 1                      | Run 2                      |
@@ -133,15 +133,15 @@ whether the wrapper itself needs to get cheaper before `compileWasm` is a
 reasonable default. For any workload that loops at all, it already isn't
 the bottleneck this benchmark can find; whether it's worth cheapening
 further is now specifically a question about the loop-free, called-once
-case (`rmsl-wasm-vs-js.bench.ts`'s scalar scenario), not a general one —
+case (`wasm-vs-js.bench.ts`'s scalar scenario), not a general one —
 left for a separate pass, since narrowing where to look was this
 benchmark's job, not fixing it.
 
 ### Texture sampling was dramatically slower than `compileJS` — fixed
 
-`src/rmsl-wasm-texture.bench.ts` at commit `3f0ef46` first measured the
+`src/wasm-texture.bench.ts` at commit `3f0ef46` first measured the
 three Phase 6 texture operations against an 8x8 texture (`npx vitest bench
-src/rmsl-wasm-texture.bench.ts`, two runs, otherwise idle machine):
+src/wasm-texture.bench.ts`, two runs, otherwise idle machine):
 
 | Scenario                                          | Run 1                     | Run 2                     |
 | ------------------------------------------------- | ------------------------- | ------------------------- |
@@ -294,9 +294,9 @@ every texture-using program.
 
 The re-measurement above doesn't separate linear memory's own effect from
 the wrapper/call-boundary cost in general — both scenarios ran on code that
-already had one or the other. To isolate it, `src/rmsl-wasm-vs-js.bench.ts`
+already had one or the other. To isolate it, `src/wasm-vs-js.bench.ts`
 as of commit `7b90863` was copied unmodified — `git show
-7b90863:src/rmsl-wasm-vs-js.bench.ts` — into a worktree checked out at
+7b90863:src/wasm-vs-js.bench.ts` — into a worktree checked out at
 `9b845b7` (the commit immediately before linear memory landed, `f58c93b`)
 and run there, two runs, same idle-machine conditions:
 
@@ -371,7 +371,7 @@ stage program uses instead of throwing — which is what lets a per-pixel
 `vec4` color work with `.draw()` with no stage or `output()` involved at
 all.
 
-`src/benches/rmsl-wasm-draw.bench.ts` measures a `sqrt(distance to a uniform
+`src/benches/wasm-draw.bench.ts` measures a `sqrt(distance to a uniform
 center)` program, swept across a 128x128 and a 512x512 grid (a 16x
 difference in pixel count, to check the win holds at scale rather than
 resting on one arbitrarily chosen size), two runs, otherwise idle machine.
@@ -433,7 +433,7 @@ _per-pixel_ cost (a bounds-checked, dynamically-addressed fetch — several
 this grid size it outweighed the marshalling savings entirely.
 
 The cause turned out to be fixable, not inherent: `emitTexelFetchStores`
-(`rmsl-wasm.ts`) recomputed its bounds check and its safe, clamped texel
+(`wasm.ts`) recomputed its bounds check and its safe, clamped texel
 index once per channel — 4 times over, for values that don't depend on
 which channel is being read — the exact same redundancy `texture()`'s own
 filtered sampling path had already been fixed for (see "Texture sampling
@@ -448,10 +448,10 @@ longer the wrong choice for this workload at either size measured.
 
 ## Status: Phase 1 through Phase 7 landed (except multi-return)
 
-`compileWasmFn` and `compileWasm` exist in `src/rmsl-wasm.ts`, next to
-`rmsl-glsl.ts`/`rmsl-wgsl.ts`/`rmsl-compile-js.ts` (see CONTRIBUTING.md for
-the file layout). Tests are in `src/rmsl-wasm.test.ts` and
-`src/rmsl-layout-interop.test.ts`.
+`compileWasmFn` and `compileWasm` exist in `src/wasm.ts`, next to
+`glsl.ts`/`wgsl.ts`/`compile-js.ts` (see CONTRIBUTING.md for
+the file layout). Tests are in `src/wasm.test.ts` and
+`src/layout-interop.test.ts`.
 
 **What it covers**, Phase 1's validated slice, Phase 2's full scalar op
 parity, Phase 3's vectors/matrices as first-class values, Phase 4's control
@@ -497,7 +497,7 @@ JsShaderResult` — same call signature as `compileJS`. A plain
   structured `block`/`loop`/`br`/`br_if` — see "Control flow compiles
   through one loop shape and one exit block" below. `Loop(count, body)` and
   `Switch(selector, chain)` need no separate handling: both desugar to
-  `For`/`if`-chains before this backend ever sees them (`rmsl-core.ts`), so
+  `For`/`if`-chains before this backend ever sees them (`core.ts`), so
   they already worked once `for`/`if` did.
 - `cross` (vec3 only), `length`, `distance`, `normalize` (leaves a
   zero-length vector unchanged rather than dividing by zero, matching the
@@ -541,12 +541,12 @@ which is also the fastest way to find the next thing worth doing here.
 
 ## Design decisions already made
 
-- **Lives in `src/rmsl-wasm.ts`, alongside `src/rmsl-glsl.ts`/`rmsl-wgsl.ts`/
-  `rmsl-compile-js.ts`** — the compiler was later split out of the original
+- **Lives in `src/wasm.ts`, alongside `src/glsl.ts`/`wgsl.ts`/
+  `compile-js.ts`** — the compiler was later split out of the original
   single `src/rmsl.ts` file by concern (see `CONTRIBUTING.md`), and this
   backend followed the same one-file-per-backend pattern. It reuses the same
   untyped internal node shape (`node.type`/`node.params`/`node.value`)
-  `compileJSNode` already switches on, imported from `rmsl-core.ts` and
+  `compileJSNode` already switches on, imported from `core.ts` and
   `src/backends/shared.ts` — no new node representation to keep in sync.
 - **`float` is f64, `int`/`uint`/`bool` are real `i32`** — not the JS
   backend's approach of collapsing every declared type into one JS number.
@@ -614,11 +614,11 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
   bytecode emitted) _exactly once_ per syntactic use regardless of how many
   of its components get read afterward, so nesting doesn't blow up
   proportionally to width — see `materializeIfNeeded`/`nodeAddress` in
-  `src/rmsl-wasm.ts`. Scalar locals/params/uniforms are untouched by any of
+  `src/wasm.ts`. Scalar locals/params/uniforms are untouched by any of
   this; only aggregate values moved into memory.
 - **Control flow compiles through one loop shape and one exit block.**
   `Loop`/`Switch` needed no work at all — both desugar to `For`/nested
-  `"if"` nodes in `rmsl-core.ts` before this backend ever sees them, so the
+  `"if"` nodes in `core.ts` before this backend ever sees them, so the
   real new surface was `for`/`while`/`break`/`continue`/`return`/`discard`.
   `for` and `while` both compile through the same nested shape, `block
 { loop { <cond>; br_if (out to block) ; block { <body> } ; <update>; br
@@ -694,7 +694,7 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
   component. A scalar-only fast path (`walkExpr`'s own `"clamp"`/`"mix"`/
   `"step"`/`"smoothstep"` cases) skips the scratch address entirely and
   leaves the value on the WASM stack, matching how every other scalar op
-  here already works. `UNIFORM_OPERAND_OPS` (`rmsl-core.ts`) already
+  here already works. `UNIFORM_OPERAND_OPS` (`core.ts`) already
   broadcasts a scalar operand to match the defining operand's width at
   AST-construction time for all of these _except_ `mix`'s `t`, which is
   deliberately left unbroadcast so a single scale factor can drive a
@@ -850,7 +850,7 @@ already has) instead of a distinct, much larger penalty.
 `compileWasm` is now a third backend checked by
 `src/testing/shader-eval.ts`'s recording, alongside `compileGLSL`/
 `compileWGSL` (see CONTRIBUTING.md's "Validity"/"Values" test layers) — a
-case written once in `rmsl-js.test.ts`/`rmsl-eval.test.ts`-style files is
+case written once in `js.test.ts`/`eval.test.ts`-style files is
 now checked against WASM automatically too, with no change needed to any
 existing call site. `evaluateWASM` (`shader-eval.ts`) runs synchronously
 alongside the CPU target, needing no browser or graphics device, so it
@@ -866,7 +866,7 @@ imagined — several recorded cases exercise `clamp`/`mix`/`step`/
 `smoothstep`/`uniformArray`/non-square matrix multiply, none of which
 `compileWasmFn` supports (see "What throws today" above). Rather than
 wait, a `compileWasmFn`-thrown error (always prefixed `"[RMSL]
-compileWasmFn"`, confirmed across every throw site in `rmsl-wasm.ts`) is
+compileWasmFn"`, confirmed across every throw site in `wasm.ts`) is
 treated as a countable, visible skip instead of a failure — reported as a
 `[shader-eval] WASM: N of M ... not yet supported` line — while anything
 else (a genuine `WebAssembly.RuntimeError` trap, a `CompileError`/
@@ -882,7 +882,7 @@ value this phase was for:
   string `instance.exports.main`, ignoring `options.name` entirely — silently
   broken for any function name other than `"main"`, undetected until now
   because every existing WASM test happened to use that exact name.
-- `Switch`'s `Case()` (`rmsl-core.ts`) typed every case value as `float`
+- `Switch`'s `Case()` (`core.ts`) typed every case value as `float`
   regardless of the selector's actual `int`/`uint` type (`wrapValue`
   defaults a bare number to `float`, and nothing corrected it afterward).
   GLSL and WGSL both silently papered over the resulting type mismatch
@@ -893,11 +893,11 @@ CompileError`. Fixed at the source (`typedOperand(v, selector._t)`
   instead of `wrapValue(v)`), which also removed the now-unnecessary casts
   from GLSL/WGSL's own output.
 - A third, unrelated gap found by the same process: `emitConstructStores`
-  (`rmsl-wasm.ts`) copied a construct's components straight from source to
+  (`wasm.ts`) copied a construct's components straight from source to
   target with no conversion at all, so `vec3(...).toIVec3()` tried to
   `i32.store` a raw `f64.load`'s bits — a real `CompileError`, not a wrong
   number, but still a case that had simply never been exercised by
-  `rmsl-wasm.test.ts`'s own hand-written cases before this. Fixed
+  `wasm.test.ts`'s own hand-written cases before this. Fixed
   (`convertComponent`) for float↔int/uint; see "Open questions" for the
   one case deliberately left unhandled (a `bool` on either side of that
   conversion).
@@ -908,7 +908,7 @@ The crossover for a `sum of sqrt(i)`-shaped loop turned out to be between
 2 and 4 iterations, far lower than the 64-iteration case that originally
 established a win existed at all — so "does the wrapper need to get
 cheaper" narrows to specifically the loop-free, called-once case
-(`rmsl-wasm-vs-js.bench.ts`'s scalar scenario), which is real, separate
+(`wasm-vs-js.bench.ts`'s scalar scenario), which is real, separate
 work left for later rather than folded into this phase.
 
 ### ~~Phase 7.5 — `clamp`/`mix`/`step`/`smoothstep`~~ — done
@@ -916,8 +916,8 @@ work left for later rather than folded into this phase.
 See "`clamp`/`mix`/`step`/`smoothstep` compile through the same
 aggregate-value machinery vectors already use" above for the design. All
 four now work in both scalar and componentwise vector form, verified by
-`rmsl-wasm.test.ts`'s dedicated test block and by Phase 7's cross-backend
-recording (`npx vitest run src/rmsl-js.test.ts src/rmsl-eval.test.ts`),
+`wasm.test.ts`'s dedicated test block and by Phase 7's cross-backend
+recording (`npx vitest run src/js.test.ts src/eval.test.ts`),
 whose `[shader-eval] WASM: N of 79 ... not yet supported` count dropped
 from 17 to 3 as a direct result — the remaining 3 are the non-square
 matrix multiply cases, still open per "What throws today" above.
@@ -956,7 +956,7 @@ going to ship a `.wasm` asset rather than generate one at runtime.
   every intermediate step, not just at the uniform boundary — useful for a
   CPU-side computation meant to verify or shadow a GPU one exactly. Not
   designed or started: it would need an f32 variant of nearly every
-  scalar-op-emitting function in `rmsl-wasm.ts`, not one contained seam like
+  scalar-op-emitting function in `wasm.ts`, not one contained seam like
   the uniform-boundary case. No known driving use case yet — revisit only if
   one shows up.
 - **Transcendentals still call back into JavaScript.** Phase 6 rejected a
@@ -975,7 +975,7 @@ going to ship a `.wasm` asset rather than generate one at runtime.
   becomes a real target rather than exploratory. Revisit then, not before.
 - **A `construct` converting between a `bool` component and a `float` one
   has no defined WASM behavior.** Found while fixing `emitConstructStores`
-  (`rmsl-wasm.ts`) for the real bug Phase 7's cross-backend recording
+  (`wasm.ts`) for the real bug Phase 7's cross-backend recording
   hookup surfaced, `vec3(...).toIVec3()` truncating incorrectly because
   the float-to-int/uint conversion it needs was simply missing. The fix
   (`convertComponent`) handles float↔int and float↔uint (truncate toward
@@ -988,7 +988,7 @@ going to ship a `.wasm` asset rather than generate one at runtime.
   obvious guess, `bool(someFloat)` is less obvious — truncate-then-nonzero,
   like C, or exactly nonzero, which differ for values in (-1, 0) ∪ (0, 1)).
 - **WebGL2 uniform buffer objects, if the renderer ever gains them, should
-  go through the same shared allocator (`rmsl-layout.ts`), not a fork.**
+  go through the same shared allocator (`layout.ts`), not a fork.**
   `WebGLRenderer` today uploads every uniform with a per-uniform
   `gl.uniform*v` call against its `uniformLocations` map and never writes a
   packed byte region, so it has nothing to do with `gpuUniformLayout` — but
@@ -1062,7 +1062,7 @@ going to ship a `.wasm` asset rather than generate one at runtime.
 - **`mat2`/`mat2x3`/`mat2x4`/`mat3x2`/`mat3x4`/`mat4x2`/`mat4x3` have no
   "columns of vector nodes" constructor overload.** `mat3(colA, colB, colC)`
   and `mat4(colA, colB, colC, colD)` are hand-written functions in
-  `rmsl-core.ts` with a dedicated `args.every(isNode)` branch for exactly
+  `core.ts` with a dedicated `args.every(isNode)` branch for exactly
   this; every other matrix type is built by the generic
   `makeMatConstructor`, which only special-cases a single node/number
   argument (diagonal) or zero arguments (identity) — anything else,
@@ -1073,7 +1073,7 @@ going to ship a `.wasm` asset rather than generate one at runtime.
   only breaks downstream — found while writing a WASM backend test for
   matrix multiply, where it surfaced as every component reading back `NaN`.
   Affects every backend (GLSL/WGSL/JS), not just WASM: this is a gap in
-  `rmsl-core.ts`'s public API, not something a compiler backend can work
+  `core.ts`'s public API, not something a compiler backend can work
   around. Not fixed here — filed as a note rather than a fix since it's
   outside this roadmap's scope (the WASM backend) and deserves its own
   look at whether to extend `makeMatConstructor` with the same

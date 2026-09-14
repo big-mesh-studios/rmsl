@@ -19,7 +19,7 @@
  * different result at 128x128: a large win with no texture, close to
  * parity with one).
  *
- * Run with `npx vitest bench src/rmsl-wasm-draw.bench.ts`.
+ * Run with `npx vitest bench src/wasm-draw.bench.ts`.
  */
 import { bench, describe } from "vitest";
 import {

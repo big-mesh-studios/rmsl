@@ -1,10 +1,10 @@
 // === Shared memory-layout allocator (see docs/design-shared-layout-ir.md) ===
 //
 // Stage 1 of that design: extract the placement algorithm `wgslUniformLayout`
-// (src/backends/rmsl-wgsl.ts) already implements — reorder members by
+// (src/backends/wgsl.ts) already implements — reorder members by
 // alignment, accumulate offsets with padding, widen/round array elements —
 // into one function, configurable per target instead of hard-coded into that
-// one backend. `src/backends/rmsl-wasm.ts`'s Phase 3 memory allocator uses it
+// one backend. `src/backends/wasm.ts`'s Phase 3 memory allocator uses it
 // too, with its own rules (no reordering, no padding), so both are now thin
 // callers of the same algorithm instead of two independent implementations
 // that happen to overlap in what they're actually deciding.

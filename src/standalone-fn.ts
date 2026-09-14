@@ -1,5 +1,5 @@
 // === Standalone function compilers (for Three.js glslFn/wgslFn embedding) ===
-import { compileGLSLStage, glslType } from "./backends/rmsl-glsl";
+import { compileGLSLStage, glslType } from "./backends/glsl";
 import {
   WGSL_HELPERS,
   WGSL_UNIFORM_BINDING,
@@ -9,9 +9,9 @@ import {
   wgslMemberType,
   wgslType,
   wgslUniformLayout,
-} from "./backends/rmsl-wgsl";
+} from "./backends/wgsl";
 import { CompileCtx, CompileFnOptions } from "./backends/shared";
-import { Node, ShaderType, var_ } from "./rmsl-core";
+import { Node, ShaderType, var_ } from "./core";
 
 export function compileFnBody(
   result: Node<ShaderType>,

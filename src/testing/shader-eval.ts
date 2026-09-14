@@ -13,7 +13,7 @@
 
 import { expect } from "vitest";
 import { compileGLSLFn, compileWGSLFn, compileJSFn, compileWasm, var_, type Node } from "../rmsl";
-import { MATRIX_DIMENSIONS, TYPE_WIDTH } from "../rmsl-core";
+import { MATRIX_DIMENSIONS, TYPE_WIDTH } from "../core";
 
 // Written to rather than console.warn: vitest intercepts console output and
 // does not surface it here, so a warning sent that way is not seen at all.
@@ -338,7 +338,7 @@ export function evaluateWASM(build: Build, args: number[] = []): number | number
  * Whether a `compileWasm`/`compileWasmFn` failure means "not supported by
  * this backend yet" rather than a real bug.
  *
- * Every deliberate "can't compile this (yet)" throw in `rmsl-wasm.ts` — for
+ * Every deliberate "can't compile this (yet)" throw in `wasm.ts` — for
  * an unsupported node type, a non-square matrix multiply, a multi-return
  * function, and so on — is constructed with this exact prefix (confirmed:
  * every `throw new Error(...)` in that file uses it, whether the case is a

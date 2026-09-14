@@ -167,7 +167,7 @@ export {
   vec4,
   While,
   xor,
-} from "./rmsl-core";
+} from "./core";
 export type {
   AttributeNode,
   BaseNode,
@@ -195,18 +195,18 @@ export type {
   Vec2Like,
   Vec3Like,
   Vec4Like,
-} from "./rmsl-core";
+} from "./core";
 
 export type { CompileFnOptions, VertexRoot } from "./backends/shared";
 
-export { compileGLSL } from "./backends/rmsl-glsl";
-export type { CompileGLSLOptions, GLSLPrecision } from "./backends/rmsl-glsl";
+export { compileGLSL } from "./backends/glsl";
+export type { CompileGLSLOptions, GLSLPrecision } from "./backends/glsl";
 
-export { compileWGSL, wgslUniformLayout } from "./backends/rmsl-wgsl";
-export type { CompileWGSLOptions, WgslUniformDeclaration, WgslUniformMember } from "./backends/rmsl-wgsl";
+export { compileWGSL, wgslUniformLayout } from "./backends/wgsl";
+export type { CompileWGSLOptions, WgslUniformDeclaration, WgslUniformMember } from "./backends/wgsl";
 
-export { compileJS, compileJSFn } from "./backends/rmsl-compile-js";
-export type { CompileJSOptions } from "./backends/rmsl-compile-js";
+export { compileJS, compileJSFn } from "./backends/compile-js";
+export type { CompileJSOptions } from "./backends/compile-js";
 
 export type {
   CpuDrawBuffer,
@@ -217,7 +217,7 @@ export type {
   CpuTextureWrap,
 } from "./backends/cpu";
 
-export { compileGLSLFn, compileWGSLFn } from "./rmsl-standalone-fn";
+export { compileGLSLFn, compileWGSLFn } from "./standalone-fn";
 
-export { compileWasm, compileWasmFn } from "./backends/rmsl-wasm";
-export type { CompiledWasm, WasmParam } from "./backends/rmsl-wasm";
+export { compileWasm, compileWasmFn } from "./backends/wasm";
+export type { CompiledWasm, WasmParam } from "./backends/wasm";

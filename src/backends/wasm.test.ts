@@ -1,7 +1,7 @@
 /**
  * Evaluates the WASM (CPU) backend in-process.
  *
- * Unlike the JS backend in rmsl-js.test.ts, this one is not yet part of the
+ * Unlike the JS backend in js.test.ts, this one is not yet part of the
  * DSL's breadth — it covers the op set ROADMAP.md's Phase 1 and Phase 2
  * describe: scalar float/int/uint/bool arithmetic and casts, function
  * params, float/vec3 uniforms, `If`/`Else`, and vec3 `dot`. Cases here check
@@ -71,7 +71,7 @@ import {
   type Node,
   type ShaderType,
 } from "../rmsl";
-import type { CompileWasmFnOptions } from "./rmsl-wasm";
+import type { CompileWasmFnOptions } from "./wasm";
 
 function run(
   build: (...args: any[]) => Node<ShaderType>,
@@ -318,7 +318,7 @@ describe("WASM backend: clamp, mix, step, smoothstep", () => {
     expect(run((a) => a.smoothstep(0, 1).smoothstep(0, 1), [0.5])).toBe(0.5);
   });
 
-  it("clamps a vector componentwise, operands already broadcast to match by rmsl-core.ts", () => {
+  it("clamps a vector componentwise, operands already broadcast to match by core.ts", () => {
     const build = () => Fn(() => vec3(0.5, -0.5, 1.5).clamp(vec3(0, 0, 0), vec3(1, 1, 1)))();
     const fn = compileWasm(build as any, { name: "main", params: [] });
     const result = fn({}) as any;
@@ -333,7 +333,7 @@ describe("WASM backend: clamp, mix, step, smoothstep", () => {
 
   it("mixes a vector with a per-component vector blend factor", () => {
     // `.mix()`'s own TS signature only declares a scalar `t` — the runtime
-    // (`rmsl-core.ts`'s own doc comment on `UNIFORM_OPERAND_OPS`, and
+    // (`core.ts`'s own doc comment on `UNIFORM_OPERAND_OPS`, and
     // `compileJS`'s `_v3mix`) supports a per-component one too, so this is
     // a real, if untyped, case worth covering.
     const build = () => Fn(() => (vec3(0, 0, 0).mix as any)(vec3(4, 8, 12), vec3(0.25, 0.5, 1)))();
@@ -487,7 +487,7 @@ describe("WASM backend: control flow", () => {
 
 /**
  * Phase 4: control flow parity (see ROADMAP.md). `Loop`/`Switch` desugar to
- * `For`/`If` chains at build time (rmsl-core.ts) and never reach the WASM
+ * `For`/`If` chains at build time (core.ts) and never reach the WASM
  * backend as their own node types, so only `for`/`while`/`break`/
  * `continue`/`return`/`discard` are new here.
  */
@@ -923,7 +923,7 @@ describe("WASM backend: matrix×vector and matrix×matrix multiplication", () =>
     const b = mat3x2(1, 0, 0, 1, 1, 1);
     const fn = compileWasm(() => (a as any).mul(b), { name: "main", params: [] });
     const result = fn({}) as { value: number[] };
-    // Same product pinned for the JS backend in rmsl-js.test.ts.
+    // Same product pinned for the JS backend in js.test.ts.
     expect(result.value).toEqual([1, 2, 3, 4, 5, 6, 5, 7, 9]);
   });
 });
@@ -1288,9 +1288,9 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
   });
 });
 
-// Mirrors rmsl-js.test.ts's own texture()/textureLod() cases directly —
+// Mirrors js.test.ts's own texture()/textureLod() cases directly —
 // same inputs, same expected outputs — since both backends implement the
-// exact same sampling semantics (rmsl-compile-js.ts's _tex2d/_tex3d/_wrap),
+// exact same sampling semantics (compile-js.ts's _tex2d/_tex3d/_wrap),
 // just ported to different targets.
 describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
   function checksum4(v: any) {

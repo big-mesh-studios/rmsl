@@ -1,7 +1,7 @@
 /**
  * WASM vs JS backend perf comparison for Phase 6's texture sampling.
  *
- * Unlike every other scenario in `rmsl-wasm-vs-js.bench.ts`, a texture
+ * Unlike every other scenario in `wasm-vs-js.bench.ts`, a texture
  * uniform's data isn't copied once and left alone — `compileWasm`'s wrapper
  * repacks and rewrites the whole texture into its linear-memory heap on
  * every single call (see `ROADMAP.md`, "Texture data lives in linear
@@ -29,7 +29,7 @@
  * which filter mode is actually selected at run time, not only when it's
  * actually used.
  *
- * Run with `npx vitest bench src/rmsl-wasm-texture.bench.ts`.
+ * Run with `npx vitest bench src/wasm-texture.bench.ts`.
  */
 import { bench, describe } from "vitest";
 import {

@@ -1,6 +1,6 @@
 // ========== WGSL Compiler ==========
-import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, isSamplerType } from "../rmsl-core";
-import { AllocRules, planLayout } from "../rmsl-layout";
+import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, isSamplerType } from "../core";
+import { AllocRules, planLayout } from "../layout";
 import {
   CompileCtx,
   CompiledNode,
@@ -247,7 +247,7 @@ export function isWgslTexture(type: string): boolean {
 }
 
 /**
- * WGSL's placement rules for `planLayout` (src/rmsl-layout.ts): reorder by
+ * WGSL's placement rules for `planLayout` (src/layout.ts): reorder by
  * descending alignment to minimize padding, widen an array element too
  * narrow to align (see `WGSL_ARRAY_PADDING`), round an array element's
  * stride up to 16, and align the whole struct to at least 4. `type` here is

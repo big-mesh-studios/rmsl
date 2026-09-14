@@ -6,8 +6,8 @@
  * empirically against a known answer, not quoted from memory: a
  * wrong-but-valid opcode runs and silently miscompiles.
  */
-import { MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, var_ } from "../rmsl-core";
-import { AllocRules, planLayout } from "../rmsl-layout";
+import { MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, var_ } from "../core";
+import { AllocRules, planLayout } from "../layout";
 import {
   componentCountOf,
   CpuDrawBuffer,
@@ -821,7 +821,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     const compSize = componentSizeOf(drawComponentKind);
     const passThroughArgs = params.map((_, i) => [WASM_OP.localGet, ...wasmUleb128(i)]).flat();
     const callMain = [...passThroughArgs, WASM_OP.call, ...wasmUleb128(mainFuncIndex)];
-    // pixel centers land at (x + 0.5, y + 0.5) — the same convention rmsl-compile-js uses
+    // pixel centers land at (x + 0.5, y + 0.5) — the same convention compile-js uses
     const writeFragCoord =
       fragCoordAddress === undefined
         ? []
@@ -1954,7 +1954,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return out;
   }
 
-  /** clamp = max(x, lo) then min(hi); an rmsl-core guarantee keeps all three params the same width. */
+  /** clamp = max(x, lo) then min(hi); an core guarantee keeps all three params the same width. */
   function emitClampStores(node: any, addr: number): number[] {
     const [x, lo, hi] = node.params;
     const targetKind = elementKindOf(node._t as string);

@@ -1,13 +1,13 @@
 # Contributing to RMSL
 
 RMSL builds a shader node graph in TypeScript and emits GLSL ES 3.00 and WGSL.
-The compiler lives in `src/rmsl-*.ts` and `src/backends/`: `rmsl-core.ts` is
+The compiler lives in `src/rmsl-*.ts` and `src/backends/`: `core.ts` is
 the DSL (types, the node graph, the TSL-style API); `src/backends/shared.ts`
 is the context and helpers all four backends use;
-`src/backends/rmsl-glsl.ts`, `src/backends/rmsl-wgsl.ts`,
-`src/backends/rmsl-compile-js.ts`, and `src/backends/rmsl-wasm.ts` are the
+`src/backends/glsl.ts`, `src/backends/wgsl.ts`,
+`src/backends/compile-js.ts`, and `src/backends/wasm.ts` are the
 backends themselves, each with its own test file colocated next to it (e.g.
-`src/backends/rmsl-wasm.test.ts`); `rmsl-standalone-fn.ts` covers
+`src/backends/wasm.test.ts`); `standalone-fn.ts` covers
 `compileGLSLFn`/`compileWGSLFn`. `rmsl.ts` is a thin barrel re-exporting the
 public surface from all of them — it's what a consumer imports, but not
 where to go looking for an implementation. `src/benches/` holds the
@@ -31,7 +31,7 @@ pnpm test
 
 Three layers.
 
-**Text.** `src/rmsl-usage.test.ts` asserts on the generated source. Cheap and
+**Text.** `src/usage.test.ts` asserts on the generated source. Cheap and
 weak — `refract(I, N)` still contains `refract(`.
 
 **Validity.** Automatic, and the important one. That file imports the compilers
@@ -46,10 +46,10 @@ The stand-ins compile every program to _both_ backends and record it. An
 fails the run on any rejection. A test asserting only on GLSL still has its WGSL
 output checked by a real driver.
 
-So: **write codegen tests in `src/rmsl-usage.test.ts`.** A new file importing
+So: **write codegen tests in `src/usage.test.ts`.** A new file importing
 `compileGLSL` from `../rmsl` directly gets the text layer only, silently.
 
-**Values.** `src/rmsl-eval.test.ts` runs the expression on real hardware and
+**Values.** `src/eval.test.ts` runs the expression on real hardware and
 reads the number back from both backends. Text and validity both pass for a
 shader that computes the wrong thing — swapping `min` for `max` is invisible to
 them. Operands arrive as function parameters, not literals, or constant folding
@@ -157,7 +157,7 @@ A method on `Node` — `.mix()`, `.length()`, `.lessThan()`.
     vectors; WGSL shifts take `u32`; WGSL has no `inverse()` and pulls a helper
     from `WGSL_HELPERS`.
 11. **Document** in `docs/api.md`.
-12. **Test** in `src/rmsl-usage.test.ts`, driven from a `uniform(...)` — with
+12. **Test** in `src/usage.test.ts`, driven from a `uniform(...)` — with
     literals the expression folds and codegen never runs.
 
 Both switches throw on an unhandled node type, so steps 8 and 9 fail loudly —
@@ -208,7 +208,7 @@ provided a test exercises them.
 | Wrong folding arithmetic, or swapped operands      | evaluation layer                |
 
 The further down that table, the more your test needs to go through
-`src/rmsl-usage.test.ts`.
+`src/usage.test.ts`.
 
 ## Pull requests
 

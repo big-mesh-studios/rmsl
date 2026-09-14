@@ -3,18 +3,18 @@
  * loop's accumulated per-iteration work amortizes `compileWasm`'s fixed
  * per-call wrapper cost enough to cross over from a loss against
  * `compileJS` to a win, rather than only knowing it loses at zero loop
- * iterations (`rmsl-wasm-vs-js.bench.ts`'s plain scalar case) and wins at
+ * iterations (`wasm-vs-js.bench.ts`'s plain scalar case) and wins at
  * one arbitrarily chosen loop length (64 iterations,
- * `rmsl-wasm-loop.bench.ts`).
+ * `wasm-loop.bench.ts`).
  *
- * Same workload as `rmsl-wasm-loop.bench.ts` (`sum of sqrt(i)`), swept
+ * Same workload as `wasm-loop.bench.ts` (`sum of sqrt(i)`), swept
  * across a range of iteration counts instead of fixed at 64, each compiled
  * once up front — the loop bound is baked into the compiled function
  * (`int(n)`), not a runtime parameter, so there is nothing here either
  * backend wouldn't also pay for a real fixed-length loop.
  *
- * Run with `npx vitest bench src/rmsl-wasm-crossover.bench.ts`. Kept
- * separate from `rmsl-wasm-loop.bench.ts` (rather than folding this sweep
+ * Run with `npx vitest bench src/wasm-crossover.bench.ts`. Kept
+ * separate from `wasm-loop.bench.ts` (rather than folding this sweep
  * into it) so that file's single, simple 64-iteration case stays the
  * quick thing to point at, and this sweep stays the thing to point at for
  * "where exactly is the crossover".

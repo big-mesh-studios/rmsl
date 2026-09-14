@@ -1,6 +1,6 @@
 /**
  * WASM vs JS backend perf comparison, using vitest's benchmark mode (run
- * with `npx vitest bench src/rmsl-wasm-vs-js.bench.ts`, not `vitest run` —
+ * with `npx vitest bench src/wasm-vs-js.bench.ts`, not `vitest run` —
  * this is excluded from the normal test suite by vitest's default
  * benchmark-file pattern, so it never slows down `npm test`).
  *
@@ -8,7 +8,7 @@
  * a reported number can be reproduced later: check out the commit it's
  * cited against (ROADMAP.md's "Why" section cites this file by path and
  * commit SHA for each measurement) and run it again, or extract this exact
- * version with `git show <sha>:src/rmsl-wasm-vs-js.bench.ts` and run it
+ * version with `git show <sha>:src/wasm-vs-js.bench.ts` and run it
  * against a different commit (its content only depends on `compileWasm`'s/
  * `compileJS`'s public call signature, which has been stable since Phase 1,
  * so the same file works unmodified against a pre-linear-memory commit too
@@ -16,7 +16,7 @@
  *
  * Deliberately excludes any `for`/`while`/`Loop` scenario — those need
  * Phase 4, so putting one here would make this file fail to even load
- * against a pre-Phase-4 commit. See `rmsl-wasm-loop.bench.ts` for that.
+ * against a pre-Phase-4 commit. See `wasm-loop.bench.ts` for that.
  */
 import { bench, describe } from "vitest";
 import { compileWasm, compileWasmFn, compileJS, Fn, If, uniform, float, sqrt, type Node } from "../rmsl";

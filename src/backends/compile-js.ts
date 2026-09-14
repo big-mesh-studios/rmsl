@@ -1,7 +1,7 @@
 // ========== JS Compiler ==========
 // The third backend: compile a node graph to a JavaScript function that the
 // host can call on the CPU, one fragment at a time.
-import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, var_ } from "../rmsl-core";
+import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, var_ } from "../core";
 import {
   componentCountOf,
   CpuDrawBuffer,
@@ -1802,7 +1802,7 @@ export function compileJS(fn: (...args: any[]) => Node<ShaderType>, options: Com
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         // pixel centers land at (x + 0.5, y + 0.5) — the same convention
-        // compileWasm's draw() and fragCoordMemory in rmsl-wasm.ts use.
+        // compileWasm's draw() and fragCoordMemory in wasm.ts use.
         const result = callable({ ...ctx, fragCoord: [x + 0.5, y + 0.5] });
         const raw =
           typeof result === "object" && result !== null && "value" in result
