@@ -1,0 +1,64 @@
+# Builds every demo under apps/ (scripts/build-demos.mts) and publishes the
+# combined output to GitHub Pages, with a landing page linking to each demo.
+#
+# Requires the repository's Pages source to be set to "GitHub Actions" once
+# (Settings > Pages > Build and deployment > Source) before this can deploy.
+
+name: Deploy demos
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Install scripts are skipped: the only one is the native Dawn download
+      # for @kmamal/gpu, which exists to validate generated shaders in the
+      # tests and is not needed to build the library or the demos.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # Apps depend on the library as a workspace package, resolved through
+      # its built dist/ (see package.json's "exports"), so it has to exist
+      # before any app build runs.
+      - run: pnpm build
+
+      - run: node --experimental-strip-types scripts/build-demos.mts
+        env:
+          DEMOS_BASE: /${{ github.event.repository.name }}/
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
