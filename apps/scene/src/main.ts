@@ -1,24 +1,20 @@
-// RMSL scene demo: node-based materials + WebGLRenderer.
-//
-// Run with `pnpm --filter scene-demo dev`.
-import { vec3, mix, float } from "@random-mesh/rmsl";
+import { float, mix, vec3 } from "@random-mesh/rmsl";
 import {
-  WebGLRenderer,
-  Scene,
-  Group,
-  Mesh,
-  PerspectiveCamera,
+  AmbientLight,
   BoxGeometry,
+  Color,
+  DataTexture,
+  DirectionalLight,
+  Mesh,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  PerspectiveCamera,
+  PlaneGeometry,
+  PointLight,
+  Scene,
   SphereGeometry,
   TorusGeometry,
-  PlaneGeometry,
-  MeshStandardMaterial,
-  MeshBasicMaterial,
-  AmbientLight,
-  DirectionalLight,
-  PointLight,
-  DataTexture,
-  Color,
+  WebGLRenderer,
 } from "@random-mesh/rmsl/scene";
 
 const canvas = document.createElement("canvas");
