@@ -287,6 +287,7 @@
         <button id="modeWebgl" class="btn mode-btn active" data-mode="webgl">WebGL</button>
         <button id="modeJs" class="btn mode-btn" data-mode="js">JS (CPU)</button>
         <button id="modeWasm" class="btn mode-btn" data-mode="wasm">WASM (CPU)</button>
+        <button id="modeWasmPool" class="btn mode-btn" data-mode="wasm-pool">WASM (Workers)</button>
       </div>
     </div>
   </div>
@@ -296,6 +297,7 @@
     <div class="hud-item">Pan: <span id="hudPan">(-0.75, 0.00)</span></div>
     <div class="hud-item">Frame: <span id="hudFrame">-</span></div>
     <div class="hud-item">Res: <span id="hudRes">-</span></div>
+    <div class="hud-item" id="hudWorkersItem" style="display:none">Workers: <span id="hudWorkers">-</span></div>
   </div>
 
   <script type="module" src="/src/main.ts"></script>

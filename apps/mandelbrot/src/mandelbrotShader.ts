@@ -93,6 +93,11 @@ export let u_pan_lo = uniform("vec2");
 export let u_scale_hi = uniform("vec2");
 export let u_scale_lo = uniform("vec2");
 export let u_palette = uniform("int");
+// CPU-only: how many rows above this call's own row 0 the caller's row range
+// actually starts at — 0 for a normal single-call draw, or a worker's row
+// offset when a worker-pool splits one frame's rows across several draw()
+// calls into disjoint slices of one shared output buffer.
+export let u_rowOffset = uniform("float");
 
 /**
  * The colour at a pixel `(dx, dy)` pixels from the view's center, shared by
@@ -230,6 +235,6 @@ export let calcMandelbrot = Fn(() => {
  */
 export let calcMandelbrotCpu = Fn(() => {
   let dx = fragCoord().x.sub(u_resolution.x.mul(0.5)).toVar();
-  let dy = u_resolution.y.mul(0.5).sub(fragCoord().y).toVar();
+  let dy = u_resolution.y.mul(0.5).sub(fragCoord().y.add(u_rowOffset)).toVar();
   return mandelbrotColorAt(dx, dy);
 });

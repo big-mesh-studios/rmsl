@@ -86,9 +86,15 @@ export type CpuDrawBuffer = Float64Array | Int32Array | Uint32Array;
  * `fragCoord`, holding every other input (uniforms, textures, ...) fixed
  * across the grid, and packs the result into one flat row-major buffer of
  * `width * height * componentCount` elements.
+ *
+ * Pass `out` to write into an existing buffer instead of allocating a new
+ * one — e.g. a view over a `SharedArrayBuffer` so several workers can each
+ * draw a row range into disjoint regions of one shared buffer. `out` must
+ * already have the matching typed-array kind and be at least
+ * `width * height * componentCount` elements; it is returned unchanged.
  */
 export type CpuRenderer = ((ctx: CpuShaderContext) => number | boolean | CpuShaderResult) & {
-  draw(ctx: CpuShaderContext, width: number, height: number): CpuDrawBuffer;
+  draw(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer;
 };
 
 /** A compiled function's scalar element kind, at the WASM/typed-array level. */

@@ -1869,18 +1869,19 @@ export function compileJS(
   const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuShaderResult;
   const callable = factory() as CpuRenderer;
 
-  callable.draw = (ctx: CpuShaderContext, width: number, height: number): CpuDrawBuffer => {
+  callable.draw = (ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer => {
     if (resultType === undefined) {
       throw new Error("[RMSL] compileJS: this function produces no value to render — draw() needs a result.");
     }
     const componentCount = componentCountOf(resultType);
     const kind = isAggregate(resultType) ? elementKindOf(resultType) : scalarKindOf(resultType);
     const buffer: CpuDrawBuffer =
-      kind === "float"
+      out ??
+      (kind === "float"
         ? new Float64Array(width * height * componentCount)
         : kind === "uint"
           ? new Uint32Array(width * height * componentCount)
-          : new Int32Array(width * height * componentCount);
+          : new Int32Array(width * height * componentCount));
 
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {

@@ -2,8 +2,9 @@ import { compileGLSL, compileJS, compileWasm, compileWGSL, wgslUniformLayout } f
 import {
   vertexMain, calcMandelbrot, calcMandelbrotCpu, quadPos,
   u_resolution, u_maxIter, u_useHighPrecision,
-  u_pan_hi, u_pan_lo, u_scale_hi, u_scale_lo, u_palette,
+  u_pan_hi, u_pan_lo, u_scale_hi, u_scale_lo, u_palette, u_rowOffset,
 } from "./mandelbrotShader";
+import { WasmWorkerPool } from "./wasmWorkerPool";
 
 // === Compile RMSL shaders to GLSL, WGSL, JS and WASM ===
 // The same RMSL source (mandelbrotColorAt) drives all four: GLSL for
@@ -14,8 +15,22 @@ const fsGLSL = compileGLSL.fragment(calcMandelbrot());
 const jsRenderer = compileJS(() => calcMandelbrotCpu(), { name: "mandelbrotJS", params: [] });
 const wasmRenderer = compileWasm(() => calcMandelbrotCpu(), { name: "mandelbrotWasm", params: [] });
 
-type RendererMode = "webgpu" | "webgl" | "js" | "wasm";
+type RendererMode = "webgpu" | "webgl" | "js" | "wasm" | "wasm-pool";
 let mode: RendererMode = "webgl";
+
+// A worker-pool wasm renderer that splits one frame's rows across several
+// wasm instances sharing one SharedArrayBuffer-backed WebAssembly.Memory —
+// see wasmWorkerPool.ts. Created lazily since it needs cross-origin
+// isolation (COOP/COEP) to be available at all.
+let wasmPool: WasmWorkerPool | null = null;
+let wasmPoolBusy = false;
+function getWasmPool(): WasmWorkerPool {
+  if (!wasmPool) {
+    const cores = typeof navigator.hardwareConcurrency === "number" ? navigator.hardwareConcurrency : 4;
+    wasmPool = new WasmWorkerPool(Math.max(1, Math.min(8, cores - 1)));
+  }
+  return wasmPool;
+}
 
 // Helper to split a double (f64 number) into two single precision floats (f32)
 function splitFloat(v: number): [number, number] {
@@ -43,6 +58,7 @@ function computeUniformValues(w: number, h: number): Record<string, number | num
     [u_scale_hi.name]: [scaleHi, scaleHi],
     [u_scale_lo.name]: [scaleLo, scaleLo],
     [u_palette.name]: palette,
+    [u_rowOffset.name]: 0, // non-zero only inside a worker-pool draw() call — see wasmWorkerPool.ts
   };
 }
 
@@ -292,6 +308,8 @@ const hudZoom = document.getElementById("hudZoom") as HTMLElement;
 const hudPan = document.getElementById("hudPan") as HTMLElement;
 const hudFrame = document.getElementById("hudFrame") as HTMLElement;
 const hudRes = document.getElementById("hudRes") as HTMLElement;
+const hudWorkersItem = document.getElementById("hudWorkersItem") as HTMLElement;
+const hudWorkers = document.getElementById("hudWorkers") as HTMLElement;
 const rendererBadge = document.getElementById("rendererBadge") as HTMLElement;
 const modeButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(".mode-btn"));
 
@@ -311,6 +329,7 @@ const RENDERER_BADGE: Record<RendererMode, string> = {
   webgl: "RMSL GLSL",
   js: "RMSL JS (CPU)",
   wasm: "RMSL WASM (CPU)",
+  "wasm-pool": "RMSL WASM (Workers)",
 };
 
 function updateUI() {
@@ -336,8 +355,11 @@ function updateUI() {
   if (webgpuBtn) webgpuBtn.disabled = webgpuError !== null;
 
   canvas.classList.toggle("hidden", mode !== "webgl");
-  cpuCanvas.classList.toggle("hidden", mode !== "js" && mode !== "wasm");
+  cpuCanvas.classList.toggle("hidden", mode !== "js" && mode !== "wasm" && mode !== "wasm-pool");
   webgpuCanvas.classList.toggle("hidden", mode !== "webgpu");
+
+  hudWorkersItem.style.display = mode === "wasm-pool" ? "flex" : "none";
+  if (mode === "wasm-pool") hudWorkers.textContent = String(getWasmPool().workerCount || "-");
 
   requestRender();
 }
@@ -575,6 +597,7 @@ function render() {
 
   if (mode === "webgl") renderWebGL();
   else if (mode === "webgpu") renderWebGPU();
+  else if (mode === "wasm-pool") renderWasmPool();
   else renderCpu(mode);
 }
 
@@ -662,6 +685,41 @@ function renderCpu(cpuMode: "js" | "wasm") {
 
   lastFrameMs = performance.now() - start;
   hudFrame.textContent = `${lastFrameMs.toFixed(1)} ms`;
+}
+
+// A frame in flight blocks starting another — if input arrives mid-frame,
+// this just re-marks `needsRender` (already how the dirty flag works) and
+// the next `render()` tick picks it up once the current frame resolves.
+async function renderWasmPool() {
+  if (wasmPoolBusy) {
+    needsRender = true;
+    if (rafId === null) rafId = requestAnimationFrame(render);
+    return;
+  }
+  wasmPoolBusy = true;
+  const start = performance.now();
+  const w = cpuCanvas.width;
+  const h = cpuCanvas.height;
+
+  try {
+    const buffer = await getWasmPool().render(computeUniformValues(w, h), w, h);
+
+    const image = cpuCtx.createImageData(w, h);
+    for (let i = 0; i < w * h; i++) {
+      image.data[i * 4 + 0] = clamp255((buffer[i * 4 + 0] as number) * 255);
+      image.data[i * 4 + 1] = clamp255((buffer[i * 4 + 1] as number) * 255);
+      image.data[i * 4 + 2] = clamp255((buffer[i * 4 + 2] as number) * 255);
+      image.data[i * 4 + 3] = clamp255((buffer[i * 4 + 3] as number) * 255);
+    }
+    cpuCtx.putImageData(image, 0, 0);
+
+    lastFrameMs = performance.now() - start;
+    hudFrame.textContent = `${lastFrameMs.toFixed(1)} ms`;
+    hudWorkers.textContent = String(getWasmPool().workerCount || "-");
+  } finally {
+    wasmPoolBusy = false;
+    if (needsRender) requestRender();
+  }
 }
 
 // Initial render

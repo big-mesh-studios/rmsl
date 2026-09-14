@@ -74,6 +74,12 @@ export type CompiledWasm = {
 
   textureHeapBase: number; // heap starts at this offset; below it is the compile-time layout
 
+  memoryPages: number; // pages needed for the compile-time layout; grows from here as textures/draw buffers are marshalled
+
+  sharedMemory: boolean; // whether the module's memory import was declared shared (must match the instantiated memory exactly)
+
+  maxMemoryPages: number; // the maximum this module's memory import declared — only enforced when sharedMemory is true
+
   draw?: { componentCount: number; kind: "float" | "int" | "uint" | "bool" }; // set when "draw" is exported
 };
 
@@ -109,6 +115,29 @@ export type CompileWasmFnOptions = CompileFnOptions & {
   derivatives?: "throw" | "zero";
 
   reentrant?: boolean;
+
+  /**
+   * Draw into an externally owned WebAssembly.Memory instead of one this
+   * module allocates for itself — e.g. a `shared: true`, SharedArrayBuffer-
+   * backed memory so multiple worker-hosted instances can draw into disjoint
+   * regions of one buffer. The caller is responsible for sizing/growing it
+   * (an externally owned memory can't be grown from inside a module that
+   * doesn't own it, past whatever `maximum` it was created with).
+   */
+  memory?: WebAssembly.Memory;
+
+  /**
+   * Declares the module's memory import as `shared: true` — required
+   * whenever `memory` (or the memory a caller will later instantiate this
+   * same compiled module with) is itself a shared, SharedArrayBuffer-backed
+   * WebAssembly.Memory: the engine rejects instantiation unless the
+   * import's declared shared-ness matches the actual memory object exactly.
+   * A shared import also needs a declared maximum — see `maxMemoryPages`.
+   */
+  sharedMemory?: boolean;
+
+  /** The memory import's declared maximum page count, only meaningful when `sharedMemory` is true. Defaults to 65536 (the full 4GiB wasm32 address space). */
+  maxMemoryPages?: number;
 };
 
 // Per-texture metadata block written by writeTextureToMemory(), reserved
@@ -951,19 +980,28 @@ export function compileWasmFn(
     typeEntries.push([WASM_FUNC, ...wasmVec([...paramTypes, [WASM_I32], [WASM_I32], [WASM_I32]]), ...wasmVec([])]);
   }
 
+  const memoryPages = Math.max(1, Math.ceil(memCursor / 65536)); // 65536 bytes per WASM memory page
+  // memory is imported rather than owned by the module, so a caller can hand
+  // multiple instances the same (optionally SharedArrayBuffer-backed) memory.
+  // The shared-ness of an import is a static part of the module (the engine
+  // rejects instantiation if it doesn't exactly match the memory object
+  // handed in), so it has to be a compile-time option, not a runtime one —
+  // a shared import always needs a declared maximum too.
+  const sharedMemory = options.sharedMemory ?? false;
+  const maxMemoryPages = options.maxMemoryPages ?? 65536; // 65536 pages = the full 4GiB wasm32 address space
+  const memoryLimitsBytes = sharedMemory
+    ? [0x03, ...wasmUleb128(memoryPages), ...wasmUleb128(maxMemoryPages)]
+    : [0x00, ...wasmUleb128(memoryPages)];
+  const memoryImportEntry = [...wasmStrBytes("env"), ...wasmStrBytes("memory"), 0x02, ...memoryLimitsBytes];
+
   const typeSection = wasmSection(1, wasmVec(typeEntries));
-  const importSection = importEntries.length > 0 ? wasmSection(2, wasmVec(importEntries)) : [];
+  const importSection = wasmSection(2, wasmVec([...importEntries, memoryImportEntry]));
   const funcSection = wasmSection(
     3,
     wasmVec(drawTypeIdx === undefined ? [[mainTypeIdx]] : [[mainTypeIdx], [drawTypeIdx]]),
   );
-  const memoryPages = Math.max(1, Math.ceil(memCursor / 65536)); // 65536 bytes per WASM memory page
-  const memorySection = wasmSection(5, wasmVec([[0x00, ...wasmUleb128(memoryPages)]]));
   const nameBytes = wasmStrBytes(options.name);
-  const exportEntries = [
-    [...nameBytes, 0x00, ...wasmUleb128(mainFuncIndex)],
-    [...wasmStrBytes("memory"), 0x02, ...wasmUleb128(0)],
-  ];
+  const exportEntries = [[...nameBytes, 0x00, ...wasmUleb128(mainFuncIndex)]];
 
   if (drawTypeIdx !== undefined) {
     exportEntries.push([...wasmStrBytes("draw"), 0x00, ...wasmUleb128(mainFuncIndex + 1)]);
@@ -990,7 +1028,6 @@ export function compileWasmFn(
     ...typeSection,
     ...importSection,
     ...funcSection,
-    ...memorySection,
     ...exportSection,
     ...codeSection,
   ]);
@@ -1000,6 +1037,9 @@ export function compileWasmFn(
     params: [...params, ...memoryParams],
     resultType: root._t,
     textureHeapBase: memCursor, // host texture heaps are appended at the end of the compile-time layout
+    memoryPages, // initial page count a default (non-shared) memory should be created with
+    sharedMemory,
+    maxMemoryPages,
     draw: drawTypeIdx === undefined ? undefined : { componentCount: drawComponentCount, kind: drawComponentKind },
   };
 
@@ -2930,15 +2970,29 @@ export function compileWasmFn(
  * and this instantiation glue — never the graph builder or bytecode
  * emitter that produced them.
  */
-export function instantiateWasm(compiled: CompiledWasm, name: string): CpuRenderer {
-  const { bytes, params, resultType, textureHeapBase, draw } = compiled;
+export function instantiateWasm(
+  compiled: CompiledWasm,
+  name: string,
+  externalMemory?: WebAssembly.Memory,
+): CpuRenderer {
+  const { bytes, params, resultType, textureHeapBase, memoryPages, sharedMemory, maxMemoryPages, draw } = compiled;
+
+  // no memory passed in: own one, sized for the compile-time layout, growable
+  // as textures/draw buffers are marshalled in — same behavior as before this
+  // module imported (rather than defined) its memory. Its shared-ness must
+  // match what the module declared at compile time (see `sharedMemory`).
+  const memory =
+    externalMemory ??
+    new WebAssembly.Memory(
+      sharedMemory ? { initial: memoryPages, maximum: maxMemoryPages, shared: true } : { initial: memoryPages },
+    );
 
   const instance = new WebAssembly.Instance(new WebAssembly.Module(bytes.buffer as ArrayBuffer), {
     math: Math as unknown as WebAssembly.ModuleImports, // host "math" namespace serving the sin/pow/... imports
+    env: { memory },
   });
   const wasmMain = instance.exports[name] as (...args: number[]) => number;
   const wasmDraw = draw ? (instance.exports.draw as (...args: number[]) => void) : undefined;
-  const memory = instance.exports.memory as WebAssembly.Memory;
 
   let view = new DataView(memory.buffer);
 
@@ -3078,22 +3132,45 @@ export function instantiateWasm(compiled: CompiledWasm, name: string): CpuRender
     return shaderResult;
   }
 
-  callable.draw = (ctx: CpuShaderContext, width: number, height: number): CpuDrawBuffer => {
+  callable.draw = (ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer => {
     if (!draw || !wasmDraw) {
       throw new Error(
         '[RMSL] compileWasm: this function produces no value to render — draw() needs a non-"void" result.',
       );
     }
     const { args, textureHeapEnd } = marshalInputs(ctx);
+    const pixelCount = width * height * draw.componentCount;
+
+    // `out` backed by this instance's own (shared) memory: write directly at
+    // its offset — this is the zero-copy multi-worker path, where each
+    // worker's instance imports the same SharedArrayBuffer-backed memory and
+    // `out` is a view pinning where in it this call should land.
+    if (out && out.buffer === memory.buffer) {
+      wasmDraw(...args, width, height, out.byteOffset);
+      return out;
+    }
 
     const bufferBase = Math.ceil(textureHeapEnd / 8) * 8; // align to 8 bytes — the typed-array constructors require it
-    const pixelCount = width * height * draw.componentCount;
     const neededBytes = bufferBase + pixelCount * componentSizeOf(draw.kind);
     if (neededBytes > memory.buffer.byteLength) {
       memory.grow(Math.ceil((neededBytes - memory.buffer.byteLength) / 65536));
       view = new DataView(memory.buffer); // growing detaches the old buffer, so the view is rebuilt
     }
     wasmDraw(...args, width, height, bufferBase);
+
+    // `out` backed by a different buffer than this instance's memory: wasm
+    // can only write into the memory it was instantiated with, so this has
+    // to copy rather than return a view straight into wasm memory.
+    if (out) {
+      out.set(
+        draw.kind === "float"
+          ? new Float64Array(memory.buffer, bufferBase, pixelCount)
+          : draw.kind === "uint"
+            ? new Uint32Array(memory.buffer, bufferBase, pixelCount)
+            : new Int32Array(memory.buffer, bufferBase, pixelCount),
+      );
+      return out;
+    }
 
     if (draw.kind === "float") return new Float64Array(memory.buffer, bufferBase, pixelCount);
     if (draw.kind === "uint") return new Uint32Array(memory.buffer, bufferBase, pixelCount);
@@ -3108,5 +3185,5 @@ export function compileWasm(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmFnOptions,
 ): CpuRenderer {
-  return instantiateWasm(compileWasmFn(fn, options), options.name);
+  return instantiateWasm(compileWasmFn(fn, options), options.name, options.memory);
 }
