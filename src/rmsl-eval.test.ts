@@ -39,7 +39,7 @@ async function expectValue(build: Build, args: number[], want: number) {
   // is recorded, and the `afterAll` above holds both shading languages to this
   // same value, which is what lets one assertion cover three backends without
   // the test waiting on a device.
-  const js = evaluateRecording(build, args);
+  const js = evaluateRecording(build, args) as number;
   const tolerance = floatTolerance(want);
   expect(Math.abs(js - want), `CPU target computed ${js}, wanted ${want}`).toBeLessThan(tolerance);
 }

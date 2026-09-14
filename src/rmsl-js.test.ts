@@ -115,7 +115,7 @@ function evalScalar(
     if (Array.isArray(value)) return value[0] as number;
     return value as unknown as number;
   }
-  return evaluateRecording(build as any, args, cpuOnly);
+  return evaluateRecording(build as any, args, cpuOnly) as number;
 }
 
 afterAll(async () => {
