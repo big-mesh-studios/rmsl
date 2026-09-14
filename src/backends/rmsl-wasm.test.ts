@@ -45,6 +45,8 @@ import {
   uvec3,
   bvec3,
   mat2,
+  mat2x3,
+  mat3x2,
   mat3,
   mat4,
   sin,
@@ -914,6 +916,15 @@ describe("WASM backend: matrix×vector and matrix×matrix multiplication", () =>
     const product = (a as any).mul(b);
     // Extract the first column via matVecMul with the (1,0) basis vector.
     expect(run(() => (product as any).mul(vec2(1, 0)).dot(vec2(1, 1)))).toBe(57); // 23+34
+  });
+
+  it("multiplies non-square matrices at the product shape", () => {
+    const a = mat2x3(1, 2, 3, 4, 5, 6);
+    const b = mat3x2(1, 0, 0, 1, 1, 1);
+    const fn = compileWasm(() => (a as any).mul(b), { name: "main", params: [] });
+    const result = fn({}) as { value: number[] };
+    // Same product pinned for the JS backend in rmsl-js.test.ts.
+    expect(result.value).toEqual([1, 2, 3, 4, 5, 6, 5, 7, 9]);
   });
 });
 

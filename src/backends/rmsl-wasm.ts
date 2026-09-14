@@ -2077,33 +2077,37 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     return out;
   }
 
-  /** Square matrix product: C[col,row] = sum_k A[k,row] * B[col,k]. */
+  /**
+   * A matCLxRL times a matCRxRR: C[col,row] = sum_k A[k,row] * B[col,k], for
+   * col in [0,CR), row in [0,RL), k in [0,CL) (CL === RR, checked below).
+   * Square is the CL===RL===CR===RR special case, not a separate code path.
+   */
   function emitMatMatMulStores(node: any, addr: number): number[] {
     const [a, b] = node.params;
     const aType = a._t as string,
       bType = b._t as string;
-    const [cols, rows] = MATRIX_DIMENSIONS[aType];
-    if (aType !== bType || cols !== rows) {
-      throw new Error(
-        `[RMSL] compileWasmFn: does not yet support non-square or mismatched-shape matrix multiplication ("${aType}" x "${bType}")`,
-      );
+    const [cL, rL] = MATRIX_DIMENSIONS[aType];
+    const [cR, rR] = MATRIX_DIMENSIONS[bType];
+    // Core already rejects a mismatched product when the node is built, so
+    // this is defense-in-depth against a hand-built node, not a coverage gap.
+    if (cL !== rR) {
+      throw new Error(`[RMSL] compileWasmFn: internal error, mismatched matrix product ("${aType}" x "${bType}")`);
     }
-    const n = cols;
     const out = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
     const aAddr = nodeAddress(a),
       bAddr = nodeAddress(b);
-    for (let col = 0; col < n; col++) {
-      for (let row = 0; row < n; row++) {
+    for (let col = 0; col < cR; col++) {
+      for (let row = 0; row < rL; row++) {
         let terms: number[] = [];
-        for (let k = 0; k < n; k++) {
+        for (let k = 0; k < cL; k++) {
           const term = [
-            ...loadComponent(aAddr, "float", (k * n + row) * 8),
-            ...loadComponent(bAddr, "float", (col * n + k) * 8),
+            ...loadComponent(aAddr, "float", (k * rL + row) * 8),
+            ...loadComponent(bAddr, "float", (col * rR + k) * 8),
             WASM_OP.f64Mul,
           ];
           terms = k === 0 ? term : [...terms, ...term, WASM_OP.f64Add];
         }
-        out.push(...storeComponent(addr, "float", (col * n + row) * 8, terms));
+        out.push(...storeComponent(addr, "float", (col * rL + row) * 8, terms));
       }
     }
     return out;
