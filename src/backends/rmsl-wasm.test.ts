@@ -212,7 +212,15 @@ describe("WASM backend: uniform arrays", () => {
       return arr.element(int(1));
     };
     const fn = compileWasm(build, { name: "main", params: [] });
-    const result = fn({ uniforms: { [arr.name]: [[1, 2, 3], [4, 5, 6], [7, 8, 9]] } }) as any;
+    const result = fn({
+      uniforms: {
+        [arr.name]: [
+          [1, 2, 3],
+          [4, 5, 6],
+          [7, 8, 9],
+        ],
+      },
+    }) as any;
     expect(result.value).toEqual([4, 5, 6]);
   });
 });

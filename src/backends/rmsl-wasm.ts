@@ -76,6 +76,12 @@ export type GpuUniformLayout = {
   offsets: Record<string, number>;
 
   totalSize: number;
+
+  /**
+   * Per-uniform-array element stride in the host's narrow buffer (their
+   * wgslUniformLayout stride), required for every GPU-placed array.
+   */
+  strides?: Record<string, number>;
 };
 
 /**
@@ -1091,8 +1097,25 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         const elementSize =
           componentCountOf(shaderType) *
           componentSizeOf(isAggregate(shaderType) ? elementKindOf(shaderType) : scalarKindOf(shaderType));
-        if (options.gpuUniformLayout?.offsets[node.value.slot] !== undefined) {
-          throw new Error("[RMSL] compileWasmFn: GPU-placed uniform arrays are not implemented yet");
+        const gpuOffset = options.gpuUniformLayout?.offsets[node.value.slot];
+        if (gpuOffset !== undefined) {
+          const gpuStride = options.gpuUniformLayout?.strides?.[node.value.slot];
+          if (gpuStride === undefined) {
+            throw new Error(
+              `[RMSL] compileWasmFn: gpuUniformLayout for uniform array "${node.value.slot}" needs a matching strides value`,
+            );
+          }
+          uniformArrayInfo.set(node.value.slot, { base: gpuOffset, elementStride: gpuStride, narrow: true });
+          memoryParams.push({
+            kind: "uniformArrayMemory",
+            slot: node.value.slot,
+            shaderType,
+            length,
+            address: gpuOffset,
+            elementStride: gpuStride,
+            narrow: true,
+          });
+          break;
         }
         const address = allocateBytes(elementSize * length);
         uniformArrayInfo.set(node.value.slot, { base: address, elementStride: elementSize, narrow: false });
@@ -1364,6 +1387,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         }
         const kind = elementKindOf(node._t as string);
         const compSize = componentSizeOf(kind);
+        const rawCompSize = info.narrow && kind === "float" ? 4 : compSize;
         const width = componentCountOf(node._t as string);
         const index = node.params[1];
         const indexBytes =
@@ -1373,10 +1397,14 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         for (let k = 0; k < width; k++) {
           const addrBytes = [
             ...uniformArrayElementAddress(info.base, info.elementStride, indexBytes),
-            ...i32ConstBytes(k * compSize),
+            ...i32ConstBytes(k * rawCompSize),
             WASM_OP.i32Add,
           ];
-          out.push(...storeComponent(baseAddr, kind, k * compSize, loadDynamic(addrBytes, kind)));
+          const loaded =
+            info.narrow && kind === "float"
+              ? [...addrBytes, WASM_OP.f32Load, 0x00, 0x00, WASM_OP.f64PromoteF32]
+              : loadDynamic(addrBytes, kind);
+          out.push(...storeComponent(baseAddr, kind, k * compSize, loaded));
         }
         return out;
       }
@@ -2573,7 +2601,11 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
         const index = node.params[1];
         const indexBytes =
           scalarKindOf(index._t as string) === "float" ? [...walkExpr(index), WASM_OP.i32TruncF64S] : walkExpr(index);
-        return loadDynamic(uniformArrayElementAddress(info.base, info.elementStride, indexBytes), kind);
+        const addrBytes = uniformArrayElementAddress(info.base, info.elementStride, indexBytes);
+        if (info.narrow && kind === "float") {
+          return [...addrBytes, WASM_OP.f32Load, 0x00, 0x00, WASM_OP.f64PromoteF32];
+        }
+        return loadDynamic(addrBytes, kind);
       }
       default:
         throw new Error(`[RMSL] compileWasmFn: unsupported node type in expression position: "${node.type}"`);

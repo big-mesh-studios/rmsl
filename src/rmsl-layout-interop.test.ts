@@ -19,7 +19,7 @@
  * real GPU uniform buffer sharing those bytes would be.
  */
 import { describe, it, expect } from "vitest";
-import { Fn, uniform, wgslUniformLayout } from "./rmsl";
+import { Fn, uniform, uniformArray, int, wgslUniformLayout } from "./rmsl";
 import { wgslType } from "./backends/rmsl-wgsl";
 import { compileWasm, compileWasmFn, type CompileWasmFnOptions } from "./backends/rmsl-wasm";
 
@@ -105,5 +105,35 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
     const result = fn({ uniforms: { [scale.name]: [0.1, 0] } });
     expect(result).toBe(Math.fround(0.1));
     expect(result).not.toBe(0.1); // the real, inherent cost: an ordinary (non-GPU) uniform would keep full f64 precision here
+  });
+
+  it("places a uniform array at wgslUniformLayout's offset and stride, f32-accurate", () => {
+    const arr = uniformArray("vec4", 2);
+    const layout = wgslUniformLayout([{ slot: arr.name, type: wgslType("vec4"), length: 2 }]);
+    const member = layout.members.find((m) => m.name === arr.name)!;
+    expect(member.stride).toBe(16);
+
+    const options: CompileWasmFnOptions = {
+      name: "main",
+      params: [],
+      gpuUniformLayout: {
+        offsets: { [arr.name]: member.offset },
+        strides: { [arr.name]: member.stride! },
+        totalSize: layout.size,
+      },
+    };
+    const fn = compileWasm(() => Fn(() => arr.element(int(1)).x)() as any, options);
+    // 0.1 is not exact in f32; the GPU path stores f32, so it reads back fround(0.1).
+    expect(
+      fn({
+        uniforms: {
+          [arr.name]: [
+            [0, 0, 0, 0],
+            [0.1, 0, 0, 0],
+          ],
+        },
+      }),
+    ).toBe(Math.fround(0.1));
+    expect(Math.fround(0.1)).not.toBe(0.1);
   });
 });
