@@ -479,7 +479,8 @@ tolerant comparisons. See [Testing](testing.md).
   context instead.
 - `Discard()` compiles to `return null;` — the host treats `null` as
   "no fragment".
-- `samplerCube` is not supported yet.
+- `isamplerCube`/`usamplerCube` are not supported yet — `texelFetch` has no
+  cube-map overload in GLSL, so there's no direct-fetch equivalent to build on.
 
 ## Type Mappings
 

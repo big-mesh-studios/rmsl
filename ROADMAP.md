@@ -522,19 +522,21 @@ CpuShaderResult` — same call signature as `compileJS`. A plain
   the Phase 5 writeup below for why.
 - `textureSize`, `textureLoad`, and `texture`/`textureLod` (nearest,
   bilinear, and trilinear filtering; `repeat`/`mirror`/`clamp` wrapping) for
-  `sampler2D`/`sampler3D` and their integer (`isampler*`/`usampler*`)
-  variants — matching `compileJS`'s own scope exactly: no cube maps, no
-  mipmap/LOD (`textureLod`'s third argument is compiled nowhere, same as
-  `compileJS`). Texture pixel data is copied into the compiled module's own
-  linear memory rather than sampled through a call back into JavaScript —
-  see "Texture data lives in linear memory, not behind a host call" below.
+  `sampler2D`/`sampler3D`/`samplerCube` and the 2D/3D integer
+  (`isampler*`/`usampler*`) variants — matching `compileJS`'s own scope
+  exactly: no mipmap/LOD (`textureLod`'s third argument is compiled nowhere,
+  same as `compileJS`), no integer cube sampling (`isamplerCube`/
+  `usamplerCube`). Texture pixel data is copied into the compiled module's
+  own linear memory rather than sampled through a call back into
+  JavaScript — see "Texture data lives in linear memory, not behind a host
+  call" below.
 
 **What throws today** (deliberately — see the Phase list below for when each
-lands): cube-map sampling and multi-return. (Non-square matrix×matrix
-multiply used to be on this list; it's supported now — the shape check
-that remains in `emitMatMatMulStores` is defense-in-depth against a
-hand-built node, since core already rejects a mismatched product at
-construction.)
+lands): `isamplerCube`/`usamplerCube` and multi-return. (Non-square
+matrix×matrix multiply and float `samplerCube` sampling used to be on this
+list; both are supported now — the shape check that remains in
+`emitMatMatMulStores` is defense-in-depth against a hand-built node, since
+core already rejects a mismatched product at construction.)
 `compileWasmFn` throws `[RMSL] compileWasmFn: unsupported node type in
 <expr|vector|statement> position: "<type>"` naming exactly what's missing,
 which is also the fastest way to find the next thing worth doing here.

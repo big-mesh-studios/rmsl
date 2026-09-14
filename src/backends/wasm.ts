@@ -328,11 +328,20 @@ function isIntegerSamplerType(t: string): boolean {
   return t.startsWith("isampler") || t.startsWith("usampler");
 }
 
-/** Sampling only supports 2D/3D textures — reject 1D/cube/texture-arrays early. */
+/** `textureLoad()`/integer-sampler fetch only supports 2D/3D — reject 1D/cube/texture-arrays early. */
 function assertSampled2Dor3D(t: string): void {
   if (!t.endsWith("2D") && !t.endsWith("3D")) {
     throw new Error(
       "[RMSL] compileWasmFn: texture uniforms support sampler2D/sampler3D (and their integer variants) only.",
+    );
+  }
+}
+
+/** `texture()`/`textureLod()` additionally supports samplerCube (float only) — reject 1D/texture-arrays early. */
+function assertSampledTextureType(t: string): void {
+  if (!t.endsWith("2D") && !t.endsWith("3D") && !t.endsWith("Cube")) {
+    throw new Error(
+      "[RMSL] compileWasmFn: texture uniforms support sampler2D/sampler3D/samplerCube (2D/3D integer variants too) only.",
     );
   }
 }
@@ -622,10 +631,22 @@ function readValueFromMemory(view: DataView, address: number, shaderType: Shader
  * Host-side: writes a texture's metadata block and pixel data into the heap
  * region reserved by marshalInputs. Channels default to 4; the unorm
  * divisor is 255 for byte arrays and 1 for float data.
+ *
+ * A cube map has no `depth` field on its `CpuTextureData` — 6 is a property
+ * of being a cube, not of the texture, the same convention the JS backend
+ * uses — so its 6 layers are counted from `isCube` here, not from `tex`
+ * itself. Its wrap modes are always clamp too, whatever `tex.wrapS`/`wrapT`
+ * say: neither GPU backend honors a wrap mode on a cube sampler either.
  */
-function writeTextureToMemory(view: DataView, metaAddr: number, heapAddr: number, tex: CpuTextureData): void {
+function writeTextureToMemory(
+  view: DataView,
+  metaAddr: number,
+  heapAddr: number,
+  tex: CpuTextureData,
+  isCube: boolean,
+): void {
   const channels = tex.channels ?? 4;
-  const depth = tex.depth ?? 0;
+  const depth = isCube ? 6 : (tex.depth ?? 0);
   const isByteData = tex.data instanceof Uint8Array || tex.data instanceof Uint8ClampedArray;
   view.setFloat64(metaAddr + TEX_META_UNORM_DIVISOR, isByteData ? 255 : 1, true);
   view.setInt32(metaAddr + TEX_META_DATA_ADDR, heapAddr, true);
@@ -634,8 +655,8 @@ function writeTextureToMemory(view: DataView, metaAddr: number, heapAddr: number
   view.setInt32(metaAddr + TEX_META_DEPTH, depth, true);
   view.setInt32(metaAddr + TEX_META_CHANNELS, channels, true);
   view.setInt32(metaAddr + TEX_META_FILTER, tex.magFilter === "linear" ? 1 : 0, true);
-  view.setInt32(metaAddr + TEX_META_WRAP_S, WRAP_MODE_CODE[tex.wrapS ?? "clamp"], true);
-  view.setInt32(metaAddr + TEX_META_WRAP_T, WRAP_MODE_CODE[tex.wrapT ?? "clamp"], true);
+  view.setInt32(metaAddr + TEX_META_WRAP_S, isCube ? WRAP_MODE_CODE.clamp : WRAP_MODE_CODE[tex.wrapS ?? "clamp"], true);
+  view.setInt32(metaAddr + TEX_META_WRAP_T, isCube ? WRAP_MODE_CODE.clamp : WRAP_MODE_CODE[tex.wrapT ?? "clamp"], true);
   view.setInt32(metaAddr + TEX_META_WRAP_R, WRAP_MODE_CODE[tex.wrapR ?? "clamp"], true);
   const count = tex.width * tex.height * (depth || 1) * channels;
   for (let i = 0; i < count; i++) {
@@ -643,9 +664,9 @@ function writeTextureToMemory(view: DataView, metaAddr: number, heapAddr: number
   }
 }
 
-/** Heap bytes for a texture: f64 per component. */
-function textureByteSize(tex: CpuTextureData): number {
-  return tex.width * tex.height * (tex.depth || 1) * (tex.channels ?? 4) * 8;
+/** Heap bytes for a texture: f64 per component. A cube map is always 6 layers. */
+function textureByteSize(tex: CpuTextureData, isCube: boolean): number {
+  return tex.width * tex.height * (isCube ? 6 : tex.depth || 1) * (tex.channels ?? 4) * 8;
 }
 
 /** Little-endian f64 bytes, as used by f64.const. */
@@ -1225,13 +1246,14 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
       const addr = allocateFor(node._t as string);
 
       // Extra scratch right after the value slot: 8 for normalize/reflect
-      // (length/dot), 60 for filtered sampling, 8 for texel fetch.
+      // (length/dot), 60 for filtered sampling (136 for a cube sampler,
+      // which needs the face-selection scratch on top), 8 for texel fetch.
       if (node.type === "normalize" || node.type === "reflect") allocateBytes(8);
       if (
         (node.type === "texture" || node.type === "textureLod") &&
         !isIntegerSamplerType(node.params[0]._t as string)
       ) {
-        allocateBytes(60);
+        allocateBytes((node.params[0]._t as string).endsWith("Cube") ? 136 : 60);
       }
       if (
         node.type === "textureLoad" ||
@@ -1678,7 +1700,14 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     const samplerNode = node.params[0];
     const coordsNode = node.params[1];
     const samplerType = samplerNode._t as string;
-    assertSampled2Dor3D(samplerType);
+    assertSampledTextureType(samplerType);
+    const isCube = samplerType.endsWith("Cube");
+    if (isCube && isIntegerSamplerType(samplerType)) {
+      throw new Error(
+        "[RMSL] compileWasmFn: samplerCube supports texture()/textureLod() as a float sampler only " +
+          "(isamplerCube/usamplerCube aren't supported yet).",
+      );
+    }
     if (isIntegerSamplerType(samplerType)) return emitTexelFetchStores(node, addr);
 
     const is3D = samplerType.endsWith("3D");
@@ -1692,11 +1721,94 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     const materialize = materializeIfNeeded(coordsNode);
     const coordsAddr = nodeAddress(coordsNode);
 
-    const uv = (k: number): number[] => loadComponent(coordsAddr, "float", k * 8);
+    const scratch = addr + 32; // scratch right after the value: corner indices + blend factors reused per channel
+    // A cube sample's own scratch, past the 2D/3D fields below — the
+    // direction's components and their absolute values, which axis is
+    // dominant, and the face/u/v the face-selection math lands on.
+    const CUBE_X = scratch + 60,
+      CUBE_Y = scratch + 68,
+      CUBE_Z = scratch + 76,
+      CUBE_AX = scratch + 84,
+      CUBE_AY = scratch + 92,
+      CUBE_AZ = scratch + 100,
+      CUBE_XDOM = scratch + 108,
+      CUBE_YDOM = scratch + 112,
+      CUBE_U = scratch + 116,
+      CUBE_V = scratch + 124,
+      CUBE_FACE = scratch + 132;
+
+    const rawCoord = (k: number): number[] => loadComponent(coordsAddr, "float", k * 8);
+    // For a cube sample, "u"/"v" (axis 0/1) are the face-local coordinate the
+    // face-selection math below computes, not the raw direction components.
+    const uv = (k: number): number[] => (isCube ? loadComponent(k === 0 ? CUBE_U : CUBE_V, "float", 0) : rawCoord(k));
     const dimI32 = (offset: number): number[] => loadComponent(metaAddr, "int", offset);
     const dimF64 = (offset: number): number[] => [...dimI32(offset), WASM_OP.f64ConvertI32S];
 
-    const scratch = addr + 32; // scratch right after the value: corner indices + blend factors reused per channel
+    // Standard cube-map face selection: the major axis (largest absolute
+    // component) picks the face — +X,-X,+Y,-Y,+Z,-Z, the face order both GPU
+    // backends and three.js's own CubeTexture agree on — and the other two
+    // components, divided by it, are the face-local coordinate. Mirrors
+    // js.ts's _cubeFace exactly; see its comment for the derivation.
+    const cubeSetup: number[] = [];
+    if (isCube) {
+      const x = () => loadComponent(CUBE_X, "float", 0);
+      const y = () => loadComponent(CUBE_Y, "float", 0);
+      const z = () => loadComponent(CUBE_Z, "float", 0);
+      const ax = () => loadComponent(CUBE_AX, "float", 0);
+      const ay = () => loadComponent(CUBE_AY, "float", 0);
+      const az = () => loadComponent(CUBE_AZ, "float", 0);
+      const xDom = () => loadComponent(CUBE_XDOM, "int", 0);
+      const notXThenYDom = () => loadComponent(CUBE_YDOM, "int", 0);
+      const isPos = (v: () => number[]): number[] => [...v(), ...f64ConstBytes(0), WASM_OP.f64Ge];
+
+      const faceX = selectExpr(i32ConstBytes(0), i32ConstBytes(1), isPos(x));
+      const faceY = selectExpr(i32ConstBytes(2), i32ConstBytes(3), isPos(y));
+      const faceZ = selectExpr(i32ConstBytes(4), i32ConstBytes(5), isPos(z));
+      const face = selectExpr(faceX, selectExpr(faceY, faceZ, notXThenYDom()), xDom());
+
+      const ma = selectExpr(ax(), selectExpr(ay(), az(), notXThenYDom()), xDom());
+
+      const ucX = selectExpr([...z(), WASM_OP.f64Neg], z(), isPos(x));
+      const ucNotX = selectExpr(x(), selectExpr(x(), [...x(), WASM_OP.f64Neg], isPos(z)), notXThenYDom());
+      const uc = selectExpr(ucX, ucNotX, xDom());
+
+      const vcX = [...y(), WASM_OP.f64Neg];
+      const vcNotX = selectExpr(selectExpr(z(), [...z(), WASM_OP.f64Neg], isPos(y)), vcX, notXThenYDom());
+      const vc = selectExpr(vcX, vcNotX, xDom());
+
+      const uvFrom = (component: number[]): number[] => [
+        ...component,
+        ...ma,
+        WASM_OP.f64Div,
+        ...f64ConstBytes(1),
+        WASM_OP.f64Add,
+        ...f64ConstBytes(0.5),
+        WASM_OP.f64Mul,
+      ];
+
+      cubeSetup.push(
+        ...storeComponent(CUBE_X, "float", 0, rawCoord(0)),
+        ...storeComponent(CUBE_Y, "float", 0, rawCoord(1)),
+        ...storeComponent(CUBE_Z, "float", 0, rawCoord(2)),
+        ...storeComponent(CUBE_AX, "float", 0, [...x(), WASM_OP.f64Abs]),
+        ...storeComponent(CUBE_AY, "float", 0, [...y(), WASM_OP.f64Abs]),
+        ...storeComponent(CUBE_AZ, "float", 0, [...z(), WASM_OP.f64Abs]),
+        ...storeComponent(CUBE_XDOM, "int", 0, [
+          ...ax(),
+          ...ay(),
+          WASM_OP.f64Ge,
+          ...ax(),
+          ...az(),
+          WASM_OP.f64Ge,
+          WASM_OP.i32And,
+        ]),
+        ...storeComponent(CUBE_YDOM, "int", 0, [...ay(), ...az(), WASM_OP.f64Ge]),
+        ...storeComponent(CUBE_FACE, "int", 0, face),
+        ...storeComponent(CUBE_U, "float", 0, uvFrom(uc)),
+        ...storeComponent(CUBE_V, "float", 0, uvFrom(vc)),
+      );
+    }
+
     const NEAREST_X = scratch,
       NEAREST_Y = scratch + 4,
       NEAREST_Z = scratch + 8;
@@ -1859,7 +1971,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
 
     const nx = loadComponent(NEAREST_X, "int", 0),
       ny = loadComponent(NEAREST_Y, "int", 0);
-    const nz = is3D ? loadComponent(NEAREST_Z, "int", 0) : null;
+    const nz = is3D ? loadComponent(NEAREST_Z, "int", 0) : isCube ? loadComponent(CUBE_FACE, "int", 0) : null;
     const xaBytes = loadComponent(XA, "int", 0),
       xbBytes = loadComponent(XB, "int", 0);
     const yaBytes = loadComponent(YA, "int", 0),
@@ -1871,7 +1983,12 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     const nearestStores: number[] = [];
     for (let i = 0; i < 4; i++) {
       let linearValue: number[];
-      if (!is3D) {
+      if (isCube) {
+        // The face never blends into a neighbour — nz is a single, fixed
+        // face index for this sample, so one bilinear tap within it (not a
+        // near/far lerp across z) is the whole story.
+        linearValue = bilinear(xaBytes, xbBytes, yaBytes, ybBytes, nz, txBytes, tyBytes, i);
+      } else if (!is3D) {
         linearValue = bilinear(xaBytes, xbBytes, yaBytes, ybBytes, null, txBytes, tyBytes, i);
       } else {
         const zaBytes = loadComponent(ZA, "int", 0),
@@ -1886,6 +2003,7 @@ export function compileWasmFn(fn: (...args: any[]) => Node<ShaderType>, options:
     }
     return [
       ...materialize,
+      ...cubeSetup,
       ...setup,
       // real if/else, not select: the nearest path is cheap, and select would always compute both
       ...dimI32(TEX_META_FILTER),
@@ -2851,7 +2969,7 @@ export function instantiateWasm(compiled: CompiledWasm, name: string): CpuRender
     let textureHeapEnd = textureHeapBase;
     if (textureParams.length > 0) {
       const textures = textureParams.map((p) => (ctx.textures as any)?.[p.slot] as CpuTextureData);
-      const sizes = textures.map(textureByteSize);
+      const sizes = textures.map((tex, i) => textureByteSize(tex, textureParams[i]!.samplerType.endsWith("Cube")));
       const heapOffsets: number[] = [];
       let heapCursor = textureHeapBase;
       for (const size of sizes) {
@@ -2867,7 +2985,7 @@ export function instantiateWasm(compiled: CompiledWasm, name: string): CpuRender
       }
       textureParams.forEach((p, i) => {
         if (!needsRepack && textures[i] === lastTexture[i]) return;
-        writeTextureToMemory(view, p.metadataAddress, heapOffsets[i], textures[i]);
+        writeTextureToMemory(view, p.metadataAddress, heapOffsets[i], textures[i], p.samplerType.endsWith("Cube"));
         lastTexture[i] = textures[i];
       });
       lastSizes = sizes;

@@ -368,6 +368,62 @@ export function jsHelperSource(name: string): string {
   let upper = data[c] + (data[e] - data[c]) * tx;
   return lower + (upper - lower) * ty;
 }`;
+    // A direction to the face it lands on plus the 0..1 coordinate within
+    // that face — the standard cube-map face-selection algorithm (major
+    // axis picks the face; the other two components, divided by it, are the
+    // face-local coordinate), matching the face order both GPU backends and
+    // three.js's own CubeTexture agree on: +X,-X,+Y,-Y,+Z,-Z.
+    case "cubeFace":
+      return `function _cubeFace(x, y, z, out) {
+  let ax = Math.abs(x), ay = Math.abs(y), az = Math.abs(z);
+  let ma, uc, vc, face;
+  if (ax >= ay && ax >= az) {
+    ma = ax;
+    if (x >= 0) { uc = -z; vc = -y; face = 0; } else { uc = z; vc = -y; face = 1; }
+  } else if (ay >= ax && ay >= az) {
+    ma = ay;
+    if (y >= 0) { uc = x; vc = z; face = 2; } else { uc = x; vc = -z; face = 3; }
+  } else {
+    ma = az;
+    if (z >= 0) { uc = x; vc = -y; face = 4; } else { uc = -x; vc = -y; face = 5; }
+  }
+  out[0] = face;
+  out[1] = 0.5 * (uc / ma + 1);
+  out[2] = 0.5 * (vc / ma + 1);
+  return out;
+}`;
+    // A cube map is 6 square faces of the same width/height, stored back to
+    // back in `data` (no depth field — 6 is a property of being a cube, not
+    // of the texture). Sampling never blends across a face edge, the way a
+    // volume texture blends across z, so this is `tex2d`'s bilinear tap
+    // applied within one face (always clamped at its edges — cube maps have
+    // no wrap mode on either GPU backend either) rather than `tex3d`'s
+    // trilinear one.
+    case "texCube":
+      return `function _texCube(tex, dir, out) {
+  out = out || [0, 0, 0, 0];
+  let f = _cubeFace(dir[0], dir[1], dir[2], [0, 0, 0]);
+  let face = f[0], u = f[1], v = f[2];
+  let w = tex.width, h = tex.height, s = _unorm(tex), c = _chan(tex);
+  let base = face * w * h * c;
+  if (tex.magFilter === "linear") {
+    let fx = u * w - 0.5, fy = v * h - 0.5;
+    let x0 = Math.floor(fx), y0 = Math.floor(fy);
+    let tx = fx - x0, ty = fy - y0;
+    let xa = _wrap(x0, w) * c, xb = _wrap(x0 + 1, w) * c;
+    let ya = _wrap(y0, h) * w * c, yb = _wrap(y0 + 1, h) * w * c;
+    for (let i = 0; i < 4; i++) {
+      if (i >= c) { out[i] = i === 3 ? 1 : 0; continue; }
+      let lower = tex.data[base + ya + xa + i] + (tex.data[base + ya + xb + i] - tex.data[base + ya + xa + i]) * tx;
+      let upper = tex.data[base + yb + xa + i] + (tex.data[base + yb + xb + i] - tex.data[base + yb + xa + i]) * tx;
+      out[i] = (lower + (upper - lower) * ty) / s;
+    }
+    return out;
+  }
+  let x = _wrap(Math.floor(u * w), w);
+  let y = _wrap(Math.floor(v * h), h);
+  return _texel(tex, base + (y * w + x) * c, c, s, out);
+}`;
     // A texel index brought inside the image, the way a sampler's address mode
     // does it: the edge stretched, the image tiled, or tiled and flipped.
     case "wrap":
@@ -1429,15 +1485,28 @@ export function compileJSNode(
       let slot = (samplerNode.value as any)?.slot;
       let isInteger = samplerType.startsWith("isampler") || samplerType.startsWith("usampler");
       let is3D = samplerType.endsWith("3D");
-      if (!samplerType.endsWith("2D") && !is3D) {
-        throw new Error("[RMSL] The JS target supports sampler2D/sampler3D textures only.");
+      let isCube = samplerType.endsWith("Cube");
+      if (isCube && isInteger) {
+        throw new Error("[RMSL] The JS target supports samplerCube, not isamplerCube/usamplerCube, yet.");
+      }
+      if (!samplerType.endsWith("2D") && !is3D && !isCube) {
+        throw new Error("[RMSL] The JS target supports sampler2D/sampler3D/samplerCube textures only.");
       }
       let texRef = `ctx.textures[${JSON.stringify(slot)}]`;
       let coords = jsCompileOperand(node.params![1], ctx);
-      let helper = is3D ? (isInteger ? "texFetch3d" : "tex3d") : isInteger ? "texFetch2d" : "tex2d";
+      let helper = isCube
+        ? "texCube"
+        : is3D
+          ? isInteger
+            ? "texFetch3d"
+            : "tex3d"
+          : isInteger
+            ? "texFetch2d"
+            : "tex2d";
       jsRequireHelper(ctx, helper);
       jsRequireHelper(ctx, "chan");
       jsRequireHelper(ctx, "texel");
+      if (isCube) jsRequireHelper(ctx, "cubeFace");
       if (!isInteger) {
         jsRequireHelper(ctx, "unorm");
         jsRequireHelper(ctx, "wrap");
@@ -1685,7 +1754,19 @@ export type CompileJSOptions = CompileFnOptions & {
  * closure, then `return function <name>(ctx) { ... }`, so a caller evaluates
  * it with `new Function(source)()` or embeds it and assigns the result.
  */
-export function compileJSFn(fn: (...args: any[]) => Node<ShaderType>, options: CompileJSOptions): string {
+/**
+ * `compileJSFn`'s real body, also handing back the root node's result type —
+ * needed by `compileJS`'s `draw()` and computed here, from the one time `fn`
+ * is actually called. A second call to read it back afterward is not an
+ * option: `fn` routinely has side effects on the caller's own closure (the
+ * `let tex; Fn(() => { tex = uniform(...); ... })` idiom this whole test
+ * suite uses), so calling it twice leaves the caller's own reference
+ * pointing at a second, different uniform than the one actually compiled in.
+ */
+function compileJSFnDetailed(
+  fn: (...args: any[]) => Node<ShaderType>,
+  options: CompileJSOptions,
+): { source: string; resultType: ShaderType | undefined } {
   let stage = options.stage ?? "fragment";
   let derivatives = options.derivatives ?? "throw";
   let reentrant = options.reentrant ?? false;
@@ -1757,7 +1838,16 @@ export function compileJSFn(fn: (...args: any[]) => Node<ShaderType>, options: C
   if (scratch) parts.push(scratch);
   if (helpers) parts.push(helpers);
   parts.push(`return function ${options.name}(ctx) {\n${body.map((l) => "  " + l).join("\n")}\n};`);
-  return parts.join("\n\n");
+  return {
+    source: parts.join("\n\n"),
+    resultType: Array.isArray(result)
+      ? undefined
+      : ((result as unknown as { _t?: string })?._t as ShaderType | undefined),
+  };
+}
+
+export function compileJSFn(fn: (...args: any[]) => Node<ShaderType>, options: CompileJSOptions): string {
+  return compileJSFnDetailed(fn, options).source;
 }
 
 /**
@@ -1774,17 +1864,9 @@ export function compileJSFn(fn: (...args: any[]) => Node<ShaderType>, options: C
  * result into one flat row-major buffer — see `CpuRenderer`.
  */
 export function compileJS(fn: (...args: any[]) => Node<ShaderType>, options: CompileJSOptions): CpuRenderer {
-  const source = compileJSFn(fn, options);
+  const { source, resultType } = compileJSFnDetailed(fn, options);
   const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuShaderResult;
   const callable = factory() as CpuRenderer;
-
-  // Rebuilt purely to read the root node's `_t` — compileJSFn discards it
-  // once compiled to source, and the graph construction itself is pure.
-  const paramNodes = options.params.map((p) => var_(p.name, p.type));
-  const root = fn(...paramNodes);
-  const resultType = Array.isArray(root)
-    ? undefined
-    : ((root as unknown as { _t?: string })?._t as ShaderType | undefined);
 
   callable.draw = (ctx: CpuShaderContext, width: number, height: number): CpuDrawBuffer => {
     if (resultType === undefined) {

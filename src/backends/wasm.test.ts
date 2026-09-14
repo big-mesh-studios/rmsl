@@ -1457,14 +1457,75 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
     expect(fn({ textures: { [tex.name]: texture } })).toBe(50);
   });
 
-  it("throws for a samplerCube uniform", () => {
+  it("samples the right face of a cube map by direction", () => {
+    // 6 faces, one texel each, face order +X,-X,+Y,-Y,+Z,-Z: 10,20,30,40,50,60.
+    const data = [10, 10, 10, 10, 20, 20, 20, 20, 30, 30, 30, 30, 40, 40, 40, 40, 50, 50, 50, 50, 60, 60, 60, 60];
+    const texture = { data, width: 1, height: 1 };
+
+    const at = (dx: number, dy: number, dz: number): number => {
+      let tex!: any;
+      const build = () =>
+        Fn(() => {
+          tex = uniform("samplerCube");
+          return checksum4(tex.texture(vec3(dx, dy, dz)).toVar());
+        })();
+      const fn = compileWasm(build as any, { name: "main", params: [] });
+      return fn({ textures: { [tex.name]: texture } }) as number;
+    };
+
+    const checksum = (v: number) => v + v * 10 + v * 100 + v * 1000;
+    expect(at(1, 0, 0)).toBe(checksum(10));
+    expect(at(-1, 0, 0)).toBe(checksum(20));
+    expect(at(0, 1, 0)).toBe(checksum(30));
+    expect(at(0, -1, 0)).toBe(checksum(40));
+    expect(at(0, 0, 1)).toBe(checksum(50));
+    expect(at(0, 0, -1)).toBe(checksum(60));
+  });
+
+  it("matches the JS backend's cube sample for an off-axis direction", () => {
+    // 6 faces of 2x2 RGBA: 6*2*2*4 = 96 elements, each texel a distinct value.
+    const data = Array.from({ length: 6 * 2 * 2 * 4 }, (_, i) => i / 10);
+    const texture = { data, width: 2, height: 2, magFilter: "linear" as const };
+
+    // Each compiler builds its own graph (uniform() picks a fresh slot name
+    // per call), so each gets its own tex reference — sharing one `build`
+    // closure's side effect between two separate compile calls would leave
+    // the second compile's uniform name overwriting the first's.
+    let wasmTex!: any;
+    const wasmFn = compileWasm(
+      () =>
+        Fn(() => {
+          wasmTex = uniform("samplerCube");
+          return wasmTex.texture(vec3(0.3, 0.6, 0.9));
+        })(),
+      { name: "main", params: [] },
+    );
+    let jsTex!: any;
+    const jsFn = compileJS(
+      () =>
+        Fn(() => {
+          jsTex = uniform("samplerCube");
+          return jsTex.texture(vec3(0.3, 0.6, 0.9));
+        })(),
+      { name: "main", params: [] },
+    );
+    // A vec4 root is an aggregate result: WASM wraps it as { value }, matching
+    // compileWasm's documented shape; JS returns the bare array.
+    const wasmResult = wasmFn({ textures: { [wasmTex.name]: texture } }) as { value: number[] };
+    const jsResult = jsFn({ textures: { [jsTex.name]: texture } }) as number[];
+    expect(wasmResult.value).toEqual(jsResult);
+  });
+
+  it("throws for isamplerCube/usamplerCube — not supported yet", () => {
     let tex: any;
     const build = () =>
       Fn(() => {
-        tex = uniform("samplerCube");
-        return tex.texture(vec3(0, 0, 0)).x;
+        tex = uniform("isamplerCube");
+        return tex.texture(ivec3(0, 0, 0)).x;
       })();
-    expect(() => compileWasm(build as any, { name: "main", params: [] })).toThrow(/sampler2D\/sampler3D/);
+    expect(() => compileWasm(build as any, { name: "main", params: [] })).toThrow(
+      /isamplerCube\/usamplerCube aren't supported/,
+    );
   });
 });
 

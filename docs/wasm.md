@@ -97,6 +97,6 @@ Same story as the JS target: `@random-mesh/rmsl/test` is the ergonomic layer for
 ## Caveats
 
 - `float` is `f64`, matching `compileJS`'s own JS-number arithmetic bit for bit — including the transcendental functions, which both backends call through the literal same `Math` object. Comparing a WASM result against a JS one needs no tolerance; comparing either against a GPU backend's `f32` result does (see [Caveats](compilation.md#caveats) on the JS target's own page).
-- `samplerCube` and multi-return functions are not supported yet — `compileJS` doesn't support multi-return either, so that's genuinely unbuilt rather than a parity gap.
+- `isamplerCube`/`usamplerCube` and multi-return functions are not supported yet — `compileJS` doesn't support either one, so that's genuinely unbuilt rather than a parity gap.
 - A `construct` converting between a `bool` component and a `float`/`int`/`uint` one on either side has no defined behavior yet; nothing in the DSL exercises it today.
 - Async `WebAssembly.instantiate` isn't used — instantiation is synchronous (`new WebAssembly.Instance(new WebAssembly.Module(bytes))`), the browser-recommended path for a small module. Revisit once real programs are large enough for that to matter.

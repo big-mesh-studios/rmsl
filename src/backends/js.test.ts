@@ -970,6 +970,49 @@ describe("JS backend: CPU-specific behaviour", () => {
     expect(fn({ textures: { [tex.name]: texture } })).toEqual([50, 50, 50, 50]);
   });
 
+  it("samples the right face of a cube map by direction", () => {
+    // 6 faces, one texel each, face order +X,-X,+Y,-Y,+Z,-Z: 10,20,30,40,50,60.
+    const data = [10, 10, 10, 10, 20, 20, 20, 20, 30, 30, 30, 30, 40, 40, 40, 40, 50, 50, 50, 50, 60, 60, 60, 60];
+    const texture: CpuTextureData = { data, width: 1, height: 1 };
+
+    const at = (dx: number, dy: number, dz: number): number[] => {
+      let tex!: any;
+      const build = () =>
+        Fn(() => {
+          tex = uniform("samplerCube");
+          return tex.texture(vec3(dx, dy, dz));
+        })();
+      const fn = compileJS(build, { name: "main", params: [] });
+      return fn({ textures: { [tex.name]: texture } }) as number[];
+    };
+
+    expect(at(1, 0, 0)).toEqual([10, 10, 10, 10]);
+    expect(at(-1, 0, 0)).toEqual([20, 20, 20, 20]);
+    expect(at(0, 1, 0)).toEqual([30, 30, 30, 30]);
+    expect(at(0, -1, 0)).toEqual([40, 40, 40, 40]);
+    expect(at(0, 0, 1)).toEqual([50, 50, 50, 50]);
+    expect(at(0, 0, -1)).toEqual([60, 60, 60, 60]);
+  });
+
+  it("blends within a cube face but never across its edge into a neighbour", () => {
+    let tex!: any;
+    const prog = Fn(() => {
+      tex = uniform("samplerCube");
+      // Direction close to the edge of the +Z face (u near 1): should stay
+      // within +Z's own 2x1 texel row, not bleed toward another face.
+      return tex.texture(vec3(0.9, 0, 1));
+    })();
+    const fn = compileJS(() => prog, { name: "main", params: [] });
+    // +Z is face index 4: two texels side by side, 0 and 100.
+    const data = new Array(6 * 2 * 1 * 4).fill(0);
+    data[4 * 2 * 4 + 0] = 0;
+    data[4 * 2 * 4 + 4] = 100;
+    const texture: CpuTextureData = { data, width: 2, height: 1, magFilter: "linear" };
+    const [r] = fn({ textures: { [tex.name]: texture } }) as number[];
+    expect(r).toBeGreaterThan(0);
+    expect(r).toBeLessThanOrEqual(100);
+  });
+
   it("fetches integer textures at texel coordinates", () => {
     let tex!: any;
     const prog = Fn(() => {
@@ -1284,5 +1327,24 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
     const jsFn = compileJS(build as any, { name: "main", params: [] });
     const wasmFn = compileWasm(build as any, { name: "main", params: [] });
     expect(Array.from(jsFn.draw({}, 3, 3))).toEqual(Array.from(wasmFn.draw({}, 3, 3)));
+  });
+
+  it("declares its uniform inside the build function itself, not just before it", () => {
+    // compileJS reads the root's result type for draw() by calling the build
+    // function — it must do so exactly once. A build function that declares
+    // its own uniform() (the idiom most tests in this file use, just always
+    // with the uniform hoisted above the compileJS call rather than inside
+    // the closure passed to it) has to see that same call reflected in the
+    // compiled source; a second, throwaway invocation would declare a second,
+    // differently-named uniform and leave `tex` pointing at the wrong one.
+    let tex!: any;
+    const build = () =>
+      Fn(() => {
+        tex = uniform("float");
+        return fragCoord().x.mul(tex);
+      })();
+    const fn = compileJS(build as any, { name: "main", params: [] });
+    expect(fn({ uniforms: { [tex.name]: 2 }, fragCoord: [3, 0] })).toBe(6);
+    expect(Array.from(fn.draw({ uniforms: { [tex.name]: 2 } }, 2, 1))).toEqual([1, 3]);
   });
 });
