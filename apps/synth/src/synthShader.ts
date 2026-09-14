@@ -4,6 +4,7 @@ export let u_freq = uniform("float");
 export let u_startPhase = uniform("float"); // phase [0,1) at sample/vertex index 0
 export let u_sampleRate = uniform("float");
 export let u_waveform = uniform("int"); // 0 sine, 1 saw, 2 square, 3 triangle
+export let u_gain = uniform("float"); // part of the shared graph, not a post-multiply either side applies on its own
 
 /**
  * One sample of a band-naive oscillator at `sampleIndex` samples after
@@ -26,6 +27,7 @@ export function oscillatorSample(
   freq: Node<"float">,
   sampleRate: Node<"float">,
   waveform: Node<"int">,
+  gain: Node<"float">,
 ): Node<"float"> {
   let phase = startPhase.add(sampleIndex.mul(freq).div(sampleRate)).toVar();
   phase.assign(phase.sub(phase.floor())); // wrap to [0, 1)
@@ -55,7 +57,7 @@ export function oscillatorSample(
       });
     });
 
-  return sample;
+  return sample.mul(gain);
 }
 
 /**
@@ -67,5 +69,5 @@ export function oscillatorSample(
  */
 export let synthCpu = Fn(() => {
   let sampleIndex = fragCoord().x.sub(0.5).toVar(); // undo draw()'s pixel-center (+0.5) offset
-  return oscillatorSample(sampleIndex, u_startPhase, u_freq, u_sampleRate, u_waveform);
+  return oscillatorSample(sampleIndex, u_startPhase, u_freq, u_sampleRate, u_waveform, u_gain);
 });

@@ -1,5 +1,5 @@
 import { compileWasm } from "@random-mesh/rmsl";
-import { synthCpu, u_freq, u_sampleRate, u_startPhase, u_waveform } from "./synthShader";
+import { synthCpu, u_freq, u_gain, u_sampleRate, u_startPhase, u_waveform } from "./synthShader";
 
 // AudioWorkletGlobalScope doesn't expose TextEncoder in every browser (it's
 // not one of the APIs the spec guarantees there) — the WASM backend's
@@ -73,13 +73,14 @@ class RmslOscillatorProcessor extends AudioWorkletProcessor {
           [u_startPhase.name]: this.phase,
           [u_sampleRate.name]: sampleRate,
           [u_waveform.name]: this.waveform,
+          [u_gain.name]: this.gain,
         },
       },
       n,
       1,
     );
 
-    for (let i = 0; i < n; i++) channel[i] = (buffer[i] as number) * this.gain;
+    for (let i = 0; i < n; i++) channel[i] = buffer[i] as number;
     for (let c = 1; c < output.length; c++) output[c].set(channel);
 
     this.phase = (this.phase + (n * this.freq) / sampleRate) % 1;

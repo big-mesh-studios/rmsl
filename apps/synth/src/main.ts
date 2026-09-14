@@ -1,6 +1,6 @@
 import { compileGLSL } from "@random-mesh/rmsl";
 import { a_index, scopeFragment, scopeVertex, SCOPE_VERTEX_COUNT } from "./scopeShader";
-import { u_freq, u_sampleRate, u_startPhase, u_waveform } from "./synthShader";
+import { u_freq, u_gain, u_sampleRate, u_startPhase, u_waveform } from "./synthShader";
 
 const WAVEFORM_INDEX: Record<string, number> = { sine: 0, saw: 1, square: 2, triangle: 3 };
 
@@ -28,7 +28,13 @@ const scopeGl = document.getElementById("scopeGl") as HTMLCanvasElement;
 const gl = scopeGl.getContext("webgl2");
 let glProgram: WebGLProgram | null = null;
 let glIndexLoc = -1;
-let uniLoc: { freq: WebGLUniformLocation | null; phase: WebGLUniformLocation | null; sampleRate: WebGLUniformLocation | null; waveform: WebGLUniformLocation | null } | null = null;
+let uniLoc: {
+  freq: WebGLUniformLocation | null;
+  phase: WebGLUniformLocation | null;
+  sampleRate: WebGLUniformLocation | null;
+  waveform: WebGLUniformLocation | null;
+  gain: WebGLUniformLocation | null;
+} | null = null;
 
 function compileShader(src: string, type: number): WebGLShader {
   const s = gl!.createShader(type)!;
@@ -65,6 +71,7 @@ if (gl) {
     phase: gl.getUniformLocation(glProgram, u_startPhase.name),
     sampleRate: gl.getUniformLocation(glProgram, u_sampleRate.name),
     waveform: gl.getUniformLocation(glProgram, u_waveform.name),
+    gain: gl.getUniformLocation(glProgram, u_gain.name),
   };
 }
 
@@ -134,6 +141,7 @@ function drawScope() {
 
   const freq = Number(freqInput.value);
   const waveform = WAVEFORM_INDEX[waveformSelect.value] ?? 0;
+  const gain = Number(gainInput.value) / 100;
   const phase = (currentTimeSeconds() * freq) % 1;
 
   gl.viewport(0, 0, scopeGl.width, scopeGl.height);
@@ -145,6 +153,7 @@ function drawScope() {
   gl.uniform1f(uniLoc.phase, phase);
   gl.uniform1f(uniLoc.sampleRate, VISUAL_SAMPLE_RATE);
   gl.uniform1i(uniLoc.waveform, waveform);
+  gl.uniform1f(uniLoc.gain, gain);
   gl.drawArrays(gl.LINE_STRIP, 0, SCOPE_VERTEX_COUNT);
 }
 

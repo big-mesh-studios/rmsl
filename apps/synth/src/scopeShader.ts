@@ -1,5 +1,5 @@
 import { attribute, float, Fn, output, vec4 } from "@random-mesh/rmsl";
-import { oscillatorSample, u_freq, u_sampleRate, u_startPhase, u_waveform } from "./synthShader";
+import { oscillatorSample, u_freq, u_gain, u_sampleRate, u_startPhase, u_waveform } from "./synthShader";
 
 // How many points trace one on-screen sweep of the waveform. Not the audio
 // sample rate — main.ts sets u_sampleRate to a much lower "visual" rate
@@ -15,7 +15,7 @@ export const SCOPE_VERTEX_COUNT = 512;
 export let a_index = attribute("float");
 
 export let scopeVertex = Fn(() => {
-  let sample = oscillatorSample(a_index, u_startPhase, u_freq, u_sampleRate, u_waveform).toVar();
+  let sample = oscillatorSample(a_index, u_startPhase, u_freq, u_sampleRate, u_waveform, u_gain).toVar();
   let x = a_index.div(float(SCOPE_VERTEX_COUNT - 1)).mul(2.0).sub(1.0);
   return vec4(x, sample, 0.0, 1.0);
 });
