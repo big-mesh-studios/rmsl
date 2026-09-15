@@ -18,7 +18,7 @@ import {
   vec4,
 } from "@random-mesh/rmsl";
 import { createGlsl } from "@random-mesh/rmsl/glsl";
-import { createJs } from "@random-mesh/rmsl/js";
+import { createJs, type CpuAdapter } from "@random-mesh/rmsl/js";
 import { createWasm } from "@random-mesh/rmsl/wasm";
 import { createWgsl } from "@random-mesh/rmsl/wgsl";
 
@@ -104,9 +104,9 @@ const QUAD_Y = new Float32Array([-0.6, -0.6, 0.6, -0.6, 0.6, 0.6]);
 const computedX = new Float32Array(6);
 const computedY = new Float32Array(6);
 const rotatedQuad = new Float32Array(12);
-let computeSetUp: typeof jsCompute | null = null;
+let computeSetUp: CpuAdapter | null = null;
 
-function computeRotatedQuad(adapter: typeof jsCompute, t: number): Float32Array {
+function computeRotatedQuad(adapter: CpuAdapter, t: number): Float32Array {
   if (computeSetUp !== adapter) {
     adapter.setAttribute(outX.name, computedX);
     adapter.setAttribute(outY.name, computedY);
@@ -115,7 +115,7 @@ function computeRotatedQuad(adapter: typeof jsCompute, t: number): Float32Array 
   adapter.setAttribute(inX.name, QUAD_X);
   adapter.setAttribute(inY.name, QUAD_Y);
   adapter.setUniform(rotTime.name, t);
-  adapter.compute!();
+  adapter.compute();
   for (let i = 0; i < 6; i++) {
     rotatedQuad[i * 2] = computedX[i];
     rotatedQuad[i * 2 + 1] = computedY[i];
@@ -155,7 +155,7 @@ function frame() {
     glAdapter.draw({ mode: "triangles" });
   } else if (backend === "wgsl") {
     wgpuAdapter.setUniform(time.name, t);
-    wgpuAdapter.draw!();
+    wgpuAdapter.draw();
   } else {
     const rotated = computeRotatedQuad(backend === "js" ? jsCompute : wasmCompute, t);
     staticDrawAdapter.setAttribute(staticPos.name, rotated);

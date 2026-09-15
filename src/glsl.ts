@@ -9,6 +9,6 @@ export type { CompileGLSLOptions, GLSLPrecision } from "./backends/glsl";
 export { compileGlslFn } from "./backends/glsl";
 
 export { createGlsl } from "./backends/adapter-glsl";
-export type { GlslDrawOptions } from "./backends/adapter-glsl";
+export type { GlslAdapter, GlslDrawOptions } from "./backends/adapter-glsl";
 
 export type { Adapter, TypedArray } from "./backends/adapter";

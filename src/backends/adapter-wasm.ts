@@ -5,8 +5,7 @@
 // what the generic loop underneath actually needs but no other adapter
 // constructor asks a caller for.
 import { Node, ShaderType } from "../core";
-import { Adapter } from "./adapter";
-import { AdapterResult, createCpuAdapter } from "./adapter-cpu";
+import { CpuAdapter, createCpuAdapter } from "./adapter-cpu";
 import { compileWasm, CompileWasmFnOptions } from "./wasm";
 
 export type CreateWasmOptions = Partial<Omit<CompileWasmFnOptions, "name" | "params">> &
@@ -15,7 +14,7 @@ export type CreateWasmOptions = Partial<Omit<CompileWasmFnOptions, "name" | "par
 export function createWasm(
   root: Node<ShaderType> | readonly Node<ShaderType>[],
   options: CreateWasmOptions = {},
-): Adapter<AdapterResult> {
+): CpuAdapter {
   const step = compileWasm(() => root, {
     name: options.name ?? "main",
     params: options.params ?? [],

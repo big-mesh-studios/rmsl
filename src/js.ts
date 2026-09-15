@@ -20,6 +20,6 @@ export type {
 
 export { createJs } from "./backends/adapter-js";
 export type { CreateJsOptions } from "./backends/adapter-js";
-export type { AdapterResult as CpuAdapterResult } from "./backends/adapter-cpu";
+export type { AdapterResult as CpuAdapterResult, CpuAdapter } from "./backends/adapter-cpu";
 
 export type { Adapter, TypedArray } from "./backends/adapter";

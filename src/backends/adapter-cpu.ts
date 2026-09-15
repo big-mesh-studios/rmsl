@@ -18,7 +18,14 @@ import { CpuRenderer } from "./cpu";
 /** One typed array per storage slot, keyed by name. */
 export type AdapterResult = Record<string, TypedArray>;
 
-export function createCpuAdapter(step: CpuRenderer): Adapter<AdapterResult> {
+/** `compute` is unconditionally defined and synchronous — unlike the base
+ * Adapter's optional, possibly-async `compute?`, this loop never awaits
+ * anything and createJs/createWasm always return one of these. */
+export interface CpuAdapter extends Adapter<AdapterResult> {
+  compute(out?: AdapterResult): AdapterResult | void;
+}
+
+export function createCpuAdapter(step: CpuRenderer): CpuAdapter {
   let n = 0;
   const storages: Record<string, TypedArray> = {};
   const uniforms: Record<string, number | number[]> = {};

@@ -46,6 +46,17 @@ export interface CreateWgslAdapterOptions {
  * buffer, so a `draw` pass (this app's own, or another adapter's) can bind
  * it without a readback ever happening. */
 export interface WgslAdapter extends Adapter<AdapterResult, WgslDrawOptions> {
+  // Narrower than the base Adapter's `void | Promise<void>` — requesting a
+  // GPUAdapter/GPUDevice is always async, unlike GL's attach.
+  attach(canvas?: HTMLCanvasElement): Promise<void>;
+  // Both are unconditionally defined (never absent, unlike the base
+  // Adapter's optional `compute?`/`draw?`) — createWgsl always returns an
+  // object with both methods, throwing at call time only if the matching
+  // `compute`/`vertex`+`fragment` option was never given. compute is
+  // always a GPU submit+optional readback (async); draw never awaits
+  // anything (dispatch and submit only).
+  compute(out?: AdapterResult): Promise<AdapterResult | void>;
+  draw(options?: WgslDrawOptions): void;
   buffer(slot: string): GPUBuffer | undefined;
   /** The device backing this adapter, once `attach()` has resolved — a
    * `draw` pass sharing its buffers has to build its own pipeline against

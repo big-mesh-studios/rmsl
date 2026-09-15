@@ -1,4 +1,4 @@
-import { createJs } from "@random-mesh/rmsl/js";
+import { createJs, type CpuAdapter } from "@random-mesh/rmsl/js";
 import { createWasm } from "@random-mesh/rmsl/wasm";
 import { createWgsl } from "@random-mesh/rmsl/wgsl";
 import { createGpuRenderer } from "./gpu-renderer";
@@ -67,7 +67,7 @@ const wasmAdapter = createWasm(system.program.root, { name: "ecsSystem" });
 // Re-set every frame: cheap (a handful of object-field assignments), and
 // it means a fresh posX/posY/velX/velY from seed() (entity count changed)
 // is picked up without a separate "resync" path.
-function stepCPU(adapter: typeof jsAdapter, dt: number) {
+function stepCPU(adapter: CpuAdapter, dt: number) {
   adapter.setAttribute(slots.posX, posX);
   adapter.setAttribute(slots.posY, posY);
   adapter.setAttribute(slots.velX, velX);
@@ -75,7 +75,7 @@ function stepCPU(adapter: typeof jsAdapter, dt: number) {
   adapter.setUniform(slots.width, canvas.width);
   adapter.setUniform(slots.height, canvas.height);
   adapter.setUniform(slots.dt, dt);
-  adapter.compute!();
+  adapter.compute();
 }
 
 // === WGSL compute backend, via the adapter ===
@@ -123,7 +123,7 @@ async function stepWGSL(dt: number) {
   wgslAdapter.setUniform(slots.width, canvas.width);
   wgslAdapter.setUniform(slots.height, canvas.height);
   wgslAdapter.setUniform(slots.dt, dt);
-  await wgslAdapter.compute!();
+  await wgslAdapter.compute();
 }
 
 entityCountInput.addEventListener("change", () => {

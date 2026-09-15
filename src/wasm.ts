@@ -19,6 +19,6 @@ export type {
 
 export { createWasm } from "./backends/adapter-wasm";
 export type { CreateWasmOptions } from "./backends/adapter-wasm";
-export type { AdapterResult as CpuAdapterResult } from "./backends/adapter-cpu";
+export type { AdapterResult as CpuAdapterResult, CpuAdapter } from "./backends/adapter-cpu";
 
 export type { Adapter, TypedArray } from "./backends/adapter";

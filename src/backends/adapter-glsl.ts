@@ -104,11 +104,21 @@ function setUniformValue(gl: WebGL2RenderingContext, info: UniformInfo, value: n
   }
 }
 
+/** Narrower than the base Adapter's `void | Promise<void>` `attach` —
+ * `getContext("webgl2")` is synchronous, unlike WGSL's device request. */
+export interface GlslAdapter extends Adapter<never, GlslDrawOptions> {
+  attach(canvas?: HTMLCanvasElement): void;
+  // Unconditionally defined — GLSL is draw-only, so unlike the base
+  // Adapter's optional `draw?`, createGlsl's returned object always has
+  // this, synchronously (no await inside it).
+  draw(options?: GlslDrawOptions): void;
+}
+
 export function createGlsl(
   vertexRoot: VertexRoot,
   fragmentRoot: Node<ShaderType> | readonly Node<ShaderType>[],
   options?: CompileGLSLOptions,
-): Adapter<never, GlslDrawOptions> {
+): GlslAdapter {
   let gl: WebGL2RenderingContext | null = null;
   let program: WebGLProgram | null = null;
   let vao: WebGLVertexArrayObject | null = null;
@@ -123,7 +133,7 @@ export function createGlsl(
   const pendingUniforms = new Map<string, number | number[]>();
   const pendingAttributes = new Map<string, TypedArray>();
 
-  const adapter: Adapter<never, GlslDrawOptions> = {
+  const adapter: GlslAdapter = {
     attach(canvas) {
       const target = canvas ?? document.createElement("canvas");
       const context = target.getContext("webgl2");

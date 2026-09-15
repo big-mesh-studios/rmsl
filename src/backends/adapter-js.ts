@@ -5,8 +5,7 @@
 // what the generic loop underneath actually needs but no other adapter
 // constructor asks a caller for.
 import { Node, ShaderType } from "../core";
-import { Adapter } from "./adapter";
-import { AdapterResult, createCpuAdapter } from "./adapter-cpu";
+import { CpuAdapter, createCpuAdapter } from "./adapter-cpu";
 import { compileJS, CompileJSOptions } from "./js";
 
 export type CreateJsOptions = Partial<Omit<CompileJSOptions, "name" | "params">> &
@@ -15,7 +14,7 @@ export type CreateJsOptions = Partial<Omit<CompileJSOptions, "name" | "params">>
 export function createJs(
   root: Node<ShaderType> | readonly Node<ShaderType>[],
   options: CreateJsOptions = {},
-): Adapter<AdapterResult> {
+): CpuAdapter {
   const step = compileJS(() => root, {
     name: options.name ?? "main",
     params: options.params ?? [],
