@@ -1,29 +1,40 @@
 import { compileJS, compileWasm } from "@random-mesh/rmsl";
-import { compile, type WgslResource } from "@random-mesh/rmsl/wgsl";
+import { createAdapter } from "@random-mesh/rmsl/wgsl";
+import { createGpuRenderer } from "./gpu-renderer";
 import { createEcsSystem } from "./system";
 
 const canvas = document.createElement("canvas");
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
-canvas.style.position = "fixed";
-canvas.style.inset = "0";
-canvas.style.zIndex = "-1";
-document.body.appendChild(canvas);
+const gpuCanvas = document.createElement("canvas");
+for (const c of [canvas, gpuCanvas]) {
+  c.width = window.innerWidth;
+  c.height = window.innerHeight;
+  c.style.position = "fixed";
+  c.style.inset = "0";
+  c.style.zIndex = "-1";
+  document.body.appendChild(c);
+}
+// Not `.hidden` — the page's own `canvas { display: block; }` rule (an
+// author style) overrides the UA stylesheet's `[hidden] { display: none }`,
+// so toggling the attribute would have no visual effect here.
+gpuCanvas.style.display = "none";
 const ctx2d = canvas.getContext("2d")!;
 
 window.addEventListener("resize", () => {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+  for (const c of [canvas, gpuCanvas]) {
+    c.width = window.innerWidth;
+    c.height = window.innerHeight;
+  }
 });
 
 const backendSelect = document.getElementById("backend") as HTMLSelectElement;
 const entityCountInput = document.getElementById("entityCount") as HTMLInputElement;
 const statsEl = document.getElementById("stats")!;
 
-// === Shared entity state (SoA) — the source of truth every backend reads
-// from and writes back to, so switching backends mid-run is seamless.
-// Reseeded (and the WGSL buffers rebuilt to match) whenever the entity count
-// input changes. ===
+// === Shared entity state (SoA), read/written by js and wasm directly.
+// wgsl only syncs against this once, on entry (see uploadStorages below) —
+// each backend runs at its own pace, not kept in lockstep every frame.
+// Reseeded whenever the entity count input changes; the WGSL adapter notices
+// the buffer length change on the next setAttribute and resizes itself. ===
 let N = Number(entityCountInput.value);
 let posX = new Float32Array(N);
 let posY = new Float32Array(N);
@@ -45,17 +56,13 @@ function seed(n: number) {
 }
 seed(N);
 
-// === One rmsl Fn, compiled three ways ===
+// === One rmsl Fn, compiled/adapted three ways ===
 const system = createEcsSystem();
 const { slots } = system;
 
 const jsStep = compileJS(() => system.program.root, { name: "ecsSystem", params: [] });
 const wasmStep = compileWasm(() => system.program.root, { name: "ecsSystem", params: [] });
 
-// storage()/invocationIndex() give js/wasm the same per-invocation model WGSL
-// gets: one call per entity, `index` naming which one, `storages` the whole
-// backing arrays it reads/writes directly in place — no separate output
-// buffers or res.outputs indirection needed.
 function stepCPU(fn: typeof jsStep, dt: number) {
   const storages = { [slots.posX]: posX, [slots.posY]: posY, [slots.velX]: velX, [slots.velY]: velY };
   const uniforms = { [slots.width]: canvas.width, [slots.height]: canvas.height, [slots.dt]: dt };
@@ -64,146 +71,61 @@ function stepCPU(fn: typeof jsStep, dt: number) {
   }
 }
 
-// === WGSL compute backend ===
-type WgslBackend = {
-  step(dt: number): Promise<void>;
-  destroy(): void;
-};
-type WgslDevice = {
-  device: GPUDevice;
-  pipeline: GPUComputePipeline;
-  resources: WgslResource[];
-};
-
-async function setupWgslDevice(): Promise<WgslDevice | null> {
-  const adapter = await navigator.gpu?.requestAdapter();
-  if (!adapter) return null;
-  const device = await adapter.requestDevice();
-
-  const program = compile({ stage: "compute", workgroupSize: 64 }, system.program.root);
-  const module = device.createShaderModule({ code: program.code });
-  const pipeline = device.createComputePipeline({
-    layout: "auto",
-    compute: { module, entryPoint: program.entryPoint },
-  });
-
-  return { device, pipeline, resources: program.resources };
-}
-
-// Entity buffers are sized to N, so a count change tears these down and
-// rebuilds them — the device and pipeline above are reused as-is.
-function createWgslBuffers({ device, pipeline, resources }: WgslDevice, n: number): WgslBackend {
-  const BYTES = n * 4;
-  const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
-
-  const storageResources = resources.filter((r): r is Extract<WgslResource, { kind: "storage" }> => r.kind === "storage");
-  const uniformResources = resources.filter((r): r is Extract<WgslResource, { kind: "uniform" }> => r.kind === "uniform");
-
-  // read_write storage: one buffer per slot, updated in place — no separate
-  // in/out pair and no GPU-side feed-forward copy needed, since every
-  // invocation only ever touches its own element.
-  const storageBuffers = new Map(storageResources.map((r) => [r.name, device.createBuffer({ size: BYTES, usage })]));
-  const arraysBySlot = (): Record<string, Float32Array<ArrayBuffer>> => ({
-    [slots.posX]: posX,
-    [slots.posY]: posY,
-    [slots.velX]: velX,
-    [slots.velY]: velY,
-  });
-
-  const bindGroup1 = device.createBindGroup({
-    layout: pipeline.getBindGroupLayout(1),
-    entries: storageResources.map((r) => ({ binding: r.binding, resource: { buffer: storageBuffers.get(r.name)! } })),
-  });
-
-  const uniformSize = Math.max(16, ...uniformResources.map((r) => r.offset + r.size));
-  const uniformBuffer = device.createBuffer({
-    size: uniformSize,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-  });
-  const bindGroup0 = device.createBindGroup({
-    layout: pipeline.getBindGroupLayout(0),
-    entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
-  });
-  const uniformScratch = new Float32Array(uniformSize / 4);
-  const uniformOffsetOf = (slot: string) => uniformResources.find((r) => r.name === slot)!.offset / 4;
-
-  const staging = device.createBuffer({
-    size: BYTES,
-    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-  });
-
-  // Seed every storage buffer from whatever the CPU arrays currently hold, so
-  // a switch into this backend continues the same simulation.
-  function upload() {
-    const arrays = arraysBySlot();
-    for (const [slot, buffer] of storageBuffers) {
-      device.queue.writeBuffer(buffer, 0, arrays[slot]);
-    }
-  }
-  upload();
-
-  const workgroups = Math.ceil(n / 64);
-
-  async function step(dt: number) {
-    uniformScratch[uniformOffsetOf(slots.width)] = canvas.width;
-    uniformScratch[uniformOffsetOf(slots.height)] = canvas.height;
-    uniformScratch[uniformOffsetOf(slots.dt)] = dt;
-    device.queue.writeBuffer(uniformBuffer, 0, uniformScratch);
-
-    const encoder = device.createCommandEncoder();
-    const pass = encoder.beginComputePass();
-    pass.setPipeline(pipeline);
-    pass.setBindGroup(0, bindGroup0);
-    pass.setBindGroup(1, bindGroup1);
-    pass.dispatchWorkgroups(workgroups);
-    pass.end();
-    device.queue.submit([encoder.finish()]);
-
-    // Read every storage buffer back so the shared CPU arrays stay the
-    // render/backend source of truth, at the cost of a CPU-GPU sync per
-    // buffer per frame.
-    const arrays = arraysBySlot();
-    for (const [slot, buffer] of storageBuffers) {
-      const readEncoder = device.createCommandEncoder();
-      readEncoder.copyBufferToBuffer(buffer, 0, staging, 0, BYTES);
-      device.queue.submit([readEncoder.finish()]);
-      await staging.mapAsync(GPUMapMode.READ);
-      arrays[slot].set(new Float32Array(staging.getMappedRange()));
-      staging.unmap();
-    }
-  }
-
-  function destroy() {
-    for (const buffer of storageBuffers.values()) buffer.destroy();
-    uniformBuffer.destroy();
-    staging.destroy();
-  }
-
-  return { step, destroy };
-}
-
-let wgslDevice: WgslDevice | null = null;
-let wgslBackend: WgslBackend | null = null;
+// === WGSL compute backend, via the adapter ===
+// This demo measures each backend in its own optimal state, not seamless
+// mid-run continuity — so while wgsl is active, `compute()` is called with
+// no `out`: it dispatches and stays fully GPU-resident, and gpuRenderer
+// reads the same buffers directly (`buffer(slot)`), with no per-frame
+// upload or readback at all. The CPU-side posX/posY/velX/velY only get
+// synced once, when wgsl is first selected — switching away leaves them at
+// whatever they held when you switched in, which is fine here.
+const wgslAdapter = createAdapter(system.program.root);
 let wgslReady = false;
-setupWgslDevice().then((gpu) => {
-  wgslDevice = gpu;
-  wgslReady = true;
-  if (!gpu) {
+let gpuRenderer: ReturnType<typeof createGpuRenderer> | null = null;
+
+function currentStorages() {
+  return { [slots.posX]: posX, [slots.posY]: posY, [slots.velX]: velX, [slots.velY]: velY };
+}
+
+function uploadStorages() {
+  const storages = currentStorages();
+  for (const slot in storages) wgslAdapter.setAttribute(slot, storages[slot]);
+}
+
+function rebuildGpuRenderer() {
+  const device = wgslAdapter.device();
+  if (!device) return;
+  gpuRenderer?.destroy();
+  gpuRenderer = createGpuRenderer(device, gpuCanvas, wgslAdapter.buffer(slots.posX)!, wgslAdapter.buffer(slots.posY)!);
+}
+
+wgslAdapter
+  .attach()
+  .then(() => {
+    uploadStorages();
+    rebuildGpuRenderer();
+    wgslReady = true;
+  })
+  .catch(() => {
     const opt = backendSelect.querySelector('option[value="wgsl"]') as HTMLOptionElement;
     opt.disabled = true;
     opt.textContent += " (unavailable)";
-    return;
-  }
-  wgslBackend = createWgslBuffers(gpu, N);
-});
+  });
+
+async function stepWGSL(dt: number) {
+  wgslAdapter.setUniform(slots.width, canvas.width);
+  wgslAdapter.setUniform(slots.height, canvas.height);
+  wgslAdapter.setUniform(slots.dt, dt);
+  await wgslAdapter.compute!();
+}
 
 entityCountInput.addEventListener("change", () => {
   const n = Math.max(1, Math.min(200000, Math.floor(Number(entityCountInput.value) || 1)));
   entityCountInput.value = String(n);
   seed(n);
-  if (wgslDevice) {
-    wgslBackend?.destroy();
-    wgslBackend = createWgslBuffers(wgslDevice, n);
+  if (wgslReady) {
+    uploadStorages();
+    rebuildGpuRenderer();
   }
 });
 
@@ -243,16 +165,29 @@ async function frame(now: number) {
 
   const t0 = performance.now();
   const backend = backendSelect.value;
-  if (backend === "js") {
-    stepCPU(jsStep, dt);
-  } else if (backend === "wasm") {
-    stepCPU(wasmStep, dt);
-  } else if (backend === "wgsl" && wgslBackend) {
-    await wgslBackend.step(dt);
+  try {
+    if (backend === "js") {
+      stepCPU(jsStep, dt);
+      draw();
+    } else if (backend === "wasm") {
+      stepCPU(wasmStep, dt);
+      draw();
+    } else if (backend === "wgsl" && wgslReady) {
+      if (lastBackend !== "wgsl") uploadStorages();
+      await stepWGSL(dt);
+      gpuRenderer!.render(N, canvas.width, canvas.height);
+    }
+  } catch (err) {
+    // A bad frame (a GPU hiccup, or a step racing an entity-count change
+    // mid-flight) shouldn't kill the loop forever — requestAnimationFrame
+    // below is what keeps it alive, and this is the one place standing
+    // between a thrown/rejected step and that call never happening.
+    console.error("[ecs] frame error", err);
   }
   const stepMs = performance.now() - t0;
 
-  draw();
+  canvas.style.display = backend === "wgsl" ? "none" : "block";
+  gpuCanvas.style.display = backend === "wgsl" ? "block" : "none";
 
   // A backend change makes the window's average meaningless, so it starts over.
   if (backend !== lastBackend) {
@@ -272,7 +207,7 @@ async function frame(now: number) {
 }
 
 backendSelect.addEventListener("change", () => {
-  if (backendSelect.value === "wgsl" && wgslReady && !wgslBackend) {
+  if (backendSelect.value === "wgsl" && !wgslReady) {
     backendSelect.value = "js";
   }
 });

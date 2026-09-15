@@ -1,139 +1,100 @@
 // === WGSL compute adapter ===
-// Every WGSL compute caller so far (see apps/ecs-demo) hand-writes the same
-// ceremony: create one storage buffer per attribute and output in binding
-// order, a uniform buffer packed by `wgslUniformLayout`, the two bind
-// groups, and a staging buffer to read results back. All of that is
-// mechanical once the program's own attributes/uniforms/outputs are known —
-// `reflectCompute` walks the graph the same way `compileWGSLWithStage` does
-// (see wgsl.ts) to recover that list without the caller repeating it.
+// Wraps `compile()` (src/wgsl.ts) — which already reflects a program's
+// storage/uniform resources off its node graph — into the uniform Adapter
+// shape, so the ceremony apps/ecs's main.ts still hand-writes (buffer
+// creation, bind groups, uniform packing, staged readback) only has to be
+// written once, here, instead of at every WGSL compute call site.
 import { Node, ShaderType } from "../core";
+import { compile, WgslResource } from "../wgsl";
 import { Adapter, TypedArray } from "./adapter";
-import { CompileCtx } from "./shared";
-import { compileWGSLStage, compileWGSLWithStage, wgslUniformLayout, WgslUniformDeclaration } from "./wgsl";
 
-function freshCtx(shaderStage: CompileCtx["shaderStage"]): CompileCtx {
-  return {
-    nextId: 0,
-    shaderStage,
-    uniforms: new Map(),
-    attributes: new Map(),
-    varyings: new Map(),
-    outputs: new Map(),
-    wgslSamplers: new Map(),
-    varDefs: new Map(),
-    memo: new Map(),
-    wgslHelpers: new Set(),
-    positionWritten: false,
-    inFn: false,
-    fragDepthUsed: false,
-    fragCoordUsed: false,
-    jsParams: new Set(),
-    jsHelpers: new Set(),
-    outTarget: null,
-    derivatives: "throw",
-    reentrant: false,
-    jsNeedsRes: false,
-  };
+/** One typed array per storage slot, keyed by name — read_write, so the same
+ * record a caller passes into `compute` is the one read back out of. */
+export type AdapterResult = Record<string, TypedArray>;
+
+/** A WGSL adapter, plus the one thing the shared `Adapter` shape has no
+ * generic name for: direct access to a storage slot's persistent GPU
+ * buffer, so a `draw` pass (this app's own, or another adapter's) can bind
+ * it without a readback ever happening. */
+export interface WgslAdapter extends Adapter<AdapterResult> {
+  buffer(slot: string): GPUBuffer | undefined;
+  /** The device backing this adapter, once `attach()` has resolved — a
+   * `draw` pass sharing its buffers has to build its own pipeline against
+   * this same device, since a GPUBuffer is only valid on the device that
+   * created it. */
+  device(): GPUDevice | undefined;
 }
 
-/**
- * What a compute program reads and writes, in the same order
- * `compileWGSLWithStage` assigns `@group(1)` bindings: attributes first
- * (creation order), then outputs.
- */
-function reflectCompute(root: Node<ShaderType> | readonly Node<ShaderType>[]) {
-  let ctx = freshCtx("compute");
-  let nodes = Array.isArray(root) ? root : [root];
-  for (let n of nodes) compileWGSLStage(n, ctx);
-  return {
-    attributes: [...ctx.attributes.entries()].sort((a, b) => a[0] - b[0]).map(([, info]) => info),
-    outputs: [...ctx.outputs.values()],
-    uniforms: [...ctx.uniforms.values()].sort((a, b) => a.slot.localeCompare(b.slot)),
-  };
-}
-
-/** One typed array per output slot, keyed by name — the compute analogue of
- * the ecs-demo's `{ outputs: { [slot]: value } }` JS/WASM result shape. */
-export type WgslComputeResult = Record<string, TypedArray>;
-
-export function createWgslAdapter(
-  root: Node<ShaderType> | readonly Node<ShaderType>[],
-): Adapter<WgslComputeResult> {
-  let reflection = reflectCompute(root);
+export function createAdapter(root: Node<ShaderType> | readonly Node<ShaderType>[]): WgslAdapter {
   let device: GPUDevice | null = null;
   let pipeline: GPUComputePipeline | null = null;
+  let resources: WgslResource[] = [];
 
   let n = 0;
-  let inBuffers = new Map<string, GPUBuffer>();
-  let outBuffers = new Map<string, GPUBuffer>();
-  let bindGroup0: GPUBindGroup | null = null;
+  let storageBuffers = new Map<string, GPUBuffer>();
   let bindGroup1: GPUBindGroup | null = null;
   let uniformBuffer: GPUBuffer | null = null;
   let uniformScratch: Float32Array | null = null;
-  let uniformLayout: ReturnType<typeof wgslUniformLayout> | null = null;
+  let bindGroup0: GPUBindGroup | null = null;
   let staging: GPUBuffer | null = null;
 
-  // setUniform/setAttribute may be called before attach() resolves (the
-  // caller shouldn't have to sequence its own setup around ours), so values
-  // that arrive early are replayed once the device exists.
+  // setUniform/setAttribute may be called before attach() resolves, so
+  // values that arrive early are queued and replayed once the device exists.
   let pendingUniforms = new Map<string, number | number[]>();
   let pendingAttributes = new Map<string, TypedArray>();
 
-  function declaredUniforms(): WgslUniformDeclaration[] {
-    return reflection.uniforms.map((u) => ({ slot: u.slot, type: u.type, length: u.length }));
+  function storageResources(): Extract<WgslResource, { kind: "storage" }>[] {
+    return resources.filter((r): r is Extract<WgslResource, { kind: "storage" }> => r.kind === "storage");
+  }
+  function uniformResources(): Extract<WgslResource, { kind: "uniform" }>[] {
+    return resources.filter((r): r is Extract<WgslResource, { kind: "uniform" }> => r.kind === "uniform");
   }
 
   function rebuildStorageBuffers() {
     if (!device || !pipeline) return;
-    for (let buf of inBuffers.values()) buf.destroy();
-    for (let buf of outBuffers.values()) buf.destroy();
+    for (let buf of storageBuffers.values()) buf.destroy();
     staging?.destroy();
 
     let usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
     let bytes = Math.max(4, n * 4);
-    inBuffers = new Map(reflection.attributes.map((a) => [a.slot, device!.createBuffer({ size: bytes, usage })]));
-    outBuffers = new Map(reflection.outputs.map((o) => [o.slot, device!.createBuffer({ size: bytes, usage })]));
+    storageBuffers = new Map(storageResources().map((r) => [r.name, device!.createBuffer({ size: bytes, usage })]));
 
-    let entries: GPUBindGroupEntry[] = [];
-    let binding = 0;
-    for (let attr of reflection.attributes) entries.push({ binding: binding++, resource: { buffer: inBuffers.get(attr.slot)! } });
-    for (let out of reflection.outputs) entries.push({ binding: binding++, resource: { buffer: outBuffers.get(out.slot)! } });
-    bindGroup1 = device.createBindGroup({ layout: pipeline.getBindGroupLayout(1), entries });
+    bindGroup1 = device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(1),
+      entries: storageResources().map((r) => ({ binding: r.binding, resource: { buffer: storageBuffers.get(r.name)! } })),
+    });
 
     staging = device.createBuffer({
-      size: bytes * Math.max(1, outBuffers.size),
+      size: bytes,
       usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
   }
 
-  let adapter: Adapter<WgslComputeResult> = {
+  let adapter: WgslAdapter = {
     async attach() {
       let gpuAdapter = await navigator.gpu?.requestAdapter();
       if (!gpuAdapter) throw new Error("[RMSL] WebGPU is not available");
       device = await gpuAdapter.requestDevice();
 
-      let declared = declaredUniforms();
-      let code = compileWGSLWithStage(root, "compute", declared.length > 0 ? { uniforms: declared } : undefined);
-      let module = device.createShaderModule({ code });
-      pipeline = device.createComputePipeline({ layout: "auto", compute: { module, entryPoint: "main" } });
+      let program = compile({ stage: "compute", workgroupSize: 64 }, root);
+      let module = device.createShaderModule({ code: program.code });
+      pipeline = device.createComputePipeline({ layout: "auto", compute: { module, entryPoint: program.entryPoint } });
+      resources = program.resources;
 
-      if (declared.length > 0) {
-        uniformLayout = wgslUniformLayout(declared);
-        uniformBuffer = device.createBuffer({
-          size: Math.max(16, uniformLayout.size),
-          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        });
-        uniformScratch = new Float32Array(uniformBuffer.size / 4);
+      let uniforms = uniformResources();
+      if (uniforms.length > 0) {
+        let size = Math.max(16, ...uniforms.map((u) => u.offset + u.size));
+        uniformBuffer = device.createBuffer({ size, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        uniformScratch = new Float32Array(size / 4);
         bindGroup0 = device.createBindGroup({
           layout: pipeline.getBindGroupLayout(0),
           entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
         });
       }
 
-      // Attribute buffers are sized to the first upload, so a pending
-      // attribute has to be replayed before the (empty) default-sized
-      // buffers are built.
-      for (let [slot, data] of pendingAttributes) if (n === 0) n = data.length;
+      // Storage buffers are sized to the first upload, so a pending value has
+      // to set `n` before the (empty) default-sized buffers are built.
+      for (let [, data] of pendingAttributes) if (n === 0) n = data.length;
       rebuildStorageBuffers();
       for (let [slot, value] of pendingUniforms) adapter.setUniform(slot, value);
       for (let [slot, data] of pendingAttributes) adapter.setAttribute(slot, data);
@@ -142,18 +103,21 @@ export function createWgslAdapter(
     },
 
     setUniform(slot, value) {
-      if (!device || !uniformScratch || !uniformLayout) {
+      if (!device || !uniformScratch) {
         pendingUniforms.set(slot, value);
         return;
       }
-      let member = uniformLayout.members.find((m) => m.name === slot);
-      if (!member) throw new Error(`[RMSL] unknown uniform "${slot}"`);
-      let offset = member.offset / 4;
+      let res = uniformResources().find((r) => r.name === slot);
+      if (!res) throw new Error(`[RMSL] unknown uniform "${slot}"`);
+      let offset = res.offset / 4;
       if (Array.isArray(value)) value.forEach((v, i) => (uniformScratch![offset + i] = v));
       else uniformScratch[offset] = value;
       device.queue.writeBuffer(uniformBuffer!, 0, uniformScratch as BufferSource);
     },
 
+    // Named `setAttribute` by the shared Adapter interface, but what it
+    // uploads here is a storage() slot's current value — read_write, not
+    // input-only, so the same slot comes back out of `compute`'s result.
     setAttribute(slot, data) {
       if (!device) {
         pendingAttributes.set(slot, data);
@@ -163,13 +127,13 @@ export function createWgslAdapter(
         n = data.length;
         rebuildStorageBuffers();
       }
-      let buf = inBuffers.get(slot);
-      if (!buf) throw new Error(`[RMSL] unknown attribute "${slot}"`);
+      let buf = storageBuffers.get(slot);
+      if (!buf) throw new Error(`[RMSL] unknown storage "${slot}"`);
       device.queue.writeBuffer(buf, 0, data as BufferSource);
     },
 
     async compute(out) {
-      if (!device || !pipeline || !bindGroup1) {
+      if (!device || !pipeline || !bindGroup1 || !staging) {
         throw new Error("[RMSL] adapter not attached — call attach() before compute()");
       }
       let encoder = device.createCommandEncoder();
@@ -179,30 +143,35 @@ export function createWgslAdapter(
       pass.setBindGroup(1, bindGroup1);
       pass.dispatchWorkgroups(Math.max(1, Math.ceil(n / 64)));
       pass.end();
-
-      let bytes = Math.max(4, n * 4);
-      let regions: { slot: string; byteOffset: number }[] = [];
-      let byteOffset = 0;
-      for (let outInfo of reflection.outputs) {
-        encoder.copyBufferToBuffer(outBuffers.get(outInfo.slot)!, 0, staging!, byteOffset, bytes);
-        regions.push({ slot: outInfo.slot, byteOffset });
-        byteOffset += bytes;
-      }
       device.queue.submit([encoder.finish()]);
 
-      await staging!.mapAsync(GPUMapMode.READ);
-      let mapped = new Float32Array(staging!.getMappedRange());
-      for (let { slot, byteOffset } of regions) {
-        let start = byteOffset / 4;
-        (out[slot] as Float32Array).set(mapped.subarray(start, start + n));
+      // No `out` means the caller means to keep the result GPU-resident —
+      // read via `buffer(slot)` from a draw pass, never mapped back to the
+      // CPU at all.
+      if (!out) return;
+
+      let bytes = Math.max(4, n * 4);
+      for (let [slot, buffer] of storageBuffers) {
+        let readEncoder = device.createCommandEncoder();
+        readEncoder.copyBufferToBuffer(buffer, 0, staging, 0, bytes);
+        device.queue.submit([readEncoder.finish()]);
+        await staging.mapAsync(GPUMapMode.READ);
+        (out[slot] as Float32Array).set(new Float32Array(staging.getMappedRange()).subarray(0, n));
+        staging.unmap();
       }
-      staging!.unmap();
       return out;
     },
 
+    buffer(slot) {
+      return storageBuffers.get(slot);
+    },
+
+    device() {
+      return device ?? undefined;
+    },
+
     destroy() {
-      for (let buf of inBuffers.values()) buf.destroy();
-      for (let buf of outBuffers.values()) buf.destroy();
+      for (let buf of storageBuffers.values()) buf.destroy();
       uniformBuffer?.destroy();
       staging?.destroy();
       device?.destroy();

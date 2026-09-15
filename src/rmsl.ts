@@ -226,6 +226,3 @@ export { compileGLSLFn, compileWGSLFn } from "./standalone-fn";
 export { compileWasm, compileWasmFn, instantiateWasm } from "./backends/wasm";
 export type { CompiledWasm, WasmParam } from "./backends/wasm";
 
-export type { Adapter, TypedArray } from "./backends/adapter";
-export { createWgslAdapter } from "./backends/adapter-wgsl";
-export type { WgslComputeResult } from "./backends/adapter-wgsl";

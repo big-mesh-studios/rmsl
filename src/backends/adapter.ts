@@ -17,9 +17,15 @@ export interface Adapter<TBuffer> {
   setUniform(slot: string, value: number | number[]): void;
   setAttribute(slot: string, data: TypedArray): void;
 
-  /** Writes into the caller-owned `out` buffer and returns it, so chaining a
-   * result into the next adapter's `setAttribute` needs no extra variable. */
-  compute?: (out: TBuffer) => TBuffer | Promise<TBuffer>;
+  /**
+   * With `out`, writes the result into it and returns it, so chaining into
+   * the next adapter's `setAttribute` needs no extra variable. Without it,
+   * just runs — for a backend that keeps its result GPU-resident (a WGSL
+   * compute pass writing storage buffers a `draw` reads directly), forcing a
+   * readback into `out` on every call would be the one thing this interface
+   * isn't supposed to do: take away a backend's own advantage to look uniform.
+   */
+  compute?: (out?: TBuffer) => TBuffer | void | Promise<TBuffer | void>;
 
   /** Renders into whatever `attach` set up. */
   draw?: () => void | Promise<void>;
