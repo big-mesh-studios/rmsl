@@ -46,6 +46,10 @@
     "./test": {
       "import": "./dist/test.js",
       "types": "./dist/test/index.d.ts"
+    },
+    "./wgsl": {
+      "import": "./dist/wgsl.js",
+      "types": "./dist/wgsl.d.ts"
     }
   },
   "scripts": {

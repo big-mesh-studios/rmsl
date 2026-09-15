@@ -40,6 +40,9 @@ import {
   bool,
   uniform,
   uniformArray,
+  storage,
+  invocationIndex,
+  type UniformNode,
   vec2,
   vec3,
   vec4,
@@ -1703,5 +1706,28 @@ describe("WASM backend: instantiateWasm — compile and instantiate as separate 
     const compiled = compileWasmFn(build as any, { name: "main", params: [] });
     const fn = instantiateWasm(compiled, "main");
     expect(Array.from(fn.draw({}, 2, 1))).toEqual([0.5, 1.5]);
+  });
+
+  it("compiles storage()/invocationIndex() into a per-call array-indexed program", () => {
+    // Same per-invocation model as compileJS's storage support: one call per
+    // element, `ctx.index` naming which one, `ctx.storages` the backing
+    // arrays it reads/writes directly.
+    let dt!: UniformNode<"float">;
+    const build = () =>
+      Fn(() => {
+        const vel = storage("vel", "float");
+        const pos = storage("pos", "float", { access: "read_write" });
+        dt = uniform("float");
+        const i = invocationIndex();
+        pos.element(i).addAssign(vel.element(i).mul(dt));
+      })();
+    const fn = compileWasm(build as any, { name: "step", params: [] });
+
+    const pos = new Float64Array([0, 10, 20]);
+    const vel = new Float64Array([1, 2, 3]);
+    for (let i = 0; i < pos.length; i++) {
+      fn({ storages: { vel, pos }, uniforms: { [dt.name]: 2 }, index: i });
+    }
+    expect(Array.from(pos)).toEqual([2, 14, 26]);
   });
 });

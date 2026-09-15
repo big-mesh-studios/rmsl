@@ -93,7 +93,7 @@ export type UniformNode<A extends ShaderType> = VariableNode<A>;
 export interface UniformArrayNode<A extends ShaderType> {
   readonly name: string;
   readonly length: number;
-  element(index: IntLike | FloatLike): Node<A>;
+  element(index: IntLike | UintLike | FloatLike): Node<A>;
 }
 export type AttributeNode<A extends ShaderType> = VariableNode<A>;
 export type VaryingNode<A extends ShaderType> = VariableNode<A>;
@@ -1716,7 +1716,9 @@ export function assertBlockScope(fnName: string, fn: (blockScope: BaseNode<Shade
 // Supports single return: Fn(() => { ...; return x; }) -> () => Node<A>
 // Supports multi return: Fn(() => { ...; return [a, b]; }) -> () => [Node<A>, Node<B>]
 // Supports parameters: Fn((a: Node<"float">, b: Node<"float">) => a.add(b)) -> (a, b) => Node<"float">
-export function Fn<T extends any[], const R>(fn: (...args: T) => R): (...args: T) => R {
+export function Fn<T extends any[], const R>(
+  fn: (...args: T) => R,
+): (...args: T) => R {
   return (...args: T) => {
     let oldBlockScope = blockScope;
     // A top-level Fn starts a fresh name registry, so each compiled program
@@ -2498,6 +2500,7 @@ export type StorageAccess = "read" | "write" | "read_write";
 
 export type StorageNode<A extends ShaderType> = VariableNode<A> & {
   access: StorageAccess;
+  element(index: IntLike | UintLike | FloatLike): Node<A>;
 };
 
 export function storage<T extends ShaderType>(
@@ -2519,6 +2522,12 @@ export function storage<T extends ShaderType>(
   }) as StorageNode<T>;
 
   result.access = access;
+  result.element = (index: IntLike | UintLike | FloatLike) =>
+    node({
+      _t: shaderType,
+      type: "storageElement",
+      params: [result, wrapValue(index) as BaseNode<ShaderType>],
+    }) as Node<T>;
 
   return result;
 }

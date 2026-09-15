@@ -19,6 +19,16 @@ export type CpuShaderContext = {
   textures?: Record<string, CpuTextureData>;
   /** Pixel being evaluated, which `fragCoord()` reads on the CPU target. */
   fragCoord?: [number, number];
+  /**
+   * Backing arrays for `storage()` slots, one per name passed to `storage()`.
+   * A `storage()`-based program is called once per element with `index` set
+   * to that element's position — the same per-invocation semantics WGSL's
+   * compute path gives it, just driven by a host-side loop instead of the
+   * GPU's own dispatch.
+   */
+  storages?: Record<string, ArrayLike<number> & { [i: number]: number }>;
+  /** The current element index, which `invocationIndex()` reads on the CPU target. */
+  index?: number;
 };
 
 /** How a coordinate outside the image is turned into one inside it. */

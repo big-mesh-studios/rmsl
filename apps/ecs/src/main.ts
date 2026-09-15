@@ -1,4 +1,5 @@
-import { compileJS, compileWasm, compileWGSL, wgslUniformLayout } from "@random-mesh/rmsl";
+import { compileJS, compileWasm } from "@random-mesh/rmsl";
+import { compile, type WgslResource } from "@random-mesh/rmsl/wgsl";
 import { createEcsSystem } from "./system";
 
 const canvas = document.createElement("canvas");
@@ -51,25 +52,15 @@ const { slots } = system;
 const jsStep = compileJS(() => system.program.root, { name: "ecsSystem", params: [] });
 const wasmStep = compileWasm(() => system.program.root, { name: "ecsSystem", params: [] });
 
+// storage()/invocationIndex() give js/wasm the same per-invocation model WGSL
+// gets: one call per entity, `index` naming which one, `storages` the whole
+// backing arrays it reads/writes directly in place — no separate output
+// buffers or res.outputs indirection needed.
 function stepCPU(fn: typeof jsStep, dt: number) {
+  const storages = { [slots.posX]: posX, [slots.posY]: posY, [slots.velX]: velX, [slots.velY]: velY };
+  const uniforms = { [slots.width]: canvas.width, [slots.height]: canvas.height, [slots.dt]: dt };
   for (let i = 0; i < N; i++) {
-    const res = fn({
-      attributes: {
-        [slots.posX]: posX[i],
-        [slots.posY]: posY[i],
-        [slots.velX]: velX[i],
-        [slots.velY]: velY[i],
-      },
-      uniforms: {
-        [slots.width]: canvas.width,
-        [slots.height]: canvas.height,
-        [slots.dt]: dt,
-      },
-    }) as any;
-    posX[i] = res.outputs[slots.outPosX];
-    posY[i] = res.outputs[slots.outPosY];
-    velX[i] = res.outputs[slots.outVelX];
-    velY[i] = res.outputs[slots.outVelY];
+    fn({ storages, uniforms, index: i } as any);
   }
 }
 
@@ -81,6 +72,7 @@ type WgslBackend = {
 type WgslDevice = {
   device: GPUDevice;
   pipeline: GPUComputePipeline;
+  resources: WgslResource[];
 };
 
 async function setupWgslDevice(): Promise<WgslDevice | null> {
@@ -88,84 +80,74 @@ async function setupWgslDevice(): Promise<WgslDevice | null> {
   if (!adapter) return null;
   const device = await adapter.requestDevice();
 
-  const wgsl = compileWGSL.compute(system.program.root);
-  const module = device.createShaderModule({ code: wgsl });
+  const program = compile({ stage: "compute", workgroupSize: 64 }, system.program.root);
+  const module = device.createShaderModule({ code: program.code });
   const pipeline = device.createComputePipeline({
     layout: "auto",
-    compute: { module, entryPoint: "main" },
+    compute: { module, entryPoint: program.entryPoint },
   });
 
-  return { device, pipeline };
+  return { device, pipeline, resources: program.resources };
 }
 
 // Entity buffers are sized to N, so a count change tears these down and
 // rebuilds them — the device and pipeline above are reused as-is.
-function createWgslBuffers({ device, pipeline }: WgslDevice, n: number): WgslBackend {
+function createWgslBuffers({ device, pipeline, resources }: WgslDevice, n: number): WgslBackend {
   const BYTES = n * 4;
   const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
-  const inPosX = device.createBuffer({ size: BYTES, usage });
-  const inPosY = device.createBuffer({ size: BYTES, usage });
-  const inVelX = device.createBuffer({ size: BYTES, usage });
-  const inVelY = device.createBuffer({ size: BYTES, usage });
-  const outPosX = device.createBuffer({ size: BYTES, usage });
-  const outPosY = device.createBuffer({ size: BYTES, usage });
-  const outVelX = device.createBuffer({ size: BYTES, usage });
-  const outVelY = device.createBuffer({ size: BYTES, usage });
 
-  // Attributes are bound in the order they were created (posX, posY, velX,
-  // velY), then outputs in their creation order — the same order
-  // compileWGSL.compute assigns @group(1) bindings in.
-  const bindGroup1 = device.createBindGroup({
-    layout: pipeline.getBindGroupLayout(1),
-    entries: [
-      { binding: 0, resource: { buffer: inPosX } },
-      { binding: 1, resource: { buffer: inPosY } },
-      { binding: 2, resource: { buffer: inVelX } },
-      { binding: 3, resource: { buffer: inVelY } },
-      { binding: 4, resource: { buffer: outPosX } },
-      { binding: 5, resource: { buffer: outPosY } },
-      { binding: 6, resource: { buffer: outVelX } },
-      { binding: 7, resource: { buffer: outVelY } },
-    ],
+  const storageResources = resources.filter((r): r is Extract<WgslResource, { kind: "storage" }> => r.kind === "storage");
+  const uniformResources = resources.filter((r): r is Extract<WgslResource, { kind: "uniform" }> => r.kind === "uniform");
+
+  // read_write storage: one buffer per slot, updated in place — no separate
+  // in/out pair and no GPU-side feed-forward copy needed, since every
+  // invocation only ever touches its own element.
+  const storageBuffers = new Map(storageResources.map((r) => [r.name, device.createBuffer({ size: BYTES, usage })]));
+  const arraysBySlot = (): Record<string, Float32Array<ArrayBuffer>> => ({
+    [slots.posX]: posX,
+    [slots.posY]: posY,
+    [slots.velX]: velX,
+    [slots.velY]: velY,
   });
 
-  const layout = wgslUniformLayout([
-    { slot: slots.width, type: "f32" },
-    { slot: slots.height, type: "f32" },
-    { slot: slots.dt, type: "f32" },
-  ]);
+  const bindGroup1 = device.createBindGroup({
+    layout: pipeline.getBindGroupLayout(1),
+    entries: storageResources.map((r) => ({ binding: r.binding, resource: { buffer: storageBuffers.get(r.name)! } })),
+  });
+
+  const uniformSize = Math.max(16, ...uniformResources.map((r) => r.offset + r.size));
   const uniformBuffer = device.createBuffer({
-    size: Math.max(16, layout.size),
+    size: uniformSize,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
   const bindGroup0 = device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
     entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
   });
-  const uniformScratch = new Float32Array(uniformBuffer.size / 4);
-  const offsetOf = (slot: string) => layout.members.find((m) => m.name === slot)!.offset / 4;
+  const uniformScratch = new Float32Array(uniformSize / 4);
+  const uniformOffsetOf = (slot: string) => uniformResources.find((r) => r.name === slot)!.offset / 4;
 
   const staging = device.createBuffer({
-    size: BYTES * 4,
+    size: BYTES,
     usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
   });
 
-  // Seed the input buffers from whatever the CPU arrays currently hold, so a
-  // switch into this backend continues the same simulation.
+  // Seed every storage buffer from whatever the CPU arrays currently hold, so
+  // a switch into this backend continues the same simulation.
   function upload() {
-    device.queue.writeBuffer(inPosX, 0, posX);
-    device.queue.writeBuffer(inPosY, 0, posY);
-    device.queue.writeBuffer(inVelX, 0, velX);
-    device.queue.writeBuffer(inVelY, 0, velY);
+    const arrays = arraysBySlot();
+    for (const [slot, buffer] of storageBuffers) {
+      device.queue.writeBuffer(buffer, 0, arrays[slot]);
+    }
   }
   upload();
 
   const workgroups = Math.ceil(n / 64);
 
   async function step(dt: number) {
-    uniformScratch[offsetOf(slots.width)] = canvas.width;
-    uniformScratch[offsetOf(slots.height)] = canvas.height;
-    uniformScratch[offsetOf(slots.dt)] = dt;
+    uniformScratch[uniformOffsetOf(slots.width)] = canvas.width;
+    uniformScratch[uniformOffsetOf(slots.height)] = canvas.height;
+    uniformScratch[uniformOffsetOf(slots.dt)] = dt;
     device.queue.writeBuffer(uniformBuffer, 0, uniformScratch);
 
     const encoder = device.createCommandEncoder();
@@ -175,34 +157,26 @@ function createWgslBuffers({ device, pipeline }: WgslDevice, n: number): WgslBac
     pass.setBindGroup(1, bindGroup1);
     pass.dispatchWorkgroups(workgroups);
     pass.end();
-
-    // Feed this frame's outputs back in as next frame's inputs, GPU-side.
-    encoder.copyBufferToBuffer(outPosX, 0, inPosX, 0, BYTES);
-    encoder.copyBufferToBuffer(outPosY, 0, inPosY, 0, BYTES);
-    encoder.copyBufferToBuffer(outVelX, 0, inVelX, 0, BYTES);
-    encoder.copyBufferToBuffer(outVelY, 0, inVelY, 0, BYTES);
-
-    // ...and read them back so the shared CPU arrays stay the render/backend
-    // source of truth, at the cost of a CPU-GPU sync every frame.
-    encoder.copyBufferToBuffer(outPosX, 0, staging, 0, BYTES);
-    encoder.copyBufferToBuffer(outPosY, 0, staging, BYTES, BYTES);
-    encoder.copyBufferToBuffer(outVelX, 0, staging, BYTES * 2, BYTES);
-    encoder.copyBufferToBuffer(outVelY, 0, staging, BYTES * 3, BYTES);
     device.queue.submit([encoder.finish()]);
 
-    await staging.mapAsync(GPUMapMode.READ);
-    const mapped = new Float32Array(staging.getMappedRange());
-    posX.set(mapped.subarray(0, n));
-    posY.set(mapped.subarray(n, n * 2));
-    velX.set(mapped.subarray(n * 2, n * 3));
-    velY.set(mapped.subarray(n * 3, n * 4));
-    staging.unmap();
+    // Read every storage buffer back so the shared CPU arrays stay the
+    // render/backend source of truth, at the cost of a CPU-GPU sync per
+    // buffer per frame.
+    const arrays = arraysBySlot();
+    for (const [slot, buffer] of storageBuffers) {
+      const readEncoder = device.createCommandEncoder();
+      readEncoder.copyBufferToBuffer(buffer, 0, staging, 0, BYTES);
+      device.queue.submit([readEncoder.finish()]);
+      await staging.mapAsync(GPUMapMode.READ);
+      arrays[slot].set(new Float32Array(staging.getMappedRange()));
+      staging.unmap();
+    }
   }
 
   function destroy() {
-    for (const buf of [inPosX, inPosY, inVelX, inVelY, outPosX, outPosY, outVelX, outVelY, uniformBuffer, staging]) {
-      buf.destroy();
-    }
+    for (const buffer of storageBuffers.values()) buffer.destroy();
+    uniformBuffer.destroy();
+    staging.destroy();
   }
 
   return { step, destroy };

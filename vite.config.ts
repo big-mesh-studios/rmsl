@@ -7,6 +7,7 @@ export default defineConfig({
     lib: {
       entry: {
         rmsl: "src/rmsl.ts",
+        wgsl: "src/wgsl.ts",
         vite: "src/vite/vite.ts",
         effects: "src/effects/index.ts",
         scene: "src/scene/index.ts",
@@ -23,6 +24,7 @@ export default defineConfig({
     dts({
       include: [
         "src/rmsl.ts",
+        "src/wgsl.ts",
         "src/core.ts",
         "src/backends/shared.ts",
         "src/backends/glsl.ts",

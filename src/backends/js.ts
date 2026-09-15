@@ -110,6 +110,8 @@ export const JS_ARRAY_LEAF_TYPES = new Set([
   "varying",
   "output",
   "builtinPosition",
+  "storage",
+  "storageElement",
 ]);
 
 export function isJSArrayLeaf(node: any): boolean {
@@ -1087,6 +1089,30 @@ export function compileJSNode(
         };
       }
       return { decls: [...arr.decls, ...idx.decls], body: [...arr.body, ...idx.body], expr: element };
+    }
+
+    case "storage": {
+      let v = node.value as any;
+      return jsLeafRef(`ctx.storages[${JSON.stringify(v.slot)}]`, v.shaderType ?? node._t, ctx);
+    }
+
+    case "storageElement": {
+      let arr = jsCompileOperand(node.params![0], ctx);
+      let idx = jsCompileOperand(node.params![1], ctx);
+      let element = `${arr.expr}[${idx.expr}]`;
+      if (ctx.outTarget && jsIsArrayType(node._t)) {
+        jsRequireHelper(ctx, "copy");
+        return {
+          decls: [...arr.decls, ...idx.decls],
+          body: [...arr.body, ...idx.body, `_copy(${element}, ${ctx.outTarget});`],
+          expr: ctx.outTarget,
+        };
+      }
+      return { decls: [...arr.decls, ...idx.decls], body: [...arr.body, ...idx.body], expr: element };
+    }
+
+    case "invocationIndex": {
+      return { decls: [], body: [], expr: "ctx.index" };
     }
 
     case "attribute": {

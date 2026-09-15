@@ -52,6 +52,9 @@ import {
   uniformArray,
   varying,
   attribute,
+  storage,
+  invocationIndex,
+  type UniformNode,
   output,
   builtinPosition,
   builtinFragDepth,
@@ -1352,5 +1355,28 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
     const fn = compileJS(build as any, { name: "main", params: [] });
     expect(fn({ uniforms: { [tex.name]: 2 }, fragCoord: [3, 0] })).toBe(6);
     expect(Array.from(fn.draw({ uniforms: { [tex.name]: 2 } }, 2, 1))).toEqual([1, 3]);
+  });
+
+  it("compiles storage()/invocationIndex() into a per-call array-indexed program", () => {
+    // The same per-invocation model WGSL's compute path gives storage(): the
+    // compiled fn is called once per element, with `index` naming which one
+    // and `storages` holding the whole backing arrays for it to read/write.
+    let dt!: UniformNode<"float">;
+    const build = () =>
+      Fn(() => {
+        const vel = storage("vel", "float");
+        const pos = storage("pos", "float", { access: "read_write" });
+        dt = uniform("float");
+        const i = invocationIndex();
+        pos.element(i).addAssign(vel.element(i).mul(dt));
+      })();
+    const fn = compileJS(build as any, { name: "step", params: [] });
+
+    const pos = new Float32Array([0, 10, 20]);
+    const vel = new Float32Array([1, 2, 3]);
+    for (let i = 0; i < pos.length; i++) {
+      fn({ storages: { vel, pos }, uniforms: { [dt.name]: 2 }, index: i });
+    }
+    expect(Array.from(pos)).toEqual([2, 14, 26]);
   });
 });

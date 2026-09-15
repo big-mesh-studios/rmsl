@@ -6,7 +6,7 @@
  * empirically against a known answer, not quoted from memory: a
  * wrong-but-valid opcode runs and silently miscompiles.
  */
-import { MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, var_ } from "../core";
+import { MATRIX_DIMENSIONS, Node, ShaderType, StorageAccess, TYPE_WIDTH, var_ } from "../core";
 import { AllocRules, planLayout } from "../layout";
 import {
   componentCountOf,
@@ -42,6 +42,7 @@ export type WasmParam =
       narrow?: boolean;
     }
   | { kind: "attribute"; slot: string; shaderType: ShaderType }
+  | { kind: "invocationIndex"; shaderType: ShaderType }
   | { kind: "attributeMemory"; slot: string; shaderType: ShaderType; address: number }
   | { kind: "varying"; slot: string; shaderType: ShaderType }
   | { kind: "varyingMemory"; slot: string; shaderType: ShaderType; address: number }
@@ -60,6 +61,19 @@ export type WasmParam =
       address: number;
       elementStride: number;
       narrow?: boolean;
+    }
+  | {
+      /**
+       * A `storage()` slot, called once per element (like `invocationIndex`)
+       * rather than once over a whole buffer — so unlike `uniformArrayMemory`
+       * this is one value, marshalled from/to `ctx.storages[slot][ctx.index]`
+       * around the call instead of a compile-time-sized array.
+       */
+      kind: "storageMemory";
+      slot: string;
+      shaderType: ShaderType;
+      address: number;
+      access: StorageAccess;
     };
 
 /**
@@ -673,6 +687,20 @@ function readValueFromMemory(view: DataView, address: number, shaderType: Shader
     : readScalarFromMemory(view, address, shaderType);
 }
 
+/** Host-side: writes one scalar value into memory — writeAggregateToMemory's counterpart for a non-array type. */
+function writeScalarToMemory(view: DataView, address: number, shaderType: ShaderType, value: unknown): void {
+  const kind = scalarKindOf(shaderType);
+  const num = typeof value === "boolean" ? (value ? 1 : 0) : ((value as number | undefined) ?? 0);
+  if (kind === "float") view.setFloat64(address, num, true);
+  else view.setInt32(address, num, true);
+}
+
+/** Host-side: writes a value (scalar or aggregate) into memory — the write-side counterpart of readValueFromMemory. */
+function writeValueToMemory(view: DataView, address: number, shaderType: ShaderType, value: unknown): void {
+  if (isAggregate(shaderType)) writeAggregateToMemory(view, address, shaderType, value);
+  else writeScalarToMemory(view, address, shaderType, value);
+}
+
 /**
  * Host-side: writes a texture's metadata block and pixel data into the heap
  * region reserved by marshalInputs. Channels default to 4; the unorm
@@ -760,7 +788,7 @@ export function compileWasmFn(
   // the WASM local space (localSlots); aggregates and stage I/O get fixed
   // memory addresses recorded in the *Address maps. Everything is resolved
   // up front so the byte emitters never need to re-plan.
-  type ScalarWasmParam = Extract<WasmParam, { kind: "param" | "uniform" | "attribute" | "varying" }>;
+  type ScalarWasmParam = Extract<WasmParam, { kind: "param" | "uniform" | "attribute" | "varying" | "invocationIndex" }>;
   const params: ScalarWasmParam[] = [];
   const paramIndex = new Map<string, number>();
   const localSlots: string[] = [];
@@ -781,6 +809,7 @@ export function compileWasmFn(
 
   const attributeAddress = new Map<string, number>();
   const varyingAddress = new Map<string, number>();
+  const storageAddress = new Map<string, number>();
 
   // one shared per-pixel input slot, allocated on first use
   let fragCoordAddress: number | undefined;
@@ -1207,6 +1236,32 @@ export function compileWasmFn(
         break;
       }
 
+      case "storage": {
+        // Like `attribute`, but always memory-backed (never a plain param)
+        // since a read_write/write storage has to be readable back after the
+        // call — one call per element, marshalled from/to
+        // `ctx.storages[slot][ctx.index]` (see instantiateWasm).
+        const v = node.value;
+        if (!storageAddress.has(v.slot)) {
+          const addr = allocateFor(v.shaderType);
+          storageAddress.set(v.slot, addr);
+          if (v.access !== "read") needsResult = true;
+          memoryParams.push({
+            kind: "storageMemory",
+            slot: v.slot,
+            shaderType: v.shaderType,
+            address: addr,
+            access: v.access,
+          });
+        }
+        break;
+      }
+
+      case "invocationIndex": {
+        addParam({ kind: "invocationIndex", shaderType: "uint" }, "invocationIndex");
+        break;
+      }
+
       case "varying": {
         const v = node.value;
         if (effectiveStage === "fragment") {
@@ -1374,6 +1429,20 @@ export function compileWasmFn(
         return addr;
       }
 
+      case "storage": {
+        const addr = storageAddress.get(node.value.slot);
+        if (addr === undefined)
+          throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed storage "${node.value.slot}"`);
+        return addr;
+      }
+
+      // Per-call model: this call already represents one element, so a
+      // storageElement's address is simply its storage's own address — the
+      // index expression selects nothing at this level (it does on the WGSL
+      // target, which reads the whole buffer in one invocation instead).
+      case "storageElement":
+        return nodeAddress(node.params[0]);
+
       case "varying": {
         if (effectiveStage === "fragment") {
           const addr = varyingAddress.get(node.value.slot);
@@ -1479,6 +1548,10 @@ export function compileWasmFn(
       }
       case "attribute":
       case "fragCoord":
+      case "storage":
+      // Already resident at nodeAddress(node) — the host wrote it there (see
+      // "storageMemory" in instantiateWasm) before this call.
+      case "storageElement":
         return [];
       case "varying":
       case "output":
@@ -2511,6 +2584,15 @@ export function compileWasmFn(
         return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`uniform:${node.value.slot}`))];
       case "attribute":
         return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`attribute:${node.value.slot}`))];
+      case "invocationIndex":
+        return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex("invocationIndex"))];
+      case "storage":
+        return loadComponent(storageAddress.get(node.value.slot)!, scalarKindOf(node._t), 0);
+      // The index selects nothing here: this call already is one element
+      // (see nodeAddress's "storageElement" case), so it is not evaluated —
+      // RMSL index expressions are pure, unlike a general subexpression.
+      case "storageElement":
+        return loadComponent(nodeAddress(node.params[0]), scalarKindOf(node._t), 0);
       case "varying":
         if (effectiveStage === "fragment") {
           return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`varying:${node.value.slot}`))];
@@ -2921,6 +3003,9 @@ export function compileWasmFn(
         if (target.type === "output") {
           targetType = target._t as string;
           destAddr = outputAddress.get(target.value.slot)!;
+        } else if (target.type === "storageElement") {
+          targetType = target._t as string;
+          destAddr = nodeAddress(target.params[0]);
         } else if (target.type === "varying") {
           if (effectiveStage !== "vertex") {
             throw new Error("[RMSL] compileWasmFn: varying() cannot be assigned to outside a vertex stage");
@@ -3141,6 +3226,9 @@ export function instantiateWasm(
         case "varying":
           args.push((ctx.varyings as any)?.[p.slot] as number);
           break;
+        case "invocationIndex":
+          args.push(ctx.index ?? 0);
+          break;
         case "paramMemory":
           writeAggregateToMemory(view, p.address, p.shaderType, (ctx.params as any)?.[p.name]);
           break;
@@ -3168,14 +3256,33 @@ export function instantiateWasm(
           // the host's fragCoord for CPU invocations; draw() overwrites it per pixel — harmless
           writeAggregateToMemory(view, p.address, "vec2", ctx.fragCoord ?? [0, 0]);
           break;
+        case "storageMemory":
+          if (p.access !== "write") {
+            writeValueToMemory(view, p.address, p.shaderType, (ctx.storages as any)?.[p.slot]?.[ctx.index ?? 0]);
+          }
+          break;
       }
     }
     return { args, textureHeapEnd };
   }
 
+  const storageOutputParams = params.filter(
+    (p): p is Extract<WasmParam, { kind: "storageMemory" }> => p.kind === "storageMemory" && p.access !== "read",
+  );
+
   function callable(ctx: CpuShaderContext): number | boolean | CpuShaderResult {
     const { args } = marshalInputs(ctx);
     const result = wasmMain(...args);
+
+    // A read_write/write storage() is mutated in the caller's own array at
+    // ctx.index, the same convention compileJS's storage support uses —
+    // not folded into shaderResult, since the point is the array itself
+    // stays the source of truth across calls.
+    for (const p of storageOutputParams) {
+      const arr = (ctx.storages as any)?.[p.slot];
+      if (arr) arr[ctx.index ?? 0] = readValueFromMemory(view, p.address, p.shaderType);
+    }
+
     // scalar mode: reinterpret the raw i32 — the WASM boundary returns it
     // signed, so a uint result needs a >>> 0 re-read
     if (outputParams.length === 0) {
