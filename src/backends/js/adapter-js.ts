@@ -7,8 +7,8 @@
 // the same reason: `compute` and `draw` are two different root graphs (a
 // storage()/invocationIndex() program vs. a fragCoord() one), so a
 // caller may give either or both.
-import { Node, ShaderType } from "../core";
-import { CpuAdapter, createCpuAdapter } from "./adapter-cpu";
+import { Node, ShaderType } from "../../core";
+import { CpuAdapter, createCpuAdapter } from "../adapter-cpu";
 import { compileJS, CompileJSOptions } from "./js";
 
 export interface CreateJsOptions {

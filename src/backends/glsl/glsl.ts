@@ -1,5 +1,5 @@
 // ========== GLSL Compiler ==========
-import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, var_ } from "../core";
+import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, var_ } from "../../core";
 import {
   CompileCtx,
   CompileFnOptions,
@@ -15,8 +15,9 @@ import {
   tryFold,
   withoutSemicolon,
   wrapExpr,
-} from "./shared";
-export let typeToGLSL: Record<string, string> = {
+} from "../shared";
+
+export const typeToGLSL: Record<string, string> = {
   float: "float",
   vec2: "vec2",
   vec3: "vec3",
@@ -78,10 +79,10 @@ export function compileGLSLStage(
   // Reached before: its statements are already in the output, so only the
   // expression naming the result is handed back. Emitting them again would
   // redeclare a variable, or run an assignment or a loop a second time.
-  let seen = ctx.memo.get(node);
+  const seen = ctx.memo.get(node);
   if (seen) return { decls: [], body: [], expr: seen.expr, prec: seen.prec };
 
-  let result = compileGLSLNode(node, ctx);
+  const result = compileGLSLNode(node, ctx);
   ctx.memo.set(node, result);
   return result;
 }

@@ -1,6 +1,6 @@
 // ========== WGSL Compiler ==========
-import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, isSamplerType, var_ } from "../core";
-import { AllocRules, planLayout } from "../layout";
+import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, isSamplerType, var_ } from "../../core";
+import { AllocRules, planLayout } from "../../layout";
 import {
   CompileCtx,
   CompileFnOptions,
@@ -17,7 +17,7 @@ import {
   tryFold,
   withoutSemicolon,
   wrapExpr,
-} from "./shared";
+} from "../shared";
 export let typeToWGSL: Record<string, string> = {
   float: "f32",
   vec2: "vec2<f32>",

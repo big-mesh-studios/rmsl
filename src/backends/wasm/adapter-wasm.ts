@@ -3,8 +3,8 @@
 // adapter-js.ts's comment — the same reasoning applies here, `compute`
 // and `draw` are two different root graphs a caller may give either or
 // both of.
-import { Node, ShaderType } from "../core";
-import { CpuAdapter, createCpuAdapter } from "./adapter-cpu";
+import { Node, ShaderType } from "../../core";
+import { CpuAdapter, createCpuAdapter } from "../adapter-cpu";
 import { compileWasm, CompileWasmFnOptions } from "./wasm";
 
 export interface CreateWasmOptions {

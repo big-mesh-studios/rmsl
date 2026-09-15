@@ -1,12 +1,13 @@
 import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
 
-// === Backend adapter ===
-// A uniform way to drive any of the four backends (CPU/JS, WASM, GLSL,
-// WGSL) without homogenizing what makes them different: JS/WASM compute
-// synchronously into a caller-supplied buffer, WGSL's compute pass is async,
-// and drawing needs a canvas while computing doesn't. `compute`/`draw` are
-// optional so a backend only implements what it actually supports —
-// callers feature-detect the same way they'd check `navigator.gpu`.
+/**
+ * A uniform way to drive any of the four backends (CPU/JS, WASM, GLSL,
+ * WGSL) without homogenizing what makes them different: JS/WASM compute
+ * synchronously into a caller-supplied buffer, WGSL's compute pass is async,
+ * and drawing needs a canvas while computing doesn't. `compute`/`draw` are
+ * optional so a backend only implements what it actually supports —
+ * callers feature-detect the same way they'd check `navigator.gpu`.
+ */
 export interface Adapter<TBuffer, TDrawOptions = void> {
   /**
    * One-time setup (device/context/pipeline creation) for `draw`. Creates
@@ -75,11 +76,4 @@ export function slotOf(uniformOrAttribute: UniformOrSlot | AttributeOrSlot): str
 }
 
 export type TypedArray =
-  | Float32Array
-  | Float64Array
-  | Int32Array
-  | Uint32Array
-  | Int16Array
-  | Uint16Array
-  | Int8Array
-  | Uint8Array;
+  Float32Array | Float64Array | Int32Array | Uint32Array | Int16Array | Uint16Array | Int8Array | Uint8Array;

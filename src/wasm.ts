@@ -5,8 +5,8 @@
  * backend (both compile to the same callable shape — see adapter-cpu.ts);
  * see `js.ts` for the same re-export.
  */
-export { compileWasm, compileWasmFn, instantiateWasm } from "./backends/wasm";
-export type { CompiledWasm, WasmParam } from "./backends/wasm";
+export { compileWasm, compileWasmFn, instantiateWasm } from "./backends/wasm/wasm";
+export type { CompiledWasm, WasmParam } from "./backends/wasm/wasm";
 
 export type {
   CpuDrawBuffer,
@@ -17,8 +17,8 @@ export type {
   CpuTextureWrap,
 } from "./backends/cpu";
 
-export { createWasm } from "./backends/adapter-wasm";
-export type { CreateWasmOptions } from "./backends/adapter-wasm";
+export { createWasm } from "./backends/wasm/adapter-wasm";
+export type { CreateWasmOptions } from "./backends/wasm/adapter-wasm";
 export type { AdapterResult as CpuAdapterResult, CpuAdapter } from "./backends/adapter-cpu";
 
 export type { Adapter, TypedArray } from "./backends/adapter";

@@ -20,8 +20,8 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { compileWasm, compileWasmFn, instantiateWasm } from "../wasm";
-import { compileJS } from "../js";
+import { compileWasm, compileWasmFn, instantiateWasm } from "../../wasm";
+import { compileJS } from "../../js";
 import {
   Fn,
   If,
@@ -73,7 +73,7 @@ import {
   ivec2,
   type Node,
   type ShaderType,
-} from "../rmsl";
+} from "../../rmsl";
 import type { CompileWasmFnOptions } from "./wasm";
 
 function run(

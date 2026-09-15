@@ -6,8 +6,8 @@
  * so `wasm.ts` re-exports them too rather than making one backend the
  * "real" home for something both need.
  */
-export { compileJS, compileJSFn } from "./backends/js";
-export type { CompileJSOptions } from "./backends/js";
+export { compileJS, compileJSFn } from "./backends/js/js";
+export type { CompileJSOptions } from "./backends/js/js";
 
 export type {
   CpuDrawBuffer,
@@ -18,8 +18,8 @@ export type {
   CpuTextureWrap,
 } from "./backends/cpu";
 
-export { createJs } from "./backends/adapter-js";
-export type { CreateJsOptions } from "./backends/adapter-js";
-export type { AdapterResult as CpuAdapterResult, CpuAdapter } from "./backends/adapter-cpu";
+export type { CpuAdapter, AdapterResult as CpuAdapterResult } from "./backends/adapter-cpu";
+export { createJs } from "./backends/js/adapter-js";
+export type { CreateJsOptions } from "./backends/js/adapter-js";
 
 export type { Adapter, TypedArray } from "./backends/adapter";

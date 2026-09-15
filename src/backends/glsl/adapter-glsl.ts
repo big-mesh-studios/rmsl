@@ -6,10 +6,10 @@
 // by walking the RMSL graph the way storage()/uniform() bindings need
 // `compile()`'s resource list on the WGSL side — this just asks the GL
 // context what it linked.
-import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
-import { Adapter, slotOf, TypedArray } from "./adapter";
+import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
+import { Adapter, slotOf, TypedArray } from "../adapter";
+import { VertexRoot } from "../shared";
 import { compileGlsl, CompileGLSLOptions } from "./glsl";
-import { VertexRoot } from "./shared";
 
 type UniformInfo = { location: WebGLUniformLocation; type: number };
 type AttributeInfo = { location: number; buffer: WebGLBuffer; componentCount: number };

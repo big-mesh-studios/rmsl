@@ -6,10 +6,10 @@
 // time, not discoverable from a linked program afterward — so the render
 // side reflects attributes/uniforms itself, walking the vertex/fragment
 // graphs the same way `compile()` walks the compute one.
-import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
-import { compile, WgslResource } from "../wgsl";
-import { Adapter, slotOf, TypedArray } from "./adapter";
-import { CompileCtx, VertexRoot } from "./shared";
+import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
+import { compile, WgslResource } from "../../wgsl";
+import { Adapter, slotOf, TypedArray } from "../adapter";
+import { CompileCtx, VertexRoot } from "../shared";
 import { compileWGSLStage, compileWGSLWithStage, wgslMatrixColumns, wgslUniformLayout } from "./wgsl";
 
 /** One typed array per storage slot, keyed by name — read_write, so the same

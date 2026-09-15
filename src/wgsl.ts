@@ -1,5 +1,5 @@
 import type { Node, ShaderType, StorageAccess } from "./core";
-import { compileWgsl, wgslUniformLayout, WGSL_UNIFORM_STRUCT } from "./backends/wgsl";
+import { compileWgsl, wgslUniformLayout, WGSL_UNIFORM_STRUCT } from "./backends/wgsl/wgsl";
 
 export type WgslStage = "compute" | "vertex" | "fragment";
 
@@ -144,10 +144,10 @@ export function compile(
 }
 
 export { compileWgsl, wgslUniformLayout };
-export type { CompileWGSLOptions, WgslUniformDeclaration, WgslUniformMember } from "./backends/wgsl";
+export type { CompileWGSLOptions, WgslUniformDeclaration, WgslUniformMember } from "./backends/wgsl/wgsl";
 
-export { compileWgslFn } from "./backends/wgsl";
+export { compileWgslFn } from "./backends/wgsl/wgsl";
 
 export type { Adapter, TypedArray } from "./backends/adapter";
-export { createWgsl } from "./backends/adapter-wgsl";
-export type { AdapterResult, CreateWgslAdapterOptions, WgslAdapter, WgslDrawOptions } from "./backends/adapter-wgsl";
+export { createWgsl } from "./backends/wgsl/adapter-wgsl";
+export type { AdapterResult, CreateWgslAdapterOptions, WgslAdapter, WgslDrawOptions } from "./backends/wgsl/adapter-wgsl";

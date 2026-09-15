@@ -1,17 +1,17 @@
 // ========== JS Compiler ==========
 // The third backend: compile a node graph to a JavaScript function that the
 // host can call on the CPU, one fragment at a time.
-import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, var_ } from "../core";
+import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, var_ } from "../../core";
 import {
-  componentCountOf,
   CpuDrawBuffer,
   CpuRenderer,
   CpuShaderContext,
   CpuShaderResult,
+  componentCountOf,
   elementKindOf,
   isAggregate,
   scalarKindOf,
-} from "./cpu";
+} from "../cpu";
 import {
   CompileCtx,
   CompileFnOptions,
@@ -27,7 +27,7 @@ import {
   tryFold,
   withoutSemicolon,
   wrapExpr,
-} from "./shared";
+} from "../shared";
 // ========== JS Compiler ==========
 /**
  * The third backend: compile a node graph to a JavaScript function that the

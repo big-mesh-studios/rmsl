@@ -6,8 +6,8 @@
  * empirically against a known answer, not quoted from memory: a
  * wrong-but-valid opcode runs and silently miscompiles.
  */
-import { MATRIX_DIMENSIONS, Node, ShaderType, StorageAccess, TYPE_WIDTH, var_ } from "../core";
-import { AllocRules, planLayout } from "../layout";
+import { MATRIX_DIMENSIONS, Node, ShaderType, StorageAccess, var_ } from "../../core";
+import { AllocRules, planLayout } from "../../layout";
 import {
   componentCountOf,
   CpuDrawBuffer,
@@ -20,8 +20,8 @@ import {
   isAggregate,
   ScalarKind,
   scalarKindOf,
-} from "./cpu";
-import { assertStageResult, CompileFnOptions, COMPONENT_INDEX, resolveSwizzleTarget } from "./shared";
+} from "../cpu";
+import { assertStageResult, CompileFnOptions, COMPONENT_INDEX, resolveSwizzleTarget } from "../shared";
 
 /**
  * How a value crosses the module boundary. Scalar kinds are WASM params;
@@ -788,7 +788,10 @@ export function compileWasmFn(
   // the WASM local space (localSlots); aggregates and stage I/O get fixed
   // memory addresses recorded in the *Address maps. Everything is resolved
   // up front so the byte emitters never need to re-plan.
-  type ScalarWasmParam = Extract<WasmParam, { kind: "param" | "uniform" | "attribute" | "varying" | "invocationIndex" }>;
+  type ScalarWasmParam = Extract<
+    WasmParam,
+    { kind: "param" | "uniform" | "attribute" | "varying" | "invocationIndex" }
+  >;
   const params: ScalarWasmParam[] = [];
   const paramIndex = new Map<string, number>();
   const localSlots: string[] = [];

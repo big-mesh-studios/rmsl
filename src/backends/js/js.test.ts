@@ -22,9 +22,9 @@ import {
   assertRecordedEvaluationsAgree,
   closeEvaluators,
   type CpuOnlyReason,
-} from "../testing/shader-eval";
-import { compileJS, compileJSFn, type CpuTextureData } from "../js";
-import { compileWasm } from "../wasm";
+} from "../../testing/shader-eval";
+import { compileJS, compileJSFn, type CpuTextureData } from "../../js";
+import { compileWasm } from "../../wasm";
 import {
   Fn,
   float,
@@ -84,7 +84,7 @@ import {
   pow,
   textureLoad,
   type Node,
-} from "../rmsl";
+} from "../../rmsl";
 
 const approx = (actual: number, want: number) => expect(actual).toBeCloseTo(want, 9);
 
