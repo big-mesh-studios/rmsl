@@ -146,5 +146,5 @@ export function compile(
 export { compileWGSL };
 
 export type { Adapter, TypedArray } from "./backends/adapter";
-export { createWgslAdapter } from "./backends/adapter-wgsl";
+export { createWgsl } from "./backends/adapter-wgsl";
 export type { AdapterResult, CreateWgslAdapterOptions, WgslAdapter, WgslDrawOptions } from "./backends/adapter-wgsl";

@@ -12,7 +12,7 @@ import { CpuRenderer } from "./cpu";
 /** One typed array per storage slot, keyed by name. */
 export type AdapterResult = Record<string, TypedArray>;
 
-export function createCpuAdapter(step: CpuRenderer): Adapter<AdapterResult> {
+export function createCpu(step: CpuRenderer): Adapter<AdapterResult> {
   let n = 0;
   const storages: Record<string, TypedArray> = {};
   const uniforms: Record<string, number | number[]> = {};

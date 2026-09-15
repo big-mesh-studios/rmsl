@@ -18,7 +18,7 @@ export type AdapterResult = Record<string, TypedArray>;
 
 /**
  * Unlike GL's `drawArrays`, WebGPU bakes primitive topology into the
- * pipeline (`createWgslAdapter`'s own `topology` option), not the draw
+ * pipeline (`createWgsl`'s own `topology` option), not the draw
  * call — so there's no `mode` here, just which vertices/instances to draw.
  */
 export interface WgslDrawOptions {
@@ -122,12 +122,12 @@ function writeUniformScratch(scratch: Float32Array, offset: number, value: numbe
   else scratch[offset] = value;
 }
 
-export function createWgslAdapter(options: CreateWgslAdapterOptions): WgslAdapter {
+export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
   if (!options.compute && !options.vertex && !options.fragment) {
-    throw new Error("[RMSL] createWgslAdapter needs a `compute` program, or a `vertex`+`fragment` pair");
+    throw new Error("[RMSL] createWgsl needs a `compute` program, or a `vertex`+`fragment` pair");
   }
   if (Boolean(options.vertex) !== Boolean(options.fragment)) {
-    throw new Error("[RMSL] createWgslAdapter needs `vertex` and `fragment` together for a render pipeline");
+    throw new Error("[RMSL] createWgsl needs `vertex` and `fragment` together for a render pipeline");
   }
 
   let device: GPUDevice | null = null;
@@ -231,7 +231,7 @@ export function createWgslAdapter(options: CreateWgslAdapterOptions): WgslAdapte
         for (let attr of vertexAttributes) {
           if (wgslMatrixColumns(attr.type)) {
             throw new Error(
-              `[RMSL] createWgslAdapter's vertex attributes don't support matrix types ("${attr.slot}": ${attr.type})`,
+              `[RMSL] createWgsl's vertex attributes don't support matrix types ("${attr.slot}": ${attr.type})`,
             );
           }
         }
@@ -364,7 +364,7 @@ export function createWgslAdapter(options: CreateWgslAdapterOptions): WgslAdapte
 
     async compute(out) {
       if (!device || !computePipeline || !computeBindGroup1 || !staging) {
-        throw new Error("[RMSL] adapter not attached, or no `compute` given to createWgslAdapter");
+        throw new Error("[RMSL] adapter not attached, or no `compute` given to createWgsl");
       }
       let encoder = device.createCommandEncoder();
       let pass = encoder.beginComputePass();
@@ -394,7 +394,7 @@ export function createWgslAdapter(options: CreateWgslAdapterOptions): WgslAdapte
 
     draw(drawOptions) {
       if (!device || !renderPipeline || !context) {
-        throw new Error("[RMSL] adapter not attached, or no `vertex`/`fragment` given to createWgslAdapter");
+        throw new Error("[RMSL] adapter not attached, or no `vertex`/`fragment` given to createWgsl");
       }
       let encoder = device.createCommandEncoder();
       let view = context.getCurrentTexture().createView();

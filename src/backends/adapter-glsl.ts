@@ -100,7 +100,7 @@ function setUniformValue(gl: WebGL2RenderingContext, info: UniformInfo, value: n
   }
 }
 
-export function createGlslAdapter(
+export function createGlsl(
   vertexRoot: VertexRoot,
   fragmentRoot: Node<ShaderType> | readonly Node<ShaderType>[],
   options?: CompileGLSLOptions,
