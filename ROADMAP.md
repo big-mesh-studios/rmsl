@@ -1038,6 +1038,122 @@ produced the bytes.
   for every backend at once, so no backend needed to read the error's kind.
   Revisit only if the public API needs to expose and dispatch on failure
   kind in its own code.
+- **`rasterizeTriangles` is a prototype, missing a lot a real rasterizer
+  has.** Scoped deliberately narrow (matching `createGlsl`'s own default
+  draw's scope in some cases, just genuinely absent in others) — recorded
+  so the gaps are explicit rather than discovered by surprise:
+  - No depth test / z-buffer — triangles paint in draw order only, no
+    occlusion.
+  - No near/far clipping — a vertex behind the eye (`w <= 0`) produces
+    garbage or `Infinity`/`NaN` screen coordinates instead of being
+    clipped.
+  - No index buffer — plain sequential triples only (matches
+    `createGlsl`'s current default, not general mesh data).
+  - Degenerate/zero-area triangles are skipped outright, not subdivided
+    or handled specially.
+  - No antialiasing — a hard edge-function coverage test, one sample per
+    pixel center.
+  - `textures` is threaded through to both stages but never exercised by
+    the demo — unverified.
+  - `componentCount` is a caller-supplied constant, not inferred from the
+    fragment program's actual return type, so a mismatch silently reads
+    zeros/garbage instead of erroring.
+  - No `createJs`/`createWasm` integration — it's a standalone function
+    over already-compiled vertex/fragment callables, not hung off an
+    adapter the way `createWgsl`'s vertex+fragment option is: no
+    `setAttribute`/`setUniform` ergonomics, no pending-value replay, no
+    `.draw()` on an adapter object.
+  - No tests — correctness against GLSL/WGSL output for the same program
+    is unverified beyond the one demo triangle.
+  - Naive per-pixel bounding-box loop, no tiling/binning — fine for a
+    512x512 demo, not a real workload's performance profile (see the
+    batched-entry-point bullet below for the specific WASM-side cost this
+    also masks).
+- **A single shared-memory WASM module for the whole vertex+rasterize+
+  fragment loop, not per-call marshalling.** `src/backends/cpu-
+  rasterizer.ts` (prototype, `apps/adapters`'s js-vtx/wasm-vtx demo) runs
+  a compiled vertex/fragment pair through a software triangle rasterizer
+  from the host side, calling the compiled `vertex` callable once per
+  vertex and the compiled `fragment` callable once per *covered pixel* —
+  for `compileWasm` specifically, every one of those is a JS→WASM boundary
+  crossing, exactly the cost `.draw()` was already built to amortize for
+  the fragment-only, no-attributes case (see "A whole grid in one call:
+  `.draw()`" above). A batched entry point (an array of pre-interpolated
+  varying sets handed to WASM in one call) would help, but doesn't remove
+  the deeper cost: the host still owns the vertex loop and the raster math,
+  so there's still at least one crossing per triangle. The real fix is
+  `.draw()`'s own model taken all the way: compile the vertex stage and
+  the fragment stage as two functions in **one** WASM module sharing one
+  linear memory (attribute/uniform/varying storage, the same allocator
+  Phase 3 already built), plus a third exported function — call it
+  `"drawTriangles"`, the vertex-stage analogue of `.draw()`'s existing
+  `"draw"` export — that runs the vertex loop, the edge-function/
+  barycentric math, and the fragment `call`s entirely inside WASM, writing
+  straight into the output buffer. The host side then shrinks to: upload
+  attribute buffers into linear memory once, call
+  `drawTriangles(vertexCount, width, height)` once per frame, read back
+  one buffer — zero JS↔WASM crossings in the hot loop, not just fewer.
+  Not designed or started — this is new `compileWasm`/`compileWasmFn`
+  codegen (linking two stages' bytecode into one module, plus the raster
+  loop itself as WASM bytecode, not JS), a materially bigger lift than a
+  batched marshalling entry point. Revisit before trying to make the
+  rasterizer prototype fast, not before.
+
+  A typical GLSL app draws several *different* programs (materials) into
+  one shared framebuffer/depth buffer, not one program per frame — worth
+  recording how that composes with a one-module-per-program design before
+  it's built, since it isn't free:
+
+  - **Approach A — each program keeps its own private linear memory
+    (today's model); the shared color/depth buffers are copied in and out
+    per draw call.** `drawTriangles(vertexCount, width, height,
+    colorBufferIn?, depthBufferIn?)` copies the shared buffers into its own
+    memory at the start of the call and writes them back at the end — the
+    same `out?` shape `.draw()` already has, just carrying a depth buffer
+    along too so depth testing works *across* programs, not only within
+    one. Cost: one buffer copy per *draw call*, not per pixel/vertex — for
+    a 512x512 RGBA+depth buffer that's a few MB copied a handful of times a
+    frame, nowhere near the per-pixel crossing cost this whole redesign
+    exists to avoid. Small, additive change to what's already sketched
+    above — the natural first thing to build.
+  - **Approach B — one `WebAssembly.Memory` imported by every compiled
+    program**, with the host handing out fixed offsets: one shared region
+    for the color+depth buffers, one private scratch region per program.
+    Every `drawTriangles` call then writes directly into the shared
+    framebuffer with zero copying at all — N draw calls from N different
+    programs cost exactly N calls. Strictly faster than A, but a real
+    architectural change: every compiled module goes from declaring its
+    own memory (`(memory (export "memory") 1)`) to *importing* one the
+    host creates and grows, and each program's compile-time address
+    allocator needs to know it's carving out of a shared space rather than
+    owning memory 0..N itself. Reach for this only if A's per-draw-call
+    copy cost actually shows up in a benchmark — same measure-before-
+    optimizing discipline the rest of this file follows.
+
+  If B is ever built, one non-obvious constraint to design around up
+  front: growing a `WebAssembly.Memory` (`memory.grow`, from the host or
+  from an imported call) never races an in-progress call — this backend's
+  execution model is synchronous and single-threaded, so nothing runs
+  concurrently while `grow` executes; the host only ever grows *between*
+  calls, exactly when it already wants to (right before a draw call that
+  needs more space). The real hazard is buffer **identity**, not
+  concurrency: for an ordinary (non-`shared`) `WebAssembly.Memory`,
+  `grow()` replaces `memory.buffer` with a brand-new `ArrayBuffer` and
+  detaches the old one — already true of the existing WASM texture heap
+  (see "Texture data lives in linear memory, not behind a host call"
+  above, "growing detaches the old `ArrayBuffer`"). With *one* memory
+  shared by several modules, growing it from any one of them invalidates
+  every previously-taken `DataView`/`TypedArray` over it, for every
+  module, not just the one that triggered the grow — so the host would
+  need to re-derive every cached view from `memory.buffer` fresh after any
+  grow, everywhere one is held. Creating the memory with `shared: true` (a
+  growable `SharedArrayBuffer` instead of a growable `ArrayBuffer`) avoids
+  this — a `SharedArrayBuffer` can't be detached, so growth extends it in
+  place and every existing view stays valid — at the cost of needing a
+  cross-origin-isolated page (COOP/COEP headers) to exist in a browser at
+  all, a real deployment constraint plain `WebAssembly.Memory` doesn't
+  have. Not decided — recorded so the tradeoff is visible before B gets
+  built, not discovered partway through.
 - **Audio/DSP and multi-backend "audiovisual" use cases.** Purely
   exploratory — not scoped into any phase above, a set of ideas that came
   up while dreaming about what compiling one shared source to both WASM and
