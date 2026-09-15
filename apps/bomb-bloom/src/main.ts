@@ -3,7 +3,8 @@
 // The bomb body and the wick fire are RMSL node graphs (`./shader.ts`)
 // compiled to GLSL and drawn with a raw WebGL2 context. The bloom is the
 // `@random-mesh/rmsl/effects` PassGraph executed by `./bloom.ts`.
-import { compileGLSL, uniform } from "@random-mesh/rmsl";
+import { uniform } from "@random-mesh/rmsl";
+import { compileGlsl } from "@random-mesh/rmsl/glsl";
 import { bloom } from "@random-mesh/rmsl/effects";
 import {
   bodyVertex,
@@ -84,8 +85,8 @@ function createProgram(vsSource: string, fsSource: string, attrib0?: string): We
 }
 
 // === Shaders (RMSL -> GLSL) ===
-const bodyProgram = createProgram(compileGLSL.vertex(bodyVertex()), compileGLSL.fragment(bodyFragment()));
-const flameProgram = createProgram(compileGLSL.vertex(flameVertex()), compileGLSL.fragment(flameFragment()));
+const bodyProgram = createProgram(compileGlsl.vertex(bodyVertex()), compileGlsl.fragment(bodyFragment()));
+const flameProgram = createProgram(compileGlsl.vertex(flameVertex()), compileGlsl.fragment(flameFragment()));
 
 // === Geometry ===
 const grey = [0.43, 0.43, 0.43];

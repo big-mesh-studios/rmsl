@@ -16,10 +16,6 @@ import {
   bvec3,
   bvec4,
   clamp,
-  compileGLSLFn,
-  compileJS,
-  compileJSFn,
-  compileWGSLFn,
   Continue,
   cos,
   cross,
@@ -97,18 +93,20 @@ import {
   vec2,
   vec3,
   vec4,
-  wgslUniformLayout,
   While,
   xor,
 } from "./rmsl";
+import { compileGlslFn } from "./glsl";
+import { compileWgslFn, wgslUniformLayout } from "./wgsl";
+import { compileJS, compileJSFn } from "./js";
 // Recording stand-ins for the real compilers: each returns the language it is
 // named for and additionally compiles the program to the other, so every shader
 // the tests generate is checked by a real GLSL and WGSL implementation in the
 // afterAll below. Aliasing at the import means the tests need no changes.
 import {
   assertRecordedShadersValid,
-  recordingGLSL as compileGLSL,
-  recordingWGSL as compileWGSL,
+  recordingGLSL as compileGlsl,
+  recordingWGSL as compileWgsl,
   expectCompileRejection,
   recordShaderSource,
 } from "./testing/shader-validity";
@@ -125,7 +123,7 @@ describe("RMSL", () => {
       let z = x.add(y).toVar();
       return z;
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("#version 300 es");
     expect(glsl).toContain("void main(void)");
     expect(glsl).toContain("float _rmsl_");
@@ -133,7 +131,7 @@ describe("RMSL", () => {
 
   it("compiles a simple float expression to WGSL", () => {
     let prog = Fn(() => float(3.14).toVar());
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("fn main()");
     expect(wgsl).toContain("3.14f");
   });
@@ -144,7 +142,7 @@ describe("RMSL", () => {
       let uColor = uniform("vec3");
       return uTime.add(uColor.x);
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("uniform float");
     expect(glsl).toContain("uniform vec3");
   });
@@ -196,14 +194,14 @@ describe("RMSL", () => {
       let a = vec3(1, 2, 3).toVar();
       return a.x.toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("vec3(1, 2, 3)");
     expect(glsl).toContain(".x");
   });
 
   it("compiles vec3 swizzles in WGSL", () => {
     let prog = Fn(() => vec3(4, 5, 6).xyz.toVar());
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("vec3<f32>(4, 5, 6)");
     expect(wgsl).toContain(".xyz");
   });
@@ -214,7 +212,7 @@ describe("RMSL", () => {
       let b = float(3).toVar();
       return a.div(b).add(float(1)).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("/");
     expect(glsl).toContain("+ 1");
   });
@@ -226,7 +224,7 @@ describe("RMSL", () => {
       return [a, b];
     });
     let [a, b] = prog();
-    let glsl = compileGLSL([a, b]);
+    let glsl = compileGlsl([a, b]);
     expect(glsl).toContain("float _rmsl_");
   });
 
@@ -235,7 +233,7 @@ describe("RMSL", () => {
       let x = float(0.5).toVar();
       return x.sin().add(x.cos()).add(x.abs()).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("sin(");
     expect(glsl).toContain("cos(");
     expect(glsl).toContain("abs(");
@@ -252,7 +250,7 @@ describe("RMSL", () => {
       });
       return x;
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("if (");
     expect(glsl).toContain("else {");
   });
@@ -260,13 +258,13 @@ describe("RMSL", () => {
   // === Phase 1.1: Comparison ops ===
   it("compiles float lessThan to GLSL", () => {
     let prog = Fn(() => float(1.0).lessThan(float(2.0)).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("1.0 < 2.0");
   });
 
   it("compiles float lessThan to WGSL", () => {
     let prog = Fn(() => float(1.0).lessThan(float(2.0)).toVar());
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("1f < 2f");
   });
 
@@ -279,7 +277,7 @@ describe("RMSL", () => {
         .lessThan(vec3(4, 5, 6))
         .toVar(),
     );
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("lessThan(");
     expect(glsl).toContain("bvec3 ");
   });
@@ -290,7 +288,7 @@ describe("RMSL", () => {
         .lessThan(vec3(4, 5, 6))
         .toVar(),
     );
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("vec3<bool>");
   });
 
@@ -300,7 +298,7 @@ describe("RMSL", () => {
         .equal(vec3(1, 2, 3))
         .toVar(),
     );
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("equal(");
     expect(glsl).toContain("bvec3 ");
   });
@@ -317,7 +315,7 @@ describe("RMSL", () => {
         .toVar(),
     ]);
     let [a, b] = prog();
-    let glsl = compileGLSL([a, b]);
+    let glsl = compileGlsl([a, b]);
     expect(glsl).toContain("all(lessThan(");
     expect(glsl).toContain("any(greaterThan(");
     expect(glsl).toContain("bool ");
@@ -330,7 +328,7 @@ describe("RMSL", () => {
         .all()
         .toVar(),
     );
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("all(");
     expect(wgsl).toContain(": bool");
   });
@@ -343,8 +341,8 @@ describe("RMSL", () => {
         .not()
         .toVar(),
     );
-    expect(compileGLSL(prog())).toContain("not(lessThan(");
-    expect(compileWGSL(prog())).toContain("!(");
+    expect(compileGlsl(prog())).toContain("not(lessThan(");
+    expect(compileWgsl(prog())).toContain("!(");
   });
 
   // refract(I, N, eta) takes three arguments.
@@ -354,7 +352,7 @@ describe("RMSL", () => {
         .refract(vec3(0, 1, 0), 0.5)
         .toVar(),
     );
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("refract(vec3(1, 0, 0), vec3(0, 1, 0), 0.5)");
   });
 
@@ -364,7 +362,7 @@ describe("RMSL", () => {
         .refract(vec3(0, 1, 0), 0.5)
         .toVar(),
     );
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("refract(vec3<f32>(1, 0, 0), vec3<f32>(0, 1, 0), 0.5f)");
   });
 
@@ -383,7 +381,7 @@ describe("RMSL", () => {
       );
       return total;
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     let header = glsl.split("\n").find((l) => l.includes("for ("))!;
     expect(header).toMatch(/;\s*(\S+) = \1 \+ 1\.0\) \{$/);
   });
@@ -401,7 +399,7 @@ describe("RMSL", () => {
       );
       return total;
     });
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     let header = wgsl.split("\n").find((l) => l.includes("for ("))!;
     expect(header).toMatch(/;\s*(\S+) = \1 \+ 1f\) \{$/);
   });
@@ -413,7 +411,7 @@ describe("RMSL", () => {
       let a = vec2(3, 4).toVar();
       return [a.length().toVar(), a.distance(vec2(0, 0)).toVar(), a.dot(vec2(1, 1)).toVar()];
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("float");
     expect(glsl).not.toMatch(/vec2 \S+ = length\(/);
     expect(glsl).not.toMatch(/vec2 \S+ = distance\(/);
@@ -422,7 +420,7 @@ describe("RMSL", () => {
 
   it("compares a distance against a float with an operator, not lessThan()", () => {
     let prog = Fn(() => vec2(3, 4).distance(vec2(0, 0)).lessThan(5.0).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("< 5.0");
     expect(glsl).not.toContain("lessThan(");
   });
@@ -433,7 +431,7 @@ describe("RMSL", () => {
       let tex = uniform("sampler2D");
       return tex.texture(vec2(0.5, 0.5)).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("uniform sampler2D");
     expect(glsl).toContain("texture(");
   });
@@ -443,7 +441,7 @@ describe("RMSL", () => {
       let tex = uniform("sampler2D");
       return tex.texture(vec2(0.5, 0.5)).toVar();
     });
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("texture_2d<f32>");
     expect(wgsl).toContain("textureSample(");
   });
@@ -453,7 +451,7 @@ describe("RMSL", () => {
       let tex = uniform("sampler2D");
       return tex.textureLod(vec2(0.5, 0.5), float(0.0)).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("textureLod(");
   });
 
@@ -464,7 +462,7 @@ describe("RMSL", () => {
       let tex = uniform("sampler3D");
       return tex.texture(vec3(0.5, 0.5, 0.5)).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("uniform sampler3D");
     expect(glsl).toContain("texture(");
   });
@@ -474,7 +472,7 @@ describe("RMSL", () => {
       let tex = uniform("sampler3D");
       return tex.textureLod(vec3(0.5, 0.5, 0.5), float(0.0)).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("uniform sampler3D");
     expect(glsl).toContain("textureLod(");
   });
@@ -484,7 +482,7 @@ describe("RMSL", () => {
       let tex = uniform("sampler3D");
       return tex.texture(vec3(0.5, 0.5, 0.5)).toVar();
     });
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("texture_3d<f32>");
     expect(wgsl).toContain("textureSample(");
   });
@@ -496,7 +494,7 @@ describe("RMSL", () => {
       let v = vec3(1, 2, 3);
       return m.mul(v).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("vec4(");
     expect(glsl).toContain(".xyz");
   });
@@ -504,7 +502,7 @@ describe("RMSL", () => {
   // === Phase 1.4: Int/Uint comparison ===
   it("compiles int lessThan", () => {
     let prog = Fn(() => int(1).lessThan(int(2)).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("1 < 2");
   });
 
@@ -512,99 +510,99 @@ describe("RMSL", () => {
   // constants fold away.
   it("gives a plain number the operand's integer type", () => {
     let prog = Fn(() => uniform("int").mod(2).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toMatch(/int \S+ = \S+ % 2;/);
     expect(glsl).not.toContain("float(");
-    expect(compileWGSL(prog())).toMatch(/var \S+: i32 = \S+ % 2i;/);
+    expect(compileWgsl(prog())).toMatch(/var \S+: i32 = \S+ % 2i;/);
   });
 
   it("keeps float literals float", () => {
     let prog = Fn(() => uniform("float").add(2).toVar());
-    expect(compileGLSL(prog())).toContain("+ 2.0");
-    expect(compileWGSL(prog())).toContain("+ 2f");
+    expect(compileGlsl(prog())).toContain("+ 2.0");
+    expect(compileWgsl(prog())).toContain("+ 2f");
   });
 
   // === Phase 2: Constructor overloads ===
   it("vec3 scalar promotion", () => {
     let prog = Fn(() => vec3(1.0).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("vec3(1");
   });
 
   it("vec3 scalar promotion WGSL", () => {
     let prog = Fn(() => vec3(1.0).toVar());
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("vec3<f32>(1");
   });
 
   it("vec4 from vec3 + scalar", () => {
     let prog = Fn(() => vec4(vec3(1, 2, 3), 1.0).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("vec4(vec3(1, 2, 3), 1");
   });
 
   it("vec3 from vec4 truncation", () => {
     let prog = Fn(() => vec3(vec4(1, 2, 3, 4)).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("vec3(vec4(");
   });
 
   it("float from int type casting", () => {
     let prog = Fn(() => float(int(5)).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("float(5)");
   });
 
   it("int from float type casting", () => {
     let prog = Fn(() => int(float(3.14)).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("int(3");
   });
 
   it("mat4 scalar constructor", () => {
     let prog = Fn(() => mat4(1.0).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("mat4(1");
   });
 
   it("mat4 scalar constructor WGSL", () => {
     let prog = Fn(() => mat4(1.0).toVar());
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("mat4x4<f32>(1");
   });
 
   // === Phase 3: Compiler Quality ===
-  it("compileGLSL.vertex emits gl_Position", () => {
+  it("compileGlsl.vertex emits gl_Position", () => {
     let prog = Fn(() => {
       let mvp = uniform("mat4");
       let pos = attribute("vec3");
       // gl_Position is a vec4, so the stage result has to be one too.
       return vec4(mvp.mul(pos), 1.0);
     });
-    let glsl = compileGLSL.vertex(prog());
+    let glsl = compileGlsl.vertex(prog());
     expect(glsl).toContain("gl_Position");
     expect(glsl).toContain("#version 300 es");
   });
 
-  it("compileGLSL.fragment emits output", () => {
+  it("compileGlsl.fragment emits output", () => {
     let prog = Fn(() => float(1.0).toVar());
-    let glsl = compileGLSL.fragment(prog());
+    let glsl = compileGlsl.fragment(prog());
     expect(glsl).toContain("#version 300 es");
   });
 
-  it("compileWGSL.vertex emits @vertex and VertexOutput", () => {
+  it("compileWgsl.vertex emits @vertex and VertexOutput", () => {
     let prog = Fn(() => vec4(1, 2, 3, 4));
-    let wgsl = compileWGSL.vertex(prog());
+    let wgsl = compileWgsl.vertex(prog());
     expect(wgsl).toContain("@vertex");
     expect(wgsl).toContain("VertexOutput");
     expect(wgsl).toContain("@builtin(position)");
   });
 
-  it("compileWGSL.fragment emits @fragment and FragmentOutput", () => {
+  it("compileWgsl.fragment emits @fragment and FragmentOutput", () => {
     // The struct only appears when there is something to return, so the stage
     // result has to be a vec4 for the implicit colour output to be emitted.
     let prog = Fn(() => vec4(1.0, 0.0, 0.0, 1.0).toVar());
-    let wgsl = compileWGSL.fragment(prog());
+    let wgsl = compileWgsl.fragment(prog());
     expect(wgsl).toContain("@fragment");
     expect(wgsl).toContain("FragmentOutput");
     expect(wgsl).toContain("_rmsl_fragColor");
@@ -616,7 +614,7 @@ describe("RMSL", () => {
       outColor.assign(vec4(1, 0, 0, 1));
       return outColor;
     });
-    let glsl = compileGLSL.fragment(prog());
+    let glsl = compileGlsl.fragment(prog());
     expect(glsl).toContain("layout(location=0)");
     expect(glsl).toContain("out vec4");
   });
@@ -626,11 +624,11 @@ describe("RMSL", () => {
   it("declares an implicit colour output when a fragment shader has none", () => {
     let build = () => Fn(() => vec4(1, 0, 0, 1).toVar());
 
-    let glsl = compileGLSL.fragment(build()());
+    let glsl = compileGlsl.fragment(build()());
     expect(glsl).toContain("layout(location=0) out vec4 _rmsl_fragColor;");
     expect(glsl).toMatch(/_rmsl_fragColor = \S+;/);
 
-    let wgsl = compileWGSL.fragment(build()());
+    let wgsl = compileWgsl.fragment(build()());
     expect(wgsl).toContain("_rmsl_fragColor");
   });
 
@@ -641,7 +639,7 @@ describe("RMSL", () => {
       outColor.assign(vec4(1, 0, 0, 1));
       return vec4(0, 1, 0, 1);
     });
-    let glsl = compileGLSL.fragment(prog());
+    let glsl = compileGlsl.fragment(prog());
     expect(glsl.match(/_rmsl_o\d+ = /g) ?? []).toHaveLength(1);
     expect(glsl).toContain("vec4(1, 0, 0, 1)");
   });
@@ -652,7 +650,7 @@ describe("RMSL", () => {
       outColor.assign(vec4(1, 0, 0, 1));
       return float(2).toVar();
     });
-    let glsl = compileGLSL.fragment(prog());
+    let glsl = compileGlsl.fragment(prog());
     expect(glsl.match(/_rmsl_o\d+ = /g) ?? []).toHaveLength(1);
   });
 
@@ -667,14 +665,14 @@ describe("RMSL", () => {
         return vec4(0, 0, 0, 1);
       });
 
-    let wgsl = compileWGSL.vertex(build()());
+    let wgsl = compileWgsl.vertex(build()());
     let slots = [...wgsl.matchAll(/@location\((\d+)\)/g)].map((m) => m[1]);
     expect(slots.length, "two values are passed on").toBe(2);
     expect(new Set(slots).size, "each slot used once").toBe(slots.length);
 
     // A location qualifier belongs on a fragment output. GLSL ES 3.00 does not
     // allow one on a vertex output, whatever the number.
-    expect(compileGLSL.vertex(build()())).not.toMatch(/layout\(location=\d+\) out/);
+    expect(compileGlsl.vertex(build()())).not.toMatch(/layout\(location=\d+\) out/);
   });
 
   it("output() creates output in WGSL fragment", () => {
@@ -683,7 +681,7 @@ describe("RMSL", () => {
       outColor.assign(vec4(1, 0, 0, 1));
       return outColor;
     });
-    let wgsl = compileWGSL.fragment(prog());
+    let wgsl = compileWgsl.fragment(prog());
     expect(wgsl).toMatch(/@location\(\d+\)/);
   });
 
@@ -692,7 +690,7 @@ describe("RMSL", () => {
       let pos = builtinPosition();
       return pos;
     });
-    let glsl = compileGLSL.vertex(prog());
+    let glsl = compileGlsl.vertex(prog());
     expect(glsl).toContain("gl_Position");
   });
 
@@ -701,7 +699,7 @@ describe("RMSL", () => {
       let pos = builtinPosition();
       return pos;
     });
-    let wgsl = compileWGSL.vertex(prog());
+    let wgsl = compileWgsl.vertex(prog());
     expect(wgsl).toContain("position");
   });
 
@@ -711,7 +709,7 @@ describe("RMSL", () => {
       fd.assign(float(0.5));
       return float(1.0);
     });
-    let glsl = compileGLSL.fragment(prog());
+    let glsl = compileGlsl.fragment(prog());
     expect(glsl).toContain("gl_FragDepth");
     expect(glsl).toContain("gl_FragDepth = 0.5");
   });
@@ -722,7 +720,7 @@ describe("RMSL", () => {
       fd.assign(float(0.5));
       return float(1.0);
     });
-    let wgsl = compileWGSL.fragment(prog());
+    let wgsl = compileWgsl.fragment(prog());
     expect(wgsl).toContain("@builtin(frag_depth)");
     expect(wgsl).toContain("_rmsl_fragDepth = 0.5");
   });
@@ -731,8 +729,8 @@ describe("RMSL", () => {
     // A valid position, so the depth builtin is the only thing left to object
     // to — otherwise this would be refused for two reasons at once.
     let prog = Fn(() => vec4(builtinFragDepth(), 0, 0, 1).toVar());
-    expect(() => compileGLSL.vertex(prog())).toThrow("builtinFragDepth");
-    expect(() => compileWGSL.vertex(prog())).toThrow("builtinFragDepth");
+    expect(() => compileGlsl.vertex(prog())).toThrow("builtinFragDepth");
+    expect(() => compileWgsl.vertex(prog())).toThrow("builtinFragDepth");
   });
 
   it("varying is out in vertex, in in fragment GLSL", () => {
@@ -741,8 +739,8 @@ describe("RMSL", () => {
       // A vertex shader's result is its position, so it has to be a vec4.
       return vec4(v.x, v.y, v.z, 1.0);
     });
-    let vertexGLSL = compileGLSL.vertex(prog());
-    let fragmentGLSL = compileGLSL.fragment(prog());
+    let vertexGLSL = compileGlsl.vertex(prog());
+    let fragmentGLSL = compileGlsl.fragment(prog());
     expect(vertexGLSL).toContain("out vec3");
     expect(fragmentGLSL).toContain("in vec3");
   });
@@ -751,22 +749,22 @@ describe("RMSL", () => {
   it("rejects a vertex shader whose result is not a vec4", () => {
     let prog = Fn(() => vec3(1, 2, 3).toVar());
     // @ts-expect-error a vec3 cannot become a position
-    expect(() => compileGLSL.vertex(prog())).toThrow(/vertex shader/);
+    expect(() => compileGlsl.vertex(prog())).toThrow(/vertex shader/);
     // @ts-expect-error a vec3 cannot become a position
-    expect(() => compileWGSL.vertex(prog())).toThrow(/vertex shader/);
+    expect(() => compileWgsl.vertex(prog())).toThrow(/vertex shader/);
   });
 
   // A vertex shader must produce a position, and zero is not a valid position.
   it("rejects a vertex result of zero, like any other non-position", () => {
     // @ts-expect-error a float cannot become a position, zero included
-    expect(() => compileGLSL.vertex(Fn(() => float(0))())).toThrow(/vertex shader/);
+    expect(() => compileGlsl.vertex(Fn(() => float(0))())).toThrow(/vertex shader/);
     // @ts-expect-error a float cannot become a position, zero included
-    expect(() => compileWGSL.vertex(Fn(() => float(0))())).toThrow(/vertex shader/);
+    expect(() => compileWgsl.vertex(Fn(() => float(0))())).toThrow(/vertex shader/);
   });
 
   it("rejects a vertex result that folds to zero", () => {
     // @ts-expect-error a folded zero is still a float
-    expect(() => compileGLSL.vertex(Fn(() => float(2).sub(float(2)))())).toThrow(/vertex shader/);
+    expect(() => compileGlsl.vertex(Fn(() => float(2).sub(float(2)))())).toThrow(/vertex shader/);
   });
 
   // Writing the position explicitly is the documented way to set it.
@@ -775,18 +773,18 @@ describe("RMSL", () => {
       Fn(() => {
         builtinPosition().assign(vec4(1, 2, 3, 4));
       });
-    let glsl = compileGLSL.vertex(build()());
+    let glsl = compileGlsl.vertex(build()());
     expect(glsl.match(/gl_Position = /g) ?? [], "written once").toHaveLength(1);
     expect(glsl).toContain("vec4(1, 2, 3, 4)");
 
-    let wgsl = compileWGSL.vertex(build()());
+    let wgsl = compileWgsl.vertex(build()());
     expect(wgsl.match(/result\.position = /g) ?? [], "written once").toHaveLength(1);
   });
 
   // With no explicit write, the result still has to be able to become one.
   it("still requires a position when the shader writes none", () => {
     // @ts-expect-error a float cannot become a position
-    expect(() => compileGLSL.vertex(Fn(() => float(1))())).toThrow(/vertex shader/);
+    expect(() => compileGlsl.vertex(Fn(() => float(1))())).toThrow(/vertex shader/);
   });
 
   // A vertex shader that returns nothing and never writes a position fails
@@ -795,15 +793,15 @@ describe("RMSL", () => {
     let prog = Fn(() => {
       float(1).toVar();
     });
-    expect(() => compileGLSL.vertex(prog())).toThrow(/vertex shader/);
-    expect(() => compileWGSL.vertex(prog())).toThrow(/vertex shader/);
+    expect(() => compileGlsl.vertex(prog())).toThrow(/vertex shader/);
+    expect(() => compileWgsl.vertex(prog())).toThrow(/vertex shader/);
   });
 
   // A fragment shader with no colour output is legal, so this stays permitted.
   it("allows a fragment shader with no output", () => {
     let prog = Fn(() => float(3.14).toVar());
-    expect(() => compileGLSL.fragment(prog())).not.toThrow();
-    expect(compileGLSL.fragment(prog())).toContain("3.14");
+    expect(() => compileGlsl.fragment(prog())).not.toThrow();
+    expect(compileGlsl.fragment(prog())).toContain("3.14");
   });
 
   it("For loop init hoists declaration into for header in GLSL", () => {
@@ -816,7 +814,7 @@ describe("RMSL", () => {
       );
       return float(1.0);
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("for (int _rmsl_");
   });
 
@@ -828,7 +826,7 @@ describe("RMSL", () => {
       // @builtin(position) is a vec4, so the stage result has to be one too.
       return vec4(mvp.mul(pos), 1.0);
     });
-    let wgsl = compileWGSL.vertex(prog());
+    let wgsl = compileWgsl.vertex(prog());
     expect(wgsl).toContain("struct VertexInput");
     expect(wgsl).toContain("@location(0)");
     expect(wgsl).toMatch(/input\._rmsl_a\d/);
@@ -840,7 +838,7 @@ describe("RMSL", () => {
       let tex = uniform("sampler2D");
       return tex.texture(vec2(0, 0)).add(u);
     });
-    let wgsl = compileWGSL.fragment(prog());
+    let wgsl = compileWgsl.fragment(prog());
     expect(wgsl).toContain("@group(0) @binding(0) var<uniform>");
     expect(wgsl).toContain("@group(1) @binding(0) var ");
     expect(wgsl).toContain("@group(2) @binding(0) var ");
@@ -851,7 +849,7 @@ describe("RMSL", () => {
       let tex = uniform("sampler3D");
       return tex.texture(vec3(0, 0, 0));
     });
-    let wgsl = compileWGSL.fragment(prog());
+    let wgsl = compileWgsl.fragment(prog());
     expect(wgsl).toMatch(/@group\(1\) @binding\(0\) var \S+: texture_3d<f32>;/);
     expect(wgsl).toMatch(/@group\(2\) @binding\(0\) var \S+_s: sampler;/);
     expect(wgsl).toContain("textureSample(");
@@ -862,7 +860,7 @@ describe("RMSL", () => {
       let x = float(5).toVar();
       return x.mod(2).toVar();
     });
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("2f");
     expect(wgsl).not.toContain("f32(");
   });
@@ -875,7 +873,7 @@ describe("RMSL", () => {
       a.xy.assign(b.xy);
       return a;
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain(".xy = ");
   });
 
@@ -886,7 +884,7 @@ describe("RMSL", () => {
       a.xy.assign(b.xy);
       return a;
     });
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     // WGSL cannot assign to a multi-component swizzle, so the write is split
     // into one assignment per component.
     expect(wgsl).toContain(".x = ");
@@ -906,7 +904,7 @@ describe("RMSL", () => {
       );
       return float(1.0);
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("break;");
   });
 
@@ -922,19 +920,19 @@ describe("RMSL", () => {
       );
       return float(1.0);
     });
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("continue;");
   });
 
   it("mat2 constructor compiles to GLSL", () => {
     let prog = Fn(() => mat2(1, 0, 0, 1).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("mat2(1, 0, 0, 1)");
   });
 
   it("mat2x3 constructor compiles to GLSL", () => {
     let prog = Fn(() => mat2x3(1, 0, 0, 0, 1, 0).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("mat2x3(");
   });
 
@@ -952,7 +950,7 @@ describe("RMSL", () => {
     let rectOtherWay = compileJS(() => mat3x2(vec2(1, 2), vec2(3, 4), vec2(5, 6)), { name: "main", params: [] });
     expect(rectOtherWay({})).toEqual([1, 2, 3, 4, 5, 6]);
 
-    let glsl = compileGLSL(Fn(() => mat2x4(vec4(1, 0, 0, 0), vec4(0, 1, 0, 0)).toVar())());
+    let glsl = compileGlsl(Fn(() => mat2x4(vec4(1, 0, 0, 0), vec4(0, 1, 0, 0)).toVar())());
     expect(glsl).toContain("mat2x4(vec4(");
   });
 
@@ -979,23 +977,23 @@ describe("RMSL", () => {
     "log2",
   ])("float.%s() compiles to GLSL (constant-folded)", (op) => {
     let prog = Fn(() => (float(0.5) as any)[op]().toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     // With constant folding, the result is a literal, not a function call
     expect(glsl).not.toContain(op);
     expect(glsl).toMatch(/_rmsl_\d+ = /);
   });
 
   it("float.pow() compiles to GLSL (constant-folded)", () => {
-    let glsl = compileGLSL(Fn(() => float(2.0).pow(float(3.0)).toVar())());
+    let glsl = compileGlsl(Fn(() => float(2.0).pow(float(3.0)).toVar())());
     expect(glsl).toContain("= 8");
   });
 
   it("float.min()/max()/mod() compile to GLSL (constant-folded)", () => {
-    let glsl1 = compileGLSL(Fn(() => float(5).min(float(3)).toVar())());
+    let glsl1 = compileGlsl(Fn(() => float(5).min(float(3)).toVar())());
     expect(glsl1).toContain("= 3");
-    let glsl2 = compileGLSL(Fn(() => float(5).max(float(3)).toVar())());
+    let glsl2 = compileGlsl(Fn(() => float(5).max(float(3)).toVar())());
     expect(glsl2).toContain("= 5");
-    let glsl3 = compileGLSL(Fn(() => float(5).mod(float(3)).toVar())());
+    let glsl3 = compileGlsl(Fn(() => float(5).mod(float(3)).toVar())());
     expect(glsl3).toContain("= 2");
   });
 
@@ -1005,7 +1003,7 @@ describe("RMSL", () => {
       let a = vec3(1, 2, 3).toVar();
       return (a as any)[op](op === "dot" || op === "distance" ? a : undefined).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain(op);
   });
 
@@ -1014,8 +1012,8 @@ describe("RMSL", () => {
   // `operator < (vec3<f32>, f32)`. The signatures accept the mix.
   it("broadcasts a scalar compared against a vector", () => {
     let prog = Fn(() => vec3(1, 2, 3).lessThan(uniform("float")).all().toVar());
-    expect(compileGLSL(prog())).toMatch(/lessThan\(vec3\(1, 2, 3\), vec3\(\S+\)\)/);
-    expect(compileWGSL(prog())).toMatch(/vec3<f32>\(1, 2, 3\) < vec3<f32>\(\S+\)/);
+    expect(compileGlsl(prog())).toMatch(/lessThan\(vec3\(1, 2, 3\), vec3\(\S+\)\)/);
+    expect(compileWgsl(prog())).toMatch(/vec3<f32>\(1, 2, 3\) < vec3<f32>\(\S+\)/);
   });
 
   // A scalar compared against a vector is a type error — see
@@ -1024,7 +1022,7 @@ describe("RMSL", () => {
   // languages need.
   it("allows a vector compared against a scalar", () => {
     let prog = Fn(() => vec3(1, 2, 3).lessThan(uniform("float")).all().toVar());
-    expect(compileGLSL(prog())).toContain("lessThan(");
+    expect(compileGlsl(prog())).toContain("lessThan(");
   });
 
   // step/smoothstep take the value last, so the result type follows that
@@ -1032,26 +1030,26 @@ describe("RMSL", () => {
   it("types step/smoothstep from the value, not the edge", () => {
     let stepped = Fn(() => uniform("vec3").step(0.5).toVar());
     let smoothed = Fn(() => uniform("vec3").smoothstep(0.0, 1.0).toVar());
-    expect(compileGLSL(stepped())).toMatch(/vec3 \S+ = step\(/);
-    expect(compileGLSL(smoothed())).toMatch(/vec3 \S+ = smoothstep\(/);
-    expect(compileWGSL(stepped())).toMatch(/var \S+: vec3<f32> = step\(/);
+    expect(compileGlsl(stepped())).toMatch(/vec3 \S+ = step\(/);
+    expect(compileGlsl(smoothed())).toMatch(/vec3 \S+ = smoothstep\(/);
+    expect(compileWgsl(stepped())).toMatch(/var \S+: vec3<f32> = step\(/);
   });
 
   it("vec3.reflect/refract/clamp/mix/step/smoothstep compile to GLSL", () => {
     let v = vec3(1, 2, 3);
     let n = vec3(0, 1, 0);
-    expect(compileGLSL(Fn(() => v.reflect(n).toVar())())).toContain("reflect");
-    expect(compileGLSL(Fn(() => v.refract(n, float(0.5)).toVar())())).toContain("refract");
+    expect(compileGlsl(Fn(() => v.reflect(n).toVar())())).toContain("reflect");
+    expect(compileGlsl(Fn(() => v.refract(n, float(0.5)).toVar())())).toContain("refract");
     let zero = vec3(0, 0, 0);
     let one = vec3(1, 1, 1);
-    expect(compileGLSL(Fn(() => v.clamp(zero, one).toVar())())).toContain("clamp");
-    expect(compileGLSL(Fn(() => v.mix(one, float(0.5)).toVar())())).toContain("mix");
-    expect(compileGLSL(Fn(() => v.step(one).toVar())())).toContain("step");
-    expect(compileGLSL(Fn(() => v.smoothstep(one, zero).toVar())())).toContain("smoothstep");
+    expect(compileGlsl(Fn(() => v.clamp(zero, one).toVar())())).toContain("clamp");
+    expect(compileGlsl(Fn(() => v.mix(one, float(0.5)).toVar())())).toContain("mix");
+    expect(compileGlsl(Fn(() => v.step(one).toVar())())).toContain("step");
+    expect(compileGlsl(Fn(() => v.smoothstep(one, zero).toVar())())).toContain("smoothstep");
   });
 
   it("mix/clamp/smoothstep emit 3 args in GLSL", () => {
-    let glsl_mix = compileGLSL(
+    let glsl_mix = compileGlsl(
       Fn(() =>
         vec3(1, 0, 0)
           .mix(vec3(0, 1, 0), float(0.5))
@@ -1060,10 +1058,10 @@ describe("RMSL", () => {
     );
     expect(glsl_mix).toContain("mix(");
     expect(glsl_mix).not.toContain("mix(vec3(1, 0, 0), vec3(0, 1, 0))");
-    let glsl_clamp = compileGLSL(Fn(() => float(0.5).clamp(float(0), float(1)).toVar())());
+    let glsl_clamp = compileGlsl(Fn(() => float(0.5).clamp(float(0), float(1)).toVar())());
     expect(glsl_clamp).toContain("clamp(");
     expect(glsl_clamp).toContain("0.0, 1.0");
-    let glsl_ss = compileGLSL(Fn(() => float(0.5).smoothstep(float(0), float(1)).toVar())());
+    let glsl_ss = compileGlsl(Fn(() => float(0.5).smoothstep(float(0), float(1)).toVar())());
     expect(glsl_ss).toMatch(/smoothstep\(0\.0, 1\.0, 0\.5/);
   });
 
@@ -1077,7 +1075,7 @@ describe("RMSL", () => {
   });
 
   it("vec3.cross compiles to GLSL", () => {
-    let glsl = compileGLSL(
+    let glsl = compileGlsl(
       Fn(() =>
         vec3(1, 0, 0)
           .cross(vec3(0, 1, 0))
@@ -1090,16 +1088,16 @@ describe("RMSL", () => {
   // -- MatOps --
   it("mat3.inverse/transpose compiles to GLSL", () => {
     let m = mat3(1, 0, 0, 0, 1, 0, 0, 0, 1);
-    expect(compileGLSL(Fn(() => m.inverse().toVar())())).toContain("inverse");
-    expect(compileGLSL(Fn(() => m.transpose().toVar())())).toContain("transpose");
+    expect(compileGlsl(Fn(() => m.inverse().toVar())())).toContain("inverse");
+    expect(compileGlsl(Fn(() => m.transpose().toVar())())).toContain("transpose");
   });
 
   it("mat4.inverse/transpose/mul compiles to GLSL", () => {
     let m = mat4(1);
     let v = vec4(1, 2, 3, 4);
-    expect(compileGLSL(Fn(() => m.inverse().toVar())())).toContain("inverse");
-    expect(compileGLSL(Fn(() => m.transpose().toVar())())).toContain("transpose");
-    expect(compileGLSL(Fn(() => m.mul(v).toVar())())).toContain("*");
+    expect(compileGlsl(Fn(() => m.inverse().toVar())())).toContain("inverse");
+    expect(compileGlsl(Fn(() => m.transpose().toVar())())).toContain("transpose");
+    expect(compileGlsl(Fn(() => m.mul(v).toVar())())).toContain("*");
   });
 
   it("a matCxR times a matRxS types at the product shape", () => {
@@ -1116,8 +1114,8 @@ describe("RMSL", () => {
   it("a non-square matrix product compiles to GLSL and WGSL at the product type", () => {
     let a = uniform("mat2x3");
     let b = uniform("mat3x2");
-    let glsl = compileGLSL(Fn(() => a.mul(b).toVar())());
-    let wgsl = compileWGSL(Fn(() => a.mul(b).toVar())());
+    let glsl = compileGlsl(Fn(() => a.mul(b).toVar())());
+    let wgsl = compileWgsl(Fn(() => a.mul(b).toVar())());
     expect(glsl).toContain("mat3");
     expect(wgsl).toContain("mat3x3<f32>");
   });
@@ -1131,7 +1129,7 @@ describe("RMSL", () => {
     ["mod", 2],
   ])("int.%s() compiles to GLSL (constant-folded)", (op, expected) => {
     let prog = Fn(() => (int(5) as any)[op](int(3)).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain(String(expected));
   });
 
@@ -1143,7 +1141,7 @@ describe("RMSL", () => {
     ["shiftRight", ">>"],
   ])("int.%s() compiles to GLSL (bitwise)", (op, expected) => {
     let prog = Fn(() => (int(5) as any)[op](int(3)).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain(expected as string);
   });
 
@@ -1151,20 +1149,20 @@ describe("RMSL", () => {
   it("bool.and/or/not compile to GLSL", () => {
     let t = bool(true);
     let f = bool(false);
-    expect(compileGLSL(Fn(() => t.and(f).toVar())())).toContain("&&");
-    expect(compileGLSL(Fn(() => t.or(f).toVar())())).toContain("||");
-    expect(compileGLSL(Fn(() => t.not().toVar())())).toContain("!");
+    expect(compileGlsl(Fn(() => t.and(f).toVar())())).toContain("&&");
+    expect(compileGlsl(Fn(() => t.or(f).toVar())())).toContain("||");
+    expect(compileGlsl(Fn(() => t.not().toVar())())).toContain("!");
   });
 
   // -- Type literals --
   it("int/uint/bool/vec2 literals compile to GLSL", () => {
-    expect(compileGLSL(Fn(() => int(42).toVar())())).toContain("42");
-    expect(compileGLSL(Fn(() => vec2(1, 2).toVar())())).toContain("vec2(1, 2)");
+    expect(compileGlsl(Fn(() => int(42).toVar())())).toContain("42");
+    expect(compileGlsl(Fn(() => vec2(1, 2).toVar())())).toContain("vec2(1, 2)");
   });
 
   it("int/uint/bool/vec2 literals compile to WGSL", () => {
-    expect(compileWGSL(Fn(() => int(42).toVar())())).toContain("42i");
-    expect(compileWGSL(Fn(() => vec2(1, 2).toVar())())).toContain("vec2<f32>(1, 2)");
+    expect(compileWgsl(Fn(() => int(42).toVar())())).toContain("42i");
+    expect(compileWgsl(Fn(() => vec2(1, 2).toVar())())).toContain("vec2<f32>(1, 2)");
   });
 
   // -- Control flow: While, discard --
@@ -1176,7 +1174,7 @@ describe("RMSL", () => {
       });
       return float(1.0);
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("while (");
   });
 
@@ -1187,7 +1185,7 @@ describe("RMSL", () => {
       });
       return float(1.0);
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("discard;");
   });
 
@@ -1198,7 +1196,7 @@ describe("RMSL", () => {
       });
       return float(1.0);
     });
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("discard;");
   });
 
@@ -1210,14 +1208,14 @@ describe("RMSL", () => {
   });
 
   it("single-statement Fn compiles", () => {
-    expect(() => compileGLSL(Fn(() => float(1.0))())).not.toThrow();
+    expect(() => compileGlsl(Fn(() => float(1.0))())).not.toThrow();
   });
 
   it("nested Fn compiles", () => {
     let inner = Fn(() => float(2.0));
     let innerVal = inner();
     let outer = Fn(() => innerVal.add(float(1.0)).toVar());
-    expect(() => compileGLSL(outer())).not.toThrow();
+    expect(() => compileGlsl(outer())).not.toThrow();
   });
 
   // -- Error cases --
@@ -1237,11 +1235,11 @@ describe("RMSL", () => {
 
   // === Standalone function compilers ===
   //
-  // compileGLSLFn/compileWGSLFn and uniformRaw emit a function rather than a
+  // compileGlslFn/compileWgslFn and uniformRaw emit a function rather than a
   // whole shader, so each result is embedded in a minimal shader and validated.
 
-  it("compileGLSLFn emits a named function with typed params", () => {
-    let glsl = compileGLSLFn((a: any, b: any) => a.add(b).sin(), {
+  it("compileGlslFn emits a named function with typed params", () => {
+    let glsl = compileGlslFn((a: any, b: any) => a.add(b).sin(), {
       name: "myFunc",
       params: [
         { name: "a", type: "float" },
@@ -1262,8 +1260,8 @@ void main(void) { outColor = vec4(myFunc(1.0, 2.0)); }`,
     );
   });
 
-  it("compileWGSLFn emits a named function with typed params", () => {
-    let wgsl = compileWGSLFn((a: any, b: any) => a.add(b).sin(), {
+  it("compileWgslFn emits a named function with typed params", () => {
+    let wgsl = compileWgslFn((a: any, b: any) => a.add(b).sin(), {
       name: "myFunc",
       params: [
         { name: "a", type: "float" },
@@ -1285,7 +1283,7 @@ void main(void) { outColor = vec4(myFunc(1.0, 2.0)); }`,
 
   // uniformRaw names its own slot, unlike uniform() which generates one.
   it("uniformRaw declares a custom-named uniform alongside the function", () => {
-    let glsl = compileGLSLFn((v: any) => v.mul(uniformRaw("uScale", "float")), {
+    let glsl = compileGlslFn((v: any) => v.mul(uniformRaw("uScale", "float")), {
       name: "scale",
       params: [{ name: "v", type: "float" }],
     });
@@ -1309,8 +1307,8 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     let tex = attributeRaw("tex", "vec2");
     expect(tex.name).toBe("tex");
     let prog = Fn(() => vec4(tex.x, tex.y, 0, 1));
-    expect(compileGLSL.vertex(prog())).toContain("in vec2 tex;");
-    expect(compileWGSL.vertex(prog())).toContain("tex: vec2<f32>");
+    expect(compileGlsl.vertex(prog())).toContain("in vec2 tex;");
+    expect(compileWgsl.vertex(prog())).toContain("tex: vec2<f32>");
   });
 
   it("varyingRaw emits its name in both stages", () => {
@@ -1321,8 +1319,8 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
       return vec4(0, 0, 0, 1);
     });
     let fragment = Fn(() => vec4(v, 1));
-    expect(compileGLSL.vertex(vertex())).toContain("out vec3 myNormal;");
-    expect(compileGLSL.fragment(fragment())).toContain("in vec3 myNormal;");
+    expect(compileGlsl.vertex(vertex())).toContain("out vec3 myNormal;");
+    expect(compileGlsl.fragment(fragment())).toContain("in vec3 myNormal;");
   });
 
   it("two raw varyings get distinct locations both stages agree on", () => {
@@ -1336,8 +1334,8 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     let fragment = Fn(() => vec4(a, 1).add(b).toVar());
     const locations = (src: string) =>
       Object.fromEntries([...src.matchAll(/@location\((\d+)\) (\w+):/g)].map((m) => [m[2], Number(m[1])]));
-    let vloc = locations(compileWGSL.vertex(vertex()));
-    let floc = locations(compileWGSL.fragment(fragment()));
+    let vloc = locations(compileWgsl.vertex(vertex()));
+    let floc = locations(compileWgsl.fragment(fragment()));
     expect(vloc.aVal).not.toBe(vloc.bVal);
     expect(vloc.aVal).toBe(floc.aVal);
     expect(vloc.bVal).toBe(floc.bVal);
@@ -1358,16 +1356,16 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   // Refused by the signature as well as at runtime. Written as a directive
   // rather than a cast so both are asserted: a cast would silence the whole
   // expression, and would keep passing if the signature ever stopped refusing.
-  it("compileGLSLFn rejects a multi-return function", () => {
+  it("compileGlslFn rejects a multi-return function", () => {
     expect(() =>
       // @ts-expect-error a function compiled on its own returns a single value
-      compileGLSLFn(() => [float(1), float(2)], { name: "bad", params: [] }),
+      compileGlslFn(() => [float(1), float(2)], { name: "bad", params: [] }),
     ).toThrow(/multi-return/);
   });
 
   // WGSL has no inverse() builtin, so the compiler writes one out on demand.
-  it("compileWGSLFn emits the helpers the function body calls", () => {
-    let wgsl = compileWGSLFn((m: any) => m.inverse(), {
+  it("compileWgslFn emits the helpers the function body calls", () => {
+    let wgsl = compileWgslFn((m: any) => m.inverse(), {
       name: "invert",
       params: [{ name: "m", type: "mat4" }],
     });
@@ -1384,8 +1382,8 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     );
   });
 
-  it("compileWGSLFn emits the mat3 helper for a mat3 operand", () => {
-    let wgsl = compileWGSLFn((m: any) => m.inverse(), {
+  it("compileWgslFn emits the mat3 helper for a mat3 operand", () => {
+    let wgsl = compileWgslFn((m: any) => m.inverse(), {
       name: "invert3",
       params: [{ name: "m", type: "mat3" }],
     });
@@ -1422,10 +1420,10 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     ] as const;
     for (let op of ops) {
       let prog = Fn(() => (uniform("float") as any)[op]().toVar());
-      expect(compileGLSL(prog()), op).toContain(op + "(");
+      expect(compileGlsl(prog()), op).toContain(op + "(");
       // Names differ between backends (inversesqrt vs inverseSqrt), so WGSL is
       // left to the validator rather than matched on text.
-      expect(() => compileWGSL(prog()), op).not.toThrow();
+      expect(() => compileWgsl(prog()), op).not.toThrow();
     }
   });
 
@@ -1444,8 +1442,8 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     for (let [name, ctor, count] of cases) {
       let values = Array.from({ length: count }, (_, i) => i);
       let prog = Fn(() => ctor(...values).toVar());
-      expect(compileGLSL(prog()), name).toContain(name + "(");
-      expect(compileWGSL(prog()), name).toContain("<f32>(");
+      expect(compileGlsl(prog()), name).toContain(name + "(");
+      expect(compileWgsl(prog()), name).toContain("<f32>(");
     }
   });
 
@@ -1462,9 +1460,9 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     ];
     for (let [name, ctor, want] of cases) {
       let prog = Fn(() => ctor(2.0).toVar());
-      expect(compileWGSL(prog()), name).toContain(want);
+      expect(compileWgsl(prog()), name).toContain(want);
       // GLSL keeps the scalar form, which is what it means natively.
-      expect(compileGLSL(prog()), name).toContain(name + "(2.0)");
+      expect(compileGlsl(prog()), name).toContain(name + "(2.0)");
     }
   });
 
@@ -1474,11 +1472,11 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     // WGSL uniforms are members of one struct, so a reference is qualified —
     // the assertion is that there is one argument, whatever it is spelled.
     let prog3 = Fn(() => mat3(uniform("mat3")).toVar());
-    expect(compileWGSL(prog3())).toMatch(/mat3x3<f32>\(_rmsl_uniforms\._rmsl_u\d+\)/);
-    expect(compileGLSL(prog3())).toMatch(/mat3\(_rmsl_u\d+\)/);
+    expect(compileWgsl(prog3())).toMatch(/mat3x3<f32>\(_rmsl_uniforms\._rmsl_u\d+\)/);
+    expect(compileGlsl(prog3())).toMatch(/mat3\(_rmsl_u\d+\)/);
 
     let prog4 = Fn(() => mat4(uniform("mat4")).toVar());
-    expect(compileWGSL(prog4())).toMatch(/mat4x4<f32>\(_rmsl_uniforms\._rmsl_u\d+\)/);
+    expect(compileWgsl(prog4())).toMatch(/mat4x4<f32>\(_rmsl_uniforms\._rmsl_u\d+\)/);
   });
 
   it("compiles every swizzle accessor", () => {
@@ -1487,8 +1485,8 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     let triples = ["xyz", "xyw", "xzw", "yzw", "rgb"];
     for (let s of [...single, ...pairs, ...triples, "rgba"]) {
       let prog = Fn(() => (uniform("vec4") as any)[s].toVar());
-      expect(compileGLSL(prog()), s).toContain("." + s);
-      expect(compileWGSL(prog()), s).toContain("." + s);
+      expect(compileGlsl(prog()), s).toContain("." + s);
+      expect(compileWgsl(prog()), s).toContain("." + s);
     }
   });
 
@@ -1504,8 +1502,8 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     ];
     for (let [build, glslType, wgslType] of cases) {
       let prog = Fn(() => build().toVar());
-      expect(compileGLSL(prog()), glslType).toContain(glslType + "(");
-      expect(compileWGSL(prog()), wgslType).toContain(wgslType + "(");
+      expect(compileGlsl(prog()), glslType).toContain(glslType + "(");
+      expect(compileWgsl(prog()), wgslType).toContain(wgslType + "(");
     }
   });
 
@@ -1526,11 +1524,11 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
         });
         return [acc, acc.mul(2)];
       });
-    let glsl = compileGLSL(build()());
+    let glsl = compileGlsl(build()());
     expect(glsl.match(/if \(true\)/g) ?? []).toHaveLength(1);
     expect(glsl.match(/\+ 10\.0/g) ?? []).toHaveLength(1);
 
-    let wgsl = compileWGSL(build()());
+    let wgsl = compileWgsl(build()());
     expect(wgsl.match(/if \(true\)/g) ?? []).toHaveLength(1);
     expect(wgsl.match(/\+ 10f/g) ?? []).toHaveLength(1);
   });
@@ -1548,7 +1546,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
         });
         return [a, a.mul(2)];
       });
-    let glsl = compileGLSL(build()());
+    let glsl = compileGlsl(build()());
     expect(glsl.match(/if \(true\)/g) ?? []).toHaveLength(1);
     // The declaration and its only use are both inside the single block.
     let inner = glsl.slice(glsl.indexOf("if (true)"));
@@ -1556,7 +1554,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(declared, "inner declaration emitted").not.toBeNull();
     expect(inner.match(new RegExp(declared![1], "g")) ?? []).toHaveLength(2);
 
-    expect(compileWGSL(build()()).match(/if \(true\)/g) ?? []).toHaveLength(1);
+    expect(compileWgsl(build()()).match(/if \(true\)/g) ?? []).toHaveLength(1);
   });
 
   // The loop counter is declared by the for header. Emitting the loop twice
@@ -1576,11 +1574,11 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
         );
         return [total, total.mul(2)];
       });
-    let glsl = compileGLSL(build()());
+    let glsl = compileGlsl(build()());
     expect(glsl.match(/for \(/g) ?? []).toHaveLength(1);
     expect(glsl).toMatch(/for \(float _rmsl_\d+ = 0\.0;/);
 
-    let wgsl = compileWGSL(build()());
+    let wgsl = compileWgsl(build()());
     expect(wgsl.match(/for \(/g) ?? []).toHaveLength(1);
     expect(wgsl).toMatch(/for \(var _rmsl_\d+: f32 = 0f;/);
   });
@@ -1592,7 +1590,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   // temporary could not go.
   it("emits a modulus helper rather than repeating its operands", () => {
     let prog = Fn(() => uniform("float").mod(2).toVar());
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("fn _rmsl_mod_float(");
 
     let main = wgsl.slice(wgsl.indexOf("@fragment"));
@@ -1602,11 +1600,11 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
 
   it("uses the width-matched modulus helper for vectors", () => {
     let prog = Fn(() => uniform("vec3").mod(2).toVar());
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("fn _rmsl_mod_vec3(");
     expect(wgsl).toContain("_rmsl_mod_vec3(");
     // GLSL keeps its own builtin, which needs no helper.
-    expect(compileGLSL(prog())).toContain("mod(");
+    expect(compileGlsl(prog())).toContain("mod(");
   });
 
   // A loop's update clause can do more than one thing. GLSL joins them with
@@ -1639,13 +1637,13 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     for (let counterFirst of [false, true]) {
       let label = counterFirst ? "counter first" : "counter last";
 
-      let glsl = compileGLSL(twoStepLoop(counterFirst)());
+      let glsl = compileGlsl(twoStepLoop(counterFirst)());
       let glslHeader = glsl.split("\n").find((l) => l.includes("for ("))!;
       expect(glslHeader, label).toMatch(/\+ 1\.0,.*\+ 1\.0/);
 
       // WGSL takes one statement in the header, so more than one moves into a
       // continuing block — which runs after the body, including after continue.
-      let wgsl = compileWGSL(twoStepLoop(counterFirst)());
+      let wgsl = compileWgsl(twoStepLoop(counterFirst)());
       expect(wgsl.match(/\+ 1f/g) ?? [], label).toHaveLength(2);
       expect(wgsl, label).toContain("continuing");
     }
@@ -1665,7 +1663,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
       );
       return total;
     });
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toMatch(/for \(var \S+: f32 = 0f; .*; \S+ = \S+ \+ 1f\)/);
     expect(wgsl).not.toContain("continuing");
   });
@@ -1674,12 +1672,12 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   // type of the operand it sits beside.
   it("gives a compared literal the operand's integer type", () => {
     let unsigned = Fn(() => uniform("uint").lessThan(2).toVar());
-    expect(compileWGSL(unsigned())).toMatch(/\S+ < 2u/);
-    expect(compileGLSL(unsigned())).not.toContain("float(");
+    expect(compileWgsl(unsigned())).toMatch(/\S+ < 2u/);
+    expect(compileGlsl(unsigned())).not.toContain("float(");
 
     let signed = Fn(() => uniform("int").greaterThan(3).toVar());
-    expect(compileWGSL(signed())).toMatch(/\S+ > 3i/);
-    expect(compileGLSL(signed())).not.toContain("float(");
+    expect(compileWgsl(signed())).toMatch(/\S+ > 3i/);
+    expect(compileGlsl(signed())).not.toContain("float(");
   });
 
   // A literal that is not a whole number cannot take an integer type.
@@ -1701,7 +1699,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
       a.xyz.xy.assign(vec2(9, 9));
       return a;
     });
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).not.toMatch(/\.xyz\.[xyzw] = /);
     expect(wgsl).toMatch(/_rmsl_\d+\.x = /);
     expect(wgsl).toMatch(/_rmsl_\d+\.y = /);
@@ -1712,25 +1710,25 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   // never emitted a parameter for one. Both produced an undeclared identifier.
   it("refuses to read the position from a fragment stage", () => {
     let prog = Fn(() => vec4(builtinPosition().x, 0, 0, 1).toVar());
-    expect(() => compileGLSL.fragment(prog())).toThrow(/fragment/i);
-    expect(() => compileWGSL.fragment(prog())).toThrow(/fragment/i);
+    expect(() => compileGlsl.fragment(prog())).toThrow(/fragment/i);
+    expect(() => compileWgsl.fragment(prog())).toThrow(/fragment/i);
   });
 
   it("still reads the position in a vertex stage", () => {
     let prog = Fn(() => vec4(builtinPosition().x, 0, 0, 1).toVar());
-    expect(compileGLSL.vertex(prog())).toContain("gl_Position");
-    expect(compileWGSL.vertex(prog())).toContain("result.position");
+    expect(compileGlsl.vertex(prog())).toContain("gl_Position");
+    expect(compileWgsl.vertex(prog())).toContain("result.position");
   });
 
   // WGSL's uniform address space takes host-shareable types only, and neither
   // a bool nor a boolean vector is one.
   it("carries a boolean vector uniform through a host-shareable type", () => {
     let prog = Fn(() => uniform("bvec3").all().toVar());
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).not.toContain("var<uniform> _rmsl_u0: vec3<bool>");
     expect(wgsl).toContain("vec3<u32>");
     // GLSL has no such restriction and declares it directly.
-    expect(compileGLSL(prog())).toContain("uniform bvec3");
+    expect(compileGlsl(prog())).toContain("uniform bvec3");
   });
 
   // A matrix column is a vector. The node inherited its operand's type, so it
@@ -1739,20 +1737,20 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   // has always said Node<"vec4">; only the runtime type disagreed.
   it("types a matrix element as the column vector it is", () => {
     let prog4 = Fn(() => uniform("mat4").element(0).toVar());
-    expect(compileGLSL(prog4())).toMatch(/vec4 \S+ = \S+\[\S+\];/);
-    expect(compileWGSL(prog4())).toMatch(/var \S+: vec4<f32> = \S+\[\S+\];/);
+    expect(compileGlsl(prog4())).toMatch(/vec4 \S+ = \S+\[\S+\];/);
+    expect(compileWgsl(prog4())).toMatch(/var \S+: vec4<f32> = \S+\[\S+\];/);
 
     let prog3 = Fn(() => uniform("mat3").element(1).toVar());
-    expect(compileGLSL(prog3())).toMatch(/vec3 \S+ = \S+\[\S+\];/);
-    expect(compileWGSL(prog3())).toMatch(/var \S+: vec3<f32> = \S+\[\S+\];/);
+    expect(compileGlsl(prog3())).toMatch(/vec3 \S+ = \S+\[\S+\];/);
+    expect(compileWgsl(prog3())).toMatch(/var \S+: vec3<f32> = \S+\[\S+\];/);
   });
 
   // The index is an integer, so it has to be emitted as one. Typing it from
   // the matrix operand left it a float and produced m[int(0.0)].
   it("indexes a matrix with an integer", () => {
     let prog = Fn(() => uniform("mat4").element(0).toVar());
-    expect(compileGLSL(prog())).not.toContain("int(0.0)");
-    expect(compileWGSL(prog())).not.toContain("i32(0f)");
+    expect(compileGlsl(prog())).not.toContain("int(0.0)");
+    expect(compileWgsl(prog())).not.toContain("i32(0f)");
   });
 
   // Transposing swaps columns for rows, so the result type changes for a
@@ -1760,14 +1758,14 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   // they keep their own type, so the runtime never had to get this right.
   it("types a non-square transpose with its shape swapped", () => {
     let prog = Fn(() => uniform("mat2x3").transpose().toVar());
-    expect(compileGLSL(prog())).toMatch(/mat3x2 \S+ = transpose\(/);
-    expect(compileWGSL(prog())).toMatch(/var \S+: mat3x2<f32> = transpose\(/);
+    expect(compileGlsl(prog())).toMatch(/mat3x2 \S+ = transpose\(/);
+    expect(compileWgsl(prog())).toMatch(/var \S+: mat3x2<f32> = transpose\(/);
   });
 
   it("multiplies a non-square matrix by a vector of its column count", () => {
     let prog = Fn(() => uniform("mat2x3").mul(vec2(1, 2)).toVar());
-    expect(compileGLSL(prog())).toMatch(/vec3 \S+ = /);
-    expect(compileWGSL(prog())).toMatch(/var \S+: vec3<f32> = /);
+    expect(compileGlsl(prog())).toMatch(/vec3 \S+ = /);
+    expect(compileWgsl(prog())).toMatch(/var \S+: vec3<f32> = /);
   });
 
   // WGSL has no inverse() builtin, so one is written out per matrix size. The
@@ -1779,27 +1777,27 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   // shader that no driver accepts is worse than one that fails to build here.
   it("refuses to invert a matrix that is not square, in both backends", () => {
     let prog = Fn(() => (uniform("mat2x3") as any).inverse().toVar());
-    expect(() => compileGLSL(prog())).toThrow(/square/i);
-    expect(() => compileWGSL(prog())).toThrow(/square/i);
+    expect(() => compileGlsl(prog())).toThrow(/square/i);
+    expect(() => compileWgsl(prog())).toThrow(/square/i);
   });
 
   it("uses the inverse helper matching the matrix size", () => {
-    let wgsl2 = compileWGSL(Fn(() => uniform("mat2").inverse().toVar())());
+    let wgsl2 = compileWgsl(Fn(() => uniform("mat2").inverse().toVar())());
     expect(wgsl2).toContain("fn _rmsl_inverse2(");
     expect(wgsl2).not.toContain("_rmsl_inverse4");
 
-    expect(compileWGSL(Fn(() => uniform("mat3").inverse().toVar())())).toContain("fn _rmsl_inverse3(");
-    expect(compileWGSL(Fn(() => uniform("mat4").inverse().toVar())())).toContain("fn _rmsl_inverse4(");
+    expect(compileWgsl(Fn(() => uniform("mat3").inverse().toVar())())).toContain("fn _rmsl_inverse3(");
+    expect(compileWgsl(Fn(() => uniform("mat4").inverse().toVar())())).toContain("fn _rmsl_inverse4(");
   });
 
   // Folding runs on literal operands; the integer branch truncates with `| 0`.
   it("folds integer arithmetic with truncation", () => {
-    expect(compileGLSL(Fn(() => int(7).div(int(2)).toVar())())).toContain("= 3;");
-    expect(compileGLSL(Fn(() => int(7).add(int(2)).toVar())())).toContain("= 9;");
-    expect(compileGLSL(Fn(() => int(7).sub(int(2)).toVar())())).toContain("= 5;");
-    expect(compileGLSL(Fn(() => int(7).mul(int(2)).toVar())())).toContain("= 14;");
+    expect(compileGlsl(Fn(() => int(7).div(int(2)).toVar())())).toContain("= 3;");
+    expect(compileGlsl(Fn(() => int(7).add(int(2)).toVar())())).toContain("= 9;");
+    expect(compileGlsl(Fn(() => int(7).sub(int(2)).toVar())())).toContain("= 5;");
+    expect(compileGlsl(Fn(() => int(7).mul(int(2)).toVar())())).toContain("= 14;");
     // The float path keeps the fraction the integer path drops.
-    expect(compileGLSL(Fn(() => float(7).div(float(2)).toVar())())).toContain("3.5");
+    expect(compileGlsl(Fn(() => float(7).div(float(2)).toVar())())).toContain("3.5");
   });
 
   // === WGSL uniform packing ===
@@ -1816,7 +1814,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
       for (let i = 0; i < 20; i++) sum.assign(sum.add(uniform("float")));
       return sum;
     });
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
 
     let bindings = wgsl.split("\n").filter((l) => l.includes("var<uniform>"));
     expect(bindings, "one binding no matter how many uniforms").toHaveLength(1);
@@ -1833,7 +1831,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
       out.assign(tex.texture(vec2(0.5, 0.5)).mul(scale));
       return out;
     });
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
 
     // A texture is an opaque handle: it cannot be a uniform variable nor a
     // member of a uniform struct, so it keeps a binding of its own.
@@ -1846,7 +1844,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
 
   it("leaves GLSL uniforms as individual declarations", () => {
     let prog = Fn(() => uniform("float").add(uniform("vec2").x).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     // GLSL has no such limit, so nothing is packed.
     expect(glsl).toContain("uniform float");
     expect(glsl).toContain("uniform vec2");
@@ -1899,12 +1897,12 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
       return out;
     });
 
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toMatch(/uniform vec4 _rmsl_u\d+\[24\];/);
     // GLSL indexes with an int, so a float loop counter is converted.
     expect(glsl).toMatch(/_rmsl_u\d+\[int\(\S+\)\]/);
 
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toMatch(/_rmsl_u\d+: array<vec4<f32>, 24>,/);
     expect(wgsl).toMatch(/_rmsl_uniforms\._rmsl_u\d+\[i32\(\S+\)\]/);
     // Still a single binding, which is the whole point.
@@ -1918,8 +1916,8 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     });
     // A plain number is a float node, so the index is converted rather than
     // emitted bare.
-    expect(compileGLSL(prog())).toMatch(/_rmsl_u\d+\[int\(2\.0\)\]/);
-    expect(compileWGSL(prog())).toMatch(/_rmsl_u\d+\[i32\(2f\)\]/);
+    expect(compileGlsl(prog())).toMatch(/_rmsl_u\d+\[int\(2\.0\)\]/);
+    expect(compileWgsl(prog())).toMatch(/_rmsl_u\d+\[i32\(2f\)\]/);
   });
 
   // Element types too narrow to align are stored widened and read back out of
@@ -1936,11 +1934,11 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     ];
     for (let [type, stored, read] of cases) {
       let prog = Fn(() => (uniformArray(type as any, 4).element(1) as any).toVar());
-      let wgsl = compileWGSL(prog());
+      let wgsl = compileWgsl(prog());
       expect(wgsl, type).toContain(stored);
       expect(wgsl, type).toMatch(new RegExp(`\\[i32\\([^)]*\\)\\]${read.replace(".", "\\.")}`));
       // GLSL has no such rule, so nothing is padded there.
-      expect(compileGLSL(prog()), type).toMatch(/uniform \w+ _rmsl_u\d+\[4\];/);
+      expect(compileGlsl(prog()), type).toMatch(/uniform \w+ _rmsl_u\d+\[4\];/);
     }
   });
 
@@ -1954,8 +1952,8 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
         o.assign(vec4(1, 0, 0, 1));
         return o;
       });
-      expect(compileGLSL(prog()), `shader ${i}`).toContain("layout(location=0) out");
-      expect(compileWGSL(prog()), `shader ${i}`).toMatch(/@location\(0\) _rmsl_o\d+/);
+      expect(compileGlsl(prog()), `shader ${i}`).toContain("layout(location=0) out");
+      expect(compileWgsl(prog()), `shader ${i}`).toMatch(/@location\(0\) _rmsl_o\d+/);
     }
   });
 
@@ -1967,7 +1965,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
       b.assign(vec4(0, 1, 0, 1));
       return b;
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("layout(location=0) out");
     expect(glsl).toContain("layout(location=1) out");
   });
@@ -1978,7 +1976,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   // declared as an array of bool, which it refuses.
   it("carries an array of booleans through a host-shareable type", () => {
     let prog = Fn(() => uniformArray("bool", 4).element(int(1)).toVar());
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).not.toContain("array<bool");
     expect(wgsl).toContain("u32");
     // The caller asked for a bool and gets one back.
@@ -1986,12 +1984,12 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(wgsl).toMatch(/var \S+: bool =/);
 
     // GLSL has no such restriction and declares the array directly.
-    expect(compileGLSL(prog())).toMatch(/uniform bool \S+\[4\];/);
+    expect(compileGlsl(prog())).toMatch(/uniform bool \S+\[4\];/);
   });
 
   it("carries an array of boolean vectors the same way", () => {
     let prog = Fn(() => uniformArray("bvec3", 2).element(int(0)).all().toVar());
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).not.toContain("array<vec3<bool>");
     expect(wgsl).toMatch(/var \S+: bool =/);
   });
@@ -2000,7 +1998,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   // the whole-shader path gives it a binding of its own. The standalone
   // function path packed everything it had, textures included.
   it("keeps a texture out of the uniform struct in a standalone function", () => {
-    let wgsl = compileWGSLFn(() => uniform("sampler2D").texture(vec2(0.5, 0.5)), {
+    let wgsl = compileWgslFn(() => uniform("sampler2D").texture(vec2(0.5, 0.5)), {
       name: "sample",
       params: [],
     });
@@ -2016,7 +2014,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   });
 
   it("keeps a sampler3D out of the uniform struct in a standalone function", () => {
-    let wgsl = compileWGSLFn(() => uniform("sampler3D").texture(vec3(0.5, 0.5, 0.5)), {
+    let wgsl = compileWgslFn(() => uniform("sampler3D").texture(vec3(0.5, 0.5, 0.5)), {
       name: "sample3D",
       params: [],
     });
@@ -2120,19 +2118,19 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
 describe("integer vectors", () => {
   it("compiles ivec and uvec constructors to GLSL", () => {
     let prog = Fn(() => ivec3(1, 2, 3).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("ivec3(1, 2, 3)");
   });
 
   it("compiles ivec and uvec constructors to WGSL", () => {
     let prog = Fn(() => uvec2(4, 5).toVar());
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("vec2<u32>(4u, 5u)");
   });
 
   it("adds an integer scalar to an integer vector", () => {
     let prog = Fn(() => ivec2(1, 2).add(3).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("ivec2(1, 2) + 3");
   });
 
@@ -2143,14 +2141,14 @@ describe("integer vectors", () => {
         .all()
         .toVar(),
     );
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("lessThan(");
     expect(glsl).toContain("all(");
   });
 
   it("compiles an integer vector swizzle to the integer scalar", () => {
     let prog = Fn(() => uvec3(1, 2, 3).y.toVar());
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("vec3<u32>(1u, 2u, 3u)");
     expect(wgsl).toContain(".y");
   });
@@ -2169,7 +2167,7 @@ describe("integer vectors", () => {
       let v = ivec3(7, 8, 9).toVar();
       return v.element(1).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("[1]");
   });
 });
@@ -2180,7 +2178,7 @@ describe("integer samplers", () => {
       let tex = uniform("isampler3D");
       return tex.texture(ivec3(1, 2, 3)).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("uniform isampler3D");
     expect(glsl).toContain("texelFetch(");
   });
@@ -2190,7 +2188,7 @@ describe("integer samplers", () => {
       let tex = uniform("usampler3D");
       return tex.textureLod(uvec3(1, 2, 3), int(0)).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("uniform usampler3D");
     expect(glsl).toContain("texelFetch(");
   });
@@ -2200,7 +2198,7 @@ describe("integer samplers", () => {
       let tex = uniform("isampler2D");
       return tex.texture(ivec2(1, 2)).toVar();
     });
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("texture_2d<i32>");
     expect(wgsl).toContain("textureLoad(");
     expect(wgsl).not.toContain("_s: sampler;");
@@ -2211,7 +2209,7 @@ describe("integer samplers", () => {
       let tex = uniform("usampler2D");
       return tex.texture(uvec2(1, 2)).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("precision highp usampler2D;");
   });
 
@@ -2221,38 +2219,38 @@ describe("integer samplers", () => {
 });
 
 describe("GLSL precision", () => {
-  // The compileGLSL options mirror three.js's `precision` setting: the float
+  // The compileGlsl options mirror three.js's `precision` setting: the float
   // and every declared sampler precision follow it, defaulting to "highp".
   // WGSL has no precision qualifiers, so nothing here applies to it.
 
   it("defaults to highp", () => {
     let prog = Fn(() => float(1).toVar());
-    expect(compileGLSL(prog())).toContain("precision highp float;");
+    expect(compileGlsl(prog())).toContain("precision highp float;");
   });
 
   it("emits mediump float precision", () => {
     let prog = Fn(() => float(1).toVar());
-    let glsl = compileGLSL(prog(), { precision: "mediump" });
+    let glsl = compileGlsl(prog(), { precision: "mediump" });
     expect(glsl).toContain("precision mediump float;");
     expect(glsl).not.toContain("precision highp float;");
   });
 
   it("emits lowp precision for an explicit fragment stage", () => {
     let prog = Fn(() => float(1).toVar());
-    let glsl = compileGLSL.fragment(prog(), { precision: "lowp" });
+    let glsl = compileGlsl.fragment(prog(), { precision: "lowp" });
     expect(glsl).toContain("precision lowp float;");
   });
 
   it("emits the configured precision for vertex shaders", () => {
     let prog = Fn(() => vec4(0, 0, 0, 1).toVar());
-    let glsl = compileGLSL.vertex(prog(), { precision: "mediump" });
+    let glsl = compileGlsl.vertex(prog(), { precision: "mediump" });
     expect(glsl).toContain("precision mediump float;");
     expect(glsl).not.toContain("precision highp float;");
   });
 
   it("applies the configured precision to sampler declarations", () => {
     let prog = Fn(() => uniform("sampler2D").texture(vec2(0, 0)).toVar());
-    let glsl = compileGLSL(prog(), { precision: "lowp" });
+    let glsl = compileGlsl(prog(), { precision: "lowp" });
     expect(glsl).toContain("precision lowp float;");
     expect(glsl).toContain("precision lowp sampler2D;");
     expect(glsl).not.toContain("precision highp");
@@ -2263,7 +2261,7 @@ describe("GLSL precision", () => {
     // so this is a refusal WGSL has no way to join in on, and the validity
     // layer would read the pair as GLSL failing on what WGSL accepted.
     let prog = Fn(() => float(1).toVar());
-    expect(expectCompileRejection(() => compileGLSL(prog(), { precision: "high" as any }))).toMatch(/precision/);
+    expect(expectCompileRejection(() => compileGlsl(prog(), { precision: "high" as any }))).toMatch(/precision/);
   });
 });
 
@@ -2278,8 +2276,8 @@ describe("matrix narrowing", () => {
         .mul(vec3(0, 1, 0))
         .toVar(),
     );
-    let glsl = compileGLSL(prog());
-    let wgsl = compileWGSL(prog());
+    let glsl = compileGlsl(prog());
+    let wgsl = compileWgsl(prog());
 
     expect(glsl).toContain("mat3(");
     expect(wgsl).toContain("fn _rmsl_mat3_from_mat4(m: mat4x4<f32>) -> mat3x3<f32>");
@@ -2290,8 +2288,8 @@ describe("matrix narrowing", () => {
   it("narrows to a mat2 from either width", () => {
     let fromMat4 = Fn(() => mat2(uniform("mat4")).mul(vec2(1, 0)).toVar());
     let fromMat3 = Fn(() => mat2(uniform("mat3")).mul(vec2(1, 0)).toVar());
-    expect(compileWGSL(fromMat4())).toContain("_rmsl_mat2_from_mat4(");
-    expect(compileWGSL(fromMat3())).toContain("_rmsl_mat2_from_mat3(");
+    expect(compileWgsl(fromMat4())).toContain("_rmsl_mat2_from_mat4(");
+    expect(compileWgsl(fromMat3())).toContain("_rmsl_mat2_from_mat3(");
   });
 
   it("leaves a matrix built from columns or a scalar alone", () => {
@@ -2306,8 +2304,8 @@ describe("matrix narrowing", () => {
         .mul(vec3(1, 1, 1))
         .toVar(),
     );
-    expect(compileWGSL(columns())).not.toContain("_from_mat");
-    expect(compileWGSL(scaled())).not.toContain("_from_mat");
+    expect(compileWgsl(columns())).not.toContain("_from_mat");
+    expect(compileWgsl(scaled())).not.toContain("_from_mat");
   });
 });
 
@@ -2317,34 +2315,34 @@ describe("casts and conversions", () => {
       let x = float(2.9).toVar();
       return x.toInt().toVar();
     });
-    expect(compileGLSL(prog())).toContain("int(");
-    expect(compileWGSL(prog())).toContain("i32(");
+    expect(compileGlsl(prog())).toContain("int(");
+    expect(compileWgsl(prog())).toContain("i32(");
   });
 
   it("constructs a uint from a float", () => {
     let prog = Fn(() => uint(float(3.0)).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("uint(");
   });
 
   it("casts a bool from an int", () => {
     let prog = Fn(() => bool(int(1)).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("bool(");
   });
 
   it("casts between float and integer vectors", () => {
     let prog = Fn(() => ivec3(1, 2, 3).toVec3().toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("vec3(");
     let back = Fn(() => vec3(1, 2, 3).toIVec3().toVar());
-    let wgsl = compileWGSL(back());
+    let wgsl = compileWgsl(back());
     expect(wgsl).toContain("vec3<i32>(");
   });
 
   it("converts a value with convert()", () => {
     let prog = Fn(() => vec3(1, 2, 3).convert("uvec3").toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("uvec3(");
   });
 
@@ -2354,7 +2352,7 @@ describe("casts and conversions", () => {
 
   it("mixes signed and unsigned operands by converting explicitly", () => {
     let prog = Fn(() => int(5).add(uniform("uint").toInt()).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("int(");
   });
 });
@@ -2365,7 +2363,7 @@ describe("new math builtins", () => {
       let x = float(0.5).toVar();
       return x.round().add(x.trunc()).add(x.sinh()).add(x.tanh()).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("round(");
     expect(glsl).toContain("trunc(");
     expect(glsl).toContain("sinh(");
@@ -2374,9 +2372,9 @@ describe("new math builtins", () => {
 
   it("emits WGSL's derivative spellings", () => {
     let prog = Fn(() => float(0.5).dFdx().toVar());
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("dpdx(");
-    let glsl = compileGLSL(Fn(() => float(0.5).dFdy().toVar())());
+    let glsl = compileGlsl(Fn(() => float(0.5).dFdy().toVar())());
     expect(glsl).toContain("dFdy(");
   });
 
@@ -2385,7 +2383,7 @@ describe("new math builtins", () => {
       let x = float(0.5).toVar();
       return x.saturate().add(x.oneMinus()).add(x.reciprocal()).add(x.pow2()).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("clamp(");
     expect(glsl).toContain("1.0 - ");
     expect(glsl).toContain(" / ");
@@ -2393,28 +2391,28 @@ describe("new math builtins", () => {
 
   it("computes a matrix determinant", () => {
     let prog = Fn(() => mat2(1, 2, 3, 4).determinant().toVar());
-    expect(compileGLSL(prog())).toContain("determinant(");
-    expect(compileWGSL(Fn(() => mat3().determinant().toVar())())).toContain("determinant(");
+    expect(compileGlsl(prog())).toContain("determinant(");
+    expect(compileWgsl(Fn(() => mat3().determinant().toVar())())).toContain("determinant(");
   });
 
   it("computes a bitwise not on an integer", () => {
     let prog = Fn(() => int(5).bitNot().toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("~");
-    let wgsl = compileWGSL(Fn(() => ivec2(1, 2).bitNot().toVar())());
+    let wgsl = compileWgsl(Fn(() => ivec2(1, 2).bitNot().toVar())());
     expect(wgsl).toContain("~");
   });
 
   it("computes a logical xor", () => {
     let prog = Fn(() => bool(true).xor(bool(false)).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("&&");
     expect(glsl).toContain("||");
   });
 
   it("folds a lengthSq on a scalar to its squared value", () => {
     let prog = Fn(() => float(3).lengthSq().toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("9");
   });
 });
@@ -2436,12 +2434,12 @@ describe("Switch", () => {
       });
       return out;
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("if (");
     expect(glsl).toContain("==");
     expect(glsl).toContain("||");
     expect(glsl).toContain("else {");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("==");
   });
 });
@@ -2461,7 +2459,7 @@ describe("TSL control flow", () => {
         });
       return out;
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("if (");
     expect(glsl).toContain("else {");
   });
@@ -2479,7 +2477,7 @@ describe("TSL control flow", () => {
       );
       return total;
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("for (");
   });
 
@@ -2491,7 +2489,7 @@ describe("TSL control flow", () => {
       });
       return n;
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("while (");
   });
 
@@ -2503,9 +2501,9 @@ describe("TSL control flow", () => {
       });
       return total;
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("for (");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("for (");
   });
 
@@ -2522,7 +2520,7 @@ describe("TSL control flow", () => {
       });
       return out;
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("==");
     expect(glsl).toContain("||");
     expect(glsl).toContain("else {");
@@ -2547,10 +2545,10 @@ describe("TSL control flow", () => {
       );
       return total;
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("break;");
     expect(glsl).toContain("continue;");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("break;");
     expect(wgsl).toContain("continue;");
   });
@@ -2564,9 +2562,9 @@ describe("TSL control flow", () => {
       out.assign(float(1));
       return out;
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("return;");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("return;");
   });
 
@@ -2579,9 +2577,9 @@ describe("TSL control flow", () => {
       out.assign(float(1));
       return out;
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("discard;");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("discard;");
   });
 });
@@ -2592,10 +2590,10 @@ describe("TSL free-function API", () => {
       let u = uniform("float");
       return add(mul(u, float(2)), sub(u, div(u, float(2)))).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("*");
     expect(glsl).toContain("+");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("*");
   });
 
@@ -2608,11 +2606,11 @@ describe("TSL free-function API", () => {
         .add(pow4(u))
         .toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("max(");
     expect(glsl).toContain("min(");
     expect(glsl).toContain("pow(");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("max(");
   });
 
@@ -2621,10 +2619,10 @@ describe("TSL free-function API", () => {
       let u = uniform("float");
       return abs(sin(u)).add(cos(u)).add(floor(u)).add(sqrt(u)).add(inverseSqrt(u)).add(inversesqrt(u)).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("sin(");
     expect(glsl).toContain("inversesqrt(");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("inverseSqrt(");
   });
 
@@ -2637,10 +2635,10 @@ describe("TSL free-function API", () => {
         .add(mix(float(0), float(1), x))
         .toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     // step(edge, x): the edge is the first emitted argument.
     expect(glsl).toContain("step(0.25, ");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("step(");
     expect(wgsl).toContain("smoothstep(");
   });
@@ -2656,13 +2654,13 @@ describe("TSL free-function API", () => {
         .add(lengthSq(v))
         .toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("normalize(");
     expect(glsl).toContain("dot(");
     expect(glsl).toContain("cross(");
     expect(glsl).toContain("distance(");
     expect(glsl).toContain("length(");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("normalize(");
   });
 
@@ -2674,11 +2672,11 @@ describe("TSL free-function API", () => {
         .add(faceForward(v, vec3(0, 1, 0), vec3(1, 0, 0)))
         .toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("reflect(");
     expect(glsl).toContain("refract(");
     expect(glsl).toContain("faceforward(");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("faceForward(");
   });
 
@@ -2687,9 +2685,9 @@ describe("TSL free-function API", () => {
       let u = uniform("float");
       return atan(u, float(2)).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("atan(");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("atan2(");
   });
 
@@ -2704,12 +2702,12 @@ describe("TSL free-function API", () => {
         .add(and(notEqual(a, b), or(a.lessThan(b), xor(a.lessThan(b), a.greaterThan(b)))).toInt())
         .toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("==");
     expect(glsl).toContain("<");
     expect(glsl).toContain("&&");
     expect(glsl).toContain("||");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("==");
   });
 
@@ -2721,10 +2719,10 @@ describe("TSL free-function API", () => {
         .add(any(v.lessThan(0)).toInt())
         .toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("all(");
     expect(glsl).toContain("any(");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("all(");
   });
 
@@ -2735,20 +2733,20 @@ describe("TSL free-function API", () => {
         .add(determinant(inverse(mat4(1))))
         .toVar(),
     );
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("determinant(");
     expect(glsl).toContain("transpose(");
     expect(glsl).toContain("inverse(");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("transpose(");
   });
 
   it("accepts raw numbers and arrays as operands", () => {
     let prog = Fn(() => mul(2, 3).toVar());
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("6.0");
     let prog2 = Fn(() => dot(vec3(1, 0, 0), [1, 2, 3]).toVar());
-    let glsl2 = compileGLSL(prog2());
+    let glsl2 = compileGlsl(prog2());
     expect(glsl2).toContain("dot(");
     expect(glsl2).toContain("1, 0, 0");
   });
@@ -2760,9 +2758,9 @@ describe("TSL additions", () => {
       let u = uniform("float");
       return u.add(PI).add(TWO_PI).add(HALF_PI).add(EPSILON).add(INFINITY).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("3.141592653589793");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("6.283185307179586");
   });
 
@@ -2775,11 +2773,11 @@ describe("TSL additions", () => {
         .add(bvec4(false, false, false, false).any().toInt())
         .toVar(),
     );
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("bvec2(");
     expect(glsl).toContain("bvec3(");
     expect(glsl).toContain("bvec4(");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("vec2<bool>(");
   });
 
@@ -2790,10 +2788,10 @@ describe("TSL additions", () => {
       // scalar, so the sum has to rebuild a vec4 rather than add across widths.
       return v.stpq.add(vec4(v.st, v.p, 1)).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain(".stpq");
     expect(glsl).toContain(".st");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     // WGSL only knows the xyzw and rgba spellings, so stpq is mapped to xyzw.
     expect(wgsl).toContain(".xyzw");
     expect(wgsl).toContain(".xy");
@@ -2809,9 +2807,9 @@ describe("TSL additions", () => {
       a.modAssign(3);
       return a;
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("=");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("=");
   });
 
@@ -2820,9 +2818,9 @@ describe("TSL additions", () => {
       let a = float(1).var();
       return a;
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("float");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("var ");
   });
 
@@ -2832,10 +2830,10 @@ describe("TSL additions", () => {
       let v = vec3(1, 2, 3).toVar();
       return m.mul(v).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("vec4(");
     expect(glsl).toContain(".xyz");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("vec4<f32>(");
   });
 
@@ -2845,10 +2843,10 @@ describe("TSL additions", () => {
       let v = vec2(1, 2).toVar();
       return m.mul(v).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("vec3(");
     expect(glsl).toContain(".xy");
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("vec3<f32>(");
   });
 });
@@ -2960,7 +2958,7 @@ describe("named toVar variables", () => {
       let color = vec3(1, 2, 3).toVar("color");
       return color.add(vec3(1)).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("vec3 color = vec3(1, 2, 3);");
   });
 
@@ -2969,7 +2967,7 @@ describe("named toVar variables", () => {
       let color = vec3(1, 2, 3).toVar("color");
       return color.add(vec3(1)).toVar();
     });
-    let wgsl = compileWGSL(prog());
+    let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("var color: vec3<f32> = vec3<f32>(1, 2, 3);");
   });
 
@@ -2980,7 +2978,7 @@ describe("named toVar variables", () => {
       let c = float(3).toVar("x");
       return a.add(b).add(c).toVar();
     });
-    let glsl = compileGLSL(prog());
+    let glsl = compileGlsl(prog());
     expect(glsl).toContain("float x = 1.0;");
     expect(glsl).toContain("float x1 = 2.0;");
     expect(glsl).toContain("float x2 = 3.0;");
@@ -2991,29 +2989,29 @@ describe("named toVar variables", () => {
       let uv = vec2(1, 2).var("uv");
       return uv;
     });
-    expect(compileGLSL(prog())).toContain("vec2 uv = vec2(1, 2);");
-    expect(compileWGSL(prog())).toContain("var uv: vec2<f32>");
+    expect(compileGlsl(prog())).toContain("vec2 uv = vec2(1, 2);");
+    expect(compileWgsl(prog())).toContain("var uv: vec2<f32>");
   });
 
   it("rejects a name that is not a valid identifier", () => {
     let bad = () => Fn(() => float(1).toVar("my var"))();
-    expect(() => compileGLSL(bad())).toThrow(/valid identifier/);
+    expect(() => compileGlsl(bad())).toThrow(/valid identifier/);
   });
 
   it("rejects a leading digit", () => {
     let bad = () => Fn(() => float(1).toVar("2x"))();
-    expect(() => compileGLSL(bad())).toThrow(/valid identifier/);
+    expect(() => compileGlsl(bad())).toThrow(/valid identifier/);
   });
 
   it("rejects the reserved _rmsl_ prefix", () => {
     let bad = () => Fn(() => float(1).toVar("_rmsl_0"))();
-    expect(() => compileGLSL(bad())).toThrow(/reserved/);
+    expect(() => compileGlsl(bad())).toThrow(/reserved/);
   });
 
   it("gives the same name to separate compiles", () => {
     let build = () => Fn(() => float(1).toVar("color"))();
-    expect(compileGLSL(build())).toContain("float color = 1.0;");
-    expect(compileGLSL(build())).toContain("float color = 1.0;");
+    expect(compileGlsl(build())).toContain("float color = 1.0;");
+    expect(compileGlsl(build())).toContain("float color = 1.0;");
   });
 
   it("emits a named variable into the JS scratch block", () => {

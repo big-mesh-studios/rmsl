@@ -19,7 +19,8 @@
  * real GPU uniform buffer sharing those bytes would be.
  */
 import { describe, it, expect } from "vitest";
-import { Fn, uniform, uniformArray, int, wgslUniformLayout } from "./rmsl";
+import { Fn, uniform, uniformArray, int } from "./rmsl";
+import { wgslUniformLayout } from "./wgsl";
 import { wgslType } from "./backends/wgsl";
 import { compileWasm, compileWasmFn, type CompileWasmFnOptions } from "./backends/wasm";
 

@@ -1,4 +1,5 @@
-import { vec3, vec4, type Node, type UniformNode, type GLSLPrecision } from "../../rmsl";
+import { vec3, vec4, type Node, type UniformNode } from "../../rmsl";
+import type { GLSLPrecision } from "../../glsl";
 import { NodeMaterial, resolveSlot } from "./NodeMaterial";
 import { Builder } from "./nodes/Builder";
 import { collectLights, type LightUniforms } from "./nodes/lights";

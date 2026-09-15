@@ -18,7 +18,7 @@ import {
   RedIntegerFormat,
   RepeatWrapping,
 } from "../textures/constants";
-import type { GLSLPrecision } from "../../rmsl";
+import type { GLSLPrecision } from "../../glsl";
 
 /**
  * Which shader precision a program compiles with, mirroring three.js: a

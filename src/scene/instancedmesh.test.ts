@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll } from "vitest";
 import {
-  recordingGLSL as compileGLSL,
-  recordingWGSL as compileWGSL,
+  recordingGLSL as compileGlsl,
+  recordingWGSL as compileWgsl,
   assertRecordedShadersValid,
 } from "../testing/shader-validity";
 import {
@@ -27,8 +27,8 @@ afterAll(async () => {
 }, 120_000);
 
 function compileMaterial(program: { vertexRoot: any; fragmentRoot: any }): { glsl: string; wgsl: string } {
-  const glsl = compileGLSL.vertex(program.vertexRoot) + "\n---\n" + compileGLSL.fragment(program.fragmentRoot);
-  const wgsl = compileWGSL.vertex(program.vertexRoot) + "\n---\n" + compileWGSL.fragment(program.fragmentRoot);
+  const glsl = compileGlsl.vertex(program.vertexRoot) + "\n---\n" + compileGlsl.fragment(program.fragmentRoot);
+  const wgsl = compileWgsl.vertex(program.vertexRoot) + "\n---\n" + compileWgsl.fragment(program.fragmentRoot);
   return { glsl, wgsl };
 }
 

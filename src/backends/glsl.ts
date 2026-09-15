@@ -1,7 +1,8 @@
 // ========== GLSL Compiler ==========
-import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH } from "../core";
+import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, var_ } from "../core";
 import {
   CompileCtx,
+  CompileFnOptions,
   CompiledNode,
   PRECEDENCE,
   PREC_ATOM,
@@ -1019,7 +1020,7 @@ export function compileGLSLWithStage(
   return lines.join("\n");
 }
 
-export const compileGLSL: {
+export const compileGlsl: {
   (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileGLSLOptions): string;
   vertex(root: VertexRoot, options?: CompileGLSLOptions): string;
   fragment(root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileGLSLOptions): string;
@@ -1035,3 +1036,67 @@ export const compileGLSL: {
       compileGLSLWithStage(root, "fragment", options),
   },
 );
+
+/**
+ * Compiles an `Fn` to a standalone GLSL function — for embedding in a
+ * host shader system (Three.js's `glslFn`, say) rather than a whole
+ * program `compileGLSL` produces. Kept in this file, not shared with
+ * `compileWgslFn`, so importing one never pulls in the other backend's
+ * compiler as dead code a bundler can't prove unreachable.
+ */
+export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options: CompileFnOptions): string {
+  const paramNodes = options.params.map((p) => var_(p.name, p.type));
+  const result = fn(...paramNodes);
+  if (Array.isArray(result)) {
+    throw new Error(
+      "compileGlslFn does not support multi-return functions. Define separate functions for each return value.",
+    );
+  }
+
+  const ctx: CompileCtx = {
+    nextId: 0,
+    shaderStage: "fragment",
+    uniforms: new Map(),
+    attributes: new Map(),
+    varyings: new Map(),
+    outputs: new Map(),
+    wgslSamplers: new Map(),
+    varDefs: new Map(),
+    memo: new Map(),
+    wgslHelpers: new Set(),
+    positionWritten: false,
+    inFn: false,
+    fragDepthUsed: false,
+    fragCoordUsed: false,
+    jsParams: new Set(),
+    jsHelpers: new Set(),
+    outTarget: null,
+    derivatives: "throw",
+    reentrant: false,
+    jsNeedsRes: false,
+  };
+  const compiled = compileGLSLStage(result, ctx);
+  const returnType = glslType((result as any)._t || "float");
+  const paramStr = options.params.map((p) => `${glslType(p.type)} ${p.name}`).join(", ");
+  let code = "";
+  ctx.uniforms.forEach((info) => {
+    code +=
+      info.length !== undefined
+        ? `uniform ${info.type} ${info.slot}[${info.length}];\n`
+        : `uniform ${info.type} ${info.slot};\n`;
+  });
+  if (ctx.uniforms.size > 0) {
+    code += "\n";
+  }
+  code += `${returnType} ${options.name}(${paramStr}) {\n`;
+  for (const line of compiled.body) {
+    code += `  ${line}\n`;
+  }
+  if (compiled.expr !== "0.0") {
+    code += `  return ${compiled.expr};\n`;
+  } else {
+    code += `  return ${returnType}(0);\n`;
+  }
+  code += `}`;
+  return code;
+}

@@ -1,16 +1,5 @@
-import {
-  float,
-  vec2,
-  vec3,
-  vec4,
-  element,
-  If,
-  Discard,
-  mix,
-  type Node,
-  type UniformNode,
-  type GLSLPrecision,
-} from "../../rmsl";
+import { float, vec2, vec3, vec4, element, If, Discard, mix, type Node, type UniformNode } from "../../rmsl";
+import type { GLSLPrecision } from "../../glsl";
 import { NodeMaterial, resolveSlot, type SlotValue } from "./NodeMaterial";
 import { Builder } from "./nodes/Builder";
 import { Color } from "../math/Color";

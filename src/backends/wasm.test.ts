@@ -20,11 +20,9 @@
  */
 
 import { describe, it, expect } from "vitest";
+import { compileWasm, compileWasmFn, instantiateWasm } from "../wasm";
+import { compileJS } from "../js";
 import {
-  compileWasm,
-  compileWasmFn,
-  instantiateWasm,
-  compileJS,
   Fn,
   If,
   For,

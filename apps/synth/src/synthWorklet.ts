@@ -1,4 +1,4 @@
-import { compileWasm } from "@random-mesh/rmsl";
+import { compileWasm } from "@random-mesh/rmsl/wasm";
 import { synthCpu, u_freq, u_gain, u_sampleRate, u_startPhase, u_waveform } from "./synthShader";
 
 // AudioWorkletGlobalScope doesn't expose TextEncoder in every browser (it's

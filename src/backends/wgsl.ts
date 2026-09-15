@@ -1,8 +1,9 @@
 // ========== WGSL Compiler ==========
-import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, isSamplerType } from "../core";
+import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, isSamplerType, var_ } from "../core";
 import { AllocRules, planLayout } from "../layout";
 import {
   CompileCtx,
+  CompileFnOptions,
   CompiledNode,
   PRECEDENCE,
   PREC_ATOM,
@@ -1768,7 +1769,7 @@ export type CompileWGSLOptions = {
   workgroupSize?: number;
 };
 
-export const compileWGSL: {
+export const compileWgsl: {
   (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileWGSLOptions): string;
   vertex(root: VertexRoot, options?: CompileWGSLOptions): string;
   fragment(root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileWGSLOptions): string;
@@ -1809,4 +1810,99 @@ export function sharedUniformMembers(
     }
   }
   return declared;
+}
+
+/**
+ * Compiles an `Fn` to a standalone WGSL function — for embedding in a
+ * host shader system (Three.js's `wgslFn`, say) rather than a whole
+ * program `compileWGSL` produces. Kept in this file, not shared with
+ * `compileGlslFn`, so importing one never pulls in the other backend's
+ * compiler as dead code a bundler can't prove unreachable.
+ */
+export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options: CompileFnOptions): string {
+  const paramNodes = options.params.map((p) => var_(p.name, p.type));
+  const result = fn(...paramNodes);
+  if (Array.isArray(result)) {
+    throw new Error(
+      "compileWgslFn does not support multi-return functions. Define separate functions for each return value.",
+    );
+  }
+
+  const ctx: CompileCtx = {
+    nextId: 0,
+    shaderStage: "fragment",
+    uniforms: new Map(),
+    attributes: new Map(),
+    varyings: new Map(),
+    outputs: new Map(),
+    wgslSamplers: new Map(),
+    varDefs: new Map(),
+    memo: new Map(),
+    wgslHelpers: new Set(),
+    positionWritten: false,
+    inFn: false,
+    fragDepthUsed: false,
+    fragCoordUsed: false,
+    jsParams: new Set(),
+    jsHelpers: new Set(),
+    outTarget: null,
+    derivatives: "throw",
+    reentrant: false,
+    jsNeedsRes: false,
+  };
+  const compiled = compileWGSLStage(result, ctx);
+  const returnType = wgslType((result as any)._t || "float");
+  const paramStr = options.params.map((p) => `${p.name}: ${wgslType(p.type)}`).join(", ");
+
+  // Helpers standing in for GLSL builtins WGSL lacks, emitted ahead of the
+  // function that calls them. The whole-shader path does the same at its own
+  // top level; a function emitted on its own has to carry them itself, or it
+  // calls something that was never defined. Sorted so identical input gives
+  // identical output regardless of the order ops were reached.
+  let code = "";
+  for (const helper of [...ctx.wgslHelpers].sort()) {
+    code += `${WGSL_HELPERS[helper]}\n\n`;
+  }
+  code += `fn ${options.name}(${paramStr}) -> ${returnType} {\n`;
+  for (const line of compiled.decls) {
+    code += `  ${line}\n`;
+  }
+  for (const line of compiled.body) {
+    code += `  ${line}\n`;
+  }
+  if (compiled.expr !== "0.0") {
+    code += `  return ${compiled.expr};\n`;
+  } else {
+    code += `  return ${returnType}();\n`;
+  }
+  code += `}\n`;
+
+  // Same single-struct packing as a full shader, for the same reason: one
+  // binding per uniform runs out at twelve.
+  let sortedUniforms = [...ctx.uniforms.entries()].sort((a, b) => a[1].slot.localeCompare(b[1].slot));
+  // A texture is sampled through a companion sampler, so both are declared
+  // or neither resolves. The whole-shader path does the same, in the same
+  // binding groups.
+  let samplerDecls = "";
+  let samplerBinding = 0;
+  ctx.wgslSamplers.forEach((info) => {
+    samplerDecls += `@group(2) @binding(${samplerBinding++}) var ${info.samplerSlot}: sampler;\n`;
+  });
+  let textureDecls = "";
+  let texBinding = 0;
+  for (let [, info] of sortedUniforms.filter(([, i]) => isWgslTexture(i.type))) {
+    textureDecls += `@group(1) @binding(${texBinding++}) var ${info.slot}: ${info.type};\n`;
+  }
+  if (textureDecls || samplerDecls) code = textureDecls + samplerDecls + "\n" + code;
+  let plainUniforms = sortedUniforms.filter(([, i]) => !isWgslTexture(i.type));
+  if (plainUniforms.length > 0) {
+    let layout = wgslUniformLayout(plainUniforms.map(([, i]) => ({ slot: i.slot, type: i.type, length: i.length })));
+    let struct =
+      `struct ${WGSL_UNIFORM_STRUCT} {\n` +
+      layout.members.map((m) => `  ${m.name}: ${wgslMemberType(m)},\n`).join("") +
+      `};\n` +
+      `@group(0) @binding(0) var<uniform> ${WGSL_UNIFORM_BINDING}: ${WGSL_UNIFORM_STRUCT};\n\n`;
+    code = struct + code;
+  }
+  return code;
 }

@@ -1,4 +1,5 @@
-import { Fn, attribute, compileGLSL, uniformRaw, varying, vec2, vec4 } from "../../rmsl";
+import { Fn, attribute, uniformRaw, varying, vec2, vec4 } from "../../rmsl";
+import { compileGlsl } from "../../glsl";
 
 // This module is compiled once at build time by vite's precompileShaders plugin
 // and replaced with JSON, so the rmsl graph is never built (and rmsl is never
@@ -21,6 +22,6 @@ export default {
   uColour: uColour.name,
   vUv: vUv.name,
   positionAttr: positionAttr.name,
-  vertexGLSL: compileGLSL.vertex(vertexFn()),
-  fragmentGLSL: compileGLSL.fragment(fragmentFn()),
+  vertexGLSL: compileGlsl.vertex(vertexFn()),
+  fragmentGLSL: compileGlsl.fragment(fragmentFn()),
 };

@@ -7,7 +7,7 @@ import { f, type FloatIn, type IntIn, type Vec2In, type Sampler2D, type Sampler3
  * a texture to each, so pass N can read pass N-1's render target.
  *
  * A `PassDescriptor` is pure data — the color is an RMSL node graph that
- * compiles with `compileGLSL.fragment`/`compileWGSL.fragment`. No render
+ * compiles with `compileGlsl.fragment`/`compileWgsl.fragment`. No render
  * target or GL context lives inside rmsl; your own render loop draws one
  * fullscreen quad per pass and binds the previous pass's output texture to the
  * next pass's input.

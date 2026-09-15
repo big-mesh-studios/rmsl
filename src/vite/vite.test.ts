@@ -64,7 +64,7 @@ describe("precompileShaders", () => {
     expect(result!.code).toContain('"positionAttr":"_rmsl_a');
     expect(result!.code).toContain('"vertexGLSL"');
     expect(result!.code).not.toContain("import");
-    expect(result!.code).not.toContain("compileGLSL");
+    expect(result!.code).not.toContain("compileGlsl");
   });
 
   it("evaluates the rewritten module to the compiled shaders", async () => {
@@ -167,7 +167,7 @@ describe("precompileWasm", () => {
     const result = await plugin.transform.call(context, source, WASM_FNS_PATH);
 
     expect(result).not.toBeNull();
-    expect(result!.code).toContain('import { instantiateWasm } from "@random-mesh/rmsl";');
+    expect(result!.code).toContain('import { instantiateWasm } from "@random-mesh/rmsl/wasm";');
     expect(result!.code).toContain("export const brightness = instantiateWasm(");
     expect(result!.code).toContain("export const mixColours = instantiateWasm(");
     expect(result!.code).toMatch(/fetch\(new URL\(import\.meta\.ROLLUP_FILE_URL_ref\d+, import\.meta\.url\)\)/);
@@ -197,11 +197,14 @@ describe("precompileWasm", () => {
       const dataUrl = `data:application/wasm;base64,${bytesToBase64(asset.source)}`;
       code = code.replaceAll(`import.meta.ROLLUP_FILE_URL_ref${i}`, JSON.stringify(dataUrl));
     });
-    // A bare "@random-mesh/rmsl" specifier has no package context to resolve
-    // against from a data: URL module, the way it would in a real bundle;
-    // point it at the actual build output instead, same as a consumer would
-    // resolve it via node_modules.
-    code = code.replace('"@random-mesh/rmsl"', JSON.stringify(new URL("../../dist/rmsl.js", import.meta.url).href));
+    // A bare "@random-mesh/rmsl/wasm" specifier has no package context to
+    // resolve against from a data: URL module, the way it would in a real
+    // bundle; point it at the actual build output instead, same as a
+    // consumer would resolve it via node_modules.
+    code = code.replace(
+      '"@random-mesh/rmsl/wasm"',
+      JSON.stringify(new URL("../../dist/wasm.js", import.meta.url).href),
+    );
 
     const mod = await importDataUrl(code);
     expect(typeof mod.brightness).toBe("function");

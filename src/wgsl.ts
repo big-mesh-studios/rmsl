@@ -1,5 +1,5 @@
 import type { Node, ShaderType, StorageAccess } from "./core";
-import { compileWGSL, wgslUniformLayout, WGSL_UNIFORM_STRUCT } from "./backends/wgsl";
+import { compileWgsl, wgslUniformLayout, WGSL_UNIFORM_STRUCT } from "./backends/wgsl";
 
 export type WgslStage = "compute" | "vertex" | "fragment";
 
@@ -130,7 +130,7 @@ export function compile(
   }
 
   const workgroupSize = options.workgroupSize ?? 64;
-  const code = compileWGSL.compute(root as Node<ShaderType> | readonly Node<ShaderType>[], {
+  const code = compileWgsl.compute(root as Node<ShaderType> | readonly Node<ShaderType>[], {
     workgroupSize,
   });
 
@@ -143,7 +143,10 @@ export function compile(
   };
 }
 
-export { compileWGSL };
+export { compileWgsl, wgslUniformLayout };
+export type { CompileWGSLOptions, WgslUniformDeclaration, WgslUniformMember } from "./backends/wgsl";
+
+export { compileWgslFn } from "./backends/wgsl";
 
 export type { Adapter, TypedArray } from "./backends/adapter";
 export { createWgsl } from "./backends/adapter-wgsl";

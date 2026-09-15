@@ -1,4 +1,4 @@
-import { compileGLSL, type GLSLPrecision } from "../../rmsl";
+import { compileGlsl, type GLSLPrecision } from "../../glsl";
 import { Color } from "../math/Color";
 import { Vector4 } from "../math/Vector4";
 import { WebGLRenderTarget } from "./WebGLRenderTarget";
@@ -556,9 +556,9 @@ export class WebGLRenderer {
     const gl = this.gl;
     const precision = shaderPrecision(material, this.precision);
 
-    const vertexShader = this.compileShader(compileGLSL.vertex(program.vertexRoot, { precision }), gl.VERTEX_SHADER);
+    const vertexShader = this.compileShader(compileGlsl.vertex(program.vertexRoot, { precision }), gl.VERTEX_SHADER);
     const fragmentShader = this.compileShader(
-      compileGLSL.fragment(program.fragmentRoot, { precision }),
+      compileGlsl.fragment(program.fragmentRoot, { precision }),
       gl.FRAGMENT_SHADER,
     );
     const glProgram = gl.createProgram()!;

@@ -34,11 +34,11 @@ import {
   all,
   any,
   determinant,
-  compileGLSL,
-  compileWGSL,
   type Node,
   type ShaderType,
 } from "./rmsl";
+import { compileGlsl } from "./glsl";
+import { compileWgsl } from "./wgsl";
 
 describe("comparison result types", () => {
   // Only a scalar reduces to a single boolean; a comparison is component-wise,
@@ -105,14 +105,14 @@ describe("what a vertex stage accepts", () => {
   // Its result becomes the position, so anything that cannot be one is refused
   // where it is written rather than when the compiler runs.
   it("takes a vec4 result", () => {
-    expectTypeOf(compileGLSL.vertex(Fn(() => vec4(1, 2, 3, 4).toVar())())).toEqualTypeOf<string>();
+    expectTypeOf(compileGlsl.vertex(Fn(() => vec4(1, 2, 3, 4).toVar())())).toEqualTypeOf<string>();
   });
 
   // The other way to satisfy it: assign the position and return nothing. A
   // body that returns nothing has type void, which is why void is admitted.
   it("takes a program that returns nothing", () => {
     expectTypeOf(
-      compileWGSL.vertex(
+      compileWgsl.vertex(
         Fn(() => {
           vec4(1, 2, 3, 4).toVar();
         })(),
@@ -140,48 +140,48 @@ describe("what a vertex stage accepts", () => {
   // Several values can be returned at once, and the last becomes the position.
   // The values before it are whatever the shader needed on the way there.
   it("takes several values, of which the last is the position", () => {
-    expectTypeOf(compileGLSL.vertex(Fn(() => [float(1).toVar(), vec4(0, 0, 0, 1).toVar()])())).toEqualTypeOf<string>();
+    expectTypeOf(compileGlsl.vertex(Fn(() => [float(1).toVar(), vec4(0, 0, 0, 1).toVar()])())).toEqualTypeOf<string>();
   });
 
   it("refuses several values that do not end in a position", () => {
     // @ts-expect-error the last of these is a float
-    compileGLSL.vertex(Fn(() => [float(1).toVar(), float(2).toVar()])());
+    compileGlsl.vertex(Fn(() => [float(1).toVar(), float(2).toVar()])());
     // @ts-expect-error a position has to come last, not first
-    compileWGSL.vertex(Fn(() => [vec4(0, 0, 0, 1).toVar(), float(1).toVar()])());
+    compileWgsl.vertex(Fn(() => [vec4(0, 0, 0, 1).toVar(), float(1).toVar()])());
   });
 
   it("refuses a result that cannot become a position", () => {
     // @ts-expect-error a vec3 is not a position
-    compileGLSL.vertex(Fn(() => vec3(1, 2, 3).toVar())());
+    compileGlsl.vertex(Fn(() => vec3(1, 2, 3).toVar())());
     // @ts-expect-error a float is not a position
-    compileWGSL.vertex(Fn(() => float(1).toVar())());
+    compileWgsl.vertex(Fn(() => float(1).toVar())());
   });
 
   // A fragment stage has no such requirement: a shader with no colour output is
   // legal, so any result is allowed through.
   it("puts no such requirement on a fragment stage", () => {
-    expectTypeOf(compileGLSL.fragment(Fn(() => float(1).toVar())())).toEqualTypeOf<string>();
+    expectTypeOf(compileGlsl.fragment(Fn(() => float(1).toVar())())).toEqualTypeOf<string>();
   });
 });
 
-describe("compileGLSL precision options", () => {
+describe("compileGlsl precision options", () => {
   // The options mirror three.js's `precision` setting (`"highp" | "mediump" |
-  // "lowp"`); every compileGLSL call takes them, and a value outside the union
+  // "lowp"`); every compileGlsl call takes them, and a value outside the union
   // is refused at the type level.
   it("accepts a precision option on every call shape", () => {
     const root = Fn(() => vec4(1, 2, 3, 4).toVar())();
-    expectTypeOf(compileGLSL(root, { precision: "mediump" })).toEqualTypeOf<string>();
-    expectTypeOf(compileGLSL.fragment(root, { precision: "lowp" })).toEqualTypeOf<string>();
-    expectTypeOf(compileGLSL.vertex(root, { precision: "highp" })).toEqualTypeOf<string>();
-    expectTypeOf(compileGLSL(root)).toEqualTypeOf<string>();
+    expectTypeOf(compileGlsl(root, { precision: "mediump" })).toEqualTypeOf<string>();
+    expectTypeOf(compileGlsl.fragment(root, { precision: "lowp" })).toEqualTypeOf<string>();
+    expectTypeOf(compileGlsl.vertex(root, { precision: "highp" })).toEqualTypeOf<string>();
+    expectTypeOf(compileGlsl(root)).toEqualTypeOf<string>();
   });
 
   it("refuses an unknown precision value", () => {
     const root = Fn(() => vec4(1, 2, 3, 4).toVar())();
     // @ts-expect-error "high" is not a precision
-    compileGLSL(root, { precision: "high" });
+    compileGlsl(root, { precision: "high" });
     // @ts-expect-error a number is not a precision
-    compileGLSL.vertex(root, { precision: 1 });
+    compileGlsl.vertex(root, { precision: 1 });
   });
 });
 

@@ -20,7 +20,9 @@
  * "where exactly is the crossover".
  */
 import { bench, describe } from "vitest";
-import { compileWasm, compileJS, Fn, For, float, int, sqrt } from "../rmsl";
+import { compileWasm } from "../wasm";
+import { compileJS } from "../js";
+import { Fn, For, float, int, sqrt } from "../rmsl";
 
 function buildLoop(n: number) {
   return () =>

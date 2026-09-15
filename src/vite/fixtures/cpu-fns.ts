@@ -1,4 +1,5 @@
-import { Fn, compileJSFn, float, uniform, type Node } from "../../rmsl";
+import { Fn, float, uniform, type Node } from "../../rmsl";
+import { compileJSFn } from "../../js";
 
 // Any shader function can be compiled for the CPU. This module exports the
 // compileJSFn() output for each one under __RMSL_JS_CODE, which vite's

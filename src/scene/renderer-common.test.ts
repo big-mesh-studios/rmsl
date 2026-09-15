@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { wgslUniformLayout } from "../rmsl";
+import { wgslUniformLayout } from "../wgsl";
 import {
   Scene,
   Mesh,

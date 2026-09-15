@@ -26,14 +26,9 @@
  */
 
 import { expect } from "vitest";
-import {
-  compileGLSL,
-  compileWGSL,
-  type CompileGLSLOptions,
-  type Node,
-  type ShaderType,
-  type VertexRoot,
-} from "../rmsl";
+import { type Node, type ShaderType, type VertexRoot } from "../rmsl";
+import { compileGlsl, type CompileGLSLOptions } from "../glsl";
+import { compileWgsl } from "../wgsl";
 
 // This file only ever runs under vitest, in Node. Declared here rather than
 // depending on @types/node, which the package itself has no use for.
@@ -101,11 +96,11 @@ function recordBoth(root: any, stage: ShaderStage, want: ShaderLang, glslOptions
       entry.src =
         lang === "glsl"
           ? stage === "vertex"
-            ? compileGLSL.vertex(root, glslOptions)
-            : compileGLSL.fragment(root, glslOptions)
+            ? compileGlsl.vertex(root, glslOptions)
+            : compileGlsl.fragment(root, glslOptions)
           : stage === "vertex"
-            ? compileWGSL.vertex(root)
-            : compileWGSL.fragment(root);
+            ? compileWgsl.vertex(root)
+            : compileWgsl.fragment(root);
     } catch (error) {
       // A backend refusing to compile is itself a signal, so it is recorded
       // rather than swallowed.
@@ -125,7 +120,7 @@ function recordBoth(root: any, stage: ShaderStage, want: ShaderLang, glslOptions
 /**
  * Submit a hand-assembled shader for validation.
  *
- * `compileGLSLFn` / `compileWGSLFn` emit a single function rather than a whole
+ * `compileGlslFn` / `compileWgslFn` emit a single function rather than a whole
  * shader, so they cannot be compiled on their own. A test can wrap the emitted
  * function in a minimal shader and pass it here, which checks the thing that
  * actually matters about them: that what they produce compiles when embedded.
@@ -184,7 +179,7 @@ export function recordedShaders(): readonly Recorded[] {
 }
 
 /**
- * Shape of `compileGLSL` / `compileWGSL`: callable, with vertex and fragment.
+ * Shape of `compileGlsl` / `compileWgsl`: callable, with vertex and fragment.
  *
  * Mirrors the real signatures rather than taking anything. These stand-ins are
  * what the tests import, so typing them loosely would mean no test in that file
@@ -210,7 +205,7 @@ function wrap(lang: ShaderLang): Compiler {
 }
 
 /**
- * Drop-in replacements for `compileGLSL` / `compileWGSL`. Each returns the
+ * Drop-in replacements for `compileGlsl` / `compileWgsl`. Each returns the
  * language it is named for, and records both.
  */
 export const recordingGLSL = wrap("glsl");
@@ -302,8 +297,8 @@ export function validationReport(
   if (recorded.length === 0) {
     return (
       "Validated no shaders at all. Either the run was filtered down to" +
-      " tests that compile nothing, or a test file is importing compileGLSL" +
-      " / compileWGSL directly instead of the recording stand-ins in" +
+      " tests that compile nothing, or a test file is importing compileGlsl" +
+      " / compileWgsl directly instead of the recording stand-ins in" +
       " src/testing/shader-validity.ts. Set RMSL_SKIP_SHADER_VALIDATION=1 if" +
       " skipping validation is what you meant."
     );

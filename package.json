@@ -50,6 +50,18 @@
     "./wgsl": {
       "import": "./dist/wgsl.js",
       "types": "./dist/wgsl.d.ts"
+    },
+    "./glsl": {
+      "import": "./dist/glsl.js",
+      "types": "./dist/glsl.d.ts"
+    },
+    "./js": {
+      "import": "./dist/js.js",
+      "types": "./dist/js.d.ts"
+    },
+    "./wasm": {
+      "import": "./dist/wasm.js",
+      "types": "./dist/wasm.d.ts"
     }
   },
   "scripts": {

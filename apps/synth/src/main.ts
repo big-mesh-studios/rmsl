@@ -1,4 +1,4 @@
-import { compileGLSL } from "@random-mesh/rmsl";
+import { compileGlsl } from "@random-mesh/rmsl/glsl";
 import { a_index, scopeFragment, scopeVertex, SCOPE_VERTEX_COUNT } from "./scopeShader";
 import { u_freq, u_gain, u_sampleRate, u_startPhase, u_waveform } from "./synthShader";
 
@@ -47,8 +47,8 @@ function compileShader(src: string, type: number): WebGLShader {
 }
 
 if (gl) {
-  const vs = compileShader(compileGLSL.vertex(scopeVertex()), gl.VERTEX_SHADER);
-  const fs = compileShader(compileGLSL.fragment(scopeFragment()), gl.FRAGMENT_SHADER);
+  const vs = compileShader(compileGlsl.vertex(scopeVertex()), gl.VERTEX_SHADER);
+  const fs = compileShader(compileGlsl.fragment(scopeFragment()), gl.FRAGMENT_SHADER);
   glProgram = gl.createProgram()!;
   gl.attachShader(glProgram, vs);
   gl.attachShader(glProgram, fs);

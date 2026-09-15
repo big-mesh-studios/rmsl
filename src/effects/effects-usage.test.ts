@@ -21,12 +21,12 @@ import {
   uv,
   screenCoordinate,
   time,
-  compileGLSLFn,
-  compileWGSLFn,
 } from "../rmsl";
+import { compileGlslFn } from "../glsl";
+import { compileWgslFn } from "../wgsl";
 import {
-  recordingGLSL as compileGLSL,
-  recordingWGSL as compileWGSL,
+  recordingGLSL as compileGlsl,
+  recordingWGSL as compileWgsl,
   assertRecordedShadersValid,
 } from "../testing/shader-validity";
 import {
@@ -62,15 +62,15 @@ describe("core primitives for effects", () => {
       const c = uniform("float");
       return c.greaterThan(0.5).select(float(1.0), float(0.0)).toVar();
     });
-    const glsl = compileGLSL(prog());
+    const glsl = compileGlsl(prog());
     expect(glsl).toMatch(/\? /);
-    const wgsl = compileWGSL(prog());
+    const wgsl = compileWgsl(prog());
     expect(wgsl).toContain("select(");
   });
 
   it("folds a select with a literal condition", () => {
     const prog = Fn(() => select(bool(true), float(1.0), float(2.0)).toVar());
-    const glsl = compileGLSL(prog());
+    const glsl = compileGlsl(prog());
     expect(glsl).toContain("1.0");
     expect(glsl).not.toContain("?");
   });
@@ -82,11 +82,11 @@ describe("core primitives for effects", () => {
       const sel = x.greaterThan(0.5).select(float(1.0), float(0.0));
       return x.mul(sel).toVar();
     });
-    const glsl = compileGLSL(prog());
+    const glsl = compileGlsl(prog());
     expect(glsl).toContain("?");
     // The ternary must sit inside parentheses in the multiply.
     expect(glsl).toMatch(/\* \([^()]*\? [^()]*: [^()]*\)/);
-    const wgsl = compileWGSL(prog());
+    const wgsl = compileWgsl(prog());
     expect(wgsl).toContain("select(");
   });
 
@@ -96,9 +96,9 @@ describe("core primitives for effects", () => {
       const u = vec2(0.25, 0.75);
       return vec4(luminance(color), rand(u), interleavedGradientNoise(u), 1.0).toVar();
     });
-    const glsl = compileGLSL(prog());
+    const glsl = compileGlsl(prog());
     expect(glsl).toContain("sin");
-    const wgsl = compileWGSL(prog());
+    const wgsl = compileWgsl(prog());
     expect(wgsl).toContain("sin");
   });
 
@@ -108,23 +108,23 @@ describe("core primitives for effects", () => {
       const p = int(4);
       return textureLoad(tex, vec2(1, 2).toIVec2()).toVar();
     });
-    const glsl = compileGLSL(prog());
+    const glsl = compileGlsl(prog());
     expect(glsl).toContain("texelFetch");
-    const wgsl = compileWGSL(prog());
+    const wgsl = compileWgsl(prog());
     expect(wgsl).toContain("textureLoad(");
   });
 
   it("reads the fragment coordinate", () => {
     const prog = Fn(() => fragCoord().div(vec2(800, 600)).toVar());
-    const glsl = compileGLSL(prog());
+    const glsl = compileGlsl(prog());
     expect(glsl).toContain("gl_FragCoord.xy");
-    const wgsl = compileWGSL(prog());
+    const wgsl = compileWgsl(prog());
     expect(wgsl).toContain("@builtin(position)");
   });
 
   it("declares a shared time uniform", () => {
     const prog = Fn(() => time().mul(1.0).toVar());
-    const glsl = compileGLSL(prog());
+    const glsl = compileGlsl(prog());
     expect(glsl).toContain("uniform float");
   });
 });
@@ -132,26 +132,26 @@ describe("core primitives for effects", () => {
 describe("color effects", () => {
   it("sepia", () => {
     const color = vec4(0.5, 0.3, 0.2, 1.0);
-    const glsl = compileGLSL(sepia(color));
+    const glsl = compileGlsl(sepia(color));
     expect(glsl).toContain("dot(");
   });
 
   it("bleach bypass", () => {
     const color = vec4(0.5, 0.3, 0.2, 1.0);
-    const glsl = compileGLSL(bleach(color));
+    const glsl = compileGlsl(bleach(color));
     expect(glsl).toContain("mix(");
   });
 
   it("dotScreen", () => {
     const color = vec4(0.5, 0.3, 0.2, 1.0);
-    const glsl = compileGLSL(dotScreen(color));
+    const glsl = compileGlsl(dotScreen(color));
     expect(glsl).toContain("gl_FragCoord.xy");
-    const wgsl = compileWGSL(dotScreen(color));
+    const wgsl = compileWgsl(dotScreen(color));
     expect(wgsl).toContain("@builtin(position)");
   });
 
   it("circle", () => {
-    const glsl = compileGLSL(vec4(circle(1.0, 0.5, uniform("vec2")), 0, 0, 1));
+    const glsl = compileGlsl(vec4(circle(1.0, 0.5, uniform("vec2")), 0, 0, 1));
     expect(glsl).toContain("smoothstep");
   });
 });
@@ -160,18 +160,18 @@ describe("texture-based effects", () => {
   const tex = () => uniform("sampler2D");
 
   it("rgbShift", () => {
-    const glsl = compileGLSL(rgbShift(tex()));
+    const glsl = compileGlsl(rgbShift(tex()));
     expect(glsl).toContain("texture(");
     expect(glsl).toContain("uniform sampler2D");
   });
 
   it("chromaticAberration", () => {
-    const glsl = compileGLSL(chromaticAberration(tex()));
+    const glsl = compileGlsl(chromaticAberration(tex()));
     expect(glsl).toContain("texture(");
   });
 
   it("film", () => {
-    const glsl = compileGLSL(film(vec4(0.5, 0.3, 0.2, 1.0)));
+    const glsl = compileGlsl(film(vec4(0.5, 0.3, 0.2, 1.0)));
     expect(glsl).toContain("sin(");
   });
 
@@ -179,38 +179,38 @@ describe("texture-based effects", () => {
     const a = tex();
     const b = tex();
     const mixTex = tex();
-    const glsl = compileGLSL(transition(a, b, mixTex, 0.5, 0.1, 1));
+    const glsl = compileGlsl(transition(a, b, mixTex, 0.5, 0.1, 1));
     expect(glsl).toContain("if (");
     expect(glsl).toContain("else");
   });
 
   it("motionBlur", () => {
     const velocity = vec2(0.01, 0.0);
-    const glsl = compileGLSL(motionBlur(tex(), velocity, 8));
+    const glsl = compileGlsl(motionBlur(tex(), velocity, 8));
     expect(glsl).toContain("for (");
-    const wgsl = compileWGSL(motionBlur(tex(), velocity, 8));
+    const wgsl = compileWgsl(motionBlur(tex(), velocity, 8));
     expect(wgsl).toContain("for (");
   });
 
   it("sharpen (RCAS)", () => {
-    const glsl = compileGLSL(sharpen(tex()));
+    const glsl = compileGlsl(sharpen(tex()));
     expect(glsl).toContain("texelFetch");
-    const wgsl = compileWGSL(sharpen(tex()));
+    const wgsl = compileWgsl(sharpen(tex()));
     expect(wgsl).toContain("textureLoad(");
   });
 
   it("fxaa", () => {
-    const glsl = compileGLSL(fxaa(tex()));
+    const glsl = compileGlsl(fxaa(tex()));
     expect(glsl).toContain("texture(");
     // The edge walk cannot break out of a sampling loop in WGSL, so it steps
     // every iteration and selects the state once the edge is found — the GLSL
     // emitter spells select as a ternary, the WGSL one keeps the builtin.
-    const wgsl = compileWGSL(fxaa(tex()));
+    const wgsl = compileWgsl(fxaa(tex()));
     expect(wgsl).toContain("select(");
   });
 
   it("sobel", () => {
-    const glsl = compileGLSL(sobel(tex()));
+    const glsl = compileGlsl(sobel(tex()));
     expect(glsl).toContain("texture(");
     expect(glsl).toContain("sqrt(");
   });
@@ -220,23 +220,23 @@ describe("blur effects", () => {
   const tex = () => uniform("sampler2D");
 
   it("boxBlur", () => {
-    const glsl = compileGLSL(boxBlur(tex(), { size: 1 }));
+    const glsl = compileGlsl(boxBlur(tex(), { size: 1 }));
     expect(glsl).toContain("for (");
-    const wgsl = compileWGSL(boxBlur(tex(), { size: 1 }));
+    const wgsl = compileWgsl(boxBlur(tex(), { size: 1 }));
     expect(wgsl).toContain("for (");
   });
 
   it("hashBlur", () => {
-    const glsl = compileGLSL(hashBlur(tex()));
+    const glsl = compileGlsl(hashBlur(tex()));
     expect(glsl).toContain("sin");
-    const wgsl = compileWGSL(hashBlur(tex()));
+    const wgsl = compileWgsl(hashBlur(tex()));
     expect(wgsl).toContain("sin");
   });
 
   it("radialBlur", () => {
-    const glsl = compileGLSL(radialBlur(tex()));
+    const glsl = compileGlsl(radialBlur(tex()));
     expect(glsl).toContain("for (");
-    const wgsl = compileWGSL(radialBlur(tex()));
+    const wgsl = compileWgsl(radialBlur(tex()));
     expect(wgsl).toContain("for (");
   });
 });
@@ -245,21 +245,21 @@ describe("lut3D", () => {
   it("samples a 3D lookup texture", () => {
     const input = vec4(0.5, 0.3, 0.2, 1.0);
     const lut = uniform("sampler3D");
-    const glsl = compileGLSL(lut3D(input, lut, 16));
+    const glsl = compileGlsl(lut3D(input, lut, 16));
     expect(glsl).toContain("uniform sampler3D");
     expect(glsl).toContain("texture(");
-    const wgsl = compileWGSL(lut3D(input, lut, 16));
+    const wgsl = compileWgsl(lut3D(input, lut, 16));
     expect(wgsl).toContain("texture_3d");
   });
 });
 
 describe("crt", () => {
   it("composes the CRT effects", () => {
-    const glsl = compileGLSL(crt(uniform("sampler2D")));
+    const glsl = compileGlsl(crt(uniform("sampler2D")));
     expect(glsl).toContain("texture(");
     expect(glsl).toContain("sin(");
     expect(glsl).toContain("smoothstep");
-    const wgsl = compileWGSL(crt(uniform("sampler2D")));
+    const wgsl = compileWgsl(crt(uniform("sampler2D")));
     expect(wgsl).toContain("sin(");
   });
 });
@@ -270,9 +270,9 @@ describe("gaussianBlur pass graph", () => {
     expect(graph.passes).toHaveLength(2);
     expect(graph.output).toBe("gaussianBlur.vertical");
     for (const pass of graph.passes) {
-      const glsl = compileGLSL(pass.color);
+      const glsl = compileGlsl(pass.color);
       expect(glsl).toContain("texture(");
-      const wgsl = compileWGSL(pass.color);
+      const wgsl = compileWgsl(pass.color);
       expect(wgsl).toContain("textureSample");
     }
   });
@@ -310,22 +310,22 @@ describe("bloom", () => {
   it("compiles every pass to GLSL and WGSL", () => {
     const graph = bloom(uniform("sampler2D"));
     for (const pass of graph.passes) {
-      const glsl = compileGLSL(pass.color);
+      const glsl = compileGlsl(pass.color);
       expect(glsl).toContain("texture(");
-      const wgsl = compileWGSL(pass.color);
+      const wgsl = compileWgsl(pass.color);
       expect(wgsl).toContain("textureSample(");
     }
   });
 
   it("high pass applies a luminance threshold", () => {
-    const glsl = compileGLSL(bloom(uniform("sampler2D")).passes[0].color);
+    const glsl = compileGlsl(bloom(uniform("sampler2D")).passes[0].color);
     expect(glsl).toContain("smoothstep(");
     expect(glsl).toContain("0.2126");
   });
 
   it("the composite sums five tinted mips scaled by strength", () => {
     const graph = bloom(uniform("sampler2D"), { strength: 0.7 });
-    const glsl = compileGLSL(graph.passes[11].color);
+    const glsl = compileGlsl(graph.passes[11].color);
     expect(glsl).toMatch(/0\.8/); // factor for mip 1
     expect(glsl).toMatch(/0\.7/); // folded strength
     // Five texture samples in the composite.
@@ -337,20 +337,20 @@ describe("bloom", () => {
       highPassFn: (input, threshold, smoothWidth) =>
         vec4(vec3(luminance(input.rgb).mul(threshold).add(smoothWidth)), 1),
     });
-    const glsl = compileGLSL(graph.passes[0].color);
+    const glsl = compileGlsl(graph.passes[0].color);
     expect(glsl).toContain("0.2126"); // luminance coefficients of the custom filter
   });
 
   it("luminosityHighPass is available standalone", () => {
     const input = uniform("sampler2D").texture(uv());
-    const glsl = compileGLSL(luminosityHighPass(input, 0.3, 0.01));
+    const glsl = compileGlsl(luminosityHighPass(input, 0.3, 0.01));
     expect(glsl).toContain("smoothstep(");
   });
 });
 
-describe("compileGLSLFn/WGSLFn embedding", () => {
+describe("compileGlslFn/WGSLFn embedding", () => {
   it("emits a standalone sepia function", () => {
-    const glslFn = compileGLSLFn((color) => sepia(color), {
+    const glslFn = compileGlslFn((color) => sepia(color), {
       name: "sepia",
       params: [{ name: "color", type: "vec4" }],
     });
@@ -359,7 +359,7 @@ describe("compileGLSLFn/WGSLFn embedding", () => {
   });
 
   it("emits a standalone WGSL sepia function", () => {
-    const wgslFn = compileWGSLFn((color) => sepia(color), {
+    const wgslFn = compileWgslFn((color) => sepia(color), {
       name: "sepia",
       params: [{ name: "color", type: "vec4" }],
     });

@@ -8,7 +8,7 @@
 // context what it linked.
 import { Node, ShaderType } from "../core";
 import { Adapter, TypedArray } from "./adapter";
-import { compileGLSL, CompileGLSLOptions } from "./glsl";
+import { compileGlsl, CompileGLSLOptions } from "./glsl";
 import { VertexRoot } from "./shared";
 
 type UniformInfo = { location: WebGLUniformLocation; type: number };
@@ -32,14 +32,18 @@ export interface GlslDrawOptions {
   instanceCount?: number;
 }
 
+// Plain numeric GLenum values, not `WebGL2RenderingContext.TRIANGLES` etc. —
+// that global only exists in a browser, and this module is imported by the
+// main barrel, so referencing it here would throw the moment any non-browser
+// context (a test runner, SSR) imports anything from the package at all.
 const GL_MODE: Record<Required<GlslDrawOptions>["mode"], number> = {
-  triangles: WebGL2RenderingContext.TRIANGLES,
-  "triangle-strip": WebGL2RenderingContext.TRIANGLE_STRIP,
-  "triangle-fan": WebGL2RenderingContext.TRIANGLE_FAN,
-  lines: WebGL2RenderingContext.LINES,
-  "line-strip": WebGL2RenderingContext.LINE_STRIP,
-  "line-loop": WebGL2RenderingContext.LINE_LOOP,
-  points: WebGL2RenderingContext.POINTS,
+  points: 0,
+  lines: 1,
+  "line-loop": 2,
+  "line-strip": 3,
+  triangles: 4,
+  "triangle-strip": 5,
+  "triangle-fan": 6,
 };
 
 function componentCountForType(gl: WebGL2RenderingContext, type: number): number {
@@ -125,8 +129,8 @@ export function createGlsl(
       if (!context) throw new Error("[RMSL] WebGL2 is not available");
       gl = context;
 
-      const vertexSource = compileGLSL.vertex(vertexRoot, options);
-      const fragmentSource = compileGLSL.fragment(fragmentRoot, options);
+      const vertexSource = compileGlsl.vertex(vertexRoot, options);
+      const fragmentSource = compileGlsl.fragment(fragmentRoot, options);
 
       const compile = (source: string, type: number): WebGLShader => {
         const shader = gl!.createShader(type)!;

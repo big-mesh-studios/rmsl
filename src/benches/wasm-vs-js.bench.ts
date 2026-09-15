@@ -19,7 +19,9 @@
  * against a pre-Phase-4 commit. See `wasm-loop.bench.ts` for that.
  */
 import { bench, describe } from "vitest";
-import { compileWasm, compileWasmFn, compileJS, Fn, If, uniform, float, sqrt, type Node } from "../rmsl";
+import { compileWasm, compileWasmFn } from "../wasm";
+import { compileJS } from "../js";
+import { Fn, If, uniform, float, sqrt, type Node } from "../rmsl";
 
 describe("scalar arithmetic: sqrt(a*a + b*b + c*c)", () => {
   const build = (a: Node<"float">, b: Node<"float">, c: Node<"float">) => sqrt(a.mul(a).add(b.mul(b)).add(c.mul(c)));

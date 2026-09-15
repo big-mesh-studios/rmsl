@@ -32,17 +32,9 @@
  * Run with `npx vitest bench src/wasm-texture.bench.ts`.
  */
 import { bench, describe } from "vitest";
-import {
-  compileWasm,
-  compileJS,
-  Fn,
-  uniform,
-  vec2,
-  ivec2,
-  textureSize,
-  textureLoad,
-  type CpuTextureData,
-} from "../rmsl";
+import { compileWasm } from "../wasm";
+import { compileJS, type CpuTextureData } from "../js";
+import { Fn, uniform, vec2, ivec2, textureSize, textureLoad } from "../rmsl";
 
 const size = 8;
 const data = new Float32Array(size * size * 4);

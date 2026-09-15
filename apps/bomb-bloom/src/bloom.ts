@@ -1,7 +1,7 @@
 // Executes a `PassGraph` from `@random-mesh/rmsl/effects` on a raw WebGL2
 // context: one fullscreen quad per pass, render targets sized by each pass's
 // `scale`, inputs bound by the producer pass named in `pass.inputs`.
-import { compileGLSL } from "@random-mesh/rmsl";
+import { compileGlsl } from "@random-mesh/rmsl/glsl";
 import type { PassGraph } from "@random-mesh/rmsl/effects";
 import { quadVerts } from "../../shared/shader";
 
@@ -40,7 +40,7 @@ export class BloomExecutor {
     this.quadVao = createQuadVao(gl);
     this.halfFloat = gl.getExtension("EXT_color_buffer_float") != null;
     for (const pass of graph.passes) {
-      const frag = compileGLSL(pass.color);
+      const frag = compileGlsl(pass.color);
       this.programs.set(pass.name, createProgram(gl, FULLSCREEN_VERT, frag, "aPos"));
     }
   }

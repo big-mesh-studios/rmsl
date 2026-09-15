@@ -1,4 +1,4 @@
-import { compileGLSL } from "@random-mesh/rmsl";
+import { compileGlsl } from "@random-mesh/rmsl/glsl";
 import {
   calcColourAndDepth,
   cameraPosition,
@@ -15,8 +15,8 @@ import {
 } from "../../shared/shader";
 
 // === Compile shaders ===
-const vsGLSL = compileGLSL.vertex(vertexMain());
-const fsGLSL = compileGLSL.fragment(calcColourAndDepth());
+const vsGLSL = compileGlsl.vertex(vertexMain());
+const fsGLSL = compileGlsl.fragment(calcColourAndDepth());
 
 // === Orbital camera state ===
 let theta = 0;

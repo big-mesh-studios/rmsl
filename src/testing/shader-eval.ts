@@ -12,7 +12,11 @@
  */
 
 import { expect } from "vitest";
-import { compileGLSLFn, compileWGSLFn, compileJSFn, compileWasm, var_, type Node } from "../rmsl";
+import { var_, type Node } from "../rmsl";
+import { compileGlslFn } from "../glsl";
+import { compileWgslFn } from "../wgsl";
+import { compileJSFn } from "../js";
+import { compileWasm } from "../wasm";
 import { MATRIX_DIMENSIONS, TYPE_WIDTH } from "../core";
 
 // Written to rather than console.warn: vitest intercepts console output and
@@ -184,7 +188,7 @@ ${rowLines.join("\n")}
 
 /** Compile, run and read back the GLSL backend's result — a scalar, vector or matrix. */
 export async function evaluateGLSL(build: Build, args: number[] = []): Promise<number | number[]> {
-  const fn = compileGLSLFn(build, { name: "rmsl_eval", params: params(args.length) });
+  const fn = compileGlslFn(build, { name: "rmsl_eval", params: params(args.length) });
   const type = rootType(build, args.length);
   const n = componentCountOf(type);
   const out = await evaluateGLSLElements(fn, args, type, n);
@@ -214,7 +218,7 @@ ${stores.join("\n")}
 
 /** Compile, run and read back the WGSL backend's result — a scalar, vector or matrix. */
 export async function evaluateWGSL(build: Build, args: number[] = []): Promise<number | number[]> {
-  const fn = compileWGSLFn(build, { name: "rmsl_eval", params: params(args.length) });
+  const fn = compileWgslFn(build, { name: "rmsl_eval", params: params(args.length) });
   const type = rootType(build, args.length);
   const n = componentCountOf(type);
   const out = await evaluateWGSLElements(fn, args, type, n);

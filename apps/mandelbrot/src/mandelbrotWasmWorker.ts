@@ -1,4 +1,4 @@
-import { compileWasm } from "@random-mesh/rmsl";
+import { compileWasm } from "@random-mesh/rmsl/wasm";
 import { calcMandelbrotCpu } from "./mandelbrotShader";
 
 // Each worker's wasm instance gets its own PRIVATE memory (the default —

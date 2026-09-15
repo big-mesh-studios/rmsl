@@ -1,6 +1,6 @@
 // The one system this demo has: integrate position by velocity, bounce off
 // the canvas edges. Built once as an RMSL `Fn` graph, and that single graph is
-// what compileJS, compileWasm and compileWGSL.compute each compile — so all
+// what compileJS, compileWasm and compileWgsl.compute each compile — so all
 // three backends run the exact same logic, only on different hardware.
 //
 // Written against storage()/invocationIndex() rather than

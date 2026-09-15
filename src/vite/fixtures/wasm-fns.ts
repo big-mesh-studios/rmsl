@@ -1,4 +1,5 @@
-import { Fn, compileWasmFn, float, uniform, type Node } from "../../rmsl";
+import { Fn, float, uniform, type Node } from "../../rmsl";
+import { compileWasmFn } from "../../wasm";
 
 // Any shader function can be compiled for WASM. This module exports the
 // compileWasmFn() output for each one under __RMSL_WASM_CODE, which vite's

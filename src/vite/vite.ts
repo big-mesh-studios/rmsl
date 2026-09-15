@@ -160,7 +160,7 @@ export function precompileJS(options: PrecompileJSOptions = {}): Plugin {
  * bytes in the build output, no string-encoding overhead, and the browser
  * can cache the asset like any other. The rewritten module fetches that
  * asset once at load and hands the bytes to `instantiateWasm` — imported
- * from `@random-mesh/rmsl`, the only rmsl the rewritten module ever
+ * from `@random-mesh/rmsl/wasm`, the only rmsl the rewritten module ever
  * references — along with the rest of what `compileWasmFn` returned
  * (`params`/`resultType`/`textureHeapBase`/`draw`), turning the two back
  * into a live, callable module. No eval, no graph builder or bytecode
@@ -195,7 +195,7 @@ export function precompileWasm(options: PrecompileWasmOptions = {}): Plugin {
         throw new Error(`${id}'s ${codeExport} export must be a { name: compiled } map of compileWasmFn() output`);
       }
 
-      const exports: string[] = [`import { instantiateWasm } from "@random-mesh/rmsl";`, ""];
+      const exports: string[] = [`import { instantiateWasm } from "@random-mesh/rmsl/wasm";`, ""];
       for (const [name, compiled] of Object.entries(codeMap)) {
         if (typeof compiled !== "object" || compiled === null || !("bytes" in compiled)) {
           throw new Error(`${id}'s ${codeExport} map value for ${name} must be compileWasmFn() output`);

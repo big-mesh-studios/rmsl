@@ -1,4 +1,4 @@
-import type { GLSLPrecision } from "../../rmsl";
+import type { GLSLPrecision } from "../../glsl";
 
 /** Which faces a material draws. */
 export enum Side {

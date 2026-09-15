@@ -1,4 +1,5 @@
-import { compileJS, compileWasm, createCpu } from "@random-mesh/rmsl";
+import { compileJS, createCpu } from "@random-mesh/rmsl/js";
+import { compileWasm } from "@random-mesh/rmsl/wasm";
 import { createWgsl } from "@random-mesh/rmsl/wgsl";
 import { createGpuRenderer } from "./gpu-renderer";
 import { createEcsSystem } from "./system";

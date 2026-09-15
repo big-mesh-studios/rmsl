@@ -203,32 +203,9 @@ export type {
 
 export type { CompileFnOptions, VertexRoot } from "./backends/shared";
 
-export { compileGLSL } from "./backends/glsl";
-export type { CompileGLSLOptions, GLSLPrecision } from "./backends/glsl";
-
-export { compileWGSL, wgslUniformLayout } from "./backends/wgsl";
-export type { CompileWGSLOptions, WgslUniformDeclaration, WgslUniformMember } from "./backends/wgsl";
-
-export { compileJS, compileJSFn } from "./backends/js";
-export type { CompileJSOptions } from "./backends/js";
-
-export type {
-  CpuDrawBuffer,
-  CpuRenderer,
-  CpuShaderContext,
-  CpuShaderResult,
-  CpuTextureData,
-  CpuTextureWrap,
-} from "./backends/cpu";
-
-export { compileGLSLFn, compileWGSLFn } from "./standalone-fn";
-
-export { compileWasm, compileWasmFn, instantiateWasm } from "./backends/wasm";
-export type { CompiledWasm, WasmParam } from "./backends/wasm";
-
+// Each backend's compile()/create() pair lives at its own subpath instead
+// of here — see glsl.ts, wgsl.ts, js.ts, wasm.ts — so this barrel only
+// carries the DSL core and the cross-backend Adapter shape, not four
+// copies of "compile" and "create" that differ only in which backend.
 export type { Adapter, TypedArray } from "./backends/adapter";
-export { createCpu } from "./backends/adapter-cpu";
-export { createGlsl } from "./backends/adapter-glsl";
-export type { GlslDrawOptions } from "./backends/adapter-glsl";
-export type { AdapterResult as CpuAdapterResult } from "./backends/adapter-cpu";
 

@@ -5,9 +5,9 @@
  */
 import { describe, it, expect } from "vitest";
 import { attribute, Fn, output } from "../rmsl";
-import { compileWGSL } from "./wgsl";
+import { compileWgsl } from "./wgsl";
 
-describe("compileWGSL.compute", () => {
+describe("compileWgsl.compute", () => {
   it("emits a @compute entry point reading and writing storage buffers", () => {
     const prog = Fn(() => {
       const pos = attribute("float");
@@ -15,7 +15,7 @@ describe("compileWGSL.compute", () => {
       out.assign(pos.add(1));
       return out;
     })();
-    const wgsl = compileWGSL.compute(prog);
+    const wgsl = compileWgsl.compute(prog);
 
     expect(wgsl).toContain("@compute @workgroup_size(64)");
     expect(wgsl).toContain("@builtin(global_invocation_id)");
@@ -31,7 +31,7 @@ describe("compileWGSL.compute", () => {
       out.assign(pos);
       return out;
     })();
-    const wgsl = compileWGSL.compute(prog);
+    const wgsl = compileWgsl.compute(prog);
 
     expect(wgsl).not.toContain("VertexInput");
     expect(wgsl).not.toContain("FragmentOutput");

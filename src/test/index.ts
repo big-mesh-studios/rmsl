@@ -21,15 +21,8 @@
  * value you pass in, which is what makes a single fragment addressable.
  */
 
-import {
-  compileJS,
-  compileJSFn,
-  type Node,
-  type ShaderType,
-  type VariableNode,
-  type CpuShaderContext,
-  type CpuTextureData,
-} from "../rmsl";
+import { type Node, type ShaderType, type VariableNode } from "../rmsl";
+import { compileJS, compileJSFn, type CpuShaderContext, type CpuTextureData } from "../js";
 // How a texture asks to be read is the renderers' question too, and they
 // already answer it without a device — so a shader tested here samples by the
 // same reading, not by a second one written for the CPU.

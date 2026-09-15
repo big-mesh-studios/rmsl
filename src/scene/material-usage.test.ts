@@ -1,8 +1,9 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { Fn, vec3, vec4, mix, compileJS, ivec2, ivec3, uvec2, uvec3 } from "../rmsl";
+import { Fn, vec3, vec4, mix, ivec2, ivec3, uvec2, uvec3 } from "../rmsl";
+import { compileJS } from "../js";
 import {
-  recordingGLSL as compileGLSL,
-  recordingWGSL as compileWGSL,
+  recordingGLSL as compileGlsl,
+  recordingWGSL as compileWgsl,
   assertRecordedShadersValid,
 } from "../testing/shader-validity";
 import {
@@ -50,8 +51,8 @@ function litScene(): Scene {
 }
 
 function compileMaterial(program: { vertexRoot: any; fragmentRoot: any }): { glsl: string; wgsl: string } {
-  const glsl = compileGLSL.vertex(program.vertexRoot) + "\n---\n" + compileGLSL.fragment(program.fragmentRoot);
-  const wgsl = compileWGSL.vertex(program.vertexRoot) + "\n---\n" + compileWGSL.fragment(program.fragmentRoot);
+  const glsl = compileGlsl.vertex(program.vertexRoot) + "\n---\n" + compileGlsl.fragment(program.fragmentRoot);
+  const wgsl = compileWgsl.vertex(program.vertexRoot) + "\n---\n" + compileWgsl.fragment(program.fragmentRoot);
   return { glsl, wgsl };
 }
 

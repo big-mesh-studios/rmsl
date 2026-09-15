@@ -1,4 +1,4 @@
-import { compileWGSL } from "@random-mesh/rmsl";
+import { compileWgsl } from "@random-mesh/rmsl/wgsl";
 import {
   calcColourAndDepth,
   mat4Inverse,
@@ -9,8 +9,8 @@ import {
 } from "../../shared/shader";
 
 // === Compile shaders ===
-const vsWGSL = compileWGSL.vertex(vertexMain());
-const fsWGSL = compileWGSL.fragment(calcColourAndDepth());
+const vsWGSL = compileWgsl.vertex(vertexMain());
+const fsWGSL = compileWgsl.fragment(calcColourAndDepth());
 
 // === Orbital camera state ===
 let theta = 0;

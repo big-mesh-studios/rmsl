@@ -1,5 +1,5 @@
 /// <reference types="@webgpu/types" />
-import { compileWGSL, wgslUniformLayout } from "../../rmsl";
+import { compileWgsl, wgslUniformLayout } from "../../wgsl";
 import { Color } from "../math/Color";
 import { Vector4 } from "../math/Vector4";
 import type { Scene } from "../scenes/Scene";
@@ -309,10 +309,10 @@ export class WebGPURenderer {
     const layout = wgslUniformLayout(declaredUniforms);
 
     const vertexModule = device.createShaderModule({
-      code: compileWGSL.vertex(program.vertexRoot, { uniforms: declaredUniforms }),
+      code: compileWgsl.vertex(program.vertexRoot, { uniforms: declaredUniforms }),
     });
     const fragmentModule = device.createShaderModule({
-      code: compileWGSL.fragment(program.fragmentRoot, { uniforms: declaredUniforms }),
+      code: compileWgsl.fragment(program.fragmentRoot, { uniforms: declaredUniforms }),
     });
     const layoutMembers = layout.members.map((m) => ({ name: m.name, offset: m.offset }));
 

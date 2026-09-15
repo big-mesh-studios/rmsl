@@ -1,4 +1,7 @@
-import { compileGLSL, compileJS, compileWasm, compileWGSL, wgslUniformLayout } from "@random-mesh/rmsl";
+import { compileGlsl } from "@random-mesh/rmsl/glsl";
+import { compileJS } from "@random-mesh/rmsl/js";
+import { compileWasm } from "@random-mesh/rmsl/wasm";
+import { compileWgsl, wgslUniformLayout } from "@random-mesh/rmsl/wgsl";
 import {
   calcMandelbrot,
   calcMandelbrotCpu,
@@ -20,8 +23,8 @@ import { WasmWorkerPool } from "./wasmWorkerPool";
 // The same RMSL source (mandelbrotColorAt) drives all four: GLSL for
 // WebGL, WGSL for WebGPU, and the CPU-target Fn for compileJS/compileWasm's
 // .draw() — one call per pixel, packed into a flat RGBA buffer.
-const vsGLSL = compileGLSL.vertex(vertexMain());
-const fsGLSL = compileGLSL.fragment(calcMandelbrot());
+const vsGLSL = compileGlsl.vertex(vertexMain());
+const fsGLSL = compileGlsl.fragment(calcMandelbrot());
 const jsRenderer = compileJS(() => calcMandelbrotCpu(), { name: "mandelbrotJS", params: [] });
 const wasmRenderer = compileWasm(() => calcMandelbrotCpu(), { name: "mandelbrotWasm", params: [] });
 
@@ -138,7 +141,7 @@ let webgpu: WebGPUState | null = null;
 let webgpuError: string | null = null;
 
 // Every uniform the WGSL fragment stage reads, sorted the same way
-// `compileWGSL`'s own uniform-struct layout sorts them (by generated slot
+// `compileWgsl`'s own uniform-struct layout sorts them (by generated slot
 // name) — `wgslUniformLayout` has to see the identical list in the identical
 // order to compute the byte offsets the compiled struct actually uses.
 const wgslDeclaredUniforms = [
@@ -199,8 +202,8 @@ async function setupWebGPU(): Promise<void> {
   const layout = wgslUniformLayout(wgslDeclaredUniforms);
   const bufferSize = Math.max(16, Math.ceil(layout.size / 16) * 16);
 
-  const vsWGSL = compileWGSL.vertex(vertexMain());
-  const fsWGSL = compileWGSL.fragment(calcMandelbrot(), { uniforms: wgslDeclaredUniforms });
+  const vsWGSL = compileWgsl.vertex(vertexMain());
+  const fsWGSL = compileWgsl.fragment(calcMandelbrot(), { uniforms: wgslDeclaredUniforms });
 
   const vertexModule = device.createShaderModule({ code: vsWGSL });
   const fragmentModule = device.createShaderModule({ code: fsWGSL });
