@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Adapter demo (GLSL / WGSL draw)</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: #101318;
+        color: #e8e8ee;
+        font-family: system-ui, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        padding: 16px;
+      }
+      canvas {
+        border-radius: 8px;
+      }
+      #hud {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        background: rgba(16, 19, 24, 0.75);
+        padding: 8px 12px;
+        border-radius: 8px;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="hud">
+      <label>
+        backend
+        <select id="backend">
+          <option value="glsl">GLSL (WebGL)</option>
+          <option value="wgsl">WGSL (WebGPU)</option>
+        </select>
+      </label>
+      <span id="status"></span>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
