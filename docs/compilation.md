@@ -304,7 +304,7 @@ import { compileJS, compileJSFn, Fn, uniform, output, builtinFragDepth } from "r
 
 let pickFn = compileJS(calcColourAndDepth, { name: "pick", params: [] });
 // On pointerdown:
-let r = pickFn({
+let r = pickFn.invoke({
   uniforms: {
     _rmsl_u0: cameraPosition, // each slot is the uniform's .name
     _rmsl_u1: cameraViewMatrix, // flat column-major arrays
@@ -384,11 +384,11 @@ This is what surfaces the picking depth: `calcColourAndDepth` assigns
 
 ### Rendering a whole grid
 
-`compileJS`'s result also has `.draw(ctx, width, height)`: call the compiled
+`compileJS`'s result also has `.batch(ctx, width, height)`: call the compiled
 function once per pixel over a `width x height` grid instead of driving the
 loop yourself, packed into one flat, row-major typed array. It's the same
-method [`compileWasm`'s result](wasm.md#cpurenderer) has — both satisfy one
-`CpuRenderer` interface — documented there since WASM's version has the more
+method [`compileWasm`'s result](wasm.md#cpuroutine) has — both satisfy one
+`CpuRoutine` interface — documented there since WASM's version has the more
 interesting implementation (it shares the compiled function's own bytecode
 rather than looping in JS).
 

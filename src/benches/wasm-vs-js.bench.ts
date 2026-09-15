@@ -42,13 +42,13 @@ describe("scalar arithmetic: sqrt(a*a + b*b + c*c)", () => {
   const rawMain = instance.exports.main as (a: number, b: number, c: number) => number;
 
   bench("compileWasm", () => {
-    wasmFn(ctx);
+    wasmFn.invoke(ctx);
   });
   bench("compileWasm, raw exported function (no ctx wrapper)", () => {
     rawMain(3, 4, 12);
   });
   bench("compileJS", () => {
-    jsFn(ctx);
+    jsFn.invoke(ctx);
   });
 });
 
@@ -74,9 +74,9 @@ describe("vector dot + branch: If(dir.dot(target) > threshold)", () => {
   const ctx = { uniforms: { [dir.name]: [1, 0, 0], [target.name]: [0.9, 0.1, 0], [threshold.name]: 0.5 } };
 
   bench("compileWasm", () => {
-    wasmFn(ctx);
+    wasmFn.invoke(ctx);
   });
   bench("compileJS", () => {
-    jsFn(ctx);
+    jsFn.invoke(ctx);
   });
 });

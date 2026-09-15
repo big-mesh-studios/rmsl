@@ -73,28 +73,32 @@ export type CpuShaderResult = {
   fragDepth?: number;
 };
 
-/** The typed array `draw()` fills, matching the result's declared kind. */
+/** The typed array `batch()` fills, matching the result's declared kind. */
 export type CpuDrawBuffer = Float64Array | Int32Array | Uint32Array;
 
 /**
  * The runtime face of a compiled CPU function, common to `compileJS` and
- * `compileWasm`: a plain callable per invocation, plus `draw()` for
- * rendering the result over a whole `width x height` pixel grid without a
- * JS call per pixel from the host side.
+ * `compileWasm` — not tied to any one stage or use: a plain compute
+ * program's `invoke()` is called once per `storage()` index with its return
+ * value ignored (side effects land in `ctx.storages`), a vertex/fragment
+ * program's `invoke()` is called once per vertex/pixel for its return
+ * value, and `batch()` runs the whole grid in one call rather than one JS
+ * call per pixel from the host side.
  *
- * `draw()` feeds each pixel's center — `(x + 0.5, y + 0.5)` — in as
+ * `batch()` feeds each pixel's center — `(x + 0.5, y + 0.5)` — in as
  * `fragCoord`, holding every other input (uniforms, textures, ...) fixed
  * across the grid, and packs the result into one flat row-major buffer of
  * `width * height * componentCount` elements.
  *
  * Pass `out` to write into an existing buffer instead of allocating a new
  * one — e.g. a view over a `SharedArrayBuffer` so several workers can each
- * draw a row range into disjoint regions of one shared buffer. `out` must
+ * fill a row range into disjoint regions of one shared buffer. `out` must
  * already have the matching typed-array kind and be at least
  * `width * height * componentCount` elements; it is returned unchanged.
  */
-export type CpuRenderer = ((ctx: CpuShaderContext) => number | boolean | CpuShaderResult) & {
-  draw(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer;
+export type CpuRoutine = {
+  invoke(ctx: CpuShaderContext): number | boolean | CpuShaderResult;
+  batch(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer;
 };
 
 /** A compiled function's scalar element kind, at the WASM/typed-array level. */

@@ -11,7 +11,7 @@ import { AllocRules, planLayout } from "../../layout";
 import {
   componentCountOf,
   CpuDrawBuffer,
-  CpuRenderer,
+  CpuRoutine,
   CpuShaderContext,
   CpuShaderResult,
   CpuTextureData,
@@ -78,7 +78,7 @@ export type WasmParam =
 
 /**
  * A compiled module: raw bytes plus the contract the host uses to marshal
- * values, and "draw" metadata when whole-image rendering is available.
+ * values, and "batch" metadata when whole-image evaluation is available.
  */
 export type CompiledWasm = {
   bytes: Uint8Array;
@@ -88,13 +88,13 @@ export type CompiledWasm = {
 
   textureHeapBase: number; // heap starts at this offset; below it is the compile-time layout
 
-  memoryPages: number; // pages needed for the compile-time layout; grows from here as textures/draw buffers are marshalled
+  memoryPages: number; // pages needed for the compile-time layout; grows from here as textures/batch buffers are marshalled
 
   sharedMemory: boolean; // whether the module's memory import was declared shared (must match the instantiated memory exactly)
 
   maxMemoryPages: number; // the maximum this module's memory import declared — only enforced when sharedMemory is true
 
-  draw?: { componentCount: number; kind: "float" | "int" | "uint" | "bool" }; // set when "draw" is exported
+  batch?: { componentCount: number; kind: "float" | "int" | "uint" | "bool" }; // set when "batch" is exported
 };
 
 /**
@@ -131,9 +131,9 @@ export type CompileWasmFnOptions = CompileFnOptions & {
   reentrant?: boolean;
 
   /**
-   * Draw into an externally owned WebAssembly.Memory instead of one this
+   * Batch into an externally owned WebAssembly.Memory instead of one this
    * module allocates for itself — e.g. a `shared: true`, SharedArrayBuffer-
-   * backed memory so multiple worker-hosted instances can draw into disjoint
+   * backed memory so multiple worker-hosted instances can batch into disjoint
    * regions of one buffer. The caller is responsible for sizing/growing it
    * (an externally owned memory can't be grown from inside a module that
    * doesn't own it, past whatever `maximum` it was created with).
@@ -468,7 +468,7 @@ function storeComponent(addr: number, kind: ScalarKind, byteOffset: number, valu
 
 /**
  * As the static helpers, but the base address is itself computed at runtime
- * (texture heap, draw output).
+ * (texture heap, batch output).
  */
 function loadDynamic(addrBytes: number[], kind: ScalarKind): number[] {
   return [...addrBytes, kind === "float" ? WASM_OP.f64Load : WASM_OP.i32Load, 0x00, 0x00];
@@ -476,7 +476,7 @@ function loadDynamic(addrBytes: number[], kind: ScalarKind): number[] {
 
 /**
  * As the static helpers, but the base address is itself computed at runtime
- * (texture heap, draw output).
+ * (texture heap, batch output).
  */
 function storeDynamic(addrBytes: number[], kind: ScalarKind, valueBytes: number[]): number[] {
   return [...addrBytes, ...valueBytes, kind === "float" ? WASM_OP.f64Store : WASM_OP.i32Store, 0x00, 0x00];
@@ -907,19 +907,19 @@ export function compileWasmFn(
 
   const mainFuncIndex = importNames.length; // imports come first in the module's function index space
 
-  let drawTypeIdx: number | undefined;
-  let drawFuncBody: number[] | undefined;
-  const drawComponentCount = root._t === "void" ? 0 : componentCountOf(root._t as string);
-  const drawComponentKind: ScalarKind =
+  let batchTypeIdx: number | undefined;
+  let batchFuncBody: number[] | undefined;
+  const batchComponentCount = root._t === "void" ? 0 : componentCountOf(root._t as string);
+  const batchComponentKind: ScalarKind =
     root._t === "void"
       ? "float"
       : isAggregate(root._t as string)
         ? elementKindOf(root._t as string)
         : scalarKindOf(root._t as string);
 
-  // A "draw(width, height, bufferBase)" export: loops every pixel, runs the
+  // A "batch(width, height, bufferBase)" export: loops every pixel, runs the
   // main function (feeding the pixel in as fragCoord), and stores the output
-  // into the caller's buffer — the CPU path for whole-image rendering.
+  // into the caller's buffer — the CPU path for whole-image evaluation.
   if (root._t !== "void") {
     const widthIdx = params.length;
     const heightIdx = params.length + 1;
@@ -928,7 +928,7 @@ export function compileWasmFn(
     const yIdx = params.length + 4;
     const getX = [WASM_OP.localGet, ...wasmUleb128(xIdx)];
     const getY = [WASM_OP.localGet, ...wasmUleb128(yIdx)];
-    const compSize = componentSizeOf(drawComponentKind);
+    const compSize = componentSizeOf(batchComponentKind);
     const passThroughArgs = params.map((_, i) => [WASM_OP.localGet, ...wasmUleb128(i)]).flat();
     const callMain = [...passThroughArgs, WASM_OP.call, ...wasmUleb128(mainFuncIndex)];
     // pixel centers land at (x + 0.5, y + 0.5) — the same convention js uses
@@ -957,7 +957,7 @@ export function compileWasmFn(
       WASM_OP.i32Mul,
       ...getX,
       WASM_OP.i32Add,
-      ...i32ConstBytes(drawComponentCount * compSize),
+      ...i32ConstBytes(batchComponentCount * compSize),
       WASM_OP.i32Mul,
     ];
     const destAddr = (k: number) => [
@@ -971,11 +971,11 @@ export function compileWasmFn(
     const copyResult: number[] = needsResult
       ? [
           ...callMain,
-          ...Array.from({ length: drawComponentCount }, (_, k) =>
-            storeDynamic(destAddr(k), drawComponentKind, loadComponent(valueAddress!, drawComponentKind, k * compSize)),
+          ...Array.from({ length: batchComponentCount }, (_, k) =>
+            storeDynamic(destAddr(k), batchComponentKind, loadComponent(valueAddress!, batchComponentKind, k * compSize)),
           ).flat(),
         ]
-      : storeDynamic(destAddr(0), drawComponentKind, callMain);
+      : storeDynamic(destAddr(0), batchComponentKind, callMain);
     const perPixel = [...writeFragCoord, ...copyResult];
     const innerLoop = [
       WASM_OP.block,
@@ -1024,14 +1024,14 @@ export function compileWasmFn(
       WASM_OP.end,
       WASM_OP.end,
     ];
-    const drawCode = [...i32ConstBytes(0), WASM_OP.localSet, ...wasmUleb128(yIdx), ...outerLoop];
-    const drawLocalsDecl = wasmVec([
+    const batchCode = [...i32ConstBytes(0), WASM_OP.localSet, ...wasmUleb128(yIdx), ...outerLoop];
+    const batchLocalsDecl = wasmVec([
       [...wasmUleb128(1), WASM_I32], // one local group per loop counter (xIdx, yIdx)
       [...wasmUleb128(1), WASM_I32],
     ]);
 
-    drawFuncBody = [...drawLocalsDecl, ...drawCode, WASM_OP.end];
-    drawTypeIdx = typeEntries.length;
+    batchFuncBody = [...batchLocalsDecl, ...batchCode, WASM_OP.end];
+    batchTypeIdx = typeEntries.length;
     typeEntries.push([WASM_FUNC, ...wasmVec([...paramTypes, [WASM_I32], [WASM_I32], [WASM_I32]]), ...wasmVec([])]);
   }
 
@@ -1053,13 +1053,13 @@ export function compileWasmFn(
   const importSection = wasmSection(2, wasmVec([...importEntries, memoryImportEntry]));
   const funcSection = wasmSection(
     3,
-    wasmVec(drawTypeIdx === undefined ? [[mainTypeIdx]] : [[mainTypeIdx], [drawTypeIdx]]),
+    wasmVec(batchTypeIdx === undefined ? [[mainTypeIdx]] : [[mainTypeIdx], [batchTypeIdx]]),
   );
   const nameBytes = wasmStrBytes(options.name);
   const exportEntries = [[...nameBytes, 0x00, ...wasmUleb128(mainFuncIndex)]];
 
-  if (drawTypeIdx !== undefined) {
-    exportEntries.push([...wasmStrBytes("draw"), 0x00, ...wasmUleb128(mainFuncIndex + 1)]);
+  if (batchTypeIdx !== undefined) {
+    exportEntries.push([...wasmStrBytes("batch"), 0x00, ...wasmUleb128(mainFuncIndex + 1)]);
   }
 
   const exportSection = wasmSection(7, wasmVec(exportEntries));
@@ -1068,8 +1068,8 @@ export function compileWasmFn(
   const funcBody = [...localsDecl, ...code, WASM_OP.end];
   const codeEntries = [[...wasmUleb128(funcBody.length), ...funcBody]];
 
-  if (drawFuncBody !== undefined) {
-    codeEntries.push([...wasmUleb128(drawFuncBody.length), ...drawFuncBody]);
+  if (batchFuncBody !== undefined) {
+    codeEntries.push([...wasmUleb128(batchFuncBody.length), ...batchFuncBody]);
   }
 
   const codeSection = wasmSection(10, wasmVec(codeEntries));
@@ -1095,7 +1095,7 @@ export function compileWasmFn(
     memoryPages, // initial page count a default (non-shared) memory should be created with
     sharedMemory,
     maxMemoryPages,
-    draw: drawTypeIdx === undefined ? undefined : { componentCount: drawComponentCount, kind: drawComponentKind },
+    batch: batchTypeIdx === undefined ? undefined : { componentCount: batchComponentCount, kind: batchComponentKind },
   };
 
   /** Advances a fixed-size region from the cursor. */
@@ -3137,11 +3137,11 @@ export function instantiateWasm(
   compiled: CompiledWasm,
   name: string,
   externalMemory?: WebAssembly.Memory,
-): CpuRenderer {
-  const { bytes, params, resultType, textureHeapBase, memoryPages, sharedMemory, maxMemoryPages, draw } = compiled;
+): CpuRoutine {
+  const { bytes, params, resultType, textureHeapBase, memoryPages, sharedMemory, maxMemoryPages, batch } = compiled;
 
   // no memory passed in: own one, sized for the compile-time layout, growable
-  // as textures/draw buffers are marshalled in — same behavior as before this
+  // as textures/batch buffers are marshalled in — same behavior as before this
   // module imported (rather than defined) its memory. Its shared-ness must
   // match what the module declared at compile time (see `sharedMemory`).
   const memory =
@@ -3155,7 +3155,7 @@ export function instantiateWasm(
     env: { memory },
   });
   const wasmMain = instance.exports[name] as (...args: number[]) => number;
-  const wasmDraw = draw ? (instance.exports.draw as (...args: number[]) => void) : undefined;
+  const wasmBatch = batch ? (instance.exports.batch as (...args: number[]) => void) : undefined;
 
   let view = new DataView(memory.buffer);
 
@@ -3185,7 +3185,7 @@ export function instantiateWasm(
   /**
    * Appends each texture's pixels after the compiled layout (growing memory
    * when the total footprint changes) and collects the scalar WASM args.
-   * Returns the heap end — where the draw buffer starts.
+   * Returns the heap end — where the batch buffer starts.
    */
   function marshalInputs(ctx: CpuShaderContext): { args: number[]; textureHeapEnd: number } {
     let textureHeapEnd = textureHeapBase;
@@ -3256,7 +3256,7 @@ export function instantiateWasm(
           writeAggregateToMemory(view, p.address, p.shaderType, (ctx.varyings as any)?.[p.slot]);
           break;
         case "fragCoordMemory":
-          // the host's fragCoord for CPU invocations; draw() overwrites it per pixel — harmless
+          // the host's fragCoord for CPU invocations; batch() overwrites it per pixel — harmless
           writeAggregateToMemory(view, p.address, "vec2", ctx.fragCoord ?? [0, 0]);
           break;
         case "storageMemory":
@@ -3273,7 +3273,7 @@ export function instantiateWasm(
     (p): p is Extract<WasmParam, { kind: "storageMemory" }> => p.kind === "storageMemory" && p.access !== "read",
   );
 
-  function callable(ctx: CpuShaderContext): number | boolean | CpuShaderResult {
+  function invoke(ctx: CpuShaderContext): number | boolean | CpuShaderResult {
     const { args } = marshalInputs(ctx);
     const result = wasmMain(...args);
 
@@ -3317,58 +3317,58 @@ export function instantiateWasm(
     return shaderResult;
   }
 
-  callable.draw = (ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer => {
-    if (!draw || !wasmDraw) {
+  function batchInvoke(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
+    if (!batch || !wasmBatch) {
       throw new Error(
-        '[RMSL] compileWasm: this function produces no value to render — draw() needs a non-"void" result.',
+        '[RMSL] compileWasm: this function produces no value to render — batch() needs a non-"void" result.',
       );
     }
     const { args, textureHeapEnd } = marshalInputs(ctx);
-    const pixelCount = width * height * draw.componentCount;
+    const pixelCount = width * height * batch.componentCount;
 
     // `out` backed by this instance's own (shared) memory: write directly at
     // its offset — this is the zero-copy multi-worker path, where each
     // worker's instance imports the same SharedArrayBuffer-backed memory and
     // `out` is a view pinning where in it this call should land.
     if (out && out.buffer === memory.buffer) {
-      wasmDraw(...args, width, height, out.byteOffset);
+      wasmBatch(...args, width, height, out.byteOffset);
       return out;
     }
 
     const bufferBase = Math.ceil(textureHeapEnd / 8) * 8; // align to 8 bytes — the typed-array constructors require it
-    const neededBytes = bufferBase + pixelCount * componentSizeOf(draw.kind);
+    const neededBytes = bufferBase + pixelCount * componentSizeOf(batch.kind);
     if (neededBytes > memory.buffer.byteLength) {
       memory.grow(Math.ceil((neededBytes - memory.buffer.byteLength) / 65536));
       view = new DataView(memory.buffer); // growing detaches the old buffer, so the view is rebuilt
     }
-    wasmDraw(...args, width, height, bufferBase);
+    wasmBatch(...args, width, height, bufferBase);
 
     // `out` backed by a different buffer than this instance's memory: wasm
     // can only write into the memory it was instantiated with, so this has
     // to copy rather than return a view straight into wasm memory.
     if (out) {
       out.set(
-        draw.kind === "float"
+        batch.kind === "float"
           ? new Float64Array(memory.buffer, bufferBase, pixelCount)
-          : draw.kind === "uint"
+          : batch.kind === "uint"
             ? new Uint32Array(memory.buffer, bufferBase, pixelCount)
             : new Int32Array(memory.buffer, bufferBase, pixelCount),
       );
       return out;
     }
 
-    if (draw.kind === "float") return new Float64Array(memory.buffer, bufferBase, pixelCount);
-    if (draw.kind === "uint") return new Uint32Array(memory.buffer, bufferBase, pixelCount);
+    if (batch.kind === "float") return new Float64Array(memory.buffer, bufferBase, pixelCount);
+    if (batch.kind === "uint") return new Uint32Array(memory.buffer, bufferBase, pixelCount);
     return new Int32Array(memory.buffer, bufferBase, pixelCount);
-  };
+  }
 
-  return callable;
+  return { invoke, batch: batchInvoke };
 }
 
 /** Compiles an `Fn` to WASM and instantiates it in one step — see `instantiateWasm`. */
 export function compileWasm(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmFnOptions,
-): CpuRenderer {
+): CpuRoutine {
   return instantiateWasm(compileWasmFn(fn, options), options.name, options.memory);
 }

@@ -10,7 +10,7 @@ export type { CompiledWasm, WasmParam } from "./backends/wasm/wasm";
 
 export type {
   CpuDrawBuffer,
-  CpuRenderer,
+  CpuRoutine,
   CpuShaderContext,
   CpuShaderResult,
   CpuTextureData,

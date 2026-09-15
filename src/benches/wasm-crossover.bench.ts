@@ -50,10 +50,10 @@ for (const n of [1, 2, 4, 8, 16, 32, 64, 128]) {
     const ctx = {};
 
     bench("compileWasm", () => {
-      wasmFn(ctx);
+      wasmFn.invoke(ctx);
     });
     bench("compileJS", () => {
-      jsFn(ctx);
+      jsFn.invoke(ctx);
     });
   });
 }

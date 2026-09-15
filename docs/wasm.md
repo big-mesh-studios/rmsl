@@ -7,7 +7,7 @@ import { compileWasm, Fn, uniform, output, builtinFragDepth } from "rmsl";
 
 let pickFn = compileWasm(calcColourAndDepth, { name: "pick", params: [] });
 // On pointerdown:
-let r = pickFn({
+let r = pickFn.invoke({
   uniforms: {
     _rmsl_u0: cameraPosition, // each slot is the uniform's .name
     _rmsl_u1: cameraViewMatrix, // flat column-major arrays
@@ -28,25 +28,25 @@ If that shape looks familiar: it's identical to `compileJS`'s. Both targets shar
 - **Real types, not one JS number for everything.** `compileJS` computes every declared type — `int`, `uint`, `bool`, `float` alike — as a plain JS number. `compileWasm`'s `int`/`uint`/`bool` are real 32-bit WASM integers, with signed/unsigned opcode variants chosen per operand type; `float` stays `f64`, matching `compileJS`'s own arithmetic bit for bit (so the two never need reconciling — see [Caveats](#caveats)).
 - **Per-call overhead, not raw throughput.** A WASM call crosses a real module boundary — marshalling scalar args, reading vectors/matrices out of linear memory afterward — which costs more per call than a JS function returning a value directly. The measured win shows up from roughly two loop iterations upward inside the compiled function itself; a loop-free, called-once function still favors `compileJS`. See `ROADMAP.md` for the benchmark tables behind that number.
 
-Pick whichever backend matches the shape of the work. Nothing else about calling one differs from calling the other — they satisfy the same `CpuRenderer` interface (below), so code that picks between them at runtime doesn't need to know which one it got.
+Pick whichever backend matches the shape of the work. Nothing else about calling one differs from calling the other — they satisfy the same `CpuRoutine` interface (below), so code that picks between them at runtime doesn't need to know which one it got.
 
 ## API
 
 ```typescript
 compileWasmFn(fn, options): CompiledWasm
 // { bytes: Uint8Array, params: WasmParam[], resultType: ShaderType,
-//   textureHeapBase: number, draw?: { componentCount, kind } }
+//   textureHeapBase: number, batch?: { componentCount, kind } }
 // The module's raw bytes plus the metadata a host needs to call it —
 // analogous to compileJSFn returning source instead of a callable.
 
-instantiateWasm(compiled: CompiledWasm, name: string): CpuRenderer
+instantiateWasm(compiled: CompiledWasm, name: string): CpuRoutine
 // Turns compileWasmFn's output into a live, callable module: instantiates
 // the WebAssembly.Module, and wraps it with the same marshalling
 // compileWasm itself uses. `name` is the exported function's name inside
 // the module — the same string passed as `options.name` when it was
 // compiled with compileWasmFn.
 
-compileWasm(fn, options): CpuRenderer
+compileWasm(fn, options): CpuRoutine
 // compileWasmFn(fn, options) followed by instantiateWasm(...) in one call —
 // what you want unless you're precompiling (see below).
 ```
@@ -59,26 +59,27 @@ Options extend the `Fn` compilers', the same set `compileJS` accepts:
 - `derivatives`: `"throw"` (default) or `"zero"` — WASM has no derivatives either, for the same reason a single CPU evaluation doesn't.
 - `reentrant`: accepted for parity with `compileJS`, and a no-op here — WASM locals are already fresh per call frame, so there is no shared scratch a re-entrant call could clobber.
 
-## `CpuRenderer`
+## `CpuRoutine`
 
 ```typescript
-type CpuRenderer = ((ctx: CpuShaderContext) => number | boolean | CpuShaderResult) & {
-  draw(ctx: CpuShaderContext, width: number, height: number): Float64Array | Int32Array | Uint32Array;
+type CpuRoutine = {
+  invoke(ctx: CpuShaderContext): number | boolean | CpuShaderResult;
+  batch(ctx: CpuShaderContext, width: number, height: number): Float64Array | Int32Array | Uint32Array;
 };
 ```
 
-Both `compileJS` and `compileWasm` return a `CpuRenderer`: the plain callable described above, plus `.draw()`, which renders a whole `width x height` grid in one call instead of one call per pixel from the host side.
+Both `compileJS` and `compileWasm` return a `CpuRoutine`: `invoke()` runs the compiled function once, the same shape described above; `batch()` runs it over a whole `width x height` grid in one call instead of one call per pixel from the host side. Neither name claims what the invocation actually does — a `storage()`/`invocationIndex()` compute program's `invoke()` mutates `ctx.storages` and its return value is irrelevant, same as a vertex/fragment program's `invoke()`/`batch()` producing a real result.
 
 ```typescript
 let fn = compileWasm(calcColour, { name: "main", params: [] });
-let pixels = fn.draw({ uniforms: { ... } }, 256, 256);
+let pixels = fn.batch({ uniforms: { ... } }, 256, 256);
 // Float64Array/Int32Array/Uint32Array, length width * height * componentCount,
 // row-major, one element type picked from the Fn's own result type.
 ```
 
-`draw()` feeds each pixel's center — `(x + 0.5, y + 0.5)` — in as `fragCoord()`, holding every other input (uniforms, textures, …) fixed across the grid. On `compileWasm`'s side this shares the compiled function's own bytecode via a second exported WASM function that loops internally and calls the first, so a whole-image render pays the per-call marshalling cost once rather than once per pixel — the gap `compileJS`'s own `.draw()` (a plain JS loop, one call per pixel) doesn't have to close the same way, since a JS function call is already cheap.
+`batch()` feeds each pixel's center — `(x + 0.5, y + 0.5)` — in as `fragCoord()`, holding every other input (uniforms, textures, …) fixed across the grid. On `compileWasm`'s side this shares the compiled function's own bytecode via a second exported WASM function that loops internally and calls the first, so a whole-image evaluation pays the per-call marshalling cost once rather than once per pixel — the gap `compileJS`'s own `batch()` (a plain JS loop, one call per pixel) doesn't have to close the same way, since a JS function call is already cheap.
 
-A `void`-returning `Fn` has nothing to render — `draw()` throws, naming that.
+A `void`-returning `Fn` has nothing to produce — `batch()` throws, naming that.
 
 ## Texture sampling
 

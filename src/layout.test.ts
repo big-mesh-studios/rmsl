@@ -86,7 +86,7 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
     };
     const build = () => Fn(() => dir.dot(dir).mul(scale.x).add(scale.y))();
     const fn = compileWasm(build as any, options);
-    const result = fn({ uniforms: { [dir.name]: [1, 2, 3], [scale.name]: [10, 20] } });
+    const result = fn.invoke({ uniforms: { [dir.name]: [1, 2, 3], [scale.name]: [10, 20] } });
     expect(result).toBe((1 + 4 + 9) * 10 + 20); // dot(dir,dir)*scale.x + scale.y = 160
   });
 
@@ -103,7 +103,7 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
     // `writeAggregateToMemory`'s `setFloat32` applies when this uniform's
     // value crosses into its narrow, GPU-shaped storage.
     const fn = compileWasm(() => Fn(() => scale.x)() as any, options);
-    const result = fn({ uniforms: { [scale.name]: [0.1, 0] } });
+    const result = fn.invoke({ uniforms: { [scale.name]: [0.1, 0] } });
     expect(result).toBe(Math.fround(0.1));
     expect(result).not.toBe(0.1); // the real, inherent cost: an ordinary (non-GPU) uniform would keep full f64 precision here
   });
@@ -126,7 +126,7 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
     const fn = compileWasm(() => Fn(() => arr.element(int(1)).x)() as any, options);
     // 0.1 is not exact in f32; the GPU path stores f32, so it reads back fround(0.1).
     expect(
-      fn({
+      fn.invoke({
         uniforms: {
           [arr.name]: [
             [0, 0, 0, 0],

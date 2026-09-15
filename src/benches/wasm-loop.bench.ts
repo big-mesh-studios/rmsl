@@ -32,9 +32,9 @@ describe("loop: sum of sqrt(i) for i in [0, 64)", () => {
   const ctx = {};
 
   bench("compileWasm", () => {
-    wasmFn(ctx);
+    wasmFn.invoke(ctx);
   });
   bench("compileJS", () => {
-    jsFn(ctx);
+    jsFn.invoke(ctx);
   });
 });

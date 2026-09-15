@@ -204,7 +204,7 @@ function compileRunner<A extends ShaderType>(
   };
   const reads = { stage: compileOptions.stage, named: names !== undefined, names: called };
   const run = (inputs: ShaderInputs = {}): EvaluationResult<A> =>
-    readResult<A>(callable(mergeContext(options, inputs, names, reads)), called.varyings);
+    readResult<A>(callable.invoke(mergeContext(options, inputs, names, reads)), called.varyings);
   return Object.defineProperties(run, {
     source: { value: source, enumerable: true },
     [RUNNER]: { value: true },

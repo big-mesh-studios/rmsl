@@ -11,7 +11,7 @@ export type { CompileJSOptions } from "./backends/js/js";
 
 export type {
   CpuDrawBuffer,
-  CpuRenderer,
+  CpuRoutine,
   CpuShaderContext,
   CpuShaderResult,
   CpuTextureData,

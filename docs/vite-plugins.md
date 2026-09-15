@@ -138,10 +138,10 @@ export const __RMSL_WASM_CODE = {
 Unlike the other two plugins, each compiled module's bytes are emitted as a real `.wasm` asset (via Rollup's `emitFile`) rather than inlined into the rewritten module as a string — raw bytes in the build output, no string-encoding overhead, cached by the browser like any other asset. The rewritten module fetches that asset once at load and hands the bytes to [`instantiateWasm`](wasm.md#api):
 
 ```typescript
-import { brightness, mixColours } from "./wasm-fns"; // CpuRenderer callables at runtime, once the fetch resolves
+import { brightness, mixColours } from "./wasm-fns"; // CpuRoutine objects at runtime, once the fetch resolves
 
-brightness({ uniforms: { _rmsl_u0: [1, 2, 3] } }); // { value: [0.5, 1, 1.5] }
-mixColours({ params: { a: [0, 0, 0], b: [1, 1, 1], t: 0.5 } }); // { value: [0.5, 0.5, 0.5] }
+brightness.invoke({ uniforms: { _rmsl_u0: [1, 2, 3] } }); // { value: [0.5, 1, 1.5] }
+mixColours.invoke({ params: { a: [0, 0, 0], b: [1, 1, 1], t: 0.5 } }); // { value: [0.5, 0.5, 0.5] }
 ```
 
 | Option       | Type     | Default            | Meaning                                                 |

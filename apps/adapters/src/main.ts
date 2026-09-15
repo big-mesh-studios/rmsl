@@ -2,7 +2,7 @@
 // draw a rotating quad directly, through their vertex/fragment stages —
 // the same "return a value" contract every backend's per-element work
 // ultimately reduces to. createJs/createWasm's own `draw` wraps a
-// fragCoord() program evaluated once per pixel (see cpu.ts's CpuRenderer)
+// fragCoord() program evaluated once per pixel (see cpu.ts's CpuRoutine)
 // — a genuinely different shape, a full-screen color gradient rather than
 // a quad. rasterizeTriangles (src/backends/cpu-rasterizer.ts, prototype)
 // closes that gap: it runs the *same* vertex/fragment pair the GLSL/WGSL

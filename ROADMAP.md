@@ -676,16 +676,20 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
   (`src/backends/shared.ts`) is reused directly, unmodified — it only
   ever needed plain primitives (`shaderStage`/`lastType`/`positionWritten`),
   not a full `CompileCtx`.
-- **`.draw()` is a second exported function sharing `main`'s bytecode via
+- **`.batch()` (originally named `.draw()` — renamed once the same
+  `CpuRoutine` shape started covering vertex/fragment/compute invocations
+  too, not just image rendering; see "A single shared-memory WASM module
+  ..." below) is a second exported function sharing `main`'s bytecode via
   `call`, not a second compile mode or a copy of `main`'s body.**
   `collect()`/`walkStmt`/`walkExpr` compile `main` exactly as they always
   have; the module-assembly step at the end of `compileWasmFn` separately
-  builds a `"draw"` function (only when the root produces a value at all)
+  builds a `"batch"` function (only when the root produces a value at all)
   whose own body is just a `y`/`x` loop writing `fragCoord()`, calling
   `main` by function index, and copying the result into a growable output
-  buffer. `compileWasm` exposes it as `.draw(ctx, width, height)` on the
-  callable it returns. See "A whole grid in one call: `.draw()`" above for
-  the design and the measured speedup.
+  buffer. `compileWasm` exposes it as `.batch(ctx, width, height)` on the
+  `CpuRoutine` it returns. See "A whole grid in one call: `.draw()`" above
+  (kept under its original name — a historical measurement, not current
+  API surface) for the design and the measured speedup.
 - **`clamp`/`mix`/`step`/`smoothstep` compile through the same
   aggregate-value machinery vectors already use.** Each is a composite
   formula rather than a single opcode (`clamp`: nested `min`/`max`; `mix`:
@@ -942,7 +946,7 @@ see `docs/superpowers/specs/2026-09-14-uniform-array-wasm-design.md`.)
 ### ~~Phase 8 — tooling and docs~~ — done
 
 `docs/wasm.md` documents `compileWasm`/`compileWasmFn`/`instantiateWasm`,
-`CpuRenderer`, `.draw()`, and how it differs from the JS target;
+`CpuRoutine`, `.batch()`, and how it differs from the JS target;
 `docs/compilation.md` and `README.md` point to it and no longer say "three
 backends". The vite precompile story landed too: `precompileWasm` (in
 `src/vite/vite.ts`, documented in `docs/vite-plugins.md`) does ship a
@@ -1076,18 +1080,20 @@ produced the bytes.
   from the host side, calling the compiled `vertex` callable once per
   vertex and the compiled `fragment` callable once per *covered pixel* —
   for `compileWasm` specifically, every one of those is a JS→WASM boundary
-  crossing, exactly the cost `.draw()` was already built to amortize for
+  crossing, exactly the cost `.batch()` was already built to amortize for
   the fragment-only, no-attributes case (see "A whole grid in one call:
-  `.draw()`" above). A batched entry point (an array of pre-interpolated
-  varying sets handed to WASM in one call) would help, but doesn't remove
-  the deeper cost: the host still owns the vertex loop and the raster math,
-  so there's still at least one crossing per triangle. The real fix is
-  `.draw()`'s own model taken all the way: compile the vertex stage and
-  the fragment stage as two functions in **one** WASM module sharing one
-  linear memory (attribute/uniform/varying storage, the same allocator
-  Phase 3 already built), plus a third exported function — call it
-  `"drawTriangles"`, the vertex-stage analogue of `.draw()`'s existing
-  `"draw"` export — that runs the vertex loop, the edge-function/
+  `.draw()`" above — kept under its original name there, since that's a
+  historical measurement; the method itself is `.batch()` today, see
+  "`CpuRoutine`" in `docs/wasm.md`). A batched entry point (an array of
+  pre-interpolated varying sets handed to WASM in one call) would help, but
+  doesn't remove the deeper cost: the host still owns the vertex loop and
+  the raster math, so there's still at least one crossing per triangle. The
+  real fix is `.batch()`'s own model taken all the way: compile the vertex
+  stage and the fragment stage as two functions in **one** WASM module
+  sharing one linear memory (attribute/uniform/varying storage, the same
+  allocator Phase 3 already built), plus a third exported function — call
+  it `"drawTriangles"`, the vertex-stage analogue of `.batch()`'s existing
+  `"batch"` export — that runs the vertex loop, the edge-function/
   barycentric math, and the fragment `call`s entirely inside WASM, writing
   straight into the output buffer. The host side then shrinks to: upload
   attribute buffers into linear memory once, call
@@ -1109,7 +1115,7 @@ produced the bytes.
     per draw call.** `drawTriangles(vertexCount, width, height,
     colorBufferIn?, depthBufferIn?)` copies the shared buffers into its own
     memory at the start of the call and writes them back at the end — the
-    same `out?` shape `.draw()` already has, just carrying a depth buffer
+    same `out?` shape `.batch()` already has, just carrying a depth buffer
     along too so depth testing works *across* programs, not only within
     one. Cost: one buffer copy per *draw call*, not per pixel/vertex — for
     a 512x512 RGBA+depth buffer that's a few MB copied a handful of times a

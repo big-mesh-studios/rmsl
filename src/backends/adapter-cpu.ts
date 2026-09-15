@@ -1,13 +1,13 @@
 // === CPU adapter loop (shared by the JS and WASM adapters) ===
-// compileJS and compileWasm hand back a CpuRenderer, which is really two
-// capabilities in one callable: call it once per entity with `storages`/
+// compileJS and compileWasm hand back a CpuRoutine, which is really two
+// capabilities in one: `invoke()` it once per entity with `storages`/
 // `index` set (a storage()/invocationIndex() program, mutating shared
 // arrays in place — WGSL's own compute contract, just host-driven), or
-// call its `.draw()` once per pixel over a whole image (a fragCoord()
+// `batch()` it once per pixel over a whole image (a fragCoord()
 // program returning a color — the same "return a value" contract WGSL's
 // own fragment stage has). One compiled program is only ever one or the
 // other; `compute`/`draw` here are two independently optional
-// CpuRenderers for exactly that reason.
+// CpuRoutines for exactly that reason.
 //
 // Not exported publicly: createJs (adapter-js.ts) and createWasm
 // (adapter-wasm.ts) each wrap this around their own compile() calls, so a
@@ -16,14 +16,14 @@
 // this generic version needed.
 import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
 import { Adapter, slotOf, TypedArray } from "./adapter";
-import { CpuDrawBuffer, CpuRenderer } from "./cpu";
+import { CpuDrawBuffer, CpuRoutine } from "./cpu";
 
 /** One typed array per storage slot, keyed by name. */
 export type AdapterResult = Record<string, TypedArray>;
 
 export interface CpuAdapterPrograms {
-  compute?: CpuRenderer;
-  draw?: CpuRenderer;
+  compute?: CpuRoutine;
+  draw?: CpuRoutine;
 }
 
 /** `compute`/`draw` here are each required — unlike the base Adapter's
@@ -61,8 +61,8 @@ function bufferToImageData(buffer: CpuDrawBuffer, width: number, height: number)
 
 export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
   // Named for what each actually is, not restated from `programs` — the
-  // call site below is `perPixel.draw(...)`, not the `.draw.draw(...)`
-  // `programs.draw.draw(...)` would read as.
+  // call site below is `perPixel.batch(...)`, not the `.draw.batch(...)`
+  // `programs.draw.batch(...)` would read as.
   const computeStep = programs.compute;
   const perPixel = programs.draw;
 
@@ -102,7 +102,7 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
     compute(out) {
       if (!computeStep) throw new Error("[RMSL] this adapter has no `compute` program");
       for (let i = 0; i < n; i++) {
-        computeStep({ storages, uniforms, index: i } as any);
+        computeStep.invoke({ storages, uniforms, index: i } as any);
       }
       // storages already holds the caller's own arrays, mutated in place —
       // `out` is only for callers that want the WGSL adapter's optional-out
@@ -116,7 +116,7 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
       if (!perPixel || !canvas || !ctx2d) {
         throw new Error("[RMSL] this adapter has no `draw` program, or attach() was never called");
       }
-      const buffer = perPixel.draw({ uniforms } as any, canvas.width, canvas.height);
+      const buffer = perPixel.batch({ uniforms } as any, canvas.width, canvas.height);
       ctx2d.putImageData(bufferToImageData(buffer, canvas.width, canvas.height), 0, 0);
     },
 

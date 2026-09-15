@@ -1,5 +1,5 @@
 // === CPU/WASM software rasterizer (prototype) ===
-// Neither compileJS/compileWasm's `draw()` (fragCoord() over the whole
+// Neither compileJS/compileWasm's `batch()` (fragCoord() over the whole
 // image, no attributes) nor createCpuAdapter's `compute` (storage(),
 // per-element, no triangles) rasterize a triangle — both compiled
 // functions already support a "vertex" stage (attributes in, position +
@@ -9,7 +9,7 @@
 // test or near/far clipping — the same scope createGlsl's default draw
 // already has, meant for shader-output comparison rather than a general
 // rasterizer.
-import { componentCountOf, CpuDrawBuffer, CpuRenderer, CpuShaderContext } from "./cpu";
+import { componentCountOf, CpuDrawBuffer, CpuRoutine, CpuShaderContext } from "./cpu";
 import { ShaderType } from "../core";
 
 type Value = number | number[];
@@ -63,7 +63,7 @@ export interface RasterizeTrianglesOptions {
  * software equivalent of what createGlsl/createWgsl's GPU rasterizer does
  * for the same vertex()/fragment() pair.
  */
-export function rasterizeTriangles(vertex: CpuRenderer, fragment: CpuRenderer, options: RasterizeTrianglesOptions): CpuDrawBuffer {
+export function rasterizeTriangles(vertex: CpuRoutine, fragment: CpuRoutine, options: RasterizeTrianglesOptions): CpuDrawBuffer {
   const { attributes, attributeTypes, uniforms, textures, width, height, componentCount } = options;
 
   const widths: Record<string, number> = {};
@@ -78,7 +78,7 @@ export function rasterizeTriangles(vertex: CpuRenderer, fragment: CpuRenderer, o
   for (let i = 0; i < vertexCount; i++) {
     const attrs: Record<string, unknown> = {};
     for (const slot in attributes) attrs[slot] = sliceAttribute(attributes[slot], i, widths[slot]);
-    const raw = vertex({ attributes: attrs, uniforms, textures });
+    const raw = vertex.invoke({ attributes: attrs, uniforms, textures });
     // A vertex Fn that never calls builtinPosition() itself has its plain
     // `return vec4(...)` become the position instead (assertStageResult in
     // shared.ts requires exactly that).
@@ -142,7 +142,7 @@ export function rasterizeTriangles(vertex: CpuRenderer, fragment: CpuRenderer, o
           varyings[slot] = scale(perspSum, 1 / invW);
         }
 
-        const raw = fragment({ varyings, uniforms, textures, fragCoord: [px, py] });
+        const raw = fragment.invoke({ varyings, uniforms, textures, fragCoord: [px, py] });
         const color = ((isWrapped(raw) ? raw.value : raw) ?? 0) as Value;
         const base = (y * width + x) * componentCount;
         if (typeof color === "number") out[base] = color;

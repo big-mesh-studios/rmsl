@@ -329,7 +329,7 @@ export function evaluateJS(build: Build, args: number[] = []): number | number[]
 export function evaluateWASM(build: Build, args: number[] = []): number | number[] {
   const fn = compileWasm(build, { name: "rmsl_eval", params: params(args.length) });
   const ctx = { params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) };
-  const result = fn(ctx);
+  const result = fn.invoke(ctx);
   // Scalar mode returns the raw number; an aggregate root is instead read
   // back as an output slot, wrapped in a `{ value }` shader-result object.
   if (typeof result === "number") return result;
