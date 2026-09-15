@@ -1,4 +1,4 @@
-import { compileJS, compileWasm } from "@random-mesh/rmsl";
+import { compileJS, compileWasm, createCpuAdapter } from "@random-mesh/rmsl";
 import { createAdapter } from "@random-mesh/rmsl/wgsl";
 import { createGpuRenderer } from "./gpu-renderer";
 import { createEcsSystem } from "./system";
@@ -56,19 +56,25 @@ function seed(n: number) {
 }
 seed(N);
 
-// === One rmsl Fn, compiled/adapted three ways ===
+// === One rmsl Fn, adapted three ways ===
 const system = createEcsSystem();
 const { slots } = system;
 
-const jsStep = compileJS(() => system.program.root, { name: "ecsSystem", params: [] });
-const wasmStep = compileWasm(() => system.program.root, { name: "ecsSystem", params: [] });
+const jsAdapter = createCpuAdapter(compileJS(() => system.program.root, { name: "ecsSystem", params: [] }));
+const wasmAdapter = createCpuAdapter(compileWasm(() => system.program.root, { name: "ecsSystem", params: [] }));
 
-function stepCPU(fn: typeof jsStep, dt: number) {
-  const storages = { [slots.posX]: posX, [slots.posY]: posY, [slots.velX]: velX, [slots.velY]: velY };
-  const uniforms = { [slots.width]: canvas.width, [slots.height]: canvas.height, [slots.dt]: dt };
-  for (let i = 0; i < N; i++) {
-    fn({ storages, uniforms, index: i } as any);
-  }
+// Re-set every frame: cheap (a handful of object-field assignments), and
+// it means a fresh posX/posY/velX/velY from seed() (entity count changed)
+// is picked up without a separate "resync" path.
+function stepCPU(adapter: typeof jsAdapter, dt: number) {
+  adapter.setAttribute(slots.posX, posX);
+  adapter.setAttribute(slots.posY, posY);
+  adapter.setAttribute(slots.velX, velX);
+  adapter.setAttribute(slots.velY, velY);
+  adapter.setUniform(slots.width, canvas.width);
+  adapter.setUniform(slots.height, canvas.height);
+  adapter.setUniform(slots.dt, dt);
+  adapter.compute!();
 }
 
 // === WGSL compute backend, via the adapter ===
@@ -167,10 +173,10 @@ async function frame(now: number) {
   const backend = backendSelect.value;
   try {
     if (backend === "js") {
-      stepCPU(jsStep, dt);
+      stepCPU(jsAdapter, dt);
       draw();
     } else if (backend === "wasm") {
-      stepCPU(wasmStep, dt);
+      stepCPU(wasmAdapter, dt);
       draw();
     } else if (backend === "wgsl" && wgslReady) {
       if (lastBackend !== "wgsl") uploadStorages();

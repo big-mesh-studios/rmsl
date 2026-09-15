@@ -226,3 +226,7 @@ export { compileGLSLFn, compileWGSLFn } from "./standalone-fn";
 export { compileWasm, compileWasmFn, instantiateWasm } from "./backends/wasm";
 export type { CompiledWasm, WasmParam } from "./backends/wasm";
 
+export type { Adapter, TypedArray } from "./backends/adapter";
+export { createCpuAdapter } from "./backends/adapter-cpu";
+export type { AdapterResult as CpuAdapterResult } from "./backends/adapter-cpu";
+
