@@ -1,18 +1,24 @@
-// === CPU adapter (JS and WASM) ===
+// === CPU adapter loop (shared by the JS and WASM adapters) ===
 // compileJS and compileWasm both compile a storage()/invocationIndex()
 // program into the identical shape: a function called once per entity,
 // mutating the storage arrays it was given in place (see cpu.ts's
 // CpuShaderContext). There is no device/pipeline ceremony to hide here —
 // attach()/destroy() are no-ops — so this is just the shared
 // setUniform/setAttribute/compute(out) surface around that per-entity
-// loop, usable with either backend's compiled result.
+// loop.
+//
+// Not exported publicly: createJs (adapter-js.ts) and createWasm
+// (adapter-wasm.ts) each wrap this around their own compile() call, so a
+// caller's constructor always takes the same thing createGlsl/createWgsl's
+// do — a root graph — instead of an already-compiled callable only this
+// generic version needed.
 import { Adapter, TypedArray } from "./adapter";
 import { CpuRenderer } from "./cpu";
 
 /** One typed array per storage slot, keyed by name. */
 export type AdapterResult = Record<string, TypedArray>;
 
-export function createCpu(step: CpuRenderer): Adapter<AdapterResult> {
+export function createCpuAdapter(step: CpuRenderer): Adapter<AdapterResult> {
   let n = 0;
   const storages: Record<string, TypedArray> = {};
   const uniforms: Record<string, number | number[]> = {};
