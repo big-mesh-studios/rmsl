@@ -144,9 +144,17 @@ const staticDrawAdapter = createGlsl(staticVertexRoot, staticFragmentRoot);
 staticDrawAdapter.attach(glCanvas);
 
 const startTime = performance.now();
+const fpsEl = document.getElementById("fps")!;
 
-function frame() {
-  const t = (performance.now() - startTime) / 1000;
+// A raw per-frame FPS jumps around too much to read — averaged over a
+// short window and refreshed a few times a second instead, same as
+// apps/ecs's stats readout.
+const FPS_WINDOW_MS = 500;
+let fpsWindowStart = performance.now();
+let fpsWindowFrameCount = 0;
+
+function frame(now: number) {
+  const t = (now - startTime) / 1000;
   const requested = backendSelect.value;
   const backend = requested === "wgsl" && !wgpuReady ? "glsl" : requested;
 
@@ -171,6 +179,14 @@ function frame() {
       : backend === "wgsl"
         ? "drawing via createWgsl"
         : `computing via create${backend === "js" ? "Js" : "Wasm"}, drawing via createGlsl`;
+
+  fpsWindowFrameCount++;
+  if (now - fpsWindowStart >= FPS_WINDOW_MS) {
+    const fps = fpsWindowFrameCount / ((now - fpsWindowStart) / 1000);
+    fpsEl.textContent = `${fps.toFixed(0)} fps`;
+    fpsWindowStart = now;
+    fpsWindowFrameCount = 0;
+  }
 
   requestAnimationFrame(frame);
 }
