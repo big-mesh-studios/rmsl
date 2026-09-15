@@ -23,3 +23,6 @@ export { createJs } from "./backends/js/adapter-js";
 export type { CreateJsOptions } from "./backends/js/adapter-js";
 
 export type { Adapter, TypedArray } from "./backends/adapter";
+
+export { rasterizeTriangles } from "./backends/cpu-rasterizer";
+export type { RasterizeTrianglesOptions } from "./backends/cpu-rasterizer";

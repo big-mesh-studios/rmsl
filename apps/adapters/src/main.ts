@@ -1,30 +1,31 @@
-// Two shapes, four adapters. createGlsl (WebGL) and createWgsl (WebGPU)
+// Three shapes, six adapters. createGlsl (WebGL) and createWgsl (WebGPU)
 // draw a rotating quad directly, through their vertex/fragment stages —
 // the same "return a value" contract every backend's per-element work
-// ultimately reduces to. createJs and createWasm can't rasterize a
-// triangle, but their compiled result already has a second capability
-// besides storage()-based compute: `.draw()`, a fragCoord() program
-// evaluated once per pixel over the whole canvas (see cpu.ts's
-// CpuRenderer). createJs/createWasm's own `draw` wraps exactly that, so
-// the CPU backends here draw a full-screen color gradient instead of a
-// quad — a genuinely different shape, not a lesser stand-in for the
-// vertex-based one.
+// ultimately reduces to. createJs/createWasm's own `draw` wraps a
+// fragCoord() program evaluated once per pixel (see cpu.ts's CpuRenderer)
+// — a genuinely different shape, a full-screen color gradient rather than
+// a quad. rasterizeTriangles (src/backends/cpu-rasterizer.ts, prototype)
+// closes that gap: it runs the *same* vertex/fragment pair the GLSL/WGSL
+// quad uses through compileJS/compileWasm's existing "vertex" stage and a
+// software rasterizer, so js-vtx/wasm-vtx draw the identical rotating quad
+// entirely on the CPU.
 import { attribute, cos, Fn, fragCoord, sin, uniform, varying, vec3, vec4 } from "@random-mesh/rmsl";
 import { createGlsl } from "@random-mesh/rmsl/glsl";
-import { createJs } from "@random-mesh/rmsl/js";
-import { createWasm } from "@random-mesh/rmsl/wasm";
+import { compileJS, createJs, rasterizeTriangles } from "@random-mesh/rmsl/js";
+import { compileWasm, createWasm } from "@random-mesh/rmsl/wasm";
 import { createWgsl } from "@random-mesh/rmsl/wgsl";
 
 const glCanvas = document.createElement("canvas");
 const gpuCanvas = document.createElement("canvas");
 const cpuCanvas = document.createElement("canvas");
-for (const c of [glCanvas, gpuCanvas, cpuCanvas]) {
+const cpuVtxCanvas = document.createElement("canvas");
+for (const c of [glCanvas, gpuCanvas, cpuCanvas, cpuVtxCanvas]) {
   c.width = 512;
   c.height = 512;
   c.style.width = "512px";
   c.style.height = "512px";
 }
-document.body.append(glCanvas, gpuCanvas, cpuCanvas);
+document.body.append(glCanvas, gpuCanvas, cpuCanvas, cpuVtxCanvas);
 
 const backendSelect = document.getElementById("backend") as HTMLSelectElement;
 const statusEl = document.getElementById("status")!;
@@ -66,6 +67,44 @@ wgpuAdapter
     opt.textContent += " (unavailable)";
   });
 
+// === CPU/WASM rasterizer prototype — the same vertex/fragment pair GLSL/
+// WGSL draw above, but run through rasterizeTriangles (src/backends/
+// cpu-rasterizer.ts) instead of a GPU: compileJS/compileWasm already
+// support a "vertex" stage, nothing before this drove it with a real
+// per-vertex/per-triangle loop. ===
+const vertexFnJs = compileJS(() => vertexRoot, { name: "vtx", params: [], stage: "vertex" });
+const fragmentFnJs = compileJS(() => fragmentRoot, { name: "frag", params: [] });
+const vertexFnWasm = compileWasm(() => vertexRoot, { name: "vtx", params: [], stage: "vertex" });
+const fragmentFnWasm = compileWasm(() => fragmentRoot, { name: "frag", params: [] });
+
+const cpuVtxCtx = cpuVtxCanvas.getContext("2d")!;
+
+function clamp255(v: number): number {
+  return Math.max(0, Math.min(255, Math.round(v * 255)));
+}
+
+function drawRasterized(vertexFn: typeof vertexFnJs, fragmentFn: typeof fragmentFnJs, t: number) {
+  const width = cpuVtxCanvas.width;
+  const height = cpuVtxCanvas.height;
+  const buffer = rasterizeTriangles(vertexFn, fragmentFn, {
+    attributes: { [pos.name]: TRIANGLE_STRIP_QUAD },
+    attributeTypes: { [pos.name]: "vec2" },
+    uniforms: { [time.name]: t },
+    width,
+    height,
+    componentCount: 4,
+  });
+  const imageData = new ImageData(width, height);
+  const rgba = imageData.data;
+  for (let i = 0; i < width * height; i++) {
+    rgba[i * 4] = clamp255(buffer[i * 4] as number);
+    rgba[i * 4 + 1] = clamp255(buffer[i * 4 + 1] as number);
+    rgba[i * 4 + 2] = clamp255(buffer[i * 4 + 2] as number);
+    rgba[i * 4 + 3] = clamp255(buffer[i * 4 + 3] as number);
+  }
+  cpuVtxCtx.putImageData(imageData, 0, 0);
+}
+
 // === Draw programs (createJs / createWasm) — a full-screen color
 // gradient, one fragCoord() evaluation per pixel. No attribute, no
 // vertex stage: a CPU adapter's draw has nothing to rasterize with. ===
@@ -104,6 +143,8 @@ function frame(now: number) {
   } else if (backend === "wgsl") {
     wgpuAdapter.setUniform(time, t);
     wgpuAdapter.draw();
+  } else if (backend === "js-vtx" || backend === "wasm-vtx") {
+    drawRasterized(backend === "js-vtx" ? vertexFnJs : vertexFnWasm, backend === "js-vtx" ? fragmentFnJs : fragmentFnWasm, t);
   } else {
     const adapter = backend === "js" ? jsAdapter : wasmAdapter;
     adapter.setUniform(resolution, [cpuCanvas.width, cpuCanvas.height]);
@@ -114,12 +155,15 @@ function frame(now: number) {
   glCanvas.style.display = backend === "glsl" ? "block" : "none";
   gpuCanvas.style.display = backend === "wgsl" ? "block" : "none";
   cpuCanvas.style.display = backend === "js" || backend === "wasm" ? "block" : "none";
+  cpuVtxCanvas.style.display = backend === "js-vtx" || backend === "wasm-vtx" ? "block" : "none";
   statusEl.textContent =
     backend === "glsl"
       ? "drawing via createGlsl"
       : backend === "wgsl"
         ? "drawing via createWgsl"
-        : `drawing via create${backend === "js" ? "Js" : "Wasm"}`;
+        : backend === "js-vtx" || backend === "wasm-vtx"
+          ? `drawing via rasterizeTriangles (${backend === "js-vtx" ? "compileJS" : "compileWasm"})`
+          : `drawing via create${backend === "js" ? "Js" : "Wasm"}`;
 
   fpsWindowFrameCount++;
   if (now - fpsWindowStart >= FPS_WINDOW_MS) {

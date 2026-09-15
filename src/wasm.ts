@@ -22,3 +22,6 @@ export type { CreateWasmOptions } from "./backends/wasm/adapter-wasm";
 export type { AdapterResult as CpuAdapterResult, CpuAdapter } from "./backends/adapter-cpu";
 
 export type { Adapter, TypedArray } from "./backends/adapter";
+
+export { rasterizeTriangles } from "./backends/cpu-rasterizer";
+export type { RasterizeTrianglesOptions } from "./backends/cpu-rasterizer";
