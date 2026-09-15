@@ -1,3 +1,5 @@
+import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
+
 // === Backend adapter ===
 // A uniform way to drive any of the four backends (CPU/JS, WASM, GLSL,
 // WGSL) without homogenizing what makes them different: JS/WASM compute
@@ -14,7 +16,25 @@ export interface Adapter<TBuffer, TDrawOptions = void> {
    */
   attach(canvas?: HTMLCanvasElement): void | Promise<void>;
 
+  /**
+   * Passing the `uniform()`/`uniformArray()` node itself (rather than its
+   * slot name) lets `value`'s type be inferred from the node's own
+   * `ShaderType` instead of widened to `number | number[]`. The plain-string
+   * overload stays for `uniformRaw()` slots or callers that only have a
+   * name on hand — there the value shape is on the caller to get right.
+   */
+  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
+  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
   setUniform(slot: string, value: number | number[]): void;
+
+  /**
+   * Same reasoning as `setUniform`: passing the `attribute()` node lets the
+   * slot name come from the node instead of being retyped by hand. Attribute
+   * data is always a flat `TypedArray` regardless of `ShaderType`, so unlike
+   * `setUniform` this doesn't narrow `data`'s type — it only removes the
+   * chance of a slot-name typo.
+   */
+  setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
   setAttribute(slot: string, data: TypedArray): void;
 
   /**
@@ -37,6 +57,21 @@ export interface Adapter<TBuffer, TDrawOptions = void> {
   draw?: (options?: TDrawOptions) => void | Promise<void>;
 
   destroy(): void;
+}
+
+/**
+ * What `setUniform`'s first parameter is once its overloads collapse into
+ * one implementation signature: a uniform (array) node, or a raw slot name.
+ * Each adapter implementation takes this instead of `any`, and derives the
+ * slot via `slotOf` below.
+ */
+export type UniformOrSlot = UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string;
+
+/** Same idea as `UniformOrSlot`, for `setAttribute`. */
+export type AttributeOrSlot = AttributeNode<ShaderType> | string;
+
+export function slotOf(uniformOrAttribute: UniformOrSlot | AttributeOrSlot): string {
+  return typeof uniformOrAttribute === "string" ? uniformOrAttribute : uniformOrAttribute.name;
 }
 
 export type TypedArray =

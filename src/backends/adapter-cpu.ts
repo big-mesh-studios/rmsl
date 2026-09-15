@@ -14,7 +14,8 @@
 // caller's constructor always takes root graphs, the same contract
 // createGlsl/createWgsl have, instead of already-compiled callables only
 // this generic version needed.
-import { Adapter, TypedArray } from "./adapter";
+import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
+import { Adapter, slotOf, TypedArray } from "./adapter";
 import { CpuDrawBuffer, CpuRenderer } from "./cpu";
 
 /** One typed array per storage slot, keyed by name. */
@@ -71,6 +72,21 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
   let canvas: HTMLCanvasElement | null = null;
   let ctx2d: CanvasRenderingContext2D | null = null;
 
+  function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
+  function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
+  function setUniform(slot: string, value: number | number[]): void;
+  function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, _value: unknown): void {
+    uniforms[slotOf(uniform)] = _value as number | number[];
+  }
+
+  function setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
+  function setAttribute(slot: string, data: TypedArray): void;
+  function setAttribute(attribute: AttributeNode<ShaderType> | string, data: TypedArray): void {
+    const slot = slotOf(attribute);
+    storages[slot] = data;
+    n = Math.max(n, data.length);
+  }
+
   return {
     attach(givenCanvas) {
       if (!perPixel) return;
@@ -80,14 +96,8 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
       ctx2d = context;
     },
 
-    setUniform(slot, value) {
-      uniforms[slot] = value;
-    },
-
-    setAttribute(slot, data) {
-      storages[slot] = data;
-      n = Math.max(n, data.length);
-    },
+    setUniform,
+    setAttribute,
 
     compute(out) {
       if (!computeStep) throw new Error("[RMSL] this adapter has no `compute` program");

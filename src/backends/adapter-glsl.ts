@@ -6,8 +6,8 @@
 // by walking the RMSL graph the way storage()/uniform() bindings need
 // `compile()`'s resource list on the WGSL side — this just asks the GL
 // context what it linked.
-import { Node, ShaderType } from "../core";
-import { Adapter, TypedArray } from "./adapter";
+import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
+import { Adapter, slotOf, TypedArray } from "./adapter";
 import { compileGlsl, CompileGLSLOptions } from "./glsl";
 import { VertexRoot } from "./shared";
 
@@ -133,6 +133,42 @@ export function createGlsl(
   const pendingUniforms = new Map<string, number | number[]>();
   const pendingAttributes = new Map<string, TypedArray>();
 
+  function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
+  function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
+  function setUniform(slot: string, value: number | number[]): void;
+  function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, _value: unknown): void {
+    const slot = slotOf(uniform);
+    const value = _value as number | number[];
+    const info = uniforms.get(slot);
+    if (!gl || !program || !info) {
+      pendingUniforms.set(slot, value);
+      return;
+    }
+    // Another createGlsl adapter sharing this canvas's context may have
+    // called useProgram since this one's attach() — a uniform location
+    // is only valid against the program it came from, so this has to
+    // re-bind its own before touching it, not assume it's still current.
+    gl.useProgram(program);
+    setUniformValue(gl, info, value);
+  }
+
+  function setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
+  function setAttribute(slot: string, data: TypedArray): void;
+  function setAttribute(attribute: AttributeNode<ShaderType> | string, data: TypedArray): void {
+    const slot = slotOf(attribute);
+    const info = attributes.get(slot);
+    if (!gl || !vao || !info) {
+      pendingAttributes.set(slot, data);
+      return;
+    }
+    gl.bindVertexArray(vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, info.buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, data as Float32Array, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(info.location);
+    gl.vertexAttribPointer(info.location, info.componentCount, gl.FLOAT, false, 0, 0);
+    vertexCount = Math.max(vertexCount, Math.floor(data.length / info.componentCount));
+  }
+
   const adapter: GlslAdapter = {
     attach(canvas) {
       const target = canvas ?? document.createElement("canvas");
@@ -191,33 +227,8 @@ export function createGlsl(
       pendingAttributes.clear();
     },
 
-    setUniform(slot, value) {
-      const info = uniforms.get(slot);
-      if (!gl || !program || !info) {
-        pendingUniforms.set(slot, value);
-        return;
-      }
-      // Another createGlsl adapter sharing this canvas's context may have
-      // called useProgram since this one's attach() — a uniform location
-      // is only valid against the program it came from, so this has to
-      // re-bind its own before touching it, not assume it's still current.
-      gl.useProgram(program);
-      setUniformValue(gl, info, value);
-    },
-
-    setAttribute(slot, data) {
-      const info = attributes.get(slot);
-      if (!gl || !vao || !info) {
-        pendingAttributes.set(slot, data);
-        return;
-      }
-      gl.bindVertexArray(vao);
-      gl.bindBuffer(gl.ARRAY_BUFFER, info.buffer);
-      gl.bufferData(gl.ARRAY_BUFFER, data as Float32Array, gl.STATIC_DRAW);
-      gl.enableVertexAttribArray(info.location);
-      gl.vertexAttribPointer(info.location, info.componentCount, gl.FLOAT, false, 0, 0);
-      vertexCount = Math.max(vertexCount, Math.floor(data.length / info.componentCount));
-    },
+    setUniform,
+    setAttribute,
 
     draw(options) {
       if (!gl || !program || !vao) throw new Error("[RMSL] adapter not attached — call attach() before draw()");

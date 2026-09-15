@@ -63,6 +63,35 @@ export type Sampler3DLike = BaseNode<"sampler3D"> | Node<"sampler3D">;
 export type ISampler2DLike = BaseNode<"isampler2D"> | Node<"isampler2D">;
 export type USampler3DLike = BaseNode<"usampler3D"> | Node<"usampler3D">;
 
+/**
+ * The plain-JS shape `setUniform`/`setUniform` on a uniform array element
+ * accepts for a given `ShaderType` — a scalar for scalar types, a fixed-width
+ * tuple for vecs, a flat array for mats (column-major, like `Mat3Like`/
+ * `Mat4Like` above). Samplers and `void` have no numeric uniform value, so
+ * they resolve to `never` — set a sampler through its own binding, not
+ * `setUniform`.
+ */
+export type UniformValue<A extends ShaderType> = A extends "float" | "int" | "uint" | "bool"
+  ? number
+  : A extends "vec2" | "ivec2" | "uvec2" | "bvec2"
+    ? [number, number]
+    : A extends "vec3" | "ivec3" | "uvec3" | "bvec3"
+      ? [number, number, number]
+      : A extends "vec4" | "ivec4" | "uvec4" | "bvec4"
+        ? [number, number, number, number]
+        : A extends
+              | "mat2"
+              | "mat2x3"
+              | "mat2x4"
+              | "mat3x2"
+              | "mat3"
+              | "mat3x4"
+              | "mat4x2"
+              | "mat4x3"
+              | "mat4"
+          ? number[]
+          : never;
+
 // === BaseNode ===
 export interface BaseNode<A extends ShaderType> {
   [__brand]: A;

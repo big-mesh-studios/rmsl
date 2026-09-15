@@ -6,9 +6,9 @@
 // time, not discoverable from a linked program afterward — so the render
 // side reflects attributes/uniforms itself, walking the vertex/fragment
 // graphs the same way `compile()` walks the compute one.
-import { Node, ShaderType } from "../core";
+import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
 import { compile, WgslResource } from "../wgsl";
-import { Adapter, TypedArray } from "./adapter";
+import { Adapter, slotOf, TypedArray } from "./adapter";
 import { CompileCtx, VertexRoot } from "./shared";
 import { compileWGSLStage, compileWGSLWithStage, wgslMatrixColumns, wgslUniformLayout } from "./wgsl";
 
@@ -198,6 +198,88 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
     });
   }
 
+  function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
+  function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
+  function setUniform(slot: string, value: number | number[]): void;
+  function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, _value: unknown): void {
+    const slot = slotOf(uniform);
+    const value = _value as number | number[];
+    if (!device) {
+      pendingUniforms.set(slot, value);
+      return;
+    }
+    let wrote = false;
+
+    let computeRes = computeUniformResources().find((r) => r.name === slot);
+    if (computeRes && computeUniformScratch && computeUniformBuffer) {
+      writeUniformScratch(computeUniformScratch, computeRes.offset / 4, value);
+      device.queue.writeBuffer(computeUniformBuffer, 0, computeUniformScratch as BufferSource);
+      wrote = true;
+    }
+
+    let renderMember = renderUniformLayout?.members.find((m) => m.name === slot);
+    if (renderMember && renderUniformScratch && renderUniformBuffer) {
+      writeUniformScratch(renderUniformScratch, renderMember.offset / 4, value);
+      device.queue.writeBuffer(renderUniformBuffer, 0, renderUniformScratch as BufferSource);
+      wrote = true;
+    }
+
+    if (!wrote) {
+      if (!computePipeline && !renderPipeline) {
+        pendingUniforms.set(slot, value);
+        return;
+      }
+      throw new Error(`[RMSL] unknown uniform "${slot}"`);
+    }
+  }
+
+  // Named `setAttribute` by the shared Adapter interface, but it covers
+  // two different things here: a storage() slot's current value
+  // (read_write — the same slot comes back out of `compute`'s result),
+  // or a vertex attribute's per-vertex data for `draw`.
+  function setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
+  function setAttribute(slot: string, data: TypedArray): void;
+  function setAttribute(attribute: AttributeNode<ShaderType> | string, data: TypedArray): void {
+    const slot = slotOf(attribute);
+    if (!device) {
+      pendingAttributes.set(slot, data);
+      return;
+    }
+
+    if (computeStorageResources().some((r) => r.name === slot)) {
+      if (data.length !== n) {
+        n = data.length;
+        rebuildStorageBuffers();
+      }
+      let buf = storageBuffers.get(slot);
+      if (!buf) throw new Error(`[RMSL] unknown storage "${slot}"`);
+      device.queue.writeBuffer(buf, 0, data as BufferSource);
+      return;
+    }
+
+    let attrInfo = vertexAttributes.find((a) => a.slot === slot);
+    if (attrInfo) {
+      let componentCount = vertexComponentCount(attrInfo.type);
+      let bytes = data.length * 4;
+      let existing = vertexBuffers.get(slot);
+      if (!existing || existing.buffer.size < bytes) {
+        existing?.buffer.destroy();
+        let buffer = device.createBuffer({ size: bytes, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+        existing = { buffer, componentCount };
+        vertexBuffers.set(slot, existing);
+      }
+      device.queue.writeBuffer(existing.buffer, 0, data as BufferSource);
+      vertexCount = Math.max(vertexCount, Math.floor(data.length / componentCount));
+      return;
+    }
+
+    if (!computePipeline && !renderPipeline) {
+      pendingAttributes.set(slot, data);
+      return;
+    }
+    throw new Error(`[RMSL] unknown attribute/storage slot "${slot}"`);
+  }
+
   let adapter: WgslAdapter = {
     async attach(canvas) {
       let gpuAdapter = await navigator.gpu?.requestAdapter();
@@ -299,79 +381,8 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       pendingAttributes.clear();
     },
 
-    setUniform(slot, value) {
-      if (!device) {
-        pendingUniforms.set(slot, value);
-        return;
-      }
-      let wrote = false;
-
-      let computeRes = computeUniformResources().find((r) => r.name === slot);
-      if (computeRes && computeUniformScratch && computeUniformBuffer) {
-        writeUniformScratch(computeUniformScratch, computeRes.offset / 4, value);
-        device.queue.writeBuffer(computeUniformBuffer, 0, computeUniformScratch as BufferSource);
-        wrote = true;
-      }
-
-      let renderMember = renderUniformLayout?.members.find((m) => m.name === slot);
-      if (renderMember && renderUniformScratch && renderUniformBuffer) {
-        writeUniformScratch(renderUniformScratch, renderMember.offset / 4, value);
-        device.queue.writeBuffer(renderUniformBuffer, 0, renderUniformScratch as BufferSource);
-        wrote = true;
-      }
-
-      if (!wrote) {
-        if (!computePipeline && !renderPipeline) {
-          pendingUniforms.set(slot, value);
-          return;
-        }
-        throw new Error(`[RMSL] unknown uniform "${slot}"`);
-      }
-    },
-
-    // Named `setAttribute` by the shared Adapter interface, but it covers
-    // two different things here: a storage() slot's current value
-    // (read_write — the same slot comes back out of `compute`'s result),
-    // or a vertex attribute's per-vertex data for `draw`.
-    setAttribute(slot, data) {
-      if (!device) {
-        pendingAttributes.set(slot, data);
-        return;
-      }
-
-      if (computeStorageResources().some((r) => r.name === slot)) {
-        if (data.length !== n) {
-          n = data.length;
-          rebuildStorageBuffers();
-        }
-        let buf = storageBuffers.get(slot);
-        if (!buf) throw new Error(`[RMSL] unknown storage "${slot}"`);
-        device.queue.writeBuffer(buf, 0, data as BufferSource);
-        return;
-      }
-
-      let attrInfo = vertexAttributes.find((a) => a.slot === slot);
-      if (attrInfo) {
-        let componentCount = vertexComponentCount(attrInfo.type);
-        let bytes = data.length * 4;
-        let existing = vertexBuffers.get(slot);
-        if (!existing || existing.buffer.size < bytes) {
-          existing?.buffer.destroy();
-          let buffer = device.createBuffer({ size: bytes, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-          existing = { buffer, componentCount };
-          vertexBuffers.set(slot, existing);
-        }
-        device.queue.writeBuffer(existing.buffer, 0, data as BufferSource);
-        vertexCount = Math.max(vertexCount, Math.floor(data.length / componentCount));
-        return;
-      }
-
-      if (!computePipeline && !renderPipeline) {
-        pendingAttributes.set(slot, data);
-        return;
-      }
-      throw new Error(`[RMSL] unknown attribute/storage slot "${slot}"`);
-    },
+    setUniform,
+    setAttribute,
 
     async compute(out) {
       if (!device || !computePipeline || !computeBindGroup1 || !staging) {

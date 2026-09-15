@@ -9,7 +9,7 @@
 // the CPU backends here draw a full-screen color gradient instead of a
 // quad — a genuinely different shape, not a lesser stand-in for the
 // vertex-based one.
-import { cos, fragCoord, Fn, sin, uniform, varying, vec3, vec4, attribute } from "@random-mesh/rmsl";
+import { attribute, cos, Fn, fragCoord, sin, uniform, varying, vec3, vec4 } from "@random-mesh/rmsl";
 import { createGlsl } from "@random-mesh/rmsl/glsl";
 import { createJs } from "@random-mesh/rmsl/js";
 import { createWasm } from "@random-mesh/rmsl/wasm";
@@ -99,15 +99,15 @@ function frame(now: number) {
   const backend = requested === "wgsl" && !wgpuReady ? "glsl" : requested;
 
   if (backend === "glsl") {
-    glAdapter.setUniform(time.name, t);
+    glAdapter.setUniform(time, t);
     glAdapter.draw({ mode: "triangles" });
   } else if (backend === "wgsl") {
-    wgpuAdapter.setUniform(time.name, t);
+    wgpuAdapter.setUniform(time, t);
     wgpuAdapter.draw();
   } else {
     const adapter = backend === "js" ? jsAdapter : wasmAdapter;
-    adapter.setUniform(resolution.name, [cpuCanvas.width, cpuCanvas.height]);
-    adapter.setUniform(cpuTime.name, t);
+    adapter.setUniform(resolution, [cpuCanvas.width, cpuCanvas.height]);
+    adapter.setUniform(cpuTime, t);
     adapter.draw();
   }
 
