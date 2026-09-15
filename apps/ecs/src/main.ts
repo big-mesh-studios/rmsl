@@ -61,8 +61,8 @@ seed(N);
 const system = createEcsSystem();
 const { slots } = system;
 
-const jsAdapter = createJs(system.program.root, { name: "ecsSystem" });
-const wasmAdapter = createWasm(system.program.root, { name: "ecsSystem" });
+const jsAdapter = createJs({ compute: system.program.root, computeName: "ecsSystem" });
+const wasmAdapter = createWasm({ compute: system.program.root, computeName: "ecsSystem" });
 
 // Re-set every frame: cheap (a handful of object-field assignments), and
 // it means a fresh posX/posY/velX/velY from seed() (entity count changed)
