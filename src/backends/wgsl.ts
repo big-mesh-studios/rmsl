@@ -541,6 +541,80 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       };
     }
 
+    case "storage": {
+      const v = node.value as {
+        slot?: string;
+        shaderType?: ShaderType;
+        access?: "read" | "write" | "read_write";
+      };
+
+      if (ctx.shaderStage !== "compute") {
+        throw new Error("[RMSL] storage resources are currently supported only in compute shaders");
+      }
+
+      const name = v.slot;
+      if (!name) {
+        throw new Error("[RMSL] storage resource requires a name");
+      }
+
+      const type = wgslType(v.shaderType ?? node._t);
+      const access = v.access ?? "read";
+      const existing = ctx.storages?.get(name);
+
+      if (existing) {
+        if (existing.type !== type || existing.access !== access) {
+          throw new Error(`[RMSL] conflicting storage declaration for "${name}"`);
+        }
+        return { decls: [], body: [], expr: existing.wgslName };
+      }
+
+      if (!ctx.storages) {
+        ctx.storages = new Map();
+      }
+
+      const wgslName = `_rmsl_s${ctx.storages.size}`;
+      ctx.storages.set(name, {
+        name,
+        type,
+        access,
+        wgslName,
+      });
+
+      return { decls: [], body: [], expr: wgslName };
+    }
+
+    case "storageElement": {
+      const storageNode = node.params[0];
+      const indexNode = node.params[1];
+
+      const storage = compileWGSLStage(storageNode, ctx);
+      const index = compileWGSLStage(indexNode, ctx);
+
+      const indexType = (indexNode as any)?._t;
+      const indexExpr =
+        indexType === "uint" || indexType === "int"
+          ? index.expr
+          : `u32(${index.expr})`;
+
+      return {
+        decls: [...storage.decls, ...index.decls],
+        body: [...storage.body, ...index.body],
+        expr: `${storage.expr}[${indexExpr}]`,
+      };
+    }
+
+    case "invocationIndex": {
+      if (ctx.shaderStage !== "compute") {
+        throw new Error("[RMSL] invocationIndex() is only valid in compute shaders");
+      }
+
+      return {
+        decls: [],
+        body: [],
+        expr: "_rmsl_globalId.x",
+      };
+    }
+
     case "attribute": {
       let v = node.value as any;
       if (v && v.id != null && !ctx.attributes.has(v.id)) {
@@ -1387,6 +1461,7 @@ export function compileWGSLWithStage(
     nextId: 0,
     shaderStage,
     uniforms: new Map(),
+    storages: new Map(),
     attributes: new Map(),
     varyings: new Map(),
     outputs: new Map(),
@@ -1546,28 +1621,65 @@ export function compileWGSLWithStage(
     lines.push("  return result;");
     lines.push("}");
   } else if (shaderStage === "compute") {
-    // Every input and output is a storage buffer at group 1, indexed by the
-    // invocation id — no VertexInput/FragmentOutput struct machinery applies.
-    let binding = 0;
-    for (let [, info] of [...ctx.attributes.entries()].sort((a, b) => a[0] - b[0])) {
-      lines.push(`@group(1) @binding(${binding++}) var<storage, read> ${info.slot}: array<${info.type}>;`);
+    // Compute resources come from semantic storage() declarations. The
+    // compiler owns WGSL binding assignment; ECS/runtime code only needs the
+    // reflected semantic resource names.
+    const storages = ctx.storages
+      ? [...ctx.storages.values()].sort((a, b) => a.name.localeCompare(b.name))
+      : [];
+
+    for (let binding = 0; binding < storages.length; binding++) {
+      const info = storages[binding];
+      lines.push(
+        `@group(1) @binding(${binding}) var<storage, ${info.access}> ${info.wgslName}: array<${info.type}>;`,
+      );
     }
-    ctx.outputs.forEach((info) => {
-      lines.push(`@group(1) @binding(${binding++}) var<storage, read_write> ${info.slot}: array<${info.type}>;`);
-    });
-    lines.push("");
-    lines.push("@compute @workgroup_size(64)");
+
+    // Preserve the legacy attribute()/output() compute path. These resources
+    // are not semantic storage() declarations, so they are only emitted when
+    // the graph contains no new storage() resources.
+    if (storages.length === 0) {
+      let binding = 0;
+
+      for (const info of ctx.attributes.values()) {
+        lines.push(
+          `@group(1) @binding(${binding++}) var<storage, read> ${info.slot}: array<${info.type}>;`,
+        );
+      }
+
+      for (const info of ctx.outputs.values()) {
+        lines.push(
+          `@group(1) @binding(${binding++}) var<storage, read_write> ${info.slot}: array<${info.type}>;`,
+        );
+      }
+    }
+
+    if (storages.length > 0 || ctx.attributes.size > 0 || ctx.outputs.size > 0) {
+      lines.push("");
+    }
+
+    const workgroupSize = options?.workgroupSize ?? 64;
+    if (!Number.isInteger(workgroupSize) || workgroupSize <= 0) {
+      throw new Error("[RMSL] compute workgroupSize must be a positive integer");
+    }
+    lines.push(`@compute @workgroup_size(${workgroupSize})`);
     lines.push("fn main(@builtin(global_invocation_id) _rmsl_globalId: vec3<u32>) {");
     lines.push("  let _rmsl_index = _rmsl_globalId.x;");
-    // Bounds-checked against whichever buffer is bound first — every input and
-    // output buffer is expected to hold one entry per entity, so any of them
-    // gives the same length.
-    let firstAttr = [...ctx.attributes.values()][0];
-    let firstOut = [...ctx.outputs.values()][0];
-    let lengthSlot = firstAttr?.slot ?? firstOut?.slot;
-    if (lengthSlot) {
-      lines.push(`  if (_rmsl_index >= arrayLength(&${lengthSlot})) { return; }`);
+
+    if (storages.length > 0) {
+      const lengthStorage = storages[0];
+      lines.push(
+        `  if (_rmsl_index >= arrayLength(&${lengthStorage.wgslName})) { return; }`,
+      );
+    } else if (ctx.attributes.size > 0) {
+      const lengthAttribute = ctx.attributes.values().next().value;
+      if (lengthAttribute) {
+        lines.push(
+          `  if (_rmsl_index >= arrayLength(&${lengthAttribute.slot})) { return; }`,
+        );
+      }
     }
+
     for (let line of allBody) {
       lines.push("  " + line);
     }
@@ -1653,6 +1765,7 @@ export type CompileWGSLOptions = {
    * `wgslUniformLayout` when packing the buffer, and all three agree.
    */
   uniforms?: WgslUniformDeclaration[];
+  workgroupSize?: number;
 };
 
 export const compileWGSL: {

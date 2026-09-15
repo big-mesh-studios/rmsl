@@ -1032,9 +1032,33 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
   // The argument is an index, so a plain number is always typed as an integer.
   // A matrix indexes to one of its columns; a vector to one of its components.
   element(i: any): any {
-    let index = typeof i === "number" ? node({ _t: "int", type: "int", value: i | 0 }) : i;
-    let isVector = /^(vec|ivec|uvec|bvec)[234]$/.test(this._t);
-    return op(isVector ? "vectorElement" : "matrixElement", this, index);
+    const index =
+      typeof i === "number"
+        ? node({
+            _t: "int",
+            type: "int",
+            value: i | 0,
+          })
+        : i;
+
+    if (this.type === "storage") {
+      return node({
+        _t: this._t,
+        type: "storageElement",
+        params: [
+          this as BaseNode<ShaderType>,
+          wrapValue(index) as BaseNode<ShaderType>,
+        ],
+      });
+    }
+
+    const isVector = /^(vec|ivec|uvec|bvec)[234]$/.test(this._t);
+
+    return op(
+      isVector ? "vectorElement" : "matrixElement",
+      this,
+      index,
+    );
   }
   inverse() {
     return op1("inverse", this);
@@ -2468,6 +2492,42 @@ export function uniform<T extends ShaderType>(shaderType: T): UniformNode<T> {
     name: `_rmsl_u${id}`,
   });
   return result as unknown as UniformNode<T>;
+}
+
+export type StorageAccess = "read" | "write" | "read_write";
+
+export type StorageNode<A extends ShaderType> = VariableNode<A> & {
+  access: StorageAccess;
+};
+
+export function storage<T extends ShaderType>(
+  name: string,
+  shaderType: T,
+  options: { access?: StorageAccess } = {},
+): StorageNode<T> {
+  const access = options.access ?? "read";
+
+  const result = node({
+    _t: shaderType,
+    type: "storage",
+    value: {
+      slot: name,
+      shaderType,
+      access,
+    },
+    name,
+  }) as StorageNode<T>;
+
+  result.access = access;
+
+  return result;
+}
+
+export function invocationIndex(): Node<"uint"> {
+  return node({
+    _t: "uint",
+    type: "invocationIndex",
+  }) as Node<"uint">;
 }
 
 export function uniformRaw<T extends ShaderType>(name: string, shaderType: T): UniformNode<T> {

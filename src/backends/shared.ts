@@ -65,6 +65,15 @@ export interface CompileCtx {
   shaderStage: "vertex" | "fragment" | "compute";
   /** `length` is set only for uniform arrays, and gives their element count. */
   uniforms: Map<number, { type: string; slot: string; length?: number }>;
+  storages?: Map<
+    string,
+    {
+      name: string;
+      type: string;
+      access: "read" | "write" | "read_write";
+      wgslName: string;
+    }
+  >;
   attributes: Map<number, { type: string; slot: string }>;
   varyings: Map<number, { id: number; type: string; slot: string }>;
   outputs: Map<number, { type: string; slot: string; location: number }>;
