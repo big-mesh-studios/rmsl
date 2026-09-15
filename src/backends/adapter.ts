@@ -5,7 +5,7 @@
 // and drawing needs a canvas while computing doesn't. `compute`/`draw` are
 // optional so a backend only implements what it actually supports —
 // callers feature-detect the same way they'd check `navigator.gpu`.
-export interface Adapter<TBuffer> {
+export interface Adapter<TBuffer, TDrawOptions = void> {
   /**
    * One-time setup (device/context/pipeline creation) for `draw`. Creates
    * its own offscreen canvas when none is given, so a draw-capable adapter
@@ -27,8 +27,14 @@ export interface Adapter<TBuffer> {
    */
   compute?: (out?: TBuffer) => TBuffer | void | Promise<TBuffer | void>;
 
-  /** Renders into whatever `attach` set up. */
-  draw?: () => void | Promise<void>;
+  /**
+   * Renders into whatever `attach` set up. `TDrawOptions` is each
+   * backend's own — a GL adapter's draw call (mode, instancing, indexed
+   * vs. array draws) has nothing in common with a WGSL render pipeline's,
+   * so there is no shared options shape to force either one into; a
+   * backend without a meaningful options shape leaves it `void`.
+   */
+  draw?: (options?: TDrawOptions) => void | Promise<void>;
 
   destroy(): void;
 }

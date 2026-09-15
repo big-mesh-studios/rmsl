@@ -228,5 +228,7 @@ export type { CompiledWasm, WasmParam } from "./backends/wasm";
 
 export type { Adapter, TypedArray } from "./backends/adapter";
 export { createCpuAdapter } from "./backends/adapter-cpu";
+export { createGlslAdapter } from "./backends/adapter-glsl";
+export type { GlslDrawOptions } from "./backends/adapter-glsl";
 export type { AdapterResult as CpuAdapterResult } from "./backends/adapter-cpu";
 
