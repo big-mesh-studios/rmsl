@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Adapter demo (GLSL / WGSL draw)</title>
+    <title>Adapter demo (GLSL / WGSL / JS / WASM)</title>
     <style>
       body {
         margin: 0;
@@ -36,8 +36,10 @@
       <label>
         backend
         <select id="backend">
-          <option value="glsl">GLSL (WebGL)</option>
-          <option value="wgsl">WGSL (WebGPU)</option>
+          <option value="glsl">GLSL (WebGL draw)</option>
+          <option value="wgsl">WGSL (WebGPU draw)</option>
+          <option value="js">JS (CPU compute -> GLSL draw)</option>
+          <option value="wasm">WASM (CPU compute -> GLSL draw)</option>
         </select>
       </label>
       <span id="status"></span>

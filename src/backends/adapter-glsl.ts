@@ -110,6 +110,7 @@ export function createGlsl(
   options?: CompileGLSLOptions,
 ): Adapter<never, GlslDrawOptions> {
   let gl: WebGL2RenderingContext | null = null;
+  let program: WebGLProgram | null = null;
   let vao: WebGLVertexArrayObject | null = null;
   let vertexCount = 0;
 
@@ -146,7 +147,7 @@ export function createGlsl(
 
       const vertexShader = compile(vertexSource, gl.VERTEX_SHADER);
       const fragmentShader = compile(fragmentSource, gl.FRAGMENT_SHADER);
-      const program = gl.createProgram()!;
+      program = gl.createProgram()!;
       gl.attachShader(program, vertexShader);
       gl.attachShader(program, fragmentShader);
       gl.linkProgram(program);
@@ -182,10 +183,15 @@ export function createGlsl(
 
     setUniform(slot, value) {
       const info = uniforms.get(slot);
-      if (!gl || !info) {
+      if (!gl || !program || !info) {
         pendingUniforms.set(slot, value);
         return;
       }
+      // Another createGlsl adapter sharing this canvas's context may have
+      // called useProgram since this one's attach() — a uniform location
+      // is only valid against the program it came from, so this has to
+      // re-bind its own before touching it, not assume it's still current.
+      gl.useProgram(program);
       setUniformValue(gl, info, value);
     },
 
@@ -204,7 +210,8 @@ export function createGlsl(
     },
 
     draw(options) {
-      if (!gl || !vao) throw new Error("[RMSL] adapter not attached — call attach() before draw()");
+      if (!gl || !program || !vao) throw new Error("[RMSL] adapter not attached — call attach() before draw()");
+      gl.useProgram(program);
       gl.bindVertexArray(vao);
       const mode = GL_MODE[options?.mode ?? "triangles"];
       const first = options?.first ?? 0;
