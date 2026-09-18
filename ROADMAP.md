@@ -545,10 +545,10 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
     also masks).
 - **A single shared-memory WASM module for the whole vertex+rasterize+
   fragment loop, not per-call marshalling.** `src/backends/cpu-
-  rasterizer.ts` (prototype, `apps/adapters`'s js-vtx/wasm-vtx demo) runs
+rasterizer.ts` (prototype, `apps/adapters`'s js-vtx/wasm-vtx demo) runs
   a compiled vertex/fragment pair through a software triangle rasterizer
   from the host side, calling the compiled `vertex` callable once per
-  vertex and the compiled `fragment` callable once per *covered pixel* —
+  vertex and the compiled `fragment` callable once per _covered pixel_ —
   for `compileWasm` specifically, every one of those is a JS→WASM boundary
   crossing, exactly the cost `.batch()` was already built to amortize for
   the fragment-only, no-attributes case (see `docs/wasm-benchmarks.md`'s
@@ -576,7 +576,7 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
   batched marshalling entry point. Revisit before trying to make the
   rasterizer prototype fast, not before.
 
-  A typical GLSL app draws several *different* programs (materials) into
+  A typical GLSL app draws several _different_ programs (materials) into
   one shared framebuffer/depth buffer, not one program per frame — worth
   recording how that composes with a one-module-per-program design before
   it's built, since it isn't free:
@@ -584,11 +584,11 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
   - **Approach A — each program keeps its own private linear memory
     (today's model); the shared color/depth buffers are copied in and out
     per draw call.** `drawTriangles(vertexCount, width, height,
-    colorBufferIn?, depthBufferIn?)` copies the shared buffers into its own
+colorBufferIn?, depthBufferIn?)` copies the shared buffers into its own
     memory at the start of the call and writes them back at the end — the
     same `out?` shape `.batch()` already has, just carrying a depth buffer
-    along too so depth testing works *across* programs, not only within
-    one. Cost: one buffer copy per *draw call*, not per pixel/vertex — for
+    along too so depth testing works _across_ programs, not only within
+    one. Cost: one buffer copy per _draw call_, not per pixel/vertex — for
     a 512x512 RGBA+depth buffer that's a few MB copied a handful of times a
     frame, nowhere near the per-pixel crossing cost this whole redesign
     exists to avoid. Small, additive change to what's already sketched
@@ -600,7 +600,7 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
     framebuffer with zero copying at all — N draw calls from N different
     programs cost exactly N calls. Strictly faster than A, but a real
     architectural change: every compiled module goes from declaring its
-    own memory (`(memory (export "memory") 1)`) to *importing* one the
+    own memory (`(memory (export "memory") 1)`) to _importing_ one the
     host creates and grows, and each program's compile-time address
     allocator needs to know it's carving out of a shared space rather than
     owning memory 0..N itself. Reach for this only if A's per-draw-call
@@ -616,7 +616,7 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
   interpolation — exactly **once**, as its own fixed WASM module driven
   entirely by runtime parameters: attribute stride, attribute count,
   varying stride, varying count, vertex count, width/height. It never
-  knows what an attribute or varying *means*, only how many bytes to copy
+  knows what an attribute or varying _means_, only how many bytes to copy
   and interpolate. The vertex and fragment stages stay exactly what
   `compileWasmFn` already produces today (no new codegen there at all);
   the rasterizer module takes their compiled exports as WASM
@@ -651,7 +651,7 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
     right.
 
   Recommended as the v1 target over the fully fused design specifically
-  *because* it's compiled once: lower ongoing cost as more shader pairs
+  _because_ it's compiled once: lower ongoing cost as more shader pairs
   get added, and it isolates the genuinely new, risky part (rasterizer
   codegen) from the part that's already proven (`compileWasmFn` itself).
   Scope for that v1, deliberately narrow, matching `rasterizeTriangles`'s
@@ -734,17 +734,17 @@ passes) and are kept in lockstep by test — `rasterizer.test.ts` checks
 the WASM output against `rasterizeTriangles`'/`compileJS`'s own JS
 output for every case it covers. Feature-for-feature, they're at parity:
 
-| | `compileWasm` (WASM) | `compileJS` (JS) |
-| --- | --- | --- |
-| Near-plane (`w`) clipping | yes | yes |
-| LEQUAL depth test / persistent z-buffer | yes | yes |
-| Arbitrary attribute/varying slots (runtime descriptors) | yes | yes |
-| Persistent output buffer across `draw()` calls | yes | yes |
-| Per-`draw()` `clear`/`clearDepth` options | yes | yes |
-| Textures/uniforms | yes | yes |
-| Index buffer | no | no |
-| Far-plane / screen-bounds frustum clipping | no | no |
-| Antialiasing | no | no |
+|                                                         | `compileWasm` (WASM) | `compileJS` (JS) |
+| ------------------------------------------------------- | -------------------- | ---------------- |
+| Near-plane (`w`) clipping                               | yes                  | yes              |
+| LEQUAL depth test / persistent z-buffer                 | yes                  | yes              |
+| Arbitrary attribute/varying slots (runtime descriptors) | yes                  | yes              |
+| Persistent output buffer across `draw()` calls          | yes                  | yes              |
+| Per-`draw()` `clear`/`clearDepth` options               | yes                  | yes              |
+| Textures/uniforms                                       | yes                  | yes              |
+| Index buffer                                            | no                   | no               |
+| Far-plane / screen-bounds frustum clipping              | no                   | no               |
+| Antialiasing                                            | no                   | no               |
 
 Where they differ is implementation constraints, not features. WASM's
 fixed-arity function imports can't accept a scalar attribute/uniform/
@@ -789,7 +789,7 @@ precomputed per triangle instead of divided per pixel.
 Once edge values are stepped rather than recomputed, step and coverage-
 test 2 pixels at once (`f64x2`, full precision) or 4 at once (`f32x4`,
 if downcasting the coverage test specifically — it only needs the
-*sign* — is acceptable even with the rest of the pipeline staying
+_sign_ — is acceptable even with the rest of the pipeline staying
 `f64`). A `v128` compare plus a bitmask-style reduction gets a whole
 group's coverage mask in a couple of instructions instead of a branch
 per pixel.
@@ -831,13 +831,13 @@ mechanical, lowest-risk item here.
 
 #### One WASM call per material per draw
 
-`rasterize()` already batches every triangle of *one* vertex/fragment
+`rasterize()` already batches every triangle of _one_ vertex/fragment
 pair's geometry into a single call (that's the whole point of this
 module) — but a scene with N different materials still costs N
 separate `rasterize()` calls, same as N separate JS→WASM crossings.
 Approach A/B above (a shared framebuffer/depth buffer across draws) is
 the prerequisite for this to even make sense; batching triangles from
-*different* vertex/fragment programs into one call isn't possible
+_different_ vertex/fragment programs into one call isn't possible
 without a uniform shader model to dispatch through, so this is bounded
 by that design, not purely an implementation gap.
 
@@ -855,56 +855,57 @@ own checklist above already tracks — large triangles or scenes with many
 overlapping ones redo the same pixels' coverage test repeatedly rather
 than binning triangles into screen tiles first.
 
-  If B is ever built, one non-obvious constraint to design around up
-  front: growing a `WebAssembly.Memory` (`memory.grow`, from the host or
-  from an imported call) never races an in-progress call — this backend's
-  execution model is synchronous and single-threaded, so nothing runs
-  concurrently while `grow` executes; the host only ever grows *between*
-  calls, exactly when it already wants to (right before a draw call that
-  needs more space). The real hazard is buffer **identity**, not
-  concurrency: for an ordinary (non-`shared`) `WebAssembly.Memory`,
-  `grow()` replaces `memory.buffer` with a brand-new `ArrayBuffer` and
-  detaches the old one — already true of the existing WASM texture heap
-  (see "Texture data lives in linear memory, not behind a host call"
-  above, "growing detaches the old `ArrayBuffer`"). With *one* memory
-  shared by several modules, growing it from any one of them invalidates
-  every previously-taken `DataView`/`TypedArray` over it, for every
-  module, not just the one that triggered the grow — so the host would
-  need to re-derive every cached view from `memory.buffer` fresh after any
-  grow, everywhere one is held. Creating the memory with `shared: true` (a
-  growable `SharedArrayBuffer` instead of a growable `ArrayBuffer`) avoids
-  this — a `SharedArrayBuffer` can't be detached, so growth extends it in
-  place and every existing view stays valid — at the cost of needing a
-  cross-origin-isolated page (COOP/COEP headers) to exist in a browser at
-  all, a real deployment constraint plain `WebAssembly.Memory` doesn't
-  have. Not decided — recorded so the tradeoff is visible before B gets
-  built, not discovered partway through.
+If B is ever built, one non-obvious constraint to design around up
+front: growing a `WebAssembly.Memory` (`memory.grow`, from the host or
+from an imported call) never races an in-progress call — this backend's
+execution model is synchronous and single-threaded, so nothing runs
+concurrently while `grow` executes; the host only ever grows _between_
+calls, exactly when it already wants to (right before a draw call that
+needs more space). The real hazard is buffer **identity**, not
+concurrency: for an ordinary (non-`shared`) `WebAssembly.Memory`,
+`grow()` replaces `memory.buffer` with a brand-new `ArrayBuffer` and
+detaches the old one — already true of the existing WASM texture heap
+(see "Texture data lives in linear memory, not behind a host call"
+above, "growing detaches the old `ArrayBuffer`"). With _one_ memory
+shared by several modules, growing it from any one of them invalidates
+every previously-taken `DataView`/`TypedArray` over it, for every
+module, not just the one that triggered the grow — so the host would
+need to re-derive every cached view from `memory.buffer` fresh after any
+grow, everywhere one is held. Creating the memory with `shared: true` (a
+growable `SharedArrayBuffer` instead of a growable `ArrayBuffer`) avoids
+this — a `SharedArrayBuffer` can't be detached, so growth extends it in
+place and every existing view stays valid — at the cost of needing a
+cross-origin-isolated page (COOP/COEP headers) to exist in a browser at
+all, a real deployment constraint plain `WebAssembly.Memory` doesn't
+have. Not decided — recorded so the tradeoff is visible before B gets
+built, not discovered partway through.
 
-  **Addendum: `memoryBase` (below, under "Design decisions already made")
-  generalizes to the mandelbrot worker pool's own hazard, not just to this
-  rasterizer design.** `apps/mandelbrot/src/wasmWorkerPool.ts` gives each
-  worker a private `WebAssembly.Memory` specifically because concurrent
-  instances of the *same* compiled module all use the *same* fixed
-  addresses (fragCoord, uniforms, ...) — sharing memory would mean two
-  workers scrambling each other's mid-computation values. Compiling each
-  worker's instance with its own `memoryBase` over one shared, `shared:
+**Addendum: `memoryBase` (below, under "Design decisions already made")
+generalizes to the mandelbrot worker pool's own hazard, not just to this
+rasterizer design.** `apps/mandelbrot/src/wasmWorkerPool.ts` gives each
+worker a private `WebAssembly.Memory` specifically because concurrent
+instances of the _same_ compiled module all use the _same_ fixed
+addresses (fragCoord, uniforms, ...) — sharing memory would mean two
+workers scrambling each other's mid-computation values. Compiling each
+worker's instance with its own `memoryBase` over one shared, `shared:
   true` memory would put every worker's fixed addresses in disjoint byte
-  ranges, making concurrent writes safe (disjoint regions, not a data
-  race) without per-slice `postMessage` copying at all. Two things this
-  doesn't solve on its own, left open rather than assumed away: the
-  COOP/COEP deployment constraint above still applies unchanged, and the
-  growth-coordination hazard immediately above compounds once *several
-  workers* can each independently decide to grow the same shared memory
-  for their own texture/output buffer — `grow` itself is atomic per the
-  WASM spec, but two workers each expanding "their own" region
-  independently is a logical layout conflict, not just a thread-safety
-  one, that the existing per-instance `lastSizes`/`needsRepack` caching in
-  `instantiateWasm` was never written to coordinate across instances. The
-  narrow fix would be giving each worker a fixed, pre-sized region up
-  front (no per-worker dynamic heap growth) rather than solving general
-  cross-worker growth coordination. Not designed or started — recorded
-  here since it surfaced while discussing this rasterizer design, not
-  because it's scoped as part of it.
+ranges, making concurrent writes safe (disjoint regions, not a data
+race) without per-slice `postMessage` copying at all. Two things this
+doesn't solve on its own, left open rather than assumed away: the
+COOP/COEP deployment constraint above still applies unchanged, and the
+growth-coordination hazard immediately above compounds once _several
+workers_ can each independently decide to grow the same shared memory
+for their own texture/output buffer — `grow` itself is atomic per the
+WASM spec, but two workers each expanding "their own" region
+independently is a logical layout conflict, not just a thread-safety
+one, that the existing per-instance `lastSizes`/`needsRepack` caching in
+`instantiateWasm` was never written to coordinate across instances. The
+narrow fix would be giving each worker a fixed, pre-sized region up
+front (no per-worker dynamic heap growth) rather than solving general
+cross-worker growth coordination. Not designed or started — recorded
+here since it surfaced while discussing this rasterizer design, not
+because it's scoped as part of it.
+
 - **Audio/DSP and multi-backend "audiovisual" use cases.** Purely
   exploratory — not scoped into any phase above, a set of ideas that came
   up while dreaming about what compiling one shared source to both WASM and
@@ -988,7 +989,7 @@ for a 4x4 product, collapsing to far fewer wide operations.
 #### SPMD across `.batch()`'s pixel loop — the ceiling, not a near-term step
 
 A much larger idea than the three above: instead of vectorizing
-individual vector operations, vectorize *across invocations* — run 2 or
+individual vector operations, vectorize _across invocations_ — run 2 or
 4 pixels' worth of the compiled function in lockstep, with every scalar
 local (not just `vec`-typed values) living in a `v128` lane group. This
 is the GPU-native way of doing it, and would apply uniformly to every
