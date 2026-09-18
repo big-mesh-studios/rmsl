@@ -1,6 +1,3 @@
-// Executes a `PassGraph` from `@random-mesh/rmsl/effects` on a raw WebGL2
-// context: one fullscreen quad per pass, render targets sized by each pass's
-// `scale`, inputs bound by the producer pass named in `pass.inputs`.
 import { compileGlsl } from "@random-mesh/rmsl/glsl";
 import type { PassGraph } from "@random-mesh/rmsl/effects";
 import { quadVerts } from "../../shared/shader";

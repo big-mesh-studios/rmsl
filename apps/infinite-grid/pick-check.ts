@@ -1,6 +1,3 @@
-// End-to-end check: compile the shared ray-marched fragment shader to a JS
-// callable and "pick" a pixel on the CPU, exactly as an app would on
-// pointerdown, then verify the ray actually lands on the y = 0 plane.
 import { compileJS } from "@random-mesh/rmsl";
 import {
   calcColourAndDepth,

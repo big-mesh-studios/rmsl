@@ -1,6 +1,3 @@
-// Reads the WGSL adapter's own storage buffers directly as vertex data —
-// the compute pass and this render pass share the same GPUBuffer objects,
-// so drawing never round-trips position data through the CPU.
 interface GpuRenderer {
   render(count: number, width: number, height: number): void;
   destroy(): void;

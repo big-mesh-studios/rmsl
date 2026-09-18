@@ -1,7 +1,3 @@
-// Indexed-mesh geometry generated on the CPU: the bomb body (sphere, cylinder
-// cap, wick tube) and the flame particle billboards. Flame particles mirror
-// melty-karts' `models/Bomb.tsx` `_sharedWickFire`.
-
 export interface Mesh {
   positions: Float32Array;
   normals: Float32Array;

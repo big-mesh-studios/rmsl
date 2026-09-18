@@ -1,14 +1,3 @@
-// The one system this demo has: integrate position by velocity, bounce off
-// the canvas edges. Built once as an RMSL `Fn` graph, and that single graph is
-// what compileJS, compileWasm and compileWgsl.compute each compile — so all
-// three backends run the exact same logic, only on different hardware.
-//
-// Written against storage()/invocationIndex() rather than
-// attribute()/uniform()/output(): position and velocity are read_write
-// storage arrays indexed by the current invocation, so a WGSL compute
-// dispatch processes the whole entity buffer in one call, while compileJS
-// and compileWasm call the same compiled function once per entity with
-// `index` set to that entity's position (see main.ts's stepCPU).
 import { Fn, invocationIndex, storage, uniform, type Node } from "@random-mesh/rmsl";
 
 export type EcsSystem = {

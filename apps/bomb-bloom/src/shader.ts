@@ -1,7 +1,3 @@
-// All shaders for the demo, written in RMSL. The flame is a faithful port of
-// melty-karts' `models/Bomb.tsx` wick fire (three.js TSL -> RMSL); the bomb
-// body is a small lit-mesh shader. Every Fn compiles with compileGlsl.vertex /
-// compileGlsl.fragment to a complete GLSL ES 3.00 shader.
 import {
   Fn,
   add,
