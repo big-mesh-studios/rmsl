@@ -726,6 +726,46 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
   `wabt` nor any `.wat` source reaches the built `dist/wasm.js` — only the
   inlined bytes do, same as before.
 
+#### WASM vs. JS rasterizer: feature comparison
+
+`compileWasm`'s `WasmRasterRoutine` and `compileJS`'s `JsRasterRoutine`
+implement the same algorithm (rasterizer.md's vertex/clip/triangle
+passes) and are kept in lockstep by test — `rasterizer.test.ts` checks
+the WASM output against `rasterizeTriangles`'/`compileJS`'s own JS
+output for every case it covers. Feature-for-feature, they're at parity:
+
+| | `compileWasm` (WASM) | `compileJS` (JS) |
+| --- | --- | --- |
+| Near-plane (`w`) clipping | yes | yes |
+| LEQUAL depth test / persistent z-buffer | yes | yes |
+| Arbitrary attribute/varying slots (runtime descriptors) | yes | yes |
+| Persistent output buffer across `draw()` calls | yes | yes |
+| Per-`draw()` `clear`/`clearDepth` options | yes | yes |
+| Textures/uniforms | yes | yes |
+| Index buffer | no | no |
+| Far-plane / screen-bounds frustum clipping | no | no |
+| Antialiasing | no | no |
+
+Where they differ is implementation constraints, not features. WASM's
+fixed-arity function imports can't accept a scalar attribute/uniform/
+varying directly, so both stages compile with `scalarsInMemory: true`
+and share one `WebAssembly.Memory` (`memoryBase` placing the fragment
+stage's layout after the vertex stage's) — a real address-allocation
+concern `compileJS` has no equivalent of, since plain JS values pass by
+reference/value with no memory layout to reconcile. Conversely, only
+`compileWasm` exposes `memory`/`sharedMemory`/`maxMemoryPages`/
+`gpuUniformLayout` — knobs over that shared memory `compileJS` has
+nothing to configure. And a `compileWasm` `draw()` call crosses the
+JS↔WASM boundary exactly once (the whole vertex+triangle loop runs
+inside one `rasterize()` call), the reason it measured ~8-8.85x faster
+than the old `rasterizeTriangles(compileJS)` combination in
+`docs/wasm-benchmarks.md` — `compileJS`'s `JsRasterRoutine.draw()` has
+no such boundary to cross in the first place, so that specific win is
+WASM-only by construction, not something JS is missing. See "SIMD
+opportunities" below for where the two are expected to diverge again in
+the future: `compileWasm` can reach WASM's `v128` instruction set,
+while `compileJS`'s own SIMD option is a typed-array library instead.
+
 #### Performance headroom in the rasterizer, not yet spent
 
 Recorded so it isn't re-discovered from scratch, not because any of it
