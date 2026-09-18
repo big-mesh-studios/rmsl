@@ -1,7 +1,7 @@
 import { attribute, cos, Fn, fragCoord, sin, uniform, varying, vec3, vec4 } from "@random-mesh/rmsl";
 import { createGlsl } from "@random-mesh/rmsl/glsl";
 import { compileJS, createJs, rasterizeTriangles } from "@random-mesh/rmsl/js";
-import { compileWasm, createWasm } from "@random-mesh/rmsl/wasm";
+import { compileWasmRoutine, createWasmRoutine } from "@random-mesh/rmsl/wasm";
 import { createWgsl } from "@random-mesh/rmsl/wgsl";
 
 const glCanvas = document.createElement("canvas");
@@ -58,13 +58,13 @@ wgpuAdapter
 
 // === CPU/WASM rasterizer prototype — the same vertex/fragment pair GLSL/
 // WGSL draw above, but run through rasterizeTriangles (src/backends/
-// cpu-rasterizer.ts) instead of a GPU: compileJS/compileWasm already
+// cpu-rasterizer.ts) instead of a GPU: compileJS/compileWasmRoutine already
 // support a "vertex" stage, nothing before this drove it with a real
 // per-vertex/per-triangle loop. ===
 const vertexFnJs = compileJS(() => vertexRoot, { name: "vtx", params: [], stage: "vertex" });
 const fragmentFnJs = compileJS(() => fragmentRoot, { name: "frag", params: [] });
-const vertexFnWasm = compileWasm(() => vertexRoot, { name: "vtx", params: [], stage: "vertex" });
-const fragmentFnWasm = compileWasm(() => fragmentRoot, { name: "frag", params: [] });
+const vertexFnWasm = compileWasmRoutine(() => vertexRoot, { name: "vtx", params: [], stage: "vertex" });
+const fragmentFnWasm = compileWasmRoutine(() => fragmentRoot, { name: "frag", params: [] });
 
 const cpuVtxCtx = cpuVtxCanvas.getContext("2d")!;
 
@@ -94,7 +94,7 @@ function drawRasterized(vertexFn: typeof vertexFnJs, fragmentFn: typeof fragment
   cpuVtxCtx.putImageData(imageData, 0, 0);
 }
 
-// === Draw programs (createJs / createWasm) — a full-screen color
+// === Draw programs (createJs / createWasmRoutine) — a full-screen color
 // gradient, one fragCoord() evaluation per pixel. No attribute, no
 // vertex stage: a CPU adapter's draw has nothing to rasterize with. ===
 const resolution = uniform("vec2");
@@ -108,7 +108,7 @@ const cpuDrawRoot = Fn(() => {
 const jsAdapter = createJs({ batch: cpuDrawRoot, batchName: "cpuDraw" });
 jsAdapter.attach(cpuCanvas);
 
-const wasmAdapter = createWasm({ batch: cpuDrawRoot, batchName: "cpuDraw" });
+const wasmAdapter = createWasmRoutine({ batch: cpuDrawRoot, batchName: "cpuDraw" });
 wasmAdapter.attach(cpuCanvas);
 
 const startTime = performance.now();
@@ -151,8 +151,8 @@ function frame(now: number) {
       : backend === "wgsl"
         ? "drawing via createWgsl"
         : backend === "js-vtx" || backend === "wasm-vtx"
-          ? `drawing via rasterizeTriangles (${backend === "js-vtx" ? "compileJS" : "compileWasm"})`
-          : `drawing via create${backend === "js" ? "Js" : "Wasm"}`;
+          ? `drawing via rasterizeTriangles (${backend === "js-vtx" ? "compileJS" : "compileWasmRoutine"})`
+          : `drawing via create${backend === "js" ? "Js" : "WasmRoutine"}`;
 
   fpsWindowFrameCount++;
   if (now - fpsWindowStart >= FPS_WINDOW_MS) {

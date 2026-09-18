@@ -6,7 +6,7 @@ import {
   type CpuOnlyReason,
 } from "../../testing/shader-eval";
 import { compileJS, compileJSFn, type CpuTextureData } from "../../js";
-import { compileWasm } from "../../wasm";
+import { compileWasmRoutine } from "../../wasm";
 import {
   Fn,
   float,
@@ -1311,10 +1311,10 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
     expect(Array.from(fn.batch({ uniforms: { [scale.name]: 2 } }, 2, 1))).toEqual([1, 3]);
   });
 
-  it("matches compileWasm's draw() output for the same program", () => {
+  it("matches compileWasmRoutine's draw() output for the same program", () => {
     const build = () => Fn(() => fragCoord().x.add(fragCoord().y.mul(2)))();
     const jsFn = compileJS(build as any, { name: "main", params: [] });
-    const wasmFn = compileWasm(build as any, { name: "main", params: [] });
+    const wasmFn = compileWasmRoutine(build as any, { name: "main", params: [] });
     expect(Array.from(jsFn.batch({}, 3, 3))).toEqual(Array.from(wasmFn.batch({}, 3, 3)));
   });
 

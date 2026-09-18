@@ -3089,7 +3089,7 @@ export function compileWasmFn(
  * textures into memory/args, calls the function, and reads results back
  * into a CpuShaderResult.
  *
- * Split out from `compileWasm` so a build-time precompile step (see
+ * Split out from `compileWasmRoutine` so a build-time precompile step (see
  * `precompileWasm` in `../vite/vite.ts`) can ship just the compiled bytes
  * and this instantiation glue — never the graph builder or bytecode
  * emitter that produced them.
@@ -3289,7 +3289,7 @@ export function instantiateWasm(compiled: CompiledWasm, name: string, externalMe
   function batchInvoke(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
     if (!batch || !wasmBatch) {
       throw new Error(
-        '[RMSL] compileWasm: this function produces no value to render — batch() needs a non-"void" result.',
+        '[RMSL] compileWasmRoutine: this function produces no value to render — batch() needs a non-"void" result.',
       );
     }
     const { args, textureHeapEnd } = marshalInputs(ctx);
@@ -3335,7 +3335,7 @@ export function instantiateWasm(compiled: CompiledWasm, name: string, externalMe
 }
 
 /** Compiles an `Fn` to WASM and instantiates it in one step — see `instantiateWasm`. */
-export function compileWasm(
+export function compileWasmRoutine(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmFnOptions,
 ): CpuRoutine {

@@ -1,4 +1,4 @@
-import { compileWasm } from "@random-mesh/rmsl/wasm";
+import { compileWasmRoutine } from "@random-mesh/rmsl/wasm";
 import { calcMandelbrotCpu } from "./mandelbrotShader";
 
 // Each worker's wasm instance gets its own PRIVATE memory (the default —
@@ -10,7 +10,7 @@ import { calcMandelbrotCpu } from "./mandelbrotShader";
 // different, constantly-changing values — scrambled pixels, no error. A
 // private memory per instance sidesteps that entirely; only the result
 // (this worker's own row slice) crosses back to the main thread.
-let renderer: ReturnType<typeof compileWasm> | null = null;
+let renderer: ReturnType<typeof compileWasmRoutine> | null = null;
 
 type InitMsg = { type: "init" };
 type DrawMsg = {
@@ -25,7 +25,7 @@ self.onmessage = (e: MessageEvent<InitMsg | DrawMsg>) => {
   const msg = e.data;
 
   if (msg.type === "init") {
-    renderer = compileWasm(() => calcMandelbrotCpu(), { name: "mandelbrotWasmWorker", params: [] });
+    renderer = compileWasmRoutine(() => calcMandelbrotCpu(), { name: "mandelbrotWasmWorker", params: [] });
     postMessage({ type: "ready" });
     return;
   }

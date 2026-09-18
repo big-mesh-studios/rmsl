@@ -1867,7 +1867,7 @@ export function compileJSFn(
  * one starts — for screen picking one call per click that is the point. Pass
  * `{ reentrant: true }` for per-call bindings instead.
  *
- * Also carries `batch()`, the same whole-image entry point `compileWasm`'s
+ * Also carries `batch()`, the same whole-image entry point `compileWasmRoutine`'s
  * result has: one JS call per pixel, feeding `fragCoord` in and packing every
  * result into one flat row-major buffer — see `CpuRoutine`.
  */
@@ -1896,7 +1896,7 @@ export function compileJS(
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         // pixel centers land at (x + 0.5, y + 0.5) — the same convention
-        // compileWasm's batch() and fragCoordMemory in wasm.ts use.
+        // compileWasmRoutine's batch() and fragCoordMemory in wasm.ts use.
         const result = invoke({ ...ctx, fragCoord: [x + 0.5, y + 0.5] });
         const raw =
           typeof result === "object" && result !== null && "value" in result

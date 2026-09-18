@@ -205,7 +205,7 @@ describe("precompileWasm", () => {
 
     // `uniform("vec3")` inside the fixture gets the first auto slot, _rmsl_u0.
     // An aggregate (vec3) root reads back wrapped in { value }, same as
-    // compileWasm's own documented aggregate-result shape.
+    // compileWasmRoutine's own documented aggregate-result shape.
     expect(mod.brightness.invoke({ uniforms: { _rmsl_u0: [1, 2, 3] } })).toEqual({ value: [0.5, 1, 1.5] });
     expect(mod.mixColours.invoke({ params: { a: [0, 0, 0], b: [1, 1, 1], t: 0.5 } })).toEqual({
       value: [0.5, 0.5, 0.5],

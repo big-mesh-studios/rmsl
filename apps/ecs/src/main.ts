@@ -1,5 +1,5 @@
 import { createJs, type CpuAdapter } from "@random-mesh/rmsl/js";
-import { createWasm } from "@random-mesh/rmsl/wasm";
+import { createWasmRoutine } from "@random-mesh/rmsl/wasm";
 import { createWgsl } from "@random-mesh/rmsl/wgsl";
 import { createGpuRenderer } from "./gpu-renderer";
 import { createEcsSystem } from "./system";
@@ -62,7 +62,7 @@ const system = createEcsSystem();
 const { slots } = system;
 
 const jsAdapter = createJs({ compute: system.program.root, computeName: "ecsSystem" });
-const wasmAdapter = createWasm({ compute: system.program.root, computeName: "ecsSystem" });
+const wasmAdapter = createWasmRoutine({ compute: system.program.root, computeName: "ecsSystem" });
 
 // Re-set every frame: cheap (a handful of object-field assignments), and
 // it means a fresh posX/posY/velX/velY from seed() (entity count changed)

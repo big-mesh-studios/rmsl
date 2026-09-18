@@ -1,8 +1,8 @@
 import { Node, ShaderType } from "../../core";
 import { CpuAdapter, createCpuAdapter } from "../adapter-cpu";
-import { compileWasm, CompileWasmFnOptions } from "./wasm";
+import { compileWasmRoutine, CompileWasmFnOptions } from "./wasm";
 
-export interface CreateWasmOptions {
+export interface CreateWasmRoutineOptions {
   /** A storage()/invocationIndex() program to run as `compute()`. */
   compute?: Node<ShaderType> | readonly Node<ShaderType>[];
   /** A fragCoord() program, evaluated once per pixel by `draw()`'s `.batch()` call. */
@@ -18,10 +18,10 @@ export interface CreateWasmOptions {
   gpuUniformLayout?: CompileWasmFnOptions["gpuUniformLayout"];
 }
 
-/** Compiles `compute`/`batch` with {@link compileWasm} and wraps them in a {@link createCpuAdapter}. */
-export function createWasm(options: CreateWasmOptions): CpuAdapter {
+/** Compiles `compute`/`batch` with {@link compileWasmRoutine} and wraps them in a {@link createCpuAdapter}. */
+export function createWasmRoutine(options: CreateWasmRoutineOptions): CpuAdapter {
   if (!options.compute && !options.batch) {
-    throw new Error("[RMSL] createWasm needs a `compute` program, a `batch` program, or both");
+    throw new Error("[RMSL] createWasmRoutine needs a `compute` program, a `batch` program, or both");
   }
 
   const shared = {
@@ -35,11 +35,11 @@ export function createWasm(options: CreateWasmOptions): CpuAdapter {
   };
 
   const compute = options.compute
-    ? compileWasm(() => options.compute!, { name: options.computeName ?? "compute", ...shared })
+    ? compileWasmRoutine(() => options.compute!, { name: options.computeName ?? "compute", ...shared })
     : undefined;
 
   const batch = options.batch
-    ? compileWasm(() => options.batch!, { name: options.batchName ?? "batch", stage: "fragment", ...shared })
+    ? compileWasmRoutine(() => options.batch!, { name: options.batchName ?? "batch", stage: "fragment", ...shared })
     : undefined;
 
   return createCpuAdapter({ compute, batch });

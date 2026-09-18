@@ -3,7 +3,7 @@ import { var_, type Node } from "../rmsl";
 import { compileGlslFn } from "../glsl";
 import { compileWgslFn } from "../wgsl";
 import { compileJSFn } from "../js";
-import { compileWasm } from "../wasm";
+import { compileWasmRoutine } from "../wasm";
 import { MATRIX_DIMENSIONS, TYPE_WIDTH } from "../core";
 
 // Written to rather than console.warn: vitest intercepts console output and
@@ -320,7 +320,7 @@ export function evaluateJS(build: Build, args: number[] = []): number | number[]
  * rounding.
  */
 export function evaluateWASM(build: Build, args: number[] = []): number | number[] {
-  const fn = compileWasm(build, { name: "rmsl_eval", params: params(args.length) });
+  const fn = compileWasmRoutine(build, { name: "rmsl_eval", params: params(args.length) });
   const ctx = { params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) };
   const result = fn.invoke(ctx);
   // Scalar mode returns the raw number; an aggregate root is instead read
@@ -332,7 +332,7 @@ export function evaluateWASM(build: Build, args: number[] = []): number | number
 }
 
 /**
- * Whether a `compileWasm`/`compileWasmFn` failure means "not supported by
+ * Whether a `compileWasmRoutine`/`compileWasmFn` failure means "not supported by
  * this backend yet" rather than a real bug.
  *
  * Every deliberate "can't compile this (yet)" throw in `wasm.ts` — for

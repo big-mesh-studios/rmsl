@@ -1,5 +1,5 @@
 import { bench, describe } from "vitest";
-import { compileWasm } from "../wasm";
+import { compileWasmRoutine } from "../wasm";
 import { compileJS, type CpuTextureData } from "../js";
 import { Fn, uniform, vec2, ivec2, textureSize, textureLoad } from "../rmsl";
 
@@ -13,11 +13,11 @@ const texture = linearTexture; // kept for the two scenarios below that don't ca
 describe("textureSize(): metadata round trip only, no sampling math", () => {
   const tex = uniform("sampler2D") as any;
   const build = () => Fn(() => textureSize(tex).x.toFloat())();
-  const wasmFn = compileWasm(build as any, { name: "main", params: [] });
+  const wasmFn = compileWasmRoutine(build as any, { name: "main", params: [] });
   const jsFn = compileJS(build as any, { name: "main", params: [] });
   const ctx = { textures: { [tex.name]: texture } };
 
-  bench("compileWasm", () => {
+  bench("compileWasmRoutine", () => {
     wasmFn.invoke(ctx);
   });
   bench("compileJS", () => {
@@ -28,11 +28,11 @@ describe("textureSize(): metadata round trip only, no sampling math", () => {
 describe("textureLoad(): one unfiltered texel", () => {
   const tex = uniform("sampler2D") as any;
   const build = () => Fn(() => textureLoad(tex, ivec2(3, 5)).x)();
-  const wasmFn = compileWasm(build as any, { name: "main", params: [] });
+  const wasmFn = compileWasmRoutine(build as any, { name: "main", params: [] });
   const jsFn = compileJS(build as any, { name: "main", params: [] });
   const ctx = { textures: { [tex.name]: texture } };
 
-  bench("compileWasm", () => {
+  bench("compileWasmRoutine", () => {
     wasmFn.invoke(ctx);
   });
   bench("compileJS", () => {
@@ -43,11 +43,11 @@ describe("textureLoad(): one unfiltered texel", () => {
 describe("texture(): nearest-filtered sample", () => {
   const tex = uniform("sampler2D") as any;
   const build = () => Fn(() => tex.texture(vec2(0.3, 0.7)).x)();
-  const wasmFn = compileWasm(build as any, { name: "main", params: [] });
+  const wasmFn = compileWasmRoutine(build as any, { name: "main", params: [] });
   const jsFn = compileJS(build as any, { name: "main", params: [] });
   const ctx = { textures: { [tex.name]: nearestTexture } };
 
-  bench("compileWasm", () => {
+  bench("compileWasmRoutine", () => {
     wasmFn.invoke(ctx);
   });
   bench("compileJS", () => {
@@ -58,11 +58,11 @@ describe("texture(): nearest-filtered sample", () => {
 describe("texture(): bilinear-filtered sample", () => {
   const tex = uniform("sampler2D") as any;
   const build = () => Fn(() => tex.texture(vec2(0.3, 0.7)).x)();
-  const wasmFn = compileWasm(build as any, { name: "main", params: [] });
+  const wasmFn = compileWasmRoutine(build as any, { name: "main", params: [] });
   const jsFn = compileJS(build as any, { name: "main", params: [] });
   const ctx = { textures: { [tex.name]: linearTexture } };
 
-  bench("compileWasm", () => {
+  bench("compileWasmRoutine", () => {
     wasmFn.invoke(ctx);
   });
   bench("compileJS", () => {

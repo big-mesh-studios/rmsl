@@ -1,4 +1,4 @@
-export { compileWasm, compileWasmFn, instantiateWasm } from "./backends/wasm/wasm";
+export { compileWasmRoutine, compileWasmFn, instantiateWasm } from "./backends/wasm/wasm";
 export type { CompiledWasm, WasmParam } from "./backends/wasm/wasm";
 
 export type {
@@ -10,8 +10,8 @@ export type {
   CpuTextureWrap,
 } from "./backends/cpu";
 
-export { createWasm } from "./backends/wasm/adapter-wasm";
-export type { CreateWasmOptions } from "./backends/wasm/adapter-wasm";
+export { createWasmRoutine } from "./backends/wasm/adapter-wasm";
+export type { CreateWasmRoutineOptions } from "./backends/wasm/adapter-wasm";
 export type { AdapterResult as CpuAdapterResult, CpuAdapter } from "./backends/adapter-cpu";
 
 export type { Adapter, TypedArray } from "./backends/adapter";

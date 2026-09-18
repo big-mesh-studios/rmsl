@@ -1,5 +1,5 @@
 import { bench, describe } from "vitest";
-import { compileWasm, compileWasmFn } from "../wasm";
+import { compileWasmRoutine, compileWasmFn } from "../wasm";
 import { compileJS } from "../js";
 import { Fn, If, uniform, float, sqrt, type Node } from "../rmsl";
 
@@ -10,21 +10,21 @@ describe("scalar arithmetic: sqrt(a*a + b*b + c*c)", () => {
     { name: "b", type: "float" as const },
     { name: "c", type: "float" as const },
   ];
-  const wasmFn = compileWasm(build as any, { name: "main", params });
+  const wasmFn = compileWasmRoutine(build as any, { name: "main", params });
   const jsFn = compileJS(build as any, { name: "main", params });
   const ctx = { params: { a: 3, b: 4, c: 12 } };
 
-  // Isolates compileWasm's ctx-marshalling wrapper (params array iteration,
+  // Isolates compileWasmRoutine's ctx-marshalling wrapper (params array iteration,
   // property lookups by name) from the WASM call itself, by calling the
   // raw exported function directly with positional args.
   const { bytes } = compileWasmFn(build as any, { name: "main", params });
   const instance = new WebAssembly.Instance(new WebAssembly.Module(bytes.buffer as ArrayBuffer), { math: Math as any });
   const rawMain = instance.exports.main as (a: number, b: number, c: number) => number;
 
-  bench("compileWasm", () => {
+  bench("compileWasmRoutine", () => {
     wasmFn.invoke(ctx);
   });
-  bench("compileWasm, raw exported function (no ctx wrapper)", () => {
+  bench("compileWasmRoutine, raw exported function (no ctx wrapper)", () => {
     rawMain(3, 4, 12);
   });
   bench("compileJS", () => {
@@ -33,7 +33,7 @@ describe("scalar arithmetic: sqrt(a*a + b*b + c*c)", () => {
 });
 
 describe("vector dot + branch: If(dir.dot(target) > threshold)", () => {
-  // Built once: compileWasm/compileJS each call the function handed to
+  // Built once: compileWasmRoutine/compileJS each call the function handed to
   // them, so a build function that calls uniform()/Fn() itself would mint
   // a fresh graph (and fresh uniform names) per backend instead of sharing
   // one — the graph is built up front and handed to both as `() => node`.
@@ -49,11 +49,11 @@ describe("vector dot + branch: If(dir.dot(target) > threshold)", () => {
     });
     return out;
   })();
-  const wasmFn = compileWasm(() => node as any, { name: "main", params: [] });
+  const wasmFn = compileWasmRoutine(() => node as any, { name: "main", params: [] });
   const jsFn = compileJS(() => node as any, { name: "main", params: [] });
   const ctx = { uniforms: { [dir.name]: [1, 0, 0], [target.name]: [0.9, 0.1, 0], [threshold.name]: 0.5 } };
 
-  bench("compileWasm", () => {
+  bench("compileWasmRoutine", () => {
     wasmFn.invoke(ctx);
   });
   bench("compileJS", () => {

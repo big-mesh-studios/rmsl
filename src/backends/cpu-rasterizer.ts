@@ -21,7 +21,7 @@ function sliceAttribute(buffer: ArrayLike<number>, index: number, width: number)
 type WrappedResult = { value?: Value; position?: number[]; varyings?: Record<string, Value> };
 
 /**
- * Both compileJS and compileWasm only wrap a call's result in
+ * Both compileJS and compileWasmRoutine only wrap a call's result in
  * `{ value, position, varyings, ... }` when the program actually needs to
  * report more than a bare value — a write to a varying/output/position, or
  * (WASM specifically) an aggregate return type. A program that just reads
