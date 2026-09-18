@@ -128,6 +128,13 @@ rasterizeTriangles` is a prototype" bullet in "Open questions" below,
 gathered here as one list to track over time rather than re-derive each
 time.
 
+This checklist tracks `cpu-rasterizer.ts` specifically, not the generic
+WASM rasterizer module below (`src/backends/wasm/rasterizer.ts`/`.wat`) —
+that module is already ahead of this list on near-plane clipping and the
+depth test (see "generic, precompiled rasterizer module" under "Open
+questions"), which remain unchecked here since `cpu-rasterizer.ts` itself
+still lacks both.
+
 **Vertex stage**
 
 - [x] Run compiled vertex program once per vertex, attributes in
@@ -655,6 +662,19 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
   orders and checking the closer one wins either way. Still open: an
   index buffer, far-plane or screen-bounds frustum clipping, and
   `createJs`/`createWasm` adapter integration.
+
+  **Authored as `.wat`, not TS codegen.** Because this module's structure
+  never varies per shader (unlike `compileWasmFn`/`compileWasm`, which
+  must compile an arbitrary, dynamically-constructed graph at runtime and
+  so can't depend on a WASM toolchain), the "no wabt/binaryen" constraint
+  above doesn't apply to it. `rasterizer.ts` used to hand-encode the same
+  bytes as TS combinators simulating WASM's own function/param/local
+  scoping one level removed; it's now authored directly as
+  `src/backends/wasm/rasterizer.wat`, with a new `compileWat` Vite plugin
+  (`src/vite/vite.ts`) compiling `.wat` to bytes at build time via `wabt`
+  (wired into both `vite.config.ts` and `vitest.config.ts`), so neither
+  `wabt` nor any `.wat` source reaches the built `dist/wasm.js` — only the
+  inlined bytes do, same as before.
 
   If B is ever built, one non-obvious constraint to design around up
   front: growing a `WebAssembly.Memory` (`memory.grow`, from the host or
