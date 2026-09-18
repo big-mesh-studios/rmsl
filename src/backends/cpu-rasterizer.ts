@@ -1,24 +1,29 @@
 import { componentCountOf, CpuDrawBuffer, CpuRoutine, CpuShaderContext } from "./cpu";
 import { ShaderType } from "../core";
 
-type Value = number | number[];
+/** A scalar or a fixed-width vector, as `CpuShaderResult`'s fields carry it. Exported for `./js/rasterizer`'s reuse. */
+export type Value = number | number[];
 
-function scale(v: Value, s: number): Value {
+/** Exported for `./js/rasterizer`'s reuse — see {@link Value}. */
+export function scale(v: Value, s: number): Value {
   return typeof v === "number" ? v * s : v.map((x) => x * s);
 }
 
-function add(a: Value, b: Value): Value {
+/** Exported for `./js/rasterizer`'s reuse — see {@link Value}. */
+export function add(a: Value, b: Value): Value {
   return typeof a === "number" ? a + (b as number) : a.map((x, i) => x + (b as number[])[i]);
 }
 
-function sliceAttribute(buffer: ArrayLike<number>, index: number, width: number): Value {
+/** Exported for `./js/rasterizer`'s reuse — see {@link Value}. */
+export function sliceAttribute(buffer: ArrayLike<number>, index: number, width: number): Value {
   if (width === 1) return buffer[index];
   const out = new Array(width);
   for (let i = 0; i < width; i++) out[i] = buffer[index * width + i];
   return out;
 }
 
-type WrappedResult = { value?: Value; position?: number[]; varyings?: Record<string, Value> };
+/** Exported for `./js/rasterizer`'s reuse — see {@link isWrapped}. */
+export type WrappedResult = { value?: Value; position?: number[]; varyings?: Record<string, Value> };
 
 /**
  * Both compileJSRoutine and compileWasmRoutine only wrap a call's result in
@@ -26,9 +31,11 @@ type WrappedResult = { value?: Value; position?: number[]; varyings?: Record<str
  * report more than a bare value — a write to a varying/output/position, or
  * (WASM specifically) an aggregate return type. A program that just reads
  * and returns (a `vec4(vColor, 1.0)` fragment, say) hands back the plain
- * value instead, so callers can't assume the wrapped shape.
+ * value instead, so callers can't assume the wrapped shape. Exported for
+ * `./js/rasterizer`'s reuse — the same result shape, wrapped by the same
+ * `compileJSRoutine` mechanism its `vertexRoutine`/`fragmentRoutine` are.
  */
-function isWrapped(result: unknown): result is WrappedResult {
+export function isWrapped(result: unknown): result is WrappedResult {
   return typeof result === "object" && result !== null && !Array.isArray(result);
 }
 
