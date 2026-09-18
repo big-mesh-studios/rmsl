@@ -6,15 +6,17 @@ import { CpuDrawBuffer, CpuRoutine } from "./cpu";
 export type AdapterResult = Record<string, TypedArray>;
 
 /**
- * `compute`/`draw` here are two independently optional {@link CpuRoutine}s —
+ * `compute`/`batch` here are two independently optional {@link CpuRoutine}s —
  * `invoke()`d once per entity for a `compute` program, or `batch()`d once per
- * pixel for a `draw` program. Not exported publicly: {@link createCpuAdapter}
- * is wrapped by `createJs`/`createWasm`, which take root graphs instead of
- * already-compiled routines.
+ * pixel for a `batch` program (named for the `CpuRoutine` method it's run
+ * through, not the `Adapter.draw()` it's wired into below — those are two
+ * different things sharing a canvas-render step, not one). Not exported
+ * publicly: {@link createCpuAdapter} is wrapped by `createJs`/`createWasm`,
+ * which take root graphs instead of already-compiled routines.
  */
 export interface CpuAdapterPrograms {
   compute?: CpuRoutine;
-  draw?: CpuRoutine;
+  batch?: CpuRoutine;
 }
 
 /** `compute`/`draw` here are each required — unlike the base Adapter's
@@ -52,10 +54,9 @@ function bufferToImageData(buffer: CpuDrawBuffer, width: number, height: number)
 
 export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
   // Named for what each actually is, not restated from `programs` — the
-  // call site below is `perPixel.batch(...)`, not the `.draw.batch(...)`
-  // `programs.draw.batch(...)` would read as.
+  // call site below is `perPixel.batch(...)`, not `programs.batch.batch(...)`.
   const computeStep = programs.compute;
-  const perPixel = programs.draw;
+  const perPixel = programs.batch;
 
   let n = 0;
   const storages: Record<string, TypedArray> = {};
@@ -105,7 +106,7 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
 
     draw() {
       if (!perPixel || !canvas || !ctx2d) {
-        throw new Error("[RMSL] this adapter has no `draw` program, or attach() was never called");
+        throw new Error("[RMSL] this adapter has no `batch` program, or attach() was never called");
       }
       const buffer = perPixel.batch({ uniforms } as any, canvas.width, canvas.height);
       ctx2d.putImageData(bufferToImageData(buffer, canvas.width, canvas.height), 0, 0);

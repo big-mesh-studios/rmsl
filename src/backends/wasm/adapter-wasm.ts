@@ -5,10 +5,10 @@ import { compileWasm, CompileWasmFnOptions } from "./wasm";
 export interface CreateWasmOptions {
   /** A storage()/invocationIndex() program to run as `compute()`. */
   compute?: Node<ShaderType> | readonly Node<ShaderType>[];
-  /** A fragCoord() program, evaluated once per pixel by `draw()`. */
-  draw?: Node<ShaderType> | readonly Node<ShaderType>[];
+  /** A fragCoord() program, evaluated once per pixel by `draw()`'s `.batch()` call. */
+  batch?: Node<ShaderType> | readonly Node<ShaderType>[];
   computeName?: string;
-  drawName?: string;
+  batchName?: string;
   params?: CompileWasmFnOptions["params"];
   derivatives?: CompileWasmFnOptions["derivatives"];
   reentrant?: CompileWasmFnOptions["reentrant"];
@@ -18,10 +18,10 @@ export interface CreateWasmOptions {
   gpuUniformLayout?: CompileWasmFnOptions["gpuUniformLayout"];
 }
 
-/** Compiles `compute`/`draw` with {@link compileWasm} and wraps them in a {@link createCpuAdapter}. */
+/** Compiles `compute`/`batch` with {@link compileWasm} and wraps them in a {@link createCpuAdapter}. */
 export function createWasm(options: CreateWasmOptions): CpuAdapter {
-  if (!options.compute && !options.draw) {
-    throw new Error("[RMSL] createWasm needs a `compute` program, a `draw` program, or both");
+  if (!options.compute && !options.batch) {
+    throw new Error("[RMSL] createWasm needs a `compute` program, a `batch` program, or both");
   }
 
   const shared = {
@@ -38,9 +38,9 @@ export function createWasm(options: CreateWasmOptions): CpuAdapter {
     ? compileWasm(() => options.compute!, { name: options.computeName ?? "compute", ...shared })
     : undefined;
 
-  const draw = options.draw
-    ? compileWasm(() => options.draw!, { name: options.drawName ?? "draw", stage: "fragment", ...shared })
+  const batch = options.batch
+    ? compileWasm(() => options.batch!, { name: options.batchName ?? "batch", stage: "fragment", ...shared })
     : undefined;
 
-  return createCpuAdapter({ compute, draw });
+  return createCpuAdapter({ compute, batch });
 }

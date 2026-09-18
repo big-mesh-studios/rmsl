@@ -105,10 +105,10 @@ const cpuDrawRoot = Fn(() => {
   return vec4(uv.x, uv.y, sin(cpuTime).mul(0.5).add(0.5), 1.0);
 })();
 
-const jsAdapter = createJs({ draw: cpuDrawRoot, drawName: "cpuDraw" });
+const jsAdapter = createJs({ batch: cpuDrawRoot, batchName: "cpuDraw" });
 jsAdapter.attach(cpuCanvas);
 
-const wasmAdapter = createWasm({ draw: cpuDrawRoot, drawName: "cpuDraw" });
+const wasmAdapter = createWasm({ batch: cpuDrawRoot, batchName: "cpuDraw" });
 wasmAdapter.attach(cpuCanvas);
 
 const startTime = performance.now();

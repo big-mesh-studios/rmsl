@@ -5,19 +5,19 @@ import { compileJS, CompileJSOptions } from "./js";
 export interface CreateJsOptions {
   /** A storage()/invocationIndex() program to run as `compute()`. */
   compute?: Node<ShaderType> | readonly Node<ShaderType>[];
-  /** A fragCoord() program, evaluated once per pixel by `draw()`. */
-  draw?: Node<ShaderType> | readonly Node<ShaderType>[];
+  /** A fragCoord() program, evaluated once per pixel by `draw()`'s `.batch()` call. */
+  batch?: Node<ShaderType> | readonly Node<ShaderType>[];
   computeName?: string;
-  drawName?: string;
+  batchName?: string;
   params?: CompileJSOptions["params"];
   derivatives?: CompileJSOptions["derivatives"];
   reentrant?: CompileJSOptions["reentrant"];
 }
 
-/** Compiles `compute`/`draw` with {@link compileJS} and wraps them in a {@link createCpuAdapter}. */
+/** Compiles `compute`/`batch` with {@link compileJS} and wraps them in a {@link createCpuAdapter}. */
 export function createJs(options: CreateJsOptions): CpuAdapter {
-  if (!options.compute && !options.draw) {
-    throw new Error("[RMSL] createJs needs a `compute` program, a `draw` program, or both");
+  if (!options.compute && !options.batch) {
+    throw new Error("[RMSL] createJs needs a `compute` program, a `batch` program, or both");
   }
 
   const compute = options.compute
@@ -29,9 +29,9 @@ export function createJs(options: CreateJsOptions): CpuAdapter {
       })
     : undefined;
 
-  const draw = options.draw
-    ? compileJS(() => options.draw!, {
-        name: options.drawName ?? "draw",
+  const batch = options.batch
+    ? compileJS(() => options.batch!, {
+        name: options.batchName ?? "batch",
         params: options.params ?? [],
         stage: "fragment",
         derivatives: options.derivatives,
@@ -39,5 +39,5 @@ export function createJs(options: CreateJsOptions): CpuAdapter {
       })
     : undefined;
 
-  return createCpuAdapter({ compute, draw });
+  return createCpuAdapter({ compute, batch });
 }
