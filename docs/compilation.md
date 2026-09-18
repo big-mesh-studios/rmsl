@@ -38,7 +38,7 @@ compileGLSL.vertex(root, { precision: "mediump" });
 
 The configured precision is applied to the `float` declaration and to every
 sampler the shader declares. WGSL and the JS target have no precision
-qualifiers, so `compileWGSL` and `compileJS` take no such option.
+qualifiers, so `compileWGSL` and `compileJSRoutine` take no such option.
 
 ### Multiple return values
 
@@ -300,9 +300,9 @@ feed the per-pixel varyings and uniforms into the compiled function and read
 the colour/depth back, with no GPU round-trip.
 
 ```typescript
-import { compileJS, compileJSFn, Fn, uniform, output, builtinFragDepth } from "rmsl";
+import { compileJSRoutine, compileJSFn, Fn, uniform, output, builtinFragDepth } from "rmsl";
 
-let pickFn = compileJS(calcColourAndDepth, { name: "pick", params: [] });
+let pickFn = compileJSRoutine(calcColourAndDepth, { name: "pick", params: [] });
 // On pointerdown:
 let r = pickFn.invoke({
   uniforms: {
@@ -335,7 +335,7 @@ compileJSFn(fn, options): string
 // A self-contained expression that evaluates to the callable:
 //   const fn = new Function(source)();
 
-compileJS(fn, options): (ctx) => value | result
+compileJSRoutine(fn, options): (ctx) => value | result
 // The real callable, scratch and helpers baked into its closure.
 ```
 
@@ -384,13 +384,22 @@ This is what surfaces the picking depth: `calcColourAndDepth` assigns
 
 ### Rendering a whole grid
 
-`compileJS`'s result also has `.batch(ctx, width, height)`: call the compiled
+`compileJSRoutine`'s result also has `.batch(ctx, width, height)`: call the compiled
 function once per pixel over a `width x height` grid instead of driving the
 loop yourself, packed into one flat, row-major typed array. It's the same
-method [`compileWasm`'s result](wasm.md#cpuroutine) has — both satisfy one
+method [`compileWasmRoutine`'s result](wasm.md#cpuroutine) has — both satisfy one
 `CpuRoutine` interface — documented there since WASM's version has the more
 interesting implementation (it shares the compiled function's own bytecode
 rather than looping in JS).
+
+### Rasterizing a vertex/fragment pair
+
+`compileJS`/`createJs` are different functions from everything above: instead
+of compiling one `Fn` into a callable, they link a compiled vertex/fragment
+pair against a generic triangle rasterizer (near-plane clipping, a LEQUAL
+depth test) — the plain-JS counterpart to
+[`compileWasm`/`createWasm`](wasm.md#rasterizing-a-vertexfragment-pair), same
+shape, same semantics.
 
 ### Scratch & reentrancy
 
@@ -474,7 +483,7 @@ tolerant comparisons. See [Testing](testing.md).
 
 - The JS target computes f64, the GPUs f32 — results can differ by a ULP or
   two, which is why the evaluation tests compare within a tolerance.
-- `compileJS` uses `new Function`, which a strict Content-Security-Policy can
+- `compileJSRoutine` uses `new Function`, which a strict Content-Security-Policy can
   block; `compileJSFn` returns the source so you can embed it in an approved
   context instead.
 - `Discard()` compiles to `return null;` — the host treats `null` as

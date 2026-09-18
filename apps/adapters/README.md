@@ -1,12 +1,18 @@
 # adapters
 
-Three shapes, six adapters. Demonstrates that all four RMSL backends draw the
-same rotating quad, despite having different native shapes:
+Six adapters, two shapes. Demonstrates that all four RMSL backends can draw
+the same rotating, per-vertex-colored quad, despite having very different
+native shapes:
 
 - `createGlsl` (WebGL) and `createWgsl` (WebGPU) draw the quad directly,
   through their own vertex/fragment stages.
-- `createJs`/`createWasm`'s own `draw` wraps a per-pixel `fragCoord()`
-  program instead — a full-screen shape, not a quad — so `rasterizeTriangles`
-  (`src/backends/cpu-rasterizer.ts`, prototype) is used to run the *same*
-  vertex/fragment pair through `compileJS`/`compileWasm`'s "vertex" stage and
-  a software rasterizer, drawing the identical quad entirely on the CPU.
+- `createJs`/`createWasm` link the same vertex/fragment pair against a
+  generic triangle rasterizer instead of a GPU (near-plane clipping, a
+  LEQUAL depth test) — `src/backends/js/rasterizer.ts` and
+  `src/backends/wasm/rasterizer.ts` respectively, the plain-JS and
+  real-WASM implementations of the same algorithm. The vertex loop,
+  clipping, and rasterization all run inside the compiled callable, not
+  host-mediated per vertex/pixel.
+- `createJsRoutine`/`createWasmRoutine`'s own `batch` wraps a per-pixel
+  `fragCoord()` program instead — a full-screen gradient, not a quad, with
+  no vertex stage or attributes at all.

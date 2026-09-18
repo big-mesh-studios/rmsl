@@ -1,6 +1,6 @@
 # Vite Plugins
 
-RMSL compiles node graphs at runtime by default: `compileGLSL`/`compileWGSL`/`compileJS`/`compileWasm` all run in the browser. For an app with a large shader, that means shipping rmsl itself (the whole DSL) to every client just to produce output that never changes.
+RMSL compiles node graphs at runtime by default: `compileGLSL`/`compileWGSL`/`compileJSRoutine`/`compileWasmRoutine` all run in the browser. For an app with a large shader, that means shipping rmsl itself (the whole DSL) to every client just to produce output that never changes.
 
 The three plugins in `@random-mesh/rmsl/vite` move that compilation to build time. Each targets a module you write, bundles it with esbuild, executes it once in the Node process running Vite, and rewrites the module so the browser gets only the finished result — no rmsl, no `eval`, just constants, plain functions, or (for WASM) a real binary module.
 
@@ -62,7 +62,7 @@ The default export must be JSON-serializable (strings, numbers, booleans, arrays
 
 ## precompileJS — CPU-callable shader functions
 
-Any shader function can be compiled to run on the CPU with `compileJS`/`compileJSFn` (see [Compilation](compilation.md#js--cpu-target)). Precompiling it means the browser never evaluates the shader graph and never runs the `eval` that `compileJS` uses to build the callable.
+Any shader function can be compiled to run on the CPU with `compileJSRoutine`/`compileJSFn` (see [Compilation](compilation.md#js--cpu-target)). Precompiling it means the browser never evaluates the shader graph and never runs the `eval` that `compileJSRoutine` uses to build the callable.
 
 The target module exports a **map of name → `compileJSFn()` output** under the export named by `codeExport` (default `__RMSL_JS_CODE`):
 
@@ -95,7 +95,7 @@ brightness({ uniforms: { _rmsl_u0: [1, 2, 3] } }); // [0.5, 1, 1.5]
 mixColours({ params: { a: [0, 0, 0], b: [1, 1, 1], t: 0.5 } }); // [0.5, 0.5, 0.5]
 ```
 
-The callables take the same `CpuShaderContext` as `compileJS` output: uniforms by slot, params by name. Nothing is assumed about your call convention — if a function reads varyings by slot name and you want to pass them through a friendlier shape, wrap it yourself in a plain module:
+The callables take the same `CpuShaderContext` as `compileJSRoutine` output: uniforms by slot, params by name. Nothing is assumed about your call convention — if a function reads varyings by slot name and you want to pass them through a friendlier shape, wrap it yourself in a plain module:
 
 ```typescript
 import { pick } from "./cpu-fns";
@@ -111,7 +111,7 @@ export function voxelPicker(ctx) {
 
 ## precompileWasm — WASM modules
 
-Any shader function can also be compiled to a real WebAssembly module with [`compileWasm`/`compileWasmFn`](wasm.md), the CPU-eval niche `compileJS` serves, with real `i32`/`f64` types and no `eval`. Precompiling it means the browser never runs the graph builder or bytecode emitter that produced the module — only the small piece of glue that instantiates it and marshals calls in and results out.
+Any shader function can also be compiled to a real WebAssembly module with [`compileWasmRoutine`/`compileWasmFn`](wasm.md), the CPU-eval niche `compileJSRoutine` serves, with real `i32`/`f64` types and no `eval`. Precompiling it means the browser never runs the graph builder or bytecode emitter that produced the module — only the small piece of glue that instantiates it and marshals calls in and results out.
 
 The target module exports a **map of name → `compileWasmFn()` output** under the export named by `codeExport` (default `__RMSL_WASM_CODE`). Each entry's `name` in the map has to be the same string it was compiled with (`compileWasmFn(fn, { name, ... })`) — that name is baked into the compiled bytes' own export table:
 
