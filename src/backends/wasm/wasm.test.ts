@@ -1729,3 +1729,35 @@ describe("WASM backend: instantiateWasm — compile and instantiate as separate 
     expect(Array.from(pos)).toEqual([2, 14, 26]);
   });
 });
+
+describe("WASM backend: memoryBase — several compiled modules sharing one WebAssembly.Memory", () => {
+  it("keeps each module's compile-time addresses in its own, non-overlapping region", () => {
+    const memory = new WebAssembly.Memory({ initial: 1 });
+    const view = () => new DataView(memory.buffer);
+
+    let vecA!: any;
+    const a = compileWasm(
+      () => {
+        vecA = uniform("vec3");
+        return vecA.x;
+      },
+      { name: "a", params: [], memory, memoryBase: 0 },
+    );
+
+    let vecB!: any;
+    const b = compileWasm(
+      () => {
+        vecB = uniform("vec3");
+        return vecB.x;
+      },
+      { name: "b", params: [], memory, memoryBase: 64 }, // clear of a's vec3 (3 * 8 = 24 bytes)
+    );
+
+    expect(a.invoke({ uniforms: { [vecA.name]: [1, 2, 3] } })).toBe(1);
+    expect(view().getFloat64(0, true)).toBe(1); // a's vec3 landed at its own base, byte 0
+
+    expect(b.invoke({ uniforms: { [vecB.name]: [4, 5, 6] } })).toBe(4);
+    expect(view().getFloat64(64, true)).toBe(4); // b's vec3 landed at its own base, byte 64
+    expect(view().getFloat64(0, true)).toBe(1); // a's region untouched by b's call
+  });
+});

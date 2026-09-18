@@ -152,6 +152,20 @@ export type CompileWasmFnOptions = CompileFnOptions & {
 
   /** The memory import's declared maximum page count, only meaningful when `sharedMemory` is true. Defaults to 65536 (the full 4GiB wasm32 address space). */
   maxMemoryPages?: number;
+
+  /**
+   * Byte offset the compile-time bump allocator starts from, instead of 0.
+   * Exists so several independently-compiled modules can share one
+   * `memory` without their compile-time-fixed addresses (uniforms,
+   * scratch slots, texture metadata, ...) colliding — each module gets its
+   * own non-overlapping region by being compiled with a different
+   * `memoryBase`. The caller is responsible for choosing non-overlapping
+   * bases (typically: compile each module once to learn how much space its
+   * layout needs, then lay the next one out after it). Combining with
+   * `gpuUniformLayout` adds this on top of that layout's own reserved
+   * region, rather than replacing it.
+   */
+  memoryBase?: number;
 };
 
 // Per-texture metadata block written by writeTextureToMemory(), reserved
@@ -829,7 +843,7 @@ export function compileWasmFn(
   const textureMetadataAddress = new Map<string, number>();
   const scratchAddress = new WeakMap<object, number>();
 
-  let memCursor = options.gpuUniformLayout?.totalSize ?? 0; // cursor past the host's reserved region
+  let memCursor = (options.gpuUniformLayout?.totalSize ?? 0) + (options.memoryBase ?? 0); // cursor past the host's reserved region(s)
 
   // Pass 1: plan the whole tree — record slots/addresses and imported
   // math names — before any bytecode is emitted.

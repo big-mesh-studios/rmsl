@@ -9,8 +9,8 @@
 // test or near/far clipping — the same scope createGlsl's default draw
 // already has, meant for shader-output comparison rather than a general
 // rasterizer.
-import { componentCountOf, CpuDrawBuffer, CpuRoutine, CpuShaderContext } from "./cpu";
 import { ShaderType } from "../core";
+import { componentCountOf, CpuDrawBuffer, CpuRoutine, CpuShaderContext } from "./cpu";
 
 type Value = number | number[];
 
@@ -63,7 +63,11 @@ export interface RasterizeTrianglesOptions {
  * software equivalent of what createGlsl/createWgsl's GPU rasterizer does
  * for the same vertex()/fragment() pair.
  */
-export function rasterizeTriangles(vertex: CpuRoutine, fragment: CpuRoutine, options: RasterizeTrianglesOptions): CpuDrawBuffer {
+export function rasterizeTriangles(
+  vertex: CpuRoutine,
+  fragment: CpuRoutine,
+  options: RasterizeTrianglesOptions,
+): CpuDrawBuffer {
   const { attributes, attributeTypes, uniforms, textures, width, height, componentCount } = options;
 
   const widths: Record<string, number> = {};
@@ -77,13 +81,21 @@ export function rasterizeTriangles(vertex: CpuRoutine, fragment: CpuRoutine, opt
   const varyingsPerVertex: Record<string, Value>[] = new Array(vertexCount);
   for (let i = 0; i < vertexCount; i++) {
     const attrs: Record<string, unknown> = {};
-    for (const slot in attributes) attrs[slot] = sliceAttribute(attributes[slot], i, widths[slot]);
+
+    for (const slot in attributes) {
+      attrs[slot] = sliceAttribute(attributes[slot], i, widths[slot]);
+    }
+
     const raw = vertex.invoke({ attributes: attrs, uniforms, textures });
     // A vertex Fn that never calls builtinPosition() itself has its plain
     // `return vec4(...)` become the position instead (assertStageResult in
     // shared.ts requires exactly that).
     const position = (isWrapped(raw) ? (raw.position ?? raw.value) : raw) as number[] | undefined;
-    if (!position) throw new Error("[RMSL] vertex program never wrote a position (builtinPosition(), or a plain vec4 return)");
+
+    if (!position) {
+      throw new Error("[RMSL] vertex program never wrote a position (builtinPosition(), or a plain vec4 return)");
+    }
+
     positions[i] = position;
     varyingsPerVertex[i] = (isWrapped(raw) && raw.varyings) || {};
   }
@@ -91,12 +103,14 @@ export function rasterizeTriangles(vertex: CpuRoutine, fragment: CpuRoutine, opt
   const out = options.out ?? new Float64Array(width * height * componentCount);
 
   for (let t = 0; t + 2 < vertexCount; t += 3) {
-    const p0 = positions[t],
-      p1 = positions[t + 1],
-      p2 = positions[t + 2];
-    const w0 = p0[3],
-      w1 = p1[3],
-      w2 = p2[3];
+    const p0 = positions[t];
+    const p1 = positions[t + 1];
+    const p2 = positions[t + 2];
+
+    const w0 = p0[3];
+    const w1 = p1[3];
+    const w2 = p2[3];
+
     // Clip space -> NDC (perspective divide) -> screen space, y flipped to
     // match a canvas's top-down row order.
     const s0 = [((p0[0] / w0) * 0.5 + 0.5) * width, (1 - ((p0[1] / w0) * 0.5 + 0.5)) * height];
