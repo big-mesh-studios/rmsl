@@ -409,7 +409,7 @@ function assertSampledTextureType(t: string): void {
  * in 7-bit groups, least significant first, with the high bit of every byte
  * except the last set to signal continuation.
  */
-function wasmUleb128(n: number): number[] {
+export function wasmUleb128(n: number): number[] {
   const out: number[] = [];
   do {
     let byte = n & 0x7f;
@@ -439,7 +439,7 @@ function wasmSleb128(n: number): number[] {
   return out;
 }
 
-function wasmStrBytes(s: string): number[] {
+export function wasmStrBytes(s: string): number[] {
   const b = [...new TextEncoder().encode(s)];
   return [...wasmUleb128(b.length), ...b];
 }
