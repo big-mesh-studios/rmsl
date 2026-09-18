@@ -692,7 +692,8 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
   used to go through `compileWasmRoutine` + `rasterizeTriangles` instead,
   never touching this module); see `docs/wasm-benchmarks.md`'s
   `createWasm` vs. `rasterizeTriangles(compileJS)` section for the
-  ~8-8.85x result that motivated the switch.
+  ~8-8.85x result (two runs, otherwise idle machine) that motivated the
+  switch.
 
   **Authored as `.wat`, not TS codegen.** Because this module's structure
   never varies per shader (unlike `compileWasmFn`/`compileWasmRoutine`,
