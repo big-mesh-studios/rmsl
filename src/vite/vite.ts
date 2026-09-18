@@ -1,5 +1,7 @@
 import { build } from "esbuild";
+import { readFile } from "fs/promises";
 import type { Plugin } from "vite";
+import wabtInit from "wabt";
 
 export type ViteFilter = string | RegExp | Array<string | RegExp>;
 
@@ -204,6 +206,35 @@ export function precompileWasm(options: PrecompileWasmOptions = {}): Plugin {
       const rewritten = exports.join("\n");
       cache.set(hash, rewritten);
       return { code: rewritten, map: null };
+    },
+  };
+}
+
+/**
+ * Loads every `.wat` (WebAssembly Text Format) file as `export default`ing
+ * its compiled bytes (a `Uint8Array`), via `wabt`'s `wat2wasm`.
+ *
+ * Meant for a module whose WASM is entirely static — unlike rmsl's own
+ * graph-driven backends, which compile bytecode at runtime for whatever
+ * shader graph they're given and can't be pre-authored as `.wat`. `include`
+ * defaults to every `.wat` id; `exclude` still applies on top of it.
+ */
+export function compileWat(options: PrecompileShadersOptions = {}): Plugin {
+  let wabt: Awaited<ReturnType<typeof wabtInit>> | undefined;
+
+  return {
+    name: "rmsl:compile-wat",
+    enforce: "pre",
+    async load(id) {
+      const filePath = normalizePath(id);
+      if (!filePath.endsWith(".wat")) return null;
+      if (options.include !== undefined && !matches(filePath, options.include)) return null;
+      if (matches(filePath, options.exclude)) return null;
+
+      wabt ??= await wabtInit();
+      const source = await readFile(id, "utf8");
+      const bytes = new Uint8Array(wabt.parseWat(filePath, source).toBinary({}).buffer);
+      return `export default new Uint8Array([${bytes.join(",")}]);`;
     },
   };
 }

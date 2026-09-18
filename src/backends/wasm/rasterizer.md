@@ -1,10 +1,19 @@
 # Generic rasterizer module
 
 See `ROADMAP.md`'s "generic, precompiled rasterizer module" open question
-for the design this implements. `buildRasterizerModule()` builds one
-fixed WASM module, compiled once regardless of shader, with a
-`"rasterize"` export ({@link RASTERIZE_PARAMS} in `rasterizer.ts` for the
-exact argument list and order).
+for the design this implements. Unlike the rest of the WASM backend
+(`compileWasmFn`/`compileWasm` in `wasm.ts`, which compile an arbitrary,
+dynamically-constructed shader graph at runtime and so can't depend on a
+WASM toolchain), this module's structure never varies per shader — it's
+authored directly as `rasterizer.wat`, and `rasterizer.ts` imports it
+like any other module (`import RASTERIZER_WASM_BYTES from "./rasterizer.wat"`).
+`compileWat` (`src/vite/vite.ts`) compiles `.wat` to bytes at build time
+via `wabt`, wired into both `vite.config.ts` and `vitest.config.ts`; no
+`.wat` source or `wabt` reference reaches the built `dist/wasm.js`.
+`buildRasterizerModule()` just returns those bytes — one fixed module,
+compiled once regardless of shader, with a `"rasterize"` export
+({@link RASTERIZE_PARAMS} in `rasterizer.ts` for the exact argument list
+and order).
 
 `rasterize()` does three passes over one shared `env.memory`:
 
@@ -36,8 +45,8 @@ exact argument list and order).
    result into `outputBase`. The host must pre-clear `depthBufferBase` to
    a large value before the first draw over it.
 
-`emitByteCopyLoop` is the one raw-byte copy primitive both passes reuse.
-Any number of attribute slots are supported via a runtime descriptor
+`$byteCopy` (in `rasterizer.wat`) is the one raw-byte copy primitive both
+passes reuse. Any number of attribute slots are supported via a runtime descriptor
 table (`AttributeDescriptor`/`writeAttributeDescriptors`) — each entry is
 `[srcOffset, destAddress, sizeBytes]`, letting the source buffer pack
 slots in any per-vertex layout the host chooses. Varyings work the same

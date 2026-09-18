@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import { writeFileSync, readFileSync } from "fs";
 import dts from "vite-plugin-dts";
+import { compileWat } from "./src/vite/vite";
 
 export default defineConfig({
   build: {
@@ -20,10 +21,11 @@ export default defineConfig({
       fileName: (_format, entryName) => `${entryName}.js`,
     },
     rollupOptions: {
-      external: ["esbuild", "vite"],
+      external: ["esbuild", "vite", "wabt", "fs/promises"],
     },
   },
   plugins: [
+    compileWat(),
     dts({
       include: [
         "src/rmsl.ts",
