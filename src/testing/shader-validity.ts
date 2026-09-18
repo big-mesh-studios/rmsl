@@ -1,30 +1,3 @@
-/**
- * Checks that every shader the test suite generates is actually valid, in both
- * backends.
- *
- * The suite's assertions are substring matches — `expect(glsl).toContain(...)`
- * — which cannot tell a correct shader from a broken one that happens to
- * contain the expected text. Three real compiler bugs shipped through that gap:
- * `refract(I, N)` still contains "refract(", `lessThan(float, float)` still
- * contains "lessThan(", and a for-loop missing its increment is valid syntax.
- *
- * So the generated source is handed to real compilers instead of being pattern
- * matched. A parser is not enough — it accepts every one of those three, since
- * they are type errors rather than syntax errors:
- *
- *              1e-7.0   refract(I,N)   lessThan(f,f)   mat2x3 = 0.0
- *   parser     reject      accept         accept          accept
- *   real       reject      reject         reject          reject
- *
- * GLSL goes to Chromium's WebGL2 compiler, WGSL to Dawn. Both report type
- * errors, and both are the implementations the output actually has to run on.
- *
- * Wiring: a test file aliases the compilers through `recordGLSL`/`recordWGSL`,
- * so no individual test changes, then awaits `assertRecordedShadersValid()` in
- * `afterAll`. A test that asserts a compiler *refuses* something goes through
- * `expectCompileRejection` instead, which records nothing — see its comment.
- */
-
 import { expect } from "vitest";
 import { type Node, type ShaderType, type VertexRoot } from "../rmsl";
 import { compileGlsl, type CompileGLSLOptions } from "../glsl";
@@ -247,6 +220,14 @@ async function validateWGSL(items: Recorded[]): Promise<(string | null)[]> {
 /**
  * Validate everything recorded so far and throw a single report if the set of
  * invalid shaders differs from `KNOWN_INVALID` in either direction.
+ *
+ * A substring assertion like `expect(glsl).toContain(...)` cannot tell a
+ * correct shader from a broken one that happens to contain the expected
+ * text — a parser alone isn't enough either, since a type error like
+ * `refract(I, N)` (missing its third argument) or `lessThan(float, float)`
+ * (scalar args on a vector-only builtin) still parses. So the generated
+ * source is instead handed to the real compilers it has to run on: GLSL to
+ * Chromium's WebGL2 compiler, WGSL to Dawn.
  */
 export async function assertRecordedShadersValid(): Promise<void> {
   // Validation runs unless a machine says it cannot, via RMSL_SKIP_GPU — for

@@ -1,13 +1,3 @@
-// Texture bookkeeping in the WebGPU renderer, against a recording stub of a
-// GPUDevice.
-//
-// Chromium-with-SwiftShader — what the other renderer tests draw through — has
-// no WebGPU, so this layer has nowhere to run for real here. What the stub does
-// cover is the part that is bookkeeping rather than drawing: which GPU textures
-// are created, written and destroyed as a `Texture` is updated or disposed, and
-// which bind groups have to be built again because the texture they named is
-// gone.
-
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { vec2 } from "../rmsl";
 import {

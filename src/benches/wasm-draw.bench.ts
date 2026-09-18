@@ -1,9 +1,3 @@
-/**
- * `.draw()` vs. calling `compileWasm`/`compileJS` once per pixel, swept
- * across grid sizes and with/without texture sampling. Run with
- * `npx vitest bench src/wasm-draw.bench.ts`. See ROADMAP.md's "Why"
- * section for the full rationale and scenario design.
- */
 import { bench, describe } from "vitest";
 import { compileWasm } from "../wasm";
 import { compileJS, type CpuTextureData, type CpuShaderContext } from "../js";

@@ -1,17 +1,3 @@
-/**
- * The browser and graphics device the test harnesses share.
- *
- * Both harnesses need the same two things — a Chromium with a software GL
- * driver, for GLSL, and a WebGPU device, for WGSL — and each used to stand up
- * its own. That is slow, and it is two places to change: releasing the device
- * had to be fixed in both, and one of them could easily have been missed.
- *
- * Everything here is created once and reused. What is memoised is the
- * *promise*, not the result: it is assigned before the first await, so two
- * callers arriving together share one launch instead of each starting their own
- * and one being dropped on the floor still running.
- */
-
 declare const process: { env: Record<string, string | undefined> };
 
 /** The little of Node's HTTP server this uses. */
@@ -29,7 +15,13 @@ let browserPromise: Promise<any> | undefined;
 let pagePromise: Promise<any> | undefined;
 let devicePromise: Promise<any> | undefined;
 
-/** A Chromium rendering through SwiftShader, so no real GPU is needed. */
+/**
+ * A Chromium rendering through SwiftShader, so no real GPU is needed —
+ * shared by the whole test run rather than launched per test, the same way
+ * every getter in this file is: what's memoised is the *promise*, not the
+ * result, assigned before the first await, so two callers arriving together
+ * share one launch instead of each starting their own.
+ */
 export function gpuBrowser(): Promise<any> {
   browserPromise ??= (async () => {
     const { chromium } = await import("playwright");

@@ -1,8 +1,3 @@
-/**
- * The GLSL backend's public entry point, mirroring `wgsl.ts` — compile and
- * adapter together, kept off the main barrel since they're specific to
- * this one backend.
- */
 export { compileGlsl } from "./backends/glsl/glsl";
 export type { CompileGLSLOptions, GLSLPrecision } from "./backends/glsl/glsl";
 

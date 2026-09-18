@@ -1,10 +1,3 @@
-/**
- * WASM vs JS backend perf comparison, using vitest's benchmark mode
- * (run with `npx vitest bench src/wasm-vs-js.bench.ts`, not `vitest run`).
- * See ROADMAP.md's "Why" section for why this file is kept committed and
- * reproducible against past commits, and why loop scenarios live in
- * `wasm-loop.bench.ts` instead.
- */
 import { bench, describe } from "vitest";
 import { compileWasm, compileWasmFn } from "../wasm";
 import { compileJS } from "../js";

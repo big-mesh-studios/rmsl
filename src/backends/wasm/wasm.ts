@@ -1,11 +1,3 @@
-/**
- * RMSL CPU backend: compiles an RMSL function into a small WebAssembly
- * module. Scalars flow through WASM params/locals; vectors, matrices and
- * pipeline I/O live at fixed offsets in an exported linear memory that the
- * host reads and writes around each call. Opcodes below are verified
- * empirically against a known answer, not quoted from memory: a
- * wrong-but-valid opcode runs and silently miscompiles.
- */
 import { MATRIX_DIMENSIONS, Node, ShaderType, StorageAccess, var_ } from "../../core";
 import { AllocRules, planLayout } from "../../layout";
 import {
@@ -830,12 +822,19 @@ export function wasmVec(items: number[][]): number[] {
 }
 
 /**
- * Compiles an RMSL function into a WASM module in two passes: "collect"
- * walks the AST once, giving each scalar a param/local slot and each
- * aggregate a fixed memory address; the emit helpers then generate bytes
- * against that frozen layout. When the root is an aggregate or the stage
- * writes pipeline outputs, the module declares zero results and values
- * round-trip through the linear memory instead.
+ * Compiles an RMSL function into a small WASM module in two passes:
+ * "collect" walks the AST once, giving each scalar a param/local slot and
+ * each aggregate a fixed memory address; the emit helpers then generate
+ * bytes against that frozen layout. Scalars flow through WASM params/
+ * locals; vectors, matrices and pipeline I/O live at fixed offsets in an
+ * exported linear memory that the host reads and writes around each call.
+ * When the root is an aggregate or the stage writes pipeline outputs, the
+ * module declares zero results and values round-trip through the linear
+ * memory instead.
+ *
+ * The opcodes this file emits (see `WASM_OP`) are verified empirically
+ * against a known answer, not quoted from memory: a wrong-but-valid opcode
+ * runs and silently miscompiles.
  */
 export function compileWasmFn(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
@@ -966,11 +965,21 @@ export function compileWasmFn(
   let unaryImportType: number | null = null;
   let binaryImportType: number | null = null;
 
+  /**
+   * One import entry per math function this program calls (sin, pow, ...):
+   * module name "math", the function's own name, the 0x00 func import kind
+   * (see the memory import below), then its type index.
+   */
   const importEntries: number[][] = importNames.map((name) => {
     const typeIdx = MATH_BINARY_IMPORTS.has(name) ? binaryImportTypeIdx() : unaryImportTypeIdx();
     return [...wasmStrBytes("math"), ...wasmStrBytes(name), 0x00, ...wasmUleb128(typeIdx)];
   });
 
+  /**
+   * The main function's own type: every scalar param, in order, then either
+   * no result (the program writes its result through `out`/memory instead —
+   * `needsResult` false) or one result type.
+   */
   const paramTypes = params.map((p) => [wasmTypeOf(scalarKindOf(p.shaderType))]);
   const resultTypes = needsResult ? [] : [[wasmTypeOf(resultKind)]];
   const mainTypeIdx = typeEntries.length;
@@ -997,10 +1006,18 @@ export function compileWasmFn(
     const bufferBaseIdx = params.length + 2;
     const xIdx = params.length + 3;
     const yIdx = params.length + 4;
+    /** Pushes local `x`. */
     const getX = [WASM_OP.localGet, ...wasmUleb128(xIdx)];
+    /** Pushes local `y`. */
     const getY = [WASM_OP.localGet, ...wasmUleb128(yIdx)];
     const compSize = componentSizeOf(batchComponentKind);
+    /**
+     * Pushes every one of the main function's own params, in order —
+     * `batch` and `main` share the same leading params, so this forwards
+     * them unchanged rather than re-deriving them per pixel.
+     */
     const passThroughArgs = params.map((_, i) => [WASM_OP.localGet, ...wasmUleb128(i)]).flat();
+    /** Forwards `passThroughArgs` and calls `main`. */
     const callMain = [...passThroughArgs, WASM_OP.call, ...wasmUleb128(mainFuncIndex)];
     // pixel centers land at (x + 0.5, y + 0.5) — the same convention js uses
     const writeFragCoord =
@@ -1021,6 +1038,10 @@ export function compileWasmFn(
             ]),
           ];
 
+    /**
+     * `(y * width + x) * componentCount * compSize` — the pixel's byte
+     * offset within one row-major, tightly packed image buffer.
+     */
     const pixelByteOffset = [
       ...getY,
       WASM_OP.localGet,
@@ -1031,6 +1052,10 @@ export function compileWasmFn(
       ...i32ConstBytes(batchComponentCount * compSize),
       WASM_OP.i32Mul,
     ];
+    /**
+     * `bufferBase + pixelByteOffset + k * compSize` — the address of the
+     * pixel's `k`th component in the caller's output buffer.
+     */
     const destAddr = (k: number) => [
       WASM_OP.localGet,
       ...wasmUleb128(bufferBaseIdx),
@@ -1039,6 +1064,13 @@ export function compileWasmFn(
       ...i32ConstBytes(k * compSize),
       WASM_OP.i32Add,
     ];
+    /**
+     * Calls `main` and copies its result into the output buffer. A
+     * needs-result function returns nothing directly — main() already wrote
+     * its result to `valueAddress` (memory) — so each component is read
+     * back from there and stored per-component; a scalar-returning one is
+     * stored straight from `callMain`'s own return value instead.
+     */
     const copyResult: number[] = needsResult
       ? [
           ...callMain,
@@ -1047,7 +1079,15 @@ export function compileWasmFn(
           ).flat(),
         ]
       : storeDynamic(destAddr(0), batchComponentKind, callMain);
+    /** The whole per-pixel body: write fragCoord for this pixel, then run main() and copy its result out. */
     const perPixel = [...writeFragCoord, ...copyResult];
+    /**
+     * `while (x < width) { perPixel(); x++; }` — WASM has no native `while`,
+     * so this is a `block` wrapping a `loop`: the loop repeats by branching
+     * to label 0 (itself) at its end, and exits by branching to label 1 (the
+     * enclosing block) via `brIf` when the bound check fails — the standard
+     * "loop-as-goto" pattern the binary format compiles a structured loop to.
+     */
     const innerLoop = [
       WASM_OP.block,
       WASM_BLOCKTYPE_VOID,
@@ -1070,6 +1110,10 @@ export function compileWasmFn(
       WASM_OP.end,
       WASM_OP.end,
     ];
+    /**
+     * `while (y < height) { x = 0; innerLoop(); y++; }` — same block/loop
+     * shape as `innerLoop`, resetting `x` before each row.
+     */
     const outerLoop = [
       WASM_OP.block,
       WASM_BLOCKTYPE_VOID,
@@ -1112,30 +1156,40 @@ export function compileWasmFn(
     typeEntries.push([WASM_FUNC, ...wasmVec([...paramTypes, [WASM_I32], [WASM_I32], [WASM_I32]]), ...wasmVec([])]);
   }
 
-  const memoryPages = Math.max(1, Math.ceil(memCursor / 65536)); // 65536 bytes per WASM memory page
-  // memory is imported rather than owned by the module, so a caller can hand
-  // multiple instances the same (optionally SharedArrayBuffer-backed) memory.
-  // The shared-ness of an import is a static part of the module (the engine
-  // rejects instantiation if it doesn't exactly match the memory object
-  // handed in), so it has to be a compile-time option, not a runtime one —
-  // a shared import always needs a declared maximum too.
+  /** 65536 bytes per WASM memory page. */
+  const memoryPages = Math.max(1, Math.ceil(memCursor / 65536));
+  /**
+   * Memory is imported rather than owned by the module, so a caller can hand
+   * multiple instances the same (optionally SharedArrayBuffer-backed)
+   * memory. The shared-ness of an import is a static part of the module
+   * (the engine rejects instantiation if it doesn't exactly match the
+   * memory object handed in), so it has to be a compile-time option, not a
+   * runtime one — a shared import always needs a declared maximum too.
+   */
   const sharedMemory = options.sharedMemory ?? false;
-  const maxMemoryPages = options.maxMemoryPages ?? 65536; // 65536 pages = the full 4GiB wasm32 address space
-  // A "limits" encoding: a one-byte flag (0x00 = min only, 0x03 = min and max,
-  // shared) followed by the min page count and, only when the flag says so,
-  // the max page count — both as unsigned LEB128. 0x01/0x02 (max-but-not-shared
-  // forms) exist in the spec but are never emitted here, since sharedness is
-  // this module's own choice, never partial.
+  /** 65536 pages = the full 4GiB wasm32 address space. */
+  const maxMemoryPages = options.maxMemoryPages ?? 65536;
+  /**
+   * A "limits" encoding: a one-byte flag (0x00 = min only, 0x03 = min and
+   * max, shared) followed by the min page count and, only when the flag
+   * says so, the max page count — both as unsigned LEB128. 0x01/0x02
+   * (max-but-not-shared forms) exist in the spec but are never emitted
+   * here, since sharedness is this module's own choice, never partial.
+   */
   const memoryLimitsBytes = sharedMemory
     ? [0x03, ...wasmUleb128(memoryPages), ...wasmUleb128(maxMemoryPages)]
     : [0x00, ...wasmUleb128(memoryPages)];
-  // An import entry: module name, field name, then a one-byte "import kind"
-  // (0x00 func, 0x01 table, 0x02 memory, 0x03 global) and the kind-specific
-  // descriptor that follows it — here the memory limits just built above.
+  /**
+   * An import entry: module name, field name, then a one-byte "import kind"
+   * (0x00 func, 0x01 table, 0x02 memory, 0x03 global) and the kind-specific
+   * descriptor that follows it — here the memory limits just built above.
+   */
   const memoryImportEntry = [...wasmStrBytes("env"), ...wasmStrBytes("memory"), 0x02, ...memoryLimitsBytes];
 
-  // Section ids, per the spec's binary format (see wasmSection's own doc):
-  // 1 Type, 2 Import, 3 Function.
+  /**
+   * Section ids, per the spec's binary format (see {@link wasmSection}'s own
+   * doc): 1 Type, 2 Import, 3 Function.
+   */
   const typeSection = wasmSection(1, wasmVec(typeEntries));
   const importSection = wasmSection(2, wasmVec([...importEntries, memoryImportEntry]));
   const funcSection = wasmSection(
@@ -1143,45 +1197,57 @@ export function compileWasmFn(
     wasmVec(batchTypeIdx === undefined ? [[mainTypeIdx]] : [[mainTypeIdx], [batchTypeIdx]]),
   );
   const nameBytes = wasmStrBytes(options.name);
-  // An export entry: the export's own name, a one-byte "export kind" (0x00
-  // func, 0x01 table, 0x02 memory, 0x03 global — same vocabulary as the
-  // import kind above), then the kind-specific index — here a function index
-  // into the (imports ++ this module's own functions) index space.
+  /**
+   * An export entry: the export's own name, a one-byte "export kind" (0x00
+   * func, 0x01 table, 0x02 memory, 0x03 global — same vocabulary as the
+   * import kind above), then the kind-specific index — here a function
+   * index into the (imports ++ this module's own functions) index space.
+   */
   const exportEntries = [[...nameBytes, 0x00, ...wasmUleb128(mainFuncIndex)]];
 
   if (batchTypeIdx !== undefined) {
     exportEntries.push([...wasmStrBytes("batch"), 0x00, ...wasmUleb128(mainFuncIndex + 1)]);
   }
 
-  // Section id 7, Export.
+  /** Section id 7, Export. */
   const exportSection = wasmSection(7, wasmVec(exportEntries));
 
-  // Each local group is `[count, type]` — a run of `count` consecutive
-  // locals sharing one type, which is why every group here is `wasmUleb128(1)`
-  // (one local at a time): this compiler never merges same-typed locals into
-  // a single run, only ever declares a fresh one-local group per slot.
+  /**
+   * Each local group is `[count, type]` — a run of `count` consecutive
+   * locals sharing one type, which is why every group here is
+   * `wasmUleb128(1)` (one local at a time): this compiler never merges
+   * same-typed locals into a single run, only ever declares a fresh
+   * one-local group per slot.
+   */
   const localsDecl = wasmVec(localSlots.map((name) => [...wasmUleb128(1), wasmTypeOf(localType.get(name)!)]));
   const funcBody = [...localsDecl, ...code, WASM_OP.end];
-  // A code entry is prefixed with its own byte length (not a `wasmVec` count —
-  // a decoder skips a whole function body it doesn't want to parse), then the
-  // local declarations and the instruction bytes themselves.
+  /**
+   * A code entry is prefixed with its own byte length (not a `wasmVec`
+   * count — a decoder skips a whole function body it doesn't want to
+   * parse), then the local declarations and the instruction bytes
+   * themselves.
+   */
   const codeEntries = [[...wasmUleb128(funcBody.length), ...funcBody]];
 
   if (batchFuncBody !== undefined) {
     codeEntries.push([...wasmUleb128(batchFuncBody.length), ...batchFuncBody]);
   }
 
-  // Section id 10, Code — one entry per function declared in the Function
-  // section above, in the same order, each holding that function's locals
-  // and its actual instruction bytes.
+  /**
+   * Section id 10, Code — one entry per function declared in the Function
+   * section above, in the same order, each holding that function's locals
+   * and its actual instruction bytes.
+   */
   const codeSection = wasmSection(10, wasmVec(codeEntries));
 
-  // The module: an 8-byte header, then the sections built above. Sections
-  // are self-delimiting (each carries its own byte length, from
-  // `wasmSection`) and, while the spec allows most orderings, a decoder
-  // expects known section ids ascending — hence Type/Import/Function/
-  // Export/Code here, skipping the ids (Table, Memory, Global, Start,
-  // Element) this compiler never emits.
+  /**
+   * The module: an 8-byte header, then the sections built above. Sections
+   * are self-delimiting (each carries its own byte length, from
+   * {@link wasmSection}) and, while the spec allows most orderings, a
+   * decoder expects known section ids ascending — hence Type/Import/
+   * Function/Export/Code here, skipping the ids (Table, Memory, Global,
+   * Start, Element) this compiler never emits.
+   */
   // prettier-ignore
   const bytes = new Uint8Array([
     0x00, 0x61, 0x73, 0x6d, // magic number: "\0asm"

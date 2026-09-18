@@ -1,14 +1,3 @@
-// End-to-end tests for the WebGPU renderer: bundle the scene library with
-// esbuild, draw in a real Chromium with a real WebGPU adapter, and read the
-// pixels back.
-//
-// This layer used to be untestable, and the reason was not a missing flag.
-// `navigator.gpu` is exposed only to a secure context, and the GLSL harness
-// opens `about:blank`, which is not one; Playwright's default browser is also
-// the headless shell, which has no adapter behind `navigator.gpu` even on a
-// page that is. A full Chromium on a `http://127.0.0.1` page has both, with no
-// arguments at all — see `webgpuPage` in `src/testing/gpu.ts`.
-
 import { describe, it, expect, afterAll } from "vitest";
 import { build } from "esbuild";
 import { webgpuPage, webgpuAvailable, releaseGpu } from "../testing/gpu";

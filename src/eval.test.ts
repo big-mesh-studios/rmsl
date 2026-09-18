@@ -1,15 +1,3 @@
-/**
- * Checks what the generated shaders *compute*, not just that they compile.
- *
- * Every other test asserts on emitted text, and text cannot tell `a + b` from
- * `a - b` — both are valid, and both contain whatever the assertion looks for.
- * These evaluate the shader on both backends and compare the computed result,
- * so a disagreement identifies which backend is wrong.
- *
- * Operands come in as function parameters rather than literals, since constant
- * folding would otherwise compute the answer before codegen ever runs.
- */
-
 import { describe, it, expect, afterAll } from "vitest";
 import { Fn, float, int, For, If, While, Switch, Break, Continue, type Node } from "./rmsl";
 import {

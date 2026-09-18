@@ -1,9 +1,3 @@
-// End-to-end smoke test for the WebGL renderer: bundle the scene library with
-// esbuild, draw a lit mesh in a real Chromium page, and read pixels back.
-//
-// Runs with the other layers that need a graphics device, and is skipped only
-// where RMSL_SKIP_GPU says the machine has none.
-
 import { describe, it, expect, afterAll } from "vitest";
 import { build } from "esbuild";
 import { gpuPage, GPU_ENABLED, releaseGpu } from "../testing/gpu";

@@ -1,21 +1,3 @@
-/**
- * Evaluates the JS (CPU) backend in-process.
- *
- * The compiled function runs in plain Node, needing neither a graphics device
- * nor a browser, so the whole breadth of the DSL is pinned here on every run,
- * including one where `RMSL_SKIP_GPU` has turned the other layers off.
- *
- * These programs are not only checked here. `evalScalar` records each one, and
- * the hook at the foot of this file replays them on both shading languages and
- * requires the answers to match — so a case written here covers all three
- * backends.
- *
- * The JS target computes exact f64, so arithmetic is compared to the JS
- * implementation of the same operation, and a tolerance is only needed for
- * the transcendental builtins where Math's rounding can differ from a shader
- * driver's — but never for plain `a + b`.
- */
-
 import { describe, it, expect, afterAll } from "vitest";
 import {
   evaluateRecording,

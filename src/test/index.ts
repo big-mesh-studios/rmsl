@@ -1,26 +1,3 @@
-/**
- * Testing utilities for shader logic, run on the CPU.
- *
- * A shader's arithmetic is ordinary logic — a colour ramp, a signed distance
- * field, a lighting term — and testing it should not need a browser, a canvas
- * or a graphics device. RMSL already compiles a node graph to a JavaScript
- * callable (see `compileJS`); this module is the part around it that makes the
- * callable pleasant to assert on: inputs given as the nodes themselves rather
- * than generated slot names, a whole grid of fragments evaluated in one call,
- * and comparisons that tolerate the last bit of a float.
- *
- * ```typescript
- * import { evaluate, render, approx } from "@random-mesh/rmsl/test";
- *
- * const colour = evaluate(() => ramp(), { uniforms: [[uTint, [1, 0, 0]]] });
- * expect(colour.value).toSatisfy(approx([1, 0, 0, 1]));
- * ```
- *
- * What runs here is the fragment (or vertex) function itself. There is no
- * rasterizer: no triangles, no interpolation, no depth test. A varying is a
- * value you pass in, which is what makes a single fragment addressable.
- */
-
 import { type Node, type ShaderType, type VariableNode } from "../rmsl";
 import { compileJS, compileJSFn, type CpuShaderContext, type CpuTextureData } from "../js";
 // How a texture asks to be read is the renderers' question too, and they

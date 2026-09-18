@@ -1,10 +1,3 @@
-/**
- * Tests the vite plugins in `./vite` by driving their `transform` hook with the
- * real fixture modules. The fixtures import from `../../rmsl`, so the build-time
- * evaluation path (esbuild bundle + data: URL import) is exercised against real
- * rmsl code, not stubs.
- */
-
 /// <reference types="vite/client" />
 import { describe, it, expect } from "vitest";
 import { precompileShaders, precompileJS, precompileWasm } from "./vite";

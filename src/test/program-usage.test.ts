@@ -1,11 +1,3 @@
-/**
- * Running a built material, and one pass of an effect, on the CPU.
- *
- * This is the layer that makes a lighting model testable: a material compiles
- * to the same node graph a renderer would draw with, and here it is shaded one
- * fragment at a time with the surface handed in by name.
- */
-
 import { describe, it, expect } from "vitest";
 import { uniform, vec2, vec4 } from "../rmsl";
 import { sepia } from "../effects";

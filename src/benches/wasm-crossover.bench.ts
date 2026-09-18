@@ -1,10 +1,3 @@
-/**
- * Sweeps `wasm-loop.bench.ts`'s `sum of sqrt(i)` workload across a range of
- * iteration counts to find where WASM's fixed per-call wrapper cost crosses
- * over into a win against JS. Run with `npx vitest bench src/wasm-crossover.bench.ts`.
- * See ROADMAP.md's "Why" section ("parity testing infrastructure") for the
- * full rationale and why this is a separate file from `wasm-loop.bench.ts`.
- */
 import { bench, describe } from "vitest";
 import { compileWasm } from "../wasm";
 import { compileJS } from "../js";

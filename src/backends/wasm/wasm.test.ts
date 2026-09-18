@@ -1,24 +1,3 @@
-/**
- * Evaluates the WASM (CPU) backend in-process.
- *
- * Unlike the JS backend in js.test.ts, this one is not yet part of the
- * DSL's breadth — it covers the op set ROADMAP.md's Phase 1 and Phase 2
- * describe: scalar float/int/uint/bool arithmetic and casts, function
- * params, float/vec3 uniforms, `If`/`Else`, and vec3 `dot`. Cases here check
- * `compileWasm` against `compileJS` directly rather than through the shared
- * shader-eval recording, since a WASM case using an op this backend doesn't
- * support yet would fail the other backends' replay for the wrong reason.
- *
- * Comparisons involving `uint` are the one place this backend's coverage can
- * diverge from `compileJS` on purpose: the JS backend computes every
- * declared type as a plain JS number, so a uint holding a value above
- * 2^31-1 compares correctly as a large positive number, while a naive WASM
- * int comparison reading the same bit pattern as signed would see a negative
- * one. Phase 2 threads the unsigned opcode variant through for exactly this
- * reason — the tests below with a uint above that boundary are checking that
- * distinction, not just parroting compileJS.
- */
-
 import { describe, it, expect } from "vitest";
 import { compileWasm, compileWasmFn, instantiateWasm } from "../../wasm";
 import { compileJS } from "../../js";

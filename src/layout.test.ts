@@ -1,23 +1,3 @@
-/**
- * Stage 2 of docs/design-shared-layout-ir.md: does the shared allocator
- * (src/layout.ts) actually let a WASM computation place its uniforms
- * at the exact byte offsets a real WGSL uniform buffer would use for the
- * same members, rather than just sharing the placement *algorithm* the way
- * stage 1 already proved?
- *
- * An earlier version of this fix used the caller's raw GPU offset as this
- * backend's *only* address for the uniform, which matched offsets exactly
- * but corrupted adjacent uniforms: this backend's `float` is f64 (8 bytes)
- * while `wgslUniformLayout`'s offsets assume `f32` (4 bytes), so two
- * GPU-adjacent members spaced 4 bytes apart overlapped in this backend's
- * wider writes. The fix (`wasm.ts`'s `GpuUniformLayout` doc comment)
- * gives such a uniform *two* addresses: the caller's raw, narrow one
- * (never touched by this backend's arithmetic directly) and an ordinary
- * packed scratch address like any other uniform gets, with a promotion
- * step bridging them. What's left, and is real rather than a bug: reading
- * a GPU-placed uniform is only as precise as `f32` allows, same as any
- * real GPU uniform buffer sharing those bytes would be.
- */
 import { describe, it, expect } from "vitest";
 import { Fn, uniform, uniformArray, int } from "./rmsl";
 import { wgslUniformLayout } from "./wgsl";

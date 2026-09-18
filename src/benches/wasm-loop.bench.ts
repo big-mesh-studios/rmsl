@@ -1,8 +1,3 @@
-/**
- * WASM vs JS backend perf comparison for a loop-driven workload.
- * Run with `npx vitest bench src/wasm-loop.bench.ts`. See ROADMAP.md's
- * "Why" section for why this is a separate file from `wasm-vs-js.bench.ts`.
- */
 import { bench, describe } from "vitest";
 import { compileWasm } from "../wasm";
 import { compileJS } from "../js";

@@ -1,17 +1,3 @@
-/**
- * RMSL's public entry point. A thin barrel: everything the package exports
- * lives in one of the files below, split by concern (the DSL core, the
- * compiler internals every backend shares, and the four backends
- * themselves). Kept as an explicit named re-export list, not `export *`,
- * so a helper one file needs from another doesn't silently become public
- * API just because it had to be `export`ed to cross a file boundary.
- *
- * Types and values are re-exported separately (`export type { }` vs
- * `export { }`): a bundler doing real cross-module analysis (Rollup, for
- * `pnpm build`) errors on re-exporting a name that has no runtime binding,
- * which every `interface`/`type` here is.
- */
-
 export {
   abs,
   acos,
@@ -201,6 +187,8 @@ export type {
   Vec4Like,
 } from "./core";
 
+// `export type` vs `export`: Rollup (pnpm build) errors re-exporting a name
+// with no runtime binding, which every interface/type here is.
 export type { CompileFnOptions, VertexRoot } from "./backends/shared";
 
 // Each backend's compile()/create() pair lives at its own subpath (see

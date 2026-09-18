@@ -1,11 +1,3 @@
-/**
- * WASM vs JS backend perf comparison for texture sampling, across four
- * scenarios of increasing sampling cost (`textureSize()`, `textureLoad()`,
- * nearest `texture()`, bilinear `texture()`). Run with
- * `npx vitest bench src/wasm-texture.bench.ts`. See ROADMAP.md, "Texture
- * data lives in linear memory, not behind a host call", for the full
- * rationale and scenario design.
- */
 import { bench, describe } from "vitest";
 import { compileWasm } from "../wasm";
 import { compileJS, type CpuTextureData } from "../js";

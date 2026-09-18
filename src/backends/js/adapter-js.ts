@@ -1,12 +1,3 @@
-// === JS adapter ===
-// Wraps compileJS + the shared CPU adapter loop (adapter-cpu.ts) so this
-// takes root graphs and compiles them internally, the same contract
-// createGlsl/createWgsl have — not already-compiled callables, which is
-// what the generic loop underneath actually needs but no other adapter
-// constructor asks a caller for. Options mirror createWgsl's shape for
-// the same reason: `compute` and `draw` are two different root graphs (a
-// storage()/invocationIndex() program vs. a fragCoord() one), so a
-// caller may give either or both.
 import { Node, ShaderType } from "../../core";
 import { CpuAdapter, createCpuAdapter } from "../adapter-cpu";
 import { compileJS, CompileJSOptions } from "./js";
@@ -23,6 +14,7 @@ export interface CreateJsOptions {
   reentrant?: CompileJSOptions["reentrant"];
 }
 
+/** Compiles `compute`/`draw` with {@link compileJS} and wraps them in a {@link createCpuAdapter}. */
 export function createJs(options: CreateJsOptions): CpuAdapter {
   if (!options.compute && !options.draw) {
     throw new Error("[RMSL] createJs needs a `compute` program, a `draw` program, or both");

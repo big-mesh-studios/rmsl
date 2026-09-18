@@ -1,8 +1,3 @@
-/**
- * Type-level tests for `@random-mesh/rmsl/scene`: the material slot shapes,
- * the builder accessor types, and the math class signatures.
- */
-
 import { describe, it, expectTypeOf } from "vitest";
 import {
   Scene,

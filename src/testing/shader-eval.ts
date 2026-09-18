@@ -1,16 +1,3 @@
-/**
- * Runs a compiled expression and reports the number it produces.
- *
- * An expression is compiled to a function, called on both backends, and the
- * result compared against the same arithmetic in JS. Running both also makes
- * the backends checkable against each other: one RMSL program must produce one
- * number, and a divergence is a bug in whichever side disagrees with JS.
- *
- * GLSL renders to an RGBA32F texture and reads the red channel; WGSL dispatches
- * a compute shader and reads a storage buffer. Both return exact f32, so the
- * only tolerance needed is for f32 against JS's f64.
- */
-
 import { expect } from "vitest";
 import { var_, type Node } from "../rmsl";
 import { compileGlslFn } from "../glsl";
@@ -186,7 +173,10 @@ ${rowLines.join("\n")}
   return new Float32Array(out);
 }
 
-/** Compile, run and read back the GLSL backend's result — a scalar, vector or matrix. */
+/**
+ * Compile, run and read back the GLSL backend's result — a scalar, vector
+ * or matrix. Renders to an RGBA32F texture and reads the red channel.
+ */
 export async function evaluateGLSL(build: Build, args: number[] = []): Promise<number | number[]> {
   const fn = compileGlslFn(build, { name: "rmsl_eval", params: params(args.length) });
   const type = rootType(build, args.length);
@@ -216,7 +206,10 @@ ${stores.join("\n")}
   return runWGSLElements(code, n);
 }
 
-/** Compile, run and read back the WGSL backend's result — a scalar, vector or matrix. */
+/**
+ * Compile, run and read back the WGSL backend's result — a scalar, vector
+ * or matrix. Dispatches a compute shader and reads a storage buffer.
+ */
 export async function evaluateWGSL(build: Build, args: number[] = []): Promise<number | number[]> {
   const fn = compileWgslFn(build, { name: "rmsl_eval", params: params(args.length) });
   const type = rootType(build, args.length);
