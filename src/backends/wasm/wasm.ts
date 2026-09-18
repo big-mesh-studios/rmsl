@@ -454,7 +454,7 @@ export function i32ConstBytes(n: number): number[] {
 }
 
 /** Emits f64.const plus the raw 8-byte little-endian operand. */
-function f64ConstBytes(n: number): number[] {
+export function f64ConstBytes(n: number): number[] {
   return [WASM_OP.f64Const, ...wasmF64Bytes(n)];
 }
 

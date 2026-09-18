@@ -1,4 +1,15 @@
-import { i32ConstBytes, WASM_FUNC, WASM_I32, WASM_OP, wasmSection, wasmStrBytes, wasmUleb128, wasmVec } from "./wasm";
+import {
+  f64ConstBytes,
+  i32ConstBytes,
+  WASM_F64,
+  WASM_FUNC,
+  WASM_I32,
+  WASM_OP,
+  wasmSection,
+  wasmStrBytes,
+  wasmUleb128,
+  wasmVec,
+} from "./wasm";
 
 /** Import name the rasterizer module expects for the vertex stage's exported function. */
 export const RASTERIZER_VERTEX_IMPORT = { module: "vertex", name: "main" } as const;
@@ -14,11 +25,53 @@ export const RASTERIZE_PARAMS = [
   "vertexAttrDestAddress",
   "vertexPositionAddress",
   "positionsOutBase",
+  "width",
+  "height",
+  "fragmentValueAddress",
+  "outputBase",
 ] as const;
 
-const POSITION_BYTES = 32; // vec4 of f64
+/** A `vec4` position or fragment color, stored as 4 f64 components. */
+const VEC4_BYTES = 32;
 
 const local = (index: number) => [WASM_OP.localGet, ...wasmUleb128(index)];
+const localSet = (index: number) => [WASM_OP.localSet, ...wasmUleb128(index)];
+const bin = (op: number) => (a: number[], b: number[]) => [...a, ...b, op];
+const un = (op: number) => (a: number[]) => [...a, op];
+
+const fAdd = bin(WASM_OP.f64Add);
+const fSub = bin(WASM_OP.f64Sub);
+const fMul = bin(WASM_OP.f64Mul);
+const fDiv = bin(WASM_OP.f64Div);
+const fMin = bin(WASM_OP.f64Min);
+const fMax = bin(WASM_OP.f64Max);
+const fGe = bin(WASM_OP.f64Ge);
+const fLe = bin(WASM_OP.f64Le);
+const fEq = bin(WASM_OP.f64Eq);
+const fFloor = un(WASM_OP.f64Floor);
+const fCeil = un(WASM_OP.f64Ceil);
+const iAdd = bin(WASM_OP.i32Add);
+const iMul = bin(WASM_OP.i32Mul);
+const iGtS = bin(WASM_OP.i32GtS);
+const iGeS = bin(WASM_OP.i32GeS);
+const iAnd = bin(WASM_OP.i32And);
+const iOr = bin(WASM_OP.i32Or);
+const toF64 = un(WASM_OP.f64ConvertI32S);
+const toI32 = un(WASM_OP.i32TruncF64S);
+const loadF64 = (addr: number[]) => [...addr, WASM_OP.f64Load, 0x00, 0x00];
+
+/** Assigns sequential local indices/types past a function's own params. */
+class LocalAllocator {
+  private types: number[] = [];
+  constructor(private base: number) {}
+  alloc(type: number): number {
+    this.types.push(type);
+    return this.base + this.types.length - 1;
+  }
+  declBytes(): number[] {
+    return wasmVec(this.types.map((t) => [...wasmUleb128(1), t]));
+  }
+}
 
 /**
  * A `block { loop { ... } }` copying `length` bytes one at a time from
@@ -35,8 +88,7 @@ function emitByteCopyLoop(
 ): number[] {
   return [
     ...i32ConstBytes(0),
-    WASM_OP.localSet,
-    ...wasmUleb128(counterLocal),
+    ...localSet(counterLocal),
     WASM_OP.block,
     0x40,
     WASM_OP.loop,
@@ -57,8 +109,7 @@ function emitByteCopyLoop(
     ...local(counterLocal),
     ...i32ConstBytes(1),
     WASM_OP.i32Add,
-    WASM_OP.localSet,
-    ...wasmUleb128(counterLocal),
+    ...localSet(counterLocal),
     WASM_OP.br,
     ...wasmUleb128(0),
     WASM_OP.end,
@@ -68,11 +119,13 @@ function emitByteCopyLoop(
 
 /**
  * Builds the rasterizer module's bytes: a `"rasterize"` export
- * ({@link RASTERIZE_PARAMS}) looping over `vertexCount` vertices — for
- * each one, copying `attrStrideBytes` bytes from the attribute buffer at
- * `attrSrcBase` into {@link RASTERIZER_VERTEX_IMPORT}'s own attribute
- * address, calling it, then copying its `vec4` position out to
- * `positionsOutBase`. No triangle setup or fragment calls yet.
+ * ({@link RASTERIZE_PARAMS}) that loops over `vertexCount` vertices
+ * (attribute byte-copy in, call {@link RASTERIZER_VERTEX_IMPORT}, position
+ * byte-copy out), then loops over the resulting triangles doing a
+ * perspective-divide/screen-space edge-function test per pixel in each
+ * triangle's bounding box, calling {@link RASTERIZER_FRAGMENT_IMPORT} and
+ * byte-copying its `vec4` result into `outputBase` for every covered
+ * pixel. No clipping, depth test, or varying interpolation yet.
  */
 export function buildRasterizerModule(): Uint8Array {
   const voidToVoid = [WASM_FUNC, ...wasmVec([]), ...wasmVec([])];
@@ -108,78 +161,257 @@ export function buildRasterizerModule(): Uint8Array {
     wasmVec([[...wasmStrBytes("rasterize"), 0x00, ...wasmUleb128(rasterizeFuncIndex)]]),
   );
 
-  const [vertexCount, attrSrcBase, attrStrideBytes, vertexAttrDestAddress, vertexPositionAddress, positionsOutBase] =
-    RASTERIZE_PARAMS.map((_, i) => i);
-  const iIdx = RASTERIZE_PARAMS.length; // vertex loop counter
-  const byteCounterIdx = iIdx + 1; // reused by both copy loops
+  const [
+    vertexCount,
+    attrSrcBase,
+    attrStrideBytes,
+    vertexAttrDestAddress,
+    vertexPositionAddress,
+    positionsOutBase,
+    width,
+    height,
+    fragmentValueAddress,
+    outputBase,
+  ] = RASTERIZE_PARAMS.map((_, i) => i);
+
+  const locals = new LocalAllocator(RASTERIZE_PARAMS.length);
+  const iIdx = locals.alloc(WASM_I32); // vertex loop counter
+  const byteCounterIdx = locals.alloc(WASM_I32); // shared by every byte-copy loop
+  const tIdx = locals.alloc(WASM_I32); // triangle loop counter
+  const widthFIdx = locals.alloc(WASM_F64);
+  const heightFIdx = locals.alloc(WASM_F64);
+  const s0xIdx = locals.alloc(WASM_F64);
+  const s0yIdx = locals.alloc(WASM_F64);
+  const s1xIdx = locals.alloc(WASM_F64);
+  const s1yIdx = locals.alloc(WASM_F64);
+  const s2xIdx = locals.alloc(WASM_F64);
+  const s2yIdx = locals.alloc(WASM_F64);
+  const areaIdx = locals.alloc(WASM_F64);
+  const minXIdx = locals.alloc(WASM_I32);
+  const maxXIdx = locals.alloc(WASM_I32);
+  const minYIdx = locals.alloc(WASM_I32);
+  const maxYIdx = locals.alloc(WASM_I32);
+  const xIdx = locals.alloc(WASM_I32);
+  const yIdx = locals.alloc(WASM_I32);
+  const pxIdx = locals.alloc(WASM_F64);
+  const pyIdx = locals.alloc(WASM_F64);
+  const e0Idx = locals.alloc(WASM_F64);
+  const e1Idx = locals.alloc(WASM_F64);
+  const e2Idx = locals.alloc(WASM_F64);
 
   const copyAttributeIn = emitByteCopyLoop(
-    (offset) => [...local(vertexAttrDestAddress), ...offset, WASM_OP.i32Add],
-    (offset) => [
-      ...local(attrSrcBase),
-      ...local(iIdx),
-      ...local(attrStrideBytes),
-      WASM_OP.i32Mul,
-      WASM_OP.i32Add,
-      ...offset,
-      WASM_OP.i32Add,
-    ],
-    [...local(attrStrideBytes)],
+    (offset) => iAdd(local(vertexAttrDestAddress), offset),
+    (offset) => iAdd(iAdd(local(attrSrcBase), iMul(local(iIdx), local(attrStrideBytes))), offset),
+    local(attrStrideBytes),
     byteCounterIdx,
   );
-
   const copyPositionOut = emitByteCopyLoop(
-    (offset) => [
-      ...local(positionsOutBase),
-      ...local(iIdx),
-      ...i32ConstBytes(POSITION_BYTES),
-      WASM_OP.i32Mul,
-      WASM_OP.i32Add,
-      ...offset,
-      WASM_OP.i32Add,
-    ],
-    (offset) => [...local(vertexPositionAddress), ...offset, WASM_OP.i32Add],
-    [...i32ConstBytes(POSITION_BYTES)],
+    (offset) => iAdd(iAdd(local(positionsOutBase), iMul(local(iIdx), i32ConstBytes(VEC4_BYTES))), offset),
+    (offset) => iAdd(local(vertexPositionAddress), offset),
+    i32ConstBytes(VEC4_BYTES),
     byteCounterIdx,
   );
 
-  const vertexLoopBody = [
-    ...local(iIdx),
-    ...local(vertexCount),
-    WASM_OP.i32GeS,
+  const vertexLoop = [
+    ...i32ConstBytes(0),
+    ...localSet(iIdx),
+    WASM_OP.block,
+    0x40,
+    WASM_OP.loop,
+    0x40,
+    ...iGeS(local(iIdx), local(vertexCount)),
     WASM_OP.brIf,
     ...wasmUleb128(1),
     ...copyAttributeIn,
     WASM_OP.call,
     ...wasmUleb128(0), // vertex.main
     ...copyPositionOut,
-    ...local(iIdx),
-    ...i32ConstBytes(1),
-    WASM_OP.i32Add,
-    WASM_OP.localSet,
-    ...wasmUleb128(iIdx),
+    ...iAdd(local(iIdx), i32ConstBytes(1)),
+    ...localSet(iIdx),
     WASM_OP.br,
     ...wasmUleb128(0),
+    WASM_OP.end,
+    WASM_OP.end,
   ];
 
-  const code = [
-    ...i32ConstBytes(0),
-    WASM_OP.localSet,
-    ...wasmUleb128(iIdx),
+  const posComponent = (vertexIndex: number[], comp: number) =>
+    loadF64(iAdd(iAdd(local(positionsOutBase), iMul(vertexIndex, i32ConstBytes(VEC4_BYTES))), i32ConstBytes(comp * 8)));
+  const screenX = (vertexIndex: number[]) =>
+    fMul(
+      fAdd(fMul(fDiv(posComponent(vertexIndex, 0), posComponent(vertexIndex, 3)), f64ConstBytes(0.5)), f64ConstBytes(0.5)),
+      local(widthFIdx),
+    );
+  const screenY = (vertexIndex: number[]) =>
+    fMul(
+      fSub(
+        f64ConstBytes(1),
+        fAdd(fMul(fDiv(posComponent(vertexIndex, 1), posComponent(vertexIndex, 3)), f64ConstBytes(0.5)), f64ConstBytes(0.5)),
+      ),
+      local(heightFIdx),
+    );
+
+  const tExpr = local(tIdx);
+  const t1Expr = iAdd(local(tIdx), i32ConstBytes(1));
+  const t2Expr = iAdd(local(tIdx), i32ConstBytes(2));
+
+  const computeScreenSpace = [
+    ...screenX(tExpr),
+    ...localSet(s0xIdx),
+    ...screenY(tExpr),
+    ...localSet(s0yIdx),
+    ...screenX(t1Expr),
+    ...localSet(s1xIdx),
+    ...screenY(t1Expr),
+    ...localSet(s1yIdx),
+    ...screenX(t2Expr),
+    ...localSet(s2xIdx),
+    ...screenY(t2Expr),
+    ...localSet(s2yIdx),
+    ...fSub(
+      fMul(fSub(local(s1xIdx), local(s0xIdx)), fSub(local(s2yIdx), local(s0yIdx))),
+      fMul(fSub(local(s1yIdx), local(s0yIdx)), fSub(local(s2xIdx), local(s0xIdx))),
+    ),
+    ...localSet(areaIdx),
+  ];
+
+  const min3 = (a: number[], b: number[], c: number[]) => fMin(fMin(a, b), c);
+  const max3 = (a: number[], b: number[], c: number[]) => fMax(fMax(a, b), c);
+  const computeBBox = [
+    ...toI32(fMax(fFloor(min3(local(s0xIdx), local(s1xIdx), local(s2xIdx))), f64ConstBytes(0))),
+    ...localSet(minXIdx),
+    ...toI32(fMin(fCeil(max3(local(s0xIdx), local(s1xIdx), local(s2xIdx))), fSub(local(widthFIdx), f64ConstBytes(1)))),
+    ...localSet(maxXIdx),
+    ...toI32(fMax(fFloor(min3(local(s0yIdx), local(s1yIdx), local(s2yIdx))), f64ConstBytes(0))),
+    ...localSet(minYIdx),
+    ...toI32(fMin(fCeil(max3(local(s0yIdx), local(s1yIdx), local(s2yIdx))), fSub(local(heightFIdx), f64ConstBytes(1)))),
+    ...localSet(maxYIdx),
+  ];
+
+  const copyFragmentOut = emitByteCopyLoop(
+    (offset) =>
+      iAdd(
+        iAdd(local(outputBase), iMul(iAdd(iMul(local(yIdx), local(width)), local(xIdx)), i32ConstBytes(VEC4_BYTES))),
+        offset,
+      ),
+    (offset) => iAdd(local(fragmentValueAddress), offset),
+    i32ConstBytes(VEC4_BYTES),
+    byteCounterIdx,
+  );
+
+  const edgeFn = (ax: number, ay: number, bx: number, by: number) =>
+    fSub(
+      fMul(fSub(local(ax), local(pxIdx)), fSub(local(by), local(pyIdx))),
+      fMul(fSub(local(ay), local(pyIdx)), fSub(local(bx), local(pxIdx))),
+    );
+
+  const pixelBody = [
+    ...fAdd(toF64(local(xIdx)), f64ConstBytes(0.5)),
+    ...localSet(pxIdx),
+    ...fAdd(toF64(local(yIdx)), f64ConstBytes(0.5)),
+    ...localSet(pyIdx),
+    ...edgeFn(s1xIdx, s1yIdx, s2xIdx, s2yIdx),
+    ...localSet(e0Idx),
+    ...edgeFn(s2xIdx, s2yIdx, s0xIdx, s0yIdx),
+    ...localSet(e1Idx),
+    ...edgeFn(s0xIdx, s0yIdx, s1xIdx, s1yIdx),
+    ...localSet(e2Idx),
+    ...iOr(
+      iAnd(
+        iAnd(fGe(local(e0Idx), f64ConstBytes(0)), fGe(local(e1Idx), f64ConstBytes(0))),
+        fGe(local(e2Idx), f64ConstBytes(0)),
+      ),
+      iAnd(
+        iAnd(fLe(local(e0Idx), f64ConstBytes(0)), fLe(local(e1Idx), f64ConstBytes(0))),
+        fLe(local(e2Idx), f64ConstBytes(0)),
+      ),
+    ),
+    WASM_OP.if_,
+    0x40,
+    WASM_OP.call,
+    ...wasmUleb128(1), // fragment.main
+    ...copyFragmentOut,
+    WASM_OP.end,
+  ];
+
+  const xLoop = [
+    ...local(minXIdx),
+    ...localSet(xIdx),
     WASM_OP.block,
     0x40,
     WASM_OP.loop,
     0x40,
-    ...vertexLoopBody,
+    ...iGtS(local(xIdx), local(maxXIdx)),
+    WASM_OP.brIf,
+    ...wasmUleb128(1),
+    ...pixelBody,
+    ...iAdd(local(xIdx), i32ConstBytes(1)),
+    ...localSet(xIdx),
+    WASM_OP.br,
+    ...wasmUleb128(0),
     WASM_OP.end,
     WASM_OP.end,
   ];
 
-  const localsDecl = wasmVec([
-    [...wasmUleb128(1), WASM_I32],
-    [...wasmUleb128(1), WASM_I32],
-  ]);
-  const funcBody = [...localsDecl, ...code, WASM_OP.end];
+  const yLoop = [
+    ...local(minYIdx),
+    ...localSet(yIdx),
+    WASM_OP.block,
+    0x40,
+    WASM_OP.loop,
+    0x40,
+    ...iGtS(local(yIdx), local(maxYIdx)),
+    WASM_OP.brIf,
+    ...wasmUleb128(1),
+    ...xLoop,
+    ...iAdd(local(yIdx), i32ConstBytes(1)),
+    ...localSet(yIdx),
+    WASM_OP.br,
+    ...wasmUleb128(0),
+    WASM_OP.end,
+    WASM_OP.end,
+  ];
+
+  const triangleBody = [
+    WASM_OP.block,
+    0x40,
+    ...computeScreenSpace,
+    ...fEq(local(areaIdx), f64ConstBytes(0)),
+    WASM_OP.brIf,
+    ...wasmUleb128(0),
+    ...computeBBox,
+    ...yLoop,
+    WASM_OP.end,
+  ];
+
+  const triangleLoop = [
+    ...i32ConstBytes(0),
+    ...localSet(tIdx),
+    WASM_OP.block,
+    0x40,
+    WASM_OP.loop,
+    0x40,
+    ...iGeS(t2Expr, local(vertexCount)),
+    WASM_OP.brIf,
+    ...wasmUleb128(1),
+    ...triangleBody,
+    ...iAdd(local(tIdx), i32ConstBytes(3)),
+    ...localSet(tIdx),
+    WASM_OP.br,
+    ...wasmUleb128(0),
+    WASM_OP.end,
+    WASM_OP.end,
+  ];
+
+  const code = [
+    ...toF64(local(width)),
+    ...localSet(widthFIdx),
+    ...toF64(local(height)),
+    ...localSet(heightFIdx),
+    ...vertexLoop,
+    ...triangleLoop,
+  ];
+
+  const funcBody = [...locals.declBytes(), ...code, WASM_OP.end];
   const codeSection = wasmSection(10, wasmVec([[...wasmUleb128(funcBody.length), ...funcBody]]));
 
   return new Uint8Array([
