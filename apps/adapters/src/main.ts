@@ -1,6 +1,6 @@
 import { attribute, cos, Fn, fragCoord, sin, uniform, varying, vec3, vec4 } from "@random-mesh/rmsl";
 import { createGlsl } from "@random-mesh/rmsl/glsl";
-import { compileJSRoutine, createJsRoutine, rasterizeTriangles } from "@random-mesh/rmsl/js";
+import { createJs, createJsRoutine } from "@random-mesh/rmsl/js";
 import { createWasm, createWasmRoutine } from "@random-mesh/rmsl/wasm";
 import { createWgsl } from "@random-mesh/rmsl/wgsl";
 
@@ -58,42 +58,26 @@ wgpuAdapter
 
 // === CPU/WASM rasterizer demo — the same vertex/fragment pair GLSL/WGSL
 // draw above, but run through a real vertex+triangle loop instead of a
-// GPU. js-vtx goes through rasterizeTriangles (src/backends/
-// cpu-rasterizer.ts), a host-side loop calling compileJSRoutine's compiled
-// vertex/fragment once per vertex/pixel. wasm-vtx goes through
-// createWasm, which links a compiled vertex/fragment pair against the
-// generic WASM rasterizer module (src/backends/wasm/rasterizer.ts) —
-// the vertex loop, clipping, and triangle rasterization all run inside
-// WASM, not host-mediated per vertex/pixel. ===
-const vertexFnJs = compileJSRoutine(() => vertexRoot, { name: "vtx", params: [], stage: "vertex" });
-const fragmentFnJs = compileJSRoutine(() => fragmentRoot, { name: "frag", params: [] });
+// GPU. js-vtx goes through createJs, wasm-vtx through createWasm — both
+// link a compiled vertex/fragment pair against a generic rasterizer
+// (src/backends/js/rasterizer.ts's plain-JS port of
+// src/backends/wasm/rasterizer.ts's WASM module): the vertex loop,
+// near-plane clipping, and triangle rasterization all run inside that
+// rasterizer, not host-mediated per vertex/pixel the way
+// rasterizeTriangles (the older, simpler utility) is. ===
+const TRIANGLE_STRIP_QUAD_VERTEX_COUNT = TRIANGLE_STRIP_QUAD.length / 2;
 
-const cpuVtxCtx = cpuVtxCanvas.getContext("2d")!;
-
-function clamp255(v: number): number {
-  return Math.max(0, Math.min(255, Math.round(v * 255)));
-}
+const jsVtxAdapter = createJs(
+  () => vertexRoot,
+  () => fragmentRoot,
+  { attributeTypes: { [pos.name]: "vec2" } },
+);
+jsVtxAdapter.attach(cpuVtxCanvas);
+jsVtxAdapter.setAttribute(pos.name, TRIANGLE_STRIP_QUAD);
 
 function drawRasterizedJs(t: number) {
-  const width = cpuVtxCanvas.width;
-  const height = cpuVtxCanvas.height;
-  const buffer = rasterizeTriangles(vertexFnJs, fragmentFnJs, {
-    attributes: { [pos.name]: TRIANGLE_STRIP_QUAD },
-    attributeTypes: { [pos.name]: "vec2" },
-    uniforms: { [time.name]: t },
-    width,
-    height,
-    componentCount: 4,
-  });
-  const imageData = new ImageData(width, height);
-  const rgba = imageData.data;
-  for (let i = 0; i < width * height; i++) {
-    rgba[i * 4] = clamp255(buffer[i * 4] as number);
-    rgba[i * 4 + 1] = clamp255(buffer[i * 4 + 1] as number);
-    rgba[i * 4 + 2] = clamp255(buffer[i * 4 + 2] as number);
-    rgba[i * 4 + 3] = clamp255(buffer[i * 4 + 3] as number);
-  }
-  cpuVtxCtx.putImageData(imageData, 0, 0);
+  jsVtxAdapter.setUniform(time, t);
+  jsVtxAdapter.draw({ vertexCount: TRIANGLE_STRIP_QUAD_VERTEX_COUNT });
 }
 
 const wasmAdapter = createWasm(
@@ -102,7 +86,6 @@ const wasmAdapter = createWasm(
 );
 wasmAdapter.attach(cpuVtxCanvas);
 wasmAdapter.setAttribute(pos.name, TRIANGLE_STRIP_QUAD);
-const TRIANGLE_STRIP_QUAD_VERTEX_COUNT = TRIANGLE_STRIP_QUAD.length / 2;
 
 function drawRasterizedWasm(t: number) {
   wasmAdapter.setUniform(time, t);
@@ -168,7 +151,7 @@ function frame(now: number) {
       : backend === "wgsl"
         ? "drawing via createWgsl"
         : backend === "js-vtx"
-          ? "drawing via rasterizeTriangles (compileJSRoutine)"
+          ? "drawing via createJs"
           : backend === "wasm-vtx"
             ? "drawing via createWasm"
             : `drawing via create${backend === "js" ? "Js" : "WasmRoutine"}`;
