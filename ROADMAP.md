@@ -660,10 +660,11 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
   driven output, an independent JS clip+raster reference for the clipping
   case, or (for the depth test) drawing two overlapping triangles in both
   orders and checking the closer one wins either way. Still open: an
-  index buffer, far-plane or screen-bounds frustum clipping, and
-  `createJs`/`createWasm` adapter integration.
+  index buffer and far-plane or screen-bounds frustum clipping.
 
-  **`compileWasm(vertexFn, fragmentFn)` landed**, linking a compiled
+  **`compileWasm(vertexFn, fragmentFn)` and `createWasm` landed**,
+  finishing the `createJs`/`createWasm` adapter integration bullet this
+  paragraph used to list as open. `compileWasm` links a compiled
   vertex/fragment pair against this module into one `WasmRasterRoutine`
   (`draw()`/`clearDepth()`) — see `src/backends/wasm/rasterizer.ts`. Both
   stages compile with `scalarsInMemory: true` over one shared memory (the
@@ -672,10 +673,17 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
   descriptor-driven copy region per `draw()` call, uniforms/textures
   marshal once per call via a `WasmParam` marshaller factored out of
   `instantiateWasm`, and the depth buffer gets a stable address so it
-  persists across `draw()` calls until `clearDepth()`. `createWasm` (the
-  `Adapter`-wrapping layer over this, alongside `createWasmRoutine`'s
-  existing `compute`/`batch` path) is the remaining piece of the
-  `createJs`/`createWasm` adapter integration bullet above.
+  persists across `draw()` calls until `clearDepth()`. `createWasm`
+  (`src/backends/wasm/adapter-wasm.ts`) wraps that routine in the uniform
+  `Adapter` interface — `setAttribute`/`setUniform` collect draw state,
+  `attach()` opens a 2D canvas, and `draw({ vertexCount })` auto-clears
+  depth (one call, one frame) before rendering into it — the real
+  vertex+attribute+triangle counterpart to `createWasmRoutine`'s existing
+  per-pixel `compute`/`batch` path. Not yet covered by an automated test:
+  `createWasm`'s own `draw()`, since it needs a real `CanvasRenderingContext2D`
+  (`ImageData` isn't available in this repo's plain-Node vitest
+  environment) — `compileWasm`'s `WasmRasterRoutine` underneath it is
+  fully tested in `compile-wasm.test.ts` instead.
 
   **Authored as `.wat`, not TS codegen.** Because this module's structure
   never varies per shader (unlike `compileWasmFn`/`compileWasmRoutine`,
