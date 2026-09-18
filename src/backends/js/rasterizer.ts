@@ -31,23 +31,32 @@ export interface JsRasterContext {
 }
 
 /**
+ * Same as `WasmRasterDrawOptions`: `clear`/`clearDepth` default to
+ * `false`, so several `draw()` calls in a row compose onto both buffers
+ * by default — mirroring how a WebGPU render pass declares
+ * `loadOp`/`depthLoadOp` together, per pass, rather than clearing as a
+ * separate operation.
+ */
+export interface JsRasterDrawOptions {
+  /** Non-indexed triangle list, so a multiple of 3. */
+  vertexCount: number;
+  width: number;
+  height: number;
+  out?: CpuDrawBuffer;
+  clear?: boolean;
+  clearDepth?: boolean;
+}
+
+/**
  * The JS-side counterpart to `WasmRasterRoutine` — same shape, same
- * semantics (near-plane clipping, a persistent LEQUAL depth buffer, an
- * opt-in `clear` for the output buffer), a plain-JS implementation of the
- * same algorithm `rasterizer.wat` compiles to WASM bytecode. Always
- * produces `vec4` output, matching `compileWasm`'s own fragment-result
- * requirement.
+ * semantics (near-plane clipping, a persistent LEQUAL depth buffer, both
+ * clears declared per `draw()` call via {@link JsRasterDrawOptions}), a
+ * plain-JS implementation of the same algorithm `rasterizer.wat` compiles
+ * to WASM bytecode. Always produces `vec4` output, matching
+ * `compileWasm`'s own fragment-result requirement.
  */
 export interface JsRasterRoutine {
-  draw(
-    ctx: JsRasterContext,
-    vertexCount: number,
-    width: number,
-    height: number,
-    out?: CpuDrawBuffer,
-    clear?: boolean,
-  ): CpuDrawBuffer;
-  clearDepth(): void;
+  draw(ctx: JsRasterContext, options: JsRasterDrawOptions): CpuDrawBuffer;
 }
 
 /** Homogeneous-clip-space near-plane epsilon — see rasterizer.md's clip-pass design (`rasterizer.wat`'s `W_CLIP_EPS`). */
@@ -134,18 +143,8 @@ export function compileJS(
   // compose onto it unless `out` (caller-owned) or `clear` says otherwise.
   let colorBuffer: Float64Array | null = null;
 
-  function clearDepth(): void {
-    depthBuffer?.fill(Infinity);
-  }
-
-  function draw(
-    ctx: JsRasterContext,
-    vertexCount: number,
-    width: number,
-    height: number,
-    out?: CpuDrawBuffer,
-    clear = false,
-  ): CpuDrawBuffer {
+  function draw(ctx: JsRasterContext, options: JsRasterDrawOptions): CpuDrawBuffer {
+    const { vertexCount, width, height, out } = options;
     const { attributes, uniforms, textures } = ctx;
 
     // vertex pass
@@ -175,13 +174,15 @@ export function compileJS(
     const pixelCount = width * height;
     if (!depthBuffer || depthBuffer.length < pixelCount) {
       depthBuffer = new Float64Array(pixelCount).fill(Infinity);
+    } else if (options.clearDepth) {
+      depthBuffer.fill(Infinity);
     }
 
     if (!out && (!colorBuffer || colorBuffer.length < pixelCount * 4)) {
       colorBuffer = new Float64Array(pixelCount * 4);
     }
     const result = out ?? colorBuffer!;
-    if (clear) result.fill(0, 0, pixelCount * 4);
+    if (options.clear) result.fill(0, 0, pixelCount * 4);
 
     for (const [v0, v1, v2] of clippedTriangles) {
       const w0 = v0!.position[3]!,
@@ -259,5 +260,5 @@ export function compileJS(
     return result;
   }
 
-  return { draw, clearDepth };
+  return { draw };
 }

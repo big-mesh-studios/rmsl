@@ -44,25 +44,31 @@ export function createJsRoutine(options: CreateJsRoutineOptions): CpuAdapter {
   return createCpuAdapter({ compute, batch });
 }
 
-/** `draw()`'s vertex count — a real rasterizer draw call, unlike `CreateJsRoutineOptions`'s
- * per-pixel `batch` program, actually runs over geometry, so it needs one. */
+/**
+ * `draw()`'s own options — a real rasterizer draw call, unlike
+ * `CreateJsRoutineOptions`'s per-pixel `batch` program, actually runs
+ * over geometry, so it needs a vertex count. `clear`/`clearDepth` default
+ * to `true`: the common case for a single-material adapter is one
+ * `draw()` call, one whole frame — mirroring how a WebGPU render pass
+ * declares `loadOp`/`depthLoadOp` together, per pass, rather than
+ * clearing as a separate operation. Pass `false` to composite several
+ * `draw()` calls into one frame instead (several materials sharing a
+ * framebuffer/depth buffer); `compileJS`'s own `JsRasterRoutine` is the
+ * lower-level primitive that composability is built on.
+ */
 export interface JsDrawOptions {
   /** Vertex count for this draw — a non-indexed triangle list, so a multiple of 3. */
   vertexCount: number;
+  clear?: boolean;
+  clearDepth?: boolean;
 }
 
 /**
  * Compiles a vertex/fragment `Fn` pair with {@link compileJS} and wraps
  * the resulting `JsRasterRoutine` in the uniform `Adapter` interface — the
  * JS-side counterpart to `createWasm`. `setAttribute`/`setUniform` collect
- * draw state, `attach` opens a 2D canvas context, and
- * `draw({ vertexCount })` auto-clears both depth and the output buffer
- * (one call, one frame) before rendering into it.
- *
- * A caller composing several materials into one shared framebuffer/depth
- * buffer needs `compileJS`'s own `JsRasterRoutine` directly, where both
- * clears are explicit instead (`clearDepth()`, and `draw()`'s own `clear`
- * argument).
+ * draw state, `attach` opens a 2D canvas context, and `draw({ vertexCount })`
+ * runs one frame into it. See {@link JsDrawOptions} for `clear`/`clearDepth`.
  */
 export function createJs(
   vertexFn: (...args: any[]) => any,
@@ -103,9 +109,14 @@ export function createJs(
     draw(drawOptions) {
       if (!canvas || !ctx2d) throw new Error("[RMSL] createJs: attach() was never called");
       if (!drawOptions) throw new Error("[RMSL] createJs: draw() needs a { vertexCount }");
-      routine.clearDepth();
       const ctx: JsRasterContext = { attributes, uniforms };
-      const buffer = routine.draw(ctx, drawOptions.vertexCount, canvas.width, canvas.height, undefined, true);
+      const buffer = routine.draw(ctx, {
+        vertexCount: drawOptions.vertexCount,
+        width: canvas.width,
+        height: canvas.height,
+        clear: drawOptions.clear ?? true,
+        clearDepth: drawOptions.clearDepth ?? true,
+      });
       ctx2d.putImageData(bufferToImageData(buffer, canvas.width, canvas.height), 0, 0);
     },
 

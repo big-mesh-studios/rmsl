@@ -163,41 +163,36 @@ export interface WasmRasterContext {
 }
 
 /**
+ * Both the output buffer's and the depth buffer's own addresses are
+ * reused deterministically call to call, so by default several `draw()`
+ * calls in a row compose onto both exactly like several draws into one
+ * real framebuffer would (occlusion included) — matching how a WebGPU
+ * render pass declares `loadOp`/`depthLoadOp` together, per pass, rather
+ * than clearing as some separate operation. Pass `clear`/`clearDepth` to
+ * zero either one first instead.
+ */
+export interface WasmRasterDrawOptions {
+  /** Non-indexed triangle list, so a multiple of 3. */
+  vertexCount: number;
+  width: number;
+  height: number;
+  out?: CpuDrawBuffer;
+  clear?: boolean;
+  clearDepth?: boolean;
+}
+
+/**
  * The callable a {@link compileWasm} pair produces — closes over the
  * vertex/fragment/rasterizer instances entirely; a caller never sees them.
  */
 export interface WasmRasterRoutine {
   /**
-   * Runs the vertex pass over `vertexCount` vertices (a non-indexed
-   * triangle list — `vertexCount / 3` triangles), then the clip and
-   * triangle passes into a `width` x `height`, 4-components-per-pixel
-   * buffer, the same flat row-major convention `CpuRoutine.batch()` uses.
-   *
-   * The output buffer's own address is reused deterministically call to
-   * call (same as the depth buffer's, just not held stable the way
-   * `clearDepth()` holds depth's), so several `draw()` calls in a row
-   * compose onto it exactly like several draws into one real framebuffer
-   * would — an uncovered-or-depth-failing pixel keeps whatever an earlier
-   * `draw()` left there. Pass `clear: true` to zero it first instead,
-   * the same "one call, one frame" choice `clearDepth()` leaves explicit.
+   * Runs the vertex pass over `options.vertexCount` vertices, then the
+   * clip and triangle passes into a `width` x `height`, 4-components-per-
+   * pixel buffer, the same flat row-major convention `CpuRoutine.batch()`
+   * uses. See {@link WasmRasterDrawOptions} for `clear`/`clearDepth`.
    */
-  draw(
-    ctx: WasmRasterContext,
-    vertexCount: number,
-    width: number,
-    height: number,
-    out?: CpuDrawBuffer,
-    clear?: boolean,
-  ): CpuDrawBuffer;
-  /**
-   * The depth buffer persists across `draw()` calls (the LEQUAL test needs
-   * a stable buffer to compare against, so several draws in one frame can
-   * occlude each other) — call this once per frame before the first draw
-   * that should start fresh, not before every draw. The very first draw()
-   * ever made clears it automatically, since freshly grown WASM memory is
-   * zero-filled, not `+Infinity`.
-   */
-  clearDepth(): void;
+  draw(ctx: WasmRasterContext, options: WasmRasterDrawOptions): CpuDrawBuffer;
 }
 
 function align8(n: number): number {
@@ -329,20 +324,14 @@ export function compileWasm(
   let depthBufferBase: number | undefined;
   let depthCapacityPixels = 0;
 
-  function clearDepth(): void {
+  function clearDepthBuffer(): void {
     if (depthBufferBase === undefined) return;
     const view = new DataView(memory.buffer);
     for (let i = 0; i < depthCapacityPixels; i++) view.setFloat64(depthBufferBase + i * 8, Infinity, true);
   }
 
-  function draw(
-    ctx: WasmRasterContext,
-    vertexCount: number,
-    width: number,
-    height: number,
-    out?: CpuDrawBuffer,
-    clear = false,
-  ): CpuDrawBuffer {
+  function draw(ctx: WasmRasterContext, options: WasmRasterDrawOptions): CpuDrawBuffer {
+    const { vertexCount, width, height, out } = options;
     const sharedCtx = { uniforms: ctx.uniforms, textures: ctx.textures } as CpuShaderContext;
     const { textureHeapEnd: vertexHeapEnd } = vertexMarshaller.marshal(sharedCtx);
     const { textureHeapEnd: fragmentHeapEnd } = fragmentMarshaller.marshal(sharedCtx);
@@ -382,12 +371,13 @@ export function compileWasm(
       depthCapacityPixels = neededDepthPixels;
       needsClear = true;
     }
+    if (options.clearDepth) needsClear = true;
     cursor = depthBufferBase + depthCapacityPixels * 8;
 
     if (cursor > memory.buffer.byteLength) {
       memory.grow(Math.ceil((cursor - memory.buffer.byteLength) / 65536));
     }
-    if (needsClear) clearDepth();
+    if (needsClear) clearDepthBuffer();
 
     const view = new DataView(memory.buffer);
     for (const a of attrLayout) {
@@ -417,7 +407,7 @@ export function compileWasm(
       })),
     );
 
-    if (clear) new Float64Array(memory.buffer, outputBase, width * height * 4).fill(0);
+    if (options.clear) new Float64Array(memory.buffer, outputBase, width * height * 4).fill(0);
 
     rasterize(
       vertexCount,
@@ -449,5 +439,5 @@ export function compileWasm(
     return new Float64Array(result); // copy out — memory can grow (and detach `result`'s buffer) on a later draw()
   }
 
-  return { draw, clearDepth };
+  return { draw };
 }

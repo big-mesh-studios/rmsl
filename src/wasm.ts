@@ -20,4 +20,9 @@ export { rasterizeTriangles } from "./backends/cpu-rasterizer";
 export type { RasterizeTrianglesOptions } from "./backends/cpu-rasterizer";
 
 export { compileWasm } from "./backends/wasm/rasterizer";
-export type { CompileWasmOptions, WasmRasterContext, WasmRasterRoutine } from "./backends/wasm/rasterizer";
+export type {
+  CompileWasmOptions,
+  WasmRasterContext,
+  WasmRasterDrawOptions,
+  WasmRasterRoutine,
+} from "./backends/wasm/rasterizer";
