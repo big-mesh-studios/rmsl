@@ -36,8 +36,10 @@ function clamp255(v: number): number {
 /** `draw()`'s flat row-major buffer, one program-defined channel count per
  * pixel, read back as 0..1 float color the same convention GLSL/WGSL
  * fragment output uses — into a `CanvasRenderingContext2D`'s ImageData,
- * the closest a CPU target has to a GPU canvas surface. */
-function bufferToImageData(buffer: CpuDrawBuffer, width: number, height: number): ImageData {
+ * the closest a CPU target has to a GPU canvas surface. Exported for
+ * `createWasm`'s own rasterizer-backed adapter (`adapter-wasm.ts`), which
+ * needs the same conversion for `WasmRasterRoutine.draw()`'s output. */
+export function bufferToImageData(buffer: CpuDrawBuffer, width: number, height: number): ImageData {
   const componentCount = buffer.length / (width * height);
   const imageData = new ImageData(width, height);
   const rgba = imageData.data;
