@@ -18,6 +18,7 @@ file stays a scannable status/plan document rather than a chronological log.
 - [Software rasterizer(s): feature-complete checklist](#software-rasterizers-feature-complete-checklist)
 - [Open questions](#open-questions)
 - [Design decisions already made](#design-decisions-already-made)
+- [SIMD opportunities in `compileWasmFn` itself](#simd-opportunities-in-compilewasmfn-itself)
 - [Known issues found along the way](#known-issues-found-along-the-way-not-wasm-specific)
 - [Non-goals](#non-goals)
 
@@ -875,6 +876,63 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
 
   None of this is scoped, designed, or planned — recorded so the
   exploration isn't lost, not as a commitment to build any of it.
+
+## SIMD opportunities in `compileWasmFn` itself
+
+Everything the "Performance headroom" note above covers is specific to
+the fixed rasterizer module. `compileWasmFn` — the general compiler, used
+for every shader it targets, not just the rasterizer — has its own,
+separate SIMD opportunity: vector/matrix arithmetic is currently pure
+scalar-per-component, one `f64` load/op/store per component, even though
+WASM's `v128` SIMD proposal maps onto it almost directly. None of this is
+scoped or planned; recorded because it applies far more broadly than the
+rasterizer's own note above, not because it's a measured bottleneck
+anywhere yet.
+
+#### Componentwise vector ops
+
+`add`/`sub`/`mul`/`div` on a `vec2` is exactly one `f64x2` operation
+today expressed as two scalar ones. A `vec3` splits into one `f64x2`
+pair plus one scalar leftover; a `vec4` splits into two `f64x2` pairs.
+This is the most mechanical win available anywhere in the compiler — no
+algorithmic change, just wider loads/stores and wider arithmetic
+instructions over values that already sit contiguously in linear
+memory.
+
+#### `dot` via multiply + horizontal reduce
+
+WASM's baseline SIMD has no horizontal-add instruction for `f64x2`, so
+`dot` would become an `f64x2.mul` followed by two `extract_lane` calls
+and an `f64.add` — two or three instructions instead of `vec3`/`vec4`'s
+current three or four scalar `mul`+`add` pairs. This composes with the
+componentwise win above, since `dot` is also what `normalize`, `length`,
+and `distance` are built from.
+
+#### Matrix multiply via column accumulation
+
+A matrix's columns are stored contiguously, so `mat4 * vec4` is
+naturally "sum of scaled columns" —
+`result = v.x*col0 + v.y*col1 + v.z*col2 + v.w*col3` — each
+column-scale-and-accumulate step a single `f64x2` pair operation instead
+of a scalar dot product per output component. `mat.mul(mat)` is the same
+trick applied once per output column, and is the biggest instruction-
+count win of the three noted here: up to 16 scalar dot products today
+for a 4x4 product, collapsing to far fewer wide operations.
+
+#### SPMD across `.batch()`'s pixel loop — the ceiling, not a near-term step
+
+A much larger idea than the three above: instead of vectorizing
+individual vector operations, vectorize *across invocations* — run 2 or
+4 pixels' worth of the compiled function in lockstep, with every scalar
+local (not just `vec`-typed values) living in a `v128` lane group. This
+is the GPU-native way of doing it, and would apply uniformly to every
+scalar operation the compiler emits, not just vector-typed nodes. It
+needs real branch-divergence handling — an `If`/`Else` where lanes
+disagree on the condition needs predication/masked selects, not actual
+control-flow branching — which is a genuine compiler redesign, not an
+incremental change on top of the three ideas above. Worth naming as the
+ceiling this whole direction could reach, not something to reach for
+first.
 
 ## Known issues found along the way (not WASM-specific)
 
