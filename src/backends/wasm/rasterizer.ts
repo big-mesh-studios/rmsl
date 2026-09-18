@@ -146,6 +146,11 @@ function emitByteCopyLoop(
 /**
  * Builds the rasterizer module's bytes — see rasterizer.md for the full
  * vertex-pass/clip-pass/triangle-pass design and its v1 scope.
+ *
+ * Laid out top to bottom as the pipeline itself runs (module header, then
+ * the vertex/clip/triangle passes in order, ending in the returned
+ * bytes); every small addressing/formula helper the pipeline calls lives
+ * below the `return`, hoisted, for whoever wants to go a level deeper.
  */
 export function buildRasterizerModule(): Uint8Array {
   const voidToVoid = [WASM_FUNC, ...wasmVec([]), ...wasmVec([])];
@@ -260,17 +265,10 @@ export function buildRasterizerModule(): Uint8Array {
   const pixelDepthIdx = locals.alloc(WASM_F64);
   const pixelIndexIdx = locals.alloc(WASM_I32);
 
-  /**
-   * Byte address of the `index`-th descriptor entry in the table at `descBase`.
-   */
-  const descAddr = (descBase: number, index: number, descBytes: number) =>
-    iAdd(local(descBase), iMul(local(index), i32ConstBytes(descBytes)));
+  const tExpr = local(tIdx);
+  const t1Expr = iAdd(local(tIdx), i32ConstBytes(1));
+  const t2Expr = iAdd(local(tIdx), i32ConstBytes(2));
 
-  /**
-   * For each attribute descriptor, copies that slot's bytes from this
-   * vertex's row in `attrSrcBase` into the vertex module's own address
-   * for it.
-   */
   const copyAttributeIn = forLoop(
     dIdx,
     i32ConstBytes(0),
@@ -292,21 +290,12 @@ export function buildRasterizerModule(): Uint8Array {
     ],
     i32ConstBytes(1),
   );
-  /**
-   * Copies this vertex's written `vec4` position out to its slot in
-   * `positionsOutBase`.
-   */
   const copyPositionOut = emitByteCopyLoop(
     (offset) => iAdd(iAdd(local(positionsOutBase), iMul(local(iIdx), i32ConstBytes(VEC4_BYTES))), offset),
     (offset) => iAdd(local(vertexPositionAddress), offset),
     i32ConstBytes(VEC4_BYTES),
     byteCounterIdx,
   );
-  /**
-   * For each varying descriptor, copies that slot's bytes from the vertex
-   * module's own address for it into its `recordOffset` within this
-   * vertex's varying record in `varyingsOutBase`.
-   */
   const copyVaryingOut = forLoop(
     dIdx,
     i32ConstBytes(0),
@@ -350,167 +339,8 @@ export function buildRasterizerModule(): Uint8Array {
     i32ConstBytes(1),
   );
 
-  const tExpr = local(tIdx);
-  const t1Expr = iAdd(local(tIdx), i32ConstBytes(1));
-  const t2Expr = iAdd(local(tIdx), i32ConstBytes(2));
-
-  /**
-   * Reads one f64 component of the `vertexIndex`-th `vec4` in the array at `base`.
-   */
-  const posComponentAt = (base: number, vertexIndex: number[], comp: number) =>
-    loadF64(iAdd(iAdd(local(base), iMul(vertexIndex, i32ConstBytes(VEC4_BYTES))), i32ConstBytes(comp * 8)));
-  /**
-   * Reads one f64 component of the `vertexIndex`-th varying record in the array at `base`.
-   */
-  const varyingComponentAt = (base: number, vertexIndex: number[], recordOffset: number[], comp: number[]) =>
-    loadF64(
-      iAdd(iAdd(iAdd(local(base), iMul(vertexIndex, local(varyingBytes))), recordOffset), iMul(comp, i32ConstBytes(8))),
-    );
-  /**
-   * Reads a position component from the vertex pass's raw, pre-clip output.
-   */
-  const rawPos = (vertexIndex: number[], comp: number) => posComponentAt(positionsOutBase, vertexIndex, comp);
-  /**
-   * Reads a varying component from the vertex pass's raw, pre-clip output.
-   */
-  const rawVarying = (vertexIndex: number[], comp: number[]) =>
-    varyingComponentAt(varyingsOutBase, vertexIndex, i32ConstBytes(0), comp);
-  /**
-   * Reads a position component from the clip pass's output — what the
-   * triangle pass rasterizes.
-   */
-  const posComponent = (vertexIndex: number[], comp: number) =>
-    posComponentAt(clippedPositionsOutBase, vertexIndex, comp);
-  /**
-   * Reads a varying component from the clip pass's output — what the
-   * triangle pass interpolates.
-   */
-  const varyingComponent = (vertexIndex: number[], recordOffset: number[], comp: number[]) =>
-    varyingComponentAt(clippedVaryingsOutBase, vertexIndex, recordOffset, comp);
-
-  /**
-   * Address of clip scratch slot `slot`'s position (its varying blob
-   * immediately follows, at {@link scratchVaryingAddr}). Up to 4 slots
-   * hold the intermediate polygon a triangle clips into.
-   */
-  const scratchVertexAddr = (slot: number[]) =>
-    iAdd(local(clipScratchBase), iMul(slot, iAdd(i32ConstBytes(VEC4_BYTES), local(varyingBytes))));
-  const scratchPosAddr = scratchVertexAddr;
-  /**
-   * Address of clip scratch slot `slot`'s varying blob.
-   */
-  const scratchVaryingAddr = (slot: number[]) => iAdd(scratchVertexAddr(slot), i32ConstBytes(VEC4_BYTES));
-
-  /**
-   * Copies vertex `vertexIndex`'s position and varying blob, unchanged,
-   * into the next free clip scratch slot.
-   */
-  const emitVertexToScratch = (vertexIndex: number[]) => [
-    ...emitByteCopyLoop(
-      (offset) => iAdd(scratchPosAddr(local(outCountIdx)), offset),
-      (offset) => iAdd(iAdd(local(positionsOutBase), iMul(vertexIndex, i32ConstBytes(VEC4_BYTES))), offset),
-      i32ConstBytes(VEC4_BYTES),
-      byteCounterIdx,
-    ),
-    ...emitByteCopyLoop(
-      (offset) => iAdd(scratchVaryingAddr(local(outCountIdx)), offset),
-      (offset) => iAdd(iAdd(local(varyingsOutBase), iMul(vertexIndex, local(varyingBytes))), offset),
-      local(varyingBytes),
-      byteCounterIdx,
-    ),
-    ...iAdd(local(outCountIdx), i32ConstBytes(1)),
-    ...localSet(outCountIdx),
-  ];
-
-  /**
-   * Linear interpolation: `a + (b - a) * t`.
-   */
-  const lerp = (a: number[], b: number[], t: number[]) => fAdd(a, fMul(fSub(b, a), t));
-
-  /**
-   * Cuts edge `a`->`b` at {@link clipTIdx} (set by the caller): lerps both
-   * the clip-space position and the whole varying blob, and appends the
-   * result as a new clip scratch vertex.
-   */
-  const emitInterpVertexToScratch = (a: number[], b: number[]) => [
-    ...[0, 1, 2, 3].flatMap((c) =>
-      storeF64(
-        iAdd(scratchPosAddr(local(outCountIdx)), i32ConstBytes(c * 8)),
-        lerp(rawPos(a, c), rawPos(b, c), local(clipTIdx)),
-      ),
-    ),
-    ...forLoop(
-      componentIdx,
-      i32ConstBytes(0),
-      iGeS(local(componentIdx), local(wholeRecordComponentsIdx)),
-      storeF64(
-        iAdd(scratchVaryingAddr(local(outCountIdx)), iMul(local(componentIdx), i32ConstBytes(8))),
-        lerp(rawVarying(a, local(componentIdx)), rawVarying(b, local(componentIdx)), local(clipTIdx)),
-      ),
-      i32ConstBytes(1),
-    ),
-    ...iAdd(local(outCountIdx), i32ConstBytes(1)),
-    ...localSet(outCountIdx),
-  ];
-
-  /**
-   * One edge (`a` -> `b`) of a triangle's single-plane Sutherland-Hodgman
-   * clip against `w > W_CLIP_EPS`: keep `a` if it's on the inside, and
-   * whenever the edge crosses the plane (`a`/`b` disagree), emit the cut
-   * point. See rasterizer.md.
-   */
-  const emitClipEdge = (a: number[], b: number[]) => [
-    ...ifThen(fGt(rawPos(a, 3), f64ConstBytes(W_CLIP_EPS)), emitVertexToScratch(a)),
-    ...ifThen(iNe(fGt(rawPos(a, 3), f64ConstBytes(W_CLIP_EPS)), fGt(rawPos(b, 3), f64ConstBytes(W_CLIP_EPS))), [
-      ...fDiv(fSub(f64ConstBytes(W_CLIP_EPS), rawPos(a, 3)), fSub(rawPos(b, 3), rawPos(a, 3))),
-      ...localSet(clipTIdx),
-      ...emitInterpVertexToScratch(a, b),
-    ]),
-  ];
-
-  /**
-   * Copies the scratch vertices at `slots` out as the next triangle in the
-   * clipped output (fan order: caller picks which 3).
-   */
-  const emitTriangleFromScratch = (slots: readonly [number, number, number]) => [
-    ...slots.flatMap((slot, i) => [
-      ...emitByteCopyLoop(
-        (offset) =>
-          iAdd(
-            iAdd(
-              local(clippedPositionsOutBase),
-              iMul(iAdd(local(clippedVertexCountIdx), i32ConstBytes(i)), i32ConstBytes(VEC4_BYTES)),
-            ),
-            offset,
-          ),
-        (offset) => iAdd(scratchPosAddr(i32ConstBytes(slot)), offset),
-        i32ConstBytes(VEC4_BYTES),
-        byteCounterIdx,
-      ),
-      ...emitByteCopyLoop(
-        (offset) =>
-          iAdd(
-            iAdd(
-              local(clippedVaryingsOutBase),
-              iMul(iAdd(local(clippedVertexCountIdx), i32ConstBytes(i)), local(varyingBytes)),
-            ),
-            offset,
-          ),
-        (offset) => iAdd(scratchVaryingAddr(i32ConstBytes(slot)), offset),
-        local(varyingBytes),
-        byteCounterIdx,
-      ),
-    ]),
-    ...iAdd(local(clippedVertexCountIdx), i32ConstBytes(3)),
-    ...localSet(clippedVertexCountIdx),
-  ];
-
-  /**
-   * Clips one triangle's three edges into clip scratch, then fan-
-   * triangulates the result into the clipped output. A triangle clipped
-   * against one plane always comes out with 0, 3, or 4 vertices — never 1
-   * or 2 — so only these two fan triangles are possible.
-   */
+  // A triangle clipped against one plane always comes out with 0, 3, or 4
+  // vertices — never 1 or 2 — so only these two fan triangles are possible.
   const clipOneTriangle = [
     ...i32ConstBytes(0),
     ...localSet(outCountIdx),
@@ -531,35 +361,6 @@ export function buildRasterizerModule(): Uint8Array {
     ...localSet(clippedVertexCountIdx),
     ...forLoop(tIdx, i32ConstBytes(0), iGeS(t2Expr, local(vertexCount)), clipOneTriangle, i32ConstBytes(3)),
   ];
-
-  /**
-   * Clip space -> NDC (divide by `w`) -> screen pixels, x axis. `posComponent`
-   * reads the clip pass's output, so this always sees an in-front (`w > 0`)
-   * vertex.
-   */
-  const screenX = (vertexIndex: number[]) =>
-    fMul(
-      fAdd(
-        fMul(fDiv(posComponent(vertexIndex, 0), posComponent(vertexIndex, 3)), f64ConstBytes(0.5)),
-        f64ConstBytes(0.5),
-      ),
-      local(widthFIdx),
-    );
-  /**
-   * Same as {@link screenX}, y axis — flipped so NDC "up" lands at row 0,
-   * matching a canvas's top-down rows.
-   */
-  const screenY = (vertexIndex: number[]) =>
-    fMul(
-      fSub(
-        f64ConstBytes(1),
-        fAdd(
-          fMul(fDiv(posComponent(vertexIndex, 1), posComponent(vertexIndex, 3)), f64ConstBytes(0.5)),
-          f64ConstBytes(0.5),
-        ),
-      ),
-      local(heightFIdx),
-    );
 
   /**
    * Per-triangle setup: each vertex's screen position, `w`, `1/w`, and NDC
@@ -607,8 +408,6 @@ export function buildRasterizerModule(): Uint8Array {
     ...localSet(areaIdx),
   ];
 
-  const min3 = (a: number[], b: number[], c: number[]) => fMin(fMin(a, b), c);
-  const max3 = (a: number[], b: number[], c: number[]) => fMax(fMax(a, b), c);
   /**
    * The triangle's screen-space bounding box, clamped to the image so the
    * pixel loop below never steps outside it.
@@ -624,28 +423,12 @@ export function buildRasterizerModule(): Uint8Array {
     ...localSet(maxYIdx),
   ];
 
-  /**
-   * Copies the fragment module's written `vec4` result into this pixel's
-   * slot in `outputBase`.
-   */
   const copyFragmentOut = emitByteCopyLoop(
     (offset) => iAdd(iAdd(local(outputBase), iMul(local(pixelIndexIdx), i32ConstBytes(VEC4_BYTES))), offset),
     (offset) => iAdd(local(fragmentValueAddress), offset),
     i32ConstBytes(VEC4_BYTES),
     byteCounterIdx,
   );
-
-  /**
-   * Signed area of the triangle `(ax,ay)-(bx,by)-(px,py)` — the standard
-   * edge function: its sign says which side of the `a`->`b` edge the pixel
-   * center falls on, and a pixel is covered iff it's on the same side of
-   * all three edges.
-   */
-  const edgeFn = (ax: number, ay: number, bx: number, by: number) =>
-    fSub(
-      fMul(fSub(local(ax), local(pxIdx)), fSub(local(by), local(pyIdx))),
-      fMul(fSub(local(ay), local(pyIdx)), fSub(local(bx), local(pxIdx))),
-    );
 
   /**
    * Perspective-correct interpolates one varying slot's components (using
@@ -829,6 +612,251 @@ export function buildRasterizerModule(): Uint8Array {
     ...exportSection,
     ...codeSection,
   ]);
+
+  // ---- addressing/formula helpers the pipeline above calls ----
+
+  /**
+   * Byte address of the `index`-th descriptor entry in the table at `descBase`.
+   */
+  function descAddr(descBase: number, index: number, descBytes: number): number[] {
+    return iAdd(local(descBase), iMul(local(index), i32ConstBytes(descBytes)));
+  }
+
+  /**
+   * Reads one f64 component of the `vertexIndex`-th `vec4` in the array at `base`.
+   */
+  function posComponentAt(base: number, vertexIndex: number[], comp: number): number[] {
+    return loadF64(iAdd(iAdd(local(base), iMul(vertexIndex, i32ConstBytes(VEC4_BYTES))), i32ConstBytes(comp * 8)));
+  }
+
+  /**
+   * Reads one f64 component of the `vertexIndex`-th varying record in the array at `base`.
+   */
+  function varyingComponentAt(base: number, vertexIndex: number[], recordOffset: number[], comp: number[]): number[] {
+    return loadF64(
+      iAdd(iAdd(iAdd(local(base), iMul(vertexIndex, local(varyingBytes))), recordOffset), iMul(comp, i32ConstBytes(8))),
+    );
+  }
+
+  /**
+   * Reads a position component from the vertex pass's raw, pre-clip output.
+   */
+  function rawPos(vertexIndex: number[], comp: number): number[] {
+    return posComponentAt(positionsOutBase, vertexIndex, comp);
+  }
+
+  /**
+   * Reads a varying component from the vertex pass's raw, pre-clip output.
+   */
+  function rawVarying(vertexIndex: number[], comp: number[]): number[] {
+    return varyingComponentAt(varyingsOutBase, vertexIndex, i32ConstBytes(0), comp);
+  }
+
+  /**
+   * Reads a position component from the clip pass's output — what the
+   * triangle pass rasterizes.
+   */
+  function posComponent(vertexIndex: number[], comp: number): number[] {
+    return posComponentAt(clippedPositionsOutBase, vertexIndex, comp);
+  }
+
+  /**
+   * Reads a varying component from the clip pass's output — what the
+   * triangle pass interpolates.
+   */
+  function varyingComponent(vertexIndex: number[], recordOffset: number[], comp: number[]): number[] {
+    return varyingComponentAt(clippedVaryingsOutBase, vertexIndex, recordOffset, comp);
+  }
+
+  /**
+   * Address of clip scratch slot `slot`'s position (its varying blob
+   * immediately follows, at {@link scratchVaryingAddr}). Up to 4 slots
+   * hold the intermediate polygon a triangle clips into.
+   */
+  function scratchVertexAddr(slot: number[]): number[] {
+    return iAdd(local(clipScratchBase), iMul(slot, iAdd(i32ConstBytes(VEC4_BYTES), local(varyingBytes))));
+  }
+
+  /**
+   * Alias for {@link scratchVertexAddr}, read as "position" at its call sites.
+   */
+  function scratchPosAddr(slot: number[]): number[] {
+    return scratchVertexAddr(slot);
+  }
+
+  /**
+   * Address of clip scratch slot `slot`'s varying blob.
+   */
+  function scratchVaryingAddr(slot: number[]): number[] {
+    return iAdd(scratchVertexAddr(slot), i32ConstBytes(VEC4_BYTES));
+  }
+
+  /**
+   * Copies vertex `vertexIndex`'s position and varying blob, unchanged,
+   * into the next free clip scratch slot.
+   */
+  function emitVertexToScratch(vertexIndex: number[]): number[] {
+    return [
+      ...emitByteCopyLoop(
+        (offset) => iAdd(scratchPosAddr(local(outCountIdx)), offset),
+        (offset) => iAdd(iAdd(local(positionsOutBase), iMul(vertexIndex, i32ConstBytes(VEC4_BYTES))), offset),
+        i32ConstBytes(VEC4_BYTES),
+        byteCounterIdx,
+      ),
+      ...emitByteCopyLoop(
+        (offset) => iAdd(scratchVaryingAddr(local(outCountIdx)), offset),
+        (offset) => iAdd(iAdd(local(varyingsOutBase), iMul(vertexIndex, local(varyingBytes))), offset),
+        local(varyingBytes),
+        byteCounterIdx,
+      ),
+      ...iAdd(local(outCountIdx), i32ConstBytes(1)),
+      ...localSet(outCountIdx),
+    ];
+  }
+
+  /**
+   * Linear interpolation: `a + (b - a) * t`.
+   */
+  function lerp(a: number[], b: number[], t: number[]): number[] {
+    return fAdd(a, fMul(fSub(b, a), t));
+  }
+
+  /**
+   * Cuts edge `a`->`b` at {@link clipTIdx} (set by the caller): lerps both
+   * the clip-space position and the whole varying blob, and appends the
+   * result as a new clip scratch vertex.
+   */
+  function emitInterpVertexToScratch(a: number[], b: number[]): number[] {
+    return [
+      ...[0, 1, 2, 3].flatMap((c) =>
+        storeF64(
+          iAdd(scratchPosAddr(local(outCountIdx)), i32ConstBytes(c * 8)),
+          lerp(rawPos(a, c), rawPos(b, c), local(clipTIdx)),
+        ),
+      ),
+      ...forLoop(
+        componentIdx,
+        i32ConstBytes(0),
+        iGeS(local(componentIdx), local(wholeRecordComponentsIdx)),
+        storeF64(
+          iAdd(scratchVaryingAddr(local(outCountIdx)), iMul(local(componentIdx), i32ConstBytes(8))),
+          lerp(rawVarying(a, local(componentIdx)), rawVarying(b, local(componentIdx)), local(clipTIdx)),
+        ),
+        i32ConstBytes(1),
+      ),
+      ...iAdd(local(outCountIdx), i32ConstBytes(1)),
+      ...localSet(outCountIdx),
+    ];
+  }
+
+  /**
+   * One edge (`a` -> `b`) of a triangle's single-plane Sutherland-Hodgman
+   * clip against `w > W_CLIP_EPS`: keep `a` if it's on the inside, and
+   * whenever the edge crosses the plane (`a`/`b` disagree), emit the cut
+   * point. See rasterizer.md.
+   */
+  function emitClipEdge(a: number[], b: number[]): number[] {
+    return [
+      ...ifThen(fGt(rawPos(a, 3), f64ConstBytes(W_CLIP_EPS)), emitVertexToScratch(a)),
+      ...ifThen(iNe(fGt(rawPos(a, 3), f64ConstBytes(W_CLIP_EPS)), fGt(rawPos(b, 3), f64ConstBytes(W_CLIP_EPS))), [
+        ...fDiv(fSub(f64ConstBytes(W_CLIP_EPS), rawPos(a, 3)), fSub(rawPos(b, 3), rawPos(a, 3))),
+        ...localSet(clipTIdx),
+        ...emitInterpVertexToScratch(a, b),
+      ]),
+    ];
+  }
+
+  /**
+   * Copies the scratch vertices at `slots` out as the next triangle in the
+   * clipped output (fan order: caller picks which 3).
+   */
+  function emitTriangleFromScratch(slots: readonly [number, number, number]): number[] {
+    return [
+      ...slots.flatMap((slot, i) => [
+        ...emitByteCopyLoop(
+          (offset) =>
+            iAdd(
+              iAdd(
+                local(clippedPositionsOutBase),
+                iMul(iAdd(local(clippedVertexCountIdx), i32ConstBytes(i)), i32ConstBytes(VEC4_BYTES)),
+              ),
+              offset,
+            ),
+          (offset) => iAdd(scratchPosAddr(i32ConstBytes(slot)), offset),
+          i32ConstBytes(VEC4_BYTES),
+          byteCounterIdx,
+        ),
+        ...emitByteCopyLoop(
+          (offset) =>
+            iAdd(
+              iAdd(
+                local(clippedVaryingsOutBase),
+                iMul(iAdd(local(clippedVertexCountIdx), i32ConstBytes(i)), local(varyingBytes)),
+              ),
+              offset,
+            ),
+          (offset) => iAdd(scratchVaryingAddr(i32ConstBytes(slot)), offset),
+          local(varyingBytes),
+          byteCounterIdx,
+        ),
+      ]),
+      ...iAdd(local(clippedVertexCountIdx), i32ConstBytes(3)),
+      ...localSet(clippedVertexCountIdx),
+    ];
+  }
+
+  /**
+   * Clip space -> NDC (divide by `w`) -> screen pixels, x axis. `posComponent`
+   * reads the clip pass's output, so this always sees an in-front (`w > 0`)
+   * vertex.
+   */
+  function screenX(vertexIndex: number[]): number[] {
+    return fMul(
+      fAdd(
+        fMul(fDiv(posComponent(vertexIndex, 0), posComponent(vertexIndex, 3)), f64ConstBytes(0.5)),
+        f64ConstBytes(0.5),
+      ),
+      local(widthFIdx),
+    );
+  }
+
+  /**
+   * Same as {@link screenX}, y axis — flipped so NDC "up" lands at row 0,
+   * matching a canvas's top-down rows.
+   */
+  function screenY(vertexIndex: number[]): number[] {
+    return fMul(
+      fSub(
+        f64ConstBytes(1),
+        fAdd(
+          fMul(fDiv(posComponent(vertexIndex, 1), posComponent(vertexIndex, 3)), f64ConstBytes(0.5)),
+          f64ConstBytes(0.5),
+        ),
+      ),
+      local(heightFIdx),
+    );
+  }
+
+  function min3(a: number[], b: number[], c: number[]): number[] {
+    return fMin(fMin(a, b), c);
+  }
+
+  function max3(a: number[], b: number[], c: number[]): number[] {
+    return fMax(fMax(a, b), c);
+  }
+
+  /**
+   * Signed area of the triangle `(ax,ay)-(bx,by)-(px,py)` — the standard
+   * edge function: its sign says which side of the `a`->`b` edge the pixel
+   * center falls on, and a pixel is covered iff it's on the same side of
+   * all three edges.
+   */
+  function edgeFn(ax: number, ay: number, bx: number, by: number): number[] {
+    return fSub(
+      fMul(fSub(local(ax), local(pxIdx)), fSub(local(by), local(pyIdx))),
+      fMul(fSub(local(ay), local(pyIdx)), fSub(local(bx), local(pxIdx))),
+    );
+  }
 }
 
 /**
