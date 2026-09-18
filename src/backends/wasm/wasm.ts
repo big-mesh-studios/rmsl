@@ -381,6 +381,12 @@ export const WASM_OP = {
   else_: 0x05,
 } as const;
 
+/**
+ * The WASM value type byte a scalar kind is stored as. Everything here is
+ * either `f64` (`WASM_F64`, 0x7c) or `i32` (`WASM_I32`, 0x7f) — int/uint/bool
+ * all share the i32 representation, distinguished only by how the surrounding
+ * code interprets the bits (see {@link convertComponent}).
+ */
 function wasmTypeOf(kind: ScalarKind): number {
   return kind === "float" ? WASM_F64 : WASM_I32;
 }
@@ -452,6 +458,11 @@ function wasmSleb128(n: number): number[] {
   return out;
 }
 
+/**
+ * A WASM "name": UTF-8 bytes prefixed by their length as an unsigned LEB128
+ * integer. Used everywhere the binary format embeds a string — import/export
+ * names, the custom-section name, etc.
+ */
 export function wasmStrBytes(s: string): number[] {
   const b = [...new TextEncoder().encode(s)];
   return [...wasmUleb128(b.length), ...b];
@@ -472,7 +483,15 @@ function selectExpr(whenTrue: number[], whenFalse: number[], cond: number[]): nu
   return [...whenTrue, ...whenFalse, ...cond, WASM_OP.select];
 }
 
-/** [base, load, memarg: align=0, offset] — loads one component at a constant address. */
+/**
+ * Loads one component at a constant address: push the address, then the
+ * load opcode and its "memarg" — two unsigned LEB128 integers, alignment
+ * hint first, then a byte offset added to the popped address at run time.
+ * The alignment hint is always `0x00` (no assumed alignment) here, since
+ * this compiler never proves an access is aligned; a wrong hint doesn't trap
+ * or corrupt data, but is technically UB, so `0x00` is the only value it's
+ * safe to always emit.
+ */
 function loadComponent(addr: number, kind: ScalarKind, byteOffset: number): number[] {
   return [
     ...i32ConstBytes(addr),
@@ -482,7 +501,11 @@ function loadComponent(addr: number, kind: ScalarKind, byteOffset: number): numb
   ];
 }
 
-/** [base, value, store, align=0, offset] — stores one component at a constant address. */
+/**
+ * Stores one component at a constant address: push the address, then the
+ * value, then the store opcode and its memarg (alignment hint, always
+ * `0x00` here — see {@link loadComponent} — then a byte offset).
+ */
 function storeComponent(addr: number, kind: ScalarKind, byteOffset: number, valueBytes: number[]): number[] {
   return [
     ...i32ConstBytes(addr),
@@ -779,10 +802,29 @@ export function wasmF64Bytes(value: number): number[] {
   return [...new Uint8Array(buf)];
 }
 
+/**
+ * Wraps `body` as a top-level module section: a one-byte section id, the
+ * section's byte length as an unsigned LEB128 integer, then the bytes
+ * themselves. A WASM module is just a magic number, a version, and a
+ * sequence of these — the decoder reads the id, skips exactly `length`
+ * bytes if it doesn't recognize the section, and moves on. The ids this
+ * compiler emits are the standard ones from the spec's binary format:
+ * 1 = Type, 2 = Import, 3 = Function, 7 = Export, 10 = Code (see the
+ * `bytes = new Uint8Array([...])` module assembly at the end of this file
+ * for where each is used).
+ */
 export function wasmSection(id: number, body: number[]): number[] {
   return [id, ...wasmUleb128(body.length), ...body];
 }
 
+/**
+ * Wraps `items` as a WASM "vector": the element count as an unsigned LEB128
+ * integer, followed by each element's own bytes back to back. This is the
+ * binary format's generic list encoding — used for a section's own list of
+ * entries (types, imports, functions, exports, ...) and for a function's
+ * list of locals — so most section bodies are built by handing their entries
+ * to this rather than encoding the count by hand.
+ */
 export function wasmVec(items: number[][]): number[] {
   return [...wasmUleb128(items.length), ...items.flat()];
 }
@@ -1061,6 +1103,12 @@ export function compileWasmFn(
 
     batchFuncBody = [...batchLocalsDecl, ...batchCode, WASM_OP.end];
     batchTypeIdx = typeEntries.length;
+    // `WASM_FUNC` (0x60) is the functype form byte that opens every entry in
+    // the type section — the byte a decoder uses to tell "this is a function
+    // signature" apart from the handful of other type forms the format has.
+    // It's followed by two `wasmVec`s back to back: the parameter types,
+    // then the result types (empty here — this function communicates its
+    // result by writing into `out` rather than returning one).
     typeEntries.push([WASM_FUNC, ...wasmVec([...paramTypes, [WASM_I32], [WASM_I32], [WASM_I32]]), ...wasmVec([])]);
   }
 
@@ -1073,11 +1121,21 @@ export function compileWasmFn(
   // a shared import always needs a declared maximum too.
   const sharedMemory = options.sharedMemory ?? false;
   const maxMemoryPages = options.maxMemoryPages ?? 65536; // 65536 pages = the full 4GiB wasm32 address space
+  // A "limits" encoding: a one-byte flag (0x00 = min only, 0x03 = min and max,
+  // shared) followed by the min page count and, only when the flag says so,
+  // the max page count — both as unsigned LEB128. 0x01/0x02 (max-but-not-shared
+  // forms) exist in the spec but are never emitted here, since sharedness is
+  // this module's own choice, never partial.
   const memoryLimitsBytes = sharedMemory
     ? [0x03, ...wasmUleb128(memoryPages), ...wasmUleb128(maxMemoryPages)]
     : [0x00, ...wasmUleb128(memoryPages)];
+  // An import entry: module name, field name, then a one-byte "import kind"
+  // (0x00 func, 0x01 table, 0x02 memory, 0x03 global) and the kind-specific
+  // descriptor that follows it — here the memory limits just built above.
   const memoryImportEntry = [...wasmStrBytes("env"), ...wasmStrBytes("memory"), 0x02, ...memoryLimitsBytes];
 
+  // Section ids, per the spec's binary format (see wasmSection's own doc):
+  // 1 Type, 2 Import, 3 Function.
   const typeSection = wasmSection(1, wasmVec(typeEntries));
   const importSection = wasmSection(2, wasmVec([...importEntries, memoryImportEntry]));
   const funcSection = wasmSection(
@@ -1085,35 +1143,54 @@ export function compileWasmFn(
     wasmVec(batchTypeIdx === undefined ? [[mainTypeIdx]] : [[mainTypeIdx], [batchTypeIdx]]),
   );
   const nameBytes = wasmStrBytes(options.name);
+  // An export entry: the export's own name, a one-byte "export kind" (0x00
+  // func, 0x01 table, 0x02 memory, 0x03 global — same vocabulary as the
+  // import kind above), then the kind-specific index — here a function index
+  // into the (imports ++ this module's own functions) index space.
   const exportEntries = [[...nameBytes, 0x00, ...wasmUleb128(mainFuncIndex)]];
 
   if (batchTypeIdx !== undefined) {
     exportEntries.push([...wasmStrBytes("batch"), 0x00, ...wasmUleb128(mainFuncIndex + 1)]);
   }
 
+  // Section id 7, Export.
   const exportSection = wasmSection(7, wasmVec(exportEntries));
 
+  // Each local group is `[count, type]` — a run of `count` consecutive
+  // locals sharing one type, which is why every group here is `wasmUleb128(1)`
+  // (one local at a time): this compiler never merges same-typed locals into
+  // a single run, only ever declares a fresh one-local group per slot.
   const localsDecl = wasmVec(localSlots.map((name) => [...wasmUleb128(1), wasmTypeOf(localType.get(name)!)]));
   const funcBody = [...localsDecl, ...code, WASM_OP.end];
+  // A code entry is prefixed with its own byte length (not a `wasmVec` count —
+  // a decoder skips a whole function body it doesn't want to parse), then the
+  // local declarations and the instruction bytes themselves.
   const codeEntries = [[...wasmUleb128(funcBody.length), ...funcBody]];
 
   if (batchFuncBody !== undefined) {
     codeEntries.push([...wasmUleb128(batchFuncBody.length), ...batchFuncBody]);
   }
 
+  // Section id 10, Code — one entry per function declared in the Function
+  // section above, in the same order, each holding that function's locals
+  // and its actual instruction bytes.
   const codeSection = wasmSection(10, wasmVec(codeEntries));
 
+  // The module: an 8-byte header, then the sections built above. Sections
+  // are self-delimiting (each carries its own byte length, from
+  // `wasmSection`) and, while the spec allows most orderings, a decoder
+  // expects known section ids ascending — hence Type/Import/Function/
+  // Export/Code here, skipping the ids (Table, Memory, Global, Start,
+  // Element) this compiler never emits.
   // prettier-ignore
   const bytes = new Uint8Array([
-    // "\0asm" magic
-    0x00, 0x61, 0x73, 0x6d,
-    // version 1 (u32, little-endian)
-    0x01, 0x00, 0x00, 0x00,
-    ...typeSection,
-    ...importSection,
-    ...funcSection,
-    ...exportSection,
-    ...codeSection,
+    0x00, 0x61, 0x73, 0x6d, // magic number: "\0asm"
+    0x01, 0x00, 0x00, 0x00, // version 1, as a little-endian u32 (the only version that has ever existed)
+    ...typeSection,         // section id 1: function signatures (params + result types)
+    ...importSection,       // section id 2: the memory import (and any math-function imports)
+    ...funcSection,         // section id 3: which type index each of this module's own functions has
+    ...exportSection,       // section id 7: the entry point(s) a host can call, by name
+    ...codeSection,         // section id 10: each function's locals + instruction bytes
   ]);
 
   return {
