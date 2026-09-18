@@ -1,7 +1,7 @@
 import { attribute, cos, Fn, fragCoord, sin, uniform, varying, vec3, vec4 } from "@random-mesh/rmsl";
 import { createGlsl } from "@random-mesh/rmsl/glsl";
 import { compileJS, createJs, rasterizeTriangles } from "@random-mesh/rmsl/js";
-import { compileWasmRoutine, createWasmRoutine } from "@random-mesh/rmsl/wasm";
+import { createWasm, createWasmRoutine } from "@random-mesh/rmsl/wasm";
 import { createWgsl } from "@random-mesh/rmsl/wgsl";
 
 const glCanvas = document.createElement("canvas");
@@ -56,15 +56,17 @@ wgpuAdapter
     opt.textContent += " (unavailable)";
   });
 
-// === CPU/WASM rasterizer prototype — the same vertex/fragment pair GLSL/
-// WGSL draw above, but run through rasterizeTriangles (src/backends/
-// cpu-rasterizer.ts) instead of a GPU: compileJS/compileWasmRoutine already
-// support a "vertex" stage, nothing before this drove it with a real
-// per-vertex/per-triangle loop. ===
+// === CPU/WASM rasterizer demo — the same vertex/fragment pair GLSL/WGSL
+// draw above, but run through a real vertex+triangle loop instead of a
+// GPU. js-vtx goes through rasterizeTriangles (src/backends/
+// cpu-rasterizer.ts), a host-side loop calling compileJS's compiled
+// vertex/fragment once per vertex/pixel. wasm-vtx goes through
+// createWasm, which links a compiled vertex/fragment pair against the
+// generic WASM rasterizer module (src/backends/wasm/rasterizer.ts) —
+// the vertex loop, clipping, and triangle rasterization all run inside
+// WASM, not host-mediated per vertex/pixel. ===
 const vertexFnJs = compileJS(() => vertexRoot, { name: "vtx", params: [], stage: "vertex" });
 const fragmentFnJs = compileJS(() => fragmentRoot, { name: "frag", params: [] });
-const vertexFnWasm = compileWasmRoutine(() => vertexRoot, { name: "vtx", params: [], stage: "vertex" });
-const fragmentFnWasm = compileWasmRoutine(() => fragmentRoot, { name: "frag", params: [] });
 
 const cpuVtxCtx = cpuVtxCanvas.getContext("2d")!;
 
@@ -72,10 +74,10 @@ function clamp255(v: number): number {
   return Math.max(0, Math.min(255, Math.round(v * 255)));
 }
 
-function drawRasterized(vertexFn: typeof vertexFnJs, fragmentFn: typeof fragmentFnJs, t: number) {
+function drawRasterizedJs(t: number) {
   const width = cpuVtxCanvas.width;
   const height = cpuVtxCanvas.height;
-  const buffer = rasterizeTriangles(vertexFn, fragmentFn, {
+  const buffer = rasterizeTriangles(vertexFnJs, fragmentFnJs, {
     attributes: { [pos.name]: TRIANGLE_STRIP_QUAD },
     attributeTypes: { [pos.name]: "vec2" },
     uniforms: { [time.name]: t },
@@ -92,6 +94,19 @@ function drawRasterized(vertexFn: typeof vertexFnJs, fragmentFn: typeof fragment
     rgba[i * 4 + 3] = clamp255(buffer[i * 4 + 3] as number);
   }
   cpuVtxCtx.putImageData(imageData, 0, 0);
+}
+
+const wasmVtxAdapter = createWasm(
+  () => vertexRoot,
+  () => fragmentRoot,
+);
+wasmVtxAdapter.attach(cpuVtxCanvas);
+wasmVtxAdapter.setAttribute(pos.name, TRIANGLE_STRIP_QUAD);
+const TRIANGLE_STRIP_QUAD_VERTEX_COUNT = TRIANGLE_STRIP_QUAD.length / 2;
+
+function drawRasterizedWasm(t: number) {
+  wasmVtxAdapter.setUniform(time, t);
+  wasmVtxAdapter.draw({ vertexCount: TRIANGLE_STRIP_QUAD_VERTEX_COUNT });
 }
 
 // === Draw programs (createJs / createWasmRoutine) — a full-screen color
@@ -132,8 +147,10 @@ function frame(now: number) {
   } else if (backend === "wgsl") {
     wgpuAdapter.setUniform(time, t);
     wgpuAdapter.draw();
-  } else if (backend === "js-vtx" || backend === "wasm-vtx") {
-    drawRasterized(backend === "js-vtx" ? vertexFnJs : vertexFnWasm, backend === "js-vtx" ? fragmentFnJs : fragmentFnWasm, t);
+  } else if (backend === "js-vtx") {
+    drawRasterizedJs(t);
+  } else if (backend === "wasm-vtx") {
+    drawRasterizedWasm(t);
   } else {
     const adapter = backend === "js" ? jsAdapter : wasmAdapter;
     adapter.setUniform(resolution, [cpuCanvas.width, cpuCanvas.height]);
@@ -150,9 +167,11 @@ function frame(now: number) {
       ? "drawing via createGlsl"
       : backend === "wgsl"
         ? "drawing via createWgsl"
-        : backend === "js-vtx" || backend === "wasm-vtx"
-          ? `drawing via rasterizeTriangles (${backend === "js-vtx" ? "compileJS" : "compileWasmRoutine"})`
-          : `drawing via create${backend === "js" ? "Js" : "WasmRoutine"}`;
+        : backend === "js-vtx"
+          ? "drawing via rasterizeTriangles (compileJS)"
+          : backend === "wasm-vtx"
+            ? "drawing via createWasm"
+            : `drawing via create${backend === "js" ? "Js" : "WasmRoutine"}`;
 
   fpsWindowFrameCount++;
   if (now - fpsWindowStart >= FPS_WINDOW_MS) {
