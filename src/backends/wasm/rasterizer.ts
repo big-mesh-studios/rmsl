@@ -40,7 +40,16 @@ export const RASTERIZE_PARAMS = [
   "varyingDescBase",
   "varyingDescCount",
   "varyingsOutBase",
+  "clipScratchBase",
+  "clippedPositionsOutBase",
+  "clippedVaryingsOutBase",
 ] as const;
+
+/**
+ * Homogeneous-clip-space near-plane epsilon: a vertex with `w` at or below
+ * this is treated as behind the eye. See rasterizer.md.
+ */
+const W_CLIP_EPS = 1e-5;
 
 /**
  * A `vec4` position or fragment color, stored as 4 f64 components.
@@ -59,6 +68,7 @@ const fDiv = bin(WASM_OP.f64Div);
 const fMin = bin(WASM_OP.f64Min);
 const fMax = bin(WASM_OP.f64Max);
 const fGe = bin(WASM_OP.f64Ge);
+const fGt = bin(WASM_OP.f64Gt);
 const fLe = bin(WASM_OP.f64Le);
 const fEq = bin(WASM_OP.f64Eq);
 const fFloor = un(WASM_OP.f64Floor);
@@ -69,6 +79,8 @@ const iGtS = bin(WASM_OP.i32GtS);
 const iGeS = bin(WASM_OP.i32GeS);
 const iAnd = bin(WASM_OP.i32And);
 const iOr = bin(WASM_OP.i32Or);
+const iEq = bin(WASM_OP.i32Eq);
+const iNe = bin(WASM_OP.i32Ne);
 const iDivS = bin(WASM_OP.i32DivS);
 const toF64 = un(WASM_OP.f64ConvertI32S);
 const toI32 = un(WASM_OP.i32TruncF64S);
@@ -197,6 +209,9 @@ export function buildRasterizerModule(): Uint8Array {
     varyingDescBase,
     varyingDescCount,
     varyingsOutBase,
+    clipScratchBase,
+    clippedPositionsOutBase,
+    clippedVaryingsOutBase,
   ] = RASTERIZE_PARAMS.map((_, i) => i);
 
   const locals = new LocalAllocator(RASTERIZE_PARAMS.length);
@@ -240,6 +255,10 @@ export function buildRasterizerModule(): Uint8Array {
   const descField2Idx = locals.alloc(WASM_I32);
   const descField3Idx = locals.alloc(WASM_I32);
   const numComponentsIdx = locals.alloc(WASM_I32);
+  const wholeRecordComponentsIdx = locals.alloc(WASM_I32);
+  const clippedVertexCountIdx = locals.alloc(WASM_I32);
+  const outCountIdx = locals.alloc(WASM_I32); // clip-output scratch fill count, 0-4, reset per original triangle
+  const clipTIdx = locals.alloc(WASM_F64); // clip-edge interpolation parameter
 
   const descAddr = (descBase: number, index: number, descBytes: number) =>
     iAdd(local(descBase), iMul(local(index), i32ConstBytes(descBytes)));
@@ -334,25 +353,186 @@ export function buildRasterizerModule(): Uint8Array {
     WASM_OP.end,
   ];
 
+  const tExpr = local(tIdx);
+  const t1Expr = iAdd(local(tIdx), i32ConstBytes(1));
+  const t2Expr = iAdd(local(tIdx), i32ConstBytes(2));
+
+  const posComponentAt = (base: number, vertexIndex: number[], comp: number) =>
+    loadF64(iAdd(iAdd(local(base), iMul(vertexIndex, i32ConstBytes(VEC4_BYTES))), i32ConstBytes(comp * 8)));
+  const varyingComponentAt = (base: number, vertexIndex: number[], recordOffset: number[], comp: number[]) =>
+    loadF64(
+      iAdd(iAdd(iAdd(local(base), iMul(vertexIndex, local(varyingBytes))), recordOffset), iMul(comp, i32ConstBytes(8))),
+    );
+  // clip pass reads the vertex pass's raw (pre-clip) output
+  const rawPos = (vertexIndex: number[], comp: number) => posComponentAt(positionsOutBase, vertexIndex, comp);
+  const rawVarying = (vertexIndex: number[], comp: number[]) =>
+    varyingComponentAt(varyingsOutBase, vertexIndex, i32ConstBytes(0), comp);
+  // the raster pass reads the clip pass's output instead of the raw vertices
   const posComponent = (vertexIndex: number[], comp: number) =>
-    loadF64(iAdd(iAdd(local(positionsOutBase), iMul(vertexIndex, i32ConstBytes(VEC4_BYTES))), i32ConstBytes(comp * 8)));
+    posComponentAt(clippedPositionsOutBase, vertexIndex, comp);
+  const varyingComponent = (vertexIndex: number[], recordOffset: number[], comp: number[]) =>
+    varyingComponentAt(clippedVaryingsOutBase, vertexIndex, recordOffset, comp);
+
+  const scratchVertexAddr = (slot: number[]) =>
+    iAdd(local(clipScratchBase), iMul(slot, iAdd(i32ConstBytes(VEC4_BYTES), local(varyingBytes))));
+  const scratchPosAddr = scratchVertexAddr;
+  const scratchVaryingAddr = (slot: number[]) => iAdd(scratchVertexAddr(slot), i32ConstBytes(VEC4_BYTES));
+
+  const emitVertexToScratch = (vertexIndex: number[]) => [
+    ...emitByteCopyLoop(
+      (offset) => iAdd(scratchPosAddr(local(outCountIdx)), offset),
+      (offset) => iAdd(iAdd(local(positionsOutBase), iMul(vertexIndex, i32ConstBytes(VEC4_BYTES))), offset),
+      i32ConstBytes(VEC4_BYTES),
+      byteCounterIdx,
+    ),
+    ...emitByteCopyLoop(
+      (offset) => iAdd(scratchVaryingAddr(local(outCountIdx)), offset),
+      (offset) => iAdd(iAdd(local(varyingsOutBase), iMul(vertexIndex, local(varyingBytes))), offset),
+      local(varyingBytes),
+      byteCounterIdx,
+    ),
+    ...iAdd(local(outCountIdx), i32ConstBytes(1)),
+    ...localSet(outCountIdx),
+  ];
+
+  const lerp = (a: number[], b: number[], t: number[]) => fAdd(a, fMul(fSub(b, a), t));
+
+  const emitInterpVertexToScratch = (a: number[], b: number[]) => [
+    ...[0, 1, 2, 3].flatMap((c) =>
+      storeF64(
+        iAdd(scratchPosAddr(local(outCountIdx)), i32ConstBytes(c * 8)),
+        lerp(rawPos(a, c), rawPos(b, c), local(clipTIdx)),
+      ),
+    ),
+    ...i32ConstBytes(0),
+    ...localSet(componentIdx),
+    WASM_OP.block,
+    0x40,
+    WASM_OP.loop,
+    0x40,
+    ...iGeS(local(componentIdx), local(wholeRecordComponentsIdx)),
+    WASM_OP.brIf,
+    ...wasmUleb128(1),
+    ...storeF64(
+      iAdd(scratchVaryingAddr(local(outCountIdx)), iMul(local(componentIdx), i32ConstBytes(8))),
+      lerp(rawVarying(a, local(componentIdx)), rawVarying(b, local(componentIdx)), local(clipTIdx)),
+    ),
+    ...iAdd(local(componentIdx), i32ConstBytes(1)),
+    ...localSet(componentIdx),
+    WASM_OP.br,
+    ...wasmUleb128(0),
+    WASM_OP.end,
+    WASM_OP.end,
+    ...iAdd(local(outCountIdx), i32ConstBytes(1)),
+    ...localSet(outCountIdx),
+  ];
+
+  const emitClipEdge = (a: number[], b: number[]) => [
+    ...fGt(rawPos(a, 3), f64ConstBytes(W_CLIP_EPS)),
+    WASM_OP.if_,
+    0x40,
+    ...emitVertexToScratch(a),
+    WASM_OP.end,
+    ...iNe(fGt(rawPos(a, 3), f64ConstBytes(W_CLIP_EPS)), fGt(rawPos(b, 3), f64ConstBytes(W_CLIP_EPS))),
+    WASM_OP.if_,
+    0x40,
+    ...fDiv(fSub(f64ConstBytes(W_CLIP_EPS), rawPos(a, 3)), fSub(rawPos(b, 3), rawPos(a, 3))),
+    ...localSet(clipTIdx),
+    ...emitInterpVertexToScratch(a, b),
+    WASM_OP.end,
+  ];
+
+  const emitTriangleFromScratch = (slots: readonly [number, number, number]) => [
+    ...slots.flatMap((slot, i) => [
+      ...emitByteCopyLoop(
+        (offset) =>
+          iAdd(
+            iAdd(
+              local(clippedPositionsOutBase),
+              iMul(iAdd(local(clippedVertexCountIdx), i32ConstBytes(i)), i32ConstBytes(VEC4_BYTES)),
+            ),
+            offset,
+          ),
+        (offset) => iAdd(scratchPosAddr(i32ConstBytes(slot)), offset),
+        i32ConstBytes(VEC4_BYTES),
+        byteCounterIdx,
+      ),
+      ...emitByteCopyLoop(
+        (offset) =>
+          iAdd(
+            iAdd(
+              local(clippedVaryingsOutBase),
+              iMul(iAdd(local(clippedVertexCountIdx), i32ConstBytes(i)), local(varyingBytes)),
+            ),
+            offset,
+          ),
+        (offset) => iAdd(scratchVaryingAddr(i32ConstBytes(slot)), offset),
+        local(varyingBytes),
+        byteCounterIdx,
+      ),
+    ]),
+    ...iAdd(local(clippedVertexCountIdx), i32ConstBytes(3)),
+    ...localSet(clippedVertexCountIdx),
+  ];
+
+  const clipOneTriangle = [
+    ...i32ConstBytes(0),
+    ...localSet(outCountIdx),
+    ...emitClipEdge(tExpr, t1Expr),
+    ...emitClipEdge(t1Expr, t2Expr),
+    ...emitClipEdge(t2Expr, tExpr),
+    ...iGeS(local(outCountIdx), i32ConstBytes(3)),
+    WASM_OP.if_,
+    0x40,
+    ...emitTriangleFromScratch([0, 1, 2]),
+    WASM_OP.end,
+    ...iEq(local(outCountIdx), i32ConstBytes(4)),
+    WASM_OP.if_,
+    0x40,
+    ...emitTriangleFromScratch([0, 2, 3]),
+    WASM_OP.end,
+  ];
+
+  const clipLoop = [
+    ...i32ConstBytes(0),
+    ...localSet(clippedVertexCountIdx),
+    ...i32ConstBytes(0),
+    ...localSet(tIdx),
+    WASM_OP.block,
+    0x40,
+    WASM_OP.loop,
+    0x40,
+    ...iGeS(t2Expr, local(vertexCount)),
+    WASM_OP.brIf,
+    ...wasmUleb128(1),
+    ...clipOneTriangle,
+    ...iAdd(local(tIdx), i32ConstBytes(3)),
+    ...localSet(tIdx),
+    WASM_OP.br,
+    ...wasmUleb128(0),
+    WASM_OP.end,
+    WASM_OP.end,
+  ];
+
   const screenX = (vertexIndex: number[]) =>
     fMul(
-      fAdd(fMul(fDiv(posComponent(vertexIndex, 0), posComponent(vertexIndex, 3)), f64ConstBytes(0.5)), f64ConstBytes(0.5)),
+      fAdd(
+        fMul(fDiv(posComponent(vertexIndex, 0), posComponent(vertexIndex, 3)), f64ConstBytes(0.5)),
+        f64ConstBytes(0.5),
+      ),
       local(widthFIdx),
     );
   const screenY = (vertexIndex: number[]) =>
     fMul(
       fSub(
         f64ConstBytes(1),
-        fAdd(fMul(fDiv(posComponent(vertexIndex, 1), posComponent(vertexIndex, 3)), f64ConstBytes(0.5)), f64ConstBytes(0.5)),
+        fAdd(
+          fMul(fDiv(posComponent(vertexIndex, 1), posComponent(vertexIndex, 3)), f64ConstBytes(0.5)),
+          f64ConstBytes(0.5),
+        ),
       ),
       local(heightFIdx),
     );
-
-  const tExpr = local(tIdx);
-  const t1Expr = iAdd(local(tIdx), i32ConstBytes(1));
-  const t2Expr = iAdd(local(tIdx), i32ConstBytes(2));
 
   const computeScreenSpace = [
     ...screenX(tExpr),
@@ -414,14 +594,6 @@ export function buildRasterizerModule(): Uint8Array {
     fSub(
       fMul(fSub(local(ax), local(pxIdx)), fSub(local(by), local(pyIdx))),
       fMul(fSub(local(ay), local(pyIdx)), fSub(local(bx), local(pxIdx))),
-    );
-
-  const varyingComponent = (vertexIndex: number[], recordOffset: number[], comp: number[]) =>
-    loadF64(
-      iAdd(
-        iAdd(iAdd(local(varyingsOutBase), iMul(vertexIndex, local(varyingBytes))), recordOffset),
-        iMul(comp, i32ConstBytes(8)),
-      ),
     );
 
   const interpolateOneDescriptor = [
@@ -589,7 +761,7 @@ export function buildRasterizerModule(): Uint8Array {
     0x40,
     WASM_OP.loop,
     0x40,
-    ...iGeS(t2Expr, local(vertexCount)),
+    ...iGeS(t2Expr, local(clippedVertexCountIdx)),
     WASM_OP.brIf,
     ...wasmUleb128(1),
     ...triangleBody,
@@ -606,22 +778,20 @@ export function buildRasterizerModule(): Uint8Array {
     ...localSet(widthFIdx),
     ...toF64(local(height)),
     ...localSet(heightFIdx),
+    ...iDivS(local(varyingBytes), i32ConstBytes(8)),
+    ...localSet(wholeRecordComponentsIdx),
     ...vertexLoop,
+    ...clipLoop,
     ...triangleLoop,
   ];
 
   const funcBody = [...locals.declBytes(), ...code, WASM_OP.end];
   const codeSection = wasmSection(10, wasmVec([[...wasmUleb128(funcBody.length), ...funcBody]]));
 
+  // prettier-ignore
   return new Uint8Array([
-    0x00,
-    0x61,
-    0x73,
-    0x6d, // "\0asm"
-    0x01,
-    0x00,
-    0x00,
-    0x00, // version 1
+    0x00, 0x61, 0x73, 0x6d, // "\0asm"
+    0x01, 0x00, 0x00, 0x00, // version 1
     ...typeSection,
     ...importSection,
     ...funcSection,
@@ -645,7 +815,11 @@ export interface AttributeDescriptor {
  * Packs `descriptors` into `view` at `base`, in the layout
  * {@link buildRasterizerModule}'s attribute-copy loop reads.
  */
-export function writeAttributeDescriptors(view: DataView, base: number, descriptors: readonly AttributeDescriptor[]): void {
+export function writeAttributeDescriptors(
+  view: DataView,
+  base: number,
+  descriptors: readonly AttributeDescriptor[],
+): void {
   descriptors.forEach((d, i) => {
     view.setInt32(base + i * ATTR_DESC_BYTES, d.srcOffset, true);
     view.setInt32(base + i * ATTR_DESC_BYTES + 4, d.destAddress, true);

@@ -31,10 +31,13 @@ describe("WASM backend: generic rasterizer module — linking skeleton", () => {
       memory,
     });
 
-    const vertexInstance = new WebAssembly.Instance(new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer), {
-      math: Math as unknown as WebAssembly.ModuleImports,
-      env: { memory },
-    });
+    const vertexInstance = new WebAssembly.Instance(
+      new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer),
+      {
+        math: Math as unknown as WebAssembly.ModuleImports,
+        env: { memory },
+      },
+    );
     const fragmentInstance = new WebAssembly.Instance(
       new WebAssembly.Module(fragmentCompiled.bytes.buffer as ArrayBuffer),
       { math: Math as unknown as WebAssembly.ModuleImports, env: { memory } },
@@ -76,6 +79,9 @@ describe("WASM backend: generic rasterizer module — linking skeleton", () => {
       0,
       0,
       0,
+      4096,
+      8192,
+      12288,
     );
 
     for (let i = 0; i < vertices.length; i++) {
@@ -136,10 +142,13 @@ describe("WASM backend: generic rasterizer module — triangle setup and edge fu
       memory,
     });
 
-    const vertexInstance = new WebAssembly.Instance(new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer), {
-      math: Math as unknown as WebAssembly.ModuleImports,
-      env: { memory },
-    });
+    const vertexInstance = new WebAssembly.Instance(
+      new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer),
+      {
+        math: Math as unknown as WebAssembly.ModuleImports,
+        env: { memory },
+      },
+    );
     const fragmentInstance = new WebAssembly.Instance(
       new WebAssembly.Module(fragmentCompiled.bytes.buffer as ArrayBuffer),
       { math: Math as unknown as WebAssembly.ModuleImports, env: { memory } },
@@ -177,6 +186,9 @@ describe("WASM backend: generic rasterizer module — triangle setup and edge fu
       0,
       0,
       0,
+      8192,
+      12288,
+      16384,
     );
 
     const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
@@ -238,10 +250,13 @@ describe("WASM backend: generic rasterizer module — perspective-correct varyin
       memory,
     });
 
-    const vertexInstance = new WebAssembly.Instance(new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer), {
-      math: Math as unknown as WebAssembly.ModuleImports,
-      env: { memory },
-    });
+    const vertexInstance = new WebAssembly.Instance(
+      new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer),
+      {
+        math: Math as unknown as WebAssembly.ModuleImports,
+        env: { memory },
+      },
+    );
     const fragmentInstance = new WebAssembly.Instance(
       new WebAssembly.Module(fragmentCompiled.bytes.buffer as ArrayBuffer),
       { math: Math as unknown as WebAssembly.ModuleImports, env: { memory } },
@@ -268,7 +283,12 @@ describe("WASM backend: generic rasterizer module — perspective-correct varyin
     writeAttributeDescriptors(view, attrDescBase, [{ srcOffset: 0, destAddress: attrDestAddress, sizeBytes: 24 }]);
     const varyingDescBase = 1600;
     writeVaryingDescriptors(view, varyingDescBase, [
-      { recordOffset: 0, vertexSrcAddress: vertexVaryingAddress, fragmentDestAddress: fragmentVaryingAddress, sizeBytes: 24 },
+      {
+        recordOffset: 0,
+        vertexSrcAddress: vertexVaryingAddress,
+        fragmentDestAddress: fragmentVaryingAddress,
+        sizeBytes: 24,
+      },
     ]);
 
     rasterize(
@@ -287,6 +307,9 @@ describe("WASM backend: generic rasterizer module — perspective-correct varyin
       varyingDescBase,
       1,
       varyingsOutBase,
+      24576,
+      28672,
+      32768,
     );
 
     const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
@@ -355,10 +378,13 @@ describe("WASM backend: generic rasterizer module — multiple attribute slots",
       memory,
     });
 
-    const vertexInstance = new WebAssembly.Instance(new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer), {
-      math: Math as unknown as WebAssembly.ModuleImports,
-      env: { memory },
-    });
+    const vertexInstance = new WebAssembly.Instance(
+      new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer),
+      {
+        math: Math as unknown as WebAssembly.ModuleImports,
+        env: { memory },
+      },
+    );
     const fragmentInstance = new WebAssembly.Instance(
       new WebAssembly.Module(fragmentCompiled.bytes.buffer as ArrayBuffer),
       { math: Math as unknown as WebAssembly.ModuleImports, env: { memory } },
@@ -393,7 +419,12 @@ describe("WASM backend: generic rasterizer module — multiple attribute slots",
     const fragmentVaryingAddress = fragmentCompiled.params.find((p) => p.kind === "varyingMemory")!.address;
     const varyingDescBase = 1728;
     writeVaryingDescriptors(view, varyingDescBase, [
-      { recordOffset: 0, vertexSrcAddress: vertexVaryingAddress, fragmentDestAddress: fragmentVaryingAddress, sizeBytes: 24 },
+      {
+        recordOffset: 0,
+        vertexSrcAddress: vertexVaryingAddress,
+        fragmentDestAddress: fragmentVaryingAddress,
+        sizeBytes: 24,
+      },
     ]);
 
     rasterize(
@@ -412,6 +443,9 @@ describe("WASM backend: generic rasterizer module — multiple attribute slots",
       varyingDescBase,
       1,
       varyingsOutBase,
+      24576,
+      28672,
+      32768,
     );
 
     const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
@@ -484,10 +518,13 @@ describe("WASM backend: generic rasterizer module — multiple varying slots", (
       memory,
     });
 
-    const vertexInstance = new WebAssembly.Instance(new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer), {
-      math: Math as unknown as WebAssembly.ModuleImports,
-      env: { memory },
-    });
+    const vertexInstance = new WebAssembly.Instance(
+      new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer),
+      {
+        math: Math as unknown as WebAssembly.ModuleImports,
+        env: { memory },
+      },
+    );
     const fragmentInstance = new WebAssembly.Instance(
       new WebAssembly.Module(fragmentCompiled.bytes.buffer as ArrayBuffer),
       { math: Math as unknown as WebAssembly.ModuleImports, env: { memory } },
@@ -556,6 +593,9 @@ describe("WASM backend: generic rasterizer module — multiple varying slots", (
       varyingDescBase,
       2,
       varyingsOutBase,
+      24576,
+      28672,
+      32768,
     );
 
     const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
@@ -619,10 +659,13 @@ describe("WASM backend: generic rasterizer module — scalarsInMemory for a scal
     const brightnessAddress = fragmentCompiled.params.find((p) => p.kind === "uniformMemory")!.address;
     new DataView(memory.buffer).setFloat64(brightnessAddress, 0.5, true);
 
-    const vertexInstance = new WebAssembly.Instance(new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer), {
-      math: Math as unknown as WebAssembly.ModuleImports,
-      env: { memory },
-    });
+    const vertexInstance = new WebAssembly.Instance(
+      new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer),
+      {
+        math: Math as unknown as WebAssembly.ModuleImports,
+        env: { memory },
+      },
+    );
     const fragmentInstance = new WebAssembly.Instance(
       new WebAssembly.Module(fragmentCompiled.bytes.buffer as ArrayBuffer),
       { math: Math as unknown as WebAssembly.ModuleImports, env: { memory } },
@@ -661,6 +704,9 @@ describe("WASM backend: generic rasterizer module — scalarsInMemory for a scal
       0,
       0,
       0,
+      24576,
+      28672,
+      32768,
     );
 
     // rasterize() re-reads brightness fresh from its own memory address
@@ -669,5 +715,244 @@ describe("WASM backend: generic rasterizer module — scalarsInMemory for a scal
     // enough for every covered pixel.
     const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
     expect(Array.from(actual)).toEqual(Array.from(expected));
+  });
+});
+
+describe("WASM backend: generic rasterizer module — near-plane clipping", () => {
+  it("clips a triangle with one vertex behind the eye into two triangles, matching an independent JS clip+raster reference", () => {
+    let posAttr!: AttributeNode<"vec3">;
+    const vertexBuild = () =>
+      Fn(() => {
+        posAttr = attribute("vec3");
+        builtinPosition().assign(vec4(posAttr.x, posAttr.y, posAttr.z, posAttr.z));
+      })();
+    const fragmentBuild = () => Fn(() => vec4(9, 8, 7, 6))();
+
+    const width = 8;
+    const height = 8;
+    // w = z per the vertex program above: vertex 0 sits behind the eye (w < 0).
+    const positions = [
+      [-1, -1, -1],
+      [1, -1, 2],
+      [-1, 1, 2],
+    ];
+
+    const jsVertex = compileJS(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
+    const clipSpacePositions = positions.map(
+      (p) => (jsVertex.invoke({ attributes: { [posAttr.name]: p } }) as { position: number[] }).position,
+    );
+
+    const EPS = 1e-5;
+    const clipAgainstW = (poly: number[][]): number[][] => {
+      const out: number[][] = [];
+      for (let i = 0; i < poly.length; i++) {
+        const a = poly[i];
+        const b = poly[(i + 1) % poly.length];
+        const aIn = a[3] > EPS;
+        const bIn = b[3] > EPS;
+        if (aIn) out.push(a);
+        if (aIn !== bIn) {
+          const t = (EPS - a[3]) / (b[3] - a[3]);
+          out.push(a.map((av, k) => av + (b[k] - av) * t));
+        }
+      }
+      return out;
+    };
+    const fanTriangulate = (poly: number[][]): [number[], number[], number[]][] => {
+      const tris: [number[], number[], number[]][] = [];
+      for (let i = 1; i + 1 < poly.length; i++) tris.push([poly[0], poly[i], poly[i + 1]]);
+      return tris;
+    };
+    const rasterizeTriangleInto = (out: Float64Array, p0: number[], p1: number[], p2: number[], color: number[]) => {
+      const screen = (p: number[]) => [((p[0] / p[3]) * 0.5 + 0.5) * width, (1 - ((p[1] / p[3]) * 0.5 + 0.5)) * height];
+      const s0 = screen(p0);
+      const s1 = screen(p1);
+      const s2 = screen(p2);
+      const area = (s1[0] - s0[0]) * (s2[1] - s0[1]) - (s1[1] - s0[1]) * (s2[0] - s0[0]);
+      if (area === 0) return;
+      const minX = Math.max(0, Math.floor(Math.min(s0[0], s1[0], s2[0])));
+      const maxX = Math.min(width - 1, Math.ceil(Math.max(s0[0], s1[0], s2[0])));
+      const minY = Math.max(0, Math.floor(Math.min(s0[1], s1[1], s2[1])));
+      const maxY = Math.min(height - 1, Math.ceil(Math.max(s0[1], s1[1], s2[1])));
+      for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+          const px = x + 0.5;
+          const py = y + 0.5;
+          const e0 = (s1[0] - px) * (s2[1] - py) - (s1[1] - py) * (s2[0] - px);
+          const e1 = (s2[0] - px) * (s0[1] - py) - (s2[1] - py) * (s0[0] - px);
+          const e2 = (s0[0] - px) * (s1[1] - py) - (s0[1] - py) * (s1[0] - px);
+          const inside = (e0 >= 0 && e1 >= 0 && e2 >= 0) || (e0 <= 0 && e1 <= 0 && e2 <= 0);
+          if (!inside) continue;
+          const base = (y * width + x) * 4;
+          for (let c = 0; c < 4; c++) out[base + c] = color[c];
+        }
+      }
+    };
+
+    const expected = new Float64Array(width * height * 4);
+    const clippedPoly = clipAgainstW(clipSpacePositions);
+    expect(clippedPoly.length).toBe(4); // one vertex out, two in -> a quad
+    for (const [a, b, c] of fanTriangulate(clippedPoly)) rasterizeTriangleInto(expected, a, b, c, [9, 8, 7, 6]);
+    expect(Array.from(expected).some((v) => v !== 0)).toBe(true);
+
+    const memory = new WebAssembly.Memory({ initial: 1 });
+    const view = new DataView(memory.buffer);
+
+    const vertexCompiled = compileWasmFn(vertexBuild as any, {
+      name: "main",
+      params: [],
+      stage: "vertex",
+      memory,
+      memoryBase: 0,
+    });
+    const fragmentCompiled = compileWasmFn(fragmentBuild as any, {
+      name: "main",
+      params: [],
+      memoryBase: 1024,
+      memory,
+    });
+
+    const vertexInstance = new WebAssembly.Instance(
+      new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer),
+      {
+        math: Math as unknown as WebAssembly.ModuleImports,
+        env: { memory },
+      },
+    );
+    const fragmentInstance = new WebAssembly.Instance(
+      new WebAssembly.Module(fragmentCompiled.bytes.buffer as ArrayBuffer),
+      { math: Math as unknown as WebAssembly.ModuleImports, env: { memory } },
+    );
+    const { rasterize } = instantiateRasterizer(
+      vertexInstance.exports.main as () => void,
+      fragmentInstance.exports.main as () => void,
+      memory,
+    );
+
+    const attrSrcBase = 2048;
+    const positionsOutBase = 4096;
+    const outputBase = 16384;
+    const attrDescBase = 1536;
+    const clipScratchBase = 24576;
+    const clippedPositionsOutBase = 28672;
+    const clippedVaryingsOutBase = 32768;
+    positions.flat().forEach((c, i) => view.setFloat64(attrSrcBase + i * 8, c, true));
+
+    const attrDestAddress = vertexCompiled.params.find((p) => p.kind === "attributeMemory")!.address;
+    writeAttributeDescriptors(view, attrDescBase, [{ srcOffset: 0, destAddress: attrDestAddress, sizeBytes: 24 }]);
+    const positionAddress = vertexCompiled.params.find((p) => p.kind === "positionMemory")!.address;
+    const fragmentValueAddress = fragmentCompiled.params.find((p) => p.kind === "valueMemory")!.address;
+
+    rasterize(
+      3,
+      attrSrcBase,
+      24,
+      attrDescBase,
+      1,
+      positionAddress,
+      positionsOutBase,
+      width,
+      height,
+      fragmentValueAddress,
+      outputBase,
+      0,
+      0,
+      0,
+      0,
+      clipScratchBase,
+      clippedPositionsOutBase,
+      clippedVaryingsOutBase,
+    );
+
+    const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
+    expect(Array.from(actual)).toEqual(Array.from(expected));
+  });
+
+  it("culls a triangle entirely behind the eye", () => {
+    let posAttr!: AttributeNode<"vec3">;
+    const vertexBuild = () =>
+      Fn(() => {
+        posAttr = attribute("vec3");
+        builtinPosition().assign(vec4(posAttr.x, posAttr.y, posAttr.z, posAttr.z));
+      })();
+    const fragmentBuild = () => Fn(() => vec4(9, 8, 7, 6))();
+
+    const width = 8;
+    const height = 8;
+    // Every vertex has w = z < 0: the whole triangle is behind the eye.
+    const positions = [
+      [-1, -1, -1],
+      [1, -1, -2],
+      [-1, 1, -2],
+    ];
+
+    const memory = new WebAssembly.Memory({ initial: 1 });
+    const view = new DataView(memory.buffer);
+
+    const vertexCompiled = compileWasmFn(vertexBuild as any, {
+      name: "main",
+      params: [],
+      stage: "vertex",
+      memory,
+      memoryBase: 0,
+    });
+    const fragmentCompiled = compileWasmFn(fragmentBuild as any, {
+      name: "main",
+      params: [],
+      memoryBase: 1024,
+      memory,
+    });
+
+    const vertexInstance = new WebAssembly.Instance(
+      new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer),
+      {
+        math: Math as unknown as WebAssembly.ModuleImports,
+        env: { memory },
+      },
+    );
+    const fragmentInstance = new WebAssembly.Instance(
+      new WebAssembly.Module(fragmentCompiled.bytes.buffer as ArrayBuffer),
+      { math: Math as unknown as WebAssembly.ModuleImports, env: { memory } },
+    );
+    const { rasterize } = instantiateRasterizer(
+      vertexInstance.exports.main as () => void,
+      fragmentInstance.exports.main as () => void,
+      memory,
+    );
+
+    const attrSrcBase = 2048;
+    const positionsOutBase = 4096;
+    const outputBase = 16384;
+    const attrDescBase = 1536;
+    positions.flat().forEach((c, i) => view.setFloat64(attrSrcBase + i * 8, c, true));
+
+    const attrDestAddress = vertexCompiled.params.find((p) => p.kind === "attributeMemory")!.address;
+    writeAttributeDescriptors(view, attrDescBase, [{ srcOffset: 0, destAddress: attrDestAddress, sizeBytes: 24 }]);
+    const positionAddress = vertexCompiled.params.find((p) => p.kind === "positionMemory")!.address;
+    const fragmentValueAddress = fragmentCompiled.params.find((p) => p.kind === "valueMemory")!.address;
+
+    rasterize(
+      3,
+      attrSrcBase,
+      24,
+      attrDescBase,
+      1,
+      positionAddress,
+      positionsOutBase,
+      width,
+      height,
+      fragmentValueAddress,
+      outputBase,
+      0,
+      0,
+      0,
+      0,
+      24576,
+      28672,
+      32768,
+    );
+
+    const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
+    expect(Array.from(actual).every((v) => v === 0)).toBe(true);
   });
 });

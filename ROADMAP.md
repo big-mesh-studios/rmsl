@@ -640,16 +640,18 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
   parameter-passing convention landed as plain `i32` args (see
   `RASTERIZE_PARAMS` below), not a metadata block in shared memory.
 
-  **v1 landed**: `src/backends/wasm/rasterizer.ts` (design in
-  `src/backends/wasm/rasterizer.md`) builds this generic module and
-  covers the vertex loop, triangle setup, edge-function coverage test,
-  and perspective-correct varying interpolation, verified against
-  `rasterizeTriangles`'s own `compileJS`-driven output as an oracle. Still
-  scoped to exactly one attribute slot and one varying slot (a single
-  contiguous blob each, not several independently-addressed slots) —
-  generalizing to several named slots, an index buffer, clipping, and
-  depth test, plus `createJs`/`createWasm` adapter integration, remain
-  open.
+  **v1 landed, now generalized further**: `src/backends/wasm/rasterizer.ts`
+  (design in `src/backends/wasm/rasterizer.md`) builds this generic module
+  and covers the vertex loop, triangle setup, edge-function coverage test,
+  perspective-correct varying interpolation, any number of independently-
+  addressed attribute/varying slots (via runtime descriptor tables), and
+  near-plane (`w`) clipping (Sutherland-Hodgman, single plane — a
+  straddling triangle is cut into a quad and fan-triangulated, not just
+  culled whole) — all verified against either `rasterizeTriangles`'s own
+  `compileJS`-driven output, or an independent JS clip+raster reference
+  for the clipping case, as oracles. Still open: an index buffer, far-plane
+  or screen-bounds frustum clipping, a depth test, and `createJs`/
+  `createWasm` adapter integration.
 
   If B is ever built, one non-obvious constraint to design around up
   front: growing a `WebAssembly.Memory` (`memory.grow`, from the host or
