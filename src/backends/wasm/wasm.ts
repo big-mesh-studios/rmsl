@@ -166,6 +166,15 @@ export type CompileWasmFnOptions = CompileFnOptions & {
    * region, rather than replacing it.
    */
   memoryBase?: number;
+
+  /**
+   * Forces every scalar uniform/attribute/fragment-stage `varying()` to be
+   * memory-resident, the same as an aggregate one, instead of a WASM
+   * function parameter. Exists for callers (like the generic rasterizer
+   * module) that call the compiled function with a fixed, zero-argument
+   * signature and can't vary it per program.
+   */
+  scalarsInMemory?: boolean;
 };
 
 // Per-texture metadata block written by writeTextureToMemory(), reserved
@@ -706,17 +715,19 @@ function readValueFromMemory(view: DataView, address: number, shaderType: Shader
 }
 
 /** Host-side: writes one scalar value into memory — writeAggregateToMemory's counterpart for a non-array type. */
-function writeScalarToMemory(view: DataView, address: number, shaderType: ShaderType, value: unknown): void {
+function writeScalarToMemory(view: DataView, address: number, shaderType: ShaderType, value: unknown, narrow?: boolean): void {
   const kind = scalarKindOf(shaderType);
   const num = typeof value === "boolean" ? (value ? 1 : 0) : ((value as number | undefined) ?? 0);
-  if (kind === "float") view.setFloat64(address, num, true);
-  else view.setInt32(address, num, true);
+  if (kind === "float") {
+    if (narrow) view.setFloat32(address, num, true);
+    else view.setFloat64(address, num, true);
+  } else view.setInt32(address, num, true);
 }
 
 /** Host-side: writes a value (scalar or aggregate) into memory — the write-side counterpart of readValueFromMemory. */
-function writeValueToMemory(view: DataView, address: number, shaderType: ShaderType, value: unknown): void {
-  if (isAggregate(shaderType)) writeAggregateToMemory(view, address, shaderType, value);
-  else writeScalarToMemory(view, address, shaderType, value);
+function writeValueToMemory(view: DataView, address: number, shaderType: ShaderType, value: unknown, narrow?: boolean): void {
+  if (isAggregate(shaderType)) writeAggregateToMemory(view, address, shaderType, value, narrow);
+  else writeScalarToMemory(view, address, shaderType, value, narrow);
 }
 
 /**
@@ -1179,7 +1190,7 @@ export function compileWasmFn(
               metadataAddress: addr,
             });
           }
-        } else if (isAggregate(v.shaderType)) {
+        } else if (isAggregate(v.shaderType) || options.scalarsInMemory) {
           if (!uniformAddress.has(v.slot)) {
             const addr = allocateFor(v.shaderType);
             uniformAddress.set(v.slot, addr);
@@ -1245,7 +1256,7 @@ export function compileWasmFn(
 
       case "attribute": {
         const v = node.value;
-        if (isAggregate(v.shaderType)) {
+        if (isAggregate(v.shaderType) || options.scalarsInMemory) {
           if (!attributeAddress.has(v.slot)) {
             const addr = allocateFor(v.shaderType);
             attributeAddress.set(v.slot, addr);
@@ -1287,7 +1298,7 @@ export function compileWasmFn(
         const v = node.value;
         if (effectiveStage === "fragment") {
           // fragment: varyings are per-call inputs, written by the host
-          if (isAggregate(v.shaderType)) {
+          if (isAggregate(v.shaderType) || options.scalarsInMemory) {
             if (!varyingAddress.has(v.slot)) {
               const addr = allocateFor(v.shaderType);
               varyingAddress.set(v.slot, addr);
@@ -2601,10 +2612,16 @@ export function compileWasmFn(
           return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`param:${node.value.varName}`))];
         }
         return [WASM_OP.localGet, ...wasmUleb128(localSlotIndex(node.value.varName))];
-      case "uniform":
+      case "uniform": {
+        const addr = uniformAddress.get(node.value.slot);
+        if (addr !== undefined) return loadComponent(addr, scalarKindOf(node._t), 0); // scalarsInMemory: memory-resident, not a param
         return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`uniform:${node.value.slot}`))];
-      case "attribute":
+      }
+      case "attribute": {
+        const addr = attributeAddress.get(node.value.slot);
+        if (addr !== undefined) return loadComponent(addr, scalarKindOf(node._t), 0); // scalarsInMemory: memory-resident, not a param
         return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`attribute:${node.value.slot}`))];
+      }
       case "invocationIndex":
         return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex("invocationIndex"))];
       case "storage":
@@ -2616,6 +2633,8 @@ export function compileWasmFn(
         return loadComponent(nodeAddress(node.params[0]), scalarKindOf(node._t), 0);
       case "varying":
         if (effectiveStage === "fragment") {
+          const addr = varyingAddress.get(node.value.slot);
+          if (addr !== undefined) return loadComponent(addr, scalarKindOf(node._t), 0); // scalarsInMemory: memory-resident, not a param
           return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`varying:${node.value.slot}`))];
         }
         return loadComponent(varyingOutputAddress.get(node.value.slot)!, scalarKindOf(node._t), 0); // vertex: re-read our own written output
@@ -3254,7 +3273,7 @@ export function instantiateWasm(
           writeAggregateToMemory(view, p.address, p.shaderType, (ctx.params as any)?.[p.name]);
           break;
         case "uniformMemory":
-          writeAggregateToMemory(view, p.address, p.shaderType, (ctx.uniforms as any)?.[p.slot], p.narrow);
+          writeValueToMemory(view, p.address, p.shaderType, (ctx.uniforms as any)?.[p.slot], p.narrow);
           break;
         case "uniformArrayMemory":
           writeArrayToMemory(
@@ -3268,10 +3287,10 @@ export function instantiateWasm(
           );
           break;
         case "attributeMemory":
-          writeAggregateToMemory(view, p.address, p.shaderType, (ctx.attributes as any)?.[p.slot]);
+          writeValueToMemory(view, p.address, p.shaderType, (ctx.attributes as any)?.[p.slot]);
           break;
         case "varyingMemory":
-          writeAggregateToMemory(view, p.address, p.shaderType, (ctx.varyings as any)?.[p.slot]);
+          writeValueToMemory(view, p.address, p.shaderType, (ctx.varyings as any)?.[p.slot]);
           break;
         case "fragCoordMemory":
           // the host's fragCoord for CPU invocations; batch() overwrites it per pixel — harmless

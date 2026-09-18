@@ -1761,3 +1761,59 @@ describe("WASM backend: memoryBase — several compiled modules sharing one WebA
     expect(view().getFloat64(0, true)).toBe(1); // a's region untouched by b's call
   });
 });
+
+describe("WASM backend: scalarsInMemory — scalar uniform/attribute/varying forced into memory", () => {
+  it("compiles a scalar uniform to a zero-arg function and still reads its value", () => {
+    let threshold!: any;
+    const build = () => {
+      threshold = uniform("float");
+      return threshold.add(1);
+    };
+    const compiled = compileWasmFn(build, { name: "main", params: [], scalarsInMemory: true });
+    expect(compiled.params.some((p) => p.kind === "uniform")).toBe(false);
+    expect(compiled.params.some((p) => p.kind === "uniformMemory")).toBe(true);
+
+    const fn = instantiateWasm(compiled, "main");
+    expect(fn.invoke({ uniforms: { [threshold.name]: 4 } })).toBe(5);
+    expect(fn.invoke({ uniforms: { [threshold.name]: 9 } })).toBe(10);
+  });
+
+  it("compiles a scalar attribute to a zero-arg function and still reads its value", () => {
+    let a!: any;
+    const build = () => {
+      a = attribute("float");
+      return a.mul(2);
+    };
+    const compiled = compileWasmFn(build, { name: "main", params: [], scalarsInMemory: true });
+    expect(compiled.params.some((p) => p.kind === "attribute")).toBe(false);
+    expect(compiled.params.some((p) => p.kind === "attributeMemory")).toBe(true);
+
+    const fn = instantiateWasm(compiled, "main");
+    expect(fn.invoke({ attributes: { [a.name]: 3 } })).toBe(6);
+  });
+
+  it("compiles a scalar fragment-stage varying to a zero-arg function and still reads its value", () => {
+    let v!: any;
+    const build = () => {
+      v = varying("float");
+      return v.sub(1);
+    };
+    const compiled = compileWasmFn(build, { name: "main", params: [], scalarsInMemory: true });
+    expect(compiled.params.some((p) => p.kind === "varying")).toBe(false);
+    expect(compiled.params.some((p) => p.kind === "varyingMemory")).toBe(true);
+
+    const fn = instantiateWasm(compiled, "main");
+    expect(fn.invoke({ varyings: { [v.name]: 10 } })).toBe(9);
+  });
+
+  it("leaves a scalar-only program at a real function argument by default", () => {
+    let threshold!: any;
+    const build = () => {
+      threshold = uniform("float");
+      return threshold.add(1);
+    };
+    const compiled = compileWasmFn(build, { name: "main", params: [] });
+    expect(compiled.params.some((p) => p.kind === "uniform")).toBe(true);
+    expect(compiled.params.some((p) => p.kind === "uniformMemory")).toBe(false);
+  });
+});
