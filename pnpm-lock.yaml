@@ -14,6 +14,9 @@ importers:
       esbuild:
         specifier: ^0.28.1
         version: 0.28.1
+      wabt:
+        specifier: ^1.0.39
+        version: 1.0.39
     devDependencies:
       '@kmamal/gpu':
         specifier: ^0.2.1
@@ -48,9 +51,6 @@ importers:
       vitest:
         specifier: ^4.1.3
         version: 4.1.10(@types/node@22.20.2)(vite@7.3.6(@types/node@22.20.2))
-      wabt:
-        specifier: ^1.0.39
-        version: 1.0.39
 
   apps/adapters:
     dependencies:
