@@ -19,6 +19,7 @@ file stays a scannable status/plan document rather than a chronological log.
 - [Open questions](#open-questions)
 - [Design decisions already made](#design-decisions-already-made)
 - [SIMD opportunities in `compileWasmFn` itself](#simd-opportunities-in-compilewasmfn-itself)
+- [Deployment targets beyond the browser](#deployment-targets-beyond-the-browser)
 - [Known issues found along the way](#known-issues-found-along-the-way-not-wasm-specific)
 - [Non-goals](#non-goals)
 
@@ -1000,6 +1001,47 @@ control-flow branching — which is a genuine compiler redesign, not an
 incremental change on top of the three ideas above. Worth naming as the
 ceiling this whole direction could reach, not something to reach for
 first.
+
+## Deployment targets beyond the browser
+
+`compileWasm`/`compileWasmFn` already produce a plain `.wasm` module with
+no DOM/canvas dependency and no assumption baked in that its host is a
+browser — `instantiateWasm`'s only browser-specific piece is the JS glue
+that marshals attributes/uniforms/textures in and reads results back out.
+Two hosts outside the browser look like a natural fit for that shape.
+
+#### Edge functions
+
+Cloudflare Workers, Vercel Edge, Deno Deploy, and similar runtimes have no
+WebGL/WebGPU and bill per-invocation cold-start — exactly what the
+generic rasterizer module's size and instantiate time were optimized for
+already (sub-3KB, sub-millisecond instantiate; see the WASM vs. JS
+rasterizer comparison above). The plausible use case is server-side image
+generation: bake a thumbnail, a procedural texture, or a preview frame
+from the same shader graph the client renders on a real GPU, so server
+and client stay visually consistent by construction instead of by
+manually keeping two implementations in sync. `compileWasm`/`compileJS`
+already return a callable producing a `CpuDrawBuffer`; the missing piece
+is entirely on the output side — encoding that buffer to PNG/an image
+response — not on the compiler or rasterizer side, since these runtimes
+already support `WebAssembly.instantiate` the same way a browser does.
+
+#### Embedded, via WAMR
+
+True embedded (a microcontroller, no JS engine at all) can't use
+`instantiateWasm` as-is, since it's JS host glue — but the `.wasm` bytes
+`compileWasmFn` emits don't need a JS host specifically, they need any
+runtime that can resolve the module's imports and back its memory. [WAMR
+(WebAssembly Micro Runtime)](https://github.com/bytecodealliance/wasm-micro-runtime),
+a Bytecode Alliance project built for exactly this (interpreter and AOT
+modes running in a few hundred KB of RAM), is a plausible target. The
+real work is a second, C-side "instantiate" mirroring what `wasm.ts`'s
+marshaller already does in JS — attribute/uniform/texture copying into
+linear memory — plus resolving `compileWasmFn`'s transcendental import
+(`sin`/`cos`/`exp`/etc., currently backed by JS's `Math`) against a C math
+library instead. Both are host-glue work, not compiler changes: the
+`.wasm` bytes themselves should run unmodified. Unexplored beyond this;
+no prototype attempted yet.
 
 ## Known issues found along the way (not WASM-specific)
 
