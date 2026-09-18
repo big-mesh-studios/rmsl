@@ -55,6 +55,45 @@ describe("WASM backend: compileWasm (vertex+fragment rasterizer pipeline)", () =
     expect(Array.from(result.slice(0, 4))).toEqual([0, 1, 0, 1]);
   });
 
+  it("clears the output buffer between draw() calls instead of leaving stale pixels", () => {
+    const posAttr = attribute("vec3");
+    const colorUniform = uniform("vec3");
+
+    const vertexFn = () => Fn(() => builtinPosition().assign(vec4(posAttr.x, posAttr.y, posAttr.z, 1)))();
+    const fragmentFn = () => Fn(() => vec4(colorUniform.x, colorUniform.y, colorUniform.z, 1))();
+
+    const routine = compileWasm(vertexFn as any, fragmentFn as any);
+    const width = 4;
+    const height = 4;
+
+    // draw 1: a big red triangle covering the whole screen
+    const bigTriangle = new Float64Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]);
+    const first = routine.draw(
+      { attributes: { [posAttr.name]: bigTriangle }, uniforms: { [colorUniform.name]: [1, 0, 0] } },
+      3,
+      width,
+      height,
+    );
+    expect(Array.from(first).every((_, i) => i % 4 !== 3 || first[i] === 1)).toBe(true); // every pixel's alpha is 1: fully covered
+
+    // draw 2: a tiny blue triangle covering exactly one corner pixel (NDC 0.5 units, one quarter of a 4-wide axis),
+    // with `clear: true` — the "one draw, one frame" case this option exists for
+    const tinyTriangle = new Float64Array([-1, -1, 0, -0.5, -1, 0, -1, -0.5, 0]);
+    const second = routine.draw(
+      { attributes: { [posAttr.name]: tinyTriangle }, uniforms: { [colorUniform.name]: [0, 0, 1] } },
+      3,
+      width,
+      height,
+      undefined,
+      true,
+    );
+
+    // an uncovered pixel reads as cleared (0,0,0,0), not the stale red `first` left at that same address
+    expect(Array.from(second.slice(-4))).toEqual([0, 0, 0, 0]);
+    // some pixel is genuinely covered by the tiny triangle
+    expect(Array.from(second).some((v, i) => i % 4 === 2 && v === 1)).toBe(true);
+  });
+
   it("keeps a persistent depth buffer across draw() calls until clearDepth()", () => {
     const posAttr = attribute("vec3");
     const colorUniform = uniform("vec3");

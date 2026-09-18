@@ -172,8 +172,23 @@ export interface WasmRasterRoutine {
    * triangle list — `vertexCount / 3` triangles), then the clip and
    * triangle passes into a `width` x `height`, 4-components-per-pixel
    * buffer, the same flat row-major convention `CpuRoutine.batch()` uses.
+   *
+   * The output buffer's own address is reused deterministically call to
+   * call (same as the depth buffer's, just not held stable the way
+   * `clearDepth()` holds depth's), so several `draw()` calls in a row
+   * compose onto it exactly like several draws into one real framebuffer
+   * would — an uncovered-or-depth-failing pixel keeps whatever an earlier
+   * `draw()` left there. Pass `clear: true` to zero it first instead,
+   * the same "one call, one frame" choice `clearDepth()` leaves explicit.
    */
-  draw(ctx: WasmRasterContext, vertexCount: number, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer;
+  draw(
+    ctx: WasmRasterContext,
+    vertexCount: number,
+    width: number,
+    height: number,
+    out?: CpuDrawBuffer,
+    clear?: boolean,
+  ): CpuDrawBuffer;
   /**
    * The depth buffer persists across `draw()` calls (the LEQUAL test needs
    * a stable buffer to compare against, so several draws in one frame can
@@ -326,6 +341,7 @@ export function compileWasm(
     width: number,
     height: number,
     out?: CpuDrawBuffer,
+    clear = false,
   ): CpuDrawBuffer {
     const sharedCtx = { uniforms: ctx.uniforms, textures: ctx.textures } as CpuShaderContext;
     const { textureHeapEnd: vertexHeapEnd } = vertexMarshaller.marshal(sharedCtx);
@@ -400,6 +416,8 @@ export function compileWasm(
         sizeBytes: v.sizeBytes,
       })),
     );
+
+    if (clear) new Float64Array(memory.buffer, outputBase, width * height * 4).fill(0);
 
     rasterize(
       vertexCount,

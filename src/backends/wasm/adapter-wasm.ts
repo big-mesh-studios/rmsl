@@ -60,11 +60,12 @@ export interface WasmDrawOptions {
  * `setAttribute`/`setUniform` collect draw state, `attach` opens a 2D
  * canvas context, and `draw({ vertexCount })` runs one frame into it.
  *
- * Each `draw()` call auto-clears the depth buffer first, treating one call
- * as one whole frame — the common case for a single-material adapter. A
- * caller composing several materials into one shared depth buffer needs
- * `compileWasm`'s own `WasmRasterRoutine` directly, where `clearDepth()`
- * is explicit instead.
+ * Each `draw()` call auto-clears both the depth buffer and the output
+ * buffer first, treating one call as one whole frame — the common case
+ * for a single-material adapter. A caller composing several materials
+ * into one shared framebuffer/depth buffer needs `compileWasm`'s own
+ * `WasmRasterRoutine` directly, where both clears are explicit instead
+ * (`clearDepth()`, and `draw()`'s own `clear` argument).
  */
 export function createWasm(
   vertexFn: (...args: any[]) => any,
@@ -107,7 +108,7 @@ export function createWasm(
       if (!drawOptions) throw new Error("[RMSL] createWasm: draw() needs a { vertexCount }");
       routine.clearDepth();
       const ctx: WasmRasterContext = { attributes, uniforms };
-      const buffer = routine.draw(ctx, drawOptions.vertexCount, canvas.width, canvas.height);
+      const buffer = routine.draw(ctx, drawOptions.vertexCount, canvas.width, canvas.height, undefined, true);
       ctx2d.putImageData(bufferToImageData(buffer, canvas.width, canvas.height), 0, 0);
     },
 
