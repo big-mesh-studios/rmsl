@@ -319,7 +319,13 @@ export function buildRasterizerModule(): Uint8Array {
     iIdx,
     i32ConstBytes(0),
     iGeS(local(iIdx), local(vertexCount)),
-    [...copyAttributeIn, WASM_OP.call, ...wasmUleb128(0) /* vertex.main */, ...copyPositionOut, ...copyVaryingOut],
+    [
+      ...copyAttributeIn,
+      WASM_OP.call,
+      ...wasmUleb128(0), // vertex.main
+      ...copyPositionOut,
+      ...copyVaryingOut,
+    ],
     i32ConstBytes(1),
   );
 
