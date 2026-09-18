@@ -482,3 +482,39 @@ JS call overhead scales with pixel count same as anything else, while
 motivated `apps/adapters`' own `wasm-vtx` demo option switching from
 `compileWasmRoutine` + `rasterizeTriangles` (which never exercised this
 module at all) to `createWasm` directly.
+
+### `compileJS` vs `createWasm`: now a fair fight — both sides have the same clip/depth scope
+
+`compileJS` (`src/backends/js/rasterizer.ts`) ported `rasterizer.wat`'s
+algorithm to plain JS — near-plane clipping and a persistent LEQUAL depth
+buffer, the same scope `WasmRasterRoutine` has — so `apps/adapters`'
+`js-vtx` demo option could switch from `rasterizeTriangles` (no clipping,
+no depth test) to `createJs` too, the same way `wasm-vtx` switched to
+`createWasm` above. That makes the section above's comparison stale as a
+"which backend is faster" measurement — it compared `createWasm` against
+a *simpler* JS implementation, not against JS's own feature-equivalent
+one — so `wasm-rasterizer.bench.ts` was updated to compare `compileJS`
+against `createWasm` directly instead of `rasterizeTriangles`:
+
+| Scenario                            | 128x128, Run 1 | 128x128, Run 2 | 512x512, Run 1 | 512x512, Run 2 |
+| ------------------------------------ | -------------- | -------------- | -------------- | -------------- |
+| `createWasm` vs. `compileJS`        | 9.16x faster   | 9.27x faster   | 9.19x faster   | 7.83x faster   |
+
+Similar magnitude to the `rasterizeTriangles` comparison above, which
+makes sense: both JS implementations pay the same fundamental cost
+`compileWasm`'s design exists to amortize (a real function call per
+vertex and per covered pixel from JS, vs. one WASM call doing the same
+work internally) — adding clipping/depth to the JS side made it more
+_capable_, not faster, since the added work (the clip test, the depth
+compare) is itself plain JS running per vertex/pixel same as before.
+
+**Why the demo app shows "same fps" for both, then:** `requestAnimationFrame`
+caps at the display's refresh rate (typically 60Hz), and this benchmark's
+scene (one quad, 2 triangles) is cheap enough that *both* backends clear
+that ceiling with room to spare — so the demo's FPS reading measures "did
+we hit vsync," not "how fast is this backend," for either option. The
+~8-9x gap above is the real number; it's just invisible behind the cap
+for a scene this small. It would show up directly in the demo with either
+a much bigger scene (more triangles/pixels) or an FPS counter that
+doesn't cap at vsync (e.g. summing per-frame CPU time instead of counting
+frames).
