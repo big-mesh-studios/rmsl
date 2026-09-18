@@ -37,8 +37,8 @@ export const RASTERIZE_PARAMS = [
   "fragmentValueAddress",
   "outputBase",
   "varyingBytes",
-  "vertexVaryingAddress",
-  "fragmentVaryingAddress",
+  "varyingDescBase",
+  "varyingDescCount",
   "varyingsOutBase",
 ] as const;
 
@@ -80,6 +80,12 @@ const loadI32 = (addr: number[]) => [...addr, WASM_OP.i32Load, 0x00, 0x00];
  * Byte size of one `[srcOffset, destAddress, sizeBytes]` attribute descriptor entry.
  */
 const ATTR_DESC_BYTES = 12;
+
+/**
+ * Byte size of one `[recordOffset, vertexSrcAddress, fragmentDestAddress,
+ * sizeBytes]` varying descriptor entry.
+ */
+const VARYING_DESC_BYTES = 16;
 
 /**
  * Assigns sequential local indices/types past a function's own params.
@@ -188,8 +194,8 @@ export function buildRasterizerModule(): Uint8Array {
     fragmentValueAddress,
     outputBase,
     varyingBytes,
-    vertexVaryingAddress,
-    fragmentVaryingAddress,
+    varyingDescBase,
+    varyingDescCount,
     varyingsOutBase,
   ] = RASTERIZE_PARAMS.map((_, i) => i);
 
@@ -227,14 +233,16 @@ export function buildRasterizerModule(): Uint8Array {
   const b1Idx = locals.alloc(WASM_F64);
   const b2Idx = locals.alloc(WASM_F64);
   const invWIdx = locals.alloc(WASM_F64);
-  const numVaryingComponentsIdx = locals.alloc(WASM_I32);
   const componentIdx = locals.alloc(WASM_I32);
-  const dIdx = locals.alloc(WASM_I32); // descriptor loop counter
-  const descSrcOffsetIdx = locals.alloc(WASM_I32);
-  const descDestAddrIdx = locals.alloc(WASM_I32);
-  const descSizeIdx = locals.alloc(WASM_I32);
+  const dIdx = locals.alloc(WASM_I32); // descriptor loop counter, reused across every descriptor loop
+  const descField0Idx = locals.alloc(WASM_I32);
+  const descField1Idx = locals.alloc(WASM_I32);
+  const descField2Idx = locals.alloc(WASM_I32);
+  const descField3Idx = locals.alloc(WASM_I32);
+  const numComponentsIdx = locals.alloc(WASM_I32);
 
-  const descAddr = (descBase: number, index: number) => iAdd(local(descBase), iMul(local(index), i32ConstBytes(ATTR_DESC_BYTES)));
+  const descAddr = (descBase: number, index: number, descBytes: number) =>
+    iAdd(local(descBase), iMul(local(index), i32ConstBytes(descBytes)));
 
   const copyAttributeIn = [
     ...i32ConstBytes(0),
@@ -246,17 +254,17 @@ export function buildRasterizerModule(): Uint8Array {
     ...iGeS(local(dIdx), local(attrDescCount)),
     WASM_OP.brIf,
     ...wasmUleb128(1),
-    ...loadI32(descAddr(attrDescBase, dIdx)),
-    ...localSet(descSrcOffsetIdx),
-    ...loadI32(iAdd(descAddr(attrDescBase, dIdx), i32ConstBytes(4))),
-    ...localSet(descDestAddrIdx),
-    ...loadI32(iAdd(descAddr(attrDescBase, dIdx), i32ConstBytes(8))),
-    ...localSet(descSizeIdx),
+    ...loadI32(descAddr(attrDescBase, dIdx, ATTR_DESC_BYTES)),
+    ...localSet(descField0Idx), // srcOffset
+    ...loadI32(iAdd(descAddr(attrDescBase, dIdx, ATTR_DESC_BYTES), i32ConstBytes(4))),
+    ...localSet(descField1Idx), // destAddress
+    ...loadI32(iAdd(descAddr(attrDescBase, dIdx, ATTR_DESC_BYTES), i32ConstBytes(8))),
+    ...localSet(descField2Idx), // sizeBytes
     ...emitByteCopyLoop(
-      (offset) => iAdd(local(descDestAddrIdx), offset),
+      (offset) => iAdd(local(descField1Idx), offset),
       (offset) =>
-        iAdd(iAdd(iAdd(local(attrSrcBase), iMul(local(iIdx), local(attrStrideBytes))), local(descSrcOffsetIdx)), offset),
-      local(descSizeIdx),
+        iAdd(iAdd(iAdd(local(attrSrcBase), iMul(local(iIdx), local(attrStrideBytes))), local(descField0Idx)), offset),
+      local(descField2Idx),
       byteCounterIdx,
     ),
     ...iAdd(local(dIdx), i32ConstBytes(1)),
@@ -272,12 +280,36 @@ export function buildRasterizerModule(): Uint8Array {
     i32ConstBytes(VEC4_BYTES),
     byteCounterIdx,
   );
-  const copyVaryingOut = emitByteCopyLoop(
-    (offset) => iAdd(iAdd(local(varyingsOutBase), iMul(local(iIdx), local(varyingBytes))), offset),
-    (offset) => iAdd(local(vertexVaryingAddress), offset),
-    local(varyingBytes),
-    byteCounterIdx,
-  );
+  const copyVaryingOut = [
+    ...i32ConstBytes(0),
+    ...localSet(dIdx),
+    WASM_OP.block,
+    0x40,
+    WASM_OP.loop,
+    0x40,
+    ...iGeS(local(dIdx), local(varyingDescCount)),
+    WASM_OP.brIf,
+    ...wasmUleb128(1),
+    ...loadI32(descAddr(varyingDescBase, dIdx, VARYING_DESC_BYTES)),
+    ...localSet(descField0Idx), // recordOffset
+    ...loadI32(iAdd(descAddr(varyingDescBase, dIdx, VARYING_DESC_BYTES), i32ConstBytes(4))),
+    ...localSet(descField1Idx), // vertexSrcAddress
+    ...loadI32(iAdd(descAddr(varyingDescBase, dIdx, VARYING_DESC_BYTES), i32ConstBytes(12))),
+    ...localSet(descField3Idx), // sizeBytes
+    ...emitByteCopyLoop(
+      (offset) =>
+        iAdd(iAdd(iAdd(local(varyingsOutBase), iMul(local(iIdx), local(varyingBytes))), local(descField0Idx)), offset),
+      (offset) => iAdd(local(descField1Idx), offset),
+      local(descField3Idx),
+      byteCounterIdx,
+    ),
+    ...iAdd(local(dIdx), i32ConstBytes(1)),
+    ...localSet(dIdx),
+    WASM_OP.br,
+    ...wasmUleb128(0),
+    WASM_OP.end,
+    WASM_OP.end,
+  ];
 
   const vertexLoop = [
     ...i32ConstBytes(0),
@@ -384,8 +416,61 @@ export function buildRasterizerModule(): Uint8Array {
       fMul(fSub(local(ay), local(pyIdx)), fSub(local(bx), local(pxIdx))),
     );
 
-  const varyingComponent = (vertexIndex: number[], comp: number[]) =>
-    loadF64(iAdd(iAdd(local(varyingsOutBase), iMul(vertexIndex, local(varyingBytes))), iMul(comp, i32ConstBytes(8))));
+  const varyingComponent = (vertexIndex: number[], recordOffset: number[], comp: number[]) =>
+    loadF64(
+      iAdd(
+        iAdd(iAdd(local(varyingsOutBase), iMul(vertexIndex, local(varyingBytes))), recordOffset),
+        iMul(comp, i32ConstBytes(8)),
+      ),
+    );
+
+  const interpolateOneDescriptor = [
+    ...loadI32(descAddr(varyingDescBase, dIdx, VARYING_DESC_BYTES)),
+    ...localSet(descField0Idx), // recordOffset
+    ...loadI32(iAdd(descAddr(varyingDescBase, dIdx, VARYING_DESC_BYTES), i32ConstBytes(8))),
+    ...localSet(descField2Idx), // fragmentDestAddress
+    ...loadI32(iAdd(descAddr(varyingDescBase, dIdx, VARYING_DESC_BYTES), i32ConstBytes(12))),
+    ...localSet(descField3Idx), // sizeBytes
+    ...iDivS(local(descField3Idx), i32ConstBytes(8)),
+    ...localSet(numComponentsIdx),
+    ...i32ConstBytes(0),
+    ...localSet(componentIdx),
+    WASM_OP.block,
+    0x40,
+    WASM_OP.loop,
+    0x40,
+    ...iGeS(local(componentIdx), local(numComponentsIdx)),
+    WASM_OP.brIf,
+    ...wasmUleb128(1),
+    ...storeF64(
+      iAdd(local(descField2Idx), iMul(local(componentIdx), i32ConstBytes(8))),
+      fDiv(
+        fAdd(
+          fAdd(
+            fMul(
+              fMul(local(b0Idx), local(invW0Idx)),
+              varyingComponent(tExpr, local(descField0Idx), local(componentIdx)),
+            ),
+            fMul(
+              fMul(local(b1Idx), local(invW1Idx)),
+              varyingComponent(t1Expr, local(descField0Idx), local(componentIdx)),
+            ),
+          ),
+          fMul(
+            fMul(local(b2Idx), local(invW2Idx)),
+            varyingComponent(t2Expr, local(descField0Idx), local(componentIdx)),
+          ),
+        ),
+        local(invWIdx),
+      ),
+    ),
+    ...iAdd(local(componentIdx), i32ConstBytes(1)),
+    ...localSet(componentIdx),
+    WASM_OP.br,
+    ...wasmUleb128(0),
+    WASM_OP.end,
+    WASM_OP.end,
+  ];
 
   const interpolateVaryings = [
     ...fDiv(local(e0Idx), local(areaIdx)),
@@ -400,29 +485,17 @@ export function buildRasterizerModule(): Uint8Array {
     ),
     ...localSet(invWIdx),
     ...i32ConstBytes(0),
-    ...localSet(componentIdx),
+    ...localSet(dIdx),
     WASM_OP.block,
     0x40,
     WASM_OP.loop,
     0x40,
-    ...iGeS(local(componentIdx), local(numVaryingComponentsIdx)),
+    ...iGeS(local(dIdx), local(varyingDescCount)),
     WASM_OP.brIf,
     ...wasmUleb128(1),
-    ...storeF64(
-      iAdd(local(fragmentVaryingAddress), iMul(local(componentIdx), i32ConstBytes(8))),
-      fDiv(
-        fAdd(
-          fAdd(
-            fMul(fMul(local(b0Idx), local(invW0Idx)), varyingComponent(tExpr, local(componentIdx))),
-            fMul(fMul(local(b1Idx), local(invW1Idx)), varyingComponent(t1Expr, local(componentIdx))),
-          ),
-          fMul(fMul(local(b2Idx), local(invW2Idx)), varyingComponent(t2Expr, local(componentIdx))),
-        ),
-        local(invWIdx),
-      ),
-    ),
-    ...iAdd(local(componentIdx), i32ConstBytes(1)),
-    ...localSet(componentIdx),
+    ...interpolateOneDescriptor,
+    ...iAdd(local(dIdx), i32ConstBytes(1)),
+    ...localSet(dIdx),
     WASM_OP.br,
     ...wasmUleb128(0),
     WASM_OP.end,
@@ -533,8 +606,6 @@ export function buildRasterizerModule(): Uint8Array {
     ...localSet(widthFIdx),
     ...toF64(local(height)),
     ...localSet(heightFIdx),
-    ...iDivS(local(varyingBytes), i32ConstBytes(8)),
-    ...localSet(numVaryingComponentsIdx),
     ...vertexLoop,
     ...triangleLoop,
   ];
@@ -579,6 +650,33 @@ export function writeAttributeDescriptors(view: DataView, base: number, descript
     view.setInt32(base + i * ATTR_DESC_BYTES, d.srcOffset, true);
     view.setInt32(base + i * ATTR_DESC_BYTES + 4, d.destAddress, true);
     view.setInt32(base + i * ATTR_DESC_BYTES + 8, d.sizeBytes, true);
+  });
+}
+
+/**
+ * One varying slot's linkage: `sizeBytes` bytes read from
+ * `vertexSrcAddress` (that slot's address in the vertex module) after
+ * each vertex call, stored at `recordOffset` within the per-vertex
+ * varying record, and later interpolated into `fragmentDestAddress`
+ * (that slot's address in the fragment module) per covered pixel.
+ */
+export interface VaryingDescriptor {
+  recordOffset: number;
+  vertexSrcAddress: number;
+  fragmentDestAddress: number;
+  sizeBytes: number;
+}
+
+/**
+ * Packs `descriptors` into `view` at `base`, in the layout
+ * {@link buildRasterizerModule}'s varying copy/interpolation loops read.
+ */
+export function writeVaryingDescriptors(view: DataView, base: number, descriptors: readonly VaryingDescriptor[]): void {
+  descriptors.forEach((d, i) => {
+    view.setInt32(base + i * VARYING_DESC_BYTES, d.recordOffset, true);
+    view.setInt32(base + i * VARYING_DESC_BYTES + 4, d.vertexSrcAddress, true);
+    view.setInt32(base + i * VARYING_DESC_BYTES + 8, d.fragmentDestAddress, true);
+    view.setInt32(base + i * VARYING_DESC_BYTES + 12, d.sizeBytes, true);
   });
 }
 

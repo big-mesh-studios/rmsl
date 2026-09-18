@@ -25,13 +25,18 @@ exact argument list and order).
 Any number of attribute slots are supported via a runtime descriptor
 table (`AttributeDescriptor`/`writeAttributeDescriptors`) — each entry is
 `[srcOffset, destAddress, sizeBytes]`, letting the source buffer pack
-slots in any per-vertex layout the host chooses.
+slots in any per-vertex layout the host chooses. Varyings work the same
+way, via `VaryingDescriptor`/`writeVaryingDescriptors` — each entry is
+`[recordOffset, vertexSrcAddress, fragmentDestAddress, sizeBytes]`, since
+a varying (unlike an attribute) has two addresses to reconcile, one per
+stage, matched by the shared node's slot name.
 
 ## Scope (v1)
 
-- Exactly one varying slot, a single contiguous blob (`varyingBytes`)
-  rather than several independently-addressed slots — unlike attributes,
-  varyings don't yet have a descriptor table of their own.
+- Every attribute/varying must be an aggregate (vector) type. A scalar
+  (non-aggregate) uniform/attribute/varying becomes a real WASM function
+  parameter even in an otherwise zero-arg program (see the next bullet),
+  which this rasterizer can't drive.
 - No index buffer, no near/far clipping, no depth test, no antialiasing —
   same gaps `ROADMAP.md`'s rasterizer checklist already tracks for
   `cpu-rasterizer.ts`'s own `rasterizeTriangles`.
