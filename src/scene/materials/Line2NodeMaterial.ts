@@ -152,10 +152,9 @@ export class Line2NodeMaterial extends NodeMaterial {
   protected buildVertexBody(b: Builder): Node<"vec4"> {
     const posGeo = b.position;
 
-    // The first statements reference the geometry attributes in the same order
-    // they are registered (position, uv, instanceStart, instanceEnd, ...) so
-    // the WebGPU attribute locations the compiler assigns by traversal order
-    // line up with the vertex buffer slots the renderer binds.
+    // Reference order must match attribute registration order (position, uv,
+    // instanceStart, ...), so compiler-assigned WGSL locations line up with
+    // the renderer's vertex buffer slots.
     const quadY = posGeo.y.toVar("quadY");
     const quadX = posGeo.x.toVar("quadX");
     b.uvVarying.assign(b.uv);

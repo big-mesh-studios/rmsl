@@ -1,22 +1,9 @@
 /**
- * WASM vs JS backend perf comparison, using vitest's benchmark mode (run
- * with `npx vitest bench src/wasm-vs-js.bench.ts`, not `vitest run` —
- * this is excluded from the normal test suite by vitest's default
- * benchmark-file pattern, so it never slows down `npm test`).
- *
- * Kept as a real, committed file — not a throwaway script — specifically so
- * a reported number can be reproduced later: check out the commit it's
- * cited against (ROADMAP.md's "Why" section cites this file by path and
- * commit SHA for each measurement) and run it again, or extract this exact
- * version with `git show <sha>:src/wasm-vs-js.bench.ts` and run it
- * against a different commit (its content only depends on `compileWasm`'s/
- * `compileJS`'s public call signature, which has been stable since Phase 1,
- * so the same file works unmodified against a pre-linear-memory commit too
- * — that's how the ROADMAP's linear-memory A/B was produced).
- *
- * Deliberately excludes any `for`/`while`/`Loop` scenario — those need
- * Phase 4, so putting one here would make this file fail to even load
- * against a pre-Phase-4 commit. See `wasm-loop.bench.ts` for that.
+ * WASM vs JS backend perf comparison, using vitest's benchmark mode
+ * (run with `npx vitest bench src/wasm-vs-js.bench.ts`, not `vitest run`).
+ * See ROADMAP.md's "Why" section for why this file is kept committed and
+ * reproducible against past commits, and why loop scenarios live in
+ * `wasm-loop.bench.ts` instead.
  */
 import { bench, describe } from "vitest";
 import { compileWasm, compileWasmFn } from "../wasm";

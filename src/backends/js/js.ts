@@ -1,6 +1,3 @@
-// ========== JS Compiler ==========
-// The third backend: compile a node graph to a JavaScript function that the
-// host can call on the CPU, one fragment at a time.
 import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, var_ } from "../../core";
 import {
   CpuDrawBuffer,
@@ -28,19 +25,6 @@ import {
   withoutSemicolon,
   wrapExpr,
 } from "../shared";
-// ========== JS Compiler ==========
-/**
- * The third backend: compile a node graph to a JavaScript function that the
- * host can call on the CPU, one fragment at a time. Its purpose is screen
- * picking from a ray-marched scene — feed the per-pixel varyings and uniforms
- * into the compiled function and read the colour/depth back, no GPU round-trip.
- *
- * Values are plain numbers (scalars), arrays (vectors) and flat column-major
- * arrays (matrices) — the same representation `wrapValue` and the apps use.
- * Internal `toVar()` variables live in per-program scratch slots outside the
- * callable, and vector/matrix helpers write into a caller-supplied output
- * array, so a per-pixel evaluation allocates nothing beyond the result.
- */
 
 /** Which component each swizzle accessor names, in all three spellings. */
 export const JS_COMPONENT_INDEX: Record<string, number> = {

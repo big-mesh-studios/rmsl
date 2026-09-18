@@ -51,10 +51,8 @@ export class BufferGeometry extends EventDispatcher {
     } else if (index instanceof BufferAttribute) {
       this.index = index;
     } else {
-      // WebGL (and WebGPU) upload element buffers from a typed array: the
-      // byte size of the upload follows the view, and the draw call picks
-      // UNSIGNED_SHORT or UNSIGNED_INT from its type. A plain number array
-      // carries neither, so it is converted up front.
+      // A plain number array carries no element type, so it's converted to
+      // a typed array up front — the draw call picks UNSIGNED_SHORT/INT from it.
       const needsUint32 = index.length > 0 && maxOf(index) > 65535;
       this.index = new BufferAttribute(needsUint32 ? new Uint32Array(index) : new Uint16Array(index), 1);
     }

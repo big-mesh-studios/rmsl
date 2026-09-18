@@ -1,11 +1,3 @@
-// === WGSL adapter (compute and/or render) ===
-// The compute side wraps `compile()` (src/wgsl.ts), which already reflects
-// a program's storage/uniform resources off its node graph. There is no
-// equivalent for a render pipeline — WebGPU has no getActiveAttrib the way
-// WebGL does, and a vertex buffer's layout is fixed at pipeline-creation
-// time, not discoverable from a linked program afterward — so the render
-// side reflects attributes/uniforms itself, walking the vertex/fragment
-// graphs the same way `compile()` walks the compute one.
 import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
 import { compile, WgslResource } from "../../wgsl";
 import { Adapter, slotOf, TypedArray } from "../adapter";
@@ -133,6 +125,15 @@ function writeUniformScratch(scratch: Float32Array, offset: number, value: numbe
   else scratch[offset] = value;
 }
 
+/**
+ * The compute side wraps `compile()` (src/wgsl.ts), which already reflects a
+ * program's storage/uniform resources off its node graph. There is no
+ * equivalent for a render pipeline — WebGPU has no getActiveAttrib the way
+ * WebGL does, and a vertex buffer's layout is fixed at pipeline-creation
+ * time, not discoverable from a linked program afterward — so the render
+ * side reflects attributes/uniforms itself, walking the vertex/fragment
+ * graphs the same way `compile()` walks the compute one.
+ */
 export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
   if (!options.compute && !options.vertex && !options.fragment) {
     throw new Error("[RMSL] createWgsl needs a `compute` program, or a `vertex`+`fragment` pair");

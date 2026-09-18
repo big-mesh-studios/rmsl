@@ -1,16 +1,5 @@
-// === CPU/WASM software rasterizer (prototype) ===
-// Neither compileJS/compileWasm's `batch()` (fragCoord() over the whole
-// image, no attributes) nor createCpuAdapter's `compute` (storage(),
-// per-element, no triangles) rasterize a triangle — both compiled
-// functions already support a "vertex" stage (attributes in, position +
-// varyings out; see cpu.ts's CpuShaderContext/CpuShaderResult), nothing
-// in the CPU/WASM adapter layer ever drove it with a real vertex+fragment
-// loop. This is that loop: a plain (non-indexed) triangle list, no depth
-// test or near/far clipping — the same scope createGlsl's default draw
-// already has, meant for shader-output comparison rather than a general
-// rasterizer.
-import { ShaderType } from "../core";
 import { componentCountOf, CpuDrawBuffer, CpuRoutine, CpuShaderContext } from "./cpu";
+import { ShaderType } from "../core";
 
 type Value = number | number[];
 
@@ -61,7 +50,10 @@ export interface RasterizeTrianglesOptions {
  * Runs `vertex` once per vertex, then `fragment` once per pixel each
  * triangle covers, with perspective-correct interpolated varyings —
  * software equivalent of what createGlsl/createWgsl's GPU rasterizer does
- * for the same vertex()/fragment() pair.
+ * for the same vertex()/fragment() pair. A plain (non-indexed) triangle
+ * list, no depth test or near/far clipping — the same scope createGlsl's
+ * default draw already has, meant for shader-output comparison rather than
+ * a general rasterizer.
  */
 export function rasterizeTriangles(
   vertex: CpuRoutine,

@@ -1,19 +1,3 @@
-// === CPU adapter loop (shared by the JS and WASM adapters) ===
-// compileJS and compileWasm hand back a CpuRoutine, which is really two
-// capabilities in one: `invoke()` it once per entity with `storages`/
-// `index` set (a storage()/invocationIndex() program, mutating shared
-// arrays in place — WGSL's own compute contract, just host-driven), or
-// `batch()` it once per pixel over a whole image (a fragCoord()
-// program returning a color — the same "return a value" contract WGSL's
-// own fragment stage has). One compiled program is only ever one or the
-// other; `compute`/`draw` here are two independently optional
-// CpuRoutines for exactly that reason.
-//
-// Not exported publicly: createJs (adapter-js.ts) and createWasm
-// (adapter-wasm.ts) each wrap this around their own compile() calls, so a
-// caller's constructor always takes root graphs, the same contract
-// createGlsl/createWgsl have, instead of already-compiled callables only
-// this generic version needed.
 import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
 import { Adapter, slotOf, TypedArray } from "./adapter";
 import { CpuDrawBuffer, CpuRoutine } from "./cpu";
@@ -21,6 +5,13 @@ import { CpuDrawBuffer, CpuRoutine } from "./cpu";
 /** One typed array per storage slot, keyed by name. */
 export type AdapterResult = Record<string, TypedArray>;
 
+/**
+ * `compute`/`draw` here are two independently optional {@link CpuRoutine}s —
+ * `invoke()`d once per entity for a `compute` program, or `batch()`d once per
+ * pixel for a `draw` program. Not exported publicly: {@link createCpuAdapter}
+ * is wrapped by `createJs`/`createWasm`, which take root graphs instead of
+ * already-compiled routines.
+ */
 export interface CpuAdapterPrograms {
   compute?: CpuRoutine;
   draw?: CpuRoutine;

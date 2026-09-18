@@ -1,4 +1,3 @@
-// ========== WGSL Compiler ==========
 import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, isSamplerType, var_ } from "../../core";
 import { AllocRules, planLayout } from "../../layout";
 import {

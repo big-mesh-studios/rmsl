@@ -1,11 +1,3 @@
-// === GLSL adapter ===
-// Draw-only: WebGL has no compute path, so this adapter never implements
-// `compute`. Reflection also works differently than WGSL's: a linked
-// WebGL program already exposes its own attributes/uniforms
-// (getActiveAttrib/getActiveUniform), so there is nothing to reconstruct
-// by walking the RMSL graph the way storage()/uniform() bindings need
-// `compile()`'s resource list on the WGSL side — this just asks the GL
-// context what it linked.
 import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
 import { Adapter, slotOf, TypedArray } from "../adapter";
 import { VertexRoot } from "../shared";
@@ -114,6 +106,13 @@ export interface GlslAdapter extends Adapter<never, GlslDrawOptions> {
   draw(options?: GlslDrawOptions): void;
 }
 
+/**
+ * Draw-only: WebGL has no compute path, so this adapter never implements
+ * `compute`. Reflects a linked WebGL program's own attributes/uniforms
+ * (getActiveAttrib/getActiveUniform) directly, rather than walking the RMSL
+ * graph the way storage()/uniform() bindings need `compile()`'s resource
+ * list on the WGSL side.
+ */
 export function createGlsl(
   vertexRoot: VertexRoot,
   fragmentRoot: Node<ShaderType> | readonly Node<ShaderType>[],

@@ -1,25 +1,8 @@
 /**
- * `.draw()` vs. calling `compileWasm`/`compileJS` once per pixel for the
- * same `width x height` grid — the whole point of `.draw()` is skipping
- * the per-call marshalling cost (see `ROADMAP.md`'s "Why", the
- * wrapper-cost findings, and the loop-length crossover benchmark) by
- * paying it once for the entire image instead of once per pixel.
- *
- * The per-pixel loops reuse one `ctx` object and mutate its `fragCoord`
- * array in place, rather than allocating `{ ...ctx, fragCoord: [...] }`
- * fresh every pixel — that would pile up real garbage-collection pressure
- * that has nothing to do with either backend's own per-pixel cost, and
- * grows with the grid size, which would make a size sweep like this one
- * misleading rather than clarifying.
- *
- * Swept across two grid sizes (128x128 and 512x512, a 16x difference in
- * pixel count) to check the win holds at scale rather than being an
- * artifact of one arbitrarily chosen size — both a plain arithmetic
- * scenario and one sampling a texture (which showed a materially
- * different result at 128x128: a large win with no texture, close to
- * parity with one).
- *
- * Run with `npx vitest bench src/wasm-draw.bench.ts`.
+ * `.draw()` vs. calling `compileWasm`/`compileJS` once per pixel, swept
+ * across grid sizes and with/without texture sampling. Run with
+ * `npx vitest bench src/wasm-draw.bench.ts`. See ROADMAP.md's "Why"
+ * section for the full rationale and scenario design.
  */
 import { bench, describe } from "vitest";
 import { compileWasm } from "../wasm";

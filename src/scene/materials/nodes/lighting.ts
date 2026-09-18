@@ -20,10 +20,8 @@ export function standardLight(
 ): Node<"vec3"> {
   const half = lightDir.add(viewDir).normalize();
 
-  // Dot products of normalized vectors can exceed 1.0 by an ulp or two, and
-  // `pow(1 - vDotH, 5)` below turns a base just below zero into NaN — which
-  // blackens the whole surface. Each is clamped into [0.0001, 1] so the GGX
-  // denominators stay positive and the fresnel base stays non-negative.
+  // Clamped into [0.0001, 1]: an ulp past 1.0 or below 0 here turns
+  // `pow(1 - vDotH, 5)` below into NaN, blackening the surface.
   const nDotL = normal.dot(lightDir).clamp(0.0001, 1);
   const nDotH = normal.dot(half).clamp(0.0001, 1);
   const nDotV = normal.dot(viewDir).clamp(0.0001, 1);

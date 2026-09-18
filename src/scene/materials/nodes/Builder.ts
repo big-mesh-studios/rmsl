@@ -167,13 +167,9 @@ export class Builder {
     return existing.node as UniformNode<T>;
   }
 
-  // === Built-in attribute accessors ===
-  //
-  // Each resolves to the raw attribute in the vertex stage and to the varying
-  // the vertex writes in the fragment stage — the fragment cannot read a vertex
-  // input, so `b.uv.x` inside a `colorNode` or `fragmentNode` must mean the
-  // interpolated uv, not the geometry attribute.
-
+  // Each resolves to the raw attribute in the vertex stage, and to the
+  // varying it writes in the fragment stage (which cannot read a vertex
+  // input directly).
   get position(): AttributeNode<"vec3"> {
     return this.stage === "vertex" ? this.attribute("position", "vec3") : this.varying("positionWorld", "vec3");
   }

@@ -1,23 +1,9 @@
 /**
- * Phase 7 (ROADMAP.md, "parity testing infrastructure"): pin down where a
- * loop's accumulated per-iteration work amortizes `compileWasm`'s fixed
- * per-call wrapper cost enough to cross over from a loss against
- * `compileJS` to a win, rather than only knowing it loses at zero loop
- * iterations (`wasm-vs-js.bench.ts`'s plain scalar case) and wins at
- * one arbitrarily chosen loop length (64 iterations,
- * `wasm-loop.bench.ts`).
- *
- * Same workload as `wasm-loop.bench.ts` (`sum of sqrt(i)`), swept
- * across a range of iteration counts instead of fixed at 64, each compiled
- * once up front — the loop bound is baked into the compiled function
- * (`int(n)`), not a runtime parameter, so there is nothing here either
- * backend wouldn't also pay for a real fixed-length loop.
- *
- * Run with `npx vitest bench src/wasm-crossover.bench.ts`. Kept
- * separate from `wasm-loop.bench.ts` (rather than folding this sweep
- * into it) so that file's single, simple 64-iteration case stays the
- * quick thing to point at, and this sweep stays the thing to point at for
- * "where exactly is the crossover".
+ * Sweeps `wasm-loop.bench.ts`'s `sum of sqrt(i)` workload across a range of
+ * iteration counts to find where WASM's fixed per-call wrapper cost crosses
+ * over into a win against JS. Run with `npx vitest bench src/wasm-crossover.bench.ts`.
+ * See ROADMAP.md's "Why" section ("parity testing infrastructure") for the
+ * full rationale and why this is a separate file from `wasm-loop.bench.ts`.
  */
 import { bench, describe } from "vitest";
 import { compileWasm } from "../wasm";

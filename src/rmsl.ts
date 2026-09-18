@@ -203,9 +203,7 @@ export type {
 
 export type { CompileFnOptions, VertexRoot } from "./backends/shared";
 
-// Each backend's compile()/create() pair lives at its own subpath instead
-// of here — see glsl.ts, wgsl.ts, js.ts, wasm.ts — so this barrel only
-// carries the DSL core and the cross-backend Adapter shape, not four
-// copies of "compile" and "create" that differ only in which backend.
+// Each backend's compile()/create() pair lives at its own subpath (see
+// glsl.ts, wgsl.ts, js.ts, wasm.ts), not duplicated here per backend.
 export type { Adapter, TypedArray } from "./backends/adapter";
 

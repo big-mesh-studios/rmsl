@@ -1131,7 +1131,7 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
   });
 });
 
-describe("WASM backend: texture uniforms (Phase 6 — metadata plumbing)", () => {
+describe("WASM backend: texture uniforms", () => {
   it("reads a sampler2D texture's dimensions via textureSize()", () => {
     const tex = uniform("sampler2D");
     const build = () =>

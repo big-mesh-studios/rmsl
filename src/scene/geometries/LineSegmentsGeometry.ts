@@ -3,10 +3,8 @@ import { BufferAttribute } from "./BufferAttribute";
 import { Matrix4 } from "../math/Matrix4";
 import { Vector3 } from "../math/Vector3";
 
-// A unit quad strip that the line material expands into a wide ribbon: two
-// middle quads (the "body" of the segment) plus an endcap quad at each end.
-// `position` y runs [-1, 2], `uv` mirrors it, and the index fans the strip
-// into six triangles — matching three.js's `LineSegmentsGeometry`.
+// A unit quad strip the line material expands into a ribbon (two body quads
+// plus an endcap at each end), matching three.js's `LineSegmentsGeometry`.
 const _positions = [-1, 2, 0, 1, 2, 0, -1, 1, 0, 1, 1, 0, -1, 0, 0, 1, 0, 0, -1, -1, 0, 1, -1, 0];
 const _uvs = [-1, 2, 1, 2, -1, 1, 1, 1, -1, -1, 1, -1, -1, -2, 1, -2];
 const _index = [0, 2, 1, 2, 3, 1, 2, 4, 3, 4, 5, 3, 4, 6, 5, 6, 7, 5];

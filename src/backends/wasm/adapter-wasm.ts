@@ -1,8 +1,3 @@
-// === WASM adapter ===
-// Wraps compileWasm + the shared CPU adapter loop (adapter-cpu.ts); see
-// adapter-js.ts's comment — the same reasoning applies here, `compute`
-// and `draw` are two different root graphs a caller may give either or
-// both of.
 import { Node, ShaderType } from "../../core";
 import { CpuAdapter, createCpuAdapter } from "../adapter-cpu";
 import { compileWasm, CompileWasmFnOptions } from "./wasm";
@@ -23,6 +18,7 @@ export interface CreateWasmOptions {
   gpuUniformLayout?: CompileWasmFnOptions["gpuUniformLayout"];
 }
 
+/** Compiles `compute`/`draw` with {@link compileWasm} and wraps them in a {@link createCpuAdapter}. */
 export function createWasm(options: CreateWasmOptions): CpuAdapter {
   if (!options.compute && !options.draw) {
     throw new Error("[RMSL] createWasm needs a `compute` program, a `draw` program, or both");

@@ -1,23 +1,6 @@
 import { build } from "esbuild";
 import type { Plugin } from "vite";
 
-// Vite plugins that precompile rmsl node graphs at build time, so the browser
-// never ships rmsl and never runs an eval:
-//
-// - precompileShaders: rewrite a module that default-exports the compiled GLSL /
-//   WGSL strings into a JSON constant.
-// - precompileJS: rewrite a module that exports compileJSFn() output (the CPU
-//   code for running any shader function on the host) into plain functions.
-// - precompileWasm: rewrite a module that exports compileWasmFn() output (a
-//   compiled WASM module's bytes plus the metadata a host needs to call it)
-//   into `instantiateWasm(...)` calls — the compiled bytes ship as a real
-//   `.wasm` asset (via Rollup's emitFile, not a string), fetched and
-//   instantiated once at module load.
-//
-// All three bundle the target module with esbuild for Node and execute it
-// once at build time via a data: URL, then replace it with the result;
-// precompileWasm additionally emits one binary asset per compiled module.
-
 export type ViteFilter = string | RegExp | Array<string | RegExp>;
 
 export interface PrecompileShadersOptions {

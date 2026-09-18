@@ -1,11 +1,11 @@
 import { Fn, float, uniform, type Node } from "../../rmsl";
 import { compileJSFn } from "../../js";
 
-// Any shader function can be compiled for the CPU. This module exports the
-// compileJSFn() output for each one under __RMSL_JS_CODE, which vite's
-// precompileJS plugin reads at build time and inlines as plain functions — no
-// eval, no rmsl at runtime.
-
+/**
+ * Fixture for {@link precompileJS} (see `../vite.ts`): exports each
+ * function's `compileJSFn()` output under `__RMSL_JS_CODE`, which the
+ * plugin reads at build time and inlines as plain functions.
+ */
 const brightness = Fn(() => {
   const colour = uniform("vec3");
   return colour.mul(float(0.5)).toVar();

@@ -1,10 +1,7 @@
 /**
- * WASM vs JS backend perf comparison for a loop-driven workload (Phase 4's
- * `for`/`while`/`Break`/`Continue`). Run with
- * `npx vitest bench src/wasm-loop.bench.ts`. Kept separate from
- * `wasm-vs-js.bench.ts` so that file stays runnable against a
- * pre-Phase-4 commit — a `For` loop here would make `compileWasm` throw
- * "unsupported node type" before Phase 4 landed.
+ * WASM vs JS backend perf comparison for a loop-driven workload.
+ * Run with `npx vitest bench src/wasm-loop.bench.ts`. See ROADMAP.md's
+ * "Why" section for why this is a separate file from `wasm-vs-js.bench.ts`.
  */
 import { bench, describe } from "vitest";
 import { compileWasm } from "../wasm";
