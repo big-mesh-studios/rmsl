@@ -711,6 +711,45 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
   `wabt` nor any `.wat` source reaches the built `dist/wasm.js` — only the
   inlined bytes do, same as before.
 
+  **Performance headroom, not yet spent — recorded so it isn't re-discovered
+  from scratch, not because any of it is currently a measured bottleneck
+  (the whole module is ~2.2KB and compiles/instantiates in well under a
+  millisecond; see the size/benchmark discussion this paragraph came out
+  of).**
+
+  - **No SIMD.** Every edge-function evaluation, barycentric weight, and
+    perspective-correct interpolation term is scalar `f64` arithmetic, one
+    lane at a time. WASM's `v128` SIMD proposal could evaluate a pixel's
+    three edge functions (or four neighboring pixels' one edge function)
+    in one instruction instead of three-to-four separate ones — a real
+    `fMul`/`fSub` reduction, not a rewrite of the algorithm.
+  - **Byte-at-a-time copies.** `$byteCopy` (`rasterizer.wat`) moves
+    attribute/varying/position data one byte per `i32Load8U`/`i32Store8`
+    pair, matching the original TS-codegen version's own loop shape. Since
+    every copy in this module is actually f64-or-i32-aligned data (never
+    genuinely unaligned bytes), copying 4 or 8 bytes per iteration instead
+    of 1 is very likely free correctness-wise and would cut the loop
+    iteration count 4-8x — the most mechanical, lowest-risk item here.
+  - **One WASM call per material per draw.** `rasterize()` already batches
+    every triangle of *one* vertex/fragment pair's geometry into a single
+    call (that's the whole point of this module) — but a scene with N
+    different materials still costs N separate `rasterize()` calls, same
+    as N separate JS→WASM crossings. Approach A/B above (a shared
+    framebuffer/depth buffer across draws) is the prerequisite for this to
+    even make sense; batching triangles from *different* vertex/fragment
+    programs into one call isn't possible without a uniform shader model
+    to dispatch through, so this is bounded by that design, not purely an
+    implementation gap.
+  - **Near-plane clipping only** (already listed above as open): far-plane
+    and screen-bounds frustum clipping would shrink the per-triangle
+    bounding box for partially-off-screen geometry, cutting wasted
+    coverage-test work in the common case of a triangle that's mostly
+    clipped away, not just correctness.
+  - **No tiling/binning.** Same naive full-bounding-box scan per triangle
+    `cpu-rasterizer.ts`'s own checklist already tracks — large triangles or
+    scenes with many overlapping ones redo the same pixels' coverage test
+    repeatedly rather than binning triangles into screen tiles first.
+
   If B is ever built, one non-obvious constraint to design around up
   front: growing a `WebAssembly.Memory` (`memory.grow`, from the host or
   from an imported call) never races an in-progress call — this backend's
