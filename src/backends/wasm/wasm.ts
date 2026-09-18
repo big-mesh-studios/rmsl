@@ -3094,42 +3094,17 @@ export function compileWasmFn(
  * and this instantiation glue — never the graph builder or bytecode
  * emitter that produced them.
  */
-export function instantiateWasm(compiled: CompiledWasm, name: string, externalMemory?: WebAssembly.Memory): CpuRoutine {
-  const { bytes, params, resultType, textureHeapBase, memoryPages, sharedMemory, maxMemoryPages, batch } = compiled;
-
-  // no memory passed in: own one, sized for the compile-time layout, growable
-  // as textures/batch buffers are marshalled in — same behavior as before this
-  // module imported (rather than defined) its memory. Its shared-ness must
-  // match what the module declared at compile time (see `sharedMemory`).
-  const memory =
-    externalMemory ??
-    new WebAssembly.Memory(
-      sharedMemory ? { initial: memoryPages, maximum: maxMemoryPages, shared: true } : { initial: memoryPages },
-    );
-
-  const instance = new WebAssembly.Instance(new WebAssembly.Module(bytes.buffer as ArrayBuffer), {
-    math: Math as unknown as WebAssembly.ModuleImports, // host "math" namespace serving the sin/pow/... imports
-    env: { memory },
-  });
-  const wasmMain = instance.exports[name] as (...args: number[]) => number;
-  const wasmBatch = batch ? (instance.exports.batch as (...args: number[]) => void) : undefined;
-
-  let view = new DataView(memory.buffer);
-
-  // outputs read back after each call; textures repacked per call
-  const outputParams = params.filter(
-    (
-      p,
-    ): p is Extract<
-      WasmParam,
-      { kind: "outputMemory" | "varyingOutputMemory" | "positionMemory" | "fragDepthMemory" | "valueMemory" }
-    > =>
-      p.kind === "outputMemory" ||
-      p.kind === "varyingOutputMemory" ||
-      p.kind === "positionMemory" ||
-      p.kind === "fragDepthMemory" ||
-      p.kind === "valueMemory",
-  );
+/**
+ * Marshals a `CpuShaderContext` into one compiled module's own memory and
+ * scalar args — the shared translation both `instantiateWasm` (one call per
+ * `invoke()`/`batch()`) and the rasterizer's `compileWasm` (one call per
+ * `draw()`, marshalling the vertex and fragment modules independently) need.
+ */
+export function createWasmInputMarshaller(
+  params: readonly WasmParam[],
+  textureHeapBase: number,
+  memory: WebAssembly.Memory,
+): { marshal(ctx: CpuShaderContext): { args: number[]; textureHeapEnd: number } } {
   const textureParams = params.filter(
     (p): p is Extract<WasmParam, { kind: "textureMemory" }> => p.kind === "textureMemory",
   );
@@ -3142,9 +3117,9 @@ export function instantiateWasm(compiled: CompiledWasm, name: string, externalMe
   /**
    * Appends each texture's pixels after the compiled layout (growing memory
    * when the total footprint changes) and collects the scalar WASM args.
-   * Returns the heap end — where the batch buffer starts.
+   * Returns the heap end — where a batch buffer/further scratch can start.
    */
-  function marshalInputs(ctx: CpuShaderContext): { args: number[]; textureHeapEnd: number } {
+  function marshal(ctx: CpuShaderContext): { args: number[]; textureHeapEnd: number } {
     let textureHeapEnd = textureHeapBase;
     if (textureParams.length > 0) {
       const textures = textureParams.map((p) => (ctx.textures as any)?.[p.slot] as CpuTextureData);
@@ -3160,15 +3135,18 @@ export function instantiateWasm(compiled: CompiledWasm, name: string, externalMe
       const needsRepack = lastSizes === null || sizes.some((s, i) => s !== lastSizes![i]);
       if (needsRepack && heapCursor > memory.buffer.byteLength) {
         memory.grow(Math.ceil((heapCursor - memory.buffer.byteLength) / 65536));
-        view = new DataView(memory.buffer); // growing detaches the old buffer, so the view is rebuilt
       }
-      textureParams.forEach((p, i) => {
-        if (!needsRepack && textures[i] === lastTexture[i]) return;
-        writeTextureToMemory(view, p.metadataAddress, heapOffsets[i], textures[i], p.samplerType.endsWith("Cube"));
-        lastTexture[i] = textures[i];
-      });
+      if (needsRepack || textures.some((t, i) => t !== lastTexture[i])) {
+        const view = new DataView(memory.buffer); // fresh in case the grow above just detached the old buffer
+        textureParams.forEach((p, i) => {
+          if (!needsRepack && textures[i] === lastTexture[i]) return;
+          writeTextureToMemory(view, p.metadataAddress, heapOffsets[i], textures[i], p.samplerType.endsWith("Cube"));
+          lastTexture[i] = textures[i];
+        });
+      }
       lastSizes = sizes;
     }
+    const view = new DataView(memory.buffer);
     const args: number[] = [];
     for (const p of params) {
       switch (p.kind) {
@@ -3226,6 +3204,46 @@ export function instantiateWasm(compiled: CompiledWasm, name: string, externalMe
     return { args, textureHeapEnd };
   }
 
+  return { marshal };
+}
+
+export function instantiateWasm(compiled: CompiledWasm, name: string, externalMemory?: WebAssembly.Memory): CpuRoutine {
+  const { bytes, params, resultType, textureHeapBase, memoryPages, sharedMemory, maxMemoryPages, batch } = compiled;
+
+  // no memory passed in: own one, sized for the compile-time layout, growable
+  // as textures/batch buffers are marshalled in — same behavior as before this
+  // module imported (rather than defined) its memory. Its shared-ness must
+  // match what the module declared at compile time (see `sharedMemory`).
+  const memory =
+    externalMemory ??
+    new WebAssembly.Memory(
+      sharedMemory ? { initial: memoryPages, maximum: maxMemoryPages, shared: true } : { initial: memoryPages },
+    );
+
+  const instance = new WebAssembly.Instance(new WebAssembly.Module(bytes.buffer as ArrayBuffer), {
+    math: Math as unknown as WebAssembly.ModuleImports, // host "math" namespace serving the sin/pow/... imports
+    env: { memory },
+  });
+  const wasmMain = instance.exports[name] as (...args: number[]) => number;
+  const wasmBatch = batch ? (instance.exports.batch as (...args: number[]) => void) : undefined;
+
+  // outputs read back after each call; textures repacked per call
+  const outputParams = params.filter(
+    (
+      p,
+    ): p is Extract<
+      WasmParam,
+      { kind: "outputMemory" | "varyingOutputMemory" | "positionMemory" | "fragDepthMemory" | "valueMemory" }
+    > =>
+      p.kind === "outputMemory" ||
+      p.kind === "varyingOutputMemory" ||
+      p.kind === "positionMemory" ||
+      p.kind === "fragDepthMemory" ||
+      p.kind === "valueMemory",
+  );
+
+  const { marshal: marshalInputs } = createWasmInputMarshaller(params, textureHeapBase, memory);
+
   const storageOutputParams = params.filter(
     (p): p is Extract<WasmParam, { kind: "storageMemory" }> => p.kind === "storageMemory" && p.access !== "read",
   );
@@ -3239,6 +3257,7 @@ export function instantiateWasm(compiled: CompiledWasm, name: string, externalMe
   function invoke(ctx: CpuShaderContext): number | boolean | CpuShaderResult {
     const { args } = marshalInputs(ctx);
     const result = wasmMain(...args);
+    const view = new DataView(memory.buffer); // fresh: marshalInputs may have just grown (and detached) the buffer
 
     // A read_write/write storage() is mutated in the caller's own array at
     // ctx.index, the same convention compileJS's storage support uses —
@@ -3308,7 +3327,6 @@ export function instantiateWasm(compiled: CompiledWasm, name: string, externalMe
     const neededBytes = bufferBase + pixelCount * componentSizeOf(batch.kind);
     if (neededBytes > memory.buffer.byteLength) {
       memory.grow(Math.ceil((neededBytes - memory.buffer.byteLength) / 65536));
-      view = new DataView(memory.buffer); // growing detaches the old buffer, so the view is rebuilt
     }
     wasmBatch(...args, width, height, bufferBase);
 

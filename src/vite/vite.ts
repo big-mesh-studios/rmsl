@@ -295,6 +295,22 @@ async function evaluateModule(code: string, filePath: string): Promise<Record<st
       platform: "node",
       write: false,
       logLevel: "silent",
+      // a module evaluated here may itself import a `.wat` file (e.g. the
+      // rasterizer) — esbuild has no built-in loader for it, so give it the
+      // same wat2wasm transform `compileWat` applies under Vite.
+      plugins: [
+        {
+          name: "rmsl:evaluate-module-wat",
+          setup(pluginBuild) {
+            pluginBuild.onLoad({ filter: /\.wat$/ }, async (args) => {
+              const wabt = await wabtInit();
+              const source = await readFile(args.path, "utf8");
+              const bytes = new Uint8Array(wabt.parseWat(args.path, source).toBinary({}).buffer);
+              return { contents: `export default new Uint8Array([${bytes.join(",")}]);`, loader: "js" };
+            });
+          },
+        },
+      ],
     });
     bundle = result.outputFiles[0].text;
   } catch (e) {

@@ -1,3 +1,7 @@
+import { Node, ShaderType } from "../../core";
+import { componentCountOf, CpuDrawBuffer, CpuShaderContext, CpuTextureData } from "../cpu";
+import { TypedArray } from "../adapter";
+import { compileWasmFn, CompileWasmFnOptions, createWasmInputMarshaller, WasmParam } from "./wasm";
 import RASTERIZER_WASM_BYTES from "./rasterizer.wat";
 
 /**
@@ -35,6 +39,11 @@ export const RASTERIZE_PARAMS = [
   "clippedVaryingsOutBase",
   "depthBufferBase",
 ] as const;
+
+/**
+ * A `vec4` position or fragment color, stored as 4 f64 components.
+ */
+const VEC4_BYTES = 32;
 
 /**
  * Byte size of one `[srcOffset, destAddress, sizeBytes]` attribute descriptor entry.
@@ -126,4 +135,301 @@ export function instantiateRasterizer(
     env: { memory },
   });
   return { rasterize: instance.exports.rasterize as (...args: number[]) => void };
+}
+
+/**
+ * Options shared by both stages of a {@link compileWasm} pair — the same
+ * fields `compileWasmFn` itself takes, minus `name`/`stage`/`params`/
+ * `scalarsInMemory`/`memoryBase`, which `compileWasm` fixes itself (the
+ * rasterizer's fixed-arity imports need a zero-arg `"main"` export from
+ * each stage, and the two share one memory at non-overlapping bases).
+ */
+export type CompileWasmOptions = Pick<
+  CompileWasmFnOptions,
+  "derivatives" | "reentrant" | "memory" | "sharedMemory" | "maxMemoryPages" | "gpuUniformLayout"
+>;
+
+/**
+ * One draw call's inputs: per-vertex attribute buffers (one flat, planar
+ * `TypedArray` per slot — `compileWasm` interleaves them internally, since
+ * the rasterizer module's own attribute-copy loop expects one packed,
+ * per-vertex-stride source region) plus the uniforms/textures shared
+ * across the whole call.
+ */
+export interface WasmRasterContext {
+  attributes: Record<string, TypedArray>;
+  uniforms?: Record<string, number | number[]>;
+  textures?: Record<string, CpuTextureData>;
+}
+
+/**
+ * The callable a {@link compileWasm} pair produces — closes over the
+ * vertex/fragment/rasterizer instances entirely; a caller never sees them.
+ */
+export interface WasmRasterRoutine {
+  /**
+   * Runs the vertex pass over `vertexCount` vertices (a non-indexed
+   * triangle list — `vertexCount / 3` triangles), then the clip and
+   * triangle passes into a `width` x `height`, 4-components-per-pixel
+   * buffer, the same flat row-major convention `CpuRoutine.batch()` uses.
+   */
+  draw(ctx: WasmRasterContext, vertexCount: number, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer;
+  /**
+   * The depth buffer persists across `draw()` calls (the LEQUAL test needs
+   * a stable buffer to compare against, so several draws in one frame can
+   * occlude each other) — call this once per frame before the first draw
+   * that should start fresh, not before every draw. The very first draw()
+   * ever made clears it automatically, since freshly grown WASM memory is
+   * zero-filled, not `+Infinity`.
+   */
+  clearDepth(): void;
+}
+
+function align8(n: number): number {
+  return Math.ceil(n / 8) * 8;
+}
+
+/**
+ * Compiles a vertex/fragment `Fn` pair and links them against the shared
+ * rasterizer module (see rasterizer.md) into one {@link WasmRasterRoutine}.
+ *
+ * Both stages compile with `scalarsInMemory: true` (the rasterizer's
+ * imports must be zero-arg `"main"` exports — see rasterizer.md's v1
+ * scope) and share one `WebAssembly.Memory`, the fragment stage's own
+ * compile-time layout placed right after the vertex stage's via
+ * `memoryBase` (see `CompileWasmFnOptions.memoryBase`) so neither's fixed
+ * addresses collide.
+ */
+export function compileWasm(
+  vertexFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  fragmentFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileWasmOptions = {},
+): WasmRasterRoutine {
+  const vertexCompiled = compileWasmFn(vertexFn, {
+    ...options,
+    name: "main",
+    params: [],
+    stage: "vertex",
+    scalarsInMemory: true,
+  });
+  const fragmentCompiled = compileWasmFn(fragmentFn, {
+    ...options,
+    name: "main",
+    params: [],
+    scalarsInMemory: true,
+    memoryBase: align8(vertexCompiled.textureHeapBase),
+  });
+
+  const attrParams = vertexCompiled.params.filter(
+    (p): p is Extract<WasmParam, { kind: "attributeMemory" }> => p.kind === "attributeMemory",
+  );
+  const vertexVaryingParams = vertexCompiled.params.filter(
+    (p): p is Extract<WasmParam, { kind: "varyingOutputMemory" }> => p.kind === "varyingOutputMemory",
+  );
+  const fragmentVaryingParams = fragmentCompiled.params.filter(
+    (p): p is Extract<WasmParam, { kind: "varyingMemory" }> => p.kind === "varyingMemory",
+  );
+  const positionParam = vertexCompiled.params.find(
+    (p): p is Extract<WasmParam, { kind: "positionMemory" }> => p.kind === "positionMemory",
+  );
+  if (!positionParam) {
+    throw new Error("[RMSL] compileWasm: vertexFn must produce a position (builtinPosition() or a bare vec4 return)");
+  }
+  const fragmentValueParam = fragmentCompiled.params.find(
+    (p): p is Extract<WasmParam, { kind: "valueMemory" }> => p.kind === "valueMemory",
+  );
+  if (!fragmentValueParam || fragmentValueParam.shaderType !== "vec4") {
+    throw new Error("[RMSL] compileWasm: fragmentFn must return a vec4 color");
+  }
+  const positionAddress = positionParam.address;
+  const fragmentValueAddress = fragmentValueParam.address;
+
+  const missingInFragment = vertexVaryingParams.filter((v) => !fragmentVaryingParams.some((f) => f.slot === v.slot));
+  if (missingInFragment.length > 0) {
+    throw new Error(
+      `[RMSL] compileWasm: varying(s) ${missingInFragment.map((v) => v.slot).join(", ")} written by vertexFn but never read by fragmentFn`,
+    );
+  }
+
+  let varyingCursor = 0;
+  const varyingLayout = vertexVaryingParams.map((v) => {
+    const sizeBytes = componentCountOf(v.shaderType) * 8;
+    const offset = varyingCursor;
+    varyingCursor += sizeBytes;
+    return {
+      slot: v.slot,
+      offset,
+      sizeBytes,
+      vertexSrcAddress: v.address,
+      fragmentDestAddress: fragmentVaryingParams.find((f) => f.slot === v.slot)!.address,
+    };
+  });
+  const varyingBytes = varyingCursor;
+
+  let attrCursor = 0;
+  const attrLayout = attrParams.map((p) => {
+    const sizeBytes = componentCountOf(p.shaderType) * 8;
+    const offset = attrCursor;
+    attrCursor += sizeBytes;
+    return { slot: p.slot, offset, sizeBytes, destAddress: p.address };
+  });
+  const attrStrideBytes = attrCursor;
+
+  const memory =
+    options.memory ??
+    new WebAssembly.Memory({ initial: Math.max(vertexCompiled.memoryPages, fragmentCompiled.memoryPages, 1) });
+
+  const vertexInstance = new WebAssembly.Instance(new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer), {
+    math: Math as unknown as WebAssembly.ModuleImports,
+    env: { memory },
+  });
+  const fragmentInstance = new WebAssembly.Instance(
+    new WebAssembly.Module(fragmentCompiled.bytes.buffer as ArrayBuffer),
+    { math: Math as unknown as WebAssembly.ModuleImports, env: { memory } },
+  );
+
+  const { rasterize } = instantiateRasterizer(
+    vertexInstance.exports.main as () => void,
+    fragmentInstance.exports.main as () => void,
+    memory,
+  );
+
+  // Attributes are excluded here: the rasterizer's own attribute-copy loop
+  // pokes them into these same `attributeMemory` addresses once per vertex,
+  // inside WASM — this marshaller only handles the once-per-draw-call
+  // inputs (uniforms/textures), same as `instantiateWasm`'s own marshaller.
+  const vertexMarshaller = createWasmInputMarshaller(
+    vertexCompiled.params.filter((p) => p.kind !== "attributeMemory"),
+    vertexCompiled.textureHeapBase,
+    memory,
+  );
+  // Interpolated varyings are excluded here too: the rasterizer writes
+  // these `varyingMemory` addresses itself, per covered pixel.
+  const fragmentMarshaller = createWasmInputMarshaller(
+    fragmentCompiled.params.filter((p) => p.kind !== "varyingMemory"),
+    fragmentCompiled.textureHeapBase,
+    memory,
+  );
+
+  let depthBufferBase: number | undefined;
+  let depthCapacityPixels = 0;
+
+  function clearDepth(): void {
+    if (depthBufferBase === undefined) return;
+    const view = new DataView(memory.buffer);
+    for (let i = 0; i < depthCapacityPixels; i++) view.setFloat64(depthBufferBase + i * 8, Infinity, true);
+  }
+
+  function draw(
+    ctx: WasmRasterContext,
+    vertexCount: number,
+    width: number,
+    height: number,
+    out?: CpuDrawBuffer,
+  ): CpuDrawBuffer {
+    const sharedCtx = { uniforms: ctx.uniforms, textures: ctx.textures } as CpuShaderContext;
+    const { textureHeapEnd: vertexHeapEnd } = vertexMarshaller.marshal(sharedCtx);
+    const { textureHeapEnd: fragmentHeapEnd } = fragmentMarshaller.marshal(sharedCtx);
+
+    let cursor = align8(Math.max(vertexHeapEnd, fragmentHeapEnd));
+    const attrSrcBase = cursor;
+    cursor = align8(cursor + vertexCount * attrStrideBytes);
+    const attrDescBase = cursor;
+    cursor = align8(cursor + attrLayout.length * ATTR_DESC_BYTES);
+    const positionsOutBase = cursor;
+    cursor = align8(cursor + vertexCount * VEC4_BYTES);
+    const varyingsOutBase = cursor;
+    cursor = align8(cursor + vertexCount * varyingBytes);
+    const varyingDescBase = cursor;
+    cursor = align8(cursor + varyingLayout.length * VARYING_DESC_BYTES);
+    const clipScratchBase = cursor;
+    cursor = align8(cursor + 4 * (VEC4_BYTES + varyingBytes));
+    // near-plane clipping fans each triangle into at most a quad (2 triangles).
+    const maxClippedVertices = vertexCount * 2;
+    const clippedPositionsOutBase = cursor;
+    cursor = align8(cursor + maxClippedVertices * VEC4_BYTES);
+    const clippedVaryingsOutBase = cursor;
+    cursor = align8(cursor + maxClippedVertices * varyingBytes);
+    const outputBase = cursor;
+    cursor = align8(cursor + width * height * VEC4_BYTES);
+
+    // The depth buffer's own base, once assigned, never moves — draw()'s
+    // other regions above float per call, but occlusion across draw() calls
+    // needs a stable address to keep comparing against.
+    let needsClear = false;
+    if (depthBufferBase === undefined) {
+      depthBufferBase = cursor;
+      needsClear = true;
+    }
+    const neededDepthPixels = width * height;
+    if (neededDepthPixels > depthCapacityPixels) {
+      depthCapacityPixels = neededDepthPixels;
+      needsClear = true;
+    }
+    cursor = depthBufferBase + depthCapacityPixels * 8;
+
+    if (cursor > memory.buffer.byteLength) {
+      memory.grow(Math.ceil((cursor - memory.buffer.byteLength) / 65536));
+    }
+    if (needsClear) clearDepth();
+
+    const view = new DataView(memory.buffer);
+    for (const a of attrLayout) {
+      const src = ctx.attributes[a.slot];
+      if (!src) throw new Error(`[RMSL] compileWasm: draw() is missing attribute "${a.slot}"`);
+      const componentCount = a.sizeBytes / 8;
+      for (let v = 0; v < vertexCount; v++) {
+        const base = attrSrcBase + v * attrStrideBytes + a.offset;
+        for (let c = 0; c < componentCount; c++) {
+          view.setFloat64(base + c * 8, src[v * componentCount + c] as number, true);
+        }
+      }
+    }
+    writeAttributeDescriptors(
+      view,
+      attrDescBase,
+      attrLayout.map((a) => ({ srcOffset: a.offset, destAddress: a.destAddress, sizeBytes: a.sizeBytes })),
+    );
+    writeVaryingDescriptors(
+      view,
+      varyingDescBase,
+      varyingLayout.map((v) => ({
+        recordOffset: v.offset,
+        vertexSrcAddress: v.vertexSrcAddress,
+        fragmentDestAddress: v.fragmentDestAddress,
+        sizeBytes: v.sizeBytes,
+      })),
+    );
+
+    rasterize(
+      vertexCount,
+      attrSrcBase,
+      attrStrideBytes,
+      attrDescBase,
+      attrLayout.length,
+      positionAddress,
+      positionsOutBase,
+      width,
+      height,
+      fragmentValueAddress,
+      outputBase,
+      varyingBytes,
+      varyingDescBase,
+      varyingLayout.length,
+      varyingsOutBase,
+      clipScratchBase,
+      clippedPositionsOutBase,
+      clippedVaryingsOutBase,
+      depthBufferBase,
+    );
+
+    const result = new Float64Array(memory.buffer, outputBase, width * height * 4);
+    if (out) {
+      out.set(result);
+      return out;
+    }
+    return new Float64Array(result); // copy out — memory can grow (and detach `result`'s buffer) on a later draw()
+  }
+
+  return { draw, clearDepth };
 }
