@@ -254,12 +254,16 @@ export const WASM_OP = {
 
   /** `i32.load`: load an i32 from memory. */
   i32Load: 0x28,
+  /** `i32.load8_u`: load an unsigned byte, zero-extended to i32. */
+  i32Load8U: 0x2d,
   /** `f32.load`: load an f32 from memory. */
   f32Load: 0x2a,
   /** `f64.load`: load an f64 from memory. */
   f64Load: 0x2b,
   /** `i32.store`: store an i32 to memory. */
   i32Store: 0x36,
+  /** `i32.store8`: truncate an i32 to a byte and store it. */
+  i32Store8: 0x3a,
   /** `f64.store`: store an f64 to memory. */
   f64Store: 0x39,
   /** `f64.promote_f32`: widen an f32 to an f64. */
@@ -445,7 +449,7 @@ export function wasmStrBytes(s: string): number[] {
 }
 
 /** Emits i32.const plus the signed LEB128 operand. */
-function i32ConstBytes(n: number): number[] {
+export function i32ConstBytes(n: number): number[] {
   return [WASM_OP.i32Const, ...wasmSleb128(n | 0)];
 }
 
