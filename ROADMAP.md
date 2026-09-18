@@ -663,11 +663,25 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
   index buffer, far-plane or screen-bounds frustum clipping, and
   `createJs`/`createWasm` adapter integration.
 
+  **`compileWasm(vertexFn, fragmentFn)` landed**, linking a compiled
+  vertex/fragment pair against this module into one `WasmRasterRoutine`
+  (`draw()`/`clearDepth()`) — see `src/backends/wasm/rasterizer.ts`. Both
+  stages compile with `scalarsInMemory: true` over one shared memory (the
+  fragment stage's layout placed after the vertex stage's via
+  `memoryBase`); attributes are interleaved into the rasterizer's own
+  descriptor-driven copy region per `draw()` call, uniforms/textures
+  marshal once per call via a `WasmParam` marshaller factored out of
+  `instantiateWasm`, and the depth buffer gets a stable address so it
+  persists across `draw()` calls until `clearDepth()`. `createWasm` (the
+  `Adapter`-wrapping layer over this, alongside `createWasmRoutine`'s
+  existing `compute`/`batch` path) is the remaining piece of the
+  `createJs`/`createWasm` adapter integration bullet above.
+
   **Authored as `.wat`, not TS codegen.** Because this module's structure
-  never varies per shader (unlike `compileWasmFn`/`compileWasm`, which
-  must compile an arbitrary, dynamically-constructed graph at runtime and
-  so can't depend on a WASM toolchain), the "no wabt/binaryen" constraint
-  above doesn't apply to it. `rasterizer.ts` used to hand-encode the same
+  never varies per shader (unlike `compileWasmFn`/`compileWasmRoutine`,
+  which must compile an arbitrary, dynamically-constructed graph at
+  runtime and so can't depend on a WASM toolchain), the "no wabt/binaryen"
+  constraint above doesn't apply to it. `rasterizer.ts` used to hand-encode the same
   bytes as TS combinators simulating WASM's own function/param/local
   scoping one level removed; it's now authored directly as
   `src/backends/wasm/rasterizer.wat`, with a new `compileWat` Vite plugin
