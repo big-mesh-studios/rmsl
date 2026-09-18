@@ -1,6 +1,39 @@
 import {
+  block,
+  countingLoop,
+  exitBlockIf,
   f64ConstBytes,
+  fAdd,
+  fCeil,
+  fDiv,
+  fEq,
+  fFloor,
+  fGe,
+  fGt,
+  fLe,
+  fMax,
+  fMin,
+  fMul,
+  fSub,
   i32ConstBytes,
+  iAdd,
+  iAnd,
+  iDivS,
+  iEq,
+  iGeS,
+  iGtS,
+  iMul,
+  iNe,
+  iOr,
+  ifThen,
+  local,
+  loadF64,
+  loadI32,
+  localSet,
+  MEMARG_NATURAL,
+  storeF64,
+  toF64,
+  toI32,
   WASM_F64,
   WASM_FUNC,
   WASM_I32,
@@ -9,7 +42,7 @@ import {
   wasmStrBytes,
   wasmUleb128,
   wasmVec,
-} from "./wasm";
+} from "./utils";
 
 /**
  * Import name the rasterizer module expects for the vertex stage's exported function.
@@ -56,117 +89,6 @@ const W_CLIP_EPS = 1e-5;
  * A `vec4` position or fragment color, stored as 4 f64 components.
  */
 const VEC4_BYTES = 32;
-
-/**
- * WASM's "no result" block type, used by every `block`/`loop`/`if` this
- * file emits — none of them leave a value on the stack.
- */
-const BLOCKTYPE_VOID = 0x40;
-
-/**
- * The `align`/`offset` pair every load/store here uses: no declared
- * alignment (the byte-copy loops below don't need it) and zero offset,
- * since every address is already computed on the stack.
- */
-const MEMARG_NATURAL: number[] = [0x00, 0x00];
-
-const local = (index: number) => [WASM_OP.localGet, ...wasmUleb128(index)];
-const localSet = (index: number) => [WASM_OP.localSet, ...wasmUleb128(index)];
-const bin = (op: number) => (a: number[], b: number[]) => [...a, ...b, op];
-const un = (op: number) => (a: number[]) => [...a, op];
-
-const fAdd = bin(WASM_OP.f64Add);
-const fSub = bin(WASM_OP.f64Sub);
-const fMul = bin(WASM_OP.f64Mul);
-const fDiv = bin(WASM_OP.f64Div);
-const fMin = bin(WASM_OP.f64Min);
-const fMax = bin(WASM_OP.f64Max);
-const fGe = bin(WASM_OP.f64Ge);
-const fGt = bin(WASM_OP.f64Gt);
-const fLe = bin(WASM_OP.f64Le);
-const fEq = bin(WASM_OP.f64Eq);
-const fFloor = un(WASM_OP.f64Floor);
-const fCeil = un(WASM_OP.f64Ceil);
-const iAdd = bin(WASM_OP.i32Add);
-const iMul = bin(WASM_OP.i32Mul);
-const iGtS = bin(WASM_OP.i32GtS);
-const iGeS = bin(WASM_OP.i32GeS);
-const iAnd = bin(WASM_OP.i32And);
-const iOr = bin(WASM_OP.i32Or);
-const iEq = bin(WASM_OP.i32Eq);
-const iNe = bin(WASM_OP.i32Ne);
-const iDivS = bin(WASM_OP.i32DivS);
-const toF64 = un(WASM_OP.f64ConvertI32S);
-const toI32 = un(WASM_OP.i32TruncF64S);
-const loadF64 = (addr: number[]) => [...addr, WASM_OP.f64Load, ...MEMARG_NATURAL];
-const storeF64 = (addr: number[], value: number[]) => [...addr, ...value, WASM_OP.f64Store, ...MEMARG_NATURAL];
-const loadI32 = (addr: number[]) => [...addr, WASM_OP.i32Load, ...MEMARG_NATURAL];
-
-/**
- * `{ ...body }` — a plain structured block, only ever used here so `body`
- * has somewhere to jump to via {@link exitBlockIf} (a `br`/`br_if` with no
- * enclosing block is invalid WASM).
- */
-const block = (body: number[]): number[] => [WASM_OP.block, BLOCKTYPE_VOID, ...body, WASM_OP.end];
-
-/**
- * `if (cond) { ...then }`, no `else` — every conditional in this file is
- * one-armed.
- */
-const ifThen = (cond: number[], then: number[]): number[] => [
-  ...cond,
-  WASM_OP.if_,
-  BLOCKTYPE_VOID,
-  ...then,
-  WASM_OP.end,
-];
-
-/**
- * `if (cond) break;` — jumps straight past the rest of the *nearest
- * enclosing* {@link block}/loop body, e.g. skipping a degenerate triangle
- * entirely. Only valid directly inside one.
- */
-const exitBlockIf = (cond: number[]): number[] => [...cond, WASM_OP.brIf, ...wasmUleb128(0)];
-
-/**
- * `while (!exitCond) { ...body }`, checked at the top of every iteration —
- * WASM has no native loop-with-condition, so this compiles to the
- * standard `block { loop { br_if exit; body; br continue } }` shape by
- * hand: the outer `block` is what `br 1` (an early "stop looping"
- * `brIf`) exits to, the inner `loop` is what the trailing `br 0` repeats.
- */
-const loopUntil = (exitCond: number[], body: number[]): number[] => [
-  WASM_OP.block,
-  BLOCKTYPE_VOID,
-  WASM_OP.loop,
-  BLOCKTYPE_VOID,
-  ...exitCond,
-  WASM_OP.brIf,
-  ...wasmUleb128(1),
-  ...body,
-  WASM_OP.br,
-  ...wasmUleb128(0),
-  WASM_OP.end,
-  WASM_OP.end,
-];
-
-/**
- * `for (i = 0; !exitCond(i); i++) { ...body(i) }` — {@link loopUntil} plus
- * the counter-init/increment every counted loop in this file needs, so a
- * call site only has to say what varies: the counter local, where it
- * starts, its exit test, and its own step.
- */
-const countingLoop = (
-  counter: number,
-  start: number[],
-  exitCond: number[],
-  body: number[],
-  step: number[],
-): number[] => [
-  ...start,
-  ...localSet(counter),
-  ...loopUntil(exitCond, [...body, ...iAdd(local(counter), step), ...localSet(counter)]),
-];
 
 /**
  * Byte size of one `[srcOffset, destAddress, sizeBytes]` attribute descriptor entry.
