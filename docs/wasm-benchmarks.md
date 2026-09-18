@@ -451,3 +451,34 @@ rendering — see `ROADMAP.md`'s "Design decisions already made" for the
 rename and `docs/wasm.md` for the current API surface. Kept under its
 original name in this file since it's a historical measurement, not
 current API documentation.)
+
+### `createWasm` vs `rasterizeTriangles(compileJS)`: the same "whole grid in one call" win, for real geometry
+
+The generic rasterizer module (`src/backends/wasm/rasterizer.ts`/`.wat`,
+see `ROADMAP.md`'s "generic, precompiled rasterizer module") is the same
+`.batch()` idea one level up: instead of moving a per-*pixel* loop inside
+WASM, it moves the per-*vertex* and per-*pixel* loop — vertex transform,
+near-plane clipping, edge-function coverage, perspective-correct
+interpolation, depth test — inside one WASM call, driven by `compileWasm`/
+`createWasm`. The realistic alternative it replaces is
+`rasterizeTriangles` (`src/backends/cpu-rasterizer.ts`) driving a
+`compileJS`-compiled vertex/fragment pair from the host side — a real JS
+function call per vertex and per covered pixel, the same per-call
+overhead `.batch()` already amortizes for a fragment-only program.
+
+`src/benches/wasm-rasterizer.bench.ts` measures a rotating, per-vertex-
+colored quad (2 triangles, 6 non-indexed vertices — the same scene
+`apps/adapters`' `js-vtx`/`wasm-vtx` demo draws) at 128x128 and 512x512,
+two runs, otherwise idle machine:
+
+| Scenario                                           | 128x128, Run 1 | 128x128, Run 2 | 512x512, Run 1 | 512x512, Run 2 |
+| --------------------------------------------------- | -------------- | -------------- | -------------- | -------------- |
+| `createWasm` vs. `rasterizeTriangles(compileJS)` | 8.04x faster   | 8.08x faster   | 8.44x faster   | 8.85x faster   |
+
+Consistent with `.draw()`'s own result above: the win holds — and grows
+slightly — at the larger grid size, since `rasterizeTriangles`'s per-pixel
+JS call overhead scales with pixel count same as anything else, while
+`createWasm`'s one WASM call amortizes it regardless of grid size. This
+motivated `apps/adapters`' own `wasm-vtx` demo option switching from
+`compileWasmRoutine` + `rasterizeTriangles` (which never exercised this
+module at all) to `createWasm` directly.

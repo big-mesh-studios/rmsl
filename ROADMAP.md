@@ -677,13 +677,22 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
   (`src/backends/wasm/adapter-wasm.ts`) wraps that routine in the uniform
   `Adapter` interface — `setAttribute`/`setUniform` collect draw state,
   `attach()` opens a 2D canvas, and `draw({ vertexCount })` auto-clears
-  depth (one call, one frame) before rendering into it — the real
-  vertex+attribute+triangle counterpart to `createWasmRoutine`'s existing
-  per-pixel `compute`/`batch` path. Not yet covered by an automated test:
-  `createWasm`'s own `draw()`, since it needs a real `CanvasRenderingContext2D`
-  (`ImageData` isn't available in this repo's plain-Node vitest
-  environment) — `compileWasm`'s `WasmRasterRoutine` underneath it is
-  fully tested in `compile-wasm.test.ts` instead.
+  both depth and the output buffer (one call, one frame) before rendering
+  into it — the real vertex+attribute+triangle counterpart to
+  `createWasmRoutine`'s existing per-pixel `compute`/`batch` path. (The
+  output buffer's own clear is opt-in on `WasmRasterRoutine.draw()`
+  itself, a `clear` argument defaulting to `false` — several `draw()`
+  calls in a row otherwise compose onto it like a real framebuffer would,
+  which the depth-persistence behavior above depends on.) Not yet covered
+  by an automated test: `createWasm`'s own `draw()`, since it needs a real
+  `CanvasRenderingContext2D` (`ImageData` isn't available in this repo's
+  plain-Node vitest environment) — `compileWasm`'s `WasmRasterRoutine`
+  underneath it is fully tested in `compile-wasm.test.ts` instead.
+  `apps/adapters`' `wasm-vtx` demo option now exercises it directly (it
+  used to go through `compileWasmRoutine` + `rasterizeTriangles` instead,
+  never touching this module); see `docs/wasm-benchmarks.md`'s
+  `createWasm` vs. `rasterizeTriangles(compileJS)` section for the
+  ~8-8.85x result that motivated the switch.
 
   **Authored as `.wat`, not TS codegen.** Because this module's structure
   never varies per shader (unlike `compileWasmFn`/`compileWasmRoutine`,
