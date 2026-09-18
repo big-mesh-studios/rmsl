@@ -1,5 +1,5 @@
 import { compileGlsl } from "@random-mesh/rmsl/glsl";
-import { compileJS } from "@random-mesh/rmsl/js";
+import { compileJSRoutine } from "@random-mesh/rmsl/js";
 import { compileWasmRoutine } from "@random-mesh/rmsl/wasm";
 import { compileWgsl, wgslUniformLayout } from "@random-mesh/rmsl/wgsl";
 import {
@@ -21,11 +21,11 @@ import { WasmWorkerPool } from "./wasmWorkerPool";
 
 // === Compile RMSL shaders to GLSL, WGSL, JS and WASM ===
 // The same RMSL source (mandelbrotColorAt) drives all four: GLSL for
-// WebGL, WGSL for WebGPU, and the CPU-target Fn for compileJS/compileWasmRoutine's
+// WebGL, WGSL for WebGPU, and the CPU-target Fn for compileJSRoutine/compileWasmRoutine's
 // .draw() — one call per pixel, packed into a flat RGBA buffer.
 const vsGLSL = compileGlsl.vertex(vertexMain());
 const fsGLSL = compileGlsl.fragment(calcMandelbrot());
-const jsRenderer = compileJS(() => calcMandelbrotCpu(), { name: "mandelbrotJS", params: [] });
+const jsRenderer = compileJSRoutine(() => calcMandelbrotCpu(), { name: "mandelbrotJS", params: [] });
 const wasmRenderer = compileWasmRoutine(() => calcMandelbrotCpu(), { name: "mandelbrotWasm", params: [] });
 
 type RendererMode = "webgpu" | "webgl" | "js" | "wasm" | "wasm-pool";

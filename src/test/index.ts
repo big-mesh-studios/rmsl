@@ -1,5 +1,5 @@
 import { type Node, type ShaderType, type VariableNode } from "../rmsl";
-import { compileJS, compileJSFn, type CpuShaderContext, type CpuTextureData } from "../js";
+import { compileJSRoutine, compileJSFn, type CpuShaderContext, type CpuTextureData } from "../js";
 // How a texture asks to be read is the renderers' question too, and they
 // already answer it without a device — so a shader tested here samples by the
 // same reading, not by a second one written for the CPU.
@@ -167,7 +167,7 @@ function compileRunner<A extends ShaderType>(
     derivatives: options.derivatives ?? "zero",
     reentrant: options.reentrant ?? false,
   };
-  const callable = compileJS(graph, compileOptions);
+  const callable = compileJSRoutine(graph, compileOptions);
   const source = compileJSFn(graph, compileOptions);
 
   // The program's names, the other way round. A slot goes in under the name the

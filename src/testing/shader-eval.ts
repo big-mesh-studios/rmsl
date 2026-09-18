@@ -312,7 +312,7 @@ export function evaluateJS(build: Build, args: number[] = []): number | number[]
  * Run an expression on the WASM backend — in-process, no GPU, no browser,
  * same as `evaluateJS`.
  *
- * This backend's `float` is f64, matching `compileJS`'s plain JS-number
+ * This backend's `float` is f64, matching `compileJSRoutine`'s plain JS-number
  * arithmetic bit for bit (`ROADMAP.md`, "`float` is f64") — including the
  * transcendental functions, which both backends call through the literal
  * same `Math` object. So unlike the GLSL/WGSL comparison, nothing here

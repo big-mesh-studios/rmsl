@@ -11,7 +11,7 @@ export type AdapterResult = Record<string, TypedArray>;
  * pixel for a `batch` program (named for the `CpuRoutine` method it's run
  * through, not the `Adapter.draw()` it's wired into below — those are two
  * different things sharing a canvas-render step, not one). Not exported
- * publicly: {@link createCpuAdapter} is wrapped by `createJs`/`createWasmRoutine`,
+ * publicly: {@link createCpuAdapter} is wrapped by `createJsRoutine`/`createWasmRoutine`,
  * which take root graphs instead of already-compiled routines.
  */
 export interface CpuAdapterPrograms {
@@ -21,7 +21,7 @@ export interface CpuAdapterPrograms {
 
 /** `compute`/`draw` here are each required — unlike the base Adapter's
  * optional, possibly-async versions — for whichever of the two this
- * adapter was actually built with; createJs/createWasmRoutine throw at
+ * adapter was actually built with; createJsRoutine/createWasmRoutine throw at
  * construction time otherwise. Both are synchronous: this loop never
  * awaits anything. */
 export interface CpuAdapter extends Adapter<AdapterResult> {

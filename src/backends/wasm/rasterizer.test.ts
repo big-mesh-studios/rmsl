@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { compileWasmFn } from "../../wasm";
-import { compileJS } from "../../js";
+import { compileJSRoutine } from "../../js";
 import { rasterizeTriangles } from "../cpu-rasterizer";
 import { instantiateRasterizer, writeAttributeDescriptors, writeVaryingDescriptors } from "./rasterizer";
 import { attribute, builtinPosition, Fn, uniform, varying, vec4, type AttributeNode } from "../../rmsl";
@@ -98,7 +98,7 @@ describe("WASM backend: generic rasterizer module — linking skeleton", () => {
 });
 
 describe("WASM backend: generic rasterizer module — triangle setup and edge functions", () => {
-  it("matches rasterizeTriangles' own (compileJS-driven) output for one triangle", () => {
+  it("matches rasterizeTriangles' own (compileJSRoutine-driven) output for one triangle", () => {
     let posAttr!: AttributeNode<"vec3">;
     const vertexBuild = () =>
       Fn(() => {
@@ -116,13 +116,13 @@ describe("WASM backend: generic rasterizer module — triangle setup and edge fu
     ];
     const attrData = new Float64Array(triangle.flat());
 
-    // Oracle: the same vertex/fragment programs run through compileJS and the
+    // Oracle: the same vertex/fragment programs run through compileJSRoutine and the
     // already-tested rasterizeTriangles, to check the WASM loop below against
     // an independent implementation of the same math rather than hand-derived
     // pixel coordinates.
-    const jsVertex = compileJS(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
+    const jsVertex = compileJSRoutine(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
     const attrSlot = posAttr.name;
-    const jsFragment = compileJS(fragmentBuild as any, { name: "fragment", params: [] });
+    const jsFragment = compileJSRoutine(fragmentBuild as any, { name: "fragment", params: [] });
     const expected = rasterizeTriangles(jsVertex, jsFragment, {
       attributes: { [attrSlot]: attrData },
       attributeTypes: { [attrSlot]: "vec3" },
@@ -231,9 +231,9 @@ describe("WASM backend: generic rasterizer module — perspective-correct varyin
       [-1, 1, 0],
     ];
 
-    const jsVertex = compileJS(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
+    const jsVertex = compileJSRoutine(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
     const posSlot = posAttr.name;
-    const jsFragment = compileJS(fragmentBuild as any, { name: "fragment", params: [] });
+    const jsFragment = compileJSRoutine(fragmentBuild as any, { name: "fragment", params: [] });
     const expected = rasterizeTriangles(jsVertex, jsFragment, {
       attributes: { [posSlot]: new Float64Array(positions.flat()) },
       attributeTypes: { [posSlot]: "vec3" },
@@ -358,10 +358,10 @@ describe("WASM backend: generic rasterizer module — multiple attribute slots",
       [0, 0, 1],
     ];
 
-    const jsVertex = compileJS(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
+    const jsVertex = compileJSRoutine(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
     const posSlot = posAttr.name;
     const colorSlot = colorAttr.name;
-    const jsFragment = compileJS(fragmentBuild as any, { name: "fragment", params: [] });
+    const jsFragment = compileJSRoutine(fragmentBuild as any, { name: "fragment", params: [] });
     const expected = rasterizeTriangles(jsVertex, jsFragment, {
       attributes: { [posSlot]: new Float64Array(positions.flat()), [colorSlot]: new Float64Array(colors.flat()) },
       attributeTypes: { [posSlot]: "vec3", [colorSlot]: "vec3" },
@@ -504,10 +504,10 @@ describe("WASM backend: generic rasterizer module — multiple varying slots", (
       [0, 0, 1],
     ];
 
-    const jsVertex = compileJS(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
+    const jsVertex = compileJSRoutine(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
     const posSlot = posAttr.name;
     const colorSlot = colorAttr.name;
-    const jsFragment = compileJS(fragmentBuild as any, { name: "fragment", params: [] });
+    const jsFragment = compileJSRoutine(fragmentBuild as any, { name: "fragment", params: [] });
     const expected = rasterizeTriangles(jsVertex, jsFragment, {
       attributes: { [posSlot]: new Float64Array(positions.flat()), [colorSlot]: new Float64Array(colors.flat()) },
       attributeTypes: { [posSlot]: "vec3", [colorSlot]: "vec3" },
@@ -644,9 +644,9 @@ describe("WASM backend: generic rasterizer module — scalarsInMemory for a scal
       [-1, 1, 0],
     ];
 
-    const jsVertex = compileJS(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
+    const jsVertex = compileJSRoutine(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
     const posSlot = posAttr.name;
-    const jsFragment = compileJS(fragmentBuild as any, { name: "fragment", params: [] });
+    const jsFragment = compileJSRoutine(fragmentBuild as any, { name: "fragment", params: [] });
     const expected = rasterizeTriangles(jsVertex, jsFragment, {
       attributes: { [posSlot]: new Float64Array(positions.flat()) },
       attributeTypes: { [posSlot]: "vec3" },
@@ -762,7 +762,7 @@ describe("WASM backend: generic rasterizer module — near-plane clipping", () =
       [-1, 1, 2],
     ];
 
-    const jsVertex = compileJS(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
+    const jsVertex = compileJSRoutine(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
     const clipSpacePositions = positions.map(
       (p) => (jsVertex.invoke({ attributes: { [posAttr.name]: p } }) as { position: number[] }).position,
     );

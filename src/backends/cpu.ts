@@ -77,7 +77,7 @@ export type CpuShaderResult = {
 export type CpuDrawBuffer = Float64Array | Int32Array | Uint32Array;
 
 /**
- * The runtime face of a compiled CPU function, common to `compileJS` and
+ * The runtime face of a compiled CPU function, common to `compileJSRoutine` and
  * `compileWasmRoutine` — not tied to any one stage or use: a plain compute
  * program's `invoke()` is called once per `storage()` index with its return
  * value ignored (side effects land in `ctx.storages`), a vertex/fragment

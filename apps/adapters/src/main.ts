@@ -1,6 +1,6 @@
 import { attribute, cos, Fn, fragCoord, sin, uniform, varying, vec3, vec4 } from "@random-mesh/rmsl";
 import { createGlsl } from "@random-mesh/rmsl/glsl";
-import { compileJS, createJs, rasterizeTriangles } from "@random-mesh/rmsl/js";
+import { compileJSRoutine, createJsRoutine, rasterizeTriangles } from "@random-mesh/rmsl/js";
 import { createWasm, createWasmRoutine } from "@random-mesh/rmsl/wasm";
 import { createWgsl } from "@random-mesh/rmsl/wgsl";
 
@@ -59,14 +59,14 @@ wgpuAdapter
 // === CPU/WASM rasterizer demo — the same vertex/fragment pair GLSL/WGSL
 // draw above, but run through a real vertex+triangle loop instead of a
 // GPU. js-vtx goes through rasterizeTriangles (src/backends/
-// cpu-rasterizer.ts), a host-side loop calling compileJS's compiled
+// cpu-rasterizer.ts), a host-side loop calling compileJSRoutine's compiled
 // vertex/fragment once per vertex/pixel. wasm-vtx goes through
 // createWasm, which links a compiled vertex/fragment pair against the
 // generic WASM rasterizer module (src/backends/wasm/rasterizer.ts) —
 // the vertex loop, clipping, and triangle rasterization all run inside
 // WASM, not host-mediated per vertex/pixel. ===
-const vertexFnJs = compileJS(() => vertexRoot, { name: "vtx", params: [], stage: "vertex" });
-const fragmentFnJs = compileJS(() => fragmentRoot, { name: "frag", params: [] });
+const vertexFnJs = compileJSRoutine(() => vertexRoot, { name: "vtx", params: [], stage: "vertex" });
+const fragmentFnJs = compileJSRoutine(() => fragmentRoot, { name: "frag", params: [] });
 
 const cpuVtxCtx = cpuVtxCanvas.getContext("2d")!;
 
@@ -96,20 +96,20 @@ function drawRasterizedJs(t: number) {
   cpuVtxCtx.putImageData(imageData, 0, 0);
 }
 
-const wasmVtxAdapter = createWasm(
+const wasmAdapter = createWasm(
   () => vertexRoot,
   () => fragmentRoot,
 );
-wasmVtxAdapter.attach(cpuVtxCanvas);
-wasmVtxAdapter.setAttribute(pos.name, TRIANGLE_STRIP_QUAD);
+wasmAdapter.attach(cpuVtxCanvas);
+wasmAdapter.setAttribute(pos.name, TRIANGLE_STRIP_QUAD);
 const TRIANGLE_STRIP_QUAD_VERTEX_COUNT = TRIANGLE_STRIP_QUAD.length / 2;
 
 function drawRasterizedWasm(t: number) {
-  wasmVtxAdapter.setUniform(time, t);
-  wasmVtxAdapter.draw({ vertexCount: TRIANGLE_STRIP_QUAD_VERTEX_COUNT });
+  wasmAdapter.setUniform(time, t);
+  wasmAdapter.draw({ vertexCount: TRIANGLE_STRIP_QUAD_VERTEX_COUNT });
 }
 
-// === Draw programs (createJs / createWasmRoutine) — a full-screen color
+// === Draw programs (createJsRoutine / createWasmRoutine) — a full-screen color
 // gradient, one fragCoord() evaluation per pixel. No attribute, no
 // vertex stage: a CPU adapter's draw has nothing to rasterize with. ===
 const resolution = uniform("vec2");
@@ -120,11 +120,11 @@ const cpuDrawRoot = Fn(() => {
   return vec4(uv.x, uv.y, sin(cpuTime).mul(0.5).add(0.5), 1.0);
 })();
 
-const jsAdapter = createJs({ batch: cpuDrawRoot, batchName: "cpuDraw" });
+const jsAdapter = createJsRoutine({ batch: cpuDrawRoot, batchName: "cpuDraw" });
 jsAdapter.attach(cpuCanvas);
 
-const wasmAdapter = createWasmRoutine({ batch: cpuDrawRoot, batchName: "cpuDraw" });
-wasmAdapter.attach(cpuCanvas);
+const wasmRoutineAdapter = createWasmRoutine({ batch: cpuDrawRoot, batchName: "cpuDraw" });
+wasmRoutineAdapter.attach(cpuCanvas);
 
 const startTime = performance.now();
 const fpsEl = document.getElementById("fps")!;
@@ -152,7 +152,7 @@ function frame(now: number) {
   } else if (backend === "wasm-vtx") {
     drawRasterizedWasm(t);
   } else {
-    const adapter = backend === "js" ? jsAdapter : wasmAdapter;
+    const adapter = backend === "js" ? jsAdapter : wasmRoutineAdapter;
     adapter.setUniform(resolution, [cpuCanvas.width, cpuCanvas.height]);
     adapter.setUniform(cpuTime, t);
     adapter.draw();
@@ -168,7 +168,7 @@ function frame(now: number) {
       : backend === "wgsl"
         ? "drawing via createWgsl"
         : backend === "js-vtx"
-          ? "drawing via rasterizeTriangles (compileJS)"
+          ? "drawing via rasterizeTriangles (compileJSRoutine)"
           : backend === "wasm-vtx"
             ? "drawing via createWasm"
             : `drawing via create${backend === "js" ? "Js" : "WasmRoutine"}`;

@@ -1654,7 +1654,7 @@ export function compileWasmFn(
 
   /**
    * textureSize(): copies width/height(/depth) out of the metadata block as
-   * uints. No 2D/3D restriction — valid for cube too, matching compileJS.
+   * uints. No 2D/3D restriction — valid for cube too, matching compileJSRoutine.
    */
   function emitTextureSizeStores(node: any, addr: number): number[] {
     const metaAddr = textureMetadataAddress.get(node.params[0].value.slot);
@@ -3260,7 +3260,7 @@ export function instantiateWasm(compiled: CompiledWasm, name: string, externalMe
     const view = new DataView(memory.buffer); // fresh: marshalInputs may have just grown (and detached) the buffer
 
     // A read_write/write storage() is mutated in the caller's own array at
-    // ctx.index, the same convention compileJS's storage support uses —
+    // ctx.index, the same convention compileJSRoutine's storage support uses —
     // not folded into shaderResult, since the point is the array itself
     // stays the source of truth across calls.
     for (const p of storageOutputParams) {

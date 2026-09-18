@@ -1,6 +1,6 @@
 import { bench, describe } from "vitest";
 import { compileWasmRoutine } from "../wasm";
-import { compileJS, type CpuTextureData } from "../js";
+import { compileJSRoutine, type CpuTextureData } from "../js";
 import { Fn, uniform, vec2, ivec2, textureSize, textureLoad } from "../rmsl";
 
 const size = 8;
@@ -14,13 +14,13 @@ describe("textureSize(): metadata round trip only, no sampling math", () => {
   const tex = uniform("sampler2D") as any;
   const build = () => Fn(() => textureSize(tex).x.toFloat())();
   const wasmFn = compileWasmRoutine(build as any, { name: "main", params: [] });
-  const jsFn = compileJS(build as any, { name: "main", params: [] });
+  const jsFn = compileJSRoutine(build as any, { name: "main", params: [] });
   const ctx = { textures: { [tex.name]: texture } };
 
   bench("compileWasmRoutine", () => {
     wasmFn.invoke(ctx);
   });
-  bench("compileJS", () => {
+  bench("compileJSRoutine", () => {
     jsFn.invoke(ctx);
   });
 });
@@ -29,13 +29,13 @@ describe("textureLoad(): one unfiltered texel", () => {
   const tex = uniform("sampler2D") as any;
   const build = () => Fn(() => textureLoad(tex, ivec2(3, 5)).x)();
   const wasmFn = compileWasmRoutine(build as any, { name: "main", params: [] });
-  const jsFn = compileJS(build as any, { name: "main", params: [] });
+  const jsFn = compileJSRoutine(build as any, { name: "main", params: [] });
   const ctx = { textures: { [tex.name]: texture } };
 
   bench("compileWasmRoutine", () => {
     wasmFn.invoke(ctx);
   });
-  bench("compileJS", () => {
+  bench("compileJSRoutine", () => {
     jsFn.invoke(ctx);
   });
 });
@@ -44,13 +44,13 @@ describe("texture(): nearest-filtered sample", () => {
   const tex = uniform("sampler2D") as any;
   const build = () => Fn(() => tex.texture(vec2(0.3, 0.7)).x)();
   const wasmFn = compileWasmRoutine(build as any, { name: "main", params: [] });
-  const jsFn = compileJS(build as any, { name: "main", params: [] });
+  const jsFn = compileJSRoutine(build as any, { name: "main", params: [] });
   const ctx = { textures: { [tex.name]: nearestTexture } };
 
   bench("compileWasmRoutine", () => {
     wasmFn.invoke(ctx);
   });
-  bench("compileJS", () => {
+  bench("compileJSRoutine", () => {
     jsFn.invoke(ctx);
   });
 });
@@ -59,13 +59,13 @@ describe("texture(): bilinear-filtered sample", () => {
   const tex = uniform("sampler2D") as any;
   const build = () => Fn(() => tex.texture(vec2(0.3, 0.7)).x)();
   const wasmFn = compileWasmRoutine(build as any, { name: "main", params: [] });
-  const jsFn = compileJS(build as any, { name: "main", params: [] });
+  const jsFn = compileJSRoutine(build as any, { name: "main", params: [] });
   const ctx = { textures: { [tex.name]: linearTexture } };
 
   bench("compileWasmRoutine", () => {
     wasmFn.invoke(ctx);
   });
-  bench("compileJS", () => {
+  bench("compileJSRoutine", () => {
     jsFn.invoke(ctx);
   });
 });

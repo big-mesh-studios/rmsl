@@ -1,4 +1,4 @@
-import { createJs, type CpuAdapter } from "@random-mesh/rmsl/js";
+import { createJsRoutine, type CpuAdapter } from "@random-mesh/rmsl/js";
 import { createWasmRoutine } from "@random-mesh/rmsl/wasm";
 import { createWgsl } from "@random-mesh/rmsl/wgsl";
 import { createGpuRenderer } from "./gpu-renderer";
@@ -61,7 +61,7 @@ seed(N);
 const system = createEcsSystem();
 const { slots } = system;
 
-const jsAdapter = createJs({ compute: system.program.root, computeName: "ecsSystem" });
+const jsAdapter = createJsRoutine({ compute: system.program.root, computeName: "ecsSystem" });
 const wasmAdapter = createWasmRoutine({ compute: system.program.root, computeName: "ecsSystem" });
 
 // Re-set every frame: cheap (a handful of object-field assignments), and

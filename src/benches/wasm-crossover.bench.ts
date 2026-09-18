@@ -1,6 +1,6 @@
 import { bench, describe } from "vitest";
 import { compileWasmRoutine } from "../wasm";
-import { compileJS } from "../js";
+import { compileJSRoutine } from "../js";
 import { Fn, For, float, int, sqrt } from "../rmsl";
 
 function buildLoop(n: number) {
@@ -25,13 +25,13 @@ for (const n of [1, 2, 4, 8, 16, 32, 64, 128]) {
   describe(`loop: sum of sqrt(i) for i in [0, ${n})`, () => {
     const build = buildLoop(n);
     const wasmFn = compileWasmRoutine(build as any, { name: "main", params: [] });
-    const jsFn = compileJS(build as any, { name: "main", params: [] });
+    const jsFn = compileJSRoutine(build as any, { name: "main", params: [] });
     const ctx = {};
 
     bench("compileWasmRoutine", () => {
       wasmFn.invoke(ctx);
     });
-    bench("compileJS", () => {
+    bench("compileJSRoutine", () => {
       jsFn.invoke(ctx);
     });
   });

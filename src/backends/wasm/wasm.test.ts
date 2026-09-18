@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { compileWasmRoutine, compileWasmFn, instantiateWasm } from "../../wasm";
-import { compileJS } from "../../js";
+import { compileJSRoutine } from "../../js";
 import {
   Fn,
   If,
@@ -290,7 +290,7 @@ describe("WASM backend: clamp, mix, step, smoothstep", () => {
     expect(run((a) => a.step(0.5), [0.5])).toBe(1); // "x < edge", so equal is 1
   });
 
-  it("smoothsteps: clamped, cubic-eased, matching compileJS bit for bit", () => {
+  it("smoothsteps: clamped, cubic-eased, matching compileJSRoutine bit for bit", () => {
     expect(run((a) => a.smoothstep(0, 1), [-0.5])).toBe(0);
     expect(run((a) => a.smoothstep(0, 1), [1.5])).toBe(1);
     expect(run((a) => a.smoothstep(0, 1), [0.5])).toBe(0.5);
@@ -321,7 +321,7 @@ describe("WASM backend: clamp, mix, step, smoothstep", () => {
   it("mixes a vector with a per-component vector blend factor", () => {
     // `.mix()`'s own TS signature only declares a scalar `t` — the runtime
     // (`core.ts`'s own doc comment on `UNIFORM_OPERAND_OPS`, and
-    // `compileJS`'s `_v3mix`) supports a per-component one too, so this is
+    // `compileJSRoutine`'s `_v3mix`) supports a per-component one too, so this is
     // a real, if untyped, case worth covering.
     const build = () => Fn(() => (vec3(0, 0, 0).mix as any)(vec3(4, 8, 12), vec3(0.25, 0.5, 1)))();
     const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
@@ -385,15 +385,15 @@ describe("WASM backend: transcendentals via host import", () => {
     expect(run((a) => a.exp2(), [10])).toBe(1024);
   });
 
-  it("agrees with compileJS on a transcendental", () => {
-    // Built once: compileWasmRoutine and compileJS each call their `fn` argument
+  it("agrees with compileJSRoutine on a transcendental", () => {
+    // Built once: compileWasmRoutine and compileJSRoutine each call their `fn` argument
     // themselves, and a `build` that calls uniform() itself would mint a
     // fresh, differently-named uniform for each backend instead of sharing
     // one, so the graph is built up front and handed to both as `() => node`.
     const u = uniform("float");
     const node = sin(u).mul(u.cos());
     const wasmFn = compileWasmRoutine(() => node, { name: "main", params: [] });
-    const jsFn = compileJS(() => node as any, { name: "main", params: [] });
+    const jsFn = compileJSRoutine(() => node as any, { name: "main", params: [] });
     const ctx = { uniforms: { [u.name]: 0.6 } };
     expect(wasmFn.invoke(ctx)).toBeCloseTo(jsFn.invoke(ctx) as number, 9);
   });
@@ -441,7 +441,7 @@ describe("WASM backend: int/uint/bool values and casts", () => {
     expect(run((a) => a.toInt(), [1], ["bool"])).toBe(1);
   });
 
-  it("agrees with compileJS across an int/uint/bool expression", () => {
+  it("agrees with compileJSRoutine across an int/uint/bool expression", () => {
     const build = (x: Node<"float">) => {
       const asInt = x.toInt();
       const doubled = asInt.mul(int(2));
@@ -449,7 +449,7 @@ describe("WASM backend: int/uint/bool values and casts", () => {
     };
     for (const x of [1, 3, -2]) {
       const wasmFn = compileWasmRoutine(build as any, { name: "main", params: [{ name: "x", type: "float" }] });
-      const jsFn = compileJS(build as any, { name: "main", params: [{ name: "x", type: "float" }] });
+      const jsFn = compileJSRoutine(build as any, { name: "main", params: [{ name: "x", type: "float" }] });
       expect(wasmFn.invoke({ params: { x } })).toBe(jsFn.invoke({ params: { x } }));
     }
   });
@@ -929,7 +929,7 @@ describe("WASM backend: matrix×vector and matrix×matrix multiplication", () =>
 });
 
 describe("WASM backend: derivatives option", () => {
-  it("throws by default, matching compileJS's own message shape", () => {
+  it("throws by default, matching compileJSRoutine's own message shape", () => {
     expect(() => compileWasmRoutine(() => dFdx(float(1)), { name: "main", params: [] })).toThrow(
       /dFdx\(\) has no meaning on the CPU target/,
     );
@@ -1035,7 +1035,7 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
     expect(Object.values(result.varyings as Record<string, unknown>)).toEqual([9]);
   });
 
-  it("writes position and a varying in a vertex stage, matching compileJS's own test", () => {
+  it("writes position and a varying in a vertex stage, matching compileJSRoutine's own test", () => {
     const build = () =>
       Fn(() => {
         const v = varying("vec3");
@@ -1185,7 +1185,7 @@ describe("WASM backend: texture uniforms", () => {
     expect(fn.invoke({ textures: { [tex.name]: texture } })).toBe(20); // stale on purpose
   });
 
-  it("supports textureSize() for a samplerCube uniform, matching compileJS's own lack of restriction there", () => {
+  it("supports textureSize() for a samplerCube uniform, matching compileJSRoutine's own lack of restriction there", () => {
     const tex = uniform("samplerCube");
     const build = () => Fn(() => (textureSize as any)(tex).x)();
     const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
@@ -1499,7 +1499,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
       { name: "main", params: [] },
     );
     let jsTex!: any;
-    const jsFn = compileJS(
+    const jsFn = compileJSRoutine(
       () =>
         Fn(() => {
           jsTex = uniform("samplerCube");
@@ -1686,7 +1686,7 @@ describe("WASM backend: instantiateWasm — compile and instantiate as separate 
   });
 
   it("compiles storage()/invocationIndex() into a per-call array-indexed program", () => {
-    // Same per-invocation model as compileJS's storage support: one call per
+    // Same per-invocation model as compileJSRoutine's storage support: one call per
     // element, `ctx.index` naming which one, `ctx.storages` the backing
     // arrays it reads/writes directly.
     let dt!: UniformNode<"float">;

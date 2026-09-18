@@ -1,4 +1,4 @@
-import { compileJS } from "@random-mesh/rmsl";
+import { compileJSRoutine } from "@random-mesh/rmsl";
 import {
   calcColourAndDepth,
   positionGeometry,
@@ -19,7 +19,7 @@ const view = mat4LookAt(...cameraPositionValue, 0, 0, 0, 0, 1, 0);
 const invProj = mat4Inverse(proj);
 const world = mat4Inverse(view);
 
-const pick = compileJS(calcColourAndDepth, {
+const pick = compileJSRoutine(calcColourAndDepth, {
   name: "pick",
   params: [],
   derivatives: "zero", // the grid shader uses fwidth(), meaningless per-pixel

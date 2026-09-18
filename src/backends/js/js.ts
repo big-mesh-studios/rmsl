@@ -1766,7 +1766,7 @@ export type CompileJSOptions = CompileFnOptions & {
  */
 /**
  * `compileJSFn`'s real body, also handing back the root node's result type —
- * needed by `compileJS`'s `batch()` and computed here, from the one time `fn`
+ * needed by `compileJSRoutine`'s `batch()` and computed here, from the one time `fn`
  * is actually called. A second call to read it back afterward is not an
  * option: `fn` routinely has side effects on the caller's own closure (the
  * `let tex; Fn(() => { tex = uniform(...); ... })` idiom this whole test
@@ -1871,7 +1871,7 @@ export function compileJSFn(
  * result has: one JS call per pixel, feeding `fragCoord` in and packing every
  * result into one flat row-major buffer — see `CpuRoutine`.
  */
-export function compileJS(
+export function compileJSRoutine(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
 ): CpuRoutine {
@@ -1881,7 +1881,7 @@ export function compileJS(
 
   function batch(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
     if (resultType === undefined) {
-      throw new Error("[RMSL] compileJS: this function produces no value to render — batch() needs a result.");
+      throw new Error("[RMSL] compileJSRoutine: this function produces no value to render — batch() needs a result.");
     }
     const componentCount = componentCountOf(resultType);
     const kind = isAggregate(resultType) ? elementKindOf(resultType) : scalarKindOf(resultType);
