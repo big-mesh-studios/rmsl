@@ -29,6 +29,10 @@ export const RASTERIZE_PARAMS = [
   "height",
   "fragmentValueAddress",
   "outputBase",
+  "varyingBytes",
+  "vertexVaryingAddress",
+  "fragmentVaryingAddress",
+  "varyingsOutBase",
 ] as const;
 
 /** A `vec4` position or fragment color, stored as 4 f64 components. */
@@ -56,9 +60,11 @@ const iGtS = bin(WASM_OP.i32GtS);
 const iGeS = bin(WASM_OP.i32GeS);
 const iAnd = bin(WASM_OP.i32And);
 const iOr = bin(WASM_OP.i32Or);
+const iDivS = bin(WASM_OP.i32DivS);
 const toF64 = un(WASM_OP.f64ConvertI32S);
 const toI32 = un(WASM_OP.i32TruncF64S);
 const loadF64 = (addr: number[]) => [...addr, WASM_OP.f64Load, 0x00, 0x00];
+const storeF64 = (addr: number[], value: number[]) => [...addr, ...value, WASM_OP.f64Store, 0x00, 0x00];
 
 /** Assigns sequential local indices/types past a function's own params. */
 class LocalAllocator {
@@ -75,10 +81,7 @@ class LocalAllocator {
 
 /**
  * A `block { loop { ... } }` copying `length` bytes one at a time from
- * `src(byteCounter)` to `dest(byteCounter)`, using `counterLocal` as its
- * own scratch index — the same block/loop/br_if shape `wasm.ts`'s own
- * `batch()` grid loop uses, generalized to a byte copy instead of a pixel
- * write.
+ * `src(byteCounter)` to `dest(byteCounter)`. See rasterizer.md.
  */
 function emitByteCopyLoop(
   dest: (byteOffset: number[]) => number[],
@@ -118,14 +121,8 @@ function emitByteCopyLoop(
 }
 
 /**
- * Builds the rasterizer module's bytes: a `"rasterize"` export
- * ({@link RASTERIZE_PARAMS}) that loops over `vertexCount` vertices
- * (attribute byte-copy in, call {@link RASTERIZER_VERTEX_IMPORT}, position
- * byte-copy out), then loops over the resulting triangles doing a
- * perspective-divide/screen-space edge-function test per pixel in each
- * triangle's bounding box, calling {@link RASTERIZER_FRAGMENT_IMPORT} and
- * byte-copying its `vec4` result into `outputBase` for every covered
- * pixel. No clipping, depth test, or varying interpolation yet.
+ * Builds the rasterizer module's bytes — see rasterizer.md for the full
+ * vertex-pass/triangle-pass design and its v1 scope.
  */
 export function buildRasterizerModule(): Uint8Array {
   const voidToVoid = [WASM_FUNC, ...wasmVec([]), ...wasmVec([])];
@@ -172,6 +169,10 @@ export function buildRasterizerModule(): Uint8Array {
     height,
     fragmentValueAddress,
     outputBase,
+    varyingBytes,
+    vertexVaryingAddress,
+    fragmentVaryingAddress,
+    varyingsOutBase,
   ] = RASTERIZE_PARAMS.map((_, i) => i);
 
   const locals = new LocalAllocator(RASTERIZE_PARAMS.length);
@@ -198,6 +199,18 @@ export function buildRasterizerModule(): Uint8Array {
   const e0Idx = locals.alloc(WASM_F64);
   const e1Idx = locals.alloc(WASM_F64);
   const e2Idx = locals.alloc(WASM_F64);
+  const w0Idx = locals.alloc(WASM_F64);
+  const w1Idx = locals.alloc(WASM_F64);
+  const w2Idx = locals.alloc(WASM_F64);
+  const invW0Idx = locals.alloc(WASM_F64);
+  const invW1Idx = locals.alloc(WASM_F64);
+  const invW2Idx = locals.alloc(WASM_F64);
+  const b0Idx = locals.alloc(WASM_F64);
+  const b1Idx = locals.alloc(WASM_F64);
+  const b2Idx = locals.alloc(WASM_F64);
+  const invWIdx = locals.alloc(WASM_F64);
+  const numVaryingComponentsIdx = locals.alloc(WASM_I32);
+  const componentIdx = locals.alloc(WASM_I32);
 
   const copyAttributeIn = emitByteCopyLoop(
     (offset) => iAdd(local(vertexAttrDestAddress), offset),
@@ -209,6 +222,12 @@ export function buildRasterizerModule(): Uint8Array {
     (offset) => iAdd(iAdd(local(positionsOutBase), iMul(local(iIdx), i32ConstBytes(VEC4_BYTES))), offset),
     (offset) => iAdd(local(vertexPositionAddress), offset),
     i32ConstBytes(VEC4_BYTES),
+    byteCounterIdx,
+  );
+  const copyVaryingOut = emitByteCopyLoop(
+    (offset) => iAdd(iAdd(local(varyingsOutBase), iMul(local(iIdx), local(varyingBytes))), offset),
+    (offset) => iAdd(local(vertexVaryingAddress), offset),
+    local(varyingBytes),
     byteCounterIdx,
   );
 
@@ -226,6 +245,7 @@ export function buildRasterizerModule(): Uint8Array {
     WASM_OP.call,
     ...wasmUleb128(0), // vertex.main
     ...copyPositionOut,
+    ...copyVaryingOut,
     ...iAdd(local(iIdx), i32ConstBytes(1)),
     ...localSet(iIdx),
     WASM_OP.br,
@@ -267,6 +287,18 @@ export function buildRasterizerModule(): Uint8Array {
     ...localSet(s2xIdx),
     ...screenY(t2Expr),
     ...localSet(s2yIdx),
+    ...posComponent(tExpr, 3),
+    ...localSet(w0Idx),
+    ...posComponent(t1Expr, 3),
+    ...localSet(w1Idx),
+    ...posComponent(t2Expr, 3),
+    ...localSet(w2Idx),
+    ...fDiv(f64ConstBytes(1), local(w0Idx)),
+    ...localSet(invW0Idx),
+    ...fDiv(f64ConstBytes(1), local(w1Idx)),
+    ...localSet(invW1Idx),
+    ...fDiv(f64ConstBytes(1), local(w2Idx)),
+    ...localSet(invW2Idx),
     ...fSub(
       fMul(fSub(local(s1xIdx), local(s0xIdx)), fSub(local(s2yIdx), local(s0yIdx))),
       fMul(fSub(local(s1yIdx), local(s0yIdx)), fSub(local(s2xIdx), local(s0xIdx))),
@@ -304,6 +336,51 @@ export function buildRasterizerModule(): Uint8Array {
       fMul(fSub(local(ay), local(pyIdx)), fSub(local(bx), local(pxIdx))),
     );
 
+  const varyingComponent = (vertexIndex: number[], comp: number[]) =>
+    loadF64(iAdd(iAdd(local(varyingsOutBase), iMul(vertexIndex, local(varyingBytes))), iMul(comp, i32ConstBytes(8))));
+
+  const interpolateVaryings = [
+    ...fDiv(local(e0Idx), local(areaIdx)),
+    ...localSet(b0Idx),
+    ...fDiv(local(e1Idx), local(areaIdx)),
+    ...localSet(b1Idx),
+    ...fDiv(local(e2Idx), local(areaIdx)),
+    ...localSet(b2Idx),
+    ...fAdd(
+      fAdd(fMul(local(b0Idx), local(invW0Idx)), fMul(local(b1Idx), local(invW1Idx))),
+      fMul(local(b2Idx), local(invW2Idx)),
+    ),
+    ...localSet(invWIdx),
+    ...i32ConstBytes(0),
+    ...localSet(componentIdx),
+    WASM_OP.block,
+    0x40,
+    WASM_OP.loop,
+    0x40,
+    ...iGeS(local(componentIdx), local(numVaryingComponentsIdx)),
+    WASM_OP.brIf,
+    ...wasmUleb128(1),
+    ...storeF64(
+      iAdd(local(fragmentVaryingAddress), iMul(local(componentIdx), i32ConstBytes(8))),
+      fDiv(
+        fAdd(
+          fAdd(
+            fMul(fMul(local(b0Idx), local(invW0Idx)), varyingComponent(tExpr, local(componentIdx))),
+            fMul(fMul(local(b1Idx), local(invW1Idx)), varyingComponent(t1Expr, local(componentIdx))),
+          ),
+          fMul(fMul(local(b2Idx), local(invW2Idx)), varyingComponent(t2Expr, local(componentIdx))),
+        ),
+        local(invWIdx),
+      ),
+    ),
+    ...iAdd(local(componentIdx), i32ConstBytes(1)),
+    ...localSet(componentIdx),
+    WASM_OP.br,
+    ...wasmUleb128(0),
+    WASM_OP.end,
+    WASM_OP.end,
+  ];
+
   const pixelBody = [
     ...fAdd(toF64(local(xIdx)), f64ConstBytes(0.5)),
     ...localSet(pxIdx),
@@ -327,6 +404,7 @@ export function buildRasterizerModule(): Uint8Array {
     ),
     WASM_OP.if_,
     0x40,
+    ...interpolateVaryings,
     WASM_OP.call,
     ...wasmUleb128(1), // fragment.main
     ...copyFragmentOut,
@@ -407,6 +485,8 @@ export function buildRasterizerModule(): Uint8Array {
     ...localSet(widthFIdx),
     ...toF64(local(height)),
     ...localSet(heightFIdx),
+    ...iDivS(local(varyingBytes), i32ConstBytes(8)),
+    ...localSet(numVaryingComponentsIdx),
     ...vertexLoop,
     ...triangleLoop,
   ];

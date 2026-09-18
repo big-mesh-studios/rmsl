@@ -3,9 +3,9 @@ import { compileWasmFn } from "../../wasm";
 import { compileJS } from "../../js";
 import { rasterizeTriangles } from "../cpu-rasterizer";
 import { instantiateRasterizer } from "./rasterizer";
-import { attribute, builtinPosition, Fn, vec4, type AttributeNode } from "../../rmsl";
+import { attribute, builtinPosition, Fn, varying, vec4, type AttributeNode } from "../../rmsl";
 
-describe("WASM backend: generic rasterizer module (step 1 — linking skeleton)", () => {
+describe("WASM backend: generic rasterizer module — linking skeleton", () => {
   it("calls an imported vertex then an imported fragment module, sharing one memory", () => {
     const memory = new WebAssembly.Memory({ initial: 1 });
     const view = new DataView(memory.buffer);
@@ -58,7 +58,22 @@ describe("WASM backend: generic rasterizer module (step 1 — linking skeleton)"
     const attrDestAddress = vertexCompiled.params.find((p) => p.kind === "attributeMemory")!.address;
     const positionAddress = vertexCompiled.params.find((p) => p.kind === "positionMemory")!.address;
 
-    rasterize(vertices.length, attrSrcBase, 24, attrDestAddress, positionAddress, positionsOutBase, 0, 0, 0, 0);
+    rasterize(
+      vertices.length,
+      attrSrcBase,
+      24,
+      attrDestAddress,
+      positionAddress,
+      positionsOutBase,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+    );
 
     for (let i = 0; i < vertices.length; i++) {
       const written = [0, 1, 2, 3].map((k) => view.getFloat64(positionsOutBase + i * 32 + k * 8, true));
@@ -67,7 +82,7 @@ describe("WASM backend: generic rasterizer module (step 1 — linking skeleton)"
   });
 });
 
-describe("WASM backend: generic rasterizer module (step 2 — triangle setup and edge functions)", () => {
+describe("WASM backend: generic rasterizer module — triangle setup and edge functions", () => {
   it("matches rasterizeTriangles' own (compileJS-driven) output for one triangle", () => {
     let posAttr!: AttributeNode<"vec3">;
     const vertexBuild = () =>
@@ -152,11 +167,116 @@ describe("WASM backend: generic rasterizer module (step 2 — triangle setup and
       height,
       fragmentValueAddress,
       outputBase,
+      0,
+      0,
+      0,
+      0,
     );
 
     const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
     expect(Array.from(actual)).toEqual(Array.from(expected));
     // Sanity check the oracle itself found real coverage, not an empty triangle.
     expect(Array.from(expected).some((v) => v !== 0)).toBe(true);
+  });
+});
+
+describe("WASM backend: generic rasterizer module — perspective-correct varying interpolation", () => {
+  it("matches rasterizeTriangles' own output for a per-vertex vec3 color varying", () => {
+    // One attribute slot (this rasterizer's v1 scope): the varying is
+    // derived from the position attribute itself, still exercising real
+    // per-vertex-varying interpolation since each vertex's position differs.
+    let posAttr!: AttributeNode<"vec3">;
+    const colorVarying = varying("vec3");
+    const vertexBuild = () =>
+      Fn(() => {
+        posAttr = attribute("vec3");
+        colorVarying.assign(posAttr.mul(0.5).add(0.5));
+        builtinPosition().assign(vec4(posAttr.x, posAttr.y, posAttr.z, 1));
+      })();
+    const fragmentBuild = () => Fn(() => vec4(colorVarying.x, colorVarying.y, colorVarying.z, 1))();
+
+    const width = 4;
+    const height = 4;
+    const positions = [
+      [-1, -1, 0],
+      [1, -1, 0],
+      [-1, 1, 0],
+    ];
+
+    const jsVertex = compileJS(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
+    const posSlot = posAttr.name;
+    const jsFragment = compileJS(fragmentBuild as any, { name: "fragment", params: [] });
+    const expected = rasterizeTriangles(jsVertex, jsFragment, {
+      attributes: { [posSlot]: new Float64Array(positions.flat()) },
+      attributeTypes: { [posSlot]: "vec3" },
+      width,
+      height,
+      componentCount: 4,
+    });
+    expect(Array.from(expected).some((v) => v !== 0)).toBe(true);
+
+    const memory = new WebAssembly.Memory({ initial: 1 });
+    const view = new DataView(memory.buffer);
+
+    const vertexCompiled = compileWasmFn(vertexBuild as any, {
+      name: "main",
+      params: [],
+      stage: "vertex",
+      memory,
+      memoryBase: 0,
+    });
+    const fragmentCompiled = compileWasmFn(fragmentBuild as any, {
+      name: "main",
+      params: [],
+      memoryBase: 1024,
+      memory,
+    });
+
+    const vertexInstance = new WebAssembly.Instance(new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer), {
+      math: Math as unknown as WebAssembly.ModuleImports,
+      env: { memory },
+    });
+    const fragmentInstance = new WebAssembly.Instance(
+      new WebAssembly.Module(fragmentCompiled.bytes.buffer as ArrayBuffer),
+      { math: Math as unknown as WebAssembly.ModuleImports, env: { memory } },
+    );
+    const { rasterize } = instantiateRasterizer(
+      vertexInstance.exports.main as () => void,
+      fragmentInstance.exports.main as () => void,
+      memory,
+    );
+
+    const attrSrcBase = 2048;
+    const positionsOutBase = 4096;
+    const varyingsOutBase = 8192;
+    const outputBase = 16384;
+    const attrData = new Float64Array(positions.flat());
+    attrData.forEach((c, i) => view.setFloat64(attrSrcBase + i * 8, c, true));
+
+    const attrDestAddress = vertexCompiled.params.find((p) => p.kind === "attributeMemory")!.address;
+    const positionAddress = vertexCompiled.params.find((p) => p.kind === "positionMemory")!.address;
+    const fragmentValueAddress = fragmentCompiled.params.find((p) => p.kind === "valueMemory")!.address;
+    const vertexVaryingAddress = vertexCompiled.params.find((p) => p.kind === "varyingOutputMemory")!.address;
+    const fragmentVaryingAddress = fragmentCompiled.params.find((p) => p.kind === "varyingMemory")!.address;
+
+    rasterize(
+      3,
+      attrSrcBase,
+      24,
+      attrDestAddress,
+      positionAddress,
+      positionsOutBase,
+      width,
+      height,
+      fragmentValueAddress,
+      outputBase,
+      24,
+      vertexVaryingAddress,
+      fragmentVaryingAddress,
+      varyingsOutBase,
+    );
+
+    const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
+    expect(Array.from(actual)).toEqual(Array.from(expected));
   });
 });
