@@ -65,20 +65,13 @@ wgpuAdapter
 // near-plane clipping, and triangle rasterization all run inside that
 // rasterizer, not host-mediated per vertex/pixel the way
 // rasterizeTriangles (the older, simpler utility) is. ===
-const TRIANGLE_STRIP_QUAD_VERTEX_COUNT = TRIANGLE_STRIP_QUAD.length / 2;
-
-const jsVtxAdapter = createJs(
+const jsAdapter = createJs(
   () => vertexRoot,
   () => fragmentRoot,
   { attributeTypes: { [pos.name]: "vec2" } },
 );
-jsVtxAdapter.attach(cpuVtxCanvas);
-jsVtxAdapter.setAttribute(pos.name, TRIANGLE_STRIP_QUAD);
-
-function drawRasterizedJs(t: number) {
-  jsVtxAdapter.setUniform(time, t);
-  jsVtxAdapter.draw({ vertexCount: TRIANGLE_STRIP_QUAD_VERTEX_COUNT });
-}
+jsAdapter.attach(cpuVtxCanvas);
+jsAdapter.setAttribute(pos.name, TRIANGLE_STRIP_QUAD);
 
 const wasmAdapter = createWasm(
   () => vertexRoot,
@@ -86,11 +79,6 @@ const wasmAdapter = createWasm(
 );
 wasmAdapter.attach(cpuVtxCanvas);
 wasmAdapter.setAttribute(pos.name, TRIANGLE_STRIP_QUAD);
-
-function drawRasterizedWasm(t: number) {
-  wasmAdapter.setUniform(time, t);
-  wasmAdapter.draw({ vertexCount: TRIANGLE_STRIP_QUAD_VERTEX_COUNT });
-}
 
 // === Draw programs (createJsRoutine / createWasmRoutine) — a full-screen color
 // gradient, one fragCoord() evaluation per pixel. No attribute, no
@@ -103,8 +91,8 @@ const cpuDrawRoot = Fn(() => {
   return vec4(uv.x, uv.y, sin(cpuTime).mul(0.5).add(0.5), 1.0);
 })();
 
-const jsAdapter = createJsRoutine({ batch: cpuDrawRoot, batchName: "cpuDraw" });
-jsAdapter.attach(cpuCanvas);
+const jsRoutineAdapter = createJsRoutine({ batch: cpuDrawRoot, batchName: "cpuDraw" });
+jsRoutineAdapter.attach(cpuCanvas);
 
 const wasmRoutineAdapter = createWasmRoutine({ batch: cpuDrawRoot, batchName: "cpuDraw" });
 wasmRoutineAdapter.attach(cpuCanvas);
@@ -131,11 +119,13 @@ function frame(now: number) {
     wgpuAdapter.setUniform(time, t);
     wgpuAdapter.draw();
   } else if (backend === "js-vtx") {
-    drawRasterizedJs(t);
+    jsAdapter.setUniform(time, t);
+    jsAdapter.draw();
   } else if (backend === "wasm-vtx") {
-    drawRasterizedWasm(t);
+    wasmAdapter.setUniform(time, t);
+    wasmAdapter.draw();
   } else {
-    const adapter = backend === "js" ? jsAdapter : wasmRoutineAdapter;
+    const adapter = backend === "js" ? jsRoutineAdapter : wasmRoutineAdapter;
     adapter.setUniform(resolution, [cpuCanvas.width, cpuCanvas.height]);
     adapter.setUniform(cpuTime, t);
     adapter.draw();

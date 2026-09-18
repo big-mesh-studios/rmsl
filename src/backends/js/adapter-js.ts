@@ -1,5 +1,5 @@
 import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
-import { Adapter, AttributeOrSlot, slotOf, TypedArray, UniformOrSlot } from "../adapter";
+import { Adapter, AttributeOrSlot, DrawCountOptions, slotOf, TypedArray, UniformOrSlot } from "../adapter";
 import { bufferToImageData, CpuAdapter, createCpuAdapter } from "../adapter-cpu";
 import { compileJS, CompileJSRasterOptions, JsRasterContext } from "./rasterizer";
 import { compileJSRoutine, CompileJSOptions } from "./js";
@@ -45,20 +45,18 @@ export function createJsRoutine(options: CreateJsRoutineOptions): CpuAdapter {
 }
 
 /**
- * `draw()`'s own options — a real rasterizer draw call, unlike
- * `CreateJsRoutineOptions`'s per-pixel `batch` program, actually runs
- * over geometry, so it needs a vertex count. `clear`/`clearDepth` default
- * to `true`: the common case for a single-material adapter is one
- * `draw()` call, one whole frame — mirroring how a WebGPU render pass
- * declares `loadOp`/`depthLoadOp` together, per pass, rather than
- * clearing as a separate operation. Pass `false` to composite several
- * `draw()` calls into one frame instead (several materials sharing a
- * framebuffer/depth buffer); `compileJS`'s own `JsRasterRoutine` is the
- * lower-level primitive that composability is built on.
+ * `draw()`'s own options — `count`/`first` from `DrawCountOptions`, same
+ * as GL/WGSL: unset `count` defaults to whatever the widest `setAttribute`
+ * call implied. `clear`/`clearDepth` default to `true`: the common case
+ * for a single-material adapter is one `draw()` call, one whole frame —
+ * mirroring how a WebGPU render pass declares `loadOp`/`depthLoadOp`
+ * together, per pass, rather than clearing as a separate operation. Pass
+ * `false` to composite several `draw()` calls into one frame instead
+ * (several materials sharing a framebuffer/depth buffer); `compileJS`'s
+ * own `JsRasterRoutine` is the lower-level primitive that composability
+ * is built on.
  */
-export interface JsDrawOptions {
-  /** Vertex count for this draw — a non-indexed triangle list, so a multiple of 3. */
-  vertexCount: number;
+export interface JsDrawOptions extends DrawCountOptions {
   clear?: boolean;
   clearDepth?: boolean;
 }
@@ -67,14 +65,19 @@ export interface JsDrawOptions {
  * Compiles a vertex/fragment `Fn` pair with {@link compileJS} and wraps
  * the resulting `JsRasterRoutine` in the uniform `Adapter` interface — the
  * JS-side counterpart to `createWasm`. `setAttribute`/`setUniform` collect
- * draw state, `attach` opens a 2D canvas context, and `draw({ vertexCount })`
- * runs one frame into it. See {@link JsDrawOptions} for `clear`/`clearDepth`.
+ * draw state, `attach` opens a 2D canvas context, and `draw()` runs one
+ * frame into it. See {@link JsDrawOptions} for `count`/`first`/`clear`/`clearDepth`.
  */
+export interface JsAdapter extends Adapter<void, JsDrawOptions> {
+  attach(canvas?: HTMLCanvasElement): void;
+  draw(options?: JsDrawOptions): void;
+}
+
 export function createJs(
   vertexFn: (...args: any[]) => any,
   fragmentFn: (...args: any[]) => any,
   options: CompileJSRasterOptions,
-): Adapter<void, JsDrawOptions> {
+): JsAdapter {
   const routine = compileJS(vertexFn, fragmentFn, options);
 
   const uniforms: Record<string, unknown> = {};
@@ -108,14 +111,14 @@ export function createJs(
 
     draw(drawOptions) {
       if (!canvas || !ctx2d) throw new Error("[RMSL] createJs: attach() was never called");
-      if (!drawOptions) throw new Error("[RMSL] createJs: draw() needs a { vertexCount }");
       const ctx: JsRasterContext = { attributes, uniforms };
       const buffer = routine.draw(ctx, {
-        vertexCount: drawOptions.vertexCount,
+        count: drawOptions?.count,
+        first: drawOptions?.first,
         width: canvas.width,
         height: canvas.height,
-        clear: drawOptions.clear ?? true,
-        clearDepth: drawOptions.clearDepth ?? true,
+        clear: drawOptions?.clear ?? true,
+        clearDepth: drawOptions?.clearDepth ?? true,
       });
       ctx2d.putImageData(bufferToImageData(buffer, canvas.width, canvas.height), 0, 0);
     },

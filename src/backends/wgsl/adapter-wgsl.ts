@@ -1,6 +1,6 @@
 import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
 import { compile, WgslResource } from "../../wgsl";
-import { Adapter, slotOf, TypedArray } from "../adapter";
+import { Adapter, DrawCountOptions, slotOf, TypedArray } from "../adapter";
 import { CompileCtx, VertexRoot } from "../shared";
 import { compileWGSLStage, compileWGSLWithStage, wgslMatrixColumns, wgslUniformLayout } from "./wgsl";
 
@@ -10,14 +10,11 @@ export type AdapterResult = Record<string, TypedArray>;
 
 /**
  * Unlike GL's `drawArrays`, WebGPU bakes primitive topology into the
- * pipeline (`createWgsl`'s own `topology` option), not the draw
- * call — so there's no `mode` here, just which vertices/instances to draw.
+ * pipeline (`createWgsl`'s own `topology` option), not the draw call —
+ * so there's no `mode` here, just `DrawCountOptions`'s own `count`/`first`
+ * plus how many instances.
  */
-export interface WgslDrawOptions {
-  /** Vertices to draw. Defaults to everything the widest setAttribute call implied. */
-  count?: number;
-  /** First vertex to draw. Defaults to 0. */
-  first?: number;
+export interface WgslDrawOptions extends DrawCountOptions {
   /** Instances to draw. Defaults to 1. */
   instanceCount?: number;
 }
@@ -41,12 +38,11 @@ export interface WgslAdapter extends Adapter<AdapterResult, WgslDrawOptions> {
   // Narrower than the base Adapter's `void | Promise<void>` — requesting a
   // GPUAdapter/GPUDevice is always async, unlike GL's attach.
   attach(canvas?: HTMLCanvasElement): Promise<void>;
-  // Both are unconditionally defined (never absent, unlike the base
-  // Adapter's optional `compute?`/`draw?`) — createWgsl always returns an
-  // object with both methods, throwing at call time only if the matching
-  // `compute`/`vertex`+`fragment` option was never given. compute is
-  // always a GPU submit+optional readback (async); draw never awaits
-  // anything (dispatch and submit only).
+  // Unconditionally defined (never absent, unlike the base Adapter's
+  // optional `compute?`) — createWgsl always returns an object with this,
+  // throwing at call time only if `compute` was never given. Always a GPU
+  // submit+optional readback, hence async — unlike `draw`, which never
+  // awaits anything (dispatch and submit only).
   compute(out?: AdapterResult): Promise<AdapterResult | void>;
   draw(options?: WgslDrawOptions): void;
   buffer(slot: string): GPUBuffer | undefined;

@@ -27,7 +27,7 @@ describe("WASM backend: compileWasm (vertex+fragment rasterizer pipeline)", () =
 
     const result = routine.draw(
       { attributes: { [posAttr.name]: new Float64Array(positions.flat()) } },
-      { vertexCount: 3, width, height },
+      { count: 3, width, height },
     );
     expect(result.length).toBe(width * height * 4);
     expect(Array.from(result).every((v) => v >= 0 && v <= 1)).toBe(true);
@@ -46,7 +46,7 @@ describe("WASM backend: compileWasm (vertex+fragment rasterizer pipeline)", () =
 
     const result = routine.draw(
       { attributes: { [posAttr.name]: positions }, uniforms: { [colorUniform.name]: [0, 1, 0] } },
-      { vertexCount: 3, width: 2, height: 2 },
+      { count: 3, width: 2, height: 2 },
     );
     expect(Array.from(result.slice(0, 4))).toEqual([0, 1, 0, 1]);
   });
@@ -66,7 +66,7 @@ describe("WASM backend: compileWasm (vertex+fragment rasterizer pipeline)", () =
     const bigTriangle = new Float64Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]);
     const first = routine.draw(
       { attributes: { [posAttr.name]: bigTriangle }, uniforms: { [colorUniform.name]: [1, 0, 0] } },
-      { vertexCount: 3, width, height },
+      { count: 3, width, height },
     );
     expect(Array.from(first).every((_, i) => i % 4 !== 3 || first[i] === 1)).toBe(true); // every pixel's alpha is 1: fully covered
 
@@ -75,7 +75,7 @@ describe("WASM backend: compileWasm (vertex+fragment rasterizer pipeline)", () =
     const tinyTriangle = new Float64Array([-1, -1, 0, -0.5, -1, 0, -1, -0.5, 0]);
     const second = routine.draw(
       { attributes: { [posAttr.name]: tinyTriangle }, uniforms: { [colorUniform.name]: [0, 0, 1] } },
-      { vertexCount: 3, width, height, clear: true },
+      { count: 3, width, height, clear: true },
     );
 
     // an uncovered pixel reads as cleared (0,0,0,0), not the stale red `first` left at that same address
@@ -98,7 +98,7 @@ describe("WASM backend: compileWasm (vertex+fragment rasterizer pipeline)", () =
     const draw = (z: number, color: number[], clearDepth = false) =>
       routine.draw(
         { attributes: { [posAttr.name]: triangleAt(z) }, uniforms: { [colorUniform.name]: color } },
-        { vertexCount: 3, width, height, clearDepth },
+        { count: 3, width, height, clearDepth },
       );
 
     // near, red — passes the depth test against the freshly (auto-)cleared buffer
@@ -109,5 +109,23 @@ describe("WASM backend: compileWasm (vertex+fragment rasterizer pipeline)", () =
 
     // clearDepth: true, then the same far draw now passes
     expect(Array.from(draw(0.5, [0, 0, 1], true).slice(0, 3))).toEqual([0, 0, 1]);
+  });
+
+  it("infers count from the first attribute slot when omitted, like GL/WGSL", () => {
+    const posAttr = attribute("vec3");
+    const colorUniform = uniform("vec3");
+
+    const vertexFn = () => Fn(() => builtinPosition().assign(vec4(posAttr.x, posAttr.y, posAttr.z, 1)))();
+    const fragmentFn = () => Fn(() => vec4(colorUniform.x, colorUniform.y, colorUniform.z, 1))();
+
+    const routine = compileWasm(vertexFn as any, fragmentFn as any);
+    // 6 vertices (2 triangles) worth of vec3 data — no `count` passed below.
+    const positions = new Float64Array([-1, -1, 0, 3, -1, 0, -1, 3, 0, -1, -1, 0.5, 3, -1, 0.5, -1, 3, 0.5]);
+
+    const result = routine.draw(
+      { attributes: { [posAttr.name]: positions }, uniforms: { [colorUniform.name]: [0, 1, 0] } },
+      { width: 2, height: 2 },
+    );
+    expect(Array.from(result.slice(0, 4))).toEqual([0, 1, 0, 1]);
   });
 });

@@ -12,7 +12,7 @@ export type {
 
 export type { CpuAdapter, AdapterResult as CpuAdapterResult } from "./backends/adapter-cpu";
 export { createJsRoutine, createJs } from "./backends/js/adapter-js";
-export type { CreateJsRoutineOptions, JsDrawOptions } from "./backends/js/adapter-js";
+export type { CreateJsRoutineOptions, JsAdapter, JsDrawOptions } from "./backends/js/adapter-js";
 
 export type { Adapter, TypedArray } from "./backends/adapter";
 

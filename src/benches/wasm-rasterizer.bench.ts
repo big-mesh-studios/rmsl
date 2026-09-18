@@ -37,11 +37,11 @@ for (const SIZE of [128, 512]) {
     const ctx = { attributes: { [pos.name]: QUAD }, uniforms: { [time.name]: 0.5 } };
 
     bench("compileJS — vertex/clip/triangle loop in plain JS", () => {
-      jsRoutine.draw(ctx, { vertexCount: 6, width: SIZE, height: SIZE, clear: true });
+      jsRoutine.draw(ctx, { count: 6, width: SIZE, height: SIZE, clear: true });
     });
 
     bench("createWasm — vertex/clip/triangle loop inside one WASM call", () => {
-      wasmRoutine.draw(ctx, { vertexCount: 6, width: SIZE, height: SIZE, clear: true });
+      wasmRoutine.draw(ctx, { count: 6, width: SIZE, height: SIZE, clear: true });
     });
   });
 }

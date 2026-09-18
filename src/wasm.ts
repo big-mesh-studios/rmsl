@@ -11,7 +11,7 @@ export type {
 } from "./backends/cpu";
 
 export { createWasmRoutine, createWasm } from "./backends/wasm/adapter-wasm";
-export type { CreateWasmRoutineOptions, WasmDrawOptions } from "./backends/wasm/adapter-wasm";
+export type { CreateWasmRoutineOptions, WasmAdapter, WasmDrawOptions } from "./backends/wasm/adapter-wasm";
 export type { AdapterResult as CpuAdapterResult, CpuAdapter } from "./backends/adapter-cpu";
 
 export type { Adapter, TypedArray } from "./backends/adapter";

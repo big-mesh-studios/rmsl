@@ -1,5 +1,6 @@
 import { Node, ShaderType } from "../../core";
 import { add, scale, sliceAttribute, isWrapped, Value } from "../cpu-rasterizer";
+import { DrawCountOptions } from "../adapter";
 import { componentCountOf, CpuDrawBuffer, CpuShaderContext } from "../cpu";
 import { compileJSRoutine, CompileJSOptions } from "./js";
 
@@ -37,9 +38,7 @@ export interface JsRasterContext {
  * `loadOp`/`depthLoadOp` together, per pass, rather than clearing as a
  * separate operation.
  */
-export interface JsRasterDrawOptions {
-  /** Non-indexed triangle list, so a multiple of 3. */
-  vertexCount: number;
+export interface JsRasterDrawOptions extends DrawCountOptions {
   width: number;
   height: number;
   out?: CpuDrawBuffer;
@@ -144,14 +143,18 @@ export function compileJS(
   let colorBuffer: Float64Array | null = null;
 
   function draw(ctx: JsRasterContext, options: JsRasterDrawOptions): CpuDrawBuffer {
-    const { vertexCount, width, height, out } = options;
+    const { width, height, out } = options;
     const { attributes, uniforms, textures } = ctx;
+    const first = options.first ?? 0;
+    const firstSlot = Object.keys(attributes)[0];
+    const inferredCount = firstSlot ? Math.floor(attributes[firstSlot]!.length / widths[firstSlot]!) - first : 0;
+    const vertexCount = options.count ?? inferredCount;
 
     // vertex pass
     const vertices: ClipVertex[] = new Array(vertexCount);
     for (let i = 0; i < vertexCount; i++) {
       const attrs: Record<string, unknown> = {};
-      for (const slot in attributes) attrs[slot] = sliceAttribute(attributes[slot]!, i, widths[slot]!);
+      for (const slot in attributes) attrs[slot] = sliceAttribute(attributes[slot]!, i + first, widths[slot]!);
 
       const raw = vertexRoutine.invoke({ attributes: attrs, uniforms, textures });
       // A vertex Fn that never calls builtinPosition() itself has its plain

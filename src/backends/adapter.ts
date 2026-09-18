@@ -3,10 +3,14 @@ import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue 
 /**
  * A uniform way to drive any of the four backends (CPU/JS, WASM, GLSL,
  * WGSL) without homogenizing what makes them different: JS/WASM compute
- * synchronously into a caller-supplied buffer, WGSL's compute pass is async,
- * and drawing needs a canvas while computing doesn't. `compute`/`draw` are
- * optional so a backend only implements what it actually supports —
- * callers feature-detect the same way they'd check `navigator.gpu`.
+ * synchronously into a caller-supplied buffer, WGSL's compute pass is
+ * async, and drawing needs a canvas while computing doesn't. `compute` is
+ * optional — GL genuinely has no compute path, so `createGlsl`'s returned
+ * object has no `compute` property at all, not even a throwing one —
+ * callers feature-detect it the same way they'd check `navigator.gpu`.
+ * `draw`, by contrast, is required: every adapter this interface actually
+ * has (GL, WGSL, CPU/JS/WASM) always returns one, throwing at call time
+ * only if that particular construction wasn't given anything to draw.
  */
 export interface Adapter<TBuffer, TDrawOptions = void> {
   /**
@@ -50,14 +54,30 @@ export interface Adapter<TBuffer, TDrawOptions = void> {
 
   /**
    * Renders into whatever `attach` set up. `TDrawOptions` is each
-   * backend's own — a GL adapter's draw call (mode, instancing, indexed
-   * vs. array draws) has nothing in common with a WGSL render pipeline's,
-   * so there is no shared options shape to force either one into; a
+   * backend's own beyond {@link DrawCountOptions} — a GL adapter's own
+   * `mode`, a GPU adapter's `instanceCount`, have nothing in common with
+   * each other, so there's no shared shape to force those into; a
    * backend without a meaningful options shape leaves it `void`.
    */
-  draw?: (options?: TDrawOptions) => void | Promise<void>;
+  draw(options?: TDrawOptions): void | Promise<void>;
 
   destroy(): void;
+}
+
+/**
+ * How many vertices a draw call covers, and where to start — the one
+ * piece every draw-capable adapter's own `TDrawOptions` actually shares
+ * (`GlslDrawOptions`, `WgslDrawOptions`, `WasmDrawOptions`,
+ * `JsDrawOptions` all extend this), so each backend's own `count`/`first`
+ * mean the same thing instead of just happening to be spelled the same.
+ * `count` left unset defaults to whatever the widest `setAttribute` call
+ * implied — every backend that draws infers it that way.
+ */
+export interface DrawCountOptions {
+  /** First vertex to draw. Defaults to 0. */
+  first?: number;
+  /** Vertices to draw. Defaults to everything the widest `setAttribute` call implied. */
+  count?: number;
 }
 
 /**

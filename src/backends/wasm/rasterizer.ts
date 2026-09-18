@@ -1,6 +1,6 @@
 import { Node, ShaderType } from "../../core";
 import { componentCountOf, CpuDrawBuffer, CpuShaderContext, CpuTextureData } from "../cpu";
-import { TypedArray } from "../adapter";
+import { DrawCountOptions, TypedArray } from "../adapter";
 import { compileWasmFn, CompileWasmFnOptions, createWasmInputMarshaller, WasmParam } from "./wasm";
 import RASTERIZER_WASM_BYTES from "./rasterizer.wat";
 
@@ -171,9 +171,7 @@ export interface WasmRasterContext {
  * than clearing as some separate operation. Pass `clear`/`clearDepth` to
  * zero either one first instead.
  */
-export interface WasmRasterDrawOptions {
-  /** Non-indexed triangle list, so a multiple of 3. */
-  vertexCount: number;
+export interface WasmRasterDrawOptions extends DrawCountOptions {
   width: number;
   height: number;
   out?: CpuDrawBuffer;
@@ -187,10 +185,13 @@ export interface WasmRasterDrawOptions {
  */
 export interface WasmRasterRoutine {
   /**
-   * Runs the vertex pass over `options.vertexCount` vertices, then the
-   * clip and triangle passes into a `width` x `height`, 4-components-per-
-   * pixel buffer, the same flat row-major convention `CpuRoutine.batch()`
-   * uses. See {@link WasmRasterDrawOptions} for `clear`/`clearDepth`.
+   * Runs the vertex pass over `options.count` vertices (a non-indexed
+   * triangle list, so a multiple of 3 — defaults to everything the first
+   * attribute slot's data implies, like every other draw-capable
+   * adapter's own `count`), then the clip and triangle passes into a
+   * `width` x `height`, 4-components-per-pixel buffer, the same flat
+   * row-major convention `CpuRoutine.batch()` uses. See
+   * {@link WasmRasterDrawOptions} for `clear`/`clearDepth`.
    */
   draw(ctx: WasmRasterContext, options: WasmRasterDrawOptions): CpuDrawBuffer;
 }
@@ -331,7 +332,13 @@ export function compileWasm(
   }
 
   function draw(ctx: WasmRasterContext, options: WasmRasterDrawOptions): CpuDrawBuffer {
-    const { vertexCount, width, height, out } = options;
+    const { width, height, out } = options;
+    const first = options.first ?? 0;
+    const firstAttr = attrLayout[0];
+    const inferredCount = firstAttr
+      ? Math.floor(ctx.attributes[firstAttr.slot]!.length / (firstAttr.sizeBytes / 8)) - first
+      : 0;
+    const vertexCount = options.count ?? inferredCount;
     const sharedCtx = { uniforms: ctx.uniforms, textures: ctx.textures } as CpuShaderContext;
     const { textureHeapEnd: vertexHeapEnd } = vertexMarshaller.marshal(sharedCtx);
     const { textureHeapEnd: fragmentHeapEnd } = fragmentMarshaller.marshal(sharedCtx);
@@ -386,8 +393,9 @@ export function compileWasm(
       const componentCount = a.sizeBytes / 8;
       for (let v = 0; v < vertexCount; v++) {
         const base = attrSrcBase + v * attrStrideBytes + a.offset;
+        const srcIndex = (v + first) * componentCount;
         for (let c = 0; c < componentCount; c++) {
-          view.setFloat64(base + c * 8, src[v * componentCount + c] as number, true);
+          view.setFloat64(base + c * 8, src[srcIndex + c] as number, true);
         }
       }
     }
