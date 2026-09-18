@@ -203,15 +203,26 @@ still lacks both.
 **Performance / integration**
 
 - [ ] Batched call boundary (`.batch()`-style) instead of one `invoke()`
-      per vertex/pixel
+      per vertex/pixel — already true of the generic module's
+      `WasmRasterRoutine`/`JsRasterRoutine.draw()` (one call runs the
+      whole vertex+triangle loop), still unchecked here since
+      `rasterizeTriangles` itself still calls `invoke()` once per
+      vertex/pixel
 - [ ] Full in-WASM triangle loop (no host-mediated vertex→fragment
-      handoff) — see the generic-rasterizer-module design above
+      handoff) — see the generic-rasterizer-module design above; landed
+      there (`compileWasm`), not in `rasterizeTriangles`
 - [ ] `createJs`/`createWasm` adapter integration — no
       `setAttribute`/`setUniform` ergonomics, no pending-value replay, no
-      `.draw()` on an adapter object (currently a standalone function over
-      already-compiled callables)
+      `.draw()` on an adapter object (`rasterizeTriangles` is a standalone
+      function over already-compiled callables). `createJs`/`createWasm`
+      themselves now have exactly this ergonomics — but as the generic
+      rasterizer pipeline's own names, not as `rasterizeTriangles`
+      integration; this bullet tracks the latter, which is still open
 - [ ] Shared framebuffer/depth buffer across multiple draw calls/programs
-      in one frame (Approach A/B above)
+      in one frame (Approach A/B above) — still open everywhere, including
+      the generic module: each `compileWasm`/`compileJS` call owns one
+      vertex/fragment pair's own memory/depth buffer, with no way yet for
+      two different materials to share one
 
 **Testing**
 
