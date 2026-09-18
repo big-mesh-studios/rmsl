@@ -33,7 +33,7 @@ self.onmessage = (e: MessageEvent<InitMsg | DrawMsg>) => {
   if (msg.type === "draw") {
     if (!renderer) throw new Error("[mandelbrotWasmWorker] draw before init");
     const { id, uniforms, width, rowCount } = msg;
-    const result = renderer.draw({ uniforms }, width, rowCount);
+    const result = renderer.batch({ uniforms }, width, rowCount);
     // `result` is a view into this instance's own private wasm memory —
     // copy it into a fresh, transferable buffer rather than handing that
     // memory's bytes to structured clone (which would work, but clones
