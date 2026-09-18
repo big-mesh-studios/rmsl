@@ -33,13 +33,11 @@ stage, matched by the shared node's slot name.
 
 ## Scope (v1)
 
-- Every attribute/varying must be an aggregate (vector) type. A scalar
-  (non-aggregate) uniform/attribute/varying becomes a real WASM function
-  parameter even in an otherwise zero-arg program (see the next bullet),
-  which this rasterizer can't drive.
+- Both the vertex and fragment module must be zero-arg/zero-return.
+  Aggregates already compile that way; a scalar uniform/attribute/varying
+  needs `compileWasmFn`'s `scalarsInMemory: true` option to force it into
+  memory too instead of a real WASM function parameter, which this
+  rasterizer's fixed-arity imports can't accept.
 - No index buffer, no near/far clipping, no depth test, no antialiasing —
   same gaps `ROADMAP.md`'s rasterizer checklist already tracks for
   `cpu-rasterizer.ts`'s own `rasterizeTriangles`.
-- Both the vertex and fragment module must be zero-arg/zero-return
-  (`compileWasmFn`'s shape whenever every uniform/attribute/varying is
-  memory-resident) — a scalar-only fragment program isn't drivable here.

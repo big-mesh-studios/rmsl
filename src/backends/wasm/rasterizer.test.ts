@@ -3,7 +3,7 @@ import { compileWasmFn } from "../../wasm";
 import { compileJS } from "../../js";
 import { rasterizeTriangles } from "../cpu-rasterizer";
 import { instantiateRasterizer, writeAttributeDescriptors, writeVaryingDescriptors } from "./rasterizer";
-import { attribute, builtinPosition, Fn, varying, vec4, type AttributeNode } from "../../rmsl";
+import { attribute, builtinPosition, Fn, uniform, varying, vec4, type AttributeNode } from "../../rmsl";
 
 describe("WASM backend: generic rasterizer module — linking skeleton", () => {
   it("calls an imported vertex then an imported fragment module, sharing one memory", () => {
@@ -558,6 +558,115 @@ describe("WASM backend: generic rasterizer module — multiple varying slots", (
       varyingsOutBase,
     );
 
+    const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
+    expect(Array.from(actual)).toEqual(Array.from(expected));
+  });
+});
+
+describe("WASM backend: generic rasterizer module — scalarsInMemory for a scalar uniform", () => {
+  it("matches rasterizeTriangles' own output for a fragment program with a scalar uniform", () => {
+    let posAttr!: AttributeNode<"vec3">;
+    const brightness = uniform("float");
+    const vertexBuild = () =>
+      Fn(() => {
+        posAttr = attribute("vec3");
+        builtinPosition().assign(vec4(posAttr.x, posAttr.y, posAttr.z, 1));
+      })();
+    const fragmentBuild = () => Fn(() => vec4(brightness, brightness, brightness, 1))();
+
+    const width = 4;
+    const height = 4;
+    const positions = [
+      [-1, -1, 0],
+      [1, -1, 0],
+      [-1, 1, 0],
+    ];
+
+    const jsVertex = compileJS(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
+    const posSlot = posAttr.name;
+    const jsFragment = compileJS(fragmentBuild as any, { name: "fragment", params: [] });
+    const expected = rasterizeTriangles(jsVertex, jsFragment, {
+      attributes: { [posSlot]: new Float64Array(positions.flat()) },
+      attributeTypes: { [posSlot]: "vec3" },
+      uniforms: { [brightness.name]: 0.5 },
+      width,
+      height,
+      componentCount: 4,
+    });
+    expect(Array.from(expected).some((v) => v !== 0)).toBe(true);
+
+    const memory = new WebAssembly.Memory({ initial: 1 });
+    const view = new DataView(memory.buffer);
+
+    const vertexCompiled = compileWasmFn(vertexBuild as any, {
+      name: "main",
+      params: [],
+      stage: "vertex",
+      memory,
+      memoryBase: 0,
+    });
+    const wasmPosSlot = posAttr.name;
+    // The fragment program's only input is a scalar uniform, which would
+    // otherwise compile to a real function argument — LinkError against
+    // the rasterizer's fixed zero-arg import without scalarsInMemory.
+    const fragmentCompiled = compileWasmFn(fragmentBuild as any, {
+      name: "main",
+      params: [],
+      memoryBase: 1024,
+      memory,
+      scalarsInMemory: true,
+    });
+    const brightnessAddress = fragmentCompiled.params.find((p) => p.kind === "uniformMemory")!.address;
+    new DataView(memory.buffer).setFloat64(brightnessAddress, 0.5, true);
+
+    const vertexInstance = new WebAssembly.Instance(new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer), {
+      math: Math as unknown as WebAssembly.ModuleImports,
+      env: { memory },
+    });
+    const fragmentInstance = new WebAssembly.Instance(
+      new WebAssembly.Module(fragmentCompiled.bytes.buffer as ArrayBuffer),
+      { math: Math as unknown as WebAssembly.ModuleImports, env: { memory } },
+    );
+    const { rasterize } = instantiateRasterizer(
+      vertexInstance.exports.main as () => void,
+      fragmentInstance.exports.main as () => void,
+      memory,
+    );
+
+    const attrSrcBase = 2048;
+    const positionsOutBase = 4096;
+    const outputBase = 16384;
+    const attrDescBase = 1536;
+    const attrData = new Float64Array(positions.flat());
+    attrData.forEach((c, i) => view.setFloat64(attrSrcBase + i * 8, c, true));
+
+    const attrDestAddress = vertexCompiled.params.find((p) => p.kind === "attributeMemory")!.address;
+    writeAttributeDescriptors(view, attrDescBase, [{ srcOffset: 0, destAddress: attrDestAddress, sizeBytes: 24 }]);
+    const positionAddress = vertexCompiled.params.find((p) => p.kind === "positionMemory")!.address;
+    const fragmentValueAddress = fragmentCompiled.params.find((p) => p.kind === "valueMemory")!.address;
+
+    rasterize(
+      3,
+      attrSrcBase,
+      24,
+      attrDescBase,
+      1,
+      positionAddress,
+      positionsOutBase,
+      width,
+      height,
+      fragmentValueAddress,
+      outputBase,
+      0,
+      0,
+      0,
+      0,
+    );
+
+    // rasterize() re-reads brightness fresh from its own memory address
+    // every fragment call (no host round-trip needed), so writing it once
+    // up front — matching what a real caller would do before a draw — is
+    // enough for every covered pixel.
     const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
     expect(Array.from(actual)).toEqual(Array.from(expected));
   });
