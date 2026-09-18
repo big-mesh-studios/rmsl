@@ -859,10 +859,20 @@ produced the bytes.
   own current scope (see the bullet above): non-indexed triangle list, no
   clipping, no depth test — general GPU-emulation features (indexed
   draws, clipping, depth, multiple render targets) stay explicitly out of
-  scope until a real need shows up, not built ahead of one. Not designed
-  or started; the parameter-passing convention (how strides/counts reach
-  the rasterizer module — plain `i32` args vs. a small metadata block in
-  shared memory) isn't decided either.
+  scope until a real need shows up, not built ahead of one. The
+  parameter-passing convention landed as plain `i32` args (see
+  `RASTERIZE_PARAMS` below), not a metadata block in shared memory.
+
+  **v1 landed**: `src/backends/wasm/rasterizer.ts` (design in
+  `src/backends/wasm/rasterizer.md`) builds this generic module and
+  covers the vertex loop, triangle setup, edge-function coverage test,
+  and perspective-correct varying interpolation, verified against
+  `rasterizeTriangles`'s own `compileJS`-driven output as an oracle. Still
+  scoped to exactly one attribute slot and one varying slot (a single
+  contiguous blob each, not several independently-addressed slots) —
+  generalizing to several named slots, an index buffer, clipping, and
+  depth test, plus `createJs`/`createWasm` adapter integration, remain
+  open.
 
   If B is ever built, one non-obvious constraint to design around up
   front: growing a `WebAssembly.Memory` (`memory.grow`, from the host or
