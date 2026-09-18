@@ -631,6 +631,23 @@ produced the bytes.
 
 ## Open questions
 
+- **Should scalar-as-function-param be chopped in favor of always
+  memory-resident?** `scalarsInMemory` (see "Design decisions already
+  made" — added for the generic rasterizer module, which needs every
+  compiled shader to share one fixed, zero-argument call signature) is
+  opt-in specifically to avoid regressing the default path: a plain
+  `local.get` measurably beats a memory read for a cheap, called-once
+  function (`docs/wasm-benchmarks.md`'s whole "Why" section is built on
+  that ~2.5-3.4x scalar-case measurement), which is the documented reason
+  `compileWasmFn` exists as an alternative to `compileJS` at all. Chopping
+  the param path and always going through memory would simplify
+  `walkExpr`'s uniform/attribute/varying cases to one branch instead of
+  two, at the cost of that regression for every caller, not just the
+  rasterizer. Raised as a pure code-complexity question, not a
+  performance one — revisit only if the two-path complexity actually
+  becomes a maintenance burden, or if a re-benchmark someday shows the
+  wrapper/marshalling overhead already swamps the param-vs-memory
+  difference anyway (plausible, unverified). Not planned.
 - **Async instantiation.** `WebAssembly.instantiate` (async) is the
   browser-recommended path for anything but a tiny module; sync
   `new WebAssembly.Module()` blocks the main thread past some size. Revisit
