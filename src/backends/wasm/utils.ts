@@ -343,7 +343,7 @@ export const loopUntil = (exitCond: number[], body: number[]): number[] => [
  * has to say what varies: the counter local, where it starts, its exit
  * test, and its own step.
  */
-export const countingLoop = (
+export const forLoop = (
   counter: number,
   start: number[],
   exitCond: number[],

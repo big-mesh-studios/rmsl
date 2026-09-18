@@ -1,6 +1,5 @@
 import {
   block,
-  countingLoop,
   exitBlockIf,
   f64ConstBytes,
   fAdd,
@@ -15,6 +14,7 @@ import {
   fMin,
   fMul,
   fSub,
+  forLoop,
   i32ConstBytes,
   iAdd,
   iAnd,
@@ -127,7 +127,7 @@ function emitByteCopyLoop(
   length: number[],
   counterLocal: number,
 ): number[] {
-  return countingLoop(
+  return forLoop(
     counterLocal,
     i32ConstBytes(0),
     iGeS(local(counterLocal), length),
@@ -263,7 +263,7 @@ export function buildRasterizerModule(): Uint8Array {
   const descAddr = (descBase: number, index: number, descBytes: number) =>
     iAdd(local(descBase), iMul(local(index), i32ConstBytes(descBytes)));
 
-  const copyAttributeIn = countingLoop(
+  const copyAttributeIn = forLoop(
     dIdx,
     i32ConstBytes(0),
     iGeS(local(dIdx), local(attrDescCount)),
@@ -290,7 +290,7 @@ export function buildRasterizerModule(): Uint8Array {
     i32ConstBytes(VEC4_BYTES),
     byteCounterIdx,
   );
-  const copyVaryingOut = countingLoop(
+  const copyVaryingOut = forLoop(
     dIdx,
     i32ConstBytes(0),
     iGeS(local(dIdx), local(varyingDescCount)),
@@ -315,7 +315,7 @@ export function buildRasterizerModule(): Uint8Array {
     i32ConstBytes(1),
   );
 
-  const vertexLoop = countingLoop(
+  const vertexLoop = forLoop(
     iIdx,
     i32ConstBytes(0),
     iGeS(local(iIdx), local(vertexCount)),
@@ -374,7 +374,7 @@ export function buildRasterizerModule(): Uint8Array {
         lerp(rawPos(a, c), rawPos(b, c), local(clipTIdx)),
       ),
     ),
-    ...countingLoop(
+    ...forLoop(
       componentIdx,
       i32ConstBytes(0),
       iGeS(local(componentIdx), local(wholeRecordComponentsIdx)),
@@ -451,7 +451,7 @@ export function buildRasterizerModule(): Uint8Array {
   const clipLoop = [
     ...i32ConstBytes(0),
     ...localSet(clippedVertexCountIdx),
-    ...countingLoop(tIdx, i32ConstBytes(0), iGeS(t2Expr, local(vertexCount)), clipOneTriangle, i32ConstBytes(3)),
+    ...forLoop(tIdx, i32ConstBytes(0), iGeS(t2Expr, local(vertexCount)), clipOneTriangle, i32ConstBytes(3)),
   ];
 
   const screenX = (vertexIndex: number[]) =>
@@ -549,7 +549,7 @@ export function buildRasterizerModule(): Uint8Array {
     ...localSet(descField3Idx), // sizeBytes
     ...iDivS(local(descField3Idx), i32ConstBytes(8)),
     ...localSet(numComponentsIdx),
-    ...countingLoop(
+    ...forLoop(
       componentIdx,
       i32ConstBytes(0),
       iGeS(local(componentIdx), local(numComponentsIdx)),
@@ -593,7 +593,7 @@ export function buildRasterizerModule(): Uint8Array {
     ...localSet(invWIdx),
   ];
 
-  const interpolateVaryings = countingLoop(
+  const interpolateVaryings = forLoop(
     dIdx,
     i32ConstBytes(0),
     iGeS(local(dIdx), local(varyingDescCount)),
@@ -649,8 +649,8 @@ export function buildRasterizerModule(): Uint8Array {
     ),
   ];
 
-  const xLoop = countingLoop(xIdx, local(minXIdx), iGtS(local(xIdx), local(maxXIdx)), pixelBody, i32ConstBytes(1));
-  const yLoop = countingLoop(yIdx, local(minYIdx), iGtS(local(yIdx), local(maxYIdx)), xLoop, i32ConstBytes(1));
+  const xLoop = forLoop(xIdx, local(minXIdx), iGtS(local(xIdx), local(maxXIdx)), pixelBody, i32ConstBytes(1));
+  const yLoop = forLoop(yIdx, local(minYIdx), iGtS(local(yIdx), local(maxYIdx)), xLoop, i32ConstBytes(1));
 
   const triangleBody = block([
     ...computeScreenSpace,
@@ -659,7 +659,7 @@ export function buildRasterizerModule(): Uint8Array {
     ...yLoop,
   ]);
 
-  const triangleLoop = countingLoop(
+  const triangleLoop = forLoop(
     tIdx,
     i32ConstBytes(0),
     iGeS(t2Expr, local(clippedVertexCountIdx)),
