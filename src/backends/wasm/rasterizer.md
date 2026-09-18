@@ -63,8 +63,8 @@ stage, matched by the shared node's slot name.
   memory too instead of a real WASM function parameter, which this
   rasterizer's fixed-arity imports can't accept.
 - No index buffer, no antialiasing — same gaps `ROADMAP.md`'s rasterizer
-  checklist already tracks for `cpu-rasterizer.ts`'s own
-  `rasterizeTriangles`.
+  checklist already tracks for `rasterizeTriangles`
+  (`src/backends/js/rasterizer.ts`).
 - Depth test is a plain LEQUAL z-buffer — no depth write mask, no
   stencil, no blending (a passing pixel always overwrites).
 - Clipping is near-plane (`w`) only — no far-plane or screen-bounds

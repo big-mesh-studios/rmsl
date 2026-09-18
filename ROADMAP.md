@@ -122,19 +122,22 @@ which is also the fastest way to find the next thing worth doing here.
 ## Software rasterizer(s): feature-complete checklist
 
 What a feature-complete software rasterizer needs, against what
-`src/backends/cpu-rasterizer.ts` has today. Checked items are implemented;
-unchecked ones are the gap between the current prototype and "real
-rasterizer" — most were already called out piecemeal in the "`
-rasterizeTriangles` is a prototype" bullet in "Open questions" below,
-gathered here as one list to track over time rather than re-derive each
-time.
+`rasterizeTriangles` (now in `src/backends/js/rasterizer.ts`, alongside
+`compileJS`) has today. Checked items are implemented; unchecked ones are
+the gap between the current prototype and "real rasterizer" — most were
+already called out piecemeal in the "`rasterizeTriangles` is a prototype"
+bullet in "Open questions" below, gathered here as one list to track over
+time rather than re-derive each time.
 
-This checklist tracks `cpu-rasterizer.ts` specifically, not the generic
-WASM rasterizer module below (`src/backends/wasm/rasterizer.ts`/`.wat`) —
-that module is already ahead of this list on near-plane clipping and the
-depth test (see "generic, precompiled rasterizer module" under "Open
-questions"), which remain unchecked here since `cpu-rasterizer.ts` itself
-still lacks both.
+This checklist tracks `rasterizeTriangles` specifically, not the generic
+WASM/JS rasterizer module below (`compileWasm`/`compileJS`,
+`src/backends/{wasm,js}/rasterizer.ts`) — that module is already ahead of
+this list on near-plane clipping and the depth test (see "generic,
+precompiled rasterizer module" under "Open questions"), which remain
+unchecked here since `rasterizeTriangles` itself still lacks both. (The
+former `cpu-rasterizer.ts` module was retired and folded into
+`js/rasterizer.ts` — `rasterizeTriangles`'s shared helpers and the generic
+`compileJS` pipeline now live side by side in one file.)
 
 **Vertex stage**
 
@@ -807,8 +810,8 @@ of a triangle that's mostly clipped away, not just correctness.
 
 #### No tiling/binning
 
-Same naive full-bounding-box scan per triangle `cpu-rasterizer.ts`'s
-own checklist already tracks — large triangles or scenes with many
+Same naive full-bounding-box scan per triangle `rasterizeTriangles`'s
+own checklist above already tracks — large triangles or scenes with many
 overlapping ones redo the same pixels' coverage test repeatedly rather
 than binning triangles into screen tiles first.
 

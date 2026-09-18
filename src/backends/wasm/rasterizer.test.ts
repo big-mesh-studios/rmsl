@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { compileWasmFn } from "../../wasm";
 import { compileJSRoutine } from "../../js";
-import { rasterizeTriangles } from "../cpu-rasterizer";
+import { rasterizeTriangles } from "../js/rasterizer";
 import { instantiateRasterizer, writeAttributeDescriptors, writeVaryingDescriptors } from "./rasterizer";
 import { attribute, builtinPosition, Fn, uniform, varying, vec4, type AttributeNode } from "../../rmsl";
 

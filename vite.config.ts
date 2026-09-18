@@ -40,7 +40,6 @@ export default defineConfig({
         "src/backends/js/js.ts",
         "src/backends/wasm/wasm.ts",
         "src/backends/cpu.ts",
-        "src/backends/cpu-rasterizer.ts",
         "src/backends/adapter.ts",
         "src/backends/adapter-cpu.ts",
         "src/backends/js/adapter-js.ts",
