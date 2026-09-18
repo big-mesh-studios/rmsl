@@ -11,18 +11,25 @@ import {
   wasmVec,
 } from "./wasm";
 
-/** Import name the rasterizer module expects for the vertex stage's exported function. */
+/**
+ * Import name the rasterizer module expects for the vertex stage's exported function.
+ */
 export const RASTERIZER_VERTEX_IMPORT = { module: "vertex", name: "main" } as const;
 
-/** Import name the rasterizer module expects for the fragment stage's exported function. */
+/**
+ * Import name the rasterizer module expects for the fragment stage's exported function.
+ */
 export const RASTERIZER_FRAGMENT_IMPORT = { module: "fragment", name: "main" } as const;
 
-/** `rasterize`'s own i32 params, in argument order. */
+/**
+ * `rasterize`'s own i32 params, in argument order.
+ */
 export const RASTERIZE_PARAMS = [
   "vertexCount",
   "attrSrcBase",
   "attrStrideBytes",
-  "vertexAttrDestAddress",
+  "attrDescBase",
+  "attrDescCount",
   "vertexPositionAddress",
   "positionsOutBase",
   "width",
@@ -35,7 +42,9 @@ export const RASTERIZE_PARAMS = [
   "varyingsOutBase",
 ] as const;
 
-/** A `vec4` position or fragment color, stored as 4 f64 components. */
+/**
+ * A `vec4` position or fragment color, stored as 4 f64 components.
+ */
 const VEC4_BYTES = 32;
 
 const local = (index: number) => [WASM_OP.localGet, ...wasmUleb128(index)];
@@ -65,8 +74,16 @@ const toF64 = un(WASM_OP.f64ConvertI32S);
 const toI32 = un(WASM_OP.i32TruncF64S);
 const loadF64 = (addr: number[]) => [...addr, WASM_OP.f64Load, 0x00, 0x00];
 const storeF64 = (addr: number[], value: number[]) => [...addr, ...value, WASM_OP.f64Store, 0x00, 0x00];
+const loadI32 = (addr: number[]) => [...addr, WASM_OP.i32Load, 0x00, 0x00];
 
-/** Assigns sequential local indices/types past a function's own params. */
+/**
+ * Byte size of one `[srcOffset, destAddress, sizeBytes]` attribute descriptor entry.
+ */
+const ATTR_DESC_BYTES = 12;
+
+/**
+ * Assigns sequential local indices/types past a function's own params.
+ */
 class LocalAllocator {
   private types: number[] = [];
   constructor(private base: number) {}
@@ -162,7 +179,8 @@ export function buildRasterizerModule(): Uint8Array {
     vertexCount,
     attrSrcBase,
     attrStrideBytes,
-    vertexAttrDestAddress,
+    attrDescBase,
+    attrDescCount,
     vertexPositionAddress,
     positionsOutBase,
     width,
@@ -211,13 +229,43 @@ export function buildRasterizerModule(): Uint8Array {
   const invWIdx = locals.alloc(WASM_F64);
   const numVaryingComponentsIdx = locals.alloc(WASM_I32);
   const componentIdx = locals.alloc(WASM_I32);
+  const dIdx = locals.alloc(WASM_I32); // descriptor loop counter
+  const descSrcOffsetIdx = locals.alloc(WASM_I32);
+  const descDestAddrIdx = locals.alloc(WASM_I32);
+  const descSizeIdx = locals.alloc(WASM_I32);
 
-  const copyAttributeIn = emitByteCopyLoop(
-    (offset) => iAdd(local(vertexAttrDestAddress), offset),
-    (offset) => iAdd(iAdd(local(attrSrcBase), iMul(local(iIdx), local(attrStrideBytes))), offset),
-    local(attrStrideBytes),
-    byteCounterIdx,
-  );
+  const descAddr = (descBase: number, index: number) => iAdd(local(descBase), iMul(local(index), i32ConstBytes(ATTR_DESC_BYTES)));
+
+  const copyAttributeIn = [
+    ...i32ConstBytes(0),
+    ...localSet(dIdx),
+    WASM_OP.block,
+    0x40,
+    WASM_OP.loop,
+    0x40,
+    ...iGeS(local(dIdx), local(attrDescCount)),
+    WASM_OP.brIf,
+    ...wasmUleb128(1),
+    ...loadI32(descAddr(attrDescBase, dIdx)),
+    ...localSet(descSrcOffsetIdx),
+    ...loadI32(iAdd(descAddr(attrDescBase, dIdx), i32ConstBytes(4))),
+    ...localSet(descDestAddrIdx),
+    ...loadI32(iAdd(descAddr(attrDescBase, dIdx), i32ConstBytes(8))),
+    ...localSet(descSizeIdx),
+    ...emitByteCopyLoop(
+      (offset) => iAdd(local(descDestAddrIdx), offset),
+      (offset) =>
+        iAdd(iAdd(iAdd(local(attrSrcBase), iMul(local(iIdx), local(attrStrideBytes))), local(descSrcOffsetIdx)), offset),
+      local(descSizeIdx),
+      byteCounterIdx,
+    ),
+    ...iAdd(local(dIdx), i32ConstBytes(1)),
+    ...localSet(dIdx),
+    WASM_OP.br,
+    ...wasmUleb128(0),
+    WASM_OP.end,
+    WASM_OP.end,
+  ];
   const copyPositionOut = emitByteCopyLoop(
     (offset) => iAdd(iAdd(local(positionsOutBase), iMul(local(iIdx), i32ConstBytes(VEC4_BYTES))), offset),
     (offset) => iAdd(local(vertexPositionAddress), offset),
@@ -509,6 +557,29 @@ export function buildRasterizerModule(): Uint8Array {
     ...exportSection,
     ...codeSection,
   ]);
+}
+
+/**
+ * One attribute slot's copy: `sizeBytes` bytes starting at `srcOffset`
+ * within each vertex's record in the source buffer, copied to
+ * `destAddress` (the vertex module's own memory address for that slot).
+ */
+export interface AttributeDescriptor {
+  srcOffset: number;
+  destAddress: number;
+  sizeBytes: number;
+}
+
+/**
+ * Packs `descriptors` into `view` at `base`, in the layout
+ * {@link buildRasterizerModule}'s attribute-copy loop reads.
+ */
+export function writeAttributeDescriptors(view: DataView, base: number, descriptors: readonly AttributeDescriptor[]): void {
+  descriptors.forEach((d, i) => {
+    view.setInt32(base + i * ATTR_DESC_BYTES, d.srcOffset, true);
+    view.setInt32(base + i * ATTR_DESC_BYTES + 4, d.destAddress, true);
+    view.setInt32(base + i * ATTR_DESC_BYTES + 8, d.sizeBytes, true);
+  });
 }
 
 /**

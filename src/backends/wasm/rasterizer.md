@@ -8,11 +8,12 @@ exact argument list and order).
 
 `rasterize()` does two passes over one shared `env.memory`:
 
-1. **Vertex pass** — loops `vertexCount` times: byte-copies one vertex's
-   attribute data from `attrSrcBase` into the imported vertex function's
-   own attribute address, calls it, then byte-copies its written `vec4`
-   position (and one shared varying blob, `varyingBytes` long) out to
-   `positionsOutBase`/`varyingsOutBase`.
+1. **Vertex pass** — loops `vertexCount` times: for each attribute
+   descriptor in `attrDescBase`/`attrDescCount`, byte-copies that slot's
+   bytes from `attrSrcBase` into the imported vertex function's own
+   attribute address for that slot, calls it, then byte-copies its
+   written `vec4` position (and one shared varying blob, `varyingBytes`
+   long) out to `positionsOutBase`/`varyingsOutBase`.
 2. **Triangle pass** — for each non-indexed triangle: perspective divide
    and screen-space mapping, a degenerate-area skip, a clamped bounding
    box, and per pixel in that box an edge-function coverage test.
@@ -21,12 +22,16 @@ exact argument list and order).
    byte-copy its `vec4` result into `outputBase`.
 
 `emitByteCopyLoop` is the one raw-byte copy primitive both passes reuse.
+Any number of attribute slots are supported via a runtime descriptor
+table (`AttributeDescriptor`/`writeAttributeDescriptors`) — each entry is
+`[srcOffset, destAddress, sizeBytes]`, letting the source buffer pack
+slots in any per-vertex layout the host chooses.
 
 ## Scope (v1)
 
-- Exactly one attribute slot and one varying slot, each a single
-  contiguous blob (`attrStrideBytes`/`varyingBytes`) rather than several
-  independently-addressed slots — see `RASTERIZE_PARAMS`.
+- Exactly one varying slot, a single contiguous blob (`varyingBytes`)
+  rather than several independently-addressed slots — unlike attributes,
+  varyings don't yet have a descriptor table of their own.
 - No index buffer, no near/far clipping, no depth test, no antialiasing —
   same gaps `ROADMAP.md`'s rasterizer checklist already tracks for
   `cpu-rasterizer.ts`'s own `rasterizeTriangles`.
