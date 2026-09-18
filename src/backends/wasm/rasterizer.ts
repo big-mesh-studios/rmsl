@@ -43,6 +43,7 @@ export const RASTERIZE_PARAMS = [
   "clipScratchBase",
   "clippedPositionsOutBase",
   "clippedVaryingsOutBase",
+  "depthBufferBase",
 ] as const;
 
 /**
@@ -55,6 +56,19 @@ const W_CLIP_EPS = 1e-5;
  * A `vec4` position or fragment color, stored as 4 f64 components.
  */
 const VEC4_BYTES = 32;
+
+/**
+ * WASM's "no result" block type, used by every `block`/`loop`/`if` this
+ * file emits — none of them leave a value on the stack.
+ */
+const BLOCKTYPE_VOID = 0x40;
+
+/**
+ * The `align`/`offset` pair every load/store here uses: no declared
+ * alignment (the byte-copy loops below don't need it) and zero offset,
+ * since every address is already computed on the stack.
+ */
+const MEMARG_NATURAL: number[] = [0x00, 0x00];
 
 const local = (index: number) => [WASM_OP.localGet, ...wasmUleb128(index)];
 const localSet = (index: number) => [WASM_OP.localSet, ...wasmUleb128(index)];
@@ -84,9 +98,75 @@ const iNe = bin(WASM_OP.i32Ne);
 const iDivS = bin(WASM_OP.i32DivS);
 const toF64 = un(WASM_OP.f64ConvertI32S);
 const toI32 = un(WASM_OP.i32TruncF64S);
-const loadF64 = (addr: number[]) => [...addr, WASM_OP.f64Load, 0x00, 0x00];
-const storeF64 = (addr: number[], value: number[]) => [...addr, ...value, WASM_OP.f64Store, 0x00, 0x00];
-const loadI32 = (addr: number[]) => [...addr, WASM_OP.i32Load, 0x00, 0x00];
+const loadF64 = (addr: number[]) => [...addr, WASM_OP.f64Load, ...MEMARG_NATURAL];
+const storeF64 = (addr: number[], value: number[]) => [...addr, ...value, WASM_OP.f64Store, ...MEMARG_NATURAL];
+const loadI32 = (addr: number[]) => [...addr, WASM_OP.i32Load, ...MEMARG_NATURAL];
+
+/**
+ * `{ ...body }` — a plain structured block, only ever used here so `body`
+ * has somewhere to jump to via {@link exitBlockIf} (a `br`/`br_if` with no
+ * enclosing block is invalid WASM).
+ */
+const block = (body: number[]): number[] => [WASM_OP.block, BLOCKTYPE_VOID, ...body, WASM_OP.end];
+
+/**
+ * `if (cond) { ...then }`, no `else` — every conditional in this file is
+ * one-armed.
+ */
+const ifThen = (cond: number[], then: number[]): number[] => [
+  ...cond,
+  WASM_OP.if_,
+  BLOCKTYPE_VOID,
+  ...then,
+  WASM_OP.end,
+];
+
+/**
+ * `if (cond) break;` — jumps straight past the rest of the *nearest
+ * enclosing* {@link block}/loop body, e.g. skipping a degenerate triangle
+ * entirely. Only valid directly inside one.
+ */
+const exitBlockIf = (cond: number[]): number[] => [...cond, WASM_OP.brIf, ...wasmUleb128(0)];
+
+/**
+ * `while (!exitCond) { ...body }`, checked at the top of every iteration —
+ * WASM has no native loop-with-condition, so this compiles to the
+ * standard `block { loop { br_if exit; body; br continue } }` shape by
+ * hand: the outer `block` is what `br 1` (an early "stop looping"
+ * `brIf`) exits to, the inner `loop` is what the trailing `br 0` repeats.
+ */
+const loopUntil = (exitCond: number[], body: number[]): number[] => [
+  WASM_OP.block,
+  BLOCKTYPE_VOID,
+  WASM_OP.loop,
+  BLOCKTYPE_VOID,
+  ...exitCond,
+  WASM_OP.brIf,
+  ...wasmUleb128(1),
+  ...body,
+  WASM_OP.br,
+  ...wasmUleb128(0),
+  WASM_OP.end,
+  WASM_OP.end,
+];
+
+/**
+ * `for (i = 0; !exitCond(i); i++) { ...body(i) }` — {@link loopUntil} plus
+ * the counter-init/increment every counted loop in this file needs, so a
+ * call site only has to say what varies: the counter local, where it
+ * starts, its exit test, and its own step.
+ */
+const countingLoop = (
+  counter: number,
+  start: number[],
+  exitCond: number[],
+  body: number[],
+  step: number[],
+): number[] => [
+  ...start,
+  ...localSet(counter),
+  ...loopUntil(exitCond, [...body, ...iAdd(local(counter), step), ...localSet(counter)]),
+];
 
 /**
  * Byte size of one `[srcOffset, destAddress, sizeBytes]` attribute descriptor entry.
@@ -115,8 +195,9 @@ class LocalAllocator {
 }
 
 /**
- * A `block { loop { ... } }` copying `length` bytes one at a time from
- * `src(byteCounter)` to `dest(byteCounter)`. See rasterizer.md.
+ * Copies `length` bytes one at a time from `src(byteCounter)` to
+ * `dest(byteCounter)`, using `counterLocal` as the byte counter. See
+ * rasterizer.md.
  */
 function emitByteCopyLoop(
   dest: (byteOffset: number[]) => number[],
@@ -124,73 +205,64 @@ function emitByteCopyLoop(
   length: number[],
   counterLocal: number,
 ): number[] {
-  return [
-    ...i32ConstBytes(0),
-    ...localSet(counterLocal),
-    WASM_OP.block,
-    0x40,
-    WASM_OP.loop,
-    0x40,
-    ...local(counterLocal),
-    ...length,
-    WASM_OP.i32GeS,
-    WASM_OP.brIf,
-    ...wasmUleb128(1),
-    ...dest(local(counterLocal)),
-    ...src(local(counterLocal)),
-    WASM_OP.i32Load8U,
-    0x00,
-    0x00,
-    WASM_OP.i32Store8,
-    0x00,
-    0x00,
-    ...local(counterLocal),
-    ...i32ConstBytes(1),
-    WASM_OP.i32Add,
-    ...localSet(counterLocal),
-    WASM_OP.br,
-    ...wasmUleb128(0),
-    WASM_OP.end,
-    WASM_OP.end,
-  ];
+  return countingLoop(
+    counterLocal,
+    i32ConstBytes(0),
+    iGeS(local(counterLocal), length),
+    [
+      ...dest(local(counterLocal)),
+      ...src(local(counterLocal)),
+      WASM_OP.i32Load8U,
+      ...MEMARG_NATURAL,
+      WASM_OP.i32Store8,
+      ...MEMARG_NATURAL,
+    ],
+    i32ConstBytes(1),
+  );
 }
 
 /**
  * Builds the rasterizer module's bytes — see rasterizer.md for the full
- * vertex-pass/triangle-pass design and its v1 scope.
+ * vertex-pass/clip-pass/triangle-pass design and its v1 scope.
  */
 export function buildRasterizerModule(): Uint8Array {
   const voidToVoid = [WASM_FUNC, ...wasmVec([]), ...wasmVec([])];
   const rasterizeType = [WASM_FUNC, ...wasmVec(RASTERIZE_PARAMS.map(() => [WASM_I32])), ...wasmVec([])];
   const typeSection = wasmSection(1, wasmVec([voidToVoid, rasterizeType]));
 
+  const IMPORT_KIND_FUNC = 0x00;
+  const IMPORT_KIND_MEMORY = 0x02;
+  const LIMITS_MIN_ONLY = 0x00; // no declared maximum
+  const VOID_TO_VOID_TYPE_INDEX = 0;
+
   const vertexImport = [
     ...wasmStrBytes(RASTERIZER_VERTEX_IMPORT.module),
     ...wasmStrBytes(RASTERIZER_VERTEX_IMPORT.name),
-    0x00, // func import
-    ...wasmUleb128(0), // type 0: void -> void
+    IMPORT_KIND_FUNC,
+    ...wasmUleb128(VOID_TO_VOID_TYPE_INDEX),
   ];
   const fragmentImport = [
     ...wasmStrBytes(RASTERIZER_FRAGMENT_IMPORT.module),
     ...wasmStrBytes(RASTERIZER_FRAGMENT_IMPORT.name),
-    0x00,
-    ...wasmUleb128(0),
+    IMPORT_KIND_FUNC,
+    ...wasmUleb128(VOID_TO_VOID_TYPE_INDEX),
   ];
   const memoryImport = [
     ...wasmStrBytes("env"),
     ...wasmStrBytes("memory"),
-    0x02, // memory import
-    0x00, // limits: min only
-    ...wasmUleb128(1),
+    IMPORT_KIND_MEMORY,
+    LIMITS_MIN_ONLY,
+    ...wasmUleb128(1), // 1 page (64KiB) to start; the host grows it as needed
   ];
   const importSection = wasmSection(2, wasmVec([vertexImport, fragmentImport, memoryImport]));
 
-  const rasterizeFuncIndex = 2; // 0: vertex import, 1: fragment import
-  const funcSection = wasmSection(3, wasmVec([[...wasmUleb128(1)]]));
+  const rasterizeFuncIndex = 2; // function index space: 0 = vertex import, 1 = fragment import, 2 = this module's own "rasterize"
+  const funcSection = wasmSection(3, wasmVec([[...wasmUleb128(1)]])); // "rasterize" has type index 1 (rasterizeType)
 
+  const EXPORT_KIND_FUNC = 0x00;
   const exportSection = wasmSection(
     7,
-    wasmVec([[...wasmStrBytes("rasterize"), 0x00, ...wasmUleb128(rasterizeFuncIndex)]]),
+    wasmVec([[...wasmStrBytes("rasterize"), EXPORT_KIND_FUNC, ...wasmUleb128(rasterizeFuncIndex)]]),
   );
 
   const [
@@ -212,12 +284,13 @@ export function buildRasterizerModule(): Uint8Array {
     clipScratchBase,
     clippedPositionsOutBase,
     clippedVaryingsOutBase,
+    depthBufferBase,
   ] = RASTERIZE_PARAMS.map((_, i) => i);
 
   const locals = new LocalAllocator(RASTERIZE_PARAMS.length);
   const iIdx = locals.alloc(WASM_I32); // vertex loop counter
   const byteCounterIdx = locals.alloc(WASM_I32); // shared by every byte-copy loop
-  const tIdx = locals.alloc(WASM_I32); // triangle loop counter
+  const tIdx = locals.alloc(WASM_I32); // triangle loop counter (clip pass, then reused for the raster pass)
   const widthFIdx = locals.alloc(WASM_F64);
   const heightFIdx = locals.alloc(WASM_F64);
   const s0xIdx = locals.alloc(WASM_F64);
@@ -259,99 +332,74 @@ export function buildRasterizerModule(): Uint8Array {
   const clippedVertexCountIdx = locals.alloc(WASM_I32);
   const outCountIdx = locals.alloc(WASM_I32); // clip-output scratch fill count, 0-4, reset per original triangle
   const clipTIdx = locals.alloc(WASM_F64); // clip-edge interpolation parameter
+  const depth0Idx = locals.alloc(WASM_F64);
+  const depth1Idx = locals.alloc(WASM_F64);
+  const depth2Idx = locals.alloc(WASM_F64);
+  const pixelDepthIdx = locals.alloc(WASM_F64);
+  const pixelIndexIdx = locals.alloc(WASM_I32);
 
   const descAddr = (descBase: number, index: number, descBytes: number) =>
     iAdd(local(descBase), iMul(local(index), i32ConstBytes(descBytes)));
 
-  const copyAttributeIn = [
-    ...i32ConstBytes(0),
-    ...localSet(dIdx),
-    WASM_OP.block,
-    0x40,
-    WASM_OP.loop,
-    0x40,
-    ...iGeS(local(dIdx), local(attrDescCount)),
-    WASM_OP.brIf,
-    ...wasmUleb128(1),
-    ...loadI32(descAddr(attrDescBase, dIdx, ATTR_DESC_BYTES)),
-    ...localSet(descField0Idx), // srcOffset
-    ...loadI32(iAdd(descAddr(attrDescBase, dIdx, ATTR_DESC_BYTES), i32ConstBytes(4))),
-    ...localSet(descField1Idx), // destAddress
-    ...loadI32(iAdd(descAddr(attrDescBase, dIdx, ATTR_DESC_BYTES), i32ConstBytes(8))),
-    ...localSet(descField2Idx), // sizeBytes
-    ...emitByteCopyLoop(
-      (offset) => iAdd(local(descField1Idx), offset),
-      (offset) =>
-        iAdd(iAdd(iAdd(local(attrSrcBase), iMul(local(iIdx), local(attrStrideBytes))), local(descField0Idx)), offset),
-      local(descField2Idx),
-      byteCounterIdx,
-    ),
-    ...iAdd(local(dIdx), i32ConstBytes(1)),
-    ...localSet(dIdx),
-    WASM_OP.br,
-    ...wasmUleb128(0),
-    WASM_OP.end,
-    WASM_OP.end,
-  ];
+  const copyAttributeIn = countingLoop(
+    dIdx,
+    i32ConstBytes(0),
+    iGeS(local(dIdx), local(attrDescCount)),
+    [
+      ...loadI32(descAddr(attrDescBase, dIdx, ATTR_DESC_BYTES)),
+      ...localSet(descField0Idx), // srcOffset
+      ...loadI32(iAdd(descAddr(attrDescBase, dIdx, ATTR_DESC_BYTES), i32ConstBytes(4))),
+      ...localSet(descField1Idx), // destAddress
+      ...loadI32(iAdd(descAddr(attrDescBase, dIdx, ATTR_DESC_BYTES), i32ConstBytes(8))),
+      ...localSet(descField2Idx), // sizeBytes
+      ...emitByteCopyLoop(
+        (offset) => iAdd(local(descField1Idx), offset),
+        (offset) =>
+          iAdd(iAdd(iAdd(local(attrSrcBase), iMul(local(iIdx), local(attrStrideBytes))), local(descField0Idx)), offset),
+        local(descField2Idx),
+        byteCounterIdx,
+      ),
+    ],
+    i32ConstBytes(1),
+  );
   const copyPositionOut = emitByteCopyLoop(
     (offset) => iAdd(iAdd(local(positionsOutBase), iMul(local(iIdx), i32ConstBytes(VEC4_BYTES))), offset),
     (offset) => iAdd(local(vertexPositionAddress), offset),
     i32ConstBytes(VEC4_BYTES),
     byteCounterIdx,
   );
-  const copyVaryingOut = [
-    ...i32ConstBytes(0),
-    ...localSet(dIdx),
-    WASM_OP.block,
-    0x40,
-    WASM_OP.loop,
-    0x40,
-    ...iGeS(local(dIdx), local(varyingDescCount)),
-    WASM_OP.brIf,
-    ...wasmUleb128(1),
-    ...loadI32(descAddr(varyingDescBase, dIdx, VARYING_DESC_BYTES)),
-    ...localSet(descField0Idx), // recordOffset
-    ...loadI32(iAdd(descAddr(varyingDescBase, dIdx, VARYING_DESC_BYTES), i32ConstBytes(4))),
-    ...localSet(descField1Idx), // vertexSrcAddress
-    ...loadI32(iAdd(descAddr(varyingDescBase, dIdx, VARYING_DESC_BYTES), i32ConstBytes(12))),
-    ...localSet(descField3Idx), // sizeBytes
-    ...emitByteCopyLoop(
-      (offset) =>
-        iAdd(iAdd(iAdd(local(varyingsOutBase), iMul(local(iIdx), local(varyingBytes))), local(descField0Idx)), offset),
-      (offset) => iAdd(local(descField1Idx), offset),
-      local(descField3Idx),
-      byteCounterIdx,
-    ),
-    ...iAdd(local(dIdx), i32ConstBytes(1)),
-    ...localSet(dIdx),
-    WASM_OP.br,
-    ...wasmUleb128(0),
-    WASM_OP.end,
-    WASM_OP.end,
-  ];
+  const copyVaryingOut = countingLoop(
+    dIdx,
+    i32ConstBytes(0),
+    iGeS(local(dIdx), local(varyingDescCount)),
+    [
+      ...loadI32(descAddr(varyingDescBase, dIdx, VARYING_DESC_BYTES)),
+      ...localSet(descField0Idx), // recordOffset
+      ...loadI32(iAdd(descAddr(varyingDescBase, dIdx, VARYING_DESC_BYTES), i32ConstBytes(4))),
+      ...localSet(descField1Idx), // vertexSrcAddress
+      ...loadI32(iAdd(descAddr(varyingDescBase, dIdx, VARYING_DESC_BYTES), i32ConstBytes(12))),
+      ...localSet(descField3Idx), // sizeBytes
+      ...emitByteCopyLoop(
+        (offset) =>
+          iAdd(
+            iAdd(iAdd(local(varyingsOutBase), iMul(local(iIdx), local(varyingBytes))), local(descField0Idx)),
+            offset,
+          ),
+        (offset) => iAdd(local(descField1Idx), offset),
+        local(descField3Idx),
+        byteCounterIdx,
+      ),
+    ],
+    i32ConstBytes(1),
+  );
 
-  const vertexLoop = [
-    ...i32ConstBytes(0),
-    ...localSet(iIdx),
-    WASM_OP.block,
-    0x40,
-    WASM_OP.loop,
-    0x40,
-    ...iGeS(local(iIdx), local(vertexCount)),
-    WASM_OP.brIf,
-    ...wasmUleb128(1),
-    ...copyAttributeIn,
-    WASM_OP.call,
-    ...wasmUleb128(0), // vertex.main
-    ...copyPositionOut,
-    ...copyVaryingOut,
-    ...iAdd(local(iIdx), i32ConstBytes(1)),
-    ...localSet(iIdx),
-    WASM_OP.br,
-    ...wasmUleb128(0),
-    WASM_OP.end,
-    WASM_OP.end,
-  ];
+  const vertexLoop = countingLoop(
+    iIdx,
+    i32ConstBytes(0),
+    iGeS(local(iIdx), local(vertexCount)),
+    [...copyAttributeIn, WASM_OP.call, ...wasmUleb128(0) /* vertex.main */, ...copyPositionOut, ...copyVaryingOut],
+    i32ConstBytes(1),
+  );
 
   const tExpr = local(tIdx);
   const t1Expr = iAdd(local(tIdx), i32ConstBytes(1));
@@ -404,42 +452,33 @@ export function buildRasterizerModule(): Uint8Array {
         lerp(rawPos(a, c), rawPos(b, c), local(clipTIdx)),
       ),
     ),
-    ...i32ConstBytes(0),
-    ...localSet(componentIdx),
-    WASM_OP.block,
-    0x40,
-    WASM_OP.loop,
-    0x40,
-    ...iGeS(local(componentIdx), local(wholeRecordComponentsIdx)),
-    WASM_OP.brIf,
-    ...wasmUleb128(1),
-    ...storeF64(
-      iAdd(scratchVaryingAddr(local(outCountIdx)), iMul(local(componentIdx), i32ConstBytes(8))),
-      lerp(rawVarying(a, local(componentIdx)), rawVarying(b, local(componentIdx)), local(clipTIdx)),
+    ...countingLoop(
+      componentIdx,
+      i32ConstBytes(0),
+      iGeS(local(componentIdx), local(wholeRecordComponentsIdx)),
+      storeF64(
+        iAdd(scratchVaryingAddr(local(outCountIdx)), iMul(local(componentIdx), i32ConstBytes(8))),
+        lerp(rawVarying(a, local(componentIdx)), rawVarying(b, local(componentIdx)), local(clipTIdx)),
+      ),
+      i32ConstBytes(1),
     ),
-    ...iAdd(local(componentIdx), i32ConstBytes(1)),
-    ...localSet(componentIdx),
-    WASM_OP.br,
-    ...wasmUleb128(0),
-    WASM_OP.end,
-    WASM_OP.end,
     ...iAdd(local(outCountIdx), i32ConstBytes(1)),
     ...localSet(outCountIdx),
   ];
 
+  /**
+   * One edge (`a` -> `b`) of a triangle's single-plane Sutherland-Hodgman
+   * clip against `w > W_CLIP_EPS`: keep `a` if it's on the inside, and
+   * whenever the edge crosses the plane (`a`/`b` disagree), emit the cut
+   * point. See rasterizer.md.
+   */
   const emitClipEdge = (a: number[], b: number[]) => [
-    ...fGt(rawPos(a, 3), f64ConstBytes(W_CLIP_EPS)),
-    WASM_OP.if_,
-    0x40,
-    ...emitVertexToScratch(a),
-    WASM_OP.end,
-    ...iNe(fGt(rawPos(a, 3), f64ConstBytes(W_CLIP_EPS)), fGt(rawPos(b, 3), f64ConstBytes(W_CLIP_EPS))),
-    WASM_OP.if_,
-    0x40,
-    ...fDiv(fSub(f64ConstBytes(W_CLIP_EPS), rawPos(a, 3)), fSub(rawPos(b, 3), rawPos(a, 3))),
-    ...localSet(clipTIdx),
-    ...emitInterpVertexToScratch(a, b),
-    WASM_OP.end,
+    ...ifThen(fGt(rawPos(a, 3), f64ConstBytes(W_CLIP_EPS)), emitVertexToScratch(a)),
+    ...ifThen(iNe(fGt(rawPos(a, 3), f64ConstBytes(W_CLIP_EPS)), fGt(rawPos(b, 3), f64ConstBytes(W_CLIP_EPS))), [
+      ...fDiv(fSub(f64ConstBytes(W_CLIP_EPS), rawPos(a, 3)), fSub(rawPos(b, 3), rawPos(a, 3))),
+      ...localSet(clipTIdx),
+      ...emitInterpVertexToScratch(a, b),
+    ]),
   ];
 
   const emitTriangleFromScratch = (slots: readonly [number, number, number]) => [
@@ -475,43 +514,22 @@ export function buildRasterizerModule(): Uint8Array {
     ...localSet(clippedVertexCountIdx),
   ];
 
+  // A triangle clipped against one plane always comes out with 0, 3, or 4
+  // vertices — never 1 or 2 — so only these two fan triangles are possible.
   const clipOneTriangle = [
     ...i32ConstBytes(0),
     ...localSet(outCountIdx),
     ...emitClipEdge(tExpr, t1Expr),
     ...emitClipEdge(t1Expr, t2Expr),
     ...emitClipEdge(t2Expr, tExpr),
-    ...iGeS(local(outCountIdx), i32ConstBytes(3)),
-    WASM_OP.if_,
-    0x40,
-    ...emitTriangleFromScratch([0, 1, 2]),
-    WASM_OP.end,
-    ...iEq(local(outCountIdx), i32ConstBytes(4)),
-    WASM_OP.if_,
-    0x40,
-    ...emitTriangleFromScratch([0, 2, 3]),
-    WASM_OP.end,
+    ...ifThen(iGeS(local(outCountIdx), i32ConstBytes(3)), emitTriangleFromScratch([0, 1, 2])),
+    ...ifThen(iEq(local(outCountIdx), i32ConstBytes(4)), emitTriangleFromScratch([0, 2, 3])),
   ];
 
   const clipLoop = [
     ...i32ConstBytes(0),
     ...localSet(clippedVertexCountIdx),
-    ...i32ConstBytes(0),
-    ...localSet(tIdx),
-    WASM_OP.block,
-    0x40,
-    WASM_OP.loop,
-    0x40,
-    ...iGeS(t2Expr, local(vertexCount)),
-    WASM_OP.brIf,
-    ...wasmUleb128(1),
-    ...clipOneTriangle,
-    ...iAdd(local(tIdx), i32ConstBytes(3)),
-    ...localSet(tIdx),
-    WASM_OP.br,
-    ...wasmUleb128(0),
-    WASM_OP.end,
-    WASM_OP.end,
+    ...countingLoop(tIdx, i32ConstBytes(0), iGeS(t2Expr, local(vertexCount)), clipOneTriangle, i32ConstBytes(3)),
   ];
 
   const screenX = (vertexIndex: number[]) =>
@@ -559,6 +577,14 @@ export function buildRasterizerModule(): Uint8Array {
     ...localSet(invW1Idx),
     ...fDiv(f64ConstBytes(1), local(w2Idx)),
     ...localSet(invW2Idx),
+    // NDC depth (z/w) is affine in screen space, like x/w and y/w above, so
+    // it interpolates with plain barycentric weights — no invW needed.
+    ...fDiv(posComponent(tExpr, 2), local(w0Idx)),
+    ...localSet(depth0Idx),
+    ...fDiv(posComponent(t1Expr, 2), local(w1Idx)),
+    ...localSet(depth1Idx),
+    ...fDiv(posComponent(t2Expr, 2), local(w2Idx)),
+    ...localSet(depth2Idx),
     ...fSub(
       fMul(fSub(local(s1xIdx), local(s0xIdx)), fSub(local(s2yIdx), local(s0yIdx))),
       fMul(fSub(local(s1yIdx), local(s0yIdx)), fSub(local(s2xIdx), local(s0xIdx))),
@@ -580,11 +606,7 @@ export function buildRasterizerModule(): Uint8Array {
   ];
 
   const copyFragmentOut = emitByteCopyLoop(
-    (offset) =>
-      iAdd(
-        iAdd(local(outputBase), iMul(iAdd(iMul(local(yIdx), local(width)), local(xIdx)), i32ConstBytes(VEC4_BYTES))),
-        offset,
-      ),
+    (offset) => iAdd(iAdd(local(outputBase), iMul(local(pixelIndexIdx), i32ConstBytes(VEC4_BYTES))), offset),
     (offset) => iAdd(local(fragmentValueAddress), offset),
     i32ConstBytes(VEC4_BYTES),
     byteCounterIdx,
@@ -605,46 +627,37 @@ export function buildRasterizerModule(): Uint8Array {
     ...localSet(descField3Idx), // sizeBytes
     ...iDivS(local(descField3Idx), i32ConstBytes(8)),
     ...localSet(numComponentsIdx),
-    ...i32ConstBytes(0),
-    ...localSet(componentIdx),
-    WASM_OP.block,
-    0x40,
-    WASM_OP.loop,
-    0x40,
-    ...iGeS(local(componentIdx), local(numComponentsIdx)),
-    WASM_OP.brIf,
-    ...wasmUleb128(1),
-    ...storeF64(
-      iAdd(local(descField2Idx), iMul(local(componentIdx), i32ConstBytes(8))),
-      fDiv(
-        fAdd(
+    ...countingLoop(
+      componentIdx,
+      i32ConstBytes(0),
+      iGeS(local(componentIdx), local(numComponentsIdx)),
+      storeF64(
+        iAdd(local(descField2Idx), iMul(local(componentIdx), i32ConstBytes(8))),
+        fDiv(
           fAdd(
-            fMul(
-              fMul(local(b0Idx), local(invW0Idx)),
-              varyingComponent(tExpr, local(descField0Idx), local(componentIdx)),
+            fAdd(
+              fMul(
+                fMul(local(b0Idx), local(invW0Idx)),
+                varyingComponent(tExpr, local(descField0Idx), local(componentIdx)),
+              ),
+              fMul(
+                fMul(local(b1Idx), local(invW1Idx)),
+                varyingComponent(t1Expr, local(descField0Idx), local(componentIdx)),
+              ),
             ),
             fMul(
-              fMul(local(b1Idx), local(invW1Idx)),
-              varyingComponent(t1Expr, local(descField0Idx), local(componentIdx)),
+              fMul(local(b2Idx), local(invW2Idx)),
+              varyingComponent(t2Expr, local(descField0Idx), local(componentIdx)),
             ),
           ),
-          fMul(
-            fMul(local(b2Idx), local(invW2Idx)),
-            varyingComponent(t2Expr, local(descField0Idx), local(componentIdx)),
-          ),
+          local(invWIdx),
         ),
-        local(invWIdx),
       ),
+      i32ConstBytes(1),
     ),
-    ...iAdd(local(componentIdx), i32ConstBytes(1)),
-    ...localSet(componentIdx),
-    WASM_OP.br,
-    ...wasmUleb128(0),
-    WASM_OP.end,
-    WASM_OP.end,
   ];
 
-  const interpolateVaryings = [
+  const computeBarycentricWeights = [
     ...fDiv(local(e0Idx), local(areaIdx)),
     ...localSet(b0Idx),
     ...fDiv(local(e1Idx), local(areaIdx)),
@@ -656,122 +669,81 @@ export function buildRasterizerModule(): Uint8Array {
       fMul(local(b2Idx), local(invW2Idx)),
     ),
     ...localSet(invWIdx),
-    ...i32ConstBytes(0),
-    ...localSet(dIdx),
-    WASM_OP.block,
-    0x40,
-    WASM_OP.loop,
-    0x40,
-    ...iGeS(local(dIdx), local(varyingDescCount)),
-    WASM_OP.brIf,
-    ...wasmUleb128(1),
-    ...interpolateOneDescriptor,
-    ...iAdd(local(dIdx), i32ConstBytes(1)),
-    ...localSet(dIdx),
-    WASM_OP.br,
-    ...wasmUleb128(0),
-    WASM_OP.end,
-    WASM_OP.end,
   ];
+
+  const interpolateVaryings = countingLoop(
+    dIdx,
+    i32ConstBytes(0),
+    iGeS(local(dIdx), local(varyingDescCount)),
+    interpolateOneDescriptor,
+    i32ConstBytes(1),
+  );
+
+  const depthBufferAddr = iAdd(local(depthBufferBase), iMul(local(pixelIndexIdx), i32ConstBytes(8)));
 
   const pixelBody = [
     ...fAdd(toF64(local(xIdx)), f64ConstBytes(0.5)),
     ...localSet(pxIdx),
     ...fAdd(toF64(local(yIdx)), f64ConstBytes(0.5)),
     ...localSet(pyIdx),
+    ...iAdd(iMul(local(yIdx), local(width)), local(xIdx)),
+    ...localSet(pixelIndexIdx),
     ...edgeFn(s1xIdx, s1yIdx, s2xIdx, s2yIdx),
     ...localSet(e0Idx),
     ...edgeFn(s2xIdx, s2yIdx, s0xIdx, s0yIdx),
     ...localSet(e1Idx),
     ...edgeFn(s0xIdx, s0yIdx, s1xIdx, s1yIdx),
     ...localSet(e2Idx),
-    ...iOr(
-      iAnd(
-        iAnd(fGe(local(e0Idx), f64ConstBytes(0)), fGe(local(e1Idx), f64ConstBytes(0))),
-        fGe(local(e2Idx), f64ConstBytes(0)),
+    ...ifThen(
+      // covered iff all three edge functions agree on sign (all >= 0, or all <= 0)
+      iOr(
+        iAnd(
+          iAnd(fGe(local(e0Idx), f64ConstBytes(0)), fGe(local(e1Idx), f64ConstBytes(0))),
+          fGe(local(e2Idx), f64ConstBytes(0)),
+        ),
+        iAnd(
+          iAnd(fLe(local(e0Idx), f64ConstBytes(0)), fLe(local(e1Idx), f64ConstBytes(0))),
+          fLe(local(e2Idx), f64ConstBytes(0)),
+        ),
       ),
-      iAnd(
-        iAnd(fLe(local(e0Idx), f64ConstBytes(0)), fLe(local(e1Idx), f64ConstBytes(0))),
-        fLe(local(e2Idx), f64ConstBytes(0)),
-      ),
+      [
+        ...computeBarycentricWeights,
+        ...fAdd(
+          fAdd(fMul(local(b0Idx), local(depth0Idx)), fMul(local(b1Idx), local(depth1Idx))),
+          fMul(local(b2Idx), local(depth2Idx)),
+        ),
+        ...localSet(pixelDepthIdx),
+        // depth test: closer-or-equal wins (matches typical LEQUAL hardware
+        // default) — the host must pre-clear depthBufferBase to a large
+        // value so the first triangle over any pixel always passes.
+        ...ifThen(fLe(local(pixelDepthIdx), loadF64(depthBufferAddr)), [
+          ...storeF64(depthBufferAddr, local(pixelDepthIdx)),
+          ...interpolateVaryings,
+          WASM_OP.call,
+          ...wasmUleb128(1), // fragment.main
+          ...copyFragmentOut,
+        ]),
+      ],
     ),
-    WASM_OP.if_,
-    0x40,
-    ...interpolateVaryings,
-    WASM_OP.call,
-    ...wasmUleb128(1), // fragment.main
-    ...copyFragmentOut,
-    WASM_OP.end,
   ];
 
-  const xLoop = [
-    ...local(minXIdx),
-    ...localSet(xIdx),
-    WASM_OP.block,
-    0x40,
-    WASM_OP.loop,
-    0x40,
-    ...iGtS(local(xIdx), local(maxXIdx)),
-    WASM_OP.brIf,
-    ...wasmUleb128(1),
-    ...pixelBody,
-    ...iAdd(local(xIdx), i32ConstBytes(1)),
-    ...localSet(xIdx),
-    WASM_OP.br,
-    ...wasmUleb128(0),
-    WASM_OP.end,
-    WASM_OP.end,
-  ];
+  const xLoop = countingLoop(xIdx, local(minXIdx), iGtS(local(xIdx), local(maxXIdx)), pixelBody, i32ConstBytes(1));
+  const yLoop = countingLoop(yIdx, local(minYIdx), iGtS(local(yIdx), local(maxYIdx)), xLoop, i32ConstBytes(1));
 
-  const yLoop = [
-    ...local(minYIdx),
-    ...localSet(yIdx),
-    WASM_OP.block,
-    0x40,
-    WASM_OP.loop,
-    0x40,
-    ...iGtS(local(yIdx), local(maxYIdx)),
-    WASM_OP.brIf,
-    ...wasmUleb128(1),
-    ...xLoop,
-    ...iAdd(local(yIdx), i32ConstBytes(1)),
-    ...localSet(yIdx),
-    WASM_OP.br,
-    ...wasmUleb128(0),
-    WASM_OP.end,
-    WASM_OP.end,
-  ];
-
-  const triangleBody = [
-    WASM_OP.block,
-    0x40,
+  const triangleBody = block([
     ...computeScreenSpace,
-    ...fEq(local(areaIdx), f64ConstBytes(0)),
-    WASM_OP.brIf,
-    ...wasmUleb128(0),
+    ...exitBlockIf(fEq(local(areaIdx), f64ConstBytes(0))), // degenerate (zero-area) triangle: skip it
     ...computeBBox,
     ...yLoop,
-    WASM_OP.end,
-  ];
+  ]);
 
-  const triangleLoop = [
-    ...i32ConstBytes(0),
-    ...localSet(tIdx),
-    WASM_OP.block,
-    0x40,
-    WASM_OP.loop,
-    0x40,
-    ...iGeS(t2Expr, local(clippedVertexCountIdx)),
-    WASM_OP.brIf,
-    ...wasmUleb128(1),
-    ...triangleBody,
-    ...iAdd(local(tIdx), i32ConstBytes(3)),
-    ...localSet(tIdx),
-    WASM_OP.br,
-    ...wasmUleb128(0),
-    WASM_OP.end,
-    WASM_OP.end,
-  ];
+  const triangleLoop = countingLoop(
+    tIdx,
+    i32ConstBytes(0),
+    iGeS(t2Expr, local(clippedVertexCountIdx)),
+    triangleBody,
+    i32ConstBytes(3),
+  );
 
   const code = [
     ...toF64(local(width)),

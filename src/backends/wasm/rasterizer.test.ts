@@ -5,6 +5,11 @@ import { rasterizeTriangles } from "../cpu-rasterizer";
 import { instantiateRasterizer, writeAttributeDescriptors, writeVaryingDescriptors } from "./rasterizer";
 import { attribute, builtinPosition, Fn, uniform, varying, vec4, type AttributeNode } from "../../rmsl";
 
+/** Clears a depth buffer so the first triangle over any pixel always passes the depth test. */
+function clearDepthBuffer(view: DataView, base: number, pixelCount: number): void {
+  for (let i = 0; i < pixelCount; i++) view.setFloat64(base + i * 8, Number.POSITIVE_INFINITY, true);
+}
+
 describe("WASM backend: generic rasterizer module — linking skeleton", () => {
   it("calls an imported vertex then an imported fragment module, sharing one memory", () => {
     const memory = new WebAssembly.Memory({ initial: 1 });
@@ -82,6 +87,7 @@ describe("WASM backend: generic rasterizer module — linking skeleton", () => {
       4096,
       8192,
       12288,
+      16384,
     );
 
     for (let i = 0; i < vertices.length; i++) {
@@ -170,6 +176,9 @@ describe("WASM backend: generic rasterizer module — triangle setup and edge fu
     const attrDescBase = 900;
     writeAttributeDescriptors(view, attrDescBase, [{ srcOffset: 0, destAddress: attrDestAddress, sizeBytes: 24 }]);
 
+    const depthBufferBase = 20480;
+    clearDepthBuffer(view, depthBufferBase, width * height);
+
     rasterize(
       triangle.length,
       attrSrcBase,
@@ -189,6 +198,7 @@ describe("WASM backend: generic rasterizer module — triangle setup and edge fu
       8192,
       12288,
       16384,
+      depthBufferBase,
     );
 
     const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
@@ -291,6 +301,9 @@ describe("WASM backend: generic rasterizer module — perspective-correct varyin
       },
     ]);
 
+    const depthBufferBase = 40960;
+    clearDepthBuffer(view, depthBufferBase, width * height);
+
     rasterize(
       3,
       attrSrcBase,
@@ -310,6 +323,7 @@ describe("WASM backend: generic rasterizer module — perspective-correct varyin
       24576,
       28672,
       32768,
+      depthBufferBase,
     );
 
     const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
@@ -427,6 +441,9 @@ describe("WASM backend: generic rasterizer module — multiple attribute slots",
       },
     ]);
 
+    const depthBufferBase = 40960;
+    clearDepthBuffer(view, depthBufferBase, width * height);
+
     rasterize(
       3,
       attrSrcBase,
@@ -446,6 +463,7 @@ describe("WASM backend: generic rasterizer module — multiple attribute slots",
       24576,
       28672,
       32768,
+      depthBufferBase,
     );
 
     const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
@@ -577,6 +595,9 @@ describe("WASM backend: generic rasterizer module — multiple varying slots", (
       },
     ]);
 
+    const depthBufferBase = 40960;
+    clearDepthBuffer(view, depthBufferBase, width * height);
+
     rasterize(
       3,
       attrSrcBase,
@@ -596,6 +617,7 @@ describe("WASM backend: generic rasterizer module — multiple varying slots", (
       24576,
       28672,
       32768,
+      depthBufferBase,
     );
 
     const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
@@ -687,6 +709,8 @@ describe("WASM backend: generic rasterizer module — scalarsInMemory for a scal
     writeAttributeDescriptors(view, attrDescBase, [{ srcOffset: 0, destAddress: attrDestAddress, sizeBytes: 24 }]);
     const positionAddress = vertexCompiled.params.find((p) => p.kind === "positionMemory")!.address;
     const fragmentValueAddress = fragmentCompiled.params.find((p) => p.kind === "valueMemory")!.address;
+    const depthBufferBase = 40960;
+    clearDepthBuffer(view, depthBufferBase, width * height);
 
     rasterize(
       3,
@@ -707,6 +731,7 @@ describe("WASM backend: generic rasterizer module — scalarsInMemory for a scal
       24576,
       28672,
       32768,
+      depthBufferBase,
     );
 
     // rasterize() re-reads brightness fresh from its own memory address
@@ -842,6 +867,8 @@ describe("WASM backend: generic rasterizer module — near-plane clipping", () =
     writeAttributeDescriptors(view, attrDescBase, [{ srcOffset: 0, destAddress: attrDestAddress, sizeBytes: 24 }]);
     const positionAddress = vertexCompiled.params.find((p) => p.kind === "positionMemory")!.address;
     const fragmentValueAddress = fragmentCompiled.params.find((p) => p.kind === "valueMemory")!.address;
+    const depthBufferBase = 40960;
+    clearDepthBuffer(view, depthBufferBase, width * height);
 
     rasterize(
       3,
@@ -862,6 +889,7 @@ describe("WASM backend: generic rasterizer module — near-plane clipping", () =
       clipScratchBase,
       clippedPositionsOutBase,
       clippedVaryingsOutBase,
+      depthBufferBase,
     );
 
     const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
@@ -930,6 +958,8 @@ describe("WASM backend: generic rasterizer module — near-plane clipping", () =
     writeAttributeDescriptors(view, attrDescBase, [{ srcOffset: 0, destAddress: attrDestAddress, sizeBytes: 24 }]);
     const positionAddress = vertexCompiled.params.find((p) => p.kind === "positionMemory")!.address;
     const fragmentValueAddress = fragmentCompiled.params.find((p) => p.kind === "valueMemory")!.address;
+    const depthBufferBase = 40960;
+    clearDepthBuffer(view, depthBufferBase, width * height);
 
     rasterize(
       3,
@@ -950,9 +980,147 @@ describe("WASM backend: generic rasterizer module — near-plane clipping", () =
       24576,
       28672,
       32768,
+      depthBufferBase,
     );
 
     const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
     expect(Array.from(actual).every((v) => v === 0)).toBe(true);
+  });
+});
+
+describe("WASM backend: generic rasterizer module — depth test", () => {
+  it("keeps the closer triangle's color regardless of draw order", () => {
+    let posAttr!: AttributeNode<"vec3">;
+    const vertexBuild = () =>
+      Fn(() => {
+        posAttr = attribute("vec3");
+        builtinPosition().assign(vec4(posAttr.x, posAttr.y, posAttr.z, 1));
+      })();
+    const redFragmentBuild = () => Fn(() => vec4(1, 0, 0, 1))();
+    const blueFragmentBuild = () => Fn(() => vec4(0, 0, 1, 1))();
+
+    const width = 4;
+    const height = 4;
+    // A triangle large enough to fully enclose the [-1, 1] NDC viewport
+    // (a single triangle can cover at most half a square along a diagonal
+    // otherwise) at a given depth (z).
+    const triangleAt = (z: number) => [
+      [-10, -10, z],
+      [10, -10, z],
+      [0, 10, z],
+    ];
+    const farTriangle = triangleAt(0.5);
+    const nearTriangle = triangleAt(-0.5); // smaller z = closer, per this rasterizer's depth convention
+
+    function draw(order: "far-then-near" | "near-then-far"): Float64Array {
+      const memory = new WebAssembly.Memory({ initial: 1 });
+      const view = new DataView(memory.buffer);
+
+      const vertexCompiled = compileWasmFn(vertexBuild as any, {
+        name: "main",
+        params: [],
+        stage: "vertex",
+        memory,
+        memoryBase: 0,
+      });
+      const redCompiled = compileWasmFn(redFragmentBuild as any, {
+        name: "main",
+        params: [],
+        memoryBase: 1024,
+        memory,
+      });
+      const blueCompiled = compileWasmFn(blueFragmentBuild as any, {
+        name: "main",
+        params: [],
+        memoryBase: 2048,
+        memory,
+      });
+
+      const vertexInstance = new WebAssembly.Instance(
+        new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer),
+        {
+          math: Math as unknown as WebAssembly.ModuleImports,
+          env: { memory },
+        },
+      );
+      const redInstance = new WebAssembly.Instance(new WebAssembly.Module(redCompiled.bytes.buffer as ArrayBuffer), {
+        math: Math as unknown as WebAssembly.ModuleImports,
+        env: { memory },
+      });
+      const blueInstance = new WebAssembly.Instance(new WebAssembly.Module(blueCompiled.bytes.buffer as ArrayBuffer), {
+        math: Math as unknown as WebAssembly.ModuleImports,
+        env: { memory },
+      });
+      const { rasterize: rasterizeRed } = instantiateRasterizer(
+        vertexInstance.exports.main as () => void,
+        redInstance.exports.main as () => void,
+        memory,
+      );
+      const { rasterize: rasterizeBlue } = instantiateRasterizer(
+        vertexInstance.exports.main as () => void,
+        blueInstance.exports.main as () => void,
+        memory,
+      );
+
+      const attrSrcBase = 4096;
+      const positionsOutBase = 8192;
+      const outputBase = 16384;
+      const attrDescBase = 3072;
+      const clipScratchBase = 24576;
+      const clippedPositionsOutBase = 28672;
+      const clippedVaryingsOutBase = 32768;
+      const depthBufferBase = 40960;
+
+      const attrDestAddress = vertexCompiled.params.find((p) => p.kind === "attributeMemory")!.address;
+      writeAttributeDescriptors(view, attrDescBase, [{ srcOffset: 0, destAddress: attrDestAddress, sizeBytes: 24 }]);
+      const positionAddress = vertexCompiled.params.find((p) => p.kind === "positionMemory")!.address;
+      const redValueAddress = redCompiled.params.find((p) => p.kind === "valueMemory")!.address;
+      const blueValueAddress = blueCompiled.params.find((p) => p.kind === "valueMemory")!.address;
+      clearDepthBuffer(view, depthBufferBase, width * height);
+
+      const drawOne = (triangle: number[][], rasterize: (...args: number[]) => void, fragmentValueAddress: number) => {
+        triangle.flat().forEach((c, i) => view.setFloat64(attrSrcBase + i * 8, c, true));
+        rasterize(
+          3,
+          attrSrcBase,
+          24,
+          attrDescBase,
+          1,
+          positionAddress,
+          positionsOutBase,
+          width,
+          height,
+          fragmentValueAddress,
+          outputBase,
+          0,
+          0,
+          0,
+          0,
+          clipScratchBase,
+          clippedPositionsOutBase,
+          clippedVaryingsOutBase,
+          depthBufferBase,
+        );
+      };
+
+      if (order === "far-then-near") {
+        drawOne(farTriangle, rasterizeRed, redValueAddress);
+        drawOne(nearTriangle, rasterizeBlue, blueValueAddress);
+      } else {
+        drawOne(nearTriangle, rasterizeBlue, blueValueAddress);
+        drawOne(farTriangle, rasterizeRed, redValueAddress);
+      }
+
+      return new Float64Array(view.buffer, outputBase, width * height * 4).slice();
+    }
+
+    const farThenNear = draw("far-then-near");
+    const nearThenFar = draw("near-then-far");
+
+    // The near (blue) triangle must win in both draw orders.
+    for (let i = 0; i < width * height; i++) {
+      expect(Array.from(farThenNear.slice(i * 4, i * 4 + 4))).toEqual([0, 0, 1, 1]);
+    }
+    expect(Array.from(nearThenFar)).toEqual(Array.from(farThenNear));
   });
 });

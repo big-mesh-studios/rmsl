@@ -26,10 +26,15 @@ exact argument list and order).
    polygon.
 3. **Triangle pass** — for each clipped triangle: perspective divide and
    screen-space mapping, a degenerate-area skip, a clamped bounding box,
-   and per pixel in that box an edge-function coverage test. Covered
-   pixels perspective-correct interpolate the varying blob into the
-   imported fragment function's varying-input address, call it, and
-   byte-copy its `vec4` result into `outputBase`.
+   and per pixel in that box an edge-function coverage test. A covered
+   pixel's depth (NDC `z/w`, interpolated with the same plain barycentric
+   weights screen coordinates use — already affine in screen space, no
+   perspective correction needed) is compared against `depthBufferBase`;
+   only a closer-or-equal pixel writes both the new depth and, after
+   perspective-correct interpolating the varying blob into the imported
+   fragment function's varying-input address and calling it, its `vec4`
+   result into `outputBase`. The host must pre-clear `depthBufferBase` to
+   a large value before the first draw over it.
 
 `emitByteCopyLoop` is the one raw-byte copy primitive both passes reuse.
 Any number of attribute slots are supported via a runtime descriptor
@@ -48,9 +53,11 @@ stage, matched by the shared node's slot name.
   needs `compileWasmFn`'s `scalarsInMemory: true` option to force it into
   memory too instead of a real WASM function parameter, which this
   rasterizer's fixed-arity imports can't accept.
-- No index buffer, no depth test, no antialiasing — same gaps
-  `ROADMAP.md`'s rasterizer checklist already tracks for
-  `cpu-rasterizer.ts`'s own `rasterizeTriangles`.
+- No index buffer, no antialiasing — same gaps `ROADMAP.md`'s rasterizer
+  checklist already tracks for `cpu-rasterizer.ts`'s own
+  `rasterizeTriangles`.
+- Depth test is a plain LEQUAL z-buffer — no depth write mask, no
+  stencil, no blending (a passing pixel always overwrites).
 - Clipping is near-plane (`w`) only — no far-plane or screen-bounds
   frustum clipping (the per-pixel bbox clamp still handles screen
   bounds, as before).

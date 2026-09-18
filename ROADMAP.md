@@ -644,14 +644,17 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
   (design in `src/backends/wasm/rasterizer.md`) builds this generic module
   and covers the vertex loop, triangle setup, edge-function coverage test,
   perspective-correct varying interpolation, any number of independently-
-  addressed attribute/varying slots (via runtime descriptor tables), and
+  addressed attribute/varying slots (via runtime descriptor tables),
   near-plane (`w`) clipping (Sutherland-Hodgman, single plane — a
   straddling triangle is cut into a quad and fan-triangulated, not just
-  culled whole) — all verified against either `rasterizeTriangles`'s own
-  `compileJS`-driven output, or an independent JS clip+raster reference
-  for the clipping case, as oracles. Still open: an index buffer, far-plane
-  or screen-bounds frustum clipping, a depth test, and `createJs`/
-  `createWasm` adapter integration.
+  culled whole), and a LEQUAL depth test/z-buffer (NDC `z/w`, interpolated
+  with the same plain barycentric weights screen coordinates already use)
+  — all verified against either `rasterizeTriangles`'s own `compileJS`-
+  driven output, an independent JS clip+raster reference for the clipping
+  case, or (for the depth test) drawing two overlapping triangles in both
+  orders and checking the closer one wins either way. Still open: an
+  index buffer, far-plane or screen-bounds frustum clipping, and
+  `createJs`/`createWasm` adapter integration.
 
   If B is ever built, one non-obvious constraint to design around up
   front: growing a `WebAssembly.Memory` (`memory.grow`, from the host or
