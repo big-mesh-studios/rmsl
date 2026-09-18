@@ -722,7 +722,14 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
     lane at a time. WASM's `v128` SIMD proposal could evaluate a pixel's
     three edge functions (or four neighboring pixels' one edge function)
     in one instruction instead of three-to-four separate ones — a real
-    `fMul`/`fSub` reduction, not a rewrite of the algorithm.
+    `fMul`/`fSub` reduction, not a rewrite of the algorithm. For the JS
+    rasterizer specifically (`src/backends/js/rasterizer.ts`, plain
+    scalar JS, no WASM `v128` available to it at all): a typed-array
+    library exposing SIMD operations directly to JS could be a real
+    option there instead — no public link yet, but see
+    [this post](https://bsky.app/profile/vanilagy.bsky.social/post/3mvq7wwu32k2e)
+    (700+ SIMD ops over `TypedArray`s, reportedly 5-10x scalar JS speed).
+    Worth revisiting once it ships.
   - **Byte-at-a-time copies.** `$byteCopy` (`rasterizer.wat`) moves
     attribute/varying/position data one byte per `i32Load8U`/`i32Store8`
     pair, matching the original TS-codegen version's own loop shape. Since
