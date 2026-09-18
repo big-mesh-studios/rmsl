@@ -260,9 +260,17 @@ export function buildRasterizerModule(): Uint8Array {
   const pixelDepthIdx = locals.alloc(WASM_F64);
   const pixelIndexIdx = locals.alloc(WASM_I32);
 
+  /**
+   * Byte address of the `index`-th descriptor entry in the table at `descBase`.
+   */
   const descAddr = (descBase: number, index: number, descBytes: number) =>
     iAdd(local(descBase), iMul(local(index), i32ConstBytes(descBytes)));
 
+  /**
+   * For each attribute descriptor, copies that slot's bytes from this
+   * vertex's row in `attrSrcBase` into the vertex module's own address
+   * for it.
+   */
   const copyAttributeIn = forLoop(
     dIdx,
     i32ConstBytes(0),
@@ -284,12 +292,21 @@ export function buildRasterizerModule(): Uint8Array {
     ],
     i32ConstBytes(1),
   );
+  /**
+   * Copies this vertex's written `vec4` position out to its slot in
+   * `positionsOutBase`.
+   */
   const copyPositionOut = emitByteCopyLoop(
     (offset) => iAdd(iAdd(local(positionsOutBase), iMul(local(iIdx), i32ConstBytes(VEC4_BYTES))), offset),
     (offset) => iAdd(local(vertexPositionAddress), offset),
     i32ConstBytes(VEC4_BYTES),
     byteCounterIdx,
   );
+  /**
+   * For each varying descriptor, copies that slot's bytes from the vertex
+   * module's own address for it into its `recordOffset` within this
+   * vertex's varying record in `varyingsOutBase`.
+   */
   const copyVaryingOut = forLoop(
     dIdx,
     i32ConstBytes(0),
@@ -315,6 +332,10 @@ export function buildRasterizerModule(): Uint8Array {
     i32ConstBytes(1),
   );
 
+  /**
+   * Vertex pass: transforms every vertex once, writing its position/varyings
+   * out for the clip pass to read.
+   */
   const vertexLoop = forLoop(
     iIdx,
     i32ConstBytes(0),
@@ -333,27 +354,57 @@ export function buildRasterizerModule(): Uint8Array {
   const t1Expr = iAdd(local(tIdx), i32ConstBytes(1));
   const t2Expr = iAdd(local(tIdx), i32ConstBytes(2));
 
+  /**
+   * Reads one f64 component of the `vertexIndex`-th `vec4` in the array at `base`.
+   */
   const posComponentAt = (base: number, vertexIndex: number[], comp: number) =>
     loadF64(iAdd(iAdd(local(base), iMul(vertexIndex, i32ConstBytes(VEC4_BYTES))), i32ConstBytes(comp * 8)));
+  /**
+   * Reads one f64 component of the `vertexIndex`-th varying record in the array at `base`.
+   */
   const varyingComponentAt = (base: number, vertexIndex: number[], recordOffset: number[], comp: number[]) =>
     loadF64(
       iAdd(iAdd(iAdd(local(base), iMul(vertexIndex, local(varyingBytes))), recordOffset), iMul(comp, i32ConstBytes(8))),
     );
-  // clip pass reads the vertex pass's raw (pre-clip) output
+  /**
+   * Reads a position component from the vertex pass's raw, pre-clip output.
+   */
   const rawPos = (vertexIndex: number[], comp: number) => posComponentAt(positionsOutBase, vertexIndex, comp);
+  /**
+   * Reads a varying component from the vertex pass's raw, pre-clip output.
+   */
   const rawVarying = (vertexIndex: number[], comp: number[]) =>
     varyingComponentAt(varyingsOutBase, vertexIndex, i32ConstBytes(0), comp);
-  // the raster pass reads the clip pass's output instead of the raw vertices
+  /**
+   * Reads a position component from the clip pass's output — what the
+   * triangle pass rasterizes.
+   */
   const posComponent = (vertexIndex: number[], comp: number) =>
     posComponentAt(clippedPositionsOutBase, vertexIndex, comp);
+  /**
+   * Reads a varying component from the clip pass's output — what the
+   * triangle pass interpolates.
+   */
   const varyingComponent = (vertexIndex: number[], recordOffset: number[], comp: number[]) =>
     varyingComponentAt(clippedVaryingsOutBase, vertexIndex, recordOffset, comp);
 
+  /**
+   * Address of clip scratch slot `slot`'s position (its varying blob
+   * immediately follows, at {@link scratchVaryingAddr}). Up to 4 slots
+   * hold the intermediate polygon a triangle clips into.
+   */
   const scratchVertexAddr = (slot: number[]) =>
     iAdd(local(clipScratchBase), iMul(slot, iAdd(i32ConstBytes(VEC4_BYTES), local(varyingBytes))));
   const scratchPosAddr = scratchVertexAddr;
+  /**
+   * Address of clip scratch slot `slot`'s varying blob.
+   */
   const scratchVaryingAddr = (slot: number[]) => iAdd(scratchVertexAddr(slot), i32ConstBytes(VEC4_BYTES));
 
+  /**
+   * Copies vertex `vertexIndex`'s position and varying blob, unchanged,
+   * into the next free clip scratch slot.
+   */
   const emitVertexToScratch = (vertexIndex: number[]) => [
     ...emitByteCopyLoop(
       (offset) => iAdd(scratchPosAddr(local(outCountIdx)), offset),
@@ -371,8 +422,16 @@ export function buildRasterizerModule(): Uint8Array {
     ...localSet(outCountIdx),
   ];
 
+  /**
+   * Linear interpolation: `a + (b - a) * t`.
+   */
   const lerp = (a: number[], b: number[], t: number[]) => fAdd(a, fMul(fSub(b, a), t));
 
+  /**
+   * Cuts edge `a`->`b` at {@link clipTIdx} (set by the caller): lerps both
+   * the clip-space position and the whole varying blob, and appends the
+   * result as a new clip scratch vertex.
+   */
   const emitInterpVertexToScratch = (a: number[], b: number[]) => [
     ...[0, 1, 2, 3].flatMap((c) =>
       storeF64(
@@ -409,6 +468,10 @@ export function buildRasterizerModule(): Uint8Array {
     ]),
   ];
 
+  /**
+   * Copies the scratch vertices at `slots` out as the next triangle in the
+   * clipped output (fan order: caller picks which 3).
+   */
   const emitTriangleFromScratch = (slots: readonly [number, number, number]) => [
     ...slots.flatMap((slot, i) => [
       ...emitByteCopyLoop(
@@ -442,8 +505,12 @@ export function buildRasterizerModule(): Uint8Array {
     ...localSet(clippedVertexCountIdx),
   ];
 
-  // A triangle clipped against one plane always comes out with 0, 3, or 4
-  // vertices — never 1 or 2 — so only these two fan triangles are possible.
+  /**
+   * Clips one triangle's three edges into clip scratch, then fan-
+   * triangulates the result into the clipped output. A triangle clipped
+   * against one plane always comes out with 0, 3, or 4 vertices — never 1
+   * or 2 — so only these two fan triangles are possible.
+   */
   const clipOneTriangle = [
     ...i32ConstBytes(0),
     ...localSet(outCountIdx),
@@ -454,12 +521,22 @@ export function buildRasterizerModule(): Uint8Array {
     ...ifThen(iEq(local(outCountIdx), i32ConstBytes(4)), emitTriangleFromScratch([0, 2, 3])),
   ];
 
+  /**
+   * Clip pass: clips every original triangle against the near plane,
+   * writing 0-2 resulting triangles per input into the clipped output for
+   * the triangle pass to read.
+   */
   const clipLoop = [
     ...i32ConstBytes(0),
     ...localSet(clippedVertexCountIdx),
     ...forLoop(tIdx, i32ConstBytes(0), iGeS(t2Expr, local(vertexCount)), clipOneTriangle, i32ConstBytes(3)),
   ];
 
+  /**
+   * Clip space -> NDC (divide by `w`) -> screen pixels, x axis. `posComponent`
+   * reads the clip pass's output, so this always sees an in-front (`w > 0`)
+   * vertex.
+   */
   const screenX = (vertexIndex: number[]) =>
     fMul(
       fAdd(
@@ -468,6 +545,10 @@ export function buildRasterizerModule(): Uint8Array {
       ),
       local(widthFIdx),
     );
+  /**
+   * Same as {@link screenX}, y axis — flipped so NDC "up" lands at row 0,
+   * matching a canvas's top-down rows.
+   */
   const screenY = (vertexIndex: number[]) =>
     fMul(
       fSub(
@@ -480,6 +561,12 @@ export function buildRasterizerModule(): Uint8Array {
       local(heightFIdx),
     );
 
+  /**
+   * Per-triangle setup: each vertex's screen position, `w`, `1/w`, and NDC
+   * depth, plus the triangle's own signed area (used both for the
+   * degenerate-triangle skip and to normalize the edge functions into
+   * barycentric weights later).
+   */
   const computeScreenSpace = [
     ...screenX(tExpr),
     ...localSet(s0xIdx),
@@ -522,6 +609,10 @@ export function buildRasterizerModule(): Uint8Array {
 
   const min3 = (a: number[], b: number[], c: number[]) => fMin(fMin(a, b), c);
   const max3 = (a: number[], b: number[], c: number[]) => fMax(fMax(a, b), c);
+  /**
+   * The triangle's screen-space bounding box, clamped to the image so the
+   * pixel loop below never steps outside it.
+   */
   const computeBBox = [
     ...toI32(fMax(fFloor(min3(local(s0xIdx), local(s1xIdx), local(s2xIdx))), f64ConstBytes(0))),
     ...localSet(minXIdx),
@@ -533,6 +624,10 @@ export function buildRasterizerModule(): Uint8Array {
     ...localSet(maxYIdx),
   ];
 
+  /**
+   * Copies the fragment module's written `vec4` result into this pixel's
+   * slot in `outputBase`.
+   */
   const copyFragmentOut = emitByteCopyLoop(
     (offset) => iAdd(iAdd(local(outputBase), iMul(local(pixelIndexIdx), i32ConstBytes(VEC4_BYTES))), offset),
     (offset) => iAdd(local(fragmentValueAddress), offset),
@@ -540,12 +635,23 @@ export function buildRasterizerModule(): Uint8Array {
     byteCounterIdx,
   );
 
+  /**
+   * Signed area of the triangle `(ax,ay)-(bx,by)-(px,py)` — the standard
+   * edge function: its sign says which side of the `a`->`b` edge the pixel
+   * center falls on, and a pixel is covered iff it's on the same side of
+   * all three edges.
+   */
   const edgeFn = (ax: number, ay: number, bx: number, by: number) =>
     fSub(
       fMul(fSub(local(ax), local(pxIdx)), fSub(local(by), local(pyIdx))),
       fMul(fSub(local(ay), local(pyIdx)), fSub(local(bx), local(pxIdx))),
     );
 
+  /**
+   * Perspective-correct interpolates one varying slot's components (using
+   * the barycentric weights and `invW*` {@link computeBarycentricWeights}
+   * set) into that slot's fragment-module address.
+   */
   const interpolateOneDescriptor = [
     ...loadI32(descAddr(varyingDescBase, dIdx, VARYING_DESC_BYTES)),
     ...localSet(descField0Idx), // recordOffset
@@ -585,6 +691,11 @@ export function buildRasterizerModule(): Uint8Array {
     ),
   ];
 
+  /**
+   * Normalizes this pixel's edge functions into barycentric weights
+   * (`b0+b1+b2 == 1`), plus the perspective-correction denominator `invW`
+   * varyings need but screen coordinates and depth don't.
+   */
   const computeBarycentricWeights = [
     ...fDiv(local(e0Idx), local(areaIdx)),
     ...localSet(b0Idx),
@@ -599,6 +710,9 @@ export function buildRasterizerModule(): Uint8Array {
     ...localSet(invWIdx),
   ];
 
+  /**
+   * Runs {@link interpolateOneDescriptor} for every varying slot.
+   */
   const interpolateVaryings = forLoop(
     dIdx,
     i32ConstBytes(0),
@@ -609,6 +723,11 @@ export function buildRasterizerModule(): Uint8Array {
 
   const depthBufferAddr = iAdd(local(depthBufferBase), iMul(local(pixelIndexIdx), i32ConstBytes(8)));
 
+  /**
+   * One pixel in the current triangle's bounding box: the edge-function
+   * coverage test, then (only for a covered, depth-test-passing pixel)
+   * varying interpolation, the fragment call, and writing its color.
+   */
   const pixelBody = [
     ...fAdd(toF64(local(xIdx)), f64ConstBytes(0.5)),
     ...localSet(pxIdx),
@@ -658,6 +777,10 @@ export function buildRasterizerModule(): Uint8Array {
   const xLoop = forLoop(xIdx, local(minXIdx), iGtS(local(xIdx), local(maxXIdx)), pixelBody, i32ConstBytes(1));
   const yLoop = forLoop(yIdx, local(minYIdx), iGtS(local(yIdx), local(maxYIdx)), xLoop, i32ConstBytes(1));
 
+  /**
+   * One triangle: setup, a degenerate skip, then the pixel loop over its
+   * bounding box.
+   */
   const triangleBody = block([
     ...computeScreenSpace,
     ...exitBlockIf(fEq(local(areaIdx), f64ConstBytes(0))), // degenerate (zero-area) triangle: skip it
@@ -665,6 +788,10 @@ export function buildRasterizerModule(): Uint8Array {
     ...yLoop,
   ]);
 
+  /**
+   * Triangle pass: rasterizes every clipped triangle, depth-testing and
+   * shading each covered pixel.
+   */
   const triangleLoop = forLoop(
     tIdx,
     i32ConstBytes(0),
@@ -673,6 +800,10 @@ export function buildRasterizerModule(): Uint8Array {
     i32ConstBytes(3),
   );
 
+  /**
+   * The whole function body: per-call setup, then the vertex, clip, and
+   * triangle passes in order.
+   */
   const code = [
     ...toF64(local(width)),
     ...localSet(widthFIdx),
