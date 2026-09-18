@@ -723,82 +723,94 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
   `wabt` nor any `.wat` source reaches the built `dist/wasm.js` — only the
   inlined bytes do, same as before.
 
-  **Performance headroom, not yet spent — recorded so it isn't re-discovered
-  from scratch, not because any of it is currently a measured bottleneck
-  (the whole module is ~2.2KB and compiles/instantiates in well under a
-  millisecond; see the size/benchmark discussion this paragraph came out
-  of).**
+#### Performance headroom in the rasterizer, not yet spent
 
-  - **No SIMD.** Every edge-function evaluation, barycentric weight, and
-    perspective-correct interpolation term is scalar `f64` arithmetic, one
-    lane at a time. Concretely, in order of how directly each maps onto
-    WASM's `v128` instruction set:
-    1. **Step the edge functions across a pixel row instead of
-       recomputing them — the real win, and worth doing even before any
-       actual SIMD.** `edgeFn` fully recomputes `e0`/`e1`/`e2` from
-       scratch for every pixel in the inner `x` loop, but each edge
-       function is affine in `x` (`e(x+1) = e(x) + dx`, `dx` a
-       per-triangle constant — `-(by - ay)`), so the whole inner loop
-       can compute `e0`/`e1`/`e2` once at the row's first pixel and step
-       by a constant add per pixel after that, exact, not an
-       approximation. `b0`/`b1`/`b2` are affine in `x` too, once
-       `1/area` is precomputed per triangle instead of divided per
-       pixel.
-    2. **Process 2 or 4 pixels per iteration with `f64x2`/`f32x4`.** Once
-       edge values are stepped rather than recomputed, step and coverage-
-       test 2 pixels at once (`f64x2`, full precision) or 4 at once
-       (`f32x4`, if downcasting the coverage test specifically — it only
-       needs the *sign* — is acceptable even with the rest of the
-       pipeline staying `f64`). A `v128` compare plus a bitmask-style
-       reduction gets a whole group's coverage mask in a couple of
-       instructions instead of a branch per pixel.
-    3. **Vectorize varying interpolation across components.**
-       `interpolateOneDescriptor`'s inner loop already iterates per
-       component (`b0*invW0*varying[c] + ...`); for even-width types
-       (`vec2`/`vec4`) that's a clean `f64x2` win. WASM's baseline SIMD
-       spec has no fused multiply-add (only the not-yet-stable
-       `relaxed-simd` proposal does), so it's still separate `mul`/`add`
-       instructions, just half as many.
+Recorded so it isn't re-discovered from scratch, not because any of it
+is currently a measured bottleneck — the whole module is ~2.2KB and
+compiles/instantiates in well under a millisecond; see the
+size/benchmark discussion this section came out of.
 
-    The real engineering cost is the pixel loop's control flow — a
-    bounding box whose width isn't a multiple of the SIMD width, and the
-    "some lanes covered, some not" case for gating the fragment call —
-    not the arithmetic itself; `utils.ts` would need new SIMD
-    combinators (`v128Load`/`v128Store`/`f64x2Add`/…) mirroring the
-    existing scalar ones. For the JS rasterizer specifically
-    (`src/backends/js/rasterizer.ts`, plain scalar JS, no WASM `v128`
-    available to it at all): a typed-array library exposing SIMD
-    operations directly to JS could be a real option there instead — no
-    public link yet, but see
-    [this post](https://bsky.app/profile/vanilagy.bsky.social/post/3mvq7wwu32k2e)
-    (700+ SIMD ops over `TypedArray`s, reportedly 5-10x scalar JS speed).
-    Worth revisiting once it ships.
-  - **Byte-at-a-time copies.** `$byteCopy` (`rasterizer.wat`) moves
-    attribute/varying/position data one byte per `i32Load8U`/`i32Store8`
-    pair, matching the original TS-codegen version's own loop shape. Since
-    every copy in this module is actually f64-or-i32-aligned data (never
-    genuinely unaligned bytes), copying 4 or 8 bytes per iteration instead
-    of 1 is very likely free correctness-wise and would cut the loop
-    iteration count 4-8x — the most mechanical, lowest-risk item here.
-  - **One WASM call per material per draw.** `rasterize()` already batches
-    every triangle of *one* vertex/fragment pair's geometry into a single
-    call (that's the whole point of this module) — but a scene with N
-    different materials still costs N separate `rasterize()` calls, same
-    as N separate JS→WASM crossings. Approach A/B above (a shared
-    framebuffer/depth buffer across draws) is the prerequisite for this to
-    even make sense; batching triangles from *different* vertex/fragment
-    programs into one call isn't possible without a uniform shader model
-    to dispatch through, so this is bounded by that design, not purely an
-    implementation gap.
-  - **Near-plane clipping only** (already listed above as open): far-plane
-    and screen-bounds frustum clipping would shrink the per-triangle
-    bounding box for partially-off-screen geometry, cutting wasted
-    coverage-test work in the common case of a triangle that's mostly
-    clipped away, not just correctness.
-  - **No tiling/binning.** Same naive full-bounding-box scan per triangle
-    `cpu-rasterizer.ts`'s own checklist already tracks — large triangles or
-    scenes with many overlapping ones redo the same pixels' coverage test
-    repeatedly rather than binning triangles into screen tiles first.
+#### Step the edge functions across a pixel row instead of recomputing them
+
+The real win, and worth doing even before any actual SIMD. `edgeFn`
+fully recomputes `e0`/`e1`/`e2` from scratch for every pixel in the
+inner `x` loop, but each edge function is affine in `x`
+(`e(x+1) = e(x) + dx`, `dx` a per-triangle constant — `-(by - ay)`), so
+the whole inner loop can compute `e0`/`e1`/`e2` once at the row's first
+pixel and step by a constant add per pixel after that, exact, not an
+approximation. `b0`/`b1`/`b2` are affine in `x` too, once `1/area` is
+precomputed per triangle instead of divided per pixel.
+
+#### Process 2 or 4 pixels per iteration with `f64x2`/`f32x4`
+
+Once edge values are stepped rather than recomputed, step and coverage-
+test 2 pixels at once (`f64x2`, full precision) or 4 at once (`f32x4`,
+if downcasting the coverage test specifically — it only needs the
+*sign* — is acceptable even with the rest of the pipeline staying
+`f64`). A `v128` compare plus a bitmask-style reduction gets a whole
+group's coverage mask in a couple of instructions instead of a branch
+per pixel.
+
+#### Vectorize varying interpolation across components
+
+`interpolateOneDescriptor`'s inner loop already iterates per component
+(`b0*invW0*varying[c] + ...`); for even-width types (`vec2`/`vec4`)
+that's a clean `f64x2` win. WASM's baseline SIMD spec has no fused
+multiply-add (only the not-yet-stable `relaxed-simd` proposal does), so
+it's still separate `mul`/`add` instructions, just half as many.
+
+The real engineering cost across all three ideas above is the pixel
+loop's control flow — a bounding box whose width isn't a multiple of
+the SIMD width, and the "some lanes covered, some not" case for gating
+the fragment call — not the arithmetic itself; `utils.ts` would need
+new SIMD combinators (`v128Load`/`v128Store`/`f64x2Add`/…) mirroring
+the existing scalar ones.
+
+#### The JS rasterizer's own SIMD option
+
+`src/backends/js/rasterizer.ts` is plain scalar JS, with no WASM `v128`
+available to it at all. A typed-array library exposing SIMD operations
+directly to JS could be a real option there instead — no public link
+yet, but see
+[this post](https://bsky.app/profile/vanilagy.bsky.social/post/3mvq7wwu32k2e)
+(700+ SIMD ops over `TypedArray`s, reportedly 5-10x scalar JS speed).
+Worth revisiting once it ships.
+
+#### Byte-at-a-time copies
+
+`$byteCopy` (`rasterizer.wat`) moves attribute/varying/position data
+one byte per `i32Load8U`/`i32Store8` pair, matching the original
+TS-codegen version's own loop shape. Since every copy in this module is
+actually f64-or-i32-aligned data (never genuinely unaligned bytes),
+copying 4 or 8 bytes per iteration instead of 1 is very likely free
+correctness-wise and would cut the loop iteration count 4-8x — the most
+mechanical, lowest-risk item here.
+
+#### One WASM call per material per draw
+
+`rasterize()` already batches every triangle of *one* vertex/fragment
+pair's geometry into a single call (that's the whole point of this
+module) — but a scene with N different materials still costs N
+separate `rasterize()` calls, same as N separate JS→WASM crossings.
+Approach A/B above (a shared framebuffer/depth buffer across draws) is
+the prerequisite for this to even make sense; batching triangles from
+*different* vertex/fragment programs into one call isn't possible
+without a uniform shader model to dispatch through, so this is bounded
+by that design, not purely an implementation gap.
+
+#### Near-plane clipping only
+
+Already listed above as open: far-plane and screen-bounds frustum
+clipping would shrink the per-triangle bounding box for partially-off-
+screen geometry, cutting wasted coverage-test work in the common case
+of a triangle that's mostly clipped away, not just correctness.
+
+#### No tiling/binning
+
+Same naive full-bounding-box scan per triangle `cpu-rasterizer.ts`'s
+own checklist already tracks — large triangles or scenes with many
+overlapping ones redo the same pixels' coverage test repeatedly rather
+than binning triangles into screen tiles first.
 
   If B is ever built, one non-obvious constraint to design around up
   front: growing a `WebAssembly.Memory` (`memory.grow`, from the host or
