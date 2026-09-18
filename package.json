@@ -1,6 +1,7 @@
 {
   "name": "@random-mesh/rmsl",
   "version": "1.14.0",
+  "packageManager": "pnpm@11.3.0",
   "keywords": [
     "shader",
     "dsl",
@@ -72,9 +73,11 @@
     "clean": "rm -rf dist",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run",
+    "test": "turbo run test:vitest --filter=//",
+    "test:vitest": "vitest run",
     "test:setup": "playwright install chromium",
-    "test:fast": "RMSL_SKIP_GPU=1 vitest run",
+    "test:fast": "turbo run test:fast:vitest --filter=//",
+    "test:fast:vitest": "RMSL_SKIP_GPU=1 vitest run",
     "test:types": "vitest --typecheck.only --run",
     "test:mutate": "RMSL_SKIP_GPU=1 stryker run",
     "test:mutate:deep": "stryker run --timeoutMS 120000"
@@ -90,6 +93,7 @@
     "@types/node": "^22.10.2",
     "playwright": "^1.61.1",
     "prettier": "^3.9.6",
+    "turbo": "^2.10.13",
     "typescript": "^5.7.2",
     "vite": "^7.1.4",
     "vite-plugin-dts": "^5.0.3",
