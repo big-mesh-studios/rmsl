@@ -16,7 +16,10 @@ import {
 import { assertStageResult, CompileFnOptions, COMPONENT_INDEX, resolveSwizzleTarget } from "../shared";
 import {
   f64ConstBytes,
+  forLoop,
   i32ConstBytes,
+  iGeS,
+  local,
   WASM_BLOCKTYPE_VOID,
   WASM_F64,
   WASM_FUNC,
@@ -250,10 +253,16 @@ function componentSizeOf(kind: ScalarKind): number {
   return kind === "float" ? 8 : 4;
 }
 
+/**
+ * True for any sampler type, float or integer variant.
+ */
 function isSamplerType(t: string): boolean {
   return t.startsWith("sampler") || t.startsWith("isampler") || t.startsWith("usampler");
 }
 
+/**
+ * True only for the integer sampler variants (`isampler*`/`usampler*`).
+ */
 function isIntegerSamplerType(t: string): boolean {
   return t.startsWith("isampler") || t.startsWith("usampler");
 }
@@ -391,6 +400,11 @@ const SCRATCH_NODE_TYPES = new Set([
   "div",
 ]);
 
+/**
+ * True when `node` is one of the anonymous aggregate results
+ * {@link SCRATCH_NODE_TYPES} describes: it needs its own scratch address
+ * materialized before any of its components can be read.
+ */
 function isScratchNode(node: any): boolean {
   const t = node._t as string;
   if (!isAggregate(t)) return false;
@@ -529,6 +543,10 @@ function readScalarFromMemory(view: DataView, address: number, shaderType: Shade
   return kind === "uint" ? raw >>> 0 : raw;
 }
 
+/**
+ * Host-side: reads a value (scalar or aggregate) from memory — the
+ * read-side counterpart of `writeValueToMemory`.
+ */
 function readValueFromMemory(view: DataView, address: number, shaderType: ShaderType): unknown {
   return isAggregate(shaderType)
     ? readAggregateFromMemory(view, address, shaderType)
@@ -869,65 +887,10 @@ export function compileWasmFn(
       : storeDynamic(destAddr(0), batchComponentKind, callMain);
     /** The whole per-pixel body: write fragCoord for this pixel, then run main() and copy its result out. */
     const perPixel = [...writeFragCoord, ...copyResult];
-    /**
-     * `while (x < width) { perPixel(); x++; }` — WASM has no native `while`,
-     * so this is a `block` wrapping a `loop`: the loop repeats by branching
-     * to label 0 (itself) at its end, and exits by branching to label 1 (the
-     * enclosing block) via `brIf` when the bound check fails — the standard
-     * "loop-as-goto" pattern the binary format compiles a structured loop to.
-     */
-    const innerLoop = [
-      WASM_OP.block,
-      WASM_BLOCKTYPE_VOID,
-      WASM_OP.loop,
-      WASM_BLOCKTYPE_VOID,
-      ...getX,
-      WASM_OP.localGet,
-      ...wasmUleb128(widthIdx),
-      WASM_OP.i32GeS,
-      WASM_OP.brIf,
-      ...wasmUleb128(1),
-      ...perPixel,
-      ...getX,
-      ...i32ConstBytes(1),
-      WASM_OP.i32Add,
-      WASM_OP.localSet,
-      ...wasmUleb128(xIdx),
-      WASM_OP.br,
-      ...wasmUleb128(0),
-      WASM_OP.end,
-      WASM_OP.end,
-    ];
-    /**
-     * `while (y < height) { x = 0; innerLoop(); y++; }` — same block/loop
-     * shape as `innerLoop`, resetting `x` before each row.
-     */
-    const outerLoop = [
-      WASM_OP.block,
-      WASM_BLOCKTYPE_VOID,
-      WASM_OP.loop,
-      WASM_BLOCKTYPE_VOID,
-      ...getY,
-      WASM_OP.localGet,
-      ...wasmUleb128(heightIdx),
-      WASM_OP.i32GeS,
-      WASM_OP.brIf,
-      ...wasmUleb128(1),
-      ...i32ConstBytes(0),
-      WASM_OP.localSet,
-      ...wasmUleb128(xIdx),
-      ...innerLoop,
-      ...getY,
-      ...i32ConstBytes(1),
-      WASM_OP.i32Add,
-      WASM_OP.localSet,
-      ...wasmUleb128(yIdx),
-      WASM_OP.br,
-      ...wasmUleb128(0),
-      WASM_OP.end,
-      WASM_OP.end,
-    ];
-    const batchCode = [...i32ConstBytes(0), WASM_OP.localSet, ...wasmUleb128(yIdx), ...outerLoop];
+    /** `for (x = 0; x < width; x++) perPixel();`, one row. */
+    const innerLoop = forLoop(xIdx, i32ConstBytes(0), iGeS(local(xIdx), local(widthIdx)), perPixel, i32ConstBytes(1));
+    /** `for (y = 0; y < height; y++) innerLoop();` — the whole pixel grid. */
+    const batchCode = forLoop(yIdx, i32ConstBytes(0), iGeS(local(yIdx), local(heightIdx)), innerLoop, i32ConstBytes(1));
     const batchLocalsDecl = wasmVec([
       [...wasmUleb128(1), WASM_I32], // one local group per loop counter (xIdx, yIdx)
       [...wasmUleb128(1), WASM_I32],
@@ -1352,18 +1315,29 @@ export function compileWasmFn(
     if (Array.isArray(node.params)) for (const p of node.params) collect(p);
   }
 
+  /**
+   * WASM local index of a scalar `let`-bound variable, offset past the
+   * function's own params (WASM indexes locals after params).
+   */
   function localSlotIndex(varName: string): number {
     const i = localIndex.get(varName);
     if (i === undefined) throw new Error(`[RMSL] compileWasmFn: read of undeclared var "${varName}"`);
-    return params.length + i; // WASM indexes locals after the params, hence + params.length
+    return params.length + i;
   }
 
+  /**
+   * WASM param index of a scalar uniform/attribute/varying/param, keyed
+   * the same way `addParam` deduped it.
+   */
   function paramSlotIndex(key: string): number {
     const i = paramIndex.get(key);
     if (i === undefined) throw new Error(`[RMSL] compileWasmFn: internal error, unindexed slot "${key}"`);
     return i;
   }
 
+  /**
+   * Emits a `call` to a math/transcendental import by name (`sin`, `pow`, ...).
+   */
   function callImport(name: string): number[] {
     return [WASM_OP.call, ...wasmUleb128(importIndexOf.get(name)!)];
   }
@@ -1662,6 +1636,10 @@ export function compileWasmFn(
     );
   }
 
+  /**
+   * Stores an all-zero aggregate value at `addr`, for a derivative node
+   * compiled under `{ derivatives: "zero" }`.
+   */
   function emitDerivativeZeroStores(node: any, addr: number): number[] {
     assertDerivativesAllowed(node);
     const kind = elementKindOf(node._t as string);
@@ -2134,6 +2112,10 @@ export function compileWasmFn(
     ];
   }
 
+  /**
+   * Stores a multi-component swizzle (`v.xyz`, `v.rgba`, ...) at `addr`,
+   * one source component load per destination component, in pattern order.
+   */
   function emitSwizzleStores(node: any, addr: number): number[] {
     const src = node.params[0];
     const pattern = node.value as string;
@@ -2503,9 +2485,13 @@ export function compileWasmFn(
     return selectExpr(walkExpr(a), walkExpr(b), [...walkExpr(a), ...walkExpr(b), cmp]);
   }
 
+  /**
+   * Scalar `smoothstep(e0, e1, x)`: clamps `t = (x-e0)/(e1-e0)` to `[0,1]`,
+   * then returns `t^2 * (3 - 2t)`.
+   */
   function emitSmoothstepValue(e0Bytes: number[], e1Bytes: number[], xBytes: number[]): number[] {
-    // result is t^2 * (3 - 2t). localTee caches the clamped t in the shared
-    // $smoothstep_t local so the caller's x bytes are never re-evaluated.
+    // localTee caches the clamped t in the shared $smoothstep_t local so
+    // the caller's x bytes are never re-evaluated.
     const tSlot = localSlotIndex("$smoothstep_t");
     const rawT = [...xBytes, ...e0Bytes, WASM_OP.f64Sub, ...e1Bytes, ...e0Bytes, WASM_OP.f64Sub, WASM_OP.f64Div];
     const clampedT = minMaxBytes(minMaxBytes(rawT, f64ConstBytes(0), "float", "max"), f64ConstBytes(1), "float", "min");
@@ -3073,7 +3059,10 @@ export function compileWasmFn(
     return storeComponent(valueAddress, scalarKindOf(valueNode._t as string), 0, walkExpr(valueNode));
   }
 
-  // import signatures are shared and deduped: (f64)->f64 and (f64,f64)->f64
+  /**
+   * Type index for `(f64) -> f64`, the shared signature every unary math
+   * import (`sin`, `sqrt`, ...) uses — created once and deduped.
+   */
   function unaryImportTypeIdx(): number {
     if (unaryImportType === null) {
       unaryImportType = typeEntries.length;
@@ -3082,6 +3071,10 @@ export function compileWasmFn(
     return unaryImportType;
   }
 
+  /**
+   * Type index for `(f64, f64) -> f64`, the shared signature every binary
+   * math import (`pow`, `atan2`) uses — created once and deduped.
+   */
   function binaryImportTypeIdx(): number {
     if (binaryImportType === null) {
       binaryImportType = typeEntries.length;
@@ -3237,6 +3230,12 @@ export function instantiateWasm(compiled: CompiledWasm, name: string, externalMe
     (p): p is Extract<WasmParam, { kind: "storageMemory" }> => p.kind === "storageMemory" && p.access !== "read",
   );
 
+  /**
+   * `CpuRoutine.invoke`: marshals `ctx` into the compiled function's args
+   * and memory, calls it once, and reads back its result (a bare value, or
+   * a `CpuShaderResult` for a stage program — see `marshalInputs`/the
+   * `outputParams` loop below).
+   */
   function invoke(ctx: CpuShaderContext): number | boolean | CpuShaderResult {
     const { args } = marshalInputs(ctx);
     const result = wasmMain(...args);
@@ -3281,6 +3280,12 @@ export function instantiateWasm(compiled: CompiledWasm, name: string, externalMe
     return shaderResult;
   }
 
+  /**
+   * `CpuRoutine.batch`: marshals `ctx` once, then calls the module's own
+   * `batch` export to render the whole `width x height` grid in one call
+   * (growing the buffer if needed) — see "A whole grid in one call" in
+   * docs/wasm-benchmarks.md for why this exists.
+   */
   function batchInvoke(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
     if (!batch || !wasmBatch) {
       throw new Error(
