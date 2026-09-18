@@ -666,24 +666,27 @@ Function(source)()`. Fine for the module sizes here; revisit if a module
   finishing the `createJs`/`createWasm` adapter integration bullet this
   paragraph used to list as open. `compileWasm` links a compiled
   vertex/fragment pair against this module into one `WasmRasterRoutine`
-  (`draw()`/`clearDepth()`) — see `src/backends/wasm/rasterizer.ts`. Both
-  stages compile with `scalarsInMemory: true` over one shared memory (the
-  fragment stage's layout placed after the vertex stage's via
-  `memoryBase`); attributes are interleaved into the rasterizer's own
-  descriptor-driven copy region per `draw()` call, uniforms/textures
-  marshal once per call via a `WasmParam` marshaller factored out of
-  `instantiateWasm`, and the depth buffer gets a stable address so it
-  persists across `draw()` calls until `clearDepth()`. `createWasm`
+  (`draw(ctx, { vertexCount, width, height, out?, clear?, clearDepth? })`)
+  — see `src/backends/wasm/rasterizer.ts`. Both stages compile with
+  `scalarsInMemory: true` over one shared memory (the fragment stage's
+  layout placed after the vertex stage's via `memoryBase`); attributes
+  are interleaved into the rasterizer's own descriptor-driven copy region
+  per `draw()` call, uniforms/textures marshal once per call via a
+  `WasmParam` marshaller factored out of `instantiateWasm`, and the depth
+  buffer gets a stable address so it persists across `draw()` calls
+  unless `clearDepth: true` is passed. `createWasm`
   (`src/backends/wasm/adapter-wasm.ts`) wraps that routine in the uniform
   `Adapter` interface — `setAttribute`/`setUniform` collect draw state,
-  `attach()` opens a 2D canvas, and `draw({ vertexCount })` auto-clears
-  both depth and the output buffer (one call, one frame) before rendering
+  `attach()` opens a 2D canvas, and `draw({ vertexCount })` defaults
+  `clear`/`clearDepth` to `true` (one call, one frame) before rendering
   into it — the real vertex+attribute+triangle counterpart to
-  `createWasmRoutine`'s existing per-pixel `compute`/`batch` path. (The
-  output buffer's own clear is opt-in on `WasmRasterRoutine.draw()`
-  itself, a `clear` argument defaulting to `false` — several `draw()`
-  calls in a row otherwise compose onto it like a real framebuffer would,
-  which the depth-persistence behavior above depends on.) Not yet covered
+  `createWasmRoutine`'s existing per-pixel `compute`/`batch` path.
+  `clear`/`clearDepth` are declared per `draw()` call rather than a
+  separate clear operation, mirroring how a WebGPU render pass declares
+  `loadOp`/`depthLoadOp` together, per pass — both default to `false` on
+  `WasmRasterRoutine.draw()` itself, so several calls in a row compose
+  onto both buffers like a real framebuffer would unless told otherwise
+  (which the depth-persistence behavior above depends on). Not yet covered
   by an automated test: `createWasm`'s own `draw()`, since it needs a real
   `CanvasRenderingContext2D` (`ImageData` isn't available in this repo's
   plain-Node vitest environment) — `compileWasm`'s `WasmRasterRoutine`
