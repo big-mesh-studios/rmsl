@@ -1,4 +1,4 @@
-import { transformModulePaths, PathUtils, createHTMLExtension, type Extension } from '@bigmistqke/repl'
+import { createHTMLExtension, createJSExtension, defaultTransformModulePaths, type Extension } from '@bigmistqke/repl'
 import type ts from 'typescript'
 
 /**
@@ -19,44 +19,6 @@ export function loadTypeScript(): Promise<typeof ts> {
   return tsPromise
 }
 
-export function stripTypeScript(tsModule: typeof ts, source: string): string {
-  return tsModule.transpile(source, {
-    target: tsModule.ScriptTarget.ESNext,
-    module: tsModule.ModuleKind.ESNext,
-  })
-}
-
-export interface RewriteModulePathsOptions {
-  tsModule: typeof ts
-  source: string
-  path: string
-  fileUrls: { get(path: string): string | undefined }
-  resolveBareSpecifier: (specifier: string) => string
-}
-
-export function rewriteModulePaths({
-  tsModule,
-  source,
-  path,
-  fileUrls,
-  resolveBareSpecifier,
-}: RewriteModulePathsOptions): string {
-  const apply = transformModulePaths({
-    ts: tsModule,
-    source,
-    transform: (modulePath) => {
-      if (modulePath.startsWith('.') || modulePath.startsWith('/')) {
-        return fileUrls.get(PathUtils.resolvePath(path, modulePath)) ?? modulePath
-      }
-      if (PathUtils.isUrl(modulePath)) {
-        return modulePath
-      }
-      return resolveBareSpecifier(modulePath)
-    },
-  })
-  return apply()
-}
-
 export interface Compiler {
   tsModule: typeof ts
 }
@@ -74,34 +36,36 @@ document.body.appendChild(node)
 `
 }
 
-/**
- * Builds a TS extension for `createFileUrlSystem` that runs source through
- * `stripTypeScript` -> `rewriteModulePaths`, deferring to `getCompiler()` so
- * TypeScript can be lazy-loaded on first edit.
- */
-export function createTsExtension(options: {
+export interface ExtensionOptions {
   getCompiler: () => Compiler | undefined
   resolveBareSpecifier: (specifier: string) => string
-}): Extension {
+  readFile(path: string): string | undefined
+}
+
+/**
+ * A TS extension for `createFileUrlSystem`, deferring to `getCompiler()` so
+ * TypeScript can be lazy-loaded on first edit. The actual transpile +
+ * module-specifier rewrite is `@bigmistqke/repl`'s own `createJSExtension`
+ * — this only adds the lazy-compiler check and a friendly error module in
+ * place of a thrown compile error.
+ */
+export function createTsExtension(options: ExtensionOptions): Extension {
   return {
     type: 'javascript',
-    transform: ({ source, path, fileUrls }) => {
-      return () => {
-        const compiler = options.getCompiler()
-        if (!compiler) return ''
-        try {
-          const stripped = stripTypeScript(compiler.tsModule, source)
-          return rewriteModulePaths({
-            tsModule: compiler.tsModule,
-            source: stripped,
-            path,
-            fileUrls,
-            resolveBareSpecifier: options.resolveBareSpecifier,
-          })
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          return errorModule('Compile error:\n\n' + message)
-        }
+    transform: (config) => {
+      const compiler = options.getCompiler()
+      if (!compiler) return ''
+      try {
+        return createJSExtension({
+          ts: compiler.tsModule,
+          transpile: true,
+          compilerOptions: { target: compiler.tsModule.ScriptTarget.ESNext, module: compiler.tsModule.ModuleKind.ESNext },
+          readFile: options.readFile,
+          resolveBareSpecifier: options.resolveBareSpecifier,
+        }).transform(config)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return errorModule('Compile error:\n\n' + message)
       }
     },
   }
@@ -112,27 +76,22 @@ export function createTsExtension(options: {
  * `<script src>` (e.g. `./main.ts`) to their real fileUrls blob URLs, using
  * the same TypeScript loaded for the TS extension.
  */
-export function createHtmlExtension(options: {
-  getCompiler: () => Compiler | undefined
-  resolveBareSpecifier: (specifier: string) => string
-}) {
+export function createHtmlExtension(options: ExtensionOptions) {
   return createHTMLExtension({
-    transformModule: ({ source, path, fileUrls }) => {
+    transformModule: (config) => {
       return () => {
         const compiler = options.getCompiler()
-        if (!compiler) return source
-        return rewriteModulePaths({
-          tsModule: compiler.tsModule,
-          source,
-          path,
-          fileUrls,
+        if (!compiler) return config.source
+        // defaultTransformModulePaths returns an accessor, but this
+        // function's own caller (transformHtml) only unwraps one layer
+        // (`transformModule(config)()`) — invoke it here, not return it.
+        return defaultTransformModulePaths({
+          ...config,
+          ts: compiler.tsModule,
+          readFile: options.readFile,
           resolveBareSpecifier: options.resolveBareSpecifier,
-        })
+        })()
       }
     },
   })
-}
-
-export function trimBlankLines(input: string): string {
-  return input.replace(/^\n+|\n+$/g, '')
 }

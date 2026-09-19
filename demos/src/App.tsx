@@ -113,9 +113,6 @@ export function App() {
   void loadCompiler().then(setCompiler);
   const getCompiler = (): Compiler | undefined => compiler();
 
-  const tsExtension = createTsExtension({ getCompiler, resolveBareSpecifier });
-  const htmlExtension = createHtmlExtension({ getCompiler, resolveBareSpecifier });
-
   const [theme] = createSignal<"dark" | "light">("dark");
   const [iframe, setIframe] = createSignal<HTMLIFrameElement>();
 
@@ -133,6 +130,9 @@ export function App() {
     const withRuntime = injectSandboxRuntime(source);
     return edited() ? withRuntime : withRealEntry(withRuntime, demo.moduleUrl);
   };
+
+  const tsExtension = createTsExtension({ getCompiler, resolveBareSpecifier, readFile });
+  const htmlExtension = createHtmlExtension({ getCompiler, resolveBareSpecifier, readFile });
 
   return (
     <div class={styles.root}>
