@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { compileWasmFn } from "../../wasm";
-import { compileJSRoutine } from "../../js";
-import { rasterizeTriangles } from "../js/rasterizer";
+import { compileJS, compileJSRoutine } from "../../js";
 import { instantiateRasterizer, writeAttributeDescriptors, writeVaryingDescriptors } from "./rasterizer";
 import { attribute, builtinPosition, Fn, uniform, varying, vec4, type AttributeNode } from "../../rmsl";
 
@@ -98,11 +97,13 @@ describe("WASM backend: generic rasterizer module — linking skeleton", () => {
 });
 
 describe("WASM backend: generic rasterizer module — triangle setup and edge functions", () => {
-  it("matches rasterizeTriangles' own (compileJSRoutine-driven) output for one triangle", () => {
-    let posAttr!: AttributeNode<"vec3">;
+  it("matches compileJS's own (JsRasterRoutine-driven) output for one triangle", () => {
+    // Declared once and referenced by both compiles below (not
+    // re-generated per compile) so compileJS's own attributeTypes option,
+    // which needs the slot name up front, stays valid.
+    const posAttr = attribute("vec3");
     const vertexBuild = () =>
       Fn(() => {
-        posAttr = attribute("vec3");
         builtinPosition().assign(vec4(posAttr.x, posAttr.y, posAttr.z, 1));
       })();
     const fragmentBuild = () => Fn(() => vec4(5, 6, 7, 8))();
@@ -115,21 +116,19 @@ describe("WASM backend: generic rasterizer module — triangle setup and edge fu
       [-1, 1, 0],
     ];
     const attrData = new Float64Array(triangle.flat());
-
-    // Oracle: the same vertex/fragment programs run through compileJSRoutine and the
-    // already-tested rasterizeTriangles, to check the WASM loop below against
-    // an independent implementation of the same math rather than hand-derived
-    // pixel coordinates.
-    const jsVertex = compileJSRoutine(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
     const attrSlot = posAttr.name;
-    const jsFragment = compileJSRoutine(fragmentBuild as any, { name: "fragment", params: [] });
-    const expected = rasterizeTriangles(jsVertex, jsFragment, {
-      attributes: { [attrSlot]: attrData },
+
+    // Oracle: the same vertex/fragment programs run through compileJS's own
+    // JsRasterRoutine, to check the WASM loop below against an independent
+    // implementation of the same math rather than hand-derived pixel
+    // coordinates.
+    const jsRasterizer = compileJS(vertexBuild as any, fragmentBuild as any, {
       attributeTypes: { [attrSlot]: "vec3" },
-      width,
-      height,
-      componentCount: 4,
     });
+    const expected = jsRasterizer.draw(
+      { attributes: { [attrSlot]: attrData } },
+      { width, height, clear: true, clearDepth: true },
+    );
 
     const memory = new WebAssembly.Memory({ initial: 1 });
     const view = new DataView(memory.buffer);
@@ -209,15 +208,17 @@ describe("WASM backend: generic rasterizer module — triangle setup and edge fu
 });
 
 describe("WASM backend: generic rasterizer module — perspective-correct varying interpolation", () => {
-  it("matches rasterizeTriangles' own output for a per-vertex vec3 color varying", () => {
+  it("matches compileJS's own output for a per-vertex vec3 color varying", () => {
     // One attribute slot (this rasterizer's v1 scope): the varying is
     // derived from the position attribute itself, still exercising real
     // per-vertex-varying interpolation since each vertex's position differs.
-    let posAttr!: AttributeNode<"vec3">;
+    // posAttr is declared once and shared across both compiles below (not
+    // re-generated per compile) so compileJS's attributeTypes option,
+    // which needs the slot name up front, stays valid.
+    const posAttr = attribute("vec3");
     const colorVarying = varying("vec3");
     const vertexBuild = () =>
       Fn(() => {
-        posAttr = attribute("vec3");
         colorVarying.assign(posAttr.mul(0.5).add(0.5));
         builtinPosition().assign(vec4(posAttr.x, posAttr.y, posAttr.z, 1));
       })();
@@ -230,17 +231,15 @@ describe("WASM backend: generic rasterizer module — perspective-correct varyin
       [1, -1, 0],
       [-1, 1, 0],
     ];
-
-    const jsVertex = compileJSRoutine(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
     const posSlot = posAttr.name;
-    const jsFragment = compileJSRoutine(fragmentBuild as any, { name: "fragment", params: [] });
-    const expected = rasterizeTriangles(jsVertex, jsFragment, {
-      attributes: { [posSlot]: new Float64Array(positions.flat()) },
+
+    const jsRasterizer = compileJS(vertexBuild as any, fragmentBuild as any, {
       attributeTypes: { [posSlot]: "vec3" },
-      width,
-      height,
-      componentCount: 4,
     });
+    const expected = jsRasterizer.draw(
+      { attributes: { [posSlot]: new Float64Array(positions.flat()) } },
+      { width, height, clear: true, clearDepth: true },
+    );
     expect(Array.from(expected).some((v) => v !== 0)).toBe(true);
 
     const memory = new WebAssembly.Memory({ initial: 1 });
@@ -332,14 +331,15 @@ describe("WASM backend: generic rasterizer module — perspective-correct varyin
 });
 
 describe("WASM backend: generic rasterizer module — multiple attribute slots", () => {
-  it("matches rasterizeTriangles' own output for two independently-addressed attributes", () => {
-    let posAttr!: AttributeNode<"vec3">;
-    let colorAttr!: AttributeNode<"vec3">;
+  it("matches compileJS's own output for two independently-addressed attributes", () => {
+    // Declared once and shared across both compiles below (not
+    // re-generated per compile) so compileJS's attributeTypes option,
+    // which needs each slot name up front, stays valid.
+    const posAttr = attribute("vec3");
+    const colorAttr = attribute("vec3");
     const colorVarying = varying("vec3");
     const vertexBuild = () =>
       Fn(() => {
-        posAttr = attribute("vec3");
-        colorAttr = attribute("vec3");
         colorVarying.assign(colorAttr);
         builtinPosition().assign(vec4(posAttr.x, posAttr.y, posAttr.z, 1));
       })();
@@ -357,18 +357,16 @@ describe("WASM backend: generic rasterizer module — multiple attribute slots",
       [0, 1, 0],
       [0, 0, 1],
     ];
-
-    const jsVertex = compileJSRoutine(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
     const posSlot = posAttr.name;
     const colorSlot = colorAttr.name;
-    const jsFragment = compileJSRoutine(fragmentBuild as any, { name: "fragment", params: [] });
-    const expected = rasterizeTriangles(jsVertex, jsFragment, {
-      attributes: { [posSlot]: new Float64Array(positions.flat()), [colorSlot]: new Float64Array(colors.flat()) },
+
+    const jsRasterizer = compileJS(vertexBuild as any, fragmentBuild as any, {
       attributeTypes: { [posSlot]: "vec3", [colorSlot]: "vec3" },
-      width,
-      height,
-      componentCount: 4,
     });
+    const expected = jsRasterizer.draw(
+      { attributes: { [posSlot]: new Float64Array(positions.flat()), [colorSlot]: new Float64Array(colors.flat()) } },
+      { width, height, clear: true, clearDepth: true },
+    );
     expect(Array.from(expected).some((v) => v !== 0)).toBe(true);
 
     const memory = new WebAssembly.Memory({ initial: 1 });
@@ -381,10 +379,8 @@ describe("WASM backend: generic rasterizer module — multiple attribute slots",
       memory,
       memoryBase: 0,
     });
-    // vertexBuild() ran again for this compile, so posAttr/colorAttr now
-    // hold this compile's own (freshly re-generated) attribute nodes.
-    const wasmPosSlot = posAttr.name;
-    const wasmColorSlot = colorAttr.name;
+    const wasmPosSlot = posSlot;
+    const wasmColorSlot = colorSlot;
     const fragmentCompiled = compileWasmFn(fragmentBuild as any, {
       name: "main",
       params: [],
@@ -472,19 +468,20 @@ describe("WASM backend: generic rasterizer module — multiple attribute slots",
 });
 
 describe("WASM backend: generic rasterizer module — multiple varying slots", () => {
-  it("matches rasterizeTriangles' own output for two independently-addressed varyings", () => {
+  it("matches compileJS's own output for two independently-addressed varyings", () => {
     // A scalar (non-aggregate) varying becomes a real WASM function
     // parameter even in an otherwise zero-arg program, which this
     // rasterizer's v1 scope doesn't support — both varyings here stay
     // vec3 to keep the program zero-arg/zero-return.
-    let posAttr!: AttributeNode<"vec3">;
-    let colorAttr!: AttributeNode<"vec3">;
+    // posAttr/colorAttr are declared once and shared across both compiles
+    // below (not re-generated per compile) so compileJS's attributeTypes
+    // option, which needs each slot name up front, stays valid.
+    const posAttr = attribute("vec3");
+    const colorAttr = attribute("vec3");
     const colorVarying = varying("vec3");
     const normalVarying = varying("vec3");
     const vertexBuild = () =>
       Fn(() => {
-        posAttr = attribute("vec3");
-        colorAttr = attribute("vec3");
         colorVarying.assign(colorAttr);
         normalVarying.assign(posAttr.mul(0.5).add(0.5));
         builtinPosition().assign(vec4(posAttr.x, posAttr.y, posAttr.z, 1));
@@ -503,18 +500,16 @@ describe("WASM backend: generic rasterizer module — multiple varying slots", (
       [0, 1, 0],
       [0, 0, 1],
     ];
-
-    const jsVertex = compileJSRoutine(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
     const posSlot = posAttr.name;
     const colorSlot = colorAttr.name;
-    const jsFragment = compileJSRoutine(fragmentBuild as any, { name: "fragment", params: [] });
-    const expected = rasterizeTriangles(jsVertex, jsFragment, {
-      attributes: { [posSlot]: new Float64Array(positions.flat()), [colorSlot]: new Float64Array(colors.flat()) },
+
+    const jsRasterizer = compileJS(vertexBuild as any, fragmentBuild as any, {
       attributeTypes: { [posSlot]: "vec3", [colorSlot]: "vec3" },
-      width,
-      height,
-      componentCount: 4,
     });
+    const expected = jsRasterizer.draw(
+      { attributes: { [posSlot]: new Float64Array(positions.flat()), [colorSlot]: new Float64Array(colors.flat()) } },
+      { width, height, clear: true, clearDepth: true },
+    );
     expect(Array.from(expected).some((v) => v !== 0)).toBe(true);
 
     const memory = new WebAssembly.Memory({ initial: 1 });
@@ -527,8 +522,8 @@ describe("WASM backend: generic rasterizer module — multiple varying slots", (
       memory,
       memoryBase: 0,
     });
-    const wasmPosSlot = posAttr.name;
-    const wasmColorSlot = colorAttr.name;
+    const wasmPosSlot = posSlot;
+    const wasmColorSlot = colorSlot;
     const fragmentCompiled = compileWasmFn(fragmentBuild as any, {
       name: "main",
       params: [],
@@ -626,12 +621,14 @@ describe("WASM backend: generic rasterizer module — multiple varying slots", (
 });
 
 describe("WASM backend: generic rasterizer module — scalarsInMemory for a scalar uniform", () => {
-  it("matches rasterizeTriangles' own output for a fragment program with a scalar uniform", () => {
-    let posAttr!: AttributeNode<"vec3">;
+  it("matches compileJS's own output for a fragment program with a scalar uniform", () => {
+    // posAttr declared once and shared across both compiles below (not
+    // re-generated per compile) so compileJS's attributeTypes option,
+    // which needs the slot name up front, stays valid.
+    const posAttr = attribute("vec3");
     const brightness = uniform("float");
     const vertexBuild = () =>
       Fn(() => {
-        posAttr = attribute("vec3");
         builtinPosition().assign(vec4(posAttr.x, posAttr.y, posAttr.z, 1));
       })();
     const fragmentBuild = () => Fn(() => vec4(brightness, brightness, brightness, 1))();
@@ -643,18 +640,15 @@ describe("WASM backend: generic rasterizer module — scalarsInMemory for a scal
       [1, -1, 0],
       [-1, 1, 0],
     ];
-
-    const jsVertex = compileJSRoutine(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
     const posSlot = posAttr.name;
-    const jsFragment = compileJSRoutine(fragmentBuild as any, { name: "fragment", params: [] });
-    const expected = rasterizeTriangles(jsVertex, jsFragment, {
-      attributes: { [posSlot]: new Float64Array(positions.flat()) },
+
+    const jsRasterizer = compileJS(vertexBuild as any, fragmentBuild as any, {
       attributeTypes: { [posSlot]: "vec3" },
-      uniforms: { [brightness.name]: 0.5 },
-      width,
-      height,
-      componentCount: 4,
     });
+    const expected = jsRasterizer.draw(
+      { attributes: { [posSlot]: new Float64Array(positions.flat()) }, uniforms: { [brightness.name]: 0.5 } },
+      { width, height, clear: true, clearDepth: true },
+    );
     expect(Array.from(expected).some((v) => v !== 0)).toBe(true);
 
     const memory = new WebAssembly.Memory({ initial: 1 });
@@ -667,7 +661,7 @@ describe("WASM backend: generic rasterizer module — scalarsInMemory for a scal
       memory,
       memoryBase: 0,
     });
-    const wasmPosSlot = posAttr.name;
+    const wasmPosSlot = posSlot;
     // The fragment program's only input is a scalar uniform, which would
     // otherwise compile to a real function argument — LinkError against
     // the rasterizer's fixed zero-arg import without scalarsInMemory.

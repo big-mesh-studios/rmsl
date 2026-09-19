@@ -72,8 +72,7 @@ stage, matched by the shared node's slot name.
   needs `compileWasmFn`'s `scalarsInMemory: true` option to force it into
   memory too instead of a real WASM function parameter, which this
   rasterizer's fixed-arity imports can't accept.
-- No index buffer, no antialiasing — the same gaps the plain-JS rasterizer
-  (`rasterizeTriangles`, `src/backends/js/rasterizer.ts`) also has.
+- No index buffer, no antialiasing.
 - Depth test is a plain LEQUAL z-buffer — no depth write mask, no
   stencil, no blending (a passing pixel always overwrites).
 - Clipping is near-plane (`w`) only — no far-plane or screen-bounds

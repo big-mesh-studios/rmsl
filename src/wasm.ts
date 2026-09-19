@@ -16,9 +16,6 @@ export type { AdapterResult as CpuAdapterResult, CpuAdapter } from "./backends/a
 
 export type { Adapter, TypedArray } from "./backends/adapter";
 
-export { rasterizeTriangles } from "./backends/js/rasterizer";
-export type { RasterizeTrianglesOptions } from "./backends/js/rasterizer";
-
 export { compileWasm } from "./backends/wasm/rasterizer";
 export type {
   CompileWasmOptions,

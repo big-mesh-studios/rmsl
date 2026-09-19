@@ -6,11 +6,10 @@ import { compileWasm } from "../wasm";
 // A rotating, per-vertex-colored quad — the same scene apps/adapters'
 // js-vtx/wasm-vtx demo draws, at a size and vertex count large enough to
 // get a real signal (a single 2x2 quad at 512x512 is over 99% empty pixels).
-// Both sides now have the same near-plane-clip + LEQUAL-depth-test scope —
+// Both sides have the same near-plane-clip + LEQUAL-depth-test scope —
 // compileJS ported rasterizer.wat's algorithm to plain JS (see
 // src/backends/js/rasterizer.ts), so this compares the two real
-// rasterizer implementations, not compileJS against the older, simpler
-// rasterizeTriangles (see this file's own history for that comparison).
+// rasterizer implementations directly.
 for (const SIZE of [128, 512]) {
   describe(`compileJS vs createWasm: a rotating quad, ${SIZE}x${SIZE}`, () => {
     const pos = attribute("vec2");

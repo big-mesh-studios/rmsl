@@ -63,8 +63,7 @@ wgpuAdapter
 // (src/backends/js/rasterizer.ts's plain-JS port of
 // src/backends/wasm/rasterizer.ts's WASM module): the vertex loop,
 // near-plane clipping, and triangle rasterization all run inside that
-// rasterizer, not host-mediated per vertex/pixel the way
-// rasterizeTriangles (the older, simpler utility) is. ===
+// rasterizer, not host-mediated per vertex/pixel. ===
 const jsAdapter = createJs(
   () => vertexRoot,
   () => fragmentRoot,

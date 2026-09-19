@@ -447,15 +447,14 @@ longer the wrong choice for this workload at either size measured.
 
 (`.draw()` was later renamed `.batch()` once the same `CpuRoutine` shape
 started covering vertex/fragment/compute invocations too, not just image
-rendering — see `ROADMAP.md`'s "Design decisions already made" for the
-rename and `docs/wasm.md` for the current API surface. Kept under its
+rendering — see `docs/wasm.md` for the current API surface. Kept under its
 original name in this file since it's a historical measurement, not
 current API documentation.)
 
 ### `createWasm` vs `rasterizeTriangles(compileJS)`: the same "whole grid in one call" win, for real geometry
 
 The generic rasterizer module (`src/backends/wasm/rasterizer.ts`/`.wat`,
-see `ROADMAP.md`'s "generic, precompiled rasterizer module") is the same
+see `src/backends/wasm/rasterizer.md` for the design) is the same
 `.batch()` idea one level up: instead of moving a per-*pixel* loop inside
 WASM, it moves the per-*vertex* and per-*pixel* loop — vertex transform,
 near-plane clipping, edge-function coverage, perspective-correct

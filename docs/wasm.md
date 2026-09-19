@@ -39,22 +39,21 @@ Pick whichever backend matches the shape of the work. Nothing else about calling
 
 ```typescript
 compileWasmFn(fn, options): CompiledWasm
-// { bytes: Uint8Array, params: WasmParam[], resultType: ShaderType,
-//   textureHeapBase: number, batch?: { componentCount, kind } }
-// The module's raw bytes plus the metadata a host needs to call it —
-// analogous to compileJSFn returning source instead of a callable.
-
-instantiateWasmRoutine(compiled: CompiledWasm, name: string): CpuRoutine
-// Turns compileWasmFn's output into a live, callable module: instantiates
-// the WebAssembly.Module, and wraps it with the same marshalling
-// compileWasmRoutine itself uses. `name` is the exported function's name inside
-// the module — the same string passed as `options.name` when it was
-// compiled with compileWasmFn.
-
-compileWasmRoutine(fn, options): CpuRoutine
-// compileWasmFn(fn, options) followed by instantiateWasmRoutine(...) in one call —
-// what you want unless you're precompiling (see below).
 ```
+
+The module's raw bytes plus the metadata a host needs to call it — `{ bytes: Uint8Array, params: WasmParam[], resultType: ShaderType, textureHeapBase: number, batch?: { componentCount, kind } }` — analogous to `compileJSFn` returning source instead of a callable.
+
+```typescript
+instantiateWasmRoutine(compiled: CompiledWasm, name: string): CpuRoutine
+```
+
+Turns `compileWasmFn`'s output into a live, callable module: instantiates the `WebAssembly.Module`, and wraps it with the same marshalling `compileWasmRoutine` itself uses. `name` is the exported function's name inside the module — the same string passed as `options.name` when it was compiled with `compileWasmFn`.
+
+```typescript
+compileWasmRoutine(fn, options): CpuRoutine
+```
+
+`compileWasmFn(fn, options)` followed by `instantiateWasmRoutine(...)` in one call — what you want unless you're precompiling (see below).
 
 `instantiateWasmRoutine` exists as its own export specifically so a build step can compile once and instantiate many times, or instantiate compiled bytes that were never compiled in the browser at all — which is exactly what [`precompileWasm`](vite-plugins.md#precompilewasm--wasm-modules) does.
 

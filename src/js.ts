@@ -16,11 +16,5 @@ export type { CreateJsRoutineOptions, JsAdapter, JsDrawOptions } from "./backend
 
 export type { Adapter, TypedArray } from "./backends/adapter";
 
-export { compileJS, rasterizeTriangles } from "./backends/js/rasterizer";
-export type {
-  CompileJSRasterOptions,
-  JsRasterContext,
-  RasterizeTrianglesOptions,
-  JsRasterDrawOptions,
-  JsRasterRoutine,
-} from "./backends/js/rasterizer";
+export { compileJS } from "./backends/js/rasterizer";
+export type { CompileJSRasterOptions, JsRasterContext, JsRasterDrawOptions, JsRasterRoutine } from "./backends/js/rasterizer";
