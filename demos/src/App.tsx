@@ -3,7 +3,7 @@ import { Repl } from "@bigmistqke/repl/solid";
 import { createEffect, createMemo, createSignal, For } from "solid-js";
 import styles from "./App.module.css";
 import { demos, type Demo } from "./demos/registry";
-import { createHtmlExtension, createTsExtension, loadCompiler, type Compiler } from "./lib/repl-compiler";
+import { createHtmlExtension, createTsExtension, loadCompiler } from "./lib/repl-compiler";
 import { injectSandboxRuntime, postThemeMessage } from "./lib/repl-sandbox";
 import { rmslTypeFiles, rmslTypePaths } from "./lib/rmsl-types";
 
@@ -104,13 +104,13 @@ export function App() {
     setOverridesByDemo((prev) => ({ ...prev, [id]: { ...prev[id], [path]: source } }));
   }
 
-  // Loaded once, shared by every demo's ts/html extension. `createSignal(fn)`
-  // treats a pending promise the same way any other async computation does —
-  // reading it before it settles is a pending-read, handled by whichever
-  // computation calls getCompiler() (createFileUrlSystem's own memos, same
-  // as @bigmistqke/repl's own fileUrls.get() reads elsewhere), not by us.
-  const [compiler] = createSignal(loadCompiler);
-  const getCompiler = (): Compiler => compiler();
+  // Loaded once, shared by every demo's ts/html extension. A memo, since
+  // nothing ever writes to it — reading it before the promise settles is a
+  // pending-read, the same as any other async computation, handled by
+  // whichever computation calls compiler() (createFileUrlSystem's own
+  // memos, same as @bigmistqke/repl's own fileUrls.get() reads elsewhere),
+  // not by us.
+  const compiler = createMemo(loadCompiler);
 
   const [theme] = createSignal<"dark" | "light">("dark");
   const [iframe, setIframe] = createSignal<HTMLIFrameElement>();
@@ -130,8 +130,8 @@ export function App() {
     return edited() ? withRuntime : withRealEntry(withRuntime, demo.moduleUrl);
   };
 
-  const tsExtension = createTsExtension({ getCompiler, resolveBareSpecifier, readFile });
-  const htmlExtension = createHtmlExtension({ getCompiler, resolveBareSpecifier, readFile });
+  const tsExtension = createTsExtension({ getCompiler: compiler, resolveBareSpecifier, readFile });
+  const htmlExtension = createHtmlExtension({ getCompiler: compiler, resolveBareSpecifier, readFile });
 
   return (
     <div class={styles.root}>
