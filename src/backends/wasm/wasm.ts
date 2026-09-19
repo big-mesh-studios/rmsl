@@ -1166,7 +1166,7 @@ export function compileWasmFn(
         // Like `attribute`, but always memory-backed (never a plain param)
         // since a read_write/write storage has to be readable back after the
         // call — one call per element, marshalled from/to
-        // `ctx.storages[slot][ctx.index]` (see instantiateWasm).
+        // `ctx.storages[slot][ctx.index]` (see instantiateWasmRoutine).
         const v = node.value;
         if (!storageAddress.has(v.slot)) {
           const addr = allocateFor(v.shaderType);
@@ -1487,7 +1487,7 @@ export function compileWasmFn(
       case "fragCoord":
       case "storage":
       // Already resident at nodeAddress(node) — the host wrote it there (see
-      // "storageMemory" in instantiateWasm) before this call.
+      // "storageMemory" in instantiateWasmRoutine) before this call.
       case "storageElement":
         return [];
       case "varying":
@@ -3096,7 +3096,7 @@ export function compileWasmFn(
  */
 /**
  * Marshals a `CpuShaderContext` into one compiled module's own memory and
- * scalar args — the shared translation both `instantiateWasm` (one call per
+ * scalar args — the shared translation both `instantiateWasmRoutine` (one call per
  * `invoke()`/`batch()`) and the rasterizer's `compileWasm` (one call per
  * `draw()`, marshalling the vertex and fragment modules independently) need.
  */
@@ -3207,7 +3207,7 @@ export function createWasmInputMarshaller(
   return { marshal };
 }
 
-export function instantiateWasm(compiled: CompiledWasm, name: string, externalMemory?: WebAssembly.Memory): CpuRoutine {
+export function instantiateWasmRoutine(compiled: CompiledWasm, name: string, externalMemory?: WebAssembly.Memory): CpuRoutine {
   const { bytes, params, resultType, textureHeapBase, memoryPages, sharedMemory, maxMemoryPages, batch } = compiled;
 
   // no memory passed in: own one, sized for the compile-time layout, growable
@@ -3352,10 +3352,10 @@ export function instantiateWasm(compiled: CompiledWasm, name: string, externalMe
   return { invoke, batch: batchInvoke };
 }
 
-/** Compiles an `Fn` to WASM and instantiates it in one step — see `instantiateWasm`. */
+/** Compiles an `Fn` to WASM and instantiates it in one step — see `instantiateWasmRoutine`. */
 export function compileWasmRoutine(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmFnOptions,
 ): CpuRoutine {
-  return instantiateWasm(compileWasmFn(fn, options), options.name, options.memory);
+  return instantiateWasmRoutine(compileWasmFn(fn, options), options.name, options.memory);
 }

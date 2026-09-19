@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { compileWasmRoutine, compileWasmFn, instantiateWasm } from "../../wasm";
+import { compileWasmRoutine, compileWasmFn, instantiateWasmRoutine } from "../../wasm";
 import { compileJSRoutine } from "../../js";
 import {
   Fn,
@@ -1652,8 +1652,8 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
   });
 });
 
-describe("WASM backend: instantiateWasm — compile and instantiate as separate steps", () => {
-  it("compileWasmFn + instantiateWasm behaves exactly like compileWasmRoutine", () => {
+describe("WASM backend: instantiateWasmRoutine — compile and instantiate as separate steps", () => {
+  it("compileWasmFn + instantiateWasmRoutine behaves exactly like compileWasmRoutine", () => {
     const build = (a: any, b: any) => a.add(b).mul(2);
     const options = {
       name: "main",
@@ -1663,15 +1663,15 @@ describe("WASM backend: instantiateWasm — compile and instantiate as separate 
       ],
     };
     const compiled = compileWasmFn(build, options);
-    const fn = instantiateWasm(compiled, options.name);
+    const fn = instantiateWasmRoutine(compiled, options.name);
     expect(fn.invoke({ params: { a: 3, b: 4 } })).toBe(14);
   });
 
   it("instantiates the same compiled bytes more than once, independently", () => {
     const build = (a: any) => a.mul(a);
     const compiled = compileWasmFn(build, { name: "square", params: [{ name: "a", type: "float" }] });
-    const first = instantiateWasm(compiled, "square");
-    const second = instantiateWasm(compiled, "square");
+    const first = instantiateWasmRoutine(compiled, "square");
+    const second = instantiateWasmRoutine(compiled, "square");
     expect(first.invoke({ params: { a: 5 } })).toBe(25);
     expect(second.invoke({ params: { a: 6 } })).toBe(36);
     // Independent instances: calling one again doesn't reflect the other's call.
@@ -1681,7 +1681,7 @@ describe("WASM backend: instantiateWasm — compile and instantiate as separate 
   it("draw() still works when instantiated separately from compilation", () => {
     const build = () => Fn(() => fragCoord().x)();
     const compiled = compileWasmFn(build as any, { name: "main", params: [] });
-    const fn = instantiateWasm(compiled, "main");
+    const fn = instantiateWasmRoutine(compiled, "main");
     expect(Array.from(fn.batch({}, 2, 1))).toEqual([0.5, 1.5]);
   });
 
@@ -1752,7 +1752,7 @@ describe("WASM backend: scalarsInMemory — scalar uniform/attribute/varying for
     expect(compiled.params.some((p) => p.kind === "uniform")).toBe(false);
     expect(compiled.params.some((p) => p.kind === "uniformMemory")).toBe(true);
 
-    const fn = instantiateWasm(compiled, "main");
+    const fn = instantiateWasmRoutine(compiled, "main");
     expect(fn.invoke({ uniforms: { [threshold.name]: 4 } })).toBe(5);
     expect(fn.invoke({ uniforms: { [threshold.name]: 9 } })).toBe(10);
   });
@@ -1767,7 +1767,7 @@ describe("WASM backend: scalarsInMemory — scalar uniform/attribute/varying for
     expect(compiled.params.some((p) => p.kind === "attribute")).toBe(false);
     expect(compiled.params.some((p) => p.kind === "attributeMemory")).toBe(true);
 
-    const fn = instantiateWasm(compiled, "main");
+    const fn = instantiateWasmRoutine(compiled, "main");
     expect(fn.invoke({ attributes: { [a.name]: 3 } })).toBe(6);
   });
 
@@ -1781,7 +1781,7 @@ describe("WASM backend: scalarsInMemory — scalar uniform/attribute/varying for
     expect(compiled.params.some((p) => p.kind === "varying")).toBe(false);
     expect(compiled.params.some((p) => p.kind === "varyingMemory")).toBe(true);
 
-    const fn = instantiateWasm(compiled, "main");
+    const fn = instantiateWasmRoutine(compiled, "main");
     expect(fn.invoke({ varyings: { [v.name]: 10 } })).toBe(9);
   });
 

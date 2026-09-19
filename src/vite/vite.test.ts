@@ -160,9 +160,9 @@ describe("precompileWasm", () => {
     const result = await plugin.transform.call(context, source, WASM_FNS_PATH);
 
     expect(result).not.toBeNull();
-    expect(result!.code).toContain('import { instantiateWasm } from "@random-mesh/rmsl/wasm";');
-    expect(result!.code).toContain("export const brightness = instantiateWasm(");
-    expect(result!.code).toContain("export const mixColours = instantiateWasm(");
+    expect(result!.code).toContain('import { instantiateWasmRoutine } from "@random-mesh/rmsl/wasm";');
+    expect(result!.code).toContain("export const brightness = instantiateWasmRoutine(");
+    expect(result!.code).toContain("export const mixColours = instantiateWasmRoutine(");
     expect(result!.code).toMatch(/fetch\(new URL\(import\.meta\.ROLLUP_FILE_URL_ref\d+, import\.meta\.url\)\)/);
     expect(result!.code).not.toContain("compileWasmFn");
     expect(result!.code).not.toMatch(/\beval\s*\(/);
@@ -245,6 +245,6 @@ describe("precompileWasm", () => {
     const result = await plugin.transform.call(context, code, id);
 
     expect(result).not.toBeNull();
-    expect(result!.code).toContain("export const brightness = instantiateWasm(");
+    expect(result!.code).toContain("export const brightness = instantiateWasmRoutine(");
   });
 });

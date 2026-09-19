@@ -4,7 +4,7 @@ import { compileWasmFn } from "../../wasm";
 /**
  * Fixture for {@link precompileWasm} (see `../vite.ts`): exports each
  * function's `compileWasmFn()` output under `__RMSL_WASM_CODE`, which the
- * plugin reads at build time and rewrites into `instantiateWasm(...)` calls.
+ * plugin reads at build time and rewrites into `instantiateWasmRoutine(...)` calls.
  */
 const brightness = Fn(() => {
   const colour = uniform("vec3");

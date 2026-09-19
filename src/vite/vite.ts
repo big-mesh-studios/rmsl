@@ -25,10 +25,10 @@ export interface PrecompileWasmOptions extends PrecompileShadersOptions {
   /**
    * The named export carrying a `{ name: compiled }` map, where each `compiled`
    * is one `compileWasmFn()` result. Each key becomes an
-   * `export const name = instantiateWasm(...)` in the rewritten module, and
+   * `export const name = instantiateWasmRoutine(...)` in the rewritten module, and
    * has to be the same string the entry was compiled with
    * (`compileWasmFn(fn, { name, ... })`) — that name is baked into the
-   * compiled bytes' own export table, so `instantiateWasm` needs it to find
+   * compiled bytes' own export table, so `instantiateWasmRoutine` needs it to find
    * the right function inside the module. Defaults to `__RMSL_WASM_CODE`.
    */
   codeExport?: string;
@@ -144,7 +144,7 @@ export function precompileJS(options: PrecompileJSOptions = {}): Plugin {
  * `.wasm` asset (`this.emitFile`) rather than inlined as a string — raw
  * bytes in the build output, no string-encoding overhead, and the browser
  * can cache the asset like any other. The rewritten module fetches that
- * asset once at load and hands the bytes to `instantiateWasm` — imported
+ * asset once at load and hands the bytes to `instantiateWasmRoutine` — imported
  * from `@random-mesh/rmsl/wasm`, the only rmsl the rewritten module ever
  * references — along with the rest of what `compileWasmFn` returned
  * (`params`/`resultType`/`textureHeapBase`/`batch`), turning the two back
@@ -180,7 +180,7 @@ export function precompileWasm(options: PrecompileWasmOptions = {}): Plugin {
         throw new Error(`${id}'s ${codeExport} export must be a { name: compiled } map of compileWasmFn() output`);
       }
 
-      const exports: string[] = [`import { instantiateWasm } from "@random-mesh/rmsl/wasm";`, ""];
+      const exports: string[] = [`import { instantiateWasmRoutine } from "@random-mesh/rmsl/wasm";`, ""];
       for (const [name, compiled] of Object.entries(codeMap)) {
         if (typeof compiled !== "object" || compiled === null || !("bytes" in compiled)) {
           throw new Error(`${id}'s ${codeExport} map value for ${name} must be compileWasmFn() output`);
@@ -196,7 +196,7 @@ export function precompileWasm(options: PrecompileWasmOptions = {}): Plugin {
         const refId = this.emitFile({ type: "asset", name: `${name}.wasm`, source: bytes });
         exports.push(
           `const _rmslBytes_${name} = await fetch(new URL(import.meta.ROLLUP_FILE_URL_${refId}, import.meta.url)).then((r) => r.arrayBuffer());`,
-          `export const ${name} = instantiateWasm(` +
+          `export const ${name} = instantiateWasmRoutine(` +
             `{ bytes: new Uint8Array(_rmslBytes_${name}), ...${restJson} }, ` +
             `${JSON.stringify(name)});`,
           "",

@@ -1,4 +1,4 @@
-export { compileWasmRoutine, compileWasmFn, instantiateWasm } from "./backends/wasm/wasm";
+export { compileWasmRoutine, compileWasmFn, instantiateWasmRoutine } from "./backends/wasm/wasm";
 export type { CompiledWasm, WasmParam } from "./backends/wasm/wasm";
 
 export type {

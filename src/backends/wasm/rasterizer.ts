@@ -308,7 +308,7 @@ export function compileWasm(
   // Attributes are excluded here: the rasterizer's own attribute-copy loop
   // pokes them into these same `attributeMemory` addresses once per vertex,
   // inside WASM — this marshaller only handles the once-per-draw-call
-  // inputs (uniforms/textures), same as `instantiateWasm`'s own marshaller.
+  // inputs (uniforms/textures), same as `instantiateWasmRoutine`'s own marshaller.
   const vertexMarshaller = createWasmInputMarshaller(
     vertexCompiled.params.filter((p) => p.kind !== "attributeMemory"),
     vertexCompiled.textureHeapBase,

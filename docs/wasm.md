@@ -39,7 +39,7 @@ compileWasmFn(fn, options): CompiledWasm
 // The module's raw bytes plus the metadata a host needs to call it —
 // analogous to compileJSFn returning source instead of a callable.
 
-instantiateWasm(compiled: CompiledWasm, name: string): CpuRoutine
+instantiateWasmRoutine(compiled: CompiledWasm, name: string): CpuRoutine
 // Turns compileWasmFn's output into a live, callable module: instantiates
 // the WebAssembly.Module, and wraps it with the same marshalling
 // compileWasmRoutine itself uses. `name` is the exported function's name inside
@@ -47,11 +47,11 @@ instantiateWasm(compiled: CompiledWasm, name: string): CpuRoutine
 // compiled with compileWasmFn.
 
 compileWasmRoutine(fn, options): CpuRoutine
-// compileWasmFn(fn, options) followed by instantiateWasm(...) in one call —
+// compileWasmFn(fn, options) followed by instantiateWasmRoutine(...) in one call —
 // what you want unless you're precompiling (see below).
 ```
 
-`instantiateWasm` exists as its own export specifically so a build step can compile once and instantiate many times, or instantiate compiled bytes that were never compiled in the browser at all — which is exactly what [`precompileWasm`](vite-plugins.md#precompilewasm--wasm-modules) does.
+`instantiateWasmRoutine` exists as its own export specifically so a build step can compile once and instantiate many times, or instantiate compiled bytes that were never compiled in the browser at all — which is exactly what [`precompileWasm`](vite-plugins.md#precompilewasm--wasm-modules) does.
 
 Options extend the `Fn` compilers', the same set `compileJSRoutine` accepts:
 
@@ -89,7 +89,7 @@ Textures work exactly as described in [Sampling](compilation.md#sampling) — sa
 
 ## Precompiling
 
-[`precompileWasm`](vite-plugins.md#precompilewasm--wasm-modules) moves compilation to build time, the WASM counterpart to [`precompileJS`](vite-plugins.md#precompilejs--cpu-callable-shader-functions): the target module exports a map of `compileWasmFn()` results, and the plugin rewrites it into `instantiateWasm(...)` calls fed by real `.wasm` assets — no graph builder or bytecode emitter shipped to the browser, only the small piece of glue `instantiateWasm` is.
+[`precompileWasm`](vite-plugins.md#precompilewasm--wasm-modules) moves compilation to build time, the WASM counterpart to [`precompileJS`](vite-plugins.md#precompilejs--cpu-callable-shader-functions): the target module exports a map of `compileWasmFn()` results, and the plugin rewrites it into `instantiateWasmRoutine(...)` calls fed by real `.wasm` assets — no graph builder or bytecode emitter shipped to the browser, only the small piece of glue `instantiateWasmRoutine` is.
 
 ## Testing with it
 

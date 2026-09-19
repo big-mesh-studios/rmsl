@@ -688,7 +688,7 @@ colorBufferIn?, depthBufferIn?)` copies the shared buffers into its own
   layout placed after the vertex stage's via `memoryBase`); attributes
   are interleaved into the rasterizer's own descriptor-driven copy region
   per `draw()` call, uniforms/textures marshal once per call via a
-  `WasmParam` marshaller factored out of `instantiateWasm`, and the depth
+  `WasmParam` marshaller factored out of `instantiateWasmRoutine`, and the depth
   buffer gets a stable address so it persists across `draw()` calls
   unless `clearDepth: true` is passed. `createWasm`
   (`src/backends/wasm/adapter-wasm.ts`) wraps that routine in the uniform
@@ -900,7 +900,7 @@ for their own texture/output buffer — `grow` itself is atomic per the
 WASM spec, but two workers each expanding "their own" region
 independently is a logical layout conflict, not just a thread-safety
 one, that the existing per-instance `lastSizes`/`needsRepack` caching in
-`instantiateWasm` was never written to coordinate across instances. The
+`instantiateWasmRoutine` was never written to coordinate across instances. The
 narrow fix would be giving each worker a fixed, pre-sized region up
 front (no per-worker dynamic heap growth) rather than solving general
 cross-worker growth coordination. Not designed or started — recorded
@@ -1006,7 +1006,7 @@ first.
 
 `compileWasm`/`compileWasmFn` already produce a plain `.wasm` module with
 no DOM/canvas dependency and no assumption baked in that its host is a
-browser — `instantiateWasm`'s only browser-specific piece is the JS glue
+browser — `instantiateWasmRoutine`'s only browser-specific piece is the JS glue
 that marshals attributes/uniforms/textures in and reads results back out.
 Two hosts outside the browser look like a natural fit for that shape.
 
@@ -1029,7 +1029,7 @@ already support `WebAssembly.instantiate` the same way a browser does.
 #### Embedded, via WAMR
 
 True embedded (a microcontroller, no JS engine at all) can't use
-`instantiateWasm` as-is, since it's JS host glue — but the `.wasm` bytes
+`instantiateWasmRoutine` as-is, since it's JS host glue — but the `.wasm` bytes
 `compileWasmFn` emits don't need a JS host specifically, they need any
 runtime that can resolve the module's imports and back its memory. [WAMR
 (WebAssembly Micro Runtime)](https://github.com/bytecodealliance/wasm-micro-runtime),
