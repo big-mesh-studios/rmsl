@@ -174,26 +174,22 @@ export function App() {
         <LSPProvider files={mergedFiles()}>
           {/* A single-item <For>, not <Show keyed> — keyed Show does not
               remount across two different truthy values, only across a
-              falsy<->truthy transition, so switching between two demos
-              never tore down the previous CodeMirror/Repl instance. <For>
-              is unambiguously keyed by array-item identity. */}
+              falsy<->truthy transition, so DemoEditor's own activePath
+              state (which tab is open) never reset when switching demos.
+              <For> is unambiguously keyed by array-item identity. */}
           <For each={selectedDemo() ? [selectedDemo()!] : []}>
             {(demo) => <DemoEditor demo={demo} onInput={setOverride} />}
           </For>
         </LSPProvider>
       </div>
-      <For each={selectedDemo() ? [selectedDemo()!] : []}>
-        {(demo) => (
-          <Repl
-            style={{ flex: '1 1 0', 'min-width': '0', width: '100%', height: '100%', border: '0', display: 'block' }}
-            sandbox="allow-scripts allow-same-origin"
-            entry={demo.entry}
-            extensions={{ ts: tsExtension, tsx: tsExtension, js: tsExtension, html: htmlExtension }}
-            readFile={readFile}
-            ref={({ element }) => setIframe(element)}
-          />
-        )}
-      </For>
+      <Repl
+        style={{ flex: '1 1 0', 'min-width': '0', width: '100%', height: '100%', border: '0', display: 'block' }}
+        sandbox="allow-scripts allow-same-origin"
+        entry={selectedDemo()?.entry ?? '/index.html'}
+        extensions={{ ts: tsExtension, tsx: tsExtension, js: tsExtension, html: htmlExtension }}
+        readFile={readFile}
+        ref={({ element }) => setIframe(element)}
+      />
     </div>
   )
 }
