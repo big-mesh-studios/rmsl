@@ -17,7 +17,7 @@
   color: #d6d6d6;
   padding: 8px;
   box-sizing: border-box;
-  font-size: 12pt;
+  font-size: 10pt;
   display: flex;
   flex-direction: column;
 }
@@ -51,7 +51,7 @@
   gap: 2px;
   padding: 4px;
   background: #0b0d11;
-  font-size: 12pt;
+  font-size: 10pt;
   border-bottom: 1px solid #22252c;
   overflow: auto;
 }

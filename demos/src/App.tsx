@@ -5,6 +5,7 @@ import styles from "./App.module.css";
 import { demos, type Demo } from "./demos/registry";
 import { createHtmlExtension, createTsExtension, loadCompiler, type Compiler } from "./lib/repl-compiler";
 import { injectSandboxRuntime, postThemeMessage } from "./lib/repl-sandbox";
+import { rmslTypeFiles, rmslTypePaths } from "./lib/rmsl-types";
 
 /**
  * The selected demo's editor pane: a tab per file in its VFS, and a
@@ -149,7 +150,14 @@ export function App() {
         </For>
       </nav>
       <div class={styles["editor-pane"]}>
-        <LSPProvider files={mergedFiles()}>
+        <LSPProvider
+          files={{ ...mergedFiles(), ...rmslTypeFiles }}
+          // The language worker's virtual filesystem can't do real package
+          // resolution (reading @random-mesh/rmsl's package.json, following
+          // its `exports` map) — only flat file lookups. `paths` hands it
+          // each rmsl subpath's `.d.ts` file directly instead.
+          tsconfig={{ baseUrl: "/", paths: rmslTypePaths }}
+        >
           {/* A single-item <For>, not <Show keyed> — keyed Show does not
               remount across two different truthy values, only across a
               falsy<->truthy transition, so DemoEditor's own activePath
