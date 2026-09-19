@@ -1,6 +1,6 @@
 import { createJsCompute, type JsComputeAdapter } from "@random-mesh/rmsl/js";
 import { createWasmCompute, type WasmComputeAdapter } from "@random-mesh/rmsl/wasm";
-import { createWgsl } from "@random-mesh/rmsl/wgsl";
+import { createWgslCompute } from "@random-mesh/rmsl/wgsl";
 import { createGpuRenderer } from "./gpu-renderer";
 import { createEcsSystem } from "./system";
 
@@ -86,7 +86,7 @@ function stepCPU(adapter: JsComputeAdapter | WasmComputeAdapter, dt: number) {
 // upload or readback at all. The CPU-side posX/posY/velX/velY only get
 // synced once, when wgsl is first selected — switching away leaves them at
 // whatever they held when you switched in, which is fine here.
-const wgslAdapter = createWgsl({ compute: system.program.root });
+const wgslAdapter = createWgslCompute(system.program.root);
 let wgslReady = false;
 let gpuRenderer: ReturnType<typeof createGpuRenderer> | null = null;
 

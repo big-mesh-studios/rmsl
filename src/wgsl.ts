@@ -149,5 +149,12 @@ export type { CompileWGSLOptions, WgslUniformDeclaration, WgslUniformMember } fr
 export { compileWgslFn } from "./backends/wgsl/wgsl";
 
 export type { Adapter, TypedArray } from "./backends/adapter";
-export { createWgsl } from "./backends/wgsl/adapter-wgsl";
-export type { AdapterResult, CreateWgslAdapterOptions, WgslAdapter, WgslDrawOptions } from "./backends/wgsl/adapter-wgsl";
+export { createWgsl, createWgslCompute } from "./backends/wgsl/adapter-wgsl";
+export type {
+  AdapterResult,
+  CreateWgslAdapterOptions,
+  CreateWgslComputeOptions,
+  WgslAdapter,
+  WgslComputeAdapter,
+  WgslDrawOptions,
+} from "./backends/wgsl/adapter-wgsl";
