@@ -2,9 +2,11 @@
 
 The measurement narrative behind `compileWasm`/`compileWasmFn`
 (`src/backends/wasm/wasm.ts`) — why the backend exists, every
-re-measurement taken as it grew, and the fixes each one led to. Moved out
-of `ROADMAP.md` to keep that file scannable as a status/plan document;
-this file is the historical record backing its claims.
+re-measurement taken as it grew, and the fixes each one led to. This is
+the historical record backing the design claims made in
+[`docs/wasm.md`](wasm.md) and [`src/backends/wasm/wasm.md`](../src/backends/wasm/wasm.md),
+kept separate so those stay scannable references rather than
+chronological logs.
 
 ## Why
 
@@ -49,7 +51,7 @@ runs agreeing within a few percent (rme ≤ ~1.7% throughout — reproduce with
 at this commit):
 
 | Scenario                                                                                      | Result                                                                  |
-| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | Scalar `sqrt(a*a+b*b+c*c)`, three float params, through `compileWasm`                         | `compileJS` **~2.5-3.4x faster**                                        |
 | Same, calling the raw exported WASM function directly (bypassing `compileWasm`'s ctx wrapper) | `compileJS` ~1.0-1.15x faster — essentially a tie                       |
 | vec3 `dot` + `If`/`Else` (uniforms, through Phase 3's linear memory), through `compileWasm`   | `compileJS` **~3.1-3.2x faster**                                        |
@@ -97,7 +99,7 @@ once up front (`npx vitest bench src/wasm-crossover.bench.ts`, two
 runs, otherwise idle machine):
 
 | Loop length | Run 1                      | Run 2                      |
-| ----------- | --------------------------- | --------------------------- |
+| ----------- | -------------------------- | -------------------------- |
 | 1           | `compileJS` 1.24x faster   | `compileJS` 1.25x faster   |
 | 2           | `compileJS` 1.28x faster   | `compileJS` 1.25x faster   |
 | 4           | `compileWasm` 1.08x faster | `compileWasm` 1.21x faster |
@@ -143,7 +145,7 @@ three Phase 6 texture operations against an 8x8 texture (`npx vitest bench
 src/wasm-texture.bench.ts`, two runs, otherwise idle machine):
 
 | Scenario                                          | Run 1                     | Run 2                     |
-| --------------------------------------------------- | --------------------------- | --------------------------- |
+| ------------------------------------------------- | ------------------------- | ------------------------- |
 | `textureSize()` (metadata only, no sampling math) | `compileJS` 11.12x faster | `compileJS` 11.08x faster |
 | `textureLoad()` (one unfiltered texel)            | `compileJS` 14.57x faster | `compileJS` 14.57x faster |
 | `texture()` (bilinear filtering)                  | `compileJS` 18.66x faster | `compileJS` 19.12x faster |
@@ -166,7 +168,7 @@ coordinates) now pays the copy exactly once, not every call. Re-measured
 at the same commit, two runs:
 
 | Scenario                         | Run 1                     | Run 2                     |
-| ----------------------------------- | --------------------------- | --------------------------- |
+| -------------------------------- | ------------------------- | ------------------------- |
 | `textureSize()`                  | `compileJS` 2.07x faster  | `compileJS` 2.12x faster  |
 | `textureLoad()`                  | `compileJS` 3.33x faster  | `compileJS` 3.25x faster  |
 | `texture()` (bilinear filtering) | `compileJS` 13.16x faster | `compileJS` 13.09x faster |
@@ -201,7 +203,7 @@ otherwise-branchless style, exactly because `select` was the mechanism
 paying for the unused path. Re-measured at the same commit, two runs:
 
 | Scenario                        | Run 1                     | Run 2                     |
-| ---------------------------------- | --------------------------- | --------------------------- |
+| ------------------------------- | ------------------------- | ------------------------- |
 | `texture()`, nearest filtering  | `compileJS` 3.60x faster  | `compileJS` 3.68x faster  |
 | `texture()`, bilinear filtering | `compileJS` 11.73x faster | `compileJS` 12.04x faster |
 
@@ -225,7 +227,7 @@ applied at all three lerp levels via one shared `lerp()` helper.
 Re-measured, two runs:
 
 | Scenario                        | Run 1                    | Run 2                    |
-| ---------------------------------- | -------------------------- | -------------------------- |
+| ------------------------------- | ------------------------ | ------------------------ |
 | `texture()`, bilinear filtering | `compileJS` 6.79x faster | `compileJS` 6.80x faster |
 
 Bilinear's gap nearly halved again (~12x → ~6.8x) — `compileWasm`'s own
@@ -248,7 +250,7 @@ rather than a node's own output value — closing the gap the file's former
 unaddressed. Re-measured, two runs:
 
 | Scenario                        | Run 1                    | Run 2                    |
-| ---------------------------------- | -------------------------- | -------------------------- |
+| ------------------------------- | ------------------------ | ------------------------ |
 | `texture()`, nearest filtering  | `compileJS` 3.02x faster | `compileJS` 3.01x faster |
 | `texture()`, bilinear filtering | `compileJS` 2.62x faster | `compileJS` 2.59x faster |
 
@@ -300,7 +302,7 @@ as of commit `7b90863` was copied unmodified — `git show
 and run there, two runs, same idle-machine conditions:
 
 | Scenario                                                  | Before linear memory (`9b845b7`) | After (`7b90863`)                                    |
-| ------------------------------------------------------------ | ----------------------------------- | ------------------------------------------------------- |
+| --------------------------------------------------------- | -------------------------------- | ---------------------------------------------------- |
 | Scalar `sqrt(...)`, through `compileWasm`'s wrapper       | `compileJS` ~2.5x faster         | `compileJS` ~2.5-3.4x faster — **slightly worse**    |
 | vec3 `dot` + `If`/`Else`, through `compileWasm`'s wrapper | `compileJS` ~6.3x faster         | `compileJS` ~3.1-3.2x faster — **roughly 2x better** |
 
@@ -383,7 +385,7 @@ actively misleading (see the file's own history for the numbers that
 mistake produced):
 
 | Scenario                                          | 128x128, Run 1 | 128x128, Run 2 | 512x512, Run 1 | 512x512, Run 2 |
-| ---------------------------------------------------- | ---------------- | ---------------- | ---------------- | ---------------- |
+| ------------------------------------------------- | -------------- | -------------- | -------------- | -------------- |
 | `.draw()` vs. `compileWasm` called once per pixel | 52.31x faster  | 52.71x faster  | 59.44x faster  | 58.86x faster  |
 | `.draw()` vs. `compileJS` called once per pixel   | 5.49x faster   | 5.49x faster   | 10.54x faster  | 10.42x faster  |
 
@@ -416,7 +418,7 @@ sampling a texture sized to match the grid once per pixel via
 `textureLoad()`, same two grid sizes, two runs each:
 
 | Scenario            | 128x128, Run 1           | 128x128, Run 2           | 512x512, Run 1         | 512x512, Run 2         |
-| ---------------------- | --------------------------- | --------------------------- | ------------------------ | ------------------------ |
+| ------------------- | ------------------------ | ------------------------ | ---------------------- | ---------------------- |
 | First measurement   | `compileJS` 1.26x faster | `compileJS` 1.33x faster | `.draw()` 1.08x faster | `.draw()` 1.07x faster |
 | After the fix below | `.draw()` 1.12x faster   | `.draw()` 1.13x faster   | `.draw()` 1.62x faster | `.draw()` 1.64x faster |
 
@@ -455,8 +457,8 @@ current API documentation.)
 
 The generic rasterizer module (`src/backends/wasm/rasterizer.ts`/`.wat`,
 see `src/backends/wasm/rasterizer.md` for the design) is the same
-`.batch()` idea one level up: instead of moving a per-*pixel* loop inside
-WASM, it moves the per-*vertex* and per-*pixel* loop — vertex transform,
+`.batch()` idea one level up: instead of moving a per-_pixel_ loop inside
+WASM, it moves the per-_vertex_ and per-_pixel_ loop — vertex transform,
 near-plane clipping, edge-function coverage, perspective-correct
 interpolation, depth test — inside one WASM call, driven by `compileWasm`/
 `createWasm`. The realistic alternative it replaces is
@@ -470,8 +472,8 @@ colored quad (2 triangles, 6 non-indexed vertices — the same scene
 `apps/adapters`' `js-vtx`/`wasm-vtx` demo draws) at 128x128 and 512x512,
 two runs, otherwise idle machine:
 
-| Scenario                                           | 128x128, Run 1 | 128x128, Run 2 | 512x512, Run 1 | 512x512, Run 2 |
-| --------------------------------------------------- | -------------- | -------------- | -------------- | -------------- |
+| Scenario                                         | 128x128, Run 1 | 128x128, Run 2 | 512x512, Run 1 | 512x512, Run 2 |
+| ------------------------------------------------ | -------------- | -------------- | -------------- | -------------- |
 | `createWasm` vs. `rasterizeTriangles(compileJS)` | 8.04x faster   | 8.08x faster   | 8.44x faster   | 8.85x faster   |
 
 Consistent with `.draw()`'s own result above: the win holds — and grows
@@ -491,13 +493,13 @@ buffer, the same scope `WasmRasterRoutine` has — so `apps/adapters`'
 no depth test) to `createJs` too, the same way `wasm-vtx` switched to
 `createWasm` above. That makes the section above's comparison stale as a
 "which backend is faster" measurement — it compared `createWasm` against
-a *simpler* JS implementation, not against JS's own feature-equivalent
+a _simpler_ JS implementation, not against JS's own feature-equivalent
 one — so `wasm-rasterizer.bench.ts` was updated to compare `compileJS`
 against `createWasm` directly instead of `rasterizeTriangles`:
 
-| Scenario                            | 128x128, Run 1 | 128x128, Run 2 | 512x512, Run 1 | 512x512, Run 2 |
-| ------------------------------------ | -------------- | -------------- | -------------- | -------------- |
-| `createWasm` vs. `compileJS`        | 9.16x faster   | 9.27x faster   | 9.19x faster   | 7.83x faster   |
+| Scenario                     | 128x128, Run 1 | 128x128, Run 2 | 512x512, Run 1 | 512x512, Run 2 |
+| ---------------------------- | -------------- | -------------- | -------------- | -------------- |
+| `createWasm` vs. `compileJS` | 9.16x faster   | 9.27x faster   | 9.19x faster   | 7.83x faster   |
 
 Similar magnitude to the `rasterizeTriangles` comparison above, which
 makes sense: both JS implementations pay the same fundamental cost
@@ -509,7 +511,7 @@ compare) is itself plain JS running per vertex/pixel same as before.
 
 **Why the demo app shows "same fps" for both, then:** `requestAnimationFrame`
 caps at the display's refresh rate (typically 60Hz), and this benchmark's
-scene (one quad, 2 triangles) is cheap enough that *both* backends clear
+scene (one quad, 2 triangles) is cheap enough that _both_ backends clear
 that ceiling with room to spare — so the demo's FPS reading measures "did
 we hit vsync," not "how fast is this backend," for either option. The
 ~8-9x gap above is the real number; it's just invisible behind the cap

@@ -129,10 +129,11 @@ length)` — no JS-side repacking step between "WASM computed this" and
   `BufferAttribute`/`WebGLRenderer`/`WebGPURenderer` each carrying their
   own version that can drift out of sync by hand-edit.
 - **CPU reads of GPU-authored textures with guaranteed-matching layout.**
-  Phase 6 (texture sampling, `ROADMAP.md`) already needs a real memory
-  layout for WASM; if it's planned under the GPU's own texture rules, a
-  WASM-side heightmap raycast reads the identical bytes the GPU is
-  sampling, with no separately-maintained CPU copy to keep in sync.
+  Texture sampling already needs a real memory layout for WASM (see
+  `src/backends/wasm/wasm.md`); if it's planned under the GPU's own
+  texture rules, a WASM-side heightmap raycast reads the identical bytes
+  the GPU is sampling, with no separately-maintained CPU copy to keep in
+  sync.
 - **A cross-language ABI, not just a TS convenience.** `AllocRules` are
   just data — a generated `#[repr(C)]` Rust struct or a C header could
   describe the same layout, which matters directly for the
@@ -158,9 +159,9 @@ the same conversation, not something this design touches.
 
 ## Real tension to design around, not gloss over
 
-Phase 3's WASM memory design explicitly chose **no padding, `align=0`
-everywhere, declaration order, no reordering** (`ROADMAP.md`, "Vectors and
-matrices live in linear memory now") — a deliberate simplification, correct
+The WASM backend's own memory design explicitly chose **no padding,
+`align=0` everywhere, declaration order, no reordering** (see
+`src/backends/wasm/wasm.md`) — a deliberate simplification, correct
 because nothing on that side ever needed to match a GPU buffer. Making
 WASM's layout GPU-compatible _by default_ — including running the same
 alignment-driven reordering WGSL does — would be a real,
@@ -181,9 +182,8 @@ changing what address an existing packed-only value gets today.
   (readback latency, auto-partitioning a graph across backends) — that's a
   separate, harder problem this doesn't attempt to solve, even though a
   shared layout is a prerequisite for it.
-- Not scoped to a specific phase number in `ROADMAP.md` — it touches all
-  four backends, not just WASM, so it doesn't belong under that
-  WASM-specific roadmap.
+- Not scoped as a WASM-specific change — it touches all four backends,
+  not just WASM.
 
 ## Stage 1 — landed
 
@@ -237,7 +237,7 @@ parts:
 - **The first attempt at using those offsets directly was a real bug,
   since fixed**: `wgslUniformLayout`'s offsets assume each `float`
   component is WGSL's 4-byte `f32`; this backend always stores `float` as
-  an 8-byte f64 (`ROADMAP.md`, "`float` is f64"). Using the caller's raw
+  an 8-byte f64 (see `src/backends/wasm/wasm.md`). Using the caller's raw
   offset as this backend's _only_ address for a GPU-placed uniform meant a
   `vec3` at offset 0 (12 bytes in a real WGSL buffer, 24 in this backend's
   actual writes) spilled straight over a `vec2` at offset 16, the very
