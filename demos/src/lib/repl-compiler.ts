@@ -86,18 +86,15 @@ export function createTsExtension(options: ExtensionOptions): Extension {
 export function createHtmlExtension(options: ExtensionOptions) {
   return createHTMLExtension({
     transformModule: (config) => {
-      return () => {
-        const compiler = options.getCompiler();
-        // defaultTransformModulePaths returns an accessor, but this
-        // function's own caller (transformHtml) only unwraps one layer
-        // (`transformModule(config)()`) — invoke it here, not return it.
-        return defaultTransformModulePaths({
-          ...config,
-          ts: compiler.tsModule,
-          readFile: options.readFile,
-          resolveBareSpecifier: options.resolveBareSpecifier,
-        })();
-      };
+      const compiler = options.getCompiler();
+      // Already returns an Accessor<string>, exactly what transformModule
+      // itself must return — no extra wrapping needed.
+      return defaultTransformModulePaths({
+        ...config,
+        ts: compiler.tsModule,
+        readFile: options.readFile,
+        resolveBareSpecifier: options.resolveBareSpecifier,
+      });
     },
   });
 }
