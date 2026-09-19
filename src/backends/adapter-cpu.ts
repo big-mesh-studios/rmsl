@@ -11,8 +11,11 @@ export type AdapterResult = Record<string, TypedArray>;
  * pixel for a `batch` program (named for the `CpuRoutine` method it's run
  * through, not the `Adapter.draw()` it's wired into below — those are two
  * different things sharing a canvas-render step, not one). Not exported
- * publicly: {@link createCpuAdapter} is wrapped by `createJsRoutine`/`createWasmRoutine`,
- * which take root graphs instead of already-compiled routines.
+ * publicly: {@link createCpuAdapter} is wrapped by
+ * `createJsCompute`/`createWasmCompute` (`compute` only) and
+ * `createJsRoutine`/`createWasmRoutine` (`batch` only) — each passing a
+ * single already-compiled routine under its own field, never both, now
+ * that those are separate entry points rather than one options bag.
  */
 export interface CpuAdapterPrograms {
   compute?: CpuRoutine;
@@ -20,10 +23,13 @@ export interface CpuAdapterPrograms {
 }
 
 /** `compute`/`draw` here are each required — unlike the base Adapter's
- * optional, possibly-async versions — for whichever of the two this
- * adapter was actually built with; createJsRoutine/createWasmRoutine throw at
- * construction time otherwise. Both are synchronous: this loop never
- * awaits anything. */
+ * optional, possibly-async versions — even though `createJsRoutine`/
+ * `createWasmRoutine` only ever build the `batch` half now (`compute()`
+ * throws on the result). `createJsCompute`/`createWasmCompute` build the
+ * `compute` half instead, but expose it through their own narrower
+ * `JsComputeAdapter`/`WasmComputeAdapter` types rather than this one, so
+ * their callers never see the always-throwing `draw()` this interface
+ * still carries. Both are synchronous: this loop never awaits anything. */
 export interface CpuAdapter extends Adapter<AdapterResult> {
   compute(out?: AdapterResult): AdapterResult | void;
   draw(): void;

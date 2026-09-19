@@ -10,8 +10,14 @@ export type {
   CpuTextureWrap,
 } from "./backends/cpu";
 
-export { createWasmRoutine, createWasm } from "./backends/wasm/adapter-wasm";
-export type { CreateWasmRoutineOptions, WasmAdapter, WasmDrawOptions } from "./backends/wasm/adapter-wasm";
+export { createWasmRoutine, createWasmCompute, createWasm } from "./backends/wasm/adapter-wasm";
+export type {
+  CreateWasmRoutineOptions,
+  CreateWasmComputeOptions,
+  WasmComputeAdapter,
+  WasmAdapter,
+  WasmDrawOptions,
+} from "./backends/wasm/adapter-wasm";
 export type { AdapterResult as CpuAdapterResult, CpuAdapter } from "./backends/adapter-cpu";
 
 export type { Adapter, TypedArray } from "./backends/adapter";

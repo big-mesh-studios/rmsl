@@ -154,11 +154,22 @@ whole call as one per-draw batch rather than one per-vertex call), and the
 fragment marshaller skips `varyingMemory` (the rasterizer's triangle pass
 writes interpolated varyings there per covered pixel).
 
-`createWasmRoutine`/`createWasm` (`adapter-wasm.ts`) are the outermost
-layer: they wrap `compileWasmRoutine`/`compileWasm` output in the uniform
-`Adapter`/`CpuAdapter` interface (`setAttribute`/`setUniform`/`draw()`) that
-`createGlsl`/`createWgsl` also implement, so calling code doesn't need to
-know which backend it got.
+`createWasmRoutine`/`createWasmCompute`/`createWasm` (`adapter-wasm.ts`)
+are the outermost layer, each wrapping `compileWasmRoutine`/`compileWasm`
+for one of three distinct shapes rather than living as options on a
+single entry point: `createWasm` is the render-pipeline shape (a
+vertex/fragment pair through the rasterizer), `createWasmCompute` is the
+compute-pipeline shape (a `storage()`/`invocationIndex()` program,
+exposed through its own `WasmComputeAdapter` — `setAttribute`/
+`setUniform`/`compute()`, no `draw()`/`attach()` in the type at all), and
+`createWasmRoutine` is what's left over — a plain CPU-callable
+(`fragCoord()`-driven, `.batch()`'s in-WASM loop) with no wgpu pipeline
+equivalent, the same niche `compileJS`/`compileWasmFn` exist for in the
+first place. `createGlsl`/`createWgsl` implement the same `Adapter`
+interface `createWasm`/`createWasmRoutine` do, so calling code doesn't
+need to know which backend it got — `createWasmCompute` deliberately
+doesn't, since a compute-pipeline-shaped adapter has no `draw()` to be
+interchangeable about.
 
 ## Summary
 
@@ -174,6 +185,8 @@ CompiledWasm (bytes + WasmParam[] + resultType + textureHeapBase)
   │
   ├─ instantiateWasmRoutine ─ one module, own memory ─ CpuRoutine (invoke/batch)
   │        used by:  compileWasmRoutine  (direct calls, no rasterizer)
+  │             ├─ createWasmRoutine   (batch/fragCoord shape, Adapter wrapper)
+  │             └─ createWasmCompute   (storage()/invocationIndex() shape, WasmComputeAdapter)
   │
   └─ compileWasm ─ two modules (scalarsInMemory: true), shared memory,
        linked as vertex/fragment imports into rasterizer.wat's `rasterize` ─

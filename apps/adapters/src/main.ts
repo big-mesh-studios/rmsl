@@ -90,10 +90,10 @@ const cpuDrawRoot = Fn(() => {
   return vec4(uv.x, uv.y, sin(cpuTime).mul(0.5).add(0.5), 1.0);
 })();
 
-const jsRoutineAdapter = createJsRoutine({ batch: cpuDrawRoot, batchName: "cpuDraw" });
+const jsRoutineAdapter = createJsRoutine({ batch: cpuDrawRoot, name: "cpuDraw" });
 jsRoutineAdapter.attach(cpuCanvas);
 
-const wasmRoutineAdapter = createWasmRoutine({ batch: cpuDrawRoot, batchName: "cpuDraw" });
+const wasmRoutineAdapter = createWasmRoutine({ batch: cpuDrawRoot, name: "cpuDraw" });
 wasmRoutineAdapter.attach(cpuCanvas);
 
 const startTime = performance.now();

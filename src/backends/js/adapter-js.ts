@@ -1,47 +1,81 @@
 import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
 import { Adapter, AttributeOrSlot, DrawCountOptions, slotOf, TypedArray, UniformOrSlot } from "../adapter";
-import { bufferToImageData, CpuAdapter, createCpuAdapter } from "../adapter-cpu";
+import { AdapterResult, bufferToImageData, CpuAdapter, createCpuAdapter } from "../adapter-cpu";
 import { compileJS, CompileJSRasterOptions, JsRasterContext } from "./rasterizer";
 import { compileJSRoutine, CompileJSOptions } from "./js";
 
 export interface CreateJsRoutineOptions {
-  /** A storage()/invocationIndex() program to run as `compute()`. */
-  compute?: Node<ShaderType> | readonly Node<ShaderType>[];
   /** A fragCoord() program, evaluated once per pixel by `draw()`'s `.batch()` call. */
-  batch?: Node<ShaderType> | readonly Node<ShaderType>[];
-  computeName?: string;
-  batchName?: string;
+  batch: Node<ShaderType> | readonly Node<ShaderType>[];
+  name?: string;
   params?: CompileJSOptions["params"];
   derivatives?: CompileJSOptions["derivatives"];
   reentrant?: CompileJSOptions["reentrant"];
 }
 
-/** Compiles `compute`/`batch` with {@link compileJSRoutine} and wraps them in a {@link createCpuAdapter}. */
+/**
+ * Compiles a `fragCoord()` program with {@link compileJSRoutine} and
+ * wraps it in a {@link createCpuAdapter} — a plain CPU-callable evaluated
+ * once per pixel/sample via `.batch()`, not a wgpu pipeline shape. See
+ * {@link createJsCompute} for the `storage()`/`invocationIndex()` shape
+ * and {@link createJs} for the vertex/fragment render shape — those each
+ * got their own dedicated entry point rather than living as options here
+ * for the same reason (see `src/backends/wasm/adapter-wasm.ts`'s own
+ * split, which this mirrors).
+ */
 export function createJsRoutine(options: CreateJsRoutineOptions): CpuAdapter {
-  if (!options.compute && !options.batch) {
-    throw new Error("[RMSL] createJsRoutine needs a `compute` program, a `batch` program, or both");
-  }
+  const batch = compileJSRoutine(() => options.batch, {
+    name: options.name ?? "batch",
+    params: options.params ?? [],
+    stage: "fragment",
+    derivatives: options.derivatives,
+    reentrant: options.reentrant,
+  });
 
-  const compute = options.compute
-    ? compileJSRoutine(() => options.compute!, {
-        name: options.computeName ?? "compute",
-        params: options.params ?? [],
-        derivatives: options.derivatives,
-        reentrant: options.reentrant,
-      })
-    : undefined;
+  return createCpuAdapter({ batch });
+}
 
-  const batch = options.batch
-    ? compileJSRoutine(() => options.batch!, {
-        name: options.batchName ?? "batch",
-        params: options.params ?? [],
-        stage: "fragment",
-        derivatives: options.derivatives,
-        reentrant: options.reentrant,
-      })
-    : undefined;
+export interface CreateJsComputeOptions {
+  name?: string;
+  params?: CompileJSOptions["params"];
+  derivatives?: CompileJSOptions["derivatives"];
+  reentrant?: CompileJSOptions["reentrant"];
+}
 
-  return createCpuAdapter({ compute, batch });
+/**
+ * `setAttribute`/`setUniform` collect draw state the way {@link CpuAdapter}
+ * does; `compute()` is the only invocation method, since a `storage()`/
+ * `invocationIndex()` program has no `draw()`/`attach()` counterpart —
+ * unlike `CpuAdapter`, that's not just unused here, it's not part of the
+ * type at all.
+ */
+export interface JsComputeAdapter {
+  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
+  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
+  setUniform(slot: string, value: number | number[]): void;
+  setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
+  setAttribute(slot: string, data: TypedArray): void;
+  compute(out?: AdapterResult): AdapterResult | void;
+}
+
+/**
+ * Compiles a `storage()`/`invocationIndex()` program with
+ * {@link compileJSRoutine} and wraps it in a {@link createCpuAdapter} —
+ * the wgpu-compute-pipeline-shaped counterpart to {@link createJs}'s
+ * render-pipeline shape, and the JS-side sibling of `createWasmCompute`.
+ */
+export function createJsCompute(
+  compute: Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CreateJsComputeOptions = {},
+): JsComputeAdapter {
+  const computeRoutine = compileJSRoutine(() => compute, {
+    name: options.name ?? "compute",
+    params: options.params ?? [],
+    derivatives: options.derivatives,
+    reentrant: options.reentrant,
+  });
+
+  return createCpuAdapter({ compute: computeRoutine });
 }
 
 /**

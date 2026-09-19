@@ -1,5 +1,5 @@
-import { createJsRoutine, type CpuAdapter } from "@random-mesh/rmsl/js";
-import { createWasmRoutine } from "@random-mesh/rmsl/wasm";
+import { createJsCompute, type JsComputeAdapter } from "@random-mesh/rmsl/js";
+import { createWasmCompute, type WasmComputeAdapter } from "@random-mesh/rmsl/wasm";
 import { createWgsl } from "@random-mesh/rmsl/wgsl";
 import { createGpuRenderer } from "./gpu-renderer";
 import { createEcsSystem } from "./system";
@@ -61,13 +61,13 @@ seed(N);
 const system = createEcsSystem();
 const { slots } = system;
 
-const jsAdapter = createJsRoutine({ compute: system.program.root, computeName: "ecsSystem" });
-const wasmAdapter = createWasmRoutine({ compute: system.program.root, computeName: "ecsSystem" });
+const jsAdapter = createJsCompute(system.program.root, { name: "ecsSystem" });
+const wasmAdapter = createWasmCompute(system.program.root, { name: "ecsSystem" });
 
 // Re-set every frame: cheap (a handful of object-field assignments), and
 // it means a fresh posX/posY/velX/velY from seed() (entity count changed)
 // is picked up without a separate "resync" path.
-function stepCPU(adapter: CpuAdapter, dt: number) {
+function stepCPU(adapter: JsComputeAdapter | WasmComputeAdapter, dt: number) {
   adapter.setAttribute(slots.posX, posX);
   adapter.setAttribute(slots.posY, posY);
   adapter.setAttribute(slots.velX, velX);
