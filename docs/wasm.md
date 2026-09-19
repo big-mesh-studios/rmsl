@@ -25,8 +25,13 @@ If that shape looks familiar: it's identical to `compileJSRoutine`'s. Both targe
 
 `compileJSRoutine` turns an `Fn` into JavaScript source, `new Function`'d into a callable. `compileWasmRoutine` turns the same `Fn` into an actual `WebAssembly.Module`, instantiated once. Two consequences follow from that:
 
-- **Real types, not one JS number for everything.** `compileJSRoutine` computes every declared type — `int`, `uint`, `bool`, `float` alike — as a plain JS number. `compileWasmRoutine`'s `int`/`uint`/`bool` are real 32-bit WASM integers, with signed/unsigned opcode variants chosen per operand type; `float` stays `f64`, matching `compileJSRoutine`'s own arithmetic bit for bit (so the two never need reconciling — see [Caveats](#caveats)).
-- **Per-call overhead, not raw throughput.** A WASM call crosses a real module boundary — marshalling scalar args, reading vectors/matrices out of linear memory afterward — which costs more per call than a JS function returning a value directly. The measured win shows up from roughly two loop iterations upward inside the compiled function itself; a loop-free, called-once function still favors `compileJSRoutine`. See `ROADMAP.md` for the benchmark tables behind that number.
+### Real types, not one JS number for everything
+
+`compileJSRoutine` computes every declared type — `int`, `uint`, `bool`, `float` alike — as a plain JS number. `compileWasmRoutine`'s `int`/`uint`/`bool` are real 32-bit WASM integers, with signed/unsigned opcode variants chosen per operand type; `float` stays `f64`, matching `compileJSRoutine`'s own arithmetic bit for bit (so the two never need reconciling — see [Caveats](#caveats)).
+
+### Per-call overhead, not raw throughput
+
+A WASM call crosses a real module boundary — marshalling scalar args, reading vectors/matrices out of linear memory afterward — which costs more per call than a JS function returning a value directly. The measured win shows up from roughly two loop iterations upward inside the compiled function itself; a loop-free, called-once function still favors `compileJSRoutine`. See `docs/wasm-benchmarks.md` for the benchmark tables behind that number.
 
 Pick whichever backend matches the shape of the work. Nothing else about calling one differs from calling the other — they satisfy the same `CpuRoutine` interface (below), so code that picks between them at runtime doesn't need to know which one it got.
 
@@ -85,7 +90,7 @@ A `void`-returning `Fn` has nothing to produce — `batch()` throws, naming that
 
 Textures work exactly as described in [Sampling](compilation.md#sampling) — same `CpuTextureData` shape, same filtering/wrapping rules, same 8-bit-normalizes-to-0–1 behavior. The one difference is where the pixel data ends up: `compileWasmRoutine` copies it into the compiled module's own linear memory rather than reading it through a callback into JavaScript, so a texture-sampling shader can run standalone — no JS engine behind it required to answer "what's this pixel" — the same property a `.wasm` file shipped and run outside a browser would need.
 
-(Transcendental functions — `sin`/`cos`/`pow`/`exp`/… — don't share that property yet: they call back into the host's `Math` object through a WASM import, same as any other host call would. A program that only samples textures is standalone; one that also calls a transcendental function still needs a JS engine behind the `math` import. See `ROADMAP.md`'s Open Questions.)
+(Transcendental functions — `sin`/`cos`/`pow`/`exp`/… — don't share that property yet: they call back into the host's `Math` object through a WASM import, same as any other host call would. A program that only samples textures is standalone; one that also calls a transcendental function still needs a JS engine behind the `math` import.)
 
 ## Precompiling
 
@@ -97,7 +102,7 @@ Same story as the JS target: `@random-mesh/rmsl/test` is the ergonomic layer for
 
 ## Rasterizing a vertex/fragment pair
 
-`compileWasm(vertexFn, fragmentFn, options)` is a different function from everything above: instead of compiling one `Fn` into a `CpuRoutine`, it links a compiled vertex/fragment pair against a generic triangle rasterizer (near-plane clipping, perspective-correct varying interpolation, a LEQUAL depth test), returning a `WasmRasterRoutine` — `draw(ctx, { count?, first?, width, height, clear?, clearDepth? })` runs the vertex loop, clipping, and triangle rasterization inside WASM. `createWasm(vertexFn, fragmentFn, options)` wraps that in the same `Adapter` interface `createGlsl`/`createWgsl` use — `setAttribute`/`setUniform`, `attach(canvas)`, `draw()`. `compileJS`/`createJs` are the plain-JS counterpart, same shape, same semantics. See `src/backends/wasm/rasterizer.md` and `ROADMAP.md`'s "generic, precompiled rasterizer module" for the design.
+`compileWasm(vertexFn, fragmentFn, options)` is a different function from everything above: instead of compiling one `Fn` into a `CpuRoutine`, it links a compiled vertex/fragment pair against a generic triangle rasterizer (near-plane clipping, perspective-correct varying interpolation, a LEQUAL depth test), returning a `WasmRasterRoutine` — `draw(ctx, { count?, first?, width, height, clear?, clearDepth? })` runs the vertex loop, clipping, and triangle rasterization inside WASM. `createWasm(vertexFn, fragmentFn, options)` wraps that in the same `Adapter` interface `createGlsl`/`createWgsl` use — `setAttribute`/`setUniform`, `attach(canvas)`, `draw()`. `compileJS`/`createJs` are the plain-JS counterpart, same shape, same semantics. See `src/backends/wasm/wasm.md` for how this backend's compile pipeline works end to end, and `src/backends/wasm/rasterizer.md` for the rasterizer module's own design.
 
 ## Caveats
 
