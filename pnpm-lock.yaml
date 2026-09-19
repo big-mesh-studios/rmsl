@@ -60,6 +60,9 @@ importers:
       '@bigmistqke/repl':
         specifier: ^1.0.0-beta.2
         version: 1.0.0-beta.2(@babel/standalone@7.29.9)(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(dom-serializer@2.0.0)(domutils@3.2.2)(htmlparser2@10.1.0)(monaco-editor@0.52.2)(solid-js@2.0.0-rc.9)(typescript@5.9.3)
+      '@bigmistqke/solid-grid-split':
+        specifier: ^1.0.0-next.0
+        version: 1.0.0-next.0(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)
       '@random-mesh/rmsl':
         specifier: workspace:*
         version: link:..
@@ -262,6 +265,10 @@ packages:
       '@solidjs/web': ^2.0.0-beta.29
       solid-js: ^2.0.0-beta.29
 
+  '@bigmistqke/pointer@0.1.0':
+    resolution: {integrity: sha512-J+4J/C+qPrMHHxTAfSaA1P07Qcu8gPKloHTDDNa9k2WkQDrYdiskY/6f3vxWuTh3/WMiH7ruY44lMp1+ZGqxCg==}
+    engines: {node: '>=18', pnpm: '>=9.0.0'}
+
   '@bigmistqke/repl@1.0.0-beta.2':
     resolution: {integrity: sha512-6G+A65Nw3wMU8uRISUfs6IL+DVIqJ12PeAczSyIQVNEbmUHyZGV6LykVZ1Kb2REwrGgdp7fRESZtxjSHQXEd1w==}
     engines: {node: '>=18', pnpm: '>=8.6.0'}
@@ -274,6 +281,13 @@ packages:
       monaco-editor: ^0.52.2
       solid-js: ^2.0.0-rc.9
       typescript: ^5.1.6
+
+  '@bigmistqke/solid-grid-split@1.0.0-next.0':
+    resolution: {integrity: sha512-d8+6ljA5FNb2D3cWHnZX5WGE9Q3MtTCqojC793p7vQUhGCrZTKwvN+jMxVXSXdrF965DTJX/d8lYRMIzOE/uww==}
+    engines: {node: '>=18', pnpm: '>=9.0.0'}
+    peerDependencies:
+      '@solidjs/web': ^2.0.0-rc.9
+      solid-js: ^2.0.0-rc.9
 
   '@codemirror/autocomplete@6.20.3':
     resolution: {integrity: sha512-tlosUqb+3BbxCxZdu4tKeRghPFC+QM7q4X5YhKV2eCmPG+1r2F3f4AaSz5sCrFqUtX4Jh20VFTKecl16MgiV9g==}
@@ -2323,6 +2337,8 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@bigmistqke/pointer@0.1.0': {}
+
   '@bigmistqke/repl@1.0.0-beta.2(@babel/standalone@7.29.9)(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(dom-serializer@2.0.0)(domutils@3.2.2)(htmlparser2@10.1.0)(monaco-editor@0.52.2)(solid-js@2.0.0-rc.9)(typescript@5.9.3)':
     dependencies:
       '@babel/standalone': 7.29.9
@@ -2334,6 +2350,12 @@ snapshots:
       monaco-editor: 0.52.2
       solid-js: 2.0.0-rc.9
       typescript: 5.9.3
+
+  '@bigmistqke/solid-grid-split@1.0.0-next.0(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)':
+    dependencies:
+      '@bigmistqke/pointer': 0.1.0
+      '@solidjs/web': 2.0.0-rc.9(solid-js@2.0.0-rc.9)
+      solid-js: 2.0.0-rc.9
 
   '@codemirror/autocomplete@6.20.3':
     dependencies:

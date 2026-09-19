@@ -1,5 +1,6 @@
 import { CodeMirror, darkTheme, LSPProvider } from "@big-mesh-studios/solid-codemirror";
 import { Repl } from "@bigmistqke/repl/solid";
+import { Split } from "@bigmistqke/solid-grid-split";
 import { createEffect, createMemo, createSignal, For } from "solid-js";
 import styles from "./App.module.css";
 import { demos, type Demo } from "./demos/registry";
@@ -8,13 +9,27 @@ import { injectSandboxRuntime, postThemeMessage } from "./lib/repl-sandbox";
 import { rmslTypeFiles, rmslTypePaths } from "./lib/rmsl-types";
 
 /**
+ * Every demo shares the same relative layout (`/index.html`, `/src/main.ts`,
+ * ...), but each demo's LSP files are namespaced under `/<demo.id>/...` (see
+ * `App`'s `lspFiles`) — otherwise switching from one demo to another whose
+ * active tab happens to share the same relative path wouldn't change the
+ * literal path string `<CodeMirror>` sees, and it only rebuilds its document
+ * when that string changes (deliberately, so it doesn't fight the user's own
+ * typing on every content update).
+ */
+function toLspPath(demoId: string, path: string): string {
+  return `/${demoId}${path}`;
+}
+
+/**
  * The selected demo's editor pane: a tab per file in its VFS, and a
- * CodeMirror for whichever tab is active. Owns its own `activePath` so
- * switching demos (which remounts this) always starts back on the demo's
- * default file.
+ * CodeMirror for whichever tab is active. `activePath` is a writable memo
+ * derived from `props.demo.editablePath` — it tracks the current demo's
+ * default file (so switching demos resets it, with no remount needed) but
+ * a tab click can still overwrite it directly.
  */
 function DemoEditor(props: { demo: Demo; onInput(path: string, source: string): void }) {
-  const [activePath, setActivePath] = createSignal(props.demo.editablePath);
+  const [activePath, setActivePath] = createSignal(() => props.demo.editablePath);
   return (
     <div class={styles.editor}>
       <div class={styles["file-tabs"]}>
@@ -41,9 +56,9 @@ function DemoEditor(props: { demo: Demo; onInput(path: string, source: string): 
       </div>
       <div class={styles.code}>
         <CodeMirror
-          path={activePath()}
+          path={toLspPath(props.demo.id, activePath())}
           theme={darkTheme}
-          onInput={({ path: editedPath, source }) => props.onInput(editedPath, source)}
+          onInput={({ source }) => props.onInput(activePath(), source)}
         />
       </div>
     </div>
@@ -98,6 +113,16 @@ export function App() {
     return demo ? { ...demo.files, ...overrides() } : {};
   });
 
+  // See toLspPath's doc comment for why this namespacing exists.
+  const lspFiles = createMemo(() => {
+    const demo = selectedDemo();
+    if (!demo) return { ...rmslTypeFiles };
+    const namespaced = Object.fromEntries(
+      Object.entries(mergedFiles()).map(([path, source]) => [toLspPath(demo.id, path), source]),
+    );
+    return { ...namespaced, ...rmslTypeFiles };
+  });
+
   function setOverride(path: string, source: string): void {
     const id = selectedId();
     if (!id) return;
@@ -148,33 +173,34 @@ export function App() {
           )}
         </For>
       </nav>
-      <div class={styles["editor-pane"]}>
-        <LSPProvider
-          files={{ ...mergedFiles(), ...rmslTypeFiles }}
-          // The language worker's virtual filesystem can't do real package
-          // resolution (reading @random-mesh/rmsl's package.json, following
-          // its `exports` map) — only flat file lookups. `paths` hands it
-          // each rmsl subpath's `.d.ts` file directly instead.
-          tsconfig={{ baseUrl: "/", paths: rmslTypePaths }}
-        >
-          {/* A single-item <For>, not <Show keyed> — keyed Show does not
-              remount across two different truthy values, only across a
-              falsy<->truthy transition, so DemoEditor's own activePath
-              state (which tab is open) never reset when switching demos.
-              <For> is unambiguously keyed by array-item identity. */}
-          <For each={selectedDemo() ? [selectedDemo()!] : []}>
-            {(demo) => <DemoEditor demo={demo} onInput={setOverride} />}
-          </For>
-        </LSPProvider>
+      <div class={styles["split-area"]}>
+        <Split direction="column" style={{ display: "grid", width: "100%", height: "100%" }}>
+          <Split.Pane size="1fr" class={styles["editor-pane"]}>
+            <LSPProvider
+              files={lspFiles()}
+              // The language worker's virtual filesystem can't do real package
+              // resolution (reading @random-mesh/rmsl's package.json, following
+              // its `exports` map) — only flat file lookups. `paths` hands it
+              // each rmsl subpath's `.d.ts` file directly instead.
+              tsconfig={{ baseUrl: "/", paths: rmslTypePaths }}
+            >
+              {/* selectedDemo() is only undefined if demos itself is empty. */}
+              <DemoEditor demo={selectedDemo()!} onInput={setOverride} />
+            </LSPProvider>
+          </Split.Pane>
+          <Split.Handle size="4px" class={styles.handle} />
+          <Split.Pane size="1fr">
+            <Repl
+              sandbox="allow-scripts allow-same-origin"
+              entry={selectedDemo()?.entry ?? "/index.html"}
+              extensions={{ ts: tsExtension, tsx: tsExtension, js: tsExtension, html: htmlExtension }}
+              readFile={readFile}
+              ref={({ element }) => setIframe(element)}
+              class={styles.repl}
+            />
+          </Split.Pane>
+        </Split>
       </div>
-      <Repl
-        sandbox="allow-scripts allow-same-origin"
-        entry={selectedDemo()?.entry ?? "/index.html"}
-        extensions={{ ts: tsExtension, tsx: tsExtension, js: tsExtension, html: htmlExtension }}
-        readFile={readFile}
-        ref={({ element }) => setIframe(element)}
-        class={styles.repl}
-      />
     </div>
   );
 }
