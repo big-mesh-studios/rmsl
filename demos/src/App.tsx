@@ -104,14 +104,13 @@ export function App() {
     setOverridesByDemo((prev) => ({ ...prev, [id]: { ...prev[id], [path]: source } }));
   }
 
-  // Loaded once, shared by every demo's ts/html extension. A plain signal,
-  // not `createSignal(loadCompiler)` — that form treats a pending promise
-  // the way <Loading> does (throws until it resolves), which is wrong here:
-  // getCompiler() is read from plain closures with no <Loading> boundary to
-  // catch it.
-  const [compiler, setCompiler] = createSignal<Compiler>();
-  void loadCompiler().then(setCompiler);
-  const getCompiler = (): Compiler | undefined => compiler();
+  // Loaded once, shared by every demo's ts/html extension. `createSignal(fn)`
+  // treats a pending promise the same way any other async computation does —
+  // reading it before it settles is a pending-read, handled by whichever
+  // computation calls getCompiler() (createFileUrlSystem's own memos, same
+  // as @bigmistqke/repl's own fileUrls.get() reads elsewhere), not by us.
+  const [compiler] = createSignal(loadCompiler);
+  const getCompiler = (): Compiler => compiler();
 
   const [theme] = createSignal<"dark" | "light">("dark");
   const [iframe, setIframe] = createSignal<HTMLIFrameElement>();

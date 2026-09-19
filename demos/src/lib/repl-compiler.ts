@@ -1,5 +1,5 @@
-import { createHTMLExtension, createJSExtension, defaultTransformModulePaths, type Extension } from '@bigmistqke/repl'
-import type ts from 'typescript'
+import { createHTMLExtension, createJSExtension, defaultTransformModulePaths, type Extension } from "@bigmistqke/repl";
+import type ts from "typescript";
 
 /**
  * In-browser TS compile pipeline for live code examples, adapted from
@@ -10,65 +10,72 @@ import type ts from 'typescript'
  * runtime.
  */
 
-let tsPromise: Promise<typeof ts> | undefined
+let tsPromise: Promise<typeof ts> | undefined;
 export function loadTypeScript(): Promise<typeof ts> {
   if (!tsPromise) {
-    const url = 'https://esm.sh/typescript@5.9'
-    tsPromise = import(/* @vite-ignore */ url).then((mod) => (mod.default ?? mod) as typeof ts)
+    const url = "https://esm.sh/typescript@5.9";
+    tsPromise = import(/* @vite-ignore */ url).then((mod) => (mod.default ?? mod) as typeof ts);
   }
-  return tsPromise
+  return tsPromise;
 }
 
 export interface Compiler {
-  tsModule: typeof ts
+  tsModule: typeof ts;
 }
 
 export async function loadCompiler(): Promise<Compiler> {
-  return { tsModule: await loadTypeScript() }
+  return { tsModule: await loadTypeScript() };
 }
 
 export function errorModule(message: string): string {
-  const escaped = JSON.stringify(message)
+  const escaped = JSON.stringify(message);
   return `const node = document.createElement("pre")
 node.style.cssText = "color:#ff8080;background:#0a0c12;font-family:ui-monospace,monospace;font-size:0.85rem;padding:1rem;margin:0;height:100%;white-space:pre-wrap;overflow:auto;"
 node.textContent = ${escaped}
 document.body.appendChild(node)
-`
+`;
 }
 
 export interface ExtensionOptions {
-  getCompiler: () => Compiler | undefined
-  resolveBareSpecifier: (specifier: string) => string
-  readFile(path: string): string | undefined
+  /**
+   * `createSignal(loadCompiler)` read directly — a pending read throws, the
+   * same as any other async computation, rather than returning `undefined`.
+   */
+  getCompiler: () => Compiler;
+  resolveBareSpecifier: (specifier: string) => string;
+  readFile(path: string): string | undefined;
 }
 
 /**
- * A TS extension for `createFileUrlSystem`, deferring to `getCompiler()` so
- * TypeScript can be lazy-loaded on first edit. The actual transpile +
- * module-specifier rewrite is `@bigmistqke/repl`'s own `createJSExtension`
- * — this only adds the lazy-compiler check and a friendly error module in
- * place of a thrown compile error.
+ * A TS extension for `createFileUrlSystem`. `getCompiler()`'s pending throw
+ * is left to propagate rather than caught here — it's `createFileUrlSystem`'s
+ * own memos that are meant to catch it and mark themselves pending, the same
+ * mechanism already handles its `fileUrls.get(...)` reads elsewhere. Only
+ * the actual compile step below is try/caught, into a friendly error module
+ * in place of a thrown one.
  */
 export function createTsExtension(options: ExtensionOptions): Extension {
   return {
-    type: 'javascript',
+    type: "javascript",
     transform: (config) => {
-      const compiler = options.getCompiler()
-      if (!compiler) return ''
+      const compiler = options.getCompiler();
       try {
         return createJSExtension({
           ts: compiler.tsModule,
           transpile: true,
-          compilerOptions: { target: compiler.tsModule.ScriptTarget.ESNext, module: compiler.tsModule.ModuleKind.ESNext },
+          compilerOptions: {
+            target: compiler.tsModule.ScriptTarget.ESNext,
+            module: compiler.tsModule.ModuleKind.ESNext,
+          },
           readFile: options.readFile,
           resolveBareSpecifier: options.resolveBareSpecifier,
-        }).transform(config)
+        }).transform(config);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        return errorModule('Compile error:\n\n' + message)
+        const message = error instanceof Error ? error.message : String(error);
+        return errorModule("Compile error:\n\n" + message);
       }
     },
-  }
+  };
 }
 
 /**
@@ -80,8 +87,7 @@ export function createHtmlExtension(options: ExtensionOptions) {
   return createHTMLExtension({
     transformModule: (config) => {
       return () => {
-        const compiler = options.getCompiler()
-        if (!compiler) return config.source
+        const compiler = options.getCompiler();
         // defaultTransformModulePaths returns an accessor, but this
         // function's own caller (transformHtml) only unwraps one layer
         // (`transformModule(config)()`) — invoke it here, not return it.
@@ -90,8 +96,8 @@ export function createHtmlExtension(options: ExtensionOptions) {
           ts: compiler.tsModule,
           readFile: options.readFile,
           resolveBareSpecifier: options.resolveBareSpecifier,
-        })()
-      }
+        })();
+      };
     },
-  })
+  });
 }
