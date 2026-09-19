@@ -2,11 +2,12 @@ const RMSL_PACKAGE = '@random-mesh/rmsl'
 const RMSL_ROOT = '/node_modules/@random-mesh/rmsl'
 
 // import.meta.glob's pattern has to be a literal string vite can statically
-// analyze — it cannot be built from RMSL_ROOT/RMSL_PACKAGE above.
-const dtsFiles = import.meta.glob<string>('/node_modules/@random-mesh/rmsl/dist/**/*.d.ts', {
+// analyze — it cannot be built from RMSL_ROOT/RMSL_PACKAGE above. Not eager:
+// rmsl's ~100 declaration files are only worth fetching once an editor
+// actually needs them, not as part of the app's own initial bundle.
+const dtsLoaders = import.meta.glob<string>('/node_modules/@random-mesh/rmsl/dist/**/*.d.ts', {
   query: '?raw',
   import: 'default',
-  eager: true,
 })
 const packageJsonSources = import.meta.glob<string>('/node_modules/@random-mesh/rmsl/package.json', {
   query: '?raw',
@@ -21,7 +22,10 @@ const packageJsonSources = import.meta.glob<string>('/node_modules/@random-mesh/
  * language worker directly skips ATA's CDN-download path entirely, which
  * has nowhere to fetch an unpublished package's types from anyway.
  */
-export const rmslTypeFiles: Record<string, string> = { ...dtsFiles }
+export async function loadRmslTypeFiles(): Promise<Record<string, string>> {
+  const entries = await Promise.all(Object.entries(dtsLoaders).map(async ([path, load]) => [path, await load()] as const))
+  return Object.fromEntries(entries)
+}
 
 interface PackageExports {
   [subpath: string]: { types?: string } | undefined

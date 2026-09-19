@@ -6,7 +6,7 @@ import styles from "./App.module.css";
 import { demos, type Demo } from "./demos/registry";
 import { createHtmlExtension, createTsExtension, loadCompiler } from "./lib/repl-compiler";
 import { injectSandboxRuntime, postThemeMessage } from "./lib/repl-sandbox";
-import { rmslTypeFiles, rmslTypePaths } from "./lib/rmsl-types";
+import { loadRmslTypeFiles, rmslTypePaths } from "./lib/rmsl-types";
 
 /**
  * Every demo shares the same relative layout (`/index.html`, `/src/main.ts`,
@@ -108,19 +108,34 @@ export function App() {
   const overrides = createMemo(() => overridesByDemo()[selectedId() ?? ""] ?? {});
   const edited = createMemo(() => Object.keys(overrides()).length > 0);
 
+  // A demo's files are only fetched once it's actually selected. A pending
+  // read throws, the same as `compiler` below — propagated to whichever
+  // computation reads it (createFileUrlSystem's own memos, LSPProvider's
+  // own `createMemo(() => props.files)`), which is what defers creating a
+  // document until its content actually exists, with no manual loading
+  // state or remount needed.
+  const demoFiles = createMemo(async () => {
+    const demo = selectedDemo();
+    return demo ? await demo.loadFiles() : {};
+  });
+
   const mergedFiles = createMemo(() => {
     const demo = selectedDemo();
-    return demo ? { ...demo.files, ...overrides() } : {};
+    return demo ? { ...demoFiles(), ...overrides() } : {};
   });
+
+  // rmsl's own declaration files, fetched once and shared by every demo's
+  // LSPProvider — see loadRmslTypeFiles' doc comment for why they're lazy.
+  const rmslTypeFiles = createMemo(loadRmslTypeFiles);
 
   // See toLspPath's doc comment for why this namespacing exists.
   const lspFiles = createMemo(() => {
     const demo = selectedDemo();
-    if (!demo) return { ...rmslTypeFiles };
+    if (!demo) return { ...rmslTypeFiles() };
     const namespaced = Object.fromEntries(
       Object.entries(mergedFiles()).map(([path, source]) => [toLspPath(demo.id, path), source]),
     );
-    return { ...namespaced, ...rmslTypeFiles };
+    return { ...namespaced, ...rmslTypeFiles() };
   });
 
   function setOverride(path: string, source: string): void {
