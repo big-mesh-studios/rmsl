@@ -1,0 +1,26 @@
+{
+  "name": "demos",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check-types": "tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@random-mesh/rmsl": "workspace:*",
+    "@big-mesh-studios/solid-codemirror": "^0.1.3",
+    "@bigmistqke/repl": "^1.0.0-beta.2",
+    "@solidjs/signals": "2.0.0-rc.9",
+    "@solidjs/web": "^2.0.0-rc.9",
+    "solid-js": "^2.0.0-rc.9"
+  },
+  "devDependencies": {
+    "@lightningjs/vite-plugin-import-chunk-url": "^0.3.1",
+    "@solidjs/vite-plugin": "3.0.0-next.44",
+    "@webgpu/types": "^0.1.71",
+    "typescript": "^5.7.2",
+    "vite": "^8.3.0"
+  }
+}
