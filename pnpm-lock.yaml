@@ -58,8 +58,8 @@ importers:
         specifier: ^0.1.4
         version: 0.1.4(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)
       '@bigmistqke/repl':
-        specifier: ^1.0.0-beta.2
-        version: 1.0.0-beta.2(@babel/standalone@7.29.9)(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(dom-serializer@2.0.0)(domutils@3.2.2)(htmlparser2@10.1.0)(monaco-editor@0.52.2)(solid-js@2.0.0-rc.9)(typescript@5.9.3)
+        specifier: ^1.0.0-beta.3
+        version: 1.0.0-beta.3(@babel/standalone@7.29.9)(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(dom-serializer@2.0.0)(domutils@3.2.2)(htmlparser2@10.1.0)(monaco-editor@0.52.2)(solid-js@2.0.0-rc.9)(typescript@5.9.3)
       '@bigmistqke/solid-grid-split':
         specifier: ^1.0.0-next.0
         version: 1.0.0-next.0(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)
@@ -269,8 +269,8 @@ packages:
     resolution: {integrity: sha512-J+4J/C+qPrMHHxTAfSaA1P07Qcu8gPKloHTDDNa9k2WkQDrYdiskY/6f3vxWuTh3/WMiH7ruY44lMp1+ZGqxCg==}
     engines: {node: '>=18', pnpm: '>=9.0.0'}
 
-  '@bigmistqke/repl@1.0.0-beta.2':
-    resolution: {integrity: sha512-6G+A65Nw3wMU8uRISUfs6IL+DVIqJ12PeAczSyIQVNEbmUHyZGV6LykVZ1Kb2REwrGgdp7fRESZtxjSHQXEd1w==}
+  '@bigmistqke/repl@1.0.0-beta.3':
+    resolution: {integrity: sha512-k89CH7LVVG8MGjxicMQJi6C4BGv5QHTqVP7cXx+esrc+sP2lrkzXIcQD1s+oVwsF/vSr7Zv3QBmp9DLBtIigww==}
     engines: {node: '>=18', pnpm: '>=8.6.0'}
     peerDependencies:
       '@babel/standalone': ^7.26.6
@@ -2339,7 +2339,7 @@ snapshots:
 
   '@bigmistqke/pointer@0.1.0': {}
 
-  '@bigmistqke/repl@1.0.0-beta.2(@babel/standalone@7.29.9)(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(dom-serializer@2.0.0)(domutils@3.2.2)(htmlparser2@10.1.0)(monaco-editor@0.52.2)(solid-js@2.0.0-rc.9)(typescript@5.9.3)':
+  '@bigmistqke/repl@1.0.0-beta.3(@babel/standalone@7.29.9)(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(dom-serializer@2.0.0)(domutils@3.2.2)(htmlparser2@10.1.0)(monaco-editor@0.52.2)(solid-js@2.0.0-rc.9)(typescript@5.9.3)':
     dependencies:
       '@babel/standalone': 7.29.9
       '@solid-primitives/set': 1.0.0-next.2(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)

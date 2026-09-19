@@ -11,7 +11,7 @@
   "dependencies": {
     "@random-mesh/rmsl": "workspace:*",
     "@big-mesh-studios/solid-codemirror": "^0.1.4",
-    "@bigmistqke/repl": "^1.0.0-beta.2",
+    "@bigmistqke/repl": "^1.0.0-beta.3",
     "@bigmistqke/solid-grid-split": "^1.0.0-next.0",
     "@solidjs/signals": "2.0.0-rc.9",
     "@solidjs/web": "^2.0.0-rc.9",

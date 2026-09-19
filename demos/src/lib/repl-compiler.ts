@@ -1,4 +1,4 @@
-import { createHTMLExtension, createJSExtension, defaultTransformModulePaths, type Extension } from "@bigmistqke/repl";
+import { createHTMLExtension, createJSExtension, defaultTransformPaths, type Extension } from "@bigmistqke/repl";
 import type ts from "typescript";
 
 /**
@@ -89,7 +89,7 @@ export function createHtmlExtension(options: ExtensionOptions) {
       const compiler = options.getCompiler();
       // Already returns an Accessor<string>, exactly what transformModule
       // itself must return — no extra wrapping needed.
-      return defaultTransformModulePaths({
+      return defaultTransformPaths({
         ...config,
         ts: compiler.tsModule,
         readFile: options.readFile,
