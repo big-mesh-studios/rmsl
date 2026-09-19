@@ -1,9 +1,10 @@
 packages:
   - "apps/*"
+  - "demos"
 allowBuilds:
   # Native Dawn (WebGPU) binding; used only to validate generated WGSL in tests.
   "@kmamal/gpu": true
   esbuild: true
 minimumReleaseAgeExclude:
-  - '@big-mesh-studios/solid-codemirror'
-  - '@bigmistqke/repl@1.0.0-beta.2'
+  - "@big-mesh-studios/solid-codemirror"
+  - "@bigmistqke/repl@1.0.0-beta.2"
