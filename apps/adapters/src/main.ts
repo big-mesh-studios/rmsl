@@ -101,7 +101,7 @@ const fpsEl = document.getElementById("fps")!;
 
 // A raw per-frame FPS jumps around too much to read — averaged over a
 // short window and refreshed a few times a second instead, same as
-// apps/ecs's stats readout.
+// apps/compute's stats readout.
 const FPS_WINDOW_MS = 500;
 let fpsWindowStart = performance.now();
 let fpsWindowFrameCount = 0;

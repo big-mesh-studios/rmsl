@@ -1,7 +1,8 @@
-# ecs
+# compute
 
 A tiny entity-component-system demo showing one RMSL `Fn` graph compiled
-and run identically across all three CPU/GPU compute backends.
+and run identically across all three CPU/GPU compute backends —
+`createJsCompute`, `createWasmCompute`, and `compileWgsl.compute`.
 
 - `system.ts` — the one system this demo has: integrate position by
   velocity, bounce off the canvas edges. Built once as an RMSL `Fn` graph,

@@ -81,7 +81,7 @@ importers:
         specifier: ^7.1.4
         version: 7.3.6(@types/node@22.20.2)
 
-  apps/ecs:
+  apps/compute:
     dependencies:
       '@random-mesh/rmsl':
         specifier: workspace:*
