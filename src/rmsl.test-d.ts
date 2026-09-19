@@ -1,12 +1,3 @@
-/**
- * Type-level tests.
- *
- * These catch mismatches between a signature's return type and the node's
- * actual type, which are invisible to a runtime assertion.
- *
- * Run by `pnpm test:types`, and also checked by `pnpm type-check`.
- */
-
 import { describe, it, expectTypeOf } from "vitest";
 import {
   Fn,

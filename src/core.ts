@@ -1,7 +1,3 @@
-// === RMSL core: shader types, the Node graph, and the DSL surface ===
-// (TSL-style free functions, literals, uniforms/attributes/varyings, control
-// flow) that all four compiler backends walk. No dependencies of its own —
-// everything else in the compiler imports from here.
 export const __brand = Symbol();
 
 // === Shader Types (strings, not TS enums) ===
@@ -427,18 +423,19 @@ export interface FloatMathOps<A extends ShaderType> {
   mod(other: FloatLike): Node<A>;
   mix(b: Node<A>, t: FloatLike): Node<A>;
   clamp(min: FloatLike, max: FloatLike): Node<A>;
-  // Declared here rather than on VecCommonOps so floats get them too, and so
-  // there is only one declaration: both interfaces apply to the vector types,
-  // and two declarations disagreeing about the return type leaves the caller
-  // with whichever the checker resolves first.
-  //
-  // Both edge forms are valid — GLSL has step(genType, genType) alongside
-  // step(float, genType), and likewise for smoothstep.
+  /**
+   * Declared here rather than on VecCommonOps so floats get them too, with
+   * only one declaration each. GLSL/WGSL both allow either edge form
+   * (`step(genType, genType)` or `step(float, genType)`, and likewise for
+   * smoothstep).
+   */
   step(edge: Node<A> | FloatLike): Node<A>;
   smoothstep(edge0: Node<A> | FloatLike, edge1: Node<A> | FloatLike): Node<A>;
   fwidth(): Node<A>;
-  // Derivative functions. Meaningful in a fragment stage on both backends;
-  // GLSL names them dFdx/dFdy and WGSL dpdx/dpdy.
+  /**
+   * Meaningful in a fragment stage on both backends; GLSL names them
+   * dFdx/dFdy and WGSL dpdx/dpdy.
+   */
   dFdx(): Node<A>;
   dFdy(): Node<A>;
 }
@@ -803,11 +800,9 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
     return op("sub", this, other);
   }
   mul(other: any): any {
-    // A matCxR times a vecC gives a vecR. The result type is determined by the
-    // vector dimension, not the matrix type. A vector one component short of
-    // the column width is a position with its homogeneous coordinate implied —
-    // `mat4 * vec3` and `mat3 * vec2` — promoted here and truncated by the
-    // compilers' matVecMul cases.
+    // A matCxR times a vecC gives a vecR. A vector one component short of the
+    // column width (`mat4 * vec3`) is a position with its homogeneous
+    // coordinate implied, promoted here and truncated by matVecMul.
     let shape = MATRIX_DIMENSIONS[this._t];
     let otherType = other?._t;
     if (shape !== undefined && typeof otherType === "string" && otherType.startsWith("vec")) {
@@ -1353,9 +1348,8 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
 }
 
 // The `stpq` swizzles are added on the prototype rather than written out as
-// getters, so the 25 patterns share one definition. The `swizzle()` helper
-// types the result from the source's prefix and the pattern's length, which is
-// what the explicit `x`/`xy`/`xyz` getters above do individually.
+// getters, so the 25 patterns share one definition (`swizzle()` types the
+// result the same way the explicit getters above do individually).
 for (const pattern of ["s", "t", "p", "q", "st", "sp", "sq", "tp", "tq", "pq", "stp", "stq", "spq", "tpq", "stpq"]) {
   Object.defineProperty(NodeImpl.prototype, pattern, {
     get(this: NodeImpl<ShaderType>) {
@@ -1595,11 +1589,8 @@ export function op(type: string, ...args: any[]): Node<ShaderType> {
   let first = wrapValue(args[0]) as BaseNode<ShaderType>;
   let firstT = (first as any)?._t || "float";
   let params = [first, ...args.slice(1).map((a) => typedOperand(a, firstT))];
-  // The operand that defines the op's type — usually the first, but `step` and
-  // `smoothstep` take the value last because that is the argument order both
-  // languages expect. The result of a type-preserving op follows the *widest*
-  // operand, so a scalar broadcast beside a vector keeps the vector type:
-  // `1 - vec3` (oneMinus) and `1 / vec3` (reciprocal) are still vec3.
+  // The result follows the *widest* operand, so a scalar broadcast beside a
+  // vector keeps the vector type (`1 - vec3` is still vec3).
   let valueIndex = VALUE_OPERAND[type] ?? 0;
   let valueT = (params[valueIndex] as any)?._t ?? firstT;
   let widthOf = (p: BaseNode<ShaderType>) => TYPE_WIDTH[(p as any)?._t] ?? (MATRIX_DIMENSIONS[(p as any)?._t] ? 16 : 1);
@@ -1640,10 +1631,8 @@ export function comp(type: string, a: any, b: any): Node<ShaderType> {
   let widths = params.map((p) => TYPE_WIDTH[(p as any)?._t] ?? 1);
   let width = Math.max(widths[0], widths[1]);
 
-  // Neither language compares a vector against a scalar: GLSL has no
-  // lessThan(vec3, float) and WGSL no `operator < (vec3<f32>, f32)`. The
-  // signatures accept the mix, so the scalar is broadcast to the vector's
-  // width — `lessThan(v, vec3(0.5))` — which is what the caller meant.
+  // Neither language compares a vector against a scalar, so a scalar operand
+  // is broadcast to the vector's width first.
   if (width > 1) {
     let wide = (params[widths[0] >= widths[1] ? 0 : 1] as any)._t as ShaderType;
     params = params.map((p, i) =>
@@ -1741,10 +1730,14 @@ export function assertBlockScope(fnName: string, fn: (blockScope: BaseNode<Shade
   fn(blockScope);
 }
 
-// === Fn - macro that captures statements into a seq node ===
-// Supports single return: Fn(() => { ...; return x; }) -> () => Node<A>
-// Supports multi return: Fn(() => { ...; return [a, b]; }) -> () => [Node<A>, Node<B>]
-// Supports parameters: Fn((a: Node<"float">, b: Node<"float">) => a.add(b)) -> (a, b) => Node<"float">
+/**
+ * Captures a function body's statements into a `seq` node.
+ *
+ * Supports a single return (`Fn(() => { ...; return x; })` becomes
+ * `() => Node<A>`), a multi return (`return [a, b]` becomes
+ * `() => [Node<A>, Node<B>]`), and parameters (`Fn((a: Node<"float">, b:
+ * Node<"float">) => a.add(b))` becomes `(a, b) => Node<"float">`).
+ */
 export function Fn<T extends any[], const R>(
   fn: (...args: T) => R,
 ): (...args: T) => R {
@@ -2815,12 +2808,9 @@ export function Switch(selector: Node<"int"> | Node<"uint">, body: (chain: Switc
     let vals = (Array.isArray(values) ? values : [values]) as IntLike[];
     cases.push({
       // `typedOperand`, not `wrapValue`: a bare number here is a case value
-      // beside an int/uint selector, the exact situation `typedOperand`
-      // exists for — `wrapValue` alone always defaults a plain number to
-      // `float`, which would type every case value as `float` regardless of
-      // the selector, silently mismatched against it (GLSL/WGSL happened to
-      // paper over this with an implicit cast at comparison codegen; the
-      // WASM backend does not, and surfaced it as a real type error).
+      // beside an int/uint selector, and `wrapValue` alone would default it
+      // to `float`, mismatched against the selector (a mismatch the WASM
+      // backend surfaces as a real type error).
       values: vals.map((v) => typedOperand(v, selector._t) as BaseNode<ShaderType>),
       body: buildBlock(caseBody),
     });

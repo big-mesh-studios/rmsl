@@ -1,10 +1,8 @@
 import { Fn, attribute, uniformRaw, varying, vec2, vec4 } from "../../rmsl";
 import { compileGlsl } from "../../glsl";
 
-// This module is compiled once at build time by vite's precompileShaders plugin
-// and replaced with JSON, so the rmsl graph is never built (and rmsl is never
-// shipped) in the browser.
-
+/** Fixture for {@link precompileShaders} (see `../vite.ts`): compiled once
+ * at build time and replaced with JSON. */
 export const uColour = uniformRaw("uColour", "vec3");
 export const vUv = varying("vec2");
 export const positionAttr = attribute("vec2");

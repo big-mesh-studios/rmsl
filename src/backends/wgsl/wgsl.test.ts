@@ -1,8 +1,3 @@
-/**
- * Minimal coverage for the WGSL `@compute` stage: it only needs to prove the
- * generated source has the shape a compute pipeline expects, not exercise the
- * whole DSL the way the vertex/fragment stages already are elsewhere.
- */
 import { describe, it, expect } from "vitest";
 import { attribute, Fn, output } from "../../rmsl";
 import { compileWgsl } from "./wgsl";

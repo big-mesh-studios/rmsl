@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { Fn, vec3, vec4, mix, ivec2, ivec3, uvec2, uvec3 } from "../rmsl";
-import { compileJS } from "../js";
+import { compileJSRoutine } from "../js";
 import {
   recordingGLSL as compileGlsl,
   recordingWGSL as compileWgsl,
@@ -206,7 +206,7 @@ describe("node materials", () => {
       [program.varyings.find((v) => v.name === "normalWorld")!.node.name]: [0, 1, 0],
     };
 
-    const fn = compileJS(() => program.fragmentRoot, { stage: "fragment", params: [], name: "pick" });
+    const fn = compileJSRoutine(() => program.fragmentRoot, { stage: "fragment", params: [], name: "pick" });
     const result = fn.invoke({ uniforms, varyings }) as { outputs: Record<string, number[]> };
     const color = result.outputs[Object.keys(result.outputs)[0]];
     expect(color).toBeDefined();

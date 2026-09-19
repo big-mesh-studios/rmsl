@@ -1,19 +1,3 @@
-// === CPU adapter loop (shared by the JS and WASM adapters) ===
-// compileJS and compileWasm hand back a CpuRoutine, which is really two
-// capabilities in one: `invoke()` it once per entity with `storages`/
-// `index` set (a storage()/invocationIndex() program, mutating shared
-// arrays in place — WGSL's own compute contract, just host-driven), or
-// `batch()` it once per pixel over a whole image (a fragCoord()
-// program returning a color — the same "return a value" contract WGSL's
-// own fragment stage has). One compiled program is only ever one or the
-// other; `compute`/`draw` here are two independently optional
-// CpuRoutines for exactly that reason.
-//
-// Not exported publicly: createJs (adapter-js.ts) and createWasm
-// (adapter-wasm.ts) each wrap this around their own compile() calls, so a
-// caller's constructor always takes root graphs, the same contract
-// createGlsl/createWgsl have, instead of already-compiled callables only
-// this generic version needed.
 import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
 import { Adapter, slotOf, TypedArray } from "./adapter";
 import { CpuDrawBuffer, CpuRoutine } from "./cpu";
@@ -21,16 +5,31 @@ import { CpuDrawBuffer, CpuRoutine } from "./cpu";
 /** One typed array per storage slot, keyed by name. */
 export type AdapterResult = Record<string, TypedArray>;
 
+/**
+ * `compute`/`batch` here are two independently optional {@link CpuRoutine}s —
+ * `invoke()`d once per entity for a `compute` program, or `batch()`d once per
+ * pixel for a `batch` program (named for the `CpuRoutine` method it's run
+ * through, not the `Adapter.draw()` it's wired into below — those are two
+ * different things sharing a canvas-render step, not one). Not exported
+ * publicly: {@link createCpuAdapter} is wrapped by
+ * `createJsCompute`/`createWasmCompute` (`compute` only) and
+ * `createJsRoutine`/`createWasmRoutine` (`batch` only) — each passing a
+ * single already-compiled routine under its own field, never both, now
+ * that those are separate entry points rather than one options bag.
+ */
 export interface CpuAdapterPrograms {
   compute?: CpuRoutine;
-  draw?: CpuRoutine;
+  batch?: CpuRoutine;
 }
 
 /** `compute`/`draw` here are each required — unlike the base Adapter's
- * optional, possibly-async versions — for whichever of the two this
- * adapter was actually built with; createJs/createWasm throw at
- * construction time otherwise. Both are synchronous: this loop never
- * awaits anything. */
+ * optional, possibly-async versions — even though `createJsRoutine`/
+ * `createWasmRoutine` only ever build the `batch` half now (`compute()`
+ * throws on the result). `createJsCompute`/`createWasmCompute` build the
+ * `compute` half instead, but expose it through their own narrower
+ * `JsComputeAdapter`/`WasmComputeAdapter` types rather than this one, so
+ * their callers never see the always-throwing `draw()` this interface
+ * still carries. Both are synchronous: this loop never awaits anything. */
 export interface CpuAdapter extends Adapter<AdapterResult> {
   compute(out?: AdapterResult): AdapterResult | void;
   draw(): void;
@@ -43,8 +42,10 @@ function clamp255(v: number): number {
 /** `draw()`'s flat row-major buffer, one program-defined channel count per
  * pixel, read back as 0..1 float color the same convention GLSL/WGSL
  * fragment output uses — into a `CanvasRenderingContext2D`'s ImageData,
- * the closest a CPU target has to a GPU canvas surface. */
-function bufferToImageData(buffer: CpuDrawBuffer, width: number, height: number): ImageData {
+ * the closest a CPU target has to a GPU canvas surface. Exported for
+ * `createWasm`'s own rasterizer-backed adapter (`adapter-wasm.ts`), which
+ * needs the same conversion for `WasmRasterRoutine.draw()`'s output. */
+export function bufferToImageData(buffer: CpuDrawBuffer, width: number, height: number): ImageData {
   const componentCount = buffer.length / (width * height);
   const imageData = new ImageData(width, height);
   const rgba = imageData.data;
@@ -61,10 +62,9 @@ function bufferToImageData(buffer: CpuDrawBuffer, width: number, height: number)
 
 export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
   // Named for what each actually is, not restated from `programs` — the
-  // call site below is `perPixel.batch(...)`, not the `.draw.batch(...)`
-  // `programs.draw.batch(...)` would read as.
+  // call site below is `perPixel.batch(...)`, not `programs.batch.batch(...)`.
   const computeStep = programs.compute;
-  const perPixel = programs.draw;
+  const perPixel = programs.batch;
 
   let n = 0;
   const storages: Record<string, TypedArray> = {};
@@ -114,7 +114,7 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
 
     draw() {
       if (!perPixel || !canvas || !ctx2d) {
-        throw new Error("[RMSL] this adapter has no `draw` program, or attach() was never called");
+        throw new Error("[RMSL] this adapter has no `batch` program, or attach() was never called");
       }
       const buffer = perPixel.batch({ uniforms } as any, canvas.width, canvas.height);
       ctx2d.putImageData(bufferToImageData(buffer, canvas.width, canvas.height), 0, 0);

@@ -166,10 +166,9 @@ export const fxaa = (textureNode: Sampler2D): Node<"vec4"> => {
     const pLuminanceDelta = SampleLuminance(puv).sub(edgeLuminance).toVar();
     const pAtEnd = abs(pLuminanceDelta).greaterThanEqual(gradientThreshold).toVar();
 
-    // WGSL refuses to sample from non-uniform control flow, so the edge walk
-    // cannot `break` out of the loop. Instead every step samples and `select`
-    // keeps the previous state once the edge has been found — the sample is
-    // still executed, just discarded, and the control flow stays uniform.
+    // WGSL refuses to sample from non-uniform control flow, so this can't
+    // `break` on finding the edge — every step samples, and `select` keeps
+    // the previous state once found, discarding the rest.
     For(
       () => int(1).toVar(),
       (i) => i.lessThan(int(EDGE_STEP_COUNT)),

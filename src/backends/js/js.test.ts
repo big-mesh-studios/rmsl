@@ -1,21 +1,3 @@
-/**
- * Evaluates the JS (CPU) backend in-process.
- *
- * The compiled function runs in plain Node, needing neither a graphics device
- * nor a browser, so the whole breadth of the DSL is pinned here on every run,
- * including one where `RMSL_SKIP_GPU` has turned the other layers off.
- *
- * These programs are not only checked here. `evalScalar` records each one, and
- * the hook at the foot of this file replays them on both shading languages and
- * requires the answers to match — so a case written here covers all three
- * backends.
- *
- * The JS target computes exact f64, so arithmetic is compared to the JS
- * implementation of the same operation, and a tolerance is only needed for
- * the transcendental builtins where Math's rounding can differ from a shader
- * driver's — but never for plain `a + b`.
- */
-
 import { describe, it, expect, afterAll } from "vitest";
 import {
   evaluateRecording,
@@ -23,8 +5,8 @@ import {
   closeEvaluators,
   type CpuOnlyReason,
 } from "../../testing/shader-eval";
-import { compileJS, compileJSFn, type CpuTextureData } from "../../js";
-import { compileWasm } from "../../wasm";
+import { compileJSRoutine, compileJSFn, type CpuTextureData } from "../../js";
+import { compileWasmRoutine } from "../../wasm";
 import {
   Fn,
   float,
@@ -116,7 +98,7 @@ function evalScalar(
   // directly rather than through the shared path, which compiles its own.
   if (Object.keys(compileOpts).length > 0) {
     const params = args.map((_, i) => ({ name: `a${i}`, type: "float" as const }));
-    const fn = compileJS(build as any, { name: "main", params, ...compileOpts });
+    const fn = compileJSRoutine(build as any, { name: "main", params, ...compileOpts });
     const ctx: any = { params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) };
     const value = fn.invoke(ctx);
     if (typeof value === "number") return value;
@@ -233,7 +215,7 @@ describe("JS backend: scalar arithmetic", () => {
 
 describe("JS backend: vector arithmetic", () => {
   it("adds, subtracts and scales vectors", () => {
-    const f = compileJS((a: any, b: any) => a.add(b), {
+    const f = compileJSRoutine((a: any, b: any) => a.add(b), {
       name: "main",
       params: [
         { name: "a", type: "vec3" },
@@ -242,13 +224,13 @@ describe("JS backend: vector arithmetic", () => {
     });
     expect(f.invoke({ params: { a: [1, 2, 3], b: [10, 20, 30] } })).toEqual([11, 22, 33]);
 
-    const g = compileJS((a: any) => a.mul(2), {
+    const g = compileJSRoutine((a: any) => a.mul(2), {
       name: "main",
       params: [{ name: "a", type: "vec3" }],
     });
     expect(g.invoke({ params: { a: [1, 2, 3] } })).toEqual([2, 4, 6]);
 
-    const h = compileJS((a: any) => a.sub(vec3(1, 1, 1)), {
+    const h = compileJSRoutine((a: any) => a.sub(vec3(1, 1, 1)), {
       name: "main",
       params: [{ name: "a", type: "vec3" }],
     });
@@ -257,16 +239,16 @@ describe("JS backend: vector arithmetic", () => {
 
   it("broadcasts a lone scalar vector constructor across every component", () => {
     // GLSL/WGSL vec3(2.0) is (2.0, 2.0, 2.0), and the JS backend must match.
-    const f = compileJS(() => vec3(2), { name: "main", params: [] });
+    const f = compileJSRoutine(() => vec3(2), { name: "main", params: [] });
     expect(f.invoke({})).toEqual([2, 2, 2]);
-    const g = compileJS(() => vec4(0.5), { name: "main", params: [] });
+    const g = compileJSRoutine(() => vec4(0.5), { name: "main", params: [] });
     expect(g.invoke({})).toEqual([0.5, 0.5, 0.5, 0.5]);
-    const v = compileJS(() => vec2(-1), { name: "main", params: [] });
+    const v = compileJSRoutine(() => vec2(-1), { name: "main", params: [] });
     expect(v.invoke({})).toEqual([-1, -1]);
   });
 
   it("computes dot, cross, length, distance and normalize", () => {
-    const dot = compileJS((a: any, b: any) => a.dot(b), {
+    const dot = compileJSRoutine((a: any, b: any) => a.dot(b), {
       name: "main",
       params: [
         { name: "a", type: "vec3" },
@@ -275,7 +257,7 @@ describe("JS backend: vector arithmetic", () => {
     });
     expect(dot.invoke({ params: { a: [1, 2, 3], b: [4, 5, 6] } })).toBe(32);
 
-    const cross = compileJS((a: any, b: any) => a.cross(b), {
+    const cross = compileJSRoutine((a: any, b: any) => a.cross(b), {
       name: "main",
       params: [
         { name: "a", type: "vec3" },
@@ -284,13 +266,13 @@ describe("JS backend: vector arithmetic", () => {
     });
     expect(cross.invoke({ params: { a: [1, 0, 0], b: [0, 1, 0] } })).toEqual([0, 0, 1]);
 
-    const len = compileJS((a: any) => a.length(), {
+    const len = compileJSRoutine((a: any) => a.length(), {
       name: "main",
       params: [{ name: "a", type: "vec3" }],
     });
     approx(len.invoke({ params: { a: [3, 4, 0] } }) as number, 5);
 
-    const dist = compileJS((a: any, b: any) => a.distance(b), {
+    const dist = compileJSRoutine((a: any, b: any) => a.distance(b), {
       name: "main",
       params: [
         { name: "a", type: "vec2" },
@@ -299,7 +281,7 @@ describe("JS backend: vector arithmetic", () => {
     });
     approx(dist.invoke({ params: { a: [0, 0], b: [3, 4] } }) as number, 5);
 
-    const norm = compileJS((a: any) => a.normalize(), {
+    const norm = compileJSRoutine((a: any) => a.normalize(), {
       name: "main",
       params: [{ name: "a", type: "vec3" }],
     });
@@ -310,7 +292,7 @@ describe("JS backend: vector arithmetic", () => {
   });
 
   it("computes vector comparisons to boolean vectors", () => {
-    const f = compileJS((a: any, b: any) => a.lessThan(b), {
+    const f = compileJSRoutine((a: any, b: any) => a.lessThan(b), {
       name: "main",
       params: [
         { name: "a", type: "vec3" },
@@ -338,7 +320,7 @@ describe("JS backend: vector arithmetic", () => {
   });
 
   it("computes all/any on boolean vectors", () => {
-    const f = compileJS((a: any) => a.greaterThan(vec3(0, 0, 0)).all(), {
+    const f = compileJSRoutine((a: any) => a.greaterThan(vec3(0, 0, 0)).all(), {
       name: "main",
       params: [{ name: "a", type: "vec3" }],
     });
@@ -347,7 +329,7 @@ describe("JS backend: vector arithmetic", () => {
   });
 
   it("reflects and refracts", () => {
-    const f = compileJS((i: any, n: any) => i.reflect(n), {
+    const f = compileJSRoutine((i: any, n: any) => i.reflect(n), {
       name: "main",
       params: [
         { name: "i", type: "vec3" },
@@ -365,7 +347,7 @@ describe("JS backend: vector arithmetic", () => {
 describe("JS backend: matrices", () => {
   it("multiplies mat4 by vec4 and vec3", () => {
     const m = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 6, 7, 1];
-    const f4 = compileJS((a: any, v: any) => a.mul(v), {
+    const f4 = compileJSRoutine((a: any, v: any) => a.mul(v), {
       name: "main",
       params: [
         { name: "a", type: "mat4" },
@@ -374,7 +356,7 @@ describe("JS backend: matrices", () => {
     });
     expect(f4.invoke({ params: { a: m, v: [1, 2, 3, 1] } })).toEqual([6, 8, 10, 1]);
 
-    const f3 = compileJS((a: any, v: any) => a.mul(v), {
+    const f3 = compileJSRoutine((a: any, v: any) => a.mul(v), {
       name: "main",
       params: [
         { name: "a", type: "mat4" },
@@ -386,7 +368,7 @@ describe("JS backend: matrices", () => {
 
   it("multiplies matrices", () => {
     const id = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-    const f = compileJS((a: any, b: any) => a.mul(b), {
+    const f = compileJSRoutine((a: any, b: any) => a.mul(b), {
       name: "main",
       params: [
         { name: "a", type: "mat4" },
@@ -403,7 +385,7 @@ describe("JS backend: matrices", () => {
     const a = [1, 2, 3, 4, 5, 6];
     // mat3x2 (3 cols x 2 rows): b = [[1,0],[0,1],[1,1]], column-major.
     const b = [1, 0, 0, 1, 1, 1];
-    const f = compileJS((a: any, b: any) => a.mul(b), {
+    const f = compileJSRoutine((a: any, b: any) => a.mul(b), {
       name: "main",
       params: [
         { name: "a", type: "mat2x3" },
@@ -417,7 +399,7 @@ describe("JS backend: matrices", () => {
   });
 
   it("inverts, transposes and takes determinants", () => {
-    const inv = compileJS((a: any) => a.inverse(), {
+    const inv = compileJSRoutine((a: any) => a.inverse(), {
       name: "main",
       params: [{ name: "a", type: "mat2" }],
     });
@@ -425,7 +407,7 @@ describe("JS backend: matrices", () => {
     const got = inv.invoke({ params: { a: [2, 1, 3, 4] } }) as number[];
     got.forEach((v, i) => approx(v, [0.8, -0.2, -0.6, 0.4][i]));
 
-    const det = compileJS((a: any) => a.determinant(), {
+    const det = compileJSRoutine((a: any) => a.determinant(), {
       name: "main",
       params: [{ name: "a", type: "mat2" }],
     });
@@ -433,7 +415,7 @@ describe("JS backend: matrices", () => {
     // mat2(a,b,c,d) is columns (a,b),(c,d); det = a*d - c*b.
     expect(det.invoke({ params: { a: [2, 0, 0, 3] } })).toBe(6);
 
-    const tr = compileJS((a: any) => a.transpose(), {
+    const tr = compileJSRoutine((a: any) => a.transpose(), {
       name: "main",
       params: [{ name: "a", type: "mat4" }],
     });
@@ -443,7 +425,7 @@ describe("JS backend: matrices", () => {
   });
 
   it("constructs matrices from columns and scalars", () => {
-    const f = compileJS((c0: any, c1: any) => mat4(c0, c1, c1, c0), {
+    const f = compileJSRoutine((c0: any, c1: any) => mat4(c0, c1, c1, c0), {
       name: "main",
       params: [
         { name: "c0", type: "vec4" },
@@ -455,7 +437,7 @@ describe("JS backend: matrices", () => {
   });
 
   it("reads matrix columns", () => {
-    const f = compileJS((a: any) => a.element(1), {
+    const f = compileJSRoutine((a: any) => a.element(1), {
       name: "main",
       params: [{ name: "a", type: "mat4" }],
     });
@@ -527,7 +509,7 @@ describe("JS backend: control flow", () => {
       );
       return t;
     })();
-    const fn = compileJS(() => tally, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => tally, { name: "main", params: [] });
     expect(fn.invoke({})).toBe(4);
   });
 
@@ -578,7 +560,7 @@ describe("JS backend: control flow", () => {
         });
         return out;
       })();
-    const fn = compileJS(() => classify(), { name: "main", params: [] });
+    const fn = compileJSRoutine(() => classify(), { name: "main", params: [] });
     expect(fn.invoke({})).toBe(20);
   });
 
@@ -671,7 +653,7 @@ describe("JS backend: control flow", () => {
         });
         return out;
       })();
-    const fn = compileJS(() => classify(), { name: "main", params: [] });
+    const fn = compileJSRoutine(() => classify(), { name: "main", params: [] });
     expect(fn.invoke({})).toBe(20);
   });
 });
@@ -683,7 +665,7 @@ describe("JS backend: shader I/O", () => {
       u = uniform("float");
       return u.mul(2);
     })();
-    const fn = compileJS(() => prog, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     expect(fn.invoke({ uniforms: { [u.name]: 21 } })).toBe(42);
   });
 
@@ -695,7 +677,7 @@ describe("JS backend: shader I/O", () => {
       a = attribute("float");
       return v.x.add(a);
     })();
-    const fn = compileJS(() => prog, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     expect(fn.invoke({ varyings: { [v.name]: [3, 4, 5] }, attributes: { [a.name]: 1 } })).toBe(4);
   });
 
@@ -709,7 +691,7 @@ describe("JS backend: shader I/O", () => {
       d.assign(float(0.5));
       return out;
     })();
-    const fn = compileJS(() => prog, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     const r = fn.invoke({ uniforms: { [u.name]: [0, 0, 0, 1] } }) as any;
     expect(r.value).toEqual([1, 1, 1, 1]);
     expect(typeof r.outputs).toBe("object");
@@ -718,7 +700,7 @@ describe("JS backend: shader I/O", () => {
 
   it("returns the bare value when nothing is written to outputs", () => {
     const prog = Fn(() => vec4(1, 2, 3, 4))();
-    const fn = compileJS(() => prog, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     expect(fn.invoke({})).toEqual([1, 2, 3, 4]);
   });
 
@@ -728,7 +710,7 @@ describe("JS backend: shader I/O", () => {
       arr = uniformArray("vec4", 4);
       return arr.element(2).x;
     })();
-    const fn = compileJS(() => prog, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     const values = [
       [0, 0, 0, 0],
       [0, 0, 0, 0],
@@ -746,7 +728,7 @@ describe("JS backend: shader I/O", () => {
       p.assign(vec4(0, 0, 0, 1));
       return p;
     })();
-    const fn = compileJS(() => prog, { name: "main", params: [], stage: "vertex" });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [], stage: "vertex" });
     const r = fn.invoke({}) as any;
     expect(r.position).toEqual([0, 0, 0, 1]);
     expect(Object.values(r.varyings as Record<string, unknown>)).toEqual([[1, 2, 3]]);
@@ -759,7 +741,7 @@ describe("JS backend: CPU-specific behaviour", () => {
       If(float(1).greaterThan(0), () => Discard());
       return float(5);
     })();
-    const fn = compileJS(() => prog, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     expect(fn.invoke({})).toBeNull();
   });
 
@@ -772,7 +754,7 @@ describe("JS backend: CPU-specific behaviour", () => {
       });
       return x;
     })();
-    const fn = compileJS(() => prog, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     expect(fn.invoke({})).toEqual([1, 2, 3]);
     expect(fn.invoke({})).toEqual([1, 2, 3]);
   });
@@ -791,8 +773,8 @@ describe("JS backend: CPU-specific behaviour", () => {
         );
         return total;
       })();
-    const hoisted = compileJS(sumTo, { name: "sum", params: [{ name: "n", type: "float" }] });
-    const perCall = compileJS(sumTo, { name: "sum", params: [{ name: "n", type: "float" }], reentrant: true });
+    const hoisted = compileJSRoutine(sumTo, { name: "sum", params: [{ name: "n", type: "float" }] });
+    const perCall = compileJSRoutine(sumTo, { name: "sum", params: [{ name: "n", type: "float" }], reentrant: true });
     expect(hoisted.invoke({ params: { n: 7 } })).toBe(21);
     expect(perCall.invoke({ params: { n: 7 } })).toBe(21);
     expect(perCall.invoke({ params: { n: 3 } })).toBe(3);
@@ -803,7 +785,7 @@ describe("JS backend: CPU-specific behaviour", () => {
       const x = vec2(1, 2).toVar();
       return x.fwidth();
     })();
-    const fn = compileJS(() => prog, { name: "main", params: [], derivatives: "zero" });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [], derivatives: "zero" });
     expect(fn.invoke({})).toEqual([0, 0]);
   });
 
@@ -812,7 +794,7 @@ describe("JS backend: CPU-specific behaviour", () => {
       const x = vec2(1, 2).toVar();
       return x.fwidth();
     })();
-    expect(() => compileJS(() => prog, { name: "main", params: [] })).toThrow(/CPU target/);
+    expect(() => compileJSRoutine(() => prog, { name: "main", params: [] })).toThrow(/CPU target/);
   });
 
   it("samples textures with nearest-neighbour lookup", () => {
@@ -821,7 +803,7 @@ describe("JS backend: CPU-specific behaviour", () => {
       tex = uniform("sampler2D");
       return tex.texture(vec2(0.5, 0.5));
     })();
-    const fn = compileJS(() => prog, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     // 2x2 RGBA; uv (0.5, 0.5) -> texel (1, 1).
     const data = [1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4];
     expect(fn.invoke({ textures: { [tex.name]: { data, width: 2, height: 2 } } })).toEqual([4, 4, 4, 4]);
@@ -833,7 +815,7 @@ describe("JS backend: CPU-specific behaviour", () => {
       tex = uniform("sampler2D");
       return tex.texture(vec2(0.5, 0.5));
     })();
-    const fn = compileJS(() => prog, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     // What a DataTexture holds: 8-bit channels. Both backends upload that as a
     // normalized format, so the shader reads 0..1 — and so must this.
     const data = new Uint8Array([0, 128, 255, 255]);
@@ -846,7 +828,7 @@ describe("JS backend: CPU-specific behaviour", () => {
       tex = uniform("sampler2D");
       return tex.texture(vec2(0.5, 0.5));
     })();
-    const fn = compileJS(() => prog, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     const data = new Float32Array([0, 0.5, 1, 1]);
     expect(fn.invoke({ textures: { [tex.name]: { data, width: 1, height: 1 } } })).toEqual([0, 0.5, 1, 1]);
     // A plain array is a plain array, whatever is in it.
@@ -859,7 +841,7 @@ describe("JS backend: CPU-specific behaviour", () => {
       tex = uniform("usampler2D");
       return tex.texture(ivec2(0, 0));
     })();
-    const fn = compileJS(() => prog, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     // An integer sampler fetches raw texels on a GPU too — there is no
     // normalized format under it to undo.
     const data = new Uint8Array([0, 128, 255, 255]);
@@ -872,7 +854,7 @@ describe("JS backend: CPU-specific behaviour", () => {
       tex = uniform("usampler2D");
       return tex.texture(ivec2(2, 0));
     })();
-    const fn = compileJS(() => prog, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     // Four single-channel texels in a row: the third is 30. Read as RGBA, the
     // same array is one texel and the fetch falls off the end of it.
     const data = new Uint8Array([10, 20, 30, 40]);
@@ -888,7 +870,7 @@ describe("JS backend: CPU-specific behaviour", () => {
       tex = uniform("sampler2D");
       return tex.texture(vec2(0.5, 0.5));
     })();
-    const fn = compileJS(() => prog, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     const texture = { data: [0, 100], width: 2, height: 1, channels: 1 as const };
     expect(fn.invoke({ textures: { [tex.name]: texture } })).toEqual([100, 0, 0, 1]);
     expect(fn.invoke({ textures: { [tex.name]: { ...texture, magFilter: "linear" as const } } })).toEqual([50, 0, 0, 1]);
@@ -900,7 +882,7 @@ describe("JS backend: CPU-specific behaviour", () => {
       tex = uniform("sampler2D");
       return textureLoad(tex, ivec2(0, 0));
     })();
-    const fn = compileJS(() => prog, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     const data = new Uint8Array([0, 128, 255, 255]);
     expect(fn.invoke({ textures: { [tex.name]: { data, width: 1, height: 1 } } })).toEqual([0, 128 / 255, 1, 1]);
   });
@@ -911,7 +893,7 @@ describe("JS backend: CPU-specific behaviour", () => {
       tex = uniform("sampler2D");
       return tex.texture(vec2(0.5, 0.5));
     })();
-    const fn = compileJS(() => prog, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     // Two texels, 0 and 100, whose centres sit at 0.25 and 0.75. Sampling
     // halfway between them lands in the second texel outright without
     // filtering, and is half of each with it.
@@ -927,7 +909,7 @@ describe("JS backend: CPU-specific behaviour", () => {
       tex = uniform("sampler2D");
       return tex.texture(vec2(1.25, 0.5));
     })();
-    const fn = compileJS(() => prog, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     const texture = { data: [10, 10, 10, 10, 20, 20, 20, 20], width: 2, height: 1 };
     const red = (t: CpuTextureData): number => (fn.invoke({ textures: { [tex.name]: t } }) as number[])[0];
 
@@ -944,7 +926,7 @@ describe("JS backend: CPU-specific behaviour", () => {
       tex = uniform("sampler2D");
       return tex.texture(vec2(-0.25, 0.5));
     })();
-    const fn = compileJS(() => prog, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     const texture = { data: [10, 10, 10, 10, 20, 20, 20, 20], width: 2, height: 1 };
     const red = (t: CpuTextureData): number => (fn.invoke({ textures: { [tex.name]: t } }) as number[])[0];
 
@@ -959,7 +941,7 @@ describe("JS backend: CPU-specific behaviour", () => {
       tex = uniform("sampler3D");
       return tex.texture(vec3(0.5, 0.5, 0.5));
     })();
-    const fn = compileJS(() => prog, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     // Two slices, 0 and 100, sampled halfway between their centres.
     const texture: CpuTextureData = {
       data: [0, 0, 0, 0, 100, 100, 100, 100],
@@ -983,7 +965,7 @@ describe("JS backend: CPU-specific behaviour", () => {
           tex = uniform("samplerCube");
           return tex.texture(vec3(dx, dy, dz));
         })();
-      const fn = compileJS(build, { name: "main", params: [] });
+      const fn = compileJSRoutine(build, { name: "main", params: [] });
       return fn.invoke({ textures: { [tex.name]: texture } }) as number[];
     };
 
@@ -1003,7 +985,7 @@ describe("JS backend: CPU-specific behaviour", () => {
       // within +Z's own 2x1 texel row, not bleed toward another face.
       return tex.texture(vec3(0.9, 0, 1));
     })();
-    const fn = compileJS(() => prog, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     // +Z is face index 4: two texels side by side, 0 and 100.
     const data = new Array(6 * 2 * 1 * 4).fill(0);
     data[4 * 2 * 4 + 0] = 0;
@@ -1020,7 +1002,7 @@ describe("JS backend: CPU-specific behaviour", () => {
       tex = uniform("isampler2D");
       return tex.texture(ivec2(1, 0));
     })();
-    const fn = compileJS(() => prog, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     const data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
     expect(fn.invoke({ textures: { [tex.name]: { data, width: 2, height: 2 } } })).toEqual([5, 6, 7, 8]);
   });
@@ -1032,7 +1014,7 @@ describe("JS backend: CPU-specific behaviour", () => {
       let last = float(2.0).toVar();
       return [side, last];
     })();
-    const fn = compileJS(() => prog as any, { name: "main", params: [] });
+    const fn = compileJSRoutine(() => prog as any, { name: "main", params: [] });
     expect(fn.invoke({})).toBe(2);
   });
 
@@ -1063,7 +1045,7 @@ describe("JS backend: screen-picking workflow", () => {
       d.assign(t);
       return hit;
     })();
-    const fn = compileJS(() => prog, { name: "pick", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "pick", params: [] });
     const r = fn.invoke({}) as any;
     // Ray hits y = 0 at t = 2, so the world point is (0, 0, 0).
     expect(r.value).toEqual([0, 0, 0]);
@@ -1077,7 +1059,7 @@ describe("JS backend: screen-picking workflow", () => {
       const t = ro.y.negate().div(rd.y).toVar();
       return ro.add(rd.mul(t));
     })();
-    const fn = compileJS(() => prog, { name: "pick", params: [] });
+    const fn = compileJSRoutine(() => prog, { name: "pick", params: [] });
     for (let i = 0; i < 100; i++) {
       expect(fn.invoke({})).toEqual([0, 0, 0]);
     }
@@ -1119,7 +1101,7 @@ describe("JS backend: TSL free functions", () => {
   });
 
   it("computes vector free functions", () => {
-    const fn = compileJS(
+    const fn = compileJSRoutine(
       () =>
         Fn(() => {
           const a = vec3(1, 2, 3).toVar();
@@ -1131,7 +1113,7 @@ describe("JS backend: TSL free functions", () => {
   });
 
   it("computes cross/reflect/normalize/faceForward", () => {
-    const fn = compileJS(
+    const fn = compileJSRoutine(
       () =>
         Fn(() => {
           const a = vec3(1, 0, 0).toVar();
@@ -1144,7 +1126,7 @@ describe("JS backend: TSL free functions", () => {
     const c = fn.invoke({}) as number[];
     // cross((1,0,0),(0,1,0)) = (0,0,1), normalize(0,0,2) = (0,0,1).
     expect(c.map((x) => Math.abs(x))).toEqual([0, 0, 2]);
-    const ff = compileJS(
+    const ff = compileJSRoutine(
       () =>
         Fn(() => {
           const n = vec3(0, 1, 0).toVar();
@@ -1157,7 +1139,7 @@ describe("JS backend: TSL free functions", () => {
   });
 
   it("computes all/any reductions", () => {
-    const fn = compileJS(
+    const fn = compileJSRoutine(
       () =>
         Fn(() => {
           const a = vec3(1, 2, 3).toVar();
@@ -1174,7 +1156,7 @@ describe("JS backend: TSL free functions", () => {
 
 describe("JS backend: TSL loop and return", () => {
   it("Loop(count, (i) => ...) sums 0..3", () => {
-    const fn = compileJS(
+    const fn = compileJSRoutine(
       () =>
         Fn(() => {
           let total = float(0).toVar();
@@ -1189,7 +1171,7 @@ describe("JS backend: TSL loop and return", () => {
   });
 
   it("Return() exits the function early", () => {
-    const fn = compileJS(
+    const fn = compileJSRoutine(
       () =>
         Fn(() => {
           const out = float(0).toVar();
@@ -1207,7 +1189,7 @@ describe("JS backend: TSL loop and return", () => {
   });
 
   it("Discard() returns null", () => {
-    const fn = compileJS(
+    const fn = compileJSRoutine(
       () =>
         Fn(() => {
           const out = float(1).toVar();
@@ -1273,7 +1255,7 @@ describe("JS backend: operands that are themselves expressions", () => {
 describe("JS backend: .draw() — render a whole grid in one call", () => {
   it("renders a scalar per pixel, fragCoord at pixel centers", () => {
     const build = () => Fn(() => fragCoord().x)();
-    const fn = compileJS(build as any, { name: "main", params: [] });
+    const fn = compileJSRoutine(build as any, { name: "main", params: [] });
     const out = fn.batch({}, 3, 2);
     expect(out.length).toBe(3 * 2);
     // Row-major, (y*width+x): x+0.5 regardless of row.
@@ -1282,7 +1264,7 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
 
   it("renders both fragCoord axes packed into a vec4 per pixel, with no stage or output() involved", () => {
     const build = () => Fn(() => vec4(fragCoord().x, fragCoord().y, 0, 1))();
-    const fn = compileJS(build as any, { name: "main", params: [] });
+    const fn = compileJSRoutine(build as any, { name: "main", params: [] });
     const out = fn.batch({}, 2, 2);
     expect(out.length).toBe(2 * 2 * 4);
     expect(Array.from(out)).toEqual([
@@ -1308,14 +1290,14 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
   it("reads a uniform every pixel and reflects a changed uniform on the next call", () => {
     const scale = uniform("float");
     const build = () => Fn(() => fragCoord().x.mul(scale))();
-    const fn = compileJS(build as any, { name: "main", params: [] });
+    const fn = compileJSRoutine(build as any, { name: "main", params: [] });
     expect(Array.from(fn.batch({ uniforms: { [scale.name]: 2 } }, 2, 1))).toEqual([1, 3]);
     expect(Array.from(fn.batch({ uniforms: { [scale.name]: 10 } }, 2, 1))).toEqual([5, 15]);
   });
 
   it("picks dimensions per call, not at compile time", () => {
     const build = () => Fn(() => fragCoord().x)();
-    const fn = compileJS(build as any, { name: "main", params: [] });
+    const fn = compileJSRoutine(build as any, { name: "main", params: [] });
     expect(Array.from(fn.batch({}, 2, 1))).toEqual([0.5, 1.5]);
     expect(Array.from(fn.batch({}, 4, 1))).toEqual([0.5, 1.5, 2.5, 3.5]);
     expect(Array.from(fn.batch({}, 1, 1))).toEqual([0.5]);
@@ -1324,23 +1306,23 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
   it("the same compiled function still works as a plain single-pixel call — draw() is a choice per call, not a compile mode", () => {
     const scale = uniform("float");
     const build = () => Fn(() => fragCoord().x.mul(scale))();
-    const fn = compileJS(build as any, { name: "main", params: [] });
+    const fn = compileJSRoutine(build as any, { name: "main", params: [] });
     expect(fn.invoke({ uniforms: { [scale.name]: 2 }, fragCoord: [3, 0] })).toBe(6);
     expect(Array.from(fn.batch({ uniforms: { [scale.name]: 2 } }, 2, 1))).toEqual([1, 3]);
   });
 
-  it("matches compileWasm's draw() output for the same program", () => {
+  it("matches compileWasmRoutine's draw() output for the same program", () => {
     const build = () => Fn(() => fragCoord().x.add(fragCoord().y.mul(2)))();
-    const jsFn = compileJS(build as any, { name: "main", params: [] });
-    const wasmFn = compileWasm(build as any, { name: "main", params: [] });
+    const jsFn = compileJSRoutine(build as any, { name: "main", params: [] });
+    const wasmFn = compileWasmRoutine(build as any, { name: "main", params: [] });
     expect(Array.from(jsFn.batch({}, 3, 3))).toEqual(Array.from(wasmFn.batch({}, 3, 3)));
   });
 
   it("declares its uniform inside the build function itself, not just before it", () => {
-    // compileJS reads the root's result type for draw() by calling the build
+    // compileJSRoutine reads the root's result type for draw() by calling the build
     // function — it must do so exactly once. A build function that declares
     // its own uniform() (the idiom most tests in this file use, just always
-    // with the uniform hoisted above the compileJS call rather than inside
+    // with the uniform hoisted above the compileJSRoutine call rather than inside
     // the closure passed to it) has to see that same call reflected in the
     // compiled source; a second, throwaway invocation would declare a second,
     // differently-named uniform and leave `tex` pointing at the wrong one.
@@ -1350,7 +1332,7 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
         tex = uniform("float");
         return fragCoord().x.mul(tex);
       })();
-    const fn = compileJS(build as any, { name: "main", params: [] });
+    const fn = compileJSRoutine(build as any, { name: "main", params: [] });
     expect(fn.invoke({ uniforms: { [tex.name]: 2 }, fragCoord: [3, 0] })).toBe(6);
     expect(Array.from(fn.batch({ uniforms: { [tex.name]: 2 } }, 2, 1))).toEqual([1, 3]);
   });
@@ -1368,7 +1350,7 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
         const i = invocationIndex();
         pos.element(i).addAssign(vel.element(i).mul(dt));
       })();
-    const fn = compileJS(build as any, { name: "step", params: [] });
+    const fn = compileJSRoutine(build as any, { name: "step", params: [] });
 
     const pos = new Float32Array([0, 10, 20]);
     const vel = new Float32Array([1, 2, 3]);

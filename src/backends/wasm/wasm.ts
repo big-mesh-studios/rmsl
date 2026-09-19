@@ -1,11 +1,3 @@
-/**
- * RMSL CPU backend: compiles an RMSL function into a small WebAssembly
- * module. Scalars flow through WASM params/locals; vectors, matrices and
- * pipeline I/O live at fixed offsets in an exported linear memory that the
- * host reads and writes around each call. Opcodes below are verified
- * empirically against a known answer, not quoted from memory: a
- * wrong-but-valid opcode runs and silently miscompiles.
- */
 import { MATRIX_DIMENSIONS, Node, ShaderType, StorageAccess, var_ } from "../../core";
 import { AllocRules, planLayout } from "../../layout";
 import {
@@ -22,6 +14,23 @@ import {
   scalarKindOf,
 } from "../cpu";
 import { assertStageResult, CompileFnOptions, COMPONENT_INDEX, resolveSwizzleTarget } from "../shared";
+import {
+  f64ConstBytes,
+  forLoop,
+  i32ConstBytes,
+  iGeS,
+  local,
+  WASM_BLOCKTYPE_VOID,
+  WASM_F64,
+  WASM_FUNC,
+  WASM_I32,
+  WASM_OP,
+  wasmF64Bytes,
+  wasmSection,
+  wasmStrBytes,
+  wasmUleb128,
+  wasmVec,
+} from "./utils";
 
 /**
  * How a value crosses the module boundary. Scalar kinds are WASM params;
@@ -152,6 +161,29 @@ export type CompileWasmFnOptions = CompileFnOptions & {
 
   /** The memory import's declared maximum page count, only meaningful when `sharedMemory` is true. Defaults to 65536 (the full 4GiB wasm32 address space). */
   maxMemoryPages?: number;
+
+  /**
+   * Byte offset the compile-time bump allocator starts from, instead of 0.
+   * Exists so several independently-compiled modules can share one
+   * `memory` without their compile-time-fixed addresses (uniforms,
+   * scratch slots, texture metadata, ...) colliding — each module gets its
+   * own non-overlapping region by being compiled with a different
+   * `memoryBase`. The caller is responsible for choosing non-overlapping
+   * bases (typically: compile each module once to learn how much space its
+   * layout needs, then lay the next one out after it). Combining with
+   * `gpuUniformLayout` adds this on top of that layout's own reserved
+   * region, rather than replacing it.
+   */
+  memoryBase?: number;
+
+  /**
+   * Forces every scalar uniform/attribute/fragment-stage `varying()` to be
+   * memory-resident, the same as an aggregate one, instead of a WASM
+   * function parameter. Exists for callers (like the generic rasterizer
+   * module) that call the compiled function with a fixed, zero-argument
+   * signature and can't vary it per program.
+   */
+  scalarsInMemory?: boolean;
 };
 
 // Per-texture metadata block written by writeTextureToMemory(), reserved
@@ -206,154 +238,12 @@ const MATH_BINARY_IMPORTS = new Set(["pow", "atan2"]);
 
 const WRAP_MODE_CODE: Record<CpuTextureWrap, number> = { clamp: 0, repeat: 1, mirror: 2 }; // codes the wrapAxis() loop switches on
 
-export const WASM_F64 = 0x7c;
-export const WASM_I32 = 0x7f;
-export const WASM_FUNC = 0x60;
-export const WASM_BLOCKTYPE_VOID = 0x40;
-
-export const WASM_OP = {
-  /** `end`: terminates a block, loop, or if. */
-  end: 0x0b,
-  /** `block`: begins a block with a block type. */
-  block: 0x02,
-  /** `loop`: begins a loop with a block type; branches to its start. */
-  loop: 0x03,
-  /** `br`: unconditional branch to a label. */
-  br: 0x0c,
-  /** `brIf`: conditionally (on an i32) branch to a label. */
-  brIf: 0x0d,
-  /** `local.get`: push the value of a local onto the stack. */
-  localGet: 0x20,
-  /** `local.set`: pop the stack into a local. */
-  localSet: 0x21,
-  /** `local.tee`: pop the stack into a local, leaving the value on the stack. */
-  localTee: 0x22,
-  /** `call`: call a function by index. */
-  call: 0x10,
-  /** `select`: pick one of two values based on an i32 condition. */
-  select: 0x1b,
-
-  /** `i32.const`: push a signed LEB128 i32 constant. */
-  i32Const: 0x41,
-  /** `f64.const`: push a f64 constant (8 raw bytes). */
-  f64Const: 0x44,
-
-  /** `i32.load`: load an i32 from memory. */
-  i32Load: 0x28,
-  /** `f32.load`: load an f32 from memory. */
-  f32Load: 0x2a,
-  /** `f64.load`: load an f64 from memory. */
-  f64Load: 0x2b,
-  /** `i32.store`: store an i32 to memory. */
-  i32Store: 0x36,
-  /** `f64.store`: store an f64 to memory. */
-  f64Store: 0x39,
-  /** `f64.promote_f32`: widen an f32 to an f64. */
-  f64PromoteF32: 0xbb,
-
-  /** `i32.eqz`: 1 if the i32 is zero, else 0. */
-  i32Eqz: 0x45,
-  /** `i32.eq`: equal. */
-  i32Eq: 0x46,
-  /** `i32.ne`: not equal. */
-  i32Ne: 0x47,
-  /** `i32.lt_s`: less than, signed. */
-  i32LtS: 0x48,
-  /** `i32.lt_u`: less than, unsigned. */
-  i32LtU: 0x49,
-  /** `i32.gt_s`: greater than, signed. */
-  i32GtS: 0x4a,
-  /** `i32.gt_u`: greater than, unsigned. */
-  i32GtU: 0x4b,
-  /** `i32.le_s`: less than or equal, signed. */
-  i32LeS: 0x4c,
-  /** `i32.le_u`: less than or equal, unsigned. */
-  i32LeU: 0x4d,
-  /** `i32.ge_s`: greater than or equal, signed. */
-  i32GeS: 0x4e,
-  /** `i32.ge_u`: greater than or equal, unsigned. */
-  i32GeU: 0x4f,
-
-  /** `f64.eq`: equal. */
-  f64Eq: 0x61,
-  /** `f64.ne`: not equal. */
-  f64Ne: 0x62,
-  /** `f64.lt`: less than. */
-  f64Lt: 0x63,
-  /** `f64.gt`: greater than. */
-  f64Gt: 0x64,
-  /** `f64.le`: less than or equal. */
-  f64Le: 0x65,
-  /** `f64.ge`: greater than or equal. */
-  f64Ge: 0x66,
-
-  /** `i32.add`: addition, wrapping around on overflow. */
-  i32Add: 0x6a,
-  /** `i32.sub`: subtraction, wrapping around on underflow. */
-  i32Sub: 0x6b,
-  /** `i32.mul`: multiplication, wrapping around on overflow. */
-  i32Mul: 0x6c,
-  /** `i32.div_s`: signed division (traps on zero, MIN/-1). */
-  i32DivS: 0x6d,
-  /** `i32.div_u`: unsigned division (traps on zero). */
-  i32DivU: 0x6e,
-  /** `i32.rem_s`: signed remainder (traps on zero, MIN/-1). */
-  i32RemS: 0x6f,
-  /** `i32.rem_u`: unsigned remainder (traps on zero). */
-  i32RemU: 0x70,
-  /** `i32.and`: bitwise AND. */
-  i32And: 0x71,
-  /** `i32.or`: bitwise OR. */
-  i32Or: 0x72,
-  /** `i32.xor`: bitwise XOR. */
-  i32Xor: 0x73,
-  /** `i32.shl`: shift left. */
-  i32Shl: 0x74,
-  /** `i32.shr_s`: arithmetic (sign-extending) shift right. */
-  i32ShrS: 0x75,
-  /** `i32.shr_u`: logical (zero-filling) shift right. */
-  i32ShrU: 0x76,
-
-  /** `f64.abs`: absolute value. */
-  f64Abs: 0x99,
-  /** `f64.neg`: negation. */
-  f64Neg: 0x9a,
-  /** `f64.ceil`: round toward +infinity. */
-  f64Ceil: 0x9b,
-  /** `f64.floor`: round toward -infinity. */
-  f64Floor: 0x9c,
-  /** `f64.trunc`: round toward zero. */
-  f64Trunc: 0x9d,
-  /** `f64.sqrt`: square root. */
-  f64Sqrt: 0x9f,
-  /** `f64.add`: addition. */
-  f64Add: 0xa0,
-  /** `f64.sub`: subtraction. */
-  f64Sub: 0xa1,
-  /** `f64.mul`: multiplication. */
-  f64Mul: 0xa2,
-  /** `f64.div`: division. */
-  f64Div: 0xa3,
-  /** `f64.min`: minimum of the two values. */
-  f64Min: 0xa4,
-  /** `f64.max`: maximum of the two values. */
-  f64Max: 0xa5,
-
-  /** `i32.trunc_f64_s`: truncate an f64 toward zero to a signed i32 (traps on NaN or out of range). */
-  i32TruncF64S: 0xaa,
-  /** `i32.trunc_f64_u`: truncate an f64 toward zero to an unsigned i32 (traps on NaN or out of range). */
-  i32TruncF64U: 0xab,
-  /** `f64.convert_i32_s`: widen a signed i32 to an f64. */
-  f64ConvertI32S: 0xb7,
-  /** `f64.convert_i32_u`: widen an unsigned i32 to an f64. */
-  f64ConvertI32U: 0xb8,
-
-  /** `if` control opcode: starts an if block, followed by a block type, then the then-branch. */
-  if_: 0x04,
-  /** `else` marker: separates the then-branch from the else-branch inside an if block. */
-  else_: 0x05,
-} as const;
-
+/**
+ * The WASM value type byte a scalar kind is stored as. Everything here is
+ * either `f64` (`WASM_F64`, 0x7c) or `i32` (`WASM_I32`, 0x7f) — int/uint/bool
+ * all share the i32 representation, distinguished only by how the surrounding
+ * code interprets the bits (see {@link convertComponent}).
+ */
 function wasmTypeOf(kind: ScalarKind): number {
   return kind === "float" ? WASM_F64 : WASM_I32;
 }
@@ -363,10 +253,16 @@ function componentSizeOf(kind: ScalarKind): number {
   return kind === "float" ? 8 : 4;
 }
 
+/**
+ * True for any sampler type, float or integer variant.
+ */
 function isSamplerType(t: string): boolean {
   return t.startsWith("sampler") || t.startsWith("isampler") || t.startsWith("usampler");
 }
 
+/**
+ * True only for the integer sampler variants (`isampler*`/`usampler*`).
+ */
 function isIntegerSamplerType(t: string): boolean {
   return t.startsWith("isampler") || t.startsWith("usampler");
 }
@@ -389,63 +285,20 @@ function assertSampledTextureType(t: string): void {
   }
 }
 
-/**
- * Unsigned LEB128 encoding: the unsigned variable-length integer format used
- * for indices and lengths throughout the wasm binary format. Emits the number
- * in 7-bit groups, least significant first, with the high bit of every byte
- * except the last set to signal continuation.
- */
-function wasmUleb128(n: number): number[] {
-  const out: number[] = [];
-  do {
-    let byte = n & 0x7f;
-    n >>>= 7;
-    if (n !== 0) byte |= 0x80;
-    out.push(byte);
-  } while (n !== 0);
-  return out;
-}
-
-/**
- * Signed LEB128 encoding: the signed variant needed by i32.const, whose
- * operands are sign-extended across the 7-bit groups so negative literals
- * round-trip. Emits continuation bytes until the current group already carries
- * the sign extension for what remains.
- */
-function wasmSleb128(n: number): number[] {
-  const out: number[] = [];
-  let more = true;
-  while (more) {
-    let byte = n & 0x7f;
-    n >>= 7;
-    if ((n === 0 && (byte & 0x40) === 0) || (n === -1 && (byte & 0x40) !== 0)) more = false;
-    else byte |= 0x80;
-    out.push(byte);
-  }
-  return out;
-}
-
-function wasmStrBytes(s: string): number[] {
-  const b = [...new TextEncoder().encode(s)];
-  return [...wasmUleb128(b.length), ...b];
-}
-
-/** Emits i32.const plus the signed LEB128 operand. */
-function i32ConstBytes(n: number): number[] {
-  return [WASM_OP.i32Const, ...wasmSleb128(n | 0)];
-}
-
-/** Emits f64.const plus the raw 8-byte little-endian operand. */
-function f64ConstBytes(n: number): number[] {
-  return [WASM_OP.f64Const, ...wasmF64Bytes(n)];
-}
-
 /** WASM select pops [whenTrue, whenFalse, cond]; note BOTH value arms are always evaluated. */
 function selectExpr(whenTrue: number[], whenFalse: number[], cond: number[]): number[] {
   return [...whenTrue, ...whenFalse, ...cond, WASM_OP.select];
 }
 
-/** [base, load, memarg: align=0, offset] — loads one component at a constant address. */
+/**
+ * Loads one component at a constant address: push the address, then the
+ * load opcode and its "memarg" — two unsigned LEB128 integers, alignment
+ * hint first, then a byte offset added to the popped address at run time.
+ * The alignment hint is always `0x00` (no assumed alignment) here, since
+ * this compiler never proves an access is aligned; a wrong hint doesn't trap
+ * or corrupt data, but is technically UB, so `0x00` is the only value it's
+ * safe to always emit.
+ */
 function loadComponent(addr: number, kind: ScalarKind, byteOffset: number): number[] {
   return [
     ...i32ConstBytes(addr),
@@ -455,7 +308,11 @@ function loadComponent(addr: number, kind: ScalarKind, byteOffset: number): numb
   ];
 }
 
-/** [base, value, store, align=0, offset] — stores one component at a constant address. */
+/**
+ * Stores one component at a constant address: push the address, then the
+ * value, then the store opcode and its memarg (alignment hint, always
+ * `0x00` here — see {@link loadComponent} — then a byte offset).
+ */
 function storeComponent(addr: number, kind: ScalarKind, byteOffset: number, valueBytes: number[]): number[] {
   return [
     ...i32ConstBytes(addr),
@@ -543,6 +400,11 @@ const SCRATCH_NODE_TYPES = new Set([
   "div",
 ]);
 
+/**
+ * True when `node` is one of the anonymous aggregate results
+ * {@link SCRATCH_NODE_TYPES} describes: it needs its own scratch address
+ * materialized before any of its components can be read.
+ */
 function isScratchNode(node: any): boolean {
   const t = node._t as string;
   if (!isAggregate(t)) return false;
@@ -681,6 +543,10 @@ function readScalarFromMemory(view: DataView, address: number, shaderType: Shade
   return kind === "uint" ? raw >>> 0 : raw;
 }
 
+/**
+ * Host-side: reads a value (scalar or aggregate) from memory — the
+ * read-side counterpart of `writeValueToMemory`.
+ */
 function readValueFromMemory(view: DataView, address: number, shaderType: ShaderType): unknown {
   return isAggregate(shaderType)
     ? readAggregateFromMemory(view, address, shaderType)
@@ -688,17 +554,31 @@ function readValueFromMemory(view: DataView, address: number, shaderType: Shader
 }
 
 /** Host-side: writes one scalar value into memory — writeAggregateToMemory's counterpart for a non-array type. */
-function writeScalarToMemory(view: DataView, address: number, shaderType: ShaderType, value: unknown): void {
+function writeScalarToMemory(
+  view: DataView,
+  address: number,
+  shaderType: ShaderType,
+  value: unknown,
+  narrow?: boolean,
+): void {
   const kind = scalarKindOf(shaderType);
   const num = typeof value === "boolean" ? (value ? 1 : 0) : ((value as number | undefined) ?? 0);
-  if (kind === "float") view.setFloat64(address, num, true);
-  else view.setInt32(address, num, true);
+  if (kind === "float") {
+    if (narrow) view.setFloat32(address, num, true);
+    else view.setFloat64(address, num, true);
+  } else view.setInt32(address, num, true);
 }
 
 /** Host-side: writes a value (scalar or aggregate) into memory — the write-side counterpart of readValueFromMemory. */
-function writeValueToMemory(view: DataView, address: number, shaderType: ShaderType, value: unknown): void {
-  if (isAggregate(shaderType)) writeAggregateToMemory(view, address, shaderType, value);
-  else writeScalarToMemory(view, address, shaderType, value);
+function writeValueToMemory(
+  view: DataView,
+  address: number,
+  shaderType: ShaderType,
+  value: unknown,
+  narrow?: boolean,
+): void {
+  if (isAggregate(shaderType)) writeAggregateToMemory(view, address, shaderType, value, narrow);
+  else writeScalarToMemory(view, address, shaderType, value, narrow);
 }
 
 /**
@@ -743,28 +623,20 @@ function textureByteSize(tex: CpuTextureData, isCube: boolean): number {
   return tex.width * tex.height * (isCube ? 6 : tex.depth || 1) * (tex.channels ?? 4) * 8;
 }
 
-/** Little-endian f64 bytes, as used by f64.const. */
-export function wasmF64Bytes(value: number): number[] {
-  const buf = new ArrayBuffer(8);
-  new DataView(buf).setFloat64(0, value, true);
-  return [...new Uint8Array(buf)];
-}
-
-export function wasmSection(id: number, body: number[]): number[] {
-  return [id, ...wasmUleb128(body.length), ...body];
-}
-
-export function wasmVec(items: number[][]): number[] {
-  return [...wasmUleb128(items.length), ...items.flat()];
-}
-
 /**
- * Compiles an RMSL function into a WASM module in two passes: "collect"
- * walks the AST once, giving each scalar a param/local slot and each
- * aggregate a fixed memory address; the emit helpers then generate bytes
- * against that frozen layout. When the root is an aggregate or the stage
- * writes pipeline outputs, the module declares zero results and values
- * round-trip through the linear memory instead.
+ * Compiles an RMSL function into a small WASM module in two passes:
+ * "collect" walks the AST once, giving each scalar a param/local slot and
+ * each aggregate a fixed memory address; the emit helpers then generate
+ * bytes against that frozen layout. Scalars flow through WASM params/
+ * locals; vectors, matrices and pipeline I/O live at fixed offsets in an
+ * exported linear memory that the host reads and writes around each call.
+ * When the root is an aggregate or the stage writes pipeline outputs, the
+ * module declares zero results and values round-trip through the linear
+ * memory instead.
+ *
+ * The opcodes this file emits (see `WASM_OP`) are verified empirically
+ * against a known answer, not quoted from memory: a wrong-but-valid opcode
+ * runs and silently miscompiles.
  */
 export function compileWasmFn(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
@@ -829,7 +701,7 @@ export function compileWasmFn(
   const textureMetadataAddress = new Map<string, number>();
   const scratchAddress = new WeakMap<object, number>();
 
-  let memCursor = options.gpuUniformLayout?.totalSize ?? 0; // cursor past the host's reserved region
+  let memCursor = (options.gpuUniformLayout?.totalSize ?? 0) + (options.memoryBase ?? 0); // cursor past the host's reserved region(s)
 
   // Pass 1: plan the whole tree — record slots/addresses and imported
   // math names — before any bytecode is emitted.
@@ -895,11 +767,21 @@ export function compileWasmFn(
   let unaryImportType: number | null = null;
   let binaryImportType: number | null = null;
 
+  /**
+   * One import entry per math function this program calls (sin, pow, ...):
+   * module name "math", the function's own name, the 0x00 func import kind
+   * (see the memory import below), then its type index.
+   */
   const importEntries: number[][] = importNames.map((name) => {
     const typeIdx = MATH_BINARY_IMPORTS.has(name) ? binaryImportTypeIdx() : unaryImportTypeIdx();
     return [...wasmStrBytes("math"), ...wasmStrBytes(name), 0x00, ...wasmUleb128(typeIdx)];
   });
 
+  /**
+   * The main function's own type: every scalar param, in order, then either
+   * no result (the program writes its result through `out`/memory instead —
+   * `needsResult` false) or one result type.
+   */
   const paramTypes = params.map((p) => [wasmTypeOf(scalarKindOf(p.shaderType))]);
   const resultTypes = needsResult ? [] : [[wasmTypeOf(resultKind)]];
   const mainTypeIdx = typeEntries.length;
@@ -926,10 +808,18 @@ export function compileWasmFn(
     const bufferBaseIdx = params.length + 2;
     const xIdx = params.length + 3;
     const yIdx = params.length + 4;
+    /** Pushes local `x`. */
     const getX = [WASM_OP.localGet, ...wasmUleb128(xIdx)];
+    /** Pushes local `y`. */
     const getY = [WASM_OP.localGet, ...wasmUleb128(yIdx)];
     const compSize = componentSizeOf(batchComponentKind);
+    /**
+     * Pushes every one of the main function's own params, in order —
+     * `batch` and `main` share the same leading params, so this forwards
+     * them unchanged rather than re-deriving them per pixel.
+     */
     const passThroughArgs = params.map((_, i) => [WASM_OP.localGet, ...wasmUleb128(i)]).flat();
+    /** Forwards `passThroughArgs` and calls `main`. */
     const callMain = [...passThroughArgs, WASM_OP.call, ...wasmUleb128(mainFuncIndex)];
     // pixel centers land at (x + 0.5, y + 0.5) — the same convention js uses
     const writeFragCoord =
@@ -950,6 +840,10 @@ export function compileWasmFn(
             ]),
           ];
 
+    /**
+     * `(y * width + x) * componentCount * compSize` — the pixel's byte
+     * offset within one row-major, tightly packed image buffer.
+     */
     const pixelByteOffset = [
       ...getY,
       WASM_OP.localGet,
@@ -960,6 +854,10 @@ export function compileWasmFn(
       ...i32ConstBytes(batchComponentCount * compSize),
       WASM_OP.i32Mul,
     ];
+    /**
+     * `bufferBase + pixelByteOffset + k * compSize` — the address of the
+     * pixel's `k`th component in the caller's output buffer.
+     */
     const destAddr = (k: number) => [
       WASM_OP.localGet,
       ...wasmUleb128(bufferBaseIdx),
@@ -968,63 +866,31 @@ export function compileWasmFn(
       ...i32ConstBytes(k * compSize),
       WASM_OP.i32Add,
     ];
+    /**
+     * Calls `main` and copies its result into the output buffer. A
+     * needs-result function returns nothing directly — main() already wrote
+     * its result to `valueAddress` (memory) — so each component is read
+     * back from there and stored per-component; a scalar-returning one is
+     * stored straight from `callMain`'s own return value instead.
+     */
     const copyResult: number[] = needsResult
       ? [
           ...callMain,
           ...Array.from({ length: batchComponentCount }, (_, k) =>
-            storeDynamic(destAddr(k), batchComponentKind, loadComponent(valueAddress!, batchComponentKind, k * compSize)),
+            storeDynamic(
+              destAddr(k),
+              batchComponentKind,
+              loadComponent(valueAddress!, batchComponentKind, k * compSize),
+            ),
           ).flat(),
         ]
       : storeDynamic(destAddr(0), batchComponentKind, callMain);
+    /** The whole per-pixel body: write fragCoord for this pixel, then run main() and copy its result out. */
     const perPixel = [...writeFragCoord, ...copyResult];
-    const innerLoop = [
-      WASM_OP.block,
-      WASM_BLOCKTYPE_VOID,
-      WASM_OP.loop,
-      WASM_BLOCKTYPE_VOID,
-      ...getX,
-      WASM_OP.localGet,
-      ...wasmUleb128(widthIdx),
-      WASM_OP.i32GeS,
-      WASM_OP.brIf,
-      ...wasmUleb128(1),
-      ...perPixel,
-      ...getX,
-      ...i32ConstBytes(1),
-      WASM_OP.i32Add,
-      WASM_OP.localSet,
-      ...wasmUleb128(xIdx),
-      WASM_OP.br,
-      ...wasmUleb128(0),
-      WASM_OP.end,
-      WASM_OP.end,
-    ];
-    const outerLoop = [
-      WASM_OP.block,
-      WASM_BLOCKTYPE_VOID,
-      WASM_OP.loop,
-      WASM_BLOCKTYPE_VOID,
-      ...getY,
-      WASM_OP.localGet,
-      ...wasmUleb128(heightIdx),
-      WASM_OP.i32GeS,
-      WASM_OP.brIf,
-      ...wasmUleb128(1),
-      ...i32ConstBytes(0),
-      WASM_OP.localSet,
-      ...wasmUleb128(xIdx),
-      ...innerLoop,
-      ...getY,
-      ...i32ConstBytes(1),
-      WASM_OP.i32Add,
-      WASM_OP.localSet,
-      ...wasmUleb128(yIdx),
-      WASM_OP.br,
-      ...wasmUleb128(0),
-      WASM_OP.end,
-      WASM_OP.end,
-    ];
-    const batchCode = [...i32ConstBytes(0), WASM_OP.localSet, ...wasmUleb128(yIdx), ...outerLoop];
+    /** `for (x = 0; x < width; x++) perPixel();`, one row. */
+    const innerLoop = forLoop(xIdx, i32ConstBytes(0), iGeS(local(xIdx), local(widthIdx)), perPixel, i32ConstBytes(1));
+    /** `for (y = 0; y < height; y++) innerLoop();` — the whole pixel grid. */
+    const batchCode = forLoop(yIdx, i32ConstBytes(0), iGeS(local(yIdx), local(heightIdx)), innerLoop, i32ConstBytes(1));
     const batchLocalsDecl = wasmVec([
       [...wasmUleb128(1), WASM_I32], // one local group per loop counter (xIdx, yIdx)
       [...wasmUleb128(1), WASM_I32],
@@ -1032,23 +898,49 @@ export function compileWasmFn(
 
     batchFuncBody = [...batchLocalsDecl, ...batchCode, WASM_OP.end];
     batchTypeIdx = typeEntries.length;
+    // `WASM_FUNC` (0x60) is the functype form byte that opens every entry in
+    // the type section — the byte a decoder uses to tell "this is a function
+    // signature" apart from the handful of other type forms the format has.
+    // It's followed by two `wasmVec`s back to back: the parameter types,
+    // then the result types (empty here — this function communicates its
+    // result by writing into `out` rather than returning one).
     typeEntries.push([WASM_FUNC, ...wasmVec([...paramTypes, [WASM_I32], [WASM_I32], [WASM_I32]]), ...wasmVec([])]);
   }
 
-  const memoryPages = Math.max(1, Math.ceil(memCursor / 65536)); // 65536 bytes per WASM memory page
-  // memory is imported rather than owned by the module, so a caller can hand
-  // multiple instances the same (optionally SharedArrayBuffer-backed) memory.
-  // The shared-ness of an import is a static part of the module (the engine
-  // rejects instantiation if it doesn't exactly match the memory object
-  // handed in), so it has to be a compile-time option, not a runtime one —
-  // a shared import always needs a declared maximum too.
+  /** 65536 bytes per WASM memory page. */
+  const memoryPages = Math.max(1, Math.ceil(memCursor / 65536));
+  /**
+   * Memory is imported rather than owned by the module, so a caller can hand
+   * multiple instances the same (optionally SharedArrayBuffer-backed)
+   * memory. The shared-ness of an import is a static part of the module
+   * (the engine rejects instantiation if it doesn't exactly match the
+   * memory object handed in), so it has to be a compile-time option, not a
+   * runtime one — a shared import always needs a declared maximum too.
+   */
   const sharedMemory = options.sharedMemory ?? false;
-  const maxMemoryPages = options.maxMemoryPages ?? 65536; // 65536 pages = the full 4GiB wasm32 address space
+  /** 65536 pages = the full 4GiB wasm32 address space. */
+  const maxMemoryPages = options.maxMemoryPages ?? 65536;
+  /**
+   * A "limits" encoding: a one-byte flag (0x00 = min only, 0x03 = min and
+   * max, shared) followed by the min page count and, only when the flag
+   * says so, the max page count — both as unsigned LEB128. 0x01/0x02
+   * (max-but-not-shared forms) exist in the spec but are never emitted
+   * here, since sharedness is this module's own choice, never partial.
+   */
   const memoryLimitsBytes = sharedMemory
     ? [0x03, ...wasmUleb128(memoryPages), ...wasmUleb128(maxMemoryPages)]
     : [0x00, ...wasmUleb128(memoryPages)];
+  /**
+   * An import entry: module name, field name, then a one-byte "import kind"
+   * (0x00 func, 0x01 table, 0x02 memory, 0x03 global) and the kind-specific
+   * descriptor that follows it — here the memory limits just built above.
+   */
   const memoryImportEntry = [...wasmStrBytes("env"), ...wasmStrBytes("memory"), 0x02, ...memoryLimitsBytes];
 
+  /**
+   * Section ids, per the spec's binary format (see {@link wasmSection}'s own
+   * doc): 1 Type, 2 Import, 3 Function.
+   */
   const typeSection = wasmSection(1, wasmVec(typeEntries));
   const importSection = wasmSection(2, wasmVec([...importEntries, memoryImportEntry]));
   const funcSection = wasmSection(
@@ -1056,35 +948,66 @@ export function compileWasmFn(
     wasmVec(batchTypeIdx === undefined ? [[mainTypeIdx]] : [[mainTypeIdx], [batchTypeIdx]]),
   );
   const nameBytes = wasmStrBytes(options.name);
+  /**
+   * An export entry: the export's own name, a one-byte "export kind" (0x00
+   * func, 0x01 table, 0x02 memory, 0x03 global — same vocabulary as the
+   * import kind above), then the kind-specific index — here a function
+   * index into the (imports ++ this module's own functions) index space.
+   */
   const exportEntries = [[...nameBytes, 0x00, ...wasmUleb128(mainFuncIndex)]];
 
   if (batchTypeIdx !== undefined) {
     exportEntries.push([...wasmStrBytes("batch"), 0x00, ...wasmUleb128(mainFuncIndex + 1)]);
   }
 
+  /** Section id 7, Export. */
   const exportSection = wasmSection(7, wasmVec(exportEntries));
 
+  /**
+   * Each local group is `[count, type]` — a run of `count` consecutive
+   * locals sharing one type, which is why every group here is
+   * `wasmUleb128(1)` (one local at a time): this compiler never merges
+   * same-typed locals into a single run, only ever declares a fresh
+   * one-local group per slot.
+   */
   const localsDecl = wasmVec(localSlots.map((name) => [...wasmUleb128(1), wasmTypeOf(localType.get(name)!)]));
   const funcBody = [...localsDecl, ...code, WASM_OP.end];
+  /**
+   * A code entry is prefixed with its own byte length (not a `wasmVec`
+   * count — a decoder skips a whole function body it doesn't want to
+   * parse), then the local declarations and the instruction bytes
+   * themselves.
+   */
   const codeEntries = [[...wasmUleb128(funcBody.length), ...funcBody]];
 
   if (batchFuncBody !== undefined) {
     codeEntries.push([...wasmUleb128(batchFuncBody.length), ...batchFuncBody]);
   }
 
+  /**
+   * Section id 10, Code — one entry per function declared in the Function
+   * section above, in the same order, each holding that function's locals
+   * and its actual instruction bytes.
+   */
   const codeSection = wasmSection(10, wasmVec(codeEntries));
 
+  /**
+   * The module: an 8-byte header, then the sections built above. Sections
+   * are self-delimiting (each carries its own byte length, from
+   * {@link wasmSection}) and, while the spec allows most orderings, a
+   * decoder expects known section ids ascending — hence Type/Import/
+   * Function/Export/Code here, skipping the ids (Table, Memory, Global,
+   * Start, Element) this compiler never emits.
+   */
   // prettier-ignore
   const bytes = new Uint8Array([
-    // "\0asm" magic
-    0x00, 0x61, 0x73, 0x6d,
-    // version 1 (u32, little-endian)
-    0x01, 0x00, 0x00, 0x00,
-    ...typeSection,
-    ...importSection,
-    ...funcSection,
-    ...exportSection,
-    ...codeSection,
+    0x00, 0x61, 0x73, 0x6d, // magic number: "\0asm"
+    0x01, 0x00, 0x00, 0x00, // version 1, as a little-endian u32 (the only version that has ever existed)
+    ...typeSection,         // section id 1: function signatures (params + result types)
+    ...importSection,       // section id 2: the memory import (and any math-function imports)
+    ...funcSection,         // section id 3: which type index each of this module's own functions has
+    ...exportSection,       // section id 7: the entry point(s) a host can call, by name
+    ...codeSection,         // section id 10: each function's locals + instruction bytes
   ]);
 
   return {
@@ -1161,7 +1084,7 @@ export function compileWasmFn(
               metadataAddress: addr,
             });
           }
-        } else if (isAggregate(v.shaderType)) {
+        } else if (isAggregate(v.shaderType) || options.scalarsInMemory) {
           if (!uniformAddress.has(v.slot)) {
             const addr = allocateFor(v.shaderType);
             uniformAddress.set(v.slot, addr);
@@ -1227,7 +1150,7 @@ export function compileWasmFn(
 
       case "attribute": {
         const v = node.value;
-        if (isAggregate(v.shaderType)) {
+        if (isAggregate(v.shaderType) || options.scalarsInMemory) {
           if (!attributeAddress.has(v.slot)) {
             const addr = allocateFor(v.shaderType);
             attributeAddress.set(v.slot, addr);
@@ -1243,7 +1166,7 @@ export function compileWasmFn(
         // Like `attribute`, but always memory-backed (never a plain param)
         // since a read_write/write storage has to be readable back after the
         // call — one call per element, marshalled from/to
-        // `ctx.storages[slot][ctx.index]` (see instantiateWasm).
+        // `ctx.storages[slot][ctx.index]` (see instantiateWasmRoutine).
         const v = node.value;
         if (!storageAddress.has(v.slot)) {
           const addr = allocateFor(v.shaderType);
@@ -1269,7 +1192,7 @@ export function compileWasmFn(
         const v = node.value;
         if (effectiveStage === "fragment") {
           // fragment: varyings are per-call inputs, written by the host
-          if (isAggregate(v.shaderType)) {
+          if (isAggregate(v.shaderType) || options.scalarsInMemory) {
             if (!varyingAddress.has(v.slot)) {
               const addr = allocateFor(v.shaderType);
               varyingAddress.set(v.slot, addr);
@@ -1392,18 +1315,29 @@ export function compileWasmFn(
     if (Array.isArray(node.params)) for (const p of node.params) collect(p);
   }
 
+  /**
+   * WASM local index of a scalar `let`-bound variable, offset past the
+   * function's own params (WASM indexes locals after params).
+   */
   function localSlotIndex(varName: string): number {
     const i = localIndex.get(varName);
     if (i === undefined) throw new Error(`[RMSL] compileWasmFn: read of undeclared var "${varName}"`);
-    return params.length + i; // WASM indexes locals after the params, hence + params.length
+    return params.length + i;
   }
 
+  /**
+   * WASM param index of a scalar uniform/attribute/varying/param, keyed
+   * the same way `addParam` deduped it.
+   */
   function paramSlotIndex(key: string): number {
     const i = paramIndex.get(key);
     if (i === undefined) throw new Error(`[RMSL] compileWasmFn: internal error, unindexed slot "${key}"`);
     return i;
   }
 
+  /**
+   * Emits a `call` to a math/transcendental import by name (`sin`, `pow`, ...).
+   */
   function callImport(name: string): number[] {
     return [WASM_OP.call, ...wasmUleb128(importIndexOf.get(name)!)];
   }
@@ -1553,7 +1487,7 @@ export function compileWasmFn(
       case "fragCoord":
       case "storage":
       // Already resident at nodeAddress(node) — the host wrote it there (see
-      // "storageMemory" in instantiateWasm) before this call.
+      // "storageMemory" in instantiateWasmRoutine) before this call.
       case "storageElement":
         return [];
       case "varying":
@@ -1702,6 +1636,10 @@ export function compileWasmFn(
     );
   }
 
+  /**
+   * Stores an all-zero aggregate value at `addr`, for a derivative node
+   * compiled under `{ derivatives: "zero" }`.
+   */
   function emitDerivativeZeroStores(node: any, addr: number): number[] {
     assertDerivativesAllowed(node);
     const kind = elementKindOf(node._t as string);
@@ -1716,7 +1654,7 @@ export function compileWasmFn(
 
   /**
    * textureSize(): copies width/height(/depth) out of the metadata block as
-   * uints. No 2D/3D restriction — valid for cube too, matching compileJS.
+   * uints. No 2D/3D restriction — valid for cube too, matching compileJSRoutine.
    */
   function emitTextureSizeStores(node: any, addr: number): number[] {
     const metaAddr = textureMetadataAddress.get(node.params[0].value.slot);
@@ -2174,6 +2112,10 @@ export function compileWasmFn(
     ];
   }
 
+  /**
+   * Stores a multi-component swizzle (`v.xyz`, `v.rgba`, ...) at `addr`,
+   * one source component load per destination component, in pattern order.
+   */
   function emitSwizzleStores(node: any, addr: number): number[] {
     const src = node.params[0];
     const pattern = node.value as string;
@@ -2543,9 +2485,13 @@ export function compileWasmFn(
     return selectExpr(walkExpr(a), walkExpr(b), [...walkExpr(a), ...walkExpr(b), cmp]);
   }
 
+  /**
+   * Scalar `smoothstep(e0, e1, x)`: clamps `t = (x-e0)/(e1-e0)` to `[0,1]`,
+   * then returns `t^2 * (3 - 2t)`.
+   */
   function emitSmoothstepValue(e0Bytes: number[], e1Bytes: number[], xBytes: number[]): number[] {
-    // result is t^2 * (3 - 2t). localTee caches the clamped t in the shared
-    // $smoothstep_t local so the caller's x bytes are never re-evaluated.
+    // localTee caches the clamped t in the shared $smoothstep_t local so
+    // the caller's x bytes are never re-evaluated.
     const tSlot = localSlotIndex("$smoothstep_t");
     const rawT = [...xBytes, ...e0Bytes, WASM_OP.f64Sub, ...e1Bytes, ...e0Bytes, WASM_OP.f64Sub, WASM_OP.f64Div];
     const clampedT = minMaxBytes(minMaxBytes(rawT, f64ConstBytes(0), "float", "max"), f64ConstBytes(1), "float", "min");
@@ -2583,10 +2529,16 @@ export function compileWasmFn(
           return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`param:${node.value.varName}`))];
         }
         return [WASM_OP.localGet, ...wasmUleb128(localSlotIndex(node.value.varName))];
-      case "uniform":
+      case "uniform": {
+        const addr = uniformAddress.get(node.value.slot);
+        if (addr !== undefined) return loadComponent(addr, scalarKindOf(node._t), 0); // scalarsInMemory: memory-resident, not a param
         return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`uniform:${node.value.slot}`))];
-      case "attribute":
+      }
+      case "attribute": {
+        const addr = attributeAddress.get(node.value.slot);
+        if (addr !== undefined) return loadComponent(addr, scalarKindOf(node._t), 0); // scalarsInMemory: memory-resident, not a param
         return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`attribute:${node.value.slot}`))];
+      }
       case "invocationIndex":
         return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex("invocationIndex"))];
       case "storage":
@@ -2598,6 +2550,8 @@ export function compileWasmFn(
         return loadComponent(nodeAddress(node.params[0]), scalarKindOf(node._t), 0);
       case "varying":
         if (effectiveStage === "fragment") {
+          const addr = varyingAddress.get(node.value.slot);
+          if (addr !== undefined) return loadComponent(addr, scalarKindOf(node._t), 0); // scalarsInMemory: memory-resident, not a param
           return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`varying:${node.value.slot}`))];
         }
         return loadComponent(varyingOutputAddress.get(node.value.slot)!, scalarKindOf(node._t), 0); // vertex: re-read our own written output
@@ -3105,7 +3059,10 @@ export function compileWasmFn(
     return storeComponent(valueAddress, scalarKindOf(valueNode._t as string), 0, walkExpr(valueNode));
   }
 
-  // import signatures are shared and deduped: (f64)->f64 and (f64,f64)->f64
+  /**
+   * Type index for `(f64) -> f64`, the shared signature every unary math
+   * import (`sin`, `sqrt`, ...) uses — created once and deduped.
+   */
   function unaryImportTypeIdx(): number {
     if (unaryImportType === null) {
       unaryImportType = typeEntries.length;
@@ -3114,6 +3071,10 @@ export function compileWasmFn(
     return unaryImportType;
   }
 
+  /**
+   * Type index for `(f64, f64) -> f64`, the shared signature every binary
+   * math import (`pow`, `atan2`) uses — created once and deduped.
+   */
   function binaryImportTypeIdx(): number {
     if (binaryImportType === null) {
       binaryImportType = typeEntries.length;
@@ -3128,51 +3089,22 @@ export function compileWasmFn(
  * textures into memory/args, calls the function, and reads results back
  * into a CpuShaderResult.
  *
- * Split out from `compileWasm` so a build-time precompile step (see
+ * Split out from `compileWasmRoutine` so a build-time precompile step (see
  * `precompileWasm` in `../vite/vite.ts`) can ship just the compiled bytes
  * and this instantiation glue — never the graph builder or bytecode
  * emitter that produced them.
  */
-export function instantiateWasm(
-  compiled: CompiledWasm,
-  name: string,
-  externalMemory?: WebAssembly.Memory,
-): CpuRoutine {
-  const { bytes, params, resultType, textureHeapBase, memoryPages, sharedMemory, maxMemoryPages, batch } = compiled;
-
-  // no memory passed in: own one, sized for the compile-time layout, growable
-  // as textures/batch buffers are marshalled in — same behavior as before this
-  // module imported (rather than defined) its memory. Its shared-ness must
-  // match what the module declared at compile time (see `sharedMemory`).
-  const memory =
-    externalMemory ??
-    new WebAssembly.Memory(
-      sharedMemory ? { initial: memoryPages, maximum: maxMemoryPages, shared: true } : { initial: memoryPages },
-    );
-
-  const instance = new WebAssembly.Instance(new WebAssembly.Module(bytes.buffer as ArrayBuffer), {
-    math: Math as unknown as WebAssembly.ModuleImports, // host "math" namespace serving the sin/pow/... imports
-    env: { memory },
-  });
-  const wasmMain = instance.exports[name] as (...args: number[]) => number;
-  const wasmBatch = batch ? (instance.exports.batch as (...args: number[]) => void) : undefined;
-
-  let view = new DataView(memory.buffer);
-
-  // outputs read back after each call; textures repacked per call
-  const outputParams = params.filter(
-    (
-      p,
-    ): p is Extract<
-      WasmParam,
-      { kind: "outputMemory" | "varyingOutputMemory" | "positionMemory" | "fragDepthMemory" | "valueMemory" }
-    > =>
-      p.kind === "outputMemory" ||
-      p.kind === "varyingOutputMemory" ||
-      p.kind === "positionMemory" ||
-      p.kind === "fragDepthMemory" ||
-      p.kind === "valueMemory",
-  );
+/**
+ * Marshals a `CpuShaderContext` into one compiled module's own memory and
+ * scalar args — the shared translation both `instantiateWasmRoutine` (one call per
+ * `invoke()`/`batch()`) and the rasterizer's `compileWasm` (one call per
+ * `draw()`, marshalling the vertex and fragment modules independently) need.
+ */
+export function createWasmInputMarshaller(
+  params: readonly WasmParam[],
+  textureHeapBase: number,
+  memory: WebAssembly.Memory,
+): { marshal(ctx: CpuShaderContext): { args: number[]; textureHeapEnd: number } } {
   const textureParams = params.filter(
     (p): p is Extract<WasmParam, { kind: "textureMemory" }> => p.kind === "textureMemory",
   );
@@ -3185,9 +3117,9 @@ export function instantiateWasm(
   /**
    * Appends each texture's pixels after the compiled layout (growing memory
    * when the total footprint changes) and collects the scalar WASM args.
-   * Returns the heap end — where the batch buffer starts.
+   * Returns the heap end — where a batch buffer/further scratch can start.
    */
-  function marshalInputs(ctx: CpuShaderContext): { args: number[]; textureHeapEnd: number } {
+  function marshal(ctx: CpuShaderContext): { args: number[]; textureHeapEnd: number } {
     let textureHeapEnd = textureHeapBase;
     if (textureParams.length > 0) {
       const textures = textureParams.map((p) => (ctx.textures as any)?.[p.slot] as CpuTextureData);
@@ -3203,15 +3135,18 @@ export function instantiateWasm(
       const needsRepack = lastSizes === null || sizes.some((s, i) => s !== lastSizes![i]);
       if (needsRepack && heapCursor > memory.buffer.byteLength) {
         memory.grow(Math.ceil((heapCursor - memory.buffer.byteLength) / 65536));
-        view = new DataView(memory.buffer); // growing detaches the old buffer, so the view is rebuilt
       }
-      textureParams.forEach((p, i) => {
-        if (!needsRepack && textures[i] === lastTexture[i]) return;
-        writeTextureToMemory(view, p.metadataAddress, heapOffsets[i], textures[i], p.samplerType.endsWith("Cube"));
-        lastTexture[i] = textures[i];
-      });
+      if (needsRepack || textures.some((t, i) => t !== lastTexture[i])) {
+        const view = new DataView(memory.buffer); // fresh in case the grow above just detached the old buffer
+        textureParams.forEach((p, i) => {
+          if (!needsRepack && textures[i] === lastTexture[i]) return;
+          writeTextureToMemory(view, p.metadataAddress, heapOffsets[i], textures[i], p.samplerType.endsWith("Cube"));
+          lastTexture[i] = textures[i];
+        });
+      }
       lastSizes = sizes;
     }
+    const view = new DataView(memory.buffer);
     const args: number[] = [];
     for (const p of params) {
       switch (p.kind) {
@@ -3236,7 +3171,7 @@ export function instantiateWasm(
           writeAggregateToMemory(view, p.address, p.shaderType, (ctx.params as any)?.[p.name]);
           break;
         case "uniformMemory":
-          writeAggregateToMemory(view, p.address, p.shaderType, (ctx.uniforms as any)?.[p.slot], p.narrow);
+          writeValueToMemory(view, p.address, p.shaderType, (ctx.uniforms as any)?.[p.slot], p.narrow);
           break;
         case "uniformArrayMemory":
           writeArrayToMemory(
@@ -3250,10 +3185,10 @@ export function instantiateWasm(
           );
           break;
         case "attributeMemory":
-          writeAggregateToMemory(view, p.address, p.shaderType, (ctx.attributes as any)?.[p.slot]);
+          writeValueToMemory(view, p.address, p.shaderType, (ctx.attributes as any)?.[p.slot]);
           break;
         case "varyingMemory":
-          writeAggregateToMemory(view, p.address, p.shaderType, (ctx.varyings as any)?.[p.slot]);
+          writeValueToMemory(view, p.address, p.shaderType, (ctx.varyings as any)?.[p.slot]);
           break;
         case "fragCoordMemory":
           // the host's fragCoord for CPU invocations; batch() overwrites it per pixel — harmless
@@ -3269,16 +3204,63 @@ export function instantiateWasm(
     return { args, textureHeapEnd };
   }
 
+  return { marshal };
+}
+
+export function instantiateWasmRoutine(compiled: CompiledWasm, name: string, externalMemory?: WebAssembly.Memory): CpuRoutine {
+  const { bytes, params, resultType, textureHeapBase, memoryPages, sharedMemory, maxMemoryPages, batch } = compiled;
+
+  // no memory passed in: own one, sized for the compile-time layout, growable
+  // as textures/batch buffers are marshalled in — same behavior as before this
+  // module imported (rather than defined) its memory. Its shared-ness must
+  // match what the module declared at compile time (see `sharedMemory`).
+  const memory =
+    externalMemory ??
+    new WebAssembly.Memory(
+      sharedMemory ? { initial: memoryPages, maximum: maxMemoryPages, shared: true } : { initial: memoryPages },
+    );
+
+  const instance = new WebAssembly.Instance(new WebAssembly.Module(bytes.buffer as ArrayBuffer), {
+    math: Math as unknown as WebAssembly.ModuleImports, // host "math" namespace serving the sin/pow/... imports
+    env: { memory },
+  });
+  const wasmMain = instance.exports[name] as (...args: number[]) => number;
+  const wasmBatch = batch ? (instance.exports.batch as (...args: number[]) => void) : undefined;
+
+  // outputs read back after each call; textures repacked per call
+  const outputParams = params.filter(
+    (
+      p,
+    ): p is Extract<
+      WasmParam,
+      { kind: "outputMemory" | "varyingOutputMemory" | "positionMemory" | "fragDepthMemory" | "valueMemory" }
+    > =>
+      p.kind === "outputMemory" ||
+      p.kind === "varyingOutputMemory" ||
+      p.kind === "positionMemory" ||
+      p.kind === "fragDepthMemory" ||
+      p.kind === "valueMemory",
+  );
+
+  const { marshal: marshalInputs } = createWasmInputMarshaller(params, textureHeapBase, memory);
+
   const storageOutputParams = params.filter(
     (p): p is Extract<WasmParam, { kind: "storageMemory" }> => p.kind === "storageMemory" && p.access !== "read",
   );
 
+  /**
+   * `CpuRoutine.invoke`: marshals `ctx` into the compiled function's args
+   * and memory, calls it once, and reads back its result (a bare value, or
+   * a `CpuShaderResult` for a stage program — see `marshalInputs`/the
+   * `outputParams` loop below).
+   */
   function invoke(ctx: CpuShaderContext): number | boolean | CpuShaderResult {
     const { args } = marshalInputs(ctx);
     const result = wasmMain(...args);
+    const view = new DataView(memory.buffer); // fresh: marshalInputs may have just grown (and detached) the buffer
 
     // A read_write/write storage() is mutated in the caller's own array at
-    // ctx.index, the same convention compileJS's storage support uses —
+    // ctx.index, the same convention compileJSRoutine's storage support uses —
     // not folded into shaderResult, since the point is the array itself
     // stays the source of truth across calls.
     for (const p of storageOutputParams) {
@@ -3317,10 +3299,16 @@ export function instantiateWasm(
     return shaderResult;
   }
 
+  /**
+   * `CpuRoutine.batch`: marshals `ctx` once, then calls the module's own
+   * `batch` export to render the whole `width x height` grid in one call
+   * (growing the buffer if needed) — see "A whole grid in one call" in
+   * docs/wasm-benchmarks.md for why this exists.
+   */
   function batchInvoke(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
     if (!batch || !wasmBatch) {
       throw new Error(
-        '[RMSL] compileWasm: this function produces no value to render — batch() needs a non-"void" result.',
+        '[RMSL] compileWasmRoutine: this function produces no value to render — batch() needs a non-"void" result.',
       );
     }
     const { args, textureHeapEnd } = marshalInputs(ctx);
@@ -3339,7 +3327,6 @@ export function instantiateWasm(
     const neededBytes = bufferBase + pixelCount * componentSizeOf(batch.kind);
     if (neededBytes > memory.buffer.byteLength) {
       memory.grow(Math.ceil((neededBytes - memory.buffer.byteLength) / 65536));
-      view = new DataView(memory.buffer); // growing detaches the old buffer, so the view is rebuilt
     }
     wasmBatch(...args, width, height, bufferBase);
 
@@ -3365,10 +3352,10 @@ export function instantiateWasm(
   return { invoke, batch: batchInvoke };
 }
 
-/** Compiles an `Fn` to WASM and instantiates it in one step — see `instantiateWasm`. */
-export function compileWasm(
+/** Compiles an `Fn` to WASM and instantiates it in one step — see `instantiateWasmRoutine`. */
+export function compileWasmRoutine(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmFnOptions,
 ): CpuRoutine {
-  return instantiateWasm(compileWasmFn(fn, options), options.name, options.memory);
+  return instantiateWasmRoutine(compileWasmFn(fn, options), options.name, options.memory);
 }

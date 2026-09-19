@@ -1,6 +1,3 @@
-// ========== JS Compiler ==========
-// The third backend: compile a node graph to a JavaScript function that the
-// host can call on the CPU, one fragment at a time.
 import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, var_ } from "../../core";
 import {
   CpuDrawBuffer,
@@ -28,19 +25,6 @@ import {
   withoutSemicolon,
   wrapExpr,
 } from "../shared";
-// ========== JS Compiler ==========
-/**
- * The third backend: compile a node graph to a JavaScript function that the
- * host can call on the CPU, one fragment at a time. Its purpose is screen
- * picking from a ray-marched scene — feed the per-pixel varyings and uniforms
- * into the compiled function and read the colour/depth back, no GPU round-trip.
- *
- * Values are plain numbers (scalars), arrays (vectors) and flat column-major
- * arrays (matrices) — the same representation `wrapValue` and the apps use.
- * Internal `toVar()` variables live in per-program scratch slots outside the
- * callable, and vector/matrix helpers write into a caller-supplied output
- * array, so a per-pixel evaluation allocates nothing beyond the result.
- */
 
 /** Which component each swizzle accessor names, in all three spellings. */
 export const JS_COMPONENT_INDEX: Record<string, number> = {
@@ -1782,7 +1766,7 @@ export type CompileJSOptions = CompileFnOptions & {
  */
 /**
  * `compileJSFn`'s real body, also handing back the root node's result type —
- * needed by `compileJS`'s `batch()` and computed here, from the one time `fn`
+ * needed by `compileJSRoutine`'s `batch()` and computed here, from the one time `fn`
  * is actually called. A second call to read it back afterward is not an
  * option: `fn` routinely has side effects on the caller's own closure (the
  * `let tex; Fn(() => { tex = uniform(...); ... })` idiom this whole test
@@ -1883,11 +1867,11 @@ export function compileJSFn(
  * one starts — for screen picking one call per click that is the point. Pass
  * `{ reentrant: true }` for per-call bindings instead.
  *
- * Also carries `batch()`, the same whole-image entry point `compileWasm`'s
+ * Also carries `batch()`, the same whole-image entry point `compileWasmRoutine`'s
  * result has: one JS call per pixel, feeding `fragCoord` in and packing every
  * result into one flat row-major buffer — see `CpuRoutine`.
  */
-export function compileJS(
+export function compileJSRoutine(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
 ): CpuRoutine {
@@ -1897,7 +1881,7 @@ export function compileJS(
 
   function batch(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
     if (resultType === undefined) {
-      throw new Error("[RMSL] compileJS: this function produces no value to render — batch() needs a result.");
+      throw new Error("[RMSL] compileJSRoutine: this function produces no value to render — batch() needs a result.");
     }
     const componentCount = componentCountOf(resultType);
     const kind = isAggregate(resultType) ? elementKindOf(resultType) : scalarKindOf(resultType);
@@ -1912,7 +1896,7 @@ export function compileJS(
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         // pixel centers land at (x + 0.5, y + 0.5) — the same convention
-        // compileWasm's batch() and fragCoordMemory in wasm.ts use.
+        // compileWasmRoutine's batch() and fragCoordMemory in wasm.ts use.
         const result = invoke({ ...ctx, fragCoord: [x + 0.5, y + 0.5] });
         const raw =
           typeof result === "object" && result !== null && "value" in result

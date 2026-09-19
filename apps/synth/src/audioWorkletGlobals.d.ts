@@ -1,6 +1,3 @@
-// Minimal ambient types for the AudioWorkletGlobalScope — TypeScript's DOM
-// lib doesn't ship these, and pulling in the full "audioworklet" lib just
-// for one small processor file isn't worth the config churn.
 declare const sampleRate: number;
 declare function registerProcessor(
   name: string,

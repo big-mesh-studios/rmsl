@@ -1,5 +1,5 @@
 {
-  "name": "ecs",
+  "name": "compute",
   "private": true,
   "type": "module",
   "scripts": {

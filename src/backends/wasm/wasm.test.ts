@@ -1,27 +1,6 @@
-/**
- * Evaluates the WASM (CPU) backend in-process.
- *
- * Unlike the JS backend in js.test.ts, this one is not yet part of the
- * DSL's breadth — it covers the op set ROADMAP.md's Phase 1 and Phase 2
- * describe: scalar float/int/uint/bool arithmetic and casts, function
- * params, float/vec3 uniforms, `If`/`Else`, and vec3 `dot`. Cases here check
- * `compileWasm` against `compileJS` directly rather than through the shared
- * shader-eval recording, since a WASM case using an op this backend doesn't
- * support yet would fail the other backends' replay for the wrong reason.
- *
- * Comparisons involving `uint` are the one place this backend's coverage can
- * diverge from `compileJS` on purpose: the JS backend computes every
- * declared type as a plain JS number, so a uint holding a value above
- * 2^31-1 compares correctly as a large positive number, while a naive WASM
- * int comparison reading the same bit pattern as signed would see a negative
- * one. Phase 2 threads the unsigned opcode variant through for exactly this
- * reason — the tests below with a uint above that boundary are checking that
- * distinction, not just parroting compileJS.
- */
-
 import { describe, it, expect } from "vitest";
-import { compileWasm, compileWasmFn, instantiateWasm } from "../../wasm";
-import { compileJS } from "../../js";
+import { compileWasmRoutine, compileWasmFn, instantiateWasmRoutine } from "../../wasm";
+import { compileJSRoutine } from "../../js";
 import {
   Fn,
   If,
@@ -82,7 +61,7 @@ function run(
   types: ShaderType[] = [],
 ): number | boolean {
   const params = args.map((_, i) => ({ name: `a${i}`, type: types[i] ?? ("float" as const) }));
-  const fn = compileWasm(build, { name: "main", params });
+  const fn = compileWasmRoutine(build, { name: "main", params });
   return fn.invoke({ params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) }) as number | boolean;
 }
 
@@ -100,7 +79,7 @@ describe("WASM backend: scalar arithmetic", () => {
       u = uniform("float");
       return u.mul(2);
     };
-    const fn = compileWasm(build, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build, { name: "main", params: [] });
     expect(fn.invoke({ uniforms: { [u.name]: 21 } })).toBe(42);
   });
 
@@ -111,7 +90,7 @@ describe("WASM backend: scalar arithmetic", () => {
       let last = float(2.0).toVar();
       return [side, last];
     };
-    const fn = compileWasm(Fn(build) as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(Fn(build) as any, { name: "main", params: [] });
     expect(fn.invoke({})).toBe(2);
   });
 
@@ -120,7 +99,7 @@ describe("WASM backend: scalar arithmetic", () => {
     // aggregate root goes through `needsResult` mode automatically —
     // this is what lets a per-pixel `vec4` color work with `.draw()` (see
     // that describe block below) with no stage/output() involved at all.
-    const fn = compileWasm(() => vec3(1, 2, 3) as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(() => vec3(1, 2, 3) as any, { name: "main", params: [] });
     const result = fn.invoke({}) as any;
     expect(result.value).toEqual([1, 2, 3]);
   });
@@ -131,7 +110,7 @@ describe("WASM backend: scalar arithmetic", () => {
       arr = uniformArray("float", 4);
       return arr.element(int(1));
     };
-    const fn = compileWasm(build, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build, { name: "main", params: [] });
     expect(fn.invoke({ uniforms: { [arr.name]: [10, 20, 30, 40] } })).toBe(20);
   });
 
@@ -141,7 +120,7 @@ describe("WASM backend: scalar arithmetic", () => {
       arr = uniformArray("bool", 4);
       return arr.element(int(1));
     };
-    const fn = compileWasm(build, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build, { name: "main", params: [] });
     expect(fn.invoke({ uniforms: { [arr.name]: [true, false, true, false] } })).toBe(false);
   });
 });
@@ -153,7 +132,7 @@ describe("WASM backend: uniform arrays", () => {
       arr = uniformArray("vec4", 4);
       return arr.element(int(2)).x;
     };
-    const fn = compileWasm(build, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build, { name: "main", params: [] });
     const values = [
       [0, 0, 0, 0],
       [0, 0, 0, 0],
@@ -169,7 +148,7 @@ describe("WASM backend: uniform arrays", () => {
       arr = uniformArray("vec3", 3);
       return Fn(() => arr.element(int(1)).toVar().x)();
     };
-    const fn = compileWasm(build, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build, { name: "main", params: [] });
     expect(
       fn.invoke({
         uniforms: {
@@ -189,7 +168,7 @@ describe("WASM backend: uniform arrays", () => {
       arr = uniformArray("float", 4);
       return arr.element(2.0);
     };
-    const fn = compileWasm(build, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build, { name: "main", params: [] });
     expect(fn.invoke({ uniforms: { [arr.name]: [10, 20, 30, 40] } })).toBe(30);
   });
 
@@ -210,7 +189,7 @@ describe("WASM backend: uniform arrays", () => {
         return total.x;
       })();
     };
-    const fn = compileWasm(build, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build, { name: "main", params: [] });
     const values = Array.from({ length: 24 }, (_, i) => [i, 0, 0, 0]);
     expect(fn.invoke({ uniforms: { [arr.name]: values } })).toBe(276); // sum of 0..23
   });
@@ -221,7 +200,7 @@ describe("WASM backend: uniform arrays", () => {
       arr = uniformArray("vec3", 3);
       return arr.element(int(1));
     };
-    const fn = compileWasm(build, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build, { name: "main", params: [] });
     const result = fn.invoke({
       uniforms: {
         [arr.name]: [
@@ -311,7 +290,7 @@ describe("WASM backend: clamp, mix, step, smoothstep", () => {
     expect(run((a) => a.step(0.5), [0.5])).toBe(1); // "x < edge", so equal is 1
   });
 
-  it("smoothsteps: clamped, cubic-eased, matching compileJS bit for bit", () => {
+  it("smoothsteps: clamped, cubic-eased, matching compileJSRoutine bit for bit", () => {
     expect(run((a) => a.smoothstep(0, 1), [-0.5])).toBe(0);
     expect(run((a) => a.smoothstep(0, 1), [1.5])).toBe(1);
     expect(run((a) => a.smoothstep(0, 1), [0.5])).toBe(0.5);
@@ -328,33 +307,33 @@ describe("WASM backend: clamp, mix, step, smoothstep", () => {
 
   it("clamps a vector componentwise, operands already broadcast to match by core.ts", () => {
     const build = () => Fn(() => vec3(0.5, -0.5, 1.5).clamp(vec3(0, 0, 0), vec3(1, 1, 1)))();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const result = fn.invoke({}) as any;
     expect(result.value).toEqual([0.5, 0, 1]);
   });
 
   it("mixes a vector with a scalar blend factor, broadcasting it to every component", () => {
     const build = () => Fn(() => vec3(0, 0, 0).mix(vec3(4, 8, 12), float(0.25)))();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     expect((fn.invoke({}) as any).value).toEqual([1, 2, 3]);
   });
 
   it("mixes a vector with a per-component vector blend factor", () => {
     // `.mix()`'s own TS signature only declares a scalar `t` — the runtime
     // (`core.ts`'s own doc comment on `UNIFORM_OPERAND_OPS`, and
-    // `compileJS`'s `_v3mix`) supports a per-component one too, so this is
+    // `compileJSRoutine`'s `_v3mix`) supports a per-component one too, so this is
     // a real, if untyped, case worth covering.
     const build = () => Fn(() => (vec3(0, 0, 0).mix as any)(vec3(4, 8, 12), vec3(0.25, 0.5, 1)))();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     expect((fn.invoke({}) as any).value).toEqual([1, 4, 12]);
   });
 
   it("steps and smoothsteps a vector componentwise", () => {
     const stepBuild = () => Fn(() => vec3(0.2, 0.8, 0.5).step(vec3(0.5, 0.5, 0.5)))();
-    expect((compileWasm(stepBuild as any, { name: "main", params: [] }).invoke({}) as any).value).toEqual([0, 1, 1]);
+    expect((compileWasmRoutine(stepBuild as any, { name: "main", params: [] }).invoke({}) as any).value).toEqual([0, 1, 1]);
 
     const smoothBuild = () => Fn(() => vec3(-0.5, 0.5, 1.5).smoothstep(vec3(0, 0, 0), vec3(1, 1, 1)))();
-    expect((compileWasm(smoothBuild as any, { name: "main", params: [] }).invoke({}) as any).value).toEqual([0, 0.5, 1]);
+    expect((compileWasmRoutine(smoothBuild as any, { name: "main", params: [] }).invoke({}) as any).value).toEqual([0, 0.5, 1]);
   });
 });
 
@@ -406,15 +385,15 @@ describe("WASM backend: transcendentals via host import", () => {
     expect(run((a) => a.exp2(), [10])).toBe(1024);
   });
 
-  it("agrees with compileJS on a transcendental", () => {
-    // Built once: compileWasm and compileJS each call their `fn` argument
+  it("agrees with compileJSRoutine on a transcendental", () => {
+    // Built once: compileWasmRoutine and compileJSRoutine each call their `fn` argument
     // themselves, and a `build` that calls uniform() itself would mint a
     // fresh, differently-named uniform for each backend instead of sharing
     // one, so the graph is built up front and handed to both as `() => node`.
     const u = uniform("float");
     const node = sin(u).mul(u.cos());
-    const wasmFn = compileWasm(() => node, { name: "main", params: [] });
-    const jsFn = compileJS(() => node as any, { name: "main", params: [] });
+    const wasmFn = compileWasmRoutine(() => node, { name: "main", params: [] });
+    const jsFn = compileJSRoutine(() => node as any, { name: "main", params: [] });
     const ctx = { uniforms: { [u.name]: 0.6 } };
     expect(wasmFn.invoke(ctx)).toBeCloseTo(jsFn.invoke(ctx) as number, 9);
   });
@@ -423,7 +402,7 @@ describe("WASM backend: transcendentals via host import", () => {
 describe("WASM backend: int/uint/bool values and casts", () => {
   it("returns int/uint/bool results, and reads int/uint/bool uniforms", () => {
     let iu!: any;
-    const intResult = compileWasm(
+    const intResult = compileWasmRoutine(
       () => {
         iu = uniform("int");
         return iu.add(int(1));
@@ -433,7 +412,7 @@ describe("WASM backend: int/uint/bool values and casts", () => {
     expect(intResult.invoke({ uniforms: { [iu.name]: 5 } })).toBe(6);
 
     let uu!: any;
-    const uintResult = compileWasm(
+    const uintResult = compileWasmRoutine(
       () => {
         uu = uniform("uint");
         return uu.add(uint(1));
@@ -443,7 +422,7 @@ describe("WASM backend: int/uint/bool values and casts", () => {
     expect(uintResult.invoke({ uniforms: { [uu.name]: 5 } })).toBe(6);
 
     let bu!: any;
-    const boolResult = compileWasm(
+    const boolResult = compileWasmRoutine(
       () => {
         bu = uniform("bool");
         return bu.not();
@@ -462,15 +441,15 @@ describe("WASM backend: int/uint/bool values and casts", () => {
     expect(run((a) => a.toInt(), [1], ["bool"])).toBe(1);
   });
 
-  it("agrees with compileJS across an int/uint/bool expression", () => {
+  it("agrees with compileJSRoutine across an int/uint/bool expression", () => {
     const build = (x: Node<"float">) => {
       const asInt = x.toInt();
       const doubled = asInt.mul(int(2));
       return doubled.greaterThan(int(4)).and(bool(true));
     };
     for (const x of [1, 3, -2]) {
-      const wasmFn = compileWasm(build as any, { name: "main", params: [{ name: "x", type: "float" }] });
-      const jsFn = compileJS(build as any, { name: "main", params: [{ name: "x", type: "float" }] });
+      const wasmFn = compileWasmRoutine(build as any, { name: "main", params: [{ name: "x", type: "float" }] });
+      const jsFn = compileJSRoutine(build as any, { name: "main", params: [{ name: "x", type: "float" }] });
       expect(wasmFn.invoke({ params: { x } })).toBe(jsFn.invoke({ params: { x } }));
     }
   });
@@ -645,7 +624,7 @@ describe("WASM backend: loops", () => {
 
   it("throws when Break/Continue appear outside a loop", () => {
     expect(() =>
-      compileWasm(
+      compileWasmRoutine(
         () =>
           Fn(() => {
             Break();
@@ -655,7 +634,7 @@ describe("WASM backend: loops", () => {
       ),
     ).toThrow(/"Break" outside a loop/);
     expect(() =>
-      compileWasm(
+      compileWasmRoutine(
         () =>
           Fn(() => {
             Continue();
@@ -701,7 +680,7 @@ describe("WASM backend: vec3 dot", () => {
       target = uniform("vec3");
       return dir.dot(target);
     };
-    const fn = compileWasm(build, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build, { name: "main", params: [] });
     expect(fn.invoke({ uniforms: { [dir.name]: [1, 2, 3], [target.name]: [4, 5, 6] } })).toBe(32);
   });
 
@@ -722,7 +701,7 @@ describe("WASM backend: vec3 dot", () => {
         });
         return hit;
       })();
-    const fn = compileWasm(build, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build, { name: "main", params: [] });
     const ctx = (d: number[], t: number[], th: number) => ({
       uniforms: { [dir.name]: d, [target.name]: t, [threshold.name]: th },
     });
@@ -871,7 +850,7 @@ describe("WASM backend: componentwise vector arithmetic", () => {
 
 describe("WASM backend: aggregate function params", () => {
   it("reads a vec3 function param via memory, not a WASM arg", () => {
-    const fn = compileWasm((v: any) => v.dot(v), { name: "main", params: [{ name: "v", type: "vec3" }] });
+    const fn = compileWasmRoutine((v: any) => v.dot(v), { name: "main", params: [{ name: "v", type: "vec3" }] });
     expect(fn.invoke({ params: { v: [1, 2, 3] } })).toBe(14);
   });
 });
@@ -884,7 +863,7 @@ describe("WASM backend: cross, length, normalize, distance, reflect", () => {
 
   it("throws for cross() on a non-vec3", () => {
     expect(() =>
-      compileWasm(() => (cross(vec2(1, 0) as any, vec2(0, 1) as any) as any).dot(vec2(0, 1) as any), {
+      compileWasmRoutine(() => (cross(vec2(1, 0) as any, vec2(0, 1) as any) as any).dot(vec2(0, 1) as any), {
         name: "main",
         params: [],
       }),
@@ -942,7 +921,7 @@ describe("WASM backend: matrix×vector and matrix×matrix multiplication", () =>
   it("multiplies non-square matrices at the product shape", () => {
     const a = mat2x3(1, 2, 3, 4, 5, 6);
     const b = mat3x2(1, 0, 0, 1, 1, 1);
-    const fn = compileWasm(() => (a as any).mul(b), { name: "main", params: [] });
+    const fn = compileWasmRoutine(() => (a as any).mul(b), { name: "main", params: [] });
     const result = fn.invoke({}) as { value: number[] };
     // Same product pinned for the JS backend in js.test.ts.
     expect(result.value).toEqual([1, 2, 3, 4, 5, 6, 5, 7, 9]);
@@ -950,22 +929,22 @@ describe("WASM backend: matrix×vector and matrix×matrix multiplication", () =>
 });
 
 describe("WASM backend: derivatives option", () => {
-  it("throws by default, matching compileJS's own message shape", () => {
-    expect(() => compileWasm(() => dFdx(float(1)), { name: "main", params: [] })).toThrow(
+  it("throws by default, matching compileJSRoutine's own message shape", () => {
+    expect(() => compileWasmRoutine(() => dFdx(float(1)), { name: "main", params: [] })).toThrow(
       /dFdx\(\) has no meaning on the CPU target/,
     );
   });
 
   it('evaluates dFdx/dFdy/fwidth as 0 when derivatives: "zero"', () => {
     const options: CompileWasmFnOptions = { name: "main", params: [], derivatives: "zero" };
-    expect(compileWasm(() => dFdx(float(3)), options).invoke({})).toBe(0);
-    expect(compileWasm(() => dFdy(float(3)), options).invoke({})).toBe(0);
-    expect(compileWasm(() => fwidth(float(3)), options).invoke({})).toBe(0);
+    expect(compileWasmRoutine(() => dFdx(float(3)), options).invoke({})).toBe(0);
+    expect(compileWasmRoutine(() => dFdy(float(3)), options).invoke({})).toBe(0);
+    expect(compileWasmRoutine(() => fwidth(float(3)), options).invoke({})).toBe(0);
   });
 
   it('evaluates an aggregate dFdx as a zero vector when derivatives: "zero"', () => {
     const options: CompileWasmFnOptions = { name: "main", params: [], derivatives: "zero" };
-    expect(compileWasm(() => dFdx(vec3(1, 2, 3)).dot(vec3(1, 1, 1)) as any, options).invoke({})).toBe(0);
+    expect(compileWasmRoutine(() => dFdx(vec3(1, 2, 3)).dot(vec3(1, 1, 1)) as any, options).invoke({})).toBe(0);
   });
 });
 
@@ -973,8 +952,8 @@ describe("WASM backend: reentrant option accepted as a no-op", () => {
   it("compiles and runs identically whether reentrant is set or not", () => {
     const build = (a: Node<"float">) => a.mul(2);
     const params = [{ name: "a", type: "float" as const }];
-    const plain = compileWasm(build as any, { name: "main", params });
-    const reentrant = compileWasm(build as any, { name: "main", params, reentrant: true });
+    const plain = compileWasmRoutine(build as any, { name: "main", params });
+    const reentrant = compileWasmRoutine(build as any, { name: "main", params, reentrant: true });
     expect(plain.invoke({ params: { a: 21 } })).toBe(42);
     expect(reentrant.invoke({ params: { a: 21 } })).toBe(42);
   });
@@ -984,24 +963,24 @@ describe("WASM backend: input direction (attribute/varying/fragCoord)", () => {
   it("reads scalar and aggregate attributes", () => {
     const a = attribute("float");
     const b = attribute("vec3");
-    const fn = compileWasm(() => a.add(b.dot(b)) as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(() => a.add(b.dot(b)) as any, { name: "main", params: [] });
     expect(fn.invoke({ attributes: { [a.name]: 10, [b.name]: [1, 2, 3] } })).toBe(24); // 10 + (1+4+9)
   });
 
   it("reads a varying in the default (fragment) stage", () => {
     const v = varying("vec2");
-    const fn = compileWasm(() => v.x.add(v.y) as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(() => v.x.add(v.y) as any, { name: "main", params: [] });
     expect(fn.invoke({ varyings: { [v.name]: [3, 4] } })).toBe(7);
   });
 
   it("reads fragCoord, defaulting to [0, 0]", () => {
-    const fn = compileWasm(() => fragCoord().x.add(fragCoord().y) as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(() => fragCoord().x.add(fragCoord().y) as any, { name: "main", params: [] });
     expect(fn.invoke({ fragCoord: [5, 6] })).toBe(11);
     expect(fn.invoke({})).toBe(0);
   });
 
   it("throws for fragCoord() in a vertex stage", () => {
-    expect(() => compileWasm(() => fragCoord().x as any, { name: "main", params: [], stage: "vertex" })).toThrow(
+    expect(() => compileWasmRoutine(() => fragCoord().x as any, { name: "main", params: [], stage: "vertex" })).toThrow(
       /fragCoord\(\) can only be used in fragment shaders/,
     );
   });
@@ -1017,7 +996,7 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
         idOut.assign(float(7));
         return float(42);
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const result = fn.invoke({}) as any;
     const values = Object.values(result.outputs as Record<string, unknown>);
     expect(values).toContainEqual([1, 0, 0, 1]);
@@ -1034,7 +1013,7 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
         bOut.assign(bool(true));
         return float(1);
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const result = fn.invoke({}) as any;
     const values = Object.values(result.outputs as Record<string, unknown>);
     expect(values).toContainEqual(7);
@@ -1051,12 +1030,12 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
         p.assign(vec4(0, 0, 0, 1));
         return p;
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [], stage: "vertex" });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [], stage: "vertex" });
     const result = fn.invoke({}) as any;
     expect(Object.values(result.varyings as Record<string, unknown>)).toEqual([9]);
   });
 
-  it("writes position and a varying in a vertex stage, matching compileJS's own test", () => {
+  it("writes position and a varying in a vertex stage, matching compileJSRoutine's own test", () => {
     const build = () =>
       Fn(() => {
         const v = varying("vec3");
@@ -1065,7 +1044,7 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
         p.assign(vec4(0, 0, 0, 1));
         return p;
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [], stage: "vertex" });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [], stage: "vertex" });
     const result = fn.invoke({}) as any;
     expect(result.position).toEqual([0, 0, 0, 1]);
     expect(Object.values(result.varyings as Record<string, unknown>)).toEqual([[1, 2, 3]]);
@@ -1073,7 +1052,7 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
 
   it("treats a plain vec4 result as the implicit position when builtinPosition() is never used", () => {
     const build = () => Fn(() => vec4(5, 6, 7, 8))();
-    const fn = compileWasm(build as any, { name: "main", params: [], stage: "vertex" });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [], stage: "vertex" });
     const result = fn.invoke({}) as any;
     expect(result.position).toEqual([5, 6, 7, 8]);
     expect(result.value).toBeUndefined();
@@ -1085,7 +1064,7 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
         builtinPosition().assign(vec4(1, 2, 3, 4));
         return float(0);
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [], stage: "vertex" });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [], stage: "vertex" });
     const result = fn.invoke({}) as any;
     expect(result.position).toEqual([1, 2, 3, 4]);
     expect(result.value).toBe(0);
@@ -1093,7 +1072,7 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
 
   it("throws when a vertex stage's result is neither vec4 nor paired with a written position", () => {
     const build = () => Fn(() => float(0))();
-    expect(() => compileWasm(build as any, { name: "main", params: [], stage: "vertex" })).toThrow(
+    expect(() => compileWasmRoutine(build as any, { name: "main", params: [], stage: "vertex" })).toThrow(
       /vertex shader has to produce a position/,
     );
   });
@@ -1104,7 +1083,7 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
         builtinFragDepth().assign(float(0.25));
         return float(1);
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const result = fn.invoke({}) as any;
     expect(result.fragDepth).toBe(0.25);
     expect(result.value).toBe(1);
@@ -1116,7 +1095,7 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
         builtinFragDepth().assign(float(0));
         return float(0);
       })();
-    expect(() => compileWasm(build as any, { name: "main", params: [], stage: "vertex" })).toThrow(
+    expect(() => compileWasmRoutine(build as any, { name: "main", params: [], stage: "vertex" })).toThrow(
       /builtinFragDepth\(\) can only be used in fragment shaders/,
     );
   });
@@ -1127,11 +1106,11 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
         builtinPosition().assign(vec4(0, 0, 0, 1));
         return builtinPosition().x;
       })();
-    expect(() => compileWasm(build as any, { name: "main", params: [] })).toThrow(/fragment stage cannot read it/);
+    expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrow(/fragment stage cannot read it/);
   });
 });
 
-describe("WASM backend: texture uniforms (Phase 6 — metadata plumbing)", () => {
+describe("WASM backend: texture uniforms", () => {
   it("reads a sampler2D texture's dimensions via textureSize()", () => {
     const tex = uniform("sampler2D");
     const build = () =>
@@ -1139,7 +1118,7 @@ describe("WASM backend: texture uniforms (Phase 6 — metadata plumbing)", () =>
         const s = textureSize(tex).toVar();
         return s.x.add(s.y);
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const result = fn.invoke({ textures: { [tex.name]: { data: new Float32Array(4 * 3), width: 4, height: 3 } } });
     expect(result).toBe(7);
   });
@@ -1151,7 +1130,7 @@ describe("WASM backend: texture uniforms (Phase 6 — metadata plumbing)", () =>
         const s = textureSize(tex).toVar();
         return s.x.add(s.y).add(s.z);
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const result = fn.invoke({
       textures: { [tex.name]: { data: new Float32Array(2 * 3 * 4), width: 2, height: 3, depth: 4 } },
     });
@@ -1161,7 +1140,7 @@ describe("WASM backend: texture uniforms (Phase 6 — metadata plumbing)", () =>
   it("grows WASM memory to fit a larger texture across calls without corrupting metadata", () => {
     const tex = uniform("sampler2D");
     const build = () => Fn(() => textureSize(tex).x)();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     expect(fn.invoke({ textures: { [tex.name]: { data: new Float32Array(4 * 4), width: 4, height: 4 } } })).toBe(4);
     // A much larger texture forces `memory.grow` — must not corrupt the
     // compile-time-fixed metadata address or throw.
@@ -1173,7 +1152,7 @@ describe("WASM backend: texture uniforms (Phase 6 — metadata plumbing)", () =>
   it("keeps sampling correctly across repeated calls with the same texture object (the cached, skip-the-copy path)", () => {
     const tex = uniform("sampler2D");
     const build = () => Fn(() => textureLoad(tex, ivec2(1, 0)).x)();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const texture = { data: [10, 20], width: 2, height: 1, channels: 1 as const };
     // Same object reference every call — after the first, the wrapper skips
     // re-copying it entirely, so this also checks that skip never leaves a
@@ -1186,7 +1165,7 @@ describe("WASM backend: texture uniforms (Phase 6 — metadata plumbing)", () =>
   it("picks up a different, same-size texture bound to the same slot", () => {
     const tex = uniform("sampler2D");
     const build = () => Fn(() => textureLoad(tex, ivec2(1, 0)).x)();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const first = { data: [10, 20], width: 2, height: 1, channels: 1 as const };
     const second = { data: [10, 99], width: 2, height: 1, channels: 1 as const };
     expect(fn.invoke({ textures: { [tex.name]: first } })).toBe(20);
@@ -1199,17 +1178,17 @@ describe("WASM backend: texture uniforms (Phase 6 — metadata plumbing)", () =>
   it("does not notice a texture's data mutated in place without swapping the object — a known, deliberate limitation of the reference-equality cache", () => {
     const tex = uniform("sampler2D");
     const build = () => Fn(() => textureLoad(tex, ivec2(1, 0)).x)();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const texture = { data: [10, 20], width: 2, height: 1, channels: 1 as const };
     expect(fn.invoke({ textures: { [tex.name]: texture } })).toBe(20);
     texture.data[1] = 55; // mutated in place — same object reference
     expect(fn.invoke({ textures: { [tex.name]: texture } })).toBe(20); // stale on purpose
   });
 
-  it("supports textureSize() for a samplerCube uniform, matching compileJS's own lack of restriction there", () => {
+  it("supports textureSize() for a samplerCube uniform, matching compileJSRoutine's own lack of restriction there", () => {
     const tex = uniform("samplerCube");
     const build = () => Fn(() => (textureSize as any)(tex).x)();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     expect(fn.invoke({ textures: { [tex.name]: { data: new Float32Array(4 * 4 * 6), width: 4, height: 4 } } })).toBe(4);
   });
 });
@@ -1226,7 +1205,7 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
         const v = textureLoad(tex, ivec2(1, 0)).toVar();
         return v.x.mul(1).add(v.y.mul(10)).add(v.z.mul(100)).add(v.w.mul(1000));
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const result = fn.invoke({ textures: { [tex.name]: { data: checkerData, width: 2, height: 2 } } });
     expect(result).toBe(2 + 30 + 500 + 7000);
   });
@@ -1238,7 +1217,7 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
         const v = textureLoad(tex, ivec2(5, 5)).toVar();
         return v.x.mul(1).add(v.y.mul(10)).add(v.z.mul(100)).add(v.w.mul(1000));
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const result = fn.invoke({ textures: { [tex.name]: { data: checkerData, width: 2, height: 2 } } });
     expect(result).toBe(0);
   });
@@ -1250,7 +1229,7 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
         const v = textureLoad(tex, ivec2(-1, 0)).toVar();
         return v.x.mul(1).add(v.y.mul(10)).add(v.z.mul(100)).add(v.w.mul(1000));
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const result = fn.invoke({ textures: { [tex.name]: { data: checkerData, width: 2, height: 2 } } });
     expect(result).toBe(0);
   });
@@ -1262,7 +1241,7 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
         const v = textureLoad(tex, ivec2(1, 0)).toVar();
         return v.x.mul(1).add(v.y.mul(10)).add(v.z.mul(100)).add(v.w.mul(1000));
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const result = fn.invoke({ textures: { [tex.name]: { data: [42, 84], width: 2, height: 1, channels: 1 } } });
     expect(result).toBe(84 + 0 + 0 + 1000);
   });
@@ -1270,7 +1249,7 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
   it("divides a Uint8Array-backed texture's value by 255 (unorm)", () => {
     const tex = uniform("sampler2D");
     const build = () => Fn(() => textureLoad(tex, ivec2(0, 0)).x)();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const result = fn.invoke({ textures: { [tex.name]: { data: new Uint8Array([128]), width: 1, height: 1, channels: 1 } } });
     expect(result).toBeCloseTo(128 / 255, 10);
   });
@@ -1278,7 +1257,7 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
   it("fetches a signed integer sampler's raw value with no division", () => {
     const tex = uniform("isampler2D");
     const build = () => Fn(() => textureLoad(tex, ivec2(1, 0)).x)();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const result = fn.invoke({ textures: { [tex.name]: { data: [100, -50], width: 2, height: 1, channels: 1 } } });
     expect(result).toBe(-50);
   });
@@ -1286,7 +1265,7 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
   it("fetches an unsigned integer sampler's value above the int32 range correctly", () => {
     const tex = uniform("usampler2D") as any;
     const build = () => Fn(() => (textureLoad(tex, ivec2(0, 0) as any) as any).x)();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const result = fn.invoke({ textures: { [tex.name]: { data: [4000000000], width: 1, height: 1, channels: 1 } } });
     expect(result).toBe(4000000000);
   });
@@ -1294,7 +1273,7 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
   it("fetches from a sampler3D texture", () => {
     const tex = uniform("sampler3D");
     const build = () => Fn(() => textureLoad(tex, ivec3(1, 0, 1)).x)();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     // width=2, height=1, depth=2, 1 channel: index (z*height+y)*width+x.
     // (1,0,1) -> (1*1+0)*2+1 = 3.
     const data = [10, 20, 30, 40];
@@ -1305,7 +1284,7 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
   it("throws for a samplerCube uniform", () => {
     const tex = uniform("samplerCube") as any;
     const build = () => Fn(() => textureLoad(tex, ivec2(0, 0) as any).x)();
-    expect(() => compileWasm(build as any, { name: "main", params: [] })).toThrow(/sampler2D\/sampler3D/);
+    expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrow(/sampler2D\/sampler3D/);
   });
 });
 
@@ -1325,7 +1304,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
         tex = uniform("sampler2D");
         return checksum4(tex.texture(vec2(0.5, 0.5)).toVar());
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     // 2x2 RGBA; uv (0.5, 0.5) -> texel (1, 1).
     const data = [1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4];
     expect(fn.invoke({ textures: { [tex.name]: { data, width: 2, height: 2 } } })).toBe(4 + 40 + 400 + 4000);
@@ -1338,7 +1317,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
         tex = uniform("sampler2D");
         return checksum4(tex.texture(vec2(0.5, 0.5)).toVar());
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const data = new Uint8Array([0, 128, 255, 255]);
     const result = fn.invoke({ textures: { [tex.name]: { data, width: 1, height: 1 } } }) as number;
     expect(result).toBeCloseTo(0 + (128 / 255) * 10 + 1 * 100 + 1 * 1000, 9);
@@ -1351,7 +1330,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
         tex = uniform("sampler2D");
         return checksum4(tex.texture(vec2(0.5, 0.5)).toVar());
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const data = new Float32Array([0, 0.5, 1, 1]);
     const result = fn.invoke({ textures: { [tex.name]: { data, width: 1, height: 1 } } }) as number;
     expect(result).toBeCloseTo(0 + 0.5 * 10 + 1 * 100 + 1 * 1000, 9);
@@ -1364,7 +1343,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
         tex = uniform("isampler2D");
         return checksum4(tex.texture(ivec2(1, 0)).toVar());
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
     expect(fn.invoke({ textures: { [tex.name]: { data, width: 2, height: 2 } } })).toBe(5 + 60 + 700 + 8000);
   });
@@ -1376,7 +1355,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
         tex = uniform("usampler2D");
         return checksum4(tex.texture(ivec2(2, 0)).toVar());
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const data = new Uint8Array([10, 20, 30, 40]);
     const result = fn.invoke({ textures: { [tex.name]: { data, width: 4, height: 1, channels: 1 } } });
     expect(result).toBe(30 + 0 + 0 + 1000);
@@ -1389,7 +1368,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
         tex = uniform("sampler2D");
         return checksum4(tex.texture(vec2(0.5, 0.5)).toVar());
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const texture = { data: [0, 100], width: 2, height: 1, channels: 1 as const };
     expect(fn.invoke({ textures: { [tex.name]: texture } })).toBe(100 + 0 + 0 + 1000);
     expect(fn.invoke({ textures: { [tex.name]: { ...texture, magFilter: "linear" as const } } })).toBe(50 + 0 + 0 + 1000);
@@ -1402,7 +1381,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
         tex = uniform("sampler2D");
         return checksum4(tex.textureLod(vec2(0.5, 0.5), float(0)).toVar());
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const data = new Uint8Array([0, 128, 255, 255]);
     const result = fn.invoke({ textures: { [tex.name]: { data, width: 1, height: 1 } } }) as number;
     expect(result).toBeCloseTo(0 + (128 / 255) * 10 + 1 * 100 + 1 * 1000, 9);
@@ -1415,7 +1394,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
         tex = uniform("sampler2D");
         return tex.texture(vec2(0.5, 0.5)).x;
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     // Two texels, 0 and 100, whose centres sit at 0.25 and 0.75. Sampling
     // halfway between them lands in the second texel outright without
     // filtering, and is half of each with it.
@@ -1432,7 +1411,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
         tex = uniform("sampler2D");
         return tex.texture(vec2(1.25, 0.5)).x;
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const texture = { data: [10, 10, 10, 10, 20, 20, 20, 20], width: 2, height: 1 };
     const red = (t: any) => fn.invoke({ textures: { [tex.name]: t } });
     // A quarter past the right edge: the last texel stretched, the image
@@ -1449,7 +1428,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
         tex = uniform("sampler2D");
         return tex.texture(vec2(-0.25, 0.5)).x;
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const texture = { data: [10, 10, 10, 10, 20, 20, 20, 20], width: 2, height: 1 };
     const red = (t: any) => fn.invoke({ textures: { [tex.name]: t } });
     expect(red(texture)).toBe(10);
@@ -1464,7 +1443,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
         tex = uniform("sampler3D");
         return tex.texture(vec3(0.5, 0.5, 0.5)).x;
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     // Two slices, 0 and 100, sampled halfway between their centres.
     const texture = {
       data: [0, 0, 0, 0, 100, 100, 100, 100],
@@ -1488,7 +1467,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
           tex = uniform("samplerCube");
           return checksum4(tex.texture(vec3(dx, dy, dz)).toVar());
         })();
-      const fn = compileWasm(build as any, { name: "main", params: [] });
+      const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
       return fn.invoke({ textures: { [tex.name]: texture } }) as number;
     };
 
@@ -1511,7 +1490,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
     // closure's side effect between two separate compile calls would leave
     // the second compile's uniform name overwriting the first's.
     let wasmTex!: any;
-    const wasmFn = compileWasm(
+    const wasmFn = compileWasmRoutine(
       () =>
         Fn(() => {
           wasmTex = uniform("samplerCube");
@@ -1520,7 +1499,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
       { name: "main", params: [] },
     );
     let jsTex!: any;
-    const jsFn = compileJS(
+    const jsFn = compileJSRoutine(
       () =>
         Fn(() => {
           jsTex = uniform("samplerCube");
@@ -1529,7 +1508,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
       { name: "main", params: [] },
     );
     // A vec4 root is an aggregate result: WASM wraps it as { value }, matching
-    // compileWasm's documented shape; JS returns the bare array.
+    // compileWasmRoutine's documented shape; JS returns the bare array.
     const wasmResult = wasmFn.invoke({ textures: { [wasmTex.name]: texture } }) as { value: number[] };
     const jsResult = jsFn.invoke({ textures: { [jsTex.name]: texture } }) as number[];
     expect(wasmResult.value).toEqual(jsResult);
@@ -1542,7 +1521,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
         tex = uniform("isamplerCube");
         return tex.texture(ivec3(0, 0, 0)).x;
       })();
-    expect(() => compileWasm(build as any, { name: "main", params: [] })).toThrow(
+    expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrow(
       /isamplerCube\/usamplerCube aren't supported/,
     );
   });
@@ -1551,7 +1530,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
 describe("WASM backend: .draw() — render a whole grid in one call", () => {
   it("renders a scalar per pixel, fragCoord at pixel centers", () => {
     const build = () => Fn(() => fragCoord().x)();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const out = fn.batch({}, 3, 2);
     expect(out.length).toBe(3 * 2);
     // Row-major, (y*width+x): x+0.5 regardless of row.
@@ -1560,7 +1539,7 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
 
   it("renders both fragCoord axes packed into a vec4 per pixel, with no stage or output() involved", () => {
     const build = () => Fn(() => vec4(fragCoord().x, fragCoord().y, 0, 1))();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const out = fn.batch({}, 2, 2);
     expect(out.length).toBe(2 * 2 * 4);
     expect(Array.from(out)).toEqual([
@@ -1586,14 +1565,14 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
   it("reads a uniform every pixel and reflects a changed uniform on the next call", () => {
     const scale = uniform("float");
     const build = () => Fn(() => fragCoord().x.mul(scale))();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     expect(Array.from(fn.batch({ uniforms: { [scale.name]: 2 } }, 2, 1))).toEqual([1, 3]);
     expect(Array.from(fn.batch({ uniforms: { [scale.name]: 10 } }, 2, 1))).toEqual([5, 15]);
   });
 
   it("picks dimensions per call, not at compile time", () => {
     const build = () => Fn(() => fragCoord().x)();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     expect(Array.from(fn.batch({}, 2, 1))).toEqual([0.5, 1.5]);
     expect(Array.from(fn.batch({}, 4, 1))).toEqual([0.5, 1.5, 2.5, 3.5]);
     expect(Array.from(fn.batch({}, 1, 1))).toEqual([0.5]);
@@ -1602,14 +1581,14 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
   it("the same compiled function still works as a plain single-pixel call — draw() is a choice per call, not a compile mode", () => {
     const scale = uniform("float");
     const build = () => Fn(() => fragCoord().x.mul(scale))();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     expect(fn.invoke({ uniforms: { [scale.name]: 2 }, fragCoord: [3, 0] })).toBe(6);
     expect(Array.from(fn.batch({ uniforms: { [scale.name]: 2 } }, 2, 1))).toEqual([1, 3]);
   });
 
   it("grows memory for a large grid without corrupting earlier pixels", () => {
     const build = () => Fn(() => fragCoord().x.add(fragCoord().y))();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const small = fn.batch({}, 2, 1);
     expect(Array.from(small)).toEqual([1, 2]); // (0.5+0.5), (1.5+0.5)
     const width = 300,
@@ -1625,14 +1604,14 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
       Fn(() => {
         output("float").assign(float(1));
       })();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     expect(() => fn.batch({}, 1, 1)).toThrow(/produces no value to render/);
   });
 
   it("samples a texture correctly during draw(), without colliding with the output buffer", () => {
     const tex = uniform("sampler2D") as any;
     const build = () => Fn(() => textureLoad(tex, ivec2(1, 0)).x.add(fragCoord().x))();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const texture = { data: [10, 99], width: 2, height: 1, channels: 1 as const };
     const out = fn.batch({ textures: { [tex.name]: texture } }, 3, 1);
     // texel(1,0) = 99, plus fragCoord().x per pixel (0.5, 1.5, 2.5).
@@ -1642,7 +1621,7 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
   it("keeps the texture heap and the draw buffer correctly separated across memory growth in both", () => {
     const tex = uniform("sampler2D") as any;
     const build = () => Fn(() => textureLoad(tex, ivec2(0, 0)).x)();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const smallTex = { data: [7], width: 1, height: 1, channels: 1 as const };
     expect(Array.from(fn.batch({ textures: { [tex.name]: smallTex } }, 2, 2))).toEqual([7, 7, 7, 7]);
     // A much bigger texture and a much bigger draw grid together, forcing
@@ -1665,7 +1644,7 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
   it("interleaves a plain texture-sampling call with draw() using the same texture correctly", () => {
     const tex = uniform("sampler2D") as any;
     const build = () => Fn(() => textureLoad(tex, ivec2(0, 0)).x)();
-    const fn = compileWasm(build as any, { name: "main", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const texture = { data: [55], width: 1, height: 1, channels: 1 as const };
     expect(fn.invoke({ textures: { [tex.name]: texture } })).toBe(55);
     expect(Array.from(fn.batch({ textures: { [tex.name]: texture } }, 2, 2))).toEqual([55, 55, 55, 55]);
@@ -1673,8 +1652,8 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
   });
 });
 
-describe("WASM backend: instantiateWasm — compile and instantiate as separate steps", () => {
-  it("compileWasmFn + instantiateWasm behaves exactly like compileWasm", () => {
+describe("WASM backend: instantiateWasmRoutine — compile and instantiate as separate steps", () => {
+  it("compileWasmFn + instantiateWasmRoutine behaves exactly like compileWasmRoutine", () => {
     const build = (a: any, b: any) => a.add(b).mul(2);
     const options = {
       name: "main",
@@ -1684,15 +1663,15 @@ describe("WASM backend: instantiateWasm — compile and instantiate as separate 
       ],
     };
     const compiled = compileWasmFn(build, options);
-    const fn = instantiateWasm(compiled, options.name);
+    const fn = instantiateWasmRoutine(compiled, options.name);
     expect(fn.invoke({ params: { a: 3, b: 4 } })).toBe(14);
   });
 
   it("instantiates the same compiled bytes more than once, independently", () => {
     const build = (a: any) => a.mul(a);
     const compiled = compileWasmFn(build, { name: "square", params: [{ name: "a", type: "float" }] });
-    const first = instantiateWasm(compiled, "square");
-    const second = instantiateWasm(compiled, "square");
+    const first = instantiateWasmRoutine(compiled, "square");
+    const second = instantiateWasmRoutine(compiled, "square");
     expect(first.invoke({ params: { a: 5 } })).toBe(25);
     expect(second.invoke({ params: { a: 6 } })).toBe(36);
     // Independent instances: calling one again doesn't reflect the other's call.
@@ -1702,12 +1681,12 @@ describe("WASM backend: instantiateWasm — compile and instantiate as separate 
   it("draw() still works when instantiated separately from compilation", () => {
     const build = () => Fn(() => fragCoord().x)();
     const compiled = compileWasmFn(build as any, { name: "main", params: [] });
-    const fn = instantiateWasm(compiled, "main");
+    const fn = instantiateWasmRoutine(compiled, "main");
     expect(Array.from(fn.batch({}, 2, 1))).toEqual([0.5, 1.5]);
   });
 
   it("compiles storage()/invocationIndex() into a per-call array-indexed program", () => {
-    // Same per-invocation model as compileJS's storage support: one call per
+    // Same per-invocation model as compileJSRoutine's storage support: one call per
     // element, `ctx.index` naming which one, `ctx.storages` the backing
     // arrays it reads/writes directly.
     let dt!: UniformNode<"float">;
@@ -1719,7 +1698,7 @@ describe("WASM backend: instantiateWasm — compile and instantiate as separate 
         const i = invocationIndex();
         pos.element(i).addAssign(vel.element(i).mul(dt));
       })();
-    const fn = compileWasm(build as any, { name: "step", params: [] });
+    const fn = compileWasmRoutine(build as any, { name: "step", params: [] });
 
     const pos = new Float64Array([0, 10, 20]);
     const vel = new Float64Array([1, 2, 3]);
@@ -1727,5 +1706,93 @@ describe("WASM backend: instantiateWasm — compile and instantiate as separate 
       fn.invoke({ storages: { vel, pos }, uniforms: { [dt.name]: 2 }, index: i });
     }
     expect(Array.from(pos)).toEqual([2, 14, 26]);
+  });
+});
+
+describe("WASM backend: memoryBase — several compiled modules sharing one WebAssembly.Memory", () => {
+  it("keeps each module's compile-time addresses in its own, non-overlapping region", () => {
+    const memory = new WebAssembly.Memory({ initial: 1 });
+    const view = () => new DataView(memory.buffer);
+
+    let vecA!: any;
+    const a = compileWasmRoutine(
+      () => {
+        vecA = uniform("vec3");
+        return vecA.x;
+      },
+      { name: "a", params: [], memory, memoryBase: 0 },
+    );
+
+    let vecB!: any;
+    const b = compileWasmRoutine(
+      () => {
+        vecB = uniform("vec3");
+        return vecB.x;
+      },
+      { name: "b", params: [], memory, memoryBase: 64 }, // clear of a's vec3 (3 * 8 = 24 bytes)
+    );
+
+    expect(a.invoke({ uniforms: { [vecA.name]: [1, 2, 3] } })).toBe(1);
+    expect(view().getFloat64(0, true)).toBe(1); // a's vec3 landed at its own base, byte 0
+
+    expect(b.invoke({ uniforms: { [vecB.name]: [4, 5, 6] } })).toBe(4);
+    expect(view().getFloat64(64, true)).toBe(4); // b's vec3 landed at its own base, byte 64
+    expect(view().getFloat64(0, true)).toBe(1); // a's region untouched by b's call
+  });
+});
+
+describe("WASM backend: scalarsInMemory — scalar uniform/attribute/varying forced into memory", () => {
+  it("compiles a scalar uniform to a zero-arg function and still reads its value", () => {
+    let threshold!: any;
+    const build = () => {
+      threshold = uniform("float");
+      return threshold.add(1);
+    };
+    const compiled = compileWasmFn(build, { name: "main", params: [], scalarsInMemory: true });
+    expect(compiled.params.some((p) => p.kind === "uniform")).toBe(false);
+    expect(compiled.params.some((p) => p.kind === "uniformMemory")).toBe(true);
+
+    const fn = instantiateWasmRoutine(compiled, "main");
+    expect(fn.invoke({ uniforms: { [threshold.name]: 4 } })).toBe(5);
+    expect(fn.invoke({ uniforms: { [threshold.name]: 9 } })).toBe(10);
+  });
+
+  it("compiles a scalar attribute to a zero-arg function and still reads its value", () => {
+    let a!: any;
+    const build = () => {
+      a = attribute("float");
+      return a.mul(2);
+    };
+    const compiled = compileWasmFn(build, { name: "main", params: [], scalarsInMemory: true });
+    expect(compiled.params.some((p) => p.kind === "attribute")).toBe(false);
+    expect(compiled.params.some((p) => p.kind === "attributeMemory")).toBe(true);
+
+    const fn = instantiateWasmRoutine(compiled, "main");
+    expect(fn.invoke({ attributes: { [a.name]: 3 } })).toBe(6);
+  });
+
+  it("compiles a scalar fragment-stage varying to a zero-arg function and still reads its value", () => {
+    let v!: any;
+    const build = () => {
+      v = varying("float");
+      return v.sub(1);
+    };
+    const compiled = compileWasmFn(build, { name: "main", params: [], scalarsInMemory: true });
+    expect(compiled.params.some((p) => p.kind === "varying")).toBe(false);
+    expect(compiled.params.some((p) => p.kind === "varyingMemory")).toBe(true);
+
+    const fn = instantiateWasmRoutine(compiled, "main");
+    expect(fn.invoke({ varyings: { [v.name]: 10 } })).toBe(9);
+  });
+
+  it("leaves a scalar-only program at a real function argument by default", () => {
+    let threshold!: any;
+    const build = () => {
+      threshold = uniform("float");
+      return threshold.add(1);
+    };
+    const compiled = compileWasmFn(build, { name: "main", params: [] });
+    expect(compiled.params.some((p) => p.kind === "uniform")).toBe(true);
+    expect(compiled.params.some((p) => p.kind === "uniformMemory")).toBe(false);
   });
 });

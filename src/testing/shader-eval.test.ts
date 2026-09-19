@@ -1,11 +1,3 @@
-/**
- * Tests for the evaluation harness itself.
- *
- * The harness is what the value assertions rest on, so a fault here is worse
- * than a fault in the compiler: it does not produce a wrong answer, it produces
- * a green run that proves nothing.
- */
-
 import { describe, it, expect, afterAll } from "vitest";
 import {
   runWGSL,

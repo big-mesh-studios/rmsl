@@ -1,6 +1,3 @@
-// Column-major mat4 helpers. Perspective / lookAt / inverse and the fullscreen
-// quad verts are shared with the other apps (`apps/shared/shader.ts`); the
-// composition and rigid-body builders live here.
 import { mat4Perspective, mat4LookAt, mat4Inverse, quadVerts } from "../../shared/shader";
 
 export { mat4Perspective, mat4LookAt, mat4Inverse, quadVerts };

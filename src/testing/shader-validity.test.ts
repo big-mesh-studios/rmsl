@@ -1,12 +1,3 @@
-/**
- * Tests for the validation harness itself.
- *
- * This harness is the reason the rest of the suite's substring assertions can
- * be trusted, so a fault here does not produce a wrong answer — it produces a
- * green run that proves nothing. The reporting is kept separate from the GPU
- * work so it can be checked without one.
- */
-
 import { describe, it, expect } from "vitest";
 import {
   validationReport,

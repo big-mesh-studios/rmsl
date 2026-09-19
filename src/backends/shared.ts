@@ -1,7 +1,3 @@
-// === Compiler internals shared by all four backends ===
-// CompileCtx/CompiledNode (the context and per-node result every backend's
-// node walker threads through), precedence tables, constant folding, and the
-// handful of assertions/helpers more than one backend calls.
 import { BaseNode, MATRIX_DIMENSIONS, Node, NodeImpl, ShaderType } from "../core";
 /**
  * What compiling one node yields: statements to emit, how to refer to it, and

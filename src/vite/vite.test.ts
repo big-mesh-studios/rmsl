@@ -1,10 +1,3 @@
-/**
- * Tests the vite plugins in `./vite` by driving their `transform` hook with the
- * real fixture modules. The fixtures import from `../../rmsl`, so the build-time
- * evaluation path (esbuild bundle + data: URL import) is exercised against real
- * rmsl code, not stubs.
- */
-
 /// <reference types="vite/client" />
 import { describe, it, expect } from "vitest";
 import { precompileShaders, precompileJS, precompileWasm } from "./vite";
@@ -167,9 +160,9 @@ describe("precompileWasm", () => {
     const result = await plugin.transform.call(context, source, WASM_FNS_PATH);
 
     expect(result).not.toBeNull();
-    expect(result!.code).toContain('import { instantiateWasm } from "@random-mesh/rmsl/wasm";');
-    expect(result!.code).toContain("export const brightness = instantiateWasm(");
-    expect(result!.code).toContain("export const mixColours = instantiateWasm(");
+    expect(result!.code).toContain('import { instantiateWasmRoutine } from "@random-mesh/rmsl/wasm";');
+    expect(result!.code).toContain("export const brightness = instantiateWasmRoutine(");
+    expect(result!.code).toContain("export const mixColours = instantiateWasmRoutine(");
     expect(result!.code).toMatch(/fetch\(new URL\(import\.meta\.ROLLUP_FILE_URL_ref\d+, import\.meta\.url\)\)/);
     expect(result!.code).not.toContain("compileWasmFn");
     expect(result!.code).not.toMatch(/\beval\s*\(/);
@@ -212,7 +205,7 @@ describe("precompileWasm", () => {
 
     // `uniform("vec3")` inside the fixture gets the first auto slot, _rmsl_u0.
     // An aggregate (vec3) root reads back wrapped in { value }, same as
-    // compileWasm's own documented aggregate-result shape.
+    // compileWasmRoutine's own documented aggregate-result shape.
     expect(mod.brightness.invoke({ uniforms: { _rmsl_u0: [1, 2, 3] } })).toEqual({ value: [0.5, 1, 1.5] });
     expect(mod.mixColours.invoke({ params: { a: [0, 0, 0], b: [1, 1, 1], t: 0.5 } })).toEqual({
       value: [0.5, 0.5, 0.5],
@@ -252,6 +245,6 @@ describe("precompileWasm", () => {
     const result = await plugin.transform.call(context, code, id);
 
     expect(result).not.toBeNull();
-    expect(result!.code).toContain("export const brightness = instantiateWasm(");
+    expect(result!.code).toContain("export const brightness = instantiateWasmRoutine(");
   });
 });

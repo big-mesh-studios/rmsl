@@ -1,9 +1,3 @@
-/**
- * The CPU testing utilities, tested the way a consumer would use them: shader
- * graphs written in the DSL, evaluated in plain Node with no graphics device
- * anywhere.
- */
-
 import { describe, it, expect } from "vitest";
 import {
   Fn,

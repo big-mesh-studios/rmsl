@@ -1,22 +1,9 @@
-/**
- * Runs a compiled expression and reports the number it produces.
- *
- * An expression is compiled to a function, called on both backends, and the
- * result compared against the same arithmetic in JS. Running both also makes
- * the backends checkable against each other: one RMSL program must produce one
- * number, and a divergence is a bug in whichever side disagrees with JS.
- *
- * GLSL renders to an RGBA32F texture and reads the red channel; WGSL dispatches
- * a compute shader and reads a storage buffer. Both return exact f32, so the
- * only tolerance needed is for f32 against JS's f64.
- */
-
 import { expect } from "vitest";
 import { var_, type Node } from "../rmsl";
 import { compileGlslFn } from "../glsl";
 import { compileWgslFn } from "../wgsl";
 import { compileJSFn } from "../js";
-import { compileWasm } from "../wasm";
+import { compileWasmRoutine } from "../wasm";
 import { MATRIX_DIMENSIONS, TYPE_WIDTH } from "../core";
 
 // Written to rather than console.warn: vitest intercepts console output and
@@ -186,7 +173,10 @@ ${rowLines.join("\n")}
   return new Float32Array(out);
 }
 
-/** Compile, run and read back the GLSL backend's result — a scalar, vector or matrix. */
+/**
+ * Compile, run and read back the GLSL backend's result — a scalar, vector
+ * or matrix. Renders to an RGBA32F texture and reads the red channel.
+ */
 export async function evaluateGLSL(build: Build, args: number[] = []): Promise<number | number[]> {
   const fn = compileGlslFn(build, { name: "rmsl_eval", params: params(args.length) });
   const type = rootType(build, args.length);
@@ -216,7 +206,10 @@ ${stores.join("\n")}
   return runWGSLElements(code, n);
 }
 
-/** Compile, run and read back the WGSL backend's result — a scalar, vector or matrix. */
+/**
+ * Compile, run and read back the WGSL backend's result — a scalar, vector
+ * or matrix. Dispatches a compute shader and reads a storage buffer.
+ */
 export async function evaluateWGSL(build: Build, args: number[] = []): Promise<number | number[]> {
   const fn = compileWgslFn(build, { name: "rmsl_eval", params: params(args.length) });
   const type = rootType(build, args.length);
@@ -319,7 +312,7 @@ export function evaluateJS(build: Build, args: number[] = []): number | number[]
  * Run an expression on the WASM backend — in-process, no GPU, no browser,
  * same as `evaluateJS`.
  *
- * This backend's `float` is f64, matching `compileJS`'s plain JS-number
+ * This backend's `float` is f64, matching `compileJSRoutine`'s plain JS-number
  * arithmetic bit for bit (`ROADMAP.md`, "`float` is f64") — including the
  * transcendental functions, which both backends call through the literal
  * same `Math` object. So unlike the GLSL/WGSL comparison, nothing here
@@ -327,7 +320,7 @@ export function evaluateJS(build: Build, args: number[] = []): number | number[]
  * rounding.
  */
 export function evaluateWASM(build: Build, args: number[] = []): number | number[] {
-  const fn = compileWasm(build, { name: "rmsl_eval", params: params(args.length) });
+  const fn = compileWasmRoutine(build, { name: "rmsl_eval", params: params(args.length) });
   const ctx = { params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) };
   const result = fn.invoke(ctx);
   // Scalar mode returns the raw number; an aggregate root is instead read
@@ -339,7 +332,7 @@ export function evaluateWASM(build: Build, args: number[] = []): number | number
 }
 
 /**
- * Whether a `compileWasm`/`compileWasmFn` failure means "not supported by
+ * Whether a `compileWasmRoutine`/`compileWasmFn` failure means "not supported by
  * this backend yet" rather than a real bug.
  *
  * Every deliberate "can't compile this (yet)" throw in `wasm.ts` — for

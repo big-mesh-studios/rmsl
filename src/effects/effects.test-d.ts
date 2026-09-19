@@ -1,9 +1,3 @@
-/**
- * Type-level tests for the post-processing primitives and effects.
- *
- * Run by `pnpm test:types`, and also checked by `pnpm type-check`.
- */
-
 import { describe, it, expectTypeOf } from "vitest";
 import {
   float,

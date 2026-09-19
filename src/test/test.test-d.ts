@@ -1,13 +1,3 @@
-/**
- * Type-level tests for the CPU testing utilities.
- *
- * The point of binding by node rather than by slot name is that the node knows
- * what it holds, so a wrong value is a compile error rather than a NaN halfway
- * through a render.
- *
- * Run by `pnpm test:types`, and also checked by `pnpm type-check`.
- */
-
 import { describe, it, expectTypeOf } from "vitest";
 import { float, vec2, vec3, vec4, uniform, varying } from "../rmsl";
 import { DataTexture, RedIntegerFormat } from "../scene";

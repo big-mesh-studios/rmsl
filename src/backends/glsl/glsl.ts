@@ -1,4 +1,3 @@
-// ========== GLSL Compiler ==========
 import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, var_ } from "../../core";
 import {
   CompileCtx,

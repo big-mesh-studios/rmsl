@@ -1,20 +1,3 @@
-// === Shared memory-layout allocator (see docs/design-shared-layout-ir.md) ===
-//
-// Stage 1 of that design: extract the placement algorithm `wgslUniformLayout`
-// (src/backends/wgsl.ts) already implements — reorder members by
-// alignment, accumulate offsets with padding, widen/round array elements —
-// into one function, configurable per target instead of hard-coded into that
-// one backend. `src/backends/wasm.ts`'s Phase 3 memory allocator uses it
-// too, with its own rules (no reordering, no padding), so both are now thin
-// callers of the same algorithm instead of two independent implementations
-// that happen to overlap in what they're actually deciding.
-//
-// Deliberately generic over the *type string* a member carries: WGSL's
-// existing caller already spells types its own way (`"vec3<f32>"`) and
-// WASM's spells them RMSL's way (`"vec3"`) — unifying that vocabulary is a
-// separate, later step (see the design doc's "stage 2"), not something this
-// extraction needs to do to prove the algorithm itself is shared correctly.
-
 export type LayoutMember = { slot: string; type: string; length?: number };
 
 export type PlacedLayoutMember = LayoutMember & {
@@ -53,6 +36,11 @@ export type AllocRules = {
  * Place `members` one after another under `rules`, returning each member's
  * offset (and, for an array member, its element stride) plus the total
  * size/alignment of the whole placement.
+ *
+ * The shared placement algorithm behind both `wgslUniformLayout`
+ * (src/backends/wgsl/wgsl.ts) and the WASM memory allocator
+ * (src/backends/wasm/wasm.ts), generic over the type-string vocabulary each
+ * target uses. See docs/design-shared-layout-ir.md for the full design.
  */
 export function planLayout(
   members: LayoutMember[],
@@ -72,10 +60,8 @@ export function planLayout(
     return { size: stride * m.length, align, stride };
   };
 
-  // Widest alignment first, so the gaps between members stay small. Members
-  // that align the same keep the order they were declared in. Skipped
-  // entirely when `rules` says not to reorder — declaration order is the
-  // whole point there, not an incidental side effect of a stable sort.
+  // Widest alignment first, to keep padding small; ties keep declaration
+  // order. Skipped when `rules` says not to reorder.
   const ordered = rules.reorderByAlignment
     ? members
         .map((m, declaredAt) => ({ m, declaredAt }))
@@ -94,10 +80,8 @@ export function planLayout(
     out.push({ ...m, offset, size, ...(m.length !== undefined ? { stride } : {}) });
     offset += size;
   }
-  // The whole placement is itself aligned to its widest member (or the
-  // rules' minimum, for an empty list) — an array member aligns to its own
-  // rounded-up alignment, not its element type's, which `shapeOf` already
-  // accounts for.
+  // Aligned to its widest member's (rounded-up) alignment, or the rules'
+  // minimum for an empty list.
   const structAlign = ordered.reduce((a, m) => Math.max(a, shapeOf(m).align), rules.structAlignMinimum);
   return { members: out, size: Math.ceil(offset / structAlign) * structAlign, align: structAlign };
 }

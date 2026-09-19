@@ -1,28 +1,8 @@
-/**
- * Stage 2 of docs/design-shared-layout-ir.md: does the shared allocator
- * (src/layout.ts) actually let a WASM computation place its uniforms
- * at the exact byte offsets a real WGSL uniform buffer would use for the
- * same members, rather than just sharing the placement *algorithm* the way
- * stage 1 already proved?
- *
- * An earlier version of this fix used the caller's raw GPU offset as this
- * backend's *only* address for the uniform, which matched offsets exactly
- * but corrupted adjacent uniforms: this backend's `float` is f64 (8 bytes)
- * while `wgslUniformLayout`'s offsets assume `f32` (4 bytes), so two
- * GPU-adjacent members spaced 4 bytes apart overlapped in this backend's
- * wider writes. The fix (`wasm.ts`'s `GpuUniformLayout` doc comment)
- * gives such a uniform *two* addresses: the caller's raw, narrow one
- * (never touched by this backend's arithmetic directly) and an ordinary
- * packed scratch address like any other uniform gets, with a promotion
- * step bridging them. What's left, and is real rather than a bug: reading
- * a GPU-placed uniform is only as precise as `f32` allows, same as any
- * real GPU uniform buffer sharing those bytes would be.
- */
 import { describe, it, expect } from "vitest";
 import { Fn, uniform, uniformArray, int } from "./rmsl";
 import { wgslUniformLayout } from "./wgsl";
 import { wgslType } from "./backends/wgsl/wgsl";
-import { compileWasm, compileWasmFn, type CompileWasmFnOptions } from "./backends/wasm/wasm";
+import { compileWasmRoutine, compileWasmFn, type CompileWasmFnOptions } from "./backends/wasm/wasm";
 
 describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
   it("places two differently-aligned aggregate uniforms at wgslUniformLayout's exact offsets", () => {
@@ -85,7 +65,7 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
       },
     };
     const build = () => Fn(() => dir.dot(dir).mul(scale.x).add(scale.y))();
-    const fn = compileWasm(build as any, options);
+    const fn = compileWasmRoutine(build as any, options);
     const result = fn.invoke({ uniforms: { [dir.name]: [1, 2, 3], [scale.name]: [10, 20] } });
     expect(result).toBe((1 + 4 + 9) * 10 + 20); // dot(dir,dir)*scale.x + scale.y = 160
   });
@@ -102,7 +82,7 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
     // "round this f64 to the nearest f32" — the same rounding
     // `writeAggregateToMemory`'s `setFloat32` applies when this uniform's
     // value crosses into its narrow, GPU-shaped storage.
-    const fn = compileWasm(() => Fn(() => scale.x)() as any, options);
+    const fn = compileWasmRoutine(() => Fn(() => scale.x)() as any, options);
     const result = fn.invoke({ uniforms: { [scale.name]: [0.1, 0] } });
     expect(result).toBe(Math.fround(0.1));
     expect(result).not.toBe(0.1); // the real, inherent cost: an ordinary (non-GPU) uniform would keep full f64 precision here
@@ -123,7 +103,7 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
         totalSize: layout.size,
       },
     };
-    const fn = compileWasm(() => Fn(() => arr.element(int(1)).x)() as any, options);
+    const fn = compileWasmRoutine(() => Fn(() => arr.element(int(1)).x)() as any, options);
     // 0.1 is not exact in f32; the GPU path stores f32, so it reads back fround(0.1).
     expect(
       fn.invoke({

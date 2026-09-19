@@ -1,13 +1,5 @@
-// === GLSL adapter ===
-// Draw-only: WebGL has no compute path, so this adapter never implements
-// `compute`. Reflection also works differently than WGSL's: a linked
-// WebGL program already exposes its own attributes/uniforms
-// (getActiveAttrib/getActiveUniform), so there is nothing to reconstruct
-// by walking the RMSL graph the way storage()/uniform() bindings need
-// `compile()`'s resource list on the WGSL side — this just asks the GL
-// context what it linked.
 import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
-import { Adapter, slotOf, TypedArray } from "../adapter";
+import { Adapter, DrawCountOptions, slotOf, TypedArray } from "../adapter";
 import { VertexRoot } from "../shared";
 import { compileGlsl, CompileGLSLOptions } from "./glsl";
 
@@ -15,19 +7,15 @@ type UniformInfo = { location: WebGLUniformLocation; type: number };
 type AttributeInfo = { location: number; buffer: WebGLBuffer; componentCount: number };
 
 /**
- * The one shape a WebGL draw call actually varies along: primitive
- * topology, which vertices, and how many instances. Indexed draws
- * (drawElements) aren't covered — this adapter only deals in vertex
- * buffers uploaded via setAttribute, not an index buffer, so add that as
- * its own option if a program ever needs it rather than stretching this
- * one to cover it implicitly.
+ * The one shape a WebGL draw call actually varies along beyond
+ * `DrawCountOptions`'s own `count`/`first`: primitive topology and how
+ * many instances. Indexed draws (drawElements) aren't covered — this
+ * adapter only deals in vertex buffers uploaded via setAttribute, not an
+ * index buffer, so add that as its own option if a program ever needs it
+ * rather than stretching this one to cover it implicitly.
  */
-export interface GlslDrawOptions {
+export interface GlslDrawOptions extends DrawCountOptions {
   mode?: "triangles" | "triangle-strip" | "triangle-fan" | "lines" | "line-strip" | "line-loop" | "points";
-  /** First vertex to draw. Defaults to 0. */
-  first?: number;
-  /** Vertices to draw. Defaults to everything the widest setAttribute call implied. */
-  count?: number;
   /** Instances to draw. Omit for a plain (non-instanced) draw. */
   instanceCount?: number;
 }
@@ -104,16 +92,21 @@ function setUniformValue(gl: WebGL2RenderingContext, info: UniformInfo, value: n
   }
 }
 
-/** Narrower than the base Adapter's `void | Promise<void>` `attach` —
- * `getContext("webgl2")` is synchronous, unlike WGSL's device request. */
+/** Narrower than the base Adapter's `void | Promise<void>` on both
+ * `attach` and `draw` — `getContext("webgl2")` and GL's own draw call are
+ * both synchronous, unlike WGSL's device request/GPU submit. */
 export interface GlslAdapter extends Adapter<never, GlslDrawOptions> {
   attach(canvas?: HTMLCanvasElement): void;
-  // Unconditionally defined — GLSL is draw-only, so unlike the base
-  // Adapter's optional `draw?`, createGlsl's returned object always has
-  // this, synchronously (no await inside it).
   draw(options?: GlslDrawOptions): void;
 }
 
+/**
+ * Draw-only: WebGL has no compute path, so this adapter never implements
+ * `compute`. Reflects a linked WebGL program's own attributes/uniforms
+ * (getActiveAttrib/getActiveUniform) directly, rather than walking the RMSL
+ * graph the way storage()/uniform() bindings need `compile()`'s resource
+ * list on the WGSL side.
+ */
 export function createGlsl(
   vertexRoot: VertexRoot,
   fragmentRoot: Node<ShaderType> | readonly Node<ShaderType>[],

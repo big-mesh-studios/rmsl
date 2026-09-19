@@ -1,4 +1,4 @@
-import { compileWasm } from "@random-mesh/rmsl/wasm";
+import { compileWasmRoutine } from "@random-mesh/rmsl/wasm";
 import { synthCpu, u_freq, u_gain, u_sampleRate, u_startPhase, u_waveform } from "./synthShader";
 
 // AudioWorkletGlobalScope doesn't expose TextEncoder in every browser (it's
@@ -27,7 +27,7 @@ type PortMsg =
 /**
  * Runs the RMSL-compiled oscillator on the audio rendering thread. Each
  * `process()` call is one ~128-sample block with a hard real-time deadline
- * (miss it and the browser drops out audibly) — `renderer.draw()` computes
+ * (miss it and the browser drops out audibly) — `renderer.batch()` computes
  * the whole block in one call into a synchronous WASM loop, the same
  * "compute the whole buffer, not sample-by-sample JS calls" trick the CPU
  * renderer backends use for pixels.
@@ -37,7 +37,7 @@ type PortMsg =
  * sampleRate` and feeds that back in as `u_startPhase` next time.
  */
 class RmslOscillatorProcessor extends AudioWorkletProcessor {
-  private renderer = compileWasm(() => synthCpu(), { name: "synthWasm", params: [] });
+  private renderer = compileWasmRoutine(() => synthCpu(), { name: "synthWasm", params: [] });
   private phase = 0;
   private freq = 440;
   private waveform = 0;
@@ -66,7 +66,7 @@ class RmslOscillatorProcessor extends AudioWorkletProcessor {
       return true;
     }
 
-    const buffer = this.renderer.draw(
+    const buffer = this.renderer.batch(
       {
         uniforms: {
           [u_freq.name]: this.freq,

@@ -1,6 +1,6 @@
-import { createJs, type CpuAdapter } from "@random-mesh/rmsl/js";
-import { createWasm } from "@random-mesh/rmsl/wasm";
-import { createWgsl } from "@random-mesh/rmsl/wgsl";
+import { createJsCompute, type JsComputeAdapter } from "@random-mesh/rmsl/js";
+import { createWasmCompute, type WasmComputeAdapter } from "@random-mesh/rmsl/wasm";
+import { createWgslCompute } from "@random-mesh/rmsl/wgsl";
 import { createGpuRenderer } from "./gpu-renderer";
 import { createEcsSystem } from "./system";
 
@@ -61,13 +61,13 @@ seed(N);
 const system = createEcsSystem();
 const { slots } = system;
 
-const jsAdapter = createJs({ compute: system.program.root, computeName: "ecsSystem" });
-const wasmAdapter = createWasm({ compute: system.program.root, computeName: "ecsSystem" });
+const jsAdapter = createJsCompute(system.program.root, { name: "ecsSystem" });
+const wasmAdapter = createWasmCompute(system.program.root, { name: "ecsSystem" });
 
 // Re-set every frame: cheap (a handful of object-field assignments), and
 // it means a fresh posX/posY/velX/velY from seed() (entity count changed)
 // is picked up without a separate "resync" path.
-function stepCPU(adapter: CpuAdapter, dt: number) {
+function stepCPU(adapter: JsComputeAdapter | WasmComputeAdapter, dt: number) {
   adapter.setAttribute(slots.posX, posX);
   adapter.setAttribute(slots.posY, posY);
   adapter.setAttribute(slots.velX, velX);
@@ -86,7 +86,7 @@ function stepCPU(adapter: CpuAdapter, dt: number) {
 // upload or readback at all. The CPU-side posX/posY/velX/velY only get
 // synced once, when wgsl is first selected — switching away leaves them at
 // whatever they held when you switched in, which is fine here.
-const wgslAdapter = createWgsl({ compute: system.program.root });
+const wgslAdapter = createWgslCompute(system.program.root);
 let wgslReady = false;
 let gpuRenderer: ReturnType<typeof createGpuRenderer> | null = null;
 

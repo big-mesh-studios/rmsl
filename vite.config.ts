@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import { writeFileSync, readFileSync } from "fs";
 import dts from "vite-plugin-dts";
+import { compileWat } from "./src/vite/vite";
 
 export default defineConfig({
   build: {
@@ -20,10 +21,11 @@ export default defineConfig({
       fileName: (_format, entryName) => `${entryName}.js`,
     },
     rollupOptions: {
-      external: ["esbuild", "vite"],
+      external: ["esbuild", "vite", "wabt", "fs/promises"],
     },
   },
   plugins: [
+    compileWat(),
     dts({
       include: [
         "src/rmsl.ts",
@@ -33,18 +35,21 @@ export default defineConfig({
         "src/wasm.ts",
         "src/core.ts",
         "src/backends/shared.ts",
-        "src/backends/glsl.ts",
-        "src/backends/wgsl.ts",
-        "src/backends/js.ts",
-        "src/backends/wasm.ts",
+        "src/backends/glsl/glsl.ts",
+        "src/backends/wgsl/wgsl.ts",
+        "src/backends/js/js.ts",
+        "src/backends/wasm/wasm.ts",
         "src/backends/cpu.ts",
         "src/backends/adapter.ts",
         "src/backends/adapter-cpu.ts",
-        "src/backends/adapter-js.ts",
-        "src/backends/adapter-wasm.ts",
-        "src/backends/adapter-glsl.ts",
-        "src/backends/adapter-wgsl.ts",
+        "src/backends/js/adapter-js.ts",
+        "src/backends/wasm/adapter-wasm.ts",
+        "src/backends/glsl/adapter-glsl.ts",
+        "src/backends/wgsl/adapter-wgsl.ts",
+        "src/backends/js/rasterizer.ts",
+        "src/backends/wasm/rasterizer.ts",
         "src/vite/vite.ts",
+        "src/vite/wat.d.ts",
         "src/effects/index.ts",
         "src/effects/*.ts",
         "src/scene/index.ts",

@@ -1,22 +1,7 @@
 import { build } from "esbuild";
+import { readFile } from "fs/promises";
 import type { Plugin } from "vite";
-
-// Vite plugins that precompile rmsl node graphs at build time, so the browser
-// never ships rmsl and never runs an eval:
-//
-// - precompileShaders: rewrite a module that default-exports the compiled GLSL /
-//   WGSL strings into a JSON constant.
-// - precompileJS: rewrite a module that exports compileJSFn() output (the CPU
-//   code for running any shader function on the host) into plain functions.
-// - precompileWasm: rewrite a module that exports compileWasmFn() output (a
-//   compiled WASM module's bytes plus the metadata a host needs to call it)
-//   into `instantiateWasm(...)` calls — the compiled bytes ship as a real
-//   `.wasm` asset (via Rollup's emitFile, not a string), fetched and
-//   instantiated once at module load.
-//
-// All three bundle the target module with esbuild for Node and execute it
-// once at build time via a data: URL, then replace it with the result;
-// precompileWasm additionally emits one binary asset per compiled module.
+import wabtInit from "wabt";
 
 export type ViteFilter = string | RegExp | Array<string | RegExp>;
 
@@ -40,10 +25,10 @@ export interface PrecompileWasmOptions extends PrecompileShadersOptions {
   /**
    * The named export carrying a `{ name: compiled }` map, where each `compiled`
    * is one `compileWasmFn()` result. Each key becomes an
-   * `export const name = instantiateWasm(...)` in the rewritten module, and
+   * `export const name = instantiateWasmRoutine(...)` in the rewritten module, and
    * has to be the same string the entry was compiled with
    * (`compileWasmFn(fn, { name, ... })`) — that name is baked into the
-   * compiled bytes' own export table, so `instantiateWasm` needs it to find
+   * compiled bytes' own export table, so `instantiateWasmRoutine` needs it to find
    * the right function inside the module. Defaults to `__RMSL_WASM_CODE`.
    */
   codeExport?: string;
@@ -159,7 +144,7 @@ export function precompileJS(options: PrecompileJSOptions = {}): Plugin {
  * `.wasm` asset (`this.emitFile`) rather than inlined as a string — raw
  * bytes in the build output, no string-encoding overhead, and the browser
  * can cache the asset like any other. The rewritten module fetches that
- * asset once at load and hands the bytes to `instantiateWasm` — imported
+ * asset once at load and hands the bytes to `instantiateWasmRoutine` — imported
  * from `@random-mesh/rmsl/wasm`, the only rmsl the rewritten module ever
  * references — along with the rest of what `compileWasmFn` returned
  * (`params`/`resultType`/`textureHeapBase`/`batch`), turning the two back
@@ -195,7 +180,7 @@ export function precompileWasm(options: PrecompileWasmOptions = {}): Plugin {
         throw new Error(`${id}'s ${codeExport} export must be a { name: compiled } map of compileWasmFn() output`);
       }
 
-      const exports: string[] = [`import { instantiateWasm } from "@random-mesh/rmsl/wasm";`, ""];
+      const exports: string[] = [`import { instantiateWasmRoutine } from "@random-mesh/rmsl/wasm";`, ""];
       for (const [name, compiled] of Object.entries(codeMap)) {
         if (typeof compiled !== "object" || compiled === null || !("bytes" in compiled)) {
           throw new Error(`${id}'s ${codeExport} map value for ${name} must be compileWasmFn() output`);
@@ -211,7 +196,7 @@ export function precompileWasm(options: PrecompileWasmOptions = {}): Plugin {
         const refId = this.emitFile({ type: "asset", name: `${name}.wasm`, source: bytes });
         exports.push(
           `const _rmslBytes_${name} = await fetch(new URL(import.meta.ROLLUP_FILE_URL_${refId}, import.meta.url)).then((r) => r.arrayBuffer());`,
-          `export const ${name} = instantiateWasm(` +
+          `export const ${name} = instantiateWasmRoutine(` +
             `{ bytes: new Uint8Array(_rmslBytes_${name}), ...${restJson} }, ` +
             `${JSON.stringify(name)});`,
           "",
@@ -221,6 +206,35 @@ export function precompileWasm(options: PrecompileWasmOptions = {}): Plugin {
       const rewritten = exports.join("\n");
       cache.set(hash, rewritten);
       return { code: rewritten, map: null };
+    },
+  };
+}
+
+/**
+ * Loads every `.wat` (WebAssembly Text Format) file as `export default`ing
+ * its compiled bytes (a `Uint8Array`), via `wabt`'s `wat2wasm`.
+ *
+ * Meant for a module whose WASM is entirely static — unlike rmsl's own
+ * graph-driven backends, which compile bytecode at runtime for whatever
+ * shader graph they're given and can't be pre-authored as `.wat`. `include`
+ * defaults to every `.wat` id; `exclude` still applies on top of it.
+ */
+export function compileWat(options: PrecompileShadersOptions = {}): Plugin {
+  let wabt: Awaited<ReturnType<typeof wabtInit>> | undefined;
+
+  return {
+    name: "rmsl:compile-wat",
+    enforce: "pre",
+    async load(id) {
+      const filePath = normalizePath(id);
+      if (!filePath.endsWith(".wat")) return null;
+      if (options.include !== undefined && !matches(filePath, options.include)) return null;
+      if (matches(filePath, options.exclude)) return null;
+
+      wabt ??= await wabtInit();
+      const source = await readFile(id, "utf8");
+      const bytes = new Uint8Array(wabt.parseWat(filePath, source).toBinary({}).buffer);
+      return `export default new Uint8Array([${bytes.join(",")}]);`;
     },
   };
 }
@@ -281,6 +295,22 @@ async function evaluateModule(code: string, filePath: string): Promise<Record<st
       platform: "node",
       write: false,
       logLevel: "silent",
+      // a module evaluated here may itself import a `.wat` file (e.g. the
+      // rasterizer) — esbuild has no built-in loader for it, so give it the
+      // same wat2wasm transform `compileWat` applies under Vite.
+      plugins: [
+        {
+          name: "rmsl:evaluate-module-wat",
+          setup(pluginBuild) {
+            pluginBuild.onLoad({ filter: /\.wat$/ }, async (args) => {
+              const wabt = await wabtInit();
+              const source = await readFile(args.path, "utf8");
+              const bytes = new Uint8Array(wabt.parseWat(args.path, source).toBinary({}).buffer);
+              return { contents: `export default new Uint8Array([${bytes.join(",")}]);`, loader: "js" };
+            });
+          },
+        },
+      ],
     });
     bundle = result.outputFiles[0].text;
   } catch (e) {

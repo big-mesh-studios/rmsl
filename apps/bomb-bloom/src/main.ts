@@ -1,8 +1,3 @@
-// Bomb + RMSL bloom demo.
-//
-// The bomb body and the wick fire are RMSL node graphs (`./shader.ts`)
-// compiled to GLSL and drawn with a raw WebGL2 context. The bloom is the
-// `@random-mesh/rmsl/effects` PassGraph executed by `./bloom.ts`.
 import { uniform } from "@random-mesh/rmsl";
 import { compileGlsl } from "@random-mesh/rmsl/glsl";
 import { bloom } from "@random-mesh/rmsl/effects";

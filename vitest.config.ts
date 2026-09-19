@@ -1,6 +1,8 @@
 import { defineConfig } from "vitest/config";
+import { compileWat } from "./src/vite/vite";
 
 export default defineConfig({
+  plugins: [compileWat()],
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],

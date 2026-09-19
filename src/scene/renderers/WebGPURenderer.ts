@@ -291,16 +291,9 @@ export class WebGPURenderer {
     const program = material.build(scene, { instancing, instancingColor });
     const device = this.device;
 
-    // The uniform struct the compiler emits, member offsets included. The
-    // compiler lays out members from its own alphabetical sort of the slots,
-    // so the same sorted order must be fed to `wgslUniformLayout` here or the
-    // byte offsets drift from what the WGSL struct actually declares.
-    //
-    // The same list goes to both stages. Left to itself each stage declares
-    // only the uniforms it reads, which are not the same two sets — a material
-    // colour is read by the fragment stage alone, the matrices by the vertex
-    // stage alone — so the one buffer bound to both would mean something
-    // different in each, and different again from what is packed here.
+    // Must match the compiler's own alphabetical member sort, or byte offsets
+    // drift from the WGSL struct. The same sorted list goes to both stages,
+    // since each stage alone reads a different subset of the uniforms.
     const uniforms = [...program.uniforms].sort((a, b) => a.node.name.localeCompare(b.node.name));
     const declaredUniforms = uniforms.map((u) => ({
       slot: u.node.name,
@@ -323,10 +316,9 @@ export class WebGPURenderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    // The compiler numbers textures (group 1) by alphabetical slot name and
-    // samplers (group 2) in the order the graph samples them. Integer
-    // textures are read with textureLoad, which takes no sampler, so the WGSL
-    // declares no companion sampler for them — the bindings must mirror that.
+    // Textures (group 1) sort alphabetically by slot; samplers (group 2)
+    // follow sampling order and skip integer textures, which read via
+    // textureLoad and declare no companion sampler in the WGSL.
     const textureBindings = program.samplers
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name))
@@ -335,11 +327,8 @@ export class WebGPURenderer {
       .filter((s) => !isIntegerSampler(s.type))
       .map((s, i) => ({ name: s.name, binding: i }));
 
-    // One layout per group, in the groups the WGSL declares: the uniform
-    // buffer alone in group 0, the textures in group 1, the samplers in group
-    // 2. Numbering them all into one group would leave several bindings
-    // claiming binding 0 and a pipeline layout that reaches neither of the
-    // groups the shader reads.
+    // One layout per group the WGSL declares: uniforms in group 0, textures
+    // in group 1, samplers in group 2.
     const uniformLayout = device.createBindGroupLayout({
       entries: [
         {
@@ -377,11 +366,8 @@ export class WebGPURenderer {
     if (samplerLayout) groupLayouts.push(samplerLayout);
     const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: groupLayouts });
 
-    // The vertex buffer layout: one slot per shader attribute, in the same
-    // order the WGSL `VertexInput` struct numbers its `@location`s (and with
-    // the same spacing — a mat4 attribute spans four consecutive locations).
-    // The compiler and this allocation must agree, or the pipeline layout
-    // points at locations the shader put something else on.
+    // One slot per shader attribute, matching the WGSL `VertexInput` struct's
+    // `@location` numbering (a mat4 attribute spans four consecutive ones).
     const vertexFormats: PipelineEntry["vertexFormats"] = [];
     let shaderLocation = 0;
     for (const attribute of program.attributes) {
@@ -674,10 +660,8 @@ export class WebGPURenderer {
             : "r8uint"
           : integerGpuFormat(samplerType, ArrayBuffer.isView(t.image) ? t.image : null)
         : "rgba8unorm";
-      // A WebGPU texture's size and format are fixed when it is created, so an
-      // image that changed shape cannot be written into the texture it had
-      // before: that one is destroyed and replaced. Whatever bound it has to
-      // be rebound, since a bind group names a texture that no longer exists.
+      // A WebGPU texture's size/format is fixed at creation, so a reshaped
+      // image gets a new texture — whatever bound the old one must rebind.
       if (
         gpu &&
         (gpu.width !== width || gpu.height !== height || gpu.depthOrArrayLayers !== depth || gpu.format !== format)

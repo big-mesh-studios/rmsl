@@ -356,10 +356,8 @@ export class WebGLRenderer {
 
   private setUniform(location: WebGLUniformLocation, type: string, value: number | number[] | Float32Array): void {
     const gl = this.gl;
-    // Scalar uniforms arrive as a bare number (opacity, roughness, ...); the
-    // vector/matrix ones as arrays. `value[0]` on a bare number is undefined,
-    // which would upload NaN and blacken the surface — so the scalar is
-    // uploaded directly.
+    // `value[0]` on a bare scalar is undefined, which would upload NaN — so
+    // scalars are uploaded directly rather than treated as arrays.
     if (typeof value === "number") {
       switch (type) {
         case "float":
@@ -376,12 +374,9 @@ export class WebGLRenderer {
       }
       return;
     }
-    // Vectors go up through the component forms (`uniform3f`) rather than the
-    // array forms (`uniform3fv`). The array forms take a typed array, so
-    // uploading through them meant building one per uniform per draw — a scene
-    // drawing a few dozen vector uniforms was allocating thousands of throwaway
-    // typed arrays a second. Only the matrix forms have no component
-    // equivalent, and both a plain array and a typed array are accepted there.
+    // Vectors go through the component forms (`uniform3f`), not the array
+    // forms (`uniform3fv`) — those take a typed array, which meant allocating
+    // one per uniform per draw. Only the matrix forms have no component form.
     switch (type) {
       case "float":
         gl.uniform1f(location, value[0]);
@@ -430,12 +425,9 @@ export class WebGLRenderer {
     const is3D = samplerType.endsWith("3D");
     const target = is3D ? gl.TEXTURE_3D : gl.TEXTURE_2D;
     const integer = isIntegerSampler(samplerType);
-    // Take the unit this texture will be read from before touching it. Setting
-    // a texture up binds it, and a bind always lands on the active unit — which
-    // until this call belongs to the sampler bound just before. Uploading first
-    // would leave that sampler reading this texture instead of its own for the
-    // draw: a wrong image where the two are alike, and an invalid draw that
-    // writes nothing where one is integer and the other is not.
+    // Claim the unit before binding — a bind always lands on the active
+    // unit, so binding first would leave the previous sampler's unit
+    // reading this texture instead of its own.
     const unit = this.nextTextureUnit();
     gl.activeTexture(gl.TEXTURE0 + unit);
     let glTexture = this.textures.get(texture);
@@ -647,10 +639,7 @@ export class WebGLRenderer {
       const locationSize = attribute.node._t === "mat4" ? 4 : 1;
       const components = attr.itemSize / locationSize;
       const format = VERTEX_FORMATS[vertexFormatOf(attr, components)];
-      // One buffer carries one attribute, so its stride is the whole record and
-      // consecutive locations start a component-width apart inside it. An
-      // interleaved attribute would take both numbers from the attribute rather
-      // than deriving them here.
+      // One buffer per attribute, so the stride is the whole record.
       const stride = attr.itemSize * format.bytes;
       for (let i = 0; i < locationSize; i++) {
         gl.enableVertexAttribArray(location + i);

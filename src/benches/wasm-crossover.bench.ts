@@ -1,27 +1,6 @@
-/**
- * Phase 7 (ROADMAP.md, "parity testing infrastructure"): pin down where a
- * loop's accumulated per-iteration work amortizes `compileWasm`'s fixed
- * per-call wrapper cost enough to cross over from a loss against
- * `compileJS` to a win, rather than only knowing it loses at zero loop
- * iterations (`wasm-vs-js.bench.ts`'s plain scalar case) and wins at
- * one arbitrarily chosen loop length (64 iterations,
- * `wasm-loop.bench.ts`).
- *
- * Same workload as `wasm-loop.bench.ts` (`sum of sqrt(i)`), swept
- * across a range of iteration counts instead of fixed at 64, each compiled
- * once up front — the loop bound is baked into the compiled function
- * (`int(n)`), not a runtime parameter, so there is nothing here either
- * backend wouldn't also pay for a real fixed-length loop.
- *
- * Run with `npx vitest bench src/wasm-crossover.bench.ts`. Kept
- * separate from `wasm-loop.bench.ts` (rather than folding this sweep
- * into it) so that file's single, simple 64-iteration case stays the
- * quick thing to point at, and this sweep stays the thing to point at for
- * "where exactly is the crossover".
- */
 import { bench, describe } from "vitest";
-import { compileWasm } from "../wasm";
-import { compileJS } from "../js";
+import { compileWasmRoutine } from "../wasm";
+import { compileJSRoutine } from "../js";
 import { Fn, For, float, int, sqrt } from "../rmsl";
 
 function buildLoop(n: number) {
@@ -45,14 +24,14 @@ function buildLoop(n: number) {
 for (const n of [1, 2, 4, 8, 16, 32, 64, 128]) {
   describe(`loop: sum of sqrt(i) for i in [0, ${n})`, () => {
     const build = buildLoop(n);
-    const wasmFn = compileWasm(build as any, { name: "main", params: [] });
-    const jsFn = compileJS(build as any, { name: "main", params: [] });
+    const wasmFn = compileWasmRoutine(build as any, { name: "main", params: [] });
+    const jsFn = compileJSRoutine(build as any, { name: "main", params: [] });
     const ctx = {};
 
-    bench("compileWasm", () => {
+    bench("compileWasmRoutine", () => {
       wasmFn.invoke(ctx);
     });
-    bench("compileJS", () => {
+    bench("compileJSRoutine", () => {
       jsFn.invoke(ctx);
     });
   });
