@@ -1,5 +1,4 @@
-# Builds every demo under apps/ (scripts/build-demos.mts) and publishes the
-# combined output to GitHub Pages, with a landing page linking to each demo.
+# Builds the demos/ app and publishes it to GitHub Pages.
 #
 # Requires the repository's Pages source to be set to "GitHub Actions" once
 # (Settings > Pages > Build and deployment > Source) before this can deploy.
@@ -40,18 +39,17 @@ jobs:
       # tests and is not needed to build the library or the demos.
       - run: pnpm install --frozen-lockfile --ignore-scripts
 
-      # Apps depend on the library as a workspace package, resolved through
-      # its built dist/ (see package.json's "exports"), so it has to exist
-      # before any app build runs.
+      # demos/ depends on the library as a workspace package, resolved
+      # through its built dist/ (see package.json's "exports"), so it has to
+      # exist before the demos build runs.
       - run: pnpm build
 
-      - run: node --experimental-strip-types scripts/build-demos.mts
-        env:
-          DEMOS_BASE: /${{ github.event.repository.name }}/
+      - working-directory: demos
+        run: pnpm exec vite build --base=/${{ github.event.repository.name }}/
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: demos/dist
 
   deploy:
     needs: build
