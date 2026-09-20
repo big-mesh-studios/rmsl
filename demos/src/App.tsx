@@ -1,7 +1,9 @@
 import { CodeMirror, darkTheme, LSPProvider } from "@big-mesh-studios/solid-codemirror";
 import { Repl } from "@bigmistqke/repl/solid";
 import { Split } from "@bigmistqke/solid-grid-split";
-import { createEffect, createMemo, createSignal, For } from "solid-js";
+import { createMediaQuery } from "@solid-primitives/media";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import styles from "./App.module.css";
 import { demos, type Demo } from "./demos/registry";
 import { createHtmlExtension, createTsExtension, loadCompiler } from "./lib/repl-compiler";
@@ -28,32 +30,39 @@ function toLspPath(demoId: string, path: string): string {
  * derived from `props.demo.editablePath` — it tracks the current demo's
  * default file (so switching demos resets it, with no remount needed) but
  * a tab click can still overwrite it directly.
+ *
+ * `props.leading` (the hamburger button + popover, narrow layout only) sits
+ * in the same row as the file tabs but outside their scroll container, so
+ * it stays put while a long tab list scrolls under it.
  */
-function DemoEditor(props: { demo: Demo; onInput(path: string, source: string): void }) {
+function DemoEditor(props: { demo: Demo; onInput(path: string, source: string): void; leading?: JSX.Element }) {
   const [activePath, setActivePath] = createSignal(() => props.demo.editablePath);
   return (
     <div class={styles.editor}>
       <div class={styles["file-tabs"]}>
-        <For each={props.demo.paths}>
-          {(path) => (
-            <button
-              type="button"
-              onClick={() => setActivePath(path)}
-              style={{
-                padding: "4px 8px",
-                "font-size": "12px",
-                "font-family": "ui-monospace, monospace",
-                border: "none",
-                "border-radius": "4px",
-                cursor: "pointer",
-                background: activePath() === path ? "#22252c" : "transparent",
-                color: activePath() === path ? "#fff" : "#9a9fa8",
-              }}
-            >
-              {path}
-            </button>
-          )}
-        </For>
+        {props.leading}
+        <div class={styles["file-tabs-scroll"]}>
+          <For each={props.demo.paths}>
+            {(path) => (
+              <button
+                type="button"
+                onClick={() => setActivePath(path)}
+                style={{
+                  padding: "4px 8px",
+                  "font-size": "12px",
+                  "font-family": "ui-monospace, monospace",
+                  border: "none",
+                  "border-radius": "4px",
+                  cursor: "pointer",
+                  background: activePath() === path ? "#22252c" : "transparent",
+                  color: activePath() === path ? "#fff" : "#9a9fa8",
+                }}
+              >
+                {path}
+              </button>
+            )}
+          </For>
+        </div>
       </div>
       <div class={styles.code}>
         <CodeMirror
@@ -101,7 +110,10 @@ function withRealEntry(html: string, moduleUrl: string): string {
   return html.replace(/(<script[^>]*type=["']module["'][^>]*src=["'])[^"']*(["'])/, `$1${absoluteUrl}$2`);
 }
 
+const NARROW_QUERY = "(max-width: 700px)";
+
 export function App() {
+  const isNarrow = createMediaQuery(NARROW_QUERY);
   const [selectedId, setSelectedId] = createSignal(demos[0]?.id);
   const selectedDemo = createMemo(() => demos.find((demo) => demo.id === selectedId()));
 
@@ -175,13 +187,19 @@ export function App() {
   const tsExtension = createTsExtension({ getCompiler: compiler, resolveBareSpecifier, readFile });
   const htmlExtension = createHtmlExtension({ getCompiler: compiler, resolveBareSpecifier, readFile });
 
-  return (
-    <div class={styles.root}>
-      <nav class={styles["demo-tabs"]}>
+  const demoHamburger = () => (
+    <>
+      <button type="button" class={styles.hamburger} popovertarget="demo-popover" popovertargetaction="toggle">
+        ☰
+      </button>
+      <div id="demo-popover" popover="auto" class={styles["demo-popover"]}>
         <For each={demos}>
           {(demo) => (
             <button
+              type="button"
               onClick={() => setSelectedId(demo.id)}
+              popovertarget="demo-popover"
+              popovertargetaction="hide"
               style={{ background: selectedId() === demo.id ? "#22252c" : "transparent" }}
               class={styles["demo-tab"]}
             >
@@ -189,9 +207,29 @@ export function App() {
             </button>
           )}
         </For>
-      </nav>
+      </div>
+    </>
+  );
+
+  return (
+    <div class={isNarrow() ? `${styles.root} ${styles.narrow}` : styles.root}>
+      <Show when={!isNarrow()}>
+        <nav class={styles["demo-tabs"]}>
+          <For each={demos}>
+            {(demo) => (
+              <button
+                onClick={() => setSelectedId(demo.id)}
+                style={{ background: selectedId() === demo.id ? "#22252c" : "transparent" }}
+                class={styles["demo-tab"]}
+              >
+                {demo.id}
+              </button>
+            )}
+          </For>
+        </nav>
+      </Show>
       <div class={styles["split-area"]}>
-        <Split direction="row" style={{ display: "grid", width: "100%", height: "100%" }}>
+        <Split direction={isNarrow() ? "column" : "row"} style={{ display: "grid", width: "100%", height: "100%" }}>
           <Split.Pane size="1fr" class={styles["editor-pane"]}>
             <LSPProvider
               files={lspFiles()}
@@ -202,7 +240,7 @@ export function App() {
               tsconfig={{ baseUrl: "/", paths: rmslTypePaths }}
             >
               {/* selectedDemo() is only undefined if demos itself is empty. */}
-              <DemoEditor demo={selectedDemo()!} onInput={setOverride} />
+              <DemoEditor demo={selectedDemo()!} onInput={setOverride} leading={isNarrow() ? demoHamburger() : undefined} />
             </LSPProvider>
           </Split.Pane>
           <Split.Handle size="4px" class={styles.handle} />

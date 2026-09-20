@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@random-mesh/rmsl": "workspace:*",
+    "@solid-primitives/media": "4.0.0-next.2",
     "@big-mesh-studios/solid-codemirror": "^0.1.4",
     "@bigmistqke/repl": "^1.0.0-beta.3",
     "@bigmistqke/solid-grid-split": "^1.0.0-next.1",

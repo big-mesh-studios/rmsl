@@ -66,6 +66,9 @@ importers:
       '@random-mesh/rmsl':
         specifier: workspace:*
         version: link:..
+      '@solid-primitives/media':
+        specifier: 4.0.0-next.2
+        version: 4.0.0-next.2(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)
       '@solidjs/signals':
         specifier: 2.0.0-rc.9
         version: 2.0.0-rc.9
@@ -921,8 +924,32 @@ packages:
     resolution: {integrity: sha512-tlqY9xq5ukxTUZBmoOp+m61cqwQD5pHJtFY3Mn8CA8ps6yghLH/Hw8UPdqg4OLmFW3IFlcXnQNmo/dh8HzXYIQ==}
     engines: {node: '>=18'}
 
+  '@solid-primitives/event-listener@3.0.0-next.5':
+    resolution: {integrity: sha512-P8GdbTwt422PHkWeKIEQVMB3Yz2agE49bfN8ChXVNQBD0fzKQF8FfmAh8y33la5k+Ap7oshNJ0Db001dJhCqTw==}
+    peerDependencies:
+      '@solidjs/web': ^2.0.0-rc.0
+      solid-js: ^2.0.0-rc.0
+
+  '@solid-primitives/media@4.0.0-next.2':
+    resolution: {integrity: sha512-jTua+YRSAe2u3z1kZRPIunANI+JSQl0U2pOsDVqCzKgp/nzZC1WsodyFluiSARD9SICgFnzHqlD+EmXzKgp/Mg==}
+    peerDependencies:
+      '@solidjs/web': ^2.0.0-rc.0
+      solid-js: ^2.0.0-rc.0
+
+  '@solid-primitives/rootless@2.0.0-next.2':
+    resolution: {integrity: sha512-QGoy8R+8v+9I8mET50wMwu0uawkQvFFcv67S+vKJ8xP5jPrQXdxuNMckUTKUy2shR3rIRpR0oLzss0Vy0oLkPg==}
+    peerDependencies:
+      '@solidjs/web': ^2.0.0-rc.0
+      solid-js: ^2.0.0-rc.0
+
   '@solid-primitives/set@1.0.0-next.2':
     resolution: {integrity: sha512-9TbOGc0RXegsNx9CwU93C0TzbRm9pO6pVHL0K2OlPk3dZ7744bua7IEANNyYlzdXKp/5GThUcihtZOO6LjeYMQ==}
+    peerDependencies:
+      '@solidjs/web': ^2.0.0-rc.0
+      solid-js: ^2.0.0-rc.0
+
+  '@solid-primitives/static-store@1.0.0-next.2':
+    resolution: {integrity: sha512-cyMzFe39VMVF9zVYgZEck1TESbIB4Tnpp00vNQlaOYuhOr4nstRBSS3zsBqZMuF+a5qWlKqS0RHO48FwLScX9w==}
     peerDependencies:
       '@solidjs/web': ^2.0.0-rc.0
       solid-js: ^2.0.0-rc.0
@@ -2823,9 +2850,36 @@ snapshots:
 
   '@sindresorhus/merge-streams@4.0.0': {}
 
+  '@solid-primitives/event-listener@3.0.0-next.5(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)':
+    dependencies:
+      '@solid-primitives/utils': 7.0.0-next.4(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)
+      '@solidjs/web': 2.0.0-rc.9(solid-js@2.0.0-rc.9)
+      solid-js: 2.0.0-rc.9
+
+  '@solid-primitives/media@4.0.0-next.2(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)':
+    dependencies:
+      '@solid-primitives/event-listener': 3.0.0-next.5(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)
+      '@solid-primitives/rootless': 2.0.0-next.2(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)
+      '@solid-primitives/static-store': 1.0.0-next.2(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)
+      '@solid-primitives/utils': 7.0.0-next.4(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)
+      '@solidjs/web': 2.0.0-rc.9(solid-js@2.0.0-rc.9)
+      solid-js: 2.0.0-rc.9
+
+  '@solid-primitives/rootless@2.0.0-next.2(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)':
+    dependencies:
+      '@solid-primitives/utils': 7.0.0-next.4(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)
+      '@solidjs/web': 2.0.0-rc.9(solid-js@2.0.0-rc.9)
+      solid-js: 2.0.0-rc.9
+
   '@solid-primitives/set@1.0.0-next.2(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)':
     dependencies:
       '@solid-primitives/trigger': 3.0.0-next.2(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)
+      '@solidjs/web': 2.0.0-rc.9(solid-js@2.0.0-rc.9)
+      solid-js: 2.0.0-rc.9
+
+  '@solid-primitives/static-store@1.0.0-next.2(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)':
+    dependencies:
+      '@solid-primitives/utils': 7.0.0-next.4(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)
       '@solidjs/web': 2.0.0-rc.9(solid-js@2.0.0-rc.9)
       solid-js: 2.0.0-rc.9
 

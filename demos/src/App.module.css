@@ -11,9 +11,58 @@
   font-family: ui-monospace, monospace;
 }
 
+.root.narrow {
+  grid-template-columns: 1fr;
+}
+
 .split-area {
   min-width: 0;
   overflow: hidden;
+}
+
+.hamburger {
+  anchor-name: --demo-hamburger;
+  flex: none;
+  align-self: flex-end;
+  /* Taller than a file tab plus a horizontal scrollbar, so the row's
+     height is always pinned by the hamburger — an overflowing tab list
+     growing its own scrollbar (only some demos have enough tabs to need
+     one) doesn't shift the row. */
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  color: #d6d6d6;
+  border: 1px solid #22252c;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14pt;
+  line-height: 1;
+}
+
+.demo-popover {
+  position: fixed;
+  position-anchor: --demo-hamburger;
+  position-area: bottom span-right;
+  margin: 4px 0 0;
+  background: #0b0d11;
+  color: #d6d6d6;
+  border: 1px solid #22252c;
+  border-radius: 4px;
+  padding: 8px;
+  box-sizing: border-box;
+  font-size: 10pt;
+  flex-direction: column;
+  min-width: 160px;
+  max-height: 60vh;
+  overflow: auto;
+}
+
+/* The popover spec's own UA rule (`[popover]:not(:popover-open) { display:
+   none }`) has the same specificity as a class selector, so an unconditional
+   `display` here would win the cascade and defeat native open/close — only
+   set it scoped to the open state. */
+.demo-popover:popover-open {
+  display: flex;
 }
 
 .handle {
@@ -57,12 +106,21 @@
 
 .file-tabs {
   display: flex;
-  flex-wrap: nowrap;
-  gap: 2px;
+  align-items: flex-end;
+  gap: 4px;
   padding: 4px;
   background: #0b0d11;
   font-size: 10pt;
   border-bottom: 1px solid #22252c;
+  min-width: 0;
+}
+
+.file-tabs-scroll {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 0;
   overflow: auto;
 }
 
