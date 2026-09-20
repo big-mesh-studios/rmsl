@@ -12,7 +12,7 @@
     "@random-mesh/rmsl": "workspace:*",
     "@big-mesh-studios/solid-codemirror": "^0.1.4",
     "@bigmistqke/repl": "^1.0.0-beta.3",
-    "@bigmistqke/solid-grid-split": "^1.0.0-next.0",
+    "@bigmistqke/solid-grid-split": "^1.0.0-next.1",
     "@solidjs/signals": "2.0.0-rc.9",
     "@solidjs/web": "^2.0.0-rc.9",
     "solid-js": "^2.0.0-rc.9"

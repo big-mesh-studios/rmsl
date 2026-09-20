@@ -61,8 +61,8 @@ importers:
         specifier: ^1.0.0-beta.3
         version: 1.0.0-beta.3(@babel/standalone@7.29.9)(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(dom-serializer@2.0.0)(domutils@3.2.2)(htmlparser2@10.1.0)(monaco-editor@0.52.2)(solid-js@2.0.0-rc.9)(typescript@5.9.3)
       '@bigmistqke/solid-grid-split':
-        specifier: ^1.0.0-next.0
-        version: 1.0.0-next.0(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)
+        specifier: ^1.0.0-next.1
+        version: 1.0.0-next.1(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)
       '@random-mesh/rmsl':
         specifier: workspace:*
         version: link:..
@@ -282,8 +282,8 @@ packages:
       solid-js: ^2.0.0-rc.9
       typescript: ^5.1.6
 
-  '@bigmistqke/solid-grid-split@1.0.0-next.0':
-    resolution: {integrity: sha512-d8+6ljA5FNb2D3cWHnZX5WGE9Q3MtTCqojC793p7vQUhGCrZTKwvN+jMxVXSXdrF965DTJX/d8lYRMIzOE/uww==}
+  '@bigmistqke/solid-grid-split@1.0.0-next.1':
+    resolution: {integrity: sha512-pc4OPfBoX2zZyw+RGmZsM3H4YOPva94dS292qoy9ZO3lMHckVgBTfXXZ8P+mbgyc74TwiRCm7VqfcHHeU3hngw==}
     engines: {node: '>=18', pnpm: '>=9.0.0'}
     peerDependencies:
       '@solidjs/web': ^2.0.0-rc.9
@@ -2351,7 +2351,7 @@ snapshots:
       solid-js: 2.0.0-rc.9
       typescript: 5.9.3
 
-  '@bigmistqke/solid-grid-split@1.0.0-next.0(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)':
+  '@bigmistqke/solid-grid-split@1.0.0-next.1(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)':
     dependencies:
       '@bigmistqke/pointer': 0.1.0
       '@solidjs/web': 2.0.0-rc.9(solid-js@2.0.0-rc.9)

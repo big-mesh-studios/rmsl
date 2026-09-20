@@ -189,7 +189,7 @@ export function App() {
         </For>
       </nav>
       <div class={styles["split-area"]}>
-        <Split direction="column" style={{ display: "grid", width: "100%", height: "100%" }}>
+        <Split direction="row" style={{ display: "grid", width: "100%", height: "100%" }}>
           <Split.Pane size="1fr" class={styles["editor-pane"]}>
             <LSPProvider
               files={lspFiles()}
