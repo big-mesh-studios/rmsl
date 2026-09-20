@@ -6,7 +6,7 @@ import {
   mat4Perspective,
   quadVerts,
   vertexMain,
-} from "../../shared/shader";
+} from "./shader";
 
 // === Compile shaders ===
 const vsWGSL = compileWgsl.vertex(vertexMain());

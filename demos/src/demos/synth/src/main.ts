@@ -1,6 +1,7 @@
 import { compileGlsl } from "@random-mesh/rmsl/glsl";
 import { a_index, scopeFragment, scopeVertex, SCOPE_VERTEX_COUNT } from "./scopeShader";
 import { u_freq, u_gain, u_sampleRate, u_startPhase, u_waveform } from "./synthShader";
+import synthWorkletUrl from "./synthWorklet.ts?importChunkUrl";
 
 const WAVEFORM_INDEX: Record<string, number> = { sine: 0, saw: 1, square: 2, triangle: 3 };
 
@@ -87,7 +88,10 @@ async function ensureAudio(): Promise<void> {
   if (audioContext) return;
 
   audioContext = new AudioContext();
-  await audioContext.audioWorklet.addModule(new URL("./synthWorklet.ts", import.meta.url));
+  // In the demo playground this runs inside a sandboxed `blob:` iframe, whose
+  // base URL isn't hierarchical — resolve against the real origin explicitly
+  // rather than relying on addModule's own (relative-to-document) resolution.
+  await audioContext.audioWorklet.addModule(new URL(synthWorkletUrl, window.location.origin));
 
   workletNode = new AudioWorkletNode(audioContext, "rmsl-oscillator", { outputChannelCount: [1] });
   workletNode.connect(audioContext.destination);

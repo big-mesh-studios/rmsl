@@ -1,6 +1,6 @@
 import { compileGlsl } from "@random-mesh/rmsl/glsl";
 import type { PassGraph } from "@random-mesh/rmsl/effects";
-import { quadVerts } from "../../shared/shader";
+import { quadVerts } from "./matrix";
 
 const FULLSCREEN_VERT = `#version 300 es
 precision highp float;

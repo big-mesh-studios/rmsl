@@ -12,7 +12,7 @@ import {
   quadPos,
   quadVerts,
   vertexMain,
-} from "../../shared/shader";
+} from "./shader";
 
 // === Compile shaders ===
 const vsGLSL = compileGlsl.vertex(vertexMain());

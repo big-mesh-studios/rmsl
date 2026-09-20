@@ -6,16 +6,6 @@ const fileLoaders = import.meta.glob<string>('./*/**/*.{html,ts}', {
   query: '?raw',
   import: 'default',
 })
-const sharedLoaders = import.meta.glob<string>('./shared/*.ts', {
-  query: '?raw',
-  import: 'default',
-})
-// A few demos import `../../shared/shader` — give every demo that same
-// path in its own VFS (`/shared/<name>.ts`) rather than special-casing which
-// ones need it.
-const sharedPaths = Object.fromEntries(
-  Object.entries(sharedLoaders).map(([globPath, load]) => [`/shared/${globPath.slice('./shared/'.length)}`, load]),
-)
 const mainChunkUrls = import.meta.glob<string>('./*/src/main.ts', {
   query: '?importChunkUrl',
   import: 'default',
@@ -50,7 +40,6 @@ function splitPath(globPath: string): { id: string; path: string } {
 const byId = new Map<string, { loaders: Record<string, () => Promise<string>>; paths: string[] }>()
 for (const globPath of Object.keys(fileLoaders).sort()) {
   const { id, path } = splitPath(globPath)
-  if (id === 'shared') continue
   const entry = byId.get(id) ?? { loaders: {}, paths: [] }
   entry.loaders[path] = fileLoaders[globPath]!
   entry.paths.push(path)
@@ -63,13 +52,12 @@ export const demos: Demo[] = [...byId.entries()]
     const moduleUrl = mainChunkUrls[`./${id}/src/main.ts`]
     if (moduleUrl === undefined) throw new Error(`demos: missing main.ts chunk for ${id}`)
     if (loaders['/index.html'] === undefined) throw new Error(`demos: missing index.html for ${id}`)
-    const allLoaders = { ...loaders, ...sharedPaths }
     return {
       id,
-      paths: [...paths, ...Object.keys(sharedPaths)],
+      paths,
       async loadFiles() {
         const entries = await Promise.all(
-          Object.entries(allLoaders).map(async ([path, load]) => [path, await load()] as const),
+          Object.entries(loaders).map(async ([path, load]) => [path, await load()] as const),
         )
         return Object.fromEntries(entries)
       },
