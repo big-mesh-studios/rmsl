@@ -7,6 +7,7 @@ import { demos, type Demo } from "./demos/registry";
 import { createHtmlExtension, createTsExtension, loadCompiler } from "./lib/repl-compiler";
 import { injectSandboxRuntime, postThemeMessage } from "./lib/repl-sandbox";
 import { loadRmslTypeFiles, rmslTypePaths } from "./lib/rmsl-types";
+import importChunkUrlTypes from "./importChunkUrl.d.ts?raw";
 
 /**
  * Every demo shares the same relative layout (`/index.html`, `/src/main.ts`,
@@ -131,11 +132,12 @@ export function App() {
   // See toLspPath's doc comment for why this namespacing exists.
   const lspFiles = createMemo(() => {
     const demo = selectedDemo();
-    if (!demo) return { ...rmslTypeFiles() };
+    const shared = { ...rmslTypeFiles(), "/importChunkUrl.d.ts": importChunkUrlTypes };
+    if (!demo) return shared;
     const namespaced = Object.fromEntries(
       Object.entries(mergedFiles()).map(([path, source]) => [toLspPath(demo.id, path), source]),
     );
-    return { ...namespaced, ...rmslTypeFiles() };
+    return { ...namespaced, ...shared };
   });
 
   function setOverride(path: string, source: string): void {
