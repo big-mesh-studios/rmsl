@@ -47,9 +47,10 @@ export function createForceSystem(): ForceSystem {
 
     const dx = pointerX.sub(posX.element(i));
     const dy = pointerY.sub(posY.element(i));
-    // Floored, not just offset — keeps accel finite as the pointer
-    // approaches a particle instead of just avoiding an exact div-by-0.
-    const distSq = dx.mul(dx).add(dy.mul(dy)).max(400);
+    // Floored well above zero, not just offset — an inverse-square pull
+    // with no damping (see createIntegrationSystem) overshoots and flips
+    // sign every frame once accel gets too large at close range.
+    const distSq = dx.mul(dx).add(dy.mul(dy)).max(2500);
     const accelX = dx.mul(strength).mul(mode).div(distSq);
     const accelY = dy.mul(strength).mul(mode).div(distSq);
 
@@ -85,6 +86,7 @@ export type IntegrationSystem = {
     width: string;
     height: string;
     dt: string;
+    damping: string;
   };
 };
 
@@ -92,6 +94,7 @@ export function createIntegrationSystem(): IntegrationSystem {
   let width!: ReturnType<typeof uniform<"float">>;
   let height!: ReturnType<typeof uniform<"float">>;
   let dt!: ReturnType<typeof uniform<"float">>;
+  let damping!: ReturnType<typeof uniform<"float">>;
   let posX!: ReturnType<typeof storage<"float">>;
   let posY!: ReturnType<typeof storage<"float">>;
   let velX!: ReturnType<typeof storage<"float">>;
@@ -105,6 +108,7 @@ export function createIntegrationSystem(): IntegrationSystem {
     width = uniform("float");
     height = uniform("float");
     dt = uniform("float");
+    damping = uniform("float");
 
     const i = invocationIndex();
 
@@ -115,8 +119,11 @@ export function createIntegrationSystem(): IntegrationSystem {
 
     posX.element(i).assign(nextPosX.clamp(0, width));
     posY.element(i).assign(nextPosY.clamp(0, height));
-    velX.element(i).assign(bouncedX.select(velX.element(i).negate(), velX.element(i)));
-    velY.element(i).assign(bouncedY.select(velY.element(i).negate(), velY.element(i)));
+    // Applied every frame, not just on the force system's contribution: the
+    // pointer force otherwise has no way to bleed off, so held-in-place
+    // energy keeps compounding frame over frame until the field blows up.
+    velX.element(i).assign(bouncedX.select(velX.element(i).negate(), velX.element(i)).mul(damping));
+    velY.element(i).assign(bouncedY.select(velY.element(i).negate(), velY.element(i)).mul(damping));
 
     return posX.element(i);
   })();
@@ -131,6 +138,7 @@ export function createIntegrationSystem(): IntegrationSystem {
       width: width.name,
       height: height.name,
       dt: dt.name,
+      damping: damping.name,
     },
   };
 }

@@ -75,7 +75,8 @@ let pointerX = 0;
 let pointerY = 0;
 let pointerActive = false;
 let pointerMode = 1; // 1 attract, -1 repel
-const POINTER_STRENGTH = 4e6;
+const POINTER_STRENGTH = 3e5;
+const VELOCITY_DAMPING = 0.96;
 
 // Re-set every frame: cheap (a handful of object-field assignments), and
 // it means a fresh posX/posY/velX/velY from seed() (entity count changed)
@@ -88,6 +89,7 @@ function stepCPU(adapter: JsComputeAdapter | WasmComputeAdapter, dt: number) {
   adapter.setUniform(integration.width, canvas.width);
   adapter.setUniform(integration.height, canvas.height);
   adapter.setUniform(integration.dt, dt);
+  adapter.setUniform(integration.damping, VELOCITY_DAMPING);
   adapter.setUniform(force.pointerX, pointerX);
   adapter.setUniform(force.pointerY, pointerY);
   adapter.setUniform(force.mode, pointerActive ? pointerMode : 0);
@@ -146,6 +148,7 @@ async function stepWGSL(dt: number) {
   wgslAdapter.setUniform(integration.width, canvas.width);
   wgslAdapter.setUniform(integration.height, canvas.height);
   wgslAdapter.setUniform(integration.dt, dt);
+  wgslAdapter.setUniform(integration.damping, VELOCITY_DAMPING);
   wgslAdapter.setUniform(force.pointerX, pointerX);
   wgslAdapter.setUniform(force.pointerY, pointerY);
   wgslAdapter.setUniform(force.mode, pointerActive ? pointerMode : 0);
