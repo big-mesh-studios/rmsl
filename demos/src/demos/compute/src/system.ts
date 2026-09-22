@@ -11,6 +11,7 @@ export type ForceSystem = {
     pointerY: string;
     mode: string;
     strength: string;
+    swirl: string;
     dt: string;
   };
 };
@@ -30,6 +31,7 @@ export function createForceSystem(): ForceSystem {
   let pointerY!: ReturnType<typeof uniform<"float">>;
   let mode!: ReturnType<typeof uniform<"float">>;
   let strength!: ReturnType<typeof uniform<"float">>;
+  let swirl!: ReturnType<typeof uniform<"float">>;
   let dt!: ReturnType<typeof uniform<"float">>;
 
   const root = Fn(() => {
@@ -41,6 +43,7 @@ export function createForceSystem(): ForceSystem {
     pointerY = uniform("float");
     mode = uniform("float");
     strength = uniform("float");
+    swirl = uniform("float");
     dt = uniform("float");
 
     const i = invocationIndex();
@@ -51,8 +54,21 @@ export function createForceSystem(): ForceSystem {
     // with no damping (see createIntegrationSystem) overshoots and flips
     // sign every frame once accel gets too large at close range.
     const distSq = dx.mul(dx).add(dy.mul(dy)).max(2500);
-    const accelX = dx.mul(strength).mul(mode).div(distSq);
-    const accelY = dy.mul(strength).mul(mode).div(distSq);
+    const radialX = dx.mul(strength).mul(mode).div(distSq);
+    const radialY = dy.mul(strength).mul(mode).div(distSq);
+    // A purely radial pull drives every particle onto the same point with
+    // the same velocity, so releasing the pointer leaves one frozen clump
+    // instead of a gas. This tangential term (perpendicular to the radial
+    // one) gives each particle its own orbit around the pointer instead.
+    // Scaled by |mode| rather than mode itself — its handedness shouldn't
+    // flip between attract/repel, only turn off when the pointer is inactive
+    // (mode 0), same as the radial term, or particles never stop orbiting.
+    const active = mode.abs();
+    const swirlX = dy.negate().mul(swirl).mul(active).div(distSq);
+    const swirlY = dx.mul(swirl).mul(active).div(distSq);
+
+    const accelX = radialX.add(swirlX);
+    const accelY = radialY.add(swirlY);
 
     velX.element(i).assign(velX.element(i).add(accelX.mul(dt)));
     velY.element(i).assign(velY.element(i).add(accelY.mul(dt)));
@@ -71,6 +87,7 @@ export function createForceSystem(): ForceSystem {
       pointerY: pointerY.name,
       mode: mode.name,
       strength: strength.name,
+      swirl: swirl.name,
       dt: dt.name,
     },
   };
@@ -119,9 +136,10 @@ export function createIntegrationSystem(): IntegrationSystem {
 
     posX.element(i).assign(nextPosX.clamp(0, width));
     posY.element(i).assign(nextPosY.clamp(0, height));
-    // Applied every frame, not just on the force system's contribution: the
-    // pointer force otherwise has no way to bleed off, so held-in-place
-    // energy keeps compounding frame over frame until the field blows up.
+    // `damping` is 1 (a no-op) whenever the pointer force is inactive, so
+    // particles keep their existing velocity and float freely — it only
+    // drops below 1 while a sustained pull needs somewhere to bleed off,
+    // otherwise held-in-place energy would compound frame over frame.
     velX.element(i).assign(bouncedX.select(velX.element(i).negate(), velX.element(i)).mul(damping));
     velY.element(i).assign(bouncedY.select(velY.element(i).negate(), velY.element(i)).mul(damping));
 
