@@ -4,28 +4,43 @@ import { createWgslCompute } from "@random-mesh/rmsl/wgsl";
 import { createGpuRenderer } from "./gpu-renderer";
 import { createForceSystem, createIntegrationSystem } from "./system";
 
+// A real mouseleave/mouseout on `window` for "the pointer left the iframe"
+// is not reliably delivered across every browser (the sandboxed preview here
+// runs in its own iframe, and browsers vary on whether a leave event even
+// reaches a nested browsing context — see e.g.
+// https://bugzilla.mozilla.org/show_bug.cgi?id=284664). Padding the canvas
+// inset by this many pixels turns "the pointer left the canvas" into an
+// ordinary same-document element boundary instead — crossing from the
+// canvas into the surrounding strip always fires that element's own
+// mouseleave, well before the pointer ever reaches the iframe's own edge.
+const POINTER_PADDING = 1;
+
 const canvas = document.createElement("canvas");
 const gpuCanvas = document.createElement("canvas");
+
+function sizeCanvases() {
+  const width = Math.max(0, window.innerWidth - POINTER_PADDING * 2);
+  const height = Math.max(0, window.innerHeight - POINTER_PADDING * 2);
+  for (const c of [canvas, gpuCanvas]) {
+    c.width = width;
+    c.height = height;
+  }
+}
+
 for (const c of [canvas, gpuCanvas]) {
-  c.width = window.innerWidth;
-  c.height = window.innerHeight;
   c.style.position = "fixed";
-  c.style.inset = "0";
+  c.style.inset = `${POINTER_PADDING}px`;
   c.style.zIndex = "-1";
   document.body.appendChild(c);
 }
+sizeCanvases();
 // Not `.hidden` — the page's own `canvas { display: block; }` rule (an
 // author style) overrides the UA stylesheet's `[hidden] { display: none }`,
 // so toggling the attribute would have no visual effect here.
 gpuCanvas.style.display = "none";
 const ctx2d = canvas.getContext("2d")!;
 
-window.addEventListener("resize", () => {
-  for (const c of [canvas, gpuCanvas]) {
-    c.width = window.innerWidth;
-    c.height = window.innerHeight;
-  }
-});
+window.addEventListener("resize", sizeCanvases);
 
 const backendSelect = document.getElementById("backend") as HTMLSelectElement;
 const entityCountInput = document.getElementById("entityCount") as HTMLInputElement;
@@ -186,21 +201,25 @@ function setPointer(clientX: number, clientY: number) {
   pointerActive = true;
 }
 
-// Listened on window, not the canvas: whichever of canvas/gpuCanvas is
-// hidden for the active backend gets no pointer events at all, but both
-// are fixed, inset-0, same-size overlays, so window coordinates work for
-// either (setPointer uses `canvas`'s rect, which the other one shares).
-window.addEventListener("mousemove", (e) => setPointer(e.clientX, e.clientY));
-window.addEventListener("mouseleave", () => (pointerActive = false));
-window.addEventListener(
-  "touchmove",
-  (e) => {
-    const t = e.touches[0];
-    if (t) setPointer(t.clientX, t.clientY);
-  },
-  { passive: true },
-);
-window.addEventListener("touchend", () => (pointerActive = false));
+// Listened on both canvas and gpuCanvas, not window: whichever is hidden
+// (display: none) never receives pointer events at all, so attaching to
+// both is safe — only the visible one ever fires. Element-level mouseleave
+// (not window's) is what POINTER_PADDING above is for: it turns "the
+// pointer left the canvas" into a same-document boundary crossing, which
+// fires reliably, rather than "the pointer left the iframe", which doesn't.
+for (const c of [canvas, gpuCanvas]) {
+  c.addEventListener("mousemove", (e) => setPointer(e.clientX, e.clientY));
+  c.addEventListener("mouseleave", () => (pointerActive = false));
+  c.addEventListener(
+    "touchmove",
+    (e) => {
+      const t = e.touches[0];
+      if (t) setPointer(t.clientX, t.clientY);
+    },
+    { passive: true },
+  );
+  c.addEventListener("touchend", () => (pointerActive = false));
+}
 
 // === Render loop ===
 function draw() {
