@@ -2,6 +2,7 @@ import { CodeMirror, darkTheme, LSPProvider } from "@big-mesh-studios/solid-code
 import { Repl } from "@bigmistqke/repl/solid";
 import { Split } from "@bigmistqke/solid-grid-split";
 import { createMediaQuery } from "@solid-primitives/media";
+import { useNavigate, useParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import styles from "./App.module.css";
@@ -114,7 +115,12 @@ const NARROW_QUERY = "(max-width: 700px)";
 
 export function App() {
   const isNarrow = createMediaQuery(NARROW_QUERY);
-  const [selectedId, setSelectedId] = createSignal(demos[0]?.id);
+  // The `:id?` route param is the source of truth (see src/index.tsx) — a
+  // memo instead of a local signal, so a direct link to a demo, or the
+  // back/forward buttons, land on the right tab with no extra plumbing.
+  const params = useParams<{ id?: string }>();
+  const navigate = useNavigate();
+  const selectedId = createMemo(() => params.id ?? demos[0]?.id);
   const selectedDemo = createMemo(() => demos.find((demo) => demo.id === selectedId()));
 
   const [overridesByDemo, setOverridesByDemo] = createSignal<Record<string, Record<string, string>>>({});
@@ -197,7 +203,7 @@ export function App() {
           {(demo) => (
             <button
               type="button"
-              onClick={() => setSelectedId(demo.id)}
+              onClick={() => navigate(`/${demo.id}`)}
               popovertarget="demo-popover"
               popovertargetaction="hide"
               style={{ background: selectedId() === demo.id ? "#22252c" : "transparent" }}
@@ -218,7 +224,7 @@ export function App() {
           <For each={demos}>
             {(demo) => (
               <button
-                onClick={() => setSelectedId(demo.id)}
+                onClick={() => navigate(`/${demo.id}`)}
                 style={{ background: selectedId() === demo.id ? "#22252c" : "transparent" }}
                 class={styles["demo-tab"]}
               >

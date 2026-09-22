@@ -45,7 +45,9 @@ jobs:
       - run: pnpm build
 
       - working-directory: demos
-        run: pnpm exec vite build --base=/${{ github.event.repository.name }}/
+        run: pnpm exec vite build
+        env:
+          VITE_BASE: /${{ github.event.repository.name }}/
 
       - uses: actions/upload-pages-artifact@v3
         with:

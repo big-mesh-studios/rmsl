@@ -69,6 +69,9 @@ importers:
       '@solid-primitives/media':
         specifier: 4.0.0-next.2
         version: 4.0.0-next.2(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)
+      '@solidjs/router':
+        specifier: 2.0.0-next.26
+        version: 2.0.0-next.26(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)
       '@solidjs/signals':
         specifier: 2.0.0-rc.9
         version: 2.0.0-rc.9
@@ -1008,6 +1011,12 @@ packages:
 
   '@solidjs/compiler@2.0.0-rc.9':
     resolution: {integrity: sha512-TzxMcJDhVswSEL3UtXuUWfFzIyNBx0LN6KAJZ6ryvlElAEdq2T2mpaw/Vn5fMjXcv0bCqas8CVADBhrkDVfPMg==}
+
+  '@solidjs/router@2.0.0-next.26':
+    resolution: {integrity: sha512-Zjho0HI095mxSMu8tyfuqoq8vTeYML0mWJj1iQar298MrhtT2itGiEgF2C7ndE2mzKeXRQ/DLf1tr37Gax5bsg==}
+    peerDependencies:
+      '@solidjs/web': ^2.0.0-rc.9
+      solid-js: ^2.0.0-rc.9
 
   '@solidjs/signals@2.0.0-rc.9':
     resolution: {integrity: sha512-o3pqiTgpH5NR2DstiKrt9s/6+0YOFtv+MfvLONwLsS247I+EWMMyTu9BkRcgd35UR5Pa1DM16lI1/5uaIMY6Gw==}
@@ -2933,6 +2942,11 @@ snapshots:
       '@solidjs/compiler-linux-x64-gnu': 2.0.0-rc.9
       '@solidjs/compiler-wasm32-wasi': 2.0.0-rc.9
       '@solidjs/compiler-win32-x64-msvc': 2.0.0-rc.9
+
+  '@solidjs/router@2.0.0-next.26(@solidjs/web@2.0.0-rc.9(solid-js@2.0.0-rc.9))(solid-js@2.0.0-rc.9)':
+    dependencies:
+      '@solidjs/web': 2.0.0-rc.9(solid-js@2.0.0-rc.9)
+      solid-js: 2.0.0-rc.9
 
   '@solidjs/signals@2.0.0-rc.9': {}
 
