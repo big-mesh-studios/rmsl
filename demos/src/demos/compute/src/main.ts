@@ -2,7 +2,7 @@ import { createJsCompute, type JsComputeAdapter } from "@random-mesh/rmsl/js";
 import { createWasmCompute, type WasmComputeAdapter } from "@random-mesh/rmsl/wasm";
 import { createWgslCompute } from "@random-mesh/rmsl/wgsl";
 import { createGpuRenderer } from "./gpu-renderer";
-import { createEcsSystem } from "./system";
+import { createForceSystem, createIntegrationSystem } from "./system";
 
 const canvas = document.createElement("canvas");
 const gpuCanvas = document.createElement("canvas");
@@ -57,24 +57,42 @@ function seed(n: number) {
 }
 seed(N);
 
-// === One rmsl Fn, adapted three ways ===
-const system = createEcsSystem();
-const { slots } = system;
+// === Two rmsl Fns — force then integration — dispatched together ===
+// One array of roots per adapter, not two adapters chained: `compile()`
+// dedupes storage() slots by name across roots, so both Fns share the
+// same posX/posY/velX/velY buffers and run in one invocation per particle
+// (force writes velocity, integration reads it back), on all three backends.
+const forceSystem = createForceSystem();
+const integrationSystem = createIntegrationSystem();
+const roots = [forceSystem.program.root, integrationSystem.program.root];
+const force = forceSystem.slots;
+const integration = integrationSystem.slots;
 
-const jsAdapter = createJsCompute(system.program.root, { name: "ecsSystem" });
-const wasmAdapter = createWasmCompute(system.program.root, { name: "ecsSystem" });
+const jsAdapter = createJsCompute(roots, { name: "ecsSystem" });
+const wasmAdapter = createWasmCompute(roots, { name: "ecsSystem" });
+
+let pointerX = 0;
+let pointerY = 0;
+let pointerActive = false;
+let pointerMode = 1; // 1 attract, -1 repel
+const POINTER_STRENGTH = 4e6;
 
 // Re-set every frame: cheap (a handful of object-field assignments), and
 // it means a fresh posX/posY/velX/velY from seed() (entity count changed)
 // is picked up without a separate "resync" path.
 function stepCPU(adapter: JsComputeAdapter | WasmComputeAdapter, dt: number) {
-  adapter.setAttribute(slots.posX, posX);
-  adapter.setAttribute(slots.posY, posY);
-  adapter.setAttribute(slots.velX, velX);
-  adapter.setAttribute(slots.velY, velY);
-  adapter.setUniform(slots.width, canvas.width);
-  adapter.setUniform(slots.height, canvas.height);
-  adapter.setUniform(slots.dt, dt);
+  adapter.setAttribute(integration.posX, posX);
+  adapter.setAttribute(integration.posY, posY);
+  adapter.setAttribute(integration.velX, velX);
+  adapter.setAttribute(integration.velY, velY);
+  adapter.setUniform(integration.width, canvas.width);
+  adapter.setUniform(integration.height, canvas.height);
+  adapter.setUniform(integration.dt, dt);
+  adapter.setUniform(force.pointerX, pointerX);
+  adapter.setUniform(force.pointerY, pointerY);
+  adapter.setUniform(force.mode, pointerActive ? pointerMode : 0);
+  adapter.setUniform(force.strength, POINTER_STRENGTH);
+  adapter.setUniform(force.dt, dt);
   adapter.compute();
 }
 
@@ -86,12 +104,12 @@ function stepCPU(adapter: JsComputeAdapter | WasmComputeAdapter, dt: number) {
 // upload or readback at all. The CPU-side posX/posY/velX/velY only get
 // synced once, when wgsl is first selected — switching away leaves them at
 // whatever they held when you switched in, which is fine here.
-const wgslAdapter = createWgslCompute(system.program.root);
+const wgslAdapter = createWgslCompute(roots);
 let wgslReady = false;
 let gpuRenderer: ReturnType<typeof createGpuRenderer> | null = null;
 
 function currentStorages() {
-  return { [slots.posX]: posX, [slots.posY]: posY, [slots.velX]: velX, [slots.velY]: velY };
+  return { [integration.posX]: posX, [integration.posY]: posY, [integration.velX]: velX, [integration.velY]: velY };
 }
 
 function uploadStorages() {
@@ -103,7 +121,12 @@ function rebuildGpuRenderer() {
   const device = wgslAdapter.device();
   if (!device) return;
   gpuRenderer?.destroy();
-  gpuRenderer = createGpuRenderer(device, gpuCanvas, wgslAdapter.buffer(slots.posX)!, wgslAdapter.buffer(slots.posY)!);
+  gpuRenderer = createGpuRenderer(
+    device,
+    gpuCanvas,
+    wgslAdapter.buffer(integration.posX)!,
+    wgslAdapter.buffer(integration.posY)!,
+  );
 }
 
 wgslAdapter
@@ -120,9 +143,14 @@ wgslAdapter
   });
 
 async function stepWGSL(dt: number) {
-  wgslAdapter.setUniform(slots.width, canvas.width);
-  wgslAdapter.setUniform(slots.height, canvas.height);
-  wgslAdapter.setUniform(slots.dt, dt);
+  wgslAdapter.setUniform(integration.width, canvas.width);
+  wgslAdapter.setUniform(integration.height, canvas.height);
+  wgslAdapter.setUniform(integration.dt, dt);
+  wgslAdapter.setUniform(force.pointerX, pointerX);
+  wgslAdapter.setUniform(force.pointerY, pointerY);
+  wgslAdapter.setUniform(force.mode, pointerActive ? pointerMode : 0);
+  wgslAdapter.setUniform(force.strength, POINTER_STRENGTH);
+  wgslAdapter.setUniform(force.dt, dt);
   await wgslAdapter.compute();
 }
 
@@ -135,6 +163,38 @@ entityCountInput.addEventListener("change", () => {
     rebuildGpuRenderer();
   }
 });
+
+// === Pointer force input ===
+const modeButton = document.getElementById("pointerMode") as HTMLButtonElement;
+modeButton.textContent = "attract";
+
+modeButton.addEventListener("click", () => {
+  pointerMode = pointerMode === 1 ? -1 : 1;
+  modeButton.textContent = pointerMode === 1 ? "attract" : "repel";
+});
+
+function setPointer(clientX: number, clientY: number) {
+  const rect = canvas.getBoundingClientRect();
+  pointerX = clientX - rect.left;
+  pointerY = clientY - rect.top;
+  pointerActive = true;
+}
+
+// Listened on window, not the canvas: whichever of canvas/gpuCanvas is
+// hidden for the active backend gets no pointer events at all, but both
+// are fixed, inset-0, same-size overlays, so window coordinates work for
+// either (setPointer uses `canvas`'s rect, which the other one shares).
+window.addEventListener("mousemove", (e) => setPointer(e.clientX, e.clientY));
+window.addEventListener("mouseleave", () => (pointerActive = false));
+window.addEventListener(
+  "touchmove",
+  (e) => {
+    const t = e.touches[0];
+    if (t) setPointer(t.clientX, t.clientY);
+  },
+  { passive: true },
+);
+window.addEventListener("touchend", () => (pointerActive = false));
 
 // === Render loop ===
 function draw() {
