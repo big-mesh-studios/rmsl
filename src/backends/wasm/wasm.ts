@@ -644,12 +644,17 @@ export function compileWasmFn(
 ): CompiledWasm {
   const paramNodes = options.params.map((p) => var_(p.name, p.type));
   const rawResult = fn(...paramNodes) as any;
-  // Fn's array-return sugar wraps every returned item in its own "seq" node
-  // carrying the *same* captured statements plus that item as its tail value
-  // (src/core.ts's Fn), so the last item alone already reproduces the whole
-  // body: only its value feeds the stage's single result slot, matching
-  // compileGlsl/compileWgsl's "last array entry wins" convention.
-  const root = Array.isArray(rawResult) ? rawResult[rawResult.length - 1] : rawResult;
+  // `rawResult` is either one root or an array of roots (a caller-supplied
+  // array of independently-built Fns, e.g. compileWasmRoutine(..., [a, b]),
+  // or Fn's own array-return sugar, where every returned item is a "seq"
+  // node sharing the *same* captured statement list plus that item's own
+  // tail value — src/core.ts's Fn). Every root's statements get emitted
+  // (deduped below by node identity, so the shared-statement-list case
+  // doesn't double-emit); only the last root's value feeds the stage's
+  // single result slot, matching compileGlsl/compileWgsl's "last array
+  // entry wins" convention.
+  const resultNodes: any[] = Array.isArray(rawResult) ? (rawResult as any[]) : [rawResult];
+  const root = resultNodes[resultNodes.length - 1];
 
   const paramTypeByName = new Map(options.params.map((p) => [p.name, p.type]));
   const fnParamNames = new Set(options.params.map((p) => p.name));
@@ -703,9 +708,11 @@ export function compileWasmFn(
 
   let memCursor = (options.gpuUniformLayout?.totalSize ?? 0) + (options.memoryBase ?? 0); // cursor past the host's reserved region(s)
 
-  // Pass 1: plan the whole tree — record slots/addresses and imported
-  // math names — before any bytecode is emitted.
-  collect(root);
+  // Pass 1: plan the whole tree of every root — record slots/addresses and
+  // imported math names — before any bytecode is emitted. `collect` gates
+  // every allocation behind a `.has()` check, so revisiting nodes shared
+  // between roots (the array-return-sugar case) is idempotent.
+  for (const n of resultNodes) collect(n);
 
   let resultKind: ScalarKind;
   let valueAddress: number | undefined;
@@ -749,13 +756,28 @@ export function compileWasmFn(
   // depth. walkStmt refreshes it on every call, so it's always accurate by
   // the time a nested seq is walked from within that statement.
   let currentStmtDepth = EXIT_BLOCK_DEPTH;
-  const bodyBytes =
-    root.type === "seq"
-      ? [
-          ...(root.params.slice(0, -1) as any[]).flatMap((s: any) => walkStmt(s, EXIT_BLOCK_DEPTH)),
-          ...finalValueBytes(root.params[root.params.length - 1]),
-        ]
-      : finalValueBytes(root);
+  // Statement nodes are emitted at most once by identity: the array-return-
+  // sugar case gives every result node the *same* leading statement objects
+  // (see resultNodes above), and re-walking an already-emitted statement
+  // would double its bytecode (and any side effect it has).
+  const emittedStmts = new Set<any>();
+  const bodyBytes: number[] = [];
+  resultNodes.forEach((node, i) => {
+    const isLast = i === resultNodes.length - 1;
+    if (node.type === "seq") {
+      const stmts = node.params.slice(0, -1) as any[];
+      for (const s of stmts) {
+        if (emittedStmts.has(s)) continue;
+        emittedStmts.add(s);
+        bodyBytes.push(...walkStmt(s, EXIT_BLOCK_DEPTH));
+      }
+      if (isLast) bodyBytes.push(...finalValueBytes(node.params[node.params.length - 1]));
+    } else if (isLast) {
+      bodyBytes.push(...finalValueBytes(node));
+    }
+    // A non-last, non-"seq" root is a bare pure expression with no
+    // statements of its own — its value is unused, so there's nothing to emit.
+  });
 
   const exitBlockType = needsResult ? WASM_BLOCKTYPE_VOID : wasmTypeOf(resultKind); // the outer block carries the function's result type (or void)
   const code = [WASM_OP.block, exitBlockType, ...bodyBytes, WASM_OP.end];

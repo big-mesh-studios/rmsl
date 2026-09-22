@@ -1707,6 +1707,63 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
     }
     expect(Array.from(pos)).toEqual([2, 14, 26]);
   });
+
+  it("compiles a caller-supplied array of independently-built roots, keeping every root's effects", () => {
+    // Two disjoint Fns (their own separate storage()/uniform() calls, no
+    // shared node identity at all) passed as one array — the shape
+    // compileWasmRoutine(..., [forceSystem.root, integrationSystem.root])
+    // uses. Both roots must take effect, not just the last one.
+    let force!: UniformNode<"float">;
+    const forceRoot = Fn(() => {
+      const vel = storage("vel", "float", { access: "read_write" });
+      force = uniform("float");
+      const i = invocationIndex();
+      vel.element(i).addAssign(force);
+    })();
+
+    let dt!: UniformNode<"float">;
+    const integrationRoot = Fn(() => {
+      const vel = storage("vel", "float");
+      const pos = storage("pos", "float", { access: "read_write" });
+      dt = uniform("float");
+      const i = invocationIndex();
+      pos.element(i).addAssign(vel.element(i).mul(dt));
+    })();
+
+    const fn = compileWasmRoutine(() => [forceRoot, integrationRoot] as any, { name: "step", params: [] });
+
+    const pos = new Float64Array([0]);
+    const vel = new Float64Array([1]);
+    fn.invoke({ storages: { vel, pos }, uniforms: { [force.name]: 4, [dt.name]: 2 }, index: 0 });
+    // force bumps vel 1 -> 5, then integration advances pos by vel * dt = 10.
+    // Before the fix, only the last root (integration) compiled, "force"
+    // never ran, and pos advanced by the stale vel (1 * 2 = 2) instead.
+    expect(Array.from(vel)).toEqual([5]);
+    expect(Array.from(pos)).toEqual([10]);
+  });
+
+  it("does not double-emit shared statements for the array-return-sugar case", () => {
+    // return [a, b] from a single Fn wraps both items in a "seq" sharing the
+    // *same* leading statement objects (src/core.ts's Fn) — each one must
+    // be emitted exactly once, even though it's now reached once per array
+    // item instead of only through the last one.
+    let vel!: any;
+    const build = () =>
+      Fn(() => {
+        const pos = storage("pos", "float", { access: "read_write" });
+        vel = uniform("float");
+        const i = invocationIndex();
+        const bumped = pos.element(i).addAssign(vel);
+        return [bumped, bumped];
+      })();
+    const fn = compileWasmRoutine(build as any, { name: "step", params: [] });
+
+    const pos = new Float64Array([10]);
+    fn.invoke({ storages: { pos }, uniforms: { [vel.name]: 3 }, index: 0 });
+    // Duplicated emission would run the addAssign twice (10 -> 16); emitted
+    // once, it should land at 13.
+    expect(Array.from(pos)).toEqual([13]);
+  });
 });
 
 describe("WASM backend: memoryBase — several compiled modules sharing one WebAssembly.Memory", () => {
