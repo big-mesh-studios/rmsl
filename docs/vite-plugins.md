@@ -140,8 +140,8 @@ Unlike the other two plugins, each compiled module's bytes are emitted as a real
 ```typescript
 import { brightness, mixColours } from "./wasm-fns"; // CpuRoutine objects at runtime, once the fetch resolves
 
-brightness.invoke({ uniforms: { _rmsl_u0: [1, 2, 3] } }); // { value: [0.5, 1, 1.5] }
-mixColours.invoke({ params: { a: [0, 0, 0], b: [1, 1, 1], t: 0.5 } }); // { value: [0.5, 0.5, 0.5] }
+brightness.run({ uniforms: { _rmsl_u0: [1, 2, 3] } }); // { value: [0.5, 1, 1.5] }
+mixColours.run({ params: { a: [0, 0, 0], b: [1, 1, 1], t: 0.5 } }); // { value: [0.5, 0.5, 0.5] }
 ```
 
 | Option       | Type     | Default            | Meaning                                                 |

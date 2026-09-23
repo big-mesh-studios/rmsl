@@ -6,25 +6,23 @@ import { CpuDrawBuffer, CpuRoutine } from "./cpu";
 export type AdapterResult = Record<string, TypedArray>;
 
 /**
- * `compute`/`batch` here are two independently optional {@link CpuRoutine}s —
- * `invoke()`d once per entity for a `compute` program, or `batch()`d once per
- * pixel for a `batch` program (named for the `CpuRoutine` method it's run
- * through, not the `Adapter.draw()` it's wired into below — those are two
- * different things sharing a canvas-render step, not one). Not exported
- * publicly: {@link createCpuAdapter} is wrapped by
+ * `compute`/`draw` here are two independently optional {@link CpuRoutine}s,
+ * each named for the routine method the adapter's own method of that name
+ * runs it through: `compute()` runs a `storage()` program once per entity,
+ * and `draw()` runs a `fragCoord()` program once per canvas pixel. Not
+ * exported publicly: {@link createCpuAdapter} is wrapped by
  * `createJsCompute`/`createWasmCompute` (`compute` only) and
- * `createJsRoutine`/`createWasmRoutine` (`batch` only) — each passing a
- * single already-compiled routine under its own field, never both, now
- * that those are separate entry points rather than one options bag.
+ * `createJsRoutine`/`createWasmRoutine` (`draw` only) — each passing a
+ * single already-compiled routine under its own field, never both.
  */
 export interface CpuAdapterPrograms {
   compute?: CpuRoutine;
-  batch?: CpuRoutine;
+  draw?: CpuRoutine;
 }
 
 /** `compute`/`draw` here are each required — unlike the base Adapter's
  * optional, possibly-async versions — even though `createJsRoutine`/
- * `createWasmRoutine` only ever build the `batch` half now (`compute()`
+ * `createWasmRoutine` only ever build the `draw` half now (`compute()`
  * throws on the result). `createJsCompute`/`createWasmCompute` build the
  * `compute` half instead, but expose it through their own narrower
  * `JsComputeAdapter`/`WasmComputeAdapter` types rather than this one, so
@@ -62,9 +60,9 @@ export function bufferToImageData(buffer: CpuDrawBuffer, width: number, height: 
 
 export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
   // Named for what each actually is, not restated from `programs` — the
-  // call site below is `perPixel.batch(...)`, not `programs.batch.batch(...)`.
+  // call site below is `perPixel.draw(...)`, not `programs.draw.draw(...)`.
   const computeStep = programs.compute;
-  const perPixel = programs.batch;
+  const perPixel = programs.draw;
 
   let n = 0;
   const storages: Record<string, TypedArray> = {};
@@ -101,7 +99,7 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
 
     compute(out) {
       if (!computeStep) throw new Error("[RMSL] this adapter has no `compute` program");
-      computeStep.dispatch({ storages, uniforms } as any, n);
+      computeStep.compute({ storages, uniforms } as any, n);
       // storages already holds the caller's own arrays, mutated in place —
       // `out` is only for callers that want the WGSL adapter's optional-out
       // shape too, not something this loop needs to do its job.
@@ -112,9 +110,9 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
 
     draw() {
       if (!perPixel || !canvas || !ctx2d) {
-        throw new Error("[RMSL] this adapter has no `batch` program, or attach() was never called");
+        throw new Error("[RMSL] this adapter has no `draw` program, or attach() was never called");
       }
-      const buffer = perPixel.batch({ uniforms } as any, canvas.width, canvas.height);
+      const buffer = perPixel.draw({ uniforms } as any, canvas.width, canvas.height);
       ctx2d.putImageData(bufferToImageData(buffer, canvas.width, canvas.height), 0, 0);
     },
 

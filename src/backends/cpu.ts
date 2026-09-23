@@ -13,7 +13,7 @@ export type CpuShaderContext = {
    * Backing arrays for `storage()` slots, one per name passed to `storage()`.
    * A `storage()`-based program runs once per element with `index` set to
    * that element's position — the same per-invocation semantics WGSL's
-   * compute path gives it, driven by `CpuRoutine.dispatch()` instead of the
+   * compute path gives it, driven by `CpuRoutine.compute()` instead of the
    * GPU's own dispatch. Any invocation may read or write any element.
    */
   storages?: Record<string, ArrayLike<number> & { [i: number]: number }>;
@@ -73,19 +73,19 @@ export type CpuShaderResult = {
   fragDepth?: number;
 };
 
-/** The typed array `batch()` fills, matching the result's declared kind. */
+/** The typed array `draw()` fills, matching the result's declared kind. */
 export type CpuDrawBuffer = Float64Array | Int32Array | Uint32Array;
 
 /**
  * The runtime face of a compiled CPU function, common to `compileJSRoutine` and
  * `compileWasmRoutine` — not tied to any one stage or use: a plain compute
- * program runs through `dispatch()`, once per `storage()` index, with its
+ * program runs through `compute()`, once per `storage()` index, with its
  * return value ignored (side effects land in `ctx.storages`), a vertex/fragment
- * program's `invoke()` is called once per vertex/pixel for its return
- * value, and `batch()` runs the whole grid in one call rather than one JS
+ * program's `run()` is called once per vertex/pixel for its return
+ * value, and `draw()` runs the whole grid in one call rather than one JS
  * call per pixel from the host side.
  *
- * `batch()` feeds each pixel's center — `(x + 0.5, y + 0.5)` — in as
+ * `draw()` feeds each pixel's center — `(x + 0.5, y + 0.5)` — in as
  * `fragCoord`, holding every other input (uniforms, textures, ...) fixed
  * across the grid, and packs the result into one flat row-major buffer of
  * `width * height * componentCount` elements.
@@ -97,17 +97,23 @@ export type CpuDrawBuffer = Float64Array | Int32Array | Uint32Array;
  * `width * height * componentCount` elements; it is returned unchanged.
  */
 export type CpuRoutine = {
-  invoke(ctx: CpuShaderContext): number | boolean | CpuShaderResult;
-  batch(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer;
+  /** Runs the program once and returns its result. */
+  run(ctx: CpuShaderContext): number | boolean | CpuShaderResult;
+  /**
+   * Runs the program once per pixel of a `width x height` grid, feeding each
+   * pixel's center in as `fragCoord`, and packs the results into one flat
+   * row-major buffer.
+   */
+  draw(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer;
   /**
    * Runs a compute program once per index in `0..count`, in index order, with
    * `invocationIndex()` reading that index, and leaves the results in
-   * `ctx.storages`. The same as calling `invoke()` once per index, except that
+   * `ctx.storages`. The same as calling `run()` once per index, except that
    * a backend which keeps storage in memory of its own copies each buffer in
    * and out once for the whole dispatch rather than once per invocation, and
    * the WASM backend runs the loop itself inside the module.
    */
-  dispatch(ctx: CpuShaderContext, count: number): void;
+  compute(ctx: CpuShaderContext, count: number): void;
 };
 
 /** A compiled function's scalar element kind, at the WASM/typed-array level. */

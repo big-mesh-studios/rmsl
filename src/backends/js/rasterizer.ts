@@ -192,7 +192,7 @@ export function compileJS(
       const attrs: Record<string, unknown> = {};
       for (const slot in attributes) attrs[slot] = sliceAttribute(attributes[slot]!, i + first, widths[slot]!);
 
-      const raw = vertexRoutine.invoke({ attributes: attrs, uniforms, textures });
+      const raw = vertexRoutine.run({ attributes: attrs, uniforms, textures });
       // A vertex Fn that never calls builtinPosition() itself has its plain
       // `return vec4(...)` become the position instead (assertStageResult).
       const position = (isWrapped(raw) ? (raw.position ?? raw.value) : raw) as number[] | undefined;
@@ -287,7 +287,7 @@ export function compileJS(
             varyings[slot] = scale(perspSum, 1 / invW);
           }
 
-          const raw = fragmentRoutine.invoke({ varyings, uniforms, textures, fragCoord: [px, py] });
+          const raw = fragmentRoutine.run({ varyings, uniforms, textures, fragCoord: [px, py] });
           const color = ((isWrapped(raw) ? raw.value : raw) ?? 0) as Value;
           const base = pixelIndex * 4;
           if (typeof color === "number") result[base] = color;

@@ -5,8 +5,8 @@ import { compileWasm, CompileWasmOptions, WasmRasterContext } from "./rasterizer
 import { compileWasmRoutine, CompileWasmFnOptions } from "./wasm";
 
 export interface CreateWasmRoutineOptions {
-  /** A fragCoord() program, evaluated once per pixel by `draw()`'s `.batch()` call. */
-  batch: Node<ShaderType> | readonly Node<ShaderType>[];
+  /** A fragCoord() program, evaluated once per canvas pixel by `draw()`. */
+  draw: Node<ShaderType> | readonly Node<ShaderType>[];
   name?: string;
   params?: CompileWasmFnOptions["params"];
   derivatives?: CompileWasmFnOptions["derivatives"];
@@ -20,7 +20,7 @@ export interface CreateWasmRoutineOptions {
 /**
  * Compiles a `fragCoord()` program with {@link compileWasmRoutine} and
  * wraps it in a {@link createCpuAdapter} — a plain CPU-callable evaluated
- * once per pixel/sample via `.batch()`'s in-WASM loop (`docs/wasm.md`'s
+ * once per pixel/sample via its routine's in-WASM `draw()` loop (`docs/wasm.md`'s
  * screen-pick/ray-march niche, or a `width x 1` per-sample audio-DSP
  * buffer), not a wgpu pipeline shape. See {@link createWasmCompute} for
  * the `storage()`/`invocationIndex()` shape and {@link createWasm} for
@@ -28,8 +28,8 @@ export interface CreateWasmRoutineOptions {
  * entry point rather than living as options here for the same reason.
  */
 export function createWasmRoutine(options: CreateWasmRoutineOptions): CpuAdapter {
-  const batch = compileWasmRoutine(() => options.batch, {
-    name: options.name ?? "batch",
+  const draw = compileWasmRoutine(() => options.draw, {
+    name: options.name ?? "draw",
     stage: "fragment",
     params: options.params ?? [],
     derivatives: options.derivatives,
@@ -40,7 +40,7 @@ export function createWasmRoutine(options: CreateWasmRoutineOptions): CpuAdapter
     gpuUniformLayout: options.gpuUniformLayout,
   });
 
-  return createCpuAdapter({ batch });
+  return createCpuAdapter({ draw });
 }
 
 export interface CreateWasmComputeOptions {
@@ -79,7 +79,7 @@ export interface WasmComputeAdapter {
  * dispatch loop. Invocations still run one after another, with no workgroup
  * model (issue #8). This only narrows the *type*, matching
  * `storage()`/`invocationIndex()`'s own shape instead of reusing
- * `createWasmRoutine`'s `batch`-shaped, non-pipeline option bag.
+ * `createWasmRoutine`'s `draw`-shaped, non-pipeline option bag.
  */
 export function createWasmCompute(
   compute: Node<ShaderType> | readonly Node<ShaderType>[],

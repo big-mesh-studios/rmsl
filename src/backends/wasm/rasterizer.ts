@@ -190,7 +190,7 @@ export interface WasmRasterRoutine {
    * attribute slot's data implies, like every other draw-capable
    * adapter's own `count`), then the clip and triangle passes into a
    * `width` x `height`, 4-components-per-pixel buffer, the same flat
-   * row-major convention `CpuRoutine.batch()` uses. See
+   * row-major convention `CpuRoutine.draw()` uses. See
    * {@link WasmRasterDrawOptions} for `clear`/`clearDepth`.
    */
   draw(ctx: WasmRasterContext, options: WasmRasterDrawOptions): CpuDrawBuffer;

@@ -88,14 +88,14 @@ type, and how much linear memory the compile-time layout used
 time).
 
 The module always exports `main` (`options.name`) and, when the `Fn`'s
-result isn't `void`, a second export, `batch(width, height, bufferBase)` —
+result isn't `void`, a second export, `draw(width, height, bufferBase)` —
 a WASM-side pixel loop that calls `main` once per pixel (feeding it
 `fragCoord()`) and writes results into the caller's buffer, so a whole-image
 evaluation only pays the JS↔WASM marshalling cost once instead of once per
 pixel (see "A whole grid in one call" in `docs/wasm-benchmarks.md`).
 
 A program that uses `storage()` or `invocationIndex()` also gets a
-`dispatch(...params, count)` export: a WASM-side loop that calls `main` once
+`compute(...params, count)` export: a WASM-side loop that calls `main` once
 per index in `0..count`, passing the index as the `invocationIndex` param and
 every other param through unchanged. A whole compute dispatch is then a single
 call from the host.
@@ -120,7 +120,7 @@ It does three things:
    (freshly allocated, sized for the compile-time layout, unless a memory
    was passed in).
 2. Builds a `createWasmInputMarshaller` for the compiled `params` list: on
-   each `invoke()`/`batch()` call, it walks that list and, per entry's
+   each `run()`/`draw()`/`compute()` call, it walks that list and, per entry's
    `kind`, either pushes a JS number onto the WASM call's `args` (the
    `param`/`uniform`/`attribute`/`varying`/`invocationIndex` kinds) or
    writes the value into memory at its fixed address (every `*Memory` kind).
@@ -129,20 +129,20 @@ It does three things:
    texture object between calls. Storage buffers are copied in whole after
    the textures, and each writable one is copied back into the caller's
    array after the call.
-3. Wraps the result in `invoke`/`batch`/`dispatch` (satisfying `CpuRoutine`): call the
+3. Wraps the result in `run`/`draw`/`compute` (satisfying `CpuRoutine`): call the
    WASM export with the marshalled args, then read every memory-resident
    _output_ (`outputMemory`/`varyingOutputMemory`/`positionMemory`/
    `fragDepthMemory`/`valueMemory`) back out of memory into a
    `CpuShaderResult` — or, when there are no memory outputs at all, just
    reinterpret the WASM call's own return value (with a `>>> 0` for `uint`,
-   since the boundary always returns a signed i32). `dispatch(ctx, count)`
-   marshals once, makes one call to the module's `dispatch` export, and
+   since the boundary always returns a signed i32). `compute(ctx, count)`
+   marshals once, makes one call to the module's `compute` export, and
    copies the storage buffers back once. A scalar storage buffer held in a
    typed array is copied in and out with one typed-array `set()`; vector,
    matrix and bool storage is copied one element at a time.
 
 `createWasmInputMarshaller` is exported on its own because it's shared: both
-`instantiateWasmRoutine` (one call per `invoke()`/`batch()`) and the
+`instantiateWasmRoutine` (one call per `run()`/`draw()`/`compute()`) and the
 rasterizer's `compileWasm` (below — one call per `draw()`) need the exact
 same "`CpuShaderContext` → WASM args + memory writes" translation.
 
@@ -180,7 +180,7 @@ compute-pipeline shape (a `storage()`/`invocationIndex()` program,
 exposed through its own `WasmComputeAdapter` — `setAttribute`/
 `setUniform`/`compute()`, no `draw()`/`attach()` in the type at all), and
 `createWasmRoutine` is what's left over — a plain CPU-callable
-(`fragCoord()`-driven, `.batch()`'s in-WASM loop) with no wgpu pipeline
+(`fragCoord()`-driven, its routine's in-WASM `draw()` loop) with no wgpu pipeline
 equivalent, the same niche `compileJS`/`compileWasmFn` exist for in the
 first place. `createGlsl`/`createWgsl` implement the same `Adapter`
 interface `createWasm`/`createWasmRoutine` do, so calling code doesn't
@@ -200,9 +200,9 @@ Fn(s)
   ▼                                    ▼
 CompiledWasm (bytes + WasmParam[] + resultType + textureHeapBase)
   │
-  ├─ instantiateWasmRoutine ─ one module, own memory ─ CpuRoutine (invoke/batch)
+  ├─ instantiateWasmRoutine ─ one module, own memory ─ CpuRoutine (run/draw/compute)
   │        used by:  compileWasmRoutine  (direct calls, no rasterizer)
-  │             ├─ createWasmRoutine   (batch/fragCoord shape, Adapter wrapper)
+  │             ├─ createWasmRoutine   (draw/fragCoord shape, Adapter wrapper)
   │             └─ createWasmCompute   (storage()/invocationIndex() shape, WasmComputeAdapter)
   │
   └─ compileWasm ─ two modules (scalarsInMemory: true), shared memory,

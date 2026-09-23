@@ -207,7 +207,7 @@ describe("node materials", () => {
     };
 
     const fn = compileJSRoutine(() => program.fragmentRoot, { stage: "fragment", params: [], name: "pick" });
-    const result = fn.invoke({ uniforms, varyings }) as { outputs: Record<string, number[]> };
+    const result = fn.run({ uniforms, varyings }) as { outputs: Record<string, number[]> };
     const color = result.outputs[Object.keys(result.outputs)[0]];
     expect(color).toBeDefined();
     for (const channel of color) expect(Number.isFinite(channel)).toBe(true);

@@ -200,14 +200,14 @@ describe("precompileWasm", () => {
     );
 
     const mod = await importDataUrl(code);
-    expect(typeof mod.brightness.invoke).toBe("function");
-    expect(typeof mod.mixColours.invoke).toBe("function");
+    expect(typeof mod.brightness.run).toBe("function");
+    expect(typeof mod.mixColours.run).toBe("function");
 
     // `uniform("vec3")` inside the fixture gets the first auto slot, _rmsl_u0.
     // An aggregate (vec3) root reads back wrapped in { value }, same as
     // compileWasmRoutine's own documented aggregate-result shape.
-    expect(mod.brightness.invoke({ uniforms: { _rmsl_u0: [1, 2, 3] } })).toEqual({ value: [0.5, 1, 1.5] });
-    expect(mod.mixColours.invoke({ params: { a: [0, 0, 0], b: [1, 1, 1], t: 0.5 } })).toEqual({
+    expect(mod.brightness.run({ uniforms: { _rmsl_u0: [1, 2, 3] } })).toEqual({ value: [0.5, 1, 1.5] });
+    expect(mod.mixColours.run({ params: { a: [0, 0, 0], b: [1, 1, 1], t: 0.5 } })).toEqual({
       value: [0.5, 0.5, 0.5],
     });
   });

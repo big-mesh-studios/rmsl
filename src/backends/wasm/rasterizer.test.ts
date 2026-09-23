@@ -758,7 +758,7 @@ describe("WASM backend: generic rasterizer module — near-plane clipping", () =
 
     const jsVertex = compileJSRoutine(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
     const clipSpacePositions = positions.map(
-      (p) => (jsVertex.invoke({ attributes: { [posAttr.name]: p } }) as { position: number[] }).position,
+      (p) => (jsVertex.run({ attributes: { [posAttr.name]: p } }) as { position: number[] }).position,
     );
 
     const EPS = 1e-5;

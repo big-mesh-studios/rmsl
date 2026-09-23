@@ -304,7 +304,7 @@ import { compileJSRoutine, compileJSFn, Fn, uniform, output, builtinFragDepth } 
 
 let pickFn = compileJSRoutine(calcColourAndDepth, { name: "pick", params: [] });
 // On pointerdown:
-let r = pickFn.invoke({
+let r = pickFn.run({
   uniforms: {
     _rmsl_u0: cameraPosition, // each slot is the uniform's .name
     _rmsl_u1: cameraViewMatrix, // flat column-major arrays
@@ -384,7 +384,7 @@ This is what surfaces the picking depth: `calcColourAndDepth` assigns
 
 ### Rendering a whole grid
 
-`compileJSRoutine`'s result also has `.batch(ctx, width, height)`: call the compiled
+`compileJSRoutine`'s result also has `.draw(ctx, width, height)`: call the compiled
 function once per pixel over a `width x height` grid instead of driving the
 loop yourself, packed into one flat, row-major typed array. It's the same
 method [`compileWasmRoutine`'s result](wasm.md#cpuroutine) has — both satisfy one

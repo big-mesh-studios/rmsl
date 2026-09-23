@@ -7,7 +7,7 @@ import { compileWasmRoutine, Fn, uniform, output, builtinFragDepth } from "rmsl"
 
 let pickFn = compileWasmRoutine(calcColourAndDepth, { name: "pick", params: [] });
 // On pointerdown:
-let r = pickFn.invoke({
+let r = pickFn.run({
   uniforms: {
     _rmsl_u0: cameraPosition, // each slot is the uniform's .name
     _rmsl_u1: cameraViewMatrix, // flat column-major arrays
@@ -41,7 +41,7 @@ Pick whichever backend matches the shape of the work. Nothing else about calling
 compileWasmFn(fn, options): CompiledWasm
 ```
 
-The module's raw bytes plus the metadata a host needs to call it — `{ bytes: Uint8Array, params: WasmParam[], resultType: ShaderType, textureHeapBase: number, batch?: { componentCount, kind } }` — analogous to `compileJSFn` returning source instead of a callable.
+The module's raw bytes plus the metadata a host needs to call it — `{ bytes: Uint8Array, params: WasmParam[], resultType: ShaderType, textureHeapBase: number, draw?: { componentCount, kind }, compute?: boolean }` — analogous to `compileJSFn` returning source instead of a callable.
 
 ```typescript
 instantiateWasmRoutine(compiled: CompiledWasm, name: string): CpuRoutine
@@ -67,23 +67,32 @@ Options extend the `Fn` compilers', the same set `compileJSRoutine` accepts:
 
 ```typescript
 type CpuRoutine = {
-  invoke(ctx: CpuShaderContext): number | boolean | CpuShaderResult;
-  batch(ctx: CpuShaderContext, width: number, height: number): Float64Array | Int32Array | Uint32Array;
+  run(ctx: CpuShaderContext): number | boolean | CpuShaderResult;
+  draw(ctx: CpuShaderContext, width: number, height: number): Float64Array | Int32Array | Uint32Array;
+  compute(ctx: CpuShaderContext, count: number): void;
 };
 ```
 
-Both `compileJSRoutine` and `compileWasmRoutine` return a `CpuRoutine`: `invoke()` runs the compiled function once, the same shape described above; `batch()` runs it over a whole `width x height` grid in one call instead of one call per pixel from the host side. Neither name claims what the invocation actually does — a `storage()`/`invocationIndex()` compute program's `invoke()` mutates `ctx.storages` and its return value is irrelevant, same as a vertex/fragment program's `invoke()`/`batch()` producing a real result.
+Both `compileJSRoutine` and `compileWasmRoutine` return a `CpuRoutine`, with one method per way of running the program:
+
+- `run()` runs it once and returns its result, the same shape described above.
+- `draw()` runs it once per pixel of a `width x height` grid and packs the results into one buffer.
+- `compute()` runs a `storage()`/`invocationIndex()` program once per index in `0..count`, leaving its results in `ctx.storages`.
+
+The names match the adapters' own `draw()` and `compute()`, which call these.
 
 ```typescript
 let fn = compileWasmRoutine(calcColour, { name: "main", params: [] });
-let pixels = fn.batch({ uniforms: { ... } }, 256, 256);
+let pixels = fn.draw({ uniforms: { ... } }, 256, 256);
 // Float64Array/Int32Array/Uint32Array, length width * height * componentCount,
 // row-major, one element type picked from the Fn's own result type.
 ```
 
-`batch()` feeds each pixel's center — `(x + 0.5, y + 0.5)` — in as `fragCoord()`, holding every other input (uniforms, textures, …) fixed across the grid. On `compileWasmRoutine`'s side this shares the compiled function's own bytecode via a second exported WASM function that loops internally and calls the first, so a whole-image evaluation pays the per-call marshalling cost once rather than once per pixel — the gap `compileJSRoutine`'s own `batch()` (a plain JS loop, one call per pixel) doesn't have to close the same way, since a JS function call is already cheap.
+`draw()` feeds each pixel's center — `(x + 0.5, y + 0.5)` — in as `fragCoord()`, holding every other input (uniforms, textures, …) fixed across the grid. On `compileWasmRoutine`'s side this shares the compiled function's own bytecode via a second exported WASM function that loops internally and calls the first, so a whole-image evaluation pays the per-call marshalling cost once rather than once per pixel — the gap `compileJSRoutine`'s own `draw()` (a plain JS loop, one call per pixel) doesn't have to close the same way, since a JS function call is already cheap.
 
-A `void`-returning `Fn` has nothing to produce — `batch()` throws, naming that.
+A `void`-returning `Fn` has nothing to produce — `draw()` throws, naming that.
+
+`compute()` works the same way: on `compileWasmRoutine`'s side, the module exports a third function that loops over every index internally, so a whole dispatch is one call from the host. Each storage buffer is copied into the module's memory once before it and back out once after.
 
 ## Texture sampling
 

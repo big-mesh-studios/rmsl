@@ -1766,7 +1766,7 @@ export type CompileJSOptions = CompileFnOptions & {
  */
 /**
  * `compileJSFn`'s real body, also handing back the root node's result type —
- * needed by `compileJSRoutine`'s `batch()` and computed here, from the one time `fn`
+ * needed by `compileJSRoutine`'s `draw()` and computed here, from the one time `fn`
  * is actually called. A second call to read it back afterward is not an
  * option: `fn` routinely has side effects on the caller's own closure (the
  * `let tex; Fn(() => { tex = uniform(...); ... })` idiom this whole test
@@ -1867,7 +1867,7 @@ export function compileJSFn(
  * one starts — for screen picking one call per click that is the point. Pass
  * `{ reentrant: true }` for per-call bindings instead.
  *
- * Also carries `batch()`, the same whole-image entry point `compileWasmRoutine`'s
+ * Also carries `draw()`, the same whole-image entry point `compileWasmRoutine`'s
  * result has: one JS call per pixel, feeding `fragCoord` in and packing every
  * result into one flat row-major buffer — see `CpuRoutine`.
  */
@@ -1877,11 +1877,11 @@ export function compileJSRoutine(
 ): CpuRoutine {
   const { source, resultType } = compileJSFnDetailed(fn, options);
   const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuShaderResult;
-  const invoke = factory();
+  const run = factory();
 
-  function batch(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
+  function draw(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
     if (resultType === undefined) {
-      throw new Error("[RMSL] compileJSRoutine: this function produces no value to render — batch() needs a result.");
+      throw new Error("[RMSL] compileJSRoutine: this function produces no value to render — draw() needs a result.");
     }
     const componentCount = componentCountOf(resultType);
     const kind = isAggregate(resultType) ? elementKindOf(resultType) : scalarKindOf(resultType);
@@ -1896,8 +1896,8 @@ export function compileJSRoutine(
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         // pixel centers land at (x + 0.5, y + 0.5) — the same convention
-        // compileWasmRoutine's batch() and fragCoordMemory in wasm.ts use.
-        const result = invoke({ ...ctx, fragCoord: [x + 0.5, y + 0.5] });
+        // compileWasmRoutine's draw() and fragCoordMemory in wasm.ts use.
+        const result = run({ ...ctx, fragCoord: [x + 0.5, y + 0.5] });
         const raw =
           typeof result === "object" && result !== null && "value" in result
             ? (result as CpuShaderResult).value
@@ -1912,13 +1912,13 @@ export function compileJSRoutine(
     return buffer;
   }
 
-  function dispatch(ctx: CpuShaderContext, count: number): void {
+  function compute(ctx: CpuShaderContext, count: number): void {
     const invocation: CpuShaderContext = { ...ctx };
     for (let i = 0; i < count; i++) {
       invocation.index = i;
-      invoke(invocation);
+      run(invocation);
     }
   }
 
-  return { invoke, batch, dispatch };
+  return { run, draw, compute };
 }

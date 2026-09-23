@@ -22,7 +22,7 @@ for (const SIZE of [128, 512]) {
     const perPixelCtx: CpuShaderContext = { uniforms: drawCtx.uniforms, fragCoord: [0, 0] };
 
     bench("draw() — one call for the whole grid", () => {
-      wasmFn.batch(drawCtx, SIZE, SIZE);
+      wasmFn.draw(drawCtx, SIZE, SIZE);
     });
 
     bench("compileWasmRoutine, one call per pixel — same grid, same program", () => {
@@ -30,7 +30,7 @@ for (const SIZE of [128, 512]) {
         for (let x = 0; x < SIZE; x++) {
           (perPixelCtx.fragCoord as number[])[0] = x + 0.5;
           (perPixelCtx.fragCoord as number[])[1] = y + 0.5;
-          wasmFn.invoke(perPixelCtx);
+          wasmFn.run(perPixelCtx);
         }
       }
     });
@@ -44,7 +44,7 @@ for (const SIZE of [128, 512]) {
         for (let x = 0; x < SIZE; x++) {
           (perPixelCtx.fragCoord as number[])[0] = x + 0.5;
           (perPixelCtx.fragCoord as number[])[1] = y + 0.5;
-          jsFn.invoke(perPixelCtx);
+          jsFn.run(perPixelCtx);
         }
       }
     });
@@ -71,7 +71,7 @@ for (const SIZE of [128, 512]) {
     const perPixelCtx: CpuShaderContext = { textures: drawCtx.textures, fragCoord: [0, 0] };
 
     bench("draw() — one call for the whole grid, sampling a texture", () => {
-      wasmFn.batch(drawCtx, SIZE, SIZE);
+      wasmFn.draw(drawCtx, SIZE, SIZE);
     });
 
     bench("compileJSRoutine, one call per pixel, sampling the same texture", () => {
@@ -79,7 +79,7 @@ for (const SIZE of [128, 512]) {
         for (let x = 0; x < SIZE; x++) {
           (perPixelCtx.fragCoord as number[])[0] = x + 0.5;
           (perPixelCtx.fragCoord as number[])[1] = y + 0.5;
-          jsFn.invoke(perPixelCtx);
+          jsFn.run(perPixelCtx);
         }
       }
     });

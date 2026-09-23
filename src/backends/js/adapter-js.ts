@@ -5,8 +5,8 @@ import { compileJS, CompileJSRasterOptions, JsRasterContext } from "./rasterizer
 import { compileJSRoutine, CompileJSOptions } from "./js";
 
 export interface CreateJsRoutineOptions {
-  /** A fragCoord() program, evaluated once per pixel by `draw()`'s `.batch()` call. */
-  batch: Node<ShaderType> | readonly Node<ShaderType>[];
+  /** A fragCoord() program, evaluated once per canvas pixel by `draw()`. */
+  draw: Node<ShaderType> | readonly Node<ShaderType>[];
   name?: string;
   params?: CompileJSOptions["params"];
   derivatives?: CompileJSOptions["derivatives"];
@@ -16,7 +16,7 @@ export interface CreateJsRoutineOptions {
 /**
  * Compiles a `fragCoord()` program with {@link compileJSRoutine} and
  * wraps it in a {@link createCpuAdapter} — a plain CPU-callable evaluated
- * once per pixel/sample via `.batch()`, not a wgpu pipeline shape. See
+ * once per pixel/sample via its routine's `draw()`, not a wgpu pipeline shape. See
  * {@link createJsCompute} for the `storage()`/`invocationIndex()` shape
  * and {@link createJs} for the vertex/fragment render shape — those each
  * got their own dedicated entry point rather than living as options here
@@ -24,15 +24,15 @@ export interface CreateJsRoutineOptions {
  * split, which this mirrors).
  */
 export function createJsRoutine(options: CreateJsRoutineOptions): CpuAdapter {
-  const batch = compileJSRoutine(() => options.batch, {
-    name: options.name ?? "batch",
+  const draw = compileJSRoutine(() => options.draw, {
+    name: options.name ?? "draw",
     params: options.params ?? [],
     stage: "fragment",
     derivatives: options.derivatives,
     reentrant: options.reentrant,
   });
 
-  return createCpuAdapter({ batch });
+  return createCpuAdapter({ draw });
 }
 
 export interface CreateJsComputeOptions {

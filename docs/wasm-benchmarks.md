@@ -447,17 +447,11 @@ nowhere near the texture-free scenario's ~10x at the same size — a real,
 inherent per-pixel cost for texture sampling remains — but `.draw()` is no
 longer the wrong choice for this workload at either size measured.
 
-(`.draw()` was later renamed `.batch()` once the same `CpuRoutine` shape
-started covering vertex/fragment/compute invocations too, not just image
-rendering — see `docs/wasm.md` for the current API surface. Kept under its
-original name in this file since it's a historical measurement, not
-current API documentation.)
-
 ### `createWasm` vs `rasterizeTriangles(compileJS)`: the same "whole grid in one call" win, for real geometry
 
 The generic rasterizer module (`src/backends/wasm/rasterizer.ts`/`.wat`,
 see `src/backends/wasm/rasterizer.md` for the design) is the same
-`.batch()` idea one level up: instead of moving a per-_pixel_ loop inside
+`.draw()` idea one level up: instead of moving a per-_pixel_ loop inside
 WASM, it moves the per-_vertex_ and per-_pixel_ loop — vertex transform,
 near-plane clipping, edge-function coverage, perspective-correct
 interpolation, depth test — inside one WASM call, driven by `compileWasm`/
@@ -465,7 +459,7 @@ interpolation, depth test — inside one WASM call, driven by `compileWasm`/
 `rasterizeTriangles` (`src/backends/cpu-rasterizer.ts`) driving a
 `compileJS`-compiled vertex/fragment pair from the host side — a real JS
 function call per vertex and per covered pixel, the same per-call
-overhead `.batch()` already amortizes for a fragment-only program.
+overhead `.draw()` already amortizes for a fragment-only program.
 
 `src/benches/wasm-rasterizer.bench.ts` measures a rotating, per-vertex-
 colored quad (2 triangles, 6 non-indexed vertices — the same scene

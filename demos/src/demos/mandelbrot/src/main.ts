@@ -681,7 +681,7 @@ function renderCpu(cpuMode: "js" | "wasm") {
   const w = cpuCanvas.width;
   const h = cpuCanvas.height;
 
-  const buffer = renderer.batch({ uniforms: computeUniformValues(w, h) }, w, h);
+  const buffer = renderer.draw({ uniforms: computeUniformValues(w, h) }, w, h);
 
   const image = cpuCtx.createImageData(w, h);
   for (let i = 0; i < w * h; i++) {

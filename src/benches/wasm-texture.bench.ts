@@ -18,10 +18,10 @@ describe("textureSize(): metadata round trip only, no sampling math", () => {
   const ctx = { textures: { [tex.name]: texture } };
 
   bench("compileWasmRoutine", () => {
-    wasmFn.invoke(ctx);
+    wasmFn.run(ctx);
   });
   bench("compileJSRoutine", () => {
-    jsFn.invoke(ctx);
+    jsFn.run(ctx);
   });
 });
 
@@ -33,10 +33,10 @@ describe("textureLoad(): one unfiltered texel", () => {
   const ctx = { textures: { [tex.name]: texture } };
 
   bench("compileWasmRoutine", () => {
-    wasmFn.invoke(ctx);
+    wasmFn.run(ctx);
   });
   bench("compileJSRoutine", () => {
-    jsFn.invoke(ctx);
+    jsFn.run(ctx);
   });
 });
 
@@ -48,10 +48,10 @@ describe("texture(): nearest-filtered sample", () => {
   const ctx = { textures: { [tex.name]: nearestTexture } };
 
   bench("compileWasmRoutine", () => {
-    wasmFn.invoke(ctx);
+    wasmFn.run(ctx);
   });
   bench("compileJSRoutine", () => {
-    jsFn.invoke(ctx);
+    jsFn.run(ctx);
   });
 });
 
@@ -63,9 +63,9 @@ describe("texture(): bilinear-filtered sample", () => {
   const ctx = { textures: { [tex.name]: linearTexture } };
 
   bench("compileWasmRoutine", () => {
-    wasmFn.invoke(ctx);
+    wasmFn.run(ctx);
   });
   bench("compileJSRoutine", () => {
-    jsFn.invoke(ctx);
+    jsFn.run(ctx);
   });
 });

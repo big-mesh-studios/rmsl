@@ -27,7 +27,7 @@ type PortMsg =
 /**
  * Runs the RMSL-compiled oscillator on the audio rendering thread. Each
  * `process()` call is one ~128-sample block with a hard real-time deadline
- * (miss it and the browser drops out audibly) — `renderer.batch()` computes
+ * (miss it and the browser drops out audibly) — `renderer.draw()` computes
  * the whole block in one call into a synchronous WASM loop, the same
  * "compute the whole buffer, not sample-by-sample JS calls" trick the CPU
  * renderer backends use for pixels.
@@ -66,7 +66,7 @@ class RmslOscillatorProcessor extends AudioWorkletProcessor {
       return true;
     }
 
-    const buffer = this.renderer.batch(
+    const buffer = this.renderer.draw(
       {
         uniforms: {
           [u_freq.name]: this.freq,

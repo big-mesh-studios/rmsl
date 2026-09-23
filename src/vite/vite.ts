@@ -147,7 +147,7 @@ export function precompileJS(options: PrecompileJSOptions = {}): Plugin {
  * asset once at load and hands the bytes to `instantiateWasmRoutine` — imported
  * from `@random-mesh/rmsl/wasm`, the only rmsl the rewritten module ever
  * references — along with the rest of what `compileWasmFn` returned
- * (`params`/`resultType`/`textureHeapBase`/`batch`), turning the two back
+ * (`params`/`resultType`/`textureHeapBase`/`draw`/`compute`), turning the two back
  * into a live, callable module. No eval, no graph builder or bytecode
  * emitter shipped to the browser; only the small piece of glue that marshals
  * calls in and results out.
