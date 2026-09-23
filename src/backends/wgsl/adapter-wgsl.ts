@@ -393,7 +393,9 @@ export function createWgslCompute(
 
     let usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
     let bytes = Math.max(4, n * 4);
-    storageBuffers = new Map(computeStorageResources().map((r) => [r.name, device!.createBuffer({ size: bytes, usage })]));
+    storageBuffers = new Map(
+      computeStorageResources().map((r) => [r.name, device!.createBuffer({ size: bytes, usage })]),
+    );
 
     computeBindGroup1 = device.createBindGroup({
       layout: computePipeline.getBindGroupLayout(1),
@@ -472,7 +474,10 @@ export function createWgslCompute(
 
       let program = compile({ stage: "compute", workgroupSize: options.workgroupSize ?? 64 }, compute);
       let module = device.createShaderModule({ code: program.code });
-      computePipeline = device.createComputePipeline({ layout: "auto", compute: { module, entryPoint: program.entryPoint } });
+      computePipeline = device.createComputePipeline({
+        layout: "auto",
+        compute: { module, entryPoint: program.entryPoint },
+      });
       computeResources = program.resources;
 
       let uniforms = computeUniformResources();

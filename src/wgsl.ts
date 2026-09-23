@@ -124,9 +124,7 @@ export function compile(
   root: Node<ShaderType> | readonly Node<ShaderType>[] | void,
 ): WgslProgram {
   if (options.stage !== "compute") {
-    throw new Error(
-      `[RMSL] @random-mesh/rmsl/wgsl currently supports only compute compilation`,
-    );
+    throw new Error(`[RMSL] @random-mesh/rmsl/wgsl currently supports only compute compilation`);
   }
 
   const workgroupSize = options.workgroupSize ?? 64;

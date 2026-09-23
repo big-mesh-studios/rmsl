@@ -75,16 +75,7 @@ export type UniformValue<A extends ShaderType> = A extends "float" | "int" | "ui
       ? [number, number, number]
       : A extends "vec4" | "ivec4" | "uvec4" | "bvec4"
         ? [number, number, number, number]
-        : A extends
-              | "mat2"
-              | "mat2x3"
-              | "mat2x4"
-              | "mat3x2"
-              | "mat3"
-              | "mat3x4"
-              | "mat4x2"
-              | "mat4x3"
-              | "mat4"
+        : A extends "mat2" | "mat2x3" | "mat2x4" | "mat3x2" | "mat3" | "mat3x4" | "mat4x2" | "mat4x3" | "mat4"
           ? number[]
           : never;
 
@@ -1069,20 +1060,13 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
       return node({
         _t: this._t,
         type: "storageElement",
-        params: [
-          this as BaseNode<ShaderType>,
-          wrapValue(index) as BaseNode<ShaderType>,
-        ],
+        params: [this as BaseNode<ShaderType>, wrapValue(index) as BaseNode<ShaderType>],
       });
     }
 
     const isVector = /^(vec|ivec|uvec|bvec)[234]$/.test(this._t);
 
-    return op(
-      isVector ? "vectorElement" : "matrixElement",
-      this,
-      index,
-    );
+    return op(isVector ? "vectorElement" : "matrixElement", this, index);
   }
   inverse() {
     return op1("inverse", this);
@@ -1738,9 +1722,7 @@ export function assertBlockScope(fnName: string, fn: (blockScope: BaseNode<Shade
  * `() => [Node<A>, Node<B>]`), and parameters (`Fn((a: Node<"float">, b:
  * Node<"float">) => a.add(b))` becomes `(a, b) => Node<"float">`).
  */
-export function Fn<T extends any[], const R>(
-  fn: (...args: T) => R,
-): (...args: T) => R {
+export function Fn<T extends any[], const R>(fn: (...args: T) => R): (...args: T) => R {
   return (...args: T) => {
     let oldBlockScope = blockScope;
     // A top-level Fn starts a fresh name registry, so each compiled program
