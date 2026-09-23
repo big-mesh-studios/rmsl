@@ -1719,11 +1719,13 @@ export function assertBlockScope(fnName: string, fn: (blockScope: BaseNode<Shade
  *
  * Supports a single return (`Fn(() => { ...; return x; })` becomes
  * `() => Node<A>`), a multi return (`return [a, b]` becomes
- * `() => [Node<A>, Node<B>]`), and parameters (`Fn((a: Node<"float">, b:
+ * `() => [Node<A>, Node<B>]`), no return at all (`Fn(() => { ... })` becomes
+ * `() => Node<"void">`, which a compute program or a vertex stage that assigns
+ * `builtinPosition()` itself is), and parameters (`Fn((a: Node<"float">, b:
  * Node<"float">) => a.add(b))` becomes `(a, b) => Node<"float">`).
  */
-export function Fn<T extends any[], const R>(fn: (...args: T) => R): (...args: T) => R {
-  return (...args: T) => {
+export function Fn<T extends any[], const R>(fn: (...args: T) => R): (...args: T) => FnResult<R> {
+  return (...args: T): any => {
     let oldBlockScope = blockScope;
     // A top-level Fn starts a fresh name registry, so each compiled program
     // gets its own deterministic set of user-named variables. Nested Fns keep
@@ -1756,6 +1758,27 @@ export function Fn<T extends any[], const R>(fn: (...args: T) => R): (...args: T
     }
   };
 }
+
+/**
+ * Whether `T` is `any`. Nothing else makes `1 & T` accept `0`: intersecting
+ * with `any` gives `any`, while intersecting with any other type gives
+ * something `0` cannot be.
+ */
+type IsAny<T> = 0 extends 1 & T ? true : false;
+
+/**
+ * Whether a body's return type is "returns nothing". Tuple-wrapped so a union
+ * return is judged whole rather than member by member. `any` is excluded, since
+ * it would otherwise match `void` too.
+ */
+type ReturnsNothing<R> = IsAny<R> extends true ? false : [R] extends [void] ? true : false;
+
+/**
+ * What calling an `Fn` gives back: the body's own return, or `Node<"void">`
+ * for a body that returns nothing, since the call still produces the `seq`
+ * node holding its statements.
+ */
+export type FnResult<R> = ReturnsNothing<R> extends true ? Node<"void"> : R;
 
 export function buildBlock(body: () => void): Node<"void"> {
   let oldBlockScope = blockScope;

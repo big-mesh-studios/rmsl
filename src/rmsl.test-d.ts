@@ -25,11 +25,15 @@ import {
   all,
   any,
   determinant,
+  storage,
+  invocationIndex,
   type Node,
   type ShaderType,
 } from "./rmsl";
 import { compileGlsl } from "./glsl";
-import { compileWgsl } from "./wgsl";
+import { compileWgsl, createWgslCompute } from "./wgsl";
+import { createJsCompute } from "./js";
+import { createWasmCompute } from "./wasm";
 
 describe("comparison result types", () => {
   // Only a scalar reduces to a single boolean; a comparison is component-wise,
@@ -113,19 +117,26 @@ describe("what a vertex stage accepts", () => {
 
   // A body with no return, and one that assigns the position but likewise
   // returns nothing, both give the call itself — not just what a compiler
-  // accepts — the type void.
-  it("types a program that returns nothing as void", () => {
+  // accepts — the type Node<"void">: the call still produces a node holding
+  // the body's statements.
+  it("types a program that returns nothing as a void node", () => {
     expectTypeOf(
       Fn(() => {
         float(1).toVar();
       })(),
-    ).toEqualTypeOf<void>();
+    ).toEqualTypeOf<Node<"void">>();
 
     expectTypeOf(
       Fn(() => {
         builtinPosition().assign(vec4(1, 2, 3, 4));
       })(),
-    ).toEqualTypeOf<void>();
+    ).toEqualTypeOf<Node<"void">>();
+  });
+
+  // A body typed `any` (a helper declared to return `any`, say) keeps that
+  // type rather than being taken for a body that returns nothing.
+  it("leaves a body typed any as any", () => {
+    expectTypeOf(Fn(() => vec4(0).toVar() as any)()).toBeAny();
   });
 
   // Several values can be returned at once, and the last becomes the position.
@@ -152,6 +163,20 @@ describe("what a vertex stage accepts", () => {
   // legal, so any result is allowed through.
   it("puts no such requirement on a fragment stage", () => {
     expectTypeOf(compileGlsl.fragment(Fn(() => float(1).toVar())())).toEqualTypeOf<string>();
+  });
+});
+
+describe("compute programs", () => {
+  // A compute program writes its results into storage, so it has nothing to
+  // return; every compute entry point takes it as it is.
+  it("take a program that returns nothing", () => {
+    const step = Fn(() => {
+      const pos = storage("pos", "float", { access: "read_write" });
+      pos.element(invocationIndex()).addAssign(1);
+    })();
+    createJsCompute(step);
+    createWasmCompute(step);
+    createWgslCompute(step);
   });
 });
 

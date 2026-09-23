@@ -77,7 +77,7 @@ type ReflectedUniform = { slot: string; type: string; length?: number };
  * in creation order) and uniforms — same ctx-walking trick `compile()`
  * uses for a compute program's storage()/uniform() resources. */
 function reflectStage(
-  root: Node<ShaderType> | readonly Node<ShaderType>[] | void,
+  root: Node<ShaderType> | readonly Node<ShaderType>[],
   shaderStage: "vertex" | "fragment",
 ): { attributes: ReflectedAttribute[]; uniforms: ReflectedUniform[] } {
   let ctx = freshCtx(shaderStage);

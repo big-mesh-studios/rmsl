@@ -97,7 +97,6 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
       const dst = storage("dst", "float", { access: "read_write" });
       const i = invocationIndex();
       dst.element(i).assign(src.element(i.add(1).mod(4)));
-      return dst.element(i);
     })();
 
     const [js, wasm] = runBoth(root, () => ({
@@ -114,7 +113,6 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
       const dst = storage("dst", "int", { access: "read_write" });
       const i = invocationIndex();
       dst.element(uint(3).sub(i)).assign(src.element(i).mul(2));
-      return src.element(i);
     })();
 
     const [js, wasm] = runBoth(root, () => ({
@@ -134,7 +132,6 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
       If(i.greaterThan(uint(0)), () => {
         acc.element(i).addAssign(acc.element(i.sub(1)));
       });
-      return acc.element(i);
     })();
 
     const [js, wasm] = runBoth(root, () => ({ acc: new Float32Array([1, 2, 3, 4]) }));

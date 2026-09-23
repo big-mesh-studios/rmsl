@@ -378,18 +378,18 @@ export function assertPositionIsReadable(ctx: CompileCtx): void {
  * Its result becomes the position, so a vec4 is the ordinary case, and anything
  * else is refused here rather than at run time.
  *
- * Void is the other way to satisfy a vertex stage: assign builtinPosition()
- * yourself and return nothing. A function whose body returns nothing has that
- * type, so the two cases are exactly the two the signature admits. Whether an
- * assignment actually happened is not something a signature can see, so that
- * half stays a run-time check.
+ * `Node<"void">` is the other way to satisfy a vertex stage: assign
+ * builtinPosition() yourself and return nothing. Calling an `Fn` whose body
+ * returns nothing gives that type, so the two cases are exactly the two the
+ * signature admits. Whether an assignment actually happened is not something
+ * a signature can see, so that half stays a run-time check.
  *
  * Several values may be returned at once, of which the last becomes the
  * position — so that is the one constrained, and the values before it are
  * whatever the shader needed on the way there. Saying so requires knowing which
  * value is last, which is why `Fn` infers an array return as a tuple.
  */
-export type VertexRoot = Node<"vec4"> | readonly [...Node<ShaderType>[], Node<"vec4">] | void;
+export type VertexRoot = Node<"vec4"> | readonly [...Node<ShaderType>[], Node<"vec4">] | Node<"void">;
 
 export type CompileFnOptions = {
   name: string;

@@ -48,7 +48,7 @@ export interface WgslCompileOptions {
  * order is reproduced exactly as the backend assigns it: every distinct
  * `storage()` slot reachable from `root`, sorted by slot name.
  */
-function collectStorageResources(root: Node<ShaderType> | readonly Node<ShaderType>[] | void): WgslResource[] {
+function collectStorageResources(root: Node<ShaderType> | readonly Node<ShaderType>[]): WgslResource[] {
   const seen = new Map<string, { shaderType: ShaderType; access: StorageAccess }>();
   const visited = new Set<unknown>();
 
@@ -121,7 +121,7 @@ function inferUniformResources(code: string): WgslResource[] {
 
 export function compile(
   options: WgslCompileOptions,
-  root: Node<ShaderType> | readonly Node<ShaderType>[] | void,
+  root: Node<ShaderType> | readonly Node<ShaderType>[],
 ): WgslProgram {
   if (options.stage !== "compute") {
     throw new Error(`[RMSL] @random-mesh/rmsl/wgsl currently supports only compute compilation`);
