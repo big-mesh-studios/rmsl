@@ -1782,7 +1782,6 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
         const dst = storage("dst", "vec3", { access: "read_write" });
         const i = invocationIndex();
         dst.element(uint(2).sub(i)).assign(src.element(i).mul(2));
-        return dst.element(i);
       })();
     const run = (routine: ReturnType<typeof compileWasmRoutine>) => {
       const src = [
@@ -1818,7 +1817,6 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
         const i = invocationIndex();
         b.element(i).assign(a.element(i.add(2)));
         a.element(i.add(2)).assign(float(-1));
-        return b.element(i);
       })();
     const fn = compileWasmRoutine(build as any, { name: "step", params: [] });
 

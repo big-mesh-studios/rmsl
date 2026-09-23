@@ -1,7 +1,7 @@
 import { Fn, invocationIndex, storage, uniform, type Node } from "@random-mesh/rmsl";
 
 export type ForceSystem = {
-  program: { root: Node<"float"> };
+  program: { root: Node<"void"> };
   slots: {
     posX: string;
     posY: string;
@@ -72,8 +72,6 @@ export function createForceSystem(): ForceSystem {
 
     velX.element(i).assign(velX.element(i).add(accelX.mul(dt)));
     velY.element(i).assign(velY.element(i).add(accelY.mul(dt)));
-
-    return velX.element(i);
   })();
 
   return {
@@ -94,7 +92,7 @@ export function createForceSystem(): ForceSystem {
 }
 
 export type IntegrationSystem = {
-  program: { root: Node<"float"> };
+  program: { root: Node<"void"> };
   slots: {
     posX: string;
     posY: string;
@@ -142,8 +140,6 @@ export function createIntegrationSystem(): IntegrationSystem {
     // otherwise held-in-place energy would compound frame over frame.
     velX.element(i).assign(bouncedX.select(velX.element(i).negate(), velX.element(i)).mul(damping));
     velY.element(i).assign(bouncedY.select(velY.element(i).negate(), velY.element(i)).mul(damping));
-
-    return posX.element(i);
   })();
 
   return {

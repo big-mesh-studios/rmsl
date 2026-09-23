@@ -16,7 +16,6 @@ describe("createJsCompute/createWasmCompute over a multi-root array", () => {
       force = uniform("float");
       const i = invocationIndex();
       vel.element(i).assign(force);
-      return vel.element(i);
     })();
 
     // rootB reads the velocity rootA wrote and integrates it into position.
@@ -26,7 +25,6 @@ describe("createJsCompute/createWasmCompute over a multi-root array", () => {
       dt = uniform("float");
       const i = invocationIndex();
       pos.element(i).addAssign(vel.element(i).mul(dt));
-      return pos.element(i);
     })();
 
     const roots = [rootA, rootB];
@@ -59,7 +57,6 @@ describe("createJsCompute/createWasmCompute over a multi-root array", () => {
       dt = uniform("float");
       const i = invocationIndex();
       pos.element(i).addAssign(vel.element(i).mul(dt));
-      return pos.element(i);
     })();
 
     function run(adapter: ReturnType<typeof createJsCompute> | ReturnType<typeof createWasmCompute>) {
