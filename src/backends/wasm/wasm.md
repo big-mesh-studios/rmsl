@@ -48,7 +48,7 @@ with `scalarsInMemory` below.
 ### Linear memory
 
 A fixed byte address, written by the host before the call and/or read
-after. Two things are *always* memory-resident, with no param path
+after. Two things are _always_ memory-resident, with no param path
 available at all: aggregates (`vec3`, `mat4`, ... — a WASM function param
 can only be one scalar, so there's no other option), and a fragment
 stage's varying inputs (interpolated and written by the rasterizer
@@ -56,7 +56,7 @@ between the vertex and fragment calls — see `rasterizer.md`'s
 vertex/triangle passes).
 
 `uniform()`/`attribute()`/`varying()` calls are the interesting case: by
-default, each distinct scalar one becomes an *implicit* extra WASM param —
+default, each distinct scalar one becomes an _implicit_ extra WASM param —
 appended after the explicit `Fn` params, invisible in the shader source
 itself, but a real part of the compiled function's WASM-level signature
 (`collect`'s `"uniform"`/`"attribute"`/`"varying"` cases, each gated on
@@ -77,7 +77,7 @@ address makes possible.
 
 `compileWasmFn`'s output (`CompiledWasm`) is raw module bytes plus the
 metadata a host needs to call it: `params` (the ordered list of WASM params
-*and* memory-resident inputs — `WasmParam[]`, tagged by `kind`), the result
+_and_ memory-resident inputs — `WasmParam[]`, tagged by `kind`), the result
 type, and how much linear memory the compile-time layout used
 (`textureHeapBase`, appended-after for texture pixel data at instantiation
 time).
@@ -89,7 +89,7 @@ a WASM-side pixel loop that calls `main` once per pixel (feeding it
 evaluation only pays the JS↔WASM marshalling cost once instead of once per
 pixel (see "A whole grid in one call" in `docs/wasm-benchmarks.md`).
 
-Memory is *imported*, not owned by the module (`env.memory`) — this is what
+Memory is _imported_, not owned by the module (`env.memory`) — this is what
 lets `instantiateWasmRoutine` hand multiple instances the same memory, and
 is what lets the rasterizer's vertex and fragment modules share one memory
 with each other and with the rasterizer module itself.
@@ -118,7 +118,7 @@ It does three things:
    texture object between calls.
 3. Wraps the result in `invoke`/`batch` (satisfying `CpuRoutine`): call the
    WASM export with the marshalled args, then read every memory-resident
-   *output* (`outputMemory`/`varyingOutputMemory`/`positionMemory`/
+   _output_ (`outputMemory`/`varyingOutputMemory`/`positionMemory`/
    `fragDepthMemory`/`valueMemory`) back out of memory into a
    `CpuShaderResult` — or, when there are no memory outputs at all, just
    reinterpret the WASM call's own return value (with a `>>> 0` for `uint`,

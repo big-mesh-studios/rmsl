@@ -3229,7 +3229,11 @@ export function createWasmInputMarshaller(
   return { marshal };
 }
 
-export function instantiateWasmRoutine(compiled: CompiledWasm, name: string, externalMemory?: WebAssembly.Memory): CpuRoutine {
+export function instantiateWasmRoutine(
+  compiled: CompiledWasm,
+  name: string,
+  externalMemory?: WebAssembly.Memory,
+): CpuRoutine {
   const { bytes, params, resultType, textureHeapBase, memoryPages, sharedMemory, maxMemoryPages, batch } = compiled;
 
   // no memory passed in: own one, sized for the compile-time layout, growable

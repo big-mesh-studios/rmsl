@@ -330,10 +330,14 @@ describe("WASM backend: clamp, mix, step, smoothstep", () => {
 
   it("steps and smoothsteps a vector componentwise", () => {
     const stepBuild = () => Fn(() => vec3(0.2, 0.8, 0.5).step(vec3(0.5, 0.5, 0.5)))();
-    expect((compileWasmRoutine(stepBuild as any, { name: "main", params: [] }).invoke({}) as any).value).toEqual([0, 1, 1]);
+    expect((compileWasmRoutine(stepBuild as any, { name: "main", params: [] }).invoke({}) as any).value).toEqual([
+      0, 1, 1,
+    ]);
 
     const smoothBuild = () => Fn(() => vec3(-0.5, 0.5, 1.5).smoothstep(vec3(0, 0, 0), vec3(1, 1, 1)))();
-    expect((compileWasmRoutine(smoothBuild as any, { name: "main", params: [] }).invoke({}) as any).value).toEqual([0, 0.5, 1]);
+    expect((compileWasmRoutine(smoothBuild as any, { name: "main", params: [] }).invoke({}) as any).value).toEqual([
+      0, 0.5, 1,
+    ]);
   });
 });
 
@@ -1106,7 +1110,9 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
         builtinPosition().assign(vec4(0, 0, 0, 1));
         return builtinPosition().x;
       })();
-    expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrow(/fragment stage cannot read it/);
+    expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrow(
+      /fragment stage cannot read it/,
+    );
   });
 });
 
@@ -1144,9 +1150,9 @@ describe("WASM backend: texture uniforms", () => {
     expect(fn.invoke({ textures: { [tex.name]: { data: new Float32Array(4 * 4), width: 4, height: 4 } } })).toBe(4);
     // A much larger texture forces `memory.grow` — must not corrupt the
     // compile-time-fixed metadata address or throw.
-    expect(fn.invoke({ textures: { [tex.name]: { data: new Float32Array(2000 * 2000), width: 2000, height: 2000 } } })).toBe(
-      2000,
-    );
+    expect(
+      fn.invoke({ textures: { [tex.name]: { data: new Float32Array(2000 * 2000), width: 2000, height: 2000 } } }),
+    ).toBe(2000);
   });
 
   it("keeps sampling correctly across repeated calls with the same texture object (the cached, skip-the-copy path)", () => {
@@ -1250,7 +1256,9 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
     const tex = uniform("sampler2D");
     const build = () => Fn(() => textureLoad(tex, ivec2(0, 0)).x)();
     const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
-    const result = fn.invoke({ textures: { [tex.name]: { data: new Uint8Array([128]), width: 1, height: 1, channels: 1 } } });
+    const result = fn.invoke({
+      textures: { [tex.name]: { data: new Uint8Array([128]), width: 1, height: 1, channels: 1 } },
+    });
     expect(result).toBeCloseTo(128 / 255, 10);
   });
 
@@ -1371,7 +1379,9 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
     const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const texture = { data: [0, 100], width: 2, height: 1, channels: 1 as const };
     expect(fn.invoke({ textures: { [tex.name]: texture } })).toBe(100 + 0 + 0 + 1000);
-    expect(fn.invoke({ textures: { [tex.name]: { ...texture, magFilter: "linear" as const } } })).toBe(50 + 0 + 0 + 1000);
+    expect(fn.invoke({ textures: { [tex.name]: { ...texture, magFilter: "linear" as const } } })).toBe(
+      50 + 0 + 0 + 1000,
+    );
   });
 
   it("normalizes a byte texture fetched with textureLod too", () => {
