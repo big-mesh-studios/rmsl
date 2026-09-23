@@ -1912,5 +1912,13 @@ export function compileJSRoutine(
     return buffer;
   }
 
-  return { invoke, batch };
+  function dispatch(ctx: CpuShaderContext, count: number): void {
+    const invocation: CpuShaderContext = { ...ctx };
+    for (let i = 0; i < count; i++) {
+      invocation.index = i;
+      invoke(invocation);
+    }
+  }
+
+  return { invoke, batch, dispatch };
 }

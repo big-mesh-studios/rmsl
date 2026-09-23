@@ -101,9 +101,7 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
 
     compute(out) {
       if (!computeStep) throw new Error("[RMSL] this adapter has no `compute` program");
-      for (let i = 0; i < n; i++) {
-        computeStep.invoke({ storages, uniforms, index: i } as any);
-      }
+      computeStep.dispatch({ storages, uniforms } as any, n);
       // storages already holds the caller's own arrays, mutated in place —
       // `out` is only for callers that want the WGSL adapter's optional-out
       // shape too, not something this loop needs to do its job.

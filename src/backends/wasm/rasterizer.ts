@@ -340,8 +340,8 @@ export function compileWasm(
       : 0;
     const vertexCount = options.count ?? inferredCount;
     const sharedCtx = { uniforms: ctx.uniforms, textures: ctx.textures } as CpuShaderContext;
-    const { textureHeapEnd: vertexHeapEnd } = vertexMarshaller.marshal(sharedCtx);
-    const { textureHeapEnd: fragmentHeapEnd } = fragmentMarshaller.marshal(sharedCtx);
+    const { heapEnd: vertexHeapEnd } = vertexMarshaller.marshal(sharedCtx);
+    const { heapEnd: fragmentHeapEnd } = fragmentMarshaller.marshal(sharedCtx);
 
     let cursor = align8(Math.max(vertexHeapEnd, fragmentHeapEnd));
     const attrSrcBase = cursor;

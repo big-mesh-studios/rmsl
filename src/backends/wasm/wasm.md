@@ -69,9 +69,14 @@ rasterizer (below) can force every shader onto one shared, zero-arg call
 shape.
 
 `storage()` is always memory-resident regardless of `scalarsInMemory` too,
-for a different reason: a `read_write`/`write` storage has to be readable
-back into `ctx.storages[slot][ctx.index]` after the call, which only a fixed
-address makes possible.
+for a different reason: any invocation may read or write any element, so the
+whole buffer has to be in memory. Each storage slot gets a small metadata
+block at a fixed address, holding the heap address of the buffer and its
+element count. `storage.element(i)` compiles to a load or store at
+`base + i * elementSize`, guarded by an unsigned `i < length` check: a read
+outside the buffer gives zero and a write outside it is dropped, so neither
+can reach the memory past the buffer. A `storage()` node used as a value
+rather than through `.element(i)` is refused at compile time.
 
 ## What the compiled module looks like
 
@@ -115,14 +120,19 @@ It does three things:
    writes the value into memory at its fixed address (every `*Memory` kind).
    Textures get the same treatment, appended into memory past
    `textureHeapBase`, with a cache that skips re-uploading an unchanged
-   texture object between calls.
-3. Wraps the result in `invoke`/`batch` (satisfying `CpuRoutine`): call the
+   texture object between calls. Storage buffers are copied in whole after
+   the textures, and each writable one is copied back into the caller's
+   array after the call.
+3. Wraps the result in `invoke`/`batch`/`dispatch` (satisfying `CpuRoutine`): call the
    WASM export with the marshalled args, then read every memory-resident
    _output_ (`outputMemory`/`varyingOutputMemory`/`positionMemory`/
    `fragDepthMemory`/`valueMemory`) back out of memory into a
    `CpuShaderResult` — or, when there are no memory outputs at all, just
    reinterpret the WASM call's own return value (with a `>>> 0` for `uint`,
-   since the boundary always returns a signed i32).
+   since the boundary always returns a signed i32). `dispatch(ctx, count)`
+   marshals once, calls the export once per index with only the
+   `invocationIndex` arg changing, and copies the storage buffers back once,
+   so a dispatch copies each buffer once instead of once per invocation.
 
 `createWasmInputMarshaller` is exported on its own because it's shared: both
 `instantiateWasmRoutine` (one call per `invoke()`/`batch()`) and the

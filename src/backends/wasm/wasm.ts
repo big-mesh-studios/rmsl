@@ -73,15 +73,15 @@ export type WasmParam =
     }
   | {
       /**
-       * A `storage()` slot, called once per element (like `invocationIndex`)
-       * rather than once over a whole buffer — so unlike `uniformArrayMemory`
-       * this is one value, marshalled from/to `ctx.storages[slot][ctx.index]`
-       * around the call instead of a compile-time-sized array.
+       * A `storage()` slot. The whole buffer is copied into the heap past
+       * `textureHeapBase` before a call or dispatch, and a writable one is
+       * copied back out after; `metadataAddress` is where the buffer's heap
+       * address and element count are written for the compiled code to read.
        */
       kind: "storageMemory";
       slot: string;
       shaderType: ShaderType;
-      address: number;
+      metadataAddress: number;
       access: StorageAccess;
     };
 
@@ -201,6 +201,13 @@ const TEX_META_WRAP_S = 32;
 const TEX_META_WRAP_T = 36;
 const TEX_META_WRAP_R = 40;
 const TEXTURE_META_STRIDE = 44;
+
+// Per-storage metadata block written by the input marshaller, reserved per
+// storage slot: the heap address of the buffer's first element, then how
+// many elements it holds.
+const STORAGE_META_DATA_ADDR = 0;
+const STORAGE_META_LENGTH = 4;
+const STORAGE_META_STRIDE = 8;
 
 /**
  * Packed layout (no alignment padding, no reorder): WASM linear memory has
@@ -378,6 +385,7 @@ function minMaxBytes(a: number[], b: number[], kind: ScalarKind, pick: "min" | "
 const SCRATCH_NODE_TYPES = new Set([
   "construct",
   "uniformArrayElement",
+  "storageElement",
   "cross",
   "reflect",
   "normalize",
@@ -411,6 +419,17 @@ function isScratchNode(node: any): boolean {
   if (node.type === t) return true;
   if (node.type === "swizzle") return (node.value as string).length > 1;
   return SCRATCH_NODE_TYPES.has(node.type);
+}
+
+/**
+ * A `storage()` node used as a value rather than through `.element(i)`. The
+ * JS target hands back the whole array there, which has no WASM value to
+ * match.
+ */
+function bareStorageError(node: any): Error {
+  return new Error(
+    `[RMSL] compileWasmFn: storage "${node.value.slot}" is read as a whole; read one element with .element(i).`,
+  );
 }
 
 /**
@@ -689,7 +708,7 @@ export function compileWasmFn(
 
   const attributeAddress = new Map<string, number>();
   const varyingAddress = new Map<string, number>();
-  const storageAddress = new Map<string, number>();
+  const storageMetadataAddress = new Map<string, number>();
 
   // one shared per-pixel input slot, allocated on first use
   let fragCoordAddress: number | undefined;
@@ -705,6 +724,8 @@ export function compileWasmFn(
 
   const textureMetadataAddress = new Map<string, number>();
   const scratchAddress = new WeakMap<object, number>();
+  /** The WASM local each `storage.element(i)` access keeps its evaluated index in. */
+  const storageIndexLocal = new WeakMap<object, string>();
 
   let memCursor = (options.gpuUniformLayout?.totalSize ?? 0) + (options.memoryBase ?? 0); // cursor past the host's reserved region(s)
 
@@ -1185,22 +1206,27 @@ export function compileWasmFn(
       }
 
       case "storage": {
-        // Like `attribute`, but always memory-backed (never a plain param)
-        // since a read_write/write storage has to be readable back after the
-        // call — one call per element, marshalled from/to
-        // `ctx.storages[slot][ctx.index]` (see instantiateWasmRoutine).
         const v = node.value;
-        if (!storageAddress.has(v.slot)) {
-          const addr = allocateFor(v.shaderType);
-          storageAddress.set(v.slot, addr);
+        if (!storageMetadataAddress.has(v.slot)) {
+          const addr = allocateBytes(STORAGE_META_STRIDE);
+          storageMetadataAddress.set(v.slot, addr);
           if (v.access !== "read") needsResult = true;
           memoryParams.push({
             kind: "storageMemory",
             slot: v.slot,
             shaderType: v.shaderType,
-            address: addr,
+            metadataAddress: addr,
             access: v.access,
           });
+        }
+        break;
+      }
+
+      case "storageElement": {
+        if (!storageIndexLocal.has(node)) {
+          const name = `$storage_index${localSlots.length}`;
+          storageIndexLocal.set(node, name);
+          addLocal(name, "int");
         }
         break;
       }
@@ -1388,19 +1414,8 @@ export function compileWasmFn(
         return addr;
       }
 
-      case "storage": {
-        const addr = storageAddress.get(node.value.slot);
-        if (addr === undefined)
-          throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed storage "${node.value.slot}"`);
-        return addr;
-      }
-
-      // Per-call model: this call already represents one element, so a
-      // storageElement's address is simply its storage's own address — the
-      // index expression selects nothing at this level (it does on the WGSL
-      // target, which reads the whole buffer in one invocation instead).
-      case "storageElement":
-        return nodeAddress(node.params[0]);
+      case "storage":
+        throw bareStorageError(node);
 
       case "varying": {
         if (effectiveStage === "fragment") {
@@ -1462,6 +1477,94 @@ export function compileWasmFn(
   }
 
   /**
+   * Bytes for one `storage.element(index)` access: whether `index` lies inside
+   * the buffer the host marshalled in, and the address of the element's `k`th
+   * component. A negative index reads as a huge unsigned one, so one unsigned
+   * compare against the length rejects both ends. `inBounds` evaluates the
+   * index into a local that `address` reads, so it has to run first.
+   */
+  function storageElementAccess(node: any): { inBounds: number[]; address(k: number): number[] } {
+    const storageNode = node.params[0];
+    const metaAddr = storageMetadataAddress.get(storageNode.value.slot);
+    if (metaAddr === undefined) {
+      throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed storage "${storageNode.value.slot}"`);
+    }
+    const type = node._t as string;
+    const kind = isAggregate(type) ? elementKindOf(type) : scalarKindOf(type);
+    const compSize = componentSizeOf(kind);
+    const stride = componentCountOf(type) * compSize;
+    const index = node.params[1];
+    const indexBytes =
+      scalarKindOf(index._t as string) === "float" ? [...walkExpr(index), WASM_OP.i32TruncF64S] : walkExpr(index);
+    const indexLocal = wasmUleb128(localSlotIndex(storageIndexLocal.get(node)!));
+    return {
+      inBounds: [
+        ...indexBytes,
+        WASM_OP.localTee,
+        ...indexLocal,
+        ...loadComponent(metaAddr, "int", STORAGE_META_LENGTH),
+        WASM_OP.i32LtU,
+      ],
+      address: (k) => [
+        ...loadComponent(metaAddr, "int", STORAGE_META_DATA_ADDR),
+        WASM_OP.localGet,
+        ...indexLocal,
+        ...i32ConstBytes(stride),
+        WASM_OP.i32Mul,
+        WASM_OP.i32Add,
+        ...(k === 0 ? [] : [...i32ConstBytes(k * compSize), WASM_OP.i32Add]),
+      ],
+    };
+  }
+
+  /**
+   * Copies an aggregate storage element into its scratch address at `addr`.
+   * An element outside the buffer reads as zero rather than whatever memory
+   * lies past it.
+   */
+  function emitStorageElementLoadStores(node: any, addr: number): number[] {
+    const kind = elementKindOf(node._t as string);
+    const compSize = componentSizeOf(kind);
+    const width = componentCountOf(node._t as string);
+    const element = storageElementAccess(node);
+    const loads: number[] = [];
+    const zeroes: number[] = [];
+    for (let k = 0; k < width; k++) {
+      loads.push(...storeComponent(addr, kind, k * compSize, loadDynamic(element.address(k), kind)));
+      zeroes.push(...storeComponent(addr, kind, k * compSize, kind === "float" ? f64ConstBytes(0) : i32ConstBytes(0)));
+    }
+    return [...element.inBounds, WASM_OP.if_, WASM_BLOCKTYPE_VOID, ...loads, WASM_OP.else_, ...zeroes, WASM_OP.end];
+  }
+
+  /**
+   * Writes `rhs` into a storage element. A write outside the buffer is
+   * dropped, so it cannot land in whatever memory lies past it.
+   */
+  function emitStorageElementStore(target: any, rhs: any): number[] {
+    const type = target._t as string;
+    const element = storageElementAccess(target);
+    if (!isAggregate(type)) {
+      const kind = scalarKindOf(type);
+      return [
+        ...element.inBounds,
+        WASM_OP.if_,
+        WASM_BLOCKTYPE_VOID,
+        ...storeDynamic(element.address(0), kind, walkExpr(rhs)),
+        WASM_OP.end,
+      ];
+    }
+    const kind = elementKindOf(type);
+    const compSize = componentSizeOf(kind);
+    const out = [...materializeIfNeeded(rhs)];
+    const rhsAddr = nodeAddress(rhs);
+    const stores: number[] = [];
+    for (let k = 0; k < componentCountOf(type); k++) {
+      stores.push(...storeDynamic(element.address(k), kind, loadComponent(rhsAddr, kind, k * compSize)));
+    }
+    return [...out, ...element.inBounds, WASM_OP.if_, WASM_BLOCKTYPE_VOID, ...stores, WASM_OP.end];
+  }
+
+  /**
    * Emits the stores that guarantee node's aggregate value sits in memory
    * at nodeAddress(node). Most inputs already live there; gpu-placed
    * uniforms get promoted, and pure expressions are computed into their
@@ -1507,11 +1610,11 @@ export function compileWasmFn(
       }
       case "attribute":
       case "fragCoord":
-      case "storage":
-      // Already resident at nodeAddress(node) — the host wrote it there (see
-      // "storageMemory" in instantiateWasmRoutine) before this call.
-      case "storageElement":
         return [];
+      case "storage":
+        throw bareStorageError(node);
+      case "storageElement":
+        return emitStorageElementLoadStores(node, nodeAddress(node));
       case "varying":
       case "output":
       case "builtinPosition":
@@ -2564,12 +2667,20 @@ export function compileWasmFn(
       case "invocationIndex":
         return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex("invocationIndex"))];
       case "storage":
-        return loadComponent(storageAddress.get(node.value.slot)!, scalarKindOf(node._t), 0);
-      // The index selects nothing here: this call already is one element
-      // (see nodeAddress's "storageElement" case), so it is not evaluated —
-      // RMSL index expressions are pure, unlike a general subexpression.
-      case "storageElement":
-        return loadComponent(nodeAddress(node.params[0]), scalarKindOf(node._t), 0);
+        throw bareStorageError(node);
+      case "storageElement": {
+        const kind = scalarKindOf(node._t);
+        const element = storageElementAccess(node);
+        return [
+          ...element.inBounds,
+          WASM_OP.if_,
+          kind === "float" ? WASM_F64 : WASM_I32,
+          ...loadDynamic(element.address(0), kind),
+          WASM_OP.else_,
+          ...(kind === "float" ? f64ConstBytes(0) : i32ConstBytes(0)),
+          WASM_OP.end,
+        ];
+      }
       case "varying":
         if (effectiveStage === "fragment") {
           const addr = varyingAddress.get(node.value.slot);
@@ -2983,8 +3094,7 @@ export function compileWasmFn(
           targetType = target._t as string;
           destAddr = outputAddress.get(target.value.slot)!;
         } else if (target.type === "storageElement") {
-          targetType = target._t as string;
-          destAddr = nodeAddress(target.params[0]);
+          return emitStorageElementStore(target, rhs);
         } else if (target.type === "varying") {
           if (effectiveStage !== "vertex") {
             throw new Error("[RMSL] compileWasmFn: varying() cannot be assigned to outside a vertex stage");
@@ -3126,10 +3236,18 @@ export function createWasmInputMarshaller(
   params: readonly WasmParam[],
   textureHeapBase: number,
   memory: WebAssembly.Memory,
-): { marshal(ctx: CpuShaderContext): { args: number[]; textureHeapEnd: number } } {
+): {
+  marshal(ctx: CpuShaderContext): { args: number[]; heapEnd: number };
+  writeBackStorages(ctx: CpuShaderContext): void;
+} {
   const textureParams = params.filter(
     (p): p is Extract<WasmParam, { kind: "textureMemory" }> => p.kind === "textureMemory",
   );
+  const storageParams = params.filter(
+    (p): p is Extract<WasmParam, { kind: "storageMemory" }> => p.kind === "storageMemory",
+  );
+  /** Heap address of each storage buffer as the last `marshal` placed it, in `storageParams` order. */
+  const storageHeapAddress: number[] = new Array(storageParams.length);
 
   // texture cache: skip re-uploading an unchanged texture object, and only
   // grow the module memory when the total footprint changes between calls
@@ -3138,10 +3256,11 @@ export function createWasmInputMarshaller(
 
   /**
    * Appends each texture's pixels after the compiled layout (growing memory
-   * when the total footprint changes) and collects the scalar WASM args.
-   * Returns the heap end — where a batch buffer/further scratch can start.
+   * when the total footprint changes), then each storage buffer after the
+   * textures, and collects the scalar WASM args. Returns the heap end —
+   * where a batch buffer/further scratch can start.
    */
-  function marshal(ctx: CpuShaderContext): { args: number[]; textureHeapEnd: number } {
+  function marshal(ctx: CpuShaderContext): { args: number[]; heapEnd: number } {
     let textureHeapEnd = textureHeapBase;
     if (textureParams.length > 0) {
       const textures = textureParams.map((p) => (ctx.textures as any)?.[p.slot] as CpuTextureData);
@@ -3168,6 +3287,7 @@ export function createWasmInputMarshaller(
       }
       lastSizes = sizes;
     }
+    const heapEnd = marshalStorages(ctx, textureHeapEnd);
     const view = new DataView(memory.buffer);
     const args: number[] = [];
     for (const p of params) {
@@ -3217,16 +3337,64 @@ export function createWasmInputMarshaller(
           writeAggregateToMemory(view, p.address, "vec2", ctx.fragCoord ?? [0, 0]);
           break;
         case "storageMemory":
-          if (p.access !== "write") {
-            writeValueToMemory(view, p.address, p.shaderType, (ctx.storages as any)?.[p.slot]?.[ctx.index ?? 0]);
-          }
           break;
       }
     }
-    return { args, textureHeapEnd };
+    return { args, heapEnd };
   }
 
-  return { marshal };
+  /**
+   * Copies every storage buffer into the heap from `heapBase` on, and points
+   * each slot's metadata at it. A write-only buffer is copied in too: it is
+   * copied back out whole, so an element no invocation wrote has to come
+   * back unchanged.
+   */
+  function marshalStorages(ctx: CpuShaderContext, heapBase: number): number {
+    if (storageParams.length === 0) return heapBase;
+    let cursor = Math.ceil(heapBase / 8) * 8;
+    const lengths = storageParams.map(
+      (p) => ((ctx.storages as any)?.[p.slot] as ArrayLike<unknown> | undefined)?.length ?? 0,
+    );
+    storageParams.forEach((p, i) => {
+      storageHeapAddress[i] = cursor;
+      cursor += lengths[i]! * storageElementSize(p.shaderType);
+    });
+    if (cursor > memory.buffer.byteLength) {
+      memory.grow(Math.ceil((cursor - memory.buffer.byteLength) / 65536));
+    }
+    const view = new DataView(memory.buffer);
+    storageParams.forEach((p, i) => {
+      const array = (ctx.storages as any)?.[p.slot] as ArrayLike<unknown> | undefined;
+      const base = storageHeapAddress[i]!;
+      const stride = storageElementSize(p.shaderType);
+      view.setInt32(p.metadataAddress + STORAGE_META_DATA_ADDR, base, true);
+      view.setInt32(p.metadataAddress + STORAGE_META_LENGTH, lengths[i]!, true);
+      for (let e = 0; e < lengths[i]!; e++) writeValueToMemory(view, base + e * stride, p.shaderType, array![e]);
+    });
+    return cursor;
+  }
+
+  /** Copies every writable storage buffer back into the caller's array, where the last `marshal` placed it. */
+  function writeBackStorages(ctx: CpuShaderContext): void {
+    if (storageParams.length === 0) return;
+    const view = new DataView(memory.buffer);
+    storageParams.forEach((p, i) => {
+      if (p.access === "read") return;
+      const array = (ctx.storages as any)?.[p.slot] as { length: number; [e: number]: unknown } | undefined;
+      if (!array) return;
+      const base = storageHeapAddress[i]!;
+      const stride = storageElementSize(p.shaderType);
+      for (let e = 0; e < array.length; e++) array[e] = readValueFromMemory(view, base + e * stride, p.shaderType);
+    });
+  }
+
+  return { marshal, writeBackStorages };
+}
+
+/** Heap bytes one element of a storage buffer of `shaderType` takes: f64 per float component, i32 otherwise. */
+function storageElementSize(shaderType: ShaderType): number {
+  const kind = isAggregate(shaderType) ? elementKindOf(shaderType) : scalarKindOf(shaderType);
+  return componentCountOf(shaderType) * componentSizeOf(kind);
 }
 
 export function instantiateWasmRoutine(
@@ -3268,11 +3436,12 @@ export function instantiateWasmRoutine(
       p.kind === "valueMemory",
   );
 
-  const { marshal: marshalInputs } = createWasmInputMarshaller(params, textureHeapBase, memory);
+  const { marshal: marshalInputs, writeBackStorages } = createWasmInputMarshaller(params, textureHeapBase, memory);
 
-  const storageOutputParams = params.filter(
-    (p): p is Extract<WasmParam, { kind: "storageMemory" }> => p.kind === "storageMemory" && p.access !== "read",
-  );
+  /** Where `invocationIndex` sits among the scalar args `marshalInputs` returns, or -1 when the program never reads it. */
+  const invocationIndexArg = params
+    .filter((p) => ["param", "uniform", "attribute", "varying", "invocationIndex"].includes(p.kind))
+    .findIndex((p) => p.kind === "invocationIndex");
 
   /**
    * `CpuRoutine.invoke`: marshals `ctx` into the compiled function's args
@@ -3283,16 +3452,8 @@ export function instantiateWasmRoutine(
   function invoke(ctx: CpuShaderContext): number | boolean | CpuShaderResult {
     const { args } = marshalInputs(ctx);
     const result = wasmMain(...args);
+    writeBackStorages(ctx);
     const view = new DataView(memory.buffer); // fresh: marshalInputs may have just grown (and detached) the buffer
-
-    // A read_write/write storage() is mutated in the caller's own array at
-    // ctx.index, the same convention compileJSRoutine's storage support uses —
-    // not folded into shaderResult, since the point is the array itself
-    // stays the source of truth across calls.
-    for (const p of storageOutputParams) {
-      const arr = (ctx.storages as any)?.[p.slot];
-      if (arr) arr[ctx.index ?? 0] = readValueFromMemory(view, p.address, p.shaderType);
-    }
 
     // scalar mode: reinterpret the raw i32 — the WASM boundary returns it
     // signed, so a uint result needs a >>> 0 re-read
@@ -3337,7 +3498,7 @@ export function instantiateWasmRoutine(
         '[RMSL] compileWasmRoutine: this function produces no value to render — batch() needs a non-"void" result.',
       );
     }
-    const { args, textureHeapEnd } = marshalInputs(ctx);
+    const { args, heapEnd } = marshalInputs(ctx);
     const pixelCount = width * height * batch.componentCount;
 
     // `out` backed by this instance's own (shared) memory: write directly at
@@ -3349,7 +3510,7 @@ export function instantiateWasmRoutine(
       return out;
     }
 
-    const bufferBase = Math.ceil(textureHeapEnd / 8) * 8; // align to 8 bytes — the typed-array constructors require it
+    const bufferBase = Math.ceil(heapEnd / 8) * 8; // align to 8 bytes — the typed-array constructors require it
     const neededBytes = bufferBase + pixelCount * componentSizeOf(batch.kind);
     if (neededBytes > memory.buffer.byteLength) {
       memory.grow(Math.ceil((neededBytes - memory.buffer.byteLength) / 65536));
@@ -3375,7 +3536,22 @@ export function instantiateWasmRoutine(
     return new Int32Array(memory.buffer, bufferBase, pixelCount);
   }
 
-  return { invoke, batch: batchInvoke };
+  /**
+   * `CpuRoutine.dispatch`: marshals `ctx` once, calls the module once per
+   * index in `0..count`, and copies the storage buffers back once at the
+   * end, so a dispatch costs one copy of each buffer rather than one per
+   * invocation.
+   */
+  function dispatch(ctx: CpuShaderContext, count: number): void {
+    const { args } = marshalInputs(ctx);
+    for (let i = 0; i < count; i++) {
+      if (invocationIndexArg >= 0) args[invocationIndexArg] = i;
+      wasmMain(...args);
+    }
+    writeBackStorages(ctx);
+  }
+
+  return { invoke, batch: batchInvoke, dispatch };
 }
 
 /** Compiles an `Fn` to WASM and instantiates it in one step — see `instantiateWasmRoutine`. */

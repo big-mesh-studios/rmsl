@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Fn, invocationIndex, storage, uniform, type UniformNode } from "../rmsl";
+import { Fn, If, invocationIndex, storage, uint, uniform, type Node, type ShaderType, type UniformNode } from "../rmsl";
 import { createJsCompute } from "../js";
 import { createWasmCompute } from "../wasm";
 
@@ -75,5 +75,70 @@ describe("createJsCompute/createWasmCompute over a multi-root array", () => {
     const want = [2, 14, 26];
     expect(run(createJsCompute(root, { name: "step" }))).toEqual(want);
     expect(run(createWasmCompute(root, { name: "step" }))).toEqual(want);
+  });
+});
+
+describe("createJsCompute/createWasmCompute reading and writing elements other than their own", () => {
+  type ComputeAdapter = ReturnType<typeof createJsCompute> | ReturnType<typeof createWasmCompute>;
+
+  function runBoth(root: Node<ShaderType>, storages: () => Record<string, Float32Array | Int32Array>) {
+    return [createJsCompute, createWasmCompute].map((create) => {
+      const adapter: ComputeAdapter = create(root, { name: "step" });
+      const arrays = storages();
+      for (const slot in arrays) adapter.setAttribute(slot, arrays[slot]);
+      adapter.compute();
+      return Object.fromEntries(Object.entries(arrays).map(([slot, array]) => [slot, Array.from(array)]));
+    });
+  }
+
+  it("gathers from a neighbouring element", () => {
+    const root = Fn(() => {
+      const src = storage("src", "float");
+      const dst = storage("dst", "float", { access: "read_write" });
+      const i = invocationIndex();
+      dst.element(i).assign(src.element(i.add(1).mod(4)));
+      return dst.element(i);
+    })();
+
+    const [js, wasm] = runBoth(root, () => ({
+      src: new Float32Array([10, 20, 30, 40]),
+      dst: new Float32Array(4),
+    }));
+    expect(js.dst).toEqual([20, 30, 40, 10]);
+    expect(wasm).toEqual(js);
+  });
+
+  it("scatters to another element", () => {
+    const root = Fn(() => {
+      const src = storage("src", "int");
+      const dst = storage("dst", "int", { access: "read_write" });
+      const i = invocationIndex();
+      dst.element(uint(3).sub(i)).assign(src.element(i).mul(2));
+      return src.element(i);
+    })();
+
+    const [js, wasm] = runBoth(root, () => ({
+      src: new Int32Array([1, 2, 3, 4]),
+      dst: new Int32Array(4),
+    }));
+    expect(js.dst).toEqual([8, 6, 4, 2]);
+    expect(wasm).toEqual(js);
+  });
+
+  it("sees an earlier invocation's write to the same buffer", () => {
+    // Invocations run in index order on both CPU backends, so a prefix sum
+    // written in place is well defined there, though not on a GPU.
+    const root = Fn(() => {
+      const acc = storage("acc", "float", { access: "read_write" });
+      const i = invocationIndex();
+      If(i.greaterThan(uint(0)), () => {
+        acc.element(i).addAssign(acc.element(i.sub(1)));
+      });
+      return acc.element(i);
+    })();
+
+    const [js, wasm] = runBoth(root, () => ({ acc: new Float32Array([1, 2, 3, 4]) }));
+    expect(js.acc).toEqual([1, 3, 6, 10]);
+    expect(wasm).toEqual(js);
   });
 });

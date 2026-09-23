@@ -74,11 +74,10 @@ export interface WasmComputeAdapter {
  * Compiles a `storage()`/`invocationIndex()` program with
  * {@link compileWasmRoutine} and wraps it in a {@link createCpuAdapter} —
  * the wgpu-compute-pipeline-shaped counterpart to {@link createWasm}'s
- * render-pipeline shape. `compute()` still dispatches from the host, one
- * `invoke()` per element (see ROADMAP.md's "createWasmRoutine's compute()
- * doesn't match a real wgpu compute pipeline yet" for the still-open
- * in-WASM-dispatch-loop and workgroup-model gaps) — this only narrows the
- * *type*, matching `storage()`/`invocationIndex()`'s own shape instead of
+ * render-pipeline shape. `compute()` copies each storage buffer into WASM
+ * memory once, but still loops on the host, one call into WASM per element
+ * (the in-WASM dispatch loop is issue #7, the workgroup model #8) — this only
+ * narrows the *type*, matching `storage()`/`invocationIndex()`'s own shape instead of
  * reusing `createWasmRoutine`'s `batch`-shaped, non-pipeline option bag.
  */
 export function createWasmCompute(

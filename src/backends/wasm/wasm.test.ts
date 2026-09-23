@@ -1774,6 +1774,69 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
     // once, it should land at 13.
     expect(Array.from(pos)).toEqual([13]);
   });
+
+  it("reads and writes vector elements other than the invocation's own, as the JS target does", () => {
+    const build = () =>
+      Fn(() => {
+        const src = storage("src", "vec3");
+        const dst = storage("dst", "vec3", { access: "read_write" });
+        const i = invocationIndex();
+        dst.element(uint(2).sub(i)).assign(src.element(i).mul(2));
+        return dst.element(i);
+      })();
+    const run = (routine: ReturnType<typeof compileWasmRoutine>) => {
+      const src = [
+        [1, 2, 3],
+        [4, 5, 6],
+        [7, 8, 9],
+      ];
+      const dst = [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+      ];
+      routine.dispatch({ storages: { src, dst } as any }, 3);
+      return dst;
+    };
+
+    const want = [
+      [14, 16, 18],
+      [8, 10, 12],
+      [2, 4, 6],
+    ];
+    expect(run(compileJSRoutine(build as any, { name: "step", params: [] }))).toEqual(want);
+    expect(run(compileWasmRoutine(build as any, { name: "step", params: [] }))).toEqual(want);
+  });
+
+  it("reads an element outside the buffer as zero, and drops a write outside it", () => {
+    // The buffers sit next to each other in memory, so an unchecked access
+    // past the end of `a` would read or overwrite `b`'s first element.
+    const build = () =>
+      Fn(() => {
+        const a = storage("a", "float", { access: "read_write" });
+        const b = storage("b", "float", { access: "read_write" });
+        const i = invocationIndex();
+        b.element(i).assign(a.element(i.add(2)));
+        a.element(i.add(2)).assign(float(-1));
+        return b.element(i);
+      })();
+    const fn = compileWasmRoutine(build as any, { name: "step", params: [] });
+
+    const a = new Float64Array([1, 2]);
+    const b = new Float64Array([7, 8]);
+    fn.dispatch({ storages: { a, b } }, 2);
+    expect(Array.from(a)).toEqual([1, 2]);
+    expect(Array.from(b)).toEqual([0, 0]);
+  });
+
+  it("refuses a storage() read as a whole rather than through .element(i)", () => {
+    const build = () =>
+      Fn(() => {
+        const a = storage("a", "float");
+        return (a as any).add(1);
+      })();
+    expect(() => compileWasmRoutine(build as any, { name: "step", params: [] })).toThrow(/read one element/);
+  });
 });
 
 describe("WASM backend: memoryBase — several compiled modules sharing one WebAssembly.Memory", () => {

@@ -11,10 +11,10 @@ export type CpuShaderContext = {
   fragCoord?: [number, number];
   /**
    * Backing arrays for `storage()` slots, one per name passed to `storage()`.
-   * A `storage()`-based program is called once per element with `index` set
-   * to that element's position — the same per-invocation semantics WGSL's
-   * compute path gives it, just driven by a host-side loop instead of the
-   * GPU's own dispatch.
+   * A `storage()`-based program runs once per element with `index` set to
+   * that element's position — the same per-invocation semantics WGSL's
+   * compute path gives it, driven by `CpuRoutine.dispatch()` instead of the
+   * GPU's own dispatch. Any invocation may read or write any element.
    */
   storages?: Record<string, ArrayLike<number> & { [i: number]: number }>;
   /** The current element index, which `invocationIndex()` reads on the CPU target. */
@@ -79,8 +79,8 @@ export type CpuDrawBuffer = Float64Array | Int32Array | Uint32Array;
 /**
  * The runtime face of a compiled CPU function, common to `compileJSRoutine` and
  * `compileWasmRoutine` — not tied to any one stage or use: a plain compute
- * program's `invoke()` is called once per `storage()` index with its return
- * value ignored (side effects land in `ctx.storages`), a vertex/fragment
+ * program runs through `dispatch()`, once per `storage()` index, with its
+ * return value ignored (side effects land in `ctx.storages`), a vertex/fragment
  * program's `invoke()` is called once per vertex/pixel for its return
  * value, and `batch()` runs the whole grid in one call rather than one JS
  * call per pixel from the host side.
@@ -99,6 +99,14 @@ export type CpuDrawBuffer = Float64Array | Int32Array | Uint32Array;
 export type CpuRoutine = {
   invoke(ctx: CpuShaderContext): number | boolean | CpuShaderResult;
   batch(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer;
+  /**
+   * Runs a compute program once per index in `0..count`, in index order, with
+   * `invocationIndex()` reading that index, and leaves the results in
+   * `ctx.storages`. The same as calling `invoke()` once per index, except that
+   * a backend which keeps storage in memory of its own copies each buffer in
+   * and out once for the whole dispatch rather than once per invocation.
+   */
+  dispatch(ctx: CpuShaderContext, count: number): void;
 };
 
 /** A compiled function's scalar element kind, at the WASM/typed-array level. */
