@@ -1,5 +1,4 @@
 dist
-.turbo
 .wrangler
 .output
 .vercel
