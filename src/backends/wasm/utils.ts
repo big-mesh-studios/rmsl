@@ -22,6 +22,8 @@ export const WASM_OP = {
   localTee: 0x22,
   /** `call`: call a function by index. */
   call: 0x10,
+  /** `drop`: pop and discard the top of the stack. */
+  drop: 0x1a,
   /** `select`: pick one of two values based on an i32 condition. */
   select: 0x1b,
 

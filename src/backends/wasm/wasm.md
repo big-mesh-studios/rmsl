@@ -94,6 +94,12 @@ a WASM-side pixel loop that calls `main` once per pixel (feeding it
 evaluation only pays the JS↔WASM marshalling cost once instead of once per
 pixel (see "A whole grid in one call" in `docs/wasm-benchmarks.md`).
 
+A program that uses `storage()` or `invocationIndex()` also gets a
+`dispatch(...params, count)` export: a WASM-side loop that calls `main` once
+per index in `0..count`, passing the index as the `invocationIndex` param and
+every other param through unchanged. A whole compute dispatch is then a single
+call from the host.
+
 Memory is _imported_, not owned by the module (`env.memory`) — this is what
 lets `instantiateWasmRoutine` hand multiple instances the same memory, and
 is what lets the rasterizer's vertex and fragment modules share one memory
@@ -130,9 +136,10 @@ It does three things:
    `CpuShaderResult` — or, when there are no memory outputs at all, just
    reinterpret the WASM call's own return value (with a `>>> 0` for `uint`,
    since the boundary always returns a signed i32). `dispatch(ctx, count)`
-   marshals once, calls the export once per index with only the
-   `invocationIndex` arg changing, and copies the storage buffers back once,
-   so a dispatch copies each buffer once instead of once per invocation.
+   marshals once, makes one call to the module's `dispatch` export, and
+   copies the storage buffers back once. A scalar storage buffer held in a
+   typed array is copied in and out with one typed-array `set()`; vector,
+   matrix and bool storage is copied one element at a time.
 
 `createWasmInputMarshaller` is exported on its own because it's shared: both
 `instantiateWasmRoutine` (one call per `invoke()`/`batch()`) and the

@@ -1827,6 +1827,53 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
     expect(Array.from(b)).toEqual([0, 0]);
   });
 
+  it("runs a whole dispatch inside the module, in one call from the host", () => {
+    let dt!: UniformNode<"float">;
+    const build = () =>
+      Fn(() => {
+        const pos = storage("pos", "float", { access: "read_write" });
+        dt = uniform("float");
+        const i = invocationIndex();
+        pos.element(i).addAssign(i.toFloat().mul(dt));
+      })();
+    const compiled = compileWasmFn(build as any, { name: "step", params: [] });
+    expect(compiled.dispatch).toBe(true);
+    expect(
+      WebAssembly.Module.exports(new WebAssembly.Module(compiled.bytes.buffer as ArrayBuffer)).map((e) => e.name),
+    ).toContain("dispatch");
+
+    const fn = instantiateWasmRoutine(compiled, "step");
+    const pos = new Float64Array([1, 1, 1, 1]);
+    fn.dispatch({ storages: { pos }, uniforms: { [dt.name]: 2 } }, 4);
+    expect(Array.from(pos)).toEqual([1, 3, 5, 7]);
+  });
+
+  it("dispatches a program that never reads invocationIndex(), once per invocation", () => {
+    const build = () =>
+      Fn(() => {
+        const count = storage("count", "int", { access: "read_write" });
+        count.element(0).addAssign(1);
+      })();
+    const fn = compileWasmRoutine(build as any, { name: "step", params: [] });
+    const count = new Int32Array([0]);
+    fn.dispatch({ storages: { count } }, 5);
+    expect(Array.from(count)).toEqual([5]);
+  });
+
+  it("dispatches a program whose main returns a value, discarding it", () => {
+    // Read-only storage leaves main returning its value directly rather than
+    // through memory, so the dispatch loop has a result on the stack to drop.
+    const build = () =>
+      Fn(() => {
+        const src = storage("src", "float");
+        return src.element(invocationIndex()).mul(2);
+      })();
+    const compiled = compileWasmFn(build as any, { name: "step", params: [] });
+    expect(compiled.dispatch).toBe(true);
+    const fn = instantiateWasmRoutine(compiled, "step");
+    expect(() => fn.dispatch({ storages: { src: new Float64Array([1, 2, 3]) } }, 3)).not.toThrow();
+  });
+
   it("refuses a storage() read as a whole rather than through .element(i)", () => {
     const build = () =>
       Fn(() => {

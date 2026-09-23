@@ -104,7 +104,8 @@ export type CpuRoutine = {
    * `invocationIndex()` reading that index, and leaves the results in
    * `ctx.storages`. The same as calling `invoke()` once per index, except that
    * a backend which keeps storage in memory of its own copies each buffer in
-   * and out once for the whole dispatch rather than once per invocation.
+   * and out once for the whole dispatch rather than once per invocation, and
+   * the WASM backend runs the loop itself inside the module.
    */
   dispatch(ctx: CpuShaderContext, count: number): void;
 };

@@ -104,6 +104,8 @@ export type CompiledWasm = {
   maxMemoryPages: number; // the maximum this module's memory import declared — only enforced when sharedMemory is true
 
   batch?: { componentCount: number; kind: "float" | "int" | "uint" | "bool" }; // set when "batch" is exported
+  /** Whether the module exports `dispatch(...params, count)`, which runs `main` once per invocation index. */
+  dispatch?: boolean;
 };
 
 /**
@@ -950,6 +952,39 @@ export function compileWasmFn(
     typeEntries.push([WASM_FUNC, ...wasmVec([...paramTypes, [WASM_I32], [WASM_I32], [WASM_I32]]), ...wasmVec([])]);
   }
 
+  let dispatchTypeIdx: number | undefined;
+  let dispatchFuncBody: number[] | undefined;
+
+  // A "dispatch(count)" export for a compute program: runs main once per
+  // index in 0..count, passing the index as invocationIndex() and every other
+  // param through unchanged, so a whole dispatch is one call from the host.
+  if (paramIndex.has("invocationIndex") || storageMetadataAddress.size > 0) {
+    const countIdx = params.length;
+    const indexIdx = params.length + 1;
+    const invocationIndexParam = paramIndex.get("invocationIndex");
+    const args = params
+      .map((_, i) => [WASM_OP.localGet, ...wasmUleb128(i === invocationIndexParam ? indexIdx : i)])
+      .flat();
+    const callMain = [...args, WASM_OP.call, ...wasmUleb128(mainFuncIndex), ...(needsResult ? [] : [WASM_OP.drop])];
+    const dispatchCode = forLoop(
+      indexIdx,
+      i32ConstBytes(0),
+      iGeS(local(indexIdx), local(countIdx)),
+      callMain,
+      i32ConstBytes(1),
+    );
+    const dispatchLocalsDecl = wasmVec([[...wasmUleb128(1), WASM_I32]]); // the loop counter
+    dispatchFuncBody = [...dispatchLocalsDecl, ...dispatchCode, WASM_OP.end];
+    dispatchTypeIdx = typeEntries.length;
+    typeEntries.push([WASM_FUNC, ...wasmVec([...paramTypes, [WASM_I32]]), ...wasmVec([])]);
+  }
+
+  /** The module's own functions after main, in function-index order: batch, then dispatch, each when emitted. */
+  const extraFunctions = [
+    { name: "batch", typeIdx: batchTypeIdx, body: batchFuncBody },
+    { name: "dispatch", typeIdx: dispatchTypeIdx, body: dispatchFuncBody },
+  ].filter((f): f is { name: string; typeIdx: number; body: number[] } => f.typeIdx !== undefined);
+
   /** 65536 bytes per WASM memory page. */
   const memoryPages = Math.max(1, Math.ceil(memCursor / 65536));
   /**
@@ -986,10 +1021,7 @@ export function compileWasmFn(
    */
   const typeSection = wasmSection(1, wasmVec(typeEntries));
   const importSection = wasmSection(2, wasmVec([...importEntries, memoryImportEntry]));
-  const funcSection = wasmSection(
-    3,
-    wasmVec(batchTypeIdx === undefined ? [[mainTypeIdx]] : [[mainTypeIdx], [batchTypeIdx]]),
-  );
+  const funcSection = wasmSection(3, wasmVec([[mainTypeIdx], ...extraFunctions.map((f) => [f.typeIdx])]));
   const nameBytes = wasmStrBytes(options.name);
   /**
    * An export entry: the export's own name, a one-byte "export kind" (0x00
@@ -999,9 +1031,9 @@ export function compileWasmFn(
    */
   const exportEntries = [[...nameBytes, 0x00, ...wasmUleb128(mainFuncIndex)]];
 
-  if (batchTypeIdx !== undefined) {
-    exportEntries.push([...wasmStrBytes("batch"), 0x00, ...wasmUleb128(mainFuncIndex + 1)]);
-  }
+  extraFunctions.forEach((f, i) => {
+    exportEntries.push([...wasmStrBytes(f.name), 0x00, ...wasmUleb128(mainFuncIndex + 1 + i)]);
+  });
 
   /** Section id 7, Export. */
   const exportSection = wasmSection(7, wasmVec(exportEntries));
@@ -1023,9 +1055,7 @@ export function compileWasmFn(
    */
   const codeEntries = [[...wasmUleb128(funcBody.length), ...funcBody]];
 
-  if (batchFuncBody !== undefined) {
-    codeEntries.push([...wasmUleb128(batchFuncBody.length), ...batchFuncBody]);
-  }
+  for (const f of extraFunctions) codeEntries.push([...wasmUleb128(f.body.length), ...f.body]);
 
   /**
    * Section id 10, Code — one entry per function declared in the Function
@@ -1062,6 +1092,7 @@ export function compileWasmFn(
     sharedMemory,
     maxMemoryPages,
     batch: batchTypeIdx === undefined ? undefined : { componentCount: batchComponentCount, kind: batchComponentKind },
+    dispatch: dispatchTypeIdx !== undefined,
   };
 
   /** Advances a fixed-size region from the cursor. */
@@ -3357,7 +3388,7 @@ export function createWasmInputMarshaller(
     );
     storageParams.forEach((p, i) => {
       storageHeapAddress[i] = cursor;
-      cursor += lengths[i]! * storageElementSize(p.shaderType);
+      cursor = Math.ceil((cursor + lengths[i]! * storageElementSize(p.shaderType)) / 8) * 8;
     });
     if (cursor > memory.buffer.byteLength) {
       memory.grow(Math.ceil((cursor - memory.buffer.byteLength) / 65536));
@@ -3366,12 +3397,42 @@ export function createWasmInputMarshaller(
     storageParams.forEach((p, i) => {
       const array = (ctx.storages as any)?.[p.slot] as ArrayLike<unknown> | undefined;
       const base = storageHeapAddress[i]!;
-      const stride = storageElementSize(p.shaderType);
       view.setInt32(p.metadataAddress + STORAGE_META_DATA_ADDR, base, true);
       view.setInt32(p.metadataAddress + STORAGE_META_LENGTH, lengths[i]!, true);
-      for (let e = 0; e < lengths[i]!; e++) writeValueToMemory(view, base + e * stride, p.shaderType, array![e]);
+      if (!array) return;
+      const heap = scalarStorageView(p.shaderType, base, lengths[i]!);
+      if (heap && ArrayBuffer.isView(array)) {
+        heap.set(array as unknown as ArrayLike<number>);
+        return;
+      }
+      const stride = storageElementSize(p.shaderType);
+      for (let e = 0; e < lengths[i]!; e++) writeValueToMemory(view, base + e * stride, p.shaderType, array[e]);
     });
     return cursor;
+  }
+
+  /**
+   * A typed-array view over a scalar storage buffer's heap region, so a
+   * typed-array buffer copies in and out in one `set()` rather than an
+   * element at a time. Undefined for a vector, matrix or bool element,
+   * which still copy one element at a time.
+   */
+  function scalarStorageView(
+    shaderType: ShaderType,
+    base: number,
+    length: number,
+  ): Float64Array | Int32Array | Uint32Array | undefined {
+    if (isAggregate(shaderType)) return undefined;
+    switch (scalarKindOf(shaderType)) {
+      case "float":
+        return new Float64Array(memory.buffer, base, length);
+      case "int":
+        return new Int32Array(memory.buffer, base, length);
+      case "uint":
+        return new Uint32Array(memory.buffer, base, length);
+      default:
+        return undefined;
+    }
   }
 
   /** Copies every writable storage buffer back into the caller's array, where the last `marshal` placed it. */
@@ -3383,6 +3444,11 @@ export function createWasmInputMarshaller(
       const array = (ctx.storages as any)?.[p.slot] as { length: number; [e: number]: unknown } | undefined;
       if (!array) return;
       const base = storageHeapAddress[i]!;
+      const heap = scalarStorageView(p.shaderType, base, array.length);
+      if (heap && ArrayBuffer.isView(array)) {
+        (array as unknown as Float64Array).set(heap);
+        return;
+      }
       const stride = storageElementSize(p.shaderType);
       for (let e = 0; e < array.length; e++) array[e] = readValueFromMemory(view, base + e * stride, p.shaderType);
     });
@@ -3402,7 +3468,8 @@ export function instantiateWasmRoutine(
   name: string,
   externalMemory?: WebAssembly.Memory,
 ): CpuRoutine {
-  const { bytes, params, resultType, textureHeapBase, memoryPages, sharedMemory, maxMemoryPages, batch } = compiled;
+  const { bytes, params, resultType, textureHeapBase, memoryPages, sharedMemory, maxMemoryPages, batch, dispatch } =
+    compiled;
 
   // no memory passed in: own one, sized for the compile-time layout, growable
   // as textures/batch buffers are marshalled in — same behavior as before this
@@ -3420,6 +3487,7 @@ export function instantiateWasmRoutine(
   });
   const wasmMain = instance.exports[name] as (...args: number[]) => number;
   const wasmBatch = batch ? (instance.exports.batch as (...args: number[]) => void) : undefined;
+  const wasmDispatch = dispatch ? (instance.exports.dispatch as (...args: number[]) => void) : undefined;
 
   // outputs read back after each call; textures repacked per call
   const outputParams = params.filter(
@@ -3437,11 +3505,6 @@ export function instantiateWasmRoutine(
   );
 
   const { marshal: marshalInputs, writeBackStorages } = createWasmInputMarshaller(params, textureHeapBase, memory);
-
-  /** Where `invocationIndex` sits among the scalar args `marshalInputs` returns, or -1 when the program never reads it. */
-  const invocationIndexArg = params
-    .filter((p) => ["param", "uniform", "attribute", "varying", "invocationIndex"].includes(p.kind))
-    .findIndex((p) => p.kind === "invocationIndex");
 
   /**
    * `CpuRoutine.invoke`: marshals `ctx` into the compiled function's args
@@ -3537,21 +3600,22 @@ export function instantiateWasmRoutine(
   }
 
   /**
-   * `CpuRoutine.dispatch`: marshals `ctx` once, calls the module once per
-   * index in `0..count`, and copies the storage buffers back once at the
-   * end, so a dispatch costs one copy of each buffer rather than one per
-   * invocation.
+   * `CpuRoutine.dispatch`: marshals `ctx` once, runs every invocation in one
+   * call to the module's own `dispatch` export, and copies the storage
+   * buffers back once at the end. A program with neither `storage()` nor
+   * `invocationIndex()` has no such export, and loops `main` from here.
    */
-  function dispatch(ctx: CpuShaderContext, count: number): void {
+  function dispatchInvoke(ctx: CpuShaderContext, count: number): void {
     const { args } = marshalInputs(ctx);
-    for (let i = 0; i < count; i++) {
-      if (invocationIndexArg >= 0) args[invocationIndexArg] = i;
-      wasmMain(...args);
+    if (wasmDispatch) {
+      wasmDispatch(...args, count);
+    } else {
+      for (let i = 0; i < count; i++) wasmMain(...args);
     }
     writeBackStorages(ctx);
   }
 
-  return { invoke, batch: batchInvoke, dispatch };
+  return { invoke, batch: batchInvoke, dispatch: dispatchInvoke };
 }
 
 /** Compiles an `Fn` to WASM and instantiates it in one step — see `instantiateWasmRoutine`. */

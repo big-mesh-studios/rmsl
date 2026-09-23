@@ -75,10 +75,11 @@ export interface WasmComputeAdapter {
  * {@link compileWasmRoutine} and wraps it in a {@link createCpuAdapter} —
  * the wgpu-compute-pipeline-shaped counterpart to {@link createWasm}'s
  * render-pipeline shape. `compute()` copies each storage buffer into WASM
- * memory once, but still loops on the host, one call into WASM per element
- * (the in-WASM dispatch loop is issue #7, the workgroup model #8) — this only
- * narrows the *type*, matching `storage()`/`invocationIndex()`'s own shape instead of
- * reusing `createWasmRoutine`'s `batch`-shaped, non-pipeline option bag.
+ * memory once and runs every invocation in one call to the module's own
+ * dispatch loop. Invocations still run one after another, with no workgroup
+ * model (issue #8). This only narrows the *type*, matching
+ * `storage()`/`invocationIndex()`'s own shape instead of reusing
+ * `createWasmRoutine`'s `batch`-shaped, non-pipeline option bag.
  */
 export function createWasmCompute(
   compute: Node<ShaderType> | readonly Node<ShaderType>[],
