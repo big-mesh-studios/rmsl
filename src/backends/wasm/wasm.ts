@@ -3514,10 +3514,16 @@ export function createWasmInputMarshaller(
   function marshalStorages(ctx: CpuShaderContext, heapBase: number): number {
     if (storageParams.length === 0) return heapBase;
     let cursor = Math.ceil(heapBase / 8) * 8;
+    const resident = storageParams.map((p) => ctx.storageBuffers?.[p.slot]);
     const lengths = storageParams.map(
-      (p) => ((ctx.storages as any)?.[p.slot] as ArrayLike<unknown> | undefined)?.length ?? 0,
+      (p, i) =>
+        resident[i]?.length ?? ((ctx.storages as any)?.[p.slot] as ArrayLike<unknown> | undefined)?.length ?? 0,
     );
     storageParams.forEach((p, i) => {
+      if (resident[i]) {
+        storageHeapAddress[i] = resident[i]!.address;
+        return;
+      }
       storageHeapAddress[i] = cursor;
       cursor = Math.ceil((cursor + lengths[i]! * storageElementSize(p.shaderType)) / 8) * 8;
     });
@@ -3530,7 +3536,7 @@ export function createWasmInputMarshaller(
       const base = storageHeapAddress[i]!;
       view.setInt32(p.metadataAddress + STORAGE_META_DATA_ADDR, base, true);
       view.setInt32(p.metadataAddress + STORAGE_META_LENGTH, lengths[i]!, true);
-      if (!array) return;
+      if (!array || resident[i]) return;
       const heap = scalarStorageView(p.shaderType, base, lengths[i]!);
       if (heap && ArrayBuffer.isView(array)) {
         heap.set(array as unknown as ArrayLike<number>);
@@ -3571,7 +3577,7 @@ export function createWasmInputMarshaller(
     if (storageParams.length === 0) return;
     const view = new DataView(memory.buffer);
     storageParams.forEach((p, i) => {
-      if (p.access === "read") return;
+      if (p.access === "read" || ctx.storageBuffers?.[p.slot]) return;
       const array = (ctx.storages as any)?.[p.slot] as { length: number; [e: number]: unknown } | undefined;
       if (!array) return;
       const base = storageHeapAddress[i]!;
@@ -3589,7 +3595,7 @@ export function createWasmInputMarshaller(
 }
 
 /** Heap bytes one element of a storage buffer of `shaderType` takes: f64 per float component, i32 otherwise. */
-function storageElementSize(shaderType: ShaderType): number {
+export function storageElementSize(shaderType: ShaderType): number {
   const kind = isAggregate(shaderType) ? elementKindOf(shaderType) : scalarKindOf(shaderType);
   return componentCountOf(shaderType) * componentSizeOf(kind);
 }

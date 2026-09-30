@@ -17,6 +17,13 @@ export type CpuShaderContext = {
    * GPU's own dispatch. Any invocation may read or write any element.
    */
   storages?: Record<string, ArrayLike<number> & { [i: number]: number }>;
+  /**
+   * Storage buffers already in the WASM routine's own memory, by slot: the
+   * byte address of the first element and the element count. A slot listed
+   * here is read and written in place instead of being copied in from
+   * `storages` and back out. Ignored by the JS target.
+   */
+  storageBuffers?: Record<string, { address: number; length: number }>;
   /** The current element index, which `invocationIndex()` reads on the CPU target. */
   index?: number;
 };

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Fn, instancedArray, invocationIndex, Loop, uint, uniform, type StorageNode } from "./rmsl";
 import { createWgslContext } from "./wgsl";
+import { createWasmContext } from "./wasm";
 import type { ComputeNode, StorageBufferAttribute, UniformNode } from "./rmsl";
 import { GPU_ENABLED, installWebGpuGlobals } from "./testing/gpu";
 
@@ -28,6 +29,22 @@ const backends: { name: string; enabled: boolean; create(): Promise<Context> }[]
           return Array.from(new attribute.arrayClass(bytes, 0, attribute.count));
         },
         destroy: () => context.destroy(),
+      };
+    },
+  },
+  {
+    name: "WASM",
+    enabled: true,
+    async create() {
+      const context = createWasmContext();
+      return {
+        compute: (nodes) => context.compute(nodes),
+        setUniform: (u, v) => context.setUniform(u, v),
+        write: (attribute, data) => context.write(attribute, data),
+        async read(attribute) {
+          return Array.from(new attribute.arrayClass(context.getArrayBuffer(attribute), 0, attribute.count));
+        },
+        destroy: () => {},
       };
     },
   },
@@ -133,3 +150,14 @@ for (const backend of backends) {
     });
   });
 }
+
+describe.skipIf(!GPU_ENABLED)("WGSL compute context buffers", () => {
+  it("can be bound as vertex data by a render pipeline on the same device", async () => {
+    const context = await createWgslContext();
+    const positions = instancedArray(4, "vec2");
+    const buffer = context.buffer(positions.attribute);
+    expect(buffer.usage & GPUBufferUsage.VERTEX).toBe(GPUBufferUsage.VERTEX);
+    expect(buffer.size).toBe(4 * 2 * 4);
+    context.destroy();
+  });
+});
