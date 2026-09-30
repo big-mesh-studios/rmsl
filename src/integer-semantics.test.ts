@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { ivec2, uvec2, type Node } from "./rmsl";
+import { int, ivec2, uint, uvec2, type Node } from "./rmsl";
 import {
   closeEvaluators,
   evaluateIntegerJS,
@@ -92,20 +92,32 @@ const shapes = {
   },
 };
 
-const runs = Object.entries(shapes).flatMap(([shape, make]) =>
-  cases.map((c) => ({ ...c, shape, build: make(c.op, c.type) })),
-);
+/**
+ * Both operands as literals, which the compilers fold or pass to the target
+ * as a constant expression instead of computing at run time.
+ */
+function constant(c: Case) {
+  const literal: any = c.type === "int" ? int : uint;
+  return () => apply(c.op, literal(c.a), literal(c.b)) as Node<"int">;
+}
+
+const runs = [
+  ...Object.entries(shapes).flatMap(([shape, make]) =>
+    cases.map((c) => ({ ...c, shape, build: make(c.op, c.type), args: [c.a, c.b] })),
+  ),
+  ...cases.map((c) => ({ ...c, shape: "constant", build: constant(c), args: [] as number[] })),
+];
 
 describe("integer semantics match WGSL", () => {
-  it.each(runs)("JS: $name ($shape)", ({ type, a, b, want, build }) => {
-    expect(evaluateIntegerJS(build, type, [a, b])).toBe(want);
+  it.each(runs)("JS: $name ($shape)", ({ type, args, want, build }) => {
+    expect(evaluateIntegerJS(build, type, args)).toBe(want);
   });
 
-  it.each(runs)("WASM: $name ($shape)", ({ type, a, b, want, build }) => {
-    expect(evaluateIntegerWASM(build, type, [a, b])).toBe(want);
+  it.each(runs)("WASM: $name ($shape)", ({ type, args, want, build }) => {
+    expect(evaluateIntegerWASM(build, type, args)).toBe(want);
   });
 
-  it.skipIf(GPU_EVALUATION_SKIPPED).each(runs)("WGSL: $name ($shape)", async ({ type, a, b, want, build }) => {
-    expect(await evaluateIntegerWGSL(build, type, [a, b])).toBe(want);
+  it.skipIf(GPU_EVALUATION_SKIPPED).each(runs)("WGSL: $name ($shape)", async ({ type, args, want, build }) => {
+    expect(await evaluateIntegerWGSL(build, type, args)).toBe(want);
   });
 });

@@ -358,6 +358,8 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     case "float":
       return { decls: [], body: [], expr: `${node.value}f` };
     case "int":
+      // `-2147483648i` negates an out-of-range `2147483648i`, which WGSL rejects.
+      if (node.value === -2147483648) return { decls: [], body: [], expr: "(-2147483647i - 1i)", prec: PREC_ATOM };
       return { decls: [], body: [], expr: `${node.value}i` };
     case "uint":
       return { decls: [], body: [], expr: `${node.value}u` };

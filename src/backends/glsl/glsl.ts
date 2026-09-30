@@ -101,6 +101,8 @@ export function compileGLSLNode(
       return { decls: [], body: [], expr: s };
     }
     case "int":
+      // `-2147483648` negates an out-of-range `2147483648`.
+      if (node.value === -2147483648) return { decls: [], body: [], expr: "(-2147483647 - 1)", prec: PREC_ATOM };
       return { decls: [], body: [], expr: String(node.value) };
     case "uint":
       return { decls: [], body: [], expr: String(node.value) + "u" };

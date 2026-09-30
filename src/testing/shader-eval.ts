@@ -353,9 +353,11 @@ export async function evaluateIntegerWGSL(build: IntegerBuild, type: IntegerType
   const fn = compileWgslFn(build, { name: "rmsl_eval", params: integerParams(type, args.length) });
   const scalar = type === "int" ? "i32" : "u32";
   const call = `rmsl_eval(${args.map((_, i) => `args[${i}]`).join(", ")})`;
+  // An unused binding would be stripped from the pipeline's layout, so it is only declared when read.
+  const argDeclaration = args.length > 0 ? `@group(0) @binding(1) var<storage, read> args: array<${scalar}>;` : "";
   const code = `${fn}
 @group(0) @binding(0) var<storage, read_write> result: array<${scalar}>;
-@group(0) @binding(1) var<storage, read> args: array<${scalar}>;
+${argDeclaration}
 @compute @workgroup_size(1)
 fn main() {
   result[0] = ${call};
@@ -387,7 +389,7 @@ fn main() {
         layout: pipeline.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: { buffer: result } },
-          { binding: 1, resource: { buffer: argBuffer } },
+          ...(args.length > 0 ? [{ binding: 1, resource: { buffer: argBuffer } }] : []),
         ],
       }),
     );

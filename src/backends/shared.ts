@@ -126,6 +126,43 @@ export function isLeafLiteral(n: BaseNode<ShaderType>): boolean {
   return (n.type === "float" || n.type === "int" || n.type === "uint" || n.type === "bool") && !n.params;
 }
 
+/**
+ * An integer operation on two literals, computed the way every backend
+ * computes it at run time: wrapped to 32 bits, with WGSL's results for
+ * division and remainder by zero and for `INT_MIN / -1`, and shift amounts
+ * taken modulo 32. `undefined` for an operation this doesn't fold.
+ */
+function foldInteger(op: string, t: "int" | "uint", a: number, b: number): number | undefined {
+  let wrap = t === "int" ? (x: number) => x | 0 : (x: number) => x >>> 0;
+  switch (op) {
+    case "add":
+      return wrap(a + b);
+    case "sub":
+      return wrap(a - b);
+    case "mul":
+      return wrap(Math.imul(a, b));
+    case "div":
+      return b === 0 || (t === "int" && a === -2147483648 && b === -1) ? a : wrap(Math.trunc(a / b));
+    case "mod":
+      return b === 0 ? 0 : wrap(a % b);
+    case "negate":
+      return wrap(-a);
+    case "bitAnd":
+      return wrap(a & b);
+    case "bitOr":
+      return wrap(a | b);
+    case "bitXor":
+      return wrap(a ^ b);
+    case "bitNot":
+      return wrap(~a);
+    case "shiftLeft":
+      return wrap(a << b);
+    case "shiftRight":
+      return t === "int" ? a >> b : a >>> b;
+  }
+  return undefined;
+}
+
 export function tryFold(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
   // A select with a literal condition collapses to the chosen branch, whatever
   // the branches are — the guard below only admits scalar literals, so this is
@@ -142,28 +179,27 @@ export function tryFold(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
   if (t === "float" || t === "int" || t === "uint") {
     let a = p0 as number;
     let b = p1 as number;
+    if (t === "int" || t === "uint") {
+      let value = foldInteger(n.type, t, a, b);
+      if (value !== undefined) return mkNode({ _t: t, type: t, value });
+    }
     switch (n.type) {
       case "add":
-        return mkNode({ _t: t, type: t, value: t === "int" || t === "uint" ? (a + b) | 0 : a + b });
+        return mkNode({ _t: t, type: t, value: a + b });
       case "sub":
-        return mkNode({ _t: t, type: t, value: t === "int" || t === "uint" ? (a - b) | 0 : a - b });
+        return mkNode({ _t: t, type: t, value: a - b });
       case "mul":
-        return mkNode({ _t: t, type: t, value: t === "int" || t === "uint" ? (a * b) | 0 : a * b });
+        return mkNode({ _t: t, type: t, value: a * b });
       case "div":
-        return mkNode({ _t: t, type: t, value: t === "int" || t === "uint" ? (a / b) | 0 : a / b });
+        return mkNode({ _t: t, type: t, value: a / b });
       case "negate":
-        return mkNode({ _t: t, type: t, value: t === "int" || t === "uint" ? -a | 0 : -a });
+        return mkNode({ _t: t, type: t, value: -a });
       // JavaScript's % truncates toward zero. The float operation is floored,
       // following GLSL's mod(), so folding it with % would give a literal that
       // disagrees with what the same expression computes when its operands are
-      // not constants. The integer path keeps % because that is what both
-      // backends emit for integers.
+      // not constants.
       case "mod":
-        return mkNode({
-          _t: t,
-          type: t,
-          value: t === "int" || t === "uint" ? (a % b) | 0 : a - b * Math.floor(a / b),
-        });
+        return mkNode({ _t: t, type: t, value: a - b * Math.floor(a / b) });
       case "sin":
         return mkNode({ _t: t, type: t, value: Math.sin(a) });
       case "cos":
