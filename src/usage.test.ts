@@ -2130,9 +2130,10 @@ describe("integer vectors", () => {
   });
 
   it("adds an integer scalar to an integer vector", () => {
-    let prog = Fn(() => ivec2(1, 2).add(3).toVar());
+    // A variable operand, so the addition isn't folded to a literal.
+    let prog = Fn(() => ivec2(1, 2).toVar().add(3).toVar());
     let glsl = compileGlsl(prog());
-    expect(glsl).toContain("ivec2(1, 2) + 3");
+    expect(glsl).toMatch(/_rmsl_\w+ \+ 3/);
   });
 
   it("compiles integer vector comparison to a boolean vector", () => {
@@ -2400,7 +2401,7 @@ describe("new math builtins", () => {
     let prog = Fn(() => int(5).toVar().bitNot().toVar());
     let glsl = compileGlsl(prog());
     expect(glsl).toContain("~");
-    let wgsl = compileWgsl(Fn(() => ivec2(1, 2).bitNot().toVar())());
+    let wgsl = compileWgsl(Fn(() => ivec2(1, 2).toVar().bitNot().toVar())());
     expect(wgsl).toContain("~");
   });
 

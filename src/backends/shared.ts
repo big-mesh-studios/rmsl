@@ -1,4 +1,4 @@
-import { BaseNode, MATRIX_DIMENSIONS, Node, NodeImpl, ShaderType } from "../core";
+import { BaseNode, MATRIX_DIMENSIONS, Node, NodeImpl, ShaderType, TYPE_WIDTH } from "../core";
 /**
  * What compiling one node yields: statements to emit, how to refer to it, and
  * its operator precedence (higher = tighter binding, for bracket reduction).
@@ -163,6 +163,64 @@ function foldInteger(op: string, t: "int" | "uint", a: number, b: number): numbe
   return undefined;
 }
 
+function isIntegerType(t: string): boolean {
+  return t === "int" || t === "uint" || t.startsWith("ivec") || t.startsWith("uvec");
+}
+
+/**
+ * The components of an integer literal — a scalar, a vector literal, or a
+ * vector splat from one scalar literal — or `null` when `n` isn't one.
+ */
+function integerLiteralComponents(n: BaseNode<ShaderType>): number[] | null {
+  let t = n._t as string;
+  if (!isIntegerType(t)) return null;
+  if (isLeafLiteral(n)) return [n.value as number];
+  if (n.type === t && Array.isArray(n.value)) return n.value as number[];
+  let splat = n.type === "construct" && n.params?.length === 1 ? n.params[0] : undefined;
+  if ((TYPE_WIDTH[t] ?? 1) > 1 && splat && isLeafLiteral(splat) && isIntegerType(splat._t as string)) {
+    return Array(TYPE_WIDTH[t]).fill(splat.value);
+  }
+  return null;
+}
+
+function integerLiteral(t: string, components: number[]): BaseNode<ShaderType> {
+  return mkNode({ _t: t, type: t, value: (TYPE_WIDTH[t] ?? 1) > 1 ? components : components[0] });
+}
+
+/**
+ * Integer vector operations on literals, folded component by component, and
+ * a literal divisor or shift amount rewritten to the value the run-time rules
+ * already use: a zero divisor becomes 1 (`x / 1` is `x`, `x % 1` is `0`) and a
+ * shift amount keeps its low 5 bits. WGSL rejects the unrewritten constants at
+ * shader creation, even when the other operand is a run-time value.
+ */
+function foldIntegerOperands(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+  let t = n._t as string;
+  let [lhs, rhs] = n.params ?? [];
+  if (!isIntegerType(t) || !lhs) return null;
+  let kind: "int" | "uint" = t === "uint" || t.startsWith("uvec") ? "uint" : "int";
+  let a = integerLiteralComponents(lhs);
+  let b = rhs ? integerLiteralComponents(rhs) : [0];
+  if (a && b) {
+    let width = TYPE_WIDTH[t] ?? 1;
+    // Two scalar literals are left to the scalar folder in tryFold.
+    if (width === 1) return null;
+    let folded = Array.from({ length: width }, (_, i) =>
+      foldInteger(n.type, kind, a![a!.length > 1 ? i : 0]!, b![b!.length > 1 ? i : 0]!),
+    );
+    return folded.every((v) => v !== undefined) ? integerLiteral(t, folded as number[]) : null;
+  }
+  if (!rhs || !b) return null;
+  let rewrite =
+    n.type === "div" || n.type === "mod"
+      ? (v: number) => (v === 0 ? 1 : v)
+      : n.type === "shiftLeft" || n.type === "shiftRight"
+        ? (v: number) => v & 31
+        : null;
+  if (!rewrite || b.every((v) => rewrite!(v) === v)) return null;
+  return mkNode({ _t: t, type: n.type, params: [lhs, integerLiteral(rhs._t as string, b.map(rewrite))] });
+}
+
 export function tryFold(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
   // A select with a literal condition collapses to the chosen branch, whatever
   // the branches are — the guard below only admits scalar literals, so this is
@@ -171,6 +229,8 @@ export function tryFold(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
     let cond = n.params?.[0];
     if (cond && isLeafLiteral(cond)) return (cond.value ? n.params![1] : n.params![2]) ?? null;
   }
+  let integerOperands = foldIntegerOperands(n);
+  if (integerOperands) return integerOperands;
   let params = n.params ?? [];
   if (!params.every(isLeafLiteral)) return null;
   let p0 = params[0]?.value;

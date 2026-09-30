@@ -358,9 +358,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     case "float":
       return { decls: [], body: [], expr: `${node.value}f` };
     case "int":
-      // `-2147483648i` negates an out-of-range `2147483648i`, which WGSL rejects.
-      if (node.value === -2147483648) return { decls: [], body: [], expr: "(-2147483647i - 1i)", prec: PREC_ATOM };
-      return { decls: [], body: [], expr: `${node.value}i` };
+      return { decls: [], body: [], expr: wgslIntLiteral(node.value as number), prec: PREC_ATOM };
     case "uint":
       return { decls: [], body: [], expr: `${node.value}u` };
     case "bool":
@@ -372,11 +370,11 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     case "vec4":
       return { decls: [], body: [], expr: `vec4<f32>(${(node.value as number[]).join(", ")})` };
     case "ivec2":
-      return { decls: [], body: [], expr: `vec2<i32>(${(node.value as number[]).map((v) => `${v}i`).join(", ")})` };
+      return { decls: [], body: [], expr: `vec2<i32>(${(node.value as number[]).map(wgslIntLiteral).join(", ")})` };
     case "ivec3":
-      return { decls: [], body: [], expr: `vec3<i32>(${(node.value as number[]).map((v) => `${v}i`).join(", ")})` };
+      return { decls: [], body: [], expr: `vec3<i32>(${(node.value as number[]).map(wgslIntLiteral).join(", ")})` };
     case "ivec4":
-      return { decls: [], body: [], expr: `vec4<i32>(${(node.value as number[]).map((v) => `${v}i`).join(", ")})` };
+      return { decls: [], body: [], expr: `vec4<i32>(${(node.value as number[]).map(wgslIntLiteral).join(", ")})` };
     case "uvec2":
       return { decls: [], body: [], expr: `vec2<u32>(${(node.value as number[]).map((v) => `${v}u`).join(", ")})` };
     case "uvec3":
@@ -1336,6 +1334,11 @@ export const WGSL_HELPERS: Record<string, string> = {
  * u32 — `i32 << i32` has no overload — so the right operand is converted when
  * it is not already unsigned.
  */
+/** An `i32` literal. `-2147483648i` negates an out-of-range `2147483648i`, which WGSL rejects. */
+export function wgslIntLiteral(value: number): string {
+  return value === -2147483648 ? "(-2147483647i - 1i)" : `${value}i`;
+}
+
 export function shiftWGSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string): CompiledNode {
   let lhs = compileWGSLStage(node.params![0], ctx);
   let rhs = compileWGSLStage(node.params![1], ctx);

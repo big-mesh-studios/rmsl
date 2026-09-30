@@ -93,19 +93,37 @@ const shapes = {
 };
 
 /**
- * Both operands as literals, which the compilers fold or pass to the target
- * as a constant expression instead of computing at run time.
+ * Shapes with literal operands, which the compilers fold or pass to the
+ * target as constants instead of computing at run time. `literal right
+ * operand` keeps `a` a run-time value (the only argument) and makes `b` a
+ * literal, as in `a.div(int(0))`.
  */
-function constant(c: Case) {
-  const literal: any = c.type === "int" ? int : uint;
-  return () => apply(c.op, literal(c.a), literal(c.b)) as Node<"int">;
-}
+const literalShapes = {
+  constant: (c: Case) => {
+    const literal: any = c.type === "int" ? int : uint;
+    return () => apply(c.op, literal(c.a), literal(c.b)) as Node<"int">;
+  },
+  "constant vector": (c: Case) => {
+    const vec: any = c.type === "int" ? ivec2 : uvec2;
+    return () => apply(c.op, vec(c.a, c.a), vec(c.b, c.b)).x as Node<"int">;
+  },
+  "literal right operand": (c: Case) => {
+    const literal: any = c.type === "int" ? int : uint;
+    return (a: Node<"int">) => apply(c.op, a, literal(c.b)) as Node<"int">;
+  },
+  "vector by literal vector": (c: Case) => {
+    const vec: any = c.type === "int" ? ivec2 : uvec2;
+    return (a: Node<"int">) => apply(c.op, vec(a, a), vec(c.b, c.b)).x as Node<"int">;
+  },
+};
 
 const runs = [
   ...Object.entries(shapes).flatMap(([shape, make]) =>
     cases.map((c) => ({ ...c, shape, build: make(c.op, c.type), args: [c.a, c.b] })),
   ),
-  ...cases.map((c) => ({ ...c, shape: "constant", build: constant(c), args: [] as number[] })),
+  ...Object.entries(literalShapes).flatMap(([shape, make]) =>
+    cases.map((c) => ({ ...c, shape, build: make(c), args: shape.startsWith("constant") ? [] : [c.a] })),
+  ),
 ];
 
 describe("integer semantics match WGSL", () => {

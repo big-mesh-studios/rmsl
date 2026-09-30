@@ -54,6 +54,11 @@ export const typeToGLSL: Record<string, string> = {
   void: "void",
 };
 
+/** An `int` literal. `-2147483648` negates an out-of-range `2147483648`. */
+export function glslIntLiteral(value: number): string {
+  return value === -2147483648 ? "(-2147483647 - 1)" : String(value);
+}
+
 export function glslType(brand: any): string {
   return typeToGLSL[brand as string] ?? "float";
 }
@@ -101,9 +106,7 @@ export function compileGLSLNode(
       return { decls: [], body: [], expr: s };
     }
     case "int":
-      // `-2147483648` negates an out-of-range `2147483648`.
-      if (node.value === -2147483648) return { decls: [], body: [], expr: "(-2147483647 - 1)", prec: PREC_ATOM };
-      return { decls: [], body: [], expr: String(node.value) };
+      return { decls: [], body: [], expr: glslIntLiteral(node.value as number), prec: PREC_ATOM };
     case "uint":
       return { decls: [], body: [], expr: String(node.value) + "u" };
     case "bool":
@@ -115,11 +118,11 @@ export function compileGLSLNode(
     case "vec4":
       return { decls: [], body: [], expr: `vec4(${(node.value as number[]).join(", ")})` };
     case "ivec2":
-      return { decls: [], body: [], expr: `ivec2(${(node.value as number[]).join(", ")})` };
+      return { decls: [], body: [], expr: `ivec2(${(node.value as number[]).map(glslIntLiteral).join(", ")})` };
     case "ivec3":
-      return { decls: [], body: [], expr: `ivec3(${(node.value as number[]).join(", ")})` };
+      return { decls: [], body: [], expr: `ivec3(${(node.value as number[]).map(glslIntLiteral).join(", ")})` };
     case "ivec4":
-      return { decls: [], body: [], expr: `ivec4(${(node.value as number[]).join(", ")})` };
+      return { decls: [], body: [], expr: `ivec4(${(node.value as number[]).map(glslIntLiteral).join(", ")})` };
     case "uvec2":
       return { decls: [], body: [], expr: `uvec2(${(node.value as number[]).map((v) => `${v}u`).join(", ")})` };
     case "uvec3":
