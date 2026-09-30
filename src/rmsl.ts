@@ -123,6 +123,8 @@ export {
   StorageInstancedBufferAttribute,
   attributeArray,
   instancedArray,
+  compute,
+  ComputeNode,
   invocationIndex,
   shiftLeft,
   shiftRight,

@@ -1,4 +1,4 @@
-import type { Node, ShaderType, StorageAccess } from "./core";
+import { ComputeNode, type Node, type ShaderType, type StorageAccess } from "./core";
 import { compileWgsl, wgslUniformLayout, WGSL_UNIFORM_STRUCT } from "./backends/wgsl/wgsl";
 
 export type WgslStage = "compute" | "vertex" | "fragment";
@@ -121,18 +121,23 @@ function inferUniformResources(code: string): WgslResource[] {
   }));
 }
 
+/**
+ * Compiles a compute program. Given a {@link ComputeNode}, its own
+ * `workgroupSize` is used and the program is bounded by its `countNode`
+ * rather than by the first storage buffer's length.
+ */
 export function compile(
   options: WgslCompileOptions,
-  root: Node<ShaderType> | readonly Node<ShaderType>[],
+  program: Node<ShaderType> | readonly Node<ShaderType>[] | ComputeNode,
 ): WgslProgram {
   if (options.stage !== "compute") {
     throw new Error(`[RMSL] @random-mesh/rmsl/wgsl currently supports only compute compilation`);
   }
 
-  const workgroupSize = options.workgroupSize ?? 64;
-  const code = compileWgsl.compute(root as Node<ShaderType> | readonly Node<ShaderType>[], {
-    workgroupSize,
-  });
+  const computeNode = program instanceof ComputeNode ? program : undefined;
+  const root = computeNode ? computeNode.computeNode : (program as Node<ShaderType> | readonly Node<ShaderType>[]);
+  const workgroupSize = computeNode?.workgroupSize ?? options.workgroupSize ?? 64;
+  const code = compileWgsl.compute(root, { workgroupSize, count: computeNode?.countNode });
 
   return {
     code,

@@ -729,6 +729,8 @@ export interface NodeMethods<A extends ShaderType> {
   toVar(name?: string): Node<A>;
   /** TSL's shorthand for `toVar()`. */
   var(name?: string): Node<A>;
+  /** This program, dispatched once per index in `0..count`, as TSL's `.compute()`. */
+  compute(count: number, workgroupSize?: number): ComputeNode;
   assign(value: BaseNode<A> | Node<A>): void;
   // === Compound assignments (as TSL's `addAssign`/`mulAssign`/...) ===
   addAssign(other: FloatLike | IntLike | UintLike | Vec2Like | Vec3Like | Vec4Like): void;
@@ -1155,6 +1157,10 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
         }),
       );
     });
+  }
+
+  compute(count: number, workgroupSize?: number): ComputeNode {
+    return compute(this as unknown as Node<ShaderType>, count, workgroupSize);
   }
 
   toVar(name?: string): Node<A> {
@@ -2647,6 +2653,28 @@ export function instancedArray<T extends ShaderType = "float">(
   shaderType: T = "float" as T,
 ): StorageNode<T> {
   return storageArrayNode(StorageInstancedBufferAttribute, countOrArray, shaderType);
+}
+
+/**
+ * A compute program with its dispatch size, as TSL's `ComputeNode`. Runs
+ * `computeNode` once per index in `0..count`; `countNode` is the uniform the
+ * compiled program checks each index against, so `count` can change without
+ * recompiling.
+ */
+export class ComputeNode {
+  readonly isComputeNode = true;
+  readonly countNode: UniformNode<"uint"> = uniform("uint");
+
+  constructor(
+    readonly computeNode: Node<ShaderType>,
+    public count: number,
+    readonly workgroupSize = 64,
+  ) {}
+}
+
+/** `node` dispatched once per index in `0..count`, as TSL's `compute()`. */
+export function compute(node: Node<ShaderType>, count: number, workgroupSize = 64): ComputeNode {
+  return new ComputeNode(node, count, workgroupSize);
 }
 
 export function invocationIndex(): Node<"uint"> {
