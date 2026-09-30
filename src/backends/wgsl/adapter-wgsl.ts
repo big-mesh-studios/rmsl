@@ -114,9 +114,9 @@ function vertexComponentCount(type: string): number {
  * member can have, so an `int` member gets integer bits and not the bits of
  * the equivalent float.
  */
-type UniformScratch = { f32: Float32Array; i32: Int32Array; u32: Uint32Array };
+export type UniformScratch = { f32: Float32Array; i32: Int32Array; u32: Uint32Array };
 
-function uniformScratch(bytes: number): UniformScratch {
+export function uniformScratch(bytes: number): UniformScratch {
   let buffer = new ArrayBuffer(bytes);
   return { f32: new Float32Array(buffer), i32: new Int32Array(buffer), u32: new Uint32Array(buffer) };
 }
@@ -127,14 +127,14 @@ function uniformScratch(bytes: number): UniformScratch {
  * compute uniform resources are parsed back out of the generated WGSL, so they
  * carry the WGSL spelling.
  */
-function elementView(type: string, views: UniformScratch): Float32Array | Int32Array | Uint32Array {
+export function elementView(type: string, views: UniformScratch): Float32Array | Int32Array | Uint32Array {
   let kind = componentKindOf(type);
   if (kind === "int" || type.includes("i32")) return views.i32;
   if (kind === "uint" || type.includes("u32")) return views.u32;
   return views.f32;
 }
 
-function writeUniformScratch(scratch: UniformScratch, offset: number, type: string, value: number | number[]): void {
+export function writeUniformScratch(scratch: UniformScratch, offset: number, type: string, value: number | number[]): void {
   let view = elementView(type, scratch);
   if (Array.isArray(value)) value.forEach((v, i) => (view[offset + i] = v));
   else view[offset] = value;

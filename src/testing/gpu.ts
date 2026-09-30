@@ -202,3 +202,18 @@ export async function releaseGpu(): Promise<void> {
  * about their machine, not the default everyone inherits.
  */
 export const GPU_ENABLED = !process.env.RMSL_SKIP_GPU;
+
+/**
+ * Installs the browser's WebGPU globals — `navigator.gpu`, `GPUBufferUsage`,
+ * `GPUMapMode` — backed by the Dawn binding, for code under test that reaches
+ * for them the way it would in a browser. Returns a function that tears the
+ * Dawn instance down again.
+ */
+export async function installWebGpuGlobals(): Promise<() => void> {
+  const dawn: any = await import("@kmamal/gpu");
+  const instance = dawn.create([]);
+  // Node defines `navigator` as a getter-only global, so it has to be redefined, not assigned.
+  Object.defineProperty(globalThis, "navigator", { value: { gpu: instance }, configurable: true });
+  Object.assign(globalThis, { GPUBufferUsage: dawn.GPUBufferUsage, GPUMapMode: dawn.GPUMapMode });
+  return () => dawn.destroy(instance);
+}

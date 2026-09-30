@@ -1,27 +1,15 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Fn, instancedArray, invocationIndex, uniform } from "../../rmsl";
 import { createWgslCompute } from "./adapter-wgsl";
-import { GPU_ENABLED } from "../../testing/gpu";
+import { GPU_ENABLED, installWebGpuGlobals } from "../../testing/gpu";
 
-let dawn: any;
-let instance: any;
+let uninstall: (() => void) | undefined;
 
-/**
- * The adapter reaches for the browser's WebGPU globals, so the Dawn binding
- * stands in for them here: `navigator.gpu` and the usage-flag namespaces.
- */
 beforeAll(async () => {
-  if (!GPU_ENABLED) return;
-  dawn = await import("@kmamal/gpu");
-  instance = dawn.create([]);
-  // Node defines `navigator` as a getter-only global, so it has to be redefined, not assigned.
-  Object.defineProperty(globalThis, "navigator", { value: { gpu: instance }, configurable: true });
-  Object.assign(globalThis, { GPUBufferUsage: dawn.GPUBufferUsage, GPUMapMode: dawn.GPUMapMode });
+  if (GPU_ENABLED) uninstall = await installWebGpuGlobals();
 });
 
-afterAll(() => {
-  if (instance) dawn.destroy(instance);
-});
+afterAll(() => uninstall?.());
 
 describe.skipIf(!GPU_ENABLED)("createWgslCompute with integer data", () => {
   it("reads an int storage back as the integers it holds", async () => {
