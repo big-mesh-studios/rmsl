@@ -409,6 +409,12 @@ const SCRATCH_NODE_TYPES = new Set([
   "mul",
   "div",
   "mod",
+  "bitAnd",
+  "bitOr",
+  "bitXor",
+  "bitNot",
+  "shiftLeft",
+  "shiftRight",
 ]);
 
 /**
@@ -1667,6 +1673,12 @@ export function compileWasmFn(
       case "sub":
       case "div":
       case "mod":
+      case "bitAnd":
+      case "bitOr":
+      case "bitXor":
+      case "bitNot":
+      case "shiftLeft":
+      case "shiftRight":
         return emitComponentwiseStores(node, nodeAddress(node));
       case "mul":
         // a true matrix product only when BOTH operands are matrices
@@ -2296,7 +2308,8 @@ export function compileWasmFn(
   }
 
   /**
-   * Element-wise op over same-width vectors, with scalar operands broadcast
+   * Element-wise op over same-width vectors — binary, or unary for `bitNot` —
+   * with scalar operands broadcast
    * by re-evaluating them (walkExpr) per component; aggregate operands are
    * materialized once and loaded per component.
    */
@@ -2306,7 +2319,7 @@ export function compileWasmFn(
     const compSize = componentSizeOf(targetKind);
     const width = componentCountOf(node._t as string);
     const aWidth = componentCountOf(a._t);
-    const bWidth = componentCountOf(b._t);
+    const bWidth = b === undefined ? 0 : componentCountOf(b._t);
     const out: number[] = [];
     if (aWidth > 1) out.push(...materializeIfNeeded(a));
     if (bWidth > 1) out.push(...materializeIfNeeded(b));
@@ -2318,17 +2331,23 @@ export function compileWasmFn(
       if ((node.type === "div" || node.type === "mod") && !float) {
         return [...aBytes, ...bBytes, ...integerDivision(targetKind as "int" | "uint", node.type)];
       }
+      if (node.type === "bitNot") return [...aBytes, ...i32ConstBytes(-1), WASM_OP.i32Xor];
       const opcode = {
         add: float ? WASM_OP.f64Add : WASM_OP.i32Add,
         sub: float ? WASM_OP.f64Sub : WASM_OP.i32Sub,
         mul: float ? WASM_OP.f64Mul : WASM_OP.i32Mul,
         div: WASM_OP.f64Div,
-      }[node.type as "add" | "sub" | "mul" | "div"];
+        bitAnd: WASM_OP.i32And,
+        bitOr: WASM_OP.i32Or,
+        bitXor: WASM_OP.i32Xor,
+        shiftLeft: WASM_OP.i32Shl,
+        shiftRight: targetKind === "uint" ? WASM_OP.i32ShrU : WASM_OP.i32ShrS,
+      }[node.type as "add" | "sub" | "mul" | "div" | "bitAnd" | "bitOr" | "bitXor" | "shiftLeft" | "shiftRight"];
       return [...aBytes, ...bBytes, opcode];
     };
     for (let k = 0; k < width; k++) {
       const aBytes = aWidth > 1 ? loadComponent(aAddr!, targetKind, k * compSize) : walkExpr(a);
-      const bBytes = bWidth > 1 ? loadComponent(bAddr!, targetKind, k * compSize) : walkExpr(b);
+      const bBytes = b === undefined ? [] : bWidth > 1 ? loadComponent(bAddr!, targetKind, k * compSize) : walkExpr(b);
       out.push(...storeComponent(addr, targetKind, k * compSize, combine(aBytes, bBytes)));
     }
     return out;

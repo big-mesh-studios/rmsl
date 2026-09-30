@@ -17,10 +17,11 @@ const INT_MIN = -2147483648;
 const INT_MAX = 2147483647;
 const UINT_MAX = 4294967295;
 
-type Op = "add" | "sub" | "mul" | "div" | "mod" | "shiftLeft" | "shiftRight";
+type Op = "add" | "sub" | "mul" | "div" | "mod" | "shiftLeft" | "shiftRight" | "bitAnd" | "bitOr" | "bitXor" | "bitNot";
 
 /**
- * One integer operation and the result WGSL defines for it.
+ * One integer operation and the result WGSL defines for it. `b` is unused by
+ * the one unary operation, `bitNot`.
  *
  * WGSL is the reference because it is the only target whose spec defines
  * every case: overflow wraps, `x / 0` is `x`, `x % 0` is `0`, `INT_MIN / -1`
@@ -45,68 +46,66 @@ const cases: Case[] = [
   { name: "int shift left by 32 shifts by 0", type: "int", op: "shiftLeft", a: 1, b: 32, want: 1 },
   { name: "int shift left by 33 shifts by 1", type: "int", op: "shiftLeft", a: 1, b: 33, want: 2 },
   { name: "int shift right is arithmetic, amount modulo 32", type: "int", op: "shiftRight", a: -8, b: 33, want: -4 },
+  { name: "int bitAnd keeps the common bits", type: "int", op: "bitAnd", a: -1, b: 0x0f0f, want: 0x0f0f },
+  { name: "int bitOr combines the bits", type: "int", op: "bitOr", a: 0x0f00, b: 0x00f0, want: 0x0ff0 },
+  { name: "int bitXor flips the bits", type: "int", op: "bitXor", a: -1, b: 1, want: -2 },
+  { name: "int bitNot flips every bit", type: "int", op: "bitNot", a: 5, b: 0, want: -6 },
   { name: "uint add wraps on overflow", type: "uint", op: "add", a: UINT_MAX, b: 1, want: 0 },
   { name: "uint sub wraps on underflow", type: "uint", op: "sub", a: 0, b: 1, want: UINT_MAX },
   { name: "uint mul wraps to the low 32 bits", type: "uint", op: "mul", a: UINT_MAX, b: 2, want: UINT_MAX - 1 },
   { name: "uint mul of large operands wraps", type: "uint", op: "mul", a: 123456789, b: 987654321, want: 4227814277 },
   { name: "uint div by zero gives the dividend", type: "uint", op: "div", a: 7, b: 0, want: 7 },
-  {
-    name: "uint div of a value above INT_MAX is unsigned",
-    type: "uint",
-    op: "div",
-    a: UINT_MAX,
-    b: 2,
-    want: 2147483647,
-  },
+  { name: "uint div above INT_MAX is unsigned", type: "uint", op: "div", a: UINT_MAX, b: 2, want: INT_MAX },
   { name: "uint mod by zero gives zero", type: "uint", op: "mod", a: 7, b: 0, want: 0 },
   { name: "uint shift left by 32 shifts by 0", type: "uint", op: "shiftLeft", a: 1, b: 32, want: 1 },
   { name: "uint shift right is logical", type: "uint", op: "shiftRight", a: 0x80000000, b: 31, want: 1 },
+  {
+    name: "uint bitAnd keeps the high bit unsigned",
+    type: "uint",
+    op: "bitAnd",
+    a: 0x80000001,
+    b: 0x80000000,
+    want: 0x80000000,
+  },
+  { name: "uint bitXor stays unsigned", type: "uint", op: "bitXor", a: UINT_MAX, b: 1, want: UINT_MAX - 1 },
+  { name: "uint bitNot of zero is UINT_MAX", type: "uint", op: "bitNot", a: 0, b: 0, want: UINT_MAX },
 ];
 
-function build(op: Op) {
-  return (a: Node<"int">, b: Node<"int">) => (a as any)[op](b) as Node<"int">;
+function apply(op: Op, a: any, b: any): any {
+  return op === "bitNot" ? a.bitNot() : a[op](b);
 }
 
 /**
- * The same operation on two-component vectors, reduced back to a scalar by
- * reading `.x`, so vector code paths are held to the same table.
+ * The shapes each case runs in. The vector ones read `.x` back out, so a
+ * vector code path is held to the same scalar table; `vector by scalar`
+ * applies a scalar right operand to a vector, as the typed API allows.
  */
-/**
- * Vector shifts are left out: no backend compiles them correctly yet, which
- * is tracked separately from the arithmetic here.
- */
-const vectorCases = cases.filter(({ op }) => op !== "shiftLeft" && op !== "shiftRight");
+const shapes = {
+  scalar: (op: Op) => (a: Node<"int">, b: Node<"int">) => apply(op, a, b) as Node<"int">,
+  vector: (op: Op, type: IntegerType) => {
+    const vec: any = type === "int" ? ivec2 : uvec2;
+    return (a: Node<"int">, b: Node<"int">) => apply(op, vec(a, a), vec(b, b)).x as Node<"int">;
+  },
+  "vector by scalar": (op: Op, type: IntegerType) => {
+    const vec: any = type === "int" ? ivec2 : uvec2;
+    return (a: Node<"int">, b: Node<"int">) => apply(op, vec(a, a), b).x as Node<"int">;
+  },
+};
 
-function buildVector(op: Op, type: IntegerType) {
-  const vec = type === "int" ? ivec2 : uvec2;
-  return (a: Node<"int">, b: Node<"int">) => ((vec as any)(a, a) as any)[op]((vec as any)(b, b)).x as Node<"int">;
-}
+const runs = Object.entries(shapes).flatMap(([shape, make]) =>
+  cases.map((c) => ({ ...c, shape, build: make(c.op, c.type) })),
+);
 
 describe("integer semantics match WGSL", () => {
-  describe("JS", () => {
-    it.each(cases)("$name", ({ type, op, a, b, want }) => {
-      expect(evaluateIntegerJS(build(op), type, [a, b])).toBe(want);
-    });
-    it.each(vectorCases)("$name, on vectors", ({ type, op, a, b, want }) => {
-      expect(evaluateIntegerJS(buildVector(op, type), type, [a, b])).toBe(want);
-    });
+  it.each(runs)("JS: $name ($shape)", ({ type, a, b, want, build }) => {
+    expect(evaluateIntegerJS(build, type, [a, b])).toBe(want);
   });
 
-  describe("WASM", () => {
-    it.each(cases)("$name", ({ type, op, a, b, want }) => {
-      expect(evaluateIntegerWASM(build(op), type, [a, b])).toBe(want);
-    });
-    it.each(vectorCases)("$name, on vectors", ({ type, op, a, b, want }) => {
-      expect(evaluateIntegerWASM(buildVector(op, type), type, [a, b])).toBe(want);
-    });
+  it.each(runs)("WASM: $name ($shape)", ({ type, a, b, want, build }) => {
+    expect(evaluateIntegerWASM(build, type, [a, b])).toBe(want);
   });
 
-  describe.skipIf(GPU_EVALUATION_SKIPPED)("WGSL", () => {
-    it.each(cases)("$name", async ({ type, op, a, b, want }) => {
-      expect(await evaluateIntegerWGSL(build(op), type, [a, b])).toBe(want);
-    });
-    it.each(vectorCases)("$name, on vectors", async ({ type, op, a, b, want }) => {
-      expect(await evaluateIntegerWGSL(buildVector(op, type), type, [a, b])).toBe(want);
-    });
+  it.skipIf(GPU_EVALUATION_SKIPPED).each(runs)("WGSL: $name ($shape)", async ({ type, a, b, want, build }) => {
+    expect(await evaluateIntegerWGSL(build, type, [a, b])).toBe(want);
   });
 });

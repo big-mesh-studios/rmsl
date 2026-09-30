@@ -794,11 +794,11 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     case "or":
       return logicalWGSL(node, ctx, "||");
     case "bitAnd":
-      return binaryWGSL(node, ctx, "&");
+      return bitwiseWGSL(node, ctx, "&");
     case "bitOr":
-      return binaryWGSL(node, ctx, "|");
+      return bitwiseWGSL(node, ctx, "|");
     case "bitXor":
-      return binaryWGSL(node, ctx, "^");
+      return bitwiseWGSL(node, ctx, "^");
     // WGSL takes the shift amount as u32 even when the value shifted is i32,
     // so the right operand is converted. GLSL accepts either.
     case "shiftLeft":
@@ -1337,8 +1337,19 @@ export const WGSL_HELPERS: Record<string, string> = {
 export function shiftWGSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string): CompiledNode {
   let lhs = compileWGSLStage(node.params![0], ctx);
   let rhs = compileWGSLStage(node.params![1], ctx);
+  let width = TYPE_WIDTH[(node.params![0] as any)?._t] ?? 1;
   let amountType = (node.params![1] as any)?._t;
-  let rhsExpr = amountType === "uint" ? rhs.expr : `u32(${rhs.expr})`;
+  // The amount has to be u32 with the same width as the value. A vector
+  // amount converts to `vecN<u32>`; a scalar one becomes u32 first, since
+  // WGSL only splats a value of the vector's own component type.
+  let unsigned = amountType === "uint" || amountType?.startsWith("uvec");
+  let rhsExpr = rhs.expr;
+  if ((TYPE_WIDTH[amountType] ?? 1) > 1) {
+    if (!unsigned) rhsExpr = `vec${width}<u32>(${rhsExpr})`;
+  } else {
+    if (!unsigned) rhsExpr = `u32(${rhsExpr})`;
+    if (width > 1) rhsExpr = `vec${width}<u32>(${rhsExpr})`;
+  }
   let prec = PRECEDENCE[node.type] ?? 0;
   let lhsExpr = wrapExpr(lhs.prec, prec, lhs.expr);
   rhsExpr = wrapExpr(rhs.prec, prec, rhsExpr);
@@ -1346,6 +1357,26 @@ export function shiftWGSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: strin
     decls: [...lhs.decls, ...rhs.decls],
     body: [...lhs.body, ...rhs.body],
     expr: `${lhsExpr} ${op} ${rhsExpr}`,
+    prec,
+  };
+}
+
+/**
+ * A WGSL `&`, `|` or `^`. Unlike arithmetic, WGSL doesn't broadcast a scalar
+ * across a vector for these, so a scalar right operand is splat to the
+ * vector's type.
+ */
+export function bitwiseWGSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string): CompiledNode {
+  let lhsType = (node.params![0] as any)?._t;
+  let rhsType = (node.params![1] as any)?._t;
+  if ((TYPE_WIDTH[lhsType] ?? 1) === 1 || (TYPE_WIDTH[rhsType] ?? 1) > 1) return binaryWGSL(node, ctx, op);
+  let lhs = compileWGSLStage(node.params![0], ctx);
+  let rhs = compileWGSLStage(node.params![1], ctx);
+  let prec = PRECEDENCE[node.type] ?? 0;
+  return {
+    decls: [...lhs.decls, ...rhs.decls],
+    body: [...lhs.body, ...rhs.body],
+    expr: `${wrapExpr(lhs.prec, prec, lhs.expr)} ${op} ${wgslType(lhsType)}(${rhs.expr})`,
     prec,
   };
 }

@@ -120,6 +120,20 @@ export const JS_ELEM: Record<string, { argc: number; fn: (xs: string[]) => strin
   umul: { argc: 2, fn: (xs) => `Math.imul(${xs[0]}, ${xs[1]}) >>> 0` },
   udiv: { argc: 2, fn: (xs) => `_udiv(${xs[0]}, ${xs[1]})` },
   umod: { argc: 2, fn: (xs) => `_umod(${xs[0]}, ${xs[1]})` },
+  // Bitwise operations: JS already works on 32 bits here and takes shift
+  // amounts modulo 32; a uint result only needs reading back unsigned.
+  iand: { argc: 2, fn: (xs) => `${xs[0]} & ${xs[1]}` },
+  ior: { argc: 2, fn: (xs) => `${xs[0]} | ${xs[1]}` },
+  ixor: { argc: 2, fn: (xs) => `${xs[0]} ^ ${xs[1]}` },
+  ishl: { argc: 2, fn: (xs) => `${xs[0]} << ${xs[1]}` },
+  ishr: { argc: 2, fn: (xs) => `${xs[0]} >> ${xs[1]}` },
+  inot: { argc: 1, fn: (xs) => `~${xs[0]}` },
+  uand: { argc: 2, fn: (xs) => `(${xs[0]} & ${xs[1]}) >>> 0` },
+  uor: { argc: 2, fn: (xs) => `(${xs[0]} | ${xs[1]}) >>> 0` },
+  uxor: { argc: 2, fn: (xs) => `(${xs[0]} ^ ${xs[1]}) >>> 0` },
+  ushl: { argc: 2, fn: (xs) => `(${xs[0]} << ${xs[1]}) >>> 0` },
+  ushr: { argc: 2, fn: (xs) => `${xs[0]} >>> ${xs[1]}` },
+  unot: { argc: 1, fn: (xs) => `~${xs[0]} >>> 0` },
   min: { argc: 2, fn: (xs) => `Math.min(${xs[0]}, ${xs[1]})` },
   max: { argc: 2, fn: (xs) => `Math.max(${xs[0]}, ${xs[1]})` },
   pow: { argc: 2, fn: (xs) => `Math.pow(${xs[0]}, ${xs[1]})` },
@@ -888,7 +902,22 @@ export function jsComparison(node: BaseNode<ShaderType>, ctx: CompileCtx, op: st
   };
 }
 
+/** The element-wise helper name for each bitwise operator, before its `i`/`u` prefix. */
+const JS_BITWISE_NAMES: Record<string, string> = {
+  "&": "and",
+  "|": "or",
+  "^": "xor",
+  "<<": "shl",
+  ">>": "shr",
+  "~": "not",
+};
+
 export function jsBitwise(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string): CompiledNode {
+  let width = jsArrayLength(node._t);
+  if (width > 1) {
+    let name = `${(node._t as string).startsWith("uvec") ? "u" : "i"}${JS_BITWISE_NAMES[op]}`;
+    return op === "~" ? jsUnaryMath(node, ctx, name) : jsVectorBinary(node, ctx, name, width);
+  }
   let a = compileJSStage(node.params![0], ctx);
   let isUint = node._t === "uint";
   let mask = isUint ? ">>> 0" : "| 0";
