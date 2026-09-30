@@ -1276,6 +1276,12 @@ export function compileWasmFn(
 
       case "storage": {
         const v = node.value;
+        if (storageMetadataAddress.has(v.slot) && v.access !== "read") {
+          // Two nodes over one buffer, one read-only: the buffer takes the wider access.
+          const param = memoryParams.find((p: any) => p.kind === "storageMemory" && p.slot === v.slot) as any;
+          if (param.access === "read") param.access = v.access;
+          needsResult = true;
+        }
         if (!storageMetadataAddress.has(v.slot)) {
           const addr = allocateBytes(STORAGE_META_STRIDE);
           storageMetadataAddress.set(v.slot, addr);

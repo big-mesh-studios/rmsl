@@ -10,7 +10,7 @@ export type CpuShaderContext = {
   /** Pixel being evaluated, which `fragCoord()` reads on the CPU target. */
   fragCoord?: [number, number];
   /**
-   * Backing arrays for `storage()` slots, one per name passed to `storage()`.
+   * Backing arrays for `storage()` slots, keyed by each storage node's `.name`.
    * A `storage()`-based program runs once per element with `index` set to
    * that element's position — the same per-invocation semantics WGSL's
    * compute path gives it, driven by `CpuRoutine.compute()` instead of the

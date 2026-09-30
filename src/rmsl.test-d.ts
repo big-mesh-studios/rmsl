@@ -25,7 +25,7 @@ import {
   all,
   any,
   determinant,
-  storage,
+  instancedArray,
   invocationIndex,
   type Node,
   type ShaderType,
@@ -171,7 +171,7 @@ describe("compute programs", () => {
   // return; every compute entry point takes it as it is.
   it("take a program that returns nothing", () => {
     const step = Fn(() => {
-      const pos = storage("pos", "float", { access: "read_write" });
+      const pos = instancedArray(1, "float");
       pos.element(invocationIndex()).addAssign(1);
     })();
     createJsCompute(step);

@@ -43,10 +43,10 @@ export interface WgslCompileOptions {
  * Storage resources are collected from the node graph itself, not the
  * generated code: the WGSL backend's binding declarations carry only the
  * internal `_rmsl_sN` name it invents per binding (see `compileWGSLWithStage`
- * in `src/backends/wgsl.ts`), never the RMSL slot name a caller actually
- * passed to `storage()` — that name exists only on the graph's nodes. Binding
- * order is reproduced exactly as the backend assigns it: every distinct
- * `storage()` slot reachable from `root`, sorted by slot name.
+ * in `src/backends/wgsl.ts`), never the storage node's slot name (its `.name`,
+ * one per buffer attribute) — that name exists only on the graph's nodes.
+ * Binding order is reproduced exactly as the backend assigns it: every
+ * distinct `storage()` slot reachable from `root`, sorted by slot name.
  */
 function collectStorageResources(root: Node<ShaderType> | readonly Node<ShaderType>[]): WgslResource[] {
   const seen = new Map<string, { shaderType: ShaderType; access: StorageAccess }>();
@@ -57,7 +57,9 @@ function collectStorageResources(root: Node<ShaderType> | readonly Node<ShaderTy
     visited.add(node);
     if (node.type === "storage") {
       const v = node.value;
-      if (!seen.has(v.slot)) seen.set(v.slot, { shaderType: v.shaderType, access: v.access });
+      const existing = seen.get(v.slot);
+      if (!existing) seen.set(v.slot, { shaderType: v.shaderType, access: v.access });
+      else if (existing.access !== v.access) existing.access = "read_write";
     }
     if (Array.isArray(node.params)) for (const p of node.params) walk(p);
   }

@@ -586,9 +586,9 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       const existing = ctx.storages?.get(name);
 
       if (existing) {
-        if (existing.type !== type || existing.access !== access) {
-          throw new Error(`[RMSL] conflicting storage declaration for "${name}"`);
-        }
+        if (existing.type !== type) throw new Error(`[RMSL] conflicting storage declaration for "${name}"`);
+        // Two nodes over one buffer, one read-only: the binding takes the wider access.
+        if (existing.access !== access) existing.access = "read_write";
         return { decls: [], body: [], expr: existing.wgslName };
       }
 

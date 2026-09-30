@@ -33,7 +33,7 @@ import {
   uniformArray,
   varying,
   attribute,
-  storage,
+  instancedArray,
   invocationIndex,
   type UniformNode,
   output,
@@ -1344,20 +1344,20 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
     // compiled fn is called once per element, with `index` naming which one
     // and `storages` holding the whole backing arrays for it to read/write.
     let dt!: UniformNode<"float">;
+    const velNode = instancedArray(3, "float").toReadOnly();
+    const posNode = instancedArray(3, "float");
     const build = () =>
       Fn(() => {
-        const vel = storage("vel", "float");
-        const pos = storage("pos", "float", { access: "read_write" });
         dt = uniform("float");
         const i = invocationIndex();
-        pos.element(i).addAssign(vel.element(i).mul(dt));
+        posNode.element(i).addAssign(velNode.element(i).mul(dt));
       })();
     const fn = compileJSRoutine(build as any, { name: "step", params: [] });
 
     const pos = new Float32Array([0, 10, 20]);
     const vel = new Float32Array([1, 2, 3]);
     for (let i = 0; i < pos.length; i++) {
-      fn.run({ storages: { vel, pos }, uniforms: { [dt.name]: 2 }, index: i });
+      fn.run({ storages: { [velNode.name]: vel, [posNode.name]: pos }, uniforms: { [dt.name]: 2 }, index: i });
     }
     expect(Array.from(pos)).toEqual([2, 14, 26]);
   });

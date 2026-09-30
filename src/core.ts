@@ -2529,36 +2529,124 @@ export type StorageAccess = "read" | "write" | "read_write";
 
 export type StorageNode<A extends ShaderType> = VariableNode<A> & {
   access: StorageAccess;
+  /** The buffer this node reads and writes. Every node over the same attribute shares one buffer. */
+  attribute: StorageBufferAttribute;
   element(index: IntLike | UintLike | FloatLike): Node<A>;
+  /** Makes this node read-only, as TSL's `toReadOnly()`, and returns it. */
+  toReadOnly(): StorageNode<A>;
 };
 
+/** A typed-array constructor a storage buffer's elements can be stored in. */
+export type StorageArrayClass = Float32ArrayConstructor | Int32ArrayConstructor | Uint32ArrayConstructor;
+
+let nextStorageBufferId = 0;
+
+/**
+ * The buffer behind a {@link storage} node, as TSL's `StorageBufferAttribute`:
+ * `count` elements of `itemSize` components each. Built from a typed array,
+ * that array is the buffer's initial contents; built from a count, the buffer
+ * starts zeroed and `array` stays `null` — unlike TSL, no CPU-side copy is
+ * kept for a buffer that only the GPU (or WASM) side reads and writes.
+ */
+export class StorageBufferAttribute {
+  readonly id = nextStorageBufferId++;
+  readonly count: number;
+  readonly itemSize: number;
+  readonly arrayClass: StorageArrayClass;
+  readonly array: Float32Array | Int32Array | Uint32Array | null;
+
+  constructor(
+    countOrArray: number | Float32Array | Int32Array | Uint32Array,
+    itemSize = 1,
+    arrayClass: StorageArrayClass = Float32Array,
+  ) {
+    this.itemSize = itemSize;
+    if (typeof countOrArray === "number") {
+      this.count = countOrArray;
+      this.arrayClass = arrayClass;
+      this.array = null;
+    } else {
+      this.count = countOrArray.length / itemSize;
+      this.arrayClass = countOrArray.constructor as StorageArrayClass;
+      this.array = countOrArray;
+    }
+  }
+}
+
+/**
+ * As TSL's `StorageInstancedBufferAttribute`. It differs from
+ * {@link StorageBufferAttribute} only in how a render pipeline steps through
+ * it — once per instance rather than once per vertex.
+ */
+export class StorageInstancedBufferAttribute extends StorageBufferAttribute {}
+
+/**
+ * A storage buffer node over `attribute`, as TSL's `storage()`. Read and
+ * written through `.element(i)`; read-write unless {@link StorageNode.toReadOnly}
+ * is called. `count` defaults to the attribute's own.
+ */
 export function storage<T extends ShaderType>(
-  name: string,
+  attribute: StorageBufferAttribute,
   shaderType: T,
-  options: { access?: StorageAccess } = {},
+  count = attribute.count,
 ): StorageNode<T> {
-  const access = options.access ?? "read";
+  const slot = `_rmsl_b${attribute.id}`;
+  const value = { slot, shaderType, access: "read_write" as StorageAccess, attribute, count };
 
-  const result = node({
-    _t: shaderType,
-    type: "storage",
-    value: {
-      slot: name,
-      shaderType,
-      access,
-    },
-    name,
-  }) as StorageNode<T>;
+  const result = node({ _t: shaderType, type: "storage", value, name: slot }) as StorageNode<T>;
 
-  result.access = access;
+  result.access = "read_write";
+  result.attribute = attribute;
   result.element = (index: IntLike | UintLike | FloatLike) =>
     node({
       _t: shaderType,
       type: "storageElement",
       params: [result, wrapValue(index) as BaseNode<ShaderType>],
     }) as Node<T>;
+  result.toReadOnly = () => {
+    result.access = value.access = "read";
+    return result;
+  };
 
   return result;
+}
+
+function storageArrayClass(shaderType: ShaderType): StorageArrayClass {
+  if (shaderType === "int" || shaderType.startsWith("ivec")) return Int32Array;
+  if (shaderType === "uint" || shaderType.startsWith("uvec")) return Uint32Array;
+  return Float32Array;
+}
+
+function storageArrayNode<T extends ShaderType>(
+  Attribute: typeof StorageBufferAttribute,
+  countOrArray: number | Float32Array | Int32Array | Uint32Array,
+  shaderType: T,
+): StorageNode<T> {
+  const itemSize = TYPE_WIDTH[shaderType] ?? 1;
+  const attribute = new Attribute(countOrArray, itemSize, storageArrayClass(shaderType));
+  return storage(attribute, shaderType);
+}
+
+/**
+ * A storage node over a new {@link StorageBufferAttribute} of `countOrArray`
+ * elements of `shaderType`, as TSL's `attributeArray()`.
+ */
+export function attributeArray<T extends ShaderType = "float">(
+  countOrArray: number | Float32Array | Int32Array | Uint32Array,
+  shaderType: T = "float" as T,
+): StorageNode<T> {
+  return storageArrayNode(StorageBufferAttribute, countOrArray, shaderType);
+}
+
+/**
+ * A storage node over a new {@link StorageInstancedBufferAttribute} of
+ * `countOrArray` elements of `shaderType`, as TSL's `instancedArray()`.
+ */
+export function instancedArray<T extends ShaderType = "float">(
+  countOrArray: number | Float32Array | Int32Array | Uint32Array,
+  shaderType: T = "float" as T,
+): StorageNode<T> {
+  return storageArrayNode(StorageInstancedBufferAttribute, countOrArray, shaderType);
 }
 
 export function invocationIndex(): Node<"uint"> {

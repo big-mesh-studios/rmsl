@@ -1,14 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { Fn, invocationIndex, storage, uniform } from "./rmsl";
+import { Fn, instancedArray, invocationIndex, uniform } from "./rmsl";
 import { compile } from "./wgsl";
 
 describe("@random-mesh/rmsl/wgsl", () => {
   it("compiles a semantic compute program into a structured artifact", () => {
+    const velocityX = instancedArray(4, "float").toReadOnly();
+    const positionX = instancedArray(4, "float");
     const movement = Fn(() => {
-      const velocityX = storage("Velocity.x", "float");
-      const positionX = storage("Position.x", "float", {
-        access: "read_write",
-      });
       const dt = uniform("float");
       const i = invocationIndex();
 
@@ -38,13 +36,24 @@ describe("@random-mesh/rmsl/wgsl", () => {
     expect(storageResources).toHaveLength(2);
     expect(storageResources.map((r) => r.access).sort()).toEqual(["read", "read_write"]);
 
-    // Resource names are the RMSL slots passed to storage(), not the WGSL
-    // backend's internal `_rmsl_sN` binding names — bindings are assigned in
-    // slot-name order, so "Position.x" (< "Velocity.x") gets binding 0.
+    // Resource names are the storage nodes' generated slot names, not the
+    // WGSL backend's internal `_rmsl_sN` binding names; bindings are assigned
+    // in slot-name order.
+    const slotOrder = [positionX.name, velocityX.name].sort();
     expect(storageResources).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: "Position.x", access: "read_write", group: 1, binding: 0 }),
-        expect.objectContaining({ name: "Velocity.x", access: "read", group: 1, binding: 1 }),
+        expect.objectContaining({
+          name: positionX.name,
+          access: "read_write",
+          group: 1,
+          binding: slotOrder.indexOf(positionX.name),
+        }),
+        expect.objectContaining({
+          name: velocityX.name,
+          access: "read",
+          group: 1,
+          binding: slotOrder.indexOf(velocityX.name),
+        }),
       ]),
     );
   });

@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { Fn, If, invocationIndex, storage, uint, uniform, type Node, type ShaderType, type UniformNode } from "../rmsl";
+import {
+  Fn,
+  If,
+  instancedArray,
+  invocationIndex,
+  storage,
+  uint,
+  uniform,
+  type Node,
+  type ShaderType,
+  type UniformNode,
+} from "../rmsl";
 import { createJsCompute } from "../js";
 import { createWasmCompute } from "../wasm";
 
@@ -7,37 +18,37 @@ describe("createJsCompute/createWasmCompute over a multi-root array", () => {
   it("applies every root's statements, not just the last one", () => {
     let force!: UniformNode<"float">;
     let dt!: UniformNode<"float">;
+    const vel = instancedArray(3, "float");
+    const pos = instancedArray(3, "float");
 
     // rootA writes velocity from a uniform, independently of rootB — the
     // shape a compute demo uses to compose several systems over shared
     // storage (one Fn per system, dispatched together as one array).
     const rootA = Fn(() => {
-      const vel = storage("vel", "float", { access: "read_write" });
       force = uniform("float");
       const i = invocationIndex();
       vel.element(i).assign(force);
     })();
 
-    // rootB reads the velocity rootA wrote and integrates it into position.
+    // rootB reads the velocity rootA wrote, through its own read-only node
+    // over the same buffer, and integrates it into position.
     const rootB = Fn(() => {
-      const vel = storage("vel", "float");
-      const pos = storage("pos", "float", { access: "read_write" });
+      const velIn = storage(vel.attribute, "float").toReadOnly();
       dt = uniform("float");
       const i = invocationIndex();
-      pos.element(i).addAssign(vel.element(i).mul(dt));
+      pos.element(i).addAssign(velIn.element(i).mul(dt));
     })();
 
     const roots = [rootA, rootB];
 
     function run(adapter: ReturnType<typeof createJsCompute> | ReturnType<typeof createWasmCompute>) {
-      const pos = new Float32Array([0, 10, 20]);
-      const vel = new Float32Array([0, 0, 0]);
-      adapter.setAttribute("pos", pos);
-      adapter.setAttribute("vel", vel);
+      const posData = new Float32Array([0, 10, 20]);
+      adapter.setAttribute(pos.name, posData);
+      adapter.setAttribute(vel.name, new Float32Array([0, 0, 0]));
       adapter.setUniform(force.name, 5);
       adapter.setUniform(dt.name, 2);
       adapter.compute();
-      return Array.from(pos);
+      return Array.from(posData);
     }
 
     // If a backend only compiled the last root (rootB), rootA's velocity
@@ -51,22 +62,21 @@ describe("createJsCompute/createWasmCompute over a multi-root array", () => {
 
   it("a single root still works the same way through the array-accepting entry point", () => {
     let dt!: UniformNode<"float">;
+    const vel = instancedArray(3, "float").toReadOnly();
+    const pos = instancedArray(3, "float");
     const root = Fn(() => {
-      const vel = storage("vel", "float");
-      const pos = storage("pos", "float", { access: "read_write" });
       dt = uniform("float");
       const i = invocationIndex();
       pos.element(i).addAssign(vel.element(i).mul(dt));
     })();
 
     function run(adapter: ReturnType<typeof createJsCompute> | ReturnType<typeof createWasmCompute>) {
-      const pos = new Float32Array([0, 10, 20]);
-      const vel = new Float32Array([1, 2, 3]);
-      adapter.setAttribute("pos", pos);
-      adapter.setAttribute("vel", vel);
+      const posData = new Float32Array([0, 10, 20]);
+      adapter.setAttribute(pos.name, posData);
+      adapter.setAttribute(vel.name, new Float32Array([1, 2, 3]));
       adapter.setUniform(dt.name, 2);
       adapter.compute();
-      return Array.from(pos);
+      return Array.from(posData);
     }
 
     const want = [2, 14, 26];
@@ -89,59 +99,59 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
   }
 
   it("gathers from a neighbouring element", () => {
+    const src = instancedArray(4, "float").toReadOnly();
+    const dst = instancedArray(4, "float");
     const root = Fn(() => {
-      const src = storage("src", "float");
-      const dst = storage("dst", "float", { access: "read_write" });
       const i = invocationIndex();
       dst.element(i).assign(src.element(i.add(1).mod(4)));
     })();
 
     const [js, wasm] = runBoth(root, () => ({
-      src: new Float32Array([10, 20, 30, 40]),
-      dst: new Float32Array(4),
+      [src.name]: new Float32Array([10, 20, 30, 40]),
+      [dst.name]: new Float32Array(4),
     }));
-    expect(js.dst).toEqual([20, 30, 40, 10]);
+    expect(js[dst.name]).toEqual([20, 30, 40, 10]);
     expect(wasm).toEqual(js);
   });
 
   it("scatters to another element", () => {
+    const src = instancedArray(4, "int").toReadOnly();
+    const dst = instancedArray(4, "int");
     const root = Fn(() => {
-      const src = storage("src", "int");
-      const dst = storage("dst", "int", { access: "read_write" });
       const i = invocationIndex();
       dst.element(uint(3).sub(i)).assign(src.element(i).mul(2));
     })();
 
     const [js, wasm] = runBoth(root, () => ({
-      src: new Int32Array([1, 2, 3, 4]),
-      dst: new Int32Array(4),
+      [src.name]: new Int32Array([1, 2, 3, 4]),
+      [dst.name]: new Int32Array(4),
     }));
-    expect(js.dst).toEqual([8, 6, 4, 2]);
+    expect(js[dst.name]).toEqual([8, 6, 4, 2]);
     expect(wasm).toEqual(js);
   });
 
   it("sees an earlier invocation's write to the same buffer", () => {
     // Invocations run in index order on both CPU backends, so a prefix sum
     // written in place is well defined there, though not on a GPU.
+    const acc = instancedArray(4, "float");
     const root = Fn(() => {
-      const acc = storage("acc", "float", { access: "read_write" });
       const i = invocationIndex();
       If(i.greaterThan(uint(0)), () => {
         acc.element(i).addAssign(acc.element(i.sub(1)));
       });
     })();
 
-    const [js, wasm] = runBoth(root, () => ({ acc: new Float32Array([1, 2, 3, 4]) }));
-    expect(js.acc).toEqual([1, 3, 6, 10]);
+    const [js, wasm] = runBoth(root, () => ({ [acc.name]: new Float32Array([1, 2, 3, 4]) }));
+    expect(js[acc.name]).toEqual([1, 3, 6, 10]);
     expect(wasm).toEqual(js);
   });
 });
 
 describe("createJsCompute/createWasmCompute reading back into out", () => {
+  const a = instancedArray(2, "float");
+  const b = instancedArray(2, "float");
   const program = () =>
     Fn(() => {
-      const a = storage("a", "float", { access: "read_write" });
-      const b = storage("b", "float", { access: "read_write" });
       const i = invocationIndex();
       a.element(i).assign(a.element(i).add(1));
       b.element(i).assign(b.element(i).add(2));
@@ -153,17 +163,17 @@ describe("createJsCompute/createWasmCompute reading back into out", () => {
   ] as const) {
     it(`${name}: reads back only the slots out names`, () => {
       const adapter = create(program(), { name: "step" });
-      adapter.setAttribute("a", new Float32Array([1, 2]));
-      adapter.setAttribute("b", new Float32Array([10, 20]));
-      const out = { b: new Float32Array(2) };
+      adapter.setAttribute(a.name, new Float32Array([1, 2]));
+      adapter.setAttribute(b.name, new Float32Array([10, 20]));
+      const out = { [b.name]: new Float32Array(2) };
       adapter.compute(out);
-      expect(Array.from(out.b)).toEqual([12, 22]);
+      expect(Array.from(out[b.name]!)).toEqual([12, 22]);
     });
 
     it(`${name}: rejects a slot the program has no storage for`, () => {
       const adapter = create(program(), { name: "step" });
-      adapter.setAttribute("a", new Float32Array([1, 2]));
-      adapter.setAttribute("b", new Float32Array([10, 20]));
+      adapter.setAttribute(a.name, new Float32Array([1, 2]));
+      adapter.setAttribute(b.name, new Float32Array([10, 20]));
       expect(() => adapter.compute({ c: new Float32Array(2) })).toThrow(/"c".*no storage slot/);
     });
   }
