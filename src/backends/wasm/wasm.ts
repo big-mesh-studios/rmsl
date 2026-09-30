@@ -408,6 +408,7 @@ const SCRATCH_NODE_TYPES = new Set([
   "sub",
   "mul",
   "div",
+  "mod",
 ]);
 
 /**
@@ -1362,6 +1363,14 @@ export function compileWasmFn(
         addLocal("$smoothstep_t", "float"); // one shared temp local for t (dedup keeps it single)
         break;
 
+      case "div":
+      case "mod":
+        if ((isAggregate(node._t) ? elementKindOf(node._t) : scalarKindOf(node._t)) !== "float") {
+          addLocal("$int_div_a", "int");
+          addLocal("$int_div_b", "int");
+        }
+        break;
+
       default:
         if (MATH_UNARY_IMPORTS.has(node.type) || MATH_BINARY_IMPORTS.has(node.type)) importsUsed.add(node.type);
         break;
@@ -1657,6 +1666,7 @@ export function compileWasmFn(
       case "add":
       case "sub":
       case "div":
+      case "mod":
         return emitComponentwiseStores(node, nodeAddress(node));
       case "mul":
         // a true matrix product only when BOTH operands are matrices
@@ -2302,24 +2312,24 @@ export function compileWasmFn(
     if (bWidth > 1) out.push(...materializeIfNeeded(b));
     const aAddr = aWidth > 1 ? nodeAddress(a) : undefined;
     const bAddr = bWidth > 1 ? nodeAddress(b) : undefined;
-    let opcode: number;
-    if (targetKind === "float") {
-      opcode =
-        node.type === "add"
-          ? WASM_OP.f64Add
-          : node.type === "sub"
-            ? WASM_OP.f64Sub
-            : node.type === "mul"
-              ? WASM_OP.f64Mul
-              : WASM_OP.f64Div;
-    } else if (node.type === "add") opcode = WASM_OP.i32Add;
-    else if (node.type === "sub") opcode = WASM_OP.i32Sub;
-    else if (node.type === "mul") opcode = WASM_OP.i32Mul;
-    else opcode = targetKind === "uint" ? WASM_OP.i32DivU : WASM_OP.i32DivS; // div needs the unsigned variant; add/sub/mul share the same bits
+    const combine = (aBytes: number[], bBytes: number[]): number[] => {
+      const float = targetKind === "float";
+      if (node.type === "mod" && float) return flooredModulo(aBytes, bBytes);
+      if ((node.type === "div" || node.type === "mod") && !float) {
+        return [...aBytes, ...bBytes, ...integerDivision(targetKind as "int" | "uint", node.type)];
+      }
+      const opcode = {
+        add: float ? WASM_OP.f64Add : WASM_OP.i32Add,
+        sub: float ? WASM_OP.f64Sub : WASM_OP.i32Sub,
+        mul: float ? WASM_OP.f64Mul : WASM_OP.i32Mul,
+        div: WASM_OP.f64Div,
+      }[node.type as "add" | "sub" | "mul" | "div"];
+      return [...aBytes, ...bBytes, opcode];
+    };
     for (let k = 0; k < width; k++) {
       const aBytes = aWidth > 1 ? loadComponent(aAddr!, targetKind, k * compSize) : walkExpr(a);
       const bBytes = bWidth > 1 ? loadComponent(bAddr!, targetKind, k * compSize) : walkExpr(b);
-      out.push(...storeComponent(addr, targetKind, k * compSize, [...aBytes, ...bBytes, opcode]));
+      out.push(...storeComponent(addr, targetKind, k * compSize, combine(aBytes, bBytes)));
     }
     return out;
   }
@@ -2638,6 +2648,54 @@ export function compileWasmFn(
   }
 
   /**
+   * Integer `/` or `%` of the two operands on the stack, with WGSL's results
+   * where WASM would trap: `x / 0` is `x`, `x % 0` is `0`, and `INT_MIN / -1`
+   * is `INT_MIN`. Those cases divide by 1 instead, which gives exactly those
+   * results. The operands are parked in two shared locals; both are fully
+   * evaluated before either is written, so a nested division can't clobber them.
+   */
+  function integerDivision(kind: "int" | "uint", op: "div" | "mod"): number[] {
+    const getA = [WASM_OP.localGet, ...wasmUleb128(localSlotIndex("$int_div_a"))];
+    const getB = [WASM_OP.localGet, ...wasmUleb128(localSlotIndex("$int_div_b"))];
+    const divisorIsZero = [...getB, WASM_OP.i32Eqz];
+    const divideByOne =
+      kind === "int" && op === "div"
+        ? [
+            ...divisorIsZero,
+            ...[...getA, ...i32ConstBytes(-2147483648), WASM_OP.i32Eq],
+            ...[...getB, ...i32ConstBytes(-1), WASM_OP.i32Eq],
+            WASM_OP.i32And,
+            WASM_OP.i32Or,
+          ]
+        : divisorIsZero;
+    const opcode =
+      op === "div"
+        ? kind === "uint"
+          ? WASM_OP.i32DivU
+          : WASM_OP.i32DivS
+        : kind === "uint"
+          ? WASM_OP.i32RemU
+          : WASM_OP.i32RemS;
+    return [
+      WASM_OP.localSet,
+      ...wasmUleb128(localSlotIndex("$int_div_b")),
+      WASM_OP.localSet,
+      ...wasmUleb128(localSlotIndex("$int_div_a")),
+      ...getA,
+      ...i32ConstBytes(1),
+      ...getB,
+      ...divideByOne,
+      WASM_OP.select,
+      opcode,
+    ];
+  }
+
+  /** Floored modulo, `a - b * floor(a / b)`, as GLSL's `mod()`; a plain `f64.rem` would truncate toward zero. */
+  function flooredModulo(a: number[], b: number[]): number[] {
+    return [...a, ...b, ...a, ...b, WASM_OP.f64Div, WASM_OP.f64Floor, WASM_OP.f64Mul, WASM_OP.f64Sub];
+  }
+
+  /**
    * Scalar `smoothstep(e0, e1, x)`: clamps `t = (x-e0)/(e1-e0)` to `[0,1]`,
    * then returns `t^2 * (3 - 2t)`.
    */
@@ -2726,38 +2784,14 @@ export function compileWasmFn(
         return binaryArith(node, WASM_OP.f64Sub, WASM_OP.i32Sub);
       case "mul":
         return binaryArith(node, WASM_OP.f64Mul, WASM_OP.i32Mul);
-      case "div": {
-        const kind = scalarKindOf(node.params[0]._t);
-        if (kind === "float") return binaryArith(node, WASM_OP.f64Div, WASM_OP.f64Div);
-        return [
-          ...walkExpr(node.params[0]),
-          ...walkExpr(node.params[1]),
-          kind === "uint" ? WASM_OP.i32DivU : WASM_OP.i32DivS,
-        ];
-      }
+      case "div":
       case "mod": {
         const kind = scalarKindOf(node.params[0]._t);
-        if (kind !== "float") {
-          return [
-            ...walkExpr(node.params[0]),
-            ...walkExpr(node.params[1]),
-            kind === "uint" ? WASM_OP.i32RemU : WASM_OP.i32RemS,
-          ];
-        }
-
-        const a = node.params[0],
-          b = node.params[1];
-        // floored modulo (GLSL): a - b*floor(a/b); a plain f64.rem would truncate toward zero
-        return [
-          ...walkExpr(a),
-          ...walkExpr(b),
-          ...walkExpr(a),
-          ...walkExpr(b),
-          WASM_OP.f64Div,
-          WASM_OP.f64Floor,
-          WASM_OP.f64Mul,
-          WASM_OP.f64Sub,
-        ];
+        const a = walkExpr(node.params[0]);
+        const b = walkExpr(node.params[1]);
+        if (kind === "int" || kind === "uint") return [...a, ...b, ...integerDivision(kind, node.type)];
+        if (node.type === "div") return [...a, ...b, WASM_OP.f64Div];
+        return flooredModulo(a, b);
       }
       case "min":
         return minOrMax(node.params[0], node.params[1], scalarKindOf(node.params[0]._t), "min");

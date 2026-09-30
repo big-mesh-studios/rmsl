@@ -108,15 +108,24 @@ export const JS_ELEM: Record<string, { argc: number; fn: (xs: string[]) => strin
   sub: { argc: 2, fn: (xs) => `${xs[0]} - ${xs[1]}` },
   mul: { argc: 2, fn: (xs) => `${xs[0]} * ${xs[1]}` },
   div: { argc: 2, fn: (xs) => `${xs[0]} / ${xs[1]}` },
-  // Integer division truncates, following GLSL/WGSL, not JS's float `/`.
-  idiv: { argc: 2, fn: (xs) => `Math.trunc(${xs[0]} / ${xs[1]})` },
+  // Integer operations wrap to 32 bits and follow WGSL where JS numbers differ:
+  // `x / 0` is `x`, `x % 0` is `0`, and `INT_MIN / -1` is `INT_MIN`.
+  iadd: { argc: 2, fn: (xs) => `(${xs[0]} + ${xs[1]}) | 0` },
+  isub: { argc: 2, fn: (xs) => `(${xs[0]} - ${xs[1]}) | 0` },
+  imul: { argc: 2, fn: (xs) => `Math.imul(${xs[0]}, ${xs[1]})` },
+  idiv: { argc: 2, fn: (xs) => `_idiv(${xs[0]}, ${xs[1]})` },
+  imod: { argc: 2, fn: (xs) => `_imod(${xs[0]}, ${xs[1]})` },
+  uadd: { argc: 2, fn: (xs) => `(${xs[0]} + ${xs[1]}) >>> 0` },
+  usub: { argc: 2, fn: (xs) => `(${xs[0]} - ${xs[1]}) >>> 0` },
+  umul: { argc: 2, fn: (xs) => `Math.imul(${xs[0]}, ${xs[1]}) >>> 0` },
+  udiv: { argc: 2, fn: (xs) => `_udiv(${xs[0]}, ${xs[1]})` },
+  umod: { argc: 2, fn: (xs) => `_umod(${xs[0]}, ${xs[1]})` },
   min: { argc: 2, fn: (xs) => `Math.min(${xs[0]}, ${xs[1]})` },
   max: { argc: 2, fn: (xs) => `Math.max(${xs[0]}, ${xs[1]})` },
   pow: { argc: 2, fn: (xs) => `Math.pow(${xs[0]}, ${xs[1]})` },
   atan2: { argc: 2, fn: (xs) => `Math.atan2(${xs[0]}, ${xs[1]})` },
   // Floored, matching GLSL's mod() — JS % truncates toward zero.
   mod: { argc: 2, fn: (xs) => `${xs[0]} - ${xs[1]} * Math.floor(${xs[0]} / ${xs[1]})` },
-  imod: { argc: 2, fn: (xs) => `${xs[0]} % ${xs[1]}` },
   // step(edge, x): 0 while x < edge, 1 from there on.
   step: { argc: 2, fn: (xs) => `${xs[1]} < ${xs[0]} ? 0 : 1` },
   clamp: { argc: 3, fn: (xs) => `Math.min(Math.max(${xs[0]}, ${xs[1]}), ${xs[2]})` },
@@ -275,6 +284,14 @@ export function jsHelperSource(name: string): string {
   }
 
   switch (name) {
+    case "idiv":
+      return `function _idiv(a, b) {\n  return b === 0 || (a === -2147483648 && b === -1) ? a : (a / b) | 0;\n}`;
+    case "imod":
+      return `function _imod(a, b) {\n  return b === 0 ? 0 : (a % b) | 0;\n}`;
+    case "udiv":
+      return `function _udiv(a, b) {\n  return b === 0 ? a : (a / b) >>> 0;\n}`;
+    case "umod":
+      return `function _umod(a, b) {\n  return b === 0 ? 0 : a % b;\n}`;
     case "copy":
       return `function _copy(src, out) {\n  for (let i = 0; i < src.length; i++) out[i] = src[i];\n  return out;\n}`;
     case "vdot":
@@ -667,8 +684,20 @@ export function jsScalarBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: 
     // The formula-shaped cases below take their operands through jsOperand, so
     // an operand that is itself an expression arrives whole. The call-shaped
     // ones do not need it: a comma already separates their arguments.
+    case "iadd":
+    case "isub":
+    case "imul":
+    case "uadd":
+    case "usub":
+    case "umul":
+      expr = JS_ELEM[op]!.fn([jsOperand(a), jsOperand(b)]);
+      break;
     case "idiv":
-      expr = `Math.trunc(${jsOperand(a)} / ${jsOperand(b)})`;
+    case "imod":
+    case "udiv":
+    case "umod":
+      jsRequireHelper(ctx, op);
+      expr = `_${op}(${a.expr}, ${b.expr})`;
       break;
     case "min":
       expr = `Math.min(${a.expr}, ${b.expr})`;
@@ -684,9 +713,6 @@ export function jsScalarBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: 
       break;
     case "mod":
       expr = `(${jsOperand(a)} - ${jsOperand(b)} * Math.floor(${jsOperand(a)} / ${jsOperand(b)}))`;
-      break;
-    case "imod":
-      expr = `(${jsOperand(a)} % ${jsOperand(b)})`;
       break;
     case "step":
       expr = `(${b.expr} < ${a.expr} ? 0 : 1)`;
@@ -711,6 +737,8 @@ export function jsVectorBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: 
   let b = jsCompileOperand(node.params![1], ctx);
   let c = node.params![2] ? jsCompileOperand(node.params![2], ctx) : null;
   jsRequireHelper(ctx, `v${width}${op}`);
+  // The element-wise integer division helpers call the scalar ones.
+  if (op === "idiv" || op === "imod" || op === "udiv" || op === "umod") jsRequireHelper(ctx, op);
   let args = c ? `${a.expr}, ${b.expr}, ${c.expr}` : `${a.expr}, ${b.expr}`;
   let decls = [...a.decls, ...b.decls, ...(c ? c.decls : [])];
   let body = [...a.body, ...b.body, ...(c ? c.body : [])];
@@ -718,6 +746,19 @@ export function jsVectorBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: 
     return { decls, body: [...body, `_v${width}${op}(${args}, ${ctx.outTarget});`], expr: ctx.outTarget };
   }
   return { decls, body, expr: `_v${width}${op}(${args})` };
+}
+
+/**
+ * The integer variant of an arithmetic operation — `iadd`, `udiv` and so on —
+ * when `node` produces `int`/`uint` or a vector of them, and `op` unchanged
+ * otherwise. JS numbers are doubles, so integer arithmetic needs its own
+ * operations to wrap to 32 bits and match WGSL's division by zero.
+ */
+export function jsIntegerOp(node: BaseNode<ShaderType>, op: string): string {
+  let t = node._t as string;
+  if (t === "int" || t.startsWith("ivec")) return `i${op}`;
+  if (t === "uint" || t.startsWith("uvec")) return `u${op}`;
+  return op;
 }
 
 export function jsBinaryOp(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string): CompiledNode {
@@ -1192,9 +1233,9 @@ export function compileJSNode(
       return jsVecReduce(node, ctx, "bany");
 
     case "add":
-      return jsBinaryOp(node, ctx, "add");
+      return jsBinaryOp(node, ctx, jsIntegerOp(node, "add"));
     case "sub":
-      return jsBinaryOp(node, ctx, "sub");
+      return jsBinaryOp(node, ctx, jsIntegerOp(node, "sub"));
     case "mul": {
       let aType = node.params![0]?._t;
       let bType = node.params![1]?._t;
@@ -1205,16 +1246,12 @@ export function compileJSNode(
         // Matrix times scalar scales every element.
         return jsVectorBinary(node, ctx, "mul", jsArrayLength(aIsMat ? aType : bType));
       }
-      return jsBinaryOp(node, ctx, "mul");
+      return jsBinaryOp(node, ctx, jsIntegerOp(node, "mul"));
     }
-    case "div": {
-      let t = node.params![0]?._t;
-      return jsBinaryOp(node, ctx, t === "int" || t === "uint" ? "idiv" : "div");
-    }
-    case "mod": {
-      let t = node.params![0]?._t;
-      return jsBinaryOp(node, ctx, t === "int" || t === "uint" ? "imod" : "mod");
-    }
+    case "div":
+      return jsBinaryOp(node, ctx, jsIntegerOp(node, "div"));
+    case "mod":
+      return jsBinaryOp(node, ctx, jsIntegerOp(node, "mod"));
     case "pow":
       return jsBinaryOp(node, ctx, "pow");
     case "atan2":
