@@ -656,8 +656,9 @@ export function jsComponentCast(expr: string, sourceType: string | undefined, ta
   if (from === to) return expr;
   if (from === "bool") expr = `(${expr} ? 1 : 0)`;
   if (to === "bool") return `(${expr} !== 0)`;
-  if (to === "int") return `Math.trunc(${expr})`;
-  if (to === "uint") return `(${expr} >>> 0)`;
+  // uint and int convert to each other keeping the bits, as WGSL's do.
+  if (to === "int") return from === "uint" ? `((${expr}) | 0)` : `Math.trunc(${expr})`;
+  if (to === "uint") return `((${expr}) >>> 0)`;
   return expr;
 }
 
