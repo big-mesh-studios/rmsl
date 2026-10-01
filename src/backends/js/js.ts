@@ -631,6 +631,39 @@ export function jsNewTemp(ctx: CompileCtx, brand: string): string {
 }
 
 /**
+ * An index computed at run time, kept inside `count` items as WASM keeps it:
+ * truncated, and past the end or negative (a huge unsigned number) selecting
+ * the last item.
+ */
+function jsBoundedIndex(index: string, count: number): string {
+  return `Math.min((${index}) >>> 0, ${count - 1})`;
+}
+
+/**
+ * A vector or a matrix column as the target of a component write: `at(k)` is
+ * the expression holding its `k`th component. Reading a column gives a copy
+ * (`slice`), so a column's components are addressed in the matrix itself,
+ * through its index evaluated once, and bounded to the matrix, into a
+ * temporary.
+ */
+function jsAssignable(node: any, ctx: CompileCtx): CompiledNode & { at(k: string): string } {
+  if (node.type !== "matrixElement") {
+    let target = compileJSStage(node, ctx);
+    return { ...target, at: (k) => `${target.expr}[${k}]` };
+  }
+  let mat = compileJSStage(node.params![0], ctx);
+  let idx = compileJSStage(node.params![1], ctx);
+  let [columns, rows] = MATRIX_DIMENSIONS[node.params![0]._t];
+  let column = jsNewTemp(ctx, "int");
+  return {
+    decls: [...mat.decls, ...idx.decls],
+    body: [...mat.body, ...idx.body, `${column} = ${jsBoundedIndex(idx.expr, columns)};`],
+    expr: mat.expr,
+    at: (k) => `${mat.expr}[${column} * ${rows} + ${k}]`,
+  };
+}
+
+/**
  * Compile an operand for a vector/matrix operation.
  *
  * In a plain expression (`outTarget` null) operands compile as expressions and
@@ -1698,20 +1731,33 @@ export function compileJSNode(
       assignedStorageElement(targetNode);
       let rhsNode = node.params![1];
 
-      // A swizzle target: single components assign directly, multi-component
-      // ones split into per-component writes (JS has no `v.xy = e`).
+      // A swizzle, a column, or a component of a column by index: single
+      // components assign directly, several split into per-component writes
+      // (JS has no `v.xy = e`). A component index is compiled after the
+      // column's, as `m[i][j]` evaluates.
+      let parts: { base: any; components?: string[]; index?: any } | undefined;
       if (targetNode?.type === "swizzle") {
         let resolved = resolveSwizzleTarget(targetNode);
-        let base = compileJSStage(resolved.base, ctx);
-        if (resolved.pattern.length === 1) {
+        parts = { base: resolved.base, components: [...resolved.pattern].map((ch) => `${JS_COMPONENT_INDEX[ch]}`) };
+      } else if (targetNode?.type === "matrixElement") {
+        let [, rows] = MATRIX_DIMENSIONS[targetNode.params![0]._t];
+        parts = { base: targetNode, components: Array.from({ length: rows }, (_, row) => `${row}`) };
+      } else if (targetNode?.type === "vectorElement" && targetNode.params![0]?.type === "matrixElement") {
+        parts = { base: targetNode.params![0], index: targetNode.params![1] };
+      }
+      if (parts) {
+        let base = jsAssignable(parts.base, ctx);
+        let components = parts.components ?? [];
+        if (parts.index) {
+          let idx = compileJSStage(parts.index, ctx);
+          base = { ...base, decls: [...base.decls, ...idx.decls], body: [...base.body, ...idx.body] };
+          components = [jsBoundedIndex(idx.expr, TYPE_WIDTH[parts.base._t])];
+        }
+        if (components.length === 1) {
           let rhs = compileJSStage(rhsNode, ctx);
           return {
             decls: [...base.decls, ...rhs.decls],
-            body: [
-              ...base.body,
-              ...rhs.body,
-              `${base.expr}[${JS_COMPONENT_INDEX[resolved.pattern[0]]}] = ${rhs.expr};`,
-            ],
+            body: [...base.body, ...rhs.body, `${base.at(components[0]!)} = ${rhs.expr};`],
             expr: base.expr,
           };
         }
@@ -1721,7 +1767,7 @@ export function compileJSNode(
         let rhs = compileJSStage(rhsNode, ctx);
         ctx.outTarget = saved;
         let fill = rhs.expr === temp ? [] : [`${temp} = ${rhs.expr};`];
-        let writes = [...resolved.pattern].map((ch, i) => `${base.expr}[${JS_COMPONENT_INDEX[ch]}] = ${temp}[${i}];`);
+        let writes = components.map((k, i) => `${base.at(k)} = ${temp}[${i}];`);
         return {
           decls: [...base.decls, ...rhs.decls],
           body: [...base.body, ...rhs.body, ...fill, ...writes],

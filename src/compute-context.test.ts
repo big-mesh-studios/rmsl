@@ -2,18 +2,21 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   Fn,
   instancedArray,
+  int,
   invocationIndex,
   Loop,
+  storage,
   uint,
   uniform,
   uniformArray,
   vec2,
   vec3,
+  vec4,
   type StorageNode,
 } from "./rmsl";
 import { createWgslContext } from "./wgsl";
 import { createWasmContext } from "./wasm";
-import type { ComputeNode, StorageBufferAttribute, UniformArrayNode, UniformNode } from "./rmsl";
+import { StorageBufferAttribute, type ComputeNode, type UniformArrayNode, type UniformNode } from "./rmsl";
 import { GPU_ENABLED, installWebGpuGlobals } from "./testing/gpu";
 
 /** What these tests need from a context, whichever backend runs it. */
@@ -234,6 +237,93 @@ for (const backend of backends) {
       context.destroy();
     });
 
+    it("writes and reads a column of a storage element by a computed index", async () => {
+      const context = await backend.create();
+      const out = instancedArray(2, "mat2");
+      const columns = instancedArray(2, "vec2");
+      const write = Fn(() => {
+        const i = invocationIndex();
+        out
+          .element(i)
+          .element(i.toInt())
+          .assign(vec2(i.toFloat().add(1), i.toFloat().add(10)));
+        columns.element(i).assign(out.element(i).element(i.toInt()).yx);
+      })().compute(2);
+
+      context.compute(write);
+
+      expect(await context.read(out.attribute)).toEqual([1, 10, 0, 0, 0, 0, 2, 11]);
+      expect(await context.read(columns.attribute)).toEqual([10, 1, 11, 2]);
+      context.destroy();
+    });
+
+    it("writes columns of storage elements of every unpadded matrix size", async () => {
+      const context = await backend.create();
+      const wide = instancedArray(2, "mat4");
+      const narrow = instancedArray(2, "mat3x2");
+      const write = Fn(() => {
+        const i = invocationIndex();
+        const value = i.toFloat().add(1);
+        wide
+          .element(i)
+          .element(i.toInt().add(2))
+          .assign(vec4(value, value.add(1), value.add(2), value.add(3)));
+        narrow
+          .element(i)
+          .element(2)
+          .assign(vec2(value, value.add(10)));
+      })().compute(2);
+
+      context.compute(write);
+
+      const wideExpected = new Array(32).fill(0);
+      wideExpected.splice(8, 4, 1, 2, 3, 4);
+      wideExpected.splice(28, 4, 2, 3, 4, 5);
+      expect(await context.read(wide.attribute)).toEqual(wideExpected);
+      expect(await context.read(narrow.attribute)).toEqual([0, 0, 0, 0, 1, 11, 0, 0, 0, 0, 2, 12]);
+      context.destroy();
+    });
+
+    it("reads and writes elements with columns of three, which WGSL pads to four", async () => {
+      const context = await backend.create();
+      const vectors = instancedArray(Float32Array.of(1, 2, 3, 4, 5, 6), "vec3");
+      const matrices = instancedArray(2, "mat2x3");
+      const square = instancedArray(
+        Float32Array.from({ length: 9 }, (_, k) => k + 1),
+        "mat3",
+      );
+      const columns = instancedArray(2, "vec3");
+      const program = Fn(() => {
+        const i = invocationIndex();
+        vectors.element(i).assign(vectors.element(i).zxy.mul(10));
+        matrices.element(i).element(1).y.assign(vectors.element(i).x);
+        columns.element(i).assign(square.element(uint(0)).element(i.toInt().add(1)));
+      })().compute(2);
+
+      context.write(matrices.attribute, Float32Array.of(7, 8, 9, 6), 1);
+      context.compute(program);
+
+      expect(await context.read(vectors.attribute)).toEqual([30, 10, 20, 60, 40, 50]);
+      expect(await context.read(matrices.attribute)).toEqual([0, 0, 0, 0, 30, 0, 7, 8, 9, 6, 60, 0]);
+      expect(await context.read(columns.attribute)).toEqual([4, 5, 6, 7, 8, 9]);
+      context.destroy();
+    });
+
+    it("writes a component of a storage element's column, by a swizzle or an index", async () => {
+      const context = await backend.create();
+      const out = instancedArray(2, "mat2");
+      const write = Fn(() => {
+        const i = invocationIndex();
+        out.element(i).element(1).y.assign(i.toFloat().add(1));
+        out.element(i).element(int(0)).element(i.toInt()).assign(i.toFloat().add(10));
+      })().compute(2);
+
+      context.compute(write);
+
+      expect(await context.read(out.attribute)).toEqual([10, 0, 0, 1, 0, 11, 0, 2]);
+      context.destroy();
+    });
+
     it("writes a buffer and reads it back", async () => {
       const context = await backend.create();
       const values = instancedArray(4, "uint");
@@ -279,6 +369,25 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context buffers", () => {
     const buffer = context.buffer(positions.attribute);
     expect(buffer.usage & GPUBufferUsage.VERTEX).toBe(GPUBufferUsage.VERTEX);
     expect(buffer.size).toBe(4 * 2 * 4);
+    context.destroy();
+  });
+
+  it("gives a vec3 element 16 bytes in its buffer, as WGSL lays it out", async () => {
+    const context = await createWgslContext();
+    const positions = instancedArray(4, "vec3");
+    expect(context.buffer(positions.attribute).size).toBe(4 * 16);
+    context.destroy();
+  });
+
+  it("rejects a program over a buffer laid out before a storage node named its type", async () => {
+    const context = await createWgslContext();
+    const attribute = new StorageBufferAttribute(2, 6);
+    context.write(attribute, Float32Array.of(1, 2));
+    const matrices = storage(attribute, "mat2x3");
+    const read = Fn(() => {
+      matrices.element(0).toVar();
+    })().compute(1);
+    expect(() => context.compute(read)).toThrow(/laid out before a storage node named its type/);
     context.destroy();
   });
 

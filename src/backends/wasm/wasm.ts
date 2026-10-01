@@ -406,6 +406,7 @@ const SCRATCH_NODE_TYPES = new Set([
   "construct",
   "uniformArrayElement",
   "storageElement",
+  "matrixElement",
   "cross",
   "reflect",
   "normalize",
@@ -1427,7 +1428,12 @@ export function compileWasmFn(
         break;
 
       case "vectorElement":
-        addLocal("$vector_index", "int");
+        addLocal("$element_index", "int");
+        break;
+
+      case "matrixElement":
+        addLocal("$element_index", "int");
+        addLocal("$column_address", "int");
         break;
 
       case "div":
@@ -1640,55 +1646,65 @@ export function compileWasmFn(
   }
 
   /**
-   * The component a literal `index` selects in `vector`. One outside the
-   * vector is an error, as it is when WGSL and GLSL compile it.
+   * The component of a vector, or the column of a matrix, that a literal
+   * `index` selects in `target`. One outside it is an error, as it is when
+   * WGSL and GLSL compile it.
    */
-  function constantComponent(vector: any, index: any): number {
-    const width = componentCountOf(vector._t as string);
+  function constantIndex(target: any, index: any): number {
+    const shape = MATRIX_DIMENSIONS[target._t as string];
+    const count = shape ? shape[0] : componentCountOf(target._t as string);
     const k = Math.trunc(Number(index.value));
-    if (k < 0 || k >= width) {
-      throw new Error(`[RMSL] compileWasmFn: index ${k} is outside a ${vector._t}'s components 0 to ${width - 1}`);
+    if (k < 0 || k >= count) {
+      const parts = shape ? "columns" : "components";
+      throw new Error(`[RMSL] compileWasmFn: index ${k} is outside a ${target._t}'s ${parts} 0 to ${count - 1}`);
     }
     return k;
   }
 
   /**
-   * Bytes computing the byte offset of the component a run-time `index`
-   * selects in a vector of `width` components. An index past the end, or a
-   * negative one (which compares as a huge unsigned one), selects the last
-   * component, so the access stays inside the vector.
+   * Bytes computing the byte offset of the item a run-time `index` selects
+   * among `count` items of `size` bytes: a vector's components or a matrix's
+   * columns. An index past the end, or a negative one (which compares as a
+   * huge unsigned one), selects the last item, so the access stays inside.
    */
-  function vectorComponentOffset(index: any, width: number, compSize: number): number[] {
+  function clampedIndexOffset(index: any, count: number, size: number): number[] {
     const indexBytes =
       scalarKindOf(index._t as string) === "float" ? [...walkExpr(index), WASM_OP.i32TruncF64S] : walkExpr(index);
-    const local = wasmUleb128(localSlotIndex("$vector_index"));
+    const local = wasmUleb128(localSlotIndex("$element_index"));
     return [
-      ...selectExpr([...indexBytes, WASM_OP.localTee, ...local], i32ConstBytes(width - 1), [
+      ...selectExpr([...indexBytes, WASM_OP.localTee, ...local], i32ConstBytes(count - 1), [
         WASM_OP.localGet,
         ...local,
-        ...i32ConstBytes(width),
+        ...i32ConstBytes(count),
         WASM_OP.i32LtU,
       ]),
-      ...i32ConstBytes(compSize),
+      ...i32ConstBytes(size),
       WASM_OP.i32Mul,
     ];
   }
 
   /**
-   * Stores `rhs` into the component of a variable or a storage element that
-   * `target`, a `vectorElement` node, selects. A storage element's component
-   * is stored inside the element's bounds check, like a whole-element store.
+   * Stores `rhs` into the component of a variable, a storage element or a
+   * matrix column that `target`, a `vectorElement` node, selects. A storage
+   * element's component is stored inside the element's bounds check, like a
+   * whole-element store.
    */
   function emitVectorElementStore(target: any, rhs: any): number[] {
     const [vector, index] = target.params;
     const width = componentCountOf(vector._t as string);
     const kind = elementKindOf(vector._t as string);
     const compSize = componentSizeOf(kind);
+    if (vector.type === "matrixElement") {
+      const offset = isLeafLiteral(index)
+        ? i32ConstBytes(constantIndex(vector, index) * compSize)
+        : clampedIndexOffset(index, width, compSize);
+      return emitColumnComponentStore(vector, offset, rhs);
+    }
     if (vector.type === "storageElement") {
       const access = storageElementAccess(vector);
       const address = isLeafLiteral(index)
-        ? access.address(constantComponent(vector, index))
-        : [...access.address(0), ...vectorComponentOffset(index, width, compSize), WASM_OP.i32Add];
+        ? access.address(constantIndex(vector, index))
+        : [...access.address(0), ...clampedIndexOffset(index, width, compSize), WASM_OP.i32Add];
       return [
         ...access.inBounds,
         WASM_OP.if_,
@@ -1703,13 +1719,105 @@ export function compileWasmFn(
       );
     }
     const base = nodeAddress(vector);
-    if (isLeafLiteral(index))
-      return storeComponent(base, kind, constantComponent(vector, index) * compSize, walkExpr(rhs));
+    if (isLeafLiteral(index)) return storeComponent(base, kind, constantIndex(vector, index) * compSize, walkExpr(rhs));
     return storeDynamic(
-      [...i32ConstBytes(base), ...vectorComponentOffset(index, width, compSize), WASM_OP.i32Add],
+      [...i32ConstBytes(base), ...clampedIndexOffset(index, width, compSize), WASM_OP.i32Add],
       kind,
       walkExpr(rhs),
     );
+  }
+
+  /**
+   * Bytes copying floats between a matrix column, at the address
+   * `columnAddress` computes, and the fixed address `vector`: the vector's
+   * `i`th component pairs with the column's row `rows[i]`. They copy into
+   * the vector when `toVector`, out of it otherwise. The column's address is
+   * computed once, into a local.
+   */
+  function copyColumn(columnAddress: number[], rows: number[], vector: number, toVector: boolean): number[] {
+    const local = wasmUleb128(localSlotIndex("$column_address"));
+    const out = [...columnAddress, WASM_OP.localSet, ...local];
+    rows.forEach((r, i) => {
+      const rowAddress = [WASM_OP.localGet, ...local, ...i32ConstBytes(r * 8), WASM_OP.i32Add];
+      out.push(
+        ...(toVector
+          ? storeComponent(vector, "float", i * 8, loadDynamic(rowAddress, "float"))
+          : storeDynamic(rowAddress, "float", loadComponent(vector, "float", i * 8))),
+      );
+    });
+    return out;
+  }
+
+  /** The rows of a column of `matrix`, in order. */
+  function columnRows(matrix: any): number[] {
+    return Array.from({ length: MATRIX_DIMENSIONS[matrix._t as string][1] }, (_, r) => r);
+  }
+
+  /**
+   * Bytes computing the address of the column `index` selects in a matrix
+   * whose first column starts at the address `base` computes.
+   */
+  function columnAddress(matrix: any, index: any, base: number[]): number[] {
+    const [cols, rows] = MATRIX_DIMENSIONS[matrix._t as string];
+    if (isLeafLiteral(index)) {
+      const c = constantIndex(matrix, index);
+      return c === 0 ? base : [...base, ...i32ConstBytes(c * rows * 8), WASM_OP.i32Add];
+    }
+    return [...base, ...clampedIndexOffset(index, cols, rows * 8), WASM_OP.i32Add];
+  }
+
+  /** Copies the matrix column a `matrixElement` node selects into its scratch address at `addr`. */
+  function emitMatrixColumnLoadStores(node: any, addr: number): number[] {
+    const [matrix, index] = node.params;
+    return [
+      ...materializeIfNeeded(matrix),
+      ...copyColumn(columnAddress(matrix, index, i32ConstBytes(nodeAddress(matrix))), columnRows(matrix), addr, true),
+    ];
+  }
+
+  /**
+   * The column of a matrix variable or storage element that `column`, a
+   * `matrixElement` node, selects as an assignment target: the bytes
+   * computing its address, and a `guard` that wraps its stores. A storage
+   * element's column is stored inside the element's bounds check, like a
+   * whole-element store.
+   */
+  function columnTarget(column: any): { address: number[]; guard(stores: number[]): number[] } {
+    const [matrix, index] = column.params;
+    if (matrix.type === "storageElement") {
+      const access = storageElementAccess(matrix);
+      return {
+        address: columnAddress(matrix, index, access.address(0)),
+        guard: (stores) => [...access.inBounds, WASM_OP.if_, WASM_BLOCKTYPE_VOID, ...stores, WASM_OP.end],
+      };
+    }
+    if (matrix.type !== "var") {
+      throw new Error(
+        "[RMSL] compileWasmFn: assigning to a column by index needs a variable or a storage element; assign it to a variable first",
+      );
+    }
+    return { address: columnAddress(matrix, index, i32ConstBytes(nodeAddress(matrix))), guard: (stores) => stores };
+  }
+
+  /**
+   * Stores the scalar `rhs` into one component of the column `column`, a
+   * `matrixElement` node, selects: the one at the byte offset `offset`
+   * computes, after the column's own address.
+   */
+  function emitColumnComponentStore(column: any, offset: number[], rhs: any): number[] {
+    const target = columnTarget(column);
+    return target.guard(storeDynamic([...target.address, ...offset, WASM_OP.i32Add], "float", walkExpr(rhs)));
+  }
+
+  /**
+   * Stores `rhs` into the rows `rows` of the column `column`, a
+   * `matrixElement` node, selects: a whole column, or a swizzle of one.
+   */
+  function emitMatrixColumnStore(column: any, rows: number[], rhs: any): number[] {
+    if (rows.length === 1) return emitColumnComponentStore(column, i32ConstBytes(rows[0]! * 8), rhs);
+    const out = [...materializeIfNeeded(rhs)];
+    const target = columnTarget(column);
+    return [...out, ...target.guard(copyColumn(target.address, rows, nodeAddress(rhs), false))];
   }
 
   /**
@@ -1812,6 +1920,8 @@ export function compileWasmFn(
         throw bareStorageError(node);
       case "storageElement":
         return emitStorageElementLoadStores(node, nodeAddress(node));
+      case "matrixElement":
+        return emitMatrixColumnLoadStores(node, nodeAddress(node));
       case "varying":
       case "output":
       case "builtinPosition":
@@ -3180,14 +3290,14 @@ export function compileWasmFn(
       case "vectorElement": {
         const [vector, index] = node.params;
         const width = componentCountOf(vector._t as string);
-        if (isLeafLiteral(index)) return readComponent(vector, constantComponent(vector, index));
+        if (isLeafLiteral(index)) return readComponent(vector, constantIndex(vector, index));
         const kind = elementKindOf(vector._t as string);
         return [
           ...materializeIfNeeded(vector),
           ...loadDynamic(
             [
               ...i32ConstBytes(nodeAddress(vector)),
-              ...vectorComponentOffset(index, width, componentSizeOf(kind)),
+              ...clampedIndexOffset(index, width, componentSizeOf(kind)),
               WASM_OP.i32Add,
             ],
             kind,
@@ -3356,9 +3466,17 @@ export function compileWasmFn(
         const rhs = node.params[1];
 
         if (target.type === "vectorElement") return emitVectorElementStore(target, rhs);
+        if (target.type === "matrixElement") return emitMatrixColumnStore(target, columnRows(target.params[0]), rhs);
         if (target.type === "swizzle") {
           const { base, pattern } = resolveSwizzleTarget(target);
           if ((base as any).type === "storageElement") return emitStorageComponentStores(base, [...pattern], rhs);
+          if ((base as any).type === "matrixElement") {
+            return emitMatrixColumnStore(
+              base,
+              [...pattern].map((ch) => COMPONENT_INDEX[ch]!),
+              rhs,
+            );
+          }
           const baseName = (base as any).value.varName;
           const baseAddr = fnParamNames.has(baseName) ? paramAddress.get(baseName) : varAddress.get(baseName);
           if (baseAddr === undefined) {
@@ -3653,8 +3771,7 @@ export function createWasmInputMarshaller(
     let cursor = Math.ceil(heapBase / 8) * 8;
     const resident = storageParams.map((p) => ctx.storageBuffers?.[p.slot]);
     const lengths = storageParams.map(
-      (p, i) =>
-        resident[i]?.length ?? ((ctx.storages as any)?.[p.slot] as ArrayLike<unknown> | undefined)?.length ?? 0,
+      (p, i) => resident[i]?.length ?? ((ctx.storages as any)?.[p.slot] as ArrayLike<unknown> | undefined)?.length ?? 0,
     );
     storageParams.forEach((p, i) => {
       if (resident[i]) {

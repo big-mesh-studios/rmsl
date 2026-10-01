@@ -3,6 +3,7 @@ import {
   Fn,
   If,
   instancedArray,
+  int,
   invocationIndex,
   storage,
   uint,
@@ -149,6 +150,99 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     expect(results[0]).toEqual([
       [0, 1, 0, 0],
       [0, 0, 2, 0],
+    ]);
+    expect(results[1]).toEqual(results[0]);
+  });
+
+  it("writes and reads a column of a storage element by a computed index", () => {
+    const out = instancedArray(2, "mat2");
+    const columns = instancedArray(2, "vec2");
+    const root = Fn(() => {
+      const i = invocationIndex();
+      out
+        .element(i)
+        .element(i.toInt())
+        .assign(vec2(i.toFloat().add(1), i.toFloat().add(10)));
+      columns.element(i).assign(out.element(i).element(i.toInt()).yx);
+    })();
+
+    const results = [createJsCompute, createWasmCompute].map((create) => {
+      const adapter = create(root, { name: "step" });
+      const data = [
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+      ];
+      const read = [
+        [0, 0],
+        [0, 0],
+      ];
+      adapter.setAttribute(out.name, data as any);
+      adapter.setAttribute(columns.name, read as any);
+      adapter.compute();
+      return [data, read];
+    });
+
+    expect(results[0]).toEqual([
+      [
+        [1, 10, 0, 0],
+        [0, 0, 2, 11],
+      ],
+      [
+        [10, 1],
+        [11, 2],
+      ],
+    ]);
+    expect(results[1]).toEqual(results[0]);
+  });
+
+  it("writes a component of a storage element's column, by a swizzle or an index", () => {
+    const out = instancedArray(2, "mat2");
+    const root = Fn(() => {
+      const i = invocationIndex();
+      out.element(i).element(1).y.assign(i.toFloat().add(1));
+      out.element(i).element(int(0)).element(i.toInt()).assign(i.toFloat().add(10));
+    })();
+
+    const results = [createJsCompute, createWasmCompute].map((create) => {
+      const adapter = create(root, { name: "step" });
+      const data = [
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+      ];
+      adapter.setAttribute(out.name, data as any);
+      adapter.compute();
+      return data;
+    });
+
+    expect(results[0]).toEqual([
+      [10, 0, 0, 1],
+      [0, 11, 0, 2],
+    ]);
+    expect(results[1]).toEqual(results[0]);
+  });
+
+  it("keeps a write by a column or component index computed outside a storage matrix inside it", () => {
+    const out = instancedArray(2, "mat2");
+    const root = Fn(() => {
+      const i = invocationIndex();
+      out.element(i).element(i.toInt().add(8)).y.assign(i.toFloat().add(1));
+      out.element(i).element(int(0)).element(i.toInt().sub(5)).assign(i.toFloat().add(10));
+    })();
+
+    const results = [createJsCompute, createWasmCompute].map((create) => {
+      const adapter = create(root, { name: "step" });
+      const data = [
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+      ];
+      adapter.setAttribute(out.name, data as any);
+      adapter.compute();
+      return data;
+    });
+
+    expect(results[0]).toEqual([
+      [0, 10, 0, 1],
+      [0, 11, 0, 2],
     ]);
     expect(results[1]).toEqual(results[0]);
   });

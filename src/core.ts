@@ -2387,6 +2387,12 @@ export class StorageBufferAttribute {
   readonly itemSize: number;
   readonly arrayClass: StorageArrayClass;
   readonly array: Float32Array | Int32Array | Uint32Array | null;
+  /**
+   * The type of the attribute's elements, set by the first {@link storage}
+   * node over it, or `null` before one. A GPU buffer's layout depends on it:
+   * WGSL gives a `vec3`, and each column of three in a matrix, 16 bytes.
+   */
+  elementType: ShaderType | null = null;
 
   constructor(
     countOrArray: number | Float32Array | Int32Array | Uint32Array,
@@ -2425,6 +2431,12 @@ export class StorageInstancedBufferAttribute extends StorageBufferAttribute {}
  */
 export function storage<T extends ShaderType>(attribute: StorageBufferAttribute, shaderType: T): StorageNode<T> {
   assertStorageLayout(attribute, shaderType);
+  if (attribute.elementType !== null && attribute.elementType !== shaderType) {
+    throw new Error(
+      `[RMSL] an attribute holds one element type: this one holds ${attribute.elementType}, so a storage node over it can't be a ${shaderType}`,
+    );
+  }
+  attribute.elementType = shaderType;
   const slot = `_rmsl_b${attribute.id}`;
   const value = { slot, shaderType, access: "read_write" as StorageAccess, attribute };
 
