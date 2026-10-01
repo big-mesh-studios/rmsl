@@ -111,8 +111,9 @@ value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
 - **`property()`, `uniformArray(values)` (value-owned), `buffer()`,
   `pass()`, `debug()`** are not implemented; RMSL compiles a node graph, it
   does not drive a renderer.
-- **Compute** follows TSL: `storage(attribute, type, count)`,
-  `instancedArray()`, `attributeArray()` and `fn().compute(count)`. What TSL's
+- **Compute** follows TSL: `storage(attribute, type)`, `instancedArray()`,
+  `attributeArray()` and `fn().compute(count)`. `storage()` takes no `count`:
+  a buffer's length is always its attribute's `count`. What TSL's
   renderer does with a `ComputeNode`, a context does here:
   `createWgslContext()` from `@random-mesh/rmsl/wgsl`, or `createWasmContext()`
   from `@random-mesh/rmsl/wasm`. Write a buffer with

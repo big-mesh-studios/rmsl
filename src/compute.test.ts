@@ -25,4 +25,11 @@ describe("compute()", () => {
     expect(program.code).not.toContain("arrayLength");
     expect(program.resources).toContainEqual(expect.objectContaining({ kind: "uniform", name: node.countNode.name }));
   });
+
+  it("is recognized by its flag, so a node from another copy of the package compiles the same", () => {
+    const node = increment().compute(10, 32);
+    const foreign = { ...node } as ComputeNode;
+    expect(foreign).not.toBeInstanceOf(ComputeNode);
+    expect(compile({ stage: "compute" }, foreign).code).toBe(compile({ stage: "compute" }, node).code);
+  });
 });

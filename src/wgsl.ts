@@ -1,4 +1,4 @@
-import { ComputeNode, type Node, type ShaderType, type StorageAccess, type StorageBufferAttribute } from "./core";
+import type { ComputeNode, Node, ShaderType, StorageAccess, StorageBufferAttribute } from "./core";
 import { compileWgsl, wgslUniformLayout, WGSL_UNIFORM_STRUCT } from "./backends/wgsl/wgsl";
 
 export type WgslStage = "compute" | "vertex" | "fragment";
@@ -137,7 +137,8 @@ export function compile(
     throw new Error(`[RMSL] @random-mesh/rmsl/wgsl currently supports only compute compilation`);
   }
 
-  const computeNode = program instanceof ComputeNode ? program : undefined;
+  // Checked by flag rather than instanceof, so a node from another copy of the package is still recognized.
+  const computeNode = (program as ComputeNode).isComputeNode ? (program as ComputeNode) : undefined;
   const root = computeNode ? computeNode.computeNode : (program as Node<ShaderType> | readonly Node<ShaderType>[]);
   const workgroupSize = computeNode?.workgroupSize ?? options.workgroupSize ?? 64;
   const code = compileWgsl.compute(root, { workgroupSize, count: computeNode?.countNode });

@@ -1,6 +1,6 @@
 import {
-  ComputeNode,
-  StorageBufferAttribute,
+  type ComputeNode,
+  type StorageBufferAttribute,
   type ShaderType,
   type UniformArrayNode,
   type UniformNode,
@@ -109,7 +109,7 @@ export function createWasmContext(): WasmContext {
     memory,
 
     compute(nodes) {
-      const list = nodes instanceof ComputeNode ? [nodes] : nodes;
+      const list: readonly ComputeNode[] = Array.isArray(nodes) ? nodes : [nodes as ComputeNode];
       for (const node of list) {
         if (node.count <= 0) continue;
         const { routine, storageBuffers } = program(node);

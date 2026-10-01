@@ -2534,7 +2534,7 @@ export function uniform<T extends ShaderType>(shaderType: T): UniformNode<T> {
 export type StorageAccess = "read" | "write" | "read_write";
 
 export type StorageNode<A extends ShaderType> = VariableNode<A> & {
-  access: StorageAccess;
+  readonly access: StorageAccess;
   /** The buffer this node reads and writes. Every node over the same attribute shares one buffer. */
   attribute: StorageBufferAttribute;
   element(index: IntLike | UintLike | FloatLike): Node<A>;
@@ -2594,20 +2594,16 @@ export class StorageInstancedBufferAttribute extends StorageBufferAttribute {}
 /**
  * A storage buffer node over `attribute`, as TSL's `storage()`. Read and
  * written through `.element(i)`; read-write unless {@link StorageNode.toReadOnly}
- * is called. `count` defaults to the attribute's own.
+ * is called.
  */
-export function storage<T extends ShaderType>(
-  attribute: StorageBufferAttribute,
-  shaderType: T,
-  count = attribute.count,
-): StorageNode<T> {
+export function storage<T extends ShaderType>(attribute: StorageBufferAttribute, shaderType: T): StorageNode<T> {
   assertStorageLayout(attribute, shaderType);
   const slot = `_rmsl_b${attribute.id}`;
-  const value = { slot, shaderType, access: "read_write" as StorageAccess, attribute, count };
+  const value = { slot, shaderType, access: "read_write" as StorageAccess, attribute };
 
   const result = node({ _t: shaderType, type: "storage", value, name: slot }) as StorageNode<T>;
 
-  result.access = "read_write";
+  Object.defineProperty(result, "access", { get: () => value.access, enumerable: true });
   result.attribute = attribute;
   result.element = (index: IntLike | UintLike | FloatLike) =>
     node({
@@ -2616,7 +2612,7 @@ export function storage<T extends ShaderType>(
       params: [result, wrapValue(index) as BaseNode<ShaderType>],
     }) as Node<T>;
   result.toReadOnly = () => {
-    result.access = value.access = "read";
+    value.access = "read";
     return result;
   };
 
