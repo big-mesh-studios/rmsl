@@ -3470,7 +3470,8 @@ export function createWasmInputMarshaller(
           args.push((ctx.params as any)?.[p.name] as number);
           break;
         case "uniform":
-          args.push((ctx.uniforms as any)?.[p.slot] as number);
+          // An unset uniform reads zero, as in a zeroed GPU uniform buffer.
+          args.push(((ctx.uniforms as any)?.[p.slot] as number | undefined) ?? 0);
           break;
         case "attribute":
           args.push((ctx.attributes as any)?.[p.slot] as number);
@@ -3485,9 +3486,11 @@ export function createWasmInputMarshaller(
           writeAggregateToMemory(view, p.address, p.shaderType, (ctx.params as any)?.[p.name]);
           break;
         case "uniformMemory":
+          if ((ctx.uniforms as any)?.[p.slot] === undefined) break; // left as the zeroed memory it starts as
           writeValueToMemory(view, p.address, p.shaderType, (ctx.uniforms as any)?.[p.slot], p.narrow);
           break;
         case "uniformArrayMemory":
+          if ((ctx.uniforms as any)?.[p.slot] === undefined) break;
           writeArrayToMemory(
             view,
             p.address,

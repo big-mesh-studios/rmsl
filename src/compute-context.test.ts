@@ -161,6 +161,24 @@ for (const backend of backends) {
       context.destroy();
     });
 
+    it("reads an unset uniform as zero", async () => {
+      const context = await backend.create();
+      const out = instancedArray(3, "float");
+      const k = uniform("float");
+      const ks = uniformArray("float", 2);
+      const v = uniform("vec2");
+      const read = Fn(() => {
+        out.element(0).assign(k.add(1));
+        out.element(1).assign(ks.element(1).add(1));
+        out.element(2).assign(v.y.add(1));
+      })().compute(1);
+
+      context.compute(read);
+
+      expect(await context.read(out.attribute)).toEqual([1, 1, 1]);
+      context.destroy();
+    });
+
     it("writes a buffer and reads it back", async () => {
       const context = await backend.create();
       const values = instancedArray(4, "uint");
