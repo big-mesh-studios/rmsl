@@ -10,7 +10,7 @@ import {
 } from "../../core";
 import { compile, type WgslResource } from "../../wgsl";
 import { slotOf, type TypedArray } from "../adapter";
-import { assertWriteFits } from "../shared";
+import { assertWriteFits, someNode } from "../shared";
 import { uniformBufferSize, uniformScratch, writeUniformMember, type UniformScratch } from "./adapter-wgsl";
 
 /**
@@ -64,14 +64,7 @@ type CompiledProgram = {
 
 /** Whether any node reachable from `root` is a texture, which the context has no binding for. */
 function samplesTextures(root: Node<ShaderType>): boolean {
-  const visited = new Set<unknown>();
-  const walk = (node: any): boolean => {
-    if (!node || typeof node !== "object" || visited.has(node)) return false;
-    visited.add(node);
-    if (typeof node._t === "string" && isSamplerType(node._t)) return true;
-    return Array.isArray(node.params) && node.params.some(walk);
-  };
-  return walk(root);
+  return someNode(root, (node) => typeof node._t === "string" && isSamplerType(node._t));
 }
 
 /** Bytes per element of a WGSL storage array of `itemSize` 32-bit components. */

@@ -1,4 +1,5 @@
 import type { ComputeNode, Node, ShaderType, StorageAccess, StorageBufferAttribute } from "./core";
+import { someNode } from "./backends/shared";
 import { compileWgsl, wgslUniformLayout, WGSL_UNIFORM_STRUCT } from "./backends/wgsl/wgsl";
 
 export type WgslStage = "compute" | "vertex" | "fragment";
@@ -52,22 +53,13 @@ export interface WgslCompileOptions {
  */
 function collectStorageResources(root: Node<ShaderType> | readonly Node<ShaderType>[]): WgslResource[] {
   const seen = new Map<string, { shaderType: ShaderType; access: StorageAccess; attribute: StorageBufferAttribute }>();
-  const visited = new Set<unknown>();
-
-  function walk(node: any): void {
-    if (!node || typeof node !== "object" || visited.has(node)) return;
-    visited.add(node);
-    if (node.type === "storage") {
-      const v = node.value;
-      const existing = seen.get(v.slot);
-      if (!existing) seen.set(v.slot, { shaderType: v.shaderType, access: v.access, attribute: v.attribute });
-      else if (existing.access !== v.access) existing.access = "read_write";
-    }
-    if (Array.isArray(node.params)) for (const p of node.params) walk(p);
-  }
-
-  const roots = Array.isArray(root) ? root : root ? [root] : [];
-  for (const r of roots) walk(r);
+  someNode(root, (node) => {
+    if (node.type !== "storage") return;
+    const v = node.value;
+    const existing = seen.get(v.slot);
+    if (!existing) seen.set(v.slot, { shaderType: v.shaderType, access: v.access, attribute: v.attribute });
+    else if (existing.access !== v.access) existing.access = "read_write";
+  });
 
   return [...seen.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))

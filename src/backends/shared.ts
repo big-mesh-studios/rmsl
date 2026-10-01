@@ -592,18 +592,27 @@ export type CompileFnOptions = {
   params: Array<{ name: string; type: ShaderType }>;
 };
 
-/** Every storage attribute reachable from the roots, keyed by the slot name its nodes compile to. */
-export function storageAttributes(...roots: unknown[]): Map<string, StorageBufferAttribute> {
-  const attributes = new Map<string, StorageBufferAttribute>();
+/**
+ * Calls `visit` on each node reachable from the roots through `params`,
+ * stopping at the first that returns true. Returns whether one did.
+ */
+export function someNode(roots: unknown, visit: (node: any) => boolean | void): boolean {
   const visited = new Set<unknown>();
-  const walk = (node: any): void => {
-    if (!node || typeof node !== "object" || visited.has(node)) return;
+  const walk = (node: any): boolean => {
+    if (!node || typeof node !== "object" || visited.has(node)) return false;
     visited.add(node);
-    if (Array.isArray(node)) return node.forEach(walk);
-    if (node.type === "storage") attributes.set(node.value.slot, node.value.attribute);
-    if (Array.isArray(node.params)) node.params.forEach(walk);
+    if (Array.isArray(node)) return node.some(walk);
+    return visit(node) === true || (Array.isArray(node.params) && node.params.some(walk));
   };
-  roots.forEach(walk);
+  return walk(roots);
+}
+
+/** Every storage attribute reachable from the roots, keyed by the slot name its nodes compile to. */
+export function storageAttributes(roots: unknown): Map<string, StorageBufferAttribute> {
+  const attributes = new Map<string, StorageBufferAttribute>();
+  someNode(roots, (node) => {
+    if (node.type === "storage") attributes.set(node.value.slot, node.value.attribute);
+  });
   return attributes;
 }
 
