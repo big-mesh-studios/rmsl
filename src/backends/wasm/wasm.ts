@@ -1684,8 +1684,8 @@ export function compileWasmFn(
   }
 
   /**
-   * Stores `rhs` into the component of a variable, a storage element or a
-   * matrix column that `target`, a `vectorElement` node, selects. A storage
+   * Stores `rhs` into the component of a writable vector or matrix column
+   * that `target`, a `vectorElement` node, selects. A storage
    * element's component is stored inside the element's bounds check, like a
    * whole-element store.
    */
@@ -1713,9 +1713,9 @@ export function compileWasmFn(
         WASM_OP.end,
       ];
     }
-    if (vector.type !== "var") {
+    if (vector.type === "swizzle") {
       throw new Error(
-        "[RMSL] compileWasmFn: assigning to a component by index needs a variable or a storage element; assign it to a variable first",
+        "[RMSL] compileWasmFn: writing a component by index through a swizzle isn't supported yet; write it through the swizzle's letters, as .x",
       );
     }
     const base = nodeAddress(vector);
@@ -1776,8 +1776,8 @@ export function compileWasmFn(
   }
 
   /**
-   * The column of a matrix variable or storage element that `column`, a
-   * `matrixElement` node, selects as an assignment target: the bytes
+   * The column of a writable matrix that `column`, a `matrixElement` node,
+   * selects as an assignment target: the bytes
    * computing its address, and a `guard` that wraps its stores. A storage
    * element's column is stored inside the element's bounds check, like a
    * whole-element store.
@@ -1790,11 +1790,6 @@ export function compileWasmFn(
         address: columnAddress(matrix, index, access.address(0)),
         guard: (stores) => [...access.inBounds, WASM_OP.if_, WASM_BLOCKTYPE_VOID, ...stores, WASM_OP.end],
       };
-    }
-    if (matrix.type !== "var") {
-      throw new Error(
-        "[RMSL] compileWasmFn: assigning to a column by index needs a variable or a storage element; assign it to a variable first",
-      );
     }
     return { address: columnAddress(matrix, index, i32ConstBytes(nodeAddress(matrix))), guard: (stores) => stores };
   }
@@ -3477,11 +3472,7 @@ export function compileWasmFn(
               rhs,
             );
           }
-          const baseName = (base as any).value.varName;
-          const baseAddr = fnParamNames.has(baseName) ? paramAddress.get(baseName) : varAddress.get(baseName);
-          if (baseAddr === undefined) {
-            throw new Error(`[RMSL] compileWasmFn: assign to swizzle of undeclared var "${baseName}"`);
-          }
+          const baseAddr = nodeAddress(base);
           const kind = elementKindOf((base as any)._t);
           const compSize = componentSizeOf(kind);
           if (pattern.length === 1) {
