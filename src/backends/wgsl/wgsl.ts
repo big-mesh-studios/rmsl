@@ -14,6 +14,7 @@ import {
   forUpdateStatements,
   resolveSwizzleTarget,
   tryFold,
+  isIntegerType,
   withoutSemicolon,
   wrapExpr,
 } from "../shared";
@@ -764,7 +765,12 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     case "smoothstep":
       return ternaryWGSL(node, ctx, "smoothstep");
     case "clamp":
-      return ternaryWGSL(node, ctx, "clamp");
+      // Integer clamp is min(max(e, low), high), but a constant `low > high`
+      // makes WGSL's clamp() a shader-creation error; spelled out, it gives
+      // the defined result instead.
+      return isIntegerType(node._t as string)
+        ? ternaryWGSL(node, ctx, "clamp", (x, low, high) => `min(max(${x}, ${low}), ${high})`)
+        : ternaryWGSL(node, ctx, "clamp");
     case "select": {
       let cond = compileWGSLStage(node.params![0], ctx);
       let a = compileWGSLStage(node.params![1], ctx);
@@ -1478,6 +1484,7 @@ export function ternaryWGSL(
   node: BaseNode<ShaderType>,
   ctx: CompileCtx,
   fn: string,
+  format: (a: string, b: string, c: string) => string = (a, b, c) => `${fn}(${a}, ${b}, ${c})`,
 ): { decls: string[]; body: string[]; expr: string } {
   let a = compileWGSLStage(node.params![0], ctx);
   let b = compileWGSLStage(node.params![1], ctx);
@@ -1495,7 +1502,7 @@ export function ternaryWGSL(
   return {
     decls: [...a.decls, ...b.decls, ...c.decls],
     body: [...a.body, ...b.body, ...c.body],
-    expr: `${fn}(${aExpr}, ${bExpr}, ${cExpr})`,
+    expr: format(aExpr, bExpr, cExpr),
   };
 }
 

@@ -12,6 +12,7 @@ import {
   assertStageResult,
   forUpdateStatements,
   tryFold,
+  isIntegerType,
   withoutSemicolon,
   wrapExpr,
 } from "../shared";
@@ -347,7 +348,11 @@ export function compileGLSLNode(
     case "smoothstep":
       return ternaryGLSL(node, ctx, "smoothstep");
     case "clamp":
-      return ternaryGLSL(node, ctx, "clamp");
+      // GLSL leaves integer clamp undefined when low > high; spelled out it
+      // gives min(max(e, low), high), the result WGSL defines.
+      return isIntegerType(node._t as string)
+        ? ternaryGLSL(node, ctx, "clamp", (x, low, high) => `min(max(${x}, ${low}), ${high})`)
+        : ternaryGLSL(node, ctx, "clamp");
     case "select": {
       let cond = compileGLSLStage(node.params![0], ctx);
       let a = compileGLSLStage(node.params![1], ctx);
@@ -835,6 +840,7 @@ export function ternaryGLSL(
   node: BaseNode<ShaderType>,
   ctx: CompileCtx,
   fn: string,
+  format: (a: string, b: string, c: string) => string = (a, b, c) => `${fn}(${a}, ${b}, ${c})`,
 ): { decls: string[]; body: string[]; expr: string } {
   let a = compileGLSLStage(node.params![0], ctx);
   let b = compileGLSLStage(node.params![1], ctx);
@@ -857,7 +863,7 @@ export function ternaryGLSL(
   return {
     decls: [...a.decls, ...b.decls, ...c.decls],
     body: [...a.body, ...b.body, ...c.body],
-    expr: `${fn}(${aExpr}, ${bExpr}, ${cExpr})`,
+    expr: format(aExpr, bExpr, cExpr),
   };
 }
 
