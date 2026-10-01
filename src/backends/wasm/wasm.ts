@@ -3595,7 +3595,7 @@ export function createWasmInputMarshaller(
 }
 
 /** Heap bytes one element of a storage buffer of `shaderType` takes: f64 per float component, i32 otherwise. */
-export function storageElementSize(shaderType: ShaderType): number {
+function storageElementSize(shaderType: ShaderType): number {
   const kind = isAggregate(shaderType) ? elementKindOf(shaderType) : scalarKindOf(shaderType);
   return componentCountOf(shaderType) * componentSizeOf(kind);
 }

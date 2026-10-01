@@ -20,6 +20,21 @@ describe("storage buffers", () => {
     expect(counts.attribute.array).toBe(data);
   });
 
+  it("rejects a node whose type doesn't match its attribute's layout", () => {
+    expect(() => storage(new StorageBufferAttribute(4, 1, Float32Array), "vec4")).toThrow(
+      /vec4.*4 components.*itemSize 1/,
+    );
+    expect(() => storage(new StorageBufferAttribute(4, 1, Float32Array), "uint")).toThrow(
+      /uint.*Uint32Array.*Float32Array/,
+    );
+    expect(() => instancedArray(new Float32Array(3), "uint")).toThrow(/uint.*Uint32Array.*Float32Array/);
+    expect(() => storage(new StorageBufferAttribute(4, 2, Int32Array), "ivec2")).not.toThrow();
+  });
+
+  it("rejects a typed array that isn't a whole number of elements", () => {
+    expect(() => instancedArray(new Float32Array(5), "vec2")).toThrow(/5 values.*itemSize 2/);
+  });
+
   it("is read-write until toReadOnly()", () => {
     const values = instancedArray(4, "float");
     expect(values.access).toBe("read_write");

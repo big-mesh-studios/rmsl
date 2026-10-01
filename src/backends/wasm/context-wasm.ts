@@ -8,7 +8,7 @@ import {
 } from "../../core";
 import { slotOf, type TypedArray } from "../adapter";
 import type { CpuRoutine } from "../cpu";
-import { compileWasmFn, instantiateWasmRoutine, storageElementSize } from "./wasm";
+import { compileWasmFn, instantiateWasmRoutine } from "./wasm";
 
 /**
  * Several compute programs in one `WebAssembly.Memory`, sharing their storage
@@ -99,16 +99,9 @@ export function createWasmContext(): WasmContext {
     }
     allocate(compiled.textureHeapBase - cursor);
 
-    const slots = compiled.params.flatMap((p) => {
-      if (p.kind !== "storageMemory") return [];
-      const attribute = attributes.get(p.slot)!;
-      if (storageElementSize(p.shaderType) !== attribute.itemSize * componentSize(attribute)) {
-        throw new Error(
-          `[RMSL] createWasmContext: a ${p.shaderType} storage node doesn't match its attribute's layout.`,
-        );
-      }
-      return [{ slot: p.slot, attribute }];
-    });
+    const slots = compiled.params.flatMap((p) =>
+      p.kind === "storageMemory" ? [{ slot: p.slot, attribute: attributes.get(p.slot)! }] : [],
+    );
 
     const created = { routine: instantiateWasmRoutine(compiled, "main", memory), slots };
     programs.set(node, created);

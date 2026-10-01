@@ -2572,6 +2572,11 @@ export class StorageBufferAttribute {
       this.arrayClass = arrayClass;
       this.array = null;
     } else {
+      if (countOrArray.length % itemSize !== 0) {
+        throw new Error(
+          `[RMSL] a typed array of ${countOrArray.length} values isn't a whole number of elements of itemSize ${itemSize}`,
+        );
+      }
       this.count = countOrArray.length / itemSize;
       this.arrayClass = countOrArray.constructor as StorageArrayClass;
       this.array = countOrArray;
@@ -2596,6 +2601,7 @@ export function storage<T extends ShaderType>(
   shaderType: T,
   count = attribute.count,
 ): StorageNode<T> {
+  assertStorageLayout(attribute, shaderType);
   const slot = `_rmsl_b${attribute.id}`;
   const value = { slot, shaderType, access: "read_write" as StorageAccess, attribute, count };
 
@@ -2617,6 +2623,33 @@ export function storage<T extends ShaderType>(
   return result;
 }
 
+/** Components in one element of `shaderType`: 1 for a scalar, the width of a vector, columns × rows of a matrix. */
+function componentsOf(shaderType: ShaderType): number {
+  const shape = MATRIX_DIMENSIONS[shaderType];
+  return shape ? shape[0] * shape[1] : (TYPE_WIDTH[shaderType] ?? 1);
+}
+
+/**
+ * Throws unless `attribute` holds elements of `shaderType`: its `itemSize`
+ * the type's component count, its array class the type's component type.
+ * Every backend lays a buffer out from the attribute, so a mismatch would
+ * read or write past an element, or reinterpret its bits.
+ */
+function assertStorageLayout(attribute: StorageBufferAttribute, shaderType: ShaderType): void {
+  const components = componentsOf(shaderType);
+  if (attribute.itemSize !== components) {
+    throw new Error(
+      `[RMSL] a ${shaderType} storage node needs ${components} components per element, but its attribute has itemSize ${attribute.itemSize}`,
+    );
+  }
+  const arrayClass = storageArrayClass(shaderType);
+  if (attribute.arrayClass !== arrayClass) {
+    throw new Error(
+      `[RMSL] a ${shaderType} storage node needs a ${arrayClass.name} attribute, but its attribute holds a ${attribute.arrayClass.name}`,
+    );
+  }
+}
+
 function storageArrayClass(shaderType: ShaderType): StorageArrayClass {
   if (shaderType === "int" || shaderType.startsWith("ivec")) return Int32Array;
   if (shaderType === "uint" || shaderType.startsWith("uvec")) return Uint32Array;
@@ -2628,8 +2661,7 @@ function storageArrayNode<T extends ShaderType>(
   countOrArray: number | Float32Array | Int32Array | Uint32Array,
   shaderType: T,
 ): StorageNode<T> {
-  const itemSize = TYPE_WIDTH[shaderType] ?? 1;
-  const attribute = new Attribute(countOrArray, itemSize, storageArrayClass(shaderType));
+  const attribute = new Attribute(countOrArray, componentsOf(shaderType), storageArrayClass(shaderType));
   return storage(attribute, shaderType);
 }
 
