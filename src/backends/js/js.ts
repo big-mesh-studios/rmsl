@@ -150,6 +150,8 @@ export const JS_ELEM: Record<string, { argc: number; fn: (xs: string[]) => strin
       `(function(t){ return t * t * (3 - 2 * t); })(Math.min(Math.max((${xs[2]} - ${xs[0]}) / (${xs[1]} - ${xs[0]}), 0), 1))`,
   },
   neg: { argc: 1, fn: (xs) => `-${xs[0]}` },
+  ineg: { argc: 1, fn: (xs) => `-${xs[0]} | 0` },
+  iabs: { argc: 1, fn: (xs) => `Math.abs(${xs[0]}) | 0` },
   abs: { argc: 1, fn: (xs) => `Math.abs(${xs[0]})` },
   sign: { argc: 1, fn: (xs) => `Math.sign(${xs[0]})` },
   floor: { argc: 1, fn: (xs) => `Math.floor(${xs[0]})` },
@@ -201,6 +203,8 @@ const JS_INTEGER_PREC: Record<string, number> = {
   ushl: PRECEDENCE.shiftRight!,
   ushr: PRECEDENCE.shiftRight!,
   unot: PRECEDENCE.shiftRight!,
+  ineg: PRECEDENCE.bitOr!,
+  iabs: PRECEDENCE.bitOr!,
 };
 
 /** A scalar integer `JS_ELEM` form applied to compiled operands, bracketed as its operator needs. */
@@ -1263,11 +1267,13 @@ export function compileJSNode(
     }
 
     case "negate": {
+      let integer = jsIntegerOp(node, "neg") === "ineg";
       if (jsArrayLength(node.params![0]?._t) <= 1) {
         let a = compileJSStage(node.params![0], ctx);
+        if (integer) return { decls: a.decls, body: a.body, ...jsIntegerForm("ineg", [a]) };
         return { decls: a.decls, body: a.body, expr: `-${wrapExpr(a.prec, PREC_UNARY, a.expr)}`, prec: PREC_UNARY };
       }
-      return jsUnaryMath(node, ctx, "neg");
+      return jsUnaryMath(node, ctx, integer ? "ineg" : "neg");
     }
 
     case "not": {
@@ -1496,7 +1502,7 @@ export function compileJSNode(
     case "atanh":
       return jsUnaryMath(node, ctx, "atanh");
     case "abs":
-      return jsUnaryMath(node, ctx, "abs");
+      return jsUnaryMath(node, ctx, jsIntegerOp(node, "abs") === "iabs" ? "iabs" : "abs");
     case "sign":
       return jsUnaryMath(node, ctx, "sign");
     case "floor":
