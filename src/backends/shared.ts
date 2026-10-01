@@ -1,4 +1,5 @@
 import { BaseNode, MATRIX_DIMENSIONS, Node, NodeImpl, ShaderType, TYPE_WIDTH } from "../core";
+import { componentKindOf } from "./cpu";
 /**
  * What compiling one node yields: statements to emit, how to refer to it, and
  * its operator precedence (higher = tighter binding, for bracket reduction).
@@ -188,11 +189,12 @@ function componentAt(components: number[], i: number): number {
 
 /** Whether `t` is `int`, `uint`, or a vector of either. */
 export function isIntegerType(t: string): boolean {
-  return t === "int" || t === "uint" || t.startsWith("ivec") || t.startsWith("uvec");
+  let kind = componentKindOf(t);
+  return kind === "int" || kind === "uint";
 }
 
 function isUnsignedType(t: string): boolean {
-  return t === "uint" || t.startsWith("uvec");
+  return componentKindOf(t) === "uint";
 }
 
 /**

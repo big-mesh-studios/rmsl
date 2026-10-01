@@ -123,6 +123,19 @@ export function scalarKindOf(t: string | undefined): ScalarKind {
   return t === "int" || t === "uint" || t === "bool" ? t : "float";
 }
 
+/**
+ * The kind of value a type's components hold, scalar and vector types alike:
+ * `int` and `ivec3` are both "int". Every backend asks this of a type name,
+ * so it is answered here once.
+ */
+export function componentKindOf(t: string | undefined): ScalarKind {
+  if (t === undefined) return "float";
+  if (t === "bool" || t.startsWith("bvec")) return "bool";
+  if (t === "int" || t.startsWith("ivec")) return "int";
+  if (t === "uint" || t.startsWith("uvec")) return "uint";
+  return "float";
+}
+
 /** Element kind of a shader type's components; non-int vectors default to float. */
 export function elementKindOf(t: string): ScalarKind {
   if (t.startsWith("ivec")) return "int";

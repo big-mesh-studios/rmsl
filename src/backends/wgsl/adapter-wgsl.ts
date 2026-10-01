@@ -1,6 +1,7 @@
 import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
 import { compile, WgslResource } from "../../wgsl";
 import { Adapter, DrawCountOptions, requestedStorageSlots, slotOf, TypedArray } from "../adapter";
+import { componentKindOf } from "../cpu";
 import { CompileCtx, VertexRoot } from "../shared";
 import { compileWGSLStage, compileWGSLWithStage, wgslMatrixColumns, wgslUniformLayout } from "./wgsl";
 
@@ -127,8 +128,9 @@ function uniformScratch(bytes: number): UniformScratch {
  * carry the WGSL spelling.
  */
 function elementView(type: string, views: UniformScratch): Float32Array | Int32Array | Uint32Array {
-  if (type === "int" || type.startsWith("ivec") || type.includes("i32")) return views.i32;
-  if (type === "uint" || type.startsWith("uvec") || type.includes("u32")) return views.u32;
+  let kind = componentKindOf(type);
+  if (kind === "int" || type.includes("i32")) return views.i32;
+  if (kind === "uint" || type.includes("u32")) return views.u32;
   return views.f32;
 }
 

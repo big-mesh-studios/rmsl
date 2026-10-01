@@ -5,6 +5,7 @@ import {
   CpuShaderContext,
   CpuShaderResult,
   componentCountOf,
+  componentKindOf,
   elementKindOf,
   isAggregate,
   scalarKindOf,
@@ -666,15 +667,6 @@ export function isPlainJSIdentifier(s: string): boolean {
   return /^[_$a-zA-Z][_$a-zA-Z0-9]*$/.test(s);
 }
 
-/** The scalar kind a type's components hold, vector and scalar types alike. */
-export function componentKind(type: string | undefined): "float" | "int" | "uint" | "bool" {
-  if (type === undefined) return "float";
-  if (type === "bool" || type.startsWith("bvec")) return "bool";
-  if (type === "int" || type.startsWith("ivec")) return "int";
-  if (type === "uint" || type.startsWith("uvec")) return "uint";
-  return "float";
-}
-
 /**
  * One component converted between two types' scalar kinds, as a constructor
  * converts it in both shading languages: a boolean reads as 1 or 0, a signed
@@ -686,8 +678,8 @@ export function componentKind(type: string | undefined): "float" | "int" | "uint
  * `false !== 0` is true.
  */
 export function jsComponentCast(expr: string, sourceType: string | undefined, targetType: string): string {
-  let from = componentKind(sourceType);
-  let to = componentKind(targetType);
+  let from = componentKindOf(sourceType);
+  let to = componentKindOf(targetType);
   if (from === to) return expr;
   if (from === "bool") expr = `(${expr} ? 1 : 0)`;
   if (to === "bool") return `(${expr} !== 0)`;
@@ -806,10 +798,8 @@ export function jsVectorBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: 
  * operations to wrap to 32 bits and match WGSL's division by zero.
  */
 export function jsIntegerOp(node: BaseNode<ShaderType>, op: string): string {
-  let t = node._t as string;
-  if (t === "int" || t.startsWith("ivec")) return `i${op}`;
-  if (t === "uint" || t.startsWith("uvec")) return `u${op}`;
-  return op;
+  let kind = componentKindOf(node._t as string);
+  return kind === "int" ? `i${op}` : kind === "uint" ? `u${op}` : op;
 }
 
 export function jsBinaryOp(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string): CompiledNode {
@@ -952,10 +942,10 @@ const JS_BITWISE_NAMES: Record<string, string> = {
 export function jsBitwise(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string): CompiledNode {
   let width = jsArrayLength(node._t);
   if (width > 1) {
-    let name = `${(node._t as string).startsWith("uvec") ? "u" : "i"}${JS_BITWISE_NAMES[op]}`;
+    let name = jsIntegerOp(node, JS_BITWISE_NAMES[op]!);
     return op === "~" ? jsUnaryMath(node, ctx, name) : jsVectorBinary(node, ctx, name, width);
   }
-  let name = `${node._t === "uint" ? "u" : "i"}${JS_BITWISE_NAMES[op]}`;
+  let name = jsIntegerOp(node, JS_BITWISE_NAMES[op]!);
   let operands = (node.params ?? []).slice(0, op === "~" ? 1 : 2).map((p) => compileJSStage(p, ctx));
   let form = jsIntegerForm(name, operands);
   return {

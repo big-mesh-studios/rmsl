@@ -1,6 +1,6 @@
 import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, isSamplerType, var_ } from "../../core";
 import { AllocRules, planLayout } from "../../layout";
-import { elementKindOf, scalarKindOf } from "../cpu";
+import { componentKindOf } from "../cpu";
 import {
   CompileCtx,
   CompileFnOptions,
@@ -476,11 +476,11 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       // `vec2<u32>(a)` for an i32 `a`. Matrices take only floats already.
       let exprs = params.map((p: any) => p.expr);
       if (target !== undefined && target > 1) {
-        let kind = elementKindOf(node._t as string);
+        let kind = componentKindOf(node._t as string);
         exprs = exprs.map((expr: string, i: number) => {
           let partType = (node.params?.[i] as any)?._t as string;
           let partWidth = TYPE_WIDTH[partType] ?? 1;
-          let partKind = partWidth > 1 ? elementKindOf(partType) : scalarKindOf(partType);
+          let partKind = componentKindOf(partType);
           if (partKind === kind) return expr;
           return partWidth > 1
             ? `${wgslType(`${node._t.slice(0, -1)}${partWidth}`)}(${expr})`
@@ -1386,7 +1386,7 @@ export function shiftWGSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: strin
   // The amount has to be u32 with the same width as the value. A vector
   // amount converts to `vecN<u32>`; a scalar one becomes u32 first, since
   // WGSL only splats a value of the vector's own component type.
-  let unsigned = amountType === "uint" || amountType?.startsWith("uvec");
+  let unsigned = componentKindOf(amountType) === "uint";
   let rhsExpr = rhs.expr;
   if ((TYPE_WIDTH[amountType] ?? 1) > 1) {
     if (!unsigned) rhsExpr = `vec${width}<u32>(${rhsExpr})`;
