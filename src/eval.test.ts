@@ -241,6 +241,69 @@ describe("RMSL evaluation", () => {
     await expectValue(classify, [1], 4);
   }, 60_000);
 
+  // A loop tests its condition every time round, so a variable the condition
+  // makes has to be computed every time round too, not once before the loop.
+  it("recomputes a variable a For condition makes on every iteration", async () => {
+    const count = (x: Node<"float">) =>
+      Fn(() => {
+        const steps = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (n) => n.add(x).toVar().lessThan(10),
+          (n) => {
+            n.assign(n.add(1));
+          },
+          () => {
+            steps.assign(steps.add(1));
+          },
+        );
+        return steps;
+      })();
+
+    await expectValue(count, [3], 7);
+    await expectValue(count, [12], 0);
+  }, 60_000);
+
+  it("still steps a For whose condition makes a variable when its body continues", async () => {
+    const evens = (x: Node<"float">) =>
+      Fn(() => {
+        const counted = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (n) => n.add(x).toVar().lessThan(10),
+          (n) => {
+            n.assign(n.add(1));
+          },
+          (n) => {
+            If(n.mod(2).equal(1), () => {
+              Continue();
+            });
+            counted.assign(counted.add(1));
+          },
+        );
+        return counted;
+      })();
+
+    await expectValue(evens, [3], 4);
+  }, 60_000);
+
+  it("recomputes a variable a While condition given as a function makes on every iteration", async () => {
+    const count = (x: Node<"float">) =>
+      Fn(() => {
+        const n = float(0).toVar();
+        While(
+          () => n.add(x).toVar().lessThan(10),
+          () => {
+            n.assign(n.add(1));
+          },
+        );
+        return n;
+      })();
+
+    await expectValue(count, [3], 7);
+    await expectValue(count, [12], 0);
+  }, 60_000);
+
   it("runs a while loop until its condition fails", async () => {
     const countdown = (n: Node<"float">) =>
       Fn(() => {

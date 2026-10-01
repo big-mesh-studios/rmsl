@@ -2891,6 +2891,44 @@ export function If(cond: BooleanLike, body: () => void): ElseIfChain {
   return chain;
 }
 
+/**
+ * Builds a loop's condition in a block of its own, so the statements it
+ * makes, as a `toVar()` does, are kept apart from the enclosing block's.
+ */
+function buildCondition(cond: () => BooleanLike): { test: BaseNode<ShaderType>; made: BaseNode<ShaderType>[] } {
+  let oldBlockScope = blockScope;
+  let made: BaseNode<ShaderType>[] = [];
+  blockScope = made;
+  try {
+    return { test: wrapValue(cond()) as BaseNode<ShaderType>, made };
+  } finally {
+    blockScope = oldBlockScope;
+  }
+}
+
+/**
+ * A loop's condition and body, from a condition built by `buildCondition`.
+ * A condition that made statements has to run them on every iteration, so it becomes `true`, and the body runs them,
+ * leaves the loop unless the condition holds, and then runs `body`.
+ */
+function loopParts(
+  { test, made }: ReturnType<typeof buildCondition>,
+  body: () => void,
+): [BaseNode<ShaderType>, BaseNode<ShaderType>] {
+  if (made.length === 0) return [test, buildBlock(body) as BaseNode<ShaderType>];
+  const guarded = buildBlock(() => {
+    blockScope!.push(...made);
+    If(not(test as MathLike), () => Break());
+    body();
+  });
+  return [bool(true) as BaseNode<ShaderType>, guarded as BaseNode<ShaderType>];
+}
+
+/**
+ * A counting loop, as TSL's `For`: `init` makes the loop variable, `cond`
+ * tests it before every iteration, `update` steps it after every one. A
+ * variable `cond` makes is computed on every iteration.
+ */
 export function For<T extends Node<ShaderType>>(
   init: () => T,
   cond: (v: T) => BooleanLike,
@@ -2908,9 +2946,10 @@ export function For<T extends Node<ShaderType>>(
       blockScope = oldBlockScope;
     }
     let initNode = node({ _t: "void", type: "seq", params: [...initScope] }) as Node<"void">;
-    let condNode = wrapValue(cond(v)) as BaseNode<ShaderType>;
+    // Condition, update, body: the order they were always built in, which names their variables.
+    let condition = buildCondition(() => cond(v));
     let updateNode = buildBlock(() => update(v));
-    let bodyNode = buildBlock(() => body(v));
+    let [condNode, bodyNode] = loopParts(condition, () => body(v));
     scope.push(
       node({
         _t: "void",
@@ -2936,10 +2975,18 @@ export function Loop(count: IntLike | FloatLike, body: (i: Node<"int">) => void)
   );
 }
 
-export function While(cond: BooleanLike, body: () => void): void {
+/**
+ * A loop that runs `body` while `cond` holds, as TSL's `While`. A condition
+ * given as a node is built before the loop, so a variable it makes is
+ * computed once; given as a function, it is built inside the loop, and a
+ * variable it makes is computed on every iteration.
+ */
+export function While(cond: BooleanLike | (() => BooleanLike), body: () => void): void {
   assertBlockScope("While", (scope) => {
-    let condNode = wrapValue(cond) as BaseNode<ShaderType>;
-    let bodyNode = buildBlock(body);
+    let [condNode, bodyNode] =
+      typeof cond === "function"
+        ? loopParts(buildCondition(cond), body)
+        : [wrapValue(cond) as BaseNode<ShaderType>, buildBlock(body) as BaseNode<ShaderType>];
     scope.push(
       node({
         _t: "void",
