@@ -321,8 +321,7 @@ export function compileGLSLNode(
       return binaryGLSL(node, ctx, "atan", true);
     case "mod": {
       // GLSL's % is integer-only; floats need the mod() builtin.
-      let operandType = (node.params![0] as any)?._t;
-      let isInteger = operandType === "int" || operandType === "uint";
+      let isInteger = isIntegerType((node.params![0] as any)?._t ?? "float");
       return isInteger ? binaryGLSL(node, ctx, "%") : binaryGLSL(node, ctx, "mod", true);
     }
     case "pow":
@@ -373,6 +372,23 @@ export function compileGLSLNode(
         let w = Math.max(aW, bW, width);
         if (aW === 1 && w > 1) aExpr = `vec${w}(${aExpr})`;
         if (bW === 1 && w > 1) bExpr = `vec${w}(${bExpr})`;
+        let resultType = node._t as string;
+        if (isIntegerType(resultType)) {
+          // GLSL ES 3.00 has no integer mix(), so each component is its own
+          // ternary. The operands are pure, so repeating them is only work.
+          let component = (expr: string, isVector: boolean, i: number) => (isVector ? `(${expr})[${i}]` : `(${expr})`);
+          let pieces = Array.from(
+            { length: w },
+            (_, i) =>
+              `${component(condExpr, true, i)} ? ${component(a.expr, aW > 1, i)} : ${component(b.expr, bW > 1, i)}`,
+          );
+          return {
+            decls: [...cond.decls, ...a.decls, ...b.decls],
+            body: [...cond.body, ...a.body, ...b.body],
+            expr: `${resultType}(${pieces.join(", ")})`,
+            prec: PREC_ATOM,
+          };
+        }
         let cExpr = condType.startsWith("bvec") || condType.startsWith("vec") ? `vec${w}(${condExpr})` : condExpr;
         return {
           decls: [...cond.decls, ...a.decls, ...b.decls],
