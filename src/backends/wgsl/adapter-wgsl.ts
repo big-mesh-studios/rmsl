@@ -5,6 +5,22 @@ import { componentKindOf } from "../cpu";
 import { CompileCtx, VertexRoot } from "../shared";
 import { compileWGSLStage, compileWGSLWithStage, wgslMatrixColumns, wgslUniformLayout } from "./wgsl";
 
+/**
+ * Throws unless `device` lets one shader stage bind every storage buffer a
+ * compiled compute program uses. Past the limit, the device refuses the
+ * pipeline, and the work submitted with it is dropped without an error in
+ * JavaScript; this says so before that happens.
+ */
+export function assertStorageBufferLimit(device: GPUDevice, resources: readonly WgslResource[], where: string): void {
+  const count = resources.filter((r) => r.kind === "storage").length;
+  const limit = device.limits.maxStorageBuffersPerShaderStage;
+  if (count > limit) {
+    throw new Error(
+      `[RMSL] ${where}: a compute program uses ${count} storage buffers, more than the ${limit} this device allows in one shader stage; split it into programs that each use fewer, or keep values that belong together in one buffer`,
+    );
+  }
+}
+
 /** One typed array per storage slot, keyed by name — read_write, so the same
  * record a caller passes into `compute` is the one read back out of. */
 export type AdapterResult = Record<string, TypedArray>;
@@ -548,6 +564,7 @@ export function createWgslCompute(
       device = await gpuAdapter.requestDevice();
 
       let program = compile({ stage: "compute", workgroupSize: options.workgroupSize ?? 64 }, compute);
+      assertStorageBufferLimit(device, program.resources, "createWgslCompute");
       let module = device.createShaderModule({ code: program.code });
       computePipeline = device.createComputePipeline({
         layout: "auto",

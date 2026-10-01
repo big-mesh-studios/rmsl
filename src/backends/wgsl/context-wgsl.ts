@@ -12,7 +12,13 @@ import {
 import { compile, type WgslResource } from "../../wgsl";
 import { slotOf, type TypedArray } from "../adapter";
 import { assertWriteFits, someNode } from "../shared";
-import { uniformBufferSize, uniformScratch, writeUniformMember, type UniformScratch } from "./adapter-wgsl";
+import {
+  assertStorageBufferLimit,
+  uniformBufferSize,
+  uniformScratch,
+  writeUniformMember,
+  type UniformScratch,
+} from "./adapter-wgsl";
 
 /**
  * Several compute programs on one `GPUDevice`, sharing their storage buffers,
@@ -155,6 +161,7 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
       throw new Error("[RMSL] createWgslContext: programs that sample textures aren't supported yet.");
     }
     const compiled = compile({ stage: "compute" }, node);
+    assertStorageBufferLimit(gpu, compiled.resources, "createWgslContext");
     const pipeline = gpu.createComputePipeline({
       layout: "auto",
       compute: { module: gpu.createShaderModule({ code: compiled.code }), entryPoint: compiled.entryPoint },
