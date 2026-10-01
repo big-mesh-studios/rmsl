@@ -7,9 +7,11 @@ import {
   Fn,
   instancedArray,
   int,
+  invocationIndex,
   mat3,
   uniform,
   uniformArray,
+  uint,
   varying,
   vec2,
   vec3,
@@ -100,6 +102,12 @@ describe("an assignment's target", () => {
     expectRefusedEverywhere(() => m.assign(mat3(1, 0, 0, 0, 1, 0, 0, 0, 1)), refused);
     const vs = uniformArray("vec3", 4);
     expectRefusedEverywhere(() => vs.element(int(1)).x.assign(float(9)), refused);
+  });
+
+  it("names a whole uniform array a uniform, and a built-in input as one, on every backend", () => {
+    const vs = uniformArray("vec3", 4);
+    expectRefusedEverywhere(() => (vs as any).assign(vec3(1, 2, 3)), /\[RMSL\] can't assign to a uniform: /);
+    expectRefusedEverywhere(() => invocationIndex().assign(uint(0)), /\[RMSL\] can't assign to a built-in input: /);
   });
 
   it("refuses an attribute, whole or in part, on every backend", () => {
