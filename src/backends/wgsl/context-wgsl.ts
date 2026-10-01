@@ -9,7 +9,7 @@ import {
 } from "../../core";
 import { compile, type WgslResource } from "../../wgsl";
 import { slotOf, type TypedArray } from "../adapter";
-import { uniformScratch, writeUniformScratch, type UniformScratch } from "./adapter-wgsl";
+import { uniformBufferSize, uniformScratch, writeUniformMember, type UniformScratch } from "./adapter-wgsl";
 
 /**
  * Several compute programs on one `GPUDevice`, sharing their storage buffers,
@@ -136,7 +136,7 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
     );
     let uniforms: CompiledProgram["uniforms"] = null;
     if (uniformResources.length > 0) {
-      const size = Math.max(16, ...uniformResources.map((u) => u.offset + u.size));
+      const size = uniformBufferSize(Math.max(...uniformResources.map((u) => u.offset + u.size)));
       const uniformBuffer = gpu.createBuffer({ size, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
       uniforms = {
         buffer: uniformBuffer,
@@ -159,7 +159,7 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
     if (!uniforms) return;
     for (const resource of uniforms.resources) {
       const value = resource.name === node.countNode.name ? node.count : uniformValues.get(resource.name);
-      if (value !== undefined) writeUniformScratch(uniforms.scratch, resource.offset / 4, resource.shaderType, value);
+      if (value !== undefined) writeUniformMember(uniforms.scratch, { ...resource, type: resource.shaderType }, value);
     }
     gpu.queue.writeBuffer(uniforms.buffer, 0, uniforms.scratch.f32 as BufferSource);
   }

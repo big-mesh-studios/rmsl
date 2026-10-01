@@ -1,14 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { Fn, instancedArray, invocationIndex, Loop, uint, uniform, type StorageNode } from "./rmsl";
+import { Fn, instancedArray, invocationIndex, Loop, uint, uniform, uniformArray, vec3, type StorageNode } from "./rmsl";
 import { createWgslContext } from "./wgsl";
 import { createWasmContext } from "./wasm";
-import type { ComputeNode, StorageBufferAttribute, UniformNode } from "./rmsl";
+import type { ComputeNode, StorageBufferAttribute, UniformArrayNode, UniformNode } from "./rmsl";
 import { GPU_ENABLED, installWebGpuGlobals } from "./testing/gpu";
 
 /** What these tests need from a context, whichever backend runs it. */
 type Context = {
   compute(nodes: ComputeNode | ComputeNode[]): void;
-  setUniform(uniform: UniformNode<any>, value: number): void;
+  setUniform(uniform: UniformNode<any> | UniformArrayNode<any>, value: number | number[] | number[][]): void;
   write(attribute: StorageBufferAttribute, data: Uint32Array | Int32Array): void;
   read(attribute: StorageBufferAttribute): Promise<number[]>;
   destroy(): void;
@@ -22,7 +22,7 @@ const backends: { name: string; enabled: boolean; create(): Promise<Context> }[]
       const context = await createWgslContext();
       return {
         compute: (nodes) => context.compute(nodes),
-        setUniform: (u, v) => context.setUniform(u, v),
+        setUniform: (u, v) => context.setUniform(u as any, v as any),
         write: (attribute, data) => context.write(attribute, data),
         async read(attribute) {
           const bytes = await context.getArrayBufferAsync(attribute);
@@ -39,7 +39,7 @@ const backends: { name: string; enabled: boolean; create(): Promise<Context> }[]
       const context = createWasmContext();
       return {
         compute: (nodes) => context.compute(nodes),
-        setUniform: (u, v) => context.setUniform(u, v),
+        setUniform: (u, v) => context.setUniform(u as any, v as any),
         write: (attribute, data) => context.write(attribute, data),
         async read(attribute) {
           return Array.from(new attribute.arrayClass(context.getArrayBuffer(attribute), 0, attribute.count));
@@ -119,6 +119,34 @@ for (const backend of backends) {
       context.compute(add);
 
       expect(await context.read(values.attribute)).toEqual([7, -13]);
+      context.destroy();
+    });
+
+    it("passes uniform arrays and matrices, laid out as each backend reads them", async () => {
+      const context = await backend.create();
+      const out = instancedArray(7, "float");
+      const scalars = uniformArray("float", 3);
+      const pairs = uniformArray("vec2", 2);
+      const matrix = uniform("mat3");
+      const read = Fn(() => {
+        out.element(0).assign(scalars.element(0));
+        out.element(1).assign(scalars.element(1));
+        out.element(2).assign(scalars.element(2));
+        out.element(3).assign(pairs.element(1).x);
+        out.element(4).assign(pairs.element(1).y);
+        out.element(5).assign(matrix.mul(vec3(0, 1, 0)).z);
+        out.element(6).assign(matrix.mul(vec3(0, 0, 1)).x);
+      })().compute(1);
+
+      context.setUniform(scalars, [1, 2, 3]);
+      context.setUniform(pairs, [
+        [4, 5],
+        [6, 7],
+      ]);
+      context.setUniform(matrix, [10, 11, 12, 13, 14, 15, 16, 17, 18]);
+      context.compute(read);
+
+      expect(await context.read(out.attribute)).toEqual([1, 2, 3, 6, 7, 15, 16]);
       context.destroy();
     });
 
