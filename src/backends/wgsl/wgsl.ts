@@ -615,10 +615,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       const index = compileWGSLStage(indexNode, ctx);
 
       const indexType = (indexNode as any)?._t;
-      const indexExpr =
-        indexType === "uint" || indexType === "int"
-          ? index.expr
-          : `u32(${index.expr})`;
+      const indexExpr = indexType === "uint" || indexType === "int" ? index.expr : `u32(${index.expr})`;
 
       return {
         decls: [...storage.decls, ...index.decls],
@@ -1704,15 +1701,11 @@ export function compileWGSLWithStage(
     // Compute resources come from semantic storage() declarations. The
     // compiler owns WGSL binding assignment; ECS/runtime code only needs the
     // reflected semantic resource names.
-    const storages = ctx.storages
-      ? [...ctx.storages.values()].sort((a, b) => a.name.localeCompare(b.name))
-      : [];
+    const storages = ctx.storages ? [...ctx.storages.values()].sort((a, b) => a.name.localeCompare(b.name)) : [];
 
     for (let binding = 0; binding < storages.length; binding++) {
       const info = storages[binding];
-      lines.push(
-        `@group(1) @binding(${binding}) var<storage, ${info.access}> ${info.wgslName}: array<${info.type}>;`,
-      );
+      lines.push(`@group(1) @binding(${binding}) var<storage, ${info.access}> ${info.wgslName}: array<${info.type}>;`);
     }
 
     // Preserve the legacy attribute()/output() compute path. These resources
@@ -1722,15 +1715,11 @@ export function compileWGSLWithStage(
       let binding = 0;
 
       for (const info of ctx.attributes.values()) {
-        lines.push(
-          `@group(1) @binding(${binding++}) var<storage, read> ${info.slot}: array<${info.type}>;`,
-        );
+        lines.push(`@group(1) @binding(${binding++}) var<storage, read> ${info.slot}: array<${info.type}>;`);
       }
 
       for (const info of ctx.outputs.values()) {
-        lines.push(
-          `@group(1) @binding(${binding++}) var<storage, read_write> ${info.slot}: array<${info.type}>;`,
-        );
+        lines.push(`@group(1) @binding(${binding++}) var<storage, read_write> ${info.slot}: array<${info.type}>;`);
       }
     }
 
@@ -1748,15 +1737,11 @@ export function compileWGSLWithStage(
 
     if (storages.length > 0) {
       const lengthStorage = storages[0];
-      lines.push(
-        `  if (_rmsl_index >= arrayLength(&${lengthStorage.wgslName})) { return; }`,
-      );
+      lines.push(`  if (_rmsl_index >= arrayLength(&${lengthStorage.wgslName})) { return; }`);
     } else if (ctx.attributes.size > 0) {
       const lengthAttribute = ctx.attributes.values().next().value;
       if (lengthAttribute) {
-        lines.push(
-          `  if (_rmsl_index >= arrayLength(&${lengthAttribute.slot})) { return; }`,
-        );
+        lines.push(`  if (_rmsl_index >= arrayLength(&${lengthAttribute.slot})) { return; }`);
       }
     }
 
