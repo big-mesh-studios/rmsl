@@ -1,5 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { attribute, float, Fn, int, mat3, uniform, uniformArray, vec3, type Node, type ShaderType } from "./rmsl";
+import {
+  attribute,
+  float,
+  Fn,
+  instancedArray,
+  int,
+  mat3,
+  uniform,
+  uniformArray,
+  vec3,
+  type Node,
+  type ShaderType,
+} from "./rmsl";
 import { compileGlslFn } from "./glsl";
 import { compileWgslFn } from "./wgsl";
 import { compileJSFn } from "./js";
@@ -39,6 +51,14 @@ describe("an assignment's target", () => {
     const refused = /\[RMSL\] can't assign to an attribute: /;
     expectRefusedEverywhere(() => position.assign(vec3(1, 2, 3)), refused);
     expectRefusedEverywhere(() => position.x.assign(float(9)), refused);
+  });
+
+  it("refuses a whole storage buffer, rather than one of its elements, on every backend", () => {
+    const values = instancedArray(4, "vec3");
+    expectRefusedEverywhere(
+      () => values.assign(vec3(1, 2, 3)),
+      /\[RMSL\] can't assign to a whole storage buffer; assign to one of its elements with \.element\(i\)/,
+    );
   });
 
   it("refuses a computed value, whole or in part, on every backend", () => {

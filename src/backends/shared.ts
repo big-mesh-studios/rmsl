@@ -629,6 +629,9 @@ const ASSIGNABLE = new Set(["var", "storageElement", "output", "varying", "built
  */
 export function assertAssignable(target: any): any {
   while (["swizzle", "vectorElement", "matrixElement"].includes(target?.type)) target = target.params[0];
+  if (target?.type === "storage") {
+    throw new Error("[RMSL] can't assign to a whole storage buffer; assign to one of its elements with .element(i)");
+  }
   if (!ASSIGNABLE.has(target?.type)) {
     const what =
       target?.type === "uniform" || target?.type === "uniformArrayElement"
