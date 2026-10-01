@@ -114,9 +114,9 @@ function vertexComponentCount(type: string): number {
  * member can have, so an `int` member gets integer bits and not the bits of
  * the equivalent float.
  */
-type UniformScratch = { f32: Float32Array; i32: Int32Array; u32: Uint32Array };
+export type UniformScratch = { f32: Float32Array; i32: Int32Array; u32: Uint32Array };
 
-function uniformScratch(bytes: number): UniformScratch {
+export function uniformScratch(bytes: number): UniformScratch {
   let buffer = new ArrayBuffer(bytes);
   return { f32: new Float32Array(buffer), i32: new Int32Array(buffer), u32: new Uint32Array(buffer) };
 }
@@ -127,17 +127,65 @@ function uniformScratch(bytes: number): UniformScratch {
  * compute uniform resources are parsed back out of the generated WGSL, so they
  * carry the WGSL spelling.
  */
-function elementView(type: string, views: UniformScratch): Float32Array | Int32Array | Uint32Array {
+export function elementView(type: string, views: UniformScratch): Float32Array | Int32Array | Uint32Array {
   let kind = componentKindOf(type);
   if (kind === "int" || type.includes("i32")) return views.i32;
   if (kind === "uint" || type.includes("u32")) return views.u32;
   return views.f32;
 }
 
-function writeUniformScratch(scratch: UniformScratch, offset: number, type: string, value: number | number[]): void {
-  let view = elementView(type, scratch);
-  if (Array.isArray(value)) value.forEach((v, i) => (view[offset + i] = v));
-  else view[offset] = value;
+/** Where one uniform lives in its buffer: as compiled, whether from a layout member or a reflected resource. */
+export type UniformPlacement = { offset: number; size: number; type: string; length?: number };
+
+/** Number of 32-bit slots between a WGSL matrix's columns, and its column and row counts. */
+function matrixShape(type: string): { columns: number; rows: number; columnStride: number } | undefined {
+  let match = /^mat(\d)x(\d)<f32>$/.exec(type);
+  if (!match) return undefined;
+  let rows = Number(match[2]);
+  return { columns: Number(match[1]), rows, columnStride: rows === 3 ? 4 : rows };
+}
+
+/** Writes one value — a scalar, a vector, or a column-major matrix — at slot `at`. */
+function writeUniformElement(
+  view: Float32Array | Int32Array | Uint32Array,
+  at: number,
+  type: string,
+  value: number | number[],
+): void {
+  if (!Array.isArray(value)) {
+    view[at] = value;
+    return;
+  }
+  let matrix = matrixShape(type);
+  if (!matrix) {
+    view.set(value, at);
+    return;
+  }
+  for (let column = 0; column < matrix.columns; column++) {
+    view.set(value.slice(column * matrix.rows, (column + 1) * matrix.rows), at + column * matrix.columnStride);
+  }
+}
+
+/**
+ * Writes a uniform's value into its place in the scratch buffer, laid out as
+ * WGSL reads it: an array's elements `size / length` bytes apart (each in its
+ * own 16-byte slot), and a `mat3x3`'s columns padded to four components.
+ */
+export function writeUniformMember(scratch: UniformScratch, placement: UniformPlacement, value: unknown): void {
+  let view = elementView(placement.type, scratch);
+  if (placement.length === undefined) {
+    writeUniformElement(view, placement.offset / 4, placement.type, value as number | number[]);
+    return;
+  }
+  let stride = placement.size / placement.length / 4;
+  (value as (number | number[])[]).forEach((element, i) =>
+    writeUniformElement(view, placement.offset / 4 + i * stride, placement.type, element),
+  );
+}
+
+/** A uniform buffer's byte size: WGSL rounds a struct up to its 16-byte alignment. */
+export function uniformBufferSize(end: number): number {
+  return Math.max(16, Math.ceil(end / 16) * 16);
 }
 
 /**
@@ -179,7 +227,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
 
     let renderMember = renderUniformLayout?.members.find((m) => m.name === slot);
     if (renderMember && renderUniformScratch && renderUniformBuffer) {
-      writeUniformScratch(renderUniformScratch, renderMember.offset / 4, renderMember.type, value);
+      writeUniformMember(renderUniformScratch, renderMember, value);
       device.queue.writeBuffer(renderUniformBuffer, 0, renderUniformScratch.f32 as BufferSource);
       return;
     }
@@ -283,7 +331,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       if (renderUniforms.length > 0) {
         renderUniformLayout = wgslUniformLayout(renderUniforms);
         renderUniformBuffer = device.createBuffer({
-          size: Math.max(16, renderUniformLayout.size),
+          size: uniformBufferSize(renderUniformLayout.size),
           usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
         renderUniformScratch = uniformScratch(renderUniformBuffer.size);
@@ -451,7 +499,7 @@ export function createWgslCompute(
 
     let computeRes = computeUniformResources().find((r) => r.name === slot);
     if (computeRes && computeUniformScratch && computeUniformBuffer) {
-      writeUniformScratch(computeUniformScratch, computeRes.offset / 4, computeRes.shaderType, value);
+      writeUniformMember(computeUniformScratch, { ...computeRes, type: computeRes.shaderType }, value);
       device.queue.writeBuffer(computeUniformBuffer, 0, computeUniformScratch.f32 as BufferSource);
       return;
     }
@@ -509,7 +557,7 @@ export function createWgslCompute(
 
       let uniforms = computeUniformResources();
       if (uniforms.length > 0) {
-        let size = Math.max(16, ...uniforms.map((u) => u.offset + u.size));
+        let size = uniformBufferSize(Math.max(...uniforms.map((u) => u.offset + u.size)));
         computeUniformBuffer = device.createBuffer({ size, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
         computeUniformScratch = uniformScratch(size);
         computeBindGroup0 = device.createBindGroup({

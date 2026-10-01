@@ -11,6 +11,7 @@ import {
   VertexRoot,
   assertPositionIsReadable,
   assertSquareMatrix,
+  assignedStorageElement,
   assertStageResult,
   forUpdateStatements,
   resolveSwizzleTarget,
@@ -586,9 +587,9 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       const existing = ctx.storages?.get(name);
 
       if (existing) {
-        if (existing.type !== type || existing.access !== access) {
-          throw new Error(`[RMSL] conflicting storage declaration for "${name}"`);
-        }
+        if (existing.type !== type) throw new Error(`[RMSL] conflicting storage declaration for "${name}"`);
+        // Two nodes over one buffer, one read-only: the binding takes the wider access.
+        if (existing.access !== access) existing.access = "read_write";
         return { decls: [], body: [], expr: existing.wgslName };
       }
 
@@ -1087,6 +1088,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       if ((node.params![0] as any)?.type === "builtinPosition") {
         ctx.positionWritten = true;
       }
+      assignedStorageElement(node.params![0]);
       let rhs = compileWGSLStage(node.params![1], ctx);
 
       // WGSL only makes a single component assignable: `v.x = e` is a
@@ -1560,6 +1562,7 @@ export function compileWGSLWithStage(
 
   let nodes = Array.isArray(root) ? root : [root];
   let results = nodes.map((n) => compileWGSLStage(n, ctx));
+  let countExpr = options?.count ? compileWGSLStage(options.count, ctx).expr : undefined;
   let allBody: string[] = [];
   let lastExpr = "0.0";
   // The stage output is a fixed type (vec4 for gl_Position and the implicit
@@ -1735,7 +1738,9 @@ export function compileWGSLWithStage(
     lines.push("fn main(@builtin(global_invocation_id) _rmsl_globalId: vec3<u32>) {");
     lines.push("  let _rmsl_index = _rmsl_globalId.x;");
 
-    if (storages.length > 0) {
+    if (countExpr) {
+      lines.push(`  if (_rmsl_index >= ${countExpr}) { return; }`);
+    } else if (storages.length > 0) {
       const lengthStorage = storages[0];
       lines.push(`  if (_rmsl_index >= arrayLength(&${lengthStorage.wgslName})) { return; }`);
     } else if (ctx.attributes.size > 0) {
@@ -1831,6 +1836,11 @@ export type CompileWGSLOptions = {
    */
   uniforms?: WgslUniformDeclaration[];
   workgroupSize?: number;
+  /**
+   * A compute stage's dispatch count: invocations at or past it return
+   * immediately. Without it, the first storage buffer's length bounds the dispatch.
+   */
+  count?: Node<"uint">;
 };
 
 export const compileWgsl: {

@@ -109,8 +109,17 @@ value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
   the homogeneous component, as TSL's matrix·vector multiply does. Other
   vector widths narrower than the matrix's columns are not supported.
 - **`property()`, `uniformArray(values)` (value-owned), `buffer()`,
-  `compute()`, `pass()`, `debug()`** are not implemented; RMSL compiles a node
-  graph, it does not drive a renderer.
+  `pass()`, `debug()`** are not implemented; RMSL compiles a node graph, it
+  does not drive a renderer.
+- **Compute** follows TSL: `storage(attribute, type)`, `instancedArray()`,
+  `attributeArray()` and `fn().compute(count)`. `storage()` takes no `count`:
+  a buffer's length is always its attribute's `count`. What TSL's
+  renderer does with a `ComputeNode`, a context does here:
+  `createWgslContext()` from `@random-mesh/rmsl/wgsl`, or `createWasmContext()`
+  from `@random-mesh/rmsl/wasm`. Write a buffer with
+  `context.write(attribute, data)` rather than TSL's `attribute.array` plus
+  `needsUpdate`: a `StorageBufferAttribute` built from a count keeps no
+  CPU-side copy.
 - **Post-processing** is available from the `@random-mesh/rmsl/effects`
   subpath. The effects are pure node graphs — pass sampler uniforms and
   parameters, get a color node. See [effects.md](./effects.md) for the

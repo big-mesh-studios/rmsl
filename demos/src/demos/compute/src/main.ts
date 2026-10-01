@@ -2,7 +2,7 @@ import { createJsCompute, type JsComputeAdapter } from "@random-mesh/rmsl/js";
 import { createWasmCompute, type WasmComputeAdapter } from "@random-mesh/rmsl/wasm";
 import { createWgslCompute } from "@random-mesh/rmsl/wgsl";
 import { createGpuRenderer } from "./gpu-renderer";
-import { createForceSystem, createIntegrationSystem } from "./system";
+import { createForceSystem, createIntegrationSystem, createParticles } from "./system";
 
 // A real mouseleave/mouseout on `window` for "the pointer left the iframe"
 // is not reliably delivered across every browser (the sandboxed preview here
@@ -73,12 +73,13 @@ function seed(n: number) {
 seed(N);
 
 // === Two rmsl Fns — force then integration — dispatched together ===
-// One array of roots per adapter, not two adapters chained: `compile()`
-// dedupes storage() slots by name across roots, so both Fns share the
-// same posX/posY/velX/velY buffers and run in one invocation per particle
-// (force writes velocity, integration reads it back), on all three backends.
-const forceSystem = createForceSystem();
-const integrationSystem = createIntegrationSystem();
+// One array of roots per adapter, not two adapters chained: both Fns are
+// built over the same posX/posY/velX/velY storage nodes, so they share those
+// buffers and run in one invocation per particle (force writes velocity,
+// integration reads it back), on all three backends.
+const particles = createParticles(N);
+const forceSystem = createForceSystem(particles);
+const integrationSystem = createIntegrationSystem(particles);
 const roots = [forceSystem.program.root, integrationSystem.program.root];
 const force = forceSystem.slots;
 const integration = integrationSystem.slots;

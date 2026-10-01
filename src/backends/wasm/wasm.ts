@@ -13,7 +13,13 @@ import {
   ScalarKind,
   scalarKindOf,
 } from "../cpu";
-import { assertStageResult, CompileFnOptions, COMPONENT_INDEX, resolveSwizzleTarget } from "../shared";
+import {
+  assertStageResult,
+  assignedStorageElement,
+  CompileFnOptions,
+  COMPONENT_INDEX,
+  resolveSwizzleTarget,
+} from "../shared";
 import {
   f64ConstBytes,
   forLoop,
@@ -83,6 +89,8 @@ export type WasmParam =
       shaderType: ShaderType;
       metadataAddress: number;
       access: StorageAccess;
+      /** Whether the program assigns to the buffer; only then is it copied back after a call. */
+      written: boolean;
     };
 
 /**
@@ -753,6 +761,8 @@ export function compileWasmFn(
   const attributeAddress = new Map<string, number>();
   const varyingAddress = new Map<string, number>();
   const storageMetadataAddress = new Map<string, number>();
+  /** Slots of the storage buffers the program assigns to. */
+  const writtenStorage = new Set<string>();
 
   // one shared per-pixel input slot, allocated on first use
   let fragCoordAddress: number | undefined;
@@ -778,6 +788,7 @@ export function compileWasmFn(
   // every allocation behind a `.has()` check, so revisiting nodes shared
   // between roots (the array-return-sugar case) is idempotent.
   for (const n of resultNodes) collect(n);
+  for (const p of memoryParams) if (p.kind === "storageMemory") p.written = writtenStorage.has(p.slot);
 
   let resultKind: ScalarKind;
   let valueAddress: number | undefined;
@@ -1276,6 +1287,12 @@ export function compileWasmFn(
 
       case "storage": {
         const v = node.value;
+        if (storageMetadataAddress.has(v.slot) && v.access !== "read") {
+          // Two nodes over one buffer, one read-only: the buffer takes the wider access.
+          const param = memoryParams.find((p: any) => p.kind === "storageMemory" && p.slot === v.slot) as any;
+          if (param.access === "read") param.access = v.access;
+          needsResult = true;
+        }
         if (!storageMetadataAddress.has(v.slot)) {
           const addr = allocateBytes(STORAGE_META_STRIDE);
           storageMetadataAddress.set(v.slot, addr);
@@ -1286,6 +1303,7 @@ export function compileWasmFn(
             shaderType: v.shaderType,
             metadataAddress: addr,
             access: v.access,
+            written: false,
           });
         }
         break;
@@ -1380,6 +1398,9 @@ export function compileWasmFn(
       case "assign": {
         // remember a direct gl_Position write
         if (node.params[0].type === "builtinPosition") positionWritten = true;
+        // and which storage buffers are written
+        const element = assignedStorageElement(node.params[0]);
+        if (element) writtenStorage.add(element.params[0].value.slot);
         break;
       }
 
@@ -3454,7 +3475,8 @@ export function createWasmInputMarshaller(
           args.push((ctx.params as any)?.[p.name] as number);
           break;
         case "uniform":
-          args.push((ctx.uniforms as any)?.[p.slot] as number);
+          // An unset uniform reads zero, as in a zeroed GPU uniform buffer.
+          args.push(((ctx.uniforms as any)?.[p.slot] as number | undefined) ?? 0);
           break;
         case "attribute":
           args.push((ctx.attributes as any)?.[p.slot] as number);
@@ -3469,9 +3491,11 @@ export function createWasmInputMarshaller(
           writeAggregateToMemory(view, p.address, p.shaderType, (ctx.params as any)?.[p.name]);
           break;
         case "uniformMemory":
+          if ((ctx.uniforms as any)?.[p.slot] === undefined) break; // left as the zeroed memory it starts as
           writeValueToMemory(view, p.address, p.shaderType, (ctx.uniforms as any)?.[p.slot], p.narrow);
           break;
         case "uniformArrayMemory":
+          if ((ctx.uniforms as any)?.[p.slot] === undefined) break;
           writeArrayToMemory(
             view,
             p.address,
@@ -3508,10 +3532,16 @@ export function createWasmInputMarshaller(
   function marshalStorages(ctx: CpuShaderContext, heapBase: number): number {
     if (storageParams.length === 0) return heapBase;
     let cursor = Math.ceil(heapBase / 8) * 8;
+    const resident = storageParams.map((p) => ctx.storageBuffers?.[p.slot]);
     const lengths = storageParams.map(
-      (p) => ((ctx.storages as any)?.[p.slot] as ArrayLike<unknown> | undefined)?.length ?? 0,
+      (p, i) =>
+        resident[i]?.length ?? ((ctx.storages as any)?.[p.slot] as ArrayLike<unknown> | undefined)?.length ?? 0,
     );
     storageParams.forEach((p, i) => {
+      if (resident[i]) {
+        storageHeapAddress[i] = resident[i]!.address;
+        return;
+      }
       storageHeapAddress[i] = cursor;
       cursor = Math.ceil((cursor + lengths[i]! * storageElementSize(p.shaderType)) / 8) * 8;
     });
@@ -3524,7 +3554,7 @@ export function createWasmInputMarshaller(
       const base = storageHeapAddress[i]!;
       view.setInt32(p.metadataAddress + STORAGE_META_DATA_ADDR, base, true);
       view.setInt32(p.metadataAddress + STORAGE_META_LENGTH, lengths[i]!, true);
-      if (!array) return;
+      if (!array || resident[i]) return;
       const heap = scalarStorageView(p.shaderType, base, lengths[i]!);
       if (heap && ArrayBuffer.isView(array)) {
         heap.set(array as unknown as ArrayLike<number>);
@@ -3565,7 +3595,7 @@ export function createWasmInputMarshaller(
     if (storageParams.length === 0) return;
     const view = new DataView(memory.buffer);
     storageParams.forEach((p, i) => {
-      if (p.access === "read") return;
+      if (p.access === "read" || !p.written || ctx.storageBuffers?.[p.slot]) return;
       const array = (ctx.storages as any)?.[p.slot] as { length: number; [e: number]: unknown } | undefined;
       if (!array) return;
       const base = storageHeapAddress[i]!;

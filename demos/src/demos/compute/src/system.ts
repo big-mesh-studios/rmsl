@@ -1,4 +1,23 @@
-import { Fn, invocationIndex, storage, uniform, type Node } from "@random-mesh/rmsl";
+import { Fn, instancedArray, invocationIndex, uniform, type Node } from "@random-mesh/rmsl";
+
+type FloatStorage = ReturnType<typeof instancedArray<"float">>;
+
+/** The per-particle buffers both systems read and write, one element per particle. */
+export type Particles = {
+  posX: FloatStorage;
+  posY: FloatStorage;
+  velX: FloatStorage;
+  velY: FloatStorage;
+};
+
+export function createParticles(count: number): Particles {
+  return {
+    posX: instancedArray(count, "float"),
+    posY: instancedArray(count, "float"),
+    velX: instancedArray(count, "float"),
+    velY: instancedArray(count, "float"),
+  };
+}
 
 export type ForceSystem = {
   program: { root: Node<"void"> };
@@ -22,11 +41,7 @@ export type ForceSystem = {
  * two are dispatched as one array of roots, so this system's velocity
  * write and integration's velocity read land in the same invocation.
  */
-export function createForceSystem(): ForceSystem {
-  let posX!: ReturnType<typeof storage<"float">>;
-  let posY!: ReturnType<typeof storage<"float">>;
-  let velX!: ReturnType<typeof storage<"float">>;
-  let velY!: ReturnType<typeof storage<"float">>;
+export function createForceSystem({ posX, posY, velX, velY }: Particles): ForceSystem {
   let pointerX!: ReturnType<typeof uniform<"float">>;
   let pointerY!: ReturnType<typeof uniform<"float">>;
   let mode!: ReturnType<typeof uniform<"float">>;
@@ -35,10 +50,6 @@ export function createForceSystem(): ForceSystem {
   let dt!: ReturnType<typeof uniform<"float">>;
 
   const root = Fn(() => {
-    posX = storage("posX", "float", { access: "read_write" });
-    posY = storage("posY", "float", { access: "read_write" });
-    velX = storage("velX", "float", { access: "read_write" });
-    velY = storage("velY", "float", { access: "read_write" });
     pointerX = uniform("float");
     pointerY = uniform("float");
     mode = uniform("float");
@@ -105,21 +116,13 @@ export type IntegrationSystem = {
   };
 };
 
-export function createIntegrationSystem(): IntegrationSystem {
+export function createIntegrationSystem({ posX, posY, velX, velY }: Particles): IntegrationSystem {
   let width!: ReturnType<typeof uniform<"float">>;
   let height!: ReturnType<typeof uniform<"float">>;
   let dt!: ReturnType<typeof uniform<"float">>;
   let damping!: ReturnType<typeof uniform<"float">>;
-  let posX!: ReturnType<typeof storage<"float">>;
-  let posY!: ReturnType<typeof storage<"float">>;
-  let velX!: ReturnType<typeof storage<"float">>;
-  let velY!: ReturnType<typeof storage<"float">>;
 
   const root = Fn(() => {
-    posX = storage("posX", "float", { access: "read_write" });
-    posY = storage("posY", "float", { access: "read_write" });
-    velX = storage("velX", "float", { access: "read_write" });
-    velY = storage("velY", "float", { access: "read_write" });
     width = uniform("float");
     height = uniform("float");
     dt = uniform("float");

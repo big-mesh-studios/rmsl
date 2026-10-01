@@ -10,13 +10,20 @@ export type CpuShaderContext = {
   /** Pixel being evaluated, which `fragCoord()` reads on the CPU target. */
   fragCoord?: [number, number];
   /**
-   * Backing arrays for `storage()` slots, one per name passed to `storage()`.
+   * Backing arrays for `storage()` slots, keyed by each storage node's `.name`.
    * A `storage()`-based program runs once per element with `index` set to
    * that element's position — the same per-invocation semantics WGSL's
    * compute path gives it, driven by `CpuRoutine.compute()` instead of the
    * GPU's own dispatch. Any invocation may read or write any element.
    */
   storages?: Record<string, ArrayLike<number> & { [i: number]: number }>;
+  /**
+   * Storage buffers already in the WASM routine's own memory, by slot: the
+   * byte address of the first element and the element count. A slot listed
+   * here is read and written in place instead of being copied in from
+   * `storages` and back out. Ignored by the JS target.
+   */
+  storageBuffers?: Record<string, { address: number; length: number }>;
   /** The current element index, which `invocationIndex()` reads on the CPU target. */
   index?: number;
 };

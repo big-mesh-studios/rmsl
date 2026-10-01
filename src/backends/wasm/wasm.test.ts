@@ -18,6 +18,8 @@ import {
   uniform,
   uniformArray,
   storage,
+  instancedArray,
+  StorageBufferAttribute,
   invocationIndex,
   type UniformNode,
   vec2,
@@ -1698,32 +1700,36 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
     // element, `ctx.index` naming which one, `ctx.storages` the backing
     // arrays it reads/writes directly.
     let dt!: UniformNode<"float">;
+    const velNode = instancedArray(3, "float").toReadOnly();
+    const posNode = instancedArray(3, "float");
     const build = () =>
       Fn(() => {
-        const vel = storage("vel", "float");
-        const pos = storage("pos", "float", { access: "read_write" });
         dt = uniform("float");
         const i = invocationIndex();
-        pos.element(i).addAssign(vel.element(i).mul(dt));
+        posNode.element(i).addAssign(velNode.element(i).mul(dt));
       })();
     const fn = compileWasmRoutine(build as any, { name: "step", params: [] });
 
     const pos = new Float64Array([0, 10, 20]);
     const vel = new Float64Array([1, 2, 3]);
     for (let i = 0; i < pos.length; i++) {
-      fn.run({ storages: { vel, pos }, uniforms: { [dt.name]: 2 }, index: i });
+      fn.run({ storages: { [velNode.name]: vel, [posNode.name]: pos }, uniforms: { [dt.name]: 2 }, index: i });
     }
     expect(Array.from(pos)).toEqual([2, 14, 26]);
   });
 
   it("compiles a caller-supplied array of independently-built roots, keeping every root's effects", () => {
-    // Two disjoint Fns (their own separate storage()/uniform() calls, no
-    // shared node identity at all) passed as one array — the shape
-    // compileWasmRoutine(..., [forceSystem.root, integrationSystem.root])
+    // Two disjoint Fns (their own separate storage()/uniform() calls, sharing
+    // only the buffer objects, no node identity) passed as one array — the
+    // shape compileWasmRoutine(..., [forceSystem.root, integrationSystem.root])
     // uses. Both roots must take effect, not just the last one.
+    const velBuffer = new StorageBufferAttribute(1, 1, Float32Array);
+    const posBuffer = new StorageBufferAttribute(1, 1, Float32Array);
+    let velSlot!: string;
+    let posSlot!: string;
     let force!: UniformNode<"float">;
     const forceRoot = Fn(() => {
-      const vel = storage("vel", "float", { access: "read_write" });
+      const vel = storage(velBuffer, "float");
       force = uniform("float");
       const i = invocationIndex();
       vel.element(i).addAssign(force);
@@ -1731,8 +1737,10 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
 
     let dt!: UniformNode<"float">;
     const integrationRoot = Fn(() => {
-      const vel = storage("vel", "float");
-      const pos = storage("pos", "float", { access: "read_write" });
+      const vel = storage(velBuffer, "float").toReadOnly();
+      const pos = storage(posBuffer, "float");
+      velSlot = vel.name;
+      posSlot = pos.name;
       dt = uniform("float");
       const i = invocationIndex();
       pos.element(i).addAssign(vel.element(i).mul(dt));
@@ -1742,7 +1750,7 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
 
     const pos = new Float64Array([0]);
     const vel = new Float64Array([1]);
-    fn.run({ storages: { vel, pos }, uniforms: { [force.name]: 4, [dt.name]: 2 }, index: 0 });
+    fn.run({ storages: { [velSlot]: vel, [posSlot]: pos }, uniforms: { [force.name]: 4, [dt.name]: 2 }, index: 0 });
     // force bumps vel 1 -> 5, then integration advances pos by vel * dt = 10.
     // Before the fix, only the last root (integration) compiled, "force"
     // never ran, and pos advanced by the stale vel (1 * 2 = 2) instead.
@@ -1756,30 +1764,30 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
     // be emitted exactly once, even though it's now reached once per array
     // item instead of only through the last one.
     let vel!: any;
+    const posNode = instancedArray(1, "float");
     const build = () =>
       Fn(() => {
-        const pos = storage("pos", "float", { access: "read_write" });
         vel = uniform("float");
         const i = invocationIndex();
-        const bumped = pos.element(i).addAssign(vel);
+        const bumped = posNode.element(i).addAssign(vel);
         return [bumped, bumped];
       })();
     const fn = compileWasmRoutine(build as any, { name: "step", params: [] });
 
     const pos = new Float64Array([10]);
-    fn.run({ storages: { pos }, uniforms: { [vel.name]: 3 }, index: 0 });
+    fn.run({ storages: { [posNode.name]: pos }, uniforms: { [vel.name]: 3 }, index: 0 });
     // Duplicated emission would run the addAssign twice (10 -> 16); emitted
     // once, it should land at 13.
     expect(Array.from(pos)).toEqual([13]);
   });
 
   it("reads and writes vector elements other than the invocation's own, as the JS target does", () => {
+    const srcNode = instancedArray(3, "vec3").toReadOnly();
+    const dstNode = instancedArray(3, "vec3");
     const build = () =>
       Fn(() => {
-        const src = storage("src", "vec3");
-        const dst = storage("dst", "vec3", { access: "read_write" });
         const i = invocationIndex();
-        dst.element(uint(2).sub(i)).assign(src.element(i).mul(2));
+        dstNode.element(uint(2).sub(i)).assign(srcNode.element(i).mul(2));
       })();
     const run = (routine: ReturnType<typeof compileWasmRoutine>) => {
       const src = [
@@ -1792,7 +1800,7 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
         [0, 0, 0],
         [0, 0, 0],
       ];
-      routine.compute({ storages: { src, dst } as any }, 3);
+      routine.compute({ storages: { [srcNode.name]: src, [dstNode.name]: dst } as any }, 3);
       return dst;
     };
 
@@ -1808,31 +1816,31 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
   it("reads an element outside the buffer as zero, and drops a write outside it", () => {
     // The buffers sit next to each other in memory, so an unchecked access
     // past the end of `a` would read or overwrite `b`'s first element.
+    const aNode = instancedArray(2, "float");
+    const bNode = instancedArray(2, "float");
     const build = () =>
       Fn(() => {
-        const a = storage("a", "float", { access: "read_write" });
-        const b = storage("b", "float", { access: "read_write" });
         const i = invocationIndex();
-        b.element(i).assign(a.element(i.add(2)));
-        a.element(i.add(2)).assign(float(-1));
+        bNode.element(i).assign(aNode.element(i.add(2)));
+        aNode.element(i.add(2)).assign(float(-1));
       })();
     const fn = compileWasmRoutine(build as any, { name: "step", params: [] });
 
     const a = new Float64Array([1, 2]);
     const b = new Float64Array([7, 8]);
-    fn.compute({ storages: { a, b } }, 2);
+    fn.compute({ storages: { [aNode.name]: a, [bNode.name]: b } }, 2);
     expect(Array.from(a)).toEqual([1, 2]);
     expect(Array.from(b)).toEqual([0, 0]);
   });
 
   it("runs a whole dispatch inside the module, in one call from the host", () => {
     let dt!: UniformNode<"float">;
+    const posNode = instancedArray(4, "float");
     const build = () =>
       Fn(() => {
-        const pos = storage("pos", "float", { access: "read_write" });
         dt = uniform("float");
         const i = invocationIndex();
-        pos.element(i).addAssign(i.toFloat().mul(dt));
+        posNode.element(i).addAssign(i.toFloat().mul(dt));
       })();
     const compiled = compileWasmFn(build as any, { name: "step", params: [] });
     expect(compiled.compute).toBe(true);
@@ -1842,40 +1850,37 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
 
     const fn = instantiateWasmRoutine(compiled, "step");
     const pos = new Float64Array([1, 1, 1, 1]);
-    fn.compute({ storages: { pos }, uniforms: { [dt.name]: 2 } }, 4);
+    fn.compute({ storages: { [posNode.name]: pos }, uniforms: { [dt.name]: 2 } }, 4);
     expect(Array.from(pos)).toEqual([1, 3, 5, 7]);
   });
 
   it("dispatches a program that never reads invocationIndex(), once per invocation", () => {
+    const countNode = instancedArray(1, "int");
     const build = () =>
       Fn(() => {
-        const count = storage("count", "int", { access: "read_write" });
-        count.element(0).addAssign(1);
+        countNode.element(0).addAssign(1);
       })();
     const fn = compileWasmRoutine(build as any, { name: "step", params: [] });
     const count = new Int32Array([0]);
-    fn.compute({ storages: { count } }, 5);
+    fn.compute({ storages: { [countNode.name]: count } }, 5);
     expect(Array.from(count)).toEqual([5]);
   });
 
   it("dispatches a program whose main returns a value, discarding it", () => {
     // Read-only storage leaves main returning its value directly rather than
     // through memory, so the dispatch loop has a result on the stack to drop.
-    const build = () =>
-      Fn(() => {
-        const src = storage("src", "float");
-        return src.element(invocationIndex()).mul(2);
-      })();
+    const src = instancedArray(3, "float").toReadOnly();
+    const build = () => Fn(() => src.element(invocationIndex()).mul(2))();
     const compiled = compileWasmFn(build as any, { name: "step", params: [] });
     expect(compiled.compute).toBe(true);
     const fn = instantiateWasmRoutine(compiled, "step");
-    expect(() => fn.compute({ storages: { src: new Float64Array([1, 2, 3]) } }, 3)).not.toThrow();
+    expect(() => fn.compute({ storages: { [src.name]: new Float64Array([1, 2, 3]) } }, 3)).not.toThrow();
   });
 
   it("refuses a storage() read as a whole rather than through .element(i)", () => {
     const build = () =>
       Fn(() => {
-        const a = storage("a", "float");
+        const a = instancedArray(1, "float").toReadOnly();
         return (a as any).add(1);
       })();
     expect(() => compileWasmRoutine(build as any, { name: "step", params: [] })).toThrow(/read one element/);
@@ -1967,5 +1972,24 @@ describe("WASM backend: scalarsInMemory — scalar uniform/attribute/varying for
     const compiled = compileWasmFn(build, { name: "main", params: [] });
     expect(compiled.params.some((p) => p.kind === "uniform")).toBe(true);
     expect(compiled.params.some((p) => p.kind === "uniformMemory")).toBe(false);
+  });
+});
+
+describe("WASM backend: which storage buffers are copied back", () => {
+  it("marks a storage buffer written only when the program assigns to it", () => {
+    const input = instancedArray(4, "float");
+    const output = instancedArray(4, "vec2");
+    const compiled = compileWasmFn(
+      () =>
+        Fn(() => {
+          const i = invocationIndex();
+          output.element(i).assign(vec2(input.element(i), 0));
+        })(),
+      { name: "main", params: [] },
+    );
+    const written = Object.fromEntries(
+      compiled.params.flatMap((p) => (p.kind === "storageMemory" ? [[p.slot, p.written]] : [])),
+    );
+    expect(written).toEqual({ [input.name]: false, [output.name]: true });
   });
 });

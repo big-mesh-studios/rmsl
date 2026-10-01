@@ -729,6 +729,8 @@ export interface NodeMethods<A extends ShaderType> {
   toVar(name?: string): Node<A>;
   /** TSL's shorthand for `toVar()`. */
   var(name?: string): Node<A>;
+  /** This program, dispatched once per index in `0..count`, as TSL's `.compute()`. */
+  compute(count: number, workgroupSize?: number): ComputeNode;
   assign(value: BaseNode<A> | Node<A>): void;
   // === Compound assignments (as TSL's `addAssign`/`mulAssign`/...) ===
   addAssign(other: FloatLike | IntLike | UintLike | Vec2Like | Vec3Like | Vec4Like): void;
@@ -1155,6 +1157,10 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
         }),
       );
     });
+  }
+
+  compute(count: number, workgroupSize?: number): ComputeNode {
+    return compute(this as unknown as Node<ShaderType>, count, workgroupSize);
   }
 
   toVar(name?: string): Node<A> {
@@ -2528,37 +2534,180 @@ export function uniform<T extends ShaderType>(shaderType: T): UniformNode<T> {
 export type StorageAccess = "read" | "write" | "read_write";
 
 export type StorageNode<A extends ShaderType> = VariableNode<A> & {
-  access: StorageAccess;
+  readonly access: StorageAccess;
+  /** The buffer this node reads and writes. Every node over the same attribute shares one buffer. */
+  attribute: StorageBufferAttribute;
   element(index: IntLike | UintLike | FloatLike): Node<A>;
+  /** Makes this node read-only, as TSL's `toReadOnly()`, and returns it. */
+  toReadOnly(): StorageNode<A>;
 };
 
-export function storage<T extends ShaderType>(
-  name: string,
-  shaderType: T,
-  options: { access?: StorageAccess } = {},
-): StorageNode<T> {
-  const access = options.access ?? "read";
+/** A typed-array constructor a storage buffer's elements can be stored in. */
+export type StorageArrayClass = Float32ArrayConstructor | Int32ArrayConstructor | Uint32ArrayConstructor;
 
-  const result = node({
-    _t: shaderType,
-    type: "storage",
-    value: {
-      slot: name,
-      shaderType,
-      access,
-    },
-    name,
-  }) as StorageNode<T>;
+let nextStorageBufferId = 0;
 
-  result.access = access;
+/**
+ * The buffer behind a {@link storage} node, as TSL's `StorageBufferAttribute`:
+ * `count` elements of `itemSize` components each. Built from a typed array,
+ * that array is the buffer's initial contents; built from a count, the buffer
+ * starts zeroed and `array` stays `null` — unlike TSL, no CPU-side copy is
+ * kept for a buffer that only the GPU (or WASM) side reads and writes.
+ */
+export class StorageBufferAttribute {
+  readonly id = nextStorageBufferId++;
+  readonly count: number;
+  readonly itemSize: number;
+  readonly arrayClass: StorageArrayClass;
+  readonly array: Float32Array | Int32Array | Uint32Array | null;
+
+  constructor(
+    countOrArray: number | Float32Array | Int32Array | Uint32Array,
+    itemSize = 1,
+    arrayClass: StorageArrayClass = Float32Array,
+  ) {
+    this.itemSize = itemSize;
+    if (typeof countOrArray === "number") {
+      this.count = countOrArray;
+      this.arrayClass = arrayClass;
+      this.array = null;
+    } else {
+      if (countOrArray.length % itemSize !== 0) {
+        throw new Error(
+          `[RMSL] a typed array of ${countOrArray.length} values isn't a whole number of elements of itemSize ${itemSize}`,
+        );
+      }
+      this.count = countOrArray.length / itemSize;
+      this.arrayClass = countOrArray.constructor as StorageArrayClass;
+      this.array = countOrArray;
+    }
+  }
+}
+
+/**
+ * As TSL's `StorageInstancedBufferAttribute`. It differs from
+ * {@link StorageBufferAttribute} only in how a render pipeline steps through
+ * it — once per instance rather than once per vertex.
+ */
+export class StorageInstancedBufferAttribute extends StorageBufferAttribute {}
+
+/**
+ * A storage buffer node over `attribute`, as TSL's `storage()`. Read and
+ * written through `.element(i)`; read-write unless {@link StorageNode.toReadOnly}
+ * is called.
+ */
+export function storage<T extends ShaderType>(attribute: StorageBufferAttribute, shaderType: T): StorageNode<T> {
+  assertStorageLayout(attribute, shaderType);
+  const slot = `_rmsl_b${attribute.id}`;
+  const value = { slot, shaderType, access: "read_write" as StorageAccess, attribute };
+
+  const result = node({ _t: shaderType, type: "storage", value, name: slot }) as StorageNode<T>;
+
+  Object.defineProperty(result, "access", { get: () => value.access, enumerable: true });
+  result.attribute = attribute;
   result.element = (index: IntLike | UintLike | FloatLike) =>
     node({
       _t: shaderType,
       type: "storageElement",
       params: [result, wrapValue(index) as BaseNode<ShaderType>],
     }) as Node<T>;
+  result.toReadOnly = () => {
+    value.access = "read";
+    return result;
+  };
 
   return result;
+}
+
+/** Components in one element of `shaderType`: 1 for a scalar, the width of a vector, columns × rows of a matrix. */
+function componentsOf(shaderType: ShaderType): number {
+  const shape = MATRIX_DIMENSIONS[shaderType];
+  return shape ? shape[0] * shape[1] : (TYPE_WIDTH[shaderType] ?? 1);
+}
+
+/**
+ * Throws unless `attribute` holds elements of `shaderType`: its `itemSize`
+ * the type's component count, its array class the type's component type.
+ * Every backend lays a buffer out from the attribute, so a mismatch would
+ * read or write past an element, or reinterpret its bits.
+ */
+function assertStorageLayout(attribute: StorageBufferAttribute, shaderType: ShaderType): void {
+  if (shaderType === "bool" || shaderType.startsWith("bvec")) {
+    throw new Error(
+      `[RMSL] a storage buffer can't hold ${shaderType} elements, as WGSL's can't; store them as uint (or uvec) instead`,
+    );
+  }
+  const components = componentsOf(shaderType);
+  if (attribute.itemSize !== components) {
+    throw new Error(
+      `[RMSL] a ${shaderType} storage node needs ${components} components per element, but its attribute has itemSize ${attribute.itemSize}`,
+    );
+  }
+  const arrayClass = storageArrayClass(shaderType);
+  if (attribute.arrayClass !== arrayClass) {
+    throw new Error(
+      `[RMSL] a ${shaderType} storage node needs a ${arrayClass.name} attribute, but its attribute holds a ${attribute.arrayClass.name}`,
+    );
+  }
+}
+
+function storageArrayClass(shaderType: ShaderType): StorageArrayClass {
+  if (shaderType === "int" || shaderType.startsWith("ivec")) return Int32Array;
+  if (shaderType === "uint" || shaderType.startsWith("uvec")) return Uint32Array;
+  return Float32Array;
+}
+
+function storageArrayNode<T extends ShaderType>(
+  Attribute: typeof StorageBufferAttribute,
+  countOrArray: number | Float32Array | Int32Array | Uint32Array,
+  shaderType: T,
+): StorageNode<T> {
+  const attribute = new Attribute(countOrArray, componentsOf(shaderType), storageArrayClass(shaderType));
+  return storage(attribute, shaderType);
+}
+
+/**
+ * A storage node over a new {@link StorageBufferAttribute} of `countOrArray`
+ * elements of `shaderType`, as TSL's `attributeArray()`.
+ */
+export function attributeArray<T extends ShaderType = "float">(
+  countOrArray: number | Float32Array | Int32Array | Uint32Array,
+  shaderType: T = "float" as T,
+): StorageNode<T> {
+  return storageArrayNode(StorageBufferAttribute, countOrArray, shaderType);
+}
+
+/**
+ * A storage node over a new {@link StorageInstancedBufferAttribute} of
+ * `countOrArray` elements of `shaderType`, as TSL's `instancedArray()`.
+ */
+export function instancedArray<T extends ShaderType = "float">(
+  countOrArray: number | Float32Array | Int32Array | Uint32Array,
+  shaderType: T = "float" as T,
+): StorageNode<T> {
+  return storageArrayNode(StorageInstancedBufferAttribute, countOrArray, shaderType);
+}
+
+/**
+ * A compute program with its dispatch size, as TSL's `ComputeNode`. Runs
+ * `computeNode` once per index in `0..count`; `countNode` is the uniform the
+ * compiled program checks each index against, so `count` can change without
+ * recompiling.
+ */
+export class ComputeNode {
+  readonly isComputeNode = true;
+  readonly countNode: UniformNode<"uint"> = uniform("uint");
+
+  constructor(
+    readonly computeNode: Node<ShaderType>,
+    public count: number,
+    readonly workgroupSize = 64,
+  ) {}
+}
+
+/** `node` dispatched once per index in `0..count`, as TSL's `compute()`. */
+export function compute(node: Node<ShaderType>, count: number, workgroupSize = 64): ComputeNode {
+  return new ComputeNode(node, count, workgroupSize);
 }
 
 export function invocationIndex(): Node<"uint"> {

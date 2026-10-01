@@ -1,4 +1,5 @@
-import type { Node, ShaderType, StorageAccess } from "./core";
+import type { ComputeNode, Node, ShaderType, StorageAccess, StorageBufferAttribute } from "./core";
+import { someNode } from "./backends/shared";
 import { compileWgsl, wgslUniformLayout, WGSL_UNIFORM_STRUCT } from "./backends/wgsl/wgsl";
 
 export type WgslStage = "compute" | "vertex" | "fragment";
@@ -9,6 +10,8 @@ export type WgslResource =
       name: string;
       shaderType: ShaderType;
       access: StorageAccess;
+      /** The buffer the storage node reads and writes. */
+      attribute: StorageBufferAttribute;
       group: number;
       binding: number;
     }
@@ -43,27 +46,20 @@ export interface WgslCompileOptions {
  * Storage resources are collected from the node graph itself, not the
  * generated code: the WGSL backend's binding declarations carry only the
  * internal `_rmsl_sN` name it invents per binding (see `compileWGSLWithStage`
- * in `src/backends/wgsl.ts`), never the RMSL slot name a caller actually
- * passed to `storage()` — that name exists only on the graph's nodes. Binding
- * order is reproduced exactly as the backend assigns it: every distinct
- * `storage()` slot reachable from `root`, sorted by slot name.
+ * in `src/backends/wgsl.ts`), never the storage node's slot name (its `.name`,
+ * one per buffer attribute) — that name exists only on the graph's nodes.
+ * Binding order is reproduced exactly as the backend assigns it: every
+ * distinct `storage()` slot reachable from `root`, sorted by slot name.
  */
 function collectStorageResources(root: Node<ShaderType> | readonly Node<ShaderType>[]): WgslResource[] {
-  const seen = new Map<string, { shaderType: ShaderType; access: StorageAccess }>();
-  const visited = new Set<unknown>();
-
-  function walk(node: any): void {
-    if (!node || typeof node !== "object" || visited.has(node)) return;
-    visited.add(node);
-    if (node.type === "storage") {
-      const v = node.value;
-      if (!seen.has(v.slot)) seen.set(v.slot, { shaderType: v.shaderType, access: v.access });
-    }
-    if (Array.isArray(node.params)) for (const p of node.params) walk(p);
-  }
-
-  const roots = Array.isArray(root) ? root : root ? [root] : [];
-  for (const r of roots) walk(r);
+  const seen = new Map<string, { shaderType: ShaderType; access: StorageAccess; attribute: StorageBufferAttribute }>();
+  someNode(root, (node) => {
+    if (node.type !== "storage") return;
+    const v = node.value;
+    const existing = seen.get(v.slot);
+    if (!existing) seen.set(v.slot, { shaderType: v.shaderType, access: v.access, attribute: v.attribute });
+    else if (existing.access !== v.access) existing.access = "read_write";
+  });
 
   return [...seen.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
@@ -72,6 +68,7 @@ function collectStorageResources(root: Node<ShaderType> | readonly Node<ShaderTy
       name,
       shaderType: info.shaderType,
       access: info.access,
+      attribute: info.attribute,
       group: 1,
       binding,
     }));
@@ -119,18 +116,24 @@ function inferUniformResources(code: string): WgslResource[] {
   }));
 }
 
+/**
+ * Compiles a compute program. Given a {@link ComputeNode}, its own
+ * `workgroupSize` is used and the program is bounded by its `countNode`
+ * rather than by the first storage buffer's length.
+ */
 export function compile(
   options: WgslCompileOptions,
-  root: Node<ShaderType> | readonly Node<ShaderType>[],
+  program: Node<ShaderType> | readonly Node<ShaderType>[] | ComputeNode,
 ): WgslProgram {
   if (options.stage !== "compute") {
     throw new Error(`[RMSL] @random-mesh/rmsl/wgsl currently supports only compute compilation`);
   }
 
-  const workgroupSize = options.workgroupSize ?? 64;
-  const code = compileWgsl.compute(root as Node<ShaderType> | readonly Node<ShaderType>[], {
-    workgroupSize,
-  });
+  // Checked by flag rather than instanceof, so a node from another copy of the package is still recognized.
+  const computeNode = (program as ComputeNode).isComputeNode ? (program as ComputeNode) : undefined;
+  const root = computeNode ? computeNode.computeNode : (program as Node<ShaderType> | readonly Node<ShaderType>[]);
+  const workgroupSize = computeNode?.workgroupSize ?? options.workgroupSize ?? 64;
+  const code = compileWgsl.compute(root, { workgroupSize, count: computeNode?.countNode });
 
   return {
     code,
@@ -148,6 +151,8 @@ export { compileWgslFn } from "./backends/wgsl/wgsl";
 
 export type { Adapter, TypedArray } from "./backends/adapter";
 export { createWgsl, createWgslCompute } from "./backends/wgsl/adapter-wgsl";
+export { createWgslContext } from "./backends/wgsl/context-wgsl";
+export type { CreateWgslContextOptions, WgslContext } from "./backends/wgsl/context-wgsl";
 export type {
   AdapterResult,
   CreateWgslAdapterOptions,

@@ -1,4 +1,4 @@
-import { BaseNode, MATRIX_DIMENSIONS, Node, NodeImpl, ShaderType, TYPE_WIDTH } from "../core";
+import { BaseNode, MATRIX_DIMENSIONS, Node, NodeImpl, ShaderType, StorageBufferAttribute, TYPE_WIDTH } from "../core";
 import { componentKindOf } from "./cpu";
 /**
  * What compiling one node yields: statements to emit, how to refer to it, and
@@ -591,3 +591,54 @@ export type CompileFnOptions = {
   name: string;
   params: Array<{ name: string; type: ShaderType }>;
 };
+
+/**
+ * Calls `visit` on each node reachable from the roots through `params`,
+ * stopping at the first that returns true. Returns whether one did.
+ */
+export function someNode(roots: unknown, visit: (node: any) => boolean | void): boolean {
+  const visited = new Set<unknown>();
+  const walk = (node: any): boolean => {
+    if (!node || typeof node !== "object" || visited.has(node)) return false;
+    visited.add(node);
+    if (Array.isArray(node)) return node.some(walk);
+    return visit(node) === true || (Array.isArray(node.params) && node.params.some(walk));
+  };
+  return walk(roots);
+}
+
+/** Every storage attribute reachable from the roots, keyed by the slot name its nodes compile to. */
+export function storageAttributes(roots: unknown): Map<string, StorageBufferAttribute> {
+  const attributes = new Map<string, StorageBufferAttribute>();
+  someNode(roots, (node) => {
+    if (node.type === "storage") attributes.set(node.value.slot, node.value.attribute);
+  });
+  return attributes;
+}
+
+/**
+ * The storage element an assignment to `target` writes, through any swizzle
+ * or component of it, or undefined if it writes none. Throws if the element's
+ * storage node was made read-only, so no backend writes through it.
+ */
+export function assignedStorageElement(target: any): any {
+  while (["swizzle", "vectorElement", "matrixElement"].includes(target?.type)) target = target.params[0];
+  if (target?.type !== "storageElement") return undefined;
+  if (target.params[0].value.access === "read") {
+    throw new Error("[RMSL] can't assign to an element of a storage node made read-only with toReadOnly()");
+  }
+  return target;
+}
+
+/**
+ * Throws unless `length` values from element `offset` on fit in the
+ * attribute's buffer, so a context's `write()` fails the same way on every backend.
+ */
+export function assertWriteFits(attribute: StorageBufferAttribute, length: number, offset: number): void {
+  const capacity = attribute.count * attribute.itemSize;
+  if (offset * attribute.itemSize + length > capacity) {
+    throw new Error(
+      `[RMSL] writing ${length} values from element ${offset} runs past the end of an attribute of ${capacity} values`,
+    );
+  }
+}
