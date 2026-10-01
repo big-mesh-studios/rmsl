@@ -424,7 +424,33 @@ const SCRATCH_NODE_TYPES = new Set([
   "bitNot",
   "shiftLeft",
   "shiftRight",
+  "negate",
+  "abs",
+  "min",
+  "max",
+  "lessThan",
+  "greaterThan",
+  "lessThanEqual",
+  "greaterThanEqual",
+  "equal",
+  "notEqual",
 ]);
+
+/** The comparison opcodes for each comparison node: `[float, int, uint]`. */
+const COMPARISON_OPCODES: Record<string, [number, number, number]> = {
+  lessThan: [WASM_OP.f64Lt, WASM_OP.i32LtS, WASM_OP.i32LtU],
+  greaterThan: [WASM_OP.f64Gt, WASM_OP.i32GtS, WASM_OP.i32GtU],
+  lessThanEqual: [WASM_OP.f64Le, WASM_OP.i32LeS, WASM_OP.i32LeU],
+  greaterThanEqual: [WASM_OP.f64Ge, WASM_OP.i32GeS, WASM_OP.i32GeU],
+  equal: [WASM_OP.f64Eq, WASM_OP.i32Eq, WASM_OP.i32Eq],
+  notEqual: [WASM_OP.f64Ne, WASM_OP.i32Ne, WASM_OP.i32Ne],
+};
+
+/** One component of a comparison, on operands of `kind`. */
+function comparisonBytes(type: string, a: number[], b: number[], kind: ScalarKind): number[] {
+  const [f64op, i32sOp, i32uOp] = COMPARISON_OPCODES[type]!;
+  return [...a, ...b, kind === "float" ? f64op : kind === "uint" ? i32uOp : i32sOp];
+}
 
 /**
  * True when `node` is one of the anonymous aggregate results
@@ -1688,6 +1714,16 @@ export function compileWasmFn(
       case "bitNot":
       case "shiftLeft":
       case "shiftRight":
+      case "negate":
+      case "abs":
+      case "min":
+      case "max":
+      case "lessThan":
+      case "greaterThan":
+      case "lessThanEqual":
+      case "greaterThanEqual":
+      case "equal":
+      case "notEqual":
         return emitComponentwiseStores(node, nodeAddress(node));
       case "mul":
         // a true matrix product only when BOTH operands are matrices
@@ -2325,10 +2361,11 @@ export function compileWasmFn(
   }
 
   /**
-   * Element-wise op over same-width vectors — binary, or unary for `bitNot` —
-   * with scalar operands broadcast
-   * by re-evaluating them (walkExpr) per component; aggregate operands are
-   * materialized once and loaded per component.
+   * Element-wise op over same-width vectors — binary, or unary for `bitNot`,
+   * `negate` and `abs` — with scalar operands broadcast by re-evaluating them
+   * (walkExpr) per component; aggregate operands are materialized once and
+   * loaded per component. A comparison reads operands of its first operand's
+   * kind and stores a boolean vector.
    */
   function emitComponentwiseStores(node: any, addr: number): number[] {
     const [a, b] = node.params;
@@ -2336,6 +2373,13 @@ export function compileWasmFn(
     const compSize = componentSizeOf(targetKind);
     const width = componentCountOf(node._t as string);
     const aWidth = componentCountOf(a._t);
+    // Only a comparison's operands differ in kind from its result.
+    const operandKind = !COMPARISON_OPCODES[node.type]
+      ? targetKind
+      : aWidth > 1
+        ? elementKindOf(a._t as string)
+        : scalarKindOf(a._t as string);
+    const operandSize = componentSizeOf(operandKind);
     const bWidth = b === undefined ? 0 : componentCountOf(b._t);
     const out: number[] = [];
     if (aWidth > 1) out.push(...materializeIfNeeded(a));
@@ -2343,10 +2387,20 @@ export function compileWasmFn(
     const aAddr = aWidth > 1 ? nodeAddress(a) : undefined;
     const bAddr = bWidth > 1 ? nodeAddress(b) : undefined;
     const combine = (aBytes: number[], bBytes: number[]): number[] => {
-      const float = targetKind === "float";
+      const float = operandKind === "float";
+      if (COMPARISON_OPCODES[node.type]) return comparisonBytes(node.type, aBytes, bBytes, operandKind);
+      if (node.type === "min" || node.type === "max") return minMaxBytes(aBytes, bBytes, operandKind, node.type);
+      if (node.type === "negate")
+        return float ? [...aBytes, WASM_OP.f64Neg] : [...i32ConstBytes(0), ...aBytes, WASM_OP.i32Sub];
+      if (node.type === "abs") {
+        if (float) return [...aBytes, WASM_OP.f64Abs];
+        if (operandKind === "uint") return aBytes;
+        const negated = [...i32ConstBytes(0), ...aBytes, WASM_OP.i32Sub];
+        return selectExpr(negated, aBytes, [...aBytes, ...i32ConstBytes(0), WASM_OP.i32LtS]);
+      }
       if (node.type === "mod" && float) return flooredModulo(aBytes, bBytes);
       if ((node.type === "div" || node.type === "mod") && !float) {
-        return [...aBytes, ...bBytes, ...integerDivision(targetKind as "int" | "uint", node.type)];
+        return [...aBytes, ...bBytes, ...integerDivision(operandKind as "int" | "uint", node.type)];
       }
       if (node.type === "bitNot") return [...aBytes, ...i32ConstBytes(-1), WASM_OP.i32Xor];
       const opcode = {
@@ -2358,13 +2412,14 @@ export function compileWasmFn(
         bitOr: WASM_OP.i32Or,
         bitXor: WASM_OP.i32Xor,
         shiftLeft: WASM_OP.i32Shl,
-        shiftRight: targetKind === "uint" ? WASM_OP.i32ShrU : WASM_OP.i32ShrS,
+        shiftRight: operandKind === "uint" ? WASM_OP.i32ShrU : WASM_OP.i32ShrS,
       }[node.type as "add" | "sub" | "mul" | "div" | "bitAnd" | "bitOr" | "bitXor" | "shiftLeft" | "shiftRight"];
       return [...aBytes, ...bBytes, opcode];
     };
     for (let k = 0; k < width; k++) {
-      const aBytes = aWidth > 1 ? loadComponent(aAddr!, targetKind, k * compSize) : walkExpr(a);
-      const bBytes = b === undefined ? [] : bWidth > 1 ? loadComponent(bAddr!, targetKind, k * compSize) : walkExpr(b);
+      const aBytes = aWidth > 1 ? loadComponent(aAddr!, operandKind, k * operandSize) : walkExpr(a);
+      const bBytes =
+        b === undefined ? [] : bWidth > 1 ? loadComponent(bAddr!, operandKind, k * operandSize) : walkExpr(b);
       out.push(...storeComponent(addr, targetKind, k * compSize, combine(aBytes, bBytes)));
     }
     return out;
