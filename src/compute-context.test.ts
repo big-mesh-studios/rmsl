@@ -248,6 +248,14 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context buffers", () => {
     expect(buffer.size).toBe(4 * 2 * 4);
     context.destroy();
   });
+
+  it("reads back an empty buffer as no bytes, as the WASM context does", async () => {
+    const context = await createWgslContext();
+    const empty = instancedArray(0, "uint");
+    expect((await context.getArrayBufferAsync(empty.attribute)).byteLength).toBe(0);
+    expect(createWasmContext().getArrayBuffer(empty.attribute).byteLength).toBe(0);
+    context.destroy();
+  });
 });
 
 describe.skipIf(!GPU_ENABLED)("WGSL compute context limits", () => {

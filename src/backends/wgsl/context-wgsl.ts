@@ -99,6 +99,8 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
   const uniformValues = new Map<string, number | number[]>();
   /** Bumped by every `setUniform()`, so a program knows whether its uniform buffer is stale. */
   let uniformVersion = 0;
+  /** One staging buffer per attribute for reading it back, reused unless a read is still pending. */
+  const stagingBuffers = new Map<StorageBufferAttribute, GPUBuffer>();
 
   function buffer(attribute: StorageBufferAttribute): GPUBuffer {
     let existing = buffers.get(attribute);
@@ -224,16 +226,27 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
     },
 
     async getArrayBufferAsync(attribute) {
+      // The GPUBuffer is at least 4 bytes, but only the attribute's own elements are returned.
+      const size = attribute.count * elementStride(attribute.itemSize);
       const source = buffer(attribute);
-      const staging = gpu.createBuffer({ size: source.size, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+      if (size === 0) return new ArrayBuffer(0);
+      // A read still waiting on the cached staging buffer keeps it, and this one gets a buffer of its own.
+      const cached = stagingBuffers.get(attribute);
+      const staging =
+        cached?.mapState === "unmapped"
+          ? cached
+          : gpu.createBuffer({ size, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+      if (!cached) stagingBuffers.set(attribute, staging);
       try {
         const encoder = gpu.createCommandEncoder();
-        encoder.copyBufferToBuffer(source, 0, staging, 0, source.size);
+        encoder.copyBufferToBuffer(source, 0, staging, 0, size);
         gpu.queue.submit([encoder.finish()]);
         await staging.mapAsync(GPUMapMode.READ);
-        return staging.getMappedRange().slice(0);
+        const contents = staging.getMappedRange().slice(0);
+        staging.unmap();
+        return contents;
       } finally {
-        staging.destroy();
+        if (stagingBuffers.get(attribute) !== staging) staging.destroy();
       }
     },
 
@@ -241,6 +254,7 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
 
     destroy() {
       for (const b of buffers.values()) b.destroy();
+      for (const b of stagingBuffers.values()) b.destroy();
       for (const p of programs.values()) p.uniforms?.buffer.destroy();
       if (!options.device) gpu.destroy();
     },
