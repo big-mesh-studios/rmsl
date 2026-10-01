@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { Fn, float, int, For, If, While, Switch, Break, Continue, Return, Discard, type Node, type Var } from "./rmsl";
+import { Fn, float, int, For, If, While, Switch, Break, Continue, Return, Discard, vec3, type Node, type Var } from "./rmsl";
 import {
   evaluateRecording,
   assertRecordedEvaluationsAgree,
@@ -873,5 +873,44 @@ describe("RMSL evaluation", () => {
       })();
 
     await expectValue(sumSkippingFirst, [5], 9); // 2+3+4, skipping 0,1
+  }, 60_000);
+
+  // A copy made with `toVar()` is its own value: writing it leaves what it was
+  // copied from as it was, whether that is a literal or a computed vector.
+  it("keeps the value a variable was copied from", async () => {
+    await expectValue(
+      () =>
+        Fn(() => {
+          const value = vec3(1, 2, 3);
+          const copy = value.toVar();
+          copy.y.assign(float(9));
+          return copy.y.add(value.y);
+        })(),
+      [],
+      11,
+    );
+    await expectValue(
+      (a) =>
+        Fn(() => {
+          const value = vec3(a, a.add(1), a.add(2));
+          const copy = value.toVar();
+          copy.y.assign(float(9));
+          return copy.y.add(value.y);
+        })(),
+      [1],
+      11,
+    );
+    await expectValue(
+      (a) =>
+        Fn(() => {
+          const value = vec3(a, a.add(1), a.add(2));
+          const copy = vec3(0).toVar();
+          copy.assign(value);
+          copy.y.assign(float(9));
+          return copy.y.add(value.y);
+        })(),
+      [1],
+      11,
+    );
   }, 60_000);
 });

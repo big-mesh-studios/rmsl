@@ -625,11 +625,18 @@ export function jsRequireHelper(ctx: CompileCtx, name: string): void {
   ctx.jsHelpers.add(name);
 }
 
+const JS_TEMP_PREFIX = "_rmsl_t";
+
 /** A fresh hoisted slot for an intermediate value, registered for preallocation. */
 export function jsNewTemp(ctx: CompileCtx, brand: string): string {
-  let name = `_rmsl_t${ctx.nextId++}`;
+  let name = `${JS_TEMP_PREFIX}${ctx.nextId++}`;
   ctx.varDefs.set(name, brand);
   return name;
+}
+
+/** Whether `name` is a slot from {@link jsNewTemp}, which nothing writes again once it holds its value. */
+function jsIsTemp(name: string): boolean {
+  return name.startsWith(JS_TEMP_PREFIX);
 }
 
 /**
@@ -1010,7 +1017,9 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
   if (seen) return { decls: [], body: [], expr: seen.expr, prec: seen.prec };
 
   let result = compileJSNode(node, ctx);
-  ctx.memo.set(node, result);
+  // A value compiled straight into a variable stays that value only until the
+  // program writes the variable, so a later read compiles it again.
+  if (result.expr !== ctx.outTarget || jsIsTemp(result.expr)) ctx.memo.set(node, result);
   return result;
 }
 

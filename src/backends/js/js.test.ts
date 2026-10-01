@@ -669,6 +669,32 @@ describe("JS backend: shader I/O", () => {
     expect(fn.run({ uniforms: { [u.name]: 21 } })).toBe(42);
   });
 
+  it("keeps a uniform as it is when a variable copied from it is written", () => {
+    const v = uniform("vec3");
+    const prog = Fn(() => {
+      const copy = v.toVar();
+      copy.y.assign(float(9));
+      return copy.y.add(v.y);
+    })();
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
+    expect(fn.run({ uniforms: { [v.name]: [1, 2, 3] } })).toBe(11);
+  });
+
+  it("runs the statements building a value once when a variable copied from it is written", () => {
+    const prog = Fn(() => {
+      const runs = float(0).toVar();
+      const value = Fn(() => {
+        runs.assign(runs.add(1));
+        return vec3(1, 2, 3);
+      })();
+      const copy = value.toVar();
+      copy.y.assign(float(9));
+      return copy.y.add(value.y).add(runs.mul(100));
+    })();
+    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
+    expect(fn.run({})).toBe(111);
+  });
+
   it("reads varyings and attributes", () => {
     let v!: any;
     let a!: any;
