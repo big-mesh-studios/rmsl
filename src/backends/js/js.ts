@@ -177,6 +177,37 @@ export const JS_ELEM: Record<string, { argc: number; fn: (xs: string[]) => strin
   atanh: { argc: 1, fn: (xs) => `Math.atanh(${xs[0]})` },
 };
 
+/**
+ * The precedence of the outermost operator in each integer `JS_ELEM` form,
+ * so a parent operator brackets it when it must: `(a + b) | 0` is an `|`,
+ * not an addition, and `a < (a + b) | 0` would compare before the `|`.
+ * A form missing here is a call, which never needs brackets.
+ */
+const JS_INTEGER_PREC: Record<string, number> = {
+  iadd: PRECEDENCE.bitOr!,
+  isub: PRECEDENCE.bitOr!,
+  uadd: PRECEDENCE.shiftRight!,
+  usub: PRECEDENCE.shiftRight!,
+  umul: PRECEDENCE.shiftRight!,
+  iand: PRECEDENCE.bitAnd!,
+  ior: PRECEDENCE.bitOr!,
+  ixor: PRECEDENCE.bitXor!,
+  ishl: PRECEDENCE.shiftLeft!,
+  ishr: PRECEDENCE.shiftRight!,
+  inot: PREC_UNARY,
+  uand: PRECEDENCE.shiftRight!,
+  uor: PRECEDENCE.shiftRight!,
+  uxor: PRECEDENCE.shiftRight!,
+  ushl: PRECEDENCE.shiftRight!,
+  ushr: PRECEDENCE.shiftRight!,
+  unot: PRECEDENCE.shiftRight!,
+};
+
+/** A scalar integer `JS_ELEM` form applied to compiled operands, bracketed as its operator needs. */
+function jsIntegerForm(op: string, operands: CompiledNode[]): { expr: string; prec?: number } {
+  return { expr: JS_ELEM[op]!.fn(operands.map(jsOperand)), prec: JS_INTEGER_PREC[op] };
+}
+
 export function jsZeroes(width: number): string {
   return Array(width).fill(0).join(", ");
 }
@@ -704,9 +735,10 @@ export function jsScalarBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: 
     case "imul":
     case "uadd":
     case "usub":
-    case "umul":
-      expr = JS_ELEM[op]!.fn([jsOperand(a), jsOperand(b)]);
-      break;
+    case "umul": {
+      let form = jsIntegerForm(op, [a, b]);
+      return { decls, body, expr: form.expr, prec: form.prec };
+    }
     case "idiv":
     case "imod":
     case "udiv":
@@ -824,7 +856,7 @@ export function jsUnaryMath(node: BaseNode<ShaderType>, ctx: CompileCtx, suffix:
     let a = compileJSStage(node.params![0], ctx);
     let e = JS_ELEM[suffix];
     if (!e) throw new Error(`[RMSL] Unknown JS unary op: ${suffix}`);
-    return { decls: a.decls, body: a.body, expr: e.fn([`(${a.expr})`]) };
+    return { decls: a.decls, body: a.body, expr: e.fn([`(${a.expr})`]), prec: JS_INTEGER_PREC[suffix] };
   }
   jsRequireHelper(ctx, `v${width}${suffix}`);
   let a = jsCompileOperand(node.params![0], ctx);
@@ -919,19 +951,14 @@ export function jsBitwise(node: BaseNode<ShaderType>, ctx: CompileCtx, op: strin
     let name = `${(node._t as string).startsWith("uvec") ? "u" : "i"}${JS_BITWISE_NAMES[op]}`;
     return op === "~" ? jsUnaryMath(node, ctx, name) : jsVectorBinary(node, ctx, name, width);
   }
-  let a = compileJSStage(node.params![0], ctx);
-  let isUint = node._t === "uint";
-  let mask = isUint ? ">>> 0" : "| 0";
-  if (op === "~") {
-    return { decls: a.decls, body: a.body, expr: `(~(${a.expr})) ${mask}`, prec: PREC_UNARY };
-  }
-  let b = compileJSStage(node.params![1], ctx);
-  let sym = op === ">>" && isUint ? ">>>" : op;
+  let name = `${node._t === "uint" ? "u" : "i"}${JS_BITWISE_NAMES[op]}`;
+  let operands = (node.params ?? []).slice(0, op === "~" ? 1 : 2).map((p) => compileJSStage(p, ctx));
+  let form = jsIntegerForm(name, operands);
   return {
-    decls: [...a.decls, ...b.decls],
-    body: [...a.body, ...b.body],
-    expr: `((${a.expr}) ${sym} (${b.expr})) ${mask}`,
-    prec: PRECEDENCE[node.type] ?? 0,
+    decls: operands.flatMap((o) => o.decls),
+    body: operands.flatMap((o) => o.body),
+    expr: form.expr,
+    prec: form.prec,
   };
 }
 
