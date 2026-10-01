@@ -1,7 +1,7 @@
 import {
-  ComputeNode,
   isSamplerType,
-  StorageBufferAttribute,
+  type ComputeNode,
+  type StorageBufferAttribute,
   type Node,
   type ShaderType,
   type UniformArrayNode,
@@ -170,27 +170,36 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
     device: gpu,
 
     compute(nodes) {
-      const list = nodes instanceof ComputeNode ? [nodes] : nodes;
-      const limit = gpu.limits.maxComputeWorkgroupsPerDimension;
-      for (const node of list) {
-        const workgroups = Math.ceil(node.count / node.workgroupSize);
-        if (workgroups > limit) {
+      const list = (Array.isArray(nodes) ? nodes : [nodes]).filter((node: ComputeNode) => node.count > 0);
+      const { maxComputeWorkgroupsPerDimension, maxComputeWorkgroupSizeX, maxComputeInvocationsPerWorkgroup } =
+        gpu.limits;
+      const maxWorkgroupSize = Math.min(maxComputeWorkgroupSizeX, maxComputeInvocationsPerWorkgroup);
+      // Every program is checked and compiled before anything is uploaded or
+      // encoded, so one that can't run leaves the others' state untouched.
+      const compiled = list.map((node) => {
+        if (node.workgroupSize > maxWorkgroupSize) {
           throw new Error(
-            `[RMSL] createWgslContext: a count of ${node.count} needs ${workgroups} workgroups of ${node.workgroupSize}, past the device's limit of ${limit}; use a larger workgroup size`,
+            `[RMSL] createWgslContext: a workgroup size of ${node.workgroupSize} is past the device's limit of ${maxWorkgroupSize}`,
           );
         }
-      }
+        const workgroups = Math.ceil(node.count / node.workgroupSize);
+        if (workgroups > maxComputeWorkgroupsPerDimension) {
+          throw new Error(
+            `[RMSL] createWgslContext: a count of ${node.count} needs ${workgroups} workgroups of ${node.workgroupSize}, past the device's limit of ${maxComputeWorkgroupsPerDimension}; use a larger workgroup size, up to ${maxWorkgroupSize}`,
+          );
+        }
+        return program(node);
+      });
       const encoder = gpu.createCommandEncoder();
       const pass = encoder.beginComputePass();
-      for (const node of list) {
-        if (node.count <= 0) continue;
-        const compiled = program(node);
-        uploadUniforms(node, compiled);
-        pass.setPipeline(compiled.pipeline);
-        if (compiled.uniforms) pass.setBindGroup(0, compiled.uniforms.group);
-        if (compiled.storageGroup) pass.setBindGroup(1, compiled.storageGroup);
+      list.forEach((node, i) => {
+        const { pipeline, uniforms, storageGroup } = compiled[i]!;
+        uploadUniforms(node, compiled[i]!);
+        pass.setPipeline(pipeline);
+        if (uniforms) pass.setBindGroup(0, uniforms.group);
+        if (storageGroup) pass.setBindGroup(1, storageGroup);
         pass.dispatchWorkgroups(Math.ceil(node.count / node.workgroupSize));
-      }
+      });
       pass.end();
       gpu.queue.submit([encoder.finish()]);
     },

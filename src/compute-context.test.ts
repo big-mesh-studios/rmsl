@@ -240,6 +240,17 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context limits", () => {
     context.destroy();
   });
 
+  it("rejects a workgroup size past the device's limit", async () => {
+    const context = await createWgslContext();
+    const out = instancedArray(1, "uint");
+    const limit = context.device.limits.maxComputeInvocationsPerWorkgroup;
+    const wide = Fn(() => {
+      out.element(0).assign(uint(1));
+    })().compute(1, limit * 2);
+    expect(() => context.compute(wide)).toThrow(/workgroup size/);
+    context.destroy();
+  });
+
   it("rejects a dispatch with more workgroups than the device allows", async () => {
     const context = await createWgslContext();
     const out = instancedArray(1, "uint");
