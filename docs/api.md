@@ -465,7 +465,9 @@ While(
 ```
 
 A `For` condition, and an `ElseIf` condition, may make variables too: they
-are computed where the condition is tested.
+are computed where the condition is tested, and stay in scope after the loop
+or chain, and in a `For`'s update. An `ElseIf` has to follow its `If`
+directly; a statement written between them throws.
 
 ### Other
 
