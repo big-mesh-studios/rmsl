@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { attribute, float, Fn, int, mat3, uniform, vec3, type Node, type ShaderType } from "./rmsl";
+import { attribute, float, Fn, int, mat3, uniform, uniformArray, vec3, type Node, type ShaderType } from "./rmsl";
 import { compileGlslFn } from "./glsl";
 import { compileWgslFn } from "./wgsl";
 import { compileJSFn } from "./js";
@@ -29,6 +29,9 @@ describe("an assignment's target", () => {
     expectRefusedEverywhere(() => v.element(int(1)).assign(float(9)), refused);
     expectRefusedEverywhere(() => m.element(int(0)).assign(vec3(9, 9, 9)), refused);
     expectRefusedEverywhere(() => m.element(int(0)).y.assign(float(9)), refused);
+    expectRefusedEverywhere(() => m.assign(mat3(1, 0, 0, 0, 1, 0, 0, 0, 1)), refused);
+    const vs = uniformArray("vec3", 4);
+    expectRefusedEverywhere(() => vs.element(int(1)).x.assign(float(9)), refused);
   });
 
   it("refuses an attribute, whole or in part, on every backend", () => {
