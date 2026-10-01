@@ -622,13 +622,21 @@ const ASSIGNABLE = new Set(["var", "storageElement", "output", "varying", "built
 /**
  * Checks that an assignment to `target` writes something writable: a
  * variable, a storage element or a stage output, directly or through any
- * swizzle, component or column of it. Returns the storage element it writes,
+ * swizzle, component or column of it, where no swizzle names a component
+ * more than once. Returns the storage element it writes,
  * or undefined if it writes none. Called by every backend, so a uniform, an
  * attribute or a computed value is refused the same way on each, and so is
  * an element of a storage node made read-only.
  */
 export function assertAssignable(target: any): any {
-  while (["swizzle", "vectorElement", "matrixElement"].includes(target?.type)) target = target.params[0];
+  while (["swizzle", "vectorElement", "matrixElement"].includes(target?.type)) {
+    if (target.type === "swizzle" && new Set(target.value).size !== target.value.length) {
+      throw new Error(
+        `[RMSL] can't assign through the swizzle .${target.value}, which names a component more than once; name each component once`,
+      );
+    }
+    target = target.params[0];
+  }
   if (target?.type === "storage") {
     throw new Error("[RMSL] can't assign to a whole storage buffer; assign to one of its elements with .element(i)");
   }

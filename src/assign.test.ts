@@ -8,6 +8,7 @@ import {
   mat3,
   uniform,
   uniformArray,
+  vec2,
   vec3,
   type Node,
   type ShaderType,
@@ -59,6 +60,35 @@ describe("an assignment's target", () => {
       () => values.assign(vec3(1, 2, 3)),
       /\[RMSL\] can't assign to a whole storage buffer; assign to one of its elements with \.element\(i\)/,
     );
+  });
+
+  it("refuses a swizzle that names a component more than once, on every backend", () => {
+    const refused = (pattern: string) =>
+      new RegExp(`\\[RMSL\\] can't assign through the swizzle \\.${pattern}, which names a component more than once`);
+    expectRefusedEverywhere(() => {
+      const v = vec3(1, 2, 3).toVar();
+      v.xx.assign(vec2(1, 2));
+    }, refused("xx"));
+    expectRefusedEverywhere(() => {
+      const v = vec3(1, 2, 3).toVar();
+      v.xy.xx.assign(vec2(1, 2));
+    }, refused("xx"));
+    expectRefusedEverywhere(() => {
+      const v = vec3(1, 2, 3).toVar();
+      v.xxy.z.assign(float(1));
+    }, refused("xxy"));
+  });
+
+  it("accepts a swizzle that names each component once, through another swizzle", () => {
+    const write = Fn(() => {
+      const v = vec3(1, 2, 3).toVar();
+      v.yzx.xy.assign(vec2(7, 8));
+      v.zx.assign(vec2(4, 5));
+      return v;
+    })();
+    for (const [name, compile] of Object.entries(compilers)) {
+      expect(() => compile(() => write as Node<ShaderType>, { name: "main", params: [] }), name).not.toThrow();
+    }
   });
 
   it("refuses a computed value, whole or in part, on every backend", () => {
