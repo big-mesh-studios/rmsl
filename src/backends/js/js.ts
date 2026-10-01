@@ -1,4 +1,4 @@
-import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, var_ } from "../../core";
+import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH } from "../../core";
 import {
   CpuDrawBuffer,
   CpuRoutine,
@@ -20,6 +20,7 @@ import {
   assertPositionIsReadable,
   assertSquareMatrix,
   assertAssignable,
+  parameterNode,
   assertStageResult,
   forUpdateStatements,
   resolveSwizzleTarget,
@@ -1728,7 +1729,7 @@ export function compileJSNode(
     case "assign": {
       let targetNode = node.params![0];
       if (targetNode?.type === "builtinPosition") ctx.positionWritten = true;
-      assertAssignable(targetNode);
+      assertAssignable(targetNode, ctx.shaderStage);
       let rhsNode = node.params![1];
 
       // A swizzle, a column, or a component of a column by index: single
@@ -1922,7 +1923,7 @@ function compileJSFnDetailed(
   let stage = options.stage ?? "fragment";
   let derivatives = options.derivatives ?? "throw";
   let reentrant = options.reentrant ?? false;
-  const paramNodes = options.params.map((p) => var_(p.name, p.type));
+  const paramNodes = options.params.map((p) => parameterNode(p.name, p.type));
   const rawResult = fn(...paramNodes);
   const resultNodes: Node<ShaderType>[] = Array.isArray(rawResult) ? rawResult : [rawResult];
 

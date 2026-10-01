@@ -1102,14 +1102,13 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
         return float(0);
       })();
     expect(() => compileWasmRoutine(build as any, { name: "main", params: [], stage: "vertex" })).toThrow(
-      /builtinFragDepth\(\) can only be used in fragment shaders/,
+      /can't assign to the fragment depth in a vertex stage/,
     );
   });
 
   it("throws reading builtinPosition() from a fragment stage", () => {
     const build = () =>
       Fn(() => {
-        builtinPosition().assign(vec4(0, 0, 0, 1));
         return builtinPosition().x;
       })();
     expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrow(

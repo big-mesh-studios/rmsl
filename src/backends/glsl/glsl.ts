@@ -1,6 +1,7 @@
-import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, var_ } from "../../core";
+import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH } from "../../core";
 import {
   assertAssignable,
+  parameterNode,
   CompileCtx,
   CompileFnOptions,
   CompiledNode,
@@ -679,7 +680,7 @@ export function compileGLSLNode(
       if ((node.params![0] as any)?.type === "builtinPosition") {
         ctx.positionWritten = true;
       }
-      assertAssignable(node.params![0]);
+      assertAssignable(node.params![0], ctx.shaderStage);
       let lhs = compileGLSLStage(node.params![0], ctx);
       let rhs = compileGLSLStage(node.params![1], ctx);
       return {
@@ -1081,7 +1082,7 @@ export const compileGlsl: {
  * compiler as dead code a bundler can't prove unreachable.
  */
 export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options: CompileFnOptions): string {
-  const paramNodes = options.params.map((p) => var_(p.name, p.type));
+  const paramNodes = options.params.map((p) => parameterNode(p.name, p.type));
   const result = fn(...paramNodes);
   if (Array.isArray(result)) {
     throw new Error(

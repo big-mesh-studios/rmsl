@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   attribute,
+  builtinFragDepth,
+  builtinPosition,
   float,
   Fn,
   instancedArray,
@@ -8,15 +10,17 @@ import {
   mat3,
   uniform,
   uniformArray,
+  varying,
   vec2,
   vec3,
+  vec4,
   type Node,
   type ShaderType,
 } from "./rmsl";
-import { compileGlslFn } from "./glsl";
-import { compileWgslFn } from "./wgsl";
-import { compileJSFn } from "./js";
-import { compileWasmFn } from "./wasm";
+import { compileGlsl, compileGlslFn } from "./glsl";
+import { compileWgsl, compileWgslFn } from "./wgsl";
+import { compileJSFn, compileJSRoutine } from "./js";
+import { compileWasmFn, compileWasmRoutine } from "./wasm";
 
 const compilers = { compileGlslFn, compileWgslFn, compileJSFn, compileWasmFn };
 
@@ -31,7 +35,58 @@ function expectRefusedEverywhere(write: () => void, message: RegExp) {
   }
 }
 
+/** Expects compiling `write` as a `stage` stage to throw `message` on every backend. */
+function expectRefusedInStage(stage: "vertex" | "fragment", write: () => void, message: RegExp) {
+  const build = () =>
+    Fn(() => {
+      write();
+      return stage === "vertex" ? vec4(0, 0, 0, 1) : vec4(1, 1, 1, 1);
+    })();
+  expect(() => compileGlsl[stage](build()), "GLSL").toThrow(message);
+  expect(() => compileWgsl[stage](build()), "WGSL").toThrow(message);
+  expect(() => compileJSRoutine(build as any, { name: "main", params: [], stage }), "JS").toThrow(message);
+  expect(() => compileWasmRoutine(build as any, { name: "main", params: [], stage }), "WASM").toThrow(message);
+}
+
 describe("an assignment's target", () => {
+  it("refuses a stage output outside the stage that writes it, on every backend", () => {
+    const color = varying("vec3");
+    expectRefusedInStage(
+      "fragment",
+      () => color.x.assign(float(1)),
+      /\[RMSL\] can't assign to a varying in a fragment stage; only a vertex stage writes it/,
+    );
+    expectRefusedInStage(
+      "fragment",
+      () => builtinPosition().assign(vec4(0, 0, 0, 1)),
+      /\[RMSL\] can't assign to the position in a fragment stage; only a vertex stage writes it/,
+    );
+    expectRefusedInStage(
+      "vertex",
+      () => builtinFragDepth().assign(float(0.5)),
+      /\[RMSL\] can't assign to the fragment depth in a vertex stage; only a fragment stage writes it/,
+    );
+  });
+
+  it("refuses a parameter of the compiled function, on every backend", () => {
+    for (const [name, compile] of Object.entries(compilers)) {
+      expect(
+        () =>
+          compile(
+            (x: Node<"float">) =>
+              Fn(() => {
+                (x as any).assign(float(2));
+                return x;
+              })(),
+            { name: "main", params: [{ name: "x", type: "float" }] },
+          ),
+        name,
+      ).toThrow(
+        /\[RMSL\] can't assign to "x", a parameter of the compiled function, whose value belongs to the caller/,
+      );
+    }
+  });
+
   it("refuses a uniform, whole or in part, on every backend", () => {
     const v = uniform("vec3");
     const m = uniform("mat3");

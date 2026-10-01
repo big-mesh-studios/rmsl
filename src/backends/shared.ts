@@ -1,4 +1,13 @@
-import { BaseNode, MATRIX_DIMENSIONS, Node, NodeImpl, ShaderType, StorageBufferAttribute, TYPE_WIDTH } from "../core";
+import {
+  BaseNode,
+  MATRIX_DIMENSIONS,
+  Node,
+  NodeImpl,
+  ShaderType,
+  StorageBufferAttribute,
+  TYPE_WIDTH,
+  var_,
+} from "../core";
 import { componentKindOf } from "./cpu";
 /**
  * What compiling one node yields: statements to emit, how to refer to it, and
@@ -619,6 +628,23 @@ export function storageAttributes(roots: unknown): Map<string, StorageBufferAttr
 /** The node types an assignment can write, through any swizzle, component or column of them. */
 const ASSIGNABLE = new Set(["var", "storageElement", "output", "varying", "builtinPosition", "builtinFragDepth"]);
 
+/** The stage outputs only one stage writes, which stage, and what to call them in an error. */
+const WRITTEN_BY_ONE_STAGE: Record<string, { stage: string; name: string }> = {
+  varying: { stage: "vertex", name: "a varying" },
+  builtinPosition: { stage: "vertex", name: "the position" },
+  builtinFragDepth: { stage: "fragment", name: "the fragment depth" },
+};
+
+/**
+ * A parameter of a function a backend compiles with its `compile…Fn`, as the
+ * body sees it. Its value belongs to the caller, so it can't be assigned.
+ */
+export function parameterNode(name: string, type: string): any {
+  const node = var_(name, type);
+  (node as any).value.parameter = true;
+  return node;
+}
+
 /**
  * Checks that an assignment to `target` writes something writable: a
  * variable, a storage element or a stage output, directly or through any
@@ -626,9 +652,10 @@ const ASSIGNABLE = new Set(["var", "storageElement", "output", "varying", "built
  * more than once. Returns the storage element it writes,
  * or undefined if it writes none. Called by every backend, so a uniform, an
  * attribute or a computed value is refused the same way on each, and so is
- * an element of a storage node made read-only.
+ * an element of a storage node made read-only, a stage output written outside
+ * the stage that writes it, and a parameter of the compiled function.
  */
-export function assertAssignable(target: any): any {
+export function assertAssignable(target: any, stage: "vertex" | "fragment" | "compute"): any {
   while (["swizzle", "vectorElement", "matrixElement"].includes(target?.type)) {
     if (target.type === "swizzle" && new Set(target.value).size !== target.value.length) {
       throw new Error(
@@ -649,6 +676,17 @@ export function assertAssignable(target: any): any {
           : "a computed value";
     throw new Error(
       `[RMSL] can't assign to ${what}: only a variable, a storage element or a stage output can be assigned; copy the value into a variable with toVar() first`,
+    );
+  }
+  if (target.type === "var" && target.value.parameter) {
+    throw new Error(
+      `[RMSL] can't assign to "${target.value.varName}", a parameter of the compiled function, whose value belongs to the caller; copy it into a variable with toVar() first`,
+    );
+  }
+  const writer = WRITTEN_BY_ONE_STAGE[target.type];
+  if (writer !== undefined && writer.stage !== stage) {
+    throw new Error(
+      `[RMSL] can't assign to ${writer.name} in a ${stage} stage; only a ${writer.stage} stage writes it`,
     );
   }
   if (target.type !== "storageElement") return undefined;

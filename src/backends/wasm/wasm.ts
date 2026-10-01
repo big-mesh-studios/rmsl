@@ -1,4 +1,4 @@
-import { MATRIX_DIMENSIONS, Node, ShaderType, StorageAccess, var_ } from "../../core";
+import { MATRIX_DIMENSIONS, Node, ShaderType, StorageAccess } from "../../core";
 import { AllocRules, planLayout } from "../../layout";
 import {
   componentCountOf,
@@ -16,6 +16,7 @@ import {
 import {
   assertStageResult,
   assertAssignable,
+  parameterNode,
   CompileFnOptions,
   COMPONENT_INDEX,
   isLeafLiteral,
@@ -715,7 +716,7 @@ export function compileWasmFn(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmFnOptions,
 ): CompiledWasm {
-  const paramNodes = options.params.map((p) => var_(p.name, p.type));
+  const paramNodes = options.params.map((p) => parameterNode(p.name, p.type));
   const rawResult = fn(...paramNodes) as any;
   // `rawResult` is either one root or an array of roots (a caller-supplied
   // array of independently-built Fns, e.g. compileWasmRoutine(..., [a, b]),
@@ -1401,7 +1402,7 @@ export function compileWasmFn(
         // remember a direct gl_Position write
         if (node.params[0].type === "builtinPosition") positionWritten = true;
         // and which storage buffers are written
-        const element = assertAssignable(node.params[0]);
+        const element = assertAssignable(node.params[0], effectiveStage);
         if (element) writtenStorage.add(element.params[0].value.slot);
         break;
       }
@@ -3501,9 +3502,6 @@ export function compileWasmFn(
         } else if (target.type === "storageElement") {
           return emitStorageElementStore(target, rhs);
         } else if (target.type === "varying") {
-          if (effectiveStage !== "vertex") {
-            throw new Error("[RMSL] compileWasmFn: varying() cannot be assigned to outside a vertex stage");
-          }
           targetType = target._t as string;
           destAddr = varyingOutputAddress.get(target.value.slot)!;
         } else if (target.type === "builtinPosition") {

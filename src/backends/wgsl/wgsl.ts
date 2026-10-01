@@ -1,4 +1,4 @@
-import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, isSamplerType, var_ } from "../../core";
+import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, isSamplerType } from "../../core";
 import { AllocRules, planLayout } from "../../layout";
 import { componentKindOf } from "../cpu";
 import {
@@ -12,6 +12,7 @@ import {
   assertPositionIsReadable,
   assertSquareMatrix,
   assertAssignable,
+  parameterNode,
   assertStageResult,
   forUpdateStatements,
   resolveSwizzleTarget,
@@ -1088,7 +1089,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       if ((node.params![0] as any)?.type === "builtinPosition") {
         ctx.positionWritten = true;
       }
-      assertAssignable(node.params![0]);
+      assertAssignable(node.params![0], ctx.shaderStage);
       let rhs = compileWGSLStage(node.params![1], ctx);
 
       // WGSL only makes a single component assignable: `v.x = e` is a
@@ -1894,7 +1895,7 @@ export function sharedUniformMembers(
  * compiler as dead code a bundler can't prove unreachable.
  */
 export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options: CompileFnOptions): string {
-  const paramNodes = options.params.map((p) => var_(p.name, p.type));
+  const paramNodes = options.params.map((p) => parameterNode(p.name, p.type));
   const result = fn(...paramNodes);
   if (Array.isArray(result)) {
     throw new Error(
