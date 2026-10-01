@@ -1,4 +1,4 @@
-import { float, vec2, vec3, vec4, element, If, Discard, mix, type Node, type UniformNode } from "../../rmsl";
+import { float, vec2, vec3, vec4, element, If, Discard, mix, type Node, type UniformNode, type Var } from "../../rmsl";
 import type { GLSLPrecision } from "../../glsl";
 import { NodeMaterial, resolveSlot, type SlotValue } from "./NodeMaterial";
 import { Builder } from "./nodes/Builder";
@@ -165,8 +165,8 @@ export class Line2NodeMaterial extends NodeMaterial {
     const instanceEnd = b.attribute("instanceEnd", "vec3", "instance");
     const end = vec4(b.modelViewMatrix.mul(vec4(instanceEnd, 1))).toVar("end");
 
-    let distanceStart: Node<"float"> | undefined;
-    let distanceEnd: Node<"float"> | undefined;
+    let distanceStart: Var<"float"> | undefined;
+    let distanceEnd: Var<"float"> | undefined;
     if (this._dashed) {
       distanceStart = b.attribute("instanceDistanceStart", "float", "instance").toVar("distanceStart");
       distanceEnd = b.attribute("instanceDistanceEnd", "float", "instance").toVar("distanceEnd");

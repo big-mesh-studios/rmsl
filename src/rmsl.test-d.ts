@@ -9,6 +9,7 @@ import {
   uint,
   bool,
   ivec2,
+  builtinFragDepth,
   builtinPosition,
   ivec3,
   ivec4,
@@ -27,8 +28,13 @@ import {
   determinant,
   instancedArray,
   invocationIndex,
+  attribute,
+  output,
+  varying,
   type Node,
   type ShaderType,
+  type Var,
+  type VaryingNode,
 } from "./rmsl";
 import { compileGlsl } from "./glsl";
 import { compileWgsl, createWgslCompute } from "./wgsl";
@@ -405,5 +411,76 @@ describe("scalar-broadcast result types", () => {
   it("keeps a float step/smoothstep value operand type", () => {
     expectTypeOf(vec3(1, 2, 3).step(float(0.5))).toEqualTypeOf<Node<"vec3">>();
     expectTypeOf(vec3(1, 2, 3).smoothstep(float(0), float(1))).toEqualTypeOf<Node<"vec3">>();
+  });
+});
+
+describe("what can be assigned to", () => {
+  it("offers assign on a variable, a stage output and a storage element", () => {
+    expectTypeOf(vec4(1, 2, 3, 4).toVar()).toEqualTypeOf<Var<"vec4">>();
+    expectTypeOf(output("vec4")).toEqualTypeOf<Var<"vec4">>();
+    expectTypeOf(vec3(1, 2, 3).var()).toEqualTypeOf<Var<"vec3">>();
+    expectTypeOf(builtinPosition()).toEqualTypeOf<Var<"vec4">>();
+    expectTypeOf(builtinFragDepth()).toEqualTypeOf<Var<"float">>();
+    expectTypeOf(varying("vec2")).toEqualTypeOf<VaryingNode<"vec2">>();
+    expectTypeOf(varying("vec2")).toMatchTypeOf<Var<"vec2">>();
+    expectTypeOf(instancedArray(4, "vec4").element(invocationIndex())).toEqualTypeOf<Var<"vec4">>();
+  });
+
+  it("offers it through a component, a column and a swizzle naming each component once", () => {
+    const v = vec4(1, 2, 3, 4).toVar();
+    expectTypeOf(v.x).toEqualTypeOf<Var<"float">>();
+    expectTypeOf(v.element(int(2))).toEqualTypeOf<Var<"float">>();
+    expectTypeOf(v.wzy).toHaveProperty("assign");
+    expectTypeOf(v.ba).toHaveProperty("assign");
+    expectTypeOf(v.yzx.xy).toHaveProperty("assign");
+    const m = mat3(1, 2, 3, 4, 5, 6, 7, 8, 9).toVar();
+    expectTypeOf(m.element(int(1))).toEqualTypeOf<Var<"vec3">>();
+    expectTypeOf(m.element(int(1)).zx).toHaveProperty("assign");
+  });
+
+  it("refuses a uniform, an attribute, a whole storage buffer, a computed value and a repeated swizzle", () => {
+    const v = vec4(1, 2, 3, 4).toVar();
+    // @ts-expect-error a uniform is read-only
+    uniform("vec4").assign(vec4(0, 0, 0, 0));
+    // @ts-expect-error an attribute is read-only
+    attribute("vec3").x.assign(float(0));
+    // @ts-expect-error the result of an operation is a value, not a variable
+    v.add(1).x.assign(float(0));
+    // @ts-expect-error a whole storage buffer can't be assigned, only its elements
+    instancedArray(4, "vec4").assign(vec4(0, 0, 0, 0));
+    // @ts-expect-error a literal is a value, not a variable
+    float(1).assign(float(2));
+    // @ts-expect-error a swizzle naming a component twice can't be written
+    v.xx.assign(vec2(0, 0));
+    // @ts-expect-error a component of a repeated swizzle can't be written either
+    v.xxy.z.assign(float(0));
+    const column = mat3(1, 2, 3, 4, 5, 6, 7, 8, 9).element(int(0));
+    // @ts-expect-error neither can a column of a matrix that isn't a variable
+    column.assign(vec3(0, 0, 0));
+  });
+
+  it("reads the same swizzles from a variable as from any node", () => {
+    const v = vec4(1, 2, 3, 4).toVar();
+    expectTypeOf(v.xx).toEqualTypeOf<Node<"vec2">>();
+    expectTypeOf(v.wzyx.add(1)).toEqualTypeOf<Node<"vec4">>();
+  });
+
+  it("accepts a writable node wherever a node is expected", () => {
+    const take = (n: Node<"vec4">) => n;
+    take(vec4(1, 2, 3, 4).toVar());
+    take(instancedArray(4, "vec4").element(int(0)));
+  });
+
+  it("makes a read-only storage node's elements read-only", () => {
+    const values = instancedArray(4, "vec4").toReadOnly();
+    expectTypeOf(values.element(int(0))).toEqualTypeOf<Node<"vec4">>();
+    // @ts-expect-error an element of a read-only storage node can't be assigned
+    values.element(int(0)).assign(vec4(0, 0, 0, 0));
+  });
+
+  it("types a storage node indexed by a number or an int as its element", () => {
+    expectTypeOf(instancedArray(4, "vec4").element(0)).toEqualTypeOf<Var<"vec4">>();
+    expectTypeOf(instancedArray(4, "vec4").element(int(0))).toEqualTypeOf<Var<"vec4">>();
+    expectTypeOf(instancedArray(4, "mat3").element(0)).toEqualTypeOf<Var<"mat3">>();
   });
 });

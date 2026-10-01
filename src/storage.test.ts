@@ -73,8 +73,11 @@ describe("storage buffers", () => {
   it("refuses an assignment through a read-only node, on every backend", () => {
     const values = instancedArray(4, "vec4").toReadOnly();
     const writes = [
+      // @ts-expect-error: a read-only storage node's element can't be assigned
       () => values.element(invocationIndex()).assign(vec4(1, 1, 1, 1)),
+      // @ts-expect-error: a read-only storage node's element can't be assigned
       () => values.element(invocationIndex()).xy.assign(vec2(1, 1)),
+      // @ts-expect-error: a read-only storage node's element can't be assigned
       () => values.element(invocationIndex()).element(2).assign(float(1)),
     ];
     for (const write of writes) {

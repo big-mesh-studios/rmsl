@@ -112,18 +112,19 @@ export interface UniformArrayNode<A extends ShaderType> {
   element(index: IntLike | UintLike | FloatLike): Node<A>;
 }
 export type AttributeNode<A extends ShaderType> = VariableNode<A>;
-export type VaryingNode<A extends ShaderType> = VariableNode<A>;
+/** A varying: written by the vertex stage, read by the fragment stage. */
+export type VaryingNode<A extends ShaderType> = Var<A> & { name: string };
 
 // === Type guards for node type checking ===
-export function isUniformNode<T extends ShaderType>(node: Node<T> | VariableNode<T>): node is UniformNode<T> {
+export function isUniformNode<T extends ShaderType>(node: BaseNode<T>): node is UniformNode<T> {
   return node.type === "uniform" && "name" in node;
 }
 
-export function isAttributeNode<T extends ShaderType>(node: Node<T> | VariableNode<T>): node is AttributeNode<T> {
+export function isAttributeNode<T extends ShaderType>(node: BaseNode<T>): node is AttributeNode<T> {
   return node.type === "attribute" && "name" in node;
 }
 
-export function isVaryingNode<T extends ShaderType>(node: Node<T> | VariableNode<T>): node is VaryingNode<T> {
+export function isVaryingNode<T extends ShaderType>(node: BaseNode<T>): node is VaryingNode<T> {
   return node.type === "varying" && "name" in node;
 }
 
@@ -175,6 +176,155 @@ export type UVec4Swizzles = Swizzles<4, "uint", "uvec2", "uvec3", "uvec4">;
 export type BVec2Swizzles = Swizzles<2, "bool", "bvec2", "bvec3", "bvec4">;
 export type BVec3Swizzles = Swizzles<3, "bool", "bvec2", "bvec3", "bvec4">;
 export type BVec4Swizzles = Swizzles<4, "bool", "bvec2", "bvec3", "bvec4">;
+
+// === Writable nodes ===
+/** Every pattern of two of the letters `L`, each at most once. */
+type Distinct2<L extends string> = { [A in L]: `${A}${Exclude<L, A>}` }[L];
+/** Every pattern of three of the letters `L`, each at most once. */
+type Distinct3<L extends string> = { [A in L]: `${A}${Distinct2<Exclude<L, A>>}` }[L];
+/** Every pattern of four of the letters `L`, each at most once. */
+type Distinct4<L extends string> = { [A in L]: `${A}${Distinct3<Exclude<L, A>>}` }[L];
+
+/** The swizzles of the letters `L` that can be written through: each names a component at most once. */
+type WritableSwizzlesOf<
+  L extends string,
+  S extends ShaderType,
+  V2 extends ShaderType,
+  V3 extends ShaderType,
+  V4 extends ShaderType,
+> = { readonly [K in L]: Var<S> } & { readonly [K in Distinct2<L>]: Var<V2> } & {
+  readonly [K in Distinct3<L>]: Var<V3>;
+} & { readonly [K in Distinct4<L>]: Var<V4> };
+
+/** The swizzles of a writable vector of width `N` that can be written through, in each spelling. */
+type WritableSwizzles<
+  N extends 2 | 3 | 4,
+  S extends ShaderType,
+  V2 extends ShaderType,
+  V3 extends ShaderType,
+  V4 extends ShaderType,
+> = WritableSwizzlesOf<SwizzleLetters[N][0], S, V2, V3, V4> &
+  WritableSwizzlesOf<SwizzleLetters[N][1], S, V2, V3, V4> &
+  WritableSwizzlesOf<SwizzleLetters[N][2], S, V2, V3, V4>;
+
+/** Assigning to a writable node, as TSL's `assign`, `addAssign`, `mulAssign`, … */
+export interface AssignOps<A extends ShaderType> {
+  assign(value: BaseNode<A> | Node<A>): void;
+  addAssign(other: FloatLike | IntLike | UintLike | Vec2Like | Vec3Like | Vec4Like): void;
+  subAssign(other: FloatLike | IntLike | UintLike | Vec2Like | Vec3Like | Vec4Like): void;
+  mulAssign(other: FloatLike | IntLike | UintLike | Vec2Like | Vec3Like | Vec4Like): void;
+  divAssign(other: FloatLike | IntLike | UintLike | Vec2Like | Vec3Like | Vec4Like): void;
+  modAssign(other: FloatLike | IntLike | UintLike | Vec2Like | Vec3Like | Vec4Like): void;
+}
+
+/** A writable vector: assignable, and so is each of its components and each swizzle naming a component once. */
+type WritableVec<
+  A extends ShaderType,
+  N extends 2 | 3 | 4,
+  S extends ShaderType,
+  V2 extends ShaderType,
+  V3 extends ShaderType,
+  V4 extends ShaderType,
+> = AssignOps<A> & { element(i: IntLike): Var<S> } & WritableSwizzles<N, S, V2, V3, V4>;
+
+/** A writable matrix: assignable, and so is each of its columns. */
+type WritableMat<A extends ShaderType, Column extends ShaderType> = AssignOps<A> & { element(i: IntLike): Var<Column> };
+
+/**
+ * What a writable node of each type adds to its {@link NodeOps}: a registry,
+ * as `NodeOps` is, so a new type says whether and how it can be written.
+ */
+export interface WritableOps {
+  float: AssignOps<"float">;
+  int: AssignOps<"int">;
+  uint: AssignOps<"uint">;
+  bool: AssignOps<"bool">;
+  vec2: WritableVec<"vec2", 2, "float", "vec2", "vec3", "vec4">;
+  vec3: WritableVec<"vec3", 3, "float", "vec2", "vec3", "vec4">;
+  vec4: WritableVec<"vec4", 4, "float", "vec2", "vec3", "vec4">;
+  ivec2: WritableVec<"ivec2", 2, "int", "ivec2", "ivec3", "ivec4">;
+  ivec3: WritableVec<"ivec3", 3, "int", "ivec2", "ivec3", "ivec4">;
+  ivec4: WritableVec<"ivec4", 4, "int", "ivec2", "ivec3", "ivec4">;
+  uvec2: WritableVec<"uvec2", 2, "uint", "uvec2", "uvec3", "uvec4">;
+  uvec3: WritableVec<"uvec3", 3, "uint", "uvec2", "uvec3", "uvec4">;
+  uvec4: WritableVec<"uvec4", 4, "uint", "uvec2", "uvec3", "uvec4">;
+  bvec2: WritableVec<"bvec2", 2, "bool", "bvec2", "bvec3", "bvec4">;
+  bvec3: WritableVec<"bvec3", 3, "bool", "bvec2", "bvec3", "bvec4">;
+  bvec4: WritableVec<"bvec4", 4, "bool", "bvec2", "bvec3", "bvec4">;
+  mat2: WritableMat<"mat2", "vec2">;
+  mat2x3: WritableMat<"mat2x3", "vec3">;
+  mat2x4: WritableMat<"mat2x4", "vec4">;
+  mat3x2: WritableMat<"mat3x2", "vec2">;
+  mat3: WritableMat<"mat3", "vec3">;
+  mat3x4: WritableMat<"mat3x4", "vec4">;
+  mat4x2: WritableMat<"mat4x2", "vec2">;
+  mat4x3: WritableMat<"mat4x3", "vec3">;
+  mat4: WritableMat<"mat4", "vec4">;
+  sampler2D: {};
+  sampler3D: {};
+  samplerCube: {};
+  isampler2D: {};
+  isampler3D: {};
+  isamplerCube: {};
+  usampler2D: {};
+  usampler3D: {};
+  usamplerCube: {};
+  void: {};
+}
+
+/**
+ * A node that can be assigned to: a variable, a storage element or a stage
+ * output, or a component, column or swizzle of one that names each component
+ * once. Its writable members come first, so where both declare one, as
+ * `element()`, the writable one is the one a call resolves to.
+ */
+export type Var<A extends ShaderType> = BaseNode<A> & VarOps[A] & NodeMethods<A>;
+
+/**
+ * Each type's writable members followed by its {@link NodeOps}, in one
+ * registry, so a `Var<A>` holds a single indexed access, as `Node<A>` does.
+ * Two would make TypeScript intersect their constraints, a union of every
+ * type's members with another, whenever it relates a `Var<T>` of a generic `T`.
+ * Written out rather than mapped: TypeScript reduces an indexed access into a
+ * mapped type back into the two.
+ */
+interface VarOps {
+  float: WritableOps["float"] & NodeOps["float"];
+  vec2: WritableOps["vec2"] & NodeOps["vec2"];
+  vec3: WritableOps["vec3"] & NodeOps["vec3"];
+  vec4: WritableOps["vec4"] & NodeOps["vec4"];
+  int: WritableOps["int"] & NodeOps["int"];
+  uint: WritableOps["uint"] & NodeOps["uint"];
+  bool: WritableOps["bool"] & NodeOps["bool"];
+  ivec2: WritableOps["ivec2"] & NodeOps["ivec2"];
+  ivec3: WritableOps["ivec3"] & NodeOps["ivec3"];
+  ivec4: WritableOps["ivec4"] & NodeOps["ivec4"];
+  uvec2: WritableOps["uvec2"] & NodeOps["uvec2"];
+  uvec3: WritableOps["uvec3"] & NodeOps["uvec3"];
+  uvec4: WritableOps["uvec4"] & NodeOps["uvec4"];
+  bvec2: WritableOps["bvec2"] & NodeOps["bvec2"];
+  bvec3: WritableOps["bvec3"] & NodeOps["bvec3"];
+  bvec4: WritableOps["bvec4"] & NodeOps["bvec4"];
+  mat2: WritableOps["mat2"] & NodeOps["mat2"];
+  mat2x3: WritableOps["mat2x3"] & NodeOps["mat2x3"];
+  mat2x4: WritableOps["mat2x4"] & NodeOps["mat2x4"];
+  mat3x2: WritableOps["mat3x2"] & NodeOps["mat3x2"];
+  mat3: WritableOps["mat3"] & NodeOps["mat3"];
+  mat3x4: WritableOps["mat3x4"] & NodeOps["mat3x4"];
+  mat4x2: WritableOps["mat4x2"] & NodeOps["mat4x2"];
+  mat4x3: WritableOps["mat4x3"] & NodeOps["mat4x3"];
+  mat4: WritableOps["mat4"] & NodeOps["mat4"];
+  sampler2D: WritableOps["sampler2D"] & NodeOps["sampler2D"];
+  sampler3D: WritableOps["sampler3D"] & NodeOps["sampler3D"];
+  samplerCube: WritableOps["samplerCube"] & NodeOps["samplerCube"];
+  isampler2D: WritableOps["isampler2D"] & NodeOps["isampler2D"];
+  isampler3D: WritableOps["isampler3D"] & NodeOps["isampler3D"];
+  isamplerCube: WritableOps["isamplerCube"] & NodeOps["isamplerCube"];
+  usampler2D: WritableOps["usampler2D"] & NodeOps["usampler2D"];
+  usampler3D: WritableOps["usampler3D"] & NodeOps["usampler3D"];
+  usamplerCube: WritableOps["usamplerCube"] & NodeOps["usamplerCube"];
+  void: WritableOps["void"] & NodeOps["void"];
+}
 
 // === Node (branded + conditional methods + swizzles) ===
 /**
@@ -605,18 +755,11 @@ export interface NodeMethods<A extends ShaderType> {
    * is emitted verbatim into the shader for easier debugging; a duplicate name
    * gets a number appended (`color`, `color1`, `color2`, ...).
    */
-  toVar(name?: string): Node<A>;
+  toVar(name?: string): Var<A>;
   /** TSL's shorthand for `toVar()`. */
-  var(name?: string): Node<A>;
+  var(name?: string): Var<A>;
   /** This program, dispatched once per index in `0..count`, as TSL's `.compute()`. */
   compute(count: number, workgroupSize?: number): ComputeNode;
-  assign(value: BaseNode<A> | Node<A>): void;
-  // === Compound assignments (as TSL's `addAssign`/`mulAssign`/...) ===
-  addAssign(other: FloatLike | IntLike | UintLike | Vec2Like | Vec3Like | Vec4Like): void;
-  subAssign(other: FloatLike | IntLike | UintLike | Vec2Like | Vec3Like | Vec4Like): void;
-  mulAssign(other: FloatLike | IntLike | UintLike | Vec2Like | Vec3Like | Vec4Like): void;
-  divAssign(other: FloatLike | IntLike | UintLike | Vec2Like | Vec3Like | Vec4Like): void;
-  modAssign(other: FloatLike | IntLike | UintLike | Vec2Like | Vec3Like | Vec4Like): void;
   // === Conversions (cast to a different type) ===
   toFloat(): Node<"float">;
   toInt(): Node<"int">;
@@ -1198,12 +1341,12 @@ export function node<A extends ShaderType>(config: {
   return result;
 }
 
-export function var_<A extends ShaderType>(varName: string, brandType: string): Node<A> {
+export function var_<A extends ShaderType>(varName: string, brandType: string): Var<A> {
   return new Node<A>({
     _t: brandType,
     type: "var",
     value: { varName, varType: brandType },
-  });
+  }) as Var<A>;
 }
 
 export function isNode(x: any): x is BaseNode<ShaderType> {
@@ -2360,14 +2503,28 @@ export function uniform<T extends ShaderType>(shaderType: T): UniformNode<T> {
 
 export type StorageAccess = "read" | "write" | "read_write";
 
-export type StorageNode<A extends ShaderType> = VariableNode<A> & {
+/**
+ * A storage buffer node. Its own members come before its element type's, so
+ * `element(i)` resolves to the buffer's element, not to a component or column
+ * of the element type.
+ */
+export type StorageNode<A extends ShaderType> = {
   readonly access: StorageAccess;
   /** The buffer this node reads and writes. Every node over the same attribute shares one buffer. */
   attribute: StorageBufferAttribute;
-  element(index: IntLike | UintLike | FloatLike): Node<A>;
+  element(index: IntLike | UintLike | FloatLike): Var<A>;
   /** Makes this node read-only, as TSL's `toReadOnly()`, and returns it. */
-  toReadOnly(): StorageNode<A>;
-};
+  toReadOnly(): ReadOnlyStorageNode<A>;
+} & VariableNode<A>;
+
+/** A storage buffer node made read-only with `toReadOnly()`: its elements can't be assigned to. */
+export type ReadOnlyStorageNode<A extends ShaderType> = {
+  readonly access: StorageAccess;
+  /** The buffer this node reads. Every node over the same attribute shares one buffer. */
+  attribute: StorageBufferAttribute;
+  element(index: IntLike | UintLike | FloatLike): Node<A>;
+  toReadOnly(): ReadOnlyStorageNode<A>;
+} & VariableNode<A>;
 
 /** A typed-array constructor a storage buffer's elements can be stored in. */
 export type StorageArrayClass = Float32ArrayConstructor | Int32ArrayConstructor | Uint32ArrayConstructor;
@@ -2449,7 +2606,7 @@ export function storage<T extends ShaderType>(attribute: StorageBufferAttribute,
       _t: shaderType,
       type: "storageElement",
       params: [result, wrapValue(index) as BaseNode<ShaderType>],
-    }) as Node<T>;
+    }) as Var<T>;
   result.toReadOnly = () => {
     value.access = "read";
     return result;
@@ -2624,27 +2781,27 @@ export function varyingRaw<T extends ShaderType>(name: string, shaderType: T): V
 // === Outputs ===
 export let nextOutputId = 0;
 
-export function output<T extends ShaderType>(shaderType: T): Node<T> {
+export function output<T extends ShaderType>(shaderType: T): Var<T> {
   let id = nextOutputId++;
   return node({
     _t: shaderType,
     type: "output",
     value: { id, slot: `_rmsl_o${id}`, shaderType, location: id },
-  }) as Node<T>;
+  }) as Var<T>;
 }
 
-export function builtinPosition(): Node<"vec4"> {
+export function builtinPosition(): Var<"vec4"> {
   return node({
     _t: "vec4",
     type: "builtinPosition",
-  }) as Node<"vec4">;
+  }) as Var<"vec4">;
 }
 
-export function builtinFragDepth(): Node<"float"> {
+export function builtinFragDepth(): Var<"float"> {
   return node({
     _t: "float",
     type: "builtinFragDepth",
-  }) as Node<"float">;
+  }) as Var<"float">;
 }
 
 /**

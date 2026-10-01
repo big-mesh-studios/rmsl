@@ -102,7 +102,8 @@ value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
   its node-based materials; see [scene.md](./scene.md).
 - **`assign()`** writes only a variable, a storage element or a stage output,
   or a swizzle, component or column of one, and throws when the program is
-  compiled otherwise, on every backend. TSL emits any assignment and leaves
+  compiled otherwise, on every backend. Only those nodes, typed `Var<A>`, have
+  `assign()` in their types, where TSL offers it on every node. TSL emits any assignment and leaves
   the shader compiler to refuse it. A swizzle written through names each
   component once: TSL's WebGPU backend writes `v.xx.assign(value)` component
   by component, so the last one wins; RMSL throws.

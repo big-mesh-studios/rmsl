@@ -1222,6 +1222,7 @@ describe("RMSL", () => {
   // -- Error cases --
   it("assign outside Fn throws", () => {
     let x = float(1.0);
+    // @ts-expect-error: a literal can't be assigned
     expect(() => x.assign(float(2.0))).toThrow("assign must be called inside");
   });
 

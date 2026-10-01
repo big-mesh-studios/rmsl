@@ -94,32 +94,43 @@ describe("an assignment's target", () => {
     const m = uniform("mat3");
     const refused =
       /\[RMSL\] can't assign to a uniform: only a variable, a storage element or a stage output can be assigned/;
+    // @ts-expect-error: refused at run time, and by its type
     expectRefusedEverywhere(() => v.assign(vec3(1, 2, 3)), refused);
+    // @ts-expect-error: refused at run time, and by its type
     expectRefusedEverywhere(() => v.y.assign(float(9)), refused);
+    // @ts-expect-error: refused at run time, and by its type
     expectRefusedEverywhere(() => v.element(int(1)).assign(float(9)), refused);
+    // @ts-expect-error: refused at run time, and by its type
     expectRefusedEverywhere(() => m.element(int(0)).assign(vec3(9, 9, 9)), refused);
+    // @ts-expect-error: refused at run time, and by its type
     expectRefusedEverywhere(() => m.element(int(0)).y.assign(float(9)), refused);
+    // @ts-expect-error: refused at run time, and by its type
     expectRefusedEverywhere(() => m.assign(mat3(1, 0, 0, 0, 1, 0, 0, 0, 1)), refused);
     const vs = uniformArray("vec3", 4);
+    // @ts-expect-error: refused at run time, and by its type
     expectRefusedEverywhere(() => vs.element(int(1)).x.assign(float(9)), refused);
   });
 
   it("names a whole uniform array a uniform, and a built-in input as one, on every backend", () => {
     const vs = uniformArray("vec3", 4);
     expectRefusedEverywhere(() => (vs as any).assign(vec3(1, 2, 3)), /\[RMSL\] can't assign to a uniform: /);
+    // @ts-expect-error: refused at run time, and by its type
     expectRefusedEverywhere(() => invocationIndex().assign(uint(0)), /\[RMSL\] can't assign to a built-in input: /);
   });
 
   it("refuses an attribute, whole or in part, on every backend", () => {
     const position = attribute("vec3");
     const refused = /\[RMSL\] can't assign to an attribute: /;
+    // @ts-expect-error: refused at run time, and by its type
     expectRefusedEverywhere(() => position.assign(vec3(1, 2, 3)), refused);
+    // @ts-expect-error: refused at run time, and by its type
     expectRefusedEverywhere(() => position.x.assign(float(9)), refused);
   });
 
   it("refuses a whole storage buffer, rather than one of its elements, on every backend", () => {
     const values = instancedArray(4, "vec3");
     expectRefusedEverywhere(
+      // @ts-expect-error: refused at run time, and by its type
       () => values.assign(vec3(1, 2, 3)),
       /\[RMSL\] can't assign to a whole storage buffer; assign to one of its elements with \.element\(i\)/,
     );
@@ -130,14 +141,17 @@ describe("an assignment's target", () => {
       new RegExp(`\\[RMSL\\] can't assign through the swizzle \\.${pattern}, which names a component more than once`);
     expectRefusedEverywhere(() => {
       const v = vec3(1, 2, 3).toVar();
+      // @ts-expect-error: refused at run time, and by its type
       v.xx.assign(vec2(1, 2));
     }, refused("xx"));
     expectRefusedEverywhere(() => {
       const v = vec3(1, 2, 3).toVar();
+      // @ts-expect-error: refused at run time, and by its type
       v.xy.xx.assign(vec2(1, 2));
     }, refused("xx"));
     expectRefusedEverywhere(() => {
       const v = vec3(1, 2, 3).toVar();
+      // @ts-expect-error: refused at run time, and by its type
       v.xxy.z.assign(float(1));
     }, refused("xxy"));
   });
@@ -158,20 +172,24 @@ describe("an assignment's target", () => {
     const refused = /\[RMSL\] can't assign to a computed value: .* copy the value into a variable with toVar\(\) first/;
     expectRefusedEverywhere(() => {
       const w = vec3(1, 2, 3).toVar();
+      // @ts-expect-error: refused at run time, and by its type
       w.add(1).y.assign(float(9));
     }, refused);
     expectRefusedEverywhere(() => {
       const w = vec3(1, 2, 3).toVar();
+      // @ts-expect-error: refused at run time, and by its type
       w.mul(2).element(int(0)).assign(float(9));
     }, refused);
     expectRefusedEverywhere(() => {
       const n = mat3(1, 2, 3, 4, 5, 6, 7, 8, 9).toVar();
       n.mul(n)
         .element(int(0))
+        // @ts-expect-error: refused at run time, and by its type
         .assign(vec3(0, 0, 0));
     }, refused);
     expectRefusedEverywhere(() => {
       const n = mat3(1, 2, 3, 4, 5, 6, 7, 8, 9).toVar();
+      // @ts-expect-error: refused at run time, and by its type
       n.mul(n).element(int(0)).y.assign(float(0));
     }, refused);
   });
