@@ -83,6 +83,8 @@ export type WasmParam =
       shaderType: ShaderType;
       metadataAddress: number;
       access: StorageAccess;
+      /** Whether the program assigns to the buffer; only then is it copied back after a call. */
+      written: boolean;
     };
 
 /**
@@ -753,6 +755,8 @@ export function compileWasmFn(
   const attributeAddress = new Map<string, number>();
   const varyingAddress = new Map<string, number>();
   const storageMetadataAddress = new Map<string, number>();
+  /** Slots of the storage buffers the program assigns to. */
+  const writtenStorage = new Set<string>();
 
   // one shared per-pixel input slot, allocated on first use
   let fragCoordAddress: number | undefined;
@@ -778,6 +782,7 @@ export function compileWasmFn(
   // every allocation behind a `.has()` check, so revisiting nodes shared
   // between roots (the array-return-sugar case) is idempotent.
   for (const n of resultNodes) collect(n);
+  for (const p of memoryParams) if (p.kind === "storageMemory") p.written = writtenStorage.has(p.slot);
 
   let resultKind: ScalarKind;
   let valueAddress: number | undefined;
@@ -1292,6 +1297,7 @@ export function compileWasmFn(
             shaderType: v.shaderType,
             metadataAddress: addr,
             access: v.access,
+            written: false,
           });
         }
         break;
@@ -1386,6 +1392,10 @@ export function compileWasmFn(
       case "assign": {
         // remember a direct gl_Position write
         if (node.params[0].type === "builtinPosition") positionWritten = true;
+        // and which storage buffers are written, through any swizzle or component of an element
+        let target = node.params[0];
+        while (target && target.type !== "storageElement" && target.params?.[0]) target = target.params[0];
+        if (target?.type === "storageElement") writtenStorage.add(target.params[0].value.slot);
         break;
       }
 
@@ -3577,7 +3587,7 @@ export function createWasmInputMarshaller(
     if (storageParams.length === 0) return;
     const view = new DataView(memory.buffer);
     storageParams.forEach((p, i) => {
-      if (p.access === "read" || ctx.storageBuffers?.[p.slot]) return;
+      if (p.access === "read" || !p.written || ctx.storageBuffers?.[p.slot]) return;
       const array = (ctx.storages as any)?.[p.slot] as { length: number; [e: number]: unknown } | undefined;
       if (!array) return;
       const base = storageHeapAddress[i]!;

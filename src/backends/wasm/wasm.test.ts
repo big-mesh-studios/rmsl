@@ -1974,3 +1974,22 @@ describe("WASM backend: scalarsInMemory — scalar uniform/attribute/varying for
     expect(compiled.params.some((p) => p.kind === "uniformMemory")).toBe(false);
   });
 });
+
+describe("WASM backend: which storage buffers are copied back", () => {
+  it("marks a storage buffer written only when the program assigns to it", () => {
+    const input = instancedArray(4, "float");
+    const output = instancedArray(4, "vec2");
+    const compiled = compileWasmFn(
+      () =>
+        Fn(() => {
+          const i = invocationIndex();
+          output.element(i).assign(vec2(input.element(i), 0));
+        })(),
+      { name: "main", params: [] },
+    );
+    const written = Object.fromEntries(
+      compiled.params.flatMap((p) => (p.kind === "storageMemory" ? [[p.slot, p.written]] : [])),
+    );
+    expect(written).toEqual({ [input.name]: false, [output.name]: true });
+  });
+});

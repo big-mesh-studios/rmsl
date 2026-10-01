@@ -40,7 +40,8 @@ export interface WasmContext {
   getArrayBuffer(attribute: StorageBufferAttribute): ArrayBuffer;
 }
 
-type Program = { routine: CpuRoutine; slots: { slot: string; attribute: StorageBufferAttribute }[] };
+/** A compiled program, and where each storage buffer it reads lives, which never changes once allocated. */
+type Program = { routine: CpuRoutine; storageBuffers: Record<string, { address: number; length: number }> };
 
 /** Bytes per component WASM stores an attribute's elements with: f64 for float, i32 otherwise. */
 function componentSize(attribute: StorageBufferAttribute): number {
@@ -91,11 +92,15 @@ export function createWasmContext(): WasmContext {
     }
     allocate(compiled.textureHeapBase - cursor);
 
-    const slots = compiled.params.flatMap((p) =>
-      p.kind === "storageMemory" ? [{ slot: p.slot, attribute: attributes.get(p.slot)! }] : [],
+    const storageBuffers = Object.fromEntries(
+      compiled.params.flatMap((p) => {
+        if (p.kind !== "storageMemory") return [];
+        const attribute = attributes.get(p.slot)!;
+        return [[p.slot, { address: buffer(attribute), length: attribute.count }]];
+      }),
     );
 
-    const created = { routine: instantiateWasmRoutine(compiled, "main", memory), slots };
+    const created = { routine: instantiateWasmRoutine(compiled, "main", memory), storageBuffers };
     programs.set(node, created);
     return created;
   }
@@ -107,10 +112,7 @@ export function createWasmContext(): WasmContext {
       const list = nodes instanceof ComputeNode ? [nodes] : nodes;
       for (const node of list) {
         if (node.count <= 0) continue;
-        const { routine, slots } = program(node);
-        const storageBuffers = Object.fromEntries(
-          slots.map(({ slot, attribute }) => [slot, { address: buffer(attribute), length: attribute.count }]),
-        );
+        const { routine, storageBuffers } = program(node);
         routine.compute({ uniforms: uniformValues, storageBuffers }, node.count);
       }
     },
