@@ -126,6 +126,8 @@ export {
   compute,
   ComputeNode,
   invocationIndex,
+  vertexIndex,
+  instanceIndex,
   shiftLeft,
   shiftRight,
   sign,

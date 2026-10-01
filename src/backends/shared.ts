@@ -122,6 +122,9 @@ export interface CompileCtx {
   fragDepthUsed: boolean;
   /** Whether the shader reads the fragment's screen position. */
   fragCoordUsed: boolean;
+  /** Whether a vertex stage reads `vertexIndex()` / `instanceIndex()`. */
+  vertexIndexUsed?: boolean;
+  instanceIndexUsed?: boolean;
   /** Fn parameter names, which the JS target reads from `ctx.params`. */
   jsParams: Set<string>;
   /** Names of JS helper functions the compiled function needs. */

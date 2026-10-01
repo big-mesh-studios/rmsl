@@ -2870,6 +2870,16 @@ export function builtinFragDepth(): Var<"float"> {
  * The origin is the lower-left of the framebuffer on both backends, which is
  * what a screen-space pass samples its texture with.
  */
+/** The index of the vertex being processed, as TSL's `vertexIndex` (a vertex-stage-only builtin). */
+export function vertexIndex(): Node<"uint"> {
+  return node({ _t: "uint", type: "vertexIndex" }) as Node<"uint">;
+}
+
+/** The index of the instance being drawn, as TSL's `instanceIndex` (a vertex-stage-only builtin). */
+export function instanceIndex(): Node<"uint"> {
+  return node({ _t: "uint", type: "instanceIndex" }) as Node<"uint">;
+}
+
 export function fragCoord(): Node<"vec2"> {
   return node({
     _t: "vec2",
