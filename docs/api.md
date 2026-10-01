@@ -451,6 +451,22 @@ While(condition, () => {
 });
 ```
 
+A condition given as a node is built once, before the loop. To make a
+variable in the condition that is recomputed on every iteration, pass the
+condition as a function:
+
+```typescript
+While(
+  () => n.add(step).toVar().lessThan(10),
+  () => {
+    n.assign(n.add(1));
+  },
+);
+```
+
+A `For` condition, and an `ElseIf` condition, may make variables too: they
+are computed where the condition is tested.
+
 ### Other
 
 - **`Discard()`** - fragment discard (like GLSL `discard`)
