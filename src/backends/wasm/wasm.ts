@@ -15,7 +15,7 @@ import {
 } from "../cpu";
 import {
   assertStageResult,
-  assignedStorageElement,
+  assertAssignable,
   CompileFnOptions,
   COMPONENT_INDEX,
   isLeafLiteral,
@@ -1401,7 +1401,7 @@ export function compileWasmFn(
         // remember a direct gl_Position write
         if (node.params[0].type === "builtinPosition") positionWritten = true;
         // and which storage buffers are written
-        const element = assignedStorageElement(node.params[0]);
+        const element = assertAssignable(node.params[0]);
         if (element) writtenStorage.add(element.params[0].value.slot);
         break;
       }

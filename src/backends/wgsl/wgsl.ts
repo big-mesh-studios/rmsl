@@ -11,7 +11,7 @@ import {
   VertexRoot,
   assertPositionIsReadable,
   assertSquareMatrix,
-  assignedStorageElement,
+  assertAssignable,
   assertStageResult,
   forUpdateStatements,
   resolveSwizzleTarget,
@@ -1088,7 +1088,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       if ((node.params![0] as any)?.type === "builtinPosition") {
         ctx.positionWritten = true;
       }
-      assignedStorageElement(node.params![0]);
+      assertAssignable(node.params![0]);
       let rhs = compileWGSLStage(node.params![1], ctx);
 
       // WGSL only makes a single component assignable: `v.x = e` is a

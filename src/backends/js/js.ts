@@ -19,7 +19,7 @@ import {
   PREC_UNARY,
   assertPositionIsReadable,
   assertSquareMatrix,
-  assignedStorageElement,
+  assertAssignable,
   assertStageResult,
   forUpdateStatements,
   resolveSwizzleTarget,
@@ -1728,7 +1728,7 @@ export function compileJSNode(
     case "assign": {
       let targetNode = node.params![0];
       if (targetNode?.type === "builtinPosition") ctx.positionWritten = true;
-      assignedStorageElement(targetNode);
+      assertAssignable(targetNode);
       let rhsNode = node.params![1];
 
       // A swizzle, a column, or a component of a column by index: single

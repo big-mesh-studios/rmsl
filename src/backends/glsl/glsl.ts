@@ -1,5 +1,6 @@
 import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, var_ } from "../../core";
 import {
+  assertAssignable,
   CompileCtx,
   CompileFnOptions,
   CompiledNode,
@@ -678,6 +679,7 @@ export function compileGLSLNode(
       if ((node.params![0] as any)?.type === "builtinPosition") {
         ctx.positionWritten = true;
       }
+      assertAssignable(node.params![0]);
       let lhs = compileGLSLStage(node.params![0], ctx);
       let rhs = compileGLSLStage(node.params![1], ctx);
       return {

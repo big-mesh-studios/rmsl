@@ -616,14 +616,26 @@ export function storageAttributes(roots: unknown): Map<string, StorageBufferAttr
   return attributes;
 }
 
+/** The node types an assignment can write, through any swizzle, component or column of them. */
+const ASSIGNABLE = new Set(["var", "storageElement", "output", "varying", "builtinPosition", "builtinFragDepth"]);
+
 /**
- * The storage element an assignment to `target` writes, through any swizzle
- * or component of it, or undefined if it writes none. Throws if the element's
- * storage node was made read-only, so no backend writes through it.
+ * Checks that an assignment to `target` writes something writable: a
+ * variable, a storage element or a stage output, directly or through any
+ * swizzle, component or column of it. Returns the storage element it writes,
+ * or undefined if it writes none. Called by every backend, so a uniform, an
+ * attribute or a computed value is refused the same way on each, and so is
+ * an element of a storage node made read-only.
  */
-export function assignedStorageElement(target: any): any {
+export function assertAssignable(target: any): any {
   while (["swizzle", "vectorElement", "matrixElement"].includes(target?.type)) target = target.params[0];
-  if (target?.type !== "storageElement") return undefined;
+  if (!ASSIGNABLE.has(target?.type)) {
+    const what = target?.type === "uniform" || target?.type === "attribute" ? `a ${target.type}` : "a computed value";
+    throw new Error(
+      `[RMSL] can't assign to ${what}: only a variable, a storage element or a stage output can be assigned; copy the value into a variable with toVar() first`,
+    );
+  }
+  if (target.type !== "storageElement") return undefined;
   if (target.params[0].value.access === "read") {
     throw new Error("[RMSL] can't assign to an element of a storage node made read-only with toReadOnly()");
   }
