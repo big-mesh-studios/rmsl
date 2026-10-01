@@ -349,6 +349,14 @@ export function compileWGSLStage(node: BaseNode<ShaderType> | any, ctx: CompileC
   return result;
 }
 
+/**
+ * A negative literal is a negation, and brackets like one: `-(-7i)`, not
+ * `--7i`. `wgslIntLiteral` already brackets INT_MIN.
+ */
+function wgslLiteralPrec(literal: string): number {
+  return literal.startsWith("-") ? PREC_UNARY : PREC_ATOM;
+}
+
 export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCtx): CompiledNode {
   // Constant folding
   let folded = tryFold(node);
@@ -356,9 +364,11 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
   switch (node.type) {
     case "float":
-      return { decls: [], body: [], expr: `${node.value}f` };
-    case "int":
-      return { decls: [], body: [], expr: wgslIntLiteral(node.value as number), prec: PREC_ATOM };
+      return { decls: [], body: [], expr: `${node.value}f`, prec: wgslLiteralPrec(String(node.value)) };
+    case "int": {
+      let literal = wgslIntLiteral(node.value as number);
+      return { decls: [], body: [], expr: literal, prec: wgslLiteralPrec(literal) };
+    }
     case "uint":
       return { decls: [], body: [], expr: `${node.value}u` };
     case "bool":

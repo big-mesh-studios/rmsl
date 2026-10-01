@@ -59,6 +59,11 @@ export function glslIntLiteral(value: number): string {
   return value === -2147483648 ? "(-2147483647 - 1)" : String(value);
 }
 
+/** A negative literal is a negation, and brackets like one: `-(-7)`, not `--7`, which GLSL reads as a decrement. */
+function glslLiteralPrec(literal: string): number {
+  return literal.startsWith("-") ? PREC_UNARY : PREC_ATOM;
+}
+
 export function glslType(brand: any): string {
   return typeToGLSL[brand as string] ?? "float";
 }
@@ -103,10 +108,12 @@ export function compileGLSLNode(
     case "float": {
       let s = String(node.value);
       if (!s.includes(".") && !s.includes("e")) s += ".0";
-      return { decls: [], body: [], expr: s };
+      return { decls: [], body: [], expr: s, prec: glslLiteralPrec(s) };
     }
-    case "int":
-      return { decls: [], body: [], expr: glslIntLiteral(node.value as number), prec: PREC_ATOM };
+    case "int": {
+      let literal = glslIntLiteral(node.value as number);
+      return { decls: [], body: [], expr: literal, prec: glslLiteralPrec(literal) };
+    }
     case "uint":
       return { decls: [], body: [], expr: String(node.value) + "u" };
     case "bool":

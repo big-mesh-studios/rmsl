@@ -956,6 +956,11 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
   return result;
 }
 
+/** A negative literal is a negation, and brackets like one: `-(-7)`, not `--7`. */
+function jsLiteralPrec(value: number): number | undefined {
+  return value < 0 || Object.is(value, -0) ? PREC_UNARY : undefined;
+}
+
 export function compileJSNode(
   node: BaseNode<ShaderType> | ShaderType extends never ? never : any,
   ctx: CompileCtx,
@@ -965,11 +970,10 @@ export function compileJSNode(
 
   switch (node.type) {
     case "float":
-      return { decls: [], body: [], expr: String(node.value) };
+      return { decls: [], body: [], expr: String(node.value), prec: jsLiteralPrec(node.value as number) };
     case "int":
-      return { decls: [], body: [], expr: String(node.value) };
     case "uint":
-      return { decls: [], body: [], expr: String(node.value) };
+      return { decls: [], body: [], expr: String(node.value), prec: jsLiteralPrec(node.value as number) };
     case "bool":
       return { decls: [], body: [], expr: node.value ? "true" : "false" };
     case "vec2":
