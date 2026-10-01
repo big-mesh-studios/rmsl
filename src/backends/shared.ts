@@ -630,7 +630,8 @@ const ASSIGNABLE = new Set(["var", "storageElement", "output", "varying", "built
 export function assertAssignable(target: any): any {
   while (["swizzle", "vectorElement", "matrixElement"].includes(target?.type)) target = target.params[0];
   if (!ASSIGNABLE.has(target?.type)) {
-    const what = target?.type === "uniform" || target?.type === "attribute" ? `a ${target.type}` : "a computed value";
+    const what =
+      target?.type === "uniform" ? "a uniform" : target?.type === "attribute" ? "an attribute" : "a computed value";
     throw new Error(
       `[RMSL] can't assign to ${what}: only a variable, a storage element or a stage output can be assigned; copy the value into a variable with toVar() first`,
     );
