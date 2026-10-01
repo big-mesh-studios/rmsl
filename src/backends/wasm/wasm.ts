@@ -353,9 +353,18 @@ function uniformArrayElementAddress(base: number, elementStride: number, indexBy
   return [...i32ConstBytes(base), ...indexBytes, ...i32ConstBytes(elementStride), WASM_OP.i32Mul, WASM_OP.i32Add];
 }
 
-/** Casts one scalar to another kind: f64<->i32 via trunc/convert; bools stay as raw bit values. */
+/**
+ * Casts one scalar to another kind: f64<->i32 via trunc/convert. A bool is an
+ * i32 0 or 1, so it converts to a number as it is and from one by `!= 0`.
+ */
 function convertComponent(valueBytes: number[], fromKind: ScalarKind, toKind: ScalarKind): number[] {
-  if (fromKind === toKind || fromKind === "bool" || toKind === "bool") return valueBytes;
+  if (fromKind === toKind) return valueBytes;
+  if (toKind === "bool") {
+    return fromKind === "float"
+      ? [...valueBytes, ...f64ConstBytes(0), WASM_OP.f64Ne]
+      : [...valueBytes, ...i32ConstBytes(0), WASM_OP.i32Ne];
+  }
+  if (fromKind === "bool") return toKind === "float" ? [...valueBytes, WASM_OP.f64ConvertI32U] : valueBytes;
   if (fromKind === "float") {
     return [...valueBytes, toKind === "uint" ? WASM_OP.i32TruncF64U : WASM_OP.i32TruncF64S];
   }
@@ -408,7 +417,40 @@ const SCRATCH_NODE_TYPES = new Set([
   "sub",
   "mul",
   "div",
+  "mod",
+  "bitAnd",
+  "bitOr",
+  "bitXor",
+  "bitNot",
+  "shiftLeft",
+  "shiftRight",
+  "negate",
+  "abs",
+  "min",
+  "max",
+  "lessThan",
+  "greaterThan",
+  "lessThanEqual",
+  "greaterThanEqual",
+  "equal",
+  "notEqual",
 ]);
+
+/** The comparison opcodes for each comparison node: `[float, int, uint]`. */
+const COMPARISON_OPCODES: Record<string, [number, number, number]> = {
+  lessThan: [WASM_OP.f64Lt, WASM_OP.i32LtS, WASM_OP.i32LtU],
+  greaterThan: [WASM_OP.f64Gt, WASM_OP.i32GtS, WASM_OP.i32GtU],
+  lessThanEqual: [WASM_OP.f64Le, WASM_OP.i32LeS, WASM_OP.i32LeU],
+  greaterThanEqual: [WASM_OP.f64Ge, WASM_OP.i32GeS, WASM_OP.i32GeU],
+  equal: [WASM_OP.f64Eq, WASM_OP.i32Eq, WASM_OP.i32Eq],
+  notEqual: [WASM_OP.f64Ne, WASM_OP.i32Ne, WASM_OP.i32Ne],
+};
+
+/** One component of a comparison, on operands of `kind`. */
+function comparisonBytes(type: string, a: number[], b: number[], kind: ScalarKind): number[] {
+  const [f64op, i32sOp, i32uOp] = COMPARISON_OPCODES[type]!;
+  return [...a, ...b, kind === "float" ? f64op : kind === "uint" ? i32uOp : i32sOp];
+}
 
 /**
  * True when `node` is one of the anonymous aggregate results
@@ -1362,6 +1404,14 @@ export function compileWasmFn(
         addLocal("$smoothstep_t", "float"); // one shared temp local for t (dedup keeps it single)
         break;
 
+      case "div":
+      case "mod":
+        if ((isAggregate(node._t) ? elementKindOf(node._t) : scalarKindOf(node._t)) !== "float") {
+          addLocal("$int_div_a", "int");
+          addLocal("$int_div_b", "int");
+        }
+        break;
+
       default:
         if (MATH_UNARY_IMPORTS.has(node.type) || MATH_BINARY_IMPORTS.has(node.type)) importsUsed.add(node.type);
         break;
@@ -1657,6 +1707,23 @@ export function compileWasmFn(
       case "add":
       case "sub":
       case "div":
+      case "mod":
+      case "bitAnd":
+      case "bitOr":
+      case "bitXor":
+      case "bitNot":
+      case "shiftLeft":
+      case "shiftRight":
+      case "negate":
+      case "abs":
+      case "min":
+      case "max":
+      case "lessThan":
+      case "greaterThan":
+      case "lessThanEqual":
+      case "greaterThanEqual":
+      case "equal":
+      case "notEqual":
         return emitComponentwiseStores(node, nodeAddress(node));
       case "mul":
         // a true matrix product only when BOTH operands are matrices
@@ -1774,6 +1841,14 @@ export function compileWasmFn(
           );
           compIndex++;
         }
+      }
+    }
+    // A single scalar fills every component. It was stored once above, so the
+    // rest copy that component rather than evaluating the scalar again.
+    const width = componentCountOf(targetType);
+    if (node.params.length === 1 && compIndex === 1) {
+      for (let k = 1; k < width; k++) {
+        out.push(...storeComponent(addr, targetKind, k * compSize, loadComponent(addr, targetKind, 0)));
       }
     }
     return out;
@@ -2286,9 +2361,11 @@ export function compileWasmFn(
   }
 
   /**
-   * Element-wise op over same-width vectors, with scalar operands broadcast
-   * by re-evaluating them (walkExpr) per component; aggregate operands are
-   * materialized once and loaded per component.
+   * Element-wise op over same-width vectors — binary, or unary for `bitNot`,
+   * `negate` and `abs` — with scalar operands broadcast by re-evaluating them
+   * (walkExpr) per component; aggregate operands are materialized once and
+   * loaded per component. A comparison reads operands of its first operand's
+   * kind and stores a boolean vector.
    */
   function emitComponentwiseStores(node: any, addr: number): number[] {
     const [a, b] = node.params;
@@ -2296,30 +2373,54 @@ export function compileWasmFn(
     const compSize = componentSizeOf(targetKind);
     const width = componentCountOf(node._t as string);
     const aWidth = componentCountOf(a._t);
-    const bWidth = componentCountOf(b._t);
+    // Only a comparison's operands differ in kind from its result.
+    const operandKind = !COMPARISON_OPCODES[node.type]
+      ? targetKind
+      : aWidth > 1
+        ? elementKindOf(a._t as string)
+        : scalarKindOf(a._t as string);
+    const operandSize = componentSizeOf(operandKind);
+    const bWidth = b === undefined ? 0 : componentCountOf(b._t);
     const out: number[] = [];
     if (aWidth > 1) out.push(...materializeIfNeeded(a));
     if (bWidth > 1) out.push(...materializeIfNeeded(b));
     const aAddr = aWidth > 1 ? nodeAddress(a) : undefined;
     const bAddr = bWidth > 1 ? nodeAddress(b) : undefined;
-    let opcode: number;
-    if (targetKind === "float") {
-      opcode =
-        node.type === "add"
-          ? WASM_OP.f64Add
-          : node.type === "sub"
-            ? WASM_OP.f64Sub
-            : node.type === "mul"
-              ? WASM_OP.f64Mul
-              : WASM_OP.f64Div;
-    } else if (node.type === "add") opcode = WASM_OP.i32Add;
-    else if (node.type === "sub") opcode = WASM_OP.i32Sub;
-    else if (node.type === "mul") opcode = WASM_OP.i32Mul;
-    else opcode = targetKind === "uint" ? WASM_OP.i32DivU : WASM_OP.i32DivS; // div needs the unsigned variant; add/sub/mul share the same bits
+    const combine = (aBytes: number[], bBytes: number[]): number[] => {
+      const float = operandKind === "float";
+      if (COMPARISON_OPCODES[node.type]) return comparisonBytes(node.type, aBytes, bBytes, operandKind);
+      if (node.type === "min" || node.type === "max") return minMaxBytes(aBytes, bBytes, operandKind, node.type);
+      if (node.type === "negate")
+        return float ? [...aBytes, WASM_OP.f64Neg] : [...i32ConstBytes(0), ...aBytes, WASM_OP.i32Sub];
+      if (node.type === "abs") {
+        if (float) return [...aBytes, WASM_OP.f64Abs];
+        if (operandKind === "uint") return aBytes;
+        const negated = [...i32ConstBytes(0), ...aBytes, WASM_OP.i32Sub];
+        return selectExpr(negated, aBytes, [...aBytes, ...i32ConstBytes(0), WASM_OP.i32LtS]);
+      }
+      if (node.type === "mod" && float) return flooredModulo(aBytes, bBytes);
+      if ((node.type === "div" || node.type === "mod") && !float) {
+        return [...aBytes, ...bBytes, ...integerDivision(operandKind as "int" | "uint", node.type)];
+      }
+      if (node.type === "bitNot") return [...aBytes, ...i32ConstBytes(-1), WASM_OP.i32Xor];
+      const opcode = {
+        add: float ? WASM_OP.f64Add : WASM_OP.i32Add,
+        sub: float ? WASM_OP.f64Sub : WASM_OP.i32Sub,
+        mul: float ? WASM_OP.f64Mul : WASM_OP.i32Mul,
+        div: WASM_OP.f64Div,
+        bitAnd: WASM_OP.i32And,
+        bitOr: WASM_OP.i32Or,
+        bitXor: WASM_OP.i32Xor,
+        shiftLeft: WASM_OP.i32Shl,
+        shiftRight: operandKind === "uint" ? WASM_OP.i32ShrU : WASM_OP.i32ShrS,
+      }[node.type as "add" | "sub" | "mul" | "div" | "bitAnd" | "bitOr" | "bitXor" | "shiftLeft" | "shiftRight"];
+      return [...aBytes, ...bBytes, opcode];
+    };
     for (let k = 0; k < width; k++) {
-      const aBytes = aWidth > 1 ? loadComponent(aAddr!, targetKind, k * compSize) : walkExpr(a);
-      const bBytes = bWidth > 1 ? loadComponent(bAddr!, targetKind, k * compSize) : walkExpr(b);
-      out.push(...storeComponent(addr, targetKind, k * compSize, [...aBytes, ...bBytes, opcode]));
+      const aBytes = aWidth > 1 ? loadComponent(aAddr!, operandKind, k * operandSize) : walkExpr(a);
+      const bBytes =
+        b === undefined ? [] : bWidth > 1 ? loadComponent(bAddr!, operandKind, k * operandSize) : walkExpr(b);
+      out.push(...storeComponent(addr, targetKind, k * compSize, combine(aBytes, bBytes)));
     }
     return out;
   }
@@ -2330,14 +2431,18 @@ export function compileWasmFn(
     const targetKind = elementKindOf(node._t as string);
     const compSize = componentSizeOf(targetKind);
     const width = componentCountOf(node._t as string);
-    const out = [...materializeIfNeeded(x), ...materializeIfNeeded(lo), ...materializeIfNeeded(hi)];
-    const xAddr = nodeAddress(x),
-      loAddr = nodeAddress(lo),
-      hiAddr = nodeAddress(hi);
+    // A scalar bound applies to every component, and is re-evaluated for each.
+    const component = (n: any) => {
+      if (componentCountOf(n._t) === 1) return { setup: [], at: () => walkExpr(n) };
+      const nAddr = nodeAddress(n);
+      return { setup: materializeIfNeeded(n), at: (k: number) => loadComponent(nAddr, targetKind, k * compSize) };
+    };
+    const [xc, loc, hic] = [component(x), component(lo), component(hi)];
+    const out = [...xc.setup, ...loc.setup, ...hic.setup];
     for (let k = 0; k < width; k++) {
-      const xk = loadComponent(xAddr, targetKind, k * compSize);
-      const lok = loadComponent(loAddr, targetKind, k * compSize);
-      const hik = loadComponent(hiAddr, targetKind, k * compSize);
+      const xk = xc.at(k);
+      const lok = loc.at(k);
+      const hik = hic.at(k);
       out.push(
         ...storeComponent(
           addr,
@@ -2638,6 +2743,54 @@ export function compileWasmFn(
   }
 
   /**
+   * Integer `/` or `%` of the two operands on the stack, with WGSL's results
+   * where WASM would trap: `x / 0` is `x`, `x % 0` is `0`, and `INT_MIN / -1`
+   * is `INT_MIN`. Those cases divide by 1 instead, which gives exactly those
+   * results. The operands are parked in two shared locals; both are fully
+   * evaluated before either is written, so a nested division can't clobber them.
+   */
+  function integerDivision(kind: "int" | "uint", op: "div" | "mod"): number[] {
+    const getA = [WASM_OP.localGet, ...wasmUleb128(localSlotIndex("$int_div_a"))];
+    const getB = [WASM_OP.localGet, ...wasmUleb128(localSlotIndex("$int_div_b"))];
+    const divisorIsZero = [...getB, WASM_OP.i32Eqz];
+    const divideByOne =
+      kind === "int" && op === "div"
+        ? [
+            ...divisorIsZero,
+            ...[...getA, ...i32ConstBytes(-2147483648), WASM_OP.i32Eq],
+            ...[...getB, ...i32ConstBytes(-1), WASM_OP.i32Eq],
+            WASM_OP.i32And,
+            WASM_OP.i32Or,
+          ]
+        : divisorIsZero;
+    const opcode =
+      op === "div"
+        ? kind === "uint"
+          ? WASM_OP.i32DivU
+          : WASM_OP.i32DivS
+        : kind === "uint"
+          ? WASM_OP.i32RemU
+          : WASM_OP.i32RemS;
+    return [
+      WASM_OP.localSet,
+      ...wasmUleb128(localSlotIndex("$int_div_b")),
+      WASM_OP.localSet,
+      ...wasmUleb128(localSlotIndex("$int_div_a")),
+      ...getA,
+      ...i32ConstBytes(1),
+      ...getB,
+      ...divideByOne,
+      WASM_OP.select,
+      opcode,
+    ];
+  }
+
+  /** Floored modulo, `a - b * floor(a / b)`, as GLSL's `mod()`; a plain `f64.rem` would truncate toward zero. */
+  function flooredModulo(a: number[], b: number[]): number[] {
+    return [...a, ...b, ...a, ...b, WASM_OP.f64Div, WASM_OP.f64Floor, WASM_OP.f64Mul, WASM_OP.f64Sub];
+  }
+
+  /**
    * Scalar `smoothstep(e0, e1, x)`: clamps `t = (x-e0)/(e1-e0)` to `[0,1]`,
    * then returns `t^2 * (3 - 2t)`.
    */
@@ -2726,38 +2879,14 @@ export function compileWasmFn(
         return binaryArith(node, WASM_OP.f64Sub, WASM_OP.i32Sub);
       case "mul":
         return binaryArith(node, WASM_OP.f64Mul, WASM_OP.i32Mul);
-      case "div": {
-        const kind = scalarKindOf(node.params[0]._t);
-        if (kind === "float") return binaryArith(node, WASM_OP.f64Div, WASM_OP.f64Div);
-        return [
-          ...walkExpr(node.params[0]),
-          ...walkExpr(node.params[1]),
-          kind === "uint" ? WASM_OP.i32DivU : WASM_OP.i32DivS,
-        ];
-      }
+      case "div":
       case "mod": {
         const kind = scalarKindOf(node.params[0]._t);
-        if (kind !== "float") {
-          return [
-            ...walkExpr(node.params[0]),
-            ...walkExpr(node.params[1]),
-            kind === "uint" ? WASM_OP.i32RemU : WASM_OP.i32RemS,
-          ];
-        }
-
-        const a = node.params[0],
-          b = node.params[1];
-        // floored modulo (GLSL): a - b*floor(a/b); a plain f64.rem would truncate toward zero
-        return [
-          ...walkExpr(a),
-          ...walkExpr(b),
-          ...walkExpr(a),
-          ...walkExpr(b),
-          WASM_OP.f64Div,
-          WASM_OP.f64Floor,
-          WASM_OP.f64Mul,
-          WASM_OP.f64Sub,
-        ];
+        const a = walkExpr(node.params[0]);
+        const b = walkExpr(node.params[1]);
+        if (kind === "int" || kind === "uint") return [...a, ...b, ...integerDivision(kind, node.type)];
+        if (node.type === "div") return [...a, ...b, WASM_OP.f64Div];
+        return flooredModulo(a, b);
       }
       case "min":
         return minOrMax(node.params[0], node.params[1], scalarKindOf(node.params[0]._t), "min");

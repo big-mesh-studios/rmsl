@@ -105,21 +105,30 @@ loop and a workable mutation run:
 | `RMSL_SKIP_GPU`               | every layer needing a device or a browser, drawing included |
 | `RMSL_SKIP_SHADER_VALIDATION` | validity only                                               |
 | `RMSL_SKIP_SHADER_EVALUATION` | evaluating the two shading languages                        |
+| `RMSL_INTEGER_SWEEP=skip`     | the integer sweep, on every backend                         |
 
 ```bash
 pnpm test          # everything, including the GPU layers
-pnpm test:fast     # RMSL_SKIP_GPU=1, well under a second
+pnpm test:fast     # RMSL_SKIP_GPU=1 RMSL_INTEGER_SWEEP=skip, well under a second
 pnpm test:mutate   # mutation testing with those layers off
 ```
 
-Nothing turns off the CPU target: it needs no hardware, so it evaluates on
-every run, and the two shading languages are checked against what it computed.
+Apart from the integer sweep, nothing turns off the CPU target: it needs no
+hardware, so it evaluates on every run, and the two shading languages are
+checked against what it computed.
 
 Skipping is announced on stderr, and says how much went unchecked, because a
 run without these layers proves much less than it appears to — the score from a
 mutation run measures the text assertions alone. On a machine with no graphics
 device, set `RMSL_SKIP_GPU=1` and say so in the pull request, since the full run
 is what a change is judged on.
+
+The integer sweep (`src/integer-sweep.test.ts`) runs every integer operation,
+and every pair of them composed, on every backend against a model of WGSL's
+semantics. By default it samples which kinds of operand go together, which
+keeps it to about a minute; `RMSL_INTEGER_SWEEP=full` runs every combination,
+which takes several minutes and is worth doing after a change to integer
+arithmetic, folding or precedence in any backend.
 
 ## Adding an operation
 

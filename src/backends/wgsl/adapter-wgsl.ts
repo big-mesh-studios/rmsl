@@ -1,6 +1,7 @@
 import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
 import { compile, WgslResource } from "../../wgsl";
-import { Adapter, DrawCountOptions, slotOf, TypedArray } from "../adapter";
+import { Adapter, DrawCountOptions, requestedStorageSlots, slotOf, TypedArray } from "../adapter";
+import { componentKindOf } from "../cpu";
 import { CompileCtx, VertexRoot } from "../shared";
 import { compileWGSLStage, compileWGSLWithStage, wgslMatrixColumns, wgslUniformLayout } from "./wgsl";
 
@@ -108,9 +109,35 @@ function vertexComponentCount(type: string): number {
   return match ? Number(match[1]) : 1;
 }
 
-function writeUniformScratch(scratch: Float32Array, offset: number, value: number | number[]): void {
-  if (Array.isArray(value)) value.forEach((v, i) => (scratch[offset + i] = v));
-  else scratch[offset] = value;
+/**
+ * A uniform buffer's CPU-side copy, viewed as each 32-bit element type a
+ * member can have, so an `int` member gets integer bits and not the bits of
+ * the equivalent float.
+ */
+type UniformScratch = { f32: Float32Array; i32: Int32Array; u32: Uint32Array };
+
+function uniformScratch(bytes: number): UniformScratch {
+  let buffer = new ArrayBuffer(bytes);
+  return { f32: new Float32Array(buffer), i32: new Int32Array(buffer), u32: new Uint32Array(buffer) };
+}
+
+/**
+ * The typed array that holds one element of `type` exactly as the GPU reads it.
+ * Takes an RMSL type name (`int`, `uvec2`) or a WGSL one (`i32`, `vec2<u32>`):
+ * compute uniform resources are parsed back out of the generated WGSL, so they
+ * carry the WGSL spelling.
+ */
+function elementView(type: string, views: UniformScratch): Float32Array | Int32Array | Uint32Array {
+  let kind = componentKindOf(type);
+  if (kind === "int" || type.includes("i32")) return views.i32;
+  if (kind === "uint" || type.includes("u32")) return views.u32;
+  return views.f32;
+}
+
+function writeUniformScratch(scratch: UniformScratch, offset: number, type: string, value: number | number[]): void {
+  let view = elementView(type, scratch);
+  if (Array.isArray(value)) value.forEach((v, i) => (view[offset + i] = v));
+  else view[offset] = value;
 }
 
 /**
@@ -131,7 +158,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
   let vertexAttributes: ReflectedAttribute[] = [];
   let renderUniformLayout: ReturnType<typeof wgslUniformLayout> | null = null;
   let renderUniformBuffer: GPUBuffer | null = null;
-  let renderUniformScratch: Float32Array | null = null;
+  let renderUniformScratch: UniformScratch | null = null;
   let renderBindGroup0: GPUBindGroup | null = null;
   let vertexBuffers = new Map<string, { buffer: GPUBuffer; componentCount: number }>();
   let vertexCount = 0;
@@ -152,8 +179,8 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
 
     let renderMember = renderUniformLayout?.members.find((m) => m.name === slot);
     if (renderMember && renderUniformScratch && renderUniformBuffer) {
-      writeUniformScratch(renderUniformScratch, renderMember.offset / 4, value);
-      device.queue.writeBuffer(renderUniformBuffer, 0, renderUniformScratch as BufferSource);
+      writeUniformScratch(renderUniformScratch, renderMember.offset / 4, renderMember.type, value);
+      device.queue.writeBuffer(renderUniformBuffer, 0, renderUniformScratch.f32 as BufferSource);
       return;
     }
 
@@ -259,7 +286,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
           size: Math.max(16, renderUniformLayout.size),
           usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
-        renderUniformScratch = new Float32Array(renderUniformBuffer.size / 4);
+        renderUniformScratch = uniformScratch(renderUniformBuffer.size);
         renderBindGroup0 = device.createBindGroup({
           layout: renderPipeline.getBindGroupLayout(0),
           entries: [{ binding: 0, resource: { buffer: renderUniformBuffer } }],
@@ -372,7 +399,7 @@ export function createWgslCompute(
   let storageBuffers = new Map<string, GPUBuffer>();
   let computeBindGroup1: GPUBindGroup | null = null;
   let computeUniformBuffer: GPUBuffer | null = null;
-  let computeUniformScratch: Float32Array | null = null;
+  let computeUniformScratch: UniformScratch | null = null;
   let computeBindGroup0: GPUBindGroup | null = null;
   let staging: GPUBuffer | null = null;
 
@@ -424,8 +451,8 @@ export function createWgslCompute(
 
     let computeRes = computeUniformResources().find((r) => r.name === slot);
     if (computeRes && computeUniformScratch && computeUniformBuffer) {
-      writeUniformScratch(computeUniformScratch, computeRes.offset / 4, value);
-      device.queue.writeBuffer(computeUniformBuffer, 0, computeUniformScratch as BufferSource);
+      writeUniformScratch(computeUniformScratch, computeRes.offset / 4, computeRes.shaderType, value);
+      device.queue.writeBuffer(computeUniformBuffer, 0, computeUniformScratch.f32 as BufferSource);
       return;
     }
 
@@ -484,7 +511,7 @@ export function createWgslCompute(
       if (uniforms.length > 0) {
         let size = Math.max(16, ...uniforms.map((u) => u.offset + u.size));
         computeUniformBuffer = device.createBuffer({ size, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-        computeUniformScratch = new Float32Array(size / 4);
+        computeUniformScratch = uniformScratch(size);
         computeBindGroup0 = device.createBindGroup({
           layout: computePipeline.getBindGroupLayout(0),
           entries: [{ binding: 0, resource: { buffer: computeUniformBuffer } }],
@@ -523,13 +550,28 @@ export function createWgslCompute(
       // CPU at all.
       if (!out) return;
 
+      // Only the slots `out` names are copied and mapped: each one is a GPU
+      // round trip.
       let bytes = Math.max(4, n * 4);
-      for (let [slot, buffer] of storageBuffers) {
+      let requested = new Set(
+        requestedStorageSlots(
+          out,
+          computeStorageResources().map((r) => r.name),
+        ),
+      );
+      for (let resource of computeStorageResources().filter((r) => requested.has(r.name))) {
+        let buffer = storageBuffers.get(resource.name)!;
         let readEncoder = device.createCommandEncoder();
         readEncoder.copyBufferToBuffer(buffer, 0, staging, 0, bytes);
         device.queue.submit([readEncoder.finish()]);
         await staging.mapAsync(GPUMapMode.READ);
-        (out[slot] as Float32Array).set(new Float32Array(staging.getMappedRange()).subarray(0, n));
+        let range = staging.getMappedRange();
+        let values = elementView(resource.shaderType, {
+          f32: new Float32Array(range),
+          i32: new Int32Array(range),
+          u32: new Uint32Array(range),
+        });
+        out[resource.name]!.set(values.subarray(0, n));
         staging.unmap();
       }
       return out;

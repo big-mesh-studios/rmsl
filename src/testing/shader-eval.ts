@@ -331,6 +331,96 @@ export function evaluateWASM(build: Build, args: number[] = []): number | number
   return result as unknown as number;
 }
 
+/** A scalar integer type, the only kind the integer evaluators below take and return. */
+export type IntegerType = "int" | "uint";
+
+type IntegerBuild = (...args: Node<any>[]) => Node<"int"> | Node<"uint">;
+
+function integerParams(type: IntegerType, count: number) {
+  return Array.from({ length: count }, (_, i) => ({ name: `a${i}`, type }));
+}
+
+/**
+ * Run an integer expression on the WGSL backend and read the result back as
+ * the integer it is, not through an `f32`.
+ *
+ * The arguments reach the shader through a storage buffer rather than as
+ * literals: WGSL rejects a constant expression that divides by zero or
+ * overflows at shader-creation time, so a literal argument would test the
+ * compiler's constant folding, not the runtime arithmetic.
+ */
+export async function evaluateIntegerWGSL(build: IntegerBuild, type: IntegerType, args: number[]): Promise<number> {
+  const fn = compileWgslFn(build, { name: "rmsl_eval", params: integerParams(type, args.length) });
+  const scalar = type === "int" ? "i32" : "u32";
+  const call = `rmsl_eval(${args.map((_, i) => `args[${i}]`).join(", ")})`;
+  // An unused binding would be stripped from the pipeline's layout, so it is only declared when read.
+  const argDeclaration = args.length > 0 ? `@group(0) @binding(1) var<storage, read> args: array<${scalar}>;` : "";
+  const code = `${fn}
+@group(0) @binding(0) var<storage, read_write> result: array<${scalar}>;
+${argDeclaration}
+@compute @workgroup_size(1)
+fn main() {
+  result[0] = ${call};
+}`;
+
+  const { gpuDevice } = await import("./gpu");
+  const gpu = await gpuDevice();
+  gpu.pushErrorScope("validation");
+  const module = gpu.createShaderModule({ code });
+  const pipeline = gpu.createComputePipeline({ layout: "auto", compute: { module, entryPoint: "main" } });
+  const compileFailure = gpu.popErrorScope();
+
+  const STORAGE = 0x80,
+    COPY_SRC = 0x4,
+    MAP_READ = 0x1,
+    COPY_DST = 0x8;
+  const input = type === "int" ? Int32Array.from(args) : Uint32Array.from(args);
+  const result = gpu.createBuffer({ size: 4, usage: STORAGE | COPY_SRC });
+  const argBuffer = gpu.createBuffer({ size: Math.max(4, input.byteLength), usage: STORAGE | COPY_DST });
+  const readback = gpu.createBuffer({ size: 4, usage: MAP_READ | COPY_DST });
+  try {
+    gpu.queue.writeBuffer(argBuffer, 0, input);
+    const encoder = gpu.createCommandEncoder();
+    const pass = encoder.beginComputePass();
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(
+      0,
+      gpu.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: result } },
+          ...(args.length > 0 ? [{ binding: 1, resource: { buffer: argBuffer } }] : []),
+        ],
+      }),
+    );
+    pass.dispatchWorkgroups(1);
+    pass.end();
+    encoder.copyBufferToBuffer(result, 0, readback, 0, 4);
+    gpu.queue.submit([encoder.finish()]);
+    const [failure] = await Promise.all([compileFailure, readback.mapAsync(MAP_READ)]);
+    if (failure) throw new Error(`WGSL shader failed to compile: ${failure.message}`);
+    const bytes = readback.getMappedRange().slice(0);
+    return type === "int" ? new Int32Array(bytes)[0]! : new Uint32Array(bytes)[0]!;
+  } finally {
+    readback.destroy?.();
+    argBuffer.destroy?.();
+    result.destroy?.();
+  }
+}
+
+/** Run an integer expression on the JS backend. */
+export function evaluateIntegerJS(build: IntegerBuild, type: IntegerType, args: number[]): number {
+  const fn = compileJSFn(build, { name: "rmsl_eval", params: integerParams(type, args.length) });
+  const callable = new Function(fn)() as (ctx: { params: Record<string, number> }) => number;
+  return callable({ params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) });
+}
+
+/** Run an integer expression on the WASM backend. */
+export function evaluateIntegerWASM(build: IntegerBuild, type: IntegerType, args: number[]): number {
+  const fn = compileWasmRoutine(build, { name: "rmsl_eval", params: integerParams(type, args.length) });
+  return fn.run({ params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) }) as number;
+}
+
 /**
  * Whether a `compileWasmRoutine`/`compileWasmFn` failure means "not supported by
  * this backend yet" rather than a real bug.

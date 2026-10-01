@@ -1,5 +1,5 @@
 import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
-import { Adapter, slotOf, TypedArray } from "./adapter";
+import { Adapter, requestedStorageSlots, slotOf, TypedArray } from "./adapter";
 import { CpuDrawBuffer, CpuRoutine } from "./cpu";
 
 /** One typed array per storage slot, keyed by name. */
@@ -104,7 +104,7 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
       // `out` is only for callers that want the WGSL adapter's optional-out
       // shape too, not something this loop needs to do its job.
       if (!out) return;
-      for (const slot in storages) (out[slot] as TypedArray).set(storages[slot]);
+      for (const slot of requestedStorageSlots(out, Object.keys(storages))) out[slot]!.set(storages[slot]);
       return out;
     },
 

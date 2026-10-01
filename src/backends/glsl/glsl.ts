@@ -12,6 +12,7 @@ import {
   assertStageResult,
   forUpdateStatements,
   tryFold,
+  isIntegerType,
   withoutSemicolon,
   wrapExpr,
 } from "../shared";
@@ -53,6 +54,16 @@ export const typeToGLSL: Record<string, string> = {
   usamplerCube: "usamplerCube",
   void: "void",
 };
+
+/** An `int` literal. `-2147483648` negates an out-of-range `2147483648`. */
+export function glslIntLiteral(value: number): string {
+  return value === -2147483648 ? "(-2147483647 - 1)" : String(value);
+}
+
+/** A negative literal is a negation, and brackets like one: `-(-7)`, not `--7`, which GLSL reads as a decrement. */
+function glslLiteralPrec(literal: string): number {
+  return literal.startsWith("-") ? PREC_UNARY : PREC_ATOM;
+}
 
 export function glslType(brand: any): string {
   return typeToGLSL[brand as string] ?? "float";
@@ -98,10 +109,12 @@ export function compileGLSLNode(
     case "float": {
       let s = String(node.value);
       if (!s.includes(".") && !s.includes("e")) s += ".0";
-      return { decls: [], body: [], expr: s };
+      return { decls: [], body: [], expr: s, prec: glslLiteralPrec(s) };
     }
-    case "int":
-      return { decls: [], body: [], expr: String(node.value) };
+    case "int": {
+      let literal = glslIntLiteral(node.value as number);
+      return { decls: [], body: [], expr: literal, prec: glslLiteralPrec(literal) };
+    }
     case "uint":
       return { decls: [], body: [], expr: String(node.value) + "u" };
     case "bool":
@@ -113,11 +126,11 @@ export function compileGLSLNode(
     case "vec4":
       return { decls: [], body: [], expr: `vec4(${(node.value as number[]).join(", ")})` };
     case "ivec2":
-      return { decls: [], body: [], expr: `ivec2(${(node.value as number[]).join(", ")})` };
+      return { decls: [], body: [], expr: `ivec2(${(node.value as number[]).map(glslIntLiteral).join(", ")})` };
     case "ivec3":
-      return { decls: [], body: [], expr: `ivec3(${(node.value as number[]).join(", ")})` };
+      return { decls: [], body: [], expr: `ivec3(${(node.value as number[]).map(glslIntLiteral).join(", ")})` };
     case "ivec4":
-      return { decls: [], body: [], expr: `ivec4(${(node.value as number[]).join(", ")})` };
+      return { decls: [], body: [], expr: `ivec4(${(node.value as number[]).map(glslIntLiteral).join(", ")})` };
     case "uvec2":
       return { decls: [], body: [], expr: `uvec2(${(node.value as number[]).map((v) => `${v}u`).join(", ")})` };
     case "uvec3":
@@ -308,8 +321,7 @@ export function compileGLSLNode(
       return binaryGLSL(node, ctx, "atan", true);
     case "mod": {
       // GLSL's % is integer-only; floats need the mod() builtin.
-      let operandType = (node.params![0] as any)?._t;
-      let isInteger = operandType === "int" || operandType === "uint";
+      let isInteger = isIntegerType((node.params![0] as any)?._t ?? "float");
       return isInteger ? binaryGLSL(node, ctx, "%") : binaryGLSL(node, ctx, "mod", true);
     }
     case "pow":
@@ -335,7 +347,11 @@ export function compileGLSLNode(
     case "smoothstep":
       return ternaryGLSL(node, ctx, "smoothstep");
     case "clamp":
-      return ternaryGLSL(node, ctx, "clamp");
+      // GLSL leaves integer clamp undefined when low > high; spelled out it
+      // gives min(max(e, low), high), the result WGSL defines.
+      return isIntegerType(node._t as string)
+        ? ternaryGLSL(node, ctx, "clamp", (x, low, high) => `min(max(${x}, ${low}), ${high})`)
+        : ternaryGLSL(node, ctx, "clamp");
     case "select": {
       let cond = compileGLSLStage(node.params![0], ctx);
       let a = compileGLSLStage(node.params![1], ctx);
@@ -356,6 +372,23 @@ export function compileGLSLNode(
         let w = Math.max(aW, bW, width);
         if (aW === 1 && w > 1) aExpr = `vec${w}(${aExpr})`;
         if (bW === 1 && w > 1) bExpr = `vec${w}(${bExpr})`;
+        let resultType = node._t as string;
+        if (isIntegerType(resultType)) {
+          // GLSL ES 3.00 has no integer mix(), so each component is its own
+          // ternary. The operands are pure, so repeating them is only work.
+          let component = (expr: string, isVector: boolean, i: number) => (isVector ? `(${expr})[${i}]` : `(${expr})`);
+          let pieces = Array.from(
+            { length: w },
+            (_, i) =>
+              `${component(condExpr, true, i)} ? ${component(a.expr, aW > 1, i)} : ${component(b.expr, bW > 1, i)}`,
+          );
+          return {
+            decls: [...cond.decls, ...a.decls, ...b.decls],
+            body: [...cond.body, ...a.body, ...b.body],
+            expr: `${resultType}(${pieces.join(", ")})`,
+            prec: PREC_ATOM,
+          };
+        }
         let cExpr = condType.startsWith("bvec") || condType.startsWith("vec") ? `vec${w}(${condExpr})` : condExpr;
         return {
           decls: [...cond.decls, ...a.decls, ...b.decls],
@@ -823,6 +856,7 @@ export function ternaryGLSL(
   node: BaseNode<ShaderType>,
   ctx: CompileCtx,
   fn: string,
+  format: (a: string, b: string, c: string) => string = (a, b, c) => `${fn}(${a}, ${b}, ${c})`,
 ): { decls: string[]; body: string[]; expr: string } {
   let a = compileGLSLStage(node.params![0], ctx);
   let b = compileGLSLStage(node.params![1], ctx);
@@ -845,7 +879,7 @@ export function ternaryGLSL(
   return {
     decls: [...a.decls, ...b.decls, ...c.decls],
     body: [...a.body, ...b.body, ...c.body],
-    expr: `${fn}(${aExpr}, ${bExpr}, ${cExpr})`,
+    expr: format(aExpr, bExpr, cExpr),
   };
 }
 

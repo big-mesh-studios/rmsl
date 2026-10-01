@@ -91,6 +91,24 @@ export type UniformOrSlot = UniformNode<ShaderType> | UniformArrayNode<ShaderTyp
 /** Same idea as `UniformOrSlot`, for `setAttribute`. */
 export type AttributeOrSlot = AttributeNode<ShaderType> | string;
 
+/**
+ * The storage slots a `compute(out)` call asks to have read back: the keys of
+ * `out`. A key that names no storage slot throws, where skipping it would
+ * leave a misspelled slot's array unwritten without a word.
+ */
+export function requestedStorageSlots(out: object, slots: Iterable<string>): string[] {
+  let known = new Set(slots);
+  let requested = Object.keys(out);
+  let unknown = requested.filter((slot) => !known.has(slot));
+  if (unknown.length > 0) {
+    throw new Error(
+      `[RMSL] compute(out) was given ${unknown.map((s) => `"${s}"`).join(", ")}, which the program has no storage slot for. ` +
+        `Its storage slots are: ${[...known].map((s) => `"${s}"`).join(", ") || "none"}.`,
+    );
+  }
+  return requested;
+}
+
 export function slotOf(uniformOrAttribute: UniformOrSlot | AttributeOrSlot): string {
   return typeof uniformOrAttribute === "string" ? uniformOrAttribute : uniformOrAttribute.name;
 }

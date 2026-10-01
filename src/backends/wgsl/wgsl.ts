@@ -1,5 +1,6 @@
 import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, isSamplerType, var_ } from "../../core";
 import { AllocRules, planLayout } from "../../layout";
+import { componentKindOf } from "../cpu";
 import {
   CompileCtx,
   CompileFnOptions,
@@ -14,6 +15,7 @@ import {
   forUpdateStatements,
   resolveSwizzleTarget,
   tryFold,
+  isIntegerType,
   withoutSemicolon,
   wrapExpr,
 } from "../shared";
@@ -349,6 +351,14 @@ export function compileWGSLStage(node: BaseNode<ShaderType> | any, ctx: CompileC
   return result;
 }
 
+/**
+ * A negative literal is a negation, and brackets like one: `-(-7i)`, not
+ * `--7i`. `wgslIntLiteral` already brackets INT_MIN.
+ */
+function wgslLiteralPrec(literal: string): number {
+  return literal.startsWith("-") ? PREC_UNARY : PREC_ATOM;
+}
+
 export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCtx): CompiledNode {
   // Constant folding
   let folded = tryFold(node);
@@ -356,9 +366,11 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
   switch (node.type) {
     case "float":
-      return { decls: [], body: [], expr: `${node.value}f` };
-    case "int":
-      return { decls: [], body: [], expr: `${node.value}i` };
+      return { decls: [], body: [], expr: `${node.value}f`, prec: wgslLiteralPrec(String(node.value)) };
+    case "int": {
+      let literal = wgslIntLiteral(node.value as number);
+      return { decls: [], body: [], expr: literal, prec: wgslLiteralPrec(literal) };
+    }
     case "uint":
       return { decls: [], body: [], expr: `${node.value}u` };
     case "bool":
@@ -370,11 +382,11 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     case "vec4":
       return { decls: [], body: [], expr: `vec4<f32>(${(node.value as number[]).join(", ")})` };
     case "ivec2":
-      return { decls: [], body: [], expr: `vec2<i32>(${(node.value as number[]).map((v) => `${v}i`).join(", ")})` };
+      return { decls: [], body: [], expr: `vec2<i32>(${(node.value as number[]).map(wgslIntLiteral).join(", ")})` };
     case "ivec3":
-      return { decls: [], body: [], expr: `vec3<i32>(${(node.value as number[]).map((v) => `${v}i`).join(", ")})` };
+      return { decls: [], body: [], expr: `vec3<i32>(${(node.value as number[]).map(wgslIntLiteral).join(", ")})` };
     case "ivec4":
-      return { decls: [], body: [], expr: `vec4<i32>(${(node.value as number[]).map((v) => `${v}i`).join(", ")})` };
+      return { decls: [], body: [], expr: `vec4<i32>(${(node.value as number[]).map(wgslIntLiteral).join(", ")})` };
     case "uvec2":
       return { decls: [], body: [], expr: `vec2<u32>(${(node.value as number[]).map((v) => `${v}u`).join(", ")})` };
     case "uvec3":
@@ -459,11 +471,23 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
         };
       }
 
-      let args = wgslMatrixArgs(
-        node._t as string,
-        params.map((p: any) => p.expr),
-        sourceType,
-      ).join(", ");
+      // WGSL builds a vector only from parts of its own component type, so a
+      // part of another kind is converted first: `vec2<u32>(u32(a))`, not
+      // `vec2<u32>(a)` for an i32 `a`. Matrices take only floats already.
+      let exprs = params.map((p: any) => p.expr);
+      if (target !== undefined && target > 1) {
+        let kind = componentKindOf(node._t as string);
+        exprs = exprs.map((expr: string, i: number) => {
+          let partType = (node.params?.[i] as any)?._t as string;
+          let partWidth = TYPE_WIDTH[partType] ?? 1;
+          let partKind = componentKindOf(partType);
+          if (partKind === kind) return expr;
+          return partWidth > 1
+            ? `${wgslType(`${node._t.slice(0, -1)}${partWidth}`)}(${expr})`
+            : `${wgslType(kind)}(${expr})`;
+        });
+      }
+      let args = wgslMatrixArgs(node._t as string, exprs, sourceType).join(", ");
       return {
         decls: params.flatMap((p: any) => p.decls),
         body: params.flatMap((p: any) => p.body),
@@ -591,10 +615,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       const index = compileWGSLStage(indexNode, ctx);
 
       const indexType = (indexNode as any)?._t;
-      const indexExpr =
-        indexType === "uint" || indexType === "int"
-          ? index.expr
-          : `u32(${index.expr})`;
+      const indexExpr = indexType === "uint" || indexType === "int" ? index.expr : `u32(${index.expr})`;
 
       return {
         decls: [...storage.decls, ...index.decls],
@@ -754,7 +775,12 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     case "smoothstep":
       return ternaryWGSL(node, ctx, "smoothstep");
     case "clamp":
-      return ternaryWGSL(node, ctx, "clamp");
+      // Integer clamp is min(max(e, low), high), but a constant `low > high`
+      // makes WGSL's clamp() a shader-creation error; spelled out, it gives
+      // the defined result instead.
+      return isIntegerType(node._t as string)
+        ? ternaryWGSL(node, ctx, "clamp", (x, low, high) => `min(max(${x}, ${low}), ${high})`)
+        : ternaryWGSL(node, ctx, "clamp");
     case "select": {
       let cond = compileWGSLStage(node.params![0], ctx);
       let a = compileWGSLStage(node.params![1], ctx);
@@ -794,11 +820,11 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     case "or":
       return logicalWGSL(node, ctx, "||");
     case "bitAnd":
-      return binaryWGSL(node, ctx, "&");
+      return bitwiseWGSL(node, ctx, "&");
     case "bitOr":
-      return binaryWGSL(node, ctx, "|");
+      return bitwiseWGSL(node, ctx, "|");
     case "bitXor":
-      return binaryWGSL(node, ctx, "^");
+      return bitwiseWGSL(node, ctx, "^");
     // WGSL takes the shift amount as u32 even when the value shifted is i32,
     // so the right operand is converted. GLSL accepts either.
     case "shiftLeft":
@@ -1329,6 +1355,24 @@ export const WGSL_HELPERS: Record<string, string> = {
 }`,
 };
 
+/** An `i32` literal. `-2147483648i` negates an out-of-range `2147483648i`, which WGSL rejects. */
+export function wgslIntLiteral(value: number): string {
+  return value === -2147483648 ? "(-2147483647i - 1i)" : `${value}i`;
+}
+
+/**
+ * The precedence a bitwise or shift expression reports: below every other
+ * operator, so any operator around it brackets it. WGSL gives `&`, `|`, `^`,
+ * `<<` and `>>` no precedence against other operators — `a + b & c` and
+ * `a & b < c` are parse errors, not a question of which binds tighter.
+ */
+const PREC_WGSL_BITWISE = 1;
+
+/** An operand of a bitwise or shift operator, which WGSL requires to be a unary expression. */
+function wgslBitwiseOperand(prec: number | undefined, expr: string): string {
+  return (prec ?? PREC_ATOM) >= PREC_UNARY ? expr : `(${expr})`;
+}
+
 /**
  * A WGSL shift. The value keeps its own type, but the shift amount must be
  * u32 — `i32 << i32` has no overload — so the right operand is converted when
@@ -1337,16 +1381,48 @@ export const WGSL_HELPERS: Record<string, string> = {
 export function shiftWGSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string): CompiledNode {
   let lhs = compileWGSLStage(node.params![0], ctx);
   let rhs = compileWGSLStage(node.params![1], ctx);
+  let width = TYPE_WIDTH[(node.params![0] as any)?._t] ?? 1;
   let amountType = (node.params![1] as any)?._t;
-  let rhsExpr = amountType === "uint" ? rhs.expr : `u32(${rhs.expr})`;
-  let prec = PRECEDENCE[node.type] ?? 0;
-  let lhsExpr = wrapExpr(lhs.prec, prec, lhs.expr);
-  rhsExpr = wrapExpr(rhs.prec, prec, rhsExpr);
+  // The amount has to be u32 with the same width as the value. A vector
+  // amount converts to `vecN<u32>`; a scalar one becomes u32 first, since
+  // WGSL only splats a value of the vector's own component type.
+  let unsigned = componentKindOf(amountType) === "uint";
+  let rhsExpr = rhs.expr;
+  if ((TYPE_WIDTH[amountType] ?? 1) > 1) {
+    if (!unsigned) rhsExpr = `vec${width}<u32>(${rhsExpr})`;
+  } else {
+    if (!unsigned) rhsExpr = `u32(${rhsExpr})`;
+    if (width > 1) rhsExpr = `vec${width}<u32>(${rhsExpr})`;
+  }
+  // A conversion wrapped around the amount makes it a call, which needs no brackets.
+  let rhsPrec = rhsExpr === rhs.expr ? rhs.prec : PREC_ATOM;
   return {
     decls: [...lhs.decls, ...rhs.decls],
     body: [...lhs.body, ...rhs.body],
-    expr: `${lhsExpr} ${op} ${rhsExpr}`,
-    prec,
+    expr: `${wgslBitwiseOperand(lhs.prec, lhs.expr)} ${op} ${wgslBitwiseOperand(rhsPrec, rhsExpr)}`,
+    prec: PREC_WGSL_BITWISE,
+  };
+}
+
+/**
+ * A WGSL `&`, `|` or `^`. Unlike arithmetic, WGSL doesn't broadcast a scalar
+ * across a vector for these, so a scalar right operand is splat to the
+ * vector's type.
+ */
+export function bitwiseWGSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string): CompiledNode {
+  let lhsType = (node.params![0] as any)?._t;
+  let rhsType = (node.params![1] as any)?._t;
+  let lhs = compileWGSLStage(node.params![0], ctx);
+  let rhs = compileWGSLStage(node.params![1], ctx);
+  let rhsExpr =
+    (TYPE_WIDTH[lhsType] ?? 1) > 1 && (TYPE_WIDTH[rhsType] ?? 1) === 1
+      ? `${wgslType(lhsType)}(${rhs.expr})`
+      : wgslBitwiseOperand(rhs.prec, rhs.expr);
+  return {
+    decls: [...lhs.decls, ...rhs.decls],
+    body: [...lhs.body, ...rhs.body],
+    expr: `${wgslBitwiseOperand(lhs.prec, lhs.expr)} ${op} ${rhsExpr}`,
+    prec: PREC_WGSL_BITWISE,
   };
 }
 
@@ -1418,6 +1494,7 @@ export function ternaryWGSL(
   node: BaseNode<ShaderType>,
   ctx: CompileCtx,
   fn: string,
+  format: (a: string, b: string, c: string) => string = (a, b, c) => `${fn}(${a}, ${b}, ${c})`,
 ): { decls: string[]; body: string[]; expr: string } {
   let a = compileWGSLStage(node.params![0], ctx);
   let b = compileWGSLStage(node.params![1], ctx);
@@ -1435,7 +1512,7 @@ export function ternaryWGSL(
   return {
     decls: [...a.decls, ...b.decls, ...c.decls],
     body: [...a.body, ...b.body, ...c.body],
-    expr: `${fn}(${aExpr}, ${bExpr}, ${cExpr})`,
+    expr: format(aExpr, bExpr, cExpr),
   };
 }
 
@@ -1624,15 +1701,11 @@ export function compileWGSLWithStage(
     // Compute resources come from semantic storage() declarations. The
     // compiler owns WGSL binding assignment; ECS/runtime code only needs the
     // reflected semantic resource names.
-    const storages = ctx.storages
-      ? [...ctx.storages.values()].sort((a, b) => a.name.localeCompare(b.name))
-      : [];
+    const storages = ctx.storages ? [...ctx.storages.values()].sort((a, b) => a.name.localeCompare(b.name)) : [];
 
     for (let binding = 0; binding < storages.length; binding++) {
       const info = storages[binding];
-      lines.push(
-        `@group(1) @binding(${binding}) var<storage, ${info.access}> ${info.wgslName}: array<${info.type}>;`,
-      );
+      lines.push(`@group(1) @binding(${binding}) var<storage, ${info.access}> ${info.wgslName}: array<${info.type}>;`);
     }
 
     // Preserve the legacy attribute()/output() compute path. These resources
@@ -1642,15 +1715,11 @@ export function compileWGSLWithStage(
       let binding = 0;
 
       for (const info of ctx.attributes.values()) {
-        lines.push(
-          `@group(1) @binding(${binding++}) var<storage, read> ${info.slot}: array<${info.type}>;`,
-        );
+        lines.push(`@group(1) @binding(${binding++}) var<storage, read> ${info.slot}: array<${info.type}>;`);
       }
 
       for (const info of ctx.outputs.values()) {
-        lines.push(
-          `@group(1) @binding(${binding++}) var<storage, read_write> ${info.slot}: array<${info.type}>;`,
-        );
+        lines.push(`@group(1) @binding(${binding++}) var<storage, read_write> ${info.slot}: array<${info.type}>;`);
       }
     }
 
@@ -1668,15 +1737,11 @@ export function compileWGSLWithStage(
 
     if (storages.length > 0) {
       const lengthStorage = storages[0];
-      lines.push(
-        `  if (_rmsl_index >= arrayLength(&${lengthStorage.wgslName})) { return; }`,
-      );
+      lines.push(`  if (_rmsl_index >= arrayLength(&${lengthStorage.wgslName})) { return; }`);
     } else if (ctx.attributes.size > 0) {
       const lengthAttribute = ctx.attributes.values().next().value;
       if (lengthAttribute) {
-        lines.push(
-          `  if (_rmsl_index >= arrayLength(&${lengthAttribute.slot})) { return; }`,
-        );
+        lines.push(`  if (_rmsl_index >= arrayLength(&${lengthAttribute.slot})) { return; }`);
       }
     }
 

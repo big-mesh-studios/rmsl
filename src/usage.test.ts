@@ -1140,7 +1140,8 @@ describe("RMSL", () => {
     ["shiftLeft", "<<"],
     ["shiftRight", ">>"],
   ])("int.%s() compiles to GLSL (bitwise)", (op, expected) => {
-    let prog = Fn(() => (int(5) as any)[op](int(3)).toVar());
+    // A variable operand, so the operation isn't folded to a literal.
+    let prog = Fn(() => (int(5).toVar() as any)[op](int(3)).toVar());
     let glsl = compileGlsl(prog());
     expect(glsl).toContain(expected as string);
   });
@@ -2129,9 +2130,10 @@ describe("integer vectors", () => {
   });
 
   it("adds an integer scalar to an integer vector", () => {
-    let prog = Fn(() => ivec2(1, 2).add(3).toVar());
+    // A variable operand, so the addition isn't folded to a literal.
+    let prog = Fn(() => ivec2(1, 2).toVar().add(3).toVar());
     let glsl = compileGlsl(prog());
-    expect(glsl).toContain("ivec2(1, 2) + 3");
+    expect(glsl).toMatch(/_rmsl_\w+ \+ 3/);
   });
 
   it("compiles integer vector comparison to a boolean vector", () => {
@@ -2350,6 +2352,12 @@ describe("casts and conversions", () => {
     expect(() => uint(-1)).toThrow(/unsigned/);
   });
 
+  it("rejects a negative unsigned vector component, however many are given", () => {
+    expect(() => uvec2(-1)).toThrow(/unsigned/);
+    expect(() => uvec2(-1, 0)).toThrow(/unsigned/);
+    expect(() => uvec3(uint(1), -1)).toThrow(/unsigned/);
+  });
+
   it("mixes signed and unsigned operands by converting explicitly", () => {
     let prog = Fn(() => int(5).add(uniform("uint").toInt()).toVar());
     let glsl = compileGlsl(prog());
@@ -2396,10 +2404,10 @@ describe("new math builtins", () => {
   });
 
   it("computes a bitwise not on an integer", () => {
-    let prog = Fn(() => int(5).bitNot().toVar());
+    let prog = Fn(() => int(5).toVar().bitNot().toVar());
     let glsl = compileGlsl(prog());
     expect(glsl).toContain("~");
-    let wgsl = compileWgsl(Fn(() => ivec2(1, 2).bitNot().toVar())());
+    let wgsl = compileWgsl(Fn(() => ivec2(1, 2).toVar().bitNot().toVar())());
     expect(wgsl).toContain("~");
   });
 

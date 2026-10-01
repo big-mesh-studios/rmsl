@@ -73,10 +73,32 @@ instead: GLSL to Chromium's WebGL2 compiler, WGSL to Dawn.
 *refuses* something goes through `expectCompileRejection` instead, which
 records nothing.
 
-## Why these two harnesses have their own tests
+## integer-reference.ts and integer-sweep.ts
 
-`shader-eval.test.ts` and `shader-validity.test.ts` test the harnesses
-above, not RMSL itself. Both harnesses are what the rest of the suite's
-assertions rest on, so a fault in either is worse than a fault in the
-compiler: it doesn't produce a wrong answer, it produces a green run that
-proves nothing.
+The integer sweep (`src/integer-sweep.test.ts`) builds every integer
+operation, and every pair of them composed, out of operands that are
+run-time values, literals, constant expressions or splats, and holds each
+backend's answer to `integer-reference.ts`.
+
+The reference computes WGSL's integer semantics through `BigInt`, wrapping
+once at the end, rather than with the `Math.imul`/`| 0` idioms the JS
+backend uses: a reference that repeats the implementation's tricks repeats
+its mistakes too. WGSL is the reference because it is the only target whose
+spec defines every edge case.
+
+`integer-sweep.ts` runs a list of cases, each one program and the arguments
+it runs with, on JS, WASM and WGSL, and checks that GLSL compiles them. A
+program is compiled once and called for every set of arguments. On WGSL,
+cases are compiled up to a thousand to a module and run one invocation per
+set of arguments: a pipeline per case would spend the sweep's whole budget
+on pipeline creation. Each function is first validated in a module of its
+own, so one that fails to compile is reported against its case rather than
+failing the whole module.
+
+## Why these harnesses have their own tests
+
+`shader-eval.test.ts`, `shader-validity.test.ts` and `integer-sweep.test.ts`
+test the harnesses above, not RMSL itself. The harnesses are what the rest
+of the suite's assertions rest on, so a fault in any of them is worse than a
+fault in the compiler: it doesn't produce a wrong answer, it produces a green
+run that proves nothing.

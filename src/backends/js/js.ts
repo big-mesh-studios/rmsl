@@ -5,6 +5,7 @@ import {
   CpuShaderContext,
   CpuShaderResult,
   componentCountOf,
+  componentKindOf,
   elementKindOf,
   isAggregate,
   scalarKindOf,
@@ -108,15 +109,38 @@ export const JS_ELEM: Record<string, { argc: number; fn: (xs: string[]) => strin
   sub: { argc: 2, fn: (xs) => `${xs[0]} - ${xs[1]}` },
   mul: { argc: 2, fn: (xs) => `${xs[0]} * ${xs[1]}` },
   div: { argc: 2, fn: (xs) => `${xs[0]} / ${xs[1]}` },
-  // Integer division truncates, following GLSL/WGSL, not JS's float `/`.
-  idiv: { argc: 2, fn: (xs) => `Math.trunc(${xs[0]} / ${xs[1]})` },
+  // Integer operations wrap to 32 bits and follow WGSL where JS numbers differ:
+  // `x / 0` is `x`, `x % 0` is `0`, and `INT_MIN / -1` is `INT_MIN`.
+  iadd: { argc: 2, fn: (xs) => `(${xs[0]} + ${xs[1]}) | 0` },
+  isub: { argc: 2, fn: (xs) => `(${xs[0]} - ${xs[1]}) | 0` },
+  imul: { argc: 2, fn: (xs) => `Math.imul(${xs[0]}, ${xs[1]})` },
+  idiv: { argc: 2, fn: (xs) => `_idiv(${xs[0]}, ${xs[1]})` },
+  imod: { argc: 2, fn: (xs) => `_imod(${xs[0]}, ${xs[1]})` },
+  uadd: { argc: 2, fn: (xs) => `(${xs[0]} + ${xs[1]}) >>> 0` },
+  usub: { argc: 2, fn: (xs) => `(${xs[0]} - ${xs[1]}) >>> 0` },
+  umul: { argc: 2, fn: (xs) => `Math.imul(${xs[0]}, ${xs[1]}) >>> 0` },
+  udiv: { argc: 2, fn: (xs) => `_udiv(${xs[0]}, ${xs[1]})` },
+  umod: { argc: 2, fn: (xs) => `_umod(${xs[0]}, ${xs[1]})` },
+  // Bitwise operations: JS already works on 32 bits here and takes shift
+  // amounts modulo 32; a uint result only needs reading back unsigned.
+  iand: { argc: 2, fn: (xs) => `${xs[0]} & ${xs[1]}` },
+  ior: { argc: 2, fn: (xs) => `${xs[0]} | ${xs[1]}` },
+  ixor: { argc: 2, fn: (xs) => `${xs[0]} ^ ${xs[1]}` },
+  ishl: { argc: 2, fn: (xs) => `${xs[0]} << ${xs[1]}` },
+  ishr: { argc: 2, fn: (xs) => `${xs[0]} >> ${xs[1]}` },
+  inot: { argc: 1, fn: (xs) => `~${xs[0]}` },
+  uand: { argc: 2, fn: (xs) => `(${xs[0]} & ${xs[1]}) >>> 0` },
+  uor: { argc: 2, fn: (xs) => `(${xs[0]} | ${xs[1]}) >>> 0` },
+  uxor: { argc: 2, fn: (xs) => `(${xs[0]} ^ ${xs[1]}) >>> 0` },
+  ushl: { argc: 2, fn: (xs) => `(${xs[0]} << ${xs[1]}) >>> 0` },
+  ushr: { argc: 2, fn: (xs) => `${xs[0]} >>> ${xs[1]}` },
+  unot: { argc: 1, fn: (xs) => `~${xs[0]} >>> 0` },
   min: { argc: 2, fn: (xs) => `Math.min(${xs[0]}, ${xs[1]})` },
   max: { argc: 2, fn: (xs) => `Math.max(${xs[0]}, ${xs[1]})` },
   pow: { argc: 2, fn: (xs) => `Math.pow(${xs[0]}, ${xs[1]})` },
   atan2: { argc: 2, fn: (xs) => `Math.atan2(${xs[0]}, ${xs[1]})` },
   // Floored, matching GLSL's mod() — JS % truncates toward zero.
   mod: { argc: 2, fn: (xs) => `${xs[0]} - ${xs[1]} * Math.floor(${xs[0]} / ${xs[1]})` },
-  imod: { argc: 2, fn: (xs) => `${xs[0]} % ${xs[1]}` },
   // step(edge, x): 0 while x < edge, 1 from there on.
   step: { argc: 2, fn: (xs) => `${xs[1]} < ${xs[0]} ? 0 : 1` },
   clamp: { argc: 3, fn: (xs) => `Math.min(Math.max(${xs[0]}, ${xs[1]}), ${xs[2]})` },
@@ -127,6 +151,8 @@ export const JS_ELEM: Record<string, { argc: number; fn: (xs: string[]) => strin
       `(function(t){ return t * t * (3 - 2 * t); })(Math.min(Math.max((${xs[2]} - ${xs[0]}) / (${xs[1]} - ${xs[0]}), 0), 1))`,
   },
   neg: { argc: 1, fn: (xs) => `-${xs[0]}` },
+  ineg: { argc: 1, fn: (xs) => `-${xs[0]} | 0` },
+  iabs: { argc: 1, fn: (xs) => `Math.abs(${xs[0]}) | 0` },
   abs: { argc: 1, fn: (xs) => `Math.abs(${xs[0]})` },
   sign: { argc: 1, fn: (xs) => `Math.sign(${xs[0]})` },
   floor: { argc: 1, fn: (xs) => `Math.floor(${xs[0]})` },
@@ -153,6 +179,39 @@ export const JS_ELEM: Record<string, { argc: number; fn: (xs: string[]) => strin
   acosh: { argc: 1, fn: (xs) => `Math.acosh(${xs[0]})` },
   atanh: { argc: 1, fn: (xs) => `Math.atanh(${xs[0]})` },
 };
+
+/**
+ * The precedence of the outermost operator in each integer `JS_ELEM` form,
+ * so a parent operator brackets it when it must: `(a + b) | 0` is an `|`,
+ * not an addition, and `a < (a + b) | 0` would compare before the `|`.
+ * A form missing here is a call, which never needs brackets.
+ */
+const JS_INTEGER_PREC: Record<string, number> = {
+  iadd: PRECEDENCE.bitOr!,
+  isub: PRECEDENCE.bitOr!,
+  uadd: PRECEDENCE.shiftRight!,
+  usub: PRECEDENCE.shiftRight!,
+  umul: PRECEDENCE.shiftRight!,
+  iand: PRECEDENCE.bitAnd!,
+  ior: PRECEDENCE.bitOr!,
+  ixor: PRECEDENCE.bitXor!,
+  ishl: PRECEDENCE.shiftLeft!,
+  ishr: PRECEDENCE.shiftRight!,
+  inot: PREC_UNARY,
+  uand: PRECEDENCE.shiftRight!,
+  uor: PRECEDENCE.shiftRight!,
+  uxor: PRECEDENCE.shiftRight!,
+  ushl: PRECEDENCE.shiftRight!,
+  ushr: PRECEDENCE.shiftRight!,
+  unot: PRECEDENCE.shiftRight!,
+  ineg: PRECEDENCE.bitOr!,
+  iabs: PRECEDENCE.bitOr!,
+};
+
+/** A scalar integer `JS_ELEM` form applied to compiled operands, bracketed as its operator needs. */
+function jsIntegerForm(op: string, operands: CompiledNode[]): { expr: string; prec?: number } {
+  return { expr: JS_ELEM[op]!.fn(operands.map(jsOperand)), prec: JS_INTEGER_PREC[op] };
+}
 
 export function jsZeroes(width: number): string {
   return Array(width).fill(0).join(", ");
@@ -275,6 +334,14 @@ export function jsHelperSource(name: string): string {
   }
 
   switch (name) {
+    case "idiv":
+      return `function _idiv(a, b) {\n  return b === 0 || (a === -2147483648 && b === -1) ? a : (a / b) | 0;\n}`;
+    case "imod":
+      return `function _imod(a, b) {\n  return b === 0 ? 0 : (a % b) | 0;\n}`;
+    case "udiv":
+      return `function _udiv(a, b) {\n  return b === 0 ? a : (a / b) >>> 0;\n}`;
+    case "umod":
+      return `function _umod(a, b) {\n  return b === 0 ? 0 : a % b;\n}`;
     case "copy":
       return `function _copy(src, out) {\n  for (let i = 0; i < src.length; i++) out[i] = src[i];\n  return out;\n}`;
     case "vdot":
@@ -600,15 +667,6 @@ export function isPlainJSIdentifier(s: string): boolean {
   return /^[_$a-zA-Z][_$a-zA-Z0-9]*$/.test(s);
 }
 
-/** The scalar kind a type's components hold, vector and scalar types alike. */
-export function componentKind(type: string | undefined): "float" | "int" | "uint" | "bool" {
-  if (type === undefined) return "float";
-  if (type === "bool" || type.startsWith("bvec")) return "bool";
-  if (type === "int" || type.startsWith("ivec")) return "int";
-  if (type === "uint" || type.startsWith("uvec")) return "uint";
-  return "float";
-}
-
 /**
  * One component converted between two types' scalar kinds, as a constructor
  * converts it in both shading languages: a boolean reads as 1 or 0, a signed
@@ -620,13 +678,14 @@ export function componentKind(type: string | undefined): "float" | "int" | "uint
  * `false !== 0` is true.
  */
 export function jsComponentCast(expr: string, sourceType: string | undefined, targetType: string): string {
-  let from = componentKind(sourceType);
-  let to = componentKind(targetType);
+  let from = componentKindOf(sourceType);
+  let to = componentKindOf(targetType);
   if (from === to) return expr;
   if (from === "bool") expr = `(${expr} ? 1 : 0)`;
   if (to === "bool") return `(${expr} !== 0)`;
-  if (to === "int") return `Math.trunc(${expr})`;
-  if (to === "uint") return `(${expr} >>> 0)`;
+  // uint and int convert to each other keeping the bits, as WGSL's do.
+  if (to === "int") return from === "uint" ? `((${expr}) | 0)` : `Math.trunc(${expr})`;
+  if (to === "uint") return `((${expr}) >>> 0)`;
   return expr;
 }
 
@@ -667,8 +726,21 @@ export function jsScalarBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: 
     // The formula-shaped cases below take their operands through jsOperand, so
     // an operand that is itself an expression arrives whole. The call-shaped
     // ones do not need it: a comma already separates their arguments.
+    case "iadd":
+    case "isub":
+    case "imul":
+    case "uadd":
+    case "usub":
+    case "umul": {
+      let form = jsIntegerForm(op, [a, b]);
+      return { decls, body, expr: form.expr, prec: form.prec };
+    }
     case "idiv":
-      expr = `Math.trunc(${jsOperand(a)} / ${jsOperand(b)})`;
+    case "imod":
+    case "udiv":
+    case "umod":
+      jsRequireHelper(ctx, op);
+      expr = `_${op}(${a.expr}, ${b.expr})`;
       break;
     case "min":
       expr = `Math.min(${a.expr}, ${b.expr})`;
@@ -684,9 +756,6 @@ export function jsScalarBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: 
       break;
     case "mod":
       expr = `(${jsOperand(a)} - ${jsOperand(b)} * Math.floor(${jsOperand(a)} / ${jsOperand(b)}))`;
-      break;
-    case "imod":
-      expr = `(${jsOperand(a)} % ${jsOperand(b)})`;
       break;
     case "step":
       expr = `(${b.expr} < ${a.expr} ? 0 : 1)`;
@@ -711,6 +780,8 @@ export function jsVectorBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: 
   let b = jsCompileOperand(node.params![1], ctx);
   let c = node.params![2] ? jsCompileOperand(node.params![2], ctx) : null;
   jsRequireHelper(ctx, `v${width}${op}`);
+  // The element-wise integer division helpers call the scalar ones.
+  if (op === "idiv" || op === "imod" || op === "udiv" || op === "umod") jsRequireHelper(ctx, op);
   let args = c ? `${a.expr}, ${b.expr}, ${c.expr}` : `${a.expr}, ${b.expr}`;
   let decls = [...a.decls, ...b.decls, ...(c ? c.decls : [])];
   let body = [...a.body, ...b.body, ...(c ? c.body : [])];
@@ -718,6 +789,17 @@ export function jsVectorBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: 
     return { decls, body: [...body, `_v${width}${op}(${args}, ${ctx.outTarget});`], expr: ctx.outTarget };
   }
   return { decls, body, expr: `_v${width}${op}(${args})` };
+}
+
+/**
+ * The integer variant of an arithmetic operation — `iadd`, `udiv` and so on —
+ * when `node` produces `int`/`uint` or a vector of them, and `op` unchanged
+ * otherwise. JS numbers are doubles, so integer arithmetic needs its own
+ * operations to wrap to 32 bits and match WGSL's division by zero.
+ */
+export function jsIntegerOp(node: BaseNode<ShaderType>, op: string): string {
+  let kind = componentKindOf(node._t as string);
+  return kind === "int" ? `i${op}` : kind === "uint" ? `u${op}` : op;
 }
 
 export function jsBinaryOp(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string): CompiledNode {
@@ -768,7 +850,7 @@ export function jsUnaryMath(node: BaseNode<ShaderType>, ctx: CompileCtx, suffix:
     let a = compileJSStage(node.params![0], ctx);
     let e = JS_ELEM[suffix];
     if (!e) throw new Error(`[RMSL] Unknown JS unary op: ${suffix}`);
-    return { decls: a.decls, body: a.body, expr: e.fn([`(${a.expr})`]) };
+    return { decls: a.decls, body: a.body, expr: e.fn([`(${a.expr})`]), prec: JS_INTEGER_PREC[suffix] };
   }
   jsRequireHelper(ctx, `v${width}${suffix}`);
   let a = jsCompileOperand(node.params![0], ctx);
@@ -847,20 +929,30 @@ export function jsComparison(node: BaseNode<ShaderType>, ctx: CompileCtx, op: st
   };
 }
 
+/** The element-wise helper name for each bitwise operator, before its `i`/`u` prefix. */
+const JS_BITWISE_NAMES: Record<string, string> = {
+  "&": "and",
+  "|": "or",
+  "^": "xor",
+  "<<": "shl",
+  ">>": "shr",
+  "~": "not",
+};
+
 export function jsBitwise(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string): CompiledNode {
-  let a = compileJSStage(node.params![0], ctx);
-  let isUint = node._t === "uint";
-  let mask = isUint ? ">>> 0" : "| 0";
-  if (op === "~") {
-    return { decls: a.decls, body: a.body, expr: `(~(${a.expr})) ${mask}`, prec: PREC_UNARY };
+  let width = jsArrayLength(node._t);
+  if (width > 1) {
+    let name = jsIntegerOp(node, JS_BITWISE_NAMES[op]!);
+    return op === "~" ? jsUnaryMath(node, ctx, name) : jsVectorBinary(node, ctx, name, width);
   }
-  let b = compileJSStage(node.params![1], ctx);
-  let sym = op === ">>" && isUint ? ">>>" : op;
+  let name = jsIntegerOp(node, JS_BITWISE_NAMES[op]!);
+  let operands = (node.params ?? []).slice(0, op === "~" ? 1 : 2).map((p) => compileJSStage(p, ctx));
+  let form = jsIntegerForm(name, operands);
   return {
-    decls: [...a.decls, ...b.decls],
-    body: [...a.body, ...b.body],
-    expr: `((${a.expr}) ${sym} (${b.expr})) ${mask}`,
-    prec: PRECEDENCE[node.type] ?? 0,
+    decls: operands.flatMap((o) => o.decls),
+    body: operands.flatMap((o) => o.body),
+    expr: form.expr,
+    prec: form.prec,
   };
 }
 
@@ -886,6 +978,11 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
   return result;
 }
 
+/** A negative literal is a negation, and brackets like one: `-(-7)`, not `--7`. */
+function jsLiteralPrec(value: number): number | undefined {
+  return value < 0 || Object.is(value, -0) ? PREC_UNARY : undefined;
+}
+
 export function compileJSNode(
   node: BaseNode<ShaderType> | ShaderType extends never ? never : any,
   ctx: CompileCtx,
@@ -895,11 +992,10 @@ export function compileJSNode(
 
   switch (node.type) {
     case "float":
-      return { decls: [], body: [], expr: String(node.value) };
+      return { decls: [], body: [], expr: String(node.value), prec: jsLiteralPrec(node.value as number) };
     case "int":
-      return { decls: [], body: [], expr: String(node.value) };
     case "uint":
-      return { decls: [], body: [], expr: String(node.value) };
+      return { decls: [], body: [], expr: String(node.value), prec: jsLiteralPrec(node.value as number) };
     case "bool":
       return { decls: [], body: [], expr: node.value ? "true" : "false" };
     case "vec2":
@@ -1161,11 +1257,13 @@ export function compileJSNode(
     }
 
     case "negate": {
+      let integer = jsIntegerOp(node, "neg") === "ineg";
       if (jsArrayLength(node.params![0]?._t) <= 1) {
         let a = compileJSStage(node.params![0], ctx);
+        if (integer) return { decls: a.decls, body: a.body, ...jsIntegerForm("ineg", [a]) };
         return { decls: a.decls, body: a.body, expr: `-${wrapExpr(a.prec, PREC_UNARY, a.expr)}`, prec: PREC_UNARY };
       }
-      return jsUnaryMath(node, ctx, "neg");
+      return jsUnaryMath(node, ctx, integer ? "ineg" : "neg");
     }
 
     case "not": {
@@ -1192,9 +1290,9 @@ export function compileJSNode(
       return jsVecReduce(node, ctx, "bany");
 
     case "add":
-      return jsBinaryOp(node, ctx, "add");
+      return jsBinaryOp(node, ctx, jsIntegerOp(node, "add"));
     case "sub":
-      return jsBinaryOp(node, ctx, "sub");
+      return jsBinaryOp(node, ctx, jsIntegerOp(node, "sub"));
     case "mul": {
       let aType = node.params![0]?._t;
       let bType = node.params![1]?._t;
@@ -1205,16 +1303,12 @@ export function compileJSNode(
         // Matrix times scalar scales every element.
         return jsVectorBinary(node, ctx, "mul", jsArrayLength(aIsMat ? aType : bType));
       }
-      return jsBinaryOp(node, ctx, "mul");
+      return jsBinaryOp(node, ctx, jsIntegerOp(node, "mul"));
     }
-    case "div": {
-      let t = node.params![0]?._t;
-      return jsBinaryOp(node, ctx, t === "int" || t === "uint" ? "idiv" : "div");
-    }
-    case "mod": {
-      let t = node.params![0]?._t;
-      return jsBinaryOp(node, ctx, t === "int" || t === "uint" ? "imod" : "mod");
-    }
+    case "div":
+      return jsBinaryOp(node, ctx, jsIntegerOp(node, "div"));
+    case "mod":
+      return jsBinaryOp(node, ctx, jsIntegerOp(node, "mod"));
     case "pow":
       return jsBinaryOp(node, ctx, "pow");
     case "atan2":
@@ -1398,7 +1492,7 @@ export function compileJSNode(
     case "atanh":
       return jsUnaryMath(node, ctx, "atanh");
     case "abs":
-      return jsUnaryMath(node, ctx, "abs");
+      return jsUnaryMath(node, ctx, jsIntegerOp(node, "abs") === "iabs" ? "iabs" : "abs");
     case "sign":
       return jsUnaryMath(node, ctx, "sign");
     case "floor":

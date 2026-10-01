@@ -136,3 +136,35 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     expect(wasm).toEqual(js);
   });
 });
+
+describe("createJsCompute/createWasmCompute reading back into out", () => {
+  const program = () =>
+    Fn(() => {
+      const a = storage("a", "float", { access: "read_write" });
+      const b = storage("b", "float", { access: "read_write" });
+      const i = invocationIndex();
+      a.element(i).assign(a.element(i).add(1));
+      b.element(i).assign(b.element(i).add(2));
+    })();
+
+  for (const [name, create] of [
+    ["JS", createJsCompute],
+    ["WASM", createWasmCompute],
+  ] as const) {
+    it(`${name}: reads back only the slots out names`, () => {
+      const adapter = create(program(), { name: "step" });
+      adapter.setAttribute("a", new Float32Array([1, 2]));
+      adapter.setAttribute("b", new Float32Array([10, 20]));
+      const out = { b: new Float32Array(2) };
+      adapter.compute(out);
+      expect(Array.from(out.b)).toEqual([12, 22]);
+    });
+
+    it(`${name}: rejects a slot the program has no storage for`, () => {
+      const adapter = create(program(), { name: "step" });
+      adapter.setAttribute("a", new Float32Array([1, 2]));
+      adapter.setAttribute("b", new Float32Array([10, 20]));
+      expect(() => adapter.compute({ c: new Float32Array(2) })).toThrow(/"c".*no storage slot/);
+    });
+  }
+});
