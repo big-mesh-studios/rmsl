@@ -1426,6 +1426,10 @@ export function compileWasmFn(
         addLocal("$smoothstep_t", "float"); // one shared temp local for t (dedup keeps it single)
         break;
 
+      case "vectorElement":
+        addLocal("$vector_index", "int");
+        break;
+
       case "div":
       case "mod":
         if ((isAggregate(node._t) ? elementKindOf(node._t) : scalarKindOf(node._t)) !== "float") {
@@ -1636,9 +1640,78 @@ export function compileWasmFn(
   }
 
   /**
-   * Writes `rhs` into a storage element. A write outside the buffer is
-   * dropped, so it cannot land in whatever memory lies past it.
+   * The component a literal `index` selects in `vector`. One outside the
+   * vector is an error, as it is when WGSL and GLSL compile it.
    */
+  function constantComponent(vector: any, index: any): number {
+    const width = componentCountOf(vector._t as string);
+    const k = Math.trunc(Number(index.value));
+    if (k < 0 || k >= width) {
+      throw new Error(`[RMSL] compileWasmFn: index ${k} is outside a ${vector._t}'s components 0 to ${width - 1}`);
+    }
+    return k;
+  }
+
+  /**
+   * Bytes computing the byte offset of the component a run-time `index`
+   * selects in a vector of `width` components. An index past the end, or a
+   * negative one (which compares as a huge unsigned one), selects the last
+   * component, so the access stays inside the vector.
+   */
+  function vectorComponentOffset(index: any, width: number, compSize: number): number[] {
+    const indexBytes =
+      scalarKindOf(index._t as string) === "float" ? [...walkExpr(index), WASM_OP.i32TruncF64S] : walkExpr(index);
+    const local = wasmUleb128(localSlotIndex("$vector_index"));
+    return [
+      ...selectExpr([...indexBytes, WASM_OP.localTee, ...local], i32ConstBytes(width - 1), [
+        WASM_OP.localGet,
+        ...local,
+        ...i32ConstBytes(width),
+        WASM_OP.i32LtU,
+      ]),
+      ...i32ConstBytes(compSize),
+      WASM_OP.i32Mul,
+    ];
+  }
+
+  /**
+   * Stores `rhs` into the component of a variable or a storage element that
+   * `target`, a `vectorElement` node, selects. A storage element's component
+   * is stored inside the element's bounds check, like a whole-element store.
+   */
+  function emitVectorElementStore(target: any, rhs: any): number[] {
+    const [vector, index] = target.params;
+    const width = componentCountOf(vector._t as string);
+    const kind = elementKindOf(vector._t as string);
+    const compSize = componentSizeOf(kind);
+    if (vector.type === "storageElement") {
+      const access = storageElementAccess(vector);
+      const address = isLeafLiteral(index)
+        ? access.address(constantComponent(vector, index))
+        : [...access.address(0), ...vectorComponentOffset(index, width, compSize), WASM_OP.i32Add];
+      return [
+        ...access.inBounds,
+        WASM_OP.if_,
+        WASM_BLOCKTYPE_VOID,
+        ...storeDynamic(address, kind, walkExpr(rhs)),
+        WASM_OP.end,
+      ];
+    }
+    if (vector.type !== "var") {
+      throw new Error(
+        "[RMSL] compileWasmFn: assigning to a component by index needs a variable or a storage element; assign it to a variable first",
+      );
+    }
+    const base = nodeAddress(vector);
+    if (isLeafLiteral(index))
+      return storeComponent(base, kind, constantComponent(vector, index) * compSize, walkExpr(rhs));
+    return storeDynamic(
+      [...i32ConstBytes(base), ...vectorComponentOffset(index, width, compSize), WASM_OP.i32Add],
+      kind,
+      walkExpr(rhs),
+    );
+  }
+
   /**
    * Stores `rhs` into some components of a storage element, named by their
    * letters: one letter takes a scalar, several take the matching vector's
@@ -1660,6 +1733,10 @@ export function compileWasmFn(
     return [...prelude, ...access.inBounds, WASM_OP.if_, WASM_BLOCKTYPE_VOID, ...stores, WASM_OP.end];
   }
 
+  /**
+   * Writes `rhs` into a storage element. A write outside the buffer is
+   * dropped, so it cannot land in whatever memory lies past it.
+   */
   function emitStorageElementStore(target: any, rhs: any): number[] {
     const type = target._t as string;
     const element = storageElementAccess(target);
@@ -3100,6 +3177,24 @@ export function compileWasmFn(
         return bytes;
       }
 
+      case "vectorElement": {
+        const [vector, index] = node.params;
+        const width = componentCountOf(vector._t as string);
+        if (isLeafLiteral(index)) return readComponent(vector, constantComponent(vector, index));
+        const kind = elementKindOf(vector._t as string);
+        return [
+          ...materializeIfNeeded(vector),
+          ...loadDynamic(
+            [
+              ...i32ConstBytes(nodeAddress(vector)),
+              ...vectorComponentOffset(index, width, componentSizeOf(kind)),
+              WASM_OP.i32Add,
+            ],
+            kind,
+          ),
+        ];
+      }
+
       case "swizzle": {
         // single-component swizzle evaluates as a scalar component load
         const pattern = node.value as string;
@@ -3260,15 +3355,7 @@ export function compileWasmFn(
         const target = node.params[0];
         const rhs = node.params[1];
 
-        if (target.type === "vectorElement" && target.params[0].type === "storageElement") {
-          const index = target.params[1];
-          if (!isLeafLiteral(index)) {
-            throw new Error(
-              "[RMSL] compileWasmFn: assigning to a component of a storage element needs a constant index; use a swizzle such as .x",
-            );
-          }
-          return emitStorageComponentStores(target.params[0], ["xyzw"[index.value as number]!], rhs);
-        }
+        if (target.type === "vectorElement") return emitVectorElementStore(target, rhs);
         if (target.type === "swizzle") {
           const { base, pattern } = resolveSwizzleTarget(target);
           if ((base as any).type === "storageElement") return emitStorageComponentStores(base, [...pattern], rhs);

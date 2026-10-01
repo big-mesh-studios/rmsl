@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { compileWasmRoutine, compileWasmFn, instantiateWasmRoutine } from "../../wasm";
+import { compileWasmRoutine, compileWasmFn, createWasmCompute, instantiateWasmRoutine } from "../../wasm";
 import { compileJSRoutine } from "../../js";
 import {
   Fn,
@@ -1994,15 +1994,30 @@ describe("WASM backend: which storage buffers are copied back", () => {
   });
 });
 
-describe("WASM backend: writing part of a storage element", () => {
-  it("says a component needs a constant index, rather than crashing", () => {
-    const out = instancedArray(2, "vec4");
+describe("WASM backend: writing a vector component by index", () => {
+  it("says the vector needs to be a variable or a storage element, rather than crashing", () => {
     const root = Fn(() => {
-      const i = invocationIndex();
-      out.element(i).element(i.toInt()).assign(float(1));
+      const v = vec4(1, 2, 3, 4).toVar();
+      v.xy.element(int(0)).assign(float(1));
+      return v.x;
     })();
     expect(() => compileWasmFn(() => root, { name: "main", params: [] })).toThrow(
-      /\[RMSL\] compileWasmFn: assigning to a component of a storage element needs a constant index/,
+      /\[RMSL\] compileWasmFn: assigning to a component by index needs a variable or a storage element/,
     );
+  });
+
+  it("keeps a storage element's write by an index computed past its end inside the element", () => {
+    const out = instancedArray(2, "vec4");
+    const root = Fn(() => {
+      out.element(invocationIndex()).element(invocationIndex().toInt().add(8)).assign(float(1));
+    })();
+    const data = [new Array(4).fill(0), new Array(4).fill(0)];
+    const adapter = createWasmCompute(root, { name: "step" });
+    adapter.setAttribute(out.name, data as any);
+    adapter.compute();
+    expect(data).toEqual([
+      [0, 0, 0, 1],
+      [0, 0, 0, 1],
+    ]);
   });
 });
