@@ -214,6 +214,33 @@ describe("RMSL evaluation", () => {
     await expectValue(classify, [25], 3);
   }, 60_000);
 
+  // An ElseIf's condition is built after its If is in the block, so a variable
+  // it makes has to be declared where that condition is tested, not after the If.
+  it("tests an else-if condition that makes a variable with the variable's value", async () => {
+    const classify = (x: Node<"float">) =>
+      Fn(() => {
+        const out = float(0).toVar();
+        If(x.lessThan(0), () => {
+          out.assign(float(1));
+        })
+          .ElseIf(x.add(1).toVar().greaterThan(5), () => {
+            out.assign(float(2));
+          })
+          .ElseIf(x.mul(2).toVar().greaterThan(3), () => {
+            out.assign(float(3));
+          })
+          .Else(() => {
+            out.assign(float(4));
+          });
+        return out;
+      })();
+
+    await expectValue(classify, [-1], 1);
+    await expectValue(classify, [10], 2);
+    await expectValue(classify, [2], 3);
+    await expectValue(classify, [1], 4);
+  }, 60_000);
+
   it("runs a while loop until its condition fails", async () => {
     const countdown = (n: Node<"float">) =>
       Fn(() => {

@@ -2846,15 +2846,27 @@ export type ElseIfChain = {
   Else: (body: () => void) => void;
 };
 
+/**
+ * A conditional, as TSL's `If`, chained with `ElseIf` and `Else`.
+ *
+ * An `ElseIf`'s condition is built after the `If` is already in the block,
+ * so a variable it makes, as with `toVar()`, lands in the block after the
+ * `If`. `ElseIf` moves those statements into the else branch, ahead of its
+ * own test, which is where the condition is evaluated.
+ */
 export function If(cond: BooleanLike, body: () => void): ElseIfChain {
   let ifNode = node({
     _t: "void",
     type: "if",
     params: [wrapValue(cond) as BaseNode<ShaderType>, buildBlock(body) as BaseNode<ShaderType>],
   });
+  let outer: BaseNode<ShaderType>[] = [];
   assertBlockScope("If", (scope) => {
     scope.push(ifNode);
+    outer = scope;
   });
+  /** Where the statements an `ElseIf` condition makes start in the enclosing block. */
+  let mark = outer.length;
   let deepestIf = ifNode;
   const chain: ElseIfChain = {
     ElseIf: (nextCond, nextBody) => {
@@ -2863,7 +2875,12 @@ export function If(cond: BooleanLike, body: () => void): ElseIfChain {
         type: "if",
         params: [wrapValue(nextCond) as BaseNode<ShaderType>, buildBlock(nextBody) as BaseNode<ShaderType>],
       });
-      deepestIf.params![2] = nextIf as BaseNode<ShaderType>;
+      const made = outer.splice(mark);
+      deepestIf.params![2] = (
+        made.length === 0
+          ? nextIf
+          : node({ _t: "void", type: "seq", params: [...made, nextIf as BaseNode<ShaderType>] })
+      ) as BaseNode<ShaderType>;
       deepestIf = nextIf;
       return chain;
     },
