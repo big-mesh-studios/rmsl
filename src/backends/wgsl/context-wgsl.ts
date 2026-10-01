@@ -60,20 +60,6 @@ type CompiledProgram = {
   } | null;
 };
 
-/** Every storage attribute reachable from `root`, keyed by the slot name its nodes compile to. */
-function storageAttributes(root: Node<ShaderType>): Map<string, StorageBufferAttribute> {
-  const attributes = new Map<string, StorageBufferAttribute>();
-  const visited = new Set<unknown>();
-  const walk = (node: any): void => {
-    if (!node || typeof node !== "object" || visited.has(node)) return;
-    visited.add(node);
-    if (node.type === "storage") attributes.set(node.value.slot, node.value.attribute);
-    if (Array.isArray(node.params)) for (const p of node.params) walk(p);
-  };
-  walk(root);
-  return attributes;
-}
-
 /** Whether any node reachable from `root` is a texture, which the context has no binding for. */
 function samplesTextures(root: Node<ShaderType>): boolean {
   const visited = new Set<unknown>();
@@ -135,7 +121,6 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
       compute: { module: gpu.createShaderModule({ code: compiled.code }), entryPoint: compiled.entryPoint },
     });
 
-    const attributes = storageAttributes(node.computeNode);
     const storages = compiled.resources.filter((r) => r.kind === "storage");
     const storageGroup =
       storages.length === 0
@@ -144,7 +129,7 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
             layout: pipeline.getBindGroupLayout(1),
             entries: storages.map((r) => ({
               binding: r.binding,
-              resource: { buffer: buffer(attributes.get(r.name)!) },
+              resource: { buffer: buffer(r.attribute) },
             })),
           });
 

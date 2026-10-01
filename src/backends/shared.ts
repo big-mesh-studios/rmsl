@@ -592,6 +592,21 @@ export type CompileFnOptions = {
   params: Array<{ name: string; type: ShaderType }>;
 };
 
+/** Every storage attribute reachable from the roots, keyed by the slot name its nodes compile to. */
+export function storageAttributes(...roots: unknown[]): Map<string, StorageBufferAttribute> {
+  const attributes = new Map<string, StorageBufferAttribute>();
+  const visited = new Set<unknown>();
+  const walk = (node: any): void => {
+    if (!node || typeof node !== "object" || visited.has(node)) return;
+    visited.add(node);
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (node.type === "storage") attributes.set(node.value.slot, node.value.attribute);
+    if (Array.isArray(node.params)) node.params.forEach(walk);
+  };
+  roots.forEach(walk);
+  return attributes;
+}
+
 /**
  * Throws unless `length` values from element `offset` on fit in the
  * attribute's buffer, so a context's `write()` fails the same way on every backend.
