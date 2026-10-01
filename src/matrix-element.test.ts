@@ -3,6 +3,7 @@ import { float, Fn, int, mat2x3, mat3, vec2, vec3, type Node } from "./rmsl";
 import {
   assertRecordedEvaluationsAgree,
   closeEvaluators,
+  evaluateJS,
   evaluateRecording,
   evaluateWASM,
 } from "./testing/shader-eval";
@@ -72,6 +73,19 @@ describe("a matrix's column by index", () => {
     });
     expect(evaluateWASM((a) => write(a), [9])).toEqual([100, 100, 100]);
     expect(evaluateWASM((a) => write(a), [-1])).toEqual([100, 100, 100]);
+  });
+
+  it("keeps a write by an index computed outside the matrix inside it, alike on JS and WASM", () => {
+    const write = Fn((a: Node<"float">) => {
+      const v = m().toVar();
+      v.element(a.toInt()).assign(vec3(0, 0, 0));
+      v.element(int(1)).element(a.toInt()).assign(float(50));
+      return v.element(0).add(v.element(1)).add(v.element(2));
+    });
+    expect(evaluateJS((a) => write(a), [9])).toEqual([5, 7, 53]);
+    expect(evaluateJS((a) => write(a), [-1])).toEqual([5, 7, 53]);
+    expect(evaluateWASM((a) => write(a), [9])).toEqual([5, 7, 53]);
+    expect(evaluateWASM((a) => write(a), [-1])).toEqual([5, 7, 53]);
   });
 
   it("rejects a constant index outside the matrix on WASM, as WGSL and GLSL do", () => {

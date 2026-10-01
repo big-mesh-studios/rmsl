@@ -221,6 +221,32 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     expect(results[1]).toEqual(results[0]);
   });
 
+  it("keeps a write by a column or component index computed outside a storage matrix inside it", () => {
+    const out = instancedArray(2, "mat2");
+    const root = Fn(() => {
+      const i = invocationIndex();
+      out.element(i).element(i.toInt().add(8)).y.assign(i.toFloat().add(1));
+      out.element(i).element(int(0)).element(i.toInt().sub(5)).assign(i.toFloat().add(10));
+    })();
+
+    const results = [createJsCompute, createWasmCompute].map((create) => {
+      const adapter = create(root, { name: "step" });
+      const data = [
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+      ];
+      adapter.setAttribute(out.name, data as any);
+      adapter.compute();
+      return data;
+    });
+
+    expect(results[0]).toEqual([
+      [0, 10, 0, 1],
+      [0, 11, 0, 2],
+    ]);
+    expect(results[1]).toEqual(results[0]);
+  });
+
   it("gathers from a neighbouring element", () => {
     const src = instancedArray(4, "float").toReadOnly();
     const dst = instancedArray(4, "float");
