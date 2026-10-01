@@ -89,7 +89,7 @@ describe("a matrix's column by index", () => {
   it("says the matrix needs to be a variable or a storage element on WASM, rather than crashing", () => {
     const write = Fn(() => {
       const v = m().toVar();
-      v.mul(2).element(int(0)).y.assign(float(1));
+      v.mul(m()).element(int(0)).y.assign(float(1));
       return v.element(0);
     });
     expect(() => evaluateWASM(() => write())).toThrow(
