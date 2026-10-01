@@ -2636,6 +2636,11 @@ function componentsOf(shaderType: ShaderType): number {
  * read or write past an element, or reinterpret its bits.
  */
 function assertStorageLayout(attribute: StorageBufferAttribute, shaderType: ShaderType): void {
+  if (shaderType === "bool" || shaderType.startsWith("bvec")) {
+    throw new Error(
+      `[RMSL] a storage buffer can't hold ${shaderType} elements, as WGSL's can't; store them as uint (or uvec) instead`,
+    );
+  }
   const components = componentsOf(shaderType);
   if (attribute.itemSize !== components) {
     throw new Error(

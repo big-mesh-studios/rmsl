@@ -31,6 +31,11 @@ describe("storage buffers", () => {
     expect(() => storage(new StorageBufferAttribute(4, 2, Int32Array), "ivec2")).not.toThrow();
   });
 
+  it("rejects bool elements, which a WGSL storage buffer can't hold", () => {
+    expect(() => instancedArray(4, "bool")).toThrow(/can't hold bool/);
+    expect(() => storage(new StorageBufferAttribute(4, 3, Float32Array), "bvec3")).toThrow(/can't hold bvec3/);
+  });
+
   it("rejects a typed array that isn't a whole number of elements", () => {
     expect(() => instancedArray(new Float32Array(5), "vec2")).toThrow(/5 values.*itemSize 2/);
   });
