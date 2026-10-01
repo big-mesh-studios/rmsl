@@ -353,9 +353,18 @@ function uniformArrayElementAddress(base: number, elementStride: number, indexBy
   return [...i32ConstBytes(base), ...indexBytes, ...i32ConstBytes(elementStride), WASM_OP.i32Mul, WASM_OP.i32Add];
 }
 
-/** Casts one scalar to another kind: f64<->i32 via trunc/convert; bools stay as raw bit values. */
+/**
+ * Casts one scalar to another kind: f64<->i32 via trunc/convert. A bool is an
+ * i32 0 or 1, so it converts to a number as it is and from one by `!= 0`.
+ */
 function convertComponent(valueBytes: number[], fromKind: ScalarKind, toKind: ScalarKind): number[] {
-  if (fromKind === toKind || fromKind === "bool" || toKind === "bool") return valueBytes;
+  if (fromKind === toKind) return valueBytes;
+  if (toKind === "bool") {
+    return fromKind === "float"
+      ? [...valueBytes, ...f64ConstBytes(0), WASM_OP.f64Ne]
+      : [...valueBytes, ...i32ConstBytes(0), WASM_OP.i32Ne];
+  }
+  if (fromKind === "bool") return toKind === "float" ? [...valueBytes, WASM_OP.f64ConvertI32U] : valueBytes;
   if (fromKind === "float") {
     return [...valueBytes, toKind === "uint" ? WASM_OP.i32TruncF64U : WASM_OP.i32TruncF64S];
   }
