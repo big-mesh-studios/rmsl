@@ -220,6 +220,20 @@ for (const backend of backends) {
       context.destroy();
     });
 
+    it("writes a component of a storage element by a computed index", async () => {
+      const context = await backend.create();
+      const out = instancedArray(2, "vec4");
+      const write = Fn(() => {
+        const i = invocationIndex();
+        out.element(i).element(i.toInt().add(1)).assign(i.toFloat().add(1));
+      })().compute(2);
+
+      context.compute(write);
+
+      expect(await context.read(out.attribute)).toEqual([0, 1, 0, 0, 0, 0, 2, 0]);
+      context.destroy();
+    });
+
     it("writes a buffer and reads it back", async () => {
       const context = await backend.create();
       const values = instancedArray(4, "uint");
