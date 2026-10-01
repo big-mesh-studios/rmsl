@@ -312,11 +312,8 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       return;
     }
 
-    if (!renderPipeline) {
-      pendingUniforms.set(slot, value);
-      return;
-    }
-    throw new Error(`[RMSL] unknown uniform "${slot}"`);
+    // A uniform the program doesn't read is ignored, as in TSL and every other adapter.
+    if (!renderPipeline) pendingUniforms.set(slot, value);
   }
 
   function setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
@@ -626,11 +623,8 @@ export function createWgslCompute(
       return;
     }
 
-    if (!computePipeline) {
-      pendingUniforms.set(slot, value);
-      return;
-    }
-    throw new Error(`[RMSL] unknown uniform "${slot}"`);
+    // A uniform the program doesn't read is ignored, as in TSL and every other adapter.
+    if (!computePipeline) pendingUniforms.set(slot, value);
   }
 
   // Named `setAttribute` by convention with the render-shaped adapters,
