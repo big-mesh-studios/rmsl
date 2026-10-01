@@ -12,6 +12,7 @@ import { compile, type WgslResource } from "../../wgsl";
 import { slotOf, type TypedArray } from "../adapter";
 import { assertWriteFits, someNode } from "../shared";
 import { uniformBufferSize, uniformScratch, writeUniformMember, type UniformScratch } from "./adapter-wgsl";
+import { typeToWGSL, WGSL_LAYOUT } from "./wgsl";
 
 /**
  * Several compute programs on one `GPUDevice`, sharing their storage buffers,
@@ -67,14 +68,26 @@ function samplesTextures(root: Node<ShaderType>): boolean {
   return someNode(root, (node) => typeof node._t === "string" && isSamplerType(node._t));
 }
 
-/** Bytes per element of a WGSL storage array of `itemSize` 32-bit components. */
+/** Bytes per element of a storage array of `itemSize` 32-bit components, laid out without padding. */
 function elementStride(itemSize: number): number {
-  if (itemSize === 3 || itemSize > 4) {
+  return itemSize * 4;
+}
+
+/**
+ * Throws unless WGSL lays out a storage array of the resource's element type
+ * as tightly as its attribute holds it, 4 bytes per component. A type with
+ * columns of three, a `vec3`, `mat3`, `mat2x3` or `mat4x3`, is padded: each
+ * column takes 16 bytes.
+ */
+function assertUnpadded(resource: Extract<WgslResource, { kind: "storage" }>): void {
+  const { size, align } = WGSL_LAYOUT[typeToWGSL[resource.shaderType]!]!;
+  const stride = Math.ceil(size / align) * align;
+  const packed = elementStride(resource.attribute.itemSize);
+  if (stride !== packed) {
     throw new Error(
-      `[RMSL] createWgslContext: storage elements of ${itemSize} components aren't supported yet; use 1, 2 or 4.`,
+      `[RMSL] createWgslContext: storage elements of ${resource.shaderType} aren't supported yet; WGSL pads each to ${stride} bytes, where its attribute holds ${packed}.`,
     );
   }
-  return itemSize * 4;
 }
 
 /** Creates a {@link WgslContext} on a new device, or on `options.device`. */
@@ -120,7 +133,10 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
       compute: { module: gpu.createShaderModule({ code: compiled.code }), entryPoint: compiled.entryPoint },
     });
 
-    const storages = compiled.resources.filter((r) => r.kind === "storage");
+    const storages = compiled.resources.filter(
+      (r): r is Extract<WgslResource, { kind: "storage" }> => r.kind === "storage",
+    );
+    storages.forEach(assertUnpadded);
     const storageGroup =
       storages.length === 0
         ? null
