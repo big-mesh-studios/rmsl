@@ -1339,16 +1339,29 @@ export const WGSL_HELPERS: Record<string, string> = {
 }`,
 };
 
-/**
- * A WGSL shift. The value keeps its own type, but the shift amount must be
- * u32 — `i32 << i32` has no overload — so the right operand is converted when
- * it is not already unsigned.
- */
 /** An `i32` literal. `-2147483648i` negates an out-of-range `2147483648i`, which WGSL rejects. */
 export function wgslIntLiteral(value: number): string {
   return value === -2147483648 ? "(-2147483647i - 1i)" : `${value}i`;
 }
 
+/**
+ * The precedence a bitwise or shift expression reports: below every other
+ * operator, so any operator around it brackets it. WGSL gives `&`, `|`, `^`,
+ * `<<` and `>>` no precedence against other operators — `a + b & c` and
+ * `a & b < c` are parse errors, not a question of which binds tighter.
+ */
+const PREC_WGSL_BITWISE = 1;
+
+/** An operand of a bitwise or shift operator, which WGSL requires to be a unary expression. */
+function wgslBitwiseOperand(prec: number | undefined, expr: string): string {
+  return (prec ?? PREC_ATOM) >= PREC_UNARY ? expr : `(${expr})`;
+}
+
+/**
+ * A WGSL shift. The value keeps its own type, but the shift amount must be
+ * u32 — `i32 << i32` has no overload — so the right operand is converted when
+ * it is not already unsigned.
+ */
 export function shiftWGSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string): CompiledNode {
   let lhs = compileWGSLStage(node.params![0], ctx);
   let rhs = compileWGSLStage(node.params![1], ctx);
@@ -1365,14 +1378,13 @@ export function shiftWGSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: strin
     if (!unsigned) rhsExpr = `u32(${rhsExpr})`;
     if (width > 1) rhsExpr = `vec${width}<u32>(${rhsExpr})`;
   }
-  let prec = PRECEDENCE[node.type] ?? 0;
-  let lhsExpr = wrapExpr(lhs.prec, prec, lhs.expr);
-  rhsExpr = wrapExpr(rhs.prec, prec, rhsExpr);
+  // A conversion wrapped around the amount makes it a call, which needs no brackets.
+  let rhsPrec = rhsExpr === rhs.expr ? rhs.prec : PREC_ATOM;
   return {
     decls: [...lhs.decls, ...rhs.decls],
     body: [...lhs.body, ...rhs.body],
-    expr: `${lhsExpr} ${op} ${rhsExpr}`,
-    prec,
+    expr: `${wgslBitwiseOperand(lhs.prec, lhs.expr)} ${op} ${wgslBitwiseOperand(rhsPrec, rhsExpr)}`,
+    prec: PREC_WGSL_BITWISE,
   };
 }
 
@@ -1384,15 +1396,17 @@ export function shiftWGSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: strin
 export function bitwiseWGSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string): CompiledNode {
   let lhsType = (node.params![0] as any)?._t;
   let rhsType = (node.params![1] as any)?._t;
-  if ((TYPE_WIDTH[lhsType] ?? 1) === 1 || (TYPE_WIDTH[rhsType] ?? 1) > 1) return binaryWGSL(node, ctx, op);
   let lhs = compileWGSLStage(node.params![0], ctx);
   let rhs = compileWGSLStage(node.params![1], ctx);
-  let prec = PRECEDENCE[node.type] ?? 0;
+  let rhsExpr =
+    (TYPE_WIDTH[lhsType] ?? 1) > 1 && (TYPE_WIDTH[rhsType] ?? 1) === 1
+      ? `${wgslType(lhsType)}(${rhs.expr})`
+      : wgslBitwiseOperand(rhs.prec, rhs.expr);
   return {
     decls: [...lhs.decls, ...rhs.decls],
     body: [...lhs.body, ...rhs.body],
-    expr: `${wrapExpr(lhs.prec, prec, lhs.expr)} ${op} ${wgslType(lhsType)}(${rhs.expr})`,
-    prec,
+    expr: `${wgslBitwiseOperand(lhs.prec, lhs.expr)} ${op} ${rhsExpr}`,
+    prec: PREC_WGSL_BITWISE,
   };
 }
 
