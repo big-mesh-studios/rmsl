@@ -1193,11 +1193,13 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       let updates = forUpdateStatements(update);
       let decls = [...init.decls, ...cd.decls, ...update.decls, ...body.decls];
 
-      // WGSL's for-header holds a single update statement. More than one goes
-      // in a continuing block instead, which runs after the body on every
-      // iteration — including after a continue, which appending them to the
-      // body would not.
-      if (updates.length > 1) {
+      // WGSL's for-header holds a single update statement, and a condition
+      // that is a single expression. More than one update, or a condition that
+      // runs statements before its test, takes a loop instead: the statements
+      // then the test at its top, every iteration, and the updates in a
+      // continuing block, which runs after the body on every iteration —
+      // including after a continue, which appending them to the body would not.
+      if (updates.length > 1 || cd.body.length > 0) {
         return {
           decls,
           body: [
@@ -1229,9 +1231,14 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     case "while": {
       let cd = compileWGSLStage(node.params![0], ctx);
       let body = compileWGSLStage(node.params![1], ctx);
+      // A condition that runs statements before its test runs them at the top of every iteration.
+      let loop =
+        cd.body.length > 0
+          ? ["loop {", ...cd.body.map((l) => "  " + l), `  if (!(${cd.expr})) { break; }`]
+          : [`while (${cd.expr}) {`];
       return {
         decls: [...cd.decls, ...body.decls],
-        body: [...cd.body, `while (${cd.expr}) {`, ...body.body.map((l) => "  " + l), "}"],
+        body: [...loop, ...body.body.map((l) => "  " + l), "}"],
         expr: "0.0",
       };
     }

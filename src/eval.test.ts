@@ -287,6 +287,83 @@ describe("RMSL evaluation", () => {
     await expectValue(evens, [3], 4);
   }, 60_000);
 
+  it("keeps a variable an else-if condition makes in scope after the chain", async () => {
+    const pick = (x: Node<"float">) =>
+      Fn(() => {
+        const out = float(0).toVar();
+        let doubled!: Node<"float">;
+        If(x.lessThan(0), () => {
+          out.assign(float(1));
+        }).ElseIf((doubled = x.mul(2).toVar()).greaterThan(3), () => {
+          out.assign(float(2));
+        });
+        return out.add(doubled);
+      })();
+
+    // The chain stops at the If: the else-if's variable is never computed, and keeps its zero.
+    await expectValue(pick, [-1], 1);
+    await expectValue(pick, [5], 12);
+    await expectValue(pick, [1], 2);
+  }, 60_000);
+
+  it("keeps a variable a For condition makes in scope in the update and after the loop", async () => {
+    const run = (x: Node<"float">) =>
+      Fn(() => {
+        let reach!: Node<"float">;
+        const total = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (n) => (reach = n.add(x).toVar()).lessThan(10),
+          (n) => {
+            n.assign(n.add(1));
+            total.assign(total.add(reach));
+          },
+          () => {},
+        );
+        return total.mul(100).add(reach);
+      })();
+
+    // With x = 7: reach is 7, 8, 9 inside the loop, summed by the update, and 10 when the loop ends.
+    await expectValue(run, [7], 2410);
+  }, 60_000);
+
+  it("recomputes a For condition that calls a function making a variable on every iteration", async () => {
+    const below = Fn((n: Node<"float">, x: Node<"float">) => n.add(x).toVar().lessThan(10));
+    const count = (x: Node<"float">) =>
+      Fn(() => {
+        const steps = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (n) => below(n, x),
+          (n) => {
+            n.assign(n.add(1));
+          },
+          () => {
+            steps.assign(steps.add(1));
+          },
+        );
+        return steps;
+      })();
+
+    await expectValue(count, [3], 7);
+  }, 60_000);
+
+  it("refuses a statement written between an If and its ElseIf", () => {
+    const build = (x: Node<"float">) =>
+      Fn(() => {
+        const total = float(0).toVar();
+        const chain = If(x.lessThan(0), () => {
+          total.assign(float(1));
+        });
+        total.assign(total.add(1));
+        chain.ElseIf(x.greaterThan(5), () => {
+          total.assign(float(2));
+        });
+        return total;
+      })();
+    expect(() => build(float(1))).toThrow(/\[RMSL\] ElseIf has to follow its If directly/);
+  });
+
   it("recomputes a variable a While condition given as a function makes on every iteration", async () => {
     const count = (x: Node<"float">) =>
       Fn(() => {
@@ -302,6 +379,20 @@ describe("RMSL evaluation", () => {
 
     await expectValue(count, [3], 7);
     await expectValue(count, [12], 0);
+
+    const last = (x: Node<"float">) =>
+      Fn(() => {
+        const n = float(0).toVar();
+        let reach!: Node<"float">;
+        While(
+          () => (reach = n.add(x).toVar()).lessThan(10),
+          () => {
+            n.assign(n.add(1));
+          },
+        );
+        return reach;
+      })();
+    await expectValue(last, [3], 10);
   }, 60_000);
 
   it("runs a while loop until its condition fails", async () => {

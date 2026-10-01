@@ -738,12 +738,17 @@ export function compileGLSLNode(
           initBody = init.body.slice(0, -1);
         }
       }
+      // A condition that runs statements before its test runs them at the top of
+      // every iteration, under a header that always continues; the update stays
+      // in the header, so a continue still runs it.
+      let header = cond.body.length > 0 ? "true" : cond.expr;
+      let guard = cond.body.length > 0 ? [...cond.body.map((l) => "  " + l), `  if (!(${cond.expr})) { break; }`] : [];
       return {
         decls: [...init.decls, ...cond.decls, ...update.decls, ...body.decls],
         body: [
           ...initBody,
-          ...cond.body,
-          `for (${initExpr}; ${cond.expr}; ${forUpdateStatements(update).map(withoutSemicolon).join(", ")}) {`,
+          `for (${initExpr}; ${header}; ${forUpdateStatements(update).map(withoutSemicolon).join(", ")}) {`,
+          ...guard,
           ...body.body.map((l) => "  " + l),
           "}",
         ],
@@ -756,7 +761,16 @@ export function compileGLSLNode(
       let body = compileGLSLStage(node.params![1], ctx);
       return {
         decls: [...cond.decls, ...body.decls],
-        body: [...cond.body, `while (${cond.expr}) {`, ...body.body.map((l) => "  " + l), "}"],
+        body:
+          cond.body.length > 0
+            ? [
+                "while (true) {",
+                ...cond.body.map((l) => "  " + l),
+                `  if (!(${cond.expr})) { break; }`,
+                ...body.body.map((l) => "  " + l),
+                "}",
+              ]
+            : [`while (${cond.expr}) {`, ...body.body.map((l) => "  " + l), "}"],
         expr: "0.0",
       };
     }
