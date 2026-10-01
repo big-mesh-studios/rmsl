@@ -1695,11 +1695,10 @@ export function compileWasmFn(
     const kind = elementKindOf(vector._t as string);
     const compSize = componentSizeOf(kind);
     if (vector.type === "matrixElement") {
-      const column = columnTarget(vector);
       const offset = isLeafLiteral(index)
         ? i32ConstBytes(constantIndex(vector, index) * compSize)
         : clampedIndexOffset(index, width, compSize);
-      return column.guard(storeDynamic([...column.address, ...offset, WASM_OP.i32Add], kind, walkExpr(rhs)));
+      return emitColumnComponentStore(vector, offset, rhs);
     }
     if (vector.type === "storageElement") {
       const access = storageElementAccess(vector);
@@ -1801,15 +1800,21 @@ export function compileWasmFn(
   }
 
   /**
+   * Stores the scalar `rhs` into one component of the column `column`, a
+   * `matrixElement` node, selects: the one at the byte offset `offset`
+   * computes, after the column's own address.
+   */
+  function emitColumnComponentStore(column: any, offset: number[], rhs: any): number[] {
+    const target = columnTarget(column);
+    return target.guard(storeDynamic([...target.address, ...offset, WASM_OP.i32Add], "float", walkExpr(rhs)));
+  }
+
+  /**
    * Stores `rhs` into the rows `rows` of the column `column`, a
    * `matrixElement` node, selects: a whole column, or a swizzle of one.
    */
   function emitMatrixColumnStore(column: any, rows: number[], rhs: any): number[] {
-    if (rows.length === 1) {
-      const target = columnTarget(column);
-      const address = [...target.address, ...i32ConstBytes(rows[0]! * 8), WASM_OP.i32Add];
-      return target.guard(storeDynamic(address, "float", walkExpr(rhs)));
-    }
+    if (rows.length === 1) return emitColumnComponentStore(column, i32ConstBytes(rows[0]! * 8), rhs);
     const out = [...materializeIfNeeded(rhs)];
     const target = columnTarget(column);
     return [...out, ...target.guard(copyColumn(target.address, rows, nodeAddress(rhs), false))];
