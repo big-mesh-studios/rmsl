@@ -3653,8 +3653,7 @@ export function createWasmInputMarshaller(
     let cursor = Math.ceil(heapBase / 8) * 8;
     const resident = storageParams.map((p) => ctx.storageBuffers?.[p.slot]);
     const lengths = storageParams.map(
-      (p, i) =>
-        resident[i]?.length ?? ((ctx.storages as any)?.[p.slot] as ArrayLike<unknown> | undefined)?.length ?? 0,
+      (p, i) => resident[i]?.length ?? ((ctx.storages as any)?.[p.slot] as ArrayLike<unknown> | undefined)?.length ?? 0,
     );
     storageParams.forEach((p, i) => {
       if (resident[i]) {
