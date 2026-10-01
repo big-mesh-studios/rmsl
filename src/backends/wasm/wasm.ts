@@ -1798,6 +1798,14 @@ export function compileWasmFn(
         }
       }
     }
+    // A single scalar fills every component. It was stored once above, so the
+    // rest copy that component rather than evaluating the scalar again.
+    const width = componentCountOf(targetType);
+    if (node.params.length === 1 && compIndex === 1) {
+      for (let k = 1; k < width; k++) {
+        out.push(...storeComponent(addr, targetKind, k * compSize, loadComponent(addr, targetKind, 0)));
+      }
+    }
     return out;
   }
 
