@@ -1905,6 +1905,17 @@ export function makeIntVecConstructor<T extends ShaderType>(
 ): (...args: any[]) => Node<T> {
   let toComponent = scalarType === "uint" ? (v: number) => v >>> 0 : (v: number) => v | 0;
   return (...args: any[]): Node<T> => {
+    // Every number, whatever form the call takes: uvec2(-1) is as wrong as uvec2(-1, 0).
+    if (scalarType === "uint") {
+      for (let a of args) {
+        if (typeof a === "number" && a < 0) {
+          throw new Error(
+            `[RMSL] ${a} is negative, but ${t} components are unsigned. ` +
+              `Use a signed vector, or values that are not negative.`,
+          );
+        }
+      }
+    }
     if (args.length === 0) {
       return node({
         _t: t,
@@ -1923,16 +1934,6 @@ export function makeIntVecConstructor<T extends ShaderType>(
       }) as Node<T>;
     }
     if (args.length <= width && args.every((a) => typeof a === "number")) {
-      if (scalarType === "uint") {
-        for (let a of args) {
-          if (a < 0) {
-            throw new Error(
-              `[RMSL] ${a} is negative, but ${t} components are unsigned. ` +
-                `Use a signed vector, or values that are not negative.`,
-            );
-          }
-        }
-      }
       return node({ _t: t, type: t, value: args.map(toComponent) }) as Node<T>;
     }
     return node({

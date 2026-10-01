@@ -2352,6 +2352,12 @@ describe("casts and conversions", () => {
     expect(() => uint(-1)).toThrow(/unsigned/);
   });
 
+  it("rejects a negative unsigned vector component, however many are given", () => {
+    expect(() => uvec2(-1)).toThrow(/unsigned/);
+    expect(() => uvec2(-1, 0)).toThrow(/unsigned/);
+    expect(() => uvec3(uint(1), -1)).toThrow(/unsigned/);
+  });
+
   it("mixes signed and unsigned operands by converting explicitly", () => {
     let prog = Fn(() => int(5).add(uniform("uint").toInt()).toVar());
     let glsl = compileGlsl(prog());
