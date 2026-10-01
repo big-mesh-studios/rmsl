@@ -90,3 +90,35 @@ describe.skipIf(!GPU_ENABLED)("createWgslCompute with integer data", () => {
     adapter.destroy();
   });
 });
+
+describe.skipIf(!GPU_ENABLED)("createWgslCompute reading back into out", () => {
+  const program = () =>
+    Fn(() => {
+      const a = storage("a", "int", { access: "read_write" });
+      const b = storage("b", "int", { access: "read_write" });
+      const i = invocationIndex();
+      a.element(i).assign(a.element(i).add(1));
+      b.element(i).assign(b.element(i).add(2));
+    })();
+
+  it("reads back only the slots out names", async () => {
+    const adapter = createWgslCompute(program());
+    await adapter.attach();
+    adapter.setAttribute("a", Int32Array.from([1, 2]));
+    adapter.setAttribute("b", Int32Array.from([10, 20]));
+    const out = { b: new Int32Array(2) };
+    await adapter.compute(out);
+    expect(Array.from(out.b)).toEqual([12, 22]);
+    expect(Object.keys(out)).toEqual(["b"]);
+    adapter.destroy();
+  });
+
+  it("rejects a slot the program has no storage for", async () => {
+    const adapter = createWgslCompute(program());
+    await adapter.attach();
+    adapter.setAttribute("a", Int32Array.from([1, 2]));
+    adapter.setAttribute("b", Int32Array.from([10, 20]));
+    await expect(adapter.compute({ c: new Int32Array(2) })).rejects.toThrow(/"c".*no storage slot/);
+    adapter.destroy();
+  });
+});

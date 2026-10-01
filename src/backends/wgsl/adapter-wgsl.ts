@@ -1,6 +1,6 @@
 import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
 import { compile, WgslResource } from "../../wgsl";
-import { Adapter, DrawCountOptions, slotOf, TypedArray } from "../adapter";
+import { Adapter, DrawCountOptions, requestedStorageSlots, slotOf, TypedArray } from "../adapter";
 import { CompileCtx, VertexRoot } from "../shared";
 import { compileWGSLStage, compileWGSLWithStage, wgslMatrixColumns, wgslUniformLayout } from "./wgsl";
 
@@ -548,8 +548,16 @@ export function createWgslCompute(
       // CPU at all.
       if (!out) return;
 
+      // Only the slots `out` names are copied and mapped: each one is a GPU
+      // round trip.
       let bytes = Math.max(4, n * 4);
-      for (let resource of computeStorageResources()) {
+      let requested = new Set(
+        requestedStorageSlots(
+          out,
+          computeStorageResources().map((r) => r.name),
+        ),
+      );
+      for (let resource of computeStorageResources().filter((r) => requested.has(r.name))) {
         let buffer = storageBuffers.get(resource.name)!;
         let readEncoder = device.createCommandEncoder();
         readEncoder.copyBufferToBuffer(buffer, 0, staging, 0, bytes);
@@ -561,7 +569,7 @@ export function createWgslCompute(
           i32: new Int32Array(range),
           u32: new Uint32Array(range),
         });
-        out[resource.name]?.set(values.subarray(0, n));
+        out[resource.name]!.set(values.subarray(0, n));
         staging.unmap();
       }
       return out;
