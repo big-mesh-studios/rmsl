@@ -10,6 +10,7 @@ import {
 } from "../../core";
 import { compile, type WgslResource } from "../../wgsl";
 import { slotOf, type TypedArray } from "../adapter";
+import { assertWriteFits } from "../shared";
 import { uniformBufferSize, uniformScratch, writeUniformMember, type UniformScratch } from "./adapter-wgsl";
 
 /**
@@ -214,7 +215,10 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
     },
 
     write(attribute, data, offset = 0) {
-      gpu.queue.writeBuffer(buffer(attribute), offset * elementStride(attribute.itemSize), data as BufferSource);
+      assertWriteFits(attribute, data.length, offset);
+      // Converted to the attribute's own array type, so values arrive as numbers, not reinterpreted bits.
+      const values = data instanceof attribute.arrayClass ? data : attribute.arrayClass.from(data as ArrayLike<number>);
+      gpu.queue.writeBuffer(buffer(attribute), offset * elementStride(attribute.itemSize), values as BufferSource);
     },
 
     async getArrayBufferAsync(attribute) {

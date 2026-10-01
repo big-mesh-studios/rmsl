@@ -7,6 +7,7 @@ import {
   type UniformValue,
 } from "../../core";
 import { slotOf, type TypedArray } from "../adapter";
+import { assertWriteFits } from "../shared";
 import type { CpuRoutine } from "../cpu";
 import { compileWasmFn, instantiateWasmRoutine } from "./wasm";
 
@@ -128,6 +129,7 @@ export function createWasmContext(): WasmContext {
     },
 
     write(attribute, data, offset = 0) {
+      assertWriteFits(attribute, data.length, offset);
       region(attribute).set(data as ArrayLike<number>, offset * attribute.itemSize);
     },
 

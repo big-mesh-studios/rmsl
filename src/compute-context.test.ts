@@ -20,7 +20,7 @@ import { GPU_ENABLED, installWebGpuGlobals } from "./testing/gpu";
 type Context = {
   compute(nodes: ComputeNode | ComputeNode[]): void;
   setUniform(uniform: UniformNode<any> | UniformArrayNode<any>, value: number | number[] | number[][]): void;
-  write(attribute: StorageBufferAttribute, data: Uint32Array | Int32Array): void;
+  write(attribute: StorageBufferAttribute, data: Uint32Array | Int32Array | Float32Array, offset?: number): void;
   read(attribute: StorageBufferAttribute): Promise<number[]>;
   destroy(): void;
 };
@@ -34,7 +34,7 @@ const backends: { name: string; enabled: boolean; create(): Promise<Context> }[]
       return {
         compute: (nodes) => context.compute(nodes),
         setUniform: (u, v) => context.setUniform(u as any, v as any),
-        write: (attribute, data) => context.write(attribute, data),
+        write: (attribute, data, offset) => context.write(attribute, data, offset),
         async read(attribute) {
           const bytes = await context.getArrayBufferAsync(attribute);
           return Array.from(new attribute.arrayClass(bytes, 0, attribute.count));
@@ -51,7 +51,7 @@ const backends: { name: string; enabled: boolean; create(): Promise<Context> }[]
       return {
         compute: (nodes) => context.compute(nodes),
         setUniform: (u, v) => context.setUniform(u as any, v as any),
-        write: (attribute, data) => context.write(attribute, data),
+        write: (attribute, data, offset) => context.write(attribute, data, offset),
         async read(attribute) {
           return Array.from(new attribute.arrayClass(context.getArrayBuffer(attribute), 0, attribute.count));
         },
@@ -166,6 +166,15 @@ for (const backend of backends) {
       const values = instancedArray(4, "uint");
       context.write(values.attribute, Uint32Array.of(4294967295, 0, 7, 16777217));
       expect(await context.read(values.attribute)).toEqual([4294967295, 0, 7, 16777217]);
+      context.destroy();
+    });
+
+    it("writes values converted to the buffer's type, and refuses a write past its end", async () => {
+      const context = await backend.create();
+      const values = instancedArray(3, "uint");
+      context.write(values.attribute, Float32Array.of(1, 2), 1);
+      expect(await context.read(values.attribute)).toEqual([0, 1, 2]);
+      expect(() => context.write(values.attribute, Uint32Array.of(1, 2), 2)).toThrow(/past the end/);
       context.destroy();
     });
 

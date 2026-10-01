@@ -1,4 +1,4 @@
-import { BaseNode, MATRIX_DIMENSIONS, Node, NodeImpl, ShaderType, TYPE_WIDTH } from "../core";
+import { BaseNode, MATRIX_DIMENSIONS, Node, NodeImpl, ShaderType, StorageBufferAttribute, TYPE_WIDTH } from "../core";
 import { componentKindOf } from "./cpu";
 /**
  * What compiling one node yields: statements to emit, how to refer to it, and
@@ -591,3 +591,16 @@ export type CompileFnOptions = {
   name: string;
   params: Array<{ name: string; type: ShaderType }>;
 };
+
+/**
+ * Throws unless `length` values from element `offset` on fit in the
+ * attribute's buffer, so a context's `write()` fails the same way on every backend.
+ */
+export function assertWriteFits(attribute: StorageBufferAttribute, length: number, offset: number): void {
+  const capacity = attribute.count * attribute.itemSize;
+  if (offset * attribute.itemSize + length > capacity) {
+    throw new Error(
+      `[RMSL] writing ${length} values from element ${offset} runs past the end of an attribute of ${capacity} values`,
+    );
+  }
+}
