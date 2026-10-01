@@ -2431,14 +2431,18 @@ export function compileWasmFn(
     const targetKind = elementKindOf(node._t as string);
     const compSize = componentSizeOf(targetKind);
     const width = componentCountOf(node._t as string);
-    const out = [...materializeIfNeeded(x), ...materializeIfNeeded(lo), ...materializeIfNeeded(hi)];
-    const xAddr = nodeAddress(x),
-      loAddr = nodeAddress(lo),
-      hiAddr = nodeAddress(hi);
+    // A scalar bound applies to every component, and is re-evaluated for each.
+    const component = (n: any) => {
+      if (componentCountOf(n._t) === 1) return { setup: [], at: () => walkExpr(n) };
+      const nAddr = nodeAddress(n);
+      return { setup: materializeIfNeeded(n), at: (k: number) => loadComponent(nAddr, targetKind, k * compSize) };
+    };
+    const [xc, loc, hic] = [component(x), component(lo), component(hi)];
+    const out = [...xc.setup, ...loc.setup, ...hic.setup];
     for (let k = 0; k < width; k++) {
-      const xk = loadComponent(xAddr, targetKind, k * compSize);
-      const lok = loadComponent(loAddr, targetKind, k * compSize);
-      const hik = loadComponent(hiAddr, targetKind, k * compSize);
+      const xk = xc.at(k);
+      const lok = loc.at(k);
+      const hik = hic.at(k);
       out.push(
         ...storeComponent(
           addr,
