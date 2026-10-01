@@ -127,12 +127,13 @@ export function isLeafLiteral(n: BaseNode<ShaderType>): boolean {
 }
 
 /**
- * An integer operation on two literals, computed the way every backend
+ * An integer operation on literal operands, computed the way every backend
  * computes it at run time: wrapped to 32 bits, with WGSL's results for
- * division and remainder by zero and for `INT_MIN / -1`, and shift amounts
- * taken modulo 32. `undefined` for an operation this doesn't fold.
+ * division and remainder by zero and for `INT_MIN / -1`, shift amounts taken
+ * modulo 32, and `clamp` as `min(max(e, low), high)`. `undefined` for an
+ * operation this doesn't fold.
  */
-function foldInteger(op: string, t: "int" | "uint", a: number, b: number): number | undefined {
+function foldInteger(op: string, t: "int" | "uint", [a = 0, b = 0, c = 0]: number[]): number | undefined {
   let wrap = t === "int" ? (x: number) => x | 0 : (x: number) => x >>> 0;
   switch (op) {
     case "add":
@@ -147,6 +148,8 @@ function foldInteger(op: string, t: "int" | "uint", a: number, b: number): numbe
       return b === 0 ? 0 : wrap(a % b);
     case "negate":
       return wrap(-a);
+    case "abs":
+      return wrap(Math.abs(a));
     case "bitAnd":
       return wrap(a & b);
     case "bitOr":
@@ -159,28 +162,84 @@ function foldInteger(op: string, t: "int" | "uint", a: number, b: number): numbe
       return wrap(a << b);
     case "shiftRight":
       return t === "int" ? a >> b : a >>> b;
+    case "min":
+      return Math.min(a, b);
+    case "max":
+      return Math.max(a, b);
+    case "clamp":
+      return Math.min(Math.max(a, b), c);
   }
   return undefined;
 }
 
-function isIntegerType(t: string): boolean {
+const INTEGER_COMPARISONS: Record<string, (a: number, b: number) => boolean> = {
+  lessThan: (a, b) => a < b,
+  greaterThan: (a, b) => a > b,
+  lessThanEqual: (a, b) => a <= b,
+  greaterThanEqual: (a, b) => a >= b,
+  equal: (a, b) => a === b,
+  notEqual: (a, b) => a !== b,
+};
+
+/** A component of a literal that may be a splat: one value stands for every component. */
+function componentAt(components: number[], i: number): number {
+  return components[components.length > 1 ? i : 0]!;
+}
+
+/** Whether `t` is `int`, `uint`, or a vector of either. */
+export function isIntegerType(t: string): boolean {
   return t === "int" || t === "uint" || t.startsWith("ivec") || t.startsWith("uvec");
+}
+
+function isUnsignedType(t: string): boolean {
+  return t === "uint" || t.startsWith("uvec");
 }
 
 /**
  * The components of an integer literal — a scalar, a vector literal, or a
- * vector splat from one scalar literal — or `null` when `n` isn't one.
+ * vector constructor whose parts are all constant — or `null` when `n` isn't
+ * one. A part may be a constant expression, and may have the other
+ * signedness: its bits are kept, as the conversion does at run time. One
+ * scalar part fills every component.
  */
 function integerLiteralComponents(n: BaseNode<ShaderType>): number[] | null {
   let t = n._t as string;
   if (!isIntegerType(t)) return null;
   if (isLeafLiteral(n)) return [n.value as number];
   if (n.type === t && Array.isArray(n.value)) return n.value as number[];
-  let splat = n.type === "construct" && n.params?.length === 1 ? n.params[0] : undefined;
-  if ((TYPE_WIDTH[t] ?? 1) > 1 && splat && isLeafLiteral(splat) && isIntegerType(splat._t as string)) {
-    return Array(TYPE_WIDTH[t]).fill(splat.value);
+  let width = TYPE_WIDTH[t] ?? 1;
+  if (width === 1 || n.type !== "construct" || !n.params?.length) return null;
+  let parts: number[] = [];
+  for (let param of n.params) {
+    let constant = integerConstant(param);
+    let components = constant && integerLiteralComponents(constant);
+    if (!components) return null;
+    parts.push(...components);
   }
-  return null;
+  if (n.params.length === 1 && parts.length === 1) parts = Array(width).fill(parts[0]);
+  if (parts.length !== width) return null;
+  let wrap = isUnsignedType(t) ? (x: number) => x >>> 0 : (x: number) => x | 0;
+  return parts.map(wrap);
+}
+
+const integerConstants = new WeakMap<object, BaseNode<ShaderType> | null>();
+
+/**
+ * `n` as an integer literal when it is a constant integer expression, or
+ * `null`. Folding happens from the leaves up, so `a.div(int(2).sub(int(2)))`
+ * sees its divisor as the literal `0` rather than as an unfolded subtraction.
+ * Cached per node: a node is asked for by each of its parents.
+ */
+function integerConstant(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+  if (!n || typeof n !== "object" || !isIntegerType(n._t as string)) return null;
+  if (integerLiteralComponents(n)) return n;
+  let cached = integerConstants.get(n);
+  if (cached !== undefined) return cached;
+  integerConstants.set(n, null);
+  let folded = tryFold(n);
+  let result = folded && folded !== n ? integerConstant(folded) : null;
+  integerConstants.set(n, result);
+  return result;
 }
 
 function integerLiteral(t: string, components: number[]): BaseNode<ShaderType> {
@@ -188,8 +247,47 @@ function integerLiteral(t: string, components: number[]): BaseNode<ShaderType> {
 }
 
 /**
- * Integer vector operations on literals, folded component by component, and
- * a literal divisor or shift amount rewritten to the value the run-time rules
+ * The result of a comparison between integer constants, one boolean per
+ * component, or `null` when `n` isn't one.
+ */
+function integerComparison(n: BaseNode<ShaderType>): boolean[] | null {
+  let compare = INTEGER_COMPARISONS[n.type];
+  let [lhs, rhs] = n.params ?? [];
+  if (!compare || !lhs || !rhs) return null;
+  let a = integerConstant(lhs);
+  let b = integerConstant(rhs);
+  let ca = a && integerLiteralComponents(a);
+  let cb = b && integerLiteralComponents(b);
+  if (!ca || !cb) return null;
+  return Array.from({ length: Math.max(ca.length, cb.length) }, (_, i) =>
+    compare(componentAt(ca, i), componentAt(cb, i)),
+  );
+}
+
+/**
+ * A select whose condition is a constant: the chosen branch, or — for a
+ * condition that differs between components — the components of two
+ * constant branches picked one by one. WGSL evaluates a constant condition
+ * itself, so a branch it picks is as constant as a literal would be.
+ */
+function foldSelect(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+  let [cond, ifTrue, ifFalse] = n.params ?? [];
+  if (!cond || !ifTrue || !ifFalse) return null;
+  let picks = isLeafLiteral(cond) ? [Boolean(cond.value)] : integerComparison(cond);
+  if (!picks) return null;
+  if (picks.every((p) => p === picks![0])) return picks[0] ? ifTrue : ifFalse;
+  let a = integerLiteralComponents(ifTrue);
+  let b = integerLiteralComponents(ifFalse);
+  if (!a || !b) return null;
+  return integerLiteral(
+    n._t as string,
+    picks.map((p, i) => (p ? componentAt(a!, i) : componentAt(b!, i))),
+  );
+}
+
+/**
+ * Integer operations on literals, folded component by component, and a
+ * literal divisor or shift amount rewritten to the value the run-time rules
  * already use: a zero divisor becomes 1 (`x / 1` is `x`, `x % 1` is `0`) and a
  * shift amount keeps its low 5 bits. WGSL rejects the unrewritten constants at
  * shader creation, even when the other operand is a run-time value.
@@ -198,18 +296,19 @@ function foldIntegerOperands(n: BaseNode<ShaderType>): BaseNode<ShaderType> | nu
   let t = n._t as string;
   let [lhs, rhs] = n.params ?? [];
   if (!isIntegerType(t) || !lhs) return null;
-  let kind: "int" | "uint" = t === "uint" || t.startsWith("uvec") ? "uint" : "int";
-  let a = integerLiteralComponents(lhs);
-  let b = rhs ? integerLiteralComponents(rhs) : [0];
-  if (a && b) {
-    let width = TYPE_WIDTH[t] ?? 1;
-    // Two scalar literals are left to the scalar folder in tryFold.
-    if (width === 1) return null;
-    let folded = Array.from({ length: width }, (_, i) =>
-      foldInteger(n.type, kind, a![a!.length > 1 ? i : 0]!, b![b!.length > 1 ? i : 0]!),
+  let kind: "int" | "uint" = isUnsignedType(t) ? "uint" : "int";
+  let operands = n.params!.map(integerLiteralComponents);
+  if (operands.every((c) => c !== null)) {
+    let folded = Array.from({ length: TYPE_WIDTH[t] ?? 1 }, (_, i) =>
+      foldInteger(
+        n.type,
+        kind,
+        operands.map((c) => componentAt(c!, i)),
+      ),
     );
-    return folded.every((v) => v !== undefined) ? integerLiteral(t, folded as number[]) : null;
+    if (folded.every((v) => v !== undefined)) return integerLiteral(t, folded as number[]);
   }
+  let b = rhs ? integerLiteralComponents(rhs) : null;
   if (!rhs || !b) return null;
   let rewrite =
     n.type === "div" || n.type === "mod"
@@ -222,13 +321,16 @@ function foldIntegerOperands(n: BaseNode<ShaderType>): BaseNode<ShaderType> | nu
 }
 
 export function tryFold(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
-  // A select with a literal condition collapses to the chosen branch, whatever
-  // the branches are — the guard below only admits scalar literals, so this is
-  // checked before it.
-  if (n.type === "select") {
-    let cond = n.params?.[0];
-    if (cond && isLeafLiteral(cond)) return (cond.value ? n.params![1] : n.params![2]) ?? null;
+  // Integer operands are folded first, so a constant subexpression counts as
+  // the literal it is when this node is folded or its divisor is rewritten.
+  let operands = n.params?.map((p) => integerConstant(p) ?? p);
+  if (operands?.some((p, i) => p !== n.params![i])) {
+    n = mkNode({ _t: n._t as string, type: n.type, params: operands, value: n.value });
   }
+  // A select with a constant condition collapses to the chosen branch,
+  // whatever the branches are — the guard below only admits scalar literals,
+  // so this is checked before it.
+  if (n.type === "select") return foldSelect(n);
   let integerOperands = foldIntegerOperands(n);
   if (integerOperands) return integerOperands;
   let params = n.params ?? [];
@@ -239,10 +341,6 @@ export function tryFold(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
   if (t === "float" || t === "int" || t === "uint") {
     let a = p0 as number;
     let b = p1 as number;
-    if (t === "int" || t === "uint") {
-      let value = foldInteger(n.type, t, a, b);
-      if (value !== undefined) return mkNode({ _t: t, type: t, value });
-    }
     switch (n.type) {
       case "add":
         return mkNode({ _t: t, type: t, value: a + b });
