@@ -631,6 +631,29 @@ export function jsNewTemp(ctx: CompileCtx, brand: string): string {
 }
 
 /**
+ * A vector or a matrix column as the target of a component write: `at(k)` is
+ * the expression holding its `k`th component. Reading a column gives a copy
+ * (`slice`), so a column's components are addressed in the matrix itself,
+ * through its index evaluated once into a temporary.
+ */
+function jsAssignable(node: any, ctx: CompileCtx): CompiledNode & { at(k: string): string } {
+  if (node.type !== "matrixElement") {
+    let target = compileJSStage(node, ctx);
+    return { ...target, at: (k) => `${target.expr}[${k}]` };
+  }
+  let mat = compileJSStage(node.params![0], ctx);
+  let idx = compileJSStage(node.params![1], ctx);
+  let [, rows] = MATRIX_DIMENSIONS[node.params![0]._t];
+  let column = jsNewTemp(ctx, "int");
+  return {
+    decls: [...mat.decls, ...idx.decls],
+    body: [...mat.body, ...idx.body, `${column} = ${idx.expr};`],
+    expr: mat.expr,
+    at: (k) => `${mat.expr}[${column} * ${rows} + ${k}]`,
+  };
+}
+
+/**
  * Compile an operand for a vector/matrix operation.
  *
  * In a plain expression (`outTarget` null) operands compile as expressions and
@@ -1698,20 +1721,33 @@ export function compileJSNode(
       assignedStorageElement(targetNode);
       let rhsNode = node.params![1];
 
-      // A swizzle target: single components assign directly, multi-component
-      // ones split into per-component writes (JS has no `v.xy = e`).
+      // A swizzle, a column, or a component of a column by index: single
+      // components assign directly, several split into per-component writes
+      // (JS has no `v.xy = e`).
+      let parts: { base: any; components: string[] } | undefined;
       if (targetNode?.type === "swizzle") {
         let resolved = resolveSwizzleTarget(targetNode);
-        let base = compileJSStage(resolved.base, ctx);
-        if (resolved.pattern.length === 1) {
+        parts = { base: resolved.base, components: [...resolved.pattern].map((ch) => `${JS_COMPONENT_INDEX[ch]}`) };
+      } else if (targetNode?.type === "matrixElement") {
+        let [, rows] = MATRIX_DIMENSIONS[targetNode.params![0]._t];
+        parts = { base: targetNode, components: Array.from({ length: rows }, (_, row) => `${row}`) };
+      } else if (targetNode?.type === "vectorElement" && targetNode.params![0]?.type === "matrixElement") {
+        let idx = compileJSStage(targetNode.params![1], ctx);
+        let base = jsAssignable(targetNode.params![0], ctx);
+        let rhs = compileJSStage(rhsNode, ctx);
+        return {
+          decls: [...idx.decls, ...base.decls, ...rhs.decls],
+          body: [...idx.body, ...base.body, ...rhs.body, `${base.at(`(${idx.expr})`)} = ${rhs.expr};`],
+          expr: base.expr,
+        };
+      }
+      if (parts) {
+        let base = jsAssignable(parts.base, ctx);
+        if (parts.components.length === 1) {
           let rhs = compileJSStage(rhsNode, ctx);
           return {
             decls: [...base.decls, ...rhs.decls],
-            body: [
-              ...base.body,
-              ...rhs.body,
-              `${base.expr}[${JS_COMPONENT_INDEX[resolved.pattern[0]]}] = ${rhs.expr};`,
-            ],
+            body: [...base.body, ...rhs.body, `${base.at(parts.components[0]!)} = ${rhs.expr};`],
             expr: base.expr,
           };
         }
@@ -1721,35 +1757,11 @@ export function compileJSNode(
         let rhs = compileJSStage(rhsNode, ctx);
         ctx.outTarget = saved;
         let fill = rhs.expr === temp ? [] : [`${temp} = ${rhs.expr};`];
-        let writes = [...resolved.pattern].map((ch, i) => `${base.expr}[${JS_COMPONENT_INDEX[ch]}] = ${temp}[${i}];`);
+        let writes = parts.components.map((k, i) => `${base.at(k)} = ${temp}[${i}];`);
         return {
           decls: [...base.decls, ...rhs.decls],
           body: [...base.body, ...rhs.body, ...fill, ...writes],
           expr: base.expr,
-        };
-      }
-
-      // A matrix column target: a read gives a copy of the column (`slice`),
-      // so a write goes to each of its components in the matrix instead.
-      if (targetNode?.type === "matrixElement") {
-        let mat = compileJSStage(targetNode.params![0], ctx);
-        let idx = compileJSStage(targetNode.params![1], ctx);
-        let [, rows] = MATRIX_DIMENSIONS[targetNode.params![0]._t];
-        let column = jsNewTemp(ctx, "int");
-        let temp = jsNewTemp(ctx, rhsNode?._t || "float");
-        let saved = ctx.outTarget;
-        ctx.outTarget = temp;
-        let rhs = compileJSStage(rhsNode, ctx);
-        ctx.outTarget = saved;
-        let fill = rhs.expr === temp ? [] : [`${temp} = ${rhs.expr};`];
-        let writes = Array.from(
-          { length: rows },
-          (_, row) => `${mat.expr}[${column} * ${rows} + ${row}] = ${temp}[${row}];`,
-        );
-        return {
-          decls: [...mat.decls, ...idx.decls, ...rhs.decls],
-          body: [...mat.body, ...idx.body, `${column} = ${idx.expr};`, ...rhs.body, ...fill, ...writes],
-          expr: mat.expr,
         };
       }
 

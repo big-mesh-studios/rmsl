@@ -1684,15 +1684,23 @@ export function compileWasmFn(
   }
 
   /**
-   * Stores `rhs` into the component of a variable or a storage element that
-   * `target`, a `vectorElement` node, selects. A storage element's component
-   * is stored inside the element's bounds check, like a whole-element store.
+   * Stores `rhs` into the component of a variable, a storage element or a
+   * matrix column that `target`, a `vectorElement` node, selects. A storage
+   * element's component is stored inside the element's bounds check, like a
+   * whole-element store.
    */
   function emitVectorElementStore(target: any, rhs: any): number[] {
     const [vector, index] = target.params;
     const width = componentCountOf(vector._t as string);
     const kind = elementKindOf(vector._t as string);
     const compSize = componentSizeOf(kind);
+    if (vector.type === "matrixElement") {
+      const column = columnTarget(vector);
+      const offset = isLeafLiteral(index)
+        ? i32ConstBytes(constantIndex(vector, index) * compSize)
+        : clampedIndexOffset(index, width, compSize);
+      return column.guard(storeDynamic([...column.address, ...offset, WASM_OP.i32Add], kind, walkExpr(rhs)));
+    }
     if (vector.type === "storageElement") {
       const access = storageElementAccess(vector);
       const address = isLeafLiteral(index)
@@ -1721,23 +1729,29 @@ export function compileWasmFn(
   }
 
   /**
-   * Bytes copying the `rows` floats of a matrix column between the address
-   * `columnAddress` computes and the fixed address `vector`: into the vector
-   * when `toVector`, out of it otherwise. The column's address is computed
-   * once, into a local.
+   * Bytes copying floats between a matrix column, at the address
+   * `columnAddress` computes, and the fixed address `vector`: the vector's
+   * `i`th component pairs with the column's row `rows[i]`. They copy into
+   * the vector when `toVector`, out of it otherwise. The column's address is
+   * computed once, into a local.
    */
-  function copyColumn(columnAddress: number[], rows: number, vector: number, toVector: boolean): number[] {
+  function copyColumn(columnAddress: number[], rows: number[], vector: number, toVector: boolean): number[] {
     const local = wasmUleb128(localSlotIndex("$column_address"));
     const out = [...columnAddress, WASM_OP.localSet, ...local];
-    for (let r = 0; r < rows; r++) {
+    rows.forEach((r, i) => {
       const rowAddress = [WASM_OP.localGet, ...local, ...i32ConstBytes(r * 8), WASM_OP.i32Add];
       out.push(
         ...(toVector
-          ? storeComponent(vector, "float", r * 8, loadDynamic(rowAddress, "float"))
-          : storeDynamic(rowAddress, "float", loadComponent(vector, "float", r * 8))),
+          ? storeComponent(vector, "float", i * 8, loadDynamic(rowAddress, "float"))
+          : storeDynamic(rowAddress, "float", loadComponent(vector, "float", i * 8))),
       );
-    }
+    });
     return out;
+  }
+
+  /** The rows of a column of `matrix`, in order. */
+  function columnRows(matrix: any): number[] {
+    return Array.from({ length: MATRIX_DIMENSIONS[matrix._t as string][1] }, (_, r) => r);
   }
 
   /**
@@ -1756,37 +1770,49 @@ export function compileWasmFn(
   /** Copies the matrix column a `matrixElement` node selects into its scratch address at `addr`. */
   function emitMatrixColumnLoadStores(node: any, addr: number): number[] {
     const [matrix, index] = node.params;
-    const rows = MATRIX_DIMENSIONS[matrix._t as string][1];
     return [
       ...materializeIfNeeded(matrix),
-      ...copyColumn(columnAddress(matrix, index, i32ConstBytes(nodeAddress(matrix))), rows, addr, true),
+      ...copyColumn(columnAddress(matrix, index, i32ConstBytes(nodeAddress(matrix))), columnRows(matrix), addr, true),
     ];
   }
 
   /**
-   * Stores `rhs` into the column of a matrix variable or storage element that
-   * `target`, a `matrixElement` node, selects. A storage element's column is
-   * stored inside the element's bounds check, like a whole-element store.
+   * The column of a matrix variable or storage element that `column`, a
+   * `matrixElement` node, selects as an assignment target: the bytes
+   * computing its address, and a `guard` that wraps its stores. A storage
+   * element's column is stored inside the element's bounds check, like a
+   * whole-element store.
    */
-  function emitMatrixColumnStore(target: any, rhs: any): number[] {
-    const [matrix, index] = target.params;
-    const rows = MATRIX_DIMENSIONS[matrix._t as string][1];
-    const out = [...materializeIfNeeded(rhs)];
-    const rhsAddr = nodeAddress(rhs);
+  function columnTarget(column: any): { address: number[]; guard(stores: number[]): number[] } {
+    const [matrix, index] = column.params;
     if (matrix.type === "storageElement") {
       const access = storageElementAccess(matrix);
-      const column = copyColumn(columnAddress(matrix, index, access.address(0)), rows, rhsAddr, false);
-      return [...out, ...access.inBounds, WASM_OP.if_, WASM_BLOCKTYPE_VOID, ...column, WASM_OP.end];
+      return {
+        address: columnAddress(matrix, index, access.address(0)),
+        guard: (stores) => [...access.inBounds, WASM_OP.if_, WASM_BLOCKTYPE_VOID, ...stores, WASM_OP.end],
+      };
     }
     if (matrix.type !== "var") {
       throw new Error(
         "[RMSL] compileWasmFn: assigning to a column by index needs a variable or a storage element; assign it to a variable first",
       );
     }
-    return [
-      ...out,
-      ...copyColumn(columnAddress(matrix, index, i32ConstBytes(nodeAddress(matrix))), rows, rhsAddr, false),
-    ];
+    return { address: columnAddress(matrix, index, i32ConstBytes(nodeAddress(matrix))), guard: (stores) => stores };
+  }
+
+  /**
+   * Stores `rhs` into the rows `rows` of the column `column`, a
+   * `matrixElement` node, selects: a whole column, or a swizzle of one.
+   */
+  function emitMatrixColumnStore(column: any, rows: number[], rhs: any): number[] {
+    if (rows.length === 1) {
+      const target = columnTarget(column);
+      const address = [...target.address, ...i32ConstBytes(rows[0]! * 8), WASM_OP.i32Add];
+      return target.guard(storeDynamic(address, "float", walkExpr(rhs)));
+    }
+    const out = [...materializeIfNeeded(rhs)];
+    const target = columnTarget(column);
+    return [...out, ...target.guard(copyColumn(target.address, rows, nodeAddress(rhs), false))];
   }
 
   /**
@@ -3435,10 +3461,17 @@ export function compileWasmFn(
         const rhs = node.params[1];
 
         if (target.type === "vectorElement") return emitVectorElementStore(target, rhs);
-        if (target.type === "matrixElement") return emitMatrixColumnStore(target, rhs);
+        if (target.type === "matrixElement") return emitMatrixColumnStore(target, columnRows(target.params[0]), rhs);
         if (target.type === "swizzle") {
           const { base, pattern } = resolveSwizzleTarget(target);
           if ((base as any).type === "storageElement") return emitStorageComponentStores(base, [...pattern], rhs);
+          if ((base as any).type === "matrixElement") {
+            return emitMatrixColumnStore(
+              base,
+              [...pattern].map((ch) => COMPONENT_INDEX[ch]!),
+              rhs,
+            );
+          }
           const baseName = (base as any).value.varName;
           const baseAddr = fnParamNames.has(baseName) ? paramAddress.get(baseName) : varAddress.get(baseName);
           if (baseAddr === undefined) {

@@ -3,6 +3,7 @@ import {
   Fn,
   If,
   instancedArray,
+  int,
   invocationIndex,
   storage,
   uint,
@@ -190,6 +191,32 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
         [10, 1],
         [11, 2],
       ],
+    ]);
+    expect(results[1]).toEqual(results[0]);
+  });
+
+  it("writes a component of a storage element's column, by a swizzle or an index", () => {
+    const out = instancedArray(2, "mat2");
+    const root = Fn(() => {
+      const i = invocationIndex();
+      out.element(i).element(1).y.assign(i.toFloat().add(1));
+      out.element(i).element(int(0)).element(i.toInt()).assign(i.toFloat().add(10));
+    })();
+
+    const results = [createJsCompute, createWasmCompute].map((create) => {
+      const adapter = create(root, { name: "step" });
+      const data = [
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+      ];
+      adapter.setAttribute(out.name, data as any);
+      adapter.compute();
+      return data;
+    });
+
+    expect(results[0]).toEqual([
+      [10, 0, 0, 1],
+      [0, 11, 0, 2],
     ]);
     expect(results[1]).toEqual(results[0]);
   });

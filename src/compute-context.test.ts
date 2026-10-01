@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   Fn,
   instancedArray,
+  int,
   invocationIndex,
   Loop,
   uint,
@@ -251,6 +252,21 @@ for (const backend of backends) {
 
       expect(await context.read(out.attribute)).toEqual([1, 10, 0, 0, 0, 0, 2, 11]);
       expect(await context.read(columns.attribute)).toEqual([10, 1, 11, 2]);
+      context.destroy();
+    });
+
+    it("writes a component of a storage element's column, by a swizzle or an index", async () => {
+      const context = await backend.create();
+      const out = instancedArray(2, "mat2");
+      const write = Fn(() => {
+        const i = invocationIndex();
+        out.element(i).element(1).y.assign(i.toFloat().add(1));
+        out.element(i).element(int(0)).element(i.toInt()).assign(i.toFloat().add(10));
+      })().compute(2);
+
+      context.compute(write);
+
+      expect(await context.read(out.attribute)).toEqual([10, 0, 0, 1, 0, 11, 0, 2]);
       context.destroy();
     });
 

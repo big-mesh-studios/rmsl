@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { Fn, int, mat2x3, mat3, vec3, type Node } from "./rmsl";
+import { float, Fn, int, mat2x3, mat3, vec2, vec3, type Node } from "./rmsl";
 import {
   assertRecordedEvaluationsAgree,
   closeEvaluators,
@@ -37,6 +37,18 @@ describe("a matrix's column by index", () => {
     expect(evaluateRecording((a) => write(a), [2])).toEqual([34, 37, 40]);
   });
 
+  it("writes components of a column, by a swizzle or an index", () => {
+    const write = Fn((a: Node<"float">) => {
+      const v = m().toVar();
+      v.element(a.toInt()).y.assign(float(50));
+      v.element(int(2)).element(a.toInt()).assign(float(60));
+      v.element(int(0)).zx.assign(vec2(70, 80));
+      return v.element(0).add(v.element(1)).add(v.element(2));
+    });
+    expect(evaluateRecording((a) => write(a), [1])).toEqual([91, 112, 85]);
+    expect(evaluateWASM((a) => write(a), [1])).toEqual([91, 112, 85]);
+  });
+
   // The recording harness skips WASM when it reports a construct unsupported, so these pin it there directly.
   it("compiles on WASM, rather than being reported unsupported", () => {
     expect(evaluateWASM(() => m().element(int(1)))).toEqual([4, 5, 6]);
@@ -72,5 +84,16 @@ describe("a matrix's column by index", () => {
       return v.element(0);
     });
     expect(() => evaluateWASM(() => write())).toThrow(/index -1 is outside a mat3's columns 0 to 2/);
+  });
+
+  it("says the matrix needs to be a variable or a storage element on WASM, rather than crashing", () => {
+    const write = Fn(() => {
+      const v = m().toVar();
+      v.mul(2).element(int(0)).y.assign(float(1));
+      return v.element(0);
+    });
+    expect(() => evaluateWASM(() => write())).toThrow(
+      /\[RMSL\] compileWasmFn: assigning to a column by index needs a variable or a storage element/,
+    );
   });
 });
