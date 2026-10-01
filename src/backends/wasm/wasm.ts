@@ -18,6 +18,7 @@ import {
   assignedStorageElement,
   CompileFnOptions,
   COMPONENT_INDEX,
+  isLeafLiteral,
   resolveSwizzleTarget,
 } from "../shared";
 import {
@@ -1638,6 +1639,27 @@ export function compileWasmFn(
    * Writes `rhs` into a storage element. A write outside the buffer is
    * dropped, so it cannot land in whatever memory lies past it.
    */
+  /**
+   * Stores `rhs` into some components of a storage element, named by their
+   * letters: one letter takes a scalar, several take the matching vector's
+   * components in order. Inside the element's bounds check, like a whole-element store.
+   */
+  function emitStorageComponentStores(element: any, letters: string[], rhs: any): number[] {
+    const access = storageElementAccess(element);
+    const kind = elementKindOf(element._t as string);
+    const compSize = componentSizeOf(kind);
+    const prelude = letters.length === 1 ? [] : materializeIfNeeded(rhs);
+    const rhsAddr = letters.length === 1 ? 0 : nodeAddress(rhs);
+    const stores = letters.flatMap((letter, i) =>
+      storeDynamic(
+        access.address(COMPONENT_INDEX[letter]!),
+        kind,
+        letters.length === 1 ? walkExpr(rhs) : loadComponent(rhsAddr, kind, i * compSize),
+      ),
+    );
+    return [...prelude, ...access.inBounds, WASM_OP.if_, WASM_BLOCKTYPE_VOID, ...stores, WASM_OP.end];
+  }
+
   function emitStorageElementStore(target: any, rhs: any): number[] {
     const type = target._t as string;
     const element = storageElementAccess(target);
@@ -3238,8 +3260,18 @@ export function compileWasmFn(
         const target = node.params[0];
         const rhs = node.params[1];
 
+        if (target.type === "vectorElement" && target.params[0].type === "storageElement") {
+          const index = target.params[1];
+          if (!isLeafLiteral(index)) {
+            throw new Error(
+              "[RMSL] compileWasmFn: assigning to a component of a storage element needs a constant index; use a swizzle such as .x",
+            );
+          }
+          return emitStorageComponentStores(target.params[0], ["xyzw"[index.value as number]!], rhs);
+        }
         if (target.type === "swizzle") {
           const { base, pattern } = resolveSwizzleTarget(target);
+          if ((base as any).type === "storageElement") return emitStorageComponentStores(base, [...pattern], rhs);
           const baseName = (base as any).value.varName;
           const baseAddr = fnParamNames.has(baseName) ? paramAddress.get(baseName) : varAddress.get(baseName);
           if (baseAddr === undefined) {

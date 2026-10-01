@@ -37,7 +37,7 @@ const backends: { name: string; enabled: boolean; create(): Promise<Context> }[]
         write: (attribute, data, offset) => context.write(attribute, data, offset),
         async read(attribute) {
           const bytes = await context.getArrayBufferAsync(attribute);
-          return Array.from(new attribute.arrayClass(bytes, 0, attribute.count));
+          return Array.from(new attribute.arrayClass(bytes, 0, attribute.count * attribute.itemSize));
         },
         destroy: () => context.destroy(),
       };
@@ -53,7 +53,9 @@ const backends: { name: string; enabled: boolean; create(): Promise<Context> }[]
         setUniform: (u, v) => context.setUniform(u as any, v as any),
         write: (attribute, data, offset) => context.write(attribute, data, offset),
         async read(attribute) {
-          return Array.from(new attribute.arrayClass(context.getArrayBuffer(attribute), 0, attribute.count));
+          return Array.from(
+            new attribute.arrayClass(context.getArrayBuffer(attribute), 0, attribute.count * attribute.itemSize),
+          );
         },
         destroy: () => {},
       };
@@ -198,6 +200,23 @@ for (const backend of backends) {
       context.compute(read);
 
       expect(await context.read(out.attribute)).toEqual([1, 1, 1]);
+      context.destroy();
+    });
+
+    it("writes single components and swizzles of a storage element", async () => {
+      const context = await backend.create();
+      const out = instancedArray(2, "vec4");
+      const write = Fn(() => {
+        const i = invocationIndex();
+        const value = i.toFloat().add(1);
+        out.element(i).x.assign(value);
+        out.element(i).wy.assign(vec2(value.mul(10), value.mul(100)));
+        out.element(i).element(2).assign(value.mul(1000));
+      })().compute(2);
+
+      context.compute(write);
+
+      expect(await context.read(out.attribute)).toEqual([1, 100, 1000, 10, 2, 200, 2000, 20]);
       context.destroy();
     });
 

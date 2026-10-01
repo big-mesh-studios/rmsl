@@ -7,6 +7,7 @@ import {
   storage,
   uint,
   uniform,
+  vec2,
   type Node,
   type ShaderType,
   type UniformNode,
@@ -97,6 +98,35 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
       return Object.fromEntries(Object.entries(arrays).map(([slot, array]) => [slot, Array.from(array)]));
     });
   }
+
+  it("writes single components and swizzles of a storage element", () => {
+    const out = instancedArray(2, "vec4");
+    const root = Fn(() => {
+      const i = invocationIndex();
+      const value = i.toFloat().add(1);
+      out.element(i).x.assign(value);
+      out.element(i).wy.assign(vec2(value.mul(10), value.mul(100)));
+      out.element(i).element(2).assign(value.mul(1000));
+    })();
+
+    // Both adapters hold a vector storage buffer as one array per element.
+    const results = [createJsCompute, createWasmCompute].map((create) => {
+      const adapter = create(root, { name: "step" });
+      const data = [
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+      ];
+      adapter.setAttribute(out.name, data as any);
+      adapter.compute();
+      return data;
+    });
+
+    expect(results[0]).toEqual([
+      [1, 100, 1000, 10],
+      [2, 200, 2000, 20],
+    ]);
+    expect(results[1]).toEqual(results[0]);
+  });
 
   it("gathers from a neighbouring element", () => {
     const src = instancedArray(4, "float").toReadOnly();

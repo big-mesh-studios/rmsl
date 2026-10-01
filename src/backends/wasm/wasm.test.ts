@@ -1993,3 +1993,16 @@ describe("WASM backend: which storage buffers are copied back", () => {
     expect(written).toEqual({ [input.name]: false, [output.name]: true });
   });
 });
+
+describe("WASM backend: writing part of a storage element", () => {
+  it("says a component needs a constant index, rather than crashing", () => {
+    const out = instancedArray(2, "vec4");
+    const root = Fn(() => {
+      const i = invocationIndex();
+      out.element(i).element(i.toInt()).assign(float(1));
+    })();
+    expect(() => compileWasmFn(() => root, { name: "main", params: [] })).toThrow(
+      /\[RMSL\] compileWasmFn: assigning to a component of a storage element needs a constant index/,
+    );
+  });
+});
