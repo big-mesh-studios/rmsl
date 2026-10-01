@@ -99,15 +99,4 @@ describe("a matrix's column by index", () => {
     });
     expect(() => evaluateWASM(() => write())).toThrow(/index -1 is outside a mat3's columns 0 to 2/);
   });
-
-  it("says the matrix needs to be a variable or a storage element on WASM, rather than crashing", () => {
-    const write = Fn(() => {
-      const v = m().toVar();
-      v.mul(m()).element(int(0)).y.assign(float(1));
-      return v.element(0);
-    });
-    expect(() => evaluateWASM(() => write())).toThrow(
-      /\[RMSL\] compileWasmFn: assigning to a column by index needs a variable or a storage element/,
-    );
-  });
 });

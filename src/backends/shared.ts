@@ -1,4 +1,13 @@
-import { BaseNode, MATRIX_DIMENSIONS, Node, NodeImpl, ShaderType, StorageBufferAttribute, TYPE_WIDTH } from "../core";
+import {
+  BaseNode,
+  MATRIX_DIMENSIONS,
+  Node,
+  NodeImpl,
+  ShaderType,
+  StorageBufferAttribute,
+  TYPE_WIDTH,
+  var_,
+} from "../core";
 import { componentKindOf } from "./cpu";
 /**
  * What compiling one node yields: statements to emit, how to refer to it, and
@@ -520,12 +529,12 @@ export const COMPONENT_INDEX: Record<string, number> = {
 };
 
 /**
- * Resolve a chain of swizzles down to the variable underneath it.
+ * Resolve a chain of swizzles down to the node underneath it.
  *
- * Only a variable can be assigned to. `a.xyz` is a value, so `a.xyz.xy = e`
- * has to become a write to `a` — and which components of `a` that is takes
- * composing the patterns: the outer pattern indexes into the inner one, so
- * `a.yzw.xy` selects the first two of y, z, w, which is `a.yz`.
+ * A swizzle can't be assigned to itself. `a.xyz.xy = e` has to become a
+ * write to `a`, whatever writable node `a` is — and which components of `a`
+ * that is takes composing the patterns: the outer pattern indexes into the
+ * inner one, so `a.yzw.xy` selects the first two of y, z, w, which is `a.yz`.
  */
 export function resolveSwizzleTarget(target: any): { base: BaseNode<ShaderType>; pattern: string } {
   let pattern = target.value as string;
@@ -616,18 +625,93 @@ export function storageAttributes(roots: unknown): Map<string, StorageBufferAttr
   return attributes;
 }
 
+/** The node types an assignment can write, through any swizzle, component or column of them. */
+const ASSIGNABLE = new Set(["var", "storageElement", "output", "varying", "builtinPosition", "builtinFragDepth"]);
+
+/** The node types an assignment passes through on the way to the node it writes. */
+const ASSIGNMENT_PATH = new Set(["swizzle", "vectorElement", "matrixElement"]);
+
+/** What to call a node that can't be assigned, by its type, in the error refusing it. */
+const READ_ONLY_NAMES: Record<string, string> = {
+  uniform: "a uniform",
+  uniformArray: "a uniform",
+  uniformArrayElement: "a uniform",
+  attribute: "an attribute",
+  fragCoord: "a built-in input",
+  invocationIndex: "a built-in input",
+};
+
+/** The stage outputs only one stage writes, which stage, and what to call them in an error. */
+const WRITTEN_BY_ONE_STAGE: Record<string, { stage: string; name: string }> = {
+  varying: { stage: "vertex", name: "a varying" },
+  builtinPosition: { stage: "vertex", name: "the position" },
+  builtinFragDepth: { stage: "fragment", name: "the fragment depth" },
+};
+
 /**
- * The storage element an assignment to `target` writes, through any swizzle
- * or component of it, or undefined if it writes none. Throws if the element's
- * storage node was made read-only, so no backend writes through it.
+ * A parameter of a function a backend compiles with its `compile…Fn`, as the
+ * body sees it. Its value belongs to the caller, so it can't be assigned.
  */
-export function assignedStorageElement(target: any): any {
-  while (["swizzle", "vectorElement", "matrixElement"].includes(target?.type)) target = target.params[0];
-  if (target?.type !== "storageElement") return undefined;
-  if (target.params[0].value.access === "read") {
+export function parameterNode(name: string, type: string): any {
+  const node = var_(name, type);
+  (node as any).value.parameter = true;
+  return node;
+}
+
+/** The node an assignment to `target` writes, below any swizzle, component or column. */
+function assignmentRoot(target: any): any {
+  while (ASSIGNMENT_PATH.has(target?.type)) target = target.params[0];
+  return target;
+}
+
+/**
+ * Throws unless an assignment to `target`, compiled for `stage`, writes
+ * something writable: a variable, a storage element or a stage output,
+ * directly or through any swizzle, component or column of it, where no
+ * swizzle names a component more than once. Called by every backend, so a
+ * uniform, an attribute or a computed value is refused the same way on each,
+ * and so is an element of a storage node made read-only, a stage output
+ * written outside the stage that writes it, and a parameter of the compiled
+ * function.
+ */
+export function assertAssignable(target: any, stage: "vertex" | "fragment" | "compute"): void {
+  for (let node = target; ASSIGNMENT_PATH.has(node?.type); node = node.params[0]) {
+    if (node.type === "swizzle" && new Set(node.value).size !== node.value.length) {
+      throw new Error(
+        `[RMSL] can't assign through the swizzle .${node.value}, which names a component more than once; name each component once`,
+      );
+    }
+  }
+  const root = assignmentRoot(target);
+  if (root?.type === "storage") {
+    throw new Error("[RMSL] can't assign to a whole storage buffer; assign to one of its elements with .element(i)");
+  }
+  if (!ASSIGNABLE.has(root?.type)) {
+    const what = READ_ONLY_NAMES[root?.type] ?? "a computed value";
+    throw new Error(
+      `[RMSL] can't assign to ${what}: only a variable, a storage element or a stage output can be assigned; copy the value into a variable with toVar() first`,
+    );
+  }
+  if (root.type === "var" && root.value.parameter) {
+    throw new Error(
+      `[RMSL] can't assign to "${root.value.varName}", a parameter of the compiled function, whose value belongs to the caller; copy it into a variable with toVar() first`,
+    );
+  }
+  const writer = WRITTEN_BY_ONE_STAGE[root.type];
+  if (writer !== undefined && writer.stage !== stage) {
+    throw new Error(
+      `[RMSL] can't assign to ${writer.name} in a ${stage} stage; only a ${writer.stage} stage writes it`,
+    );
+  }
+  if (root.type === "storageElement" && root.params[0].value.access === "read") {
     throw new Error("[RMSL] can't assign to an element of a storage node made read-only with toReadOnly()");
   }
-  return target;
+}
+
+/** The storage element an assignment to `target` writes, through any swizzle, component or column, or undefined. */
+export function assignedStorageElement(target: any): any {
+  const root = assignmentRoot(target);
+  return root?.type === "storageElement" ? root : undefined;
 }
 
 /**

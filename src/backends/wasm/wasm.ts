@@ -1,4 +1,4 @@
-import { MATRIX_DIMENSIONS, Node, ShaderType, StorageAccess, var_ } from "../../core";
+import { MATRIX_DIMENSIONS, Node, ShaderType, StorageAccess } from "../../core";
 import { AllocRules, planLayout } from "../../layout";
 import {
   componentCountOf,
@@ -15,7 +15,9 @@ import {
 } from "../cpu";
 import {
   assertStageResult,
+  assertAssignable,
   assignedStorageElement,
+  parameterNode,
   CompileFnOptions,
   COMPONENT_INDEX,
   isLeafLiteral,
@@ -715,7 +717,7 @@ export function compileWasmFn(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmFnOptions,
 ): CompiledWasm {
-  const paramNodes = options.params.map((p) => var_(p.name, p.type));
+  const paramNodes = options.params.map((p) => parameterNode(p.name, p.type));
   const rawResult = fn(...paramNodes) as any;
   // `rawResult` is either one root or an array of roots (a caller-supplied
   // array of independently-built Fns, e.g. compileWasmRoutine(..., [a, b]),
@@ -1401,6 +1403,7 @@ export function compileWasmFn(
         // remember a direct gl_Position write
         if (node.params[0].type === "builtinPosition") positionWritten = true;
         // and which storage buffers are written
+        assertAssignable(node.params[0], effectiveStage);
         const element = assignedStorageElement(node.params[0]);
         if (element) writtenStorage.add(element.params[0].value.slot);
         break;
@@ -1684,8 +1687,8 @@ export function compileWasmFn(
   }
 
   /**
-   * Stores `rhs` into the component of a variable, a storage element or a
-   * matrix column that `target`, a `vectorElement` node, selects. A storage
+   * Stores `rhs` into the component of a writable vector or matrix column
+   * that `target`, a `vectorElement` node, selects. A storage
    * element's component is stored inside the element's bounds check, like a
    * whole-element store.
    */
@@ -1713,9 +1716,9 @@ export function compileWasmFn(
         WASM_OP.end,
       ];
     }
-    if (vector.type !== "var") {
+    if (vector.type === "swizzle") {
       throw new Error(
-        "[RMSL] compileWasmFn: assigning to a component by index needs a variable or a storage element; assign it to a variable first",
+        "[RMSL] compileWasmFn: writing a component by index through a swizzle isn't supported yet; write it through the swizzle's letters, as .x",
       );
     }
     const base = nodeAddress(vector);
@@ -1776,8 +1779,8 @@ export function compileWasmFn(
   }
 
   /**
-   * The column of a matrix variable or storage element that `column`, a
-   * `matrixElement` node, selects as an assignment target: the bytes
+   * The column of a writable matrix that `column`, a `matrixElement` node,
+   * selects as an assignment target: the bytes
    * computing its address, and a `guard` that wraps its stores. A storage
    * element's column is stored inside the element's bounds check, like a
    * whole-element store.
@@ -1790,11 +1793,6 @@ export function compileWasmFn(
         address: columnAddress(matrix, index, access.address(0)),
         guard: (stores) => [...access.inBounds, WASM_OP.if_, WASM_BLOCKTYPE_VOID, ...stores, WASM_OP.end],
       };
-    }
-    if (matrix.type !== "var") {
-      throw new Error(
-        "[RMSL] compileWasmFn: assigning to a column by index needs a variable or a storage element; assign it to a variable first",
-      );
     }
     return { address: columnAddress(matrix, index, i32ConstBytes(nodeAddress(matrix))), guard: (stores) => stores };
   }
@@ -3477,11 +3475,7 @@ export function compileWasmFn(
               rhs,
             );
           }
-          const baseName = (base as any).value.varName;
-          const baseAddr = fnParamNames.has(baseName) ? paramAddress.get(baseName) : varAddress.get(baseName);
-          if (baseAddr === undefined) {
-            throw new Error(`[RMSL] compileWasmFn: assign to swizzle of undeclared var "${baseName}"`);
-          }
+          const baseAddr = nodeAddress(base);
           const kind = elementKindOf((base as any)._t);
           const compSize = componentSizeOf(kind);
           if (pattern.length === 1) {
@@ -3510,9 +3504,6 @@ export function compileWasmFn(
         } else if (target.type === "storageElement") {
           return emitStorageElementStore(target, rhs);
         } else if (target.type === "varying") {
-          if (effectiveStage !== "vertex") {
-            throw new Error("[RMSL] compileWasmFn: varying() cannot be assigned to outside a vertex stage");
-          }
           targetType = target._t as string;
           destAddr = varyingOutputAddress.get(target.value.slot)!;
         } else if (target.type === "builtinPosition") {

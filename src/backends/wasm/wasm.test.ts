@@ -1102,14 +1102,13 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
         return float(0);
       })();
     expect(() => compileWasmRoutine(build as any, { name: "main", params: [], stage: "vertex" })).toThrow(
-      /builtinFragDepth\(\) can only be used in fragment shaders/,
+      /can't assign to the fragment depth in a vertex stage/,
     );
   });
 
   it("throws reading builtinPosition() from a fragment stage", () => {
     const build = () =>
       Fn(() => {
-        builtinPosition().assign(vec4(0, 0, 0, 1));
         return builtinPosition().x;
       })();
     expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrow(
@@ -1995,14 +1994,14 @@ describe("WASM backend: which storage buffers are copied back", () => {
 });
 
 describe("WASM backend: writing a vector component by index", () => {
-  it("says the vector needs to be a variable or a storage element, rather than crashing", () => {
+  it("says writing by index through a swizzle isn't supported, rather than crashing", () => {
     const root = Fn(() => {
       const v = vec4(1, 2, 3, 4).toVar();
       v.xy.element(int(0)).assign(float(1));
       return v.x;
     })();
     expect(() => compileWasmFn(() => root, { name: "main", params: [] })).toThrow(
-      /\[RMSL\] compileWasmFn: assigning to a component by index needs a variable or a storage element/,
+      /\[RMSL\] compileWasmFn: writing a component by index through a swizzle isn't supported yet/,
     );
   });
 
