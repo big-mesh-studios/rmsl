@@ -234,6 +234,26 @@ for (const backend of backends) {
       context.destroy();
     });
 
+    it("writes and reads a column of a storage element by a computed index", async () => {
+      const context = await backend.create();
+      const out = instancedArray(2, "mat2");
+      const columns = instancedArray(2, "vec2");
+      const write = Fn(() => {
+        const i = invocationIndex();
+        out
+          .element(i)
+          .element(i.toInt())
+          .assign(vec2(i.toFloat().add(1), i.toFloat().add(10)));
+        columns.element(i).assign(out.element(i).element(i.toInt()).yx);
+      })().compute(2);
+
+      context.compute(write);
+
+      expect(await context.read(out.attribute)).toEqual([1, 10, 0, 0, 0, 0, 2, 11]);
+      expect(await context.read(columns.attribute)).toEqual([10, 1, 11, 2]);
+      context.destroy();
+    });
+
     it("writes a buffer and reads it back", async () => {
       const context = await backend.create();
       const values = instancedArray(4, "uint");

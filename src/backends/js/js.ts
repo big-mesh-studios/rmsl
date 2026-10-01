@@ -1729,6 +1729,30 @@ export function compileJSNode(
         };
       }
 
+      // A matrix column target: a read gives a copy of the column (`slice`),
+      // so a write goes to each of its components in the matrix instead.
+      if (targetNode?.type === "matrixElement") {
+        let mat = compileJSStage(targetNode.params![0], ctx);
+        let idx = compileJSStage(targetNode.params![1], ctx);
+        let [, rows] = MATRIX_DIMENSIONS[targetNode.params![0]._t];
+        let column = jsNewTemp(ctx, "int");
+        let temp = jsNewTemp(ctx, rhsNode?._t || "float");
+        let saved = ctx.outTarget;
+        ctx.outTarget = temp;
+        let rhs = compileJSStage(rhsNode, ctx);
+        ctx.outTarget = saved;
+        let fill = rhs.expr === temp ? [] : [`${temp} = ${rhs.expr};`];
+        let writes = Array.from(
+          { length: rows },
+          (_, row) => `${mat.expr}[${column} * ${rows} + ${row}] = ${temp}[${row}];`,
+        );
+        return {
+          decls: [...mat.decls, ...idx.decls, ...rhs.decls],
+          body: [...mat.body, ...idx.body, `${column} = ${idx.expr};`, ...rhs.body, ...fill, ...writes],
+          expr: mat.expr,
+        };
+      }
+
       let lhs = compileJSStage(targetNode, ctx);
       // Only a plain variable slot is written through out-mode helpers; an
       // external sink (res.position, res.outputs[...], ctx.varyings[...]) takes
