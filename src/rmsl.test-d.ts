@@ -9,6 +9,7 @@ import {
   uint,
   bool,
   ivec2,
+  builtinFragDepth,
   builtinPosition,
   ivec3,
   ivec4,
@@ -33,6 +34,7 @@ import {
   type Node,
   type ShaderType,
   type Var,
+  type VaryingNode,
 } from "./rmsl";
 import { compileGlsl } from "./glsl";
 import { compileWgsl, createWgslCompute } from "./wgsl";
@@ -416,8 +418,11 @@ describe("what can be assigned to", () => {
   it("offers assign on a variable, a stage output and a storage element", () => {
     expectTypeOf(vec4(1, 2, 3, 4).toVar()).toEqualTypeOf<Var<"vec4">>();
     expectTypeOf(output("vec4")).toEqualTypeOf<Var<"vec4">>();
+    expectTypeOf(vec3(1, 2, 3).var()).toEqualTypeOf<Var<"vec3">>();
     expectTypeOf(builtinPosition()).toEqualTypeOf<Var<"vec4">>();
-    expectTypeOf(varying("vec2")).toHaveProperty("assign");
+    expectTypeOf(builtinFragDepth()).toEqualTypeOf<Var<"float">>();
+    expectTypeOf(varying("vec2")).toEqualTypeOf<VaryingNode<"vec2">>();
+    expectTypeOf(varying("vec2")).toMatchTypeOf<Var<"vec2">>();
     expectTypeOf(instancedArray(4, "vec4").element(invocationIndex())).toEqualTypeOf<Var<"vec4">>();
   });
 
@@ -433,7 +438,7 @@ describe("what can be assigned to", () => {
     expectTypeOf(m.element(int(1)).zx).toHaveProperty("assign");
   });
 
-  it("refuses a uniform, an attribute, a computed value and a repeated swizzle", () => {
+  it("refuses a uniform, an attribute, a whole storage buffer, a computed value and a repeated swizzle", () => {
     const v = vec4(1, 2, 3, 4).toVar();
     // @ts-expect-error a uniform is read-only
     uniform("vec4").assign(vec4(0, 0, 0, 0));
@@ -441,6 +446,10 @@ describe("what can be assigned to", () => {
     attribute("vec3").x.assign(float(0));
     // @ts-expect-error the result of an operation is a value, not a variable
     v.add(1).x.assign(float(0));
+    // @ts-expect-error a whole storage buffer can't be assigned, only its elements
+    instancedArray(4, "vec4").assign(vec4(0, 0, 0, 0));
+    // @ts-expect-error a literal is a value, not a variable
+    float(1).assign(float(2));
     // @ts-expect-error a swizzle naming a component twice can't be written
     v.xx.assign(vec2(0, 0));
     // @ts-expect-error a component of a repeated swizzle can't be written either
@@ -469,8 +478,9 @@ describe("what can be assigned to", () => {
     values.element(int(0)).assign(vec4(0, 0, 0, 0));
   });
 
-  it("types a storage node indexed by a number as its element", () => {
+  it("types a storage node indexed by a number or an int as its element", () => {
     expectTypeOf(instancedArray(4, "vec4").element(0)).toEqualTypeOf<Var<"vec4">>();
+    expectTypeOf(instancedArray(4, "vec4").element(int(0))).toEqualTypeOf<Var<"vec4">>();
     expectTypeOf(instancedArray(4, "mat3").element(0)).toEqualTypeOf<Var<"mat3">>();
   });
 });
