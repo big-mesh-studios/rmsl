@@ -1,5 +1,16 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { Fn, instancedArray, invocationIndex, Loop, uint, uniform, uniformArray, vec3, type StorageNode } from "./rmsl";
+import {
+  Fn,
+  instancedArray,
+  invocationIndex,
+  Loop,
+  uint,
+  uniform,
+  uniformArray,
+  vec2,
+  vec3,
+  type StorageNode,
+} from "./rmsl";
 import { createWgslContext } from "./wgsl";
 import { createWasmContext } from "./wasm";
 import type { ComputeNode, StorageBufferAttribute, UniformArrayNode, UniformNode } from "./rmsl";
@@ -186,6 +197,31 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context buffers", () => {
     const buffer = context.buffer(positions.attribute);
     expect(buffer.usage & GPUBufferUsage.VERTEX).toBe(GPUBufferUsage.VERTEX);
     expect(buffer.size).toBe(4 * 2 * 4);
+    context.destroy();
+  });
+});
+
+describe.skipIf(!GPU_ENABLED)("WGSL compute context limits", () => {
+  it("rejects a program that samples a texture, which the context doesn't bind", async () => {
+    const context = await createWgslContext();
+    const out = instancedArray(1, "float");
+    const texture = uniform("sampler2D");
+    const sample = Fn(() => {
+      out.element(0).assign(texture.texture(vec2(0.5, 0.5)).x);
+    })().compute(1);
+    expect(() => context.compute(sample)).toThrow(/sample textures/);
+    context.destroy();
+  });
+
+  it("rejects a dispatch with more workgroups than the device allows", async () => {
+    const context = await createWgslContext();
+    const out = instancedArray(1, "uint");
+    const limit = context.device.limits.maxComputeWorkgroupsPerDimension;
+    const wide = Fn(() => {
+      out.element(0).assign(uint(1));
+    })().compute((limit + 1) * 64);
+    expect(() => context.compute(wide)).toThrow(/workgroups/);
+    expect(await context.getArrayBufferAsync(out.attribute)).toEqual(new Uint32Array(1).buffer);
     context.destroy();
   });
 });

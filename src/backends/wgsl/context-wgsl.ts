@@ -1,5 +1,6 @@
 import {
   ComputeNode,
+  isSamplerType,
   StorageBufferAttribute,
   type Node,
   type ShaderType,
@@ -72,6 +73,18 @@ function storageAttributes(root: Node<ShaderType>): Map<string, StorageBufferAtt
   return attributes;
 }
 
+/** Whether any node reachable from `root` is a texture, which the context has no binding for. */
+function samplesTextures(root: Node<ShaderType>): boolean {
+  const visited = new Set<unknown>();
+  const walk = (node: any): boolean => {
+    if (!node || typeof node !== "object" || visited.has(node)) return false;
+    visited.add(node);
+    if (typeof node._t === "string" && isSamplerType(node._t)) return true;
+    return Array.isArray(node.params) && node.params.some(walk);
+  };
+  return walk(root);
+}
+
 /** Bytes per element of a WGSL storage array of `itemSize` 32-bit components. */
 function elementStride(itemSize: number): number {
   if (itemSize === 3 || itemSize > 4) {
@@ -112,6 +125,9 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
   function program(node: ComputeNode): CompiledProgram {
     let existing = programs.get(node);
     if (existing) return existing;
+    if (samplesTextures(node.computeNode)) {
+      throw new Error("[RMSL] createWgslContext: programs that sample textures aren't supported yet.");
+    }
     const compiled = compile({ stage: "compute" }, node);
     const pipeline = gpu.createComputePipeline({
       layout: "auto",
@@ -169,6 +185,15 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
 
     compute(nodes) {
       const list = nodes instanceof ComputeNode ? [nodes] : nodes;
+      const limit = gpu.limits.maxComputeWorkgroupsPerDimension;
+      for (const node of list) {
+        const workgroups = Math.ceil(node.count / node.workgroupSize);
+        if (workgroups > limit) {
+          throw new Error(
+            `[RMSL] createWgslContext: a count of ${node.count} needs ${workgroups} workgroups of ${node.workgroupSize}, past the device's limit of ${limit}; use a larger workgroup size`,
+          );
+        }
+      }
       const encoder = gpu.createCommandEncoder();
       const pass = encoder.beginComputePass();
       for (const node of list) {
