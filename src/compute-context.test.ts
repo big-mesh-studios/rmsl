@@ -133,6 +133,28 @@ for (const backend of backends) {
       context.destroy();
     });
 
+    it("keeps a uniform's value from when it was set, until it is set again", async () => {
+      const context = await backend.create();
+      const out = instancedArray(2, "float");
+      const scalars = uniformArray("float", 2);
+      const read = Fn(() => {
+        out.element(0).assign(scalars.element(0));
+        out.element(1).assign(scalars.element(1));
+      })().compute(1);
+
+      const values = [1, 2];
+      context.setUniform(scalars, values);
+      context.compute(read);
+      values[0] = 5;
+      context.compute(read);
+      expect(await context.read(out.attribute)).toEqual([1, 2]);
+
+      context.setUniform(scalars, values);
+      context.compute(read);
+      expect(await context.read(out.attribute)).toEqual([5, 2]);
+      context.destroy();
+    });
+
     it("passes uniform arrays and matrices, laid out as each backend reads them", async () => {
       const context = await backend.create();
       const out = instancedArray(7, "float");

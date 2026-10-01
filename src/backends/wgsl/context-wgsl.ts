@@ -57,6 +57,8 @@ type CompiledProgram = {
     scratch: UniformScratch;
     group: GPUBindGroup;
     resources: Extract<WgslResource, { kind: "uniform" }>[];
+    /** The uniform version and count last uploaded, so an unchanged buffer isn't written again. */
+    uploaded: { version: number; count: number } | null;
   } | null;
 };
 
@@ -95,6 +97,8 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
   const buffers = new Map<StorageBufferAttribute, GPUBuffer>();
   const programs = new Map<ComputeNode, CompiledProgram>();
   const uniformValues = new Map<string, number | number[]>();
+  /** Bumped by every `setUniform()`, so a program knows whether its uniform buffer is stale. */
+  let uniformVersion = 0;
 
   function buffer(attribute: StorageBufferAttribute): GPUBuffer {
     let existing = buffers.get(attribute);
@@ -148,6 +152,7 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
           entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
         }),
         resources: uniformResources,
+        uploaded: null,
       };
     }
 
@@ -158,7 +163,8 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
 
   function uploadUniforms(node: ComputeNode, compiled: CompiledProgram): void {
     const uniforms = compiled.uniforms;
-    if (!uniforms) return;
+    if (!uniforms || (uniforms.uploaded?.version === uniformVersion && uniforms.uploaded.count === node.count)) return;
+    uniforms.uploaded = { version: uniformVersion, count: node.count };
     for (const resource of uniforms.resources) {
       const value = resource.name === node.countNode.name ? node.count : uniformValues.get(resource.name);
       if (value !== undefined) writeUniformMember(uniforms.scratch, { ...resource, type: resource.shaderType }, value);
@@ -205,7 +211,9 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
     },
 
     setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType>, value: unknown) {
-      uniformValues.set(slotOf(uniform), value as number | number[]);
+      // Copied, so changing the array afterwards doesn't reach a program without another setUniform().
+      uniformValues.set(slotOf(uniform), structuredClone(value) as number | number[]);
+      uniformVersion++;
     },
 
     write(attribute, data, offset = 0) {

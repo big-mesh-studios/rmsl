@@ -118,7 +118,8 @@ export function createWasmContext(): WasmContext {
     },
 
     setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType>, value: unknown) {
-      uniformValues[slotOf(uniform)] = value as number | number[];
+      // Copied, as the WGSL context does, so changing the array afterwards doesn't reach a program.
+      uniformValues[slotOf(uniform)] = structuredClone(value) as number | number[];
     },
 
     write(attribute, data, offset = 0) {
