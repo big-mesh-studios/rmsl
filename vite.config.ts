@@ -46,6 +46,8 @@ export default defineConfig({
         "src/backends/wasm/adapter-wasm.ts",
         "src/backends/glsl/adapter-glsl.ts",
         "src/backends/wgsl/adapter-wgsl.ts",
+        "src/backends/wgsl/context-wgsl.ts",
+        "src/backends/wasm/context-wasm.ts",
         "src/backends/js/rasterizer.ts",
         "src/backends/wasm/rasterizer.ts",
         "src/vite/vite.ts",
