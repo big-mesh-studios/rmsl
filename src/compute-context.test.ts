@@ -412,6 +412,19 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context limits", () => {
     context.destroy();
   });
 
+  it("runs a program using more storage buffers than WebGPU's default, where the hardware binds more", async () => {
+    const context = await createWgslContext();
+    if (context.device.limits.maxStorageBuffersPerShaderStage <= 8) return context.destroy();
+    const inputs = Array.from({ length: 8 }, (_, k) => instancedArray(Uint32Array.of(k + 1), "uint"));
+    const out = instancedArray(1, "uint");
+    const sum = Fn(() => {
+      out.element(0).assign(inputs.reduce((total, input) => total.add(input.element(0)), uint(0)));
+    })().compute(1);
+    context.compute(sum);
+    expect(Array.from(new Uint32Array(await context.getArrayBufferAsync(out.attribute)))).toEqual([36]);
+    context.destroy();
+  });
+
   it("rejects a program using more storage buffers than one shader stage can bind", async () => {
     const context = await createWgslContext();
     const limit = context.device.limits.maxStorageBuffersPerShaderStage;

@@ -113,13 +113,14 @@ describe.skipIf(!GPU_ENABLED)("createWgslCompute reading back into out", () => {
 
 describe.skipIf(!GPU_ENABLED)("createWgslCompute limits", () => {
   it("rejects a program using more storage buffers than one shader stage can bind", async () => {
-    const inputs = Array.from({ length: 9 }, () => instancedArray(1, "uint"));
+    const limit = (await navigator.gpu.requestAdapter())!.limits.maxStorageBuffersPerShaderStage;
+    const inputs = Array.from({ length: limit + 1 }, () => instancedArray(1, "uint"));
     const program = Fn(() => {
       inputs[0]!.element(0).assign(inputs.slice(1).reduce((total, input) => total.add(input.element(0)), uint(0)));
     })();
     const adapter = createWgslCompute(program);
     await expect(adapter.attach()).rejects.toThrow(
-      /createWgslCompute: a compute program uses 9 storage buffers, more than the 8/,
+      new RegExp(`createWgslCompute: a compute program uses ${limit + 1} storage buffers, more than the ${limit}`),
     );
   });
 });
