@@ -128,174 +128,53 @@ export function isVaryingNode<T extends ShaderType>(node: Node<T> | VariableNode
 }
 
 // === Per-type swizzle sets ===
+/** A vector's component letters, by width, in each spelling: `xyzw`, `rgba` and `stpq`. */
+type SwizzleLetters = {
+  2: ["x" | "y", "r" | "g", "s" | "t"];
+  3: ["x" | "y" | "z", "r" | "g" | "b", "s" | "t" | "p"];
+  4: ["x" | "y" | "z" | "w", "r" | "g" | "b" | "a", "s" | "t" | "p" | "q"];
+};
+
+/** Every swizzle of one to four of the letters `L`: one letter is the scalar, more the vector of that width. */
+type SwizzlesOf<
+  L extends string,
+  S extends ShaderType,
+  V2 extends ShaderType,
+  V3 extends ShaderType,
+  V4 extends ShaderType,
+> = {
+  readonly [K in L]: Node<S>;
+} & { readonly [K in `${L}${L}`]: Node<V2> } & { readonly [K in `${L}${L}${L}`]: Node<V3> } & {
+  readonly [K in `${L}${L}${L}${L}`]: Node<V4>;
+};
+
 /**
- * The `stpq` spelling of the texture-coordinate accessors, shared across the
- * float and integer vector types. Each letter is one component, so a
- * single-letter pattern is that scalar and a multi-letter one is the matching
- * vector of the same prefix — `ivec3.st` is an `ivec2`, like `.xy`.
+ * Every swizzle of a vector of width `N`, as in TSL, GLSL and WGSL: any one to
+ * four of its components, in any order and with repeats, in one spelling —
+ * `v.zyx`, `v.rr`, `v.ts` — but not mixing spellings, as `v.xg`.
  */
-export type Stpq2<S extends ShaderType, V extends ShaderType> = {
-  readonly s: Node<S>;
-  readonly t: Node<S>;
-  readonly st: Node<V>;
-};
+export type Swizzles<
+  N extends 2 | 3 | 4,
+  S extends ShaderType,
+  V2 extends ShaderType,
+  V3 extends ShaderType,
+  V4 extends ShaderType,
+> = SwizzlesOf<SwizzleLetters[N][0], S, V2, V3, V4> &
+  SwizzlesOf<SwizzleLetters[N][1], S, V2, V3, V4> &
+  SwizzlesOf<SwizzleLetters[N][2], S, V2, V3, V4>;
 
-export type Stpq3<S extends ShaderType, V2 extends ShaderType, V3 extends ShaderType> = Stpq2<S, V2> & {
-  readonly p: Node<S>;
-  readonly sp: Node<V2>;
-  readonly tp: Node<V2>;
-  readonly stp: Node<V3>;
-};
-
-export type Stpq4<S extends ShaderType, V2 extends ShaderType, V3 extends ShaderType, V4 extends ShaderType> = Stpq3<
-  S,
-  V2,
-  V3
-> & {
-  readonly q: Node<S>;
-  readonly sq: Node<V2>;
-  readonly tq: Node<V2>;
-  readonly pq: Node<V2>;
-  readonly stq: Node<V3>;
-  readonly spq: Node<V3>;
-  readonly tpq: Node<V3>;
-  readonly stpq: Node<V4>;
-};
-
-export type Vec3Swizzles = {
-  readonly x: Node<"float">;
-  readonly y: Node<"float">;
-  readonly z: Node<"float">;
-  readonly r: Node<"float">;
-  readonly g: Node<"float">;
-  readonly b: Node<"float">;
-  readonly xy: Node<"vec2">;
-  readonly xz: Node<"vec2">;
-  readonly yz: Node<"vec2">;
-  readonly xyz: Node<"vec3">;
-  readonly rgb: Node<"vec3">;
-} & Stpq3<"float", "vec2", "vec3">;
-
-export type Vec4Swizzles = {
-  readonly x: Node<"float">;
-  readonly y: Node<"float">;
-  readonly z: Node<"float">;
-  readonly w: Node<"float">;
-  readonly r: Node<"float">;
-  readonly g: Node<"float">;
-  readonly b: Node<"float">;
-  readonly a: Node<"float">;
-  readonly xy: Node<"vec2">;
-  readonly xz: Node<"vec2">;
-  readonly xw: Node<"vec2">;
-  readonly yz: Node<"vec2">;
-  readonly yw: Node<"vec2">;
-  readonly zw: Node<"vec2">;
-  readonly xyz: Node<"vec3">;
-  readonly xyw: Node<"vec3">;
-  readonly xzw: Node<"vec3">;
-  readonly yzw: Node<"vec3">;
-  readonly rgba: Node<"vec4">;
-  readonly rgb: Node<"vec3">;
-} & Stpq4<"float", "vec2", "vec3", "vec4">;
-
-export type Vec2Swizzles = {
-  readonly x: Node<"float">;
-  readonly y: Node<"float">;
-  readonly r: Node<"float">;
-  readonly g: Node<"float">;
-  readonly xy: Node<"vec2">;
-} & Stpq2<"float", "vec2">;
-
-export type IVec2Swizzles = {
-  readonly x: Node<"int">;
-  readonly y: Node<"int">;
-  readonly r: Node<"int">;
-  readonly g: Node<"int">;
-  readonly xy: Node<"ivec2">;
-} & Stpq2<"int", "ivec2">;
-
-export type UVec2Swizzles = {
-  readonly x: Node<"uint">;
-  readonly y: Node<"uint">;
-  readonly r: Node<"uint">;
-  readonly g: Node<"uint">;
-  readonly xy: Node<"uvec2">;
-} & Stpq2<"uint", "uvec2">;
-
-export type IVec3Swizzles = {
-  readonly x: Node<"int">;
-  readonly y: Node<"int">;
-  readonly z: Node<"int">;
-  readonly r: Node<"int">;
-  readonly g: Node<"int">;
-  readonly b: Node<"int">;
-  readonly xy: Node<"ivec2">;
-  readonly xz: Node<"ivec2">;
-  readonly yz: Node<"ivec2">;
-  readonly xyz: Node<"ivec3">;
-  readonly rgb: Node<"ivec3">;
-} & Stpq3<"int", "ivec2", "ivec3">;
-
-export type UVec3Swizzles = {
-  readonly x: Node<"uint">;
-  readonly y: Node<"uint">;
-  readonly z: Node<"uint">;
-  readonly r: Node<"uint">;
-  readonly g: Node<"uint">;
-  readonly b: Node<"uint">;
-  readonly xy: Node<"uvec2">;
-  readonly xz: Node<"uvec2">;
-  readonly yz: Node<"uvec2">;
-  readonly xyz: Node<"uvec3">;
-  readonly rgb: Node<"uvec3">;
-} & Stpq3<"uint", "uvec2", "uvec3">;
-
-export type IVec4Swizzles = {
-  readonly x: Node<"int">;
-  readonly y: Node<"int">;
-  readonly z: Node<"int">;
-  readonly w: Node<"int">;
-  readonly r: Node<"int">;
-  readonly g: Node<"int">;
-  readonly b: Node<"int">;
-  readonly a: Node<"int">;
-  readonly xy: Node<"ivec2">;
-  readonly xz: Node<"ivec2">;
-  readonly xw: Node<"ivec2">;
-  readonly yz: Node<"ivec2">;
-  readonly yw: Node<"ivec2">;
-  readonly zw: Node<"ivec2">;
-  readonly xyz: Node<"ivec3">;
-  readonly xyw: Node<"ivec3">;
-  readonly xzw: Node<"ivec3">;
-  readonly yzw: Node<"ivec3">;
-  readonly rgba: Node<"ivec4">;
-  readonly rgb: Node<"ivec3">;
-} & Stpq4<"int", "ivec2", "ivec3", "ivec4">;
-
-export type UVec4Swizzles = {
-  readonly x: Node<"uint">;
-  readonly y: Node<"uint">;
-  readonly z: Node<"uint">;
-  readonly w: Node<"uint">;
-  readonly r: Node<"uint">;
-  readonly g: Node<"uint">;
-  readonly b: Node<"uint">;
-  readonly a: Node<"uint">;
-  readonly xy: Node<"uvec2">;
-  readonly xz: Node<"uvec2">;
-  readonly xw: Node<"uvec2">;
-  readonly yz: Node<"uvec2">;
-  readonly yw: Node<"uvec2">;
-  readonly zw: Node<"uvec2">;
-  readonly xyz: Node<"uvec3">;
-  readonly xyw: Node<"uvec3">;
-  readonly xzw: Node<"uvec3">;
-  readonly yzw: Node<"uvec3">;
-  readonly rgba: Node<"uvec4">;
-  readonly rgb: Node<"uvec3">;
-} & Stpq4<"uint", "uvec2", "uvec3", "uvec4">;
+export type Vec2Swizzles = Swizzles<2, "float", "vec2", "vec3", "vec4">;
+export type Vec3Swizzles = Swizzles<3, "float", "vec2", "vec3", "vec4">;
+export type Vec4Swizzles = Swizzles<4, "float", "vec2", "vec3", "vec4">;
+export type IVec2Swizzles = Swizzles<2, "int", "ivec2", "ivec3", "ivec4">;
+export type IVec3Swizzles = Swizzles<3, "int", "ivec2", "ivec3", "ivec4">;
+export type IVec4Swizzles = Swizzles<4, "int", "ivec2", "ivec3", "ivec4">;
+export type UVec2Swizzles = Swizzles<2, "uint", "uvec2", "uvec3", "uvec4">;
+export type UVec3Swizzles = Swizzles<3, "uint", "uvec2", "uvec3", "uvec4">;
+export type UVec4Swizzles = Swizzles<4, "uint", "uvec2", "uvec3", "uvec4">;
+export type BVec2Swizzles = Swizzles<2, "bool", "bvec2", "bvec3", "bvec4">;
+export type BVec3Swizzles = Swizzles<3, "bool", "bvec2", "bvec3", "bvec4">;
+export type BVec4Swizzles = Swizzles<4, "bool", "bvec2", "bvec3", "bvec4">;
 
 // === Node (branded + conditional methods + swizzles) ===
 /**
@@ -335,9 +214,9 @@ export interface NodeOps {
   uvec2: UVecOps<"uvec2"> & ComparisonOps<"bvec2", UVec2Like | UintLike> & UVec2Swizzles;
   uvec3: UVecOps<"uvec3"> & ComparisonOps<"bvec3", UVec3Like | UintLike> & UVec3Swizzles;
   uvec4: UVecOps<"uvec4"> & ComparisonOps<"bvec4", UVec4Like | UintLike> & UVec4Swizzles;
-  bvec2: BoolVecOps<"bvec2">;
-  bvec3: BoolVecOps<"bvec3">;
-  bvec4: BoolVecOps<"bvec4">;
+  bvec2: BoolVecOps<"bvec2"> & BVec2Swizzles;
+  bvec3: BoolVecOps<"bvec3"> & BVec3Swizzles;
+  bvec4: BoolVecOps<"bvec4"> & BVec4Swizzles;
   mat2: MatOps<"mat2", "vec2">;
   mat2x3: RectMatOps<"mat2x3", "vec2", "vec3", "mat3x2">;
   mat2x4: RectMatOps<"mat2x4", "vec2", "vec4", "mat4x2">;
@@ -1273,74 +1152,22 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
       params: [this as BaseNode<ShaderType>, a, b],
     });
   }
-
-  // === Swizzles (gated by Node<"vec3"> / Node<"vec4"> type) ===
-  get x(): Node<"float"> {
-    return swizzle(this, "x");
-  }
-  get y(): Node<"float"> {
-    return swizzle(this, "y");
-  }
-  get z(): Node<"float"> {
-    return swizzle(this, "z");
-  }
-  get w(): Node<"float"> {
-    return swizzle(this, "w");
-  }
-  get r(): Node<"float"> {
-    return swizzle(this, "r");
-  }
-  get g(): Node<"float"> {
-    return swizzle(this, "g");
-  }
-  get b(): Node<"float"> {
-    return swizzle(this, "b");
-  }
-  get a(): Node<"float"> {
-    return swizzle(this, "a");
-  }
-  get xy(): Node<"vec2"> {
-    return swizzle(this, "xy");
-  }
-  get xz(): Node<"vec2"> {
-    return swizzle(this, "xz");
-  }
-  get xw(): Node<"vec2"> {
-    return swizzle(this, "xw");
-  }
-  get yz(): Node<"vec2"> {
-    return swizzle(this, "yz");
-  }
-  get yw(): Node<"vec2"> {
-    return swizzle(this, "yw");
-  }
-  get zw(): Node<"vec2"> {
-    return swizzle(this, "zw");
-  }
-  get xyz(): Node<"vec3"> {
-    return swizzle(this, "xyz");
-  }
-  get xyw(): Node<"vec3"> {
-    return swizzle(this, "xyw");
-  }
-  get xzw(): Node<"vec3"> {
-    return swizzle(this, "xzw");
-  }
-  get yzw(): Node<"vec3"> {
-    return swizzle(this, "yzw");
-  }
-  get rgba(): Node<"vec4"> {
-    return swizzle(this, "rgba");
-  }
-  get rgb(): Node<"vec3"> {
-    return swizzle(this, "rgb");
-  }
 }
 
-// The `stpq` swizzles are added on the prototype rather than written out as
-// getters, so the 25 patterns share one definition (`swizzle()` types the
-// result the same way the explicit getters above do individually).
-for (const pattern of ["s", "t", "p", "q", "st", "sp", "sq", "tp", "tq", "pq", "stp", "stq", "spq", "tpq", "stpq"]) {
+/** Every swizzle pattern of one to four letters in one spelling, as the `Swizzles` types list them. */
+function swizzlePatterns(letters: string): string[] {
+  let patterns = [...letters];
+  let all = [...patterns];
+  for (let length = 2; length <= 4; length++) {
+    patterns = patterns.flatMap((prefix) => [...letters].map((letter) => prefix + letter));
+    all.push(...patterns);
+  }
+  return all;
+}
+
+// Defined on the prototype rather than written out: 1020 patterns, one getter
+// shape. Which of them a node offers is up to its type (`Swizzles`).
+for (const pattern of ["xyzw", "rgba", "stpq"].flatMap(swizzlePatterns)) {
   Object.defineProperty(NodeImpl.prototype, pattern, {
     get(this: NodeImpl<ShaderType>) {
       return swizzle(this, pattern);
