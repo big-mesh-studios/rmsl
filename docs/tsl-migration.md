@@ -119,7 +119,12 @@ value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
   from `@random-mesh/rmsl/wasm`. Write a buffer with
   `context.write(attribute, data)` rather than TSL's `attribute.array` plus
   `needsUpdate`: a `StorageBufferAttribute` built from a count keeps no
-  CPU-side copy.
+  CPU-side copy. An attribute holds one element type, named by the first
+  `storage()` node over it; a node naming another type throws. A `vec3`
+  element, or a matrix with columns of three, keeps its packed layout on the
+  attribute and in what `getArrayBufferAsync()` returns: the WGSL context pads
+  each column of three to 16 bytes only in the GPU buffer, where TSL rewrites
+  the attribute itself to 4 components.
 - **Post-processing** is available from the `@random-mesh/rmsl/effects`
   subpath. The effects are pure node graphs — pass sampler uniforms and
   parameters, get a color node. See [effects.md](./effects.md) for the

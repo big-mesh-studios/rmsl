@@ -5,6 +5,7 @@ import {
   int,
   invocationIndex,
   Loop,
+  storage,
   uint,
   uniform,
   uniformArray,
@@ -15,7 +16,7 @@ import {
 } from "./rmsl";
 import { createWgslContext } from "./wgsl";
 import { createWasmContext } from "./wasm";
-import type { ComputeNode, StorageBufferAttribute, UniformArrayNode, UniformNode } from "./rmsl";
+import { StorageBufferAttribute, type ComputeNode, type UniformArrayNode, type UniformNode } from "./rmsl";
 import { GPU_ENABLED, installWebGpuGlobals } from "./testing/gpu";
 
 /** What these tests need from a context, whichever backend runs it. */
@@ -283,6 +284,31 @@ for (const backend of backends) {
       context.destroy();
     });
 
+    it("reads and writes elements with columns of three, which WGSL pads to four", async () => {
+      const context = await backend.create();
+      const vectors = instancedArray(Float32Array.of(1, 2, 3, 4, 5, 6), "vec3");
+      const matrices = instancedArray(2, "mat2x3");
+      const square = instancedArray(
+        Float32Array.from({ length: 9 }, (_, k) => k + 1),
+        "mat3",
+      );
+      const columns = instancedArray(2, "vec3");
+      const program = Fn(() => {
+        const i = invocationIndex();
+        vectors.element(i).assign(vectors.element(i).zxy.mul(10));
+        matrices.element(i).element(1).y.assign(vectors.element(i).x);
+        columns.element(i).assign(square.element(uint(0)).element(i.toInt().add(1)));
+      })().compute(2);
+
+      context.write(matrices.attribute, Float32Array.of(7, 8, 9, 6), 1);
+      context.compute(program);
+
+      expect(await context.read(vectors.attribute)).toEqual([30, 10, 20, 60, 40, 50]);
+      expect(await context.read(matrices.attribute)).toEqual([0, 0, 0, 0, 30, 0, 7, 8, 9, 6, 60, 0]);
+      expect(await context.read(columns.attribute)).toEqual([4, 5, 6, 7, 8, 9]);
+      context.destroy();
+    });
+
     it("writes a component of a storage element's column, by a swizzle or an index", async () => {
       const context = await backend.create();
       const out = instancedArray(2, "mat2");
@@ -346,6 +372,25 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context buffers", () => {
     context.destroy();
   });
 
+  it("gives a vec3 element 16 bytes in its buffer, as WGSL lays it out", async () => {
+    const context = await createWgslContext();
+    const positions = instancedArray(4, "vec3");
+    expect(context.buffer(positions.attribute).size).toBe(4 * 16);
+    context.destroy();
+  });
+
+  it("rejects a program over a buffer laid out before a storage node named its type", async () => {
+    const context = await createWgslContext();
+    const attribute = new StorageBufferAttribute(2, 6);
+    context.write(attribute, Float32Array.of(1, 2));
+    const matrices = storage(attribute, "mat2x3");
+    const read = Fn(() => {
+      matrices.element(0).toVar();
+    })().compute(1);
+    expect(() => context.compute(read)).toThrow(/laid out before a storage node named its type/);
+    context.destroy();
+  });
+
   it("reads back an empty buffer as no bytes, as the WASM context does", async () => {
     const context = await createWgslContext();
     const empty = instancedArray(0, "uint");
@@ -364,25 +409,6 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context limits", () => {
       out.element(0).assign(texture.texture(vec2(0.5, 0.5)).x);
     })().compute(1);
     expect(() => context.compute(sample)).toThrow(/sample textures/);
-    context.destroy();
-  });
-
-  it("rejects a storage element type WGSL pads, with columns of three", async () => {
-    const context = await createWgslContext();
-    for (const [type, stride] of [
-      ["vec3", 16],
-      ["mat3", 48],
-      ["mat2x3", 32],
-      ["mat4x3", 64],
-    ] as const) {
-      const out = instancedArray(1, type);
-      const read = Fn(() => {
-        out.element(0).toVar();
-      })().compute(1);
-      expect(() => context.compute(read)).toThrow(
-        new RegExp(`storage elements of ${type} aren't supported yet; WGSL pads each to ${stride} bytes`),
-      );
-    }
     context.destroy();
   });
 

@@ -1,5 +1,6 @@
 import {
   isSamplerType,
+  MATRIX_DIMENSIONS,
   type ComputeNode,
   type StorageBufferAttribute,
   type Node,
@@ -12,7 +13,6 @@ import { compile, type WgslResource } from "../../wgsl";
 import { slotOf, type TypedArray } from "../adapter";
 import { assertWriteFits, someNode } from "../shared";
 import { uniformBufferSize, uniformScratch, writeUniformMember, type UniformScratch } from "./adapter-wgsl";
-import { typeToWGSL, WGSL_LAYOUT } from "./wgsl";
 
 /**
  * Several compute programs on one `GPUDevice`, sharing their storage buffers,
@@ -37,9 +37,16 @@ export interface WgslContext {
   setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
   /** Writes `data` into the attribute's buffer, from element `offset` on. */
   write(attribute: StorageBufferAttribute, data: TypedArray, offset?: number): void;
-  /** The attribute's buffer contents, copied back from the GPU, as TSL's `getArrayBufferAsync()`. */
+  /**
+   * The attribute's buffer contents, copied back from the GPU, as TSL's
+   * `getArrayBufferAsync()`, laid out as the attribute holds them.
+   */
   getArrayBufferAsync(attribute: StorageBufferAttribute): Promise<ArrayBuffer>;
-  /** The attribute's `GPUBuffer`, for binding in a render pipeline on the same device. */
+  /**
+   * The attribute's `GPUBuffer`, for binding in a render pipeline on the same
+   * device. It is laid out as WGSL lays out a storage array: a `vec3`, and
+   * each column of three in a matrix, takes 16 bytes.
+   */
   buffer(attribute: StorageBufferAttribute): GPUBuffer;
   /** Destroys every buffer, and the device if the context created it. */
   destroy(): void;
@@ -68,26 +75,37 @@ function samplesTextures(root: Node<ShaderType>): boolean {
   return someNode(root, (node) => typeof node._t === "string" && isSamplerType(node._t));
 }
 
-/** Bytes per element of a storage array of `itemSize` 32-bit components, laid out without padding. */
-function elementStride(itemSize: number): number {
-  return itemSize * 4;
+/**
+ * Where an attribute's values sit in its GPU buffer, in 32-bit slots. WGSL
+ * gives a `vec3`, and each column of three in a matrix, the room of four, so
+ * those leave one slot empty after every three values; every other element
+ * type is laid out as the attribute holds it.
+ */
+type StorageLayout = {
+  /** Slots per element. */
+  stride: number;
+  /** The slot holding the attribute's value `k`. */
+  slot(k: number): number;
+};
+
+function storageLayout(attribute: StorageBufferAttribute): StorageLayout {
+  const { itemSize, elementType } = attribute;
+  const rows = (elementType && MATRIX_DIMENSIONS[elementType]?.[1]) ?? itemSize;
+  if (rows !== 3) return { stride: itemSize, slot: (k) => k };
+  const stride = (itemSize / 3) * 4;
+  return {
+    stride,
+    slot: (k) => Math.floor(k / itemSize) * stride + Math.floor((k % itemSize) / 3) * 4 + (k % 3),
+  };
 }
 
-/**
- * Throws unless WGSL lays out a storage array of the resource's element type
- * as tightly as its attribute holds it, 4 bytes per component. A type with
- * columns of three, a `vec3`, `mat3`, `mat2x3` or `mat4x3`, is padded: each
- * column takes 16 bytes.
- */
-function assertUnpadded(resource: Extract<WgslResource, { kind: "storage" }>): void {
-  const { size, align } = WGSL_LAYOUT[typeToWGSL[resource.shaderType]!]!;
-  const stride = Math.ceil(size / align) * align;
-  const packed = elementStride(resource.attribute.itemSize);
-  if (stride !== packed) {
-    throw new Error(
-      `[RMSL] createWgslContext: storage elements of ${resource.shaderType} aren't supported yet; WGSL pads each to ${stride} bytes, where its attribute holds ${packed}.`,
-    );
-  }
+/** `values`, the attribute's values from value `first` on, spread into the slots `layout` gives them. */
+function spread(values: TypedArray, first: number, layout: StorageLayout): { slot: number; data: TypedArray } {
+  if (values.length === 0) return { slot: 0, data: values };
+  const slot = layout.slot(first);
+  const data = new (values.constructor as Float32ArrayConstructor)(layout.slot(first + values.length - 1) - slot + 1);
+  for (let k = 0; k < values.length; k++) data[layout.slot(first + k) - slot] = values[k]!;
+  return { slot, data };
 }
 
 /** Creates a {@link WgslContext} on a new device, or on `options.device`. */
@@ -100,7 +118,8 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
   }
   const gpu = device;
 
-  const buffers = new Map<StorageBufferAttribute, GPUBuffer>();
+  /** Each attribute's buffer, and the layout it was given, which a program using it has to share. */
+  const buffers = new Map<StorageBufferAttribute, { buffer: GPUBuffer; layout: StorageLayout }>();
   const programs = new Map<ComputeNode, CompiledProgram>();
   const uniformValues = new Map<string, number | number[]>();
   /** Bumped by every `setUniform()`, so a program knows whether its uniform buffer is stale. */
@@ -108,17 +127,25 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
   /** One staging buffer per attribute for reading it back, reused unless a read is still pending. */
   const stagingBuffers = new Map<StorageBufferAttribute, GPUBuffer>();
 
-  function buffer(attribute: StorageBufferAttribute): GPUBuffer {
+  function resident(attribute: StorageBufferAttribute): { buffer: GPUBuffer; layout: StorageLayout } {
     let existing = buffers.get(attribute);
     if (existing) return existing;
-    const size = Math.max(4, attribute.count * elementStride(attribute.itemSize));
-    existing = gpu.createBuffer({
-      size,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX,
-    });
+    const layout = storageLayout(attribute);
+    existing = {
+      buffer: gpu.createBuffer({
+        size: Math.max(4, attribute.count * layout.stride * 4),
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX,
+      }),
+      layout,
+    };
     buffers.set(attribute, existing);
-    if (attribute.array) gpu.queue.writeBuffer(existing, 0, attribute.array as BufferSource);
+    if (attribute.array)
+      gpu.queue.writeBuffer(existing.buffer, 0, spread(attribute.array, 0, layout).data as BufferSource);
     return existing;
+  }
+
+  function buffer(attribute: StorageBufferAttribute): GPUBuffer {
+    return resident(attribute).buffer;
   }
 
   function program(node: ComputeNode): CompiledProgram {
@@ -133,10 +160,14 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
       compute: { module: gpu.createShaderModule({ code: compiled.code }), entryPoint: compiled.entryPoint },
     });
 
-    const storages = compiled.resources.filter(
-      (r): r is Extract<WgslResource, { kind: "storage" }> => r.kind === "storage",
-    );
-    storages.forEach(assertUnpadded);
+    const storages = compiled.resources.filter((r) => r.kind === "storage");
+    for (const r of storages) {
+      if (resident(r.attribute).layout.stride !== storageLayout(r.attribute).stride) {
+        throw new Error(
+          `[RMSL] createWgslContext: a ${r.shaderType} attribute's buffer was laid out before a storage node named its type; create the node before writing or reading the attribute`,
+        );
+      }
+    }
     const storageGroup =
       storages.length === 0
         ? null
@@ -231,13 +262,15 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
       assertWriteFits(attribute, data.length, offset);
       // Converted to the attribute's own array type, so values arrive as numbers, not reinterpreted bits.
       const values = data instanceof attribute.arrayClass ? data : attribute.arrayClass.from(data as ArrayLike<number>);
-      gpu.queue.writeBuffer(buffer(attribute), offset * elementStride(attribute.itemSize), values as BufferSource);
+      const { buffer, layout } = resident(attribute);
+      const { slot, data: slots } = spread(values, offset * attribute.itemSize, layout);
+      gpu.queue.writeBuffer(buffer, slot * 4, slots as BufferSource);
     },
 
     async getArrayBufferAsync(attribute) {
       // The GPUBuffer is at least 4 bytes, but only the attribute's own elements are returned.
-      const size = attribute.count * elementStride(attribute.itemSize);
-      const source = buffer(attribute);
+      const { buffer: source, layout } = resident(attribute);
+      const size = attribute.count * layout.stride * 4;
       if (size === 0) return new ArrayBuffer(0);
       // A read still waiting on the cached staging buffer keeps it, and this one gets a buffer of its own.
       const cached = stagingBuffers.get(attribute);
@@ -251,9 +284,13 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
         encoder.copyBufferToBuffer(source, 0, staging, 0, size);
         gpu.queue.submit([encoder.finish()]);
         await staging.mapAsync(GPUMapMode.READ);
-        const contents = staging.getMappedRange().slice(0);
+        const slots = new Uint32Array(staging.getMappedRange().slice(0));
         staging.unmap();
-        return contents;
+        if (layout.stride === attribute.itemSize) return slots.buffer;
+        // Padded: gathered back into the attribute's own layout, as the WASM context returns it.
+        const values = new Uint32Array(attribute.count * attribute.itemSize);
+        for (let k = 0; k < values.length; k++) values[k] = slots[layout.slot(k)]!;
+        return values.buffer;
       } finally {
         if (stagingBuffers.get(attribute) !== staging) staging.destroy();
       }
@@ -262,7 +299,7 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
     buffer,
 
     destroy() {
-      for (const b of buffers.values()) b.destroy();
+      for (const b of buffers.values()) b.buffer.destroy();
       for (const b of stagingBuffers.values()) b.destroy();
       for (const p of programs.values()) p.uniforms?.buffer.destroy();
       if (!options.device) gpu.destroy();

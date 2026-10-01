@@ -48,6 +48,17 @@ describe("storage buffers", () => {
     expect(() => storage(new StorageBufferAttribute(4, 3, Float32Array), "bvec3")).toThrow(/can't hold bvec3/);
   });
 
+  it("holds one element type per attribute", () => {
+    const attribute = new StorageBufferAttribute(2, 6);
+    expect(attribute.elementType).toBe(null);
+    storage(attribute, "mat2x3");
+    expect(attribute.elementType).toBe("mat2x3");
+    expect(() => storage(attribute, "mat2x3")).not.toThrow();
+    expect(() => storage(attribute, "mat3x2")).toThrow(
+      /this one holds mat2x3, so a storage node over it can't be a mat3x2/,
+    );
+  });
+
   it("rejects a typed array that isn't a whole number of elements", () => {
     expect(() => instancedArray(new Float32Array(5), "vec2")).toThrow(/5 values.*itemSize 2/);
   });
