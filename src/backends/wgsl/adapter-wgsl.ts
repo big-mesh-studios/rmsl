@@ -70,6 +70,8 @@ export interface WgslDrawOptions extends DrawCountOptions {
    * on the same canvas left this frame.
    */
   clear?: boolean;
+  /** The colour a clear fills the canvas with, as red, green, blue and alpha from 0 to 1. Defaults to opaque black. */
+  clearColor?: readonly [number, number, number, number];
 }
 
 export interface CreateWgslAdapterOptions {
@@ -471,7 +473,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
         colorAttachments: [
           {
             view,
-            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+            clearValue: drawOptions?.clearColor ?? [0, 0, 0, 1],
             loadOp: drawOptions?.clear === false ? "load" : "clear",
             storeOp: "store",
           },
