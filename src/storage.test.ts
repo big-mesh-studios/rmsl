@@ -1,6 +1,18 @@
 import { describe, it, expect } from "vitest";
-import { Fn, invocationIndex, instancedArray, attributeArray, storage, StorageBufferAttribute } from "./rmsl";
+import {
+  attributeArray,
+  float,
+  Fn,
+  instancedArray,
+  invocationIndex,
+  storage,
+  StorageBufferAttribute,
+  vec2,
+  vec4,
+} from "./rmsl";
 import { compile } from "./wgsl";
+import { compileWasmFn } from "./wasm";
+import { compileJSRoutine } from "./js";
 
 describe("storage buffers", () => {
   it("sizes an instancedArray from a count, with the element type's components and array class", () => {
@@ -45,6 +57,23 @@ describe("storage buffers", () => {
     expect(values.access).toBe("read_write");
     expect(values.toReadOnly()).toBe(values);
     expect(values.access).toBe("read");
+  });
+
+  it("refuses an assignment through a read-only node, on every backend", () => {
+    const values = instancedArray(4, "vec4").toReadOnly();
+    const writes = [
+      () => values.element(invocationIndex()).assign(vec4(1, 1, 1, 1)),
+      () => values.element(invocationIndex()).xy.assign(vec2(1, 1)),
+      () => values.element(invocationIndex()).element(2).assign(float(1)),
+    ];
+    for (const write of writes) {
+      const program = Fn(() => {
+        write();
+      });
+      expect(() => compile({ stage: "compute" }, program())).toThrow(/read-only/);
+      expect(() => compileWasmFn(() => program(), { name: "main", params: [] })).toThrow(/read-only/);
+      expect(() => compileJSRoutine(() => program(), { name: "main", params: [] })).toThrow(/read-only/);
+    }
   });
 
   it("gives two nodes over one attribute one binding, with the wider access", () => {

@@ -13,7 +13,13 @@ import {
   ScalarKind,
   scalarKindOf,
 } from "../cpu";
-import { assertStageResult, CompileFnOptions, COMPONENT_INDEX, resolveSwizzleTarget } from "../shared";
+import {
+  assertStageResult,
+  assignedStorageElement,
+  CompileFnOptions,
+  COMPONENT_INDEX,
+  resolveSwizzleTarget,
+} from "../shared";
 import {
   f64ConstBytes,
   forLoop,
@@ -1392,10 +1398,9 @@ export function compileWasmFn(
       case "assign": {
         // remember a direct gl_Position write
         if (node.params[0].type === "builtinPosition") positionWritten = true;
-        // and which storage buffers are written, through any swizzle or component of an element
-        let target = node.params[0];
-        while (target && target.type !== "storageElement" && target.params?.[0]) target = target.params[0];
-        if (target?.type === "storageElement") writtenStorage.add(target.params[0].value.slot);
+        // and which storage buffers are written
+        const element = assignedStorageElement(node.params[0]);
+        if (element) writtenStorage.add(element.params[0].value.slot);
         break;
       }
 

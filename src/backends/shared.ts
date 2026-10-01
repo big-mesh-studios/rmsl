@@ -608,6 +608,20 @@ export function storageAttributes(...roots: unknown[]): Map<string, StorageBuffe
 }
 
 /**
+ * The storage element an assignment to `target` writes, through any swizzle
+ * or component of it, or undefined if it writes none. Throws if the element's
+ * storage node was made read-only, so no backend writes through it.
+ */
+export function assignedStorageElement(target: any): any {
+  while (["swizzle", "vectorElement", "matrixElement"].includes(target?.type)) target = target.params[0];
+  if (target?.type !== "storageElement") return undefined;
+  if (target.params[0].value.access === "read") {
+    throw new Error("[RMSL] can't assign to an element of a storage node made read-only with toReadOnly()");
+  }
+  return target;
+}
+
+/**
  * Throws unless `length` values from element `offset` on fit in the
  * attribute's buffer, so a context's `write()` fails the same way on every backend.
  */
