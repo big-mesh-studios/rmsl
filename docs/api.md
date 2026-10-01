@@ -249,13 +249,23 @@ All three component spellings are available, matching GLSL/WGSL and TSL:
 | `rgba` | `.r`, `.g`, `.b`, `.a` |
 | `stpq` | `.s`, `.t`, `.p`, `.q` |
 
-**vec3:** `.x/.y/.z` (or `.r/.g/.b` or `.s/.t/.p`), `.xy`, `.xz`, `.yz`, `.st`, `.sp`, `.tp`, `.xyz`, `.rgb`, `.stp`
+A swizzle is any one to four of a vector's components, in any order and with
+repeats, in one spelling: `.zyx`, `.rr`, `.ts`, `.xxyy`. Spellings can't be
+mixed, so `.xg` isn't a swizzle. One component is the scalar, more are the
+vector of that width, whatever the source's width: `vec2(5, 6).xxyy` is a
+`vec4`. A vector offers only its own components, so a `vec2` has no `.z`.
 
-**vec4:** `.x/.y/.z/.w` (or `.r/.g/.b/.a` or `.s/.t/.p/.q`), `.xy`, `.xz`, `.xw`, `.yz`, `.yw`, `.zw`, `.st`, `.sp`, `.sq`, `.tp`, `.tq`, `.pq`, `.xyz`, `.xyw`, `.xzw`, `.yzw`, `.stp`, `.stq`, `.spq`, `.tpq`, `.rgb`, `.rgba`, `.stpq`
+```typescript
+vec4(1, 2, 3, 4).wzyx; // vec4(4, 3, 2, 1)
+vec4(1, 2, 3, 4).zz; // vec2(3, 3)
+vec2(5, 6).xxyy; // vec4(5, 5, 6, 6)
+```
 
-Integer vectors carry the same swizzle sets, typed by their component: a single
-component of an `ivecN` is `Node<"int">`, of a `uvecN` `Node<"uint">`, and a
-multi-component swizzle is the matching integer vector (`ivec3.xy` → `ivec2`).
+Every vector type carries them, typed by its component: a single component of
+an `ivecN` is `Node<"int">`, of a `uvecN` `Node<"uint">`, of a `bvecN`
+`Node<"bool">`, and a multi-component swizzle is the matching vector
+(`ivec3.xy` → `ivec2`). A swizzle that names each component once can also be
+written to, on a [writable node](#writable-nodes).
 
 ## Writable nodes
 
