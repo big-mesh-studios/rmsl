@@ -12,7 +12,9 @@ import {
   assertPositionIsReadable,
   assertSquareMatrix,
   assertStageResult,
-  compileLoopCondition,
+  declaresAhead,
+  inBlock,
+  inSeq,
   forUpdateStatements,
   loopTest,
   tryFold,
@@ -669,17 +671,11 @@ export function compileGLSLNode(
       if (vt === "float" && (rhsType === "int" || rhsType === "uint")) {
         rhsExpr = `float(${rhsExpr})`;
       }
-      if (ctx.hoisted) {
-        ctx.hoisted.push(`${t} ${lhs.expr};`);
-        return {
-          decls: [...lhs.decls, ...rhs.decls],
-          body: [...lhs.body, ...rhs.body, `${lhs.expr} = ${rhsExpr};`],
-          expr: lhs.expr,
-        };
-      }
+      let ahead = declaresAhead(ctx);
+      let target = ahead ? lhs.expr : `${t} ${lhs.expr}`;
       return {
-        decls: [...lhs.decls, ...rhs.decls],
-        body: [...lhs.body, ...rhs.body, `${t} ${lhs.expr} = ${rhsExpr};`],
+        decls: [...lhs.decls, ...rhs.decls, ...(ahead ? [`${t} ${lhs.expr} = ${t}(0);`] : [])],
+        body: [...lhs.body, ...rhs.body, `${target} = ${rhsExpr};`],
         expr: lhs.expr,
       };
     }
@@ -705,21 +701,23 @@ export function compileGLSLNode(
       let allDecls: string[] = [];
       let allBody: string[] = [];
       let expr = "0.0";
-      for (let p of params) {
-        let r = compileGLSLStage(p, ctx);
-        allDecls.push(...r.decls);
-        allBody.push(...r.body);
-        expr = r.expr;
-      }
+      inSeq(ctx, node, () => {
+        for (let p of params) {
+          let r = compileGLSLStage(p, ctx);
+          allDecls.push(...r.decls);
+          allBody.push(...r.body);
+          expr = r.expr;
+        }
+      });
       return { decls: allDecls, body: allBody, expr };
     }
 
     case "if": {
       let cond = compileGLSLStage(node.params![0], ctx);
-      let body = compileGLSLStage(node.params![1], ctx);
+      let body = inBlock(ctx, () => compileGLSLStage(node.params![1], ctx));
       let elseBody =
         node.params!.length >= 3 && node.params![2] !== undefined
-          ? compileGLSLStage(node.params![2], ctx)
+          ? inBlock(ctx, () => compileGLSLStage(node.params![2], ctx))
           : { decls: [] as string[], body: [] as string[], expr: "" };
       let lines: string[] = [...cond.body, `if (${cond.expr}) {`, ...body.body.map((l) => "  " + l), "}"];
       if (elseBody.body.length > 0) {
@@ -736,9 +734,9 @@ export function compileGLSLNode(
 
     case "for": {
       let init = compileGLSLStage(node.params![0], ctx);
-      let { cond, hoisted } = compileLoopCondition(compileGLSLStage, node.params![1], ctx);
-      let update = compileGLSLStage(node.params![2], ctx);
-      let body = compileGLSLStage(node.params![3], ctx);
+      let cond = inBlock(ctx, () => compileGLSLStage(node.params![1], ctx));
+      let update = inBlock(ctx, () => compileGLSLStage(node.params![2], ctx));
+      let body = inBlock(ctx, () => compileGLSLStage(node.params![3], ctx));
       let initExpr = init.expr;
       let initBody = init.body;
       if (init.body.length > 0) {
@@ -754,10 +752,8 @@ export function compileGLSLNode(
         decls: [...init.decls, ...cond.decls, ...update.decls, ...body.decls],
         body: [
           ...initBody,
-          ...hoisted,
           `for (${initExpr}; ${header}; ${forUpdateStatements(update).map(withoutSemicolon).join(", ")}) {`,
-          ...guard.map((l) => "  " + l),
-          ...body.body.map((l) => "  " + l),
+          ...[...guard, ...body.body].map((l) => "  " + l),
           "}",
         ],
         expr: "0.0",
@@ -765,12 +761,12 @@ export function compileGLSLNode(
     }
 
     case "while": {
-      let { cond, hoisted } = compileLoopCondition(compileGLSLStage, node.params![0], ctx);
-      let body = compileGLSLStage(node.params![1], ctx);
+      let cond = inBlock(ctx, () => compileGLSLStage(node.params![0], ctx));
+      let body = inBlock(ctx, () => compileGLSLStage(node.params![1], ctx));
       let { header, guard } = loopTest(cond);
       return {
         decls: [...cond.decls, ...body.decls],
-        body: [...hoisted, `while (${header}) {`, ...[...guard, ...body.body].map((l) => "  " + l), "}"],
+        body: [`while (${header}) {`, ...[...guard, ...body.body].map((l) => "  " + l), "}"],
         expr: "0.0",
       };
     }
@@ -1140,7 +1136,7 @@ export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options:
     code += "\n";
   }
   code += `${returnType} ${options.name}(${paramStr}) {\n`;
-  for (const line of compiled.body) {
+  for (const line of [...compiled.decls, ...compiled.body]) {
     code += `  ${line}\n`;
   }
   if (compiled.expr !== "0.0") {

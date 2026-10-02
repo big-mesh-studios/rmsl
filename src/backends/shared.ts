@@ -131,10 +131,12 @@ export interface CompileCtx {
   /** Whether the program writes outputs/position/fragDepth via a result object. */
   jsNeedsRes: boolean;
   /**
-   * Set while a loop's condition compiles on GLSL and WGSL: the declarations
-   * of the variables it makes, which the loop puts ahead of itself.
+   * How many blocks deep the code compiling sits, on GLSL and WGSL: an if's
+   * branches, and a loop's condition, update and body, each add one.
    */
-  hoisted?: string[];
+  blockDepth?: number;
+  /** Whether the statements compiling belong to a value's `seq`, an `Fn` call's, rather than to a block. */
+  inValue?: boolean;
 }
 
 // === Constant folding ===
@@ -484,36 +486,51 @@ export function withoutSemicolon(statement: string): string {
 }
 
 /**
- * A loop's condition, compiled to run where it is tested, with the
- * declarations of the variables it makes split out for the loop to put ahead
- * of itself. Declared inside the loop, such a variable would be out of scope
- * after it, or in a for-loop's update, wherever else it is read. A condition
- * within another's adds to the outer one's declarations.
+ * Whether a variable compiling now is declared at the top of the function, at
+ * zero, and only assigned where it is made: one an `Fn` call makes, compiled
+ * inside a block. The call compiles where its value is first read, so a
+ * variable declared there would be out of scope wherever else it is read.
  */
-export function compileLoopCondition(
-  compile: (node: any, ctx: CompileCtx) => CompiledNode,
-  node: any,
-  ctx: CompileCtx,
-): { cond: CompiledNode; hoisted: string[] } {
-  const outer = ctx.hoisted;
-  const hoisted = outer ?? [];
-  ctx.hoisted = hoisted;
+export function declaresAhead(ctx: CompileCtx): boolean {
+  return (ctx.blockDepth ?? 0) > 0 && ctx.inValue === true;
+}
+
+/** Runs `compile` one block deeper. */
+export function inBlock<T>(ctx: CompileCtx, compile: () => T): T {
+  const outer = ctx.blockDepth ?? 0;
+  ctx.blockDepth = outer + 1;
   try {
-    return { cond: compile(node, ctx), hoisted: outer ? [] : hoisted };
+    return compile();
   } finally {
-    ctx.hoisted = outer;
+    ctx.blockDepth = outer;
   }
+}
+
+/** Runs `compile` for a `seq`'s statements: a value's when the `seq` has a type, otherwise a block's. */
+export function inSeq<T>(ctx: CompileCtx, seq: { _t?: string }, compile: () => T): T {
+  const outer = ctx.inValue;
+  ctx.inValue = seq._t !== undefined && seq._t !== "void";
+  try {
+    return compile();
+  } finally {
+    ctx.inValue = outer;
+  }
+}
+
+/** The lines opening a loop's body that run a compiled condition, then break when its test fails. */
+export function loopGuard(cond: CompiledNode): string[] {
+  return [...cond.body, `if (!(${cond.expr})) { break; }`];
 }
 
 /**
  * How a loop tests a compiled condition: the expression its header holds, and
  * the lines opening its body. A condition that runs statements before its test
  * can't sit in a header, so the header holds `true`, and the body opens with
- * the statements, then a break when the test fails.
+ * the guard.
  */
 export function loopTest(cond: CompiledNode): { header: string; guard: string[] } {
   if (cond.body.length === 0) return { header: cond.expr, guard: [] };
-  return { header: "true", guard: [...cond.body, `if (!(${cond.expr})) { break; }`] };
+  return { header: "true", guard: loopGuard(cond) };
 }
 
 /**
