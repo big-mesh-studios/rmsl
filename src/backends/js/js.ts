@@ -625,18 +625,11 @@ export function jsRequireHelper(ctx: CompileCtx, name: string): void {
   ctx.jsHelpers.add(name);
 }
 
-const JS_TEMP_PREFIX = "_rmsl_t";
-
 /** A fresh hoisted slot for an intermediate value, registered for preallocation. */
 export function jsNewTemp(ctx: CompileCtx, brand: string): string {
-  let name = `${JS_TEMP_PREFIX}${ctx.nextId++}`;
+  let name = `_rmsl_t${ctx.nextId++}`;
   ctx.varDefs.set(name, brand);
   return name;
-}
-
-/** Whether `name` is a slot from {@link jsNewTemp}, which nothing writes again once it holds its value. */
-function jsIsTemp(name: string): boolean {
-  return name.startsWith(JS_TEMP_PREFIX);
 }
 
 /**
@@ -1014,14 +1007,30 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
   }
 
   let seen = ctx.memo.get(node);
+  // A seq's statements have run; its value is read afresh, as any value is.
+  if (seen && node.type === "seq") return compileJSStage(node.params[node.params.length - 1], ctx);
   if (seen) return { decls: [], body: [], expr: seen.expr, prec: seen.prec };
 
   let result = compileJSNode(node, ctx);
-  // A value compiled straight into a variable stays that value only until the
-  // program writes the variable, so a later read compiles it again.
-  if (result.expr !== ctx.outTarget || jsIsTemp(result.expr)) ctx.memo.set(node, result);
+  // A value statements computed into a slot holds what it was there, so a later
+  // read, after a write or outside the branch they ran in, computes it again.
+  if (result.body.length === 0 || JS_STATEMENT_TYPES.has(node.type)) ctx.memo.set(node, result);
   return result;
 }
+
+/** Node types run for their effect, which compiling them a second time would repeat. */
+const JS_STATEMENT_TYPES = new Set([
+  "let",
+  "assign",
+  "seq",
+  "if",
+  "for",
+  "while",
+  "discard",
+  "break",
+  "continue",
+  "return",
+]);
 
 /** A negative literal is a negation, and brackets like one: `-(-7)`, not `--7`. */
 function jsLiteralPrec(value: number): number | undefined {
@@ -1818,8 +1827,12 @@ export function compileJSNode(
       let allDecls: string[] = [];
       let allBody: string[] = [];
       let expr = "0";
-      for (let p of params) {
+      let saved = ctx.outTarget;
+      for (let [i, p] of params.entries()) {
+        // Only the value goes to the target; a statement before it has its own.
+        ctx.outTarget = i === params.length - 1 ? saved : null;
         let r = compileJSStage(p, ctx);
+        ctx.outTarget = saved;
         allDecls.push(...r.decls);
         allBody.push(...r.body);
         expr = r.expr;

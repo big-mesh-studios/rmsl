@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { Fn, float, int, For, If, While, Switch, Break, Continue, Return, Discard, vec3, type Node, type Var } from "./rmsl";
+import { Fn, float, int, For, If, While, Switch, Break, Continue, Return, Discard, vec3, vec2, mat2, type Node, type Var } from "./rmsl";
 import {
   evaluateRecording,
   assertRecordedEvaluationsAgree,
@@ -911,6 +911,59 @@ describe("RMSL evaluation", () => {
         })(),
       [1],
       11,
+    );
+    await expectValue(
+      (a) =>
+        Fn(() => {
+          const value = mat2(vec2(a, a.add(1)), vec2(a.add(2), a.add(3)));
+          const copy = value.toVar();
+          copy.element(int(0)).assign(vec2(9, 9));
+          return copy.element(int(0)).y.add(value.element(int(0)).y);
+        })(),
+      [1],
+      11,
+    );
+  }, 60_000);
+
+  // A value is what it computes where it is read: after a variable it reads is
+  // written, or outside a branch where it was first computed.
+  it("reads a value as it is where it is read", async () => {
+    await expectValue(
+      () =>
+        Fn(() => {
+          const s = vec3(1, 2, 3).toVar();
+          const value = vec3(s.x, s.y, float(0));
+          const copy = value.toVar();
+          s.x.assign(float(10));
+          return value.x.add(copy.x.mul(100));
+        })(),
+      [],
+      110,
+    );
+    await expectValue(
+      () =>
+        Fn(() => {
+          const s = vec3(1, 2, 3).toVar();
+          const value = vec3(s.x, s.y, float(0));
+          const sum = value.add(vec3(1)).toVar();
+          s.x.assign(float(10));
+          return value.x.add(sum.x.mul(100));
+        })(),
+      [],
+      210,
+    );
+    await expectValue(
+      (a, flag) =>
+        Fn(() => {
+          const value = vec3(a, a.add(1), a.add(2));
+          const sum = vec3(0).toVar();
+          If(flag.greaterThan(0.5), () => {
+            sum.assign(value.add(vec3(1)));
+          });
+          return value.y.add(sum.y.mul(100));
+        })(),
+      [1, 0],
+      2,
     );
   }, 60_000);
 });
