@@ -72,8 +72,11 @@ export function wrapExpr(childPrec: number | undefined, parentPrec: number, expr
 export interface CompileCtx {
   nextId: number;
   shaderStage: "vertex" | "fragment" | "compute";
-  /** `length` is set only for uniform arrays, and gives their element count. */
-  uniforms: Map<number, { type: string; slot: string; length?: number }>;
+  /**
+   * The uniforms the program reads, by name: two nodes with one name are one
+   * uniform. `length` is set only for uniform arrays, and gives their element count.
+   */
+  uniforms: Map<string, { type: string; slot: string; length?: number }>;
   storages?: Map<
     string,
     {
@@ -83,8 +86,10 @@ export interface CompileCtx {
       wgslName: string;
     }
   >;
-  attributes: Map<number, { type: string; slot: string }>;
-  varyings: Map<number, { id: number; type: string; slot: string }>;
+  /** The attributes the program reads, by name; `id` is the first one's, which orders them as they were made. */
+  attributes: Map<string, { id: number; type: string; slot: string }>;
+  /** The varyings the program reads or writes, by name. */
+  varyings: Map<string, { id: number; type: string; slot: string }>;
   outputs: Map<number, { type: string; slot: string; location: number }>;
   wgslSamplers: Map<string, { textureSlot: string; samplerSlot: string }>;
   varDefs: Map<string, string>;
@@ -635,6 +640,38 @@ export function storageAttributes(roots: unknown): Map<string, StorageBufferAttr
     if (node.type === "storage") attributes.set(node.value.slot, node.value.attribute);
   });
   return attributes;
+}
+
+/** What a uniform, attribute or varying node declares, in the words of an error about its name. */
+function describeNamed(node: any): string | undefined {
+  const value = node.value;
+  const article = /^[aeiou]/.test(value?.shaderType ?? "") ? "an" : "a";
+  if (node.type === "uniform") return `${article} ${value.shaderType} uniform`;
+  if (node.type === "uniformArray") return `a uniform array of ${value.length} ${value.shaderType}`;
+  if (node.type === "attribute") return `${article} ${value.shaderType} attribute`;
+  if (node.type === "varying") return `${article} ${value.shaderType} varying`;
+  return undefined;
+}
+
+/**
+ * Throws when two uniforms, attributes or varyings reachable from the roots
+ * share a name but not what they declare. One name is one declaration on
+ * every backend, so nodes made separately with one name read the same value.
+ */
+export function assertOneDeclarationPerName(roots: unknown): void {
+  const declared = new Map<string, string>();
+  someNode(roots, (node) => {
+    const what = describeNamed(node);
+    if (what === undefined) return;
+    const name = node.value.slot as string;
+    const earlier = declared.get(name);
+    if (earlier === undefined) declared.set(name, what);
+    else if (earlier !== what) {
+      throw new Error(
+        `[RMSL] "${name}" names ${earlier} and ${what}: one name is one declaration. Give them different names`,
+      );
+    }
+  });
 }
 
 /** The node types an assignment can write, through any swizzle, component or column of them. */
