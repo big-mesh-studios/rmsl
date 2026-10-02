@@ -9,6 +9,7 @@ import {
   invocationIndex,
   storage,
   StorageBufferAttribute,
+  uniformRaw,
   StorageInstancedBufferAttribute,
   uniform,
   uniformArray,
@@ -16,11 +17,31 @@ import {
   type ShaderType,
 } from "./core";
 import { compile } from "./wgsl";
+import { compileJSRoutine } from "./js";
 
 const compute = (root: Node<ShaderType> | Node<ShaderType>[]) => compile({ stage: "compute", workgroupSize: 64 }, root);
 
+/**
+ * `code` with every name rmsl generates numbered in order of first appearance,
+ * since a rebuilt graph gets new ones.
+ */
+function normalized(code: string): string {
+  const names = new Map<string, string>();
+  return code.replace(/_rmsl_[a-z]*\d+/g, (name) => {
+    if (!names.has(name)) names.set(name, `name${names.size}`);
+    return names.get(name)!;
+  });
+}
+
 /** `graph` after a real JSON round-trip, rebuilt. */
 const roundTrip = (graph: SerializedGraph) => deserialize(JSON.parse(JSON.stringify(graph)));
+
+/** The names of the uniforms reachable from `root`. */
+function uniformNames(root: any, found = new Set<string>()): Set<string> {
+  if (root.type === "uniform") found.add(root.name);
+  for (const p of root.params ?? []) uniformNames(p, found);
+  return found;
+}
 
 /** The storage nodes reachable from `root`. */
 function storageNodes(root: any, found = new Set<any>()): Set<any> {
@@ -46,7 +67,7 @@ describe("serialize/deserialize", () => {
   it("round-trips a compute kernel through JSON and compiles it to the same WGSL", () => {
     const original = movementKernel()();
     const restored = roundTrip(serialize(original)) as Node<ShaderType>;
-    expect(compute(restored).code).toBe(compute(original).code);
+    expect(normalized(compute(restored).code)).toBe(normalized(compute(original).code));
   });
 
   it("keeps a node read in several places one node", () => {
@@ -66,7 +87,7 @@ describe("serialize/deserialize", () => {
     const original = program();
     const restored = roundTrip(serialize(original)) as Node<ShaderType>;
     const code = compute(restored).code;
-    expect(code).toBe(compute(original).code);
+    expect(normalized(code)).toBe(normalized(compute(original).code));
     expect(code.match(/_rmsl_u\d+: f32/g)).toHaveLength(1);
   });
 
@@ -106,19 +127,35 @@ describe("serialize/deserialize", () => {
     const program = Fn(() => uniformArray("vec4", 3).element(1).x);
     const original = program();
     const restored = roundTrip(serialize(original)) as Node<ShaderType>;
-    expect(compute(restored).code).toBe(compute(original).code);
+    expect(normalized(compute(restored).code)).toBe(normalized(compute(original).code));
   });
 
-  it("draws a new id for a uniform, so it can't collide with one built afterwards", () => {
-    const saved: SerializedGraph = {
-      nodes: [{ _t: "float", type: "uniform", value: { id: 0, slot: "_rmsl_u0", shaderType: "float" } }],
-      buffers: [],
-      roots: 0,
-    };
-    const restored = deserialize(saved) as any;
-    const fresh = uniform("float") as any;
-    expect(restored.value.id).not.toBe(fresh.value.id);
-    expect(restored.name).toBe("_rmsl_u0");
+  it("gives what rmsl named new names, so a restored graph and a fresh one stay apart", () => {
+    const build = () =>
+      Fn(() => {
+        const u = uniform("float");
+        const doubled = u.mul(2).toVar();
+        doubled.addAssign(1);
+        return doubled;
+      })();
+    // Restoring the graph it is compiled with gives the names a graph built in another process would clash on.
+    const fresh = build() as any;
+    const restored = deserialize(JSON.parse(JSON.stringify(serialize(fresh)))) as any;
+
+    const program = Fn(() => fresh.add(restored.mul(100)));
+    const run = compileJSRoutine(program as any, { name: "main", params: [] });
+    const freshUniform = [...uniformNames(fresh)][0]!;
+    const restoredUniform = [...uniformNames(restored)][0]!;
+    expect(restoredUniform).not.toBe(freshUniform);
+    expect(run.run({ uniforms: { [freshUniform]: 1, [restoredUniform]: 2 } })).toBe(3 + 500);
+  });
+
+  it("keeps a name the program chose", () => {
+    const program = Fn(() => uniformRaw("brightness", "float").mul(2).toVar("scaled"));
+    const graph = serialize(program());
+    const restored = deserialize(JSON.parse(JSON.stringify(graph))) as any;
+    expect([...uniformNames(restored)]).toEqual(["brightness"]);
+    expect(JSON.stringify(graph)).toContain('"varName":"scaled"');
   });
 
   it("takes an array of roots, and keeps what they share shared", () => {
