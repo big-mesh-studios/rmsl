@@ -166,7 +166,7 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
       throw new Error("[RMSL] createWgslContext: programs that sample textures aren't supported yet.");
     }
     const compiled = compile({ stage: "compute" }, node);
-    assertStorageBufferLimit(gpu, compiled.resources, "createWgslContext");
+    assertStorageBufferLimit(gpu.limits, compiled.resources, "createWgslContext");
     const pipeline = gpu.createComputePipeline({
       layout: "auto",
       compute: { module: gpu.createShaderModule({ code: compiled.code }), entryPoint: compiled.entryPoint },

@@ -16,14 +16,19 @@ export function requestComputeDevice(adapter: GPUAdapter): Promise<GPUDevice> {
 }
 
 /**
- * Throws unless `device` lets one shader stage bind every storage buffer a
- * compiled compute program uses. Past the limit, the device refuses the
- * pipeline, and the work submitted with it is dropped without an error in
- * JavaScript; this says so before that happens.
+ * Throws unless `limits`, a device's or the adapter's it is requested from,
+ * let one shader stage bind every storage buffer a compiled compute program
+ * uses. Past the limit, the device refuses the pipeline, and the work
+ * submitted with it is dropped without an error in JavaScript; this says so
+ * before that happens.
  */
-export function assertStorageBufferLimit(device: GPUDevice, resources: readonly WgslResource[], where: string): void {
+export function assertStorageBufferLimit(
+  limits: GPUSupportedLimits,
+  resources: readonly WgslResource[],
+  where: string,
+): void {
   const count = resources.filter((r) => r.kind === "storage").length;
-  const limit = device.limits.maxStorageBuffersPerShaderStage;
+  const limit = limits.maxStorageBuffersPerShaderStage;
   if (count > limit) {
     throw new Error(
       `[RMSL] ${where}: a compute program uses ${count} storage buffers, more than the ${limit} this device allows in one shader stage; split it into programs that each use fewer, or keep values that belong together in one buffer`,
@@ -571,16 +576,10 @@ export function createWgslCompute(
     async attach() {
       let gpuAdapter = await navigator.gpu?.requestAdapter();
       if (!gpuAdapter) throw new Error("[RMSL] WebGPU is not available");
-      let requested = await requestComputeDevice(gpuAdapter);
-
+      // Compiled and checked before the device is requested, so a program that throws leaves no device behind.
       let program = compile({ stage: "compute", workgroupSize: options.workgroupSize ?? 64 }, compute);
-      try {
-        assertStorageBufferLimit(requested, program.resources, "createWgslCompute");
-      } catch (error) {
-        requested.destroy();
-        throw error;
-      }
-      device = requested;
+      assertStorageBufferLimit(gpuAdapter.limits, program.resources, "createWgslCompute");
+      device = await requestComputeDevice(gpuAdapter);
       let module = device.createShaderModule({ code: program.code });
       computePipeline = device.createComputePipeline({
         layout: "auto",

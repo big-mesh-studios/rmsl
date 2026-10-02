@@ -112,15 +112,29 @@ describe.skipIf(!GPU_ENABLED)("createWgslCompute reading back into out", () => {
 });
 
 describe.skipIf(!GPU_ENABLED)("createWgslCompute limits", () => {
-  it("rejects a program using more storage buffers than one shader stage can bind", async () => {
-    const limit = (await navigator.gpu.requestAdapter())!.limits.maxStorageBuffersPerShaderStage;
-    const inputs = Array.from({ length: limit + 1 }, () => instancedArray(1, "uint"));
-    const program = Fn(() => {
-      inputs[0]!.element(0).assign(inputs.slice(1).reduce((total, input) => total.add(input.element(0)), uint(0)));
-    })();
-    const adapter = createWgslCompute(program);
-    await expect(adapter.attach()).rejects.toThrow(
-      new RegExp(`createWgslCompute: a compute program uses ${limit + 1} storage buffers, more than the ${limit}`),
-    );
+  // An adapter binding 8, so the program stays small whatever the hardware binds.
+  it("rejects a program using more storage buffers than one shader stage can bind, without requesting a device", async () => {
+    const gpu = navigator.gpu;
+    let devicesRequested = 0;
+    const adapter8 = {
+      limits: { maxStorageBuffersPerShaderStage: 8 },
+      requestDevice: () => {
+        devicesRequested++;
+        return gpu.requestAdapter().then((real) => real!.requestDevice());
+      },
+    };
+    Object.assign(navigator, { gpu: { requestAdapter: async () => adapter8 } });
+    try {
+      const inputs = Array.from({ length: 9 }, () => instancedArray(1, "uint"));
+      const program = Fn(() => {
+        inputs[0]!.element(0).assign(inputs.slice(1).reduce((total, input) => total.add(input.element(0)), uint(0)));
+      })();
+      await expect(createWgslCompute(program).attach()).rejects.toThrow(
+        /createWgslCompute: a compute program uses 9 storage buffers, more than the 8/,
+      );
+      expect(devicesRequested).toBe(0);
+    } finally {
+      Object.assign(navigator, { gpu });
+    }
   });
 });
