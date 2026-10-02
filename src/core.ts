@@ -2905,7 +2905,7 @@ function variablesRead(roots: readonly BaseNode<ShaderType>[]): Set<string> {
 function withAssignments(assignments: BaseNode<ShaderType>[], test: BaseNode<ShaderType>): BaseNode<ShaderType> {
   return assignments.length === 0
     ? test
-    : (node({ _t: "bool", type: "seq", params: [...assignments, test] }) as BaseNode<ShaderType>);
+    : (node({ _t: test._t, type: "seq", params: [...assignments, test] }) as BaseNode<ShaderType>);
 }
 
 /**
@@ -2962,11 +2962,7 @@ export function If(cond: BooleanLike, body: () => void): ElseIfChain {
         type: "if",
         params: [test, buildBlock(nextBody) as BaseNode<ShaderType>],
       });
-      deepestIf.params![2] = (
-        assignments.length === 0
-          ? nextIf
-          : node({ _t: "void", type: "seq", params: [...assignments, nextIf as BaseNode<ShaderType>] })
-      ) as BaseNode<ShaderType>;
+      deepestIf.params![2] = withAssignments(assignments, nextIf as BaseNode<ShaderType>);
       deepestIf = nextIf;
       return chain;
     },
