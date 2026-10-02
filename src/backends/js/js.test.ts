@@ -1271,6 +1271,20 @@ describe("JS backend: operands that are themselves expressions", () => {
     );
   });
 
+  it("compiles a value every level of which is read twice once when it is copied into a variable", () => {
+    // Each level reads the one below twice, so writing each level out where it
+    // is read takes 2^14 copies of the bottom one.
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        let x = vec3(a, a, a);
+        for (let i = 0; i < 14; i++) x = x.add(x).mul(0.5);
+        return x.toVar().x;
+      })();
+    const options = { name: "main", params: [{ name: "a", type: "float" as const }] };
+    expect(compileJSFn(build, options).length).toBeLessThan(10_000);
+    expect(compileJSRoutine(build, options).run({ params: { a: 3 } })).toBe(3);
+  });
+
   it("smoothsteps across a sum edge", () => {
     // smoothstep(2, 6, 4): t is 0.5, so the result is 0.5
     approx(

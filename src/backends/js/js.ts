@@ -1007,30 +1007,38 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
   }
 
   let seen = ctx.memo.get(node);
-  // A seq's statements have run; its value is read afresh, as any value is.
-  if (seen && node.type === "seq") return compileJSStage(node.params[node.params.length - 1], ctx);
-  if (seen) return { decls: [], body: [], expr: seen.expr, prec: seen.prec };
+  if (seen) {
+    // A statement runs once. A seq's statements have run, and its value is read as any value is.
+    if (node._t === "void") return { decls: [], body: [], expr: seen.expr, prec: seen.prec };
+    if (node.type === "seq") return compileJSStage(node.params[node.params.length - 1], ctx);
+    if (seen.jsEpoch === undefined || seen.jsEpoch === ctx.jsEpoch) {
+      if (seen.jsEpoch !== undefined) ctx.jsReadsSlot = true;
+      return { decls: [], body: [], expr: seen.expr, prec: seen.prec };
+    }
+  }
 
+  let outer = ctx.jsReadsSlot;
+  ctx.jsReadsSlot = false;
   let result = compileJSNode(node, ctx);
-  // A value statements computed into a slot holds what it was there, so a later
-  // read, after a write or outside the branch they ran in, computes it again.
-  if (result.body.length === 0 || JS_STATEMENT_TYPES.has(node.type)) ctx.memo.set(node, result);
+  // A value computed into a slot holds what it was there, so it is reused only
+  // until a write or the end of the block it was computed in.
+  let readsSlot = ctx.jsReadsSlot || result.body.length > 0;
+  ctx.jsReadsSlot = outer || readsSlot;
+  ctx.memo.set(node, readsSlot ? { ...result, jsEpoch: ctx.jsEpoch } : result);
+  if (node.type === "let" || node.type === "assign") ctx.jsEpoch++;
   return result;
 }
 
-/** Node types run for their effect, which compiling them a second time would repeat. */
-const JS_STATEMENT_TYPES = new Set([
-  "let",
-  "assign",
-  "seq",
-  "if",
-  "for",
-  "while",
-  "discard",
-  "break",
-  "continue",
-  "return",
-]);
+/**
+ * Compile a block that may run any number of times, or not at all: a value
+ * computed into a slot on one side of it is not reused on the other.
+ */
+function compileJSBoundary(node: any, ctx: CompileCtx): CompiledNode {
+  ctx.jsEpoch++;
+  let result = compileJSStage(node, ctx);
+  ctx.jsEpoch++;
+  return result;
+}
 
 /** A negative literal is a negation, and brackets like one: `-(-7)`, not `--7`. */
 function jsLiteralPrec(value: number): number | undefined {
@@ -1842,10 +1850,10 @@ export function compileJSNode(
 
     case "if": {
       let cond = compileJSStage(node.params![0], ctx);
-      let body = compileJSStage(node.params![1], ctx);
+      let body = compileJSBoundary(node.params![1], ctx);
       let elseBody =
         node.params!.length >= 3 && node.params![2] !== undefined
-          ? compileJSStage(node.params![2], ctx)
+          ? compileJSBoundary(node.params![2], ctx)
           : { decls: [] as string[], body: [] as string[], expr: "0" };
       let lines: string[] = [...cond.body, `if (${cond.expr}) {`, ...body.body.map((l) => "  " + l), "}"];
       if (elseBody.body.length > 0) {
@@ -1863,8 +1871,8 @@ export function compileJSNode(
     case "for": {
       let init = compileJSStage(node.params![0], ctx);
       let cond = compileJSStage(node.params![1], ctx);
-      let update = compileJSStage(node.params![2], ctx);
-      let body = compileJSStage(node.params![3], ctx);
+      let update = compileJSBoundary(node.params![2], ctx);
+      let body = compileJSBoundary(node.params![3], ctx);
       let initExpr = init.expr;
       let initBody = init.body;
       if (init.body.length > 0) {
@@ -1890,7 +1898,7 @@ export function compileJSNode(
 
     case "while": {
       let cond = compileJSStage(node.params![0], ctx);
-      let body = compileJSStage(node.params![1], ctx);
+      let body = compileJSBoundary(node.params![1], ctx);
       let { header, guard } = loopTest(cond);
       return {
         decls: [...cond.decls, ...body.decls],
@@ -1970,6 +1978,8 @@ function compileJSFnDetailed(
     jsParams: new Set(options.params.map((p) => p.name)),
     jsHelpers: new Set(),
     outTarget: null,
+    jsEpoch: 0,
+    jsReadsSlot: false,
     derivatives,
     reentrant,
     jsNeedsRes: false,

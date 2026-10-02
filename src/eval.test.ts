@@ -965,5 +965,26 @@ describe("RMSL evaluation", () => {
       [1, 0],
       2,
     );
+    await expectValue(
+      () =>
+        Fn(() => {
+          const s = vec3(1, 2, 3).toVar();
+          const value = vec3(s.x, s.y, float(0));
+          const copy = value.toVar();
+          const total = float(0).toVar();
+          For(
+            () => float(0).toVar(),
+            (i) => i.lessThan(2),
+            (i) => i.assign(i.add(1)),
+            () => {
+              total.assign(total.add(value.x));
+              s.x.assign(float(10));
+            },
+          );
+          return total.add(copy.x.mul(100));
+        })(),
+      [],
+      111,
+    );
   }, 60_000);
 });
