@@ -425,18 +425,20 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context limits", () => {
     context.destroy();
   });
 
+  // A device with WebGPU's default limit of 8, so the program stays small whatever the hardware binds.
   it("rejects a program using more storage buffers than one shader stage can bind", async () => {
-    const context = await createWgslContext();
-    const limit = context.device.limits.maxStorageBuffersPerShaderStage;
-    const inputs = Array.from({ length: limit }, () => instancedArray(1, "uint"));
+    const device = await (await navigator.gpu.requestAdapter())!.requestDevice();
+    const context = await createWgslContext({ device });
+    const inputs = Array.from({ length: 8 }, () => instancedArray(1, "uint"));
     const out = instancedArray(1, "uint");
     const sum = Fn(() => {
       out.element(0).assign(inputs.reduce((total, input) => total.add(input.element(0)), uint(0)));
     })().compute(1);
     expect(() => context.compute(sum)).toThrow(
-      new RegExp(`createWgslContext: a compute program uses ${limit + 1} storage buffers, more than the ${limit}`),
+      /createWgslContext: a compute program uses 9 storage buffers, more than the 8/,
     );
     context.destroy();
+    device.destroy();
   });
 
   it("rejects a workgroup size past the device's limit", async () => {
