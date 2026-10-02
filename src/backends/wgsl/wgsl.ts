@@ -14,9 +14,6 @@ import {
   assertAssignable,
   parameterNode,
   assertStageResult,
-  declaresAhead,
-  inBlock,
-  inSeq,
   forUpdateStatements,
   loopGuard,
   loopTest,
@@ -1081,12 +1078,9 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       let t = wgslType(vt);
       let varName = (node.params![0] as any).varName || lhs.expr;
       ctx.varDefs.set(varName, t);
-      // WGSL starts a variable declared without a value at zero.
-      let ahead = declaresAhead(ctx);
-      let target = ahead ? varName : `var ${varName}: ${t}`;
       return {
-        decls: [...lhs.decls, ...rhs.decls, ...(ahead ? [`var ${varName}: ${t};`] : [])],
-        body: [...lhs.body, ...rhs.body, `${target} = ${rhs.expr};`],
+        decls: [...lhs.decls, ...rhs.decls],
+        body: [...lhs.body, ...rhs.body, `var ${varName}: ${t} = ${rhs.expr};`],
         expr: varName,
       };
     }
@@ -1153,23 +1147,21 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       let allDecls: string[] = [];
       let allBody: string[] = [];
       let expr = "0.0";
-      inSeq(ctx, node, () => {
-        for (let p of params) {
-          let r = compileWGSLStage(p, ctx);
-          allDecls.push(...r.decls);
-          allBody.push(...r.body);
-          expr = r.expr;
-        }
-      });
+      for (let p of params) {
+        let r = compileWGSLStage(p, ctx);
+        allDecls.push(...r.decls);
+        allBody.push(...r.body);
+        expr = r.expr;
+      }
       return { decls: allDecls, body: allBody, expr };
     }
 
     case "if": {
       let cd = compileWGSLStage(node.params![0], ctx);
-      let body = inBlock(ctx, () => compileWGSLStage(node.params![1], ctx));
+      let body = compileWGSLStage(node.params![1], ctx);
       let elseBody =
         node.params!.length >= 3 && node.params![2] !== undefined
-          ? inBlock(ctx, () => compileWGSLStage(node.params![2], ctx))
+          ? compileWGSLStage(node.params![2], ctx)
           : { decls: [] as string[], body: [] as string[], expr: "" };
       let lines: string[] = [...cd.body, `if (${cd.expr}) {`, ...body.body.map((l) => "  " + l), "}"];
       if (elseBody.body.length > 0) {
@@ -1186,9 +1178,9 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "for": {
       let init = compileWGSLStage(node.params![0], ctx);
-      let cd = inBlock(ctx, () => compileWGSLStage(node.params![1], ctx));
-      let update = inBlock(ctx, () => compileWGSLStage(node.params![2], ctx));
-      let body = inBlock(ctx, () => compileWGSLStage(node.params![3], ctx));
+      let cd = compileWGSLStage(node.params![1], ctx);
+      let update = compileWGSLStage(node.params![2], ctx);
+      let body = compileWGSLStage(node.params![3], ctx);
       let initExpr = init.expr;
       let initBody = init.body;
       if (init.body.length > 0) {
@@ -1241,8 +1233,8 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     }
 
     case "while": {
-      let cd = inBlock(ctx, () => compileWGSLStage(node.params![0], ctx));
-      let body = inBlock(ctx, () => compileWGSLStage(node.params![1], ctx));
+      let cd = compileWGSLStage(node.params![0], ctx);
+      let body = compileWGSLStage(node.params![1], ctx);
       let { header, guard } = loopTest(cd);
       return {
         decls: [...cd.decls, ...body.decls],

@@ -12,9 +12,6 @@ import {
   assertPositionIsReadable,
   assertSquareMatrix,
   assertStageResult,
-  declaresAhead,
-  inBlock,
-  inSeq,
   forUpdateStatements,
   loopTest,
   tryFold,
@@ -671,11 +668,9 @@ export function compileGLSLNode(
       if (vt === "float" && (rhsType === "int" || rhsType === "uint")) {
         rhsExpr = `float(${rhsExpr})`;
       }
-      let ahead = declaresAhead(ctx);
-      let target = ahead ? lhs.expr : `${t} ${lhs.expr}`;
       return {
-        decls: [...lhs.decls, ...rhs.decls, ...(ahead ? [`${t} ${lhs.expr} = ${t}(0);`] : [])],
-        body: [...lhs.body, ...rhs.body, `${target} = ${rhsExpr};`],
+        decls: [...lhs.decls, ...rhs.decls],
+        body: [...lhs.body, ...rhs.body, `${t} ${lhs.expr} = ${rhsExpr};`],
         expr: lhs.expr,
       };
     }
@@ -701,23 +696,21 @@ export function compileGLSLNode(
       let allDecls: string[] = [];
       let allBody: string[] = [];
       let expr = "0.0";
-      inSeq(ctx, node, () => {
-        for (let p of params) {
-          let r = compileGLSLStage(p, ctx);
-          allDecls.push(...r.decls);
-          allBody.push(...r.body);
-          expr = r.expr;
-        }
-      });
+      for (let p of params) {
+        let r = compileGLSLStage(p, ctx);
+        allDecls.push(...r.decls);
+        allBody.push(...r.body);
+        expr = r.expr;
+      }
       return { decls: allDecls, body: allBody, expr };
     }
 
     case "if": {
       let cond = compileGLSLStage(node.params![0], ctx);
-      let body = inBlock(ctx, () => compileGLSLStage(node.params![1], ctx));
+      let body = compileGLSLStage(node.params![1], ctx);
       let elseBody =
         node.params!.length >= 3 && node.params![2] !== undefined
-          ? inBlock(ctx, () => compileGLSLStage(node.params![2], ctx))
+          ? compileGLSLStage(node.params![2], ctx)
           : { decls: [] as string[], body: [] as string[], expr: "" };
       let lines: string[] = [...cond.body, `if (${cond.expr}) {`, ...body.body.map((l) => "  " + l), "}"];
       if (elseBody.body.length > 0) {
@@ -734,9 +727,9 @@ export function compileGLSLNode(
 
     case "for": {
       let init = compileGLSLStage(node.params![0], ctx);
-      let cond = inBlock(ctx, () => compileGLSLStage(node.params![1], ctx));
-      let update = inBlock(ctx, () => compileGLSLStage(node.params![2], ctx));
-      let body = inBlock(ctx, () => compileGLSLStage(node.params![3], ctx));
+      let cond = compileGLSLStage(node.params![1], ctx);
+      let update = compileGLSLStage(node.params![2], ctx);
+      let body = compileGLSLStage(node.params![3], ctx);
       let initExpr = init.expr;
       let initBody = init.body;
       if (init.body.length > 0) {
@@ -761,8 +754,8 @@ export function compileGLSLNode(
     }
 
     case "while": {
-      let cond = inBlock(ctx, () => compileGLSLStage(node.params![0], ctx));
-      let body = inBlock(ctx, () => compileGLSLStage(node.params![1], ctx));
+      let cond = compileGLSLStage(node.params![0], ctx);
+      let body = compileGLSLStage(node.params![1], ctx);
       let { header, guard } = loopTest(cond);
       return {
         decls: [...cond.decls, ...body.decls],

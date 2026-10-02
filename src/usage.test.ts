@@ -2454,7 +2454,7 @@ describe("Switch", () => {
 });
 
 describe("TSL control flow", () => {
-  it("declares a variable an Fn call makes in a block at the top of the function, at zero", () => {
+  it("declares a variable an Fn call makes where the call is, not where its value is first read", () => {
     let prog = Fn(() => {
       let x = uniform("float");
       let value = Fn(() => x.add(1).toVar("made"))();
@@ -2465,9 +2465,9 @@ describe("TSL control flow", () => {
       return out.add(value);
     });
     let glsl = compileGlsl(prog());
-    expect(glsl).toMatch(/float made = float\(0\);[\s\S]*if \([^\n]*\{\n\s*made = /);
+    expect(glsl).toMatch(/float made = [^\n]*\n[\s\S]*if \(/);
     let wgsl = compileWgsl(prog());
-    expect(wgsl).toMatch(/var made: f32;[\s\S]*if \([^\n]*\{\n\s*made = /);
+    expect(wgsl).toMatch(/var made: f32 = [^\n]*\n[\s\S]*if \(/);
   });
 
   it("If / ElseIf / Else emit an if/else chain", () => {

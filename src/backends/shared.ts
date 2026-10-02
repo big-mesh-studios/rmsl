@@ -130,13 +130,6 @@ export interface CompileCtx {
   reentrant: boolean;
   /** Whether the program writes outputs/position/fragDepth via a result object. */
   jsNeedsRes: boolean;
-  /**
-   * How many blocks deep the code compiling sits, on GLSL and WGSL: an if's
-   * branches, and a loop's condition, update and body, each add one.
-   */
-  blockDepth?: number;
-  /** Whether the statements compiling belong to a value's `seq`, an `Fn` call's, rather than to a block. */
-  inValue?: boolean;
 }
 
 // === Constant folding ===
@@ -483,38 +476,6 @@ export function forUpdateStatements(update: CompiledNode): string[] {
 /** Drop a trailing semicolon, for the slots that take an expression. */
 export function withoutSemicolon(statement: string): string {
   return statement.endsWith(";") ? statement.slice(0, -1) : statement;
-}
-
-/**
- * Whether a variable compiling now is declared at the top of the function, at
- * zero, and only assigned where it is made: one an `Fn` call makes, compiled
- * inside a block. The call compiles where its value is first read, so a
- * variable declared there would be out of scope wherever else it is read.
- */
-export function declaresAhead(ctx: CompileCtx): boolean {
-  return (ctx.blockDepth ?? 0) > 0 && ctx.inValue === true;
-}
-
-/** Runs `compile` one block deeper. */
-export function inBlock<T>(ctx: CompileCtx, compile: () => T): T {
-  const outer = ctx.blockDepth ?? 0;
-  ctx.blockDepth = outer + 1;
-  try {
-    return compile();
-  } finally {
-    ctx.blockDepth = outer;
-  }
-}
-
-/** Runs `compile` for a `seq`'s statements: a value's when the `seq` has a type, otherwise a block's. */
-export function inSeq<T>(ctx: CompileCtx, seq: { _t?: string }, compile: () => T): T {
-  const outer = ctx.inValue;
-  ctx.inValue = seq._t !== undefined && seq._t !== "void";
-  try {
-    return compile();
-  } finally {
-    ctx.inValue = outer;
-  }
 }
 
 /** The lines opening a loop's body that run a compiled condition, then break when its test fails. */

@@ -667,7 +667,7 @@ describe("RMSL evaluation", () => {
     await expectValue(forRun, [3], 42);
   }, 60_000);
 
-  it("keeps a variable an Fn call makes in scope after the branch that first reads it", async () => {
+  it("runs an Fn call's statements where it is called, before a branch that reads its value", async () => {
     const plusOne = Fn((x: Node<"float">) => x.add(1).toVar());
     const elseIfRun = (x: Node<"float">) =>
       Fn(() => {
@@ -681,6 +681,7 @@ describe("RMSL evaluation", () => {
         return out.add(value.mul(10));
       })();
     await expectValue(elseIfRun, [7], 82);
+    await expectValue(elseIfRun, [-5], -39);
 
     const ifRun = (x: Node<"float">) =>
       Fn(() => {
@@ -692,6 +693,23 @@ describe("RMSL evaluation", () => {
         return out.add(value.mul(10));
       })();
     await expectValue(ifRun, [7], 88);
+    await expectValue(ifRun, [-5], -40);
+
+    const counted = (x: Node<"float">) =>
+      Fn(() => {
+        const calls = float(0).toVar();
+        const value = Fn(() => {
+          calls.assign(calls.add(1));
+          return x.add(1).toVar();
+        })();
+        const out = float(0).toVar();
+        If(x.greaterThan(0), () => {
+          out.assign(value);
+        });
+        return out.add(calls.mul(100));
+      })();
+    await expectValue(counted, [-5], 100);
+    await expectValue(counted, [7], 108);
   }, 60_000);
 
   it("runs a while loop until its condition fails", async () => {

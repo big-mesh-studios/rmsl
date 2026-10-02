@@ -1725,6 +1725,10 @@ export function assertBlockScope(fnName: string, fn: (blockScope: BaseNode<Shade
  * `() => Node<"void">`, which a compute program or a vertex stage that assigns
  * `builtinPosition()` itself is), and parameters (`Fn((a: Node<"float">, b:
  * Node<"float">) => a.add(b))` becomes `(a, b) => Node<"float">`).
+ *
+ * Called inside another Fn, its statements go into the caller's block where
+ * it is called, and the call gives back its return alone, so they run there
+ * once, whether or where the return is read.
  */
 export function Fn<T extends any[], const R>(fn: (...args: T) => R): (...args: T) => FnResult<R> {
   return (...args: T): any => {
@@ -1742,6 +1746,10 @@ export function Fn<T extends any[], const R>(fn: (...args: T) => R): (...args: T
       let scope: BaseNode<ShaderType>[] = [];
       blockScope = scope;
       let r = fn(...args);
+      if (oldBlockScope !== undefined) {
+        oldBlockScope.push(...scope);
+        return Array.isArray(r) ? r.map((item) => wrapValue(item)) : wrapValue(r as any);
+      }
       let result: unknown;
       if (Array.isArray(r)) {
         result = r.map((_, i) => {
@@ -1760,7 +1768,7 @@ export function Fn<T extends any[], const R>(fn: (...args: T) => R): (...args: T
           params: [...scope, wrappedR],
         });
       }
-      if (oldBlockScope === undefined) assertElseIfVariablesInChain(result);
+      assertElseIfVariablesInChain(result);
       return result;
     } finally {
       blockScope = oldBlockScope;
