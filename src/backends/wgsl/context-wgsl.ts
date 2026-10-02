@@ -1,6 +1,7 @@
 import {
   isSamplerType,
   MATRIX_DIMENSIONS,
+  someNode,
   type ComputeNode,
   type StorageBufferAttribute,
   type Node,
@@ -11,8 +12,15 @@ import {
 } from "../../core";
 import { compile, type WgslResource } from "../../wgsl";
 import { slotOf, type TypedArray } from "../adapter";
-import { assertWriteFits, someNode } from "../shared";
-import { uniformBufferSize, uniformScratch, writeUniformMember, type UniformScratch } from "./adapter-wgsl";
+import { assertWriteFits } from "../shared";
+import {
+  assertStorageBufferLimit,
+  requestComputeDevice,
+  uniformBufferSize,
+  uniformScratch,
+  writeUniformMember,
+  type UniformScratch,
+} from "./adapter-wgsl";
 
 /**
  * Several compute programs on one `GPUDevice`, sharing their storage buffers,
@@ -108,13 +116,16 @@ function spread(values: TypedArray, first: number, layout: StorageLayout): { slo
   return { slot, data };
 }
 
-/** Creates a {@link WgslContext} on a new device, or on `options.device`. */
+/**
+ * Creates a {@link WgslContext} on `options.device`, or on a new device that
+ * binds as many storage buffers per shader stage as the hardware can.
+ */
 export async function createWgslContext(options: CreateWgslContextOptions = {}): Promise<WgslContext> {
   let device = options.device;
   if (!device) {
     const adapter = await navigator.gpu?.requestAdapter();
     if (!adapter) throw new Error("[RMSL] WebGPU is not available");
-    device = await adapter.requestDevice();
+    device = await requestComputeDevice(adapter);
   }
   const gpu = device;
 
@@ -155,6 +166,7 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
       throw new Error("[RMSL] createWgslContext: programs that sample textures aren't supported yet.");
     }
     const compiled = compile({ stage: "compute" }, node);
+    assertStorageBufferLimit(gpu.limits, compiled.resources, "createWgslContext");
     const pipeline = gpu.createComputePipeline({
       layout: "auto",
       compute: { module: gpu.createShaderModule({ code: compiled.code }), entryPoint: compiled.entryPoint },

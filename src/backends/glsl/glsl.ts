@@ -13,6 +13,7 @@ import {
   assertSquareMatrix,
   assertStageResult,
   forUpdateStatements,
+  loopTest,
   tryFold,
   isIntegerType,
   withoutSemicolon,
@@ -738,13 +739,14 @@ export function compileGLSLNode(
           initBody = init.body.slice(0, -1);
         }
       }
+      // The update stays in the header, so a continue still runs it.
+      let { header, guard } = loopTest(cond);
       return {
         decls: [...init.decls, ...cond.decls, ...update.decls, ...body.decls],
         body: [
           ...initBody,
-          ...cond.body,
-          `for (${initExpr}; ${cond.expr}; ${forUpdateStatements(update).map(withoutSemicolon).join(", ")}) {`,
-          ...body.body.map((l) => "  " + l),
+          `for (${initExpr}; ${header}; ${forUpdateStatements(update).map(withoutSemicolon).join(", ")}) {`,
+          ...[...guard, ...body.body].map((l) => "  " + l),
           "}",
         ],
         expr: "0.0",
@@ -754,9 +756,10 @@ export function compileGLSLNode(
     case "while": {
       let cond = compileGLSLStage(node.params![0], ctx);
       let body = compileGLSLStage(node.params![1], ctx);
+      let { header, guard } = loopTest(cond);
       return {
         decls: [...cond.decls, ...body.decls],
-        body: [...cond.body, `while (${cond.expr}) {`, ...body.body.map((l) => "  " + l), "}"],
+        body: [`while (${header}) {`, ...[...guard, ...body.body].map((l) => "  " + l), "}"],
         expr: "0.0",
       };
     }
@@ -1126,7 +1129,7 @@ export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options:
     code += "\n";
   }
   code += `${returnType} ${options.name}(${paramStr}) {\n`;
-  for (const line of compiled.body) {
+  for (const line of [...compiled.decls, ...compiled.body]) {
     code += `  ${line}\n`;
   }
   if (compiled.expr !== "0.0") {

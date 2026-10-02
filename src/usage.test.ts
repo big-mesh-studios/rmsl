@@ -2454,6 +2454,22 @@ describe("Switch", () => {
 });
 
 describe("TSL control flow", () => {
+  it("declares a variable an Fn call makes where the call is, not where its value is first read", () => {
+    let prog = Fn(() => {
+      let x = uniform("float");
+      let value = Fn(() => x.add(1).toVar("made"))();
+      let out = float(0).toVar();
+      If(x.greaterThan(0), () => {
+        out.assign(value);
+      });
+      return out.add(value);
+    });
+    let glsl = compileGlsl(prog());
+    expect(glsl).toMatch(/float made = [^\n]*\n[\s\S]*if \(/);
+    let wgsl = compileWgsl(prog());
+    expect(wgsl).toMatch(/var made: f32 = [^\n]*\n[\s\S]*if \(/);
+  });
+
   it("If / ElseIf / Else emit an if/else chain", () => {
     let prog = Fn(() => {
       let out = float(0).toVar();

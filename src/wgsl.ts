@@ -1,5 +1,11 @@
-import type { ComputeNode, Node, ShaderType, StorageAccess, StorageBufferAttribute } from "./core";
-import { someNode } from "./backends/shared";
+import {
+  someNode,
+  type ComputeNode,
+  type Node,
+  type ShaderType,
+  type StorageAccess,
+  type StorageBufferAttribute,
+} from "./core";
 import { compileWgsl, wgslUniformLayout, WGSL_UNIFORM_STRUCT } from "./backends/wgsl/wgsl";
 
 export type WgslStage = "compute" | "vertex" | "fragment";

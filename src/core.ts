@@ -1683,6 +1683,32 @@ export function claimVarName(name: string | undefined): string {
   return candidate;
 }
 
+/**
+ * The variables each `ElseIf` condition in the current top-level `Fn` made,
+ * with the `If` whose chain they belong to.
+ */
+let elseIfVariables: { chain: BaseNode<ShaderType>; names: Set<string> }[] = [];
+
+/**
+ * Throws if `roots` use a variable an `ElseIf` condition made anywhere outside
+ * that condition's `If` chain. Such a variable belongs to the `ElseIf`, as
+ * `let i` in `for (let i = 0; ...)` belongs to its loop.
+ */
+function assertElseIfVariablesInChain(roots: unknown) {
+  for (const { chain, names } of elseIfVariables) {
+    const usedOutside = someNode(
+      roots,
+      (n) => n.type === "var" && names.has((n.value as { varName: string }).varName),
+      [chain],
+    );
+    if (usedOutside) {
+      throw new Error(
+        "[RMSL] A variable made in an ElseIf condition is used after its If chain: it belongs to that ElseIf. Make it before the If to use it after the chain",
+      );
+    }
+  }
+}
+
 export function assertBlockScope(fnName: string, fn: (blockScope: BaseNode<ShaderType>[]) => void) {
   if (blockScope === undefined) {
     throw new Error(`${fnName} must be called inside an Fn(() => { ... }) scope.`);
@@ -1699,38 +1725,54 @@ export function assertBlockScope(fnName: string, fn: (blockScope: BaseNode<Shade
  * `() => Node<"void">`, which a compute program or a vertex stage that assigns
  * `builtinPosition()` itself is), and parameters (`Fn((a: Node<"float">, b:
  * Node<"float">) => a.add(b))` becomes `(a, b) => Node<"float">`).
+ *
+ * Called inside another Fn, its statements go into the caller's block where
+ * it is called, and the call gives back its return alone, so they run there
+ * once, whether or where the return is read.
  */
 export function Fn<T extends any[], const R>(fn: (...args: T) => R): (...args: T) => FnResult<R> {
   return (...args: T): any => {
     let oldBlockScope = blockScope;
     // A top-level Fn starts a fresh name registry, so each compiled program
     // gets its own deterministic set of user-named variables. Nested Fns keep
-    // the outer registry, since their variables share the outer program.
-    if (oldBlockScope === undefined) usedVarNames.clear();
+    // the outer registry, since their variables share the outer program. The
+    // same goes for the variables ElseIf conditions make.
+    let oldElseIfVariables = elseIfVariables;
+    if (oldBlockScope === undefined) {
+      usedVarNames.clear();
+      elseIfVariables = [];
+    }
     try {
       let scope: BaseNode<ShaderType>[] = [];
       blockScope = scope;
       let r = fn(...args);
+      if (oldBlockScope !== undefined) {
+        oldBlockScope.push(...scope);
+        return Array.isArray(r) ? r.map((item) => wrapValue(item)) : wrapValue(r as any);
+      }
+      let result: unknown;
       if (Array.isArray(r)) {
-        return r.map((_, i) => {
+        result = r.map((_, i) => {
           let item = wrapValue((r as any[])[i]) as BaseNode<ShaderType>;
           return node({
             _t: item._t || "void",
             type: "seq",
             params: [...scope, item],
           }) as Node<ShaderType>;
-        }) as R;
+        });
+      } else {
+        let wrappedR = wrapValue(r as any) as BaseNode<ShaderType>;
+        result = node({
+          _t: wrappedR._t || "void",
+          type: "seq",
+          params: [...scope, wrappedR],
+        });
       }
-      let wrappedR = wrapValue(r as any) as BaseNode<ShaderType>;
-      let returnType = wrappedR._t || "void";
-      let seqNode = node({
-        _t: returnType,
-        type: "seq",
-        params: [...scope, wrappedR],
-      }) as any;
-      return seqNode;
+      assertElseIfVariablesInChain(result);
+      return result;
     } finally {
       blockScope = oldBlockScope;
+      elseIfVariables = oldElseIfVariables;
     }
   };
 }
@@ -1756,19 +1798,21 @@ type ReturnsNothing<R> = IsAny<R> extends true ? false : [R] extends [void] ? tr
  */
 export type FnResult<R> = ReturnsNothing<R> extends true ? Node<"void"> : R;
 
-export function buildBlock(body: () => void): Node<"void"> {
+/** Runs `build` in a block of its own: what it returns, and the statements it made. */
+function captureStatements<T>(build: () => T): { value: T; statements: BaseNode<ShaderType>[] } {
   let oldBlockScope = blockScope;
-  blockScope = [];
+  let statements: BaseNode<ShaderType>[] = [];
+  blockScope = statements;
   try {
-    body();
-    return node({
-      _t: "void",
-      type: "seq",
-      params: [...blockScope!],
-    }) as Node<"void">;
+    return { value: build(), statements };
   } finally {
     blockScope = oldBlockScope;
   }
+}
+
+export function buildBlock(body: () => void): Node<"void"> {
+  const { statements } = captureStatements(body);
+  return node({ _t: "void", type: "seq", params: statements }) as Node<"void">;
 }
 
 // === Literal constructors (with overloads) ===
@@ -2846,34 +2890,146 @@ export type ElseIfChain = {
   Else: (body: () => void) => void;
 };
 
+/**
+ * The statements building a condition, split into what runs where the
+ * condition is tested and the declarations of the variables it made. Each
+ * such variable is declared beforehand, at zero, and assigned where the
+ * condition is tested; declared beforehand, it stays in scope after the
+ * construct, as one made in the enclosing block would. Any other statement
+ * runs where the condition is tested, as it is.
+ */
+function splitCondition(made: readonly BaseNode<ShaderType>[]) {
+  const declarations: BaseNode<ShaderType>[] = [];
+  const assignments: BaseNode<ShaderType>[] = [];
+  for (const statement of made) {
+    if (statement.type !== "let") {
+      assignments.push(statement);
+      continue;
+    }
+    const [variable, value] = statement.params! as [Node<ShaderType>, BaseNode<ShaderType>];
+    declarations.push(
+      node({
+        _t: "void",
+        type: "let",
+        params: [variable, (float(0) as any).convert(variable._t)],
+      }) as BaseNode<ShaderType>,
+    );
+    assignments.push(node({ _t: "void", type: "assign", params: [variable, value] }) as BaseNode<ShaderType>);
+  }
+  return { declarations, assignments };
+}
+
+/**
+ * Calls `visit` on each node reachable from the roots through `params`,
+ * stopping at the first that returns true. Returns whether one did. Nodes in
+ * `skip` are neither visited nor walked into.
+ */
+export function someNode(roots: unknown, visit: (node: any) => boolean | void, skip: Iterable<unknown> = []): boolean {
+  const visited = new Set<unknown>(skip);
+  const walk = (node: any): boolean => {
+    if (!node || typeof node !== "object" || visited.has(node)) return false;
+    visited.add(node);
+    if (Array.isArray(node)) return node.some(walk);
+    return visit(node) === true || (Array.isArray(node.params) && node.params.some(walk));
+  };
+  return walk(roots);
+}
+
+/** `test`, preceded where it is tested by `statements`: a `seq` of them, or `test` alone. */
+function withStatements(statements: BaseNode<ShaderType>[], test: BaseNode<ShaderType>): BaseNode<ShaderType> {
+  return statements.length === 0
+    ? test
+    : (node({ _t: test._t, type: "seq", params: [...statements, test] }) as BaseNode<ShaderType>);
+}
+
+/**
+ * A conditional, as TSL's `If`, chained with `ElseIf` and `Else`.
+ *
+ * Each link has to follow the one before it directly, in the same block:
+ * anything written between them, a variable included, is an error. A
+ * variable an `ElseIf` condition makes belongs to that `ElseIf`, as `let i`
+ * in `for (let i = 0; ...)` belongs to its loop: it is computed in the else
+ * branch, ahead of the test, and using it after the chain is an error.
+ *
+ * `ElseIf` and `Else` are getters so they can tell the two apart: JavaScript
+ * reads `chain.ElseIf` before it evaluates the condition passed to it, so
+ * what was written before the read sits between the links, and what was
+ * written after it belongs to the condition.
+ */
 export function If(cond: BooleanLike, body: () => void): ElseIfChain {
   let ifNode = node({
     _t: "void",
     type: "if",
     params: [wrapValue(cond) as BaseNode<ShaderType>, buildBlock(body) as BaseNode<ShaderType>],
   });
+  let outer: BaseNode<ShaderType>[] = [];
   assertBlockScope("If", (scope) => {
     scope.push(ifNode);
+    outer = scope;
   });
+  /** Where the chain ends in the enclosing block: what follows is written after it. */
+  const end = outer.length;
   let deepestIf = ifNode;
+  const assertFollows = (link: string) => {
+    if (blockScope !== outer) {
+      throw new Error(`[RMSL] ${link} has to follow its If directly: it was called from inside another block`);
+    }
+    if (outer.length !== end) {
+      throw new Error(
+        `[RMSL] ${link} has to follow its If directly: nothing can be written between them, a variable included. Make a value the chain reads before the If`,
+      );
+    }
+  };
   const chain: ElseIfChain = {
-    ElseIf: (nextCond, nextBody) => {
-      let nextIf = node({
-        _t: "void",
-        type: "if",
-        params: [wrapValue(nextCond) as BaseNode<ShaderType>, buildBlock(nextBody) as BaseNode<ShaderType>],
-      });
-      deepestIf.params![2] = nextIf as BaseNode<ShaderType>;
-      deepestIf = nextIf;
-      return chain;
+    get ElseIf() {
+      assertFollows("ElseIf");
+      return (nextCond: BooleanLike, nextBody: () => void) => {
+        const test = wrapValue(nextCond) as BaseNode<ShaderType>;
+        const made = outer.splice(end);
+        const names = new Set(
+          made.flatMap((m) =>
+            m.type === "let" ? [(m.params![0] as { value: { varName: string } }).value.varName] : [],
+          ),
+        );
+        if (names.size > 0) elseIfVariables.push({ chain: ifNode, names });
+        let nextIf = node({
+          _t: "void",
+          type: "if",
+          params: [test, buildBlock(nextBody) as BaseNode<ShaderType>],
+        });
+        deepestIf.params![2] = withStatements(made, nextIf as BaseNode<ShaderType>);
+        deepestIf = nextIf;
+        return chain;
+      };
     },
-    Else: (elseBody) => {
-      deepestIf.params![2] = buildBlock(elseBody) as BaseNode<ShaderType>;
+    get Else() {
+      assertFollows("Else");
+      return (elseBody: () => void) => {
+        deepestIf.params![2] = buildBlock(elseBody) as BaseNode<ShaderType>;
+      };
     },
   };
   return chain;
 }
 
+/**
+ * A loop's condition, built in a block of its own: the variables it made,
+ * declared at zero for the enclosing block, ahead of the loop, and the
+ * condition, preceded by their assignments and any other statement it made,
+ * which every backend runs before every test.
+ */
+function loopCondition(cond: () => BooleanLike) {
+  const { value, statements } = captureStatements(cond);
+  const { declarations, assignments } = splitCondition(statements);
+  return { declarations, condition: withStatements(assignments, wrapValue(value) as BaseNode<ShaderType>) };
+}
+
+/**
+ * A counting loop, as TSL's `For`: `init` makes the loop variable, `cond`
+ * tests it before every iteration, `update` steps it after every one. A
+ * variable `cond` makes is computed before every test, and stays in scope
+ * after the loop, and in `update`.
+ */
 export function For<T extends Node<ShaderType>>(
   init: () => T,
   cond: (v: T) => BooleanLike,
@@ -2881,24 +3037,18 @@ export function For<T extends Node<ShaderType>>(
   body: (v: T) => void,
 ): void {
   assertBlockScope("For", (scope) => {
-    let oldBlockScope = blockScope;
-    let initScope: BaseNode<ShaderType>[] = [];
-    blockScope = initScope;
-    let v: T;
-    try {
-      v = init();
-    } finally {
-      blockScope = oldBlockScope;
-    }
-    let initNode = node({ _t: "void", type: "seq", params: [...initScope] }) as Node<"void">;
-    let condNode = wrapValue(cond(v)) as BaseNode<ShaderType>;
+    const { value: v, statements: initStatements } = captureStatements(init);
+    let initNode = node({ _t: "void", type: "seq", params: initStatements }) as Node<"void">;
+    // Condition, update, body: the order they were always built in, which names their variables.
+    const { declarations, condition } = loopCondition(() => cond(v));
     let updateNode = buildBlock(() => update(v));
     let bodyNode = buildBlock(() => body(v));
+    scope.push(...declarations);
     scope.push(
       node({
         _t: "void",
         type: "for",
-        params: [initNode, condNode, updateNode, bodyNode],
+        params: [initNode, condition, updateNode, bodyNode],
       }),
     );
   });
@@ -2919,15 +3069,25 @@ export function Loop(count: IntLike | FloatLike, body: (i: Node<"int">) => void)
   );
 }
 
-export function While(cond: BooleanLike, body: () => void): void {
+/**
+ * A loop that runs `body` while `cond` holds, as TSL's `While`. A condition
+ * given as a node is built before the loop, so a variable it makes is
+ * computed once; given as a function, a variable it makes is computed before
+ * every test, and stays in scope after the loop.
+ */
+export function While(cond: BooleanLike | (() => BooleanLike), body: () => void): void {
   assertBlockScope("While", (scope) => {
-    let condNode = wrapValue(cond) as BaseNode<ShaderType>;
+    const { declarations, condition } =
+      typeof cond === "function"
+        ? loopCondition(cond)
+        : { declarations: [], condition: wrapValue(cond) as BaseNode<ShaderType> };
     let bodyNode = buildBlock(body);
+    scope.push(...declarations);
     scope.push(
       node({
         _t: "void",
         type: "while",
-        params: [condNode, bodyNode],
+        params: [condition, bodyNode],
       }),
     );
   });

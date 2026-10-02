@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { Fn, float, int, For, If, While, Switch, Break, Continue, type Node } from "./rmsl";
+import { Fn, float, int, For, If, While, Switch, Break, Continue, Return, Discard, type Node, type Var } from "./rmsl";
 import {
   evaluateRecording,
   assertRecordedEvaluationsAgree,
@@ -212,6 +212,520 @@ describe("RMSL evaluation", () => {
     await expectValue(classify, [5], 1);
     await expectValue(classify, [15], 2);
     await expectValue(classify, [25], 3);
+  }, 60_000);
+
+  // A variable an ElseIf condition makes is computed only when that condition
+  // is tested, in the else branch, not after the If.
+  it("tests an else-if condition that makes a variable with the variable's value", async () => {
+    const classify = (x: Node<"float">) =>
+      Fn(() => {
+        const out = float(0).toVar();
+        If(x.lessThan(0), () => {
+          out.assign(float(1));
+        })
+          .ElseIf(x.add(1).toVar().greaterThan(5), () => {
+            out.assign(float(2));
+          })
+          .ElseIf(x.mul(2).toVar().greaterThan(3), () => {
+            out.assign(float(3));
+          })
+          .Else(() => {
+            out.assign(float(4));
+          });
+        return out;
+      })();
+
+    await expectValue(classify, [-1], 1);
+    await expectValue(classify, [10], 2);
+    await expectValue(classify, [2], 3);
+    await expectValue(classify, [1], 4);
+  }, 60_000);
+
+  // A loop tests its condition every time round, so a variable the condition
+  // makes has to be computed every time round too, not once before the loop.
+  it("recomputes a variable a For condition makes on every iteration", async () => {
+    const count = (x: Node<"float">) =>
+      Fn(() => {
+        const steps = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (n) => n.add(x).toVar().lessThan(10),
+          (n) => {
+            n.assign(n.add(1));
+          },
+          () => {
+            steps.assign(steps.add(1));
+          },
+        );
+        return steps;
+      })();
+
+    await expectValue(count, [3], 7);
+    await expectValue(count, [12], 0);
+  }, 60_000);
+
+  it("still steps a For whose condition makes a variable when its body continues", async () => {
+    const evens = (x: Node<"float">) =>
+      Fn(() => {
+        const counted = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (n) => n.add(x).toVar().lessThan(10),
+          (n) => {
+            n.assign(n.add(1));
+          },
+          (n) => {
+            If(n.mod(2).equal(1), () => {
+              Continue();
+            });
+            counted.assign(counted.add(1));
+          },
+        );
+        return counted;
+      })();
+
+    await expectValue(evens, [3], 4);
+  }, 60_000);
+
+  it("reads a variable an else-if condition makes in the rest of its chain", async () => {
+    const pick = (x: Node<"float">) =>
+      Fn(() => {
+        const out = float(0).toVar();
+        let doubled!: Node<"float">;
+        If(x.lessThan(0), () => {
+          out.assign(float(1));
+        })
+          .ElseIf((doubled = x.mul(2).toVar()).greaterThan(3), () => {
+            out.assign(doubled);
+          })
+          .ElseIf(doubled.greaterThan(1), () => {
+            out.assign(doubled.add(100));
+          });
+        return out;
+      })();
+
+    await expectValue(pick, [-1], 1);
+    await expectValue(pick, [5], 10);
+    await expectValue(pick, [1], 102);
+    await expectValue(pick, [0], 0);
+  }, 60_000);
+
+  // A variable an ElseIf condition makes belongs to that ElseIf, as `let i` in
+  // `for (let i = 0; ...)` belongs to its loop.
+  it("refuses a variable an else-if condition makes used after the chain", () => {
+    const pick = (x: Node<"float">) =>
+      Fn(() => {
+        const out = float(0).toVar();
+        let doubled!: Node<"float">;
+        If(x.lessThan(0), () => {
+          out.assign(float(1));
+        }).ElseIf((doubled = x.mul(2).toVar()).greaterThan(3), () => {
+          out.assign(float(2));
+        });
+        return out.add(doubled);
+      })();
+    expect(() => pick(float(1))).toThrow(/\[RMSL\] A variable made in an ElseIf condition is used after its If chain/);
+
+    const assignAfter = (x: Node<"float">) =>
+      Fn(() => {
+        const out = float(0).toVar();
+        let doubled!: Var<"float">;
+        If(x.lessThan(0), () => {
+          out.assign(float(1));
+        }).ElseIf((doubled = x.mul(2).toVar()).greaterThan(3), () => {
+          out.assign(float(2));
+        });
+        doubled.assign(float(0));
+        return out;
+      })();
+    expect(() => assignAfter(float(1))).toThrow(/\[RMSL\] A variable made in an ElseIf condition is used after/);
+  });
+
+  it("keeps a variable a For condition makes in scope in the update and after the loop", async () => {
+    const run = (x: Node<"float">) =>
+      Fn(() => {
+        let reach!: Node<"float">;
+        const total = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (n) => (reach = n.add(x).toVar()).lessThan(10),
+          (n) => {
+            n.assign(n.add(1));
+            total.assign(total.add(reach));
+          },
+          () => {},
+        );
+        return total.mul(100).add(reach);
+      })();
+
+    // With x = 7: reach is 7, 8, 9 inside the loop, summed by the update, and 10 when the loop ends.
+    await expectValue(run, [7], 2410);
+  }, 60_000);
+
+  it("recomputes a For condition that calls a function making a variable on every iteration", async () => {
+    const below = Fn((n: Node<"float">, x: Node<"float">) => n.add(x).toVar().lessThan(10));
+    const count = (x: Node<"float">) =>
+      Fn(() => {
+        const steps = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (n) => below(n, x),
+          (n) => {
+            n.assign(n.add(1));
+          },
+          () => {
+            steps.assign(steps.add(1));
+          },
+        );
+        return steps;
+      })();
+
+    await expectValue(count, [3], 7);
+  }, 60_000);
+
+  // Made between the links, `t` reads as if it is always computed, but it
+  // would be computed only when the ElseIf is tested.
+  it("refuses a variable made between an If and its ElseIf", () => {
+    const build = (x: Node<"float">) =>
+      Fn(() => {
+        const out = float(0).toVar();
+        const chain = If(x.lessThan(0), () => {
+          out.assign(float(1));
+        });
+        const t = x.add(1).toVar();
+        chain.ElseIf(t.greaterThan(5), () => {
+          out.assign(float(2));
+        });
+        return out.add(t);
+      })();
+    expect(() => build(float(1))).toThrow(
+      /\[RMSL\] ElseIf has to follow its If directly: nothing can be written between them, a variable included/,
+    );
+  });
+
+  it("refuses a statement written between an ElseIf and its Else", () => {
+    const build = (x: Node<"float">) =>
+      Fn(() => {
+        const total = float(0).toVar();
+        const chain = If(x.lessThan(0), () => {
+          total.assign(float(1));
+        }).ElseIf(x.greaterThan(5), () => {
+          total.assign(float(2));
+        });
+        total.assign(total.add(1));
+        chain.Else(() => {
+          total.assign(float(3));
+        });
+        return total;
+      })();
+    expect(() => build(float(1))).toThrow(/\[RMSL\] Else has to follow its If directly/);
+  });
+
+  it("refuses a statement written between an If and its ElseIf", () => {
+    const build = (x: Node<"float">) =>
+      Fn(() => {
+        const total = float(0).toVar();
+        const chain = If(x.lessThan(0), () => {
+          total.assign(float(1));
+        });
+        total.assign(total.add(1));
+        chain.ElseIf(x.greaterThan(5), () => {
+          total.assign(float(2));
+        });
+        return total;
+      })();
+    expect(() => build(float(1))).toThrow(/\[RMSL\] ElseIf has to follow its If directly/);
+
+    for (const statement of [Break, Continue, Return, Discard]) {
+      const between = (x: Node<"float">) =>
+        Fn(() => {
+          const total = float(0).toVar();
+          const chain = If(x.lessThan(0), () => {
+            total.assign(float(1));
+          });
+          statement();
+          chain.ElseIf(x.greaterThan(5), () => {
+            total.assign(float(2));
+          });
+          return total;
+        })();
+      expect(() => between(float(1)), statement.name).toThrow(/\[RMSL\] ElseIf has to follow its If directly/);
+    }
+  });
+
+  it("refuses an ElseIf called from inside another block", () => {
+    const build = (x: Node<"float">) =>
+      Fn(() => {
+        const total = float(0).toVar();
+        const chain = If(x.lessThan(0), () => {
+          total.assign(float(1));
+        });
+        If(x.greaterThan(10), () => {
+          chain.ElseIf(x.mul(2).toVar().greaterThan(3), () => {
+            total.assign(float(2));
+          });
+        });
+        return total;
+      })();
+    expect(() => build(float(1))).toThrow(/\[RMSL\] ElseIf has to follow its If directly/);
+  });
+
+  it("runs a statement a loop condition writes before every test", async () => {
+    const forTests = (x: Node<"float">) =>
+      Fn(() => {
+        const tests = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (n) => {
+            tests.assign(tests.add(1));
+            return n.lessThan(x);
+          },
+          (n) => {
+            n.assign(n.add(1));
+          },
+          () => {},
+        );
+        return tests;
+      })();
+    await expectValue(forTests, [3], 4);
+
+    const whileTests = (x: Node<"float">) =>
+      Fn(() => {
+        const tests = float(0).toVar();
+        const n = float(0).toVar();
+        While(
+          () => {
+            tests.assign(tests.add(1));
+            return n.lessThan(x);
+          },
+          () => {
+            n.assign(n.add(1));
+          },
+        );
+        return tests;
+      })();
+    await expectValue(whileTests, [3], 4);
+  }, 60_000);
+
+  it("breaks and continues from a statement a loop condition writes", async () => {
+    const whileBreak = (x: Node<"float">) =>
+      Fn(() => {
+        const n = float(0).toVar();
+        While(
+          () => {
+            If(n.greaterThan(x), () => Break());
+            return n.lessThan(10);
+          },
+          () => {
+            n.assign(n.add(1));
+          },
+        );
+        return n;
+      })();
+    await expectValue(whileBreak, [7], 8);
+
+    const breakAfterIf = (x: Node<"float">) =>
+      Fn(() => {
+        const n = float(0).toVar();
+        const hits = float(0).toVar();
+        While(
+          () => {
+            If(n.greaterThan(5), () => hits.assign(hits.add(1)));
+            If(n.greaterThan(x), () => Break());
+            return n.lessThan(10);
+          },
+          () => {
+            n.assign(n.add(1));
+          },
+        );
+        return n.add(hits.mul(100));
+      })();
+    await expectValue(breakAfterIf, [7], 308);
+
+    const whileDirectBreak = () =>
+      Fn(() => {
+        const n = float(0).toVar();
+        While(
+          () => {
+            n.assign(n.add(1));
+            Break();
+            return n.lessThan(10);
+          },
+          () => {
+            n.assign(n.add(100));
+          },
+        );
+        return n;
+      })();
+    await expectValue(whileDirectBreak, [], 1);
+
+    const forBreak = (x: Node<"float">) =>
+      Fn(() => {
+        const runs = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (n) => {
+            If(n.greaterThan(x), () => Break());
+            return n.lessThan(10);
+          },
+          (n) => {
+            n.assign(n.add(1));
+          },
+          () => {
+            runs.assign(runs.add(1));
+          },
+        );
+        return runs;
+      })();
+    await expectValue(forBreak, [7], 8);
+
+    // A continue from the condition skips the body, and in a For still runs the update.
+    const whileContinue = (x: Node<"float">) =>
+      Fn(() => {
+        const n = float(0).toVar();
+        const runs = float(0).toVar();
+        While(
+          () => {
+            n.assign(n.add(1));
+            If(n.lessThan(x), () => Continue());
+            return n.lessThan(10);
+          },
+          () => {
+            runs.assign(runs.add(1));
+          },
+        );
+        return runs.add(n.mul(100));
+      })();
+    await expectValue(whileContinue, [7], 1003);
+
+    const forContinue = (x: Node<"float">) =>
+      Fn(() => {
+        const runs = float(0).toVar();
+        const last = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (n) => {
+            If(n.lessThan(x), () => Continue());
+            return n.lessThan(10);
+          },
+          (n) => {
+            n.assign(n.add(1));
+          },
+          (n) => {
+            runs.assign(runs.add(1));
+            last.assign(n);
+          },
+        );
+        return runs.add(last.mul(100));
+      })();
+    await expectValue(forContinue, [7], 903);
+  }, 60_000);
+
+  it("recomputes a variable a While condition given as a function makes on every iteration", async () => {
+    const count = (x: Node<"float">) =>
+      Fn(() => {
+        const n = float(0).toVar();
+        While(
+          () => n.add(x).toVar().lessThan(10),
+          () => {
+            n.assign(n.add(1));
+          },
+        );
+        return n;
+      })();
+
+    await expectValue(count, [3], 7);
+    await expectValue(count, [12], 0);
+
+    const last = (x: Node<"float">) =>
+      Fn(() => {
+        const n = float(0).toVar();
+        let reach!: Node<"float">;
+        While(
+          () => (reach = n.add(x).toVar()).lessThan(10),
+          () => {
+            n.assign(n.add(1));
+          },
+        );
+        return reach;
+      })();
+    await expectValue(last, [3], 10);
+  }, 60_000);
+
+  it("reads a variable an Fn call made before a loop in its condition and after it", async () => {
+    const twice = Fn((x: Node<"float">) => x.mul(2).toVar());
+    const whileRun = (x: Node<"float">) =>
+      Fn(() => {
+        const limit = twice(x);
+        const n = float(0).toVar();
+        While(n.lessThan(limit), () => {
+          n.assign(n.add(1));
+        });
+        return n.add(limit);
+      })();
+    await expectValue(whileRun, [3], 12);
+
+    const forRun = (x: Node<"float">) =>
+      Fn(() => {
+        const limit = twice(x);
+        const total = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (n) => n.lessThan(limit),
+          (n) => {
+            n.assign(n.add(1));
+            total.assign(total.add(limit));
+          },
+          () => {},
+        );
+        return total.add(limit);
+      })();
+    await expectValue(forRun, [3], 42);
+  }, 60_000);
+
+  it("runs an Fn call's statements where it is called, before a branch that reads its value", async () => {
+    const plusOne = Fn((x: Node<"float">) => x.add(1).toVar());
+    const elseIfRun = (x: Node<"float">) =>
+      Fn(() => {
+        const value = plusOne(x);
+        const out = float(0).toVar();
+        If(x.lessThan(0), () => {
+          out.assign(float(1));
+        }).ElseIf(value.greaterThan(5), () => {
+          out.assign(float(2));
+        });
+        return out.add(value.mul(10));
+      })();
+    await expectValue(elseIfRun, [7], 82);
+    await expectValue(elseIfRun, [-5], -39);
+
+    const ifRun = (x: Node<"float">) =>
+      Fn(() => {
+        const value = plusOne(x);
+        const out = float(0).toVar();
+        If(x.greaterThan(0), () => {
+          out.assign(value);
+        });
+        return out.add(value.mul(10));
+      })();
+    await expectValue(ifRun, [7], 88);
+    await expectValue(ifRun, [-5], -40);
+
+    const counted = (x: Node<"float">) =>
+      Fn(() => {
+        const calls = float(0).toVar();
+        const value = Fn(() => {
+          calls.assign(calls.add(1));
+          return x.add(1).toVar();
+        })();
+        const out = float(0).toVar();
+        If(x.greaterThan(0), () => {
+          out.assign(value);
+        });
+        return out.add(calls.mul(100));
+      })();
+    await expectValue(counted, [-5], 100);
+    await expectValue(counted, [7], 108);
   }, 60_000);
 
   it("runs a while loop until its condition fails", async () => {

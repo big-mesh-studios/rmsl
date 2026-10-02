@@ -15,6 +15,8 @@ import {
   parameterNode,
   assertStageResult,
   forUpdateStatements,
+  loopGuard,
+  loopTest,
   resolveSwizzleTarget,
   tryFold,
   isIntegerType,
@@ -1205,9 +1207,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
             "{",
             `  ${initExpr};`,
             "  loop {",
-            ...cd.body.map((l) => "    " + l),
-            `    if (!(${cd.expr})) { break; }`,
-            ...body.body.map((l) => "    " + l),
+            ...[...loopGuard(cd), ...body.body].map((l) => "    " + l),
             "    continuing {",
             ...updates.map((l) => "      " + l),
             "    }",
@@ -1218,10 +1218,16 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
         };
       }
 
-      let header = updates.length === 1 ? withoutSemicolon(updates[0]) : "";
+      let step = updates.length === 1 ? withoutSemicolon(updates[0]) : "";
+      let { header, guard } = loopTest(cd);
       return {
         decls,
-        body: [...initBody, `for (${initExpr}; ${cd.expr}; ${header}) {`, ...body.body.map((l) => "  " + l), "}"],
+        body: [
+          ...initBody,
+          `for (${initExpr}; ${header}; ${step}) {`,
+          ...[...guard, ...body.body].map((l) => "  " + l),
+          "}",
+        ],
         expr: "0.0",
       };
     }
@@ -1229,9 +1235,10 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     case "while": {
       let cd = compileWGSLStage(node.params![0], ctx);
       let body = compileWGSLStage(node.params![1], ctx);
+      let { header, guard } = loopTest(cd);
       return {
         decls: [...cd.decls, ...body.decls],
-        body: [...cd.body, `while (${cd.expr}) {`, ...body.body.map((l) => "  " + l), "}"],
+        body: [`while (${header}) {`, ...[...guard, ...body.body].map((l) => "  " + l), "}"],
         expr: "0.0",
       };
     }

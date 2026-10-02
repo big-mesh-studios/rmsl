@@ -6,6 +6,7 @@ import {
   ShaderType,
   StorageBufferAttribute,
   TYPE_WIDTH,
+  someNode,
   var_,
 } from "../core";
 import { componentKindOf } from "./cpu";
@@ -477,6 +478,22 @@ export function withoutSemicolon(statement: string): string {
   return statement.endsWith(";") ? statement.slice(0, -1) : statement;
 }
 
+/** The lines opening a loop's body that run a compiled condition, then break when its test fails. */
+export function loopGuard(cond: CompiledNode): string[] {
+  return [...cond.body, `if (!(${cond.expr})) { break; }`];
+}
+
+/**
+ * How a loop tests a compiled condition: the expression its header holds, and
+ * the lines opening its body. A condition that runs statements before its test
+ * can't sit in a header, so the header holds `true`, and the body opens with
+ * the guard.
+ */
+export function loopTest(cond: CompiledNode): { header: string; guard: string[] } {
+  if (cond.body.length === 0) return { header: cond.expr, guard: [] };
+  return { header: "true", guard: loopGuard(cond) };
+}
+
 /**
  * Reject a vertex stage whose result cannot reach the position output.
  *
@@ -600,21 +617,6 @@ export type CompileFnOptions = {
   name: string;
   params: Array<{ name: string; type: ShaderType }>;
 };
-
-/**
- * Calls `visit` on each node reachable from the roots through `params`,
- * stopping at the first that returns true. Returns whether one did.
- */
-export function someNode(roots: unknown, visit: (node: any) => boolean | void): boolean {
-  const visited = new Set<unknown>();
-  const walk = (node: any): boolean => {
-    if (!node || typeof node !== "object" || visited.has(node)) return false;
-    visited.add(node);
-    if (Array.isArray(node)) return node.some(walk);
-    return visit(node) === true || (Array.isArray(node.params) && node.params.some(walk));
-  };
-  return walk(roots);
-}
 
 /** Every storage attribute reachable from the roots, keyed by the slot name its nodes compile to. */
 export function storageAttributes(roots: unknown): Map<string, StorageBufferAttribute> {

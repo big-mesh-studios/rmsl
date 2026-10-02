@@ -833,8 +833,8 @@ export function compileWasmFn(
   // Tracks the block depth in scope wherever expression evaluation currently
   // sits, so a "seq" node encountered mid-expression (a nested Fn call's
   // result) can lower its leading statements with walkStmt at the right
-  // depth. walkStmt refreshes it on every call, so it's always accurate by
-  // the time a nested seq is walked from within that statement.
+  // depth. walkStmt sets it for the statement it walks and restores it after,
+  // so a nested statement's depth doesn't outlive that statement.
   let currentStmtDepth = EXIT_BLOCK_DEPTH;
   // Statement nodes are emitted at most once by identity: the array-return-
   // sugar case gives every result node the *same* leading statement objects
@@ -3402,10 +3402,11 @@ export function compileWasmFn(
   }
 
   /**
-   * Lowers a for/while loop to block{loop{cond; brIf <exit>; block{body};
+   * Lowers a for/while loop to block{loop{block{cond; brIf <exit>; body};
    * update; br <top>}}. break exits via the outer block, continue via the
-   * loop label (which re-runs the update). The recorded break/continue
-   * depths account for the two extra nested levels inside the body.
+   * inner one, which runs the update next. The condition sits in the inner
+   * block with the body, so a statement it runs breaks and continues from
+   * the same depth the body does.
    */
   function emitLoop(
     initBytes: number[],
@@ -3417,6 +3418,7 @@ export function compileWasmFn(
     const breakDepth = depth + 1;
     const continueDepth = depth + 3;
     loopStack.push({ breakDepth, continueDepth });
+    currentStmtDepth = continueDepth;
     const condBytes = walkExpr(condNode);
     const bodyBytes = walkStmt(bodyNode, continueDepth);
     const updateBytes = updateNode ? walkStmt(updateNode, depth + 2) : [];
@@ -3427,12 +3429,12 @@ export function compileWasmFn(
       WASM_BLOCKTYPE_VOID,
       WASM_OP.loop,
       WASM_BLOCKTYPE_VOID,
+      WASM_OP.block,
+      WASM_BLOCKTYPE_VOID,
       ...condBytes,
       WASM_OP.i32Eqz,
       WASM_OP.brIf,
-      ...wasmUleb128(1),
-      WASM_OP.block,
-      WASM_BLOCKTYPE_VOID,
+      ...wasmUleb128(2),
       ...bodyBytes,
       WASM_OP.end,
       ...updateBytes,
@@ -3449,7 +3451,17 @@ export function compileWasmFn(
    * targets.
    */
   function walkStmt(node: any, depth: number): number[] {
+    const outerDepth = currentStmtDepth;
     currentStmtDepth = depth;
+    try {
+      return walkStmtNode(node, depth);
+    } finally {
+      currentStmtDepth = outerDepth;
+    }
+  }
+
+  /** {@link walkStmt} once `currentStmtDepth` is `depth`. */
+  function walkStmtNode(node: any, depth: number): number[] {
     switch (node.type) {
       case "seq": {
         const list = node.params ?? [];
