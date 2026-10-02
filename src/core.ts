@@ -2487,6 +2487,27 @@ export let nextUniformId = 0;
 export let nextAttrId = 0;
 export let nextVaryingId = 0;
 
+/** Draws an id from the counter `uniform()` and `uniformArray()` draw from, for a node rebuilt by `deserialize()`. */
+export function allocUniformId(): number {
+  return nextUniformId++;
+}
+export function allocAttrId(): number {
+  return nextAttrId++;
+}
+export function allocVaryingId(): number {
+  return nextVaryingId++;
+}
+
+/** Gives a `uniformArray()` node its `element(index)`, for `uniformArray()` and for a node rebuilt by `deserialize()`. */
+export function attachUniformArrayElement<T extends ShaderType>(target: any, shaderType: T): void {
+  target.element = (index: IntLike | FloatLike) =>
+    node({
+      _t: shaderType,
+      type: "uniformArrayElement",
+      params: [target, wrapValue(index) as BaseNode<ShaderType>],
+    });
+}
+
 /**
  * A uniform holding several values of one type.
  *
@@ -2525,12 +2546,7 @@ export function uniformArray<T extends ShaderType>(shaderType: T, length: number
     name: slot,
   }) as any;
   arrayNode.length = length;
-  arrayNode.element = (index: IntLike | FloatLike) =>
-    node({
-      _t: shaderType,
-      type: "uniformArrayElement",
-      params: [arrayNode, wrapValue(index) as BaseNode<ShaderType>],
-    });
+  attachUniformArrayElement(arrayNode, shaderType);
   return arrayNode as UniformArrayNode<T>;
 }
 

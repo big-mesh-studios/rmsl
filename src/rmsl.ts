@@ -195,6 +195,8 @@ export type {
   Vec3Like,
   Vec4Like,
 } from "./core";
+export type { SerializedBuffer, SerializedGraph, SerializedNode } from "./serialize";
+export { deserialize, serialize } from "./serialize";
 
 // `export type` vs `export`: Rollup (pnpm build) errors re-exporting a name
 // with no runtime binding, which every interface/type here is.
@@ -203,4 +205,3 @@ export type { CompileFnOptions, VertexRoot } from "./backends/shared";
 // Each backend's compile()/create() pair lives at its own subpath (see
 // glsl.ts, wgsl.ts, js.ts, wasm.ts), not duplicated here per backend.
 export type { Adapter, TypedArray } from "./backends/adapter";
-
