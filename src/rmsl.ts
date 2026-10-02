@@ -205,4 +205,3 @@ export type { CompileFnOptions, VertexRoot } from "./backends/shared";
 // Each backend's compile()/create() pair lives at its own subpath (see
 // glsl.ts, wgsl.ts, js.ts, wasm.ts), not duplicated here per backend.
 export type { Adapter, TypedArray } from "./backends/adapter";
-
