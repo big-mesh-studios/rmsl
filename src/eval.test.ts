@@ -418,6 +418,102 @@ describe("RMSL evaluation", () => {
     await expectValue(whileTests, [3], 4);
   }, 60_000);
 
+  it("breaks and continues from a statement a loop condition writes", async () => {
+    const whileBreak = (x: Node<"float">) =>
+      Fn(() => {
+        const n = float(0).toVar();
+        While(
+          () => {
+            If(n.greaterThan(x), () => Break());
+            return n.lessThan(10);
+          },
+          () => {
+            n.assign(n.add(1));
+          },
+        );
+        return n;
+      })();
+    await expectValue(whileBreak, [7], 8);
+
+    const whileDirectBreak = () =>
+      Fn(() => {
+        const n = float(0).toVar();
+        While(
+          () => {
+            n.assign(n.add(1));
+            Break();
+            return n.lessThan(10);
+          },
+          () => {
+            n.assign(n.add(100));
+          },
+        );
+        return n;
+      })();
+    await expectValue(whileDirectBreak, [], 1);
+
+    const forBreak = (x: Node<"float">) =>
+      Fn(() => {
+        const runs = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (n) => {
+            If(n.greaterThan(x), () => Break());
+            return n.lessThan(10);
+          },
+          (n) => {
+            n.assign(n.add(1));
+          },
+          () => {
+            runs.assign(runs.add(1));
+          },
+        );
+        return runs;
+      })();
+    await expectValue(forBreak, [7], 8);
+
+    // A continue from the condition skips the body, and in a For still runs the update.
+    const whileContinue = (x: Node<"float">) =>
+      Fn(() => {
+        const n = float(0).toVar();
+        const runs = float(0).toVar();
+        While(
+          () => {
+            n.assign(n.add(1));
+            If(n.lessThan(x), () => Continue());
+            return n.lessThan(10);
+          },
+          () => {
+            runs.assign(runs.add(1));
+          },
+        );
+        return runs.add(n.mul(100));
+      })();
+    await expectValue(whileContinue, [7], 1003);
+
+    const forContinue = (x: Node<"float">) =>
+      Fn(() => {
+        const runs = float(0).toVar();
+        const last = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (n) => {
+            If(n.lessThan(x), () => Continue());
+            return n.lessThan(10);
+          },
+          (n) => {
+            n.assign(n.add(1));
+          },
+          (n) => {
+            runs.assign(runs.add(1));
+            last.assign(n);
+          },
+        );
+        return runs.add(last.mul(100));
+      })();
+    await expectValue(forContinue, [7], 903);
+  }, 60_000);
+
   it("recomputes a variable a While condition given as a function makes on every iteration", async () => {
     const count = (x: Node<"float">) =>
       Fn(() => {

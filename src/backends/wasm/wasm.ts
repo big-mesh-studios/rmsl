@@ -3402,10 +3402,11 @@ export function compileWasmFn(
   }
 
   /**
-   * Lowers a for/while loop to block{loop{cond; brIf <exit>; block{body};
+   * Lowers a for/while loop to block{loop{block{cond; brIf <exit>; body};
    * update; br <top>}}. break exits via the outer block, continue via the
-   * loop label (which re-runs the update). The recorded break/continue
-   * depths account for the two extra nested levels inside the body.
+   * inner one, which runs the update next. The condition sits in the inner
+   * block with the body, so a statement it runs breaks and continues from
+   * the same depth the body does.
    */
   function emitLoop(
     initBytes: number[],
@@ -3417,6 +3418,7 @@ export function compileWasmFn(
     const breakDepth = depth + 1;
     const continueDepth = depth + 3;
     loopStack.push({ breakDepth, continueDepth });
+    currentStmtDepth = continueDepth;
     const condBytes = walkExpr(condNode);
     const bodyBytes = walkStmt(bodyNode, continueDepth);
     const updateBytes = updateNode ? walkStmt(updateNode, depth + 2) : [];
@@ -3427,12 +3429,12 @@ export function compileWasmFn(
       WASM_BLOCKTYPE_VOID,
       WASM_OP.loop,
       WASM_BLOCKTYPE_VOID,
+      WASM_OP.block,
+      WASM_BLOCKTYPE_VOID,
       ...condBytes,
       WASM_OP.i32Eqz,
       WASM_OP.brIf,
-      ...wasmUleb128(1),
-      WASM_OP.block,
-      WASM_BLOCKTYPE_VOID,
+      ...wasmUleb128(2),
       ...bodyBytes,
       WASM_OP.end,
       ...updateBytes,
