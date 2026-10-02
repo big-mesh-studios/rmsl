@@ -11,6 +11,7 @@ import {
   StorageBufferAttribute,
   uniformRaw,
   StorageInstancedBufferAttribute,
+  time,
   uniform,
   uniformArray,
   type Node,
@@ -156,6 +157,19 @@ describe("serialize/deserialize", () => {
     const restored = deserialize(JSON.parse(JSON.stringify(graph))) as any;
     expect([...uniformNames(restored)]).toEqual(["brightness"]);
     expect(JSON.stringify(graph)).toContain('"varName":"scaled"');
+  });
+
+  it("reads the clock time() gives, alone or compiled with a fresh graph that reads it", () => {
+    const build = () => Fn(() => time().mul(2))();
+    const fresh = build() as any;
+    const restored = deserialize(JSON.parse(JSON.stringify(serialize(fresh)))) as any;
+    expect([...uniformNames(restored)]).toEqual([time().name]);
+
+    const both = Fn(() => fresh.add(restored));
+    const run = compileJSRoutine(both as any, { name: "main", params: [] });
+    expect(run.run({ uniforms: { [time().name]: 3 } })).toBe(12);
+    const code = compute([fresh, restored]).code;
+    expect(code.match(/_rmsl_time: f32/g)).toHaveLength(1);
   });
 
   it("takes an array of roots, and keeps what they share shared", () => {
