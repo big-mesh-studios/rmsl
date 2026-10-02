@@ -634,9 +634,7 @@ describe("RMSL evaluation", () => {
     await expectValue(last, [3], 10);
   }, 60_000);
 
-  // A function's variable is first read in the condition here, so it is made
-  // where the condition is tested, and has to stay in scope wherever else it is read.
-  it("keeps a variable a loop condition first reads in scope after the loop", async () => {
+  it("reads a variable an Fn call made before a loop in its condition and after it", async () => {
     const twice = Fn((x: Node<"float">) => x.mul(2).toVar());
     const whileRun = (x: Node<"float">) =>
       Fn(() => {
