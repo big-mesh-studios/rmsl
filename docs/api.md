@@ -466,8 +466,15 @@ While(
 
 A `For` condition, and an `ElseIf` condition, may make variables too: they
 are computed where the condition is tested, and stay in scope after the loop
-or chain, and in a `For`'s update. An `ElseIf` has to follow its `If`
-directly; a statement written between them throws.
+or chain, and in a `For`'s update. A `For` or `While` condition function may
+also write other statements, which run before every test.
+
+An `ElseIf` condition is tested only when the conditions before it were
+false, so after the chain a variable it makes holds zero if an earlier branch
+ran. An `ElseIf` has to follow its `If` directly, in the same block. A
+variable written between them that the `ElseIf` condition reads is taken as
+the condition's, and computed only when it is tested; any other statement
+written between them throws.
 
 ### Other
 
