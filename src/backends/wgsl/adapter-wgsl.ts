@@ -119,7 +119,7 @@ function reflectStage(
   for (let n of nodes) compileWGSLStage(n as Node<ShaderType>, ctx);
   return {
     attributes: [...ctx.attributes.entries()]
-      .sort((a, b) => a[0] - b[0])
+      .sort((a, b) => a[1].id - b[1].id)
       .map(([, info]) => ({ slot: info.slot, type: info.type })),
     uniforms: [...ctx.uniforms.values()]
       .sort((a, b) => a.slot.localeCompare(b.slot))

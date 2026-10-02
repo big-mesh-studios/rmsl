@@ -22,6 +22,7 @@ import {
   assertAssignable,
   parameterNode,
   assertStageResult,
+  assertOneDeclarationPerName,
   forUpdateStatements,
   loopTest,
   resolveSwizzleTarget,
@@ -1985,6 +1986,7 @@ function compileJSFnDetailed(
     jsNeedsRes: false,
   };
 
+  assertOneDeclarationPerName(resultNodes);
   const compiledList = resultNodes.map((n) => compileJSStage(n, ctx));
   const lastCompiled = compiledList[compiledList.length - 1];
   const lastType = (resultNodes[resultNodes.length - 1] as any)?._t;

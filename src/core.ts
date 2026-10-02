@@ -2786,12 +2786,13 @@ export function uniformRaw<T extends ShaderType>(name: string, shaderType: T): U
 
 /**
  * A shared per-frame clock, seconds since the start, as TSL's `time`. One node
- * for every shader that references it, so the host updates a single uniform.
+ * for every shader that references it, named `_rmsl_time` in every process, so
+ * the host updates a single uniform, read too by a graph `deserialize()` rebuilt.
  * Created lazily so merely importing rmsl never consumes a uniform slot.
  */
 export let _timeUniform: UniformNode<"float"> | undefined;
 export function time(): UniformNode<"float"> {
-  return (_timeUniform ??= uniform("float"));
+  return (_timeUniform ??= uniformRaw("_rmsl_time", "float"));
 }
 
 export function attribute<T extends ShaderType>(shaderType: T): AttributeNode<T> {

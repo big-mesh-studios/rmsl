@@ -99,6 +99,7 @@ import {
 import { compileGlslFn } from "./glsl";
 import { compileWgslFn, wgslUniformLayout } from "./wgsl";
 import { compileJSRoutine, compileJSFn } from "./js";
+import { compileWasmRoutine } from "./wasm";
 // Recording stand-ins for the real compilers: each returns the language it is
 // named for and additionally compiles the program to the other, so every shader
 // the tests generate is checked by a real GLSL and WGSL implementation in the
@@ -1311,6 +1312,35 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     let prog = Fn(() => vec4(tex.x, tex.y, 0, 1));
     expect(compileGlsl.vertex(prog())).toContain("in vec2 tex;");
     expect(compileWgsl.vertex(prog())).toContain("tex: vec2<f32>");
+  });
+
+  // One name is one declaration, however many nodes carry it.
+  it("declares a name several raw uniforms or attributes share once", () => {
+    let fragment = Fn(() => vec4(uniformRaw("brightness", "float").add(uniformRaw("brightness", "float")), 0, 0, 1));
+    expect(compileGlsl.fragment(fragment()).match(/uniform float brightness;/g)).toHaveLength(1);
+    expect(compileWgsl.fragment(fragment()).match(/brightness: f32/g)).toHaveLength(1);
+
+    let vertex = Fn(() => vec4(attributeRaw("tex", "vec2").x, attributeRaw("tex", "vec2").y, 0, 1));
+    expect(compileGlsl.vertex(vertex()).match(/in vec2 tex;/g)).toHaveLength(1);
+    expect(compileWgsl.vertex(vertex()).match(/tex: vec2<f32>/g)).toHaveLength(1);
+  });
+
+  it("reads one value for raw uniforms sharing a name on JS and WASM", () => {
+    let build = () => Fn(() => uniformRaw("brightness", "float").add(uniformRaw("brightness", "float").mul(10)))();
+    let options = { name: "main", params: [] };
+    expect(compileJSRoutine(build as any, options).run({ uniforms: { brightness: 2 } })).toBe(22);
+    expect(compileWasmRoutine(build as any, options).run({ uniforms: { brightness: 2 } })).toBe(22);
+  });
+
+  it("refuses one name for uniforms of different types on every backend", () => {
+    let build = () => Fn(() => uniformRaw("brightness", "float").add(uniformRaw("brightness", "int").toFloat()))();
+    let message =
+      '[RMSL] "brightness" names a float uniform and an int uniform: one name is one declaration. Give them different names';
+    let options = { name: "main", params: [] };
+    expect(() => compileGlslFn(build as any, options)).toThrow(message);
+    expect(() => compileWgslFn(build as any, options)).toThrow(message);
+    expect(() => compileJSRoutine(build as any, options)).toThrow(message);
+    expect(() => compileWasmRoutine(build as any, options)).toThrow(message);
   });
 
   it("varyingRaw emits its name in both stages", () => {

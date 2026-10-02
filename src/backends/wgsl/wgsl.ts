@@ -14,6 +14,7 @@ import {
   assertAssignable,
   parameterNode,
   assertStageResult,
+  assertOneDeclarationPerName,
   forUpdateStatements,
   loopGuard,
   loopTest,
@@ -519,8 +520,8 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       let isBoolean = v?.shaderType === "bool" || v?.shaderType?.startsWith("bvec");
       let carrier = width === 1 ? "u32" : `vec${width}<u32>`;
       let zero = width === 1 ? "0u" : `${carrier}(0u)`;
-      if (v && v.id != null && !ctx.uniforms.has(v.id)) {
-        ctx.uniforms.set(v.id, {
+      if (v && v.id != null && !ctx.uniforms.has(v.slot)) {
+        ctx.uniforms.set(v.slot, {
           type: isBoolean ? carrier : wgslType(v.shaderType),
           slot: v.slot,
         });
@@ -540,8 +541,8 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "uniformArray": {
       let v = node.value as any;
-      if (v && v.id != null && !ctx.uniforms.has(v.id)) {
-        ctx.uniforms.set(v.id, {
+      if (v && v.id != null && !ctx.uniforms.has(v.slot)) {
+        ctx.uniforms.set(v.slot, {
           type: wgslType(v.shaderType),
           slot: v.slot,
           length: v.length,
@@ -642,8 +643,8 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "attribute": {
       let v = node.value as any;
-      if (v && v.id != null && !ctx.attributes.has(v.id)) {
-        ctx.attributes.set(v.id, { type: wgslType(v.shaderType), slot: v.slot });
+      if (v && v.id != null && !ctx.attributes.has(v.slot)) {
+        ctx.attributes.set(v.slot, { id: v.id, type: wgslType(v.shaderType), slot: v.slot });
       }
       // A compute stage has no VertexInput struct — attributes stand for
       // storage buffers there, indexed by the invocation's entity id.
@@ -657,8 +658,8 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "varying": {
       let v = node.value as any;
-      if (v && v.id != null && !ctx.varyings.has(v.id)) {
-        ctx.varyings.set(v.id, { id: v.id, type: wgslType(v.shaderType), slot: v.slot });
+      if (v && v.id != null && !ctx.varyings.has(v.slot)) {
+        ctx.varyings.set(v.slot, { id: v.id, type: wgslType(v.shaderType), slot: v.slot });
       }
       let slot = v?.slot || "vec3<f32>(0.0, 0.0, 0.0)";
       let expr = ctx.shaderStage === "vertex" ? `result.${slot}` : slot;
@@ -1571,6 +1572,7 @@ export function compileWGSLWithStage(
   };
 
   let nodes = Array.isArray(root) ? root : [root];
+  assertOneDeclarationPerName(nodes);
   let results = nodes.map((n) => compileWGSLStage(n, ctx));
   let countExpr = options?.count ? compileWGSLStage(options.count, ctx).expr : undefined;
   let allBody: string[] = [];
@@ -1646,7 +1648,7 @@ export function compileWGSLWithStage(
       // `@location` values are handed out in, so a mat4 skipping four shifts
       // only what follows it.
       let attrLoc = 0;
-      const vertexInputs = [...ctx.attributes.entries()].sort((a, b) => a[0] - b[0]);
+      const vertexInputs = [...ctx.attributes.entries()].sort((a, b) => a[1].id - b[1].id);
       for (const [, info] of vertexInputs) {
         const matrix = wgslMatrixColumns(info.type);
         if (matrix) {
@@ -1693,7 +1695,7 @@ export function compileWGSLWithStage(
     lines.push("  var result: VertexOutput;");
     // Put each matrix attribute back together from the columns it arrived in,
     // before anything reads it.
-    for (const [, info] of [...ctx.attributes.entries()].sort((a, b) => a[0] - b[0])) {
+    for (const [, info] of [...ctx.attributes.entries()].sort((a, b) => a[1].id - b[1].id)) {
       const matrix = wgslMatrixColumns(info.type);
       if (!matrix) continue;
       const columns = Array.from(
@@ -1936,6 +1938,7 @@ export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options:
     reentrant: false,
     jsNeedsRes: false,
   };
+  assertOneDeclarationPerName(result);
   const compiled = compileWGSLStage(result, ctx);
   const returnType = wgslType((result as any)._t || "float");
   const paramStr = options.params.map((p) => `${p.name}: ${wgslType(p.type)}`).join(", ");

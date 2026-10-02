@@ -12,6 +12,7 @@ import {
   assertPositionIsReadable,
   assertSquareMatrix,
   assertStageResult,
+  assertOneDeclarationPerName,
   forUpdateStatements,
   loopTest,
   tryFold,
@@ -201,8 +202,8 @@ export function compileGLSLNode(
 
     case "uniform": {
       let v = node.value as any;
-      if (!ctx.uniforms.has(v.id)) {
-        ctx.uniforms.set(v.id, { type: glslType(v.shaderType), slot: v.slot });
+      if (!ctx.uniforms.has(v.slot)) {
+        ctx.uniforms.set(v.slot, { type: glslType(v.shaderType), slot: v.slot });
       }
       return { decls: [], body: [], expr: v.slot };
     }
@@ -211,8 +212,8 @@ export function compileGLSLNode(
       // Registered on first reference like any uniform; `length` makes the
       // declaration `uniform vec4 name[24];` rather than a single value.
       let v = node.value as any;
-      if (!ctx.uniforms.has(v.id)) {
-        ctx.uniforms.set(v.id, {
+      if (!ctx.uniforms.has(v.slot)) {
+        ctx.uniforms.set(v.slot, {
           type: glslType(v.shaderType),
           slot: v.slot,
           length: v.length,
@@ -236,16 +237,16 @@ export function compileGLSLNode(
 
     case "attribute": {
       let v = node.value as any;
-      if (!ctx.attributes.has(v.id)) {
-        ctx.attributes.set(v.id, { type: glslType(v.shaderType), slot: v.slot });
+      if (!ctx.attributes.has(v.slot)) {
+        ctx.attributes.set(v.slot, { id: v.id, type: glslType(v.shaderType), slot: v.slot });
       }
       return { decls: [], body: [], expr: v.slot };
     }
 
     case "varying": {
       let v = node.value as any;
-      if (!ctx.varyings.has(v.id)) {
-        ctx.varyings.set(v.id, { id: v.id, type: glslType(v.shaderType), slot: v.slot });
+      if (!ctx.varyings.has(v.slot)) {
+        ctx.varyings.set(v.slot, { id: v.id, type: glslType(v.shaderType), slot: v.slot });
       }
       return { decls: [], body: [], expr: v.slot };
     }
@@ -954,6 +955,7 @@ export function compileGLSLWithStage(
   };
 
   let nodes = Array.isArray(root) ? root : [root];
+  assertOneDeclarationPerName(nodes);
   let results = nodes.map((n) => compileGLSLStage(n, ctx));
   let allBody: string[] = [];
   let lastExpr = "0.0";
@@ -1119,6 +1121,7 @@ export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options:
     reentrant: false,
     jsNeedsRes: false,
   };
+  assertOneDeclarationPerName(result);
   const compiled = compileGLSLStage(result, ctx);
   const returnType = glslType((result as any)._t || "float");
   const paramStr = options.params.map((p) => `${glslType(p.type)} ${p.name}`).join(", ");
