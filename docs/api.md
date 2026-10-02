@@ -396,6 +396,33 @@ The names are the capitalized TSL ones, so a shader written against
 `three/tsl`'s `If`/`ElseIf`/`Else`/`While`/`For`/`Switch`/`Case`/`Default`
 migrates unchanged.
 
+Each `ElseIf` and `Else` has to follow the link before it directly, in the
+same block. Writing anything between them throws, a variable included:
+
+```typescript
+const chain = If(a, () => out.assign(1));
+const t = x.add(1).toVar(); // throws when chain.ElseIf is read
+chain.ElseIf(t.greaterThan(5), () => out.assign(2));
+```
+
+An `ElseIf` condition may make a variable itself. It belongs to that
+`ElseIf`, as `let i` in `for (let i = 0; ...)` belongs to its loop: it is
+computed only when the condition is tested, can be read in the rest of the
+chain, and using it after the chain throws.
+
+```typescript
+If(a, () => out.assign(1)).ElseIf(x.add(1).toVar().greaterThan(5), () => out.assign(2));
+```
+
+To compute a value the chain reads:
+
+- every time, and read it after the chain: make it before the `If`;
+- only when the condition is tested: leave out `toVar()`, as in
+  `ElseIf(x.add(1).greaterThan(5), ...)`, or compute it in an `Fn` the
+  condition calls;
+- only when the earlier conditions were false, and use it in several
+  statements: `Else(() => { const t = x.add(1).toVar(); If(t.greaterThan(5), ...); })`.
+
 ### Loop
 
 TSL's counting loop:
@@ -464,17 +491,10 @@ While(
 );
 ```
 
-A `For` condition, and an `ElseIf` condition, may make variables too: they
-are computed where the condition is tested, and stay in scope after the loop
-or chain, and in a `For`'s update. A `For` or `While` condition function may
-also write other statements, which run before every test.
-
-An `ElseIf` condition is tested only when the conditions before it were
-false, so after the chain a variable it makes holds zero if an earlier branch
-ran. An `ElseIf` has to follow its `If` directly, in the same block. A
-variable written between them that the `ElseIf` condition reads is taken as
-the condition's, and computed only when it is tested; any other statement
-written between them throws.
+A `For` condition may make variables too: they are computed where the
+condition is tested, and stay in scope after the loop, and in its update. A
+`For` or `While` condition function may also write other statements, which
+run before every test.
 
 ### Other
 
