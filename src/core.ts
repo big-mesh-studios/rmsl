@@ -1683,6 +1683,32 @@ export function claimVarName(name: string | undefined): string {
   return candidate;
 }
 
+/**
+ * The variables each `ElseIf` condition in the current top-level `Fn` made,
+ * with the `If` whose chain they belong to.
+ */
+let elseIfVariables: { chain: BaseNode<ShaderType>; names: Set<string> }[] = [];
+
+/**
+ * Throws if `roots` use a variable an `ElseIf` condition made anywhere outside
+ * that condition's `If` chain. Such a variable belongs to the `ElseIf`, as
+ * `let i` in `for (let i = 0; ...)` belongs to its loop.
+ */
+function assertElseIfVariablesInChain(roots: unknown) {
+  for (const { chain, names } of elseIfVariables) {
+    const usedOutside = someNode(
+      roots,
+      (n) => n.type === "var" && names.has((n.value as { varName: string }).varName),
+      [chain],
+    );
+    if (usedOutside) {
+      throw new Error(
+        "[RMSL] A variable made in an ElseIf condition is used after its If chain: it belongs to that ElseIf. Make it before the If to use it after the chain",
+      );
+    }
+  }
+}
+
 export function assertBlockScope(fnName: string, fn: (blockScope: BaseNode<ShaderType>[]) => void) {
   if (blockScope === undefined) {
     throw new Error(`${fnName} must be called inside an Fn(() => { ... }) scope.`);
@@ -1705,32 +1731,40 @@ export function Fn<T extends any[], const R>(fn: (...args: T) => R): (...args: T
     let oldBlockScope = blockScope;
     // A top-level Fn starts a fresh name registry, so each compiled program
     // gets its own deterministic set of user-named variables. Nested Fns keep
-    // the outer registry, since their variables share the outer program.
-    if (oldBlockScope === undefined) usedVarNames.clear();
+    // the outer registry, since their variables share the outer program. The
+    // same goes for the variables ElseIf conditions make.
+    let oldElseIfVariables = elseIfVariables;
+    if (oldBlockScope === undefined) {
+      usedVarNames.clear();
+      elseIfVariables = [];
+    }
     try {
       let scope: BaseNode<ShaderType>[] = [];
       blockScope = scope;
       let r = fn(...args);
+      let result: unknown;
       if (Array.isArray(r)) {
-        return r.map((_, i) => {
+        result = r.map((_, i) => {
           let item = wrapValue((r as any[])[i]) as BaseNode<ShaderType>;
           return node({
             _t: item._t || "void",
             type: "seq",
             params: [...scope, item],
           }) as Node<ShaderType>;
-        }) as R;
+        });
+      } else {
+        let wrappedR = wrapValue(r as any) as BaseNode<ShaderType>;
+        result = node({
+          _t: wrappedR._t || "void",
+          type: "seq",
+          params: [...scope, wrappedR],
+        });
       }
-      let wrappedR = wrapValue(r as any) as BaseNode<ShaderType>;
-      let returnType = wrappedR._t || "void";
-      let seqNode = node({
-        _t: returnType,
-        type: "seq",
-        params: [...scope, wrappedR],
-      }) as any;
-      return seqNode;
+      if (oldBlockScope === undefined) assertElseIfVariablesInChain(result);
+      return result;
     } finally {
       blockScope = oldBlockScope;
+      elseIfVariables = oldElseIfVariables;
     }
   };
 }
@@ -2879,10 +2913,11 @@ function splitCondition(made: readonly BaseNode<ShaderType>[]) {
 
 /**
  * Calls `visit` on each node reachable from the roots through `params`,
- * stopping at the first that returns true. Returns whether one did.
+ * stopping at the first that returns true. Returns whether one did. Nodes in
+ * `skip` are neither visited nor walked into.
  */
-export function someNode(roots: unknown, visit: (node: any) => boolean | void): boolean {
-  const visited = new Set<unknown>();
+export function someNode(roots: unknown, visit: (node: any) => boolean | void, skip: Iterable<unknown> = []): boolean {
+  const visited = new Set<unknown>(skip);
   const walk = (node: any): boolean => {
     if (!node || typeof node !== "object" || visited.has(node)) return false;
     visited.add(node);
@@ -2892,34 +2927,26 @@ export function someNode(roots: unknown, visit: (node: any) => boolean | void): 
   return walk(roots);
 }
 
-/** The names of the variables `roots` read, anywhere beneath them. */
-function variablesRead(roots: readonly BaseNode<ShaderType>[]): Set<string> {
-  const names = new Set<string>();
-  someNode(roots, (n) => {
-    if (n.type === "var") names.add((n.value as { varName: string }).varName);
-  });
-  return names;
-}
-
-/** `test`, preceded where it is tested by `assignments`: a `seq` of them, or `test` alone. */
-function withAssignments(assignments: BaseNode<ShaderType>[], test: BaseNode<ShaderType>): BaseNode<ShaderType> {
-  return assignments.length === 0
+/** `test`, preceded where it is tested by `statements`: a `seq` of them, or `test` alone. */
+function withStatements(statements: BaseNode<ShaderType>[], test: BaseNode<ShaderType>): BaseNode<ShaderType> {
+  return statements.length === 0
     ? test
-    : (node({ _t: test._t, type: "seq", params: [...assignments, test] }) as BaseNode<ShaderType>);
+    : (node({ _t: test._t, type: "seq", params: [...statements, test] }) as BaseNode<ShaderType>);
 }
 
 /**
  * A conditional, as TSL's `If`, chained with `ElseIf` and `Else`.
  *
- * An `ElseIf`'s condition is built after the `If` is already in the
- * enclosing block, so a variable it makes, as with `toVar()`, lands after
- * the `If`. `ElseIf` declares such a variable before the `If`, at zero, and
- * computes it in the else branch, ahead of its own test, which is where the
- * condition is evaluated. A variable written between the `If` and the
- * `ElseIf` that the condition reads is taken as the condition's, so it too is
- * computed only when the condition is tested. Anything else written between
- * them is an error, as is an `ElseIf` called from inside another block: it
- * would run only when the condition is tested, or out of order.
+ * Each link has to follow the one before it directly, in the same block:
+ * anything written between them, a variable included, is an error. A
+ * variable an `ElseIf` condition makes belongs to that `ElseIf`, as `let i`
+ * in `for (let i = 0; ...)` belongs to its loop: it is computed in the else
+ * branch, ahead of the test, and using it after the chain is an error.
+ *
+ * `ElseIf` and `Else` are getters so they can tell the two apart: JavaScript
+ * reads `chain.ElseIf` before it evaluates the condition passed to it, so
+ * what was written before the read sits between the links, and what was
+ * written after it belongs to the condition.
  */
 export function If(cond: BooleanLike, body: () => void): ElseIfChain {
   let ifNode = node({
@@ -2932,42 +2959,46 @@ export function If(cond: BooleanLike, body: () => void): ElseIfChain {
     scope.push(ifNode);
     outer = scope;
   });
-  /** Where the statements an `ElseIf` condition makes start in the enclosing block. */
-  let mark = outer.length;
+  /** Where the chain ends in the enclosing block: what follows is written after it. */
+  const end = outer.length;
   let deepestIf = ifNode;
+  const assertFollows = (link: string) => {
+    if (blockScope !== outer) {
+      throw new Error(`[RMSL] ${link} has to follow its If directly: it was called from inside another block`);
+    }
+    if (outer.length !== end) {
+      throw new Error(
+        `[RMSL] ${link} has to follow its If directly: nothing can be written between them, a variable included. Make a value the chain reads before the If`,
+      );
+    }
+  };
   const chain: ElseIfChain = {
-    ElseIf: (nextCond, nextBody) => {
-      if (blockScope !== outer) {
-        throw new Error("[RMSL] ElseIf has to follow its If directly: it was called from inside another block");
-      }
-      const test = wrapValue(nextCond) as BaseNode<ShaderType>;
-      const made = outer.splice(mark);
-      const read =
-        made.length === 0
-          ? new Set<string>()
-          : variablesRead([test, ...made.flatMap((m) => (m.type === "let" ? [m.params![1]!] : []))]);
-      for (const statement of made) {
-        const variable = statement.params?.[0] as { value?: { varName: string } } | undefined;
-        if (statement.type !== "let" || !read.has(variable?.value?.varName ?? "")) {
-          throw new Error(
-            "[RMSL] ElseIf has to follow its If directly: a statement written between them would run only when its condition is tested",
-          );
-        }
-      }
-      const { declarations, assignments } = splitCondition(made);
-      outer.splice(outer.indexOf(ifNode), 0, ...declarations);
-      mark = outer.length;
-      let nextIf = node({
-        _t: "void",
-        type: "if",
-        params: [test, buildBlock(nextBody) as BaseNode<ShaderType>],
-      });
-      deepestIf.params![2] = withAssignments(assignments, nextIf as BaseNode<ShaderType>);
-      deepestIf = nextIf;
-      return chain;
+    get ElseIf() {
+      assertFollows("ElseIf");
+      return (nextCond: BooleanLike, nextBody: () => void) => {
+        const test = wrapValue(nextCond) as BaseNode<ShaderType>;
+        const made = outer.splice(end);
+        const names = new Set(
+          made.flatMap((m) =>
+            m.type === "let" ? [(m.params![0] as { value: { varName: string } }).value.varName] : [],
+          ),
+        );
+        if (names.size > 0) elseIfVariables.push({ chain: ifNode, names });
+        let nextIf = node({
+          _t: "void",
+          type: "if",
+          params: [test, buildBlock(nextBody) as BaseNode<ShaderType>],
+        });
+        deepestIf.params![2] = withStatements(made, nextIf as BaseNode<ShaderType>);
+        deepestIf = nextIf;
+        return chain;
+      };
     },
-    Else: (elseBody) => {
-      deepestIf.params![2] = buildBlock(elseBody) as BaseNode<ShaderType>;
+    get Else() {
+      assertFollows("Else");
+      return (elseBody: () => void) => {
+        deepestIf.params![2] = buildBlock(elseBody) as BaseNode<ShaderType>;
+      };
     },
   };
   return chain;
@@ -2982,7 +3013,7 @@ export function If(cond: BooleanLike, body: () => void): ElseIfChain {
 function loopCondition(cond: () => BooleanLike) {
   const { value, statements } = captureStatements(cond);
   const { declarations, assignments } = splitCondition(statements);
-  return { declarations, condition: withAssignments(assignments, wrapValue(value) as BaseNode<ShaderType>) };
+  return { declarations, condition: withStatements(assignments, wrapValue(value) as BaseNode<ShaderType>) };
 }
 
 /**

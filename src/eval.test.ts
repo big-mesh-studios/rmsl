@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { Fn, float, int, For, If, While, Switch, Break, Continue, Return, Discard, type Node } from "./rmsl";
+import { Fn, float, int, For, If, While, Switch, Break, Continue, Return, Discard, type Node, type Var } from "./rmsl";
 import {
   evaluateRecording,
   assertRecordedEvaluationsAgree,
@@ -214,8 +214,8 @@ describe("RMSL evaluation", () => {
     await expectValue(classify, [25], 3);
   }, 60_000);
 
-  // An ElseIf's condition is built after its If is in the block, so a variable
-  // it makes has to be declared where that condition is tested, not after the If.
+  // A variable an ElseIf condition makes is computed only when that condition
+  // is tested, in the else branch, not after the If.
   it("tests an else-if condition that makes a variable with the variable's value", async () => {
     const classify = (x: Node<"float">) =>
       Fn(() => {
@@ -287,7 +287,32 @@ describe("RMSL evaluation", () => {
     await expectValue(evens, [3], 4);
   }, 60_000);
 
-  it("keeps a variable an else-if condition makes in scope after the chain", async () => {
+  it("reads a variable an else-if condition makes in the rest of its chain", async () => {
+    const pick = (x: Node<"float">) =>
+      Fn(() => {
+        const out = float(0).toVar();
+        let doubled!: Node<"float">;
+        If(x.lessThan(0), () => {
+          out.assign(float(1));
+        })
+          .ElseIf((doubled = x.mul(2).toVar()).greaterThan(3), () => {
+            out.assign(doubled);
+          })
+          .ElseIf(doubled.greaterThan(1), () => {
+            out.assign(doubled.add(100));
+          });
+        return out;
+      })();
+
+    await expectValue(pick, [-1], 1);
+    await expectValue(pick, [5], 10);
+    await expectValue(pick, [1], 102);
+    await expectValue(pick, [0], 0);
+  }, 60_000);
+
+  // A variable an ElseIf condition makes belongs to that ElseIf, as `let i` in
+  // `for (let i = 0; ...)` belongs to its loop.
+  it("refuses a variable an else-if condition makes used after the chain", () => {
     const pick = (x: Node<"float">) =>
       Fn(() => {
         const out = float(0).toVar();
@@ -299,12 +324,22 @@ describe("RMSL evaluation", () => {
         });
         return out.add(doubled);
       })();
+    expect(() => pick(float(1))).toThrow(/\[RMSL\] A variable made in an ElseIf condition is used after its If chain/);
 
-    // The chain stops at the If: the else-if's variable is never computed, and keeps its zero.
-    await expectValue(pick, [-1], 1);
-    await expectValue(pick, [5], 12);
-    await expectValue(pick, [1], 2);
-  }, 60_000);
+    const assignAfter = (x: Node<"float">) =>
+      Fn(() => {
+        const out = float(0).toVar();
+        let doubled!: Var<"float">;
+        If(x.lessThan(0), () => {
+          out.assign(float(1));
+        }).ElseIf((doubled = x.mul(2).toVar()).greaterThan(3), () => {
+          out.assign(float(2));
+        });
+        doubled.assign(float(0));
+        return out;
+      })();
+    expect(() => assignAfter(float(1))).toThrow(/\[RMSL\] A variable made in an ElseIf condition is used after/);
+  });
 
   it("keeps a variable a For condition makes in scope in the update and after the loop", async () => {
     const run = (x: Node<"float">) =>
@@ -347,6 +382,44 @@ describe("RMSL evaluation", () => {
 
     await expectValue(count, [3], 7);
   }, 60_000);
+
+  // Made between the links, `t` reads as if it is always computed, but it
+  // would be computed only when the ElseIf is tested.
+  it("refuses a variable made between an If and its ElseIf", () => {
+    const build = (x: Node<"float">) =>
+      Fn(() => {
+        const out = float(0).toVar();
+        const chain = If(x.lessThan(0), () => {
+          out.assign(float(1));
+        });
+        const t = x.add(1).toVar();
+        chain.ElseIf(t.greaterThan(5), () => {
+          out.assign(float(2));
+        });
+        return out.add(t);
+      })();
+    expect(() => build(float(1))).toThrow(
+      /\[RMSL\] ElseIf has to follow its If directly: nothing can be written between them, a variable included/,
+    );
+  });
+
+  it("refuses a statement written between an ElseIf and its Else", () => {
+    const build = (x: Node<"float">) =>
+      Fn(() => {
+        const total = float(0).toVar();
+        const chain = If(x.lessThan(0), () => {
+          total.assign(float(1));
+        }).ElseIf(x.greaterThan(5), () => {
+          total.assign(float(2));
+        });
+        total.assign(total.add(1));
+        chain.Else(() => {
+          total.assign(float(3));
+        });
+        return total;
+      })();
+    expect(() => build(float(1))).toThrow(/\[RMSL\] Else has to follow its If directly/);
+  });
 
   it("refuses a statement written between an If and its ElseIf", () => {
     const build = (x: Node<"float">) =>
