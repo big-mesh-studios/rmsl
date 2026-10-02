@@ -6,6 +6,7 @@ import {
   ShaderType,
   StorageBufferAttribute,
   TYPE_WIDTH,
+  someNode,
   var_,
 } from "../core";
 import { componentKindOf } from "./cpu";
@@ -638,21 +639,6 @@ export type CompileFnOptions = {
   name: string;
   params: Array<{ name: string; type: ShaderType }>;
 };
-
-/**
- * Calls `visit` on each node reachable from the roots through `params`,
- * stopping at the first that returns true. Returns whether one did.
- */
-export function someNode(roots: unknown, visit: (node: any) => boolean | void): boolean {
-  const visited = new Set<unknown>();
-  const walk = (node: any): boolean => {
-    if (!node || typeof node !== "object" || visited.has(node)) return false;
-    visited.add(node);
-    if (Array.isArray(node)) return node.some(walk);
-    return visit(node) === true || (Array.isArray(node.params) && node.params.some(walk));
-  };
-  return walk(roots);
-}
 
 /** Every storage attribute reachable from the roots, keyed by the slot name its nodes compile to. */
 export function storageAttributes(roots: unknown): Map<string, StorageBufferAttribute> {

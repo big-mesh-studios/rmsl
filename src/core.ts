@@ -2875,17 +2875,27 @@ function splitCondition(made: readonly BaseNode<ShaderType>[], where: string) {
   return { declarations, assignments };
 }
 
+/**
+ * Calls `visit` on each node reachable from the roots through `params`,
+ * stopping at the first that returns true. Returns whether one did.
+ */
+export function someNode(roots: unknown, visit: (node: any) => boolean | void): boolean {
+  const visited = new Set<unknown>();
+  const walk = (node: any): boolean => {
+    if (!node || typeof node !== "object" || visited.has(node)) return false;
+    visited.add(node);
+    if (Array.isArray(node)) return node.some(walk);
+    return visit(node) === true || (Array.isArray(node.params) && node.params.some(walk));
+  };
+  return walk(roots);
+}
+
 /** The names of the variables `roots` read, anywhere beneath them. */
 function variablesRead(roots: readonly BaseNode<ShaderType>[]): Set<string> {
   const names = new Set<string>();
-  const seen = new Set<BaseNode<ShaderType>>();
-  const visit = (n: BaseNode<ShaderType> | undefined) => {
-    if (!n || seen.has(n)) return;
-    seen.add(n);
+  someNode(roots, (n) => {
     if (n.type === "var") names.add((n.value as { varName: string }).varName);
-    for (const p of n.params ?? []) visit(p);
-  };
-  roots.forEach(visit);
+  });
   return names;
 }
 
@@ -2924,7 +2934,7 @@ export function If(cond: BooleanLike, body: () => void): ElseIfChain {
     ElseIf: (nextCond, nextBody) => {
       const test = wrapValue(nextCond) as BaseNode<ShaderType>;
       const made = outer.splice(mark);
-      const read = variablesRead([test, ...made.map((m) => m.params![1]!)]);
+      const read = made.length === 0 ? new Set<string>() : variablesRead([test, ...made.map((m) => m.params![1]!)]);
       for (const statement of made) {
         const variable = statement.params?.[0] as { value?: { varName: string } } | undefined;
         if (statement.type !== "let" || !read.has(variable?.value?.varName ?? "")) {

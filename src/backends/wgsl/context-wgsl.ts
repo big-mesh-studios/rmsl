@@ -1,6 +1,7 @@
 import {
   isSamplerType,
   MATRIX_DIMENSIONS,
+  someNode,
   type ComputeNode,
   type StorageBufferAttribute,
   type Node,
@@ -11,7 +12,7 @@ import {
 } from "../../core";
 import { compile, type WgslResource } from "../../wgsl";
 import { slotOf, type TypedArray } from "../adapter";
-import { assertWriteFits, someNode } from "../shared";
+import { assertWriteFits } from "../shared";
 import {
   assertStorageBufferLimit,
   requestComputeDevice,
