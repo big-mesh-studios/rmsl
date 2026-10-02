@@ -195,6 +195,8 @@ export type {
   Vec3Like,
   Vec4Like,
 } from "./core";
+export type { SerializedBuffer, SerializedGraph, SerializedNode } from "./serialize";
+export { deserialize, serialize } from "./serialize";
 
 // `export type` vs `export`: Rollup (pnpm build) errors re-exporting a name
 // with no runtime binding, which every interface/type here is.
