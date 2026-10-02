@@ -364,6 +364,43 @@ describe("RMSL evaluation", () => {
     expect(() => build(float(1))).toThrow(/\[RMSL\] ElseIf has to follow its If directly/);
   });
 
+  it("runs a statement a loop condition writes before every test", async () => {
+    const forTests = (x: Node<"float">) =>
+      Fn(() => {
+        const tests = float(0).toVar();
+        For(
+          () => float(0).toVar(),
+          (n) => {
+            tests.assign(tests.add(1));
+            return n.lessThan(x);
+          },
+          (n) => {
+            n.assign(n.add(1));
+          },
+          () => {},
+        );
+        return tests;
+      })();
+    await expectValue(forTests, [3], 4);
+
+    const whileTests = (x: Node<"float">) =>
+      Fn(() => {
+        const tests = float(0).toVar();
+        const n = float(0).toVar();
+        While(
+          () => {
+            tests.assign(tests.add(1));
+            return n.lessThan(x);
+          },
+          () => {
+            n.assign(n.add(1));
+          },
+        );
+        return tests;
+      })();
+    await expectValue(whileTests, [3], 4);
+  }, 60_000);
+
   it("recomputes a variable a While condition given as a function makes on every iteration", async () => {
     const count = (x: Node<"float">) =>
       Fn(() => {
