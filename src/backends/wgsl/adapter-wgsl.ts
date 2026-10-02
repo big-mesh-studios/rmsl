@@ -96,6 +96,8 @@ function freshCtx(shaderStage: CompileCtx["shaderStage"]): CompileCtx {
     jsParams: new Set(),
     jsHelpers: new Set(),
     outTarget: null,
+    jsEpoch: 0,
+    jsReadsSlot: false,
     derivatives: "throw",
     reentrant: false,
     jsNeedsRes: false,

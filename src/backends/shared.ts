@@ -22,6 +22,8 @@ export interface CompiledNode {
   body: string[];
   expr: string;
   prec?: number;
+  /** JS target: the {@link CompileCtx.jsEpoch} a value reading a filled slot was compiled at. */
+  jsEpoch?: number;
 }
 
 /**
@@ -124,6 +126,14 @@ export interface CompileCtx {
    * target is lowering an assignment. `null` means a plain expression.
    */
   outTarget: string | null;
+  /**
+   * JS target: how many writes and block boundaries compiling has passed. A
+   * value computed into a slot holds what it was there, so its memo entry is
+   * only reused while this is the count it was compiled at.
+   */
+  jsEpoch: number;
+  /** JS target: whether the value being compiled reads a slot that statements filled. */
+  jsReadsSlot: boolean;
   /** What derivative ops (dFdx/dFdy/fwidth) compile to on the CPU. */
   derivatives: "throw" | "zero";
   /** Per-call variable bindings instead of hoisted per-program scratch. */

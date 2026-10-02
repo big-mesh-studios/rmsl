@@ -675,6 +675,26 @@ describe("WASM backend: Return and Discard", () => {
       })();
     expect(run(build)).toBe(0);
   });
+
+  it("returns from a loop condition's statements, rather than looping on", () => {
+    const build = () =>
+      Fn(() => {
+        const n = float(0).toVar();
+        While(
+          () => {
+            If(n.greaterThan(2), () => {
+              Return();
+            });
+            return n.lessThan(10);
+          },
+          () => {
+            n.assign(n.add(1));
+          },
+        );
+        return n.add(100);
+      })();
+    expect(run(build)).toBe(0);
+  });
 });
 
 describe("WASM backend: vec3 dot", () => {
@@ -2018,5 +2038,57 @@ describe("WASM backend: writing a vector component by index", () => {
       [0, 0, 0, 1],
       [0, 0, 0, 1],
     ]);
+  });
+});
+
+describe("WASM backend: an inline Fn's statements read inside a statement", () => {
+  // Each program also runs on the JS target, which gives the answer.
+  it("runs them when the statement stores into a storage element past the end", () => {
+    const out = instancedArray(1, "float");
+    const build = () =>
+      Fn(() => {
+        const runs = float(0).toVar();
+        const value = Fn(() => {
+          runs.assign(runs.add(1));
+          return runs;
+        })();
+        out.element(int(5)).assign(value);
+        return value.add(runs);
+      })();
+    // A program with storage returns its value in a result object on WASM.
+    const run = (compile: typeof compileWasmRoutine) => {
+      const result = compile(build as any, { name: "main", params: [] }).run({
+        storages: { [out.name]: new Float64Array(1) },
+      });
+      return typeof result === "number" ? result : (result as any).value;
+    };
+    expect(run(compileJSRoutine as any)).toBe(2);
+    expect(run(compileWasmRoutine)).toBe(2);
+  });
+
+  it("runs them once when they compute a uniform array index", () => {
+    let arr!: any;
+    const build = () =>
+      Fn(() => {
+        arr = uniformArray("vec3", 2);
+        const runs = float(0).toVar();
+        const index = Fn(() => {
+          runs.assign(runs.add(1));
+          return int(1);
+        })();
+        const v = arr.element(index).toVar();
+        return v.x.add(runs.mul(100));
+      })();
+    const run = (compile: typeof compileWasmRoutine) =>
+      compile(build as any, { name: "main", params: [] }).run({
+        uniforms: {
+          [arr.name]: [
+            [1, 2, 3],
+            [4, 5, 6],
+          ],
+        },
+      });
+    expect(run(compileJSRoutine as any)).toBe(104);
+    expect(run(compileWasmRoutine)).toBe(104);
   });
 });

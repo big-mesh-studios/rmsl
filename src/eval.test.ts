@@ -1,5 +1,24 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { Fn, float, int, For, If, While, Switch, Break, Continue, Return, Discard, type Node, type Var } from "./rmsl";
+import {
+  Fn,
+  float,
+  int,
+  vec2,
+  vec3,
+  mat2,
+  smoothstep,
+  clamp,
+  For,
+  If,
+  While,
+  Switch,
+  Break,
+  Continue,
+  Return,
+  Discard,
+  type Node,
+  type Var,
+} from "./rmsl";
 import {
   evaluateRecording,
   assertRecordedEvaluationsAgree,
@@ -873,5 +892,219 @@ describe("RMSL evaluation", () => {
       })();
 
     await expectValue(sumSkippingFirst, [5], 9); // 2+3+4, skipping 0,1
+  }, 60_000);
+
+  // A copy made with `toVar()` is its own value: writing it leaves what it was
+  // copied from as it was, whether that is a literal or a computed vector.
+  it("keeps the value a variable was copied from", async () => {
+    await expectValue(
+      () =>
+        Fn(() => {
+          const value = vec3(1, 2, 3);
+          const copy = value.toVar();
+          copy.y.assign(float(9));
+          return copy.y.add(value.y);
+        })(),
+      [],
+      11,
+    );
+    await expectValue(
+      (a) =>
+        Fn(() => {
+          const value = vec3(a, a.add(1), a.add(2));
+          const copy = value.toVar();
+          copy.y.assign(float(9));
+          return copy.y.add(value.y);
+        })(),
+      [1],
+      11,
+    );
+    await expectValue(
+      (a) =>
+        Fn(() => {
+          const value = vec3(a, a.add(1), a.add(2));
+          const copy = vec3(0).toVar();
+          copy.assign(value);
+          copy.y.assign(float(9));
+          return copy.y.add(value.y);
+        })(),
+      [1],
+      11,
+    );
+    await expectValue(
+      (a) =>
+        Fn(() => {
+          const value = mat2(vec2(a, a.add(1)), vec2(a.add(2), a.add(3)));
+          const copy = value.toVar();
+          copy.element(int(0)).assign(vec2(9, 9));
+          return copy.element(int(0)).y.add(value.element(int(0)).y);
+        })(),
+      [1],
+      11,
+    );
+  }, 60_000);
+
+  // A value is what it computes where it is read: after a variable it reads is
+  // written, or outside a branch where it was first computed.
+  it("reads a value as it is where it is read", async () => {
+    await expectValue(
+      () =>
+        Fn(() => {
+          const s = vec3(1, 2, 3).toVar();
+          const value = vec3(s.x, s.y, float(0));
+          const copy = value.toVar();
+          s.x.assign(float(10));
+          return value.x.add(copy.x.mul(100));
+        })(),
+      [],
+      110,
+    );
+    await expectValue(
+      () =>
+        Fn(() => {
+          const s = vec3(1, 2, 3).toVar();
+          const value = vec3(s.x, s.y, float(0));
+          const sum = value.add(vec3(1)).toVar();
+          s.x.assign(float(10));
+          return value.x.add(sum.x.mul(100));
+        })(),
+      [],
+      210,
+    );
+    await expectValue(
+      (a, flag) =>
+        Fn(() => {
+          const value = vec3(a, a.add(1), a.add(2));
+          const sum = vec3(0).toVar();
+          If(flag.greaterThan(0.5), () => {
+            sum.assign(value.add(vec3(1)));
+          });
+          return value.y.add(sum.y.mul(100));
+        })(),
+      [1, 0],
+      2,
+    );
+    await expectValue(
+      () =>
+        Fn(() => {
+          const s = vec3(1, 2, 3).toVar();
+          const value = vec3(s.x, s.y, float(0));
+          const copy = value.toVar();
+          const total = float(0).toVar();
+          For(
+            () => float(0).toVar(),
+            (i) => i.lessThan(2),
+            (i) => i.assign(i.add(1)),
+            () => {
+              total.assign(total.add(value.x));
+              s.x.assign(float(10));
+            },
+          );
+          return total.add(copy.x.mul(100));
+        })(),
+      [],
+      111,
+    );
+  }, 60_000);
+
+  // An inline Fn's statements run once, however often the value it returns is read.
+  it("runs an inline Fn's statements once", async () => {
+    const counted = (read: (value: Node<"vec3">) => Node<"float">) => () =>
+      Fn(() => {
+        const runs = float(0).toVar();
+        const value = Fn(() => {
+          runs.assign(runs.add(1));
+          return vec3(1, 2, 3);
+        })();
+        return read(value).add(runs.mul(100));
+      })();
+    await expectValue(
+      counted((value) => value.x.add(value.y)),
+      [],
+      103,
+    );
+    await expectValue(
+      counted((value) => {
+        const copy = value.toVar();
+        copy.y.assign(float(9));
+        return copy.y.add(value.y);
+      }),
+      [],
+      111,
+    );
+    // Builtins that read an operand more than once, or out of order.
+    const countedScalar = (read: (value: Node<"float">) => Node<"float">) => () =>
+      Fn(() => {
+        const runs = float(0).toVar();
+        const value = Fn(() => {
+          runs.assign(runs.add(1));
+          return runs.mul(2);
+        })();
+        return read(value).add(runs.mul(100));
+      })();
+    await expectValue(
+      countedScalar((value) => smoothstep(value, float(10), float(5))),
+      [],
+      100.31640625,
+    );
+    await expectValue(
+      countedScalar((value) => smoothstep(value, float(10), value.add(4))),
+      [],
+      100.5,
+    );
+    await expectValue(
+      countedScalar((value) => float(clamp(int(value), int(0), int(5)))),
+      [],
+      102,
+    );
+    // The Fn writes the variable its value is then copied into.
+    await expectValue(
+      () =>
+        Fn(() => {
+          const copy = vec3(0).toVar();
+          const value = Fn(() => {
+            copy.x.assign(copy.x.add(1));
+            return vec3(1, 2, 3);
+          })();
+          copy.assign(value);
+          return value.x.add(copy.x.mul(100));
+        })(),
+      [],
+      101,
+    );
+  }, 60_000);
+
+  // The first Fn's If runs its statements a block deeper; the second Fn's Break
+  // still leaves the loop it sits in.
+  it("breaks out of a loop from an inline Fn read after one with a branch", async () => {
+    await expectValue(
+      (flag) =>
+        Fn(() => {
+          const total = float(0).toVar();
+          For(
+            () => float(0).toVar(),
+            (i) => i.lessThan(3),
+            (i) => i.assign(i.add(1)),
+            (i) => {
+              const first = Fn(() => {
+                If(flag.greaterThan(0.5), () => {
+                  total.assign(total.add(1));
+                });
+                return float(1);
+              })();
+              const second = Fn(() => {
+                If(i.greaterThan(0.5), () => {
+                  Break();
+                });
+                return float(10);
+              })();
+              total.assign(total.add(first.add(second)));
+            },
+          );
+          return total;
+        })(),
+      [1],
+      13,
+    );
   }, 60_000);
 });
