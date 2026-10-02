@@ -1,5 +1,24 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { Fn, float, int, For, If, While, Switch, Break, Continue, Return, Discard, vec3, vec2, mat2, type Node, type Var } from "./rmsl";
+import {
+  Fn,
+  float,
+  int,
+  vec2,
+  vec3,
+  mat2,
+  smoothstep,
+  clamp,
+  For,
+  If,
+  While,
+  Switch,
+  Break,
+  Continue,
+  Return,
+  Discard,
+  type Node,
+  type Var,
+} from "./rmsl";
 import {
   evaluateRecording,
   assertRecordedEvaluationsAgree,
@@ -985,6 +1004,107 @@ describe("RMSL evaluation", () => {
         })(),
       [],
       111,
+    );
+  }, 60_000);
+
+  // An inline Fn's statements run once, however often the value it returns is read.
+  it("runs an inline Fn's statements once", async () => {
+    const counted = (read: (value: Node<"vec3">) => Node<"float">) => () =>
+      Fn(() => {
+        const runs = float(0).toVar();
+        const value = Fn(() => {
+          runs.assign(runs.add(1));
+          return vec3(1, 2, 3);
+        })();
+        return read(value).add(runs.mul(100));
+      })();
+    await expectValue(
+      counted((value) => value.x.add(value.y)),
+      [],
+      103,
+    );
+    await expectValue(
+      counted((value) => {
+        const copy = value.toVar();
+        copy.y.assign(float(9));
+        return copy.y.add(value.y);
+      }),
+      [],
+      111,
+    );
+    // Builtins that read an operand more than once, or out of order.
+    const countedScalar = (read: (value: Node<"float">) => Node<"float">) => () =>
+      Fn(() => {
+        const runs = float(0).toVar();
+        const value = Fn(() => {
+          runs.assign(runs.add(1));
+          return runs.mul(2);
+        })();
+        return read(value).add(runs.mul(100));
+      })();
+    await expectValue(
+      countedScalar((value) => smoothstep(value, float(10), float(5))),
+      [],
+      100.31640625,
+    );
+    await expectValue(
+      countedScalar((value) => smoothstep(value, float(10), value.add(4))),
+      [],
+      100.5,
+    );
+    await expectValue(
+      countedScalar((value) => float(clamp(int(value), int(0), int(5)))),
+      [],
+      102,
+    );
+    // The Fn writes the variable its value is then copied into.
+    await expectValue(
+      () =>
+        Fn(() => {
+          const copy = vec3(0).toVar();
+          const value = Fn(() => {
+            copy.x.assign(copy.x.add(1));
+            return vec3(1, 2, 3);
+          })();
+          copy.assign(value);
+          return value.x.add(copy.x.mul(100));
+        })(),
+      [],
+      101,
+    );
+  }, 60_000);
+
+  // The first Fn's If runs its statements a block deeper; the second Fn's Break
+  // still leaves the loop it sits in.
+  it("breaks out of a loop from an inline Fn read after one with a branch", async () => {
+    await expectValue(
+      (flag) =>
+        Fn(() => {
+          const total = float(0).toVar();
+          For(
+            () => float(0).toVar(),
+            (i) => i.lessThan(3),
+            (i) => i.assign(i.add(1)),
+            (i) => {
+              const first = Fn(() => {
+                If(flag.greaterThan(0.5), () => {
+                  total.assign(total.add(1));
+                });
+                return float(1);
+              })();
+              const second = Fn(() => {
+                If(i.greaterThan(0.5), () => {
+                  Break();
+                });
+                return float(10);
+              })();
+              total.assign(total.add(first.add(second)));
+            },
+          );
+          return total;
+        })(),
+      [1],
+      13,
     );
   }, 60_000);
 });

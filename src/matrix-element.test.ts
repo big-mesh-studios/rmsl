@@ -88,6 +88,38 @@ describe("a matrix's column by index", () => {
     expect(evaluateWASM((a) => write(a), [-1])).toEqual([5, 7, 53]);
   });
 
+  it("reads a column index at the write, after the statements of the value written", () => {
+    const write = Fn(() => {
+      const v = mat3(0).toVar();
+      const j = int(0).toVar();
+      const value = Fn(() => {
+        j.assign(j.add(1));
+        return float(5);
+      })();
+      v.element(j).x.assign(value);
+      return v.element(0).x.add(v.element(1).x.mul(10));
+    });
+    expect(evaluateRecording(() => write())).toBe(50);
+    expect(evaluateWASM(() => write())).toBe(50);
+  });
+
+  it("runs the statements of a column index before those of a component index", () => {
+    const write = Fn(() => {
+      const v = mat3(0).toVar();
+      const c = int(0).toVar();
+      const next = Fn(() => {
+        c.assign(c.add(1));
+        return c.toVar();
+      });
+      const column = next();
+      const row = next();
+      v.element(column).element(row).assign(float(7));
+      return v.element(1).z.mul(10).add(v.element(2).y);
+    });
+    expect(evaluateRecording(() => write())).toBe(70);
+    expect(evaluateWASM(() => write())).toBe(70);
+  });
+
   it("rejects a constant index outside the matrix on WASM, as WGSL and GLSL do", () => {
     expect(() => evaluateWASM(() => m().element(int(3)))).toThrow(
       /\[RMSL\] compileWasmFn: index 3 is outside a mat3's columns 0 to 2/,
