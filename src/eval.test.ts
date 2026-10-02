@@ -524,6 +524,24 @@ describe("RMSL evaluation", () => {
       })();
     await expectValue(whileBreak, [7], 8);
 
+    const breakAfterIf = (x: Node<"float">) =>
+      Fn(() => {
+        const n = float(0).toVar();
+        const hits = float(0).toVar();
+        While(
+          () => {
+            If(n.greaterThan(5), () => hits.assign(hits.add(1)));
+            If(n.greaterThan(x), () => Break());
+            return n.lessThan(10);
+          },
+          () => {
+            n.assign(n.add(1));
+          },
+        );
+        return n.add(hits.mul(100));
+      })();
+    await expectValue(breakAfterIf, [7], 308);
+
     const whileDirectBreak = () =>
       Fn(() => {
         const n = float(0).toVar();

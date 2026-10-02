@@ -833,8 +833,8 @@ export function compileWasmFn(
   // Tracks the block depth in scope wherever expression evaluation currently
   // sits, so a "seq" node encountered mid-expression (a nested Fn call's
   // result) can lower its leading statements with walkStmt at the right
-  // depth. walkStmt refreshes it on every call, so it's always accurate by
-  // the time a nested seq is walked from within that statement.
+  // depth. walkStmt sets it for the statement it walks and restores it after,
+  // so a nested statement's depth doesn't outlive that statement.
   let currentStmtDepth = EXIT_BLOCK_DEPTH;
   // Statement nodes are emitted at most once by identity: the array-return-
   // sugar case gives every result node the *same* leading statement objects
@@ -3451,7 +3451,17 @@ export function compileWasmFn(
    * targets.
    */
   function walkStmt(node: any, depth: number): number[] {
+    const outerDepth = currentStmtDepth;
     currentStmtDepth = depth;
+    try {
+      return walkStmtNode(node, depth);
+    } finally {
+      currentStmtDepth = outerDepth;
+    }
+  }
+
+  /** {@link walkStmt} once `currentStmtDepth` is `depth`. */
+  function walkStmtNode(node: any, depth: number): number[] {
     switch (node.type) {
       case "seq": {
         const list = node.params ?? [];
