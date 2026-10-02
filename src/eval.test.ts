@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { Fn, float, int, For, If, While, Switch, Break, Continue, type Node } from "./rmsl";
+import { Fn, float, int, For, If, While, Switch, Break, Continue, Return, Discard, type Node } from "./rmsl";
 import {
   evaluateRecording,
   assertRecordedEvaluationsAgree,
@@ -362,6 +362,22 @@ describe("RMSL evaluation", () => {
         return total;
       })();
     expect(() => build(float(1))).toThrow(/\[RMSL\] ElseIf has to follow its If directly/);
+
+    for (const statement of [Break, Continue, Return, Discard]) {
+      const between = (x: Node<"float">) =>
+        Fn(() => {
+          const total = float(0).toVar();
+          const chain = If(x.lessThan(0), () => {
+            total.assign(float(1));
+          });
+          statement();
+          chain.ElseIf(x.greaterThan(5), () => {
+            total.assign(float(2));
+          });
+          return total;
+        })();
+      expect(() => between(float(1)), statement.name).toThrow(/\[RMSL\] ElseIf has to follow its If directly/);
+    }
   });
 
   it("refuses an ElseIf called from inside another block", () => {

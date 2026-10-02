@@ -2942,7 +2942,10 @@ export function If(cond: BooleanLike, body: () => void): ElseIfChain {
       }
       const test = wrapValue(nextCond) as BaseNode<ShaderType>;
       const made = outer.splice(mark);
-      const read = made.length === 0 ? new Set<string>() : variablesRead([test, ...made.map((m) => m.params![1]!)]);
+      const read =
+        made.length === 0
+          ? new Set<string>()
+          : variablesRead([test, ...made.flatMap((m) => (m.type === "let" ? [m.params![1]!] : []))]);
       for (const statement of made) {
         const variable = statement.params?.[0] as { value?: { varName: string } } | undefined;
         if (statement.type !== "let" || !read.has(variable?.value?.varName ?? "")) {
