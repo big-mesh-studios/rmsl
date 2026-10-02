@@ -132,6 +132,13 @@ value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
   attribute and in what `getArrayBufferAsync()` returns: the WGSL context pads
   each column of three to 16 bytes only in the GPU buffer, where TSL rewrites
   the attribute itself to 4 components.
+- **Drawing from storage**: a vertex or fragment stage reads a `storage()`
+  node on WGSL, read-only, as in TSL; writing one there throws.
+  `vertexIndex()` and `instanceIndex()` give the vertex and instance being
+  drawn. `createWgsl({ vertex, fragment, context })` binds the stages'
+  storage nodes to a `WgslContext`'s buffers, so a draw reads what its
+  compute programs wrote, without a copy. GLSL has no storage buffers,
+  since WebGL2 doesn't, and throws on one.
 - **Post-processing** is available from the `@random-mesh/rmsl/effects`
   subpath. The effects are pure node graphs — pass sampler uniforms and
   parameters, get a color node. See [effects.md](./effects.md) for the
