@@ -23,6 +23,7 @@ import {
   parameterNode,
   assertStageResult,
   forUpdateStatements,
+  loopTest,
   resolveSwizzleTarget,
   tryFold,
   withoutSemicolon,
@@ -1851,18 +1852,14 @@ export function compileJSNode(
           initBody = init.body.slice(0, -1);
         }
       }
-      // A condition that runs statements before its test runs them at the top of
-      // every iteration, under a header that always continues; the update stays
-      // in the header, so a continue still runs it.
-      let header = cond.body.length > 0 ? "true" : cond.expr;
-      let guard = cond.body.length > 0 ? [...cond.body.map((l) => "  " + l), `  if (!(${cond.expr})) { break; }`] : [];
+      // The update stays in the header, so a continue still runs it.
+      let { header, guard } = loopTest(cond);
       return {
         decls: [...init.decls, ...cond.decls, ...update.decls, ...body.decls],
         body: [
           ...initBody,
           `for (${initExpr}; ${header}; ${forUpdateStatements(update).map(withoutSemicolon).join(", ")}) {`,
-          ...guard,
-          ...body.body.map((l) => "  " + l),
+          ...[...guard, ...body.body].map((l) => "  " + l),
           "}",
         ],
         expr: "0",
@@ -1872,18 +1869,10 @@ export function compileJSNode(
     case "while": {
       let cond = compileJSStage(node.params![0], ctx);
       let body = compileJSStage(node.params![1], ctx);
+      let { header, guard } = loopTest(cond);
       return {
         decls: [...cond.decls, ...body.decls],
-        body:
-          cond.body.length > 0
-            ? [
-                "while (true) {",
-                ...cond.body.map((l) => "  " + l),
-                `  if (!(${cond.expr})) { break; }`,
-                ...body.body.map((l) => "  " + l),
-                "}",
-              ]
-            : [`while (${cond.expr}) {`, ...body.body.map((l) => "  " + l), "}"],
+        body: [`while (${header}) {`, ...[...guard, ...body.body].map((l) => "  " + l), "}"],
         expr: "0",
       };
     }

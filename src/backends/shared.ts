@@ -129,6 +129,11 @@ export interface CompileCtx {
   reentrant: boolean;
   /** Whether the program writes outputs/position/fragDepth via a result object. */
   jsNeedsRes: boolean;
+  /**
+   * Set while a loop's condition compiles on GLSL and WGSL: the declarations
+   * of the variables it makes, which the loop puts ahead of itself.
+   */
+  hoisted?: string[];
 }
 
 // === Constant folding ===
@@ -475,6 +480,39 @@ export function forUpdateStatements(update: CompiledNode): string[] {
 /** Drop a trailing semicolon, for the slots that take an expression. */
 export function withoutSemicolon(statement: string): string {
   return statement.endsWith(";") ? statement.slice(0, -1) : statement;
+}
+
+/**
+ * A loop's condition, compiled to run where it is tested, with the
+ * declarations of the variables it makes split out for the loop to put ahead
+ * of itself. Declared inside the loop, such a variable would be out of scope
+ * after it, or in a for-loop's update, wherever else it is read. A condition
+ * within another's adds to the outer one's declarations.
+ */
+export function compileLoopCondition(
+  compile: (node: any, ctx: CompileCtx) => CompiledNode,
+  node: any,
+  ctx: CompileCtx,
+): { cond: CompiledNode; hoisted: string[] } {
+  const outer = ctx.hoisted;
+  const hoisted = outer ?? [];
+  ctx.hoisted = hoisted;
+  try {
+    return { cond: compile(node, ctx), hoisted: outer ? [] : hoisted };
+  } finally {
+    ctx.hoisted = outer;
+  }
+}
+
+/**
+ * How a loop tests a compiled condition: the expression its header holds, and
+ * the lines opening its body. A condition that runs statements before its test
+ * can't sit in a header, so the header holds `true`, and the body opens with
+ * the statements, then a break when the test fails.
+ */
+export function loopTest(cond: CompiledNode): { header: string; guard: string[] } {
+  if (cond.body.length === 0) return { header: cond.expr, guard: [] };
+  return { header: "true", guard: [...cond.body, `if (!(${cond.expr})) { break; }`] };
 }
 
 /**

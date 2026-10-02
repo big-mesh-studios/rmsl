@@ -14,7 +14,9 @@ import {
   assertAssignable,
   parameterNode,
   assertStageResult,
+  compileLoopCondition,
   forUpdateStatements,
+  loopTest,
   resolveSwizzleTarget,
   tryFold,
   isIntegerType,
@@ -1076,6 +1078,14 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       let t = wgslType(vt);
       let varName = (node.params![0] as any).varName || lhs.expr;
       ctx.varDefs.set(varName, t);
+      if (ctx.hoisted) {
+        ctx.hoisted.push(`var ${varName}: ${t};`);
+        return {
+          decls: [...lhs.decls, ...rhs.decls],
+          body: [...lhs.body, ...rhs.body, `${varName} = ${rhs.expr};`],
+          expr: varName,
+        };
+      }
       return {
         decls: [...lhs.decls, ...rhs.decls],
         body: [...lhs.body, ...rhs.body, `var ${varName}: ${t} = ${rhs.expr};`],
@@ -1176,7 +1186,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "for": {
       let init = compileWGSLStage(node.params![0], ctx);
-      let cd = compileWGSLStage(node.params![1], ctx);
+      let { cond: cd, hoisted } = compileLoopCondition(compileWGSLStage, node.params![1], ctx);
       let update = compileWGSLStage(node.params![2], ctx);
       let body = compileWGSLStage(node.params![3], ctx);
       let initExpr = init.expr;
@@ -1193,17 +1203,16 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       let updates = forUpdateStatements(update);
       let decls = [...init.decls, ...cd.decls, ...update.decls, ...body.decls];
 
-      // WGSL's for-header holds a single update statement, and a condition
-      // that is a single expression. More than one update, or a condition that
-      // runs statements before its test, takes a loop instead: the statements
-      // then the test at its top, every iteration, and the updates in a
-      // continuing block, which runs after the body on every iteration —
-      // including after a continue, which appending them to the body would not.
-      if (updates.length > 1 || cd.body.length > 0) {
+      // WGSL's for-header holds a single update statement. More than one goes
+      // in a continuing block instead, which runs after the body on every
+      // iteration — including after a continue, which appending them to the
+      // body would not.
+      if (updates.length > 1) {
         return {
           decls,
           body: [
             ...initBody,
+            ...hoisted,
             "{",
             `  ${initExpr};`,
             "  loop {",
@@ -1220,25 +1229,28 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
         };
       }
 
-      let header = updates.length === 1 ? withoutSemicolon(updates[0]) : "";
+      let step = updates.length === 1 ? withoutSemicolon(updates[0]) : "";
+      let { header, guard } = loopTest(cd);
       return {
         decls,
-        body: [...initBody, `for (${initExpr}; ${cd.expr}; ${header}) {`, ...body.body.map((l) => "  " + l), "}"],
+        body: [
+          ...initBody,
+          ...hoisted,
+          `for (${initExpr}; ${header}; ${step}) {`,
+          ...[...guard, ...body.body].map((l) => "  " + l),
+          "}",
+        ],
         expr: "0.0",
       };
     }
 
     case "while": {
-      let cd = compileWGSLStage(node.params![0], ctx);
+      let { cond: cd, hoisted } = compileLoopCondition(compileWGSLStage, node.params![0], ctx);
       let body = compileWGSLStage(node.params![1], ctx);
-      // A condition that runs statements before its test runs them at the top of every iteration.
-      let loop =
-        cd.body.length > 0
-          ? ["loop {", ...cd.body.map((l) => "  " + l), `  if (!(${cd.expr})) { break; }`]
-          : [`while (${cd.expr}) {`];
+      let { header, guard } = loopTest(cd);
       return {
         decls: [...cd.decls, ...body.decls],
-        body: [...loop, ...body.body.map((l) => "  " + l), "}"],
+        body: [...hoisted, `while (${header}) {`, ...[...guard, ...body.body].map((l) => "  " + l), "}"],
         expr: "0.0",
       };
     }
