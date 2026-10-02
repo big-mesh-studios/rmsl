@@ -132,11 +132,23 @@ export function serialize(root: Root | (() => Root)): SerializedGraph {
  * generated gets a new one, as a freshly built node would, so a restored
  * graph and a fresh one never share a name; a name the program chose, as
  * `uniformRaw()` and `toVar("x")` take, is kept.
+ *
+ * Throws on data `serialize()` could not have produced: a child, buffer or
+ * root index that names nothing, a child listed after the node using it, or
+ * an unknown array type.
  */
 export function deserialize(graph: SerializedGraph): Node<ShaderType> | Node<ShaderType>[] {
-  const buffers = graph.buffers.map((b) => {
+  if (!Array.isArray(graph?.nodes) || !Array.isArray(graph.buffers)) {
+    throw new Error("[RMSL] deserialize: the data needs a nodes and a buffers array, as serialize() gives");
+  }
+  const buffers = graph.buffers.map((b, i) => {
     const Attribute = b.instanced ? StorageInstancedBufferAttribute : StorageBufferAttribute;
     const ArrayClass = ARRAY_CLASSES[b.arrayClass];
+    if (!ArrayClass) {
+      throw new Error(
+        `[RMSL] deserialize: buffer ${i} holds a ${b.arrayClass}, not a Float32Array, Int32Array or Uint32Array`,
+      );
+    }
     return b.array
       ? new Attribute(ArrayClass.from(b.array), b.itemSize)
       : new Attribute(b.count, b.itemSize, ArrayClass);
@@ -144,9 +156,16 @@ export function deserialize(graph: SerializedGraph): Node<ShaderType> | Node<Sha
 
   const nodes: Node<ShaderType>[] = [];
   const names = new Map<number, { id?: number; name: string }>();
-  for (const entry of graph.nodes) nodes.push(deserializeNode(entry, nodes, buffers, names));
+  for (const entry of graph.nodes) nodes.push(deserializeNode(entry, nodes, buffers, names, graph.nodes.length));
 
-  return Array.isArray(graph.roots) ? graph.roots.map((r) => nodes[r]!) : nodes[graph.roots]!;
+  const root = (r: number) => nodes[indexInto(r, nodes.length, "root", "a node")]!;
+  return Array.isArray(graph.roots) ? graph.roots.map(root) : root(graph.roots);
+}
+
+/** `index`, when it names one of `length` items, or an error saying what `user` named instead. */
+function indexInto(index: number, length: number, user: string, item: string): number {
+  if (Number.isInteger(index) && index >= 0 && index < length) return index;
+  throw new Error(`[RMSL] deserialize: ${user} names ${item} at ${index}, but there are only ${length}`);
 }
 
 /** The fresh name, and id, a graph-local name `local` stands for, made by `make` the first time. */
@@ -164,15 +183,24 @@ function deserializeNode(
   nodes: readonly Node<ShaderType>[],
   buffers: readonly StorageBufferAttribute[],
   names: Map<number, { id?: number; name: string }>,
+  total: number,
 ): Node<ShaderType> {
   if (entry.type === "storage") {
     const value = entry.value as { shaderType: ShaderType; access: StorageAccess; buffer: number };
-    const result = storage(buffers[value.buffer]!, value.shaderType);
+    const buffer = indexInto(value.buffer, buffers.length, `node ${nodes.length}`, "a buffer");
+    const result = storage(buffers[buffer]!, value.shaderType);
     if (value.access === "read") result.toReadOnly();
     return result as unknown as Node<ShaderType>;
   }
 
-  const params = entry.params?.map((i) => nodes[i]! as BaseNode<ShaderType>);
+  const params = entry.params?.map((i) => {
+    if (Number.isInteger(i) && i >= nodes.length && i < total) {
+      throw new Error(
+        `[RMSL] deserialize: node ${nodes.length} names a child at ${i}, after it; a child has to come before the node using it`,
+      );
+    }
+    return nodes[indexInto(i, total, `node ${nodes.length}`, "a child")]! as BaseNode<ShaderType>;
+  });
   let value = entry.value as Record<string, unknown> | undefined;
   let name: string | undefined;
   if (entry.type === "var") {
