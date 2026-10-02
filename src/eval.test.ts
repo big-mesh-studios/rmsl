@@ -364,6 +364,23 @@ describe("RMSL evaluation", () => {
     expect(() => build(float(1))).toThrow(/\[RMSL\] ElseIf has to follow its If directly/);
   });
 
+  it("refuses an ElseIf called from inside another block", () => {
+    const build = (x: Node<"float">) =>
+      Fn(() => {
+        const total = float(0).toVar();
+        const chain = If(x.lessThan(0), () => {
+          total.assign(float(1));
+        });
+        If(x.greaterThan(10), () => {
+          chain.ElseIf(x.mul(2).toVar().greaterThan(3), () => {
+            total.assign(float(2));
+          });
+        });
+        return total;
+      })();
+    expect(() => build(float(1))).toThrow(/\[RMSL\] ElseIf has to follow its If directly/);
+  });
+
   it("runs a statement a loop condition writes before every test", async () => {
     const forTests = (x: Node<"float">) =>
       Fn(() => {

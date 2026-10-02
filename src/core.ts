@@ -2915,8 +2915,11 @@ function withAssignments(assignments: BaseNode<ShaderType>[], test: BaseNode<Sha
  * enclosing block, so a variable it makes, as with `toVar()`, lands after
  * the `If`. `ElseIf` declares such a variable before the `If`, at zero, and
  * computes it in the else branch, ahead of its own test, which is where the
- * condition is evaluated. Anything else written between the `If` and the
- * `ElseIf` is an error: it would run only when the condition is tested.
+ * condition is evaluated. A variable written between the `If` and the
+ * `ElseIf` that the condition reads is taken as the condition's, so it too is
+ * computed only when the condition is tested. Anything else written between
+ * them is an error, as is an `ElseIf` called from inside another block: it
+ * would run only when the condition is tested, or out of order.
  */
 export function If(cond: BooleanLike, body: () => void): ElseIfChain {
   let ifNode = node({
@@ -2934,6 +2937,9 @@ export function If(cond: BooleanLike, body: () => void): ElseIfChain {
   let deepestIf = ifNode;
   const chain: ElseIfChain = {
     ElseIf: (nextCond, nextBody) => {
+      if (blockScope !== outer) {
+        throw new Error("[RMSL] ElseIf has to follow its If directly: it was called from inside another block");
+      }
       const test = wrapValue(nextCond) as BaseNode<ShaderType>;
       const made = outer.splice(mark);
       const read = made.length === 0 ? new Set<string>() : variablesRead([test, ...made.map((m) => m.params![1]!)]);
