@@ -94,22 +94,22 @@ Every refusal is a plain `Error` today, and a caller can tell refusals apart onl
 
 ### Divergences found
 
-The analysis found places where the code does not hold the proposed axioms. Each is a candidate defect, to be fixed through [the defect procedure](.claude/skills/canon/SKILL.md#4-fixing-a-defect) once its axiom is settled.
+The analysis found places where the code does not hold the axioms. Each one has an issue, and is fixed through [the defect procedure](.claude/skills/canon/SKILL.md#4-fixing-a-defect).
 
-1. A storage read past the end of its buffer returns zero on WASM and `undefined` on JS. On WGSL it follows the robust buffer access of the GPU.
-2. Converting a float that is NaN or out of range to an integer traps on WASM, does not wrap on JS, and saturates on WGSL.
-3. `screenSize()` makes a new uniform on every call, while `time()` returns one shared uniform.
-4. `StorageNode.toReadOnly()` changes the node it is called on, so a writable reference held earlier also becomes read-only.
-5. Several documents name exports that do not exist: `compileGLSL` and `compileWGSL` imported from `"rmsl"`, and the files `src/rmsl-*.ts`.
+1. A storage read past the end of its buffer gives `NaN` on JS and zero on WASM. On WGSL it follows the robust buffer access of the GPU. Issue #49.
+2. A conversion to an integer of a float that is NaN or out of range traps on WASM. On JS it gives a value outside the integer's range. WGSL clamps it. Issue #50.
+3. `screenSize()` makes a new uniform on every call, while `time()` returns one shared uniform. Issue #51.
+4. `toReadOnly()` changes the storage node it is called on, as it does in TSL, so a reference typed as writable becomes read-only. The type checker accepts a write that the compiler refuses. Issue #52 asks whether to depart from TSL here.
+5. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
 
 ### Coverage gaps
 
 These units hold a claim that no test checks yet.
 
-1. [`spec-glsl-integer-arithmetic-follows-wgsl`](#spec-glsl-integer-arithmetic-follows-wgsl): no test reads an integer result back from GLSL. The integer tests hold GLSL only to compiling.
-2. [`exception-dawn-on-metal-divides-some-u32-constants-wrongly`](#exception-dawn-on-metal-divides-some-u32-constants-wrongly): the integer sweep sets the wrong quotients aside, but no `test.fails` pins them. Such a test runs only on Metal, and starts failing once Dawn is fixed.
-3. [`spec-wasm-float-arithmetic-matches-js-exactly`](#spec-wasm-float-arithmetic-matches-js-exactly), [`spec-gpu-float-arithmetic-matches-the-cpu-targets`](#spec-gpu-float-arithmetic-matches-the-cpu-targets) and [`exception-a-gpu-float-result-differs-from-the-cpu-in-its-last-bits`](#exception-a-gpu-float-result-differs-from-the-cpu-in-its-last-bits): `src/eval.test.ts` holds every program it evaluates to these claims, in an `afterAll`. The checker credits a unit only from a leaf test, so it cannot see that check.
-4. [`spec-an-assignment-is-refused-unless-the-program-can-write-its-target`](#spec-an-assignment-is-refused-unless-the-program-can-write-its-target): each case has a test, but no test makes the cases meet in one program.
+1. [`spec-glsl-integer-arithmetic-follows-wgsl`](#spec-glsl-integer-arithmetic-follows-wgsl): no test reads an integer result back from GLSL. The integer tests hold GLSL only to compiling. Issue #54.
+2. [`exception-dawn-on-metal-divides-some-u32-constants-wrongly`](#exception-dawn-on-metal-divides-some-u32-constants-wrongly): the integer sweep sets the wrong quotients aside, but no `test.fails` pins them. Such a test runs only on Metal, and starts failing once Dawn is fixed. Issue #55.
+3. [`spec-wasm-float-arithmetic-matches-js-exactly`](#spec-wasm-float-arithmetic-matches-js-exactly), [`spec-gpu-float-arithmetic-matches-the-cpu-targets`](#spec-gpu-float-arithmetic-matches-the-cpu-targets) and [`exception-a-gpu-float-result-differs-from-the-cpu-in-its-last-bits`](#exception-a-gpu-float-result-differs-from-the-cpu-in-its-last-bits): `src/eval.test.ts` holds every program it evaluates to these claims, in an `afterAll`. The checker credits a unit only from a leaf test, so it cannot see that check. Issue #56.
+4. [`spec-an-assignment-is-refused-unless-the-program-can-write-its-target`](#spec-an-assignment-is-refused-unless-the-program-can-write-its-target): each case has a test, but no test makes the cases meet in one program. Issue #57.
 
 ## Terms
 
