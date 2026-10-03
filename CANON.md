@@ -57,6 +57,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-stage-output-is-assigned-only-in-its-stage`](#spec-a-stage-output-is-assigned-only-in-its-stage) — An assignment to a [varying](#term-varying) or to the position outside the vertex stage, or to the fragment depth outside the fragment stage, is refused.
     - [`@spec a-swizzle-that-repeats-a-component-cannot-be-assigned`](#spec-a-swizzle-that-repeats-a-component-cannot-be-assigned) — An assignment through a [swizzle](#term-swizzle) that names a component more than once is refused, also when it is reached through another swizzle.
     - [`@spec a-swizzle-that-names-each-component-once-can-be-assigned`](#spec-a-swizzle-that-names-each-component-once-can-be-assigned) — An assignment through a swizzle of a var that names each component once compiles on every target, also when it is reached through another swizzle.
+- [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
 - [`@fact wgsl-defines-every-integer-edge-case`](#fact-wgsl-defines-every-integer-edge-case) — WGSL defines the result of every integer operation on run-time values. Overflow wraps. A division by zero returns the dividend and a remainder by zero returns zero. The most negative `i32` divided by `-1` returns itself. A shift uses its amount modulo the bit width.
 - [`@fact glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined) — GLSL ES 3.00 leaves undefined the result of an integer division or remainder by zero. It also leaves undefined a shift by a negative amount, or by the bit width or more.
 - [`@fact wgsl-rejects-a-constant-expression-that-fails`](#fact-wgsl-rejects-a-constant-expression-that-fails) — A WGSL shader fails to compile when a constant expression divides an integer by zero, shifts by the bit width or more, or overflows.
@@ -81,12 +82,11 @@ The canon is not settled yet. The questions below wait for the owner of the desi
 
 An analysis of the code, the tests, the documents, the issues and the commit history found these values. Each one decides a real choice between two designs that both work. None is an axiom until the owner confirms it.
 
-1. `a-tsl-shader-ports-by-changing-its-import`: rmsl follows Three.js TSL in names, argument order and behaviour, and departs from it only for a stated reason. It chooses familiarity over a vocabulary designed from scratch. Evidence: the TSL free-function API, the `While` node condition, the departures listed in `docs/tsl-migration.md`.
-2. `each-target-keeps-what-makes-it-worth-choosing`: an interface over several targets keeps each target's own strengths, such as a synchronous call or data that stays on the GPU. It chooses native shapes over one uniform shape. Evidence: the `Adapter` with an optional `compute`, synchronous CPU adapters, `compute()` without readback.
-3. `rmsl-compiles-and-the-application-drives`: rmsl hands back code and data, such as shader source, callables and pass graphs, and the application owns the render loop. It chooses a compiler over a renderer. Evidence: effects as pure node graphs, `PassGraph`, `docs/tsl-migration.md`. The `./scene` renderers are an open conflict with this value.
-4. `shader-logic-runs-without-a-device`: the logic of a shader can run on the CPU, for picking and for unit tests, with no browser and no graphics device. It chooses a CPU target over GPU readback. Evidence: the JS and WASM targets, `./test`.
-5. `a-user-names-what-they-hold`: the user addresses an input or an output by the node they hold or the name they gave, never by a name the compiler invented. Evidence: the `[node, value]` bindings of `./test`, `fromProgram`.
-6. `a-user-ships-only-what-runs`: an application pays only for what it uses, at build time and at run time. Evidence: the Vite precompile plugins, a material filtered to the bindings it uses, the lazy `time()` uniform.
+1. `each-target-keeps-what-makes-it-worth-choosing`: an interface over several targets keeps each target's own strengths, such as a synchronous call or data that stays on the GPU. It chooses native shapes over one uniform shape. Evidence: the `Adapter` with an optional `compute`, synchronous CPU adapters, `compute()` without readback.
+2. `rmsl-compiles-and-the-application-drives`: rmsl hands back code and data, such as shader source, callables and pass graphs, and the application owns the render loop. It chooses a compiler over a renderer. Evidence: effects as pure node graphs, `PassGraph`, `docs/tsl-migration.md`. The `./scene` renderers are an open conflict with this value.
+3. `shader-logic-runs-without-a-device`: the logic of a shader can run on the CPU, for picking and for unit tests, with no browser and no graphics device. It chooses a CPU target over GPU readback. Evidence: the JS and WASM targets, `./test`.
+4. `a-user-names-what-they-hold`: the user addresses an input or an output by the node they hold or the name they gave, never by a name the compiler invented. Evidence: the `[node, value]` bindings of `./test`, `fromProgram`.
+5. `a-user-ships-only-what-runs`: an application pays only for what it uses, at build time and at run time. Evidence: the Vite precompile plugins, a material filtered to the bindings it uses, the lazy `time()` uniform.
 
 ### Typed errors
 
@@ -362,6 +362,14 @@ This follows because a write to something the program cannot write either fails 
 #### @spec a-swizzle-that-names-each-component-once-can-be-assigned
 
 > An assignment through a swizzle of a var that names each component once compiles on every target, also when it is reached through another swizzle.
+
+## @axiom a-tsl-shader-ports-by-changing-its-import
+
+> rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
+
+A user who knows TSL knows rmsl, and a shader written for Three.js moves to rmsl without a rewrite. The axiom decides between familiarity and a vocabulary designed from scratch.
+
+A departure that serves no axiom is a matter of taste, and taste does not outweigh a port that works. A departure that does serve one is stated as a spec, and the spec names the axiom on its `Derives from:` line. Before settling a question about the API, read what TSL does in its source.
 
 ## @fact wgsl-defines-every-integer-edge-case
 
