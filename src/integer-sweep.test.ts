@@ -592,16 +592,25 @@ describe.skipIf(SWEEP === "skip")("integer sweep", () => {
     describe(group.name, () => {
       afterAll(() => group.release());
 
+      /**
+       * @canon spec-js-integer-arithmetic-follows-wgsl
+       */
       it("JS matches the reference", { timeout: 600_000 }, () => {
         const mismatches = sweepJS(group.cases());
         expectNoMismatches(mismatches);
       });
 
+      /**
+       * @canon spec-wasm-integer-arithmetic-follows-wgsl
+       */
       it("WASM matches the reference", { timeout: 600_000 }, () => {
         const mismatches = sweepWASM(group.cases());
         expectNoMismatches(mismatches);
       });
 
+      /**
+       * @canon spec-wgsl-integer-arithmetic-keeps-its-defined-result
+       */
       it.skipIf(GPU_EVALUATION_SKIPPED)(
         "WGSL matches the reference",
         async () => {
@@ -611,6 +620,9 @@ describe.skipIf(SWEEP === "skip")("integer sweep", () => {
         600_000,
       );
 
+      /**
+       * @canon exception-glsl-integer-edge-cases-on-run-time-values-follow-the-driver
+       */
       it.skipIf(GPU_EVALUATION_SKIPPED)(
         "GLSL compiles",
         async () => {

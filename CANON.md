@@ -34,6 +34,14 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@term pass-graph`](#term-pass-graph) — An ordered list of fullscreen passes and the name of the pass that produces the output.
 - [`@term node-material`](#term-node-material) — A material of `./scene` whose surface the user states as nodes.
 - [`@term precompile`](#term-precompile) — Running rmsl at build time, so that the application ships the compiled code instead of rmsl.
+- [`@axiom one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target) — A program computes the same result on every [target](#term-target), or every target refuses it with the same error.
+  - [`@spec integer-arithmetic-follows-wgsl`](#spec-integer-arithmetic-follows-wgsl) — Every target gives an integer operation the result that WGSL defines for it.
+    - [`@spec js-integer-arithmetic-follows-wgsl`](#spec-js-integer-arithmetic-follows-wgsl) — The JavaScript target gives an integer operation the result that WGSL defines for it.
+    - [`@spec wasm-integer-arithmetic-follows-wgsl`](#spec-wasm-integer-arithmetic-follows-wgsl) — The WebAssembly target gives an integer operation the result that WGSL defines for it.
+    - [`@spec wgsl-integer-arithmetic-keeps-its-defined-result`](#spec-wgsl-integer-arithmetic-keeps-its-defined-result) — The WGSL target gives an integer operation the result that WGSL defines for it, with literal operands as well as run-time ones.
+      - [`@exception dawn-on-metal-divides-some-u32-constants-wrongly`](#exception-dawn-on-metal-divides-some-u32-constants-wrongly) — On Dawn on Metal, a constant `u32` numerator from `0xFFFFFF80` to `0xFFFFFFFE` divided by a run-time value gives the wrong quotient.
+    - [`@spec glsl-integer-arithmetic-follows-wgsl`](#spec-glsl-integer-arithmetic-follows-wgsl) — The GLSL target gives an integer operation the result that WGSL defines for it.
+      - [`@exception glsl-integer-edge-cases-on-run-time-values-follow-the-driver`](#exception-glsl-integer-edge-cases-on-run-time-values-follow-the-driver) — On GLSL, an integer division or remainder by a run-time zero gives whatever the driver gives. So does a shift by a run-time amount that is negative, or 32 or more.
 - [`@fact wgsl-defines-every-integer-edge-case`](#fact-wgsl-defines-every-integer-edge-case) — WGSL defines the result of every integer operation on run-time values. Overflow wraps. A division by zero returns the dividend and a remainder by zero returns zero. The most negative `i32` divided by `-1` returns itself. A shift uses its amount modulo the bit width.
 - [`@fact glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined) — GLSL ES 3.00 leaves undefined the result of an integer division or remainder by zero. It also leaves undefined a shift by a negative amount, or by the bit width or more.
 - [`@fact wgsl-rejects-a-constant-expression-that-fails`](#fact-wgsl-rejects-a-constant-expression-that-fails) — A WGSL shader fails to compile when a constant expression divides an integer by zero, shifts by the bit width or more, or overflows.
@@ -58,14 +66,13 @@ The canon is not settled yet. The questions below wait for the owner of the desi
 
 An analysis of the code, the tests, the documents, the issues and the commit history found these values. Each one decides a real choice between two designs that both work. None is an axiom until the owner confirms it.
 
-1. `one-program-means-the-same-on-every-target`: a program computes the same result on every target, or is refused with the same error on every target. It chooses defined behaviour over each language's native freedom. Evidence: the integer semantics pinned to WGSL, `assertAssignable` called by every backend, one sampler rule shared by every target, the parity tests.
-2. `a-mistake-is-refused-where-it-is-made`: a program that cannot work is refused when it is type-checked or compiled, with a message that names the cause and the fix. It is never emitted as a shader that a driver rejects or that runs and draws the wrong thing. It chooses refusal over convenience. Evidence: `Var` against `Node`, the refused `.xx` write, refused `bool` storage, `assertStageResult`, the `[RMSL]` messages.
-3. `a-tsl-shader-ports-by-changing-its-import`: rmsl follows Three.js TSL in names, argument order and behaviour, and departs from it only for a stated reason. It chooses familiarity over a vocabulary designed from scratch. Evidence: the TSL free-function API, the `While` node condition, the departures listed in `docs/tsl-migration.md`.
-4. `each-target-keeps-what-makes-it-worth-choosing`: an interface over several targets keeps each target's own strengths, such as a synchronous call or data that stays on the GPU. It chooses native shapes over one uniform shape. Evidence: the `Adapter` with an optional `compute`, synchronous CPU adapters, `compute()` without readback.
-5. `rmsl-compiles-and-the-application-drives`: rmsl hands back code and data, such as shader source, callables and pass graphs, and the application owns the render loop. It chooses a compiler over a renderer. Evidence: effects as pure node graphs, `PassGraph`, `docs/tsl-migration.md`. The `./scene` renderers are an open conflict with this value.
-6. `shader-logic-runs-without-a-device`: the logic of a shader can run on the CPU, for picking and for unit tests, with no browser and no graphics device. It chooses a CPU target over GPU readback. Evidence: the JS and WASM targets, `./test`.
-7. `a-user-names-what-they-hold`: the user addresses an input or an output by the node they hold or the name they gave, never by a name the compiler invented. Evidence: the `[node, value]` bindings of `./test`, `fromProgram`.
-8. `a-user-ships-only-what-runs`: an application pays only for what it uses, at build time and at run time. Evidence: the Vite precompile plugins, a material filtered to the bindings it uses, the lazy `time()` uniform.
+1. `a-mistake-is-refused-where-it-is-made`: a program that cannot work is refused when it is type-checked or compiled, with a message that names the cause and the fix. It is never emitted as a shader that a driver rejects or that runs and draws the wrong thing. It chooses refusal over convenience. Evidence: `Var` against `Node`, the refused `.xx` write, refused `bool` storage, `assertStageResult`, the `[RMSL]` messages.
+2. `a-tsl-shader-ports-by-changing-its-import`: rmsl follows Three.js TSL in names, argument order and behaviour, and departs from it only for a stated reason. It chooses familiarity over a vocabulary designed from scratch. Evidence: the TSL free-function API, the `While` node condition, the departures listed in `docs/tsl-migration.md`.
+3. `each-target-keeps-what-makes-it-worth-choosing`: an interface over several targets keeps each target's own strengths, such as a synchronous call or data that stays on the GPU. It chooses native shapes over one uniform shape. Evidence: the `Adapter` with an optional `compute`, synchronous CPU adapters, `compute()` without readback.
+4. `rmsl-compiles-and-the-application-drives`: rmsl hands back code and data, such as shader source, callables and pass graphs, and the application owns the render loop. It chooses a compiler over a renderer. Evidence: effects as pure node graphs, `PassGraph`, `docs/tsl-migration.md`. The `./scene` renderers are an open conflict with this value.
+5. `shader-logic-runs-without-a-device`: the logic of a shader can run on the CPU, for picking and for unit tests, with no browser and no graphics device. It chooses a CPU target over GPU readback. Evidence: the JS and WASM targets, `./test`.
+6. `a-user-names-what-they-hold`: the user addresses an input or an output by the node they hold or the name they gave, never by a name the compiler invented. Evidence: the `[node, value]` bindings of `./test`, `fromProgram`.
+7. `a-user-ships-only-what-runs`: an application pays only for what it uses, at build time and at run time. Evidence: the Vite precompile plugins, a material filtered to the bindings it uses, the lazy `time()` uniform.
 
 ### Divergences found
 
@@ -73,10 +80,16 @@ The analysis found places where the code does not hold the proposed axioms. Each
 
 1. A storage read past the end of its buffer returns zero on WASM and `undefined` on JS. On WGSL it follows the robust buffer access of the GPU.
 2. Converting a float that is NaN or out of range to an integer traps on WASM, does not wrap on JS, and saturates on WGSL.
-3. A GLSL program can divide an integer by a run-time zero. GLSL leaves the result undefined, so the result differs from the other targets.
-4. `screenSize()` makes a new uniform on every call, while `time()` returns one shared uniform.
-5. `StorageNode.toReadOnly()` changes the node it is called on, so a writable reference held earlier also becomes read-only.
-6. Several documents name exports that do not exist: `compileGLSL` and `compileWGSL` imported from `"rmsl"`, and the files `src/rmsl-*.ts`.
+3. `screenSize()` makes a new uniform on every call, while `time()` returns one shared uniform.
+4. `StorageNode.toReadOnly()` changes the node it is called on, so a writable reference held earlier also becomes read-only.
+5. Several documents name exports that do not exist: `compileGLSL` and `compileWGSL` imported from `"rmsl"`, and the files `src/rmsl-*.ts`.
+
+### Coverage gaps
+
+These units hold a claim that no test checks yet.
+
+1. [`spec-glsl-integer-arithmetic-follows-wgsl`](#spec-glsl-integer-arithmetic-follows-wgsl): no test reads an integer result back from GLSL. The integer tests hold GLSL only to compiling.
+2. [`exception-dawn-on-metal-divides-some-u32-constants-wrongly`](#exception-dawn-on-metal-divides-some-u32-constants-wrongly): the integer sweep sets the wrong quotients aside, but no `test.fails` pins them. Such a test runs only on Metal, and starts failing once Dawn is fixed.
 
 ## Terms
 
@@ -189,6 +202,66 @@ _Avoid_: constant propagation
 ### @term precompile
 
 > Running rmsl at build time, so that the application ships the compiled code instead of rmsl.
+
+## Driving principles
+
+The axioms below are the values rmsl commits to, and the facts that close the document are how its platforms behave. Every spec derives from an axiom, and cites the facts it relies on. An exception marks where a fact keeps a spec from holding fully, and names that fact.
+
+## @axiom one-program-means-the-same-on-every-target
+
+> A program computes the same result on every [target](#term-target), or every target refuses it with the same error.
+
+A user writes a program once, and picks a target by where it must run. That is a graphics device through WebGL 2 or WebGPU, or the CPU for picking and for tests. The axiom keeps that choice from changing what the program means. With a result that holds on some targets only, the targets stop being interchangeable. A test on the CPU then says nothing about the GPU.
+
+The axiom decides between defined behaviour and the native freedom of each language. Where a language leaves a result open, rmsl picks one and holds every target to it. Where a target cannot give that result, an exception names the fact that stops it.
+
+### @spec integer-arithmetic-follows-wgsl
+
+> Every target gives an integer operation the result that WGSL defines for it.
+
+Derives from: [`fact-wgsl-defines-every-integer-edge-case`](#fact-wgsl-defines-every-integer-edge-case)
+
+This follows because only the specification of WGSL defines a result for every integer operation. Its results are the only ones every target can share.
+
+#### @spec js-integer-arithmetic-follows-wgsl
+
+> The JavaScript target gives an integer operation the result that WGSL defines for it.
+
+#### @spec wasm-integer-arithmetic-follows-wgsl
+
+> The WebAssembly target gives an integer operation the result that WGSL defines for it.
+
+Derives from: [`fact-wasm-traps-on-an-integer-division-by-zero`](#fact-wasm-traps-on-an-integer-division-by-zero)
+
+This follows because a trap is no result at all. Where WebAssembly would trap, the target computes the result WGSL defines instead.
+
+#### @spec wgsl-integer-arithmetic-keeps-its-defined-result
+
+> The WGSL target gives an integer operation the result that WGSL defines for it, with literal operands as well as run-time ones.
+
+Derives from: [`fact-wgsl-rejects-a-constant-expression-that-fails`](#fact-wgsl-rejects-a-constant-expression-that-fails)
+
+This follows because WGSL refuses a constant division by zero or an out-of-range constant shift, results it defines for run-time values. A program with literal operands must still compile, and give the run-time result.
+
+##### @exception dawn-on-metal-divides-some-u32-constants-wrongly
+
+> On Dawn on Metal, a constant `u32` numerator from `0xFFFFFF80` to `0xFFFFFFFE` divided by a run-time value gives the wrong quotient.
+
+Derives from: [`fact-dawn-on-metal-divides-some-u32-constants-wrongly`](#fact-dawn-on-metal-divides-some-u32-constants-wrongly)
+
+The WGSL target emits a correct division, and the driver computes it wrongly. The exception lasts as long as the defect in Dawn.
+
+#### @spec glsl-integer-arithmetic-follows-wgsl
+
+> The GLSL target gives an integer operation the result that WGSL defines for it.
+
+##### @exception glsl-integer-edge-cases-on-run-time-values-follow-the-driver
+
+> On GLSL, an integer division or remainder by a run-time zero gives whatever the driver gives. So does a shift by a run-time amount that is negative, or 32 or more.
+
+Derives from: [`fact-glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined)
+
+GLSL leaves these results undefined, and the GLSL target emits the native operator for them. A guard around each operation would give the WGSL result, at the cost of a branch on every integer division and shift.
 
 ## @fact wgsl-defines-every-integer-edge-case
 
