@@ -46,6 +46,17 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec wasm-float-arithmetic-matches-js-exactly`](#spec-wasm-float-arithmetic-matches-js-exactly) — The WebAssembly target gives a float operation exactly the result the JavaScript target gives.
     - [`@spec gpu-float-arithmetic-matches-the-cpu-targets`](#spec-gpu-float-arithmetic-matches-the-cpu-targets) — GLSL and WGSL give a float operation the result the CPU targets give.
       - [`@exception a-gpu-float-result-differs-from-the-cpu-in-its-last-bits`](#exception-a-gpu-float-result-differs-from-the-cpu-in-its-last-bits) — On GLSL and WGSL, a float result can differ from the result of the CPU targets. The difference is at most a millionth of the result's size, and at most `1e-6` near zero.
+- [`@axiom a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs) — A program that cannot work is refused before it runs. The type checker refuses it wherever the types can express the mistake, and the compiler refuses it on every target. The refusal names the cause, and the fix where one exists.
+  - [`@spec an-assignment-is-refused-unless-the-program-can-write-its-target`](#spec-an-assignment-is-refused-unless-the-program-can-write-its-target) — An assignment whose target the program cannot write is refused. Every target refuses it with the same message, and the type checker refuses it wherever the type of the target shows it.
+    - [`@spec a-uniform-cannot-be-assigned`](#spec-a-uniform-cannot-be-assigned) — An assignment to a [uniform](#term-uniform), to a whole uniform array, or to a component or element of one, is refused.
+    - [`@spec a-built-in-input-cannot-be-assigned`](#spec-a-built-in-input-cannot-be-assigned) — An assignment to a built-in input, such as `invocationIndex()`, is refused.
+    - [`@spec an-attribute-cannot-be-assigned`](#spec-an-attribute-cannot-be-assigned) — An assignment to an [attribute](#term-attribute), or to a component of one, is refused.
+    - [`@spec a-whole-storage-buffer-cannot-be-assigned`](#spec-a-whole-storage-buffer-cannot-be-assigned) — An assignment to a whole [storage buffer](#term-storage-buffer) is refused, and the message points to `.element(i)`.
+    - [`@spec a-computed-value-cannot-be-assigned`](#spec-a-computed-value-cannot-be-assigned) — An assignment to a value that an operation computed, or to a component or element of one, is refused, and the message points to `toVar()`.
+    - [`@spec a-parameter-of-the-compiled-function-cannot-be-assigned`](#spec-a-parameter-of-the-compiled-function-cannot-be-assigned) — An assignment to a parameter of the function a compiler compiles is refused, because its value belongs to the caller.
+    - [`@spec a-stage-output-is-assigned-only-in-its-stage`](#spec-a-stage-output-is-assigned-only-in-its-stage) — An assignment to a [varying](#term-varying) or to the position outside the vertex stage, or to the fragment depth outside the fragment stage, is refused.
+    - [`@spec a-swizzle-that-repeats-a-component-cannot-be-assigned`](#spec-a-swizzle-that-repeats-a-component-cannot-be-assigned) — An assignment through a [swizzle](#term-swizzle) that names a component more than once is refused, also when it is reached through another swizzle.
+    - [`@spec a-swizzle-that-names-each-component-once-can-be-assigned`](#spec-a-swizzle-that-names-each-component-once-can-be-assigned) — An assignment through a swizzle of a var that names each component once compiles on every target, also when it is reached through another swizzle.
 - [`@fact wgsl-defines-every-integer-edge-case`](#fact-wgsl-defines-every-integer-edge-case) — WGSL defines the result of every integer operation on run-time values. Overflow wraps. A division by zero returns the dividend and a remainder by zero returns zero. The most negative `i32` divided by `-1` returns itself. A shift uses its amount modulo the bit width.
 - [`@fact glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined) — GLSL ES 3.00 leaves undefined the result of an integer division or remainder by zero. It also leaves undefined a shift by a negative amount, or by the bit width or more.
 - [`@fact wgsl-rejects-a-constant-expression-that-fails`](#fact-wgsl-rejects-a-constant-expression-that-fails) — A WGSL shader fails to compile when a constant expression divides an integer by zero, shifts by the bit width or more, or overflows.
@@ -70,13 +81,16 @@ The canon is not settled yet. The questions below wait for the owner of the desi
 
 An analysis of the code, the tests, the documents, the issues and the commit history found these values. Each one decides a real choice between two designs that both work. None is an axiom until the owner confirms it.
 
-1. `a-mistake-is-refused-where-it-is-made`: a program that cannot work is refused when it is type-checked or compiled, with a message that names the cause and the fix. It is never emitted as a shader that a driver rejects or that runs and draws the wrong thing. It chooses refusal over convenience. Evidence: `Var` against `Node`, the refused `.xx` write, refused `bool` storage, `assertStageResult`, the `[RMSL]` messages.
-2. `a-tsl-shader-ports-by-changing-its-import`: rmsl follows Three.js TSL in names, argument order and behaviour, and departs from it only for a stated reason. It chooses familiarity over a vocabulary designed from scratch. Evidence: the TSL free-function API, the `While` node condition, the departures listed in `docs/tsl-migration.md`.
-3. `each-target-keeps-what-makes-it-worth-choosing`: an interface over several targets keeps each target's own strengths, such as a synchronous call or data that stays on the GPU. It chooses native shapes over one uniform shape. Evidence: the `Adapter` with an optional `compute`, synchronous CPU adapters, `compute()` without readback.
-4. `rmsl-compiles-and-the-application-drives`: rmsl hands back code and data, such as shader source, callables and pass graphs, and the application owns the render loop. It chooses a compiler over a renderer. Evidence: effects as pure node graphs, `PassGraph`, `docs/tsl-migration.md`. The `./scene` renderers are an open conflict with this value.
-5. `shader-logic-runs-without-a-device`: the logic of a shader can run on the CPU, for picking and for unit tests, with no browser and no graphics device. It chooses a CPU target over GPU readback. Evidence: the JS and WASM targets, `./test`.
-6. `a-user-names-what-they-hold`: the user addresses an input or an output by the node they hold or the name they gave, never by a name the compiler invented. Evidence: the `[node, value]` bindings of `./test`, `fromProgram`.
-7. `a-user-ships-only-what-runs`: an application pays only for what it uses, at build time and at run time. Evidence: the Vite precompile plugins, a material filtered to the bindings it uses, the lazy `time()` uniform.
+1. `a-tsl-shader-ports-by-changing-its-import`: rmsl follows Three.js TSL in names, argument order and behaviour, and departs from it only for a stated reason. It chooses familiarity over a vocabulary designed from scratch. Evidence: the TSL free-function API, the `While` node condition, the departures listed in `docs/tsl-migration.md`.
+2. `each-target-keeps-what-makes-it-worth-choosing`: an interface over several targets keeps each target's own strengths, such as a synchronous call or data that stays on the GPU. It chooses native shapes over one uniform shape. Evidence: the `Adapter` with an optional `compute`, synchronous CPU adapters, `compute()` without readback.
+3. `rmsl-compiles-and-the-application-drives`: rmsl hands back code and data, such as shader source, callables and pass graphs, and the application owns the render loop. It chooses a compiler over a renderer. Evidence: effects as pure node graphs, `PassGraph`, `docs/tsl-migration.md`. The `./scene` renderers are an open conflict with this value.
+4. `shader-logic-runs-without-a-device`: the logic of a shader can run on the CPU, for picking and for unit tests, with no browser and no graphics device. It chooses a CPU target over GPU readback. Evidence: the JS and WASM targets, `./test`.
+5. `a-user-names-what-they-hold`: the user addresses an input or an output by the node they hold or the name they gave, never by a name the compiler invented. Evidence: the `[node, value]` bindings of `./test`, `fromProgram`.
+6. `a-user-ships-only-what-runs`: an application pays only for what it uses, at build time and at run time. Evidence: the Vite precompile plugins, a material filtered to the bindings it uses, the lazy `time()` uniform.
+
+### Typed errors
+
+Every refusal is a plain `Error` today, and a caller can tell refusals apart only by their messages. The owner wants typed errors, which issue #43 proposes. Their shape is open: one class with a code, a class per kind, or a base class with subclasses.
 
 ### Divergences found
 
@@ -95,6 +109,7 @@ These units hold a claim that no test checks yet.
 1. [`spec-glsl-integer-arithmetic-follows-wgsl`](#spec-glsl-integer-arithmetic-follows-wgsl): no test reads an integer result back from GLSL. The integer tests hold GLSL only to compiling.
 2. [`exception-dawn-on-metal-divides-some-u32-constants-wrongly`](#exception-dawn-on-metal-divides-some-u32-constants-wrongly): the integer sweep sets the wrong quotients aside, but no `test.fails` pins them. Such a test runs only on Metal, and starts failing once Dawn is fixed.
 3. [`spec-wasm-float-arithmetic-matches-js-exactly`](#spec-wasm-float-arithmetic-matches-js-exactly), [`spec-gpu-float-arithmetic-matches-the-cpu-targets`](#spec-gpu-float-arithmetic-matches-the-cpu-targets) and [`exception-a-gpu-float-result-differs-from-the-cpu-in-its-last-bits`](#exception-a-gpu-float-result-differs-from-the-cpu-in-its-last-bits): `src/eval.test.ts` holds every program it evaluates to these claims, in an `afterAll`. The checker credits a unit only from a leaf test, so it cannot see that check.
+4. [`spec-an-assignment-is-refused-unless-the-program-can-write-its-target`](#spec-an-assignment-is-refused-unless-the-program-can-write-its-target): each case has a test, but no test makes the cases meet in one program.
 
 ## Terms
 
@@ -293,6 +308,60 @@ This follows because both CPU targets compute in 64 bits, so nothing keeps them 
 Derives from: [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
 
 A GPU rounds every float result to 32 bits, and a CPU target to 64 bits. The bound is about eight units in the last place of a 32-bit float. Computing in 32 bits on the CPU targets would close the gap. In JavaScript, it costs a rounding step after every operation.
+
+## @axiom a-mistake-is-refused-before-the-program-runs
+
+> A program that cannot work is refused before it runs. The type checker refuses it wherever the types can express the mistake, and the compiler refuses it on every target. The refusal names the cause, and the fix where one exists.
+
+Most mistakes in a shader are silent. A wrong result type or a missing conversion gives a shader that reads fine. A driver then rejects it, with a message about code the user never wrote. Worse, the driver may accept it, and the shader draws the wrong thing. The axiom moves every such mistake to the place where the user made it.
+
+The axiom decides between refusal and convenience. Some mistakes show only at run time, such as an index past the end of a buffer. For those, [the first axiom](#axiom-one-program-means-the-same-on-every-target) decides what the program does.
+
+The compiler refuses a mistake as well as the type checker, because a JavaScript user has no type checker, and a value typed `any` passes it.
+
+### @spec an-assignment-is-refused-unless-the-program-can-write-its-target
+
+> An assignment whose target the program cannot write is refused. Every target refuses it with the same message, and the type checker refuses it wherever the type of the target shows it.
+
+Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because a write to something the program cannot write either fails in the driver or changes nothing that anyone reads. A program writes only a [var](#term-var).
+
+#### @spec a-uniform-cannot-be-assigned
+
+> An assignment to a [uniform](#term-uniform), to a whole uniform array, or to a component or element of one, is refused.
+
+#### @spec a-built-in-input-cannot-be-assigned
+
+> An assignment to a built-in input, such as `invocationIndex()`, is refused.
+
+#### @spec an-attribute-cannot-be-assigned
+
+> An assignment to an [attribute](#term-attribute), or to a component of one, is refused.
+
+#### @spec a-whole-storage-buffer-cannot-be-assigned
+
+> An assignment to a whole [storage buffer](#term-storage-buffer) is refused, and the message points to `.element(i)`.
+
+#### @spec a-computed-value-cannot-be-assigned
+
+> An assignment to a value that an operation computed, or to a component or element of one, is refused, and the message points to `toVar()`.
+
+#### @spec a-parameter-of-the-compiled-function-cannot-be-assigned
+
+> An assignment to a parameter of the function a compiler compiles is refused, because its value belongs to the caller.
+
+#### @spec a-stage-output-is-assigned-only-in-its-stage
+
+> An assignment to a [varying](#term-varying) or to the position outside the vertex stage, or to the fragment depth outside the fragment stage, is refused.
+
+#### @spec a-swizzle-that-repeats-a-component-cannot-be-assigned
+
+> An assignment through a [swizzle](#term-swizzle) that names a component more than once is refused, also when it is reached through another swizzle.
+
+#### @spec a-swizzle-that-names-each-component-once-can-be-assigned
+
+> An assignment through a swizzle of a var that names each component once compiles on every target, also when it is reached through another swizzle.
 
 ## @fact wgsl-defines-every-integer-edge-case
 

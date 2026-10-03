@@ -51,6 +51,9 @@ function expectRefusedInStage(stage: "vertex" | "fragment", write: () => void, m
 }
 
 describe("an assignment's target", () => {
+  /**
+   * @canon spec-a-stage-output-is-assigned-only-in-its-stage
+   */
   it("refuses a stage output outside the stage that writes it, on every backend", () => {
     const color = varying("vec3");
     expectRefusedInStage(
@@ -70,6 +73,9 @@ describe("an assignment's target", () => {
     );
   });
 
+  /**
+   * @canon spec-a-parameter-of-the-compiled-function-cannot-be-assigned
+   */
   it("refuses a parameter of the compiled function, on every backend", () => {
     for (const [name, compile] of Object.entries(compilers)) {
       expect(
@@ -89,6 +95,9 @@ describe("an assignment's target", () => {
     }
   });
 
+  /**
+   * @canon spec-a-uniform-cannot-be-assigned
+   */
   it("refuses a uniform, whole or in part, on every backend", () => {
     const v = uniform("vec3");
     const m = uniform("mat3");
@@ -111,6 +120,10 @@ describe("an assignment's target", () => {
     expectRefusedEverywhere(() => vs.element(int(1)).x.assign(float(9)), refused);
   });
 
+  /**
+   * @canon spec-a-uniform-cannot-be-assigned
+   * @canon spec-a-built-in-input-cannot-be-assigned
+   */
   it("names a whole uniform array a uniform, and a built-in input as one, on every backend", () => {
     const vs = uniformArray("vec3", 4);
     expectRefusedEverywhere(() => (vs as any).assign(vec3(1, 2, 3)), /\[RMSL\] can't assign to a uniform: /);
@@ -118,6 +131,9 @@ describe("an assignment's target", () => {
     expectRefusedEverywhere(() => invocationIndex().assign(uint(0)), /\[RMSL\] can't assign to a built-in input: /);
   });
 
+  /**
+   * @canon spec-an-attribute-cannot-be-assigned
+   */
   it("refuses an attribute, whole or in part, on every backend", () => {
     const position = attribute("vec3");
     const refused = /\[RMSL\] can't assign to an attribute: /;
@@ -127,6 +143,9 @@ describe("an assignment's target", () => {
     expectRefusedEverywhere(() => position.x.assign(float(9)), refused);
   });
 
+  /**
+   * @canon spec-a-whole-storage-buffer-cannot-be-assigned
+   */
   it("refuses a whole storage buffer, rather than one of its elements, on every backend", () => {
     const values = instancedArray(4, "vec3");
     expectRefusedEverywhere(
@@ -136,6 +155,9 @@ describe("an assignment's target", () => {
     );
   });
 
+  /**
+   * @canon spec-a-swizzle-that-repeats-a-component-cannot-be-assigned
+   */
   it("refuses a swizzle that names a component more than once, on every backend", () => {
     const refused = (pattern: string) =>
       new RegExp(`\\[RMSL\\] can't assign through the swizzle \\.${pattern}, which names a component more than once`);
@@ -156,6 +178,9 @@ describe("an assignment's target", () => {
     }, refused("xxy"));
   });
 
+  /**
+   * @canon spec-a-swizzle-that-names-each-component-once-can-be-assigned
+   */
   it("accepts a swizzle that names each component once, through another swizzle", () => {
     const write = Fn(() => {
       const v = vec3(1, 2, 3).toVar();
@@ -168,6 +193,9 @@ describe("an assignment's target", () => {
     }
   });
 
+  /**
+   * @canon spec-a-computed-value-cannot-be-assigned
+   */
   it("refuses a computed value, whole or in part, on every backend", () => {
     const refused = /\[RMSL\] can't assign to a computed value: .* copy the value into a variable with toVar\(\) first/;
     expectRefusedEverywhere(() => {
