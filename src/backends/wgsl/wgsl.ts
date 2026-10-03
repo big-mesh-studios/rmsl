@@ -577,17 +577,15 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
         access?: "read" | "write" | "read_write";
       };
 
-      if (ctx.shaderStage !== "compute") {
-        throw new Error("[RMSL] storage resources are currently supported only in compute shaders");
-      }
-
       const name = v.slot;
       if (!name) {
         throw new Error("[RMSL] storage resource requires a name");
       }
 
       const type = wgslType(v.shaderType ?? node._t);
-      const access = v.access ?? "read";
+      // Outside compute, a storage buffer is bound read-only, as in TSL: WebGPU
+      // forbids writable storage in a vertex stage.
+      const access = ctx.shaderStage === "compute" ? (v.access ?? "read") : "read";
       const existing = ctx.storages?.get(name);
 
       if (existing) {
@@ -690,6 +688,14 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       }
       ctx.fragDepthUsed = true;
       return { decls: [], body: [], expr: "result._rmsl_fragDepth" };
+    }
+
+    case "vertexIndex":
+    case "instanceIndex": {
+      if (ctx.shaderStage !== "vertex") throw new Error(`${node.type}() can only be used in vertex shaders`);
+      if (node.type === "vertexIndex") ctx.vertexIndexUsed = true;
+      else ctx.instanceIndexUsed = true;
+      return { decls: [], body: [], expr: node.type === "vertexIndex" ? "_rmsl_vertexIndex" : "_rmsl_instanceIndex" };
     }
 
     case "fragCoord": {
@@ -1093,6 +1099,11 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
         ctx.positionWritten = true;
       }
       assertAssignable(node.params![0], ctx.shaderStage);
+      if ((node.params![0] as any)?.type === "storageElement" && ctx.shaderStage !== "compute") {
+        throw new Error(
+          `[RMSL] storage buffers are read-only in a ${ctx.shaderStage} shader; write them from a compute program`,
+        );
+      }
       let rhs = compileWGSLStage(node.params![1], ctx);
 
       // WGSL only makes a single component assignable: `v.x = e` is a
@@ -1632,6 +1643,19 @@ export function compileWGSLWithStage(
     lines.push("");
   }
 
+  // A render stage's storage buffers sit in their own group, after uniforms,
+  // textures and samplers. Both stages number them from the program's whole
+  // set, so a buffer has one binding in the pipeline.
+  if (shaderStage !== "compute" && ctx.storages && ctx.storages.size > 0) {
+    let order = options?.storages ?? [...ctx.storages.keys()].sort();
+    for (let info of ctx.storages.values()) {
+      lines.push(
+        `@group(${WGSL_RENDER_STORAGE_GROUP}) @binding(${order.indexOf(info.name)}) var<storage, read> ${info.wgslName}: array<${info.type}>;`,
+      );
+    }
+    lines.push("");
+  }
+
   // Helpers standing in for GLSL builtins WGSL lacks. Sorted so identical
   // shaders produce identical source regardless of the order ops were reached.
   for (const helper of [...ctx.wgslHelpers].sort()) {
@@ -1687,11 +1711,12 @@ export function compileWGSLWithStage(
     lines.push("};");
     lines.push("");
     lines.push("@vertex");
-    if (ctx.attributes.size > 0) {
-      lines.push("fn main(input: VertexInput) -> VertexOutput {");
-    } else {
-      lines.push("fn main() -> VertexOutput {");
-    }
+    let vertexParams = [
+      ...(ctx.attributes.size > 0 ? ["input: VertexInput"] : []),
+      ...(ctx.vertexIndexUsed ? ["@builtin(vertex_index) _rmsl_vertexIndex: u32"] : []),
+      ...(ctx.instanceIndexUsed ? ["@builtin(instance_index) _rmsl_instanceIndex: u32"] : []),
+    ];
+    lines.push(`fn main(${vertexParams.join(", ")}) -> VertexOutput {`);
     lines.push("  var result: VertexOutput;");
     // Put each matrix attribute back together from the columns it arrived in,
     // before anything reads it.
@@ -1847,6 +1872,12 @@ export type CompileWGSLOptions = {
    * `wgslUniformLayout` when packing the buffer, and all three agree.
    */
   uniforms?: WgslUniformDeclaration[];
+  /**
+   * Every storage slot of a render program, in binding order. As with
+   * `uniforms`, a vertex and a fragment stage reading different buffers only
+   * agree on their bindings when both are numbered from the whole set.
+   */
+  storages?: string[];
   workgroupSize?: number;
   /**
    * A compute stage's dispatch count: invocations at or past it return
@@ -1854,6 +1885,9 @@ export type CompileWGSLOptions = {
    */
   count?: Node<"uint">;
 };
+
+/** The bind group a render stage's storage buffers are declared in. */
+export const WGSL_RENDER_STORAGE_GROUP = 3;
 
 export const compileWgsl: {
   (root: Node<ShaderType> | readonly Node<ShaderType>[], options?: CompileWGSLOptions): string;

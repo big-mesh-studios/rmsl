@@ -1,9 +1,24 @@
-import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
+import {
+  AttributeNode,
+  Node,
+  ShaderType,
+  StorageBufferAttribute,
+  UniformArrayNode,
+  UniformNode,
+  UniformValue,
+} from "../../core";
 import { compile, WgslResource } from "../../wgsl";
 import { Adapter, DrawCountOptions, requestedStorageSlots, slotOf, TypedArray } from "../adapter";
 import { componentKindOf } from "../cpu";
-import { CompileCtx, VertexRoot } from "../shared";
-import { compileWGSLStage, compileWGSLWithStage, wgslMatrixColumns, wgslUniformLayout } from "./wgsl";
+import { CompileCtx, storageAttributes, VertexRoot } from "../shared";
+import type { WgslContext } from "./context-wgsl";
+import {
+  compileWGSLStage,
+  compileWGSLWithStage,
+  WGSL_RENDER_STORAGE_GROUP,
+  wgslMatrixColumns,
+  wgslUniformLayout,
+} from "./wgsl";
 
 /**
  * A device on `adapter` that binds as many storage buffers in one shader
@@ -49,6 +64,14 @@ export type AdapterResult = Record<string, TypedArray>;
 export interface WgslDrawOptions extends DrawCountOptions {
   /** Instances to draw. Defaults to 1. */
   instanceCount?: number;
+  /**
+   * Whether to clear the canvas before drawing. Defaults to `true`; pass
+   * `false` to draw over what an earlier `draw()` of this or another adapter
+   * on the same canvas left this frame.
+   */
+  clear?: boolean;
+  /** The colour a clear fills the canvas with, as red, green, blue and alpha from 0 to 1. Defaults to opaque black. */
+  clearColor?: readonly [number, number, number, number];
 }
 
 export interface CreateWgslAdapterOptions {
@@ -58,6 +81,14 @@ export interface CreateWgslAdapterOptions {
   fragment: Node<ShaderType> | readonly Node<ShaderType>[];
   /** Fixed for the render pipeline's lifetime — see `WgslDrawOptions`. Defaults to "triangle-list". */
   topology?: GPUPrimitiveTopology;
+  /**
+   * A compute context to draw from: the adapter uses its device, and a
+   * `storage()` node the stages read binds that context's buffer for the
+   * node's attribute, so a draw reads what the context's programs wrote.
+   * Without one, the adapter requests its own device and creates its own
+   * storage buffers, filled with `setAttribute(node.name, data)`.
+   */
+  context?: WgslContext;
 }
 
 /** A WGSL adapter, plus the one thing the shared `Adapter` shape has no
@@ -243,6 +274,24 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
   let renderBindGroup0: GPUBindGroup | null = null;
   let vertexBuffers = new Map<string, { buffer: GPUBuffer; componentCount: number }>();
   let vertexCount = 0;
+  /** The storage attributes the stages read, by slot, and the buffers they bind. */
+  let storages = new Map<string, StorageBufferAttribute>();
+  let ownStorageBuffers = new Map<StorageBufferAttribute, GPUBuffer>();
+  /** Bind groups by group index; a gap below the storage group is an empty group. */
+  let renderBindGroups: (GPUBindGroup | null)[] = [];
+
+  function storageBuffer(attribute: StorageBufferAttribute): GPUBuffer {
+    if (options.context) return options.context.buffer(attribute);
+    let existing = ownStorageBuffers.get(attribute);
+    if (existing) return existing;
+    existing = device!.createBuffer({
+      size: Math.max(4, attribute.count * attribute.itemSize * 4),
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    if (attribute.array) device!.queue.writeBuffer(existing, 0, attribute.array as BufferSource);
+    ownStorageBuffers.set(attribute, existing);
+    return existing;
+  }
 
   let pendingUniforms = new Map<string, number | number[]>();
   let pendingAttributes = new Map<string, TypedArray>();
@@ -265,11 +314,8 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       return;
     }
 
-    if (!renderPipeline) {
-      pendingUniforms.set(slot, value);
-      return;
-    }
-    throw new Error(`[RMSL] unknown uniform "${slot}"`);
+    // A uniform the program doesn't read is ignored, as in TSL and every other adapter.
+    if (!renderPipeline) pendingUniforms.set(slot, value);
   }
 
   function setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
@@ -297,6 +343,12 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       return;
     }
 
+    let storage = storages.get(slot);
+    if (storage) {
+      device.queue.writeBuffer(storageBuffer(storage), 0, data as BufferSource);
+      return;
+    }
+
     if (!renderPipeline) {
       pendingAttributes.set(slot, data);
       return;
@@ -306,9 +358,13 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
 
   let adapter: WgslAdapter = {
     async attach(canvas) {
-      let gpuAdapter = await navigator.gpu?.requestAdapter();
-      if (!gpuAdapter) throw new Error("[RMSL] WebGPU is not available");
-      device = await gpuAdapter.requestDevice();
+      if (options.context) {
+        device = options.context.device;
+      } else {
+        let gpuAdapter = await navigator.gpu?.requestAdapter();
+        if (!gpuAdapter) throw new Error("[RMSL] WebGPU is not available");
+        device = await gpuAdapter.requestDevice();
+      }
 
       let target = canvas ?? document.createElement("canvas");
       let glCanvasContext = target.getContext("webgpu");
@@ -336,10 +392,15 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       let sharedUniforms = new Map<string, ReflectedUniform>();
       for (let u of [...vertexReflection.uniforms, ...fragmentReflection.uniforms]) sharedUniforms.set(u.slot, u);
       let renderUniforms = [...sharedUniforms.values()];
-      let uniformOption = renderUniforms.length > 0 ? { uniforms: renderUniforms } : undefined;
+      storages = storageAttributes([options.vertex, options.fragment]);
+      let storageOrder = [...storages.keys()].sort();
+      let stageOptions = {
+        ...(renderUniforms.length > 0 ? { uniforms: renderUniforms } : {}),
+        ...(storageOrder.length > 0 ? { storages: storageOrder } : {}),
+      };
 
-      let vertexCode = compileWGSLWithStage(options.vertex as Node<ShaderType>, "vertex", uniformOption);
-      let fragmentCode = compileWGSLWithStage(options.fragment, "fragment", uniformOption);
+      let vertexCode = compileWGSLWithStage(options.vertex as Node<ShaderType>, "vertex", stageOptions);
+      let fragmentCode = compileWGSLWithStage(options.fragment, "fragment", stageOptions);
       let vertexModule = device.createShaderModule({ code: vertexCode });
       let fragmentModule = device.createShaderModule({ code: fragmentCode });
 
@@ -374,6 +435,25 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
         });
       }
 
+      renderBindGroups = [renderBindGroup0];
+      if (storageOrder.length > 0) {
+        // The derived layout has a (possibly empty) group for every index up to the
+        // storage group, and a draw needs one bound at each.
+        for (let group = 0; group < WGSL_RENDER_STORAGE_GROUP; group++) {
+          renderBindGroups[group] ??= device.createBindGroup({
+            layout: renderPipeline.getBindGroupLayout(group),
+            entries: [],
+          });
+        }
+        renderBindGroups[WGSL_RENDER_STORAGE_GROUP] = device.createBindGroup({
+          layout: renderPipeline.getBindGroupLayout(WGSL_RENDER_STORAGE_GROUP),
+          entries: storageOrder.map((slot, binding) => ({
+            binding,
+            resource: { buffer: storageBuffer(storages.get(slot)!) },
+          })),
+        });
+      }
+
       for (let [slot, value] of pendingUniforms) adapter.setUniform(slot, value);
       for (let [slot, data] of pendingAttributes) adapter.setAttribute(slot, data);
       pendingUniforms.clear();
@@ -390,10 +470,17 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       let encoder = device.createCommandEncoder();
       let view = context.getCurrentTexture().createView();
       let pass = encoder.beginRenderPass({
-        colorAttachments: [{ view, clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: "clear", storeOp: "store" }],
+        colorAttachments: [
+          {
+            view,
+            clearValue: drawOptions?.clearColor ?? [0, 0, 0, 1],
+            loadOp: drawOptions?.clear === false ? "load" : "clear",
+            storeOp: "store",
+          },
+        ],
       });
       pass.setPipeline(renderPipeline);
-      if (renderBindGroup0) pass.setBindGroup(0, renderBindGroup0);
+      renderBindGroups.forEach((group, index) => group && pass.setBindGroup(index, group));
       for (let i = 0; i < vertexAttributes.length; i++) {
         let vb = vertexBuffers.get(vertexAttributes[i].slot);
         if (vb) pass.setVertexBuffer(i, vb.buffer);
@@ -413,8 +500,9 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
 
     destroy() {
       for (let vb of vertexBuffers.values()) vb.buffer.destroy();
+      for (let buffer of ownStorageBuffers.values()) buffer.destroy();
       renderUniformBuffer?.destroy();
-      device?.destroy();
+      if (!options.context) device?.destroy();
     },
   };
 
@@ -537,11 +625,8 @@ export function createWgslCompute(
       return;
     }
 
-    if (!computePipeline) {
-      pendingUniforms.set(slot, value);
-      return;
-    }
-    throw new Error(`[RMSL] unknown uniform "${slot}"`);
+    // A uniform the program doesn't read is ignored, as in TSL and every other adapter.
+    if (!computePipeline) pendingUniforms.set(slot, value);
   }
 
   // Named `setAttribute` by convention with the render-shaped adapters,

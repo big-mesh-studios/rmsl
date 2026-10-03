@@ -1,28 +1,13 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { build } from "esbuild";
-import { webgpuPage, webgpuAvailable, releaseGpu } from "../testing/gpu";
+import { webgpuAvailable, releaseGpu } from "../testing/gpu";
+import { READ_PIXEL, runInWebGpuPage } from "../testing/browser";
 
 const WEBGPU = await webgpuAvailable();
-
-// Every entry reads its pixels through a 2D canvas rather than copying the
-// WebGPU texture: the drawing surface is `bgra8unorm` here and `rgba8unorm`
-// elsewhere, and `getImageData` is in the same channel order either way.
-const READBACK = `
-const readPixel = (canvas, x, y) => {
-  const flat = document.createElement("canvas");
-  flat.width = canvas.width;
-  flat.height = canvas.height;
-  const context = flat.getContext("2d");
-  context.drawImage(canvas, 0, 0);
-  const [r, g, b, a] = context.getImageData(x, y, 1, 1).data;
-  return { r, g, b, a };
-};
-`;
 
 const ENTRY_LIT = `
 import { WebGPURenderer, Scene, Mesh, PerspectiveCamera, BoxGeometry,
   MeshStandardMaterial, AmbientLight, DirectionalLight } from "./index";
-${READBACK}
+${READ_PIXEL}
 globalThis.__rmslGpuLitRun = async () => {
   const canvas = document.createElement("canvas");
   canvas.width = 32;
@@ -50,7 +35,7 @@ const ENTRY_SAMPLER_STATE = `
 import { WebGPURenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
   MeshBasicMaterial, DataTexture, NearestFilter, RepeatWrapping } from "./index";
 import { vec2 } from "../rmsl";
-${READBACK}
+${READ_PIXEL}
 globalThis.__rmslGpuSamplerRun = async () => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
@@ -93,7 +78,7 @@ const ENTRY_UPDATE = `
 import { WebGPURenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
   MeshBasicMaterial, DataTexture } from "./index";
 import { vec2 } from "../rmsl";
-${READBACK}
+${READ_PIXEL}
 globalThis.__rmslGpuUpdateRun = async () => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
@@ -131,7 +116,7 @@ const ENTRY_SAMPLERS = `
 import { WebGPURenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
   MeshBasicMaterial, DataTexture, NearestFilter } from "./index";
 import { float, uvec2, vec2, vec4 } from "../rmsl";
-${READBACK}
+${READ_PIXEL}
 globalThis.__rmslGpuSamplersRun = async () => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
@@ -171,7 +156,7 @@ globalThis.__rmslGpuSamplersRun = async () => {
 const ENTRY_INSTANCED = `
 import { WebGPURenderer, Scene, InstancedMesh, PerspectiveCamera, BoxGeometry,
   MeshBasicMaterial, Matrix4, Color } from "./index";
-${READBACK}
+${READ_PIXEL}
 globalThis.__rmslGpuInstancedRun = async () => {
   const canvas = document.createElement("canvas");
   canvas.width = 32;
@@ -196,34 +181,9 @@ globalThis.__rmslGpuInstancedRun = async () => {
 };
 `;
 
-async function bundleEntry(source: string): Promise<string> {
-  const result = await build({
-    stdin: {
-      contents: source,
-      resolveDir: new URL(".", import.meta.url).pathname,
-      loader: "ts",
-    },
-    bundle: true,
-    write: false,
-    format: "iife",
-    platform: "browser",
-    logLevel: "silent",
-  });
-  return result.outputFiles[0].text;
-}
-
 /** Bundle an entry, run it in the WebGPU page, and hand back what it returned. */
-async function runInBrowser(source: string, entryPoint: string): Promise<any> {
-  const page = await webgpuPage();
-  const code = await bundleEntry(source);
-  return await page.evaluate(
-    async ([bundle, name]: [string, string]) => {
-      // eslint-disable-next-line no-new-func
-      new Function(bundle)();
-      return await (globalThis as any)[name]();
-    },
-    [code, entryPoint] as [string, string],
-  );
+function runInBrowser(source: string, entryPoint: string): Promise<any> {
+  return runInWebGpuPage(source, entryPoint, new URL(".", import.meta.url).pathname);
 }
 
 describe.skipIf(!WEBGPU)("WebGPURenderer on a real adapter", () => {

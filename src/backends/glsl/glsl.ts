@@ -271,6 +271,12 @@ export function compileGLSLNode(
       return { decls: [], body: [], expr: "gl_FragDepth" };
     }
 
+    case "vertexIndex":
+    case "instanceIndex": {
+      if (ctx.shaderStage !== "vertex") throw new Error(`${node.type}() can only be used in vertex shaders`);
+      return { decls: [], body: [], expr: node.type === "vertexIndex" ? "uint(gl_VertexID)" : "uint(gl_InstanceID)" };
+    }
+
     case "fragCoord": {
       if (ctx.shaderStage !== "fragment") {
         throw new Error("fragCoord() can only be used in fragment shaders");
@@ -780,6 +786,10 @@ export function compileGLSLNode(
     case "return": {
       return { decls: [], body: ["return;"], expr: "0.0" };
     }
+
+    case "storage":
+    case "storageElement":
+      throw new Error("[RMSL] GLSL has no storage buffers (WebGL2 doesn't support them); use the WGSL backend");
 
     default:
       // Emitting a placeholder here would silently corrupt the shader: an

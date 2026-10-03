@@ -2865,6 +2865,16 @@ export function builtinFragDepth(): Var<"float"> {
   }) as Var<"float">;
 }
 
+/** The index of the vertex being processed, as TSL's `vertexIndex` (a vertex-stage-only builtin). */
+export function vertexIndex(): Node<"uint"> {
+  return node({ _t: "uint", type: "vertexIndex" }) as Node<"uint">;
+}
+
+/** The index of the instance being drawn, as TSL's `instanceIndex` (a vertex-stage-only builtin). */
+export function instanceIndex(): Node<"uint"> {
+  return node({ _t: "uint", type: "instanceIndex" }) as Node<"uint">;
+}
+
 /**
  * The fragment's position in the framebuffer, in pixels — `gl_FragCoord.xy`.
  * The origin is the lower-left of the framebuffer on both backends, which is
