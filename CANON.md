@@ -101,6 +101,8 @@ The analysis found places where the code does not hold the axioms. Each one has 
 3. `screenSize()` makes a new uniform on every call, while `time()` returns one shared uniform. Issue #51.
 4. `toReadOnly()` changes the storage node it is called on, as it does in TSL, so a reference typed as writable becomes read-only. The type checker accepts a write that the compiler refuses. Issue #52 asks whether to depart from TSL here.
 5. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
+6. `Loop` takes only the counting shape of TSL's `Loop`. Given TSL's `bool` condition, it compiles a comparison of an `int` with a `bool`, which no driver accepts. Issue #58.
+7. The documents call `While` and `For` TSL functions, but TSL has only `Loop`. Issue #59.
 
 ### Coverage gaps
 
