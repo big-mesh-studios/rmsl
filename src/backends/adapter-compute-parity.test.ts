@@ -310,6 +310,10 @@ describe("createJsCompute/createWasmCompute reading back into out", () => {
     ["JS", createJsCompute],
     ["WASM", createWasmCompute],
   ] as const) {
+    /**
+     * @canon spec-compute-copies-back-only-the-slots-out-names
+     * @canon spec-a-cpu-adapter-computes-synchronously
+     */
     it(`${name}: reads back only the slots out names`, () => {
       const adapter = create(program(), { name: "step" });
       adapter.setAttribute(a.name, new Float32Array([1, 2]));

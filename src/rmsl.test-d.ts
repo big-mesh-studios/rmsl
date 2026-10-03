@@ -36,7 +36,7 @@ import {
   type Var,
   type VaryingNode,
 } from "./rmsl";
-import { compileGlsl } from "./glsl";
+import { compileGlsl, type GlslAdapter } from "./glsl";
 import { compileWgsl, createWgslCompute } from "./wgsl";
 import { createJsCompute } from "./js";
 import { createWasmCompute } from "./wasm";
@@ -183,6 +183,25 @@ describe("compute programs", () => {
     createJsCompute(step);
     createWasmCompute(step);
     createWgslCompute(step);
+  });
+});
+
+describe("adapters", () => {
+  /**
+   * @canon spec-a-glsl-adapter-attaches-and-draws-synchronously
+   */
+  it("attach and draw a GLSL adapter without a promise", () => {
+    expectTypeOf<ReturnType<GlslAdapter["attach"]>>().toEqualTypeOf<void>();
+    expectTypeOf<ReturnType<GlslAdapter["draw"]>>().toEqualTypeOf<void>();
+  });
+
+  /**
+   * @canon spec-an-adapter-has-no-method-for-a-capability-its-target-lacks
+   */
+  it("give a GLSL adapter no compute to call", () => {
+    const adapter = {} as GlslAdapter;
+    // @ts-expect-error WebGL 2 has no compute stage
+    adapter.compute();
   });
 });
 
@@ -438,6 +457,9 @@ describe("what can be assigned to", () => {
     expectTypeOf(m.element(int(1)).zx).toHaveProperty("assign");
   });
 
+  /**
+   * @canon spec-an-assignment-is-refused-unless-the-program-can-write-its-target
+   */
   it("refuses a uniform, an attribute, a whole storage buffer, a computed value and a repeated swizzle", () => {
     const v = vec4(1, 2, 3, 4).toVar();
     // @ts-expect-error a uniform is read-only

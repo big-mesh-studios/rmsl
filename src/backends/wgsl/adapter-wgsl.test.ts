@@ -89,6 +89,10 @@ describe.skipIf(!GPU_ENABLED)("createWgslCompute reading back into out", () => {
       b.element(i).assign(b.element(i).add(2));
     })();
 
+  /**
+   * @canon spec-compute-copies-back-only-the-slots-out-names
+   * @canon spec-a-wgsl-adapter-attaches-and-computes-through-a-promise
+   */
   it("reads back only the slots out names", async () => {
     const adapter = createWgslCompute(program());
     await adapter.attach();

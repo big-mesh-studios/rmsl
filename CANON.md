@@ -69,6 +69,13 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec for-runs-its-init-condition-body-and-update`](#spec-for-runs-its-init-condition-body-and-update) — `For(init, condition, update, body)` makes its loop variable with `init`, and tests `condition` before every iteration. Each iteration runs `body`, then `update`.
       - [`@exception for-is-a-name-tsl-lacks`](#exception-for-is-a-name-tsl-lacks) — rmsl writes a loop with its own condition and update as `For`. TSL has no `For`, and takes a comparison operator and a step in the object shape of `Loop`.
       - [`@exception a-for-condition-is-computed-before-every-test`](#exception-a-for-condition-is-computed-before-every-test) — A `For` condition is computed before every test, a variable it makes included, also when an `Fn` the condition calls makes the variable.
+- [`@axiom each-target-keeps-what-makes-it-worth-choosing`](#axiom-each-target-keeps-what-makes-it-worth-choosing) — An interface over several targets keeps what each target does better than the others. A call that a target answers at once stays synchronous. Data that lives on the GPU stays there until the host asks for it. No target fakes a capability it lacks.
+  - [`@spec an-adapter-call-is-synchronous-where-its-target-answers-at-once`](#spec-an-adapter-call-is-synchronous-where-its-target-answers-at-once) — An [adapter](#term-adapter) method returns its result directly where its target answers at once, and returns a promise only where its target cannot.
+    - [`@spec a-cpu-adapter-computes-synchronously`](#spec-a-cpu-adapter-computes-synchronously) — `compute` on a JS or WASM adapter has run the dispatch and filled `out` when it returns.
+    - [`@spec a-wgsl-adapter-attaches-and-computes-through-a-promise`](#spec-a-wgsl-adapter-attaches-and-computes-through-a-promise) — `attach` and `compute` on a WGSL adapter return promises, because WebGPU requests its device and reads its buffers back asynchronously.
+    - [`@spec a-glsl-adapter-attaches-and-draws-synchronously`](#spec-a-glsl-adapter-attaches-and-draws-synchronously) — `attach` and `draw` on a GLSL adapter return `void`, because WebGL 2 creates its context and draws synchronously.
+  - [`@spec compute-copies-back-only-the-slots-out-names`](#spec-compute-copies-back-only-the-slots-out-names) — `compute(out)` copies back to the host only the storage slots that `out` names. The other storage buffers stay where the program wrote them.
+  - [`@spec an-adapter-has-no-method-for-a-capability-its-target-lacks`](#spec-an-adapter-has-no-method-for-a-capability-its-target-lacks) — A GLSL adapter has no `compute`, and a call to it is a type error.
 - [`@fact wgsl-defines-every-integer-edge-case`](#fact-wgsl-defines-every-integer-edge-case) — WGSL defines the result of every integer operation on run-time values. Overflow wraps. A division by zero returns the dividend and a remainder by zero returns zero. The most negative `i32` divided by `-1` returns itself. A shift uses its amount modulo the bit width.
 - [`@fact glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined) — GLSL ES 3.00 leaves undefined the result of an integer division or remainder by zero. It also leaves undefined a shift by a negative amount, or by the bit width or more.
 - [`@fact wgsl-rejects-a-constant-expression-that-fails`](#fact-wgsl-rejects-a-constant-expression-that-fails) — A WGSL shader fails to compile when a constant expression divides an integer by zero, shifts by the bit width or more, or overflows.
@@ -95,11 +102,10 @@ The canon is not settled yet. The questions below wait for the owner of the desi
 
 An analysis of the code, the tests, the documents, the issues and the commit history found these values. Each one decides a real choice between two designs that both work. None is an axiom until the owner confirms it.
 
-1. `each-target-keeps-what-makes-it-worth-choosing`: an interface over several targets keeps each target's own strengths, such as a synchronous call or data that stays on the GPU. It chooses native shapes over one uniform shape. Evidence: the `Adapter` with an optional `compute`, synchronous CPU adapters, `compute()` without readback.
-2. `rmsl-compiles-and-the-application-drives`: rmsl hands back code and data, such as shader source, callables and pass graphs, and the application owns the render loop. It chooses a compiler over a renderer. Evidence: effects as pure node graphs, `PassGraph`, `docs/tsl-migration.md`. The `./scene` renderers are an open conflict with this value.
-3. `shader-logic-runs-without-a-device`: the logic of a shader can run on the CPU, for picking and for unit tests, with no browser and no graphics device. It chooses a CPU target over GPU readback. Evidence: the JS and WASM targets, `./test`.
-4. `a-user-names-what-they-hold`: the user addresses an input or an output by the node they hold or the name they gave, never by a name the compiler invented. Evidence: the `[node, value]` bindings of `./test`, `fromProgram`.
-5. `a-user-ships-only-what-runs`: an application pays only for what it uses, at build time and at run time. Evidence: the Vite precompile plugins, a material filtered to the bindings it uses, the lazy `time()` uniform.
+1. `rmsl-compiles-and-the-application-drives`: rmsl hands back code and data, such as shader source, callables and pass graphs, and the application owns the render loop. It chooses a compiler over a renderer. Evidence: effects as pure node graphs, `PassGraph`, `docs/tsl-migration.md`. The `./scene` renderers are an open conflict with this value.
+2. `shader-logic-runs-without-a-device`: the logic of a shader can run on the CPU, for picking and for unit tests, with no browser and no graphics device. It chooses a CPU target over GPU readback. Evidence: the JS and WASM targets, `./test`.
+3. `a-user-names-what-they-hold`: the user addresses an input or an output by the node they hold or the name they gave, never by a name the compiler invented. Evidence: the `[node, value]` bindings of `./test`, `fromProgram`.
+4. `a-user-ships-only-what-runs`: an application pays only for what it uses, at build time and at run time. Evidence: the Vite precompile plugins, a material filtered to the bindings it uses, the lazy `time()` uniform.
 
 ### Typed errors
 
@@ -128,7 +134,7 @@ These units hold a claim that no test checks yet.
 1. [`spec-glsl-integer-arithmetic-follows-wgsl`](#spec-glsl-integer-arithmetic-follows-wgsl): no test reads an integer result back from GLSL. The integer tests hold GLSL only to compiling. Issue #54.
 2. [`exception-dawn-on-metal-divides-some-u32-constants-wrongly`](#exception-dawn-on-metal-divides-some-u32-constants-wrongly): the integer sweep sets the wrong quotients aside, but no `test.fails` pins them. Such a test runs only on Metal, and starts failing once Dawn is fixed. Issue #55.
 3. [`spec-wasm-float-arithmetic-matches-js-exactly`](#spec-wasm-float-arithmetic-matches-js-exactly), [`spec-gpu-float-arithmetic-matches-the-cpu-targets`](#spec-gpu-float-arithmetic-matches-the-cpu-targets) and [`exception-a-gpu-float-result-differs-from-the-cpu-in-its-last-bits`](#exception-a-gpu-float-result-differs-from-the-cpu-in-its-last-bits): `src/eval.test.ts` holds every program it evaluates to these claims, in an `afterAll`. The checker credits a unit only from a leaf test, so it cannot see that check. Issue #56.
-4. [`spec-an-assignment-is-refused-unless-the-program-can-write-its-target`](#spec-an-assignment-is-refused-unless-the-program-can-write-its-target): each case has a test, but no test makes the cases meet in one program. Issue #57.
+4. [`spec-an-assignment-is-refused-unless-the-program-can-write-its-target`](#spec-an-assignment-is-refused-unless-the-program-can-write-its-target): a type test makes the cases meet in one program, but no test does so through the compilers. Issue #57.
 5. [`exception-loop-takes-only-a-count`](#exception-loop-takes-only-a-count): no test gives `Loop` a `bool`, and today it miscompiles one. Issue #58.
 
 ## Terms
@@ -452,6 +458,46 @@ Derives from: [`fact-tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-o
 > A `For` condition is computed before every test, a variable it makes included, also when an `Fn` the condition calls makes the variable.
 
 Derives from: [`fact-tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-condition-once)
+
+## @axiom each-target-keeps-what-makes-it-worth-choosing
+
+> An interface over several targets keeps what each target does better than the others. A call that a target answers at once stays synchronous. Data that lives on the GPU stays there until the host asks for it. No target fakes a capability it lacks.
+
+A user picks a target for what it does well. Screen picking needs an answer within the same call, which the CPU targets give. WGSL keeps work on the GPU. One shape for every target would take that away. Every call would return a promise, and every dispatch would copy its results back. The axiom decides between native shapes and one uniform shape.
+
+Code written for any target still works with the native shapes. Awaiting a value that is not a promise returns the value.
+
+### @spec an-adapter-call-is-synchronous-where-its-target-answers-at-once
+
+> An [adapter](#term-adapter) method returns its result directly where its target answers at once, and returns a promise only where its target cannot.
+
+This follows because a promise where none is needed costs a synchronous caller its answer within the same call.
+
+#### @spec a-cpu-adapter-computes-synchronously
+
+> `compute` on a JS or WASM adapter has run the dispatch and filled `out` when it returns.
+
+#### @spec a-wgsl-adapter-attaches-and-computes-through-a-promise
+
+> `attach` and `compute` on a WGSL adapter return promises, because WebGPU requests its device and reads its buffers back asynchronously.
+
+#### @spec a-glsl-adapter-attaches-and-draws-synchronously
+
+> `attach` and `draw` on a GLSL adapter return `void`, because WebGL 2 creates its context and draws synchronously.
+
+### @spec compute-copies-back-only-the-slots-out-names
+
+> `compute(out)` copies back to the host only the storage slots that `out` names. The other storage buffers stay where the program wrote them.
+
+This follows because a copy back from the GPU costs a round trip, and a buffer the next dispatch reads needs no copy.
+
+### @spec an-adapter-has-no-method-for-a-capability-its-target-lacks
+
+> A GLSL adapter has no `compute`, and a call to it is a type error.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs), [`fact-webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage)
+
+This follows because a method that only throws would fake the capability until the program runs. A missing method lets the type checker refuse the call.
 
 ## @fact wgsl-defines-every-integer-edge-case
 
