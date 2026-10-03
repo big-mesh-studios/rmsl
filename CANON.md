@@ -58,6 +58,17 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-swizzle-that-repeats-a-component-cannot-be-assigned`](#spec-a-swizzle-that-repeats-a-component-cannot-be-assigned) — An assignment through a [swizzle](#term-swizzle) that names a component more than once is refused, also when it is reached through another swizzle.
     - [`@spec a-swizzle-that-names-each-component-once-can-be-assigned`](#spec-a-swizzle-that-names-each-component-once-can-be-assigned) — An assignment through a swizzle of a var that names each component once compiles on every target, also when it is reached through another swizzle.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
+  - [`@spec a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop) — A loop follows TSL's `Loop`. It tests its condition before every iteration, and runs its body while the condition holds. It builds the condition once, before the loop.
+    - [`@spec loop-counts-from-zero`](#spec-loop-counts-from-zero) — `Loop(count, body)` runs `body` `count` times, with an `int` index that counts up from 0.
+      - [`@exception loop-passes-its-index-directly`](#exception-loop-passes-its-index-directly) — `Loop` passes its index to its body as `i`, where TSL passes `{ i }`.
+      - [`@exception loop-takes-only-a-count`](#exception-loop-takes-only-a-count) — `Loop` takes only a count. It does not take TSL's `bool` condition or TSL's object of `start`, `end`, `condition` and `update`.
+    - [`@spec while-runs-while-its-condition-holds`](#spec-while-runs-while-its-condition-holds) — `While(condition, body)` tests `condition` before every iteration, and runs `body` while it holds, as TSL's `Loop(condition, body)` does.
+      - [`@exception while-is-a-name-tsl-lacks`](#exception-while-is-a-name-tsl-lacks) — rmsl writes a while loop as `While`. TSL has no `While`, and writes it as `Loop` with a `bool` condition.
+      - [`@spec a-while-condition-given-as-a-node-is-built-once`](#spec-a-while-condition-given-as-a-node-is-built-once) — A variable that a `While` condition given as a node makes is computed once, before the loop. The condition then reads that value on every test.
+      - [`@exception a-while-condition-given-as-a-function-is-computed-before-every-test`](#exception-a-while-condition-given-as-a-function-is-computed-before-every-test) — A `While` condition given as a function is computed before every test, a variable it makes included.
+    - [`@spec for-runs-its-init-condition-body-and-update`](#spec-for-runs-its-init-condition-body-and-update) — `For(init, condition, update, body)` makes its loop variable with `init`, and tests `condition` before every iteration. Each iteration runs `body`, then `update`.
+      - [`@exception for-is-a-name-tsl-lacks`](#exception-for-is-a-name-tsl-lacks) — rmsl writes a loop with its own condition and update as `For`. TSL has no `For`, and takes a comparison operator and a step in the object shape of `Loop`.
+      - [`@exception a-for-condition-is-computed-before-every-test`](#exception-a-for-condition-is-computed-before-every-test) — A `For` condition is computed before every test, a variable it makes included, also when an `Fn` the condition calls makes the variable.
 - [`@fact wgsl-defines-every-integer-edge-case`](#fact-wgsl-defines-every-integer-edge-case) — WGSL defines the result of every integer operation on run-time values. Overflow wraps. A division by zero returns the dividend and a remainder by zero returns zero. The most negative `i32` divided by `-1` returns itself. A shift uses its amount modulo the bit width.
 - [`@fact glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined) — GLSL ES 3.00 leaves undefined the result of an integer division or remainder by zero. It also leaves undefined a shift by a negative amount, or by the bit width or more.
 - [`@fact wgsl-rejects-a-constant-expression-that-fails`](#fact-wgsl-rejects-a-constant-expression-that-fails) — A WGSL shader fails to compile when a constant expression divides an integer by zero, shifts by the bit width or more, or overflows.
@@ -72,6 +83,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-mipmapped-texture-without-its-chain-samples-black`](#fact-a-mipmapped-texture-without-its-chain-samples-black) — In WebGL 2, a texture whose minification filter reads mipmaps but which has no mip chain is incomplete, and samples as black.
 - [`@fact a-content-security-policy-can-block-new-function`](#fact-a-content-security-policy-can-block-new-function) — A Content-Security-Policy without `unsafe-eval` stops `new Function` from compiling source.
 - [`@fact dawn-on-metal-divides-some-u32-constants-wrongly`](#fact-dawn-on-metal-divides-some-u32-constants-wrongly) — Dawn on Metal computes the wrong quotient when a constant `u32` numerator from `0xFFFFFF80` to `0xFFFFFFFE` is divided by a run-time value.
+- [`@fact tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-one-loop-function-in-three-shapes) — Three.js TSL has one loop function, `Loop`, and no `While` or `For`. `Loop` takes a count, a `bool` condition, or an object of `start`, `end`, `type`, `condition` and `update`. It passes the loop index to its body as `{ i }`.
+- [`@fact tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-condition-once) — TSL builds the `bool` condition of a `Loop`, and its `start` and `end`, before it emits the loop. A variable they make is computed once, before the first test.
 <!-- toc:end -->
 
 ## Open questions
@@ -94,7 +107,7 @@ Every refusal is a plain `Error` today, and a caller can tell refusals apart onl
 
 ### Control flow
 
-Whether rmsl's loops converge on TSL's `Loop`, or keep `While` and `For` as loops of rmsl's own, is open. TSL has no `While` and no `For`, so TSL compatibility does not decide how they behave. Issue #60 holds the question.
+Whether rmsl's loops converge on TSL's `Loop`, or keep `While` and `For` as loops of rmsl's own, is open. Issue #60 holds the question. The canon states the loops as they behave today, under [`spec-a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop), with an exception for each departure from TSL.
 
 ### Divergences found
 
@@ -116,6 +129,7 @@ These units hold a claim that no test checks yet.
 2. [`exception-dawn-on-metal-divides-some-u32-constants-wrongly`](#exception-dawn-on-metal-divides-some-u32-constants-wrongly): the integer sweep sets the wrong quotients aside, but no `test.fails` pins them. Such a test runs only on Metal, and starts failing once Dawn is fixed. Issue #55.
 3. [`spec-wasm-float-arithmetic-matches-js-exactly`](#spec-wasm-float-arithmetic-matches-js-exactly), [`spec-gpu-float-arithmetic-matches-the-cpu-targets`](#spec-gpu-float-arithmetic-matches-the-cpu-targets) and [`exception-a-gpu-float-result-differs-from-the-cpu-in-its-last-bits`](#exception-a-gpu-float-result-differs-from-the-cpu-in-its-last-bits): `src/eval.test.ts` holds every program it evaluates to these claims, in an `afterAll`. The checker credits a unit only from a leaf test, so it cannot see that check. Issue #56.
 4. [`spec-an-assignment-is-refused-unless-the-program-can-write-its-target`](#spec-an-assignment-is-refused-unless-the-program-can-write-its-target): each case has a test, but no test makes the cases meet in one program. Issue #57.
+5. [`exception-loop-takes-only-a-count`](#exception-loop-takes-only-a-count): no test gives `Loop` a `bool`, and today it miscompiles one. Issue #58.
 
 ## Terms
 
@@ -377,6 +391,68 @@ A user who knows TSL knows rmsl, and a shader written for Three.js moves to rmsl
 
 A departure that serves no axiom is a matter of taste, and taste does not outweigh a port that works. A departure that does serve one is stated as a spec, and the spec names the axiom on its `Derives from:` line. Before settling a question about the API, read what TSL does in its source.
 
+### @spec a-loop-follows-tsls-loop
+
+> A loop follows TSL's `Loop`. It tests its condition before every iteration, and runs its body while the condition holds. It builds the condition once, before the loop.
+
+Derives from: [`fact-tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-one-loop-function-in-three-shapes), [`fact-tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-condition-once)
+
+This follows because a loop ported from TSL must run the same number of times in rmsl. The specs below state each loop rmsl has today, and the exceptions map where it departs from TSL. Issue #60 asks whether those departures stay.
+
+#### @spec loop-counts-from-zero
+
+> `Loop(count, body)` runs `body` `count` times, with an `int` index that counts up from 0.
+
+##### @exception loop-passes-its-index-directly
+
+> `Loop` passes its index to its body as `i`, where TSL passes `{ i }`.
+
+Derives from: [`fact-tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-one-loop-function-in-three-shapes)
+
+##### @exception loop-takes-only-a-count
+
+> `Loop` takes only a count. It does not take TSL's `bool` condition or TSL's object of `start`, `end`, `condition` and `update`.
+
+Derives from: [`fact-tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-one-loop-function-in-three-shapes)
+
+A `bool` given as the count is not refused, and compiles into a comparison no driver accepts. That breaks [the refusal axiom](#axiom-a-mistake-is-refused-before-the-program-runs), and issue #58 holds it.
+
+#### @spec while-runs-while-its-condition-holds
+
+> `While(condition, body)` tests `condition` before every iteration, and runs `body` while it holds, as TSL's `Loop(condition, body)` does.
+
+##### @exception while-is-a-name-tsl-lacks
+
+> rmsl writes a while loop as `While`. TSL has no `While`, and writes it as `Loop` with a `bool` condition.
+
+Derives from: [`fact-tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-one-loop-function-in-three-shapes)
+
+##### @spec a-while-condition-given-as-a-node-is-built-once
+
+> A variable that a `While` condition given as a node makes is computed once, before the loop. The condition then reads that value on every test.
+
+##### @exception a-while-condition-given-as-a-function-is-computed-before-every-test
+
+> A `While` condition given as a function is computed before every test, a variable it makes included.
+
+Derives from: [`fact-tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-condition-once)
+
+#### @spec for-runs-its-init-condition-body-and-update
+
+> `For(init, condition, update, body)` makes its loop variable with `init`, and tests `condition` before every iteration. Each iteration runs `body`, then `update`.
+
+##### @exception for-is-a-name-tsl-lacks
+
+> rmsl writes a loop with its own condition and update as `For`. TSL has no `For`, and takes a comparison operator and a step in the object shape of `Loop`.
+
+Derives from: [`fact-tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-one-loop-function-in-three-shapes)
+
+##### @exception a-for-condition-is-computed-before-every-test
+
+> A `For` condition is computed before every test, a variable it makes included, also when an `Fn` the condition calls makes the variable.
+
+Derives from: [`fact-tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-condition-once)
+
 ## @fact wgsl-defines-every-integer-edge-case
 
 > WGSL defines the result of every integer operation on run-time values. Overflow wraps. A division by zero returns the dividend and a remainder by zero returns zero. The most negative `i32` divided by `-1` returns itself. A shift uses its amount modulo the bit width.
@@ -460,3 +536,15 @@ This is a fact of the browser platform, not a choice.
 > Dawn on Metal computes the wrong quotient when a constant `u32` numerator from `0xFFFFFF80` to `0xFFFFFFFE` is divided by a run-time value.
 
 This is a fact of one driver, not a choice. It holds until Dawn fixes it.
+
+## @fact tsl-has-one-loop-function-in-three-shapes
+
+> Three.js TSL has one loop function, `Loop`, and no `While` or `For`. `Loop` takes a count, a `bool` condition, or an object of `start`, `end`, `type`, `condition` and `update`. It passes the loop index to its body as `{ i }`.
+
+This is a fact of TSL, in `src/nodes/utils/LoopNode.js` of three.js, not a choice of rmsl.
+
+## @fact tsl-builds-a-loop-condition-once
+
+> TSL builds the `bool` condition of a `Loop`, and its `start` and `end`, before it emits the loop. A variable they make is computed once, before the first test.
+
+This is a fact of TSL, in `LoopNode.generate`, not a choice of rmsl.

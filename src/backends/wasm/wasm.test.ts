@@ -485,6 +485,9 @@ describe("WASM backend: control flow", () => {
  * `continue`/`return`/`discard` are new here.
  */
 describe("WASM backend: loops", () => {
+  /**
+   * @canon spec-for-runs-its-init-condition-body-and-update
+   */
   it("sums a range with For", () => {
     const build = (n: Node<"float">) =>
       Fn(() => {
@@ -504,6 +507,9 @@ describe("WASM backend: loops", () => {
     expect(run(build, [5])).toBe(10); // 0+1+2+3+4
   });
 
+  /**
+   * @canon spec-loop-counts-from-zero
+   */
   it("sums the same range via the Loop sugar", () => {
     const build = (n: Node<"float">) =>
       Fn(() => {
@@ -516,6 +522,9 @@ describe("WASM backend: loops", () => {
     expect(run(build, [5])).toBe(10);
   });
 
+  /**
+   * @canon spec-while-runs-while-its-condition-holds
+   */
   it("sums the same range with While", () => {
     const build = (n: Node<"float">) =>
       Fn(() => {

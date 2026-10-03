@@ -153,6 +153,9 @@ describe("RMSL evaluation", () => {
   // what catches it. That is inherent: there is no way to test that a loop
   // terminates without risking one that does not.
 
+  /**
+   * @canon spec-for-runs-its-init-condition-body-and-update
+   */
   it("runs a for loop the right number of times", async () => {
     const sumTo = (n: Node<"float">) =>
       Fn(() => {
@@ -175,6 +178,9 @@ describe("RMSL evaluation", () => {
 
   // A loop whose update does two things: advance the counter, and tally
   // alongside it. Both run four times, so the tally ends at 4.
+  /**
+   * @canon spec-for-runs-its-init-condition-body-and-update
+   */
   it("runs every statement of a loop update", async () => {
     const tallyLoop = () =>
       Fn(() => {
@@ -262,6 +268,9 @@ describe("RMSL evaluation", () => {
 
   // A loop tests its condition every time round, so a variable the condition
   // makes has to be computed every time round too, not once before the loop.
+  /**
+   * @canon exception-a-for-condition-is-computed-before-every-test
+   */
   it("recomputes a variable a For condition makes on every iteration", async () => {
     const count = (x: Node<"float">) =>
       Fn(() => {
@@ -381,6 +390,9 @@ describe("RMSL evaluation", () => {
     await expectValue(run, [7], 2410);
   }, 60_000);
 
+  /**
+   * @canon exception-a-for-condition-is-computed-before-every-test
+   */
   it("recomputes a For condition that calls a function making a variable on every iteration", async () => {
     const below = Fn((n: Node<"float">, x: Node<"float">) => n.add(x).toVar().lessThan(10));
     const count = (x: Node<"float">) =>
@@ -640,6 +652,9 @@ describe("RMSL evaluation", () => {
     await expectValue(forContinue, [7], 903);
   }, 60_000);
 
+  /**
+   * @canon exception-a-while-condition-given-as-a-function-is-computed-before-every-test
+   */
   it("recomputes a variable a While condition given as a function makes on every iteration", async () => {
     const count = (x: Node<"float">) =>
       Fn(() => {
@@ -669,6 +684,28 @@ describe("RMSL evaluation", () => {
         return reach;
       })();
     await expectValue(last, [3], 10);
+  }, 60_000);
+
+  /**
+   * @canon spec-a-while-condition-given-as-a-node-is-built-once
+   */
+  it("computes a variable a While condition given as a node makes once, before the loop", async () => {
+    // With x = 3 the condition reads 3 < 10 on every test, so only the Break
+    // at 20 ends the loop. Computed before every test, it would end at 7.
+    const run = (x: Node<"float">) =>
+      Fn(() => {
+        const n = float(0).toVar();
+        While(n.add(x).toVar().lessThan(10), () => {
+          n.assign(n.add(1));
+          If(n.greaterThanEqual(20), () => {
+            Break();
+          });
+        });
+        return n;
+      })();
+
+    await expectValue(run, [3], 20);
+    await expectValue(run, [12], 0);
   }, 60_000);
 
   it("reads a variable an Fn call made before a loop in its condition and after it", async () => {
@@ -747,6 +784,9 @@ describe("RMSL evaluation", () => {
     await expectValue(counted, [7], 108);
   }, 60_000);
 
+  /**
+   * @canon spec-while-runs-while-its-condition-holds
+   */
   it("runs a while loop until its condition fails", async () => {
     const countdown = (n: Node<"float">) =>
       Fn(() => {

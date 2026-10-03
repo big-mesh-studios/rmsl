@@ -474,6 +474,9 @@ describe("cross-backend: non-square matrix multiply", () => {
 });
 
 describe("JS backend: control flow", () => {
+  /**
+   * @canon spec-for-runs-its-init-condition-body-and-update
+   */
   it("runs a for loop the right number of times", () => {
     const sumTo = (n: Node<"float">) =>
       Fn(() => {
@@ -528,6 +531,9 @@ describe("JS backend: control flow", () => {
     expect(evalScalar(branch, [0])).toBe(20);
   });
 
+  /**
+   * @canon spec-while-runs-while-its-condition-holds
+   */
   it("runs a while loop until its condition fails", () => {
     const countdown = (n: Node<"float">) =>
       Fn(() => {
@@ -1168,6 +1174,9 @@ describe("JS backend: TSL free functions", () => {
 });
 
 describe("JS backend: TSL loop and return", () => {
+  /**
+   * @canon spec-loop-counts-from-zero
+   */
   it("Loop(count, (i) => ...) sums 0..3", () => {
     const fn = compileJSRoutine(
       () =>

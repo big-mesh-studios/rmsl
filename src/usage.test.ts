@@ -2519,6 +2519,9 @@ describe("TSL control flow", () => {
     expect(glsl).toContain("else {");
   });
 
+  /**
+   * @canon exception-for-is-a-name-tsl-lacks
+   */
   it("For runs a counted loop", () => {
     let prog = Fn(() => {
       let total = float(0).toVar();
@@ -2536,6 +2539,9 @@ describe("TSL control flow", () => {
     expect(glsl).toContain("for (");
   });
 
+  /**
+   * @canon exception-while-is-a-name-tsl-lacks
+   */
   it("While runs a conditional loop", () => {
     let prog = Fn(() => {
       let n = float(3).toVar();
@@ -2548,6 +2554,9 @@ describe("TSL control flow", () => {
     expect(glsl).toContain("while (");
   });
 
+  /**
+   * @canon exception-loop-passes-its-index-directly
+   */
   it("Loop(count, (i) => ...) iterates like TSL's counting loop", () => {
     let prog = Fn(() => {
       let total = float(0).toVar();
