@@ -92,6 +92,10 @@ An analysis of the code, the tests, the documents, the issues and the commit his
 
 Every refusal is a plain `Error` today, and a caller can tell refusals apart only by their messages. The owner wants typed errors, which issue #43 proposes. Their shape is open: one class with a code, a class per kind, or a base class with subclasses.
 
+### Control flow
+
+Whether rmsl's loops converge on TSL's `Loop`, or keep `While` and `For` as loops of rmsl's own, is open. TSL has no `While` and no `For`, so TSL compatibility does not decide how they behave. Issue #60 holds the question.
+
 ### Divergences found
 
 The analysis found places where the code does not hold the axioms. Each one has an issue, and is fixed through [the defect procedure](.claude/skills/canon/SKILL.md#4-fixing-a-defect).
