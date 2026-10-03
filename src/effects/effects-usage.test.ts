@@ -265,6 +265,9 @@ describe("crt", () => {
 });
 
 describe("gaussianBlur pass graph", () => {
+  /**
+   * @canon spec-an-effect-with-several-passes-is-a-pass-graph
+   */
   it("produces a two-pass graph that compiles on both backends", () => {
     const graph = gaussianBlur(uniform("sampler2D"), [1, 1], 4);
     expect(graph.passes).toHaveLength(2);
@@ -277,6 +280,9 @@ describe("gaussianBlur pass graph", () => {
     }
   });
 
+  /**
+   * @canon spec-an-effect-with-several-passes-is-a-pass-graph
+   */
   it("exposes each pass's input sampler for binding", () => {
     const input = uniform("sampler2D");
     const graph = gaussianBlur(input);
@@ -287,6 +293,9 @@ describe("gaussianBlur pass graph", () => {
 });
 
 describe("bloom", () => {
+  /**
+   * @canon spec-an-effect-with-several-passes-is-a-pass-graph
+   */
   it("produces the faithful 12-pass graph", () => {
     const graph = bloom(uniform("sampler2D"));
     expect(graph.passes).toHaveLength(12);

@@ -582,6 +582,9 @@ async function bundleEntry(source: string): Promise<string> {
 }
 
 describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
+  /**
+   * @canon exception-a-scene-renderer-draws-its-scene-graph
+   */
   it("renders a lit mesh to non-background pixels", async () => {
     const page = await gpuPage();
     const code = await bundleEntry(ENTRY);

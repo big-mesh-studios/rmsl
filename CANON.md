@@ -76,6 +76,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-glsl-adapter-attaches-and-draws-synchronously`](#spec-a-glsl-adapter-attaches-and-draws-synchronously) — `attach` and `draw` on a GLSL adapter return `void`, because WebGL 2 creates its context and draws synchronously.
   - [`@spec compute-copies-back-only-the-slots-out-names`](#spec-compute-copies-back-only-the-slots-out-names) — `compute(out)` copies back to the host only the storage slots that `out` names. The other storage buffers stay where the program wrote them.
   - [`@spec an-adapter-has-no-method-for-a-capability-its-target-lacks`](#spec-an-adapter-has-no-method-for-a-capability-its-target-lacks) — A GLSL adapter has no `compute`, and a call to it is a type error.
+- [`@axiom rmsl-compiles-and-the-application-drives`](#axiom-rmsl-compiles-and-the-application-drives) — rmsl hands the application what it compiled: shader source, callables, adapters and node graphs. The application decides when to draw and when to dispatch. It owns the canvas, the frame loop and the data it uploads.
+  - [`@spec what-rmsl-hands-back-draws-nothing-on-its-own`](#spec-what-rmsl-hands-back-draws-nothing-on-its-own) — What rmsl hands back draws nothing until the application calls it. An adapter draws or dispatches once for each call.
+    - [`@spec an-effect-with-several-passes-is-a-pass-graph`](#spec-an-effect-with-several-passes-is-a-pass-graph) — An [effect](#term-effect) with several passes returns a [pass graph](#term-pass-graph): its passes, the samplers each pass reads, and the pass that gives the output. The application draws each pass.
+    - [`@exception a-scene-renderer-draws-its-scene-graph`](#exception-a-scene-renderer-draws-its-scene-graph) — `render(scene, camera)` on a renderer of `./scene` walks the scene graph, binds the geometry and the [node material](#term-node-material) of each mesh, uploads their uniforms and draws them.
 - [`@fact wgsl-defines-every-integer-edge-case`](#fact-wgsl-defines-every-integer-edge-case) — WGSL defines the result of every integer operation on run-time values. Overflow wraps. A division by zero returns the dividend and a remainder by zero returns zero. The most negative `i32` divided by `-1` returns itself. A shift uses its amount modulo the bit width.
 - [`@fact glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined) — GLSL ES 3.00 leaves undefined the result of an integer division or remainder by zero. It also leaves undefined a shift by a negative amount, or by the bit width or more.
 - [`@fact wgsl-rejects-a-constant-expression-that-fails`](#fact-wgsl-rejects-a-constant-expression-that-fails) — A WGSL shader fails to compile when a constant expression divides an integer by zero, shifts by the bit width or more, or overflows.
@@ -92,6 +96,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact dawn-on-metal-divides-some-u32-constants-wrongly`](#fact-dawn-on-metal-divides-some-u32-constants-wrongly) — Dawn on Metal computes the wrong quotient when a constant `u32` numerator from `0xFFFFFF80` to `0xFFFFFFFE` is divided by a run-time value.
 - [`@fact tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-one-loop-function-in-three-shapes) — Three.js TSL has one loop function, `Loop`, and no `While` or `For`. `Loop` takes a count, a `bool` condition, or an object of `start`, `end`, `type`, `condition` and `update`. It passes the loop index to its body as `{ i }`.
 - [`@fact tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-condition-once) — TSL builds the `bool` condition of a `Loop`, and its `start` and `end`, before it emits the loop. A variable they make is computed once, before the first test.
+- [`@fact a-three-js-renderer-draws-its-scene-graph`](#fact-a-three-js-renderer-draws-its-scene-graph) — In three.js, `renderer.render(scene, camera)` walks the scene graph, binds the geometry and the material of each object, uploads their uniforms and draws them. A scene graph in the shape of three.js comes with a renderer that draws it.
 <!-- toc:end -->
 
 ## Open questions
@@ -102,10 +107,9 @@ The canon is not settled yet. The questions below wait for the owner of the desi
 
 An analysis of the code, the tests, the documents, the issues and the commit history found these values. Each one decides a real choice between two designs that both work. None is an axiom until the owner confirms it.
 
-1. `rmsl-compiles-and-the-application-drives`: rmsl hands back code and data, such as shader source, callables and pass graphs, and the application owns the render loop. It chooses a compiler over a renderer. Evidence: effects as pure node graphs, `PassGraph`, `docs/tsl-migration.md`. The `./scene` renderers are an open conflict with this value.
-2. `shader-logic-runs-without-a-device`: the logic of a shader can run on the CPU, for picking and for unit tests, with no browser and no graphics device. It chooses a CPU target over GPU readback. Evidence: the JS and WASM targets, `./test`.
-3. `a-user-names-what-they-hold`: the user addresses an input or an output by the node they hold or the name they gave, never by a name the compiler invented. Evidence: the `[node, value]` bindings of `./test`, `fromProgram`.
-4. `a-user-ships-only-what-runs`: an application pays only for what it uses, at build time and at run time. Evidence: the Vite precompile plugins, a material filtered to the bindings it uses, the lazy `time()` uniform.
+1. `shader-logic-runs-without-a-device`: the logic of a shader can run on the CPU, for picking and for unit tests, with no browser and no graphics device. It chooses a CPU target over GPU readback. Evidence: the JS and WASM targets, `./test`.
+2. `a-user-names-what-they-hold`: the user addresses an input or an output by the node they hold or the name they gave, never by a name the compiler invented. Evidence: the `[node, value]` bindings of `./test`, `fromProgram`.
+3. `a-user-ships-only-what-runs`: an application pays only for what it uses, at build time and at run time. Evidence: the Vite precompile plugins, a material filtered to the bindings it uses, the lazy `time()` uniform.
 
 ### Typed errors
 
@@ -463,7 +467,7 @@ Derives from: [`fact-tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-
 
 > An interface over several targets keeps what each target does better than the others. A call that a target answers at once stays synchronous. Data that lives on the GPU stays there until the host asks for it. No target fakes a capability it lacks.
 
-A user picks a target for what it does well. Screen picking needs an answer within the same call, which the CPU targets give. WGSL keeps work on the GPU. One shape for every target would take that away. Every call would return a promise, and every dispatch would copy its results back. The axiom decides between native shapes and one uniform shape.
+A user picks a target for what it does well. Screen picking needs an answer within the same call, which the CPU targets give. WGSL keeps work on the GPU. One shape for every target would take that away: every call would return a promise, and every dispatch would copy its results back. The axiom decides between native shapes and one uniform shape.
 
 Code written for any target still works with the native shapes. Awaiting a value that is not a promise returns the value.
 
@@ -498,6 +502,30 @@ This follows because a copy back from the GPU costs a round trip, and a buffer t
 Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs), [`fact-webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage)
 
 This follows because a method that only throws would fake the capability until the program runs. A missing method lets the type checker refuse the call.
+
+## @axiom rmsl-compiles-and-the-application-drives
+
+> rmsl hands the application what it compiled: shader source, callables, adapters and node graphs. The application decides when to draw and when to dispatch. It owns the canvas, the frame loop and the data it uploads.
+
+An application that renders has a loop of its own, and a scheduler, a canvas and a scene graph of its own choosing. A compiler that took those over would decide them for it. The axiom decides between a compiler and a renderer.
+
+### @spec what-rmsl-hands-back-draws-nothing-on-its-own
+
+> What rmsl hands back draws nothing until the application calls it. An adapter draws or dispatches once for each call.
+
+This follows because the application decides when to draw.
+
+#### @spec an-effect-with-several-passes-is-a-pass-graph
+
+> An [effect](#term-effect) with several passes returns a [pass graph](#term-pass-graph): its passes, the samplers each pass reads, and the pass that gives the output. The application draws each pass.
+
+#### @exception a-scene-renderer-draws-its-scene-graph
+
+> `render(scene, camera)` on a renderer of `./scene` walks the scene graph, binds the geometry and the [node material](#term-node-material) of each mesh, uploads their uniforms and draws them.
+
+Derives from: [`fact-a-three-js-renderer-draws-its-scene-graph`](#fact-a-three-js-renderer-draws-its-scene-graph)
+
+`./scene` offers a scene graph in the shape of three.js, so it offers the renderer that draws it. The application still decides when to call `render`.
 
 ## @fact wgsl-defines-every-integer-edge-case
 
@@ -594,3 +622,9 @@ This is a fact of TSL, in `src/nodes/utils/LoopNode.js` of three.js, not a choic
 > TSL builds the `bool` condition of a `Loop`, and its `start` and `end`, before it emits the loop. A variable they make is computed once, before the first test.
 
 This is a fact of TSL, in `LoopNode.generate`, not a choice of rmsl.
+
+## @fact a-three-js-renderer-draws-its-scene-graph
+
+> In three.js, `renderer.render(scene, camera)` walks the scene graph, binds the geometry and the material of each object, uploads their uniforms and draws them. A scene graph in the shape of three.js comes with a renderer that draws it.
+
+This is a fact of three.js, not a choice of rmsl.

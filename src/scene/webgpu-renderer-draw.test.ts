@@ -187,6 +187,9 @@ function runInBrowser(source: string, entryPoint: string): Promise<any> {
 }
 
 describe.skipIf(!WEBGPU)("WebGPURenderer on a real adapter", () => {
+  /**
+   * @canon exception-a-scene-renderer-draws-its-scene-graph
+   */
   it("renders a lit mesh to non-background pixels", async () => {
     const pixel = await runInBrowser(ENTRY_LIT, "__rmslGpuLitRun");
     expect(pixel.r).toBeGreaterThan(50);
