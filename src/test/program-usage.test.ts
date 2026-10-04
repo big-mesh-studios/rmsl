@@ -19,11 +19,16 @@ function build(material: MeshBasicMaterial | MeshStandardMaterial, scene = new S
 }
 
 describe("fromProgram", () => {
+  /**
+   * @canon spec-a-material-or-pass-is-tested-by-the-names-it-uses
+   */
   it("shades a material from its own uniforms", () => {
     const shade = fromProgram(build(new MeshBasicMaterial({ color: 0x336699 })));
     expect(shade().value).toEqual([0.2, 0.4, 0.6, 1]);
   });
-
+  /**
+   * @canon spec-a-material-or-pass-is-tested-by-the-names-it-uses
+   */
   it("shades a lit surface handed in by name", () => {
     const scene = new Scene();
     scene.add(new AmbientLight(0xffffff, 0));
@@ -47,7 +52,9 @@ describe("fromProgram", () => {
     expect(brightness([0, -1, 0])).toBeLessThan(0.01);
     expect(brightness([1, 0, 0])).toBeLessThan(0.01);
   });
-
+  /**
+   * @canon spec-a-test-texture-is-read-as-the-renderers-read-it
+   */
   it("samples a DataTexture the material already points at", () => {
     const material = new MeshBasicMaterial({ color: 0xffffff });
     material.map = new DataTexture(new Uint8Array([0, 0, 255, 255]), 1, 1);
@@ -55,7 +62,9 @@ describe("fromProgram", () => {
     const colour = shade({ varyings: { uv: [0.5, 0.5] } }).value as number[];
     expect(closeTo(colour.slice(0, 3), [0, 0, 1])).toBe(true);
   });
-
+  /**
+   * @canon spec-a-read-of-an-input-nothing-bound-names-it
+   */
   it("says which uniforms nothing filled in", () => {
     // Every uniform of a plain material is either the material's own or one of
     // the matrices a renderer would supply, and both are covered.
@@ -70,14 +79,19 @@ describe("fromProgram", () => {
     };
     expect(fromProgram(withStray).unbound).toEqual(["stray"]);
   });
-
+  /**
+   * @canon spec-a-material-or-pass-is-tested-by-the-names-it-uses
+   */
   it("lets a caller override what the material says", () => {
     const program = build(new MeshBasicMaterial({ color: 0x000000 }));
     const shade = fromProgram(program, { uniforms: { materialColor: [1, 0, 0] } });
     expect(shade().value).toEqual([1, 0, 0, 1]);
     expect(shade({ uniforms: { materialColor: [0, 1, 0] } }).value).toEqual([0, 1, 0, 1]);
   });
-
+  /**
+   * @canon spec-a-material-or-pass-is-tested-by-the-names-it-uses
+   * @canon spec-render-evaluates-every-fragment-of-a-grid
+   */
   it("renders a material across a grid, varying the surface per fragment", () => {
     const material = new MeshBasicMaterial({ color: 0xffffff });
     material.map = new DataTexture(
@@ -95,7 +109,9 @@ describe("fromProgram", () => {
     expect(image.at(0, 0)[0]).toBe(0);
     expect(image.at(1, 0)[0]).toBe(1);
   });
-
+  /**
+   * @canon spec-a-test-texture-is-read-as-the-renderers-read-it
+   */
   it("reads a texture the way the texture asks to be read", () => {
     // The same two texels, coordinates and answers as the WebGL renderer's
     // driver test in `renderer.test.ts` — which is the point: what a test
@@ -126,7 +142,9 @@ describe("fromProgram", () => {
     expect(blended[0]).toBeGreaterThan(0.4);
     expect(blended[2]).toBeGreaterThan(0.4);
   });
-
+  /**
+   * @canon spec-a-material-or-pass-is-tested-by-the-names-it-uses
+   */
   it("hands a vertex stage's varyings back under the program's names", () => {
     const material = new MeshBasicMaterial({ color: 0xffffff });
     material.map = new DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
@@ -139,7 +157,9 @@ describe("fromProgram", () => {
     expect(Object.keys(written.varyings)).toContain("uv");
     expect(written.varyings.uv).toEqual([0.25, 0.75]);
   });
-
+  /**
+   * @canon spec-a-read-of-an-input-nothing-bound-names-it
+   */
   it("says which input it wanted when nothing bound one", () => {
     const project = fromProgram(build(new MeshBasicMaterial()), { stage: "vertex" });
     // The vertex stage transforms the normal, and nothing here handed it one.
@@ -154,6 +174,9 @@ describe("fromProgram", () => {
     );
   });
 
+  /**
+   * @canon spec-a-read-of-an-input-nothing-bound-names-it
+   */
   it("points at `unbound` for an input the program was meant to bring", () => {
     const stray = uniform("float");
     const program = build(new MeshBasicMaterial());
@@ -166,7 +189,9 @@ describe("fromProgram", () => {
     // says nothing about where it came from.
     expect(() => fromProgram(withStray)()).toThrow(/the uniform "stray".*`unbound`/s);
   });
-
+  /**
+   * @canon spec-a-read-of-an-input-nothing-bound-names-it
+   */
   it("counts a sampler with no pixels behind it as unbound", () => {
     const material = new MeshBasicMaterial({ color: 0xffffff });
     // What a texture loaded from a URL looks like with no browser to load it.
@@ -175,7 +200,9 @@ describe("fromProgram", () => {
     expect(shade.unbound).toContain("map");
     expect(() => shade({ varyings: { uv: [0, 0] } })).toThrow(/the texture "map"/);
   });
-
+  /**
+   * @canon spec-a-material-or-pass-is-tested-by-the-names-it-uses
+   */
   it("refuses a stage the program has no root for", () => {
     const program = build(new MeshBasicMaterial());
     expect(() => fromProgram({ fragmentRoot: program.fragmentRoot }, { stage: "vertex" })).toThrow(/no vertex root/);
@@ -183,6 +210,9 @@ describe("fromProgram", () => {
 });
 
 describe("fromPass", () => {
+  /**
+   * @canon spec-a-material-or-pass-is-tested-by-the-names-it-uses
+   */
   it("reads a pass's input texture by the name the pass gave it", () => {
     const source = uniform("sampler2D");
     const pass = {
@@ -197,7 +227,10 @@ describe("fromPass", () => {
     expect(r).toBeGreaterThan(g);
     expect(g).toBeGreaterThan(b);
   });
-
+  /**
+   * @canon spec-a-material-or-pass-is-tested-by-the-names-it-uses
+   * @canon spec-render-evaluates-every-fragment-of-a-grid
+   */
   it("renders a pass over a grid, its screen size bound by hand", () => {
     const source = uniform("sampler2D");
     const pass = { color: vec4(source.texture(vec2(0.5, 0.5)).rgb, 1), inputs: { source } };
@@ -209,7 +242,9 @@ describe("fromPass", () => {
     );
     expect(closeTo(image.at(1, 1), [0, 128 / 255, 1, 1])).toBe(true);
   });
-
+  /**
+   * @canon spec-uniforms-in-finds-the-uniforms-a-graph-made-for-itself
+   */
   it("leaves a pass's own screen-size uniform to uniformsIn", () => {
     const source = uniform("sampler2D");
     const pass = { color: vec4(source.texture(vec2(0, 0)).rgb, 1), inputs: { source } };

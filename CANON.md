@@ -96,6 +96,13 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec normalizing-a-zero-vector-gives-it-back`](#spec-normalizing-a-zero-vector-gives-it-back) — `normalize` of a vector of length zero gives the zero vector.
       - [`@exception a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver`](#exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver) — On GLSL and WGSL, `normalize` of a vector of length zero gives what the driver gives.
     - [`@spec a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing`](#spec-a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing) — A storage element read past the end of its buffer reads zero, and a write past its end changes nothing.
+  - [`@spec the-test-suite-holds-every-target-to-the-program`](#spec-the-test-suite-holds-every-target-to-the-program) — The test suite compiles every shader it records on a real GLSL and WGSL implementation, and evaluates every program it records on every target. A check that would prove nothing fails instead.
+    - [`@spec the-float-tolerance-allows-a-few-units-in-the-last-place`](#spec-the-float-tolerance-allows-a-few-units-in-the-last-place) — The tolerance for a float result allows at least one unit in the last place at every size, and stays usable near zero. It stays tight enough to catch a wrong answer.
+    - [`@spec evaluation-reads-back-every-shape`](#spec-evaluation-reads-back-every-shape) — The evaluation harness reads a scalar, vector or matrix back from every target, a genuine zero included.
+    - [`@spec evaluation-reports-a-shader-that-does-not-compile`](#spec-evaluation-reports-a-shader-that-does-not-compile) — The evaluation harness reports a shader that does not parse or type-check, instead of reading back zero.
+    - [`@spec validation-reports-every-shader-a-driver-refuses`](#spec-validation-reports-every-shader-a-driver-refuses) — Validation reports every shader a driver refused, from every test, and refuses to pass when it recorded none. A shader listed as known to be invalid stays quiet until it compiles. A program both GPU targets refuse passes, and one that only one refuses fails.
+    - [`@spec an-expected-rejection-must-be-a-rejection`](#spec-an-expected-rejection-must-be-a-rejection) — A test that expects a refused compile gets the message of the refusal, and records nothing from that compile. It fails when the compile succeeds.
+    - [`@spec the-integer-sweep-tells-right-from-wrong`](#spec-the-integer-sweep-tells-right-from-wrong) — The integer sweep passes the right results and reports the wrong ones, on JS, WASM and WGSL, and holds GLSL to compiling.
 - [`@axiom a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs) — A program that cannot work is refused before it runs. The type checker refuses it wherever the types can express the mistake, and the compiler refuses it on every target. The refusal names the cause, and the fix where one exists.
   - [`@spec an-assignment-is-refused-unless-the-program-can-write-its-target`](#spec-an-assignment-is-refused-unless-the-program-can-write-its-target) — An assignment whose target the program cannot write is refused. Every target refuses it with the same message, and the type checker refuses it wherever the type of the target shows it.
     - [`@spec a-var-can-be-assigned`](#spec-a-var-can-be-assigned) — A program can assign a variable, a stage output and a storage element. It can also assign a component, a column or a swizzle of one that names each component once. A var goes wherever a node goes.
@@ -274,6 +281,18 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-rasterizer-clears-its-colour-every-draw`](#spec-a-rasterizer-clears-its-colour-every-draw) — Each draw starts from a cleared colour buffer, so no pixel of an earlier draw remains.
       - [`@spec a-rasterizer-takes-its-count-from-the-first-attribute`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute) — A draw that names no vertex count takes it from the first attribute the host passes.
       - [`@spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws) — The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
+    - [`@spec shader-logic-is-tested-without-a-graphics-api`](#spec-shader-logic-is-tested-without-a-graphics-api) — The `./test` library runs a graph on the JS target and hands back values or a grid of fragments. A plain unit test can then assert on the logic of a shader.
+      - [`@spec evaluate-gives-the-value-of-one-fragment`](#spec-evaluate-gives-the-value-of-one-fragment) — `evaluate` gives the value one fragment computes, at the coordinate `fragCoord()` says, with the type the graph has on the CPU. It carries the depth, the outputs, the position and the varyings the program writes, and reports a discarded fragment as discarded.
+      - [`@spec an-input-is-bound-by-its-node`](#spec-an-input-is-bound-by-its-node) — A test binds a uniform, varying, attribute or texture by the node it holds, as a `[node, value]` pair, never by its slot name. A value of the wrong shape for the node, a texture bound as a plain uniform, or pixels nothing could read are refused.
+      - [`@spec a-read-of-an-input-nothing-bound-names-it`](#spec-a-read-of-an-input-nothing-bound-names-it) — A graph that reads an input nothing bound is refused with the name of that input, rather than shading with nothing. A sampler with no pixels counts as unbound.
+      - [`@spec a-test-texture-is-read-as-the-renderers-read-it`](#spec-a-test-texture-is-read-as-the-renderers-read-it) — A texture bound in a test is sampled by the same rules the renderers read it by: its format, filters, wrap and channels. A scene texture binds as it stands, and an 8-bit texture reads as 0 to 1.
+      - [`@spec a-test-reads-derivatives-as-zero-unless-asked-to-throw`](#spec-a-test-reads-derivatives-as-zero-unless-asked-to-throw) — A test reads a derivative as zero, and refuses it when asked with `derivatives: "throw"`.
+      - [`@spec a-runner-compiles-once-and-evaluates-many-times`](#spec-a-runner-compiles-once-and-evaluates-many-times) — `runner` compiles a graph once and evaluates it any number of times, with defaults a call can override, and keeps the source it generated. A runner goes wherever a graph does.
+      - [`@spec render-evaluates-every-fragment-of-a-grid`](#spec-render-evaluates-every-fragment-of-a-grid) — `render` evaluates every fragment of a grid, each with its own inputs. The image marks the fragments that discarded and leaves them black, and lights all three channels from a scalar. It refuses a coordinate outside it, and an empty size.
+      - [`@spec an-image-prints-and-converts`](#spec-an-image-prints-and-converts) — An image prints as text that reads in a terminal, from the bottom row up or the other way round. It converts to clamped bytes in either row order.
+      - [`@spec uniforms-in-finds-the-uniforms-a-graph-made-for-itself`](#spec-uniforms-in-finds-the-uniforms-a-graph-made-for-itself) — `uniformsIn` gives each uniform a graph reaches once, in the order it reaches them, so a test can bind a uniform the graph made for itself.
+      - [`@spec a-float-comparison-allows-for-the-last-bits`](#spec-a-float-comparison-allows-for-the-last-bits) — `approx`, `closeTo` and `assertClose` let a float differ in its last bits, by a tolerance that scales with its size or one the caller gives. They compare lengths, booleans and NaN, work as a predicate, and name the component that differs.
+      - [`@spec a-material-or-pass-is-tested-by-the-names-it-uses`](#spec-a-material-or-pass-is-tested-by-the-names-it-uses) — `fromProgram` and `fromPass` run a built material or a pass of an effect. They bind its inputs by the names the program gives them, and hand back its varyings under those names. A stage the program has no root for is refused.
   - [`@spec a-wasm-module-imports-only-its-memory`](#spec-a-wasm-module-imports-only-its-memory) — A program compiled to WebAssembly imports only its memory from the host. Any host that runs WebAssembly can run it, outside JavaScript included.
     - [`@exception a-wasm-transcendental-is-imported-from-the-host`](#exception-a-wasm-transcendental-is-imported-from-the-host) — A program compiled to WebAssembly that calls a transcendental function, such as `sin`, `exp` or `pow`, imports that function from the host, and the host gives it JavaScript's `Math`.
     - [`@spec several-wasm-modules-can-share-one-memory`](#spec-several-wasm-modules-can-share-one-memory) — With `memoryBase`, a WASM module keeps its addresses in its own region of the memory. Modules with different bases share one memory without overlap.
@@ -830,6 +849,36 @@ Derives from: [`fact-normalizing-a-zero-vector-is-undefined-on-a-gpu`](#fact-nor
 > A storage element read past the end of its buffer reads zero, and a write past its end changes nothing.
 
 This follows because an access out of range must do the same on every target. The JS target breaks this today: issue #49.
+
+### @spec the-test-suite-holds-every-target-to-the-program
+
+> The test suite compiles every shader it records on a real GLSL and WGSL implementation, and evaluates every program it records on every target. A check that would prove nothing fails instead.
+
+This follows because most mistakes in a shader are silent, and a target nobody runs can drift from the others unseen.
+
+#### @spec the-float-tolerance-allows-a-few-units-in-the-last-place
+
+> The tolerance for a float result allows at least one unit in the last place at every size, and stays usable near zero. It stays tight enough to catch a wrong answer.
+
+#### @spec evaluation-reads-back-every-shape
+
+> The evaluation harness reads a scalar, vector or matrix back from every target, a genuine zero included.
+
+#### @spec evaluation-reports-a-shader-that-does-not-compile
+
+> The evaluation harness reports a shader that does not parse or type-check, instead of reading back zero.
+
+#### @spec validation-reports-every-shader-a-driver-refuses
+
+> Validation reports every shader a driver refused, from every test, and refuses to pass when it recorded none. A shader listed as known to be invalid stays quiet until it compiles. A program both GPU targets refuse passes, and one that only one refuses fails.
+
+#### @spec an-expected-rejection-must-be-a-rejection
+
+> A test that expects a refused compile gets the message of the refusal, and records nothing from that compile. It fails when the compile succeeds.
+
+#### @spec the-integer-sweep-tells-right-from-wrong
+
+> The integer sweep passes the right results and reports the wrong ones, on JS, WASM and WGSL, and holds GLSL to compiling.
 
 ## @axiom a-mistake-is-refused-before-the-program-runs
 
@@ -1684,6 +1733,54 @@ The WASM target wraps a vector or matrix value in a result object even when the 
 ##### @spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws
 
 > The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
+
+#### @spec shader-logic-is-tested-without-a-graphics-api
+
+> The `./test` library runs a graph on the JS target and hands back values or a grid of fragments. A plain unit test can then assert on the logic of a shader.
+
+##### @spec evaluate-gives-the-value-of-one-fragment
+
+> `evaluate` gives the value one fragment computes, at the coordinate `fragCoord()` says, with the type the graph has on the CPU. It carries the depth, the outputs, the position and the varyings the program writes, and reports a discarded fragment as discarded.
+
+##### @spec an-input-is-bound-by-its-node
+
+> A test binds a uniform, varying, attribute or texture by the node it holds, as a `[node, value]` pair, never by its slot name. A value of the wrong shape for the node, a texture bound as a plain uniform, or pixels nothing could read are refused.
+
+##### @spec a-read-of-an-input-nothing-bound-names-it
+
+> A graph that reads an input nothing bound is refused with the name of that input, rather than shading with nothing. A sampler with no pixels counts as unbound.
+
+##### @spec a-test-texture-is-read-as-the-renderers-read-it
+
+> A texture bound in a test is sampled by the same rules the renderers read it by: its format, filters, wrap and channels. A scene texture binds as it stands, and an 8-bit texture reads as 0 to 1.
+
+##### @spec a-test-reads-derivatives-as-zero-unless-asked-to-throw
+
+> A test reads a derivative as zero, and refuses it when asked with `derivatives: "throw"`.
+
+##### @spec a-runner-compiles-once-and-evaluates-many-times
+
+> `runner` compiles a graph once and evaluates it any number of times, with defaults a call can override, and keeps the source it generated. A runner goes wherever a graph does.
+
+##### @spec render-evaluates-every-fragment-of-a-grid
+
+> `render` evaluates every fragment of a grid, each with its own inputs. The image marks the fragments that discarded and leaves them black, and lights all three channels from a scalar. It refuses a coordinate outside it, and an empty size.
+
+##### @spec an-image-prints-and-converts
+
+> An image prints as text that reads in a terminal, from the bottom row up or the other way round. It converts to clamped bytes in either row order.
+
+##### @spec uniforms-in-finds-the-uniforms-a-graph-made-for-itself
+
+> `uniformsIn` gives each uniform a graph reaches once, in the order it reaches them, so a test can bind a uniform the graph made for itself.
+
+##### @spec a-float-comparison-allows-for-the-last-bits
+
+> `approx`, `closeTo` and `assertClose` let a float differ in its last bits, by a tolerance that scales with its size or one the caller gives. They compare lengths, booleans and NaN, work as a predicate, and name the component that differs.
+
+##### @spec a-material-or-pass-is-tested-by-the-names-it-uses
+
+> `fromProgram` and `fromPass` run a built material or a pass of an effect. They bind its inputs by the names the program gives them, and hand back its varyings under those names. A stage the program has no root for is refused.
 
 ### @spec a-wasm-module-imports-only-its-memory
 

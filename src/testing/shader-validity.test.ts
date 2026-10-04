@@ -12,14 +12,21 @@ function shader(test: string, lang: "glsl" | "wgsl", pair: number): Recorded {
 }
 
 describe("validation reporting", () => {
+  /**
+   * @canon spec-validation-reports-every-shader-a-driver-refuses
+   */
   it("passes when every shader compiled", () => {
     const recorded = [shader("a test", "glsl", 0), shader("a test", "wgsl", 0)];
     expect(validationReport(recorded, [null], [null], {})).toBeNull();
   });
 
-  // One test routinely compiles many shaders — the breadth tests generate
-  // dozens each. Failures are keyed by test name and shader index to avoid
-  // overwriting.
+  /**
+   * One test routinely compiles many shaders — the breadth tests generate
+   * dozens each. Failures are keyed by test name and shader index to avoid
+   * overwriting.
+   *
+   * @canon spec-validation-reports-every-shader-a-driver-refuses
+   */
   it("reports every failing shader from one test, not just the last", () => {
     const recorded = [shader("compiles every builtin", "wgsl", 0), shader("compiles every builtin", "wgsl", 1)];
     const report = validationReport(recorded, [], ["no overload for 'refract'", "no overload for 'lessThan'"], {});
@@ -28,20 +35,30 @@ describe("validation reporting", () => {
     expect(report).toContain("lessThan");
   });
 
-  // Nothing recorded means nothing was checked.
+  /**
+   * Nothing recorded means nothing was checked.
+   *
+   * @canon spec-validation-reports-every-shader-a-driver-refuses
+   */
   it("refuses to pass when no shader was recorded at all", () => {
     const report = validationReport([], [], [], {});
     expect(report).not.toBeNull();
     expect(report).toMatch(/no shaders/i);
   });
-
+  /**
+   * @canon spec-validation-reports-every-shader-a-driver-refuses
+   */
   it("stays quiet about a shader listed as known invalid", () => {
     const recorded = [shader("a known bad test", "glsl", 0)];
     const known = { "glsl:a known bad test": "documented defect" };
     expect(validationReport(recorded, ["some error"], [], known)).toBeNull();
   });
 
-  // A known-invalid entry that now compiles is reported.
+  /**
+   * A known-invalid entry that now compiles is reported.
+   *
+   * @canon spec-validation-reports-every-shader-a-driver-refuses
+   */
   it("reports a known-invalid entry that now compiles", () => {
     const recorded = [shader("a fixed test", "glsl", 0)];
     const known = { "glsl:a fixed test": "documented defect" };
@@ -50,7 +67,11 @@ describe("validation reporting", () => {
     expect(report).toContain("a fixed test");
   });
 
-  // A compiler that throws is recorded rather than swallowed.
+  /**
+   * A compiler that throws is recorded rather than swallowed.
+   *
+   * @canon spec-validation-reports-every-shader-a-driver-refuses
+   */
   it("ignores a program both backends refuse", () => {
     const recorded: Recorded[] = [
       { ...shader("both refuse", "glsl", 0), src: null, compileError: "nope" },
@@ -58,7 +79,9 @@ describe("validation reporting", () => {
     ];
     expect(validationReport(recorded, [], [], {})).toBeNull();
   });
-
+  /**
+   * @canon spec-validation-reports-every-shader-a-driver-refuses
+   */
   it("reports a program only one backend refuses", () => {
     const recorded: Recorded[] = [
       { ...shader("one refuses", "glsl", 0), src: null, compileError: "gone wrong" },
@@ -73,6 +96,9 @@ describe("validation reporting", () => {
 // The escape hatch from the rule directly above: one backend refusing what the
 // other accepts is a defect, unless the test asked for the refusal.
 describe("expected rejections", () => {
+  /**
+   * @canon spec-an-expected-rejection-must-be-a-rejection
+   */
   it("hands back the message the compiler refused with", () => {
     expect(
       expectCompileRejection(() => {
@@ -80,7 +106,9 @@ describe("expected rejections", () => {
       }),
     ).toMatch(/precision/);
   });
-
+  /**
+   * @canon spec-an-expected-rejection-must-be-a-rejection
+   */
   it("keeps nothing the refused compile recorded on its way to throwing", () => {
     const before = recordedShaders().length;
     expectCompileRejection(() => {
@@ -89,7 +117,9 @@ describe("expected rejections", () => {
     });
     expect(recordedShaders()).toHaveLength(before);
   });
-
+  /**
+   * @canon spec-an-expected-rejection-must-be-a-rejection
+   */
   it("fails when the compile it expected to be refused succeeds", () => {
     expect(() => expectCompileRejection(() => "fn main() {}")).toThrow(/returned source/);
   });

@@ -27,18 +27,25 @@ import { LinearFilter, NearestMipmapNearestFilter, RedIntegerFormat } from "../s
 import { evaluate, render, runner, uniformsIn, approx, assertClose, closeTo, tolerance } from "./index";
 
 describe("evaluate", () => {
+  /**
+   * @canon spec-evaluate-gives-the-value-of-one-fragment
+   */
   it("returns the value a graph computes", () => {
     const result = evaluate(() => float(2).mul(3).add(1));
     expect(result.value).toBe(7);
     expect(result.discarded).toBe(false);
   });
-
+  /**
+   * @canon spec-an-input-is-bound-by-its-node
+   */
   it("binds a uniform by its node, not by its slot name", () => {
     const tint = uniform("vec3");
     const graph = vec4(tint.mul(0.5), 1);
     expect(evaluate(() => graph, { uniforms: [[tint, [1, 0.5, 0]]] }).value).toEqual([0.5, 0.25, 0, 1]);
   });
-
+  /**
+   * @canon spec-an-input-is-bound-by-its-node
+   */
   it("binds varyings and attributes the same way", () => {
     const position = attribute("vec3");
     const weight = varying("float");
@@ -49,12 +56,16 @@ describe("evaluate", () => {
     });
     expect(result.value).toEqual([2, 4, 6]);
   });
-
+  /**
+   * @canon spec-evaluate-gives-the-value-of-one-fragment
+   */
   it("places the fragment where fragCoord() says", () => {
     const graph = fragCoord().x;
     expect(evaluate(() => graph, { fragCoord: [12.5, 0.5] }).value).toBe(12.5);
   });
-
+  /**
+   * @canon spec-a-test-texture-is-read-as-the-renderers-read-it
+   */
   it("samples a texture bound to its sampler", () => {
     const map = uniform("sampler2D");
     const graph = map.texture(vec2(0.5, 0.5));
@@ -62,7 +73,9 @@ describe("evaluate", () => {
     const result = evaluate(() => graph, { textures: [[map, { data, width: 2, height: 2 }]] });
     expect(result.value).toEqual([4, 4, 4, 4]);
   });
-
+  /**
+   * @canon spec-a-test-texture-is-read-as-the-renderers-read-it
+   */
   it("reads an 8-bit texture as the 0-1 a float sampler gives a shader", () => {
     const map = uniform("sampler2D");
     const graph = map.texture(vec2(0.5, 0.5));
@@ -74,7 +87,9 @@ describe("evaluate", () => {
       1,
     ]);
   });
-
+  /**
+   * @canon spec-a-test-texture-is-read-as-the-renderers-read-it
+   */
   it("takes a texture in the shape a scene DataTexture already has", () => {
     const map = uniform("isampler2D");
     const graph = map.texture(ivec2(1, 0));
@@ -83,7 +98,9 @@ describe("evaluate", () => {
     const result = evaluate(() => graph, { textures: [[map, { image, width: 2, height: 2 }]] });
     expect(result.value).toEqual([5, 6, 7, 8]);
   });
-
+  /**
+   * @canon spec-a-test-texture-is-read-as-the-renderers-read-it
+   */
   it("reads a single-channel DataTexture a texel at a time", () => {
     const map = uniform("usampler3D");
     const graph = map.texture(uvec3(1, 1, 0));
@@ -95,7 +112,9 @@ describe("evaluate", () => {
     const result = evaluate(() => graph, { textures: [[map, volume]] });
     expect(result.value).toEqual([4, 0, 0, 1]);
   });
-
+  /**
+   * @canon spec-a-test-texture-is-read-as-the-renderers-read-it
+   */
   it("samples a scene texture the way the renderers read it", () => {
     const map = uniform("sampler2D");
     const graph = map.texture(vec2(0.5, 0.5));
@@ -109,7 +128,9 @@ describe("evaluate", () => {
     texture.magFilter = NearestMipmapNearestFilter;
     expect(evaluate(() => graph, { textures: [[map, texture]] }).value).toEqual([1, 1, 1, 1]);
   });
-
+  /**
+   * @canon spec-evaluate-gives-the-value-of-one-fragment
+   */
   it("reports a discarded fragment rather than a bare null", () => {
     const graph = Fn(() => {
       If(float(1).greaterThan(0), () => {
@@ -121,7 +142,9 @@ describe("evaluate", () => {
     expect(result.discarded).toBe(true);
     expect(result.value).toBe(null);
   });
-
+  /**
+   * @canon spec-evaluate-gives-the-value-of-one-fragment
+   */
   it("carries the fragment depth and the written outputs", () => {
     const graph = Fn(() => {
       const depth = builtinFragDepth();
@@ -134,7 +157,9 @@ describe("evaluate", () => {
     expect(result.fragDepth).toBe(0.25);
     expect(Object.values(result.outputs)).toEqual([[1, 0, 0, 1]]);
   });
-
+  /**
+   * @canon spec-evaluate-gives-the-value-of-one-fragment
+   */
   it("runs a vertex stage, with its position and varyings", () => {
     const graph = Fn(() => {
       const colour = varying("vec3");
@@ -147,7 +172,9 @@ describe("evaluate", () => {
     expect(result.position).toEqual([0, 0, 0, 1]);
     expect(Object.values(result.varyings)).toEqual([[1, 2, 3]]);
   });
-
+  /**
+   * @canon spec-a-test-reads-derivatives-as-zero-unless-asked-to-throw
+   */
   it("reads derivatives as zero, and says so on request", () => {
     const graph = float(3).fwidth();
     expect(evaluate(() => graph).value).toBe(0);
@@ -156,6 +183,9 @@ describe("evaluate", () => {
 });
 
 describe("runner", () => {
+  /**
+   * @canon spec-a-runner-compiles-once-and-evaluates-many-times
+   */
   it("compiles once and evaluates many times", () => {
     const threshold = uniform("float");
     const graph = step(threshold, fragCoord().x);
@@ -165,19 +195,25 @@ describe("runner", () => {
     const above = run({ uniforms: [[threshold, 10]], fragCoord: [14.5, 0.5] });
     expect([below.value, above.value]).toEqual([0, 1]);
   });
-
+  /**
+   * @canon spec-a-runner-compiles-once-and-evaluates-many-times
+   */
   it("holds defaults that a call can override", () => {
     const tint = uniform("float");
     const run = runner(() => tint.mul(2), { uniforms: [[tint, 1]] });
     expect(run().value).toBe(2);
     expect(run({ uniforms: [[tint, 3]] }).value).toBe(6);
   });
-
+  /**
+   * @canon spec-a-runner-compiles-once-and-evaluates-many-times
+   */
   it("keeps the generated source for when a result needs explaining", () => {
     const run = runner(() => float(1).add(2));
     expect(run.source).toContain("function rmslTestShader");
   });
-
+  /**
+   * @canon spec-a-runner-compiles-once-and-evaluates-many-times
+   */
   it("is accepted wherever a graph is", () => {
     const run = runner(() => fragCoord().x.div(4));
     expect(evaluate(run, { fragCoord: [2.5, 0.5] }).value).toBe(0.625);
@@ -188,7 +224,9 @@ describe("runner", () => {
 describe("render", () => {
   const tint = uniform("vec3");
   const ramp = vec4(mix(vec3(0, 0, 0), tint, fragCoord().x.div(8)), 1);
-
+  /**
+   * @canon spec-render-evaluates-every-fragment-of-a-grid
+   */
   it("evaluates every fragment of the grid", () => {
     const image = render(() => ramp, { width: 8, height: 2, uniforms: [[tint, [1, 1, 1]]] });
     expect(image.width).toBe(8);
@@ -196,14 +234,18 @@ describe("render", () => {
     expect(image.at(0, 0)).toEqual([0.0625, 0.0625, 0.0625, 1]);
     expect(image.at(7, 1)).toEqual([0.9375, 0.9375, 0.9375, 1]);
   });
-
+  /**
+   * @canon spec-render-evaluates-every-fragment-of-a-grid
+   */
   it("makes a shape assertable — this ramp only ever brightens", () => {
     const image = render(() => ramp, { width: 16, height: 1, uniforms: [[tint, [1, 1, 1]]] });
     for (let x = 1; x < image.width; x++) {
       expect(image.at(x, 0)[0]).toBeGreaterThan(image.at(x - 1, 0)[0]);
     }
   });
-
+  /**
+   * @canon spec-render-evaluates-every-fragment-of-a-grid
+   */
   it("feeds each fragment its own inputs", () => {
     const coordinate = varying("vec2");
     const image = render(() => vec4(coordinate, 0, 1), {
@@ -214,13 +256,17 @@ describe("render", () => {
     expect(image.at(0, 0)).toEqual([0.125, 0.125, 0, 1]);
     expect(image.at(3, 3)).toEqual([0.875, 0.875, 0, 1]);
   });
-
+  /**
+   * @canon spec-an-image-prints-and-converts
+   */
   it("draws a picture that reads in a terminal", () => {
     const half = step(float(4), fragCoord().x);
     const image = render(() => vec4(vec3(half), 1), { width: 8, height: 2 });
     expect(image.toAscii({ ramp: ".#" })).toBe("....####\n....####");
   });
-
+  /**
+   * @canon spec-an-image-prints-and-converts
+   */
   it("draws the disc the documentation shows", () => {
     const centred = fragCoord().sub(vec2(12, 6)).div(vec2(12, 6));
     const disc = float(1).sub(smoothstep(float(0.7), float(1), length(centred)));
@@ -240,7 +286,9 @@ describe("render", () => {
                ..::..         "
     `);
   });
-
+  /**
+   * @canon spec-a-read-of-an-input-nothing-bound-names-it
+   */
   it("names the slot when a graph reads an input nothing bound", () => {
     const fade = varying("float");
     // No program, so there is no name but the generated slot — which is still
@@ -249,7 +297,9 @@ describe("render", () => {
       /fragment stage reads a varying nothing bound.*\[node, value\]/s,
     );
   });
-
+  /**
+   * @canon spec-an-image-prints-and-converts
+   */
   it("draws a shape that lives in alpha", () => {
     // A particle: white everywhere, its shape carried entirely by alpha. Over
     // black that is the disc it draws; on the colour channels alone it is a
@@ -259,14 +309,18 @@ describe("render", () => {
     expect(image.toAscii({ ramp: ".#" })).toBe("....####");
     expect(image.toAscii({ ramp: ".#", alpha: false })).toBe("########");
   });
-
+  /**
+   * @canon spec-an-image-prints-and-converts
+   */
   it("prints from the bottom row up, and the other way round on request", () => {
     const graph = vec4(vec3(step(float(1), fragCoord().y)), 1);
     const image = render(() => graph, { width: 2, height: 2 });
     expect(image.toAscii({ ramp: ".#" })).toBe("##\n..");
     expect(image.toAscii({ ramp: ".#", flipY: true })).toBe("..\n##");
   });
-
+  /**
+   * @canon spec-an-image-prints-and-converts
+   */
   it("converts to clamped bytes, in either row order", () => {
     const graph = vec4(vec3(fragCoord().y.mul(1.5)), 1);
     const image = render(() => graph, { width: 1, height: 2 });
@@ -275,7 +329,9 @@ describe("render", () => {
     expect([...image.toUint8()].slice(0, 4)).toEqual([191, 191, 191, 255]);
     expect([...image.toUint8({ flipY: true })].slice(0, 4)).toEqual([255, 255, 255, 255]);
   });
-
+  /**
+   * @canon spec-render-evaluates-every-fragment-of-a-grid
+   */
   it("marks the fragments that discarded, and leaves them black", () => {
     const graph = Fn(() => {
       If(fragCoord().x.greaterThan(2), () => {
@@ -289,12 +345,16 @@ describe("render", () => {
     expect(image.at(3, 0)).toEqual([0, 0, 0, 0]);
     expect(image.resultAt(3, 0).value).toBe(null);
   });
-
+  /**
+   * @canon spec-render-evaluates-every-fragment-of-a-grid
+   */
   it("lights all three channels from a scalar shader", () => {
     const image = render(() => fragCoord().x.div(2), { width: 1, height: 1 });
     expect(image.at(0, 0)).toEqual([0.25, 0.25, 0.25, 1]);
   });
-
+  /**
+   * @canon spec-render-evaluates-every-fragment-of-a-grid
+   */
   it("refuses a coordinate outside the image, and an empty one", () => {
     const image = render(() => float(1), { width: 2, height: 2 });
     expect(() => image.at(2, 0)).toThrow(/outside the 2x2 image/);
@@ -304,6 +364,9 @@ describe("render", () => {
 });
 
 describe("uniformsIn", () => {
+  /**
+   * @canon spec-uniforms-in-finds-the-uniforms-a-graph-made-for-itself
+   */
   it("hands back the uniforms a graph made for itself", () => {
     // `uv()` mints a screen-size uniform inside the graph: the caller never
     // sees the node, so this is the only way to bind it.
@@ -317,7 +380,9 @@ describe("uniformsIn", () => {
     expect(image.at(0, 0)).toEqual([0.125, 0.125, 0, 1]);
     expect(image.at(3, 3)).toEqual([0.875, 0.875, 0, 1]);
   });
-
+  /**
+   * @canon spec-uniforms-in-finds-the-uniforms-a-graph-made-for-itself
+   */
   it("lists each uniform once, in the order the graph reaches them", () => {
     const first = uniform("float");
     const second = uniform("vec2");
@@ -327,24 +392,33 @@ describe("uniformsIn", () => {
 });
 
 describe("comparing values", () => {
+  /**
+   * @canon spec-a-float-comparison-allows-for-the-last-bits
+   */
   it("allows the last bit of a float to differ", () => {
     expect(closeTo(0.1 + 0.2, 0.3)).toBe(true);
     expect(closeTo(0.3001, 0.3)).toBe(false);
     expect(closeTo([1, 2, 3], [1, 2, 3.0000001])).toBe(true);
   });
-
+  /**
+   * @canon spec-a-float-comparison-allows-for-the-last-bits
+   */
   it("scales what it allows with the size of the number", () => {
     expect(tolerance(0)).toBe(1e-6);
     expect(tolerance(1000)).toBe(1e-3);
     expect(closeTo(1000.0005, 1000)).toBe(true);
     expect(closeTo(1.0005, 1)).toBe(false);
   });
-
+  /**
+   * @canon spec-a-float-comparison-allows-for-the-last-bits
+   */
   it("takes a tolerance of its own", () => {
     expect(closeTo(0.55, 0.5, { tolerance: 0.1 })).toBe(true);
     expect(closeTo(0.55, 0.5)).toBe(false);
   });
-
+  /**
+   * @canon spec-a-float-comparison-allows-for-the-last-bits
+   */
   it("compares lengths, booleans and NaN", () => {
     expect(closeTo([1, 2], [1, 2, 3])).toBe(false);
     expect(closeTo(true, true)).toBe(true);
@@ -352,12 +426,16 @@ describe("comparing values", () => {
     expect(closeTo(NaN, NaN)).toBe(true);
     expect(closeTo(NaN, 0)).toBe(false);
   });
-
+  /**
+   * @canon spec-a-float-comparison-allows-for-the-last-bits
+   */
   it("reads as a predicate for a matcher that takes one", () => {
     const result = evaluate(() => vec4(1, 0, 0, 1));
     expect(result.value).toSatisfy(approx([1, 0, 0, 1]));
   });
-
+  /**
+   * @canon spec-a-float-comparison-allows-for-the-last-bits
+   */
   it("names the component that differs when it throws", () => {
     expect(() => assertClose([1, 0, 0, 1], [1, 0, 1, 1], { message: "tint" })).toThrow(
       /tint: component 2: expected 1, got 0/,
