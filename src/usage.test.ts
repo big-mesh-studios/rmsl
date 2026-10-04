@@ -1285,6 +1285,9 @@ void main(void) { outColor = vec4(myFunc(1.0, 2.0)); }`,
   });
 
   // uniformRaw names its own slot, unlike uniform() which generates one.
+  /**
+   * @canon spec-a-raw-name-is-absolute
+   */
   it("uniformRaw declares a custom-named uniform alongside the function", () => {
     let glsl = compileGlslFn((v: any) => v.mul(uniformRaw("uScale", "float")), {
       name: "scale",
@@ -1315,6 +1318,9 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   });
 
   // One name is one declaration, however many nodes carry it.
+  /**
+   * @canon spec-a-raw-name-is-absolute
+   */
   it("declares a name several raw uniforms or attributes share once", () => {
     let fragment = Fn(() => vec4(uniformRaw("brightness", "float").add(uniformRaw("brightness", "float")), 0, 0, 1));
     expect(compileGlsl.fragment(fragment()).match(/uniform float brightness;/g)).toHaveLength(1);
@@ -1325,6 +1331,9 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(compileWgsl.vertex(vertex()).match(/tex: vec2<f32>/g)).toHaveLength(1);
   });
 
+  /**
+   * @canon spec-a-raw-name-is-absolute
+   */
   it("reads one value for raw uniforms sharing a name on JS and WASM", () => {
     let build = () => Fn(() => uniformRaw("brightness", "float").add(uniformRaw("brightness", "float").mul(10)))();
     let options = { name: "main", params: [] };
@@ -1332,6 +1341,9 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(compileWasmRoutine(build as any, options).run({ uniforms: { brightness: 2 } })).toBe(22);
   });
 
+  /**
+   * @canon spec-a-raw-name-names-one-type
+   */
   it("refuses one name for uniforms of different types on every backend", () => {
     let build = () => Fn(() => uniformRaw("brightness", "float").add(uniformRaw("brightness", "int").toFloat()))();
     let message =

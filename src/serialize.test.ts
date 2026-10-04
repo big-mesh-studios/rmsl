@@ -131,6 +131,9 @@ describe("serialize/deserialize", () => {
     expect(normalized(compute(restored).code)).toBe(normalized(compute(original).code));
   });
 
+  /**
+   * @canon spec-a-generated-name-is-local-to-its-program
+   */
   it("gives what rmsl named new names, so a restored graph and a fresh one stay apart", () => {
     const build = () =>
       Fn(() => {
@@ -151,12 +154,32 @@ describe("serialize/deserialize", () => {
     expect(run.run({ uniforms: { [freshUniform]: 1, [restoredUniform]: 2 } })).toBe(3 + 500);
   });
 
+  /**
+   * @canon spec-a-raw-name-is-absolute
+   */
   it("keeps a name the program chose", () => {
     const program = Fn(() => uniformRaw("brightness", "float").mul(2).toVar("scaled"));
     const graph = serialize(program());
     const restored = deserialize(JSON.parse(JSON.stringify(graph))) as any;
     expect([...uniformNames(restored)]).toEqual(["brightness"]);
     expect(JSON.stringify(graph)).toContain('"varName":"scaled"');
+  });
+
+  /**
+   * @canon spec-a-name-is-local-unless-the-user-gave-it
+   */
+  it("keeps generated names apart and joins a raw name, in one program of two graphs", () => {
+    const build = () => Fn(() => uniform("float").add(uniformRaw("gain", "float")).toVar())();
+    const fresh = build() as any;
+    const restored = deserialize(JSON.parse(JSON.stringify(serialize(fresh)))) as any;
+
+    const program = Fn(() => fresh.add(restored.mul(100)));
+    const run = compileJSRoutine(program as any, { name: "main", params: [] });
+    const [freshUniform] = [...uniformNames(fresh)].filter((name) => name !== "gain");
+    const [restoredUniform] = [...uniformNames(restored)].filter((name) => name !== "gain");
+    expect(restoredUniform).not.toBe(freshUniform);
+    // (1 + 10) + (2 + 10) * 100: each graph reads its own generated uniform, and both read one gain.
+    expect(run.run({ uniforms: { [freshUniform!]: 1, [restoredUniform!]: 2, gain: 10 } })).toBe(1211);
   });
 
   it("reads the clock time() gives, alone or compiled with a fresh graph that reads it", () => {
