@@ -58,6 +58,9 @@ describe("known bugs, each failing until its fix", () => {
   });
 
   /**
+   * The casts reach `.name`, which the type of `screenSize()` hides until #68
+   * is fixed.
+   *
    * @canon bug-screen-size-makes-a-new-uniform-on-every-call
    */
   it.fails("gives one screen-size uniform however often it is asked for", () => {
