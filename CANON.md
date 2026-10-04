@@ -514,12 +514,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec the-js-target-draws-within-the-call`](#spec-the-js-target-draws-within-the-call) — A vertex and fragment program compiled with `compileJS` returns its pixels from `draw`, with no graphics API.
       - [`@spec the-wasm-target-draws-within-the-call`](#spec-the-wasm-target-draws-within-the-call) — A vertex and fragment program compiled with `compileWasm` returns its pixels from `draw`, with no graphics API.
     - [`@spec the-js-target-compiles-a-function-of-a-context`](#spec-the-js-target-compiles-a-function-of-a-context) — `compileJSFn` returns the source of a named function that reads its parameters from `ctx.params` and its uniforms from `ctx.uniforms` by slot name. It returns its value, a result object when the program writes outputs or depth, and `null` for a discarded fragment.
-    - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A JS [routine](#term-cpu-routine) keeps its variables in a scratch block outside the function. It writes vector results into them through helpers that take an output argument. With `reentrant`, it declares its variables inside the function.
-      - [`@bug js-smoothstep-allocates-a-closure-per-call`](#bug-js-smoothstep-allocates-a-closure-per-call) — A scalar `smoothstep` on JS builds a closure on every call.
-      - [`@bug js-allocates-a-vector-computed-outside-an-assignment`](#bug-js-allocates-a-vector-computed-outside-an-assignment) — On JS, a vector or matrix computed outside an assignment becomes a new array on every call. A matrix column is a copy made with `slice`, a scalar matrix goes through `_matDiag`, and a constant vector is an array literal.
-      - [`@bug js-select-allocates-its-result-per-call`](#bug-js-select-allocates-its-result-per-call) — On JS, a component-wise `select` calls its helper with no output argument, so the helper allocates its result on every call.
-      - [`@bug js-cube-map-allocates-its-face-per-call`](#bug-js-cube-map-allocates-its-face-per-call) — On JS, sampling a cube map allocates an array for the face it picks on every call.
-      - [`@bug js-matrix-product-into-its-operand-allocates`](#bug-js-matrix-product-into-its-operand-allocates) — On JS, a matrix product written into one of its own operands copies that operand with `slice` on every call.
     - [`@spec the-js-target-computes-scalar-math-with-math`](#spec-the-js-target-computes-scalar-math-with-math) — The JS target computes a scalar math function with the function of the same name on `Math`.
     - [`@spec a-cpu-routine-reads-its-inputs-by-slot`](#spec-a-cpu-routine-reads-its-inputs-by-slot) — A CPU routine reads its parameters, uniforms, uniform arrays, attributes and varyings from the context the host passes, by slot name. It reads `fragCoord()` as `[0, 0]` when the context gives none.
     - [`@spec a-cpu-routine-returns-its-value-or-a-result`](#spec-a-cpu-routine-returns-its-value-or-a-result) — A CPU routine returns the value its program returns, the last of several, as it is. When the program writes an output, a varying, the position or the depth, it returns a result object that holds them with the value. A discarded fragment returns `null`.
@@ -606,6 +600,17 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug a-non-finite-buffer-value-does-not-survive-json`](#bug-a-non-finite-buffer-value-does-not-survive-json) — A buffer's contents that are NaN or infinite become `null` in JSON, and the restored buffer holds 0 in their place.
     - [`@spec deserialize-refuses-data-serialize-could-not-have-produced`](#spec-deserialize-refuses-data-serialize-could-not-have-produced) — `deserialize` refuses data that `serialize` could not have produced.
       - [`@bug deserialize-accepts-unknown-and-unnamed-nodes`](#bug-deserialize-accepts-unknown-and-unnamed-nodes) — `deserialize` accepts a node type no node has, and a uniform with neither a slot nor a local name, and rebuilds a node from each.
+- [`@axiom the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing) — Code that runs once per frame, or once per call of a routine that runs every frame, allocates no memory.
+  - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A JS [routine](#term-cpu-routine) keeps its variables in a scratch block outside the function. It writes vector results into them through helpers that take an output argument. With `reentrant`, it declares its variables inside the function.
+    - [`@bug js-smoothstep-allocates-a-closure-per-call`](#bug-js-smoothstep-allocates-a-closure-per-call) — A scalar `smoothstep` on JS builds a closure on every call.
+    - [`@bug js-allocates-a-vector-computed-outside-an-assignment`](#bug-js-allocates-a-vector-computed-outside-an-assignment) — On JS, a vector or matrix computed outside an assignment becomes a new array on every call. A matrix column is a copy made with `slice`, a scalar matrix goes through `_matDiag`, and a constant vector is an array literal.
+    - [`@bug js-select-allocates-its-result-per-call`](#bug-js-select-allocates-its-result-per-call) — On JS, a component-wise `select` calls its helper with no output argument, so the helper allocates its result on every call.
+    - [`@bug js-cube-map-allocates-its-face-per-call`](#bug-js-cube-map-allocates-its-face-per-call) — On JS, sampling a cube map allocates an array for the face it picks on every call.
+    - [`@bug js-matrix-product-into-its-operand-allocates`](#bug-js-matrix-product-into-its-operand-allocates) — On JS, a matrix product written into one of its own operands copies that operand with `slice` on every call.
+  - [`@spec a-webgl-renderer-allocates-nothing-per-frame`](#spec-a-webgl-renderer-allocates-nothing-per-frame) — The WebGL renderer draws a frame without allocating. It reuses what it needs between frames, and builds no array, closure or iterator per frame or per draw.
+    - [`@bug webgl-render-allocates-the-clear-colour-per-frame`](#bug-webgl-render-allocates-the-clear-colour-per-frame) — `render` reads the clear colour with `Color.toArray()`, which builds a new array on every frame.
+    - [`@bug webgl-render-allocates-a-traversal-closure-per-frame`](#bug-webgl-render-allocates-a-traversal-closure-per-frame) — `render` builds a new callback for `traverseVisible` on every frame.
+    - [`@bug webgl-draw-allocates-the-attribute-list-per-draw`](#bug-webgl-draw-allocates-the-attribute-list-per-draw) — `bindGeometry` lists the geometry's attributes with `Object.values` and `some` on every draw, which builds an array and a closure.
 - [`@axiom a-user-ships-only-what-runs`](#axiom-a-user-ships-only-what-runs) — An application pays only for what it uses. A program declares only the inputs it reads. An application that compiles ahead of time ships the compiled code, without the compiler and without a toolchain.
   - [`@spec a-precompiled-program-ships-without-the-compiler`](#spec-a-precompiled-program-ships-without-the-compiler) — An application that [precompiles](#term-precompile) its programs with the Vite plugins ships the compiled code without the rmsl compiler.
     - [`@spec a-precompiled-shader-ships-as-a-string`](#spec-a-precompiled-shader-ships-as-a-string) — `precompileShaders` replaces a module with the GLSL and WGSL it compiled to, and the slot names it uses, as one JSON constant that imports nothing.
@@ -3447,40 +3452,6 @@ Derives from: [`fact-a-content-security-policy-can-block-new-function`](#fact-a-
 
 This follows because a page whose security policy blocks `new Function` can still place the source in a script it trusts.
 
-#### @spec a-js-routine-allocates-nothing-per-call
-
-> A JS [routine](#term-cpu-routine) keeps its variables in a scratch block outside the function. It writes vector results into them through helpers that take an output argument. With `reentrant`, it declares its variables inside the function.
-
-##### @bug js-smoothstep-allocates-a-closure-per-call
-
-> A scalar `smoothstep` on JS builds a closure on every call.
-
-Issue: #86
-
-##### @bug js-allocates-a-vector-computed-outside-an-assignment
-
-> On JS, a vector or matrix computed outside an assignment becomes a new array on every call. A matrix column is a copy made with `slice`, a scalar matrix goes through `_matDiag`, and a constant vector is an array literal.
-
-Issue: #86
-
-##### @bug js-select-allocates-its-result-per-call
-
-> On JS, a component-wise `select` calls its helper with no output argument, so the helper allocates its result on every call.
-
-Issue: #86
-
-##### @bug js-cube-map-allocates-its-face-per-call
-
-> On JS, sampling a cube map allocates an array for the face it picks on every call.
-
-Issue: #86
-
-##### @bug js-matrix-product-into-its-operand-allocates
-
-> On JS, a matrix product written into one of its own operands copies that operand with `slice` on every call.
-
-Issue: #86
-
 #### @spec the-js-target-computes-scalar-math-with-math
 
 > The JS target computes a scalar math function with the function of the same name on `Math`.
@@ -3979,6 +3950,70 @@ Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mi
 > `deserialize` accepts a node type no node has, and a uniform with neither a slot nor a local name, and rebuilds a node from each.
 
 Issue: #80
+
+## @axiom the-frame-path-allocates-nothing
+
+> Code that runs once per frame, or once per call of a routine that runs every frame, allocates no memory.
+
+A program that draws every frame, or a routine that an event handler calls many times a second, lives by its frame time. Memory that each frame allocates is memory the host's collector must reclaim, and the collector pauses the frame it runs in. The user sees the pause as a hitch, and cannot trace it to any line of the program. The axiom decides between allocating freely, which is simpler to write, and reusing memory, which keeps the frame time even.
+
+This does not follow from [running everywhere](#axiom-rmsl-runs-everywhere): a program can run everywhere and stutter everywhere. It is a value of its own.
+
+### @spec a-js-routine-allocates-nothing-per-call
+
+> A JS [routine](#term-cpu-routine) keeps its variables in a scratch block outside the function. It writes vector results into them through helpers that take an output argument. With `reentrant`, it declares its variables inside the function.
+
+#### @bug js-smoothstep-allocates-a-closure-per-call
+
+> A scalar `smoothstep` on JS builds a closure on every call.
+
+Issue: #86
+
+#### @bug js-allocates-a-vector-computed-outside-an-assignment
+
+> On JS, a vector or matrix computed outside an assignment becomes a new array on every call. A matrix column is a copy made with `slice`, a scalar matrix goes through `_matDiag`, and a constant vector is an array literal.
+
+Issue: #86
+
+#### @bug js-select-allocates-its-result-per-call
+
+> On JS, a component-wise `select` calls its helper with no output argument, so the helper allocates its result on every call.
+
+Issue: #86
+
+#### @bug js-cube-map-allocates-its-face-per-call
+
+> On JS, sampling a cube map allocates an array for the face it picks on every call.
+
+Issue: #86
+
+#### @bug js-matrix-product-into-its-operand-allocates
+
+> On JS, a matrix product written into one of its own operands copies that operand with `slice` on every call.
+
+Issue: #86
+
+### @spec a-webgl-renderer-allocates-nothing-per-frame
+
+> The WebGL renderer draws a frame without allocating. It reuses what it needs between frames, and builds no array, closure or iterator per frame or per draw.
+
+#### @bug webgl-render-allocates-the-clear-colour-per-frame
+
+> `render` reads the clear colour with `Color.toArray()`, which builds a new array on every frame.
+
+Issue: #134
+
+#### @bug webgl-render-allocates-a-traversal-closure-per-frame
+
+> `render` builds a new callback for `traverseVisible` on every frame.
+
+Issue: #134
+
+#### @bug webgl-draw-allocates-the-attribute-list-per-draw
+
+> `bindGeometry` lists the geometry's attributes with `Object.values` and `some` on every draw, which builds an array and a closure.
+
+Issue: #134
 
 ## @axiom a-user-ships-only-what-runs
 

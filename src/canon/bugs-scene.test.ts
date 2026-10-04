@@ -196,6 +196,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("known bugs of the scene library, each failing until its fix", () => {
@@ -747,6 +748,55 @@ describe("known bugs of the scene library, each failing until its fix", () => {
     expect(names).toHaveLength(2);
     expect(names).not.toContain("positionWorld");
     expect(names).not.toContain("normalWorld");
+  });
+
+  /**
+   * The WebGL renderer reads the clear colour into a new array on every
+   * frame, with `Color.toArray()`.
+   *
+   * @canon bug-webgl-render-allocates-the-clear-colour-per-frame
+   */
+  it.fails("renders a frame without allocating the clear colour on WebGL", () => {
+    const { renderer } = stubWebGl();
+    const toArray = vi.spyOn(Color.prototype, "toArray");
+    renderer.render(new Scene(), camera());
+    expect(toArray).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The WebGL renderer builds a new callback for `traverseVisible` on every
+   * frame.
+   *
+   * @canon bug-webgl-render-allocates-a-traversal-closure-per-frame
+   */
+  it.fails("renders every frame with one traversal callback on WebGL", () => {
+    const { renderer } = stubWebGl();
+    const scene = new Scene();
+    const callbacks: unknown[] = [];
+    const traverse = scene.traverseVisible.bind(scene);
+    scene.traverseVisible = (callback) => {
+      callbacks.push(callback);
+      traverse(callback);
+    };
+    renderer.render(scene, camera());
+    renderer.render(scene, camera());
+    expect(callbacks[1]).toBe(callbacks[0]);
+  });
+
+  /**
+   * The WebGL renderer lists a geometry's attributes with `Object.values` on
+   * every draw, to ask whether any needs an update.
+   *
+   * @canon bug-webgl-draw-allocates-the-attribute-list-per-draw
+   */
+  it.fails("draws a mesh without listing its attributes on WebGL", () => {
+    const { renderer } = stubWebGl();
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(), new MeshBasicMaterial()));
+    renderer.render(scene, camera());
+    const values = vi.spyOn(Object, "values");
+    renderer.render(scene, camera());
+    expect(values).not.toHaveBeenCalled();
   });
 });
 
