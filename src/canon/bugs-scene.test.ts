@@ -22,6 +22,7 @@ import {
   WebGLRenderTarget,
   WebGPURenderer,
 } from "../scene";
+import { collectNodes } from "../scene/materials/nodes/graph";
 import { GPU_ENABLED, releaseGpu } from "../testing/gpu";
 import { runInGpuPage } from "../testing/browser";
 
@@ -727,6 +728,25 @@ describe("known bugs of the scene library, each failing until its fix", () => {
 
     const writes = bufferWrites.slice(before).filter((w) => w.buffer === buffers.attributes.get("position"));
     expect(writes.map((w) => w.offset)).toEqual([12]);
+  });
+
+  /**
+   * The builder's `position` and `normal` read the attributes in object space
+   * in the vertex stage, but the world-space `positionWorld` and `normalWorld`
+   * varyings in the fragment stage.
+   *
+   * @canon bug-position-and-normal-read-world-space-in-the-fragment-stage
+   */
+  it.fails("reads position and normal in object space in the fragment stage", () => {
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => vec4(b.position.add(b.normal), 1);
+    const program = material.build(new Scene());
+
+    const read = collectNodes(program.fragmentRoot).varyings;
+    const names = program.varyings.filter((v) => read.has(v.node)).map((v) => v.name);
+    expect(names).toHaveLength(2);
+    expect(names).not.toContain("positionWorld");
+    expect(names).not.toContain("normalWorld");
   });
 });
 

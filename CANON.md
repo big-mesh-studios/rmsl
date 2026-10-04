@@ -392,6 +392,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@bug a-rebuild-reaches-one-signature-of-a-shared-material`](#bug-a-rebuild-reaches-one-signature-of-a-shared-material) — A rebuild flagged by `needsUpdate` rebuilds only the program of the first kind of mesh drawn after it, and clears the flag. A material shared by a `Mesh` and an `InstancedMesh` keeps the stale program for the other.
       - [`@spec ambient-lights-sum-into-one-colour`](#spec-ambient-lights-sum-into-one-colour) — A material sums the ambient lights of its scene, each scaled by its intensity, into one colour uniform.
       - [`@spec a-light-uniform-carries-its-colour-times-its-intensity`](#spec-a-light-uniform-carries-its-colour-times-its-intensity) — A directional or point light gives its colour uniform the light's colour already multiplied by its intensity.
+      - [`@spec position-and-normal-read-object-space-in-both-stages`](#spec-position-and-normal-read-object-space-in-both-stages) — The builder's `position` and `normal` give the object-space position and normal in both stages, as TSL's `positionLocal` and `normalLocal` do.
+        - [`@bug position-and-normal-read-world-space-in-the-fragment-stage`](#bug-position-and-normal-read-world-space-in-the-fragment-stage) — The builder's `position` and `normal` read object space in the vertex stage. In the fragment stage they read the `positionWorld` and `normalWorld` varyings instead.
 - [`@axiom each-target-keeps-what-makes-it-worth-choosing`](#axiom-each-target-keeps-what-makes-it-worth-choosing) — An interface over several targets keeps what each target does better than the others. A call that a target answers at once stays synchronous. Data that lives on the GPU stays there until the host asks for it. No target fakes a capability it lacks.
   - [`@spec an-adapter-call-is-synchronous-where-its-target-answers-at-once`](#spec-an-adapter-call-is-synchronous-where-its-target-answers-at-once) — An [adapter](#term-adapter) method returns its result directly where its target answers at once, and returns a promise only where its target cannot.
     - [`@spec a-cpu-adapter-computes-synchronously`](#spec-a-cpu-adapter-computes-synchronously) — `compute` on a JS or WASM adapter has run the dispatch and filled `out` when it returns.
@@ -2722,6 +2724,18 @@ This follows because three.js adds every ambient light into one ambient term, an
 > A directional or point light gives its colour uniform the light's colour already multiplied by its intensity.
 
 This follows because three.js scales a light's colour by its intensity on the host, so the shading terms read one colour.
+
+##### @spec position-and-normal-read-object-space-in-both-stages
+
+> The builder's `position` and `normal` give the object-space position and normal in both stages, as TSL's `positionLocal` and `normalLocal` do.
+
+This follows because a TSL node reads the same value in either stage, and a TSL material ports to rmsl by changing its import.
+
+###### @bug position-and-normal-read-world-space-in-the-fragment-stage
+
+> The builder's `position` and `normal` read object space in the vertex stage. In the fragment stage they read the `positionWorld` and `normalWorld` varyings instead.
+
+Issue: #131
 
 ## @axiom each-target-keeps-what-makes-it-worth-choosing
 
