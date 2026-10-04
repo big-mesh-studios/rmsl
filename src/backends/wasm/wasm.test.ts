@@ -382,6 +382,9 @@ describe("WASM backend: comparisons, logical, bitwise", () => {
 });
 
 describe("WASM backend: transcendentals via host import", () => {
+  /**
+   * @canon exception-a-wasm-transcendental-is-imported-from-the-host
+   */
   it("calls Math functions through a WASM import", () => {
     expect(run((a) => a.sin(), [1.2345])).toBeCloseTo(Math.sin(1.2345), 9);
     expect(run((a) => a.cos(), [1.2345])).toBeCloseTo(Math.cos(1.2345), 9);

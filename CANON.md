@@ -81,10 +81,13 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec what-rmsl-hands-back-draws-nothing-on-its-own`](#spec-what-rmsl-hands-back-draws-nothing-on-its-own) — What rmsl hands back draws nothing until the application calls it. An adapter draws or dispatches once for each call.
     - [`@spec an-effect-with-several-passes-is-a-pass-graph`](#spec-an-effect-with-several-passes-is-a-pass-graph) — An [effect](#term-effect) with several passes returns a [pass graph](#term-pass-graph): its passes, the samplers each pass reads, and the pass that gives the output. The application draws each pass.
     - [`@exception a-scene-renderer-draws-its-scene-graph`](#exception-a-scene-renderer-draws-its-scene-graph) — `render(scene, camera)` on a renderer of `./scene` walks the scene graph, binds the geometry and the [node material](#term-node-material) of each mesh, uploads their uniforms and draws them.
-- [`@axiom a-program-runs-without-a-graphics-api`](#axiom-a-program-runs-without-a-graphics-api) — A program also runs in the host's own JavaScript, with no [graphics API](#term-graphics-api). The application gets its answer within the same call, and can run the program where no graphics API exists.
-  - [`@spec a-cpu-target-draws-within-the-call`](#spec-a-cpu-target-draws-within-the-call) — A program compiled for a CPU target draws a grid of fragments and returns the pixels within the same call, with no graphics API.
-    - [`@spec the-js-target-draws-within-the-call`](#spec-the-js-target-draws-within-the-call) — A vertex and fragment program compiled with `compileJS` returns its pixels from `draw`, with no graphics API.
-    - [`@spec the-wasm-target-draws-within-the-call`](#spec-the-wasm-target-draws-within-the-call) — A vertex and fragment program compiled with `compileWasm` returns its pixels from `draw`, with no graphics API.
+- [`@axiom rmsl-runs-everywhere`](#axiom-rmsl-runs-everywhere) — A program written in rmsl runs everywhere code runs. It runs on a GPU through a graphics API, and on the CPU, as JavaScript source or as a WebAssembly module. A WebAssembly module carries it further: a tool such as `wasm2c` turns the module into C, which builds for any environment.
+  - [`@axiom a-program-runs-without-a-graphics-api`](#axiom-a-program-runs-without-a-graphics-api) — A program also runs in the host's own JavaScript, with no [graphics API](#term-graphics-api). The application gets its answer within the same call, and can run the program where no graphics API exists.
+    - [`@spec a-cpu-target-draws-within-the-call`](#spec-a-cpu-target-draws-within-the-call) — A program compiled for a CPU target draws a grid of fragments and returns the pixels within the same call, with no graphics API.
+      - [`@spec the-js-target-draws-within-the-call`](#spec-the-js-target-draws-within-the-call) — A vertex and fragment program compiled with `compileJS` returns its pixels from `draw`, with no graphics API.
+      - [`@spec the-wasm-target-draws-within-the-call`](#spec-the-wasm-target-draws-within-the-call) — A vertex and fragment program compiled with `compileWasm` returns its pixels from `draw`, with no graphics API.
+  - [`@spec a-wasm-module-imports-only-its-memory`](#spec-a-wasm-module-imports-only-its-memory) — A program compiled to WebAssembly imports only its memory from the host. Any host that runs WebAssembly can run it, outside JavaScript included.
+    - [`@exception a-wasm-transcendental-is-imported-from-the-host`](#exception-a-wasm-transcendental-is-imported-from-the-host) — A program compiled to WebAssembly that calls a transcendental function, such as `sin`, `exp` or `pow`, imports that function from the host, and the host gives it JavaScript's `Math`.
 - [`@fact wgsl-defines-every-integer-edge-case`](#fact-wgsl-defines-every-integer-edge-case) — WGSL defines the result of every integer operation on run-time values. Overflow wraps. A division by zero returns the dividend and a remainder by zero returns zero. The most negative `i32` divided by `-1` returns itself. A shift uses its amount modulo the bit width.
 - [`@fact glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined) — GLSL ES 3.00 leaves undefined the result of an integer division or remainder by zero. It also leaves undefined a shift by a negative amount, or by the bit width or more.
 - [`@fact wgsl-rejects-a-constant-expression-that-fails`](#fact-wgsl-rejects-a-constant-expression-that-fails) — A WGSL shader fails to compile when a constant expression divides an integer by zero, shifts by the bit width or more, or overflows.
@@ -102,6 +105,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-one-loop-function-in-three-shapes) — Three.js TSL has one loop function, `Loop`, and no `While` or `For`. `Loop` takes a count, a `bool` condition, or an object of `start`, `end`, `type`, `condition` and `update`. It passes the loop index to its body as `{ i }`.
 - [`@fact tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-condition-once) — TSL builds the `bool` condition of a `Loop`, and its `start` and `end`, before it emits the loop. A variable they make is computed once, before the first test.
 - [`@fact a-three-js-renderer-draws-its-scene-graph`](#fact-a-three-js-renderer-draws-its-scene-graph) — In three.js, `renderer.render(scene, camera)` walks the scene graph, binds the geometry and the material of each object, uploads their uniforms and draws them. A scene graph in the shape of three.js comes with a renderer that draws it.
+- [`@fact webassembly-has-no-transcendental-instructions`](#fact-webassembly-has-no-transcendental-instructions) — WebAssembly has instructions for the basic float operations and the square root, but none for trigonometric, exponential or logarithmic functions.
 <!-- toc:end -->
 
 ## Open questions
@@ -144,6 +148,7 @@ These units hold a claim that no test checks yet.
 3. [`spec-wasm-float-arithmetic-matches-js-exactly`](#spec-wasm-float-arithmetic-matches-js-exactly), [`spec-gpu-float-arithmetic-matches-the-cpu-targets`](#spec-gpu-float-arithmetic-matches-the-cpu-targets) and [`exception-a-gpu-float-result-differs-from-the-cpu-in-its-last-bits`](#exception-a-gpu-float-result-differs-from-the-cpu-in-its-last-bits): `src/eval.test.ts` holds every program it evaluates to these claims, in an `afterAll`. The checker credits a unit only from a leaf test, so it cannot see that check. Issue #56.
 4. [`spec-an-assignment-is-refused-unless-the-program-can-write-its-target`](#spec-an-assignment-is-refused-unless-the-program-can-write-its-target): a type test makes the cases meet in one program, but no test does so through the compilers. Issue #57.
 5. [`exception-loop-takes-only-a-count`](#exception-loop-takes-only-a-count): no test gives `Loop` a `bool`, and today it miscompiles one. Issue #58.
+6. [`spec-a-wasm-module-imports-only-its-memory`](#spec-a-wasm-module-imports-only-its-memory): no test reads which imports a compiled module declares. Issue #61.
 
 ## Terms
 
@@ -537,27 +542,49 @@ Derives from: [`fact-a-three-js-renderer-draws-its-scene-graph`](#fact-a-three-j
 
 `./scene` offers a scene graph in the shape of three.js, so it offers the renderer that draws it. The application still decides when to call `render`.
 
-## @axiom a-program-runs-without-a-graphics-api
+## @axiom rmsl-runs-everywhere
+
+> A program written in rmsl runs everywhere code runs. It runs on a GPU through a graphics API, and on the CPU, as JavaScript source or as a WebAssembly module. A WebAssembly module carries it further: a tool such as `wasm2c` turns the module into C, which builds for any environment.
+
+The language serves everywhere, not only shaders. A user writes the logic once, and runs it where it is needed. That can be a shader, an event handler, a test, a server, or a native program. The axiom decides between a language for shaders and a language for every environment.
+
+### @axiom a-program-runs-without-a-graphics-api
 
 > A program also runs in the host's own JavaScript, with no [graphics API](#term-graphics-api). The application gets its answer within the same call, and can run the program where no graphics API exists.
+
+This narrows [running everywhere](#axiom-rmsl-runs-everywhere) to the CPU of a JavaScript host.
 
 Screen picking asks what lies under the pointer, and needs the answer before the event handler returns. Through a graphics API, the answer comes back a frame or more later, after a readback. A server, a worker or a test runner may have no graphics API at all. The axiom decides between [CPU targets](#term-cpu-target) and a readback from the GPU.
 
 The point is the graphics API, not the hardware. A browser without a GPU still runs WebGL 2 in software, and Node can reach WebGPU through a library.
 
-### @spec a-cpu-target-draws-within-the-call
+#### @spec a-cpu-target-draws-within-the-call
 
 > A program compiled for a CPU target draws a grid of fragments and returns the pixels within the same call, with no graphics API.
 
 This follows because the application gets its answer within the same call.
 
-#### @spec the-js-target-draws-within-the-call
+##### @spec the-js-target-draws-within-the-call
 
 > A vertex and fragment program compiled with `compileJS` returns its pixels from `draw`, with no graphics API.
 
-#### @spec the-wasm-target-draws-within-the-call
+##### @spec the-wasm-target-draws-within-the-call
 
 > A vertex and fragment program compiled with `compileWasm` returns its pixels from `draw`, with no graphics API.
+
+### @spec a-wasm-module-imports-only-its-memory
+
+> A program compiled to WebAssembly imports only its memory from the host. Any host that runs WebAssembly can run it, outside JavaScript included.
+
+This follows because a module that imports a function only JavaScript provides runs only in JavaScript.
+
+#### @exception a-wasm-transcendental-is-imported-from-the-host
+
+> A program compiled to WebAssembly that calls a transcendental function, such as `sin`, `exp` or `pow`, imports that function from the host, and the host gives it JavaScript's `Math`.
+
+Derives from: [`fact-webassembly-has-no-transcendental-instructions`](#fact-webassembly-has-no-transcendental-instructions)
+
+A host outside JavaScript has to supply these functions itself. Issue #12 asks to compute them inside the module.
 
 ## @fact wgsl-defines-every-integer-edge-case
 
@@ -660,3 +687,9 @@ This is a fact of TSL, in `LoopNode.generate`, not a choice of rmsl.
 > In three.js, `renderer.render(scene, camera)` walks the scene graph, binds the geometry and the material of each object, uploads their uniforms and draws them. A scene graph in the shape of three.js comes with a renderer that draws it.
 
 This is a fact of three.js, not a choice of rmsl.
+
+## @fact webassembly-has-no-transcendental-instructions
+
+> WebAssembly has instructions for the basic float operations and the square root, but none for trigonometric, exponential or logarithmic functions.
+
+This is a fact of the WebAssembly specification, not a choice.
