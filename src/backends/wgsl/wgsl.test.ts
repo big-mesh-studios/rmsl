@@ -3,6 +3,9 @@ import { attribute, Fn, output } from "../../rmsl";
 import { compileWgsl } from "./wgsl";
 
 describe("compileWgsl.compute", () => {
+  /**
+   * @canon spec-wgsl-compiles-a-compute-node-to-a-compute-entry-point
+   */
   it("emits a @compute entry point reading and writing storage buffers", () => {
     const prog = Fn(() => {
       const pos = attribute("float");
@@ -19,6 +22,9 @@ describe("compileWgsl.compute", () => {
     expect(wgsl).toContain("arrayLength(&_rmsl_a");
   });
 
+  /**
+   * @canon spec-wgsl-compiles-a-compute-node-to-a-compute-entry-point
+   */
   it("indexes buffers by the invocation id instead of a vertex/fragment struct", () => {
     const prog = Fn(() => {
       const pos = attribute("vec2");

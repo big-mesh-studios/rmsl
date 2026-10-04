@@ -3,6 +3,9 @@ import { Fn, instancedArray, invocationIndex, uniform } from "./rmsl";
 import { compile } from "./wgsl";
 
 describe("@random-mesh/rmsl/wgsl", () => {
+  /**
+   * @canon spec-wgsl-compiles-a-compute-node-to-a-compute-entry-point
+   */
   it("compiles a semantic compute program into a structured artifact", () => {
     const velocityX = instancedArray(4, "float").toReadOnly();
     const positionX = instancedArray(4, "float");

@@ -46,6 +46,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec float-arithmetic-gives-one-result`](#spec-float-arithmetic-gives-one-result) — Every target gives a float operation the same result.
     - [`@exception a-cpu-target-has-no-derivatives`](#exception-a-cpu-target-has-no-derivatives) — On a CPU target, a derivative is refused, unless the compile asks for `derivatives: "zero"`, which makes every derivative zero.
     - [`@spec wasm-float-arithmetic-matches-js-exactly`](#spec-wasm-float-arithmetic-matches-js-exactly) — The WebAssembly target gives a float operation exactly the result the JavaScript target gives.
+      - [`@exception a-wasm-uniform-in-the-gpu-layout-holds-an-f32`](#exception-a-wasm-uniform-in-the-gpu-layout-holds-an-f32) — A WASM uniform placed with `gpuUniformLayout` holds a 32-bit float, so a program that reads it differs from the JS result by that rounding.
     - [`@spec gpu-float-arithmetic-matches-the-cpu-targets`](#spec-gpu-float-arithmetic-matches-the-cpu-targets) — The [GPU targets](#term-gpu-target) give a float operation the result the CPU targets give.
       - [`@exception a-gpu-float-result-differs-from-the-cpu-in-its-last-bits`](#exception-a-gpu-float-result-differs-from-the-cpu-in-its-last-bits) — On GLSL and WGSL, a float result can differ from the result of the CPU targets. The difference is at most a millionth of the result's size, and at most `1e-6` near zero.
   - [`@spec folding-gives-the-run-time-result`](#spec-folding-gives-the-run-time-result) — An operation whose operands are all literal values compiles to the literal it would compute at run time, on every target. This is [folding](#term-folding).
@@ -71,9 +72,16 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-fragment-stage-may-write-no-colour`](#spec-a-fragment-stage-may-write-no-colour) — A fragment stage with no output and no `vec4` result compiles.
     - [`@spec a-varying-passes-from-the-vertex-to-the-fragment-stage`](#spec-a-varying-passes-from-the-vertex-to-the-fragment-stage) — A varying is an output of the vertex stage and an input of the fragment stage.
     - [`@spec an-attribute-is-an-input-of-the-vertex-stage`](#spec-an-attribute-is-an-input-of-the-vertex-stage) — An attribute is an input of the vertex stage, read once for each vertex.
+  - [`@spec a-program-runs-its-statements-in-the-order-it-writes-them`](#spec-a-program-runs-its-statements-in-the-order-it-writes-them) — A program runs its statements in the order its body made them, on every target, the statements that compute an index or a value included.
+    - [`@spec the-index-of-a-write-is-read-after-the-value-is-computed`](#spec-the-index-of-a-write-is-read-after-the-value-is-computed) — A write through a computed index reads the index after the statements that compute the value it writes.
+    - [`@spec a-column-index-runs-before-a-component-index`](#spec-a-column-index-runs-before-a-component-index) — When a program computes both indices of a write to a component of a matrix column, the column index runs first.
+  - [`@spec a-run-time-index-past-the-end-reaches-the-last-element`](#spec-a-run-time-index-past-the-end-reaches-the-last-element) — A vector component or matrix column reached by a run-time index below zero or past its end reads and writes the last component or column.
+    - [`@exception a-gpu-target-lets-the-driver-pick-an-element-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range) — On GLSL and WGSL, a run-time index out of range reaches whatever element the driver picks.
 - [`@axiom a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs) — A program that cannot work is refused before it runs. The type checker refuses it wherever the types can express the mistake, and the compiler refuses it on every target. The refusal names the cause, and the fix where one exists.
   - [`@spec an-assignment-is-refused-unless-the-program-can-write-its-target`](#spec-an-assignment-is-refused-unless-the-program-can-write-its-target) — An assignment whose target the program cannot write is refused. Every target refuses it with the same message, and the type checker refuses it wherever the type of the target shows it.
+    - [`@spec a-var-can-be-assigned`](#spec-a-var-can-be-assigned) — A program can assign a variable, a stage output and a storage element. It can also assign a component, a column or a swizzle of one that names each component once. A var goes wherever a node goes.
     - [`@spec a-uniform-cannot-be-assigned`](#spec-a-uniform-cannot-be-assigned) — An assignment to a [uniform](#term-uniform), to a whole uniform array, or to a component or element of one, is refused.
+    - [`@spec a-read-only-storage-element-cannot-be-assigned`](#spec-a-read-only-storage-element-cannot-be-assigned) — An assignment to an element of a storage node made read-only with `toReadOnly()`, or to a component of one, is refused.
     - [`@spec a-built-in-input-cannot-be-assigned`](#spec-a-built-in-input-cannot-be-assigned) — An assignment to a built-in input, such as `invocationIndex()`, is refused.
     - [`@spec an-attribute-cannot-be-assigned`](#spec-an-attribute-cannot-be-assigned) — An assignment to an [attribute](#term-attribute), or to a component of one, is refused.
     - [`@spec a-whole-storage-buffer-cannot-be-assigned`](#spec-a-whole-storage-buffer-cannot-be-assigned) — An assignment to a whole [storage buffer](#term-storage-buffer) is refused, and the message points to `.element(i)`.
@@ -106,8 +114,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-stage-reads-and-writes-only-what-it-has`](#spec-a-stage-reads-and-writes-only-what-it-has) — A vertex stage produces a position, and a built-in that one stage has is refused in the other.
     - [`@spec a-vertex-stage-without-a-position-is-refused`](#spec-a-vertex-stage-without-a-position-is-refused) — A vertex stage whose result is not a `vec4`, and which writes no position itself, is refused on every target, a literal zero included.
     - [`@spec a-vertex-stage-writes-its-position`](#spec-a-vertex-stage-writes-its-position) — A vertex stage writes its `vec4` result as the position, or the position it assigns through `builtinPosition()`, once.
+    - [`@spec a-vertex-stage-may-return-several-values-ending-in-its-position`](#spec-a-vertex-stage-may-return-several-values-ending-in-its-position) — A vertex stage may return several values, of which the last is its position, or return nothing and write its position. A fragment stage has no such requirement.
     - [`@spec the-fragment-depth-is-written-only-in-a-fragment-stage`](#spec-the-fragment-depth-is-written-only-in-a-fragment-stage) — `builtinFragDepth()` writes the depth of a fragment stage, and is refused in a vertex stage.
     - [`@spec the-position-is-read-only-in-a-vertex-stage`](#spec-the-position-is-read-only-in-a-vertex-stage) — A vertex [stage](#term-stage) reads `builtinPosition()`, and a fragment stage that reads it is refused.
+  - [`@spec a-constant-index-outside-a-vector-or-matrix-is-refused`](#spec-a-constant-index-outside-a-vector-or-matrix-is-refused) — A literal index outside a vector's components or a matrix's columns is refused on every target.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
   - [`@spec a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop) — A loop follows TSL's `Loop`. It tests its condition before every iteration, and runs its body while the condition holds. It builds the condition once, before the loop.
     - [`@spec loop-counts-from-zero`](#spec-loop-counts-from-zero) — `Loop(count, body)` runs `body` `count` times, with an `int` index that counts up from 0.
@@ -149,7 +159,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-swizzle-reads-and-writes-the-components-it-names`](#spec-a-swizzle-reads-and-writes-the-components-it-names) — A swizzle reads the components it names, in its order, in any of the spellings `xyzw`, `rgba` and `stpq`. Written through, it writes the same components of the variable it reaches.
     - [`@spec a-swizzle-reads-the-components-it-names`](#spec-a-swizzle-reads-the-components-it-names) — A swizzle of a vector, float or integer, reads the components it names, and a single component of an integer vector is that integer scalar.
     - [`@spec a-swizzle-write-writes-the-components-it-names`](#spec-a-swizzle-write-writes-the-components-it-names) — An assignment through a swizzle, or through a swizzle of a swizzle, writes the components it names of the variable it reaches, on every target.
-    - [`@spec an-element-reads-a-component-by-index`](#spec-an-element-reads-a-component-by-index) — `element(i)` of a vector reads the component at `i`.
+    - [`@spec an-element-reads-a-component-by-index`](#spec-an-element-reads-a-component-by-index) — `element(i)` of a vector reads the component at `i`, and of a matrix the column at `i`, by a literal or a computed index.
+    - [`@spec an-element-write-writes-at-its-index`](#spec-an-element-write-writes-at-its-index) — An assignment through `element(i)` of a vector or matrix variable, or through a swizzle or an element of a column, writes at that index.
   - [`@spec an-if-chain-runs-the-first-branch-whose-condition-holds`](#spec-an-if-chain-runs-the-first-branch-whose-condition-holds) — `If`, `ElseIf` and `Else` run the first branch whose condition holds, or the `Else` branch when none does.
   - [`@spec a-switch-runs-the-case-its-selector-matches`](#spec-a-switch-runs-the-case-its-selector-matches) — `Switch` runs the first `Case` whose values hold its selector, or the `Default` when none does, as a chain of `if` and `else` with no fall-through.
   - [`@spec break-continue-return-and-discard-leave-where-tsl-leaves`](#spec-break-continue-return-and-discard-leave-where-tsl-leaves) — `Break` leaves the loop, `Continue` starts its next iteration, `Return` leaves the function, and `Discard` drops the fragment.
@@ -158,6 +169,17 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-variable-keeps-the-name-the-user-gave-it`](#spec-a-variable-keeps-the-name-the-user-gave-it) — `toVar(name)` and `var(name)` declare a variable under `name` on every target, in every compile. A name already taken in the program gets a number appended.
     - [`@spec var-is-to-var`](#spec-var-is-to-var) — `var()` is `toVar()` under TSL's other name.
     - [`@spec a-variable-name-must-be-an-identifier`](#spec-a-variable-name-must-be-an-identifier) — A variable name that is not an identifier, or that starts with the prefix `_rmsl_` the compiler reserves, is refused.
+  - [`@spec a-storage-buffer-follows-tsl`](#spec-a-storage-buffer-follows-tsl) — `storage(attribute, type)`, `instancedArray` and `attributeArray` make a [storage buffer](#term-storage-buffer) node over a buffer of typed elements, as TSL's functions of the same names do.
+    - [`@spec an-instanced-array-takes-its-count-from-a-number-or-its-data`](#spec-an-instanced-array-takes-its-count-from-a-number-or-its-data) — `instancedArray(count, type)` makes a buffer of `count` elements with no contents. `instancedArray(data, type)` takes its count and contents from a typed array.
+    - [`@spec a-buffer-holds-one-element-type`](#spec-a-buffer-holds-one-element-type) — A buffer holds one element type, named by the first storage node over it. A node of another type over it is refused. So is a type its item size or array class cannot hold, and a typed array that is not a whole number of elements.
+    - [`@spec a-storage-buffer-holds-no-bool`](#spec-a-storage-buffer-holds-no-bool) — A storage buffer of `bool` or boolean vector elements is refused.
+    - [`@spec a-storage-node-is-read-write-until-to-read-only`](#spec-a-storage-node-is-read-write-until-to-read-only) — A program can read and write a storage node until `toReadOnly()`, which makes it read-only and returns it. The element of a node, by a number or an `int`, has the element type.
+    - [`@spec nodes-over-one-buffer-share-one-binding`](#spec-nodes-over-one-buffer-share-one-binding) — Several storage nodes over one buffer compile to one binding, with the widest access any of them needs.
+  - [`@spec compute-follows-tsl`](#spec-compute-follows-tsl) — `fn().compute(count, workgroupSize)` and `compute(node, count, workgroupSize)` make a [compute node](#term-compute-node), dispatched once for each index below `count`, as TSL's `compute` does.
+    - [`@spec a-compute-node-carries-its-count-and-workgroup-size`](#spec-a-compute-node-carries-its-count-and-workgroup-size) — A compute node carries its count and its workgroup size, which is 64 by default.
+    - [`@spec a-dispatch-skips-the-indices-past-its-count`](#spec-a-dispatch-skips-the-indices-past-its-count) — A compute program checks its invocation index against its count. It reads the count from a uniform rather than from a buffer length, so the count can change without a new compile.
+    - [`@spec a-compute-node-is-known-by-a-flag`](#spec-a-compute-node-is-known-by-a-flag) — A compiler knows a compute node by a flag it carries, so a node made by another copy of rmsl compiles the same.
+    - [`@spec wgsl-compiles-a-compute-node-to-a-compute-entry-point`](#spec-wgsl-compiles-a-compute-node-to-a-compute-entry-point) — On WGSL, a compute node compiles to an `@compute` entry point of its workgroup size. The global invocation id is its index. Its storage buffers and uniforms are its resources.
 - [`@axiom each-target-keeps-what-makes-it-worth-choosing`](#axiom-each-target-keeps-what-makes-it-worth-choosing) — An interface over several targets keeps what each target does better than the others. A call that a target answers at once stays synchronous. Data that lives on the GPU stays there until the host asks for it. No target fakes a capability it lacks.
   - [`@spec an-adapter-call-is-synchronous-where-its-target-answers-at-once`](#spec-an-adapter-call-is-synchronous-where-its-target-answers-at-once) — An [adapter](#term-adapter) method returns its result directly where its target answers at once, and returns a promise only where its target cannot.
     - [`@spec a-cpu-adapter-computes-synchronously`](#spec-a-cpu-adapter-computes-synchronously) — `compute` on a JS or WASM adapter has run the dispatch and filled `out` when it returns.
@@ -176,6 +198,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec uniforms-are-ordered-by-alignment-then-by-declaration`](#spec-uniforms-are-ordered-by-alignment-then-by-declaration) — Uniform members are placed in order of descending alignment, and members that align alike keep the order they were declared in.
     - [`@spec an-array-member-has-a-stride-of-sixteen`](#spec-an-array-member-has-a-stride-of-sixteen) — An array member reports a stride of at least 16 bytes, and a `bool` array the stride of what it travels as. The struct rounds its size up to the array's alignment.
     - [`@spec a-matrix-member-pads-each-column`](#spec-a-matrix-member-pads-each-column) — A matrix member takes one aligned column for each of its columns, so a `mat2x3` takes two columns of 16 bytes.
+    - [`@spec a-wasm-routine-reads-uniforms-from-the-wgsl-layout`](#spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout) — Given `gpuUniformLayout`, a WASM routine reads each uniform, arrays included, at the offset and stride `wgslUniformLayout` reports, so one buffer serves WGSL and WASM.
     - [`@spec a-type-with-no-layout-is-refused`](#spec-a-type-with-no-layout-is-refused) — A member whose type has no WGSL layout is refused, rather than placed by a guess.
   - [`@spec a-function-compiles-on-its-own`](#spec-a-function-compiles-on-its-own) — `compileGlslFn` and `compileWgslFn` compile one function, under the name and the typed parameters the caller gives. The application places it in a shader of its own. A function compiled on its own returns one value, and a function that returns several is refused.
 - [`@axiom rmsl-runs-everywhere`](#axiom-rmsl-runs-everywhere) — A program written in rmsl runs everywhere code runs. It runs on a GPU through a graphics API, and on the CPU, as JavaScript source or as a WebAssembly module. A WebAssembly module carries it further: a tool such as `wasm2c` turns the module into C, which builds for any environment.
@@ -220,6 +243,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-wgsl-texture-is-not-host-shareable`](#fact-a-wgsl-texture-is-not-host-shareable) — A WGSL texture or sampler can be neither a member of a uniform struct nor an element of a uniform array. Each one takes a binding of its own.
 - [`@fact chromium-needs-a-precision-for-every-sampler`](#fact-chromium-needs-a-precision-for-every-sampler) — Chromium rejects a GLSL ES 3.00 shader that uses a sampler type with no declared precision. `sampler3D` and the integer sampler types have no default precision.
 - [`@fact a-derivative-needs-neighbouring-fragments`](#fact-a-derivative-needs-neighbouring-fragments) — A GPU computes `dFdx`, `dFdy` and `fwidth` from the values of neighbouring fragments that run together. A single evaluation of one fragment has no neighbours.
+- [`@fact an-index-out-of-range-is-left-to-the-gpu`](#fact-an-index-out-of-range-is-left-to-the-gpu) — GLSL ES 3.00 leaves undefined what a run-time index out of range reaches in a vector or a matrix. WGSL lets the implementation choose an element within range.
 <!-- toc:end -->
 
 ## Open questions
@@ -256,6 +280,7 @@ These units hold a claim that no test checks yet.
 4. [`spec-an-assignment-is-refused-unless-the-program-can-write-its-target`](#spec-an-assignment-is-refused-unless-the-program-can-write-its-target): a type test makes the cases meet in one program, but no test does so through the compilers. Issue #57.
 5. [`exception-loop-takes-only-a-count`](#exception-loop-takes-only-a-count): no test gives `Loop` a `bool`, and today it miscompiles one. Issue #58.
 6. [`spec-a-wasm-module-imports-only-its-memory`](#spec-a-wasm-module-imports-only-its-memory): no test reads which imports a compiled module declares. Issue #61.
+7. [`exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range): a test can only assert that the GPU reads some element, because the driver picks which.
 
 ## Terms
 
@@ -455,6 +480,12 @@ Derives from: [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu
 
 This follows because both CPU targets compute in 64 bits, so nothing keeps them apart.
 
+##### @exception a-wasm-uniform-in-the-gpu-layout-holds-an-f32
+
+> A WASM uniform placed with `gpuUniformLayout` holds a 32-bit float, so a program that reads it differs from the JS result by that rounding.
+
+Derives from: [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
+
 #### @spec gpu-float-arithmetic-matches-the-cpu-targets
 
 > The [GPU targets](#term-gpu-target) give a float operation the result the CPU targets give.
@@ -593,6 +624,32 @@ Derives from: [`fact-glsl-es-300-has-no-gl-fragcolor`](#fact-glsl-es-300-has-no-
 
 > An attribute is an input of the vertex stage, read once for each vertex.
 
+### @spec a-program-runs-its-statements-in-the-order-it-writes-them
+
+> A program runs its statements in the order its body made them, on every target, the statements that compute an index or a value included.
+
+This follows because a reordered statement can read a value before or after the write it depends on, and the program would compute something else.
+
+#### @spec the-index-of-a-write-is-read-after-the-value-is-computed
+
+> A write through a computed index reads the index after the statements that compute the value it writes.
+
+#### @spec a-column-index-runs-before-a-component-index
+
+> When a program computes both indices of a write to a component of a matrix column, the column index runs first.
+
+### @spec a-run-time-index-past-the-end-reaches-the-last-element
+
+> A vector component or matrix column reached by a run-time index below zero or past its end reads and writes the last component or column.
+
+This follows because an index out of range must reach the same element on every target. Every vector and matrix has a last element.
+
+#### @exception a-gpu-target-lets-the-driver-pick-an-element-out-of-range
+
+> On GLSL and WGSL, a run-time index out of range reaches whatever element the driver picks.
+
+Derives from: [`fact-an-index-out-of-range-is-left-to-the-gpu`](#fact-an-index-out-of-range-is-left-to-the-gpu)
+
 ## @axiom a-mistake-is-refused-before-the-program-runs
 
 > A program that cannot work is refused before it runs. The type checker refuses it wherever the types can express the mistake, and the compiler refuses it on every target. The refusal names the cause, and the fix where one exists.
@@ -611,9 +668,17 @@ Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-pr
 
 This follows because a write to something the program cannot write either fails in the driver or changes nothing that anyone reads. A program writes only a [var](#term-var).
 
+#### @spec a-var-can-be-assigned
+
+> A program can assign a variable, a stage output and a storage element. It can also assign a component, a column or a swizzle of one that names each component once. A var goes wherever a node goes.
+
 #### @spec a-uniform-cannot-be-assigned
 
 > An assignment to a [uniform](#term-uniform), to a whole uniform array, or to a component or element of one, is refused.
+
+#### @spec a-read-only-storage-element-cannot-be-assigned
+
+> An assignment to an element of a storage node made read-only with `toReadOnly()`, or to a component of one, is refused.
 
 #### @spec a-built-in-input-cannot-be-assigned
 
@@ -757,6 +822,10 @@ This follows because a shader that breaks the rules of its stage either fails in
 
 > A vertex stage writes its `vec4` result as the position, or the position it assigns through `builtinPosition()`, once.
 
+#### @spec a-vertex-stage-may-return-several-values-ending-in-its-position
+
+> A vertex stage may return several values, of which the last is its position, or return nothing and write its position. A fragment stage has no such requirement.
+
 #### @spec the-fragment-depth-is-written-only-in-a-fragment-stage
 
 > `builtinFragDepth()` writes the depth of a fragment stage, and is refused in a vertex stage.
@@ -764,6 +833,12 @@ This follows because a shader that breaks the rules of its stage either fails in
 #### @spec the-position-is-read-only-in-a-vertex-stage
 
 > A vertex [stage](#term-stage) reads `builtinPosition()`, and a fragment stage that reads it is refused.
+
+### @spec a-constant-index-outside-a-vector-or-matrix-is-refused
+
+> A literal index outside a vector's components or a matrix's columns is refused on every target.
+
+This follows because GLSL and WGSL both refuse such an index, so the program could not run on them.
 
 ## @axiom a-tsl-shader-ports-by-changing-its-import
 
@@ -965,7 +1040,11 @@ This follows because TSL swizzles in these spellings.
 
 #### @spec an-element-reads-a-component-by-index
 
-> `element(i)` of a vector reads the component at `i`.
+> `element(i)` of a vector reads the component at `i`, and of a matrix the column at `i`, by a literal or a computed index.
+
+#### @spec an-element-write-writes-at-its-index
+
+> An assignment through `element(i)` of a vector or matrix variable, or through a swizzle or an element of a column, writes at that index.
 
 ### @spec an-if-chain-runs-the-first-branch-whose-condition-holds
 
@@ -1008,6 +1087,58 @@ This follows because TSL's `toVar` takes a name, and a reader of the shader meet
 #### @spec a-variable-name-must-be-an-identifier
 
 > A variable name that is not an identifier, or that starts with the prefix `_rmsl_` the compiler reserves, is refused.
+
+### @spec a-storage-buffer-follows-tsl
+
+> `storage(attribute, type)`, `instancedArray` and `attributeArray` make a [storage buffer](#term-storage-buffer) node over a buffer of typed elements, as TSL's functions of the same names do.
+
+This follows because a TSL compute shader ports only if its buffers mean the same.
+
+#### @spec an-instanced-array-takes-its-count-from-a-number-or-its-data
+
+> `instancedArray(count, type)` makes a buffer of `count` elements with no contents. `instancedArray(data, type)` takes its count and contents from a typed array.
+
+#### @spec a-buffer-holds-one-element-type
+
+> A buffer holds one element type, named by the first storage node over it. A node of another type over it is refused. So is a type its item size or array class cannot hold, and a typed array that is not a whole number of elements.
+
+#### @spec a-storage-buffer-holds-no-bool
+
+> A storage buffer of `bool` or boolean vector elements is refused.
+
+Derives from: [`fact-wgsl-cannot-share-a-bool-with-the-host`](#fact-wgsl-cannot-share-a-bool-with-the-host)
+
+#### @spec a-storage-node-is-read-write-until-to-read-only
+
+> A program can read and write a storage node until `toReadOnly()`, which makes it read-only and returns it. The element of a node, by a number or an `int`, has the element type.
+
+`toReadOnly()` changes the node it is called on, as TSL's does. Issue #52 asks whether to return a separate node instead.
+
+#### @spec nodes-over-one-buffer-share-one-binding
+
+> Several storage nodes over one buffer compile to one binding, with the widest access any of them needs.
+
+### @spec compute-follows-tsl
+
+> `fn().compute(count, workgroupSize)` and `compute(node, count, workgroupSize)` make a [compute node](#term-compute-node), dispatched once for each index below `count`, as TSL's `compute` does.
+
+This follows because a TSL compute shader ports only if its dispatch means the same.
+
+#### @spec a-compute-node-carries-its-count-and-workgroup-size
+
+> A compute node carries its count and its workgroup size, which is 64 by default.
+
+#### @spec a-dispatch-skips-the-indices-past-its-count
+
+> A compute program checks its invocation index against its count. It reads the count from a uniform rather than from a buffer length, so the count can change without a new compile.
+
+#### @spec a-compute-node-is-known-by-a-flag
+
+> A compiler knows a compute node by a flag it carries, so a node made by another copy of rmsl compiles the same.
+
+#### @spec wgsl-compiles-a-compute-node-to-a-compute-entry-point
+
+> On WGSL, a compute node compiles to an `@compute` entry point of its workgroup size. The global invocation id is its index. Its storage buffers and uniforms are its resources.
 
 ## @axiom each-target-keeps-what-makes-it-worth-choosing
 
@@ -1110,6 +1241,10 @@ Derives from: [`fact-a-wgsl-uniform-array-has-a-16-byte-stride`](#fact-a-wgsl-un
 #### @spec a-matrix-member-pads-each-column
 
 > A matrix member takes one aligned column for each of its columns, so a `mat2x3` takes two columns of 16 bytes.
+
+#### @spec a-wasm-routine-reads-uniforms-from-the-wgsl-layout
+
+> Given `gpuUniformLayout`, a WASM routine reads each uniform, arrays included, at the offset and stride `wgslUniformLayout` reports, so one buffer serves WGSL and WASM.
 
 #### @spec a-type-with-no-layout-is-refused
 
@@ -1362,3 +1497,9 @@ This is a fact of the GLSL ES 3.00 specification as Chromium applies it, not a c
 > A GPU computes `dFdx`, `dFdy` and `fwidth` from the values of neighbouring fragments that run together. A single evaluation of one fragment has no neighbours.
 
 This is a fact of how GPUs run fragment shaders, not a choice.
+
+## @fact an-index-out-of-range-is-left-to-the-gpu
+
+> GLSL ES 3.00 leaves undefined what a run-time index out of range reaches in a vector or a matrix. WGSL lets the implementation choose an element within range.
+
+This is a fact of both specifications, not a choice.

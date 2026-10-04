@@ -15,6 +15,9 @@ import { compileWasmFn } from "./wasm";
 import { compileJSRoutine } from "./js";
 
 describe("storage buffers", () => {
+  /**
+   * @canon spec-an-instanced-array-takes-its-count-from-a-number-or-its-data
+   */
   it("sizes an instancedArray from a count, with the element type's components and array class", () => {
     const positions = instancedArray(8, "vec3");
     expect(positions.attribute.count).toBe(8);
@@ -25,6 +28,9 @@ describe("storage buffers", () => {
     expect(attributeArray(4, "int").attribute.arrayClass).toBe(Int32Array);
   });
 
+  /**
+   * @canon spec-an-instanced-array-takes-its-count-from-a-number-or-its-data
+   */
   it("takes an instancedArray's count and initial contents from a typed array", () => {
     const data = Int32Array.of(1, 2, 3, 4);
     const counts = instancedArray(data, "ivec2");
@@ -32,6 +38,9 @@ describe("storage buffers", () => {
     expect(counts.attribute.array).toBe(data);
   });
 
+  /**
+   * @canon spec-a-buffer-holds-one-element-type
+   */
   it("rejects a node whose type doesn't match its attribute's layout", () => {
     expect(() => storage(new StorageBufferAttribute(4, 1, Float32Array), "vec4")).toThrow(
       /vec4.*4 components.*itemSize 1/,
@@ -43,11 +52,17 @@ describe("storage buffers", () => {
     expect(() => storage(new StorageBufferAttribute(4, 2, Int32Array), "ivec2")).not.toThrow();
   });
 
+  /**
+   * @canon spec-a-storage-buffer-holds-no-bool
+   */
   it("rejects bool elements, which a WGSL storage buffer can't hold", () => {
     expect(() => instancedArray(4, "bool")).toThrow(/can't hold bool/);
     expect(() => storage(new StorageBufferAttribute(4, 3, Float32Array), "bvec3")).toThrow(/can't hold bvec3/);
   });
 
+  /**
+   * @canon spec-a-buffer-holds-one-element-type
+   */
   it("holds one element type per attribute", () => {
     const attribute = new StorageBufferAttribute(2, 6);
     expect(attribute.elementType).toBe(null);
@@ -59,10 +74,16 @@ describe("storage buffers", () => {
     );
   });
 
+  /**
+   * @canon spec-a-buffer-holds-one-element-type
+   */
   it("rejects a typed array that isn't a whole number of elements", () => {
     expect(() => instancedArray(new Float32Array(5), "vec2")).toThrow(/5 values.*itemSize 2/);
   });
 
+  /**
+   * @canon spec-a-storage-node-is-read-write-until-to-read-only
+   */
   it("is read-write until toReadOnly()", () => {
     const values = instancedArray(4, "float");
     expect(values.access).toBe("read_write");
@@ -70,6 +91,9 @@ describe("storage buffers", () => {
     expect(values.access).toBe("read");
   });
 
+  /**
+   * @canon spec-a-read-only-storage-element-cannot-be-assigned
+   */
   it("refuses an assignment through a read-only node, on every backend", () => {
     const values = instancedArray(4, "vec4").toReadOnly();
     const writes = [
@@ -90,6 +114,9 @@ describe("storage buffers", () => {
     }
   });
 
+  /**
+   * @canon spec-nodes-over-one-buffer-share-one-binding
+   */
   it("gives two nodes over one attribute one binding, with the wider access", () => {
     const attribute = new StorageBufferAttribute(4, 1, Float32Array);
     const reader = storage(attribute, "float").toReadOnly();

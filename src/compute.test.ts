@@ -9,6 +9,9 @@ describe("compute()", () => {
     values.element(i).assign(values.element(i).add(1));
   });
 
+  /**
+   * @canon spec-a-compute-node-carries-its-count-and-workgroup-size
+   */
   it("carries a dispatch count and a workgroup size, as a method or a function", () => {
     const node = increment().compute(10, 32);
     expect(node).toBeInstanceOf(ComputeNode);
@@ -17,6 +20,9 @@ describe("compute()", () => {
     expect(compute(increment(), 5).workgroupSize).toBe(64);
   });
 
+  /**
+   * @canon spec-a-dispatch-skips-the-indices-past-its-count
+   */
   it("compiles a bounds check against its count uniform, not a buffer length", () => {
     const node = increment().compute(10, 32);
     const program = compile({ stage: "compute" }, node);
@@ -26,6 +32,9 @@ describe("compute()", () => {
     expect(program.resources).toContainEqual(expect.objectContaining({ kind: "uniform", name: node.countNode.name }));
   });
 
+  /**
+   * @canon spec-a-compute-node-is-known-by-a-flag
+   */
   it("is recognized by its flag, so a node from another copy of the package compiles the same", () => {
     const node = increment().compute(10, 32);
     const foreign = { ...node } as ComputeNode;
