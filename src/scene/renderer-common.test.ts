@@ -48,6 +48,9 @@ import {
 import { BufferAttribute } from "./geometries/BufferAttribute";
 
 describe("cameraUniformValue", () => {
+  /**
+   * @canon spec-a-renderer-supplies-the-camera-and-object-uniforms
+   */
   it("returns the projection, view and position", () => {
     const camera = new PerspectiveCamera(50, 1, 0.1, 100);
     camera.position.set(1, 2, 3);
@@ -60,7 +63,9 @@ describe("cameraUniformValue", () => {
     const pos = cameraUniformValue("cameraPosition", camera);
     expect(pos).toEqual([1, 2, 3]);
   });
-
+  /**
+   * @canon spec-a-renderer-supplies-the-camera-and-object-uniforms
+   */
   it("returns nothing for unknown names", () => {
     const camera = new PerspectiveCamera();
     expect(cameraUniformValue("nope", camera)).toEqual([]);
@@ -68,6 +73,9 @@ describe("cameraUniformValue", () => {
 });
 
 describe("objectUniformValue", () => {
+  /**
+   * @canon spec-a-renderer-supplies-the-camera-and-object-uniforms
+   */
   it("returns the world matrix and normal matrix", () => {
     const mesh = new Mesh();
     mesh.position.set(1, 0, 0);
@@ -84,6 +92,9 @@ describe("objectUniformValue", () => {
 });
 
 describe("samplerState", () => {
+  /**
+   * @canon spec-one-rule-decides-how-every-target-samples-a-texture
+   */
   it("defaults to linear filtering and clamped edges", () => {
     expect(samplerState(new Texture(), "sampler2D")).toEqual({
       magFilter: "linear",
@@ -93,7 +104,9 @@ describe("samplerState", () => {
       wrapR: "clamp",
     });
   });
-
+  /**
+   * @canon spec-one-rule-decides-how-every-target-samples-a-texture
+   */
   it("carries what the texture asks for", () => {
     const texture = new Texture();
     texture.magFilter = NearestFilter;
@@ -106,7 +119,9 @@ describe("samplerState", () => {
     expect(state.wrapS).toBe("repeat");
     expect(state.wrapT).toBe("mirror");
   });
-
+  /**
+   * @canon exception-a-mipmapped-filter-reads-as-its-base-filter
+   */
   it("reads a mipmapped filter as its base filter", () => {
     const texture = new Texture();
     // No renderer builds a mip chain yet, and honouring these literally leaves
@@ -120,7 +135,9 @@ describe("samplerState", () => {
     texture.minFilter = LinearMipmapNearestFilter;
     expect(samplerState(texture, "sampler2D").minFilter).toBe("linear");
   });
-
+  /**
+   * @canon spec-one-rule-decides-how-every-target-samples-a-texture
+   */
   it("holds an integer texture to nearest, whatever it asked for", () => {
     const texture = new Texture();
     texture.magFilter = LinearFilter;
@@ -133,7 +150,9 @@ describe("samplerState", () => {
     expect(state.minFilter).toBe("nearest");
     expect(state.wrapS).toBe("repeat");
   });
-
+  /**
+   * @canon spec-one-rule-decides-how-every-target-samples-a-texture
+   */
   it("treats a wrapping mode it does not know as clamped", () => {
     const texture = new Texture();
     texture.wrapS = 99999;
@@ -142,6 +161,9 @@ describe("samplerState", () => {
 });
 
 describe("textureChannels", () => {
+  /**
+   * @canon spec-one-rule-decides-how-every-target-samples-a-texture
+   */
   it("reads a single-channel format as one channel and everything else as four", () => {
     const data = new Uint8Array([1, 2, 3, 4]);
     expect(textureChannels(new DataTexture(data, 2, 2, 1, RedIntegerFormat))).toBe(1);
@@ -152,6 +174,9 @@ describe("textureChannels", () => {
 });
 
 describe("lightsSignature", () => {
+  /**
+   * @canon spec-a-program-is-compiled-once-per-signature
+   */
   it("tracks the light set in order", () => {
     const scene = new Scene();
     expect(lightsSignature(scene)).toBe("");
@@ -165,6 +190,9 @@ describe("lightsSignature", () => {
 });
 
 describe("programSignature", () => {
+  /**
+   * @canon spec-a-program-is-compiled-once-per-signature
+   */
   it("combines the light set with the drawable's instancing flags", () => {
     expect(programSignature("", false, false)).toBe("|");
     expect(programSignature("adp", false, false)).toBe("adp|");
@@ -175,6 +203,9 @@ describe("programSignature", () => {
 });
 
 describe("geometryAttribute", () => {
+  /**
+   * @canon spec-an-instanced-attribute-comes-from-its-mesh
+   */
   it("falls back to an instanced mesh's object-owned attributes", () => {
     const geometry = new BoxGeometry();
     const mesh = new InstancedMesh(geometry, new MeshBasicMaterial(), 2);
@@ -183,7 +214,9 @@ describe("geometryAttribute", () => {
     mesh.setColorAt(0, new Color());
     expect(geometryAttribute(mesh, geometry, "instanceColor")).toBe(mesh.instanceColor);
   });
-
+  /**
+   * @canon spec-an-instanced-attribute-comes-from-its-mesh
+   */
   it("prefers a geometry attribute over the object fallback", () => {
     const geometry = new BoxGeometry();
     const attr = new BufferAttribute(new Float32Array(6), 3);
@@ -191,7 +224,9 @@ describe("geometryAttribute", () => {
     const mesh = new InstancedMesh(geometry, new MeshBasicMaterial(), 2);
     expect(geometryAttribute(mesh, geometry, "instanceMatrix")).toBe(attr);
   });
-
+  /**
+   * @canon spec-an-instanced-attribute-comes-from-its-mesh
+   */
   it("returns nothing for a plain mesh's missing attributes", () => {
     const geometry = new BoxGeometry();
     const mesh = new Mesh(geometry, new MeshBasicMaterial());
@@ -201,6 +236,9 @@ describe("geometryAttribute", () => {
 });
 
 describe("wgslTypeName", () => {
+  /**
+   * @canon spec-the-webgpu-renderer-shares-one-sampler-per-state
+   */
   it("maps RMSL shader types to WGSL", () => {
     expect(wgslTypeName("float")).toBe("f32");
     expect(wgslTypeName("vec3")).toBe("vec3<f32>");
@@ -211,6 +249,9 @@ describe("wgslTypeName", () => {
 });
 
 describe("sampler classification", () => {
+  /**
+   * @canon spec-the-webgpu-renderer-shares-one-sampler-per-state
+   */
   it("recognises the integer samplers", () => {
     expect(isIntegerSampler("isampler2D")).toBe(true);
     expect(isIntegerSampler("isampler3D")).toBe(true);
@@ -219,14 +260,18 @@ describe("sampler classification", () => {
     expect(isIntegerSampler("sampler2D")).toBe(false);
     expect(isIntegerSampler("sampler3D")).toBe(false);
   });
-
+  /**
+   * @canon spec-the-webgpu-renderer-shares-one-sampler-per-state
+   */
   it("maps each sampler to its WebGPU sample type", () => {
     expect(samplerSampleType("isampler2D")).toBe("sint");
     expect(samplerSampleType("usampler3D")).toBe("uint");
     expect(samplerSampleType("sampler2D")).toBe("float");
     expect(samplerSampleType("sampler3D")).toBe("float");
   });
-
+  /**
+   * @canon spec-the-webgpu-renderer-shares-one-sampler-per-state
+   */
   it("maps each sampler to its dimension", () => {
     expect(samplerDimension("usampler3D")).toBe("3d");
     expect(samplerDimension("isampler3D")).toBe("3d");
@@ -236,12 +281,17 @@ describe("sampler classification", () => {
 });
 
 describe("uniformUploadValue", () => {
+  /**
+   * @canon spec-a-uniform-uploads-in-the-shape-its-type-has
+   */
   it("keeps a scalar uniform as a scalar", () => {
     const { scalar, array } = uniformUploadValue(0.25);
     expect(scalar).toBe(0.25);
     expect(array[0]).toBe(0.25);
   });
-
+  /**
+   * @canon spec-a-uniform-uploads-in-the-shape-its-type-has
+   */
   it("keeps vector and matrix values as arrays", () => {
     const vec = uniformUploadValue([1, 2, 3]);
     expect(vec.scalar).toBeNull();
@@ -250,7 +300,9 @@ describe("uniformUploadValue", () => {
     expect(mat.scalar).toBeNull();
     expect(mat.array).toHaveLength(16);
   });
-
+  /**
+   * @canon spec-a-uniform-uploads-in-the-shape-its-type-has
+   */
   it("every material float uniform yields a scalar for direct upload", () => {
     const scene = new Scene();
     scene.add(new AmbientLight());
@@ -269,6 +321,9 @@ describe("uniformUploadValue", () => {
 });
 
 describe("material program → uniform layout", () => {
+  /**
+   * @canon spec-a-uniform-uploads-in-the-shape-its-type-has
+   */
   it("every collected uniform lands in the WGSL struct layout", () => {
     const scene = new Scene();
     scene.add(new AmbientLight(0xffffff, 0.2));
@@ -297,7 +352,9 @@ describe("material program → uniform layout", () => {
       }
     }
   });
-
+  /**
+   * @canon spec-a-uniform-uploads-in-the-shape-its-type-has
+   */
   it("a matrix's modelMatrix value fills a 64-byte member", () => {
     const m = new Matrix4().makeTranslation(1, 2, 3);
     const layout = wgslUniformLayout([{ slot: "modelMatrix", type: "mat4x4<f32>" }]);
@@ -308,6 +365,9 @@ describe("material program → uniform layout", () => {
 });
 
 describe("VERTEX_FORMATS", () => {
+  /**
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   */
   it("holds only formats a buffer of its own can carry", () => {
     for (const [name, spec] of Object.entries(VERTEX_FORMATS)) {
       // A buffer holding one attribute has this stride, and WebGPU takes only a
@@ -321,7 +381,9 @@ describe("VERTEX_FORMATS", () => {
       }
     }
   });
-
+  /**
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   */
   it("gives each format the WebGL type its own name describes", () => {
     const expected: Record<string, VertexFormatSpec["gl"]> = {
       float32: "FLOAT",
@@ -344,6 +406,9 @@ describe("VERTEX_FORMATS", () => {
 });
 
 describe("vertexFormatOf", () => {
+  /**
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   */
   it("reads a float attribute's format off its width", () => {
     const of = (itemSize: number): string =>
       vertexFormatOf(new BufferAttribute(new Float32Array(itemSize * 2), itemSize));
@@ -352,23 +417,31 @@ describe("vertexFormatOf", () => {
     expect(of(3)).toBe("float32x3");
     expect(of(4)).toBe("float32x4");
   });
-
+  /**
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   */
   it("treats a plain number array as the floats it uploads as", () => {
     expect(vertexFormatOf(new BufferAttribute([0, 1, 2], 3))).toBe("float32x3");
   });
-
+  /**
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   */
   it("reads a normalized integer attribute as its norm format", () => {
     expect(vertexFormatOf(new BufferAttribute(new Uint8Array(8), 4, true))).toBe("unorm8x4");
     expect(vertexFormatOf(new BufferAttribute(new Int8Array(8), 4, true))).toBe("snorm8x4");
     expect(vertexFormatOf(new BufferAttribute(new Uint16Array(4), 2, true))).toBe("unorm16x2");
     expect(vertexFormatOf(new BufferAttribute(new Int16Array(4), 2, true))).toBe("snorm16x2");
   });
-
+  /**
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   */
   it("takes a mat4's column width rather than its whole item size", () => {
     const attr = new BufferAttribute(new Float32Array(32), 16, false, "instance");
     expect(vertexFormatOf(attr, 4)).toBe("float32x4");
   });
-
+  /**
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   */
   it("lets an attribute declare a format its array type cannot say", () => {
     // Half floats held in a Uint16Array are indistinguishable from normalized
     // integers, which is the case the field exists for.
@@ -377,17 +450,23 @@ describe("vertexFormatOf", () => {
     attr.format = "float16x2";
     expect(vertexFormatOf(attr)).toBe("float16x2");
   });
-
+  /**
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   */
   it("carries a declared format through a clone", () => {
     const attr = new BufferAttribute(new Uint16Array([0x3c00, 0x3400]), 2, true);
     attr.format = "float16x2";
     expect(attr.clone().format).toBe("float16x2");
   });
-
+  /**
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   */
   it("refuses a raw integer array, which would not be floats in the shader", () => {
     expect(() => vertexFormatOf(new BufferAttribute(new Uint8Array(8), 4))).toThrow(/normalized/);
   });
-
+  /**
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   */
   it("refuses a width no format covers", () => {
     expect(() => vertexFormatOf(new BufferAttribute(new Uint8Array(6), 3, true))).toThrow(/unorm8x3/);
   });

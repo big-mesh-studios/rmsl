@@ -18,6 +18,9 @@ function compileMaterial(material: Line2NodeMaterial, scene = new Scene()): { gl
 }
 
 describe("LineSegmentsGeometry", () => {
+  /**
+   * @canon spec-wide-lines-follow-three-js
+   */
   it("builds instanced start/end attributes from positions", () => {
     const geometry = new LineSegmentsGeometry();
     geometry.setPositions([0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0]);
@@ -30,7 +33,9 @@ describe("LineSegmentsGeometry", () => {
     expect(Array.from(geometry.attributes.instanceStart!.array)).toEqual([0, 0, 0, 0, 0, 0]);
     expect(Array.from(geometry.attributes.instanceEnd!.array)).toEqual([1, 0, 0, 0, 1, 0]);
   });
-
+  /**
+   * @canon spec-wide-lines-follow-three-js
+   */
   it("computes line distances for the dash shader", () => {
     const geometry = new LineSegmentsGeometry();
     geometry.setPositions([0, 0, 0, 3, 0, 0, 3, 0, 0, 3, 4, 0]);
@@ -42,7 +47,9 @@ describe("LineSegmentsGeometry", () => {
     expect(end).toEqual([3, 7]);
     expect(geometry.attributes.instanceDistanceStart!.stepMode).toBe("instance");
   });
-
+  /**
+   * @canon spec-wide-lines-follow-three-js
+   */
   it("LineGeometry builds consecutive segments from points", () => {
     const geometry = new LineGeometry([0, 0, 0, 1, 0, 0, 1, 1, 0]);
     expect(geometry.instanceCount).toBe(2);
@@ -52,6 +59,9 @@ describe("LineSegmentsGeometry", () => {
 });
 
 describe("Line2NodeMaterial", () => {
+  /**
+   * @canon spec-wide-lines-follow-three-js
+   */
   it("registers the instanced line attributes", () => {
     const material = new Line2NodeMaterial();
     const program = material.build(new Scene());
@@ -64,7 +74,9 @@ describe("Line2NodeMaterial", () => {
       ]),
     );
   });
-
+  /**
+   * @canon spec-wide-lines-follow-three-js
+   */
   it("exposes resolution as a renderer-scoped uniform", () => {
     const material = new Line2NodeMaterial();
     const program = material.build(new Scene());
@@ -72,7 +84,9 @@ describe("Line2NodeMaterial", () => {
     expect(resolution).toBeDefined();
     expect(resolution.scope).toBe("renderer");
   });
-
+  /**
+   * @canon spec-wide-lines-follow-three-js
+   */
   it("compiles the pixel-width line to GLSL and WGSL", () => {
     const material = new Line2NodeMaterial({ color: 0xff0000, linewidth: 4 });
     const { glsl, wgsl } = compileMaterial(material);
@@ -83,7 +97,9 @@ describe("Line2NodeMaterial", () => {
     expect(wgsl).toContain("materialLineWidth");
     expect(wgsl).toContain("@builtin(position) position: vec4<f32>");
   });
-
+  /**
+   * @canon spec-wide-lines-follow-three-js
+   */
   it("adds the world-units varyings only when worldUnits is set", () => {
     const names = (material: Line2NodeMaterial) => material.build(new Scene()).varyings.map((v) => v.name);
 
@@ -96,7 +112,9 @@ describe("Line2NodeMaterial", () => {
     expect(names(world)).toContain("worldEnd");
     expect(names(world)).toContain("worldPos");
   });
-
+  /**
+   * @canon spec-wide-lines-follow-three-js
+   */
   it("declares the dash uniforms and distance attributes when dashed", () => {
     const plain = compileMaterial(new Line2NodeMaterial());
     expect(plain.glsl).not.toContain("materialLineDashSize");
@@ -113,7 +131,9 @@ describe("Line2NodeMaterial", () => {
       expect.arrayContaining(["instanceDistanceStart", "instanceDistanceEnd"]),
     );
   });
-
+  /**
+   * @canon spec-wide-lines-follow-three-js
+   */
   it("reads per-segment colors only when vertexColors is set", () => {
     const plain = new Line2NodeMaterial();
     expect(plain.build(new Scene()).attributes.map((a) => a.name)).not.toContain("instanceColorStart");
@@ -125,7 +145,9 @@ describe("Line2NodeMaterial", () => {
     );
     expect(program.varyings.map((v) => v.name)).toContain("instanceColor");
   });
-
+  /**
+   * @canon spec-wide-lines-follow-three-js
+   */
   it("renders double-sided and toggles rebuild on worldUnits", () => {
     const material = new Line2NodeMaterial();
     expect(material.side).toBe(2); // Side.DoubleSide
@@ -136,12 +158,17 @@ describe("Line2NodeMaterial", () => {
 });
 
 describe("LineSegments2 objects", () => {
+  /**
+   * @canon spec-wide-lines-follow-three-js
+   */
   it("computes line distances on the geometry", () => {
     const line = new Line2(new LineGeometry([0, 0, 0, 2, 0, 0, 2, 3, 0]));
     line.computeLineDistances();
     expect(Array.from(line.geometry.attributes.instanceDistanceEnd!.array)).toEqual([2, 5]);
   });
-
+  /**
+   * @canon spec-wide-lines-follow-three-js
+   */
   it("is a Mesh", () => {
     const line = new LineSegments2();
     expect(line.isMesh).toBe(true);

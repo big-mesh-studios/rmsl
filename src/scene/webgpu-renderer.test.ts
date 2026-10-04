@@ -124,6 +124,9 @@ afterEach(() => {
 });
 
 describe("WebGPURenderer samplers", () => {
+  /**
+   * @canon spec-the-webgpu-renderer-shares-one-sampler-per-state
+   */
   it("makes one sampler per filtering and wrapping combination", () => {
     const { device, samplers } = stubDevice();
     const renderer = new WebGPURenderer(stubCanvas(), device) as any;
@@ -142,7 +145,9 @@ describe("WebGPURenderer samplers", () => {
     expect(samplers).toHaveLength(2);
     expect(samplers[1]).toMatchObject({ addressModeU: "repeat", addressModeV: "clamp-to-edge" });
   });
-
+  /**
+   * @canon spec-the-webgpu-renderer-shares-one-sampler-per-state
+   */
   it("describes the sampler the way the texture asked", () => {
     const { device, samplers } = stubDevice();
     const renderer = new WebGPURenderer(stubCanvas(), device) as any;
@@ -160,7 +165,9 @@ describe("WebGPURenderer samplers", () => {
       addressModeW: "clamp-to-edge",
     });
   });
-
+  /**
+   * @canon spec-the-webgpu-renderer-shares-one-sampler-per-state
+   */
   it("rebinds when a texture is updated with a different sampler state", () => {
     const { device, samplers } = stubDevice();
     const renderer = new WebGPURenderer(stubCanvas(), device) as any;
@@ -178,7 +185,9 @@ describe("WebGPURenderer samplers", () => {
     expect(samplers).toHaveLength(2);
     expect(again.samplerBindGroup).not.toBe(first);
   });
-
+  /**
+   * @canon spec-the-webgpu-renderer-shares-one-sampler-per-state
+   */
   it("leaves the bind group alone when an update changes nothing about sampling", () => {
     const { device, samplers } = stubDevice();
     const renderer = new WebGPURenderer(stubCanvas(), device) as any;
@@ -198,6 +207,9 @@ describe("WebGPURenderer samplers", () => {
 });
 
 describe("WebGPURenderer texture updates", () => {
+  /**
+   * @canon spec-a-changed-texture-shows-on-the-next-render
+   */
   it("uploads a changed image again on the next render", () => {
     const { device, textures, bindGroups, writes } = stubDevice();
     const renderer = new WebGPURenderer(stubCanvas(), device) as any;
@@ -222,7 +234,9 @@ describe("WebGPURenderer texture updates", () => {
     expect(textures).toHaveLength(1);
     expect(entry.textureBindGroup).toBe(boundTexture);
   });
-
+  /**
+   * @canon spec-a-changed-texture-shows-on-the-next-render
+   */
   it("leaves an unchanged texture alone", () => {
     const { device, writes } = stubDevice();
     const renderer = new WebGPURenderer(stubCanvas(), device) as any;
@@ -234,7 +248,9 @@ describe("WebGPURenderer texture updates", () => {
     renderer.ensurePipeline(material, scene, false, false);
     expect(writes).toHaveLength(1);
   });
-
+  /**
+   * @canon spec-a-changed-texture-shows-on-the-next-render
+   */
   it("replaces and rebinds a texture whose image changed size", () => {
     const { device, textures, bindGroups, writes } = stubDevice();
     const renderer = new WebGPURenderer(stubCanvas(), device) as any;
@@ -263,6 +279,9 @@ describe("WebGPURenderer texture updates", () => {
 });
 
 describe("WebGPURenderer texture disposal", () => {
+  /**
+   * @canon spec-a-disposed-resource-is-freed-by-every-renderer-holding-it
+   */
   it("destroys the GPU texture and rebuilds the bind groups that named it", () => {
     const { device, textures, bindGroups } = stubDevice();
     const renderer = new WebGPURenderer(stubCanvas(), device) as any;
@@ -297,7 +316,9 @@ describe("WebGPURenderer texture disposal", () => {
     expect(again.textureBindGroup).not.toBe(first);
     expect(renderer.textures.get(texture)).toBe(textures[1]);
   });
-
+  /**
+   * @canon spec-a-disposed-resource-is-freed-by-every-renderer-holding-it
+   */
   it("leaves pipelines that do not sample the disposed texture alone", () => {
     const { device } = stubDevice();
     const renderer = new WebGPURenderer(stubCanvas(), device) as any;
@@ -310,7 +331,9 @@ describe("WebGPURenderer texture disposal", () => {
     unused.dispose();
     expect(entry.textureBindGroup).toBe(bindGroup);
   });
-
+  /**
+   * @canon spec-a-disposed-resource-is-freed-by-every-renderer-holding-it
+   */
   it("stops listening to the textures it frees when the renderer is disposed", () => {
     const { device, textures } = stubDevice();
     const renderer = new WebGPURenderer(stubCanvas(), device) as any;
@@ -324,6 +347,9 @@ describe("WebGPURenderer texture disposal", () => {
 });
 
 describe("WebGPURenderer geometry disposal", () => {
+  /**
+   * @canon spec-a-disposed-resource-is-freed-by-every-renderer-holding-it
+   */
   it("destroys the vertex and index buffers and uploads again on the next draw", () => {
     const { device, buffers } = stubDevice();
     const renderer = new WebGPURenderer(stubCanvas(), device) as any;
@@ -346,7 +372,9 @@ describe("WebGPURenderer geometry disposal", () => {
     expect(buffers.length).toBe(madeBefore * 2);
     expect(after.index).not.toBe(uploaded.index);
   });
-
+  /**
+   * @canon spec-a-disposed-resource-is-freed-by-every-renderer-holding-it
+   */
   it("stops listening to the geometries it frees when the renderer is disposed", () => {
     const { device } = stubDevice();
     const renderer = new WebGPURenderer(stubCanvas(), device) as any;

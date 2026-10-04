@@ -46,6 +46,9 @@ function vertexLocations(wgsl: string): { location: number; name: string; type: 
 }
 
 describe("InstancedMesh", () => {
+  /**
+   * @canon spec-an-instanced-mesh-follows-three-js
+   */
   it("initializes count instances to the identity matrix", () => {
     const mesh = new InstancedMesh(new BoxGeometry(), new MeshBasicMaterial(), 3);
     expect(mesh.isInstancedMesh).toBe(true);
@@ -56,7 +59,9 @@ describe("InstancedMesh", () => {
       expect(matrix.equals(new Matrix4())).toBe(true);
     }
   });
-
+  /**
+   * @canon spec-an-instanced-mesh-follows-three-js
+   */
   it("is a mesh with an instanced matrix attribute", () => {
     const mesh = new InstancedMesh(new BoxGeometry(), new MeshBasicMaterial(), 2);
     expect(mesh.isMesh).toBe(true);
@@ -65,7 +70,9 @@ describe("InstancedMesh", () => {
     expect(mesh.instanceMatrix.stepMode).toBe("instance");
     expect(mesh.instanceMatrix.count).toBe(2);
   });
-
+  /**
+   * @canon spec-an-instanced-mesh-follows-three-js
+   */
   it("round-trips instance transforms", () => {
     const mesh = new InstancedMesh(new BoxGeometry(), new MeshBasicMaterial(), 2);
     const matrix = new Matrix4().makeTranslation(1, 2, 3);
@@ -77,7 +84,9 @@ describe("InstancedMesh", () => {
     mesh.getMatrixAt(1, out);
     expect(out.equals(new Matrix4())).toBe(true);
   });
-
+  /**
+   * @canon spec-an-instanced-mesh-follows-three-js
+   */
   it("lazily creates instanceColor and round-trips colors", () => {
     const mesh = new InstancedMesh(new BoxGeometry(), new MeshBasicMaterial(), 2);
     const out = new Color();
@@ -99,7 +108,9 @@ describe("InstancedMesh", () => {
     expect(out.g).toBeCloseTo(0.5);
     expect(out.b).toBeCloseTo(1);
   });
-
+  /**
+   * @canon spec-an-instanced-mesh-follows-three-js
+   */
   it("copies geometry, material, transforms and instance data", () => {
     const source = new InstancedMesh(new BoxGeometry(), new MeshBasicMaterial({ color: 0x123456 }), 2);
     source.setMatrixAt(0, new Matrix4().makeTranslation(5, 6, 7));
@@ -121,6 +132,9 @@ describe("InstancedMesh", () => {
 });
 
 describe("instanced materials", () => {
+  /**
+   * @canon spec-a-material-built-for-an-instanced-mesh-reads-each-instance
+   */
   it("declares instanceMatrix only when built for an instanced mesh", () => {
     const scene = new Scene();
     const plain = new MeshBasicMaterial().build(scene);
@@ -132,7 +146,9 @@ describe("instanced materials", () => {
     expect(im!.stepMode).toBe("instance");
     expect(im!.node._t).toBe("mat4");
   });
-
+  /**
+   * @canon spec-a-material-built-for-an-instanced-mesh-reads-each-instance
+   */
   it("declares instanceColor and its varying when the mesh carries colors", () => {
     const scene = new Scene();
     const program = new MeshBasicMaterial().build(scene, { instancing: true, instancingColor: true });
@@ -144,7 +160,9 @@ describe("instanced materials", () => {
     );
     expect(program.varyings.map((v) => v.name)).toContain("instanceColor");
   });
-
+  /**
+   * @canon spec-a-material-built-for-an-instanced-mesh-reads-each-instance
+   */
   it("applies the instance transform to position and normal in the vertex shader", () => {
     const scene = new Scene();
     const material = new MeshBasicMaterial();
@@ -159,7 +177,9 @@ describe("instanced materials", () => {
     expect(wgsl.split("\n---\n")[0]).toMatch(/mat4x4<f32>\(input\./);
     expect(wgsl.split("\n---\n")[0]).toContain("mat3x3<f32>(");
   });
-
+  /**
+   * @canon spec-a-material-built-for-an-instanced-mesh-reads-each-instance
+   */
   it("tints the fragment color with the instance color varying", () => {
     const scene = new Scene();
     const material = new MeshBasicMaterial();
@@ -167,7 +187,9 @@ describe("instanced materials", () => {
     const { glsl } = compileMaterial(program);
     expect(glsl.split("\n---\n")[1]).toMatch(/\* _rmsl_v\d+/);
   });
-
+  /**
+   * @canon spec-a-material-built-for-an-instanced-mesh-reads-each-instance
+   */
   it("takes the instance matrix in as its four columns", () => {
     // WGSL puts no matrix at a `@location`: a vertex input is a scalar or a
     // vector. The matrix arrives as four vec4 columns at four consecutive
@@ -190,7 +212,9 @@ describe("instanced materials", () => {
       `let ${slot} = mat4x4<f32>(input.${slot}_0, input.${slot}_1, input.${slot}_2, input.${slot}_3);`,
     );
   });
-
+  /**
+   * @canon spec-a-material-built-for-an-instanced-mesh-reads-each-instance
+   */
   it("advances the WGSL attribute location by four for a mat4", () => {
     const scene = new Scene();
     const program = new MeshStandardMaterial().build(scene, { instancing: true });
@@ -202,7 +226,9 @@ describe("instanced materials", () => {
     // The next vertex input starts after the matrix's four locations.
     expect(locations[index + 1].location).toBe(lastColumn.location + 1);
   });
-
+  /**
+   * @canon spec-an-instanced-attribute-comes-from-its-mesh
+   */
   it("the renderer's vertex-layout rule matches the compiler's locations", () => {
     // The WebGPU renderer numbers its pipeline's vertex buffers from
     // `program.attributes`, advancing four locations per mat4 — exactly the
@@ -229,7 +255,9 @@ describe("instanced materials", () => {
     expect(compiled.map((c) => c.location)).toEqual(rendered.map((r) => r.location));
     expect(compiled.map((c) => c.name)).toEqual(rendered.map((r) => r.name));
   });
-
+  /**
+   * @canon spec-a-material-slot-takes-a-node-or-a-builder
+   */
   it("exposes the instanced accessors on the builder", () => {
     const b = new Builder();
     b.instancing = true;
@@ -241,7 +269,9 @@ describe("instanced materials", () => {
     expect(b.instanceColorVarying._t).toBe("vec3");
     expect(b.varyings.get("instanceColor")?.name).toBe("instanceColor");
   });
-
+  /**
+   * @canon spec-a-material-built-for-an-instanced-mesh-reads-each-instance
+   */
   it("compiles the shared material to both plain and instanced programs", () => {
     // A material used by a plain mesh and an InstancedMesh in one scene keeps
     // two programs; each is the one that matches its object.

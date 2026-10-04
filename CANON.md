@@ -66,6 +66,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-value-is-computed-where-it-is-read`](#spec-a-value-is-computed-where-it-is-read) — A value that no variable holds computes, where the program reads it, from what its operands hold there. A write to a variable it reads changes what it gives after the write. A branch that first computed it does not keep it from the code outside.
   - [`@spec a-variable-holds-a-copy`](#spec-a-variable-holds-a-copy) — A variable made with `toVar()`, or assigned a value, holds a copy. A write to the variable leaves the value it was copied from as it was.
   - [`@spec a-cpu-target-samples-a-texture-as-a-gpu-sampler-does`](#spec-a-cpu-target-samples-a-texture-as-a-gpu-sampler-does) — A CPU target reads a texture by the rules a GPU sampler follows. It takes them from the texture: its filter, its wrap, its channels and its format.
+    - [`@spec one-rule-decides-how-every-target-samples-a-texture`](#spec-one-rule-decides-how-every-target-samples-a-texture) — One rule, shared by every target, reads a texture's sampler state. Its filters are linear by default. Its wrap is clamped by default, and for a mode the rule does not know. It reads an integer texture as nearest, whatever the texture asks, and a single-channel format as one channel.
+      - [`@exception a-mipmapped-filter-reads-as-its-base-filter`](#exception-a-mipmapped-filter-reads-as-its-base-filter) — A minification filter that reads mipmaps reads as the filter it is based on, because no target builds a mip chain. Issue #4 asks for one.
     - [`@spec a-cpu-target-filters-as-the-texture-asks`](#spec-a-cpu-target-filters-as-the-texture-asks) — A CPU target reads the nearest texel by default, and blends neighbouring texels when the texture asks for linear filtering.
     - [`@spec a-cpu-target-wraps-as-the-texture-asks`](#spec-a-cpu-target-wraps-as-the-texture-asks) — A coordinate past an edge of a texture, on either side, wraps the way the texture asks.
     - [`@spec a-byte-texture-reads-as-zero-to-one`](#spec-a-byte-texture-reads-as-zero-to-one) — A byte texture read through a float sampler gives values from 0 to 1, through `texture`, `textureLod` and `textureLoad` alike. A float texture keeps its values, and an integer texture keeps its bytes as they are.
@@ -103,6 +105,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec validation-reports-every-shader-a-driver-refuses`](#spec-validation-reports-every-shader-a-driver-refuses) — Validation reports every shader a driver refused, from every test, and refuses to pass when it recorded none. A shader listed as known to be invalid stays quiet until it compiles. A program both GPU targets refuse passes, and one that only one refuses fails.
     - [`@spec an-expected-rejection-must-be-a-rejection`](#spec-an-expected-rejection-must-be-a-rejection) — A test that expects a refused compile gets the message of the refusal, and records nothing from that compile. It fails when the compile succeeds.
     - [`@spec the-integer-sweep-tells-right-from-wrong`](#spec-the-integer-sweep-tells-right-from-wrong) — The integer sweep passes the right results and reports the wrong ones, on JS, WASM and WGSL, and holds GLSL to compiling.
+  - [`@spec a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type) — A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A format no buffer of its own can carry, a raw integer array, and a width no format covers are refused.
 - [`@axiom a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs) — A program that cannot work is refused before it runs. The type checker refuses it wherever the types can express the mistake, and the compiler refuses it on every target. The refusal names the cause, and the fix where one exists.
   - [`@spec an-assignment-is-refused-unless-the-program-can-write-its-target`](#spec-an-assignment-is-refused-unless-the-program-can-write-its-target) — An assignment whose target the program cannot write is refused. Every target refuses it with the same message, and the type checker refuses it wherever the type of the target shows it.
     - [`@spec a-var-can-be-assigned`](#spec-a-var-can-be-assigned) — A program can assign a variable, a stage output and a storage element. It can also assign a component, a column or a swizzle of one that names each component once. A var goes wherever a node goes.
@@ -233,6 +236,20 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-single-pass-effect-gives-a-colour-node`](#spec-a-single-pass-effect-gives-a-colour-node) — A single-pass effect takes samplers and parameter nodes and gives a node: a colour, or a float mask for `circle`.
     - [`@spec bloom-follows-tsl`](#spec-bloom-follows-tsl) — `bloom` gives TSL's pass graph of twelve passes. Its high pass keeps what is brighter than a luminance threshold, or applies a filter the caller gives. Its composite sums five tinted mips, scaled by its strength. `luminosityHighPass` is also available on its own.
     - [`@spec an-effect-compiles-as-a-function-of-its-own`](#spec-an-effect-compiles-as-a-function-of-its-own) — An effect compiles with `compileGlslFn` and `compileWgslFn` into a function the application places in its own shader.
+  - [`@spec the-scene-library-follows-three-js`](#spec-the-scene-library-follows-three-js) — The classes of `./scene` behave as the three.js classes of the same names, so a three.js scene ports by changing its import.
+    - [`@spec an-object-composes-its-world-matrix-down-the-tree`](#spec-an-object-composes-its-world-matrix-down-the-tree) — An `Object3D` composes its world matrix from its parents', and gives its world position, rotation and scale. It adds, removes, finds and traverses children, announces being added and removed, and turns to look at a target.
+    - [`@spec a-camera-builds-its-projection`](#spec-a-camera-builds-its-projection) — A perspective or orthographic camera builds its projection matrix and the inverse of its view matrix as three.js does.
+    - [`@spec a-light-is-a-coloured-scene-node`](#spec-a-light-is-a-coloured-scene-node) — A light is a node of the scene with a colour and an intensity, and a directional light has a target. A scene has a background colour.
+    - [`@spec the-math-classes-follow-three-js`](#spec-the-math-classes-follow-three-js) — `Vector3`, `Matrix4`, `Quaternion`, `Euler`, `Color`, `Spherical` and `MathUtils` compute what their three.js counterparts compute.
+    - [`@spec a-geometry-builds-the-vertices-three-js-builds`](#spec-a-geometry-builds-the-vertices-three-js-builds) — A geometry primitive builds the positions, normals and indices of its three.js counterpart. A `BufferGeometry` holds attributes and an index, typed as 32-bit once an index passes 65535.
+    - [`@spec an-instanced-mesh-follows-three-js`](#spec-an-instanced-mesh-follows-three-js) — An `InstancedMesh` holds a transform per instance, the identity by default, and a colour per instance once the program sets one. It clones with its geometry, material, transforms and instance data.
+    - [`@spec a-material-built-for-an-instanced-mesh-reads-each-instance`](#spec-a-material-built-for-an-instanced-mesh-reads-each-instance) — A material built for an instanced mesh declares the instance matrix, as four column attributes, and the instance colour when the mesh carries colours. It transforms position and normal by the matrix and tints the colour. The same material also builds for a mesh that is not instanced.
+    - [`@spec wide-lines-follow-three-js`](#spec-wide-lines-follow-three-js) — `LineSegmentsGeometry`, `LineGeometry`, `Line2NodeMaterial` and `LineSegments2` draw lines of a width in pixels or world units, as three.js's do. They draw dashes and a colour per segment when asked.
+    - [`@spec a-node-material-shades-as-three-js-does`](#spec-a-node-material-shades-as-three-js-does) — `MeshBasicMaterial`, `MeshLambertMaterial` and `MeshStandardMaterial` shade as three.js's do, the standard material with a GGX specular term, from a [node material](#term-node-material) graph.
+      - [`@spec a-material-slot-takes-a-node-or-a-builder`](#spec-a-material-slot-takes-a-node-or-a-builder) — A material slot such as `colorNode` takes a node, or a function of the builder that gives one. `vertexNode` and `fragmentNode` replace a whole stage.
+      - [`@spec a-material-uniform-has-a-scope-and-a-live-value`](#spec-a-material-uniform-has-a-scope-and-a-live-value) — A material uniform belongs to the camera, the object, the material or the renderer. It reads its value from the object it belongs to when the renderer uploads it.
+      - [`@spec a-material-reads-any-sampler-type`](#spec-a-material-reads-any-sampler-type) — A material reads a float, integer or 3D sampler, and keeps the two-argument sampler form as a 2D sampler.
+      - [`@spec a-material-takes-the-renderer-precision-unless-it-sets-one`](#spec-a-material-takes-the-renderer-precision-unless-it-sets-one) — A material compiles at the precision of its renderer unless it sets one of its own, and changing it rebuilds the material.
 - [`@axiom each-target-keeps-what-makes-it-worth-choosing`](#axiom-each-target-keeps-what-makes-it-worth-choosing) — An interface over several targets keeps what each target does better than the others. A call that a target answers at once stays synchronous. Data that lives on the GPU stays there until the host asks for it. No target fakes a capability it lacks.
   - [`@spec an-adapter-call-is-synchronous-where-its-target-answers-at-once`](#spec-an-adapter-call-is-synchronous-where-its-target-answers-at-once) — An [adapter](#term-adapter) method returns its result directly where its target answers at once, and returns a promise only where its target cannot.
     - [`@spec a-cpu-adapter-computes-synchronously`](#spec-a-cpu-adapter-computes-synchronously) — `compute` on a JS or WASM adapter has run the dispatch and filled `out` when it returns.
@@ -252,6 +269,17 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas) — Several adapters can draw on one canvas, each clearing to the colour its draw asks for. An adapter ignores a uniform its program does not read.
     - [`@spec an-effect-with-several-passes-is-a-pass-graph`](#spec-an-effect-with-several-passes-is-a-pass-graph) — An [effect](#term-effect) with several passes returns a [pass graph](#term-pass-graph): its passes, the samplers each pass reads, and the pass that gives the output. The application draws each pass.
     - [`@exception a-scene-renderer-draws-its-scene-graph`](#exception-a-scene-renderer-draws-its-scene-graph) — `render(scene, camera)` on a renderer of `./scene` walks the scene graph, binds the geometry and the [node material](#term-node-material) of each mesh, uploads their uniforms and draws them.
+  - [`@spec a-scene-renderer-manages-what-it-uploads`](#spec-a-scene-renderer-manages-what-it-uploads) — A renderer of `./scene` uploads each geometry, texture and uniform once, again when it changes, and frees it when it is disposed. It compiles a program once for each light set and kind of mesh.
+    - [`@spec a-renderer-supplies-the-camera-and-object-uniforms`](#spec-a-renderer-supplies-the-camera-and-object-uniforms) — A renderer gives a program the camera's projection, view and position, and the object's world and normal matrices. It gives nothing for a name it does not know.
+    - [`@spec a-program-is-compiled-once-per-signature`](#spec-a-program-is-compiled-once-per-signature) — A renderer compiles a material once for each light set, in order, and each instancing flag of the mesh.
+    - [`@spec a-uniform-uploads-in-the-shape-its-type-has`](#spec-a-uniform-uploads-in-the-shape-its-type-has) — A renderer uploads a scalar uniform as a scalar and a vector or matrix as an array. It places every uniform a material collects in the WGSL layout.
+    - [`@spec an-instanced-attribute-comes-from-its-mesh`](#spec-an-instanced-attribute-comes-from-its-mesh) — A renderer reads an instanced attribute from the geometry, or from the mesh that owns it when the geometry has none. Its WGSL locations match the compiler's.
+    - [`@spec each-sampler-gets-its-own-texture`](#spec-each-sampler-gets-its-own-texture) — Several samplers in one draw each read their own texture.
+    - [`@spec the-webgpu-renderer-shares-one-sampler-per-state`](#spec-the-webgpu-renderer-shares-one-sampler-per-state) — The WebGPU renderer makes one sampler for each combination of filters and wrap, described as the texture asks, and binds each sampler by its type. It rebinds a texture whose sampler state changes, and leaves alone one whose update changes nothing.
+    - [`@spec a-changed-texture-shows-on-the-next-render`](#spec-a-changed-texture-shows-on-the-next-render) — A texture whose image changes uploads again on the next render, and a texture that does not change stays as it is. The renderer replaces and binds again a texture whose size changes.
+    - [`@spec a-disposed-resource-is-freed-by-every-renderer-holding-it`](#spec-a-disposed-resource-is-freed-by-every-renderer-holding-it) — Disposing a geometry or a texture tells every renderer that holds it. Each frees its own copy and uploads it again if it draws it again, and pipelines that do not use it stay as they are. A disposed renderer stops listening.
+    - [`@spec a-render-target-reads-its-pixels-back`](#spec-a-render-target-reads-its-pixels-back) — A renderer draws into a render target and reads its pixels back, at once or, on WebGL, asynchronously without stalling the pipeline.
+    - [`@spec a-mesh-draws-the-slice-its-draw-range-selects`](#spec-a-mesh-draws-the-slice-its-draw-range-selects) — A mesh draws only the vertices its `drawRange` selects from its geometry.
   - [`@spec the-application-reaches-an-input-through-its-node`](#spec-the-application-reaches-an-input-through-its-node) — A uniform, attribute or varying node carries its [slot](#term-slot) name in `.name`, and `isUniformNode`, `isAttributeNode` and `isVaryingNode` tell the kinds apart.
   - [`@spec the-wgsl-uniform-layout-is-reported`](#spec-the-wgsl-uniform-layout-is-reported) — `wgslUniformLayout` reports the [layout](#term-layout) of each uniform under WGSL's rules: its offset, its size and, for an array, its stride. It also reports the size of the whole struct.
     - [`@spec uniforms-are-ordered-by-alignment-then-by-declaration`](#spec-uniforms-are-ordered-by-alignment-then-by-declaration) — Uniform members are placed in order of descending alignment, and members that align alike keep the order they were declared in.
@@ -311,6 +339,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-plugin-reads-the-export-it-is-told-to`](#spec-a-plugin-reads-the-export-it-is-told-to) — `precompileJS` and `precompileWasm` read the map of programs from the export their option names, `__RMSL_JS_CODE` or `__RMSL_WASM_CODE` by default.
     - [`@spec a-plugin-fails-the-build-on-a-module-it-cannot-compile`](#spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile) — A Vite plugin fails the build on a module it includes when the export it reads is unusable. That export may be missing, not JSON, not a map of strings, or hold no bytes.
     - [`@spec a-wasm-module-is-compiled-and-instantiated-in-separate-steps`](#spec-a-wasm-module-is-compiled-and-instantiated-in-separate-steps) — `compileWasmFn` gives the bytes of a module, and `instantiateWasmRoutine` turns them into a routine that behaves as `compileWasmRoutine` would. The same bytes instantiate any number of times, each instance independent of the others.
+  - [`@spec a-material-program-holds-only-what-its-graph-reads`](#spec-a-material-program-holds-only-what-its-graph-reads) — A `MaterialProgram` holds only the uniforms, attributes and varyings its graph reads. A scene with no lights declares no light uniforms.
 - [`@fact wgsl-defines-every-integer-edge-case`](#fact-wgsl-defines-every-integer-edge-case) — WGSL defines the result of every integer operation on run-time values. Overflow wraps. A division by zero returns the dividend and a remainder by zero returns zero. The most negative `i32` divided by `-1` returns itself. A shift uses its amount modulo the bit width.
 - [`@fact glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined) — GLSL ES 3.00 leaves undefined the result of an integer division or remainder by zero. It also leaves undefined a shift by a negative amount, or by the bit width or more.
 - [`@fact wgsl-rejects-a-constant-expression-that-fails`](#fact-wgsl-rejects-a-constant-expression-that-fails) — A WGSL shader fails to compile when a constant expression divides an integer by zero, shifts by the bit width or more, or overflows.
@@ -341,6 +370,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-cube-map-has-no-texel-fetch`](#fact-a-cube-map-has-no-texel-fetch) — GLSL ES 3.00 has no `texelFetch` for a cube map, and WGSL has no `textureLoad` for one. A program reads an integer cube map only through them.
 - [`@fact normalizing-a-zero-vector-is-undefined-on-a-gpu`](#fact-normalizing-a-zero-vector-is-undefined-on-a-gpu) — GLSL ES 3.00 and WGSL leave the result of `normalize` on a vector of length zero undefined.
 - [`@fact a-wgsl-storage-vec3-takes-16-bytes`](#fact-a-wgsl-storage-vec3-takes-16-bytes) — In a WGSL storage buffer, a `vec3` element, and each column of three of a matrix, takes 16 bytes.
+- [`@fact a-webgpu-vertex-stride-is-a-multiple-of-four`](#fact-a-webgpu-vertex-stride-is-a-multiple-of-four) — WebGPU requires the stride of a vertex buffer to be a multiple of 4 bytes. It has no vertex format of three components narrower than 32 bits, and none of two bytes.
 <!-- toc:end -->
 
 ## Open questions
@@ -674,6 +704,18 @@ This follows because a variable that shared its storage with what it copied woul
 
 This follows because a program that samples a texture on the GPU must read the same texels on the CPU.
 
+#### @spec one-rule-decides-how-every-target-samples-a-texture
+
+> One rule, shared by every target, reads a texture's sampler state. Its filters are linear by default. Its wrap is clamped by default, and for a mode the rule does not know. It reads an integer texture as nearest, whatever the texture asks, and a single-channel format as one channel.
+
+Derives from: [`fact-an-integer-texture-cannot-be-filtered`](#fact-an-integer-texture-cannot-be-filtered)
+
+##### @exception a-mipmapped-filter-reads-as-its-base-filter
+
+> A minification filter that reads mipmaps reads as the filter it is based on, because no target builds a mip chain. Issue #4 asks for one.
+
+Derives from: [`fact-a-mipmapped-texture-without-its-chain-samples-black`](#fact-a-mipmapped-texture-without-its-chain-samples-black)
+
 #### @spec a-cpu-target-filters-as-the-texture-asks
 
 > A CPU target reads the nearest texel by default, and blends neighbouring texels when the texture asks for linear filtering.
@@ -879,6 +921,14 @@ This follows because most mistakes in a shader are silent, and a target nobody r
 #### @spec the-integer-sweep-tells-right-from-wrong
 
 > The integer sweep passes the right results and reports the wrong ones, on JS, WASM and WGSL, and holds GLSL to compiling.
+
+### @spec a-vertex-attribute-reaches-the-shader-as-its-declared-type
+
+> A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A format no buffer of its own can carry, a raw integer array, and a width no format covers are refused.
+
+Derives from: [`fact-a-webgpu-vertex-stride-is-a-multiple-of-four`](#fact-a-webgpu-vertex-stride-is-a-multiple-of-four)
+
+This follows because a format one renderer reads as another type would make the two draw differently.
 
 ## @axiom a-mistake-is-refused-before-the-program-runs
 
@@ -1490,6 +1540,66 @@ This follows because a TSL shader that uses a display effect ports only if the e
 
 > An effect compiles with `compileGlslFn` and `compileWgslFn` into a function the application places in its own shader.
 
+### @spec the-scene-library-follows-three-js
+
+> The classes of `./scene` behave as the three.js classes of the same names, so a three.js scene ports by changing its import.
+
+Derives from: [`fact-a-three-js-renderer-draws-its-scene-graph`](#fact-a-three-js-renderer-draws-its-scene-graph)
+
+This follows because TSL is the shading language of three.js, and its users bring three.js scenes with their shaders.
+
+#### @spec an-object-composes-its-world-matrix-down-the-tree
+
+> An `Object3D` composes its world matrix from its parents', and gives its world position, rotation and scale. It adds, removes, finds and traverses children, announces being added and removed, and turns to look at a target.
+
+#### @spec a-camera-builds-its-projection
+
+> A perspective or orthographic camera builds its projection matrix and the inverse of its view matrix as three.js does.
+
+#### @spec a-light-is-a-coloured-scene-node
+
+> A light is a node of the scene with a colour and an intensity, and a directional light has a target. A scene has a background colour.
+
+#### @spec the-math-classes-follow-three-js
+
+> `Vector3`, `Matrix4`, `Quaternion`, `Euler`, `Color`, `Spherical` and `MathUtils` compute what their three.js counterparts compute.
+
+#### @spec a-geometry-builds-the-vertices-three-js-builds
+
+> A geometry primitive builds the positions, normals and indices of its three.js counterpart. A `BufferGeometry` holds attributes and an index, typed as 32-bit once an index passes 65535.
+
+#### @spec an-instanced-mesh-follows-three-js
+
+> An `InstancedMesh` holds a transform per instance, the identity by default, and a colour per instance once the program sets one. It clones with its geometry, material, transforms and instance data.
+
+#### @spec a-material-built-for-an-instanced-mesh-reads-each-instance
+
+> A material built for an instanced mesh declares the instance matrix, as four column attributes, and the instance colour when the mesh carries colours. It transforms position and normal by the matrix and tints the colour. The same material also builds for a mesh that is not instanced.
+
+#### @spec wide-lines-follow-three-js
+
+> `LineSegmentsGeometry`, `LineGeometry`, `Line2NodeMaterial` and `LineSegments2` draw lines of a width in pixels or world units, as three.js's do. They draw dashes and a colour per segment when asked.
+
+#### @spec a-node-material-shades-as-three-js-does
+
+> `MeshBasicMaterial`, `MeshLambertMaterial` and `MeshStandardMaterial` shade as three.js's do, the standard material with a GGX specular term, from a [node material](#term-node-material) graph.
+
+##### @spec a-material-slot-takes-a-node-or-a-builder
+
+> A material slot such as `colorNode` takes a node, or a function of the builder that gives one. `vertexNode` and `fragmentNode` replace a whole stage.
+
+##### @spec a-material-uniform-has-a-scope-and-a-live-value
+
+> A material uniform belongs to the camera, the object, the material or the renderer. It reads its value from the object it belongs to when the renderer uploads it.
+
+##### @spec a-material-reads-any-sampler-type
+
+> A material reads a float, integer or 3D sampler, and keeps the two-argument sampler form as a 2D sampler.
+
+##### @spec a-material-takes-the-renderer-precision-unless-it-sets-one
+
+> A material compiles at the precision of its renderer unless it sets one of its own, and changing it rebuilds the material.
+
 ## @axiom each-target-keeps-what-makes-it-worth-choosing
 
 > An interface over several targets keeps what each target does better than the others. A call that a target answers at once stays synchronous. Data that lives on the GPU stays there until the host asks for it. No target fakes a capability it lacks.
@@ -1597,6 +1707,52 @@ This follows because the application decides when to draw.
 Derives from: [`fact-a-three-js-renderer-draws-its-scene-graph`](#fact-a-three-js-renderer-draws-its-scene-graph)
 
 `./scene` offers a scene graph in the shape of three.js, so it offers the renderer that draws it. The application still decides when to call `render`.
+
+### @spec a-scene-renderer-manages-what-it-uploads
+
+> A renderer of `./scene` uploads each geometry, texture and uniform once, again when it changes, and frees it when it is disposed. It compiles a program once for each light set and kind of mesh.
+
+This follows because a renderer that owns the drawing of a scene owns its resources too.
+
+#### @spec a-renderer-supplies-the-camera-and-object-uniforms
+
+> A renderer gives a program the camera's projection, view and position, and the object's world and normal matrices. It gives nothing for a name it does not know.
+
+#### @spec a-program-is-compiled-once-per-signature
+
+> A renderer compiles a material once for each light set, in order, and each instancing flag of the mesh.
+
+#### @spec a-uniform-uploads-in-the-shape-its-type-has
+
+> A renderer uploads a scalar uniform as a scalar and a vector or matrix as an array. It places every uniform a material collects in the WGSL layout.
+
+#### @spec an-instanced-attribute-comes-from-its-mesh
+
+> A renderer reads an instanced attribute from the geometry, or from the mesh that owns it when the geometry has none. Its WGSL locations match the compiler's.
+
+#### @spec each-sampler-gets-its-own-texture
+
+> Several samplers in one draw each read their own texture.
+
+#### @spec the-webgpu-renderer-shares-one-sampler-per-state
+
+> The WebGPU renderer makes one sampler for each combination of filters and wrap, described as the texture asks, and binds each sampler by its type. It rebinds a texture whose sampler state changes, and leaves alone one whose update changes nothing.
+
+#### @spec a-changed-texture-shows-on-the-next-render
+
+> A texture whose image changes uploads again on the next render, and a texture that does not change stays as it is. The renderer replaces and binds again a texture whose size changes.
+
+#### @spec a-disposed-resource-is-freed-by-every-renderer-holding-it
+
+> Disposing a geometry or a texture tells every renderer that holds it. Each frees its own copy and uploads it again if it draws it again, and pipelines that do not use it stay as they are. A disposed renderer stops listening.
+
+#### @spec a-render-target-reads-its-pixels-back
+
+> A renderer draws into a render target and reads its pixels back, at once or, on WebGL, asynchronously without stalling the pipeline.
+
+#### @spec a-mesh-draws-the-slice-its-draw-range-selects
+
+> A mesh draws only the vertices its `drawRange` selects from its geometry.
 
 ### @spec the-application-reaches-an-input-through-its-node
 
@@ -1874,6 +2030,12 @@ Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mi
 
 > `compileWasmFn` gives the bytes of a module, and `instantiateWasmRoutine` turns them into a routine that behaves as `compileWasmRoutine` would. The same bytes instantiate any number of times, each instance independent of the others.
 
+### @spec a-material-program-holds-only-what-its-graph-reads
+
+> A `MaterialProgram` holds only the uniforms, attributes and varyings its graph reads. A scene with no lights declares no light uniforms.
+
+This follows because a binding the program never reads still costs an upload on every draw.
+
 ## @fact wgsl-defines-every-integer-edge-case
 
 > WGSL defines the result of every integer operation on run-time values. Overflow wraps. A division by zero returns the dividend and a remainder by zero returns zero. The most negative `i32` divided by `-1` returns itself. A shift uses its amount modulo the bit width.
@@ -2053,3 +2215,9 @@ This is a fact of both specifications, not a choice.
 > In a WGSL storage buffer, a `vec3` element, and each column of three of a matrix, takes 16 bytes.
 
 This is a fact of the WGSL specification, not a choice.
+
+## @fact a-webgpu-vertex-stride-is-a-multiple-of-four
+
+> WebGPU requires the stride of a vertex buffer to be a multiple of 4 bytes. It has no vertex format of three components narrower than 32 bits, and none of two bytes.
+
+This is a fact of the WebGPU specification, not a choice.

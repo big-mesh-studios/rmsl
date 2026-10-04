@@ -599,7 +599,9 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     expect(pixel.r).toBeGreaterThan(50);
     expect(pixel.b).toBeLessThan(60);
   }, 60_000);
-
+  /**
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   */
   it("reads a packed attribute at its own width, not as floats", async () => {
     const page = await gpuPage();
     const code = await bundleEntry(ENTRY_PACKED);
@@ -623,7 +625,9 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     expect(result.half[1]).toBeLessThan(72);
     expect(result.half[2]).toBeLessThan(6);
   }, 60_000);
-
+  /**
+   * @canon spec-a-material-reads-any-sampler-type
+   */
   it("renders a usampler2D texture to the color target", async () => {
     const page = await gpuPage();
     const code = await bundleEntry(ENTRY_INT);
@@ -639,7 +643,9 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     expect(pixel.b).toBeGreaterThan(200);
     expect(pixel.r).toBeLessThan(60);
   }, 60_000);
-
+  /**
+   * @canon spec-a-material-reads-any-sampler-type
+   */
   it("renders an R8UI DataTexture from its single stored byte", async () => {
     const page = await gpuPage();
     const code = await bundleEntry(ENTRY_R8UI);
@@ -656,7 +662,9 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     expect(pixel.g).toBeLessThan(60);
     expect(pixel.b).toBeLessThan(60);
   }, 60_000);
-
+  /**
+   * @canon spec-wide-lines-follow-three-js
+   */
   it("renders a wide line across the canvas via instanced draws", async () => {
     const page = await gpuPage();
     const code = await bundleEntry(ENTRY_LINES);
@@ -672,7 +680,9 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     expect(pixel.center[1]).toBeLessThan(60);
     expect(pixel.corner[0]).toBeLessThan(60);
   }, 60_000);
-
+  /**
+   * @canon spec-a-material-built-for-an-instanced-mesh-reads-each-instance
+   */
   it("draws each InstancedMesh instance with its own transform and color", async () => {
     const page = await gpuPage();
     const code = await bundleEntry(ENTRY_INSTANCED);
@@ -690,7 +700,9 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     expect(pixel.right[2]).toBeGreaterThan(100);
     expect(pixel.right[0]).toBeLessThan(60);
   }, 60_000);
-
+  /**
+   * @canon spec-each-sampler-gets-its-own-texture
+   */
   it("gives each sampler its own texture when several upload in one draw", async () => {
     const page = await gpuPage();
     const code = await bundleEntry(ENTRY_SAMPLERS);
@@ -713,7 +725,9 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     expect(pixel.g).toBeLessThan(140);
     expect(pixel.b).toBeGreaterThan(200);
   }, 60_000);
-
+  /**
+   * @canon spec-a-disposed-resource-is-freed-by-every-renderer-holding-it
+   */
   it("frees a disposed texture and re-uploads it on the next render", async () => {
     const page = await gpuPage();
     const code = await bundleEntry(ENTRY_TEXTURE_DISPOSE);
@@ -732,7 +746,9 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     expect(result.b).toBeGreaterThan(150);
     expect(result.error).toBe(0);
   }, 60_000);
-
+  /**
+   * @canon spec-one-rule-decides-how-every-target-samples-a-texture
+   */
   it("wraps and filters a texture the way the texture asks", async () => {
     const page = await gpuPage();
     const code = await bundleEntry(ENTRY_SAMPLER_STATE);
@@ -757,7 +773,9 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     expect(result.linear.b).toBeGreaterThan(80);
     expect(result.linear.error).toBe(0);
   }, 60_000);
-
+  /**
+   * @canon spec-a-material-takes-the-renderer-precision-unless-it-sets-one
+   */
   it("renders with lowered precision from the renderer and a material override", async () => {
     const page = await gpuPage();
     const code = await bundleEntry(ENTRY_PRECISION);
@@ -775,7 +793,9 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     expect(pixel.g).toBeLessThan(60);
     expect(pixel.b).toBeLessThan(60);
   }, 60_000);
-
+  /**
+   * @canon spec-a-render-target-reads-its-pixels-back
+   */
   it("renders into a render target and reads its pixels back", async () => {
     const page = await gpuPage();
     const code = await bundleEntry(ENTRY_TARGET);
@@ -792,7 +812,9 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     expect(pixel.targetR).toBeGreaterThan(150);
     expect(pixel.canvasR).toBeGreaterThan(150);
   }, 60_000);
-
+  /**
+   * @canon spec-a-render-target-reads-its-pixels-back
+   */
   it("reads a render target's pixels back asynchronously without stalling", async () => {
     const page = await gpuPage();
     const code = await bundleEntry(ENTRY_TARGET_ASYNC);
@@ -806,7 +828,9 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     expect(pixel.error).toBe(0);
     expect(pixel.targetR).toBeGreaterThan(150);
   }, 60_000);
-
+  /**
+   * @canon spec-a-disposed-resource-is-freed-by-every-renderer-holding-it
+   */
   it("frees a disposed geometry's buffers and re-uploads them on the next render", async () => {
     const page = await gpuPage();
     const code = await bundleEntry(ENTRY_GEOMETRY_DISPOSE);
@@ -825,7 +849,9 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     expect(result.b).toBeGreaterThan(150);
     expect(result.error).toBe(0);
   }, 60_000);
-
+  /**
+   * @canon spec-a-mesh-draws-the-slice-its-draw-range-selects
+   */
   it("draws only the slice a mesh's drawRange selects from a shared geometry", async () => {
     const page = await gpuPage();
     const code = await bundleEntry(ENTRY_RANGE);

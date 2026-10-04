@@ -57,6 +57,9 @@ function compileMaterial(program: { vertexRoot: any; fragmentRoot: any }): { gls
 }
 
 describe("node materials", () => {
+  /**
+   * @canon spec-a-node-material-shades-as-three-js-does
+   */
   it("MeshBasicMaterial declares its uniforms and varyings", () => {
     const scene = litScene();
     const material = new MeshBasicMaterial({ color: 0xff0000 });
@@ -77,7 +80,9 @@ describe("node materials", () => {
     // The vertex stage transforms position and assigns the world varyings.
     expect(glsl).toContain("gl_Position");
   });
-
+  /**
+   * @canon spec-a-material-slot-takes-a-node-or-a-builder
+   */
   it("MeshBasicMaterial honors a custom colorNode", () => {
     const scene = litScene();
     const material = new MeshBasicMaterial();
@@ -85,7 +90,9 @@ describe("node materials", () => {
     const { glsl } = compileMaterial(material.build(scene));
     expect(glsl).toContain("mix(");
   });
-
+  /**
+   * @canon spec-a-node-material-shades-as-three-js-does
+   */
   it("MeshLambertMaterial folds lights into the fragment", () => {
     const scene = litScene();
     const material = new MeshLambertMaterial({ color: 0x888888 });
@@ -97,7 +104,9 @@ describe("node materials", () => {
     expect(glsl).toContain("max(dot(");
     expect(wgsl).toContain("directionalDirection0");
   });
-
+  /**
+   * @canon spec-a-node-material-shades-as-three-js-does
+   */
   it("MeshStandardMaterial computes a GGX specular", () => {
     const scene = litScene();
     const material = new MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.4, metalness: 0.2 });
@@ -108,7 +117,9 @@ describe("node materials", () => {
     expect(glsl).toContain("mix(vec3(0.04");
     expect(wgsl).toContain("materialRoughness");
   });
-
+  /**
+   * @canon spec-a-material-program-holds-only-what-its-graph-reads
+   */
   it("a no-lights scene declares no light uniforms", () => {
     const scene = new Scene();
     const mesh = new Mesh(new BoxGeometry(), new MeshStandardMaterial());
@@ -120,7 +131,9 @@ describe("node materials", () => {
     expect(glsl).not.toContain("directionalColor");
     expect(glsl).not.toContain("pointColor");
   });
-
+  /**
+   * @canon spec-a-material-program-holds-only-what-its-graph-reads
+   */
   it("collects only the uniforms the graph actually references", () => {
     const scene = litScene();
     const material = new MeshStandardMaterial();
@@ -136,7 +149,9 @@ describe("node materials", () => {
     // No sampler was registered, so no sampler binding leaks through.
     expect(program.samplers).toEqual([]);
   });
-
+  /**
+   * @canon spec-a-material-uniform-has-a-scope-and-a-live-value
+   */
   it("world transform is camera-relative and object uniforms carry scope", () => {
     const scene = litScene();
     const material = new MeshBasicMaterial();
@@ -148,7 +163,9 @@ describe("node materials", () => {
     expect(proj.scope).toBe("camera");
     expect(color.scope).toBe("material");
   });
-
+  /**
+   * @canon spec-a-material-slot-takes-a-node-or-a-builder
+   */
   it("supports the vertexNode / fragmentNode escape hatches", () => {
     const scene = litScene();
     const material = new MeshBasicMaterial();
@@ -157,7 +174,9 @@ describe("node materials", () => {
     const { glsl } = compileMaterial(program);
     expect(glsl).toContain("0.3");
   });
-
+  /**
+   * @canon spec-a-material-uniform-has-a-scope-and-a-live-value
+   */
   it("material uniforms expose live values through getters", () => {
     const scene = litScene();
     const material = new MeshStandardMaterial({ color: 0x123456, roughness: 0.7 });
@@ -167,7 +186,9 @@ describe("node materials", () => {
     expect(color.value!(null as never)).toEqual([0x12 / 255, 0x34 / 255, 0x56 / 255]);
     expect(roughness.value!(null as never)).toBe(0.7);
   });
-
+  /**
+   * @canon spec-a-material-program-holds-only-what-its-graph-reads
+   */
   it("MaterialProgram carries the referenced attributes and varyings", () => {
     const scene = litScene();
     const material = new MeshLambertMaterial();
@@ -175,7 +196,9 @@ describe("node materials", () => {
     expect(program.attributes.map((a) => a.name)).toEqual(expect.arrayContaining(["position", "normal"]));
     expect(program.varyings.map((v) => v.name)).toEqual(expect.arrayContaining(["positionWorld", "normalWorld"]));
   });
-
+  /**
+   * @canon spec-a-node-material-shades-as-three-js-does
+   */
   it("the standard material evaluates to a finite color on the CPU", () => {
     // A lit surface must not produce NaN: `pow(1 - dot, 5)` blackens the whole
     // object when a dot product creeps past 1.0, and `1 - vec3` must stay a
@@ -214,7 +237,9 @@ describe("node materials", () => {
     // The sunlit top face must be visibly lit, not black.
     expect(color[0]).toBeGreaterThan(0.1);
   });
-
+  /**
+   * @canon spec-a-material-reads-any-sampler-type
+   */
   it("registers and compiles the integer and 3D samplers", () => {
     const texture = () => new DataTexture(new Uint8Array([1, 2, 3, 4]), 1, 1);
     const cases: {
@@ -248,7 +273,9 @@ describe("node materials", () => {
       expect(compiled).not.toMatch(/@group\(2\)/);
     }
   });
-
+  /**
+   * @canon spec-a-material-reads-any-sampler-type
+   */
   it("keeps the two-argument sampler form as a sampler2D and supports sampler3D", () => {
     const material = new MeshBasicMaterial();
     material.fragmentNode = (b) => {
@@ -276,16 +303,22 @@ describe("node materials", () => {
 });
 
 describe("shader precision", () => {
-  // Mirror of three.js: the renderer supplies the default precision and a
-  // material's `precision` overrides it. WGSL has no precision qualifiers, so
-  // the material compile options only reach the GLSL side.
+  /**
+   * Mirror of three.js: the renderer supplies the default precision and a
+   * material's `precision` overrides it. WGSL has no precision qualifiers, so
+   * the material compile options only reach the GLSL side.
+   *
+   * @canon spec-a-material-takes-the-renderer-precision-unless-it-sets-one
+   */
   it("goes with the renderer default when the material sets none", () => {
     const material = new MeshStandardMaterial();
     expect(shaderPrecision(material, "highp")).toBe("highp");
     expect(shaderPrecision(material, "mediump")).toBe("mediump");
     expect(shaderPrecision(material, "lowp")).toBe("lowp");
   });
-
+  /**
+   * @canon spec-a-material-takes-the-renderer-precision-unless-it-sets-one
+   */
   it("lets a material override the renderer default", () => {
     const material = new MeshStandardMaterial({ precision: "lowp" });
     expect(material.precision).toBe("lowp");
@@ -294,7 +327,9 @@ describe("shader precision", () => {
     material.precision = null;
     expect(shaderPrecision(material, "mediump")).toBe("mediump");
   });
-
+  /**
+   * @canon spec-a-material-takes-the-renderer-precision-unless-it-sets-one
+   */
   it("accepts a precision in every material constructor", () => {
     const basic = new MeshBasicMaterial({ precision: "mediump" });
     const lambert = new MeshLambertMaterial({ precision: "mediump" });
@@ -303,7 +338,9 @@ describe("shader precision", () => {
     expect(lambert.precision).toBe("mediump");
     expect(standard.precision).toBe("mediump");
   });
-
+  /**
+   * @canon spec-a-material-takes-the-renderer-precision-unless-it-sets-one
+   */
   it("flags a rebuild when the precision changes", () => {
     const material = new MeshBasicMaterial();
     expect(material.needsUpdate).toBe(false);

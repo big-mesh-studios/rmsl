@@ -11,6 +11,9 @@ import {
 } from "./index";
 
 describe("geometry disposal", () => {
+  /**
+   * @canon spec-a-disposed-resource-is-freed-by-every-renderer-holding-it
+   */
   it("announces a dispose to the renderers listening for it", () => {
     const geometry = new BufferGeometry();
     const heard: unknown[] = [];
@@ -26,6 +29,9 @@ describe("geometry disposal", () => {
 });
 
 describe("geometry primitives", () => {
+  /**
+   * @canon spec-a-geometry-builds-the-vertices-three-js-builds
+   */
   it("box has 24 vertices and 36 indices", () => {
     const geo = new BoxGeometry();
     expect(geo.attributes.position?.count).toBe(24);
@@ -33,7 +39,9 @@ describe("geometry primitives", () => {
     expect(geo.attributes.uv?.count).toBe(24);
     expect(geo.index?.count).toBe(36);
   });
-
+  /**
+   * @canon spec-a-geometry-builds-the-vertices-three-js-builds
+   */
   it("box positions respect the requested size", () => {
     const geo = new BoxGeometry(2, 4, 6);
     const pos = geo.attributes.position!;
@@ -49,7 +57,9 @@ describe("geometry primitives", () => {
     expect(maxY).toBe(2);
     expect(maxZ).toBe(3);
   });
-
+  /**
+   * @canon spec-a-geometry-builds-the-vertices-three-js-builds
+   */
   it("box normals are axis-aligned unit vectors", () => {
     const geo = new BoxGeometry();
     const n = geo.attributes.normal!;
@@ -58,7 +68,9 @@ describe("geometry primitives", () => {
       expect(l).toBeCloseTo(1);
     }
   });
-
+  /**
+   * @canon spec-a-geometry-builds-the-vertices-three-js-builds
+   */
   it("sphere radius is respected and normals are unit", () => {
     const geo = new SphereGeometry(3, 8, 4);
     const pos = geo.attributes.position!;
@@ -68,7 +80,9 @@ describe("geometry primitives", () => {
       expect(Math.hypot(n.getX(i), n.getY(i), n.getZ(i))).toBeCloseTo(1);
     }
   });
-
+  /**
+   * @canon spec-a-geometry-builds-the-vertices-three-js-builds
+   */
   it("plane lies in the XY plane at z = 0 and is centered on the origin", () => {
     const geo = new PlaneGeometry(2, 3);
     const pos = geo.attributes.position!;
@@ -91,7 +105,9 @@ describe("geometry primitives", () => {
     expect(geo.attributes.uv?.count).toBe(pos.count);
     expect(geo.index?.count).toBe(6);
   });
-
+  /**
+   * @canon spec-a-geometry-builds-the-vertices-three-js-builds
+   */
   it("cylinder has a torso and two caps", () => {
     const geo = new CylinderGeometry(1, 1, 2, 8);
     // (radialSegments+1) * (heightSegments+1) torso vertices plus, per cap,
@@ -99,7 +115,9 @@ describe("geometry primitives", () => {
     const expectedVertices = (8 + 1) * (1 + 1) + 2 * (8 + (8 + 1));
     expect(geo.attributes.position?.count).toBe(expectedVertices);
   });
-
+  /**
+   * @canon spec-a-geometry-builds-the-vertices-three-js-builds
+   */
   it("cone is a cylinder with a zero top radius", () => {
     const geo = new ConeGeometry(1, 2, 8);
     const pos = geo.attributes.position!;
@@ -113,12 +131,16 @@ describe("geometry primitives", () => {
     }
     expect(topY).toBe(1);
   });
-
+  /**
+   * @canon spec-a-geometry-builds-the-vertices-three-js-builds
+   */
   it("torus and circle generate non-empty buffers", () => {
     expect(new TorusGeometry().index?.count).toBeGreaterThan(0);
     expect(new CircleGeometry().index?.count).toBeGreaterThan(0);
   });
-
+  /**
+   * @canon spec-a-geometry-builds-the-vertices-three-js-builds
+   */
   it("index arrays are typed so GPU uploads know their byte size", () => {
     const geo = new BoxGeometry();
     // WebGL/WebGPU element uploads read the byte length from the view; a plain
@@ -127,7 +149,9 @@ describe("geometry primitives", () => {
     expect(geo.index?.array).toBeInstanceOf(Uint16Array);
     expect(geo.index?.array).toHaveLength(36);
   });
-
+  /**
+   * @canon spec-a-geometry-builds-the-vertices-three-js-builds
+   */
   it("setIndex picks Uint32 once indices exceed 65535", () => {
     const geo = new BufferGeometry();
     geo.setIndex(new Uint32Array([0, 1, 70000]));
