@@ -78,18 +78,25 @@ describe("precompileShaders", () => {
     expect(mod.default.positionAttr).toMatch(/^_rmsl_a/);
   });
 
+  /**
+   * @canon spec-a-plugin-rewrites-only-the-modules-it-includes
+   */
   it("leaves non-matching modules alone", async () => {
     const plugin = asPlugin(precompileShaders({ include: "fixtures/shaders.ts" }));
     const result = await plugin.transform(source, "/elsewhere/other.ts");
     expect(result).toBeNull();
   });
-
+  /**
+   * @canon spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile
+   */
   it("throws when the module has no default export", async () => {
     const plugin = asPlugin(precompileShaders({ include: "no-default.ts" }));
     const id = `${SHADERS_PATH.replace("shaders.ts", "")}no-default.ts`;
     await expect(plugin.transform("export const x = 1;\n", id)).rejects.toThrow(/must have a default export/);
   });
-
+  /**
+   * @canon spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile
+   */
   it("throws when the default export is not JSON-serializable", async () => {
     const plugin = asPlugin(precompileShaders({ include: "fn-default.ts" }));
     const id = `${SHADERS_PATH.replace("shaders.ts", "")}fn-default.ts`;
@@ -132,18 +139,26 @@ describe("precompileJS", () => {
     expect(mod.mixColours({ params: { a: [0, 0, 0], b: [1, 1, 1], t: 0.5 } })).toEqual([0.5, 0.5, 0.5]);
   });
 
+  /**
+   * @canon spec-a-plugin-rewrites-only-the-modules-it-includes
+   */
   it("leaves non-matching modules alone", async () => {
     const plugin = asPlugin(precompileJS({ include: "fixtures/cpu-fns.ts" }));
     const result = await plugin.transform(source, "/elsewhere/other.ts");
     expect(result).toBeNull();
   });
 
+  /**
+   * @canon spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile
+   */
   it("throws when the module has no code export", async () => {
     const plugin = asPlugin(precompileJS({ include: "no-code.ts" }));
     const id = `${CPU_FNS_PATH.replace("cpu-fns.ts", "")}no-code.ts`;
     await expect(plugin.transform("export const x = 1;\n", id)).rejects.toThrow(/must export __RMSL_JS_CODE/);
   });
-
+  /**
+   * @canon spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile
+   */
   it("throws when the code export is not a map of strings", async () => {
     const plugin = asPlugin(precompileJS({ include: "bad-code.ts" }));
     const id = `${CPU_FNS_PATH.replace("cpu-fns.ts", "")}bad-code.ts`;
@@ -152,6 +167,9 @@ describe("precompileJS", () => {
     );
   });
 
+  /**
+   * @canon spec-a-plugin-reads-the-export-it-is-told-to
+   */
   it("reads the code map from a custom export name", async () => {
     const plugin = asPlugin(precompileJS({ include: "custom-code.ts", codeExport: "CPU_FNS" }));
     const id = `${CPU_FNS_PATH.replace("cpu-fns.ts", "")}custom-code.ts`;
@@ -231,6 +249,9 @@ describe("precompileWasm", () => {
     });
   });
 
+  /**
+   * @canon spec-a-plugin-rewrites-only-the-modules-it-includes
+   */
   it("leaves non-matching modules alone", async () => {
     const plugin = asPlugin(precompileWasm({ include: "fixtures/wasm-fns.ts" }));
     const { context } = mockPluginContext();
@@ -238,6 +259,9 @@ describe("precompileWasm", () => {
     expect(result).toBeNull();
   });
 
+  /**
+   * @canon spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile
+   */
   it("throws when the module has no code export", async () => {
     const plugin = asPlugin(precompileWasm({ include: "no-code.ts" }));
     const { context } = mockPluginContext();
@@ -246,7 +270,9 @@ describe("precompileWasm", () => {
       /must export __RMSL_WASM_CODE/,
     );
   });
-
+  /**
+   * @canon spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile
+   */
   it("throws when a code map value has no bytes", async () => {
     const plugin = asPlugin(precompileWasm({ include: "bad-code.ts" }));
     const { context } = mockPluginContext();
@@ -256,6 +282,9 @@ describe("precompileWasm", () => {
     ).rejects.toThrow(/must be compileWasmFn\(\) output/);
   });
 
+  /**
+   * @canon spec-a-plugin-reads-the-export-it-is-told-to
+   */
   it("reads the code map from a custom export name", async () => {
     const plugin = asPlugin(precompileWasm({ include: "custom-code.ts", codeExport: "WASM_FNS" }));
     const { context } = mockPluginContext();

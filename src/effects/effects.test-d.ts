@@ -30,33 +30,46 @@ import {
 } from "./index";
 
 describe("effects primitives", () => {
+  /**
+   * @canon spec-select-picks-one-of-two-values
+   */
   it("select follows the branch type", () => {
     // The .select method is generic over the branch type.
     expectTypeOf(boolNode().select(float(1), float(2))).toEqualTypeOf<Node<"float">>();
     expectTypeOf(boolNode().select(vec2(1, 2), vec2(3, 4))).toEqualTypeOf<Node<"vec2">>();
     expectTypeOf(boolNode().select(vec3(1), vec3(0))).toEqualTypeOf<Node<"vec3">>();
   });
-
+  /**
+   * @canon spec-an-operation-no-target-has-is-composed
+   */
   it("luminance reduces a colour to a float", () => {
     expectTypeOf(luminance(vec3(0.2, 0.4, 0.6))).toEqualTypeOf<Node<"float">>();
     expectTypeOf(luminance(vec4(0.2, 0.4, 0.6, 1))).toEqualTypeOf<Node<"float">>();
   });
-
+  /**
+   * @canon spec-an-operation-no-target-has-is-composed
+   */
   it("rand and interleavedGradientNoise return floats", () => {
     expectTypeOf(rand(vec2(1, 2))).toEqualTypeOf<Node<"float">>();
     expectTypeOf(interleavedGradientNoise(vec2(1, 2))).toEqualTypeOf<Node<"float">>();
   });
-
+  /**
+   * @canon spec-texture-size-gives-the-dimensions
+   */
   it("textureSize is uvec2 for 2D and uvec3 for 3D samplers", () => {
     expectTypeOf(textureSize(uniform("sampler2D"))).toEqualTypeOf<Node<"uvec2">>();
     expectTypeOf(textureSize(uniform("sampler3D"))).toEqualTypeOf<Node<"uvec3">>();
   });
-
+  /**
+   * @canon spec-texture-load-reads-one-texel-of-a-float-texture
+   */
   it("textureLoad returns a vec4 for a float sampler", () => {
     expectTypeOf(textureLoad(uniform("sampler2D"), vec2(1, 2).toIVec2())).toEqualTypeOf<Node<"vec4">>();
     expectTypeOf(textureLoad(uniform("sampler3D"), vec3(1, 2, 3).toIVec3())).toEqualTypeOf<Node<"vec4">>();
   });
-
+  /**
+   * @canon spec-the-screen-accessors-follow-tsl
+   */
   it("screen-space accessors are vec2, time is a float uniform", () => {
     expectTypeOf(fragCoord()).toEqualTypeOf<Node<"vec2">>();
     expectTypeOf(screenCoordinate()).toEqualTypeOf<Node<"vec2">>();
@@ -68,28 +81,41 @@ describe("effects primitives", () => {
 });
 
 describe("effect signatures", () => {
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
   it("sepia and bleach take and return vec4", () => {
     expectTypeOf(sepia(vec4(1))).toEqualTypeOf<Node<"vec4">>();
     expectTypeOf(bleach(vec4(1))).toEqualTypeOf<Node<"vec4">>();
   });
-
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
   it("dotScreen takes a color and returns a color", () => {
     expectTypeOf(dotScreen(vec4(1))).toEqualTypeOf<Node<"vec4">>();
   });
-
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
   it("rgbShift takes a sampler and returns a color", () => {
     expectTypeOf(rgbShift(uniform("sampler2D"))).toEqualTypeOf<Node<"vec4">>();
   });
-
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
   it("circle returns a float mask", () => {
     expectTypeOf(circle()).toEqualTypeOf<Node<"float">>();
   });
-
+  /**
+   * @canon spec-an-effect-with-several-passes-is-a-pass-graph
+   */
   it("gaussianBlur and bloom return a PassGraph", () => {
     expectTypeOf(gaussianBlur(uniform("sampler2D"))).toEqualTypeOf<PassGraph>();
     expectTypeOf(bloom(uniform("sampler2D"))).toEqualTypeOf<PassGraph>();
   });
-
+  /**
+   * @canon spec-bloom-follows-tsl
+   */
   it("a custom high-pass filter types its inputs", () => {
     const anamorphic: HighPassFn = (input, threshold, smoothWidth) =>
       vec4(luminance(input.rgb).mul(threshold).add(smoothWidth), 1);
