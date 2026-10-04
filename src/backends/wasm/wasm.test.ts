@@ -68,13 +68,18 @@ function run(
 }
 
 describe("WASM backend: scalar arithmetic", () => {
+  /**
+   * @canon spec-arithmetic-compiles-to-the-operators-of-the-target
+   */
   it("computes arithmetic on function params", () => {
     expect(run((a, b) => a.add(b), [2, 3])).toBe(5);
     expect(run((a, b) => a.sub(b), [7, 3])).toBe(4);
     expect(run((a, b) => a.mul(b), [3, 4])).toBe(12);
     expect(run((a) => a.sqrt(), [16])).toBe(4);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
+   */
   it("reads a float uniform", () => {
     let u!: any;
     const build = () => {
@@ -84,7 +89,9 @@ describe("WASM backend: scalar arithmetic", () => {
     const fn = compileWasmRoutine(build, { name: "main", params: [] });
     expect(fn.run({ uniforms: { [u.name]: 21 } })).toBe(42);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   */
   it("supports a multi-return function, keeping only the last value as the result", () => {
     let side!: any;
     const build = () => {
@@ -95,7 +102,9 @@ describe("WASM backend: scalar arithmetic", () => {
     const fn = compileWasmRoutine(Fn(build) as any, { name: "main", params: [] });
     expect(fn.run({})).toBe(2);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   */
   it("supports a plain non-scalar result, through the same memory-based path a stage program uses", () => {
     // A plain WASM function can only ever return one scalar, so an
     // aggregate root goes through `needsResult` mode automatically —
@@ -105,7 +114,10 @@ describe("WASM backend: scalar arithmetic", () => {
     const result = fn.run({}) as any;
     expect(result.value).toEqual([1, 2, 3]);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
+   * @canon spec-a-uniform-array-takes-one-slot
+   */
   it("reads a float uniform array element by a constant index", () => {
     let arr!: any;
     const build = () => {
@@ -115,7 +127,10 @@ describe("WASM backend: scalar arithmetic", () => {
     const fn = compileWasmRoutine(build, { name: "main", params: [] });
     expect(fn.run({ uniforms: { [arr.name]: [10, 20, 30, 40] } })).toBe(20);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
+   * @canon spec-a-uniform-array-takes-one-slot
+   */
   it("reads a bool uniform array element by a constant index", () => {
     let arr!: any;
     const build = () => {
@@ -128,6 +143,9 @@ describe("WASM backend: scalar arithmetic", () => {
 });
 
 describe("WASM backend: uniform arrays", () => {
+  /**
+   * @canon spec-a-uniform-array-takes-one-slot
+   */
   it("reads a vec4 uniform array element by a constant index", () => {
     let arr!: any;
     const build = () => {
@@ -143,7 +161,9 @@ describe("WASM backend: uniform arrays", () => {
     ];
     expect(fn.run({ uniforms: { [arr.name]: values } })).toBe(7);
   });
-
+  /**
+   * @canon spec-a-uniform-array-takes-one-slot
+   */
   it("lets a uniform array element back a toVar()", () => {
     let arr!: any;
     const build = () => {
@@ -163,7 +183,9 @@ describe("WASM backend: uniform arrays", () => {
       }),
     ).toBe(4);
   });
-
+  /**
+   * @canon spec-a-uniform-array-takes-one-slot
+   */
   it("converts a plain-number (float) index", () => {
     let arr!: any;
     const build = () => {
@@ -173,7 +195,9 @@ describe("WASM backend: uniform arrays", () => {
     const fn = compileWasmRoutine(build, { name: "main", params: [] });
     expect(fn.run({ uniforms: { [arr.name]: [10, 20, 30, 40] } })).toBe(30);
   });
-
+  /**
+   * @canon spec-a-uniform-array-takes-one-slot
+   */
   it("indexes a vec4 uniform array with a runtime index inside a loop", () => {
     let arr!: any;
     const build = () => {
@@ -195,7 +219,9 @@ describe("WASM backend: uniform arrays", () => {
     const values = Array.from({ length: 24 }, (_, i) => [i, 0, 0, 0]);
     expect(fn.run({ uniforms: { [arr.name]: values } })).toBe(276); // sum of 0..23
   });
-
+  /**
+   * @canon spec-a-uniform-array-takes-one-slot
+   */
   it("supports a uniform array element as the function root", () => {
     let arr!: any;
     const build = () => {
@@ -217,34 +243,49 @@ describe("WASM backend: uniform arrays", () => {
 });
 
 describe("WASM backend: div, mod, min, max, sign, abs, round-trip", () => {
+  /**
+   * @canon spec-float-folding-gives-the-run-time-result
+   * @canon spec-arithmetic-compiles-to-the-operators-of-the-target
+   */
   it("divides and mods floats, floored", () => {
     expect(run((a, b) => a.div(b), [7, 2])).toBe(3.5);
     expect(run((a, b) => a.mod(b), [-1, 3])).toBe(2); // floored, not truncated
   });
-
+  /**
+   * @canon spec-wasm-integer-arithmetic-follows-wgsl
+   */
   it("divides and mods ints, truncated toward zero", () => {
     expect(run((a, b) => a.div(b), [-7, 2], ["int", "int"])).toBe(-3);
     expect(run((a, b) => a.mod(b), [-7, 2], ["int", "int"])).toBe(-1);
   });
-
+  /**
+   * @canon spec-wasm-integer-arithmetic-follows-wgsl
+   */
   it("divides uints unsigned", () => {
     // As a signed 32-bit read this bit pattern is negative; unsigned it's
     // the large positive value it's meant to be.
     expect(run((a, b) => a.div(b), [4000000000, 2], ["uint", "uint"])).toBe(2000000000);
   });
-
+  /**
+   * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
+   */
   it("takes min/max of floats and ints", () => {
     expect(run((a, b) => a.min(b), [3, 4])).toBe(3);
     expect(run((a, b) => a.max(b), [3, 4])).toBe(4);
     expect(run((a, b) => a.min(b), [-3, 4], ["int", "int"])).toBe(-3);
     expect(run((a, b) => a.max(b), [-3, 4], ["int", "int"])).toBe(4);
   });
-
+  /**
+   * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
+   * @canon spec-wasm-integer-arithmetic-follows-wgsl
+   */
   it("takes min/max of uints unsigned", () => {
     expect(run((a, b) => a.min(b), [4000000000, 2], ["uint", "uint"])).toBe(2);
     expect(run((a, b) => a.max(b), [4000000000, 2], ["uint", "uint"])).toBe(4000000000);
   });
-
+  /**
+   * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
+   */
   it("computes sign and abs for floats and ints", () => {
     expect(run((a) => a.sign(), [-5])).toBe(-1);
     expect(run((a) => a.sign(), [0])).toBe(0);
@@ -253,7 +294,9 @@ describe("WASM backend: div, mod, min, max, sign, abs, round-trip", () => {
     expect(run((a) => a.sign(), [-5], ["int"])).toBe(-1);
     expect(run((a) => a.abs(), [-5], ["int"])).toBe(5);
   });
-
+  /**
+   * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
+   */
   it("floors, ceils, truncs, fracts, and rounds", () => {
     expect(run((a) => a.floor(), [3.7])).toBe(3);
     expect(run((a) => a.ceil(), [3.2])).toBe(4);
@@ -265,19 +308,27 @@ describe("WASM backend: div, mod, min, max, sign, abs, round-trip", () => {
 });
 
 describe("WASM backend: clamp, mix, step, smoothstep", () => {
+  /**
+   * @canon spec-a-function-with-an-edge-takes-the-value-last
+   */
   it("clamps floats and ints (min(max(x, lo), hi))", () => {
     expect(run((a) => a.clamp(0, 1), [0.5])).toBe(0.5);
     expect(run((a) => a.clamp(0, 1), [-0.5])).toBe(0);
     expect(run((a) => a.clamp(0, 1), [1.5])).toBe(1);
     expect(run((a) => a.clamp(0, 10), [15], ["int"])).toBe(10);
   });
-
+  /**
+   * @canon spec-a-function-with-an-edge-takes-the-value-last
+   * @canon spec-wasm-integer-arithmetic-follows-wgsl
+   */
   it("clamps uints unsigned", () => {
     // Reads negative under a signed comparison; unsigned it's correctly
     // above the clamp's own upper bound.
     expect(run((a) => a.clamp(0, 10), [4000000000], ["uint"])).toBe(10);
   });
-
+  /**
+   * @canon spec-a-function-with-an-edge-takes-the-value-last
+   */
   it("mixes (linear interpolation) at any blend factor, including outside 0..1", () => {
     expect(run((a, b) => a.mix(b, 0.25), [0, 4])).toBe(1);
     expect(run((a, b) => a.mix(b, 0.75), [0, 4])).toBe(3);
@@ -285,13 +336,18 @@ describe("WASM backend: clamp, mix, step, smoothstep", () => {
     expect(run((a, b) => a.mix(b, 1), [0, 4])).toBe(4);
     expect(run((a, b) => a.mix(b, 2), [0, 4])).toBe(8); // extrapolates past b
   });
-
+  /**
+   * @canon spec-a-function-with-an-edge-takes-the-value-last
+   */
   it("steps: 0 below the edge, 1 at or above it", () => {
     expect(run((a) => a.step(0.5), [0.2])).toBe(0);
     expect(run((a) => a.step(0.5), [0.8])).toBe(1);
     expect(run((a) => a.step(0.5), [0.5])).toBe(1); // "x < edge", so equal is 1
   });
-
+  /**
+   * @canon spec-a-function-with-an-edge-takes-the-value-last
+   * @canon spec-wasm-float-arithmetic-matches-js-exactly
+   */
   it("smoothsteps: clamped, cubic-eased, matching compileJSRoutine bit for bit", () => {
     expect(run((a) => a.smoothstep(0, 1), [-0.5])).toBe(0);
     expect(run((a) => a.smoothstep(0, 1), [1.5])).toBe(1);
@@ -299,27 +355,35 @@ describe("WASM backend: clamp, mix, step, smoothstep", () => {
     // Not a round number — checks the exact formula, not just the clamped ends.
     expect(run((a) => a.smoothstep(0, 1), [0.1])).toBeCloseTo(0.028, 9);
   });
-
+  /**
+   * @canon spec-a-function-with-an-edge-takes-the-value-last
+   */
   it("shares one local across nested smoothstep() calls without corrupting either", () => {
     // The inner smoothstep's own t-computation runs to completion (using
     // the shared local) before the outer one starts computing its own —
     // this would misbehave if the local were live across both instead.
     expect(run((a) => a.smoothstep(0, 1).smoothstep(0, 1), [0.5])).toBe(0.5);
   });
-
+  /**
+   * @canon spec-a-function-with-an-edge-takes-the-value-last
+   */
   it("clamps a vector componentwise, operands already broadcast to match by core.ts", () => {
     const build = () => Fn(() => vec3(0.5, -0.5, 1.5).clamp(vec3(0, 0, 0), vec3(1, 1, 1)))();
     const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const result = fn.run({}) as any;
     expect(result.value).toEqual([0.5, 0, 1]);
   });
-
+  /**
+   * @canon spec-a-function-with-an-edge-takes-the-value-last
+   */
   it("mixes a vector with a scalar blend factor, broadcasting it to every component", () => {
     const build = () => Fn(() => vec3(0, 0, 0).mix(vec3(4, 8, 12), float(0.25)))();
     const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     expect((fn.run({}) as any).value).toEqual([1, 2, 3]);
   });
-
+  /**
+   * @canon spec-a-function-with-an-edge-takes-the-value-last
+   */
   it("mixes a vector with a per-component vector blend factor", () => {
     // `.mix()`'s own TS signature only declares a scalar `t` — the runtime
     // (`core.ts`'s own doc comment on `UNIFORM_OPERAND_OPS`, and
@@ -329,7 +393,9 @@ describe("WASM backend: clamp, mix, step, smoothstep", () => {
     const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     expect((fn.run({}) as any).value).toEqual([1, 4, 12]);
   });
-
+  /**
+   * @canon spec-a-function-with-an-edge-takes-the-value-last
+   */
   it("steps and smoothsteps a vector componentwise", () => {
     const stepBuild = () => Fn(() => vec3(0.2, 0.8, 0.5).step(vec3(0.5, 0.5, 0.5)))();
     expect((compileWasmRoutine(stepBuild as any, { name: "main", params: [] }).run({}) as any).value).toEqual([
@@ -344,6 +410,9 @@ describe("WASM backend: clamp, mix, step, smoothstep", () => {
 });
 
 describe("WASM backend: comparisons, logical, bitwise", () => {
+  /**
+   * @canon spec-a-scalar-comparison-gives-a-bool
+   */
   it("compares floats and ints", () => {
     expect(run((a, b) => a.lessThan(b), [1, 2])).toBe(true);
     expect(run((a, b) => a.lessThanEqual(b), [2, 2])).toBe(true);
@@ -351,14 +420,19 @@ describe("WASM backend: comparisons, logical, bitwise", () => {
     expect(run((a, b) => a.equal(b), [2, 2])).toBe(true);
     expect(run((a, b) => a.notEqual(b), [2, 2])).toBe(false);
   });
-
+  /**
+   * @canon spec-a-scalar-comparison-gives-a-bool
+   * @canon spec-wasm-integer-arithmetic-follows-wgsl
+   */
   it("compares uints unsigned", () => {
     // 4000000000 reads as negative under a signed comparison; unsigned it's
     // correctly greater than 2.
     expect(run((a, b) => a.lessThan(b), [4000000000, 2], ["uint", "uint"])).toBe(false);
     expect(run((a, b) => a.greaterThan(b), [4000000000, 2], ["uint", "uint"])).toBe(true);
   });
-
+  /**
+   * @canon spec-and-or-and-not-combine-bools
+   */
   it("combines booleans with and/or/not", () => {
     const build = (a: Node<"float">, b: Node<"float">) => a.greaterThan(0).and(b.greaterThan(0));
     expect(run(build, [1, 1])).toBe(true);
@@ -366,7 +440,9 @@ describe("WASM backend: comparisons, logical, bitwise", () => {
     expect(run((a: Node<"float">) => a.greaterThan(0).not(), [1])).toBe(false);
     expect(run((a: Node<"float">, b: Node<"float">) => a.greaterThan(0).or(b.greaterThan(0)), [-1, 1])).toBe(true);
   });
-
+  /**
+   * @canon spec-wasm-integer-arithmetic-follows-wgsl
+   */
   it("does bitwise and shifts on ints", () => {
     expect(run((a, b) => a.bitAnd(b), [6, 3], ["int", "int"])).toBe(2);
     expect(run((a, b) => a.bitOr(b), [6, 3], ["int", "int"])).toBe(7);
@@ -374,7 +450,9 @@ describe("WASM backend: comparisons, logical, bitwise", () => {
     expect(run((a) => a.bitNot(), [6], ["int"])).toBe(-7);
     expect(run((a, b) => a.shiftLeft(b), [1, 4], ["int", "int"])).toBe(16);
   });
-
+  /**
+   * @canon spec-wasm-integer-arithmetic-follows-wgsl
+   */
   it("shifts uints logically, ints arithmetically", () => {
     expect(run((a, b) => a.shiftRight(b), [-16, 2], ["int", "int"])).toBe(-4);
     expect(run((a, b) => a.shiftRight(b), [4000000000, 2], ["uint", "uint"])).toBe(1000000000);
@@ -393,7 +471,9 @@ describe("WASM backend: transcendentals via host import", () => {
     expect(run((a, b) => a.pow(b), [2, 10])).toBe(1024);
     expect(run((a) => a.exp2(), [10])).toBe(1024);
   });
-
+  /**
+   * @canon spec-wasm-float-arithmetic-matches-js-exactly
+   */
   it("agrees with compileJSRoutine on a transcendental", () => {
     // Built once: compileWasmRoutine and compileJSRoutine each call their `fn` argument
     // themselves, and a `build` that calls uniform() itself would mint a
@@ -409,6 +489,10 @@ describe("WASM backend: transcendentals via host import", () => {
 });
 
 describe("WASM backend: int/uint/bool values and casts", () => {
+  /**
+   * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
+   * @canon spec-an-integer-reaches-the-host-as-the-integer-it-is
+   */
   it("returns int/uint/bool results, and reads int/uint/bool uniforms", () => {
     let iu!: any;
     const intResult = compileWasmRoutine(
@@ -440,7 +524,9 @@ describe("WASM backend: int/uint/bool values and casts", () => {
     );
     expect(boolResult.run({ uniforms: { [bu.name]: true } })).toBe(false);
   });
-
+  /**
+   * @canon spec-a-conversion-between-numeric-types-is-written-out
+   */
   it("casts between float, int, uint, and bool", () => {
     expect(run((a) => a.toInt(), [3.9])).toBe(3); // truncates
     expect(run((a) => a.toFloat(), [3], ["int"])).toBe(3);
@@ -449,7 +535,9 @@ describe("WASM backend: int/uint/bool values and casts", () => {
     expect(run((a) => a.toBool(), [0], ["int"])).toBe(false);
     expect(run((a) => a.toInt(), [1], ["bool"])).toBe(1);
   });
-
+  /**
+   * @canon spec-wasm-integer-arithmetic-follows-wgsl
+   */
   it("agrees with compileJSRoutine across an int/uint/bool expression", () => {
     const build = (x: Node<"float">) => {
       const asInt = x.toInt();
@@ -465,6 +553,9 @@ describe("WASM backend: int/uint/bool values and casts", () => {
 });
 
 describe("WASM backend: control flow", () => {
+  /**
+   * @canon spec-an-if-chain-runs-the-first-branch-whose-condition-holds
+   */
   it("takes the branch If/Else selects", () => {
     const branch = (x: Node<"float">) =>
       Fn(() => {
@@ -541,7 +632,9 @@ describe("WASM backend: loops", () => {
       })();
     expect(run(build, [5])).toBe(10);
   });
-
+  /**
+   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   */
   it("breaks a loop directly, and from inside a nested If", () => {
     const directBreak = (n: Node<"float">) =>
       Fn(() => {
@@ -581,7 +674,9 @@ describe("WASM backend: loops", () => {
       })();
     expect(run(ifBreak, [10])).toBe(3); // 0+1+2, stops before adding 3
   });
-
+  /**
+   * @canon spec-continue-in-a-for-runs-the-update
+   */
   it("continues a For loop, still running the update clause", () => {
     const build = (n: Node<"float">) =>
       Fn(() => {
@@ -605,7 +700,9 @@ describe("WASM backend: loops", () => {
     // running it, `i` would never advance past 2 and this would hang.
     expect(run(build, [5])).toBe(8);
   });
-
+  /**
+   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   */
   it("breaks only the innermost loop when loops are nested", () => {
     const build = (n: Node<"float">) =>
       Fn(() => {
@@ -639,7 +736,9 @@ describe("WASM backend: loops", () => {
     // outer-loop-breaking bug would instead give exactly 2.
     expect(run(build, [3])).toBe(6);
   });
-
+  /**
+   * @canon spec-break-or-continue-outside-a-loop-is-refused
+   */
   it("throws when Break/Continue appear outside a loop", () => {
     expect(() =>
       compileWasmRoutine(
@@ -665,6 +764,9 @@ describe("WASM backend: loops", () => {
 });
 
 describe("WASM backend: Return and Discard", () => {
+  /**
+   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   */
   it("returns early with a zero sentinel from inside an If", () => {
     const build = (x: Node<"float">) =>
       Fn(() => {
@@ -678,7 +780,9 @@ describe("WASM backend: Return and Discard", () => {
     expect(run(build, [1])).toBe(0); // Return fires: sentinel, v never reassigned
     expect(run(build, [-1])).toBe(99); // Return doesn't fire: normal path runs
   });
-
+  /**
+   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   */
   it("compiles Discard to the same early-exit sentinel", () => {
     const build = () =>
       Fn(() => {
@@ -687,7 +791,9 @@ describe("WASM backend: Return and Discard", () => {
       })();
     expect(run(build)).toBe(0);
   });
-
+  /**
+   * @canon spec-a-loop-condition-runs-its-statements-before-every-test
+   */
   it("returns from a loop condition's statements, rather than looping on", () => {
     const build = () =>
       Fn(() => {
@@ -710,6 +816,9 @@ describe("WASM backend: Return and Discard", () => {
 });
 
 describe("WASM backend: vec3 dot", () => {
+  /**
+   * @canon spec-a-geometric-function-compiles-to-the-builtin-of-the-target
+   */
   it("computes a dot product through a vec3 uniform", () => {
     let dir!: any;
     let target!: any;
@@ -721,7 +830,9 @@ describe("WASM backend: vec3 dot", () => {
     const fn = compileWasmRoutine(build, { name: "main", params: [] });
     expect(fn.run({ uniforms: { [dir.name]: [1, 2, 3], [target.name]: [4, 5, 6] } })).toBe(32);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-answers-one-fragment-per-call
+   */
   it("drives a picking-style hit test (dot + If/Else)", () => {
     let dir!: any;
     let target!: any;
@@ -758,17 +869,25 @@ describe("WASM backend: vec3 dot", () => {
  * materialize-into-memory mechanism instead of the old vec3-only path.
  */
 describe("WASM backend: vector/matrix construct and literals", () => {
+  /**
+   * @canon spec-a-geometric-function-compiles-to-the-builtin-of-the-target
+   */
   it("dots a vec2/vec3/vec4 literal against itself", () => {
     expect(run(() => vec2(3, 4).dot(vec2(3, 4)) as any)).toBe(25);
     expect(run(() => vec3(1, 2, 3).dot(vec3(1, 2, 3)) as any)).toBe(14);
     expect(run(() => vec4(1, 2, 3, 4).dot(vec4(1, 2, 3, 4)) as any)).toBe(30);
   });
-
+  /**
+   * @canon spec-parts-fill-a-vector-in-order
+   */
   it("dots a mixed-arity construct (vec3-from-vec2, vec4-from-vec3) against itself", () => {
     expect(run(() => (vec3 as any)(vec2(1, 2), 3).dot(vec3(1, 2, 3)))).toBe(14);
     expect(run(() => vec4(vec3(1, 2, 3), 4).dot(vec4(1, 2, 3, 4)) as any)).toBe(30);
   });
-
+  /**
+   * @canon spec-a-matrix-is-built-from-its-columns
+   * @canon spec-a-scalar-matrix-is-a-diagonal
+   */
   it("dots a matrix (Frobenius inner product) built from columns or a scalar diagonal", () => {
     const m = () => mat3(vec3(1, 2, 3), vec3(4, 5, 6), vec3(7, 8, 9));
     expect(run(() => (m() as any).dot(m() as any))).toBe(285); // sum of squares 1..9
@@ -778,6 +897,9 @@ describe("WASM backend: vector/matrix construct and literals", () => {
 });
 
 describe("WASM backend: toVar/assign on vectors", () => {
+  /**
+   * @canon spec-a-variable-holds-a-copy
+   */
   it("reuses a toVar'd vector across an If/Else branch", () => {
     const branch = (x: Node<"float">) =>
       Fn(() => {
@@ -792,7 +914,9 @@ describe("WASM backend: toVar/assign on vectors", () => {
     expect(run(branch, [1])).toBe(14); // 1+4+9
     expect(run(branch, [-1])).toBe(77); // 16+25+36
   });
-
+  /**
+   * @canon spec-a-swizzle-write-writes-the-components-it-names
+   */
   it("assigns a multi-component swizzle target", () => {
     const build = () =>
       Fn(() => {
@@ -802,7 +926,9 @@ describe("WASM backend: toVar/assign on vectors", () => {
       })();
     expect(run(build)).toBe(509); // 100+400+9
   });
-
+  /**
+   * @canon spec-a-swizzle-write-writes-the-components-it-names
+   */
   it("assigns a single-component swizzle target", () => {
     const build = () =>
       Fn(() => {
@@ -815,12 +941,17 @@ describe("WASM backend: toVar/assign on vectors", () => {
 });
 
 describe("WASM backend: swizzle read", () => {
+  /**
+   * @canon spec-a-swizzle-reads-the-components-it-names
+   */
   it("reads single and multi-component swizzles, skipping components", () => {
     expect(run(() => vec4(1, 2, 3, 4).y as any)).toBe(2);
     expect(run(() => vec4(1, 2, 3, 4).yz.dot(vec2(1, 1)) as any)).toBe(5); // 2+3, skips x and w
     expect(run(() => Fn(() => vec3(1, 2, 3).toVar().z as any)())).toBe(3);
   });
-
+  /**
+   * @canon spec-an-inline-fn-runs-once
+   */
   it("inlines a nested Fn call's seq result used mid-expression (scalar)", () => {
     // Unlike the case above, the nested Fn call here isn't the compiled
     // root — it's one operand of `.add`, so its "seq" node (statements +
@@ -828,12 +959,16 @@ describe("WASM backend: swizzle read", () => {
     const inner = Fn(() => float(2).toVar().mul(3));
     expect(run(() => inner().add(1) as any)).toBe(7);
   });
-
+  /**
+   * @canon spec-an-inline-fn-runs-once
+   */
   it("inlines a nested Fn call's seq result used mid-expression (vector)", () => {
     const inner = Fn(() => vec3(10, 20, 30).toVar());
     expect(run(() => vec3(1, 2, 3).add(inner()).y as any)).toBe(22);
   });
-
+  /**
+   * @canon spec-a-swizzle-reads-the-components-it-names
+   */
   it("reads int/uint/bool vector components", () => {
     expect(run(() => ivec3(1, -2, 3).y as any)).toBe(-2);
     expect(run(() => uvec3(1, 2, 3).z as any)).toBe(3);
@@ -842,6 +977,9 @@ describe("WASM backend: swizzle read", () => {
 });
 
 describe("WASM backend: componentwise vector arithmetic", () => {
+  /**
+   * @canon spec-arithmetic-compiles-to-the-operators-of-the-target
+   */
   it("adds/subs/muls/divs vector-vector", () => {
     expect(
       run(
@@ -861,7 +999,9 @@ describe("WASM backend: componentwise vector arithmetic", () => {
     ).toBe(35);
     expect(run(() => vec2(3, 4).mul(vec2(2, 2)).dot(vec2(6, 8)) as any)).toBe(100);
   });
-
+  /**
+   * @canon spec-arithmetic-compiles-to-the-operators-of-the-target
+   */
   it("broadcasts a scalar across a vector for mul/div", () => {
     expect(
       run(
@@ -880,13 +1020,18 @@ describe("WASM backend: componentwise vector arithmetic", () => {
       ),
     ).toBe(14);
   });
-
+  /**
+   * @canon spec-arithmetic-compiles-to-the-operators-of-the-target
+   */
   it("adds int vectors componentwise", () => {
     expect(run(() => ivec3(1, 2, 3).add(ivec3(10, 20, 30)).y as any)).toBe(22);
   });
 });
 
 describe("WASM backend: aggregate function params", () => {
+  /**
+   * @canon spec-a-wasm-function-takes-an-aggregate-through-memory
+   */
   it("reads a vec3 function param via memory, not a WASM arg", () => {
     const fn = compileWasmRoutine((v: any) => v.dot(v), { name: "main", params: [{ name: "v", type: "vec3" }] });
     expect(fn.run({ params: { v: [1, 2, 3] } })).toBe(14);
@@ -894,11 +1039,16 @@ describe("WASM backend: aggregate function params", () => {
 });
 
 describe("WASM backend: cross, length, normalize, distance, reflect", () => {
+  /**
+   * @canon spec-a-geometric-function-compiles-to-the-builtin-of-the-target
+   */
   it("computes a cross product", () => {
     expect(run(() => cross(vec3(1, 0, 0), vec3(0, 1, 0)).dot(vec3(0, 0, 1)) as any)).toBe(1);
     expect(run(() => cross(vec3(1, 0, 0), vec3(0, 1, 0)).dot(vec3(1, 0, 0)) as any)).toBe(0);
   });
-
+  /**
+   * @canon spec-cross-of-a-vector-that-is-not-a-vec3-is-refused
+   */
   it("throws for cross() on a non-vec3", () => {
     expect(() =>
       compileWasmRoutine(() => (cross(vec2(1, 0) as any, vec2(0, 1) as any) as any).dot(vec2(0, 1) as any), {
@@ -907,21 +1057,29 @@ describe("WASM backend: cross, length, normalize, distance, reflect", () => {
       }),
     ).toThrow(/cross\(\) needs a vec3/);
   });
-
+  /**
+   * @canon spec-a-geometric-function-compiles-to-the-builtin-of-the-target
+   */
   it("computes length and distance", () => {
     expect(run(() => length(vec3(3, 4, 0)) as any)).toBe(5);
     expect(run(() => distance(vec3(0, 0, 0), vec3(3, 4, 0)) as any)).toBe(5);
   });
-
+  /**
+   * @canon spec-a-geometric-function-compiles-to-the-builtin-of-the-target
+   */
   it("normalizes a vector", () => {
     expect(run(() => normalize(vec3(3, 4, 0)).dot(normalize(vec3(3, 4, 0))) as any)).toBeCloseTo(1, 9);
     expect(run(() => normalize(vec3(3, 4, 0)).x as any)).toBeCloseTo(0.6, 9);
   });
-
+  /**
+   * @canon spec-normalizing-a-zero-vector-gives-it-back
+   */
   it("leaves a zero-length vector unchanged rather than dividing by zero", () => {
     expect(run(() => normalize(vec3(0, 0, 0)).x as any)).toBe(0);
   });
-
+  /**
+   * @canon spec-a-geometric-function-compiles-to-the-builtin-of-the-target
+   */
   it("reflects a vector off a normal", () => {
     // reflect(I, N) = I - 2*dot(N,I)*N; I=(1,-1,0), N=(0,1,0) -> (1,1,0)
     expect(run(() => reflect(vec3(1, -1, 0), vec3(0, 1, 0)).dot(vec3(1, 1, 0)) as any)).toBe(2);
@@ -930,18 +1088,25 @@ describe("WASM backend: cross, length, normalize, distance, reflect", () => {
 });
 
 describe("WASM backend: matrix×vector and matrix×matrix multiplication", () => {
+  /**
+   * @canon spec-a-matrix-product-has-the-shape-of-the-product
+   */
   it("multiplies a square matrix by a full-width vector", () => {
     const identity = mat3(vec3(1, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1));
     expect(run(() => (identity as any).mul(vec3(7, 8, 9)).dot(vec3(7, 8, 9)))).toBe(194);
   });
-
+  /**
+   * @canon spec-a-matrix-times-a-shorter-vector-promotes-it
+   */
   it("multiplies a mat4 by a vec3, implying w=1 and dropping the w row", () => {
     // Translation matrix: columns (1,0,0,0),(0,1,0,0),(0,0,1,0),(10,20,30,1).
     const translate = mat4(vec4(1, 0, 0, 0), vec4(0, 1, 0, 0), vec4(0, 0, 1, 0), vec4(10, 20, 30, 1));
     const transformed = (translate as any).mul(vec3(1, 2, 3));
     expect(run(() => transformed.dot(vec3(11, 22, 33)))).toBe(1694); // (11,22,33) . itself
   });
-
+  /**
+   * @canon spec-a-matrix-product-has-the-shape-of-the-product
+   */
   it("computes a real matrix product, not a componentwise one", () => {
     // A = columns (1,2),(3,4); B = columns (5,6),(7,8) — mat2's flat literal
     // value is already column-major, so these are just the flattened columns
@@ -955,7 +1120,9 @@ describe("WASM backend: matrix×vector and matrix×matrix multiplication", () =>
     // Extract the first column via matVecMul with the (1,0) basis vector.
     expect(run(() => (product as any).mul(vec2(1, 0)).dot(vec2(1, 1)))).toBe(57); // 23+34
   });
-
+  /**
+   * @canon spec-a-matrix-product-has-the-shape-of-the-product
+   */
   it("multiplies non-square matrices at the product shape", () => {
     const a = mat2x3(1, 2, 3, 4, 5, 6);
     const b = mat3x2(1, 0, 0, 1, 1, 1);
@@ -967,6 +1134,9 @@ describe("WASM backend: matrix×vector and matrix×matrix multiplication", () =>
 });
 
 describe("WASM backend: derivatives option", () => {
+  /**
+   * @canon exception-a-cpu-target-has-no-derivatives
+   */
   it("throws by default, matching compileJSRoutine's own message shape", () => {
     expect(() => compileWasmRoutine(() => dFdx(float(1)), { name: "main", params: [] })).toThrow(
       /dFdx\(\) has no meaning on the CPU target/,
@@ -987,6 +1157,9 @@ describe("WASM backend: derivatives option", () => {
 });
 
 describe("WASM backend: reentrant option accepted as a no-op", () => {
+  /**
+   * @canon spec-a-wasm-routine-is-reentrant
+   */
   it("compiles and runs identically whether reentrant is set or not", () => {
     const build = (a: Node<"float">) => a.mul(2);
     const params = [{ name: "a", type: "float" as const }];
@@ -998,25 +1171,34 @@ describe("WASM backend: reentrant option accepted as a no-op", () => {
 });
 
 describe("WASM backend: input direction (attribute/varying/fragCoord)", () => {
+  /**
+   * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
+   */
   it("reads scalar and aggregate attributes", () => {
     const a = attribute("float");
     const b = attribute("vec3");
     const fn = compileWasmRoutine(() => a.add(b.dot(b)) as any, { name: "main", params: [] });
     expect(fn.run({ attributes: { [a.name]: 10, [b.name]: [1, 2, 3] } })).toBe(24); // 10 + (1+4+9)
   });
-
+  /**
+   * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
+   */
   it("reads a varying in the default (fragment) stage", () => {
     const v = varying("vec2");
     const fn = compileWasmRoutine(() => v.x.add(v.y) as any, { name: "main", params: [] });
     expect(fn.run({ varyings: { [v.name]: [3, 4] } })).toBe(7);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
+   */
   it("reads fragCoord, defaulting to [0, 0]", () => {
     const fn = compileWasmRoutine(() => fragCoord().x.add(fragCoord().y) as any, { name: "main", params: [] });
     expect(fn.run({ fragCoord: [5, 6] })).toBe(11);
     expect(fn.run({})).toBe(0);
   });
-
+  /**
+   * @canon spec-frag-coord-is-read-only-in-a-fragment-stage
+   */
   it("throws for fragCoord() in a vertex stage", () => {
     expect(() => compileWasmRoutine(() => fragCoord().x as any, { name: "main", params: [], stage: "vertex" })).toThrow(
       /fragCoord\(\) can only be used in fragment shaders/,
@@ -1025,6 +1207,9 @@ describe("WASM backend: input direction (attribute/varying/fragCoord)", () => {
 });
 
 describe("WASM backend: output direction (output/varying/builtinPosition/builtinFragDepth)", () => {
+  /**
+   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   */
   it("writes to output(), scalar and aggregate, alongside a plain value", () => {
     const build = () =>
       Fn(() => {
@@ -1041,7 +1226,9 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
     expect(values).toContainEqual(7);
     expect(result.value).toBe(42);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   */
   it("writes int and bool scalar outputs with their own kind", () => {
     const build = () =>
       Fn(() => {
@@ -1058,7 +1245,9 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
     expect(values).toContainEqual(true);
     expect(result.value).toBe(1);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   */
   it("writes a scalar int varying in a vertex stage with its own kind", () => {
     const build = () =>
       Fn(() => {
@@ -1072,7 +1261,10 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
     const result = fn.run({}) as any;
     expect(Object.values(result.varyings as Record<string, unknown>)).toEqual([9]);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   * @canon spec-a-vertex-stage-writes-its-position
+   */
   it("writes position and a varying in a vertex stage, matching compileJSRoutine's own test", () => {
     const build = () =>
       Fn(() => {
@@ -1087,7 +1279,9 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
     expect(result.position).toEqual([0, 0, 0, 1]);
     expect(Object.values(result.varyings as Record<string, unknown>)).toEqual([[1, 2, 3]]);
   });
-
+  /**
+   * @canon spec-a-vertex-stage-writes-its-position
+   */
   it("treats a plain vec4 result as the implicit position when builtinPosition() is never used", () => {
     const build = () => Fn(() => vec4(5, 6, 7, 8))();
     const fn = compileWasmRoutine(build as any, { name: "main", params: [], stage: "vertex" });
@@ -1095,7 +1289,9 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
     expect(result.position).toEqual([5, 6, 7, 8]);
     expect(result.value).toBeUndefined();
   });
-
+  /**
+   * @canon spec-a-vertex-stage-may-return-several-values-ending-in-its-position
+   */
   it("allows a vertex stage's result to be non-vec4 once position is written", () => {
     const build = () =>
       Fn(() => {
@@ -1107,14 +1303,18 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
     expect(result.position).toEqual([1, 2, 3, 4]);
     expect(result.value).toBe(0);
   });
-
+  /**
+   * @canon spec-a-vertex-stage-without-a-position-is-refused
+   */
   it("throws when a vertex stage's result is neither vec4 nor paired with a written position", () => {
     const build = () => Fn(() => float(0))();
     expect(() => compileWasmRoutine(build as any, { name: "main", params: [], stage: "vertex" })).toThrow(
       /vertex shader has to produce a position/,
     );
   });
-
+  /**
+   * @canon spec-the-fragment-depth-is-written-only-in-a-fragment-stage
+   */
   it("writes builtinFragDepth in a fragment stage", () => {
     const build = () =>
       Fn(() => {
@@ -1126,7 +1326,9 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
     expect(result.fragDepth).toBe(0.25);
     expect(result.value).toBe(1);
   });
-
+  /**
+   * @canon spec-the-fragment-depth-is-written-only-in-a-fragment-stage
+   */
   it("throws for builtinFragDepth() in a vertex stage", () => {
     const build = () =>
       Fn(() => {
@@ -1137,7 +1339,9 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
       /can't assign to the fragment depth in a vertex stage/,
     );
   });
-
+  /**
+   * @canon spec-the-position-is-read-only-in-a-vertex-stage
+   */
   it("throws reading builtinPosition() from a fragment stage", () => {
     const build = () =>
       Fn(() => {
@@ -1150,6 +1354,9 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
 });
 
 describe("WASM backend: texture uniforms", () => {
+  /**
+   * @canon spec-texture-size-gives-the-dimensions
+   */
   it("reads a sampler2D texture's dimensions via textureSize()", () => {
     const tex = uniform("sampler2D");
     const build = () =>
@@ -1161,7 +1368,9 @@ describe("WASM backend: texture uniforms", () => {
     const result = fn.run({ textures: { [tex.name]: { data: new Float32Array(4 * 3), width: 4, height: 3 } } });
     expect(result).toBe(7);
   });
-
+  /**
+   * @canon spec-texture-size-gives-the-dimensions
+   */
   it("reads a sampler3D texture's dimensions via textureSize()", () => {
     const tex = uniform("sampler3D");
     const build = () =>
@@ -1175,7 +1384,9 @@ describe("WASM backend: texture uniforms", () => {
     });
     expect(result).toBe(9);
   });
-
+  /**
+   * @canon spec-a-wasm-routine-copies-a-texture-into-its-memory-once
+   */
   it("grows WASM memory to fit a larger texture across calls without corrupting metadata", () => {
     const tex = uniform("sampler2D");
     const build = () => Fn(() => textureSize(tex).x)();
@@ -1187,7 +1398,9 @@ describe("WASM backend: texture uniforms", () => {
       fn.run({ textures: { [tex.name]: { data: new Float32Array(2000 * 2000), width: 2000, height: 2000 } } }),
     ).toBe(2000);
   });
-
+  /**
+   * @canon spec-a-wasm-routine-copies-a-texture-into-its-memory-once
+   */
   it("keeps sampling correctly across repeated calls with the same texture object (the cached, skip-the-copy path)", () => {
     const tex = uniform("sampler2D");
     const build = () => Fn(() => textureLoad(tex, ivec2(1, 0)).x)();
@@ -1200,7 +1413,9 @@ describe("WASM backend: texture uniforms", () => {
       expect(fn.run({ textures: { [tex.name]: texture } })).toBe(20);
     }
   });
-
+  /**
+   * @canon spec-a-wasm-routine-copies-a-texture-into-its-memory-once
+   */
   it("picks up a different, same-size texture bound to the same slot", () => {
     const tex = uniform("sampler2D");
     const build = () => Fn(() => textureLoad(tex, ivec2(1, 0)).x)();
@@ -1213,7 +1428,9 @@ describe("WASM backend: texture uniforms", () => {
     // reusing `first`'s now-stale ones.
     expect(fn.run({ textures: { [tex.name]: second } })).toBe(99);
   });
-
+  /**
+   * @canon spec-a-wasm-routine-copies-a-texture-into-its-memory-once
+   */
   it("does not notice a texture's data mutated in place without swapping the object — a known, deliberate limitation of the reference-equality cache", () => {
     const tex = uniform("sampler2D");
     const build = () => Fn(() => textureLoad(tex, ivec2(1, 0)).x)();
@@ -1223,7 +1440,9 @@ describe("WASM backend: texture uniforms", () => {
     texture.data[1] = 55; // mutated in place — same object reference
     expect(fn.run({ textures: { [tex.name]: texture } })).toBe(20); // stale on purpose
   });
-
+  /**
+   * @canon spec-texture-size-gives-the-dimensions
+   */
   it("supports textureSize() for a samplerCube uniform, matching compileJSRoutine's own lack of restriction there", () => {
     const tex = uniform("samplerCube");
     const build = () => Fn(() => (textureSize as any)(tex).x)();
@@ -1236,7 +1455,9 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
   // A 2x2, 4-channel texture: (1,0)'s texel is [2,3,5,7], every other texel
   // is uniform filler so a wrong index reads something recognizably wrong.
   const checkerData = [1, 1, 1, 1, 2, 3, 5, 7, 9, 9, 9, 9, 9, 9, 9, 9];
-
+  /**
+   * @canon spec-an-integer-texture-reads-one-texel
+   */
   it("fetches an in-bounds texel's 4 channels", () => {
     const tex = uniform("sampler2D");
     const build = () =>
@@ -1248,7 +1469,9 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
     const result = fn.run({ textures: { [tex.name]: { data: checkerData, width: 2, height: 2 } } });
     expect(result).toBe(2 + 30 + 500 + 7000);
   });
-
+  /**
+   * @canon spec-a-texel-fetched-out-of-range-reads-zero
+   */
   it("returns all zero for an out-of-bounds texel, including alpha", () => {
     const tex = uniform("sampler2D");
     const build = () =>
@@ -1260,7 +1483,9 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
     const result = fn.run({ textures: { [tex.name]: { data: checkerData, width: 2, height: 2 } } });
     expect(result).toBe(0);
   });
-
+  /**
+   * @canon spec-a-texel-fetched-out-of-range-reads-zero
+   */
   it("returns all zero for a negative coordinate on an ivec2-coordinate fetch", () => {
     const tex = uniform("sampler2D");
     const build = () =>
@@ -1272,7 +1497,9 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
     const result = fn.run({ textures: { [tex.name]: { data: checkerData, width: 2, height: 2 } } });
     expect(result).toBe(0);
   });
-
+  /**
+   * @canon spec-a-texel-holds-the-channels-its-texture-stores
+   */
   it("defaults missing green/blue to 0 and missing alpha to 1 for a 1-channel texture", () => {
     const tex = uniform("sampler2D");
     const build = () =>
@@ -1284,7 +1511,9 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
     const result = fn.run({ textures: { [tex.name]: { data: [42, 84], width: 2, height: 1, channels: 1 } } });
     expect(result).toBe(84 + 0 + 0 + 1000);
   });
-
+  /**
+   * @canon spec-a-byte-texture-reads-as-zero-to-one
+   */
   it("divides a Uint8Array-backed texture's value by 255 (unorm)", () => {
     const tex = uniform("sampler2D");
     const build = () => Fn(() => textureLoad(tex, ivec2(0, 0)).x)();
@@ -1294,7 +1523,9 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
     });
     expect(result).toBeCloseTo(128 / 255, 10);
   });
-
+  /**
+   * @canon spec-a-byte-texture-reads-as-zero-to-one
+   */
   it("fetches a signed integer sampler's raw value with no division", () => {
     const tex = uniform("isampler2D");
     const build = () => Fn(() => textureLoad(tex, ivec2(1, 0)).x)();
@@ -1302,7 +1533,10 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
     const result = fn.run({ textures: { [tex.name]: { data: [100, -50], width: 2, height: 1, channels: 1 } } });
     expect(result).toBe(-50);
   });
-
+  /**
+   * @canon spec-a-byte-texture-reads-as-zero-to-one
+   * @canon spec-an-integer-reaches-the-host-as-the-integer-it-is
+   */
   it("fetches an unsigned integer sampler's value above the int32 range correctly", () => {
     const tex = uniform("usampler2D") as any;
     const build = () => Fn(() => (textureLoad(tex, ivec2(0, 0) as any) as any).x)();
@@ -1310,7 +1544,9 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
     const result = fn.run({ textures: { [tex.name]: { data: [4000000000], width: 1, height: 1, channels: 1 } } });
     expect(result).toBe(4000000000);
   });
-
+  /**
+   * @canon spec-a-3d-texture-blends-across-its-depth
+   */
   it("fetches from a sampler3D texture", () => {
     const tex = uniform("sampler3D");
     const build = () => Fn(() => textureLoad(tex, ivec3(1, 0, 1)).x)();
@@ -1321,7 +1557,9 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
     const result = fn.run({ textures: { [tex.name]: { data, width: 2, height: 1, depth: 2, channels: 1 } } });
     expect(result).toBe(40);
   });
-
+  /**
+   * @canon exception-an-integer-cube-map-cannot-be-fetched
+   */
   it("throws for a samplerCube uniform", () => {
     const tex = uniform("samplerCube") as any;
     const build = () => Fn(() => textureLoad(tex, ivec2(0, 0) as any).x)();
@@ -1337,7 +1575,9 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
   function checksum4(v: any) {
     return v.x.add(v.y.mul(10)).add(v.z.mul(100)).add(v.w.mul(1000));
   }
-
+  /**
+   * @canon spec-a-cpu-target-filters-as-the-texture-asks
+   */
   it("samples textures with nearest-neighbour lookup", () => {
     let tex: any;
     const build = () =>
@@ -1350,7 +1590,9 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
     const data = [1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4];
     expect(fn.run({ textures: { [tex.name]: { data, width: 2, height: 2 } } })).toBe(4 + 40 + 400 + 4000);
   });
-
+  /**
+   * @canon spec-a-byte-texture-reads-as-zero-to-one
+   */
   it("reads a byte texture through a float sampler as 0 to 1", () => {
     let tex: any;
     const build = () =>
@@ -1363,7 +1605,9 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
     const result = fn.run({ textures: { [tex.name]: { data, width: 1, height: 1 } } }) as number;
     expect(result).toBeCloseTo(0 + (128 / 255) * 10 + 1 * 100 + 1 * 1000, 9);
   });
-
+  /**
+   * @canon spec-a-byte-texture-reads-as-zero-to-one
+   */
   it("leaves a float texture that already holds float data alone", () => {
     let tex: any;
     const build = () =>
@@ -1376,7 +1620,9 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
     const result = fn.run({ textures: { [tex.name]: { data, width: 1, height: 1 } } }) as number;
     expect(result).toBeCloseTo(0 + 0.5 * 10 + 1 * 100 + 1 * 1000, 9);
   });
-
+  /**
+   * @canon spec-an-integer-texture-reads-one-texel
+   */
   it("fetches integer textures at texel coordinates via texture()", () => {
     let tex: any;
     const build = () =>
@@ -1388,7 +1634,9 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
     const data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
     expect(fn.run({ textures: { [tex.name]: { data, width: 2, height: 2 } } })).toBe(5 + 60 + 700 + 8000);
   });
-
+  /**
+   * @canon spec-a-texel-holds-the-channels-its-texture-stores
+   */
   it("strides by the channels a texel holds, not by four", () => {
     let tex: any;
     const build = () =>
@@ -1401,7 +1649,9 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
     const result = fn.run({ textures: { [tex.name]: { data, width: 4, height: 1, channels: 1 } } });
     expect(result).toBe(30 + 0 + 0 + 1000);
   });
-
+  /**
+   * @canon spec-a-texel-holds-the-channels-its-texture-stores
+   */
   it("blends a single-channel texture without reading its neighbours' channels", () => {
     let tex: any;
     const build = () =>
@@ -1414,7 +1664,9 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
     expect(fn.run({ textures: { [tex.name]: texture } })).toBe(100 + 0 + 0 + 1000);
     expect(fn.run({ textures: { [tex.name]: { ...texture, magFilter: "linear" as const } } })).toBe(50 + 0 + 0 + 1000);
   });
-
+  /**
+   * @canon spec-a-byte-texture-reads-as-zero-to-one
+   */
   it("normalizes a byte texture fetched with textureLod too", () => {
     let tex: any;
     const build = () =>
@@ -1427,7 +1679,9 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
     const result = fn.run({ textures: { [tex.name]: { data, width: 1, height: 1 } } }) as number;
     expect(result).toBeCloseTo(0 + (128 / 255) * 10 + 1 * 100 + 1 * 1000, 9);
   });
-
+  /**
+   * @canon spec-a-cpu-target-filters-as-the-texture-asks
+   */
   it("blends neighbouring texels when the texture asks for linear filtering", () => {
     let tex: any;
     const build = () =>
@@ -1444,7 +1698,9 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
     expect(fn.run({ textures: { [tex.name]: texture } })).toBe(100);
     expect(fn.run({ textures: { [tex.name]: { ...texture, magFilter: "linear" as const } } })).toBe(50);
   });
-
+  /**
+   * @canon spec-a-cpu-target-wraps-as-the-texture-asks
+   */
   it("wraps a coordinate past the edge the way the texture asks", () => {
     let tex: any;
     const build = () =>
@@ -1461,7 +1717,9 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
     expect(red({ ...texture, wrapS: "repeat" as const })).toBe(10);
     expect(red({ ...texture, wrapS: "mirror" as const })).toBe(20);
   });
-
+  /**
+   * @canon spec-a-cpu-target-wraps-as-the-texture-asks
+   */
   it("wraps behind the left edge too", () => {
     let tex: any;
     const build = () =>
@@ -1476,7 +1734,9 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
     expect(red({ ...texture, wrapS: "repeat" as const })).toBe(20);
     expect(red({ ...texture, wrapS: "mirror" as const })).toBe(10);
   });
-
+  /**
+   * @canon spec-a-3d-texture-blends-across-its-depth
+   */
   it("blends across the depth of a 3D texture", () => {
     let tex: any;
     const build = () =>
@@ -1495,7 +1755,9 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
     };
     expect(fn.run({ textures: { [tex.name]: texture } })).toBe(50);
   });
-
+  /**
+   * @canon spec-a-cube-map-is-sampled-on-the-face-its-direction-picks
+   */
   it("samples the right face of a cube map by direction", () => {
     // 6 faces, one texel each, face order +X,-X,+Y,-Y,+Z,-Z: 10,20,30,40,50,60.
     const data = [10, 10, 10, 10, 20, 20, 20, 20, 30, 30, 30, 30, 40, 40, 40, 40, 50, 50, 50, 50, 60, 60, 60, 60];
@@ -1520,7 +1782,10 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
     expect(at(0, 0, 1)).toBe(checksum(50));
     expect(at(0, 0, -1)).toBe(checksum(60));
   });
-
+  /**
+   * @canon spec-a-cube-map-is-sampled-on-the-face-its-direction-picks
+   * @canon spec-wasm-float-arithmetic-matches-js-exactly
+   */
   it("matches the JS backend's cube sample for an off-axis direction", () => {
     // 6 faces of 2x2 RGBA: 6*2*2*4 = 96 elements, each texel a distinct value.
     const data = Array.from({ length: 6 * 2 * 2 * 4 }, (_, i) => i / 10);
@@ -1554,7 +1819,9 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
     const jsResult = jsFn.run({ textures: { [jsTex.name]: texture } }) as number[];
     expect(wasmResult.value).toEqual(jsResult);
   });
-
+  /**
+   * @canon exception-an-integer-cube-map-cannot-be-fetched
+   */
   it("throws for isamplerCube/usamplerCube — not supported yet", () => {
     let tex: any;
     const build = () =>
@@ -1569,6 +1836,9 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
 });
 
 describe("WASM backend: .draw() — render a whole grid in one call", () => {
+  /**
+   * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
+   */
   it("renders a scalar per pixel, fragCoord at pixel centers", () => {
     const build = () => Fn(() => fragCoord().x)();
     const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
@@ -1577,7 +1847,9 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
     // Row-major, (y*width+x): x+0.5 regardless of row.
     expect(Array.from(out)).toEqual([0.5, 1.5, 2.5, 0.5, 1.5, 2.5]);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
+   */
   it("renders both fragCoord axes packed into a vec4 per pixel, with no stage or output() involved", () => {
     const build = () => Fn(() => vec4(fragCoord().x, fragCoord().y, 0, 1))();
     const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
@@ -1602,7 +1874,9 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
       1, // (1,1)
     ]);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
+   */
   it("reads a uniform every pixel and reflects a changed uniform on the next call", () => {
     const scale = uniform("float");
     const build = () => Fn(() => fragCoord().x.mul(scale))();
@@ -1610,7 +1884,9 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
     expect(Array.from(fn.draw({ uniforms: { [scale.name]: 2 } }, 2, 1))).toEqual([1, 3]);
     expect(Array.from(fn.draw({ uniforms: { [scale.name]: 10 } }, 2, 1))).toEqual([5, 15]);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
+   */
   it("picks dimensions per call, not at compile time", () => {
     const build = () => Fn(() => fragCoord().x)();
     const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
@@ -1618,7 +1894,9 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
     expect(Array.from(fn.draw({}, 4, 1))).toEqual([0.5, 1.5, 2.5, 3.5]);
     expect(Array.from(fn.draw({}, 1, 1))).toEqual([0.5]);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-answers-one-fragment-per-call
+   */
   it("the same compiled function still works as a plain single-pixel call — draw() is a choice per call, not a compile mode", () => {
     const scale = uniform("float");
     const build = () => Fn(() => fragCoord().x.mul(scale))();
@@ -1626,7 +1904,9 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
     expect(fn.run({ uniforms: { [scale.name]: 2 }, fragCoord: [3, 0] })).toBe(6);
     expect(Array.from(fn.draw({ uniforms: { [scale.name]: 2 } }, 2, 1))).toEqual([1, 3]);
   });
-
+  /**
+   * @canon spec-a-wasm-routine-copies-a-texture-into-its-memory-once
+   */
   it("grows memory for a large grid without corrupting earlier pixels", () => {
     const build = () => Fn(() => fragCoord().x.add(fragCoord().y))();
     const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
@@ -1639,7 +1919,9 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
     expect(big[0]).toBe(1); // (0.5 + 0.5)
     expect(big[width * height - 1]).toBe(width - 0.5 + (height - 0.5));
   });
-
+  /**
+   * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
+   */
   it("throws when the function produces no value to render", () => {
     const build = () =>
       Fn(() => {
@@ -1648,7 +1930,9 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
     const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     expect(() => fn.draw({}, 1, 1)).toThrow(/produces no value to render/);
   });
-
+  /**
+   * @canon spec-a-wasm-routine-copies-a-texture-into-its-memory-once
+   */
   it("samples a texture correctly during draw(), without colliding with the output buffer", () => {
     const tex = uniform("sampler2D") as any;
     const build = () => Fn(() => textureLoad(tex, ivec2(1, 0)).x.add(fragCoord().x))();
@@ -1658,7 +1942,9 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
     // texel(1,0) = 99, plus fragCoord().x per pixel (0.5, 1.5, 2.5).
     expect(Array.from(out)).toEqual([99.5, 100.5, 101.5]);
   });
-
+  /**
+   * @canon spec-a-wasm-routine-copies-a-texture-into-its-memory-once
+   */
   it("keeps the texture heap and the draw buffer correctly separated across memory growth in both", () => {
     const tex = uniform("sampler2D") as any;
     const build = () => Fn(() => textureLoad(tex, ivec2(0, 0)).x)();
@@ -1681,7 +1967,9 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
     expect(out[0]).toBe(42);
     expect(out[out.length - 1]).toBe(42);
   });
-
+  /**
+   * @canon spec-a-wasm-routine-copies-a-texture-into-its-memory-once
+   */
   it("interleaves a plain texture-sampling call with draw() using the same texture correctly", () => {
     const tex = uniform("sampler2D") as any;
     const build = () => Fn(() => textureLoad(tex, ivec2(0, 0)).x)();
@@ -1694,6 +1982,9 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
 });
 
 describe("WASM backend: instantiateWasmRoutine — compile and instantiate as separate steps", () => {
+  /**
+   * @canon spec-a-wasm-module-is-compiled-and-instantiated-in-separate-steps
+   */
   it("compileWasmFn + instantiateWasmRoutine behaves exactly like compileWasmRoutine", () => {
     const build = (a: any, b: any) => a.add(b).mul(2);
     const options = {
@@ -1707,7 +1998,9 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
     const fn = instantiateWasmRoutine(compiled, options.name);
     expect(fn.run({ params: { a: 3, b: 4 } })).toBe(14);
   });
-
+  /**
+   * @canon spec-a-wasm-module-is-compiled-and-instantiated-in-separate-steps
+   */
   it("instantiates the same compiled bytes more than once, independently", () => {
     const build = (a: any) => a.mul(a);
     const compiled = compileWasmFn(build, { name: "square", params: [{ name: "a", type: "float" }] });
@@ -1718,14 +2011,18 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
     // Independent instances: calling one again doesn't reflect the other's call.
     expect(first.run({ params: { a: 5 } })).toBe(25);
   });
-
+  /**
+   * @canon spec-a-wasm-module-is-compiled-and-instantiated-in-separate-steps
+   */
   it("draw() still works when instantiated separately from compilation", () => {
     const build = () => Fn(() => fragCoord().x)();
     const compiled = compileWasmFn(build as any, { name: "main", params: [] });
     const fn = instantiateWasmRoutine(compiled, "main");
     expect(Array.from(fn.draw({}, 2, 1))).toEqual([0.5, 1.5]);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-runs-one-compute-invocation-per-call
+   */
   it("compiles storage()/invocationIndex() into a per-call array-indexed program", () => {
     // Same per-invocation model as compileJSRoutine's storage support: one call per
     // element, `ctx.index` naming which one, `ctx.storages` the backing
@@ -1748,7 +2045,9 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
     }
     expect(Array.from(pos)).toEqual([2, 14, 26]);
   });
-
+  /**
+   * @canon spec-every-root-of-a-program-keeps-its-effects
+   */
   it("compiles a caller-supplied array of independently-built roots, keeping every root's effects", () => {
     // Two disjoint Fns (their own separate storage()/uniform() calls, sharing
     // only the buffer objects, no node identity) passed as one array — the
@@ -1788,7 +2087,9 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
     expect(Array.from(vel)).toEqual([5]);
     expect(Array.from(pos)).toEqual([10]);
   });
-
+  /**
+   * @canon spec-every-root-of-a-program-keeps-its-effects
+   */
   it("does not double-emit shared statements for the array-return-sugar case", () => {
     // return [a, b] from a single Fn wraps both items in a "seq" sharing the
     // *same* leading statement objects (src/core.ts's Fn) — each one must
@@ -1811,7 +2112,9 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
     // once, it should land at 13.
     expect(Array.from(pos)).toEqual([13]);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-runs-one-compute-invocation-per-call
+   */
   it("reads and writes vector elements other than the invocation's own, as the JS target does", () => {
     const srcNode = instancedArray(3, "vec3").toReadOnly();
     const dstNode = instancedArray(3, "vec3");
@@ -1843,7 +2146,9 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
     expect(run(compileJSRoutine(build as any, { name: "step", params: [] }))).toEqual(want);
     expect(run(compileWasmRoutine(build as any, { name: "step", params: [] }))).toEqual(want);
   });
-
+  /**
+   * @canon spec-a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing
+   */
   it("reads an element outside the buffer as zero, and drops a write outside it", () => {
     // The buffers sit next to each other in memory, so an unchecked access
     // past the end of `a` would read or overwrite `b`'s first element.
@@ -1863,7 +2168,9 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
     expect(Array.from(a)).toEqual([1, 2]);
     expect(Array.from(b)).toEqual([0, 0]);
   });
-
+  /**
+   * @canon spec-a-wasm-routine-loops-inside-its-module
+   */
   it("runs a whole dispatch inside the module, in one call from the host", () => {
     let dt!: UniformNode<"float">;
     const posNode = instancedArray(4, "float");
@@ -1884,7 +2191,9 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
     fn.compute({ storages: { [posNode.name]: pos }, uniforms: { [dt.name]: 2 } }, 4);
     expect(Array.from(pos)).toEqual([1, 3, 5, 7]);
   });
-
+  /**
+   * @canon spec-a-wasm-routine-loops-inside-its-module
+   */
   it("dispatches a program that never reads invocationIndex(), once per invocation", () => {
     const countNode = instancedArray(1, "int");
     const build = () =>
@@ -1896,7 +2205,9 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
     fn.compute({ storages: { [countNode.name]: count } }, 5);
     expect(Array.from(count)).toEqual([5]);
   });
-
+  /**
+   * @canon spec-a-wasm-routine-loops-inside-its-module
+   */
   it("dispatches a program whose main returns a value, discarding it", () => {
     // Read-only storage leaves main returning its value directly rather than
     // through memory, so the dispatch loop has a result on the stack to drop.
@@ -1907,7 +2218,9 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
     const fn = instantiateWasmRoutine(compiled, "step");
     expect(() => fn.compute({ storages: { [src.name]: new Float64Array([1, 2, 3]) } }, 3)).not.toThrow();
   });
-
+  /**
+   * @canon spec-a-whole-storage-buffer-cannot-be-read
+   */
   it("refuses a storage() read as a whole rather than through .element(i)", () => {
     const build = () =>
       Fn(() => {
@@ -1919,6 +2232,9 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
 });
 
 describe("WASM backend: memoryBase — several compiled modules sharing one WebAssembly.Memory", () => {
+  /**
+   * @canon spec-several-wasm-modules-can-share-one-memory
+   */
   it("keeps each module's compile-time addresses in its own, non-overlapping region", () => {
     const memory = new WebAssembly.Memory({ initial: 1 });
     const view = () => new DataView(memory.buffer);
@@ -1951,6 +2267,9 @@ describe("WASM backend: memoryBase — several compiled modules sharing one WebA
 });
 
 describe("WASM backend: scalarsInMemory — scalar uniform/attribute/varying forced into memory", () => {
+  /**
+   * @canon spec-a-wasm-program-can-take-one-call-shape
+   */
   it("compiles a scalar uniform to a zero-arg function and still reads its value", () => {
     let threshold!: any;
     const build = () => {
@@ -1965,7 +2284,9 @@ describe("WASM backend: scalarsInMemory — scalar uniform/attribute/varying for
     expect(fn.run({ uniforms: { [threshold.name]: 4 } })).toBe(5);
     expect(fn.run({ uniforms: { [threshold.name]: 9 } })).toBe(10);
   });
-
+  /**
+   * @canon spec-a-wasm-program-can-take-one-call-shape
+   */
   it("compiles a scalar attribute to a zero-arg function and still reads its value", () => {
     let a!: any;
     const build = () => {
@@ -1979,7 +2300,9 @@ describe("WASM backend: scalarsInMemory — scalar uniform/attribute/varying for
     const fn = instantiateWasmRoutine(compiled, "main");
     expect(fn.run({ attributes: { [a.name]: 3 } })).toBe(6);
   });
-
+  /**
+   * @canon spec-a-wasm-program-can-take-one-call-shape
+   */
   it("compiles a scalar fragment-stage varying to a zero-arg function and still reads its value", () => {
     let v!: any;
     const build = () => {
@@ -1993,7 +2316,9 @@ describe("WASM backend: scalarsInMemory — scalar uniform/attribute/varying for
     const fn = instantiateWasmRoutine(compiled, "main");
     expect(fn.run({ varyings: { [v.name]: 10 } })).toBe(9);
   });
-
+  /**
+   * @canon spec-a-wasm-program-can-take-one-call-shape
+   */
   it("leaves a scalar-only program at a real function argument by default", () => {
     let threshold!: any;
     const build = () => {
@@ -2007,6 +2332,9 @@ describe("WASM backend: scalarsInMemory — scalar uniform/attribute/varying for
 });
 
 describe("WASM backend: which storage buffers are copied back", () => {
+  /**
+   * @canon spec-a-wasm-routine-copies-back-only-the-buffers-the-program-writes
+   */
   it("marks a storage buffer written only when the program assigns to it", () => {
     const input = instancedArray(4, "float");
     const output = instancedArray(4, "vec2");
@@ -2036,7 +2364,9 @@ describe("WASM backend: writing a vector component by index", () => {
       /\[RMSL\] compileWasmFn: writing a component by index through a swizzle isn't supported yet/,
     );
   });
-
+  /**
+   * @canon spec-a-run-time-index-past-the-end-reaches-the-last-element
+   */
   it("keeps a storage element's write by an index computed past its end inside the element", () => {
     const out = instancedArray(2, "vec4");
     const root = Fn(() => {
@@ -2054,7 +2384,11 @@ describe("WASM backend: writing a vector component by index", () => {
 });
 
 describe("WASM backend: an inline Fn's statements read inside a statement", () => {
-  // Each program also runs on the JS target, which gives the answer.
+  /**
+   * Each program also runs on the JS target, which gives the answer.
+   *
+   * @canon spec-an-inline-fn-runs-once
+   */
   it("runs them when the statement stores into a storage element past the end", () => {
     const out = instancedArray(1, "float");
     const build = () =>
@@ -2077,7 +2411,9 @@ describe("WASM backend: an inline Fn's statements read inside a statement", () =
     expect(run(compileJSRoutine as any)).toBe(2);
     expect(run(compileWasmRoutine)).toBe(2);
   });
-
+  /**
+   * @canon spec-an-inline-fn-runs-once
+   */
   it("runs them once when they compute a uniform array index", () => {
     let arr!: any;
     const build = () =>

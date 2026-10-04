@@ -88,6 +88,9 @@ function scanPass(src: StorageNode<"uint">, dst: StorageNode<"uint">, stride: nu
 
 for (const backend of backends) {
   describe.skipIf(!backend.enabled)(`${backend.name} compute context`, () => {
+    /**
+     * @canon spec-a-compute-context-runs-programs-over-shared-buffers
+     */
     it("runs a batch in order, over buffers of different sizes", async () => {
       const context = await backend.create();
       const values = instancedArray(8, "uint");
@@ -108,7 +111,9 @@ for (const backend of backends) {
       expect(await context.read(total.attribute)).toEqual([84]);
       context.destroy();
     });
-
+    /**
+     * @canon spec-a-dispatch-skips-the-indices-past-its-count
+     */
     it("bounds each program by its own count", async () => {
       const context = await backend.create();
       const values = instancedArray(8, "uint");
@@ -121,7 +126,9 @@ for (const backend of backends) {
       expect(await context.read(values.attribute)).toEqual([1, 1, 1, 1, 1, 0, 0, 0]);
       context.destroy();
     });
-
+    /**
+     * @canon spec-a-context-keeps-a-uniform-until-it-is-set-again
+     */
     it("passes a uniform to the programs that read it", async () => {
       const context = await backend.create();
       const values = instancedArray(Int32Array.of(10, -10), "int");
@@ -137,7 +144,9 @@ for (const backend of backends) {
       expect(await context.read(values.attribute)).toEqual([7, -13]);
       context.destroy();
     });
-
+    /**
+     * @canon spec-a-context-keeps-a-uniform-until-it-is-set-again
+     */
     it("keeps a uniform's value from when it was set, until it is set again", async () => {
       const context = await backend.create();
       const out = instancedArray(2, "float");
@@ -159,7 +168,9 @@ for (const backend of backends) {
       expect(await context.read(out.attribute)).toEqual([5, 2]);
       context.destroy();
     });
-
+    /**
+     * @canon spec-a-context-keeps-a-uniform-until-it-is-set-again
+     */
     it("passes uniform arrays and matrices, laid out as each backend reads them", async () => {
       const context = await backend.create();
       const out = instancedArray(7, "float");
@@ -187,7 +198,9 @@ for (const backend of backends) {
       expect(await context.read(out.attribute)).toEqual([1, 2, 3, 6, 7, 15, 16]);
       context.destroy();
     });
-
+    /**
+     * @canon spec-an-unset-uniform-reads-zero
+     */
     it("reads an unset uniform as zero", async () => {
       const context = await backend.create();
       const out = instancedArray(3, "float");
@@ -205,7 +218,9 @@ for (const backend of backends) {
       expect(await context.read(out.attribute)).toEqual([1, 1, 1]);
       context.destroy();
     });
-
+    /**
+     * @canon spec-a-swizzle-write-writes-the-components-it-names
+     */
     it("writes single components and swizzles of a storage element", async () => {
       const context = await backend.create();
       const out = instancedArray(2, "vec4");
@@ -222,7 +237,9 @@ for (const backend of backends) {
       expect(await context.read(out.attribute)).toEqual([1, 100, 1000, 10, 2, 200, 2000, 20]);
       context.destroy();
     });
-
+    /**
+     * @canon spec-an-element-write-writes-at-its-index
+     */
     it("writes a component of a storage element by a computed index", async () => {
       const context = await backend.create();
       const out = instancedArray(2, "vec4");
@@ -236,7 +253,9 @@ for (const backend of backends) {
       expect(await context.read(out.attribute)).toEqual([0, 1, 0, 0, 0, 0, 2, 0]);
       context.destroy();
     });
-
+    /**
+     * @canon spec-an-element-write-writes-at-its-index
+     */
     it("writes and reads a column of a storage element by a computed index", async () => {
       const context = await backend.create();
       const out = instancedArray(2, "mat2");
@@ -256,7 +275,9 @@ for (const backend of backends) {
       expect(await context.read(columns.attribute)).toEqual([10, 1, 11, 2]);
       context.destroy();
     });
-
+    /**
+     * @canon spec-an-element-write-writes-at-its-index
+     */
     it("writes columns of storage elements of every unpadded matrix size", async () => {
       const context = await backend.create();
       const wide = instancedArray(2, "mat4");
@@ -283,7 +304,9 @@ for (const backend of backends) {
       expect(await context.read(narrow.attribute)).toEqual([0, 0, 0, 0, 1, 11, 0, 0, 0, 0, 2, 12]);
       context.destroy();
     });
-
+    /**
+     * @canon exception-a-vec3-storage-element-is-padded-only-on-the-gpu
+     */
     it("reads and writes elements with columns of three, which WGSL pads to four", async () => {
       const context = await backend.create();
       const vectors = instancedArray(Float32Array.of(1, 2, 3, 4, 5, 6), "vec3");
@@ -308,7 +331,10 @@ for (const backend of backends) {
       expect(await context.read(columns.attribute)).toEqual([4, 5, 6, 7, 8, 9]);
       context.destroy();
     });
-
+    /**
+     * @canon spec-a-swizzle-write-writes-the-components-it-names
+     * @canon spec-an-element-write-writes-at-its-index
+     */
     it("writes a component of a storage element's column, by a swizzle or an index", async () => {
       const context = await backend.create();
       const out = instancedArray(2, "mat2");
@@ -323,7 +349,9 @@ for (const backend of backends) {
       expect(await context.read(out.attribute)).toEqual([10, 0, 0, 1, 0, 11, 0, 2]);
       context.destroy();
     });
-
+    /**
+     * @canon spec-a-context-writes-a-buffer-and-reads-it-back
+     */
     it("writes a buffer and reads it back", async () => {
       const context = await backend.create();
       const values = instancedArray(4, "uint");
@@ -331,7 +359,9 @@ for (const backend of backends) {
       expect(await context.read(values.attribute)).toEqual([4294967295, 0, 7, 16777217]);
       context.destroy();
     });
-
+    /**
+     * @canon spec-a-context-writes-a-buffer-and-reads-it-back
+     */
     it("writes values converted to the buffer's type, and refuses a write past its end", async () => {
       const context = await backend.create();
       const values = instancedArray(3, "uint");
@@ -340,7 +370,9 @@ for (const backend of backends) {
       expect(() => context.write(values.attribute, Uint32Array.of(1, 2), 2)).toThrow(/past the end/);
       context.destroy();
     });
-
+    /**
+     * @canon spec-a-compute-context-runs-programs-over-shared-buffers
+     */
     it("computes a prefix sum with one program per pass", async () => {
       const context = await backend.create();
       const n = 1000;
@@ -363,6 +395,9 @@ for (const backend of backends) {
 }
 
 describe.skipIf(!GPU_ENABLED)("WGSL compute context buffers", () => {
+  /**
+   * @canon spec-a-wgsl-buffer-feeds-a-draw-without-a-copy
+   */
   it("can be bound as vertex data by a render pipeline on the same device", async () => {
     const context = await createWgslContext();
     const positions = instancedArray(4, "vec2");
@@ -371,14 +406,18 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context buffers", () => {
     expect(buffer.size).toBe(4 * 2 * 4);
     context.destroy();
   });
-
+  /**
+   * @canon exception-a-vec3-storage-element-is-padded-only-on-the-gpu
+   */
   it("gives a vec3 element 16 bytes in its buffer, as WGSL lays it out", async () => {
     const context = await createWgslContext();
     const positions = instancedArray(4, "vec3");
     expect(context.buffer(positions.attribute).size).toBe(4 * 16);
     context.destroy();
   });
-
+  /**
+   * @canon spec-a-context-runs-no-program-it-cannot-bind
+   */
   it("rejects a program over a buffer laid out before a storage node named its type", async () => {
     const context = await createWgslContext();
     const attribute = new StorageBufferAttribute(2, 6);
@@ -390,7 +429,9 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context buffers", () => {
     expect(() => context.compute(read)).toThrow(/laid out before a storage node named its type/);
     context.destroy();
   });
-
+  /**
+   * @canon spec-a-context-writes-a-buffer-and-reads-it-back
+   */
   it("reads back an empty buffer as no bytes, as the WASM context does", async () => {
     const context = await createWgslContext();
     const empty = instancedArray(0, "uint");
@@ -401,6 +442,9 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context buffers", () => {
 });
 
 describe.skipIf(!GPU_ENABLED)("WGSL compute context limits", () => {
+  /**
+   * @canon spec-a-context-runs-no-program-it-cannot-bind
+   */
   it("rejects a program that samples a texture, which the context doesn't bind", async () => {
     const context = await createWgslContext();
     const out = instancedArray(1, "float");
@@ -411,7 +455,9 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context limits", () => {
     expect(() => context.compute(sample)).toThrow(/sample textures/);
     context.destroy();
   });
-
+  /**
+   * @canon spec-a-program-uses-as-many-storage-buffers-as-the-hardware-binds
+   */
   it("runs a program using more storage buffers than WebGPU's default, where the hardware binds more", async () => {
     const context = await createWgslContext();
     if (context.device.limits.maxStorageBuffersPerShaderStage <= 8) return context.destroy();
@@ -425,7 +471,11 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context limits", () => {
     context.destroy();
   });
 
-  // A device with WebGPU's default limit of 8, so the program stays small whatever the hardware binds.
+  /**
+   * A device with WebGPU's default limit of 8, so the program stays small whatever the hardware binds.
+   *
+   * @canon spec-a-program-uses-as-many-storage-buffers-as-the-hardware-binds
+   */
   it("rejects a program using more storage buffers than one shader stage can bind", async () => {
     const device = await (await navigator.gpu.requestAdapter())!.requestDevice();
     const context = await createWgslContext({ device });
@@ -440,7 +490,9 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context limits", () => {
     context.destroy();
     device.destroy();
   });
-
+  /**
+   * @canon spec-a-context-runs-no-program-it-cannot-bind
+   */
   it("rejects a workgroup size past the device's limit", async () => {
     const context = await createWgslContext();
     const out = instancedArray(1, "uint");
@@ -451,7 +503,9 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context limits", () => {
     expect(() => context.compute(wide)).toThrow(/workgroup size/);
     context.destroy();
   });
-
+  /**
+   * @canon spec-a-context-runs-no-program-it-cannot-bind
+   */
   it("rejects a dispatch with more workgroups than the device allows", async () => {
     const context = await createWgslContext();
     const out = instancedArray(1, "uint");

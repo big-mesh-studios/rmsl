@@ -10,6 +10,9 @@ function clearDepthBuffer(view: DataView, base: number, pixelCount: number): voi
 }
 
 describe("WASM backend: generic rasterizer module — linking skeleton", () => {
+  /**
+   * @canon spec-a-cpu-target-rasterizes-a-vertex-and-fragment-pair
+   */
   it("calls an imported vertex then an imported fragment module, sharing one memory", () => {
     const memory = new WebAssembly.Memory({ initial: 1 });
     const view = new DataView(memory.buffer);
@@ -97,6 +100,9 @@ describe("WASM backend: generic rasterizer module — linking skeleton", () => {
 });
 
 describe("WASM backend: generic rasterizer module — triangle setup and edge functions", () => {
+  /**
+   * @canon spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws
+   */
   it("matches compileJS's own (JsRasterRoutine-driven) output for one triangle", () => {
     // Declared once and referenced by both compiles below (not
     // re-generated per compile) so compileJS's own attributeTypes option,
@@ -208,6 +214,9 @@ describe("WASM backend: generic rasterizer module — triangle setup and edge fu
 });
 
 describe("WASM backend: generic rasterizer module — perspective-correct varying interpolation", () => {
+  /**
+   * @canon spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws
+   */
   it("matches compileJS's own output for a per-vertex vec3 color varying", () => {
     // One attribute slot (this rasterizer's v1 scope): the varying is
     // derived from the position attribute itself, still exercising real
@@ -331,6 +340,9 @@ describe("WASM backend: generic rasterizer module — perspective-correct varyin
 });
 
 describe("WASM backend: generic rasterizer module — multiple attribute slots", () => {
+  /**
+   * @canon spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws
+   */
   it("matches compileJS's own output for two independently-addressed attributes", () => {
     // Declared once and shared across both compiles below (not
     // re-generated per compile) so compileJS's attributeTypes option,
@@ -468,6 +480,9 @@ describe("WASM backend: generic rasterizer module — multiple attribute slots",
 });
 
 describe("WASM backend: generic rasterizer module — multiple varying slots", () => {
+  /**
+   * @canon spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws
+   */
   it("matches compileJS's own output for two independently-addressed varyings", () => {
     // A scalar (non-aggregate) varying becomes a real WASM function
     // parameter even in an otherwise zero-arg program, which this
@@ -621,6 +636,9 @@ describe("WASM backend: generic rasterizer module — multiple varying slots", (
 });
 
 describe("WASM backend: generic rasterizer module — scalarsInMemory for a scalar uniform", () => {
+  /**
+   * @canon spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws
+   */
   it("matches compileJS's own output for a fragment program with a scalar uniform", () => {
     // posAttr declared once and shared across both compiles below (not
     // re-generated per compile) so compileJS's attributeTypes option,
@@ -738,6 +756,9 @@ describe("WASM backend: generic rasterizer module — scalarsInMemory for a scal
 });
 
 describe("WASM backend: generic rasterizer module — near-plane clipping", () => {
+  /**
+   * @canon spec-a-rasterizer-clips-at-the-near-plane
+   */
   it("clips a triangle with one vertex behind the eye into two triangles, matching an independent JS clip+raster reference", () => {
     let posAttr!: AttributeNode<"vec3">;
     const vertexBuild = () =>
@@ -889,7 +910,9 @@ describe("WASM backend: generic rasterizer module — near-plane clipping", () =
     const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
     expect(Array.from(actual)).toEqual(Array.from(expected));
   });
-
+  /**
+   * @canon spec-a-rasterizer-clips-at-the-near-plane
+   */
   it("culls a triangle entirely behind the eye", () => {
     let posAttr!: AttributeNode<"vec3">;
     const vertexBuild = () =>
@@ -983,6 +1006,9 @@ describe("WASM backend: generic rasterizer module — near-plane clipping", () =
 });
 
 describe("WASM backend: generic rasterizer module — depth test", () => {
+  /**
+   * @canon spec-a-rasterizer-keeps-the-closer-fragment
+   */
   it("keeps the closer triangle's color regardless of draw order", () => {
     let posAttr!: AttributeNode<"vec3">;
     const vertexBuild = () =>

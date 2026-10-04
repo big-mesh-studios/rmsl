@@ -17,6 +17,9 @@ import { createJsCompute } from "../js";
 import { createWasmCompute } from "../wasm";
 
 describe("createJsCompute/createWasmCompute over a multi-root array", () => {
+  /**
+   * @canon spec-every-root-of-a-program-keeps-its-effects
+   */
   it("applies every root's statements, not just the last one", () => {
     let force!: UniformNode<"float">;
     let dt!: UniformNode<"float">;
@@ -61,7 +64,9 @@ describe("createJsCompute/createWasmCompute over a multi-root array", () => {
     expect(run(createJsCompute(roots, { name: "step" }))).toEqual(want);
     expect(run(createWasmCompute(roots, { name: "step" }))).toEqual(want);
   });
-
+  /**
+   * @canon spec-every-root-of-a-program-keeps-its-effects
+   */
   it("a single root still works the same way through the array-accepting entry point", () => {
     let dt!: UniformNode<"float">;
     const vel = instancedArray(3, "float").toReadOnly();
@@ -99,7 +104,9 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
       return Object.fromEntries(Object.entries(arrays).map(([slot, array]) => [slot, Array.from(array)]));
     });
   }
-
+  /**
+   * @canon spec-a-swizzle-write-writes-the-components-it-names
+   */
   it("writes single components and swizzles of a storage element", () => {
     const out = instancedArray(2, "vec4");
     const root = Fn(() => {
@@ -128,7 +135,9 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     ]);
     expect(results[1]).toEqual(results[0]);
   });
-
+  /**
+   * @canon spec-an-element-write-writes-at-its-index
+   */
   it("writes a component of a storage element by a computed index", () => {
     const out = instancedArray(2, "vec4");
     const root = Fn(() => {
@@ -153,7 +162,9 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     ]);
     expect(results[1]).toEqual(results[0]);
   });
-
+  /**
+   * @canon spec-an-element-write-writes-at-its-index
+   */
   it("writes and reads a column of a storage element by a computed index", () => {
     const out = instancedArray(2, "mat2");
     const columns = instancedArray(2, "vec2");
@@ -194,7 +205,10 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     ]);
     expect(results[1]).toEqual(results[0]);
   });
-
+  /**
+   * @canon spec-a-swizzle-write-writes-the-components-it-names
+   * @canon spec-an-element-write-writes-at-its-index
+   */
   it("writes a component of a storage element's column, by a swizzle or an index", () => {
     const out = instancedArray(2, "mat2");
     const root = Fn(() => {
@@ -220,7 +234,9 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     ]);
     expect(results[1]).toEqual(results[0]);
   });
-
+  /**
+   * @canon spec-a-run-time-index-past-the-end-reaches-the-last-element
+   */
   it("keeps a write by a column or component index computed outside a storage matrix inside it", () => {
     const out = instancedArray(2, "mat2");
     const root = Fn(() => {
@@ -246,7 +262,9 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     ]);
     expect(results[1]).toEqual(results[0]);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-runs-one-compute-invocation-per-call
+   */
   it("gathers from a neighbouring element", () => {
     const src = instancedArray(4, "float").toReadOnly();
     const dst = instancedArray(4, "float");
@@ -262,7 +280,9 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     expect(js[dst.name]).toEqual([20, 30, 40, 10]);
     expect(wasm).toEqual(js);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-runs-one-compute-invocation-per-call
+   */
   it("scatters to another element", () => {
     const src = instancedArray(4, "int").toReadOnly();
     const dst = instancedArray(4, "int");
@@ -278,7 +298,9 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     expect(js[dst.name]).toEqual([8, 6, 4, 2]);
     expect(wasm).toEqual(js);
   });
-
+  /**
+   * @canon spec-a-cpu-target-runs-invocations-in-index-order
+   */
   it("sees an earlier invocation's write to the same buffer", () => {
     // Invocations run in index order on both CPU backends, so a prefix sum
     // written in place is well defined there, though not on a GPU.
@@ -322,7 +344,9 @@ describe("createJsCompute/createWasmCompute reading back into out", () => {
       adapter.compute(out);
       expect(Array.from(out[b.name]!)).toEqual([12, 22]);
     });
-
+    /**
+     * @canon spec-compute-copies-back-only-the-slots-out-names
+     */
     it(`${name}: rejects a slot the program has no storage for`, () => {
       const adapter = create(program(), { name: "step" });
       adapter.setAttribute(a.name, new Float32Array([1, 2]));
