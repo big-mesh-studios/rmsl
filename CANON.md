@@ -201,7 +201,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug wasm-compiles-no-matrix-inverse`](#bug-wasm-compiles-no-matrix-inverse) — The WASM target does not compile `inverse`.
     - [`@spec a-function-with-an-edge-takes-the-value-last`](#spec-a-function-with-an-edge-takes-the-value-last) — `step(edge, x)`, `smoothstep(low, high, x)`, `clamp(x, low, high)` and `mix(a, b, t)` take their arguments in TSL's order. A method puts its receiver where the function puts the value.
     - [`@spec a-geometric-function-compiles-to-the-builtin-of-the-target`](#spec-a-geometric-function-compiles-to-the-builtin-of-the-target) — `dot`, `length`, `distance`, `normalize`, `cross`, `reflect`, `refract` and `faceForward` compile to the built-ins of each target, `refract` with its three arguments.
-    - [`@spec an-operation-no-target-has-is-composed`](#spec-an-operation-no-target-has-is-composed) — `xor`, `saturate`, `oneMinus`, `reciprocal`, the powers and `lengthSq` of a scalar compile to the operations that make them up.
+    - [`@spec an-operation-no-target-has-is-composed`](#spec-an-operation-no-target-has-is-composed) — `xor`, `saturate`, `oneMinus`, `reciprocal`, `difference`, the powers, `lengthSq` of a scalar, `premultiplyAlpha` and `unpremultiplyAlpha` compile to the operations that make them up.
     - [`@spec a-matrix-times-a-shorter-vector-promotes-it`](#spec-a-matrix-times-a-shorter-vector-promotes-it) — A `mat4` times a `vec3`, or a `mat3` times a `vec2`, gives the vector a last component of 1. It keeps the leading components of the product, like TSL.
     - [`@spec a-compound-assignment-writes-the-result-back`](#spec-a-compound-assignment-writes-the-result-back) — `addAssign`, `subAssign`, `mulAssign`, `divAssign` and `modAssign` write the result of their operation back to the variable.
     - [`@spec select-picks-one-of-two-values`](#spec-select-picks-one-of-two-values) — `select(condition, a, b)` gives `a` where `condition` holds and `b` where it does not, with the type of its branches. A literal condition folds to its branch.
@@ -226,7 +226,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-matrix-is-built-from-its-columns`](#spec-a-matrix-is-built-from-its-columns) — A matrix constructor of any shape, square or not, takes its values column by column, as numbers or as vector columns.
     - [`@spec a-literal-compiles-to-a-literal-of-its-type`](#spec-a-literal-compiles-to-a-literal-of-its-type) — `int`, `uint`, `bool`, boolean vector and integer vector constructors given literals compile to literals of their type on each target.
     - [`@spec a-javascript-array-is-a-vector-of-its-length`](#spec-a-javascript-array-is-a-vector-of-its-length) — A JavaScript array given where a node goes is a vector of its length.
-    - [`@spec the-tsl-constants-are-float-literals`](#spec-the-tsl-constants-are-float-literals) — `PI`, `TWO_PI`, `HALF_PI`, `EPSILON` and `INFINITY` are float literals of TSL's values.
+    - [`@spec the-tsl-constants-are-float-literals`](#spec-the-tsl-constants-are-float-literals) — `PI`, `TWO_PI`, `PI2`, `HALF_PI`, `EPSILON` and `INFINITY` are float literals of TSL's values.
   - [`@spec sampling-reads-a-texture-at-a-coordinate`](#spec-sampling-reads-a-texture-at-a-coordinate) — `texture` and `textureLod` read a texture at a coordinate of its dimension.
     - [`@spec a-float-texture-is-sampled-through-a-sampler`](#spec-a-float-texture-is-sampled-through-a-sampler) — A float texture, 2D or 3D, is sampled with filtering, through `texture` or `textureSample` and a sampler of its own on WGSL.
     - [`@spec an-integer-texture-reads-one-texel`](#spec-an-integer-texture-reads-one-texel) — A program reads an integer texture one texel at a time, with `texelFetch` on GLSL and `textureLoad` with no sampler on WGSL.
@@ -276,12 +276,15 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec an-effect-is-a-port-of-a-tsl-display-effect`](#spec-an-effect-is-a-port-of-a-tsl-display-effect) — An [effect](#term-effect) of `./effects` computes what the TSL display effect of the same name computes, and compiles on GLSL and WGSL.
     - [`@spec a-single-pass-effect-gives-a-colour-node`](#spec-a-single-pass-effect-gives-a-colour-node) — A single-pass effect takes samplers and parameter nodes and gives a node: a colour, or a float mask for `circle`.
     - [`@spec bloom-follows-tsl`](#spec-bloom-follows-tsl) — `bloom` gives TSL's pass graph of twelve passes. Its high pass keeps what is brighter than a luminance threshold, or applies a filter the caller gives. Its composite sums five tinted mips, scaled by its strength. `luminosityHighPass` is also available on its own.
+    - [`@spec gaussian-blur-weights-follow-tsl`](#spec-gaussian-blur-weights-follow-tsl) — `getGaussianCoefficients(radius)` gives the weights TSL's Gaussian blur uses: for each offset `i` below the radius, `0.39894 · exp(-i² / 2σ²) / σ`, with `σ` a third of the radius.
     - [`@spec an-effect-compiles-as-a-function-of-its-own`](#spec-an-effect-compiles-as-a-function-of-its-own) — An effect compiles with `compileGlslFn` and `compileWgslFn` into a function the application places in its own shader.
   - [`@spec the-scene-library-follows-three-js`](#spec-the-scene-library-follows-three-js) — The classes of `./scene` behave as the three.js classes of the same names, so a three.js scene ports by changing its import.
     - [`@spec an-object-composes-its-world-matrix-down-the-tree`](#spec-an-object-composes-its-world-matrix-down-the-tree) — An `Object3D` composes its world matrix from its parents', and gives its world position, rotation and scale. It adds, removes, finds and traverses children, announces being added and removed, and turns to look at a target.
     - [`@spec a-camera-builds-its-projection`](#spec-a-camera-builds-its-projection) — A perspective or orthographic camera builds its projection matrix and the inverse of its view matrix as three.js does.
     - [`@spec a-light-is-a-coloured-scene-node`](#spec-a-light-is-a-coloured-scene-node) — A light is a node of the scene with a colour and an intensity, and a directional light has a target. A scene has a background colour.
     - [`@spec the-math-classes-follow-three-js`](#spec-the-math-classes-follow-three-js) — `Vector3`, `Matrix4`, `Quaternion`, `Euler`, `Color`, `Spherical` and `MathUtils` compute what their three.js counterparts compute.
+    - [`@spec the-three-js-constants-carry-three-js-values`](#spec-the-three-js-constants-carry-three-js-values) — The wrapping, filtering and blending constants of `./scene` carry the numbers three.js gives them.
+    - [`@spec the-lighting-terms-compile-on-both-gpu-targets`](#spec-the-lighting-terms-compile-on-both-gpu-targets) — `lambertDiffuse`, `standardLight` and `pointLightAttenuation` build the lighting terms of the built-in materials as nodes, which compile on GLSL and WGSL and give finite values on the CPU.
     - [`@spec a-geometry-builds-the-vertices-three-js-builds`](#spec-a-geometry-builds-the-vertices-three-js-builds) — A geometry primitive builds the positions, normals and indices of its three.js counterpart. A `BufferGeometry` holds attributes and an index, typed as 32-bit once an index passes 65535.
     - [`@spec an-instanced-mesh-follows-three-js`](#spec-an-instanced-mesh-follows-three-js) — An `InstancedMesh` holds a transform per instance, the identity by default, and a colour per instance once the program sets one. It clones with its geometry, material, transforms and instance data.
     - [`@spec a-material-built-for-an-instanced-mesh-reads-each-instance`](#spec-a-material-built-for-an-instanced-mesh-reads-each-instance) — A material built for an instanced mesh declares the instance matrix, as four column attributes, and the instance colour when the mesh carries colours. It transforms position and normal by the matrix and tints the colour. The same material also builds for a mesh that is not instanced.
@@ -311,12 +314,14 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-program-uses-as-many-storage-buffers-as-the-hardware-binds`](#spec-a-program-uses-as-many-storage-buffers-as-the-hardware-binds) — A WGSL program may use more storage buffers than WebGPU's default, up to what the adapter binds in one stage. A program past that is refused before a device is requested.
 - [`@axiom rmsl-compiles-and-the-application-drives`](#axiom-rmsl-compiles-and-the-application-drives) — rmsl hands the application what it compiled: shader source, callables, adapters and node graphs. The application decides when to draw and when to dispatch. It owns the canvas, the frame loop and the data it uploads.
   - [`@spec what-rmsl-hands-back-draws-nothing-on-its-own`](#spec-what-rmsl-hands-back-draws-nothing-on-its-own) — What rmsl hands back draws nothing until the application calls it. An adapter draws or dispatches once for each call.
+    - [`@spec an-adapter-draws-one-frame-for-each-call`](#spec-an-adapter-draws-one-frame-for-each-call) — `draw()` on an adapter draws one frame into the canvas it attached, and nothing more until the next call. This holds for the GLSL adapter, the JS and WASM rasterizers, and the JS and WASM routines.
+      - [`@bug create-wasm-routine-fails-under-its-default-name`](#bug-create-wasm-routine-fails-under-its-default-name) — `createWasmRoutine` names its routine `draw` by default, which collides with the grid loop the module exports as `draw`, so the module does not instantiate.
     - [`@spec several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas) — Several adapters can draw on one canvas, each clearing to the colour its draw asks for. An adapter ignores a uniform its program does not read.
     - [`@spec an-effect-with-several-passes-is-a-pass-graph`](#spec-an-effect-with-several-passes-is-a-pass-graph) — An [effect](#term-effect) with several passes returns a [pass graph](#term-pass-graph): its passes, the samplers each pass reads, and the pass that gives the output. The application draws each pass.
     - [`@exception a-scene-renderer-draws-its-scene-graph`](#exception-a-scene-renderer-draws-its-scene-graph) — `render(scene, camera)` on a renderer of `./scene` walks the scene graph, binds the geometry and the [node material](#term-node-material) of each mesh, uploads their uniforms and draws them.
   - [`@spec a-scene-renderer-manages-what-it-uploads`](#spec-a-scene-renderer-manages-what-it-uploads) — A renderer of `./scene` uploads each geometry, texture and uniform once, again when it changes, and frees it when it is disposed. It compiles a program once for each light set and kind of mesh.
     - [`@spec a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise`](#spec-a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise) — `new WebGLRenderer()` gives a renderer at once, and `WebGPURenderer.init()` gives one through a promise, because WebGPU requests its device asynchronously.
-    - [`@spec a-renderer-supplies-the-camera-and-object-uniforms`](#spec-a-renderer-supplies-the-camera-and-object-uniforms) — A renderer gives a program the camera's projection, view and position, and the object's world and normal matrices. It gives nothing for a name it does not know.
+    - [`@spec a-renderer-supplies-the-camera-and-object-uniforms`](#spec-a-renderer-supplies-the-camera-and-object-uniforms) — A renderer gives a program the camera's projection, view and position, the object's world and normal matrices, and its own resolution. It gives nothing for a name it does not know.
     - [`@spec a-program-is-compiled-once-per-signature`](#spec-a-program-is-compiled-once-per-signature) — A renderer compiles a material once for each light set, in order, and each instancing flag of the mesh.
     - [`@spec a-uniform-uploads-in-the-shape-its-type-has`](#spec-a-uniform-uploads-in-the-shape-its-type-has) — A renderer uploads a scalar uniform as a scalar and a vector or matrix as an array. It places every uniform a material collects in the WGSL layout.
     - [`@spec an-instanced-attribute-comes-from-its-mesh`](#spec-an-instanced-attribute-comes-from-its-mesh) — A renderer reads an instanced attribute from the geometry, or from the mesh that owns it when the geometry has none. Its WGSL locations match the compiler's.
@@ -443,6 +448,7 @@ The analysis found these places where the code or the documents do not hold the 
 2. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
 3. The documents call `While` and `For` TSL functions, but TSL has only `Loop`. Issue #59.
 4. A matrix constructor given a scalar node among its numbers compiles to `[object Object]`. Issue #66 asks whether to accept such a node or refuse it.
+5. `var_`, `assertBlockScope` and `compileWat` are exported with no documented purpose. Issue #73 asks whether they are public API.
 
 ### Coverage gaps
 
@@ -1430,7 +1436,7 @@ Issue: #65
 
 #### @spec an-operation-no-target-has-is-composed
 
-> `xor`, `saturate`, `oneMinus`, `reciprocal`, the powers and `lengthSq` of a scalar compile to the operations that make them up.
+> `xor`, `saturate`, `oneMinus`, `reciprocal`, `difference`, the powers, `lengthSq` of a scalar, `premultiplyAlpha` and `unpremultiplyAlpha` compile to the operations that make them up.
 
 #### @spec a-matrix-times-a-shorter-vector-promotes-it
 
@@ -1542,7 +1548,7 @@ Issue: #64
 
 #### @spec the-tsl-constants-are-float-literals
 
-> `PI`, `TWO_PI`, `HALF_PI`, `EPSILON` and `INFINITY` are float literals of TSL's values.
+> `PI`, `TWO_PI`, `PI2`, `HALF_PI`, `EPSILON` and `INFINITY` are float literals of TSL's values.
 
 ### @spec sampling-reads-a-texture-at-a-coordinate
 
@@ -1776,6 +1782,10 @@ This follows because a TSL shader that uses a display effect ports only if the e
 
 > `bloom` gives TSL's pass graph of twelve passes. Its high pass keeps what is brighter than a luminance threshold, or applies a filter the caller gives. Its composite sums five tinted mips, scaled by its strength. `luminosityHighPass` is also available on its own.
 
+#### @spec gaussian-blur-weights-follow-tsl
+
+> `getGaussianCoefficients(radius)` gives the weights TSL's Gaussian blur uses: for each offset `i` below the radius, `0.39894 · exp(-i² / 2σ²) / σ`, with `σ` a third of the radius.
+
 #### @spec an-effect-compiles-as-a-function-of-its-own
 
 > An effect compiles with `compileGlslFn` and `compileWgslFn` into a function the application places in its own shader.
@@ -1803,6 +1813,14 @@ This follows because TSL is the shading language of three.js, and its users brin
 #### @spec the-math-classes-follow-three-js
 
 > `Vector3`, `Matrix4`, `Quaternion`, `Euler`, `Color`, `Spherical` and `MathUtils` compute what their three.js counterparts compute.
+
+#### @spec the-three-js-constants-carry-three-js-values
+
+> The wrapping, filtering and blending constants of `./scene` carry the numbers three.js gives them.
+
+#### @spec the-lighting-terms-compile-on-both-gpu-targets
+
+> `lambertDiffuse`, `standardLight` and `pointLightAttenuation` build the lighting terms of the built-in materials as nodes, which compile on GLSL and WGSL and give finite values on the CPU.
 
 #### @spec a-geometry-builds-the-vertices-three-js-builds
 
@@ -1948,6 +1966,16 @@ An application that renders has a loop of its own, and a scheduler, a canvas and
 
 This follows because the application decides when to draw.
 
+#### @spec an-adapter-draws-one-frame-for-each-call
+
+> `draw()` on an adapter draws one frame into the canvas it attached, and nothing more until the next call. This holds for the GLSL adapter, the JS and WASM rasterizers, and the JS and WASM routines.
+
+##### @bug create-wasm-routine-fails-under-its-default-name
+
+> `createWasmRoutine` names its routine `draw` by default, which collides with the grid loop the module exports as `draw`, so the module does not instantiate.
+
+Issue: #72
+
 #### @spec several-adapters-draw-on-one-canvas
 
 > Several adapters can draw on one canvas, each clearing to the colour its draw asks for. An adapter ignores a uniform its program does not read.
@@ -1976,7 +2004,7 @@ This follows because a renderer that owns the drawing of a scene owns its resour
 
 #### @spec a-renderer-supplies-the-camera-and-object-uniforms
 
-> A renderer gives a program the camera's projection, view and position, and the object's world and normal matrices. It gives nothing for a name it does not know.
+> A renderer gives a program the camera's projection, view and position, the object's world and normal matrices, and its own resolution. It gives nothing for a name it does not know.
 
 #### @spec a-program-is-compiled-once-per-signature
 
