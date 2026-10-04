@@ -447,7 +447,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cpu-routine-returns-its-value-or-a-result`](#spec-a-cpu-routine-returns-its-value-or-a-result) — A CPU routine returns the value its program returns, the last of several, as it is. When the program writes an output, a varying, the position or the depth, it returns a result object that holds them with the value. A discarded fragment returns `null`.
       - [`@bug wasm-wraps-a-vector-result-in-a-result-object`](#bug-wasm-wraps-a-vector-result-in-a-result-object) — A WASM routine returns a vector or matrix value inside a result object even when the program writes no output, varying, position or depth.
       - [`@bug wasm-returns-a-value-for-a-discarded-fragment`](#bug-wasm-returns-a-value-for-a-discarded-fragment) — A WASM routine returns `0`, or a result holding a zero value, for a discarded fragment.
-    - [`@spec a-cpu-routine-answers-one-fragment-per-call`](#spec-a-cpu-routine-answers-one-fragment-per-call) — `run` of a CPU routine evaluates the program once, for the context the host passes. The same routine serves any number of calls.
+    - [`@spec a-cpu-routine-answers-one-fragment-per-call`](#spec-a-cpu-routine-answers-one-fragment-per-call) — `run` of a CPU routine evaluates the program once, for the context the host passes. The same routine serves any number of calls, and a value one call returned keeps what it holds through the calls after it.
       - [`@bug js-routine-overwrites-the-value-it-returned-before`](#bug-js-routine-overwrites-the-value-it-returned-before) — A JS routine returns a vector held in its scratch block, so the next call overwrites the value an earlier call returned.
     - [`@spec a-cpu-routine-draws-a-grid-of-fragments`](#spec-a-cpu-routine-draws-a-grid-of-fragments) — `draw` of a CPU routine evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to draw.
     - [`@spec a-cpu-routine-runs-one-compute-invocation-per-call`](#spec-a-cpu-routine-runs-one-compute-invocation-per-call) — A CPU routine of a program that reads `storage()` and `invocationIndex()` runs one invocation for each call. It reads and writes any element of the buffers the host passes by slot.
@@ -2861,7 +2861,7 @@ Issue: #82
 
 #### @spec a-cpu-routine-answers-one-fragment-per-call
 
-> `run` of a CPU routine evaluates the program once, for the context the host passes. The same routine serves any number of calls.
+> `run` of a CPU routine evaluates the program once, for the context the host passes. The same routine serves any number of calls, and a value one call returned keeps what it holds through the calls after it.
 
 ##### @bug js-routine-overwrites-the-value-it-returned-before
 
