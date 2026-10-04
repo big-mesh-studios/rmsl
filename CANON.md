@@ -71,7 +71,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec one-rule-decides-how-every-target-samples-a-texture`](#spec-one-rule-decides-how-every-target-samples-a-texture) — One rule, shared by every target, reads a texture's sampler state. Its filters are linear by default. Its wrap is clamped by default, and for a mode the rule does not know. It reads an integer texture as nearest, whatever the texture asks, and a single-channel format as one channel.
       - [`@spec the-sampler-rule-reads-filters-wrap-and-channels-from-the-texture`](#spec-the-sampler-rule-reads-filters-wrap-and-channels-from-the-texture) — The sampler rule gives linear filters and clamped edges by default, and carries what the texture asks for. It clamps a wrap it does not know, holds an integer texture to nearest, and reads a single-channel format as one channel.
       - [`@exception a-mipmapped-filter-reads-as-its-base-filter`](#exception-a-mipmapped-filter-reads-as-its-base-filter) — A minification filter that reads mipmaps reads as the filter it is based on, because no target builds a mip chain. Issue #4 asks for one.
-    - [`@spec a-cpu-target-filters-as-the-texture-asks`](#spec-a-cpu-target-filters-as-the-texture-asks) — A CPU target reads the nearest texel by default, and blends neighbouring texels when the texture asks for linear filtering.
+    - [`@spec a-cpu-target-filters-as-the-texture-asks`](#spec-a-cpu-target-filters-as-the-texture-asks) — A CPU target reads the nearest texel when the host's texture names no filter. It blends neighbouring texels when the texture asks for linear filtering. A scene texture names linear filtering unless told otherwise, through the sampler rule.
     - [`@spec a-cpu-target-wraps-as-the-texture-asks`](#spec-a-cpu-target-wraps-as-the-texture-asks) — A coordinate past an edge of a texture, on either side, wraps the way the texture asks.
     - [`@spec a-byte-texture-reads-as-zero-to-one`](#spec-a-byte-texture-reads-as-zero-to-one) — A byte texture read through a float sampler gives values from 0 to 1, through `texture`, `textureLod` and `textureLoad` alike. A float texture keeps its values, and an integer texture keeps its bytes as they are.
     - [`@spec a-texel-holds-the-channels-its-texture-stores`](#spec-a-texel-holds-the-channels-its-texture-stores) — A texel holds as many channels as its texture stores, and a filter blends each channel only with the same channel of its neighbours. A channel the texel lacks reads as 0, and a missing alpha as 1.
@@ -105,7 +105,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec cpu-float-arithmetic-matches-the-gpu-targets`](#spec-cpu-float-arithmetic-matches-the-gpu-targets) — The CPU targets give a float operation the result the [GPU targets](#term-gpu-target) give.
         - [`@exception a-cpu-target-computes-floats-in-64-bits`](#exception-a-cpu-target-computes-floats-in-64-bits) — A CPU target computes a float in 64 bits, where a GPU computes it in 32 bits. Its result can differ from the GPU's by at most a millionth of the result's size, and by at most `1e-6` near zero.
     - [`@spec a-run-time-index-past-the-end-reaches-the-last-element`](#spec-a-run-time-index-past-the-end-reaches-the-last-element) — A vector component or matrix column reached by a run-time index below zero or past its end reads and writes the last component or column.
-      - [`@spec a-cpu-target-reaches-the-last-element-out-of-range`](#spec-a-cpu-target-reaches-the-last-element-out-of-range) — On a CPU target, a run-time index out of range, below zero or past the end, reaches the last component or column. This holds for a vector, a matrix and a storage element.
+      - [`@spec a-cpu-target-reaches-the-last-element-out-of-range`](#spec-a-cpu-target-reaches-the-last-element-out-of-range) — On a CPU target, a run-time index below zero or past the end reaches the last component or column of a vector or a matrix. This holds for a vector or matrix held in a storage element too. An index past the end of the storage buffer itself is a storage access outside its buffer.
       - [`@exception a-gpu-target-lets-the-driver-pick-an-element-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range) — On GLSL and WGSL, a run-time index out of range reaches whatever element the driver picks.
     - [`@spec normalizing-a-zero-vector-gives-it-back`](#spec-normalizing-a-zero-vector-gives-it-back) — `normalize` of a vector of length zero gives the zero vector.
       - [`@spec a-cpu-target-normalizes-a-zero-vector-to-zero`](#spec-a-cpu-target-normalizes-a-zero-vector-to-zero) — On a CPU target, `normalize` of a vector of length zero gives the zero vector.
@@ -783,7 +783,7 @@ Derives from: [`fact-a-mipmapped-texture-without-its-chain-samples-black`](#fact
 
 #### @spec a-cpu-target-filters-as-the-texture-asks
 
-> A CPU target reads the nearest texel by default, and blends neighbouring texels when the texture asks for linear filtering.
+> A CPU target reads the nearest texel when the host's texture names no filter. It blends neighbouring texels when the texture asks for linear filtering. A scene texture names linear filtering unless told otherwise, through the sampler rule.
 
 #### @spec a-cpu-target-wraps-as-the-texture-asks
 
@@ -973,7 +973,7 @@ This follows because an index out of range must reach the same element on every 
 
 ##### @spec a-cpu-target-reaches-the-last-element-out-of-range
 
-> On a CPU target, a run-time index out of range, below zero or past the end, reaches the last component or column. This holds for a vector, a matrix and a storage element.
+> On a CPU target, a run-time index below zero or past the end reaches the last component or column of a vector or a matrix. This holds for a vector or matrix held in a storage element too. An index past the end of the storage buffer itself is a storage access outside its buffer.
 
 ##### @exception a-gpu-target-lets-the-driver-pick-an-element-out-of-range
 
