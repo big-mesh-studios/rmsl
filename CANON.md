@@ -568,6 +568,10 @@ Every refusal is a plain `Error` today, and a caller can tell refusals apart onl
 
 Whether rmsl's loops converge on TSL's `Loop`, or keep `While` and `For` as loops of rmsl's own, is open. Issue #60 holds the question. The canon states the loops as they behave today, under [`spec-a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop), with an exception for each departure from TSL.
 
+### Precision
+
+GLSL sets precision two ways: a statement that sets the default for a type, and a qualifier on one declaration. Under [`spec-glsl-takes-a-precision`](#spec-glsl-takes-a-precision), rmsl writes only the statement, at the precision the caller asks for, as three.js's `WebGLRenderer` does. TSL fixes that default at `highp` and lets a uniform lower its own precision. Issue #117 asks whether rmsl adds the qualifier as well.
+
 ### Divergences found
 
 The analysis found these places where the code or the documents do not hold the canon, and no spec decides the fix yet. Each has an issue. A defect that breaks a spec is a bug unit inside that spec instead.
