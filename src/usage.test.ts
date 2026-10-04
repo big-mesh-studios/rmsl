@@ -1221,7 +1221,7 @@ describe("RMSL", () => {
   // === Phase 6: Infrastructure — Comprehensive coverage ===
 
   // -- All FloatMathOps (constant-folded with literals) --
-  it.each([
+  for (const op of [
     "sin",
     "cos",
     "tan",
@@ -1239,13 +1239,19 @@ describe("RMSL", () => {
     "log",
     "exp2",
     "log2",
-  ])("float.%s() compiles to GLSL (constant-folded)", (op) => {
-    let prog = Fn(() => (float(0.5) as any)[op]().toVar());
-    let glsl = compileGlsl(prog());
-    // With constant folding, the result is a literal, not a function call
-    expect(glsl).not.toContain(op);
-    expect(glsl).toMatch(/_rmsl_\d+ = /);
-  });
+  ]) {
+    /**
+     * With constant folding, the result is a literal, not a function call.
+     *
+     * @canon spec-float-folding-gives-the-run-time-result
+     */
+    it(`float.${op}() compiles to GLSL (constant-folded)`, () => {
+      let prog = Fn(() => (float(0.5) as any)[op]().toVar());
+      let glsl = compileGlsl(prog());
+      expect(glsl).not.toContain(op);
+      expect(glsl).toMatch(/_rmsl_\d+ = /);
+    });
+  }
 
   /**
    * @canon spec-float-folding-gives-the-run-time-result
@@ -1268,14 +1274,19 @@ describe("RMSL", () => {
   });
 
   // -- VecCommonOps --
-  it.each(["dot", "length", "normalize", "distance"])("vec3.%s() compiles to GLSL", (op) => {
-    let prog = Fn(() => {
-      let a = vec3(1, 2, 3).toVar();
-      return (a as any)[op](op === "dot" || op === "distance" ? a : undefined).toVar();
+  for (const op of ["dot", "length", "normalize", "distance"]) {
+    /**
+     * @canon spec-a-geometric-function-compiles-to-the-builtin-of-the-target
+     */
+    it(`vec3.${op}() compiles to GLSL`, () => {
+      let prog = Fn(() => {
+        let a = vec3(1, 2, 3).toVar();
+        return (a as any)[op](op === "dot" || op === "distance" ? a : undefined).toVar();
+      });
+      let glsl = compileGlsl(prog());
+      expect(glsl).toContain(op);
     });
-    let glsl = compileGlsl(prog());
-    expect(glsl).toContain(op);
-  });
+  }
 
   /**
    * Neither language compares a vector against a scalar, so the scalar has to
@@ -1431,30 +1442,41 @@ describe("RMSL", () => {
   });
 
   // -- IntOps --
-  it.each([
+  for (const [op, expected] of [
     ["add", 8],
     ["sub", 2],
     ["mul", 15],
     ["div", 1],
     ["mod", 2],
-  ])("int.%s() compiles to GLSL (constant-folded)", (op, expected) => {
-    let prog = Fn(() => (int(5) as any)[op](int(3)).toVar());
-    let glsl = compileGlsl(prog());
-    expect(glsl).toContain(String(expected));
-  });
+  ] as const) {
+    /**
+     * @canon spec-integer-folding-gives-the-run-time-result
+     */
+    it(`int.${op}() compiles to GLSL (constant-folded)`, () => {
+      let prog = Fn(() => (int(5) as any)[op](int(3)).toVar());
+      let glsl = compileGlsl(prog());
+      expect(glsl).toContain(String(expected));
+    });
+  }
 
-  it.each([
+  for (const [op, expected] of [
     ["bitAnd", "&"],
     ["bitOr", "|"],
     ["bitXor", "^"],
     ["shiftLeft", "<<"],
     ["shiftRight", ">>"],
-  ])("int.%s() compiles to GLSL (bitwise)", (op, expected) => {
-    // A variable operand, so the operation isn't folded to a literal.
-    let prog = Fn(() => (int(5).toVar() as any)[op](int(3)).toVar());
-    let glsl = compileGlsl(prog());
-    expect(glsl).toContain(expected as string);
-  });
+  ] as const) {
+    /**
+     * A variable operand, so the operation isn't folded to a literal.
+     *
+     * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
+     */
+    it(`int.${op}() compiles to GLSL (bitwise)`, () => {
+      let prog = Fn(() => (int(5).toVar() as any)[op](int(3)).toVar());
+      let glsl = compileGlsl(prog());
+      expect(glsl).toContain(expected);
+    });
+  }
 
   // -- BoolOps --
   /**
