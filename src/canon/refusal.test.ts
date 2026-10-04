@@ -43,7 +43,8 @@ describe("a mistake is refused before the program runs", () => {
    * beside each other, while a product whose shapes do not meet and the
    * inverse of a matrix that is not square are each refused.
    *
-   * @canon spec-a-matrix-operation-the-shapes-do-not-allow-is-refused
+   * @canon spec-a-matrix-product-whose-shapes-do-not-meet-is-refused
+   * @canon spec-only-a-square-matrix-is-inverted
    */
   it("compiles the matrix operations the shapes allow and refuses the others", () => {
     const allowed = Fn(() =>
@@ -66,7 +67,10 @@ describe("a mistake is refused before the program runs", () => {
    * take their neighbour's type, and the numbers those types cannot hold are
    * refused.
    *
-   * @canon spec-a-bare-number-takes-the-type-of-the-operand-beside-it
+   * @canon spec-a-bare-number-beside-an-integer-is-an-integer
+   * @canon spec-a-bare-number-beside-a-float-is-a-float
+   * @canon spec-a-fraction-beside-an-integer-is-refused
+   * @canon spec-a-negative-number-for-an-unsigned-type-is-refused
    */
   it("gives each bare number its neighbour's type in one program, and refuses what the type cannot hold", () => {
     const prog = Fn(() =>
@@ -92,7 +96,9 @@ describe("a mistake is refused before the program runs", () => {
    * stage that writes its depth and reads its coordinate, compile together.
    * Moving any of those built-ins to the other stage is refused.
    *
-   * @canon spec-a-stage-reads-and-writes-only-what-it-has
+   * @canon spec-the-fragment-depth-is-written-only-in-a-fragment-stage
+   * @canon spec-the-position-is-read-only-in-a-vertex-stage
+   * @canon spec-a-vertex-stage-writes-its-position
    */
   it("compiles each stage's built-ins in its own stage and refuses them in the other", () => {
     const tint = varying("vec2");
@@ -122,7 +128,9 @@ describe("a mistake is refused before the program runs", () => {
    * a target can run them. WASM also refuses a whole storage buffer read as a
    * value.
    *
-   * @canon spec-an-operation-a-target-cannot-run-is-refused
+   * @canon spec-break-or-continue-outside-a-loop-is-refused
+   * @canon spec-cross-of-a-vector-that-is-not-a-vec3-is-refused
+   * @canon spec-a-whole-storage-buffer-cannot-be-read
    */
   it("refuses each operation no target can run, beside the same program written the way they run", () => {
     const values = instancedArray(4, "float");

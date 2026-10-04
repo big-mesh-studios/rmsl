@@ -80,7 +80,7 @@ describe("a matrix's column by index", () => {
   });
 
   /**
-   * @canon spec-a-run-time-index-past-the-end-reaches-the-last-element
+   * @canon spec-a-cpu-target-reaches-the-last-element-out-of-range
    */
   it("clamps an index computed past the matrix's end, or below zero, to its last column on WASM", () => {
     expect(evaluateWASM((a) => m().element(a.toInt()), [9])).toEqual([7, 8, 9]);
@@ -96,7 +96,7 @@ describe("a matrix's column by index", () => {
   });
 
   /**
-   * @canon spec-a-run-time-index-past-the-end-reaches-the-last-element
+   * @canon spec-a-cpu-target-reaches-the-last-element-out-of-range
    */
   it("keeps a write by an index computed outside the matrix inside it, alike on JS and WASM", () => {
     const write = Fn((a: Node<"float">) => {

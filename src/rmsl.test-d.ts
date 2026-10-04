@@ -236,7 +236,7 @@ describe("compute programs", () => {
    * A compute program writes its results into storage, so it has nothing to
    * return; every compute entry point takes it as it is.
    *
-   * @canon spec-compute-follows-tsl
+   * @canon spec-a-compute-program-returns-nothing
    */
   it("take a program that returns nothing", () => {
     const step = Fn(() => {
@@ -274,7 +274,7 @@ describe("compileGlsl precision options", () => {
    * "lowp"`); every compileGlsl call takes them, and a value outside the union
    * is refused at the type level.
    *
-   * @canon spec-glsl-takes-a-precision
+   * @canon spec-glsl-declares-the-precision-asked-for
    */
   it("accepts a precision option on every call shape", () => {
     const root = Fn(() => vec4(1, 2, 3, 4).toVar())();
@@ -285,7 +285,7 @@ describe("compileGlsl precision options", () => {
   });
 
   /**
-   * @canon spec-glsl-takes-a-precision
+   * @canon spec-glsl-declares-the-precision-asked-for
    */
   it("refuses an unknown precision value", () => {
     const root = Fn(() => vec4(1, 2, 3, 4).toVar())();
@@ -302,7 +302,7 @@ describe("matrix operations", () => {
    * were declared to, so the rest had to be reached through a cast — which
    * switches off checking for the whole expression rather than just the method.
    *
-   * @canon spec-a-node-has-the-type-its-signature-declares
+   * @canon spec-every-matrix-type-has-the-operations-the-compiler-implements
    */
   it("gives every matrix type the operations the compiler implements", () => {
     expectTypeOf(uniform("mat2").transpose()).toEqualTypeOf<Node<"mat2">>();
@@ -358,7 +358,7 @@ describe("declared variables", () => {
   /**
    * A uniform carries its type's operations directly, alongside its name.
    *
-   * @canon spec-a-variable-keeps-the-name-the-user-gave-it
+   * @canon spec-a-variable-is-declared-under-the-name-given
    */
   it("carries both a name and the operations of its type", () => {
     expectTypeOf(uniform("vec3").name).toEqualTypeOf<string>();
@@ -444,7 +444,7 @@ describe("integer samplers", () => {
    * Integer textures are not filterable, so sampling returns the signed or
    * unsigned integer vector the fetch produces rather than a float vec4.
    *
-   * @canon spec-an-integer-texture-reads-one-texel
+   * @canon spec-an-integer-texture-is-fetched-unfiltered
    */
   it("types isampler and usampler samples as integer vectors", () => {
     expectTypeOf(uniform("isampler2D").texture(ivec2(1, 2))).toEqualTypeOf<Node<"ivec4">>();
@@ -455,7 +455,7 @@ describe("integer samplers", () => {
   });
 
   /**
-   * @canon spec-an-integer-texture-reads-one-texel
+   * @canon spec-an-integer-texture-is-fetched-unfiltered
    */
   it("refuses float coordinates and a mismatched vector width", () => {
     // Integer textures are fetched at integer texel coordinates — the
@@ -617,7 +617,11 @@ describe("what can be assigned to", () => {
   });
 
   /**
-   * @canon spec-an-assignment-is-refused-unless-the-program-can-write-its-target
+   * @canon spec-a-uniform-cannot-be-assigned
+   * @canon spec-an-attribute-cannot-be-assigned
+   * @canon spec-a-whole-storage-buffer-cannot-be-assigned
+   * @canon spec-a-computed-value-cannot-be-assigned
+   * @canon spec-a-swizzle-that-repeats-a-component-cannot-be-assigned
    */
   it("refuses a uniform, an attribute, a whole storage buffer, a computed value and a repeated swizzle", () => {
     const v = vec4(1, 2, 3, 4).toVar();

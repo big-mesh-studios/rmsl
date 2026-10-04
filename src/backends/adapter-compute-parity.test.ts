@@ -235,7 +235,7 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     expect(results[1]).toEqual(results[0]);
   });
   /**
-   * @canon spec-a-run-time-index-past-the-end-reaches-the-last-element
+   * @canon spec-a-cpu-target-reaches-the-last-element-out-of-range
    */
   it("keeps a write by a column or component index computed outside a storage matrix inside it", () => {
     const out = instancedArray(2, "mat2");
@@ -333,7 +333,7 @@ describe("createJsCompute/createWasmCompute reading back into out", () => {
     ["WASM", createWasmCompute],
   ] as const) {
     /**
-     * @canon spec-compute-copies-back-only-the-slots-out-names
+     * @canon spec-compute-copies-back-only-the-named-slots
      * @canon spec-a-cpu-adapter-computes-synchronously
      */
     it(`${name}: reads back only the slots out names`, () => {
@@ -345,7 +345,7 @@ describe("createJsCompute/createWasmCompute reading back into out", () => {
       expect(Array.from(out[b.name]!)).toEqual([12, 22]);
     });
     /**
-     * @canon spec-compute-copies-back-only-the-slots-out-names
+     * @canon spec-compute-refuses-a-slot-with-no-storage
      */
     it(`${name}: rejects a slot the program has no storage for`, () => {
       const adapter = create(program(), { name: "step" });

@@ -190,7 +190,7 @@ describe("RMSL evaluation", () => {
   // terminates without risking one that does not.
 
   /**
-   * @canon spec-for-runs-its-init-condition-body-and-update
+   * @canon spec-a-for-runs-its-body-and-update-while-its-condition-holds
    */
   it("runs a for loop the right number of times", async () => {
     const sumTo = (n: Node<"float">) =>
@@ -216,7 +216,7 @@ describe("RMSL evaluation", () => {
    * A loop whose update does two things: advance the counter, and tally
    * alongside it. Both run four times, so the tally ends at 4.
    *
-   * @canon spec-for-runs-its-init-condition-body-and-update
+   * @canon spec-a-for-runs-its-body-and-update-while-its-condition-holds
    */
   it("runs every statement of a loop update", async () => {
     const tallyLoop = () =>
@@ -240,7 +240,7 @@ describe("RMSL evaluation", () => {
   }, 60_000);
 
   /**
-   * @canon spec-an-if-chain-runs-the-first-branch-whose-condition-holds
+   * @canon spec-an-if-chain-takes-the-branch-its-conditions-select
    */
   it("takes the branch the condition selects", async () => {
     const branch = (x: Node<"float">) =>
@@ -259,7 +259,7 @@ describe("RMSL evaluation", () => {
   }, 60_000);
 
   /**
-   * @canon spec-an-if-chain-runs-the-first-branch-whose-condition-holds
+   * @canon spec-an-if-chain-takes-the-branch-its-conditions-select
    */
   it("walks an if/else-if/else chain in order", async () => {
     const classify = (x: Node<"float">) =>
@@ -871,7 +871,7 @@ describe("RMSL evaluation", () => {
   }, 60_000);
 
   /**
-   * @canon spec-while-runs-while-its-condition-holds
+   * @canon spec-a-while-loop-stops-when-its-condition-fails
    */
   it("runs a while loop until its condition fails", async () => {
     const countdown = (n: Node<"float">) =>
@@ -917,7 +917,7 @@ describe("RMSL evaluation", () => {
    * The lowercase aliases are the same nodes, so they must compute the same
    * results — an alias that silently did nothing would fail here.
    *
-   * @canon spec-an-if-chain-runs-the-first-branch-whose-condition-holds
+   * @canon spec-an-if-chain-takes-the-branch-its-conditions-select
    */
   it("computes the same results through the lowercase aliases", async () => {
     const branch = (x: Node<"float">) =>

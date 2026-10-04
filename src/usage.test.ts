@@ -255,7 +255,7 @@ describe("RMSL", () => {
   });
 
   /**
-   * @canon spec-an-fn-records-the-statements-of-its-body
+   * @canon spec-an-fn-returns-what-its-body-returns
    */
   it("supports Fn with multiple return values", () => {
     let prog = Fn(() => {
@@ -283,7 +283,7 @@ describe("RMSL", () => {
   });
 
   /**
-   * @canon spec-an-if-chain-runs-the-first-branch-whose-condition-holds
+   * @canon spec-an-if-chain-takes-the-branch-its-conditions-select
    */
   it("compiles If/Else to GLSL", () => {
     let prog = Fn(() => {
@@ -449,7 +449,7 @@ describe("RMSL", () => {
    * The update clause arrives as statements, so its work sits in `body` while
    * `expr` holds only a bare variable reference.
    *
-   * @canon spec-for-runs-its-init-condition-body-and-update
+   * @canon spec-a-for-runs-its-body-and-update-while-its-condition-holds
    */
   it("emits the for-loop update clause in GLSL", () => {
     let prog = Fn(() => {
@@ -470,7 +470,7 @@ describe("RMSL", () => {
   });
 
   /**
-   * @canon spec-for-runs-its-init-condition-body-and-update
+   * @canon spec-a-for-runs-its-body-and-update-while-its-condition-holds
    */
   it("emits the for-loop update clause in WGSL", () => {
     let prog = Fn(() => {
@@ -1032,7 +1032,7 @@ describe("RMSL", () => {
   });
 
   /**
-   * @canon spec-for-runs-its-init-condition-body-and-update
+   * @canon spec-a-for-runs-its-body-and-update-while-its-condition-holds
    */
   it("For loop init hoists declaration into for header in GLSL", () => {
     let prog = Fn(() => {
@@ -1487,7 +1487,7 @@ describe("RMSL", () => {
 
   // -- Control flow: While, discard --
   /**
-   * @canon spec-while-runs-while-its-condition-holds
+   * @canon spec-a-while-loop-stops-when-its-condition-fails
    */
   it("While loop compiles to GLSL", () => {
     let prog = Fn(() => {
@@ -1531,7 +1531,7 @@ describe("RMSL", () => {
 
   // -- Edge cases --
   /**
-   * @canon spec-an-fn-records-the-statements-of-its-body
+   * @canon spec-an-fn-returns-what-its-body-returns
    */
   it("empty Fn does not throw", () => {
     expect(() => {
@@ -1540,14 +1540,14 @@ describe("RMSL", () => {
   });
 
   /**
-   * @canon spec-an-fn-records-the-statements-of-its-body
+   * @canon spec-an-fn-returns-what-its-body-returns
    */
   it("single-statement Fn compiles", () => {
     expect(() => compileGlsl(Fn(() => float(1.0))())).not.toThrow();
   });
 
   /**
-   * @canon spec-an-fn-records-the-statements-of-its-body
+   * @canon spec-an-fn-returns-what-its-body-returns
    */
   it("nested Fn compiles", () => {
     let inner = Fn(() => float(2.0));
@@ -1638,7 +1638,7 @@ void main(void) { outColor = vec4(myFunc(1.0, 2.0)); }`,
   /**
    * uniformRaw names its own slot, unlike uniform() which generates one.
    *
-   * @canon spec-a-raw-name-is-absolute
+   * @canon spec-a-raw-name-declares-one-input-under-that-name
    */
   it("uniformRaw declares a custom-named uniform alongside the function", () => {
     let glsl = compileGlslFn((v: any) => v.mul(uniformRaw("uScale", "float")), {
@@ -1663,7 +1663,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   /**
    * attributeRaw / varyingRaw name their own slots, as uniformRaw does.
    *
-   * @canon spec-a-raw-name-is-absolute
+   * @canon spec-a-raw-name-declares-one-input-under-that-name
    */
   it("attributeRaw declares a custom-named attribute", () => {
     let tex = attributeRaw("tex", "vec2");
@@ -1676,7 +1676,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   /**
    * One name is one declaration, however many nodes carry it.
    *
-   * @canon spec-a-raw-name-is-absolute
+   * @canon spec-a-raw-name-declares-one-input-under-that-name
    */
   it("declares a name several raw uniforms or attributes share once", () => {
     let fragment = Fn(() => vec4(uniformRaw("brightness", "float").add(uniformRaw("brightness", "float")), 0, 0, 1));
@@ -1689,7 +1689,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   });
 
   /**
-   * @canon spec-a-raw-name-is-absolute
+   * @canon spec-a-raw-name-declares-one-input-under-that-name
    */
   it("reads one value for raw uniforms sharing a name on JS and WASM", () => {
     let build = () => Fn(() => uniformRaw("brightness", "float").add(uniformRaw("brightness", "float").mul(10)))();
@@ -1713,7 +1713,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   });
 
   /**
-   * @canon spec-a-raw-name-is-absolute
+   * @canon spec-a-raw-name-declares-one-input-under-that-name
    */
   it("varyingRaw emits its name in both stages", () => {
     let v = varyingRaw("myNormal", "vec3");
@@ -1749,7 +1749,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   });
 
   /**
-   * @canon spec-a-raw-name-is-absolute
+   * @canon spec-a-raw-name-declares-one-input-under-that-name
    */
   it("raw attribute and varying feed the JS backend by name", () => {
     let vertex = Fn(() => {
@@ -2095,7 +2095,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   }
 
   /**
-   * @canon spec-for-runs-its-init-condition-body-and-update
+   * @canon spec-a-for-runs-its-body-and-update-while-its-condition-holds
    */
   it("keeps every statement of a loop update in both backends", () => {
     for (let counterFirst of [false, true]) {
@@ -2116,7 +2116,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   /**
    * The ordinary single-statement loop keeps the plain for-header it had.
    *
-   * @canon spec-for-runs-its-init-condition-body-and-update
+   * @canon spec-a-for-runs-its-body-and-update-while-its-condition-holds
    */
   it("leaves a single-statement loop update in the header", () => {
     let prog = Fn(() => {
@@ -2415,7 +2415,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   // over the elements instead of unrolling a test per value.
 
   /**
-   * @canon spec-a-uniform-array-takes-one-slot
+   * @canon spec-a-uniform-array-is-read-by-element
    */
   it("declares a uniform array once and indexes it", () => {
     let prog = Fn(() => {
@@ -2447,7 +2447,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   });
 
   /**
-   * @canon spec-a-uniform-array-takes-one-slot
+   * @canon spec-a-uniform-array-is-read-by-element
    */
   it("indexes a uniform array by a constant", () => {
     let prog = Fn(() => {
@@ -2796,7 +2796,7 @@ describe("integer vectors", () => {
 
 describe("integer samplers", () => {
   /**
-   * @canon spec-an-integer-texture-reads-one-texel
+   * @canon spec-an-integer-texture-is-fetched-unfiltered
    */
   it("compiles isampler3D sampling to a GLSL texelFetch", () => {
     let prog = Fn(() => {
@@ -2809,7 +2809,7 @@ describe("integer samplers", () => {
   });
 
   /**
-   * @canon spec-an-integer-texture-reads-one-texel
+   * @canon spec-an-integer-texture-is-fetched-unfiltered
    */
   it("compiles usampler3D sampling to a GLSL texelFetch with an lod", () => {
     let prog = Fn(() => {
@@ -2822,7 +2822,7 @@ describe("integer samplers", () => {
   });
 
   /**
-   * @canon spec-an-integer-texture-reads-one-texel
+   * @canon spec-an-integer-texture-is-fetched-unfiltered
    */
   it("compiles isampler2D to a WGSL textureLoad with no sampler", () => {
     let prog = Fn(() => {
@@ -2861,7 +2861,7 @@ describe("GLSL precision", () => {
   // WGSL has no precision qualifiers, so nothing here applies to it.
 
   /**
-   * @canon spec-glsl-takes-a-precision
+   * @canon spec-glsl-declares-the-precision-asked-for
    */
   it("defaults to highp", () => {
     let prog = Fn(() => float(1).toVar());
@@ -2869,7 +2869,7 @@ describe("GLSL precision", () => {
   });
 
   /**
-   * @canon spec-glsl-takes-a-precision
+   * @canon spec-glsl-declares-the-precision-asked-for
    */
   it("emits mediump float precision", () => {
     let prog = Fn(() => float(1).toVar());
@@ -2879,7 +2879,7 @@ describe("GLSL precision", () => {
   });
 
   /**
-   * @canon spec-glsl-takes-a-precision
+   * @canon spec-glsl-declares-the-precision-asked-for
    */
   it("emits lowp precision for an explicit fragment stage", () => {
     let prog = Fn(() => float(1).toVar());
@@ -2888,7 +2888,7 @@ describe("GLSL precision", () => {
   });
 
   /**
-   * @canon spec-glsl-takes-a-precision
+   * @canon spec-glsl-declares-the-precision-asked-for
    */
   it("emits the configured precision for vertex shaders", () => {
     let prog = Fn(() => vec4(0, 0, 0, 1).toVar());
@@ -2898,7 +2898,7 @@ describe("GLSL precision", () => {
   });
 
   /**
-   * @canon spec-glsl-takes-a-precision
+   * @canon spec-glsl-declares-the-precision-asked-for
    */
   it("applies the configured precision to sampler declarations", () => {
     let prog = Fn(() => uniform("sampler2D").texture(vec2(0, 0)).toVar());
@@ -2909,7 +2909,7 @@ describe("GLSL precision", () => {
   });
 
   /**
-   * @canon spec-glsl-takes-a-precision
+   * @canon spec-glsl-declares-the-precision-asked-for
    */
   it("rejects an unknown precision", () => {
     // Wrapped rather than asserted with `toThrow`: precision is a GLSL option,
@@ -3183,7 +3183,7 @@ describe("TSL control flow", () => {
   });
 
   /**
-   * @canon spec-an-if-chain-runs-the-first-branch-whose-condition-holds
+   * @canon spec-an-if-chain-takes-the-branch-its-conditions-select
    */
   it("If / ElseIf / Else emit an if/else chain", () => {
     let prog = Fn(() => {
@@ -3798,7 +3798,7 @@ describe("JS target", () => {
 
 describe("named toVar variables", () => {
   /**
-   * @canon spec-a-variable-keeps-the-name-the-user-gave-it
+   * @canon spec-a-variable-is-declared-under-the-name-given
    */
   it("emits a user-provided name in GLSL", () => {
     let prog = Fn(() => {
@@ -3810,7 +3810,7 @@ describe("named toVar variables", () => {
   });
 
   /**
-   * @canon spec-a-variable-keeps-the-name-the-user-gave-it
+   * @canon spec-a-variable-is-declared-under-the-name-given
    */
   it("emits a user-provided name in WGSL", () => {
     let prog = Fn(() => {
@@ -3822,7 +3822,7 @@ describe("named toVar variables", () => {
   });
 
   /**
-   * @canon spec-a-variable-keeps-the-name-the-user-gave-it
+   * @canon spec-a-taken-variable-name-gets-a-number
    */
   it("appends a number when the name is already taken", () => {
     let prog = Fn(() => {
@@ -3838,7 +3838,7 @@ describe("named toVar variables", () => {
   });
 
   /**
-   * @canon spec-a-variable-keeps-the-name-the-user-gave-it
+   * @canon spec-a-variable-is-declared-under-the-name-given
    */
   it("the var() alias takes a name too", () => {
     let prog = Fn(() => {
@@ -3874,7 +3874,7 @@ describe("named toVar variables", () => {
   });
 
   /**
-   * @canon spec-a-variable-keeps-the-name-the-user-gave-it
+   * @canon spec-a-variable-is-declared-under-the-name-given
    */
   it("gives the same name to separate compiles", () => {
     let build = () => Fn(() => float(1).toVar("color"))();
@@ -3883,7 +3883,7 @@ describe("named toVar variables", () => {
   });
 
   /**
-   * @canon spec-a-variable-keeps-the-name-the-user-gave-it
+   * @canon spec-a-variable-is-declared-under-the-name-given
    */
   it("emits a named variable into the JS scratch block", () => {
     let prog = Fn(() => {

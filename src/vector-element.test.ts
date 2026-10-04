@@ -61,7 +61,7 @@ describe("a vector's component by index", () => {
   });
 
   /**
-   * @canon spec-a-run-time-index-past-the-end-reaches-the-last-element
+   * @canon spec-a-cpu-target-reaches-the-last-element-out-of-range
    */
   it("clamps an index computed past the vector's end, or below zero, to its last component on WASM", () => {
     expect(evaluateWASM((a) => vec4(1, 2, 3, 4).element(a.toInt()), [9])).toBe(4);

@@ -609,7 +609,7 @@ describe.skipIf(SWEEP === "skip")("integer sweep", () => {
       });
 
       /**
-       * @canon spec-wgsl-integer-arithmetic-keeps-its-defined-result
+       * @canon spec-wgsl-gives-the-defined-integer-result
        */
       it.skipIf(GPU_EVALUATION_SKIPPED)(
         "WGSL matches the reference",

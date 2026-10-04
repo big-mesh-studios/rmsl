@@ -58,7 +58,7 @@ function compileMaterial(program: { vertexRoot: any; fragmentRoot: any }): { gls
 
 describe("node materials", () => {
   /**
-   * @canon spec-a-node-material-shades-as-three-js-does
+   * @canon spec-the-built-in-materials-shade-as-three-js-does
    */
   it("MeshBasicMaterial declares its uniforms and varyings", () => {
     const scene = litScene();
@@ -91,7 +91,7 @@ describe("node materials", () => {
     expect(glsl).toContain("mix(");
   });
   /**
-   * @canon spec-a-node-material-shades-as-three-js-does
+   * @canon spec-the-built-in-materials-shade-as-three-js-does
    */
   it("MeshLambertMaterial folds lights into the fragment", () => {
     const scene = litScene();
@@ -105,7 +105,7 @@ describe("node materials", () => {
     expect(wgsl).toContain("directionalDirection0");
   });
   /**
-   * @canon spec-a-node-material-shades-as-three-js-does
+   * @canon spec-the-built-in-materials-shade-as-three-js-does
    */
   it("MeshStandardMaterial computes a GGX specular", () => {
     const scene = litScene();
@@ -197,7 +197,7 @@ describe("node materials", () => {
     expect(program.varyings.map((v) => v.name)).toEqual(expect.arrayContaining(["positionWorld", "normalWorld"]));
   });
   /**
-   * @canon spec-a-node-material-shades-as-three-js-does
+   * @canon spec-the-built-in-materials-shade-as-three-js-does
    */
   it("the standard material evaluates to a finite color on the CPU", () => {
     // A lit surface must not produce NaN: `pow(1 - dot, 5)` blackens the whole

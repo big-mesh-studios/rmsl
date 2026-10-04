@@ -99,7 +99,7 @@ describe.skipIf(!GPU_ENABLED)("createWgslCompute reading back into out", () => {
     })();
 
   /**
-   * @canon spec-compute-copies-back-only-the-slots-out-names
+   * @canon spec-compute-copies-back-only-the-named-slots
    * @canon spec-a-wgsl-adapter-attaches-and-computes-through-a-promise
    */
   it("reads back only the slots out names", async () => {
@@ -114,7 +114,7 @@ describe.skipIf(!GPU_ENABLED)("createWgslCompute reading back into out", () => {
     adapter.destroy();
   });
   /**
-   * @canon spec-compute-copies-back-only-the-slots-out-names
+   * @canon spec-compute-refuses-a-slot-with-no-storage
    */
   it("rejects a slot the program has no storage for", async () => {
     const adapter = createWgslCompute(program());

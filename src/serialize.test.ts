@@ -66,7 +66,7 @@ function movementKernel() {
 
 describe("serialize/deserialize", () => {
   /**
-   * @canon spec-a-graph-survives-json
+   * @canon spec-a-graph-compiles-the-same-after-json
    */
   it("round-trips a compute kernel through JSON and compiles it to the same WGSL", () => {
     const original = movementKernel()();
@@ -166,7 +166,7 @@ describe("serialize/deserialize", () => {
   });
 
   /**
-   * @canon spec-a-raw-name-is-absolute
+   * @canon spec-a-raw-name-declares-one-input-under-that-name
    */
   it("keeps a name the program chose", () => {
     const program = Fn(() => uniformRaw("brightness", "float").mul(2).toVar("scaled"));
@@ -177,7 +177,8 @@ describe("serialize/deserialize", () => {
   });
 
   /**
-   * @canon spec-a-name-is-local-unless-the-user-gave-it
+   * @canon spec-a-generated-name-is-local-to-its-program
+   * @canon spec-a-raw-name-declares-one-input-under-that-name
    */
   it("keeps generated names apart and joins a raw name, in one program of two graphs", () => {
     const build = () => Fn(() => uniform("float").add(uniformRaw("gain", "float")).toVar())();
@@ -269,7 +270,7 @@ describe("serialize/deserialize", () => {
     ).toThrow("[RMSL] deserialize: buffer 0 holds a Float64Array, not a Float32Array, Int32Array or Uint32Array");
   });
   /**
-   * @canon spec-a-graph-survives-json
+   * @canon spec-a-graph-compiles-the-same-after-json
    */
   it("takes the callable an Fn definition returns", () => {
     const kernel = movementKernel();

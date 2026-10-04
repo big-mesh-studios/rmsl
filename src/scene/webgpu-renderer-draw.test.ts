@@ -196,7 +196,7 @@ describe.skipIf(!WEBGPU)("WebGPURenderer on a real adapter", () => {
     expect(pixel.b).toBeLessThan(60);
   }, 60_000);
   /**
-   * @canon spec-one-rule-decides-how-every-target-samples-a-texture
+   * @canon spec-the-sampler-rule-reads-filters-wrap-and-channels-from-the-texture
    */
   it("wraps and filters a texture the way the texture asks", async () => {
     const result = await runInBrowser(ENTRY_SAMPLER_STATE, "__rmslGpuSamplerRun");

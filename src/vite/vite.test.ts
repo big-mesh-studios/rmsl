@@ -185,7 +185,7 @@ describe("precompileWasm", () => {
   const source = wasmFnsSource;
 
   /**
-   * @canon spec-a-precompiled-wasm-program-ships-as-an-asset
+   * @canon spec-precompile-wasm-emits-each-program-as-an-asset
    * @canon exception-a-precompiled-wasm-program-ships-with-its-instantiation-glue
    */
   it("emits each compiled module as a .wasm asset and rewrites the export to fetch it", async () => {
@@ -211,7 +211,7 @@ describe("precompileWasm", () => {
   });
 
   /**
-   * @canon spec-a-precompiled-wasm-program-ships-as-an-asset
+   * @canon spec-precompile-wasm-emits-each-program-as-an-asset
    */
   it("produces callables that run on WASM, once the emitted-asset placeholder resolves to a real URL", async () => {
     const plugin = asPlugin(precompileWasm({ include: WASM_FNS_PATH }));

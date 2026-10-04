@@ -97,7 +97,7 @@ describe("math classes", () => {
 
 describe("node materials", () => {
   /**
-   * @canon spec-a-node-material-shades-as-three-js-does
+   * @canon spec-the-built-in-materials-shade-as-three-js-does
    */
   it("builds a MaterialProgram", () => {
     const scene = new Scene();
@@ -177,7 +177,7 @@ describe("node materials", () => {
     material.colorNode = 0xff0000;
   });
   /**
-   * @canon spec-a-scene-renderer-manages-what-it-uploads
+   * @canon spec-a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise
    */
   it("renderer constructors are typed", () => {
     expectTypeOf(WebGLRenderer).toMatchTypeOf<new () => WebGLRenderer>();

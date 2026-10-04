@@ -747,7 +747,7 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     expect(result.error).toBe(0);
   }, 60_000);
   /**
-   * @canon spec-one-rule-decides-how-every-target-samples-a-texture
+   * @canon spec-the-sampler-rule-reads-filters-wrap-and-channels-from-the-texture
    */
   it("wraps and filters a texture the way the texture asks", async () => {
     const page = await gpuPage();

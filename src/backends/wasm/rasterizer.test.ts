@@ -11,7 +11,7 @@ function clearDepthBuffer(view: DataView, base: number, pixelCount: number): voi
 
 describe("WASM backend: generic rasterizer module — linking skeleton", () => {
   /**
-   * @canon spec-a-cpu-target-rasterizes-a-vertex-and-fragment-pair
+   * @canon spec-the-wasm-rasterizer-links-its-stages-in-one-memory
    */
   it("calls an imported vertex then an imported fragment module, sharing one memory", () => {
     const memory = new WebAssembly.Memory({ initial: 1 });

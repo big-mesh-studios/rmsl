@@ -49,7 +49,8 @@ describe("one program means the same on every target", () => {
    * literals the compiler folds and once on values that arrive at run time,
    * give one result.
    *
-   * @canon spec-folding-gives-the-run-time-result
+   * @canon spec-float-folding-gives-the-run-time-result
+   * @canon spec-integer-folding-gives-the-run-time-result
    */
   it("folds literals to what the same program computes at run time", () => {
     const folded = evaluateRecording(() => int(7).div(int(-2)).toFloat().add(float(-7).mod(float(3))));
@@ -68,7 +69,7 @@ describe("one program means the same on every target", () => {
    * here without recording, so the GPU targets, which already agree, do not
    * fail the file meanwhile.
    *
-   * @canon spec-a-target-without-a-builtin-gets-a-helper
+   * @canon spec-a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns
    */
   it.fails("computes an inverse, a modulus and a narrowed matrix in one program", () => {
     const build = (a: Node<"float">) =>
@@ -85,7 +86,10 @@ describe("one program means the same on every target", () => {
    * More value uniforms than WGSL has uniform buffers, a uniform array, a
    * boolean uniform and a texture, all in one program.
    *
-   * @canon spec-a-program-declares-any-number-of-uniforms-on-every-target
+   * @canon spec-wgsl-packs-every-value-uniform-into-one-binding
+   * @canon spec-a-texture-keeps-a-binding-of-its-own
+   * @canon spec-a-bool-uniform-travels-as-an-unsigned-integer
+   * @canon spec-a-uniform-array-is-read-by-element
    */
   it("declares many uniforms of every kind in one program on every target", () => {
     const build = () =>
@@ -114,7 +118,8 @@ describe("one program means the same on every target", () => {
    * A vertex stage that writes a varying and a fragment stage that reads it
    * and returns its colour, compiled for both GPU targets.
    *
-   * @canon spec-a-stage-passes-its-values-on-every-target
+   * @canon spec-a-varying-passes-from-the-vertex-to-the-fragment-stage
+   * @canon spec-a-fragment-result-without-an-output-is-the-colour
    */
   it("passes a varying to a fragment stage that writes its colour", () => {
     const tint = varying("vec3");
@@ -136,7 +141,8 @@ describe("one program means the same on every target", () => {
    * The value a write computes runs before its index is read, and a column
    * index before a component index, in one program.
    *
-   * @canon spec-a-program-runs-its-statements-in-the-order-it-writes-them
+   * @canon spec-the-index-of-a-write-is-read-after-the-value-is-computed
+   * @canon spec-a-column-index-runs-before-a-component-index
    */
   it("runs the statements of values and indices in the order the program writes them", () => {
     const build = () =>
@@ -167,7 +173,10 @@ describe("one program means the same on every target", () => {
    * wrap, sampled past its edge, reads the same on JS and WASM: normalized,
    * blended, wrapped, and one channel wide.
    *
-   * @canon spec-a-cpu-target-samples-a-texture-as-a-gpu-sampler-does
+   * @canon spec-a-cpu-target-filters-as-the-texture-asks
+   * @canon spec-a-cpu-target-wraps-as-the-texture-asks
+   * @canon spec-a-byte-texture-reads-as-zero-to-one
+   * @canon spec-a-texel-holds-the-channels-its-texture-stores
    */
   it("filters, wraps and normalizes a single-channel byte texture alike on the CPU targets", () => {
     let tex!: any;
@@ -194,7 +203,9 @@ describe("one program means the same on every target", () => {
    * An overflow, a division by a run-time zero and a shift by more than the
    * bit width, chained in one expression.
    *
-   * @canon spec-integer-arithmetic-follows-wgsl
+   * @canon spec-js-integer-arithmetic-follows-wgsl
+   * @canon spec-wasm-integer-arithmetic-follows-wgsl
+   * @canon spec-wgsl-gives-the-defined-integer-result
    */
   it("wraps, divides by zero and shifts past the width in one expression", async () => {
     const build = (a: Node<"int">, b: Node<"int">, c: Node<"int">) =>
@@ -211,7 +222,8 @@ describe("one program means the same on every target", () => {
    * expression: WASM gives the JS result exactly, and the GPU targets are held
    * to it within the f32 tolerance.
    *
-   * @canon spec-float-arithmetic-gives-one-result
+   * @canon spec-wasm-and-js-give-the-same-float-bits
+   * @canon exception-a-cpu-target-computes-floats-in-64-bits
    */
   it("gives one float result for arithmetic and transcendentals together", () => {
     const build = (a: Node<"float">, b: Node<"float">) => a.sin().mul(b).add(a.div(b)).add(b.mod(a)).sqrt();
@@ -224,7 +236,7 @@ describe("one program means the same on every target", () => {
    * A program recorded for evaluation and a shader recorded for validation in
    * one test: both reach the harness, which compares the targets after it.
    *
-   * @canon spec-the-test-suite-holds-every-target-to-the-program
+   * @canon spec-evaluation-reads-back-every-shape
    */
   it("records what it evaluates and what it compiles for the harness to check", () => {
     const before = recordedEvaluationSummary().total;

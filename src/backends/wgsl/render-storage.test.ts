@@ -32,7 +32,7 @@ function program() {
 
 describe("storage buffers in render stages", () => {
   /**
-   * @canon spec-a-render-stage-reads-storage-read-only
+   * @canon spec-a-wgsl-render-stage-reads-storage-read-only
    * @canon spec-the-index-accessors-follow-tsl
    */
   it("are declared read-only in their own group, numbered across both stages", () => {
@@ -49,7 +49,7 @@ describe("storage buffers in render stages", () => {
     expect(vertexCode).toContain("@builtin(instance_index) _rmsl_instanceIndex: u32");
   });
   /**
-   * @canon spec-a-render-stage-reads-storage-read-only
+   * @canon spec-a-wgsl-render-stage-reads-storage-read-only
    */
   it("rejects a write from a render stage", () => {
     const values = instancedArray(4, "float");

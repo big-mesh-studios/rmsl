@@ -116,7 +116,7 @@ describe("WASM backend: scalar arithmetic", () => {
   });
   /**
    * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
-   * @canon spec-a-uniform-array-takes-one-slot
+   * @canon spec-a-uniform-array-is-read-by-element
    */
   it("reads a float uniform array element by a constant index", () => {
     let arr!: any;
@@ -129,7 +129,7 @@ describe("WASM backend: scalar arithmetic", () => {
   });
   /**
    * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
-   * @canon spec-a-uniform-array-takes-one-slot
+   * @canon spec-a-uniform-array-is-read-by-element
    */
   it("reads a bool uniform array element by a constant index", () => {
     let arr!: any;
@@ -144,7 +144,7 @@ describe("WASM backend: scalar arithmetic", () => {
 
 describe("WASM backend: uniform arrays", () => {
   /**
-   * @canon spec-a-uniform-array-takes-one-slot
+   * @canon spec-a-uniform-array-is-read-by-element
    */
   it("reads a vec4 uniform array element by a constant index", () => {
     let arr!: any;
@@ -162,7 +162,7 @@ describe("WASM backend: uniform arrays", () => {
     expect(fn.run({ uniforms: { [arr.name]: values } })).toBe(7);
   });
   /**
-   * @canon spec-a-uniform-array-takes-one-slot
+   * @canon spec-a-uniform-array-is-read-by-element
    */
   it("lets a uniform array element back a toVar()", () => {
     let arr!: any;
@@ -184,7 +184,7 @@ describe("WASM backend: uniform arrays", () => {
     ).toBe(4);
   });
   /**
-   * @canon spec-a-uniform-array-takes-one-slot
+   * @canon spec-a-uniform-array-is-read-by-element
    */
   it("converts a plain-number (float) index", () => {
     let arr!: any;
@@ -196,7 +196,7 @@ describe("WASM backend: uniform arrays", () => {
     expect(fn.run({ uniforms: { [arr.name]: [10, 20, 30, 40] } })).toBe(30);
   });
   /**
-   * @canon spec-a-uniform-array-takes-one-slot
+   * @canon spec-a-uniform-array-is-read-by-element
    */
   it("indexes a vec4 uniform array with a runtime index inside a loop", () => {
     let arr!: any;
@@ -220,7 +220,7 @@ describe("WASM backend: uniform arrays", () => {
     expect(fn.run({ uniforms: { [arr.name]: values } })).toBe(276); // sum of 0..23
   });
   /**
-   * @canon spec-a-uniform-array-takes-one-slot
+   * @canon spec-a-uniform-array-is-read-by-element
    */
   it("supports a uniform array element as the function root", () => {
     let arr!: any;
@@ -346,7 +346,7 @@ describe("WASM backend: clamp, mix, step, smoothstep", () => {
   });
   /**
    * @canon spec-a-function-with-an-edge-takes-the-value-last
-   * @canon spec-wasm-float-arithmetic-matches-js-exactly
+   * @canon spec-wasm-and-js-give-the-same-float-bits
    */
   it("smoothsteps: clamped, cubic-eased, matching compileJSRoutine bit for bit", () => {
     expect(run((a) => a.smoothstep(0, 1), [-0.5])).toBe(0);
@@ -472,7 +472,7 @@ describe("WASM backend: transcendentals via host import", () => {
     expect(run((a) => a.exp2(), [10])).toBe(1024);
   });
   /**
-   * @canon spec-wasm-float-arithmetic-matches-js-exactly
+   * @canon spec-wasm-and-js-give-the-same-float-bits
    */
   it("agrees with compileJSRoutine on a transcendental", () => {
     // Built once: compileWasmRoutine and compileJSRoutine each call their `fn` argument
@@ -554,7 +554,7 @@ describe("WASM backend: int/uint/bool values and casts", () => {
 
 describe("WASM backend: control flow", () => {
   /**
-   * @canon spec-an-if-chain-runs-the-first-branch-whose-condition-holds
+   * @canon spec-an-if-chain-takes-the-branch-its-conditions-select
    */
   it("takes the branch If/Else selects", () => {
     const branch = (x: Node<"float">) =>
@@ -580,7 +580,7 @@ describe("WASM backend: control flow", () => {
  */
 describe("WASM backend: loops", () => {
   /**
-   * @canon spec-for-runs-its-init-condition-body-and-update
+   * @canon spec-a-for-runs-its-body-and-update-while-its-condition-holds
    */
   it("sums a range with For", () => {
     const build = (n: Node<"float">) =>
@@ -602,7 +602,7 @@ describe("WASM backend: loops", () => {
   });
 
   /**
-   * @canon spec-loop-counts-from-zero
+   * @canon spec-loop-runs-its-body-count-times
    */
   it("sums the same range via the Loop sugar", () => {
     const build = (n: Node<"float">) =>
@@ -617,7 +617,7 @@ describe("WASM backend: loops", () => {
   });
 
   /**
-   * @canon spec-while-runs-while-its-condition-holds
+   * @canon spec-a-while-loop-stops-when-its-condition-fails
    */
   it("sums the same range with While", () => {
     const build = (n: Node<"float">) =>
@@ -1072,7 +1072,7 @@ describe("WASM backend: cross, length, normalize, distance, reflect", () => {
     expect(run(() => normalize(vec3(3, 4, 0)).x as any)).toBeCloseTo(0.6, 9);
   });
   /**
-   * @canon spec-normalizing-a-zero-vector-gives-it-back
+   * @canon spec-a-cpu-target-normalizes-a-zero-vector-to-zero
    */
   it("leaves a zero-length vector unchanged rather than dividing by zero", () => {
     expect(run(() => normalize(vec3(0, 0, 0)).x as any)).toBe(0);
@@ -1456,7 +1456,7 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
   // is uniform filler so a wrong index reads something recognizably wrong.
   const checkerData = [1, 1, 1, 1, 2, 3, 5, 7, 9, 9, 9, 9, 9, 9, 9, 9];
   /**
-   * @canon spec-an-integer-texture-reads-one-texel
+   * @canon spec-an-integer-texture-is-fetched-unfiltered
    */
   it("fetches an in-bounds texel's 4 channels", () => {
     const tex = uniform("sampler2D");
@@ -1470,7 +1470,7 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
     expect(result).toBe(2 + 30 + 500 + 7000);
   });
   /**
-   * @canon spec-a-texel-fetched-out-of-range-reads-zero
+   * @canon spec-a-cpu-target-reads-zero-for-a-texel-out-of-range
    */
   it("returns all zero for an out-of-bounds texel, including alpha", () => {
     const tex = uniform("sampler2D");
@@ -1484,7 +1484,7 @@ describe("WASM backend: textureLoad() — unfiltered texel fetch", () => {
     expect(result).toBe(0);
   });
   /**
-   * @canon spec-a-texel-fetched-out-of-range-reads-zero
+   * @canon spec-a-cpu-target-reads-zero-for-a-texel-out-of-range
    */
   it("returns all zero for a negative coordinate on an ivec2-coordinate fetch", () => {
     const tex = uniform("sampler2D");
@@ -1621,7 +1621,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
     expect(result).toBeCloseTo(0 + 0.5 * 10 + 1 * 100 + 1 * 1000, 9);
   });
   /**
-   * @canon spec-an-integer-texture-reads-one-texel
+   * @canon spec-an-integer-texture-is-fetched-unfiltered
    */
   it("fetches integer textures at texel coordinates via texture()", () => {
     let tex: any;
@@ -1784,7 +1784,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
   });
   /**
    * @canon spec-a-cube-map-is-sampled-on-the-face-its-direction-picks
-   * @canon spec-wasm-float-arithmetic-matches-js-exactly
+   * @canon spec-wasm-and-js-give-the-same-float-bits
    */
   it("matches the JS backend's cube sample for an off-axis direction", () => {
     // 6 faces of 2x2 RGBA: 6*2*2*4 = 96 elements, each texel a distinct value.
@@ -2365,7 +2365,7 @@ describe("WASM backend: writing a vector component by index", () => {
     );
   });
   /**
-   * @canon spec-a-run-time-index-past-the-end-reaches-the-last-element
+   * @canon spec-a-cpu-target-reaches-the-last-element-out-of-range
    */
   it("keeps a storage element's write by an index computed past its end inside the element", () => {
     const out = instancedArray(2, "vec4");

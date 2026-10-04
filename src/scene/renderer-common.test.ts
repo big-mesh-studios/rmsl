@@ -93,7 +93,7 @@ describe("objectUniformValue", () => {
 
 describe("samplerState", () => {
   /**
-   * @canon spec-one-rule-decides-how-every-target-samples-a-texture
+   * @canon spec-the-sampler-rule-reads-filters-wrap-and-channels-from-the-texture
    */
   it("defaults to linear filtering and clamped edges", () => {
     expect(samplerState(new Texture(), "sampler2D")).toEqual({
@@ -105,7 +105,7 @@ describe("samplerState", () => {
     });
   });
   /**
-   * @canon spec-one-rule-decides-how-every-target-samples-a-texture
+   * @canon spec-the-sampler-rule-reads-filters-wrap-and-channels-from-the-texture
    */
   it("carries what the texture asks for", () => {
     const texture = new Texture();
@@ -136,7 +136,7 @@ describe("samplerState", () => {
     expect(samplerState(texture, "sampler2D").minFilter).toBe("linear");
   });
   /**
-   * @canon spec-one-rule-decides-how-every-target-samples-a-texture
+   * @canon spec-the-sampler-rule-reads-filters-wrap-and-channels-from-the-texture
    */
   it("holds an integer texture to nearest, whatever it asked for", () => {
     const texture = new Texture();
@@ -151,7 +151,7 @@ describe("samplerState", () => {
     expect(state.wrapS).toBe("repeat");
   });
   /**
-   * @canon spec-one-rule-decides-how-every-target-samples-a-texture
+   * @canon spec-the-sampler-rule-reads-filters-wrap-and-channels-from-the-texture
    */
   it("treats a wrapping mode it does not know as clamped", () => {
     const texture = new Texture();
@@ -162,7 +162,7 @@ describe("samplerState", () => {
 
 describe("textureChannels", () => {
   /**
-   * @canon spec-one-rule-decides-how-every-target-samples-a-texture
+   * @canon spec-the-sampler-rule-reads-filters-wrap-and-channels-from-the-texture
    */
   it("reads a single-channel format as one channel and everything else as four", () => {
     const data = new Uint8Array([1, 2, 3, 4]);

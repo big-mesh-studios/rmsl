@@ -142,7 +142,7 @@ describe("integer semantics match WGSL", () => {
   });
 
   /**
-   * @canon spec-wgsl-integer-arithmetic-keeps-its-defined-result
+   * @canon spec-wgsl-gives-the-defined-integer-result
    */
   it.skipIf(GPU_EVALUATION_SKIPPED).each(runs)("WGSL: $name ($shape)", async ({ type, args, want, build }) => {
     expect(await evaluateIntegerWGSL(build, type, args)).toBe(want);

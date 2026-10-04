@@ -532,7 +532,7 @@ describe("cross-backend: non-square matrix multiply", () => {
 
 describe("JS backend: control flow", () => {
   /**
-   * @canon spec-for-runs-its-init-condition-body-and-update
+   * @canon spec-a-for-runs-its-body-and-update-while-its-condition-holds
    */
   it("runs a for loop the right number of times", () => {
     const sumTo = (n: Node<"float">) =>
@@ -553,7 +553,7 @@ describe("JS backend: control flow", () => {
     expect(evalScalar(sumTo, [0])).toBe(0);
   });
   /**
-   * @canon spec-for-runs-its-init-condition-body-and-update
+   * @canon spec-a-for-runs-its-body-and-update-while-its-condition-holds
    */
   it("runs every statement of a loop update", () => {
     const tally = Fn(() => {
@@ -575,7 +575,7 @@ describe("JS backend: control flow", () => {
     expect(fn.run({})).toBe(4);
   });
   /**
-   * @canon spec-an-if-chain-runs-the-first-branch-whose-condition-holds
+   * @canon spec-an-if-chain-takes-the-branch-its-conditions-select
    */
   it("takes the branch the condition selects", () => {
     const branch = (x: Node<"float">) =>
@@ -593,7 +593,7 @@ describe("JS backend: control flow", () => {
   });
 
   /**
-   * @canon spec-while-runs-while-its-condition-holds
+   * @canon spec-a-while-loop-stops-when-its-condition-fails
    */
   it("runs a while loop until its condition fails", () => {
     const countdown = (n: Node<"float">) =>
@@ -674,7 +674,7 @@ describe("JS backend: control flow", () => {
     expect(evalScalar(sumSkippingFirst, [5])).toBe(9);
   });
   /**
-   * @canon spec-an-if-chain-runs-the-first-branch-whose-condition-holds
+   * @canon spec-an-if-chain-takes-the-branch-its-conditions-select
    */
   it("computes the same results through the lowercase aliases", () => {
     const branch = (x: Node<"float">) =>
@@ -800,7 +800,7 @@ describe("JS backend: shader I/O", () => {
   });
   /**
    * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
-   * @canon spec-a-uniform-array-takes-one-slot
+   * @canon spec-a-uniform-array-is-read-by-element
    */
   it("reads uniform arrays", () => {
     let arr!: any;
@@ -1136,7 +1136,7 @@ describe("JS backend: CPU-specific behaviour", () => {
     expect(r).toBeLessThanOrEqual(100);
   });
   /**
-   * @canon spec-an-integer-texture-reads-one-texel
+   * @canon spec-an-integer-texture-is-fetched-unfiltered
    */
   it("fetches integer textures at texel coordinates", () => {
     let tex!: any;
@@ -1320,7 +1320,7 @@ describe("JS backend: TSL free functions", () => {
 
 describe("JS backend: TSL loop and return", () => {
   /**
-   * @canon spec-loop-counts-from-zero
+   * @canon spec-loop-runs-its-body-count-times
    */
   it("Loop(count, (i) => ...) sums 0..3", () => {
     const fn = compileJSRoutine(
@@ -1520,7 +1520,7 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
   });
   /**
    * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
-   * @canon spec-wasm-float-arithmetic-matches-js-exactly
+   * @canon spec-wasm-and-js-give-the-same-float-bits
    */
   it("matches compileWasmRoutine's draw() output for the same program", () => {
     const build = () => Fn(() => fragCoord().x.add(fragCoord().y.mul(2)))();
