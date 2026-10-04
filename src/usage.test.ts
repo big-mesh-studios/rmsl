@@ -320,10 +320,11 @@ describe("RMSL", () => {
     expect(wgsl).toContain("1f < 2f");
   });
 
-  // Comparing vectors gives one boolean per component, so the result is a
-  // bvecN rather than a bool. GLSL spells it with a function; WGSL uses the
-  // operator directly. Both yield a boolean vector.
   /**
+   * Comparing vectors gives one boolean per component, so the result is a
+   * bvecN rather than a bool. GLSL spells it with a function; WGSL uses the
+   * operator directly. Both yield a boolean vector.
+   *
    * @canon spec-a-vector-comparison-gives-a-boolean-vector
    */
   it("compiles vec3 lessThan to GLSL (vector path)", () => {
@@ -400,8 +401,9 @@ describe("RMSL", () => {
     expect(wgsl).toContain(": bool");
   });
 
-  // GLSL's `!` is scalar-only, so negating a boolean vector needs not().
   /**
+   * GLSL's `!` is scalar-only, so negating a boolean vector needs not().
+   *
    * @canon spec-not-negates-a-boolean-vector-component-wise
    */
   it("negates a boolean vector component-wise in both backends", () => {
@@ -415,8 +417,9 @@ describe("RMSL", () => {
     expect(compileWgsl(prog())).toContain("!(");
   });
 
-  // refract(I, N, eta) takes three arguments.
   /**
+   * refract(I, N, eta) takes three arguments.
+   *
    * @canon spec-a-geometric-function-compiles-to-the-builtin-of-the-target
    */
   it("compiles refract with all three arguments to GLSL", () => {
@@ -442,9 +445,10 @@ describe("RMSL", () => {
     expect(wgsl).toContain("refract(vec3<f32>(1, 0, 0), vec3<f32>(0, 1, 0), 0.5f)");
   });
 
-  // The update clause arrives as statements, so its work sits in `body` while
-  // `expr` holds only a bare variable reference.
   /**
+   * The update clause arrives as statements, so its work sits in `body` while
+   * `expr` holds only a bare variable reference.
+   *
    * @canon spec-for-runs-its-init-condition-body-and-update
    */
   it("emits the for-loop update clause in GLSL", () => {
@@ -486,9 +490,10 @@ describe("RMSL", () => {
     expect(header).toMatch(/;\s*(\S+) = \1 \+ 1f\) \{$/);
   });
 
-  // dot/length/distance reduce a vector to a scalar, so their result type is
-  // float, not the operand type.
   /**
+   * dot/length/distance reduce a vector to a scalar, so their result type is
+   * float, not the operand type.
+   *
    * @canon spec-a-reducing-operation-has-a-scalar-type
    */
   it("types length/distance/dot as float, not the operand type", () => {
@@ -552,9 +557,10 @@ describe("RMSL", () => {
     expect(glsl).toContain("textureLod(");
   });
 
-  // A 3D texture samples with a volume coordinate — a vec3, like a cube map —
-  // and maps to sampler3D / texture_3d<f32>.
   /**
+   * A 3D texture samples with a volume coordinate — a vec3, like a cube map —
+   * and maps to sampler3D / texture_3d<f32>.
+   *
    * @canon spec-a-float-texture-is-sampled-through-a-sampler
    */
   it("compiles sampler3D sampling to GLSL", () => {
@@ -618,9 +624,10 @@ describe("RMSL", () => {
     expect(glsl).toContain("1 < 2");
   });
 
-  // A plain JS number has no shader type of its own. A uniform is used because
-  // constants fold away.
   /**
+   * A plain JS number has no shader type of its own. A uniform is used because
+   * constants fold away.
+   *
    * @canon spec-a-bare-number-beside-an-integer-is-an-integer
    */
   it("gives a plain number the operand's integer type", () => {
@@ -776,9 +783,10 @@ describe("RMSL", () => {
     expect(glsl).toContain("out vec4");
   });
 
-  // GLSL ES 3.00 removed gl_FragColor, so a fragment shader with nowhere to
-  // write its colour needs an explicit output declaration.
   /**
+   * GLSL ES 3.00 removed gl_FragColor, so a fragment shader with nowhere to
+   * write its colour needs an explicit output declaration.
+   *
    * @canon spec-a-fragment-result-without-an-output-is-the-colour
    */
   it("declares an implicit colour output when a fragment shader has none", () => {
@@ -792,8 +800,9 @@ describe("RMSL", () => {
     expect(wgsl).toContain("_rmsl_fragColor");
   });
 
-  // Declared outputs are assigned by the program.
   /**
+   * Declared outputs are assigned by the program.
+   *
    * @canon spec-a-declared-output-holds-what-the-program-assigns
    */
   it("leaves an explicitly written output alone", () => {
@@ -820,8 +829,9 @@ describe("RMSL", () => {
     expect(glsl.match(/_rmsl_o\d+ = /g) ?? []).toHaveLength(1);
   });
 
-  // Everything a vertex stage passes onward shares one set of numbered slots.
   /**
+   * Everything a vertex stage passes onward shares one set of numbered slots.
+   *
    * @canon spec-a-location-is-numbered-within-its-program
    */
   it("numbers everything a vertex stage passes on without collision", () => {
@@ -935,8 +945,9 @@ describe("RMSL", () => {
     expect(fragmentGLSL).toContain("in vec3");
   });
 
-  // Skipping the write instead would link cleanly and draw nothing.
   /**
+   * Skipping the write instead would link cleanly and draw nothing.
+   *
    * @canon spec-a-vertex-stage-without-a-position-is-refused
    */
   it("rejects a vertex shader whose result is not a vec4", () => {
@@ -947,8 +958,9 @@ describe("RMSL", () => {
     expect(() => compileWgsl.vertex(prog())).toThrow(/vertex shader/);
   });
 
-  // A vertex shader must produce a position, and zero is not a valid position.
   /**
+   * A vertex shader must produce a position, and zero is not a valid position.
+   *
    * @canon spec-a-vertex-stage-without-a-position-is-refused
    */
   it("rejects a vertex result of zero, like any other non-position", () => {
@@ -966,8 +978,9 @@ describe("RMSL", () => {
     expect(() => compileGlsl.vertex(Fn(() => float(2).sub(float(2)))())).toThrow(/vertex shader/);
   });
 
-  // Writing the position explicitly is the documented way to set it.
   /**
+   * Writing the position explicitly is the documented way to set it.
+   *
    * @canon spec-a-vertex-stage-writes-its-position
    */
   it("allows a vertex shader that writes the position itself", () => {
@@ -983,8 +996,9 @@ describe("RMSL", () => {
     expect(wgsl.match(/result\.position = /g) ?? [], "written once").toHaveLength(1);
   });
 
-  // With no explicit write, the result still has to be able to become one.
   /**
+   * With no explicit write, the result still has to be able to become one.
+   *
    * @canon spec-a-vertex-stage-without-a-position-is-refused
    */
   it("still requires a position when the shader writes none", () => {
@@ -992,9 +1006,10 @@ describe("RMSL", () => {
     expect(() => compileGlsl.vertex(Fn(() => float(1))())).toThrow(/vertex shader/);
   });
 
-  // A vertex shader that returns nothing and never writes a position fails
-  // validation.
   /**
+   * A vertex shader that returns nothing and never writes a position fails
+   * validation.
+   *
    * @canon spec-a-vertex-stage-without-a-position-is-refused
    */
   it("rejects a vertex shader that produces no position at all", () => {
@@ -1005,8 +1020,9 @@ describe("RMSL", () => {
     expect(() => compileWgsl.vertex(prog())).toThrow(/vertex shader/);
   });
 
-  // A fragment shader with no colour output is legal, so this stays permitted.
   /**
+   * A fragment shader with no colour output is legal, so this stays permitted.
+   *
    * @canon spec-a-fragment-stage-may-write-no-colour
    */
   it("allows a fragment shader with no output", () => {
@@ -1180,11 +1196,12 @@ describe("RMSL", () => {
     expect(glsl).toContain("mat2x3(");
   });
 
-  // Every matrix constructor accepts its own columns as vector nodes, not
-  // just mat3/mat4 (which hand-write the overload) — makeMatConstructor's
-  // generic version used to fall through to a broken literal node holding
-  // Node objects instead of numbers for every other matrix shape.
   /**
+   * Every matrix constructor accepts its own columns as vector nodes, not
+   * just mat3/mat4 (which hand-write the overload) — makeMatConstructor's
+   * generic version used to fall through to a broken literal node holding
+   * Node objects instead of numbers for every other matrix shape.
+   *
    * @canon spec-a-matrix-is-built-from-its-columns
    */
   it("builds every matrix shape from columns of vector nodes, not just mat3/mat4", () => {
@@ -1260,10 +1277,11 @@ describe("RMSL", () => {
     expect(glsl).toContain(op);
   });
 
-  // Neither language compares a vector against a scalar, so the scalar has to
-  // be broadcast: GLSL has no lessThan(vec3, float) and WGSL no
-  // `operator < (vec3<f32>, f32)`. The signatures accept the mix.
   /**
+   * Neither language compares a vector against a scalar, so the scalar has to
+   * be broadcast: GLSL has no lessThan(vec3, float) and WGSL no
+   * `operator < (vec3<f32>, f32)`. The signatures accept the mix.
+   *
    * @canon spec-a-scalar-compared-against-a-vector-is-broadcast
    */
   it("broadcasts a scalar compared against a vector", () => {
@@ -1272,11 +1290,12 @@ describe("RMSL", () => {
     expect(compileWgsl(prog())).toMatch(/vec3<f32>\(1, 2, 3\) < vec3<f32>\(\S+\)/);
   });
 
-  // A scalar compared against a vector is a type error — see
-  // src/rmsl.test-d.ts, where that belongs. This direction is the allowed one:
-  // the scalar broadcasts, which is what the caller means and what both
-  // languages need.
   /**
+   * A scalar compared against a vector is a type error — see
+   * src/rmsl.test-d.ts, where that belongs. This direction is the allowed one:
+   * the scalar broadcasts, which is what the caller means and what both
+   * languages need.
+   *
    * @canon spec-a-scalar-compared-against-a-vector-is-broadcast
    */
   it("allows a vector compared against a scalar", () => {
@@ -1284,9 +1303,10 @@ describe("RMSL", () => {
     expect(compileGlsl(prog())).toContain("lessThan(");
   });
 
-  // step/smoothstep take the value last, so the result type follows that
-  // operand rather than the edge — `vec3.step(0.5)` is a vec3, not a float.
   /**
+   * step/smoothstep take the value last, so the result type follows that
+   * operand rather than the edge — `vec3.step(0.5)` is a vec3, not a float.
+   *
    * @canon spec-step-and-smoothstep-take-their-type-from-the-value
    */
   it("types step/smoothstep from the value, not the edge", () => {
@@ -1615,8 +1635,9 @@ void main(void) { outColor = vec4(myFunc(1.0, 2.0)); }`,
     );
   });
 
-  // uniformRaw names its own slot, unlike uniform() which generates one.
   /**
+   * uniformRaw names its own slot, unlike uniform() which generates one.
+   *
    * @canon spec-a-raw-name-is-absolute
    */
   it("uniformRaw declares a custom-named uniform alongside the function", () => {
@@ -1639,8 +1660,9 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     );
   });
 
-  // attributeRaw / varyingRaw name their own slots, as uniformRaw does.
   /**
+   * attributeRaw / varyingRaw name their own slots, as uniformRaw does.
+   *
    * @canon spec-a-raw-name-is-absolute
    */
   it("attributeRaw declares a custom-named attribute", () => {
@@ -1651,8 +1673,9 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(compileWgsl.vertex(prog())).toContain("tex: vec2<f32>");
   });
 
-  // One name is one declaration, however many nodes carry it.
   /**
+   * One name is one declaration, however many nodes carry it.
+   *
    * @canon spec-a-raw-name-is-absolute
    */
   it("declares a name several raw uniforms or attributes share once", () => {
@@ -1740,10 +1763,11 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(src).toContain('res.varyings["myNormal"]');
   });
 
-  // Refused by the signature as well as at runtime. Written as a directive
-  // rather than a cast so both are asserted: a cast would silence the whole
-  // expression, and would keep passing if the signature ever stopped refusing.
   /**
+   * Refused by the signature as well as at runtime. Written as a directive
+   * rather than a cast so both are asserted: a cast would silence the whole
+   * expression, and would keep passing if the signature ever stopped refusing.
+   *
    * @canon spec-a-function-compiles-on-its-own
    */
   it("compileGlslFn rejects a multi-return function", () => {
@@ -1753,8 +1777,9 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     ).toThrow(/multi-return/);
   });
 
-  // WGSL has no inverse() builtin, so the compiler writes one out on demand.
   /**
+   * WGSL has no inverse() builtin, so the compiler writes one out on demand.
+   *
    * @canon spec-wgsl-inverts-a-matrix-through-a-helper-of-its-size
    */
   it("compileWgslFn emits the helpers the function body calls", () => {
@@ -1793,8 +1818,9 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   // both backends are checked by a real implementation as well as by the
   // assertion.
 
-  // Driven by a uniform because constant folding collapses these on literals.
   /**
+   * Driven by a uniform because constant folding collapses these on literals.
+   *
    * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
    */
   it("compiles every unary math builtin", () => {
@@ -1849,10 +1875,11 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     }
   });
 
-  // GLSL reads a lone scalar as a diagonal, so WGSL — which has no such
-  // overload — has to write every component out. The expansion has to know the
-  // shape: a matCxR is C columns of R rows.
   /**
+   * GLSL reads a lone scalar as a diagonal, so WGSL — which has no such
+   * overload — has to write every component out. The expansion has to know the
+   * shape: a matCxR is C columns of R rows.
+   *
    * @canon spec-a-scalar-matrix-is-a-diagonal
    */
   it("expands a scalar matrix constructor to a full diagonal in WGSL", () => {
@@ -1871,9 +1898,10 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     }
   });
 
-  // A lone argument is only a diagonal when it is a scalar. Building a matrix
-  // from another matrix is a copy/truncate.
   /**
+   * A lone argument is only a diagonal when it is a scalar. Building a matrix
+   * from another matrix is a copy/truncate.
+   *
    * @canon spec-parts-fill-a-vector-in-order
    */
   it("keeps a matrix-from-matrix constructor as a single argument", () => {
@@ -1901,9 +1929,10 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     }
   });
 
-  // Raw JS arrays are accepted wherever a node is, and their length picks the
-  // type.
   /**
+   * Raw JS arrays are accepted wherever a node is, and their length picks the
+   * type.
+   *
    * @canon spec-a-javascript-array-is-a-vector-of-its-length
    */
   it("wraps raw arrays by length", () => {
@@ -1950,10 +1979,11 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(wgsl.match(/\+ 10f/g) ?? []).toHaveLength(1);
   });
 
-  // A toVar() inside a shared block declares its variable in that block. Emit
-  // the block twice while declaring only once and the second copy reads a name
-  // scoped to the first — `_rmsl_2` used outside the `if` that declared it.
   /**
+   * A toVar() inside a shared block declares its variable in that block. Emit
+   * the block twice while declaring only once and the second copy reads a name
+   * scoped to the first — `_rmsl_2` used outside the `if` that declared it.
+   *
    * @canon spec-every-node-is-emitted-once
    */
   it("keeps a variable declared inside a shared block in scope", () => {
@@ -1977,10 +2007,11 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(compileWgsl(build()()).match(/if \(true\)/g) ?? []).toHaveLength(1);
   });
 
-  // The loop counter is declared by the for header. Emitting the loop twice
-  // while suppressing the declaration produced `for (_rmsl_4; ...)`, whose
-  // counter belongs to the first loop's scope.
   /**
+   * The loop counter is declared by the for header. Emitting the loop twice
+   * while suppressing the declaration produced `for (_rmsl_4; ...)`, whose
+   * counter belongs to the first loop's scope.
+   *
    * @canon spec-every-node-is-emitted-once
    */
   it("emits a shared For loop once, with its init intact", () => {
@@ -2006,12 +2037,13 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(wgsl).toMatch(/for \(var _rmsl_\d+: f32 = 0f;/);
   });
 
-  // A floored modulus has to be written out for WGSL, whose % truncates. Doing
-  // that inline repeats both operands twice each, so the cost of an expensive
-  // operand is paid four times over. A helper is a plain expression, so it fits
-  // anywhere the operator did — including a loop header, where a bound
-  // temporary could not go.
   /**
+   * A floored modulus has to be written out for WGSL, whose % truncates. Doing
+   * that inline repeats both operands twice each, so the cost of an expensive
+   * operand is paid four times over. A helper is a plain expression, so it fits
+   * anywhere the operator did — including a loop header, where a bound
+   * temporary could not go.
+   *
    * @canon spec-wgsl-floors-a-modulus-through-a-helper
    */
   it("emits a modulus helper rather than repeating its operands", () => {
@@ -2081,8 +2113,9 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     }
   });
 
-  // The ordinary single-statement loop keeps the plain for-header it had.
   /**
+   * The ordinary single-statement loop keeps the plain for-header it had.
+   *
    * @canon spec-for-runs-its-init-condition-body-and-update
    */
   it("leaves a single-statement loop update in the header", () => {
@@ -2103,9 +2136,10 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(wgsl).not.toContain("continuing");
   });
 
-  // A plain JavaScript number has no shader type of its own, so it takes the
-  // type of the operand it sits beside.
   /**
+   * A plain JavaScript number has no shader type of its own, so it takes the
+   * type of the operand it sits beside.
+   *
    * @canon spec-a-bare-number-beside-an-integer-is-an-integer
    */
   it("gives a compared literal the operand's integer type", () => {
@@ -2118,26 +2152,29 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(compileGlsl(signed())).not.toContain("float(");
   });
 
-  // A literal that is not a whole number cannot take an integer type.
   /**
+   * A literal that is not a whole number cannot take an integer type.
+   *
    * @canon spec-a-fraction-beside-an-integer-is-refused
    */
   it("refuses a fractional literal beside an integer operand", () => {
     expect(() => Fn(() => uniform("int").add(2.5).toVar())()).toThrow(/whole number|integer/i);
   });
 
-  // Negative literals stay signed: an unsigned type has no negative values,
-  // and WGSL has no unary minus for one either.
   /**
+   * Negative literals stay signed: an unsigned type has no negative values,
+   * and WGSL has no unary minus for one either.
+   *
    * @canon spec-a-negative-number-for-an-unsigned-type-is-refused
    */
   it("refuses a negative literal beside an unsigned operand", () => {
     expect(() => Fn(() => uniform("uint").add(-1).toVar())()).toThrow(/negative|unsigned/i);
   });
 
-  // WGSL makes a single component assignable but not a multi-component
-  // swizzle, so the write is split per component.
   /**
+   * WGSL makes a single component assignable but not a multi-component
+   * swizzle, so the write is split per component.
+   *
    * @canon spec-a-swizzle-write-writes-the-components-it-names
    */
   it("resolves a nested swizzle down to the variable it writes to", () => {
@@ -2152,10 +2189,11 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(wgsl).toMatch(/_rmsl_\d+\.y = /);
   });
 
-  // gl_Position is written by the vertex stage and is not readable in the
-  // fragment stage; WGSL has no free-standing `position` there either, and
-  // never emitted a parameter for one. Both produced an undeclared identifier.
   /**
+   * gl_Position is written by the vertex stage and is not readable in the
+   * fragment stage; WGSL has no free-standing `position` there either, and
+   * never emitted a parameter for one. Both produced an undeclared identifier.
+   *
    * @canon spec-the-position-is-read-only-in-a-vertex-stage
    */
   it("refuses to read the position from a fragment stage", () => {
@@ -2173,9 +2211,10 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(compileWgsl.vertex(prog())).toContain("result.position");
   });
 
-  // WGSL's uniform address space takes host-shareable types only, and neither
-  // a bool nor a boolean vector is one.
   /**
+   * WGSL's uniform address space takes host-shareable types only, and neither
+   * a bool nor a boolean vector is one.
+   *
    * @canon spec-a-bool-uniform-travels-as-an-unsigned-integer
    */
   it("carries a boolean vector uniform through a host-shareable type", () => {
@@ -2187,11 +2226,12 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(compileGlsl(prog())).toContain("uniform bvec3");
   });
 
-  // A matrix column is a vector. The node inherited its operand's type, so it
-  // claimed to be a matrix around an expression that produces a vector, and the
-  // declaration it generated did not compile in either backend. The signature
-  // has always said Node<"vec4">; only the runtime type disagreed.
   /**
+   * A matrix column is a vector. The node inherited its operand's type, so it
+   * claimed to be a matrix around an expression that produces a vector, and the
+   * declaration it generated did not compile in either backend. The signature
+   * has always said Node<"vec4">; only the runtime type disagreed.
+   *
    * @canon spec-a-matrix-element-is-a-column
    */
   it("types a matrix element as the column vector it is", () => {
@@ -2204,9 +2244,10 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(compileWgsl(prog3())).toMatch(/var \S+: vec3<f32> = \S+\[\S+\];/);
   });
 
-  // The index is an integer, so it has to be emitted as one. Typing it from
-  // the matrix operand left it a float and produced m[int(0.0)].
   /**
+   * The index is an integer, so it has to be emitted as one. Typing it from
+   * the matrix operand left it a float and produced m[int(0.0)].
+   *
    * @canon spec-a-matrix-element-is-a-column
    */
   it("indexes a matrix with an integer", () => {
@@ -2215,10 +2256,11 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(compileWgsl(prog())).not.toContain("i32(0f)");
   });
 
-  // Transposing swaps columns for rows, so the result type changes for a
-  // matrix that is not square. Only the square types were reachable before, and
-  // they keep their own type, so the runtime never had to get this right.
   /**
+   * Transposing swaps columns for rows, so the result type changes for a
+   * matrix that is not square. Only the square types were reachable before, and
+   * they keep their own type, so the runtime never had to get this right.
+   *
    * @canon spec-a-transpose-swaps-the-shape
    */
   it("types a non-square transpose with its shape swapped", () => {
@@ -2236,14 +2278,15 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(compileWgsl(prog())).toMatch(/var \S+: vec3<f32> = /);
   });
 
-  // WGSL has no inverse() builtin, so one is written out per matrix size. The
-  // helper was chosen by testing for mat3 and falling back to mat4, so a mat2
-  // was inverted by the four-by-four helper and the call matched nothing.
-  //
-  // Only a square matrix has an inverse, and neither language offers an
-  // overload for the rest. WGSL says so; GLSL emitted the call anyway, and a
-  // shader that no driver accepts is worse than one that fails to build here.
   /**
+   * WGSL has no inverse() builtin, so one is written out per matrix size. The
+   * helper was chosen by testing for mat3 and falling back to mat4, so a mat2
+   * was inverted by the four-by-four helper and the call matched nothing.
+   *
+   * Only a square matrix has an inverse, and neither language offers an
+   * overload for the rest. WGSL says so; GLSL emitted the call anyway, and a
+   * shader that no driver accepts is worse than one that fails to build here.
+   *
    * @canon spec-only-a-square-matrix-is-inverted
    */
   it("refuses to invert a matrix that is not square, in both backends", () => {
@@ -2264,8 +2307,9 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(compileWgsl(Fn(() => uniform("mat4").inverse().toVar())())).toContain("fn _rmsl_inverse4(");
   });
 
-  // Folding runs on literal operands; the integer branch truncates with `| 0`.
   /**
+   * Folding runs on literal operands; the integer branch truncates with `| 0`.
+   *
    * @canon spec-integer-folding-gives-the-run-time-result
    */
   it("folds integer arithmetic with truncation", () => {
@@ -2337,11 +2381,12 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(glsl).not.toContain("_rmsl_uniforms");
   });
 
-  // The host has to write the buffer, and declaration order is not layout
-  // order: members are sorted by descending alignment so WGSL inserts no
-  // padding between them. Offsets are returned because there is no other way
-  // for a caller to know them.
   /**
+   * The host has to write the buffer, and declaration order is not layout
+   * order: members are sorted by descending alignment so WGSL inserts no
+   * padding between them. Offsets are returned because there is no other way
+   * for a caller to know them.
+   *
    * @canon spec-uniforms-are-ordered-by-alignment-then-by-declaration
    */
   it("reports uniform offsets following WGSL alignment rules", () => {
@@ -2415,10 +2460,11 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(compileWgsl(prog())).toMatch(/_rmsl_u\d+\[i32\(2f\)\]/);
   });
 
-  // Element types too narrow to align are stored widened and read back out of
-  // the leading components, so the padding never reaches the caller. The same
-  // approach TSL takes.
   /**
+   * Element types too narrow to align are stored widened and read back out of
+   * the leading components, so the padding never reaches the caller. The same
+   * approach TSL takes.
+   *
    * @canon spec-a-uniform-array-element-is-padded-out-of-sight
    */
   it("pads array elements WGSL cannot align, transparently", () => {
@@ -2440,10 +2486,11 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     }
   });
 
-  // The location came from a module-wide counter, so the fifth output declared
-  // anywhere landed at location 4 even in a shader that had only one — past
-  // MAX_DRAW_BUFFERS soon enough for an app with a few materials.
   /**
+   * The location came from a module-wide counter, so the fifth output declared
+   * anywhere landed at location 4 even in a shader that had only one — past
+   * MAX_DRAW_BUFFERS soon enough for an app with a few materials.
+   *
    * @canon spec-a-location-is-numbered-within-its-program
    */
   it("numbers output locations per shader", () => {
@@ -2474,11 +2521,12 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(glsl).toContain("layout(location=1) out");
   });
 
-  // WGSL's uniform address space takes host-shareable types only, so a bool
-  // travels as an unsigned integer and is compared back on read. A single bool
-  // uniform already did that; an array of them did not, and reached WGSL
-  // declared as an array of bool, which it refuses.
   /**
+   * WGSL's uniform address space takes host-shareable types only, so a bool
+   * travels as an unsigned integer and is compared back on read. A single bool
+   * uniform already did that; an array of them did not, and reached WGSL
+   * declared as an array of bool, which it refuses.
+   *
    * @canon spec-a-bool-uniform-travels-as-an-unsigned-integer
    */
   it("carries an array of booleans through a host-shareable type", () => {
@@ -2504,10 +2552,11 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(wgsl).toMatch(/var \S+: bool =/);
   });
 
-  // A texture cannot live in a uniform block — it is not host-shareable — so
-  // the whole-shader path gives it a binding of its own. The standalone
-  // function path packed everything it had, textures included.
   /**
+   * A texture cannot live in a uniform block — it is not host-shareable — so
+   * the whole-shader path gives it a binding of its own. The standalone
+   * function path packed everything it had, textures included.
+   *
    * @canon spec-a-texture-keeps-a-binding-of-its-own
    */
   it("keeps a texture out of the uniform struct in a standalone function", () => {
@@ -2545,10 +2594,11 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     );
   });
 
-  // Neither backend has a way to express this that the other shares: WGSL has
-  // no plain array of textures in the uniform address space, and emitting one
-  // produced a reference to a struct that does not hold it.
   /**
+   * Neither backend has a way to express this that the other shares: WGSL has
+   * no plain array of textures in the uniform address space, and emitting one
+   * produced a reference to a struct that does not hold it.
+   *
    * @canon spec-a-uniform-array-holds-no-texture
    */
   it("refuses an array of textures", () => {
@@ -2566,10 +2616,11 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(() => uniformArray("vec4", 2.5)).toThrow(/positive integer/);
   });
 
-  // The stride is what a caller cannot guess. It happens to equal the element
-  // size for vec4, but the layout reports it rather than leaving the host to
-  // assume the two are the same.
   /**
+   * The stride is what a caller cannot guess. It happens to equal the element
+   * size for vec4, but the layout reports it rather than leaving the host to
+   * assume the two are the same.
+   *
    * @canon spec-an-array-member-has-a-stride-of-sixteen
    */
   it("reports the stride of an array member", () => {
@@ -2582,10 +2633,11 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(layout.size).toBe(32);
   });
 
-  // The caller writes the buffer from these numbers, so a wrong one is not a
-  // shader that fails to build — it is a shader that reads whatever happens to
-  // be at that address. None of these fail loudly, which is why each is pinned.
   /**
+   * The caller writes the buffer from these numbers, so a wrong one is not a
+   * shader that fails to build — it is a shader that reads whatever happens to
+   * be at that address. None of these fail loudly, which is why each is pinned.
+   *
    * @canon spec-a-matrix-member-pads-each-column
    */
   it("sizes a matrix that is not square", () => {
@@ -2607,10 +2659,11 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(() => wgslUniformLayout([{ slot: "x", type: "mat9x9<f32>" }])).toThrow(/layout/i);
   });
 
-  // An array's alignment is raised to sixteen whatever it holds, and the struct
-  // takes its alignment from its members — so the struct's own size has to
-  // account for that, or the buffer is short.
   /**
+   * An array's alignment is raised to sixteen whatever it holds, and the struct
+   * takes its alignment from its members — so the struct's own size has to
+   * account for that, or the buffer is short.
+   *
    * @canon spec-an-array-member-has-a-stride-of-sixteen
    */
   it("rounds the struct up to an array member's alignment", () => {
@@ -2622,11 +2675,12 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     expect(layout.size, "rounded up to sixteen").toBe(64);
   });
 
-  // Members that align the same are kept in the order they were declared. The
-  // tie was broken on the generated slot name, which carries a counter that
-  // climbs for the life of the process — so "…u10" sorted before "…u9" and the
-  // same program compiled twice put its values at different addresses.
   /**
+   * Members that align the same are kept in the order they were declared. The
+   * tie was broken on the generated slot name, which carries a counter that
+   * climbs for the life of the process — so "…u10" sorted before "…u9" and the
+   * same program compiled twice put its values at different addresses.
+   *
    * @canon spec-uniforms-are-ordered-by-alignment-then-by-declaration
    */
   it("orders equally aligned members by declaration, not by name", () => {

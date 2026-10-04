@@ -62,8 +62,9 @@ describe("a matrix's column by index", () => {
     expect(evaluateWASM((a) => write(a), [1])).toEqual([91, 112, 85]);
   });
 
-  // The recording harness skips WASM when it reports a construct unsupported, so these pin it there directly.
   /**
+   * The recording harness skips WASM when it reports a construct unsupported, so these pin it there directly.
+   *
    * @canon spec-an-element-reads-a-component-by-index
    * @canon spec-an-element-write-writes-at-its-index
    */

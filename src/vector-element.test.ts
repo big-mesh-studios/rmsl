@@ -43,8 +43,9 @@ describe("a vector's component by index", () => {
     expect(evaluateRecording((a) => write(a), [2])).toEqual([10, 2, 20, 4]);
   });
 
-  // The recording harness skips WASM when it reports a construct unsupported, so these pin it there directly.
   /**
+   * The recording harness skips WASM when it reports a construct unsupported, so these pin it there directly.
+   *
    * @canon spec-an-element-reads-a-component-by-index
    * @canon spec-an-element-write-writes-at-its-index
    */

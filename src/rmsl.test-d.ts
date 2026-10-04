@@ -42,9 +42,10 @@ import { createJsCompute } from "./js";
 import { createWasmCompute } from "./wasm";
 
 describe("comparison result types", () => {
-  // Only a scalar reduces to a single boolean; a comparison is component-wise,
-  // so a vector yields one boolean per component.
   /**
+   * Only a scalar reduces to a single boolean; a comparison is component-wise,
+   * so a vector yields one boolean per component.
+   *
    * @canon spec-a-scalar-comparison-gives-a-bool
    * @canon spec-a-vector-comparison-gives-a-boolean-vector
    */
@@ -56,8 +57,9 @@ describe("comparison result types", () => {
     expectTypeOf(int(1).lessThan(int(2))).toEqualTypeOf<Node<"bool">>();
   });
 
-  // A vector against a scalar broadcasts, which is what the caller means.
   /**
+   * A vector against a scalar broadcasts, which is what the caller means.
+   *
    * @canon spec-a-scalar-compared-against-a-vector-is-broadcast
    */
   it("allows a vector compared against a scalar", () => {
@@ -65,9 +67,10 @@ describe("comparison result types", () => {
     expectTypeOf(vec3(1, 2, 3).greaterThan(0.5)).toEqualTypeOf<Node<"bvec3">>();
   });
 
-  // The reverse has no single answer. The compiler widens the scalar and
-  // produces a boolean vector, so a signature promising `bool` would be lying.
   /**
+   * The reverse has no single answer. The compiler widens the scalar and
+   * produces a boolean vector, so a signature promising `bool` would be lying.
+   *
    * @canon spec-a-scalar-compared-against-a-vector-is-broadcast
    */
   it("rejects a scalar compared against a vector", () => {
@@ -92,8 +95,9 @@ describe("boolean vector reduction", () => {
 });
 
 describe("operations whose result is not their operand's type", () => {
-  // These reduce a vector to a scalar.
   /**
+   * These reduce a vector to a scalar.
+   *
    * @canon spec-a-reducing-operation-has-a-scalar-type
    */
   it("types length, dot and distance as float", () => {
@@ -102,8 +106,9 @@ describe("operations whose result is not their operand's type", () => {
     expectTypeOf(vec2(3, 4).distance(vec2(0, 0))).toEqualTypeOf<Node<"float">>();
   });
 
-  // A matrix column, not a matrix.
   /**
+   * A matrix column, not a matrix.
+   *
    * @canon spec-a-matrix-element-is-a-column
    */
   it("types a matrix element as the column vector it is", () => {
@@ -113,9 +118,10 @@ describe("operations whose result is not their operand's type", () => {
 });
 
 describe("operations whose value operand is not the first", () => {
-  // GLSL takes the value last in step(edge, x), so the result follows the
-  // value rather than the edge — vec3.step(0.5) is a vec3, not a float.
   /**
+   * GLSL takes the value last in step(edge, x), so the result follows the
+   * value rather than the edge — vec3.step(0.5) is a vec3, not a float.
+   *
    * @canon spec-step-and-smoothstep-take-their-type-from-the-value
    */
   it("types step and smoothstep from the value", () => {
@@ -126,18 +132,20 @@ describe("operations whose value operand is not the first", () => {
 });
 
 describe("what a vertex stage accepts", () => {
-  // Its result becomes the position, so anything that cannot be one is refused
-  // where it is written rather than when the compiler runs.
   /**
+   * Its result becomes the position, so anything that cannot be one is refused
+   * where it is written rather than when the compiler runs.
+   *
    * @canon spec-a-vertex-stage-writes-its-position
    */
   it("takes a vec4 result", () => {
     expectTypeOf(compileGlsl.vertex(Fn(() => vec4(1, 2, 3, 4).toVar())())).toEqualTypeOf<string>();
   });
 
-  // The other way to satisfy it: assign the position and return nothing. A
-  // body that returns nothing has type void, which is why void is admitted.
   /**
+   * The other way to satisfy it: assign the position and return nothing. A
+   * body that returns nothing has type void, which is why void is admitted.
+   *
    * @canon spec-a-vertex-stage-may-return-several-values-ending-in-its-position
    */
   it("takes a program that returns nothing", () => {
@@ -150,11 +158,12 @@ describe("what a vertex stage accepts", () => {
     ).toEqualTypeOf<string>();
   });
 
-  // A body with no return, and one that assigns the position but likewise
-  // returns nothing, both give the call itself — not just what a compiler
-  // accepts — the type Node<"void">: the call still produces a node holding
-  // the body's statements.
   /**
+   * A body with no return, and one that assigns the position but likewise
+   * returns nothing, both give the call itself — not just what a compiler
+   * accepts — the type Node<"void">: the call still produces a node holding
+   * the body's statements.
+   *
    * @canon spec-an-fn-has-the-type-of-what-it-returns
    */
   it("types a program that returns nothing as a void node", () => {
@@ -171,18 +180,20 @@ describe("what a vertex stage accepts", () => {
     ).toEqualTypeOf<Node<"void">>();
   });
 
-  // A body typed `any` (a helper declared to return `any`, say) keeps that
-  // type rather than being taken for a body that returns nothing.
   /**
+   * A body typed `any` (a helper declared to return `any`, say) keeps that
+   * type rather than being taken for a body that returns nothing.
+   *
    * @canon spec-an-fn-has-the-type-of-what-it-returns
    */
   it("leaves a body typed any as any", () => {
     expectTypeOf(Fn(() => vec4(0).toVar() as any)()).toBeAny();
   });
 
-  // Several values can be returned at once, and the last becomes the position.
-  // The values before it are whatever the shader needed on the way there.
   /**
+   * Several values can be returned at once, and the last becomes the position.
+   * The values before it are whatever the shader needed on the way there.
+   *
    * @canon spec-a-vertex-stage-may-return-several-values-ending-in-its-position
    */
   it("takes several values, of which the last is the position", () => {
@@ -209,9 +220,10 @@ describe("what a vertex stage accepts", () => {
     compileWgsl.vertex(Fn(() => float(1).toVar())());
   });
 
-  // A fragment stage has no such requirement: a shader with no colour output is
-  // legal, so any result is allowed through.
   /**
+   * A fragment stage has no such requirement: a shader with no colour output is
+   * legal, so any result is allowed through.
+   *
    * @canon spec-a-vertex-stage-may-return-several-values-ending-in-its-position
    */
   it("puts no such requirement on a fragment stage", () => {
@@ -220,9 +232,10 @@ describe("what a vertex stage accepts", () => {
 });
 
 describe("compute programs", () => {
-  // A compute program writes its results into storage, so it has nothing to
-  // return; every compute entry point takes it as it is.
   /**
+   * A compute program writes its results into storage, so it has nothing to
+   * return; every compute entry point takes it as it is.
+   *
    * @canon spec-compute-follows-tsl
    */
   it("take a program that returns nothing", () => {
@@ -256,10 +269,11 @@ describe("adapters", () => {
 });
 
 describe("compileGlsl precision options", () => {
-  // The options mirror three.js's `precision` setting (`"highp" | "mediump" |
-  // "lowp"`); every compileGlsl call takes them, and a value outside the union
-  // is refused at the type level.
   /**
+   * The options mirror three.js's `precision` setting (`"highp" | "mediump" |
+   * "lowp"`); every compileGlsl call takes them, and a value outside the union
+   * is refused at the type level.
+   *
    * @canon spec-glsl-takes-a-precision
    */
   it("accepts a precision option on every call shape", () => {
@@ -283,10 +297,11 @@ describe("compileGlsl precision options", () => {
 });
 
 describe("matrix operations", () => {
-  // Every matrix type carries these at runtime, but only the two square ones
-  // were declared to, so the rest had to be reached through a cast — which
-  // switches off checking for the whole expression rather than just the method.
   /**
+   * Every matrix type carries these at runtime, but only the two square ones
+   * were declared to, so the rest had to be reached through a cast — which
+   * switches off checking for the whole expression rather than just the method.
+   *
    * @canon spec-a-node-has-the-type-its-signature-declares
    */
   it("gives every matrix type the operations the compiler implements", () => {
@@ -295,8 +310,9 @@ describe("matrix operations", () => {
     expectTypeOf(uniform("mat4").inverse()).toEqualTypeOf<Node<"mat4">>();
   });
 
-  // A matCxR has C columns of R rows, so one of its columns is a vecR.
   /**
+   * A matCxR has C columns of R rows, so one of its columns is a vecR.
+   *
    * @canon spec-a-matrix-element-is-a-column
    */
   it("types a column by the matrix's row count", () => {
@@ -306,8 +322,9 @@ describe("matrix operations", () => {
     expectTypeOf(uniform("mat4x3").element(0)).toEqualTypeOf<Node<"vec3">>();
   });
 
-  // Transposing swaps the two, so a matCxR becomes a matRxC.
   /**
+   * Transposing swaps the two, so a matCxR becomes a matRxC.
+   *
    * @canon spec-a-transpose-swaps-the-shape
    */
   it("swaps the shape when transposing a non-square matrix", () => {
@@ -315,8 +332,9 @@ describe("matrix operations", () => {
     expectTypeOf(uniform("mat4x2").transpose()).toEqualTypeOf<Node<"mat2x4">>();
   });
 
-  // Multiplying takes one component per column and gives one per row.
   /**
+   * Multiplying takes one component per column and gives one per row.
+   *
    * @canon spec-a-matrix-product-has-the-shape-of-the-product
    */
   it("types a matrix times a vector by the matrix's shape", () => {
@@ -325,8 +343,9 @@ describe("matrix operations", () => {
     expectTypeOf(uniform("mat4").mul(vec4(1, 2, 3, 4))).toEqualTypeOf<Node<"vec4">>();
   });
 
-  // Only a square matrix has an inverse, and the compiler refuses the rest.
   /**
+   * Only a square matrix has an inverse, and the compiler refuses the rest.
+   *
    * @canon spec-only-a-square-matrix-is-inverted
    */
   it("offers no inverse on a non-square matrix", () => {
@@ -336,8 +355,9 @@ describe("matrix operations", () => {
 });
 
 describe("declared variables", () => {
-  // A uniform carries its type's operations directly, alongside its name.
   /**
+   * A uniform carries its type's operations directly, alongside its name.
+   *
    * @canon spec-a-variable-keeps-the-name-the-user-gave-it
    */
   it("carries both a name and the operations of its type", () => {
@@ -349,9 +369,10 @@ describe("declared variables", () => {
 });
 
 describe("texture sampling", () => {
-  // A sampler samples at a coordinate of its own dimension and always returns
-  // a vec4. sampler3D takes a volume coordinate, like a cube map.
   /**
+   * A sampler samples at a coordinate of its own dimension and always returns
+   * a vec4. sampler3D takes a volume coordinate, like a cube map.
+   *
    * @canon spec-a-float-texture-is-sampled-through-a-sampler
    */
   it("types a sampler3D's sample as a vec4", () => {
@@ -374,9 +395,10 @@ describe("integer vectors", () => {
     expectTypeOf(uvec4(1, 2, 3, 4)).toEqualTypeOf<Node<"uvec4">>();
   });
 
-  // Comparisons stay component-wise, so an integer vector yields a boolean
-  // vector like a float one does.
   /**
+   * Comparisons stay component-wise, so an integer vector yields a boolean
+   * vector like a float one does.
+   *
    * @canon spec-a-vector-comparison-gives-a-boolean-vector
    */
   it("types comparisons as boolean vectors", () => {
@@ -385,8 +407,9 @@ describe("integer vectors", () => {
     expectTypeOf(ivec2(1, 2).greaterThan(0)).toEqualTypeOf<Node<"bvec2">>();
   });
 
-  // A single component of an integer vector is that integer scalar, not a float.
   /**
+   * A single component of an integer vector is that integer scalar, not a float.
+   *
    * @canon spec-a-swizzle-reads-the-components-it-names
    */
   it("types swizzle components as the integer scalar", () => {
@@ -417,9 +440,10 @@ describe("integer vectors", () => {
 });
 
 describe("integer samplers", () => {
-  // Integer textures are not filterable, so sampling returns the signed or
-  // unsigned integer vector the fetch produces rather than a float vec4.
   /**
+   * Integer textures are not filterable, so sampling returns the signed or
+   * unsigned integer vector the fetch produces rather than a float vec4.
+   *
    * @canon spec-an-integer-texture-reads-one-texel
    */
   it("types isampler and usampler samples as integer vectors", () => {
@@ -537,11 +561,12 @@ describe("TSL free-function API", () => {
 });
 
 describe("scalar-broadcast result types", () => {
-  // `1 - vec3` (oneMinus) and `1 / vec3` (reciprocal) must stay vec3: the
-  // operand defining the result is the widest, not the first. Before the fix
-  // these declared float, which made the JS target multiply an array by a
-  // scalar (NaN) and mis-typed any intermediate variable.
   /**
+   * `1 - vec3` (oneMinus) and `1 / vec3` (reciprocal) must stay vec3: the
+   * operand defining the result is the widest, not the first. Before the fix
+   * these declared float, which made the JS target multiply an array by a
+   * scalar (NaN) and mis-typed any intermediate variable.
+   *
    * @canon spec-an-operation-no-target-has-is-composed
    */
   it("types oneMinus and reciprocal from a vector receiver", () => {
