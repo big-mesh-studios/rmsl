@@ -22,6 +22,7 @@ import {
   assertAssignable,
   parameterNode,
   assertStageResult,
+  fragmentColour,
   assertOneDeclarationPerName,
   forUpdateStatements,
   loopTest,
@@ -1278,6 +1279,7 @@ export function compileJSNode(
     case "output": {
       let v = node.value as any;
       ctx.jsNeedsRes = true;
+      if (v.id != null) ctx.outputs.set(v.id, { type: v.shaderType, slot: v.slot, location: v.location });
       return jsLeafRef(`res.outputs[${JSON.stringify(v.slot)}]`, v.shaderType ?? node._t, ctx);
     }
 
@@ -1959,7 +1961,10 @@ function compileJSFnDetailed(
   let reentrant = options.reentrant ?? false;
   const paramNodes = options.params.map((p) => parameterNode(p.name, p.type));
   const rawResult = fn(...paramNodes);
-  const resultNodes: Node<ShaderType>[] = Array.isArray(rawResult) ? rawResult : [rawResult];
+  const rawNodes: Node<ShaderType>[] = Array.isArray(rawResult) ? rawResult : [rawResult];
+  // Without a stage the function is a plain function of its context, whose
+  // result can be any value.
+  const resultNodes = options.stage === "fragment" ? fragmentColour(rawNodes) : rawNodes;
 
   const ctx: CompileCtx = {
     nextId: 0,
@@ -1990,7 +1995,7 @@ function compileJSFnDetailed(
   const compiledList = resultNodes.map((n) => compileJSStage(n, ctx));
   const lastCompiled = compiledList[compiledList.length - 1];
   const lastType = (resultNodes[resultNodes.length - 1] as any)?._t;
-  assertStageResult(stage, lastType, ctx.positionWritten);
+  if (options.stage !== undefined) assertStageResult(stage, lastType, ctx.positionWritten, ctx.outputs.size > 0);
 
   const body: string[] = [];
   if (ctx.jsNeedsRes) body.push("var res = { outputs: {}, varyings: {} };");

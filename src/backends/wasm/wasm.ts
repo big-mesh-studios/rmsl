@@ -15,6 +15,7 @@ import {
 } from "../cpu";
 import {
   assertStageResult,
+  fragmentColour,
   assertOneDeclarationPerName,
   assertAssignable,
   assignedStorageElement,
@@ -729,7 +730,10 @@ export function compileWasmFn(
   // doesn't double-emit); only the last root's value feeds the stage's
   // single result slot, matching compileGlsl/compileWgsl's "last array
   // entry wins" convention.
-  const resultNodes: any[] = Array.isArray(rawResult) ? (rawResult as any[]) : [rawResult];
+  const rawNodes: any[] = Array.isArray(rawResult) ? (rawResult as any[]) : [rawResult];
+  // Without a stage the function is a plain function of its context, whose
+  // result can be any value.
+  const resultNodes = options.stage === "fragment" ? fragmentColour(rawNodes) : rawNodes;
   const root = resultNodes[resultNodes.length - 1];
 
   const paramTypeByName = new Map(options.params.map((p) => [p.name, p.type]));
@@ -799,8 +803,15 @@ export function compileWasmFn(
   let resultKind: ScalarKind;
   let valueAddress: number | undefined;
 
+  if (options.stage !== undefined) {
+    assertStageResult(
+      effectiveStage,
+      root._t === "void" ? undefined : (root._t as string),
+      positionWritten,
+      outputAddress.size > 0,
+    );
+  }
   if (needsResult) {
-    assertStageResult(effectiveStage, root._t === "void" ? undefined : (root._t as string), positionWritten);
     // placeholder: with needsResult the module returns void, so it is never used
     resultKind = "float";
     if (effectiveStage === "vertex" && !positionWritten) {

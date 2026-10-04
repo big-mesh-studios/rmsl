@@ -331,23 +331,6 @@ describe("known bugs of the JS target, each failing until its fix", () => {
   });
 
   /**
-   * The JS rasterizer accepts a fragment that returns a `vec3` and draws its
-   * alpha as 0, where the WASM rasterizer refuses it.
-   *
-   * @canon bug-js-rasterizer-draws-a-vec3-colour-with-alpha-zero
-   */
-  it.fails("refuses a fragment that returns no vec4 in the JS rasterizer", () => {
-    const position = attribute("vec3");
-    expect(() =>
-      compileJS(
-        () => Fn(() => builtinPosition().assign(vec4(position.x, position.y, position.z, 1)))() as any,
-        () => Fn(() => vec3(1, 0, 0).toVar())() as any,
-        { attributeTypes: { [position.name]: "vec3" } },
-      ),
-    ).toThrow(/vec4/);
-  });
-
-  /**
    * On JS, converting a negative float to `uint` wraps it to a large unsigned
    * integer instead of clamping it to zero.
    *
@@ -383,37 +366,5 @@ describe("known bugs of the JS target, each failing until its fix", () => {
     adapter.setAttribute(buf.name, data);
     adapter.compute();
     expect(Array.from(data)).toEqual([3, 4, 3, 4]);
-  });
-
-  /**
-   * The JS routine adapter shows a two-channel result as red, green and red
-   * again, where the blue channel it lacks should be 0.
-   *
-   * @canon bug-the-cpu-routine-adapters-copy-red-into-a-missing-blue-channel
-   */
-  it.fails("shows the blue channel a vec2 result lacks as zero on JS", () => {
-    const hadImageData = "ImageData" in globalThis;
-    if (!hadImageData) {
-      (globalThis as any).ImageData = class {
-        data: Uint8ClampedArray;
-        constructor(width: number, height: number) {
-          this.data = new Uint8ClampedArray(width * height * 4);
-        }
-      };
-    }
-    try {
-      let shown!: ImageData;
-      const canvas = {
-        width: 1,
-        height: 1,
-        getContext: () => ({ putImageData: (image: ImageData) => (shown = image) }),
-      };
-      const adapter = createJsRoutine({ draw: Fn(() => vec2(1, 0.5))(), name: "shade" });
-      adapter.attach(canvas as unknown as HTMLCanvasElement);
-      adapter.draw();
-      expect(Array.from(shown.data)).toEqual([255, 128, 0, 255]);
-    } finally {
-      if (!hadImageData) delete (globalThis as any).ImageData;
-    }
   });
 });

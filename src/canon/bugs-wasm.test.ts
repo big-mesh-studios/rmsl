@@ -536,38 +536,6 @@ describe("known WASM bugs, each failing until its fix", () => {
   });
 
   /**
-   * The WASM routine adapter shows a two-channel result as red, green and
-   * red again, where the blue channel it lacks should be 0.
-   *
-   * @canon bug-the-cpu-routine-adapters-copy-red-into-a-missing-blue-channel
-   */
-  it.fails("shows the blue channel a vec2 result lacks as zero on WASM", () => {
-    const hadImageData = "ImageData" in globalThis;
-    if (!hadImageData) {
-      (globalThis as any).ImageData = class {
-        data: Uint8ClampedArray;
-        constructor(width: number, height: number) {
-          this.data = new Uint8ClampedArray(width * height * 4);
-        }
-      };
-    }
-    try {
-      let shown!: ImageData;
-      const canvas = {
-        width: 1,
-        height: 1,
-        getContext: () => ({ putImageData: (image: ImageData) => (shown = image) }),
-      };
-      const adapter = createWasmRoutine({ draw: Fn(() => vec2(1, 0.5))(), name: "shade" });
-      adapter.attach(canvas as unknown as HTMLCanvasElement);
-      adapter.draw();
-      expect(Array.from(shown.data)).toEqual([255, 128, 0, 255]);
-    } finally {
-      if (!hadImageData) delete (globalThis as any).ImageData;
-    }
-  });
-
-  /**
    * The WASM target compiles a `For` whose update holds a block, where JS,
    * GLSL and WGSL refuse it.
    *
@@ -599,5 +567,16 @@ describe("known WASM bugs, each failing until its fix", () => {
     expect(first((a) => pow(vec3(a, 2, 3), vec3(2, 2, 2))).run({ params: { a: 4 } })).toBe(16);
     expect(first((a) => sin(vec3(a, 2, 3))).run({ params: { a: 0 } })).toBe(0);
     expect(first((a) => floor(vec3(a, 2, 3))).run({ params: { a: 1.5 } })).toBe(1);
+  });
+
+  /**
+   * The WASM target refuses a fragment stage that returns nothing, with "only
+   * supports a scalar result", though a fragment stage with no colour compiles
+   * on every other target.
+   *
+   * @canon bug-wasm-refuses-a-fragment-stage-that-returns-nothing
+   */
+  it.fails("compiles a fragment stage that returns nothing on WASM", () => {
+    expect(() => compileWasmRoutine(() => Fn(() => {})() as any, { ...none, stage: "fragment" })).not.toThrow();
   });
 });

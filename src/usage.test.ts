@@ -631,7 +631,9 @@ describe("RMSL", () => {
    * @canon spec-a-bare-number-beside-an-integer-is-an-integer
    */
   it("gives a plain number the operand's integer type", () => {
-    let prog = Fn(() => uniform("int").mod(2).toVar());
+    let prog = Fn(() => {
+      uniform("int").mod(2).toVar();
+    });
     let glsl = compileGlsl(prog());
     expect(glsl).toMatch(/int \S+ = \S+ % 2;/);
     expect(glsl).not.toContain("float(");
@@ -706,7 +708,9 @@ describe("RMSL", () => {
    * @canon spec-a-scalar-matrix-is-a-diagonal
    */
   it("mat4 scalar constructor", () => {
-    let prog = Fn(() => mat4(1.0).toVar());
+    let prog = Fn(() => {
+      mat4(1.0).toVar();
+    });
     let glsl = compileGlsl(prog());
     expect(glsl).toContain("mat4(1");
   });
@@ -715,7 +719,9 @@ describe("RMSL", () => {
    * @canon spec-a-scalar-matrix-is-a-diagonal
    */
   it("mat4 scalar constructor WGSL", () => {
-    let prog = Fn(() => mat4(1.0).toVar());
+    let prog = Fn(() => {
+      mat4(1.0).toVar();
+    });
     let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("mat4x4<f32>(1");
   });
@@ -740,7 +746,9 @@ describe("RMSL", () => {
    * @canon spec-a-fragment-stage-may-write-no-colour
    */
   it("compileGlsl.fragment emits output", () => {
-    let prog = Fn(() => float(1.0).toVar());
+    let prog = Fn(() => {
+      float(1.0).toVar();
+    });
     let glsl = compileGlsl.fragment(prog());
     expect(glsl).toContain("#version 300 es");
   });
@@ -757,7 +765,7 @@ describe("RMSL", () => {
   });
 
   /**
-   * @canon spec-a-fragment-result-without-an-output-is-the-colour
+   * @canon spec-a-vec4-result-is-the-colour
    */
   it("compileWgsl.fragment emits @fragment and FragmentOutput", () => {
     // The struct only appears when there is something to return, so the stage
@@ -787,7 +795,7 @@ describe("RMSL", () => {
    * GLSL ES 3.00 removed gl_FragColor, so a fragment shader with nowhere to
    * write its colour needs an explicit output declaration.
    *
-   * @canon spec-a-fragment-result-without-an-output-is-the-colour
+   * @canon spec-a-vec4-result-is-the-colour
    */
   it("declares an implicit colour output when a fragment shader has none", () => {
     let build = () => Fn(() => vec4(1, 0, 0, 1).toVar());
@@ -1026,7 +1034,9 @@ describe("RMSL", () => {
    * @canon spec-a-fragment-stage-may-write-no-colour
    */
   it("allows a fragment shader with no output", () => {
-    let prog = Fn(() => float(3.14).toVar());
+    let prog = Fn(() => {
+      float(3.14).toVar();
+    });
     expect(() => compileGlsl.fragment(prog())).not.toThrow();
     expect(compileGlsl.fragment(prog())).toContain("3.14");
   });
@@ -1182,7 +1192,9 @@ describe("RMSL", () => {
    * @canon spec-a-matrix-is-built-from-its-columns
    */
   it("mat2 constructor compiles to GLSL", () => {
-    let prog = Fn(() => mat2(1, 0, 0, 1).toVar());
+    let prog = Fn(() => {
+      mat2(1, 0, 0, 1).toVar();
+    });
     let glsl = compileGlsl(prog());
     expect(glsl).toContain("mat2(1, 0, 0, 1)");
   });
@@ -1191,7 +1203,9 @@ describe("RMSL", () => {
    * @canon spec-a-matrix-is-built-from-its-columns
    */
   it("mat2x3 constructor compiles to GLSL", () => {
-    let prog = Fn(() => mat2x3(1, 0, 0, 0, 1, 0).toVar());
+    let prog = Fn(() => {
+      mat2x3(1, 0, 0, 0, 1, 0).toVar();
+    });
     let glsl = compileGlsl(prog());
     expect(glsl).toContain("mat2x3(");
   });
@@ -1214,7 +1228,11 @@ describe("RMSL", () => {
     let rectOtherWay = compileJSRoutine(() => mat3x2(vec2(1, 2), vec2(3, 4), vec2(5, 6)), { name: "main", params: [] });
     expect(rectOtherWay.run({})).toEqual([1, 2, 3, 4, 5, 6]);
 
-    let glsl = compileGlsl(Fn(() => mat2x4(vec4(1, 0, 0, 0), vec4(0, 1, 0, 0)).toVar())());
+    let glsl = compileGlsl(
+      Fn(() => {
+        mat2x4(vec4(1, 0, 0, 0), vec4(0, 1, 0, 0)).toVar();
+      })(),
+    );
     expect(glsl).toContain("mat2x4(vec4(");
   });
 
@@ -1393,8 +1411,20 @@ describe("RMSL", () => {
    */
   it("mat3.inverse/transpose compiles to GLSL", () => {
     let m = mat3(1, 0, 0, 0, 1, 0, 0, 0, 1);
-    expect(compileGlsl(Fn(() => m.inverse().toVar())())).toContain("inverse");
-    expect(compileGlsl(Fn(() => m.transpose().toVar())())).toContain("transpose");
+    expect(
+      compileGlsl(
+        Fn(() => {
+          m.inverse().toVar();
+        })(),
+      ),
+    ).toContain("inverse");
+    expect(
+      compileGlsl(
+        Fn(() => {
+          m.transpose().toVar();
+        })(),
+      ),
+    ).toContain("transpose");
   });
 
   /**
@@ -1403,9 +1433,27 @@ describe("RMSL", () => {
   it("mat4.inverse/transpose/mul compiles to GLSL", () => {
     let m = mat4(1);
     let v = vec4(1, 2, 3, 4);
-    expect(compileGlsl(Fn(() => m.inverse().toVar())())).toContain("inverse");
-    expect(compileGlsl(Fn(() => m.transpose().toVar())())).toContain("transpose");
-    expect(compileGlsl(Fn(() => m.mul(v).toVar())())).toContain("*");
+    expect(
+      compileGlsl(
+        Fn(() => {
+          m.inverse().toVar();
+        })(),
+      ),
+    ).toContain("inverse");
+    expect(
+      compileGlsl(
+        Fn(() => {
+          m.transpose().toVar();
+        })(),
+      ),
+    ).toContain("transpose");
+    expect(
+      compileGlsl(
+        Fn(() => {
+          m.mul(v).toVar();
+        })(),
+      ),
+    ).toContain("*");
   });
 
   /**
@@ -1431,8 +1479,16 @@ describe("RMSL", () => {
   it("a non-square matrix product compiles to GLSL and WGSL at the product type", () => {
     let a = uniform("mat2x3");
     let b = uniform("mat3x2");
-    let glsl = compileGlsl(Fn(() => a.mul(b).toVar())());
-    let wgsl = compileWgsl(Fn(() => a.mul(b).toVar())());
+    let glsl = compileGlsl(
+      Fn(() => {
+        a.mul(b).toVar();
+      })(),
+    );
+    let wgsl = compileWgsl(
+      Fn(() => {
+        a.mul(b).toVar();
+      })(),
+    );
     expect(glsl).toContain("mat3");
     expect(wgsl).toContain("mat3x3<f32>");
   });
@@ -1883,7 +1939,9 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     ];
     for (let [name, ctor, count] of cases) {
       let values = Array.from({ length: count }, (_, i) => i);
-      let prog = Fn(() => ctor(...values).toVar());
+      let prog = Fn(() => {
+        ctor(...values).toVar();
+      });
       expect(compileGlsl(prog()), name).toContain(name + "(");
       expect(compileWgsl(prog()), name).toContain("<f32>(");
     }
@@ -1905,7 +1963,9 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
       ["mat4x2", mat4x2, "mat4x2<f32>(2f, 0f, 0f, 2f, 0f, 0f, 0f, 0f)"],
     ];
     for (let [name, ctor, want] of cases) {
-      let prog = Fn(() => ctor(2.0).toVar());
+      let prog = Fn(() => {
+        ctor(2.0).toVar();
+      });
       expect(compileWgsl(prog()), name).toContain(want);
       // GLSL keeps the scalar form, which is what it means natively.
       expect(compileGlsl(prog()), name).toContain(name + "(2.0)");
@@ -1921,11 +1981,15 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   it("keeps a matrix-from-matrix constructor as a single argument", () => {
     // WGSL uniforms are members of one struct, so a reference is qualified —
     // the assertion is that there is one argument, whatever it is spelled.
-    let prog3 = Fn(() => mat3(uniform("mat3")).toVar());
+    let prog3 = Fn(() => {
+      mat3(uniform("mat3")).toVar();
+    });
     expect(compileWgsl(prog3())).toMatch(/mat3x3<f32>\(_rmsl_uniforms\._rmsl_u\d+\)/);
     expect(compileGlsl(prog3())).toMatch(/mat3\(_rmsl_u\d+\)/);
 
-    let prog4 = Fn(() => mat4(uniform("mat4")).toVar());
+    let prog4 = Fn(() => {
+      mat4(uniform("mat4")).toVar();
+    });
     expect(compileWgsl(prog4())).toMatch(/mat4x4<f32>\(_rmsl_uniforms\._rmsl_u\d+\)/);
   });
 
@@ -2157,11 +2221,15 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
    * @canon spec-a-bare-number-beside-an-integer-is-an-integer
    */
   it("gives a compared literal the operand's integer type", () => {
-    let unsigned = Fn(() => uniform("uint").lessThan(2).toVar());
+    let unsigned = Fn(() => {
+      uniform("uint").lessThan(2).toVar();
+    });
     expect(compileWgsl(unsigned())).toMatch(/\S+ < 2u/);
     expect(compileGlsl(unsigned())).not.toContain("float(");
 
-    let signed = Fn(() => uniform("int").greaterThan(3).toVar());
+    let signed = Fn(() => {
+      uniform("int").greaterThan(3).toVar();
+    });
     expect(compileWgsl(signed())).toMatch(/\S+ > 3i/);
     expect(compileGlsl(signed())).not.toContain("float(");
   });
@@ -2278,7 +2346,9 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
    * @canon spec-a-transpose-swaps-the-shape
    */
   it("types a non-square transpose with its shape swapped", () => {
-    let prog = Fn(() => uniform("mat2x3").transpose().toVar());
+    let prog = Fn(() => {
+      uniform("mat2x3").transpose().toVar();
+    });
     expect(compileGlsl(prog())).toMatch(/mat3x2 \S+ = transpose\(/);
     expect(compileWgsl(prog())).toMatch(/var \S+: mat3x2<f32> = transpose\(/);
   });
@@ -2313,12 +2383,28 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
    * @canon spec-wgsl-inverts-a-matrix-through-a-helper-of-its-size
    */
   it("uses the inverse helper matching the matrix size", () => {
-    let wgsl2 = compileWgsl(Fn(() => uniform("mat2").inverse().toVar())());
+    let wgsl2 = compileWgsl(
+      Fn(() => {
+        uniform("mat2").inverse().toVar();
+      })(),
+    );
     expect(wgsl2).toContain("fn _rmsl_inverse2(");
     expect(wgsl2).not.toContain("_rmsl_inverse4");
 
-    expect(compileWgsl(Fn(() => uniform("mat3").inverse().toVar())())).toContain("fn _rmsl_inverse3(");
-    expect(compileWgsl(Fn(() => uniform("mat4").inverse().toVar())())).toContain("fn _rmsl_inverse4(");
+    expect(
+      compileWgsl(
+        Fn(() => {
+          uniform("mat3").inverse().toVar();
+        })(),
+      ),
+    ).toContain("fn _rmsl_inverse3(");
+    expect(
+      compileWgsl(
+        Fn(() => {
+          uniform("mat4").inverse().toVar();
+        })(),
+      ),
+    ).toContain("fn _rmsl_inverse4(");
   });
 
   /**

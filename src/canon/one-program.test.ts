@@ -124,7 +124,7 @@ describe("one program means the same on every target", () => {
    * and returns its colour, compiled for both GPU targets.
    *
    * @canon spec-a-varying-passes-from-the-vertex-to-the-fragment-stage
-   * @canon spec-a-fragment-result-without-an-output-is-the-colour
+   * @canon spec-a-vec4-result-is-the-colour
    */
   it("passes a varying to a fragment stage that writes its colour", () => {
     const tint = varying("vec3");

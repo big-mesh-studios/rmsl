@@ -69,9 +69,16 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-uniform-array-length-is-a-positive-integer`](#spec-a-uniform-array-length-is-a-positive-integer) — A uniform array whose length is not a positive integer is refused.
     - [`@bug the-glsl-adapter-never-sets-a-uniform-array`](#bug-the-glsl-adapter-never-sets-a-uniform-array) — WebGL reports a uniform array as `name[0]`, and `createGlsl` looks the slot up by that name, so `setUniform` on a uniform array never applies.
   - [`@spec a-stage-passes-its-values-on-every-target`](#spec-a-stage-passes-its-values-on-every-target) — A fragment stage writes its colour, and a vertex stage passes its varyings on to the fragment stage, the same way on every target.
-    - [`@spec a-fragment-result-without-an-output-is-the-colour`](#spec-a-fragment-result-without-an-output-is-the-colour) — A fragment stage that declares no output and returns a `vec4` writes it to an implicit colour output at location 0.
+    - [`@spec a-fragment-result-without-an-output-is-the-colour`](#spec-a-fragment-result-without-an-output-is-the-colour) — A fragment stage that declares no [output](#term-output) writes its result to the colour at location 0. The result converts as it does in TSL.
+      - [`@spec a-vec4-result-is-the-colour`](#spec-a-vec4-result-is-the-colour) — A fragment stage that declares no output and returns a `vec4` writes it to the implicit colour output unchanged.
+      - [`@spec a-vec3-result-takes-an-opaque-alpha`](#spec-a-vec3-result-takes-an-opaque-alpha) — A fragment stage that declares no output and returns a `vec3` writes it as `vec4(rgb, 1)`.
+      - [`@spec a-vec2-result-takes-a-zero-blue-and-an-opaque-alpha`](#spec-a-vec2-result-takes-a-zero-blue-and-an-opaque-alpha) — A fragment stage that declares no output and returns a `vec2` writes it as `vec4(x, y, 0, 1)`.
+      - [`@spec a-scalar-result-fills-every-channel`](#spec-a-scalar-result-fills-every-channel) — A fragment stage that declares no output and returns a `float`, `int`, `uint` or `bool` writes it as a `vec4` with the value, as a float, in every channel.
+      - [`@spec an-integer-or-boolean-vector-result-converts-to-a-float-vector-first`](#spec-an-integer-or-boolean-vector-result-converts-to-a-float-vector-first) — A fragment stage that declares no output and returns an `ivec`, `uvec` or `bvec` converts it to a float vector of the same length. The rule of that length then applies.
+      - [`@spec a-result-that-has-no-colour-is-refused`](#spec-a-result-that-has-no-colour-is-refused) — A fragment stage that declares no output and returns a matrix is refused on every target.
     - [`@spec a-declared-output-holds-what-the-program-assigns`](#spec-a-declared-output-holds-what-the-program-assigns) — A fragment stage that declares [outputs](#term-output) writes each one with what the program assigns to it, and writes its result to none of them.
-    - [`@spec a-fragment-stage-may-write-no-colour`](#spec-a-fragment-stage-may-write-no-colour) — A fragment stage with no output and no `vec4` result compiles.
+    - [`@spec a-fragment-stage-may-write-no-colour`](#spec-a-fragment-stage-may-write-no-colour) — A fragment stage that declares no output and returns nothing compiles.
+      - [`@bug wasm-refuses-a-fragment-stage-that-returns-nothing`](#bug-wasm-refuses-a-fragment-stage-that-returns-nothing) — The WASM target refuses a fragment stage that returns nothing, with "only supports a scalar result". Every other target compiles it.
     - [`@spec a-varying-passes-from-the-vertex-to-the-fragment-stage`](#spec-a-varying-passes-from-the-vertex-to-the-fragment-stage) — A varying is an output of the vertex stage and an input of the fragment stage.
       - [`@bug wasm-rasterizer-interpolates-an-integer-varying-as-a-float`](#bug-wasm-rasterizer-interpolates-an-integer-varying-as-a-float) — The WASM rasterizer interpolates an integer varying as a 64-bit float, though the stages write and read it as a 32-bit integer.
     - [`@spec an-attribute-is-an-input-of-the-vertex-stage`](#spec-an-attribute-is-an-input-of-the-vertex-stage) — An attribute is an input of the vertex stage, read once for each vertex.
@@ -327,6 +334,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec break-continue-return-and-discard-leave-where-tsl-leaves`](#spec-break-continue-return-and-discard-leave-where-tsl-leaves) — `Break` leaves the loop, `Continue` starts its next iteration, `Return` leaves the function, and `Discard` drops the fragment.
     - [`@bug the-cpu-rasterizers-paint-a-discarded-fragment`](#bug-the-cpu-rasterizers-paint-a-discarded-fragment) — The JS and WASM rasterizers write a colour for a discarded fragment. JS writes 0 into its red channel, and WASM writes the colour the fragment stage last left in its memory.
     - [`@bug the-cpu-rasterizers-write-the-depth-of-a-discarded-fragment`](#bug-the-cpu-rasterizers-write-the-depth-of-a-discarded-fragment) — The JS and WASM rasterizers write the depth of a fragment before they run it. A fragment that discards still hides what a later draw puts behind it.
+    - [`@bug wgsl-an-early-return-in-a-fragment-stage-returns-nothing`](#bug-wgsl-an-early-return-in-a-fragment-stage-returns-nothing) — On WGSL, `Return()` in a fragment stage that writes a colour emits a bare `return;`, though `main` returns `FragmentOutput`. WGSL refuses the program.
   - [`@spec an-fn-records-the-statements-of-its-body`](#spec-an-fn-records-the-statements-of-its-body) — `Fn` records the statements its body makes into the [fn](#term-fn) it returns. An `Fn` may be empty, return one value or several, and call another `Fn`.
     - [`@spec an-fn-returns-what-its-body-returns`](#spec-an-fn-returns-what-its-body-returns) — A call of an `Fn` gives what its body returns: nothing, one value, or several. An empty body and a body that calls another `Fn` compile.
     - [`@spec an-inline-fn-runs-where-it-is-called`](#spec-an-inline-fn-runs-where-it-is-called) — A variable that a called `Fn` makes is declared where the call is, not where its value is first read.
@@ -439,8 +447,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-gpu-adapter-takes-its-count-from-the-first-attribute`](#spec-a-gpu-adapter-takes-its-count-from-the-first-attribute) — A `createGlsl` or `createWgsl` draw that names no vertex count takes it from the first attribute the host passes.
       - [`@bug the-gpu-adapters-count-from-the-widest-attribute`](#bug-the-gpu-adapters-count-from-the-widest-attribute) — `createGlsl` and `createWgsl` take the count of a draw that names none from the widest attribute. GLSL then draws vertices past the first attribute's end, and WebGPU refuses the WGSL draw.
     - [`@spec a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte`](#spec-a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte) — A JS or WASM routine adapter clamps each channel to 0 to 1 and writes it on its canvas as the nearest byte.
-    - [`@spec a-cpu-adapter-writes-a-channel-a-vector-lacks-as-zero`](#spec-a-cpu-adapter-writes-a-channel-a-vector-lacks-as-zero) — A JS or WASM routine adapter shows a two- or three-component result with 0 in each colour channel it lacks, and opaque alpha.
-      - [`@bug the-cpu-routine-adapters-copy-red-into-a-missing-blue-channel`](#bug-the-cpu-routine-adapters-copy-red-into-a-missing-blue-channel) — The JS and WASM routine adapters show a two-channel result with its red channel copied into blue.
   - [`@spec a-scene-renderer-manages-what-it-uploads`](#spec-a-scene-renderer-manages-what-it-uploads) — A renderer of `./scene` uploads each geometry, texture and uniform once, again when it changes, and frees it when it is disposed. It compiles a program once for each light set and kind of mesh.
     - [`@spec a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise`](#spec-a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise) — `new WebGLRenderer()` gives a renderer at once, and `WebGPURenderer.init()` gives one through a promise, because WebGPU requests its device asynchronously.
     - [`@spec a-renderer-supplies-the-camera-and-object-uniforms`](#spec-a-renderer-supplies-the-camera-and-object-uniforms) — A renderer gives a program the camera's projection, view and position, the object's world and normal matrices, and its own resolution. It gives nothing for a name it does not know.
@@ -537,7 +543,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@bug the-cpu-rasterizers-keep-the-colour-of-an-earlier-draw`](#bug-the-cpu-rasterizers-keep-the-colour-of-an-earlier-draw) — The JS and WASM rasterizers clear their colour buffer only when a draw passes `clear`. A pixel the next draw leaves uncovered keeps the earlier colour.
       - [`@spec a-rasterizer-takes-its-count-from-the-first-attribute`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute) — A draw that names no vertex count takes it from the first attribute the host passes.
       - [`@spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws) — The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
-        - [`@bug js-rasterizer-draws-a-vec3-colour-with-alpha-zero`](#bug-js-rasterizer-draws-a-vec3-colour-with-alpha-zero) — The JS rasterizer accepts a fragment that returns a `float` or a `vec3`, and draws the channels it lacks as 0, where the WASM rasterizer refuses it.
         - [`@bug wasm-rasterizer-gives-every-fragment-coordinate-zero`](#bug-wasm-rasterizer-gives-every-fragment-coordinate-zero) — The WASM rasterizer never writes `fragCoord()`, so every fragment reads it as `[0, 0]`, where the JS rasterizer passes the pixel's centre.
       - [`@spec a-pixel-on-a-shared-edge-is-shaded-once`](#spec-a-pixel-on-a-shared-edge-is-shaded-once) — A pixel centre on an edge two triangles share takes the colour of one of them. WebGPU's rasterization rules pick which one, whatever the order of the triangles.
         - [`@bug js-rasterizer-shades-a-shared-edge-twice`](#bug-js-rasterizer-shades-a-shared-edge-twice) — The JS rasterizer shades a pixel centre on an edge two triangles share with both, so the triangle drawn last wins it.
@@ -654,6 +659,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-three-js-renderer-draws-its-scene-graph`](#fact-a-three-js-renderer-draws-its-scene-graph) — In three.js, `renderer.render(scene, camera)` walks the scene graph, binds the geometry and the material of each object, uploads their uniforms and draws them. A scene graph in the shape of three.js comes with a renderer that draws it.
 - [`@fact webassembly-has-no-transcendental-instructions`](#fact-webassembly-has-no-transcendental-instructions) — WebAssembly has instructions for the basic float operations and the square root, but none for trigonometric, exponential or logarithmic functions.
 - [`@fact webassembly-passes-only-numbers-across-its-boundary`](#fact-webassembly-passes-only-numbers-across-its-boundary) — A call into a WebAssembly module passes and returns only numbers. A vector, a matrix or a record crosses the boundary through the module's memory, which code on the host side has to read and write.
+- [`@fact tsl-converts-a-fragment-result-to-the-type-of-its-render-target`](#fact-tsl-converts-a-fragment-result-to-the-type-of-its-render-target) — TSL converts the result of a fragment node to the type of its render target's texture, which is `vec4` when it draws to the canvas. It trims a longer value. A `vec3` gains an alpha of 1, a `vec2` gains a blue of 0 and an alpha of 1, and a scalar fills every component.
+- [`@fact webgpu-refuses-a-fragment-output-with-fewer-components-than-its-target`](#fact-webgpu-refuses-a-fragment-output-with-fewer-components-than-its-target) — A WebGPU render pipeline whose fragment output has fewer components than its colour target's format is a validation error. An output with more components than the format is accepted, and the extra ones are dropped.
+- [`@fact glsl-es-300-leaves-a-missing-output-channel-undefined`](#fact-glsl-es-300-leaves-a-missing-output-channel-undefined) — A GLSL ES 3.00 fragment shader may declare an output of `float`, `vec2` or `vec3`. Written to an RGBA target, the channels it lacks are not defined by the program: WebGL on SwiftShader gives 0 in each, alpha included.
 - [`@fact glsl-es-300-has-no-gl-fragcolor`](#fact-glsl-es-300-has-no-gl-fragcolor) — GLSL ES 3.00 has no `gl_FragColor`. A fragment shader writes its colour to an `out` variable it declares.
 - [`@fact wgsl-has-no-matrix-inverse`](#fact-wgsl-has-no-matrix-inverse) — WGSL has no built-in that inverts a matrix.
 - [`@fact wgsl-percent-truncates`](#fact-wgsl-percent-truncates) — The `%` operator of WGSL truncates the quotient toward zero, where the `mod` of GLSL floors it.
@@ -695,6 +703,10 @@ GLSL sets precision two ways: a statement that sets the default for a type, and 
 ### Fragment depth
 
 A fragment program can write depth on one path only. What depth the other paths give is open: WGSL gives 0 and GLSL leaves it undefined. TSL avoids the question by writing depth as an expression on every path, and its `depth` reads the fragment's own depth. Issue #132 holds the question.
+
+### Declared outputs
+
+rmsl's `output(type)` declares a typed output at a location, and the program assigns to it, but TSL has no such function. Its `output` is the material's one `vec4` fragment output, and `outputStruct` and `mrt` spell the rest. The `Fn` body decides whether a stage declares an output, so no type can check it. The owner leans towards porting to TSL. Issue #137 holds the question, and [`spec-a-declared-output-holds-what-the-program-assigns`](#spec-a-declared-output-holds-what-the-program-assigns) states today's behaviour.
 
 ### Divergences found
 
@@ -1047,9 +1059,37 @@ This follows because a program that draws on one target draws the same on the ot
 
 #### @spec a-fragment-result-without-an-output-is-the-colour
 
-> A fragment stage that declares no output and returns a `vec4` writes it to an implicit colour output at location 0.
+> A fragment stage that declares no [output](#term-output) writes its result to the colour at location 0. The result converts as it does in TSL.
 
-Derives from: [`fact-glsl-es-300-has-no-gl-fragcolor`](#fact-glsl-es-300-has-no-gl-fragcolor)
+Derives from: [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import), [`fact-glsl-es-300-has-no-gl-fragcolor`](#fact-glsl-es-300-has-no-gl-fragcolor), [`fact-tsl-converts-a-fragment-result-to-the-type-of-its-render-target`](#fact-tsl-converts-a-fragment-result-to-the-type-of-its-render-target), [`fact-webgpu-refuses-a-fragment-output-with-fewer-components-than-its-target`](#fact-webgpu-refuses-a-fragment-output-with-fewer-components-than-its-target), [`fact-glsl-es-300-leaves-a-missing-output-channel-undefined`](#fact-glsl-es-300-leaves-a-missing-output-channel-undefined)
+
+This follows because a TSL fragment that returns a `vec3` or a `float` ports unchanged. Every surface rmsl draws to is RGBA, so each target makes the conversion TSL makes for an RGBA target. A short result written as it is would leave WebGPU refusing it, and WebGL leaving the missing channels undefined.
+
+##### @spec a-vec4-result-is-the-colour
+
+> A fragment stage that declares no output and returns a `vec4` writes it to the implicit colour output unchanged.
+
+##### @spec a-vec3-result-takes-an-opaque-alpha
+
+> A fragment stage that declares no output and returns a `vec3` writes it as `vec4(rgb, 1)`.
+
+##### @spec a-vec2-result-takes-a-zero-blue-and-an-opaque-alpha
+
+> A fragment stage that declares no output and returns a `vec2` writes it as `vec4(x, y, 0, 1)`.
+
+##### @spec a-scalar-result-fills-every-channel
+
+> A fragment stage that declares no output and returns a `float`, `int`, `uint` or `bool` writes it as a `vec4` with the value, as a float, in every channel.
+
+##### @spec an-integer-or-boolean-vector-result-converts-to-a-float-vector-first
+
+> A fragment stage that declares no output and returns an `ivec`, `uvec` or `bvec` converts it to a float vector of the same length. The rule of that length then applies.
+
+##### @spec a-result-that-has-no-colour-is-refused
+
+> A fragment stage that declares no output and returns a matrix is refused on every target.
+
+This follows because no conversion of a matrix to a colour is defined, and TSL leaves one open.
 
 #### @spec a-declared-output-holds-what-the-program-assigns
 
@@ -1057,7 +1097,13 @@ Derives from: [`fact-glsl-es-300-has-no-gl-fragcolor`](#fact-glsl-es-300-has-no-
 
 #### @spec a-fragment-stage-may-write-no-colour
 
-> A fragment stage with no output and no `vec4` result compiles.
+> A fragment stage that declares no output and returns nothing compiles.
+
+##### @bug wasm-refuses-a-fragment-stage-that-returns-nothing
+
+> The WASM target refuses a fragment stage that returns nothing, with "only supports a scalar result". Every other target compiles it.
+
+Issue: #136
 
 #### @spec a-varying-passes-from-the-vertex-to-the-fragment-stage
 
@@ -2430,6 +2476,12 @@ Issue: #81
 
 Issue: #81
 
+#### @bug wgsl-an-early-return-in-a-fragment-stage-returns-nothing
+
+> On WGSL, `Return()` in a fragment stage that writes a colour emits a bare `return;`, though `main` returns `FragmentOutput`. WGSL refuses the program.
+
+Issue: #135
+
 ### @spec an-fn-records-the-statements-of-its-body
 
 > `Fn` records the statements its body makes into the [fn](#term-fn) it returns. An `Fn` may be empty, return one value or several, and call another `Fn`.
@@ -3018,20 +3070,6 @@ Derives from: [`spec-an-adapter-draws-one-frame-for-each-call`](#spec-an-adapter
 
 This follows because WebGPU stores a float into an 8-bit canvas by clamping and rounding it, and a CPU target gives what WebGPU gives.
 
-#### @spec a-cpu-adapter-writes-a-channel-a-vector-lacks-as-zero
-
-> A JS or WASM routine adapter shows a two- or three-component result with 0 in each colour channel it lacks, and opaque alpha.
-
-Derives from: [`spec-a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte`](#spec-a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte)
-
-This follows because a channel the program gives no value has none to show, and zero is what a cleared channel holds.
-
-##### @bug the-cpu-routine-adapters-copy-red-into-a-missing-blue-channel
-
-> The JS and WASM routine adapters show a two-channel result with its red channel copied into blue.
-
-Issue: #128
-
 ### @spec a-scene-renderer-manages-what-it-uploads
 
 > A renderer of `./scene` uploads each geometry, texture and uniform once, again when it changes, and frees it when it is disposed. It compiles a program once for each light set and kind of mesh.
@@ -3560,12 +3598,6 @@ Issue: #81
 ##### @spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws
 
 > The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
-
-###### @bug js-rasterizer-draws-a-vec3-colour-with-alpha-zero
-
-> The JS rasterizer accepts a fragment that returns a `float` or a `vec3`, and draws the channels it lacks as 0, where the WASM rasterizer refuses it.
-
-Issue: #88
 
 ###### @bug wasm-rasterizer-gives-every-fragment-coordinate-zero
 
@@ -4268,6 +4300,24 @@ This is a fact of the WebAssembly specification, not a choice.
 > A call into a WebAssembly module passes and returns only numbers. A vector, a matrix or a record crosses the boundary through the module's memory, which code on the host side has to read and write.
 
 This is a fact of the WebAssembly specification, not a choice.
+
+## @fact tsl-converts-a-fragment-result-to-the-type-of-its-render-target
+
+> TSL converts the result of a fragment node to the type of its render target's texture, which is `vec4` when it draws to the canvas. It trims a longer value. A `vec3` gains an alpha of 1, a `vec2` gains a blue of 0 and an alpha of 1, and a scalar fills every component.
+
+This is the behaviour of `NodeMaterial.setupFragment` and `NodeBuilder.format` in three.js, which TSL users rely on.
+
+## @fact webgpu-refuses-a-fragment-output-with-fewer-components-than-its-target
+
+> A WebGPU render pipeline whose fragment output has fewer components than its colour target's format is a validation error. An output with more components than the format is accepted, and the extra ones are dropped.
+
+Dawn refuses an `f32`, a `vec2<f32>` or a `vec3<f32>` written to an `rgba8unorm` target, and accepts an `f32` written to `r8unorm` and a `vec2<f32>` written to `rg8unorm`.
+
+## @fact glsl-es-300-leaves-a-missing-output-channel-undefined
+
+> A GLSL ES 3.00 fragment shader may declare an output of `float`, `vec2` or `vec3`. Written to an RGBA target, the channels it lacks are not defined by the program: WebGL on SwiftShader gives 0 in each, alpha included.
+
+A `float` written to an RGBA target reads back as `(128, 0, 0, 0)`, and a `vec3` as `(128, 64, 191, 0)`.
 
 ## @fact glsl-es-300-has-no-gl-fragcolor
 

@@ -163,7 +163,7 @@ function compileRunner<A extends ShaderType>(
   const compileOptions = {
     name: "rmslTestShader",
     params: [],
-    stage: options.stage ?? "fragment",
+    stage: options.stage,
     derivatives: options.derivatives ?? "zero",
     reentrant: options.reentrant ?? false,
   };
@@ -179,7 +179,7 @@ function compileRunner<A extends ShaderType>(
     attributes: reverseNames(names?.attributes),
     textures: reverseNames(names?.textures),
   };
-  const reads = { stage: compileOptions.stage, named: names !== undefined, names: called };
+  const reads = { stage: options.stage ?? "fragment", named: names !== undefined, names: called };
   const run = (inputs: ShaderInputs = {}): EvaluationResult<A> =>
     readResult<A>(callable.run(mergeContext(options, inputs, names, reads)), called.varyings);
   return Object.defineProperties(run, {

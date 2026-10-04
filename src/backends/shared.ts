@@ -6,8 +6,10 @@ import {
   ShaderType,
   StorageBufferAttribute,
   TYPE_WIDTH,
+  node,
   someNode,
   var_,
+  vec4,
 } from "../core";
 import { componentKindOf } from "./cpu";
 /**
@@ -521,14 +523,20 @@ export function loopTest(cond: CompiledNode): { header: string; guard: string[] 
  * nothing, which is the silent-corruption failure mode the unhandled-node case
  * throws to avoid.
  *
- * A fragment stage is deliberately not checked. A shader with no colour output
- * is legal, so "no result" there is a choice rather than a mistake.
+ * A fragment stage may return nothing, since a shader with no colour output is
+ * legal. Its result becomes the colour through {@link fragmentColour}, so only a
+ * type with no conversion to one is refused here.
  */
 export function assertStageResult(
   shaderStage: "vertex" | "fragment" | "compute",
   lastType: string | undefined,
   positionWritten: boolean,
+  declaresOutput = false,
 ): void {
+  if (shaderStage === "fragment") {
+    assertFragmentResult(lastType, declaresOutput);
+    return;
+  }
   if (shaderStage !== "vertex") return;
   // The program set the position itself, so its result has nowhere it needs to
   // go and can be anything, including nothing.
@@ -545,6 +553,57 @@ export function assertStageResult(
           `assign builtinPosition() yourself.`
         : `returns ${lastType}, which cannot become one. Wrap it — for example ` + `vec4(value, 1.0).`),
   );
+}
+
+function assertFragmentResult(lastType: string | undefined, declaresOutput: boolean): void {
+  if (declaresOutput) return;
+  if (lastType === undefined || lastType === "void" || lastType === "vec4") return;
+  throw new Error(
+    `[RMSL] A fragment shader that declares no output writes its result as the colour. ` +
+      `This one returns ${lastType}, which has no colour to become. Return a vec4, or declare an output.`,
+  );
+}
+
+/**
+ * The roots of a fragment stage with the implicit colour converted to a `vec4`
+ * the way TSL converts it to its render target's type. A `vec3` gains an alpha
+ * of 1, a `vec2` a blue of 0 and an alpha of 1, and a scalar fills every
+ * channel. A stage that declares an output, or returns anything else, comes
+ * back as it is.
+ */
+export function fragmentColour<T extends Node<ShaderType>>(roots: readonly T[]): T[] {
+  const last = roots[roots.length - 1] as BaseNode<ShaderType> | undefined;
+  if (!last || someNode(roots, (n) => n.type === "output")) return [...roots];
+  let tail = (last.type === "seq" ? last.params![last.params!.length - 1] : last) as Node<any>;
+  // An integer or boolean value reaches a colour as the float it converts to.
+  if (/^[iub]vec[234]$/.test(tail._t)) tail = tail.convert(`vec${tail._t.slice(-1)}`);
+  let colour: Node<"vec4">;
+  switch (tail._t) {
+    case "vec4":
+      colour = tail;
+      break;
+    case "vec3":
+      colour = vec4(tail, 1);
+      break;
+    case "vec2":
+      colour = vec4(tail, 0, 1);
+      break;
+    case "float":
+      colour = vec4(tail);
+      break;
+    case "int":
+    case "uint":
+    case "bool":
+      colour = vec4(tail.toFloat());
+      break;
+    default:
+      return [...roots];
+  }
+  const converted =
+    last.type === "seq"
+      ? node({ _t: "vec4", type: "seq", params: [...last.params!.slice(0, -1), colour as BaseNode<ShaderType>] })
+      : colour;
+  return [...roots.slice(0, -1), converted as unknown as T];
 }
 
 /** Which component each accessor letter names, in all three spellings. */

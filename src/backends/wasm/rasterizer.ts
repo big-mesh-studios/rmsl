@@ -227,6 +227,7 @@ export function compileWasm(
     ...options,
     name: "main",
     params: [],
+    stage: "fragment",
     scalarsInMemory: true,
     memoryBase: align8(vertexCompiled.textureHeapBase),
   });

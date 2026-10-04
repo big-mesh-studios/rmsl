@@ -14,6 +14,7 @@ import {
   assertAssignable,
   parameterNode,
   assertStageResult,
+  fragmentColour,
   assertOneDeclarationPerName,
   forUpdateStatements,
   loopGuard,
@@ -1583,6 +1584,7 @@ export function compileWGSLWithStage(
   };
 
   let nodes = Array.isArray(root) ? root : [root];
+  if (shaderStage === "fragment") nodes = fragmentColour(nodes);
   assertOneDeclarationPerName(nodes);
   let results = nodes.map((n) => compileWGSLStage(n, ctx));
   let countExpr = options?.count ? compileWGSLStage(options.count, ctx).expr : undefined;
@@ -1598,7 +1600,7 @@ export function compileWGSLWithStage(
     lastExpr = results[i].expr;
     lastType = (nodes[i] as any)?._t;
   }
-  assertStageResult(shaderStage, lastType, ctx.positionWritten);
+  assertStageResult(shaderStage, lastType, ctx.positionWritten, ctx.outputs.size > 0);
   // A vec4-typed node always has a value, so its type alone settles this. An
   // explicit write means the implicit one would be a second, conflicting
   // assignment.

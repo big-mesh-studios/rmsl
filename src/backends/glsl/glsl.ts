@@ -12,6 +12,7 @@ import {
   assertPositionIsReadable,
   assertSquareMatrix,
   assertStageResult,
+  fragmentColour,
   assertOneDeclarationPerName,
   forUpdateStatements,
   loopTest,
@@ -965,6 +966,7 @@ export function compileGLSLWithStage(
   };
 
   let nodes = Array.isArray(root) ? root : [root];
+  if (shaderStage === "fragment") nodes = fragmentColour(nodes);
   assertOneDeclarationPerName(nodes);
   let results = nodes.map((n) => compileGLSLStage(n, ctx));
   let allBody: string[] = [];
@@ -979,7 +981,7 @@ export function compileGLSLWithStage(
     lastExpr = results[i].expr;
     lastType = (nodes[i] as any)?._t;
   }
-  assertStageResult(shaderStage, lastType, ctx.positionWritten);
+  assertStageResult(shaderStage, lastType, ctx.positionWritten, ctx.outputs.size > 0);
   // A vec4-typed node always has a value, so its type alone settles this. An
   // explicit write means the implicit one would be a second, conflicting
   // assignment.

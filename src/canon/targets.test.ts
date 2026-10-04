@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import {
+  attribute,
   bool,
   builtinFragDepth,
   builtinPosition,
@@ -12,10 +13,12 @@ import {
   If,
   int,
   ivec2,
+  ivec3,
   Loop,
   mat2,
   mat2x3,
   mat3,
+  output,
   PI,
   select,
   time,
@@ -30,8 +33,8 @@ import {
 } from "../rmsl";
 import { compileGlsl } from "../glsl";
 import { compileWgsl } from "../wgsl";
-import { compileJSRoutine } from "../js";
-import { compileWasmRoutine } from "../wasm";
+import { compileJS, compileJSRoutine, createJsRoutine } from "../js";
+import { compileWasm, compileWasmRoutine, createWasmRoutine } from "../wasm";
 import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } from "../testing/shader-eval";
 
 afterAll(async () => {
@@ -415,6 +418,162 @@ describe("each leaf on every target it claims", () => {
    */
   it("refuses a vertex stage without a position on every target", () => {
     expectOnEveryTarget("vertex", () => Fn(() => vec3(1, 2, 3).toVar())() as any, /vertex shader|position/i);
+  });
+
+  /**
+   * The colour a fragment stage with no output writes, on every target: the
+   * GLSL and WGSL source declares a `vec4` colour output, and JS and WASM
+   * give the four channels.
+   */
+  function colourOnEveryTarget(build: () => Node<any>, expected: number[]) {
+    expect(compileGlsl.fragment(build()), "GLSL").toContain("out vec4");
+    expect(compileWgsl.fragment(build()), "WGSL").toMatch(/: vec4<f32>/);
+    const js = compileJSRoutine(build, { ...none, stage: "fragment" }).run({}) as any;
+    expect(js.value ?? js, "JS").toEqual(expected);
+    const wasm = compileWasmRoutine(build, { ...none, stage: "fragment" }).run({}) as any;
+    expect(Array.from(wasm.value ?? wasm), "WASM").toEqual(expected);
+  }
+
+  /**
+   * @canon spec-a-vec4-result-is-the-colour
+   */
+  it("writes a vec4 result as it is on every target", () => {
+    colourOnEveryTarget(() => Fn(() => vec4(0.5, 0.25, 0.75, 0.125).toVar())(), [0.5, 0.25, 0.75, 0.125]);
+  });
+
+  /**
+   * @canon spec-a-vec3-result-takes-an-opaque-alpha
+   */
+  it("writes a vec3 result with an alpha of one on every target", () => {
+    colourOnEveryTarget(() => Fn(() => vec3(0.5, 0.25, 0.75).toVar())(), [0.5, 0.25, 0.75, 1]);
+  });
+
+  /**
+   * @canon spec-a-vec2-result-takes-a-zero-blue-and-an-opaque-alpha
+   */
+  it("writes a vec2 result with a blue of zero and an alpha of one on every target", () => {
+    colourOnEveryTarget(() => Fn(() => vec2(0.5, 0.25).toVar())(), [0.5, 0.25, 0, 1]);
+  });
+
+  /**
+   * @canon spec-a-scalar-result-fills-every-channel
+   */
+  it("writes a scalar result into every channel on every target", () => {
+    colourOnEveryTarget(() => Fn(() => float(0.5).toVar())(), [0.5, 0.5, 0.5, 0.5]);
+    colourOnEveryTarget(() => Fn(() => int(2).toVar())(), [2, 2, 2, 2]);
+    colourOnEveryTarget(() => Fn(() => bool(true).toVar())(), [1, 1, 1, 1]);
+  });
+
+  /**
+   * @canon spec-a-vec3-result-takes-an-opaque-alpha
+   */
+  it("draws a vec3 result with an alpha of one in the JS and WASM rasterizers", () => {
+    const position = attribute("vec3");
+    const vertex = () => Fn(() => builtinPosition().assign(vec4(position, 1)))() as any;
+    const fragment = () => Fn(() => vec3(1, 0, 0).toVar())() as any;
+    const triangle = new Float64Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]);
+    const inputs = { attributes: { [position.name]: triangle } };
+    const options = { width: 1, height: 1 };
+    const js = compileJS(vertex, fragment, { attributeTypes: { [position.name]: "vec3" } });
+    expect(Array.from(js.draw(inputs, options))).toEqual([1, 0, 0, 1]);
+    const wasm = compileWasm(vertex, fragment);
+    expect(Array.from(wasm.draw(inputs, options))).toEqual([1, 0, 0, 1]);
+  });
+
+  /**
+   * @canon spec-an-integer-or-boolean-vector-result-converts-to-a-float-vector-first
+   */
+  it("writes an integer or boolean vector result as the float vector it converts to on every target", () => {
+    colourOnEveryTarget(() => Fn(() => ivec3(1, 2, 3).toVar())(), [1, 2, 3, 1]);
+    colourOnEveryTarget(() => Fn(() => uvec2(4, 5).toVar())(), [4, 5, 0, 1]);
+    colourOnEveryTarget(() => Fn(() => bvec3(true, false, true).toVar())(), [1, 0, 1, 1]);
+  });
+
+  /** The bytes a routine adapter puts on its canvas for one pixel of `draw`. */
+  function shownBy(create: typeof createJsRoutine, draw: Node<any>): number[] {
+    const hadImageData = "ImageData" in globalThis;
+    if (!hadImageData) {
+      (globalThis as any).ImageData = class {
+        data: Uint8ClampedArray;
+        constructor(width: number, height: number) {
+          this.data = new Uint8ClampedArray(width * height * 4);
+        }
+      };
+    }
+    try {
+      let shown!: ImageData;
+      const canvas = {
+        width: 1,
+        height: 1,
+        getContext: () => ({ putImageData: (image: ImageData) => (shown = image) }),
+      };
+      const adapter = create({ draw, name: "shade" });
+      adapter.attach(canvas as unknown as HTMLCanvasElement);
+      adapter.draw();
+      return Array.from(shown.data);
+    } finally {
+      if (!hadImageData) delete (globalThis as any).ImageData;
+    }
+  }
+
+  /**
+   * @canon spec-a-vec3-result-takes-an-opaque-alpha
+   */
+  it("shows a vec3 result with an opaque alpha on the JS and WASM routine adapters", () => {
+    for (const create of [createJsRoutine, createWasmRoutine]) {
+      expect(shownBy(create, Fn(() => vec3(1, 0.5, 0))())).toEqual([255, 128, 0, 255]);
+    }
+  });
+
+  /**
+   * @canon spec-a-vec2-result-takes-a-zero-blue-and-an-opaque-alpha
+   */
+  it("shows a vec2 result with a zero blue on the JS and WASM routine adapters", () => {
+    for (const create of [createJsRoutine, createWasmRoutine]) {
+      expect(shownBy(create, Fn(() => vec2(1, 0.5))())).toEqual([255, 128, 0, 255]);
+    }
+  });
+
+  /**
+   * @canon spec-a-scalar-result-fills-every-channel
+   */
+  it("shows a scalar result in every channel on the JS and WASM routine adapters", () => {
+    for (const create of [createJsRoutine, createWasmRoutine]) {
+      expect(shownBy(create, Fn(() => float(0.5))())).toEqual([128, 128, 128, 128]);
+    }
+  });
+
+  /**
+   * @canon spec-a-result-that-has-no-colour-is-refused
+   */
+  it("refuses a fragment result that has no colour on every target", () => {
+    expectOnEveryTarget("fragment", () => Fn(() => mat2(1, 2, 3, 4).toVar())(), /fragment shader|colour/i);
+    expectOnEveryTarget("fragment", () => Fn(() => mat2x3(1, 0, 0, 0, 1, 0).toVar())(), /fragment shader|colour/i);
+  });
+
+  /**
+   * @canon spec-a-fragment-stage-may-write-no-colour
+   */
+  it("compiles a fragment stage that returns nothing on GLSL, WGSL and JS", () => {
+    const build = () => Fn(() => {})() as any;
+    expect(() => compileGlsl.fragment(build())).not.toThrow();
+    expect(() => compileWgsl.fragment(build())).not.toThrow();
+    expect(() => compileJSRoutine(build, { ...none, stage: "fragment" })).not.toThrow();
+  });
+
+  /**
+   * @canon spec-a-declared-output-holds-what-the-program-assigns
+   */
+  it("compiles a fragment stage with a declared output and a result that is not a vec4", () => {
+    expectOnEveryTarget(
+      "fragment",
+      () =>
+        Fn(() => {
+          output("vec4").assign(vec4(1, 0, 0, 1));
+          return float(0.5).toVar();
+        })(),
+      false,
+    );
   });
 
   /**

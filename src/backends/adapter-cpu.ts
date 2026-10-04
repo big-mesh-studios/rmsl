@@ -37,24 +37,16 @@ function clamp255(v: number): number {
   return Math.max(0, Math.min(255, Math.round(v * 255)));
 }
 
-/** `draw()`'s flat row-major buffer, one program-defined channel count per
- * pixel, read back as 0..1 float color the same convention GLSL/WGSL
- * fragment output uses — into a `CanvasRenderingContext2D`'s ImageData,
- * the closest a CPU target has to a GPU canvas surface. Exported for
- * `createWasm`'s own rasterizer-backed adapter (`adapter-wasm.ts`), which
- * needs the same conversion for `WasmRasterRoutine.draw()`'s output. */
+/** `draw()`'s flat row-major buffer of four channels per pixel, read back as
+ * 0..1 float colour the same convention GLSL/WGSL fragment output uses — into
+ * a `CanvasRenderingContext2D`'s ImageData, the closest a CPU target has to a
+ * GPU canvas surface. Exported for `createWasm`'s own rasterizer-backed
+ * adapter (`adapter-wasm.ts`), which needs the same conversion for
+ * `WasmRasterRoutine.draw()`'s output. */
 export function bufferToImageData(buffer: CpuDrawBuffer, width: number, height: number): ImageData {
-  const componentCount = buffer.length / (width * height);
   const imageData = new ImageData(width, height);
   const rgba = imageData.data;
-  for (let i = 0; i < width * height; i++) {
-    const base = i * componentCount;
-    const r = clamp255(buffer[base] as number);
-    rgba[i * 4] = r;
-    rgba[i * 4 + 1] = componentCount > 1 ? clamp255(buffer[base + 1] as number) : r;
-    rgba[i * 4 + 2] = componentCount > 2 ? clamp255(buffer[base + 2] as number) : r;
-    rgba[i * 4 + 3] = componentCount > 3 ? clamp255(buffer[base + 3] as number) : 255;
-  }
+  for (let i = 0; i < width * height * 4; i++) rgba[i] = clamp255(buffer[i] as number);
   return imageData;
 }
 
