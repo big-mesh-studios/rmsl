@@ -3,6 +3,9 @@ import { attribute, builtinPosition, Fn, uniform, varying, vec4 } from "../../rm
 import { compileJS } from "./rasterizer";
 
 describe("JS backend: compileJS (vertex+fragment rasterizer pipeline)", () => {
+  /**
+   * @canon spec-the-js-target-draws-within-the-call
+   */
   it("draws a triangle covering the screen, interpolating a varying color", () => {
     const posAttr = attribute("vec3");
     const colorVarying = varying("vec3");

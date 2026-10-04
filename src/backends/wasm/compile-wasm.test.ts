@@ -3,6 +3,9 @@ import { attribute, builtinPosition, Fn, uniform, varying, vec4 } from "../../rm
 import { compileWasm } from "./rasterizer";
 
 describe("WASM backend: compileWasm (vertex+fragment rasterizer pipeline)", () => {
+  /**
+   * @canon spec-the-wasm-target-draws-within-the-call
+   */
   it("draws a triangle covering the screen, interpolating a varying color", () => {
     const posAttr = attribute("vec3");
     const colorVarying = varying("vec3");
