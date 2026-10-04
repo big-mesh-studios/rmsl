@@ -52,6 +52,9 @@ async function expectValue(build: Build, args: number[], want: number) {
 }
 
 describe("RMSL evaluation", () => {
+  /**
+   * @canon spec-arithmetic-compiles-to-the-operators-of-the-target
+   */
   it("computes arithmetic", async () => {
     await expectValue((a, b) => a.add(b), [2, 3], 5);
     await expectValue((a, b) => a.sub(b), [7, 3], 4);
@@ -61,11 +64,17 @@ describe("RMSL evaluation", () => {
   }, 60_000);
 
   // min and max must agree across both backends.
+  /**
+   * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
+   */
   it("computes min and max the right way round", async () => {
     await expectValue((a, b) => a.min(b), [3, 9], 3);
     await expectValue((a, b) => a.max(b), [3, 9], 9);
   }, 60_000);
 
+  /**
+   * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
+   */
   it("computes math builtins", async () => {
     await expectValue((a) => a.sqrt(), [9], 3);
     await expectValue((a) => a.abs(), [-4], 4);
@@ -78,6 +87,9 @@ describe("RMSL evaluation", () => {
 
   // These are the ops the TSL parity pass added; a compile-only check cannot
   // tell sinh from cosh, so their values are pinned here too.
+  /**
+   * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
+   */
   it("computes the parity-pass math builtins", async () => {
     await expectValue((a) => a.round(), [2.4], 2);
     await expectValue((a) => a.round(), [2.6], 3);
@@ -93,6 +105,9 @@ describe("RMSL evaluation", () => {
   }, 60_000);
 
   // Casts truncate toward zero on both backends: int(2.7) is 2, int(-2.7) is -2.
+  /**
+   * @canon spec-a-conversion-between-numeric-types-is-written-out
+   */
   it("casts float to int and back", async () => {
     await expectValue((a) => a.toInt().toFloat(), [2.7], 2);
     await expectValue((a) => a.toInt().toFloat(), [-2.7], -2);
@@ -103,6 +118,9 @@ describe("RMSL evaluation", () => {
 
   // Argument order is the thing worth pinning: GLSL takes the value last in
   // step(edge, x), so an emitter that passes them the other way still compiles.
+  /**
+   * @canon spec-a-function-with-an-edge-takes-the-value-last
+   */
   it("computes step, smoothstep and mix with operands in the right order", async () => {
     await expectValue((a, b) => b.step(a), [0.5, 2], 1); // x above edge -> 1
     await expectValue((a, b) => b.step(a), [2, 0.5], 0); // x below edge -> 0
@@ -111,6 +129,9 @@ describe("RMSL evaluation", () => {
     await expectValue((a) => a.smoothstep(0, 1), [0.5], 0.5);
   }, 60_000);
 
+  /**
+   * @canon spec-a-function-with-an-edge-takes-the-value-last
+   */
   it("computes clamp against both bounds", async () => {
     await expectValue((a) => a.clamp(0, 1), [2.5], 1);
     await expectValue((a) => a.clamp(0, 1), [-2.5], 0);
@@ -119,6 +140,9 @@ describe("RMSL evaluation", () => {
 
   // Floored, following GLSL's mod() — the function this operation is named
   // for — so the result takes the sign of the divisor.
+  /**
+   * @canon spec-wgsl-floors-a-modulus-through-a-helper
+   */
   it("computes float modulus the same way on both backends", async () => {
     await expectValue((a, b) => a.mod(b), [7.5, 2], 1.5);
     await expectValue((a, b) => a.mod(b), [-7.5, 2], 0.5);
@@ -128,11 +152,17 @@ describe("RMSL evaluation", () => {
 
   // Folding happens in JavaScript, whose % also truncates, so the literal path
   // is corrected the same way.
+  /**
+   * @canon spec-float-folding-gives-the-run-time-result
+   */
   it("folds a modulus to what the shader would have computed", async () => {
     await expectValue(() => float(-7.5).mod(float(2)), [], 0.5);
     await expectValue((a, b) => a.mod(b), [-7.5, 2], 0.5);
   }, 60_000);
 
+  /**
+   * @canon spec-float-folding-gives-the-run-time-result
+   */
   it("folds constants to the same value it would compute at runtime", async () => {
     // The literal path folds in JS; the parameter path runs on the GPU. They
     // must agree, or folding is lying about what the shader would have done.
@@ -202,6 +232,9 @@ describe("RMSL evaluation", () => {
     await expectValue(tallyLoop, [], 4);
   }, 60_000);
 
+  /**
+   * @canon spec-an-if-chain-runs-the-first-branch-whose-condition-holds
+   */
   it("takes the branch the condition selects", async () => {
     const branch = (x: Node<"float">) =>
       Fn(() => {
@@ -218,6 +251,9 @@ describe("RMSL evaluation", () => {
     await expectValue(branch, [0], 20);
   }, 60_000);
 
+  /**
+   * @canon spec-an-if-chain-runs-the-first-branch-whose-condition-holds
+   */
   it("walks an if/else-if/else chain in order", async () => {
     const classify = (x: Node<"float">) =>
       Fn(() => {
@@ -241,6 +277,9 @@ describe("RMSL evaluation", () => {
 
   // A variable an ElseIf condition makes is computed only when that condition
   // is tested, in the else branch, not after the If.
+  /**
+   * @canon spec-an-else-if-condition-is-computed-only-when-tested
+   */
   it("tests an else-if condition that makes a variable with the variable's value", async () => {
     const classify = (x: Node<"float">) =>
       Fn(() => {
@@ -292,6 +331,9 @@ describe("RMSL evaluation", () => {
     await expectValue(count, [12], 0);
   }, 60_000);
 
+  /**
+   * @canon spec-continue-in-a-for-runs-the-update
+   */
   it("still steps a For whose condition makes a variable when its body continues", async () => {
     const evens = (x: Node<"float">) =>
       Fn(() => {
@@ -315,6 +357,9 @@ describe("RMSL evaluation", () => {
     await expectValue(evens, [3], 4);
   }, 60_000);
 
+  /**
+   * @canon spec-a-variable-an-else-if-condition-makes-belongs-to-its-chain
+   */
   it("reads a variable an else-if condition makes in the rest of its chain", async () => {
     const pick = (x: Node<"float">) =>
       Fn(() => {
@@ -340,6 +385,9 @@ describe("RMSL evaluation", () => {
 
   // A variable an ElseIf condition makes belongs to that ElseIf, as `let i` in
   // `for (let i = 0; ...)` belongs to its loop.
+  /**
+   * @canon spec-a-variable-an-else-if-condition-makes-belongs-to-its-chain
+   */
   it("refuses a variable an else-if condition makes used after the chain", () => {
     const pick = (x: Node<"float">) =>
       Fn(() => {
@@ -369,6 +417,9 @@ describe("RMSL evaluation", () => {
     expect(() => assignAfter(float(1))).toThrow(/\[RMSL\] A variable made in an ElseIf condition is used after/);
   });
 
+  /**
+   * @canon spec-a-variable-a-for-condition-makes-stays-in-scope
+   */
   it("keeps a variable a For condition makes in scope in the update and after the loop", async () => {
     const run = (x: Node<"float">) =>
       Fn(() => {
@@ -416,6 +467,9 @@ describe("RMSL evaluation", () => {
 
   // Made between the links, `t` reads as if it is always computed, but it
   // would be computed only when the ElseIf is tested.
+  /**
+   * @canon spec-an-else-if-follows-its-if-directly
+   */
   it("refuses a variable made between an If and its ElseIf", () => {
     const build = (x: Node<"float">) =>
       Fn(() => {
@@ -434,6 +488,9 @@ describe("RMSL evaluation", () => {
     );
   });
 
+  /**
+   * @canon spec-an-else-if-follows-its-if-directly
+   */
   it("refuses a statement written between an ElseIf and its Else", () => {
     const build = (x: Node<"float">) =>
       Fn(() => {
@@ -452,6 +509,9 @@ describe("RMSL evaluation", () => {
     expect(() => build(float(1))).toThrow(/\[RMSL\] Else has to follow its If directly/);
   });
 
+  /**
+   * @canon spec-an-else-if-follows-its-if-directly
+   */
   it("refuses a statement written between an If and its ElseIf", () => {
     const build = (x: Node<"float">) =>
       Fn(() => {
@@ -484,6 +544,9 @@ describe("RMSL evaluation", () => {
     }
   });
 
+  /**
+   * @canon spec-an-else-if-follows-its-if-directly
+   */
   it("refuses an ElseIf called from inside another block", () => {
     const build = (x: Node<"float">) =>
       Fn(() => {
@@ -501,6 +564,9 @@ describe("RMSL evaluation", () => {
     expect(() => build(float(1))).toThrow(/\[RMSL\] ElseIf has to follow its If directly/);
   });
 
+  /**
+   * @canon spec-a-loop-condition-runs-its-statements-before-every-test
+   */
   it("runs a statement a loop condition writes before every test", async () => {
     const forTests = (x: Node<"float">) =>
       Fn(() => {
@@ -538,6 +604,9 @@ describe("RMSL evaluation", () => {
     await expectValue(whileTests, [3], 4);
   }, 60_000);
 
+  /**
+   * @canon spec-a-loop-condition-runs-its-statements-before-every-test
+   */
   it("breaks and continues from a statement a loop condition writes", async () => {
     const whileBreak = (x: Node<"float">) =>
       Fn(() => {
@@ -708,6 +777,9 @@ describe("RMSL evaluation", () => {
     await expectValue(run, [12], 0);
   }, 60_000);
 
+  /**
+   * @canon spec-an-inline-fn-runs-once
+   */
   it("reads a variable an Fn call made before a loop in its condition and after it", async () => {
     const twice = Fn((x: Node<"float">) => x.mul(2).toVar());
     const whileRun = (x: Node<"float">) =>
@@ -739,6 +811,9 @@ describe("RMSL evaluation", () => {
     await expectValue(forRun, [3], 42);
   }, 60_000);
 
+  /**
+   * @canon spec-an-inline-fn-runs-where-it-is-called
+   */
   it("runs an Fn call's statements where it is called, before a branch that reads its value", async () => {
     const plusOne = Fn((x: Node<"float">) => x.add(1).toVar());
     const elseIfRun = (x: Node<"float">) =>
@@ -803,6 +878,9 @@ describe("RMSL evaluation", () => {
     await expectValue(countdown, [0], 0);
   }, 60_000);
 
+  /**
+   * @canon spec-a-switch-runs-the-case-its-selector-matches
+   */
   it("takes the branch Switch selects", async () => {
     const classify = () =>
       Fn(() => {
@@ -826,6 +904,9 @@ describe("RMSL evaluation", () => {
 
   // The lowercase aliases are the same nodes, so they must compute the same
   // results — an alias that silently did nothing would fail here.
+  /**
+   * @canon spec-an-if-chain-runs-the-first-branch-whose-condition-holds
+   */
   it("computes the same results through the lowercase aliases", async () => {
     const branch = (x: Node<"float">) =>
       Fn(() => {
@@ -893,6 +974,9 @@ describe("RMSL evaluation", () => {
 
   // break_ and continue_ change which iterations contribute, so the sum says
   // whether they landed.
+  /**
+   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   */
   it("honours break_ and continue_", async () => {
     const sumUntilBreak = (limit: Node<"float">) =>
       Fn(() => {
@@ -936,6 +1020,9 @@ describe("RMSL evaluation", () => {
 
   // A copy made with `toVar()` is its own value: writing it leaves what it was
   // copied from as it was, whether that is a literal or a computed vector.
+  /**
+   * @canon spec-a-variable-holds-a-copy
+   */
   it("keeps the value a variable was copied from", async () => {
     await expectValue(
       () =>
@@ -986,6 +1073,9 @@ describe("RMSL evaluation", () => {
 
   // A value is what it computes where it is read: after a variable it reads is
   // written, or outside a branch where it was first computed.
+  /**
+   * @canon spec-a-value-is-computed-where-it-is-read
+   */
   it("reads a value as it is where it is read", async () => {
     await expectValue(
       () =>
@@ -1048,6 +1138,9 @@ describe("RMSL evaluation", () => {
   }, 60_000);
 
   // An inline Fn's statements run once, however often the value it returns is read.
+  /**
+   * @canon spec-an-inline-fn-runs-once
+   */
   it("runs an inline Fn's statements once", async () => {
     const counted = (read: (value: Node<"vec3">) => Node<"float">) => () =>
       Fn(() => {
@@ -1116,6 +1209,9 @@ describe("RMSL evaluation", () => {
 
   // The first Fn's If runs its statements a block deeper; the second Fn's Break
   // still leaves the loop it sits in.
+  /**
+   * @canon spec-an-inline-fn-runs-once
+   */
   it("breaks out of a loop from an inline Fn read after one with a branch", async () => {
     await expectValue(
       (flag) =>

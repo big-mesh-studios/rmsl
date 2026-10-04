@@ -75,6 +75,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-program-runs-its-statements-in-the-order-it-writes-them`](#spec-a-program-runs-its-statements-in-the-order-it-writes-them) — A program runs its statements in the order its body made them, on every target, the statements that compute an index or a value included.
     - [`@spec the-index-of-a-write-is-read-after-the-value-is-computed`](#spec-the-index-of-a-write-is-read-after-the-value-is-computed) — A write through a computed index reads the index after the statements that compute the value it writes.
     - [`@spec a-column-index-runs-before-a-component-index`](#spec-a-column-index-runs-before-a-component-index) — When a program computes both indices of a write to a component of a matrix column, the column index runs first.
+  - [`@spec a-value-is-computed-where-it-is-read`](#spec-a-value-is-computed-where-it-is-read) — A value that no variable holds computes, where the program reads it, from what its operands hold there. A write to a variable it reads changes what it gives after the write. A branch that first computed it does not keep it from the code outside.
+  - [`@spec a-variable-holds-a-copy`](#spec-a-variable-holds-a-copy) — A variable made with `toVar()`, or assigned a value, holds a copy. A write to the variable leaves the value it was copied from as it was.
   - [`@spec a-run-time-index-past-the-end-reaches-the-last-element`](#spec-a-run-time-index-past-the-end-reaches-the-last-element) — A vector component or matrix column reached by a run-time index below zero or past its end reads and writes the last component or column.
     - [`@exception a-gpu-target-lets-the-driver-pick-an-element-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range) — On GLSL and WGSL, a run-time index out of range reaches whatever element the driver picks.
 - [`@axiom a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs) — A program that cannot work is refused before it runs. The type checker refuses it wherever the types can express the mistake, and the compiler refuses it on every target. The refusal names the cause, and the fix where one exists.
@@ -128,6 +130,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-while-condition-given-as-a-node-is-built-once`](#spec-a-while-condition-given-as-a-node-is-built-once) — A variable that a `While` condition given as a node makes is computed once, before the loop. The condition then reads that value on every test.
       - [`@exception a-while-condition-given-as-a-function-is-computed-before-every-test`](#exception-a-while-condition-given-as-a-function-is-computed-before-every-test) — A `While` condition given as a function is computed before every test, a variable it makes included.
     - [`@spec for-runs-its-init-condition-body-and-update`](#spec-for-runs-its-init-condition-body-and-update) — `For(init, condition, update, body)` makes its loop variable with `init`, and tests `condition` before every iteration. Each iteration runs `body`, then `update`.
+      - [`@spec a-variable-a-for-condition-makes-stays-in-scope`](#spec-a-variable-a-for-condition-makes-stays-in-scope) — The update of a `For`, and the code after the loop, can read a variable that its condition makes.
+      - [`@spec a-loop-condition-runs-its-statements-before-every-test`](#spec-a-loop-condition-runs-its-statements-before-every-test) — A statement that a `For` condition, or a `While` condition given as a function, writes runs before every test. A `Break` or `Continue` among them acts as it would in the body.
+      - [`@spec continue-in-a-for-runs-the-update`](#spec-continue-in-a-for-runs-the-update) — `Continue` in the body of a `For` runs the update, then the condition.
       - [`@exception for-is-a-name-tsl-lacks`](#exception-for-is-a-name-tsl-lacks) — rmsl writes a loop with its own condition and update as `For`. TSL has no `For`, and takes a comparison operator and a step in the object shape of `Loop`.
       - [`@exception a-for-condition-is-computed-before-every-test`](#exception-a-for-condition-is-computed-before-every-test) — A `For` condition is computed before every test, a variable it makes included, also when an `Fn` the condition calls makes the variable.
   - [`@spec an-operation-means-what-it-means-in-tsl`](#spec-an-operation-means-what-it-means-in-tsl) — An operation computes what the operation of the same name computes in TSL, and takes its arguments in the same order. It compiles to the built-in of each target that computes it.
@@ -162,10 +167,14 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-element-reads-a-component-by-index`](#spec-an-element-reads-a-component-by-index) — `element(i)` of a vector reads the component at `i`, and of a matrix the column at `i`, by a literal or a computed index.
     - [`@spec an-element-write-writes-at-its-index`](#spec-an-element-write-writes-at-its-index) — An assignment through `element(i)` of a vector or matrix variable, or through a swizzle or an element of a column, writes at that index.
   - [`@spec an-if-chain-runs-the-first-branch-whose-condition-holds`](#spec-an-if-chain-runs-the-first-branch-whose-condition-holds) — `If`, `ElseIf` and `Else` run the first branch whose condition holds, or the `Else` branch when none does.
+    - [`@spec an-else-if-condition-is-computed-only-when-tested`](#spec-an-else-if-condition-is-computed-only-when-tested) — A variable that an `ElseIf` condition makes is computed when that condition is tested, after the conditions before it failed.
+    - [`@spec a-variable-an-else-if-condition-makes-belongs-to-its-chain`](#spec-a-variable-an-else-if-condition-makes-belongs-to-its-chain) — The rest of an `If` chain can read a variable that an `ElseIf` condition makes, and a use of it after the chain is refused.
+    - [`@spec an-else-if-follows-its-if-directly`](#spec-an-else-if-follows-its-if-directly) — An `ElseIf` or `Else` written after a statement that follows its `If` or `ElseIf`, a variable or a `Break` included, or called from inside another block, is refused.
   - [`@spec a-switch-runs-the-case-its-selector-matches`](#spec-a-switch-runs-the-case-its-selector-matches) — `Switch` runs the first `Case` whose values hold its selector, or the `Default` when none does, as a chain of `if` and `else` with no fall-through.
   - [`@spec break-continue-return-and-discard-leave-where-tsl-leaves`](#spec-break-continue-return-and-discard-leave-where-tsl-leaves) — `Break` leaves the loop, `Continue` starts its next iteration, `Return` leaves the function, and `Discard` drops the fragment.
   - [`@spec an-fn-records-the-statements-of-its-body`](#spec-an-fn-records-the-statements-of-its-body) — `Fn` records the statements its body makes into the [fn](#term-fn) it returns. An `Fn` may be empty, return one value or several, and call another `Fn`.
     - [`@spec an-inline-fn-runs-where-it-is-called`](#spec-an-inline-fn-runs-where-it-is-called) — A variable that a called `Fn` makes is declared where the call is, not where its value is first read.
+    - [`@spec an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) — The statements of a called `Fn` run once, where it is called, no matter how often or where the program reads the value it returns.
   - [`@spec a-variable-keeps-the-name-the-user-gave-it`](#spec-a-variable-keeps-the-name-the-user-gave-it) — `toVar(name)` and `var(name)` declare a variable under `name` on every target, in every compile. A name already taken in the program gets a number appended.
     - [`@spec var-is-to-var`](#spec-var-is-to-var) — `var()` is `toVar()` under TSL's other name.
     - [`@spec a-variable-name-must-be-an-identifier`](#spec-a-variable-name-must-be-an-identifier) — A variable name that is not an identifier, or that starts with the prefix `_rmsl_` the compiler reserves, is refused.
@@ -638,6 +647,18 @@ This follows because a reordered statement can read a value before or after the 
 
 > When a program computes both indices of a write to a component of a matrix column, the column index runs first.
 
+### @spec a-value-is-computed-where-it-is-read
+
+> A value that no variable holds computes, where the program reads it, from what its operands hold there. A write to a variable it reads changes what it gives after the write. A branch that first computed it does not keep it from the code outside.
+
+This follows because a value means the expression that makes it, and every target must read that expression at the same place.
+
+### @spec a-variable-holds-a-copy
+
+> A variable made with `toVar()`, or assigned a value, holds a copy. A write to the variable leaves the value it was copied from as it was.
+
+This follows because a variable that shared its storage with what it copied would change a value the program still reads.
+
 ### @spec a-run-time-index-past-the-end-reaches-the-last-element
 
 > A vector component or matrix column reached by a run-time index below zero or past its end reads and writes the last component or column.
@@ -898,6 +919,18 @@ Derives from: [`fact-tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-
 
 > `For(init, condition, update, body)` makes its loop variable with `init`, and tests `condition` before every iteration. Each iteration runs `body`, then `update`.
 
+##### @spec a-variable-a-for-condition-makes-stays-in-scope
+
+> The update of a `For`, and the code after the loop, can read a variable that its condition makes.
+
+##### @spec a-loop-condition-runs-its-statements-before-every-test
+
+> A statement that a `For` condition, or a `While` condition given as a function, writes runs before every test. A `Break` or `Continue` among them acts as it would in the body.
+
+##### @spec continue-in-a-for-runs-the-update
+
+> `Continue` in the body of a `For` runs the update, then the condition.
+
 ##### @exception for-is-a-name-tsl-lacks
 
 > rmsl writes a loop with its own condition and update as `For`. TSL has no `For`, and takes a comparison operator and a step in the object shape of `Loop`.
@@ -1052,6 +1085,22 @@ This follows because TSL swizzles in these spellings.
 
 This follows because TSL's `If` chain does.
 
+#### @spec an-else-if-condition-is-computed-only-when-tested
+
+> A variable that an `ElseIf` condition makes is computed when that condition is tested, after the conditions before it failed.
+
+#### @spec a-variable-an-else-if-condition-makes-belongs-to-its-chain
+
+> The rest of an `If` chain can read a variable that an `ElseIf` condition makes, and a use of it after the chain is refused.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+#### @spec an-else-if-follows-its-if-directly
+
+> An `ElseIf` or `Else` written after a statement that follows its `If` or `ElseIf`, a variable or a `Break` included, or called from inside another block, is refused.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
 ### @spec a-switch-runs-the-case-its-selector-matches
 
 > `Switch` runs the first `Case` whose values hold its selector, or the `Default` when none does, as a chain of `if` and `else` with no fall-through.
@@ -1073,6 +1122,10 @@ This follows because TSL builds a shader the same way.
 #### @spec an-inline-fn-runs-where-it-is-called
 
 > A variable that a called `Fn` makes is declared where the call is, not where its value is first read.
+
+#### @spec an-inline-fn-runs-once
+
+> The statements of a called `Fn` run once, where it is called, no matter how often or where the program reads the value it returns.
 
 ### @spec a-variable-keeps-the-name-the-user-gave-it
 
