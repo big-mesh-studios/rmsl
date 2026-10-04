@@ -36,13 +36,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@term node-material`](#term-node-material) — A material of `./scene` whose surface the user states as nodes.
 - [`@term precompile`](#term-precompile) — Running rmsl at build time, so that the application ships the compiled code instead of rmsl.
 - [`@axiom one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target) — A program computes the same result on every [target](#term-target), or every target refuses it with the same error.
-  - [`@spec integer-arithmetic-follows-wgsl`](#spec-integer-arithmetic-follows-wgsl) — Every target gives an integer operation the result that WGSL defines for it.
-    - [`@spec js-integer-arithmetic-follows-wgsl`](#spec-js-integer-arithmetic-follows-wgsl) — The JavaScript target gives an integer operation the result that WGSL defines for it.
-    - [`@spec wasm-integer-arithmetic-follows-wgsl`](#spec-wasm-integer-arithmetic-follows-wgsl) — The WebAssembly target gives an integer operation the result that WGSL defines for it.
-    - [`@spec wgsl-integer-arithmetic-keeps-its-defined-result`](#spec-wgsl-integer-arithmetic-keeps-its-defined-result) — The WGSL target gives an integer operation the result that WGSL defines for it, with literal operands as well as run-time ones.
-      - [`@exception dawn-on-metal-divides-some-u32-constants-wrongly`](#exception-dawn-on-metal-divides-some-u32-constants-wrongly) — On Dawn on Metal, a constant `u32` numerator from `0xFFFFFF80` to `0xFFFFFFFE` divided by a run-time value gives the wrong quotient.
-    - [`@spec glsl-integer-arithmetic-follows-wgsl`](#spec-glsl-integer-arithmetic-follows-wgsl) — The GLSL target gives an integer operation the result that WGSL defines for it.
-      - [`@exception glsl-integer-edge-cases-on-run-time-values-follow-the-driver`](#exception-glsl-integer-edge-cases-on-run-time-values-follow-the-driver) — On GLSL, an integer division or remainder by a run-time zero gives whatever the driver gives. So does a shift by a run-time amount that is negative, or 32 or more.
   - [`@spec float-arithmetic-gives-one-result`](#spec-float-arithmetic-gives-one-result) — Every target gives a float operation the same result.
     - [`@exception a-cpu-target-has-no-derivatives`](#exception-a-cpu-target-has-no-derivatives) — On a CPU target, a derivative is refused, unless the compile asks for `derivatives: "zero"`, which makes every derivative zero.
     - [`@spec wasm-float-arithmetic-matches-js-exactly`](#spec-wasm-float-arithmetic-matches-js-exactly) — The WebAssembly target gives a float operation exactly the result the JavaScript target gives.
@@ -78,8 +71,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-column-index-runs-before-a-component-index`](#spec-a-column-index-runs-before-a-component-index) — When a program computes both indices of a write to a component of a matrix column, the column index runs first.
   - [`@spec a-value-is-computed-where-it-is-read`](#spec-a-value-is-computed-where-it-is-read) — A value that no variable holds computes, where the program reads it, from what its operands hold there. A write to a variable it reads changes what it gives after the write. A branch that first computed it does not keep it from the code outside.
   - [`@spec a-variable-holds-a-copy`](#spec-a-variable-holds-a-copy) — A variable made with `toVar()`, or assigned a value, holds a copy. A write to the variable leaves the value it was copied from as it was.
-  - [`@spec a-run-time-index-past-the-end-reaches-the-last-element`](#spec-a-run-time-index-past-the-end-reaches-the-last-element) — A vector component or matrix column reached by a run-time index below zero or past its end reads and writes the last component or column.
-    - [`@exception a-gpu-target-lets-the-driver-pick-an-element-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range) — On GLSL and WGSL, a run-time index out of range reaches whatever element the driver picks.
   - [`@spec a-cpu-target-samples-a-texture-as-a-gpu-sampler-does`](#spec-a-cpu-target-samples-a-texture-as-a-gpu-sampler-does) — A CPU target reads a texture by the rules a GPU sampler follows. It takes them from the texture: its filter, its wrap, its channels and its format.
     - [`@spec a-cpu-target-filters-as-the-texture-asks`](#spec-a-cpu-target-filters-as-the-texture-asks) — A CPU target reads the nearest texel by default, and blends neighbouring texels when the texture asks for linear filtering.
     - [`@spec a-cpu-target-wraps-as-the-texture-asks`](#spec-a-cpu-target-wraps-as-the-texture-asks) — A coordinate past an edge of a texture, on either side, wraps the way the texture asks.
@@ -89,12 +80,22 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cube-map-is-sampled-on-the-face-its-direction-picks`](#spec-a-cube-map-is-sampled-on-the-face-its-direction-picks) — A cube map is sampled on the face its direction points to, and a filter blends within that face, never across its edge.
     - [`@spec a-texel-fetched-out-of-range-reads-zero`](#spec-a-texel-fetched-out-of-range-reads-zero) — `textureLoad` at a coordinate outside the texture, a negative one included, reads zero in every channel.
       - [`@exception a-gpu-target-lets-the-driver-pick-a-texel-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-a-texel-out-of-range) — On GLSL and WGSL, a texel fetched out of range reads what the driver gives.
-  - [`@spec normalizing-a-zero-vector-gives-it-back`](#spec-normalizing-a-zero-vector-gives-it-back) — `normalize` of a vector of length zero gives the zero vector.
-    - [`@exception a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver`](#exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver) — On GLSL and WGSL, `normalize` of a vector of length zero gives what the driver gives.
-  - [`@spec a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing`](#spec-a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing) — A storage element read past the end of its buffer reads zero, and a write past its end changes nothing.
   - [`@spec every-root-of-a-program-keeps-its-effects`](#spec-every-root-of-a-program-keeps-its-effects) — A program compiled from several roots runs the statements of every root, each once, the statements they share included.
   - [`@spec an-unset-uniform-reads-zero`](#spec-an-unset-uniform-reads-zero) — A uniform the host never set reads as zero on every target.
   - [`@spec an-integer-reaches-the-host-as-the-integer-it-is`](#spec-an-integer-reaches-the-host-as-the-integer-it-is) — An `int` or `uint` passes between the host and a program as the integer it is. A `uint` above the largest `int` stays unsigned, in a uniform and in a storage buffer read back.
+  - [`@axiom a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives) — Where the targets could give different results, the CPU targets give the result WebGPU gives. Where WebGL and WebGPU differ, rmsl follows WebGPU, and an exception names where WebGL departs. Where WebGPU itself leaves a result open, rmsl picks one, and the GPU targets are the exception.
+    - [`@spec integer-arithmetic-follows-wgsl`](#spec-integer-arithmetic-follows-wgsl) — Every target gives an integer operation the result that WGSL defines for it.
+      - [`@spec js-integer-arithmetic-follows-wgsl`](#spec-js-integer-arithmetic-follows-wgsl) — The JavaScript target gives an integer operation the result that WGSL defines for it.
+      - [`@spec wasm-integer-arithmetic-follows-wgsl`](#spec-wasm-integer-arithmetic-follows-wgsl) — The WebAssembly target gives an integer operation the result that WGSL defines for it.
+      - [`@spec wgsl-integer-arithmetic-keeps-its-defined-result`](#spec-wgsl-integer-arithmetic-keeps-its-defined-result) — The WGSL target gives an integer operation the result that WGSL defines for it, with literal operands as well as run-time ones.
+        - [`@exception dawn-on-metal-divides-some-u32-constants-wrongly`](#exception-dawn-on-metal-divides-some-u32-constants-wrongly) — On Dawn on Metal, a constant `u32` numerator from `0xFFFFFF80` to `0xFFFFFFFE` divided by a run-time value gives the wrong quotient.
+      - [`@spec glsl-integer-arithmetic-follows-wgsl`](#spec-glsl-integer-arithmetic-follows-wgsl) — The GLSL target gives an integer operation the result that WGSL defines for it.
+        - [`@exception glsl-integer-edge-cases-on-run-time-values-follow-the-driver`](#exception-glsl-integer-edge-cases-on-run-time-values-follow-the-driver) — On GLSL, an integer division or remainder by a run-time zero gives whatever the driver gives. So does a shift by a run-time amount that is negative, or 32 or more.
+    - [`@spec a-run-time-index-past-the-end-reaches-the-last-element`](#spec-a-run-time-index-past-the-end-reaches-the-last-element) — A vector component or matrix column reached by a run-time index below zero or past its end reads and writes the last component or column.
+      - [`@exception a-gpu-target-lets-the-driver-pick-an-element-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range) — On GLSL and WGSL, a run-time index out of range reaches whatever element the driver picks.
+    - [`@spec normalizing-a-zero-vector-gives-it-back`](#spec-normalizing-a-zero-vector-gives-it-back) — `normalize` of a vector of length zero gives the zero vector.
+      - [`@exception a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver`](#exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver) — On GLSL and WGSL, `normalize` of a vector of length zero gives what the driver gives.
+    - [`@spec a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing`](#spec-a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing) — A storage element read past the end of its buffer reads zero, and a write past its end changes nothing.
 - [`@axiom a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs) — A program that cannot work is refused before it runs. The type checker refuses it wherever the types can express the mistake, and the compiler refuses it on every target. The refusal names the cause, and the fix where one exists.
   - [`@spec an-assignment-is-refused-unless-the-program-can-write-its-target`](#spec-an-assignment-is-refused-unless-the-program-can-write-its-target) — An assignment whose target the program cannot write is refused. Every target refuses it with the same message, and the type checker refuses it wherever the type of the target shows it.
     - [`@spec a-var-can-be-assigned`](#spec-a-var-can-be-assigned) — A program can assign a variable, a stage output and a storage element. It can also assign a component, a column or a swizzle of one that names each component once. A var goes wherever a node goes.
@@ -476,54 +477,6 @@ A user writes a program once, and picks a target by where it must run. That is a
 
 The axiom decides between defined behaviour and the native freedom of each language. Where a language leaves a result open, rmsl picks one and holds every target to it. Where a target cannot give that result, an exception names the fact that stops it.
 
-### @spec integer-arithmetic-follows-wgsl
-
-> Every target gives an integer operation the result that WGSL defines for it.
-
-Derives from: [`fact-wgsl-defines-every-integer-edge-case`](#fact-wgsl-defines-every-integer-edge-case)
-
-This follows because only the specification of WGSL defines a result for every integer operation. Its results are the only ones every target can share.
-
-#### @spec js-integer-arithmetic-follows-wgsl
-
-> The JavaScript target gives an integer operation the result that WGSL defines for it.
-
-#### @spec wasm-integer-arithmetic-follows-wgsl
-
-> The WebAssembly target gives an integer operation the result that WGSL defines for it.
-
-Derives from: [`fact-wasm-traps-on-an-integer-division-by-zero`](#fact-wasm-traps-on-an-integer-division-by-zero)
-
-This follows because a trap is no result at all. Where WebAssembly would trap, the target computes the result WGSL defines instead.
-
-#### @spec wgsl-integer-arithmetic-keeps-its-defined-result
-
-> The WGSL target gives an integer operation the result that WGSL defines for it, with literal operands as well as run-time ones.
-
-Derives from: [`fact-wgsl-rejects-a-constant-expression-that-fails`](#fact-wgsl-rejects-a-constant-expression-that-fails)
-
-This follows because WGSL refuses a constant division by zero or an out-of-range constant shift, results it defines for run-time values. A program with literal operands must still compile, and give the run-time result.
-
-##### @exception dawn-on-metal-divides-some-u32-constants-wrongly
-
-> On Dawn on Metal, a constant `u32` numerator from `0xFFFFFF80` to `0xFFFFFFFE` divided by a run-time value gives the wrong quotient.
-
-Derives from: [`fact-dawn-on-metal-divides-some-u32-constants-wrongly`](#fact-dawn-on-metal-divides-some-u32-constants-wrongly)
-
-The WGSL target emits a correct division, and the driver computes it wrongly. The exception lasts as long as the defect in Dawn.
-
-#### @spec glsl-integer-arithmetic-follows-wgsl
-
-> The GLSL target gives an integer operation the result that WGSL defines for it.
-
-##### @exception glsl-integer-edge-cases-on-run-time-values-follow-the-driver
-
-> On GLSL, an integer division or remainder by a run-time zero gives whatever the driver gives. So does a shift by a run-time amount that is negative, or 32 or more.
-
-Derives from: [`fact-glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined)
-
-GLSL leaves these results undefined, and the GLSL target emits the native operator for them. A guard around each operation would give the WGSL result, at the cost of a branch on every integer division and shift.
-
 ### @spec float-arithmetic-gives-one-result
 
 > Every target gives a float operation the same result.
@@ -720,18 +673,6 @@ This follows because a value means the expression that makes it, and every targe
 
 This follows because a variable that shared its storage with what it copied would change a value the program still reads.
 
-### @spec a-run-time-index-past-the-end-reaches-the-last-element
-
-> A vector component or matrix column reached by a run-time index below zero or past its end reads and writes the last component or column.
-
-This follows because an index out of range must reach the same element on every target. Every vector and matrix has a last element.
-
-#### @exception a-gpu-target-lets-the-driver-pick-an-element-out-of-range
-
-> On GLSL and WGSL, a run-time index out of range reaches whatever element the driver picks.
-
-Derives from: [`fact-an-index-out-of-range-is-left-to-the-gpu`](#fact-an-index-out-of-range-is-left-to-the-gpu)
-
 ### @spec a-cpu-target-samples-a-texture-as-a-gpu-sampler-does
 
 > A CPU target reads a texture by the rules a GPU sampler follows. It takes them from the texture: its filter, its wrap, its channels and its format.
@@ -766,29 +707,13 @@ This follows because a program that samples a texture on the GPU must read the s
 
 > `textureLoad` at a coordinate outside the texture, a negative one included, reads zero in every channel.
 
+Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives)
+
 ##### @exception a-gpu-target-lets-the-driver-pick-a-texel-out-of-range
 
 > On GLSL and WGSL, a texel fetched out of range reads what the driver gives.
 
 Derives from: [`fact-an-index-out-of-range-is-left-to-the-gpu`](#fact-an-index-out-of-range-is-left-to-the-gpu)
-
-### @spec normalizing-a-zero-vector-gives-it-back
-
-> `normalize` of a vector of length zero gives the zero vector.
-
-This follows because the program must give one result for it on every target. A vector with no direction has no unit vector to give.
-
-#### @exception a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver
-
-> On GLSL and WGSL, `normalize` of a vector of length zero gives what the driver gives.
-
-Derives from: [`fact-normalizing-a-zero-vector-is-undefined-on-a-gpu`](#fact-normalizing-a-zero-vector-is-undefined-on-a-gpu)
-
-### @spec a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing
-
-> A storage element read past the end of its buffer reads zero, and a write past its end changes nothing.
-
-This follows because an access out of range must do the same on every target. The JS target breaks this today: issue #49.
 
 ### @spec every-root-of-a-program-keeps-its-effects
 
@@ -807,6 +732,90 @@ This follows because a value the host left out must not make the targets disagre
 > An `int` or `uint` passes between the host and a program as the integer it is. A `uint` above the largest `int` stays unsigned, in a uniform and in a storage buffer read back.
 
 This follows because the host reads the same number from every target only if no target turns it into another.
+
+### @axiom a-cpu-target-gives-what-webgpu-gives
+
+> Where the targets could give different results, the CPU targets give the result WebGPU gives. Where WebGL and WebGPU differ, rmsl follows WebGPU, and an exception names where WebGL departs. Where WebGPU itself leaves a result open, rmsl picks one, and the GPU targets are the exception.
+
+This narrows [the first axiom](#axiom-one-program-means-the-same-on-every-target) to the result that every target gives. The CPU targets stand in for the GPU, so the GPU decides what they give. WebGPU runs compute programs and defines more of its results than WebGL does. WebGL runs in more places. The owner of the design picks WebGPU for now, and may change that choice.
+
+#### @spec integer-arithmetic-follows-wgsl
+
+> Every target gives an integer operation the result that WGSL defines for it.
+
+Derives from: [`fact-wgsl-defines-every-integer-edge-case`](#fact-wgsl-defines-every-integer-edge-case)
+
+This follows because only the specification of WGSL defines a result for every integer operation. Its results are the only ones every target can share.
+
+##### @spec js-integer-arithmetic-follows-wgsl
+
+> The JavaScript target gives an integer operation the result that WGSL defines for it.
+
+##### @spec wasm-integer-arithmetic-follows-wgsl
+
+> The WebAssembly target gives an integer operation the result that WGSL defines for it.
+
+Derives from: [`fact-wasm-traps-on-an-integer-division-by-zero`](#fact-wasm-traps-on-an-integer-division-by-zero)
+
+This follows because a trap is no result at all. Where WebAssembly would trap, the target computes the result WGSL defines instead.
+
+##### @spec wgsl-integer-arithmetic-keeps-its-defined-result
+
+> The WGSL target gives an integer operation the result that WGSL defines for it, with literal operands as well as run-time ones.
+
+Derives from: [`fact-wgsl-rejects-a-constant-expression-that-fails`](#fact-wgsl-rejects-a-constant-expression-that-fails)
+
+This follows because WGSL refuses a constant division by zero or an out-of-range constant shift, results it defines for run-time values. A program with literal operands must still compile, and give the run-time result.
+
+###### @exception dawn-on-metal-divides-some-u32-constants-wrongly
+
+> On Dawn on Metal, a constant `u32` numerator from `0xFFFFFF80` to `0xFFFFFFFE` divided by a run-time value gives the wrong quotient.
+
+Derives from: [`fact-dawn-on-metal-divides-some-u32-constants-wrongly`](#fact-dawn-on-metal-divides-some-u32-constants-wrongly)
+
+The WGSL target emits a correct division, and the driver computes it wrongly. The exception lasts as long as the defect in Dawn.
+
+##### @spec glsl-integer-arithmetic-follows-wgsl
+
+> The GLSL target gives an integer operation the result that WGSL defines for it.
+
+###### @exception glsl-integer-edge-cases-on-run-time-values-follow-the-driver
+
+> On GLSL, an integer division or remainder by a run-time zero gives whatever the driver gives. So does a shift by a run-time amount that is negative, or 32 or more.
+
+Derives from: [`fact-glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined)
+
+GLSL leaves these results undefined, and the GLSL target emits the native operator for them. A guard around each operation would give the WGSL result, at the cost of a branch on every integer division and shift.
+
+#### @spec a-run-time-index-past-the-end-reaches-the-last-element
+
+> A vector component or matrix column reached by a run-time index below zero or past its end reads and writes the last component or column.
+
+This follows because an index out of range must reach the same element on every target. Every vector and matrix has a last element.
+
+##### @exception a-gpu-target-lets-the-driver-pick-an-element-out-of-range
+
+> On GLSL and WGSL, a run-time index out of range reaches whatever element the driver picks.
+
+Derives from: [`fact-an-index-out-of-range-is-left-to-the-gpu`](#fact-an-index-out-of-range-is-left-to-the-gpu)
+
+#### @spec normalizing-a-zero-vector-gives-it-back
+
+> `normalize` of a vector of length zero gives the zero vector.
+
+This follows because the program must give one result for it on every target. A vector with no direction has no unit vector to give.
+
+##### @exception a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver
+
+> On GLSL and WGSL, `normalize` of a vector of length zero gives what the driver gives.
+
+Derives from: [`fact-normalizing-a-zero-vector-is-undefined-on-a-gpu`](#fact-normalizing-a-zero-vector-is-undefined-on-a-gpu)
+
+#### @spec a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing
+
+> A storage element read past the end of its buffer reads zero, and a write past its end changes nothing.
+
+This follows because an access out of range must do the same on every target. The JS target breaks this today: issue #49.
 
 ## @axiom a-mistake-is-refused-before-the-program-runs
 
