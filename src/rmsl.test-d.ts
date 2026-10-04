@@ -274,7 +274,7 @@ describe("compileGlsl precision options", () => {
    * "lowp"`); every compileGlsl call takes them, and a value outside the union
    * is refused at the type level.
    *
-   * @canon spec-glsl-declares-the-precision-asked-for
+   * @canon spec-every-glsl-call-shape-takes-a-precision
    */
   it("accepts a precision option on every call shape", () => {
     const root = Fn(() => vec4(1, 2, 3, 4).toVar())();
@@ -285,7 +285,7 @@ describe("compileGlsl precision options", () => {
   });
 
   /**
-   * @canon spec-glsl-declares-the-precision-asked-for
+   * @canon spec-glsl-refuses-an-unknown-precision
    */
   it("refuses an unknown precision value", () => {
     const root = Fn(() => vec4(1, 2, 3, 4).toVar())();

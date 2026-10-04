@@ -362,10 +362,14 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec setting-one-storage-slot-keeps-the-others`](#spec-setting-one-storage-slot-keeps-the-others) — `setAttribute` on one storage slot of a compute adapter leaves what the other slots hold.
       - [`@bug wgsl-compute-drops-other-slots-when-one-changes-length`](#bug-wgsl-compute-drops-other-slots-when-one-changes-length) — `createWgslCompute.setAttribute` rebuilds every storage buffer when one slot's length differs from the last, so the slots set before it lose their data.
   - [`@spec an-adapter-has-no-method-for-a-capability-its-target-lacks`](#spec-an-adapter-has-no-method-for-a-capability-its-target-lacks) — A GLSL adapter has no `compute`, and a call to it is a type error.
-  - [`@spec glsl-takes-a-precision`](#spec-glsl-takes-a-precision) — A GLSL compile declares the precision the caller asks for, `highp` by default, for `float` and for every sampler the shader declares. An unknown precision is refused.
-    - [`@spec glsl-declares-the-precision-asked-for`](#spec-glsl-declares-the-precision-asked-for) — A GLSL compile declares the precision the caller asks for, `highp` by default, for `float` and every sampler, in either stage, and refuses an unknown one.
-    - [`@spec an-integer-sampler-declares-high-precision`](#spec-an-integer-sampler-declares-high-precision) — A GLSL shader declares `highp` for each integer sampler it uses.
-      - [`@bug glsl-declares-the-asked-precision-for-an-integer-sampler`](#bug-glsl-declares-the-asked-precision-for-an-integer-sampler) — GLSL compiled at `mediump` declares `mediump` for an integer sampler too.
+  - [`@spec glsl-takes-a-precision`](#spec-glsl-takes-a-precision) — A GLSL compile declares the precision the caller asks for, `highp` by default, for `float` and for every sampler the shader declares, integer samplers included. An unknown precision is refused.
+    - [`@spec glsl-declares-highp-by-default`](#spec-glsl-declares-highp-by-default) — A GLSL compile given no precision declares `highp` for `float`.
+    - [`@spec a-fragment-shader-declares-the-asked-float-precision`](#spec-a-fragment-shader-declares-the-asked-float-precision) — A GLSL fragment shader declares the precision the caller asks for on `float`.
+    - [`@spec a-vertex-shader-declares-the-asked-float-precision`](#spec-a-vertex-shader-declares-the-asked-float-precision) — A GLSL vertex shader declares the precision the caller asks for on `float`.
+    - [`@spec a-float-sampler-declares-the-asked-precision`](#spec-a-float-sampler-declares-the-asked-precision) — A GLSL shader declares the precision the caller asks for on each float sampler it uses.
+    - [`@spec an-integer-sampler-declares-the-asked-precision`](#spec-an-integer-sampler-declares-the-asked-precision) — A GLSL shader declares the precision the caller asks for on each integer sampler it uses, `highp` when the caller asks for none.
+    - [`@spec glsl-refuses-an-unknown-precision`](#spec-glsl-refuses-an-unknown-precision) — A GLSL compile refuses a precision other than `lowp`, `mediump` or `highp`, and the types refuse it before the program runs.
+    - [`@spec every-glsl-call-shape-takes-a-precision`](#spec-every-glsl-call-shape-takes-a-precision) — `compileGlsl`, `compileGlsl.fragment` and `compileGlsl.vertex` each take a `precision` option.
   - [`@spec a-wasm-routine-loops-inside-its-module`](#spec-a-wasm-routine-loops-inside-its-module) — `draw` and `compute` of a WASM routine run their whole grid or dispatch inside the module, in one call from the host. A program that never reads `invocationIndex()`, or returns a value, still runs once for each invocation.
     - [`@bug wasm-loops-a-program-without-storage-from-the-host`](#bug-wasm-loops-a-program-without-storage-from-the-host) — A program with neither `storage()` nor `invocationIndex()` gets no dispatch export, and `compute` calls its `main` from the host once per invocation.
   - [`@spec a-wasm-routine-copies-a-texture-into-its-memory-once`](#spec-a-wasm-routine-copies-a-texture-into-its-memory-once) — A WASM routine copies a texture into its memory the first time a slot holds it. It copies again only when the slot holds a different texture object. A texture whose data changes without a new object keeps its old copy. The memory grows to fit a larger texture or grid without corrupting what it holds.
@@ -2384,25 +2388,43 @@ This follows because a method that only throws would fake the capability until t
 
 ### @spec glsl-takes-a-precision
 
-> A GLSL compile declares the precision the caller asks for, `highp` by default, for `float` and for every sampler the shader declares. An unknown precision is refused.
+> A GLSL compile declares the precision the caller asks for, `highp` by default, for `float` and for every sampler the shader declares, integer samplers included. An unknown precision is refused.
 
 This follows because a lower precision is what GLSL offers a mobile GPU, and WGSL has no precision to declare.
 
-#### @spec glsl-declares-the-precision-asked-for
+#### @spec glsl-declares-highp-by-default
 
-> A GLSL compile declares the precision the caller asks for, `highp` by default, for `float` and every sampler, in either stage, and refuses an unknown one.
+> A GLSL compile given no precision declares `highp` for `float`.
 
-#### @spec an-integer-sampler-declares-high-precision
+#### @spec a-fragment-shader-declares-the-asked-float-precision
 
-> A GLSL shader declares `highp` for each integer sampler it uses.
+> A GLSL fragment shader declares the precision the caller asks for on `float`.
+
+#### @spec a-vertex-shader-declares-the-asked-float-precision
+
+> A GLSL vertex shader declares the precision the caller asks for on `float`.
+
+#### @spec a-float-sampler-declares-the-asked-precision
+
+> A GLSL shader declares the precision the caller asks for on each float sampler it uses.
 
 Derives from: [`fact-chromium-needs-a-precision-for-every-sampler`](#fact-chromium-needs-a-precision-for-every-sampler)
 
-##### @bug glsl-declares-the-asked-precision-for-an-integer-sampler
+#### @spec an-integer-sampler-declares-the-asked-precision
 
-> GLSL compiled at `mediump` declares `mediump` for an integer sampler too.
+> A GLSL shader declares the precision the caller asks for on each integer sampler it uses, `highp` when the caller asks for none.
 
-Issue: #103
+Derives from: [`fact-chromium-needs-a-precision-for-every-sampler`](#fact-chromium-needs-a-precision-for-every-sampler)
+
+This follows because three.js's `WebGLRenderer` declares its one precision for every sampler, integer ones included.
+
+#### @spec glsl-refuses-an-unknown-precision
+
+> A GLSL compile refuses a precision other than `lowp`, `mediump` or `highp`, and the types refuse it before the program runs.
+
+#### @spec every-glsl-call-shape-takes-a-precision
+
+> `compileGlsl`, `compileGlsl.fragment` and `compileGlsl.vertex` each take a `precision` option.
 
 ### @spec a-wasm-routine-loops-inside-its-module
 

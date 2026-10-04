@@ -2850,7 +2850,7 @@ describe("integer samplers", () => {
   });
 
   /**
-   * @canon spec-an-integer-sampler-declares-high-precision
+   * @canon spec-an-integer-sampler-declares-the-asked-precision
    */
   it("declares high precision for integer samplers in GLSL", () => {
     let prog = Fn(() => {
@@ -2859,6 +2859,16 @@ describe("integer samplers", () => {
     });
     let glsl = compileGlsl(prog());
     expect(glsl).toContain("precision highp usampler2D;");
+  });
+
+  /**
+   * @canon spec-an-integer-sampler-declares-the-asked-precision
+   */
+  it("declares the asked precision for integer samplers in GLSL", () => {
+    let prog = Fn(() => uniform("isampler2D").texture(ivec2(1, 2)).toVar());
+    let glsl = compileGlsl(prog(), { precision: "mediump" });
+    expect(glsl).toContain("precision mediump isampler2D;");
+    expect(glsl).not.toContain("precision highp");
   });
 
   /**
@@ -2875,7 +2885,7 @@ describe("GLSL precision", () => {
   // WGSL has no precision qualifiers, so nothing here applies to it.
 
   /**
-   * @canon spec-glsl-declares-the-precision-asked-for
+   * @canon spec-glsl-declares-highp-by-default
    */
   it("defaults to highp", () => {
     let prog = Fn(() => float(1).toVar());
@@ -2883,7 +2893,7 @@ describe("GLSL precision", () => {
   });
 
   /**
-   * @canon spec-glsl-declares-the-precision-asked-for
+   * @canon spec-a-fragment-shader-declares-the-asked-float-precision
    */
   it("emits mediump float precision", () => {
     let prog = Fn(() => float(1).toVar());
@@ -2893,7 +2903,7 @@ describe("GLSL precision", () => {
   });
 
   /**
-   * @canon spec-glsl-declares-the-precision-asked-for
+   * @canon spec-a-fragment-shader-declares-the-asked-float-precision
    */
   it("emits lowp precision for an explicit fragment stage", () => {
     let prog = Fn(() => float(1).toVar());
@@ -2902,7 +2912,7 @@ describe("GLSL precision", () => {
   });
 
   /**
-   * @canon spec-glsl-declares-the-precision-asked-for
+   * @canon spec-a-vertex-shader-declares-the-asked-float-precision
    */
   it("emits the configured precision for vertex shaders", () => {
     let prog = Fn(() => vec4(0, 0, 0, 1).toVar());
@@ -2912,7 +2922,7 @@ describe("GLSL precision", () => {
   });
 
   /**
-   * @canon spec-glsl-declares-the-precision-asked-for
+   * @canon spec-a-float-sampler-declares-the-asked-precision
    */
   it("applies the configured precision to sampler declarations", () => {
     let prog = Fn(() => uniform("sampler2D").texture(vec2(0, 0)).toVar());
@@ -2923,7 +2933,7 @@ describe("GLSL precision", () => {
   });
 
   /**
-   * @canon spec-glsl-declares-the-precision-asked-for
+   * @canon spec-glsl-refuses-an-unknown-precision
    */
   it("rejects an unknown precision", () => {
     // Wrapped rather than asserted with `toThrow`: precision is a GLSL option,

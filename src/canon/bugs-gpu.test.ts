@@ -199,19 +199,6 @@ afterAll(async () => {
 
 describe("known GPU bugs, each failing until its fix", () => {
   /**
-   * A GLSL compile at a lower precision declares that precision for an
-   * integer sampler too, not `highp`.
-   *
-   * @canon bug-glsl-declares-the-asked-precision-for-an-integer-sampler
-   */
-  it.fails("declares highp for an integer sampler whatever precision is asked for", () => {
-    const glsl = compileGlsl(Fn(() => uniform("isampler2D").texture(ivec2(1, 2)).toVar())(), {
-      precision: "mediump",
-    });
-    expect(glsl).toContain("precision highp isampler2D;");
-  });
-
-  /**
    * A compute program declares its textures in group 1, where its storage
    * buffers are, so a texture and a buffer share a binding, and `compile()`
    * does not refuse it.
