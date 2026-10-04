@@ -36,12 +36,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@term node-material`](#term-node-material) — A material of `./scene` whose surface the user states as nodes.
 - [`@term precompile`](#term-precompile) — Running rmsl at build time, so that the application ships the compiled code instead of rmsl.
 - [`@axiom one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target) — A program computes the same result on every [target](#term-target), or every target refuses it with the same error.
-  - [`@spec float-arithmetic-gives-one-result`](#spec-float-arithmetic-gives-one-result) — Every target gives a float operation the same result.
-    - [`@exception a-cpu-target-has-no-derivatives`](#exception-a-cpu-target-has-no-derivatives) — On a CPU target, a derivative is refused, unless the compile asks for `derivatives: "zero"`, which makes every derivative zero.
-    - [`@spec wasm-float-arithmetic-matches-js-exactly`](#spec-wasm-float-arithmetic-matches-js-exactly) — The WebAssembly target gives a float operation exactly the result the JavaScript target gives.
-      - [`@exception a-wasm-uniform-in-the-gpu-layout-holds-an-f32`](#exception-a-wasm-uniform-in-the-gpu-layout-holds-an-f32) — A WASM uniform placed with `gpuUniformLayout` holds a 32-bit float, so a program that reads it differs from the JS result by that rounding.
-    - [`@spec gpu-float-arithmetic-matches-the-cpu-targets`](#spec-gpu-float-arithmetic-matches-the-cpu-targets) — The [GPU targets](#term-gpu-target) give a float operation the result the CPU targets give.
-      - [`@exception a-gpu-float-result-differs-from-the-cpu-in-its-last-bits`](#exception-a-gpu-float-result-differs-from-the-cpu-in-its-last-bits) — On GLSL and WGSL, a float result can differ from the result of the CPU targets. The difference is at most a millionth of the result's size, and at most `1e-6` near zero.
   - [`@spec folding-gives-the-run-time-result`](#spec-folding-gives-the-run-time-result) — An operation whose operands are all literal values compiles to the literal it would compute at run time, on every target. This is [folding](#term-folding).
     - [`@spec float-folding-gives-the-run-time-result`](#spec-float-folding-gives-the-run-time-result) — A float operation on literal operands folds to the value the target would compute, a floored `mod` included.
     - [`@spec integer-folding-gives-the-run-time-result`](#spec-integer-folding-gives-the-run-time-result) — An integer operation on literal operands folds to the value the target would compute, a truncating division included.
@@ -91,6 +85,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@exception dawn-on-metal-divides-some-u32-constants-wrongly`](#exception-dawn-on-metal-divides-some-u32-constants-wrongly) — On Dawn on Metal, a constant `u32` numerator from `0xFFFFFF80` to `0xFFFFFFFE` divided by a run-time value gives the wrong quotient.
       - [`@spec glsl-integer-arithmetic-follows-wgsl`](#spec-glsl-integer-arithmetic-follows-wgsl) — The GLSL target gives an integer operation the result that WGSL defines for it.
         - [`@exception glsl-integer-edge-cases-on-run-time-values-follow-the-driver`](#exception-glsl-integer-edge-cases-on-run-time-values-follow-the-driver) — On GLSL, an integer division or remainder by a run-time zero gives whatever the driver gives. So does a shift by a run-time amount that is negative, or 32 or more.
+    - [`@spec float-arithmetic-gives-one-result`](#spec-float-arithmetic-gives-one-result) — Every target gives a float operation the result WebGPU gives, computed in 32 bits.
+      - [`@exception a-cpu-target-has-no-derivatives`](#exception-a-cpu-target-has-no-derivatives) — On a CPU target, a derivative is refused, unless the compile asks for `derivatives: "zero"`, which makes every derivative zero.
+      - [`@spec wasm-float-arithmetic-matches-js-exactly`](#spec-wasm-float-arithmetic-matches-js-exactly) — The WebAssembly target gives a float operation exactly the result the JavaScript target gives.
+        - [`@exception a-wasm-uniform-in-the-gpu-layout-holds-an-f32`](#exception-a-wasm-uniform-in-the-gpu-layout-holds-an-f32) — A WASM uniform placed with `gpuUniformLayout` holds a 32-bit float, so a program that reads it differs from the JS result by that rounding.
+      - [`@spec cpu-float-arithmetic-matches-the-gpu-targets`](#spec-cpu-float-arithmetic-matches-the-gpu-targets) — The CPU targets give a float operation the result the [GPU targets](#term-gpu-target) give.
+        - [`@exception a-cpu-target-computes-floats-in-64-bits`](#exception-a-cpu-target-computes-floats-in-64-bits) — A CPU target computes a float in 64 bits, where a GPU computes it in 32 bits. Its result can differ from the GPU's by at most a millionth of the result's size, and by at most `1e-6` near zero.
     - [`@spec a-run-time-index-past-the-end-reaches-the-last-element`](#spec-a-run-time-index-past-the-end-reaches-the-last-element) — A vector component or matrix column reached by a run-time index below zero or past its end reads and writes the last component or column.
       - [`@exception a-gpu-target-lets-the-driver-pick-an-element-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range) — On GLSL and WGSL, a run-time index out of range reaches whatever element the driver picks.
     - [`@spec normalizing-a-zero-vector-gives-it-back`](#spec-normalizing-a-zero-vector-gives-it-back) — `normalize` of a vector of length zero gives the zero vector.
@@ -341,7 +341,7 @@ These units hold a claim that no test checks yet.
 
 1. [`spec-glsl-integer-arithmetic-follows-wgsl`](#spec-glsl-integer-arithmetic-follows-wgsl): no test reads an integer result back from GLSL. The integer tests hold GLSL only to compiling. Issue #54.
 2. [`exception-dawn-on-metal-divides-some-u32-constants-wrongly`](#exception-dawn-on-metal-divides-some-u32-constants-wrongly): the integer sweep sets the wrong quotients aside, but no `test.fails` pins them. Such a test runs only on Metal, and starts failing once Dawn is fixed. Issue #55.
-3. [`spec-wasm-float-arithmetic-matches-js-exactly`](#spec-wasm-float-arithmetic-matches-js-exactly), [`spec-gpu-float-arithmetic-matches-the-cpu-targets`](#spec-gpu-float-arithmetic-matches-the-cpu-targets) and [`exception-a-gpu-float-result-differs-from-the-cpu-in-its-last-bits`](#exception-a-gpu-float-result-differs-from-the-cpu-in-its-last-bits): `src/eval.test.ts` holds every program it evaluates to these claims, in an `afterAll`. The checker credits a unit only from a leaf test, so it cannot see that check. Issue #56.
+3. [`spec-wasm-float-arithmetic-matches-js-exactly`](#spec-wasm-float-arithmetic-matches-js-exactly), [`spec-cpu-float-arithmetic-matches-the-gpu-targets`](#spec-cpu-float-arithmetic-matches-the-gpu-targets) and [`exception-a-cpu-target-computes-floats-in-64-bits`](#exception-a-cpu-target-computes-floats-in-64-bits): `src/eval.test.ts` holds every program it evaluates to these claims, in an `afterAll`. The checker credits a unit only from a leaf test, so it cannot see that check. Issue #56.
 4. [`spec-an-assignment-is-refused-unless-the-program-can-write-its-target`](#spec-an-assignment-is-refused-unless-the-program-can-write-its-target): a type test makes the cases meet in one program, but no test does so through the compilers. Issue #57.
 5. [`exception-loop-takes-only-a-count`](#exception-loop-takes-only-a-count): no test gives `Loop` a `bool`, and today it miscompiles one. Issue #58.
 6. [`spec-a-wasm-module-imports-only-its-memory`](#spec-a-wasm-module-imports-only-its-memory): no test reads which imports a compiled module declares. Issue #61.
@@ -476,44 +476,6 @@ The axioms below are the values rmsl commits to, and the facts that close the do
 A user writes a program once, and picks a target by where it must run. That is a graphics device through WebGL 2 or WebGPU, or the CPU for picking and for tests. The axiom keeps that choice from changing what the program means. With a result that holds on some targets only, the targets stop being interchangeable. A test on the CPU then says nothing about the GPU.
 
 The axiom decides between defined behaviour and the native freedom of each language. Where a language leaves a result open, rmsl picks one and holds every target to it. Where a target cannot give that result, an exception names the fact that stops it.
-
-### @spec float-arithmetic-gives-one-result
-
-> Every target gives a float operation the same result.
-
-This follows because a float result is part of what a program means, as much as an integer one.
-
-#### @exception a-cpu-target-has-no-derivatives
-
-> On a CPU target, a derivative is refused, unless the compile asks for `derivatives: "zero"`, which makes every derivative zero.
-
-Derives from: [`fact-a-derivative-needs-neighbouring-fragments`](#fact-a-derivative-needs-neighbouring-fragments)
-
-#### @spec wasm-float-arithmetic-matches-js-exactly
-
-> The WebAssembly target gives a float operation exactly the result the JavaScript target gives.
-
-Derives from: [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
-
-This follows because both CPU targets compute in 64 bits, so nothing keeps them apart.
-
-##### @exception a-wasm-uniform-in-the-gpu-layout-holds-an-f32
-
-> A WASM uniform placed with `gpuUniformLayout` holds a 32-bit float, so a program that reads it differs from the JS result by that rounding.
-
-Derives from: [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
-
-#### @spec gpu-float-arithmetic-matches-the-cpu-targets
-
-> The [GPU targets](#term-gpu-target) give a float operation the result the CPU targets give.
-
-##### @exception a-gpu-float-result-differs-from-the-cpu-in-its-last-bits
-
-> On GLSL and WGSL, a float result can differ from the result of the CPU targets. The difference is at most a millionth of the result's size, and at most `1e-6` near zero.
-
-Derives from: [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
-
-A GPU rounds every float result to 32 bits, and a CPU target to 64 bits. The bound is about eight units in the last place of a 32-bit float. Computing in 32 bits on the CPU targets would close the gap. In JavaScript, it costs a rounding step after every operation.
 
 ### @spec folding-gives-the-run-time-result
 
@@ -786,6 +748,44 @@ The WGSL target emits a correct division, and the driver computes it wrongly. Th
 Derives from: [`fact-glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined)
 
 GLSL leaves these results undefined, and the GLSL target emits the native operator for them. A guard around each operation would give the WGSL result, at the cost of a branch on every integer division and shift.
+
+#### @spec float-arithmetic-gives-one-result
+
+> Every target gives a float operation the result WebGPU gives, computed in 32 bits.
+
+This follows because a float result is part of what a program means, as much as an integer one. WebGPU computes it in 32 bits.
+
+##### @exception a-cpu-target-has-no-derivatives
+
+> On a CPU target, a derivative is refused, unless the compile asks for `derivatives: "zero"`, which makes every derivative zero.
+
+Derives from: [`fact-a-derivative-needs-neighbouring-fragments`](#fact-a-derivative-needs-neighbouring-fragments)
+
+##### @spec wasm-float-arithmetic-matches-js-exactly
+
+> The WebAssembly target gives a float operation exactly the result the JavaScript target gives.
+
+Derives from: [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
+
+This follows because both CPU targets compute in 64 bits, so nothing keeps them apart.
+
+###### @exception a-wasm-uniform-in-the-gpu-layout-holds-an-f32
+
+> A WASM uniform placed with `gpuUniformLayout` holds a 32-bit float, so a program that reads it differs from the JS result by that rounding.
+
+Derives from: [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
+
+##### @spec cpu-float-arithmetic-matches-the-gpu-targets
+
+> The CPU targets give a float operation the result the [GPU targets](#term-gpu-target) give.
+
+###### @exception a-cpu-target-computes-floats-in-64-bits
+
+> A CPU target computes a float in 64 bits, where a GPU computes it in 32 bits. Its result can differ from the GPU's by at most a millionth of the result's size, and by at most `1e-6` near zero.
+
+Derives from: [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
+
+The bound is about eight units in the last place of a 32-bit float. JavaScript and WebAssembly can both round to 32 bits, so this departs from WebGPU only until they do: issue #11.
 
 #### @spec a-run-time-index-past-the-end-reaches-the-last-element
 
