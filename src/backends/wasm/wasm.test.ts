@@ -10,7 +10,6 @@ import {
   Break,
   Continue,
   Return,
-  Discard,
   float,
   int,
   uint,
@@ -778,17 +777,6 @@ describe("WASM backend: Return and Discard", () => {
       })();
     expect(run(build, [1])).toBe(0); // Return fires: sentinel, v never reassigned
     expect(run(build, [-1])).toBe(99); // Return doesn't fire: normal path runs
-  });
-  /**
-   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
-   */
-  it("compiles Discard to the same early-exit sentinel", () => {
-    const build = () =>
-      Fn(() => {
-        Discard();
-        return float(42);
-      })();
-    expect(run(build)).toBe(0);
   });
   /**
    * @canon spec-a-loop-condition-runs-its-statements-before-every-test

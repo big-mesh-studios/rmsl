@@ -111,7 +111,7 @@ describe("JS backend: compileJS (vertex+fragment rasterizer pipeline)", () => {
       );
 
     // near, red — passes the depth test against the freshly (auto-)cleared buffer
-    expect(Array.from(draw(-0.5, [1, 0, 0]).slice(0, 3))).toEqual([1, 0, 0]);
+    expect(Array.from(draw(0.25, [1, 0, 0]).slice(0, 3))).toEqual([1, 0, 0]);
 
     // far, blue, same routine, no clearDepth: occluded by the persisted near depth
     expect(Array.from(draw(0.5, [0, 0, 1]).slice(0, 3))).toEqual([1, 0, 0]);
