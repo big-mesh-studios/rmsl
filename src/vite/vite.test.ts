@@ -46,6 +46,9 @@ function bytesToBase64(bytes: Uint8Array): string {
 describe("precompileShaders", () => {
   const source = shadersSource;
 
+  /**
+   * @canon spec-a-precompiled-shader-ships-as-a-string
+   */
   it("rewrites a matching module to a JSON constant", async () => {
     const plugin = asPlugin(precompileShaders({ include: "fixtures/shaders.ts" }));
     const result = await plugin.transform(source, SHADERS_PATH);
@@ -60,6 +63,9 @@ describe("precompileShaders", () => {
     expect(result!.code).not.toContain("compileGlsl");
   });
 
+  /**
+   * @canon spec-a-precompiled-shader-ships-as-a-string
+   */
   it("evaluates the rewritten module to the compiled shaders", async () => {
     const plugin = asPlugin(precompileShaders({ include: SHADERS_PATH }));
     const result = await plugin.transform(source, SHADERS_PATH);
@@ -94,6 +100,9 @@ describe("precompileShaders", () => {
 describe("precompileJS", () => {
   const source = cpuFnsSource;
 
+  /**
+   * @canon spec-a-precompiled-js-program-ships-as-a-plain-function
+   */
   it("inlines each compileJSFn output as a plain function", async () => {
     const plugin = asPlugin(precompileJS({ include: "fixtures/cpu-fns.ts" }));
     const result = await plugin.transform(source, CPU_FNS_PATH);
@@ -107,6 +116,9 @@ describe("precompileJS", () => {
     expect(result!.code).not.toContain("compileJSFn");
   });
 
+  /**
+   * @canon spec-a-precompiled-js-program-ships-as-a-plain-function
+   */
   it("produces callables that run on the CPU", async () => {
     const plugin = asPlugin(precompileJS({ include: CPU_FNS_PATH }));
     const result = await plugin.transform(source, CPU_FNS_PATH);
@@ -154,6 +166,10 @@ describe("precompileJS", () => {
 describe("precompileWasm", () => {
   const source = wasmFnsSource;
 
+  /**
+   * @canon spec-a-precompiled-wasm-program-ships-as-an-asset
+   * @canon exception-a-precompiled-wasm-program-ships-with-its-instantiation-glue
+   */
   it("emits each compiled module as a .wasm asset and rewrites the export to fetch it", async () => {
     const plugin = asPlugin(precompileWasm({ include: "fixtures/wasm-fns.ts" }));
     const { context, emitted } = mockPluginContext();
@@ -176,6 +192,9 @@ describe("precompileWasm", () => {
     }
   });
 
+  /**
+   * @canon spec-a-precompiled-wasm-program-ships-as-an-asset
+   */
   it("produces callables that run on WASM, once the emitted-asset placeholder resolves to a real URL", async () => {
     const plugin = asPlugin(precompileWasm({ include: WASM_FNS_PATH }));
     const { context, emitted } = mockPluginContext();
