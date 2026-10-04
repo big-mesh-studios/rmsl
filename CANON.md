@@ -148,6 +148,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec the-fragment-depth-is-written-only-in-a-fragment-stage`](#spec-the-fragment-depth-is-written-only-in-a-fragment-stage) — `builtinFragDepth()` writes the depth of a fragment stage, and is refused in a vertex stage.
     - [`@spec frag-coord-is-read-only-in-a-fragment-stage`](#spec-frag-coord-is-read-only-in-a-fragment-stage) — `fragCoord()` in a vertex stage is refused.
     - [`@spec the-position-is-read-only-in-a-vertex-stage`](#spec-the-position-is-read-only-in-a-vertex-stage) — A vertex [stage](#term-stage) reads `builtinPosition()`, and a fragment stage that reads it is refused.
+    - [`@spec a-render-stage-reads-storage-read-only`](#spec-a-render-stage-reads-storage-read-only) — A vertex or fragment stage reads a storage buffer read-only, from a group of its own whose bindings count across both stages. A write to one from a render stage is refused.
+      - [`@exception glsl-has-no-storage-buffers`](#exception-glsl-has-no-storage-buffers) — A GLSL stage that reads a storage buffer is refused. Issue #48 asks to read one through a data texture instead.
   - [`@spec a-constant-index-outside-a-vector-or-matrix-is-refused`](#spec-a-constant-index-outside-a-vector-or-matrix-is-refused) — A literal index outside a vector's components or a matrix's columns is refused on every target.
   - [`@spec an-operation-a-target-cannot-run-is-refused`](#spec-an-operation-a-target-cannot-run-is-refused) — An operation that no target can run where the program puts it is refused on every target.
     - [`@spec break-or-continue-outside-a-loop-is-refused`](#spec-break-or-continue-outside-a-loop-is-refused) — `Break` or `Continue` outside a loop is refused.
@@ -178,6 +180,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-compound-assignment-writes-the-result-back`](#spec-a-compound-assignment-writes-the-result-back) — `addAssign`, `subAssign`, `mulAssign`, `divAssign` and `modAssign` write the result of their operation back to the variable.
     - [`@spec select-picks-one-of-two-values`](#spec-select-picks-one-of-two-values) — `select(condition, a, b)` gives `a` where `condition` holds and `b` where it does not, with the type of its branches. A literal condition folds to its branch.
     - [`@spec the-screen-accessors-follow-tsl`](#spec-the-screen-accessors-follow-tsl) — `fragCoord()` gives the coordinate of the fragment, and `screenUV()` and `uv()` give it divided by the size of the screen. `time()` gives a float uniform. Each does what TSL's accessor of the same name does.
+    - [`@spec the-index-accessors-follow-tsl`](#spec-the-index-accessors-follow-tsl) — `vertexIndex()` and `instanceIndex()` give the vertex and the instance that the GPU draws, as TSL's accessors of the same names do. The CPU targets do not compile them yet: issue #47.
   - [`@spec a-comparison-compares-component-wise`](#spec-a-comparison-compares-component-wise) — A comparison of scalars gives a `bool`. A comparison of vectors gives a boolean vector, one component for each pair.
     - [`@spec a-scalar-comparison-gives-a-bool`](#spec-a-scalar-comparison-gives-a-bool) — A comparison of two scalars compiles to the comparison operator of each target, and gives a `bool`.
     - [`@spec a-vector-comparison-gives-a-boolean-vector`](#spec-a-vector-comparison-gives-a-boolean-vector) — A comparison of two vectors, float or integer, gives a boolean vector of their width.
@@ -1122,6 +1125,16 @@ This follows because a shader that breaks the rules of its stage either fails in
 
 > A vertex [stage](#term-stage) reads `builtinPosition()`, and a fragment stage that reads it is refused.
 
+#### @spec a-render-stage-reads-storage-read-only
+
+> A vertex or fragment stage reads a storage buffer read-only, from a group of its own whose bindings count across both stages. A write to one from a render stage is refused.
+
+##### @exception glsl-has-no-storage-buffers
+
+> A GLSL stage that reads a storage buffer is refused. Issue #48 asks to read one through a data texture instead.
+
+Derives from: [`fact-webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage)
+
 ### @spec a-constant-index-outside-a-vector-or-matrix-is-refused
 
 > A literal index outside a vector's components or a matrix's columns is refused on every target.
@@ -1269,6 +1282,10 @@ This follows because a TSL shader ports by changing its import only if each oper
 #### @spec the-screen-accessors-follow-tsl
 
 > `fragCoord()` gives the coordinate of the fragment, and `screenUV()` and `uv()` give it divided by the size of the screen. `time()` gives a float uniform. Each does what TSL's accessor of the same name does.
+
+#### @spec the-index-accessors-follow-tsl
+
+> `vertexIndex()` and `instanceIndex()` give the vertex and the instance that the GPU draws, as TSL's accessors of the same names do. The CPU targets do not compile them yet: issue #47.
 
 ### @spec a-comparison-compares-component-wise
 

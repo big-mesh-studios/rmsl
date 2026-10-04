@@ -31,6 +31,10 @@ function program() {
 }
 
 describe("storage buffers in render stages", () => {
+  /**
+   * @canon spec-a-render-stage-reads-storage-read-only
+   * @canon spec-the-index-accessors-follow-tsl
+   */
   it("are declared read-only in their own group, numbered across both stages", () => {
     const { offsets, colors, vertex, fragment } = program();
     const storages = [offsets.name, colors.name].sort();
@@ -44,7 +48,9 @@ describe("storage buffers in render stages", () => {
     expect(vertexCode).toContain("@builtin(vertex_index) _rmsl_vertexIndex: u32");
     expect(vertexCode).toContain("@builtin(instance_index) _rmsl_instanceIndex: u32");
   });
-
+  /**
+   * @canon spec-a-render-stage-reads-storage-read-only
+   */
   it("rejects a write from a render stage", () => {
     const values = instancedArray(4, "float");
     const vertex = Fn(() => {
@@ -53,7 +59,10 @@ describe("storage buffers in render stages", () => {
     })();
     expect(() => compileWgsl.vertex(vertex)).toThrow(/read-only in a vertex shader/);
   });
-
+  /**
+   * @canon exception-glsl-has-no-storage-buffers
+   * @canon spec-the-index-accessors-follow-tsl
+   */
   it("reports that GLSL has no storage buffers, and maps the index builtins", () => {
     const { vertex } = program();
     expect(() => compileGlsl.vertex(vertex)).toThrow(/GLSL has no storage buffers/);
@@ -63,6 +72,9 @@ describe("storage buffers in render stages", () => {
     expect(glsl).toContain("uint(gl_InstanceID)");
   });
 
+  /**
+   * @canon spec-a-wgsl-buffer-feeds-a-draw-without-a-copy
+   */
   it.skipIf(!GPU_ENABLED)("build a render pipeline bound to a compute context's buffers", async () => {
     const context = await createWgslContext();
     const device = context.device;
