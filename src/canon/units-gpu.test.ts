@@ -220,25 +220,35 @@ describe("where WGSL declares a uniform or a buffer", () => {
   });
 
   /**
-   * The program reads the buffer whose slot name sorts last first, and it
-   * still takes the last binding.
-   *
-   * @canon spec-a-wgsl-compute-program-binds-its-storage-in-group-one-in-slot-name-order
+   * @canon spec-a-wgsl-compute-program-declares-its-storage-in-group-one
    */
-  it("binds compute storage in group 1 in slot-name order on WGSL", () => {
+  it("declares compute storage in group 1 on WGSL", () => {
     const first = instancedArray(2, "float");
     const second = instancedArray(2, "float");
     const program = Fn(() => {
       first.element(invocationIndex()).assign(second.element(invocationIndex()));
     })().compute(2);
     const { code, resources } = compile({ stage: "compute" }, program);
-    const names = [first.name, second.name].sort((a, b) => a.localeCompare(b));
     const storage = resources.filter((r) => r.kind === "storage");
-    expect(storage.map((r) => [r.name, r.group, r.binding])).toEqual([
-      [names[0], 1, 0],
-      [names[1], 1, 1],
-    ]);
-    expect(code.match(/@group\(1\) @binding\((\d)\) var<storage/g)).toHaveLength(2);
+    expect(storage.map((r) => r.group)).toEqual([1, 1]);
+    expect(code.match(/@group\(1\) @binding\(\d\) var<storage/g)).toHaveLength(2);
+  });
+
+  /**
+   * The list names the buffer the program made second first, so the order of
+   * the list is all that can put it at binding 0. WGSL names a buffer by the
+   * order the stage first reads it, so `second` is `_rmsl_s1`.
+   *
+   * @canon spec-a-wgsl-render-stage-binds-its-storage-in-the-listed-order
+   */
+  it("binds the storage of a render stage at its index in the storages list on WGSL", () => {
+    const first = instancedArray(2, "float");
+    const second = instancedArray(2, "float");
+    const code = compileWgslStage.fragment(vec4(first.element(int(0)), second.element(int(0)), 0, 1), {
+      storages: [second.name, first.name],
+    });
+    expect(code).toMatch(/@binding\(0\) var<storage, read> _rmsl_s1:/);
+    expect(code).toMatch(/@binding\(1\) var<storage, read> _rmsl_s0:/);
   });
 });
 

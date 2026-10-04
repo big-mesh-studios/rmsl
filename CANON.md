@@ -59,6 +59,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-adapter-sets-a-uniform-of-every-type-its-program-declares`](#spec-an-adapter-sets-a-uniform-of-every-type-its-program-declares) — An adapter's `setUniform` uploads a uniform of every value type its program can declare.
       - [`@bug the-glsl-adapter-refuses-a-uint-uniform`](#bug-the-glsl-adapter-refuses-a-uint-uniform) — `createGlsl.setUniform` uploads only float, int and bool scalars and vectors and square matrices, and throws for a `uint` uniform.
     - [`@spec a-wgsl-stage-given-the-program-uniforms-declares-every-one`](#spec-a-wgsl-stage-given-the-program-uniforms-declares-every-one) — A WGSL stage given the program's `uniforms` declares each of them in its struct, whether the stage reads it or not.
+    - [`@spec the-uniforms-list-holds-the-uniform-nodes`](#spec-the-uniforms-list-holds-the-uniform-nodes) — The `uniforms` list a WGSL stage takes holds the uniform nodes themselves, not declarations of their slots.
+      - [`@bug wgsl-takes-the-uniforms-list-as-slot-declarations`](#bug-wgsl-takes-the-uniforms-list-as-slot-declarations) — A WGSL stage takes its `uniforms` list as `{ slot, type }` declarations, and refuses a stage whose uniform the list gives as a node.
     - [`@spec a-wgsl-stage-refuses-a-uniform-the-given-uniforms-leave-out`](#spec-a-wgsl-stage-refuses-a-uniform-the-given-uniforms-leave-out) — The compiler refuses a WGSL stage that reads a uniform the given `uniforms` leave out, and names that uniform.
   - [`@spec a-uniform-array-takes-one-slot`](#spec-a-uniform-array-takes-one-slot) — `uniformArray(type, length)` declares one uniform of `length` elements, whatever the length. The program reads an element with `element(i)`.
     - [`@spec a-uniform-array-is-read-by-element`](#spec-a-uniform-array-is-read-by-element) — A uniform array is declared once, and `element(i)` reads its element at `i`, by a literal, a float or a computed index.
@@ -346,7 +348,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-context-keeps-a-uniform-until-it-is-set-again`](#spec-a-context-keeps-a-uniform-until-it-is-set-again) — A context passes a uniform to every program that reads it, laid out as each target reads it. It keeps the value until the host sets it again.
     - [`@spec a-context-writes-a-buffer-and-reads-it-back`](#spec-a-context-writes-a-buffer-and-reads-it-back) — A context writes host data into a buffer, converted to the buffer's type, and reads the buffer back in the layout of its attribute. A write past the end of the buffer is refused.
     - [`@spec a-context-runs-no-program-it-cannot-bind`](#spec-a-context-runs-no-program-it-cannot-bind) — A context refuses a program that samples a texture, and a program over a buffer laid out before a storage node named its type. It refuses a dispatch past the device's limits on workgroup size or count.
-    - [`@spec a-wgsl-compute-program-binds-its-storage-in-group-one-in-slot-name-order`](#spec-a-wgsl-compute-program-binds-its-storage-in-group-one-in-slot-name-order) — A WGSL compute program binds its storage buffers in group 1, numbered from 0 in the string order of their slot names.
+    - [`@spec a-wgsl-compute-program-declares-its-storage-in-group-one`](#spec-a-wgsl-compute-program-declares-its-storage-in-group-one) — A WGSL compute program declares its storage buffers in group 1.
   - [`@spec an-effect-is-a-port-of-a-tsl-display-effect`](#spec-an-effect-is-a-port-of-a-tsl-display-effect) — An [effect](#term-effect) of `./effects` computes what the TSL display effect of the same name computes, and compiles on GLSL and WGSL.
     - [`@spec a-single-pass-effect-gives-a-colour-node`](#spec-a-single-pass-effect-gives-a-colour-node) — A single-pass effect takes samplers and parameter nodes and gives a node: a colour, or a float mask for `circle`.
       - [`@bug transition-reads-a-null-mix-texture`](#bug-transition-reads-a-null-mix-texture) — `transition` builds the branch that samples the mix texture whatever `useTexture` is, so a `null` mix texture throws a `TypeError`.
@@ -469,6 +471,14 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec the-wgsl-adapter-applies-a-value-set-before-attach`](#spec-the-wgsl-adapter-applies-a-value-set-before-attach) — A uniform or attribute the host sets on `createWgsl` before `attach` resolves applies from the first draw after it.
   - [`@spec the-wgsl-compute-adapter-applies-a-value-set-before-attach`](#spec-the-wgsl-compute-adapter-applies-a-value-set-before-attach) — A uniform or storage slot the host sets on `createWgslCompute` before `attach` resolves applies from the first dispatch after it.
   - [`@spec an-effect-writes-its-constant-tables-into-its-code`](#spec-an-effect-writes-its-constant-tables-into-its-code) — An effect writes TSL's constant tables, such as its blur weights, into its code and declares no uniform for them.
+  - [`@spec a-wgsl-program-binds-its-storage-in-the-order-the-caller-lists`](#spec-a-wgsl-program-binds-its-storage-in-the-order-the-caller-lists) — A WGSL program binds each storage buffer at its index in the `storages` list the caller gives, in a render stage and a compute program alike.
+    - [`@spec the-storages-list-holds-the-storage-nodes`](#spec-the-storages-list-holds-the-storage-nodes) — The `storages` list holds the storage nodes themselves, not their slot names.
+      - [`@bug wgsl-takes-the-storages-list-as-slot-names`](#bug-wgsl-takes-the-storages-list-as-slot-names) — A WGSL render stage takes its `storages` list as slot names, so a storage node in the list gets `@binding(-1)`.
+    - [`@spec a-wgsl-render-stage-binds-its-storage-in-the-listed-order`](#spec-a-wgsl-render-stage-binds-its-storage-in-the-listed-order) — A WGSL vertex or fragment stage binds each storage buffer at its index in the `storages` list.
+    - [`@spec a-wgsl-compute-program-binds-its-storage-in-the-listed-order`](#spec-a-wgsl-compute-program-binds-its-storage-in-the-listed-order) — A WGSL compute program binds each storage buffer at its index in the `storages` list.
+      - [`@bug wgsl-compute-ignores-the-storages-list`](#bug-wgsl-compute-ignores-the-storages-list) — A WGSL compute program ignores the `storages` list, and binds its buffers by the string order of their slot names.
+    - [`@spec a-wgsl-program-given-no-storage-list-binds-in-creation-order`](#spec-a-wgsl-program-given-no-storage-list-binds-in-creation-order) — Given no `storages` list, a WGSL program binds its storage buffers in the order the program created them.
+      - [`@bug wgsl-binds-storage-in-the-string-order-of-slot-names`](#bug-wgsl-binds-storage-in-the-string-order-of-slot-names) — Given no list, a WGSL program binds its storage buffers by the string order of their slot names, so `_rmsl_b10` binds before `_rmsl_b9`. A graph restored from JSON gets new numbers, and its buffers can swap bindings.
 - [`@axiom rmsl-runs-everywhere`](#axiom-rmsl-runs-everywhere) — A program written in rmsl runs everywhere code runs. It runs on a GPU through a graphics API, and on the CPU, as JavaScript source or as a WebAssembly module. A WebAssembly module carries it further: a tool such as `wasm2c` turns the module into C, which builds for any environment.
   - [`@axiom a-program-runs-without-a-graphics-api`](#axiom-a-program-runs-without-a-graphics-api) — A program also runs in the host's own JavaScript, with no [graphics API](#term-graphics-api). The application gets its answer within the same call, and can run the program where no graphics API exists.
     - [`@spec a-cpu-target-draws-within-the-call`](#spec-a-cpu-target-draws-within-the-call) — A program compiled for a CPU target draws a grid of fragments and returns the pixels within the same call, with no graphics API.
@@ -924,6 +934,20 @@ Issue: #107
 Derives from: [`spec-wgsl-packs-every-value-uniform-into-one-binding`](#spec-wgsl-packs-every-value-uniform-into-one-binding)
 
 This follows because a vertex and a fragment stage share one uniform buffer, so both must declare one struct.
+
+#### @spec the-uniforms-list-holds-the-uniform-nodes
+
+> The `uniforms` list a WGSL stage takes holds the uniform nodes themselves, not declarations of their slots.
+
+Derives from: [`spec-the-storages-list-holds-the-storage-nodes`](#spec-the-storages-list-holds-the-storage-nodes)
+
+This follows because both lists name the inputs of one program, and the caller names them the same way in each.
+
+##### @bug wgsl-takes-the-uniforms-list-as-slot-declarations
+
+> A WGSL stage takes its `uniforms` list as `{ slot, type }` declarations, and refuses a stage whose uniform the list gives as a node.
+
+Issue: #118
 
 #### @spec a-wgsl-stage-refuses-a-uniform-the-given-uniforms-leave-out
 
@@ -2442,13 +2466,13 @@ This follows because a TSL compute shader ports only if its dispatch means the s
 
 > A context refuses a program that samples a texture, and a program over a buffer laid out before a storage node named its type. It refuses a dispatch past the device's limits on workgroup size or count.
 
-#### @spec a-wgsl-compute-program-binds-its-storage-in-group-one-in-slot-name-order
+#### @spec a-wgsl-compute-program-declares-its-storage-in-group-one
 
-> A WGSL compute program binds its storage buffers in group 1, numbered from 0 in the string order of their slot names.
+> A WGSL compute program declares its storage buffers in group 1.
 
 Derives from: [`spec-wgsl-compiles-a-compute-node-to-a-compute-entry-point`](#spec-wgsl-compiles-a-compute-node-to-a-compute-entry-point)
 
-This follows because `compile()` reports each binding by its slot, so the host can rebuild the order from the slots alone.
+This follows because group 0 holds the uniform struct, and storage takes the next group.
 
 ### @spec an-effect-is-a-port-of-a-tsl-display-effect
 
@@ -3111,6 +3135,52 @@ This follows because the application decides the order of its calls, and may set
 Derives from: [`spec-an-effect-is-a-port-of-a-tsl-display-effect`](#spec-an-effect-is-a-port-of-a-tsl-display-effect)
 
 This follows because the application owns the data it uploads, and a table the effect needed bound would be an upload rmsl chose for it.
+
+### @spec a-wgsl-program-binds-its-storage-in-the-order-the-caller-lists
+
+> A WGSL program binds each storage buffer at its index in the `storages` list the caller gives, in a render stage and a compute program alike.
+
+This follows because the application builds the bind groups, so it decides where each buffer goes. Two stages of one program must also bind a buffer at one place.
+
+#### @spec the-storages-list-holds-the-storage-nodes
+
+> The `storages` list holds the storage nodes themselves, not their slot names.
+
+This follows because a node cannot be misspelled, and a graph restored from JSON passes its restored nodes and binds as the original did.
+
+##### @bug wgsl-takes-the-storages-list-as-slot-names
+
+> A WGSL render stage takes its `storages` list as slot names, so a storage node in the list gets `@binding(-1)`.
+
+Issue: #118
+
+#### @spec a-wgsl-render-stage-binds-its-storage-in-the-listed-order
+
+> A WGSL vertex or fragment stage binds each storage buffer at its index in the `storages` list.
+
+#### @spec a-wgsl-compute-program-binds-its-storage-in-the-listed-order
+
+> A WGSL compute program binds each storage buffer at its index in the `storages` list.
+
+##### @bug wgsl-compute-ignores-the-storages-list
+
+> A WGSL compute program ignores the `storages` list, and binds its buffers by the string order of their slot names.
+
+Issue: #118
+
+#### @spec a-wgsl-program-given-no-storage-list-binds-in-creation-order
+
+> Given no `storages` list, a WGSL program binds its storage buffers in the order the program created them.
+
+Derives from: [`spec-a-graph-compiles-the-same-after-json`](#spec-a-graph-compiles-the-same-after-json)
+
+This follows because a graph restored from JSON keeps its buffers in creation order, so it binds them as the original did.
+
+##### @bug wgsl-binds-storage-in-the-string-order-of-slot-names
+
+> Given no list, a WGSL program binds its storage buffers by the string order of their slot names, so `_rmsl_b10` binds before `_rmsl_b9`. A graph restored from JSON gets new numbers, and its buffers can swap bindings.
+
+Issue: #118
 
 ## @axiom rmsl-runs-everywhere
 
