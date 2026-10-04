@@ -1221,7 +1221,12 @@ describe("RMSL", () => {
   // === Phase 6: Infrastructure — Comprehensive coverage ===
 
   // -- All FloatMathOps (constant-folded with literals) --
-  for (const op of [
+  /**
+   * With constant folding, the result is a literal, not a function call.
+   *
+   * @canon spec-float-folding-gives-the-run-time-result
+   */
+  it.each([
     "sin",
     "cos",
     "tan",
@@ -1239,19 +1244,12 @@ describe("RMSL", () => {
     "log",
     "exp2",
     "log2",
-  ]) {
-    /**
-     * With constant folding, the result is a literal, not a function call.
-     *
-     * @canon spec-float-folding-gives-the-run-time-result
-     */
-    it(`float.${op}() compiles to GLSL (constant-folded)`, () => {
-      let prog = Fn(() => (float(0.5) as any)[op]().toVar());
-      let glsl = compileGlsl(prog());
-      expect(glsl).not.toContain(op);
-      expect(glsl).toMatch(/_rmsl_\d+ = /);
-    });
-  }
+  ])("float.%s() compiles to GLSL (constant-folded)", (op) => {
+    let prog = Fn(() => (float(0.5) as any)[op]().toVar());
+    let glsl = compileGlsl(prog());
+    expect(glsl).not.toContain(op);
+    expect(glsl).toMatch(/_rmsl_\d+ = /);
+  });
 
   /**
    * @canon spec-float-folding-gives-the-run-time-result
@@ -1274,19 +1272,17 @@ describe("RMSL", () => {
   });
 
   // -- VecCommonOps --
-  for (const op of ["dot", "length", "normalize", "distance"]) {
-    /**
-     * @canon spec-a-geometric-function-compiles-to-the-builtin-of-the-target
-     */
-    it(`vec3.${op}() compiles to GLSL`, () => {
-      let prog = Fn(() => {
-        let a = vec3(1, 2, 3).toVar();
-        return (a as any)[op](op === "dot" || op === "distance" ? a : undefined).toVar();
-      });
-      let glsl = compileGlsl(prog());
-      expect(glsl).toContain(op);
+  /**
+   * @canon spec-a-geometric-function-compiles-to-the-builtin-of-the-target
+   */
+  it.each(["dot", "length", "normalize", "distance"])("vec3.%s() compiles to GLSL", (op) => {
+    let prog = Fn(() => {
+      let a = vec3(1, 2, 3).toVar();
+      return (a as any)[op](op === "dot" || op === "distance" ? a : undefined).toVar();
     });
-  }
+    let glsl = compileGlsl(prog());
+    expect(glsl).toContain(op);
+  });
 
   /**
    * Neither language compares a vector against a scalar, so the scalar has to
@@ -1442,41 +1438,37 @@ describe("RMSL", () => {
   });
 
   // -- IntOps --
-  for (const [op, expected] of [
+  /**
+   * @canon spec-integer-folding-gives-the-run-time-result
+   */
+  it.each([
     ["add", 8],
     ["sub", 2],
     ["mul", 15],
     ["div", 1],
     ["mod", 2],
-  ] as const) {
-    /**
-     * @canon spec-integer-folding-gives-the-run-time-result
-     */
-    it(`int.${op}() compiles to GLSL (constant-folded)`, () => {
-      let prog = Fn(() => (int(5) as any)[op](int(3)).toVar());
-      let glsl = compileGlsl(prog());
-      expect(glsl).toContain(String(expected));
-    });
-  }
+  ])("int.%s() compiles to GLSL (constant-folded)", (op, expected) => {
+    let prog = Fn(() => (int(5) as any)[op](int(3)).toVar());
+    let glsl = compileGlsl(prog());
+    expect(glsl).toContain(String(expected));
+  });
 
-  for (const [op, expected] of [
+  /**
+   * A variable operand, so the operation isn't folded to a literal.
+   *
+   * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
+   */
+  it.each([
     ["bitAnd", "&"],
     ["bitOr", "|"],
     ["bitXor", "^"],
     ["shiftLeft", "<<"],
     ["shiftRight", ">>"],
-  ] as const) {
-    /**
-     * A variable operand, so the operation isn't folded to a literal.
-     *
-     * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
-     */
-    it(`int.${op}() compiles to GLSL (bitwise)`, () => {
-      let prog = Fn(() => (int(5).toVar() as any)[op](int(3)).toVar());
-      let glsl = compileGlsl(prog());
-      expect(glsl).toContain(expected);
-    });
-  }
+  ])("int.%s() compiles to GLSL (bitwise)", (op, expected) => {
+    let prog = Fn(() => (int(5).toVar() as any)[op](int(3)).toVar());
+    let glsl = compileGlsl(prog());
+    expect(glsl).toContain(expected as string);
+  });
 
   // -- BoolOps --
   /**
