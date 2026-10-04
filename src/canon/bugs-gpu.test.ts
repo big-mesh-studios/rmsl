@@ -266,6 +266,22 @@ describe("known GPU bugs, each failing until its fix", () => {
   });
 
   /**
+   * Two uniforms of one alignment, `zeta` made first, so creation order puts
+   * it before `alpha` in the struct.
+   *
+   * @canon bug-wgsl-hands-uniforms-to-the-layout-in-the-string-order-of-slot-names
+   */
+  it.fails("declares uniforms of one alignment in the order the program made them on WGSL", () => {
+    const zeta = uniformRaw("zeta", "float");
+    const alpha = uniformRaw("alpha", "float");
+    const code = compileWgsl.fragment(vec4(zeta, alpha, 0, 1));
+    const members = [...(/struct _RmslUniforms \{([\s\S]*?)\n\};/.exec(code)?.[1] ?? "").matchAll(/^\s*(\w+):/gm)].map(
+      (m) => m[1],
+    );
+    expect(members).toEqual(["zeta", "alpha"]);
+  });
+
+  /**
    * @canon bug-wgsl-takes-the-uniforms-list-as-slot-declarations
    */
   it.fails("takes the uniform nodes themselves as the uniforms list on WGSL", () => {

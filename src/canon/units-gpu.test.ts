@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Fn, float, instancedArray, int, invocationIndex, select, uniform, uniformRaw, vec3, vec4 } from "../rmsl";
+import { Fn, float, instancedArray, int, invocationIndex, select, uniform, vec3, vec4 } from "../rmsl";
 import { compile, compileWgsl as compileWgslStage, createWgslCompute, createWgslContext } from "../wgsl";
 import {
   assertRecordedShadersValid,
@@ -171,18 +171,6 @@ describe("what WGSL writes for a variable", () => {
 });
 
 describe("where WGSL declares a uniform or a buffer", () => {
-  /**
-   * Two uniforms of one alignment, declared `zeta` first, sit in the struct
-   * in the order of their names.
-   *
-   * @canon spec-a-wgsl-stage-hands-its-uniforms-to-the-layout-in-slot-name-order
-   */
-  it("declares uniforms of one alignment in slot-name order on WGSL", () => {
-    const zeta = uniformRaw("zeta", "float");
-    const alpha = uniformRaw("alpha", "float");
-    expect(structMembers(compileWgsl(vec4(zeta, alpha, 0, 1)))).toEqual(["alpha", "zeta"]);
-  });
-
   /**
    * @canon spec-a-wgsl-stage-given-the-program-uniforms-declares-every-one
    */

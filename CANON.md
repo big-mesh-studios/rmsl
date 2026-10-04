@@ -465,7 +465,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug wasm-reads-a-gpu-placed-scalar-uniform-from-the-wrong-address`](#bug-wasm-reads-a-gpu-placed-scalar-uniform-from-the-wrong-address) — Under `scalarsInMemory`, the host writes a scalar uniform at its offset in `gpuUniformLayout`, while the program reads it from a place of its own.
       - [`@bug wasm-passes-a-gpu-placed-scalar-uniform-around-the-layout`](#bug-wasm-passes-a-gpu-placed-scalar-uniform-around-the-layout) — Without `scalarsInMemory`, a scalar uniform placed by `gpuUniformLayout` arrives as a 64-bit argument and never reads from the layout.
     - [`@spec a-type-with-no-layout-is-refused`](#spec-a-type-with-no-layout-is-refused) — A member whose type has no WGSL layout is refused, rather than placed by a guess.
-    - [`@spec a-wgsl-stage-hands-its-uniforms-to-the-layout-in-slot-name-order`](#spec-a-wgsl-stage-hands-its-uniforms-to-the-layout-in-slot-name-order) — A WGSL stage given no uniform list declares its uniforms to the layout in the string order of their slot names.
+    - [`@spec a-wgsl-stage-hands-its-uniforms-to-the-layout-in-creation-order`](#spec-a-wgsl-stage-hands-its-uniforms-to-the-layout-in-creation-order) — A WGSL stage given no uniform list declares its uniforms to the layout in the order the program created them.
+      - [`@bug wgsl-hands-uniforms-to-the-layout-in-the-string-order-of-slot-names`](#bug-wgsl-hands-uniforms-to-the-layout-in-the-string-order-of-slot-names) — A WGSL stage given no uniform list declares its uniforms to the layout in the string order of their slot names, so `_rmsl_u10` comes before `_rmsl_u2`.
   - [`@spec a-function-compiles-on-its-own`](#spec-a-function-compiles-on-its-own) — `compileGlslFn` and `compileWgslFn` compile one function, under the name and the typed parameters the caller gives. The application places it in a shader of its own. A function compiled on its own returns one value, and a function that returns several is refused.
   - [`@spec the-glsl-adapter-applies-a-value-set-before-attach`](#spec-the-glsl-adapter-applies-a-value-set-before-attach) — A uniform or attribute the host sets on `createGlsl` before `attach` applies from the first draw after it.
   - [`@spec the-wgsl-adapter-applies-a-value-set-before-attach`](#spec-the-wgsl-adapter-applies-a-value-set-before-attach) — A uniform or attribute the host sets on `createWgsl` before `attach` resolves applies from the first draw after it.
@@ -3096,13 +3097,19 @@ Issue: #111
 
 > A member whose type has no WGSL layout is refused, rather than placed by a guess.
 
-#### @spec a-wgsl-stage-hands-its-uniforms-to-the-layout-in-slot-name-order
+#### @spec a-wgsl-stage-hands-its-uniforms-to-the-layout-in-creation-order
 
-> A WGSL stage given no uniform list declares its uniforms to the layout in the string order of their slot names.
+> A WGSL stage given no uniform list declares its uniforms to the layout in the order the program created them.
 
-Derives from: [`spec-uniforms-are-ordered-by-alignment-then-by-declaration`](#spec-uniforms-are-ordered-by-alignment-then-by-declaration)
+Derives from: [`spec-uniforms-are-ordered-by-alignment-then-by-declaration`](#spec-uniforms-are-ordered-by-alignment-then-by-declaration), [`spec-a-wgsl-program-given-no-storage-list-binds-in-creation-order`](#spec-a-wgsl-program-given-no-storage-list-binds-in-creation-order)
 
-This follows because a stage and the host that packs its buffer must place each uniform alike, and the slot names are what both know.
+This follows because a graph restored from JSON keeps its uniforms in creation order, so it lays them out as the original did.
+
+##### @bug wgsl-hands-uniforms-to-the-layout-in-the-string-order-of-slot-names
+
+> A WGSL stage given no uniform list declares its uniforms to the layout in the string order of their slot names, so `_rmsl_u10` comes before `_rmsl_u2`.
+
+Issue: #118
 
 ### @spec a-function-compiles-on-its-own
 
