@@ -82,6 +82,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@exception a-gpu-target-lets-the-driver-pick-a-texel-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-a-texel-out-of-range) — On GLSL and WGSL, a texel fetched out of range reads what the driver gives.
   - [`@spec every-root-of-a-program-keeps-its-effects`](#spec-every-root-of-a-program-keeps-its-effects) — A program compiled from several roots runs the statements of every root, each once, the statements they share included.
   - [`@spec an-unset-uniform-reads-zero`](#spec-an-unset-uniform-reads-zero) — A uniform the host never set reads as zero on every target.
+    - [`@bug js-reads-an-unset-uniform-as-nan`](#bug-js-reads-an-unset-uniform-as-nan) — On JS, a uniform the host never set reads as `NaN`, and a context with no `uniforms` throws.
   - [`@spec an-integer-reaches-the-host-as-the-integer-it-is`](#spec-an-integer-reaches-the-host-as-the-integer-it-is) — An `int` or `uint` passes between the host and a program as the integer it is. A `uint` above the largest `int` stays unsigned, in a uniform and in a storage buffer read back.
   - [`@axiom a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives) — Where the targets could give different results, the CPU targets give the result WebGPU gives. Where WebGL and WebGPU differ, rmsl follows WebGPU, and an exception names where WebGL departs. Where WebGPU itself leaves a result open, rmsl picks one, and the GPU targets are the exception.
     - [`@spec a-float-converted-to-an-integer-clamps-to-its-range`](#spec-a-float-converted-to-an-integer-clamps-to-its-range) — Converting a float to `int` or `uint` truncates it toward zero and clamps the result to the range WebGPU clamps to. For `int`, that runs from -2147483648 to 2147483520, the largest `int` a 32-bit float holds exactly.
@@ -167,9 +168,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-wgsl-render-stage-reads-storage-read-only`](#spec-a-wgsl-render-stage-reads-storage-read-only) — On WGSL, a vertex or fragment stage declares a storage buffer read-only, in a group of its own numbered across both stages. It refuses a write to the buffer.
       - [`@exception glsl-has-no-storage-buffers`](#exception-glsl-has-no-storage-buffers) — A GLSL stage that reads a storage buffer is refused. Issue #48 asks to read one through a data texture instead.
   - [`@spec a-constant-index-outside-a-vector-or-matrix-is-refused`](#spec-a-constant-index-outside-a-vector-or-matrix-is-refused) — A literal index outside a vector's components or a matrix's columns is refused on every target.
+    - [`@bug only-wasm-refuses-a-literal-index-out-of-range`](#bug-only-wasm-refuses-a-literal-index-out-of-range) — Only WASM refuses a literal index outside a vector. GLSL and WGSL emit it, and JS reads `NaN`.
   - [`@spec an-operation-a-target-cannot-run-is-refused`](#spec-an-operation-a-target-cannot-run-is-refused) — An operation that no target can run where the program puts it is refused on every target.
     - [`@spec break-or-continue-outside-a-loop-is-refused`](#spec-break-or-continue-outside-a-loop-is-refused) — `Break` or `Continue` outside a loop is refused.
     - [`@spec cross-of-a-vector-that-is-not-a-vec3-is-refused`](#spec-cross-of-a-vector-that-is-not-a-vec3-is-refused) — `cross` of vectors that are not `vec3` is refused.
+    - [`@spec operands-of-different-widths-are-refused`](#spec-operands-of-different-widths-are-refused) — An operation on two vectors of different widths is refused, by the type checker and on every target. A scalar beside a vector broadcasts instead.
+      - [`@bug every-target-compiles-operands-of-different-widths`](#bug-every-target-compiles-operands-of-different-widths) — Every target compiles an operation on vectors of different widths. GLSL and WGSL emit code no driver accepts, and JS and WASM compute with a missing component. The types accept `add` and `mul` of different widths too.
     - [`@spec a-whole-storage-buffer-cannot-be-read`](#spec-a-whole-storage-buffer-cannot-be-read) — A storage node read as a whole, rather than through `element(i)`, is refused.
       - [`@bug js-and-wgsl-read-a-whole-storage-buffer`](#bug-js-and-wgsl-read-a-whole-storage-buffer) — JS and WGSL compile a storage node read as a whole. JS adds a number to an array, and WGSL emits a shader no driver accepts. Only WASM refuses it.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
@@ -823,6 +827,12 @@ This follows because a root that lost its statements would compute something els
 
 This follows because a value the host left out must not make the targets disagree.
 
+#### @bug js-reads-an-unset-uniform-as-nan
+
+> On JS, a uniform the host never set reads as `NaN`, and a context with no `uniforms` throws.
+
+Issue: #71
+
 ### @spec an-integer-reaches-the-host-as-the-integer-it-is
 
 > An `int` or `uint` passes between the host and a program as the integer it is. A `uint` above the largest `int` stays unsigned, in a uniform and in a storage buffer read back.
@@ -1251,6 +1261,12 @@ Derives from: [`fact-webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-s
 
 This follows because GLSL and WGSL both refuse such an index, so the program could not run on them.
 
+#### @bug only-wasm-refuses-a-literal-index-out-of-range
+
+> Only WASM refuses a literal index outside a vector. GLSL and WGSL emit it, and JS reads `NaN`.
+
+Issue: #70
+
 ### @spec an-operation-a-target-cannot-run-is-refused
 
 > An operation that no target can run where the program puts it is refused on every target.
@@ -1264,6 +1280,16 @@ This follows because a driver would reject the shader, and a CPU target would co
 #### @spec cross-of-a-vector-that-is-not-a-vec3-is-refused
 
 > `cross` of vectors that are not `vec3` is refused.
+
+#### @spec operands-of-different-widths-are-refused
+
+> An operation on two vectors of different widths is refused, by the type checker and on every target. A scalar beside a vector broadcasts instead.
+
+##### @bug every-target-compiles-operands-of-different-widths
+
+> Every target compiles an operation on vectors of different widths. GLSL and WGSL emit code no driver accepts, and JS and WASM compute with a missing component. The types accept `add` and `mul` of different widths too.
+
+Issue: #69
 
 #### @spec a-whole-storage-buffer-cannot-be-read
 
