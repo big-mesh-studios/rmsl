@@ -150,17 +150,4 @@ describe("a mistake is refused before the program runs", () => {
     }
     expect(() => cpuCompilers[1]!(() => Fn(() => (values as any).add(1).toVar())())).toThrow(/read as a whole/);
   });
-
-  /**
-   * Fails until JS and WGSL refuse a whole storage buffer read as a value, as
-   * WASM does (#67).
-   *
-   * @canon spec-a-whole-storage-buffer-cannot-be-read
-   */
-  it.fails("refuses a whole storage buffer read as a value on JS and WGSL", () => {
-    const values = instancedArray(4, "float");
-    const program = () => Fn(() => (values as any).add(1).toVar())();
-    expect(() => cpuCompilers[0]!(program)).toThrow(/read as a whole/);
-    expect(() => compileWgsl.fragment(Fn(() => vec4((values as any).add(1), 0, 0, 1).toVar())())).toThrow(/read as a whole/);
-  });
 });

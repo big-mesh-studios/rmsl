@@ -23,7 +23,9 @@ import {
   evaluateIntegerJS,
   evaluateIntegerWASM,
   evaluateIntegerWGSL,
+  evaluateGLSL,
   evaluateJS,
+  evaluateWGSL,
   evaluateRecording,
   evaluateWASM,
   GPU_EVALUATION_SKIPPED,
@@ -60,26 +62,29 @@ describe("one program means the same on every target", () => {
   });
 
   /**
-   * A matrix inverse, a floored vector modulus and a matrix cut down from a
-   * larger one each need a helper on WGSL. Used together, each still computes
-   * its own part.
-   *
-   * Fails until the JS target narrows a matrix by its columns (#64) and the
-   * WASM target compiles both inverse and narrowing (#65). It is evaluated
-   * here without recording, so the GPU targets, which already agree, do not
-   * fail the file meanwhile.
+   * A `mat2` cut down from a `mat3` that arrives at run time keeps the leading
+   * rows of its leading columns on GLSL and WGSL. JS and WASM depart from it,
+   * as their bugs say.
    *
    * @canon spec-a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns
    */
-  it.fails("computes an inverse, a modulus and a narrowed matrix in one program", () => {
+  it.skipIf(GPU_EVALUATION_SKIPPED)("narrows a matrix to its leading rows and columns on the GPU targets", async () => {
     const build = (a: Node<"float">) =>
-      mat2(vec2(a, 1), vec2(2, 4))
-        .inverse()
-        .element(int(0))
-        .x.add(vec2(a, 5).mod(3).y)
-        .add(mat2(mat3(1, 2, 3, 4, 5, 6, 7, 8, 9)).element(int(1)).y);
-    expect(evaluateJS(build, [3])).toBeCloseTo(7.4, 12);
-    expect(evaluateWASM(build, [3])).toBe(evaluateJS(build, [3]));
+      mat2(mat3(vec3(a, 2, 3), vec3(4, 5, 6), vec3(7, 8, 9)))
+        .element(int(1))
+        .y;
+    expect(await evaluateGLSL(build, [1])).toBe(5);
+    expect(await evaluateWGSL(build, [1])).toBe(5);
+  });
+
+  /**
+   * Converting a float past the range of an `int` clamps it on WGSL.
+   *
+   * @canon spec-a-float-converted-to-an-integer-clamps-to-its-range
+   */
+  it.skipIf(GPU_EVALUATION_SKIPPED)("clamps a float past the int range on WGSL", async () => {
+    expect(await evaluateWGSL((a) => a.toInt().toFloat(), [3e9])).toBe(2147483520);
+    expect(await evaluateWGSL((a) => a.toInt().toFloat(), [-3e9])).toBe(-2147483648);
   });
 
   /**

@@ -46,6 +46,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec wgsl-narrows-a-matrix-through-a-helper`](#spec-wgsl-narrows-a-matrix-through-a-helper) — On WGSL, a matrix built from a larger matrix calls a helper that keeps the leading rows of the leading columns. A matrix built from columns or from a scalar needs none.
   - [`@spec every-node-is-emitted-once`](#spec-every-node-is-emitted-once) — A [node](#term-node) that several roots or statements reach is emitted once, in the place it first runs. A block it holds keeps its variables in scope, and a loop it holds keeps its loop variable.
   - [`@spec an-operand-that-is-an-expression-keeps-its-grouping`](#spec-an-operand-that-is-an-expression-keeps-its-grouping) — An operand that is itself an expression computes as a whole before the operation that takes it. This holds on every target, whatever the precedence of its operators.
+    - [`@bug js-leaves-scalar-fract-and-inverse-sqrt-unbracketed`](#bug-js-leaves-scalar-fract-and-inverse-sqrt-unbracketed) — On JS, a scalar `fract` or `inverseSqrt` used as an operand loses its grouping, so `a.fract().mul(2)` computes `a - floor(a) * 2`.
   - [`@spec a-program-declares-any-number-of-uniforms-on-every-target`](#spec-a-program-declares-any-number-of-uniforms-on-every-target) — A [program](#term-program) declares every [uniform](#term-uniform) it reads, whatever their number, and compiles on every target.
     - [`@spec wgsl-packs-every-value-uniform-into-one-binding`](#spec-wgsl-packs-every-value-uniform-into-one-binding) — On WGSL, every uniform that holds a value is a member of one struct, bound once. GLSL declares each uniform on its own.
     - [`@spec a-texture-keeps-a-binding-of-its-own`](#spec-a-texture-keeps-a-binding-of-its-own) — On WGSL, a texture, and the sampler that goes with a float texture, each take a binding of their own outside the uniform struct.
@@ -83,6 +84,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec an-unset-uniform-reads-zero`](#spec-an-unset-uniform-reads-zero) — A uniform the host never set reads as zero on every target.
   - [`@spec an-integer-reaches-the-host-as-the-integer-it-is`](#spec-an-integer-reaches-the-host-as-the-integer-it-is) — An `int` or `uint` passes between the host and a program as the integer it is. A `uint` above the largest `int` stays unsigned, in a uniform and in a storage buffer read back.
   - [`@axiom a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives) — Where the targets could give different results, the CPU targets give the result WebGPU gives. Where WebGL and WebGPU differ, rmsl follows WebGPU, and an exception names where WebGL departs. Where WebGPU itself leaves a result open, rmsl picks one, and the GPU targets are the exception.
+    - [`@spec a-float-converted-to-an-integer-clamps-to-its-range`](#spec-a-float-converted-to-an-integer-clamps-to-its-range) — Converting a float to `int` or `uint` truncates it toward zero and clamps the result to the range WebGPU clamps to. For `int`, that runs from -2147483648 to 2147483520, the largest `int` a 32-bit float holds exactly.
+      - [`@bug wasm-traps-on-a-float-outside-an-integer-range`](#bug-wasm-traps-on-a-float-outside-an-integer-range) — On WASM, converting a float that is NaN or outside the integer's range traps.
+      - [`@bug js-leaves-a-float-outside-an-integer-range-unclamped`](#bug-js-leaves-a-float-outside-an-integer-range-unclamped) — On JS, converting a float outside the integer's range gives a value outside that range, and NaN stays NaN.
     - [`@spec integer-arithmetic-follows-wgsl`](#spec-integer-arithmetic-follows-wgsl) — Every target gives an integer operation the result that WGSL defines for it.
       - [`@spec js-integer-arithmetic-follows-wgsl`](#spec-js-integer-arithmetic-follows-wgsl) — The JavaScript target gives an integer operation the result that WGSL defines for it.
       - [`@spec wasm-integer-arithmetic-follows-wgsl`](#spec-wasm-integer-arithmetic-follows-wgsl) — The WebAssembly target gives an integer operation the result that WGSL defines for it.
@@ -106,6 +110,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-cpu-target-normalizes-a-zero-vector-to-zero`](#spec-a-cpu-target-normalizes-a-zero-vector-to-zero) — On a CPU target, `normalize` of a vector of length zero gives the zero vector.
       - [`@exception a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver`](#exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver) — On GLSL and WGSL, `normalize` of a vector of length zero gives what the driver gives.
     - [`@spec a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing`](#spec-a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing) — A storage element read past the end of its buffer reads zero, and a write past its end changes nothing.
+      - [`@bug js-reads-a-storage-element-out-of-range-as-nan`](#bug-js-reads-a-storage-element-out-of-range-as-nan) — On JS, a storage element read past the end of its buffer gives `NaN`.
   - [`@spec the-test-suite-holds-every-target-to-the-program`](#spec-the-test-suite-holds-every-target-to-the-program) — The test suite compiles every shader it records on a real GLSL and WGSL implementation, and evaluates every program it records on every target. A check that would prove nothing fails instead.
     - [`@spec the-float-tolerance-allows-a-few-units-in-the-last-place`](#spec-the-float-tolerance-allows-a-few-units-in-the-last-place) — The tolerance for a float result allows at least one unit in the last place at every size, and stays usable near zero. It stays tight enough to catch a wrong answer.
     - [`@spec evaluation-reads-back-every-shape`](#spec-evaluation-reads-back-every-shape) — The evaluation harness reads a scalar, vector or matrix back from every target, a genuine zero included.
@@ -166,9 +171,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec break-or-continue-outside-a-loop-is-refused`](#spec-break-or-continue-outside-a-loop-is-refused) — `Break` or `Continue` outside a loop is refused.
     - [`@spec cross-of-a-vector-that-is-not-a-vec3-is-refused`](#spec-cross-of-a-vector-that-is-not-a-vec3-is-refused) — `cross` of vectors that are not `vec3` is refused.
     - [`@spec a-whole-storage-buffer-cannot-be-read`](#spec-a-whole-storage-buffer-cannot-be-read) — A storage node read as a whole, rather than through `element(i)`, is refused.
+      - [`@bug js-and-wgsl-read-a-whole-storage-buffer`](#bug-js-and-wgsl-read-a-whole-storage-buffer) — JS and WGSL compile a storage node read as a whole. JS adds a number to an array, and WGSL emits a shader no driver accepts. Only WASM refuses it.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
   - [`@spec a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop) — A loop follows TSL's `Loop`. It tests its condition before every iteration, and runs its body while the condition holds. It builds the condition once, before the loop.
     - [`@spec loop-counts-from-zero`](#spec-loop-counts-from-zero) — `Loop(count, body)` runs `body` `count` times, with an `int` index that counts up from 0.
+      - [`@bug a-bool-count-compiles-into-a-comparison-no-driver-accepts`](#bug-a-bool-count-compiles-into-a-comparison-no-driver-accepts) — `Loop` given a `bool` as its count compiles into a comparison of an `int` with a `bool`, rather than being refused.
       - [`@spec loop-runs-its-body-count-times`](#spec-loop-runs-its-body-count-times) — `Loop(count, body)` runs its body `count` times, with the index counting 0, 1, and so on.
       - [`@exception loop-passes-its-index-directly`](#exception-loop-passes-its-index-directly) — `Loop` passes its index to its body as `i`, where TSL passes `{ i }`.
       - [`@exception loop-takes-only-a-count`](#exception-loop-takes-only-a-count) — `Loop` takes only a count. It does not take TSL's `bool` condition or TSL's object of `start`, `end`, `condition` and `update`.
@@ -187,14 +194,17 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec an-operation-means-what-it-means-in-tsl`](#spec-an-operation-means-what-it-means-in-tsl) — An operation computes what the operation of the same name computes in TSL, and takes its arguments in the same order. It compiles to the built-in of each target that computes it.
     - [`@spec arithmetic-compiles-to-the-operators-of-the-target`](#spec-arithmetic-compiles-to-the-operators-of-the-target) — `add`, `sub`, `mul` and `div`, as methods or free functions, compile to the operators of each target.
     - [`@spec a-math-function-compiles-to-the-builtin-of-the-target`](#spec-a-math-function-compiles-to-the-builtin-of-the-target) — A math function, such as `sin`, `floor`, `pow`, `inversesqrt` or `determinant`, compiles to the built-in of each target, under the name that target gives it.
+      - [`@bug wasm-compiles-no-matrix-inverse`](#bug-wasm-compiles-no-matrix-inverse) — The WASM target does not compile `inverse`.
     - [`@spec a-function-with-an-edge-takes-the-value-last`](#spec-a-function-with-an-edge-takes-the-value-last) — `step(edge, x)`, `smoothstep(low, high, x)`, `clamp(x, low, high)` and `mix(a, b, t)` take their arguments in TSL's order. A method puts its receiver where the function puts the value.
     - [`@spec a-geometric-function-compiles-to-the-builtin-of-the-target`](#spec-a-geometric-function-compiles-to-the-builtin-of-the-target) — `dot`, `length`, `distance`, `normalize`, `cross`, `reflect`, `refract` and `faceForward` compile to the built-ins of each target, `refract` with its three arguments.
     - [`@spec an-operation-no-target-has-is-composed`](#spec-an-operation-no-target-has-is-composed) — `xor`, `saturate`, `oneMinus`, `reciprocal`, the powers and `lengthSq` of a scalar compile to the operations that make them up.
     - [`@spec a-matrix-times-a-shorter-vector-promotes-it`](#spec-a-matrix-times-a-shorter-vector-promotes-it) — A `mat4` times a `vec3`, or a `mat3` times a `vec2`, gives the vector a last component of 1. It keeps the leading components of the product, like TSL.
     - [`@spec a-compound-assignment-writes-the-result-back`](#spec-a-compound-assignment-writes-the-result-back) — `addAssign`, `subAssign`, `mulAssign`, `divAssign` and `modAssign` write the result of their operation back to the variable.
     - [`@spec select-picks-one-of-two-values`](#spec-select-picks-one-of-two-values) — `select(condition, a, b)` gives `a` where `condition` holds and `b` where it does not, with the type of its branches. A literal condition folds to its branch.
-    - [`@spec the-screen-accessors-follow-tsl`](#spec-the-screen-accessors-follow-tsl) — `fragCoord()` gives the coordinate of the fragment, and `screenUV()` and `uv()` give it divided by the size of the screen. `time()` gives a float uniform. Each does what TSL's accessor of the same name does.
+    - [`@spec the-screen-accessors-follow-tsl`](#spec-the-screen-accessors-follow-tsl) — `fragCoord()` gives the coordinate of the fragment, and `screenUV()` and `uv()` give it divided by the size of the screen. `screenSize()` gives one shared uniform, and `time()` a float uniform. Each does what TSL's accessor of the same name does.
+      - [`@bug screen-size-makes-a-new-uniform-on-every-call`](#bug-screen-size-makes-a-new-uniform-on-every-call) — `screenSize()` declares a new uniform each time it is called, so a program that calls `uv()` twice reads two size uniforms.
     - [`@spec the-index-accessors-follow-tsl`](#spec-the-index-accessors-follow-tsl) — `vertexIndex()` and `instanceIndex()` give the vertex and the instance that the GPU draws, as TSL's accessors of the same names do. The CPU targets do not compile them yet: issue #47.
+      - [`@bug the-cpu-targets-compile-no-index-accessors`](#bug-the-cpu-targets-compile-no-index-accessors) — The JS and WASM targets do not compile `vertexIndex()` or `instanceIndex()`.
   - [`@spec a-comparison-compares-component-wise`](#spec-a-comparison-compares-component-wise) — A comparison of scalars gives a `bool`. A comparison of vectors gives a boolean vector, one component for each pair.
     - [`@spec a-scalar-comparison-gives-a-bool`](#spec-a-scalar-comparison-gives-a-bool) — A comparison of two scalars compiles to the comparison operator of each target, and gives a `bool`.
     - [`@spec a-vector-comparison-gives-a-boolean-vector`](#spec-a-vector-comparison-gives-a-boolean-vector) — A comparison of two vectors, float or integer, gives a boolean vector of their width.
@@ -206,7 +216,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-scalar-fills-every-component-of-a-vector`](#spec-a-scalar-fills-every-component-of-a-vector) — A vector constructor given one scalar puts it in every component.
     - [`@spec parts-fill-a-vector-in-order`](#spec-parts-fill-a-vector-in-order) — A vector constructor given vectors and scalars fills its components with theirs, in order, and keeps the leading components of a longer vector.
     - [`@spec a-scalar-matrix-is-a-diagonal`](#spec-a-scalar-matrix-is-a-diagonal) — A matrix constructor given one scalar builds the matrix with that scalar on its diagonal and zero elsewhere, written out in full on WGSL.
-    - [`@spec a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns`](#spec-a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns) — A matrix constructor given a larger matrix keeps the leading rows of its leading columns, on every target. JS takes the leading values in flat order instead (issue #64), and WASM does not compile it (issue #65).
+    - [`@spec a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns`](#spec-a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns) — A matrix constructor given a larger matrix keeps the leading rows of its leading columns, on every target.
+      - [`@bug wasm-compiles-no-matrix-narrowing`](#bug-wasm-compiles-no-matrix-narrowing) — The WASM target does not compile a matrix built from a larger matrix.
+      - [`@bug js-narrows-a-matrix-by-its-flat-values`](#bug-js-narrows-a-matrix-by-its-flat-values) — On JS, a matrix built from a larger matrix takes its leading values in flat order. It does not keep the leading rows of the leading columns.
     - [`@spec a-matrix-is-built-from-its-columns`](#spec-a-matrix-is-built-from-its-columns) — A matrix constructor of any shape, square or not, takes its values column by column, as numbers or as vector columns.
     - [`@spec a-literal-compiles-to-a-literal-of-its-type`](#spec-a-literal-compiles-to-a-literal-of-its-type) — `int`, `uint`, `bool`, boolean vector and integer vector constructors given literals compile to literals of their type on each target.
     - [`@spec a-javascript-array-is-a-vector-of-its-length`](#spec-a-javascript-array-is-a-vector-of-its-length) — A JavaScript array given where a node goes is a vector of its length.
@@ -223,6 +235,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-swizzle-write-writes-the-components-it-names`](#spec-a-swizzle-write-writes-the-components-it-names) — An assignment through a swizzle, or through a swizzle of a swizzle, writes the components it names of the variable it reaches, on every target.
     - [`@spec an-element-reads-a-component-by-index`](#spec-an-element-reads-a-component-by-index) — `element(i)` of a vector reads the component at `i`, and of a matrix the column at `i`, by a literal or a computed index.
     - [`@spec an-element-write-writes-at-its-index`](#spec-an-element-write-writes-at-its-index) — An assignment through `element(i)` of a vector or matrix variable, or through a swizzle or an element of a column, writes at that index.
+      - [`@bug a-write-by-index-through-a-swizzle-differs-by-target`](#bug-a-write-by-index-through-a-swizzle-differs-by-target) — A write by index through a swizzle, such as into a swizzle of a matrix column, differs by target. JS ignores it, WASM refuses it, and WGSL emits a shader no driver accepts.
   - [`@spec an-if-chain-runs-the-first-branch-whose-condition-holds`](#spec-an-if-chain-runs-the-first-branch-whose-condition-holds) — `If`, `ElseIf` and `Else` run the first branch whose condition holds, or the `Else` branch when none does.
     - [`@spec an-if-chain-takes-the-branch-its-conditions-select`](#spec-an-if-chain-takes-the-branch-its-conditions-select) — An `If` chain runs the branch of the first condition that holds, and the `Else` branch when none does.
     - [`@spec an-else-if-condition-is-computed-only-when-tested`](#spec-an-else-if-condition-is-computed-only-when-tested) — A variable that an `ElseIf` condition makes is computed when that condition is tested, after the conditions before it failed.
@@ -327,6 +340,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec the-js-target-computes-scalar-math-with-math`](#spec-the-js-target-computes-scalar-math-with-math) — The JS target computes a scalar math function with the function of the same name on `Math`.
     - [`@spec a-cpu-routine-reads-its-inputs-by-slot`](#spec-a-cpu-routine-reads-its-inputs-by-slot) — A CPU routine reads its parameters, uniforms, uniform arrays, attributes and varyings from the context the host passes, by slot name. It reads `fragCoord()` as `[0, 0]` when the context gives none.
     - [`@spec a-cpu-routine-returns-its-value-or-a-result`](#spec-a-cpu-routine-returns-its-value-or-a-result) — A CPU routine returns the value its program returns, the last of several, as it is. When the program writes an output, a varying, the position or the depth, it returns a result object that holds them with the value. A discarded fragment returns `null`.
+      - [`@bug wasm-wraps-a-vector-result-in-a-result-object`](#bug-wasm-wraps-a-vector-result-in-a-result-object) — A WASM routine returns a vector or matrix value inside a result object even when the program writes no output, varying, position or depth.
     - [`@spec a-cpu-routine-answers-one-fragment-per-call`](#spec-a-cpu-routine-answers-one-fragment-per-call) — `run` of a CPU routine evaluates the program once, for the context the host passes. The same routine serves any number of calls.
     - [`@spec a-cpu-routine-draws-a-grid-of-fragments`](#spec-a-cpu-routine-draws-a-grid-of-fragments) — `draw` of a CPU routine evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to draw.
     - [`@spec a-cpu-routine-runs-one-compute-invocation-per-call`](#spec-a-cpu-routine-runs-one-compute-invocation-per-call) — A CPU routine of a program that reads `storage()` and `invocationIndex()` runs one invocation for each call. It reads and writes any element of the buffers the host passes by slot.
@@ -419,16 +433,12 @@ Whether rmsl's loops converge on TSL's `Loop`, or keep `While` and `For` as loop
 
 ### Divergences found
 
-The analysis found places where the code does not hold the axioms. Each one has an issue, and is fixed through [the defect procedure](.claude/skills/canon/SKILL.md#4-fixing-a-defect).
+The analysis found these places where the code or the documents do not hold the canon, and no spec decides the fix yet. Each has an issue. A defect that breaks a spec is a bug unit inside that spec instead.
 
-1. A storage read past the end of its buffer gives `NaN` on JS and zero on WASM. On WGSL it follows the robust buffer access of the GPU. Issue #49.
-2. A conversion to an integer of a float that is NaN or out of range traps on WASM. On JS it gives a value outside the integer's range. WGSL clamps it. Issue #50.
-3. `screenSize()` makes a new uniform on every call, while `time()` returns one shared uniform. Issue #51.
-4. `toReadOnly()` changes the storage node it is called on, as it does in TSL, so a reference typed as writable becomes read-only. The type checker accepts a write that the compiler refuses. Issue #52 asks whether to depart from TSL here.
-5. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
-6. `Loop` takes only the counting shape of TSL's `Loop`. Given TSL's `bool` condition, it compiles a comparison of an `int` with a `bool`, which no driver accepts. Issue #58.
-7. The documents call `While` and `For` TSL functions, but TSL has only `Loop`. Issue #59.
-8. A WASM routine wraps a vector or matrix result in a result object, where a JS routine returns it as it is. Issue #62.
+1. `toReadOnly()` changes the storage node it is called on, as it does in TSL, so a reference typed as writable becomes read-only. The type checker accepts a write that the compiler refuses. Issue #52 asks whether to depart from TSL here.
+2. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
+3. The documents call `While` and `For` TSL functions, but TSL has only `Loop`. Issue #59.
+4. A matrix constructor given a scalar node among its numbers compiles to `[object Object]`. Issue #66 asks whether to accept such a node or refuse it.
 
 ### Coverage gaps
 
@@ -437,7 +447,7 @@ These units hold a claim that no test checks yet.
 1. [`spec-glsl-gives-the-wgsl-result-for-a-defined-integer-operation`](#spec-glsl-gives-the-wgsl-result-for-a-defined-integer-operation): no test reads an integer result back from GLSL. The integer tests hold GLSL only to compiling. Issue #54.
 2. [`exception-dawn-on-metal-divides-some-u32-constants-wrongly`](#exception-dawn-on-metal-divides-some-u32-constants-wrongly): the integer sweep sets the wrong quotients aside, but no `test.fails` pins them. Such a test runs only on Metal, and starts failing once Dawn is fixed. Issue #55.
 3. [`exception-a-cpu-target-computes-floats-in-64-bits`](#exception-a-cpu-target-computes-floats-in-64-bits): `src/eval.test.ts` holds the GPU targets to the CPU result in an `afterAll`, so a mismatch fails the file rather than the test that built the program. Issue #56.
-4. [`exception-loop-takes-only-a-count`](#exception-loop-takes-only-a-count): no test gives `Loop` a `bool`, and today it miscompiles one. Issue #58.
+4. [`exception-loop-takes-only-a-count`](#exception-loop-takes-only-a-count): no test can show `Loop` declining a `bool` while it miscompiles one.
 5. [`spec-a-wasm-module-imports-only-its-memory`](#spec-a-wasm-module-imports-only-its-memory): no test reads which imports a compiled module declares. Issue #61.
 6. [`exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range), [`exception-a-gpu-target-lets-the-driver-pick-a-texel-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-a-texel-out-of-range) and [`exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver`](#exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver): a test can only pin them as reading some value, because the driver picks which.
 
@@ -629,6 +639,12 @@ This follows because emitting a node twice runs what it does twice, which change
 
 This follows because a target whose operators bind differently would otherwise compute another expression.
 
+#### @bug js-leaves-scalar-fract-and-inverse-sqrt-unbracketed
+
+> On JS, a scalar `fract` or `inverseSqrt` used as an operand loses its grouping, so `a.fract().mul(2)` computes `a - floor(a) * 2`.
+
+Issue: #23
+
 ### @spec a-program-declares-any-number-of-uniforms-on-every-target
 
 > A [program](#term-program) declares every [uniform](#term-uniform) it reads, whatever their number, and compiles on every target.
@@ -819,6 +835,22 @@ This follows because the host reads the same number from every target only if no
 
 This narrows [the first axiom](#axiom-one-program-means-the-same-on-every-target) to the result that every target gives. The CPU targets stand in for the GPU, so the GPU decides what they give. WebGPU runs compute programs and defines more of its results than WebGL does. WebGL runs in more places. The owner of the design picks WebGPU for now, and may change that choice.
 
+#### @spec a-float-converted-to-an-integer-clamps-to-its-range
+
+> Converting a float to `int` or `uint` truncates it toward zero and clamps the result to the range WebGPU clamps to. For `int`, that runs from -2147483648 to 2147483520, the largest `int` a 32-bit float holds exactly.
+
+##### @bug wasm-traps-on-a-float-outside-an-integer-range
+
+> On WASM, converting a float that is NaN or outside the integer's range traps.
+
+Issue: #50
+
+##### @bug js-leaves-a-float-outside-an-integer-range-unclamped
+
+> On JS, converting a float outside the integer's range gives a value outside that range, and NaN stays NaN.
+
+Issue: #50
+
 #### @spec integer-arithmetic-follows-wgsl
 
 > Every target gives an integer operation the result that WGSL defines for it.
@@ -953,7 +985,13 @@ Derives from: [`fact-normalizing-a-zero-vector-is-undefined-on-a-gpu`](#fact-nor
 
 > A storage element read past the end of its buffer reads zero, and a write past its end changes nothing.
 
-This follows because an access out of range must do the same on every target. The JS target breaks this today: issue #49.
+This follows because an access out of range must do the same on every target.
+
+##### @bug js-reads-a-storage-element-out-of-range-as-nan
+
+> On JS, a storage element read past the end of its buffer gives `NaN`.
+
+Issue: #49
 
 ### @spec the-test-suite-holds-every-target-to-the-program
 
@@ -1231,6 +1269,12 @@ This follows because a driver would reject the shader, and a CPU target would co
 
 > A storage node read as a whole, rather than through `element(i)`, is refused.
 
+##### @bug js-and-wgsl-read-a-whole-storage-buffer
+
+> JS and WGSL compile a storage node read as a whole. JS adds a number to an array, and WGSL emits a shader no driver accepts. Only WASM refuses it.
+
+Issue: #67
+
 ## @axiom a-tsl-shader-ports-by-changing-its-import
 
 > rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
@@ -1251,6 +1295,12 @@ This follows because a loop ported from TSL must run the same number of times in
 
 > `Loop(count, body)` runs `body` `count` times, with an `int` index that counts up from 0.
 
+##### @bug a-bool-count-compiles-into-a-comparison-no-driver-accepts
+
+> `Loop` given a `bool` as its count compiles into a comparison of an `int` with a `bool`, rather than being refused.
+
+Issue: #58
+
 ##### @spec loop-runs-its-body-count-times
 
 > `Loop(count, body)` runs its body `count` times, with the index counting 0, 1, and so on.
@@ -1267,7 +1317,6 @@ Derives from: [`fact-tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-o
 
 Derives from: [`fact-tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-one-loop-function-in-three-shapes)
 
-A `bool` given as the count is not refused, and compiles into a comparison no driver accepts. That breaks [the refusal axiom](#axiom-a-mistake-is-refused-before-the-program-runs), and issue #58 holds it.
 
 #### @spec while-runs-while-its-condition-holds
 
@@ -1339,6 +1388,12 @@ This follows because a TSL shader ports by changing its import only if each oper
 
 > A math function, such as `sin`, `floor`, `pow`, `inversesqrt` or `determinant`, compiles to the built-in of each target, under the name that target gives it.
 
+##### @bug wasm-compiles-no-matrix-inverse
+
+> The WASM target does not compile `inverse`.
+
+Issue: #65
+
 #### @spec a-function-with-an-edge-takes-the-value-last
 
 > `step(edge, x)`, `smoothstep(low, high, x)`, `clamp(x, low, high)` and `mix(a, b, t)` take their arguments in TSL's order. A method puts its receiver where the function puts the value.
@@ -1365,11 +1420,23 @@ This follows because a TSL shader ports by changing its import only if each oper
 
 #### @spec the-screen-accessors-follow-tsl
 
-> `fragCoord()` gives the coordinate of the fragment, and `screenUV()` and `uv()` give it divided by the size of the screen. `time()` gives a float uniform. Each does what TSL's accessor of the same name does.
+> `fragCoord()` gives the coordinate of the fragment, and `screenUV()` and `uv()` give it divided by the size of the screen. `screenSize()` gives one shared uniform, and `time()` a float uniform. Each does what TSL's accessor of the same name does.
+
+##### @bug screen-size-makes-a-new-uniform-on-every-call
+
+> `screenSize()` declares a new uniform each time it is called, so a program that calls `uv()` twice reads two size uniforms.
+
+Issue: #51
 
 #### @spec the-index-accessors-follow-tsl
 
 > `vertexIndex()` and `instanceIndex()` give the vertex and the instance that the GPU draws, as TSL's accessors of the same names do. The CPU targets do not compile them yet: issue #47.
+
+##### @bug the-cpu-targets-compile-no-index-accessors
+
+> The JS and WASM targets do not compile `vertexIndex()` or `instanceIndex()`.
+
+Issue: #47
 
 ### @spec a-comparison-compares-component-wise
 
@@ -1421,7 +1488,19 @@ This follows because TSL builds values with the constructors of the shading lang
 
 #### @spec a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns
 
-> A matrix constructor given a larger matrix keeps the leading rows of its leading columns, on every target. JS takes the leading values in flat order instead (issue #64), and WASM does not compile it (issue #65).
+> A matrix constructor given a larger matrix keeps the leading rows of its leading columns, on every target.
+
+##### @bug wasm-compiles-no-matrix-narrowing
+
+> The WASM target does not compile a matrix built from a larger matrix.
+
+Issue: #65
+
+##### @bug js-narrows-a-matrix-by-its-flat-values
+
+> On JS, a matrix built from a larger matrix takes its leading values in flat order. It does not keep the leading rows of the leading columns.
+
+Issue: #64
 
 #### @spec a-matrix-is-built-from-its-columns
 
@@ -1494,6 +1573,12 @@ This follows because TSL swizzles in these spellings.
 #### @spec an-element-write-writes-at-its-index
 
 > An assignment through `element(i)` of a vector or matrix variable, or through a swizzle or an element of a column, writes at that index.
+
+##### @bug a-write-by-index-through-a-swizzle-differs-by-target
+
+> A write by index through a swizzle, such as into a swizzle of a matrix column, differs by target. JS ignores it, WASM refuses it, and WGSL emits a shader no driver accepts.
+
+Issue: #32
 
 ### @spec an-if-chain-runs-the-first-branch-whose-condition-holds
 
@@ -1993,7 +2078,12 @@ This follows because the application gets its answer within the same call.
 
 > A CPU routine returns the value its program returns, the last of several, as it is. When the program writes an output, a varying, the position or the depth, it returns a result object that holds them with the value. A discarded fragment returns `null`.
 
-The WASM target wraps a vector or matrix value in a result object even when the program writes none of these: issue #62.
+
+##### @bug wasm-wraps-a-vector-result-in-a-result-object
+
+> A WASM routine returns a vector or matrix value inside a result object even when the program writes no output, varying, position or depth.
+
+Issue: #62
 
 #### @spec a-cpu-routine-answers-one-fragment-per-call
 

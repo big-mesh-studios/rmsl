@@ -1,0 +1,146 @@
+import { describe, expect, it } from "vitest";
+import {
+  Fn,
+  float,
+  instancedArray,
+  instanceIndex,
+  int,
+  Loop,
+  mat2,
+  mat3,
+  screenSize,
+  vec2,
+  vec3,
+  vec4,
+  vertexIndex,
+  type Node,
+} from "../rmsl";
+import { compileGlsl } from "../glsl";
+import { compileWgsl } from "../wgsl";
+import { compileJSRoutine } from "../js";
+import { compileWasmRoutine } from "../wasm";
+import { evaluateJS, evaluateWASM } from "../testing/shader-eval";
+
+const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
+const none = { name: "main", params: [] };
+
+const narrow = (a: Node<"float">) =>
+  mat2(mat3(vec3(a, 2, 3), vec3(4, 5, 6), vec3(7, 8, 9)))
+    .element(int(1))
+    .y;
+
+describe("known bugs, each failing until its fix", () => {
+  /**
+   * @canon bug-js-reads-a-storage-element-out-of-range-as-nan
+   */
+  it.fails("reads a storage element past the end of its buffer as zero on JS", () => {
+    const data = Float32Array.of(1, 2, 3, 4);
+    const buf = instancedArray(data, "float");
+    const build = (i: Node<"int">) => Fn(() => buf.element(i).add(float(0)).toVar())();
+    const run = compileJSRoutine(build as any, { name: "main", params: [{ name: "i", type: "int" }] });
+    expect(run.run({ params: { i: 10 }, storages: { [buf.name]: data } })).toBe(0);
+  });
+
+  /**
+   * @canon bug-wasm-traps-on-a-float-outside-an-integer-range
+   */
+  it.fails("clamps a float outside the int range on WASM", () => {
+    const run = compileWasmRoutine((a: any) => Fn(() => a.toInt().toVar())(), param);
+    expect(run.run({ params: { a: 3e9 } })).toBe(2147483520);
+  });
+
+  /**
+   * @canon bug-js-leaves-a-float-outside-an-integer-range-unclamped
+   */
+  it.fails("clamps a float outside the int range on JS", () => {
+    const run = compileJSRoutine((a: any) => Fn(() => a.toInt().toVar())(), param);
+    expect(run.run({ params: { a: 3e9 } })).toBe(2147483520);
+  });
+
+  /**
+   * @canon bug-screen-size-makes-a-new-uniform-on-every-call
+   */
+  it.fails("gives one screen-size uniform however often it is asked for", () => {
+    expect((screenSize() as any).name).toBe((screenSize() as any).name);
+  });
+
+  /**
+   * @canon bug-js-narrows-a-matrix-by-its-flat-values
+   */
+  it.fails("keeps the leading rows of the leading columns when narrowing on JS", () => {
+    expect(evaluateJS(narrow, [1])).toBe(5);
+  });
+
+  /**
+   * @canon bug-wasm-compiles-no-matrix-narrowing
+   */
+  it.fails("narrows a matrix on WASM", () => {
+    expect(evaluateWASM(narrow, [1])).toBe(5);
+  });
+
+  /**
+   * @canon bug-wasm-compiles-no-matrix-inverse
+   */
+  it.fails("inverts a matrix on WASM", () => {
+    const build = (a: Node<"float">) =>
+      mat2(vec2(a, 1), vec2(2, 4))
+        .inverse()
+        .element(int(0)).x;
+    expect(evaluateWASM(build, [3])).toBeCloseTo(0.4, 12);
+  });
+
+  /**
+   * @canon bug-js-and-wgsl-read-a-whole-storage-buffer
+   */
+  it.fails("refuses a whole storage buffer read as a value on JS and WGSL", () => {
+    const values = instancedArray(4, "float");
+    expect(() => compileJSRoutine(() => Fn(() => (values as any).add(1).toVar())(), none)).toThrow(/read as a whole/);
+    expect(() => compileWgsl.fragment(Fn(() => vec4((values as any).add(1), 0, 0, 1).toVar())())).toThrow(
+      /read as a whole/,
+    );
+  });
+
+  /**
+   * @canon bug-the-cpu-targets-compile-no-index-accessors
+   */
+  it.fails("compiles vertexIndex and instanceIndex on the CPU targets", () => {
+    const build = () => Fn(() => vec4(vertexIndex().toFloat(), instanceIndex().toFloat(), 0, 1))();
+    expect(() => compileJSRoutine(build, { ...none, stage: "vertex" })).not.toThrow();
+    expect(() => compileWasmRoutine(build, { ...none, stage: "vertex" })).not.toThrow();
+  });
+
+  /**
+   * @canon bug-a-bool-count-compiles-into-a-comparison-no-driver-accepts
+   */
+  it.fails("refuses a bool given to Loop as its count", () => {
+    const program = Fn(() => {
+      const m = float(0).toVar();
+      Loop(m.lessThan(10) as any, () => {
+        m.assign(m.add(1));
+      });
+      return m;
+    });
+    expect(() => compileGlsl(program())).toThrow();
+  });
+
+  /**
+   * @canon bug-a-write-by-index-through-a-swizzle-differs-by-target
+   */
+  it.fails("writes by index through a swizzle of a matrix column on JS", () => {
+    const build = (a: any) =>
+      Fn(() => {
+        const m = mat3(1, 2, 3, 4, 5, 6, 7, 8, 9).toVar();
+        m.element(int(1)).yx.element(a.toInt()).assign(float(0));
+        return m.element(1);
+      })();
+    expect(compileJSRoutine(build, param).run({ params: { a: 0 } })).toEqual([4, 0, 6]);
+  });
+
+  /**
+   * @canon bug-js-leaves-scalar-fract-and-inverse-sqrt-unbracketed
+   */
+  it.fails("keeps a scalar fract used as an operand grouped on JS", () => {
+    const run = compileJSRoutine((a: any) => Fn(() => a.fract().mul(2).toVar())(), param);
+    expect(run.run({ params: { a: 2.75 } })).toBe(1.5);
+  });
+});

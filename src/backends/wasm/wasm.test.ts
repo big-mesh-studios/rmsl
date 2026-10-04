@@ -103,16 +103,15 @@ describe("WASM backend: scalar arithmetic", () => {
     expect(fn.run({})).toBe(2);
   });
   /**
-   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   * @canon bug-wasm-wraps-a-vector-result-in-a-result-object
    */
-  it("supports a plain non-scalar result, through the same memory-based path a stage program uses", () => {
+  it.fails("supports a plain non-scalar result, through the same memory-based path a stage program uses", () => {
     // A plain WASM function can only ever return one scalar, so an
     // aggregate root goes through `needsResult` mode automatically —
     // this is what lets a per-pixel `vec4` color work with `.draw()` (see
     // that describe block below) with no stage/output() involved at all.
     const fn = compileWasmRoutine(() => vec3(1, 2, 3) as any, { name: "main", params: [] });
-    const result = fn.run({}) as any;
-    expect(result.value).toEqual([1, 2, 3]);
+    expect(fn.run({})).toEqual([1, 2, 3]);
   });
   /**
    * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
@@ -2354,15 +2353,16 @@ describe("WASM backend: which storage buffers are copied back", () => {
 });
 
 describe("WASM backend: writing a vector component by index", () => {
-  it("says writing by index through a swizzle isn't supported, rather than crashing", () => {
+  /**
+   * @canon bug-a-write-by-index-through-a-swizzle-differs-by-target
+   */
+  it.fails("writes by index through a swizzle", () => {
     const root = Fn(() => {
       const v = vec4(1, 2, 3, 4).toVar();
       v.xy.element(int(0)).assign(float(1));
       return v.x;
     })();
-    expect(() => compileWasmFn(() => root, { name: "main", params: [] })).toThrow(
-      /\[RMSL\] compileWasmFn: writing a component by index through a swizzle isn't supported yet/,
-    );
+    expect(compileWasmRoutine(() => root, { name: "main", params: [] }).run({})).toBe(1);
   });
   /**
    * @canon spec-a-cpu-target-reaches-the-last-element-out-of-range
