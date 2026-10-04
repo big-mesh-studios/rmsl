@@ -411,7 +411,8 @@ These units hold a claim that no test checks yet.
 4. [`spec-an-assignment-is-refused-unless-the-program-can-write-its-target`](#spec-an-assignment-is-refused-unless-the-program-can-write-its-target): a type test makes the cases meet in one program, but no test does so through the compilers. Issue #57.
 5. [`exception-loop-takes-only-a-count`](#exception-loop-takes-only-a-count): no test gives `Loop` a `bool`, and today it miscompiles one. Issue #58.
 6. [`spec-a-wasm-module-imports-only-its-memory`](#spec-a-wasm-module-imports-only-its-memory): no test reads which imports a compiled module declares. Issue #61.
-7. [`exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range): a test can only assert that the GPU reads some element, because the driver picks which.
+7. Each parent spec whose cases have tests of their own also owes a test where its cases meet. `pnpm canon check` lists them as `untested`. Issue #63.
+8. The exceptions where a GPU leaves a result to its driver can only be pinned as reading some value, because the driver picks which.
 
 ## Terms
 
