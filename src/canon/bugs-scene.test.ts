@@ -4,6 +4,7 @@ import { compileWgsl } from "../wgsl";
 import {
   BufferAttribute,
   BufferGeometry,
+  Color,
   DataTexture,
   InstancedMesh,
   Line2NodeMaterial,
@@ -626,6 +627,106 @@ describe("known bugs of the scene library, each failing until its fix", () => {
 
     expect(textures[0].format).toMatch(/float$/);
     expect(calls.find((c) => c.name === "texImage2D")!.args[7]).toBe(context.FLOAT);
+  });
+
+  /**
+   * The WebGL renderer never sets the unit of a sampler that has no texture,
+   * so it reads unit 0, the texture of another sampler.
+   *
+   * @canon bug-webgl-leaves-a-textureless-sampler-on-unit-0
+   */
+  it.fails("gives a sampler with no texture a unit of its own on WebGL", () => {
+    const { renderer, calls } = stubWebGl();
+    const texture = new DataTexture(new Uint8Array([220, 0, 0, 255]), 1, 1);
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => {
+      const present = b.sampler("present", () => texture);
+      const missing = b.sampler("missing", () => null);
+      return present.texture(vec2(0.5, 0.5)).add(missing.texture(vec2(0.5, 0.5)));
+    };
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(), material));
+    renderer.render(scene, camera());
+
+    const unitOf = (name: string) => calls.find((c) => c.name === "uniform1i" && c.args[0].name === name)?.args[1];
+    expect(unitOf("missing")).toBeDefined();
+    expect(unitOf("missing")).not.toBe(unitOf("present"));
+  });
+
+  /**
+   * Both renderers ignore `scene.background` and clear to the renderer's clear
+   * colour.
+   *
+   * @canon bug-render-ignores-the-scene-background
+   */
+  it.fails("clears to the scene's background colour", () => {
+    const { device, canvas, passes } = stubDevice();
+    const gpu = new WebGPURenderer(canvas, device as any);
+    const { renderer: gl, calls } = stubWebGl();
+    const scene = new Scene();
+    scene.background = new Color(1, 0, 0);
+    scene.add(new Mesh(new PlaneGeometry(), new MeshBasicMaterial()));
+    gpu.render(scene, camera());
+    gl.render(scene, camera());
+
+    expect(passes[0].descriptor.colorAttachments[0].clearValue).toMatchObject({ r: 1, g: 0, b: 0 });
+    expect(calls.find((c) => c.name === "clearColor")!.args.slice(0, 3)).toEqual([1, 0, 0]);
+  });
+
+  /**
+   * Both renderers draw meshes in scene-graph order, so a transparent mesh
+   * drawn before a farther one hides it instead of blending over it.
+   *
+   * @canon bug-transparent-meshes-draw-in-scene-graph-order
+   */
+  it.fails("draws transparent meshes back to front", () => {
+    const { device, canvas, passes, bytesOf } = stubDevice();
+    const gpu = new WebGPURenderer(canvas, device as any) as any;
+    const { renderer: gl, calls } = stubWebGl();
+    const material = new MeshBasicMaterial({ transparent: true, opacity: 0.5 });
+    const geometry = new PlaneGeometry();
+    const scene = new Scene();
+    for (const z of [1, -1]) {
+      const mesh = new Mesh(geometry, material);
+      mesh.position.z = z;
+      scene.add(mesh);
+    }
+    gpu.render(scene, camera());
+    gl.render(scene, camera());
+
+    const entry = [...gpu.pipelines.get(material).values()][0];
+    const floats = new Float32Array(bytesOf(entry.ringBuffer).buffer);
+    const depth = offsetOf(entry, "modelMatrix") / 4 + 14;
+    const gpuOrder = passes.map((pass) => {
+      const [offset] = pass.calls.find((c) => c.name === "setBindGroup" && c.args[0] === 0)!.args[2];
+      return floats[offset / 4 + depth];
+    });
+    const glOrder = calls
+      .filter((c) => c.name === "uniformMatrix4fv" && /modelMatrix/.test(c.args[0].name))
+      .map((c) => c.args[2][14]);
+    expect(gpuOrder).toEqual([-1, 1]);
+    expect(glOrder).toEqual([-1, 1]);
+  });
+
+  /**
+   * The WebGPU renderer writes a changed attribute whole, from byte 0, ignoring
+   * the slice its `updateRange` selects.
+   *
+   * @canon bug-webgpu-ignores-an-attribute-update-range
+   */
+  it.fails("uploads only the updateRange of a changed attribute on WebGPU", () => {
+    const { device, canvas, bufferWrites } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const geometry = new BufferGeometry();
+    geometry.setAttribute("position", new BufferAttribute(new Float32Array(9), 3));
+    const buffers = renderer.ensureGeometryBuffers(geometry);
+    const before = bufferWrites.length;
+    geometry.attributes.position.updateRange = { offset: 3, count: 3 };
+    geometry.attributes.position.needsUpdate = true;
+    renderer.ensureGeometryBuffers(geometry);
+
+    const writes = bufferWrites.slice(before).filter((w) => w.buffer === buffers.attributes.get("position"));
+    expect(writes.map((w) => w.offset)).toEqual([12]);
   });
 });
 

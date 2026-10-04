@@ -5,12 +5,17 @@ import {
   builtinPosition,
   Discard,
   float,
+  floor,
   Fn,
+  For,
   fragCoord,
   If,
   instancedArray,
   int,
+  invocationIndex,
   ivec2,
+  pow,
+  sin,
   textureLoad,
   uniform,
   uniformArray,
@@ -19,7 +24,7 @@ import {
   vec3,
   vec4,
 } from "../rmsl";
-import { compileWasm, compileWasmFn, compileWasmRoutine, createWasmCompute } from "../wasm";
+import { compileWasm, compileWasmFn, compileWasmRoutine, createWasmCompute, createWasmRoutine } from "../wasm";
 
 const none = { name: "main", params: [] };
 const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
@@ -444,5 +449,155 @@ describe("known WASM bugs, each failing until its fix", () => {
     const v = varying("vec2");
     const routine = compileWasmRoutine(() => Fn(() => v.x.add(1).toVar())(), { ...none, stage: "fragment" });
     expect(routine.run({})).toBe(1);
+  });
+
+  /**
+   * `draw` of a WASM routine returns a view of its own memory, so the next
+   * `draw` overwrites the pixels an earlier one returned.
+   *
+   * @canon bug-wasm-routine-draws-into-a-buffer-the-next-draw-overwrites
+   */
+  it.fails("keeps the pixels a WASM routine drew when it draws again", () => {
+    const routine = compileWasmRoutine((a: any) => Fn(() => vec2(a, a.add(1)).toVar())(), param);
+    const first = routine.draw({ params: { a: 0.5 } }, 1, 1);
+    routine.draw({ params: { a: 100.5 } }, 1, 1);
+    expect(Array.from(first)).toEqual([0.5, 1.5]);
+  });
+
+  /**
+   * An element past the end of a shorter array the call passes keeps the
+   * value an earlier call wrote there.
+   *
+   * @canon bug-wasm-keeps-a-uniform-array-element-the-call-leaves-out
+   */
+  it.fails("reads a uniform array element the call leaves out as zero on WASM", () => {
+    const arr = uniformArray("float", 3);
+    const routine = compileWasmRoutine(() => Fn(() => arr.element(int(2)).add(0).toVar())(), none);
+    routine.run({ uniforms: { [arr.name]: [1, 2, 3] } });
+    expect(routine.run({ uniforms: { [arr.name]: [1, 2] } })).toBe(0);
+  });
+
+  /**
+   * The WASM rasterizer shades a pixel centre on an edge two triangles share
+   * with both, so the triangle drawn last wins it.
+   *
+   * @canon bug-wasm-rasterizer-shades-a-shared-edge-twice
+   */
+  it.fails("gives a pixel on a shared edge to one triangle whatever their order on WASM", () => {
+    const { pos, color, routine } = flat();
+    const upper = new Float64Array([-1, 1, 0, 1, -1, 0, 1, 1, 0]);
+    const lower = new Float64Array([-1, 1, 0, -1, -1, 0, 1, -1, 0]);
+    const draw = (triangle: Float64Array, rgba: number[], clear: boolean) =>
+      Array.from(
+        routine.draw(
+          { attributes: { [pos.name]: triangle }, uniforms: { [color.name]: rgba } },
+          { width: 3, height: 3, clear, clearDepth: clear },
+        ),
+      );
+    draw(upper, [1, 0, 0, 1], true);
+    const upperFirst = draw(lower, [0, 0, 1, 1], false);
+    draw(lower, [0, 0, 1, 1], true);
+    const lowerFirst = draw(upper, [1, 0, 0, 1], false);
+    expect(upperFirst).toEqual(lowerFirst);
+  });
+
+  /**
+   * `createWasmCompute` reads a vector storage buffer as one array per
+   * element, so the flat typed array `setAttribute` takes ends up as `NaN`.
+   *
+   * @canon bug-the-cpu-compute-adapters-take-a-vector-storage-element-as-an-array
+   */
+  it.fails("writes a vector storage buffer given as a flat typed array on WASM", () => {
+    const buf = instancedArray(2, "vec2");
+    const adapter = createWasmCompute(Fn(() => buf.element(invocationIndex()).assign(vec2(3, 4)))(), { name: "step" });
+    const data = new Float32Array(4);
+    adapter.setAttribute(buf.name, data);
+    adapter.compute();
+    expect(Array.from(data)).toEqual([3, 4, 3, 4]);
+  });
+
+  /**
+   * `assign` passes a bare number on as it is, and the WASM target throws on
+   * it as a node of no type.
+   *
+   * @canon bug-assign-leaves-a-bare-number-untyped
+   */
+  it.fails("assigns a bare number to a float component on WASM", () => {
+    const routine = compileWasmRoutine(
+      () =>
+        Fn(() => {
+          const v = vec2(1, 2).toVar();
+          (v.x as any).assign(7);
+          return v.x;
+        })(),
+      none,
+    );
+    expect(routine.run({})).toBe(7);
+  });
+
+  /**
+   * The WASM routine adapter shows a two-channel result as red, green and
+   * red again, where the blue channel it lacks should be 0.
+   *
+   * @canon bug-the-cpu-routine-adapters-copy-red-into-a-missing-blue-channel
+   */
+  it.fails("shows the blue channel a vec2 result lacks as zero on WASM", () => {
+    const hadImageData = "ImageData" in globalThis;
+    if (!hadImageData) {
+      (globalThis as any).ImageData = class {
+        data: Uint8ClampedArray;
+        constructor(width: number, height: number) {
+          this.data = new Uint8ClampedArray(width * height * 4);
+        }
+      };
+    }
+    try {
+      let shown!: ImageData;
+      const canvas = {
+        width: 1,
+        height: 1,
+        getContext: () => ({ putImageData: (image: ImageData) => (shown = image) }),
+      };
+      const adapter = createWasmRoutine({ draw: Fn(() => vec2(1, 0.5))(), name: "shade" });
+      adapter.attach(canvas as unknown as HTMLCanvasElement);
+      adapter.draw();
+      expect(Array.from(shown.data)).toEqual([255, 128, 0, 255]);
+    } finally {
+      if (!hadImageData) delete (globalThis as any).ImageData;
+    }
+  });
+
+  /**
+   * The WASM target compiles a `For` whose update holds a block, where JS,
+   * GLSL and WGSL refuse it.
+   *
+   * @canon bug-wasm-runs-a-for-update-that-holds-a-block
+   */
+  it.fails("refuses a For whose update holds a block on WASM", () => {
+    const build = () =>
+      Fn(() => {
+        const sum = float(0).toVar();
+        For(
+          () => int(0).toVar(),
+          (i) => i.lessThan(3),
+          (i) => If(i.greaterThan(-1), () => i.addAssign(1)),
+          () => sum.addAssign(1),
+        );
+        return sum;
+      })();
+    expect(() => compileWasmRoutine(build, none)).toThrow(/update cannot contain a block/);
+  });
+
+  /**
+   * The WASM target compiles no component-wise math function of a vector,
+   * such as `pow`, `sin` or `floor`, and throws that the node is unsupported.
+   *
+   * @canon bug-wasm-compiles-no-component-wise-math-on-a-vector
+   */
+  it.fails("computes pow, sin and floor of a vector on WASM", () => {
+    const first = (build: (a: any) => any) => compileWasmRoutine((a: any) => Fn(() => build(a).x.toVar())(), param);
+    expect(first((a) => pow(vec3(a, 2, 3), vec3(2, 2, 2))).run({ params: { a: 4 } })).toBe(16);
+    expect(first((a) => sin(vec3(a, 2, 3))).run({ params: { a: 0 } })).toBe(0);
+    expect(first((a) => floor(vec3(a, 2, 3))).run({ params: { a: 1.5 } })).toBe(1);
   });
 });

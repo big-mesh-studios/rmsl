@@ -6,6 +6,9 @@ import {
   Fn,
   float,
   If,
+  instancedArray,
+  int,
+  invocationIndex,
   ivec2,
   mat2,
   mat3,
@@ -14,11 +17,12 @@ import {
   textureLoad,
   uniform,
   uniformArray,
+  vec2,
   vec3,
   vec4,
   type Node,
 } from "../rmsl";
-import { compileJS, compileJSFn, compileJSRoutine } from "../js";
+import { compileJS, compileJSFn, compileJSRoutine, createJsCompute, createJsRoutine } from "../js";
 import { evaluateJS } from "../testing/shader-eval";
 
 const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
@@ -352,5 +356,64 @@ describe("known bugs of the JS target, each failing until its fix", () => {
   it.fails("clamps a negative float converted to uint to zero on JS", () => {
     const run = compileJSRoutine((a: any) => Fn(() => a.toUint().toVar())(), param);
     expect(run.run({ params: { a: -1.5 } })).toBe(0);
+  });
+
+  /**
+   * On JS, an element past the end of a shorter array the call passes reads
+   * as `undefined`, which makes `NaN`.
+   *
+   * @canon bug-js-reads-a-uniform-array-element-the-host-leaves-out-as-nan
+   */
+  it.fails("reads a uniform array element the call leaves out as zero on JS", () => {
+    const items = uniformArray("float", 3);
+    const run = compileJSRoutine(() => Fn(() => items.element(int(2)).add(0).toVar())(), none);
+    expect(run.run({ uniforms: { [items.name]: [1, 2] } })).toBe(0);
+  });
+
+  /**
+   * `createJsCompute` reads a vector storage buffer as one array per element,
+   * so the flat typed array `setAttribute` takes ends up as `NaN`.
+   *
+   * @canon bug-the-cpu-compute-adapters-take-a-vector-storage-element-as-an-array
+   */
+  it.fails("writes a vector storage buffer given as a flat typed array on JS", () => {
+    const buf = instancedArray(2, "vec2");
+    const adapter = createJsCompute(Fn(() => buf.element(invocationIndex()).assign(vec2(3, 4)))());
+    const data = new Float32Array(4);
+    adapter.setAttribute(buf.name, data);
+    adapter.compute();
+    expect(Array.from(data)).toEqual([3, 4, 3, 4]);
+  });
+
+  /**
+   * The JS routine adapter shows a two-channel result as red, green and red
+   * again, where the blue channel it lacks should be 0.
+   *
+   * @canon bug-the-cpu-routine-adapters-copy-red-into-a-missing-blue-channel
+   */
+  it.fails("shows the blue channel a vec2 result lacks as zero on JS", () => {
+    const hadImageData = "ImageData" in globalThis;
+    if (!hadImageData) {
+      (globalThis as any).ImageData = class {
+        data: Uint8ClampedArray;
+        constructor(width: number, height: number) {
+          this.data = new Uint8ClampedArray(width * height * 4);
+        }
+      };
+    }
+    try {
+      let shown!: ImageData;
+      const canvas = {
+        width: 1,
+        height: 1,
+        getContext: () => ({ putImageData: (image: ImageData) => (shown = image) }),
+      };
+      const adapter = createJsRoutine({ draw: Fn(() => vec2(1, 0.5))(), name: "shade" });
+      adapter.attach(canvas as unknown as HTMLCanvasElement);
+      adapter.draw();
+      expect(Array.from(shown.data)).toEqual([255, 128, 0, 255]);
+    } finally {
+      if (!hadImageData) delete (globalThis as any).ImageData;
+    }
   });
 });

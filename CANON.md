@@ -164,6 +164,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec wgsl-brackets-a-logical-operator-nested-in-another`](#spec-wgsl-brackets-a-logical-operator-nested-in-another) — On WGSL, the compiler brackets an `&&` or `||` that is the operand of another logical operator.
   - [`@spec wgsl-converts-a-shift-amount-to-unsigned`](#spec-wgsl-converts-a-shift-amount-to-unsigned) — On WGSL, the compiler converts a signed shift amount to `u32`, and a scalar amount beside a vector to a `u32` vector of its width.
   - [`@spec wgsl-splats-a-scalar-bitwise-operand-beside-a-vector`](#spec-wgsl-splats-a-scalar-bitwise-operand-beside-a-vector) — On WGSL, the compiler converts a scalar right operand of `&`, `|` or `^` to the type of the vector beside it.
+  - [`@spec a-uniform-array-element-the-host-leaves-out-reads-zero`](#spec-a-uniform-array-element-the-host-leaves-out-reads-zero) — An element past the end of a shorter array the host passes for a uniform array reads zero.
+    - [`@bug wasm-keeps-a-uniform-array-element-the-call-leaves-out`](#bug-wasm-keeps-a-uniform-array-element-the-call-leaves-out) — A WASM routine keeps an element past the end of a shorter array the call passes as an earlier call wrote it.
+    - [`@bug js-reads-a-uniform-array-element-the-host-leaves-out-as-nan`](#bug-js-reads-a-uniform-array-element-the-host-leaves-out-as-nan) — On JS, an element past the end of a shorter array the call passes reads as `undefined`, which makes `NaN`.
 - [`@axiom a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs) — A program that cannot work is refused before it runs. The type checker refuses it wherever the types can express the mistake, and the compiler refuses it on every target. The refusal names the cause, and the fix where one exists.
   - [`@spec an-assignment-is-refused-unless-the-program-can-write-its-target`](#spec-an-assignment-is-refused-unless-the-program-can-write-its-target) — An assignment whose target the program cannot write is refused. Every target refuses it with the same message, and the type checker refuses it wherever the type of the target shows it.
     - [`@spec a-var-can-be-assigned`](#spec-a-var-can-be-assigned) — A program can assign a variable, a stage output and a storage element. It can also assign a component, a column or a swizzle of one that names each component once. A var goes wherever a node goes.
@@ -206,6 +209,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-bare-number-beside-a-float-is-a-float`](#spec-a-bare-number-beside-a-float-is-a-float) — A number beside a `float` or float vector compiles as a float literal, with no conversion.
     - [`@spec a-fraction-beside-an-integer-is-refused`](#spec-a-fraction-beside-an-integer-is-refused) — A number that is not whole, beside an integer operand, is refused.
     - [`@spec a-negative-number-for-an-unsigned-type-is-refused`](#spec-a-negative-number-for-an-unsigned-type-is-refused) — A negative number beside an unsigned operand, or given to `uint` or to an unsigned vector constructor, is refused.
+    - [`@bug assign-leaves-a-bare-number-untyped`](#bug-assign-leaves-a-bare-number-untyped) — `assign` passes a bare number on as it is. WASM throws on it, GLSL and WGSL write an integer literal into a float, and only JS runs it.
   - [`@spec a-statement-outside-an-fn-is-refused`](#spec-a-statement-outside-an-fn-is-refused) — `assign`, `toVar` and control flow called outside the body of an `Fn` are refused.
   - [`@spec a-stage-reads-and-writes-only-what-it-has`](#spec-a-stage-reads-and-writes-only-what-it-has) — A vertex stage produces a position, and a built-in that one stage has is refused in the other.
     - [`@spec a-vertex-stage-without-a-position-is-refused`](#spec-a-vertex-stage-without-a-position-is-refused) — A vertex stage whose result is not a `vec4`, and which writes no position itself, is refused on every target, a literal zero included.
@@ -228,6 +232,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-whole-storage-buffer-cannot-be-read`](#spec-a-whole-storage-buffer-cannot-be-read) — A storage node read as a whole, rather than through `element(i)`, is refused.
       - [`@bug js-and-wgsl-read-a-whole-storage-buffer`](#bug-js-and-wgsl-read-a-whole-storage-buffer) — JS and WGSL compile a storage node read as a whole. JS adds a number to an array, and WGSL emits a shader no driver accepts. Only WASM refuses it.
     - [`@spec a-scalar-argument-beside-a-vector-is-widened-to-it`](#spec-a-scalar-argument-beside-a-vector-is-widened-to-it) — A scalar argument beside a vector in `step`, `smoothstep`, `clamp`, `min`, `max`, `pow` or `mod` is widened to that vector before any target compiles it.
+    - [`@spec an-integer-and-a-float-operand-are-refused`](#spec-an-integer-and-a-float-operand-are-refused) — An operation on an integer operand and a float operand is refused, by the type checker and on every target. A bare number takes the type beside it instead.
+      - [`@bug an-int-and-a-float-operand-compile-with-a-hidden-conversion`](#bug-an-int-and-a-float-operand-compile-with-a-hidden-conversion) — GLSL and WGSL compile an operation on an `int` and a `float` operand. WGSL truncates the float to `i32`, and GLSL converts the int to `float`.
+    - [`@spec a-for-update-that-holds-a-block-is-refused`](#spec-a-for-update-that-holds-a-block-is-refused) — A `For` whose update holds a block, such as an `If`, is refused on every target.
+      - [`@bug wasm-runs-a-for-update-that-holds-a-block`](#bug-wasm-runs-a-for-update-that-holds-a-block) — The WASM target compiles and runs a `For` whose update holds a block, where JS, GLSL and WGSL refuse it.
   - [`@spec a-case-with-no-values-is-refused`](#spec-a-case-with-no-values-is-refused) — A `Case` given no values is refused when the program compiles, with an error that names `Case`.
     - [`@bug a-case-with-no-values-crashes-the-compiler`](#bug-a-case-with-no-values-crashes-the-compiler) — A `Case` given an empty array of values builds an `if` with no condition, and the compiler crashes on it rather than naming the cause.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
@@ -254,6 +262,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec arithmetic-compiles-to-the-operators-of-the-target`](#spec-arithmetic-compiles-to-the-operators-of-the-target) — `add`, `sub`, `mul` and `div`, as methods or free functions, compile to the operators of each target.
     - [`@spec a-math-function-compiles-to-the-builtin-of-the-target`](#spec-a-math-function-compiles-to-the-builtin-of-the-target) — A math function, such as `sin`, `floor`, `pow`, `inversesqrt` or `determinant`, compiles to the built-in of each target, under the name that target gives it.
       - [`@bug wasm-compiles-no-matrix-inverse`](#bug-wasm-compiles-no-matrix-inverse) — The WASM target does not compile `inverse`.
+      - [`@bug radians-and-degrees-compile-to-a-multiplication`](#bug-radians-and-degrees-compile-to-a-multiplication) — GLSL and WGSL compile `radians` and `degrees` to a multiplication by a constant, though each target has a built-in of that name.
+      - [`@bug wasm-compiles-no-component-wise-math-on-a-vector`](#bug-wasm-compiles-no-component-wise-math-on-a-vector) — The WASM target compiles no component-wise math function of a vector, such as `pow`, `sin`, `floor`, `fract` or `sqrt`.
     - [`@spec a-function-with-an-edge-takes-the-value-last`](#spec-a-function-with-an-edge-takes-the-value-last) — `step(edge, x)`, `smoothstep(low, high, x)`, `clamp(x, low, high)` and `mix(a, b, t)` take their arguments in TSL's order. A method puts its receiver where the function puts the value.
     - [`@spec a-geometric-function-compiles-to-the-builtin-of-the-target`](#spec-a-geometric-function-compiles-to-the-builtin-of-the-target) — `dot`, `length`, `distance`, `normalize`, `cross`, `reflect`, `refract` and `faceForward` compile to the built-ins of each target, `refract` with its three arguments.
     - [`@spec an-operation-no-target-has-is-composed`](#spec-an-operation-no-target-has-is-composed) — `xor`, `saturate`, `oneMinus`, `reciprocal`, `difference`, the powers, `lengthSq` of a scalar, `premultiplyAlpha` and `unpremultiplyAlpha` compile to the operations that make them up.
@@ -338,6 +348,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@exception a-vec3-storage-element-is-padded-only-on-the-gpu`](#exception-a-vec3-storage-element-is-padded-only-on-the-gpu) — A `vec3` element, or a matrix with columns of three, keeps its packed layout on its attribute and in what the host reads back. Only the WGSL buffer pads each to 16 bytes, where TSL pads the attribute itself.
     - [`@bug wgsl-compute-packs-a-vec3-storage-buffer`](#bug-wgsl-compute-packs-a-vec3-storage-buffer) — `createWgslCompute` sizes and fills a storage buffer from the packed length of what `setAttribute` gives it. A `vec3` buffer, which WGSL pads to 16 bytes an element, ends up too small, with its elements misplaced.
     - [`@bug the-wgsl-adapter-packs-its-own-vec3-storage-buffer`](#bug-the-wgsl-adapter-packs-its-own-vec3-storage-buffer) — `createWgsl` without a context sizes and fills its own storage buffer packed. A `vec3` buffer, which WGSL pads to 16 bytes an element, ends up too small, with its elements misplaced.
+    - [`@spec a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array`](#spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array) — `setAttribute` on a compute adapter takes a storage buffer as one typed array, which holds the components of its elements one after another.
+      - [`@bug the-cpu-compute-adapters-take-a-vector-storage-element-as-an-array`](#bug-the-cpu-compute-adapters-take-a-vector-storage-element-as-an-array) — `createJsCompute` and `createWasmCompute` read a vector storage buffer as one array per element. A flat typed array from `setAttribute` ends up as `NaN`.
   - [`@spec compute-follows-tsl`](#spec-compute-follows-tsl) — `fn().compute(count, workgroupSize)` and `compute(node, count, workgroupSize)` make a [compute node](#term-compute-node), dispatched once for each index below `count`, as TSL's `compute` does.
     - [`@spec a-compute-program-returns-nothing`](#spec-a-compute-program-returns-nothing) — A compute program writes its results into storage and returns nothing, and every compute entry point takes it as it is.
     - [`@spec a-compute-node-carries-its-count-and-workgroup-size`](#spec-a-compute-node-carries-its-count-and-workgroup-size) — A compute node carries its count and its workgroup size, which is 64 by default.
@@ -421,6 +433,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-gpu-adapter-takes-its-count-from-the-first-attribute`](#spec-a-gpu-adapter-takes-its-count-from-the-first-attribute) — A `createGlsl` or `createWgsl` draw that names no vertex count takes it from the first attribute the host passes.
       - [`@bug the-gpu-adapters-count-from-the-widest-attribute`](#bug-the-gpu-adapters-count-from-the-widest-attribute) — `createGlsl` and `createWgsl` take the count of a draw that names none from the widest attribute. GLSL then draws vertices past the first attribute's end, and WebGPU refuses the WGSL draw.
     - [`@spec a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte`](#spec-a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte) — A JS or WASM routine adapter clamps each channel to 0 to 1 and writes it on its canvas as the nearest byte.
+    - [`@spec a-cpu-adapter-writes-a-channel-a-vector-lacks-as-zero`](#spec-a-cpu-adapter-writes-a-channel-a-vector-lacks-as-zero) — A JS or WASM routine adapter shows a two- or three-component result with 0 in each colour channel it lacks, and opaque alpha.
+      - [`@bug the-cpu-routine-adapters-copy-red-into-a-missing-blue-channel`](#bug-the-cpu-routine-adapters-copy-red-into-a-missing-blue-channel) — The JS and WASM routine adapters show a two-channel result with its red channel copied into blue.
   - [`@spec a-scene-renderer-manages-what-it-uploads`](#spec-a-scene-renderer-manages-what-it-uploads) — A renderer of `./scene` uploads each geometry, texture and uniform once, again when it changes, and frees it when it is disposed. It compiles a program once for each light set and kind of mesh.
     - [`@spec a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise`](#spec-a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise) — `new WebGLRenderer()` gives a renderer at once, and `WebGPURenderer.init()` gives one through a promise, because WebGPU requests its device asynchronously.
     - [`@spec a-renderer-supplies-the-camera-and-object-uniforms`](#spec-a-renderer-supplies-the-camera-and-object-uniforms) — A renderer gives a program the camera's projection, view and position, the object's world and normal matrices, and its own resolution. It gives nothing for a name it does not know.
@@ -448,14 +462,22 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug a-float-texture-is-uploaded-as-bytes`](#bug-a-float-texture-is-uploaded-as-bytes) — Both renderers ignore `DataTexture.type`, so a `Float32Array` image is uploaded as unsigned bytes.
     - [`@spec a-renderer-blends-and-depth-tests-as-the-material-asks`](#spec-a-renderer-blends-and-depth-tests-as-the-material-asks) — A renderer blends and depth-tests each draw as its material's `transparent`, `blending`, `depthTest` and `depthWrite` ask.
       - [`@bug webgpu-ignores-the-material-blend-and-depth-state`](#bug-webgpu-ignores-the-material-blend-and-depth-state) — The WebGPU renderer builds every pipeline with no blend state, a depth test and depth writes, whatever the material's `transparent`, `blending`, `depthTest` and `depthWrite` ask for.
+      - [`@spec a-renderer-draws-transparent-meshes-back-to-front`](#spec-a-renderer-draws-transparent-meshes-back-to-front) — A renderer draws opaque meshes first, then transparent meshes from the farthest to the nearest.
+        - [`@bug transparent-meshes-draw-in-scene-graph-order`](#bug-transparent-meshes-draw-in-scene-graph-order) — Both renderers draw meshes in scene-graph order. A transparent mesh drawn before a farther one hides it instead of blending over it.
     - [`@spec render-clears-the-canvas-on-every-call`](#spec-render-clears-the-canvas-on-every-call) — `render` clears the canvas to the clear colour on every call, whatever the scene holds.
       - [`@bug webgpu-leaves-an-empty-scene-uncleared`](#bug-webgpu-leaves-an-empty-scene-uncleared) — The WebGPU renderer clears in the first draw's render pass, so a scene with nothing to draw leaves the canvas as it was.
+      - [`@spec render-clears-to-the-scene-background`](#spec-render-clears-to-the-scene-background) — `render` clears to the scene's background colour when the scene has one, and to the clear colour otherwise.
+        - [`@bug render-ignores-the-scene-background`](#bug-render-ignores-the-scene-background) — Both renderers ignore `scene.background` and clear to the renderer's clear colour.
     - [`@bug webgpu-never-uploads-an-image-source`](#bug-webgpu-never-uploads-an-image-source) — The WebGPU renderer uploads only an `ArrayBufferView` image: a texture holding an image element or bitmap becomes a 1×1 texture with nothing written to it.
     - [`@bug webgpu-never-grows-a-geometry-buffer`](#bug-webgpu-never-grows-a-geometry-buffer) — The WebGPU renderer sizes a geometry's vertex buffer at its first upload and writes a grown attribute into it unchanged, past its end.
     - [`@bug webgpu-ignores-a-changed-index`](#bug-webgpu-ignores-a-changed-index) — The WebGPU renderer never reads `geometry.index.needsUpdate`, so changed indices are not uploaded unless a vertex attribute changed too.
     - [`@bug a-replaced-attribute-keeps-its-old-data`](#bug-a-replaced-attribute-keeps-its-old-data) — Both renderers cache a geometry's buffers by attribute name. They never upload an attribute replaced by a new object after the first render, as `LineSegmentsGeometry.setPositions` does.
     - [`@spec the-webgpu-renderer-declares-one-uniform-struct-in-both-stages`](#spec-the-webgpu-renderer-declares-one-uniform-struct-in-both-stages) — The WebGPU renderer declares every uniform of a material in both stages, so the vertex and fragment shaders read one struct at the same offsets.
     - [`@spec a-render-target-takes-its-new-size-on-the-next-render`](#spec-a-render-target-takes-its-new-size-on-the-next-render) — A renderer draws a render target at its new size on the next render after its width or height changes, and frees the old storage.
+    - [`@spec a-sampler-without-a-texture-reads-black`](#spec-a-sampler-without-a-texture-reads-black) — A sampler that its material gives no texture reads opaque black on every renderer.
+      - [`@bug webgl-leaves-a-textureless-sampler-on-unit-0`](#bug-webgl-leaves-a-textureless-sampler-on-unit-0) — The WebGL renderer never sets the unit of a sampler that has no texture. The sampler reads unit 0, the texture of another sampler.
+    - [`@spec a-changed-attribute-uploads-only-its-update-range`](#spec-a-changed-attribute-uploads-only-its-update-range) — A renderer uploads only the slice of a changed attribute that its `updateRange` selects, and the whole attribute when the range is unset.
+      - [`@bug webgpu-ignores-an-attribute-update-range`](#bug-webgpu-ignores-an-attribute-update-range) — The WebGPU renderer writes a changed attribute whole, from byte 0, ignoring the slice its `updateRange` selects.
   - [`@spec the-application-reaches-an-input-through-its-node`](#spec-the-application-reaches-an-input-through-its-node) — A uniform, attribute or varying node carries its [slot](#term-slot) name in `.name`, and `isUniformNode`, `isAttributeNode` and `isVaryingNode` tell the kinds apart.
   - [`@spec the-wgsl-uniform-layout-is-reported`](#spec-the-wgsl-uniform-layout-is-reported) — `wgslUniformLayout` reports the [layout](#term-layout) of each uniform under WGSL's rules: its offset, its size and, for an array, its stride. It also reports the size of the whole struct.
     - [`@spec uniforms-are-ordered-by-alignment-then-by-declaration`](#spec-uniforms-are-ordered-by-alignment-then-by-declaration) — Uniform members are placed in order of descending alignment, and members that align alike keep the order they were declared in.
@@ -499,6 +521,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug wasm-returns-a-value-for-a-discarded-fragment`](#bug-wasm-returns-a-value-for-a-discarded-fragment) — A WASM routine returns `0`, or a result holding a zero value, for a discarded fragment.
     - [`@spec a-cpu-routine-answers-one-fragment-per-call`](#spec-a-cpu-routine-answers-one-fragment-per-call) — `run` of a CPU routine evaluates the program once, for the context the host passes. The same routine serves any number of calls, and a value one call returned keeps what it holds through the calls after it.
       - [`@bug js-routine-overwrites-the-value-it-returned-before`](#bug-js-routine-overwrites-the-value-it-returned-before) — A JS routine returns a vector held in its scratch block, so the next call overwrites the value an earlier call returned.
+      - [`@bug wasm-routine-draws-into-a-buffer-the-next-draw-overwrites`](#bug-wasm-routine-draws-into-a-buffer-the-next-draw-overwrites) — `draw` of a WASM routine returns a view of its own memory. The next `draw` overwrites the pixels an earlier one returned.
     - [`@spec a-cpu-routine-draws-a-grid-of-fragments`](#spec-a-cpu-routine-draws-a-grid-of-fragments) — `draw` of a CPU routine evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to draw.
     - [`@spec a-cpu-routine-runs-one-compute-invocation-per-call`](#spec-a-cpu-routine-runs-one-compute-invocation-per-call) — A CPU routine of a program that reads `storage()` and `invocationIndex()` runs one invocation for each call. It reads and writes any element of the buffers the host passes by slot.
     - [`@spec a-wasm-routine-is-reentrant`](#spec-a-wasm-routine-is-reentrant) — A WASM routine keeps its variables in its own module, so it computes the same with or without `reentrant`.
@@ -514,10 +537,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@bug the-cpu-rasterizers-keep-the-colour-of-an-earlier-draw`](#bug-the-cpu-rasterizers-keep-the-colour-of-an-earlier-draw) — The JS and WASM rasterizers clear their colour buffer only when a draw passes `clear`. A pixel the next draw leaves uncovered keeps the earlier colour.
       - [`@spec a-rasterizer-takes-its-count-from-the-first-attribute`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute) — A draw that names no vertex count takes it from the first attribute the host passes.
       - [`@spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws) — The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
-        - [`@bug js-rasterizer-draws-a-vec3-colour-with-alpha-zero`](#bug-js-rasterizer-draws-a-vec3-colour-with-alpha-zero) — The JS rasterizer accepts a fragment that returns a `vec3` and draws its alpha as 0, where the WASM rasterizer refuses it.
+        - [`@bug js-rasterizer-draws-a-vec3-colour-with-alpha-zero`](#bug-js-rasterizer-draws-a-vec3-colour-with-alpha-zero) — The JS rasterizer accepts a fragment that returns a `float` or a `vec3`, and draws the channels it lacks as 0, where the WASM rasterizer refuses it.
         - [`@bug wasm-rasterizer-gives-every-fragment-coordinate-zero`](#bug-wasm-rasterizer-gives-every-fragment-coordinate-zero) — The WASM rasterizer never writes `fragCoord()`, so every fragment reads it as `[0, 0]`, where the JS rasterizer passes the pixel's centre.
       - [`@spec a-pixel-on-a-shared-edge-is-shaded-once`](#spec-a-pixel-on-a-shared-edge-is-shaded-once) — A pixel centre on an edge two triangles share takes the colour of one of them. WebGPU's rasterization rules pick which one, whatever the order of the triangles.
         - [`@bug js-rasterizer-shades-a-shared-edge-twice`](#bug-js-rasterizer-shades-a-shared-edge-twice) — The JS rasterizer shades a pixel centre on an edge two triangles share with both, so the triangle drawn last wins it.
+        - [`@bug wasm-rasterizer-shades-a-shared-edge-twice`](#bug-wasm-rasterizer-shades-a-shared-edge-twice) — The WASM rasterizer shades a pixel centre on an edge two triangles share with both, so the triangle drawn last wins it.
       - [`@spec a-rasterizer-clips-outside-the-depth-range`](#spec-a-rasterizer-clips-outside-the-depth-range) — The rasterizer clips a triangle at depth 0 and depth 1, so it draws nothing whose depth lies outside that range.
         - [`@bug js-rasterizer-draws-a-triangle-below-zero-depth`](#bug-js-rasterizer-draws-a-triangle-below-zero-depth) — The JS rasterizer draws a triangle whose depth lies below zero, which WebGPU clips away.
       - [`@spec a-triangle-off-screen-draws-nothing`](#spec-a-triangle-off-screen-draws-nothing) — A triangle wholly outside the viewport draws nothing, at any distance from it.
@@ -545,6 +569,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-program-under-test-sees-a-resolution-of-one-pixel`](#spec-a-program-under-test-sees-a-resolution-of-one-pixel) — `fromProgram` binds `resolution` to one pixel by one, unless its `resolution` option gives a size.
       - [`@spec a-program-under-test-falls-back-when-a-value-function-throws`](#spec-a-program-under-test-falls-back-when-a-value-function-throws) — `fromProgram` binds a uniform whose value function throws as if the program gave it no value.
       - [`@spec a-slot-two-names-share-reads-back-under-the-first`](#spec-a-slot-two-names-share-reads-back-under-the-first) — When two of a program's names point at one slot, `fromProgram` hands the slot's value back under the first name.
+      - [`@spec render-draws-the-only-output-of-a-program-that-returns-nothing`](#spec-render-draws-the-only-output-of-a-program-that-returns-nothing) — `render` draws the output a fragment writes when the program returns no value and writes exactly one output.
+        - [`@bug render-draws-zero-for-a-program-that-writes-one-output`](#bug-render-draws-zero-for-a-program-that-writes-one-output) — The JS routine gives a program that returns nothing the value `0`, so `render` draws `0` and never falls back to the output.
     - [`@spec draw-writes-a-discarded-pixel-as-zero`](#spec-draw-writes-a-discarded-pixel-as-zero) — `draw` of a CPU routine writes a pixel whose fragment discards as zero in every channel.
       - [`@bug js-routine-draws-a-discarded-pixel-as-nan`](#bug-js-routine-draws-a-discarded-pixel-as-nan) — `draw` of a JS routine writes a discarded pixel as `null` read into its buffer, which leaves 0 in the first channel and `NaN` in the others.
     - [`@spec an-input-the-host-leaves-out-reads-zero`](#spec-an-input-the-host-leaves-out-reads-zero) — A parameter, attribute or varying the host leaves out of the context reads zero.
@@ -1538,6 +1564,26 @@ Derives from: [`spec-a-conversion-between-numeric-types-is-written-out`](#spec-a
 
 This follows because WGSL broadcasts no scalar across a vector for a bitwise operator, and converts nothing implicitly.
 
+### @spec a-uniform-array-element-the-host-leaves-out-reads-zero
+
+> An element past the end of a shorter array the host passes for a uniform array reads zero.
+
+Derives from: [`spec-an-unset-uniform-reads-zero`](#spec-an-unset-uniform-reads-zero)
+
+This follows because an element the host leaves out is a uniform it never set, and an unset uniform reads zero.
+
+#### @bug wasm-keeps-a-uniform-array-element-the-call-leaves-out
+
+> A WASM routine keeps an element past the end of a shorter array the call passes as an earlier call wrote it.
+
+Issue: #125
+
+#### @bug js-reads-a-uniform-array-element-the-host-leaves-out-as-nan
+
+> On JS, an element past the end of a shorter array the call passes reads as `undefined`, which makes `NaN`.
+
+Issue: #125
+
 ## @axiom a-mistake-is-refused-before-the-program-runs
 
 > A program that cannot work is refused before it runs. The type checker refuses it wherever the types can express the mistake, and the compiler refuses it on every target. The refusal names the cause, and the fix where one exists.
@@ -1742,6 +1788,12 @@ Issue: #76
 
 > A negative number beside an unsigned operand, or given to `uint` or to an unsigned vector constructor, is refused.
 
+#### @bug assign-leaves-a-bare-number-untyped
+
+> `assign` passes a bare number on as it is. WASM throws on it, GLSL and WGSL write an integer literal into a float, and only JS runs it.
+
+Issue: #127
+
 ### @spec a-statement-outside-an-fn-is-refused
 
 > `assign`, `toVar` and control flow called outside the body of an `Fn` are refused.
@@ -1853,6 +1905,30 @@ Issue: #67
 Derives from: [`spec-operands-of-different-widths-are-refused`](#spec-operands-of-different-widths-are-refused)
 
 This follows because a scalar beside a vector broadcasts, and widening it once in the graph hands every target the same vector arguments.
+
+#### @spec an-integer-and-a-float-operand-are-refused
+
+> An operation on an integer operand and a float operand is refused, by the type checker and on every target. A bare number takes the type beside it instead.
+
+spec-operands-of-different-widths-are-refused
+
+##### @bug an-int-and-a-float-operand-compile-with-a-hidden-conversion
+
+> GLSL and WGSL compile an operation on an `int` and a `float` operand. WGSL truncates the float to `i32`, and GLSL converts the int to `float`.
+
+Issue: #124
+
+#### @spec a-for-update-that-holds-a-block-is-refused
+
+> A `For` whose update holds a block, such as an `If`, is refused on every target.
+
+This follows because the update slot of a GLSL or WGSL `for` takes no block, and the program must run on every target.
+
+##### @bug wasm-runs-a-for-update-that-holds-a-block
+
+> The WASM target compiles and runs a `For` whose update holds a block, where JS, GLSL and WGSL refuse it.
+
+Issue: #129
 
 ### @spec a-case-with-no-values-is-refused
 
@@ -1990,6 +2066,18 @@ This follows because a TSL shader ports by changing its import only if each oper
 > The WASM target does not compile `inverse`.
 
 Issue: #65
+
+##### @bug radians-and-degrees-compile-to-a-multiplication
+
+> GLSL and WGSL compile `radians` and `degrees` to a multiplication by a constant, though each target has a built-in of that name.
+
+Issue: #123
+
+##### @bug wasm-compiles-no-component-wise-math-on-a-vector
+
+> The WASM target compiles no component-wise math function of a vector, such as `pow`, `sin`, `floor`, `fract` or `sqrt`.
+
+Issue: #130
 
 #### @spec a-function-with-an-edge-takes-the-value-last
 
@@ -2425,6 +2513,18 @@ Issue: #105
 
 Issue: #105
 
+#### @spec a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array
+
+> `setAttribute` on a compute adapter takes a storage buffer as one typed array, which holds the components of its elements one after another.
+
+This follows because a storage buffer lies over an attribute, and TSL fills an attribute from one flat typed array.
+
+##### @bug the-cpu-compute-adapters-take-a-vector-storage-element-as-an-array
+
+> `createJsCompute` and `createWasmCompute` read a vector storage buffer as one array per element. A flat typed array from `setAttribute` ends up as `NaN`.
+
+Issue: #126
+
 ### @spec compute-follows-tsl
 
 > `fn().compute(count, workgroupSize)` and `compute(node, count, workgroupSize)` make a [compute node](#term-compute-node), dispatched once for each index below `count`, as TSL's `compute` does.
@@ -2857,6 +2957,20 @@ Derives from: [`spec-an-adapter-draws-one-frame-for-each-call`](#spec-an-adapter
 
 This follows because WebGPU stores a float into an 8-bit canvas by clamping and rounding it, and a CPU target gives what WebGPU gives.
 
+#### @spec a-cpu-adapter-writes-a-channel-a-vector-lacks-as-zero
+
+> A JS or WASM routine adapter shows a two- or three-component result with 0 in each colour channel it lacks, and opaque alpha.
+
+Derives from: [`spec-a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte`](#spec-a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte)
+
+This follows because a channel the program gives no value has none to show, and zero is what a cleared channel holds.
+
+##### @bug the-cpu-routine-adapters-copy-red-into-a-missing-blue-channel
+
+> The JS and WASM routine adapters show a two-channel result with its red channel copied into blue.
+
+Issue: #128
+
 ### @spec a-scene-renderer-manages-what-it-uploads
 
 > A renderer of `./scene` uploads each geometry, texture and uniform once, again when it changes, and frees it when it is disposed. It compiles a program once for each light set and kind of mesh.
@@ -2999,6 +3113,18 @@ This follows because these properties are the material's in three.js, and both r
 
 Issue: #92
 
+##### @spec a-renderer-draws-transparent-meshes-back-to-front
+
+> A renderer draws opaque meshes first, then transparent meshes from the farthest to the nearest.
+
+This follows because three.js sorts its transparent list back to front, so each transparent mesh blends over what lies behind it.
+
+###### @bug transparent-meshes-draw-in-scene-graph-order
+
+> Both renderers draw meshes in scene-graph order. A transparent mesh drawn before a farther one hides it instead of blending over it.
+
+Issue: #121
+
 #### @spec render-clears-the-canvas-on-every-call
 
 > `render` clears the canvas to the clear colour on every call, whatever the scene holds.
@@ -3010,6 +3136,18 @@ This follows because a frame shows only the scene it renders, as three.js's `aut
 > The WebGPU renderer clears in the first draw's render pass, so a scene with nothing to draw leaves the canvas as it was.
 
 Issue: #92
+
+##### @spec render-clears-to-the-scene-background
+
+> `render` clears to the scene's background colour when the scene has one, and to the clear colour otherwise.
+
+This follows because three.js's renderer clears to `scene.background` when it is a colour.
+
+###### @bug render-ignores-the-scene-background
+
+> Both renderers ignore `scene.background` and clear to the renderer's clear colour.
+
+Issue: #121
 
 #### @bug webgpu-never-uploads-an-image-source
 
@@ -3050,6 +3188,32 @@ This follows because one buffer binding serves both stages of a draw, so both mu
 Derives from: [`spec-a-render-target-reads-its-pixels-back`](#spec-a-render-target-reads-its-pixels-back)
 
 This follows because a renderer uploads what it holds again when it changes, and frees what it no longer uses.
+
+#### @spec a-sampler-without-a-texture-reads-black
+
+> A sampler that its material gives no texture reads opaque black on every renderer.
+
+Derives from: [`spec-each-sampler-gets-its-own-texture`](#spec-each-sampler-gets-its-own-texture)
+
+This follows because the WebGPU renderer binds a 1×1 black texture there, and both renderers draw the same scene.
+
+##### @bug webgl-leaves-a-textureless-sampler-on-unit-0
+
+> The WebGL renderer never sets the unit of a sampler that has no texture. The sampler reads unit 0, the texture of another sampler.
+
+Issue: #120
+
+#### @spec a-changed-attribute-uploads-only-its-update-range
+
+> A renderer uploads only the slice of a changed attribute that its `updateRange` selects, and the whole attribute when the range is unset.
+
+This follows because three.js sends only the update range, and the WebGL renderer already does.
+
+##### @bug webgpu-ignores-an-attribute-update-range
+
+> The WebGPU renderer writes a changed attribute whole, from byte 0, ignoring the slice its `updateRange` selects.
+
+Issue: #122
 
 ### @spec the-application-reaches-an-input-through-its-node
 
@@ -3296,6 +3460,12 @@ Issue: #82
 
 Issue: #83
 
+##### @bug wasm-routine-draws-into-a-buffer-the-next-draw-overwrites
+
+> `draw` of a WASM routine returns a view of its own memory. The next `draw` overwrites the pixels an earlier one returned.
+
+Issue: #83
+
 #### @spec a-cpu-routine-draws-a-grid-of-fragments
 
 > `draw` of a CPU routine evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to draw.
@@ -3366,7 +3536,7 @@ Issue: #81
 
 ###### @bug js-rasterizer-draws-a-vec3-colour-with-alpha-zero
 
-> The JS rasterizer accepts a fragment that returns a `vec3` and draws its alpha as 0, where the WASM rasterizer refuses it.
+> The JS rasterizer accepts a fragment that returns a `float` or a `vec3`, and draws the channels it lacks as 0, where the WASM rasterizer refuses it.
 
 Issue: #88
 
@@ -3385,6 +3555,12 @@ This follows because WebGPU gives such a pixel to exactly one triangle, and a CP
 ###### @bug js-rasterizer-shades-a-shared-edge-twice
 
 > The JS rasterizer shades a pixel centre on an edge two triangles share with both, so the triangle drawn last wins it.
+
+Issue: #88
+
+###### @bug wasm-rasterizer-shades-a-shared-edge-twice
+
+> The WASM rasterizer shades a pixel centre on an edge two triangles share with both, so the triangle drawn last wins it.
 
 Issue: #88
 
@@ -3541,6 +3717,20 @@ This follows because a value function may reach for a camera or a mesh the test 
 Derives from: [`spec-a-material-or-pass-is-tested-by-the-names-it-uses`](#spec-a-material-or-pass-is-tested-by-the-names-it-uses)
 
 This follows because a result keys each slot by one name, and the order of the program's own list picks it.
+
+##### @spec render-draws-the-only-output-of-a-program-that-returns-nothing
+
+> `render` draws the output a fragment writes when the program returns no value and writes exactly one output.
+
+Derives from: [`spec-render-evaluates-every-fragment-of-a-grid`](#spec-render-evaluates-every-fragment-of-a-grid)
+
+This follows because a fragment stage that returns nothing shows the colour of its one output, and `render` draws what the fragment shows.
+
+###### @bug render-draws-zero-for-a-program-that-writes-one-output
+
+> The JS routine gives a program that returns nothing the value `0`, so `render` draws `0` and never falls back to the output.
+
+Issue: #119
 
 #### @spec draw-writes-a-discarded-pixel-as-zero
 

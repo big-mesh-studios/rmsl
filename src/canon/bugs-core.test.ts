@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   Fn,
+  degrees,
   equal,
   float,
   instancedArray,
   int,
   output,
+  radians,
   sub,
   Switch,
   uint,
@@ -222,5 +224,35 @@ describe("known bugs of the core, each failing until its fix", () => {
     const graph = (node: object) => ({ nodes: [node], buffers: [], roots: 0 }) as unknown as SerializedGraph;
     expect(() => deserialize(graph({ _t: "float", type: "frobnicate" }))).toThrow();
     expect(() => deserialize(graph({ _t: "float", type: "uniform", value: { shaderType: "float" } }))).toThrow();
+  });
+
+  /**
+   * `radians` and `degrees` compile to a multiplication by a constant on GLSL
+   * and WGSL, where each target has a built-in of that name.
+   *
+   * @canon bug-radians-and-degrees-compile-to-a-multiplication
+   */
+  it.fails("compiles radians and degrees to the built-ins of GLSL and WGSL", () => {
+    const angle = uniform("float");
+    const build = () => Fn(() => vec4(radians(angle), degrees(angle), 0, 1))();
+    for (const code of [compileGlsl.fragment(build()), compileWgsl.fragment(build())]) {
+      expect(code).toMatch(/\bradians\(/);
+      expect(code).toMatch(/\bdegrees\(/);
+    }
+  });
+
+  /**
+   * An operation on an `int` and a `float` operand compiles, converting one
+   * of them: WGSL truncates the float to `i32`, GLSL widens the int to
+   * `float`, so the targets disagree.
+   *
+   * @canon bug-an-int-and-a-float-operand-compile-with-a-hidden-conversion
+   */
+  it.fails("refuses an operation on an int and a float operand on GLSL and WGSL", () => {
+    const count = uniform("int");
+    const scale = uniform("float");
+    const build = () => Fn(() => vec4((count as any).add(scale), 0, 0, 1))();
+    expect(() => compileGlsl.fragment(build())).toThrow();
+    expect(() => compileWgsl.fragment(build())).toThrow();
   });
 });
