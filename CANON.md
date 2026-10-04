@@ -2062,6 +2062,10 @@ This follows because the application gets its answer within the same call.
 
 > `compileJSFn` returns the source of a named function that reads its parameters from `ctx.params` and its uniforms from `ctx.uniforms` by slot name. It returns its value, a result object when the program writes outputs or depth, and `null` for a discarded fragment.
 
+Derives from: [`fact-a-content-security-policy-can-block-new-function`](#fact-a-content-security-policy-can-block-new-function)
+
+This follows because a page whose security policy blocks `new Function` can still place the source in a script it trusts.
+
 #### @spec a-js-routine-allocates-nothing-per-call
 
 > A JS [routine](#term-cpu-routine) keeps its variables in a scratch block outside the function. It writes vector results into them through helpers that take an output argument. With `reentrant`, it declares its variables inside the function.
