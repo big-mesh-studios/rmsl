@@ -657,6 +657,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact normalizing-a-zero-vector-is-undefined-on-a-gpu`](#fact-normalizing-a-zero-vector-is-undefined-on-a-gpu) — GLSL ES 3.00 and WGSL leave the result of `normalize` on a vector of length zero undefined.
 - [`@fact a-wgsl-storage-vec3-takes-16-bytes`](#fact-a-wgsl-storage-vec3-takes-16-bytes) — In a WGSL storage buffer, a `vec3` element, and each column of three of a matrix, takes 16 bytes.
 - [`@fact a-webgpu-vertex-stride-is-a-multiple-of-four`](#fact-a-webgpu-vertex-stride-is-a-multiple-of-four) — WebGPU requires the stride of a vertex buffer to be a multiple of 4 bytes. It has no vertex format of three components narrower than 32 bits, and none of two bytes.
+- [`@fact wgsl-refuses-an-i32-literal-out-of-its-range`](#fact-wgsl-refuses-an-i32-literal-out-of-its-range) — A WGSL `i32` literal must hold a value in the `i32` range, so `2147483648i` and `-2147483648i` do not compile. An unsuffixed `-2147483648` compiles.
+- [`@fact wgsl-requires-brackets-to-mix-bitwise-or-logical-operators`](#fact-wgsl-requires-brackets-to-mix-bitwise-or-logical-operators) — A WGSL expression that mixes a bitwise operator with another binary operator, or `&&` with `||`, does not compile without brackets.
+- [`@fact a-wgsl-shift-takes-an-unsigned-amount`](#fact-a-wgsl-shift-takes-an-unsigned-amount) — A WGSL shift takes its amount as a `u32` or a vector of `u32`, and refuses an `i32` amount.
+- [`@fact a-wgsl-bitwise-operator-takes-no-scalar-beside-a-vector`](#fact-a-wgsl-bitwise-operator-takes-no-scalar-beside-a-vector) — A WGSL bitwise operator refuses a vector and a scalar as its two operands.
+- [`@fact wgsl-assigns-no-swizzle-of-several-components`](#fact-wgsl-assigns-no-swizzle-of-several-components) — WGSL refuses an assignment to a swizzle of several components, and accepts one to a single component.
+- [`@fact glsl-mixes-by-a-boolean-vector-only-floats`](#fact-glsl-mixes-by-a-boolean-vector-only-floats) — GLSL ES 3.00 offers `mix` with a boolean vector selector for float types only, and has no such overload for integer vectors.
 <!-- toc:end -->
 
 ## Open questions
@@ -1542,7 +1548,7 @@ Issue: #107
 
 > On WGSL, the compiler brackets each operand of a bitwise or shift operator that is not a unary expression.
 
-Derives from: [`spec-an-operand-that-is-an-expression-keeps-its-grouping`](#spec-an-operand-that-is-an-expression-keeps-its-grouping)
+Derives from: [`spec-an-operand-that-is-an-expression-keeps-its-grouping`](#spec-an-operand-that-is-an-expression-keeps-its-grouping), [`fact-wgsl-requires-brackets-to-mix-bitwise-or-logical-operators`](#fact-wgsl-requires-brackets-to-mix-bitwise-or-logical-operators)
 
 This follows because WGSL gives bitwise and shift operators no precedence against other operators, so an unbracketed binary operand does not parse.
 
@@ -1550,7 +1556,7 @@ This follows because WGSL gives bitwise and shift operators no precedence agains
 
 > On WGSL, the compiler brackets an `&&` or `||` that is the operand of another logical operator.
 
-Derives from: [`spec-an-operand-that-is-an-expression-keeps-its-grouping`](#spec-an-operand-that-is-an-expression-keeps-its-grouping)
+Derives from: [`spec-an-operand-that-is-an-expression-keeps-its-grouping`](#spec-an-operand-that-is-an-expression-keeps-its-grouping), [`fact-wgsl-requires-brackets-to-mix-bitwise-or-logical-operators`](#fact-wgsl-requires-brackets-to-mix-bitwise-or-logical-operators)
 
 This follows because WGSL refuses `&&` and `||` mixed in one expression without brackets, where GLSL lets `&&` bind tighter.
 
@@ -1558,7 +1564,7 @@ This follows because WGSL refuses `&&` and `||` mixed in one expression without 
 
 > On WGSL, the compiler converts a signed shift amount to `u32`, and a scalar amount beside a vector to a `u32` vector of its width.
 
-Derives from: [`spec-a-conversion-between-numeric-types-is-written-out`](#spec-a-conversion-between-numeric-types-is-written-out), [`fact-wgsl-has-no-implicit-numeric-conversion`](#fact-wgsl-has-no-implicit-numeric-conversion)
+Derives from: [`spec-a-conversion-between-numeric-types-is-written-out`](#spec-a-conversion-between-numeric-types-is-written-out), [`fact-wgsl-has-no-implicit-numeric-conversion`](#fact-wgsl-has-no-implicit-numeric-conversion), [`fact-a-wgsl-shift-takes-an-unsigned-amount`](#fact-a-wgsl-shift-takes-an-unsigned-amount)
 
 This follows because a WGSL shift takes only an unsigned amount of the shifted value's width, and WGSL converts nothing implicitly.
 
@@ -1566,7 +1572,7 @@ This follows because a WGSL shift takes only an unsigned amount of the shifted v
 
 > On WGSL, the compiler converts a scalar right operand of `&`, `|` or `^` to the type of the vector beside it.
 
-Derives from: [`spec-a-conversion-between-numeric-types-is-written-out`](#spec-a-conversion-between-numeric-types-is-written-out), [`fact-wgsl-has-no-implicit-numeric-conversion`](#fact-wgsl-has-no-implicit-numeric-conversion)
+Derives from: [`spec-a-conversion-between-numeric-types-is-written-out`](#spec-a-conversion-between-numeric-types-is-written-out), [`fact-wgsl-has-no-implicit-numeric-conversion`](#fact-wgsl-has-no-implicit-numeric-conversion), [`fact-a-wgsl-bitwise-operator-takes-no-scalar-beside-a-vector`](#fact-a-wgsl-bitwise-operator-takes-no-scalar-beside-a-vector)
 
 This follows because WGSL broadcasts no scalar across a vector for a bitwise operator, and converts nothing implicitly.
 
@@ -2177,7 +2183,7 @@ This follows because GLSL's `mix` with a boolean vector takes its second argumen
 
 > On GLSL, `select` of two integer vectors by a boolean vector compiles to one conditional for each component.
 
-Derives from: [`spec-select-picks-one-of-two-values`](#spec-select-picks-one-of-two-values)
+Derives from: [`spec-select-picks-one-of-two-values`](#spec-select-picks-one-of-two-values), [`fact-glsl-mixes-by-a-boolean-vector-only-floats`](#fact-glsl-mixes-by-a-boolean-vector-only-floats)
 
 This follows because GLSL ES 3.00 offers `mix` with a boolean vector for float vectors only.
 
@@ -2271,9 +2277,9 @@ Issue: #78
 
 > On GLSL and WGSL, the `int` literal -2147483648 compiles to `(-2147483647 - 1)`, a subtraction of two literals in range.
 
-Derives from: [`spec-a-literal-compiles-to-a-literal-of-its-type`](#spec-a-literal-compiles-to-a-literal-of-its-type)
+Derives from: [`spec-a-literal-compiles-to-a-literal-of-its-type`](#spec-a-literal-compiles-to-a-literal-of-its-type), [`fact-wgsl-refuses-an-i32-literal-out-of-its-range`](#fact-wgsl-refuses-an-i32-literal-out-of-its-range)
 
-This follows because both targets read `-2147483648` as the negation of 2147483648, which lies past the largest `int` and does not compile.
+This follows because WGSL refuses `-2147483648i`, and GLSL writes the same subtraction so that both targets compile one form.
 
 #### @spec a-vector-converted-to-a-scalar-takes-its-first-component
 
@@ -2353,7 +2359,7 @@ Issue: #32
 
 > On WGSL, a write through a swizzle of several components stores its value in a temporary once, then writes each component from it.
 
-Derives from: [`spec-a-swizzle-write-writes-the-components-it-names`](#spec-a-swizzle-write-writes-the-components-it-names)
+Derives from: [`spec-a-swizzle-write-writes-the-components-it-names`](#spec-a-swizzle-write-writes-the-components-it-names), [`fact-wgsl-assigns-no-swizzle-of-several-components`](#fact-wgsl-assigns-no-swizzle-of-several-components)
 
 This follows because WGSL assigns only one component of a vector at a time, and the value must run once.
 
@@ -4267,3 +4273,39 @@ This is a fact of the WGSL specification, not a choice.
 > WebGPU requires the stride of a vertex buffer to be a multiple of 4 bytes. It has no vertex format of three components narrower than 32 bits, and none of two bytes.
 
 This is a fact of the WebGPU specification, not a choice.
+
+## @fact wgsl-refuses-an-i32-literal-out-of-its-range
+
+> A WGSL `i32` literal must hold a value in the `i32` range, so `2147483648i` and `-2147483648i` do not compile. An unsuffixed `-2147483648` compiles.
+
+This is a fact of the WGSL specification, not a choice. Dawn refuses each case it names.
+
+## @fact wgsl-requires-brackets-to-mix-bitwise-or-logical-operators
+
+> A WGSL expression that mixes a bitwise operator with another binary operator, or `&&` with `||`, does not compile without brackets.
+
+This is a fact of the WGSL specification, not a choice. Dawn refuses each case it names.
+
+## @fact a-wgsl-shift-takes-an-unsigned-amount
+
+> A WGSL shift takes its amount as a `u32` or a vector of `u32`, and refuses an `i32` amount.
+
+This is a fact of the WGSL specification, not a choice. Dawn refuses each case it names.
+
+## @fact a-wgsl-bitwise-operator-takes-no-scalar-beside-a-vector
+
+> A WGSL bitwise operator refuses a vector and a scalar as its two operands.
+
+This is a fact of the WGSL specification, not a choice. Dawn refuses each case it names.
+
+## @fact wgsl-assigns-no-swizzle-of-several-components
+
+> WGSL refuses an assignment to a swizzle of several components, and accepts one to a single component.
+
+This is a fact of the WGSL specification, not a choice. Dawn refuses each case it names.
+
+## @fact glsl-mixes-by-a-boolean-vector-only-floats
+
+> GLSL ES 3.00 offers `mix` with a boolean vector selector for float types only, and has no such overload for integer vectors.
+
+This is a fact of the GLSL ES 3.00 specification, not a choice. WebGL refuses the integer overload.

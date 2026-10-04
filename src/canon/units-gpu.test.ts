@@ -53,8 +53,8 @@ describe("the GPU entry points load where no graphics API exists", () => {
 
 describe("what GLSL and WGSL write for an operation", () => {
   /**
-   * `-2147483648` reads as the negation of `2147483648`, which is out of the
-   * `int` range on both targets.
+   * WGSL refuses `-2147483648i`, and GLSL writes the same subtraction so both
+   * targets compile one form.
    *
    * @canon spec-int-min-compiles-to-a-subtraction-of-two-in-range-literals
    */
