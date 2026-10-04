@@ -23,7 +23,6 @@ describe("storage buffers", () => {
     expect(positions.attribute.count).toBe(8);
     expect(positions.attribute.itemSize).toBe(3);
     expect(positions.attribute.arrayClass).toBe(Float32Array);
-    expect(positions.attribute.array).toBeNull();
     expect(instancedArray(4, "uint").attribute.arrayClass).toBe(Uint32Array);
     expect(attributeArray(4, "int").attribute.arrayClass).toBe(Int32Array);
   });

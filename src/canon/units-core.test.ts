@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import * as rmsl from "../rmsl";
-import { attribute, float, Fn, int, mix, select, uniform, vec3, vec4, type Node } from "../rmsl";
-import { compileJSFn } from "../js";
+import { attribute, float, Fn, int, mix, select, uniform, uniformArray, vec3, vec4, type Node } from "../rmsl";
+import { compileJSFn, compileJSRoutine } from "../js";
 import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } from "../testing/shader-eval";
 import {
   assertRecordedShadersValid,
@@ -147,5 +147,31 @@ describe("units of the core", () => {
     const names = Object.keys(rmsl);
     expect(names).toEqual(expect.arrayContaining(["Fn", "serialize", "deserialize"]));
     expect(names.filter((name) => /^(compile|create|instantiate)/.test(name))).toEqual([]);
+  });
+});
+
+describe("a uniform follows TSL", () => {
+  /**
+   * @canon spec-a-uniform-takes-the-type-it-names
+   */
+  it("declares a uniform of the type it names on GLSL and WGSL", () => {
+    const tint = uniform("vec3");
+    const build = () => vec4(tint, 1);
+    expect(compileGlsl.fragment(build())).toMatch(new RegExp(`uniform (highp )?vec3 ${tint.name};`));
+    expect(compileWgsl.fragment(build())).toMatch(new RegExp(`${tint.name}: vec3<f32>`));
+  });
+
+  /**
+   * TSL's `uniform(0.5)` and `uniformArray([1, 2, 3], "float")` hold their
+   * values; rmsl's take a type and read what the host passes.
+   *
+   * @canon exception-a-uniform-holds-no-value
+   */
+  it("takes a type, and reads the value the host passes at each call", () => {
+    const scale = uniform("float");
+    const weights = uniformArray("float", 3);
+    const run = compileJSRoutine(() => Fn(() => scale.mul(weights.element(int(2))).toVar())(), none);
+    expect(run.run({ uniforms: { [scale.name]: 2, [weights.name]: [1, 2, 3] } })).toBe(6);
+    expect(run.run({ uniforms: { [scale.name]: 3, [weights.name]: [1, 2, 4] } })).toBe(12);
   });
 });

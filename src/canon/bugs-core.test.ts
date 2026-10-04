@@ -31,6 +31,17 @@ const roundTrip = (graph: SerializedGraph) => deserialize(JSON.parse(JSON.string
 
 describe("known bugs of the core, each failing until its fix", () => {
   /**
+   * A buffer made from a count holds no host array, where TSL's holds one of
+   * zeros the application can fill.
+   *
+   * @canon bug-an-instanced-array-of-a-count-keeps-no-host-array
+   */
+  it.fails("gives an instancedArray made from a count a zeroed host array", () => {
+    const positions = instancedArray(8, "vec3");
+    expect(positions.attribute.array).toEqual(new Float32Array(24));
+  });
+
+  /**
    * Folding a float operation whose result is not finite writes JavaScript's
    * spelling of it as the literal, `Infinity.0` on GLSL and `NaNf` on WGSL,
    * which no driver accepts.

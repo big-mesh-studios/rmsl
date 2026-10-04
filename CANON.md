@@ -339,8 +339,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec var-is-to-var`](#spec-var-is-to-var) — `var()` is `toVar()` under TSL's other name.
     - [`@spec a-variable-name-must-be-an-identifier`](#spec-a-variable-name-must-be-an-identifier) — A variable name that is not an identifier, or that starts with the prefix `_rmsl_` the compiler reserves, is refused.
     - [`@spec an-unnamed-variable-gets-a-name-no-other-variable-has`](#spec-an-unnamed-variable-gets-a-name-no-other-variable-has) — A variable made without a name gets a generated name that no other variable in the process has, across `Fn`s and builds.
+  - [`@spec a-uniform-follows-tsl`](#spec-a-uniform-follows-tsl) — `uniform` and `uniformArray` make a uniform node that every stage of a program can read, as TSL's functions of those names do.
+    - [`@spec a-uniform-takes-the-type-it-names`](#spec-a-uniform-takes-the-type-it-names) — `uniform(type)` declares a uniform of the type it names on every target.
+    - [`@exception a-uniform-holds-no-value`](#exception-a-uniform-holds-no-value) — `uniform(type)` and `uniformArray(type, length)` take a type where TSL's take values. The uniform holds no value, and the host passes one at each call.
   - [`@spec a-storage-buffer-follows-tsl`](#spec-a-storage-buffer-follows-tsl) — `storage(attribute, type)`, `instancedArray` and `attributeArray` make a [storage buffer](#term-storage-buffer) node over a buffer of typed elements, as TSL's functions of the same names do.
-    - [`@spec an-instanced-array-takes-its-count-from-a-number-or-its-data`](#spec-an-instanced-array-takes-its-count-from-a-number-or-its-data) — `instancedArray(count, type)` makes a buffer of `count` elements with no contents. `instancedArray(data, type)` takes its count and contents from a typed array.
+    - [`@spec an-instanced-array-takes-its-count-from-a-number-or-its-data`](#spec-an-instanced-array-takes-its-count-from-a-number-or-its-data) — `instancedArray(count, type)` makes a buffer of `count` elements, whose host array holds zeros. `instancedArray(data, type)` takes its count and contents from a typed array.
+      - [`@bug an-instanced-array-of-a-count-keeps-no-host-array`](#bug-an-instanced-array-of-a-count-keeps-no-host-array) — `instancedArray(count, type)` and `attributeArray(count, type)` keep no host array: `attribute.array` is `null`.
     - [`@spec a-buffer-holds-one-element-type`](#spec-a-buffer-holds-one-element-type) — A buffer holds one element type, named by the first storage node over it. A node of another type over it is refused. So is a type its item size or array class cannot hold, and a typed array that is not a whole number of elements.
     - [`@spec a-storage-buffer-holds-no-bool`](#spec-a-storage-buffer-holds-no-bool) — A storage buffer of `bool` or boolean vector elements is refused.
     - [`@spec a-storage-node-is-read-write-until-to-read-only`](#spec-a-storage-node-is-read-write-until-to-read-only) — A program can read and write a storage node until `toReadOnly()`, which makes it read-only and returns it. The element of a node, by a number or an `int`, has the element type.
@@ -663,6 +667,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-wgsl-bitwise-operator-takes-no-scalar-beside-a-vector`](#fact-a-wgsl-bitwise-operator-takes-no-scalar-beside-a-vector) — A WGSL bitwise operator refuses a vector and a scalar as its two operands.
 - [`@fact wgsl-assigns-no-swizzle-of-several-components`](#fact-wgsl-assigns-no-swizzle-of-several-components) — WGSL refuses an assignment to a swizzle of several components, and accepts one to a single component.
 - [`@fact glsl-mixes-by-a-boolean-vector-only-floats`](#fact-glsl-mixes-by-a-boolean-vector-only-floats) — GLSL ES 3.00 offers `mix` with a boolean vector selector for float types only, and has no such overload for integer vectors.
+- [`@fact tsl-uniforms-hold-their-values`](#fact-tsl-uniforms-hold-their-values) — TSL's `uniform(value)` and `uniformArray(values, type)` take the values the uniform holds, and the renderer uploads them.
+- [`@fact a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array`](#fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array) — TSL's `instancedArray(count, type)` and `attributeArray(count, type)` make a zeroed typed array of the buffer's contents on the host.
 <!-- toc:end -->
 
 ## Open questions
@@ -2477,6 +2483,24 @@ Issue: #79
 
 This follows because rmsl keeps only a name the user gave, so a generated name must never meet another variable in any program it joins.
 
+### @spec a-uniform-follows-tsl
+
+> `uniform` and `uniformArray` make a uniform node that every stage of a program can read, as TSL's functions of those names do.
+
+This follows because a TSL shader ports only if its inputs mean the same.
+
+#### @spec a-uniform-takes-the-type-it-names
+
+> `uniform(type)` declares a uniform of the type it names on every target.
+
+#### @exception a-uniform-holds-no-value
+
+> `uniform(type)` and `uniformArray(type, length)` take a type where TSL's take values. The uniform holds no value, and the host passes one at each call.
+
+Derives from: [`fact-tsl-uniforms-hold-their-values`](#fact-tsl-uniforms-hold-their-values)
+
+The application owns the data it uploads, as [`axiom-rmsl-compiles-and-the-application-drives`](#axiom-rmsl-compiles-and-the-application-drives) states, so a uniform carries none of rmsl's.
+
 ### @spec a-storage-buffer-follows-tsl
 
 > `storage(attribute, type)`, `instancedArray` and `attributeArray` make a [storage buffer](#term-storage-buffer) node over a buffer of typed elements, as TSL's functions of the same names do.
@@ -2485,7 +2509,15 @@ This follows because a TSL compute shader ports only if its buffers mean the sam
 
 #### @spec an-instanced-array-takes-its-count-from-a-number-or-its-data
 
-> `instancedArray(count, type)` makes a buffer of `count` elements with no contents. `instancedArray(data, type)` takes its count and contents from a typed array.
+> `instancedArray(count, type)` makes a buffer of `count` elements, whose host array holds zeros. `instancedArray(data, type)` takes its count and contents from a typed array.
+
+Derives from: [`fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array`](#fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array)
+
+##### @bug an-instanced-array-of-a-count-keeps-no-host-array
+
+> `instancedArray(count, type)` and `attributeArray(count, type)` keep no host array: `attribute.array` is `null`.
+
+Issue: #133
 
 #### @spec a-buffer-holds-one-element-type
 
@@ -4309,3 +4341,15 @@ This is a fact of the WGSL specification, not a choice. Dawn refuses each case i
 > GLSL ES 3.00 offers `mix` with a boolean vector selector for float types only, and has no such overload for integer vectors.
 
 This is a fact of the GLSL ES 3.00 specification, not a choice. WebGL refuses the integer overload.
+
+## @fact tsl-uniforms-hold-their-values
+
+> TSL's `uniform(value)` and `uniformArray(values, type)` take the values the uniform holds, and the renderer uploads them.
+
+This is how three.js's TSL behaves, read from its source (`UniformNode` and `UniformArrayNode`, three.js 0.186).
+
+## @fact a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array
+
+> TSL's `instancedArray(count, type)` and `attributeArray(count, type)` make a zeroed typed array of the buffer's contents on the host.
+
+This is how three.js's TSL behaves, read from its source (`StorageBufferAttribute`, three.js 0.186).
