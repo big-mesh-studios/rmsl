@@ -26,6 +26,9 @@ import {
   programSignature,
   geometryAttribute,
   samplerState,
+  vertexFormatOf,
+  type VertexFormat,
+  VERTEX_FORMATS,
   textureChannels,
   type SamplerState,
   type TextureWrap,
@@ -33,7 +36,6 @@ import {
 
 interface PipelineEntry {
   program: MaterialProgram;
-  pipeline: GPURenderPipeline;
   /** The uniform buffer's group, which nothing invalidates. */
   bindGroup: GPUBindGroup;
   /**
@@ -58,6 +60,15 @@ interface PipelineEntry {
   slotSize: number;
   slots: number;
   layoutMembers: { name: string; offset: number }[];
+  /** What a render pipeline of this program is built from. */
+  pipelineDescriptor: Omit<GPURenderPipelineDescriptor, "vertex"> & { vertexModule: GPUShaderModule };
+  /** One render pipeline for each set of vertex formats the meshes drawn with this program hold. */
+  variants: Map<string, PipelineVariant>;
+}
+
+/** A render pipeline and the vertex buffer layout it was built with. */
+interface PipelineVariant {
+  pipeline: GPURenderPipeline;
   vertexFormats: VertexBufferLayout[];
 }
 
@@ -180,10 +191,7 @@ export class WebGPURenderer {
     this.ensureDepthTexture();
     const device = this.device;
 
-    const encoder = device.createCommandEncoder();
-    const colorView = this.context.getCurrentTexture().createView();
-
-    const draws: { mesh: Mesh; entry: PipelineEntry; instancing: boolean }[] = [];
+    const draws: { mesh: Mesh; entry: PipelineEntry; variant: PipelineVariant; instancing: boolean }[] = [];
     const drawCounts = new Map<PipelineEntry, number>();
     scene.traverseVisible((object) => {
       if (!object.isMesh) return;
@@ -194,15 +202,19 @@ export class WebGPURenderer {
       const instancingColor = instancing && (mesh as InstancedMesh).instanceColor !== null;
       const entry = this.ensurePipeline(material as NodeMaterial, scene, instancing, instancingColor);
       if (!entry) return;
-      draws.push({ mesh, entry, instancing });
+      draws.push({ mesh, entry, variant: this.pipelineVariant(entry, mesh), instancing });
       drawCounts.set(entry, (drawCounts.get(entry) ?? 0) + 1);
     });
     // Every draw's uniforms are written before the frame is submitted, so each draw needs a slot of its own.
     for (const [entry, count] of drawCounts) this.growRing(entry, count);
 
+    // After the draws are collected, so an attribute that is refused leaves no half-recorded frame.
+    const encoder = device.createCommandEncoder();
+    const colorView = this.context.getCurrentTexture().createView();
+
     const nextSlot = new Map<PipelineEntry, number>();
     let firstPass = true;
-    for (const { mesh, entry, instancing } of draws) {
+    for (const { mesh, entry, variant, instancing } of draws) {
       const slotIndex = nextSlot.get(entry) ?? 0;
       nextSlot.set(entry, slotIndex + 1);
 
@@ -229,13 +241,13 @@ export class WebGPURenderer {
       });
       firstPass = false;
 
-      pass.setPipeline(entry.pipeline);
+      pass.setPipeline(variant.pipeline);
       // The compiler puts the uniform struct in group 0, textures in group 1
       // and samplers in group 2, so a draw sets one group per kind.
       pass.setBindGroup(0, entry.bindGroup, [slotIndex * entry.slotSize]);
       if (entry.textureBindGroup) pass.setBindGroup(1, entry.textureBindGroup);
       if (entry.samplerBindGroup) pass.setBindGroup(2, entry.samplerBindGroup);
-      this.setVertexBuffers(pass, entry, mesh);
+      this.setVertexBuffers(pass, variant, mesh);
 
       const geometry = mesh.geometry;
       const instanceCount = instancing ? (mesh as InstancedMesh).count : geometry.instanceCount;
@@ -391,67 +403,27 @@ export class WebGPURenderer {
     if (samplerLayout) groupLayouts.push(samplerLayout);
     const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: groupLayouts });
 
-    // One slot per shader attribute, matching the WGSL `VertexInput` struct's
-    // `@location` numbering (a mat4 attribute spans four consecutive ones).
-    const vertexFormats: PipelineEntry["vertexFormats"] = [];
-    let shaderLocation = 0;
-    for (const attribute of program.attributes) {
-      if (attribute.node._t === "mat4") {
-        // An InstancedMesh's instanceMatrix is a 64-byte record per instance;
-        // its four columns feed locations n..n+3 as float32x4.
-        const columns: VertexBufferLayout["attributes"] = [];
-        for (let i = 0; i < 4; i++) {
-          columns.push({ shaderLocation: shaderLocation + i, offset: i * 16, format: "float32x4" });
-        }
-        vertexFormats.push({
-          name: attribute.name,
-          stepMode: attribute.stepMode,
-          arrayStride: 64,
-          attributes: columns,
-        });
-        shaderLocation += 4;
-      } else {
-        const format = vertexFormatFromType(attribute.node._t);
-        vertexFormats.push({
-          name: attribute.name,
-          stepMode: attribute.stepMode,
-          arrayStride: strideForFormat(format),
-          attributes: [{ shaderLocation, offset: 0, format }],
-        });
-        shaderLocation += 1;
-      }
-    }
-
     const cullMode: GPUCullMode =
       material.side === Side.FrontSide ? "back" : material.side === Side.BackSide ? "front" : "none";
 
-    const pipeline = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: {
-        module: vertexModule,
-        entryPoint: "main",
-        buffers: vertexFormats.map((v) => ({
-          arrayStride: v.arrayStride,
-          stepMode: v.stepMode,
-          attributes: v.attributes,
-        })),
-      },
-      fragment: {
-        module: fragmentModule,
-        entryPoint: "main",
-        targets: [{ format: this.format }],
-      },
-      primitive: { topology: "triangle-list", cullMode },
-      depthStencil: {
-        format: "depth24plus",
-        depthWriteEnabled: true,
-        depthCompare: "less",
-      },
-    });
-
     const built: PipelineEntry = {
       program,
-      pipeline,
+      pipelineDescriptor: {
+        layout: pipelineLayout,
+        vertexModule,
+        fragment: {
+          module: fragmentModule,
+          entryPoint: "main",
+          targets: [{ format: this.format }],
+        },
+        primitive: { topology: "triangle-list", cullMode },
+        depthStencil: {
+          format: "depth24plus",
+          depthWriteEnabled: true,
+          depthCompare: "less",
+        },
+      },
+      variants: new Map(),
       bindGroup: device.createBindGroup({
         layout: uniformLayout,
         entries: [{ binding: 0, resource: { buffer: ringBuffer, offset: 0, size: slotSize } }],
@@ -465,7 +437,6 @@ export class WebGPURenderer {
       slotSize,
       slots,
       layoutMembers,
-      vertexFormats,
     };
     this.bindTextures(built);
     if (!bySignature) {
@@ -625,13 +596,73 @@ export class WebGPURenderer {
     return buffers;
   }
 
-  private setVertexBuffers(pass: GPURenderPassEncoder, entry: PipelineEntry, mesh: Mesh): void {
+  /**
+   * The render pipeline of `entry` for the vertex formats `mesh` holds its
+   * attributes in, made on first use. One slot per shader attribute, matching
+   * the WGSL `VertexInput` struct's `@location` numbering, with the formats
+   * resolved as `WebGLRenderer` resolves them.
+   */
+  private pipelineVariant(entry: PipelineEntry, mesh: Mesh): PipelineVariant {
+    let key = "";
+    for (const attribute of entry.program.attributes) {
+      key += `${this.formatOf(attribute, mesh)},`;
+    }
+    const cached = entry.variants.get(key);
+    if (cached) return cached;
+    const vertexFormats: VertexBufferLayout[] = [];
+    let shaderLocation = 0;
+    for (const attribute of entry.program.attributes) {
+      const columns = attribute.node._t === "mat4" ? 4 : 1;
+      const format = this.formatOf(attribute, mesh);
+      const { count, bytes } = VERTEX_FORMATS[format];
+      const locations: VertexBufferLayout["attributes"] = [];
+      for (let i = 0; i < columns; i++) {
+        locations.push({ shaderLocation: shaderLocation + i, offset: i * count * bytes, format });
+      }
+      vertexFormats.push({
+        name: attribute.name,
+        stepMode: attribute.stepMode,
+        arrayStride: columns * count * bytes,
+        attributes: locations,
+      });
+      shaderLocation += columns;
+    }
+    const { vertexModule, ...descriptor } = entry.pipelineDescriptor;
+    const variant = {
+      pipeline: this.device.createRenderPipeline({
+        ...descriptor,
+        vertex: {
+          module: vertexModule,
+          entryPoint: "main",
+          buffers: vertexFormats.map((layout) => ({
+            arrayStride: layout.arrayStride,
+            stepMode: layout.stepMode,
+            attributes: layout.attributes,
+          })),
+        },
+      }),
+      vertexFormats,
+    };
+    entry.variants.set(key, variant);
+    return variant;
+  }
+
+  /** The vertex format `mesh` holds the attribute of the program in, or the one its shader type implies. */
+  private formatOf(attribute: MaterialProgram["attributes"][number], mesh: Mesh): VertexFormat {
+    const columns = attribute.node._t === "mat4" ? 4 : 1;
+    const attr = geometryAttribute(mesh, mesh.geometry, attribute.name);
+    return attr
+      ? vertexFormatOf(attr, attr.itemSize / columns)
+      : vertexFormatFromType(columns === 4 ? "vec4" : attribute.node._t);
+  }
+
+  private setVertexBuffers(pass: GPURenderPassEncoder, variant: PipelineVariant, mesh: Mesh): void {
     const buffers = this.ensureGeometryBuffers(mesh.geometry);
     // Each `vertexFormats` entry is one vertex buffer slot, so the buffer is
     // bound at its slot index (the loop position) rather than any shader
     // location — a mat4 entry spans several locations from a single buffer.
-    for (let slot = 0; slot < entry.vertexFormats.length; slot++) {
-      const layout = entry.vertexFormats[slot];
+    for (let slot = 0; slot < variant.vertexFormats.length; slot++) {
+      const layout = variant.vertexFormats[slot];
       const buffer = this.attributeBuffer(mesh, layout.name, buffers);
       if (buffer) pass.setVertexBuffer(slot, buffer);
     }
@@ -849,7 +880,7 @@ function samplerKey(state: SamplerState): string {
   return `${state.magFilter}|${state.minFilter}|${state.wrapS}|${state.wrapT}|${state.wrapR}`;
 }
 
-function vertexFormatFromType(type: string): GPUVertexFormat {
+function vertexFormatFromType(type: string): VertexFormat {
   switch (type) {
     case "float":
       return "float32";
@@ -861,19 +892,6 @@ function vertexFormatFromType(type: string): GPUVertexFormat {
       return "float32x4";
     default:
       return "float32x3";
-  }
-}
-
-function strideForFormat(format: GPUVertexFormat): number {
-  switch (format) {
-    case "float32":
-      return 4;
-    case "float32x2":
-      return 8;
-    case "float32x3":
-      return 12;
-    default:
-      return 16;
   }
 }
 

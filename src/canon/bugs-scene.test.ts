@@ -261,13 +261,12 @@ describe("known bugs of the scene library, each failing until its fix", () => {
   });
 
   /**
-   * The WebGPU renderer takes an attribute's vertex format from the type the
-   * shader declares, so a normalized `Uint8Array` `vec4` is read as
-   * `float32x4` with a 16-byte stride.
+   * The WebGPU renderer reads a normalized `Uint8Array` `vec4` as `unorm8x4`
+   * with a 4-byte stride.
    *
-   * @canon bug-webgpu-reads-every-attribute-as-float32
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
    */
-  it.fails("reads a normalized byte attribute as unorm8x4 on WebGPU", () => {
+  it("reads a normalized byte attribute as unorm8x4 on WebGPU", () => {
     const { device, canvas, pipelines } = stubDevice();
     const renderer = new WebGPURenderer(canvas, device as any);
     const geometry = new PlaneGeometry();
@@ -289,6 +288,55 @@ describe("known bugs of the scene library, each failing until its fix", () => {
       buffer.attributes.some((a: any) => a.format === "unorm8x4" || a.format === "float32x4"),
     );
     expect(tint).toMatchObject({ arrayStride: 4, attributes: [{ format: "unorm8x4" }] });
+  });
+
+  /**
+   * Meshes that share a material and hold an attribute in different formats
+   * each draw with a pipeline that reads it in its own, whether the formats
+   * differ by array type or by width, and a mesh's attributes that the
+   * program never reads do not make another pipeline.
+   *
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   */
+  it("draws meshes that hold an attribute in different formats with a pipeline each on WebGPU", () => {
+    const { device, canvas, pipelines, passes } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any);
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => b.varying("tint", "vec4");
+    material.vertexNode = (b) => {
+      b.varying("tint", "vec4").assign(b.attribute("tint", "vec4"));
+      return b.projectionMatrix.mul(b.viewMatrix.mul(b.modelMatrix.mul(vec4(b.position, 1))));
+    };
+    const tints = [
+      new BufferAttribute(new Uint8Array(16).fill(255), 4, true),
+      new BufferAttribute(new Float32Array(16), 4),
+      new BufferAttribute(new Float32Array(12), 3),
+      new BufferAttribute(new Float32Array(16), 4),
+    ];
+    const scene = new Scene();
+    tints.forEach((tint, i) => {
+      const geometry = new PlaneGeometry();
+      geometry.setAttribute("tint", tint);
+      // No program reads this one, and it differs between meshes.
+      geometry.setAttribute(
+        "unused",
+        new BufferAttribute(i % 2 ? new Uint8Array(4) : new Float32Array(4), 4, i % 2 === 1),
+      );
+      scene.add(new Mesh(geometry, material));
+    });
+    renderer.render(scene, camera());
+
+    const formatOf = (pipeline: any) =>
+      pipeline.vertex.buffers.flatMap((b: any) => b.attributes.map((a: any) => a.format));
+    const used = passes.map((pass) => pass.calls.find((c) => c.name === "setPipeline")!.args[0]);
+    expect(used.map(formatOf)).toEqual([
+      ["unorm8x4", "float32x3"],
+      ["float32x4", "float32x3"],
+      ["float32x3", "float32x3"],
+      ["float32x4", "float32x3"],
+    ]);
+    expect(used[3]).toBe(used[1]);
+    expect(pipelines).toHaveLength(3);
   });
 
   /**
