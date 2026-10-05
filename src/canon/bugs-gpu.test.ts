@@ -8,6 +8,7 @@ import {
   int,
   invocationIndex,
   ivec2,
+  vec2,
   ivec3,
   select,
   uniform,
@@ -325,23 +326,59 @@ describe("known GPU bugs, each failing until its fix", () => {
   });
 
   /**
-   * Each render stage numbers its textures from binding 0 of group 1, so a
-   * vertex and a fragment stage reading different textures bind both at one
-   * place.
+   * Given the textures of the whole program, a vertex and a fragment stage
+   * that read different textures bind them at different bindings, and a
+   * texture has the same binding in both stages.
    *
-   * @canon bug-two-render-stages-bind-different-textures-at-one-binding
+   * @canon spec-a-texture-keeps-a-binding-of-its-own
    */
-  it.fails("binds two textures read by different render stages at different bindings on WGSL", () => {
+  it("binds two textures read by different render stages at different bindings on WGSL", () => {
     const near = uniform("isampler2D");
     const far = uniform("isampler2D");
     const vertex = Fn(() => {
       builtinPosition().assign(vec4(near.texture(ivec2(0, 0)).x.toFloat(), 0, 0, 1));
     })();
     const fragment = Fn(() => vec4(far.texture(ivec2(0, 0)).x.toFloat(), 0, 0, 1))();
-    const vertexCode = compileWgsl.vertex(vertex);
-    const fragmentCode = compileWgsl.fragment(fragment);
+    const samplers = [near, far].map((node) => ({ slot: node.name, type: "isampler2D" }));
+    const vertexCode = compileWgsl.vertex(vertex, { samplers });
+    const fragmentCode = compileWgsl.fragment(fragment, { samplers });
     expect(bindingOf(vertexCode, near.name)).toBeDefined();
-    expect(bindingOf(vertexCode, near.name)).not.toBe(bindingOf(fragmentCode, far.name));
+    expect(bindingOf(vertexCode, near.name)).not.toBe(bindingOf(vertexCode, far.name));
+    expect(bindingOf(vertexCode, near.name)).toBe(bindingOf(fragmentCode, near.name));
+    expect(bindingOf(vertexCode, far.name)).toBe(bindingOf(fragmentCode, far.name));
+  });
+
+  /**
+   * A texture sampled in the vertex stage is read at level 0, because only a
+   * fragment stage has the derivatives that pick a level, and a stage
+   * numbers the samplers of the textures it samples in the order of their
+   * names.
+   *
+   * @canon spec-a-texture-is-bound-to-every-stage-that-samples-it
+   */
+  it("samples a texture in the vertex stage at level 0, and numbers samplers by name on WGSL", () => {
+    const zebra = uniformRaw("zebra", "sampler2D");
+    const apple = uniformRaw("apple", "sampler2D");
+    const vertex = Fn(() => {
+      builtinPosition().assign(vec4(zebra.texture(vec2(0, 0)).x.add(apple.texture(vec2(0, 0)).x), 0, 0, 1));
+    })();
+    const code = compileWgsl.vertex(vertex);
+    expect(code).toContain("textureSampleLevel(");
+    expect(code).not.toMatch(/textureSample\(/);
+    expect(bindingOf(code, `${apple.name}_s`)).toBe("2:0");
+    expect(bindingOf(code, `${zebra.name}_s`)).toBe("2:1");
+  });
+
+  /**
+   * A texture of a sampler type that WGSL has no texture for is refused.
+   *
+   * @canon spec-a-texture-keeps-a-binding-of-its-own
+   */
+  it("refuses a sampler of a type WGSL has no texture for", () => {
+    const vertex = Fn(() => {
+      builtinPosition().assign(vec4(0, 0, 0, 1));
+    })();
+    expect(() => compileWgsl.vertex(vertex, { samplers: [{ slot: "map", type: "sampler9D" }] })).toThrow(/sampler9D/);
   });
 
   /**
@@ -482,13 +519,9 @@ describe.skipIf(!GPU_ENABLED)("createGlsl in a browser", () => {
    *
    * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute
    */
-  it(
-    "takes the count of a createGlsl draw from the first attribute",
-    async () => {
-      expect(await glslEntry("firstAttributeCount")).toEqual(GREEN);
-    },
-    120_000,
-  );
+  it("takes the count of a createGlsl draw from the first attribute", async () => {
+    expect(await glslEntry("firstAttributeCount")).toEqual(GREEN);
+  }, 120_000);
 });
 
 describe.skipIf(!WEBGPU)("createWgsl in a browser", () => {
@@ -522,13 +555,9 @@ describe.skipIf(!WEBGPU)("createWgsl in a browser", () => {
    *
    * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute
    */
-  it(
-    "takes the count of a createWgsl draw from the first attribute",
-    async () => {
-      expect(await wgslEntry("firstAttributeCount")).toEqual(GREEN);
-    },
-    120_000,
-  );
+  it("takes the count of a createWgsl draw from the first attribute", async () => {
+    expect(await wgslEntry("firstAttributeCount")).toEqual(GREEN);
+  }, 120_000);
 });
 
 describe.skipIf(!GPU_ENABLED)("WGSL compute keeps a buffer for each slot", () => {

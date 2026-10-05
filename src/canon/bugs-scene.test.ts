@@ -482,15 +482,13 @@ describe("known bugs of the scene library, each failing until its fix", () => {
   });
 
   /**
-   * The WebGPU renderer numbers sampler bindings in the order the material
-   * registers samplers, counting ones it never samples, where the compiler
-   * numbers them in the order the graph samples them, so a draw reads its
-   * textures through the wrong samplers or fails to bind.
+   * The WebGPU renderer binds each texture and sampler at the binding the
+   * compiled WGSL declares it at, in both stages.
    *
-   * @canon bug-webgpu-numbers-samplers-unlike-the-compiler
+   * @canon spec-each-sampler-gets-its-own-texture
    */
-  it.fails("numbers texture and sampler bindings as the compiled WGSL does on WebGPU", () => {
-    const { device, canvas } = stubDevice();
+  it("numbers texture and sampler bindings as the compiled WGSL does on WebGPU", () => {
+    const { device, canvas, pipelines } = stubDevice();
     const renderer = new WebGPURenderer(canvas, device as any) as any;
     const material = new MeshBasicMaterial();
     const texture = () => new DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
@@ -500,8 +498,11 @@ describe("known bugs of the scene library, each failing until its fix", () => {
       const second = b.sampler("second", texture);
       return second.texture(vec2(0.5, 0.5)).add(first.texture(vec2(0.5, 0.5)));
     };
-    const entry = renderer.ensurePipeline(material, new Scene(), false, false);
-    const wgsl = compileWgsl.fragment(entry.program.fragmentRoot);
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(), material));
+    renderer.render(scene, camera());
+    const entry = [...renderer.pipelines.get(material).values()][0];
+    const wgsl = pipelines[0].fragment.module.code;
 
     const declared = (group: number) =>
       [...wgsl.matchAll(new RegExp(`@group\\(${group}\\) @binding\\((\\d+)\\) var (\\w+)`, "g"))].map(
@@ -509,18 +510,19 @@ describe("known bugs of the scene library, each failing until its fix", () => {
       );
     const bound = (bindings: { name: string; binding: number }[], suffix: string) =>
       bindings.map((b) => `${b.name}${suffix}@${b.binding}`);
-    const samplerSuffix = declared(2)[0].replace(/^second|@\d+$/g, "");
+    const samplerSuffix = "_s";
     expect(bound(entry.textureBindings, "").sort()).toEqual(declared(1).sort());
     expect(bound(entry.samplerBindings, samplerSuffix).sort()).toEqual(declared(2).sort());
   });
 
   /**
-   * The WebGPU renderer makes every texture and sampler binding visible to the
-   * fragment stage alone, so a texture sampled in `positionNode` cannot bind.
+   * The WebGPU renderer makes a texture and its sampler visible to the vertex
+   * stage as well as the fragment stage, so a texture sampled in
+   * `positionNode` binds.
    *
-   * @canon bug-webgpu-binds-textures-to-the-fragment-stage-only
+   * @canon spec-a-texture-is-bound-to-every-stage-that-samples-it
    */
-  it.fails("binds a texture sampled in the vertex stage to the vertex stage on WebGPU", () => {
+  it("binds a texture sampled in the vertex stage to the vertex stage on WebGPU", () => {
     const { device, canvas, layouts } = stubDevice();
     const renderer = new WebGPURenderer(canvas, device as any) as any;
     const height = new DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
@@ -530,6 +532,7 @@ describe("known bugs of the scene library, each failing until its fix", () => {
 
     const textureLayout = layouts.find((l) => l.entries.some((e: any) => e.texture))!;
     expect(textureLayout.entries[0].visibility & 1).toBe(1);
+    expect(textureLayout.entries[0].visibility & 2).toBe(2);
   });
 
   /**

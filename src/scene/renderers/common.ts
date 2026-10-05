@@ -1,3 +1,4 @@
+import { isIntegerSamplerType } from "../../core";
 import { Matrix3 } from "../math/Matrix3";
 import type { Camera } from "../cameras/Camera";
 import type { Mesh } from "../objects/Mesh";
@@ -236,7 +237,7 @@ function textureWrap(wrap: number): TextureWrap {
 
 /** Whether a sampler type reads an integer texture (unfiltered texels). */
 export function isIntegerSampler(type: string): boolean {
-  return type.startsWith("isampler") || type.startsWith("usampler");
+  return isIntegerSamplerType(type);
 }
 
 /**
