@@ -219,6 +219,35 @@ provided a test exercises them.
 The further down that table, the more your test needs to go through
 `src/usage.test.ts`.
 
+## Issues and labels
+
+Every defect is an issue, and an issue found while reviewing a change gets its own issue too, even when the change merges. A defect that breaks a spec of `CANON.md` is also a `@bug` unit in that spec, with an `it.fails` test that pins it. A difference between targets that a platform fact forces is an `@exception` that cites the fact, and one that no fact forces is a `@bug`.
+
+### Severity
+
+An issue that reports a defect, or a cost to the project such as performance or the test harness, carries one severity label. A `discuss` issue, a `question` and a feature request carry none. The label says how much a user loses, not how hard the fix is.
+
+| Label          | Meaning                                                                                                                     | Examples                                                                    |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `severity: P0` | A correct program gives a wrong result, or compiles to code a driver refuses, on a path people use by default.              | A buffer packed wrongly, a renderer reading the wrong attribute type        |
+| `severity: P1` | The same in a common but narrower case, or a default API that fails when called as documented. Fix before the next release. | `createWasmRoutine` failing by default, a uniform read from the wrong place |
+| `severity: P2` | An edge case, a difference between targets, a missing refusal, or a feature a target lacks.                                 | An out-of-range read that differs between JS and WASM                       |
+| `severity: P3` | Performance, allocation, the test harness, types, or cleanup. No program computes a wrong result because of it.             | A JS routine that allocates on every call                                   |
+
+Rank by what a user of the default path sees, and within a level put the silent failure, a wrong result with no error, above the loud one.
+
+### Other labels
+
+| Label           | Meaning                                                                                              |
+| --------------- | ---------------------------------------------------------------------------------------------------- |
+| `bug`           | The code breaks a spec of the canon, or a behaviour that every target should share.                  |
+| `enhancement`   | A feature, a rename the owner ruled for, or a cleanup. It breaks no spec.                            |
+| `discuss`       | A design question the canon does not decide. The owner settles it, and the canon records the answer. |
+| `question`      | A narrower question about intent, usually found in review, that needs the owner's answer.            |
+| `documentation` | A document that names something that no longer exists or says something false.                       |
+
+The descriptions of these labels on GitHub are the first sentence of each row.
+
 ## Pull requests
 
 `pnpm type-check` and a full `pnpm test` with validation on. One logical change
