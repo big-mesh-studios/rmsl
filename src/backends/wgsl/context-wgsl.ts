@@ -1,6 +1,5 @@
 import {
   isSamplerType,
-  MATRIX_DIMENSIONS,
   someNode,
   type ComputeNode,
   type StorageBufferAttribute,
@@ -10,6 +9,7 @@ import {
   type UniformNode,
   type UniformValue,
 } from "../../core";
+import { spread, storageLayout, type StorageLayout } from "./storage-layout";
 import { compile, type WgslResource } from "../../wgsl";
 import { slotOf, type TypedArray } from "../adapter";
 import { assertWriteFits } from "../shared";
@@ -81,39 +81,6 @@ type CompiledProgram = {
 /** Whether any node reachable from `root` is a texture, which the context has no binding for. */
 function samplesTextures(root: Node<ShaderType>): boolean {
   return someNode(root, (node) => typeof node._t === "string" && isSamplerType(node._t));
-}
-
-/**
- * Where an attribute's values sit in its GPU buffer, in 32-bit slots. WGSL
- * gives a `vec3`, and each column of three in a matrix, the room of four, so
- * those leave one slot empty after every three values; every other element
- * type is laid out as the attribute holds it.
- */
-type StorageLayout = {
-  /** Slots per element. */
-  stride: number;
-  /** The slot holding the attribute's value `k`. */
-  slot(k: number): number;
-};
-
-function storageLayout(attribute: StorageBufferAttribute): StorageLayout {
-  const { itemSize, elementType } = attribute;
-  const rows = (elementType && MATRIX_DIMENSIONS[elementType]?.[1]) ?? itemSize;
-  if (rows !== 3) return { stride: itemSize, slot: (k) => k };
-  const stride = (itemSize / 3) * 4;
-  return {
-    stride,
-    slot: (k) => Math.floor(k / itemSize) * stride + Math.floor((k % itemSize) / 3) * 4 + (k % 3),
-  };
-}
-
-/** `values`, the attribute's values from value `first` on, spread into the slots `layout` gives them. */
-function spread(values: TypedArray, first: number, layout: StorageLayout): { slot: number; data: TypedArray } {
-  if (values.length === 0) return { slot: 0, data: values };
-  const slot = layout.slot(first);
-  const data = new (values.constructor as Float32ArrayConstructor)(layout.slot(first + values.length - 1) - slot + 1);
-  for (let k = 0; k < values.length; k++) data[layout.slot(first + k) - slot] = values[k]!;
-  return { slot, data };
 }
 
 /**

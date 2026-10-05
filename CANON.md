@@ -349,6 +349,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-uniform-takes-the-type-it-names`](#spec-a-uniform-takes-the-type-it-names) — `uniform(type)` declares a uniform of the type it names on every target.
     - [`@exception a-uniform-holds-no-value`](#exception-a-uniform-holds-no-value) — `uniform(type)` and `uniformArray(type, length)` take a type where TSL's take values. The uniform holds no value, and the host passes one at each call.
   - [`@spec a-storage-buffer-follows-tsl`](#spec-a-storage-buffer-follows-tsl) — `storage(attribute, type)`, `instancedArray` and `attributeArray` make a [storage buffer](#term-storage-buffer) node over a buffer of typed elements, as TSL's functions of the same names do.
+    - [`@spec a-wgsl-storage-buffer-holds-a-vec3-in-16-bytes`](#spec-a-wgsl-storage-buffer-holds-a-vec3-in-16-bytes) — A WGSL storage buffer of `vec3` elements holds each element in 16 bytes. The host passes and reads the components as one flat typed array, with no padding. This holds for `createWgslCompute` and for a `createWgsl` with storage of its own.
     - [`@spec an-instanced-array-takes-its-count-from-a-number-or-its-data`](#spec-an-instanced-array-takes-its-count-from-a-number-or-its-data) — `instancedArray(count, type)` makes a buffer of `count` elements, whose host array holds zeros. `instancedArray(data, type)` takes its count and contents from a typed array.
       - [`@bug an-instanced-array-of-a-count-keeps-no-host-array`](#bug-an-instanced-array-of-a-count-keeps-no-host-array) — `instancedArray(count, type)` and `attributeArray(count, type)` keep no host array: `attribute.array` is `null`.
     - [`@spec a-buffer-holds-one-element-type`](#spec-a-buffer-holds-one-element-type) — A buffer holds one element type, named by the first storage node over it. A node of another type over it is refused. So is a type its item size or array class cannot hold, and a typed array that is not a whole number of elements.
@@ -356,8 +357,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-storage-node-is-read-write-until-to-read-only`](#spec-a-storage-node-is-read-write-until-to-read-only) — A program can read and write a storage node until `toReadOnly()`, which makes it read-only and returns it. The element of a node, by a number or an `int`, has the element type.
     - [`@spec nodes-over-one-buffer-share-one-binding`](#spec-nodes-over-one-buffer-share-one-binding) — Several storage nodes over one buffer compile to one binding, with the widest access any of them needs.
     - [`@exception a-vec3-storage-element-is-padded-only-on-the-gpu`](#exception-a-vec3-storage-element-is-padded-only-on-the-gpu) — A `vec3` element, or a matrix with columns of three, keeps its packed layout on its attribute and in what the host reads back. Only the WGSL buffer pads each to 16 bytes, where TSL pads the attribute itself.
-    - [`@bug wgsl-compute-packs-a-vec3-storage-buffer`](#bug-wgsl-compute-packs-a-vec3-storage-buffer) — `createWgslCompute` sizes and fills a storage buffer from the packed length of what `setAttribute` gives it. A `vec3` buffer, which WGSL pads to 16 bytes an element, ends up too small, with its elements misplaced.
-    - [`@bug the-wgsl-adapter-packs-its-own-vec3-storage-buffer`](#bug-the-wgsl-adapter-packs-its-own-vec3-storage-buffer) — `createWgsl` without a context sizes and fills its own storage buffer packed. A `vec3` buffer, which WGSL pads to 16 bytes an element, ends up too small, with its elements misplaced.
     - [`@spec a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array`](#spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array) — `setAttribute` on a compute adapter takes a storage buffer as one typed array, which holds the components of its elements one after another.
       - [`@bug the-cpu-compute-adapters-take-a-vector-storage-element-as-an-array`](#bug-the-cpu-compute-adapters-take-a-vector-storage-element-as-an-array) — `createJsCompute` and `createWasmCompute` read a vector storage buffer as one array per element. A flat typed array from `setAttribute` ends up as `NaN`.
   - [`@spec compute-follows-tsl`](#spec-compute-follows-tsl) — `fn().compute(count, workgroupSize)` and `compute(node, count, workgroupSize)` make a [compute node](#term-compute-node), dispatched once for each index below `count`, as TSL's `compute` does.
@@ -415,7 +414,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec compute-refuses-a-slot-with-no-storage`](#spec-compute-refuses-a-slot-with-no-storage) — `compute(out)` refuses a slot that the program has no storage buffer for.
     - [`@spec a-wasm-routine-copies-back-only-the-buffers-the-program-writes`](#spec-a-wasm-routine-copies-back-only-the-buffers-the-program-writes) — A WASM routine marks a storage buffer as written only when its program assigns to it, and copies back only the buffers so marked.
     - [`@spec setting-one-storage-slot-keeps-the-others`](#spec-setting-one-storage-slot-keeps-the-others) — `setAttribute` on one storage slot of a compute adapter leaves what the other slots hold.
-      - [`@bug wgsl-compute-drops-other-slots-when-one-changes-length`](#bug-wgsl-compute-drops-other-slots-when-one-changes-length) — `createWgslCompute.setAttribute` rebuilds every storage buffer when one slot's length differs from the last, so the slots set before it lose their data.
     - [`@spec a-wasm-routine-copies-back-a-buffer-another-node-reads-only`](#spec-a-wasm-routine-copies-back-a-buffer-another-node-reads-only) — A WASM routine copies back a buffer the program writes through one node, even when another node over that buffer is read-only.
   - [`@spec an-adapter-has-no-method-for-a-capability-its-target-lacks`](#spec-an-adapter-has-no-method-for-a-capability-its-target-lacks) — A GLSL adapter has no `compute`, and a call to it is a type error.
   - [`@spec glsl-takes-a-precision`](#spec-glsl-takes-a-precision) — A GLSL compile declares the precision the caller asks for, `highp` by default, for `float` and for every sampler the shader declares, integer samplers included. An unknown precision is refused.
@@ -2646,6 +2644,14 @@ Derives from: [`fact-tsl-storage-wraps-a-buffer-attribute`](#fact-tsl-storage-wr
 
 This follows because a TSL compute shader ports only if its buffers mean the same.
 
+#### @spec a-wgsl-storage-buffer-holds-a-vec3-in-16-bytes
+
+> A WGSL storage buffer of `vec3` elements holds each element in 16 bytes. The host passes and reads the components as one flat typed array, with no padding. This holds for `createWgslCompute` and for a `createWgsl` with storage of its own.
+
+Derives from: [`fact-a-wgsl-storage-vec3-takes-16-bytes`](#fact-a-wgsl-storage-vec3-takes-16-bytes)
+
+This follows because the shader indexes a `vec3` array 16 bytes at a time, and the host passes the components as TSL's attribute holds them.
+
 #### @spec an-instanced-array-takes-its-count-from-a-number-or-its-data
 
 > `instancedArray(count, type)` makes a buffer of `count` elements, whose host array holds zeros. `instancedArray(data, type)` takes its count and contents from a typed array.
@@ -2683,18 +2689,6 @@ Derives from: [`fact-wgsl-cannot-share-a-bool-with-the-host`](#fact-wgsl-cannot-
 > A `vec3` element, or a matrix with columns of three, keeps its packed layout on its attribute and in what the host reads back. Only the WGSL buffer pads each to 16 bytes, where TSL pads the attribute itself.
 
 Derives from: [`fact-a-wgsl-storage-vec3-takes-16-bytes`](#fact-a-wgsl-storage-vec3-takes-16-bytes)
-
-#### @bug wgsl-compute-packs-a-vec3-storage-buffer
-
-> `createWgslCompute` sizes and fills a storage buffer from the packed length of what `setAttribute` gives it. A `vec3` buffer, which WGSL pads to 16 bytes an element, ends up too small, with its elements misplaced.
-
-Issue: #105
-
-#### @bug the-wgsl-adapter-packs-its-own-vec3-storage-buffer
-
-> `createWgsl` without a context sizes and fills its own storage buffer packed. A `vec3` buffer, which WGSL pads to 16 bytes an element, ends up too small, with its elements misplaced.
-
-Issue: #105
 
 #### @spec a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array
 
@@ -2989,12 +2983,6 @@ This follows because a copy back from the GPU costs a round trip, and a buffer t
 > `setAttribute` on one storage slot of a compute adapter leaves what the other slots hold.
 
 This follows because each slot is its own buffer, and the host sets each one apart.
-
-##### @bug wgsl-compute-drops-other-slots-when-one-changes-length
-
-> `createWgslCompute.setAttribute` rebuilds every storage buffer when one slot's length differs from the last, so the slots set before it lose their data.
-
-Issue: #105
 
 #### @spec a-wasm-routine-copies-back-a-buffer-another-node-reads-only
 
