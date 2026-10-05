@@ -671,6 +671,7 @@ function jsAssignable(node: any, ctx: CompileCtx): CompiledNode & { at(k: string
     let target = compileJSStage(node, ctx);
     return { ...target, at: (k) => `${target.expr}[${k}]` };
   }
+  assertLiteralIndexInRange(node.params![0], node.params![1]);
   let mat = compileJSStage(node.params![0], ctx);
   let idx = compileJSStage(node.params![1], ctx);
   let [columns, rows] = MATRIX_DIMENSIONS[node.params![0]._t];
@@ -1808,6 +1809,7 @@ export function compileJSNode(
         let base = jsAssignable(parts.base, ctx);
         let components = parts.components ?? [];
         if (parts.index) {
+          assertLiteralIndexInRange(parts.base, parts.index);
           let idx = compileJSStage(parts.index, ctx);
           base = { ...base, decls: [...base.decls, ...idx.decls], body: [...base.body, ...idx.body] };
           components = [jsBoundedIndex(idx.expr, TYPE_WIDTH[parts.base._t])];

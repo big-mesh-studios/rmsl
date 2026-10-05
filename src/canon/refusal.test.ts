@@ -274,8 +274,9 @@ describe("a mistake is refused before the program runs", () => {
 
   /**
    * A literal index outside the components of a vector or the columns of a
-   * matrix is refused as the element is made, before any target compiles it,
-   * for a read and for a write. An index inside them compiles on every target.
+   * matrix is refused by every target when it compiles the element, for a read
+   * and for a write, and for the component of a column too. An index inside
+   * them compiles on every target.
    *
    * @canon spec-a-constant-index-outside-a-vector-or-matrix-is-refused
    */
@@ -296,6 +297,25 @@ describe("a mistake is refused before the program runs", () => {
       ["JS", (build) => cpuCompilers[0]!(build)],
       ["WASM", (build) => cpuCompilers[1]!(build)],
     ];
+    const writeColumn = (index: number) => () =>
+      Fn(() => {
+        const m = threeColumns().toVar();
+        m.element(int(index)).assign(vec3(1, 2, 3));
+        return vec4(0);
+      })();
+    const writeComponent = (column: number, component: number) => () =>
+      Fn(() => {
+        const m = threeColumns().toVar();
+        m.element(int(column)).element(int(component)).assign(float(1));
+        return vec4(0);
+      })();
+    for (const [name, compile] of compilers) {
+      expect(() => compile(writeColumn(2)), `${name} write column 2`).not.toThrow();
+      expect(() => compile(writeColumn(3)), `${name} write column 3`).toThrow(/index 3 is outside a mat3's columns 0 to 2/);
+      expect(() => compile(writeComponent(1, 2)), `${name} write component 2`).not.toThrow();
+      expect(() => compile(writeComponent(3, 0)), `${name} write column 3 component 0`).toThrow(/index 3 is outside a mat3's columns/);
+      expect(() => compile(writeComponent(0, 3)), `${name} write component 3`).toThrow(/index 3 is outside a vec3's components 0 to 2/);
+    }
     for (const [name, compile] of compilers) {
       expect(() => compile(read(2)), `${name} read 2`).not.toThrow();
       expect(() => compile(read(3)), `${name} read 3`).toThrow(/index 3 is outside a vec3's components 0 to 2/);

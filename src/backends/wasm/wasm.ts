@@ -1690,7 +1690,7 @@ export function compileWasmFn(
    * WGSL and GLSL compile it.
    */
   function constantIndex(target: any, index: any): number {
-    return assertLiteralIndexInRange(target, index) ?? Math.trunc(Number(index.value));
+    return assertLiteralIndexInRange(target, index)!;
   }
 
   /**

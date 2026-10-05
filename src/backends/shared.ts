@@ -666,9 +666,7 @@ export function assertLiteralIndexInRange(target: { _t?: string }, index: BaseNo
   const count = shape ? shape[0] : componentCountOf(type);
   const k = Math.trunc(Number(index.value));
   if (!(k >= 0 && k < count)) {
-    throw new Error(
-      `[RMSL] index ${index.value} is outside a ${type}'s ${shape ? "columns" : "components"} 0 to ${count - 1}`,
-    );
+    throw new Error(`[RMSL] index ${k} is outside a ${type}'s ${shape ? "columns" : "components"} 0 to ${count - 1}`);
   }
   return k;
 }
