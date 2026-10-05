@@ -570,13 +570,25 @@ describe("known WASM bugs, each failing until its fix", () => {
   });
 
   /**
-   * The WASM target refuses a fragment stage that returns nothing, with "only
-   * supports a scalar result", though a fragment stage with no colour compiles
-   * on every other target.
+   * `compileWasm` demands that the fragment stage return a `vec4`, so a
+   * fragment stage that returns nothing cannot draw, though GLSL and WGSL
+   * compile it.
    *
-   * @canon bug-wasm-refuses-a-fragment-stage-that-returns-nothing
+   * @canon bug-wasm-rasterizer-refuses-a-fragment-stage-that-writes-no-colour
    */
-  it.fails("compiles a fragment stage that returns nothing on WASM", () => {
-    expect(() => compileWasmRoutine(() => Fn(() => {})() as any, { ...none, stage: "fragment" })).not.toThrow();
+  it.fails("compiles a vertex and a fragment stage that writes no colour on WASM", () => {
+    const pos = attribute("vec3");
+    const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))();
+    const refusal = /fragmentFn must return a vec4/;
+    expect(() => compileWasm(vertex as any, (() => Fn(() => {})()) as any)).not.toThrow(refusal);
+    expect(() =>
+      compileWasm(
+        vertex as any,
+        (() =>
+          Fn(() => {
+            builtinFragDepth().assign(float(0.5));
+          })()) as any,
+      ),
+    ).not.toThrow(refusal);
   });
 });
