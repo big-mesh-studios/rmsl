@@ -4031,7 +4031,12 @@ export function instantiateWasmRoutine(
     writeBackStorages(ctx);
   }
 
-  return { run, draw, compute };
+  const storageTypes = {} as Record<string, ShaderType>;
+  for (const p of params) {
+    if (p.kind === "storageMemory") storageTypes[p.slot] = p.shaderType;
+  }
+
+  return { run, draw, compute, storageTypes };
 }
 
 /** Compiles an `Fn` to WASM and instantiates it in one step — see `instantiateWasmRoutine`. */

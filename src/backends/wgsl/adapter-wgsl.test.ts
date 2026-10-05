@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { Fn, instancedArray, invocationIndex, uint, uniform } from "../../rmsl";
+import { Fn, instancedArray, int, invocationIndex, uint, uniform, vec4 } from "../../rmsl";
 import { createWgslCompute } from "./adapter-wgsl";
 import { GPU_ENABLED, installWebGpuGlobals } from "../../testing/gpu";
 
@@ -122,6 +122,90 @@ describe.skipIf(!GPU_ENABLED)("createWgslCompute reading back into out", () => {
     adapter.setAttribute(a.name, Int32Array.from([1, 2]));
     adapter.setAttribute(b.name, Int32Array.from([10, 20]));
     await expect(adapter.compute({ c: new Int32Array(2) })).rejects.toThrow(/"c".*no storage slot/);
+    adapter.destroy();
+  });
+});
+
+describe.skipIf(!GPU_ENABLED)("createWgslCompute dispatching a count", () => {
+  // A workgroup of 4, so a count of 2 dispatches one workgroup and a count
+  // of 8 two: the marks a dispatch leaves are then the invocations it ran.
+  const marks = instancedArray(8, "int");
+  // Every storage the adapter binds has to be one the program reads, so
+  // `touch` is what keeps a buffer's own alive for the dispatch.
+  const marksProgram = (touch: () => void) =>
+    Fn(() => {
+      touch();
+      marks.element(invocationIndex()).assign(int(1));
+    })();
+
+  /**
+   * The count a caller names is the dispatch: a count of zero dispatches no
+   * workgroup at all, and a count below one workgroup runs only that one.
+   *
+   * @canon spec-a-compute-call-takes-the-count-the-caller-names
+   */
+  it("runs the count the caller names", async () => {
+    const adapter = createWgslCompute(
+      marksProgram(() => {}),
+      { workgroupSize: 4 },
+    );
+    await adapter.attach();
+    const out = { [marks.name]: new Int32Array(8) };
+    adapter.setAttribute(marks.name, new Int32Array(8));
+    await adapter.compute(out, 0);
+    expect(Array.from(out[marks.name]!)).toEqual(new Array(8).fill(0));
+    await adapter.compute(out, 2);
+    expect(Array.from(out[marks.name]!.slice(0, 4))).toEqual([1, 1, 1, 1]);
+    adapter.destroy();
+  });
+
+  /**
+   * Given no count, the dispatch covers the first storage buffer the host
+   * passed, so a longer buffer passed after it does not widen the dispatch.
+   *
+   * @canon spec-a-compute-call-takes-its-count-from-the-first-storage-buffer
+   */
+  it("runs one invocation per element of the first buffer", async () => {
+    const first = instancedArray(2, "int");
+    const second = instancedArray(8, "int");
+    const adapter = createWgslCompute(
+      marksProgram(() => {
+        first.element(int(0)).assign(int(0));
+        second.element(int(0)).assign(int(0));
+      }),
+      { workgroupSize: 4 },
+    );
+    await adapter.attach();
+    adapter.setAttribute(first.name, new Int32Array(2));
+    adapter.setAttribute(second.name, new Int32Array(8));
+    const out = { [marks.name]: new Int32Array(8) };
+    adapter.setAttribute(marks.name, new Int32Array(8));
+    await adapter.compute(out);
+    expect(Array.from(out[marks.name]!)).toEqual([1, 1, 1, 1, 0, 0, 0, 0]);
+    adapter.destroy();
+  });
+
+  /**
+   * A buffer of vectors holds fewer elements than it has components, so the
+   * first buffer of four-component elements counts a quarter as many
+   * invocations as its array has components.
+   *
+   * @canon spec-a-vector-storage-buffer-counts-its-elements
+   */
+  it("counts a vector buffer in elements, not components", async () => {
+    const vectors = instancedArray(2, "vec4");
+    const adapter = createWgslCompute(
+      marksProgram(() => {
+        vectors.element(int(0)).assign(vec4(0));
+      }),
+      { workgroupSize: 4 },
+    );
+    await adapter.attach();
+    adapter.setAttribute(vectors.name, new Float32Array(8));
+    const out = { [marks.name]: new Int32Array(8) };
+    adapter.setAttribute(marks.name, new Int32Array(8));
+    await adapter.compute(out);
+    expect(Array.from(out[marks.name]!)).toEqual([1, 1, 1, 1, 0, 0, 0, 0]);
     adapter.destroy();
   });
 });

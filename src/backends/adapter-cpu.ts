@@ -1,6 +1,6 @@
 import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
 import { Adapter, requestedStorageSlots, slotOf, TypedArray } from "./adapter";
-import { CpuDrawBuffer, CpuRoutine } from "./cpu";
+import { CpuDrawBuffer, componentCountOf, CpuRoutine } from "./cpu";
 
 /** One typed array per storage slot, keyed by name. */
 export type AdapterResult = Record<string, TypedArray>;
@@ -29,7 +29,7 @@ export interface CpuAdapterPrograms {
  * their callers never see the always-throwing `draw()` this interface
  * still carries. Both are synchronous: this loop never awaits anything. */
 export interface CpuAdapter extends Adapter<AdapterResult> {
-  compute(out?: AdapterResult): AdapterResult | void;
+  compute(out?: AdapterResult, count?: number): AdapterResult | void;
   draw(): void;
 }
 
@@ -55,12 +55,30 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
   // call site below is `perPixel.draw(...)`, not `programs.draw.draw(...)`.
   const computeStep = programs.compute;
   const perPixel = programs.draw;
+  const storageTypes = programs.compute?.storageTypes ?? {};
 
-  let n = 0;
+  let firstStorage: string | undefined;
+  /** Components per element of each slot the host passed by node, from the
+   *  node's own type; a slot passed by name falls back to the program's. */
+  const elementWidths = new Map<string, number>();
   const storages: Record<string, TypedArray> = {};
   const uniforms: Record<string, number | number[]> = {};
   let canvas: HTMLCanvasElement | null = null;
   let ctx2d: CanvasRenderingContext2D | null = null;
+
+  /** One invocation per element of the first storage buffer the host passed:
+   *  the count TSL's caller would have written beside `instancedArray(count,
+   *  type)`. A flat array holds one entry per component, so an array of `vec4`
+   *  holds a quarter as many elements as it has components. An array that
+   *  holds one array per element holds one element per entry, which is how
+   *  these two adapters read a vector storage buffer. */
+  function elementCount(): number {
+    if (firstStorage === undefined) return 0;
+    const data = storages[firstStorage];
+    if (!data) return 0;
+    if (Array.isArray(data[0])) return data.length;
+    return Math.floor(data.length / (elementWidths.get(firstStorage) ?? componentCountOf("float")));
+  }
 
   function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
@@ -74,7 +92,13 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
   function setAttribute(attribute: AttributeNode<ShaderType> | string, data: TypedArray): void {
     const slot = slotOf(attribute);
     storages[slot] = data;
-    n = Math.max(n, data.length);
+    elementWidths.set(
+      slot,
+      typeof attribute === "string"
+        ? componentCountOf(storageTypes[slot] ?? "float")
+        : componentCountOf(attribute._t ?? "float"),
+    );
+    firstStorage ??= slot;
   }
 
   return {
@@ -89,9 +113,9 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
     setUniform,
     setAttribute,
 
-    compute(out) {
+    compute(out, count) {
       if (!computeStep) throw new Error("[RMSL] this adapter has no `compute` program");
-      computeStep.compute({ storages, uniforms } as any, n);
+      computeStep.compute({ storages, uniforms } as any, count ?? elementCount());
       // storages already holds the caller's own arrays, mutated in place —
       // `out` is only for callers that want the WGSL adapter's optional-out
       // shape too, not something this loop needs to do its job.

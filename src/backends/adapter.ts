@@ -49,8 +49,15 @@ export interface Adapter<TBuffer, TDrawOptions = void> {
    * compute pass writing storage buffers a `draw` reads directly), forcing a
    * readback into `out` on every call would be the one thing this interface
    * isn't supposed to do: take away a backend's own advantage to look uniform.
+   *
+   * `count` is the number of invocations to dispatch. Given none, an adapter
+   * runs one invocation per element of the first storage buffer the host
+   * passed — the count TSL's caller writes beside `instancedArray(count,
+   * type)`. A GPU target rounds up to whole workgroups, so its last
+   * workgroup also runs the invocations past the count; the program's own
+   * bounds check is what skips them.
    */
-  compute?: (out?: TBuffer) => TBuffer | void | Promise<TBuffer | void>;
+  compute?: (out?: TBuffer, count?: number) => TBuffer | void | Promise<TBuffer | void>;
 
   /**
    * Renders into whatever `attach` set up. `TDrawOptions` is each

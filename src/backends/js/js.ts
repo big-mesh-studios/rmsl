@@ -1237,6 +1237,8 @@ export function compileJSNode(
 
     case "storage": {
       let v = node.value as any;
+      ctx.storageTypes ??= new Map();
+      ctx.storageTypes.set(v.slot, v.shaderType ?? node._t);
       return jsLeafRef(`ctx.storages[${JSON.stringify(v.slot)}]`, v.shaderType ?? node._t, ctx);
     }
 
@@ -1955,7 +1957,7 @@ export type CompileJSOptions = CompileFnOptions & {
 function compileJSFnDetailed(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
-): { source: string; resultType: ShaderType | undefined } {
+): { source: string; resultType: ShaderType | undefined; storageTypes: Record<string, ShaderType> } {
   let stage = options.stage ?? "fragment";
   let derivatives = options.derivatives ?? "throw";
   let reentrant = options.reentrant ?? false;
@@ -2033,6 +2035,7 @@ function compileJSFnDetailed(
   return {
     source: parts.join("\n\n"),
     resultType: lastType as ShaderType | undefined,
+    storageTypes: Object.fromEntries(ctx.storageTypes ?? []) as Record<string, ShaderType>,
   };
 }
 
@@ -2060,7 +2063,7 @@ export function compileJSRoutine(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
 ): CpuRoutine {
-  const { source, resultType } = compileJSFnDetailed(fn, options);
+  const { source, resultType, storageTypes } = compileJSFnDetailed(fn, options);
   const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuShaderResult;
   const run = factory();
 
@@ -2105,5 +2108,5 @@ export function compileJSRoutine(
     }
   }
 
-  return { run, draw, compute };
+  return { run, draw, compute, storageTypes };
 }

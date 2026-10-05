@@ -9,7 +9,7 @@ import {
 } from "../../core";
 import { compile, WgslResource } from "../../wgsl";
 import { Adapter, DrawCountOptions, requestedStorageSlots, slotOf, TypedArray } from "../adapter";
-import { componentKindOf } from "../cpu";
+import { componentCountOf, componentKindOf } from "../cpu";
 import { CompileCtx, storageAttributes, VertexRoot } from "../shared";
 import type { WgslContext } from "./context-wgsl";
 import {
@@ -535,8 +535,13 @@ export interface WgslComputeAdapter {
    * buffer a `draw` pass reads directly via {@link buffer}), forcing a
    * readback on every call would take away the one advantage a compute
    * pass has over the CPU backends.
+   *
+   * `count` is the number of invocations to dispatch. Given none, it is one
+   * per element of the first storage buffer `setAttribute` was given. A
+   * dispatch covers whole workgroups, so the last one also runs the
+   * invocations past the count.
    */
-  compute(out?: AdapterResult): Promise<AdapterResult | void>;
+  compute(out?: AdapterResult, count?: number): Promise<AdapterResult | void>;
   /** A storage slot's persistent `GPUBuffer` — so a `draw` pass sharing
    * this adapter's device can bind it directly, no readback. */
   buffer(slot: string): GPUBuffer | undefined;
@@ -565,6 +570,10 @@ export function createWgslCompute(
   let computePipeline: GPUComputePipeline | null = null;
   let computeResources: WgslResource[] = [];
   let n = 0;
+  /** Elements of the first storage buffer the host passed, the dispatch's
+   *  count when the caller names none. */
+  let firstStorageCount = 0;
+  let firstStorageSeen = false;
   let storageBuffers = new Map<string, GPUBuffer>();
   let computeBindGroup1: GPUBindGroup | null = null;
   let computeUniformBuffer: GPUBuffer | null = null;
@@ -642,9 +651,16 @@ export function createWgslCompute(
     }
 
     if (computeStorageResources().some((r) => r.name === slot)) {
+      const resource = computeStorageResources().find((r) => r.name === slot)!;
       if (data.length !== n) {
         n = data.length;
         rebuildStorageBuffers();
+      }
+      // The dispatch covers the first buffer the host passed, in elements:
+      // TSL's caller writes that count beside `instancedArray(count, type)`.
+      if (!firstStorageSeen) {
+        firstStorageSeen = true;
+        firstStorageCount = Math.floor(data.length / componentCountOf(resource.shaderType));
       }
       let buf = storageBuffers.get(slot);
       if (!buf) throw new Error(`[RMSL] unknown storage "${slot}"`);
@@ -699,16 +715,21 @@ export function createWgslCompute(
     setUniform,
     setAttribute,
 
-    async compute(out) {
+    async compute(out, count) {
       if (!device || !computePipeline || !computeBindGroup1 || !staging) {
         throw new Error("[RMSL] createWgslCompute: attach() was never called");
       }
+      let workgroupSize = options.workgroupSize ?? 64;
+      let invocations = count ?? firstStorageCount;
       let encoder = device.createCommandEncoder();
       let pass = encoder.beginComputePass();
       pass.setPipeline(computePipeline);
       if (computeBindGroup0) pass.setBindGroup(0, computeBindGroup0);
       pass.setBindGroup(1, computeBindGroup1);
-      pass.dispatchWorkgroups(Math.max(1, Math.ceil(n / (options.workgroupSize ?? 64))));
+      // A dispatch covers whole workgroups, as WebGPU's own dispatch does, so
+      // the last workgroup runs the invocations past the count too; the
+      // program's own bounds check is what skips them.
+      pass.dispatchWorkgroups(Math.ceil(invocations / workgroupSize));
       pass.end();
       device.queue.submit([encoder.finish()]);
 

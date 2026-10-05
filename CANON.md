@@ -446,6 +446,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug gaussian-blur-keys-its-internal-link-as-input`](#bug-gaussian-blur-keys-its-internal-link-as-input) — `gaussianBlur`'s vertical pass keys the horizontal pass's target as `input`, where `bloom` keys such a link by the pass's name.
     - [`@spec a-gpu-adapter-takes-its-count-from-the-first-attribute`](#spec-a-gpu-adapter-takes-its-count-from-the-first-attribute) — A `createGlsl` or `createWgsl` draw that names no vertex count takes it from the first attribute the host passes.
       - [`@bug the-gpu-adapters-count-from-the-widest-attribute`](#bug-the-gpu-adapters-count-from-the-widest-attribute) — `createGlsl` and `createWgsl` take the count of a draw that names none from the widest attribute. GLSL then draws vertices past the first attribute's end, and WebGPU refuses the WGSL draw.
+    - [`@spec a-compute-call-dispatches-the-count-it-is-given`](#spec-a-compute-call-dispatches-the-count-it-is-given) — A `compute` call on a compute adapter runs one invocation for each index below its count. The count is the one the caller names, or else the number of elements of the first storage buffer the host passed.
+      - [`@spec a-compute-call-takes-the-count-the-caller-names`](#spec-a-compute-call-takes-the-count-the-caller-names) — `compute(out, count)` runs one invocation for each index below `count`, whatever the buffers hold. A count of zero runs none.
+      - [`@spec a-compute-call-takes-its-count-from-the-first-storage-buffer`](#spec-a-compute-call-takes-its-count-from-the-first-storage-buffer) — A `compute` call given no count runs one invocation for each element of the first storage buffer the host passed. A buffer the host passes after it does not change that count.
+      - [`@spec a-vector-storage-buffer-counts-its-elements`](#spec-a-vector-storage-buffer-counts-its-elements) — The elements of a storage buffer are counted as its type says. A buffer of `vec4` holds a quarter as many elements as it has components, and a dispatch over it runs one invocation per element.
     - [`@spec a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte`](#spec-a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte) — A JS or WASM routine adapter clamps each channel to 0 to 1 and writes it on its canvas as the nearest byte.
   - [`@spec a-scene-renderer-manages-what-it-uploads`](#spec-a-scene-renderer-manages-what-it-uploads) — A renderer of `./scene` uploads each geometry, texture and uniform once, again when it changes, and frees it when it is disposed. It compiles a program once for each light set and kind of mesh.
     - [`@spec a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise`](#spec-a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise) — `new WebGLRenderer()` gives a renderer at once, and `WebGPURenderer.init()` gives one through a promise, because WebGPU requests its device asynchronously.
@@ -682,6 +686,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact glsl-mixes-by-a-boolean-vector-only-floats`](#fact-glsl-mixes-by-a-boolean-vector-only-floats) — GLSL ES 3.00 offers `mix` with a boolean vector selector for float types only, and has no such overload for integer vectors.
 - [`@fact tsl-uniforms-hold-their-values`](#fact-tsl-uniforms-hold-their-values) — TSL's `uniform(value)` and `uniformArray(values, type)` take the values the uniform holds, and the renderer uploads them.
 - [`@fact a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array`](#fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array) — TSL's `instancedArray(count, type)` and `attributeArray(count, type)` make a zeroed typed array of the buffer's contents on the host.
+- [`@fact tsl-takes-a-compute-count-from-its-caller`](#fact-tsl-takes-a-compute-count-from-its-caller) — TSL's `compute(node, count)` takes the count from the code that writes it. A number is the number of invocations, and the compiler guards `instanceIndex` against it through a uniform. Any other value is a dispatch size in workgroups. TSL never infers a count from a buffer.
 <!-- toc:end -->
 
 ## Open questions
@@ -3062,6 +3067,26 @@ This follows because every adapter draws one program the same way, and the raste
 
 Issue: #108
 
+#### @spec a-compute-call-dispatches-the-count-it-is-given
+
+> A `compute` call on a compute adapter runs one invocation for each index below its count. The count is the one the caller names, or else the number of elements of the first storage buffer the host passed.
+
+Derives from: [`spec-what-rmsl-hands-back-draws-nothing-on-its-own`](#spec-what-rmsl-hands-back-draws-nothing-on-its-own), [`spec-compute-follows-tsl`](#spec-compute-follows-tsl), [`fact-tsl-takes-a-compute-count-from-its-caller`](#fact-tsl-takes-a-compute-count-from-its-caller), [`spec-a-rasterizer-takes-its-count-from-the-first-attribute`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute)
+
+This follows because the application owns the data it uploads and decides how many invocations run over it. TSL's caller writes the count out. An adapter given none takes it from the first buffer the host passed, where a draw takes its count from the first attribute.
+
+##### @spec a-compute-call-takes-the-count-the-caller-names
+
+> `compute(out, count)` runs one invocation for each index below `count`, whatever the buffers hold. A count of zero runs none.
+
+##### @spec a-compute-call-takes-its-count-from-the-first-storage-buffer
+
+> A `compute` call given no count runs one invocation for each element of the first storage buffer the host passed. A buffer the host passes after it does not change that count.
+
+##### @spec a-vector-storage-buffer-counts-its-elements
+
+> The elements of a storage buffer are counted as its type says. A buffer of `vec4` holds a quarter as many elements as it has components, and a dispatch over it runs one invocation per element.
+
 #### @spec a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte
 
 > A JS or WASM routine adapter clamps each channel to 0 to 1 and writes it on its canvas as the nearest byte.
@@ -4438,3 +4463,9 @@ This is how three.js's TSL behaves, read from its source (`UniformNode` and `Uni
 > TSL's `instancedArray(count, type)` and `attributeArray(count, type)` make a zeroed typed array of the buffer's contents on the host.
 
 This is how three.js's TSL behaves, read from its source (`StorageBufferAttribute`, three.js 0.186).
+
+## @fact tsl-takes-a-compute-count-from-its-caller
+
+> TSL's `compute(node, count)` takes the count from the code that writes it. A number is the number of invocations, and the compiler guards `instanceIndex` against it through a uniform. Any other value is a dispatch size in workgroups. TSL never infers a count from a buffer.
+
+This is how three.js's TSL behaves, read from its source (`ComputeNode`, three.js 0.186). Its examples write the count out beside the buffer it belongs to, as `instancedArray(count, type)` paired with `.compute(count)`, so a `vec4` buffer of `count` elements dispatches `count` invocations.

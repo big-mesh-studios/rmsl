@@ -88,6 +88,13 @@ export interface CompileCtx {
       wgslName: string;
     }
   >;
+  /**
+   * The shader type of one element of each storage buffer the program reads,
+   * by slot. Every target fills it: WGSL needs it to lay a buffer out, and a
+   * compute adapter needs it to count the elements of the array the host
+   * passes for a slot.
+   */
+  storageTypes?: Map<string, string>;
   /** The attributes the program reads, by name; `id` is the first one's, which orders them as they were made. */
   attributes: Map<string, { id: number; type: string; slot: string }>;
   /** The varyings the program reads or writes, by name. */
