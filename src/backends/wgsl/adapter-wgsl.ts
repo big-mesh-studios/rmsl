@@ -663,15 +663,11 @@ export function createWgslCompute(
     if (resource) {
       const elements = Math.ceil(data.length / componentCountOf(resource.shaderType));
       const state = sizeStorageSlot(resource, elements);
-      // A slot the host never sets, such as one the program only writes, is as long as the first one set.
-      if (!firstStorageSeen) {
-        for (const other of computeStorageResources()) if (other !== resource) sizeStorageSlot(other, elements);
-      }
       // The dispatch covers the first buffer the host passed, in elements:
       // TSL's caller writes that count beside `instancedArray(count, type)`.
       if (!firstStorageSeen) {
         firstStorageSeen = true;
-        firstStorageCount = elements;
+        firstStorageCount = Math.floor(data.length / componentCountOf(resource.shaderType));
       }
       const { slot: first, data: slots } = spread(data, 0, state.layout);
       device.queue.writeBuffer(state.buffer, first * 4, slots as BufferSource);
@@ -711,8 +707,15 @@ export function createWgslCompute(
         });
       }
 
-      // A slot the host never sets still needs a buffer to bind, so each starts at no elements.
-      for (const resource of computeStorageResources()) sizeStorageSlot(resource, 0);
+      // A slot the host never sets, such as one the program only writes, is as long as the program declared it:
+      // `instancedArray(count, type)`, as TSL's buffer is. It has a buffer to bind either way.
+      const declared = storageAttributes(compute);
+      for (const resource of computeStorageResources())
+        sizeStorageSlot(resource, declared.get(resource.name)?.count ?? 0);
+      // A program with no storage binds an empty group, which its compute() still dispatches against.
+      if (computeStorageResources().length === 0) {
+        computeBindGroup1 = device.createBindGroup({ layout: computePipeline.getBindGroupLayout(1), entries: [] });
+      }
 
       for (let [slot, value] of pendingUniforms) adapter.setUniform(slot, value);
       for (let [slot, data] of pendingAttributes) adapter.setAttribute(slot, data);
@@ -756,6 +759,14 @@ export function createWgslCompute(
       );
       for (let resource of computeStorageResources().filter((r) => requested.has(r.name))) {
         const state = storageSlots.get(resource.name)!;
+        const target = out[resource.name]!;
+        const valueCount = state.elements * state.itemSize;
+        // Checked before the staging buffer is mapped, so a refusal leaves it unmapped.
+        if (target.length < valueCount) {
+          throw new RangeError(
+            `[RMSL] out["${resource.name}"] holds ${target.length} values, and the slot has ${valueCount}`,
+          );
+        }
         const bytes = Math.max(4, state.elements * state.layout.stride * 4);
         if (!staging || staging.size < bytes) {
           staging?.destroy();
@@ -772,16 +783,8 @@ export function createWgslCompute(
           u32: new Uint32Array(range),
         });
         // The values come back out of the slots that WGSL's layout gave them, without the padding of a vec3.
-        const target = out[resource.name]!;
-        const count = state.elements * state.itemSize;
-        if (state.layout.identity) target.set(values.subarray(0, count));
-        else {
-          if (target.length < count)
-            throw new RangeError(
-              `[RMSL] out["${resource.name}"] holds ${target.length} values, and the slot has ${count}`,
-            );
-          for (let k = 0; k < count; k++) target[k] = values[state.layout.slot(k)]!;
-        }
+        if (state.layout.identity) target.set(values.subarray(0, valueCount));
+        else for (let k = 0; k < valueCount; k++) target[k] = values[state.layout.slot(k)]!;
         staging.unmap();
       }
       return out;

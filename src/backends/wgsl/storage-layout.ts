@@ -16,6 +16,11 @@ export type StorageLayout = {
   slot(k: number): number;
 };
 
+/**
+ * The layout of a storage element of `itemSize` components. `elementType` names a matrix, whose columns of
+ * three take the room of four, and is left out for a vector, whose own size decides. `identity` says that
+ * every value sits in the slot of its own index, so the values go to the buffer unchanged.
+ */
 export function storageLayout(attribute: { itemSize: number; elementType?: string | null }): StorageLayout {
   const { itemSize, elementType } = attribute;
   const rows = (elementType && MATRIX_DIMENSIONS[elementType]?.[1]) ?? itemSize;
@@ -30,7 +35,7 @@ export function storageLayout(attribute: { itemSize: number; elementType?: strin
 
 /** `values`, the attribute's values from value `first` on, spread into the slots `layout` gives them. */
 export function spread(values: TypedArray, first: number, layout: StorageLayout): { slot: number; data: TypedArray } {
-  if (values.length === 0 || layout.identity) return { slot: first, data: values };
+  if (layout.identity || values.length === 0) return { slot: layout.slot(first), data: values };
   const slot = layout.slot(first);
   const data = new (values.constructor as Float32ArrayConstructor)(layout.slot(first + values.length - 1) - slot + 1);
   for (let k = 0; k < values.length; k++) data[layout.slot(first + k) - slot] = values[k]!;

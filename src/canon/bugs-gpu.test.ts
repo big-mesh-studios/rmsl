@@ -580,7 +580,47 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute keeps a buffer for each slot", () =>
     await adapter.attach();
     adapter.setAttribute(points.name, Float32Array.of(1, 2, 3, 4));
     await expect(adapter.compute({ [points.name]: new Float32Array(2) })).rejects.toThrow(RangeError);
+    const out = { [points.name]: new Float32Array(6) };
+    // The dispatch covers the whole elements of the array, here one, so the half element is not computed.
+    // The refused call still dispatched, so the first element has been incremented twice.
+    await adapter.compute(out);
     adapter.destroy();
+    expect(Array.from(out[points.name]!.subarray(0, 3))).toEqual([3, 4, 5]);
+  }, 60_000);
+
+  /**
+   * A compute program with no storage buffer still dispatches.
+   *
+   * @canon spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array
+   */
+  it("dispatches a program with no storage", async () => {
+    const offset = uniform("float");
+    const adapter = createWgslCompute(Fn(() => offset.add(1))());
+    await adapter.attach();
+    adapter.setUniform(offset, 1);
+    await expect(adapter.compute(undefined, 1)).resolves.toBeUndefined();
+    adapter.destroy();
+  }, 60_000);
+
+  /**
+   * A slot the host never sets is as long as the program declared it, whichever slot is set first.
+   *
+   * @canon spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array
+   */
+  it("sizes a slot the host never sets from its declared count, whichever slot is set first", async () => {
+    const result = instancedArray(3, "float");
+    const counter = instancedArray(1, "float");
+    const program = Fn(() => {
+      const i = invocationIndex();
+      result.element(i).assign(counter.element(0).add(i.toFloat()));
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    adapter.setAttribute(counter.name, Float32Array.of(10));
+    const out = { [result.name]: new Float32Array(3) };
+    await adapter.compute(out, 3);
+    adapter.destroy();
+    expect(Array.from(out[result.name]!)).toEqual([10, 11, 12]);
   }, 60_000);
 });
 
