@@ -314,8 +314,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec the-tsl-constants-are-float-literals`](#spec-the-tsl-constants-are-float-literals) — `PI`, `TWO_PI`, `PI2`, `HALF_PI`, `EPSILON` and `INFINITY` are float literals of TSL's values.
     - [`@spec int-min-compiles-to-a-subtraction-of-two-in-range-literals`](#spec-int-min-compiles-to-a-subtraction-of-two-in-range-literals) — On GLSL and WGSL, the `int` literal -2147483648 compiles to `(-2147483647 - 1)`, a subtraction of two literals in range.
     - [`@spec a-vector-converted-to-a-scalar-takes-its-first-component`](#spec-a-vector-converted-to-a-scalar-takes-its-first-component) — Converting a vector to `float`, `int` or `uint` gives its first component, converted to that type.
-  - [`@spec sampling-reads-a-texture-at-a-coordinate`](#spec-sampling-reads-a-texture-at-a-coordinate) — `texture` and `textureLod` read a texture at a coordinate of its dimension.
-    - [`@exception rmsl-samples-by-method-where-tsl-samples-by-function`](#exception-rmsl-samples-by-method-where-tsl-samples-by-function) — rmsl samples a texture through the methods `texture` and `textureLod` of its sampler node, where TSL calls the functions `texture(value, uv)` and `textureLevel(value, uv, level)`.
+  - [`@spec sampling-reads-a-texture-at-a-coordinate`](#spec-sampling-reads-a-texture-at-a-coordinate) — `texture(sampler, uv)` and `textureLevel(sampler, uv, level)` read a texture at a coordinate of its dimension.
+    - [`@bug samplers-are-sampled-by-method-where-tsl-samples-by-function`](#bug-samplers-are-sampled-by-method-where-tsl-samples-by-function) — rmsl samples a texture through the methods `texture` and `textureLod` of its sampler node, and exports no `textureLevel` function.
     - [`@spec a-float-texture-is-sampled-through-a-sampler`](#spec-a-float-texture-is-sampled-through-a-sampler) — A float texture, 2D or 3D, is sampled with filtering, through `texture` or `textureSample` and a sampler of its own on WGSL.
     - [`@spec an-integer-texture-reads-one-texel`](#spec-an-integer-texture-reads-one-texel) — A program reads an integer texture one texel at a time, with `texelFetch` on GLSL and `textureLoad` with no sampler on WGSL.
       - [`@spec an-integer-texture-is-fetched-unfiltered`](#spec-an-integer-texture-is-fetched-unfiltered) — A program reads an integer texture at an integer texel coordinate with no filter, and gets an integer vector.
@@ -498,9 +498,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-render-target-takes-its-new-size-on-the-next-render`](#spec-a-render-target-takes-its-new-size-on-the-next-render) — A renderer draws a render target at its new size on the next render after its width or height changes, and frees the old storage.
     - [`@spec a-sampler-without-a-texture-reads-black`](#spec-a-sampler-without-a-texture-reads-black) — A sampler that its material gives no texture reads opaque black on every renderer.
       - [`@bug webgl-leaves-a-textureless-sampler-on-unit-0`](#bug-webgl-leaves-a-textureless-sampler-on-unit-0) — The WebGL renderer never sets the unit of a sampler that has no texture. The sampler reads unit 0, the texture of another sampler.
-    - [`@spec a-changed-attribute-uploads-only-its-update-range`](#spec-a-changed-attribute-uploads-only-its-update-range) — A renderer uploads only the slice of a changed attribute that its `updateRange` selects, and the whole attribute when the range is unset.
-      - [`@exception rmsl-has-one-update-range-where-three-js-has-a-list`](#exception-rmsl-has-one-update-range-where-three-js-has-a-list) — rmsl's `BufferAttribute` has one `updateRange` of an offset and a count, where three.js has a list `updateRanges` that `addUpdateRange(start, count)` adds to.
-      - [`@bug webgpu-ignores-an-attribute-update-range`](#bug-webgpu-ignores-an-attribute-update-range) — The WebGPU renderer writes a changed attribute whole, from byte 0, ignoring the slice its `updateRange` selects.
+    - [`@spec a-changed-attribute-uploads-only-its-update-range`](#spec-a-changed-attribute-uploads-only-its-update-range) — A renderer uploads only the ranges of a changed attribute that `addUpdateRange(start, count)` marked, and the whole attribute when it marked none.
+      - [`@bug an-attribute-has-one-update-range-where-three-js-has-a-list`](#bug-an-attribute-has-one-update-range-where-three-js-has-a-list) — rmsl's `BufferAttribute` has one `updateRange` of an offset and a count, and has no `updateRanges`, `addUpdateRange` or `clearUpdateRanges`. Both renderers read that one range.
+      - [`@bug webgpu-ignores-an-attribute-update-range`](#bug-webgpu-ignores-an-attribute-update-range) — The WebGPU renderer writes a changed attribute whole, from byte 0, ignoring the range it marks.
   - [`@spec the-application-reaches-an-input-through-its-node`](#spec-the-application-reaches-an-input-through-its-node) — A uniform, attribute or varying node carries its [slot](#term-slot) name in `.name`, and `isUniformNode`, `isAttributeNode` and `isVaryingNode` tell the kinds apart.
   - [`@spec the-wgsl-uniform-layout-is-reported`](#spec-the-wgsl-uniform-layout-is-reported) — `wgslUniformLayout` reports the [layout](#term-layout) of each uniform under WGSL's rules: its offset, its size and, for an array, its stride. It also reports the size of the whole struct.
     - [`@spec uniforms-are-ordered-by-alignment-then-by-declaration`](#spec-uniforms-are-ordered-by-alignment-then-by-declaration) — Uniform members are placed in order of descending alignment, and members that align alike keep the order they were declared in.
@@ -2461,19 +2461,17 @@ This follows because GLSL's scalar constructor takes the first component of a ve
 
 ### @spec sampling-reads-a-texture-at-a-coordinate
 
-> `texture` and `textureLod` read a texture at a coordinate of its dimension.
+> `texture(sampler, uv)` and `textureLevel(sampler, uv, level)` read a texture at a coordinate of its dimension.
 
 Derives from: [`fact-tsl-samples-a-texture-with-texture-and-texture-level`](#fact-tsl-samples-a-texture-with-texture-and-texture-level)
 
-This follows because a shader that reads a texture ports only if rmsl reads it where TSL does. The names differ from TSL's, as the exception below says.
+This follows because a port changes its import and nothing else, so a shader that reads a texture must read it as TSL does. TSL has no sampler method and no `textureLod`, so rmsl has none.
 
-#### @exception rmsl-samples-by-method-where-tsl-samples-by-function
+#### @bug samplers-are-sampled-by-method-where-tsl-samples-by-function
 
-> rmsl samples a texture through the methods `texture` and `textureLod` of its sampler node, where TSL calls the functions `texture(value, uv)` and `textureLevel(value, uv, level)`.
+> rmsl samples a texture through the methods `texture` and `textureLod` of its sampler node, and exports no `textureLevel` function.
 
-Derives from: [`fact-tsl-samples-a-texture-with-texture-and-texture-level`](#fact-tsl-samples-a-texture-with-texture-and-texture-level)
-
-Nothing rules on the departure yet. Issue #139 asks whether to spell sampling as TSL does.
+Issue: #139
 
 #### @spec a-float-texture-is-sampled-through-a-sampler
 
@@ -3489,24 +3487,21 @@ Issue: #120
 
 #### @spec a-changed-attribute-uploads-only-its-update-range
 
-> A renderer uploads only the slice of a changed attribute that its `updateRange` selects, and the whole attribute when the range is unset.
+> A renderer uploads only the ranges of a changed attribute that `addUpdateRange(start, count)` marked, and the whole attribute when it marked none.
 
 Derives from: [`fact-three-js-uploads-a-changed-attribute-through-update-ranges`](#fact-three-js-uploads-a-changed-attribute-through-update-ranges)
 
-This follows because three.js sends only the changed part of an attribute, and the WebGL renderer already does. The exception below says how rmsl names that part.
+This follows because a port changes its import and nothing else, so a scene must mark the changed part of an attribute as three.js does.
 
-##### @exception rmsl-has-one-update-range-where-three-js-has-a-list
+##### @bug an-attribute-has-one-update-range-where-three-js-has-a-list
 
-> rmsl's `BufferAttribute` has one `updateRange` of an offset and a count, where three.js has a list `updateRanges` that `addUpdateRange(start, count)` adds to.
+> rmsl's `BufferAttribute` has one `updateRange` of an offset and a count, and has no `updateRanges`, `addUpdateRange` or `clearUpdateRanges`. Both renderers read that one range.
 
-Derives from: [`fact-three-js-uploads-a-changed-attribute-through-update-ranges`](#fact-three-js-uploads-a-changed-attribute-through-update-ranges)
-
-Nothing rules on the departure yet. Issue #140 asks whether to take three.js's list.
-
+Issue: #140
 
 ##### @bug webgpu-ignores-an-attribute-update-range
 
-> The WebGPU renderer writes a changed attribute whole, from byte 0, ignoring the slice its `updateRange` selects.
+> The WebGPU renderer writes a changed attribute whole, from byte 0, ignoring the range it marks.
 
 Issue: #122
 

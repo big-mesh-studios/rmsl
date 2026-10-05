@@ -232,16 +232,15 @@ describe("BufferGeometry", () => {
   });
 
   /**
-   * rmsl marks the changed part of an attribute with one `updateRange`, where
-   * three.js 0.186 keeps a list of ranges.
+   * three.js 0.186 marks the changed part of an attribute with
+   * `addUpdateRange(start, count)`, and keeps a list `updateRanges`.
    *
-   * @canon exception-rmsl-has-one-update-range-where-three-js-has-a-list
+   * @canon bug-an-attribute-has-one-update-range-where-three-js-has-a-list
    */
-  it("marks its changed bytes with one updateRange, not a list of ranges", () => {
-    const attribute = new BufferAttribute(new Float32Array(6), 3);
-    expect(attribute.updateRange).toEqual({ offset: 0, count: -1 });
-    expect("updateRanges" in attribute).toBe(false);
-    expect("addUpdateRange" in attribute).toBe(false);
+  it.fails("marks its changed bytes through addUpdateRange and a list of ranges", () => {
+    const attribute = new BufferAttribute(new Float32Array(6), 3) as any;
+    expect(typeof attribute.addUpdateRange).toBe("function");
+    expect(attribute.updateRanges).toEqual([]);
   });
 });
 

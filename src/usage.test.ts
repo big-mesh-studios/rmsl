@@ -547,16 +547,15 @@ describe("RMSL", () => {
   });
 
   /**
-   * rmsl names a sample at a level `textureLod`, a method of the sampler,
-   * where TSL names the function `textureLevel`.
+   * TSL calls the functions `texture(value, uv)` and `textureLevel(value, uv,
+   * level)`. rmsl calls the methods `texture` and `textureLod` of a sampler.
    *
-   * @canon exception-rmsl-samples-by-method-where-tsl-samples-by-function
+   * @canon bug-samplers-are-sampled-by-method-where-tsl-samples-by-function
    */
-  it("samples a level through a method of the sampler, and exports no textureLevel", () => {
-    const tex = uniform("sampler2D");
-    expect(typeof tex.textureLod).toBe("function");
-    expect(typeof tex.texture).toBe("function");
-    expect("textureLevel" in rmslExports).toBe(false);
+  it.fails("samples through the functions texture and textureLevel, as TSL does", () => {
+    const api = rmslExports as any;
+    expect(typeof api.texture).toBe("function");
+    expect(typeof api.textureLevel).toBe("function");
   });
 
   /**
