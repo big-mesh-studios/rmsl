@@ -694,6 +694,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-takes-a-compute-count-from-its-caller`](#fact-tsl-takes-a-compute-count-from-its-caller) — TSL's `compute(node, count)` takes the count from the code that writes it. A number is the number of invocations, and the compiler guards `instanceIndex` against it through a uniform. Any other value is a dispatch size in workgroups. TSL never infers a count from a buffer.
 - [`@fact a-compute-entry-point-takes-no-location`](#fact-a-compute-entry-point-takes-no-location) — A WGSL compute entry point takes no `@location` parameter. That attribute is the only way a GPU hands a shader its vertices, and a compute dispatch has none.
 - [`@fact a-compute-entry-point-returns-nothing`](#fact-a-compute-entry-point-returns-nothing) — A WGSL compute entry point returns nothing. A function that declares a return type must give that type an entry point IO attribute, and a compute entry point has none to give.
+- [`@fact a-wgsl-varying-is-a-location-of-two-stages`](#fact-a-wgsl-varying-is-a-location-of-two-stages) — A WGSL varying is a `@location` member of the struct a vertex entry point returns, and a `@location` parameter of the fragment entry point that reads it.
+- [`@fact a-compute-entry-point-has-no-position-or-depth`](#fact-a-compute-entry-point-has-no-position-or-depth) — A WGSL compute entry point can neither take nor return `@builtin(position)`, and cannot return `@builtin(frag_depth)`.
 <!-- toc:end -->
 
 ## Open questions
@@ -1727,9 +1729,9 @@ This follows because a write to something the program cannot write either fails 
 
 > A compute program that assigns to a varying, to the position or to the fragment depth is refused on every target that compiles one.
 
-Derives from: [`fact-a-compute-entry-point-returns-nothing`](#fact-a-compute-entry-point-returns-nothing), [`fact-webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage)
+Derives from: [`fact-a-wgsl-varying-is-a-location-of-two-stages`](#fact-a-wgsl-varying-is-a-location-of-two-stages), [`fact-a-compute-entry-point-has-no-position-or-depth`](#fact-a-compute-entry-point-has-no-position-or-depth), [`fact-webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage)
 
-This follows because a stage output is what the stage hands on, and a compute entry point hands nothing on. GLSL has no compute stage, so it has no compute program to refuse it in.
+This follows because a stage output is what the stage hands on. On WGSL a compute entry point has no `@location` to hand a varying on, and no position or depth to write. GLSL has no compute stage, so it has no compute program to refuse it in.
 
 #### @spec a-swizzle-that-repeats-a-component-cannot-be-assigned
 
@@ -1943,9 +1945,9 @@ This follows because an output is a fragment stage's result, and a compute entry
 
 > A compute program that reads a [varying](#term-varying) is refused on every target that compiles one. A compute program has no vertex stage to pass a value from.
 
-Derives from: [`spec-a-varying-passes-from-the-vertex-to-the-fragment-stage`](#spec-a-varying-passes-from-the-vertex-to-the-fragment-stage), [`fact-a-compute-entry-point-takes-no-location`](#fact-a-compute-entry-point-takes-no-location), [`fact-webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage)
+Derives from: [`spec-a-varying-passes-from-the-vertex-to-the-fragment-stage`](#spec-a-varying-passes-from-the-vertex-to-the-fragment-stage), [`fact-a-wgsl-varying-is-a-location-of-two-stages`](#fact-a-wgsl-varying-is-a-location-of-two-stages), [`fact-a-compute-entry-point-takes-no-location`](#fact-a-compute-entry-point-takes-no-location), [`fact-webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage)
 
-This follows because a varying is an output of the vertex stage and an input of the fragment stage, and a compute dispatch is neither. A WGSL fragment stage receives one as a `@location` parameter, which a compute entry point may not take. GLSL has no compute stage, so it has no compute program to refuse it in.
+This follows because a varying is an output of the vertex stage and an input of the fragment stage, and a compute dispatch is neither. On WGSL a varying is a `@location`, which a compute entry point may not take. GLSL has no compute stage, so it has no compute program to refuse it in.
 
 #### @spec a-render-stage-reads-storage-read-only
 
@@ -4528,3 +4530,19 @@ TSL emits exactly that when a compute shader reads an attribute. `WGSLNodeBuilde
 Dawn refuses a compute function returning `vec4<f32>` with `missing entry point IO attribute on return type`, and one returning a struct with `missing entry point IO attribute`. A compute function declaring no return type is accepted.
 
 This is a fact of the WGSL specification, not a choice.
+
+## @fact a-wgsl-varying-is-a-location-of-two-stages
+
+> A WGSL varying is a `@location` member of the struct a vertex entry point returns, and a `@location` parameter of the fragment entry point that reads it.
+
+Dawn accepts both: a vertex function returning `@builtin(position)` and `@location(0)` members, and a fragment function taking `@location(0) v : f32`.
+
+This is a fact of the WGSL specification, not a choice. The `@location` is the only way a value passes between two stages.
+
+## @fact a-compute-entry-point-has-no-position-or-depth
+
+> A WGSL compute entry point can neither take nor return `@builtin(position)`, and cannot return `@builtin(frag_depth)`.
+
+Dawn refuses them with `'@builtin(position)' cannot be used for compute shader input`, `'@builtin(position)' cannot be used for compute shader output` and `'@builtin(frag_depth)' cannot be used for compute shader output`.
+
+This is a fact of the WGSL specification, not a choice. The position belongs to the vertex stage's output and the fragment stage's input, and the depth to the fragment stage's output.
