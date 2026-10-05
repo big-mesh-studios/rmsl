@@ -105,41 +105,6 @@ describe("known bugs of the core, each failing until its fix", () => {
   });
 
   /**
-   * A `Switch` with no `Case` and no `Default` leaves no statement in its
-   * block, and the WASM target crashes on the missing node.
-   *
-   * @canon bug-wasm-crashes-on-an-empty-switch
-   */
-  it.fails("compiles a Switch with no Case and no Default on WASM", () => {
-    const build = () =>
-      Fn(() => {
-        const v = float(0).toVar();
-        Switch(int(uniform("float")), () => {});
-        return vec4(v);
-      })();
-    expect(() => compileWasmRoutine(build, { ...none, stage: "fragment" })).not.toThrow();
-  });
-
-  /**
-   * A `Case` given an empty array of values builds an `if` with no
-   * condition, and the compiler crashes on it rather than naming the cause.
-   *
-   * @canon bug-a-case-with-no-values-crashes-the-compiler
-   */
-  it.fails("refuses a Case with no values, naming it", () => {
-    const program = Fn(() => {
-      const v = float(0).toVar();
-      Switch(int(uniform("float")), (s) => {
-        s.Case([], () => {
-          v.assign(float(1));
-        });
-      });
-      return vec4(v);
-    });
-    expect(() => compileGlsl.fragment(program())).toThrow(/Case/);
-  });
-
-  /**
    * A JavaScript array whose length no vector has becomes the float of its
    * first element, silently, so `vec4(0).add([1, 2, 3, 4, 5])` adds 1.
    *

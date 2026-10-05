@@ -3132,7 +3132,7 @@ export type SwitchChain = {
  *
  *   Switch(level, (s) => {
  *     s.Case(0, () => { colour.assign(black); });
- *     s.Case(1, 2, () => { colour.assign(grey); });
+ *     s.Case([1, 2], () => { colour.assign(grey); });
  *     s.Default(() => { colour.assign(white); });
  *   });
  *
@@ -3145,6 +3145,9 @@ export function Switch(selector: Node<"int"> | Node<"uint">, body: (chain: Switc
   let defaultBody: Node<"void"> | undefined;
   const addCase = (values: IntLike | readonly IntLike[], caseBody: () => void): SwitchChain => {
     let vals = (Array.isArray(values) ? values : [values]) as IntLike[];
+    if (vals.length === 0) {
+      throw new Error("[RMSL] Case() needs at least one value: a case with no values can never match.");
+    }
     cases.push({
       // `typedOperand`, not `wrapValue`: a bare number here is a case value
       // beside an int/uint selector, and `wrapValue` alone would default it
@@ -3179,9 +3182,10 @@ export function Switch(selector: Node<"int"> | Node<"uint">, body: (chain: Switc
   if (defaultBody !== undefined) {
     cursor.params![2] = defaultBody;
   }
-  let switchNode = root.params![2] as BaseNode<ShaderType>;
+  let switchNode = root.params![2] as BaseNode<ShaderType> | undefined;
   assertBlockScope("Switch", (scope) => {
-    scope.push(switchNode);
+    // A Switch with no Case and no Default has nothing to run, so it leaves no statement.
+    if (switchNode !== undefined) scope.push(switchNode);
   });
   return chain;
 }
