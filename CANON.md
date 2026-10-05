@@ -51,9 +51,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@bug js-leaves-scalar-fract-and-inverse-sqrt-unbracketed`](#bug-js-leaves-scalar-fract-and-inverse-sqrt-unbracketed) — On JS, a scalar `fract` or `inverseSqrt` used as an operand loses its grouping, so `a.fract().mul(2)` computes `a - floor(a) * 2`.
   - [`@spec a-program-declares-any-number-of-uniforms-on-every-target`](#spec-a-program-declares-any-number-of-uniforms-on-every-target) — A [program](#term-program) declares every [uniform](#term-uniform) it reads, whatever their number, and compiles on every target.
     - [`@spec wgsl-packs-every-value-uniform-into-one-binding`](#spec-wgsl-packs-every-value-uniform-into-one-binding) — On WGSL, every uniform that holds a value is a member of one struct, bound once. GLSL declares each uniform on its own.
-    - [`@spec a-texture-keeps-a-binding-of-its-own`](#spec-a-texture-keeps-a-binding-of-its-own) — On WGSL, a texture, and the sampler that goes with a float texture, each take a binding of their own outside the uniform struct.
+    - [`@spec a-texture-keeps-a-binding-of-its-own`](#spec-a-texture-keeps-a-binding-of-its-own) — On WGSL, a texture, and the sampler that goes with a float texture, each take a binding of their own outside the uniform struct. The stages of a render program number them from the whole set of its textures.
       - [`@bug a-compute-texture-takes-the-binding-of-a-storage-buffer`](#bug-a-compute-texture-takes-the-binding-of-a-storage-buffer) — A compute program declares its textures in group 1, beside its storage buffers. A texture and a buffer then share a binding, and `compile()` does not refuse it.
-      - [`@bug two-render-stages-bind-different-textures-at-one-binding`](#bug-two-render-stages-bind-different-textures-at-one-binding) — Each render stage numbers its textures from the first binding of `@group(1)`, so two stages that read different textures share a binding.
       - [`@bug the-wgsl-adapter-packs-a-texture-into-its-uniform-struct`](#bug-the-wgsl-adapter-packs-a-texture-into-its-uniform-struct) — `createWgsl` puts a texture among the members of its uniform struct, which has no layout for it. A program that reads a texture does not attach.
     - [`@spec a-bool-uniform-travels-as-an-unsigned-integer`](#spec-a-bool-uniform-travels-as-an-unsigned-integer) — On WGSL, a `bool` or boolean vector uniform, alone or in an array, travels as `u32`. The program compares it with zero where it reads it, and gets a `bool`.
     - [`@spec an-adapter-sets-a-uniform-of-every-type-its-program-declares`](#spec-an-adapter-sets-a-uniform-of-every-type-its-program-declares) — An adapter's `setUniform` uploads a uniform of every value type its program can declare.
@@ -455,7 +454,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-uniform-uploads-in-the-shape-its-type-has`](#spec-a-uniform-uploads-in-the-shape-its-type-has) — A renderer uploads a scalar uniform as a scalar and a vector or matrix as an array. An integer uniform goes up as an integer, and each column of a `mat3` is padded to 16 bytes, as WGSL reads it. It places every uniform a material collects in the WGSL layout.
     - [`@spec an-instanced-attribute-comes-from-its-mesh`](#spec-an-instanced-attribute-comes-from-its-mesh) — A renderer reads an instanced attribute from the geometry, or from the mesh that owns it when the geometry has none. Its WGSL locations match the compiler's.
     - [`@spec each-sampler-gets-its-own-texture`](#spec-each-sampler-gets-its-own-texture) — Several samplers in one draw each read their own texture.
-      - [`@bug webgpu-numbers-samplers-unlike-the-compiler`](#bug-webgpu-numbers-samplers-unlike-the-compiler) — The WebGPU renderer numbers sampler bindings in the order the material registers samplers, counting ones it never samples. The compiler numbers them in the order the graph samples them, so a draw reads its textures through the wrong samplers or fails to bind.
     - [`@spec the-webgpu-renderer-shares-one-sampler-per-state`](#spec-the-webgpu-renderer-shares-one-sampler-per-state) — The WebGPU renderer makes one sampler for each combination of filters and wrap, described as the texture asks, and binds each sampler by its type. It rebinds a texture whose sampler state changes, and leaves alone one whose update changes nothing.
     - [`@spec a-changed-texture-shows-on-the-next-render`](#spec-a-changed-texture-shows-on-the-next-render) — A texture whose image changes uploads again on the next render, and a texture that does not change stays as it is. The renderer replaces and binds again a texture whose size changes.
       - [`@bug the-first-renderer-consumes-needs-update`](#bug-the-first-renderer-consumes-needs-update) — A renderer clears `needsUpdate` once it uploads a texture, so a second renderer drawing the same texture never sees the change.
@@ -465,7 +463,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-mesh-draws-the-slice-its-draw-range-selects`](#spec-a-mesh-draws-the-slice-its-draw-range-selects) — A mesh draws only the vertices its `drawRange` selects from its geometry.
       - [`@bug webgpu-ignores-the-draw-range`](#bug-webgpu-ignores-the-draw-range) — The WebGPU renderer draws a mesh's whole geometry, ignoring the slice its `drawRange` selects.
     - [`@spec a-texture-is-bound-to-every-stage-that-samples-it`](#spec-a-texture-is-bound-to-every-stage-that-samples-it) — A renderer binds a texture to every stage that samples it, the vertex stage included.
-      - [`@bug webgpu-binds-textures-to-the-fragment-stage-only`](#bug-webgpu-binds-textures-to-the-fragment-stage-only) — The WebGPU renderer makes every texture and sampler binding visible to the fragment stage alone, so a texture sampled in `positionNode` cannot bind.
     - [`@spec a-data-texture-uploads-in-the-type-it-names`](#spec-a-data-texture-uploads-in-the-type-it-names) — A data texture uploads in the element type its `type` names, so a float texture holds floats.
       - [`@bug a-float-texture-is-uploaded-as-bytes`](#bug-a-float-texture-is-uploaded-as-bytes) — Both renderers ignore `DataTexture.type`, so a `Float32Array` image is uploaded as unsigned bytes.
     - [`@spec a-renderer-blends-and-depth-tests-as-the-material-asks`](#spec-a-renderer-blends-and-depth-tests-as-the-material-asks) — A renderer blends and depth-tests each draw as its material's `transparent`, `blending`, `depthTest` and `depthWrite` ask.
@@ -993,19 +990,13 @@ Derives from: [`fact-wgsl-allows-twelve-uniform-buffers-per-stage`](#fact-wgsl-a
 
 #### @spec a-texture-keeps-a-binding-of-its-own
 
-> On WGSL, a texture, and the sampler that goes with a float texture, each take a binding of their own outside the uniform struct.
+> On WGSL, a texture, and the sampler that goes with a float texture, each take a binding of their own outside the uniform struct. The stages of a render program number them from the whole set of its textures.
 
 Derives from: [`fact-a-wgsl-texture-is-not-host-shareable`](#fact-a-wgsl-texture-is-not-host-shareable)
 
 ##### @bug a-compute-texture-takes-the-binding-of-a-storage-buffer
 
 > A compute program declares its textures in group 1, beside its storage buffers. A texture and a buffer then share a binding, and `compile()` does not refuse it.
-
-Issue: #104
-
-##### @bug two-render-stages-bind-different-textures-at-one-binding
-
-> Each render stage numbers its textures from the first binding of `@group(1)`, so two stages that read different textures share a binding.
 
 Issue: #104
 
@@ -3208,12 +3199,6 @@ Issue: #97
 
 > Several samplers in one draw each read their own texture.
 
-##### @bug webgpu-numbers-samplers-unlike-the-compiler
-
-> The WebGPU renderer numbers sampler bindings in the order the material registers samplers, counting ones it never samples. The compiler numbers them in the order the graph samples them, so a draw reads its textures through the wrong samplers or fails to bind.
-
-Issue: #94
-
 #### @spec the-webgpu-renderer-shares-one-sampler-per-state
 
 > The WebGPU renderer makes one sampler for each combination of filters and wrap, described as the texture asks, and binds each sampler by its type. It rebinds a texture whose sampler state changes, and leaves alone one whose update changes nothing.
@@ -3257,12 +3242,6 @@ Issue: #92
 > A renderer binds a texture to every stage that samples it, the vertex stage included.
 
 This follows because a material may sample a texture in `positionNode` as well as in its colour, and the renderer binds what the material reads.
-
-##### @bug webgpu-binds-textures-to-the-fragment-stage-only
-
-> The WebGPU renderer makes every texture and sampler binding visible to the fragment stage alone, so a texture sampled in `positionNode` cannot bind.
-
-Issue: #94
 
 #### @spec a-data-texture-uploads-in-the-type-it-names
 

@@ -1,5 +1,6 @@
 /// <reference types="@webgpu/types" />
 import { compileWgsl, wgslUniformLayout } from "../../wgsl";
+import { sharedSamplerDeclarations } from "../../backends/wgsl/wgsl";
 import { uniformScratch, writeUniformMember, type UniformScratch } from "../../backends/wgsl/adapter-wgsl";
 import { Color } from "../math/Color";
 import { Vector4 } from "../math/Vector4";
@@ -337,7 +338,13 @@ export class WebGPURenderer {
       }
       writeUniformMember(scratch, member, value);
     }
-    this.device.queue.writeBuffer(entry.ringBuffer, slotIndex * entry.slotSize, scratch.f32 as BufferSource, 0, entry.slotSize / 4);
+    this.device.queue.writeBuffer(
+      entry.ringBuffer,
+      slotIndex * entry.slotSize,
+      scratch.f32 as BufferSource,
+      0,
+      entry.slotSize / 4,
+    );
   }
 
   private ensurePipeline(
@@ -370,12 +377,13 @@ export class WebGPURenderer {
       type: wgslTypeName(u.node._t),
     }));
     const layout = wgslUniformLayout(declaredUniforms);
+    const declaredSamplers = program.samplers.map((s) => ({ slot: s.name, type: s.type }));
 
     const vertexModule = device.createShaderModule({
-      code: compileWgsl.vertex(program.vertexRoot, { uniforms: declaredUniforms }),
+      code: compileWgsl.vertex(program.vertexRoot, { uniforms: declaredUniforms, samplers: declaredSamplers }),
     });
     const fragmentModule = device.createShaderModule({
-      code: compileWgsl.fragment(program.fragmentRoot, { uniforms: declaredUniforms }),
+      code: compileWgsl.fragment(program.fragmentRoot, { uniforms: declaredUniforms, samplers: declaredSamplers }),
     });
     const layoutMembers = layout.members;
 
@@ -386,16 +394,15 @@ export class WebGPURenderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    // Textures (group 1) sort alphabetically by slot; samplers (group 2)
-    // follow sampling order and skip integer textures, which read via
-    // textureLoad and declare no companion sampler in the WGSL.
-    const textureBindings = program.samplers
-      .slice()
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((s, i) => ({ name: s.name, type: s.type, binding: i }));
-    const samplerBindings = program.samplers
-      .filter((s) => !isIntegerSampler(s.type))
-      .map((s, i) => ({ name: s.name, binding: i }));
+    // Both stages number the textures (group 1) and the samplers of the float
+    // ones (group 2) from the program's whole set, as the compiler does.
+    const sharedSamplers = sharedSamplerDeclarations(declaredSamplers);
+    const textureBindings = sharedSamplers.map((t, binding) => ({
+      name: t.slot,
+      type: program.samplers.find((s) => s.name === t.slot)!.type,
+      binding,
+    }));
+    const samplerBindings = sharedSamplers.filter((t) => !t.integer).map((t, binding) => ({ name: t.slot, binding }));
 
     // One layout per group the WGSL declares: uniforms in group 0, textures
     // in group 1, samplers in group 2.
@@ -414,7 +421,7 @@ export class WebGPURenderer {
         : device.createBindGroupLayout({
             entries: textureBindings.map((t) => ({
               binding: t.binding,
-              visibility: GPUShaderStage.FRAGMENT,
+              visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
               texture: {
                 sampleType: samplerSampleType(t.type),
                 viewDimension: samplerDimension(t.type),
@@ -427,7 +434,7 @@ export class WebGPURenderer {
         : device.createBindGroupLayout({
             entries: samplerBindings.map((s) => ({
               binding: s.binding,
-              visibility: GPUShaderStage.FRAGMENT,
+              visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
               sampler: { type: "filtering" },
             })),
           });
