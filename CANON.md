@@ -499,6 +499,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-sampler-without-a-texture-reads-black`](#spec-a-sampler-without-a-texture-reads-black) — A sampler that its material gives no texture reads opaque black on every renderer.
       - [`@bug webgl-leaves-a-textureless-sampler-on-unit-0`](#bug-webgl-leaves-a-textureless-sampler-on-unit-0) — The WebGL renderer never sets the unit of a sampler that has no texture. The sampler reads unit 0, the texture of another sampler.
     - [`@spec a-changed-attribute-uploads-only-its-update-range`](#spec-a-changed-attribute-uploads-only-its-update-range) — A renderer uploads only the slice of a changed attribute that its `updateRange` selects, and the whole attribute when the range is unset.
+      - [`@exception rmsl-has-one-update-range-where-three-js-has-a-list`](#exception-rmsl-has-one-update-range-where-three-js-has-a-list) — rmsl's `BufferAttribute` has one `updateRange` of an offset and a count, where three.js has a list `updateRanges` that `addUpdateRange(start, count)` adds to.
       - [`@bug webgpu-ignores-an-attribute-update-range`](#bug-webgpu-ignores-an-attribute-update-range) — The WebGPU renderer writes a changed attribute whole, from byte 0, ignoring the slice its `updateRange` selects.
   - [`@spec the-application-reaches-an-input-through-its-node`](#spec-the-application-reaches-an-input-through-its-node) — A uniform, attribute or varying node carries its [slot](#term-slot) name in `.name`, and `isUniformNode`, `isAttributeNode` and `isVaryingNode` tell the kinds apart.
   - [`@spec the-wgsl-uniform-layout-is-reported`](#spec-the-wgsl-uniform-layout-is-reported) — `wgslUniformLayout` reports the [layout](#term-layout) of each uniform under WGSL's rules: its offset, its size and, for an array, its stride. It also reports the size of the whole struct.
@@ -701,7 +702,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-mix-builds-a-scalar-weight-as-a-float`](#fact-tsl-mix-builds-a-scalar-weight-as-a-float) — TSL's `mix(a, b, t)` builds `a` and `b` as the input type and builds `t` as a `float` when it is a scalar, so one weight blends two vectors.
 - [`@fact tsl-composes-cbrt-from-sign-abs-and-pow`](#fact-tsl-composes-cbrt-from-sign-abs-and-pow) — TSL's `cbrt(a)` is `sign(a)` times `pow(abs(a), 1/3)`.
 - [`@fact tsl-compares-vectors-component-wise`](#fact-tsl-compares-vectors-component-wise) — A TSL comparison such as `equal` or `lessThan` has the type `bvecN` for the length `N` of its longer operand, and `bool` when both operands are scalars.
-- [`@fact tsl-joins-the-parts-of-a-constructor`](#fact-tsl-joins-the-parts-of-a-constructor) — A TSL constructor such as `vec3` or `mat3` converts one node it is given. Given several, it joins their components in order into its type. A part past the type's length is an error.
+- [`@fact tsl-joins-the-parts-of-a-constructor`](#fact-tsl-joins-the-parts-of-a-constructor) — A TSL constructor such as `vec3` or `mat3` converts a single node. With several, it joins their components in order into its type. A part past the type's length is an error.
 - [`@fact tsl-swizzles-in-xyzw-rgba-and-stpq`](#fact-tsl-swizzles-in-xyzw-rgba-and-stpq) — A TSL node swizzles with the component names `xyzw`, `rgba` and `stpq`.
 - [`@fact tsl-samples-a-texture-with-texture-and-texture-level`](#fact-tsl-samples-a-texture-with-texture-and-texture-level) — TSL samples a texture with the function `texture(value, uv)`. At a level it uses `textureLevel(value, uv, level)` or `.level(level)`. three.js 0.186 defines no TSL export named `textureLod`. That name appears only in `NodeBuilder`, as the GLSL function it emits.
 - [`@fact tsl-chains-if-elseif-and-else-as-conditions`](#fact-tsl-chains-if-elseif-and-else-as-conditions) — TSL's `If`, `ElseIf` and `Else` build a chain of conditional nodes. Each branch after the first is the `elseNode` of the branch before it, so the first branch whose condition holds runs, and `Else` runs when none does.
@@ -717,6 +718,16 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-turns-a-number-into-a-constant-node`](#fact-tsl-turns-a-number-into-a-constant-node) — TSL turns a number or a boolean given where it expects a node into a constant node. A number written with no type is weak, and adapts to the type of the operand beside it.
 - [`@fact tsl-display-effects-are-functions-of-nodes`](#fact-tsl-display-effects-are-functions-of-nodes) — TSL's display effects, such as `sepia` and `rgbShift`, are functions in the addon `examples/jsm/tsl/display` of three.js. Each computes its result from the colour or texture node it takes.
 - [`@fact tsl-an-effect-takes-a-number-or-a-node-for-each-parameter`](#fact-tsl-an-effect-takes-a-number-or-a-node-for-each-parameter) — A TSL display effect takes a number or a node for each parameter, such as `amount` of `rgbShift`, and turns a number into a constant node.
+- [`@fact three-js-renders-opaque-before-transparent-objects`](#fact-three-js-renders-opaque-before-transparent-objects) — three.js's `WebGLRenderer` renders the opaque objects of a scene first, then the transmissive objects, then the transparent objects.
+- [`@fact three-js-sorts-transparent-objects-back-to-front`](#fact-three-js-sorts-transparent-objects-back-to-front) — three.js sorts the transparent objects of a render list by `renderOrder`, then by depth from the farthest to the nearest.
+- [`@fact three-js-clears-before-it-renders-when-auto-clear-is-set`](#fact-three-js-clears-before-it-renders-when-auto-clear-is-set) — A three.js renderer clears its colour, depth and stencil buffers at the start of each `render` when its `autoClear` is `true`, which it is by default.
+- [`@fact three-js-clears-to-a-colour-background`](#fact-three-js-clears-to-a-colour-background) — When `scene.background` is a colour, three.js clears to that colour with alpha 1 and forces the clear, with `autoClear` on or off. With no background it clears to the renderer's clear colour.
+- [`@fact three-js-sets-blending-and-depth-from-the-material`](#fact-three-js-sets-blending-and-depth-from-the-material) — In three.js, `transparent`, `blending`, `depthTest` and `depthWrite` are properties of a material, and the renderer sets its blend and depth state from them for each draw. A material with normal blending that is not transparent draws with no blending.
+- [`@fact three-js-uploads-a-changed-attribute-through-update-ranges`](#fact-three-js-uploads-a-changed-attribute-through-update-ranges) — three.js holds the changed part of a `BufferAttribute` as a list `updateRanges`, which `addUpdateRange(start, count)` adds to. It sends those ranges to the GPU, and sends the whole attribute when the list is empty.
+- [`@fact three-js-uploads-a-data-texture-in-its-type`](#fact-three-js-uploads-a-data-texture-in-its-type) — A three.js `DataTexture` takes a typed array and a texture `type`, `UnsignedByteType` by default, and uploads its data to the GPU as that type.
+- [`@fact three-js-sums-ambient-lights-into-one-colour`](#fact-three-js-sums-ambient-lights-into-one-colour) — three.js adds the colour of each ambient light, times its intensity, into one ambient colour for the scene.
+- [`@fact three-js-scales-a-light-colour-by-its-intensity`](#fact-three-js-scales-a-light-colour-by-its-intensity) — three.js sets the colour uniform of a directional light and of a point light to the light's colour multiplied by its intensity, on the host.
+- [`@fact three-js-declares-one-precision-for-every-sampler`](#fact-three-js-declares-one-precision-for-every-sampler) — The `WebGLProgram` of three.js declares one precision for `float`, `int` and every sampler type, the integer samplers `isampler2D`, `isampler3D` and `isamplerCube` included.
 <!-- toc:end -->
 
 ## Open questions
@@ -2931,11 +2942,15 @@ Issue: #96
 
 > A material sums the ambient lights of its scene, each scaled by its intensity, into one colour uniform.
 
+Derives from: [`fact-three-js-sums-ambient-lights-into-one-colour`](#fact-three-js-sums-ambient-lights-into-one-colour)
+
 This follows because three.js adds every ambient light into one ambient term, and an ambient light has no direction to keep apart.
 
 ##### @spec a-light-uniform-carries-its-colour-times-its-intensity
 
 > A directional or point light gives its colour uniform the light's colour already multiplied by its intensity.
+
+Derives from: [`fact-three-js-scales-a-light-colour-by-its-intensity`](#fact-three-js-scales-a-light-colour-by-its-intensity)
 
 This follows because three.js scales a light's colour by its intensity on the host, so the shading terms read one colour.
 
@@ -3059,7 +3074,7 @@ Derives from: [`fact-chromium-needs-a-precision-for-every-sampler`](#fact-chromi
 
 > A GLSL shader declares the precision the caller asks for on each integer sampler it uses, `highp` when the caller asks for none.
 
-Derives from: [`fact-chromium-needs-a-precision-for-every-sampler`](#fact-chromium-needs-a-precision-for-every-sampler)
+Derives from: [`fact-chromium-needs-a-precision-for-every-sampler`](#fact-chromium-needs-a-precision-for-every-sampler), [`fact-three-js-declares-one-precision-for-every-sampler`](#fact-three-js-declares-one-precision-for-every-sampler)
 
 This follows because three.js's `WebGLRenderer` declares its one precision for every sampler, integer ones included.
 
@@ -3327,7 +3342,7 @@ Issue: #94
 
 > A data texture uploads in the element type its `type` names, so a float texture holds floats.
 
-Derives from: [`spec-the-three-js-constants-carry-three-js-values`](#spec-the-three-js-constants-carry-three-js-values)
+Derives from: [`spec-the-three-js-constants-carry-three-js-values`](#spec-the-three-js-constants-carry-three-js-values), [`fact-three-js-uploads-a-data-texture-in-its-type`](#fact-three-js-uploads-a-data-texture-in-its-type)
 
 This follows because three.js uploads a data texture in the type it names, and the renderer uploads what the material reads.
 
@@ -3341,6 +3356,8 @@ Issue: #95
 
 > A renderer blends and depth-tests each draw as its material's `transparent`, `blending`, `depthTest` and `depthWrite` ask.
 
+Derives from: [`fact-three-js-sets-blending-and-depth-from-the-material`](#fact-three-js-sets-blending-and-depth-from-the-material)
+
 This follows because these properties are the material's in three.js, and both renderers draw the same scene.
 
 ##### @bug webgpu-ignores-the-material-blend-and-depth-state
@@ -3352,6 +3369,8 @@ Issue: #92
 ##### @spec a-renderer-draws-transparent-meshes-back-to-front
 
 > A renderer draws opaque meshes first, then transparent meshes from the farthest to the nearest.
+
+Derives from: [`fact-three-js-renders-opaque-before-transparent-objects`](#fact-three-js-renders-opaque-before-transparent-objects), [`fact-three-js-sorts-transparent-objects-back-to-front`](#fact-three-js-sorts-transparent-objects-back-to-front)
 
 This follows because three.js sorts its transparent list back to front, so each transparent mesh blends over what lies behind it.
 
@@ -3365,6 +3384,8 @@ Issue: #121
 
 > `render` clears the canvas to the clear colour on every call, whatever the scene holds.
 
+Derives from: [`fact-three-js-clears-before-it-renders-when-auto-clear-is-set`](#fact-three-js-clears-before-it-renders-when-auto-clear-is-set)
+
 This follows because a frame shows only the scene it renders, as three.js's `autoClear` does.
 
 ##### @bug webgpu-leaves-an-empty-scene-uncleared
@@ -3376,6 +3397,8 @@ Issue: #92
 ##### @spec render-clears-to-the-scene-background
 
 > `render` clears to the scene's background colour when the scene has one, and to the clear colour otherwise.
+
+Derives from: [`fact-three-js-clears-to-a-colour-background`](#fact-three-js-clears-to-a-colour-background)
 
 This follows because three.js's renderer clears to `scene.background` when it is a colour.
 
@@ -3443,7 +3466,18 @@ Issue: #120
 
 > A renderer uploads only the slice of a changed attribute that its `updateRange` selects, and the whole attribute when the range is unset.
 
-This follows because three.js sends only the update range, and the WebGL renderer already does.
+Derives from: [`fact-three-js-uploads-a-changed-attribute-through-update-ranges`](#fact-three-js-uploads-a-changed-attribute-through-update-ranges)
+
+This follows because three.js sends only the changed part of an attribute, and the WebGL renderer already does. The exception below says how rmsl names that part.
+
+##### @exception rmsl-has-one-update-range-where-three-js-has-a-list
+
+> rmsl's `BufferAttribute` has one `updateRange` of an offset and a count, where three.js has a list `updateRanges` that `addUpdateRange(start, count)` adds to.
+
+Derives from: [`fact-three-js-uploads-a-changed-attribute-through-update-ranges`](#fact-three-js-uploads-a-changed-attribute-through-update-ranges)
+
+Nothing rules on the departure yet. Issue #140 asks whether to take three.js's list.
+
 
 ##### @bug webgpu-ignores-an-attribute-update-range
 
@@ -4640,7 +4674,7 @@ This is how three.js's TSL behaves, read from its source (`OperatorNode`, `getNo
 
 ## @fact tsl-joins-the-parts-of-a-constructor
 
-> A TSL constructor such as `vec3` or `mat3` converts one node it is given. Given several, it joins their components in order into its type. A part past the type's length is an error.
+> A TSL constructor such as `vec3` or `mat3` converts a single node. With several, it joins their components in order into its type. A part past the type's length is an error.
 
 This is how three.js's TSL behaves, read from its source (`ConvertType` in `TSLCore` and `JoinNode`, three.js 0.186).
 
@@ -4733,3 +4767,63 @@ This is how three.js's TSL behaves, read from its source (`Sepia` and `RGBShiftN
 > A TSL display effect takes a number or a node for each parameter, such as `amount` of `rgbShift`, and turns a number into a constant node.
 
 This is how three.js's TSL behaves, read from its source (`RGBShiftNode`, three.js 0.186).
+
+## @fact three-js-renders-opaque-before-transparent-objects
+
+> three.js's `WebGLRenderer` renders the opaque objects of a scene first, then the transmissive objects, then the transparent objects.
+
+This is how three.js behaves, read from its source (`WebGLRenderer`, `renderScene`, three.js 0.186).
+
+## @fact three-js-sorts-transparent-objects-back-to-front
+
+> three.js sorts the transparent objects of a render list by `renderOrder`, then by depth from the farthest to the nearest.
+
+This is how three.js behaves, read from its source (`WebGLRenderLists`, `reversePainterSortStable`, three.js 0.186).
+
+## @fact three-js-clears-before-it-renders-when-auto-clear-is-set
+
+> A three.js renderer clears its colour, depth and stencil buffers at the start of each `render` when its `autoClear` is `true`, which it is by default.
+
+This is how three.js behaves, read from its source (`WebGLRenderer` and `WebGLBackground`, three.js 0.186).
+
+## @fact three-js-clears-to-a-colour-background
+
+> When `scene.background` is a colour, three.js clears to that colour with alpha 1 and forces the clear, with `autoClear` on or off. With no background it clears to the renderer's clear colour.
+
+This is how three.js behaves, read from its source (`WebGLBackground`, three.js 0.186).
+
+## @fact three-js-sets-blending-and-depth-from-the-material
+
+> In three.js, `transparent`, `blending`, `depthTest` and `depthWrite` are properties of a material, and the renderer sets its blend and depth state from them for each draw. A material with normal blending that is not transparent draws with no blending.
+
+This is how three.js behaves, read from its source (`Material` and `WebGLState`, `setMaterial`, three.js 0.186).
+
+## @fact three-js-uploads-a-changed-attribute-through-update-ranges
+
+> three.js holds the changed part of a `BufferAttribute` as a list `updateRanges`, which `addUpdateRange(start, count)` adds to. It sends those ranges to the GPU, and sends the whole attribute when the list is empty.
+
+This is how three.js behaves, read from its source (`BufferAttribute` and `WebGLAttributes`, three.js 0.186).
+
+## @fact three-js-uploads-a-data-texture-in-its-type
+
+> A three.js `DataTexture` takes a typed array and a texture `type`, `UnsignedByteType` by default, and uploads its data to the GPU as that type.
+
+This is how three.js behaves, read from its source (`DataTexture` and `WebGLTextures`, three.js 0.186).
+
+## @fact three-js-sums-ambient-lights-into-one-colour
+
+> three.js adds the colour of each ambient light, times its intensity, into one ambient colour for the scene.
+
+This is how three.js behaves, read from its source (`WebGLLights`, three.js 0.186).
+
+## @fact three-js-scales-a-light-colour-by-its-intensity
+
+> three.js sets the colour uniform of a directional light and of a point light to the light's colour multiplied by its intensity, on the host.
+
+This is how three.js behaves, read from its source (`WebGLLights`, three.js 0.186).
+
+## @fact three-js-declares-one-precision-for-every-sampler
+
+> The `WebGLProgram` of three.js declares one precision for `float`, `int` and every sampler type, the integer samplers `isampler2D`, `isampler3D` and `isamplerCube` included.
+
+This is how three.js behaves, read from its source (`WebGLProgram`, three.js 0.186).

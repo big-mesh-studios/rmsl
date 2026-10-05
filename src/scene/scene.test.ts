@@ -230,6 +230,19 @@ describe("BufferGeometry", () => {
     expect(geo.index?.count).toBe(2);
     expect(geo.drawCount).toBe(2);
   });
+
+  /**
+   * rmsl marks the changed part of an attribute with one `updateRange`, where
+   * three.js 0.186 keeps a list of ranges.
+   *
+   * @canon exception-rmsl-has-one-update-range-where-three-js-has-a-list
+   */
+  it("marks its changed bytes with one updateRange, not a list of ranges", () => {
+    const attribute = new BufferAttribute(new Float32Array(6), 3);
+    expect(attribute.updateRange).toEqual({ offset: 0, count: -1 });
+    expect("updateRanges" in attribute).toBe(false);
+    expect("addUpdateRange" in attribute).toBe(false);
+  });
 });
 
 describe("Texture", () => {
