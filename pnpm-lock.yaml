@@ -18,6 +18,9 @@ importers:
         specifier: ^1.0.39
         version: 1.0.39
     devDependencies:
+      '@bigmistqke/canon':
+        specifier: ^0.2.0
+        version: 0.2.0
       '@kmamal/gpu':
         specifier: ^0.2.1
         version: 0.2.1
@@ -27,12 +30,6 @@ importers:
       '@stryker-mutator/vitest-runner':
         specifier: ^9.6.1
         version: 9.6.1(@stryker-mutator/core@9.6.1(@types/node@22.20.2))(vitest@4.1.10(@types/node@22.20.2)(vite@7.3.6(@types/node@22.20.2)(lightningcss@1.33.0)))
-      '@types/mdast':
-        specifier: ^4.0.4
-        version: 4.0.4
-      '@types/nlcst':
-        specifier: ^2.0.3
-        version: 2.0.3
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.2
@@ -42,42 +39,9 @@ importers:
       prettier:
         specifier: ^3.9.6
         version: 3.9.6
-      remark-parse:
-        specifier: ^11.0.0
-        version: 11.0.0
-      remark-retext:
-        specifier: ^6.0.1
-        version: 6.0.1
-      retext-english:
-        specifier: ^5.0.0
-        version: 5.0.0
-      retext-indefinite-article:
-        specifier: ^5.0.0
-        version: 5.0.0
-      retext-passive:
-        specifier: ^5.0.0
-        version: 5.0.0
-      retext-repeated-words:
-        specifier: ^5.0.0
-        version: 5.0.0
-      retext-simplify:
-        specifier: ^8.0.0
-        version: 8.0.0
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
-      unified:
-        specifier: ^11.0.5
-        version: 11.0.5
-      unist-util-visit:
-        specifier: ^5.1.0
-        version: 5.1.0
-      vfile:
-        specifier: ^6.0.3
-        version: 6.0.3
-      vfile-reporter:
-        specifier: ^8.1.1
-        version: 8.1.1
       vite:
         specifier: ^7.1.4
         version: 7.3.6(@types/node@22.20.2)(lightningcss@1.33.0)
@@ -306,6 +270,11 @@ packages:
     peerDependencies:
       '@solidjs/web': ^2.0.0-beta.29
       solid-js: ^2.0.0-beta.29
+
+  '@bigmistqke/canon@0.2.0':
+    resolution: {integrity: sha512-XFVlTW+7A5Xabn2pbWFKucN7/Yz/6mFMDpkMZ/XJLap2uxrYcZNEtNhl7/GSv9VfyLjomFpln0ByZ6R0j58NOQ==}
+    engines: {node: '>=22'}
+    hasBin: true
 
   '@bigmistqke/pointer@0.1.0':
     resolution: {integrity: sha512-J+4J/C+qPrMHHxTAfSaA1P07Qcu8gPKloHTDDNa9k2WkQDrYdiskY/6f3vxWuTh3/WMiH7ruY44lMp1+ZGqxCg==}
@@ -2599,6 +2568,22 @@ snapshots:
       comlink: 4.4.2
       solid-js: 2.0.0-rc.9
       typescript: 5.9.3
+    transitivePeerDependencies:
+      - supports-color
+
+  '@bigmistqke/canon@0.2.0':
+    dependencies:
+      remark-parse: 11.0.0
+      remark-retext: 6.0.1
+      retext-english: 5.0.0
+      retext-indefinite-article: 5.0.0
+      retext-passive: 5.0.0
+      retext-repeated-words: 5.0.0
+      retext-simplify: 8.0.0
+      unified: 11.0.5
+      unist-util-visit: 5.1.0
+      vfile: 6.0.3
+      vfile-reporter: 8.1.1
     transitivePeerDependencies:
       - supports-color
 

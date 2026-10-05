@@ -1,6 +1,6 @@
 # RMSL — Canon
 
-How rmsl behaves now, and why. It holds the axioms of rmsl, the facts of the platforms it compiles for, and the specs and exceptions derived from them. It is the guideline for every choice in rmsl, internal ones included. Tests cite the units here with a `@canon` tag, and `pnpm canon check` holds those links closed. [The canon skill](.claude/skills/canon/SKILL.md) describes the method.
+How rmsl behaves now, and why. It holds the axioms of rmsl, the facts of the platforms it compiles for, and the specs and exceptions derived from them. It is the guideline for every choice in rmsl, internal ones included. Tests cite the units here with a `@canon` tag, and `pnpm canon check` holds those links closed. [The canon skill](https://github.com/bigmistqke/skills/blob/main/skills/canon/SKILL.md) describes the method.
 
 This document states the present tense only. How a decision was reached lives in the commit history and the issues.
 
