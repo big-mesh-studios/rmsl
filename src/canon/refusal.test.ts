@@ -207,6 +207,9 @@ describe("a mistake is refused before the program runs", () => {
       expect(() => compileWgsl(block())).toThrow(refusal);
       for (const compile of cpuCompilers) expect(() => compile(block)).toThrow(refusal);
     }
+  });
+
+  /**
    * A `Case` given no values can match no selector, so it is refused, naming
    * `Case`.
    *
