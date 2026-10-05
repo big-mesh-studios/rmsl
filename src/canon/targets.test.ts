@@ -111,6 +111,10 @@ describe("each leaf on every target it claims", () => {
     }
     expect(evaluateRecording((a) => a.radians(), [180])).toBeCloseTo(Math.PI, 5);
     expect(evaluateRecording((a) => a.degrees(), [Math.PI])).toBeCloseTo(180, 4);
+    // As the right operand of a division, and as a vector.
+    expect(evaluateRecording((a) => float(10).div(a.radians()), [180])).toBeCloseTo(10 / Math.PI, 4);
+    const vector = evaluateRecording((a) => vec3(a, a.mul(2), 0).radians(), [90]) as number[];
+    [Math.PI / 2, Math.PI, 0].forEach((x, i) => expect(vector[i]).toBeCloseTo(x, 5));
   });
 
   /**

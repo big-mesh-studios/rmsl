@@ -1975,6 +1975,8 @@ export function compileWasmFn(
       case "shiftRight":
       case "negate":
       case "abs":
+      case "radians":
+      case "degrees":
       case "min":
       case "max":
       case "lessThan":
@@ -2657,6 +2659,8 @@ export function compileWasmFn(
         const negated = [...i32ConstBytes(0), ...aBytes, WASM_OP.i32Sub];
         return selectExpr(negated, aBytes, [...aBytes, ...i32ConstBytes(0), WASM_OP.i32LtS]);
       }
+      if (node.type === "radians") return [...aBytes, ...f64ConstBytes(Math.PI / 180), WASM_OP.f64Mul];
+      if (node.type === "degrees") return [...aBytes, ...f64ConstBytes(180 / Math.PI), WASM_OP.f64Mul];
       if (node.type === "mod" && float) return flooredModulo(aBytes, bBytes);
       if ((node.type === "div" || node.type === "mod") && !float) {
         return [...aBytes, ...bBytes, ...integerDivision(operandKind as "int" | "uint", node.type)];

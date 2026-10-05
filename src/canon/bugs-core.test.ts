@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   Fn,
-  degrees,
   equal,
   float,
   instancedArray,
   int,
   output,
-  radians,
   sub,
   Switch,
   uint,
