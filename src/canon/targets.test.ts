@@ -102,16 +102,21 @@ describe("each leaf on every target it claims", () => {
    *
    * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
    */
-  it("compiles radians and degrees to the built-ins, and converts an angle on every target", () => {
+  it("compiles radians and degrees to the built-ins of GLSL and WGSL", () => {
     const angle = uniform("float");
     const build = () => Fn(() => vec4(angle.radians(), angle.degrees(), 0, 1))();
     for (const code of [compileGlsl.fragment(build()), compileWgsl.fragment(build())]) {
       expect(code).toMatch(/\bradians\(/);
       expect(code).toMatch(/\bdegrees\(/);
     }
+  });
+
+  /**
+   * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
+   */
+  it("converts an angle on every target, as a right operand and as a vector", () => {
     expect(evaluateRecording((a) => a.radians(), [180])).toBeCloseTo(Math.PI, 5);
     expect(evaluateRecording((a) => a.degrees(), [Math.PI])).toBeCloseTo(180, 4);
-    // As the right operand of a division, and as a vector.
     expect(evaluateRecording((a) => float(10).div(a.radians()), [180])).toBeCloseTo(10 / Math.PI, 4);
     const vector = evaluateRecording((a) => vec3(a, a.mul(2), 0).radians(), [90]) as number[];
     [Math.PI / 2, Math.PI, 0].forEach((x, i) => expect(vector[i]).toBeCloseTo(x, 5));
@@ -121,6 +126,14 @@ describe("each leaf on every target it claims", () => {
       params: [{ name: "a", type: "float" }],
     });
     expect(wasm.run({ params: { a: Math.PI / 2 } })).toBeCloseTo(180, 6);
+  });
+
+  /**
+   * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
+   */
+  it("refuses the radians or degrees of an integer, which no target has", () => {
+    expect(() => Fn(() => (int(90) as any).radians().toVar())()).toThrow(/radians\(\) takes a float or a float vector, not int/);
+    expect(() => Fn(() => (uvec2(1, 2) as any).degrees().toVar())()).toThrow(/degrees\(\) takes a float or a float vector, not uvec2/);
   });
 
   /**

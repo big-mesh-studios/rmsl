@@ -434,9 +434,9 @@ export function tryFold(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
       case "trunc":
         return mkNode({ _t: t, type: t, value: Math.trunc(a) });
       case "radians":
-        return mkNode({ _t: t, type: t, value: a * (Math.PI / 180) });
+        return mkNode({ _t: t, type: t, value: a * RADIANS_PER_DEGREE });
       case "degrees":
-        return mkNode({ _t: t, type: t, value: a * (180 / Math.PI) });
+        return mkNode({ _t: t, type: t, value: a * DEGREES_PER_RADIAN });
       case "fract":
         return mkNode({ _t: t, type: t, value: a - Math.floor(a) });
       case "sqrt":
@@ -657,6 +657,10 @@ function roundHalfToEven(x: number): number {
   const r = Math.round(x);
   return x - Math.floor(x) === 0.5 && r % 2 !== 0 ? r - 1 : r;
 }
+
+/** The factors `radians` and `degrees` multiply by, on every target that computes them itself. */
+export const RADIANS_PER_DEGREE = Math.PI / 180;
+export const DEGREES_PER_RADIAN = 180 / Math.PI;
 
 /**
  * Only a square matrix has an inverse, and neither language offers an overload

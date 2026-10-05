@@ -21,6 +21,8 @@ import {
   assertOneDeclarationPerName,
   assertAssignable,
   FOR_UPDATE_BLOCK_MESSAGE,
+  DEGREES_PER_RADIAN,
+  RADIANS_PER_DEGREE,
   assignedStorageElement,
   parameterNode,
   CompileFnOptions,
@@ -2661,8 +2663,8 @@ export function compileWasmFn(
         const negated = [...i32ConstBytes(0), ...aBytes, WASM_OP.i32Sub];
         return selectExpr(negated, aBytes, [...aBytes, ...i32ConstBytes(0), WASM_OP.i32LtS]);
       }
-      if (node.type === "radians") return [...aBytes, ...f64ConstBytes(Math.PI / 180), WASM_OP.f64Mul];
-      if (node.type === "degrees") return [...aBytes, ...f64ConstBytes(180 / Math.PI), WASM_OP.f64Mul];
+      if (node.type === "radians") return [...aBytes, ...f64ConstBytes(RADIANS_PER_DEGREE), WASM_OP.f64Mul];
+      if (node.type === "degrees") return [...aBytes, ...f64ConstBytes(DEGREES_PER_RADIAN), WASM_OP.f64Mul];
       if (node.type === "mod" && float) return flooredModulo(aBytes, bBytes);
       if ((node.type === "div" || node.type === "mod") && !float) {
         return [...aBytes, ...bBytes, ...integerDivision(operandKind as "int" | "uint", node.type)];
@@ -3227,9 +3229,9 @@ export function compileWasmFn(
       case "trunc":
         return [...walkExpr(node.params[0]), WASM_OP.f64Trunc];
       case "radians":
-        return [...walkExpr(node.params[0]), ...f64ConstBytes(Math.PI / 180), WASM_OP.f64Mul];
+        return [...walkExpr(node.params[0]), ...f64ConstBytes(RADIANS_PER_DEGREE), WASM_OP.f64Mul];
       case "degrees":
-        return [...walkExpr(node.params[0]), ...f64ConstBytes(180 / Math.PI), WASM_OP.f64Mul];
+        return [...walkExpr(node.params[0]), ...f64ConstBytes(DEGREES_PER_RADIAN), WASM_OP.f64Mul];
       case "fract": {
         const x = node.params[0];
         // x - floor(x); x is emitted twice to keep the stack flat — cheap, side-effect free
