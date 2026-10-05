@@ -248,7 +248,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug an-int-and-a-float-operand-compile-with-a-hidden-conversion`](#bug-an-int-and-a-float-operand-compile-with-a-hidden-conversion) — GLSL and WGSL compile an operation on an `int` and a `float` operand. WGSL truncates the float to `i32`, and GLSL converts the int to `float`.
     - [`@spec a-for-update-that-holds-a-block-is-refused`](#spec-a-for-update-that-holds-a-block-is-refused) — A `For` whose update holds a block, such as an `If`, is refused on every target.
   - [`@spec a-case-with-no-values-is-refused`](#spec-a-case-with-no-values-is-refused) — A `Case` given no values is refused when the program compiles, with an error that names `Case`.
-    - [`@bug a-case-with-no-values-crashes-the-compiler`](#bug-a-case-with-no-values-crashes-the-compiler) — A `Case` given an empty array of values builds an `if` with no condition, and the compiler crashes on it rather than naming the cause.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
   - [`@spec a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop) — A loop follows TSL's `Loop`. It tests its condition before every iteration, and runs its body while the condition holds. It builds the condition once, before the loop.
     - [`@spec loop-counts-from-zero`](#spec-loop-counts-from-zero) — `Loop(count, body)` runs `body` `count` times, with an `int` index that counts up from 0.
@@ -335,7 +334,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-variable-an-else-if-condition-makes-belongs-to-its-chain`](#spec-a-variable-an-else-if-condition-makes-belongs-to-its-chain) — The rest of an `If` chain can read a variable that an `ElseIf` condition makes, and a use of it after the chain is refused.
     - [`@spec an-else-if-follows-its-if-directly`](#spec-an-else-if-follows-its-if-directly) — An `ElseIf` or `Else` written after a statement that follows its `If` or `ElseIf`, a variable or a `Break` included, or called from inside another block, is refused.
   - [`@spec a-switch-runs-the-case-its-selector-matches`](#spec-a-switch-runs-the-case-its-selector-matches) — `Switch` runs the first `Case` whose values hold its selector, or the `Default` when none does, as a chain of `if` and `else` with no fall-through.
-    - [`@bug wasm-crashes-on-an-empty-switch`](#bug-wasm-crashes-on-an-empty-switch) — A `Switch` with no `Case` and no `Default` leaves no statement in its block, and the WASM target crashes on the missing node.
   - [`@spec break-continue-return-and-discard-leave-where-tsl-leaves`](#spec-break-continue-return-and-discard-leave-where-tsl-leaves) — `Break` leaves the loop, `Continue` starts its next iteration, `Return` leaves the function, and `Discard` drops the fragment.
     - [`@bug the-cpu-rasterizers-paint-a-discarded-fragment`](#bug-the-cpu-rasterizers-paint-a-discarded-fragment) — The JS and WASM rasterizers write a colour for a discarded fragment. JS writes 0 into its red channel, and WASM writes the colour the fragment stage last left in its memory.
     - [`@bug the-cpu-rasterizers-write-the-depth-of-a-discarded-fragment`](#bug-the-cpu-rasterizers-write-the-depth-of-a-discarded-fragment) — The JS and WASM rasterizers write the depth of a fragment before they run it. A fragment that discards still hides what a later draw puts behind it.
@@ -2103,12 +2101,6 @@ This follows because the update slot of a GLSL or WGSL `for` takes no block, and
 
 This follows because a case no selector can match is a mistake in the program, and a mistake is refused before the program runs.
 
-#### @bug a-case-with-no-values-crashes-the-compiler
-
-> A `Case` given an empty array of values builds an `if` with no condition, and the compiler crashes on it rather than naming the cause.
-
-Issue: #77
-
 ## @axiom a-tsl-shader-ports-by-changing-its-import
 
 > rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
@@ -2571,12 +2563,6 @@ Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mi
 Derives from: [`fact-tsl-builds-switch-as-a-chain-of-conditions`](#fact-tsl-builds-switch-as-a-chain-of-conditions)
 
 This follows because TSL's `Switch` compiles the same way.
-
-#### @bug wasm-crashes-on-an-empty-switch
-
-> A `Switch` with no `Case` and no `Default` leaves no statement in its block, and the WASM target crashes on the missing node.
-
-Issue: #77
 
 ### @spec break-continue-return-and-discard-leave-where-tsl-leaves
 

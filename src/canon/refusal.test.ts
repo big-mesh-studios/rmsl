@@ -16,6 +16,7 @@ import {
   mat3,
   output,
   uniform,
+  Switch,
   uint,
   varying,
   vec2,
@@ -206,6 +207,41 @@ describe("a mistake is refused before the program runs", () => {
       expect(() => compileWgsl(block())).toThrow(refusal);
       for (const compile of cpuCompilers) expect(() => compile(block)).toThrow(refusal);
     }
+   * A `Case` given no values can match no selector, so it is refused, naming
+   * `Case`.
+   *
+   * @canon spec-a-case-with-no-values-is-refused
+   */
+  it("refuses a Case with no values, naming it", () => {
+    const program = () =>
+      Fn(() => {
+        const v = float(0).toVar();
+        Switch(int(uniform("float")), (s) => {
+          s.Case([], () => {
+            v.assign(float(1));
+          });
+        });
+        return vec4(v);
+      })();
+    expect(program).toThrow(/Case\(\) needs at least one value/);
+  });
+
+  /**
+   * A `Switch` with no `Case` and no `Default` has nothing to run, and compiles
+   * on every target.
+   *
+   * @canon spec-a-switch-runs-the-case-its-selector-matches
+   */
+  it("compiles a Switch with no Case and no Default on every target", () => {
+    const build = () =>
+      Fn(() => {
+        const v = float(0).toVar();
+        Switch(int(uniform("float")), () => {});
+        return vec4(v);
+      })();
+    expect(() => compileGlsl.fragment(build())).not.toThrow();
+    expect(() => compileWgsl.fragment(build())).not.toThrow();
+    for (const compile of cpuCompilers) expect(() => compile(build)).not.toThrow();
   });
 
   /**
