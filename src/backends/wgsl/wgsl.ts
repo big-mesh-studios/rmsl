@@ -367,6 +367,9 @@ function wgslLiteralPrec(literal: string): number {
   return literal.startsWith("-") ? PREC_UNARY : PREC_ATOM;
 }
 
+/** What an early `Return()` in a fragment stage emits until its `main` is known to return a struct. */
+const FRAGMENT_RETURN = "return /*fragment*/;";
+
 export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCtx): CompiledNode {
   // Constant folding
   let folded = tryFold(node);
@@ -1268,7 +1271,12 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     }
 
     case "return": {
-      return { decls: [], body: ["return;"], expr: "0.0" };
+      // A vertex or fragment `main` returns its result struct, which WGSL
+      // refuses a bare `return;` in. Whether a fragment `main` has one is known
+      // only once its body is built, so that statement carries a token.
+      const statement =
+        ctx.shaderStage === "vertex" ? "return result;" : ctx.shaderStage === "fragment" ? FRAGMENT_RETURN : "return;";
+      return { decls: [], body: [statement], expr: "0.0" };
     }
 
     default:
@@ -1818,7 +1826,7 @@ export function compileWGSLWithStage(
       lines.push("  var result: FragmentOutput;");
     }
     for (let line of allBody) {
-      lines.push("  " + line);
+      lines.push("  " + line.replaceAll(FRAGMENT_RETURN, hasFragmentOutput ? "return result;" : "return;"));
     }
     if (emitImplicitColor) {
       lines.push(`  result._rmsl_fragColor = ${lastExpr};`);

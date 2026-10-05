@@ -340,7 +340,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec break-continue-return-and-discard-leave-where-tsl-leaves`](#spec-break-continue-return-and-discard-leave-where-tsl-leaves) — `Break` leaves the loop, `Continue` starts its next iteration, `Return` leaves the function, and `Discard` drops the fragment.
     - [`@bug the-cpu-rasterizers-paint-a-discarded-fragment`](#bug-the-cpu-rasterizers-paint-a-discarded-fragment) — The JS and WASM rasterizers write a colour for a discarded fragment. JS writes 0 into its red channel, and WASM writes the colour the fragment stage last left in its memory.
     - [`@bug the-cpu-rasterizers-write-the-depth-of-a-discarded-fragment`](#bug-the-cpu-rasterizers-write-the-depth-of-a-discarded-fragment) — The JS and WASM rasterizers write the depth of a fragment before they run it. A fragment that discards still hides what a later draw puts behind it.
-    - [`@bug wgsl-an-early-return-in-a-fragment-stage-returns-nothing`](#bug-wgsl-an-early-return-in-a-fragment-stage-returns-nothing) — On WGSL, `Return()` in a fragment stage that writes a colour emits a bare `return;`, though `main` returns `FragmentOutput`. WGSL refuses the program.
   - [`@spec an-fn-records-the-statements-of-its-body`](#spec-an-fn-records-the-statements-of-its-body) — `Fn` records the statements its body makes into the [fn](#term-fn) it returns. An `Fn` may be empty, return one value or several, and call another `Fn`.
     - [`@spec an-fn-returns-what-its-body-returns`](#spec-an-fn-returns-what-its-body-returns) — A call of an `Fn` gives what its body returns: nothing, one value, or several. An empty body and a body that calls another `Fn` compile.
     - [`@spec an-inline-fn-runs-where-it-is-called`](#spec-an-inline-fn-runs-where-it-is-called) — A variable that a called `Fn` makes is declared where the call is, not where its value is first read.
@@ -2606,12 +2605,6 @@ Issue: #81
 > The JS and WASM rasterizers write the depth of a fragment before they run it. A fragment that discards still hides what a later draw puts behind it.
 
 Issue: #81
-
-#### @bug wgsl-an-early-return-in-a-fragment-stage-returns-nothing
-
-> On WGSL, `Return()` in a fragment stage that writes a colour emits a bare `return;`, though `main` returns `FragmentOutput`. WGSL refuses the program.
-
-Issue: #135
 
 ### @spec an-fn-records-the-statements-of-its-body
 
