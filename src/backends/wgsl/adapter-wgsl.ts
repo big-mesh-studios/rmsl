@@ -12,6 +12,7 @@ import { Adapter, DrawCountOptions, requestedStorageSlots, slotOf, TypedArray } 
 import { componentCountOf, componentKindOf } from "../cpu";
 import { CompileCtx, storageAttributes, VertexRoot } from "../shared";
 import type { WgslContext } from "./context-wgsl";
+import { spread, storageLayout, type StorageLayout } from "./storage-layout";
 import {
   compileWGSLStage,
   compileWGSLWithStage,
@@ -284,11 +285,13 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
     if (options.context) return options.context.buffer(attribute);
     let existing = ownStorageBuffers.get(attribute);
     if (existing) return existing;
+    const layout = storageLayout(attribute);
     existing = device!.createBuffer({
-      size: Math.max(4, attribute.count * attribute.itemSize * 4),
+      size: Math.max(4, attribute.count * layout.stride * 4),
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
-    if (attribute.array) device!.queue.writeBuffer(existing, 0, attribute.array as BufferSource);
+    if (attribute.array)
+      device!.queue.writeBuffer(existing, 0, spread(attribute.array, 0, layout).data as BufferSource);
     ownStorageBuffers.set(attribute, existing);
     return existing;
   }
@@ -345,7 +348,9 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
 
     let storage = storages.get(slot);
     if (storage) {
-      device.queue.writeBuffer(storageBuffer(storage), 0, data as BufferSource);
+      // The buffer is laid out as WGSL lays out a storage array, so a vec3 leaves a slot empty after each element.
+      const { slot: first, data: slots } = spread(data, 0, storageLayout(storage));
+      device.queue.writeBuffer(storageBuffer(storage), first * 4, slots as BufferSource);
       return;
     }
 
@@ -569,12 +574,15 @@ export function createWgslCompute(
 
   let computePipeline: GPUComputePipeline | null = null;
   let computeResources: WgslResource[] = [];
-  let n = 0;
   /** Elements of the first storage buffer the host passed, the dispatch's
    *  count when the caller names none. */
   let firstStorageCount = 0;
   let firstStorageSeen = false;
-  let storageBuffers = new Map<string, GPUBuffer>();
+  /** Each storage slot's buffer, sized to its own elements and laid out as WGSL lays out a storage array. */
+  let storageSlots = new Map<
+    string,
+    { buffer: GPUBuffer; layout: StorageLayout; elements: number; itemSize: number }
+  >();
   let computeBindGroup1: GPUBindGroup | null = null;
   let computeUniformBuffer: GPUBuffer | null = null;
   let computeUniformScratch: UniformScratch | null = null;
@@ -591,29 +599,28 @@ export function createWgslCompute(
     return computeResources.filter((r): r is Extract<WgslResource, { kind: "uniform" }> => r.kind === "uniform");
   }
 
-  function rebuildStorageBuffers() {
-    if (!device || !computePipeline) return;
-    for (let buf of storageBuffers.values()) buf.destroy();
-    staging?.destroy();
-
-    let usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
-    let bytes = Math.max(4, n * 4);
-    storageBuffers = new Map(
-      computeStorageResources().map((r) => [r.name, device!.createBuffer({ size: bytes, usage })]),
-    );
-
-    computeBindGroup1 = device.createBindGroup({
-      layout: computePipeline.getBindGroupLayout(1),
-      entries: computeStorageResources().map((r) => ({
-        binding: r.binding,
-        resource: { buffer: storageBuffers.get(r.name)! },
-      })),
+  /** Makes the buffer of `resource` hold `elements` elements, keeping every other slot's buffer and what it holds. */
+  function sizeStorageSlot(resource: Extract<WgslResource, { kind: "storage" }>, elements: number) {
+    const existing = storageSlots.get(resource.name);
+    if (existing && existing.elements === elements) return existing;
+    existing?.buffer.destroy();
+    const itemSize = componentCountOf(resource.shaderType);
+    const layout = storageLayout({ itemSize, elementType: resource.shaderType });
+    const buffer = device!.createBuffer({
+      size: Math.max(4, elements * layout.stride * 4),
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
-
-    staging = device.createBuffer({
-      size: bytes,
-      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-    });
+    const slot = { buffer, layout, elements, itemSize };
+    storageSlots.set(resource.name, slot);
+    // The bind group needs every slot's buffer, so it is made once each has one.
+    const resources = computeStorageResources();
+    if (resources.every((r) => storageSlots.has(r.name))) {
+      computeBindGroup1 = device!.createBindGroup({
+        layout: computePipeline!.getBindGroupLayout(1),
+        entries: resources.map((r) => ({ binding: r.binding, resource: { buffer: storageSlots.get(r.name)!.buffer } })),
+      });
+    }
+    return slot;
   }
 
   function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
@@ -650,21 +657,18 @@ export function createWgslCompute(
       return;
     }
 
-    if (computeStorageResources().some((r) => r.name === slot)) {
-      const resource = computeStorageResources().find((r) => r.name === slot)!;
-      if (data.length !== n) {
-        n = data.length;
-        rebuildStorageBuffers();
-      }
+    const resource = computeStorageResources().find((r) => r.name === slot);
+    if (resource) {
+      const elements = Math.floor(data.length / componentCountOf(resource.shaderType));
+      const state = sizeStorageSlot(resource, elements);
       // The dispatch covers the first buffer the host passed, in elements:
       // TSL's caller writes that count beside `instancedArray(count, type)`.
       if (!firstStorageSeen) {
         firstStorageSeen = true;
-        firstStorageCount = Math.floor(data.length / componentCountOf(resource.shaderType));
+        firstStorageCount = elements;
       }
-      let buf = storageBuffers.get(slot);
-      if (!buf) throw new Error(`[RMSL] unknown storage "${slot}"`);
-      device.queue.writeBuffer(buf, 0, data as BufferSource);
+      const { slot: first, data: slots } = spread(data, 0, state.layout);
+      device.queue.writeBuffer(state.buffer, first * 4, slots as BufferSource);
       return;
     }
 
@@ -701,10 +705,8 @@ export function createWgslCompute(
         });
       }
 
-      // Storage buffers are sized to the first upload, so a pending value
-      // has to set `n` before the (empty) default-sized buffers are built.
-      for (let [, data] of pendingAttributes) if (n === 0) n = data.length;
-      rebuildStorageBuffers();
+      // A slot the host never sets still needs a buffer to bind, so each starts at no elements.
+      for (const resource of computeStorageResources()) sizeStorageSlot(resource, 0);
 
       for (let [slot, value] of pendingUniforms) adapter.setUniform(slot, value);
       for (let [slot, data] of pendingAttributes) adapter.setAttribute(slot, data);
@@ -716,7 +718,7 @@ export function createWgslCompute(
     setAttribute,
 
     async compute(out, count) {
-      if (!device || !computePipeline || !computeBindGroup1 || !staging) {
+      if (!device || !computePipeline || !computeBindGroup1) {
         throw new Error("[RMSL] createWgslCompute: attach() was never called");
       }
       let workgroupSize = options.workgroupSize ?? 64;
@@ -740,7 +742,6 @@ export function createWgslCompute(
 
       // Only the slots `out` names are copied and mapped: each one is a GPU
       // round trip.
-      let bytes = Math.max(4, n * 4);
       let requested = new Set(
         requestedStorageSlots(
           out,
@@ -748,9 +749,14 @@ export function createWgslCompute(
         ),
       );
       for (let resource of computeStorageResources().filter((r) => requested.has(r.name))) {
-        let buffer = storageBuffers.get(resource.name)!;
+        const state = storageSlots.get(resource.name)!;
+        const bytes = Math.max(4, state.elements * state.layout.stride * 4);
+        if (!staging || staging.size < bytes) {
+          staging?.destroy();
+          staging = device.createBuffer({ size: bytes, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+        }
         let readEncoder = device.createCommandEncoder();
-        readEncoder.copyBufferToBuffer(buffer, 0, staging, 0, bytes);
+        readEncoder.copyBufferToBuffer(state.buffer, 0, staging, 0, bytes);
         device.queue.submit([readEncoder.finish()]);
         await staging.mapAsync(GPUMapMode.READ);
         let range = staging.getMappedRange();
@@ -759,14 +765,16 @@ export function createWgslCompute(
           i32: new Int32Array(range),
           u32: new Uint32Array(range),
         });
-        out[resource.name]!.set(values.subarray(0, n));
+        // The values come back out of the slots that WGSL's layout gave them, without the padding of a vec3.
+        const target = out[resource.name]!;
+        for (let k = 0; k < state.elements * state.itemSize; k++) target[k] = values[state.layout.slot(k)]!;
         staging.unmap();
       }
       return out;
     },
 
     buffer(slot) {
-      return storageBuffers.get(slot);
+      return storageSlots.get(slot)?.buffer;
     },
 
     device() {
@@ -774,7 +782,7 @@ export function createWgslCompute(
     },
 
     destroy() {
-      for (let buf of storageBuffers.values()) buf.destroy();
+      for (let state of storageSlots.values()) state.buffer.destroy();
       computeUniformBuffer?.destroy();
       staging?.destroy();
       device?.destroy();
