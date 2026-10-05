@@ -3475,7 +3475,7 @@ describe("TSL control flow", () => {
    */
   it("Return in a WGSL function returns the zero value of its type", () => {
     const wgsl = compileWgslFn(
-      (x: Node<"float">) =>
+      (x: any) =>
         Fn(() => {
           If(x.greaterThan(0), () => {
             Return();
