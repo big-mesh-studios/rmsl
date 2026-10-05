@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   Fn,
-  degrees,
   equal,
   float,
   instancedArray,
   int,
   output,
-  radians,
   sub,
   Switch,
   uint,
@@ -171,21 +169,6 @@ describe("known bugs of the core, each failing until its fix", () => {
     const graph = (node: object) => ({ nodes: [node], buffers: [], roots: 0 }) as unknown as SerializedGraph;
     expect(() => deserialize(graph({ _t: "float", type: "frobnicate" }))).toThrow();
     expect(() => deserialize(graph({ _t: "float", type: "uniform", value: { shaderType: "float" } }))).toThrow();
-  });
-
-  /**
-   * `radians` and `degrees` compile to a multiplication by a constant on GLSL
-   * and WGSL, where each target has a built-in of that name.
-   *
-   * @canon bug-radians-and-degrees-compile-to-a-multiplication
-   */
-  it.fails("compiles radians and degrees to the built-ins of GLSL and WGSL", () => {
-    const angle = uniform("float");
-    const build = () => Fn(() => vec4(radians(angle), degrees(angle), 0, 1))();
-    for (const code of [compileGlsl.fragment(build()), compileWgsl.fragment(build())]) {
-      expect(code).toMatch(/\bradians\(/);
-      expect(code).toMatch(/\bdegrees\(/);
-    }
   });
 
   /**

@@ -930,10 +930,10 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
     return op1("trunc", this);
   }
   radians() {
-    return op("mul", this, 0.017453292519943295);
+    return op1("radians", assertAngle("radians", this));
   }
   degrees() {
-    return op("mul", this, 57.29577951308232);
+    return op1("degrees", assertAngle("degrees", this));
   }
   sqrt() {
     return op1("sqrt", this);
@@ -1571,6 +1571,15 @@ export function op(type: string, ...args: any[]): Node<ShaderType> {
   }
 
   return node({ _t: resultType(type, valueT), type, params });
+}
+
+/** An angle is a float or a vector of floats: GLSL and WGSL have no `radians` or `degrees` of an integer. */
+function assertAngle(name: string, a: any): any {
+  const type = (a as { _t?: string })._t ?? "float";
+  if (!/^(float|vec[234])$/.test(type)) {
+    throw new Error(`[RMSL] ${name}() takes a float or a float vector, not ${type}. Convert it with toFloat() first.`);
+  }
+  return a;
 }
 
 export function op1(type: string, a: any): Node<ShaderType> {
