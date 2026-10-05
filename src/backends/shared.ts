@@ -11,7 +11,7 @@ import {
   var_,
   vec4,
 } from "../core";
-import { componentKindOf } from "./cpu";
+import { componentCountOf, componentKindOf } from "./cpu";
 /**
  * What compiling one node yields: statements to emit, how to refer to it, and
  * its operator precedence (higher = tighter binding, for bracket reduction).
@@ -650,6 +650,25 @@ export function resolveSwizzleTarget(target: any): { base: BaseNode<ShaderType>;
     base = base.params![0];
   }
   return { base, pattern };
+}
+
+/**
+ * A literal index outside the components of a vector or the columns of a matrix
+ * is refused by every target, so the same program is not refused on one and
+ * compiled to a read of nothing on another. Asked wherever an element is
+ * compiled, which also reaches a graph that `deserialize` rebuilt. Returns the
+ * index when it is inside, and `undefined` when it is not a literal.
+ */
+export function assertLiteralIndexInRange(target: { _t?: string }, index: BaseNode<ShaderType>): number | undefined {
+  if (!isLeafLiteral(index)) return undefined;
+  const type = target._t as string;
+  const shape = MATRIX_DIMENSIONS[type];
+  const count = shape ? shape[0] : componentCountOf(type);
+  const k = Math.trunc(Number(index.value));
+  if (!(k >= 0 && k < count)) {
+    throw new Error(`[RMSL] index ${index.value} is outside a ${type}'s ${shape ? "columns" : "components"} 0 to ${count - 1}`);
+  }
+  return k;
 }
 
 /** `Math.round` takes a half toward +Infinity. WGSL takes it to the even neighbour, so folding does too. */

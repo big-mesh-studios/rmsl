@@ -21,6 +21,7 @@ import {
   assertOneDeclarationPerName,
   assertAssignable,
   FOR_UPDATE_BLOCK_MESSAGE,
+  assertLiteralIndexInRange,
   DEGREES_PER_RADIAN,
   RADIANS_PER_DEGREE,
   assignedStorageElement,
@@ -1689,14 +1690,7 @@ export function compileWasmFn(
    * WGSL and GLSL compile it.
    */
   function constantIndex(target: any, index: any): number {
-    const shape = MATRIX_DIMENSIONS[target._t as string];
-    const count = shape ? shape[0] : componentCountOf(target._t as string);
-    const k = Math.trunc(Number(index.value));
-    if (k < 0 || k >= count) {
-      const parts = shape ? "columns" : "components";
-      throw new Error(`[RMSL] compileWasmFn: index ${k} is outside a ${target._t}'s ${parts} 0 to ${count - 1}`);
-    }
-    return k;
+    return assertLiteralIndexInRange(target, index) ?? Math.trunc(Number(index.value));
   }
 
   /**

@@ -279,7 +279,7 @@ describe("a mistake is refused before the program runs", () => {
    *
    * @canon spec-a-constant-index-outside-a-vector-or-matrix-is-refused
    */
-  it("refuses a literal index outside a vector or matrix, whichever target compiles it", () => {
+  it("refuses a literal index outside a vector or matrix on every target", () => {
     const read = (index: number) => () => Fn(() => vec4(vec3(1, 2, 3).toVar().element(int(index)), 0, 0, 1).toVar())();
     const write = (index: number) => () =>
       Fn(() => {
@@ -287,14 +287,25 @@ describe("a mistake is refused before the program runs", () => {
         v.element(int(index)).assign(float(5));
         return v;
       })();
-    const column = (index: number) => () => Fn(() => mat3(1, 0, 0, 0, 1, 0, 0, 0, 1).toVar().element(int(index)).toVar())();
-    expect(() => compileGlsl.fragment(read(2)())).not.toThrow();
-    expect(() => compileWgsl.fragment(read(2)())).not.toThrow();
-    for (const compile of cpuCompilers) expect(() => compile(read(2))).not.toThrow();
-    expect(read(3)).toThrow(/index 3 is outside a vec3's components 0 to 2/);
-    expect(read(-1)).toThrow(/index -1 is outside a vec3's components 0 to 2/);
-    expect(write(3)).toThrow(/index 3 is outside a vec3's components 0 to 2/);
-    expect(column(3)).toThrow(/index 3 is outside a mat3's columns 0 to 2/);
+    const column = (index: number, matrix: () => any) => () => Fn(() => matrix().toVar().element(int(index)).toVar())();
+    const threeColumns = () => mat3(1, 0, 0, 0, 1, 0, 0, 0, 1);
+    const twoColumns = () => mat2x3(1, 0, 0, 0, 1, 0);
+    const compilers: Array<[string, (build: () => any) => unknown]> = [
+      ["GLSL", (build) => compileGlsl.fragment(build())],
+      ["WGSL", (build) => compileWgsl.fragment(build())],
+      ["JS", (build) => cpuCompilers[0]!(build)],
+      ["WASM", (build) => cpuCompilers[1]!(build)],
+    ];
+    for (const [name, compile] of compilers) {
+      expect(() => compile(read(2)), `${name} read 2`).not.toThrow();
+      expect(() => compile(read(3)), `${name} read 3`).toThrow(/index 3 is outside a vec3's components 0 to 2/);
+      expect(() => compile(read(-1)), `${name} read -1`).toThrow(/index -1 is outside a vec3's components 0 to 2/);
+      expect(() => compile(write(3)), `${name} write 3`).toThrow(/index 3 is outside a vec3's components 0 to 2/);
+      expect(() => compile(column(3, threeColumns)), `${name} mat3`).toThrow(/index 3 is outside a mat3's columns 0 to 2/);
+      // A mat2x3 has two columns of three rows: the count is the columns.
+      expect(() => compile(column(1, twoColumns)), `${name} mat2x3 column 1`).not.toThrow();
+      expect(() => compile(column(2, twoColumns)), `${name} mat2x3 column 2`).toThrow(/index 2 is outside a mat2x3's columns 0 to 1/);
+    }
   });
 
   /**

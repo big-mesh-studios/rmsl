@@ -23,6 +23,7 @@ import {
   RADIANS_PER_DEGREE,
   assertPositionIsReadable,
   assertSquareMatrix,
+  assertLiteralIndexInRange,
   assertAssignable,
   parameterNode,
   assertStageResult,
@@ -1646,6 +1647,7 @@ export function compileJSNode(
     }
 
     case "matrixElement": {
+      assertLiteralIndexInRange(node.params![0], node.params![1]);
       let mat = jsCompileOperand(node.params![0], ctx);
       let idx = jsCompileOperand(node.params![1], ctx);
       let brand = node.params![0]?._t;
@@ -1666,6 +1668,7 @@ export function compileJSNode(
     }
 
     case "vectorElement": {
+      assertLiteralIndexInRange(node.params![0], node.params![1]);
       let src = jsCompileOperand(node.params![0], ctx);
       let idx = jsCompileOperand(node.params![1], ctx);
       let srcExpr = (src.prec ?? PREC_ATOM) < PREC_ATOM ? `(${src.expr})` : src.expr;
