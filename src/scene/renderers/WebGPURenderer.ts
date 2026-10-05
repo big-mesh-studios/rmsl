@@ -110,6 +110,13 @@ export class WebGPURenderer {
   format: GPUTextureFormat;
 
   private pipelines = new Map<NodeMaterial, Map<string, PipelineEntry>>();
+  /** The draws of the frame being recorded, kept between frames so recording one allocates nothing. */
+  private frameMeshes: Mesh[] = [];
+  private frameEntries: PipelineEntry[] = [];
+  private frameVariants: PipelineVariant[] = [];
+  /** How many draws of the frame each program has, and how many of them are recorded so far. */
+  private frameDrawCounts = new Map<PipelineEntry, number>();
+  private frameSlots = new Map<PipelineEntry, number>();
   private geometryBuffers = new Map<BufferGeometry, GeometryBuffers>();
   /**
    * Buffers for attributes that live on the object rather than the geometry —
@@ -191,8 +198,10 @@ export class WebGPURenderer {
     this.ensureDepthTexture();
     const device = this.device;
 
-    const draws: { mesh: Mesh; entry: PipelineEntry; variant: PipelineVariant; instancing: boolean }[] = [];
-    const drawCounts = new Map<PipelineEntry, number>();
+    const { frameMeshes, frameEntries, frameVariants, frameDrawCounts, frameSlots } = this;
+    frameMeshes.length = frameEntries.length = frameVariants.length = 0;
+    frameDrawCounts.clear();
+    frameSlots.clear();
     scene.traverseVisible((object) => {
       if (!object.isMesh) return;
       const mesh = object as Mesh;
@@ -202,21 +211,26 @@ export class WebGPURenderer {
       const instancingColor = instancing && (mesh as InstancedMesh).instanceColor !== null;
       const entry = this.ensurePipeline(material as NodeMaterial, scene, instancing, instancingColor);
       if (!entry) return;
-      draws.push({ mesh, entry, variant: this.pipelineVariant(entry, mesh), instancing });
-      drawCounts.set(entry, (drawCounts.get(entry) ?? 0) + 1);
+      frameMeshes.push(mesh);
+      frameEntries.push(entry);
+      frameVariants.push(this.pipelineVariant(entry, mesh));
+      frameDrawCounts.set(entry, (frameDrawCounts.get(entry) ?? 0) + 1);
     });
     // Every draw's uniforms are written before the frame is submitted, so each draw needs a slot of its own.
-    for (const [entry, count] of drawCounts) this.fitRing(entry, count);
+    for (const [entry, count] of frameDrawCounts) this.fitRing(entry, count);
 
     // After the draws are collected, so an attribute that is refused leaves no half-recorded frame.
     const encoder = device.createCommandEncoder();
     const colorView = this.context.getCurrentTexture().createView();
 
-    const nextSlot = new Map<PipelineEntry, number>();
     let firstPass = true;
-    for (const { mesh, entry, variant, instancing } of draws) {
-      const slotIndex = nextSlot.get(entry) ?? 0;
-      nextSlot.set(entry, slotIndex + 1);
+    for (let draw = 0; draw < frameMeshes.length; draw++) {
+      const mesh = frameMeshes[draw];
+      const entry = frameEntries[draw];
+      const variant = frameVariants[draw];
+      const instancing = (mesh as InstancedMesh).isInstancedMesh === true;
+      const slotIndex = frameSlots.get(entry) ?? 0;
+      frameSlots.set(entry, slotIndex + 1);
 
       // Give objects a chance to update per-draw state (line resolution, ...).
       mesh.onBeforeRender?.(this, scene, camera);
@@ -262,6 +276,8 @@ export class WebGPURenderer {
     }
 
     device.queue.submit([encoder.finish()]);
+    // Holding the meshes between frames would keep a removed mesh alive.
+    frameMeshes.length = frameEntries.length = frameVariants.length = 0;
   }
 
   /**
