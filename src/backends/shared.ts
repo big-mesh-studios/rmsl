@@ -487,15 +487,15 @@ export function mkNode(config: {
  * WGSL's grammar allows exactly one update statement, so callers there keep
  * the last.
  */
+export const FOR_UPDATE_BLOCK_MESSAGE =
+  "[RMSL] A for-loop's update cannot contain a block. Move the branch into the loop body, or write the loop with While.";
+
 export function forUpdateStatements(update: CompiledNode): string[] {
   // A nested block cannot go in either language's update slot: GLSL's takes an
   // expression, and accepting one in WGSL alone would make a program that runs
   // on one backend and not the other.
   if (update.body.some((line) => line.includes("{"))) {
-    throw new Error(
-      "[RMSL] A for-loop's update cannot contain a block. Move the branch into " +
-        "the loop body, or write the loop with While.",
-    );
+    throw new Error(FOR_UPDATE_BLOCK_MESSAGE);
   }
   return update.body;
 }

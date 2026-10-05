@@ -19,6 +19,7 @@ import {
   uint,
   varying,
   vec2,
+  While,
   vec3,
   vec4,
   type Node,
@@ -185,16 +186,25 @@ describe("a mistake is refused before the program runs", () => {
         );
         return sum;
       })();
-    const block = loop((i) => If(i.greaterThan(-1), () => i.addAssign(1)));
     const plain = loop((i) => i.addAssign(1));
     const refusal = /update cannot contain a block/;
     expect(() => compileGlsl(plain())).not.toThrow();
     expect(() => compileWgsl(plain())).not.toThrow();
-    expect(() => compileGlsl(block())).toThrow(refusal);
-    expect(() => compileWgsl(block())).toThrow(refusal);
-    for (const compile of cpuCompilers) {
-      expect(() => compile(plain)).not.toThrow();
-      expect(() => compile(block)).toThrow(refusal);
+    for (const compile of cpuCompilers) expect(() => compile(plain)).not.toThrow();
+    // A block directly in the update, in a loop of its own, and behind a nested Fn.
+    const blocks = [
+      loop((i) => If(i.greaterThan(-1), () => i.addAssign(1))),
+      loop((i) => While(i.lessThan(1), () => i.addAssign(1))),
+      loop((i) =>
+        Fn(() => {
+          If(i.greaterThan(-1), () => i.addAssign(1));
+        })(),
+      ),
+    ];
+    for (const block of blocks) {
+      expect(() => compileGlsl(block())).toThrow(refusal);
+      expect(() => compileWgsl(block())).toThrow(refusal);
+      for (const compile of cpuCompilers) expect(() => compile(block)).toThrow(refusal);
     }
   });
 

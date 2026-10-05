@@ -20,6 +20,7 @@ import {
   fragmentColour,
   assertOneDeclarationPerName,
   assertAssignable,
+  FOR_UPDATE_BLOCK_MESSAGE,
   assignedStorageElement,
   parameterNode,
   CompileFnOptions,
@@ -705,11 +706,12 @@ function textureByteSize(tex: CpuTextureData, isCube: boolean): number {
 /** The statements that hold a block of their own. */
 const BLOCK_STATEMENTS = new Set(["if", "for", "while"]);
 
-/** Whether a statement, or any it holds, is a block. */
-function holdsBlock(node: any): boolean {
-  if (node === null || typeof node !== "object") return false;
+/** Whether a statement, or any it holds, is a block. Each node of the graph is visited once. */
+function holdsBlock(node: any, seen = new Set<unknown>()): boolean {
+  if (node === null || typeof node !== "object" || seen.has(node)) return false;
+  seen.add(node);
   if (BLOCK_STATEMENTS.has(node.type)) return true;
-  return Array.isArray(node.params) && node.params.some(holdsBlock);
+  return Array.isArray(node.params) && node.params.some((param: unknown) => holdsBlock(param, seen));
 }
 
 /**
@@ -3594,9 +3596,7 @@ export function compileWasmFn(
         // The update slot of a GLSL, WGSL or JavaScript `for` takes no block, so
         // a program that put one there would run on this target alone.
         if (holdsBlock(updateNode)) {
-          throw new Error(
-            "[RMSL] A for-loop's update cannot contain a block. Move the branch into the loop body, or write the loop with While.",
-          );
+          throw new Error(FOR_UPDATE_BLOCK_MESSAGE);
         }
         return emitLoop(walkStmt(initNode, depth), condNode, bodyNode, updateNode, depth);
       }
