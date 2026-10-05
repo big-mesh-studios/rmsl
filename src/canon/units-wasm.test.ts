@@ -215,6 +215,31 @@ describe("the WASM rasterizer's memory", () => {
   });
 
   /**
+   * The depth buffer keeps its values when a later draw's regions reach it and
+   * it moves. A far triangle is drawn, then a nearer one with more vertices,
+   * which is accepted, and then a farther one with more again, which is
+   * rejected by the depth the nearer one left. A depth buffer that lost its
+   * values on the move would reject the nearer one, as zero depth rejects all.
+   *
+   * @canon spec-a-rasterizer-keeps-the-closer-fragment
+   */
+  it("keeps the closer fragment of earlier draws when later draws move the depth buffer", () => {
+    const { pos, color, routine } = flat();
+    const triangles = (z: number, count: number) =>
+      new Float64Array(Array.from({ length: count }, () => Array.from(screen(z))).flat());
+    const draw = (z: number, count: number, rgba: number[], clearDepth = false) =>
+      Array.from(
+        routine.draw(
+          { attributes: { [pos.name]: triangles(z, count) }, uniforms: { [color.name]: rgba } },
+          { width: 1, height: 1, clear: true, clearDepth },
+        ),
+      );
+    expect(draw(0.6, 1, [1, 0, 0, 1], true)).toEqual([1, 0, 0, 1]);
+    expect(draw(0.2, 2, [0, 0, 1, 1])).toEqual([0, 0, 1, 1]);
+    expect(draw(0.4, 4, [0, 1, 0, 1])).toEqual([0, 0, 0, 0]);
+  });
+
+  /**
    * `compileWasm` makes its own memory as the modules it compiled declare it,
    * shared and with their maximum, so they link.
    *

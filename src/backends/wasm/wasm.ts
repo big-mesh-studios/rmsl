@@ -3670,11 +3670,13 @@ export function compileWasmFn(
  */
 export function createWasmInputMarshaller(
   params: readonly WasmParam[],
-  /** Where the texture heap starts, or a function that says so at each call when another stage's heap sits before it. */
-  textureHeapStart: number | (() => number),
+  textureHeapBase: number,
   memory: WebAssembly.Memory,
 ): {
-  marshal(ctx: CpuShaderContext): { args: number[]; heapEnd: number };
+  /** With `heapStart`, the texture heap starts there for this call, as when another stage's heap lies before it. */
+  marshal(ctx: CpuShaderContext, heapStart?: number): { args: number[]; heapEnd: number };
+  /** Where the heap would end for `ctx`, without writing anything. */
+  footprint(ctx: CpuShaderContext, heapStart?: number): number;
   writeBackStorages(ctx: CpuShaderContext): void;
 } {
   const textureParams = params.filter(
@@ -3698,22 +3700,20 @@ export function createWasmInputMarshaller(
    * textures, and collects the scalar WASM args. Returns the heap end —
    * where a draw buffer/further scratch can start.
    */
-  function marshal(ctx: CpuShaderContext): { args: number[]; heapEnd: number } {
-    const textureHeapBase = typeof textureHeapStart === "function" ? textureHeapStart() : textureHeapStart;
-    let textureHeapEnd = textureHeapBase;
+  function marshal(ctx: CpuShaderContext, heapStart = textureHeapBase): { args: number[]; heapEnd: number } {
+    let textureHeapEnd = heapStart;
     if (textureParams.length > 0) {
       const textures = textureParams.map((p) => (ctx.textures as any)?.[p.slot] as CpuTextureData);
       const sizes = textures.map((tex, i) => textureByteSize(tex, textureParams[i]!.samplerType.endsWith("Cube")));
       const heapOffsets: number[] = [];
-      let heapCursor = textureHeapBase;
+      let heapCursor = heapStart;
       for (const size of sizes) {
         heapOffsets.push(heapCursor);
         heapCursor += size;
       }
       textureHeapEnd = heapCursor;
 
-      const needsRepack =
-        lastSizes === null || textureHeapBase !== lastHeapBase || sizes.some((s, i) => s !== lastSizes![i]);
+      const needsRepack = lastSizes === null || heapStart !== lastHeapBase || sizes.some((s, i) => s !== lastSizes![i]);
       if (needsRepack && heapCursor > memory.buffer.byteLength) {
         memory.grow(Math.ceil((heapCursor - memory.buffer.byteLength) / 65536));
       }
@@ -3726,7 +3726,7 @@ export function createWasmInputMarshaller(
         });
       }
       lastSizes = sizes;
-      lastHeapBase = textureHeapBase;
+      lastHeapBase = heapStart;
     }
     const heapEnd = marshalStorages(ctx, textureHeapEnd);
     const view = new DataView(memory.buffer);
@@ -3785,6 +3785,23 @@ export function createWasmInputMarshaller(
       }
     }
     return { args, heapEnd };
+  }
+
+  /** The end of the heap for `ctx` from `heapStart`: each texture's pixels, then each storage buffer. */
+  function footprint(ctx: CpuShaderContext, heapStart = textureHeapBase): number {
+    let end = heapStart;
+    for (const p of textureParams) {
+      const tex = (ctx.textures as any)?.[p.slot] as CpuTextureData;
+      end += textureByteSize(tex, p.samplerType.endsWith("Cube"));
+    }
+    if (storageParams.length === 0) return end;
+    let cursor = Math.ceil(end / 8) * 8;
+    storageParams.forEach((p) => {
+      if (ctx.storageBuffers?.[p.slot]) return;
+      const length = ((ctx.storages as any)?.[p.slot] as ArrayLike<unknown> | undefined)?.length ?? 0;
+      cursor = Math.ceil((cursor + length * storageElementSize(p.shaderType)) / 8) * 8;
+    });
+    return cursor;
   }
 
   /**
@@ -3872,7 +3889,7 @@ export function createWasmInputMarshaller(
     });
   }
 
-  return { marshal, writeBackStorages };
+  return { marshal, footprint, writeBackStorages };
 }
 
 /** Heap bytes one element of a storage buffer of `shaderType` takes: f64 per float component, i32 otherwise. */

@@ -78,7 +78,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-result-that-has-no-colour-is-refused`](#spec-a-result-that-has-no-colour-is-refused) — A fragment stage that declares no output and returns a matrix is refused on every target.
     - [`@spec a-declared-output-holds-what-the-program-assigns`](#spec-a-declared-output-holds-what-the-program-assigns) — A fragment stage that declares [outputs](#term-output) writes each one with what the program assigns to it, and writes its result to none of them.
     - [`@spec a-fragment-stage-may-write-no-colour`](#spec-a-fragment-stage-may-write-no-colour) — A fragment stage that declares no output and returns nothing compiles.
-    - [`@spec a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour`](#spec-a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour) — A CPU rasterizer runs a fragment stage that writes no colour, writes its depth and leaves the pixel as it was.
+    - [`@spec a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour`](#spec-a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour) — A CPU rasterizer runs a fragment stage that writes no colour, tests and writes its depth, and leaves the pixel as it was.
     - [`@spec a-varying-passes-from-the-vertex-to-the-fragment-stage`](#spec-a-varying-passes-from-the-vertex-to-the-fragment-stage) — A varying is an output of the vertex stage and an input of the fragment stage.
       - [`@bug wasm-rasterizer-interpolates-an-integer-varying-as-a-float`](#bug-wasm-rasterizer-interpolates-an-integer-varying-as-a-float) — The WASM rasterizer interpolates an integer varying as a 64-bit float, though the stages write and read it as a 32-bit integer.
     - [`@spec an-attribute-is-an-input-of-the-vertex-stage`](#spec-an-attribute-is-an-input-of-the-vertex-stage) — An attribute is an input of the vertex stage, read once for each vertex.
@@ -1160,7 +1160,7 @@ This follows because no conversion of a matrix to a colour is defined, and TSL l
 
 #### @spec a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour
 
-> A CPU rasterizer runs a fragment stage that writes no colour, writes its depth and leaves the pixel as it was.
+> A CPU rasterizer runs a fragment stage that writes no colour, tests and writes its depth, and leaves the pixel as it was.
 
 Derives from: [`spec-a-fragment-stage-may-write-no-colour`](#spec-a-fragment-stage-may-write-no-colour)
 

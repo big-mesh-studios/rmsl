@@ -66,8 +66,15 @@ const VARYING_DESC_BYTES = 16;
  * rasterizer.wat for the module itself.
  */
 export function buildRasterizerModule(shared?: { maximum: number }): Uint8Array {
-  return shared ? declareSharedMemory(RASTERIZER_WASM_BYTES, shared.maximum) : RASTERIZER_WASM_BYTES;
+  if (!shared) return RASTERIZER_WASM_BYTES;
+  let variant = sharedVariants.get(shared.maximum);
+  if (!variant)
+    sharedVariants.set(shared.maximum, (variant = declareSharedMemory(RASTERIZER_WASM_BYTES, shared.maximum)));
+  return variant;
 }
+
+/** The module with a shared memory import, by the maximum it declares. */
+const sharedVariants = new Map<number, Uint8Array>();
 
 /** Reads an unsigned LEB128 integer at `at`, and the offset after it. */
 function readUleb(bytes: Uint8Array, at: number): [value: number, next: number] {
@@ -371,6 +378,12 @@ export function compileWasm(
         ? { initial: initialPages, maximum: vertexCompiled.maxMemoryPages, shared: true }
         : { initial: initialPages },
     );
+  const memoryIsShared = typeof SharedArrayBuffer !== "undefined" && memory.buffer instanceof SharedArrayBuffer;
+  if (memoryIsShared !== vertexCompiled.sharedMemory) {
+    throw new Error(
+      `[RMSL] compileWasm: the memory is ${memoryIsShared ? "shared" : "not shared"}, but the stages were compiled with sharedMemory ${vertexCompiled.sharedMemory}`,
+    );
+  }
 
   const vertexInstance = new WebAssembly.Instance(new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer), {
     math: Math as unknown as WebAssembly.ModuleImports,
@@ -388,26 +401,19 @@ export function compileWasm(
     vertexCompiled.sharedMemory ? { maximum: vertexCompiled.maxMemoryPages } : undefined,
   );
 
-  // Each stage's textures sit after the fixed layouts of both stages, the
-  // vertex stage's first and the fragment stage's after them, so neither
-  // heap lies over the other's layout or over the other heap.
-  //
-  // Attributes are excluded here: the rasterizer's own attribute-copy loop
-  // pokes them into these same `attributeMemory` addresses once per vertex,
-  // inside WASM — this marshaller only handles the once-per-draw-call
-  // inputs (uniforms/textures), same as `instantiateWasmRoutine`'s own marshaller.
+  // Each stage's textures sit after both stages' fixed layouts, the vertex
+  // stage's first, so neither heap lies over a layout or over the other heap.
   const heapStart = align8(fragmentCompiled.textureHeapBase);
-  let vertexHeapEnd = heapStart;
+  // Attributes and interpolated varyings are written by the rasterizer
+  // itself, per vertex and per covered pixel, so the marshallers skip them.
   const vertexMarshaller = createWasmInputMarshaller(
     vertexCompiled.params.filter((p) => p.kind !== "attributeMemory"),
     heapStart,
     memory,
   );
-  // Interpolated varyings are excluded here too: the rasterizer writes
-  // these `varyingMemory` addresses itself, per covered pixel.
   const fragmentMarshaller = createWasmInputMarshaller(
     fragmentCompiled.params.filter((p) => p.kind !== "varyingMemory"),
-    () => align8(vertexHeapEnd),
+    heapStart,
     memory,
   );
 
@@ -429,14 +435,11 @@ export function compileWasm(
       : 0;
     const vertexCount = options.count ?? inferredCount;
     const sharedCtx = { uniforms: ctx.uniforms, textures: ctx.textures } as CpuShaderContext;
-    // The depth buffer moves with the regions below, so its values are kept
-    // aside before anything is written over where it was.
-    const keptDepth =
-      depthBufferBase !== undefined && !options.clearDepth
-        ? new Float64Array(memory.buffer, depthBufferBase, depthCapacityPixels).slice()
-        : undefined;
-    vertexHeapEnd = vertexMarshaller.marshal(sharedCtx).heapEnd;
-    const { heapEnd: fragmentHeapEnd } = fragmentMarshaller.marshal(sharedCtx);
+    // Every region is sized before anything is written, so the depth buffer can
+    // be moved out of the way of the others first.
+    const vertexHeapEnd = vertexMarshaller.footprint(sharedCtx, heapStart);
+    const fragmentHeapStart = align8(vertexHeapEnd);
+    const fragmentHeapEnd = fragmentMarshaller.footprint(sharedCtx, fragmentHeapStart);
 
     let cursor = align8(Math.max(vertexHeapEnd, fragmentHeapEnd));
     const attrSrcBase = cursor;
@@ -460,21 +463,28 @@ export function compileWasm(
     const outputBase = cursor;
     cursor = align8(cursor + width * height * VEC4_BYTES);
 
-    // The depth buffer sits after the regions of this draw, so a larger draw
-    // does not lay its vertices or colours over it. Its values carry over to
-    // wherever it lands, unless the draw clears it or needs more pixels.
+    // The depth buffer stays where it is until a draw's regions reach it, and
+    // moves above them then, so occlusion carries across draws that differ in
+    // size without a copy on each draw.
     const neededDepthPixels = width * height;
     const outgrown = neededDepthPixels > depthCapacityPixels;
     const needsClear = depthBufferBase === undefined || outgrown || options.clearDepth === true;
-    depthBufferBase = cursor;
+    const movesTo = depthBufferBase === undefined || cursor > depthBufferBase ? cursor : undefined;
+    const previous = { base: depthBufferBase, pixels: depthCapacityPixels };
+    if (movesTo !== undefined) depthBufferBase = movesTo;
     if (outgrown) depthCapacityPixels = neededDepthPixels;
-    cursor = depthBufferBase + depthCapacityPixels * 8;
+    const memoryEnd = depthBufferBase! + depthCapacityPixels * 8;
 
-    if (cursor > memory.buffer.byteLength) {
-      memory.grow(Math.ceil((cursor - memory.buffer.byteLength) / 65536));
+    if (memoryEnd > memory.buffer.byteLength) {
+      memory.grow(Math.ceil((memoryEnd - memory.buffer.byteLength) / 65536));
     }
     if (needsClear) clearDepthBuffer();
-    else if (keptDepth) new Float64Array(memory.buffer, depthBufferBase, keptDepth.length).set(keptDepth);
+    else if (movesTo !== undefined && previous.base !== undefined) {
+      new Uint8Array(memory.buffer).copyWithin(movesTo, previous.base, previous.base + previous.pixels * 8);
+    }
+
+    vertexMarshaller.marshal(sharedCtx, heapStart);
+    fragmentMarshaller.marshal(sharedCtx, fragmentHeapStart);
 
     const view = new DataView(memory.buffer);
     for (const a of attrLayout) {
@@ -526,7 +536,7 @@ export function compileWasm(
       clipScratchBase,
       clippedPositionsOutBase,
       clippedVaryingsOutBase,
-      depthBufferBase,
+      depthBufferBase!,
     );
 
     const result = new Float64Array(memory.buffer, outputBase, width * height * 4);

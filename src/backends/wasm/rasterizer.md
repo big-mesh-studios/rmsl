@@ -12,10 +12,13 @@ like any other module (`import RASTERIZER_WASM_BYTES from "./rasterizer.wat"`).
 `compileWat` (`src/vite/vite.ts`) compiles `.wat` to bytes at build time
 via `wabt`, wired into both `vite.config.ts` and `vitest.config.ts`; no
 `.wat` source or `wabt` reference reaches the built `dist/wasm.js`.
-`buildRasterizerModule()` just returns those bytes — one fixed module,
+`buildRasterizerModule()` returns those bytes — one fixed module,
 compiled once regardless of shader, with a `"rasterize"` export
 ({@link RASTERIZE_PARAMS} in `rasterizer.ts` for the exact argument list
 and order).
+Given `{ maximum }`, it returns a copy whose memory import is declared shared
+and bounded by that many pages, because a shared memory links only against an
+import declared shared; the copy is made once for each maximum.
 
 `rasterize()` does three passes over one shared `env.memory`:
 
