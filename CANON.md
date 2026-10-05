@@ -306,8 +306,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug js-narrows-a-matrix-by-its-flat-values`](#bug-js-narrows-a-matrix-by-its-flat-values) — On JS, a matrix built from a larger matrix takes its leading values in flat order. It does not keep the leading rows of the leading columns.
     - [`@spec a-matrix-is-built-from-its-columns`](#spec-a-matrix-is-built-from-its-columns) — A matrix constructor of any shape, square or not, takes its values column by column, as numbers or as vector columns.
     - [`@spec a-literal-compiles-to-a-literal-of-its-type`](#spec-a-literal-compiles-to-a-literal-of-its-type) — `int`, `uint`, `bool`, boolean vector and integer vector constructors given literals compile to literals of their type on each target.
-    - [`@spec a-javascript-array-is-a-vector-of-its-length`](#spec-a-javascript-array-is-a-vector-of-its-length) — A JavaScript array given where a node goes is a vector of its length.
-      - [`@bug an-array-of-a-length-no-vector-has-becomes-its-first-element`](#bug-an-array-of-a-length-no-vector-has-becomes-its-first-element) — A JavaScript array whose length no vector has becomes the float of its first element, silently, so `vec4(0).add([1, 2, 3, 4, 5])` adds 1.
+    - [`@spec a-javascript-array-is-a-vector-of-its-length`](#spec-a-javascript-array-is-a-vector-of-its-length) — A JavaScript array given where a node goes is a vector of its length. An array whose length no vector has is refused.
     - [`@spec the-tsl-constants-are-float-literals`](#spec-the-tsl-constants-are-float-literals) — `PI`, `TWO_PI`, `PI2`, `HALF_PI`, `EPSILON` and `INFINITY` are float literals of TSL's values.
     - [`@spec int-min-compiles-to-a-subtraction-of-two-in-range-literals`](#spec-int-min-compiles-to-a-subtraction-of-two-in-range-literals) — On GLSL and WGSL, the `int` literal -2147483648 compiles to `(-2147483647 - 1)`, a subtraction of two literals in range.
     - [`@spec a-vector-converted-to-a-scalar-takes-its-first-component`](#spec-a-vector-converted-to-a-scalar-takes-its-first-component) — Converting a vector to `float`, `int` or `uint` gives its first component, converted to that type.
@@ -2407,13 +2406,7 @@ Issue: #64
 
 #### @spec a-javascript-array-is-a-vector-of-its-length
 
-> A JavaScript array given where a node goes is a vector of its length.
-
-##### @bug an-array-of-a-length-no-vector-has-becomes-its-first-element
-
-> A JavaScript array whose length no vector has becomes the float of its first element, silently, so `vec4(0).add([1, 2, 3, 4, 5])` adds 1.
-
-Issue: #78
+> A JavaScript array given where a node goes is a vector of its length. An array whose length no vector has is refused.
 
 #### @spec the-tsl-constants-are-float-literals
 
