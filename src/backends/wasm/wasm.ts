@@ -780,7 +780,10 @@ export function compileWasmFn(
 
   // needsResult: the WASM function returns nothing; the result is written
   // to memory (valueAddress below) and read back by the host.
-  let needsResult = options.stage === "vertex" || isAggregate(root._t as string);
+  let needsResult =
+    options.stage === "vertex" ||
+    isAggregate(root._t as string) ||
+    (options.stage === "fragment" && root._t === "void");
   let positionWritten = false;
   const outputAddress = new Map<string, number>();
   const varyingOutputAddress = new Map<string, number>();

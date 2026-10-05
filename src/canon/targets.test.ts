@@ -5,6 +5,7 @@ import {
   builtinFragDepth,
   builtinPosition,
   bvec3,
+  Discard,
   EPSILON,
   float,
   Fn,
@@ -554,11 +555,26 @@ describe("each leaf on every target it claims", () => {
   /**
    * @canon spec-a-fragment-stage-may-write-no-colour
    */
-  it("compiles a fragment stage that returns nothing on GLSL, WGSL and JS", () => {
+  it("compiles a fragment stage that returns nothing on every target", () => {
     const build = () => Fn(() => {})() as any;
     expect(() => compileGlsl.fragment(build())).not.toThrow();
     expect(() => compileWgsl.fragment(build())).not.toThrow();
     expect(() => compileJSRoutine(build, { ...none, stage: "fragment" })).not.toThrow();
+    expect(() => compileWasmRoutine(build, { ...none, stage: "fragment" })).not.toThrow();
+  });
+
+  /**
+   * @canon spec-a-fragment-stage-may-write-no-colour
+   */
+  it("compiles a fragment stage that only discards on both CPU targets", () => {
+    const build = () =>
+      Fn(() => {
+        If(uniform("float").greaterThan(0), () => {
+          Discard();
+        });
+      })() as any;
+    expect(() => compileJSRoutine(build, { ...none, stage: "fragment" })).not.toThrow();
+    expect(() => compileWasmRoutine(build, { ...none, stage: "fragment" })).not.toThrow();
   });
 
   /**
