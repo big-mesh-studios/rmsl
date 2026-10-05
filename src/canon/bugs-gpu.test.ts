@@ -452,13 +452,12 @@ describe.skipIf(!GPU_ENABLED)("known bugs of createGlsl in a browser, each faili
   );
 
   /**
-   * A `createGlsl` draw that names no count takes the widest attribute's,
-   * not the first attribute's, and so draws vertices past the first
-   * attribute's end.
+   * A `createGlsl` draw that names no count takes the first attribute's, and
+   * so does not draw vertices past its end.
    *
-   * @canon bug-the-gpu-adapters-count-from-the-widest-attribute
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute
    */
-  it.fails(
+  it(
     "takes the count of a createGlsl draw from the first attribute",
     async () => {
       expect(await glslEntry("firstAttributeCount")).toEqual({ r: 0, g: 0, b: 0, a: 0 });
@@ -484,12 +483,12 @@ describe.skipIf(!WEBGPU)("known bugs of createWgsl in a browser, each failing un
   );
 
   /**
-   * A `createWgsl` draw that names no count takes the widest attribute's,
-   * not the first attribute's, and so reads past a shorter buffer.
+   * A `createWgsl` draw that names no count takes the first attribute's, and
+   * so does not read past a shorter buffer.
    *
-   * @canon bug-the-gpu-adapters-count-from-the-widest-attribute
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute
    */
-  it.fails(
+  it(
     "takes the count of a createWgsl draw from the first attribute",
     async () => {
       expect(await wgslEntry("firstAttributeCount")).toEqual(GREEN);

@@ -441,7 +441,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-pass-keys-an-input-by-the-pass-that-makes-it`](#spec-a-pass-keys-an-input-by-the-pass-that-makes-it) — A pass keys an input another pass makes by that pass's name, such as `gaussianBlur.horizontal`, and an outside texture by any other name.
       - [`@bug gaussian-blur-keys-its-internal-link-as-input`](#bug-gaussian-blur-keys-its-internal-link-as-input) — `gaussianBlur`'s vertical pass keys the horizontal pass's target as `input`, where `bloom` keys such a link by the pass's name.
     - [`@spec a-gpu-adapter-takes-its-count-from-the-first-attribute`](#spec-a-gpu-adapter-takes-its-count-from-the-first-attribute) — A `createGlsl` or `createWgsl` draw that names no vertex count takes it from the first attribute the host passes.
-      - [`@bug the-gpu-adapters-count-from-the-widest-attribute`](#bug-the-gpu-adapters-count-from-the-widest-attribute) — `createGlsl` and `createWgsl` take the count of a draw that names none from the widest attribute. GLSL then draws vertices past the first attribute's end, and WebGPU refuses the WGSL draw.
     - [`@spec a-compute-call-dispatches-the-count-it-is-given`](#spec-a-compute-call-dispatches-the-count-it-is-given) — A `compute` call on a compute adapter runs one invocation for each index below its count. The count is the one the caller names, or else the number of elements of the first storage buffer the host passed.
       - [`@spec a-compute-call-takes-the-count-the-caller-names`](#spec-a-compute-call-takes-the-count-the-caller-names) — `compute(out, count)` runs one invocation for each index below `count`, whatever the buffers hold. A count of zero runs none.
       - [`@spec a-compute-call-takes-its-count-from-the-first-storage-buffer`](#spec-a-compute-call-takes-its-count-from-the-first-storage-buffer) — A `compute` call given no count runs one invocation for each element of the first storage buffer the host passed. A buffer the host passes after it does not change that count.
@@ -3141,12 +3140,6 @@ Issue: #99
 Derives from: [`spec-an-adapter-draws-one-frame-for-each-call`](#spec-an-adapter-draws-one-frame-for-each-call), [`spec-a-rasterizer-takes-its-count-from-the-first-attribute`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute)
 
 This follows because every adapter draws one program the same way, and the rasterizers count from the first attribute.
-
-##### @bug the-gpu-adapters-count-from-the-widest-attribute
-
-> `createGlsl` and `createWgsl` take the count of a draw that names none from the widest attribute. GLSL then draws vertices past the first attribute's end, and WebGPU refuses the WGSL draw.
-
-Issue: #108
 
 #### @spec a-compute-call-dispatches-the-count-it-is-given
 

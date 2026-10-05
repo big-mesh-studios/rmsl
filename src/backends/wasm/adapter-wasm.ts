@@ -105,8 +105,8 @@ export function createWasmCompute(
 
 /**
  * `draw()`'s own options — `count`/`first` from `DrawCountOptions`, same
- * as GL/WGSL: unset `count` defaults to whatever the widest `setAttribute`
- * call implied. `clear`/`clearDepth` default to `true`: the common case
+ * as GL/WGSL: unset `count` defaults to the first attribute
+ * the host passed. `clear`/`clearDepth` default to `true`: the common case
  * for a single-material adapter is one `draw()` call, one whole frame —
  * mirroring how a WebGPU render pass declares `loadOp`/`depthLoadOp`
  * together, per pass, rather than clearing as a separate operation. Pass
