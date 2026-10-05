@@ -164,7 +164,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec evaluate-recording-returns-the-cpu-result-at-once`](#spec-evaluate-recording-returns-the-cpu-result-at-once) — `evaluateRecording` returns the JS result at once, and keeps the program for a replay on the other targets after the tests.
     - [`@spec a-program-kept-off-the-gpu-names-its-reason`](#spec-a-program-kept-off-the-gpu-names-its-reason) — A test keeps a recorded program off the GPU targets only by naming a reason from a fixed list.
   - [`@spec a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type) — A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A format no buffer of its own can carry, a raw integer array, and a width no format covers are refused.
-    - [`@bug webgpu-reads-every-attribute-as-float32`](#bug-webgpu-reads-every-attribute-as-float32) — The WebGPU renderer takes an attribute's vertex format from the type the shader declares. It reads a normalized `Uint8Array` `vec4` as `float32x4` with a 16-byte stride.
     - [`@bug the-glsl-adapter-uploads-an-integer-attribute-as-floats`](#bug-the-glsl-adapter-uploads-an-integer-attribute-as-floats) — `createGlsl` points every attribute at its buffer as floats, so an `int` attribute mismatches its declaration and the draw is refused.
   - [`@spec wgsl-brackets-a-bitwise-operand-that-is-not-unary`](#spec-wgsl-brackets-a-bitwise-operand-that-is-not-unary) — On WGSL, the compiler brackets each operand of a bitwise or shift operator that is not a unary expression.
   - [`@spec wgsl-brackets-a-logical-operator-nested-in-another`](#spec-wgsl-brackets-a-logical-operator-nested-in-another) — On WGSL, the compiler brackets an `&&` or `||` that is the operand of another logical operator.
@@ -1635,12 +1634,6 @@ This follows because the suite holds every target to every program, so a program
 Derives from: [`fact-a-webgpu-vertex-stride-is-a-multiple-of-four`](#fact-a-webgpu-vertex-stride-is-a-multiple-of-four)
 
 This follows because a format one renderer reads as another type would make the two draw differently.
-
-#### @bug webgpu-reads-every-attribute-as-float32
-
-> The WebGPU renderer takes an attribute's vertex format from the type the shader declares. It reads a normalized `Uint8Array` `vec4` as `float32x4` with a 16-byte stride.
-
-Issue: #91
 
 #### @bug the-glsl-adapter-uploads-an-integer-attribute-as-floats
 

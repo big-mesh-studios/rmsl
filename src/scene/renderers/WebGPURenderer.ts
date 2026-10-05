@@ -26,6 +26,9 @@ import {
   programSignature,
   geometryAttribute,
   samplerState,
+  vertexFormatOf,
+  type VertexFormat,
+  VERTEX_FORMATS,
   textureChannels,
   type SamplerState,
   type TextureWrap,
@@ -192,7 +195,7 @@ export class WebGPURenderer {
       if (!(material as NodeMaterial).isNodeMaterial) return;
       const instancing = (mesh as InstancedMesh).isInstancedMesh === true;
       const instancingColor = instancing && (mesh as InstancedMesh).instanceColor !== null;
-      const entry = this.ensurePipeline(material as NodeMaterial, scene, instancing, instancingColor);
+      const entry = this.ensurePipeline(material as NodeMaterial, scene, instancing, instancingColor, mesh);
       if (!entry) return;
       draws.push({ mesh, entry, instancing });
       drawCounts.set(entry, (drawCounts.get(entry) ?? 0) + 1);
@@ -300,8 +303,9 @@ export class WebGPURenderer {
     scene: Scene,
     instancing: boolean,
     instancingColor: boolean,
+    mesh?: Mesh,
   ): PipelineEntry | null {
-    const signature = programSignature(lightsSignature(scene), instancing, instancingColor);
+    const signature = `${programSignature(lightsSignature(scene), instancing, instancingColor)}|${attributeSignature(mesh)}`;
     let bySignature = this.pipelines.get(material);
     const entry = bySignature?.get(signature);
     if (entry && !material.needsUpdate) {
@@ -411,11 +415,12 @@ export class WebGPURenderer {
         });
         shaderLocation += 4;
       } else {
-        const format = vertexFormatFromType(attribute.node._t);
+        const attr = mesh && geometryAttribute(mesh, mesh.geometry, attribute.name);
+        const format: VertexFormat = attr ? vertexFormatOf(attr) : vertexFormatFromType(attribute.node._t);
         vertexFormats.push({
           name: attribute.name,
           stepMode: attribute.stepMode,
-          arrayStride: strideForFormat(format),
+          arrayStride: VERTEX_FORMATS[format].count * VERTEX_FORMATS[format].bytes,
           attributes: [{ shaderLocation, offset: 0, format }],
         });
         shaderLocation += 1;
@@ -849,7 +854,23 @@ function samplerKey(state: SamplerState): string {
   return `${state.magFilter}|${state.minFilter}|${state.wrapS}|${state.wrapT}|${state.wrapR}`;
 }
 
-function vertexFormatFromType(type: string): GPUVertexFormat {
+/**
+ * The part of a pipeline's signature that the mesh's attributes decide: the
+ * vertex format of every attribute that is not plain `Float32Array` data.
+ */
+function attributeSignature(mesh: Mesh | undefined): string {
+  const parts: string[] = [];
+  for (const name of Object.keys(mesh?.geometry.attributes ?? {}).sort()) {
+    const attr = mesh!.geometry.attributes[name];
+    const array = attr.array;
+    if (attr.format === undefined && (!ArrayBuffer.isView(array) || array instanceof Float32Array)) continue;
+    const type = ArrayBuffer.isView(array) ? array.constructor.name : "";
+    parts.push(`${name}:${attr.format ?? `${type}${attr.normalized ? "n" : ""}${attr.itemSize}`}`);
+  }
+  return parts.join(",");
+}
+
+function vertexFormatFromType(type: string): VertexFormat {
   switch (type) {
     case "float":
       return "float32";
@@ -861,19 +882,6 @@ function vertexFormatFromType(type: string): GPUVertexFormat {
       return "float32x4";
     default:
       return "float32x3";
-  }
-}
-
-function strideForFormat(format: GPUVertexFormat): number {
-  switch (format) {
-    case "float32":
-      return 4;
-    case "float32x2":
-      return 8;
-    case "float32x3":
-      return 12;
-    default:
-      return 16;
   }
 }
 
