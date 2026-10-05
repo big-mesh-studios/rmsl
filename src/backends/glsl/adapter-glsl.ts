@@ -1,9 +1,12 @@
 import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
 import { Adapter, DrawCountOptions, slotOf, TypedArray } from "../adapter";
 import { VertexRoot } from "../shared";
+import type { CpuTextureData } from "../cpu";
+import { textureImage } from "../texture-image";
 import { compileGlsl, CompileGLSLOptions } from "./glsl";
 
 type UniformInfo = { location: WebGLUniformLocation; type: number };
+type TextureSlot = { texture: WebGLTexture; target: number; unit: number };
 type AttributeInfo = { location: number; buffer: WebGLBuffer; componentCount: number };
 
 /**
@@ -48,6 +51,41 @@ function componentCountForType(gl: WebGL2RenderingContext, type: number): number
     default:
       return 1;
   }
+}
+
+/** The RMSL sampler type a reflected sampler uniform has, or nothing for a uniform that is not a sampler. */
+function samplerTypeOf(gl: WebGL2RenderingContext, type: number): string | undefined {
+  switch (type) {
+    case gl.SAMPLER_2D:
+      return "sampler2D";
+    case gl.SAMPLER_3D:
+      return "sampler3D";
+    case gl.INT_SAMPLER_2D:
+      return "isampler2D";
+    case gl.INT_SAMPLER_3D:
+      return "isampler3D";
+    case gl.UNSIGNED_INT_SAMPLER_2D:
+      return "usampler2D";
+    case gl.UNSIGNED_INT_SAMPLER_3D:
+      return "usampler3D";
+    default:
+      return undefined;
+  }
+}
+
+/** The format triple WebGL uploads texels of `bits` and `signed` in, by its own constants. */
+function texelFormat(gl: WebGL2RenderingContext, bits: 8 | 16 | 32, signed: boolean, normalized: boolean) {
+  if (normalized) return { internal: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE };
+  const table = {
+    8: signed ? [gl.RGBA8I, gl.BYTE] : [gl.RGBA8UI, gl.UNSIGNED_BYTE],
+    16: signed ? [gl.RGBA16I, gl.SHORT] : [gl.RGBA16UI, gl.UNSIGNED_SHORT],
+    32: signed ? [gl.RGBA32I, gl.INT] : [gl.RGBA32UI, gl.UNSIGNED_INT],
+  }[bits];
+  return { internal: table[0]!, format: gl.RGBA_INTEGER, type: table[1]! };
+}
+
+function wrapMode(gl: WebGL2RenderingContext, wrap: CpuTextureData["wrapS"]): number {
+  return wrap === "repeat" ? gl.REPEAT : wrap === "mirror" ? gl.MIRRORED_REPEAT : gl.CLAMP_TO_EDGE;
 }
 
 function setUniformValue(gl: WebGL2RenderingContext, info: UniformInfo, value: number | number[]): void {
@@ -126,6 +164,9 @@ export function createGlsl(
   // exists to look their reflected type up in.
   const pendingUniforms = new Map<string, number | number[]>();
   const pendingAttributes = new Map<string, TypedArray>();
+  const pendingTextures = new Map<string, CpuTextureData>();
+  /** The WebGL texture and texture unit each sampler the host has set reads. */
+  const textures = new Map<string, TextureSlot>();
 
   function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
@@ -162,6 +203,45 @@ export function createGlsl(
     gl.vertexAttribPointer(info.location, info.componentCount, gl.FLOAT, false, 0, 0);
     countSlot ??= slot;
     if (slot === countSlot) vertexCount = Math.floor(data.length / info.componentCount);
+  }
+
+  function setTexture(sampler: UniformNode<ShaderType> | string, data: CpuTextureData): void {
+    const slot = slotOf(sampler);
+    const info = uniforms.get(slot);
+    if (!gl || !program || !info) {
+      pendingTextures.set(slot, data);
+      return;
+    }
+    const samplerType = samplerTypeOf(gl, info.type);
+    if (!samplerType) throw new Error(`[RMSL] setTexture: "${slot}" is not a sampler`);
+    const image = textureImage(data, samplerType);
+    const target = samplerType.endsWith("3D") ? gl.TEXTURE_3D : gl.TEXTURE_2D;
+    let held = textures.get(slot);
+    if (held) gl.deleteTexture(held.texture);
+    held = { texture: gl.createTexture()!, target, unit: held?.unit ?? textures.size };
+    textures.set(slot, held);
+
+    gl.activeTexture(gl.TEXTURE0 + held.unit);
+    gl.bindTexture(target, held.texture);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    const { internal, format, type } = texelFormat(gl, image.bits, image.signed, image.normalized);
+    if (target === gl.TEXTURE_3D) {
+      gl.texImage3D(target, 0, internal, image.width, image.height, image.depth, 0, format, type, image.texels);
+    } else {
+      gl.texImage2D(target, 0, internal, image.width, image.height, 0, format, type, image.texels);
+    }
+    // An integer texture cannot be filtered.
+    const context = gl;
+    const filter = (name: CpuTextureData["magFilter"]) =>
+      image.normalized && name === "linear" ? context.LINEAR : context.NEAREST;
+    gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, filter(data.magFilter));
+    // A CPU target has no footprint to minify by, so both filters follow `magFilter`.
+    gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, filter(data.magFilter));
+    gl.texParameteri(target, gl.TEXTURE_WRAP_S, wrapMode(gl, data.wrapS));
+    gl.texParameteri(target, gl.TEXTURE_WRAP_T, wrapMode(gl, data.wrapT));
+    if (target === gl.TEXTURE_3D) gl.texParameteri(target, gl.TEXTURE_WRAP_R, wrapMode(gl, data.wrapR));
+    gl.useProgram(program);
+    gl.uniform1i(info.location, held.unit);
   }
 
   const adapter: GlslAdapter = {
@@ -218,17 +298,25 @@ export function createGlsl(
 
       for (const [slot, value] of pendingUniforms) adapter.setUniform(slot, value);
       for (const [slot, data] of pendingAttributes) adapter.setAttribute(slot, data);
+      for (const [slot, data] of pendingTextures) setTexture(slot, data);
       pendingUniforms.clear();
       pendingAttributes.clear();
+      pendingTextures.clear();
     },
 
     setUniform,
     setAttribute,
+    setTexture,
 
     draw(options) {
       if (!gl || !program || !vao) throw new Error("[RMSL] adapter not attached — call attach() before draw()");
       gl.useProgram(program);
       gl.bindVertexArray(vao);
+      // Another adapter sharing this context may have bound its own texture to a unit since.
+      for (const held of textures.values()) {
+        gl.activeTexture(gl.TEXTURE0 + held.unit);
+        gl.bindTexture(held.target, held.texture);
+      }
       const mode = GL_MODE[options?.mode ?? "triangles"];
       const first = options?.first ?? 0;
       const count = options?.count ?? Math.max(0, vertexCount - first);
@@ -242,6 +330,8 @@ export function createGlsl(
     destroy() {
       if (!gl) return;
       for (const info of attributes.values()) gl.deleteBuffer(info.buffer);
+      for (const held of textures.values()) gl.deleteTexture(held.texture);
+      textures.clear();
       if (vao) gl.deleteVertexArray(vao);
     },
   };

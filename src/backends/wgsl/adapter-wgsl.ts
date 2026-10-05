@@ -9,13 +9,17 @@ import {
 } from "../../core";
 import { compile, WgslResource } from "../../wgsl";
 import { Adapter, DrawCountOptions, requestedStorageSlots, slotOf, TypedArray } from "../adapter";
-import { componentCountOf, componentKindOf } from "../cpu";
+import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
+import { textureImage } from "../texture-image";
 import { CompileCtx, storageAttributes, VertexRoot } from "../shared";
 import type { WgslContext } from "./context-wgsl";
 import { spread, storageLayout, type StorageLayout } from "./storage-layout";
 import {
   compileWGSLStage,
   compileWGSLWithStage,
+  isWgslTexture,
+  sharedSamplerDeclarations,
+  typeToWGSL,
   WGSL_RENDER_STORAGE_GROUP,
   wgslMatrixColumns,
   wgslUniformLayout,
@@ -301,6 +305,81 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
 
   let pendingUniforms = new Map<string, number | number[]>();
   let pendingAttributes = new Map<string, TypedArray>();
+  let pendingTextures = new Map<string, CpuTextureData>();
+  /** The textures the program reads, in binding order. */
+  let textureDeclarations: ReturnType<typeof sharedSamplerDeclarations> = [];
+  /** The GPU texture, and sampler for a float one, of each sampler the host has set. */
+  let gpuTextures = new Map<string, { texture: GPUTexture; sampler: GPUSampler | null }>();
+  /** Whether a texture was set since the bind groups of groups 1 and 2 were built, or they were never built. */
+  let texturesChanged = true;
+
+  function setTexture(uniform: UniformNode<ShaderType> | string, data: CpuTextureData): void {
+    const slot = slotOf(uniform);
+    if (!device) {
+      pendingTextures.set(slot, data);
+      return;
+    }
+    const declaration = textureDeclarations.find((t) => t.slot === slot);
+    // A texture the program does not read is ignored, as `setUniform` ignores a uniform it does not read.
+    if (!declaration) return;
+    const image = textureImage(data, declaration.shaderType);
+    const volume = declaration.shaderType.endsWith("3D");
+    gpuTextures.get(slot)?.texture.destroy();
+    const texture = device.createTexture({
+      size: [image.width, image.height, image.depth],
+      dimension: volume ? "3d" : "2d",
+      format: image.normalized
+        ? "rgba8unorm"
+        : (`rgba${image.bits}${image.signed ? "sint" : "uint"}` as GPUTextureFormat),
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    device.queue.writeTexture(
+      { texture },
+      image.texels as BufferSource,
+      { bytesPerRow: image.width * 4 * (image.bits / 8), rowsPerImage: image.height },
+      [image.width, image.height, image.depth],
+    );
+    const address = (wrap: CpuTextureData["wrapS"]): GPUAddressMode =>
+      wrap === "repeat" ? "repeat" : wrap === "mirror" ? "mirror-repeat" : "clamp-to-edge";
+    // An integer texture is read with textureLoad and takes no sampler.
+    const sampler = declaration.integer
+      ? null
+      : device.createSampler({
+          // A CPU target has no footprint to minify by, so both filters follow `magFilter`.
+          magFilter: data.magFilter === "linear" ? "linear" : "nearest",
+          minFilter: data.magFilter === "linear" ? "linear" : "nearest",
+          addressModeU: address(data.wrapS),
+          addressModeV: address(data.wrapT),
+          addressModeW: address(data.wrapR),
+        });
+    gpuTextures.set(slot, { texture, sampler });
+    texturesChanged = true;
+  }
+
+  /** Builds the bind groups of the textures (group 1) and the samplers of the float ones (group 2). */
+  function bindTextures(): void {
+    if (!device || !renderPipeline) return;
+    const entries = textureDeclarations.map((declaration) => {
+      const held = gpuTextures.get(declaration.slot);
+      if (!held) throw new Error(`[RMSL] createWgsl: setTexture was never called for "${declaration.slot}"`);
+      return { declaration, held };
+    });
+    renderBindGroups[1] = device.createBindGroup({
+      layout: renderPipeline.getBindGroupLayout(1),
+      entries: entries.map(({ declaration, held }, binding) => ({
+        binding,
+        resource: held.texture.createView({ dimension: declaration.shaderType.endsWith("3D") ? "3d" : "2d" }),
+      })),
+    });
+    const filtered = entries.filter(({ declaration }) => !declaration.integer);
+    if (filtered.length > 0) {
+      renderBindGroups[2] = device.createBindGroup({
+        layout: renderPipeline.getBindGroupLayout(2),
+        entries: filtered.map(({ held }, binding) => ({ binding, resource: held.sampler! })),
+      });
+    }
+    texturesChanged = false;
+  }
 
   function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
@@ -399,13 +478,26 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       // stages declaring only what they individually read would pack a
       // shared member at two different offsets.
       let sharedUniforms = new Map<string, ReflectedUniform>();
-      for (let u of [...vertexReflection.uniforms, ...fragmentReflection.uniforms]) sharedUniforms.set(u.slot, u);
+      let sharedTextures = new Map<string, ReflectedUniform>();
+      for (let u of [...vertexReflection.uniforms, ...fragmentReflection.uniforms]) {
+        (isWgslTexture(u.type) ? sharedTextures : sharedUniforms).set(u.slot, u);
+      }
       let renderUniforms = [...sharedUniforms.values()];
+      // A texture takes a binding of its own, in the order of the whole program's textures.
+      textureDeclarations = sharedSamplerDeclarations(
+        [...sharedTextures.values()].map((u) => ({
+          slot: u.slot,
+          type: Object.keys(typeToWGSL).find((key) => /sampler/.test(key) && typeToWGSL[key] === u.type) ?? u.type,
+        })),
+      );
       storages = storageAttributes([options.vertex, options.fragment]);
       let storageOrder = [...storages.keys()].sort();
       let stageOptions = {
         ...(renderUniforms.length > 0 ? { uniforms: renderUniforms } : {}),
         ...(storageOrder.length > 0 ? { storages: storageOrder } : {}),
+        ...(textureDeclarations.length > 0
+          ? { samplers: textureDeclarations.map((t) => ({ slot: t.slot, type: t.shaderType })) }
+          : {}),
       };
 
       let vertexCode = compileWGSLWithStage(options.vertex as Node<ShaderType>, "vertex", stageOptions);
@@ -445,37 +537,45 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       }
 
       renderBindGroups = [renderBindGroup0];
-      if (storageOrder.length > 0) {
+      if (storageOrder.length > 0 || textureDeclarations.length > 0) {
         // The derived layout has a (possibly empty) group for every index up to the
-        // storage group, and a draw needs one bound at each.
-        for (let group = 0; group < WGSL_RENDER_STORAGE_GROUP; group++) {
+        // last group used, and a draw needs one bound at each.
+        const lastGroup =
+          storageOrder.length > 0 ? WGSL_RENDER_STORAGE_GROUP : textureDeclarations.some((t) => !t.integer) ? 2 : 1;
+        for (let group = 0; group < lastGroup; group++) {
           renderBindGroups[group] ??= device.createBindGroup({
             layout: renderPipeline.getBindGroupLayout(group),
             entries: [],
           });
         }
-        renderBindGroups[WGSL_RENDER_STORAGE_GROUP] = device.createBindGroup({
-          layout: renderPipeline.getBindGroupLayout(WGSL_RENDER_STORAGE_GROUP),
-          entries: storageOrder.map((slot, binding) => ({
-            binding,
-            resource: { buffer: storageBuffer(storages.get(slot)!) },
-          })),
-        });
+        if (storageOrder.length > 0) {
+          renderBindGroups[WGSL_RENDER_STORAGE_GROUP] = device.createBindGroup({
+            layout: renderPipeline.getBindGroupLayout(WGSL_RENDER_STORAGE_GROUP),
+            entries: storageOrder.map((slot, binding) => ({
+              binding,
+              resource: { buffer: storageBuffer(storages.get(slot)!) },
+            })),
+          });
+        }
       }
 
       for (let [slot, value] of pendingUniforms) adapter.setUniform(slot, value);
       for (let [slot, data] of pendingAttributes) adapter.setAttribute(slot, data);
+      for (let [slot, data] of pendingTextures) setTexture(slot, data);
       pendingUniforms.clear();
       pendingAttributes.clear();
+      pendingTextures.clear();
     },
 
     setUniform,
     setAttribute,
+    setTexture,
 
     draw(drawOptions) {
       if (!device || !renderPipeline || !context) {
         throw new Error("[RMSL] createWgsl: attach() was never called");
       }
+      if (textureDeclarations.length > 0 && texturesChanged) bindTextures();
       let encoder = device.createCommandEncoder();
       let view = context.getCurrentTexture().createView();
       let pass = encoder.beginRenderPass({
@@ -512,6 +612,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       for (let vb of vertexBuffers.values()) vb.buffer.destroy();
       for (let buffer of ownStorageBuffers.values()) buffer.destroy();
       renderUniformBuffer?.destroy();
+      for (let held of gpuTextures.values()) held.texture.destroy();
       if (!options.context) device?.destroy();
     },
   };
