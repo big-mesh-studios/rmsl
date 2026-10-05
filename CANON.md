@@ -225,8 +225,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec the-fragment-depth-is-written-only-in-a-fragment-stage`](#spec-the-fragment-depth-is-written-only-in-a-fragment-stage) — `builtinFragDepth()` writes the depth of a fragment stage, and is refused in a vertex stage.
     - [`@spec frag-coord-is-read-only-in-a-fragment-stage`](#spec-frag-coord-is-read-only-in-a-fragment-stage) — `fragCoord()` in a vertex stage is refused.
     - [`@spec the-position-is-read-only-in-a-vertex-stage`](#spec-the-position-is-read-only-in-a-vertex-stage) — A vertex [stage](#term-stage) reads `builtinPosition()`, and a fragment stage that reads it is refused.
-    - [`@spec a-compute-program-cannot-read-an-attribute`](#spec-a-compute-program-cannot-read-an-attribute) — A compute program that reads an [attribute](#term-attribute) is refused on every target. A compute program reaches a buffer through `storage()`, which reads what an attribute lies over.
-    - [`@spec a-compute-program-cannot-write-an-output`](#spec-a-compute-program-cannot-write-an-output) — A compute program that assigns to an [output](#term-output) is refused on every target. A compute program writes its results into a storage buffer and returns nothing.
+    - [`@spec a-compute-program-cannot-read-an-attribute`](#spec-a-compute-program-cannot-read-an-attribute) — A compute program that reads an [attribute](#term-attribute) is refused on every target that compiles one. A compute program reaches a buffer through `storage()`, which reads what an attribute lies over.
+    - [`@spec a-compute-program-cannot-write-an-output`](#spec-a-compute-program-cannot-write-an-output) — A compute program that assigns to an [output](#term-output) is refused on every target that compiles one. A compute program writes its results into a storage buffer and returns nothing.
+    - [`@spec a-compute-program-cannot-read-a-varying`](#spec-a-compute-program-cannot-read-a-varying) — A compute program that reads a [varying](#term-varying) is refused on every target that compiles one. A compute program has no vertex stage to pass a value from.
     - [`@spec a-render-stage-reads-storage-read-only`](#spec-a-render-stage-reads-storage-read-only) — A vertex or fragment stage reads a storage buffer read-only, from a group of its own whose bindings count across both stages. A write to one from a render stage is refused.
       - [`@spec a-wgsl-render-stage-reads-storage-read-only`](#spec-a-wgsl-render-stage-reads-storage-read-only) — On WGSL, a vertex or fragment stage declares a storage buffer read-only, in a group of its own numbered across both stages. It refuses a write to the buffer.
       - [`@exception glsl-has-no-storage-buffers`](#exception-glsl-has-no-storage-buffers) — A GLSL stage that reads a storage buffer is refused. Issue #48 asks to read one through a data texture instead.
@@ -1910,19 +1911,27 @@ This follows because a shader that breaks the rules of its stage either fails in
 
 #### @spec a-compute-program-cannot-read-an-attribute
 
-> A compute program that reads an [attribute](#term-attribute) is refused on every target. A compute program reaches a buffer through `storage()`, which reads what an attribute lies over.
+> A compute program that reads an [attribute](#term-attribute) is refused on every target that compiles one. A compute program reaches a buffer through `storage()`, which reads what an attribute lies over.
 
-Derives from: [`spec-an-attribute-is-an-input-of-the-vertex-stage`](#spec-an-attribute-is-an-input-of-the-vertex-stage), [`fact-a-compute-entry-point-takes-no-location`](#fact-a-compute-entry-point-takes-no-location)
+Derives from: [`spec-an-attribute-is-an-input-of-the-vertex-stage`](#spec-an-attribute-is-an-input-of-the-vertex-stage), [`fact-a-compute-entry-point-takes-no-location`](#fact-a-compute-entry-point-takes-no-location), [`fact-webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage)
 
-This follows because an attribute is an input of the vertex stage, read once for each vertex, and a compute dispatch has no vertices.
+This follows because an attribute is an input of the vertex stage, read once for each vertex, and a compute dispatch has no vertices. GLSL has no compute stage, so it has no compute program to refuse it in.
 
 #### @spec a-compute-program-cannot-write-an-output
 
-> A compute program that assigns to an [output](#term-output) is refused on every target. A compute program writes its results into a storage buffer and returns nothing.
+> A compute program that assigns to an [output](#term-output) is refused on every target that compiles one. A compute program writes its results into a storage buffer and returns nothing.
 
-Derives from: [`spec-a-compute-program-returns-nothing`](#spec-a-compute-program-returns-nothing), [`fact-a-compute-entry-point-returns-nothing`](#fact-a-compute-entry-point-returns-nothing)
+Derives from: [`spec-a-compute-program-returns-nothing`](#spec-a-compute-program-returns-nothing), [`fact-a-compute-entry-point-returns-nothing`](#fact-a-compute-entry-point-returns-nothing), [`fact-webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage)
 
-This follows because an output is a fragment stage's result, and a compute entry point returns nothing to hold one.
+This follows because an output is a fragment stage's result, and a compute entry point returns nothing to hold one. GLSL has no compute stage, so it has no compute program to refuse it in.
+
+#### @spec a-compute-program-cannot-read-a-varying
+
+> A compute program that reads a [varying](#term-varying) is refused on every target that compiles one. A compute program has no vertex stage to pass a value from.
+
+Derives from: [`spec-a-varying-passes-from-the-vertex-to-the-fragment-stage`](#spec-a-varying-passes-from-the-vertex-to-the-fragment-stage), [`fact-a-compute-entry-point-takes-no-location`](#fact-a-compute-entry-point-takes-no-location), [`fact-webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage)
+
+This follows because a varying is an output of the vertex stage and an input of the fragment stage, and a compute dispatch is neither. A WGSL fragment stage receives one as a `@location` parameter, which a compute entry point may not take. GLSL has no compute stage, so it has no compute program to refuse it in.
 
 #### @spec a-render-stage-reads-storage-read-only
 
@@ -4496,7 +4505,7 @@ This is how three.js's TSL behaves, read from its source (`ComputeNode`, three.j
 
 Dawn refuses `fn main(@location(0) a : f32)` in a `@compute` function, with `'@location' cannot be used by compute shaders`.
 
-TSL emits exactly that when a compute shader reads an attribute. `WGSLNodeBuilder` gives the vertex and compute stages one attribute handling, then pastes it into the entry point's arguments.
+TSL emits exactly that when a compute shader reads an attribute. `WGSLNodeBuilder` handles an attribute the same way in the vertex and compute stages. It pastes the result into the entry point's arguments.
 
 ## @fact a-compute-entry-point-returns-nothing
 

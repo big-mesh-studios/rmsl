@@ -25,14 +25,15 @@ import { compileJSRoutine } from "../js";
 import { compileWasmRoutine } from "../wasm";
 import {
   assertRecordedShadersValid,
+  recordShaderSource,
   recordingGLSL as compileGlsl,
   recordingWGSL as compileWgsl,
 } from "../testing/shader-validity";
 // The real compiler: the recording stand-ins cover vertex and fragment only,
-// and this case is about the compute stage.
+// so a compute program's source is recorded by hand to reach Dawn.
 import { compileWgsl as realCompileWgsl } from "../backends/wgsl/wgsl";
 
-const computeWgsl = (root: Node<any>) => realCompileWgsl.compute(root);
+const computeWgsl = (root: Node<any>) => recordShaderSource("wgsl", "compute", realCompileWgsl.compute(root));
 
 afterAll(async () => {
   await assertRecordedShadersValid();
@@ -177,10 +178,10 @@ describe("a mistake is refused before the program runs", () => {
     const viaAttribute = () => Fn(() => attribute("float").add(1).toVar())();
 
     expect(computeWgsl(viaStorage())).toContain("@compute");
-    expect(() => computeWgsl(viaAttribute())).toThrow(/compute.*attribute|attribute.*compute/i);
+    expect(() => computeWgsl(viaAttribute())).toThrow(/cannot read an attribute/);
     for (const compile of cpuComputeCompilers) {
       expect(() => compile(viaStorage)).not.toThrow();
-      expect(() => compile(viaAttribute)).toThrow(/compute.*attribute|attribute.*compute/i);
+      expect(() => compile(viaAttribute)).toThrow(/cannot read an attribute/);
     }
   });
 
@@ -199,10 +200,31 @@ describe("a mistake is refused before the program runs", () => {
     const viaOutput = () => Fn(() => output("float").assign(float(2)))();
 
     expect(computeWgsl(viaStorage())).toContain("@compute");
-    expect(() => computeWgsl(viaOutput())).toThrow(/compute.*output|output.*compute/i);
+    expect(() => computeWgsl(viaOutput())).toThrow(/cannot write an output/);
     for (const compile of cpuComputeCompilers) {
       expect(() => compile(viaStorage)).not.toThrow();
-      expect(() => compile(viaOutput)).toThrow(/compute.*output|output.*compute/i);
+      expect(() => compile(viaOutput)).toThrow(/cannot write an output/);
+    }
+  });
+
+  /**
+   * A compute program that reads a uniform compiles on every target. Reading a
+   * `varying()` is refused on each, because a compute dispatch has no vertex
+   * stage to pass one from. GLSL has no compute stage, so the three targets
+   * here are all of them.
+   *
+   * @canon spec-a-compute-program-cannot-read-a-varying
+   */
+  it("refuses a varying read by a compute program, where a uniform compiles", () => {
+    const buf = instancedArray(4, "float");
+    const viaUniform = () => Fn(() => buf.element(int(0)).assign(uniform("float")))();
+    const viaVarying = () => Fn(() => buf.element(int(0)).assign(varying("float")))();
+
+    expect(computeWgsl(viaUniform())).toContain("@compute");
+    expect(() => computeWgsl(viaVarying())).toThrow(/cannot read a varying/);
+    for (const compile of cpuComputeCompilers) {
+      expect(() => compile(viaUniform)).not.toThrow();
+      expect(() => compile(viaVarying)).toThrow(/cannot read a varying/);
     }
   });
 });

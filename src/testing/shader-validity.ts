@@ -13,7 +13,7 @@ declare const process: {
 };
 
 export type ShaderLang = "glsl" | "wgsl";
-export type ShaderStage = "vertex" | "fragment";
+export type ShaderStage = "vertex" | "fragment" | "compute";
 
 export interface Recorded {
   test: string;

@@ -665,36 +665,35 @@ export function assertSquareMatrix(operandType: string | undefined): number {
 }
 
 /**
- * An output is a fragment stage's result, written to a render target at a
- * location. A compute entry point returns nothing, so there is nowhere for one
- * to land: a WGSL function with a return type has to declare an entry point IO
- * attribute for it, and a compute entry point has none to give. A compute
- * program writes its results into a storage buffer instead.
+ * A compute dispatch has no vertex or fragment stage, so what those stages
+ * pass in and out has nothing to attach to. Throws when `stage` is compute.
  */
-export function assertOutputIsNotWrittenByAComputeStage(stage: "vertex" | "fragment" | "compute"): void {
+export function assertNotInAComputeStage(
+  stage: "vertex" | "fragment" | "compute",
+  refused: { action: string; because: string; instead: string },
+): void {
   if (stage !== "compute") return;
-  throw new Error(
-    "[RMSL] A compute program cannot write an output, because a compute " +
-      "entry point returns nothing to hold one. Write the value into a " +
-      "storage buffer with .element(invocationIndex()) instead.",
-  );
+  throw new Error(`[RMSL] A compute program cannot ${refused.action}, because ${refused.because}. ${refused.instead}`);
 }
 
-/**
- * An attribute is the vertex stage's input. A compute dispatch has no
- * vertices, so there is nothing for one to read: `@location`, the only way a
- * GPU hands a shader per-vertex inputs, is what a compute entry point may not
- * take. A compute program reaches the buffer an attribute lies over through
- * `storage()`, which is the way every target reads a buffer there.
- */
-export function assertAttributeIsNotReadByAComputeStage(stage: "vertex" | "fragment" | "compute"): void {
-  if (stage !== "compute") return;
-  throw new Error(
-    "[RMSL] A compute program cannot read an attribute, because a compute " +
-      "dispatch has no vertices to read one for. Read the buffer with " +
-      "storage(attribute, type) instead.",
-  );
-}
+/** The refusals of a compute program, one for each stage input or output it cannot use. */
+export const COMPUTE_REFUSES = {
+  attribute: {
+    action: "read an attribute",
+    because: "a compute dispatch has no vertices to read one for",
+    instead: "Read the buffer with storage(attribute, type) instead.",
+  },
+  output: {
+    action: "write an output",
+    because: "a compute entry point returns nothing to hold one",
+    instead: "Write the value into a storage buffer with .element(invocationIndex()) instead.",
+  },
+  varying: {
+    action: "read a varying",
+    because: "a compute dispatch has no vertex stage to pass one from",
+    instead: "Pass the value in through a uniform or a storage buffer instead.",
+  },
+} as const;
 
 /**
  * The position is the vertex stage's output. A fragment stage cannot read it:

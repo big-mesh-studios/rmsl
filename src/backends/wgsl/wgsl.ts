@@ -9,8 +9,8 @@ import {
   PREC_ATOM,
   PREC_UNARY,
   VertexRoot,
-  assertAttributeIsNotReadByAComputeStage,
-  assertOutputIsNotWrittenByAComputeStage,
+  assertNotInAComputeStage,
+  COMPUTE_REFUSES,
   assertPositionIsReadable,
   assertSquareMatrix,
   assertAssignable,
@@ -644,7 +644,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "attribute": {
       let v = node.value as any;
-      assertAttributeIsNotReadByAComputeStage(ctx.shaderStage);
+      assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.attribute);
       if (v && v.id != null && !ctx.attributes.has(v.slot)) {
         ctx.attributes.set(v.slot, { id: v.id, type: wgslType(v.shaderType), slot: v.slot });
       }
@@ -657,6 +657,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "varying": {
       let v = node.value as any;
+      assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.varying);
       if (v && v.id != null && !ctx.varyings.has(v.slot)) {
         ctx.varyings.set(v.slot, { id: v.id, type: wgslType(v.shaderType), slot: v.slot });
       }
@@ -667,7 +668,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "output": {
       let v = node.value as any;
-      assertOutputIsNotWrittenByAComputeStage(ctx.shaderStage);
+      assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.output);
       if (v && v.id != null && !ctx.outputs.has(v.id)) {
         ctx.outputs.set(v.id, { type: wgslType(v.shaderType), slot: v.slot, location: v.location });
       }

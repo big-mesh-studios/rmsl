@@ -17,8 +17,8 @@ import {
   PRECEDENCE,
   PREC_ATOM,
   PREC_UNARY,
-  assertAttributeIsNotReadByAComputeStage,
-  assertOutputIsNotWrittenByAComputeStage,
+  assertNotInAComputeStage,
+  COMPUTE_REFUSES,
   assertPositionIsReadable,
   assertSquareMatrix,
   assertAssignable,
@@ -1265,12 +1265,13 @@ export function compileJSNode(
 
     case "attribute": {
       let v = node.value as any;
-      assertAttributeIsNotReadByAComputeStage(ctx.shaderStage);
+      assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.attribute);
       return jsLeafRef(`ctx.attributes[${JSON.stringify(v.slot)}]`, v.shaderType ?? node._t, ctx);
     }
 
     case "varying": {
       let v = node.value as any;
+      assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.varying);
       let slot = v?.slot;
       // In a vertex stage a varying is an output, collected in the result so
       // the host can read it back; in a fragment stage it is an input.
@@ -1283,7 +1284,7 @@ export function compileJSNode(
 
     case "output": {
       let v = node.value as any;
-      assertOutputIsNotWrittenByAComputeStage(ctx.shaderStage);
+      assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.output);
       ctx.jsNeedsRes = true;
       if (v.id != null) ctx.outputs.set(v.id, { type: v.shaderType, slot: v.slot, location: v.location });
       return jsLeafRef(`res.outputs[${JSON.stringify(v.slot)}]`, v.shaderType ?? node._t, ctx);

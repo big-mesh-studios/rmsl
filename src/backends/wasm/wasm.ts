@@ -14,8 +14,8 @@ import {
   scalarKindOf,
 } from "../cpu";
 import {
-  assertAttributeIsNotReadByAComputeStage,
-  assertOutputIsNotWrittenByAComputeStage,
+  assertNotInAComputeStage,
+  COMPUTE_REFUSES,
   assertStageResult,
   fragmentColour,
   assertOneDeclarationPerName,
@@ -1292,7 +1292,7 @@ export function compileWasmFn(
 
       case "attribute": {
         const v = node.value;
-        assertAttributeIsNotReadByAComputeStage(effectiveStage);
+        assertNotInAComputeStage(effectiveStage, COMPUTE_REFUSES.attribute);
         if (isAggregate(v.shaderType) || options.scalarsInMemory) {
           if (!attributeAddress.has(v.slot)) {
             const addr = allocateFor(v.shaderType);
@@ -1345,6 +1345,7 @@ export function compileWasmFn(
 
       case "varying": {
         const v = node.value;
+        assertNotInAComputeStage(effectiveStage, COMPUTE_REFUSES.varying);
         if (effectiveStage === "fragment") {
           // fragment: varyings are per-call inputs, written by the host
           if (isAggregate(v.shaderType) || options.scalarsInMemory) {
@@ -1381,7 +1382,7 @@ export function compileWasmFn(
       }
 
       case "output": {
-        assertOutputIsNotWrittenByAComputeStage(effectiveStage);
+        assertNotInAComputeStage(effectiveStage, COMPUTE_REFUSES.output);
         // pipeline output: forces needsResult so the host can read it
         needsResult = true;
         const v = node.value;
