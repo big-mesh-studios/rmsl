@@ -1,4 +1,5 @@
 import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
+import type { CpuTextureData } from "./cpu";
 
 /**
  * A uniform way to drive any of the four backends (CPU/JS, WASM, GLSL,
@@ -41,6 +42,15 @@ export interface Adapter<TBuffer, TDrawOptions = void> {
    */
   setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
   setAttribute(slot: string, data: TypedArray): void;
+
+  /**
+   * Gives a sampler uniform the texture it reads. Naming the sampler by its
+   * node or by its slot works as it does for `setUniform`. The texture is
+   * described the way a CPU target samples it (`CpuTextureData`), and a GPU
+   * target uploads it to a texture of its own. An adapter that has no
+   * texture to give, such as `createWgslContext`, leaves this out.
+   */
+  setTexture?(sampler: UniformNode<ShaderType> | string, texture: CpuTextureData): void;
 
   /**
    * With `out`, writes the result into it and returns it, so chaining into

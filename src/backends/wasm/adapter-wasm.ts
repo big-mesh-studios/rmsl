@@ -1,6 +1,7 @@
 import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
 import { Adapter, AttributeOrSlot, DrawCountOptions, slotOf, TypedArray, UniformOrSlot } from "../adapter";
 import { AdapterResult, bufferToImageData, CpuAdapter, createCpuAdapter } from "../adapter-cpu";
+import type { CpuTextureData } from "../cpu";
 import { compileWasm, CompileWasmOptions, WasmRasterContext } from "./rasterizer";
 import { compileWasmRoutine, CompileWasmFnOptions } from "./wasm";
 
@@ -141,6 +142,7 @@ export function createWasm(
 
   const uniforms: Record<string, number | number[]> = {};
   const attributes: Record<string, TypedArray> = {};
+  const textures: Record<string, CpuTextureData> = {};
   let canvas: HTMLCanvasElement | null = null;
   let ctx2d: CanvasRenderingContext2D | null = null;
 
@@ -168,9 +170,13 @@ export function createWasm(
     setUniform,
     setAttribute,
 
+    setTexture(sampler, texture) {
+      textures[slotOf(sampler)] = texture;
+    },
+
     draw(drawOptions) {
       if (!canvas || !ctx2d) throw new Error("[RMSL] createWasm: attach() was never called");
-      const ctx: WasmRasterContext = { attributes, uniforms };
+      const ctx: WasmRasterContext = { attributes, uniforms, textures };
       const buffer = routine.draw(ctx, {
         count: drawOptions?.count,
         first: drawOptions?.first,

@@ -7,7 +7,7 @@ import { READ_PIXEL, runInGpuPage } from "../testing/browser";
  * draws it in. Pixel (x, y) counts from the top left.
  */
 const SCENE = `
-import { Fn, attribute, builtinPosition, fragCoord, uniform, vec4 } from "../rmsl";
+import { Fn, attribute, builtinPosition, fragCoord, uniform, vec2, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
 import { createJs, createJsRoutine } from "../js";
 import { createWasm, createWasmRoutine } from "../wasm";
@@ -31,6 +31,16 @@ const drawWith = (adapter) => {
   adapter.draw({ count: 3 });
   return readPixel(target, 1, 2);
 };
+const image = uniform("sampler2D");
+const texturedFragment = () => Fn(() => image.texture(vec2(0.5, 0.5)))();
+const drawTextured = (adapter) => {
+  const target = canvas();
+  adapter.attach(target);
+  adapter.setAttribute(position, TRIANGLE);
+  adapter.setTexture(image, { data: Uint8Array.of(0, 255, 0, 255), width: 1, height: 1 });
+  adapter.draw({ count: 3 });
+  return readPixel(target, 1, 2);
+};
 const routine = () => vec4(fragCoord().x.div(4), 0, 0, 1);
 const drawRoutine = (adapter) => {
   const target = canvas();
@@ -42,6 +52,9 @@ globalThis.__rmslAdapterDraw = {
   glsl: () => drawWith(createGlsl(vertex(), fragment())),
   js: () => drawWith(createJs(vertex, fragment, { attributeTypes: { [position.name]: "vec3" } })),
   wasm: () => drawWith(createWasm(vertex, fragment, { attributeTypes: { [position.name]: "vec3" } })),
+  glslTexture: () => drawTextured(createGlsl(vertex(), texturedFragment())),
+  jsTexture: () => drawTextured(createJs(vertex, texturedFragment, { attributeTypes: { [position.name]: "vec3" } })),
+  wasmTexture: () => drawTextured(createWasm(vertex, texturedFragment, { attributeTypes: { [position.name]: "vec3" } })),
   jsRoutine: () => drawRoutine(createJsRoutine({ draw: routine() })),
   wasmRoutine: () => drawRoutine(createWasmRoutine({ draw: routine() })),
 };
@@ -89,9 +102,34 @@ describe.skipIf(!GPU_ENABLED)("adapters drawing into a canvas in a browser", () 
   }, 120_000);
 
   /**
+   * @canon spec-an-adapter-takes-the-texture-a-sampler-reads-from-the-host
+   */
+  it("samples the texture set with setTexture with createGlsl", async () => {
+    expect(await drawn("glslTexture")).toEqual({ r: 0, g: 255, b: 0, a: 255 });
+  }, 120_000);
+
+  /**
+   * @canon spec-an-adapter-takes-the-texture-a-sampler-reads-from-the-host
+   */
+  it("samples the texture set with setTexture with createJs", async () => {
+    expect(await drawn("jsTexture")).toEqual({ r: 0, g: 255, b: 0, a: 255 });
+  }, 120_000);
+
+  /**
+   * @canon spec-an-adapter-takes-the-texture-a-sampler-reads-from-the-host
+   */
+  it("samples the texture set with setTexture with createWasm", async () => {
+    expect(await drawn("wasmTexture")).toEqual({ r: 0, g: 255, b: 0, a: 255 });
+  }, 120_000);
+
+  /**
    * @canon bug-create-wasm-routine-fails-under-its-default-name
    */
-  it.fails("draws a fragCoord program over its canvas with createWasmRoutine", async () => {
-    expect(await drawn("wasmRoutine")).toEqual({ r: Math.round((3.5 / 4) * 255), g: 0, b: 0, a: 255 });
-  }, 120_000);
+  it.fails(
+    "draws a fragCoord program over its canvas with createWasmRoutine",
+    async () => {
+      expect(await drawn("wasmRoutine")).toEqual({ r: Math.round((3.5 / 4) * 255), g: 0, b: 0, a: 255 });
+    },
+    120_000,
+  );
 });

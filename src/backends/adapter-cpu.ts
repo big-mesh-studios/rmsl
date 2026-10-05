@@ -1,6 +1,6 @@
 import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
 import { Adapter, requestedStorageSlots, slotOf, TypedArray } from "./adapter";
-import { CpuDrawBuffer, componentCountOf, CpuRoutine } from "./cpu";
+import { CpuDrawBuffer, componentCountOf, CpuRoutine, CpuTextureData } from "./cpu";
 
 /** One typed array per storage slot, keyed by name. */
 export type AdapterResult = Record<string, TypedArray>;
@@ -63,6 +63,7 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
   const elementWidths = new Map<string, number>();
   const storages: Record<string, TypedArray> = {};
   const uniforms: Record<string, number | number[]> = {};
+  const textures: Record<string, CpuTextureData> = {};
   let canvas: HTMLCanvasElement | null = null;
   let ctx2d: CanvasRenderingContext2D | null = null;
 
@@ -113,9 +114,13 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
     setUniform,
     setAttribute,
 
+    setTexture(sampler, texture) {
+      textures[slotOf(sampler)] = texture;
+    },
+
     compute(out, count) {
       if (!computeStep) throw new Error("[RMSL] this adapter has no `compute` program");
-      computeStep.compute({ storages, uniforms } as any, count ?? elementCount());
+      computeStep.compute({ storages, uniforms, textures } as any, count ?? elementCount());
       // storages already holds the caller's own arrays, mutated in place —
       // `out` is only for callers that want the WGSL adapter's optional-out
       // shape too, not something this loop needs to do its job.
@@ -128,7 +133,7 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
       if (!perPixel || !canvas || !ctx2d) {
         throw new Error("[RMSL] this adapter has no `draw` program, or attach() was never called");
       }
-      const buffer = perPixel.draw({ uniforms } as any, canvas.width, canvas.height);
+      const buffer = perPixel.draw({ uniforms, textures } as any, canvas.width, canvas.height);
       ctx2d.putImageData(bufferToImageData(buffer, canvas.width, canvas.height), 0, 0);
     },
 

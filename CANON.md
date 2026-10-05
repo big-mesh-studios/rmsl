@@ -52,8 +52,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-program-declares-any-number-of-uniforms-on-every-target`](#spec-a-program-declares-any-number-of-uniforms-on-every-target) — A [program](#term-program) declares every [uniform](#term-uniform) it reads, whatever their number, and compiles on every target.
     - [`@spec wgsl-packs-every-value-uniform-into-one-binding`](#spec-wgsl-packs-every-value-uniform-into-one-binding) — On WGSL, every uniform that holds a value is a member of one struct, bound once. GLSL declares each uniform on its own.
     - [`@spec a-texture-keeps-a-binding-of-its-own`](#spec-a-texture-keeps-a-binding-of-its-own) — On WGSL, a texture, and the sampler that goes with a float texture, each take a binding of their own outside the uniform struct. The stages of a render program number them from the whole set of its textures.
-      - [`@bug the-wgsl-adapter-packs-a-texture-into-its-uniform-struct`](#bug-the-wgsl-adapter-packs-a-texture-into-its-uniform-struct) — `createWgsl` puts a texture among the members of its uniform struct, which has no layout for it. A program that reads a texture does not attach.
     - [`@spec a-bool-uniform-travels-as-an-unsigned-integer`](#spec-a-bool-uniform-travels-as-an-unsigned-integer) — On WGSL, a `bool` or boolean vector uniform, alone or in an array, travels as `u32`. The program compares it with zero where it reads it, and gets a `bool`.
+    - [`@spec an-adapter-takes-the-texture-a-sampler-reads-from-the-host`](#spec-an-adapter-takes-the-texture-a-sampler-reads-from-the-host) — `setTexture(sampler, texture)` gives a sampler uniform the texture it reads on every adapter that draws: `createGlsl`, `createWgsl`, `createJs` and `createWasm`. The sampler is named by its node or its slot, and the texture is described as a CPU target samples it. A GPU target reads 8-bit data as 0 to 1, and takes an integer array for an integer sampler.
     - [`@spec an-adapter-sets-a-uniform-of-every-type-its-program-declares`](#spec-an-adapter-sets-a-uniform-of-every-type-its-program-declares) — An adapter's `setUniform` uploads a uniform of every value type its program can declare.
       - [`@bug the-glsl-adapter-refuses-a-uint-uniform`](#bug-the-glsl-adapter-refuses-a-uint-uniform) — `createGlsl.setUniform` uploads only float, int and bool scalars and vectors and square matrices, and throws for a `uint` uniform.
     - [`@spec a-wgsl-stage-given-the-program-uniforms-declares-every-one`](#spec-a-wgsl-stage-given-the-program-uniforms-declares-every-one) — A WGSL stage given the program's `uniforms` declares each of them in its struct, whether the stage reads it or not.
@@ -990,17 +990,19 @@ Derives from: [`fact-wgsl-allows-twelve-uniform-buffers-per-stage`](#fact-wgsl-a
 
 Derives from: [`fact-a-wgsl-texture-is-not-host-shareable`](#fact-a-wgsl-texture-is-not-host-shareable)
 
-##### @bug the-wgsl-adapter-packs-a-texture-into-its-uniform-struct
-
-> `createWgsl` puts a texture among the members of its uniform struct, which has no layout for it. A program that reads a texture does not attach.
-
-Issue: #104
-
 #### @spec a-bool-uniform-travels-as-an-unsigned-integer
 
 > On WGSL, a `bool` or boolean vector uniform, alone or in an array, travels as `u32`. The program compares it with zero where it reads it, and gets a `bool`.
 
 Derives from: [`fact-wgsl-cannot-share-a-bool-with-the-host`](#fact-wgsl-cannot-share-a-bool-with-the-host)
+
+#### @spec an-adapter-takes-the-texture-a-sampler-reads-from-the-host
+
+> `setTexture(sampler, texture)` gives a sampler uniform the texture it reads on every adapter that draws: `createGlsl`, `createWgsl`, `createJs` and `createWasm`. The sampler is named by its node or its slot, and the texture is described as a CPU target samples it. A GPU target reads 8-bit data as 0 to 1, and takes an integer array for an integer sampler.
+
+Derives from: [`fact-a-wgsl-texture-is-not-host-shareable`](#fact-a-wgsl-texture-is-not-host-shareable), [`fact-tsl-samples-a-texture-with-texture-and-texture-level`](#fact-tsl-samples-a-texture-with-texture-and-texture-level)
+
+This follows because a texture cannot sit in a uniform value, so the host gives it to the adapter apart. TSL keeps the texture in the node the program reads, and an adapter has no such node to read it from.
 
 #### @spec an-adapter-sets-a-uniform-of-every-type-its-program-declares
 

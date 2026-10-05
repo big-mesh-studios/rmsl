@@ -124,7 +124,7 @@ globalThis.__rmslBugsGlsl = {
 
 /** The `createWgsl` counterparts, on a 4×4 canvas; each returns what it read, or the error it hit. */
 const WGSL_SCENE = `
-import { Fn, attribute, builtinPosition, instancedArray, uniform, vec2, vec4 } from "../rmsl";
+import { Fn, attribute, builtinPosition, instancedArray, ivec2, uniform, vec2, vec4 } from "../rmsl";
 import { createWgsl } from "../wgsl";
 ${READ_PIXEL}
 const TRIANGLE = Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
@@ -149,10 +149,30 @@ const drawn = async (adapter, target) => {
 };
 globalThis.__rmslBugsWgsl = {
   texture: () => attempt(async () => {
+    const target = canvas();
     const image = uniform("sampler2D");
-    const adapter = createWgsl({ vertex: plainVertex(), fragment: Fn(() => image.texture(vec2(0.5, 0.5)))() });
-    await adapter.attach(canvas());
-    return "attached";
+    const adapter = createWgsl({
+      vertex: plainVertex(),
+      fragment: Fn(() => image.texture(vec2(0.5, 0.5)))(),
+    });
+    await adapter.attach(target);
+    adapter.setAttribute(position, TRIANGLE);
+    adapter.setTexture(image, { data: Uint8Array.of(0, 255, 0, 255), width: 1, height: 1 });
+    adapter.draw({ count: 3 });
+    return drawn(adapter, target);
+  }),
+  integerTexture: () => attempt(async () => {
+    const target = canvas();
+    const image = uniform("usampler2D");
+    const adapter = createWgsl({
+      vertex: plainVertex(),
+      fragment: Fn(() => vec4(0, image.texture(ivec2(0, 0)).y.toFloat().div(255), 0, 1))(),
+    });
+    adapter.setTexture(image, { data: Uint8Array.of(0, 255, 0, 255), width: 1, height: 1 });
+    await adapter.attach(target);
+    adapter.setAttribute(position, TRIANGLE);
+    adapter.draw({ count: 3 });
+    return drawn(adapter, target);
   }),
   vec3Storage: () => attempt(async () => {
     const target = canvas();
@@ -529,19 +549,22 @@ describe.skipIf(!GPU_ENABLED)("createGlsl in a browser", () => {
 
 describe.skipIf(!WEBGPU)("createWgsl in a browser", () => {
   /**
-   * `createWgsl` puts a texture among the members of its uniform struct,
-   * which has no layout for it, so a program that reads a texture does not
-   * attach.
+   * `createWgsl` samples the texture set with `setTexture`.
    *
-   * @canon bug-the-wgsl-adapter-packs-a-texture-into-its-uniform-struct
+   * @canon spec-an-adapter-takes-the-texture-a-sampler-reads-from-the-host
    */
-  it.fails(
-    "attaches a program that samples a texture with createWgsl",
-    async () => {
-      expect(await wgslEntry("texture")).toBe("attached");
-    },
-    120_000,
-  );
+  it("samples the texture set with setTexture with createWgsl", async () => {
+    expect(await wgslEntry("texture")).toEqual(GREEN);
+  }, 120_000);
+
+  /**
+   * `createWgsl` reads an integer texture set before `attach`.
+   *
+   * @canon spec-an-adapter-takes-the-texture-a-sampler-reads-from-the-host
+   */
+  it("reads an integer texture set before attach with createWgsl", async () => {
+    expect(await wgslEntry("integerTexture")).toEqual(GREEN);
+  }, 120_000);
 
   /**
    * A `createWgsl` draw that names a first vertex and no count draws the vertices after it.
