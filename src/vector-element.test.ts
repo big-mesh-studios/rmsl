@@ -81,7 +81,7 @@ describe("a vector's component by index", () => {
    */
   it("rejects a constant index outside the vector on WASM, as WGSL and GLSL do", () => {
     expect(() => evaluateWASM(() => vec4(1, 2, 3, 4).element(int(4)))).toThrow(
-      /\[RMSL\] compileWasmFn: index 4 is outside a vec4's components 0 to 3/,
+      /\[RMSL\] index 4 is outside a vec4's components 0 to 3/,
     );
     const write = Fn(() => {
       const v = vec4(1, 2, 3, 4).toVar();

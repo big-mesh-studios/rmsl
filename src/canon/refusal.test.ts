@@ -273,6 +273,31 @@ describe("a mistake is refused before the program runs", () => {
   });
 
   /**
+   * A literal index outside the components of a vector or the columns of a
+   * matrix is refused as the element is made, before any target compiles it,
+   * for a read and for a write. An index inside them compiles on every target.
+   *
+   * @canon spec-a-constant-index-outside-a-vector-or-matrix-is-refused
+   */
+  it("refuses a literal index outside a vector or matrix, whichever target compiles it", () => {
+    const read = (index: number) => () => Fn(() => vec4(vec3(1, 2, 3).toVar().element(int(index)), 0, 0, 1).toVar())();
+    const write = (index: number) => () =>
+      Fn(() => {
+        const v = vec3(1, 2, 3).toVar();
+        v.element(int(index)).assign(float(5));
+        return v;
+      })();
+    const column = (index: number) => () => Fn(() => mat3(1, 0, 0, 0, 1, 0, 0, 0, 1).toVar().element(int(index)).toVar())();
+    expect(() => compileGlsl.fragment(read(2)())).not.toThrow();
+    expect(() => compileWgsl.fragment(read(2)())).not.toThrow();
+    for (const compile of cpuCompilers) expect(() => compile(read(2))).not.toThrow();
+    expect(read(3)).toThrow(/index 3 is outside a vec3's components 0 to 2/);
+    expect(read(-1)).toThrow(/index -1 is outside a vec3's components 0 to 2/);
+    expect(write(3)).toThrow(/index 3 is outside a vec3's components 0 to 2/);
+    expect(column(3)).toThrow(/index 3 is outside a mat3's columns 0 to 2/);
+  });
+
+  /**
    * A compute program that reads a buffer through `storage()` compiles on
    * every target. Spelling the same buffer as an `attribute()` is refused on
    * each, because a compute dispatch has no vertices to read one for. GLSL has

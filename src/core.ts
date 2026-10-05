@@ -1090,6 +1090,17 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
 
     const isVector = /^(vec|ivec|uvec|bvec)[234]$/.test(this._t);
 
+    // A literal index outside the vector or matrix is refused here, as WGSL and GLSL refuse it,
+    // so that no target compiles it to a read of something that is not there.
+    if (index?.params === undefined && typeof index?.value === "number") {
+      const shape = MATRIX_DIMENSIONS[this._t as string];
+      const count = isVector ? Number(/[234]$/.exec(this._t)![0]) : shape?.[0];
+      const k = Math.trunc(index.value);
+      if (count !== undefined && (k < 0 || k >= count)) {
+        throw new Error(`[RMSL] index ${k} is outside a ${this._t}'s ${isVector ? "components" : "columns"} 0 to ${count - 1}`);
+      }
+    }
+
     return op(isVector ? "vectorElement" : "matrixElement", this, index);
   }
   inverse() {

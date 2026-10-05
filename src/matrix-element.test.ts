@@ -154,7 +154,7 @@ describe("a matrix's column by index", () => {
    */
   it("rejects a constant index outside the matrix on WASM, as WGSL and GLSL do", () => {
     expect(() => evaluateWASM(() => m().element(int(3)))).toThrow(
-      /\[RMSL\] compileWasmFn: index 3 is outside a mat3's columns 0 to 2/,
+      /\[RMSL\] index 3 is outside a mat3's columns 0 to 2/,
     );
     const write = Fn(() => {
       const v = m().toVar();
