@@ -5,8 +5,10 @@ import {
   builtinFragDepth,
   builtinPosition,
   float,
+  For,
   fragCoord,
   Fn,
+  If,
   instancedArray,
   int,
   mat2x3,
@@ -162,6 +164,38 @@ describe("a mistake is refused before the program runs", () => {
       expect(() => compile(() => Fn(() => (vec2(1, 0) as any).cross(vec2(0, 1)).toVar())())).toThrow();
     }
     expect(() => cpuCompilers[1]!(() => Fn(() => (values as any).add(1).toVar())())).toThrow(/read as a whole/);
+  });
+
+  /**
+   * A `For` whose update holds a block, such as an `If`, is refused on every
+   * target, because the update slot of a GLSL, WGSL or JavaScript `for` takes
+   * none. A `For` whose update is a plain statement compiles on each.
+   *
+   * @canon spec-a-for-update-that-holds-a-block-is-refused
+   */
+  it("refuses a For whose update holds a block on every target", () => {
+    const loop = (update: (i: any) => any) => () =>
+      Fn(() => {
+        const sum = float(0).toVar();
+        For(
+          () => int(0).toVar(),
+          (i) => i.lessThan(3),
+          update,
+          () => sum.addAssign(1),
+        );
+        return sum;
+      })();
+    const block = loop((i) => If(i.greaterThan(-1), () => i.addAssign(1)));
+    const plain = loop((i) => i.addAssign(1));
+    const refusal = /update cannot contain a block/;
+    expect(() => compileGlsl(plain())).not.toThrow();
+    expect(() => compileWgsl(plain())).not.toThrow();
+    expect(() => compileGlsl(block())).toThrow(refusal);
+    expect(() => compileWgsl(block())).toThrow(refusal);
+    for (const compile of cpuCompilers) {
+      expect(() => compile(plain)).not.toThrow();
+      expect(() => compile(block)).toThrow(refusal);
+    }
   });
 
   /**

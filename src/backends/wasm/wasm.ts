@@ -702,6 +702,16 @@ function textureByteSize(tex: CpuTextureData, isCube: boolean): number {
   return tex.width * tex.height * (isCube ? 6 : tex.depth || 1) * (tex.channels ?? 4) * 8;
 }
 
+/** The statements that hold a block of their own. */
+const BLOCK_STATEMENTS = new Set(["if", "for", "while"]);
+
+/** Whether a statement, or any it holds, is a block. */
+function holdsBlock(node: any): boolean {
+  if (node === null || typeof node !== "object") return false;
+  if (BLOCK_STATEMENTS.has(node.type)) return true;
+  return Array.isArray(node.params) && node.params.some(holdsBlock);
+}
+
 /**
  * Compiles an RMSL function into a small WASM module in two passes:
  * "collect" walks the AST once, giving each scalar a param/local slot and
@@ -3581,6 +3591,13 @@ export function compileWasmFn(
       }
       case "for": {
         const [initNode, condNode, updateNode, bodyNode] = node.params;
+        // The update slot of a GLSL, WGSL or JavaScript `for` takes no block, so
+        // a program that put one there would run on this target alone.
+        if (holdsBlock(updateNode)) {
+          throw new Error(
+            "[RMSL] A for-loop's update cannot contain a block. Move the branch into the loop body, or write the loop with While.",
+          );
+        }
         return emitLoop(walkStmt(initNode, depth), condNode, bodyNode, updateNode, depth);
       }
       case "while": {
