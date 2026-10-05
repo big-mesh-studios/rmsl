@@ -183,8 +183,8 @@ export class WebGPURenderer {
     const encoder = device.createCommandEncoder();
     const colorView = this.context.getCurrentTexture().createView();
 
-    let slotIndex = 0;
-    let firstPass = true;
+    const draws: { mesh: Mesh; entry: PipelineEntry; instancing: boolean }[] = [];
+    const drawCounts = new Map<PipelineEntry, number>();
     scene.traverseVisible((object) => {
       if (!object.isMesh) return;
       const mesh = object as Mesh;
@@ -194,6 +194,17 @@ export class WebGPURenderer {
       const instancingColor = instancing && (mesh as InstancedMesh).instanceColor !== null;
       const entry = this.ensurePipeline(material as NodeMaterial, scene, instancing, instancingColor);
       if (!entry) return;
+      draws.push({ mesh, entry, instancing });
+      drawCounts.set(entry, (drawCounts.get(entry) ?? 0) + 1);
+    });
+    // Every draw's uniforms are written before the frame is submitted, so each draw needs a slot of its own.
+    for (const [entry, count] of drawCounts) this.growRing(entry, count);
+
+    const nextSlot = new Map<PipelineEntry, number>();
+    let firstPass = true;
+    for (const { mesh, entry, instancing } of draws) {
+      const slotIndex = nextSlot.get(entry) ?? 0;
+      nextSlot.set(entry, slotIndex + 1);
 
       // Give objects a chance to update per-draw state (line resolution, ...).
       mesh.onBeforeRender?.(this, scene, camera);
@@ -236,11 +247,25 @@ export class WebGPURenderer {
         pass.draw(geometry.attributes.position?.count ?? 0, instanceCount);
       }
       pass.end();
-
-      slotIndex = (slotIndex + 1) % entry.slots;
-    });
+    }
 
     device.queue.submit([encoder.finish()]);
+  }
+
+  /** Makes the uniform ring of `entry` hold at least `slots` draws, keeping the draws' binding. */
+  private growRing(entry: PipelineEntry, slots: number): void {
+    if (slots <= entry.slots) return;
+    const grown = Math.max(slots, entry.slots * 2);
+    entry.ringBuffer.destroy();
+    entry.ringBuffer = this.device.createBuffer({
+      size: entry.slotSize * grown,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    entry.bindGroup = this.device.createBindGroup({
+      layout: entry.bindGroupLayouts.uniforms,
+      entries: [{ binding: 0, resource: { buffer: entry.ringBuffer, offset: 0, size: entry.slotSize } }],
+    });
+    entry.slots = grown;
   }
 
   private packUniforms(entry: PipelineEntry, mesh: Mesh, camera: Camera, slotIndex: number): void {

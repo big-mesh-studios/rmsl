@@ -325,14 +325,12 @@ describe("known bugs of the scene library, each failing until its fix", () => {
   });
 
   /**
-   * The WebGPU renderer writes each draw's uniforms into a ring of 64 slots
-   * before the frame is submitted, so the 65th draw overwrites the slot the
-   * first draw reads, and the first mesh is drawn with the 65th mesh's
-   * transform.
+   * Each of 65 draws of one material reads its own model matrix, so the
+   * frame holds more draws than the ring held at first.
    *
-   * @canon bug-webgpu-overwrites-the-uniforms-of-an-earlier-draw-past-64-draws
+   * @canon spec-a-webgpu-draw-keeps-its-own-uniforms-however-many-draws-a-frame-has
    */
-  it.fails("draws each of 65 meshes with its own model matrix on WebGPU", () => {
+  it("draws each of 65 meshes with its own model matrix on WebGPU", () => {
     const { device, canvas, passes, bytesOf } = stubDevice();
     const renderer = new WebGPURenderer(canvas, device as any) as any;
     const material = new MeshBasicMaterial();
