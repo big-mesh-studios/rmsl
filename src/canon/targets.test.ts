@@ -565,6 +565,27 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
+   * The rasterizer takes a fragment stage that writes no colour, or only the
+   * depth, and draws it without writing any pixel.
+   *
+   * @canon spec-a-fragment-stage-may-write-no-colour
+   */
+  it("draws a fragment stage that writes no colour on the WASM rasterizer, leaving the pixel as it was", () => {
+    const pos = attribute("vec3");
+    const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))();
+    const ctx = { attributes: { [pos.name]: new Float64Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]) } };
+    const nothing = () => Fn(() => {})();
+    const depthOnly = () =>
+      Fn(() => {
+        builtinFragDepth().assign(float(0.5));
+      })();
+    for (const fragment of [nothing, depthOnly]) {
+      const routine = compileWasm(vertex as any, fragment as any);
+      expect(Array.from(routine.draw(ctx, { width: 1, height: 1 }))).toEqual([0, 0, 0, 0]);
+    }
+  });
+
+  /**
    * @canon spec-a-fragment-stage-may-write-no-colour
    */
   it("compiles a fragment stage that only discards on both CPU targets", () => {

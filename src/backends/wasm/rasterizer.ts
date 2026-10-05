@@ -40,6 +40,9 @@ export const RASTERIZE_PARAMS = [
   "depthBufferBase",
 ] as const;
 
+/** The address `rasterize` takes for a fragment stage that writes no colour. */
+const NO_COLOUR = -1;
+
 /**
  * A `vec4` position or fragment color, stored as 4 f64 components.
  */
@@ -250,11 +253,13 @@ export function compileWasm(
   const fragmentValueParam = fragmentCompiled.params.find(
     (p): p is Extract<WasmParam, { kind: "valueMemory" }> => p.kind === "valueMemory",
   );
-  if (!fragmentValueParam || fragmentValueParam.shaderType !== "vec4") {
+  if (fragmentValueParam !== undefined && fragmentValueParam.shaderType !== "vec4") {
     throw new Error("[RMSL] compileWasm: fragmentFn must return a vec4 color");
   }
   const positionAddress = positionParam.address;
-  const fragmentValueAddress = fragmentValueParam.address;
+  // A fragment stage that writes no colour has no value to copy out: -1 tells
+  // the rasterizer to leave the pixel as it is.
+  const fragmentValueAddress = fragmentValueParam?.address ?? NO_COLOUR;
 
   const missingInFragment = vertexVaryingParams.filter((v) => !fragmentVaryingParams.some((f) => f.slot === v.slot));
   if (missingInFragment.length > 0) {
