@@ -247,7 +247,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-integer-and-a-float-operand-are-refused`](#spec-an-integer-and-a-float-operand-are-refused) — An operation on an integer operand and a float operand is refused, by the type checker and on every target. A bare number takes the type beside it instead.
       - [`@bug an-int-and-a-float-operand-compile-with-a-hidden-conversion`](#bug-an-int-and-a-float-operand-compile-with-a-hidden-conversion) — GLSL and WGSL compile an operation on an `int` and a `float` operand. WGSL truncates the float to `i32`, and GLSL converts the int to `float`.
     - [`@spec a-for-update-that-holds-a-block-is-refused`](#spec-a-for-update-that-holds-a-block-is-refused) — A `For` whose update holds a block, such as an `If`, is refused on every target.
-  - [`@spec a-case-with-no-values-is-refused`](#spec-a-case-with-no-values-is-refused) — A `Case` given no values is refused where it is written, with an error that names `Case`.
+  - [`@spec a-case-with-no-values-is-refused`](#spec-a-case-with-no-values-is-refused) — A `Case` given no values is refused as the program builds it, with an error that names `Case`.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
   - [`@spec a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop) — A loop follows TSL's `Loop`. It tests its condition before every iteration, and runs its body while the condition holds. It builds the condition once, before the loop.
     - [`@spec loop-counts-from-zero`](#spec-loop-counts-from-zero) — `Loop(count, body)` runs `body` `count` times, with an `int` index that counts up from 0.
@@ -2097,7 +2097,7 @@ This follows because the update slot of a GLSL or WGSL `for` takes no block, and
 
 ### @spec a-case-with-no-values-is-refused
 
-> A `Case` given no values is refused where it is written, with an error that names `Case`.
+> A `Case` given no values is refused as the program builds it, with an error that names `Case`.
 
 This follows because a case no selector can match is a mistake in the program, and a mistake is refused before the program runs.
 
