@@ -665,6 +665,22 @@ export function assertSquareMatrix(operandType: string | undefined): number {
 }
 
 /**
+ * An output is a fragment stage's result, written to a render target at a
+ * location. A compute entry point returns nothing, so there is nowhere for one
+ * to land: a WGSL function with a return type has to declare an entry point IO
+ * attribute for it, and a compute entry point has none to give. A compute
+ * program writes its results into a storage buffer instead.
+ */
+export function assertOutputIsNotWrittenByAComputeStage(stage: "vertex" | "fragment" | "compute"): void {
+  if (stage !== "compute") return;
+  throw new Error(
+    "[RMSL] A compute program cannot write an output, because a compute " +
+      "entry point returns nothing to hold one. Write the value into a " +
+      "storage buffer with .element(invocationIndex()) instead.",
+  );
+}
+
+/**
  * An attribute is the vertex stage's input. A compute dispatch has no
  * vertices, so there is nothing for one to read: `@location`, the only way a
  * GPU hands a shader per-vertex inputs, is what a compute entry point may not

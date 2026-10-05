@@ -18,6 +18,7 @@ import {
   PREC_ATOM,
   PREC_UNARY,
   assertAttributeIsNotReadByAComputeStage,
+  assertOutputIsNotWrittenByAComputeStage,
   assertPositionIsReadable,
   assertSquareMatrix,
   assertAssignable,
@@ -1282,6 +1283,7 @@ export function compileJSNode(
 
     case "output": {
       let v = node.value as any;
+      assertOutputIsNotWrittenByAComputeStage(ctx.shaderStage);
       ctx.jsNeedsRes = true;
       if (v.id != null) ctx.outputs.set(v.id, { type: v.shaderType, slot: v.slot, location: v.location });
       return jsLeafRef(`res.outputs[${JSON.stringify(v.slot)}]`, v.shaderType ?? node._t, ctx);

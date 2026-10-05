@@ -10,6 +10,7 @@ import {
   PREC_UNARY,
   VertexRoot,
   assertAttributeIsNotReadByAComputeStage,
+  assertOutputIsNotWrittenByAComputeStage,
   assertPositionIsReadable,
   assertSquareMatrix,
   assertAssignable,
@@ -666,12 +667,10 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "output": {
       let v = node.value as any;
+      assertOutputIsNotWrittenByAComputeStage(ctx.shaderStage);
       if (v && v.id != null && !ctx.outputs.has(v.id)) {
         ctx.outputs.set(v.id, { type: wgslType(v.shaderType), slot: v.slot, location: v.location });
       }
-      // A compute stage writes an output storage buffer in place, rather than
-      // a struct field collected at the end of `main`.
-      if (ctx.shaderStage === "compute") return { decls: [], body: [], expr: `${v?.slot}[_rmsl_index]` };
       return { decls: [], body: [], expr: `result.${v?.slot}` };
     }
 

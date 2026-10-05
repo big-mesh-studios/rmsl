@@ -183,4 +183,26 @@ describe("a mistake is refused before the program runs", () => {
       expect(() => compile(viaAttribute)).toThrow(/compute.*attribute|attribute.*compute/i);
     }
   });
+
+  /**
+   * A compute program writes into a storage buffer and returns nothing, which
+   * compiles on every target. Assigning to an `output()` is refused on each,
+   * because an output is a fragment stage's result and a compute entry point
+   * returns nothing to hold one. GLSL has no compute stage, so the three
+   * targets here are all of them.
+   *
+   * @canon spec-a-compute-program-cannot-write-an-output
+   */
+  it("refuses an output assigned by a compute program, where writing a storage buffer compiles", () => {
+    const buf = instancedArray(4, "float");
+    const viaStorage = () => Fn(() => buf.element(int(0)).assign(float(2)))();
+    const viaOutput = () => Fn(() => output("float").assign(float(2)))();
+
+    expect(computeWgsl(viaStorage())).toContain("@compute");
+    expect(() => computeWgsl(viaOutput())).toThrow(/compute.*output|output.*compute/i);
+    for (const compile of cpuComputeCompilers) {
+      expect(() => compile(viaStorage)).not.toThrow();
+      expect(() => compile(viaOutput)).toThrow(/compute.*output|output.*compute/i);
+    }
+  });
 });

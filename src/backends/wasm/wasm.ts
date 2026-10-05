@@ -15,6 +15,7 @@ import {
 } from "../cpu";
 import {
   assertAttributeIsNotReadByAComputeStage,
+  assertOutputIsNotWrittenByAComputeStage,
   assertStageResult,
   fragmentColour,
   assertOneDeclarationPerName,
@@ -1380,6 +1381,7 @@ export function compileWasmFn(
       }
 
       case "output": {
+        assertOutputIsNotWrittenByAComputeStage(effectiveStage);
         // pipeline output: forces needsResult so the host can read it
         needsResult = true;
         const v = node.value;
