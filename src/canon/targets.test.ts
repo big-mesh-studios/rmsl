@@ -561,6 +561,7 @@ describe("each leaf on every target it claims", () => {
     expect(() => compileWgsl.fragment(build())).not.toThrow();
     expect(() => compileJSRoutine(build, { ...none, stage: "fragment" })).not.toThrow();
     expect(() => compileWasmRoutine(build, { ...none, stage: "fragment" })).not.toThrow();
+    expect(() => compileWasmRoutine(build, { ...none, stage: "fragment" }).run({})).not.toThrow();
   });
 
   /**
@@ -575,6 +576,9 @@ describe("each leaf on every target it claims", () => {
       })() as any;
     expect(() => compileJSRoutine(build, { ...none, stage: "fragment" })).not.toThrow();
     expect(() => compileWasmRoutine(build, { ...none, stage: "fragment" })).not.toThrow();
+    // An unset uniform reads zero, so the discard does not run; a routine that runs it still returns.
+    expect(() => compileWasmRoutine(build, { ...none, stage: "fragment" }).run({})).not.toThrow();
+    expect(() => compileWasmRoutine(build, { ...none, stage: "fragment" }).run({ uniforms: {} })).not.toThrow();
   });
 
   /**

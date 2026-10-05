@@ -579,6 +579,16 @@ describe("known WASM bugs, each failing until its fix", () => {
   it.fails("compiles a vertex and a fragment stage that writes no colour on WASM", () => {
     const pos = attribute("vec3");
     const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))();
-    expect(() => compileWasm(vertex as any, (() => Fn(() => {})()) as any)).not.toThrow();
+    const refusal = /fragmentFn must return a vec4/;
+    expect(() => compileWasm(vertex as any, (() => Fn(() => {})()) as any)).not.toThrow(refusal);
+    expect(() =>
+      compileWasm(
+        vertex as any,
+        (() =>
+          Fn(() => {
+            builtinFragDepth().assign(float(0.5));
+          })()) as any,
+      ),
+    ).not.toThrow(refusal);
   });
 });

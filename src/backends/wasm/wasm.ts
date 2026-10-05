@@ -778,12 +778,10 @@ export function compileWasmFn(
   // one shared per-pixel input slot, allocated on first use
   let fragCoordAddress: number | undefined;
 
-  // needsResult: the WASM function returns nothing; the result is written
-  // to memory (valueAddress below) and read back by the host.
-  let needsResult =
-    options.stage === "vertex" ||
-    isAggregate(root._t as string) ||
-    (options.stage === "fragment" && root._t === "void");
+  // needsResult: the WASM function returns nothing; a result, when there is
+  // one, is written to memory (valueAddress below) and read back by the host.
+  // A program that returns nothing has no value slot and nothing to read back.
+  let needsResult = options.stage === "vertex" || isAggregate(root._t as string) || root._t === "void";
   let positionWritten = false;
   const outputAddress = new Map<string, number>();
   const varyingOutputAddress = new Map<string, number>();
