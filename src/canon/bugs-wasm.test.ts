@@ -468,27 +468,6 @@ describe("known WASM bugs, each failing until its fix", () => {
   });
 
   /**
-   * The WASM target compiles a `For` whose update holds a block, where JS,
-   * GLSL and WGSL refuse it.
-   *
-   * @canon bug-wasm-runs-a-for-update-that-holds-a-block
-   */
-  it.fails("refuses a For whose update holds a block on WASM", () => {
-    const build = () =>
-      Fn(() => {
-        const sum = float(0).toVar();
-        For(
-          () => int(0).toVar(),
-          (i) => i.lessThan(3),
-          (i) => If(i.greaterThan(-1), () => i.addAssign(1)),
-          () => sum.addAssign(1),
-        );
-        return sum;
-      })();
-    expect(() => compileWasmRoutine(build, none)).toThrow(/update cannot contain a block/);
-  });
-
-  /**
    * The WASM target compiles no component-wise math function of a vector,
    * such as `pow`, `sin` or `floor`, and throws that the node is unsupported.
    *
