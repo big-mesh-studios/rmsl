@@ -523,6 +523,10 @@ export function compileGLSLNode(
       return unaryGLSL(node, ctx, "roundEven");
     case "trunc":
       return unaryGLSL(node, ctx, "trunc");
+    case "radians":
+      return unaryGLSL(node, ctx, "radians");
+    case "degrees":
+      return unaryGLSL(node, ctx, "degrees");
     case "sqrt":
       return unaryGLSL(node, ctx, "sqrt");
     case "inverseSqrt":

@@ -271,7 +271,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec arithmetic-compiles-to-the-operators-of-the-target`](#spec-arithmetic-compiles-to-the-operators-of-the-target) — `add`, `sub`, `mul` and `div`, as methods or free functions, compile to the operators of each target.
     - [`@spec a-math-function-compiles-to-the-builtin-of-the-target`](#spec-a-math-function-compiles-to-the-builtin-of-the-target) — A math function, such as `sin`, `floor`, `pow`, `inversesqrt` or `determinant`, compiles to the built-in of each target, under the name that target gives it.
       - [`@bug wasm-compiles-no-matrix-inverse`](#bug-wasm-compiles-no-matrix-inverse) — The WASM target does not compile `inverse`.
-      - [`@bug radians-and-degrees-compile-to-a-multiplication`](#bug-radians-and-degrees-compile-to-a-multiplication) — GLSL and WGSL compile `radians` and `degrees` to a multiplication by a constant, though each target has a built-in of that name.
       - [`@bug wasm-compiles-no-component-wise-math-on-a-vector`](#bug-wasm-compiles-no-component-wise-math-on-a-vector) — The WASM target compiles no component-wise math function of a vector, such as `pow`, `sin`, `floor`, `fract` or `sqrt`.
     - [`@spec a-function-with-an-edge-takes-the-value-last`](#spec-a-function-with-an-edge-takes-the-value-last) — `step(edge, x)`, `smoothstep(low, high, x)`, `clamp(x, low, high)` and `mix(a, b, t)` take their arguments in TSL's order. A method puts its receiver where the function puts the value.
     - [`@spec a-geometric-function-compiles-to-the-builtin-of-the-target`](#spec-a-geometric-function-compiles-to-the-builtin-of-the-target) — `dot`, `length`, `distance`, `normalize`, `cross`, `reflect`, `refract` and `faceForward` compile to the built-ins of each target, `refract` with its three arguments.
@@ -2219,12 +2218,6 @@ This follows because a TSL shader ports by changing its import only if each oper
 > The WASM target does not compile `inverse`.
 
 Issue: #65
-
-##### @bug radians-and-degrees-compile-to-a-multiplication
-
-> GLSL and WGSL compile `radians` and `degrees` to a multiplication by a constant, though each target has a built-in of that name.
-
-Issue: #123
 
 ##### @bug wasm-compiles-no-component-wise-math-on-a-vector
 

@@ -166,6 +166,8 @@ export const JS_ELEM: Record<string, { argc: number; fn: (xs: string[]) => strin
   ceil: { argc: 1, fn: (xs) => `Math.ceil(${xs[0]})` },
   round: { argc: 1, fn: (xs) => `_rmsl_roundEven(${xs[0]})` },
   trunc: { argc: 1, fn: (xs) => `Math.trunc(${xs[0]})` },
+  radians: { argc: 1, fn: (xs) => `${xs[0]} * ${Math.PI / 180}` },
+  degrees: { argc: 1, fn: (xs) => `${xs[0]} * ${180 / Math.PI}` },
   fract: { argc: 1, fn: (xs) => `${xs[0]} - Math.floor(${xs[0]})` },
   sqrt: { argc: 1, fn: (xs) => `Math.sqrt(${xs[0]})` },
   rsqrt: { argc: 1, fn: (xs) => `1 / Math.sqrt(${xs[0]})` },
@@ -1587,6 +1589,10 @@ export function compileJSNode(
       return jsUnaryMath(node, ctx, "round");
     case "trunc":
       return jsUnaryMath(node, ctx, "trunc");
+    case "radians":
+      return jsUnaryMath(node, ctx, "radians");
+    case "degrees":
+      return jsUnaryMath(node, ctx, "degrees");
     case "sqrt":
       return jsUnaryMath(node, ctx, "sqrt");
     case "inverseSqrt":

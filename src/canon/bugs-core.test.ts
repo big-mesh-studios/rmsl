@@ -174,21 +174,6 @@ describe("known bugs of the core, each failing until its fix", () => {
   });
 
   /**
-   * `radians` and `degrees` compile to a multiplication by a constant on GLSL
-   * and WGSL, where each target has a built-in of that name.
-   *
-   * @canon bug-radians-and-degrees-compile-to-a-multiplication
-   */
-  it.fails("compiles radians and degrees to the built-ins of GLSL and WGSL", () => {
-    const angle = uniform("float");
-    const build = () => Fn(() => vec4(radians(angle), degrees(angle), 0, 1))();
-    for (const code of [compileGlsl.fragment(build()), compileWgsl.fragment(build())]) {
-      expect(code).toMatch(/\bradians\(/);
-      expect(code).toMatch(/\bdegrees\(/);
-    }
-  });
-
-  /**
    * An operation on an `int` and a `float` operand compiles, converting one
    * of them: WGSL truncates the float to `i32`, GLSL widens the int to
    * `float`, so the targets disagree.

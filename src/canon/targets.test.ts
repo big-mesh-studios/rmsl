@@ -97,6 +97,23 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
+   * `radians` and `degrees` compile to the built-in of GLSL and WGSL that has
+   * the name, and compute the same angle on every target.
+   *
+   * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
+   */
+  it("compiles radians and degrees to the built-ins, and converts an angle on every target", () => {
+    const angle = uniform("float");
+    const build = () => Fn(() => vec4(angle.radians(), angle.degrees(), 0, 1))();
+    for (const code of [compileGlsl.fragment(build()), compileWgsl.fragment(build())]) {
+      expect(code).toMatch(/\bradians\(/);
+      expect(code).toMatch(/\bdegrees\(/);
+    }
+    expect(evaluateRecording((a) => a.radians(), [180])).toBeCloseTo(Math.PI, 5);
+    expect(evaluateRecording((a) => a.degrees(), [Math.PI])).toBeCloseTo(180, 4);
+  });
+
+  /**
    * @canon spec-a-scalar-comparison-gives-a-bool
    */
   it("compares scalars on every target", () => {

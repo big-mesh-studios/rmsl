@@ -930,10 +930,10 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
     return op1("trunc", this);
   }
   radians() {
-    return op("mul", this, 0.017453292519943295);
+    return op1("radians", this);
   }
   degrees() {
-    return op("mul", this, 57.29577951308232);
+    return op1("degrees", this);
   }
   sqrt() {
     return op1("sqrt", this);

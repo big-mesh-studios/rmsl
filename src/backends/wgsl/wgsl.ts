@@ -915,6 +915,10 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       return unaryWGSL(node, ctx, "round");
     case "trunc":
       return unaryWGSL(node, ctx, "trunc");
+    case "radians":
+      return unaryWGSL(node, ctx, "radians");
+    case "degrees":
+      return unaryWGSL(node, ctx, "degrees");
     case "sqrt":
       return unaryWGSL(node, ctx, "sqrt");
     case "inverseSqrt":

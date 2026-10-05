@@ -433,6 +433,10 @@ export function tryFold(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
         return mkNode({ _t: t, type: t, value: roundHalfToEven(a) });
       case "trunc":
         return mkNode({ _t: t, type: t, value: Math.trunc(a) });
+      case "radians":
+        return mkNode({ _t: t, type: t, value: a * (Math.PI / 180) });
+      case "degrees":
+        return mkNode({ _t: t, type: t, value: a * (180 / Math.PI) });
       case "fract":
         return mkNode({ _t: t, type: t, value: a - Math.floor(a) });
       case "sqrt":

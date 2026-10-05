@@ -3220,6 +3220,10 @@ export function compileWasmFn(
         return [...walkExpr(node.params[0]), WASM_OP.f64Ceil];
       case "trunc":
         return [...walkExpr(node.params[0]), WASM_OP.f64Trunc];
+      case "radians":
+        return [...walkExpr(node.params[0]), ...f64ConstBytes(Math.PI / 180), WASM_OP.f64Mul];
+      case "degrees":
+        return [...walkExpr(node.params[0]), ...f64ConstBytes(180 / Math.PI), WASM_OP.f64Mul];
       case "fract": {
         const x = node.params[0];
         // x - floor(x); x is emitted twice to keep the stack flat — cheap, side-effect free
