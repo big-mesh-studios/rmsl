@@ -1637,7 +1637,8 @@ export function compileWGSLWithStage(
   let hasVec4Result = lastType === "vec4" && !ctx.positionWritten;
 
   let lines: string[] = [];
-  let texBinding = 0;
+  // A compute program's textures share group 1 with its storage buffers, after them.
+  let texBinding = shaderStage === "compute" ? (ctx.storages?.size ?? 0) : 0;
   let samplerBinding = 0;
   let sortedUniforms = [...ctx.uniforms.entries()].sort((a, b) => a[1].slot.localeCompare(b[1].slot));
 
