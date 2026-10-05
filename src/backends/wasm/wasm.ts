@@ -3670,7 +3670,8 @@ export function compileWasmFn(
  */
 export function createWasmInputMarshaller(
   params: readonly WasmParam[],
-  textureHeapBase: number,
+  /** Where the texture heap starts, or a function that says so at each call when another stage's heap sits before it. */
+  textureHeapStart: number | (() => number),
   memory: WebAssembly.Memory,
 ): {
   marshal(ctx: CpuShaderContext): { args: number[]; heapEnd: number };
@@ -3689,6 +3690,7 @@ export function createWasmInputMarshaller(
   // grow the module memory when the total footprint changes between calls
   const lastTexture: (CpuTextureData | undefined)[] = new Array(textureParams.length);
   let lastSizes: number[] | null = null;
+  let lastHeapBase: number | undefined;
 
   /**
    * Appends each texture's pixels after the compiled layout (growing memory
@@ -3697,6 +3699,7 @@ export function createWasmInputMarshaller(
    * where a draw buffer/further scratch can start.
    */
   function marshal(ctx: CpuShaderContext): { args: number[]; heapEnd: number } {
+    const textureHeapBase = typeof textureHeapStart === "function" ? textureHeapStart() : textureHeapStart;
     let textureHeapEnd = textureHeapBase;
     if (textureParams.length > 0) {
       const textures = textureParams.map((p) => (ctx.textures as any)?.[p.slot] as CpuTextureData);
@@ -3709,7 +3712,8 @@ export function createWasmInputMarshaller(
       }
       textureHeapEnd = heapCursor;
 
-      const needsRepack = lastSizes === null || sizes.some((s, i) => s !== lastSizes![i]);
+      const needsRepack =
+        lastSizes === null || textureHeapBase !== lastHeapBase || sizes.some((s, i) => s !== lastSizes![i]);
       if (needsRepack && heapCursor > memory.buffer.byteLength) {
         memory.grow(Math.ceil((heapCursor - memory.buffer.byteLength) / 65536));
       }
@@ -3722,6 +3726,7 @@ export function createWasmInputMarshaller(
         });
       }
       lastSizes = sizes;
+      lastHeapBase = textureHeapBase;
     }
     const heapEnd = marshalStorages(ctx, textureHeapEnd);
     const view = new DataView(memory.buffer);

@@ -6,9 +6,12 @@ import {
   Fn,
   instancedArray,
   invocationIndex,
+  ivec2,
   storage,
   StorageBufferAttribute,
+  textureLoad,
   uniform,
+  varying,
   vec2,
   vec4,
   type Node,
@@ -141,5 +144,89 @@ describe("a CPU rasterizer's triangles", () => {
       ).filter((_, i) => i % 4 === 3);
     expect(covered(counterClockwise)).toEqual(covered(clockwise));
     expect(covered(clockwise).filter((alpha) => alpha === 1)).toHaveLength(6);
+  });
+});
+
+/** A triangle at depth `z` that covers the whole viewport. */
+const screen = (z = 0) => new Float64Array([-1, -1, z, 3, -1, z, -1, 3, z]);
+
+/** A vertex stage that places `pos` as given, and a fragment stage that draws `color`. */
+function flat() {
+  const pos = attribute("vec3");
+  const color = uniform("vec4");
+  const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))();
+  const fragment = () => Fn(() => color)();
+  return { pos, color, routine: compileWasm(vertex as any, fragment as any) };
+}
+
+describe("the WASM rasterizer's memory", () => {
+  /**
+   * A vertex stage's texture survives the next draw: its heap lies after the
+   * fragment stage's layout, which the fragment inputs of each draw write.
+   *
+   * @canon spec-the-wasm-rasterizer-links-its-stages-in-one-memory
+   */
+  it("keeps a vertex-stage texture intact across draws on WASM", () => {
+    const pos = attribute("vec3");
+    const tex = uniform("sampler2D");
+    const shade = varying("float");
+    const tint = uniform("vec4");
+    const vertex = () =>
+      Fn(() => {
+        shade.assign(textureLoad(tex, ivec2(0, 0)).x);
+        builtinPosition().assign(vec4(pos, 1));
+      })();
+    const fragment = () => Fn(() => vec4(shade, tint.x, tint.y, 1))();
+    const routine = compileWasm(vertex as any, fragment as any);
+    const ctx = {
+      attributes: { [pos.name]: screen() },
+      uniforms: { [tint.name]: [0.25, 0.5, 0, 0] },
+      textures: { [tex.name]: { data: new Float32Array(64).fill(9), width: 4, height: 4 } },
+    };
+    expect(Array.from(routine.draw(ctx, { width: 1, height: 1 }))).toEqual([9, 0.25, 0.5, 1]);
+    expect(Array.from(routine.draw(ctx, { width: 1, height: 1 }))).toEqual([9, 0.25, 0.5, 1]);
+  });
+
+  /**
+   * A draw after a smaller draw gives what a fresh routine gives: the depth
+   * buffer lies after the regions of the draw, so a larger draw does not lay
+   * its vertices or colours over it.
+   *
+   * @canon spec-a-rasterizer-keeps-the-closer-fragment
+   */
+  it("draws the same after a smaller draw as on a fresh routine on WASM", () => {
+    const fresh = flat();
+    const used = flat();
+    const four = new Float64Array(Array.from({ length: 4 }, () => Array.from(screen())).flat());
+    const options = { width: 2, height: 2, clear: true, clearDepth: true };
+    const expected = fresh.routine.draw(
+      { attributes: { [fresh.pos.name]: four }, uniforms: { [fresh.color.name]: [0, 0, 1, 1] } },
+      options,
+    );
+    used.routine.draw(
+      { attributes: { [used.pos.name]: screen() }, uniforms: { [used.color.name]: [1, 0, 0, 1] } },
+      { width: 1, height: 1 },
+    );
+    const got = used.routine.draw(
+      { attributes: { [used.pos.name]: four }, uniforms: { [used.color.name]: [0, 0, 1, 1] } },
+      options,
+    );
+    expect(Array.from(got)).toEqual(Array.from(expected));
+  });
+
+  /**
+   * `compileWasm` makes its own memory as the modules it compiled declare it,
+   * shared and with their maximum, so they link.
+   *
+   * @canon spec-compile-wasm-makes-its-memory-as-its-modules-declare
+   */
+  it("compiles a vertex and fragment pair with sharedMemory and no memory on WASM", () => {
+    const pos = attribute("vec3");
+    const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))();
+    const fragment = () => Fn(() => vec4(1, 0, 0, 1))();
+    const routine = compileWasm(vertex as any, fragment as any, { sharedMemory: true });
+    expect(Array.from(routine.draw({ attributes: { [pos.name]: screen() } }, { width: 1, height: 1 }))).toEqual([
+      1, 0, 0, 1,
+    ]);
   });
 });

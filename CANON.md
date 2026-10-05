@@ -544,10 +544,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cpu-target-runs-invocations-in-index-order`](#spec-a-cpu-target-runs-invocations-in-index-order) — A CPU target runs the invocations of a dispatch one at a time, in index order. An invocation sees the writes of the invocations before it.
     - [`@spec a-cpu-target-rasterizes-a-vertex-and-fragment-pair`](#spec-a-cpu-target-rasterizes-a-vertex-and-fragment-pair) — `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates varyings in perspective, clips at the near plane, and keeps the closer fragment.
       - [`@spec the-wasm-rasterizer-links-its-stages-in-one-memory`](#spec-the-wasm-rasterizer-links-its-stages-in-one-memory) — The WASM rasterizer calls the vertex module, then the fragment module, as imports that share one memory.
-        - [`@bug wasm-places-a-vertex-texture-over-the-fragment-layout`](#bug-wasm-places-a-vertex-texture-over-the-fragment-layout) — `compileWasm` starts the vertex stage's texture heap where the fragment stage's layout starts. The fragment inputs of the next draw overwrite the vertex stage's texture.
       - [`@spec a-rasterizer-clips-at-the-near-plane`](#spec-a-rasterizer-clips-at-the-near-plane) — The rasterizer clips a triangle with a vertex behind the eye into the triangles in front of it. A triangle wholly behind the eye draws nothing.
       - [`@spec a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment) — The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles. Its depth buffer persists across draws until a draw asks for `clearDepth`.
-        - [`@bug wasm-rasterizer-keeps-its-depth-buffer-where-a-larger-draw-writes`](#bug-wasm-rasterizer-keeps-its-depth-buffer-where-a-larger-draw-writes) — `compileWasm` fixes where the depth buffer lies at the first draw, while every other region moves with the draw's size. A later, larger draw lays its vertices and colours over the depth buffer.
         - [`@bug wasm-rasterizer-ignores-the-fragment-depth`](#bug-wasm-rasterizer-ignores-the-fragment-depth) — The WASM rasterizer tests and stores the interpolated depth, ignoring the depth the fragment stage writes.
       - [`@spec a-rasterizer-clears-its-colour-every-draw`](#spec-a-rasterizer-clears-its-colour-every-draw) — Each draw starts from a cleared colour buffer, so no pixel of an earlier draw remains.
         - [`@bug the-cpu-rasterizers-keep-the-colour-of-an-earlier-draw`](#bug-the-cpu-rasterizers-keep-the-colour-of-an-earlier-draw) — The JS and WASM rasterizers clear their colour buffer only when a draw passes `clear`. A pixel the next draw leaves uncovered keeps the earlier colour.
@@ -605,7 +603,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-wasm-program-can-take-one-call-shape`](#spec-a-wasm-program-can-take-one-call-shape) — With `scalarsInMemory`, a WASM program reads its scalar uniforms, attributes and varyings from memory and takes no arguments. Without it, a program of scalars only takes them as arguments.
     - [`@spec a-wasm-function-takes-an-aggregate-through-memory`](#spec-a-wasm-function-takes-an-aggregate-through-memory) — A WASM function reads a vector or matrix parameter from memory, not from an argument.
     - [`@spec compile-wasm-makes-its-memory-as-its-modules-declare`](#spec-compile-wasm-makes-its-memory-as-its-modules-declare) — When `compileWasm` makes its own memory, it makes it shared and bounded as `sharedMemory` and `maxMemoryPages` ask.
-      - [`@bug wasm-rasterizer-makes-its-memory-without-the-shared-flag`](#bug-wasm-rasterizer-makes-its-memory-without-the-shared-flag) — `compileWasm` makes its own memory without `sharedMemory` or `maxMemoryPages`, which the modules it compiled declared, so linking fails.
     - [`@spec a-wasm-function-returns-a-scalar-result-as-its-value`](#spec-a-wasm-function-returns-a-scalar-result-as-its-value) — A WASM function whose program returns a scalar and writes no output returns the scalar as its own value.
     - [`@spec a-wasm-function-returns-a-vector-result-through-memory`](#spec-a-wasm-function-returns-a-vector-result-through-memory) — A WASM function whose program returns a vector or matrix returns nothing itself and writes the value to a slot in memory.
   - [`@spec a-graph-survives-json`](#spec-a-graph-survives-json) — The function `serialize` turns the graph an `Fn` builds into JSON. Then `deserialize` turns that JSON back into a graph that compiles to the same code, in another process or on another machine.
@@ -3741,12 +3738,6 @@ Issue: #83
 
 > The WASM rasterizer calls the vertex module, then the fragment module, as imports that share one memory.
 
-###### @bug wasm-places-a-vertex-texture-over-the-fragment-layout
-
-> `compileWasm` starts the vertex stage's texture heap where the fragment stage's layout starts. The fragment inputs of the next draw overwrite the vertex stage's texture.
-
-Issue: #109
-
 ##### @spec a-rasterizer-clips-at-the-near-plane
 
 > The rasterizer clips a triangle with a vertex behind the eye into the triangles in front of it. A triangle wholly behind the eye draws nothing.
@@ -3754,12 +3745,6 @@ Issue: #109
 ##### @spec a-rasterizer-keeps-the-closer-fragment
 
 > The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles. Its depth buffer persists across draws until a draw asks for `clearDepth`.
-
-###### @bug wasm-rasterizer-keeps-its-depth-buffer-where-a-larger-draw-writes
-
-> `compileWasm` fixes where the depth buffer lies at the first draw, while every other region moves with the draw's size. A later, larger draw lays its vertices and colours over the depth buffer.
-
-Issue: #109
 
 ###### @bug wasm-rasterizer-ignores-the-fragment-depth
 
@@ -4114,12 +4099,6 @@ Derives from: [`fact-webassembly-passes-only-numbers-across-its-boundary`](#fact
 > When `compileWasm` makes its own memory, it makes it shared and bounded as `sharedMemory` and `maxMemoryPages` ask.
 
 This follows because the modules it compiles import a memory of that kind, and a memory of another kind does not link.
-
-##### @bug wasm-rasterizer-makes-its-memory-without-the-shared-flag
-
-> `compileWasm` makes its own memory without `sharedMemory` or `maxMemoryPages`, which the modules it compiled declared, so linking fails.
-
-Issue: #109
 
 #### @spec a-wasm-function-returns-a-scalar-result-as-its-value
 

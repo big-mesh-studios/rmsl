@@ -2,6 +2,7 @@ import { Node, ShaderType } from "../../core";
 import { componentCountOf, CpuDrawBuffer, CpuShaderContext, CpuTextureData } from "../cpu";
 import { DrawCountOptions, TypedArray } from "../adapter";
 import { compileWasmFn, CompileWasmFnOptions, createWasmInputMarshaller, WasmParam } from "./wasm";
+import { wasmUleb128 } from "./utils";
 import RASTERIZER_WASM_BYTES from "./rasterizer.wat";
 
 /**
@@ -64,8 +65,70 @@ const VARYING_DESC_BYTES = 16;
  * vertex-pass/clip-pass/triangle-pass design and its v1 scope, and
  * rasterizer.wat for the module itself.
  */
-export function buildRasterizerModule(): Uint8Array {
-  return RASTERIZER_WASM_BYTES;
+export function buildRasterizerModule(shared?: { maximum: number }): Uint8Array {
+  return shared ? declareSharedMemory(RASTERIZER_WASM_BYTES, shared.maximum) : RASTERIZER_WASM_BYTES;
+}
+
+/** Reads an unsigned LEB128 integer at `at`, and the offset after it. */
+function readUleb(bytes: Uint8Array, at: number): [value: number, next: number] {
+  let value = 0;
+  let shift = 0;
+  for (;;) {
+    const byte = bytes[at++]!;
+    value |= (byte & 0x7f) << shift;
+    if ((byte & 0x80) === 0) return [value >>> 0, at];
+    shift += 7;
+  }
+}
+
+/**
+ * The module with its memory import declared shared and bounded by `maximum`
+ * pages. A shared memory only links against an import declared shared, and the
+ * rasterizer's own import is not, so the limits of that import are rewritten
+ * and the import section's size follows them.
+ */
+function declareSharedMemory(bytes: Uint8Array, maximum: number): Uint8Array {
+  let at = 8; // after the magic number and the version
+  while (at < bytes.length) {
+    const sectionStart = at;
+    const id = bytes[at++]!;
+    const [size, bodyStart] = readUleb(bytes, at);
+    at = bodyStart;
+    if (id !== 2) {
+      at += size;
+      continue;
+    }
+    let [count, cursor] = readUleb(bytes, at);
+    for (; count > 0; count--) {
+      for (let name = 0; name < 2; name++) {
+        const [length, next] = readUleb(bytes, cursor);
+        cursor = next + length;
+      }
+      const kind = bytes[cursor++]!;
+      if (kind === 0) {
+        cursor = readUleb(bytes, cursor)[1]; // the index of the function's type
+        continue;
+      }
+      if (kind !== 2)
+        throw new Error("[RMSL] the rasterizer module imports something other than functions and a memory");
+      const limitsStart = cursor;
+      const flags = bytes[cursor++]!;
+      const [minimum, afterMinimum] = readUleb(bytes, cursor);
+      cursor = afterMinimum;
+      if (flags & 1) cursor = readUleb(bytes, cursor)[1];
+      const limits = [0x03, ...wasmUleb128(minimum), ...wasmUleb128(maximum)];
+      const body = [...bytes.subarray(bodyStart, limitsStart), ...limits, ...bytes.subarray(cursor, bodyStart + size)];
+      return Uint8Array.from([
+        ...bytes.subarray(0, sectionStart),
+        id,
+        ...wasmUleb128(body.length),
+        ...body,
+        ...bytes.subarray(bodyStart + size),
+      ]);
+    }
+    return bytes;
+  }
+  return bytes;
 }
 
 /**
@@ -131,12 +194,17 @@ export function instantiateRasterizer(
   vertexMain: () => void,
   fragmentMain: () => void,
   memory: WebAssembly.Memory,
+  /** The maximum of a shared memory, which the module declares as its import. */
+  shared?: { maximum: number },
 ): { rasterize: (...args: number[]) => void } {
-  const instance = new WebAssembly.Instance(new WebAssembly.Module(buildRasterizerModule().buffer as ArrayBuffer), {
-    vertex: { main: vertexMain },
-    fragment: { main: fragmentMain },
-    env: { memory },
-  });
+  const instance = new WebAssembly.Instance(
+    new WebAssembly.Module(buildRasterizerModule(shared).buffer as ArrayBuffer),
+    {
+      vertex: { main: vertexMain },
+      fragment: { main: fragmentMain },
+      env: { memory },
+    },
+  );
   return { rasterize: instance.exports.rasterize as (...args: number[]) => void };
 }
 
@@ -295,9 +363,14 @@ export function compileWasm(
   });
   const attrStrideBytes = attrCursor;
 
+  const initialPages = Math.max(vertexCompiled.memoryPages, fragmentCompiled.memoryPages, 1);
   const memory =
     options.memory ??
-    new WebAssembly.Memory({ initial: Math.max(vertexCompiled.memoryPages, fragmentCompiled.memoryPages, 1) });
+    new WebAssembly.Memory(
+      vertexCompiled.sharedMemory
+        ? { initial: initialPages, maximum: vertexCompiled.maxMemoryPages, shared: true }
+        : { initial: initialPages },
+    );
 
   const vertexInstance = new WebAssembly.Instance(new WebAssembly.Module(vertexCompiled.bytes.buffer as ArrayBuffer), {
     math: Math as unknown as WebAssembly.ModuleImports,
@@ -312,22 +385,29 @@ export function compileWasm(
     vertexInstance.exports.main as () => void,
     fragmentInstance.exports.main as () => void,
     memory,
+    vertexCompiled.sharedMemory ? { maximum: vertexCompiled.maxMemoryPages } : undefined,
   );
 
+  // Each stage's textures sit after the fixed layouts of both stages, the
+  // vertex stage's first and the fragment stage's after them, so neither
+  // heap lies over the other's layout or over the other heap.
+  //
   // Attributes are excluded here: the rasterizer's own attribute-copy loop
   // pokes them into these same `attributeMemory` addresses once per vertex,
   // inside WASM — this marshaller only handles the once-per-draw-call
   // inputs (uniforms/textures), same as `instantiateWasmRoutine`'s own marshaller.
+  const heapStart = align8(fragmentCompiled.textureHeapBase);
+  let vertexHeapEnd = heapStart;
   const vertexMarshaller = createWasmInputMarshaller(
     vertexCompiled.params.filter((p) => p.kind !== "attributeMemory"),
-    vertexCompiled.textureHeapBase,
+    heapStart,
     memory,
   );
   // Interpolated varyings are excluded here too: the rasterizer writes
   // these `varyingMemory` addresses itself, per covered pixel.
   const fragmentMarshaller = createWasmInputMarshaller(
     fragmentCompiled.params.filter((p) => p.kind !== "varyingMemory"),
-    fragmentCompiled.textureHeapBase,
+    () => align8(vertexHeapEnd),
     memory,
   );
 
@@ -349,7 +429,13 @@ export function compileWasm(
       : 0;
     const vertexCount = options.count ?? inferredCount;
     const sharedCtx = { uniforms: ctx.uniforms, textures: ctx.textures } as CpuShaderContext;
-    const { heapEnd: vertexHeapEnd } = vertexMarshaller.marshal(sharedCtx);
+    // The depth buffer moves with the regions below, so its values are kept
+    // aside before anything is written over where it was.
+    const keptDepth =
+      depthBufferBase !== undefined && !options.clearDepth
+        ? new Float64Array(memory.buffer, depthBufferBase, depthCapacityPixels).slice()
+        : undefined;
+    vertexHeapEnd = vertexMarshaller.marshal(sharedCtx).heapEnd;
     const { heapEnd: fragmentHeapEnd } = fragmentMarshaller.marshal(sharedCtx);
 
     let cursor = align8(Math.max(vertexHeapEnd, fragmentHeapEnd));
@@ -374,26 +460,21 @@ export function compileWasm(
     const outputBase = cursor;
     cursor = align8(cursor + width * height * VEC4_BYTES);
 
-    // The depth buffer's own base, once assigned, never moves — draw()'s
-    // other regions above float per call, but occlusion across draw() calls
-    // needs a stable address to keep comparing against.
-    let needsClear = false;
-    if (depthBufferBase === undefined) {
-      depthBufferBase = cursor;
-      needsClear = true;
-    }
+    // The depth buffer sits after the regions of this draw, so a larger draw
+    // does not lay its vertices or colours over it. Its values carry over to
+    // wherever it lands, unless the draw clears it or needs more pixels.
     const neededDepthPixels = width * height;
-    if (neededDepthPixels > depthCapacityPixels) {
-      depthCapacityPixels = neededDepthPixels;
-      needsClear = true;
-    }
-    if (options.clearDepth) needsClear = true;
+    const outgrown = neededDepthPixels > depthCapacityPixels;
+    const needsClear = depthBufferBase === undefined || outgrown || options.clearDepth === true;
+    depthBufferBase = cursor;
+    if (outgrown) depthCapacityPixels = neededDepthPixels;
     cursor = depthBufferBase + depthCapacityPixels * 8;
 
     if (cursor > memory.buffer.byteLength) {
       memory.grow(Math.ceil((cursor - memory.buffer.byteLength) / 65536));
     }
     if (needsClear) clearDepthBuffer();
+    else if (keptDepth) new Float64Array(memory.buffer, depthBufferBase, keptDepth.length).set(keptDepth);
 
     const view = new DataView(memory.buffer);
     for (const a of attrLayout) {
