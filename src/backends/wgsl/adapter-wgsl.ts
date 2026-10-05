@@ -215,9 +215,9 @@ function writeUniformElement(
   view: Float32Array | Int32Array | Uint32Array,
   at: number,
   type: string,
-  value: number | number[],
+  value: number | ArrayLike<number>,
 ): void {
-  if (!Array.isArray(value)) {
+  if (typeof value !== "object") {
     view[at] = value;
     return;
   }
@@ -226,8 +226,10 @@ function writeUniformElement(
     view.set(value, at);
     return;
   }
-  for (let column = 0; column < matrix.columns; column++) {
-    view.set(value.slice(column * matrix.rows, (column + 1) * matrix.rows), at + column * matrix.columnStride);
+  // A value shorter than the matrix leaves the rest of it as it was.
+  const length = Math.min(value.length, matrix.columns * matrix.rows);
+  for (let k = 0; k < length; k++) {
+    view[at + Math.floor(k / matrix.rows) * matrix.columnStride + (k % matrix.rows)] = value[k]!;
   }
 }
 

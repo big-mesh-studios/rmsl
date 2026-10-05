@@ -1,5 +1,6 @@
 /// <reference types="@webgpu/types" />
 import { compileWgsl, wgslUniformLayout } from "../../wgsl";
+import { uniformScratch, writeUniformMember, type UniformScratch } from "../../backends/wgsl/adapter-wgsl";
 import { Color } from "../math/Color";
 import { Vector4 } from "../math/Vector4";
 import type { Scene } from "../scenes/Scene";
@@ -61,7 +62,9 @@ interface PipelineEntry {
   slots: number;
   /** Frames in a row the ring has held more than four times the slots the frame needed. */
   oversizedFrames: number;
-  layoutMembers: { name: string; offset: number }[];
+  layoutMembers: { name: string; type: string; offset: number; size: number; length?: number }[];
+  /** Where `packUniforms` lays one draw's uniforms out before it writes them to the ring. */
+  scratch: UniformScratch;
   /** What a render pipeline of this program is built from. */
   pipelineDescriptor: Omit<GPURenderPipelineDescriptor, "vertex"> & { vertexModule: GPUShaderModule };
   /** One render pipeline for each set of vertex formats the meshes drawn with this program hold. */
@@ -317,11 +320,12 @@ export class WebGPURenderer {
   }
 
   private packUniforms(entry: PipelineEntry, mesh: Mesh, camera: Camera, slotIndex: number): void {
-    const floats = new Float32Array(entry.slotSize / 4);
+    const { scratch } = entry;
+    scratch.f32.fill(0);
     for (const binding of entry.program.uniforms) {
       const member = entry.layoutMembers.find((m) => m.name === binding.node.name);
       if (!member) continue;
-      let value: number | number[] | Float32Array;
+      let value: number | ArrayLike<number>;
       if (binding.scope === "camera") {
         value = cameraUniformValue(binding.name, camera);
       } else if (binding.scope === "object") {
@@ -331,16 +335,9 @@ export class WebGPURenderer {
       } else {
         value = binding.value?.({ camera, mesh }) ?? [];
       }
-      const base = member.offset / 4;
-      if (typeof value === "number") {
-        floats[base] = value;
-      } else {
-        for (let i = 0; i < value.length; i++) {
-          floats[base + i] = value[i];
-        }
-      }
+      writeUniformMember(scratch, member, value);
     }
-    this.device.queue.writeBuffer(entry.ringBuffer, slotIndex * entry.slotSize, floats, 0, entry.slotSize / 4);
+    this.device.queue.writeBuffer(entry.ringBuffer, slotIndex * entry.slotSize, scratch.f32 as BufferSource, 0, entry.slotSize / 4);
   }
 
   private ensurePipeline(
@@ -380,7 +377,7 @@ export class WebGPURenderer {
     const fragmentModule = device.createShaderModule({
       code: compileWgsl.fragment(program.fragmentRoot, { uniforms: declaredUniforms }),
     });
-    const layoutMembers = layout.members.map((m) => ({ name: m.name, offset: m.offset }));
+    const layoutMembers = layout.members;
 
     const slotSize = Math.max(256, Math.ceil(layout.size / 256) * 256);
     const slots = UNIFORM_SLOTS;
@@ -474,6 +471,7 @@ export class WebGPURenderer {
       slots,
       oversizedFrames: 0,
       layoutMembers,
+      scratch: uniformScratch(slotSize),
     };
     this.bindTextures(built);
     if (!bySignature) {

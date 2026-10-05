@@ -214,13 +214,12 @@ afterEach(() => {
 
 describe("known bugs of the scene library, each failing until its fix", () => {
   /**
-   * The WebGPU renderer writes a `mat3` uniform as nine packed floats, where
-   * WGSL pads each column to 16 bytes, so the shader reads the normal matrix
-   * shifted from its second column on.
+   * The WebGPU renderer pads each column of a `mat3` uniform to 16 bytes, as WGSL
+   * reads it.
    *
-   * @canon bug-webgpu-uploads-a-mat3-without-column-padding
+   * @canon spec-a-uniform-uploads-in-the-shape-its-type-has
    */
-  it.fails("uploads the normal matrix with each column padded to 16 bytes on WebGPU", () => {
+  it("uploads the normal matrix with each column padded to 16 bytes on WebGPU", () => {
     const { device, canvas, bytesOf } = stubDevice();
     const renderer = new WebGPURenderer(canvas, device as any) as any;
     const mesh = new Mesh(new PlaneGeometry(), new MeshBasicMaterial());
@@ -241,12 +240,11 @@ describe("known bugs of the scene library, each failing until its fix", () => {
   });
 
   /**
-   * The WebGPU renderer writes every uniform through a `Float32Array`, so an
-   * `int` or `uint` uniform reaches the shader as the bits of a float.
+   * The WebGPU renderer writes an `int` uniform as an integer.
    *
-   * @canon bug-webgpu-uploads-an-integer-uniform-as-float-bits
+   * @canon spec-a-uniform-uploads-in-the-shape-its-type-has
    */
-  it.fails("uploads an int uniform as an integer on WebGPU", () => {
+  it("uploads an int uniform as an integer on WebGPU", () => {
     const { device, canvas, bytesOf } = stubDevice();
     const renderer = new WebGPURenderer(canvas, device as any) as any;
     const material = new MeshBasicMaterial();
@@ -261,16 +259,46 @@ describe("known bugs of the scene library, each failing until its fix", () => {
   });
 
   /**
-   * The WebGL renderer has no case for `uint` or the `uvec` types, so it never
-   * uploads them and the shader reads zero.
+   * The WebGPU renderer leaves a `mat3` uniform at zero when the value it
+   * takes is an empty array, as it does for a name it does not know.
    *
-   * @canon bug-webgl-never-uploads-an-unsigned-uniform
+   * @canon spec-a-uniform-uploads-in-the-shape-its-type-has
    */
-  it.fails("uploads a uint and a uvec2 uniform on WebGL", () => {
+  it("writes nothing for an empty matrix value on WebGPU", () => {
+    const { device, canvas, bytesOf } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) =>
+      vec4(
+        b
+          .materialUniform("m", "mat3", () => [])
+          .element(0)
+          .element(0),
+        0,
+        0,
+        1,
+      );
+    const mesh = new Mesh(new PlaneGeometry(), material);
+    mesh.updateMatrixWorld(true);
+    const entry = renderer.ensurePipeline(material, new Scene(), false, false);
+    renderer.packUniforms(entry, mesh, camera(), 0);
+
+    const floats = new Float32Array(bytesOf(entry.ringBuffer).buffer);
+    const base = offsetOf(entry, "m") / 4;
+    expect(Array.from(floats.subarray(base, base + 12))).toEqual(new Array(12).fill(0));
+  });
+
+  /**
+   * The WebGL renderer uploads a `uint`, a `uvec2` and a `bvec3` uniform.
+   *
+   * @canon spec-a-uniform-uploads-in-the-shape-its-type-has
+   */
+  it("uploads a uint, a uvec2 and a bvec3 uniform on WebGL", () => {
     const { renderer, calls } = stubWebGl();
     renderer.setUniform({ name: "a" }, "uint", 5);
     renderer.setUniform({ name: "b" }, "uvec2", [5, 6]);
-    expect(calls.map((c) => c.name)).toEqual(["uniform1ui", "uniform2ui"]);
+    renderer.setUniform({ name: "c" }, "bvec3", [1, 0, 1]);
+    expect(calls.map((c) => c.name)).toEqual(["uniform1ui", "uniform2ui", "uniform3i"]);
   });
 
   /**
