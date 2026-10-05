@@ -191,9 +191,6 @@ export class WebGPURenderer {
     this.ensureDepthTexture();
     const device = this.device;
 
-    const encoder = device.createCommandEncoder();
-    const colorView = this.context.getCurrentTexture().createView();
-
     const draws: { mesh: Mesh; entry: PipelineEntry; variant: PipelineVariant; instancing: boolean }[] = [];
     const drawCounts = new Map<PipelineEntry, number>();
     scene.traverseVisible((object) => {
@@ -210,6 +207,10 @@ export class WebGPURenderer {
     });
     // Every draw's uniforms are written before the frame is submitted, so each draw needs a slot of its own.
     for (const [entry, count] of drawCounts) this.growRing(entry, count);
+
+    // After the draws are collected, so an attribute that is refused leaves no half-recorded frame.
+    const encoder = device.createCommandEncoder();
+    const colorView = this.context.getCurrentTexture().createView();
 
     const nextSlot = new Map<PipelineEntry, number>();
     let firstPass = true;
@@ -602,14 +603,17 @@ export class WebGPURenderer {
    * resolved as `WebGLRenderer` resolves them.
    */
   private pipelineVariant(entry: PipelineEntry, mesh: Mesh): PipelineVariant {
+    let key = "";
+    for (const attribute of entry.program.attributes) {
+      key += `${this.formatOf(attribute, mesh)},`;
+    }
+    const cached = entry.variants.get(key);
+    if (cached) return cached;
     const vertexFormats: VertexBufferLayout[] = [];
     let shaderLocation = 0;
     for (const attribute of entry.program.attributes) {
-      const attr = geometryAttribute(mesh, mesh.geometry, attribute.name);
       const columns = attribute.node._t === "mat4" ? 4 : 1;
-      const format: VertexFormat = attr
-        ? vertexFormatOf(attr, attr.itemSize / columns)
-        : vertexFormatFromType(attribute.node._t === "mat4" ? "vec4" : attribute.node._t);
+      const format = this.formatOf(attribute, mesh);
       const { count, bytes } = VERTEX_FORMATS[format];
       const locations: VertexBufferLayout["attributes"] = [];
       for (let i = 0; i < columns; i++) {
@@ -623,28 +627,33 @@ export class WebGPURenderer {
       });
       shaderLocation += columns;
     }
-    const key = vertexFormats.map((layout) => layout.attributes[0].format).join(",");
-    let variant = entry.variants.get(key);
-    if (!variant) {
-      const { vertexModule, ...descriptor } = entry.pipelineDescriptor;
-      variant = {
-        pipeline: this.device.createRenderPipeline({
-          ...descriptor,
-          vertex: {
-            module: vertexModule,
-            entryPoint: "main",
-            buffers: vertexFormats.map((layout) => ({
-              arrayStride: layout.arrayStride,
-              stepMode: layout.stepMode,
-              attributes: layout.attributes,
-            })),
-          },
-        }),
-        vertexFormats,
-      };
-      entry.variants.set(key, variant);
-    }
+    const { vertexModule, ...descriptor } = entry.pipelineDescriptor;
+    const variant = {
+      pipeline: this.device.createRenderPipeline({
+        ...descriptor,
+        vertex: {
+          module: vertexModule,
+          entryPoint: "main",
+          buffers: vertexFormats.map((layout) => ({
+            arrayStride: layout.arrayStride,
+            stepMode: layout.stepMode,
+            attributes: layout.attributes,
+          })),
+        },
+      }),
+      vertexFormats,
+    };
+    entry.variants.set(key, variant);
     return variant;
+  }
+
+  /** The vertex format `mesh` holds the attribute of the program in, or the one its shader type implies. */
+  private formatOf(attribute: MaterialProgram["attributes"][number], mesh: Mesh): VertexFormat {
+    const columns = attribute.node._t === "mat4" ? 4 : 1;
+    const attr = geometryAttribute(mesh, mesh.geometry, attribute.name);
+    return attr
+      ? vertexFormatOf(attr, attr.itemSize / columns)
+      : vertexFormatFromType(columns === 4 ? "vec4" : attribute.node._t);
   }
 
   private setVertexBuffers(pass: GPURenderPassEncoder, variant: PipelineVariant, mesh: Mesh): void {
