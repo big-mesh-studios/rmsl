@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it } from "vitest";
+import * as rmslExports from "./rmsl";
 import {
   abs,
   add,
@@ -543,6 +544,19 @@ describe("RMSL", () => {
     let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("texture_2d<f32>");
     expect(wgsl).toContain("textureSample(");
+  });
+
+  /**
+   * rmsl names a sample at a level `textureLod`, a method of the sampler,
+   * where TSL names the function `textureLevel`.
+   *
+   * @canon exception-rmsl-samples-by-method-where-tsl-samples-by-function
+   */
+  it("samples a level through a method of the sampler, and exports no textureLevel", () => {
+    const tex = uniform("sampler2D");
+    expect(typeof tex.textureLod).toBe("function");
+    expect(typeof tex.texture).toBe("function");
+    expect("textureLevel" in rmslExports).toBe(false);
   });
 
   /**

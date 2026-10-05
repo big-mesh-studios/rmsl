@@ -185,7 +185,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-computed-value-cannot-be-assigned`](#spec-a-computed-value-cannot-be-assigned) — An assignment to a value that an operation computed, or to a component or element of one, is refused, and the message points to `toVar()`.
     - [`@spec a-parameter-of-the-compiled-function-cannot-be-assigned`](#spec-a-parameter-of-the-compiled-function-cannot-be-assigned) — An assignment to a parameter of the function a compiler compiles is refused, because its value belongs to the caller.
     - [`@spec a-stage-output-is-assigned-only-in-its-stage`](#spec-a-stage-output-is-assigned-only-in-its-stage) — An assignment to a [varying](#term-varying) or to the position outside the vertex stage, or to the fragment depth outside the fragment stage, is refused.
-      - [`@spec a-stage-output-is-refused-in-the-other-render-stage`](#spec-a-stage-output-is-refused-in-the-other-render-stage) — An assignment to a [varying](#term-varying) or to the position in a fragment stage, or to the fragment depth in a vertex stage, is refused on every target.
+      - [`@spec a-stage-output-is-refused-in-the-other-render-stage`](#spec-a-stage-output-is-refused-in-the-other-render-stage) — A fragment stage that assigns a [varying](#term-varying) or the position is refused, and so is a vertex stage that assigns the fragment depth. Every target refuses them.
       - [`@spec a-compute-program-cannot-assign-a-stage-output`](#spec-a-compute-program-cannot-assign-a-stage-output) — A compute program that assigns to a varying, to the position or to the fragment depth is refused on every target that compiles one.
     - [`@spec a-swizzle-that-repeats-a-component-cannot-be-assigned`](#spec-a-swizzle-that-repeats-a-component-cannot-be-assigned) — An assignment through a [swizzle](#term-swizzle) that names a component more than once is refused, also when it is reached through another swizzle.
     - [`@spec a-swizzle-that-names-each-component-once-can-be-assigned`](#spec-a-swizzle-that-names-each-component-once-can-be-assigned) — An assignment through a swizzle of a var that names each component once compiles on every target, also when it is reached through another swizzle.
@@ -315,6 +315,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec int-min-compiles-to-a-subtraction-of-two-in-range-literals`](#spec-int-min-compiles-to-a-subtraction-of-two-in-range-literals) — On GLSL and WGSL, the `int` literal -2147483648 compiles to `(-2147483647 - 1)`, a subtraction of two literals in range.
     - [`@spec a-vector-converted-to-a-scalar-takes-its-first-component`](#spec-a-vector-converted-to-a-scalar-takes-its-first-component) — Converting a vector to `float`, `int` or `uint` gives its first component, converted to that type.
   - [`@spec sampling-reads-a-texture-at-a-coordinate`](#spec-sampling-reads-a-texture-at-a-coordinate) — `texture` and `textureLod` read a texture at a coordinate of its dimension.
+    - [`@exception rmsl-samples-by-method-where-tsl-samples-by-function`](#exception-rmsl-samples-by-method-where-tsl-samples-by-function) — rmsl samples a texture through the methods `texture` and `textureLod` of its sampler node, where TSL calls the functions `texture(value, uv)` and `textureLevel(value, uv, level)`.
     - [`@spec a-float-texture-is-sampled-through-a-sampler`](#spec-a-float-texture-is-sampled-through-a-sampler) — A float texture, 2D or 3D, is sampled with filtering, through `texture` or `textureSample` and a sampler of its own on WGSL.
     - [`@spec an-integer-texture-reads-one-texel`](#spec-an-integer-texture-reads-one-texel) — A program reads an integer texture one texel at a time, with `texelFetch` on GLSL and `textureLoad` with no sampler on WGSL.
       - [`@spec an-integer-texture-is-fetched-unfiltered`](#spec-an-integer-texture-is-fetched-unfiltered) — A program reads an integer texture at an integer texel coordinate with no filter, and gets an integer vector.
@@ -696,6 +697,26 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-compute-entry-point-returns-nothing`](#fact-a-compute-entry-point-returns-nothing) — A WGSL compute entry point returns nothing. A function that declares a return type must give that type an entry point IO attribute, and a compute entry point has none to give.
 - [`@fact a-wgsl-varying-is-a-location-of-two-stages`](#fact-a-wgsl-varying-is-a-location-of-two-stages) — A WGSL varying is a `@location` member of the struct a vertex entry point returns, and a `@location` parameter of the fragment entry point that reads it.
 - [`@fact a-compute-entry-point-has-no-position-or-depth`](#fact-a-compute-entry-point-has-no-position-or-depth) — A WGSL compute entry point can neither take nor return `@builtin(position)`, and cannot return `@builtin(frag_depth)`.
+- [`@fact tsl-math-functions-take-their-operands-in-order`](#fact-tsl-math-functions-take-their-operands-in-order) — TSL's math functions take their operands in the order of the built-in of the same name, such as `step(edge, x)`, `mix(a, b, t)` and `smoothstep(low, high, x)`, and emit them in that order.
+- [`@fact tsl-mix-builds-a-scalar-weight-as-a-float`](#fact-tsl-mix-builds-a-scalar-weight-as-a-float) — TSL's `mix(a, b, t)` builds `a` and `b` as the input type and builds `t` as a `float` when it is a scalar, so one weight blends two vectors.
+- [`@fact tsl-composes-cbrt-from-sign-abs-and-pow`](#fact-tsl-composes-cbrt-from-sign-abs-and-pow) — TSL's `cbrt(a)` is `sign(a)` times `pow(abs(a), 1/3)`.
+- [`@fact tsl-compares-vectors-component-wise`](#fact-tsl-compares-vectors-component-wise) — A TSL comparison such as `equal` or `lessThan` has the type `bvecN` for the length `N` of its longer operand, and `bool` when both operands are scalars.
+- [`@fact tsl-joins-the-parts-of-a-constructor`](#fact-tsl-joins-the-parts-of-a-constructor) — A TSL constructor such as `vec3` or `mat3` converts one node it is given. Given several, it joins their components in order into its type. A part past the type's length is an error.
+- [`@fact tsl-swizzles-in-xyzw-rgba-and-stpq`](#fact-tsl-swizzles-in-xyzw-rgba-and-stpq) — A TSL node swizzles with the component names `xyzw`, `rgba` and `stpq`.
+- [`@fact tsl-samples-a-texture-with-texture-and-texture-level`](#fact-tsl-samples-a-texture-with-texture-and-texture-level) — TSL samples a texture with the function `texture(value, uv)`. At a level it uses `textureLevel(value, uv, level)` or `.level(level)`. three.js 0.186 defines no TSL export named `textureLod`. That name appears only in `NodeBuilder`, as the GLSL function it emits.
+- [`@fact tsl-chains-if-elseif-and-else-as-conditions`](#fact-tsl-chains-if-elseif-and-else-as-conditions) — TSL's `If`, `ElseIf` and `Else` build a chain of conditional nodes. Each branch after the first is the `elseNode` of the branch before it, so the first branch whose condition holds runs, and `Else` runs when none does.
+- [`@fact tsl-builds-switch-as-a-chain-of-conditions`](#fact-tsl-builds-switch-as-a-chain-of-conditions) — TSL's `Switch(x)` with `Case(v1, v2, …, body)` and `Default(body)` builds the same chain of conditional nodes. A `Case` is the condition `x == v1 || x == v2 …`, and `Default` is an `Else`, so no case falls through to the next.
+- [`@fact tsl-break-continue-return-and-discard-are-statements`](#fact-tsl-break-continue-return-and-discard-are-statements) — TSL's `Break()`, `Continue()`, `Return()` and `Discard()` each add the statement `break`, `continue`, `return` or `discard` to the current stack. `Discard(condition)` adds it only where the condition holds.
+- [`@fact tsl-fn-runs-its-body-in-a-stack-of-its-own`](#fact-tsl-fn-runs-its-body-in-a-stack-of-its-own) — TSL's `Fn(jsFunction)` wraps a JavaScript function. Calling the result runs it with the arguments in a stack of its own. The stack collects the statements the body makes, and the node the body returns is the result.
+- [`@fact tsl-to-var-takes-a-name`](#fact-tsl-to-var-takes-a-name) — TSL's `toVar(name)` declares a variable that holds the node's value, under `name`. A call with no name leaves the node system to generate one.
+- [`@fact tsl-storage-wraps-a-buffer-attribute`](#fact-tsl-storage-wraps-a-buffer-attribute) — TSL's `storage(value, type, count)` makes a node over the buffer attribute `value`. With no type given, the node takes its type and its count from a storage buffer attribute.
+- [`@fact tsl-fills-a-storage-buffer-attribute-from-one-typed-array`](#fact-tsl-fills-a-storage-buffer-attribute-from-one-typed-array) — TSL's `StorageBufferAttribute` takes either a count, for a zeroed array, or one flat typed array, with `itemSize` components for each element.
+- [`@fact tsl-compute-takes-a-workgroup-size`](#fact-tsl-compute-takes-a-workgroup-size) — TSL's `compute(node, count, workgroupSize)` takes a workgroup size of one to three positive integers, `[64]` by default, and pads it with ones to three dimensions.
+- [`@fact tsl-leaves-a-matrix-fragment-result-unconverted`](#fact-tsl-leaves-a-matrix-fragment-result-unconverted) — TSL's `NodeBuilder.format` converts a snippet from one type to another. It returns the snippet as it is when it converts from or to a matrix, except from `mat4` to `mat3` and `mat3` to `mat2`. The code says `@TODO: ignore for now`.
+- [`@fact tsl-reads-position-and-normal-local-in-both-stages`](#fact-tsl-reads-position-and-normal-local-in-both-stages) — TSL's `positionLocal` is a varying of the geometry's position, and `normalLocal` is the geometry's `normal` attribute, which `AttributeNode` reads through a varying outside the vertex stage. Both read the same value in either stage.
+- [`@fact tsl-turns-a-number-into-a-constant-node`](#fact-tsl-turns-a-number-into-a-constant-node) — TSL turns a number or a boolean given where it expects a node into a constant node. A number written with no type is weak, and adapts to the type of the operand beside it.
+- [`@fact tsl-display-effects-are-functions-of-nodes`](#fact-tsl-display-effects-are-functions-of-nodes) — TSL's display effects, such as `sepia` and `rgbShift`, are functions in the addon `examples/jsm/tsl/display` of three.js. Each computes its result from the colour or texture node it takes.
+- [`@fact tsl-an-effect-takes-a-number-or-a-node-for-each-parameter`](#fact-tsl-an-effect-takes-a-number-or-a-node-for-each-parameter) — A TSL display effect takes a number or a node for each parameter, such as `amount` of `rgbShift`, and turns a number into a constant node.
 <!-- toc:end -->
 
 ## Open questions
@@ -1102,6 +1123,8 @@ This follows because a TSL fragment that returns a `vec3` or a `float` ports unc
 ##### @spec a-result-that-has-no-colour-is-refused
 
 > A fragment stage that declares no output and returns a matrix is refused on every target.
+
+Derives from: [`fact-tsl-leaves-a-matrix-fragment-result-unconverted`](#fact-tsl-leaves-a-matrix-fragment-result-unconverted)
 
 This follows because no conversion of a matrix to a colour is defined, and TSL leaves one open.
 
@@ -1723,7 +1746,7 @@ This follows because a write to something the program cannot write either fails 
 
 ##### @spec a-stage-output-is-refused-in-the-other-render-stage
 
-> An assignment to a [varying](#term-varying) or to the position in a fragment stage, or to the fragment depth in a vertex stage, is refused on every target.
+> A fragment stage that assigns a [varying](#term-varying) or the position is refused, and so is a vertex stage that assigns the fragment depth. Every target refuses them.
 
 ##### @spec a-compute-program-cannot-assign-a-stage-output
 
@@ -2170,6 +2193,8 @@ Issue: #106
 
 > An operation computes what the operation of the same name computes in TSL, and takes its arguments in the same order. It compiles to the built-in of each target that computes it.
 
+Derives from: [`fact-tsl-math-functions-take-their-operands-in-order`](#fact-tsl-math-functions-take-their-operands-in-order)
+
 This follows because a TSL shader ports by changing its import only if each operation in it means the same.
 
 #### @spec arithmetic-compiles-to-the-operators-of-the-target
@@ -2258,7 +2283,7 @@ Issue: #47
 
 > The scalar weight of `mix` reaches every target as a scalar beside its vectors.
 
-Derives from: [`spec-a-function-with-an-edge-takes-the-value-last`](#spec-a-function-with-an-edge-takes-the-value-last)
+Derives from: [`spec-a-function-with-an-edge-takes-the-value-last`](#spec-a-function-with-an-edge-takes-the-value-last), [`fact-tsl-mix-builds-a-scalar-weight-as-a-float`](#fact-tsl-mix-builds-a-scalar-weight-as-a-float)
 
 This follows because TSL's `mix` blends two vectors by one scalar weight, and every target's `mix` takes that weight as it is.
 
@@ -2266,7 +2291,7 @@ This follows because TSL's `mix` blends two vectors by one scalar weight, and ev
 
 > `cbrt(x)` compiles to `sign(x)` times `pow(abs(x), 1/3)` on every target.
 
-Derives from: [`spec-an-operation-no-target-has-is-composed`](#spec-an-operation-no-target-has-is-composed)
+Derives from: [`spec-an-operation-no-target-has-is-composed`](#spec-an-operation-no-target-has-is-composed), [`fact-tsl-composes-cbrt-from-sign-abs-and-pow`](#fact-tsl-composes-cbrt-from-sign-abs-and-pow)
 
 This follows because neither shading language has a cube root, so `cbrt` is composed like the other operations no target has.
 
@@ -2298,6 +2323,8 @@ This follows because GLSL ES 3.00 offers `mix` with a boolean vector for float v
 
 > A comparison of scalars gives a `bool`. A comparison of vectors gives a boolean vector, one component for each pair.
 
+Derives from: [`fact-tsl-compares-vectors-component-wise`](#fact-tsl-compares-vectors-component-wise)
+
 This follows because TSL compares vectors component by component, and a single `bool` would hide which components differ.
 
 #### @spec a-scalar-comparison-gives-a-bool
@@ -2327,6 +2354,8 @@ This follows because TSL compares vectors component by component, and a single `
 ### @spec a-constructor-builds-its-type-from-its-parts
 
 > A vector or matrix constructor builds a value of its type from scalars, from vectors that fill it in order, or from columns.
+
+Derives from: [`fact-tsl-joins-the-parts-of-a-constructor`](#fact-tsl-joins-the-parts-of-a-constructor)
 
 This follows because TSL builds values with the constructors of the shading languages, which take these parts.
 
@@ -2398,7 +2427,17 @@ This follows because GLSL's scalar constructor takes the first component of a ve
 
 > `texture` and `textureLod` read a texture at a coordinate of its dimension.
 
-This follows because TSL samples a texture with these methods.
+Derives from: [`fact-tsl-samples-a-texture-with-texture-and-texture-level`](#fact-tsl-samples-a-texture-with-texture-and-texture-level)
+
+This follows because a shader that reads a texture ports only if rmsl reads it where TSL does. The names differ from TSL's, as the exception below says.
+
+#### @exception rmsl-samples-by-method-where-tsl-samples-by-function
+
+> rmsl samples a texture through the methods `texture` and `textureLod` of its sampler node, where TSL calls the functions `texture(value, uv)` and `textureLevel(value, uv, level)`.
+
+Derives from: [`fact-tsl-samples-a-texture-with-texture-and-texture-level`](#fact-tsl-samples-a-texture-with-texture-and-texture-level)
+
+Nothing rules on the departure yet. Issue #139 asks whether to spell sampling as TSL does.
 
 #### @spec a-float-texture-is-sampled-through-a-sampler
 
@@ -2438,6 +2477,8 @@ Derives from: [`fact-a-cube-map-has-no-texel-fetch`](#fact-a-cube-map-has-no-tex
 
 > A swizzle reads the components it names, in its order, in any of the spellings `xyzw`, `rgba` and `stpq`. Written through, it writes the same components of the variable it reaches.
 
+Derives from: [`fact-tsl-swizzles-in-xyzw-rgba-and-stpq`](#fact-tsl-swizzles-in-xyzw-rgba-and-stpq)
+
 This follows because TSL swizzles in these spellings.
 
 #### @spec a-swizzle-reads-the-components-it-names
@@ -2474,6 +2515,8 @@ This follows because WGSL assigns only one component of a vector at a time, and 
 
 > `If`, `ElseIf` and `Else` run the first branch whose condition holds, or the `Else` branch when none does.
 
+Derives from: [`fact-tsl-chains-if-elseif-and-else-as-conditions`](#fact-tsl-chains-if-elseif-and-else-as-conditions)
+
 This follows because TSL's `If` chain does.
 
 #### @spec an-if-chain-takes-the-branch-its-conditions-select
@@ -2500,6 +2543,8 @@ Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mi
 
 > `Switch` runs the first `Case` whose values hold its selector, or the `Default` when none does, as a chain of `if` and `else` with no fall-through.
 
+Derives from: [`fact-tsl-builds-switch-as-a-chain-of-conditions`](#fact-tsl-builds-switch-as-a-chain-of-conditions)
+
 This follows because TSL's `Switch` compiles the same way.
 
 #### @bug wasm-crashes-on-an-empty-switch
@@ -2511,6 +2556,8 @@ Issue: #77
 ### @spec break-continue-return-and-discard-leave-where-tsl-leaves
 
 > `Break` leaves the loop, `Continue` starts its next iteration, `Return` leaves the function, and `Discard` drops the fragment.
+
+Derives from: [`fact-tsl-break-continue-return-and-discard-are-statements`](#fact-tsl-break-continue-return-and-discard-are-statements)
 
 This follows because TSL's statements of the same name do.
 
@@ -2536,6 +2583,8 @@ Issue: #135
 
 > `Fn` records the statements its body makes into the [fn](#term-fn) it returns. An `Fn` may be empty, return one value or several, and call another `Fn`.
 
+Derives from: [`fact-tsl-fn-runs-its-body-in-a-stack-of-its-own`](#fact-tsl-fn-runs-its-body-in-a-stack-of-its-own)
+
 This follows because TSL builds a shader the same way.
 
 #### @spec an-fn-returns-what-its-body-returns
@@ -2559,6 +2608,8 @@ Issue: #87
 ### @spec a-variable-keeps-the-name-the-user-gave-it
 
 > `toVar(name)` and `var(name)` declare a variable under `name` on every target, in every compile. A name already taken in the program gets a number appended.
+
+Derives from: [`fact-tsl-to-var-takes-a-name`](#fact-tsl-to-var-takes-a-name)
 
 This follows because TSL's `toVar` takes a name, and a reader of the shader meets the names its author chose.
 
@@ -2594,6 +2645,8 @@ This follows because rmsl keeps only a name the user gave, so a generated name m
 
 > `uniform` and `uniformArray` make a uniform node that every stage of a program can read, as TSL's functions of those names do.
 
+Derives from: [`fact-tsl-uniforms-hold-their-values`](#fact-tsl-uniforms-hold-their-values)
+
 This follows because a TSL shader ports only if its inputs mean the same.
 
 #### @spec a-uniform-takes-the-type-it-names
@@ -2611,6 +2664,8 @@ The application owns the data it uploads, as [`axiom-rmsl-compiles-and-the-appli
 ### @spec a-storage-buffer-follows-tsl
 
 > `storage(attribute, type)`, `instancedArray` and `attributeArray` make a [storage buffer](#term-storage-buffer) node over a buffer of typed elements, as TSL's functions of the same names do.
+
+Derives from: [`fact-tsl-storage-wraps-a-buffer-attribute`](#fact-tsl-storage-wraps-a-buffer-attribute)
 
 This follows because a TSL compute shader ports only if its buffers mean the same.
 
@@ -2668,6 +2723,8 @@ Issue: #105
 
 > `setAttribute` on a compute adapter takes a storage buffer as one typed array, which holds the components of its elements one after another.
 
+Derives from: [`fact-tsl-fills-a-storage-buffer-attribute-from-one-typed-array`](#fact-tsl-fills-a-storage-buffer-attribute-from-one-typed-array)
+
 This follows because a storage buffer lies over an attribute, and TSL fills an attribute from one flat typed array.
 
 ##### @bug the-cpu-compute-adapters-take-a-vector-storage-element-as-an-array
@@ -2679,6 +2736,8 @@ Issue: #126
 ### @spec compute-follows-tsl
 
 > `fn().compute(count, workgroupSize)` and `compute(node, count, workgroupSize)` make a [compute node](#term-compute-node), dispatched once for each index below `count`, as TSL's `compute` does.
+
+Derives from: [`fact-tsl-takes-a-compute-count-from-its-caller`](#fact-tsl-takes-a-compute-count-from-its-caller), [`fact-tsl-compute-takes-a-workgroup-size`](#fact-tsl-compute-takes-a-workgroup-size)
 
 This follows because a TSL compute shader ports only if its dispatch means the same.
 
@@ -2730,6 +2789,8 @@ This follows because group 0 holds the uniform struct, and storage takes the nex
 
 > An [effect](#term-effect) of `./effects` computes what the TSL display effect of the same name computes, and compiles on GLSL and WGSL.
 
+Derives from: [`fact-tsl-display-effects-are-functions-of-nodes`](#fact-tsl-display-effects-are-functions-of-nodes)
+
 This follows because a TSL shader that uses a display effect ports only if the effect means the same.
 
 #### @spec a-single-pass-effect-gives-a-colour-node
@@ -2764,11 +2825,15 @@ Issue: #98
 
 > A number given as a parameter of an effect compiles as a literal in the effect's code.
 
+Derives from: [`fact-tsl-turns-a-number-into-a-constant-node`](#fact-tsl-turns-a-number-into-a-constant-node)
+
 This follows because a TSL effect turns a number argument into a constant node.
 
 #### @spec a-node-given-to-an-effect-is-read-as-given
 
 > An effect reads a node the caller passes as a parameter, so a uniform can drive that parameter.
+
+Derives from: [`fact-tsl-an-effect-takes-a-number-or-a-node-for-each-parameter`](#fact-tsl-an-effect-takes-a-number-or-a-node-for-each-parameter)
 
 This follows because a TSL effect takes a node for each parameter, and a uniform is how an application changes one between frames.
 
@@ -2877,6 +2942,8 @@ This follows because three.js scales a light's colour by its intensity on the ho
 ##### @spec position-and-normal-read-object-space-in-both-stages
 
 > The builder's `position` and `normal` give the object-space position and normal in both stages, as TSL's `positionLocal` and `normalLocal` do.
+
+Derives from: [`fact-tsl-reads-position-and-normal-local-in-both-stages`](#fact-tsl-reads-position-and-normal-local-in-both-stages)
 
 This follows because a TSL node reads the same value in either stage, and a TSL material ports to rmsl by changing its import.
 
@@ -4546,3 +4613,123 @@ This is a fact of the WGSL specification, not a choice. The `@location` is the o
 Dawn refuses them with `'@builtin(position)' cannot be used for compute shader input`, `'@builtin(position)' cannot be used for compute shader output` and `'@builtin(frag_depth)' cannot be used for compute shader output`.
 
 This is a fact of the WGSL specification, not a choice. The position belongs to the vertex stage's output and the fragment stage's input, and the depth to the fragment stage's output.
+
+## @fact tsl-math-functions-take-their-operands-in-order
+
+> TSL's math functions take their operands in the order of the built-in of the same name, such as `step(edge, x)`, `mix(a, b, t)` and `smoothstep(low, high, x)`, and emit them in that order.
+
+This is how three.js's TSL behaves, read from its source (`MathNode`, three.js 0.186).
+
+## @fact tsl-mix-builds-a-scalar-weight-as-a-float
+
+> TSL's `mix(a, b, t)` builds `a` and `b` as the input type and builds `t` as a `float` when it is a scalar, so one weight blends two vectors.
+
+This is how three.js's TSL behaves, read from its source (`MathNode`, its `mix` branch, three.js 0.186).
+
+## @fact tsl-composes-cbrt-from-sign-abs-and-pow
+
+> TSL's `cbrt(a)` is `sign(a)` times `pow(abs(a), 1/3)`.
+
+This is how three.js's TSL behaves, read from its source (`MathNode`, the function `cbrt`, three.js 0.186).
+
+## @fact tsl-compares-vectors-component-wise
+
+> A TSL comparison such as `equal` or `lessThan` has the type `bvecN` for the length `N` of its longer operand, and `bool` when both operands are scalars.
+
+This is how three.js's TSL behaves, read from its source (`OperatorNode`, `getNodeType`, three.js 0.186).
+
+## @fact tsl-joins-the-parts-of-a-constructor
+
+> A TSL constructor such as `vec3` or `mat3` converts one node it is given. Given several, it joins their components in order into its type. A part past the type's length is an error.
+
+This is how three.js's TSL behaves, read from its source (`ConvertType` in `TSLCore` and `JoinNode`, three.js 0.186).
+
+## @fact tsl-swizzles-in-xyzw-rgba-and-stpq
+
+> A TSL node swizzles with the component names `xyzw`, `rgba` and `stpq`.
+
+This is how three.js's TSL behaves, read from its source (`TSLCore`, where it sets the swizzle properties, three.js 0.186).
+
+## @fact tsl-samples-a-texture-with-texture-and-texture-level
+
+> TSL samples a texture with the function `texture(value, uv)`. At a level it uses `textureLevel(value, uv, level)` or `.level(level)`. three.js 0.186 defines no TSL export named `textureLod`. That name appears only in `NodeBuilder`, as the GLSL function it emits.
+
+This is how three.js's TSL behaves, read from its source (`TextureNode`, three.js 0.186).
+
+## @fact tsl-chains-if-elseif-and-else-as-conditions
+
+> TSL's `If`, `ElseIf` and `Else` build a chain of conditional nodes. Each branch after the first is the `elseNode` of the branch before it, so the first branch whose condition holds runs, and `Else` runs when none does.
+
+This is how three.js's TSL behaves, read from its source (`StackNode`, three.js 0.186).
+
+## @fact tsl-builds-switch-as-a-chain-of-conditions
+
+> TSL's `Switch(x)` with `Case(v1, v2, …, body)` and `Default(body)` builds the same chain of conditional nodes. A `Case` is the condition `x == v1 || x == v2 …`, and `Default` is an `Else`, so no case falls through to the next.
+
+This is how three.js's TSL behaves, read from its source (`StackNode`, three.js 0.186).
+
+## @fact tsl-break-continue-return-and-discard-are-statements
+
+> TSL's `Break()`, `Continue()`, `Return()` and `Discard()` each add the statement `break`, `continue`, `return` or `discard` to the current stack. `Discard(condition)` adds it only where the condition holds.
+
+This is how three.js's TSL behaves, read from its source (`LoopNode` and `Discard`, three.js 0.186).
+
+## @fact tsl-fn-runs-its-body-in-a-stack-of-its-own
+
+> TSL's `Fn(jsFunction)` wraps a JavaScript function. Calling the result runs it with the arguments in a stack of its own. The stack collects the statements the body makes, and the node the body returns is the result.
+
+This is how three.js's TSL behaves, read from its source (`FnNode` and `ShaderCallNodeInternal` in `TSLCore`, three.js 0.186).
+
+## @fact tsl-to-var-takes-a-name
+
+> TSL's `toVar(name)` declares a variable that holds the node's value, under `name`. A call with no name leaves the node system to generate one.
+
+This is how three.js's TSL behaves, read from its source (`VarNode`, three.js 0.186).
+
+## @fact tsl-storage-wraps-a-buffer-attribute
+
+> TSL's `storage(value, type, count)` makes a node over the buffer attribute `value`. With no type given, the node takes its type and its count from a storage buffer attribute.
+
+This is how three.js's TSL behaves, read from its source (`StorageBufferNode`, three.js 0.186).
+
+## @fact tsl-fills-a-storage-buffer-attribute-from-one-typed-array
+
+> TSL's `StorageBufferAttribute` takes either a count, for a zeroed array, or one flat typed array, with `itemSize` components for each element.
+
+This is how three.js's TSL behaves, read from its source (`StorageBufferAttribute`, three.js 0.186).
+
+## @fact tsl-compute-takes-a-workgroup-size
+
+> TSL's `compute(node, count, workgroupSize)` takes a workgroup size of one to three positive integers, `[64]` by default, and pads it with ones to three dimensions.
+
+This is how three.js's TSL behaves, read from its source (`ComputeNode`, three.js 0.186).
+
+## @fact tsl-leaves-a-matrix-fragment-result-unconverted
+
+> TSL's `NodeBuilder.format` converts a snippet from one type to another. It returns the snippet as it is when it converts from or to a matrix, except from `mat4` to `mat3` and `mat3` to `mat2`. The code says `@TODO: ignore for now`.
+
+This is how three.js's TSL behaves, read from its source (`NodeBuilder`, three.js 0.186).
+
+## @fact tsl-reads-position-and-normal-local-in-both-stages
+
+> TSL's `positionLocal` is a varying of the geometry's position, and `normalLocal` is the geometry's `normal` attribute, which `AttributeNode` reads through a varying outside the vertex stage. Both read the same value in either stage.
+
+This is how three.js's TSL behaves, read from its source (`Position`, `Normal` and `AttributeNode`, three.js 0.186).
+
+## @fact tsl-turns-a-number-into-a-constant-node
+
+> TSL turns a number or a boolean given where it expects a node into a constant node. A number written with no type is weak, and adapts to the type of the operand beside it.
+
+This is how three.js's TSL behaves, read from its source (`ShaderNodeObject` and `getConstNode` in `TSLCore`, three.js 0.186).
+
+## @fact tsl-display-effects-are-functions-of-nodes
+
+> TSL's display effects, such as `sepia` and `rgbShift`, are functions in the addon `examples/jsm/tsl/display` of three.js. Each computes its result from the colour or texture node it takes.
+
+This is how three.js's TSL behaves, read from its source (`Sepia` and `RGBShiftNode`, three.js 0.186).
+
+## @fact tsl-an-effect-takes-a-number-or-a-node-for-each-parameter
+
+> A TSL display effect takes a number or a node for each parameter, such as `amount` of `rgbShift`, and turns a number into a constant node.
+
+This is how three.js's TSL behaves, read from its source (`RGBShiftNode`, three.js 0.186).
