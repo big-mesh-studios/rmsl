@@ -4,13 +4,11 @@ import {
   Fn,
   For,
   float,
-  If,
   instancedArray,
   int,
   invocationIndex,
   ivec2,
   ivec3,
-  Return,
   select,
   uniform,
   uniformRaw,
@@ -375,24 +373,6 @@ describe("known GPU bugs, each failing until its fix", () => {
       })(),
     );
     expect(code).toMatch(/for \(;/);
-  });
-
-  /**
-   * On WGSL, `Return()` in a fragment stage that writes a colour emits a bare
-   * `return;`, though `main` returns `FragmentOutput`.
-   *
-   * @canon bug-wgsl-an-early-return-in-a-fragment-stage-returns-nothing
-   */
-  it.fails("returns the colour from an early Return in a WGSL fragment stage", () => {
-    const program = Fn(() => {
-      const colour = vec4(0).toVar();
-      If(float(1).greaterThan(0), () => {
-        Return();
-      });
-      colour.assign(vec4(1));
-      return colour;
-    });
-    expect(compileWgsl.fragment(program())).not.toMatch(/\breturn;/);
   });
 });
 

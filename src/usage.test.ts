@@ -3446,7 +3446,63 @@ describe("TSL control flow", () => {
     let glsl = compileGlsl(prog());
     expect(glsl).toContain("return;");
     let wgsl = compileWgsl(prog());
-    expect(wgsl).toContain("return;");
+    expect(wgsl).toMatch(/\{\s*return result;\s*\}/);
+  });
+
+  /**
+   * A WGSL vertex stage returns its output struct, so an early `Return()`
+   * returns it too, where a bare `return;` would be refused.
+   *
+   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   */
+  it("Return in a vertex stage returns the result on WGSL", () => {
+    const vertex = Fn(() => {
+      If(float(1).greaterThan(0), () => {
+        Return();
+      });
+      builtinPosition().assign(vec4(0, 0, 0, 1));
+    })();
+    const wgsl = compileWgsl.vertex(vertex as any);
+    expect(wgsl).toMatch(/\{\s*return result;\s*\}/);
+    expect(wgsl).not.toMatch(/\breturn;/);
+  });
+
+  /**
+   * A WGSL function with a return type has no output struct, so an early
+   * `Return()` in it returns the zero value of that type.
+   *
+   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   */
+  it("Return in a WGSL function returns the zero value of its type", () => {
+    const wgsl = compileWgslFn(
+      (x: any) =>
+        Fn(() => {
+          If(x.greaterThan(0), () => {
+            Return();
+          });
+          return x.add(1);
+        })(),
+      { name: "f", params: [{ name: "x", type: "float" }] },
+    );
+    expect(wgsl).toMatch(/\{\s*return f32\(\);\s*\}/);
+    expect(wgsl).not.toContain("/*fragment*/");
+  });
+
+  /**
+   * A fragment stage that writes nothing has no output struct, so its early
+   * `Return()` stays a bare `return;`.
+   *
+   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   */
+  it("Return in a fragment stage that writes nothing stays bare on WGSL", () => {
+    const fragment = Fn(() => {
+      If(uniform("float").greaterThan(0), () => {
+        Return();
+      });
+    })();
+    const wgsl = compileWgsl.fragment(fragment as any);
+    expect(wgsl).toMatch(/\breturn;/);
+    expect(wgsl).not.toContain("FragmentOutput");
   });
 
   /**
