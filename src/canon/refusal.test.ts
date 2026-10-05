@@ -267,7 +267,7 @@ describe("a mistake is refused before the program runs", () => {
           .toVar(),
       )();
     expect(() => build(4)()).not.toThrow();
-    for (const length of [1, 5, 7]) {
+    for (const length of [0, 1, 5, 7]) {
       expect(build(length), `length ${length}`).toThrow(new RegExp(`array of length ${length} is no vector`));
     }
   });
