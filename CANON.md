@@ -185,6 +185,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-computed-value-cannot-be-assigned`](#spec-a-computed-value-cannot-be-assigned) — An assignment to a value that an operation computed, or to a component or element of one, is refused, and the message points to `toVar()`.
     - [`@spec a-parameter-of-the-compiled-function-cannot-be-assigned`](#spec-a-parameter-of-the-compiled-function-cannot-be-assigned) — An assignment to a parameter of the function a compiler compiles is refused, because its value belongs to the caller.
     - [`@spec a-stage-output-is-assigned-only-in-its-stage`](#spec-a-stage-output-is-assigned-only-in-its-stage) — An assignment to a [varying](#term-varying) or to the position outside the vertex stage, or to the fragment depth outside the fragment stage, is refused.
+      - [`@spec a-stage-output-is-refused-in-the-other-render-stage`](#spec-a-stage-output-is-refused-in-the-other-render-stage) — An assignment to a [varying](#term-varying) or to the position in a fragment stage, or to the fragment depth in a vertex stage, is refused on every target.
+      - [`@spec a-compute-program-cannot-assign-a-stage-output`](#spec-a-compute-program-cannot-assign-a-stage-output) — A compute program that assigns to a varying, to the position or to the fragment depth is refused on every target that compiles one.
     - [`@spec a-swizzle-that-repeats-a-component-cannot-be-assigned`](#spec-a-swizzle-that-repeats-a-component-cannot-be-assigned) — An assignment through a [swizzle](#term-swizzle) that names a component more than once is refused, also when it is reached through another swizzle.
     - [`@spec a-swizzle-that-names-each-component-once-can-be-assigned`](#spec-a-swizzle-that-names-each-component-once-can-be-assigned) — An assignment through a swizzle of a var that names each component once compiles on every target, also when it is reached through another swizzle.
     - [`@spec a-wgsl-variable-is-declared-with-var`](#spec-a-wgsl-variable-is-declared-with-var) — On WGSL, a variable compiles to a `var` declaration, also when the program never assigns it again.
@@ -1716,6 +1718,18 @@ This follows because a write to something the program cannot write either fails 
 #### @spec a-stage-output-is-assigned-only-in-its-stage
 
 > An assignment to a [varying](#term-varying) or to the position outside the vertex stage, or to the fragment depth outside the fragment stage, is refused.
+
+##### @spec a-stage-output-is-refused-in-the-other-render-stage
+
+> An assignment to a [varying](#term-varying) or to the position in a fragment stage, or to the fragment depth in a vertex stage, is refused on every target.
+
+##### @spec a-compute-program-cannot-assign-a-stage-output
+
+> A compute program that assigns to a varying, to the position or to the fragment depth is refused on every target that compiles one.
+
+Derives from: [`fact-a-compute-entry-point-returns-nothing`](#fact-a-compute-entry-point-returns-nothing), [`fact-webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage)
+
+This follows because a stage output is what the stage hands on, and a compute entry point hands nothing on. GLSL has no compute stage, so it has no compute program to refuse it in.
 
 #### @spec a-swizzle-that-repeats-a-component-cannot-be-assigned
 

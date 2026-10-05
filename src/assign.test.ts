@@ -52,9 +52,9 @@ function expectRefusedInStage(stage: "vertex" | "fragment", write: () => void, m
 
 describe("an assignment's target", () => {
   /**
-   * @canon spec-a-stage-output-is-assigned-only-in-its-stage
+   * @canon spec-a-stage-output-is-refused-in-the-other-render-stage
    */
-  it("refuses a stage output outside the stage that writes it, on every backend", () => {
+  it("refuses a stage output in the other render stage, on every backend", () => {
     const color = varying("vec3");
     expectRefusedInStage(
       "fragment",
@@ -71,6 +71,36 @@ describe("an assignment's target", () => {
       () => builtinFragDepth().assign(float(0.5)),
       /\[RMSL\] can't assign to the fragment depth in a vertex stage; only a fragment stage writes it/,
     );
+  });
+
+  /**
+   * A compute program that writes a storage buffer compiles. Assigning a
+   * varying, the position or the fragment depth is refused on each target
+   * that has a compute stage, which is not GLSL.
+   *
+   * @canon spec-a-compute-program-cannot-assign-a-stage-output
+   */
+  it("refuses a stage output assigned by a compute program", () => {
+    const buf = instancedArray(4, "float");
+    const program = (write: () => void) => () =>
+      Fn(() => {
+        buf.element(invocationIndex()).assign(float(1));
+        write();
+      })();
+    const compilers = [
+      (build: () => Node<any>) => compileWgsl.compute(build()),
+      (build: () => Node<any>) => compileJSRoutine(build as any, { name: "main", params: [], stage: "compute" }),
+      (build: () => Node<any>) => compileWasmRoutine(build as any, { name: "main", params: [], stage: "compute" }),
+    ];
+    const refused = [
+      [() => varying("vec3").x.assign(float(1)), /can't assign to a varying in a compute stage/],
+      [() => builtinPosition().assign(vec4(0, 0, 0, 1)), /can't assign to the position in a compute stage/],
+      [() => builtinFragDepth().assign(float(0.5)), /can't assign to the fragment depth in a compute stage/],
+    ] as const;
+    for (const compile of compilers) {
+      expect(() => compile(program(() => {}))).not.toThrow();
+      for (const [write, message] of refused) expect(() => compile(program(write))).toThrow(message);
+    }
   });
 
   /**
