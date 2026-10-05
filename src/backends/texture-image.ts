@@ -29,6 +29,7 @@ const INTEGER_ARRAYS = [Int8Array, Uint8Array, Int16Array, Uint16Array, Int32Arr
  * @throws When the data is not an array that sampler type can read.
  */
 export function textureImage(texture: CpuTextureData, samplerType: string): TextureImage {
+  if (samplerType.endsWith("Cube")) throw new Error(`[RMSL] setTexture: a ${samplerType} texture is not supported`);
   const data = texture.data as ArrayBufferView & ArrayLike<number>;
   const integer = samplerType.startsWith("isampler") || samplerType.startsWith("usampler");
   const signed = samplerType.startsWith("isampler");
@@ -52,6 +53,11 @@ export function textureImage(texture: CpuTextureData, samplerType: string): Text
   const depth = texture.depth ?? 1;
   const count = texture.width * texture.height * depth;
   const channels = texture.channels ?? 4;
+  if (data.length < count * channels) {
+    throw new Error(
+      `[RMSL] setTexture: a ${texture.width}x${texture.height}x${depth} texture of ${channels} channels needs ${count * channels} values, and got ${data.length}`,
+    );
+  }
   const Texels = (data instanceof Uint8ClampedArray ? Uint8Array : data.constructor) as new (
     length: number,
   ) => TextureImage["texels"];

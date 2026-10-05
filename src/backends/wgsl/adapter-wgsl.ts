@@ -310,8 +310,8 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
   let textureDeclarations: ReturnType<typeof sharedSamplerDeclarations> = [];
   /** The GPU texture, and sampler for a float one, of each sampler the host has set. */
   let gpuTextures = new Map<string, { texture: GPUTexture; sampler: GPUSampler | null }>();
-  /** Whether a texture was set since the bind groups of groups 1 and 2 were built. */
-  let texturesChanged = false;
+  /** Whether a texture was set since the bind groups of groups 1 and 2 were built, or they were never built. */
+  let texturesChanged = true;
 
   function setTexture(uniform: UniformNode<ShaderType> | string, data: CpuTextureData): void {
     const slot = slotOf(uniform);
@@ -320,7 +320,8 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       return;
     }
     const declaration = textureDeclarations.find((t) => t.slot === slot);
-    if (!declaration) throw new Error(`[RMSL] setTexture: the program reads no texture named "${slot}"`);
+    // A texture the program does not read is ignored, as `setUniform` ignores a uniform it does not read.
+    if (!declaration) return;
     const image = textureImage(data, declaration.shaderType);
     const volume = declaration.shaderType.endsWith("3D");
     gpuTextures.get(slot)?.texture.destroy();
@@ -344,8 +345,9 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
     const sampler = declaration.integer
       ? null
       : device.createSampler({
+          // A CPU target has no footprint to minify by, so both filters follow `magFilter`.
           magFilter: data.magFilter === "linear" ? "linear" : "nearest",
-          minFilter: data.minFilter === "linear" ? "linear" : "nearest",
+          minFilter: data.magFilter === "linear" ? "linear" : "nearest",
           addressModeU: address(data.wrapS),
           addressModeV: address(data.wrapT),
           addressModeW: address(data.wrapR),
@@ -485,7 +487,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       textureDeclarations = sharedSamplerDeclarations(
         [...sharedTextures.values()].map((u) => ({
           slot: u.slot,
-          type: Object.keys(typeToWGSL).find((key) => /sampler/.test(key) && typeToWGSL[key] === u.type)!,
+          type: Object.keys(typeToWGSL).find((key) => /sampler/.test(key) && typeToWGSL[key] === u.type) ?? u.type,
         })),
       );
       storages = storageAttributes([options.vertex, options.fragment]);
@@ -573,7 +575,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       if (!device || !renderPipeline || !context) {
         throw new Error("[RMSL] createWgsl: attach() was never called");
       }
-      if (textureDeclarations.length > 0 && (texturesChanged || !renderBindGroups[1])) bindTextures();
+      if (textureDeclarations.length > 0 && texturesChanged) bindTextures();
       let encoder = device.createCommandEncoder();
       let view = context.getCurrentTexture().createView();
       let pass = encoder.beginRenderPass({

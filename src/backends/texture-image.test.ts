@@ -34,4 +34,16 @@ describe("textureImage", () => {
       /Uint8Array/,
     );
   });
+
+  /**
+   * @canon spec-an-adapter-takes-the-texture-a-sampler-reads-from-the-host
+   */
+  it("refuses data shorter than the texture and a cube sampler", () => {
+    expect(() => textureImage({ data: Uint8Array.of(1, 1, 1, 1), width: 2, height: 2 }, "sampler2D")).toThrow(
+      /needs 16 values/,
+    );
+    expect(() => textureImage({ data: Uint8Array.of(1, 1, 1, 1), width: 1, height: 1 }, "samplerCube")).toThrow(
+      /not supported/,
+    );
+  });
 });

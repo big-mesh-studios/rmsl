@@ -235,7 +235,8 @@ export function createGlsl(
     const filter = (name: CpuTextureData["magFilter"]) =>
       image.normalized && name === "linear" ? context.LINEAR : context.NEAREST;
     gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, filter(data.magFilter));
-    gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, filter(data.minFilter));
+    // A CPU target has no footprint to minify by, so both filters follow `magFilter`.
+    gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, filter(data.magFilter));
     gl.texParameteri(target, gl.TEXTURE_WRAP_S, wrapMode(gl, data.wrapS));
     gl.texParameteri(target, gl.TEXTURE_WRAP_T, wrapMode(gl, data.wrapT));
     if (target === gl.TEXTURE_3D) gl.texParameteri(target, gl.TEXTURE_WRAP_R, wrapMode(gl, data.wrapR));

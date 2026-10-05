@@ -32,12 +32,17 @@ const drawWith = (adapter) => {
   return readPixel(target, 1, 2);
 };
 const image = uniform("sampler2D");
-const texturedFragment = () => Fn(() => image.texture(vec2(0.5, 0.5)))();
+const texturedFragment = () => Fn(() => image.texture(vec2(0.75, 0.25)))();
 const drawTextured = (adapter) => {
   const target = canvas();
   adapter.attach(target);
   adapter.setAttribute(position, TRIANGLE);
-  adapter.setTexture(image, { data: Uint8Array.of(0, 255, 0, 255), width: 1, height: 1 });
+  // Row 0 is red then green, row 1 blue then white, so (0.75, 0.25) lands on the green texel.
+  adapter.setTexture(image, {
+    data: Uint8Array.of(255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255),
+    width: 2,
+    height: 2,
+  });
   adapter.draw({ count: 3 });
   return readPixel(target, 1, 2);
 };
