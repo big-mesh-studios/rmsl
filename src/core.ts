@@ -3251,3 +3251,8 @@ export const MATRIX_DIMENSIONS: Record<string, [number, number]> = {
 export function isSamplerType(type: string): boolean {
   return /^(i|u)?sampler(2D|3D|Cube)$/.test(type);
 }
+
+/** Whether a sampler type reads integers, which no filtering sampler goes with. */
+export function isIntegerSamplerType(type: string): boolean {
+  return type.startsWith("isampler") || type.startsWith("usampler");
+}

@@ -8,6 +8,7 @@ import {
   int,
   invocationIndex,
   ivec2,
+  vec2,
   ivec3,
   select,
   uniform,
@@ -345,6 +346,39 @@ describe("known GPU bugs, each failing until its fix", () => {
     expect(bindingOf(vertexCode, near.name)).not.toBe(bindingOf(vertexCode, far.name));
     expect(bindingOf(vertexCode, near.name)).toBe(bindingOf(fragmentCode, near.name));
     expect(bindingOf(vertexCode, far.name)).toBe(bindingOf(fragmentCode, far.name));
+  });
+
+  /**
+   * A texture sampled in the vertex stage is read at level 0, because only a
+   * fragment stage has the derivatives that pick a level, and a stage
+   * numbers the samplers of the textures it samples in the order of their
+   * names.
+   *
+   * @canon spec-a-texture-is-bound-to-every-stage-that-samples-it
+   */
+  it("samples a texture in the vertex stage at level 0, and numbers samplers by name on WGSL", () => {
+    const zebra = uniformRaw("zebra", "sampler2D");
+    const apple = uniformRaw("apple", "sampler2D");
+    const vertex = Fn(() => {
+      builtinPosition().assign(vec4(zebra.texture(vec2(0, 0)).x.add(apple.texture(vec2(0, 0)).x), 0, 0, 1));
+    })();
+    const code = compileWgsl.vertex(vertex);
+    expect(code).toContain("textureSampleLevel(");
+    expect(code).not.toMatch(/textureSample\(/);
+    expect(bindingOf(code, `${apple.name}_s`)).toBe("2:0");
+    expect(bindingOf(code, `${zebra.name}_s`)).toBe("2:1");
+  });
+
+  /**
+   * A texture of a sampler type that WGSL has no texture for is refused.
+   *
+   * @canon spec-a-texture-keeps-a-binding-of-its-own
+   */
+  it("refuses a sampler of a type WGSL has no texture for", () => {
+    const vertex = Fn(() => {
+      builtinPosition().assign(vec4(0, 0, 0, 1));
+    })();
+    expect(() => compileWgsl.vertex(vertex, { samplers: [{ slot: "map", type: "sampler9D" }] })).toThrow(/sampler9D/);
   });
 
   /**

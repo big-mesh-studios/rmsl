@@ -1,4 +1,12 @@
-import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, isSamplerType } from "../../core";
+import {
+  BaseNode,
+  MATRIX_DIMENSIONS,
+  Node,
+  ShaderType,
+  TYPE_WIDTH,
+  isIntegerSamplerType,
+  isSamplerType,
+} from "../../core";
 import { AllocRules, planLayout } from "../../layout";
 import { componentKindOf } from "../cpu";
 import {
@@ -1008,7 +1016,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       let coords = compileWGSLStage(node.params![1], ctx);
       let samplerSlot = (samplerNode.value as any)?.slot;
       let samplerType = (samplerNode as any)?._t || "sampler2D";
-      let isIntegerSampler = samplerType.startsWith("isampler") || samplerType.startsWith("usampler");
+      let isIntegerSampler = isIntegerSamplerType(samplerType);
       // Integer textures are not filterable, so they are read with textureLoad,
       // which takes integer texel coordinates and needs no sampler binding.
       if (isIntegerSampler) {
@@ -1044,11 +1052,19 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
         });
       }
       let samplerName = samplerSlot ? samplerSlot + "_s" : "sampler";
-      if (node.type === "texture") {
+      // Only a fragment stage has derivatives, which textureSample needs to pick a level.
+      if (node.type === "texture" && ctx.shaderStage === "fragment") {
         return {
           decls: [...samplerCompiled.decls, ...coords.decls],
           body: [...samplerCompiled.body, ...coords.body],
           expr: `textureSample(${samplerCompiled.expr}, ${samplerName}, ${coords.expr})`,
+        };
+      }
+      if (node.type === "texture") {
+        return {
+          decls: [...samplerCompiled.decls, ...coords.decls],
+          body: [...samplerCompiled.body, ...coords.body],
+          expr: `textureSampleLevel(${samplerCompiled.expr}, ${samplerName}, ${coords.expr}, 0.0)`,
         };
       } else {
         let lod = compileWGSLStage(node.params![2], ctx);
@@ -1630,11 +1646,7 @@ export function compileWGSLWithStage(
   let textures = sortedUniforms.filter(([, i]) => isWgslTexture(i.type));
   let plain = sortedUniforms.filter(([, i]) => !isWgslTexture(i.type));
 
-  // The textures a stage declares are normally the ones it samples. A program
-  // compiled as two stages cannot work that way: each stage would number its
-  // own textures from binding 0, so two stages sampling different textures bind
-  // them at one place. Passing the program's whole set numbers both stages the
-  // same way.
+  // Without `options.samplers` a stage declares the textures it samples.
   let declaredTextures: { slot: string; type: string; integer: boolean }[];
   if (options?.samplers) {
     declaredTextures = sharedSamplerDeclarations(options.samplers);
@@ -1673,9 +1685,9 @@ export function compileWGSLWithStage(
       lines.push(`@group(2) @binding(${samplerBinding++}) var ${info.slot}_s: sampler;`);
     }
   } else {
-    ctx.wgslSamplers.forEach((info) => {
+    for (let info of [...ctx.wgslSamplers.values()].sort((a, b) => a.textureSlot.localeCompare(b.textureSlot))) {
       lines.push(`@group(2) @binding(${samplerBinding++}) var ${info.samplerSlot}: sampler;`);
-    });
+    }
   }
   if (ctx.uniforms.size > 0 || ctx.wgslSamplers.size > 0 || ctx.outputs.size > 0) {
     lines.push("");
@@ -1884,14 +1896,14 @@ export type WgslSamplerDeclaration = { slot: string; type: string };
 /** The textures of a render program in binding order, as the WGSL declares them. */
 export function sharedSamplerDeclarations(
   samplers: readonly WgslSamplerDeclaration[],
-): { slot: string; type: string; integer: boolean }[] {
+): { slot: string; shaderType: string; type: string; integer: boolean }[] {
   return [...samplers]
     .sort((a, b) => a.slot.localeCompare(b.slot))
-    .map((s) => ({
-      slot: s.slot,
-      type: wgslType(s.type),
-      integer: s.type.startsWith("isampler") || s.type.startsWith("usampler"),
-    }));
+    .map((s) => {
+      if (!(s.type in typeToWGSL))
+        throw new Error(`[RMSL] "${s.slot}" has the sampler type "${s.type}", which WGSL has no texture for`);
+      return { slot: s.slot, shaderType: s.type, type: wgslType(s.type), integer: isIntegerSamplerType(s.type) };
+    });
 }
 
 export type CompileWGSLOptions = {

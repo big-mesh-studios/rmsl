@@ -399,7 +399,7 @@ export class WebGPURenderer {
     const sharedSamplers = sharedSamplerDeclarations(declaredSamplers);
     const textureBindings = sharedSamplers.map((t, binding) => ({
       name: t.slot,
-      type: program.samplers.find((s) => s.name === t.slot)!.type,
+      type: t.shaderType as SamplerShaderType,
       binding,
     }));
     const samplerBindings = sharedSamplers.filter((t) => !t.integer).map((t, binding) => ({ name: t.slot, binding }));
