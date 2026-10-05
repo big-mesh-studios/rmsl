@@ -231,7 +231,7 @@ export function createGlsl(
       gl.bindVertexArray(vao);
       const mode = GL_MODE[options?.mode ?? "triangles"];
       const first = options?.first ?? 0;
-      const count = options?.count ?? vertexCount;
+      const count = options?.count ?? Math.max(0, vertexCount - first);
       if (options?.instanceCount !== undefined) {
         gl.drawArraysInstanced(mode, first, count, options.instanceCount);
       } else {

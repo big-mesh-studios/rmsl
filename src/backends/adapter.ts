@@ -78,12 +78,12 @@ export interface Adapter<TBuffer, TDrawOptions = void> {
  * `JsDrawOptions` all extend this), so each backend's own `count`/`first`
  * mean the same thing instead of just happening to be spelled the same.
  * `count` left unset defaults to the first attribute the host
- * passed — every backend that draws infers it that way.
+ * passed, less `first` — every backend that draws infers it that way.
  */
 export interface DrawCountOptions {
   /** First vertex to draw. Defaults to 0. */
   first?: number;
-  /** Vertices to draw. Defaults to the first attribute the host passed. */
+  /** Vertices to draw. Defaults to the first attribute the host passed, less `first`. */
   count?: number;
 }
 

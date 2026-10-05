@@ -492,7 +492,8 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
         let vb = vertexBuffers.get(vertexAttributes[i].slot);
         if (vb) pass.setVertexBuffer(i, vb.buffer);
       }
-      pass.draw(drawOptions?.count ?? vertexCount, drawOptions?.instanceCount ?? 1, drawOptions?.first ?? 0, 0);
+      const first = drawOptions?.first ?? 0;
+      pass.draw(drawOptions?.count ?? Math.max(0, vertexCount - first), drawOptions?.instanceCount ?? 1, first, 0);
       pass.end();
       device.queue.submit([encoder.finish()]);
     },
