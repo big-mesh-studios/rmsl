@@ -7,7 +7,7 @@ describe("compileWgsl.compute", () => {
    * @canon spec-wgsl-compiles-a-compute-node-to-a-compute-entry-point
    */
   it("emits a @compute entry point reading and writing storage buffers", () => {
-    const src = instancedArray(4, "float");
+    const src = instancedArray(4, "float").toReadOnly();
     const dst = instancedArray(4, "float");
     const prog = Fn(() => {
       const i = invocationIndex();
@@ -17,9 +17,12 @@ describe("compileWgsl.compute", () => {
 
     expect(wgsl).toContain("@compute @workgroup_size(64)");
     expect(wgsl).toContain("@builtin(global_invocation_id)");
-    expect(wgsl).toMatch(/@group\(1\) @binding\(0\) var<storage, read_write> _rmsl_s0: array<f32>;/);
-    expect(wgsl).toMatch(/@group\(1\) @binding\(1\) var<storage, read_write> _rmsl_s1: array<f32>;/);
-    expect(wgsl).toContain("arrayLength(&_rmsl_s0)");
+    const [, srcName] = wgsl.match(/var<storage, read> (\w+): array<f32>;/) ?? [];
+    const [, dstName] = wgsl.match(/var<storage, read_write> (\w+): array<f32>;/) ?? [];
+    expect(srcName).toBeDefined();
+    expect(dstName).toBeDefined();
+    expect(wgsl).toContain(`${dstName}[_rmsl_globalId.x] = ${srcName}[_rmsl_globalId.x] + 1f;`);
+    expect(wgsl).toContain(`arrayLength(&${srcName})`);
   });
 
   /**
@@ -37,7 +40,7 @@ describe("compileWgsl.compute", () => {
     expect(wgsl).not.toContain("VertexInput");
     expect(wgsl).not.toContain("FragmentOutput");
     expect(wgsl).toContain("let _rmsl_index = _rmsl_globalId.x;");
-    expect(wgsl).toMatch(/_rmsl_s1\[_rmsl_globalId\.x\] = _rmsl_s0\[_rmsl_globalId\.x\];/);
+    expect(wgsl).toMatch(/(_rmsl_s\d)\[_rmsl_globalId\.x\] = (?!\1)_rmsl_s\d\[_rmsl_globalId\.x\];/);
     // A compute dispatch reads one element per invocation, never a vertex.
     expect(wgsl).not.toContain("@location(");
   });
