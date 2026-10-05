@@ -216,6 +216,8 @@ function deserializeNode(
   const named = NAMED[entry.type];
   if (named) {
     const { local, slot, ...rest } = value as { local?: number; slot?: string };
+    if (local === undefined && slot === "")
+      throw new Error(`[RMSL] deserialize: a ${entry.type} node has an empty name`);
     const fresh =
       local === undefined
         ? { id: named.draw(), name: slot! }
