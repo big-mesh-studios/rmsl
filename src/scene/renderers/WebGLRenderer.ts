@@ -412,12 +412,15 @@ export class WebGLRenderer {
         gl.uniform4ui(location, value[0], value[1], value[2], value[3]);
         break;
       case "ivec2":
+      case "bvec2":
         gl.uniform2i(location, value[0], value[1]);
         break;
       case "ivec3":
+      case "bvec3":
         gl.uniform3i(location, value[0], value[1], value[2]);
         break;
       case "ivec4":
+      case "bvec4":
         gl.uniform4i(location, value[0], value[1], value[2], value[3]);
         break;
       case "mat2":

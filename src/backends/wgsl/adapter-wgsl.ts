@@ -217,7 +217,7 @@ function writeUniformElement(
   type: string,
   value: number | ArrayLike<number>,
 ): void {
-  if (typeof value === "number") {
+  if (typeof value !== "object") {
     view[at] = value;
     return;
   }
@@ -226,10 +226,10 @@ function writeUniformElement(
     view.set(value, at);
     return;
   }
-  for (let column = 0; column < matrix.columns; column++) {
-    for (let row = 0; row < matrix.rows; row++) {
-      view[at + column * matrix.columnStride + row] = value[column * matrix.rows + row]!;
-    }
+  // A value shorter than the matrix leaves the rest of it as it was.
+  const length = Math.min(value.length, matrix.columns * matrix.rows);
+  for (let k = 0; k < length; k++) {
+    view[at + Math.floor(k / matrix.rows) * matrix.columnStride + (k % matrix.rows)] = value[k]!;
   }
 }
 

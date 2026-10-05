@@ -259,15 +259,46 @@ describe("known bugs of the scene library, each failing until its fix", () => {
   });
 
   /**
-   * The WebGL renderer uploads a `uint` and a `uvec2` uniform.
+   * The WebGPU renderer leaves a `mat3` uniform at zero when the value it
+   * takes is an empty array, as it does for a name it does not know.
    *
    * @canon spec-a-uniform-uploads-in-the-shape-its-type-has
    */
-  it("uploads a uint and a uvec2 uniform on WebGL", () => {
+  it("writes nothing for an empty matrix value on WebGPU", () => {
+    const { device, canvas, bytesOf } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) =>
+      vec4(
+        b
+          .materialUniform("m", "mat3", () => [])
+          .element(0)
+          .element(0),
+        0,
+        0,
+        1,
+      );
+    const mesh = new Mesh(new PlaneGeometry(), material);
+    mesh.updateMatrixWorld(true);
+    const entry = renderer.ensurePipeline(material, new Scene(), false, false);
+    renderer.packUniforms(entry, mesh, camera(), 0);
+
+    const floats = new Float32Array(bytesOf(entry.ringBuffer).buffer);
+    const base = offsetOf(entry, "m") / 4;
+    expect(Array.from(floats.subarray(base, base + 12))).toEqual(new Array(12).fill(0));
+  });
+
+  /**
+   * The WebGL renderer uploads a `uint`, a `uvec2` and a `bvec3` uniform.
+   *
+   * @canon spec-a-uniform-uploads-in-the-shape-its-type-has
+   */
+  it("uploads a uint, a uvec2 and a bvec3 uniform on WebGL", () => {
     const { renderer, calls } = stubWebGl();
     renderer.setUniform({ name: "a" }, "uint", 5);
     renderer.setUniform({ name: "b" }, "uvec2", [5, 6]);
-    expect(calls.map((c) => c.name)).toEqual(["uniform1ui", "uniform2ui"]);
+    renderer.setUniform({ name: "c" }, "bvec3", [1, 0, 1]);
+    expect(calls.map((c) => c.name)).toEqual(["uniform1ui", "uniform2ui", "uniform3i"]);
   });
 
   /**
