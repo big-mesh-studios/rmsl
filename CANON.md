@@ -234,7 +234,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@exception glsl-has-no-storage-buffers`](#exception-glsl-has-no-storage-buffers) — A GLSL stage that reads a storage buffer is refused. Issue #48 asks to read one through a data texture instead.
       - [`@spec a-wgsl-render-stage-declares-its-storage-in-group-three`](#spec-a-wgsl-render-stage-declares-its-storage-in-group-three) — On WGSL, a vertex or fragment stage declares its storage buffers in group 3.
   - [`@spec a-constant-index-outside-a-vector-or-matrix-is-refused`](#spec-a-constant-index-outside-a-vector-or-matrix-is-refused) — A literal index outside a vector's components or a matrix's columns is refused on every target.
-    - [`@bug only-wasm-refuses-a-literal-index-out-of-range`](#bug-only-wasm-refuses-a-literal-index-out-of-range) — Only WASM refuses a literal index outside a vector. GLSL and WGSL emit it, and JS reads `NaN`.
   - [`@spec an-operation-a-target-cannot-run-is-refused`](#spec-an-operation-a-target-cannot-run-is-refused) — An operation that no target can run where the program puts it is refused on every target.
     - [`@spec break-or-continue-outside-a-loop-is-refused`](#spec-break-or-continue-outside-a-loop-is-refused) — `Break` or `Continue` outside a loop is refused.
     - [`@spec cross-of-a-vector-that-is-not-a-vec3-is-refused`](#spec-cross-of-a-vector-that-is-not-a-vec3-is-refused) — `cross` of vectors that are not `vec3` is refused.
@@ -2017,12 +2016,6 @@ This follows because the uniform struct, the textures and the samplers hold grou
 Derives from: [`fact-wgsl-refuses-a-constant-index-out-of-range`](#fact-wgsl-refuses-a-constant-index-out-of-range), [`fact-glsl-refuses-a-constant-index-out-of-range`](#fact-glsl-refuses-a-constant-index-out-of-range)
 
 This follows because GLSL and WGSL both refuse such an index, so the program could not run on them.
-
-#### @bug only-wasm-refuses-a-literal-index-out-of-range
-
-> Only WASM refuses a literal index outside a vector. GLSL and WGSL emit it, and JS reads `NaN`.
-
-Issue: #70
 
 ### @spec an-operation-a-target-cannot-run-is-refused
 

@@ -23,6 +23,7 @@ import {
   RADIANS_PER_DEGREE,
   assertPositionIsReadable,
   assertSquareMatrix,
+  assertLiteralIndexInRange,
   assertAssignable,
   parameterNode,
   assertStageResult,
@@ -670,6 +671,7 @@ function jsAssignable(node: any, ctx: CompileCtx): CompiledNode & { at(k: string
     let target = compileJSStage(node, ctx);
     return { ...target, at: (k) => `${target.expr}[${k}]` };
   }
+  assertLiteralIndexInRange(node.params![0], node.params![1]);
   let mat = compileJSStage(node.params![0], ctx);
   let idx = compileJSStage(node.params![1], ctx);
   let [columns, rows] = MATRIX_DIMENSIONS[node.params![0]._t];
@@ -1646,6 +1648,7 @@ export function compileJSNode(
     }
 
     case "matrixElement": {
+      assertLiteralIndexInRange(node.params![0], node.params![1]);
       let mat = jsCompileOperand(node.params![0], ctx);
       let idx = jsCompileOperand(node.params![1], ctx);
       let brand = node.params![0]?._t;
@@ -1666,6 +1669,7 @@ export function compileJSNode(
     }
 
     case "vectorElement": {
+      assertLiteralIndexInRange(node.params![0], node.params![1]);
       let src = jsCompileOperand(node.params![0], ctx);
       let idx = jsCompileOperand(node.params![1], ctx);
       let srcExpr = (src.prec ?? PREC_ATOM) < PREC_ATOM ? `(${src.expr})` : src.expr;
@@ -1805,6 +1809,7 @@ export function compileJSNode(
         let base = jsAssignable(parts.base, ctx);
         let components = parts.components ?? [];
         if (parts.index) {
+          assertLiteralIndexInRange(parts.base, parts.index);
           let idx = compileJSStage(parts.index, ctx);
           base = { ...base, decls: [...base.decls, ...idx.decls], body: [...base.body, ...idx.body] };
           components = [jsBoundedIndex(idx.expr, TYPE_WIDTH[parts.base._t])];

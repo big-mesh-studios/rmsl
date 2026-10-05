@@ -156,16 +156,6 @@ describe("known bugs, each failing until its fix", () => {
   });
 
   /**
-   * @canon bug-only-wasm-refuses-a-literal-index-out-of-range
-   */
-  it.fails("refuses a literal index outside a vector on GLSL, WGSL and JS", () => {
-    const build = () => Fn(() => vec4(vec3(1, 2, 3).toVar().element(int(3)), 0, 0, 1).toVar())();
-    expect(() => compileGlsl.fragment(build())).toThrow();
-    expect(() => compileWgsl.fragment(build())).toThrow();
-    expect(() => compileJSRoutine(build, none)).toThrow();
-  });
-
-  /**
    * @canon bug-js-reads-an-unset-uniform-as-nan
    */
   it.fails("reads a uniform the host never set as zero on JS", () => {

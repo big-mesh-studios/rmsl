@@ -13,6 +13,7 @@ import {
   COMPUTE_REFUSES,
   assertPositionIsReadable,
   assertSquareMatrix,
+  assertLiteralIndexInRange,
   assertAssignable,
   parameterNode,
   assertStageResult,
@@ -969,6 +970,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     }
 
     case "matrixElement": {
+      assertLiteralIndexInRange(node.params![0], node.params![1]);
       let mat = compileWGSLStage(node.params![0], ctx);
       let idx = compileWGSLStage(node.params![1], ctx);
       let idxExpr = idx.expr;
@@ -984,6 +986,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     }
 
     case "vectorElement": {
+      assertLiteralIndexInRange(node.params![0], node.params![1]);
       let src = compileWGSLStage(node.params![0], ctx);
       let idx = compileWGSLStage(node.params![1], ctx);
       let idxExpr = idx.expr;
