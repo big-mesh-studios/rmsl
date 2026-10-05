@@ -51,7 +51,7 @@ use — already affine in screen space, no perspective correction needed) is
 compared against `depthBufferBase`; only a closer-or-equal pixel writes
 both the new depth and, after perspective-correct interpolating the
 varying blob into the imported fragment function's varying-input address
-and calling it, its `vec4` result into `outputBase`. The host must
+and calling it, its `vec4` result into `outputBase`. A fragment function that writes no colour has no result to copy: the host passes `fragmentValueAddress` as -1, and the pixel is left as it was. The host must
 pre-clear `depthBufferBase` to a large value before the first draw over
 it.
 

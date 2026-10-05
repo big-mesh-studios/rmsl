@@ -416,10 +416,13 @@
                             (local.get $t) (local.get $t1) (local.get $t2)
                             (local.get $b0) (local.get $invW0) (local.get $b1) (local.get $invW1) (local.get $b2) (local.get $invW2) (local.get $invW))
                           (call $fragmentMain)
-                          (call $byteCopy
-                            (i32.add (local.get $outputBase) (i32.mul (local.get $pixelIndex) (i32.const 32)))
-                            (local.get $fragmentValueAddress)
-                            (i32.const 32))))))
+                          ;; A fragment stage that writes no colour passes -1, and leaves the pixel as it is.
+                          (if (i32.ne (local.get $fragmentValueAddress) (i32.const -1))
+                            (then
+                              (call $byteCopy
+                                (i32.add (local.get $outputBase) (i32.mul (local.get $pixelIndex) (i32.const 32)))
+                                (local.get $fragmentValueAddress)
+                                (i32.const 32))))))))
                   (local.set $x (i32.add (local.get $x) (i32.const 1)))
                   (br $xContinue)))
               (local.set $y (i32.add (local.get $y) (i32.const 1)))
