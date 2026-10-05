@@ -435,10 +435,19 @@ describe("known bugs of the scene library, each failing until its fix", () => {
 
     for (const mesh of meshes.slice(3)) scene.remove(mesh);
     renderer.render(scene, camera());
+    // A ring that is oversized for a frame or two is kept.
+    expect(entry.ringBuffer).toBe(full);
+    for (let frame = 0; frame < 60; frame++) renderer.render(scene, camera());
     expect(entry.slots).toBeLessThan(1000);
     expect(destroyed.has(full)).toBe(true);
 
+    // A program with no draw at all shrinks too.
+    scene.clear();
+    for (let frame = 0; frame < 60; frame++) renderer.render(scene, camera());
+    expect(entry.slots).toBe(64);
+
     const small = entry.ringBuffer;
+    scene.add(meshes[0]);
     material.needsUpdate = true;
     renderer.render(scene, camera());
     expect(destroyed.has(small)).toBe(true);
