@@ -452,10 +452,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-renderer-supplies-the-camera-and-object-uniforms`](#spec-a-renderer-supplies-the-camera-and-object-uniforms) — A renderer gives a program the camera's projection, view and position, the object's world and normal matrices, and its own resolution. It gives nothing for a name it does not know.
       - [`@bug line-resolution-ignores-the-render-target`](#bug-line-resolution-ignores-the-render-target) — The WebGL renderer gives the `resolution` uniform the canvas's drawing buffer size even while it draws into a smaller render target. A line it draws into the target then has the wrong width.
     - [`@spec a-program-is-compiled-once-per-signature`](#spec-a-program-is-compiled-once-per-signature) — A renderer compiles a material once for each light set, in order, and each instancing flag of the mesh.
-    - [`@spec a-uniform-uploads-in-the-shape-its-type-has`](#spec-a-uniform-uploads-in-the-shape-its-type-has) — A renderer uploads a scalar uniform as a scalar and a vector or matrix as an array. It places every uniform a material collects in the WGSL layout.
-      - [`@bug webgpu-uploads-a-mat3-without-column-padding`](#bug-webgpu-uploads-a-mat3-without-column-padding) — The WebGPU renderer writes a `mat3` uniform as nine packed floats, where WGSL pads each column to 16 bytes. The shader reads the normal matrix shifted from its second column on.
-      - [`@bug webgpu-uploads-an-integer-uniform-as-float-bits`](#bug-webgpu-uploads-an-integer-uniform-as-float-bits) — The WebGPU renderer writes every uniform through a `Float32Array`, so an `int` or `uint` uniform reaches the shader as the bits of a float.
-      - [`@bug webgl-never-uploads-an-unsigned-uniform`](#bug-webgl-never-uploads-an-unsigned-uniform) — The WebGL renderer has no case for `uint` or the `uvec` types, so it never uploads them and the shader reads zero.
+    - [`@spec a-uniform-uploads-in-the-shape-its-type-has`](#spec-a-uniform-uploads-in-the-shape-its-type-has) — A renderer uploads a scalar uniform as a scalar and a vector or matrix as an array. An integer uniform goes up as an integer, and each column of a `mat3` is padded to 16 bytes, as WGSL reads it. It places every uniform a material collects in the WGSL layout.
     - [`@spec an-instanced-attribute-comes-from-its-mesh`](#spec-an-instanced-attribute-comes-from-its-mesh) — A renderer reads an instanced attribute from the geometry, or from the mesh that owns it when the geometry has none. Its WGSL locations match the compiler's.
     - [`@spec each-sampler-gets-its-own-texture`](#spec-each-sampler-gets-its-own-texture) — Several samplers in one draw each read their own texture.
       - [`@bug webgpu-numbers-samplers-unlike-the-compiler`](#bug-webgpu-numbers-samplers-unlike-the-compiler) — The WebGPU renderer numbers sampler bindings in the order the material registers samplers, counting ones it never samples. The compiler numbers them in the order the graph samples them, so a draw reads its textures through the wrong samplers or fails to bind.
@@ -3201,25 +3198,7 @@ Issue: #97
 
 #### @spec a-uniform-uploads-in-the-shape-its-type-has
 
-> A renderer uploads a scalar uniform as a scalar and a vector or matrix as an array. It places every uniform a material collects in the WGSL layout.
-
-##### @bug webgpu-uploads-a-mat3-without-column-padding
-
-> The WebGPU renderer writes a `mat3` uniform as nine packed floats, where WGSL pads each column to 16 bytes. The shader reads the normal matrix shifted from its second column on.
-
-Issue: #90
-
-##### @bug webgpu-uploads-an-integer-uniform-as-float-bits
-
-> The WebGPU renderer writes every uniform through a `Float32Array`, so an `int` or `uint` uniform reaches the shader as the bits of a float.
-
-Issue: #90
-
-##### @bug webgl-never-uploads-an-unsigned-uniform
-
-> The WebGL renderer has no case for `uint` or the `uvec` types, so it never uploads them and the shader reads zero.
-
-Issue: #90
+> A renderer uploads a scalar uniform as a scalar and a vector or matrix as an array. An integer uniform goes up as an integer, and each column of a `mat3` is padded to 16 bytes, as WGSL reads it. It places every uniform a material collects in the WGSL layout.
 
 #### @spec an-instanced-attribute-comes-from-its-mesh
 

@@ -367,6 +367,9 @@ export class WebGLRenderer {
         case "bool":
           gl.uniform1i(location, value);
           break;
+        case "uint":
+          gl.uniform1ui(location, value);
+          break;
         // A bare number is not a vector or a matrix, and an unknown type is
         // skipped rather than guessed.
         default:
@@ -384,6 +387,9 @@ export class WebGLRenderer {
       case "int":
         gl.uniform1i(location, value[0]);
         break;
+      case "uint":
+        gl.uniform1ui(location, value[0]);
+        break;
       case "bool":
         gl.uniform1i(location, value[0]);
         break;
@@ -395,6 +401,15 @@ export class WebGLRenderer {
         break;
       case "vec4":
         gl.uniform4f(location, value[0], value[1], value[2], value[3]);
+        break;
+      case "uvec2":
+        gl.uniform2ui(location, value[0], value[1]);
+        break;
+      case "uvec3":
+        gl.uniform3ui(location, value[0], value[1], value[2]);
+        break;
+      case "uvec4":
+        gl.uniform4ui(location, value[0], value[1], value[2], value[3]);
         break;
       case "ivec2":
         gl.uniform2i(location, value[0], value[1]);

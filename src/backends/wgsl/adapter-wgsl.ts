@@ -215,9 +215,9 @@ function writeUniformElement(
   view: Float32Array | Int32Array | Uint32Array,
   at: number,
   type: string,
-  value: number | number[],
+  value: number | ArrayLike<number>,
 ): void {
-  if (!Array.isArray(value)) {
+  if (typeof value === "number") {
     view[at] = value;
     return;
   }
@@ -227,7 +227,9 @@ function writeUniformElement(
     return;
   }
   for (let column = 0; column < matrix.columns; column++) {
-    view.set(value.slice(column * matrix.rows, (column + 1) * matrix.rows), at + column * matrix.columnStride);
+    for (let row = 0; row < matrix.rows; row++) {
+      view[at + column * matrix.columnStride + row] = value[column * matrix.rows + row]!;
+    }
   }
 }
 
