@@ -206,7 +206,7 @@ export class WebGPURenderer {
       drawCounts.set(entry, (drawCounts.get(entry) ?? 0) + 1);
     });
     // Every draw's uniforms are written before the frame is submitted, so each draw needs a slot of its own.
-    for (const [entry, count] of drawCounts) this.growRing(entry, count);
+    for (const [entry, count] of drawCounts) this.fitRing(entry, count);
 
     // After the draws are collected, so an attribute that is refused leaves no half-recorded frame.
     const encoder = device.createCommandEncoder();
@@ -264,20 +264,26 @@ export class WebGPURenderer {
     device.queue.submit([encoder.finish()]);
   }
 
-  /** Makes the uniform ring of `entry` hold at least `slots` draws, keeping the draws' binding. */
-  private growRing(entry: PipelineEntry, slots: number): void {
-    if (slots <= entry.slots) return;
-    const grown = Math.max(slots, entry.slots * 2);
+  /**
+   * Makes the uniform ring of `entry` hold `draws` slots of a frame: it grows
+   * to at least twice its size when too small, and shrinks to twice the draws
+   * once it holds more than four times as many as a frame needs.
+   */
+  private fitRing(entry: PipelineEntry, draws: number): void {
+    let slots = entry.slots;
+    if (draws > slots) slots = Math.max(draws, slots * 2);
+    else if (slots > UNIFORM_SLOTS && slots > draws * 4) slots = Math.max(UNIFORM_SLOTS, draws * 2);
+    if (slots === entry.slots) return;
     entry.ringBuffer.destroy();
     entry.ringBuffer = this.device.createBuffer({
-      size: entry.slotSize * grown,
+      size: entry.slotSize * slots,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     entry.bindGroup = this.device.createBindGroup({
       layout: entry.bindGroupLayouts.uniforms,
       entries: [{ binding: 0, resource: { buffer: entry.ringBuffer, offset: 0, size: entry.slotSize } }],
     });
-    entry.slots = grown;
+    entry.slots = slots;
   }
 
   private packUniforms(entry: PipelineEntry, mesh: Mesh, camera: Camera, slotIndex: number): void {
@@ -443,6 +449,8 @@ export class WebGPURenderer {
       bySignature = new Map();
       this.pipelines.set(material, bySignature);
     }
+    // The entry this one replaces is never drawn again, so its ring goes with it.
+    bySignature.get(signature)?.ringBuffer.destroy();
     bySignature.set(signature, built);
     material.needsUpdate = false;
     return built;

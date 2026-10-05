@@ -48,10 +48,11 @@ function stubDevice() {
   const bufferWrites: { buffer: any; offset: number }[] = [];
   const passes: { descriptor: any; calls: Call[] }[] = [];
   const queue: Call[] = [];
+  const destroyed = new Set<object>();
   const device = {
     createShaderModule: (descriptor: any) => descriptor,
     createBuffer: (descriptor: any) => {
-      const buffer = { size: descriptor.size, usage: descriptor.usage, destroy: () => {} };
+      const buffer: any = { size: descriptor.size, usage: descriptor.usage, destroy: () => destroyed.add(buffer) };
       contents.set(buffer, new Uint8Array(descriptor.size));
       return buffer;
     },
@@ -121,7 +122,19 @@ function stubDevice() {
   };
   /** The bytes a buffer holds once everything written to it has landed. */
   const bytesOf = (buffer: object) => contents.get(buffer)!;
-  return { device, canvas, textures, pipelines, layouts, textureWrites, bufferWrites, passes, queue, bytesOf };
+  return {
+    device,
+    canvas,
+    textures,
+    pipelines,
+    layouts,
+    textureWrites,
+    bufferWrites,
+    passes,
+    queue,
+    bytesOf,
+    destroyed,
+  };
 }
 
 /**
@@ -399,6 +412,36 @@ describe("known bugs of the scene library, each failing until its fix", () => {
       return floats[offset / 4 + translation];
     });
     expect(seen).toEqual([...Array(65).keys()]);
+  });
+
+  /**
+   * A program's uniform ring shrinks again once a frame needs far fewer
+   * slots, and the ring of an entry a rebuild replaces is freed.
+   *
+   * @canon spec-a-webgpu-renderer-frees-the-uniform-buffers-it-no-longer-uses
+   */
+  it("frees a uniform ring that a frame no longer fills, and one a rebuild replaces on WebGPU", () => {
+    const { device, canvas, destroyed } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const material = new MeshBasicMaterial();
+    const geometry = new PlaneGeometry();
+    const scene = new Scene();
+    const meshes = Array.from({ length: 1000 }, () => new Mesh(geometry, material));
+    for (const mesh of meshes) scene.add(mesh);
+    renderer.render(scene, camera());
+    const entry = [...renderer.pipelines.get(material).values()][0];
+    const full = entry.ringBuffer;
+    expect(entry.slots).toBeGreaterThanOrEqual(1000);
+
+    for (const mesh of meshes.slice(3)) scene.remove(mesh);
+    renderer.render(scene, camera());
+    expect(entry.slots).toBeLessThan(1000);
+    expect(destroyed.has(full)).toBe(true);
+
+    const small = entry.ringBuffer;
+    material.needsUpdate = true;
+    renderer.render(scene, camera());
+    expect(destroyed.has(small)).toBe(true);
   });
 
   /**
