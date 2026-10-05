@@ -225,6 +225,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec the-fragment-depth-is-written-only-in-a-fragment-stage`](#spec-the-fragment-depth-is-written-only-in-a-fragment-stage) — `builtinFragDepth()` writes the depth of a fragment stage, and is refused in a vertex stage.
     - [`@spec frag-coord-is-read-only-in-a-fragment-stage`](#spec-frag-coord-is-read-only-in-a-fragment-stage) — `fragCoord()` in a vertex stage is refused.
     - [`@spec the-position-is-read-only-in-a-vertex-stage`](#spec-the-position-is-read-only-in-a-vertex-stage) — A vertex [stage](#term-stage) reads `builtinPosition()`, and a fragment stage that reads it is refused.
+    - [`@spec a-compute-program-cannot-read-an-attribute`](#spec-a-compute-program-cannot-read-an-attribute) — A compute program that reads an [attribute](#term-attribute) is refused on every target. A compute program reaches a buffer through `storage()`, which reads what an attribute lies over.
     - [`@spec a-render-stage-reads-storage-read-only`](#spec-a-render-stage-reads-storage-read-only) — A vertex or fragment stage reads a storage buffer read-only, from a group of its own whose bindings count across both stages. A write to one from a render stage is refused.
       - [`@spec a-wgsl-render-stage-reads-storage-read-only`](#spec-a-wgsl-render-stage-reads-storage-read-only) — On WGSL, a vertex or fragment stage declares a storage buffer read-only, in a group of its own numbered across both stages. It refuses a write to the buffer.
       - [`@exception glsl-has-no-storage-buffers`](#exception-glsl-has-no-storage-buffers) — A GLSL stage that reads a storage buffer is refused. Issue #48 asks to read one through a data texture instead.
@@ -687,6 +688,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-uniforms-hold-their-values`](#fact-tsl-uniforms-hold-their-values) — TSL's `uniform(value)` and `uniformArray(values, type)` take the values the uniform holds, and the renderer uploads them.
 - [`@fact a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array`](#fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array) — TSL's `instancedArray(count, type)` and `attributeArray(count, type)` make a zeroed typed array of the buffer's contents on the host.
 - [`@fact tsl-takes-a-compute-count-from-its-caller`](#fact-tsl-takes-a-compute-count-from-its-caller) — TSL's `compute(node, count)` takes the count from the code that writes it. A number is the number of invocations, and the compiler guards `instanceIndex` against it through a uniform. Any other value is a dispatch size in workgroups. TSL never infers a count from a buffer.
+- [`@fact a-compute-entry-point-takes-no-location`](#fact-a-compute-entry-point-takes-no-location) — A WGSL compute entry point takes no `@location` parameter. That attribute is the only way a GPU hands a shader its vertices, and a compute dispatch has none.
 <!-- toc:end -->
 
 ## Open questions
@@ -1903,6 +1905,14 @@ This follows because a shader that breaks the rules of its stage either fails in
 #### @spec the-position-is-read-only-in-a-vertex-stage
 
 > A vertex [stage](#term-stage) reads `builtinPosition()`, and a fragment stage that reads it is refused.
+
+#### @spec a-compute-program-cannot-read-an-attribute
+
+> A compute program that reads an [attribute](#term-attribute) is refused on every target. A compute program reaches a buffer through `storage()`, which reads what an attribute lies over.
+
+Derives from: [`spec-an-attribute-is-an-input-of-the-vertex-stage`](#spec-an-attribute-is-an-input-of-the-vertex-stage), [`fact-a-compute-entry-point-takes-no-location`](#fact-a-compute-entry-point-takes-no-location)
+
+This follows because an attribute is an input of the vertex stage, read once for each vertex, and a compute dispatch has no vertices.
 
 #### @spec a-render-stage-reads-storage-read-only
 
@@ -4469,3 +4479,11 @@ This is how three.js's TSL behaves, read from its source (`StorageBufferAttribut
 > TSL's `compute(node, count)` takes the count from the code that writes it. A number is the number of invocations, and the compiler guards `instanceIndex` against it through a uniform. Any other value is a dispatch size in workgroups. TSL never infers a count from a buffer.
 
 This is how three.js's TSL behaves, read from its source (`ComputeNode`, three.js 0.186). Its examples write the count out beside the buffer it belongs to, as `instancedArray(count, type)` paired with `.compute(count)`, so a `vec4` buffer of `count` elements dispatches `count` invocations.
+
+## @fact a-compute-entry-point-takes-no-location
+
+> A WGSL compute entry point takes no `@location` parameter. That attribute is the only way a GPU hands a shader its vertices, and a compute dispatch has none.
+
+Dawn refuses `fn main(@location(0) a : f32)` in a `@compute` function, with `'@location' cannot be used by compute shaders`.
+
+TSL emits exactly that when a compute shader reads an attribute. `WGSLNodeBuilder` gives the vertex and compute stages one attribute handling, then pastes it into the entry point's arguments.

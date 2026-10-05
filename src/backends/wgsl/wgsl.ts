@@ -9,6 +9,7 @@ import {
   PREC_ATOM,
   PREC_UNARY,
   VertexRoot,
+  assertAttributeIsNotReadByAComputeStage,
   assertPositionIsReadable,
   assertSquareMatrix,
   assertAssignable,
@@ -642,12 +643,10 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "attribute": {
       let v = node.value as any;
+      assertAttributeIsNotReadByAComputeStage(ctx.shaderStage);
       if (v && v.id != null && !ctx.attributes.has(v.slot)) {
         ctx.attributes.set(v.slot, { id: v.id, type: wgslType(v.shaderType), slot: v.slot });
       }
-      // A compute stage has no VertexInput struct — attributes stand for
-      // storage buffers there, indexed by the invocation's entity id.
-      if (ctx.shaderStage === "compute") return { decls: [], body: [], expr: `${v.slot}[_rmsl_index]` };
       if (ctx.shaderStage !== "vertex") return { decls: [], body: [], expr: v.slot };
       // A matrix attribute is rebuilt from its columns at the top of `main`,
       // under its own slot name, so a reference to it is a plain local read.
@@ -1750,22 +1749,7 @@ export function compileWGSLWithStage(
       lines.push(`@group(1) @binding(${binding}) var<storage, ${info.access}> ${info.wgslName}: array<${info.type}>;`);
     }
 
-    // Preserve the legacy attribute()/output() compute path. These resources
-    // are not semantic storage() declarations, so they are only emitted when
-    // the graph contains no new storage() resources.
-    if (storages.length === 0) {
-      let binding = 0;
-
-      for (const info of ctx.attributes.values()) {
-        lines.push(`@group(1) @binding(${binding++}) var<storage, read> ${info.slot}: array<${info.type}>;`);
-      }
-
-      for (const info of ctx.outputs.values()) {
-        lines.push(`@group(1) @binding(${binding++}) var<storage, read_write> ${info.slot}: array<${info.type}>;`);
-      }
-    }
-
-    if (storages.length > 0 || ctx.attributes.size > 0 || ctx.outputs.size > 0) {
+    if (storages.length > 0) {
       lines.push("");
     }
 
@@ -1782,11 +1766,6 @@ export function compileWGSLWithStage(
     } else if (storages.length > 0) {
       const lengthStorage = storages[0];
       lines.push(`  if (_rmsl_index >= arrayLength(&${lengthStorage.wgslName})) { return; }`);
-    } else if (ctx.attributes.size > 0) {
-      const lengthAttribute = ctx.attributes.values().next().value;
-      if (lengthAttribute) {
-        lines.push(`  if (_rmsl_index >= arrayLength(&${lengthAttribute.slot})) { return; }`);
-      }
     }
 
     for (let line of allBody) {

@@ -14,6 +14,7 @@ import {
   scalarKindOf,
 } from "../cpu";
 import {
+  assertAttributeIsNotReadByAComputeStage,
   assertStageResult,
   fragmentColour,
   assertOneDeclarationPerName,
@@ -148,7 +149,7 @@ export type GpuUniformLayout = {
 export type CompileWasmFnOptions = CompileFnOptions & {
   gpuUniformLayout?: GpuUniformLayout;
 
-  stage?: "vertex" | "fragment";
+  stage?: "vertex" | "fragment" | "compute";
 
   derivatives?: "throw" | "zero";
 
@@ -739,7 +740,7 @@ export function compileWasmFn(
   const paramTypeByName = new Map(options.params.map((p) => [p.name, p.type]));
   const fnParamNames = new Set(options.params.map((p) => p.name));
 
-  const effectiveStage: "vertex" | "fragment" = options.stage ?? "fragment";
+  const effectiveStage: "vertex" | "fragment" | "compute" = options.stage ?? "fragment";
 
   // Scratch state for the planning pass. Scalars land in the WASM param space (params) or
   // the WASM local space (localSlots); aggregates and stage I/O get fixed
@@ -1290,6 +1291,7 @@ export function compileWasmFn(
 
       case "attribute": {
         const v = node.value;
+        assertAttributeIsNotReadByAComputeStage(effectiveStage);
         if (isAggregate(v.shaderType) || options.scalarsInMemory) {
           if (!attributeAddress.has(v.slot)) {
             const addr = allocateFor(v.shaderType);

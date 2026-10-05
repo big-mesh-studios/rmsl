@@ -90,6 +90,7 @@ export function createWasmCompute(
 ): WasmComputeAdapter {
   const computeRoutine = compileWasmRoutine(() => compute, {
     name: options.name ?? "compute",
+    stage: "compute",
     params: options.params ?? [],
     derivatives: options.derivatives,
     reentrant: options.reentrant,

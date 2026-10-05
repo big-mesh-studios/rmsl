@@ -665,6 +665,22 @@ export function assertSquareMatrix(operandType: string | undefined): number {
 }
 
 /**
+ * An attribute is the vertex stage's input. A compute dispatch has no
+ * vertices, so there is nothing for one to read: `@location`, the only way a
+ * GPU hands a shader per-vertex inputs, is what a compute entry point may not
+ * take. A compute program reaches the buffer an attribute lies over through
+ * `storage()`, which is the way every target reads a buffer there.
+ */
+export function assertAttributeIsNotReadByAComputeStage(stage: "vertex" | "fragment" | "compute"): void {
+  if (stage !== "compute") return;
+  throw new Error(
+    "[RMSL] A compute program cannot read an attribute, because a compute " +
+      "dispatch has no vertices to read one for. Read the buffer with " +
+      "storage(attribute, type) instead.",
+  );
+}
+
+/**
  * The position is the vertex stage's output. A fragment stage cannot read it:
  * GLSL's gl_Position is write-only there and WGSL has no such value at all.
  * Emitting it anyway produced an identifier neither backend declares.

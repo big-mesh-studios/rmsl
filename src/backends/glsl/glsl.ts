@@ -9,6 +9,7 @@ import {
   PREC_ATOM,
   PREC_UNARY,
   VertexRoot,
+  assertAttributeIsNotReadByAComputeStage,
   assertPositionIsReadable,
   assertSquareMatrix,
   assertStageResult,
@@ -238,6 +239,7 @@ export function compileGLSLNode(
 
     case "attribute": {
       let v = node.value as any;
+      assertAttributeIsNotReadByAComputeStage(ctx.shaderStage);
       if (!ctx.attributes.has(v.slot)) {
         ctx.attributes.set(v.slot, { id: v.id, type: glslType(v.shaderType), slot: v.slot });
       }

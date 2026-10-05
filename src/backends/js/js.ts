@@ -17,6 +17,7 @@ import {
   PRECEDENCE,
   PREC_ATOM,
   PREC_UNARY,
+  assertAttributeIsNotReadByAComputeStage,
   assertPositionIsReadable,
   assertSquareMatrix,
   assertAssignable,
@@ -1263,6 +1264,7 @@ export function compileJSNode(
 
     case "attribute": {
       let v = node.value as any;
+      assertAttributeIsNotReadByAComputeStage(ctx.shaderStage);
       return jsLeafRef(`ctx.attributes[${JSON.stringify(v.slot)}]`, v.shaderType ?? node._t, ctx);
     }
 
@@ -1934,7 +1936,7 @@ export function compileJSNode(
 }
 
 export type CompileJSOptions = CompileFnOptions & {
-  stage?: "vertex" | "fragment";
+  stage?: "vertex" | "fragment" | "compute";
   derivatives?: "throw" | "zero";
   reentrant?: boolean;
 };

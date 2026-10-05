@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import {
+  attribute,
   Break,
   builtinFragDepth,
   builtinPosition,
@@ -27,6 +28,11 @@ import {
   recordingGLSL as compileGlsl,
   recordingWGSL as compileWgsl,
 } from "../testing/shader-validity";
+// The real compiler: the recording stand-ins cover vertex and fragment only,
+// and this case is about the compute stage.
+import { compileWgsl as realCompileWgsl } from "../backends/wgsl/wgsl";
+
+const computeWgsl = (root: Node<any>) => realCompileWgsl.compute(root);
 
 afterAll(async () => {
   await assertRecordedShadersValid();
@@ -35,6 +41,12 @@ afterAll(async () => {
 const cpuCompilers = [
   (build: () => Node<any>) => compileJSRoutine(build, { name: "main", params: [] }),
   (build: () => Node<any>) => compileWasmRoutine(build, { name: "main", params: [] }),
+];
+
+/** The same two, compiling for the compute stage, where a storage program goes. */
+const cpuComputeCompilers = [
+  (build: () => Node<any>) => compileJSRoutine(build, { name: "main", params: [], stage: "compute" }),
+  (build: () => Node<any>) => compileWasmRoutine(build, { name: "main", params: [], stage: "compute" }),
 ];
 
 describe("a mistake is refused before the program runs", () => {
@@ -149,5 +161,26 @@ describe("a mistake is refused before the program runs", () => {
       expect(() => compile(() => Fn(() => (vec2(1, 0) as any).cross(vec2(0, 1)).toVar())())).toThrow();
     }
     expect(() => cpuCompilers[1]!(() => Fn(() => (values as any).add(1).toVar())())).toThrow(/read as a whole/);
+  });
+
+  /**
+   * A compute program that reads a buffer through `storage()` compiles on
+   * every target. Spelling the same buffer as an `attribute()` is refused on
+   * each, because a compute dispatch has no vertices to read one for. GLSL has
+   * no compute stage at all, so the three targets here are all of them.
+   *
+   * @canon spec-a-compute-program-cannot-read-an-attribute
+   */
+  it("refuses an attribute read by a compute program, where the same buffer through storage() compiles", () => {
+    const buf = instancedArray(4, "float");
+    const viaStorage = () => Fn(() => buf.element(int(0)).add(1).toVar())();
+    const viaAttribute = () => Fn(() => attribute("float").add(1).toVar())();
+
+    expect(computeWgsl(viaStorage())).toContain("@compute");
+    expect(() => computeWgsl(viaAttribute())).toThrow(/compute.*attribute|attribute.*compute/i);
+    for (const compile of cpuComputeCompilers) {
+      expect(() => compile(viaStorage)).not.toThrow();
+      expect(() => compile(viaAttribute)).toThrow(/compute.*attribute|attribute.*compute/i);
+    }
   });
 });
