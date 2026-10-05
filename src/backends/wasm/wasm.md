@@ -171,6 +171,12 @@ whole call as one per-draw batch rather than one per-vertex call), and the
 fragment marshaller skips `varyingMemory` (the rasterizer's triangle pass
 writes interpolated varyings there per covered pixel).
 
+In `compileWasm`, the two heaps sit after both modules' fixed layouts, the
+vertex module's first and the fragment module's after it. `marshal` and
+`footprint` take that start as an argument: `footprint` says where a heap
+would end without writing, so `draw()` sizes every region, and moves the depth
+buffer out of the way, before the first write.
+
 `createWasmRoutine`/`createWasmCompute`/`createWasm` (`adapter-wasm.ts`)
 are the outermost layer, each wrapping `compileWasmRoutine`/`compileWasm`
 for one of three distinct shapes rather than living as options on a

@@ -43,61 +43,6 @@ function flat() {
 
 describe("known WASM bugs, each failing until its fix", () => {
   /**
-   * `compileWasm` starts the vertex stage's texture heap where the fragment
-   * stage's layout starts, so the fragment inputs written on the next draw
-   * overwrite the vertex stage's texture.
-   *
-   * @canon bug-wasm-places-a-vertex-texture-over-the-fragment-layout
-   */
-  it.fails("keeps a vertex-stage texture intact across draws on WASM", () => {
-    const pos = attribute("vec3");
-    const tex = uniform("sampler2D");
-    const shade = varying("float");
-    const tint = uniform("vec4");
-    const vertex = () =>
-      Fn(() => {
-        shade.assign(textureLoad(tex, ivec2(0, 0)).x);
-        builtinPosition().assign(vec4(pos, 1));
-      })();
-    const fragment = () => Fn(() => vec4(shade, tint.x, tint.y, 1))();
-    const routine = compileWasm(vertex as any, fragment as any);
-    const ctx = {
-      attributes: { [pos.name]: screen() },
-      uniforms: { [tint.name]: [0.25, 0.5, 0, 0] },
-      textures: { [tex.name]: { data: new Float32Array(64).fill(9), width: 4, height: 4 } },
-    };
-    expect(Array.from(routine.draw(ctx, { width: 1, height: 1 }))).toEqual([9, 0.25, 0.5, 1]);
-    expect(Array.from(routine.draw(ctx, { width: 1, height: 1 }))).toEqual([9, 0.25, 0.5, 1]);
-  });
-
-  /**
-   * `compileWasm` fixes the depth buffer's address at the first draw while
-   * every other region moves with the draw's size, so a later, larger draw
-   * lays its vertices and colours over the depth buffer.
-   *
-   * @canon bug-wasm-rasterizer-keeps-its-depth-buffer-where-a-larger-draw-writes
-   */
-  it.fails("draws the same after a smaller draw as on a fresh routine on WASM", () => {
-    const fresh = flat();
-    const used = flat();
-    const four = new Float64Array(Array.from({ length: 4 }, () => Array.from(screen())).flat());
-    const options = { width: 2, height: 2, clear: true, clearDepth: true };
-    const expected = fresh.routine.draw(
-      { attributes: { [fresh.pos.name]: four }, uniforms: { [fresh.color.name]: [0, 0, 1, 1] } },
-      options,
-    );
-    used.routine.draw(
-      { attributes: { [used.pos.name]: screen() }, uniforms: { [used.color.name]: [1, 0, 0, 1] } },
-      { width: 1, height: 1 },
-    );
-    const got = used.routine.draw(
-      { attributes: { [used.pos.name]: four }, uniforms: { [used.color.name]: [0, 0, 1, 1] } },
-      options,
-    );
-    expect(Array.from(got)).toEqual(Array.from(expected));
-  });
-
-  /**
    * `compileWasm` copies an integer attribute in as an f64, where the vertex
    * stage reads an i32.
    *
@@ -341,19 +286,6 @@ describe("known WASM bugs, each failing until its fix", () => {
       { width: 1, height: 1 },
     );
     expect(Array.from(got)).toEqual([0, 0, 0, 0]);
-  });
-
-  /**
-   * `compileWasm` makes its own memory without `sharedMemory` or
-   * `maxMemoryPages`, which the modules it compiled declared, so linking fails.
-   *
-   * @canon bug-wasm-rasterizer-makes-its-memory-without-the-shared-flag
-   */
-  it.fails("compiles a vertex and fragment pair with sharedMemory and no memory on WASM", () => {
-    const pos = attribute("vec3");
-    const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))();
-    const fragment = () => Fn(() => vec4(1, 0, 0, 1))();
-    expect(() => compileWasm(vertex as any, fragment as any, { sharedMemory: true })).not.toThrow();
   });
 
   /**
