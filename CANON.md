@@ -448,8 +448,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte`](#spec-a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte) — A JS or WASM routine adapter clamps each channel to 0 to 1 and writes it on its canvas as the nearest byte.
   - [`@spec a-scene-renderer-manages-what-it-uploads`](#spec-a-scene-renderer-manages-what-it-uploads) — A renderer of `./scene` uploads each geometry, texture and uniform once, again when it changes, and frees it when it is disposed. It compiles a program once for each light set and kind of mesh.
     - [`@spec a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise`](#spec-a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise) — `new WebGLRenderer()` gives a renderer at once, and `WebGPURenderer.init()` gives one through a promise, because WebGPU requests its device asynchronously.
+    - [`@spec a-webgpu-draw-keeps-its-own-uniforms-however-many-draws-a-frame-has`](#spec-a-webgpu-draw-keeps-its-own-uniforms-however-many-draws-a-frame-has) — Each draw of a frame on the WebGPU renderer reads its own uniforms, whatever the number of draws in the frame.
     - [`@spec a-renderer-supplies-the-camera-and-object-uniforms`](#spec-a-renderer-supplies-the-camera-and-object-uniforms) — A renderer gives a program the camera's projection, view and position, the object's world and normal matrices, and its own resolution. It gives nothing for a name it does not know.
-      - [`@bug webgpu-overwrites-the-uniforms-of-an-earlier-draw-past-64-draws`](#bug-webgpu-overwrites-the-uniforms-of-an-earlier-draw-past-64-draws) — The WebGPU renderer writes each draw's uniforms into a ring of 64 slots before it submits the frame. The 65th draw overwrites the slot the first draw reads, so the first mesh takes the 65th mesh's transform.
       - [`@bug line-resolution-ignores-the-render-target`](#bug-line-resolution-ignores-the-render-target) — The WebGL renderer gives the `resolution` uniform the canvas's drawing buffer size even while it draws into a smaller render target. A line it draws into the target then has the wrong width.
     - [`@spec a-program-is-compiled-once-per-signature`](#spec-a-program-is-compiled-once-per-signature) — A renderer compiles a material once for each light set, in order, and each instancing flag of the mesh.
     - [`@spec a-uniform-uploads-in-the-shape-its-type-has`](#spec-a-uniform-uploads-in-the-shape-its-type-has) — A renderer uploads a scalar uniform as a scalar and a vector or matrix as an array. It places every uniform a material collects in the WGSL layout.
@@ -3179,15 +3179,15 @@ This follows because a renderer that owns the drawing of a scene owns its resour
 
 > `new WebGLRenderer()` gives a renderer at once, and `WebGPURenderer.init()` gives one through a promise, because WebGPU requests its device asynchronously.
 
+#### @spec a-webgpu-draw-keeps-its-own-uniforms-however-many-draws-a-frame-has
+
+> Each draw of a frame on the WebGPU renderer reads its own uniforms, whatever the number of draws in the frame.
+
+This follows because the renderer queues every draw's uniform write before it submits the frame. The writes all land before the first draw runs. Two draws that shared a slot would read the last write.
+
 #### @spec a-renderer-supplies-the-camera-and-object-uniforms
 
 > A renderer gives a program the camera's projection, view and position, the object's world and normal matrices, and its own resolution. It gives nothing for a name it does not know.
-
-##### @bug webgpu-overwrites-the-uniforms-of-an-earlier-draw-past-64-draws
-
-> The WebGPU renderer writes each draw's uniforms into a ring of 64 slots before it submits the frame. The 65th draw overwrites the slot the first draw reads, so the first mesh takes the 65th mesh's transform.
-
-Issue: #93
 
 ##### @bug line-resolution-ignores-the-render-target
 
