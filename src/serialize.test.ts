@@ -74,6 +74,17 @@ describe("serialize/deserialize", () => {
     expect(normalized(compute(restored).code)).toBe(normalized(compute(original).code));
   });
   /**
+   * A graph whose raw-named uniform has an empty name is refused when it is rebuilt.
+   *
+   * @canon spec-a-raw-name-declares-one-input-under-that-name
+   */
+  it("refuses a rebuilt uniform with an empty name", () => {
+    const graph = serialize(() => uniformRaw("scale", "float").mul(2));
+    const json = JSON.stringify(graph).replace('"slot":"scale"', '"slot":""');
+    expect(() => deserialize(JSON.parse(json))).toThrow(/empty name/);
+  });
+
+  /**
    * @canon spec-a-restored-graph-keeps-its-shape
    */
   it("keeps a node read in several places one node", () => {

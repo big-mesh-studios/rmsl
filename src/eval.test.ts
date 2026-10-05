@@ -213,6 +213,31 @@ describe("RMSL evaluation", () => {
   }, 60_000);
 
   /**
+   * A `For` handed a variable made before the loop, whose init makes no
+   * statement, counts from the variable's value on every target.
+   *
+   * @canon spec-a-for-loops-over-a-variable-its-init-is-given
+   */
+  it("runs a for loop over a variable made before it", async () => {
+    const count = () =>
+      Fn(() => {
+        const i = float(0).toVar();
+        const total = float(0).toVar();
+        For(
+          () => i,
+          (v) => v.lessThan(3),
+          (v) => v.assign(v.add(1)),
+          () => {
+            total.assign(total.add(1));
+          },
+        );
+        return total;
+      })();
+
+    await expectValue(count, [], 3);
+  }, 60_000);
+
+  /**
    * A loop whose update does two things: advance the counter, and tally
    * alongside it. Both run four times, so the tally ends at 4.
    *

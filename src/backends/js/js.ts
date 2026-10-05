@@ -1906,7 +1906,8 @@ export function compileJSNode(
       let cond = compileJSStage(node.params![1], ctx);
       let update = compileJSBoundary(node.params![2], ctx);
       let body = compileJSBoundary(node.params![3], ctx);
-      let initExpr = init.expr;
+      // An init that makes no statement, such as a variable made before the loop, leaves the header's init empty.
+      let initExpr = "";
       let initBody = init.body;
       if (init.body.length > 0) {
         let lastStmt = init.body[init.body.length - 1];

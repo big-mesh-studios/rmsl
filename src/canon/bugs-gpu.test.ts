@@ -7,6 +7,7 @@ import {
   instancedArray,
   int,
   invocationIndex,
+  attributeRaw,
   ivec2,
   vec2,
   ivec3,
@@ -381,32 +382,39 @@ describe("known GPU bugs, each failing until its fix", () => {
   });
 
   /**
-   * A uniform whose raw name is empty compiles on WGSL to the placeholder
-   * `uniform<f32>`, which names no input.
+   * A uniform whose raw name is empty is refused.
    *
-   * @canon bug-wgsl-reads-a-nameless-uniform-as-a-placeholder
+   * @canon spec-a-raw-name-declares-one-input-under-that-name
    */
-  it.fails("refuses a uniform with an empty name on WGSL", () => {
+  it("refuses a uniform with an empty name on WGSL", () => {
     expect(() => compileWgsl.fragment(Fn(() => vec4(uniformRaw("", "float"), 0, 0, 1))())).toThrow();
   });
 
   /**
-   * A varying whose raw name is empty compiles on WGSL to the literal
-   * `vec3<f32>(0.0, 0.0, 0.0)`, whatever its type.
+   * A varying whose raw name is empty is refused.
    *
-   * @canon bug-wgsl-reads-a-nameless-varying-as-a-zero-vec3
+   * @canon spec-a-raw-name-declares-one-input-under-that-name
    */
-  it.fails("refuses a varying with an empty name on WGSL", () => {
+  it("refuses a varying with an empty name on WGSL", () => {
     expect(() => compileWgsl.fragment(Fn(() => vec4(varyingRaw("", "float"), 0, 0, 1))())).toThrow();
   });
 
   /**
-   * A `For` whose init makes no statement, such as one handed a variable
-   * made before the loop, compiles on WGSL to the header `for (0.0; …)`.
+   * An attribute whose raw name is empty is refused.
    *
-   * @canon bug-wgsl-writes-a-for-init-with-no-statement-as-a-number
+   * @canon spec-a-raw-name-declares-one-input-under-that-name
    */
-  it.fails("compiles a For whose init makes no statement to a valid WGSL header", () => {
+  it("refuses an attribute with an empty name", () => {
+    expect(() => attributeRaw("", "float")).toThrow(/empty/);
+  });
+
+  /**
+   * A `For` whose init makes no statement, such as one handed a variable
+   * made before the loop, compiles on WGSL to a header with an empty init.
+   *
+   * @canon spec-a-for-loops-over-a-variable-its-init-is-given
+   */
+  it("compiles a For whose init makes no statement to a valid WGSL header", () => {
     const code = compileWgsl.fragment(
       Fn(() => {
         const i = int(0).toVar();
@@ -430,20 +438,16 @@ describe("known GPU bugs, each failing until its fix", () => {
 
 describe.skipIf(!GPU_ENABLED)("known GPU bugs on a WebGPU device, each failing until its fix", () => {
   /**
-   * WGSL widens a scalar branch of `select` to a float vector whatever its
-   * type, so an integer select of a vector and a scalar is refused by the
+   * WGSL widens a scalar branch of `select` to the vector type of the other
+   * branch, so an integer select of a vector and a scalar is accepted by the
    * driver.
    *
-   * @canon bug-wgsl-widens-an-integer-select-branch-to-a-float-vector
+   * @canon spec-select-picks-one-of-two-values
    */
-  it.fails(
-    "selects between an ivec3 and an int on WGSL",
-    async () => {
-      const build = () => vec3(select(bvec3(true, false, true), ivec3(4, 5, 6), int(1)));
-      expect(await evaluateWGSL(build as any)).toEqual([4, 1, 6]);
-    },
-    60_000,
-  );
+  it("selects between an ivec3 and an int on WGSL", async () => {
+    const build = () => vec3(select(bvec3(true, false, true), ivec3(4, 5, 6), int(1)));
+    expect(await evaluateWGSL(build as any)).toEqual([4, 1, 6]);
+  }, 60_000);
 });
 
 describe.skipIf(!GPU_ENABLED)("createGlsl in a browser", () => {

@@ -2784,7 +2784,13 @@ export function invocationIndex(): Node<"uint"> {
   }) as Node<"uint">;
 }
 
+/** Refuses an empty name, which declares an input that no target can read by name. */
+function assertRawName(name: string, fn: string): void {
+  if (name === "") throw new Error(`[RMSL] ${fn}: the name is empty`);
+}
+
 export function uniformRaw<T extends ShaderType>(name: string, shaderType: T): UniformNode<T> {
+  assertRawName(name, "uniformRaw");
   let id = nextUniformId++;
   const result = node({
     _t: shaderType,
@@ -2818,6 +2824,7 @@ export function attribute<T extends ShaderType>(shaderType: T): AttributeNode<T>
 }
 
 export function attributeRaw<T extends ShaderType>(name: string, shaderType: T): AttributeNode<T> {
+  assertRawName(name, "attributeRaw");
   let id = nextAttrId++;
   const result = node({
     _t: shaderType,
@@ -2840,6 +2847,7 @@ export function varying<T extends ShaderType>(shaderType: T): VaryingNode<T> {
 }
 
 export function varyingRaw<T extends ShaderType>(name: string, shaderType: T): VaryingNode<T> {
+  assertRawName(name, "varyingRaw");
   let id = nextVaryingId++;
   const result = node({
     _t: shaderType,
