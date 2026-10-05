@@ -93,6 +93,7 @@ describe("each leaf on every target it claims", () => {
       expect(evaluateRecording(round, [half]), `round(${half})`).toBe(even);
     }
     expect(evaluateRecording(() => float(2.5).round())).toBe(2);
+    expect(evaluateRecording((a) => vec3(a, a.add(1), a.add(2)).round(), [0.5])).toEqual([0, 2, 2]);
   });
 
   /**
