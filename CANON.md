@@ -448,6 +448,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-scene-renderer-manages-what-it-uploads`](#spec-a-scene-renderer-manages-what-it-uploads) — A renderer of `./scene` uploads each geometry, texture and uniform once, again when it changes, and frees it when it is disposed. It compiles a program once for each light set and kind of mesh.
     - [`@spec a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise`](#spec-a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise) — `new WebGLRenderer()` gives a renderer at once, and `WebGPURenderer.init()` gives one through a promise, because WebGPU requests its device asynchronously.
     - [`@spec a-webgpu-draw-keeps-its-own-uniforms-however-many-draws-a-frame-has`](#spec-a-webgpu-draw-keeps-its-own-uniforms-however-many-draws-a-frame-has) — Each draw of a frame on the WebGPU renderer reads its own uniforms, whatever the number of draws in the frame.
+    - [`@spec a-webgpu-renderer-frees-the-uniform-buffers-it-no-longer-uses`](#spec-a-webgpu-renderer-frees-the-uniform-buffers-it-no-longer-uses) — The WebGPU renderer frees the uniform buffer of a pipeline it replaces, and shrinks a program's uniform ring once a frame needs far fewer slots.
     - [`@spec a-renderer-supplies-the-camera-and-object-uniforms`](#spec-a-renderer-supplies-the-camera-and-object-uniforms) — A renderer gives a program the camera's projection, view and position, the object's world and normal matrices, and its own resolution. It gives nothing for a name it does not know.
       - [`@bug line-resolution-ignores-the-render-target`](#bug-line-resolution-ignores-the-render-target) — The WebGL renderer gives the `resolution` uniform the canvas's drawing buffer size even while it draws into a smaller render target. A line it draws into the target then has the wrong width.
     - [`@spec a-program-is-compiled-once-per-signature`](#spec-a-program-is-compiled-once-per-signature) — A renderer compiles a material once for each light set, in order, and each instancing flag of the mesh.
@@ -3177,6 +3178,12 @@ This follows because a renderer that owns the drawing of a scene owns its resour
 > Each draw of a frame on the WebGPU renderer reads its own uniforms, whatever the number of draws in the frame.
 
 This follows because the renderer queues every draw's uniform write before it submits the frame. The writes all land before the first draw runs. Two draws that shared a slot would read the last write.
+
+#### @spec a-webgpu-renderer-frees-the-uniform-buffers-it-no-longer-uses
+
+> The WebGPU renderer frees the uniform buffer of a pipeline it replaces, and shrinks a program's uniform ring once a frame needs far fewer slots.
+
+This follows because a renderer that owns what it uploads frees what nothing reads any more.
 
 #### @spec a-renderer-supplies-the-camera-and-object-uniforms
 

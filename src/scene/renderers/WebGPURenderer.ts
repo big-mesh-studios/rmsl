@@ -59,6 +59,8 @@ interface PipelineEntry {
   ringBuffer: GPUBuffer;
   slotSize: number;
   slots: number;
+  /** Frames in a row the ring has held more than four times the slots the frame needed. */
+  oversizedFrames: number;
   layoutMembers: { name: string; offset: number }[];
   /** What a render pipeline of this program is built from. */
   pipelineDescriptor: Omit<GPURenderPipelineDescriptor, "vertex"> & { vertexModule: GPUShaderModule };
@@ -96,6 +98,9 @@ interface GeometryBuffers {
 
 const UNIFORM_SLOTS = 64;
 
+/** Frames a uniform ring stays oversized before it shrinks, so a scene that comes and goes does not reallocate it. */
+const RING_SHRINK_FRAMES = 60;
+
 /**
  * A WebGPU renderer for `@random-mesh/rmsl/scene`, mirroring the WebGL
  * renderer: material node graphs compile to WGSL, uniform values are packed
@@ -110,6 +115,13 @@ export class WebGPURenderer {
   format: GPUTextureFormat;
 
   private pipelines = new Map<NodeMaterial, Map<string, PipelineEntry>>();
+  /** The draws of the frame being recorded, kept between frames so recording one allocates nothing. */
+  private frameMeshes: Mesh[] = [];
+  private frameEntries: PipelineEntry[] = [];
+  private frameVariants: PipelineVariant[] = [];
+  /** How many draws of the frame each program has, and how many of them are recorded so far. */
+  private frameDrawCounts = new Map<PipelineEntry, number>();
+  private frameSlots = new Map<PipelineEntry, number>();
   private geometryBuffers = new Map<BufferGeometry, GeometryBuffers>();
   /**
    * Buffers for attributes that live on the object rather than the geometry —
@@ -191,93 +203,117 @@ export class WebGPURenderer {
     this.ensureDepthTexture();
     const device = this.device;
 
-    const draws: { mesh: Mesh; entry: PipelineEntry; variant: PipelineVariant; instancing: boolean }[] = [];
-    const drawCounts = new Map<PipelineEntry, number>();
-    scene.traverseVisible((object) => {
-      if (!object.isMesh) return;
-      const mesh = object as Mesh;
-      const material = mesh.material;
-      if (!(material as NodeMaterial).isNodeMaterial) return;
-      const instancing = (mesh as InstancedMesh).isInstancedMesh === true;
-      const instancingColor = instancing && (mesh as InstancedMesh).instanceColor !== null;
-      const entry = this.ensurePipeline(material as NodeMaterial, scene, instancing, instancingColor);
-      if (!entry) return;
-      draws.push({ mesh, entry, variant: this.pipelineVariant(entry, mesh), instancing });
-      drawCounts.set(entry, (drawCounts.get(entry) ?? 0) + 1);
-    });
-    // Every draw's uniforms are written before the frame is submitted, so each draw needs a slot of its own.
-    for (const [entry, count] of drawCounts) this.growRing(entry, count);
-
-    // After the draws are collected, so an attribute that is refused leaves no half-recorded frame.
-    const encoder = device.createCommandEncoder();
-    const colorView = this.context.getCurrentTexture().createView();
-
-    const nextSlot = new Map<PipelineEntry, number>();
-    let firstPass = true;
-    for (const { mesh, entry, variant, instancing } of draws) {
-      const slotIndex = nextSlot.get(entry) ?? 0;
-      nextSlot.set(entry, slotIndex + 1);
-
-      // Give objects a chance to update per-draw state (line resolution, ...).
-      mesh.onBeforeRender?.(this, scene, camera);
-
-      this.packUniforms(entry, mesh, camera, slotIndex);
-
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [
-          {
-            view: colorView,
-            clearValue: { r: this.clearColor.r, g: this.clearColor.g, b: this.clearColor.b, a: this.clearAlpha },
-            loadOp: firstPass ? "clear" : "load",
-            storeOp: "store",
-          },
-        ],
-        depthStencilAttachment: {
-          view: this.depthView!,
-          depthClearValue: 1.0,
-          depthLoadOp: firstPass ? "clear" : "load",
-          depthStoreOp: "store",
-        },
+    const { frameMeshes, frameEntries, frameVariants, frameDrawCounts, frameSlots } = this;
+    frameMeshes.length = frameEntries.length = frameVariants.length = 0;
+    frameDrawCounts.clear();
+    frameSlots.clear();
+    try {
+      scene.traverseVisible((object) => {
+        if (!object.isMesh) return;
+        const mesh = object as Mesh;
+        const material = mesh.material;
+        if (!(material as NodeMaterial).isNodeMaterial) return;
+        const instancing = (mesh as InstancedMesh).isInstancedMesh === true;
+        const instancingColor = instancing && (mesh as InstancedMesh).instanceColor !== null;
+        const entry = this.ensurePipeline(material as NodeMaterial, scene, instancing, instancingColor);
+        if (!entry) return;
+        frameMeshes.push(mesh);
+        frameEntries.push(entry);
+        frameVariants.push(this.pipelineVariant(entry, mesh));
+        frameDrawCounts.set(entry, (frameDrawCounts.get(entry) ?? 0) + 1);
       });
-      firstPass = false;
-
-      pass.setPipeline(variant.pipeline);
-      // The compiler puts the uniform struct in group 0, textures in group 1
-      // and samplers in group 2, so a draw sets one group per kind.
-      pass.setBindGroup(0, entry.bindGroup, [slotIndex * entry.slotSize]);
-      if (entry.textureBindGroup) pass.setBindGroup(1, entry.textureBindGroup);
-      if (entry.samplerBindGroup) pass.setBindGroup(2, entry.samplerBindGroup);
-      this.setVertexBuffers(pass, variant, mesh);
-
-      const geometry = mesh.geometry;
-      const instanceCount = instancing ? (mesh as InstancedMesh).count : geometry.instanceCount;
-      if (geometry.index) {
-        const buffers = this.ensureGeometryBuffers(geometry);
-        pass.setIndexBuffer(buffers.index!, buffers.indexFormat as GPUIndexFormat, 0);
-        pass.drawIndexed(geometry.index.count, instanceCount);
-      } else {
-        pass.draw(geometry.attributes.position?.count ?? 0, instanceCount);
+      // Every draw's uniforms are written before the frame is submitted, so each draw needs a slot of its own.
+      for (const bySignature of this.pipelines.values()) {
+        for (const entry of bySignature.values()) this.fitRing(entry, frameDrawCounts.get(entry) ?? 0);
       }
-      pass.end();
-    }
 
-    device.queue.submit([encoder.finish()]);
+      // After the draws are collected, so an attribute that is refused leaves no half-recorded frame.
+      const encoder = device.createCommandEncoder();
+      const colorView = this.context.getCurrentTexture().createView();
+
+      let firstPass = true;
+      for (let draw = 0; draw < frameMeshes.length; draw++) {
+        const mesh = frameMeshes[draw];
+        const entry = frameEntries[draw];
+        const variant = frameVariants[draw];
+        const instancing = (mesh as InstancedMesh).isInstancedMesh === true;
+        const slotIndex = frameSlots.get(entry) ?? 0;
+        frameSlots.set(entry, slotIndex + 1);
+
+        // Give objects a chance to update per-draw state (line resolution, ...).
+        mesh.onBeforeRender?.(this, scene, camera);
+
+        this.packUniforms(entry, mesh, camera, slotIndex);
+
+        const pass = encoder.beginRenderPass({
+          colorAttachments: [
+            {
+              view: colorView,
+              clearValue: { r: this.clearColor.r, g: this.clearColor.g, b: this.clearColor.b, a: this.clearAlpha },
+              loadOp: firstPass ? "clear" : "load",
+              storeOp: "store",
+            },
+          ],
+          depthStencilAttachment: {
+            view: this.depthView!,
+            depthClearValue: 1.0,
+            depthLoadOp: firstPass ? "clear" : "load",
+            depthStoreOp: "store",
+          },
+        });
+        firstPass = false;
+
+        pass.setPipeline(variant.pipeline);
+        // The compiler puts the uniform struct in group 0, textures in group 1
+        // and samplers in group 2, so a draw sets one group per kind.
+        pass.setBindGroup(0, entry.bindGroup, [slotIndex * entry.slotSize]);
+        if (entry.textureBindGroup) pass.setBindGroup(1, entry.textureBindGroup);
+        if (entry.samplerBindGroup) pass.setBindGroup(2, entry.samplerBindGroup);
+        this.setVertexBuffers(pass, variant, mesh);
+
+        const geometry = mesh.geometry;
+        const instanceCount = instancing ? (mesh as InstancedMesh).count : geometry.instanceCount;
+        if (geometry.index) {
+          const buffers = this.ensureGeometryBuffers(geometry);
+          pass.setIndexBuffer(buffers.index!, buffers.indexFormat as GPUIndexFormat, 0);
+          pass.drawIndexed(geometry.index.count, instanceCount);
+        } else {
+          pass.draw(geometry.attributes.position?.count ?? 0, instanceCount);
+        }
+        pass.end();
+      }
+
+      device.queue.submit([encoder.finish()]);
+    } finally {
+      // Holding the meshes between frames would keep a removed mesh alive.
+      frameMeshes.length = frameEntries.length = frameVariants.length = 0;
+    }
   }
 
-  /** Makes the uniform ring of `entry` hold at least `slots` draws, keeping the draws' binding. */
-  private growRing(entry: PipelineEntry, slots: number): void {
-    if (slots <= entry.slots) return;
-    const grown = Math.max(slots, entry.slots * 2);
+  /**
+   * Makes the uniform ring of `entry` hold `draws` slots of a frame: it grows
+   * to at least twice its size when too small, and shrinks to twice the draws
+   * once it has held more than four times as many as a frame needs for
+   * `RING_SHRINK_FRAMES` frames in a row.
+   */
+  private fitRing(entry: PipelineEntry, draws: number): void {
+    let slots = entry.slots;
+    const oversized = slots > UNIFORM_SLOTS && slots > draws * 4;
+    entry.oversizedFrames = oversized ? entry.oversizedFrames + 1 : 0;
+    if (draws > slots) slots = Math.max(draws, slots * 2);
+    else if (oversized && entry.oversizedFrames >= RING_SHRINK_FRAMES) slots = Math.max(UNIFORM_SLOTS, draws * 2);
+    if (slots === entry.slots) return;
+    entry.oversizedFrames = 0;
     entry.ringBuffer.destroy();
     entry.ringBuffer = this.device.createBuffer({
-      size: entry.slotSize * grown,
+      size: entry.slotSize * slots,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     entry.bindGroup = this.device.createBindGroup({
       layout: entry.bindGroupLayouts.uniforms,
       entries: [{ binding: 0, resource: { buffer: entry.ringBuffer, offset: 0, size: entry.slotSize } }],
     });
-    entry.slots = grown;
+    entry.slots = slots;
   }
 
   private packUniforms(entry: PipelineEntry, mesh: Mesh, camera: Camera, slotIndex: number): void {
@@ -436,6 +472,7 @@ export class WebGPURenderer {
       ringBuffer,
       slotSize,
       slots,
+      oversizedFrames: 0,
       layoutMembers,
     };
     this.bindTextures(built);
@@ -443,6 +480,8 @@ export class WebGPURenderer {
       bySignature = new Map();
       this.pipelines.set(material, bySignature);
     }
+    // The entry this one replaces is never drawn again, so its ring goes with it.
+    bySignature.get(signature)?.ringBuffer.destroy();
     bySignature.set(signature, built);
     material.needsUpdate = false;
     return built;
