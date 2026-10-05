@@ -815,8 +815,10 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       let w = Math.max(aW, bW);
       let aExpr = a.expr;
       let bExpr = b.expr;
-      if (aW === 1 && w > 1) aExpr = `vec${w}<f32>(${aExpr})`;
-      if (bW === 1 && w > 1) bExpr = `vec${w}<f32>(${bExpr})`;
+      // A scalar branch widens to the vector type of the other, not to a float vector.
+      let wide = wgslType(aW >= bW ? (node.params![1] as any)?._t : (node.params![2] as any)?._t);
+      if (aW === 1 && w > 1) aExpr = `${wide}(${aExpr})`;
+      if (bW === 1 && w > 1) bExpr = `${wide}(${bExpr})`;
       return {
         decls: [...cond.decls, ...a.decls, ...b.decls],
         body: [...cond.body, ...a.body, ...b.body],
@@ -1219,7 +1221,8 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       let cd = compileWGSLStage(node.params![1], ctx);
       let update = compileWGSLStage(node.params![2], ctx);
       let body = compileWGSLStage(node.params![3], ctx);
-      let initExpr = init.expr;
+      // An init that makes no statement, such as a variable made before the loop, leaves the header's init empty.
+      let initExpr = "";
       let initBody = init.body;
       if (init.body.length > 0) {
         let lastStmt = init.body[init.body.length - 1];
@@ -1243,7 +1246,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
           body: [
             ...initBody,
             "{",
-            `  ${initExpr};`,
+            ...(initExpr ? [`  ${initExpr};`] : []),
             "  loop {",
             ...[...loopGuard(cd), ...body.body].map((l) => "    " + l),
             "    continuing {",

@@ -190,9 +190,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-generated-name-is-local-to-its-program`](#spec-a-generated-name-is-local-to-its-program) — A name the compiler generates for an input or an output connects every reference to it inside its program. The same generated name in another program names a different input.
       - [`@bug serialize-keeps-the-generated-name-of-an-output`](#bug-serialize-keeps-the-generated-name-of-an-output) — `serialize` keeps the generated name of a stage output, `_rmsl_oN`, so two graphs restored from it write one output.
     - [`@spec a-raw-name-is-absolute`](#spec-a-raw-name-is-absolute) — A name given to `uniformRaw`, `attributeRaw` or `varyingRaw` is used as given. Every node that carries it, in any program and any process, is one input, declared once.
-      - [`@spec a-raw-name-declares-one-input-under-that-name`](#spec-a-raw-name-declares-one-input-under-that-name) — `uniformRaw`, `attributeRaw` and `varyingRaw` declare their input under the name given, once however many nodes carry it, and every target reads it by that name.
-        - [`@bug wgsl-reads-a-nameless-uniform-as-a-placeholder`](#bug-wgsl-reads-a-nameless-uniform-as-a-placeholder) — A uniform whose raw name is empty compiles on WGSL to the placeholder `uniform<f32>`, which names no input.
-        - [`@bug wgsl-reads-a-nameless-varying-as-a-zero-vec3`](#bug-wgsl-reads-a-nameless-varying-as-a-zero-vec3) — A varying whose raw name is empty compiles on WGSL to the literal `vec3<f32>(0.0, 0.0, 0.0)`, whatever its type.
+      - [`@spec a-raw-name-declares-one-input-under-that-name`](#spec-a-raw-name-declares-one-input-under-that-name) — `uniformRaw`, `attributeRaw` and `varyingRaw` declare their input under the name given, once however many nodes carry it, and every target reads it by that name. An empty name is refused.
       - [`@spec a-raw-name-names-one-type`](#spec-a-raw-name-names-one-type) — Two inputs that share a name but not a type are refused on every target.
       - [`@spec time-is-one-uniform-everywhere`](#spec-time-is-one-uniform-everywhere) — `time()` gives one uniform, named `_rmsl_time`, in every program and every process, so every program that reads it reads one clock.
     - [`@spec a-location-is-numbered-within-its-program`](#spec-a-location-is-numbered-within-its-program) — The locations of a program's outputs, and of the values a vertex stage passes on, count from 0 within that program, each used once.
@@ -256,13 +254,13 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-while-condition-given-as-a-node-is-built-once`](#spec-a-while-condition-given-as-a-node-is-built-once) — A variable that a `While` condition given as a node makes is computed once, before the loop. The condition then reads that value on every test.
       - [`@exception a-while-condition-given-as-a-function-is-computed-before-every-test`](#exception-a-while-condition-given-as-a-function-is-computed-before-every-test) — A `While` condition given as a function is computed before every test, a variable it makes included.
     - [`@spec for-runs-its-init-condition-body-and-update`](#spec-for-runs-its-init-condition-body-and-update) — `For(init, condition, update, body)` makes its loop variable with `init`, and tests `condition` before every iteration. Each iteration runs `body`, then `update`.
+      - [`@spec a-for-loops-over-a-variable-its-init-is-given`](#spec-a-for-loops-over-a-variable-its-init-is-given) — A `For` whose init makes no statement, such as one handed a variable made before the loop, loops over that variable as it is.
       - [`@spec a-for-runs-its-body-and-update-while-its-condition-holds`](#spec-a-for-runs-its-body-and-update-while-its-condition-holds) — A `For` makes its loop variable once, then runs its body and its update, in that order, for as long as its condition holds.
       - [`@spec a-variable-a-for-condition-makes-stays-in-scope`](#spec-a-variable-a-for-condition-makes-stays-in-scope) — The update of a `For`, and the code after the loop, can read a variable that its condition makes.
       - [`@spec a-loop-condition-runs-its-statements-before-every-test`](#spec-a-loop-condition-runs-its-statements-before-every-test) — A statement that a `For` condition, or a `While` condition given as a function, writes runs before every test. A `Break` or `Continue` among them acts as it would in the body.
       - [`@spec continue-in-a-for-runs-the-update`](#spec-continue-in-a-for-runs-the-update) — `Continue` in the body of a `For` runs the update, then the condition.
       - [`@exception for-is-a-name-tsl-lacks`](#exception-for-is-a-name-tsl-lacks) — rmsl writes a loop with its own condition and update as `For`. TSL has no `For`, and takes a comparison operator and a step in the object shape of `Loop`.
       - [`@exception a-for-condition-is-computed-before-every-test`](#exception-a-for-condition-is-computed-before-every-test) — A `For` condition is computed before every test, a variable it makes included, also when an `Fn` the condition calls makes the variable.
-      - [`@bug wgsl-writes-a-for-init-with-no-statement-as-a-number`](#bug-wgsl-writes-a-for-init-with-no-statement-as-a-number) — A `For` whose init makes no statement, such as one handed a variable made before the loop, compiles on WGSL to the header `for (0.0; …)`.
   - [`@spec an-operation-means-what-it-means-in-tsl`](#spec-an-operation-means-what-it-means-in-tsl) — An operation computes what the operation of the same name computes in TSL, and takes its arguments in the same order. It compiles to the built-in of each target that computes it.
     - [`@spec arithmetic-compiles-to-the-operators-of-the-target`](#spec-arithmetic-compiles-to-the-operators-of-the-target) — `add`, `sub`, `mul` and `div`, as methods or free functions, compile to the operators of each target.
     - [`@spec a-math-function-compiles-to-the-builtin-of-the-target`](#spec-a-math-function-compiles-to-the-builtin-of-the-target) — A math function, such as `sin`, `floor`, `pow`, `inversesqrt` or `determinant`, compiles to the built-in of each target, under the name that target gives it.
@@ -275,7 +273,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-compound-assignment-writes-the-result-back`](#spec-a-compound-assignment-writes-the-result-back) — `addAssign`, `subAssign`, `mulAssign`, `divAssign` and `modAssign` write the result of their operation back to the variable.
     - [`@spec select-picks-one-of-two-values`](#spec-select-picks-one-of-two-values) — `select(condition, a, b)` gives `a` where `condition` holds and `b` where it does not, with the type of its branches. A literal condition folds to its branch.
       - [`@bug select-types-a-bare-number-branch-as-a-float`](#bug-select-types-a-bare-number-branch-as-a-float) — `select` types a bare-number branch as a float beside an integer branch, so the node takes the type of the branch that comes first. JS then divides it as a float, and WASM emits a module WebAssembly rejects.
-      - [`@bug wgsl-widens-an-integer-select-branch-to-a-float-vector`](#bug-wgsl-widens-an-integer-select-branch-to-a-float-vector) — WGSL widens a scalar branch of `select` to a float vector whatever its type. The driver refuses an integer select of a vector and a scalar.
     - [`@spec the-screen-accessors-follow-tsl`](#spec-the-screen-accessors-follow-tsl) — `fragCoord()` gives the coordinate of the fragment, and `screenUV()` and `uv()` give it divided by the size of the screen. `screenSize()` gives one shared uniform, and `time()` a float uniform. Each does what TSL's accessor of the same name does.
       - [`@bug screen-size-makes-a-new-uniform-on-every-call`](#bug-screen-size-makes-a-new-uniform-on-every-call) — `screenSize()` declares a new uniform each time it is called, so a program that calls `uv()` twice reads two size uniforms.
     - [`@spec the-index-accessors-follow-tsl`](#spec-the-index-accessors-follow-tsl) — `vertexIndex()` and `instanceIndex()` give the vertex and the instance that the GPU draws, as TSL's accessors of the same names do. The CPU targets do not compile them yet: issue #47.
@@ -1779,19 +1776,7 @@ Issue: #80
 
 ##### @spec a-raw-name-declares-one-input-under-that-name
 
-> `uniformRaw`, `attributeRaw` and `varyingRaw` declare their input under the name given, once however many nodes carry it, and every target reads it by that name.
-
-###### @bug wgsl-reads-a-nameless-uniform-as-a-placeholder
-
-> A uniform whose raw name is empty compiles on WGSL to the placeholder `uniform<f32>`, which names no input.
-
-Issue: #106
-
-###### @bug wgsl-reads-a-nameless-varying-as-a-zero-vec3
-
-> A varying whose raw name is empty compiles on WGSL to the literal `vec3<f32>(0.0, 0.0, 0.0)`, whatever its type.
-
-Issue: #106
+> `uniformRaw`, `attributeRaw` and `varyingRaw` declare their input under the name given, once however many nodes carry it, and every target reads it by that name. An empty name is refused.
 
 ##### @spec a-raw-name-names-one-type
 
@@ -2128,6 +2113,10 @@ Derives from: [`fact-tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-
 
 > `For(init, condition, update, body)` makes its loop variable with `init`, and tests `condition` before every iteration. Each iteration runs `body`, then `update`.
 
+##### @spec a-for-loops-over-a-variable-its-init-is-given
+
+> A `For` whose init makes no statement, such as one handed a variable made before the loop, loops over that variable as it is.
+
 ##### @spec a-for-runs-its-body-and-update-while-its-condition-holds
 
 > A `For` makes its loop variable once, then runs its body and its update, in that order, for as long as its condition holds.
@@ -2155,12 +2144,6 @@ Derives from: [`fact-tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-o
 > A `For` condition is computed before every test, a variable it makes included, also when an `Fn` the condition calls makes the variable.
 
 Derives from: [`fact-tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-condition-once)
-
-##### @bug wgsl-writes-a-for-init-with-no-statement-as-a-number
-
-> A `For` whose init makes no statement, such as one handed a variable made before the loop, compiles on WGSL to the header `for (0.0; …)`.
-
-Issue: #106
 
 ### @spec an-operation-means-what-it-means-in-tsl
 
@@ -2219,12 +2202,6 @@ Issue: #130
 > `select` types a bare-number branch as a float beside an integer branch, so the node takes the type of the branch that comes first. JS then divides it as a float, and WASM emits a module WebAssembly rejects.
 
 Issue: #76
-
-##### @bug wgsl-widens-an-integer-select-branch-to-a-float-vector
-
-> WGSL widens a scalar branch of `select` to a float vector whatever its type. The driver refuses an integer select of a vector and a scalar.
-
-Issue: #106
 
 #### @spec the-screen-accessors-follow-tsl
 
