@@ -78,19 +78,26 @@ function run(source: string, entryPoint: string) {
 }
 
 describe.skipIf(!WEBGPU)("createWgsl drawing storage buffers on a real adapter", () => {
+  /**
+   * @canon spec-a-wgsl-buffer-feeds-a-draw-without-a-copy
+   */
   it("draws what a compute context's program wrote", async () => {
     const pixel = await run(ENTRY_CONTEXT, "__rmslAdapterContextRun");
     expect(pixel.r).toBeGreaterThan(120);
     expect(pixel.r).toBeLessThan(136);
   }, 60_000);
-
+  /**
+   * @canon spec-several-adapters-draw-on-one-canvas
+   */
   it("composes adapters on one canvas, clearing to the clear colour, and ignores an unread uniform", async () => {
     const { left, corner, cleared } = await run(ENTRY_COMPOSE, "__rmslAdapterComposeRun");
     expect(left).toMatchObject({ r: 255, g: 0, b: 0 });
     expect(corner).toMatchObject({ r: 0, g: 255, b: 0 });
     expect(cleared).toMatchObject({ r: 0, g: 0, b: 255 });
   }, 60_000);
-
+  /**
+   * @canon spec-a-wgsl-buffer-feeds-a-draw-without-a-copy
+   */
   it("fills its own storage buffers through setAttribute without a context", async () => {
     const pixel = await run(ENTRY_OWN_BUFFERS, "__rmslAdapterOwnBuffersRun");
     expect(pixel.g).toBeGreaterThan(56);

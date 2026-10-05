@@ -57,6 +57,9 @@ afterAll(async () => {
 }, 120_000);
 
 describe("core primitives for effects", () => {
+  /**
+   * @canon spec-select-picks-one-of-two-values
+   */
   it("compiles select to a ternary in GLSL and select() in WGSL", () => {
     const prog = Fn(() => {
       const c = uniform("float");
@@ -67,14 +70,18 @@ describe("core primitives for effects", () => {
     const wgsl = compileWgsl(prog());
     expect(wgsl).toContain("select(");
   });
-
+  /**
+   * @canon spec-select-picks-one-of-two-values
+   */
   it("folds a select with a literal condition", () => {
     const prog = Fn(() => select(bool(true), float(1.0), float(2.0)).toVar());
     const glsl = compileGlsl(prog());
     expect(glsl).toContain("1.0");
     expect(glsl).not.toContain("?");
   });
-
+  /**
+   * @canon spec-an-operand-that-is-an-expression-keeps-its-grouping
+   */
   it("parenthesizes a select nested in a higher-precedence operation", () => {
     // `a * (c ? x : y)` must not collapse to `(a * c) ? x : y`.
     const prog = Fn(() => {
@@ -89,7 +96,9 @@ describe("core primitives for effects", () => {
     const wgsl = compileWgsl(prog());
     expect(wgsl).toContain("select(");
   });
-
+  /**
+   * @canon spec-an-operation-no-target-has-is-composed
+   */
   it("compiles luminance, rand and interleavedGradientNoise", () => {
     const prog = Fn(() => {
       const color = vec3(0.2, 0.4, 0.6);
@@ -101,7 +110,10 @@ describe("core primitives for effects", () => {
     const wgsl = compileWgsl(prog());
     expect(wgsl).toContain("sin");
   });
-
+  /**
+   * @canon spec-texture-size-gives-the-dimensions
+   * @canon spec-texture-load-reads-one-texel-of-a-float-texture
+   */
   it("compiles textureSize and textureLoad on a float sampler", () => {
     const prog = Fn(() => {
       const tex = uniform("sampler2D");
@@ -113,7 +125,9 @@ describe("core primitives for effects", () => {
     const wgsl = compileWgsl(prog());
     expect(wgsl).toContain("textureLoad(");
   });
-
+  /**
+   * @canon spec-the-screen-accessors-follow-tsl
+   */
   it("reads the fragment coordinate", () => {
     const prog = Fn(() => fragCoord().div(vec2(800, 600)).toVar());
     const glsl = compileGlsl(prog());
@@ -121,7 +135,9 @@ describe("core primitives for effects", () => {
     const wgsl = compileWgsl(prog());
     expect(wgsl).toContain("@builtin(position)");
   });
-
+  /**
+   * @canon spec-time-is-one-uniform-everywhere
+   */
   it("declares a shared time uniform", () => {
     const prog = Fn(() => time().mul(1.0).toVar());
     const glsl = compileGlsl(prog());
@@ -130,18 +146,25 @@ describe("core primitives for effects", () => {
 });
 
 describe("color effects", () => {
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
   it("sepia", () => {
     const color = vec4(0.5, 0.3, 0.2, 1.0);
     const glsl = compileGlsl(sepia(color));
     expect(glsl).toContain("dot(");
   });
-
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
   it("bleach bypass", () => {
     const color = vec4(0.5, 0.3, 0.2, 1.0);
     const glsl = compileGlsl(bleach(color));
     expect(glsl).toContain("mix(");
   });
-
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
   it("dotScreen", () => {
     const color = vec4(0.5, 0.3, 0.2, 1.0);
     const glsl = compileGlsl(dotScreen(color));
@@ -149,7 +172,9 @@ describe("color effects", () => {
     const wgsl = compileWgsl(dotScreen(color));
     expect(wgsl).toContain("@builtin(position)");
   });
-
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
   it("circle", () => {
     const glsl = compileGlsl(vec4(circle(1.0, 0.5, uniform("vec2")), 0, 0, 1));
     expect(glsl).toContain("smoothstep");
@@ -158,23 +183,31 @@ describe("color effects", () => {
 
 describe("texture-based effects", () => {
   const tex = () => uniform("sampler2D");
-
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
   it("rgbShift", () => {
     const glsl = compileGlsl(rgbShift(tex()));
     expect(glsl).toContain("texture(");
     expect(glsl).toContain("uniform sampler2D");
   });
-
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
   it("chromaticAberration", () => {
     const glsl = compileGlsl(chromaticAberration(tex()));
     expect(glsl).toContain("texture(");
   });
-
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
   it("film", () => {
     const glsl = compileGlsl(film(vec4(0.5, 0.3, 0.2, 1.0)));
     expect(glsl).toContain("sin(");
   });
-
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
   it("transition with a mix texture", () => {
     const a = tex();
     const b = tex();
@@ -183,7 +216,9 @@ describe("texture-based effects", () => {
     expect(glsl).toContain("if (");
     expect(glsl).toContain("else");
   });
-
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
   it("motionBlur", () => {
     const velocity = vec2(0.01, 0.0);
     const glsl = compileGlsl(motionBlur(tex(), velocity, 8));
@@ -191,14 +226,18 @@ describe("texture-based effects", () => {
     const wgsl = compileWgsl(motionBlur(tex(), velocity, 8));
     expect(wgsl).toContain("for (");
   });
-
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
   it("sharpen (RCAS)", () => {
     const glsl = compileGlsl(sharpen(tex()));
     expect(glsl).toContain("texelFetch");
     const wgsl = compileWgsl(sharpen(tex()));
     expect(wgsl).toContain("textureLoad(");
   });
-
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
   it("fxaa", () => {
     const glsl = compileGlsl(fxaa(tex()));
     expect(glsl).toContain("texture(");
@@ -208,7 +247,9 @@ describe("texture-based effects", () => {
     const wgsl = compileWgsl(fxaa(tex()));
     expect(wgsl).toContain("select(");
   });
-
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
   it("sobel", () => {
     const glsl = compileGlsl(sobel(tex()));
     expect(glsl).toContain("texture(");
@@ -218,21 +259,27 @@ describe("texture-based effects", () => {
 
 describe("blur effects", () => {
   const tex = () => uniform("sampler2D");
-
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
   it("boxBlur", () => {
     const glsl = compileGlsl(boxBlur(tex(), { size: 1 }));
     expect(glsl).toContain("for (");
     const wgsl = compileWgsl(boxBlur(tex(), { size: 1 }));
     expect(wgsl).toContain("for (");
   });
-
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
   it("hashBlur", () => {
     const glsl = compileGlsl(hashBlur(tex()));
     expect(glsl).toContain("sin");
     const wgsl = compileWgsl(hashBlur(tex()));
     expect(wgsl).toContain("sin");
   });
-
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
   it("radialBlur", () => {
     const glsl = compileGlsl(radialBlur(tex()));
     expect(glsl).toContain("for (");
@@ -242,6 +289,9 @@ describe("blur effects", () => {
 });
 
 describe("lut3D", () => {
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
   it("samples a 3D lookup texture", () => {
     const input = vec4(0.5, 0.3, 0.2, 1.0);
     const lut = uniform("sampler3D");
@@ -254,6 +304,9 @@ describe("lut3D", () => {
 });
 
 describe("crt", () => {
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
   it("composes the CRT effects", () => {
     const glsl = compileGlsl(crt(uniform("sampler2D")));
     expect(glsl).toContain("texture(");
@@ -265,6 +318,9 @@ describe("crt", () => {
 });
 
 describe("gaussianBlur pass graph", () => {
+  /**
+   * @canon spec-an-effect-with-several-passes-is-a-pass-graph
+   */
   it("produces a two-pass graph that compiles on both backends", () => {
     const graph = gaussianBlur(uniform("sampler2D"), [1, 1], 4);
     expect(graph.passes).toHaveLength(2);
@@ -277,6 +333,9 @@ describe("gaussianBlur pass graph", () => {
     }
   });
 
+  /**
+   * @canon spec-an-effect-with-several-passes-is-a-pass-graph
+   */
   it("exposes each pass's input sampler for binding", () => {
     const input = uniform("sampler2D");
     const graph = gaussianBlur(input);
@@ -287,6 +346,9 @@ describe("gaussianBlur pass graph", () => {
 });
 
 describe("bloom", () => {
+  /**
+   * @canon spec-an-effect-with-several-passes-is-a-pass-graph
+   */
   it("produces the faithful 12-pass graph", () => {
     const graph = bloom(uniform("sampler2D"));
     expect(graph.passes).toHaveLength(12);
@@ -306,7 +368,9 @@ describe("bloom", () => {
       "bloom.mip4.vertical",
     ]);
   });
-
+  /**
+   * @canon spec-bloom-follows-tsl
+   */
   it("compiles every pass to GLSL and WGSL", () => {
     const graph = bloom(uniform("sampler2D"));
     for (const pass of graph.passes) {
@@ -316,13 +380,17 @@ describe("bloom", () => {
       expect(wgsl).toContain("textureSample(");
     }
   });
-
+  /**
+   * @canon spec-bloom-follows-tsl
+   */
   it("high pass applies a luminance threshold", () => {
     const glsl = compileGlsl(bloom(uniform("sampler2D")).passes[0].color);
     expect(glsl).toContain("smoothstep(");
     expect(glsl).toContain("0.2126");
   });
-
+  /**
+   * @canon spec-bloom-follows-tsl
+   */
   it("the composite sums five tinted mips scaled by strength", () => {
     const graph = bloom(uniform("sampler2D"), { strength: 0.7 });
     const glsl = compileGlsl(graph.passes[11].color);
@@ -331,7 +399,9 @@ describe("bloom", () => {
     // Five texture samples in the composite.
     expect(glsl.match(/texture\(/g)).toHaveLength(5);
   });
-
+  /**
+   * @canon spec-bloom-follows-tsl
+   */
   it("accepts a custom high-pass filter", () => {
     const graph = bloom(uniform("sampler2D"), {
       highPassFn: (input, threshold, smoothWidth) =>
@@ -340,7 +410,9 @@ describe("bloom", () => {
     const glsl = compileGlsl(graph.passes[0].color);
     expect(glsl).toContain("0.2126"); // luminance coefficients of the custom filter
   });
-
+  /**
+   * @canon spec-bloom-follows-tsl
+   */
   it("luminosityHighPass is available standalone", () => {
     const input = uniform("sampler2D").texture(uv());
     const glsl = compileGlsl(luminosityHighPass(input, 0.3, 0.01));
@@ -349,6 +421,9 @@ describe("bloom", () => {
 });
 
 describe("compileGlslFn/WGSLFn embedding", () => {
+  /**
+   * @canon spec-an-effect-compiles-as-a-function-of-its-own
+   */
   it("emits a standalone sepia function", () => {
     const glslFn = compileGlslFn((color) => sepia(color), {
       name: "sepia",
@@ -357,7 +432,9 @@ describe("compileGlslFn/WGSLFn embedding", () => {
     expect(glslFn).toContain("vec4 sepia(vec4 color)");
     expect(glslFn).toContain("color");
   });
-
+  /**
+   * @canon spec-an-effect-compiles-as-a-function-of-its-own
+   */
   it("emits a standalone WGSL sepia function", () => {
     const wgslFn = compileWgslFn((color) => sepia(color), {
       name: "sepia",

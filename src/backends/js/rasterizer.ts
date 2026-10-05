@@ -162,6 +162,7 @@ export function compileJS(
   const fragmentRoutine = compileJSRoutine(fragmentFn, {
     name: "frag",
     params: [],
+    stage: "fragment",
     derivatives: options.derivatives,
     reentrant: options.reentrant,
   });

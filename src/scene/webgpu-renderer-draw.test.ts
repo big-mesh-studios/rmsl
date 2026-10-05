@@ -187,12 +187,17 @@ function runInBrowser(source: string, entryPoint: string): Promise<any> {
 }
 
 describe.skipIf(!WEBGPU)("WebGPURenderer on a real adapter", () => {
+  /**
+   * @canon exception-a-scene-renderer-draws-its-scene-graph
+   */
   it("renders a lit mesh to non-background pixels", async () => {
     const pixel = await runInBrowser(ENTRY_LIT, "__rmslGpuLitRun");
     expect(pixel.r).toBeGreaterThan(50);
     expect(pixel.b).toBeLessThan(60);
   }, 60_000);
-
+  /**
+   * @canon spec-the-sampler-rule-reads-filters-wrap-and-channels-from-the-texture
+   */
   it("wraps and filters a texture the way the texture asks", async () => {
     const result = await runInBrowser(ENTRY_SAMPLER_STATE, "__rmslGpuSamplerRun");
 
@@ -209,7 +214,9 @@ describe.skipIf(!WEBGPU)("WebGPURenderer on a real adapter", () => {
     expect(result.linear.r).toBeGreaterThan(80);
     expect(result.linear.b).toBeGreaterThan(80);
   }, 60_000);
-
+  /**
+   * @canon spec-each-sampler-gets-its-own-texture
+   */
   it("gives each sampler its own texture when several read in one draw", async () => {
     const pixel = await runInBrowser(ENTRY_SAMPLERS, "__rmslGpuSamplersRun");
     // Each channel comes from a different texture: 20, 120 and 220 of 255.
@@ -219,7 +226,9 @@ describe.skipIf(!WEBGPU)("WebGPURenderer on a real adapter", () => {
     expect(pixel.g).toBeLessThan(140);
     expect(pixel.b).toBeGreaterThan(190);
   }, 60_000);
-
+  /**
+   * @canon spec-a-material-built-for-an-instanced-mesh-reads-each-instance
+   */
   it("draws each instance with its own transform and colour", async () => {
     const result = await runInBrowser(ENTRY_INSTANCED, "__rmslGpuInstancedRun");
     // The left box is red and the right one blue, so each instance was placed
@@ -229,7 +238,9 @@ describe.skipIf(!WEBGPU)("WebGPURenderer on a real adapter", () => {
     expect(result.right.b).toBeGreaterThan(100);
     expect(result.right.r).toBeLessThan(60);
   }, 60_000);
-
+  /**
+   * @canon spec-a-changed-texture-shows-on-the-next-render
+   */
   it("shows a texture rewritten between renders", async () => {
     const result = await runInBrowser(ENTRY_UPDATE, "__rmslGpuUpdateRun");
     expect(result.before.r).toBeGreaterThan(200);

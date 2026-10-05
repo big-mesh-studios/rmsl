@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   Fn,
   If,
+  float,
   instancedArray,
   int,
   invocationIndex,
@@ -17,6 +18,9 @@ import { createJsCompute } from "../js";
 import { createWasmCompute } from "../wasm";
 
 describe("createJsCompute/createWasmCompute over a multi-root array", () => {
+  /**
+   * @canon spec-every-root-of-a-program-keeps-its-effects
+   */
   it("applies every root's statements, not just the last one", () => {
     let force!: UniformNode<"float">;
     let dt!: UniformNode<"float">;
@@ -61,7 +65,9 @@ describe("createJsCompute/createWasmCompute over a multi-root array", () => {
     expect(run(createJsCompute(roots, { name: "step" }))).toEqual(want);
     expect(run(createWasmCompute(roots, { name: "step" }))).toEqual(want);
   });
-
+  /**
+   * @canon spec-every-root-of-a-program-keeps-its-effects
+   */
   it("a single root still works the same way through the array-accepting entry point", () => {
     let dt!: UniformNode<"float">;
     const vel = instancedArray(3, "float").toReadOnly();
@@ -99,7 +105,9 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
       return Object.fromEntries(Object.entries(arrays).map(([slot, array]) => [slot, Array.from(array)]));
     });
   }
-
+  /**
+   * @canon spec-a-swizzle-write-writes-the-components-it-names
+   */
   it("writes single components and swizzles of a storage element", () => {
     const out = instancedArray(2, "vec4");
     const root = Fn(() => {
@@ -128,7 +136,9 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     ]);
     expect(results[1]).toEqual(results[0]);
   });
-
+  /**
+   * @canon spec-an-element-write-writes-at-its-index
+   */
   it("writes a component of a storage element by a computed index", () => {
     const out = instancedArray(2, "vec4");
     const root = Fn(() => {
@@ -153,7 +163,9 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     ]);
     expect(results[1]).toEqual(results[0]);
   });
-
+  /**
+   * @canon spec-an-element-write-writes-at-its-index
+   */
   it("writes and reads a column of a storage element by a computed index", () => {
     const out = instancedArray(2, "mat2");
     const columns = instancedArray(2, "vec2");
@@ -194,7 +206,10 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     ]);
     expect(results[1]).toEqual(results[0]);
   });
-
+  /**
+   * @canon spec-a-swizzle-write-writes-the-components-it-names
+   * @canon spec-an-element-write-writes-at-its-index
+   */
   it("writes a component of a storage element's column, by a swizzle or an index", () => {
     const out = instancedArray(2, "mat2");
     const root = Fn(() => {
@@ -220,7 +235,9 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     ]);
     expect(results[1]).toEqual(results[0]);
   });
-
+  /**
+   * @canon spec-a-cpu-target-reaches-the-last-element-out-of-range
+   */
   it("keeps a write by a column or component index computed outside a storage matrix inside it", () => {
     const out = instancedArray(2, "mat2");
     const root = Fn(() => {
@@ -246,7 +263,9 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     ]);
     expect(results[1]).toEqual(results[0]);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-runs-one-compute-invocation-per-call
+   */
   it("gathers from a neighbouring element", () => {
     const src = instancedArray(4, "float").toReadOnly();
     const dst = instancedArray(4, "float");
@@ -262,7 +281,9 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     expect(js[dst.name]).toEqual([20, 30, 40, 10]);
     expect(wasm).toEqual(js);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-runs-one-compute-invocation-per-call
+   */
   it("scatters to another element", () => {
     const src = instancedArray(4, "int").toReadOnly();
     const dst = instancedArray(4, "int");
@@ -278,7 +299,9 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     expect(js[dst.name]).toEqual([8, 6, 4, 2]);
     expect(wasm).toEqual(js);
   });
-
+  /**
+   * @canon spec-a-cpu-target-runs-invocations-in-index-order
+   */
   it("sees an earlier invocation's write to the same buffer", () => {
     // Invocations run in index order on both CPU backends, so a prefix sum
     // written in place is well defined there, though not on a GPU.
@@ -310,6 +333,10 @@ describe("createJsCompute/createWasmCompute reading back into out", () => {
     ["JS", createJsCompute],
     ["WASM", createWasmCompute],
   ] as const) {
+    /**
+     * @canon spec-compute-copies-back-only-the-named-slots
+     * @canon spec-a-cpu-adapter-computes-synchronously
+     */
     it(`${name}: reads back only the slots out names`, () => {
       const adapter = create(program(), { name: "step" });
       adapter.setAttribute(a.name, new Float32Array([1, 2]));
@@ -318,12 +345,81 @@ describe("createJsCompute/createWasmCompute reading back into out", () => {
       adapter.compute(out);
       expect(Array.from(out[b.name]!)).toEqual([12, 22]);
     });
-
+    /**
+     * @canon spec-compute-refuses-a-slot-with-no-storage
+     */
     it(`${name}: rejects a slot the program has no storage for`, () => {
       const adapter = create(program(), { name: "step" });
       adapter.setAttribute(a.name, new Float32Array([1, 2]));
       adapter.setAttribute(b.name, new Float32Array([10, 20]));
       expect(() => adapter.compute({ c: new Float32Array(2) })).toThrow(/"c".*no storage slot/);
+    });
+  }
+});
+
+describe("createJsCompute/createWasmCompute dispatching a count", () => {
+  // Each program marks the element its own index names, so the marks a
+  // dispatch leaves are the invocations that ran.
+  const marks = instancedArray(8, "float");
+  const marksProgram = () => Fn(() => marks.element(invocationIndex()).assign(float(1)))();
+
+  for (const [name, create] of [
+    ["JS", createJsCompute],
+    ["WASM", createWasmCompute],
+  ] as const) {
+    /**
+     * The count a caller names is the dispatch, so a buffer longer than the
+     * count leaves its tail as the host passed it, and a count of zero runs
+     * nothing at all.
+     *
+     * @canon spec-a-compute-call-takes-the-count-the-caller-names
+     */
+    it(`${name}: runs the count the caller names`, () => {
+      const adapter = create(marksProgram(), { name: "step" });
+      const data = new Float32Array(5);
+      adapter.setAttribute(marks.name, data);
+      adapter.compute(undefined, 3);
+      expect(Array.from(data)).toEqual([1, 1, 1, 0, 0]);
+
+      const none = new Float32Array(5);
+      adapter.setAttribute(marks.name, none);
+      adapter.compute(undefined, 0);
+      expect(Array.from(none)).toEqual([0, 0, 0, 0, 0]);
+    });
+
+    /**
+     * Given no count, the dispatch covers the first storage buffer the host
+     * passed, so a longer buffer passed after it does not widen the dispatch.
+     *
+     * @canon spec-a-compute-call-takes-its-count-from-the-first-storage-buffer
+     */
+    it(`${name}: runs one invocation per element of the first buffer`, () => {
+      const first = instancedArray(3, "float");
+      const second = instancedArray(5, "float");
+      const adapter = create(marksProgram(), { name: "step" });
+      adapter.setAttribute(first.name, new Float32Array(3));
+      adapter.setAttribute(second.name, new Float32Array(5));
+      const data = new Float32Array(8);
+      adapter.setAttribute(marks.name, data);
+      adapter.compute();
+      expect(Array.from(data)).toEqual([1, 1, 1, 0, 0, 0, 0, 0]);
+    });
+
+    /**
+     * A buffer of vectors holds fewer elements than it has components, so the
+     * first buffer of four-component elements counts a quarter as many
+     * invocations as its array has components.
+     *
+     * @canon spec-a-vector-storage-buffer-counts-its-elements
+     */
+    it(`${name}: counts a vector buffer in elements, not components`, () => {
+      const vectors = instancedArray(2, "vec4");
+      const adapter = create(marksProgram(), { name: "step" });
+      adapter.setAttribute(vectors, new Float32Array(8));
+      const data = new Float32Array(8);
+      adapter.setAttribute(marks.name, data);
+      adapter.compute();
+      expect(Array.from(data)).toEqual([1, 1, 0, 0, 0, 0, 0, 0]);
     });
   }
 });

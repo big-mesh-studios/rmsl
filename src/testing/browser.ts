@@ -1,5 +1,7 @@
-import { build } from "esbuild";
-import { webgpuPage } from "./gpu";
+import { readFile } from "node:fs/promises";
+import { build, type Plugin } from "esbuild";
+import wabtInit from "wabt";
+import { gpuPage, webgpuPage } from "./gpu";
 
 /**
  * A `readPixel(canvas, x, y)` for an entry to read its result with, through a
@@ -19,6 +21,23 @@ const readPixel = (canvas, x, y) => {
 };
 `;
 
+/**
+ * Compiles an imported `.wat` file to the bytes of its module, as the
+ * `compileWat` Vite plugin does for the library build, so an entry can bundle
+ * the WASM rasterizer.
+ */
+const watLoader: Plugin = {
+  name: "rmsl:wat",
+  setup(esbuild) {
+    let wabt: Awaited<ReturnType<typeof wabtInit>> | undefined;
+    esbuild.onLoad({ filter: /\.wat$/ }, async ({ path }) => {
+      wabt ??= await wabtInit();
+      const bytes = new Uint8Array(wabt.parseWat(path, await readFile(path, "utf8")).toBinary({}).buffer);
+      return { contents: `export default new Uint8Array([${bytes.join(",")}]);`, loader: "js" };
+    });
+  },
+};
+
 /** Bundles a TypeScript entry for the browser, resolving its imports from `resolveDir`. */
 async function bundleEntry(source: string, resolveDir: string): Promise<string> {
   const result = await build({
@@ -27,17 +46,17 @@ async function bundleEntry(source: string, resolveDir: string): Promise<string> 
     write: false,
     format: "iife",
     platform: "browser",
+    plugins: [watLoader],
     logLevel: "silent",
   });
   return result.outputFiles[0]!.text;
 }
 
 /**
- * Bundles an entry, runs it in the shared WebGPU page, and hands back what the
- * async function it assigned to `globalThis[entryPoint]` resolved to.
+ * Bundles an entry, runs it in `page`, and hands back what the async function
+ * it assigned to `globalThis[entryPoint]` resolved to.
  */
-export async function runInWebGpuPage(source: string, entryPoint: string, resolveDir: string): Promise<any> {
-  const page = await webgpuPage();
+async function runInPage(page: any, source: string, entryPoint: string, resolveDir: string): Promise<any> {
   const code = await bundleEntry(source, resolveDir);
   return await page.evaluate(
     async ([bundle, name]: [string, string]) => {
@@ -47,4 +66,14 @@ export async function runInWebGpuPage(source: string, entryPoint: string, resolv
     },
     [code, entryPoint] as [string, string],
   );
+}
+
+/** Runs an entry in the shared WebGPU page. */
+export async function runInWebGpuPage(source: string, entryPoint: string, resolveDir: string): Promise<any> {
+  return runInPage(await webgpuPage(), source, entryPoint, resolveDir);
+}
+
+/** Runs an entry in the shared WebGL page, which also serves a 2D canvas to the CPU adapters. */
+export async function runInGpuPage(source: string, entryPoint: string, resolveDir: string): Promise<any> {
+  return runInPage(await gpuPage(), source, entryPoint, resolveDir);
 }

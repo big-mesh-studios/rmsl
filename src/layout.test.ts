@@ -5,6 +5,9 @@ import { wgslType } from "./backends/wgsl/wgsl";
 import { compileWasmRoutine, compileWasmFn, type CompileWasmFnOptions } from "./backends/wasm/wasm";
 
 describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
+  /**
+   * @canon spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout
+   */
   it("places two differently-aligned aggregate uniforms at wgslUniformLayout's exact offsets", () => {
     const dir = uniform("vec3");
     const scale = uniform("vec2");
@@ -41,6 +44,9 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
     expect(dirAddr).toBeLessThan(scaleAddr); // vec3 really did get reordered ahead of vec2
   });
 
+  /**
+   * @canon spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout
+   */
   it("no longer corrupts an adjacent uniform at tight GPU spacing", () => {
     const dir = uniform("vec3");
     const scale = uniform("vec2");
@@ -70,6 +76,9 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
     expect(result).toBe((1 + 4 + 9) * 10 + 20); // dot(dir,dir)*scale.x + scale.y = 160
   });
 
+  /**
+   * @canon exception-a-wasm-uniform-in-the-gpu-layout-holds-an-f32
+   */
   it("is only as precise as f32 for a GPU-placed uniform — real, not a bug", () => {
     const scale = uniform("vec2");
     const layout = wgslUniformLayout([{ slot: scale.name, type: wgslType("vec2") }]);
@@ -88,6 +97,9 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
     expect(result).not.toBe(0.1); // the real, inherent cost: an ordinary (non-GPU) uniform would keep full f64 precision here
   });
 
+  /**
+   * @canon spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout
+   */
   it("places a uniform array at wgslUniformLayout's offset and stride, f32-accurate", () => {
     const arr = uniformArray("vec4", 2);
     const layout = wgslUniformLayout([{ slot: arr.name, type: wgslType("vec4"), length: 2 }]);

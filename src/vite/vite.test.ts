@@ -46,6 +46,9 @@ function bytesToBase64(bytes: Uint8Array): string {
 describe("precompileShaders", () => {
   const source = shadersSource;
 
+  /**
+   * @canon spec-a-precompiled-shader-ships-as-a-string
+   */
   it("rewrites a matching module to a JSON constant", async () => {
     const plugin = asPlugin(precompileShaders({ include: "fixtures/shaders.ts" }));
     const result = await plugin.transform(source, SHADERS_PATH);
@@ -60,6 +63,9 @@ describe("precompileShaders", () => {
     expect(result!.code).not.toContain("compileGlsl");
   });
 
+  /**
+   * @canon spec-a-precompiled-shader-ships-as-a-string
+   */
   it("evaluates the rewritten module to the compiled shaders", async () => {
     const plugin = asPlugin(precompileShaders({ include: SHADERS_PATH }));
     const result = await plugin.transform(source, SHADERS_PATH);
@@ -72,18 +78,25 @@ describe("precompileShaders", () => {
     expect(mod.default.positionAttr).toMatch(/^_rmsl_a/);
   });
 
+  /**
+   * @canon spec-a-plugin-rewrites-only-the-modules-it-includes
+   */
   it("leaves non-matching modules alone", async () => {
     const plugin = asPlugin(precompileShaders({ include: "fixtures/shaders.ts" }));
     const result = await plugin.transform(source, "/elsewhere/other.ts");
     expect(result).toBeNull();
   });
-
+  /**
+   * @canon spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile
+   */
   it("throws when the module has no default export", async () => {
     const plugin = asPlugin(precompileShaders({ include: "no-default.ts" }));
     const id = `${SHADERS_PATH.replace("shaders.ts", "")}no-default.ts`;
     await expect(plugin.transform("export const x = 1;\n", id)).rejects.toThrow(/must have a default export/);
   });
-
+  /**
+   * @canon spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile
+   */
   it("throws when the default export is not JSON-serializable", async () => {
     const plugin = asPlugin(precompileShaders({ include: "fn-default.ts" }));
     const id = `${SHADERS_PATH.replace("shaders.ts", "")}fn-default.ts`;
@@ -94,6 +107,9 @@ describe("precompileShaders", () => {
 describe("precompileJS", () => {
   const source = cpuFnsSource;
 
+  /**
+   * @canon spec-a-precompiled-js-program-ships-as-a-plain-function
+   */
   it("inlines each compileJSFn output as a plain function", async () => {
     const plugin = asPlugin(precompileJS({ include: "fixtures/cpu-fns.ts" }));
     const result = await plugin.transform(source, CPU_FNS_PATH);
@@ -107,6 +123,9 @@ describe("precompileJS", () => {
     expect(result!.code).not.toContain("compileJSFn");
   });
 
+  /**
+   * @canon spec-a-precompiled-js-program-ships-as-a-plain-function
+   */
   it("produces callables that run on the CPU", async () => {
     const plugin = asPlugin(precompileJS({ include: CPU_FNS_PATH }));
     const result = await plugin.transform(source, CPU_FNS_PATH);
@@ -120,18 +139,26 @@ describe("precompileJS", () => {
     expect(mod.mixColours({ params: { a: [0, 0, 0], b: [1, 1, 1], t: 0.5 } })).toEqual([0.5, 0.5, 0.5]);
   });
 
+  /**
+   * @canon spec-a-plugin-rewrites-only-the-modules-it-includes
+   */
   it("leaves non-matching modules alone", async () => {
     const plugin = asPlugin(precompileJS({ include: "fixtures/cpu-fns.ts" }));
     const result = await plugin.transform(source, "/elsewhere/other.ts");
     expect(result).toBeNull();
   });
 
+  /**
+   * @canon spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile
+   */
   it("throws when the module has no code export", async () => {
     const plugin = asPlugin(precompileJS({ include: "no-code.ts" }));
     const id = `${CPU_FNS_PATH.replace("cpu-fns.ts", "")}no-code.ts`;
     await expect(plugin.transform("export const x = 1;\n", id)).rejects.toThrow(/must export __RMSL_JS_CODE/);
   });
-
+  /**
+   * @canon spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile
+   */
   it("throws when the code export is not a map of strings", async () => {
     const plugin = asPlugin(precompileJS({ include: "bad-code.ts" }));
     const id = `${CPU_FNS_PATH.replace("cpu-fns.ts", "")}bad-code.ts`;
@@ -140,6 +167,9 @@ describe("precompileJS", () => {
     );
   });
 
+  /**
+   * @canon spec-a-plugin-reads-the-export-it-is-told-to
+   */
   it("reads the code map from a custom export name", async () => {
     const plugin = asPlugin(precompileJS({ include: "custom-code.ts", codeExport: "CPU_FNS" }));
     const id = `${CPU_FNS_PATH.replace("cpu-fns.ts", "")}custom-code.ts`;
@@ -154,6 +184,10 @@ describe("precompileJS", () => {
 describe("precompileWasm", () => {
   const source = wasmFnsSource;
 
+  /**
+   * @canon spec-precompile-wasm-emits-each-program-as-an-asset
+   * @canon exception-a-precompiled-wasm-program-ships-with-its-instantiation-glue
+   */
   it("emits each compiled module as a .wasm asset and rewrites the export to fetch it", async () => {
     const plugin = asPlugin(precompileWasm({ include: "fixtures/wasm-fns.ts" }));
     const { context, emitted } = mockPluginContext();
@@ -176,6 +210,9 @@ describe("precompileWasm", () => {
     }
   });
 
+  /**
+   * @canon spec-precompile-wasm-emits-each-program-as-an-asset
+   */
   it("produces callables that run on WASM, once the emitted-asset placeholder resolves to a real URL", async () => {
     const plugin = asPlugin(precompileWasm({ include: WASM_FNS_PATH }));
     const { context, emitted } = mockPluginContext();
@@ -212,6 +249,9 @@ describe("precompileWasm", () => {
     });
   });
 
+  /**
+   * @canon spec-a-plugin-rewrites-only-the-modules-it-includes
+   */
   it("leaves non-matching modules alone", async () => {
     const plugin = asPlugin(precompileWasm({ include: "fixtures/wasm-fns.ts" }));
     const { context } = mockPluginContext();
@@ -219,6 +259,9 @@ describe("precompileWasm", () => {
     expect(result).toBeNull();
   });
 
+  /**
+   * @canon spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile
+   */
   it("throws when the module has no code export", async () => {
     const plugin = asPlugin(precompileWasm({ include: "no-code.ts" }));
     const { context } = mockPluginContext();
@@ -227,7 +270,9 @@ describe("precompileWasm", () => {
       /must export __RMSL_WASM_CODE/,
     );
   });
-
+  /**
+   * @canon spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile
+   */
   it("throws when a code map value has no bytes", async () => {
     const plugin = asPlugin(precompileWasm({ include: "bad-code.ts" }));
     const { context } = mockPluginContext();
@@ -237,6 +282,9 @@ describe("precompileWasm", () => {
     ).rejects.toThrow(/must be compileWasmFn\(\) output/);
   });
 
+  /**
+   * @canon spec-a-plugin-reads-the-export-it-is-told-to
+   */
   it("reads the code map from a custom export name", async () => {
     const plugin = asPlugin(precompileWasm({ include: "custom-code.ts", codeExport: "WASM_FNS" }));
     const { context } = mockPluginContext();

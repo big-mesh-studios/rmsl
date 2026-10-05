@@ -48,6 +48,9 @@ export interface CreateJsComputeOptions {
  * `invocationIndex()` program has no `draw()`/`attach()` counterpart —
  * unlike `CpuAdapter`, that's not just unused here, it's not part of the
  * type at all.
+ *
+ * `compute`'s `count` is the number of invocations to run. Given none, it is
+ * one per element of the first storage buffer `setAttribute` was given.
  */
 export interface JsComputeAdapter {
   setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
@@ -55,7 +58,7 @@ export interface JsComputeAdapter {
   setUniform(slot: string, value: number | number[]): void;
   setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
   setAttribute(slot: string, data: TypedArray): void;
-  compute(out?: AdapterResult): AdapterResult | void;
+  compute(out?: AdapterResult, count?: number): AdapterResult | void;
 }
 
 /**
@@ -70,6 +73,7 @@ export function createJsCompute(
 ): JsComputeAdapter {
   const computeRoutine = compileJSRoutine(() => compute, {
     name: options.name ?? "compute",
+    stage: "compute",
     params: options.params ?? [],
     derivatives: options.derivatives,
     reentrant: options.reentrant,

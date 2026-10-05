@@ -1,0 +1,8 @@
+{
+  "extraKnownMarketplaces": {
+    "bigmistqke": {
+      "source": { "source": "github", "repo": "bigmistqke/skills" }
+    }
+  },
+  "enabledPlugins": { "canon@bigmistqke": true }
+}

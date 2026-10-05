@@ -80,12 +80,24 @@
     "test:mutate": "RMSL_SKIP_BUILD=1 RMSL_SKIP_GPU=1 RMSL_INTEGER_SWEEP=skip stryker run",
     "test:mutate:deep": "RMSL_SKIP_BUILD=1 stryker run --timeoutMS 120000"
   },
+  "canon": {
+    "documents": [
+      "CANON.md"
+    ],
+    "suites": "src/canon",
+    "sources": [
+      "src"
+    ],
+    "references": [],
+    "command": "pnpm canon"
+  },
   "dependencies": {
     "@webgpu/types": "^0.1.71",
     "esbuild": "^0.28.1",
     "wabt": "^1.0.39"
   },
   "devDependencies": {
+    "@bigmistqke/canon": "^0.2.0",
     "@kmamal/gpu": "^0.2.1",
     "@stryker-mutator/core": "^9.6.1",
     "@stryker-mutator/vitest-runner": "^9.6.1",

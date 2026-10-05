@@ -65,12 +65,17 @@ function movementKernel() {
 }
 
 describe("serialize/deserialize", () => {
+  /**
+   * @canon spec-a-graph-compiles-the-same-after-json
+   */
   it("round-trips a compute kernel through JSON and compiles it to the same WGSL", () => {
     const original = movementKernel()();
     const restored = roundTrip(serialize(original)) as Node<ShaderType>;
     expect(normalized(compute(restored).code)).toBe(normalized(compute(original).code));
   });
-
+  /**
+   * @canon spec-a-restored-graph-keeps-its-shape
+   */
   it("keeps a node read in several places one node", () => {
     const program = Fn(() => {
       const u = uniform("float");
@@ -91,7 +96,9 @@ describe("serialize/deserialize", () => {
     expect(normalized(code)).toBe(normalized(compute(original).code));
     expect(code.match(/_rmsl_u\d+: f32/g)).toHaveLength(1);
   });
-
+  /**
+   * @canon spec-a-restored-graph-keeps-its-shape
+   */
   it("rebuilds each storage buffer once, with its layout, contents and access", () => {
     const shared = new StorageBufferAttribute(new Float32Array([1, 2, 3, 4, 5, 6]), 2);
     const program = Fn(() => {
@@ -116,14 +123,18 @@ describe("serialize/deserialize", () => {
     expect(Array.from(counts.attribute.array)).toEqual([7, 8]);
     expect(counts.element(0).type).toBe("storageElement");
   });
-
+  /**
+   * @canon spec-a-restored-graph-keeps-its-shape
+   */
   it("keeps a buffer without contents empty", () => {
     const program = Fn(() => storage(new StorageBufferAttribute(32, 4), "vec4").element(invocationIndex()).x);
     const [buffer] = [...storageNodes(roundTrip(serialize(program())))];
     expect(buffer.attribute.array).toBeNull();
     expect(buffer.attribute.count).toBe(32);
   });
-
+  /**
+   * @canon spec-a-restored-graph-keeps-its-shape
+   */
   it("rebuilds a uniform array with its length and element()", () => {
     const program = Fn(() => uniformArray("vec4", 3).element(1).x);
     const original = program();
@@ -131,6 +142,9 @@ describe("serialize/deserialize", () => {
     expect(normalized(compute(restored).code)).toBe(normalized(compute(original).code));
   });
 
+  /**
+   * @canon spec-a-generated-name-is-local-to-its-program
+   */
   it("gives what rmsl named new names, so a restored graph and a fresh one stay apart", () => {
     const build = () =>
       Fn(() => {
@@ -151,6 +165,9 @@ describe("serialize/deserialize", () => {
     expect(run.run({ uniforms: { [freshUniform]: 1, [restoredUniform]: 2 } })).toBe(3 + 500);
   });
 
+  /**
+   * @canon spec-a-raw-name-declares-one-input-under-that-name
+   */
   it("keeps a name the program chose", () => {
     const program = Fn(() => uniformRaw("brightness", "float").mul(2).toVar("scaled"));
     const graph = serialize(program());
@@ -159,6 +176,26 @@ describe("serialize/deserialize", () => {
     expect(JSON.stringify(graph)).toContain('"varName":"scaled"');
   });
 
+  /**
+   * @canon spec-a-generated-name-is-local-to-its-program
+   * @canon spec-a-raw-name-declares-one-input-under-that-name
+   */
+  it("keeps generated names apart and joins a raw name, in one program of two graphs", () => {
+    const build = () => Fn(() => uniform("float").add(uniformRaw("gain", "float")).toVar())();
+    const fresh = build() as any;
+    const restored = deserialize(JSON.parse(JSON.stringify(serialize(fresh)))) as any;
+
+    const program = Fn(() => fresh.add(restored.mul(100)));
+    const run = compileJSRoutine(program as any, { name: "main", params: [] });
+    const [freshUniform] = [...uniformNames(fresh)].filter((name) => name !== "gain");
+    const [restoredUniform] = [...uniformNames(restored)].filter((name) => name !== "gain");
+    expect(restoredUniform).not.toBe(freshUniform);
+    // (1 + 10) + (2 + 10) * 100: each graph reads its own generated uniform, and both read one gain.
+    expect(run.run({ uniforms: { [freshUniform!]: 1, [restoredUniform!]: 2, gain: 10 } })).toBe(1211);
+  });
+  /**
+   * @canon spec-time-is-one-uniform-everywhere
+   */
   it("reads the clock time() gives, alone or compiled with a fresh graph that reads it", () => {
     const build = () => Fn(() => time().mul(2))();
     const fresh = build() as any;
@@ -171,7 +208,9 @@ describe("serialize/deserialize", () => {
     const code = compute([fresh, restored]).code;
     expect(code.match(/_rmsl_time: f32/g)).toHaveLength(1);
   });
-
+  /**
+   * @canon spec-a-restored-graph-keeps-its-shape
+   */
   it("takes an array of roots, and keeps what they share shared", () => {
     const buffer = new StorageBufferAttribute(8, 1);
     const producer = Fn(() => {
@@ -192,7 +231,9 @@ describe("serialize/deserialize", () => {
     expect(p.attribute).toBe(c.attribute);
     expect(compute(restored).resources.filter((r) => r.kind === "storage")).toHaveLength(1);
   });
-
+  /**
+   * @canon spec-deserialize-refuses-data-serialize-could-not-have-produced
+   */
   it("throws on data serialize() could not have produced", () => {
     const literal = { _t: "float", type: "float", value: 1 };
     const graph = (patch: Partial<SerializedGraph>): SerializedGraph => ({
@@ -228,7 +269,9 @@ describe("serialize/deserialize", () => {
       ),
     ).toThrow("[RMSL] deserialize: buffer 0 holds a Float64Array, not a Float32Array, Int32Array or Uint32Array");
   });
-
+  /**
+   * @canon spec-a-graph-compiles-the-same-after-json
+   */
   it("takes the callable an Fn definition returns", () => {
     const kernel = movementKernel();
     const restored = roundTrip(serialize(kernel)) as Node<ShaderType>;

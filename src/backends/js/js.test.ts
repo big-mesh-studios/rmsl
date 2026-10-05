@@ -122,6 +122,9 @@ afterAll(async () => {
 }, 120_000);
 
 describe("JS backend: scalar arithmetic", () => {
+  /**
+   * @canon spec-arithmetic-compiles-to-the-operators-of-the-target
+   */
   it("computes arithmetic", () => {
     expect(evalScalar((a, b) => a.add(b), [2, 3])).toBe(5);
     expect(evalScalar((a, b) => a.sub(b), [7, 3])).toBe(4);
@@ -129,7 +132,9 @@ describe("JS backend: scalar arithmetic", () => {
     expect(evalScalar((a, b) => a.div(b), [8, 2])).toBe(4);
     expect(evalScalar((a) => a.negate(), [3])).toBe(-3);
   });
-
+  /**
+   * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
+   */
   it("computes math builtins", () => {
     approx(
       evalScalar((a) => a.sqrt(), [9]),
@@ -170,7 +175,9 @@ describe("JS backend: scalar arithmetic", () => {
       0.25,
     );
   });
-
+  /**
+   * @canon spec-a-conversion-between-numeric-types-is-written-out
+   */
   it("casts float to int and back", () => {
     expect(evalScalar((a) => a.toInt().toFloat(), [2.7])).toBe(2);
     expect(evalScalar((a) => a.toInt().toFloat(), [-2.7])).toBe(-2);
@@ -178,13 +185,17 @@ describe("JS backend: scalar arithmetic", () => {
     expect(evalScalar((a) => a.toInt().toBool().toFloat(), [1.5])).toBe(1);
     expect(evalScalar((a) => a.toInt().toBool().toFloat(), [0])).toBe(0);
   });
-
+  /**
+   * @canon spec-a-conversion-between-numeric-types-is-written-out
+   */
   it("casts a vector to a scalar through its first component", () => {
     expect(evalScalar((a, b) => vec3(a, b, b).toFloat(), [4.5, 9])).toBe(4.5);
     expect(evalScalar((a, b) => vec3(a, b, b).toInt().toFloat(), [2.7, 9])).toBe(2);
     expect(evalScalar((a, b) => vec2(a, b).toUint().toFloat(), [3.9, 9])).toBe(3);
   });
-
+  /**
+   * @canon spec-a-function-with-an-edge-takes-the-value-last
+   */
   it("computes step, smoothstep, mix and clamp with operands in the right order", () => {
     expect(evalScalar((a, b) => b.step(a), [0.5, 2])).toBe(1);
     expect(evalScalar((a, b) => b.step(a), [2, 0.5])).toBe(0);
@@ -197,14 +208,18 @@ describe("JS backend: scalar arithmetic", () => {
     expect(evalScalar((a) => a.clamp(0, 1), [2.5])).toBe(1);
     expect(evalScalar((a) => a.clamp(0, 1), [-2.5])).toBe(0);
   });
-
+  /**
+   * @canon spec-float-folding-gives-the-run-time-result
+   */
   it("computes floored float modulus", () => {
     expect(evalScalar((a, b) => a.mod(b), [7.5, 2])).toBe(1.5);
     expect(evalScalar((a, b) => a.mod(b), [-7.5, 2])).toBe(0.5);
     expect(evalScalar((a, b) => a.mod(b), [7.5, -2])).toBe(-0.5);
     expect(evalScalar((a, b) => a.mod(b), [-1, 2])).toBe(1);
   });
-
+  /**
+   * @canon spec-float-folding-gives-the-run-time-result
+   */
   it("folds constants to the same value it would compute at runtime", () => {
     const folded = evalScalar(() => float(7).div(float(2)), []);
     const runtime = evalScalar((a, b) => a.div(b), [7, 2]);
@@ -214,6 +229,9 @@ describe("JS backend: scalar arithmetic", () => {
 });
 
 describe("JS backend: vector arithmetic", () => {
+  /**
+   * @canon spec-arithmetic-compiles-to-the-operators-of-the-target
+   */
   it("adds, subtracts and scales vectors", () => {
     const f = compileJSRoutine((a: any, b: any) => a.add(b), {
       name: "main",
@@ -236,7 +254,9 @@ describe("JS backend: vector arithmetic", () => {
     });
     expect(h.run({ params: { a: [5, 5, 5] } })).toEqual([4, 4, 4]);
   });
-
+  /**
+   * @canon spec-a-scalar-fills-every-component-of-a-vector
+   */
   it("broadcasts a lone scalar vector constructor across every component", () => {
     // GLSL/WGSL vec3(2.0) is (2.0, 2.0, 2.0), and the JS backend must match.
     const f = compileJSRoutine(() => vec3(2), { name: "main", params: [] });
@@ -246,7 +266,9 @@ describe("JS backend: vector arithmetic", () => {
     const v = compileJSRoutine(() => vec2(-1), { name: "main", params: [] });
     expect(v.run({})).toEqual([-1, -1]);
   });
-
+  /**
+   * @canon spec-a-geometric-function-compiles-to-the-builtin-of-the-target
+   */
   it("computes dot, cross, length, distance and normalize", () => {
     const dot = compileJSRoutine((a: any, b: any) => a.dot(b), {
       name: "main",
@@ -290,7 +312,9 @@ describe("JS backend: vector arithmetic", () => {
     approx(n[1], 0);
     approx(n[2], 0);
   });
-
+  /**
+   * @canon spec-a-vector-comparison-gives-a-boolean-vector
+   */
   it("computes vector comparisons to boolean vectors", () => {
     const f = compileJSRoutine((a: any, b: any) => a.lessThan(b), {
       name: "main",
@@ -301,7 +325,9 @@ describe("JS backend: vector arithmetic", () => {
     });
     expect(f.run({ params: { a: [1, 5, 3], b: [2, 2, 2] } })).toEqual([true, false, false]);
   });
-
+  /**
+   * @canon spec-a-conversion-between-numeric-types-is-written-out
+   */
   it("constructs a numeric vector from a boolean one as 1 and 0", () => {
     // The components have to be numbers, not JavaScript booleans: arithmetic
     // coerces either way, but a comparison does not, and `false !== 0`.
@@ -313,12 +339,16 @@ describe("JS backend: vector arithmetic", () => {
     expect(evalScalar((a) => mask(a).x, [1])).toBe(1);
     expect(evalScalar((a) => mask(a).x.notEqual(float(0)).select(float(1), float(0)), [3])).toBe(0);
   });
-
+  /**
+   * @canon spec-a-conversion-between-numeric-types-is-written-out
+   */
   it("truncates the components a float vector puts in an integer one", () => {
     expect(evalScalar((a, b) => vec3(a, b, b).toIVec3().x.toFloat(), [2.7, 9])).toBe(2);
     expect(evalScalar((a, b) => vec3(a, b, b).toIVec3().x.toFloat(), [-2.7, 9])).toBe(-2);
   });
-
+  /**
+   * @canon spec-a-boolean-vector-reduces-with-all-or-any
+   */
   it("computes all/any on boolean vectors", () => {
     const f = compileJSRoutine((a: any) => a.greaterThan(vec3(0, 0, 0)).all(), {
       name: "main",
@@ -327,7 +357,9 @@ describe("JS backend: vector arithmetic", () => {
     expect(f.run({ params: { a: [1, 2, 3] } })).toBe(true);
     expect(f.run({ params: { a: [1, 0, 3] } })).toBe(false);
   });
-
+  /**
+   * @canon spec-a-geometric-function-compiles-to-the-builtin-of-the-target
+   */
   it("reflects and refracts", () => {
     const f = compileJSRoutine((i: any, n: any) => i.reflect(n), {
       name: "main",
@@ -345,6 +377,9 @@ describe("JS backend: vector arithmetic", () => {
 });
 
 describe("JS backend: matrices", () => {
+  /**
+   * @canon spec-a-matrix-times-a-shorter-vector-promotes-it
+   */
   it("multiplies mat4 by vec4 and vec3", () => {
     const m = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 6, 7, 1];
     const f4 = compileJSRoutine((a: any, v: any) => a.mul(v), {
@@ -365,7 +400,9 @@ describe("JS backend: matrices", () => {
     });
     expect(f3.run({ params: { a: m, v: [1, 2, 3] } })).toEqual([6, 8, 10]);
   });
-
+  /**
+   * @canon spec-a-matrix-product-has-the-shape-of-the-product
+   */
   it("multiplies matrices", () => {
     const id = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
     const f = compileJSRoutine((a: any, b: any) => a.mul(b), {
@@ -379,7 +416,9 @@ describe("JS backend: matrices", () => {
     const translate = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 6, 7, 1];
     expect(f.run({ params: { a: translate, b: id } })).toEqual(translate);
   });
-
+  /**
+   * @canon spec-a-matrix-product-has-the-shape-of-the-product
+   */
   it("multiplies non-square matrices at the product shape", () => {
     // mat2x3 (2 cols x 3 rows): a = [[1,2,3],[4,5,6]], column-major.
     const a = [1, 2, 3, 4, 5, 6];
@@ -397,7 +436,9 @@ describe("JS backend: matrices", () => {
     // col0 = A*b0 = [1,2,3]; col1 = A*b1 = [4,5,6]; col2 = A*(b0+b1) = [5,7,9].
     expect(f.run({ params: { a, b } })).toEqual([1, 2, 3, 4, 5, 6, 5, 7, 9]);
   });
-
+  /**
+   * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
+   */
   it("inverts, transposes and takes determinants", () => {
     const inv = compileJSRoutine((a: any) => a.inverse(), {
       name: "main",
@@ -423,7 +464,10 @@ describe("JS backend: matrices", () => {
     const expected = Array.from({ length: 16 }, (_, i) => m[(i % 4) * 4 + Math.floor(i / 4)]);
     expect(tr.run({ params: { a: m } })).toEqual(expected);
   });
-
+  /**
+   * @canon spec-a-matrix-is-built-from-its-columns
+   * @canon spec-a-scalar-matrix-is-a-diagonal
+   */
   it("constructs matrices from columns and scalars", () => {
     const f = compileJSRoutine((c0: any, c1: any) => mat4(c0, c1, c1, c0), {
       name: "main",
@@ -435,7 +479,9 @@ describe("JS backend: matrices", () => {
     const r = f.run({ params: { c0: [1, 2, 3, 4], c1: [5, 6, 7, 8] } }) as number[];
     expect(r).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 5, 6, 7, 8, 1, 2, 3, 4]);
   });
-
+  /**
+   * @canon spec-an-element-reads-a-component-by-index
+   */
   it("reads matrix columns", () => {
     const f = compileJSRoutine((a: any) => a.element(1), {
       name: "main",
@@ -447,26 +493,37 @@ describe("JS backend: matrices", () => {
 });
 
 describe("cross-backend: non-square matrix multiply", () => {
+  /**
+   * @canon spec-a-matrix-product-has-the-shape-of-the-product
+   */
   it("multiplies a mat2x3 by a mat3x2 into a mat3", () => {
     const build = () => mat2x3(1, 2, 3, 4, 5, 6).mul(mat3x2(1, 0, 0, 1, 1, 1));
     expect(evalMatrix(build)).toEqual([1, 2, 3, 4, 5, 6, 5, 7, 9]);
   });
-
+  /**
+   * @canon spec-a-matrix-product-has-the-shape-of-the-product
+   */
   it("multiplies a mat3x2 by a mat2x3 into a mat2", () => {
     const build = () => mat3x2(1, 2, 3, 4, 5, 6).mul(mat2x3(1, 0, 0, 0, 1, 1));
     expect(evalMatrix(build)).toEqual([1, 2, 8, 10]);
   });
-
+  /**
+   * @canon spec-a-matrix-product-has-the-shape-of-the-product
+   */
   it("multiplies a mat2 by a mat3x2 into a mat3x2", () => {
     const build = () => mat2(2, 0, 0, 3).mul(mat3x2(1, 2, 3, 4, 5, 6));
     expect(evalMatrix(build)).toEqual([2, 6, 6, 12, 10, 18]);
   });
-
+  /**
+   * @canon spec-a-matrix-product-has-the-shape-of-the-product
+   */
   it("multiplies a mat4 by a mat2x4 into a mat2x4", () => {
     const build = () => mat4(1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 4).mul(mat2x4(1, 2, 3, 4, 5, 6, 7, 8));
     expect(evalMatrix(build)).toEqual([1, 4, 9, 16, 5, 12, 21, 32]);
   });
-
+  /**
+   * @canon spec-a-matrix-product-has-the-shape-of-the-product
+   */
   it("multiplies a mat2x4 by a mat4x2 into a mat4", () => {
     const build = () => mat2x4(1, 2, 3, 4, 5, 6, 7, 8).mul(mat4x2(1, 0, 0, 1, 1, 1, 2, 0));
     expect(evalMatrix(build)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 6, 8, 10, 12, 2, 4, 6, 8]);
@@ -474,6 +531,9 @@ describe("cross-backend: non-square matrix multiply", () => {
 });
 
 describe("JS backend: control flow", () => {
+  /**
+   * @canon spec-a-for-runs-its-body-and-update-while-its-condition-holds
+   */
   it("runs a for loop the right number of times", () => {
     const sumTo = (n: Node<"float">) =>
       Fn(() => {
@@ -492,7 +552,9 @@ describe("JS backend: control flow", () => {
     expect(evalScalar(sumTo, [10])).toBe(45);
     expect(evalScalar(sumTo, [0])).toBe(0);
   });
-
+  /**
+   * @canon spec-a-for-runs-its-body-and-update-while-its-condition-holds
+   */
   it("runs every statement of a loop update", () => {
     const tally = Fn(() => {
       const t = float(0).toVar();
@@ -512,7 +574,9 @@ describe("JS backend: control flow", () => {
     const fn = compileJSRoutine(() => tally, { name: "main", params: [] });
     expect(fn.run({})).toBe(4);
   });
-
+  /**
+   * @canon spec-an-if-chain-takes-the-branch-its-conditions-select
+   */
   it("takes the branch the condition selects", () => {
     const branch = (x: Node<"float">) =>
       Fn(() => {
@@ -528,6 +592,9 @@ describe("JS backend: control flow", () => {
     expect(evalScalar(branch, [0])).toBe(20);
   });
 
+  /**
+   * @canon spec-a-while-loop-stops-when-its-condition-fails
+   */
   it("runs a while loop until its condition fails", () => {
     const countdown = (n: Node<"float">) =>
       Fn(() => {
@@ -542,7 +609,9 @@ describe("JS backend: control flow", () => {
     expect(evalScalar(countdown, [4])).toBe(4);
     expect(evalScalar(countdown, [0])).toBe(0);
   });
-
+  /**
+   * @canon spec-a-switch-runs-the-case-its-selector-matches
+   */
   it("takes the branch Switch selects", () => {
     const classify = () =>
       Fn(() => {
@@ -563,7 +632,9 @@ describe("JS backend: control flow", () => {
     const fn = compileJSRoutine(() => classify(), { name: "main", params: [] });
     expect(fn.run({})).toBe(20);
   });
-
+  /**
+   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   */
   it("honours break_ and continue_", () => {
     const sumUntilBreak = (limit: Node<"float">) =>
       Fn(() => {
@@ -602,7 +673,9 @@ describe("JS backend: control flow", () => {
       })();
     expect(evalScalar(sumSkippingFirst, [5])).toBe(9);
   });
-
+  /**
+   * @canon spec-an-if-chain-takes-the-branch-its-conditions-select
+   */
   it("computes the same results through the lowercase aliases", () => {
     const branch = (x: Node<"float">) =>
       Fn(() => {
@@ -659,6 +732,9 @@ describe("JS backend: control flow", () => {
 });
 
 describe("JS backend: shader I/O", () => {
+  /**
+   * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
+   */
   it("reads uniforms", () => {
     let u!: any;
     const prog = Fn(() => {
@@ -668,7 +744,9 @@ describe("JS backend: shader I/O", () => {
     const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     expect(fn.run({ uniforms: { [u.name]: 21 } })).toBe(42);
   });
-
+  /**
+   * @canon spec-a-variable-holds-a-copy
+   */
   it("keeps a uniform as it is when a variable copied from it is written", () => {
     const v = uniform("vec3");
     const prog = Fn(() => {
@@ -679,7 +757,9 @@ describe("JS backend: shader I/O", () => {
     const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     expect(fn.run({ uniforms: { [v.name]: [1, 2, 3] } })).toBe(11);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
+   */
   it("reads varyings and attributes", () => {
     let v!: any;
     let a!: any;
@@ -691,7 +771,9 @@ describe("JS backend: shader I/O", () => {
     const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     expect(fn.run({ varyings: { [v.name]: [3, 4, 5] }, attributes: { [a.name]: 1 } })).toBe(4);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   */
   it("returns outputs and fragment depth in a result object", () => {
     let u!: any;
     const prog = Fn(() => {
@@ -708,13 +790,18 @@ describe("JS backend: shader I/O", () => {
     expect(typeof r.outputs).toBe("object");
     expect(r.fragDepth).toBe(0.5);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   */
   it("returns the bare value when nothing is written to outputs", () => {
     const prog = Fn(() => vec4(1, 2, 3, 4))();
     const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     expect(fn.run({})).toEqual([1, 2, 3, 4]);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
+   * @canon spec-a-uniform-array-is-read-by-element
+   */
   it("reads uniform arrays", () => {
     let arr!: any;
     const prog = Fn(() => {
@@ -730,7 +817,10 @@ describe("JS backend: shader I/O", () => {
     ];
     expect(fn.run({ uniforms: { [arr.name]: values } })).toBe(7);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   * @canon spec-a-vertex-stage-writes-its-position
+   */
   it("runs a vertex stage, writing position and varyings", () => {
     const prog = Fn(() => {
       const v = varying("vec3");
@@ -747,6 +837,9 @@ describe("JS backend: shader I/O", () => {
 });
 
 describe("JS backend: CPU-specific behaviour", () => {
+  /**
+   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   */
   it("discard returns null", () => {
     const prog = Fn(() => {
       If(float(1).greaterThan(0), () => Discard());
@@ -755,7 +848,9 @@ describe("JS backend: CPU-specific behaviour", () => {
     const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     expect(fn.run({})).toBeNull();
   });
-
+  /**
+   * @canon spec-a-js-routine-allocates-nothing-per-call
+   */
   it("hoisted scratch does not leak state across calls", () => {
     const prog = Fn(() => {
       const x = vec3(1, 2, 3).toVar();
@@ -769,7 +864,9 @@ describe("JS backend: CPU-specific behaviour", () => {
     expect(fn.run({})).toEqual([1, 2, 3]);
     expect(fn.run({})).toEqual([1, 2, 3]);
   });
-
+  /**
+   * @canon spec-a-js-routine-allocates-nothing-per-call
+   */
   it("reentrant mode computes the same results", () => {
     const sumTo = (n: Node<"float">) =>
       Fn(() => {
@@ -790,7 +887,9 @@ describe("JS backend: CPU-specific behaviour", () => {
     expect(perCall.run({ params: { n: 7 } })).toBe(21);
     expect(perCall.run({ params: { n: 3 } })).toBe(3);
   });
-
+  /**
+   * @canon exception-a-cpu-target-has-no-derivatives
+   */
   it("compiles derivatives to zero on request", () => {
     const prog = Fn(() => {
       const x = vec2(1, 2).toVar();
@@ -799,7 +898,9 @@ describe("JS backend: CPU-specific behaviour", () => {
     const fn = compileJSRoutine(() => prog, { name: "main", params: [], derivatives: "zero" });
     expect(fn.run({})).toEqual([0, 0]);
   });
-
+  /**
+   * @canon exception-a-cpu-target-has-no-derivatives
+   */
   it("refuses derivatives by default", () => {
     const prog = Fn(() => {
       const x = vec2(1, 2).toVar();
@@ -807,7 +908,9 @@ describe("JS backend: CPU-specific behaviour", () => {
     })();
     expect(() => compileJSRoutine(() => prog, { name: "main", params: [] })).toThrow(/CPU target/);
   });
-
+  /**
+   * @canon spec-a-cpu-target-filters-as-the-texture-asks
+   */
   it("samples textures with nearest-neighbour lookup", () => {
     let tex!: any;
     const prog = Fn(() => {
@@ -819,7 +922,9 @@ describe("JS backend: CPU-specific behaviour", () => {
     const data = [1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4];
     expect(fn.run({ textures: { [tex.name]: { data, width: 2, height: 2 } } })).toEqual([4, 4, 4, 4]);
   });
-
+  /**
+   * @canon spec-a-byte-texture-reads-as-zero-to-one
+   */
   it("reads a byte texture through a float sampler as 0 to 1", () => {
     let tex!: any;
     const prog = Fn(() => {
@@ -832,7 +937,9 @@ describe("JS backend: CPU-specific behaviour", () => {
     const data = new Uint8Array([0, 128, 255, 255]);
     expect(fn.run({ textures: { [tex.name]: { data, width: 1, height: 1 } } })).toEqual([0, 128 / 255, 1, 1]);
   });
-
+  /**
+   * @canon spec-a-byte-texture-reads-as-zero-to-one
+   */
   it("leaves a float texture that already holds float data alone", () => {
     let tex!: any;
     const prog = Fn(() => {
@@ -845,7 +952,9 @@ describe("JS backend: CPU-specific behaviour", () => {
     // A plain array is a plain array, whatever is in it.
     expect(fn.run({ textures: { [tex.name]: { data: [0, 0.5, 1, 1], width: 1, height: 1 } } })).toEqual([0, 0.5, 1, 1]);
   });
-
+  /**
+   * @canon spec-a-byte-texture-reads-as-zero-to-one
+   */
   it("keeps an integer texture's bytes as the texels they are", () => {
     let tex!: any;
     const prog = Fn(() => {
@@ -858,7 +967,9 @@ describe("JS backend: CPU-specific behaviour", () => {
     const data = new Uint8Array([0, 128, 255, 255]);
     expect(fn.run({ textures: { [tex.name]: { data, width: 1, height: 1 } } })).toEqual([0, 128, 255, 255]);
   });
-
+  /**
+   * @canon spec-a-texel-holds-the-channels-its-texture-stores
+   */
   it("strides by the channels a texel holds, not by four", () => {
     let tex!: any;
     const prog = Fn(() => {
@@ -874,7 +985,9 @@ describe("JS backend: CPU-specific behaviour", () => {
       // a single-channel texture does not store
       .toEqual([30, 0, 0, 1]);
   });
-
+  /**
+   * @canon spec-a-texel-holds-the-channels-its-texture-stores
+   */
   it("blends a single-channel texture without reading its neighbours' channels", () => {
     let tex!: any;
     const prog = Fn(() => {
@@ -886,7 +999,9 @@ describe("JS backend: CPU-specific behaviour", () => {
     expect(fn.run({ textures: { [tex.name]: texture } })).toEqual([100, 0, 0, 1]);
     expect(fn.run({ textures: { [tex.name]: { ...texture, magFilter: "linear" as const } } })).toEqual([50, 0, 0, 1]);
   });
-
+  /**
+   * @canon spec-a-byte-texture-reads-as-zero-to-one
+   */
   it("normalizes a byte texture fetched with textureLoad too", () => {
     let tex!: any;
     const prog = Fn(() => {
@@ -897,7 +1012,9 @@ describe("JS backend: CPU-specific behaviour", () => {
     const data = new Uint8Array([0, 128, 255, 255]);
     expect(fn.run({ textures: { [tex.name]: { data, width: 1, height: 1 } } })).toEqual([0, 128 / 255, 1, 1]);
   });
-
+  /**
+   * @canon spec-a-cpu-target-filters-as-the-texture-asks
+   */
   it("blends neighbouring texels when the texture asks for linear filtering", () => {
     let tex!: any;
     const prog = Fn(() => {
@@ -915,7 +1032,9 @@ describe("JS backend: CPU-specific behaviour", () => {
       50, 50, 50, 50,
     ]);
   });
-
+  /**
+   * @canon spec-a-cpu-target-wraps-as-the-texture-asks
+   */
   it("wraps a coordinate past the edge the way the texture asks", () => {
     let tex!: any;
     const prog = Fn(() => {
@@ -932,7 +1051,9 @@ describe("JS backend: CPU-specific behaviour", () => {
     expect(red({ ...texture, wrapS: "repeat" as const })).toBe(10);
     expect(red({ ...texture, wrapS: "mirror" as const })).toBe(20);
   });
-
+  /**
+   * @canon spec-a-cpu-target-wraps-as-the-texture-asks
+   */
   it("wraps behind the left edge too", () => {
     let tex!: any;
     const prog = Fn(() => {
@@ -947,7 +1068,9 @@ describe("JS backend: CPU-specific behaviour", () => {
     expect(red({ ...texture, wrapS: "repeat" as const })).toBe(20);
     expect(red({ ...texture, wrapS: "mirror" as const })).toBe(10);
   });
-
+  /**
+   * @canon spec-a-3d-texture-blends-across-its-depth
+   */
   it("blends across the depth of a 3D texture", () => {
     let tex!: any;
     const prog = Fn(() => {
@@ -965,7 +1088,9 @@ describe("JS backend: CPU-specific behaviour", () => {
     };
     expect(fn.run({ textures: { [tex.name]: texture } })).toEqual([50, 50, 50, 50]);
   });
-
+  /**
+   * @canon spec-a-cube-map-is-sampled-on-the-face-its-direction-picks
+   */
   it("samples the right face of a cube map by direction", () => {
     // 6 faces, one texel each, face order +X,-X,+Y,-Y,+Z,-Z: 10,20,30,40,50,60.
     const data = [10, 10, 10, 10, 20, 20, 20, 20, 30, 30, 30, 30, 40, 40, 40, 40, 50, 50, 50, 50, 60, 60, 60, 60];
@@ -989,7 +1114,9 @@ describe("JS backend: CPU-specific behaviour", () => {
     expect(at(0, 0, 1)).toEqual([50, 50, 50, 50]);
     expect(at(0, 0, -1)).toEqual([60, 60, 60, 60]);
   });
-
+  /**
+   * @canon spec-a-cube-map-is-sampled-on-the-face-its-direction-picks
+   */
   it("blends within a cube face but never across its edge into a neighbour", () => {
     let tex!: any;
     const prog = Fn(() => {
@@ -1008,7 +1135,9 @@ describe("JS backend: CPU-specific behaviour", () => {
     expect(r).toBeGreaterThan(0);
     expect(r).toBeLessThanOrEqual(100);
   });
-
+  /**
+   * @canon spec-an-integer-texture-is-fetched-unfiltered
+   */
   it("fetches integer textures at texel coordinates", () => {
     let tex!: any;
     const prog = Fn(() => {
@@ -1019,7 +1148,9 @@ describe("JS backend: CPU-specific behaviour", () => {
     const data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
     expect(fn.run({ textures: { [tex.name]: { data, width: 2, height: 2 } } })).toEqual([5, 6, 7, 8]);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   */
   it("supports multi-return functions, keeping only the last value as the result", () => {
     let side!: any;
     const prog = Fn(() => {
@@ -1030,7 +1161,9 @@ describe("JS backend: CPU-specific behaviour", () => {
     const fn = compileJSRoutine(() => prog as any, { name: "main", params: [] });
     expect(fn.run({})).toBe(2);
   });
-
+  /**
+   * @canon spec-the-js-target-compiles-a-function-of-a-context
+   */
   it("compileJSFn emits a self-contained expression evaluating to the callable", () => {
     const src = compileJSFn((a: any, b: any) => a.add(b), {
       name: "main",
@@ -1046,6 +1179,9 @@ describe("JS backend: CPU-specific behaviour", () => {
 });
 
 describe("JS backend: screen-picking workflow", () => {
+  /**
+   * @canon spec-a-cpu-routine-answers-one-fragment-per-call
+   */
   it("computes the world-space pick point of a ray-marched ground plane", () => {
     // A miniature of the picking flow: the fragment Fn computes where the ray
     // from the camera hits the y = 0 plane, written out as depth.
@@ -1064,7 +1200,9 @@ describe("JS backend: screen-picking workflow", () => {
     expect(r.value).toEqual([0, 0, 0]);
     expect(r.fragDepth).toBe(2);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-answers-one-fragment-per-call
+   */
   it("reuses one compiled function across many pick calls", () => {
     const prog = Fn(() => {
       const ro = vec3(0, 1, 0).toVar();
@@ -1080,13 +1218,18 @@ describe("JS backend: screen-picking workflow", () => {
 });
 
 describe("JS backend: TSL free functions", () => {
+  /**
+   * @canon spec-arithmetic-compiles-to-the-operators-of-the-target
+   */
   it("computes arithmetic free functions", () => {
     expect(evalScalar((a, b) => add(a, b), [2, 3])).toBe(5);
     expect(evalScalar((a, b) => sub(a, b), [7, 3])).toBe(4);
     expect(evalScalar((a, b) => mul(a, b), [3, 4])).toBe(12);
     expect(evalScalar((a, b) => mul(a, b, a), [3, 4])).toBe(36);
   });
-
+  /**
+   * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
+   */
   it("computes math free functions", () => {
     expect(
       approx(
@@ -1105,14 +1248,18 @@ describe("JS backend: TSL free functions", () => {
     expect(evalScalar((a, b) => max(a, b), [3, 1])).toBe(3);
     expect(evalScalar((a, b) => pow(a, b), [2, 3])).toBe(8);
   });
-
+  /**
+   * @canon spec-a-function-with-an-edge-takes-the-value-last
+   */
   it("computes interpolation free functions", () => {
     expect(evalScalar((a, b) => mix(a, b, 0.5), [0, 10])).toBe(5);
     expect(evalScalar((a, b) => clamp(a, 0, 1), [2])).toBe(1);
     expect(evalScalar((a, b) => step(0.5, a), [1])).toBe(1);
     expect(evalScalar((a, b) => smoothstep(0, 1, a), [0.5])).toBeCloseTo(0.5);
   });
-
+  /**
+   * @canon spec-a-geometric-function-compiles-to-the-builtin-of-the-target
+   */
   it("computes vector free functions", () => {
     const fn = compileJSRoutine(
       () =>
@@ -1124,7 +1271,9 @@ describe("JS backend: TSL free functions", () => {
     );
     expect(fn.run({})).toBeCloseTo(14 + Math.sqrt(14));
   });
-
+  /**
+   * @canon spec-a-geometric-function-compiles-to-the-builtin-of-the-target
+   */
   it("computes cross/reflect/normalize/faceForward", () => {
     const fn = compileJSRoutine(
       () =>
@@ -1150,7 +1299,9 @@ describe("JS backend: TSL free functions", () => {
     // faceforward flips n because dot(nref, i) > 0; sign flips leave signed zero.
     expect((ff.run({}) as number[]).map((x) => (x === 0 ? 0 : x))).toEqual([0, -1, 0]);
   });
-
+  /**
+   * @canon spec-a-boolean-vector-reduces-with-all-or-any
+   */
   it("computes all/any reductions", () => {
     const fn = compileJSRoutine(
       () =>
@@ -1168,6 +1319,9 @@ describe("JS backend: TSL free functions", () => {
 });
 
 describe("JS backend: TSL loop and return", () => {
+  /**
+   * @canon spec-loop-runs-its-body-count-times
+   */
   it("Loop(count, (i) => ...) sums 0..3", () => {
     const fn = compileJSRoutine(
       () =>
@@ -1182,7 +1336,9 @@ describe("JS backend: TSL loop and return", () => {
     );
     expect(fn.run({})).toBe(6);
   });
-
+  /**
+   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   */
   it("Return() exits the function early", () => {
     const fn = compileJSRoutine(
       () =>
@@ -1200,7 +1356,9 @@ describe("JS backend: TSL loop and return", () => {
     // undefined rather than 1.
     expect(fn.run({})).toBeUndefined();
   });
-
+  /**
+   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   */
   it("Discard() returns null", () => {
     const fn = compileJSRoutine(
       () =>
@@ -1231,23 +1389,31 @@ describe("JS backend: TSL loop and return", () => {
  */
 describe("JS backend: operands that are themselves expressions", () => {
   const floored = (x: number, y: number) => x - y * Math.floor(x / y);
-
+  /**
+   * @canon spec-an-operand-that-is-an-expression-keeps-its-grouping
+   */
   it("computes modulo of a sum", () => {
     // (7 + 5) mod 4 is 0, not 7 + 5 - 4 * floor(7 + 5 / 4)
     expect(evalScalar((a, b, m) => a.add(b).mod(m), [7, 5, 4])).toBe(floored(7 + 5, 4));
   });
-
+  /**
+   * @canon spec-an-operand-that-is-an-expression-keeps-its-grouping
+   */
   it("computes modulo by a sum", () => {
     expect(evalScalar((a, b, c) => a.mod(b.add(c)), [17, 3, 2])).toBe(floored(17, 3 + 2));
   });
-
+  /**
+   * @canon spec-an-operand-that-is-an-expression-keeps-its-grouping
+   */
   it("computes whole-number division and modulo of a sum", () => {
     expect(evalScalar((a, b, m) => a.toInt().add(b.toInt()).div(m.toInt()).toFloat(), [7, 5, 4])).toBe(
       Math.trunc((7 + 5) / 4),
     );
     expect(evalScalar((a, b, m) => a.toInt().add(b.toInt()).mod(m.toInt()).toFloat(), [7, 5, 4])).toBe((7 + 5) % 4);
   });
-
+  /**
+   * @canon spec-an-operand-that-is-an-expression-keeps-its-grouping
+   */
   it("mixes between sums", () => {
     // mix(3, 10, 0.25) is 4.75
     approx(
@@ -1255,7 +1421,9 @@ describe("JS backend: operands that are themselves expressions", () => {
       3 + 0.25 * (10 - 3),
     );
   });
-
+  /**
+   * @canon spec-every-node-is-emitted-once
+   */
   it("compiles a value every level of which is read twice once when it is copied into a variable", () => {
     // Each level reads the one below twice, so writing each level out where it
     // is read takes 2^14 copies of the bottom one.
@@ -1269,7 +1437,9 @@ describe("JS backend: operands that are themselves expressions", () => {
     expect(compileJSFn(build, options).length).toBeLessThan(10_000);
     expect(compileJSRoutine(build, options).run({ params: { a: 3 } })).toBe(3);
   });
-
+  /**
+   * @canon spec-an-operand-that-is-an-expression-keeps-its-grouping
+   */
   it("smoothsteps across a sum edge", () => {
     // smoothstep(2, 6, 4): t is 0.5, so the result is 0.5
     approx(
@@ -1280,6 +1450,9 @@ describe("JS backend: operands that are themselves expressions", () => {
 });
 
 describe("JS backend: .draw() — render a whole grid in one call", () => {
+  /**
+   * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
+   */
   it("renders a scalar per pixel, fragCoord at pixel centers", () => {
     const build = () => Fn(() => fragCoord().x)();
     const fn = compileJSRoutine(build as any, { name: "main", params: [] });
@@ -1288,7 +1461,9 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
     // Row-major, (y*width+x): x+0.5 regardless of row.
     expect(Array.from(out)).toEqual([0.5, 1.5, 2.5, 0.5, 1.5, 2.5]);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
+   */
   it("renders both fragCoord axes packed into a vec4 per pixel, with no stage or output() involved", () => {
     const build = () => Fn(() => vec4(fragCoord().x, fragCoord().y, 0, 1))();
     const fn = compileJSRoutine(build as any, { name: "main", params: [] });
@@ -1313,7 +1488,9 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
       1, // (1,1)
     ]);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
+   */
   it("reads a uniform every pixel and reflects a changed uniform on the next call", () => {
     const scale = uniform("float");
     const build = () => Fn(() => fragCoord().x.mul(scale))();
@@ -1321,7 +1498,9 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
     expect(Array.from(fn.draw({ uniforms: { [scale.name]: 2 } }, 2, 1))).toEqual([1, 3]);
     expect(Array.from(fn.draw({ uniforms: { [scale.name]: 10 } }, 2, 1))).toEqual([5, 15]);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
+   */
   it("picks dimensions per call, not at compile time", () => {
     const build = () => Fn(() => fragCoord().x)();
     const fn = compileJSRoutine(build as any, { name: "main", params: [] });
@@ -1329,7 +1508,9 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
     expect(Array.from(fn.draw({}, 4, 1))).toEqual([0.5, 1.5, 2.5, 3.5]);
     expect(Array.from(fn.draw({}, 1, 1))).toEqual([0.5]);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-answers-one-fragment-per-call
+   */
   it("the same compiled function still works as a plain single-pixel call — draw() is a choice per call, not a compile mode", () => {
     const scale = uniform("float");
     const build = () => Fn(() => fragCoord().x.mul(scale))();
@@ -1337,14 +1518,19 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
     expect(fn.run({ uniforms: { [scale.name]: 2 }, fragCoord: [3, 0] })).toBe(6);
     expect(Array.from(fn.draw({ uniforms: { [scale.name]: 2 } }, 2, 1))).toEqual([1, 3]);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
+   * @canon spec-wasm-and-js-give-the-same-float-bits
+   */
   it("matches compileWasmRoutine's draw() output for the same program", () => {
     const build = () => Fn(() => fragCoord().x.add(fragCoord().y.mul(2)))();
     const jsFn = compileJSRoutine(build as any, { name: "main", params: [] });
     const wasmFn = compileWasmRoutine(build as any, { name: "main", params: [] });
     expect(Array.from(jsFn.draw({}, 3, 3))).toEqual(Array.from(wasmFn.draw({}, 3, 3)));
   });
-
+  /**
+   * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
+   */
   it("declares its uniform inside the build function itself, not just before it", () => {
     // compileJSRoutine reads the root's result type for draw() by calling the build
     // function — it must do so exactly once. A build function that declares
@@ -1363,7 +1549,9 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
     expect(fn.run({ uniforms: { [tex.name]: 2 }, fragCoord: [3, 0] })).toBe(6);
     expect(Array.from(fn.draw({ uniforms: { [tex.name]: 2 } }, 2, 1))).toEqual([1, 3]);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-runs-one-compute-invocation-per-call
+   */
   it("compiles storage()/invocationIndex() into a per-call array-indexed program", () => {
     // The same per-invocation model WGSL's compute path gives storage(): the
     // compiled fn is called once per element, with `index` naming which one

@@ -17,11 +17,14 @@ import {
   PRECEDENCE,
   PREC_ATOM,
   PREC_UNARY,
+  assertNotInAComputeStage,
+  COMPUTE_REFUSES,
   assertPositionIsReadable,
   assertSquareMatrix,
   assertAssignable,
   parameterNode,
   assertStageResult,
+  fragmentColour,
   assertOneDeclarationPerName,
   forUpdateStatements,
   loopTest,
@@ -1236,6 +1239,8 @@ export function compileJSNode(
 
     case "storage": {
       let v = node.value as any;
+      ctx.storageTypes ??= new Map();
+      ctx.storageTypes.set(v.slot, v.shaderType ?? node._t);
       return jsLeafRef(`ctx.storages[${JSON.stringify(v.slot)}]`, v.shaderType ?? node._t, ctx);
     }
 
@@ -1260,11 +1265,13 @@ export function compileJSNode(
 
     case "attribute": {
       let v = node.value as any;
+      assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.attribute);
       return jsLeafRef(`ctx.attributes[${JSON.stringify(v.slot)}]`, v.shaderType ?? node._t, ctx);
     }
 
     case "varying": {
       let v = node.value as any;
+      assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.varying);
       let slot = v?.slot;
       // In a vertex stage a varying is an output, collected in the result so
       // the host can read it back; in a fragment stage it is an input.
@@ -1277,7 +1284,9 @@ export function compileJSNode(
 
     case "output": {
       let v = node.value as any;
+      assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.output);
       ctx.jsNeedsRes = true;
+      if (v.id != null) ctx.outputs.set(v.id, { type: v.shaderType, slot: v.slot, location: v.location });
       return jsLeafRef(`res.outputs[${JSON.stringify(v.slot)}]`, v.shaderType ?? node._t, ctx);
     }
 
@@ -1930,7 +1939,7 @@ export function compileJSNode(
 }
 
 export type CompileJSOptions = CompileFnOptions & {
-  stage?: "vertex" | "fragment";
+  stage?: "vertex" | "fragment" | "compute";
   derivatives?: "throw" | "zero";
   reentrant?: boolean;
 };
@@ -1953,13 +1962,16 @@ export type CompileJSOptions = CompileFnOptions & {
 function compileJSFnDetailed(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
-): { source: string; resultType: ShaderType | undefined } {
+): { source: string; resultType: ShaderType | undefined; storageTypes: Record<string, ShaderType> } {
   let stage = options.stage ?? "fragment";
   let derivatives = options.derivatives ?? "throw";
   let reentrant = options.reentrant ?? false;
   const paramNodes = options.params.map((p) => parameterNode(p.name, p.type));
   const rawResult = fn(...paramNodes);
-  const resultNodes: Node<ShaderType>[] = Array.isArray(rawResult) ? rawResult : [rawResult];
+  const rawNodes: Node<ShaderType>[] = Array.isArray(rawResult) ? rawResult : [rawResult];
+  // Without a stage the function is a plain function of its context, whose
+  // result can be any value.
+  const resultNodes = options.stage === "fragment" ? fragmentColour(rawNodes) : rawNodes;
 
   const ctx: CompileCtx = {
     nextId: 0,
@@ -1990,7 +2002,7 @@ function compileJSFnDetailed(
   const compiledList = resultNodes.map((n) => compileJSStage(n, ctx));
   const lastCompiled = compiledList[compiledList.length - 1];
   const lastType = (resultNodes[resultNodes.length - 1] as any)?._t;
-  assertStageResult(stage, lastType, ctx.positionWritten);
+  if (options.stage !== undefined) assertStageResult(stage, lastType, ctx.positionWritten, ctx.outputs.size > 0);
 
   const body: string[] = [];
   if (ctx.jsNeedsRes) body.push("var res = { outputs: {}, varyings: {} };");
@@ -2028,6 +2040,7 @@ function compileJSFnDetailed(
   return {
     source: parts.join("\n\n"),
     resultType: lastType as ShaderType | undefined,
+    storageTypes: Object.fromEntries(ctx.storageTypes ?? []) as Record<string, ShaderType>,
   };
 }
 
@@ -2055,7 +2068,7 @@ export function compileJSRoutine(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
 ): CpuRoutine {
-  const { source, resultType } = compileJSFnDetailed(fn, options);
+  const { source, resultType, storageTypes } = compileJSFnDetailed(fn, options);
   const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuShaderResult;
   const run = factory();
 
@@ -2100,5 +2113,5 @@ export function compileJSRoutine(
     }
   }
 
-  return { run, draw, compute };
+  return { run, draw, compute, storageTypes };
 }

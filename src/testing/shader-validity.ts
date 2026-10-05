@@ -13,7 +13,7 @@ declare const process: {
 };
 
 export type ShaderLang = "glsl" | "wgsl";
-export type ShaderStage = "vertex" | "fragment";
+export type ShaderStage = "vertex" | "fragment" | "compute";
 
 export interface Recorded {
   test: string;
@@ -41,6 +41,10 @@ let nextPair = 0;
  * the problems it documents.
  */
 export const KNOWN_INVALID: Record<string, string> = {
+  // A fragment stage that writes a colour returns a struct, and the bare
+  // `return;` an early Return emits does not.
+  "wgsl:TSL control flow > Return emits an early return":
+    "an early Return in a WGSL fragment stage that writes a colour returns nothing (#135)",
   // FXAA's whole algorithm is data-dependent: it decides whether a pixel sits
   // on an edge from sampled luminance, then walks that edge. WebGPU requires
   // texture sampling to happen in uniform control flow, so Dawn rejects every

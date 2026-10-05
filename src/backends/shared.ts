@@ -6,8 +6,10 @@ import {
   ShaderType,
   StorageBufferAttribute,
   TYPE_WIDTH,
+  node,
   someNode,
   var_,
+  vec4,
 } from "../core";
 import { componentKindOf } from "./cpu";
 /**
@@ -86,6 +88,13 @@ export interface CompileCtx {
       wgslName: string;
     }
   >;
+  /**
+   * The shader type of one element of each storage buffer the program reads,
+   * by slot. Every target fills it: WGSL needs it to lay a buffer out, and a
+   * compute adapter needs it to count the elements of the array the host
+   * passes for a slot.
+   */
+  storageTypes?: Map<string, string>;
   /** The attributes the program reads, by name; `id` is the first one's, which orders them as they were made. */
   attributes: Map<string, { id: number; type: string; slot: string }>;
   /** The varyings the program reads or writes, by name. */
@@ -521,14 +530,20 @@ export function loopTest(cond: CompiledNode): { header: string; guard: string[] 
  * nothing, which is the silent-corruption failure mode the unhandled-node case
  * throws to avoid.
  *
- * A fragment stage is deliberately not checked. A shader with no colour output
- * is legal, so "no result" there is a choice rather than a mistake.
+ * A fragment stage may return nothing, since a shader with no colour output is
+ * legal. Its result becomes the colour through {@link fragmentColour}, so only a
+ * type with no conversion to one is refused here.
  */
 export function assertStageResult(
   shaderStage: "vertex" | "fragment" | "compute",
   lastType: string | undefined,
   positionWritten: boolean,
+  declaresOutput = false,
 ): void {
+  if (shaderStage === "fragment") {
+    assertFragmentResult(lastType, declaresOutput);
+    return;
+  }
   if (shaderStage !== "vertex") return;
   // The program set the position itself, so its result has nowhere it needs to
   // go and can be anything, including nothing.
@@ -545,6 +560,57 @@ export function assertStageResult(
           `assign builtinPosition() yourself.`
         : `returns ${lastType}, which cannot become one. Wrap it — for example ` + `vec4(value, 1.0).`),
   );
+}
+
+function assertFragmentResult(lastType: string | undefined, declaresOutput: boolean): void {
+  if (declaresOutput) return;
+  if (lastType === undefined || lastType === "void" || lastType === "vec4") return;
+  throw new Error(
+    `[RMSL] A fragment shader that declares no output writes its result as the colour. ` +
+      `This one returns ${lastType}, which has no colour to become. Return a vec4, or declare an output.`,
+  );
+}
+
+/**
+ * The roots of a fragment stage with the implicit colour converted to a `vec4`
+ * the way TSL converts it to its render target's type. A `vec3` gains an alpha
+ * of 1, a `vec2` a blue of 0 and an alpha of 1, and a scalar fills every
+ * channel. A stage that declares an output, or returns anything else, comes
+ * back as it is.
+ */
+export function fragmentColour<T extends Node<ShaderType>>(roots: readonly T[]): T[] {
+  const last = roots[roots.length - 1] as BaseNode<ShaderType> | undefined;
+  if (!last || someNode(roots, (n) => n.type === "output")) return [...roots];
+  let tail = (last.type === "seq" ? last.params![last.params!.length - 1] : last) as Node<any>;
+  // An integer or boolean value reaches a colour as the float it converts to.
+  if (/^[iub]vec[234]$/.test(tail._t)) tail = tail.convert(`vec${tail._t.slice(-1)}`);
+  let colour: Node<"vec4">;
+  switch (tail._t) {
+    case "vec4":
+      colour = tail;
+      break;
+    case "vec3":
+      colour = vec4(tail, 1);
+      break;
+    case "vec2":
+      colour = vec4(tail, 0, 1);
+      break;
+    case "float":
+      colour = vec4(tail);
+      break;
+    case "int":
+    case "uint":
+    case "bool":
+      colour = vec4(tail.toFloat());
+      break;
+    default:
+      return [...roots];
+  }
+  const converted =
+    last.type === "seq"
+      ? node({ _t: "vec4", type: "seq", params: [...last.params!.slice(0, -1), colour as BaseNode<ShaderType>] })
+      : colour;
+  return [...roots.slice(0, -1), converted as unknown as T];
 }
 
 /** Which component each accessor letter names, in all three spellings. */
@@ -597,6 +663,37 @@ export function assertSquareMatrix(operandType: string | undefined): number {
   }
   return shape[0];
 }
+
+/**
+ * A compute dispatch has no vertex or fragment stage, so what those stages
+ * pass in and out has nothing to attach to. Throws when `stage` is compute.
+ */
+export function assertNotInAComputeStage(
+  stage: "vertex" | "fragment" | "compute",
+  refused: { action: string; because: string; instead: string },
+): void {
+  if (stage !== "compute") return;
+  throw new Error(`[RMSL] A compute program cannot ${refused.action}, because ${refused.because}. ${refused.instead}`);
+}
+
+/** The refusals of a compute program, one for each stage input or output it cannot use. */
+export const COMPUTE_REFUSES = {
+  attribute: {
+    action: "read an attribute",
+    because: "a compute dispatch has no vertices to read one for",
+    instead: "Read the buffer with storage(attribute, type) instead.",
+  },
+  output: {
+    action: "write an output",
+    because: "a compute entry point returns nothing to hold one",
+    instead: "Write the value into a storage buffer with .element(invocationIndex()) instead.",
+  },
+  varying: {
+    action: "read a varying",
+    because: "a compute dispatch has no vertex stage to pass one from",
+    instead: "Pass the value in through a uniform or a storage buffer instead.",
+  },
+} as const;
 
 /**
  * The position is the vertex stage's output. A fragment stage cannot read it:

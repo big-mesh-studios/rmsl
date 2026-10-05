@@ -30,6 +30,9 @@ import type { BufferAttribute } from "./geometries/BufferAttribute";
 import { float } from "../rmsl";
 
 describe("scene graph classes", () => {
+  /**
+   * @canon spec-an-object-composes-its-world-matrix-down-the-tree
+   */
   it("builds the expected hierarchy", () => {
     const scene = new Scene();
     const group = new Group();
@@ -41,7 +44,9 @@ describe("scene graph classes", () => {
     expectTypeOf(mesh.isMesh).toBeBoolean();
     expectTypeOf(mesh.geometry).toMatchTypeOf<BufferGeometry>();
   });
-
+  /**
+   * @canon spec-a-camera-builds-its-projection
+   */
   it("camera kinds narrow the projection matrix", () => {
     const perspective = new PerspectiveCamera();
     const orthographic = new OrthographicCamera();
@@ -49,7 +54,9 @@ describe("scene graph classes", () => {
     expectTypeOf(orthographic.isOrthographicCamera).toBeBoolean();
     expectTypeOf(perspective.projectionMatrix).toMatchTypeOf<Matrix4>();
   });
-
+  /**
+   * @canon spec-an-instanced-mesh-follows-three-js
+   */
   it("instanced meshes are meshes with object-owned instance data", () => {
     const mesh = new InstancedMesh(new BoxGeometry(), new MeshBasicMaterial(), 4);
     expectTypeOf(mesh.isInstancedMesh).toBeBoolean();
@@ -62,7 +69,9 @@ describe("scene graph classes", () => {
     expectTypeOf(mesh.setColorAt(0, new Color())).toEqualTypeOf<InstancedMesh>();
     expectTypeOf(mesh.getColorAt(0, new Color())).toEqualTypeOf<Color>();
   });
-
+  /**
+   * @canon spec-a-light-is-a-coloured-scene-node
+   */
   it("lights carry a color and an intensity", () => {
     const ambient = new AmbientLight(0xffffff, 1);
     expectTypeOf(ambient.color).toMatchTypeOf<Color>();
@@ -73,6 +82,9 @@ describe("scene graph classes", () => {
 });
 
 describe("math classes", () => {
+  /**
+   * @canon spec-the-math-classes-follow-three-js
+   */
   it("transforms compose with the documented return types", () => {
     const m = new Matrix4().compose(new Vector3(), new Quaternion(), new Vector3(1, 1, 1));
     expectTypeOf(m).toEqualTypeOf<Matrix4>();
@@ -84,12 +96,17 @@ describe("math classes", () => {
 });
 
 describe("node materials", () => {
+  /**
+   * @canon spec-the-built-in-materials-shade-as-three-js-does
+   */
   it("builds a MaterialProgram", () => {
     const scene = new Scene();
     const material = new MeshStandardMaterial();
     expectTypeOf(material.build(scene)).toEqualTypeOf<MaterialProgram>();
   });
-
+  /**
+   * @canon spec-a-material-slot-takes-a-node-or-a-builder
+   */
   it("slots accept a node or a builder function", () => {
     const material = new MeshStandardMaterial();
     material.colorNode = (b) => b.uv.x.toVec3();
@@ -98,7 +115,9 @@ describe("node materials", () => {
     material.opacityNode = () => float(1);
     expectTypeOf(material).toMatchTypeOf<NodeMaterial>();
   });
-
+  /**
+   * @canon spec-a-material-slot-takes-a-node-or-a-builder
+   */
   it("exposes typed accessors on the builder", () => {
     const b = new Builder();
     expectTypeOf(b.position).toEqualTypeOf<AttributeNode<"vec3">>();
@@ -112,7 +131,9 @@ describe("node materials", () => {
     expectTypeOf(b.modelMatrix).toEqualTypeOf<UniformNode<"mat4">>();
     expectTypeOf(b.normalMatrix).toEqualTypeOf<UniformNode<"mat3">>();
   });
-
+  /**
+   * @canon spec-a-material-slot-takes-a-node-or-a-builder
+   */
   it("types the instanced builder accessors", () => {
     const b = new Builder();
     b.instancing = true;
@@ -121,7 +142,9 @@ describe("node materials", () => {
     expectTypeOf(b.instanceColor).toEqualTypeOf<AttributeNode<"vec3">>();
     expectTypeOf(b.instanceColorVarying).toEqualTypeOf<VaryingNode<"vec3">>();
   });
-
+  /**
+   * @canon spec-a-material-reads-any-sampler-type
+   */
   it("types the builder sampler overloads by sampler type", () => {
     const b = new Builder();
     // The two-argument form stays a sampler2D.
@@ -134,14 +157,18 @@ describe("node materials", () => {
     // @ts-expect-error a non-sampler shader type is not a sampler type
     b.sampler("bad", "vec3", () => null);
   });
-
+  /**
+   * @canon spec-a-material-reads-any-sampler-type
+   */
   it("material program samplers carry their sampler type", () => {
     const scene = new Scene();
     const program = new MeshBasicMaterial().build(scene);
     const binding = program.samplers[0] as SamplerBinding<"sampler2D"> | undefined;
     if (binding) expectTypeOf(binding.type).toEqualTypeOf<"sampler2D">();
   });
-
+  /**
+   * @canon spec-a-material-slot-takes-a-node-or-a-builder
+   */
   it("color slots are vec3-typed", () => {
     const material = new MeshBasicMaterial();
     // @ts-expect-error a vec4 is not a valid color slot
@@ -149,13 +176,17 @@ describe("node materials", () => {
     // @ts-expect-error a raw number is not a color slot value
     material.colorNode = 0xff0000;
   });
-
+  /**
+   * @canon spec-a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise
+   */
   it("renderer constructors are typed", () => {
     expectTypeOf(WebGLRenderer).toMatchTypeOf<new () => WebGLRenderer>();
     expectTypeOf(WebGPURenderer.init).toBeFunction();
     expectTypeOf(WebGPURenderer.init).toMatchTypeOf<() => Promise<WebGPURenderer>>();
   });
-
+  /**
+   * @canon spec-a-material-uniform-has-a-scope-and-a-live-value
+   */
   it("material program bindings expose the uniform scope", () => {
     const scene = new Scene();
     const program = new MeshBasicMaterial().build(scene);

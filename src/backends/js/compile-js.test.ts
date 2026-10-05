@@ -3,6 +3,9 @@ import { attribute, builtinPosition, Fn, uniform, varying, vec4 } from "../../rm
 import { compileJS } from "./rasterizer";
 
 describe("JS backend: compileJS (vertex+fragment rasterizer pipeline)", () => {
+  /**
+   * @canon spec-the-js-target-draws-within-the-call
+   */
   it("draws a triangle covering the screen, interpolating a varying color", () => {
     const posAttr = attribute("vec3");
     const colorVarying = varying("vec3");
@@ -33,7 +36,9 @@ describe("JS backend: compileJS (vertex+fragment rasterizer pipeline)", () => {
     expect(Array.from(result).every((v) => v >= 0 && v <= 1)).toBe(true);
     expect(Array.from(result).some((v) => v !== 0)).toBe(true);
   });
-
+  /**
+   * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
+   */
   it("threads a uniform into the fragment stage", () => {
     const posAttr = attribute("vec3");
     const colorUniform = uniform("vec3");
@@ -50,7 +55,9 @@ describe("JS backend: compileJS (vertex+fragment rasterizer pipeline)", () => {
     );
     expect(Array.from(result.slice(0, 4))).toEqual([0, 1, 0, 1]);
   });
-
+  /**
+   * @canon spec-a-rasterizer-clears-its-colour-every-draw
+   */
   it("clears the output buffer between draw() calls instead of leaving stale pixels", () => {
     const posAttr = attribute("vec3");
     const colorUniform = uniform("vec3");
@@ -83,7 +90,9 @@ describe("JS backend: compileJS (vertex+fragment rasterizer pipeline)", () => {
     // some pixel is genuinely covered by the tiny triangle
     expect(Array.from(second).some((v, i) => i % 4 === 2 && v === 1)).toBe(true);
   });
-
+  /**
+   * @canon spec-a-rasterizer-keeps-the-closer-fragment
+   */
   it("keeps a persistent depth buffer across draw() calls until clearDepth: true", () => {
     const posAttr = attribute("vec3");
     const colorUniform = uniform("vec3");
@@ -102,7 +111,7 @@ describe("JS backend: compileJS (vertex+fragment rasterizer pipeline)", () => {
       );
 
     // near, red — passes the depth test against the freshly (auto-)cleared buffer
-    expect(Array.from(draw(-0.5, [1, 0, 0]).slice(0, 3))).toEqual([1, 0, 0]);
+    expect(Array.from(draw(0.25, [1, 0, 0]).slice(0, 3))).toEqual([1, 0, 0]);
 
     // far, blue, same routine, no clearDepth: occluded by the persisted near depth
     expect(Array.from(draw(0.5, [0, 0, 1]).slice(0, 3))).toEqual([1, 0, 0]);
@@ -110,7 +119,9 @@ describe("JS backend: compileJS (vertex+fragment rasterizer pipeline)", () => {
     // clearDepth: true, then the same far draw now passes
     expect(Array.from(draw(0.5, [0, 0, 1], true).slice(0, 3))).toEqual([0, 0, 1]);
   });
-
+  /**
+   * @canon spec-a-rasterizer-takes-its-count-from-the-first-attribute
+   */
   it("infers count from the first attribute slot when omitted, like GL/WGSL", () => {
     const posAttr = attribute("vec3");
     const colorUniform = uniform("vec3");

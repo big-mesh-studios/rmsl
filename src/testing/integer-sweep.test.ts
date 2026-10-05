@@ -64,27 +64,38 @@ const wrong: SweepCase[] = [
 ];
 
 describe("integer sweep harness", () => {
+  /**
+   * @canon spec-the-integer-sweep-tells-right-from-wrong
+   */
   it("JS passes right cases and reports wrong ones", () => {
     expect(sweepJS(right)).toEqual([]);
     expect(sweepJS(wrong).map((m) => m.label)).toEqual(["wrong constant", "wrong second lane"]);
   });
-
+  /**
+   * @canon spec-the-integer-sweep-tells-right-from-wrong
+   */
   it("WASM passes right cases and reports wrong ones", () => {
     expect(sweepWASM(right)).toEqual([]);
     expect(sweepWASM(wrong).map((m) => m.label)).toEqual(["wrong constant", "wrong second lane"]);
   });
-
+  /**
+   * @canon spec-the-integer-sweep-tells-right-from-wrong
+   */
   it.skipIf(GPU_EVALUATION_SKIPPED)("WGSL passes right cases and reports wrong ones", async () => {
     expect(await sweepWGSL(right)).toEqual([]);
     expect((await sweepWGSL(wrong)).map((m) => m.label)).toEqual(["wrong constant", "wrong second lane"]);
   });
-
+  /**
+   * @canon spec-the-integer-sweep-tells-right-from-wrong
+   */
   it.skipIf(GPU_EVALUATION_SKIPPED)("WGSL runs a batch in which no case takes arguments", async () => {
     // With no case reading the argument buffer, its binding is dropped from
     // the pipeline; the dispatch must still run rather than read back zeros.
     expect(await sweepWGSL([right[0]!])).toEqual([]);
   });
-
+  /**
+   * @canon spec-the-integer-sweep-tells-right-from-wrong
+   */
   it.skipIf(GPU_EVALUATION_SKIPPED)("GLSL accepts valid programs", async () => {
     expect(await sweepGLSLValidity(right)).toEqual([]);
   });

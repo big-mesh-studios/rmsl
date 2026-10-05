@@ -1,4 +1,4 @@
-import { MATRIX_DIMENSIONS, TYPE_WIDTH } from "../core";
+import { MATRIX_DIMENSIONS, ShaderType, TYPE_WIDTH } from "../core";
 
 /** Values a host supplies to a compiled CPU function. */
 export type CpuShaderContext = {
@@ -121,6 +121,12 @@ export type CpuRoutine = {
    * the WASM backend runs the loop itself inside the module.
    */
   compute(ctx: CpuShaderContext, count: number): void;
+  /**
+   * The shader type of one element of each storage buffer the program reads,
+   * by slot. A compute adapter needs it to count the elements of the flat
+   * typed array the host passes for a slot.
+   */
+  storageTypes?: Readonly<Record<string, ShaderType>>;
 };
 
 /** A compiled function's scalar element kind, at the WASM/typed-array level. */

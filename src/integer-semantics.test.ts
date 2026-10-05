@@ -127,14 +127,23 @@ const runs = [
 ];
 
 describe("integer semantics match WGSL", () => {
+  /**
+   * @canon spec-js-integer-arithmetic-follows-wgsl
+   */
   it.each(runs)("JS: $name ($shape)", ({ type, args, want, build }) => {
     expect(evaluateIntegerJS(build, type, args)).toBe(want);
   });
 
+  /**
+   * @canon spec-wasm-integer-arithmetic-follows-wgsl
+   */
   it.each(runs)("WASM: $name ($shape)", ({ type, args, want, build }) => {
     expect(evaluateIntegerWASM(build, type, args)).toBe(want);
   });
 
+  /**
+   * @canon spec-wgsl-gives-the-defined-integer-result
+   */
   it.skipIf(GPU_EVALUATION_SKIPPED).each(runs)("WGSL: $name ($shape)", async ({ type, args, want, build }) => {
     expect(await evaluateIntegerWGSL(build, type, args)).toBe(want);
   });

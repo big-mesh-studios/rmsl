@@ -9,11 +9,14 @@ import {
   PREC_ATOM,
   PREC_UNARY,
   VertexRoot,
+  assertNotInAComputeStage,
+  COMPUTE_REFUSES,
   assertPositionIsReadable,
   assertSquareMatrix,
   assertAssignable,
   parameterNode,
   assertStageResult,
+  fragmentColour,
   assertOneDeclarationPerName,
   forUpdateStatements,
   loopGuard,
@@ -641,12 +644,10 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "attribute": {
       let v = node.value as any;
+      assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.attribute);
       if (v && v.id != null && !ctx.attributes.has(v.slot)) {
         ctx.attributes.set(v.slot, { id: v.id, type: wgslType(v.shaderType), slot: v.slot });
       }
-      // A compute stage has no VertexInput struct — attributes stand for
-      // storage buffers there, indexed by the invocation's entity id.
-      if (ctx.shaderStage === "compute") return { decls: [], body: [], expr: `${v.slot}[_rmsl_index]` };
       if (ctx.shaderStage !== "vertex") return { decls: [], body: [], expr: v.slot };
       // A matrix attribute is rebuilt from its columns at the top of `main`,
       // under its own slot name, so a reference to it is a plain local read.
@@ -656,6 +657,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "varying": {
       let v = node.value as any;
+      assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.varying);
       if (v && v.id != null && !ctx.varyings.has(v.slot)) {
         ctx.varyings.set(v.slot, { id: v.id, type: wgslType(v.shaderType), slot: v.slot });
       }
@@ -666,12 +668,10 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "output": {
       let v = node.value as any;
+      assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.output);
       if (v && v.id != null && !ctx.outputs.has(v.id)) {
         ctx.outputs.set(v.id, { type: wgslType(v.shaderType), slot: v.slot, location: v.location });
       }
-      // A compute stage writes an output storage buffer in place, rather than
-      // a struct field collected at the end of `main`.
-      if (ctx.shaderStage === "compute") return { decls: [], body: [], expr: `${v?.slot}[_rmsl_index]` };
       return { decls: [], body: [], expr: `result.${v?.slot}` };
     }
 
@@ -1583,6 +1583,7 @@ export function compileWGSLWithStage(
   };
 
   let nodes = Array.isArray(root) ? root : [root];
+  if (shaderStage === "fragment") nodes = fragmentColour(nodes);
   assertOneDeclarationPerName(nodes);
   let results = nodes.map((n) => compileWGSLStage(n, ctx));
   let countExpr = options?.count ? compileWGSLStage(options.count, ctx).expr : undefined;
@@ -1598,7 +1599,7 @@ export function compileWGSLWithStage(
     lastExpr = results[i].expr;
     lastType = (nodes[i] as any)?._t;
   }
-  assertStageResult(shaderStage, lastType, ctx.positionWritten);
+  assertStageResult(shaderStage, lastType, ctx.positionWritten, ctx.outputs.size > 0);
   // A vec4-typed node always has a value, so its type alone settles this. An
   // explicit write means the implicit one would be a second, conflicting
   // assignment.
@@ -1748,22 +1749,7 @@ export function compileWGSLWithStage(
       lines.push(`@group(1) @binding(${binding}) var<storage, ${info.access}> ${info.wgslName}: array<${info.type}>;`);
     }
 
-    // Preserve the legacy attribute()/output() compute path. These resources
-    // are not semantic storage() declarations, so they are only emitted when
-    // the graph contains no new storage() resources.
-    if (storages.length === 0) {
-      let binding = 0;
-
-      for (const info of ctx.attributes.values()) {
-        lines.push(`@group(1) @binding(${binding++}) var<storage, read> ${info.slot}: array<${info.type}>;`);
-      }
-
-      for (const info of ctx.outputs.values()) {
-        lines.push(`@group(1) @binding(${binding++}) var<storage, read_write> ${info.slot}: array<${info.type}>;`);
-      }
-    }
-
-    if (storages.length > 0 || ctx.attributes.size > 0 || ctx.outputs.size > 0) {
+    if (storages.length > 0) {
       lines.push("");
     }
 
@@ -1780,11 +1766,6 @@ export function compileWGSLWithStage(
     } else if (storages.length > 0) {
       const lengthStorage = storages[0];
       lines.push(`  if (_rmsl_index >= arrayLength(&${lengthStorage.wgslName})) { return; }`);
-    } else if (ctx.attributes.size > 0) {
-      const lengthAttribute = ctx.attributes.values().next().value;
-      if (lengthAttribute) {
-        lines.push(`  if (_rmsl_index >= arrayLength(&${lengthAttribute.slot})) { return; }`);
-      }
     }
 
     for (let line of allBody) {

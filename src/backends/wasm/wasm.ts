@@ -14,7 +14,10 @@ import {
   scalarKindOf,
 } from "../cpu";
 import {
+  assertNotInAComputeStage,
+  COMPUTE_REFUSES,
   assertStageResult,
+  fragmentColour,
   assertOneDeclarationPerName,
   assertAssignable,
   assignedStorageElement,
@@ -147,7 +150,7 @@ export type GpuUniformLayout = {
 export type CompileWasmFnOptions = CompileFnOptions & {
   gpuUniformLayout?: GpuUniformLayout;
 
-  stage?: "vertex" | "fragment";
+  stage?: "vertex" | "fragment" | "compute";
 
   derivatives?: "throw" | "zero";
 
@@ -729,13 +732,16 @@ export function compileWasmFn(
   // doesn't double-emit); only the last root's value feeds the stage's
   // single result slot, matching compileGlsl/compileWgsl's "last array
   // entry wins" convention.
-  const resultNodes: any[] = Array.isArray(rawResult) ? (rawResult as any[]) : [rawResult];
+  const rawNodes: any[] = Array.isArray(rawResult) ? (rawResult as any[]) : [rawResult];
+  // Without a stage the function is a plain function of its context, whose
+  // result can be any value.
+  const resultNodes = options.stage === "fragment" ? fragmentColour(rawNodes) : rawNodes;
   const root = resultNodes[resultNodes.length - 1];
 
   const paramTypeByName = new Map(options.params.map((p) => [p.name, p.type]));
   const fnParamNames = new Set(options.params.map((p) => p.name));
 
-  const effectiveStage: "vertex" | "fragment" = options.stage ?? "fragment";
+  const effectiveStage: "vertex" | "fragment" | "compute" = options.stage ?? "fragment";
 
   // Scratch state for the planning pass. Scalars land in the WASM param space (params) or
   // the WASM local space (localSlots); aggregates and stage I/O get fixed
@@ -799,8 +805,15 @@ export function compileWasmFn(
   let resultKind: ScalarKind;
   let valueAddress: number | undefined;
 
+  if (options.stage !== undefined) {
+    assertStageResult(
+      effectiveStage,
+      root._t === "void" ? undefined : (root._t as string),
+      positionWritten,
+      outputAddress.size > 0,
+    );
+  }
   if (needsResult) {
-    assertStageResult(effectiveStage, root._t === "void" ? undefined : (root._t as string), positionWritten);
     // placeholder: with needsResult the module returns void, so it is never used
     resultKind = "float";
     if (effectiveStage === "vertex" && !positionWritten) {
@@ -1279,6 +1292,7 @@ export function compileWasmFn(
 
       case "attribute": {
         const v = node.value;
+        assertNotInAComputeStage(effectiveStage, COMPUTE_REFUSES.attribute);
         if (isAggregate(v.shaderType) || options.scalarsInMemory) {
           if (!attributeAddress.has(v.slot)) {
             const addr = allocateFor(v.shaderType);
@@ -1331,6 +1345,7 @@ export function compileWasmFn(
 
       case "varying": {
         const v = node.value;
+        assertNotInAComputeStage(effectiveStage, COMPUTE_REFUSES.varying);
         if (effectiveStage === "fragment") {
           // fragment: varyings are per-call inputs, written by the host
           if (isAggregate(v.shaderType) || options.scalarsInMemory) {
@@ -1367,6 +1382,7 @@ export function compileWasmFn(
       }
 
       case "output": {
+        assertNotInAComputeStage(effectiveStage, COMPUTE_REFUSES.output);
         // pipeline output: forces needsResult so the host can read it
         needsResult = true;
         const v = node.value;
@@ -4020,7 +4036,12 @@ export function instantiateWasmRoutine(
     writeBackStorages(ctx);
   }
 
-  return { run, draw, compute };
+  const storageTypes = {} as Record<string, ShaderType>;
+  for (const p of params) {
+    if (p.kind === "storageMemory") storageTypes[p.slot] = p.shaderType;
+  }
+
+  return { run, draw, compute, storageTypes };
 }
 
 /** Compiles an `Fn` to WASM and instantiates it in one step — see `instantiateWasmRoutine`. */

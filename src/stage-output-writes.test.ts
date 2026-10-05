@@ -8,6 +8,10 @@ import { compileJS } from "./backends/js/rasterizer";
 import { compileWasm } from "./backends/wasm/rasterizer";
 
 describe("writing part of a stage output", () => {
+  /**
+   * @canon spec-a-swizzle-write-writes-the-components-it-names
+   * @canon spec-an-element-write-writes-at-its-index
+   */
   it("writes a varying and the position through a swizzle and an index, on the JS and WASM rasterizers", () => {
     const position = attribute("vec3");
     const color = varying("vec3");
@@ -35,6 +39,10 @@ describe("writing part of a stage output", () => {
     }
   });
 
+  /**
+   * @canon spec-a-swizzle-write-writes-the-components-it-names
+   * @canon spec-an-element-write-writes-at-its-index
+   */
   it("compiles a fragment output written through a swizzle and an index, on every backend", () => {
     const color = output("vec4");
     const fragment = () =>
