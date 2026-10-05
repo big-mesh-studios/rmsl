@@ -254,7 +254,10 @@ export function compileWasm(
     (p): p is Extract<WasmParam, { kind: "valueMemory" }> => p.kind === "valueMemory",
   );
   if (fragmentValueParam !== undefined && fragmentValueParam.shaderType !== "vec4") {
-    throw new Error("[RMSL] compileWasm: fragmentFn must return a vec4 color");
+    throw new Error("[RMSL] compileWasm: fragmentFn must return a vec4 color, or nothing");
+  }
+  if (fragmentValueParam === undefined && fragmentCompiled.params.some((p) => p.kind === "outputMemory")) {
+    throw new Error("[RMSL] compileWasm: the rasterizer draws a vec4 colour, so fragmentFn cannot declare outputs");
   }
   const positionAddress = positionParam.address;
   // A fragment stage that writes no colour has no value to copy out: -1 tells
