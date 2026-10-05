@@ -3132,7 +3132,7 @@ export type SwitchChain = {
  *
  *   Switch(level, (s) => {
  *     s.Case(0, () => { colour.assign(black); });
- *     s.Case(1, 2, () => { colour.assign(grey); });
+ *     s.Case([1, 2], () => { colour.assign(grey); });
  *     s.Default(() => { colour.assign(white); });
  *   });
  *

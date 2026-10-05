@@ -235,16 +235,21 @@ describe("a mistake is refused before the program runs", () => {
    *
    * @canon spec-a-switch-runs-the-case-its-selector-matches
    */
-  it("compiles a Switch with no Case and no Default on every target", () => {
+  it("compiles a Switch with no Case and no Default on every target, and runs the statements after it", () => {
     const build = () =>
       Fn(() => {
         const v = float(0).toVar();
         Switch(int(uniform("float")), () => {});
+        v.assign(float(2));
         return vec4(v);
       })();
     expect(() => compileGlsl.fragment(build())).not.toThrow();
     expect(() => compileWgsl.fragment(build())).not.toThrow();
     for (const compile of cpuCompilers) expect(() => compile(build)).not.toThrow();
+    for (const compile of cpuCompilers) {
+      const result: any = compile(build).run({});
+      expect(Array.from(Array.isArray(result) ? result : result.value)[0]).toBe(2);
+    }
   });
 
   /**
