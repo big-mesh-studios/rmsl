@@ -443,6 +443,8 @@ const SCRATCH_NODE_TYPES = new Set([
   "shiftRight",
   "negate",
   "abs",
+  "radians",
+  "degrees",
   "min",
   "max",
   "lessThan",

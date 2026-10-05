@@ -115,6 +115,12 @@ describe("each leaf on every target it claims", () => {
     expect(evaluateRecording((a) => float(10).div(a.radians()), [180])).toBeCloseTo(10 / Math.PI, 4);
     const vector = evaluateRecording((a) => vec3(a, a.mul(2), 0).radians(), [90]) as number[];
     [Math.PI / 2, Math.PI, 0].forEach((x, i) => expect(vector[i]).toBeCloseTo(x, 5));
+    // The recorded evaluation skips a program WebAssembly refuses, so a vector of angles is run on it directly.
+    const wasm = compileWasmRoutine((a: any) => Fn(() => vec3(a, a.mul(2), 0).degrees().y.toVar())(), {
+      name: "main",
+      params: [{ name: "a", type: "float" }],
+    });
+    expect(wasm.run({ params: { a: Math.PI / 2 } })).toBeCloseTo(180, 6);
   });
 
   /**
