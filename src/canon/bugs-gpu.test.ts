@@ -104,9 +104,17 @@ globalThis.__rmslBugsGlsl = {
     const vertex = Fn(() => { builtinPosition().assign(vec4(position.xy.add(offset), 0, 1)); })();
     const adapter = createGlsl(vertex, Fn(() => vec4(0, 1, 0, 1))());
     adapter.attach(target);
-    adapter.setAttribute(position, new Float32Array(9));
-    adapter.setAttribute(offset, Float32Array.of(0, 0, 0, 0, 0, 0, -1, -1, 3, -1, -1, 3));
+    adapter.setAttribute(position, TRIANGLE);
+    adapter.setAttribute(offset, new Float32Array(12));
     adapter.draw();
+    return readPixel(target, 1, 2);
+  }),
+  firstVertex: () => attempt(() => {
+    const target = canvas();
+    const adapter = createGlsl(plainVertex(), Fn(() => vec4(0, 1, 0, 1))());
+    adapter.attach(target);
+    adapter.setAttribute(position, Float32Array.of(0, 0, 0, 0, 0, 0, 0, 0, 0, -1, -1, 0, 3, -1, 0, -1, 3, 0));
+    adapter.draw({ first: 3 });
     return readPixel(target, 1, 2);
   }),
 };
@@ -163,6 +171,14 @@ globalThis.__rmslBugsWgsl = {
     adapter.setAttribute(position, TRIANGLE);
     adapter.setAttribute(extra, new Float32Array(6));
     adapter.draw();
+    return drawn(adapter, target);
+  }),
+  firstVertex: () => attempt(async () => {
+    const target = canvas();
+    const adapter = createWgsl({ vertex: plainVertex(), fragment: Fn(() => vec4(0, 1, 0, 1))() });
+    await adapter.attach(target);
+    adapter.setAttribute(position, Float32Array.of(0, 0, 0, 0, 0, 0, 0, 0, 0, -1, -1, 0, 3, -1, 0, -1, 3, 0));
+    adapter.draw({ first: 3 });
     return drawn(adapter, target);
   }),
 };
@@ -394,7 +410,7 @@ describe.skipIf(!GPU_ENABLED)("known GPU bugs on a WebGPU device, each failing u
   );
 });
 
-describe.skipIf(!GPU_ENABLED)("known bugs of createGlsl in a browser, each failing until its fix", () => {
+describe.skipIf(!GPU_ENABLED)("createGlsl in a browser", () => {
   /**
    * `createGlsl` never clears its canvas and takes no clear colour, so a draw
    * leaves what an earlier draw put there.
@@ -452,22 +468,30 @@ describe.skipIf(!GPU_ENABLED)("known bugs of createGlsl in a browser, each faili
   );
 
   /**
-   * A `createGlsl` draw that names no count takes the widest attribute's,
-   * not the first attribute's, and so draws vertices past the first
-   * attribute's end.
+   * A `createGlsl` draw that names a first vertex and no count draws the vertices after it.
    *
-   * @canon bug-the-gpu-adapters-count-from-the-widest-attribute
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute
    */
-  it.fails(
+  it("counts a createGlsl draw from the first attribute, less its first vertex", async () => {
+    expect(await glslEntry("firstVertex")).toEqual(GREEN);
+  }, 120_000);
+
+  /**
+   * A `createGlsl` draw that names no count takes the first attribute's, and
+   * so does not draw vertices past its end.
+   *
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute
+   */
+  it(
     "takes the count of a createGlsl draw from the first attribute",
     async () => {
-      expect(await glslEntry("firstAttributeCount")).toEqual({ r: 0, g: 0, b: 0, a: 0 });
+      expect(await glslEntry("firstAttributeCount")).toEqual(GREEN);
     },
     120_000,
   );
 });
 
-describe.skipIf(!WEBGPU)("known bugs of createWgsl in a browser, each failing until its fix", () => {
+describe.skipIf(!WEBGPU)("createWgsl in a browser", () => {
   /**
    * `createWgsl` puts a texture among the members of its uniform struct,
    * which has no layout for it, so a program that reads a texture does not
@@ -484,12 +508,21 @@ describe.skipIf(!WEBGPU)("known bugs of createWgsl in a browser, each failing un
   );
 
   /**
-   * A `createWgsl` draw that names no count takes the widest attribute's,
-   * not the first attribute's, and so reads past a shorter buffer.
+   * A `createWgsl` draw that names a first vertex and no count draws the vertices after it.
    *
-   * @canon bug-the-gpu-adapters-count-from-the-widest-attribute
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute
    */
-  it.fails(
+  it("counts a createWgsl draw from the first attribute, less its first vertex", async () => {
+    expect(await wgslEntry("firstVertex")).toEqual(GREEN);
+  }, 120_000);
+
+  /**
+   * A `createWgsl` draw that names no count takes the first attribute's, and
+   * so does not read past a shorter buffer.
+   *
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute
+   */
+  it(
     "takes the count of a createWgsl draw from the first attribute",
     async () => {
       expect(await wgslEntry("firstAttributeCount")).toEqual(GREEN);

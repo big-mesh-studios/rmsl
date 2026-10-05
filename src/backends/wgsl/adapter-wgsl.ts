@@ -275,6 +275,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
   let renderBindGroup0: GPUBindGroup | null = null;
   let vertexBuffers = new Map<string, { buffer: GPUBuffer; componentCount: number }>();
   let vertexCount = 0;
+  let countSlot: string | undefined;
   /** The storage attributes the stages read, by slot, and the buffers they bind. */
   let storages = new Map<string, StorageBufferAttribute>();
   let ownStorageBuffers = new Map<StorageBufferAttribute, GPUBuffer>();
@@ -342,7 +343,8 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
         vertexBuffers.set(slot, existing);
       }
       device.queue.writeBuffer(existing.buffer, 0, data as BufferSource);
-      vertexCount = Math.max(vertexCount, Math.floor(data.length / componentCount));
+      countSlot ??= slot;
+      if (slot === countSlot) vertexCount = Math.floor(data.length / componentCount);
       return;
     }
 
@@ -490,7 +492,8 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
         let vb = vertexBuffers.get(vertexAttributes[i].slot);
         if (vb) pass.setVertexBuffer(i, vb.buffer);
       }
-      pass.draw(drawOptions?.count ?? vertexCount, drawOptions?.instanceCount ?? 1, drawOptions?.first ?? 0, 0);
+      const first = drawOptions?.first ?? 0;
+      pass.draw(drawOptions?.count ?? Math.max(0, vertexCount - first), drawOptions?.instanceCount ?? 1, first, 0);
       pass.end();
       device.queue.submit([encoder.finish()]);
     },

@@ -116,6 +116,7 @@ export function createGlsl(
   let program: WebGLProgram | null = null;
   let vao: WebGLVertexArrayObject | null = null;
   let vertexCount = 0;
+  let countSlot: string | undefined;
 
   const uniforms = new Map<string, UniformInfo>();
   const attributes = new Map<string, AttributeInfo>();
@@ -159,7 +160,8 @@ export function createGlsl(
     gl.bufferData(gl.ARRAY_BUFFER, data as Float32Array, gl.STATIC_DRAW);
     gl.enableVertexAttribArray(info.location);
     gl.vertexAttribPointer(info.location, info.componentCount, gl.FLOAT, false, 0, 0);
-    vertexCount = Math.max(vertexCount, Math.floor(data.length / info.componentCount));
+    countSlot ??= slot;
+    if (slot === countSlot) vertexCount = Math.floor(data.length / info.componentCount);
   }
 
   const adapter: GlslAdapter = {
@@ -229,7 +231,7 @@ export function createGlsl(
       gl.bindVertexArray(vao);
       const mode = GL_MODE[options?.mode ?? "triangles"];
       const first = options?.first ?? 0;
-      const count = options?.count ?? vertexCount;
+      const count = options?.count ?? Math.max(0, vertexCount - first);
       if (options?.instanceCount !== undefined) {
         gl.drawArraysInstanced(mode, first, count, options.instanceCount);
       } else {
