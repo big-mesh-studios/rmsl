@@ -78,6 +78,25 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
+   * @canon spec-round-takes-a-half-to-the-even-integer
+   */
+  it("rounds a value halfway between two integers to the even one on every target", () => {
+    const round = (a: any) => a.round();
+    for (const [half, even] of [
+      [0.5, 0],
+      [1.5, 2],
+      [2.5, 2],
+      [3.5, 4],
+      [-1.5, -2],
+      [-2.5, -2],
+    ] as const) {
+      expect(evaluateRecording(round, [half]), `round(${half})`).toBe(even);
+    }
+    expect(evaluateRecording(() => float(2.5).round())).toBe(2);
+    expect(evaluateRecording((a) => vec3(a, a.add(1), a.add(2)).round(), [0.5])).toEqual([0, 2, 2]);
+  });
+
+  /**
    * @canon spec-a-scalar-comparison-gives-a-bool
    */
   it("compares scalars on every target", () => {

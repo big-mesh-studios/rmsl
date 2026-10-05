@@ -300,7 +300,8 @@ describe("WASM backend: div, mod, min, max, sign, abs, round-trip", () => {
     expect(run((a) => a.ceil(), [3.2])).toBe(4);
     expect(run((a) => a.trunc(), [-3.7])).toBe(-3);
     expect(run((a) => a.fract(), [3.25])).toBeCloseTo(0.25, 9);
-    expect(run((a) => a.round(), [2.5])).toBe(3);
+    expect(run((a) => a.round(), [2.6])).toBe(3);
+    expect(run((a) => a.round(), [2.5])).toBe(2);
     expect(run((a) => a.round(), [-2.5])).toBe(-2);
   });
 });

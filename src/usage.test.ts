@@ -3184,7 +3184,7 @@ describe("new math builtins", () => {
       return x.round().add(x.trunc()).add(x.sinh()).add(x.tanh()).toVar();
     });
     let glsl = compileGlsl(prog());
-    expect(glsl).toContain("round(");
+    expect(glsl).toContain("roundEven(");
     expect(glsl).toContain("trunc(");
     expect(glsl).toContain("sinh(");
     expect(glsl).toContain("tanh(");
