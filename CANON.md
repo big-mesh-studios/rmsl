@@ -3183,6 +3183,8 @@ This follows because a renderer that owns the drawing of a scene owns its resour
 
 > Each draw of a frame on the WebGPU renderer reads the uniforms it was given, whatever the number of draws in the frame.
 
+This follows because the renderer queues every draw's uniform write before it submits the frame, so the writes all land before the first draw runs, and two draws that shared a slot would read the last write.
+
 #### @spec a-renderer-supplies-the-camera-and-object-uniforms
 
 > A renderer gives a program the camera's projection, view and position, the object's world and normal matrices, and its own resolution. It gives nothing for a name it does not know.
