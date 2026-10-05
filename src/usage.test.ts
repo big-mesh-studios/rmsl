@@ -3468,6 +3468,27 @@ describe("TSL control flow", () => {
   });
 
   /**
+   * A WGSL function with a return type has no output struct, so an early
+   * `Return()` in it returns the zero value of that type.
+   *
+   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   */
+  it("Return in a WGSL function returns the zero value of its type", () => {
+    const wgsl = compileWgslFn(
+      (x: Node<"float">) =>
+        Fn(() => {
+          If(x.greaterThan(0), () => {
+            Return();
+          });
+          return x.add(1);
+        })(),
+      { name: "f", params: [{ name: "x", type: "float" }] },
+    );
+    expect(wgsl).toMatch(/\{\s*return f32\(\);\s*\}/);
+    expect(wgsl).not.toContain("/*fragment*/");
+  });
+
+  /**
    * A fragment stage that writes nothing has no output struct, so its early
    * `Return()` stays a bare `return;`.
    *

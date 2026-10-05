@@ -1979,8 +1979,10 @@ export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options:
   for (const line of compiled.decls) {
     code += `  ${line}\n`;
   }
+  // An early `Return()` has no value to give, so a function with a return type
+  // returns that type's zero value there, as it does when its body ends.
   for (const line of compiled.body) {
-    code += `  ${line}\n`;
+    code += `  ${line.replaceAll(FRAGMENT_RETURN, `return ${returnType}();`)}\n`;
   }
   if (compiled.expr !== "0.0") {
     code += `  return ${compiled.expr};\n`;
