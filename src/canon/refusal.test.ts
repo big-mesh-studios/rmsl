@@ -253,6 +253,26 @@ describe("a mistake is refused before the program runs", () => {
   });
 
   /**
+   * An array of 2, 3 or 4 numbers is a vector, and one of a length no vector
+   * has is refused, naming the length, where it used to become the float of
+   * its first element.
+   *
+   * @canon spec-a-javascript-array-is-a-vector-of-its-length
+   */
+  it("refuses a JavaScript array whose length no vector has", () => {
+    const build = (length: number) => () =>
+      Fn(() =>
+        vec4(0)
+          .add(Array.from({ length }, (_, i) => i + 1) as any)
+          .toVar(),
+      )();
+    expect(() => build(4)()).not.toThrow();
+    for (const length of [0, 1, 5, 7]) {
+      expect(build(length), `length ${length}`).toThrow(new RegExp(`array of length ${length} is no vector`));
+    }
+  });
+
+  /**
    * A compute program that reads a buffer through `storage()` compiles on
    * every target. Spelling the same buffer as an `attribute()` is refused on
    * each, because a compute dispatch has no vertices to read one for. GLSL has

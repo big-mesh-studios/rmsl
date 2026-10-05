@@ -1411,7 +1411,9 @@ export function wrapValue<V>(x: V): Node<ExtractType<V>> {
     if (x.length === 16) {
       return node({ _t: "mat4", type: "mat4", value: x }) as any;
     }
-    return node({ _t: "float", type: "float", value: x[0] }) as any;
+    throw new Error(
+      `[RMSL] A JavaScript array of length ${x.length} is no vector or matrix. Give 2, 3 or 4 numbers for a vector, or 9 or 16 for a mat3 or mat4. Other matrices come from mat2, mat2x3 and the other matrix constructors.`,
+    );
   }
   return x as any;
 }

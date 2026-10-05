@@ -92,22 +92,6 @@ describe("known bugs of the core, each failing until its fix", () => {
   });
 
   /**
-   * A JavaScript array whose length no vector has becomes the float of its
-   * first element, silently, so `vec4(0).add([1, 2, 3, 4, 5])` adds 1.
-   *
-   * @canon bug-an-array-of-a-length-no-vector-has-becomes-its-first-element
-   */
-  it.fails("refuses a JavaScript array whose length no vector has", () => {
-    const build = (a: any) =>
-      Fn(() =>
-        vec4(a)
-          .add([1, 2, 3, 4, 5] as any)
-          .toVar(),
-      )();
-    expect(() => compileJSRoutine(build, param)).toThrow();
-  });
-
-  /**
    * `int` and `uint` given a number outside their range wrap it modulo 2^32,
    * so `int(3e9)` is -1294967296 and `uint(5e9)` is 705032704.
    *
