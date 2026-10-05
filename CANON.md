@@ -728,6 +728,21 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact three-js-sums-ambient-lights-into-one-colour`](#fact-three-js-sums-ambient-lights-into-one-colour) — three.js adds the colour of each ambient light, times its intensity, into one ambient colour for the scene.
 - [`@fact three-js-scales-a-light-colour-by-its-intensity`](#fact-three-js-scales-a-light-colour-by-its-intensity) — three.js sets the colour uniform of a directional light and of a point light to the light's colour multiplied by its intensity, on the host.
 - [`@fact three-js-declares-one-precision-for-every-sampler`](#fact-three-js-declares-one-precision-for-every-sampler) — The `WebGLProgram` of three.js declares one precision for `float`, `int` and every sampler type, the integer samplers `isampler2D`, `isampler3D` and `isamplerCube` included.
+- [`@fact wgsl-refuses-a-constant-index-out-of-range`](#fact-wgsl-refuses-a-constant-index-out-of-range) — WGSL refuses a constant index past the components of a vector or the columns of a matrix, also when it indexes a variable.
+- [`@fact glsl-refuses-a-constant-index-out-of-range`](#fact-glsl-refuses-a-constant-index-out-of-range) — GLSL ES 3.00 refuses a constant index past the components of a vector or the columns of a matrix, also when it indexes a variable.
+- [`@fact wgsl-takes-no-block-in-a-for-update`](#fact-wgsl-takes-no-block-in-a-for-update) — The update of a WGSL `for` is a single statement, so a block such as an `if` in it is a syntax error.
+- [`@fact glsl-takes-no-block-in-a-for-update`](#fact-glsl-takes-no-block-in-a-for-update) — The update of a GLSL `for` is an expression, so a block such as an `if` in it is a syntax error.
+- [`@fact glsl-scalar-constructor-takes-the-first-component`](#fact-glsl-scalar-constructor-takes-the-first-component) — In GLSL ES 3.00, `float(v)`, `int(v)` and `uint(v)` of a vector `v` take its first component, converted to that type.
+- [`@fact wgsl-has-no-scalar-constructor-from-a-vector`](#fact-wgsl-has-no-scalar-constructor-from-a-vector) — WGSL has no `f32`, `i32` or `u32` constructor that takes a vector.
+- [`@fact wgsl-refuses-a-matrix-product-whose-shapes-do-not-meet`](#fact-wgsl-refuses-a-matrix-product-whose-shapes-do-not-meet) — WGSL has no `*` for two matrices whose shapes do not meet, such as two `mat2x3<f32>`.
+- [`@fact glsl-refuses-a-matrix-product-whose-shapes-do-not-meet`](#fact-glsl-refuses-a-matrix-product-whose-shapes-do-not-meet) — GLSL has no `*` for two matrices whose shapes do not meet, such as two `mat2x3`.
+- [`@fact glsl-inverts-only-a-square-matrix`](#fact-glsl-inverts-only-a-square-matrix) — GLSL's `inverse` takes a square matrix only.
+- [`@fact wgsl-round-takes-a-half-to-the-even-integer`](#fact-wgsl-round-takes-a-half-to-the-even-integer) — WGSL's `round` takes a value halfway between two integers to the even one.
+- [`@fact webgpu-stores-a-float-in-an-8-bit-channel-clamped-and-rounded`](#fact-webgpu-stores-a-float-in-an-8-bit-channel-clamped-and-rounded) — WebGPU stores a float into an 8-bit normalised channel by clamping it to 0 to 1 and rounding it to the nearest byte.
+- [`@fact webgpu-shades-a-pixel-on-a-shared-edge-once`](#fact-webgpu-shades-a-pixel-on-a-shared-edge-once) — WebGPU gives a pixel whose centre lies on an edge that two triangles share to exactly one of them, whatever their order and winding.
+- [`@fact webgpu-clips-a-triangle-outside-the-depth-range`](#fact-webgpu-clips-a-triangle-outside-the-depth-range) — WebGPU clips a triangle against the depth range from 0 to 1, and draws the depths 0 and 1 themselves.
+- [`@fact webgpu-draws-nothing-for-a-triangle-off-the-viewport`](#fact-webgpu-draws-nothing-for-a-triangle-off-the-viewport) — WebGPU draws no pixel for a triangle wholly outside the viewport, at any distance from it, and reports no error.
+- [`@fact webgpu-culls-no-face-by-default`](#fact-webgpu-culls-no-face-by-default) — A WebGPU render pipeline culls no face unless it asks to, so a triangle draws whichever way its vertices wind.
 <!-- toc:end -->
 
 ## Open questions
@@ -1537,6 +1552,8 @@ Issue: #49
 
 > `round` of a value halfway between two integers gives the even one, so `round(2.5)` is 2 and `round(3.5)` is 4.
 
+Derives from: [`fact-wgsl-round-takes-a-half-to-the-even-integer`](#fact-wgsl-round-takes-a-half-to-the-even-integer)
+
 This follows because WGSL's `round` takes a half to the even integer, and a CPU target gives what WebGPU gives.
 
 ##### @bug the-cpu-targets-round-a-half-up
@@ -1877,6 +1894,8 @@ This follows because the type checker refuses a mistake only by reading types. A
 
 > A matrix product whose shapes do not meet, and the inverse of a matrix that is not square, are refused on every target.
 
+Derives from: [`fact-wgsl-refuses-a-matrix-product-whose-shapes-do-not-meet`](#fact-wgsl-refuses-a-matrix-product-whose-shapes-do-not-meet), [`fact-glsl-refuses-a-matrix-product-whose-shapes-do-not-meet`](#fact-glsl-refuses-a-matrix-product-whose-shapes-do-not-meet), [`fact-glsl-inverts-only-a-square-matrix`](#fact-glsl-inverts-only-a-square-matrix), [`fact-wgsl-has-no-matrix-inverse`](#fact-wgsl-has-no-matrix-inverse)
+
 This follows because no target has such an operation, and a driver would reject the shader.
 
 #### @spec a-matrix-product-whose-shapes-do-not-meet-is-refused
@@ -2009,6 +2028,8 @@ This follows because the uniform struct, the textures and the samplers hold grou
 
 > A literal index outside a vector's components or a matrix's columns is refused on every target.
 
+Derives from: [`fact-wgsl-refuses-a-constant-index-out-of-range`](#fact-wgsl-refuses-a-constant-index-out-of-range), [`fact-glsl-refuses-a-constant-index-out-of-range`](#fact-glsl-refuses-a-constant-index-out-of-range)
+
 This follows because GLSL and WGSL both refuse such an index, so the program could not run on them.
 
 #### @bug only-wasm-refuses-a-literal-index-out-of-range
@@ -2074,6 +2095,8 @@ Issue: #124
 #### @spec a-for-update-that-holds-a-block-is-refused
 
 > A `For` whose update holds a block, such as an `If`, is refused on every target.
+
+Derives from: [`fact-wgsl-takes-no-block-in-a-for-update`](#fact-wgsl-takes-no-block-in-a-for-update), [`fact-glsl-takes-no-block-in-a-for-update`](#fact-glsl-takes-no-block-in-a-for-update)
 
 This follows because the update slot of a GLSL or WGSL `for` takes no block, and the program must run on every target.
 
@@ -2431,6 +2454,8 @@ This follows because WGSL refuses `-2147483648i`, and GLSL writes the same subtr
 #### @spec a-vector-converted-to-a-scalar-takes-its-first-component
 
 > Converting a vector to `float`, `int` or `uint` gives its first component, converted to that type.
+
+Derives from: [`fact-glsl-scalar-constructor-takes-the-first-component`](#fact-glsl-scalar-constructor-takes-the-first-component), [`fact-wgsl-has-no-scalar-constructor-from-a-vector`](#fact-wgsl-has-no-scalar-constructor-from-a-vector)
 
 This follows because GLSL's scalar constructor takes the first component of a vector, and TSL builds values with the constructors of the shading languages.
 
@@ -3218,7 +3243,7 @@ This follows because the application owns the data it uploads and decides how ma
 
 > A JS or WASM routine adapter clamps each channel to 0 to 1 and writes it on its canvas as the nearest byte.
 
-Derives from: [`spec-an-adapter-draws-one-frame-for-each-call`](#spec-an-adapter-draws-one-frame-for-each-call), [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives)
+Derives from: [`spec-an-adapter-draws-one-frame-for-each-call`](#spec-an-adapter-draws-one-frame-for-each-call), [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`fact-webgpu-stores-a-float-in-an-8-bit-channel-clamped-and-rounded`](#fact-webgpu-stores-a-float-in-an-8-bit-channel-clamped-and-rounded)
 
 This follows because WebGPU stores a float into an 8-bit canvas by clamping and rounding it, and a CPU target gives what WebGPU gives.
 
@@ -3780,6 +3805,8 @@ Issue: #112
 
 > A pixel centre on an edge two triangles share takes the colour of one of them. WebGPU's rasterization rules pick which one, whatever the order of the triangles.
 
+Derives from: [`fact-webgpu-shades-a-pixel-on-a-shared-edge-once`](#fact-webgpu-shades-a-pixel-on-a-shared-edge-once)
+
 This follows because WebGPU gives such a pixel to exactly one triangle, and a CPU target gives what WebGPU gives.
 
 ###### @bug js-rasterizer-shades-a-shared-edge-twice
@@ -3798,6 +3825,8 @@ Issue: #88
 
 > The rasterizer clips a triangle at depth 0 and depth 1, so it draws nothing whose depth lies outside that range.
 
+Derives from: [`fact-webgpu-clips-a-triangle-outside-the-depth-range`](#fact-webgpu-clips-a-triangle-outside-the-depth-range)
+
 This follows because WebGPU clips to the depth range from 0 to 1, and a CPU target gives what WebGPU gives.
 
 ###### @bug js-rasterizer-draws-a-triangle-below-zero-depth
@@ -3809,6 +3838,8 @@ Issue: #88
 ##### @spec a-triangle-off-screen-draws-nothing
 
 > A triangle wholly outside the viewport draws nothing, at any distance from it.
+
+Derives from: [`fact-webgpu-draws-nothing-for-a-triangle-off-the-viewport`](#fact-webgpu-draws-nothing-for-a-triangle-off-the-viewport)
 
 This follows because a GPU draws no pixel outside the viewport and fails on no coordinate, and a CPU target gives what WebGPU gives.
 
@@ -3828,7 +3859,7 @@ Issue: #83
 
 > A CPU rasterizer draws a triangle whether its vertices run clockwise or counter-clockwise on the screen.
 
-Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives)
+Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`fact-webgpu-culls-no-face-by-default`](#fact-webgpu-culls-no-face-by-default)
 
 This follows because a WebGPU pipeline culls no face unless it asks to, and a CPU target gives what WebGPU gives.
 
@@ -4827,3 +4858,103 @@ This is how three.js behaves, read from its source (`WebGLLights`, three.js 0.18
 > The `WebGLProgram` of three.js declares one precision for `float`, `int` and every sampler type, the integer samplers `isampler2D`, `isampler3D` and `isamplerCube` included.
 
 This is how three.js behaves, read from its source (`WebGLProgram`, three.js 0.186).
+
+## @fact wgsl-refuses-a-constant-index-out-of-range
+
+> WGSL refuses a constant index past the components of a vector or the columns of a matrix, also when it indexes a variable.
+
+Dawn refuses `vec3<f32>(…)[3]` and `v[3]` with `index 3 out of bounds [0..2]`, and `m[2]` of a `mat2x2<f32>` with `index 2 out of bounds [0..1]`.
+
+This is a fact of the WGSL specification, not a choice.
+
+## @fact glsl-refuses-a-constant-index-out-of-range
+
+> GLSL ES 3.00 refuses a constant index past the components of a vector or the columns of a matrix, also when it indexes a variable.
+
+Chromium's WebGL 2 compiler refuses `v[3]` of a `vec3` with `vector field selection out of range`, and `m[2]` of a `mat2` with `matrix field selection out of range`.
+
+## @fact wgsl-takes-no-block-in-a-for-update
+
+> The update of a WGSL `for` is a single statement, so a block such as an `if` in it is a syntax error.
+
+Dawn refuses `for (var i = 0; i < 3; if (true) { i = i + 1; }) { }` with `expected ')' for for loop`, and accepts `for (var i = 0; i < 3; i = i + 1) { }`.
+
+This is a fact of the WGSL specification, not a choice.
+
+## @fact glsl-takes-no-block-in-a-for-update
+
+> The update of a GLSL `for` is an expression, so a block such as an `if` in it is a syntax error.
+
+Chromium's WebGL 2 compiler refuses `for (int i = 0; i < 3; if (true) { i++; }) { }` with `'if' : syntax error`, and accepts `for (int i = 0; i < 3; i++) { }`.
+
+## @fact glsl-scalar-constructor-takes-the-first-component
+
+> In GLSL ES 3.00, `float(v)`, `int(v)` and `uint(v)` of a vector `v` take its first component, converted to that type.
+
+Chromium's WebGL 2 compiles `float(vec3(…))`, and a draw of `float(vec3(0.25, 0.5, 0.75))` writes the byte 64, which is 0.25. A draw of `int(ivec3(7, 8, 9))` gives 7.
+
+This is a fact of the GLSL ES 3.00 specification, not a choice.
+
+## @fact wgsl-has-no-scalar-constructor-from-a-vector
+
+> WGSL has no `f32`, `i32` or `u32` constructor that takes a vector.
+
+Dawn refuses `f32(vec3<f32>(1.0))` with `no matching constructor for 'f32(vec3<f32>)'`.
+
+This is a fact of the WGSL specification, not a choice.
+
+## @fact wgsl-refuses-a-matrix-product-whose-shapes-do-not-meet
+
+> WGSL has no `*` for two matrices whose shapes do not meet, such as two `mat2x3<f32>`.
+
+Dawn refuses it with `no matching overload for 'operator * (mat2x3<f32>, mat2x3<f32>)'`, and accepts `mat2x3<f32> * mat3x2<f32>`.
+
+## @fact glsl-refuses-a-matrix-product-whose-shapes-do-not-meet
+
+> GLSL has no `*` for two matrices whose shapes do not meet, such as two `mat2x3`.
+
+Chromium's WebGL 2 compiler refuses it with `no operation '*' exists that takes a left-hand operand of type 'highp 2X3 matrix of float' and a right operand of type 'highp 2X3 matrix of float'`.
+
+## @fact glsl-inverts-only-a-square-matrix
+
+> GLSL's `inverse` takes a square matrix only.
+
+Chromium's WebGL 2 compiler refuses `inverse` of a `mat2x3` with `no matching overloaded function found`.
+
+## @fact wgsl-round-takes-a-half-to-the-even-integer
+
+> WGSL's `round` takes a value halfway between two integers to the even one.
+
+Dawn on Metal gives `round` of 0.5, 1.5, 2.5, 3.5, -0.5, -1.5 and -2.5 as 0, 2, 2, 4, -0, -2 and -2.
+
+This is a fact of the WGSL specification, not a choice.
+
+## @fact webgpu-stores-a-float-in-an-8-bit-channel-clamped-and-rounded
+
+> WebGPU stores a float into an 8-bit normalised channel by clamping it to 0 to 1 and rounding it to the nearest byte.
+
+Chromium's WebGPU writes the values -1, 0, 0.001, 0.3, 0.5, 0.7, 0.999, 1, 1.5 and 2 to an `rgba8unorm` texture. The bytes are 0, 0, 0, 77, 128, 178, 255, 255, 255 and 255.
+
+## @fact webgpu-shades-a-pixel-on-a-shared-edge-once
+
+> WebGPU gives a pixel whose centre lies on an edge that two triangles share to exactly one of them, whatever their order and winding.
+
+Chromium's WebGPU draws a 4×4 square as two triangles split on a diagonal through four pixel centres. Each adds 0.25 by blending. Every pixel gets the byte 64, in either triangle order and with either winding, so none was shaded twice.
+
+## @fact webgpu-clips-a-triangle-outside-the-depth-range
+
+> WebGPU clips a triangle against the depth range from 0 to 1, and draws the depths 0 and 1 themselves.
+
+Chromium's WebGPU draws a triangle at clip depth 0, 0.5 and 1, and draws nothing at -0.5 or 1.5.
+
+## @fact webgpu-draws-nothing-for-a-triangle-off-the-viewport
+
+> WebGPU draws no pixel for a triangle wholly outside the viewport, at any distance from it, and reports no error.
+
+Chromium's WebGPU draws nothing, with no validation error, for a triangle at `x = y = 5`, `1e6` and `1e30`.
+
+## @fact webgpu-culls-no-face-by-default
+
+> A WebGPU render pipeline culls no face unless it asks to, so a triangle draws whichever way its vertices wind.
+
+Chromium's WebGPU draws a counter-clockwise and a clockwise triangle alike with the default `cullMode`.
