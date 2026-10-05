@@ -548,7 +548,9 @@ export interface WgslComputeAdapter {
    */
   compute(out?: AdapterResult, count?: number): Promise<AdapterResult | void>;
   /** A storage slot's persistent `GPUBuffer` — so a `draw` pass sharing
-   * this adapter's device can bind it directly, no readback. */
+   * this adapter's device can bind it directly, no readback. A `vec3` or
+   * `mat3` slot is laid out as WGSL lays out a storage array, 16 bytes for each
+   * `vec3`, so a draw reads it with a stride of four slots for each. */
   buffer(slot: string): GPUBuffer | undefined;
   /** The device backing this adapter, once `attach()` has resolved. */
   device(): GPUDevice | undefined;
@@ -603,7 +605,6 @@ export function createWgslCompute(
   function sizeStorageSlot(resource: Extract<WgslResource, { kind: "storage" }>, elements: number) {
     const existing = storageSlots.get(resource.name);
     if (existing && existing.elements === elements) return existing;
-    existing?.buffer.destroy();
     const itemSize = componentCountOf(resource.shaderType);
     const layout = storageLayout({ itemSize, elementType: resource.shaderType });
     const buffer = device!.createBuffer({
@@ -620,6 +621,7 @@ export function createWgslCompute(
         entries: resources.map((r) => ({ binding: r.binding, resource: { buffer: storageSlots.get(r.name)!.buffer } })),
       });
     }
+    existing?.buffer.destroy();
     return slot;
   }
 
@@ -659,8 +661,12 @@ export function createWgslCompute(
 
     const resource = computeStorageResources().find((r) => r.name === slot);
     if (resource) {
-      const elements = Math.floor(data.length / componentCountOf(resource.shaderType));
+      const elements = Math.ceil(data.length / componentCountOf(resource.shaderType));
       const state = sizeStorageSlot(resource, elements);
+      // A slot the host never sets, such as one the program only writes, is as long as the first one set.
+      if (!firstStorageSeen) {
+        for (const other of computeStorageResources()) if (other !== resource) sizeStorageSlot(other, elements);
+      }
       // The dispatch covers the first buffer the host passed, in elements:
       // TSL's caller writes that count beside `instancedArray(count, type)`.
       if (!firstStorageSeen) {
@@ -767,7 +773,15 @@ export function createWgslCompute(
         });
         // The values come back out of the slots that WGSL's layout gave them, without the padding of a vec3.
         const target = out[resource.name]!;
-        for (let k = 0; k < state.elements * state.itemSize; k++) target[k] = values[state.layout.slot(k)]!;
+        const count = state.elements * state.itemSize;
+        if (state.layout.identity) target.set(values.subarray(0, count));
+        else {
+          if (target.length < count)
+            throw new RangeError(
+              `[RMSL] out["${resource.name}"] holds ${target.length} values, and the slot has ${count}`,
+            );
+          for (let k = 0; k < count; k++) target[k] = values[state.layout.slot(k)]!;
+        }
         staging.unmap();
       }
       return out;

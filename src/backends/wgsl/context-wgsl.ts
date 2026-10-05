@@ -1,6 +1,5 @@
 import {
   isSamplerType,
-  MATRIX_DIMENSIONS,
   someNode,
   type ComputeNode,
   type StorageBufferAttribute,

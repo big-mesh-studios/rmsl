@@ -392,7 +392,6 @@ describe.skipIf(!GPU_ENABLED)("known GPU bugs on a WebGPU device, each failing u
     },
     60_000,
   );
-
 });
 
 describe.skipIf(!GPU_ENABLED)("known bugs of createGlsl in a browser, each failing until its fix", () => {
@@ -506,61 +505,90 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute keeps a buffer for each slot", () =>
    *
    * @canon spec-a-wgsl-storage-buffer-holds-a-vec3-in-16-bytes
    */
-  it(
-    "computes over a vec3 storage buffer with createWgslCompute",
-    async () => {
-      const points = instancedArray(2, "vec3");
-      const program = Fn(() => {
-        const i = invocationIndex();
-        points.element(i).assign(points.element(i).add(1));
-      })();
-      const adapter = createWgslCompute(program);
-      await adapter.attach();
-      adapter.setAttribute(points.name, Float32Array.of(1, 2, 3, 4, 5, 6));
-      const out = { [points.name]: new Float32Array(6) };
-      await adapter.compute(out);
-      adapter.destroy();
-      expect(Array.from(out[points.name]!)).toEqual([2, 3, 4, 5, 6, 7]);
-    },
-    60_000,
-  );
+  it("computes over a vec3 storage buffer with createWgslCompute", async () => {
+    const points = instancedArray(2, "vec3");
+    const program = Fn(() => {
+      const i = invocationIndex();
+      points.element(i).assign(points.element(i).add(1));
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    adapter.setAttribute(points.name, Float32Array.of(1, 2, 3, 4, 5, 6));
+    const out = { [points.name]: new Float32Array(6) };
+    await adapter.compute(out);
+    adapter.destroy();
+    expect(Array.from(out[points.name]!)).toEqual([2, 3, 4, 5, 6, 7]);
+  }, 60_000);
 
   /**
    * Setting one slot to a length of its own keeps what the other slots hold.
    *
    * @canon spec-setting-one-storage-slot-keeps-the-others
    */
-  it(
-    "keeps what one storage slot holds when another is set to a different length",
-    async () => {
-      const source = instancedArray(1, "float");
-      const target = instancedArray(2, "float");
-      const program = Fn(() => {
-        target.element(invocationIndex()).assign(source.element(0));
-      })();
-      const adapter = createWgslCompute(program);
-      await adapter.attach();
-      adapter.setAttribute(source.name, Float32Array.of(5));
-      adapter.setAttribute(target.name, new Float32Array(2));
-      const out = { [source.name]: new Float32Array(1), [target.name]: new Float32Array(2) };
-      await adapter.compute(out, 1);
-      adapter.destroy();
-      expect(Array.from(out[source.name]!)).toEqual([5]);
-      expect(Array.from(out[target.name]!)).toEqual([5, 0]);
-    },
-    60_000,
-  );
+  it("keeps what one storage slot holds when another is set to a different length", async () => {
+    const source = instancedArray(1, "float");
+    const target = instancedArray(2, "float");
+    const program = Fn(() => {
+      target.element(invocationIndex()).assign(source.element(0));
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    adapter.setAttribute(source.name, Float32Array.of(5));
+    adapter.setAttribute(target.name, new Float32Array(2));
+    const out = { [source.name]: new Float32Array(1), [target.name]: new Float32Array(2) };
+    await adapter.compute(out, 1);
+    adapter.destroy();
+    expect(Array.from(out[source.name]!)).toEqual([5]);
+    expect(Array.from(out[target.name]!)).toEqual([5, 0]);
+  }, 60_000);
+
+  /**
+   * A slot the host never sets, such as one the program only writes, is as
+   * long as the first slot set, and comes back with what the program wrote.
+   *
+   * @canon spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array
+   */
+  it("reads back a slot the host never set, as long as the first slot set", async () => {
+    const source = instancedArray(3, "float");
+    const result = instancedArray(3, "float");
+    const program = Fn(() => {
+      const i = invocationIndex();
+      result.element(i).assign(source.element(i).mul(2));
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    adapter.setAttribute(source.name, Float32Array.of(1, 2, 3));
+    const out = { [result.name]: new Float32Array(3) };
+    await adapter.compute(out);
+    adapter.destroy();
+    expect(Array.from(out[result.name]!)).toEqual([2, 4, 6]);
+  }, 60_000);
+
+  /**
+   * A length that is not a multiple of the component count still fits its buffer, and an output
+   * array shorter than the slot is refused where it used to be copied from silently.
+   *
+   * @canon spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array
+   */
+  it("takes a ragged vec3 array, and refuses an output array that is too short", async () => {
+    const points = instancedArray(2, "vec3");
+    const program = Fn(() => {
+      const i = invocationIndex();
+      points.element(i).assign(points.element(i).add(1));
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    adapter.setAttribute(points.name, Float32Array.of(1, 2, 3, 4));
+    await expect(adapter.compute({ [points.name]: new Float32Array(2) })).rejects.toThrow(RangeError);
+    adapter.destroy();
+  }, 60_000);
 });
 
 describe.skipIf(!WEBGPU)("createWgsl in a browser holds a vec3 storage buffer in 16 bytes", () => {
   /**
    * @canon spec-a-wgsl-storage-buffer-holds-a-vec3-in-16-bytes
    */
-  it(
-    "draws from a vec3 storage buffer of its own with createWgsl",
-    async () => {
-      expect(await wgslEntry("vec3Storage")).toEqual(GREEN);
-    },
-    120_000,
-  );
+  it("draws from a vec3 storage buffer of its own with createWgsl", async () => {
+    expect(await wgslEntry("vec3Storage")).toEqual(GREEN);
+  }, 120_000);
 });
