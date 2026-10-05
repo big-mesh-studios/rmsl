@@ -309,13 +309,12 @@ describe("known GPU bugs, each failing until its fix", () => {
   });
 
   /**
-   * A compute program declares its textures in group 1, where its storage
-   * buffers are, so a texture and a buffer share a binding, and `compile()`
-   * does not refuse it.
+   * A compute program declares its textures in group 1 after its storage
+   * buffers, so a texture and a buffer have no binding in common.
    *
-   * @canon bug-a-compute-texture-takes-the-binding-of-a-storage-buffer
+   * @canon spec-a-texture-keeps-a-binding-of-its-own
    */
-  it.fails("gives a texture read by a compute program a binding no storage buffer has", () => {
+  it("gives a texture read by a compute program a binding no storage buffer has", () => {
     const values = instancedArray(2, "float");
     const image = uniform("isampler2D");
     const program = Fn(() => {

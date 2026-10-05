@@ -52,7 +52,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-program-declares-any-number-of-uniforms-on-every-target`](#spec-a-program-declares-any-number-of-uniforms-on-every-target) — A [program](#term-program) declares every [uniform](#term-uniform) it reads, whatever their number, and compiles on every target.
     - [`@spec wgsl-packs-every-value-uniform-into-one-binding`](#spec-wgsl-packs-every-value-uniform-into-one-binding) — On WGSL, every uniform that holds a value is a member of one struct, bound once. GLSL declares each uniform on its own.
     - [`@spec a-texture-keeps-a-binding-of-its-own`](#spec-a-texture-keeps-a-binding-of-its-own) — On WGSL, a texture, and the sampler that goes with a float texture, each take a binding of their own outside the uniform struct. The stages of a render program number them from the whole set of its textures.
-      - [`@bug a-compute-texture-takes-the-binding-of-a-storage-buffer`](#bug-a-compute-texture-takes-the-binding-of-a-storage-buffer) — A compute program declares its textures in group 1, beside its storage buffers. A texture and a buffer then share a binding, and `compile()` does not refuse it.
       - [`@bug the-wgsl-adapter-packs-a-texture-into-its-uniform-struct`](#bug-the-wgsl-adapter-packs-a-texture-into-its-uniform-struct) — `createWgsl` puts a texture among the members of its uniform struct, which has no layout for it. A program that reads a texture does not attach.
     - [`@spec a-bool-uniform-travels-as-an-unsigned-integer`](#spec-a-bool-uniform-travels-as-an-unsigned-integer) — On WGSL, a `bool` or boolean vector uniform, alone or in an array, travels as `u32`. The program compares it with zero where it reads it, and gets a `bool`.
     - [`@spec an-adapter-sets-a-uniform-of-every-type-its-program-declares`](#spec-an-adapter-sets-a-uniform-of-every-type-its-program-declares) — An adapter's `setUniform` uploads a uniform of every value type its program can declare.
@@ -993,12 +992,6 @@ Derives from: [`fact-wgsl-allows-twelve-uniform-buffers-per-stage`](#fact-wgsl-a
 > On WGSL, a texture, and the sampler that goes with a float texture, each take a binding of their own outside the uniform struct. The stages of a render program number them from the whole set of its textures.
 
 Derives from: [`fact-a-wgsl-texture-is-not-host-shareable`](#fact-a-wgsl-texture-is-not-host-shareable)
-
-##### @bug a-compute-texture-takes-the-binding-of-a-storage-buffer
-
-> A compute program declares its textures in group 1, beside its storage buffers. A texture and a buffer then share a binding, and `compile()` does not refuse it.
-
-Issue: #104
 
 ##### @bug the-wgsl-adapter-packs-a-texture-into-its-uniform-struct
 
