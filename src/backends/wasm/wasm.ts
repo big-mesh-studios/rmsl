@@ -3225,10 +3225,9 @@ export function compileWasmFn(
         // x - floor(x); x is emitted twice to keep the stack flat — cheap, side-effect free
         return [...walkExpr(x), ...walkExpr(x), WASM_OP.f64Floor, WASM_OP.f64Sub];
       }
-      case "round": {
-        // GLSL round = floor(x + 0.5), not f64.nearest (which rounds half-to-even)
-        return [...walkExpr(node.params[0]), ...f64ConstBytes(0.5), WASM_OP.f64Add, WASM_OP.f64Floor];
-      }
+      case "round":
+        // WGSL's round takes a half to the even neighbour, as f64.nearest does.
+        return [...walkExpr(node.params[0]), WASM_OP.f64Nearest];
       case "sqrt":
         return [...walkExpr(node.params[0]), WASM_OP.f64Sqrt];
       case "inverseSqrt":

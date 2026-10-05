@@ -519,7 +519,8 @@ export function compileGLSLNode(
     case "fract":
       return unaryGLSL(node, ctx, "fract");
     case "round":
-      return unaryGLSL(node, ctx, "round");
+      // GLSL ES 3.00 leaves a half of `round` to the implementation; `roundEven` takes it to the even integer, as WGSL's `round` does.
+      return unaryGLSL(node, ctx, "roundEven");
     case "trunc":
       return unaryGLSL(node, ctx, "trunc");
     case "sqrt":

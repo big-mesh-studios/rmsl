@@ -54,19 +54,6 @@ describe("known bugs of the core, each failing until its fix", () => {
   });
 
   /**
-   * `round` of a half rounds up on JS and WASM and in folding,
-   * where WGSL rounds it to the even neighbour, so `round(2.5)` gives 3, not 2.
-   *
-   * @canon bug-the-cpu-targets-round-a-half-up
-   */
-  it.fails("rounds a half to the even neighbour on the CPU targets and in folding, as WGSL does", () => {
-    const build = (a: Node<"float">) => Fn(() => a.round())();
-    expect(evaluateJS(build, [2.5])).toBe(2);
-    expect(evaluateWASM(build, [2.5])).toBe(2);
-    expect(evaluateJS(() => Fn(() => float(2.5).round())())).toBe(2);
-  });
-
-  /**
    * A bare number given as the first operand of a free function beside an
    * integer stays a float, so `sub(7, i).div(2)` divides as floats on JS and
    * fails to validate on WASM.

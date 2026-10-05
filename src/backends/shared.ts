@@ -430,7 +430,7 @@ export function tryFold(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
       case "ceil":
         return mkNode({ _t: t, type: t, value: Math.ceil(a) });
       case "round":
-        return mkNode({ _t: t, type: t, value: Math.round(a) });
+        return mkNode({ _t: t, type: t, value: roundHalfToEven(a) });
       case "trunc":
         return mkNode({ _t: t, type: t, value: Math.trunc(a) });
       case "fract":
@@ -646,6 +646,12 @@ export function resolveSwizzleTarget(target: any): { base: BaseNode<ShaderType>;
     base = base.params![0];
   }
   return { base, pattern };
+}
+
+/** `Math.round` takes a half toward +Infinity. WGSL takes it to the even neighbour, so folding does too. */
+function roundHalfToEven(x: number): number {
+  const r = Math.round(x);
+  return x - Math.floor(x) === 0.5 && r % 2 !== 0 ? r - 1 : r;
 }
 
 /**

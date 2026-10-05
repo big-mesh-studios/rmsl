@@ -164,7 +164,7 @@ export const JS_ELEM: Record<string, { argc: number; fn: (xs: string[]) => strin
   sign: { argc: 1, fn: (xs) => `Math.sign(${xs[0]})` },
   floor: { argc: 1, fn: (xs) => `Math.floor(${xs[0]})` },
   ceil: { argc: 1, fn: (xs) => `Math.ceil(${xs[0]})` },
-  round: { argc: 1, fn: (xs) => `Math.round(${xs[0]})` },
+  round: { argc: 1, fn: (xs) => `_rmsl_roundEven(${xs[0]})` },
   trunc: { argc: 1, fn: (xs) => `Math.trunc(${xs[0]})` },
   fract: { argc: 1, fn: (xs) => `${xs[0]} - Math.floor(${xs[0]})` },
   sqrt: { argc: 1, fn: (xs) => `Math.sqrt(${xs[0]})` },
@@ -622,6 +622,15 @@ export function jsHelperSource(name: string): string {
     );
   }
 
+  if (name === "roundEven") {
+    // `Math.round` takes a half toward +Infinity, and WGSL takes it to the even neighbour.
+    return (
+      `function _rmsl_roundEven(x) {\n` +
+      `  const r = Math.round(x);\n` +
+      `  return x - Math.floor(x) === 0.5 && r % 2 !== 0 ? r - 1 : r;\n}`
+    );
+  }
+
   throw new Error(`[RMSL] Unknown JS helper: ${name}`);
 }
 
@@ -885,6 +894,7 @@ export function jsMatrixUnary(node: BaseNode<ShaderType>, ctx: CompileCtx, suffi
 }
 
 export function jsUnaryMath(node: BaseNode<ShaderType>, ctx: CompileCtx, suffix: string): CompiledNode {
+  if (suffix === "round") jsRequireHelper(ctx, "roundEven");
   let width = jsArrayLength(node.params![0]?._t);
   if (width <= 1) {
     let a = compileJSStage(node.params![0], ctx);
