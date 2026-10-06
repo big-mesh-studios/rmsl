@@ -2032,7 +2032,9 @@ function compileJSFnDetailed(
   const rawNodes: Node<ShaderType>[] = Array.isArray(rawResult) ? rawResult : [rawResult];
   // Without a stage the function is a plain function of its context, whose
   // result can be any value.
-  const resultNodes = shareNodes(options.stage === "fragment" ? fragmentColour(rawNodes) : rawNodes);
+  const resultNodes = numberClashingVariables(
+    shareNodes(options.stage === "fragment" ? fragmentColour(rawNodes) : rawNodes),
+  );
 
   const ctx: CompileCtx = {
     nextId: 0,
@@ -2058,8 +2060,6 @@ function compileJSFnDetailed(
     reentrant,
     jsNeedsRes: false,
   };
-
-  numberClashingVariables(resultNodes);
 
   assertOneDeclarationPerName(resultNodes);
   const compiledList = resultNodes.map((n) => compileJSStage(n, ctx));

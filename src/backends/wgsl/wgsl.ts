@@ -1620,8 +1620,7 @@ export function compileWGSLWithStage(
 
   let nodes = Array.isArray(root) ? root : [root];
   if (shaderStage === "fragment") nodes = fragmentColour(nodes);
-  nodes = shareNodes(nodes);
-  numberClashingVariables(nodes);
+  nodes = numberClashingVariables(shareNodes(nodes));
   assertOneDeclarationPerName(nodes);
   let results = nodes.map((n) => compileWGSLStage(n, ctx));
   let countExpr = options?.count ? compileWGSLStage(options.count, ctx).expr : undefined;
@@ -2003,7 +2002,7 @@ export function sharedUniformMembers(
  */
 export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options: CompileFnOptions): string {
   const paramNodes = options.params.map((p) => parameterNode(p.name, p.type));
-  const result = shareNodes(fn(...paramNodes));
+  const result = numberClashingVariables(shareNodes(fn(...paramNodes)));
   if (Array.isArray(result)) {
     throw new Error(
       "compileWgslFn does not support multi-return functions. Define separate functions for each return value.",
@@ -2034,7 +2033,6 @@ export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options:
     reentrant: false,
     jsNeedsRes: false,
   };
-  numberClashingVariables(result);
   assertOneDeclarationPerName(result);
   const compiled = compileWGSLStage(result, ctx);
   const returnType = wgslType((result as any)._t || "float");

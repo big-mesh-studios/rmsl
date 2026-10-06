@@ -217,6 +217,19 @@ describe("the variable names of a program", () => {
   /**
    * @canon spec-a-taken-variable-name-gets-a-number
    */
+  it("keeps the name a root took when it is compiled alone after a program that renamed it, on GLSL and WGSL", () => {
+    const u = uniform("float");
+    const first = Fn(() => u.add(1).toVar("color"))();
+    const second = Fn(() => u.add(2).toVar("color"))();
+    expect(compileGlsl.fragment([first, second] as any)).toContain("float color1 = ");
+    expect(compileGlsl.fragment(second as any)).toContain("float color = ");
+    expect(compileWgsl.fragment([first, second] as any)).toContain("var color1: f32");
+    expect(compileWgsl.fragment(second as any)).toContain("var color: f32");
+  });
+
+  /**
+   * @canon spec-a-taken-variable-name-gets-a-number
+   */
   it.each([
     ["JS", compileJSRoutine],
     ["WASM", compileWasmRoutine],

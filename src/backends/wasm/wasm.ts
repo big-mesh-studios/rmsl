@@ -754,7 +754,9 @@ export function compileWasmFn(
   const rawNodes: any[] = Array.isArray(rawResult) ? (rawResult as any[]) : [rawResult];
   // Without a stage the function is a plain function of its context, whose
   // result can be any value.
-  const resultNodes = shareNodes(options.stage === "fragment" ? fragmentColour(rawNodes) : rawNodes);
+  const resultNodes = numberClashingVariables(
+    shareNodes(options.stage === "fragment" ? fragmentColour(rawNodes) : rawNodes),
+  );
   const root = resultNodes[resultNodes.length - 1];
 
   const paramTypeByName = new Map(options.params.map((p) => [p.name, p.type]));
@@ -818,7 +820,6 @@ export function compileWasmFn(
   // imported math names — before any bytecode is emitted. `collect` gates
   // every allocation behind a `.has()` check, so revisiting nodes shared
   // between roots (the array-return-sugar case) is idempotent.
-  numberClashingVariables(resultNodes);
   assertOneDeclarationPerName(resultNodes);
   for (const n of resultNodes) collect(n);
   for (const p of memoryParams) if (p.kind === "storageMemory") p.written = writtenStorage.has(p.slot);

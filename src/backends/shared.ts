@@ -809,14 +809,16 @@ export function assertOneDeclarationPerName(roots: unknown): void {
 
 /**
  * Numbers the variables of the roots that share a name, so each declares a name
- * of its own. `toVar("color")` keeps one registry for each top-level `Fn`, so
+ * of its own. `toVar("color")` keeps one registry of names for each top-level `Fn`, so
  * two `Fn`s compiled as the roots of one program can each take `color`, and the
  * program would declare it twice. The first variable keeps its name and each
  * later one gets the next free number appended, as `toVar` does within one `Fn`.
  *
- * A variable is one node, so renaming the node renames every read of it.
+ * A variable is one node, so a renamed copy of it takes the place of every read.
+ * The roots come back as copies where a variable was renamed, and the graph the
+ * caller holds keeps the names it was given.
  */
-export function numberClashingVariables(roots: unknown): void {
+export function numberClashingVariables<T>(roots: T): T {
   const byName = new Map<string, any[]>();
   someNode(roots, (node) => {
     if (node.type !== "var" || node.value.parameter) return;
@@ -825,14 +827,37 @@ export function numberClashingVariables(roots: unknown): void {
     else if (!group.includes(node)) group.push(node);
   });
   const taken = new Set(byName.keys());
+  const renamed = new Map<any, any>();
   for (const [name, variables] of byName) {
     for (const variable of variables.slice(1)) {
       let number = 1;
       while (taken.has(`${name}${number}`)) number++;
-      variable.value.varName = `${name}${number}`;
-      taken.add(variable.value.varName);
+      const varName = `${name}${number}`;
+      taken.add(varName);
+      renamed.set(
+        variable,
+        Object.assign(Object.create(Object.getPrototypeOf(variable)), variable, {
+          value: { ...variable.value, varName },
+        }),
+      );
     }
   }
+  if (renamed.size === 0) return roots;
+  const copies = new Map<any, any>();
+  const substitute = (node: any): any => {
+    if (Array.isArray(node)) return node.map(substitute);
+    if (!node || typeof node !== "object") return node;
+    const known = renamed.get(node) ?? copies.get(node);
+    if (known !== undefined) return known;
+    if (!Array.isArray(node.params)) return node;
+    const params = node.params.map(substitute);
+    const result = params.every((p: any, i: number) => p === node.params[i])
+      ? node
+      : Object.assign(Object.create(Object.getPrototypeOf(node)), node, { params });
+    copies.set(node, result);
+    return result;
+  };
+  return substitute(roots);
 }
 
 /** The node types an assignment can write, through any swizzle, component or column of them. */

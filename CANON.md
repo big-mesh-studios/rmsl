@@ -340,7 +340,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug js-runs-an-inline-fn-only-on-the-path-that-first-reads-it`](#bug-js-runs-an-inline-fn-only-on-the-path-that-first-reads-it) — On JS, the statements of an inline `Fn` result are emitted with the first read of its value. A path that reads the value without passing that read, such as the other branch of an `If`, gets the value and never runs the statements.
   - [`@spec a-variable-keeps-the-name-the-user-gave-it`](#spec-a-variable-keeps-the-name-the-user-gave-it) — `toVar(name)` and `var(name)` declare a variable under `name` on every target, in every compile. A name already taken in the program gets a number appended.
     - [`@spec a-variable-is-declared-under-the-name-given`](#spec-a-variable-is-declared-under-the-name-given) — `toVar(name)` and `var(name)` declare the variable under `name` on every target, in every compile.
-    - [`@spec a-taken-variable-name-gets-a-number`](#spec-a-taken-variable-name-gets-a-number) — A variable name already taken in the program gets the next free number appended.
+    - [`@spec a-taken-variable-name-gets-a-number`](#spec-a-taken-variable-name-gets-a-number) — A variable name already taken in the program gets the next free number appended. The variable the caller holds keeps the name it was given.
     - [`@spec var-is-to-var`](#spec-var-is-to-var) — `var()` is `toVar()` under TSL's other name.
     - [`@spec a-variable-name-must-be-an-identifier`](#spec-a-variable-name-must-be-an-identifier) — A variable name that is not an identifier, or that starts with the prefix `_rmsl_` the compiler reserves, is refused.
     - [`@spec an-unnamed-variable-gets-a-name-no-other-variable-has`](#spec-an-unnamed-variable-gets-a-name-no-other-variable-has) — A variable made without a name gets a generated name that no other variable in the process has, across `Fn`s and builds.
@@ -2609,7 +2609,7 @@ This follows because TSL's `toVar` takes a name, and a reader of the shader meet
 
 #### @spec a-taken-variable-name-gets-a-number
 
-> A variable name already taken in the program gets the next free number appended.
+> A variable name already taken in the program gets the next free number appended. The variable the caller holds keeps the name it was given.
 
 #### @spec var-is-to-var
 

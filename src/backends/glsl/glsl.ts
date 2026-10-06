@@ -978,8 +978,7 @@ export function compileGLSLWithStage(
 
   let nodes = Array.isArray(root) ? root : [root];
   if (shaderStage === "fragment") nodes = fragmentColour(nodes);
-  nodes = shareNodes(nodes);
-  numberClashingVariables(nodes);
+  nodes = numberClashingVariables(shareNodes(nodes));
   assertOneDeclarationPerName(nodes);
   let results = nodes.map((n) => compileGLSLStage(n, ctx));
   let allBody: string[] = [];
@@ -1115,7 +1114,7 @@ export const compileGlsl: {
  */
 export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options: CompileFnOptions): string {
   const paramNodes = options.params.map((p) => parameterNode(p.name, p.type));
-  const result = shareNodes(fn(...paramNodes));
+  const result = numberClashingVariables(shareNodes(fn(...paramNodes)));
   if (Array.isArray(result)) {
     throw new Error(
       "compileGlslFn does not support multi-return functions. Define separate functions for each return value.",
@@ -1146,7 +1145,6 @@ export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options:
     reentrant: false,
     jsNeedsRes: false,
   };
-  numberClashingVariables(result);
   assertOneDeclarationPerName(result);
   const compiled = compileGLSLStage(result, ctx);
   const returnType = glslType((result as any)._t || "float");
