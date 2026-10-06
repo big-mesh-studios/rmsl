@@ -11,6 +11,7 @@ import { DirectionalLight } from "../lights/DirectionalLight";
 import { PointLight } from "../lights/PointLight";
 import type { NodeMaterial } from "../materials/NodeMaterial";
 import type { Texture } from "../textures/Texture";
+import { DataTexture } from "../textures/DataTexture";
 import {
   MirroredRepeatWrapping,
   NearestFilter,
@@ -253,6 +254,23 @@ export function samplerSampleType(type: string): "float" | "sint" | "uint" {
 /** Whether a sampler type addresses a volume rather than a surface. */
 export function samplerDimension(type: string): "2d" | "3d" {
   return type.endsWith("3D") ? "3d" : "2d";
+}
+
+/**
+ * The 1×1 black texture a sampler with no texture reads, kept in `blanks` per
+ * dimension and sample type so an integer or 3D sampler gets a texture it can
+ * read. An integer texel is `[0, 0, 0, 255]`, or `[0, 0, 0, -1]` when signed.
+ */
+export function blankTexture(blanks: Map<string, DataTexture>, samplerType = "sampler2D"): DataTexture {
+  const sampleType = samplerSampleType(samplerType);
+  const key = `${samplerDimension(samplerType)}:${sampleType}`;
+  let blank = blanks.get(key);
+  if (!blank) {
+    const data = sampleType === "sint" ? new Int8Array([0, 0, 0, -1]) : new Uint8Array([0, 0, 0, 255]);
+    blank = new DataTexture(data, 1, 1, 1);
+    blanks.set(key, blank);
+  }
+  return blank;
 }
 
 /**

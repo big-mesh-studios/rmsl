@@ -9,9 +9,11 @@ import type { InstancedMesh } from "../objects/InstancedMesh";
 import type { BufferGeometry } from "../geometries/BufferGeometry";
 import type { BufferAttribute } from "../geometries/BufferAttribute";
 import type { Texture } from "../textures/Texture";
+import type { DataTexture } from "../textures/DataTexture";
 import type { NodeMaterial, MaterialProgram } from "../materials/NodeMaterial";
 import { Blending, Side } from "../materials/Material";
 import {
+  blankTexture,
   cameraUniformValue,
   isIntegerSampler,
   objectUniformValue,
@@ -64,6 +66,8 @@ export class WebGLRenderer {
    * upload is re-allocated only when the new data no longer fits. */
   private bufferCapacities = new WeakMap<WebGLBuffer, number>();
   private textures = new Map<Texture, WebGLTexture>();
+  /** The 1×1 black textures a sampler with no texture reads, one for each dimension and sample type. */
+  private blankTextures = new Map<string, DataTexture>();
   /** The framebuffer, color texture, and depth renderbuffer behind each render target, at its bound size. */
   private renderTargets = new Map<
     WebGLRenderTarget,
@@ -347,10 +351,11 @@ export class WebGLRenderer {
     }
 
     // Samplers: bind each material texture to a unit and point the sampler at it.
+    // A sampler without a texture gets a black one, so it never reads another's unit.
     for (const sampler of entry.program.samplers) {
-      const texture = sampler.texture();
       const location = entry.uniformLocations.get(sampler.name);
-      if (!texture || location == null) continue;
+      if (location == null) continue;
+      const texture = sampler.texture() ?? blankTexture(this.blankTextures, sampler.type);
       const unit = this.bindTexture(texture, sampler.type);
       gl.uniform1i(location, unit);
     }

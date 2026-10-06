@@ -792,30 +792,6 @@ describe("known bugs of the scene library, each failing until its fix", () => {
   });
 
   /**
-   * The WebGL renderer never sets the unit of a sampler that has no texture,
-   * so it reads unit 0, the texture of another sampler.
-   *
-   * @canon bug-webgl-leaves-a-textureless-sampler-on-unit-0
-   */
-  it.fails("gives a sampler with no texture a unit of its own on WebGL", () => {
-    const { renderer, calls } = stubWebGl();
-    const texture = new DataTexture(new Uint8Array([220, 0, 0, 255]), 1, 1);
-    const material = new MeshBasicMaterial();
-    material.fragmentNode = (b) => {
-      const present = b.sampler("present", () => texture);
-      const missing = b.sampler("missing", () => null);
-      return present.texture(vec2(0.5, 0.5)).add(missing.texture(vec2(0.5, 0.5)));
-    };
-    const scene = new Scene();
-    scene.add(new Mesh(new PlaneGeometry(), material));
-    renderer.render(scene, camera());
-
-    const unitOf = (name: string) => calls.find((c) => c.name === "uniform1i" && c.args[0].name === name)?.args[1];
-    expect(unitOf("missing")).toBeDefined();
-    expect(unitOf("missing")).not.toBe(unitOf("present"));
-  });
-
-  /**
    * Both renderers ignore `scene.background` and clear to the renderer's clear
    * colour.
    *

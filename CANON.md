@@ -488,7 +488,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec the-webgpu-renderer-declares-one-uniform-struct-in-both-stages`](#spec-the-webgpu-renderer-declares-one-uniform-struct-in-both-stages) — The WebGPU renderer declares every uniform of a material in both stages, so the vertex and fragment shaders read one struct at the same offsets.
     - [`@spec a-render-target-takes-its-new-size-on-the-next-render`](#spec-a-render-target-takes-its-new-size-on-the-next-render) — A renderer draws a render target at its new size on the next render after its width or height changes, and frees the old storage.
     - [`@spec a-sampler-without-a-texture-reads-black`](#spec-a-sampler-without-a-texture-reads-black) — A sampler that its material gives no texture reads opaque black on every renderer.
-      - [`@bug webgl-leaves-a-textureless-sampler-on-unit-0`](#bug-webgl-leaves-a-textureless-sampler-on-unit-0) — The WebGL renderer never sets the unit of a sampler that has no texture. The sampler reads unit 0, which holds the texture of another sampler, or the texture an earlier draw or render left there.
     - [`@spec a-changed-attribute-uploads-only-its-update-range`](#spec-a-changed-attribute-uploads-only-its-update-range) — A renderer uploads only the ranges of a changed attribute that `addUpdateRange(start, count)` marked, and the whole attribute when it marked none.
       - [`@bug an-attribute-has-one-update-range-where-three-js-has-a-list`](#bug-an-attribute-has-one-update-range-where-three-js-has-a-list) — rmsl's `BufferAttribute` has one `updateRange` of an offset and a count, and has no `updateRanges`, `addUpdateRange` or `clearUpdateRanges`. Both renderers read that one range.
       - [`@bug webgpu-ignores-an-attribute-update-range`](#bug-webgpu-ignores-an-attribute-update-range) — The WebGPU renderer writes a changed attribute whole, from byte 0, ignoring the range it marks.
@@ -3423,14 +3422,6 @@ This follows because a renderer uploads what it holds again when it changes, and
 Derives from: [`spec-each-sampler-gets-its-own-texture`](#spec-each-sampler-gets-its-own-texture)
 
 This follows because the WebGPU renderer binds a 1×1 black texture there, and both renderers draw the same scene.
-
-##### @bug webgl-leaves-a-textureless-sampler-on-unit-0
-
-> The WebGL renderer never sets the unit of a sampler that has no texture. The sampler reads unit 0, which holds the texture of another sampler, or the texture an earlier draw or render left there.
-
-Derives from: [`spec-a-render-depends-only-on-what-it-is-given`](#spec-a-render-depends-only-on-what-it-is-given)
-
-Issue: #120
 
 #### @spec a-changed-attribute-uploads-only-its-update-range
 
