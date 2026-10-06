@@ -233,6 +233,45 @@ globalThis.__rmslDepthMaskRun = () => {
 };
 `;
 
+// A render whose sampler has no texture, after a render whose sampler had one:
+// it must read what it reads on a renderer that drew nothing before it.
+const ENTRY_TEXTURELESS = `
+import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry, MeshBasicMaterial, DataTexture } from "../scene";
+import { vec2 } from "../rmsl";
+globalThis.__rmslTexturelessRun = () => {
+  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 1);
+  camera.lookAt(0, 0, 0);
+  const make = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    const renderer = new WebGLRenderer(canvas, { antialias: false });
+    renderer.setClearColor(0x000000);
+    return renderer;
+  };
+  const sampling = (texture) => {
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => b.sampler("map", "sampler2D", () => texture).texture(vec2(0.5, 0.5));
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(2, 2), material));
+    return scene;
+  };
+  const centre = (renderer) => {
+    const gl = renderer.gl;
+    const pixels = new Uint8Array(4);
+    gl.readPixels(8, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    return [pixels[0], pixels[1], pixels[2], pixels[3]];
+  };
+  const renderer = make();
+  renderer.render(sampling(new DataTexture(new Uint8Array([200, 0, 0, 255]), 1, 1)), camera);
+  renderer.render(sampling(null), camera);
+  const fresh = make();
+  fresh.render(sampling(null), camera);
+  return { afterTextured: centre(renderer), fresh: centre(fresh) };
+};
+`;
+
 describe.skipIf(!GPU_ENABLED)("a render depends only on what it is given, on a real driver", () => {
   /**
    * @canon spec-a-render-clears-the-depth-buffer-whatever-the-last-draw-masked
@@ -240,6 +279,19 @@ describe.skipIf(!GPU_ENABLED)("a render depends only on what it is given, on a r
   it("draws a far plane after a frame whose last draw wrote no depth on WebGL", async () => {
     const result = await runInGpuPage(ENTRY_DEPTH_MASK, "__rmslDepthMaskRun", new URL(".", import.meta.url).pathname);
     expect(result.afterMaskedDraw).toEqual(result.fresh);
+  }, 60_000);
+
+  /**
+   * @canon spec-a-sampler-without-a-texture-reads-black
+   */
+  it("reads opaque black from a sampler with no texture, after a render that bound one on WebGL", async () => {
+    const result = await runInGpuPage(
+      ENTRY_TEXTURELESS,
+      "__rmslTexturelessRun",
+      new URL(".", import.meta.url).pathname,
+    );
+    expect(result.fresh).toEqual([0, 0, 0, 255]);
+    expect(result.afterTextured).toEqual(result.fresh);
   }, 60_000);
 });
 

@@ -16,6 +16,7 @@ import type { NodeMaterial, MaterialProgram } from "../materials/NodeMaterial";
 import type { SamplerShaderType } from "../materials/nodes/Builder";
 import { Side } from "../materials/Material";
 import {
+  blankTexture,
   cameraUniformValue,
   isIntegerSampler,
   objectUniformValue,
@@ -830,20 +831,8 @@ export class WebGPURenderer {
     ]);
   }
 
-  /**
-   * A 1×1 fallback texture, created per format and dimension so an integer or
-   * 3D sampler with no texture still gets a valid resource.
-   */
   private blankTexture(samplerType = "sampler2D"): DataTexture {
-    const key = `${samplerDimension(samplerType)}:${samplerSampleType(samplerType)}`;
-    let blank = this.blankTextures.get(key);
-    if (!blank) {
-      const sampleType = samplerSampleType(samplerType);
-      const data = sampleType === "sint" ? new Int8Array([0, 0, 0, -1]) : new Uint8Array([0, 0, 0, 255]);
-      blank = new DataTexture(data, 1, 1, 1);
-      this.blankTextures.set(key, blank);
-    }
-    return blank;
+    return blankTexture(this.blankTextures, samplerType);
   }
 
   /** The sampler that reads this texture the way the texture asks to be read. */
