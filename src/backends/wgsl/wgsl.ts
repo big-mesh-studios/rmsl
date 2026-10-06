@@ -37,6 +37,7 @@ import {
   withoutSemicolon,
   wrapExpr,
 } from "../shared";
+import { shareNodes } from "../share";
 export let typeToWGSL: Record<string, string> = {
   float: "f32",
   vec2: "vec2<f32>",
@@ -1619,6 +1620,7 @@ export function compileWGSLWithStage(
 
   let nodes = Array.isArray(root) ? root : [root];
   if (shaderStage === "fragment") nodes = fragmentColour(nodes);
+  nodes = shareNodes(nodes);
   numberClashingVariables(nodes);
   assertOneDeclarationPerName(nodes);
   let results = nodes.map((n) => compileWGSLStage(n, ctx));
@@ -2001,7 +2003,7 @@ export function sharedUniformMembers(
  */
 export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options: CompileFnOptions): string {
   const paramNodes = options.params.map((p) => parameterNode(p.name, p.type));
-  const result = fn(...paramNodes);
+  const result = shareNodes(fn(...paramNodes));
   if (Array.isArray(result)) {
     throw new Error(
       "compileWgslFn does not support multi-return functions. Define separate functions for each return value.",

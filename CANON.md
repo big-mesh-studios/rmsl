@@ -46,11 +46,13 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec wgsl-floors-a-modulus-through-a-helper`](#spec-wgsl-floors-a-modulus-through-a-helper) — On WGSL, a float `mod` calls a helper of the width of its operands, which floors the quotient as GLSL's `mod` does, and reads each operand once.
     - [`@spec wgsl-narrows-a-matrix-through-a-helper`](#spec-wgsl-narrows-a-matrix-through-a-helper) — On WGSL, a matrix built from a larger matrix calls a helper that keeps the leading rows of the leading columns. A matrix built from columns or from a scalar needs none.
   - [`@spec every-node-is-emitted-once`](#spec-every-node-is-emitted-once) — A [node](#term-node) that several roots or statements reach is emitted once, in the place it first runs. A block it holds keeps its variables in scope, and a loop it holds keeps its loop variable.
-  - [`@spec a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once) — A node that an operation reads more than once is computed once, where it first runs. Every later read in that block, or in a block inside it, reads the result.
+  - [`@spec a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once) — A node that an operation reads more than once is computed once, where it first runs. Each later read in that block or a block inside it takes the result, until a statement changes what the node reads.
     - [`@spec output-grows-in-proportion-to-the-levels-of-nested-reads`](#spec-output-grows-in-proportion-to-the-levels-of-nested-reads) — A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target.
-      - [`@bug every-target-writes-a-node-out-at-each-read`](#bug-every-target-writes-a-node-out-at-each-read) — Every target writes a node out at each read, so the output of such a program doubles with each level. At ten levels the WASM compiler overflows its stack.
-    - [`@spec a-node-that-is-already-a-name-is-read-where-it-is`](#spec-a-node-that-is-already-a-name-is-read-where-it-is) — A constant, a variable, a uniform, an attribute, a built-in input, and a swizzle or an element of one of them are read where they are, however often. They get no variable of their own.
-    - [`@spec a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in`](#spec-a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in) — A node read in two blocks, neither inside the other, is computed in each. A path that skips a block runs none of that block's statements.
+    - [`@spec a-node-that-is-already-a-name-is-read-where-it-is`](#spec-a-node-that-is-already-a-name-is-read-where-it-is) — A constant, a variable, a uniform, an attribute or a built-in input stays where it is. So does a swizzle or an element of one of them. None gets a variable of its own.
+    - [`@spec a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in`](#spec-a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in) — A node that two blocks read, with neither inside the other, is computed in each. A path that skips a block runs none of its statements.
+    - [`@spec a-shared-value-is-computed-again-after-what-it-reads-changed`](#spec-a-shared-value-is-computed-again-after-what-it-reads-changed) — A shared node that reads a variable or a storage buffer is computed again at its next read. This holds once a statement has changed that variable or buffer.
+    - [`@spec a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads`](#spec-a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads) — A shared node made before a loop is computed again inside the loop, when the loop body changes what the node reads.
+    - [`@spec a-shared-value-gets-a-generated-name`](#spec-a-shared-value-gets-a-generated-name) — The variable of a shared node is named `_rmsl_gen_` and a number. It cannot clash with a name the user gave, or with a `toVar()` name.
   - [`@spec an-operand-that-is-an-expression-keeps-its-grouping`](#spec-an-operand-that-is-an-expression-keeps-its-grouping) — An operand that is itself an expression computes as a whole before the operation that takes it. This holds on every target, whatever the precedence of its operators.
   - [`@spec a-program-declares-any-number-of-uniforms-on-every-target`](#spec-a-program-declares-any-number-of-uniforms-on-every-target) — A [program](#term-program) declares every [uniform](#term-uniform) it reads, whatever their number, and compiles on every target.
     - [`@spec wgsl-packs-every-value-uniform-into-one-binding`](#spec-wgsl-packs-every-value-uniform-into-one-binding) — On WGSL, every uniform that holds a value is a member of one struct, bound once. GLSL declares each uniform on its own.
@@ -975,25 +977,19 @@ This follows because emitting a node twice runs what it does twice, which change
 
 ### @spec a-node-read-more-than-once-is-computed-once
 
-> A node that an operation reads more than once is computed once, where it first runs. Every later read in that block, or in a block inside it, reads the result.
+> A node that an operation reads more than once is computed once, where it first runs. Each later read in that block or a block inside it takes the result, until a statement changes what the node reads.
 
 Derives from: [`spec-every-node-is-emitted-once`](#spec-every-node-is-emitted-once), [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import), [`fact-three-js-generates-a-node-read-more-than-once-into-a-variable`](#fact-three-js-generates-a-node-read-more-than-once-into-a-variable)
 
-This follows because the output and the work at run time then grow with the number of nodes in the program, not the number of paths through it. A TSL shader nests such reads freely, and it ports without a `toVar()` at every level.
+This follows because the output and the work at run time then grow with the nodes in the program. They do not grow with the paths through it. A TSL shader nests such reads freely, so it ports without a `toVar()` at each level.
 
 #### @spec output-grows-in-proportion-to-the-levels-of-nested-reads
 
 > A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target.
 
-##### @bug every-target-writes-a-node-out-at-each-read
-
-> Every target writes a node out at each read, so the output of such a program doubles with each level. At ten levels the WASM compiler overflows its stack.
-
-Issue: #41
-
 #### @spec a-node-that-is-already-a-name-is-read-where-it-is
 
-> A constant, a variable, a uniform, an attribute, a built-in input, and a swizzle or an element of one of them are read where they are, however often. They get no variable of their own.
+> A constant, a variable, a uniform, an attribute or a built-in input stays where it is. So does a swizzle or an element of one of them. None gets a variable of its own.
 
 Derives from: [`fact-three-js-gives-a-cheap-node-no-variable`](#fact-three-js-gives-a-cheap-node-no-variable)
 
@@ -1001,11 +997,29 @@ This follows because a variable for such a node would only rename what is alread
 
 #### @spec a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in
 
-> A node read in two blocks, neither inside the other, is computed in each. A path that skips a block runs none of that block's statements.
+> A node that two blocks read, with neither inside the other, is computed in each. A path that skips a block runs none of its statements.
 
 Derives from: [`fact-three-js-reuses-a-generated-value-only-where-it-is-visible`](#fact-three-js-reuses-a-generated-value-only-where-it-is-visible)
 
 This follows because the result stored in one branch of an `If` does not exist on the path through the other branch.
+
+#### @spec a-shared-value-is-computed-again-after-what-it-reads-changed
+
+> A shared node that reads a variable or a storage buffer is computed again at its next read. This holds once a statement has changed that variable or buffer.
+
+This follows because a node has the value it computes at the point of the read. An assignment between two reads can change that value.
+
+#### @spec a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads
+
+> A shared node made before a loop is computed again inside the loop, when the loop body changes what the node reads.
+
+This follows because the body runs again after it changes what the node reads. A value from before the loop is stale on each later iteration.
+
+#### @spec a-shared-value-gets-a-generated-name
+
+> The variable of a shared node is named `_rmsl_gen_` and a number. It cannot clash with a name the user gave, or with a `toVar()` name.
+
+This follows because the compiler keeps the `_rmsl_` prefix for everything it invents, and a user name may not use it.
 
 ### @spec an-operand-that-is-an-expression-keeps-its-grouping
 

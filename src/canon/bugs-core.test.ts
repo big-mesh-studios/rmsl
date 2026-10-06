@@ -11,14 +11,13 @@ import {
   uint,
   uniform,
   uniformRaw,
-  vec3,
   vec4,
   type Node,
 } from "../rmsl";
-import { compileGlsl, compileGlslFn } from "../glsl";
-import { compileWgsl, compileWgslFn } from "../wgsl";
-import { compileJSFn, compileJSRoutine } from "../js";
-import { compileWasmFn, compileWasmRoutine } from "../wasm";
+import { compileGlsl } from "../glsl";
+import { compileWgsl } from "../wgsl";
+import { compileJSRoutine } from "../js";
+import { compileWasmRoutine } from "../wasm";
 import { evaluateJS, evaluateWASM } from "../testing/shader-eval";
 import { deserialize, serialize, type SerializedGraph } from "../serialize";
 
@@ -29,32 +28,6 @@ const none = { name: "main", params: [] };
 const roundTrip = (graph: SerializedGraph) => deserialize(JSON.parse(JSON.stringify(graph)));
 
 describe("known bugs of the core, each failing until its fix", () => {
-  /**
-   * A value whose every level reads the level below twice is written out at
-   * each read, so the output doubles with each level. The ratio of the output
-   * at twelve levels to the output at six would be about 2 if it grew in
-   * proportion to the levels, and it is about 64.
-   *
-   * @canon bug-every-target-writes-a-node-out-at-each-read
-   */
-  it.fails.each([
-    ["GLSL", (build: any) => compileGlslFn(build, param).length],
-    ["WGSL", (build: any) => compileWgslFn(build, param).length],
-    ["JS", (build: any) => compileJSFn(build, param).length],
-    ["WASM", (build: any) => compileWasmFn(build, param).bytes.length],
-  ] as const)(
-    "compiles a value read twice at each level in output that grows in proportion to the levels on %s",
-    (_target, size) => {
-      const nested = (levels: number) => (a: Node<"float">) =>
-        Fn(() => {
-          let x = vec3(a, a, a);
-          for (let i = 0; i < levels; i++) x = x.add(x).mul(0.5);
-          return x.x;
-        })();
-      expect(size(nested(12)) / size(nested(6))).toBeLessThan(4);
-    },
-  );
-
   /**
    * A buffer made from a count holds no host array, where TSL's holds one of
    * zeros the application can fill.

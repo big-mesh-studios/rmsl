@@ -32,6 +32,7 @@ import {
   isLeafLiteral,
   resolveSwizzleTarget,
 } from "../shared";
+import { shareNodes } from "../share";
 import {
   f64ConstBytes,
   forLoop,
@@ -753,7 +754,7 @@ export function compileWasmFn(
   const rawNodes: any[] = Array.isArray(rawResult) ? (rawResult as any[]) : [rawResult];
   // Without a stage the function is a plain function of its context, whose
   // result can be any value.
-  const resultNodes = options.stage === "fragment" ? fragmentColour(rawNodes) : rawNodes;
+  const resultNodes = shareNodes(options.stage === "fragment" ? fragmentColour(rawNodes) : rawNodes);
   const root = resultNodes[resultNodes.length - 1];
 
   const paramTypeByName = new Map(options.params.map((p) => [p.name, p.type]));

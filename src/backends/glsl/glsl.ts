@@ -23,6 +23,7 @@ import {
   withoutSemicolon,
   wrapExpr,
 } from "../shared";
+import { shareNodes } from "../share";
 
 export const typeToGLSL: Record<string, string> = {
   float: "float",
@@ -977,6 +978,7 @@ export function compileGLSLWithStage(
 
   let nodes = Array.isArray(root) ? root : [root];
   if (shaderStage === "fragment") nodes = fragmentColour(nodes);
+  nodes = shareNodes(nodes);
   numberClashingVariables(nodes);
   assertOneDeclarationPerName(nodes);
   let results = nodes.map((n) => compileGLSLStage(n, ctx));
@@ -1113,7 +1115,7 @@ export const compileGlsl: {
  */
 export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options: CompileFnOptions): string {
   const paramNodes = options.params.map((p) => parameterNode(p.name, p.type));
-  const result = fn(...paramNodes);
+  const result = shareNodes(fn(...paramNodes));
   if (Array.isArray(result)) {
     throw new Error(
       "compileGlslFn does not support multi-return functions. Define separate functions for each return value.",

@@ -7,6 +7,7 @@ import {
   If,
   instancedArray,
   int,
+  Loop,
   mix,
   select,
   textureSize,
@@ -16,8 +17,10 @@ import {
   vec4,
   type Node,
 } from "../rmsl";
+import { compileGlslFn } from "../glsl";
+import { compileWgslFn } from "../wgsl";
 import { compileJSFn, compileJSRoutine } from "../js";
-import { compileWasmRoutine } from "../wasm";
+import { compileWasmFn, compileWasmRoutine } from "../wasm";
 import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } from "../testing/shader-eval";
 import {
   assertRecordedShadersValid,
@@ -233,9 +236,46 @@ describe("the variable names of a program", () => {
   });
 });
 
+describe("the type of the size of a texture", () => {
+  /**
+   * `textureSize` is typed `uvec2`, and GLSL returns an `ivec2`, so a variable of
+   * the node's type refused it.
+   *
+   * @canon spec-a-conversion-between-numeric-types-is-written-out
+   */
+  it("converts the size of a texture to the unsigned type the node has on GLSL", () => {
+    const glsl = compileGlsl.fragment(Fn(() => vec4(textureSize(uniform("sampler2D")).x.toFloat(), 0, 0, 1))() as any);
+    expect(glsl).toContain("uvec2(textureSize(");
+  });
+});
+
 describe("what a program does with a node it reads more than once", () => {
-  /** A declaration of a generated name, such as the variable a shared computation would get. */
-  const generatedLocal = /\b(?:float|vec\d|int|uint|bool|let|var|const) _rmsl_\d+\b/;
+  /** A declaration of the variable a shared node gets. */
+  const sharedLocal = /\b(?:float|vec\d|int|uint|bool|let|var|const) _rmsl_gen_\d+\b/;
+  const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
+
+  /** A value whose every level reads the level below twice. */
+  const nested = (levels: number) => (a: Node<"float">) =>
+    Fn(() => {
+      let x = vec3(a, a, a);
+      for (let i = 0; i < levels; i++) x = x.add(x).mul(0.5);
+      return x.x;
+    })();
+
+  /**
+   * Twelve levels would give about 64 times the output of six if each level wrote
+   * the one below out twice, and about 2 times if the output grows with the levels.
+   *
+   * @canon spec-output-grows-in-proportion-to-the-levels-of-nested-reads
+   */
+  it.each([
+    ["GLSL", (build: any) => compileGlslFn(build, param).length],
+    ["WGSL", (build: any) => compileWgslFn(build, param).length],
+    ["JS", (build: any) => compileJSFn(build, param).length],
+    ["WASM", (build: any) => compileWasmFn(build, param).bytes.length],
+  ] as const)("compiles output that grows in proportion to the levels of nested reads on %s", (_target, size) => {
+    expect(size(nested(12)) / size(nested(6))).toBeLessThan(4);
+  });
 
   /**
    * @canon spec-a-node-that-is-already-a-name-is-read-where-it-is
@@ -243,7 +283,7 @@ describe("what a program does with a node it reads more than once", () => {
   it("gives a node that is already a name no variable of its own on GLSL, WGSL and JS", () => {
     const build = () => {
       const u = uniform("float");
-      const v = vec3(u, 2, 3);
+      const v = uniform("vec3");
       return vec4(
         u
           .mul(u)
@@ -255,9 +295,24 @@ describe("what a program does with a node it reads more than once", () => {
       );
     };
     const { glsl, wgsl, js } = sources(build);
-    expect(glsl).not.toMatch(generatedLocal);
-    expect(wgsl).not.toMatch(generatedLocal);
-    expect(js).not.toMatch(generatedLocal);
+    expect(glsl).not.toMatch(sharedLocal);
+    expect(wgsl).not.toMatch(sharedLocal);
+    expect(js).not.toMatch(sharedLocal);
+  });
+
+  /**
+   * @canon spec-a-shared-value-gets-a-generated-name
+   */
+  it("names the variable of a shared node _rmsl_gen_ and a number on GLSL, WGSL and JS", () => {
+    const build = () => {
+      const u = uniform("float");
+      const shared = u.sin().add(u.cos());
+      return vec4(shared.mul(shared), 0, 0, 1);
+    };
+    const { glsl, wgsl, js } = sources(build);
+    expect(glsl).toMatch(sharedLocal);
+    expect(wgsl).toMatch(sharedLocal);
+    expect(js).toContain("_rmsl_gen_0");
   });
 
   /**
@@ -278,17 +333,50 @@ describe("what a program does with a node it reads more than once", () => {
     expect(evaluateRecording(build, [1])).toBeCloseTo(Math.sin(1) + Math.cos(1), 10);
     expect(evaluateRecording(build, [-1])).toBeCloseTo((Math.sin(-1) + Math.cos(-1)) * 10, 10);
   });
-});
 
-describe("the type of the size of a texture", () => {
   /**
-   * `textureSize` is typed `uvec2`, and GLSL returns an `ivec2`, so a variable of
-   * the node's type refused it.
-   *
-   * @canon spec-a-conversion-between-numeric-types-is-written-out
+   * @canon spec-a-shared-value-is-computed-again-after-what-it-reads-changed
    */
-  it("converts the size of a texture to the unsigned type the node has on GLSL", () => {
-    const glsl = compileGlsl.fragment(Fn(() => vec4(textureSize(uniform("sampler2D")).x.toFloat(), 0, 0, 1))() as any);
-    expect(glsl).toContain("uvec2(textureSize(");
+  it("computes a shared value again after a statement changed a variable it reads, on every target", () => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const x = a.toVar();
+        const shared = x.mul(2).sin();
+        const before = shared.add(1).toVar();
+        x.assign(x.add(1));
+        const after = shared.add(1).toVar();
+        return before.add(after.mul(10));
+      })();
+    const want = (a: number) => Math.sin(2 * a) + 1 + (Math.sin(2 * (a + 1)) + 1) * 10;
+    expect(evaluateRecording(build, [0.3])).toBeCloseTo(want(0.3), 10);
+  });
+
+  /**
+   * @canon spec-a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads
+   */
+  it("computes a shared value made before a loop again inside it when the loop changes what it reads, on every target", () => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const x = a.toVar();
+        const shared = x.mul(x);
+        const first = shared.add(1).toVar();
+        const total = float(0).toVar();
+        Loop(2, () => {
+          x.assign(x.add(1));
+          total.assign(total.add(shared.add(2)));
+        });
+        return first.mul(0.1).add(total.mul(0.1));
+      })();
+    const want = (a: number) => {
+      let x = a;
+      const first = x * x + 1;
+      let total = 0;
+      for (let i = 0; i < 2; i++) {
+        x += 1;
+        total += x * x + 2;
+      }
+      return first * 0.1 + total * 0.1;
+    };
+    expect(evaluateRecording(build, [0.3])).toBeCloseTo(want(0.3), 10);
   });
 });

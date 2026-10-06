@@ -37,6 +37,7 @@ import {
   withoutSemicolon,
   wrapExpr,
 } from "../shared";
+import { shareNodes } from "../share";
 
 /** Which component each swizzle accessor names, in all three spellings. */
 export const JS_COMPONENT_INDEX: Record<string, number> = {
@@ -2017,7 +2018,7 @@ function compileJSFnDetailed(
   const rawNodes: Node<ShaderType>[] = Array.isArray(rawResult) ? rawResult : [rawResult];
   // Without a stage the function is a plain function of its context, whose
   // result can be any value.
-  const resultNodes = options.stage === "fragment" ? fragmentColour(rawNodes) : rawNodes;
+  const resultNodes = shareNodes(options.stage === "fragment" ? fragmentColour(rawNodes) : rawNodes);
 
   const ctx: CompileCtx = {
     nextId: 0,
