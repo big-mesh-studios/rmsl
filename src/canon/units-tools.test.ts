@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { afterAll, describe, expect, it } from "vitest";
-import { Fn, bool, uniform, varying, vec2, vec3, vec4, builtinPosition } from "../rmsl";
+import { Fn, bool, output, uniform, varying, vec2, vec3, vec4, builtinPosition } from "../rmsl";
 import { compileGlsl } from "../glsl";
 import { compileWgsl } from "../wgsl";
 import { fxaa, gaussianBlur, getGaussianCoefficients, rgbShift } from "../effects";
@@ -251,6 +251,16 @@ describe("./test", () => {
     const written = project().varyings;
     expect(Object.keys(written)).toEqual(["uv"]);
     expect(written.uv).toEqual([0.25, 0.75]);
+  });
+
+  /**
+   * @canon spec-render-draws-the-only-output-of-a-program-that-returns-nothing
+   */
+  it("draws the one output of a program that returns nothing", () => {
+    const graph = Fn(() => {
+      output("vec4").assign(vec4(1, 0.5, 0.25, 1));
+    })();
+    expect(render(() => graph, { width: 1, height: 1 }).at(0, 0)).toEqual([1, 0.5, 0.25, 1]);
   });
 });
 

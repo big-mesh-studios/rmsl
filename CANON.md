@@ -579,7 +579,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-program-under-test-falls-back-when-a-value-function-throws`](#spec-a-program-under-test-falls-back-when-a-value-function-throws) — `fromProgram` binds a uniform whose value function throws as if the program gave it no value.
       - [`@spec a-slot-two-names-share-reads-back-under-the-first`](#spec-a-slot-two-names-share-reads-back-under-the-first) — When two of a program's names point at one slot, `fromProgram` hands the slot's value back under the first name.
       - [`@spec render-draws-the-only-output-of-a-program-that-returns-nothing`](#spec-render-draws-the-only-output-of-a-program-that-returns-nothing) — `render` draws the output a fragment writes when the program returns no value and writes exactly one output.
-        - [`@bug render-draws-zero-for-a-program-that-writes-one-output`](#bug-render-draws-zero-for-a-program-that-writes-one-output) — The JS routine gives a program that returns nothing the value `0`, so `render` draws `0` and never falls back to the output.
     - [`@spec draw-writes-a-discarded-pixel-as-zero`](#spec-draw-writes-a-discarded-pixel-as-zero) — `draw` of a CPU routine writes a pixel whose fragment discards as zero in every channel.
     - [`@spec an-input-the-host-leaves-out-reads-zero`](#spec-an-input-the-host-leaves-out-reads-zero) — A parameter, attribute or varying the host leaves out of the context reads zero.
       - [`@bug wasm-reads-an-unset-scalar-input-as-nan`](#bug-wasm-reads-an-unset-scalar-input-as-nan) — A scalar varying the host leaves out reads as `NaN`.
@@ -3968,12 +3967,6 @@ This follows because a result keys each slot by one name, and the order of the p
 Derives from: [`spec-render-evaluates-every-fragment-of-a-grid`](#spec-render-evaluates-every-fragment-of-a-grid)
 
 This follows because a fragment stage that returns nothing shows the colour of its one output, and `render` draws what the fragment shows.
-
-###### @bug render-draws-zero-for-a-program-that-writes-one-output
-
-> The JS routine gives a program that returns nothing the value `0`, so `render` draws `0` and never falls back to the output.
-
-Issue: #119
 
 #### @spec draw-writes-a-discarded-pixel-as-zero
 

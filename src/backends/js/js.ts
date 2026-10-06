@@ -2086,7 +2086,8 @@ function compileJSFnDetailed(
   }
   for (const compiled of compiledList) body.push(...compiled.decls, ...compiled.body);
   if (ctx.jsNeedsRes) {
-    body.push(`res.value = ${lastCompiled.expr};`);
+    // a program that returns nothing has no value
+    if (lastType !== "void") body.push(`res.value = ${lastCompiled.expr};`);
     body.push("return res;");
   } else {
     body.push(`return ${lastCompiled.expr};`);
