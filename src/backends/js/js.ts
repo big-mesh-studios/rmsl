@@ -1346,7 +1346,6 @@ export function compileJSNode(
 
     case "output": {
       let v = node.value as any;
-      assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.output);
       ctx.jsNeedsRes = true;
       if (v.id != null) ctx.outputs.set(v.id, { type: v.shaderType, slot: v.slot, location: v.location });
       return jsLeafRef(`res.outputs[${JSON.stringify(v.slot)}]`, v.shaderType ?? node._t, ctx);

@@ -778,11 +778,6 @@ export const COMPUTE_REFUSES = {
     because: "a compute dispatch has no vertices to read one for",
     instead: "Read the buffer with storage(attribute, type) instead.",
   },
-  output: {
-    action: "write an output",
-    because: "a compute entry point returns nothing to hold one",
-    instead: "Write the value into a storage buffer with .element(invocationIndex()) instead.",
-  },
   varying: {
     action: "read a varying",
     because: "a compute dispatch has no vertex stage to pass one from",

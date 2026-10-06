@@ -98,7 +98,6 @@ export {
   notEqual,
   oneMinus,
   or,
-  output,
   outputStruct,
   PI,
   PI2,

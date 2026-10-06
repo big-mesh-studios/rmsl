@@ -9,7 +9,6 @@ import {
   int,
   Loop,
   mix,
-  output,
   select,
   smoothstep,
   textureSize,
@@ -385,26 +384,6 @@ describe("what a program does with a node it reads more than once", () => {
       })();
     const want = (a: number) => Math.sin(2 * a) + 1 + (Math.sin(2 * (a + 1)) + 1) * 10;
     expect(evaluateRecording(build, [0.3])).toBeCloseTo(want(0.3), 10);
-  });
-
-  /**
-   * @canon spec-a-shared-value-is-computed-again-after-what-it-reads-changed
-   */
-  it("computes a shared value again after a statement changed a stage output it reads, on GLSL and WGSL", () => {
-    const build = () => {
-      const o = output("float");
-      const u = uniform("float");
-      return Fn(() => {
-        o.assign(u);
-        const shared = o.mul(2).sin();
-        const before = shared.add(1).toVar();
-        o.assign(o.add(1));
-        const after = shared.add(1).toVar();
-        return vec4(before.add(after), 0, 0, 1);
-      })();
-    };
-    expect(compileGlsl.fragment(build() as any).match(/sin\(/g)).toHaveLength(2);
-    expect(compileWgsl.fragment(build() as any).match(/sin\(/g)).toHaveLength(2);
   });
 
   /**

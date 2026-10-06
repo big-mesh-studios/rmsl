@@ -19,7 +19,7 @@ import {
   mat2,
   mat2x3,
   mat3,
-  output,
+  outputStruct,
   PI,
   select,
   time,
@@ -658,15 +658,12 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
-   * @canon spec-a-declared-output-holds-what-the-program-assigns
+   * @canon spec-an-output-struct-writes-each-member-at-its-position
    */
-  it("refuses a fragment stage that declares an output on the WASM rasterizer, which draws a colour", () => {
+  it("refuses a fragment stage that returns an outputStruct on the WASM rasterizer, which draws a colour", () => {
     const pos = attribute("vec3");
     const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))();
-    const declared = () =>
-      Fn(() => {
-        output("vec4").assign(vec4(1, 0, 0, 1));
-      })();
+    const declared = () => Fn(() => outputStruct(vec4(1, 0, 0, 1)))();
     expect(() => compileWasm(vertex as any, declared as any)).toThrow(/cannot declare outputs/);
   });
 
@@ -685,21 +682,6 @@ describe("each leaf on every target it claims", () => {
     // An unset uniform reads zero, so the discard does not run; a routine that runs it still returns.
     expect(() => compileWasmRoutine(build, { ...none, stage: "fragment" }).run({})).not.toThrow();
     expect(() => compileWasmRoutine(build, { ...none, stage: "fragment" }).run({ uniforms: {} })).not.toThrow();
-  });
-
-  /**
-   * @canon spec-a-declared-output-holds-what-the-program-assigns
-   */
-  it("compiles a fragment stage with a declared output and a result that is not a vec4", () => {
-    expectOnEveryTarget(
-      "fragment",
-      () =>
-        Fn(() => {
-          output("vec4").assign(vec4(1, 0, 0, 1));
-          return float(0.5).toVar();
-        })(),
-      false,
-    );
   });
 
   /**

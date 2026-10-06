@@ -12,7 +12,7 @@ import {
   uniform,
   varying,
   attribute,
-  output,
+  outputStruct,
   builtinPosition,
   builtinFragDepth,
   fragCoord,
@@ -149,11 +149,9 @@ describe("evaluate", () => {
     const graph = Fn(() => {
       const depth = builtinFragDepth();
       depth.assign(float(0.25));
-      const color = output("vec4");
-      color.assign(vec4(1, 0, 0, 1));
-      return color;
+      return outputStruct(vec4(1, 0, 0, 1));
     })();
-    const result = evaluate(() => graph);
+    const result = evaluate(() => graph, { stage: "fragment" });
     expect(result.fragDepth).toBe(0.25);
     expect(Object.values(result.outputs)).toEqual([[1, 0, 0, 1]]);
   });

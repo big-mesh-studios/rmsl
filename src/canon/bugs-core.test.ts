@@ -5,7 +5,6 @@ import {
   float,
   instancedArray,
   int,
-  output,
   sub,
   Switch,
   uint,
@@ -98,23 +97,6 @@ describe("known bugs of the core, each failing until its fix", () => {
   it.fails("clamps a number outside the range of int or uint given to its constructor", () => {
     expect(evaluateJS(() => Fn(() => int(3e9).toFloat())())).toBe(2147483520);
     expect(evaluateJS(() => Fn(() => uint(5e9).toFloat())())).toBe(4294967040);
-  });
-
-  /**
-   * `serialize` keeps the generated name of a stage output, `_rmsl_oN`, so
-   * two graphs restored from it write one output.
-   *
-   * @canon bug-serialize-keeps-the-generated-name-of-an-output
-   */
-  it.fails("gives each restored output a name of its own", () => {
-    const color = output("vec4");
-    const graph = serialize(
-      Fn(() => {
-        color.assign(vec4(1, 0, 0, 1));
-      })(),
-    );
-    const glsl = compileGlsl.fragment([roundTrip(graph), roundTrip(graph)] as any);
-    expect(glsl.match(/ out vec4 /g)).toHaveLength(2);
   });
 
   /**

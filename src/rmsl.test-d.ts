@@ -29,7 +29,6 @@ import {
   instancedArray,
   invocationIndex,
   attribute,
-  output,
   varying,
   type Node,
   type ShaderType,
@@ -592,7 +591,6 @@ describe("what can be assigned to", () => {
    */
   it("offers assign on a variable, a stage output and a storage element", () => {
     expectTypeOf(vec4(1, 2, 3, 4).toVar()).toEqualTypeOf<Var<"vec4">>();
-    expectTypeOf(output("vec4")).toEqualTypeOf<Var<"vec4">>();
     expectTypeOf(vec3(1, 2, 3).var()).toEqualTypeOf<Var<"vec3">>();
     expectTypeOf(builtinPosition()).toEqualTypeOf<Var<"vec4">>();
     expectTypeOf(builtinFragDepth()).toEqualTypeOf<Var<"float">>();

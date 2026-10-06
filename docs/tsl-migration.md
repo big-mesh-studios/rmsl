@@ -90,9 +90,10 @@ value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
   renderer. RMSL declares a slot: `uniform("vec4")`, `attribute("vec3")`,
   `varying("vec2")`, and `uniformRaw(name, type)` for a custom name. Change the
   argument order, not the name.
-- **`output()`** — TSL's `output()` is the render output node; RMSL's
-  `output(type)` declares a fragment output with `@location(N)`. The name is
-  the same; the shape differs.
+- **`outputStruct()`** — a fragment returns `outputStruct(...members)` for
+  several render targets, as in TSL: member `i` goes to `@location(i)`. RMSL
+  has no `output(type)`, and does not export TSL's `output` constant, the
+  material's colour.
 - **No renderer built-ins in the core.** `position`, `normal`, `uv`,
   `cameraPosition`, `modelViewMatrix` and the rest of TSL's geometry/material
   accessors have no RMSL-core equivalent — pass those values in as
@@ -100,7 +101,7 @@ value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
   `builtinFragDepth()` cover the two true built-ins. The scene-graph layer
   (`@random-mesh/rmsl/scene`) resolves the same accessors automatically inside
   its node-based materials; see [scene.md](./scene.md).
-- **`assign()`** writes only a variable, a storage element or a stage output,
+- **`assign()`** writes only a variable, a storage element, a varying, the position or the fragment depth,
   or a swizzle, component or column of one, and throws when the program is
   compiled otherwise, on every backend. Only those nodes, typed `Var<A>`, have
   `assign()` in their types, where TSL offers it on every node. TSL emits any assignment and leaves

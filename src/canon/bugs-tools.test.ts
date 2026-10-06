@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { build } from "esbuild";
-import { Fn, output, uniform, vec4, type Node } from "../rmsl";
+import { Fn, uniform, vec4, type Node } from "../rmsl";
 import { render } from "../test";
 import { compileWgsl } from "../wgsl";
 import { fxaa, gaussianBlur, transition } from "../effects";

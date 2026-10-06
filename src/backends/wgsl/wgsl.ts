@@ -682,7 +682,6 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
 
     case "output": {
       let v = node.value as any;
-      assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.output);
       if (v && v.id != null && !ctx.outputs.has(v.id)) {
         ctx.outputs.set(v.id, { type: wgslType(v.shaderType), slot: v.slot, location: v.location });
       }

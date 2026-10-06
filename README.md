@@ -38,7 +38,7 @@ let wasm = compileWasmRoutine(() => prog(), { name: "main", params: [] }); // sa
 - **Swizzles** - `.xyz`, `.rgba`, `.stpq`, `.xy`, etc. on vec3/vec4, ivecN and uvecN (read and write)
 - **Integer textures** - isampler*/usampler* sample to ivec4/uvec4 via unfiltered texelFetch/textureLoad
 - **Vertex/fragment** - Separate vertex and fragment compilation with proper I/O
-- **Built-in outputs** - `output()`, `builtinPosition()`, `varying()`, `attribute()`, `uniform()`
+- **Built-in outputs** - `outputStruct()`, `builtinPosition()`, `varying()`, `attribute()`, `uniform()`
 
 ## Documentation
 

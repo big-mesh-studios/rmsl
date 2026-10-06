@@ -66,7 +66,7 @@ import {
   not,
   notEqual,
   or,
-  output,
+  outputStruct,
   PI,
   pow,
   pow2,
@@ -791,20 +791,6 @@ describe("RMSL", () => {
   });
 
   /**
-   * @canon spec-a-declared-output-holds-what-the-program-assigns
-   */
-  it("output() creates output variable in GLSL fragment", () => {
-    let prog = Fn(() => {
-      let outColor = output("vec4");
-      outColor.assign(vec4(1, 0, 0, 1));
-      return outColor;
-    });
-    let glsl = compileGlsl.fragment(prog());
-    expect(glsl).toContain("layout(location=0)");
-    expect(glsl).toContain("out vec4");
-  });
-
-  /**
    * GLSL ES 3.00 removed gl_FragColor, so a fragment shader with nowhere to
    * write its colour needs an explicit output declaration.
    *
@@ -822,35 +808,6 @@ describe("RMSL", () => {
   });
 
   /**
-   * Declared outputs are assigned by the program.
-   *
-   * @canon spec-a-declared-output-holds-what-the-program-assigns
-   */
-  it("leaves an explicitly written output alone", () => {
-    let prog = Fn(() => {
-      let outColor = output("vec4");
-      outColor.assign(vec4(1, 0, 0, 1));
-      return vec4(0, 1, 0, 1);
-    });
-    let glsl = compileGlsl.fragment(prog());
-    expect(glsl.match(/_rmsl_o\d+ = /g) ?? []).toHaveLength(1);
-    expect(glsl).toContain("vec4(1, 0, 0, 1)");
-  });
-
-  /**
-   * @canon spec-a-declared-output-holds-what-the-program-assigns
-   */
-  it("does not assign a non-vec4 result to a declared output", () => {
-    let prog = Fn(() => {
-      let outColor = output("vec4");
-      outColor.assign(vec4(1, 0, 0, 1));
-      return float(2).toVar();
-    });
-    let glsl = compileGlsl.fragment(prog());
-    expect(glsl.match(/_rmsl_o\d+ = /g) ?? []).toHaveLength(1);
-  });
-
-  /**
    * Everything a vertex stage passes onward shares one set of numbered slots.
    *
    * @canon spec-a-location-is-numbered-within-its-program
@@ -860,8 +817,8 @@ describe("RMSL", () => {
       Fn(() => {
         let v = varying("vec2");
         v.assign(vec2(1, 2));
-        let o = output("vec4");
-        o.assign(vec4(1, 0, 0, 1));
+        let w = varying("vec4");
+        w.assign(vec4(1, 0, 0, 1));
         return vec4(0, 0, 0, 1);
       });
 
@@ -873,19 +830,6 @@ describe("RMSL", () => {
     // A location qualifier belongs on a fragment output. GLSL ES 3.00 does not
     // allow one on a vertex output, whatever the number.
     expect(compileGlsl.vertex(build()())).not.toMatch(/layout\(location=\d+\) out/);
-  });
-
-  /**
-   * @canon spec-a-declared-output-holds-what-the-program-assigns
-   */
-  it("output() creates output in WGSL fragment", () => {
-    let prog = Fn(() => {
-      let outColor = output("vec4");
-      outColor.assign(vec4(1, 0, 0, 1));
-      return outColor;
-    });
-    let wgsl = compileWgsl.fragment(prog());
-    expect(wgsl).toMatch(/@location\(\d+\)/);
   });
 
   /**
@@ -2467,9 +2411,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
     let prog = Fn(() => {
       let tex = uniform("sampler2D");
       let scale = uniform("float");
-      let out = output("vec4");
-      out.assign(tex.texture(vec2(0.5, 0.5)).mul(scale));
-      return out;
+      return tex.texture(vec2(0.5, 0.5)).mul(scale);
     });
     let wgsl = compileWgsl(prog());
 
@@ -2542,9 +2484,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
           total.assign(total.add(items.element(i)));
         },
       );
-      let out = output("vec4");
-      out.assign(total);
-      return out;
+      return total;
     });
 
     let glsl = compileGlsl(prog());
@@ -2608,13 +2548,9 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
    */
   it("numbers output locations per shader", () => {
     for (let i = 0; i < 6; i++) {
-      let prog = Fn(() => {
-        let o = output("vec4");
-        o.assign(vec4(1, 0, 0, 1));
-        return o;
-      });
+      let prog = Fn(() => outputStruct(vec4(1, 0, 0, 1)));
       expect(compileGlsl(prog()), `shader ${i}`).toContain("layout(location=0) out");
-      expect(compileWgsl(prog()), `shader ${i}`).toMatch(/@location\(0\) _rmsl_o\d+/);
+      expect(compileWgsl(prog()), `shader ${i}`).toMatch(/@location\(0\) _rmsl_out\d+/);
     }
   });
 
@@ -2622,13 +2558,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
    * @canon spec-a-location-is-numbered-within-its-program
    */
   it("still numbers several outputs in one shader in order", () => {
-    let prog = Fn(() => {
-      let a = output("vec4");
-      let b = output("vec4");
-      a.assign(vec4(1, 0, 0, 1));
-      b.assign(vec4(0, 1, 0, 1));
-      return b;
-    });
+    let prog = Fn(() => outputStruct(vec4(1, 0, 0, 1), vec4(0, 1, 0, 1)));
     let glsl = compileGlsl(prog());
     expect(glsl).toContain("layout(location=0) out");
     expect(glsl).toContain("layout(location=1) out");
@@ -3924,17 +3854,15 @@ describe("JS target", () => {
    */
   it("returns a result object when the program writes outputs or depth", () => {
     let prog = Fn(() => {
-      let out = output("vec4");
-      out.assign(vec4(1, 1, 1, 1));
       let d = builtinFragDepth();
       d.assign(float(0.5));
-      return out;
+      return outputStruct(vec4(1, 1, 1, 1));
     });
-    let src = compileJSFn(() => prog(), { name: "main", params: [] });
+    let src = compileJSFn(() => prog(), { name: "main", params: [], stage: "fragment" });
     expect(src).toContain("var res = { outputs: {}, varyings: {} };");
     expect(src).toContain("res.outputs");
     expect(src).toContain("res.fragDepth");
-    expect(src).toContain("res.value");
+    expect(src).not.toContain("res.value");
   });
 
   /**

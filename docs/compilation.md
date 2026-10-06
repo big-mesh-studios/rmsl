@@ -78,9 +78,9 @@ void main(void) {
 }
 ```
 
-### Output variables
+### Outputs
 
-`output("vec4")` declares a `layout(location=N) out vec4 _rmsl_oN;` in the fragment shader.
+A fragment that writes to several render targets returns `outputStruct(a, b)`. Member `i` is written to `layout(location=i) out <type> _rmsl_outi;` in the fragment shader, and to `@location(i)` on WGSL. A fragment that returns a colour writes it to the one output `_rmsl_fragColor` at location 0.
 
 ### Uniforms
 
@@ -300,7 +300,7 @@ feed the per-pixel varyings and uniforms into the compiled function and read
 the colour/depth back, with no GPU round-trip.
 
 ```typescript
-import { compileJSRoutine, compileJSFn, Fn, uniform, output, builtinFragDepth } from "rmsl";
+import { compileJSRoutine, compileJSFn, Fn, uniform, builtinFragDepth } from "rmsl";
 
 let pickFn = compileJSRoutine(calcColourAndDepth, { name: "pick", params: [] });
 // On pointerdown:
@@ -365,14 +365,14 @@ are arrays.
 
 ### Return value
 
-If the program writes no `output()`, `builtinPosition()` or
+If the program writes no `builtinPosition()` or
 `builtinFragDepth()`, the callable returns the Fn's value directly. If it
 writes any of them, it returns:
 
 ```typescript
 {
   value:    <the Fn's return value>,
-  outputs:  { [slot]: <value> },   // from output()
+  outputs:  { [slot]: <value> },   // from an outputStruct
   varyings: { [slot]: <value> },   // from varying() in a vertex stage
   position: <vec4>,                // from builtinPosition()
   fragDepth: <number>,             // from builtinFragDepth()

@@ -369,7 +369,7 @@ WASM function can only return one scalar natively. `needsResult` now
 recognizes an aggregate root the same way it already recognizes an
 explicit vertex stage, routing it through the same memory-based path a
 stage program uses instead of throwing — which is what lets a per-pixel
-`vec4` color work with `.draw()` with no stage or `output()` involved at
+`vec4` color work with `.draw()` with no stage involved at
 all.
 
 `src/benches/wasm-draw.bench.ts` measures a `sqrt(distance to a uniform

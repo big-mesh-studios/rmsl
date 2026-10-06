@@ -14,7 +14,6 @@ import {
   mat2x3,
   mat2x4,
   mat3,
-  output,
   outputStruct,
   uniform,
   Switch,
@@ -117,9 +116,7 @@ describe("a mistake is refused before the program runs", () => {
     const fragment = () =>
       Fn(() => {
         builtinFragDepth().assign(float(0.5));
-        const out = output("vec4");
-        out.assign(vec4(tint.add(fragCoord()), 0, 1));
-        return out;
+        return vec4(tint.add(fragCoord()), 0, 1);
       })();
     for (const compile of [compileGlsl, compileWgsl]) {
       expect(compile.vertex(vertex())).toContain(tint.name);
@@ -351,28 +348,6 @@ describe("a mistake is refused before the program runs", () => {
     for (const compile of cpuComputeCompilers) {
       expect(() => compile(viaStorage)).not.toThrow();
       expect(() => compile(viaAttribute)).toThrow(/cannot read an attribute/);
-    }
-  });
-
-  /**
-   * A compute program writes into a storage buffer and returns nothing, which
-   * compiles on every target. Assigning to an `output()` is refused on each,
-   * because an output is a fragment stage's result and a compute entry point
-   * returns nothing to hold one. GLSL has no compute stage, so the three
-   * targets here are all of them.
-   *
-   * @canon spec-a-compute-program-cannot-write-an-output
-   */
-  it("refuses an output assigned by a compute program, where writing a storage buffer compiles", () => {
-    const buf = instancedArray(4, "float");
-    const viaStorage = () => Fn(() => buf.element(int(0)).assign(float(2)))();
-    const viaOutput = () => Fn(() => output("float").assign(float(2)))();
-
-    expect(computeWgsl(viaStorage())).toContain("@compute");
-    expect(() => computeWgsl(viaOutput())).toThrow(/cannot write an output/);
-    for (const compile of cpuComputeCompilers) {
-      expect(() => compile(viaStorage)).not.toThrow();
-      expect(() => compile(viaOutput)).toThrow(/cannot write an output/);
     }
   });
 

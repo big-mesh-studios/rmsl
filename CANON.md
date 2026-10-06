@@ -50,7 +50,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec output-grows-in-proportion-to-the-levels-of-nested-reads`](#spec-output-grows-in-proportion-to-the-levels-of-nested-reads) — A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract` on JS, counts as two reads.
     - [`@spec a-node-that-is-already-a-name-is-read-where-it-is`](#spec-a-node-that-is-already-a-name-is-read-where-it-is) — A constant, a variable, a uniform, an attribute or a built-in input stays where it is. So does a swizzle or an element of one of them. None gets a variable of its own.
     - [`@spec a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in`](#spec-a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in) — A node that two blocks read, with neither inside the other, is computed in each. A path that skips a block runs none of its statements.
-    - [`@spec a-shared-value-is-computed-again-after-what-it-reads-changed`](#spec-a-shared-value-is-computed-again-after-what-it-reads-changed) — A shared node that reads a variable, a stage output or a storage buffer is computed again at its next read. This holds once a statement has changed it.
+    - [`@spec a-shared-value-is-computed-again-after-what-it-reads-changed`](#spec-a-shared-value-is-computed-again-after-what-it-reads-changed) — A shared node that reads a variable or a storage buffer is computed again at its next read. This holds once a statement has changed it.
     - [`@spec a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads`](#spec-a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads) — A shared node made before a loop is computed again inside the loop, when the loop body changes what the node reads.
     - [`@spec an-expression-of-constants-is-folded-not-shared`](#spec-an-expression-of-constants-is-folded-not-shared) — An expression of constants gets no variable of its own. The target folds it into one literal.
     - [`@spec a-shared-value-gets-a-generated-name`](#spec-a-shared-value-gets-a-generated-name) — The variable of a shared node is named `_rmsl_gen_` and a number. It cannot clash with a name the user gave, or with a `toVar()` name.
@@ -74,14 +74,13 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@bug the-glsl-adapter-never-sets-a-uniform-array`](#bug-the-glsl-adapter-never-sets-a-uniform-array) — WebGL reports a uniform array as `name[0]`, and `createGlsl` looks the slot up by that name, so `setUniform` on a uniform array never applies.
   - [`@spec a-stage-passes-its-values-on-every-target`](#spec-a-stage-passes-its-values-on-every-target) — A fragment stage writes its colour, and a vertex stage passes its varyings on to the fragment stage, the same way on every target.
     - [`@spec a-fragment-result-without-an-output-is-the-colour`](#spec-a-fragment-result-without-an-output-is-the-colour) — A fragment stage that declares no [output](#term-output) writes its result to the colour at location 0. The result converts as it does in TSL.
-      - [`@spec a-vec4-result-is-the-colour`](#spec-a-vec4-result-is-the-colour) — A fragment stage that declares no output and returns a `vec4` writes it to the implicit colour output unchanged.
-      - [`@spec a-vec3-result-takes-an-opaque-alpha`](#spec-a-vec3-result-takes-an-opaque-alpha) — A fragment stage that declares no output and returns a `vec3` writes it as `vec4(rgb, 1)`.
-      - [`@spec a-vec2-result-takes-a-zero-blue-and-an-opaque-alpha`](#spec-a-vec2-result-takes-a-zero-blue-and-an-opaque-alpha) — A fragment stage that declares no output and returns a `vec2` writes it as `vec4(x, y, 0, 1)`.
-      - [`@spec a-scalar-result-fills-every-channel`](#spec-a-scalar-result-fills-every-channel) — A fragment stage that declares no output and returns a `float`, `int`, `uint` or `bool` writes it as a `vec4` with the value, as a float, in every channel.
-      - [`@spec an-integer-or-boolean-vector-result-converts-to-a-float-vector-first`](#spec-an-integer-or-boolean-vector-result-converts-to-a-float-vector-first) — A fragment stage that declares no output and returns an `ivec`, `uvec` or `bvec` converts it to a float vector of the same length. The rule of that length then applies.
-      - [`@spec a-result-that-has-no-colour-is-refused`](#spec-a-result-that-has-no-colour-is-refused) — A fragment stage that declares no output and returns a matrix is refused on every target.
-    - [`@spec a-declared-output-holds-what-the-program-assigns`](#spec-a-declared-output-holds-what-the-program-assigns) — A fragment stage that declares [outputs](#term-output) writes each one with what the program assigns to it, and writes its result to none of them.
-    - [`@spec a-fragment-stage-may-write-no-colour`](#spec-a-fragment-stage-may-write-no-colour) — A fragment stage that declares no output and returns nothing compiles.
+      - [`@spec a-vec4-result-is-the-colour`](#spec-a-vec4-result-is-the-colour) — A fragment stage that returns a `vec4` writes it to the implicit colour output unchanged.
+      - [`@spec a-vec3-result-takes-an-opaque-alpha`](#spec-a-vec3-result-takes-an-opaque-alpha) — A fragment stage that returns a `vec3` writes it as `vec4(rgb, 1)`.
+      - [`@spec a-vec2-result-takes-a-zero-blue-and-an-opaque-alpha`](#spec-a-vec2-result-takes-a-zero-blue-and-an-opaque-alpha) — A fragment stage that returns a `vec2` writes it as `vec4(x, y, 0, 1)`.
+      - [`@spec a-scalar-result-fills-every-channel`](#spec-a-scalar-result-fills-every-channel) — A fragment stage that returns a `float`, `int`, `uint` or `bool` writes it as a `vec4` with the value, as a float, in every channel.
+      - [`@spec an-integer-or-boolean-vector-result-converts-to-a-float-vector-first`](#spec-an-integer-or-boolean-vector-result-converts-to-a-float-vector-first) — A fragment stage that returns an `ivec`, `uvec` or `bvec` converts it to a float vector of the same length. The rule of that length then applies.
+      - [`@spec a-result-that-has-no-colour-is-refused`](#spec-a-result-that-has-no-colour-is-refused) — A fragment stage that returns a matrix is refused on every target.
+    - [`@spec a-fragment-stage-may-write-no-colour`](#spec-a-fragment-stage-may-write-no-colour) — A fragment stage that returns nothing compiles.
     - [`@spec a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour`](#spec-a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour) — A CPU rasterizer runs a fragment stage that writes no colour, tests and writes its depth, and leaves the pixel as it was.
     - [`@spec a-varying-passes-from-the-vertex-to-the-fragment-stage`](#spec-a-varying-passes-from-the-vertex-to-the-fragment-stage) — A varying is an output of the vertex stage and an input of the fragment stage.
       - [`@bug wasm-rasterizer-interpolates-an-integer-varying-as-a-float`](#bug-wasm-rasterizer-interpolates-an-integer-varying-as-a-float) — The WASM rasterizer interpolates an integer varying as a 64-bit float, though the stages write and read it as a 32-bit integer.
@@ -194,7 +193,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-wgsl-variable-is-declared-with-var`](#spec-a-wgsl-variable-is-declared-with-var) — On WGSL, a variable compiles to a `var` declaration, also when the program never assigns it again.
   - [`@spec a-name-is-local-unless-the-user-gave-it`](#spec-a-name-is-local-unless-the-user-gave-it) — A name the compiler generates is local to its program. A name the user gives with a `*Raw` function is absolute.
     - [`@spec a-generated-name-is-local-to-its-program`](#spec-a-generated-name-is-local-to-its-program) — A name the compiler generates for an input or an output connects every reference to it inside its program. The same generated name in another program names a different input.
-      - [`@bug serialize-keeps-the-generated-name-of-an-output`](#bug-serialize-keeps-the-generated-name-of-an-output) — `serialize` keeps the generated name of a stage output, `_rmsl_oN`, so two graphs restored from it write one output.
     - [`@spec a-raw-name-is-absolute`](#spec-a-raw-name-is-absolute) — A name given to `uniformRaw`, `attributeRaw` or `varyingRaw` is used as given. Every node that carries it, in any program and any process, is one input, declared once.
       - [`@spec a-raw-name-declares-one-input-under-that-name`](#spec-a-raw-name-declares-one-input-under-that-name) — `uniformRaw`, `attributeRaw` and `varyingRaw` declare their input under the name given, once however many nodes carry it, and every target reads it by that name. An empty name is refused.
       - [`@spec a-raw-name-names-one-type`](#spec-a-raw-name-names-one-type) — Two inputs that share a name but not a type are refused on every target.
@@ -229,7 +227,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec frag-coord-is-read-only-in-a-fragment-stage`](#spec-frag-coord-is-read-only-in-a-fragment-stage) — `fragCoord()` in a vertex stage is refused.
     - [`@spec the-position-is-read-only-in-a-vertex-stage`](#spec-the-position-is-read-only-in-a-vertex-stage) — A vertex [stage](#term-stage) reads `builtinPosition()`, and a fragment stage that reads it is refused.
     - [`@spec a-compute-program-cannot-read-an-attribute`](#spec-a-compute-program-cannot-read-an-attribute) — A compute program that reads an [attribute](#term-attribute) is refused on every target that compiles one. A compute program reaches a buffer through `storage()`, which reads what an attribute lies over.
-    - [`@spec a-compute-program-cannot-write-an-output`](#spec-a-compute-program-cannot-write-an-output) — A compute program that assigns to an [output](#term-output) is refused on every target that compiles one. A compute program writes its results into a storage buffer and returns nothing.
     - [`@spec a-compute-program-cannot-read-a-varying`](#spec-a-compute-program-cannot-read-a-varying) — A compute program that reads a [varying](#term-varying) is refused on every target that compiles one. A compute program has no vertex stage to pass a value from.
     - [`@spec a-render-stage-reads-storage-read-only`](#spec-a-render-stage-reads-storage-read-only) — A vertex or fragment stage reads a storage buffer read-only, from a group of its own whose bindings count across both stages. A write to one from a render stage is refused.
       - [`@spec a-wgsl-render-stage-reads-storage-read-only`](#spec-a-wgsl-render-stage-reads-storage-read-only) — On WGSL, a vertex or fragment stage declares a storage buffer read-only, in a group of its own numbered across both stages. It refuses a write to the buffer.
@@ -533,7 +530,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cpu-routine-reads-its-inputs-by-slot`](#spec-a-cpu-routine-reads-its-inputs-by-slot) — A CPU routine reads its parameters, uniforms, uniform arrays, attributes and varyings from the context the host passes, by slot name. It reads `fragCoord()` as `[0, 0]` when the context gives none.
     - [`@spec a-cpu-routine-returns-its-value-or-a-result`](#spec-a-cpu-routine-returns-its-value-or-a-result) — A CPU routine returns the value its program returns, the last of several, as it is. When the program writes an output, a varying, the position or the depth, it returns a result object that holds them with the value. A discarded fragment returns `null`.
     - [`@spec a-vertex-stage-returns-its-position-and-varyings`](#spec-a-vertex-stage-returns-its-position-and-varyings) — `compileJSVertex` and `compileWasmVertex` give a stage whose `run` returns an object that holds the position, a `vec4`, and the varyings the program wrote, by slot. A vertex stage that never writes the position itself returns its `vec4` result as the position.
-    - [`@spec a-fragment-stage-returns-its-colour-and-outputs`](#spec-a-fragment-stage-returns-its-colour-and-outputs) — `compileJSFragment` and `compileWasmFragment` give a stage whose `run` returns an object that holds the colour, a `vec4`, and the outputs the program wrote, by slot, and the depth when it wrote one. A stage that declares an output has no colour, which is undefined. A fragment that discards returns `null`.
+    - [`@spec a-fragment-stage-returns-its-colour-and-outputs`](#spec-a-fragment-stage-returns-its-colour-and-outputs) — `compileJSFragment` and `compileWasmFragment` give a stage whose `run` returns an object that holds the colour, a `vec4`, the members of the `outputStruct` the program returned, by position, and the depth when it wrote one. A stage that returns an `outputStruct` has no colour, which is undefined. A fragment that discards returns `null`.
     - [`@spec an-output-struct-writes-each-member-at-its-position`](#spec-an-output-struct-writes-each-member-at-its-position) — A fragment stage that returns an `outputStruct` writes member `i` to the output at location `i`, with the type of the member, and writes no colour. A CPU stage returns the values of the members by position.
     - [`@spec a-fragment-stage-draws-a-grid-with-quad`](#spec-a-fragment-stage-draws-a-grid-with-quad) — `quad` of a fragment stage runs the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel, and packs the colours into one row-major buffer. Every pixel of the grid is shaded, with no triangle to rasterize.
     - [`@spec a-compute-stage-dispatches-and-returns-nothing`](#spec-a-compute-stage-dispatches-and-returns-nothing) — `compileJSCompute` and `compileWasmCompute` give a stage whose `dispatch` runs the program once per index of a count, in index order, and returns nothing. The stage names the type of each storage buffer the program reads.
@@ -580,7 +577,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-program-under-test-sees-a-resolution-of-one-pixel`](#spec-a-program-under-test-sees-a-resolution-of-one-pixel) — `fromProgram` binds `resolution` to one pixel by one, unless its `resolution` option gives a size.
       - [`@spec a-program-under-test-falls-back-when-a-value-function-throws`](#spec-a-program-under-test-falls-back-when-a-value-function-throws) — `fromProgram` binds a uniform whose value function throws as if the program gave it no value.
       - [`@spec a-slot-two-names-share-reads-back-under-the-first`](#spec-a-slot-two-names-share-reads-back-under-the-first) — When two of a program's names point at one slot, `fromProgram` hands the slot's value back under the first name.
-      - [`@spec render-draws-the-only-output-of-a-program-that-returns-nothing`](#spec-render-draws-the-only-output-of-a-program-that-returns-nothing) — `render` draws the output a fragment writes when the program returns no value and writes exactly one output.
+      - [`@spec render-draws-the-only-member-of-an-output-struct`](#spec-render-draws-the-only-member-of-an-output-struct) — `render` draws the member of an `outputStruct` that a fragment stage returns, when it has exactly one member.
     - [`@spec draw-writes-a-discarded-pixel-as-zero`](#spec-draw-writes-a-discarded-pixel-as-zero) — `draw` of a CPU routine writes a pixel whose fragment discards as zero in every channel.
     - [`@spec an-input-the-host-leaves-out-reads-zero`](#spec-an-input-the-host-leaves-out-reads-zero) — A parameter, attribute or varying the host leaves out of the context reads zero.
       - [`@bug wasm-reads-an-unset-scalar-input-as-nan`](#bug-wasm-reads-an-unset-scalar-input-as-nan) — A scalar varying the host leaves out reads as `NaN`.
@@ -761,10 +758,6 @@ GLSL sets precision two ways: a statement that sets the default for a type, and 
 ### Fragment depth
 
 A fragment program can write depth on one path only. What depth the other paths give is open: WGSL gives 0 and GLSL leaves it undefined. TSL avoids the question by writing depth as an expression on every path, and its `depth` reads the fragment's own depth. Issue #132 holds the question.
-
-### Declared outputs
-
-rmsl's `output(type)` declares a typed output at a location, and the program assigns to it, but TSL has no such function. Its `output` is the material's one `vec4` fragment output, and `outputStruct` and `mrt` spell the rest. The `Fn` body decides whether a stage declares an output, so no type can check it. The owner leans towards porting to TSL. Issue #137 holds the question, and [`spec-a-declared-output-holds-what-the-program-assigns`](#spec-a-declared-output-holds-what-the-program-assigns) states today's behaviour.
 
 ### Divergences found
 
@@ -1008,7 +1001,7 @@ This follows because the result stored in one branch of an `If` does not exist o
 
 #### @spec a-shared-value-is-computed-again-after-what-it-reads-changed
 
-> A shared node that reads a variable, a stage output or a storage buffer is computed again at its next read. This holds once a statement has changed it.
+> A shared node that reads a variable or a storage buffer is computed again at its next read. This holds once a statement has changed it.
 
 This follows because a node has the value it computes at the point of the read. An assignment between two reads can change that value.
 
@@ -1158,39 +1151,35 @@ This follows because a TSL fragment that returns a `vec3` or a `float` ports unc
 
 ##### @spec a-vec4-result-is-the-colour
 
-> A fragment stage that declares no output and returns a `vec4` writes it to the implicit colour output unchanged.
+> A fragment stage that returns a `vec4` writes it to the implicit colour output unchanged.
 
 ##### @spec a-vec3-result-takes-an-opaque-alpha
 
-> A fragment stage that declares no output and returns a `vec3` writes it as `vec4(rgb, 1)`.
+> A fragment stage that returns a `vec3` writes it as `vec4(rgb, 1)`.
 
 ##### @spec a-vec2-result-takes-a-zero-blue-and-an-opaque-alpha
 
-> A fragment stage that declares no output and returns a `vec2` writes it as `vec4(x, y, 0, 1)`.
+> A fragment stage that returns a `vec2` writes it as `vec4(x, y, 0, 1)`.
 
 ##### @spec a-scalar-result-fills-every-channel
 
-> A fragment stage that declares no output and returns a `float`, `int`, `uint` or `bool` writes it as a `vec4` with the value, as a float, in every channel.
+> A fragment stage that returns a `float`, `int`, `uint` or `bool` writes it as a `vec4` with the value, as a float, in every channel.
 
 ##### @spec an-integer-or-boolean-vector-result-converts-to-a-float-vector-first
 
-> A fragment stage that declares no output and returns an `ivec`, `uvec` or `bvec` converts it to a float vector of the same length. The rule of that length then applies.
+> A fragment stage that returns an `ivec`, `uvec` or `bvec` converts it to a float vector of the same length. The rule of that length then applies.
 
 ##### @spec a-result-that-has-no-colour-is-refused
 
-> A fragment stage that declares no output and returns a matrix is refused on every target.
+> A fragment stage that returns a matrix is refused on every target.
 
 Derives from: [`fact-tsl-leaves-a-matrix-fragment-result-unconverted`](#fact-tsl-leaves-a-matrix-fragment-result-unconverted)
 
 This follows because no conversion of a matrix to a colour is defined, and TSL leaves one open.
 
-#### @spec a-declared-output-holds-what-the-program-assigns
-
-> A fragment stage that declares [outputs](#term-output) writes each one with what the program assigns to it, and writes its result to none of them.
-
 #### @spec a-fragment-stage-may-write-no-colour
 
-> A fragment stage that declares no output and returns nothing compiles.
+> A fragment stage that returns nothing compiles.
 
 #### @spec a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour
 
@@ -1830,12 +1819,6 @@ This follows because two inputs that share a name by accident read one value, a 
 
 > A name the compiler generates for an input or an output connects every reference to it inside its program. The same generated name in another program names a different input.
 
-##### @bug serialize-keeps-the-generated-name-of-an-output
-
-> `serialize` keeps the generated name of a stage output, `_rmsl_oN`, so two graphs restored from it write one output.
-
-Issue: #80
-
 #### @spec a-raw-name-is-absolute
 
 > A name given to `uniformRaw`, `attributeRaw` or `varyingRaw` is used as given. Every node that carries it, in any program and any process, is one input, declared once.
@@ -1960,9 +1943,9 @@ This follows because a statement belongs to the body that records it, and outsid
 
 > An `outputStruct` in a vertex stage, in a compute stage, or in a program compiled with no stage is refused on every target that compiles one. It cannot be an operand or a statement either.
 
-Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs), [`spec-an-output-struct-writes-each-member-at-its-position`](#spec-an-output-struct-writes-each-member-at-its-position)
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs), [`spec-an-output-struct-writes-each-member-at-its-position`](#spec-an-output-struct-writes-each-member-at-its-position), [`fact-a-compute-entry-point-returns-nothing`](#fact-a-compute-entry-point-returns-nothing)
 
-This follows because an `outputStruct` is the value of a fragment stage, and the other stages have no render target to write it to. A program with no stage has none either.
+This follows because an `outputStruct` is the value of a fragment stage, and the other stages have no render target to write it to. A compute entry point returns nothing to hold one. A program with no stage has no render target either.
 
 ### @spec a-stage-reads-and-writes-only-what-it-has
 
@@ -2001,14 +1984,6 @@ This follows because a shader that breaks the rules of its stage either fails in
 Derives from: [`spec-an-attribute-is-an-input-of-the-vertex-stage`](#spec-an-attribute-is-an-input-of-the-vertex-stage), [`fact-a-compute-entry-point-takes-no-location`](#fact-a-compute-entry-point-takes-no-location), [`fact-webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage)
 
 This follows because an attribute is an input of the vertex stage, read once for each vertex, and a compute dispatch has no vertices. GLSL has no compute stage, so it has no compute program to refuse it in.
-
-#### @spec a-compute-program-cannot-write-an-output
-
-> A compute program that assigns to an [output](#term-output) is refused on every target that compiles one. A compute program writes its results into a storage buffer and returns nothing.
-
-Derives from: [`spec-a-compute-program-returns-nothing`](#spec-a-compute-program-returns-nothing), [`fact-a-compute-entry-point-returns-nothing`](#fact-a-compute-entry-point-returns-nothing), [`fact-webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage)
-
-This follows because an output is a fragment stage's result, and a compute entry point returns nothing to hold one. GLSL has no compute stage, so it has no compute program to refuse it in.
 
 #### @spec a-compute-program-cannot-read-a-varying
 
@@ -3712,7 +3687,7 @@ This follows because the shape of a result follows from the function that compil
 
 #### @spec a-fragment-stage-returns-its-colour-and-outputs
 
-> `compileJSFragment` and `compileWasmFragment` give a stage whose `run` returns an object that holds the colour, a `vec4`, and the outputs the program wrote, by slot, and the depth when it wrote one. A stage that declares an output has no colour, which is undefined. A fragment that discards returns `null`.
+> `compileJSFragment` and `compileWasmFragment` give a stage whose `run` returns an object that holds the colour, a `vec4`, the members of the `outputStruct` the program returned, by position, and the depth when it wrote one. A stage that returns an `outputStruct` has no colour, which is undefined. A fragment that discards returns `null`.
 
 Derives from: [`axiom-a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns), [`spec-a-fragment-result-without-an-output-is-the-colour`](#spec-a-fragment-result-without-an-output-is-the-colour)
 
@@ -3978,13 +3953,13 @@ Derives from: [`spec-a-material-or-pass-is-tested-by-the-names-it-uses`](#spec-a
 
 This follows because a result keys each slot by one name, and the order of the program's own list picks it.
 
-##### @spec render-draws-the-only-output-of-a-program-that-returns-nothing
+##### @spec render-draws-the-only-member-of-an-output-struct
 
-> `render` draws the output a fragment writes when the program returns no value and writes exactly one output.
+> `render` draws the member of an `outputStruct` that a fragment stage returns, when it has exactly one member.
 
 Derives from: [`spec-render-evaluates-every-fragment-of-a-grid`](#spec-render-evaluates-every-fragment-of-a-grid)
 
-This follows because a fragment stage that returns nothing shows the colour of its one output, and `render` draws what the fragment shows.
+This follows because a fragment stage that returns one member shows the colour of that member, and `render` draws what the fragment shows.
 
 #### @spec draw-writes-a-discarded-pixel-as-zero
 

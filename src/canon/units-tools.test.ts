@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { afterAll, describe, expect, it } from "vitest";
-import { Fn, bool, output, uniform, varying, vec2, vec3, vec4, builtinPosition } from "../rmsl";
+import { Fn, bool, outputStruct, uniform, varying, vec2, vec3, vec4, builtinPosition } from "../rmsl";
 import { compileGlsl } from "../glsl";
 import { compileWgsl } from "../wgsl";
 import { fxaa, gaussianBlur, getGaussianCoefficients, rgbShift } from "../effects";
@@ -254,13 +254,11 @@ describe("./test", () => {
   });
 
   /**
-   * @canon spec-render-draws-the-only-output-of-a-program-that-returns-nothing
+   * @canon spec-render-draws-the-only-member-of-an-output-struct
    */
-  it("draws the one output of a program that returns nothing", () => {
-    const graph = Fn(() => {
-      output("vec4").assign(vec4(1, 0.5, 0.25, 1));
-    })();
-    expect(render(() => graph, { width: 1, height: 1 }).at(0, 0)).toEqual([1, 0.5, 0.25, 1]);
+  it("draws the one member of an outputStruct", () => {
+    const graph = Fn(() => outputStruct(vec4(1, 0.5, 0.25, 1)))();
+    expect(render(() => graph, { width: 1, height: 1, stage: "fragment" }).at(0, 0)).toEqual([1, 0.5, 0.25, 1]);
   });
 });
 

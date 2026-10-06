@@ -5,7 +5,7 @@ import {
   closeEvaluators,
   type CpuOnlyReason,
 } from "../../testing/shader-eval";
-import { compileJSRoutine, compileJSFn, type CpuTextureData } from "../../js";
+import { compileJSRoutine, compileJSFn, compileJSFragment, type CpuTextureData } from "../../js";
 import { compileWasmRoutine } from "../../wasm";
 import {
   Fn,
@@ -36,7 +36,7 @@ import {
   instancedArray,
   invocationIndex,
   type UniformNode,
-  output,
+  outputStruct,
   builtinPosition,
   builtinFragDepth,
   Discard,
@@ -774,21 +774,17 @@ describe("JS backend: shader I/O", () => {
   /**
    * @canon spec-a-cpu-routine-returns-its-value-or-a-result
    */
-  it("returns outputs and fragment depth in a result object", () => {
+  it("returns the outputs and the fragment depth of a fragment stage", () => {
     let u!: any;
     const prog = Fn(() => {
       u = uniform("vec4");
-      const out = output("vec4");
-      out.assign(u.add(vec4(1, 1, 1, 0)));
       const d = builtinFragDepth();
       d.assign(float(0.5));
-      return out;
+      return outputStruct(u.add(vec4(1, 1, 1, 0)));
     })();
-    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
-    const r = fn.run({ uniforms: { [u.name]: [0, 0, 0, 1] } }) as any;
-    expect(r.value).toEqual([1, 1, 1, 1]);
-    expect(typeof r.outputs).toBe("object");
-    expect(r.fragDepth).toBe(0.5);
+    const stage = compileJSFragment(() => prog, { name: "main", params: [] });
+    const r = stage.run({ uniforms: { [u.name]: [0, 0, 0, 1] } });
+    expect(r).toEqual({ value: undefined, outputs: [[1, 1, 1, 1]], fragDepth: 0.5 });
   });
   /**
    * @canon spec-a-cpu-routine-returns-its-value-or-a-result

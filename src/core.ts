@@ -2859,17 +2859,6 @@ export function varyingRaw<T extends ShaderType>(name: string, shaderType: T): V
 }
 
 // === Outputs ===
-export let nextOutputId = 0;
-
-export function output<T extends ShaderType>(shaderType: T): Var<T> {
-  let id = nextOutputId++;
-  return node({
-    _t: shaderType,
-    type: "output",
-    value: { id, slot: `_rmsl_o${id}`, shaderType, location: id },
-  }) as Var<T>;
-}
-
 declare const outputMembers: unique symbol;
 
 /** What `outputStruct` returns: a fragment stage's result, with the members it writes in the type. */

@@ -1453,7 +1453,6 @@ export function compileWasmFn(
       }
 
       case "output": {
-        assertNotInAComputeStage(effectiveStage, COMPUTE_REFUSES.output);
         // pipeline output: forces needsResult so the host can read it
         needsResult = true;
         const v = node.value;

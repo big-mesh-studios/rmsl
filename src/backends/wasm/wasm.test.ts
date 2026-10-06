@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { compileWasmRoutine, compileWasmFn, createWasmCompute, instantiateWasmRoutine } from "../../wasm";
+import {
+  compileWasmRoutine,
+  compileWasmFn,
+  compileWasmFragment,
+  createWasmCompute,
+  instantiateWasmRoutine,
+} from "../../wasm";
 import { compileJSRoutine } from "../../js";
 import {
   Fn,
@@ -45,7 +51,7 @@ import {
   attribute,
   varying,
   fragCoord,
-  output,
+  outputStruct,
   builtinPosition,
   builtinFragDepth,
   textureSize,
@@ -1194,40 +1200,18 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
   /**
    * @canon spec-a-cpu-routine-returns-its-value-or-a-result
    */
-  it("writes to output(), scalar and aggregate, alongside a plain value", () => {
-    const build = () =>
-      Fn(() => {
-        const colorOut = output("vec4");
-        const idOut = output("float");
-        colorOut.assign(vec4(1, 0, 0, 1));
-        idOut.assign(float(7));
-        return float(42);
-      })();
-    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
-    const result = fn.run({}) as any;
-    const values = Object.values(result.outputs as Record<string, unknown>);
-    expect(values).toContainEqual([1, 0, 0, 1]);
-    expect(values).toContainEqual(7);
-    expect(result.value).toBe(42);
+  it("writes the scalar and aggregate members of an outputStruct", () => {
+    const build = () => Fn(() => outputStruct(vec4(1, 0, 0, 1), float(7)))();
+    const result = compileWasmFragment(build, { name: "main", params: [] }).run({});
+    expect(result?.outputs).toEqual([[1, 0, 0, 1], 7]);
   });
   /**
    * @canon spec-a-cpu-routine-returns-its-value-or-a-result
    */
   it("writes int and bool scalar outputs with their own kind", () => {
-    const build = () =>
-      Fn(() => {
-        const nOut = output("int");
-        const bOut = output("bool");
-        nOut.assign(int(7));
-        bOut.assign(bool(true));
-        return float(1);
-      })();
-    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
-    const result = fn.run({}) as any;
-    const values = Object.values(result.outputs as Record<string, unknown>);
-    expect(values).toContainEqual(7);
-    expect(values).toContainEqual(true);
-    expect(result.value).toBe(1);
+    const build = () => Fn(() => outputStruct(int(7), bool(true)))();
+    const result = compileWasmFragment(build, { name: "main", params: [] }).run({});
+    expect(result?.outputs).toEqual([7, true]);
   });
   /**
    * @canon spec-a-cpu-routine-returns-its-value-or-a-result
@@ -1905,12 +1889,9 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
    * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
    */
   it("throws when the function produces no value to render", () => {
-    const build = () =>
-      Fn(() => {
-        output("float").assign(float(1));
-      })();
-    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
-    expect(() => fn.draw({}, 1, 1)).toThrow(/produces no value to render/);
+    const build = () => Fn(() => outputStruct(float(1)))();
+    const stage = compileWasmFragment(build, { name: "main", params: [] });
+    expect(() => stage.quad({}, 1, 1)).toThrow(/produces no value to render/);
   });
   /**
    * @canon spec-a-wasm-routine-copies-a-texture-into-its-memory-once

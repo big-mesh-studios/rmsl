@@ -99,7 +99,7 @@ export interface EvaluationResult<A extends ShaderType = ShaderType> {
   value: ShaderValue<A> | null;
   /** Whether the fragment ran into `Discard()`. */
   discarded: boolean;
-  /** Values written with `output()`, by slot name. */
+  /** The members of an `outputStruct`, by slot name. */
   outputs: Record<string, unknown>;
   /**
    * Values written with `varying()` in a vertex stage, keyed the way they are
