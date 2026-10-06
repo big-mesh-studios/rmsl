@@ -2863,7 +2863,7 @@ declare const outputMembers: unique symbol;
 
 /** What `outputStruct` returns: a fragment stage's result, with the members it writes in the type. */
 export type OutputStruct<M extends readonly BaseNode<ShaderType>[] = readonly BaseNode<ShaderType>[]> = Node<"void"> & {
-  readonly [outputMembers]?: M;
+  readonly [outputMembers]: M;
 };
 
 /**

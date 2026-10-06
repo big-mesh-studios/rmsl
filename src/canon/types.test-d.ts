@@ -1,5 +1,5 @@
 import { describe, expectTypeOf, it } from "vitest";
-import { Fn, float, int, uint, vec2, vec3, vec4, bool, outputStruct } from "../rmsl";
+import { Discard, Fn, float, int, uint, vec2, vec3, vec4, bool, outputStruct } from "../rmsl";
 import { compileJSFragment, compileJSGrid, compileJSRoutine } from "../js";
 import { compileWasmRoutine } from "../wasm";
 
@@ -46,6 +46,20 @@ describe("what a fragment stage returns", () => {
     const stage = compileJSFragment(() => Fn(() => outputStruct(float(7), vec3(1, 2, 3)))(), none);
     const result = stage({});
     expectTypeOf(result).toEqualTypeOf<{ value: undefined; outputs: [number, number[]]; fragDepth?: number } | null>();
+  });
+
+  /**
+   * @canon spec-a-fragment-stage-returns-its-colour-and-outputs
+   */
+  it("types a stage that returns nothing as having no colour and no outputs", () => {
+    const stage = compileJSFragment(
+      () =>
+        Fn(() => {
+          Discard();
+        })(),
+      none,
+    );
+    expectTypeOf(stage({})).toEqualTypeOf<{ value: undefined; outputs: []; fragDepth?: number } | null>();
   });
 
   /**
