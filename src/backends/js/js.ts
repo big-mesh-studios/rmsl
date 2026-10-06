@@ -480,9 +480,10 @@ export function jsHelperSource(name: string): string {
     // no wrap mode on either GPU backend either) rather than `tex3d`'s
     // trilinear one.
     case "texCube":
-      return `function _texCube(tex, dir, out) {
+      return `const _texCubeFace = [0, 0, 0];
+function _texCube(tex, dir, out) {
   out = out || [0, 0, 0, 0];
-  let f = _cubeFace(dir[0], dir[1], dir[2], [0, 0, 0]);
+  let f = _cubeFace(dir[0], dir[1], dir[2], _texCubeFace);
   let face = f[0], u = f[1], v = f[2];
   let w = tex.width, h = tex.height, s = _unorm(tex), c = _chan(tex);
   let base = face * w * h * c;

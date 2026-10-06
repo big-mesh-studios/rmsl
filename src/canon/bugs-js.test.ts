@@ -188,18 +188,6 @@ describe("known bugs of the JS target, each failing until its fix", () => {
   });
 
   /**
-   * On JS, sampling a cube map allocates an array for the face it picks on
-   * every call.
-   *
-   * @canon bug-js-cube-map-allocates-its-face-per-call
-   */
-  it.fails("samples a cube map without allocating on JS", () => {
-    const cube = uniform("samplerCube");
-    const source = compileJSFn(() => Fn(() => cube.texture(vec3(1, 0, 0)).toVar())(), none);
-    expect(source).not.toMatch(/_cubeFace\([^)]*\[0, 0, 0\]\)/);
-  });
-
-  /**
    * On JS, a matrix product written into one of its own operands copies that
    * operand with `slice` on every call.
    *

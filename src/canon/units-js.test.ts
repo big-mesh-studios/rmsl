@@ -555,4 +555,12 @@ describe("what a JS routine allocates per call", () => {
     );
     expect(source).not.toContain("_copy(_bselect(");
   });
+  /**
+   * @canon spec-a-js-routine-allocates-nothing-per-call
+   */
+  it("samples a cube map without allocating on JS", () => {
+    const cube = uniform("samplerCube");
+    const source = compileJSFn(() => Fn(() => cube.texture(vec3(1, 0, 0)).toVar())(), none);
+    expect(source).not.toMatch(/_cubeFace\([^)]*\[0, 0, 0\]\)/);
+  });
 });
