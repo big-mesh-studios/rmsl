@@ -6,6 +6,10 @@ export {
   compileWasmCompute,
   compileWasmGrid,
   instantiateWasmRoutine,
+  instantiateWasmVertex,
+  instantiateWasmFragment,
+  instantiateWasmCompute,
+  instantiateWasmGrid,
 } from "./backends/wasm/wasm";
 export type { CompiledWasm, CompileWasmStageOptions, WasmParam } from "./backends/wasm/wasm";
 

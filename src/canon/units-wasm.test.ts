@@ -4,6 +4,7 @@ import {
   builtinPosition,
   Discard,
   float,
+  fragCoord,
   Fn,
   If,
   instancedArray,
@@ -29,6 +30,8 @@ import {
   compileWasmRoutine,
   compileWasmFragment,
   compileWasmGrid,
+  instantiateWasmCompute,
+  instantiateWasmGrid,
 } from "../wasm";
 
 const none = { name: "main", params: [] };
@@ -273,6 +276,35 @@ describe("the WASM rasterizer's memory", () => {
   });
 });
 
+describe("bytes compiled with compileWasmFn", () => {
+  /**
+   * @canon spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel
+   */
+  it("instantiate as a grid", () => {
+    const compiled = compileWasmFn(() => Fn(() => fragCoord().x)() as any, { name: "main", params: [] });
+    const grid = instantiateWasmGrid<"float">(compiled, "main");
+    expect(Array.from(grid({}, 2, 1))).toEqual([0.5, 1.5]);
+  });
+
+  /**
+   * @canon spec-a-cpu-compute-stage-runs-one-invocation-per-index
+   */
+  it("instantiate as a compute stage", () => {
+    const buffer = instancedArray(2, "float");
+    const compiled = compileWasmFn(
+      () =>
+        Fn(() => {
+          buffer.element(invocationIndex()).assign(float(7));
+        })() as any,
+      { name: "main", params: [] },
+    );
+    const compute = instantiateWasmCompute(compiled, "main");
+    const data = new Float64Array(2);
+    compute({ storages: { [buffer.name]: data } }, 2);
+    expect(Array.from(data)).toEqual([7, 7]);
+  });
+});
+
 describe("a WASM routine's results", () => {
   /**
    * @canon spec-a-cpu-routine-answers-one-fragment-per-call
@@ -370,7 +402,10 @@ describe("an inline Fn whose value an operation reads more than once", () => {
     const read = (branch: number) => {
       const data = new Float64Array(1);
       const out = new Float64Array(1);
-      compileWasmRoutine(build, none)({
+      compileWasmRoutine(
+        build,
+        none,
+      )({
         storages: { [counter.name]: data, [result.name]: out },
         uniforms: { [taken.name]: branch },
       });
