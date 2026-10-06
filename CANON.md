@@ -557,7 +557,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-rasterizer-gives-each-vertex-its-own-position`](#spec-a-rasterizer-gives-each-vertex-its-own-position) — A CPU rasterizer places each vertex of a draw at the position its own vertex call returned, whatever the vertex program keeps in variables.
       - [`@spec a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds`](#spec-a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds) — A CPU rasterizer draws a triangle whether its vertices run clockwise or counter-clockwise on the screen.
     - [`@spec shader-logic-is-tested-without-a-graphics-api`](#spec-shader-logic-is-tested-without-a-graphics-api) — The `./test` library runs a graph on the JS target and hands back values or a grid of fragments. A plain unit test can then assert on the logic of a shader.
-      - [`@spec evaluate-gives-the-value-of-one-fragment`](#spec-evaluate-gives-the-value-of-one-fragment) — `evaluate` gives the value one fragment computes, at the coordinate `fragCoord()` says, with the type the graph has on the CPU. It carries the depth, the outputs, the position and the varyings the program writes, and reports a discarded fragment as discarded.
+      - [`@spec evaluate-gives-the-value-of-one-fragment`](#spec-evaluate-gives-the-value-of-one-fragment) — `evaluate` gives the value one fragment computes, at the coordinate `fragCoord()` says, with the type the graph has on the CPU. It carries the depth, the members of an `outputStruct` by position, the position and the varyings the program writes, and reports a discarded fragment as discarded.
       - [`@spec an-input-is-bound-by-its-node`](#spec-an-input-is-bound-by-its-node) — A test binds a uniform, varying, attribute or texture by the node it holds, as a `[node, value]` pair, never by its slot name. A value of the wrong shape for the node, a texture bound as a plain uniform, or pixels nothing could read are refused.
       - [`@spec a-read-of-an-input-nothing-bound-names-it`](#spec-a-read-of-an-input-nothing-bound-names-it) — A graph that reads an input nothing bound is refused with the name of that input, rather than shading with nothing. A sampler with no pixels counts as unbound.
       - [`@spec a-test-texture-is-read-as-the-renderers-read-it`](#spec-a-test-texture-is-read-as-the-renderers-read-it) — A texture bound in a test is sampled by the same rules the renderers read it by: its format, filters, wrap and channels. A scene texture binds as it stands, and an 8-bit texture reads as 0 to 1.
@@ -3843,7 +3843,7 @@ This follows because a WebGPU pipeline culls no face unless it asks to, and a CP
 
 ##### @spec evaluate-gives-the-value-of-one-fragment
 
-> `evaluate` gives the value one fragment computes, at the coordinate `fragCoord()` says, with the type the graph has on the CPU. It carries the depth, the outputs, the position and the varyings the program writes, and reports a discarded fragment as discarded.
+> `evaluate` gives the value one fragment computes, at the coordinate `fragCoord()` says, with the type the graph has on the CPU. It carries the depth, the members of an `outputStruct` by position, the position and the varyings the program writes, and reports a discarded fragment as discarded.
 
 ##### @spec an-input-is-bound-by-its-node
 

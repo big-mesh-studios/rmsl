@@ -1,6 +1,13 @@
 import { type Node, type ShaderType, type VariableNode } from "../rmsl";
-import { compileJSRoutine, compileJSFn, type CpuShaderContext, type CpuTextureData } from "../js";
-import type { CpuValue } from "../backends/cpu";
+import {
+  compileJSFn,
+  compileJSFragment,
+  compileJSRoutine,
+  compileJSVertex,
+  type CpuShaderContext,
+  type CpuTextureData,
+} from "../js";
+import type { CpuValue, FragmentResult, VertexResult } from "../backends/cpu";
 // How a texture asks to be read is the renderers' question too, and they
 // already answer it without a device — so a shader tested here samples by the
 // same reading, not by a second one written for the CPU.
@@ -80,7 +87,10 @@ export interface ShaderInputs {
 }
 
 export interface RunnerOptions extends ShaderInputs {
-  /** Which stage the graph is compiled as. Default `"fragment"`. */
+  /**
+   * Which stage the graph is compiled as. Without one the graph is a function,
+   * and its value is the result.
+   */
   stage?: "vertex" | "fragment";
   /**
    * What `fwidth`/`dFdx`/`dFdy` do. A derivative is the difference between
@@ -99,8 +109,8 @@ export interface EvaluationResult<A extends ShaderType = ShaderType> {
   value: ShaderValue<A> | null;
   /** Whether the fragment ran into `Discard()`. */
   discarded: boolean;
-  /** The members of an `outputStruct`, by slot name. */
-  outputs: Record<string, unknown>;
+  /** The members of an `outputStruct`, by position. */
+  outputs: unknown[];
   /**
    * Values written with `varying()` in a vertex stage, keyed the way they are
    * passed in: by the program's own name under `fromProgram`, by the node's
@@ -162,7 +172,6 @@ function compileRunner<A extends ShaderType>(
     derivatives: options.derivatives ?? "zero",
     reentrant: options.reentrant ?? false,
   };
-  const callable = compileJSRoutine(graph, compileOptions);
   const source = compileJSFn(graph, compileOptions);
 
   // The program's names, the other way round. A slot goes in under the name the
@@ -175,8 +184,27 @@ function compileRunner<A extends ShaderType>(
     textures: reverseNames(names?.textures),
   };
   const reads = { stage: options.stage ?? "fragment", named: names !== undefined, names: called };
-  const run = (inputs: ShaderInputs = {}): EvaluationResult<A> =>
-    readResult<A>(callable.run(mergeContext(options, inputs, names, reads)), called.varyings);
+  const { stage, ...withoutStage } = compileOptions;
+  const call: (ctx: CpuShaderContext) => EvaluationResult<A> =
+    stage === "vertex"
+      ? (() => {
+          const vertex = compileJSVertex(graph, withoutStage);
+          return (ctx) => readVertex<A>(vertex.run(ctx), called.varyings);
+        })()
+      : stage === "fragment"
+        ? (() => {
+            const fragment = compileJSFragment(graph, withoutStage);
+            return (ctx) => readFragment<A>(fragment.run(ctx));
+          })()
+        : (() => {
+            const routine = compileJSRoutine(graph, withoutStage);
+            return (ctx) => {
+              // A program that discards returns null from a routine that has no stage too.
+              const value = routine.run(ctx) as ShaderValue<A> | null;
+              return { value, discarded: value === null, outputs: [], varyings: {} };
+            };
+          })();
+  const run = (inputs: ShaderInputs = {}): EvaluationResult<A> => call(mergeContext(options, inputs, names, reads));
   return Object.defineProperties(run, {
     source: { value: source, enumerable: true },
     [RUNNER]: { value: true },
@@ -826,38 +854,30 @@ function named(
   return record;
 }
 
-/**
- * The compiled callable's return value in one shape. It returns the graph's
- * value directly unless the program writes an output, a position or a fragment
- * depth, and `null` for a discarded fragment.
- */
-function readResult<A extends ShaderType>(raw: unknown, varyingNames?: Map<string, string>): EvaluationResult<A> {
-  if (raw === null) {
-    return { value: null, discarded: true, outputs: {}, varyings: {} };
-  }
-  if (isProgramResult(raw)) {
-    return {
-      value: (raw.value ?? null) as ShaderValue<A> | null,
-      discarded: false,
-      outputs: raw.outputs ?? {},
-      varyings: named(raw.varyings, varyingNames),
-      position: raw.position,
-      fragDepth: raw.fragDepth,
-    };
-  }
-  return { value: raw as ShaderValue<A>, discarded: false, outputs: {}, varyings: {} };
+/** What a vertex stage gave, in the one shape of a result: its position is its value. */
+function readVertex<A extends ShaderType>(
+  result: VertexResult,
+  varyingNames?: Map<string, string>,
+): EvaluationResult<A> {
+  return {
+    value: result.position as ShaderValue<A>,
+    discarded: false,
+    outputs: [],
+    varyings: named(result.varyings, varyingNames),
+    position: result.position,
+  };
 }
 
-interface ProgramResult {
-  value?: unknown;
-  outputs?: Record<string, unknown>;
-  varyings?: Record<string, unknown>;
-  position?: number[];
-  fragDepth?: number;
-}
-
-function isProgramResult(raw: unknown): raw is ProgramResult {
-  return typeof raw === "object" && raw !== null && !Array.isArray(raw);
+/** What a fragment stage gave, in the one shape of a result: `null` is a fragment that discarded. */
+function readFragment<A extends ShaderType>(result: FragmentResult | null): EvaluationResult<A> {
+  if (result === null) return { value: null, discarded: true, outputs: [], varyings: {} };
+  return {
+    value: (result.value ?? null) as ShaderValue<A> | null,
+    discarded: false,
+    outputs: result.outputs,
+    varyings: {},
+    fragDepth: result.fragDepth,
+  };
 }
 
 /**
@@ -880,7 +900,6 @@ function toRGBA(result: EvaluationResult<ShaderType>): [number, number, number, 
 }
 
 /** The written output, when a program wrote exactly one and returned nothing. */
-function onlyOutput(outputs: Record<string, unknown>): unknown {
-  const written = Object.values(outputs);
-  return written.length === 1 ? written[0] : null;
+function onlyOutput(outputs: unknown[]): unknown {
+  return outputs.length === 1 ? outputs[0] : null;
 }
