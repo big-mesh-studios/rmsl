@@ -347,6 +347,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@exception a-uniform-holds-no-value`](#exception-a-uniform-holds-no-value) — `uniform(type)` and `uniformArray(type, length)` take a type where TSL's take values. The uniform holds no value, and the host passes one at each call.
   - [`@spec a-storage-buffer-follows-tsl`](#spec-a-storage-buffer-follows-tsl) — `storage(attribute, type)`, `instancedArray` and `attributeArray` make a [storage buffer](#term-storage-buffer) node over a buffer of typed elements, as TSL's functions of the same names do.
     - [`@spec a-wgsl-storage-buffer-holds-a-vec3-in-16-bytes`](#spec-a-wgsl-storage-buffer-holds-a-vec3-in-16-bytes) — A WGSL storage buffer of `vec3` elements holds each element in 16 bytes. The host passes and reads the components as one flat typed array, with no padding. This holds for `createWgslCompute` and for a `createWgsl` with storage of its own.
+    - [`@spec a-storage-buffer-attribute-of-a-count-holds-a-zeroed-array`](#spec-a-storage-buffer-attribute-of-a-count-holds-a-zeroed-array) — A `StorageBufferAttribute` and a `StorageInstancedBufferAttribute` made from a count hold a zeroed typed array of `count * itemSize` elements, of the array class they are given, `Float32Array` by default. The array is the buffer's contents on the host, which the application fills. One made from a typed array holds that array.
     - [`@spec an-instanced-array-takes-its-count-from-a-number-or-its-data`](#spec-an-instanced-array-takes-its-count-from-a-number-or-its-data) — `instancedArray(count, type)` makes a buffer of `count` elements, whose host array holds zeros. `instancedArray(data, type)` takes its count and contents from a typed array.
     - [`@spec a-buffer-holds-one-element-type`](#spec-a-buffer-holds-one-element-type) — A buffer holds one element type, named by the first storage node over it. A node of another type over it is refused. So is a type its item size or array class cannot hold, and a typed array that is not a whole number of elements.
     - [`@spec a-storage-buffer-holds-no-bool`](#spec-a-storage-buffer-holds-no-bool) — A storage buffer of `bool` or boolean vector elements is refused.
@@ -675,7 +676,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact wgsl-assigns-no-swizzle-of-several-components`](#fact-wgsl-assigns-no-swizzle-of-several-components) — WGSL refuses an assignment to a swizzle of several components, and accepts one to a single component.
 - [`@fact glsl-mixes-by-a-boolean-vector-only-floats`](#fact-glsl-mixes-by-a-boolean-vector-only-floats) — GLSL ES 3.00 offers `mix` with a boolean vector selector for float types only, and has no such overload for integer vectors.
 - [`@fact tsl-uniforms-hold-their-values`](#fact-tsl-uniforms-hold-their-values) — TSL's `uniform(value)` and `uniformArray(values, type)` take the values the uniform holds, and the renderer uploads them.
-- [`@fact a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array`](#fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array) — TSL's `instancedArray(count, type)` and `attributeArray(count, type)` make a zeroed typed array of the buffer's contents on the host.
+- [`@fact a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array`](#fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array) — The constructors of TSL's `StorageBufferAttribute` and `StorageInstancedBufferAttribute` allocate, for a count, a zeroed typed array of `count * itemSize` elements on the host. `instancedArray(count, type)` and `attributeArray(count, type)` build them from a count.
 - [`@fact tsl-takes-a-compute-count-from-its-caller`](#fact-tsl-takes-a-compute-count-from-its-caller) — TSL's `compute(node, count)` takes the count from the code that writes it. A number is the number of invocations, and the compiler guards `instanceIndex` against it through a uniform. Any other value is a dispatch size in workgroups. TSL never infers a count from a buffer.
 - [`@fact a-compute-entry-point-takes-no-location`](#fact-a-compute-entry-point-takes-no-location) — A WGSL compute entry point takes no `@location` parameter. That attribute is the only way a GPU hands a shader its vertices, and a compute dispatch has none.
 - [`@fact a-compute-entry-point-returns-nothing`](#fact-a-compute-entry-point-returns-nothing) — A WGSL compute entry point returns nothing. A function that declares a return type must give that type an entry point IO attribute, and a compute entry point has none to give.
@@ -2640,11 +2641,19 @@ Derives from: [`fact-a-wgsl-storage-vec3-takes-16-bytes`](#fact-a-wgsl-storage-v
 
 This follows because the shader indexes a `vec3` array 16 bytes at a time, and the host passes the components as TSL's attribute holds them.
 
+#### @spec a-storage-buffer-attribute-of-a-count-holds-a-zeroed-array
+
+> A `StorageBufferAttribute` and a `StorageInstancedBufferAttribute` made from a count hold a zeroed typed array of `count * itemSize` elements, of the array class they are given, `Float32Array` by default. The array is the buffer's contents on the host, which the application fills. One made from a typed array holds that array.
+
+Derives from: [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import), [`fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array`](#fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array)
+
+This follows because a program that fills the array of a buffer it made from a count ports from TSL by changing its import, and a graph keeps the contents of its buffers through `serialize`.
+
 #### @spec an-instanced-array-takes-its-count-from-a-number-or-its-data
 
 > `instancedArray(count, type)` makes a buffer of `count` elements, whose host array holds zeros. `instancedArray(data, type)` takes its count and contents from a typed array.
 
-Derives from: [`fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array`](#fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array)
+Derives from: [`spec-a-storage-buffer-attribute-of-a-count-holds-a-zeroed-array`](#spec-a-storage-buffer-attribute-of-a-count-holds-a-zeroed-array)
 
 #### @spec a-buffer-holds-one-element-type
 
@@ -4553,9 +4562,9 @@ This is how three.js's TSL behaves, read from its source (`UniformNode` and `Uni
 
 ## @fact a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array
 
-> TSL's `instancedArray(count, type)` and `attributeArray(count, type)` make a zeroed typed array of the buffer's contents on the host.
+> The constructors of TSL's `StorageBufferAttribute` and `StorageInstancedBufferAttribute` allocate, for a count, a zeroed typed array of `count * itemSize` elements on the host. `instancedArray(count, type)` and `attributeArray(count, type)` build them from a count.
 
-This is how three.js's TSL behaves, read from its source (`StorageBufferAttribute`, three.js 0.186).
+This is how three.js's TSL behaves, read from its source (`src/renderers/common/StorageBufferAttribute.js` and `StorageInstancedBufferAttribute.js`, with `src/nodes/accessors/Arrays.js` for the functions).
 
 ## @fact tsl-takes-a-compute-count-from-its-caller
 

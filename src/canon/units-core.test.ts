@@ -7,6 +7,8 @@ import {
   If,
   attributeArray,
   instancedArray,
+  StorageBufferAttribute,
+  StorageInstancedBufferAttribute,
   int,
   Loop,
   mix,
@@ -448,5 +450,15 @@ describe("a storage array made from a count", () => {
     expect(attributeArray(4, "uvec2").attribute.array).toEqual(new Uint32Array(8));
     expect(instancedArray(3, "int").attribute.array).toEqual(new Int32Array(3));
     expect(instancedArray(2, "float").attribute.array).toEqual(new Float32Array(2));
+  });
+
+  /**
+   * @canon spec-a-storage-buffer-attribute-of-a-count-holds-a-zeroed-array
+   */
+  it("gives a buffer attribute made from a count the zeroed array of its array class", () => {
+    expect(new StorageBufferAttribute(4, 2).array).toEqual(new Float32Array(8));
+    expect(new StorageInstancedBufferAttribute(3, 1, Int32Array).array).toEqual(new Int32Array(3));
+    const given = new Uint32Array([1, 2]);
+    expect(new StorageBufferAttribute(given, 1).array).toBe(given);
   });
 });

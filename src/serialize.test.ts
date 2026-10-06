@@ -137,10 +137,10 @@ describe("serialize/deserialize", () => {
   /**
    * @canon spec-a-restored-graph-keeps-its-shape
    */
-  it("keeps a buffer without contents empty", () => {
+  it("keeps the zeroes of a buffer made from a count", () => {
     const program = Fn(() => storage(new StorageBufferAttribute(32, 4), "vec4").element(invocationIndex()).x);
     const [buffer] = [...storageNodes(roundTrip(serialize(program())))];
-    expect(buffer.attribute.array).toBeNull();
+    expect(buffer.attribute.array).toEqual(new Float32Array(128));
     expect(buffer.attribute.count).toBe(32);
   });
   /**
@@ -275,7 +275,7 @@ describe("serialize/deserialize", () => {
     expect(() =>
       deserialize(
         graph({
-          buffers: [{ instanced: false, count: 1, itemSize: 1, arrayClass: "Float64Array" as any, array: null }],
+          buffers: [{ instanced: false, count: 1, itemSize: 1, arrayClass: "Float64Array" as any, array: [0] }],
         }),
       ),
     ).toThrow("[RMSL] deserialize: buffer 0 holds a Float64Array, not a Float32Array, Int32Array or Uint32Array");

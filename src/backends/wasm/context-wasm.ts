@@ -77,7 +77,7 @@ export function createWasmContext(): WasmContext {
     if (address !== undefined) return address;
     address = allocate(attribute.count * attribute.itemSize * componentSize(attribute));
     buffers.set(attribute, address);
-    if (attribute.array) region(attribute).set(attribute.array);
+    region(attribute).set(attribute.array);
     return address;
   }
 
