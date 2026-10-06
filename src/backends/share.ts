@@ -21,13 +21,31 @@ const READ_WHERE_IT_IS = new Set([
 ]);
 
 /** The node types whose value a statement can change, so a stored copy of a node that reads them can go stale. */
-const MUTABLE_READS = new Set(["var", "storageElement", "storage"]);
+const MUTABLE_READS = new Set([
+  "var",
+  "storageElement",
+  "storage",
+  "output",
+  "varying",
+  "builtinPosition",
+  "builtinFragDepth",
+]);
+
+/** Node types that are literals, which a target folds. */
+const LITERALS = new Set(["float", "int", "uint", "bool"]);
 
 const isStatement = (n: any) => STATEMENTS.has(n.type);
 
-/** Whether `n` is a node that gets a variable when it is read more than once. */
-function isShareable(n: any): boolean {
-  return Array.isArray(n.params) && n.params.length > 0 && n._t !== "void" && !READ_WHERE_IT_IS.has(n.type);
+/** Whether `n` is a literal, or an expression of literals alone, which a target folds into one. */
+function isConstant(n: any, memo: Map<any, boolean>): boolean {
+  const known = memo.get(n);
+  if (known !== undefined) return known;
+  const result =
+    Array.isArray(n.params) && n.params.length > 0
+      ? n.params.every((p: any) => isConstant(p, memo))
+      : LITERALS.has(n.type) || (n.type === n._t && Array.isArray(n.value));
+  memo.set(n, result);
+  return result;
 }
 
 /** Whether an expression holds an inline `Fn` result with statements, whose statements run where it is read. */
@@ -60,13 +78,22 @@ function holdsStatements(expression: any, memo: Map<any, boolean>): boolean {
  * since it runs again on every iteration, and so is a statement whose
  * expression holds an inline `Fn` with statements of its own.
  *
- * The statements of the roots are changed in place, and the expressions they
- * hold are copied. A root that is an expression gets a block of its own.
+ * The statements and expressions the pass changes are copied, and the graph the
+ * caller holds is left as it is. A root that is an expression gets a block of
+ * its own.
  */
 export function shareNodes<T>(roots: T): T {
   const reads = new Map<any, number>();
   const expanded = new Set<any>();
   const statementsMemo = new Map<any, boolean>();
+  const constantsMemo = new Map<any, boolean>();
+  /** Whether `n` is a node that gets a variable when it is read more than once. */
+  const isShareable = (n: any): boolean =>
+    Array.isArray(n.params) &&
+    n.params.length > 0 &&
+    n._t !== "void" &&
+    !READ_WHERE_IT_IS.has(n.type) &&
+    !isConstant(n, constantsMemo);
 
   const read = (expression: any) => {
     if (!expression || typeof expression !== "object") return;
@@ -132,34 +159,35 @@ export function shareNodes<T>(roots: T): T {
     return result;
   };
 
+  const copyOf = (original: any, params: any[]) =>
+    Object.assign(Object.create(Object.getPrototypeOf(original)), original, { params });
+
   /** `expression` with each shared node replaced by its variable, the `let`s that make them pushed on `lets`. */
   const share = (expression: any, lets: any[], copies: Map<any, any>): any => {
     if (!expression || typeof expression !== "object" || !Array.isArray(expression.params)) return expression;
     const copied = copies.get(expression);
     if (copied !== undefined) return copied;
+    const shared = (reads.get(expression) ?? 0) > 1 && isShareable(expression);
+    const stored = shared ? held.get(expression) : undefined;
+    if (stored && blocks.includes(stored.block) && (stored.pure || stored.epoch === epoch)) {
+      copies.set(expression, stored.variable);
+      return stored.variable;
+    }
     let params = expression.params;
     for (let i = 0; i < params.length; i++) {
-      const shared = share(params[i], lets, copies);
-      if (shared !== params[i]) {
+      const rewrittenParam = share(params[i], lets, copies);
+      if (rewrittenParam !== params[i]) {
         if (params === expression.params) params = params.slice();
-        params[i] = shared;
+        params[i] = rewrittenParam;
       }
     }
-    const rebuilt =
-      params === expression.params
-        ? expression
-        : Object.assign(Object.create(Object.getPrototypeOf(expression)), expression, { params });
+    const rebuilt = params === expression.params ? expression : copyOf(expression, params);
     let result = rebuilt;
-    if ((reads.get(expression) ?? 0) > 1 && isShareable(expression)) {
-      const stored = held.get(expression);
-      if (stored && blocks.includes(stored.block) && (stored.pure || stored.epoch === epoch)) {
-        result = stored.variable;
-      } else {
-        const variable = var_(`${SHARED_NAME_PREFIX}${next++}`, expression._t);
-        lets.push(node({ _t: "void", type: "let", params: [variable, rebuilt] }));
-        held.set(expression, { variable, block: blocks[blocks.length - 1]!, epoch, pure: isPure(expression) });
-        result = variable;
-      }
+    if (shared) {
+      const variable = var_(`${SHARED_NAME_PREFIX}${next++}`, expression._t);
+      lets.push(node({ _t: "void", type: "let", params: [variable, rebuilt] }));
+      held.set(expression, { variable, block: blocks[blocks.length - 1]!, epoch, pure: isPure(expression) });
+      result = variable;
     }
     copies.set(expression, result);
     return result;
@@ -171,8 +199,6 @@ export function shareNodes<T>(roots: T): T {
     return share(expression, out, new Map());
   };
 
-  const copyOf = (original: any, params: any[]) =>
-    Object.assign(Object.create(Object.getPrototypeOf(original)), original, { params });
   const sameParams = (a: any[], b: any[]) => a.length === b.length && a.every((p, i) => p === b[i]);
 
   /** What each statement and block became, so one that several roots hold stays one node. */

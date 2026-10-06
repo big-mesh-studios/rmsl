@@ -50,8 +50,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec output-grows-in-proportion-to-the-levels-of-nested-reads`](#spec-output-grows-in-proportion-to-the-levels-of-nested-reads) — A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target.
     - [`@spec a-node-that-is-already-a-name-is-read-where-it-is`](#spec-a-node-that-is-already-a-name-is-read-where-it-is) — A constant, a variable, a uniform, an attribute or a built-in input stays where it is. So does a swizzle or an element of one of them. None gets a variable of its own.
     - [`@spec a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in`](#spec-a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in) — A node that two blocks read, with neither inside the other, is computed in each. A path that skips a block runs none of its statements.
-    - [`@spec a-shared-value-is-computed-again-after-what-it-reads-changed`](#spec-a-shared-value-is-computed-again-after-what-it-reads-changed) — A shared node that reads a variable or a storage buffer is computed again at its next read. This holds once a statement has changed that variable or buffer.
+    - [`@spec a-shared-value-is-computed-again-after-what-it-reads-changed`](#spec-a-shared-value-is-computed-again-after-what-it-reads-changed) — A shared node that reads a variable, a stage output or a storage buffer is computed again at its next read. This holds once a statement has changed it.
     - [`@spec a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads`](#spec-a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads) — A shared node made before a loop is computed again inside the loop, when the loop body changes what the node reads.
+    - [`@spec an-expression-of-constants-is-folded-not-shared`](#spec-an-expression-of-constants-is-folded-not-shared) — An expression of constants gets no variable of its own. The target folds it into one literal.
     - [`@spec a-shared-value-gets-a-generated-name`](#spec-a-shared-value-gets-a-generated-name) — The variable of a shared node is named `_rmsl_gen_` and a number. It cannot clash with a name the user gave, or with a `toVar()` name.
   - [`@spec an-operand-that-is-an-expression-keeps-its-grouping`](#spec-an-operand-that-is-an-expression-keeps-its-grouping) — An operand that is itself an expression computes as a whole before the operation that takes it. This holds on every target, whatever the precedence of its operators.
   - [`@spec a-program-declares-any-number-of-uniforms-on-every-target`](#spec-a-program-declares-any-number-of-uniforms-on-every-target) — A [program](#term-program) declares every [uniform](#term-uniform) it reads, whatever their number, and compiles on every target.
@@ -1005,7 +1006,7 @@ This follows because the result stored in one branch of an `If` does not exist o
 
 #### @spec a-shared-value-is-computed-again-after-what-it-reads-changed
 
-> A shared node that reads a variable or a storage buffer is computed again at its next read. This holds once a statement has changed that variable or buffer.
+> A shared node that reads a variable, a stage output or a storage buffer is computed again at its next read. This holds once a statement has changed it.
 
 This follows because a node has the value it computes at the point of the read. An assignment between two reads can change that value.
 
@@ -1014,6 +1015,12 @@ This follows because a node has the value it computes at the point of the read. 
 > A shared node made before a loop is computed again inside the loop, when the loop body changes what the node reads.
 
 This follows because the body runs again after it changes what the node reads. A value from before the loop is stale on each later iteration.
+
+#### @spec an-expression-of-constants-is-folded-not-shared
+
+> An expression of constants gets no variable of its own. The target folds it into one literal.
+
+This follows because a variable would hide the literal from the folding that gives it its value.
 
 #### @spec a-shared-value-gets-a-generated-name
 
