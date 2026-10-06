@@ -36,7 +36,7 @@ import {
   assertAssignable,
   parameterNode,
   assertStageResult,
-  fragmentColour,
+  prepareRoots,
   assertOneDeclarationPerName,
   numberClashingVariables,
   forUpdateStatements,
@@ -2041,9 +2041,7 @@ function compileJSFnDetailed(
   const rawNodes: Node<ShaderType>[] = Array.isArray(rawResult) ? rawResult : [rawResult];
   // Without a stage the function is a plain function of its context, whose
   // result can be any value.
-  const resultNodes = numberClashingVariables(
-    shareNodes(options.stage === "fragment" ? fragmentColour(rawNodes) : rawNodes),
-  );
+  const resultNodes = numberClashingVariables(shareNodes(prepareRoots(options.stage, rawNodes)));
 
   const ctx: CompileCtx = {
     nextId: 0,
@@ -2254,9 +2252,9 @@ export interface JsVertexStage extends VertexStage {
 }
 
 /** A JS fragment stage, and the call that skips the copy of `run`. */
-export interface JsFragmentStage extends FragmentStage {
+export interface JsFragmentStage<R = unknown> extends FragmentStage<R> {
   /** Like `run`, but the arrays of the result live in the scratch slots the next call overwrites. */
-  runInPlace(ctx: CpuShaderContext): FragmentResult | null;
+  runInPlace(ctx: CpuShaderContext): FragmentResult<R> | null;
 }
 
 /** Compiles an `Fn` as a vertex stage: it returns the position, and the varyings it writes. */
@@ -2272,6 +2270,14 @@ export function compileJSVertex(
 }
 
 /** Compiles an `Fn` as a fragment stage: it returns the colour and the outputs it writes, or `null` for a discarded fragment. */
+export function compileJSFragment<R extends Node<ShaderType>>(
+  fn: (...args: any[]) => R,
+  options: CompileJSStageOptions,
+): JsFragmentStage<R>;
+export function compileJSFragment(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileJSStageOptions,
+): JsFragmentStage;
 export function compileJSFragment(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSStageOptions,

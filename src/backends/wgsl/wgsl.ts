@@ -25,7 +25,7 @@ import {
   assertAssignable,
   parameterNode,
   assertStageResult,
-  fragmentColour,
+  prepareRoots,
   assertOneDeclarationPerName,
   numberClashingVariables,
   forUpdateStatements,
@@ -1619,7 +1619,7 @@ export function compileWGSLWithStage(
   };
 
   let nodes = Array.isArray(root) ? root : [root];
-  if (shaderStage === "fragment") nodes = fragmentColour(nodes);
+  nodes = prepareRoots(shaderStage, nodes);
   nodes = numberClashingVariables(shareNodes(nodes));
   assertOneDeclarationPerName(nodes);
   let results = nodes.map((n) => compileWGSLStage(n, ctx));

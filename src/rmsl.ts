@@ -99,6 +99,7 @@ export {
   oneMinus,
   or,
   output,
+  outputStruct,
   PI,
   PI2,
   pow,
@@ -165,6 +166,7 @@ export {
   xor,
 } from "./core";
 export type {
+  OutputStruct,
   AttributeNode,
   BaseNode,
   BooleanLike,

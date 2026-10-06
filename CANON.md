@@ -220,6 +220,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-negative-number-for-an-unsigned-type-is-refused`](#spec-a-negative-number-for-an-unsigned-type-is-refused) — A negative number beside an unsigned operand, or given to `uint` or to an unsigned vector constructor, is refused.
     - [`@bug assign-leaves-a-bare-number-untyped`](#bug-assign-leaves-a-bare-number-untyped) — `assign` passes a bare number on as it is. WASM throws on it, GLSL and WGSL write an integer literal into a float, and only JS runs it.
   - [`@spec a-statement-outside-an-fn-is-refused`](#spec-a-statement-outside-an-fn-is-refused) — `assign`, `toVar` and control flow called outside the body of an `Fn` are refused.
+  - [`@spec an-output-struct-is-refused-outside-a-fragment-stage`](#spec-an-output-struct-is-refused-outside-a-fragment-stage) — An `outputStruct` in a vertex stage, in a compute stage, or in a program compiled with no stage is refused on every target that compiles one. It cannot be an operand or a statement either.
   - [`@spec a-stage-reads-and-writes-only-what-it-has`](#spec-a-stage-reads-and-writes-only-what-it-has) — A vertex stage produces a position, and a built-in that one stage has is refused in the other.
     - [`@spec a-vertex-stage-without-a-position-is-refused`](#spec-a-vertex-stage-without-a-position-is-refused) — A vertex stage whose result is not a `vec4`, and which writes no position itself, is refused on every target, a literal zero included.
     - [`@spec a-vertex-stage-writes-its-position`](#spec-a-vertex-stage-writes-its-position) — A vertex stage writes its `vec4` result as the position, or the position it assigns through `builtinPosition()`, once.
@@ -533,6 +534,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cpu-routine-returns-its-value-or-a-result`](#spec-a-cpu-routine-returns-its-value-or-a-result) — A CPU routine returns the value its program returns, the last of several, as it is. When the program writes an output, a varying, the position or the depth, it returns a result object that holds them with the value. A discarded fragment returns `null`.
     - [`@spec a-vertex-stage-returns-its-position-and-varyings`](#spec-a-vertex-stage-returns-its-position-and-varyings) — `compileJSVertex` and `compileWasmVertex` give a stage whose `run` returns an object that holds the position, a `vec4`, and the varyings the program wrote, by slot. A vertex stage that never writes the position itself returns its `vec4` result as the position.
     - [`@spec a-fragment-stage-returns-its-colour-and-outputs`](#spec-a-fragment-stage-returns-its-colour-and-outputs) — `compileJSFragment` and `compileWasmFragment` give a stage whose `run` returns an object that holds the colour, a `vec4`, and the outputs the program wrote, by slot, and the depth when it wrote one. A stage that declares an output has no colour, which is undefined. A fragment that discards returns `null`.
+    - [`@spec an-output-struct-writes-each-member-at-its-position`](#spec-an-output-struct-writes-each-member-at-its-position) — A fragment stage that returns an `outputStruct` writes member `i` to the output at location `i`, with the type of the member, and writes no colour. A CPU stage returns the values of the members by position.
     - [`@spec a-fragment-stage-draws-a-grid-with-quad`](#spec-a-fragment-stage-draws-a-grid-with-quad) — `quad` of a fragment stage runs the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel, and packs the colours into one row-major buffer. Every pixel of the grid is shaded, with no triangle to rasterize.
     - [`@spec a-compute-stage-dispatches-and-returns-nothing`](#spec-a-compute-stage-dispatches-and-returns-nothing) — `compileJSCompute` and `compileWasmCompute` give a stage whose `dispatch` runs the program once per index of a count, in index order, and returns nothing. The stage names the type of each storage buffer the program reads.
     - [`@spec a-cpu-routine-answers-one-fragment-per-call`](#spec-a-cpu-routine-answers-one-fragment-per-call) — `run` of a CPU routine evaluates the program once, for the context the host passes. The same routine serves any number of calls, and a value one call returned keeps what it holds through the calls after it.
@@ -1953,6 +1955,14 @@ Issue: #127
 > `assign`, `toVar` and control flow called outside the body of an `Fn` are refused.
 
 This follows because a statement belongs to the body that records it, and outside an `Fn` no body records it.
+
+### @spec an-output-struct-is-refused-outside-a-fragment-stage
+
+> An `outputStruct` in a vertex stage, in a compute stage, or in a program compiled with no stage is refused on every target that compiles one. It cannot be an operand or a statement either.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs), [`spec-an-output-struct-writes-each-member-at-its-position`](#spec-an-output-struct-writes-each-member-at-its-position)
+
+This follows because an `outputStruct` is the value of a fragment stage, and the other stages have no render target to write it to. A program with no stage has none either.
 
 ### @spec a-stage-reads-and-writes-only-what-it-has
 
@@ -3707,6 +3717,14 @@ This follows because the shape of a result follows from the function that compil
 Derives from: [`axiom-a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns), [`spec-a-fragment-result-without-an-output-is-the-colour`](#spec-a-fragment-result-without-an-output-is-the-colour)
 
 This follows because the shape of a result follows from the function that compiled the program. A discarded fragment has no colour, and `null` says so in a way a colour of zeros does not.
+
+#### @spec an-output-struct-writes-each-member-at-its-position
+
+> A fragment stage that returns an `outputStruct` writes member `i` to the output at location `i`, with the type of the member, and writes no colour. A CPU stage returns the values of the members by position.
+
+Derives from: [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import), [`axiom-a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns)
+
+This follows because TSL returns the outputs of a fragment as an `outputStruct`, and the members of the struct are in the type of what the stage returns, so a caller reads the value at a position with the type the member has.
 
 #### @spec a-fragment-stage-draws-a-grid-with-quad
 

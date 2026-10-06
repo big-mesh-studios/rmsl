@@ -10,7 +10,7 @@ import {
   instancedArray,
   invocationIndex,
   mat2,
-  output,
+  outputStruct,
   uint,
   uniform,
   varying,
@@ -367,31 +367,23 @@ describe("a CPU stage's result", () => {
     (_, __, compileFragment) => {
       expect(compileFragment(() => Fn(() => vec4(1, 2, 3, 4))(), none).run({})).toEqual({
         value: [1, 2, 3, 4],
-        outputs: {},
+        outputs: [],
       });
       expect(compileFragment(() => Fn(() => vec3(1, 2, 3))(), none).run({})).toEqual({
         value: [1, 2, 3, 1],
-        outputs: {},
+        outputs: [],
       });
     },
   );
 
   /**
-   * @canon spec-a-fragment-stage-returns-its-colour-and-outputs
+   * @canon spec-an-output-struct-writes-each-member-at-its-position
    */
   it.each(stages)(
-    "returns the outputs a fragment stage writes, and no colour when it declares one on %s",
+    "returns the members of an outputStruct by position, with no colour on %s",
     (_, __, compileFragment) => {
-      const stage = compileFragment(
-        () =>
-          Fn(() => {
-            output("float").assign(float(7));
-          })(),
-        none,
-      );
-      const result = stage.run({});
-      expect(result?.value).toBeUndefined();
-      expect(Object.values(result?.outputs ?? {})).toEqual([7]);
+      const stage = compileFragment(() => Fn(() => outputStruct(float(7), vec3(1, 2, 3)))(), none);
+      expect(stage.run({})).toEqual({ value: undefined, outputs: [7, [1, 2, 3]] });
     },
   );
 

@@ -23,7 +23,7 @@ import {
   assertNotInAComputeStage,
   COMPUTE_REFUSES,
   assertStageResult,
-  fragmentColour,
+  prepareRoots,
   assertOneDeclarationPerName,
   numberClashingVariables,
   assertAssignable,
@@ -761,9 +761,7 @@ export function compileWasmFn(
   const rawNodes: any[] = Array.isArray(rawResult) ? (rawResult as any[]) : [rawResult];
   // Without a stage the function is a plain function of its context, whose
   // result can be any value.
-  const resultNodes = numberClashingVariables(
-    shareNodes(options.stage === "fragment" ? fragmentColour(rawNodes) : rawNodes),
-  );
+  const resultNodes = numberClashingVariables(shareNodes(prepareRoots(options.stage, rawNodes)));
   const root = resultNodes[resultNodes.length - 1];
 
   const paramTypeByName = new Map(options.params.map((p) => [p.name, p.type]));
@@ -4209,6 +4207,14 @@ export function compileWasmVertex(
 }
 
 /** Compiles an `Fn` as a fragment stage: it returns the colour and the outputs it writes, or `null` for a discarded fragment. */
+export function compileWasmFragment<R extends Node<ShaderType>>(
+  fn: (...args: any[]) => R,
+  options: CompileWasmStageOptions,
+): FragmentStage<R>;
+export function compileWasmFragment(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileWasmStageOptions,
+): FragmentStage;
 export function compileWasmFragment(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmStageOptions,

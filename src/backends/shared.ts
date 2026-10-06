@@ -576,6 +576,68 @@ function assertFragmentResult(lastType: string | undefined, declaresOutput: bool
 }
 
 /**
+ * The roots of a fragment stage with an `outputStruct` it returns written out:
+ * member `i` becomes an assignment to an output at location `i`, in slot
+ * `_rmsl_out<i>`. Only the last value of a stage can be one.
+ */
+function lowerOutputStruct<T extends BaseNode<ShaderType>>(roots: readonly T[]): T[] {
+  const nothing = () => node({ _t: "void", type: "void" }) as BaseNode<ShaderType>;
+  /** The assignments of the members, which end in nothing: the stage returns no value. */
+  const written = (struct: BaseNode<ShaderType>): BaseNode<ShaderType>[] => [
+    ...struct.params!.map((member, i) => {
+      const target = node({
+        _t: member._t,
+        type: "output",
+        value: { id: i, slot: `_rmsl_out${i}`, shaderType: member._t, location: i },
+      });
+      return node({
+        _t: "void",
+        type: "assign",
+        params: [target as BaseNode<ShaderType>, member],
+      }) as BaseNode<ShaderType>;
+    }),
+    nothing(),
+  ];
+  const lower = (n: BaseNode<ShaderType>): BaseNode<ShaderType> => {
+    if (n.type === "outputStruct") return node({ _t: "void", type: "seq", params: written(n) });
+    if (n.type !== "seq") return n;
+    const params = n.params!;
+    const last = params[params.length - 1]!;
+    // The assignments join the statements before them, where every backend runs them.
+    if (last.type === "outputStruct")
+      return node({ _t: "void", type: "seq", params: [...params.slice(0, -1), ...written(last)] });
+    const lowered = lower(last);
+    return lowered === last ? n : node({ _t: lowered._t, type: "seq", params: [...params.slice(0, -1), lowered] });
+  };
+  const lowered = roots.map((root, i) => (i === roots.length - 1 ? (lower(root) as T) : root));
+  if (someNode(lowered, (n) => n.type === "outputStruct")) {
+    throw new Error(
+      "[RMSL] outputStruct is the value a fragment stage returns. It cannot be an operand or a statement.",
+    );
+  }
+  return lowered;
+}
+
+/**
+ * The roots of a stage, ready to compile. A fragment stage has its
+ * `outputStruct` written out and its implicit colour converted, see
+ * {@link fragmentColour}. Any other stage, and a program with no stage,
+ * refuses an `outputStruct`, which is a fragment stage's result.
+ */
+export function prepareRoots<T extends Node<ShaderType>>(stage: string | undefined, roots: readonly T[]): T[] {
+  if (stage === "fragment")
+    return fragmentColour(lowerOutputStruct(roots as readonly BaseNode<ShaderType>[]) as unknown as T[]);
+  if (someNode(roots, (n) => n.type === "outputStruct")) {
+    throw new Error(
+      `[RMSL] outputStruct is the value a fragment stage returns, and this program is compiled ` +
+        (stage === undefined ? "with no stage" : `as a ${stage} stage`) +
+        `. Compile it as a fragment stage.`,
+    );
+  }
+  return [...roots];
+}
+
+/**
  * The roots of a fragment stage with the implicit colour converted to a `vec4`
  * the way TSL converts it to its render target's type. A `vec3` gains an alpha
  * of 1, a `vec2` a blue of 0 and an alpha of 1, and a scalar fills every

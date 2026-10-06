@@ -1,4 +1,4 @@
-import { MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH } from "../core";
+import { MATRIX_DIMENSIONS, Node, OutputStruct, ShaderType, TYPE_WIDTH } from "../core";
 
 /** Values a host supplies to a compiled CPU function. */
 export type CpuShaderContext = {
@@ -214,15 +214,27 @@ export type VertexResult = {
 };
 
 /**
- * What a fragment stage writes for one fragment: its colour as the four
- * channels of a `vec4`, which is undefined for a stage that writes no colour,
- * the values it wrote with `output()` by slot, and the depth it wrote.
+ * The values an `outputStruct` writes, by position: one for each member, of
+ * the JavaScript type its shader type has.
  */
-export type FragmentResult = {
-  value: number[] | undefined;
-  outputs: Record<string, unknown>;
-  fragDepth?: number;
+export type CpuOutputs<M extends readonly Node<ShaderType>[]> = {
+  -readonly [K in keyof M]: M[K] extends Node<infer A> ? CpuValue<A> : never;
 };
+
+/**
+ * What a fragment stage writes for one fragment: its colour as the four
+ * channels of a `vec4`, the values of its `outputStruct` by position, and the
+ * depth it wrote. A stage that returns an `outputStruct` has no colour, and a
+ * stage that returns a colour has no outputs. `R` is what the stage returns.
+ */
+export type FragmentResult<R = unknown> =
+  R extends OutputStruct<infer M extends readonly Node<ShaderType>[]>
+    ? { value: undefined; outputs: CpuOutputs<M>; fragDepth?: number }
+    : unknown extends R
+      ? { value: number[] | undefined; outputs: unknown[]; fragDepth?: number }
+      : R extends Node<"void">
+        ? { value: undefined; outputs: []; fragDepth?: number }
+        : { value: number[]; outputs: []; fragDepth?: number };
 
 /** A compiled vertex program, run once per vertex. */
 export type VertexStage = {
@@ -230,8 +242,8 @@ export type VertexStage = {
 };
 
 /** A compiled fragment program, run once per fragment. `null` is a fragment that discarded. */
-export type FragmentStage = {
-  run(ctx: CpuShaderContext): FragmentResult | null;
+export type FragmentStage<R = unknown> = {
+  run(ctx: CpuShaderContext): FragmentResult<R> | null;
   /**
    * Runs the program once for each pixel of a `width x height` grid, with
    * `fragCoord()` at the centre of each pixel, and packs the colours into one
@@ -270,14 +282,19 @@ export function toVertexResult(raw: CpuValue<ShaderType> | CpuShaderResult | nul
   return { position, varyings: (wrapped && (raw.varyings as Record<string, unknown>)) || {} };
 }
 
+/** The values a routine wrote to its outputs, in the order of their locations. */
+function outputsInOrder(outputs: Record<string, unknown> | undefined): unknown[] {
+  return Object.keys(outputs ?? {})
+    .sort((a, b) => Number(a.replace(/\D/g, "")) - Number(b.replace(/\D/g, "")))
+    .map((slot) => outputs![slot]);
+}
+
 /** The {@link FragmentResult} of what a routine compiled for the fragment stage returned, `null` when it discarded. */
-export function toFragmentResult(raw: CpuValue<ShaderType> | CpuShaderResult | null): FragmentResult | null {
+export function toFragmentResult<R>(raw: CpuValue<ShaderType> | CpuShaderResult | null): FragmentResult<R> | null {
   if (raw === null) return null;
-  if (!isResultObject(raw)) return { value: Array.isArray(raw) ? (raw as number[]) : undefined, outputs: {} };
-  const result: FragmentResult = {
-    value: Array.isArray(raw.value) ? (raw.value as number[]) : undefined,
-    outputs: raw.outputs ?? {},
-  };
-  if (raw.fragDepth !== undefined) result.fragDepth = raw.fragDepth;
-  return result;
+  const result: { value: number[] | undefined; outputs: unknown[]; fragDepth?: number } = isResultObject(raw)
+    ? { value: Array.isArray(raw.value) ? (raw.value as number[]) : undefined, outputs: outputsInOrder(raw.outputs) }
+    : { value: Array.isArray(raw) ? (raw as number[]) : undefined, outputs: [] };
+  if (isResultObject(raw) && raw.fragDepth !== undefined) result.fragDepth = raw.fragDepth;
+  return result as FragmentResult<R>;
 }

@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest";
-import { Fn, float, int, vec2, vec3, bool } from "../rmsl";
-import { compileJSRoutine } from "../js";
+import { Fn, float, int, vec2, vec3, vec4, bool, outputStruct } from "../rmsl";
+import { compileJSFragment, compileJSRoutine } from "../js";
 import { compileWasmRoutine } from "../wasm";
 
 describe("refusals the types make", () => {
@@ -35,5 +35,24 @@ describe("what a routine returns", () => {
     expectTypeOf(compileWasmRoutine(() => Fn(() => float(1))(), none).run({})).toEqualTypeOf<number>();
     expectTypeOf(compileWasmRoutine(() => Fn(() => bool(true))(), none).run({})).toEqualTypeOf<boolean>();
     expectTypeOf(compileWasmRoutine(() => Fn(() => vec2(1, 2))(), none).run({})).toEqualTypeOf<number[]>();
+  });
+});
+
+describe("what a fragment stage returns", () => {
+  /**
+   * @canon spec-an-output-struct-writes-each-member-at-its-position
+   */
+  it("types the outputs of an outputStruct by position, with no colour", () => {
+    const stage = compileJSFragment(() => Fn(() => outputStruct(float(7), vec3(1, 2, 3)))(), none);
+    const result = stage.run({});
+    expectTypeOf(result).toEqualTypeOf<{ value: undefined; outputs: [number, number[]]; fragDepth?: number } | null>();
+  });
+
+  /**
+   * @canon spec-a-fragment-stage-returns-its-colour-and-outputs
+   */
+  it("types the colour of a stage that returns one, with no outputs", () => {
+    const stage = compileJSFragment(() => Fn(() => vec4(1, 2, 3, 4))(), none);
+    expectTypeOf(stage.run({})).toEqualTypeOf<{ value: number[]; outputs: []; fragDepth?: number } | null>();
   });
 });

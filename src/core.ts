@@ -2870,6 +2870,26 @@ export function output<T extends ShaderType>(shaderType: T): Var<T> {
   }) as Var<T>;
 }
 
+declare const outputMembers: unique symbol;
+
+/** What `outputStruct` returns: a fragment stage's result, with the members it writes in the type. */
+export type OutputStruct<M extends readonly BaseNode<ShaderType>[] = readonly BaseNode<ShaderType>[]> = Node<"void"> & {
+  readonly [outputMembers]?: M;
+};
+
+/**
+ * The result of a fragment stage that writes several values, one for each
+ * render target, at the location of its position among the members: TSL's
+ * `outputStruct`. A fragment stage returns it.
+ */
+export function outputStruct<const M extends readonly Node<ShaderType>[]>(...members: M): OutputStruct<M> {
+  return node({
+    _t: "void",
+    type: "outputStruct",
+    params: members.map((member) => wrapValue(member as any) as BaseNode<ShaderType>),
+  }) as unknown as OutputStruct<M>;
+}
+
 export function builtinPosition(): Var<"vec4"> {
   return node({
     _t: "vec4",

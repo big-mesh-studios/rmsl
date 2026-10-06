@@ -15,6 +15,7 @@ import {
   mat2x4,
   mat3,
   output,
+  outputStruct,
   uniform,
   Switch,
   uint,
@@ -25,8 +26,8 @@ import {
   vec4,
   type Node,
 } from "../rmsl";
-import { compileJSRoutine } from "../js";
-import { compileWasmRoutine } from "../wasm";
+import { compileJSCompute, compileJSRoutine, compileJSVertex } from "../js";
+import { compileWasmCompute, compileWasmRoutine, compileWasmVertex } from "../wasm";
 import {
   assertRecordedShadersValid,
   recordShaderSource,
@@ -64,13 +65,7 @@ describe("a mistake is refused before the program runs", () => {
    * @canon spec-only-a-square-matrix-is-inverted
    */
   it("compiles the matrix operations the shapes allow and refuses the others", () => {
-    const allowed = Fn(() =>
-      uniform("mat2x3")
-        .mul(uniform("mat3x2"))
-        .inverse()
-        .element(int(0))
-        .toVar(),
-    );
+    const allowed = Fn(() => uniform("mat2x3").mul(uniform("mat3x2")).inverse().element(int(0)).toVar());
     expect(compileGlsl(allowed())).toContain("inverse(");
     expect(compileWgsl(allowed())).toContain("_rmsl_inverse3");
     expect(() => (mat2x3(1, 0, 0, 1, 0, 0) as any).mul(mat2x4(1, 0, 0, 1, 0, 0, 0, 0))).toThrow();
@@ -91,12 +86,7 @@ describe("a mistake is refused before the program runs", () => {
    */
   it("gives each bare number its neighbour's type in one program, and refuses what the type cannot hold", () => {
     const prog = Fn(() =>
-      uniform("int")
-        .add(2)
-        .toFloat()
-        .add(uniform("uint").mul(3).toFloat())
-        .add(uniform("float").mul(4))
-        .toVar(),
+      uniform("int").add(2).toFloat().add(uniform("uint").mul(3).toFloat()).add(uniform("float").mul(4)).toVar(),
     );
     const wgsl = compileWgsl(prog());
     expect(wgsl).toContain("2i");
@@ -152,7 +142,12 @@ describe("a mistake is refused before the program runs", () => {
   it("refuses each operation no target can run, beside the same program written the way they run", () => {
     const values = instancedArray(4, "float");
     const runnable = () =>
-      Fn(() => vec3(1, 0, 0).cross(vec3(0, 1, 0)).x.add(values.element(int(0))).toVar())();
+      Fn(() =>
+        vec3(1, 0, 0)
+          .cross(vec3(0, 1, 0))
+          .x.add(values.element(int(0)))
+          .toVar(),
+      )();
     for (const compile of cpuCompilers) {
       expect(() => compile(runnable)).not.toThrow();
       expect(() =>
@@ -311,20 +306,30 @@ describe("a mistake is refused before the program runs", () => {
       })();
     for (const [name, compile] of compilers) {
       expect(() => compile(writeColumn(2)), `${name} write column 2`).not.toThrow();
-      expect(() => compile(writeColumn(3)), `${name} write column 3`).toThrow(/index 3 is outside a mat3's columns 0 to 2/);
+      expect(() => compile(writeColumn(3)), `${name} write column 3`).toThrow(
+        /index 3 is outside a mat3's columns 0 to 2/,
+      );
       expect(() => compile(writeComponent(1, 2)), `${name} write component 2`).not.toThrow();
-      expect(() => compile(writeComponent(3, 0)), `${name} write column 3 component 0`).toThrow(/index 3 is outside a mat3's columns/);
-      expect(() => compile(writeComponent(0, 3)), `${name} write component 3`).toThrow(/index 3 is outside a vec3's components 0 to 2/);
+      expect(() => compile(writeComponent(3, 0)), `${name} write column 3 component 0`).toThrow(
+        /index 3 is outside a mat3's columns/,
+      );
+      expect(() => compile(writeComponent(0, 3)), `${name} write component 3`).toThrow(
+        /index 3 is outside a vec3's components 0 to 2/,
+      );
     }
     for (const [name, compile] of compilers) {
       expect(() => compile(read(2)), `${name} read 2`).not.toThrow();
       expect(() => compile(read(3)), `${name} read 3`).toThrow(/index 3 is outside a vec3's components 0 to 2/);
       expect(() => compile(read(-1)), `${name} read -1`).toThrow(/index -1 is outside a vec3's components 0 to 2/);
       expect(() => compile(write(3)), `${name} write 3`).toThrow(/index 3 is outside a vec3's components 0 to 2/);
-      expect(() => compile(column(3, threeColumns)), `${name} mat3`).toThrow(/index 3 is outside a mat3's columns 0 to 2/);
+      expect(() => compile(column(3, threeColumns)), `${name} mat3`).toThrow(
+        /index 3 is outside a mat3's columns 0 to 2/,
+      );
       // A mat2x3 has two columns of three rows: the count is the columns.
       expect(() => compile(column(1, twoColumns)), `${name} mat2x3 column 1`).not.toThrow();
-      expect(() => compile(column(2, twoColumns)), `${name} mat2x3 column 2`).toThrow(/index 2 is outside a mat2x3's columns 0 to 1/);
+      expect(() => compile(column(2, twoColumns)), `${name} mat2x3 column 2`).toThrow(
+        /index 2 is outside a mat2x3's columns 0 to 1/,
+      );
     }
   });
 
@@ -389,6 +394,34 @@ describe("a mistake is refused before the program runs", () => {
     for (const compile of cpuComputeCompilers) {
       expect(() => compile(viaUniform)).not.toThrow();
       expect(() => compile(viaVarying)).toThrow(/cannot read a varying/);
+    }
+  });
+
+  /**
+   * An `outputStruct` is the value a fragment stage returns. A vertex stage, a
+   * compute stage and a program with no stage refuse it, on both CPU targets.
+   *
+   * @canon spec-an-output-struct-is-refused-outside-a-fragment-stage
+   */
+  it.each([
+    ["a vertex stage", compileJSVertex, compileWasmVertex],
+    ["a compute stage", compileJSCompute, compileWasmCompute],
+  ])("refuses an outputStruct in %s", (_, js, wasm) => {
+    const build = () => Fn(() => outputStruct(vec4(1, 0, 0, 1)))();
+    for (const compile of [js, wasm]) {
+      expect(() => compile(build, { name: "main", params: [] })).toThrow(
+        /outputStruct is the value a fragment stage returns/,
+      );
+    }
+  });
+
+  /**
+   * @canon spec-an-output-struct-is-refused-outside-a-fragment-stage
+   */
+  it("refuses an outputStruct in a program compiled as a routine", () => {
+    const build = () => Fn(() => outputStruct(vec4(1, 0, 0, 1)))();
+    for (const compile of [compileJSRoutine, compileWasmRoutine]) {
+      expect(() => compile(build, { name: "main", params: [] })).toThrow(/with no stage/);
     }
   });
 });
