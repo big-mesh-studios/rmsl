@@ -731,6 +731,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact webgpu-draws-nothing-for-a-triangle-off-the-viewport`](#fact-webgpu-draws-nothing-for-a-triangle-off-the-viewport) — WebGPU draws no pixel for a triangle wholly outside the viewport, at any distance from it, and reports no error.
 - [`@fact webgpu-culls-no-face-by-default`](#fact-webgpu-culls-no-face-by-default) — A WebGPU render pipeline culls no face unless it asks to, so a triangle draws whichever way its vertices wind.
 - [`@fact a-webgpu-canvas-configured-opaque-drops-alpha`](#fact-a-webgpu-canvas-configured-opaque-drops-alpha) — A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha was drawn into it.
+- [`@fact react-three-fiber-and-threlte-create-their-renderer-with-alpha`](#fact-react-three-fiber-and-threlte-create-their-renderer-with-alpha) — react-three-fiber and Threlte build their `WebGLRenderer` with `alpha: true`, so a canvas they draw on clears to alpha 0.
 <!-- toc:end -->
 
 ## Open questions
@@ -3084,6 +3085,10 @@ This follows because a draw that kept what an earlier draw left would give one p
 
 > A draw that gives no `clearColor` clears to transparent black, `[0, 0, 0, 0]`.
 
+Derives from: [`fact-react-three-fiber-and-threlte-create-their-renderer-with-alpha`](#fact-react-three-fiber-and-threlte-create-their-renderer-with-alpha)
+
+This follows because the three.js frameworks that most applications draw through give their canvas an alpha channel, so their clear is transparent. An adapter that cleared to opaque black would differ from them where its canvas shows the page.
+
 ###### @spec a-glsl-js-and-wasm-draw-clears-to-transparent-black
 
 > A draw of the GLSL adapter, and of a JS or WASM rasterizer routine, that gives no `clearColor` leaves the cleared pixels at `[0, 0, 0, 0]`.
@@ -4878,3 +4883,9 @@ Chromium's WebGPU draws a counter-clockwise and a clockwise triangle alike with 
 > A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha was drawn into it.
 
 Chromium's WebGPU draws a fragment of alpha 0 into a canvas configured opaque, and the page reads the pixel back with alpha 255.
+
+## @fact react-three-fiber-and-threlte-create-their-renderer-with-alpha
+
+> react-three-fiber and Threlte build their `WebGLRenderer` with `alpha: true`, so a canvas they draw on clears to alpha 0.
+
+This is how they behave, read from their source: `createRenderer` in react-three-fiber's `packages/fiber/src/core/renderer.ts`, and the renderer fragment in Threlte's `packages/core/src/lib/context/fragments/renderer.svelte.ts`. three.js clears to alpha 0 when `alpha` is `true` (`WebGLBackground`). Its own default is `false`, which clears to alpha 1.
