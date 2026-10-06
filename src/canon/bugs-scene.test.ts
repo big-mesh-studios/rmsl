@@ -214,6 +214,37 @@ afterEach(() => {
 
 describe("known bugs of the scene library, each failing until its fix", () => {
   /**
+   * @canon spec-a-webgpu-render-records-what-a-fresh-renderer-records
+   */
+  it("records the pass a fresh renderer records after drawing another scene first", () => {
+    const sceneOf = (z: number, color: number) => {
+      const scene = new Scene();
+      const mesh = new Mesh(new PlaneGeometry(), new MeshBasicMaterial({ color }));
+      mesh.position.z = z;
+      scene.add(mesh);
+      return scene;
+    };
+    const recorded = (render: (renderer: WebGPURenderer) => void) => {
+      const { device, canvas, passes } = stubDevice();
+      render(new WebGPURenderer(canvas, device as any));
+      const last = passes[passes.length - 1];
+      return JSON.stringify([
+        last.descriptor.colorAttachments[0].clearValue,
+        last.calls.map((c) => [c.name, c.args.filter((a) => typeof a === "number")]),
+      ]);
+    };
+    const later = sceneOf(-1, 0x00ff00);
+
+    const afterOther = recorded((renderer) => {
+      renderer.render(sceneOf(1, 0xff0000), camera());
+      renderer.render(later, camera());
+    });
+    const fresh = recorded((renderer) => renderer.render(later, camera()));
+
+    expect(afterOther).toBe(fresh);
+  });
+
+  /**
    * The WebGPU renderer pads each column of a `mat3` uniform to 16 bytes, as WGSL
    * reads it.
    *
@@ -960,6 +991,46 @@ globalThis.__rmslR8UIRowsRun = () => {
 };
 `;
 
+// A frame whose last draw has `depthWrite: false`, then a frame of one far
+// plane: the second frame must read the same pixel as the same frame on a
+// renderer that drew nothing before it.
+const ENTRY_DEPTH_MASK = `
+import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry, MeshBasicMaterial } from "../scene";
+globalThis.__rmslDepthMaskRun = () => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 16;
+  canvas.height = 16;
+  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  renderer.setClearColor(0x000000);
+  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 4);
+  camera.lookAt(0, 0, 0);
+  const plane = (z, color, depthWrite) => {
+    const material = new MeshBasicMaterial({ color });
+    material.depthWrite = depthWrite;
+    const mesh = new Mesh(new PlaneGeometry(2, 2), material);
+    mesh.position.z = z;
+    return mesh;
+  };
+  const centre = () => {
+    const gl = renderer.gl;
+    const pixels = new Uint8Array(4);
+    gl.readPixels(8, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    return [pixels[0], pixels[1], pixels[2]];
+  };
+  const far = new Scene();
+  far.add(plane(-2, 0x00ff00, true));
+  renderer.render(far, camera);
+  const fresh = centre();
+
+  const earlier = new Scene();
+  earlier.add(plane(2, 0xff0000, true), plane(3, 0x0000ff, false));
+  renderer.render(earlier, camera);
+  renderer.render(far, camera);
+  return { fresh, afterMaskedDraw: centre() };
+};
+`;
+
 describe.skipIf(!GPU_ENABLED)("known bugs of the scene library on a real driver", () => {
   /**
    * The WebGL renderer uploads a single-channel integer texture under the
@@ -974,6 +1045,21 @@ describe.skipIf(!GPU_ENABLED)("known bugs of the scene library on a real driver"
       const result = await runInGpuPage(ENTRY_R8UI_ROWS, "__rmslR8UIRowsRun", new URL(".", import.meta.url).pathname);
       expect(result.error).toBe(0);
       expect(result.r).toBe(40);
+    },
+    60_000,
+  );
+
+  /**
+   * `render` clears depth under the depth mask the last draw left, so after a
+   * `depthWrite: false` draw the clear does nothing and the earlier depth stays.
+   *
+   * @canon bug-webgl-clears-depth-under-the-mask-the-last-draw-left
+   */
+  it.fails(
+    "draws a far plane after a frame whose last draw wrote no depth on WebGL",
+    async () => {
+      const result = await runInGpuPage(ENTRY_DEPTH_MASK, "__rmslDepthMaskRun", new URL(".", import.meta.url).pathname);
+      expect(result.afterMaskedDraw).toEqual(result.fresh);
     },
     60_000,
   );

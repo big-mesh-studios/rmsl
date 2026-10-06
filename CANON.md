@@ -440,6 +440,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-compute-call-takes-its-count-from-the-first-storage-buffer`](#spec-a-compute-call-takes-its-count-from-the-first-storage-buffer) — A `compute` call given no count runs one invocation for each element of the first storage buffer the host passed. A buffer the host passes after it does not change that count.
       - [`@spec a-vector-storage-buffer-counts-its-elements`](#spec-a-vector-storage-buffer-counts-its-elements) — The elements of a storage buffer are counted as its type says. A buffer of `vec4` holds a quarter as many elements as it has components, and a dispatch over it runs one invocation per element.
     - [`@spec a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte`](#spec-a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte) — A JS or WASM routine adapter clamps each channel to 0 to 1 and writes it on its canvas as the nearest byte.
+  - [`@spec a-render-depends-only-on-what-it-is-given`](#spec-a-render-depends-only-on-what-it-is-given) — `render(scene, camera, target)` on a renderer of `./scene` gives the pixels that the same call gives on a fresh renderer, whatever the renderer drew before.
+    - [`@spec a-draw-configures-every-enabled-vertex-attribute`](#spec-a-draw-configures-every-enabled-vertex-attribute) — A draw on the WebGL renderer runs with enabled only the vertex attribute arrays it configured itself, whatever mesh drew before it.
+    - [`@spec a-render-clears-the-depth-buffer-whatever-the-last-draw-masked`](#spec-a-render-clears-the-depth-buffer-whatever-the-last-draw-masked) — A render on the WebGL renderer clears the depth buffer, whatever depth mask the last draw left.
+      - [`@bug webgl-clears-depth-under-the-mask-the-last-draw-left`](#bug-webgl-clears-depth-under-the-mask-the-last-draw-left) — `render` clears depth without setting the depth mask first. After a draw whose material has `depthWrite: false`, the clear does nothing, and the depth of the earlier render stays.
+    - [`@spec a-webgpu-render-records-what-a-fresh-renderer-records`](#spec-a-webgpu-render-records-what-a-fresh-renderer-records) — A render on the WebGPU renderer records the same pass as the same call on a fresh renderer, whatever the renderer drew before.
   - [`@spec a-scene-renderer-manages-what-it-uploads`](#spec-a-scene-renderer-manages-what-it-uploads) — A renderer of `./scene` uploads each geometry, texture and uniform once, again when it changes, and frees it when it is disposed. It compiles a program once for each light set and kind of mesh.
     - [`@spec a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise`](#spec-a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise) — `new WebGLRenderer()` gives a renderer at once, and `WebGPURenderer.init()` gives one through a promise, because WebGPU requests its device asynchronously.
     - [`@spec a-webgpu-draw-keeps-its-own-uniforms-however-many-draws-a-frame-has`](#spec-a-webgpu-draw-keeps-its-own-uniforms-however-many-draws-a-frame-has) — Each draw of a frame on the WebGPU renderer reads its own uniforms, whatever the number of draws in the frame.
@@ -3122,6 +3127,38 @@ This follows because the application owns the data it uploads and decides how ma
 Derives from: [`spec-an-adapter-draws-one-frame-for-each-call`](#spec-an-adapter-draws-one-frame-for-each-call), [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`fact-webgpu-stores-a-float-in-an-8-bit-channel-clamped-and-rounded`](#fact-webgpu-stores-a-float-in-an-8-bit-channel-clamped-and-rounded)
 
 This follows because WebGPU stores a float into an 8-bit canvas by clamping and rounding it, and a CPU target gives what WebGPU gives.
+
+### @spec a-render-depends-only-on-what-it-is-given
+
+> `render(scene, camera, target)` on a renderer of `./scene` gives the pixels that the same call gives on a fresh renderer, whatever the renderer drew before.
+
+Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because the application hands the renderer a scene and never touches the graphics API. The state that the API keeps between draws is then the renderer's to keep. A render that read what an earlier render left would give one scene different pixels. A driver that checks such state would refuse the draw where another driver runs it.
+
+#### @spec a-draw-configures-every-enabled-vertex-attribute
+
+> A draw on the WebGL renderer runs with enabled only the vertex attribute arrays it configured itself, whatever mesh drew before it.
+
+This follows because WebGL checks every enabled array against the whole draw, whether the program declares its location. An array left from a mesh with more vertices rejects the draw of a mesh with fewer attributes.
+
+#### @spec a-render-clears-the-depth-buffer-whatever-the-last-draw-masked
+
+> A render on the WebGL renderer clears the depth buffer, whatever depth mask the last draw left.
+
+This follows because the depth mask applies to `clear`, and the renderer sets the mask for each draw from its material.
+
+##### @bug webgl-clears-depth-under-the-mask-the-last-draw-left
+
+> `render` clears depth without setting the depth mask first. After a draw whose material has `depthWrite: false`, the clear does nothing, and the depth of the earlier render stays.
+
+Issue: #185
+
+#### @spec a-webgpu-render-records-what-a-fresh-renderer-records
+
+> A render on the WebGPU renderer records the same pass as the same call on a fresh renderer, whatever the renderer drew before.
+
+This follows because the renderer builds each pass from the scene, and keeps no state between passes that a pass reads.
 
 ### @spec a-scene-renderer-manages-what-it-uploads
 
