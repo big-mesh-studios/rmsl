@@ -1,4 +1,4 @@
-import { Fn, mat3, output, vec4, type Node } from "../../rmsl";
+import { Fn, mat3, vec4, type Node } from "../../rmsl";
 import { Material } from "./Material";
 import {
   Builder,
@@ -96,12 +96,9 @@ export class NodeMaterial extends Material {
     const vertex = Fn(() => (this.vertexNode ? this.vertexNode(b) : this.buildVertexBody(b)))() as Node<"vec4">;
     b.stage = "fragment";
     const fragment = Fn(() => {
-      const outColor = output("vec4");
       const color = this.fragmentNode ? this.fragmentNode(b) : this.buildFragmentBody(b);
       // The per-instance color tints the material's color, whatever it is.
-      const tinted = b.instancingColor ? vec4(color.rgb.mul(b.instanceColorVarying), color.a) : color;
-      outColor.assign(tinted);
-      return outColor;
+      return b.instancingColor ? vec4(color.rgb.mul(b.instanceColorVarying), color.a) : color;
     })() as Node<"vec4">;
 
     const v = collectNodes(vertex);
