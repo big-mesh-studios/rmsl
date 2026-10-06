@@ -767,6 +767,8 @@ The analysis found these places where the code or the documents do not hold the 
 4. A matrix constructor given a scalar node among its numbers compiles to `[object Object]`. Issue #66 asks whether to accept such a node or refuse it.
 5. `var_`, `assertBlockScope` and `compileWat` are exported with no documented purpose. Issue #73 asks whether they are public API.
 6. The WebGL renderer sets a texture's sampler state only when `needsUpdate` uploads the texture, as three.js does, where the WebGPU renderer follows a change at once. Issue #187 asks which rule both renderers keep.
+7. `createWgsl` configures its canvas opaque, so a transparent clear shows as opaque black where the other adapters show the page. Issue #188 asks whether to configure it premultiplied.
+8. rmsl changes the state of a WebGL context that the application hands it, such as the unpack alignment, and does not restore it. The canon says nothing about what rmsl leaves for code that shares the context. Issue #189 asks for a ruling.
 
 ### Coverage gaps
 
