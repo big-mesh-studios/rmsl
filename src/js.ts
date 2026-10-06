@@ -24,9 +24,9 @@ export type {
 } from "./backends/cpu";
 
 export type { CpuAdapter, AdapterResult as CpuAdapterResult } from "./backends/adapter-cpu";
-export { createJsRoutine, createJsCompute, createJs } from "./backends/js/adapter-js";
+export { createJsGrid, createJsCompute, createJs } from "./backends/js/adapter-js";
 export type {
-  CreateJsRoutineOptions,
+  CreateJsGridOptions,
   CreateJsComputeOptions,
   JsComputeAdapter,
   JsAdapter,

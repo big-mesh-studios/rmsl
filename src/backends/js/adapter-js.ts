@@ -14,7 +14,7 @@ import { compileJS, CompileJSRasterOptions, JsRasterContext } from "./rasterizer
 import { fragmentColour } from "../shared";
 import { compileJSCompute, compileJSGrid, CompileJSOptions } from "./js";
 
-export interface CreateJsRoutineOptions {
+export interface CreateJsGridOptions {
   /** A fragCoord() program that returns a colour, evaluated once per canvas pixel by `draw()`. */
   draw: Node<ShaderType>;
   name?: string;
@@ -33,7 +33,7 @@ export interface CreateJsRoutineOptions {
  * for the same reason (see `src/backends/wasm/adapter-wasm.ts`'s own
  * split, which this mirrors).
  */
-export function createJsRoutine(options: CreateJsRoutineOptions): CpuAdapter {
+export function createJsGrid(options: CreateJsGridOptions): CpuAdapter {
   const draw = compileJSGrid(() => fragmentColour([options.draw])[0] as Node<"vec4">, {
     name: options.name ?? "draw",
     params: options.params ?? [],

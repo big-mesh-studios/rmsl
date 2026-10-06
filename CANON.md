@@ -431,8 +431,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-wgsl-context-compiles-a-compute-node-once`](#spec-a-wgsl-context-compiles-a-compute-node-once) — A WGSL compute context creates one pipeline for a compute node at its first dispatch, and reuses it at every later one.
 - [`@axiom rmsl-compiles-and-the-application-drives`](#axiom-rmsl-compiles-and-the-application-drives) — rmsl hands the application what it compiled: shader source, callables, adapters and node graphs. The application decides when to draw and when to dispatch. It owns the canvas, the frame loop and the data it uploads.
   - [`@spec what-rmsl-hands-back-draws-nothing-on-its-own`](#spec-what-rmsl-hands-back-draws-nothing-on-its-own) — What rmsl hands back draws nothing until the application calls it. An adapter draws or dispatches once for each call.
-    - [`@spec an-adapter-draws-one-frame-for-each-call`](#spec-an-adapter-draws-one-frame-for-each-call) — `draw()` on an adapter draws one frame into the canvas it attached, and nothing more until the next call. This holds for the GLSL adapter, the JS and WASM rasterizers, and the JS and WASM routines.
-      - [`@bug create-wasm-routine-fails-under-its-default-name`](#bug-create-wasm-routine-fails-under-its-default-name) — `createWasmRoutine` names its routine `draw` by default, which collides with the grid loop the module exports as `draw`, so the module does not instantiate.
+    - [`@spec an-adapter-draws-one-frame-for-each-call`](#spec-an-adapter-draws-one-frame-for-each-call) — `draw()` on an adapter draws one frame into the canvas it attached, and nothing more until the next call. This holds for the GLSL adapter, the JS and WASM rasterizers, and the JS and WASM grids.
+      - [`@bug create-wasm-grid-fails-under-its-default-name`](#bug-create-wasm-grid-fails-under-its-default-name) — `createWasmGrid` names its program `draw` by default, which collides with the grid loop the module exports as `draw`, so the module does not instantiate.
     - [`@spec a-draw-clears-its-target-first-unless-it-asks-not-to`](#spec-a-draw-clears-its-target-first-unless-it-asks-not-to) — A draw of an adapter, and of a CPU rasterizer routine, clears the colour of its target before it draws, to its `clearColor`. A draw that passes `clear: false` draws over what is there. A CPU draw also clears its depth buffer, unless it passes `clearDepth: false`.
       - [`@spec a-draw-clears-the-colour-of-its-target-to-its-clear-colour`](#spec-a-draw-clears-the-colour-of-its-target-to-its-clear-colour) — A draw clears the colour of its target to its `clearColor` before it draws, so no pixel of an earlier draw remains.
       - [`@spec a-clear-colour-is-transparent-black-unless-the-draw-gives-one`](#spec-a-clear-colour-is-transparent-black-unless-the-draw-gives-one) — A draw that gives no `clearColor` clears to transparent black, `[0, 0, 0, 0]`.
@@ -3106,11 +3106,11 @@ This follows because the application decides when to draw.
 
 #### @spec an-adapter-draws-one-frame-for-each-call
 
-> `draw()` on an adapter draws one frame into the canvas it attached, and nothing more until the next call. This holds for the GLSL adapter, the JS and WASM rasterizers, and the JS and WASM routines.
+> `draw()` on an adapter draws one frame into the canvas it attached, and nothing more until the next call. This holds for the GLSL adapter, the JS and WASM rasterizers, and the JS and WASM grids.
 
-##### @bug create-wasm-routine-fails-under-its-default-name
+##### @bug create-wasm-grid-fails-under-its-default-name
 
-> `createWasmRoutine` names its routine `draw` by default, which collides with the grid loop the module exports as `draw`, so the module does not instantiate.
+> `createWasmGrid` names its program `draw` by default, which collides with the grid loop the module exports as `draw`, so the module does not instantiate.
 
 Issue: #72
 

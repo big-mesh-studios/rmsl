@@ -12,8 +12,8 @@ export type AdapterResult = Record<string, TypedArray>;
  * fills once for each canvas pixel. Not
  * exported publicly: {@link createCpuAdapter} is wrapped by
  * `createJsCompute`/`createWasmCompute` (`compute` only) and
- * `createJsRoutine`/`createWasmRoutine` (`draw` only) — each passing a
- * single already-compiled routine under its own field, never both.
+ * `createJsGrid`/`createWasmGrid` (`draw` only) — each passing a
+ * single already-compiled program under its own field, never both.
  */
 export interface CpuAdapterPrograms {
   compute?: ComputeStage;
@@ -21,8 +21,8 @@ export interface CpuAdapterPrograms {
 }
 
 /** `compute`/`draw` here are each required — unlike the base Adapter's
- * optional, possibly-async versions — even though `createJsRoutine`/
- * `createWasmRoutine` only ever build the `draw` half now (`compute()`
+ * optional, possibly-async versions — even though `createJsGrid`/
+ * `createWasmGrid` only ever build the `draw` half now (`compute()`
  * throws on the result). `createJsCompute`/`createWasmCompute` build the
  * `compute` half instead, but expose it through their own narrower
  * `JsComputeAdapter`/`WasmComputeAdapter` types rather than this one, so

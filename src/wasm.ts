@@ -24,11 +24,11 @@ export type {
   VertexStage,
 } from "./backends/cpu";
 
-export { createWasmRoutine, createWasmCompute, createWasm } from "./backends/wasm/adapter-wasm";
+export { createWasmGrid, createWasmCompute, createWasm } from "./backends/wasm/adapter-wasm";
 export { createWasmContext } from "./backends/wasm/context-wasm";
 export type { WasmContext } from "./backends/wasm/context-wasm";
 export type {
-  CreateWasmRoutineOptions,
+  CreateWasmGridOptions,
   CreateWasmComputeOptions,
   WasmComputeAdapter,
   WasmAdapter,

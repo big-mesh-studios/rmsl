@@ -28,7 +28,7 @@ import {
   compileJSGrid,
   compileJSRoutine,
   compileJSVertex,
-  createJsRoutine,
+  createJsGrid,
 } from "../js";
 import {
   compileWasm,
@@ -37,7 +37,7 @@ import {
   compileWasmGrid,
   compileWasmRoutine,
   compileWasmVertex,
-  createWasmRoutine,
+  createWasmGrid,
 } from "../wasm";
 import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } from "../testing/shader-eval";
 
@@ -63,13 +63,13 @@ const rasterizers: [string, typeof compileJS][] = [
   ["WASM", compileWasm as unknown as typeof compileJS],
 ];
 
-const routineAdapters: [string, typeof createJsRoutine][] = [
-  ["JS", createJsRoutine],
-  ["WASM", createWasmRoutine as unknown as typeof createJsRoutine],
+const routineAdapters: [string, typeof createJsGrid][] = [
+  ["JS", createJsGrid],
+  ["WASM", createWasmGrid as unknown as typeof createJsGrid],
 ];
 
 /** The bytes a routine adapter puts on a one-pixel canvas for `draw`. */
-function shownOnCanvas(create: typeof createJsRoutine, draw: Node<any>): number[] {
+function shownOnCanvas(create: typeof createJsGrid, draw: Node<any>): number[] {
   const hadImageData = "ImageData" in globalThis;
   if (!hadImageData) {
     (globalThis as any).ImageData = class {

@@ -29,7 +29,7 @@ import {
   compileWasmFn,
   compileWasmRoutine,
   createWasmCompute,
-  createWasmRoutine,
+  createWasmGrid,
   compileWasmFragment,
 } from "../wasm";
 

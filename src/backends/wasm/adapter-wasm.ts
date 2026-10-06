@@ -14,7 +14,7 @@ import { compileWasm, CompileWasmOptions, WasmRasterContext } from "./rasterizer
 import { fragmentColour } from "../shared";
 import { compileWasmCompute, compileWasmGrid, CompileWasmFnOptions } from "./wasm";
 
-export interface CreateWasmRoutineOptions {
+export interface CreateWasmGridOptions {
   /** A fragCoord() program that returns a colour, evaluated once per canvas pixel by `draw()`. */
   draw: Node<ShaderType>;
   name?: string;
@@ -37,7 +37,7 @@ export interface CreateWasmRoutineOptions {
  * the vertex/fragment render shape — those each got their own dedicated
  * entry point rather than living as options here for the same reason.
  */
-export function createWasmRoutine(options: CreateWasmRoutineOptions): CpuAdapter {
+export function createWasmGrid(options: CreateWasmGridOptions): CpuAdapter {
   const draw = compileWasmGrid(() => fragmentColour([options.draw])[0] as Node<"vec4">, {
     name: options.name ?? "draw",
     params: options.params ?? [],
@@ -91,7 +91,7 @@ export interface WasmComputeAdapter {
  * dispatch loop. Invocations still run one after another, with no workgroup
  * model (issue #8). This only narrows the *type*, matching
  * `storage()`/`invocationIndex()`'s own shape instead of reusing
- * `createWasmRoutine`'s `draw`-shaped, non-pipeline option bag.
+ * `createWasmGrid`'s `draw`-shaped, non-pipeline option bag.
  */
 export function createWasmCompute(
   compute: Node<ShaderType> | readonly Node<ShaderType>[],

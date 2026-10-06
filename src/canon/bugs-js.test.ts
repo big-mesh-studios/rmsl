@@ -22,7 +22,7 @@ import {
   vec4,
   type Node,
 } from "../rmsl";
-import { compileJS, compileJSFn, compileJSRoutine, createJsCompute, createJsRoutine } from "../js";
+import { compileJS, compileJSFn, compileJSRoutine, createJsCompute, createJsGrid } from "../js";
 import { evaluateJS } from "../testing/shader-eval";
 
 const param = { name: "main", params: [{ name: "a", type: "float" as const }] };

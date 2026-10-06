@@ -34,8 +34,8 @@ import {
 } from "../rmsl";
 import { compileGlsl } from "../glsl";
 import { compileWgsl } from "../wgsl";
-import { compileJS, compileJSRoutine, createJsRoutine, compileJSFragment, compileJSVertex } from "../js";
-import { compileWasm, compileWasmRoutine, createWasmRoutine, compileWasmFragment, compileWasmVertex } from "../wasm";
+import { compileJS, compileJSRoutine, createJsGrid, compileJSFragment, compileJSVertex } from "../js";
+import { compileWasm, compileWasmRoutine, createWasmGrid, compileWasmFragment, compileWasmVertex } from "../wasm";
 import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } from "../testing/shader-eval";
 
 afterAll(async () => {
@@ -558,7 +558,7 @@ describe("each leaf on every target it claims", () => {
   });
 
   /** The bytes a routine adapter puts on its canvas for one pixel of `draw`. */
-  function shownBy(create: typeof createJsRoutine, draw: Node<any>): number[] {
+  function shownBy(create: typeof createJsGrid, draw: Node<any>): number[] {
     const hadImageData = "ImageData" in globalThis;
     if (!hadImageData) {
       (globalThis as any).ImageData = class {
@@ -588,7 +588,7 @@ describe("each leaf on every target it claims", () => {
    * @canon spec-a-vec3-result-takes-an-opaque-alpha
    */
   it("shows a vec3 result with an opaque alpha on the JS and WASM routine adapters", () => {
-    for (const create of [createJsRoutine, createWasmRoutine]) {
+    for (const create of [createJsGrid, createWasmGrid]) {
       expect(shownBy(create, Fn(() => vec3(1, 0.5, 0))())).toEqual([255, 128, 0, 255]);
     }
   });
@@ -597,7 +597,7 @@ describe("each leaf on every target it claims", () => {
    * @canon spec-a-vec2-result-takes-a-zero-blue-and-an-opaque-alpha
    */
   it("shows a vec2 result with a zero blue on the JS and WASM routine adapters", () => {
-    for (const create of [createJsRoutine, createWasmRoutine]) {
+    for (const create of [createJsGrid, createWasmGrid]) {
       expect(shownBy(create, Fn(() => vec2(1, 0.5))())).toEqual([255, 128, 0, 255]);
     }
   });
@@ -606,7 +606,7 @@ describe("each leaf on every target it claims", () => {
    * @canon spec-a-scalar-result-fills-every-channel
    */
   it("shows a scalar result in every channel on the JS and WASM routine adapters", () => {
-    for (const create of [createJsRoutine, createWasmRoutine]) {
+    for (const create of [createJsGrid, createWasmGrid]) {
       expect(shownBy(create, Fn(() => float(0.5))())).toEqual([128, 128, 128, 128]);
     }
   });
