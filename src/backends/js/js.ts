@@ -2114,14 +2114,23 @@ export function compileJSFn(
   return compileJSFnDetailed(fn, options).source;
 }
 
+/** Copies a routine's result, arrays and the objects that hold them, so no scratch slot is shared. */
+function ownedValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(ownedValue);
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, ownedValue(entry)]));
+  }
+  return value;
+}
+
 /**
  * Compile an Fn to an actual callable function, with the scratch slots and
  * helper functions baked into its closure.
  *
- * The result is called as `fn(ctx)` where `ctx` is a `CpuShaderContext`. Its
- * scratch slots are shared across calls, so a call must finish before the next
- * one starts — for screen picking one call per click that is the point. Pass
- * `{ reentrant: true }` for per-call bindings instead.
+ * The result is called as `fn(ctx)` where `ctx` is a `CpuShaderContext`, and
+ * the value it returns is the caller's own: a later call does not change it.
+ * The scratch slots are shared across calls, so a call must finish before the
+ * next one starts. Pass `{ reentrant: true }` for per-call bindings instead.
  *
  * Also carries `draw()`, the same whole-image entry point `compileWasmRoutine`'s
  * result has: one JS call per pixel, feeding `fragCoord` in and packing every
@@ -2133,7 +2142,12 @@ export function compileJSRoutine(
 ): CpuRoutine {
   const { source, resultType, storageTypes } = compileJSFnDetailed(fn, options);
   const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuShaderResult;
-  const run = factory();
+  const runScratch = factory();
+
+  /** The result of one call, copied out of the scratch slots the next call writes into. */
+  function run(ctx: CpuShaderContext): number | boolean | CpuShaderResult {
+    return ownedValue(runScratch(ctx)) as number | boolean | CpuShaderResult;
+  }
 
   function draw(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
     if (resultType === undefined) {
@@ -2153,7 +2167,7 @@ export function compileJSRoutine(
       for (let x = 0; x < width; x++) {
         // pixel centers land at (x + 0.5, y + 0.5) — the same convention
         // compileWasmRoutine's draw() and fragCoordMemory in wasm.ts use.
-        const result = run({ ...ctx, fragCoord: [x + 0.5, y + 0.5] });
+        const result = runScratch({ ...ctx, fragCoord: [x + 0.5, y + 0.5] });
         const raw =
           typeof result === "object" && result !== null && "value" in result
             ? (result as CpuShaderResult).value
@@ -2172,7 +2186,7 @@ export function compileJSRoutine(
     const invocation: CpuShaderContext = { ...ctx };
     for (let i = 0; i < count; i++) {
       invocation.index = i;
-      run(invocation);
+      runScratch(invocation);
     }
   }
 

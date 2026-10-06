@@ -138,43 +138,6 @@ describe("known bugs of the JS target, each failing until its fix", () => {
   });
 
   /**
-   * A JS routine returns a vector held in its scratch block, so the next call
-   * overwrites the value an earlier call returned.
-   *
-   * @canon bug-js-routine-overwrites-the-value-it-returned-before
-   */
-  it.fails("keeps the value a JS routine returned when it is called again", () => {
-    const run = compileJSRoutine((a: any) => Fn(() => vec3(a, a, a).toVar())(), param);
-    const first = run.run({ params: { a: 1 } });
-    run.run({ params: { a: 2 } });
-    expect(first).toEqual([1, 1, 1]);
-  });
-
-  /**
-   * The JS rasterizer keeps the position each vertex returns from its scratch
-   * block, so every vertex of a draw ends at the position of the last one.
-   *
-   * @canon bug-js-rasterizer-gives-every-vertex-the-last-position
-   */
-  it.fails("rasterizes each vertex at its own position when the position is a variable", () => {
-    const position = attribute("vec3");
-    const routine = compileJS(
-      () =>
-        Fn(() => {
-          const p = vec4(position.x, position.y, position.z, 1).toVar();
-          builtinPosition().assign(p);
-        })() as any,
-      () => Fn(() => vec4(1, 1, 1, 1).toVar())() as any,
-      { attributeTypes: { [position.name]: "vec3" } },
-    );
-    const image = routine.draw(
-      { attributes: { [position.name]: new Float64Array(screenAt(0)) } },
-      { width: 2, height: 2, clear: true, clearDepth: true },
-    );
-    expect(Array.from(image)).toEqual(new Array(16).fill(1));
-  });
-
-  /**
    * On JS, `textureLoad` outside the texture into a variable leaves the
    * variable as it was, rather than writing zero into it.
    *

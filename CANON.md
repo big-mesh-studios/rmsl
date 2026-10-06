@@ -532,7 +532,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug wasm-wraps-a-vector-result-in-a-result-object`](#bug-wasm-wraps-a-vector-result-in-a-result-object) — A WASM routine returns a vector or matrix value inside a result object even when the program writes no output, varying, position or depth.
       - [`@bug wasm-returns-a-value-for-a-discarded-fragment`](#bug-wasm-returns-a-value-for-a-discarded-fragment) — A WASM routine returns `0`, or a result holding a zero value, for a discarded fragment.
     - [`@spec a-cpu-routine-answers-one-fragment-per-call`](#spec-a-cpu-routine-answers-one-fragment-per-call) — `run` of a CPU routine evaluates the program once, for the context the host passes. The same routine serves any number of calls, and a value one call returned keeps what it holds through the calls after it.
-      - [`@bug js-routine-overwrites-the-value-it-returned-before`](#bug-js-routine-overwrites-the-value-it-returned-before) — A JS routine returns a vector held in its scratch block, so the next call overwrites the value an earlier call returned.
       - [`@bug wasm-routine-draws-into-a-buffer-the-next-draw-overwrites`](#bug-wasm-routine-draws-into-a-buffer-the-next-draw-overwrites) — `draw` of a WASM routine returns a view of its own memory. The next `draw` overwrites the pixels an earlier one returned.
     - [`@spec a-cpu-routine-draws-a-grid-of-fragments`](#spec-a-cpu-routine-draws-a-grid-of-fragments) — `draw` of a CPU routine evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to draw.
     - [`@spec a-cpu-routine-runs-one-compute-invocation-per-call`](#spec-a-cpu-routine-runs-one-compute-invocation-per-call) — A CPU routine of a program that reads `storage()` and `invocationIndex()` runs one invocation for each call. It reads and writes any element of the buffers the host passes by slot.
@@ -553,7 +552,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@bug js-rasterizer-draws-a-triangle-below-zero-depth`](#bug-js-rasterizer-draws-a-triangle-below-zero-depth) — The JS rasterizer draws a triangle whose depth lies below zero, which WebGPU clips away.
       - [`@spec a-triangle-off-screen-draws-nothing`](#spec-a-triangle-off-screen-draws-nothing) — A triangle wholly outside the viewport draws nothing, at any distance from it.
         - [`@bug wasm-rasterizer-traps-on-a-triangle-far-off-screen`](#bug-wasm-rasterizer-traps-on-a-triangle-far-off-screen) — The rasterizer truncates a triangle's bounding box to i32 before it clamps it to the viewport, which traps for a triangle far off screen.
-      - [`@bug js-rasterizer-gives-every-vertex-the-last-position`](#bug-js-rasterizer-gives-every-vertex-the-last-position) — The JS rasterizer keeps the position each vertex returns from its scratch block. Every vertex of a draw then ends at the position of the last one.
+      - [`@spec a-rasterizer-gives-each-vertex-its-own-position`](#spec-a-rasterizer-gives-each-vertex-its-own-position) — A CPU rasterizer places each vertex of a draw at the position its own vertex call returned, whatever the vertex program keeps in variables.
       - [`@spec a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds`](#spec-a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds) — A CPU rasterizer draws a triangle whether its vertices run clockwise or counter-clockwise on the screen.
     - [`@spec shader-logic-is-tested-without-a-graphics-api`](#spec-shader-logic-is-tested-without-a-graphics-api) — The `./test` library runs a graph on the JS target and hands back values or a grid of fragments. A plain unit test can then assert on the logic of a shader.
       - [`@spec evaluate-gives-the-value-of-one-fragment`](#spec-evaluate-gives-the-value-of-one-fragment) — `evaluate` gives the value one fragment computes, at the coordinate `fragCoord()` says, with the type the graph has on the CPU. It carries the depth, the outputs, the position and the varyings the program writes, and reports a discarded fragment as discarded.
@@ -3690,12 +3689,6 @@ Issue: #82
 
 > `run` of a CPU routine evaluates the program once, for the context the host passes. The same routine serves any number of calls, and a value one call returned keeps what it holds through the calls after it.
 
-##### @bug js-routine-overwrites-the-value-it-returned-before
-
-> A JS routine returns a vector held in its scratch block, so the next call overwrites the value an earlier call returned.
-
-Issue: #83
-
 ##### @bug wasm-routine-draws-into-a-buffer-the-next-draw-overwrites
 
 > `draw` of a WASM routine returns a view of its own memory. The next `draw` overwrites the pixels an earlier one returned.
@@ -3802,11 +3795,13 @@ This follows because a GPU draws no pixel outside the viewport and fails on no c
 
 Issue: #89
 
-##### @bug js-rasterizer-gives-every-vertex-the-last-position
+##### @spec a-rasterizer-gives-each-vertex-its-own-position
 
-> The JS rasterizer keeps the position each vertex returns from its scratch block. Every vertex of a draw then ends at the position of the last one.
+> A CPU rasterizer places each vertex of a draw at the position its own vertex call returned, whatever the vertex program keeps in variables.
 
-Issue: #83
+Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives)
+
+This follows because a GPU shades each vertex apart from the others, and a CPU target gives what WebGPU gives.
 
 ##### @spec a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds
 
