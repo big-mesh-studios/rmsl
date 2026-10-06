@@ -1,5 +1,5 @@
 import { Node, ShaderType } from "../../core";
-import { DrawCountOptions } from "../adapter";
+import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK } from "../adapter";
 import { componentCountOf, CpuDrawBuffer, CpuShaderContext } from "../cpu";
 import { compileJSRoutine, CompileJSOptions } from "./js";
 
@@ -40,17 +40,17 @@ export interface JsRasterContext {
 }
 
 /**
- * Same as `WasmRasterDrawOptions`: `clear`/`clearDepth` default to
- * `false`, so several `draw()` calls in a row compose onto both buffers
- * by default — mirroring how a WebGPU render pass declares
- * `loadOp`/`depthLoadOp` together, per pass, rather than clearing as a
- * separate operation.
+ * Same as `WasmRasterDrawOptions`: `clear` and `clearDepth` default to
+ * `true`, so each `draw()` starts from a cleared colour and depth buffer,
+ * as a three.js render does. Pass `false` to compose several draws onto
+ * both buffers, occlusion included — mirroring how a WebGPU render pass
+ * declares `loadOp`/`depthLoadOp` together, per pass, rather than clearing
+ * as a separate operation.
  */
-export interface JsRasterDrawOptions extends DrawCountOptions {
+export interface JsRasterDrawOptions extends DrawCountOptions, DrawClearOptions {
   width: number;
   height: number;
   out?: CpuDrawBuffer;
-  clear?: boolean;
   clearDepth?: boolean;
 }
 
@@ -175,8 +175,7 @@ export function compileJS(
   // currently holds, never moved or shrunk otherwise.
   let depthBuffer: Float64Array | null = null;
   // Persists across draw() calls too, same as WasmRasterRoutine's output
-  // buffer address does by default — several draw() calls in a row
-  // compose onto it unless `out` (caller-owned) or `clear` says otherwise.
+  // buffer address does — a draw that passes `clear: false` composes onto it.
   let colorBuffer: Float64Array | null = null;
 
   function draw(ctx: JsRasterContext, options: JsRasterDrawOptions): CpuDrawBuffer {
@@ -214,7 +213,7 @@ export function compileJS(
     const pixelCount = width * height;
     if (!depthBuffer || depthBuffer.length < pixelCount) {
       depthBuffer = new Float64Array(pixelCount).fill(Infinity);
-    } else if (options.clearDepth) {
+    } else if (options.clearDepth !== false) {
       depthBuffer.fill(Infinity);
     }
 
@@ -222,7 +221,15 @@ export function compileJS(
       colorBuffer = new Float64Array(pixelCount * 4);
     }
     const result = out ?? colorBuffer!;
-    if (options.clear) result.fill(0, 0, pixelCount * 4);
+    if (options.clear !== false) {
+      const [r, g, b, a] = options.clearColor ?? TRANSPARENT_BLACK;
+      for (let i = 0; i < pixelCount * 4; i += 4) {
+        result[i] = r;
+        result[i + 1] = g;
+        result[i + 2] = b;
+        result[i + 3] = a;
+      }
+    }
 
     for (const [v0, v1, v2] of clippedTriangles) {
       const w0 = v0!.position[3]!,

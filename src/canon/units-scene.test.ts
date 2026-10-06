@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { vec4 } from "../rmsl";
 import {
   AmbientLight,
@@ -14,6 +14,8 @@ import {
   WebGLRenderTarget,
   WebGPURenderer,
 } from "../scene";
+import { GPU_ENABLED, releaseGpu } from "../testing/gpu";
+import { runInGpuPage } from "../testing/browser";
 
 interface Call {
   name: string;
@@ -189,4 +191,58 @@ describe("a node material lights as three.js does", () => {
     expect(value[1]).toBeCloseTo(g * 3, 6);
     expect(value[2]).toBeCloseTo(b * 3, 6);
   });
+});
+
+// A frame whose last draw has `depthWrite: false`, then a frame of one far
+// plane: the second frame must read the same pixel as the same frame on a
+// renderer that drew nothing before it.
+const ENTRY_DEPTH_MASK = `
+import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry, MeshBasicMaterial } from "../scene";
+globalThis.__rmslDepthMaskRun = () => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 16;
+  canvas.height = 16;
+  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  renderer.setClearColor(0x000000);
+  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 4);
+  camera.lookAt(0, 0, 0);
+  const plane = (z, color, depthWrite) => {
+    const material = new MeshBasicMaterial({ color });
+    material.depthWrite = depthWrite;
+    const mesh = new Mesh(new PlaneGeometry(2, 2), material);
+    mesh.position.z = z;
+    return mesh;
+  };
+  const centre = () => {
+    const gl = renderer.gl;
+    const pixels = new Uint8Array(4);
+    gl.readPixels(8, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    return [pixels[0], pixels[1], pixels[2]];
+  };
+  const far = new Scene();
+  far.add(plane(-2, 0x00ff00, true));
+  renderer.render(far, camera);
+  const fresh = centre();
+
+  const earlier = new Scene();
+  earlier.add(plane(2, 0xff0000, true), plane(3, 0x0000ff, false));
+  renderer.render(earlier, camera);
+  renderer.render(far, camera);
+  return { fresh, afterMaskedDraw: centre() };
+};
+`;
+
+describe.skipIf(!GPU_ENABLED)("a render depends only on what it is given, on a real driver", () => {
+  /**
+   * @canon spec-a-render-clears-the-depth-buffer-whatever-the-last-draw-masked
+   */
+  it("draws a far plane after a frame whose last draw wrote no depth on WebGL", async () => {
+    const result = await runInGpuPage(ENTRY_DEPTH_MASK, "__rmslDepthMaskRun", new URL(".", import.meta.url).pathname);
+    expect(result.afterMaskedDraw).toEqual(result.fresh);
+  }, 60_000);
+});
+
+afterAll(async () => {
+  await releaseGpu();
 });

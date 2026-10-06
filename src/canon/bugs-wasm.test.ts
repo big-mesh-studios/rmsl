@@ -269,26 +269,6 @@ describe("known WASM bugs, each failing until its fix", () => {
   });
 
   /**
-   * `compileWasm` clears its colour buffer only when a draw passes `clear`,
-   * so a pixel the next draw leaves uncovered keeps the earlier colour.
-   *
-   * @canon bug-the-cpu-rasterizers-keep-the-colour-of-an-earlier-draw
-   */
-  it.fails("starts each draw from a cleared colour buffer on WASM", () => {
-    const { pos, color, routine } = flat();
-    routine.draw(
-      { attributes: { [pos.name]: screen() }, uniforms: { [color.name]: [1, 0, 0, 1] } },
-      { width: 1, height: 1 },
-    );
-    const offscreen = new Float64Array([5, 5, 0, 6, 5, 0, 5, 6, 0]);
-    const got = routine.draw(
-      { attributes: { [pos.name]: offscreen }, uniforms: { [color.name]: [0, 0, 1, 1] } },
-      { width: 1, height: 1 },
-    );
-    expect(Array.from(got)).toEqual([0, 0, 0, 0]);
-  });
-
-  /**
    * `createWasmCompute` names its routine `compute` by default, the name of
    * the module's own dispatch export, so a program with storage fails to compile.
    *

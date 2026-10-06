@@ -144,6 +144,8 @@ export class WebGLRenderer {
     }
     const [r, g, b] = this.clearColor.toArray();
     gl.clearColor(r, g, b, this.clearAlpha);
+    // The depth mask applies to `clear`, and the last draw left it as its material set it.
+    gl.depthMask(true);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
 

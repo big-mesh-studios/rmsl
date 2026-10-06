@@ -214,6 +214,37 @@ afterEach(() => {
 
 describe("known bugs of the scene library, each failing until its fix", () => {
   /**
+   * @canon spec-a-webgpu-render-records-what-a-fresh-renderer-records
+   */
+  it("records the pass a fresh renderer records after drawing another scene first", () => {
+    const sceneOf = (z: number, color: number) => {
+      const scene = new Scene();
+      const mesh = new Mesh(new PlaneGeometry(), new MeshBasicMaterial({ color }));
+      mesh.position.z = z;
+      scene.add(mesh);
+      return scene;
+    };
+    const recorded = (render: (renderer: WebGPURenderer) => void) => {
+      const { device, canvas, passes } = stubDevice();
+      render(new WebGPURenderer(canvas, device as any));
+      const last = passes[passes.length - 1];
+      return JSON.stringify([
+        last.descriptor.colorAttachments[0].clearValue,
+        last.calls.map((c) => [c.name, c.args.filter((a) => typeof a === "number")]),
+      ]);
+    };
+    const later = sceneOf(-1, 0x00ff00);
+
+    const afterOther = recorded((renderer) => {
+      renderer.render(sceneOf(1, 0xff0000), camera());
+      renderer.render(later, camera());
+    });
+    const fresh = recorded((renderer) => renderer.render(later, camera()));
+
+    expect(afterOther).toBe(fresh);
+  });
+
+  /**
    * The WebGPU renderer pads each column of a `mat3` uniform to 16 bytes, as WGSL
    * reads it.
    *
@@ -960,6 +991,54 @@ globalThis.__rmslR8UIRowsRun = () => {
 };
 `;
 
+// One texture read through a float sampler and then through an integer one. The
+// second read must give what it gives on a renderer that never read the texture
+// as a float.
+const ENTRY_FLOAT_THEN_INTEGER = `
+import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry, MeshBasicMaterial, DataTexture } from "../scene";
+import { float, uvec2, vec2 } from "../rmsl";
+globalThis.__rmslFloatThenIntegerRun = () => {
+  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 1);
+  camera.lookAt(0, 0, 0);
+  const make = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    const renderer = new WebGLRenderer(canvas, { antialias: false });
+    renderer.setClearColor(0x000000);
+    return renderer;
+  };
+  const reading = (texture, type) => {
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => {
+      const sampler = b.sampler("map", type, () => texture);
+      return type === "sampler2D"
+        ? sampler.texture(vec2(0.5, 0.5))
+        : sampler.texture(uvec2(0, 0)).toVec4().div(float(255));
+    };
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(2, 2), material));
+    return scene;
+  };
+  const centre = (renderer) => {
+    const gl = renderer.gl;
+    const pixels = new Uint8Array(4);
+    gl.readPixels(8, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    return [pixels[0], pixels[1], pixels[2]];
+  };
+  const texture = () => new DataTexture(new Uint8Array([0, 0, 255, 255]), 1, 1);
+
+  const shared = texture();
+  const renderer = make();
+  renderer.render(reading(shared, "sampler2D"), camera);
+  renderer.render(reading(shared, "usampler2D"), camera);
+  const fresh = make();
+  fresh.render(reading(texture(), "usampler2D"), camera);
+  return { afterFloat: centre(renderer), fresh: centre(fresh) };
+};
+`;
+
 describe.skipIf(!GPU_ENABLED)("known bugs of the scene library on a real driver", () => {
   /**
    * The WebGL renderer uploads a single-channel integer texture under the
@@ -974,6 +1053,26 @@ describe.skipIf(!GPU_ENABLED)("known bugs of the scene library on a real driver"
       const result = await runInGpuPage(ENTRY_R8UI_ROWS, "__rmslR8UIRowsRun", new URL(".", import.meta.url).pathname);
       expect(result.error).toBe(0);
       expect(result.r).toBe(40);
+    },
+    60_000,
+  );
+
+  /**
+   * The WebGL renderer writes a texture's filters once, from the sampler type
+   * that uploaded it, so an integer read after a float read meets linear
+   * filters and reads zero.
+   *
+   * @canon bug-webgl-keeps-the-sampler-state-of-the-first-sampler-that-uploaded-a-texture
+   */
+  it.fails(
+    "reads a texture as an integer after reading it as a float on WebGL",
+    async () => {
+      const result = await runInGpuPage(
+        ENTRY_FLOAT_THEN_INTEGER,
+        "__rmslFloatThenIntegerRun",
+        new URL(".", import.meta.url).pathname,
+      );
+      expect(result.afterFloat).toEqual(result.fresh);
     },
     60_000,
   );
