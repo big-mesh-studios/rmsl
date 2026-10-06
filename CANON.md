@@ -444,6 +444,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-draw-configures-every-enabled-vertex-attribute`](#spec-a-draw-configures-every-enabled-vertex-attribute) — A draw on the WebGL renderer runs with enabled only the vertex attribute arrays it configured itself, whatever mesh drew before it.
     - [`@spec a-render-clears-the-depth-buffer-whatever-the-last-draw-masked`](#spec-a-render-clears-the-depth-buffer-whatever-the-last-draw-masked) — A render on the WebGL renderer clears the depth buffer, whatever depth mask the last draw left.
       - [`@bug webgl-clears-depth-under-the-mask-the-last-draw-left`](#bug-webgl-clears-depth-under-the-mask-the-last-draw-left) — `render` clears depth without setting the depth mask first. After a draw whose material has `depthWrite: false`, the clear does nothing, and the depth of the earlier render stays.
+    - [`@spec a-texture-reads-as-its-sampler-asks-whichever-sampler-uploaded-it`](#spec-a-texture-reads-as-its-sampler-asks-whichever-sampler-uploaded-it) — A texture on the WebGL renderer reads as the type of the sampler that reads it asks, whichever type of sampler uploaded it.
+      - [`@bug webgl-keeps-the-sampler-state-of-the-first-sampler-that-uploaded-a-texture`](#bug-webgl-keeps-the-sampler-state-of-the-first-sampler-that-uploaded-a-texture) — The WebGL renderer writes a texture's filters and wrap once, when it uploads the texture, from the type of the sampler that uploaded it. An integer sampler that reads the texture later meets linear filters, an incomplete texture, and reads zero.
     - [`@spec a-webgpu-render-records-what-a-fresh-renderer-records`](#spec-a-webgpu-render-records-what-a-fresh-renderer-records) — A render on the WebGPU renderer records the same pass as the same call on a fresh renderer, whatever the renderer drew before.
   - [`@spec a-scene-renderer-manages-what-it-uploads`](#spec-a-scene-renderer-manages-what-it-uploads) — A renderer of `./scene` uploads each geometry, texture and uniform once, again when it changes, and frees it when it is disposed. It compiles a program once for each light set and kind of mesh.
     - [`@spec a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise`](#spec-a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise) — `new WebGLRenderer()` gives a renderer at once, and `WebGPURenderer.init()` gives one through a promise, because WebGPU requests its device asynchronously.
@@ -481,7 +483,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec the-webgpu-renderer-declares-one-uniform-struct-in-both-stages`](#spec-the-webgpu-renderer-declares-one-uniform-struct-in-both-stages) — The WebGPU renderer declares every uniform of a material in both stages, so the vertex and fragment shaders read one struct at the same offsets.
     - [`@spec a-render-target-takes-its-new-size-on-the-next-render`](#spec-a-render-target-takes-its-new-size-on-the-next-render) — A renderer draws a render target at its new size on the next render after its width or height changes, and frees the old storage.
     - [`@spec a-sampler-without-a-texture-reads-black`](#spec-a-sampler-without-a-texture-reads-black) — A sampler that its material gives no texture reads opaque black on every renderer.
-      - [`@bug webgl-leaves-a-textureless-sampler-on-unit-0`](#bug-webgl-leaves-a-textureless-sampler-on-unit-0) — The WebGL renderer never sets the unit of a sampler that has no texture. The sampler reads unit 0, the texture of another sampler.
+      - [`@bug webgl-leaves-a-textureless-sampler-on-unit-0`](#bug-webgl-leaves-a-textureless-sampler-on-unit-0) — The WebGL renderer never sets the unit of a sampler that has no texture. The sampler reads unit 0, which holds the texture of another sampler, or the texture an earlier draw or render left there.
     - [`@spec a-changed-attribute-uploads-only-its-update-range`](#spec-a-changed-attribute-uploads-only-its-update-range) — A renderer uploads only the ranges of a changed attribute that `addUpdateRange(start, count)` marked, and the whole attribute when it marked none.
       - [`@bug an-attribute-has-one-update-range-where-three-js-has-a-list`](#bug-an-attribute-has-one-update-range-where-three-js-has-a-list) — rmsl's `BufferAttribute` has one `updateRange` of an offset and a count, and has no `updateRanges`, `addUpdateRange` or `clearUpdateRanges`. Both renderers read that one range.
       - [`@bug webgpu-ignores-an-attribute-update-range`](#bug-webgpu-ignores-an-attribute-update-range) — The WebGPU renderer writes a changed attribute whole, from byte 0, ignoring the range it marks.
@@ -759,6 +761,7 @@ The analysis found these places where the code or the documents do not hold the 
 3. The documents call `While` and `For` TSL functions, but TSL has only `Loop`. Issue #59.
 4. A matrix constructor given a scalar node among its numbers compiles to `[object Object]`. Issue #66 asks whether to accept such a node or refuse it.
 5. `var_`, `assertBlockScope` and `compileWat` are exported with no documented purpose. Issue #73 asks whether they are public API.
+6. The WebGL renderer sets a texture's sampler state only when `needsUpdate` uploads the texture, as three.js does, where the WebGPU renderer follows a change at once. Issue #187 asks which rule both renderers keep.
 
 ### Coverage gaps
 
@@ -2818,6 +2821,8 @@ This follows because TSL is the shading language of three.js, and its users brin
 
 > `Line2NodeMaterial` compiles its `opacity` as a literal, so a change to it after the first render does nothing.
 
+Derives from: [`spec-a-render-depends-only-on-what-it-is-given`](#spec-a-render-depends-only-on-what-it-is-given)
+
 Issue: #97
 
 #### @spec a-node-material-shades-as-three-js-does
@@ -2853,6 +2858,8 @@ Issue: #95
 ###### @bug a-rebuild-reaches-one-signature-of-a-shared-material
 
 > A rebuild flagged by `needsUpdate` rebuilds only the program of the first kind of mesh drawn after it, and clears the flag. A material shared by a `Mesh` and an `InstancedMesh` keeps the stale program for the other.
+
+Derives from: [`spec-a-render-depends-only-on-what-it-is-given`](#spec-a-render-depends-only-on-what-it-is-given)
 
 Issue: #96
 
@@ -3154,6 +3161,18 @@ This follows because the depth mask applies to `clear`, and the renderer sets th
 
 Issue: #185
 
+#### @spec a-texture-reads-as-its-sampler-asks-whichever-sampler-uploaded-it
+
+> A texture on the WebGL renderer reads as the type of the sampler that reads it asks, whichever type of sampler uploaded it.
+
+This follows because [one rule decides how every target samples a texture](#spec-one-rule-decides-how-every-target-samples-a-texture), and reads an integer texture as nearest. A renderer that wrote the filters and wrap once, for the first sampler, would give a later sampler another answer.
+
+##### @bug webgl-keeps-the-sampler-state-of-the-first-sampler-that-uploaded-a-texture
+
+> The WebGL renderer writes a texture's filters and wrap once, when it uploads the texture, from the type of the sampler that uploaded it. An integer sampler that reads the texture later meets linear filters, an incomplete texture, and reads zero.
+
+Issue: #186
+
 #### @spec a-webgpu-render-records-what-a-fresh-renderer-records
 
 > A render on the WebGPU renderer records the same pass as the same call on a fresh renderer, whatever the renderer drew before.
@@ -3164,7 +3183,9 @@ This follows because the renderer builds each pass from the scene, and keeps no 
 
 > A renderer of `./scene` uploads each geometry, texture and uniform once, again when it changes, and frees it when it is disposed. It compiles a program once for each light set and kind of mesh.
 
-This follows because a renderer that owns the drawing of a scene owns its resources too.
+Derives from: [`spec-a-render-depends-only-on-what-it-is-given`](#spec-a-render-depends-only-on-what-it-is-given)
+
+This follows because a renderer that owns the drawing of a scene owns its resources too. A copy it kept after the geometry, texture or uniform changed would give pixels that a fresh renderer does not give.
 
 #### @spec a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise
 
@@ -3372,7 +3393,9 @@ This follows because the WebGPU renderer binds a 1×1 black texture there, and b
 
 ##### @bug webgl-leaves-a-textureless-sampler-on-unit-0
 
-> The WebGL renderer never sets the unit of a sampler that has no texture. The sampler reads unit 0, the texture of another sampler.
+> The WebGL renderer never sets the unit of a sampler that has no texture. The sampler reads unit 0, which holds the texture of another sampler, or the texture an earlier draw or render left there.
+
+Derives from: [`spec-a-render-depends-only-on-what-it-is-given`](#spec-a-render-depends-only-on-what-it-is-given)
 
 Issue: #120
 
