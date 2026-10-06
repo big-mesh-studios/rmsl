@@ -385,6 +385,14 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
+   * @canon spec-an-operand-that-is-an-expression-keeps-its-grouping
+   */
+  it("keeps the grouping of a scalar fract and inverse square root used as operands on every target", () => {
+    const build = (a: Node<"float">) => a.fract().mul(2).add(float(8).div(a.inverseSqrt()));
+    expect(evaluateRecording(build, [2.75])).toBeCloseTo(0.75 * 2 + 8 * Math.sqrt(2.75), 10);
+  });
+
+  /**
    * @canon spec-every-node-is-emitted-once
    */
   it("runs a block that two values share once on every target", () => {

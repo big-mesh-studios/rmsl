@@ -193,12 +193,15 @@ export const JS_ELEM: Record<string, { argc: number; fn: (xs: string[]) => strin
 };
 
 /**
- * The precedence of the outermost operator in each integer `JS_ELEM` form,
- * so a parent operator brackets it when it must: `(a + b) | 0` is an `|`,
- * not an addition, and `a < (a + b) | 0` would compare before the `|`.
+ * The precedence of the outermost operator in each scalar `JS_ELEM` form that
+ * is written as a formula, so a parent operator brackets it when it must:
+ * `(a + b) | 0` is an `|`, not an addition, and `a < (a + b) | 0` would
+ * compare before the `|`. `fract` is a subtraction and `rsqrt` a division.
  * A form missing here is a call, which never needs brackets.
  */
-const JS_INTEGER_PREC: Record<string, number> = {
+const JS_FORM_PREC: Record<string, number> = {
+  fract: PRECEDENCE.sub!,
+  rsqrt: PRECEDENCE.div!,
   iadd: PRECEDENCE.bitOr!,
   isub: PRECEDENCE.bitOr!,
   uadd: PRECEDENCE.shiftRight!,
@@ -222,7 +225,7 @@ const JS_INTEGER_PREC: Record<string, number> = {
 
 /** A scalar integer `JS_ELEM` form applied to compiled operands, bracketed as its operator needs. */
 function jsIntegerForm(op: string, operands: CompiledNode[]): { expr: string; prec?: number } {
-  return { expr: JS_ELEM[op]!.fn(operands.map(jsOperand)), prec: JS_INTEGER_PREC[op] };
+  return { expr: JS_ELEM[op]!.fn(operands.map(jsOperand)), prec: JS_FORM_PREC[op] };
 }
 
 export function jsZeroes(width: number): string {
@@ -906,7 +909,7 @@ export function jsUnaryMath(node: BaseNode<ShaderType>, ctx: CompileCtx, suffix:
     let a = compileJSStage(node.params![0], ctx);
     let e = JS_ELEM[suffix];
     if (!e) throw new Error(`[RMSL] Unknown JS unary op: ${suffix}`);
-    return { decls: a.decls, body: a.body, expr: e.fn([`(${a.expr})`]), prec: JS_INTEGER_PREC[suffix] };
+    return { decls: a.decls, body: a.body, expr: e.fn([`(${a.expr})`]), prec: JS_FORM_PREC[suffix] };
   }
   jsRequireHelper(ctx, `v${width}${suffix}`);
   let a = jsCompileOperand(node.params![0], ctx);

@@ -141,14 +141,6 @@ describe("known bugs, each failing until its fix", () => {
   });
 
   /**
-   * @canon bug-js-leaves-scalar-fract-and-inverse-sqrt-unbracketed
-   */
-  it.fails("keeps a scalar fract used as an operand grouped on JS", () => {
-    const run = compileJSRoutine((a: any) => Fn(() => a.fract().mul(2).toVar())(), param);
-    expect(run.run({ params: { a: 2.75 } })).toBe(1.5);
-  });
-
-  /**
    * @canon bug-every-target-compiles-operands-of-different-widths
    */
   it.fails("refuses vectors of different widths on JS", () => {

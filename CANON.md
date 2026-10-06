@@ -48,7 +48,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec every-node-is-emitted-once`](#spec-every-node-is-emitted-once) — A [node](#term-node) that several roots or statements reach is emitted once, in the place it first runs. A block it holds keeps its variables in scope, and a loop it holds keeps its loop variable.
     - [`@bug js-emits-a-constructor-operand-once-per-component`](#bug-js-emits-a-constructor-operand-once-per-component) — On JS, outside an assignment, a constructor writes out the expression of an operand once for every component it takes from it.
   - [`@spec an-operand-that-is-an-expression-keeps-its-grouping`](#spec-an-operand-that-is-an-expression-keeps-its-grouping) — An operand that is itself an expression computes as a whole before the operation that takes it. This holds on every target, whatever the precedence of its operators.
-    - [`@bug js-leaves-scalar-fract-and-inverse-sqrt-unbracketed`](#bug-js-leaves-scalar-fract-and-inverse-sqrt-unbracketed) — On JS, a scalar `fract` or `inverseSqrt` used as an operand loses its grouping, so `a.fract().mul(2)` computes `a - floor(a) * 2`.
   - [`@spec a-program-declares-any-number-of-uniforms-on-every-target`](#spec-a-program-declares-any-number-of-uniforms-on-every-target) — A [program](#term-program) declares every [uniform](#term-uniform) it reads, whatever their number, and compiles on every target.
     - [`@spec wgsl-packs-every-value-uniform-into-one-binding`](#spec-wgsl-packs-every-value-uniform-into-one-binding) — On WGSL, every uniform that holds a value is a member of one struct, bound once. GLSL declares each uniform on its own.
     - [`@spec a-texture-keeps-a-binding-of-its-own`](#spec-a-texture-keeps-a-binding-of-its-own) — On WGSL, a texture, and the sampler that goes with a float texture, each take a binding of their own outside the uniform struct. The stages of a render program number them from the whole set of its textures.
@@ -979,12 +978,6 @@ Issue: #87
 > An operand that is itself an expression computes as a whole before the operation that takes it. This holds on every target, whatever the precedence of its operators.
 
 This follows because a target whose operators bind differently would otherwise compute another expression.
-
-#### @bug js-leaves-scalar-fract-and-inverse-sqrt-unbracketed
-
-> On JS, a scalar `fract` or `inverseSqrt` used as an operand loses its grouping, so `a.fract().mul(2)` computes `a - floor(a) * 2`.
-
-Issue: #23
 
 ### @spec a-program-declares-any-number-of-uniforms-on-every-target
 
