@@ -4,7 +4,9 @@ import {
   builtinPosition,
   float,
   Fn,
+  If,
   instancedArray,
+  int,
   invocationIndex,
   ivec2,
   storage,
@@ -13,6 +15,7 @@ import {
   uniform,
   varying,
   vec2,
+  vec3,
   vec4,
   type Node,
 } from "../rmsl";
@@ -253,5 +256,94 @@ describe("the WASM rasterizer's memory", () => {
     expect(Array.from(routine.draw({ attributes: { [pos.name]: screen() } }, { width: 1, height: 1 }))).toEqual([
       1, 0, 0, 1,
     ]);
+  });
+});
+
+describe("an inline Fn whose value an operation reads more than once", () => {
+  const counter = instancedArray(1, "float");
+  /** An inline `Fn` that counts its runs in `counter` and returns `value`. */
+  const counted = (value: number) =>
+    Fn(() => {
+      counter.element(int(0)).addAssign(1);
+      return float(value);
+    })() as any;
+  const run = (compile: typeof compileJSRoutine, build: () => any) => {
+    const data = new Float64Array(1);
+    const result = compile(build, none).run({ storages: { [counter.name]: data } });
+    // A WASM routine wraps a result in an object (#62), so read the value out of it.
+    return { runs: data[0], result: typeof result === "object" && result !== null ? result.value : result };
+  };
+
+  /**
+   * @canon spec-an-inline-fn-runs-once
+   */
+  it.each(cpuTargets)("%s: runs it once when fract reads its value twice", (_, compile) => {
+    expect(run(compile, () => counted(2.75).fract())).toEqual({ runs: 1, result: 0.75 });
+  });
+
+  /**
+   * @canon spec-an-inline-fn-runs-once
+   */
+  it.each(cpuTargets)("%s: runs it once when sign reads its value twice", (_, compile) => {
+    expect(run(compile, () => counted(-3).sign())).toEqual({ runs: 1, result: -1 });
+  });
+
+  /**
+   * @canon spec-an-inline-fn-runs-once
+   */
+  it.each(cpuTargets)("%s: runs it once when the integer abs reads its value three times", (_, compile) => {
+    expect(run(compile, () => counted(-3).toInt().abs().toFloat())).toEqual({ runs: 1, result: 3 });
+  });
+
+  /**
+   * @canon spec-an-inline-fn-runs-once
+   */
+  it.each(cpuTargets)(
+    "%s: runs it once when a vector operation takes it as a scalar for every component",
+    (_, compile) => {
+      expect(run(compile, () => vec3(1, 2, 3).mul(counted(2)).z)).toEqual({ runs: 1, result: 6 });
+    },
+  );
+
+  /**
+   * @canon spec-an-inline-fn-runs-once
+   */
+  it.each(cpuTargets)("%s: runs it once when clamp takes it as a scalar bound", (_, compile) => {
+    expect(run(compile, () => vec3(1, 2, 3).clamp(counted(1.5), 2.5).x)).toEqual({ runs: 1, result: 1.5 });
+  });
+
+  /**
+   * @canon spec-an-inline-fn-runs-once
+   */
+  it("runs it in the branch that reads its value, and once there on WASM", () => {
+    const taken = uniform("float");
+    const result = instancedArray(1, "float");
+    const shared = counted(2);
+    const build = () =>
+      Fn(() => {
+        If(taken.greaterThan(0), () => {
+          result.element(int(0)).assign(shared.fract().add(shared));
+        }).Else(() => {
+          result.element(int(0)).assign(shared.mul(10));
+        });
+      })();
+    const read = (branch: number) => {
+      const data = new Float64Array(1);
+      const out = new Float64Array(1);
+      compileWasmRoutine(build, none).run({
+        storages: { [counter.name]: data, [result.name]: out },
+        uniforms: { [taken.name]: branch },
+      });
+      return { runs: data[0], value: out[0] };
+    };
+    expect(read(1)).toEqual({ runs: 1, value: 2 });
+    expect(read(0)).toEqual({ runs: 1, value: 20 });
+  });
+
+  /**
+   * @canon spec-an-inline-fn-runs-once
+   */
+  it.each(cpuTargets)("%s: runs it once when mix takes it as the weight of every component", (_, compile) => {
+    expect(run(compile, () => vec3(0, 0, 0).mix(vec3(4, 4, 4), counted(0.5)).z)).toEqual({ runs: 1, result: 2 });
   });
 });

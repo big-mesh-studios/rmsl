@@ -329,7 +329,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-fn-returns-what-its-body-returns`](#spec-an-fn-returns-what-its-body-returns) — A call of an `Fn` gives what its body returns: nothing, one value, or several. An empty body and a body that calls another `Fn` compile.
     - [`@spec an-inline-fn-runs-where-it-is-called`](#spec-an-inline-fn-runs-where-it-is-called) — A variable that a called `Fn` makes is declared where the call is, not where its value is first read.
     - [`@spec an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) — The statements of a called `Fn` run once, where it is called, no matter how often or where the program reads the value it returns.
-      - [`@bug wasm-runs-an-inline-fn-once-per-read-of-its-value`](#bug-wasm-runs-an-inline-fn-once-per-read-of-its-value) — An operation that reads a scalar operand once per component, or twice as `fract` and `sign` do, emits it each time. The statements of an inline `Fn` it returns then run more than once.
   - [`@spec a-variable-keeps-the-name-the-user-gave-it`](#spec-a-variable-keeps-the-name-the-user-gave-it) — `toVar(name)` and `var(name)` declare a variable under `name` on every target, in every compile. A name already taken in the program gets a number appended.
     - [`@spec a-variable-is-declared-under-the-name-given`](#spec-a-variable-is-declared-under-the-name-given) — `toVar(name)` and `var(name)` declare the variable under `name` on every target, in every compile.
     - [`@spec a-taken-variable-name-gets-a-number`](#spec-a-taken-variable-name-gets-a-number) — A variable name already taken in the program gets the next free number appended.
@@ -2525,12 +2524,6 @@ This follows because TSL builds a shader the same way.
 #### @spec an-inline-fn-runs-once
 
 > The statements of a called `Fn` run once, where it is called, no matter how often or where the program reads the value it returns.
-
-##### @bug wasm-runs-an-inline-fn-once-per-read-of-its-value
-
-> An operation that reads a scalar operand once per component, or twice as `fract` and `sign` do, emits it each time. The statements of an inline `Fn` it returns then run more than once.
-
-Issue: #87
 
 ### @spec a-variable-keeps-the-name-the-user-gave-it
 

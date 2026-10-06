@@ -871,6 +871,32 @@ export function compileWasmFn(
   // depth. walkStmt sets it for the statement it walks and restores it after,
   // so a nested statement's depth doesn't outlive that statement.
   let currentStmtDepth = EXIT_BLOCK_DEPTH;
+
+  /**
+   * The stretches of code being emitted that run together, innermost last: the
+   * function itself, each branch of an `If` and each loop. What an emitted
+   * expression stored in a local is there for the code that runs after it in
+   * the same stretch, or in one inside it.
+   */
+  const regionStack: number[] = [0];
+  let regionCount = 1;
+
+  /** Emits `emit` as a region of its own. */
+  function inRegion<T>(emit: () => T): T {
+    regionStack.push(regionCount++);
+    try {
+      return emit();
+    } finally {
+      regionStack.pop();
+    }
+  }
+
+  /**
+   * The local that holds the value of an inline `Fn` result whose statements
+   * were emitted once, with the region they were emitted in, so a later read in
+   * that region or one inside it reads the local instead of running them again.
+   */
+  const onceValue = new Map<any, { local: number; region: number }>();
   // Statement nodes are emitted at most once by identity: the array-return-
   // sugar case gives every result node the *same* leading statement objects
   // (see resultNodes above), and re-walking an already-emitted statement
@@ -3431,7 +3457,19 @@ export function compileWasmFn(
         // value evaluated as this expression's value.
         const stmts = node.params.slice(0, -1) as any[];
         const final = node.params[node.params.length - 1];
-        return [...stmts.flatMap((s) => walkStmt(s, currentStmtDepth)), ...walkExpr(final)];
+        // Its statements run once however often the value is read, as long as
+        // the code that reads it again runs after the first read.
+        const stored = onceValue.get(node);
+        if (stored !== undefined && regionStack.includes(stored.region)) {
+          return [WASM_OP.localGet, ...wasmUleb128(stored.local)];
+        }
+        const emitted = [...stmts.flatMap((s) => walkStmt(s, currentStmtDepth)), ...walkExpr(final)];
+        if (stmts.length === 0 || node._t === "void" || isAggregate(node._t as string)) return emitted;
+        const name = `$once${localSlots.length}`;
+        addLocal(name, scalarKindOf(node._t as string));
+        const local = localSlotIndex(name);
+        onceValue.set(node, { local, region: regionStack[regionStack.length - 1]! });
+        return [...emitted, WASM_OP.localTee, ...wasmUleb128(local)];
       }
 
       default:
@@ -3457,9 +3495,11 @@ export function compileWasmFn(
     const continueDepth = depth + 3;
     loopStack.push({ breakDepth, continueDepth });
     currentStmtDepth = continueDepth;
-    const condBytes = walkExpr(condNode);
-    const bodyBytes = walkStmt(bodyNode, continueDepth);
-    const updateBytes = updateNode ? walkStmt(updateNode, depth + 2) : [];
+    const { condBytes, bodyBytes, updateBytes } = inRegion(() => ({
+      condBytes: walkExpr(condNode),
+      bodyBytes: walkStmt(bodyNode, continueDepth),
+      updateBytes: updateNode ? walkStmt(updateNode, depth + 2) : [],
+    }));
     loopStack.pop();
     return [
       ...initBytes,
@@ -3587,14 +3627,14 @@ export function compileWasmFn(
       case "if": {
         const cond = walkExpr(node.params[0]);
 
-        const thenBytes = walkStmt(node.params[1], depth + 1);
+        const thenBytes = inRegion(() => walkStmt(node.params[1], depth + 1));
         const elseNode = node.params[2];
         return [
           ...cond,
           WASM_OP.if_,
           WASM_BLOCKTYPE_VOID,
           ...thenBytes,
-          ...(elseNode ? [WASM_OP.else_, ...walkStmt(elseNode, depth + 1)] : []),
+          ...(elseNode ? [WASM_OP.else_, ...inRegion(() => walkStmt(elseNode, depth + 1))] : []),
           WASM_OP.end,
         ];
       }
