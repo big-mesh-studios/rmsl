@@ -55,6 +55,41 @@ const checker = { data: Float32Array.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 1
 
 describe("known bugs of the JS target, each failing until its fix", () => {
   /**
+   * The statements of an inline `Fn` result are emitted with the first read of
+   * its value, so the other branch of an `If` gets the value and not the
+   * statements.
+   *
+   * @canon bug-js-runs-an-inline-fn-only-on-the-path-that-first-reads-it
+   */
+  it.fails("runs an inline Fn read in both branches of an If on the branch taken, on JS", () => {
+    const counter = instancedArray(1, "float");
+    const shared = Fn(() => {
+      counter.element(int(0)).addAssign(1);
+      return float(2);
+    })() as any;
+    const taken = uniform("float");
+    const result = instancedArray(1, "float");
+    const build = () =>
+      Fn(() => {
+        If(taken.greaterThan(0), () => {
+          result.element(int(0)).assign(shared.fract().add(shared));
+        }).Else(() => {
+          result.element(int(0)).assign(shared.mul(10));
+        });
+      })();
+    const runs = (branch: number) => {
+      const data = new Float64Array(1);
+      compileJSRoutine(build as any, none).run({
+        storages: { [counter.name]: data, [result.name]: new Float64Array(1) },
+        uniforms: { [taken.name]: branch },
+      });
+      return data[0];
+    };
+    expect(runs(1)).toBe(1);
+    expect(runs(0)).toBe(1);
+  });
+
+  /**
    * The JS rasterizer writes 0 into the red channel of a fragment that
    * discarded, over the colour already there.
    *
