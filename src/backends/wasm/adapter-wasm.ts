@@ -11,7 +11,7 @@ import {
 import { AdapterResult, bufferToImageData, CpuAdapter, createCpuAdapter } from "../adapter-cpu";
 import type { CpuTextureData } from "../cpu";
 import { compileWasm, CompileWasmOptions, WasmRasterContext } from "./rasterizer";
-import { compileWasmRoutine, CompileWasmFnOptions } from "./wasm";
+import { compileWasmCompute, compileWasmFragment, CompileWasmFnOptions } from "./wasm";
 
 export interface CreateWasmRoutineOptions {
   /** A fragCoord() program, evaluated once per canvas pixel by `draw()`. */
@@ -27,7 +27,7 @@ export interface CreateWasmRoutineOptions {
 }
 
 /**
- * Compiles a `fragCoord()` program with {@link compileWasmRoutine} and
+ * Compiles a `fragCoord()` program with {@link compileWasmFragment} and
  * wraps it in a {@link createCpuAdapter} — a plain CPU-callable evaluated
  * once per pixel/sample via its routine's in-WASM `draw()` loop (`docs/wasm.md`'s
  * screen-pick/ray-march niche, or a `width x 1` per-sample audio-DSP
@@ -37,9 +37,8 @@ export interface CreateWasmRoutineOptions {
  * entry point rather than living as options here for the same reason.
  */
 export function createWasmRoutine(options: CreateWasmRoutineOptions): CpuAdapter {
-  const draw = compileWasmRoutine(() => options.draw, {
+  const draw = compileWasmFragment(() => options.draw, {
     name: options.name ?? "draw",
-    stage: "fragment",
     params: options.params ?? [],
     derivatives: options.derivatives,
     reentrant: options.reentrant,
@@ -84,7 +83,7 @@ export interface WasmComputeAdapter {
 
 /**
  * Compiles a `storage()`/`invocationIndex()` program with
- * {@link compileWasmRoutine} and wraps it in a {@link createCpuAdapter} —
+ * {@link compileWasmCompute} and wraps it in a {@link createCpuAdapter} —
  * the wgpu-compute-pipeline-shaped counterpart to {@link createWasm}'s
  * render-pipeline shape. `compute()` copies each storage buffer into WASM
  * memory once and runs every invocation in one call to the module's own
@@ -97,9 +96,8 @@ export function createWasmCompute(
   compute: Node<ShaderType> | readonly Node<ShaderType>[],
   options: CreateWasmComputeOptions = {},
 ): WasmComputeAdapter {
-  const computeRoutine = compileWasmRoutine(() => compute, {
+  const computeRoutine = compileWasmCompute(() => compute, {
     name: options.name ?? "compute",
-    stage: "compute",
     params: options.params ?? [],
     derivatives: options.derivatives,
     reentrant: options.reentrant,
