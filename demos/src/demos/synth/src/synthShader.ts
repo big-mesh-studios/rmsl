@@ -66,13 +66,13 @@ export function oscillatorSample(
 }
 
 /**
- * `fill()` feeds each sample's index in as `fragCoord().x`, the same "one
+ * The grid feeds each sample's index in as `fragCoord().x`, the same "one
  * call covers the whole buffer" convention the Mandelbrot demo uses for
  * pixels, here applied to a 1D block of PCM samples. synthWorklet.ts
  * advances `u_startPhase` by this block's length between calls — the
  * oscillator's only persistent state lives on the host, not in the shader.
  */
 export const synthCpu = Fn(() => {
-  const sampleIndex = fragCoord().x.sub(0.5).toVar(); // undo fill()'s pixel-center (+0.5) offset
+  const sampleIndex = fragCoord().x.sub(0.5).toVar(); // undo the grid's pixel-center (+0.5) offset
   return oscillatorSample(sampleIndex, u_startPhase, u_freq, u_sampleRate, u_waveform, u_gain);
 });

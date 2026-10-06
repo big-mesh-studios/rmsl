@@ -85,14 +85,14 @@ export const u_scale_lo = uniform("vec2");
 export const u_palette = uniform("int");
 // CPU-only: how many rows above this call's own row 0 the caller's row range
 // actually starts at — 0 for a normal single-call draw, or a worker's row
-// offset when a worker-pool splits one frame's rows across several fill()
+// offset when a worker-pool splits one frame's rows across several grid calls
 // calls into disjoint slices of one shared output buffer.
 export const u_rowOffset = uniform("float");
 
 /**
  * The colour at a pixel `(dx, dy)` pixels from the view's center, shared by
  * the GPU fragment stage (whose `dx`/`dy` come from an interpolated
- * varying) and the CPU targets' grid `fill()` (whose `dx`/`dy` come from
+ * varying) and the CPU targets' grid (whose `dx`/`dy` come from
  * `fragCoord()` directly, with no vertex/varying stage at all).
  */
 export const mandelbrotColorAt = Fn((dx: Node<"float">, dy: Node<"float">): Node<"vec4"> => {
@@ -216,7 +216,7 @@ export const calcMandelbrot = Fn(() => {
 });
 
 /**
- * The CPU-target entry point: no vertex stage, no varying — `fill()` feeds
+ * The CPU-target entry point: no vertex stage, no varying — the grid feeds
  * each pixel's center in as `fragCoord()` directly. `fragCoord().y` grows
  * downward (row 0 is the top row, matching `ImageData`'s layout), the
  * opposite of `v_pos.y` (which grows upward, matching GL clip space), so the

@@ -22,7 +22,7 @@ import { WasmWorkerPool } from "./wasmWorkerPool";
 // === Compile RMSL shaders to GLSL, WGSL, JS and WASM ===
 // The same RMSL source (mandelbrotColorAt) drives all four: GLSL for
 // WebGL, WGSL for WebGPU, and the CPU-target Fn for compileJSGrid/compileWasmGrid's
-// fill() of a grid — one call per pixel, packed into a flat RGBA buffer.
+// a grid — one call per pixel, packed into a flat RGBA buffer.
 const vsGLSL = compileGlsl.vertex(vertexMain());
 const fsGLSL = compileGlsl.fragment(calcMandelbrot());
 const jsRenderer = compileJSGrid(() => calcMandelbrotCpu(), { name: "mandelbrotJS", params: [] });
@@ -71,7 +71,7 @@ function computeUniformValues(w: number, h: number): Record<string, number | num
     [u_scale_hi.name]: [scaleHi, scaleHi],
     [u_scale_lo.name]: [scaleLo, scaleLo],
     [u_palette.name]: palette,
-    [u_rowOffset.name]: 0, // non-zero only inside a worker-pool fill() call — see wasmWorkerPool.ts
+    [u_rowOffset.name]: 0, // non-zero only inside a worker-pool grid call — see wasmWorkerPool.ts
   };
 }
 
@@ -106,7 +106,7 @@ if (!gl) {
   throw new Error("WebGL2 not supported");
 }
 
-// === CPU (JS/WASM) display: a visible 2D canvas the compiled grid's fill()
+// === CPU (JS/WASM) display: a visible 2D canvas the compiled grid
 // buffer is blitted into directly — a canvas can only ever have one kind
 // of context, so the GPU and CPU paths each need their own element even
 // though they show the same view. Its *backing store* (width/height) is
@@ -681,7 +681,7 @@ function renderCpu(cpuMode: "js" | "wasm") {
   const w = cpuCanvas.width;
   const h = cpuCanvas.height;
 
-  const buffer = renderer.fill({ uniforms: computeUniformValues(w, h) }, w, h);
+  const buffer = renderer({ uniforms: computeUniformValues(w, h) }, w, h);
 
   const image = cpuCtx.createImageData(w, h);
   for (let i = 0; i < w * h; i++) {
