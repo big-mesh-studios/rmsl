@@ -597,11 +597,16 @@ function _texCube(tex, dir, out) {
         lines.push(`  out[${col * rL + row}] = ${terms.join(" + ")};`);
       }
     }
+    // A product written into one of its own operands reads that operand while it
+    // writes it, so it reads a copy: one array for each operand, made once.
+    let copyA = `_${name}A`;
+    let copyB = `_${name}B`;
     return (
+      `const ${copyA} = new Array(${cL * rL}), ${copyB} = new Array(${cR * rR});\n` +
       `function _${name}(a, b, out) {\n` +
       `  out = out || new Array(${cR * rL});\n` +
-      `  if (out === a) a = a.slice();\n` +
-      `  if (out === b) b = b.slice();\n${lines.join("\n")}\n  return out;\n}`
+      `  if (out === a) { for (let i = 0; i < ${cL * rL}; i++) ${copyA}[i] = a[i]; a = ${copyA}; }\n` +
+      `  if (out === b) { for (let i = 0; i < ${cR * rR}; i++) ${copyB}[i] = b[i]; b = ${copyB}; }\n${lines.join("\n")}\n  return out;\n}`
     );
   }
 

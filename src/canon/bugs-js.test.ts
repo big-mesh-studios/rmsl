@@ -188,25 +188,6 @@ describe("known bugs of the JS target, each failing until its fix", () => {
   });
 
   /**
-   * On JS, a matrix product written into one of its own operands copies that
-   * operand with `slice` on every call.
-   *
-   * @canon bug-js-matrix-product-into-its-operand-allocates
-   */
-  it.fails("multiplies a matrix into itself without a copy on JS", () => {
-    const source = compileJSFn(
-      (a: any) =>
-        Fn(() => {
-          const m = mat2(a, 0, 0, 1).toVar();
-          m.assign(m.mul(m));
-          return m;
-        })(),
-      param,
-    );
-    expect(source).not.toContain(".slice()");
-  });
-
-  /**
    * The JS rasterizer shades a pixel centre on an edge two triangles share
    * with both, so the triangle drawn last wins it.
    *

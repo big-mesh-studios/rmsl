@@ -563,4 +563,37 @@ describe("what a JS routine allocates per call", () => {
     const source = compileJSFn(() => Fn(() => cube.texture(vec3(1, 0, 0)).toVar())(), none);
     expect(source).not.toMatch(/_cubeFace\([^)]*\[0, 0, 0\]\)/);
   });
+  /**
+   * @canon spec-a-js-routine-allocates-nothing-per-call
+   */
+  it("multiplies a matrix into itself without a copy on JS", () => {
+    const source = compileJSFn(
+      (a: any) =>
+        Fn(() => {
+          const m = mat2(a, 0, 0, 1).toVar();
+          m.assign(m.mul(m));
+          return m;
+        })(),
+      param,
+    );
+    expect(source).not.toContain(".slice()");
+  });
+
+  /**
+   * @canon spec-a-js-routine-allocates-nothing-per-call
+   */
+  it("still squares a matrix into itself, from the operand as it was", () => {
+    const squared = compileJSRoutine(
+      (a: any) =>
+        Fn(() => {
+          const m = mat2(vec2(a, 0), vec2(1, 1)).toVar();
+          m.assign(m.mul(m));
+          return m;
+        })(),
+      param,
+    );
+    // The columns (a, 0) and (1, 1), squared, are (a * a, 0) and (a + 1, 1).
+    expect(squared({ params: { a: 3 } })).toEqual([9, 0, 4, 1]);
+    expect(squared({ params: { a: 2 } })).toEqual([4, 0, 3, 1]);
+  });
 });
