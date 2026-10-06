@@ -548,6 +548,17 @@ export class WebGLRenderer {
   }
 
   private usedTextureUnits = new Set<number>();
+  /**
+   * The vertex attribute locations this renderer left enabled on its last draw,
+   * so the next draw can turn off the ones it does not configure itself.
+   *
+   * Tracked rather than read back from `gl`, because `getVertexAttrib` reports a
+   * location's enabled flag on every context but reports the buffer behind it on
+   * only some — a renderer cannot ask what it left behind and have an answer it
+   * can rely on. It is also the narrower question: locations enabled by anything
+   * other than this renderer are none of its business.
+   */
+  private boundAttributeLocations = new Set<number>();
 
   private ensureProgram(
     material: NodeMaterial,
@@ -624,6 +635,10 @@ export class WebGLRenderer {
 
     const needsUpload = buffers.needsUpload || Object.values(geometry.attributes).some((a) => a.needsUpdate);
 
+    // The locations this draw configures, so that any left enabled by a previous
+    // draw can be turned off. See `boundAttributeLocations`.
+    const usedLocations = new Set<number>();
+
     for (const attribute of entry.program.attributes) {
       const attr = geometryAttribute(mesh, geometry, attribute.name);
       const location = entry.attributeLocations.get(attribute.node.name);
@@ -660,6 +675,7 @@ export class WebGLRenderer {
       // One buffer per attribute, so the stride is the whole record.
       const stride = attr.itemSize * format.bytes;
       for (let i = 0; i < locationSize; i++) {
+        usedLocations.add(location + i);
         gl.enableVertexAttribArray(location + i);
         gl.vertexAttribPointer(
           location + i,
@@ -672,6 +688,22 @@ export class WebGLRenderer {
         gl.vertexAttribDivisor(location + i, attribute.stepMode === "instance" ? 1 : 0);
       }
     }
+
+    // An enabled attribute array keeps its buffer from whatever mesh enabled it,
+    // and the array stays enabled because the loop above only ever enables the
+    // locations this mesh's own program uses. So a mesh whose geometry lacks an
+    // attribute its shader declares — or one drawn by a different program, whose
+    // attribute locations are the GLSL linker's to choose — inherits a location
+    // still pointing at the previous mesh's, smaller, buffer. An enabled array is
+    // validated against the whole draw regardless of whether its location is
+    // declared, so the draw is rejected with `INVALID_OPERATION` and the mesh is
+    // silently dropped: a surface that appears and disappears as the mesh drawn
+    // before it changes. Disabling what this draw did not configure leaves every
+    // enabled array naming a buffer this draw owns.
+    for (const location of this.boundAttributeLocations) {
+      if (!usedLocations.has(location)) gl.disableVertexAttribArray(location);
+    }
+    this.boundAttributeLocations = usedLocations;
 
     if (geometry.index) {
       const isNewIndex = buffers.index === null;
@@ -778,10 +810,12 @@ export class WebGLRenderer {
       texture.removeEventListener("dispose", this.onTextureDispose);
     }
     for (const [target, entry] of this.renderTargets) this.deleteRenderTarget(target, entry);
+    for (const location of this.boundAttributeLocations) gl.disableVertexAttribArray(location);
     this.programs.clear();
     this.geometryBuffers.clear();
     this.attributeBuffers.clear();
     this.textures.clear();
+    this.boundAttributeLocations.clear();
   }
 }
 

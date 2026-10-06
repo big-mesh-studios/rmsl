@@ -565,6 +565,108 @@ globalThis.__rmslPackedRun = () => {
 };
 `;
 
+/**
+ * A mesh whose geometry carries fewer attributes than the mesh drawn before it
+ * did: the first mesh has position, normal and uv, the second only position. The
+ * second mesh's indices reach past the first's normal and uv buffers, so if the
+ * first draw's attribute arrays are still enabled the second draw is rejected
+ * with `INVALID_OPERATION` and the second mesh never appears.
+ *
+ * The second mesh is the larger of the two on purpose — the failure needs an
+ * index past the first mesh's buffers, so a test where the second mesh is
+ * smaller cannot see it.
+ */
+const ENTRY_STALE_ATTRIBUTES = `
+import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, BufferGeometry,
+  BufferAttribute, MeshBasicMaterial, Side } from "./index";
+globalThis.__rmslStaleAttributesRun = () => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 32;
+  canvas.height = 32;
+  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  renderer.setClearColor(0x000000);
+  const scene = new Scene();
+
+  // Three vertices, and a normal and a uv for each: the attribute buffers the
+  // second mesh's indices will overrun.
+  const first = new BufferGeometry();
+  first.setAttribute("position", new BufferAttribute(new Float32Array([
+    -0.2, -0.2, -1, -0.2, 0.2, -1, 0.2, 0.2, -1,
+  ]), 3));
+  first.setAttribute("normal", new BufferAttribute(new Float32Array([
+    0, 0, 1, 0, 0, 1, 0, 0, 1,
+  ]), 3));
+  first.setAttribute("uv", new BufferAttribute(new Float32Array([
+    0, 0, 0, 1, 1, 1,
+  ]), 2));
+  first.setIndex(new BufferAttribute(new Uint16Array([0, 1, 2]), 1));
+
+  // Twelve vertices and no normal, no uv: a bigger draw, on a geometry that
+  // cannot fill the locations the first draw enabled.
+  const second = new BufferGeometry();
+  second.setAttribute("position", new BufferAttribute(new Float32Array([
+    -1, -1, 0, -1, 1, 0,  0, 1, 0,  0, -1, 0,
+    0, -1, 0,  0, 1, 0,  1, 1, 0,  1, -1, 0,
+    -1, -1, 0, -1, 0, 0, -1, 0, 0, -1, -1, 0,
+    -1, 0, 0,  -1, 1, 0, 0, 1, 0, 0, 0, 0,
+  ]), 3));
+  second.setIndex(new BufferAttribute(new Uint16Array([
+    0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10, 8, 10, 11,
+  ]), 1));
+
+  scene.add(
+    new Mesh(first, new MeshBasicMaterial({ color: 0x00ff00, side: Side.DoubleSide })),
+    new Mesh(second, new MeshBasicMaterial({ color: 0xff0000, side: Side.DoubleSide })),
+  );
+
+  // Every enabled vertex attribute array is validated against the whole draw,
+  // whether or not the program declares its location, so a draw whose enabled
+  // arrays are not all its own can be rejected outright. Recording the enabled
+  // set beside the set this draw configured says whether that happened, without
+  // depending on how strict the driver under the test happens to be — the
+  // strictness is the bug's symptom, not the defect.
+  const draws = [];
+  const proto = Object.getPrototypeOf(renderer.gl);
+  const enable = proto.enableVertexAttribArray;
+  const draw = proto.drawElementsInstanced;
+  let configured = [];
+  proto.enableVertexAttribArray = function (location) {
+    configured.push(location);
+    return enable.call(this, location);
+  };
+  proto.drawElementsInstanced = function (...args) {
+    const gl = this;
+    const enabled = [];
+    for (let a = 0; a < gl.getParameter(gl.MAX_VERTEX_ATTRIBS); a++)
+      if (gl.getVertexAttrib(a, gl.VERTEX_ATTRIB_ARRAY_ENABLED)) enabled.push(a);
+    const carried = enabled.filter((l) => !configured.includes(l));
+    const result = draw.apply(this, args);
+    draws.push({ configured: [...configured].sort((x, y) => x - y), carriedOver: carried });
+    configured = [];
+    return result;
+  };
+
+  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 3);
+  camera.lookAt(0, 0, 0);
+  renderer.render(scene, camera);
+
+  const gl = renderer.gl;
+  // The second mesh spans -1..1 at z=0, the first a narrow triangle at z=-1, so
+  // a pixel out at (6,6) has only the second mesh to be drawn by it.
+  const outer = new Uint8Array(4);
+  gl.readPixels(6, 6, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, outer);
+  const center = new Uint8Array(4);
+  gl.readPixels(16, 16, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, center);
+  return {
+    draws,
+    outer: [outer[0], outer[1], outer[2]],
+    center: [center[0], center[1], center[2]],
+    error: gl.getError(),
+  };
+};
+`;
+
 async function bundleEntry(source: string): Promise<string> {
   const result = await build({
     stdin: {
@@ -869,6 +971,37 @@ describe.skipIf(!GPU_ENABLED)("WebGLRenderer", () => {
     expect(result.leftPix.b).toBeLessThan(60);
     expect(result.rightPix.b).toBeGreaterThan(150);
     expect(result.rightPix.r).toBeLessThan(60);
+  }, 60_000);
+
+  /**
+   * @canon spec-a-draw-configures-every-enabled-vertex-attribute
+   */
+  it("draws a mesh whose geometry has fewer attributes than the mesh before it", async () => {
+    const page = await gpuPage();
+    const code = await bundleEntry(ENTRY_STALE_ATTRIBUTES);
+    const result = await page.evaluate(async (source: string) => {
+      // eslint-disable-next-line no-new-func
+      const fn = new Function(source);
+      fn();
+      return (globalThis as any).__rmslStaleAttributesRun();
+    }, code);
+
+    // The claim, and the one that does not move with the driver: no draw runs with an
+    // enabled attribute array left over from the mesh before it. The first mesh
+    // enables three locations and the second configures one, so the second draw
+    // must have turned the other two off — otherwise its indices are validated
+    // against the first mesh's smaller normal and uv buffers.
+    expect(result.draws).toHaveLength(2);
+    expect(result.draws[0]!.configured).toEqual([0, 1, 2]);
+    expect(result.draws[1]!.carriedOver).toEqual([]);
+    // A driver that validates the leftover would also have rejected the draw,
+    // which is the symptom this bug produced.
+    expect(result.error).toBe(0);
+    // And the second mesh was drawn rather than silently dropped: red where only
+    // it reaches, and red at the center it covers the first mesh with.
+    expect(result.outer[0]).toBeGreaterThan(150);
+    expect(result.center[0]).toBeGreaterThan(150);
+    expect(result.center[1]).toBeLessThan(60);
   }, 60_000);
 });
 
