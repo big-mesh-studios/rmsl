@@ -782,10 +782,22 @@ export function jsOperand(compiled: CompiledNode): string {
   return (compiled.prec ?? PREC_ATOM) < PREC_ATOM ? `(${compiled.expr})` : compiled.expr;
 }
 
+/**
+ * The operands of a scalar form that writes an operand out twice, `mod` twice
+ * and `mix` and `smoothstep` once, by position. Each is stored first, so the
+ * form computes it once.
+ */
+const JS_REPEATED_OPERANDS: Record<string, number[]> = { mod: [0, 1], mix: [0], smoothstep: [0] };
+
 export function jsScalarBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string): CompiledNode {
-  let a = compileJSStage(node.params![0], ctx);
-  let b = compileJSStage(node.params![1], ctx);
-  let c = node.params![2] ? compileJSStage(node.params![2], ctx) : null;
+  const repeated = JS_REPEATED_OPERANDS[op] ?? [];
+  const operand = (i: number) => {
+    const compiled = compileJSStage(node.params![i], ctx);
+    return repeated.includes(i) ? jsReadable(compiled, node.params![i]?._t, ctx) : compiled;
+  };
+  let a = operand(0);
+  let b = operand(1);
+  let c = node.params![2] ? operand(2) : null;
   let decls = [...a.decls, ...b.decls, ...(c ? c.decls : [])];
   let body = [...a.body, ...b.body, ...(c ? c.body : [])];
   let expr: string;
@@ -927,6 +939,8 @@ export function jsUnaryMath(node: BaseNode<ShaderType>, ctx: CompileCtx, suffix:
     let a = compileJSStage(node.params![0], ctx);
     let e = JS_ELEM[suffix];
     if (!e) throw new Error(`[RMSL] Unknown JS unary op: ${suffix}`);
+    // `fract` writes its operand out twice.
+    if (suffix === "fract") a = jsReadable(a, node.params![0]?._t, ctx);
     return { decls: a.decls, body: a.body, expr: e.fn([`(${a.expr})`]), prec: JS_FORM_PREC[suffix] };
   }
   jsRequireHelper(ctx, `v${width}${suffix}`);

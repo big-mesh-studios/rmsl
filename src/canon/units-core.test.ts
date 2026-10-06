@@ -11,6 +11,7 @@ import {
   mix,
   output,
   select,
+  smoothstep,
   textureSize,
   uniform,
   uniformArray,
@@ -277,6 +278,27 @@ describe("what a program does with a node it reads more than once", () => {
   ] as const)("compiles output that grows in proportion to the levels of nested reads on %s", (_target, size) => {
     expect(size(nested(12)) / size(nested(6))).toBeLessThan(4);
   });
+
+  /**
+   * @canon spec-output-grows-in-proportion-to-the-levels-of-nested-reads
+   */
+  it.each([
+    ["fract", (x: any) => x.fract()],
+    ["mod", (x: any) => x.mod(float(0.7))],
+    ["mix", (x: any) => mix(x, float(1), float(0.5))],
+    ["smoothstep", (x: any) => smoothstep(x, float(4), float(2))],
+  ] as const)(
+    "compiles a chain of %s that each level reads once in output that grows in proportion to the levels on JS",
+    (_op, step) => {
+      const chain = (levels: number) => (a: Node<"float">) =>
+        Fn(() => {
+          let x: any = a;
+          for (let i = 0; i < levels; i++) x = step(x);
+          return x;
+        })();
+      expect(compileJSFn(chain(12), param).length / compileJSFn(chain(6), param).length).toBeLessThan(4);
+    },
+  );
 
   /**
    * @canon spec-a-node-that-is-already-a-name-is-read-where-it-is
