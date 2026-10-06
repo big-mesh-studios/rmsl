@@ -8,21 +8,17 @@ import {
   If,
   instancedArray,
   int,
-  invocationIndex,
   ivec2,
   mat2,
   mat3,
-  select,
-  smoothstep,
   textureLoad,
   uniform,
   uniformArray,
-  vec2,
   vec3,
   vec4,
   type Node,
 } from "../rmsl";
-import { compileJS, compileJSFn, compileJSRoutine, createJsCompute, createJsGrid } from "../js";
+import { compileJS, compileJSFn, compileJSRoutine, createJsGrid } from "../js";
 import { evaluateJS } from "../testing/shader-eval";
 
 const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
@@ -226,20 +222,5 @@ describe("known bugs of the JS target, each failing until its fix", () => {
     const items = uniformArray("float", 3);
     const run = compileJSRoutine(() => Fn(() => items.element(int(2)).add(0).toVar())(), none);
     expect(run({ uniforms: { [items.name]: [1, 2] } })).toBe(0);
-  });
-
-  /**
-   * `createJsCompute` reads a vector storage buffer as one array per element,
-   * so the flat typed array `setAttribute` takes ends up as `NaN`.
-   *
-   * @canon bug-the-cpu-compute-adapters-take-a-vector-storage-element-as-an-array
-   */
-  it.fails("writes a vector storage buffer given as a flat typed array on JS", () => {
-    const buf = instancedArray(2, "vec2");
-    const adapter = createJsCompute(Fn(() => buf.element(invocationIndex()).assign(vec2(3, 4)))());
-    const data = new Float32Array(4);
-    adapter.setAttribute(buf.name, data);
-    adapter.compute();
-    expect(Array.from(data)).toEqual([3, 4, 3, 4]);
   });
 });

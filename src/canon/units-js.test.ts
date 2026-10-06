@@ -32,6 +32,7 @@ import {
   compileJSGrid,
   compileJSRoutine,
   compileJSVertex,
+  createJsCompute,
   createJsGrid,
   createJsRoutine,
 } from "../js";
@@ -42,6 +43,7 @@ import {
   compileWasmGrid,
   compileWasmRoutine,
   compileWasmVertex,
+  createWasmCompute,
   createWasmGrid,
   createWasmRoutine,
 } from "../wasm";
@@ -627,5 +629,30 @@ describe("what a JS routine allocates per call", () => {
     // 4 (column 1, y) + 5 (the diagonal) + 5 (broadcast) + 2 (built) + 2 (constant).
     expect(run({ params: { a: 5 } })).toBe(18);
     expect(run({ params: { a: 1 } })).toBe(10);
+  });
+});
+
+describe("a CPU compute adapter's storage", () => {
+  /**
+   * @canon spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array
+   */
+  it("writes a vector storage buffer given as a flat typed array on JS", () => {
+    const buf = instancedArray(2, "vec2");
+    const adapter = createJsCompute(Fn(() => buf.element(invocationIndex()).assign(vec2(3, 4)))());
+    const data = new Float32Array(4);
+    adapter.setAttribute(buf.name, data);
+    adapter.compute();
+    expect(Array.from(data)).toEqual([3, 4, 3, 4]);
+  });
+  /**
+   * @canon spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array
+   */
+  it("writes a vector storage buffer given as a flat typed array on WASM", () => {
+    const buf = instancedArray(2, "vec2");
+    const adapter = createWasmCompute(Fn(() => buf.element(invocationIndex()).assign(vec2(3, 4)))(), { name: "step" });
+    const data = new Float32Array(4);
+    adapter.setAttribute(buf.name, data);
+    adapter.compute();
+    expect(Array.from(data)).toEqual([3, 4, 3, 4]);
   });
 });

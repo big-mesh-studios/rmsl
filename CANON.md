@@ -355,7 +355,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec nodes-over-one-buffer-share-one-binding`](#spec-nodes-over-one-buffer-share-one-binding) — Several storage nodes over one buffer compile to one binding, with the widest access any of them needs.
     - [`@exception a-vec3-storage-element-is-padded-only-on-the-gpu`](#exception-a-vec3-storage-element-is-padded-only-on-the-gpu) — A `vec3` element, or a matrix with columns of three, keeps its packed layout on its attribute and in what the host reads back. Only the WGSL buffer pads each to 16 bytes, where TSL pads the attribute itself.
     - [`@spec a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array`](#spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array) — `setAttribute` on a compute adapter takes a storage buffer as one typed array, which holds the components of its elements one after another.
-      - [`@bug the-cpu-compute-adapters-take-a-vector-storage-element-as-an-array`](#bug-the-cpu-compute-adapters-take-a-vector-storage-element-as-an-array) — `createJsCompute` and `createWasmCompute` read a vector storage buffer as one array per element. A flat typed array from `setAttribute` ends up as `NaN`.
   - [`@spec compute-follows-tsl`](#spec-compute-follows-tsl) — `fn().compute(count, workgroupSize)` and `compute(node, count, workgroupSize)` make a [compute node](#term-compute-node), dispatched once for each index below `count`, as TSL's `compute` does.
     - [`@spec a-compute-program-returns-nothing`](#spec-a-compute-program-returns-nothing) — A compute program writes its results into storage and returns nothing, and every compute entry point takes it as it is.
     - [`@spec a-compute-node-carries-its-count-and-workgroup-size`](#spec-a-compute-node-carries-its-count-and-workgroup-size) — A compute node carries its count and its workgroup size, which is 64 by default.
@@ -2687,12 +2686,6 @@ Derives from: [`fact-a-wgsl-storage-vec3-takes-16-bytes`](#fact-a-wgsl-storage-v
 Derives from: [`fact-tsl-fills-a-storage-buffer-attribute-from-one-typed-array`](#fact-tsl-fills-a-storage-buffer-attribute-from-one-typed-array)
 
 This follows because a storage buffer lies over an attribute, and TSL fills an attribute from one flat typed array.
-
-##### @bug the-cpu-compute-adapters-take-a-vector-storage-element-as-an-array
-
-> `createJsCompute` and `createWasmCompute` read a vector storage buffer as one array per element. A flat typed array from `setAttribute` ends up as `NaN`.
-
-Issue: #126
 
 ### @spec compute-follows-tsl
 

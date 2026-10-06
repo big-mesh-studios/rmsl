@@ -370,21 +370,6 @@ describe("known WASM bugs, each failing until its fix", () => {
   });
 
   /**
-   * `createWasmCompute` reads a vector storage buffer as one array per
-   * element, so the flat typed array `setAttribute` takes ends up as `NaN`.
-   *
-   * @canon bug-the-cpu-compute-adapters-take-a-vector-storage-element-as-an-array
-   */
-  it.fails("writes a vector storage buffer given as a flat typed array on WASM", () => {
-    const buf = instancedArray(2, "vec2");
-    const adapter = createWasmCompute(Fn(() => buf.element(invocationIndex()).assign(vec2(3, 4)))(), { name: "step" });
-    const data = new Float32Array(4);
-    adapter.setAttribute(buf.name, data);
-    adapter.compute();
-    expect(Array.from(data)).toEqual([3, 4, 3, 4]);
-  });
-
-  /**
    * `assign` passes a bare number on as it is, and the WASM target throws on
    * it as a node of no type.
    *

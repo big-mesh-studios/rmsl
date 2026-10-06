@@ -120,7 +120,27 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
 
     compute(out, count) {
       if (!computeStep) throw new Error("[RMSL] this adapter has no `compute` program");
-      computeStep({ storages, uniforms, textures } as any, count ?? elementCount());
+      // The program reads and writes the element of a vector buffer as an array. The host's flat
+      // typed array holds the components of its elements one after another, so each such
+      // buffer goes in as one array per element and is written back after the dispatch.
+      const given: Record<string, unknown> = {};
+      const unpacked: { slot: string; width: number; elements: number[][] }[] = [];
+      for (const slot in storages) {
+        const data = storages[slot]!;
+        const width = elementWidths.get(slot) ?? componentCountOf(storageTypes[slot] ?? "float");
+        if (width > 1 && ArrayBuffer.isView(data)) {
+          const elements = Array.from({ length: Math.floor(data.length / width) }, (_, i) =>
+            Array.from((data as Float64Array).subarray(i * width, (i + 1) * width)),
+          );
+          unpacked.push({ slot, width, elements });
+          given[slot] = elements;
+        } else given[slot] = data;
+      }
+      computeStep({ storages: given, uniforms, textures } as any, count ?? elementCount());
+      for (const { slot, width, elements } of unpacked) {
+        const data = storages[slot] as unknown as Float64Array;
+        elements.forEach((element, i) => data.set(element, i * width));
+      }
       // storages already holds the caller's own arrays, mutated in place —
       // `out` is only for callers that want the WGSL adapter's optional-out
       // shape too, not something this loop needs to do its job.
