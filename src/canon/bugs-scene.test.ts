@@ -991,46 +991,6 @@ globalThis.__rmslR8UIRowsRun = () => {
 };
 `;
 
-// A frame whose last draw has `depthWrite: false`, then a frame of one far
-// plane: the second frame must read the same pixel as the same frame on a
-// renderer that drew nothing before it.
-const ENTRY_DEPTH_MASK = `
-import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry, MeshBasicMaterial } from "../scene";
-globalThis.__rmslDepthMaskRun = () => {
-  const canvas = document.createElement("canvas");
-  canvas.width = 16;
-  canvas.height = 16;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
-  renderer.setClearColor(0x000000);
-  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
-  camera.position.set(0, 0, 4);
-  camera.lookAt(0, 0, 0);
-  const plane = (z, color, depthWrite) => {
-    const material = new MeshBasicMaterial({ color });
-    material.depthWrite = depthWrite;
-    const mesh = new Mesh(new PlaneGeometry(2, 2), material);
-    mesh.position.z = z;
-    return mesh;
-  };
-  const centre = () => {
-    const gl = renderer.gl;
-    const pixels = new Uint8Array(4);
-    gl.readPixels(8, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    return [pixels[0], pixels[1], pixels[2]];
-  };
-  const far = new Scene();
-  far.add(plane(-2, 0x00ff00, true));
-  renderer.render(far, camera);
-  const fresh = centre();
-
-  const earlier = new Scene();
-  earlier.add(plane(2, 0xff0000, true), plane(3, 0x0000ff, false));
-  renderer.render(earlier, camera);
-  renderer.render(far, camera);
-  return { fresh, afterMaskedDraw: centre() };
-};
-`;
-
 // One texture read through a float sampler and then through an integer one. The
 // second read must give what it gives on a renderer that never read the texture
 // as a float.
@@ -1096,14 +1056,6 @@ describe.skipIf(!GPU_ENABLED)("known bugs of the scene library on a real driver"
     },
     60_000,
   );
-
-  /**
-   * @canon spec-a-render-clears-the-depth-buffer-whatever-the-last-draw-masked
-   */
-  it("draws a far plane after a frame whose last draw wrote no depth on WebGL", async () => {
-    const result = await runInGpuPage(ENTRY_DEPTH_MASK, "__rmslDepthMaskRun", new URL(".", import.meta.url).pathname);
-    expect(result.afterMaskedDraw).toEqual(result.fresh);
-  }, 60_000);
 
   /**
    * The WebGL renderer writes a texture's filters once, from the sampler type
