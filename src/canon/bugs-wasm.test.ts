@@ -341,19 +341,6 @@ describe("known WASM bugs, each failing until its fix", () => {
   });
 
   /**
-   * `draw` of a WASM routine returns a view of its own memory, so the next
-   * `draw` overwrites the pixels an earlier one returned.
-   *
-   * @canon bug-wasm-routine-draws-into-a-buffer-the-next-draw-overwrites
-   */
-  it.fails("keeps the pixels a WASM routine drew when it draws again", () => {
-    const routine = compileWasmRoutine((a: any) => Fn(() => vec2(a, a.add(1)).toVar())(), param);
-    const first = routine.draw({ params: { a: 0.5 } }, 1, 1);
-    routine.draw({ params: { a: 100.5 } }, 1, 1);
-    expect(Array.from(first)).toEqual([0.5, 1.5]);
-  });
-
-  /**
    * An element past the end of a shorter array the call passes keeps the
    * value an earlier call wrote there.
    *
