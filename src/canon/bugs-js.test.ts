@@ -90,22 +90,6 @@ describe("known bugs of the JS target, each failing until its fix", () => {
   });
 
   /**
-   * The JS rasterizer writes 0 into the red channel of a fragment that
-   * discarded, over the colour already there.
-   *
-   * @canon bug-the-cpu-rasterizers-paint-a-discarded-fragment
-   */
-  it.fails("leaves the colour under a discarded fragment as it was in the JS rasterizer", () => {
-    const draw = flatRasterizer((color, drop) => {
-      If(drop.greaterThan(0), () => Discard());
-      return color;
-    });
-    const composes = { clear: false, clearDepth: false };
-    draw(screenAt(0.5), [1, 0, 0, 1]);
-    expect(Array.from(draw(screenAt(0.25), [0, 1, 0, 1], composes, 1).slice(0, 4))).toEqual([1, 0, 0, 1]);
-  });
-
-  /**
    * The JS rasterizer writes the depth of a fragment before running it, so a
    * fragment that discards still hides what is drawn behind it later.
    *

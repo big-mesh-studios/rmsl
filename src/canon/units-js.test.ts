@@ -322,6 +322,44 @@ describe("a JS routine's results", () => {
   });
 });
 
+/** A JS rasterizer drawing one flat-coloured triangle list, its colour a uniform. */
+function flatRasterizer(fragment?: (color: Node<"vec4">, drop: Node<"float">) => Node<"vec4">) {
+  const position = attribute("vec3");
+  const color = uniform("vec4");
+  const drop = uniform("float");
+  const routine = compileJS(
+    () => Fn(() => builtinPosition().assign(vec4(position.x, position.y, position.z, 1)))() as any,
+    () => Fn(() => (fragment ? fragment(color, drop) : color).toVar())() as any,
+    { attributeTypes: { [position.name]: "vec3" } },
+  );
+  const draw = (triangles: number[], rgba: number[], options: Record<string, unknown> = {}, dropped = 0) =>
+    routine.draw(
+      {
+        attributes: { [position.name]: new Float64Array(triangles) },
+        uniforms: { [color.name]: rgba, [drop.name]: dropped },
+      },
+      { width: 2, height: 2, ...options },
+    );
+  return draw;
+}
+
+const screenAt = (z: number) => [-1, -1, z, 3, -1, z, -1, 3, z];
+
+describe("a JS rasterizer's discarded fragment", () => {
+  /**
+   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   */
+  it("leaves the colour under a discarded fragment as it was", () => {
+    const draw = flatRasterizer((color, drop) => {
+      If(drop.greaterThan(0), () => Discard());
+      return color;
+    });
+    const composes = { clear: false, clearDepth: false };
+    draw(screenAt(0.5), [1, 0, 0, 1]);
+    expect(Array.from(draw(screenAt(0.25), [0, 1, 0, 1], composes, 1).slice(0, 4))).toEqual([1, 0, 0, 1]);
+  });
+});
+
 const stages = [
   ["JS", compileJSVertex, compileJSFragment, compileJSCompute],
   ["WASM", compileWasmVertex, compileWasmFragment, compileWasmCompute],

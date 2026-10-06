@@ -166,7 +166,7 @@ describe("known WASM bugs, each failing until its fix", () => {
    * The WASM rasterizer writes a colour for a discarded fragment: the colour
    * the fragment stage last left in its memory.
    *
-   * @canon bug-the-cpu-rasterizers-paint-a-discarded-fragment
+   * @canon bug-the-wasm-rasterizer-paints-a-discarded-fragment
    */
   it.fails("leaves the pixel of a discarded fragment cleared on WASM", () => {
     const pos = attribute("vec3");
