@@ -1,5 +1,13 @@
 import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
-import { Adapter, AttributeOrSlot, DrawCountOptions, slotOf, TypedArray, UniformOrSlot } from "../adapter";
+import {
+  Adapter,
+  AttributeOrSlot,
+  DrawClearOptions,
+  DrawCountOptions,
+  slotOf,
+  TypedArray,
+  UniformOrSlot,
+} from "../adapter";
 import { AdapterResult, bufferToImageData, CpuAdapter, createCpuAdapter } from "../adapter-cpu";
 import type { CpuTextureData } from "../cpu";
 import { compileJS, CompileJSRasterOptions, JsRasterContext } from "./rasterizer";
@@ -86,7 +94,7 @@ export function createJsCompute(
 /**
  * `draw()`'s own options — `count`/`first` from `DrawCountOptions`, same
  * as GL/WGSL: unset `count` defaults to the first attribute
- * the host passed. `clear`/`clearDepth` default to `true`: the common case
+ * the host passed. `clear` and `clearDepth` default to `true`: the common case
  * for a single-material adapter is one `draw()` call, one whole frame —
  * mirroring how a WebGPU render pass declares `loadOp`/`depthLoadOp`
  * together, per pass, rather than clearing as a separate operation. Pass
@@ -95,8 +103,7 @@ export function createJsCompute(
  * own `JsRasterRoutine` is the lower-level primitive that composability
  * is built on.
  */
-export interface JsDrawOptions extends DrawCountOptions {
-  clear?: boolean;
+export interface JsDrawOptions extends DrawCountOptions, DrawClearOptions {
   clearDepth?: boolean;
 }
 
@@ -161,8 +168,9 @@ export function createJs(
         first: drawOptions?.first,
         width: canvas.width,
         height: canvas.height,
-        clear: drawOptions?.clear ?? true,
-        clearDepth: drawOptions?.clearDepth ?? true,
+        clear: drawOptions?.clear,
+        clearColor: drawOptions?.clearColor,
+        clearDepth: drawOptions?.clearDepth,
       });
       ctx2d.putImageData(bufferToImageData(buffer, canvas.width, canvas.height), 0, 0);
     },

@@ -56,7 +56,7 @@ describe("WASM backend: compileWasm (vertex+fragment rasterizer pipeline)", () =
     expect(Array.from(result.slice(0, 4))).toEqual([0, 1, 0, 1]);
   });
   /**
-   * @canon spec-a-rasterizer-clears-its-colour-every-draw
+   * @canon spec-a-draw-clears-the-colour-of-its-target-to-its-clear-colour
    */
   it("clears the output buffer between draw() calls instead of leaving stale pixels", () => {
     const posAttr = attribute("vec3");
@@ -107,7 +107,7 @@ describe("WASM backend: compileWasm (vertex+fragment rasterizer pipeline)", () =
     const draw = (z: number, color: number[], clearDepth = false) =>
       routine.draw(
         { attributes: { [posAttr.name]: triangleAt(z) }, uniforms: { [colorUniform.name]: color } },
-        { count: 3, width, height, clearDepth },
+        { count: 3, width, height, clear: false, clearDepth },
       );
 
     // near, red — passes the depth test against the freshly (auto-)cleared buffer

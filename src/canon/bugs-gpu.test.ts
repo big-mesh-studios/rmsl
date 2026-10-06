@@ -60,15 +60,6 @@ const attempt = (run) => {
 const position = attribute("vec3");
 const plainVertex = () => Fn(() => { builtinPosition().assign(vec4(position, 1)); })();
 globalThis.__rmslBugsGlsl = {
-  clear: () => attempt(() => {
-    const target = canvas();
-    const adapter = createGlsl(plainVertex(), Fn(() => vec4(0, 1, 0, 1))());
-    adapter.attach(target);
-    adapter.setAttribute(position, TRIANGLE);
-    adapter.draw({ count: 3 });
-    adapter.draw({ count: 0, clearColor: [0, 0, 1, 1] });
-    return readPixel(target, 1, 2);
-  }),
   uniformArray: () => attempt(() => {
     const target = canvas();
     const colours = uniformArray("vec4", 2);
@@ -476,20 +467,6 @@ describe.skipIf(!GPU_ENABLED)("known GPU bugs on a WebGPU device, each failing u
 });
 
 describe.skipIf(!GPU_ENABLED)("createGlsl in a browser", () => {
-  /**
-   * `createGlsl` never clears its canvas and takes no clear colour, so a draw
-   * leaves what an earlier draw put there.
-   *
-   * @canon bug-the-glsl-adapter-never-clears
-   */
-  it.fails(
-    "clears the canvas to the colour a createGlsl draw asks for",
-    async () => {
-      expect(await glslEntry("clear")).toEqual({ r: 0, g: 0, b: 255, a: 255 });
-    },
-    120_000,
-  );
-
   /**
    * WebGL reports a uniform array as `name[0]`, and `createGlsl` looks the
    * slot up by that name, so `setUniform` on a uniform array never applies.

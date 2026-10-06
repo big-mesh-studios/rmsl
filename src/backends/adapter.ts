@@ -97,6 +97,26 @@ export interface DrawCountOptions {
   count?: number;
 }
 
+/** Red, green, blue and alpha, each from 0 to 1. */
+export type ClearColor = readonly [number, number, number, number];
+
+/** What a draw clears a target to when it gives no `clearColor`: transparent black. */
+export const TRANSPARENT_BLACK: ClearColor = [0, 0, 0, 0];
+
+/**
+ * How a draw treats the colour of its target, the one piece every
+ * draw-capable adapter's own `TDrawOptions` shares besides
+ * {@link DrawCountOptions}. Clearing is on by default, as `autoClear` is in
+ * three.js; an application that composes several draws into one frame passes
+ * `clear: false` to the later ones.
+ */
+export interface DrawClearOptions {
+  /** Whether to clear the colour of the target before drawing. Defaults to `true`. */
+  clear?: boolean;
+  /** The colour a clear fills the target with. Defaults to transparent black. */
+  clearColor?: ClearColor;
+}
+
 /**
  * What `setUniform`'s first parameter is once its overloads collapse into
  * one implementation signature: a uniform (array) node, or a raw slot name.

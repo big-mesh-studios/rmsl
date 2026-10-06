@@ -1,6 +1,6 @@
 import { Node, ShaderType } from "../../core";
 import { componentCountOf, CpuDrawBuffer, CpuShaderContext, CpuTextureData } from "../cpu";
-import { DrawCountOptions, TypedArray } from "../adapter";
+import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray } from "../adapter";
 import { compileWasmFn, CompileWasmFnOptions, createWasmInputMarshaller, WasmParam } from "./wasm";
 import { wasmUleb128 } from "./utils";
 import RASTERIZER_WASM_BYTES from "./rasterizer.wat";
@@ -242,18 +242,18 @@ export interface WasmRasterContext {
 
 /**
  * Both the output buffer's and the depth buffer's own addresses are
- * reused deterministically call to call, so by default several `draw()`
- * calls in a row compose onto both exactly like several draws into one
- * real framebuffer would (occlusion included) — matching how a WebGPU
- * render pass declares `loadOp`/`depthLoadOp` together, per pass, rather
- * than clearing as some separate operation. Pass `clear`/`clearDepth` to
- * zero either one first instead.
+ * reused deterministically call to call, so a draw that passes
+ * `clear: false` or `clearDepth: false` composes onto them exactly like
+ * several draws into one real framebuffer would (occlusion included) —
+ * matching how a WebGPU render pass declares `loadOp`/`depthLoadOp`
+ * together, per pass, rather than clearing as some separate operation.
+ * Both default to `true`, so each draw starts from a cleared buffer, as a
+ * three.js render does.
  */
-export interface WasmRasterDrawOptions extends DrawCountOptions {
+export interface WasmRasterDrawOptions extends DrawCountOptions, DrawClearOptions {
   width: number;
   height: number;
   out?: CpuDrawBuffer;
-  clear?: boolean;
   clearDepth?: boolean;
 }
 
@@ -468,7 +468,7 @@ export function compileWasm(
     // size without a copy on each draw.
     const neededDepthPixels = width * height;
     const outgrown = neededDepthPixels > depthCapacityPixels;
-    const needsClear = depthBufferBase === undefined || outgrown || options.clearDepth === true;
+    const needsClear = depthBufferBase === undefined || outgrown || options.clearDepth !== false;
     const movesTo = depthBufferBase === undefined || cursor > depthBufferBase ? cursor : undefined;
     const previous = { base: depthBufferBase, pixels: depthCapacityPixels };
     if (movesTo !== undefined) depthBufferBase = movesTo;
@@ -515,7 +515,16 @@ export function compileWasm(
       })),
     );
 
-    if (options.clear) new Float64Array(memory.buffer, outputBase, width * height * 4).fill(0);
+    if (options.clear !== false) {
+      const [r, g, b, a] = options.clearColor ?? TRANSPARENT_BLACK;
+      const output = new Float64Array(memory.buffer, outputBase, width * height * 4);
+      for (let i = 0; i < output.length; i += 4) {
+        output[i] = r;
+        output[i + 1] = g;
+        output[i + 2] = b;
+        output[i + 3] = a;
+      }
+    }
 
     rasterize(
       vertexCount,

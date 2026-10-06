@@ -428,8 +428,14 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec what-rmsl-hands-back-draws-nothing-on-its-own`](#spec-what-rmsl-hands-back-draws-nothing-on-its-own) — What rmsl hands back draws nothing until the application calls it. An adapter draws or dispatches once for each call.
     - [`@spec an-adapter-draws-one-frame-for-each-call`](#spec-an-adapter-draws-one-frame-for-each-call) — `draw()` on an adapter draws one frame into the canvas it attached, and nothing more until the next call. This holds for the GLSL adapter, the JS and WASM rasterizers, and the JS and WASM routines.
       - [`@bug create-wasm-routine-fails-under-its-default-name`](#bug-create-wasm-routine-fails-under-its-default-name) — `createWasmRoutine` names its routine `draw` by default, which collides with the grid loop the module exports as `draw`, so the module does not instantiate.
-    - [`@spec several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas) — Several adapters can draw on one canvas, each clearing to the colour its draw asks for. An adapter ignores a uniform its program does not read.
-      - [`@bug the-glsl-adapter-never-clears`](#bug-the-glsl-adapter-never-clears) — `createGlsl` never clears its canvas and takes no clear colour, so a draw leaves what an earlier draw put there.
+    - [`@spec a-draw-clears-its-target-first-unless-it-asks-not-to`](#spec-a-draw-clears-its-target-first-unless-it-asks-not-to) — A draw of an adapter, and of a CPU rasterizer routine, clears the colour of its target before it draws, to its `clearColor`. A draw that passes `clear: false` draws over what is there. A CPU draw also clears its depth buffer, unless it passes `clearDepth: false`.
+      - [`@spec a-draw-clears-the-colour-of-its-target-to-its-clear-colour`](#spec-a-draw-clears-the-colour-of-its-target-to-its-clear-colour) — A draw clears the colour of its target to its `clearColor` before it draws, so no pixel of an earlier draw remains.
+      - [`@spec a-clear-colour-is-transparent-black-unless-the-draw-gives-one`](#spec-a-clear-colour-is-transparent-black-unless-the-draw-gives-one) — A draw that gives no `clearColor` clears to transparent black, `[0, 0, 0, 0]`.
+        - [`@spec a-glsl-js-and-wasm-draw-clears-to-transparent-black`](#spec-a-glsl-js-and-wasm-draw-clears-to-transparent-black) — A draw of the GLSL adapter, and of a JS or WASM rasterizer routine, that gives no `clearColor` leaves the cleared pixels at `[0, 0, 0, 0]`.
+        - [`@exception a-wgsl-canvas-shows-a-transparent-clear-as-opaque-black`](#exception-a-wgsl-canvas-shows-a-transparent-clear-as-opaque-black) — The WGSL adapter clears to `[0, 0, 0, 0]` as well, but its canvas shows every pixel with alpha 1, so the clear reads as opaque black.
+      - [`@spec a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear`](#spec-a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear) — A draw that passes `clear: false` leaves the colour of the pixels it does not cover as an earlier draw left them.
+      - [`@spec a-cpu-draw-clears-its-depth-first-unless-it-asks-not-to`](#spec-a-cpu-draw-clears-its-depth-first-unless-it-asks-not-to) — A draw of a CPU rasterizer routine clears its depth buffer before it draws, so no depth of an earlier draw hides it. With `clearDepth: false` it tests against the depth an earlier draw left.
+    - [`@spec several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas) — Several adapters can draw on one canvas. An adapter ignores a uniform its program does not read.
     - [`@spec an-effect-with-several-passes-is-a-pass-graph`](#spec-an-effect-with-several-passes-is-a-pass-graph) — An [effect](#term-effect) with several passes returns a [pass graph](#term-pass-graph): its passes, the samplers each pass reads, and the pass that gives the output. The application draws each pass.
     - [`@exception a-scene-renderer-draws-its-scene-graph`](#exception-a-scene-renderer-draws-its-scene-graph) — `render(scene, camera)` on a renderer of `./scene` walks the scene graph, binds the geometry and the [node material](#term-node-material) of each mesh, uploads their uniforms and draws them.
     - [`@spec a-pass-keys-an-input-by-the-pass-that-makes-it`](#spec-a-pass-keys-an-input-by-the-pass-that-makes-it) — A pass keys an input another pass makes by that pass's name, such as `gaussianBlur.horizontal`, and an outside texture by any other name.
@@ -534,8 +540,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-rasterizer-clips-at-the-near-plane`](#spec-a-rasterizer-clips-at-the-near-plane) — The rasterizer clips a triangle with a vertex behind the eye into the triangles in front of it. A triangle wholly behind the eye draws nothing.
       - [`@spec a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment) — The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles. Its depth buffer persists across draws until a draw asks for `clearDepth`.
         - [`@bug wasm-rasterizer-ignores-the-fragment-depth`](#bug-wasm-rasterizer-ignores-the-fragment-depth) — The WASM rasterizer tests and stores the interpolated depth, ignoring the depth the fragment stage writes.
-      - [`@spec a-rasterizer-clears-its-colour-every-draw`](#spec-a-rasterizer-clears-its-colour-every-draw) — Each draw starts from a cleared colour buffer, so no pixel of an earlier draw remains.
-        - [`@bug the-cpu-rasterizers-keep-the-colour-of-an-earlier-draw`](#bug-the-cpu-rasterizers-keep-the-colour-of-an-earlier-draw) — The JS and WASM rasterizers clear their colour buffer only when a draw passes `clear`. A pixel the next draw leaves uncovered keeps the earlier colour.
       - [`@spec a-rasterizer-takes-its-count-from-the-first-attribute`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute) — A draw that names no vertex count takes it from the first attribute the host passes.
       - [`@spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws) — The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
         - [`@bug wasm-rasterizer-gives-every-fragment-coordinate-zero`](#bug-wasm-rasterizer-gives-every-fragment-coordinate-zero) — The WASM rasterizer never writes `fragCoord()`, so every fragment reads it as `[0, 0]`, where the JS rasterizer passes the pixel's centre.
@@ -726,6 +730,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact webgpu-clips-a-triangle-outside-the-depth-range`](#fact-webgpu-clips-a-triangle-outside-the-depth-range) — WebGPU clips a triangle against the depth range from 0 to 1, and draws the depths 0 and 1 themselves.
 - [`@fact webgpu-draws-nothing-for-a-triangle-off-the-viewport`](#fact-webgpu-draws-nothing-for-a-triangle-off-the-viewport) — WebGPU draws no pixel for a triangle wholly outside the viewport, at any distance from it, and reports no error.
 - [`@fact webgpu-culls-no-face-by-default`](#fact-webgpu-culls-no-face-by-default) — A WebGPU render pipeline culls no face unless it asks to, so a triangle draws whichever way its vertices wind.
+- [`@fact a-webgpu-canvas-configured-opaque-drops-alpha`](#fact-a-webgpu-canvas-configured-opaque-drops-alpha) — A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha was drawn into it.
 <!-- toc:end -->
 
 ## Open questions
@@ -3063,15 +3068,43 @@ This follows because the application decides when to draw.
 
 Issue: #72
 
+#### @spec a-draw-clears-its-target-first-unless-it-asks-not-to
+
+> A draw of an adapter, and of a CPU rasterizer routine, clears the colour of its target before it draws, to its `clearColor`. A draw that passes `clear: false` draws over what is there. A CPU draw also clears its depth buffer, unless it passes `clearDepth: false`.
+
+Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target), [`fact-three-js-clears-before-it-renders-when-auto-clear-is-set`](#fact-three-js-clears-before-it-renders-when-auto-clear-is-set)
+
+This follows because a draw that kept what an earlier draw left would give one program different pixels. A target that clears would differ from one that does not. three.js clears at the start of each render by default. An application that composes several draws says so, as it does in three.js with `autoClear` off.
+
+##### @spec a-draw-clears-the-colour-of-its-target-to-its-clear-colour
+
+> A draw clears the colour of its target to its `clearColor` before it draws, so no pixel of an earlier draw remains.
+
+##### @spec a-clear-colour-is-transparent-black-unless-the-draw-gives-one
+
+> A draw that gives no `clearColor` clears to transparent black, `[0, 0, 0, 0]`.
+
+###### @spec a-glsl-js-and-wasm-draw-clears-to-transparent-black
+
+> A draw of the GLSL adapter, and of a JS or WASM rasterizer routine, that gives no `clearColor` leaves the cleared pixels at `[0, 0, 0, 0]`.
+
+###### @exception a-wgsl-canvas-shows-a-transparent-clear-as-opaque-black
+
+> The WGSL adapter clears to `[0, 0, 0, 0]` as well, but its canvas shows every pixel with alpha 1, so the clear reads as opaque black.
+
+Derives from: [`fact-a-webgpu-canvas-configured-opaque-drops-alpha`](#fact-a-webgpu-canvas-configured-opaque-drops-alpha)
+
+##### @spec a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear
+
+> A draw that passes `clear: false` leaves the colour of the pixels it does not cover as an earlier draw left them.
+
+##### @spec a-cpu-draw-clears-its-depth-first-unless-it-asks-not-to
+
+> A draw of a CPU rasterizer routine clears its depth buffer before it draws, so no depth of an earlier draw hides it. With `clearDepth: false` it tests against the depth an earlier draw left.
+
 #### @spec several-adapters-draw-on-one-canvas
 
-> Several adapters can draw on one canvas, each clearing to the colour its draw asks for. An adapter ignores a uniform its program does not read.
-
-##### @bug the-glsl-adapter-never-clears
-
-> `createGlsl` never clears its canvas and takes no clear colour, so a draw leaves what an earlier draw put there.
-
-Issue: #107
+> Several adapters can draw on one canvas. An adapter ignores a uniform its program does not read.
 
 #### @spec an-effect-with-several-passes-is-a-pass-graph
 
@@ -3673,16 +3706,6 @@ Issue: #83
 > The WASM rasterizer tests and stores the interpolated depth, ignoring the depth the fragment stage writes.
 
 Issue: #112
-
-##### @spec a-rasterizer-clears-its-colour-every-draw
-
-> Each draw starts from a cleared colour buffer, so no pixel of an earlier draw remains.
-
-###### @bug the-cpu-rasterizers-keep-the-colour-of-an-earlier-draw
-
-> The JS and WASM rasterizers clear their colour buffer only when a draw passes `clear`. A pixel the next draw leaves uncovered keeps the earlier colour.
-
-Issue: #81
 
 ##### @spec a-rasterizer-takes-its-count-from-the-first-attribute
 
@@ -4849,3 +4872,9 @@ Chromium's WebGPU draws nothing, with no validation error, for a triangle at `x 
 > A WebGPU render pipeline culls no face unless it asks to, so a triangle draws whichever way its vertices wind.
 
 Chromium's WebGPU draws a counter-clockwise and a clockwise triangle alike with the default `cullMode`.
+
+## @fact a-webgpu-canvas-configured-opaque-drops-alpha
+
+> A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha was drawn into it.
+
+Chromium's WebGPU draws a fragment of alpha 0 into a canvas configured opaque, and the page reads the pixel back with alpha 255.

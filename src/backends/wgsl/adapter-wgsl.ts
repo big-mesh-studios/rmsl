@@ -8,7 +8,15 @@ import {
   UniformValue,
 } from "../../core";
 import { compile, WgslResource } from "../../wgsl";
-import { Adapter, DrawCountOptions, requestedStorageSlots, slotOf, TypedArray } from "../adapter";
+import {
+  Adapter,
+  DrawClearOptions,
+  DrawCountOptions,
+  requestedStorageSlots,
+  slotOf,
+  TRANSPARENT_BLACK,
+  TypedArray,
+} from "../adapter";
 import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
 import { textureImage } from "../texture-image";
 import { CompileCtx, storageAttributes, VertexRoot } from "../shared";
@@ -66,17 +74,9 @@ export type AdapterResult = Record<string, TypedArray>;
  * so there's no `mode` here, just `DrawCountOptions`'s own `count`/`first`
  * plus how many instances.
  */
-export interface WgslDrawOptions extends DrawCountOptions {
+export interface WgslDrawOptions extends DrawCountOptions, DrawClearOptions {
   /** Instances to draw. Defaults to 1. */
   instanceCount?: number;
-  /**
-   * Whether to clear the canvas before drawing. Defaults to `true`; pass
-   * `false` to draw over what an earlier `draw()` of this or another adapter
-   * on the same canvas left this frame.
-   */
-  clear?: boolean;
-  /** The colour a clear fills the canvas with, as red, green, blue and alpha from 0 to 1. Defaults to opaque black. */
-  clearColor?: readonly [number, number, number, number];
 }
 
 export interface CreateWgslAdapterOptions {
@@ -582,7 +582,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
         colorAttachments: [
           {
             view,
-            clearValue: drawOptions?.clearColor ?? [0, 0, 0, 1],
+            clearValue: drawOptions?.clearColor ?? TRANSPARENT_BLACK,
             loadOp: drawOptions?.clear === false ? "load" : "clear",
             storeOp: "store",
           },

@@ -55,19 +55,6 @@ const checker = { data: Float32Array.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 1
 
 describe("known bugs of the JS target, each failing until its fix", () => {
   /**
-   * A draw of the JS rasterizer keeps the pixels of the draw before it unless
-   * it passes `clear: true`, which defaults to false.
-   *
-   * @canon bug-the-cpu-rasterizers-keep-the-colour-of-an-earlier-draw
-   */
-  it.fails("starts each draw of the JS rasterizer from a cleared colour buffer", () => {
-    const draw = flatRasterizer();
-    draw(screenAt(0), [1, 0, 0, 1]);
-    const corner = [-1, -1, 0, -0.5, -1, 0, -1, -0.5, 0];
-    expect(Array.from(draw(corner, [0, 0, 1, 1], { clearDepth: true }).slice(0, 4))).toEqual([0, 0, 0, 0]);
-  });
-
-  /**
    * The JS rasterizer writes 0 into the red channel of a fragment that
    * discarded, over the colour already there.
    *
@@ -78,8 +65,9 @@ describe("known bugs of the JS target, each failing until its fix", () => {
       If(drop.greaterThan(0), () => Discard());
       return color;
     });
-    draw(screenAt(0.5), [1, 0, 0, 1], { clear: true, clearDepth: true });
-    expect(Array.from(draw(screenAt(0.25), [0, 1, 0, 1], {}, 1).slice(0, 4))).toEqual([1, 0, 0, 1]);
+    const composes = { clear: false, clearDepth: false };
+    draw(screenAt(0.5), [1, 0, 0, 1]);
+    expect(Array.from(draw(screenAt(0.25), [0, 1, 0, 1], composes, 1).slice(0, 4))).toEqual([1, 0, 0, 1]);
   });
 
   /**
@@ -93,8 +81,10 @@ describe("known bugs of the JS target, each failing until its fix", () => {
       If(drop.greaterThan(0), () => Discard());
       return color;
     });
-    draw(screenAt(0.25), [0, 1, 0, 1], { clear: true, clearDepth: true }, 1);
-    expect(Array.from(draw(screenAt(0.5), [0, 0, 1, 1]).slice(0, 4))).toEqual([0, 0, 1, 1]);
+    draw(screenAt(0.25), [0, 1, 0, 1], {}, 1);
+    expect(Array.from(draw(screenAt(0.5), [0, 0, 1, 1], { clear: false, clearDepth: false }).slice(0, 4))).toEqual([
+      0, 0, 1, 1,
+    ]);
   });
 
   /**
@@ -310,11 +300,11 @@ describe("known bugs of the JS target, each failing until its fix", () => {
     const draw = flatRasterizer();
     const upper = [-1, 1, 0, 1, -1, 0, 1, 1, 0];
     const lower = [-1, 1, 0, -1, -1, 0, 1, -1, 0];
-    const clears = { clear: true, clearDepth: true };
-    draw(upper, [1, 0, 0, 1], clears);
-    const upperFirst = Array.from(draw(lower, [0, 0, 1, 1]));
-    draw(lower, [0, 0, 1, 1], clears);
-    const lowerFirst = Array.from(draw(upper, [1, 0, 0, 1]));
+    const composes = { clear: false, clearDepth: false };
+    draw(upper, [1, 0, 0, 1]);
+    const upperFirst = Array.from(draw(lower, [0, 0, 1, 1], composes));
+    draw(lower, [0, 0, 1, 1]);
+    const lowerFirst = Array.from(draw(upper, [1, 0, 0, 1], composes));
     expect(upperFirst).toEqual(lowerFirst);
   });
 
@@ -326,7 +316,7 @@ describe("known bugs of the JS target, each failing until its fix", () => {
    */
   it.fails("clips a triangle below zero depth in the JS rasterizer", () => {
     const draw = flatRasterizer();
-    const image = draw(screenAt(-0.5), [1, 0, 0, 1], { clear: true, clearDepth: true });
+    const image = draw(screenAt(-0.5), [1, 0, 0, 1]);
     expect(Array.from(image)).toEqual(new Array(16).fill(0));
   });
 

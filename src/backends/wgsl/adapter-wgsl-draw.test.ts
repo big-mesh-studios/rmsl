@@ -59,6 +59,18 @@ globalThis.__rmslAdapterComposeRun = async () => {
 };
 `;
 
+const ENTRY_DEFAULT_CLEAR = `
+${QUAD}
+globalThis.__rmslAdapterDefaultClearRun = async () => {
+  const target = canvas();
+  const adapter = createWgsl({ vertex: quad(-1, -1, 0, 0), fragment: Fn(() => vec4(1, 0, 0, 1))() });
+  await adapter.attach(target);
+  adapter.draw({ count: 6 });
+  await adapter.device().queue.onSubmittedWorkDone();
+  return readPixel(target, 3, 3);
+};
+`;
+
 const ENTRY_OWN_BUFFERS = `
 ${QUAD}
 globalThis.__rmslAdapterOwnBuffersRun = async () => {
@@ -88,12 +100,23 @@ describe.skipIf(!WEBGPU)("createWgsl drawing storage buffers on a real adapter",
   }, 60_000);
   /**
    * @canon spec-several-adapters-draw-on-one-canvas
+   * @canon spec-a-draw-clears-the-colour-of-its-target-to-its-clear-colour
+   * @canon spec-a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear
    */
   it("composes adapters on one canvas, clearing to the clear colour, and ignores an unread uniform", async () => {
     const { left, corner, cleared } = await run(ENTRY_COMPOSE, "__rmslAdapterComposeRun");
     expect(left).toMatchObject({ r: 255, g: 0, b: 0 });
     expect(corner).toMatchObject({ r: 0, g: 255, b: 0 });
     expect(cleared).toMatchObject({ r: 0, g: 0, b: 255 });
+  }, 60_000);
+  /**
+   * The clear is transparent black, but the canvas shows every pixel opaque.
+   *
+   * @canon exception-a-wgsl-canvas-shows-a-transparent-clear-as-opaque-black
+   */
+  it("clears to a pixel of alpha 1 when the draw gives no clear colour", async () => {
+    const pixel = await run(ENTRY_DEFAULT_CLEAR, "__rmslAdapterDefaultClearRun");
+    expect(pixel).toEqual({ r: 0, g: 0, b: 0, a: 255 });
   }, 60_000);
   /**
    * @canon spec-a-wgsl-buffer-feeds-a-draw-without-a-copy

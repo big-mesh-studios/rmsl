@@ -1,5 +1,5 @@
 import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
-import { Adapter, DrawCountOptions, slotOf, TypedArray } from "../adapter";
+import { Adapter, DrawClearOptions, DrawCountOptions, slotOf, TRANSPARENT_BLACK, TypedArray } from "../adapter";
 import { VertexRoot } from "../shared";
 import type { CpuTextureData } from "../cpu";
 import { textureImage } from "../texture-image";
@@ -17,7 +17,7 @@ type AttributeInfo = { location: number; buffer: WebGLBuffer; componentCount: nu
  * index buffer, so add that as its own option if a program ever needs it
  * rather than stretching this one to cover it implicitly.
  */
-export interface GlslDrawOptions extends DrawCountOptions {
+export interface GlslDrawOptions extends DrawCountOptions, DrawClearOptions {
   mode?: "triangles" | "triangle-strip" | "triangle-fan" | "lines" | "line-strip" | "line-loop" | "points";
   /** Instances to draw. Omit for a plain (non-instanced) draw. */
   instanceCount?: number;
@@ -312,6 +312,11 @@ export function createGlsl(
       if (!gl || !program || !vao) throw new Error("[RMSL] adapter not attached — call attach() before draw()");
       gl.useProgram(program);
       gl.bindVertexArray(vao);
+      if (options?.clear !== false) {
+        const [r, g, b, a] = options?.clearColor ?? TRANSPARENT_BLACK;
+        gl.clearColor(r, g, b, a);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+      }
       // Another adapter sharing this context may have bound its own texture to a unit since.
       for (const held of textures.values()) {
         gl.activeTexture(gl.TEXTURE0 + held.unit);
