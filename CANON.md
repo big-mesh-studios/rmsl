@@ -531,10 +531,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec the-js-target-computes-scalar-math-with-math`](#spec-the-js-target-computes-scalar-math-with-math) — The JS target computes a scalar math function with the function of the same name on `Math`.
     - [`@spec a-cpu-routine-reads-its-inputs-by-slot`](#spec-a-cpu-routine-reads-its-inputs-by-slot) — A CPU routine reads its parameters, uniforms, uniform arrays, attributes and varyings from the context the host passes, by slot name. It reads `fragCoord()` as `[0, 0]` when the context gives none.
     - [`@spec a-cpu-routine-returns-its-value-or-a-result`](#spec-a-cpu-routine-returns-its-value-or-a-result) — A CPU routine returns the value its program returns, the last of several, as it is. When the program writes an output, a varying, the position or the depth, it returns a result object that holds them with the value. A discarded fragment returns `null`.
-      - [`@bug wasm-returns-a-value-for-a-discarded-fragment`](#bug-wasm-returns-a-value-for-a-discarded-fragment) — A WASM routine returns `0`, or a result holding a zero value, for a discarded fragment.
-    - [`@spec a-vertex-stage-returns-its-position-and-varyings`](#spec-a-vertex-stage-returns-its-position-and-varyings) — `compileJSVertex` gives a stage whose `run` returns an object that holds the position, a `vec4`, and the varyings the program wrote, by slot. A vertex stage that never writes the position itself returns its `vec4` result as the position.
-    - [`@spec a-fragment-stage-returns-its-colour-and-outputs`](#spec-a-fragment-stage-returns-its-colour-and-outputs) — `compileJSFragment` gives a stage whose `run` returns an object that holds the colour, a `vec4`, and the outputs the program wrote, by slot, and the depth when it wrote one. A stage that declares an output has no colour, which is undefined. A fragment that discards returns `null`.
-    - [`@spec a-compute-stage-dispatches-and-returns-nothing`](#spec-a-compute-stage-dispatches-and-returns-nothing) — `compileJSCompute` gives a stage whose `dispatch` runs the program once per index of a count, in index order, and returns nothing. The stage names the type of each storage buffer the program reads.
+    - [`@spec a-vertex-stage-returns-its-position-and-varyings`](#spec-a-vertex-stage-returns-its-position-and-varyings) — `compileJSVertex` and `compileWasmVertex` give a stage whose `run` returns an object that holds the position, a `vec4`, and the varyings the program wrote, by slot. A vertex stage that never writes the position itself returns its `vec4` result as the position.
+    - [`@spec a-fragment-stage-returns-its-colour-and-outputs`](#spec-a-fragment-stage-returns-its-colour-and-outputs) — `compileJSFragment` and `compileWasmFragment` give a stage whose `run` returns an object that holds the colour, a `vec4`, and the outputs the program wrote, by slot, and the depth when it wrote one. A stage that declares an output has no colour, which is undefined. A fragment that discards returns `null`.
+    - [`@spec a-compute-stage-dispatches-and-returns-nothing`](#spec-a-compute-stage-dispatches-and-returns-nothing) — `compileJSCompute` and `compileWasmCompute` give a stage whose `dispatch` runs the program once per index of a count, in index order, and returns nothing. The stage names the type of each storage buffer the program reads.
     - [`@spec a-cpu-routine-answers-one-fragment-per-call`](#spec-a-cpu-routine-answers-one-fragment-per-call) — `run` of a CPU routine evaluates the program once, for the context the host passes. The same routine serves any number of calls, and a value one call returned keeps what it holds through the calls after it.
     - [`@spec a-cpu-routine-draws-a-grid-of-fragments`](#spec-a-cpu-routine-draws-a-grid-of-fragments) — `draw` of a CPU routine evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to draw.
     - [`@spec a-cpu-routine-runs-one-compute-invocation-per-call`](#spec-a-cpu-routine-runs-one-compute-invocation-per-call) — A CPU routine of a program that reads `storage()` and `invocationIndex()` runs one invocation for each call. It reads and writes any element of the buffers the host passes by slot.
@@ -3694,15 +3693,9 @@ This follows because a page whose security policy blocks `new Function` can stil
 > A CPU routine returns the value its program returns, the last of several, as it is. When the program writes an output, a varying, the position or the depth, it returns a result object that holds them with the value. A discarded fragment returns `null`.
 
 
-##### @bug wasm-returns-a-value-for-a-discarded-fragment
-
-> A WASM routine returns `0`, or a result holding a zero value, for a discarded fragment.
-
-Issue: #82
-
 #### @spec a-vertex-stage-returns-its-position-and-varyings
 
-> `compileJSVertex` gives a stage whose `run` returns an object that holds the position, a `vec4`, and the varyings the program wrote, by slot. A vertex stage that never writes the position itself returns its `vec4` result as the position.
+> `compileJSVertex` and `compileWasmVertex` give a stage whose `run` returns an object that holds the position, a `vec4`, and the varyings the program wrote, by slot. A vertex stage that never writes the position itself returns its `vec4` result as the position.
 
 Derives from: [`axiom-a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns), [`spec-a-vertex-stage-writes-its-position`](#spec-a-vertex-stage-writes-its-position)
 
@@ -3710,7 +3703,7 @@ This follows because the shape of a result follows from the function that compil
 
 #### @spec a-fragment-stage-returns-its-colour-and-outputs
 
-> `compileJSFragment` gives a stage whose `run` returns an object that holds the colour, a `vec4`, and the outputs the program wrote, by slot, and the depth when it wrote one. A stage that declares an output has no colour, which is undefined. A fragment that discards returns `null`.
+> `compileJSFragment` and `compileWasmFragment` give a stage whose `run` returns an object that holds the colour, a `vec4`, and the outputs the program wrote, by slot, and the depth when it wrote one. A stage that declares an output has no colour, which is undefined. A fragment that discards returns `null`.
 
 Derives from: [`axiom-a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns), [`spec-a-fragment-result-without-an-output-is-the-colour`](#spec-a-fragment-result-without-an-output-is-the-colour)
 
@@ -3718,7 +3711,7 @@ This follows because the shape of a result follows from the function that compil
 
 #### @spec a-compute-stage-dispatches-and-returns-nothing
 
-> `compileJSCompute` gives a stage whose `dispatch` runs the program once per index of a count, in index order, and returns nothing. The stage names the type of each storage buffer the program reads.
+> `compileJSCompute` and `compileWasmCompute` give a stage whose `dispatch` runs the program once per index of a count, in index order, and returns nothing. The stage names the type of each storage buffer the program reads.
 
 Derives from: [`axiom-a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns), [`spec-a-compute-program-returns-nothing`](#spec-a-compute-program-returns-nothing)
 

@@ -2272,8 +2272,8 @@ export function compileJSFragment(
 ): JsFragmentStage {
   const routine = compileJSRoutine(fn, { ...options, stage: "fragment" });
   return {
-    run: (ctx) => toFragmentResult(routine.run(ctx) as CpuShaderResult | null),
-    runInPlace: (ctx) => toFragmentResult(routine.runInPlace(ctx) as CpuShaderResult | null),
+    run: (ctx) => toFragmentResult(routine.run(ctx)),
+    runInPlace: (ctx) => toFragmentResult(routine.runInPlace(ctx)),
   };
 }
 

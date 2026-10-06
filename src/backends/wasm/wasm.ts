@@ -5,6 +5,11 @@ import {
   CpuDrawBuffer,
   CpuRoutine,
   CpuStageRoutine,
+  ComputeStage,
+  FragmentStage,
+  VertexStage,
+  toFragmentResult,
+  toVertexResult,
   CpuShaderContext,
   CpuShaderResult,
   CpuTextureData,
@@ -80,6 +85,7 @@ export type WasmParam =
   | { kind: "varyingOutputMemory"; slot: string; shaderType: ShaderType; address: number }
   | { kind: "positionMemory"; address: number }
   | { kind: "fragDepthMemory"; address: number }
+  | { kind: "discardMemory"; address: number }
   | { kind: "valueMemory"; shaderType: ShaderType; address: number }
   | { kind: "textureMemory"; slot: string; samplerType: ShaderType; metadataAddress: number }
   | {
@@ -809,6 +815,8 @@ export function compileWasmFn(
   const varyingOutputAddress = new Map<string, number>();
   let positionAddress: number | undefined;
   let fragDepthAddress: number | undefined;
+  /** An `i32` the program sets to 1 when it discards, which the host reads back after the call. */
+  let discardAddress: number | undefined;
 
   const textureMetadataAddress = new Map<string, number>();
   const scratchAddress = new WeakMap<object, number>();
@@ -1449,6 +1457,16 @@ export function compileWasmFn(
         if (positionAddress === undefined) {
           positionAddress = allocateFor("vec4");
           memoryParams.push({ kind: "positionMemory", address: positionAddress });
+        }
+        break;
+      }
+
+      case "discard": {
+        // the host reads this flag to tell a discarded fragment from one that returned zero
+        needsResult = true;
+        if (discardAddress === undefined) {
+          discardAddress = allocateFor("int");
+          memoryParams.push({ kind: "discardMemory", address: discardAddress });
         }
         break;
       }
@@ -3666,10 +3684,11 @@ export function compileWasmFn(
       }
       case "return":
       case "discard": {
-        // discard has no distinct "no fragment output" meaning yet: it leaves
-        // early exactly like return, with the same exit sentinel.
+        // discard leaves early exactly like return, with the same exit sentinel,
+        // after it raises the flag the host reads.
         const sentinel = needsResult ? [] : resultKind === "float" ? f64ConstBytes(0) : i32ConstBytes(0); // needsResult exits a void block; otherwise carry a zero for the block's result type
-        return [...sentinel, WASM_OP.br, ...wasmUleb128(depth - EXIT_BLOCK_DEPTH)];
+        const raise = node.type === "discard" ? storeComponent(discardAddress!, "int", 0, i32ConstBytes(1)) : [];
+        return [...raise, ...sentinel, WASM_OP.br, ...wasmUleb128(depth - EXIT_BLOCK_DEPTH)];
       }
       default:
         throw new Error(`[RMSL] compileWasmFn: unsupported node type in statement position: "${node.type}"`);
@@ -4016,6 +4035,7 @@ export function instantiateWasmRoutine(
   );
 
   const { marshal: marshalInputs, writeBackStorages } = createWasmInputMarshaller(params, textureHeapBase, memory);
+  const discardAddress = params.find((p) => p.kind === "discardMemory")?.address;
 
   /**
    * `CpuRoutine.run`: marshals `ctx` into the compiled function's args
@@ -4023,11 +4043,13 @@ export function instantiateWasmRoutine(
    * a `CpuShaderResult` for a stage program — see `marshalInputs`/the
    * `outputParams` loop below).
    */
-  function run(ctx: CpuShaderContext): number | boolean | CpuShaderResult {
+  function run(ctx: CpuShaderContext): number | boolean | CpuShaderResult | null {
     const { args } = marshalInputs(ctx);
+    if (discardAddress !== undefined) new DataView(memory.buffer).setInt32(discardAddress, 0, true);
     const result = wasmMain(...args);
     writeBackStorages(ctx);
     const view = new DataView(memory.buffer); // fresh: marshalInputs may have just grown (and detached) the buffer
+    if (discardAddress !== undefined && view.getInt32(discardAddress, true) !== 0) return null;
 
     // scalar mode: reinterpret the raw i32 — the WASM boundary returns it
     // signed, so a uint result needs a >>> 0 re-read
@@ -4156,4 +4178,34 @@ export function compileWasmRoutine(
   options: CompileWasmFnOptions,
 ): CpuStageRoutine {
   return instantiateWasmRoutine(compileWasmFn(fn, options), options.name, options.memory);
+}
+
+/** What a stage compile function takes: the options of a routine, without the stage, which the function names. */
+export type CompileWasmStageOptions = Omit<CompileWasmFnOptions, "stage">;
+
+/** Compiles an `Fn` as a vertex stage: it returns the position, and the varyings it writes. */
+export function compileWasmVertex(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileWasmStageOptions,
+): VertexStage {
+  const routine = compileWasmRoutine(fn, { ...options, stage: "vertex" });
+  return { run: (ctx) => toVertexResult(routine.run(ctx)) };
+}
+
+/** Compiles an `Fn` as a fragment stage: it returns the colour and the outputs it writes, or `null` for a discarded fragment. */
+export function compileWasmFragment(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileWasmStageOptions,
+): FragmentStage {
+  const routine = compileWasmRoutine(fn, { ...options, stage: "fragment" });
+  return { run: (ctx) => toFragmentResult(routine.run(ctx)) };
+}
+
+/** Compiles an `Fn` as a compute stage: it reads `invocationIndex()` and writes `storage()`, and returns nothing. */
+export function compileWasmCompute(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileWasmStageOptions,
+): ComputeStage {
+  const routine = compileWasmRoutine(fn, { ...options, stage: "compute" });
+  return { dispatch: (ctx, count) => routine.compute(ctx, count), storageTypes: routine.storageTypes ?? {} };
 }

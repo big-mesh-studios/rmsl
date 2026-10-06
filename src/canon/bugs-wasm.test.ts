@@ -163,21 +163,6 @@ describe("known WASM bugs, each failing until its fix", () => {
   });
 
   /**
-   * A WASM routine returns `0`, or a result holding a zero value, for a
-   * discarded fragment.
-   *
-   * @canon bug-wasm-returns-a-value-for-a-discarded-fragment
-   */
-  it.fails("returns null for a discarded fragment on WASM", () => {
-    const build = () =>
-      Fn(() => {
-        Discard();
-        return float(1);
-      })();
-    expect(compileWasmRoutine(build, { ...none, stage: "fragment" }).run({})).toBeNull();
-  });
-
-  /**
    * The WASM rasterizer writes a colour for a discarded fragment: the colour
    * the fragment stage last left in its memory.
    *

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   attribute,
   builtinPosition,
+  Discard,
   float,
   Fn,
   If,
@@ -272,6 +273,18 @@ describe("a WASM routine's results", () => {
     const first = routine.draw({ params: { a: 0.5 } }, 1, 1);
     routine.draw({ params: { a: 100.5 } }, 1, 1);
     expect(Array.from(first)).toEqual([0.5, 1.5]);
+  });
+
+  /**
+   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   */
+  it("returns null for a discarded fragment on WASM", () => {
+    const build = () =>
+      Fn(() => {
+        Discard();
+        return float(1);
+      })();
+    expect(compileWasmRoutine(build, { ...none, stage: "fragment" }).run({})).toBeNull();
   });
 });
 

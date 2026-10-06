@@ -153,7 +153,7 @@ export type CpuRoutine<A extends ShaderType = ShaderType> = {
  * depth hands back.
  */
 export type CpuStageRoutine = Omit<CpuRoutine, "run"> & {
-  run(ctx: CpuShaderContext): CpuValue<ShaderType> | CpuShaderResult;
+  run(ctx: CpuShaderContext): CpuValue<ShaderType> | CpuShaderResult | null;
 };
 
 /** A compiled function's scalar element kind, at the WASM/typed-array level. */
@@ -250,7 +250,7 @@ const isResultObject = (raw: unknown): raw is CpuShaderResult =>
   typeof raw === "object" && raw !== null && !Array.isArray(raw);
 
 /** The {@link VertexResult} of what a routine compiled for the vertex stage returned. */
-export function toVertexResult(raw: CpuValue<ShaderType> | CpuShaderResult): VertexResult {
+export function toVertexResult(raw: CpuValue<ShaderType> | CpuShaderResult | null): VertexResult {
   // A vertex stage that never writes the position itself has its `vec4` result become the position.
   const wrapped = isResultObject(raw);
   const position = (wrapped ? (raw.position ?? raw.value) : raw) as number[] | undefined;

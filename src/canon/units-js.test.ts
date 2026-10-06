@@ -28,7 +28,14 @@ import {
   compileJSVertex,
   createJsRoutine,
 } from "../js";
-import { compileWasm, compileWasmRoutine, createWasmRoutine } from "../wasm";
+import {
+  compileWasm,
+  compileWasmCompute,
+  compileWasmFragment,
+  compileWasmRoutine,
+  compileWasmVertex,
+  createWasmRoutine,
+} from "../wasm";
 import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } from "../testing/shader-eval";
 
 afterAll(async () => {
@@ -314,14 +321,19 @@ describe("a JS routine's results", () => {
   });
 });
 
-describe("a JS stage's result", () => {
+const stages = [
+  ["JS", compileJSVertex, compileJSFragment, compileJSCompute],
+  ["WASM", compileWasmVertex, compileWasmFragment, compileWasmCompute],
+] as const;
+
+describe("a CPU stage's result", () => {
   /**
    * @canon spec-a-vertex-stage-returns-its-position-and-varyings
    */
-  it("returns the position and the varyings a vertex stage writes", () => {
+  it.each(stages)("returns the position and the varyings a vertex stage writes on %s", (_, compileVertex) => {
     const place = attribute("vec3");
     const tint = varying("vec2");
-    const stage = compileJSVertex(
+    const stage = compileVertex(
       () =>
         Fn(() => {
           tint.assign(vec2(place.x, place.y));
@@ -337,47 +349,56 @@ describe("a JS stage's result", () => {
   /**
    * @canon spec-a-vertex-stage-returns-its-position-and-varyings
    */
-  it("returns the vec4 a vertex stage returns as its position, with no varyings", () => {
-    const place = attribute("vec3");
-    const stage = compileJSVertex(() => Fn(() => vec4(place, 1))(), none);
-    expect(stage.run({ attributes: { [place.name]: [1, 2, 3] } })).toEqual({ position: [1, 2, 3, 1], varyings: {} });
-  });
+  it.each(stages)(
+    "returns the vec4 a vertex stage returns as its position, with no varyings on %s",
+    (_, compileVertex) => {
+      const place = attribute("vec3");
+      const stage = compileVertex(() => Fn(() => vec4(place, 1))(), none);
+      expect(stage.run({ attributes: { [place.name]: [1, 2, 3] } })).toEqual({ position: [1, 2, 3, 1], varyings: {} });
+    },
+  );
 
   /**
    * @canon spec-a-fragment-stage-returns-its-colour-and-outputs
    */
-  it("returns the colour of a fragment stage as a vec4, a vec3 with an opaque alpha", () => {
-    expect(compileJSFragment(() => Fn(() => vec4(1, 2, 3, 4))(), none).run({})).toEqual({
-      value: [1, 2, 3, 4],
-      outputs: {},
-    });
-    expect(compileJSFragment(() => Fn(() => vec3(1, 2, 3))(), none).run({})).toEqual({
-      value: [1, 2, 3, 1],
-      outputs: {},
-    });
-  });
+  it.each(stages)(
+    "returns the colour of a fragment stage as a vec4, a vec3 with an opaque alpha on %s",
+    (_, __, compileFragment) => {
+      expect(compileFragment(() => Fn(() => vec4(1, 2, 3, 4))(), none).run({})).toEqual({
+        value: [1, 2, 3, 4],
+        outputs: {},
+      });
+      expect(compileFragment(() => Fn(() => vec3(1, 2, 3))(), none).run({})).toEqual({
+        value: [1, 2, 3, 1],
+        outputs: {},
+      });
+    },
+  );
 
   /**
    * @canon spec-a-fragment-stage-returns-its-colour-and-outputs
    */
-  it("returns the outputs a fragment stage writes, and no colour when it declares one", () => {
-    const stage = compileJSFragment(
-      () =>
-        Fn(() => {
-          output("float").assign(float(7));
-        })(),
-      none,
-    );
-    const result = stage.run({});
-    expect(result?.value).toBeUndefined();
-    expect(Object.values(result?.outputs ?? {})).toEqual([7]);
-  });
+  it.each(stages)(
+    "returns the outputs a fragment stage writes, and no colour when it declares one on %s",
+    (_, __, compileFragment) => {
+      const stage = compileFragment(
+        () =>
+          Fn(() => {
+            output("float").assign(float(7));
+          })(),
+        none,
+      );
+      const result = stage.run({});
+      expect(result?.value).toBeUndefined();
+      expect(Object.values(result?.outputs ?? {})).toEqual([7]);
+    },
+  );
 
   /**
    * @canon spec-a-fragment-stage-returns-its-colour-and-outputs
    */
-  it("returns null for a fragment that discards", () => {
-    const stage = compileJSFragment(
+  it.each(stages)("returns null for a fragment that discards on %s", (_, __, compileFragment) => {
+    const stage = compileFragment(
       () =>
         Fn(() => {
           Discard();
@@ -391,18 +412,21 @@ describe("a JS stage's result", () => {
   /**
    * @canon spec-a-compute-stage-dispatches-and-returns-nothing
    */
-  it("dispatches a compute stage over its indices and names the storage it reads", () => {
-    const buffer = instancedArray(4, "float");
-    const stage = compileJSCompute(
-      () =>
-        Fn(() => {
-          buffer.element(invocationIndex().mul(2)).assign(float(9));
-        })(),
-      none,
-    );
-    const data = new Float64Array([1, 2, 3, 4]);
-    expect(stage.dispatch({ storages: { [buffer.name]: data } }, 2)).toBeUndefined();
-    expect(Array.from(data)).toEqual([9, 2, 9, 4]);
-    expect(stage.storageTypes[buffer.name]).toBe("float");
-  });
+  it.each(stages)(
+    "dispatches a compute stage over its indices and names the storage it reads on %s",
+    (_, __, ___, compileCompute) => {
+      const buffer = instancedArray(4, "float");
+      const stage = compileCompute(
+        () =>
+          Fn(() => {
+            buffer.element(invocationIndex().mul(2)).assign(float(9));
+          })(),
+        none,
+      );
+      const data = new Float64Array([1, 2, 3, 4]);
+      expect(stage.dispatch({ storages: { [buffer.name]: data } }, 2)).toBeUndefined();
+      expect(Array.from(data)).toEqual([9, 2, 9, 4]);
+      expect(stage.storageTypes[buffer.name]).toBe("float");
+    },
+  );
 });

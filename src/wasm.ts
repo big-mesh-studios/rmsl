@@ -1,13 +1,25 @@
-export { compileWasmRoutine, compileWasmFn, instantiateWasmRoutine } from "./backends/wasm/wasm";
-export type { CompiledWasm, WasmParam } from "./backends/wasm/wasm";
+export {
+  compileWasmRoutine,
+  compileWasmFn,
+  compileWasmVertex,
+  compileWasmFragment,
+  compileWasmCompute,
+  instantiateWasmRoutine,
+} from "./backends/wasm/wasm";
+export type { CompiledWasm, CompileWasmStageOptions, WasmParam } from "./backends/wasm/wasm";
 
 export type {
+  ComputeStage,
   CpuDrawBuffer,
   CpuRoutine,
   CpuShaderContext,
   CpuShaderResult,
   CpuTextureData,
   CpuTextureWrap,
+  FragmentResult,
+  FragmentStage,
+  VertexResult,
+  VertexStage,
 } from "./backends/cpu";
 
 export { createWasmRoutine, createWasmCompute, createWasm } from "./backends/wasm/adapter-wasm";
