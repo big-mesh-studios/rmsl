@@ -1,4 +1,4 @@
-import { attribute, float, Fn, output, vec4 } from "@random-mesh/rmsl";
+import { attribute, float, Fn, vec4 } from "@random-mesh/rmsl";
 import { oscillatorSample, u_freq, u_gain, u_sampleRate, u_startPhase, u_waveform } from "./synthShader";
 
 // How many points trace one on-screen sweep of the waveform. Not the audio
@@ -24,7 +24,5 @@ export let scopeVertex = Fn(() => {
 });
 
 export let scopeFragment = Fn(() => {
-  let outColor = output("vec4");
-  outColor.assign(vec4(0.22, 0.74, 0.97, 1.0)); // matches the CSS --accent color
-  return outColor;
+  return vec4(0.22, 0.74, 0.97, 1.0); // matches the CSS --accent color
 });

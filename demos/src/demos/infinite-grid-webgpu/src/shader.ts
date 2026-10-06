@@ -4,7 +4,6 @@ import {
   If,
   uniform,
   varying,
-  output,
   attribute,
   bool,
   Node,
@@ -67,7 +66,6 @@ export let calcColourAndDepth = Fn(() => {
   let pFWidth = p.xz.fwidth().toVar();
 
   let colour = vec3(0.7, 0.7, 0.7).toVar();
-  let outColor = output("vec4");
   let fragDepth = builtinFragDepth();
 
   let groundColour = vec3(0.7, 0.7, 0.7).toVar();
@@ -139,8 +137,7 @@ export let calcColourAndDepth = Fn(() => {
     fragDepth.assign(ndcZ.mul(0.5).add(0.5));
   });
 
-  outColor.assign(vec4(colour, 1.0));
-  return outColor;
+  return vec4(colour, 1.0);
 });
 
 // === Matrix math utilities (column-major Float32Array) ===
