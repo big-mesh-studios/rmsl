@@ -3,11 +3,11 @@
 RMSL also compiles an `Fn` straight to a raw WebAssembly binary module — hand-encoded bytes, no wabt/binaryen — instead of JavaScript source. It targets the same CPU-eval niche the [JS target](compilation.md#js--cpu-target) does: screen picking, ray-march hit tests, anything calling a compiled shader graph once per pixel/click from plain JS, where per-call overhead matters more than raw throughput on a hot, already-warm loop.
 
 ```typescript
-import { compileWasmRoutine, Fn, uniform, output, builtinFragDepth } from "rmsl";
+import { compileWasmFragment, Fn, uniform, builtinFragDepth } from "rmsl";
 
-let pickFn = compileWasmRoutine(calcColourAndDepth, { name: "pick", params: [] });
+let pickStage = compileWasmFragment(calcColourAndDepth, { name: "pick", params: [] });
 // On pointerdown:
-let r = pickFn.run({
+let r = pickStage.run({
   uniforms: {
     _rmsl_u0: cameraPosition, // each slot is the uniform's .name
     _rmsl_u1: cameraViewMatrix, // flat column-major arrays
@@ -15,11 +15,11 @@ let r = pickFn.run({
   },
   varyings: { _rmsl_v0: positionGeometry }, // per-pixel, from the fragment coord
 });
-let colour = r.value; // the Fn's return value (e.g. the ray-marched colour)
-let depth = r.fragDepth; // written via builtinFragDepth(), for the world pick point
+let colour = r?.value; // the colour, a vec4; r is null for a fragment that discarded
+let depth = r?.fragDepth; // written via builtinFragDepth(), for the world pick point
 ```
 
-If that shape looks familiar: it's identical to `compileJSRoutine`'s. Both targets share the same host-facing contract — `CpuShaderContext` in, `CpuShaderResult` (or the bare value, a scalar, a boolean or a vector) out — described in full under [The context object](compilation.md#the-context-object) and [Return value](compilation.md#return-value). This page covers what's different about compiling to WASM specifically, not the shape both already share.
+If that shape looks familiar: it's identical to `compileJSFragment`'s. Both targets share the same host-facing contract — `CpuShaderContext` in, the value or the result of the stage out — described in full under [The context object](compilation.md#the-context-object) and [What each function returns](compilation.md#what-each-function-returns). This page covers what's different about compiling to WASM specifically, not the shape both already share.
 
 ## Why a second CPU target
 
@@ -33,7 +33,7 @@ If that shape looks familiar: it's identical to `compileJSRoutine`'s. Both targe
 
 A WASM call crosses a real module boundary — marshalling scalar args, reading vectors/matrices out of linear memory afterward — which costs more per call than a JS function returning a value directly. The measured win shows up from roughly two loop iterations upward inside the compiled function itself; a loop-free, called-once function still favors `compileJSRoutine`. See `docs/wasm-benchmarks.md` for the benchmark tables behind that number.
 
-Pick whichever backend matches the shape of the work. Nothing else about calling one differs from calling the other — they satisfy the same `CpuRoutine` interface (below), so code that picks between them at runtime doesn't need to know which one it got.
+Pick whichever backend matches the shape of the work. Nothing else about calling one differs from calling the other — they give the same routine, stage and grid types (below), so code that picks between them at runtime doesn't need to know which one it got.
 
 ## API
 
@@ -47,52 +47,57 @@ The module's raw bytes plus the metadata a host needs to call it — `{ bytes: U
 instantiateWasmRoutine(compiled: CompiledWasm, name: string): CpuRoutine
 ```
 
-Turns `compileWasmFn`'s output into a live, callable module: instantiates the `WebAssembly.Module`, and wraps it with the same marshalling `compileWasmRoutine` itself uses. `name` is the exported function's name inside the module — the same string passed as `options.name` when it was compiled with `compileWasmFn`.
+Turns `compileWasmFn`'s output into a live function of a context: instantiates the `WebAssembly.Module`, and wraps it with the same marshalling `compileWasmRoutine` itself uses. `name` is the exported function's name inside the module — the same string passed as `options.name` when it was compiled with `compileWasmFn`.
 
 ```typescript
 compileWasmRoutine(fn, options): CpuRoutine
+compileWasmVertex(fn, options): VertexStage
+compileWasmFragment(fn, options): FragmentStage
+compileWasmCompute(fn, options): ComputeStage
+compileWasmGrid(fn, options): CpuGrid
 ```
 
-`compileWasmFn(fn, options)` followed by `instantiateWasmRoutine(...)` in one call — what you want unless you're precompiling (see below).
+`compileWasmFn(fn, options)` followed by the instantiation, in one call — what you want unless you're precompiling (see below). What the program is decides which one compiles it, as for the [JS target](compilation.md#js--cpu-target).
 
 `instantiateWasmRoutine` exists as its own export specifically so a build step can compile once and instantiate many times, or instantiate compiled bytes that were never compiled in the browser at all — which is exactly what [`precompileWasm`](vite-plugins.md#precompilewasm--wasm-modules) does.
 
 Options extend the `Fn` compilers', the same set `compileJSRoutine` accepts:
 
-- `stage`: `"fragment"` (default) or `"vertex"`.
 - `derivatives`: `"throw"` (default) or `"zero"` — WASM has no derivatives either, for the same reason a single CPU evaluation doesn't.
 - `reentrant`: accepted for parity with `compileJSRoutine`, and a no-op here — WASM locals are already fresh per call frame, so there is no shared scratch a re-entrant call could clobber.
 
-## `CpuRoutine`
+## Routine, stages and grid
 
 ```typescript
-type CpuRoutine = {
-  run(ctx: CpuShaderContext): number | boolean | CpuShaderResult;
-  draw(ctx: CpuShaderContext, width: number, height: number): Float64Array | Int32Array | Uint32Array;
-  compute(ctx: CpuShaderContext, count: number): void;
+type CpuRoutine<A> = { run(ctx: CpuShaderContext): <the value A has> };
+type VertexStage = { run(ctx): { position: number[]; varyings: Record<string, unknown> } };
+type FragmentStage = {
+  run(ctx): { value: number[] | undefined; outputs: unknown[]; fragDepth?: number } | null;
+  quad(ctx, width: number, height: number, out?): Float64Array;
 };
+type ComputeStage = { dispatch(ctx, count: number): void; storageTypes: Record<string, ShaderType> };
+type CpuGrid<A> = { fill(ctx, width: number, height: number, out?): Float64Array | Int32Array | Uint32Array };
 ```
 
-Both `compileJSRoutine` and `compileWasmRoutine` return a `CpuRoutine`, with one method per way of running the program:
-
-- `run()` runs it once and returns its result, the same shape described above.
-- `draw()` runs it once per pixel of a `width x height` grid and packs the results into one buffer. The buffer is a copy that a later `draw` does not change; pass `out` to write into a buffer of your own and skip the copy.
-- `compute()` runs a `storage()`/`invocationIndex()` program once per index in `0..count`, leaving its results in `ctx.storages`.
+- `run()` of a routine runs the program once and returns its value, typed by the type the `Fn` returns. A program that reads what only a stage has is not a routine.
+- `run()` of a stage runs it once and returns its result: the position and varyings of a vertex stage, the colour and outputs of a fragment stage, or `null` for a fragment that discarded.
+- `dispatch()` runs a `storage()`/`invocationIndex()` program once per index in `0..count`, leaving its results in `ctx.storages`.
+- `fill()` of a grid runs a program of `fragCoord()` once per pixel of a `width x height` grid and packs the results into one buffer, typed by the result. `quad()` of a fragment stage is the same pass for its colours. The buffer is a copy that a later call does not change; pass `out` to write into a buffer of your own and skip the copy.
 
 The names match the adapters' own `draw()` and `compute()`, which call these.
 
 ```typescript
-let fn = compileWasmRoutine(calcColour, { name: "main", params: [] });
-let pixels = fn.draw({ uniforms: { ... } }, 256, 256);
+let grid = compileWasmGrid(calcLuminance, { name: "main", params: [] });
+let pixels = grid.fill({ uniforms: { ... } }, 256, 256);
 // Float64Array/Int32Array/Uint32Array, length width * height * componentCount,
 // row-major, one element type picked from the Fn's own result type.
 ```
 
-`draw()` feeds each pixel's center — `(x + 0.5, y + 0.5)` — in as `fragCoord()`, holding every other input (uniforms, textures, …) fixed across the grid. On `compileWasmRoutine`'s side this shares the compiled function's own bytecode via a second exported WASM function that loops internally and calls the first, so a whole-image evaluation pays the per-call marshalling cost once rather than once per pixel — the gap `compileJSRoutine`'s own `draw()` (a plain JS loop, one call per pixel) doesn't have to close the same way, since a JS function call is already cheap.
+`fill()` feeds each pixel's center — `(x + 0.5, y + 0.5)` — in as `fragCoord()`, holding every other input (uniforms, textures, …) fixed across the grid. On `compileWasmGrid`'s side this shares the compiled function's own bytecode via a second exported WASM function that loops internally and calls the first, so a whole-image evaluation pays the per-call marshalling cost once rather than once per pixel — the gap `compileJSGrid`'s own loop (a plain JS loop, one call per pixel) doesn't have to close the same way, since a JS function call is already cheap. A pixel that discards is zero in every channel.
 
-A `void`-returning `Fn` has nothing to produce — `draw()` throws, naming that.
+A `void`-returning `Fn` has nothing to produce — `fill()` throws, naming that.
 
-`compute()` works the same way: on `compileWasmRoutine`'s side, the module exports a third function that loops over every index internally, so a whole dispatch is one call from the host. Each storage buffer is copied into the module's memory once before it and back out once after.
+`dispatch()` works the same way: on `compileWasmCompute`'s side, the module exports a function that loops over every index internally, so a whole dispatch is one call from the host. Each storage buffer is copied into the module's memory once before it and back out once after.
 
 ## Texture sampling
 
@@ -110,7 +115,7 @@ Same story as the JS target: `@random-mesh/rmsl/test` is the ergonomic layer for
 
 ## Rasterizing a vertex/fragment pair
 
-`compileWasm(vertexFn, fragmentFn, options)` is a different function from everything above: instead of compiling one `Fn` into a `CpuRoutine`, it links a compiled vertex/fragment pair against a generic triangle rasterizer (near-plane clipping, perspective-correct varying interpolation, a LEQUAL depth test), returning a `WasmRasterRoutine` — `draw(ctx, { count?, first?, width, height, clear?, clearDepth? })` runs the vertex loop, clipping, and triangle rasterization inside WASM. `createWasm(vertexFn, fragmentFn, options)` wraps that in the same `Adapter` interface `createGlsl`/`createWgsl` use — `setAttribute`/`setUniform`/`setTexture`, `attach(canvas)`, `draw()`. A program that samples a texture gets it from `setTexture(sampler, { data, width, height, ... })`, the same `CpuTextureData` a CPU routine takes; `createGlsl` and `createWgsl` take it too, and a GPU target reads 8-bit data as 0 to 1. `compileJS`/`createJs` are the plain-JS counterpart, same shape, same semantics. See `src/backends/wasm/wasm.md` for how this backend's compile pipeline works end to end, and `src/backends/wasm/rasterizer.md` for the rasterizer module's own design.
+`compileWasm(vertexFn, fragmentFn, options)` is a different function from everything above: instead of compiling one `Fn` into a routine, a stage or a grid, it links a compiled vertex/fragment pair against a generic triangle rasterizer (near-plane clipping, perspective-correct varying interpolation, a LEQUAL depth test), returning a `WasmRasterRoutine` — `draw(ctx, { count?, first?, width, height, clear?, clearDepth? })` runs the vertex loop, clipping, and triangle rasterization inside WASM. `createWasm(vertexFn, fragmentFn, options)` wraps that in the same `Adapter` interface `createGlsl`/`createWgsl` use — `setAttribute`/`setUniform`/`setTexture`, `attach(canvas)`, `draw()`. A program that samples a texture gets it from `setTexture(sampler, { data, width, height, ... })`, the same `CpuTextureData` a CPU routine takes; `createGlsl` and `createWgsl` take it too, and a GPU target reads 8-bit data as 0 to 1. `compileJS`/`createJs` are the plain-JS counterpart, same shape, same semantics. See `src/backends/wasm/wasm.md` for how this backend's compile pipeline works end to end, and `src/backends/wasm/rasterizer.md` for the rasterizer module's own design.
 
 ## Caveats
 

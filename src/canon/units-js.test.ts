@@ -96,7 +96,7 @@ function shownOnCanvas(create: typeof createJsRoutine, draw: Node<any>): number[
 
 describe("the JS target's internal decisions, on every target they claim", () => {
   /**
-   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   * @canon spec-a-cpu-routine-returns-its-value
    */
   it.each(cpuTargets)("%s: returns a vector result as a bare array", (_, compile) => {
     const routine = compile(() => Fn(() => vec3(1, 2, 3))() as any, none);
@@ -128,16 +128,16 @@ describe("the JS target's internal decisions, on every target they claim", () =>
    *
    * @canon spec-a-cpu-compiler-calls-its-builder-once
    */
-  it.each(cpuTargets)("%s: calls the builder it is given once", (_, compile) => {
+  it.each(grids)("%s: calls the builder it is given once", (_, compile) => {
     let calls = 0;
     let scale!: Node<"float">;
-    const routine = compile(() => {
+    const grid = compile(() => {
       calls++;
       scale = uniform("float");
       return Fn(() => fragCoord().x.mul(scale))();
     }, none);
     expect(calls).toBe(1);
-    expect(routine.run({ uniforms: { [(scale as any).name]: 2 }, fragCoord: [3, 0] })).toBe(6);
+    expect(Array.from(grid.fill({ uniforms: { [(scale as any).name]: 2 } }, 1, 1))).toEqual([1]);
   });
 
   /**

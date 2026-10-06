@@ -5,8 +5,11 @@ import {
   compileWasmFragment,
   createWasmCompute,
   instantiateWasmRoutine,
+  compileWasmVertex,
+  compileWasmGrid,
+  compileWasmCompute,
 } from "../../wasm";
-import { compileJSRoutine } from "../../js";
+import { compileJSCompute, compileJSRoutine } from "../../js";
 import {
   Fn,
   If,
@@ -60,7 +63,8 @@ import {
   type Node,
   type ShaderType,
 } from "../../rmsl";
-import type { CompileWasmFnOptions } from "./wasm";
+import { compileWasmProgram, instantiateWasmProgram, type CompileWasmFnOptions } from "./wasm";
+import type { ComputeStage } from "../cpu";
 
 function run(
   build: (...args: any[]) => Node<ShaderType>,
@@ -83,7 +87,7 @@ describe("WASM backend: scalar arithmetic", () => {
     expect(run((a) => a.sqrt(), [16])).toBe(4);
   });
   /**
-   * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
+   * @canon spec-a-cpu-program-reads-its-inputs-by-slot
    */
   it("reads a float uniform", () => {
     let u!: any;
@@ -95,7 +99,7 @@ describe("WASM backend: scalar arithmetic", () => {
     expect(fn.run({ uniforms: { [u.name]: 21 } })).toBe(42);
   });
   /**
-   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   * @canon spec-a-cpu-routine-returns-its-value
    */
   it("supports a multi-return function, keeping only the last value as the result", () => {
     let side!: any;
@@ -108,7 +112,7 @@ describe("WASM backend: scalar arithmetic", () => {
     expect(fn.run({})).toBe(2);
   });
   /**
-   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   * @canon spec-a-cpu-routine-returns-its-value
    */
   it("supports a plain non-scalar result, through the same memory-based path a stage program uses", () => {
     // A plain WASM function can only ever return one scalar, so an
@@ -119,7 +123,7 @@ describe("WASM backend: scalar arithmetic", () => {
     expect(fn.run({})).toEqual([1, 2, 3]);
   });
   /**
-   * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
+   * @canon spec-a-cpu-program-reads-its-inputs-by-slot
    * @canon spec-a-uniform-array-is-read-by-element
    */
   it("reads a float uniform array element by a constant index", () => {
@@ -132,7 +136,7 @@ describe("WASM backend: scalar arithmetic", () => {
     expect(fn.run({ uniforms: { [arr.name]: [10, 20, 30, 40] } })).toBe(20);
   });
   /**
-   * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
+   * @canon spec-a-cpu-program-reads-its-inputs-by-slot
    * @canon spec-a-uniform-array-is-read-by-element
    */
   it("reads a bool uniform array element by a constant index", () => {
@@ -491,7 +495,7 @@ describe("WASM backend: transcendentals via host import", () => {
 
 describe("WASM backend: int/uint/bool values and casts", () => {
   /**
-   * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
+   * @canon spec-a-cpu-program-reads-its-inputs-by-slot
    * @canon spec-an-integer-reaches-the-host-as-the-integer-it-is
    */
   it("returns int/uint/bool results, and reads int/uint/bool uniforms", () => {
@@ -1162,27 +1166,27 @@ describe("WASM backend: reentrant option accepted as a no-op", () => {
 
 describe("WASM backend: input direction (attribute/varying/fragCoord)", () => {
   /**
-   * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
+   * @canon spec-a-cpu-program-reads-its-inputs-by-slot
    */
   it("reads scalar and aggregate attributes", () => {
     const a = attribute("float");
     const b = attribute("vec3");
-    const fn = compileWasmRoutine(() => a.add(b.dot(b)) as any, { name: "main", params: [] });
+    const fn = compileWasmProgram(() => a.add(b.dot(b)) as any, { name: "main", params: [] });
     expect(fn.run({ attributes: { [a.name]: 10, [b.name]: [1, 2, 3] } })).toBe(24); // 10 + (1+4+9)
   });
   /**
-   * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
+   * @canon spec-a-cpu-program-reads-its-inputs-by-slot
    */
   it("reads a varying in the default (fragment) stage", () => {
     const v = varying("vec2");
-    const fn = compileWasmRoutine(() => v.x.add(v.y) as any, { name: "main", params: [] });
+    const fn = compileWasmProgram(() => v.x.add(v.y) as any, { name: "main", params: [] });
     expect(fn.run({ varyings: { [v.name]: [3, 4] } })).toBe(7);
   });
   /**
-   * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
+   * @canon spec-a-cpu-program-reads-its-inputs-by-slot
    */
   it("reads fragCoord, defaulting to [0, 0]", () => {
-    const fn = compileWasmRoutine(() => fragCoord().x.add(fragCoord().y) as any, { name: "main", params: [] });
+    const fn = compileWasmProgram(() => fragCoord().x.add(fragCoord().y) as any, { name: "main", params: [] });
     expect(fn.run({ fragCoord: [5, 6] })).toBe(11);
     expect(fn.run({})).toBe(0);
   });
@@ -1190,7 +1194,7 @@ describe("WASM backend: input direction (attribute/varying/fragCoord)", () => {
    * @canon spec-frag-coord-is-read-only-in-a-fragment-stage
    */
   it("throws for fragCoord() in a vertex stage", () => {
-    expect(() => compileWasmRoutine(() => fragCoord().x as any, { name: "main", params: [], stage: "vertex" })).toThrow(
+    expect(() => compileWasmVertex(() => fragCoord().x as any, { name: "main", params: [] })).toThrow(
       /fragCoord\(\) can only be used in fragment shaders/,
     );
   });
@@ -1198,7 +1202,7 @@ describe("WASM backend: input direction (attribute/varying/fragCoord)", () => {
 
 describe("WASM backend: output direction (output/varying/builtinPosition/builtinFragDepth)", () => {
   /**
-   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   * @canon spec-a-fragment-stage-returns-its-colour-and-outputs
    */
   it("writes the scalar and aggregate members of an outputStruct", () => {
     const build = () => Fn(() => outputStruct(vec4(1, 0, 0, 1), float(7)))();
@@ -1206,7 +1210,7 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
     expect(result?.outputs).toEqual([[1, 0, 0, 1], 7]);
   });
   /**
-   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   * @canon spec-a-fragment-stage-returns-its-colour-and-outputs
    */
   it("writes int and bool scalar outputs with their own kind", () => {
     const build = () => Fn(() => outputStruct(int(7), bool(true)))();
@@ -1214,7 +1218,7 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
     expect(result?.outputs).toEqual([7, true]);
   });
   /**
-   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   * @canon spec-a-vertex-stage-returns-its-position-and-varyings
    */
   it("writes a scalar int varying in a vertex stage with its own kind", () => {
     const build = () =>
@@ -1225,12 +1229,12 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
         p.assign(vec4(0, 0, 0, 1));
         return p;
       })();
-    const fn = compileWasmRoutine(build as any, { name: "main", params: [], stage: "vertex" });
+    const fn = compileWasmVertex(build as any, { name: "main", params: [] });
     const result = fn.run({}) as any;
     expect(Object.values(result.varyings as Record<string, unknown>)).toEqual([9]);
   });
   /**
-   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   * @canon spec-a-vertex-stage-returns-its-position-and-varyings
    * @canon spec-a-vertex-stage-writes-its-position
    */
   it("writes position and a varying in a vertex stage, matching compileJSRoutine's own test", () => {
@@ -1242,7 +1246,7 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
         p.assign(vec4(0, 0, 0, 1));
         return p;
       })();
-    const fn = compileWasmRoutine(build as any, { name: "main", params: [], stage: "vertex" });
+    const fn = compileWasmVertex(build as any, { name: "main", params: [] });
     const result = fn.run({}) as any;
     expect(result.position).toEqual([0, 0, 0, 1]);
     expect(Object.values(result.varyings as Record<string, unknown>)).toEqual([[1, 2, 3]]);
@@ -1252,7 +1256,7 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
    */
   it("treats a plain vec4 result as the implicit position when builtinPosition() is never used", () => {
     const build = () => Fn(() => vec4(5, 6, 7, 8))();
-    const fn = compileWasmRoutine(build as any, { name: "main", params: [], stage: "vertex" });
+    const fn = compileWasmVertex(build as any, { name: "main", params: [] });
     const result = fn.run({}) as any;
     expect(result.position).toEqual([5, 6, 7, 8]);
     expect(result.value).toBeUndefined();
@@ -1266,17 +1270,16 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
         builtinPosition().assign(vec4(1, 2, 3, 4));
         return float(0);
       })();
-    const fn = compileWasmRoutine(build as any, { name: "main", params: [], stage: "vertex" });
+    const fn = compileWasmVertex(build as any, { name: "main", params: [] });
     const result = fn.run({}) as any;
     expect(result.position).toEqual([1, 2, 3, 4]);
-    expect(result.value).toBe(0);
   });
   /**
    * @canon spec-a-vertex-stage-without-a-position-is-refused
    */
   it("throws when a vertex stage's result is neither vec4 nor paired with a written position", () => {
     const build = () => Fn(() => float(0))();
-    expect(() => compileWasmRoutine(build as any, { name: "main", params: [], stage: "vertex" })).toThrow(
+    expect(() => compileWasmVertex(build as any, { name: "main", params: [] })).toThrow(
       /vertex shader has to produce a position/,
     );
   });
@@ -1289,7 +1292,7 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
         builtinFragDepth().assign(float(0.25));
         return float(1);
       })();
-    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
+    const fn = compileWasmProgram(build as any, { name: "main", params: [] });
     const result = fn.run({}) as any;
     expect(result.fragDepth).toBe(0.25);
     expect(result.value).toBe(1);
@@ -1303,7 +1306,7 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
         builtinFragDepth().assign(float(0));
         return float(0);
       })();
-    expect(() => compileWasmRoutine(build as any, { name: "main", params: [], stage: "vertex" })).toThrow(
+    expect(() => compileWasmVertex(build as any, { name: "main", params: [] })).toThrow(
       /can't assign to the fragment depth in a vertex stage/,
     );
   });
@@ -1315,7 +1318,7 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
       Fn(() => {
         return builtinPosition().x;
       })();
-    expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrow(
+    expect(() => compileWasmProgram(build as any, { name: "main", params: [] })).toThrow(
       /fragment stage cannot read it/,
     );
   });
@@ -1807,8 +1810,8 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
    */
   it("renders a scalar per pixel, fragCoord at pixel centers", () => {
     const build = () => Fn(() => fragCoord().x)();
-    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
-    const out = fn.draw({}, 3, 2);
+    const fn = compileWasmGrid(build as any, { name: "main", params: [] });
+    const out = fn.fill({}, 3, 2);
     expect(out.length).toBe(3 * 2);
     // Row-major, (y*width+x): x+0.5 regardless of row.
     expect(Array.from(out)).toEqual([0.5, 1.5, 2.5, 0.5, 1.5, 2.5]);
@@ -1818,8 +1821,8 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
    */
   it("renders both fragCoord axes packed into a vec4 per pixel, with no stage or output() involved", () => {
     const build = () => Fn(() => vec4(fragCoord().x, fragCoord().y, 0, 1))();
-    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
-    const out = fn.draw({}, 2, 2);
+    const fn = compileWasmGrid(build as any, { name: "main", params: [] });
+    const out = fn.fill({}, 2, 2);
     expect(out.length).toBe(2 * 2 * 4);
     expect(Array.from(out)).toEqual([
       0.5,
@@ -1846,19 +1849,19 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
   it("reads a uniform every pixel and reflects a changed uniform on the next call", () => {
     const scale = uniform("float");
     const build = () => Fn(() => fragCoord().x.mul(scale))();
-    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
-    expect(Array.from(fn.draw({ uniforms: { [scale.name]: 2 } }, 2, 1))).toEqual([1, 3]);
-    expect(Array.from(fn.draw({ uniforms: { [scale.name]: 10 } }, 2, 1))).toEqual([5, 15]);
+    const fn = compileWasmGrid(build as any, { name: "main", params: [] });
+    expect(Array.from(fn.fill({ uniforms: { [scale.name]: 2 } }, 2, 1))).toEqual([1, 3]);
+    expect(Array.from(fn.fill({ uniforms: { [scale.name]: 10 } }, 2, 1))).toEqual([5, 15]);
   });
   /**
    * @canon spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel
    */
   it("picks dimensions per call, not at compile time", () => {
     const build = () => Fn(() => fragCoord().x)();
-    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
-    expect(Array.from(fn.draw({}, 2, 1))).toEqual([0.5, 1.5]);
-    expect(Array.from(fn.draw({}, 4, 1))).toEqual([0.5, 1.5, 2.5, 3.5]);
-    expect(Array.from(fn.draw({}, 1, 1))).toEqual([0.5]);
+    const fn = compileWasmGrid(build as any, { name: "main", params: [] });
+    expect(Array.from(fn.fill({}, 2, 1))).toEqual([0.5, 1.5]);
+    expect(Array.from(fn.fill({}, 4, 1))).toEqual([0.5, 1.5, 2.5, 3.5]);
+    expect(Array.from(fn.fill({}, 1, 1))).toEqual([0.5]);
   });
   /**
    * @canon spec-a-cpu-routine-answers-one-fragment-per-call
@@ -1866,7 +1869,7 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
   it("the same compiled function still works as a plain single-pixel call — draw() is a choice per call, not a compile mode", () => {
     const scale = uniform("float");
     const build = () => Fn(() => fragCoord().x.mul(scale))();
-    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
+    const fn = compileWasmProgram(build as any, { name: "main", params: [] });
     expect(fn.run({ uniforms: { [scale.name]: 2 }, fragCoord: [3, 0] })).toBe(6);
     expect(Array.from(fn.draw({ uniforms: { [scale.name]: 2 } }, 2, 1))).toEqual([1, 3]);
   });
@@ -1875,12 +1878,12 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
    */
   it("grows memory for a large grid without corrupting earlier pixels", () => {
     const build = () => Fn(() => fragCoord().x.add(fragCoord().y))();
-    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
-    const small = fn.draw({}, 2, 1);
+    const fn = compileWasmGrid(build as any, { name: "main", params: [] });
+    const small = fn.fill({}, 2, 1);
     expect(Array.from(small)).toEqual([1, 2]); // (0.5+0.5), (1.5+0.5)
     const width = 300,
       height = 300;
-    const big = fn.draw({}, width, height);
+    const big = fn.fill({}, width, height);
     expect(big.length).toBe(width * height);
     expect(big[0]).toBe(1); // (0.5 + 0.5)
     expect(big[width * height - 1]).toBe(width - 0.5 + (height - 0.5));
@@ -1899,9 +1902,9 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
   it("samples a texture correctly during draw(), without colliding with the output buffer", () => {
     const tex = uniform("sampler2D") as any;
     const build = () => Fn(() => textureLoad(tex, ivec2(1, 0)).x.add(fragCoord().x))();
-    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
+    const fn = compileWasmGrid(build as any, { name: "main", params: [] });
     const texture = { data: [10, 99], width: 2, height: 1, channels: 1 as const };
-    const out = fn.draw({ textures: { [tex.name]: texture } }, 3, 1);
+    const out = fn.fill({ textures: { [tex.name]: texture } }, 3, 1);
     // texel(1,0) = 99, plus fragCoord().x per pixel (0.5, 1.5, 2.5).
     expect(Array.from(out)).toEqual([99.5, 100.5, 101.5]);
   });
@@ -1911,9 +1914,9 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
   it("keeps the texture heap and the draw buffer correctly separated across memory growth in both", () => {
     const tex = uniform("sampler2D") as any;
     const build = () => Fn(() => textureLoad(tex, ivec2(0, 0)).x)();
-    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
+    const fn = compileWasmGrid(build as any, { name: "main", params: [] });
     const smallTex = { data: [7], width: 1, height: 1, channels: 1 as const };
-    expect(Array.from(fn.draw({ textures: { [tex.name]: smallTex } }, 2, 2))).toEqual([7, 7, 7, 7]);
+    expect(Array.from(fn.fill({ textures: { [tex.name]: smallTex } }, 2, 2))).toEqual([7, 7, 7, 7]);
     // A much bigger texture and a much bigger draw grid together, forcing
     // both growable regions to grow in the same call.
     const width = 200,
@@ -1925,7 +1928,7 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
       height: texSize,
       channels: 1 as const,
     };
-    const out = fn.draw({ textures: { [tex.name]: bigTex } }, width, height);
+    const out = fn.fill({ textures: { [tex.name]: bigTex } }, width, height);
     expect(out.length).toBe(width * height);
     expect(out[0]).toBe(42);
     expect(out[out.length - 1]).toBe(42);
@@ -1936,7 +1939,7 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
   it("interleaves a plain texture-sampling call with draw() using the same texture correctly", () => {
     const tex = uniform("sampler2D") as any;
     const build = () => Fn(() => textureLoad(tex, ivec2(0, 0)).x)();
-    const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
+    const fn = compileWasmProgram(build as any, { name: "main", params: [] });
     const texture = { data: [55], width: 1, height: 1, channels: 1 as const };
     expect(fn.run({ textures: { [tex.name]: texture } })).toBe(55);
     expect(Array.from(fn.draw({ textures: { [tex.name]: texture } }, 2, 2))).toEqual([55, 55, 55, 55]);
@@ -1980,11 +1983,11 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
   it("draw() still works when instantiated separately from compilation", () => {
     const build = () => Fn(() => fragCoord().x)();
     const compiled = compileWasmFn(build as any, { name: "main", params: [] });
-    const fn = instantiateWasmRoutine(compiled, "main");
+    const fn = instantiateWasmProgram(compiled, "main");
     expect(Array.from(fn.draw({}, 2, 1))).toEqual([0.5, 1.5]);
   });
   /**
-   * @canon spec-a-cpu-routine-runs-one-compute-invocation-per-call
+   * @canon spec-a-cpu-compute-stage-runs-one-invocation-per-index
    */
   it("compiles storage()/invocationIndex() into a per-call array-indexed program", () => {
     // Same per-invocation model as compileJSRoutine's storage support: one call per
@@ -1999,7 +2002,7 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
         const i = invocationIndex();
         posNode.element(i).addAssign(velNode.element(i).mul(dt));
       })();
-    const fn = compileWasmRoutine(build as any, { name: "step", params: [] });
+    const fn = compileWasmProgram(build as any, { name: "step", params: [] });
 
     const pos = new Float64Array([0, 10, 20]);
     const vel = new Float64Array([1, 2, 3]);
@@ -2014,7 +2017,7 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
   it("compiles a caller-supplied array of independently-built roots, keeping every root's effects", () => {
     // Two disjoint Fns (their own separate storage()/uniform() calls, sharing
     // only the buffer objects, no node identity) passed as one array — the
-    // shape compileWasmRoutine(..., [forceSystem.root, integrationSystem.root])
+    // shape compileWasmProgram(..., [forceSystem.root, integrationSystem.root])
     // uses. Both roots must take effect, not just the last one.
     const velBuffer = new StorageBufferAttribute(1, 1, Float32Array);
     const posBuffer = new StorageBufferAttribute(1, 1, Float32Array);
@@ -2039,7 +2042,7 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
       pos.element(i).addAssign(vel.element(i).mul(dt));
     })();
 
-    const fn = compileWasmRoutine(() => [forceRoot, integrationRoot] as any, { name: "step", params: [] });
+    const fn = compileWasmProgram(() => [forceRoot, integrationRoot] as any, { name: "step", params: [] });
 
     const pos = new Float64Array([0]);
     const vel = new Float64Array([1]);
@@ -2067,7 +2070,7 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
         const bumped = posNode.element(i).addAssign(vel);
         return [bumped, bumped];
       })();
-    const fn = compileWasmRoutine(build as any, { name: "step", params: [] });
+    const fn = compileWasmProgram(build as any, { name: "step", params: [] });
 
     const pos = new Float64Array([10]);
     fn.run({ storages: { [posNode.name]: pos }, uniforms: { [vel.name]: 3 }, index: 0 });
@@ -2076,7 +2079,7 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
     expect(Array.from(pos)).toEqual([13]);
   });
   /**
-   * @canon spec-a-cpu-routine-runs-one-compute-invocation-per-call
+   * @canon spec-a-cpu-compute-stage-runs-one-invocation-per-index
    */
   it("reads and writes vector elements other than the invocation's own, as the JS target does", () => {
     const srcNode = instancedArray(3, "vec3").toReadOnly();
@@ -2086,7 +2089,7 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
         const i = invocationIndex();
         dstNode.element(uint(2).sub(i)).assign(srcNode.element(i).mul(2));
       })();
-    const run = (routine: ReturnType<typeof compileWasmRoutine>) => {
+    const run = (stage: ComputeStage) => {
       const src = [
         [1, 2, 3],
         [4, 5, 6],
@@ -2097,7 +2100,7 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
         [0, 0, 0],
         [0, 0, 0],
       ];
-      routine.compute({ storages: { [srcNode.name]: src, [dstNode.name]: dst } as any }, 3);
+      stage.dispatch({ storages: { [srcNode.name]: src, [dstNode.name]: dst } as any }, 3);
       return dst;
     };
 
@@ -2106,8 +2109,8 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
       [8, 10, 12],
       [2, 4, 6],
     ];
-    expect(run(compileJSRoutine(build as any, { name: "step", params: [] }))).toEqual(want);
-    expect(run(compileWasmRoutine(build as any, { name: "step", params: [] }))).toEqual(want);
+    expect(run(compileJSCompute(build as any, { name: "step", params: [] }))).toEqual(want);
+    expect(run(compileWasmCompute(build as any, { name: "step", params: [] }))).toEqual(want);
   });
   /**
    * @canon spec-a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing
@@ -2123,11 +2126,11 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
         bNode.element(i).assign(aNode.element(i.add(2)));
         aNode.element(i.add(2)).assign(float(-1));
       })();
-    const fn = compileWasmRoutine(build as any, { name: "step", params: [] });
+    const fn = compileWasmCompute(build as any, { name: "step", params: [] });
 
     const a = new Float64Array([1, 2]);
     const b = new Float64Array([7, 8]);
-    fn.compute({ storages: { [aNode.name]: a, [bNode.name]: b } }, 2);
+    fn.dispatch({ storages: { [aNode.name]: a, [bNode.name]: b } }, 2);
     expect(Array.from(a)).toEqual([1, 2]);
     expect(Array.from(b)).toEqual([0, 0]);
   });
@@ -2149,7 +2152,7 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
       WebAssembly.Module.exports(new WebAssembly.Module(compiled.bytes.buffer as ArrayBuffer)).map((e) => e.name),
     ).toContain("compute");
 
-    const fn = instantiateWasmRoutine(compiled, "step");
+    const fn = instantiateWasmProgram(compiled, "step");
     const pos = new Float64Array([1, 1, 1, 1]);
     fn.compute({ storages: { [posNode.name]: pos }, uniforms: { [dt.name]: 2 } }, 4);
     expect(Array.from(pos)).toEqual([1, 3, 5, 7]);
@@ -2163,9 +2166,9 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
       Fn(() => {
         countNode.element(0).addAssign(1);
       })();
-    const fn = compileWasmRoutine(build as any, { name: "step", params: [] });
+    const fn = compileWasmCompute(build as any, { name: "step", params: [] });
     const count = new Int32Array([0]);
-    fn.compute({ storages: { [countNode.name]: count } }, 5);
+    fn.dispatch({ storages: { [countNode.name]: count } }, 5);
     expect(Array.from(count)).toEqual([5]);
   });
   /**
@@ -2178,7 +2181,7 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
     const build = () => Fn(() => src.element(invocationIndex()).mul(2))();
     const compiled = compileWasmFn(build as any, { name: "step", params: [] });
     expect(compiled.compute).toBe(true);
-    const fn = instantiateWasmRoutine(compiled, "step");
+    const fn = instantiateWasmProgram(compiled, "step");
     expect(() => fn.compute({ storages: { [src.name]: new Float64Array([1, 2, 3]) } }, 3)).not.toThrow();
   });
   /**

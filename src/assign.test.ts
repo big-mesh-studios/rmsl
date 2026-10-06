@@ -21,8 +21,8 @@ import {
 } from "./rmsl";
 import { compileGlsl, compileGlslFn } from "./glsl";
 import { compileWgsl, compileWgslFn } from "./wgsl";
-import { compileJSFn, compileJSRoutine } from "./js";
-import { compileWasmFn, compileWasmRoutine } from "./wasm";
+import { compileJSFn, compileJSCompute, compileJSFragment, compileJSVertex } from "./js";
+import { compileWasmFn, compileWasmCompute, compileWasmFragment, compileWasmVertex } from "./wasm";
 
 const compilers = { compileGlslFn, compileWgslFn, compileJSFn, compileWasmFn };
 
@@ -46,8 +46,10 @@ function expectRefusedInStage(stage: "vertex" | "fragment", write: () => void, m
     })();
   expect(() => compileGlsl[stage](build()), "GLSL").toThrow(message);
   expect(() => compileWgsl[stage](build()), "WGSL").toThrow(message);
-  expect(() => compileJSRoutine(build as any, { name: "main", params: [], stage }), "JS").toThrow(message);
-  expect(() => compileWasmRoutine(build as any, { name: "main", params: [], stage }), "WASM").toThrow(message);
+  const none = { name: "main", params: [] };
+  const [js, wasm] = stage === "vertex" ? [compileJSVertex, compileWasmVertex] : [compileJSFragment, compileWasmFragment];
+  expect(() => js(build as any, none), "JS").toThrow(message);
+  expect(() => wasm(build as any, none), "WASM").toThrow(message);
 }
 
 describe("an assignment's target", () => {
@@ -89,8 +91,8 @@ describe("an assignment's target", () => {
       })();
     const compilers = [
       (build: () => Node<any>) => compileWgsl.compute(build()),
-      (build: () => Node<any>) => compileJSRoutine(build as any, { name: "main", params: [], stage: "compute" }),
-      (build: () => Node<any>) => compileWasmRoutine(build as any, { name: "main", params: [], stage: "compute" }),
+      (build: () => Node<any>) => compileJSCompute(build as any, { name: "main", params: [] }),
+      (build: () => Node<any>) => compileWasmCompute(build as any, { name: "main", params: [] }),
     ];
     const refused = [
       [() => varying("vec3").x.assign(float(1)), /can't assign to a varying in a compute stage/],

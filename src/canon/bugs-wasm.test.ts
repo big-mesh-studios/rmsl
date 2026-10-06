@@ -24,7 +24,14 @@ import {
   vec3,
   vec4,
 } from "../rmsl";
-import { compileWasm, compileWasmFn, compileWasmRoutine, createWasmCompute, createWasmRoutine } from "../wasm";
+import {
+  compileWasm,
+  compileWasmFn,
+  compileWasmRoutine,
+  createWasmCompute,
+  createWasmRoutine,
+  compileWasmFragment,
+} from "../wasm";
 
 const none = { name: "main", params: [] };
 const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
@@ -309,7 +316,7 @@ describe("known WASM bugs, each failing until its fix", () => {
    */
   it.fails("reads a scalar varying the host leaves out as zero on WASM", () => {
     const v = varying("float");
-    const routine = compileWasmRoutine(() => Fn(() => v.add(1).toVar())(), { ...none, stage: "fragment" });
+    const routine = compileWasmFragment(() => Fn(() => v.add(1).toVar())(), { ...none });
     expect(routine.run({})).toBe(1);
   });
 
@@ -321,7 +328,7 @@ describe("known WASM bugs, each failing until its fix", () => {
    */
   it.fails("reads a vector varying the host leaves out as zero on WASM", () => {
     const v = varying("vec2");
-    const routine = compileWasmRoutine(() => Fn(() => v.x.add(1).toVar())(), { ...none, stage: "fragment" });
+    const routine = compileWasmFragment(() => Fn(() => v.x.add(1).toVar())(), { ...none });
     expect(routine.run({})).toBe(1);
   });
 

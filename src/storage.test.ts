@@ -12,7 +12,7 @@ import {
 } from "./rmsl";
 import { compile } from "./wgsl";
 import { compileWasmFn } from "./wasm";
-import { compileJSRoutine } from "./js";
+import { compileJSCompute } from "./js";
 
 describe("storage buffers", () => {
   /**
@@ -109,7 +109,7 @@ describe("storage buffers", () => {
       });
       expect(() => compile({ stage: "compute" }, program())).toThrow(/read-only/);
       expect(() => compileWasmFn(() => program(), { name: "main", params: [] })).toThrow(/read-only/);
-      expect(() => compileJSRoutine(() => program(), { name: "main", params: [] })).toThrow(/read-only/);
+      expect(() => compileJSCompute(() => program(), { name: "main", params: [] })).toThrow(/read-only/);
     }
   });
 

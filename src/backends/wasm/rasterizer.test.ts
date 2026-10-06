@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { compileWasmFn } from "../../wasm";
-import { compileJS, compileJSRoutine } from "../../js";
+import { compileJS, compileJSRoutine, compileJSVertex } from "../../js";
 import { instantiateRasterizer, writeAttributeDescriptors, writeVaryingDescriptors } from "./rasterizer";
 import { attribute, builtinPosition, Fn, uniform, varying, vec4, type AttributeNode } from "../../rmsl";
 
@@ -777,7 +777,7 @@ describe("WASM backend: generic rasterizer module — near-plane clipping", () =
       [-1, 1, 2],
     ];
 
-    const jsVertex = compileJSRoutine(vertexBuild as any, { name: "vertex", params: [], stage: "vertex" });
+    const jsVertex = compileJSVertex(vertexBuild as any, { name: "vertex", params: [] });
     const clipSpacePositions = positions.map(
       (p) => (jsVertex.run({ attributes: { [posAttr.name]: p } }) as { position: number[] }).position,
     );

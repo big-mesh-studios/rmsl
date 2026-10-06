@@ -1,5 +1,9 @@
 # WASM backend: benchmark history and rationale
 
+> A measurement below that names `.draw()` measured the whole-grid pass as it was
+> measured, on the routine. It is `fill()` of a grid now (`compileWasmGrid`), the
+> same pass.
+
 The measurement narrative behind `compileWasm`/`compileWasmFn`
 (`src/backends/wasm/wasm.ts`) — why the backend exists, every
 re-measurement taken as it grew, and the fixes each one led to. This is

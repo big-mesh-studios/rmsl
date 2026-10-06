@@ -10,6 +10,7 @@ import {
   Fn,
   If,
   instancedArray,
+  invocationIndex,
   int,
   mat2x3,
   mat2x4,
@@ -50,8 +51,8 @@ const cpuCompilers = [
 
 /** The same two, compiling for the compute stage, where a storage program goes. */
 const cpuComputeCompilers = [
-  (build: () => Node<any>) => compileJSRoutine(build, { name: "main", params: [], stage: "compute" }),
-  (build: () => Node<any>) => compileWasmRoutine(build, { name: "main", params: [], stage: "compute" }),
+  (build: () => Node<any>) => compileJSCompute(build, { name: "main", params: [] }),
+  (build: () => Node<any>) => compileWasmCompute(build, { name: "main", params: [] }),
 ];
 
 describe("a mistake is refused before the program runs", () => {
@@ -397,6 +398,22 @@ describe("a mistake is refused before the program runs", () => {
     const build = () => Fn(() => outputStruct(vec4(1, 0, 0, 1)))();
     for (const compile of [compileJSRoutine, compileWasmRoutine]) {
       expect(() => compile(build, { name: "main", params: [] })).toThrow(/with no stage/);
+    }
+  });
+
+  /**
+   * @canon spec-a-routine-refuses-an-input-only-a-stage-has
+   */
+  it.each([
+    ["fragCoord()", () => fragCoord().x, /fragCoord\(\) is an input of a fragment stage/],
+    ["invocationIndex()", () => invocationIndex().toFloat(), /invocationIndex\(\) is an input of a compute stage/],
+    ["builtinPosition()", () => builtinPosition().x, /builtinPosition\(\) is an input of a vertex stage/],
+    ["builtinFragDepth()", () => builtinFragDepth(), /builtinFragDepth\(\) is an input of a fragment stage/],
+    ["a varying", () => varying("float"), /a varying is an input of a vertex or fragment stage/],
+    ["an attribute", () => attribute("float"), /an attribute is an input of a vertex stage/],
+  ])("refuses %s in a routine, on both CPU targets", (_, read, message) => {
+    for (const compile of [compileJSRoutine, compileWasmRoutine]) {
+      expect(() => compile(() => Fn(() => read())(), { name: "main", params: [] })).toThrow(message);
     }
   });
 });

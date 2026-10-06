@@ -2,12 +2,12 @@ import { type Node, type ShaderType, type VariableNode } from "../rmsl";
 import {
   compileJSFn,
   compileJSFragment,
-  compileJSRoutine,
   compileJSVertex,
   type CpuShaderContext,
   type CpuTextureData,
 } from "../js";
 import type { CpuValue, FragmentResult, VertexResult } from "../backends/cpu";
+import { compileJSProgram } from "../backends/js/js";
 // How a texture asks to be read is the renderers' question too, and they
 // already answer it without a device — so a shader tested here samples by the
 // same reading, not by a second one written for the CPU.
@@ -197,7 +197,7 @@ function compileRunner<A extends ShaderType>(
             return (ctx) => readFragment<A>(fragment.run(ctx));
           })()
         : (() => {
-            const routine = compileJSRoutine(graph, withoutStage);
+            const routine = compileJSProgram(graph, withoutStage);
             return (ctx) => {
               // A program that discards returns null from a routine that has no stage too.
               const value = routine.run(ctx) as ShaderValue<A> | null;

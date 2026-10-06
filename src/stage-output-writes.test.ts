@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { attribute, builtinPosition, float, Fn, int, varying, vec3, vec4 } from "./rmsl";
 import { compileGlsl } from "./glsl";
 import { compileWgsl } from "./wgsl";
-import { compileJSRoutine } from "./js";
-import { compileWasmRoutine } from "./wasm";
+import { compileJSRoutine, compileJSFragment } from "./js";
+import { compileWasmRoutine, compileWasmFragment } from "./wasm";
 import { compileJS } from "./backends/js/rasterizer";
 import { compileWasm } from "./backends/wasm/rasterizer";
 
@@ -53,7 +53,7 @@ describe("writing part of a stage output", () => {
       })();
     expect(() => compileGlsl.fragment(fragment())).not.toThrow();
     expect(() => compileWgsl.fragment(fragment())).not.toThrow();
-    expect(() => compileJSRoutine(fragment as any, { name: "main", params: [], stage: "fragment" })).not.toThrow();
-    expect(() => compileWasmRoutine(fragment as any, { name: "main", params: [], stage: "fragment" })).not.toThrow();
+    expect(() => compileJSFragment(fragment as any, { name: "main", params: [] })).not.toThrow();
+    expect(() => compileWasmFragment(fragment as any, { name: "main", params: [] })).not.toThrow();
   });
 });

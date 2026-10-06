@@ -129,11 +129,11 @@ It does three things:
    texture object between calls. Storage buffers are copied in whole after
    the textures, and each writable one is copied back into the caller's
    array after the call.
-3. Wraps the result in `run`/`draw`/`compute` (satisfying `CpuRoutine`): call the
+3. Wraps the result in `run`/`draw`/`compute` (a `CpuProgram`, which the routine, the stages and the grid each take a part of): call the
    WASM export with the marshalled args, then read every memory-resident
    _output_ (`outputMemory`/`varyingOutputMemory`/`positionMemory`/
    `fragDepthMemory`/`valueMemory`) back out of memory into a
-   `CpuShaderResult` — or, when there are no memory outputs at all, just
+   `CpuProgramResult` — or, when there are no memory outputs at all, just
    reinterpret the WASM call's own return value (with a `>>> 0` for `uint`,
    since the boundary always returns a signed i32). `compute(ctx, count)`
    marshals once, makes one call to the module's `compute` export, and
@@ -206,9 +206,9 @@ Fn(s)
   ▼                                    ▼
 CompiledWasm (bytes + WasmParam[] + resultType + textureHeapBase)
   │
-  ├─ instantiateWasmRoutine ─ one module, own memory ─ CpuRoutine (run/draw/compute)
-  │        used by:  compileWasmRoutine  (direct calls, no rasterizer)
-  │             ├─ createWasmRoutine   (draw/fragCoord shape, Adapter wrapper)
+  ├─ instantiateWasmProgram ─ one module, own memory ─ CpuProgram (run/draw/compute)
+  │        used by:  compileWasmRoutine, the stages, compileWasmGrid  (direct calls, no rasterizer)
+  │             ├─ createWasmRoutine   (fragment stage's quad, Adapter wrapper)
   │             └─ createWasmCompute   (storage()/invocationIndex() shape, WasmComputeAdapter)
   │
   └─ compileWasm ─ two modules (scalarsInMemory: true), shared memory,

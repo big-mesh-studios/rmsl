@@ -5,7 +5,7 @@ import {
   CpuDrawBuffer,
   CpuRoutine,
   CpuGrid,
-  CpuStageRoutine,
+  CpuProgram,
   GridBuffer,
   ComputeStage,
   FragmentStage,
@@ -13,7 +13,7 @@ import {
   toFragmentResult,
   toVertexResult,
   CpuShaderContext,
-  CpuShaderResult,
+  CpuProgramResult,
   CpuTextureData,
   CpuTextureWrap,
   elementKindOf,
@@ -26,6 +26,7 @@ import {
   COMPUTE_REFUSES,
   assertStageResult,
   prepareRoots,
+  assertRoutineReadsNoStageInput,
   assertOneDeclarationPerName,
   numberClashingVariables,
   assertAssignable,
@@ -761,6 +762,7 @@ export function compileWasmFn(
   // single result slot, matching compileGlsl/compileWgsl's "last array
   // entry wins" convention.
   const rawNodes: any[] = Array.isArray(rawResult) ? (rawResult as any[]) : [rawResult];
+  if (options.routine) assertRoutineReadsNoStageInput(rawNodes);
   // Without a stage the function is a plain function of its context, whose
   // result can be any value.
   const resultNodes = numberClashingVariables(shareNodes(prepareRoots(options.stage, rawNodes)));
@@ -3756,7 +3758,7 @@ export function compileWasmFn(
 /**
  * Instantiates a compiled module and binds it to JS: marshals params and
  * textures into memory/args, calls the function, and reads results back
- * into a CpuShaderResult.
+ * into a CpuProgramResult.
  *
  * Split out from `compileWasmRoutine` so a build-time precompile step (see
  * `precompileWasm` in `../vite/vite.ts`) can ship just the compiled bytes
@@ -3999,11 +4001,11 @@ function storageElementSize(shaderType: ShaderType): number {
   return componentCountOf(shaderType) * componentSizeOf(kind);
 }
 
-export function instantiateWasmRoutine(
+export function instantiateWasmProgram(
   compiled: CompiledWasm,
   name: string,
   externalMemory?: WebAssembly.Memory,
-): CpuStageRoutine {
+): CpuProgram {
   const {
     bytes,
     params,
@@ -4055,10 +4057,10 @@ export function instantiateWasmRoutine(
   /**
    * `CpuRoutine.run`: marshals `ctx` into the compiled function's args
    * and memory, calls it once, and reads back its result (a bare value, or
-   * a `CpuShaderResult` for a stage program — see `marshalInputs`/the
+   * a `CpuProgramResult` for a stage program — see `marshalInputs`/the
    * `outputParams` loop below).
    */
-  function run(ctx: CpuShaderContext): number | boolean | CpuShaderResult | null {
+  function run(ctx: CpuShaderContext): number | boolean | CpuProgramResult | null {
     const { args } = marshalInputs(ctx);
     if (discardAddress !== undefined) new DataView(memory.buffer).setInt32(discardAddress, 0, true);
     const result = wasmMain(...args);
@@ -4074,7 +4076,7 @@ export function instantiateWasmRoutine(
       return result;
     }
 
-    const shaderResult: CpuShaderResult = {};
+    const shaderResult: CpuProgramResult = {};
     for (const p of outputParams) {
       switch (p.kind) {
         case "outputMemory":
@@ -4109,7 +4111,7 @@ export function instantiateWasmRoutine(
   function draw(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
     if (!drawOutput || !wasmDraw) {
       throw new Error(
-        '[RMSL] compileWasmRoutine: this function produces no value to render — draw() needs a non-"void" result.',
+        '[RMSL] compileWasmGrid: this function produces no value to render — fill() needs a non-"void" result.',
       );
     }
     const { args, heapEnd } = marshalInputs(ctx);
@@ -4175,35 +4177,60 @@ export function instantiateWasmRoutine(
   return { run, draw, compute, storageTypes };
 }
 
-/** Compiles an `Fn` to WASM and instantiates it in one step — see `instantiateWasmRoutine`. */
+/** Compiles an `Fn` to WASM and instantiates it in one step, for the stages and the grid to take what they give from. */
+export function compileWasmProgram(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileWasmFnOptions,
+): CpuProgram {
+  return instantiateWasmProgram(compileWasmFn(fn, options), options.name, options.memory);
+}
+
+/**
+ * Turns `compileWasmFn`'s output into a live function of a context, once: it
+ * instantiates the `WebAssembly.Module` and returns its `run`, typed by the
+ * type the program returns.
+ */
+export function instantiateWasmRoutine<A extends ShaderType = ShaderType>(
+  compiled: CompiledWasm,
+  name: string,
+  externalMemory?: WebAssembly.Memory,
+): CpuRoutine<A> {
+  const program = instantiateWasmProgram(compiled, name, externalMemory);
+  return { run: (ctx) => program.run(ctx) as never };
+}
+
+/**
+ * Compiles an `Fn` to WASM and instantiates it in one step, as a function of a
+ * context: it reads its parameters and uniforms from `ctx`, and returns its
+ * value, typed by the type the program returns. A program that reads what only
+ * a stage has, such as `fragCoord()` or a varying, is refused: compile it as a
+ * stage or as a grid.
+ */
 export function compileWasmRoutine<A extends ShaderType>(
   fn: (...args: any[]) => Node<A>,
-  options: CompileWasmFnOptions & { stage?: undefined },
+  options: CompileWasmStageOptions,
 ): CpuRoutine<A>;
 export function compileWasmRoutine(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileWasmFnOptions & { stage?: undefined },
+  options: CompileWasmStageOptions,
 ): CpuRoutine;
 export function compileWasmRoutine(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileWasmFnOptions,
-): CpuStageRoutine;
-export function compileWasmRoutine(
-  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileWasmFnOptions,
-): CpuStageRoutine {
-  return instantiateWasmRoutine(compileWasmFn(fn, options), options.name, options.memory);
+  options: CompileWasmStageOptions,
+): CpuRoutine {
+  const program = compileWasmProgram(fn, { ...options, routine: true });
+  return { run: (ctx) => program.run(ctx) as never };
 }
 
 /** What a stage compile function takes: the options of a routine, without the stage, which the function names. */
-export type CompileWasmStageOptions = Omit<CompileWasmFnOptions, "stage">;
+export type CompileWasmStageOptions = Omit<CompileWasmFnOptions, "stage" | "routine">;
 
 /** Compiles an `Fn` as a vertex stage: it returns the position, and the varyings it writes. */
 export function compileWasmVertex(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmStageOptions,
 ): VertexStage {
-  const routine = compileWasmRoutine(fn, { ...options, stage: "vertex" });
+  const routine = compileWasmProgram(fn, { ...options, stage: "vertex" });
   return { run: (ctx) => toVertexResult(routine.run(ctx)) };
 }
 
@@ -4220,7 +4247,7 @@ export function compileWasmFragment(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmStageOptions,
 ): FragmentStage {
-  const routine = compileWasmRoutine(fn, { ...options, stage: "fragment" });
+  const routine = compileWasmProgram(fn, { ...options, stage: "fragment" });
   return {
     run: (ctx) => toFragmentResult(routine.run(ctx)),
     quad: (ctx, width, height, out) => routine.draw(ctx, width, height, out),
@@ -4232,7 +4259,7 @@ export function compileWasmCompute(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmStageOptions,
 ): ComputeStage {
-  const routine = compileWasmRoutine(fn, { ...options, stage: "compute" });
+  const routine = compileWasmProgram(fn, { ...options, stage: "compute" });
   return { dispatch: (ctx, count) => routine.compute(ctx, count), storageTypes: routine.storageTypes ?? {} };
 }
 
@@ -4241,6 +4268,6 @@ export function compileWasmGrid<A extends ShaderType>(
   fn: (...args: any[]) => Node<A>,
   options: CompileWasmStageOptions,
 ): CpuGrid<A> {
-  const routine = compileWasmRoutine(fn, options);
+  const routine = compileWasmProgram(fn, options);
   return { fill: (ctx, width, height, out) => routine.draw(ctx, width, height, out) as GridBuffer<A> };
 }

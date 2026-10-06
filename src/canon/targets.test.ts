@@ -34,8 +34,8 @@ import {
 } from "../rmsl";
 import { compileGlsl } from "../glsl";
 import { compileWgsl } from "../wgsl";
-import { compileJS, compileJSRoutine, createJsRoutine } from "../js";
-import { compileWasm, compileWasmRoutine, createWasmRoutine } from "../wasm";
+import { compileJS, compileJSRoutine, createJsRoutine, compileJSFragment, compileJSVertex } from "../js";
+import { compileWasm, compileWasmRoutine, createWasmRoutine, compileWasmFragment, compileWasmVertex } from "../wasm";
 import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } from "../testing/shader-eval";
 
 afterAll(async () => {
@@ -53,8 +53,8 @@ function expectOnEveryTarget(stage: "vertex" | "fragment", build: () => Node<any
   const compilers: [string, () => unknown][] = [
     ["GLSL", () => compileGlsl[stage](build())],
     ["WGSL", () => compileWgsl[stage](build())],
-    ["JS", () => compileJSRoutine(build, { ...none, stage })],
-    ["WASM", () => compileWasmRoutine(build, { ...none, stage })],
+    ["JS", () => (stage === "vertex" ? compileJSVertex : compileJSFragment)(build, none)],
+    ["WASM", () => (stage === "vertex" ? compileWasmVertex : compileWasmFragment)(build, none)],
   ];
   for (const [name, compile] of compilers) {
     if (refused) expect(compile, name).toThrow(refused);
@@ -496,9 +496,9 @@ describe("each leaf on every target it claims", () => {
   function colourOnEveryTarget(build: () => Node<any>, expected: number[]) {
     expect(compileGlsl.fragment(build()), "GLSL").toContain("out vec4");
     expect(compileWgsl.fragment(build()), "WGSL").toMatch(/: vec4<f32>/);
-    const js = compileJSRoutine(build, { ...none, stage: "fragment" }).run({}) as any;
+    const js = compileJSFragment(build, { ...none }).run({}) as any;
     expect(js.value ?? js, "JS").toEqual(expected);
-    const wasm = compileWasmRoutine(build, { ...none, stage: "fragment" }).run({}) as any;
+    const wasm = compileWasmFragment(build, { ...none }).run({}) as any;
     expect(Array.from(wasm.value ?? wasm), "WASM").toEqual(expected);
   }
 
@@ -626,9 +626,9 @@ describe("each leaf on every target it claims", () => {
     const build = () => Fn(() => {})() as any;
     expect(() => compileGlsl.fragment(build())).not.toThrow();
     expect(() => compileWgsl.fragment(build())).not.toThrow();
-    expect(() => compileJSRoutine(build, { ...none, stage: "fragment" })).not.toThrow();
-    expect(() => compileWasmRoutine(build, { ...none, stage: "fragment" })).not.toThrow();
-    expect(() => compileWasmRoutine(build, { ...none, stage: "fragment" }).run({})).not.toThrow();
+    expect(() => compileJSFragment(build, { ...none })).not.toThrow();
+    expect(() => compileWasmFragment(build, { ...none })).not.toThrow();
+    expect(() => compileWasmFragment(build, { ...none }).run({})).not.toThrow();
   });
 
   /**
@@ -677,11 +677,11 @@ describe("each leaf on every target it claims", () => {
           Discard();
         });
       })() as any;
-    expect(() => compileJSRoutine(build, { ...none, stage: "fragment" })).not.toThrow();
-    expect(() => compileWasmRoutine(build, { ...none, stage: "fragment" })).not.toThrow();
+    expect(() => compileJSFragment(build, { ...none })).not.toThrow();
+    expect(() => compileWasmFragment(build, { ...none })).not.toThrow();
     // An unset uniform reads zero, so the discard does not run; a routine that runs it still returns.
-    expect(() => compileWasmRoutine(build, { ...none, stage: "fragment" }).run({})).not.toThrow();
-    expect(() => compileWasmRoutine(build, { ...none, stage: "fragment" }).run({ uniforms: {} })).not.toThrow();
+    expect(() => compileWasmFragment(build, { ...none }).run({})).not.toThrow();
+    expect(() => compileWasmFragment(build, { ...none }).run({ uniforms: {} })).not.toThrow();
   });
 
   /**

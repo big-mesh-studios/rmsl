@@ -18,8 +18,8 @@ import {
 } from "../rmsl";
 import { compileGlsl } from "../glsl";
 import { compileWgsl } from "../wgsl";
-import { compileJSRoutine } from "../js";
-import { compileWasmRoutine } from "../wasm";
+import { compileJSRoutine, compileJSVertex } from "../js";
+import { compileWasmRoutine, compileWasmVertex } from "../wasm";
 import { evaluateJS, evaluateWASM } from "../testing/shader-eval";
 
 const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
@@ -109,8 +109,8 @@ describe("known bugs, each failing until its fix", () => {
    */
   it.fails("compiles vertexIndex and instanceIndex on the CPU targets", () => {
     const build = () => Fn(() => vec4(vertexIndex().toFloat(), instanceIndex().toFloat(), 0, 1))();
-    expect(() => compileJSRoutine(build, { ...none, stage: "vertex" })).not.toThrow();
-    expect(() => compileWasmRoutine(build, { ...none, stage: "vertex" })).not.toThrow();
+    expect(() => compileJSVertex(build, { ...none })).not.toThrow();
+    expect(() => compileWasmVertex(build, { ...none })).not.toThrow();
   });
 
   /**

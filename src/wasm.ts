@@ -16,7 +16,6 @@ export type {
   CpuDrawBuffer,
   CpuRoutine,
   CpuShaderContext,
-  CpuShaderResult,
   CpuTextureData,
   CpuTextureWrap,
   FragmentResult,

@@ -821,7 +821,38 @@ export type VertexRoot = Node<"vec4"> | readonly [...Node<ShaderType>[], Node<"v
 export type CompileFnOptions = {
   name: string;
   params: Array<{ name: string; type: ShaderType }>;
+  /**
+   * Set by `compileJSRoutine` and `compileWasmRoutine`: the program is a
+   * function of its parameters and uniforms, so what only a stage has is refused.
+   *
+   * @internal
+   */
+  routine?: true;
 };
+
+/** The inputs only a stage has, by the node that reads them, with the stage that has them. */
+const STAGE_INPUTS: Record<string, { what: string; stage: string }> = {
+  fragCoord: { what: "fragCoord()", stage: "fragment stage, or a grid" },
+  builtinFragDepth: { what: "builtinFragDepth()", stage: "fragment stage" },
+  invocationIndex: { what: "invocationIndex()", stage: "compute stage" },
+  vertexIndex: { what: "vertexIndex()", stage: "vertex stage" },
+  instanceIndex: { what: "instanceIndex()", stage: "vertex stage" },
+  builtinPosition: { what: "builtinPosition()", stage: "vertex stage" },
+  attribute: { what: "an attribute", stage: "vertex stage" },
+  varying: { what: "a varying", stage: "vertex or fragment stage" },
+};
+
+/** Throws when a routine, which has no stage, reads an input that only a stage has. */
+export function assertRoutineReadsNoStageInput(roots: unknown): void {
+  someNode(roots, (node) => {
+    const input = STAGE_INPUTS[node.type];
+    if (!input) return false;
+    throw new Error(
+      `[RMSL] ${input.what} is an input of a ${input.stage}, and a routine has no stage to give it. ` +
+        `Compile the program as a ${input.stage} instead.`,
+    );
+  });
+}
 
 /** Every storage attribute reachable from the roots, keyed by the slot name its nodes compile to. */
 export function storageAttributes(roots: unknown): Map<string, StorageBufferAttribute> {

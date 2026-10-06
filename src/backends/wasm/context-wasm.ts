@@ -8,8 +8,8 @@ import {
 } from "../../core";
 import { slotOf, type TypedArray } from "../adapter";
 import { assertWriteFits, storageAttributes } from "../shared";
-import type { CpuStageRoutine } from "../cpu";
-import { compileWasmFn, instantiateWasmRoutine } from "./wasm";
+import type { CpuProgram } from "../cpu";
+import { compileWasmFn, instantiateWasmProgram } from "./wasm";
 
 /**
  * Several compute programs in one `WebAssembly.Memory`, sharing their storage
@@ -41,7 +41,7 @@ export interface WasmContext {
 }
 
 /** A compiled program, and where each storage buffer it reads lives, which never changes once allocated. */
-type Program = { routine: CpuStageRoutine; storageBuffers: Record<string, { address: number; length: number }> };
+type Program = { routine: CpuProgram; storageBuffers: Record<string, { address: number; length: number }> };
 
 /** Bytes per component WASM stores an attribute's elements with: f64 for float, i32 otherwise. */
 function componentSize(attribute: StorageBufferAttribute): number {
@@ -100,7 +100,7 @@ export function createWasmContext(): WasmContext {
       }),
     );
 
-    const created = { routine: instantiateWasmRoutine(compiled, "main", memory), storageBuffers };
+    const created = { routine: instantiateWasmProgram(compiled, "main", memory), storageBuffers };
     programs.set(node, created);
     return created;
   }

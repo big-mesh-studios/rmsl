@@ -3,9 +3,9 @@ import {
   CpuDrawBuffer,
   CpuRoutine,
   CpuShaderContext,
-  CpuShaderResult,
+  CpuProgramResult,
   CpuGrid,
-  CpuStageRoutine,
+  CpuProgram,
   CpuValue,
   GridBuffer,
   ComputeStage,
@@ -39,6 +39,7 @@ import {
   parameterNode,
   assertStageResult,
   prepareRoots,
+  assertRoutineReadsNoStageInput,
   assertOneDeclarationPerName,
   numberClashingVariables,
   forUpdateStatements,
@@ -2023,7 +2024,7 @@ export type CompileJSOptions = CompileFnOptions & {
  */
 /**
  * `compileJSFn`'s real body, also handing back the root node's result type —
- * needed by `compileJSRoutine`'s `draw()` and computed here, from the one time `fn`
+ * needed by `compileJSProgram`'s `draw()` and computed here, from the one time `fn`
  * is actually called. A second call to read it back afterward is not an
  * option: `fn` routinely has side effects on the caller's own closure (the
  * `let tex; Fn(() => { tex = uniform(...); ... })` idiom this whole test
@@ -2040,6 +2041,7 @@ function compileJSFnDetailed(
   const paramNodes = options.params.map((p) => parameterNode(p.name, p.type));
   const rawResult = fn(...paramNodes);
   const rawNodes: Node<ShaderType>[] = Array.isArray(rawResult) ? rawResult : [rawResult];
+  if (options.routine) assertRoutineReadsNoStageInput(rawNodes);
   // Without a stage the function is a plain function of its context, whose
   // result can be any value.
   const resultNodes = numberClashingVariables(shareNodes(prepareRoots(options.stage, rawNodes)));
@@ -2123,19 +2125,13 @@ export function compileJSFn(
   return compileJSFnDetailed(fn, options).source;
 }
 
-/** What `compileJSRoutine` returns: the shared {@link CpuRoutine}, and the call that skips the copy of `run`. */
-export interface JsRoutine<A extends ShaderType = ShaderType> extends CpuRoutine<A> {
+/** A JS program: what the stages and the grid take what they give from, and the call that skips the copy of `run`. */
+export interface JsProgram extends CpuProgram {
   /**
    * Like `run`, but the result lives in the scratch slots the next call
    * overwrites. For a caller that reads each result at once.
    */
-  runInPlace(ctx: CpuShaderContext): CpuValue<A>;
-}
-
-/** What `compileJSRoutine` returns for a program compiled with a `stage`. */
-export interface JsStageRoutine extends CpuStageRoutine {
-  /** Like `run`, but the result lives in the scratch slots the next call overwrites. */
-  runInPlace(ctx: CpuShaderContext): CpuValue<ShaderType> | CpuShaderResult;
+  runInPlace(ctx: CpuShaderContext): CpuValue<ShaderType> | CpuProgramResult | null;
 }
 
 /** Copies a routine's result, arrays and the plain objects that hold them, so no scratch slot or input is shared. */
@@ -2156,46 +2152,34 @@ export function ownedValue<T>(value: T): T {
 }
 
 /**
- * Compile an Fn to an actual callable function, with the scratch slots and
+ * Compile an Fn to an actual callable program, with the scratch slots and
  * helper functions baked into its closure.
  *
- * The result is called as `fn(ctx)` where `ctx` is a `CpuShaderContext`, and
- * the value it returns is the caller's own: a later call does not change it.
- * The scratch slots are shared across calls, so a call must finish before the
+ * `run` is called as `run(ctx)` where `ctx` is a `CpuShaderContext`, and the
+ * value it returns is the caller's own: a later call does not change it. The
+ * scratch slots are shared across calls, so a call must finish before the
  * next one starts. Pass `{ reentrant: true }` for per-call bindings instead.
  *
- * Also carries `draw()`, the same whole-image entry point `compileWasmRoutine`'s
- * result has: one JS call per pixel, feeding `fragCoord` in and packing every
- * result into one flat row-major buffer — see `CpuRoutine`.
+ * Also carries `draw()`, the whole-image entry point: one JS call per pixel,
+ * feeding `fragCoord` in and packing every result into one flat row-major
+ * buffer, and `compute()`, one call per invocation.
  */
-export function compileJSRoutine<A extends ShaderType>(
-  fn: (...args: any[]) => Node<A>,
-  options: CompileJSOptions & { stage?: undefined },
-): JsRoutine<A>;
-export function compileJSRoutine(
-  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileJSOptions & { stage?: undefined },
-): JsRoutine;
-export function compileJSRoutine(
+export function compileJSProgram(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
-): JsStageRoutine;
-export function compileJSRoutine(
-  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileJSOptions,
-): JsStageRoutine {
+): JsProgram {
   const { source, resultType, storageTypes } = compileJSFnDetailed(fn, options);
-  const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuShaderResult;
+  const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuProgramResult | null;
   const runScratch = factory();
 
   /** The result of one call, copied out of the scratch slots the next call writes into. */
-  function run(ctx: CpuShaderContext): number | boolean | CpuShaderResult {
-    return ownedValue(runScratch(ctx)) as number | boolean | CpuShaderResult;
+  function run(ctx: CpuShaderContext): number | boolean | CpuProgramResult | null {
+    return ownedValue(runScratch(ctx)) as number | boolean | CpuProgramResult | null;
   }
 
   function draw(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
     if (resultType === undefined) {
-      throw new Error("[RMSL] compileJSRoutine: this function produces no value to render — draw() needs a result.");
+      throw new Error("[RMSL] compileJSGrid: this function produces no value to render — fill() needs a result.");
     }
     const componentCount = componentCountOf(resultType);
     const kind = isAggregate(resultType) ? elementKindOf(resultType) : scalarKindOf(resultType);
@@ -2219,7 +2203,7 @@ export function compileJSRoutine(
         }
         const raw =
           typeof result === "object" && result !== null && "value" in result
-            ? (result as CpuShaderResult).value
+            ? (result as CpuProgramResult).value
             : result;
         const values = Array.isArray(raw) ? raw : [raw];
         const base = (y * width + x) * componentCount;
@@ -2244,7 +2228,7 @@ export function compileJSRoutine(
 }
 
 /** What a stage compile function takes: the options of a routine, without the stage, which the function names. */
-export type CompileJSStageOptions = Omit<CompileJSOptions, "stage">;
+export type CompileJSStageOptions = Omit<CompileJSOptions, "stage" | "routine">;
 
 /** A JS vertex stage, and the call that skips the copy of `run`. */
 export interface JsVertexStage extends VertexStage {
@@ -2263,7 +2247,7 @@ export function compileJSVertex(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSStageOptions,
 ): JsVertexStage {
-  const routine = compileJSRoutine(fn, { ...options, stage: "vertex" });
+  const routine = compileJSProgram(fn, { ...options, stage: "vertex" });
   return {
     run: (ctx) => toVertexResult(routine.run(ctx)),
     runInPlace: (ctx) => toVertexResult(routine.runInPlace(ctx)),
@@ -2283,7 +2267,7 @@ export function compileJSFragment(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSStageOptions,
 ): JsFragmentStage {
-  const routine = compileJSRoutine(fn, { ...options, stage: "fragment" });
+  const routine = compileJSProgram(fn, { ...options, stage: "fragment" });
   return {
     run: (ctx) => toFragmentResult(routine.run(ctx)),
     runInPlace: (ctx) => toFragmentResult(routine.runInPlace(ctx)),
@@ -2296,7 +2280,7 @@ export function compileJSCompute(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSStageOptions,
 ): ComputeStage {
-  const routine = compileJSRoutine(fn, { ...options, stage: "compute" });
+  const routine = compileJSProgram(fn, { ...options, stage: "compute" });
   return { dispatch: (ctx, count) => routine.compute(ctx, count), storageTypes: routine.storageTypes ?? {} };
 }
 
@@ -2305,6 +2289,28 @@ export function compileJSGrid<A extends ShaderType>(
   fn: (...args: any[]) => Node<A>,
   options: CompileJSStageOptions,
 ): CpuGrid<A> {
-  const routine = compileJSRoutine(fn, options);
+  const routine = compileJSProgram(fn, options);
   return { fill: (ctx, width, height, out) => routine.draw(ctx, width, height, out) as GridBuffer<A> };
+}
+
+/**
+ * Compiles an `Fn` to a function of a context: it reads its parameters and
+ * uniforms from `ctx`, and returns its value, typed by the type the program
+ * returns. A program that reads what only a stage has, such as `fragCoord()`
+ * or a varying, is refused: compile it as a stage or as a grid.
+ */
+export function compileJSRoutine<A extends ShaderType>(
+  fn: (...args: any[]) => Node<A>,
+  options: CompileJSStageOptions,
+): CpuRoutine<A>;
+export function compileJSRoutine(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileJSStageOptions,
+): CpuRoutine;
+export function compileJSRoutine(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileJSStageOptions,
+): CpuRoutine {
+  const program = compileJSProgram(fn, { ...options, routine: true });
+  return { run: (ctx) => program.run(ctx) as never };
 }

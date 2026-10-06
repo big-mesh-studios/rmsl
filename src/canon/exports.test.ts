@@ -13,7 +13,7 @@ import {
   vec4,
   type Node,
 } from "../rmsl";
-import { compileJSRoutine } from "../js";
+import { compileJSRoutine, compileJSGrid } from "../js";
 import { uniformsIn } from "../test";
 import { barrelMask, barrelUV, colorBleeding, getGaussianCoefficients, premultipliedGaussianBlur, scanlines, vignette } from "../effects";
 import {
@@ -96,8 +96,8 @@ describe("exports no other test reaches", () => {
     compileOnBothGpus(() => vec4(screenUV(), 0, 1));
     const uv = screenUV();
     const [size] = uniformsIn(uv);
-    const run = compileJSRoutine(() => Fn(() => uv.toVar())(), none);
-    expect(Array.from(run.draw({ uniforms: { [size!.name]: [2, 1] } }, 2, 1))).toEqual([0.25, 0.5, 0.75, 0.5]);
+    const run = compileJSGrid(() => Fn(() => uv.toVar())(), none);
+    expect(Array.from(run.fill({ uniforms: { [size!.name]: [2, 1] } }, 2, 1))).toEqual([0.25, 0.5, 0.75, 0.5]);
   });
 
   /**

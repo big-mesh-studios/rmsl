@@ -20,13 +20,25 @@ import {
   vec4,
   type Node,
 } from "../rmsl";
-import { compileJS, compileJSRoutine } from "../js";
+import { compileJS, compileJSCompute, compileJSRoutine } from "../js";
 import type { CompileCpuRoutine } from "../backends/cpu";
-import { compileWasm, compileWasmFn, compileWasmRoutine } from "../wasm";
+import {
+  compileWasm,
+  compileWasmCompute,
+  compileWasmFn,
+  compileWasmRoutine,
+  compileWasmFragment,
+  compileWasmGrid,
+} from "../wasm";
 
 const none = { name: "main", params: [] };
 
 /** Both CPU targets, by name, as a compiler of a routine. */
+const computes = [
+  ["JS", compileJSCompute],
+  ["WASM", compileWasmCompute],
+] as const;
+
 const cpuTargets = [
   ["JS", compileJSRoutine],
   ["WASM", compileWasmRoutine],
@@ -89,14 +101,14 @@ describe("a CPU target's storage buffers", () => {
   /**
    * @canon spec-an-element-no-invocation-writes-keeps-the-host-value
    */
-  it.each(cpuTargets)("keeps the elements no invocation writes on %s", (_, compile) => {
+  it.each(computes)("keeps the elements no invocation writes on %s", (_, compile) => {
     const buffer = instancedArray(4, "float");
     const build = () =>
       Fn(() => {
         buffer.element(invocationIndex().mul(2)).assign(float(9));
       })();
     const data = new Float64Array([1, 2, 3, 4]);
-    compile(build as any, none).compute({ storages: { [buffer.name]: data } }, 2);
+    compile(build as any, none).dispatch({ storages: { [buffer.name]: data } }, 2);
     expect(Array.from(data)).toEqual([9, 2, 9, 4]);
   });
 
@@ -119,7 +131,7 @@ describe("a CPU target's storage buffers", () => {
         (target as ReturnType<typeof storage<"float">>).element(i).assign(source.element(i).mul(2));
       })();
     const data = new Float64Array([1, 2]);
-    compileWasmRoutine(build as any, none).compute({ storages: { [storage(shared, "float").name]: data } }, 2);
+    compileWasmCompute(build as any, none).dispatch({ storages: { [storage(shared, "float").name]: data } }, 2);
     expect(Array.from(data)).toEqual([2, 4]);
   });
 });
@@ -266,17 +278,17 @@ describe("a WASM routine's results", () => {
    * @canon spec-a-cpu-routine-answers-one-fragment-per-call
    */
   it("keeps the pixels a WASM routine drew when it draws again", () => {
-    const routine = compileWasmRoutine((a: any) => Fn(() => vec2(a, a.add(1)).toVar())(), {
+    const routine = compileWasmGrid((a: any) => Fn(() => vec2(a, a.add(1)).toVar())(), {
       name: "main",
       params: [{ name: "a", type: "float" }],
     });
-    const first = routine.draw({ params: { a: 0.5 } }, 1, 1);
-    routine.draw({ params: { a: 100.5 } }, 1, 1);
+    const first = routine.fill({ params: { a: 0.5 } }, 1, 1);
+    routine.fill({ params: { a: 100.5 } }, 1, 1);
     expect(Array.from(first)).toEqual([0.5, 1.5]);
   });
 
   /**
-   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   * @canon spec-a-fragment-stage-returns-its-colour-and-outputs
    */
   it("returns null for a discarded fragment on WASM", () => {
     const build = () =>
@@ -284,7 +296,7 @@ describe("a WASM routine's results", () => {
         Discard();
         return float(1);
       })();
-    expect(compileWasmRoutine(build, { ...none, stage: "fragment" }).run({})).toBeNull();
+    expect(compileWasmFragment(build, { ...none }).run({})).toBeNull();
   });
 });
 

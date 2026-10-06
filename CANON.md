@@ -30,7 +30,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@term folding`](#term-folding) — Computing a node whose operands are all literal values while the program compiles.
 - [`@term layout`](#term-layout) — The byte offset of each member of a uniform block or a storage element, placed under the rules of one target.
 - [`@term adapter`](#term-adapter) — An object that attaches compiled programs to one target and draws or dispatches them, with the same methods for every target.
-- [`@term cpu-routine`](#term-cpu-routine) — The callable a CPU target compiles a program into, with `run`, `draw` and `compute`.
+- [`@term cpu-routine`](#term-cpu-routine) — The callable a CPU target compiles a program into: a function of a context, with `run`. A program that reads what only a stage has compiles as a stage, a vertex, a fragment or a compute stage, or as a grid.
 - [`@term effect`](#term-effect) — A function from samplers and parameter nodes to a colour node, ported from the display effects of Three.js TSL.
 - [`@term pass-graph`](#term-pass-graph) — An ordered list of fullscreen passes and the name of the pass that produces the output.
 - [`@term node-material`](#term-node-material) — A material of `./scene` whose surface the user states as nodes.
@@ -527,8 +527,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec the-wasm-target-draws-within-the-call`](#spec-the-wasm-target-draws-within-the-call) — A vertex and fragment program compiled with `compileWasm` returns its pixels from `draw`, with no graphics API.
     - [`@spec the-js-target-compiles-a-function-of-a-context`](#spec-the-js-target-compiles-a-function-of-a-context) — `compileJSFn` returns the source of a named function that reads its parameters from `ctx.params` and its uniforms from `ctx.uniforms` by slot name. It returns its value, a result object when the program writes outputs or depth, and `null` for a discarded fragment.
     - [`@spec the-js-target-computes-scalar-math-with-math`](#spec-the-js-target-computes-scalar-math-with-math) — The JS target computes a scalar math function with the function of the same name on `Math`.
-    - [`@spec a-cpu-routine-reads-its-inputs-by-slot`](#spec-a-cpu-routine-reads-its-inputs-by-slot) — A CPU routine reads its parameters, uniforms, uniform arrays, attributes and varyings from the context the host passes, by slot name. It reads `fragCoord()` as `[0, 0]` when the context gives none.
-    - [`@spec a-cpu-routine-returns-its-value-or-a-result`](#spec-a-cpu-routine-returns-its-value-or-a-result) — A CPU routine returns the value its program returns, the last of several, as it is. When the program writes an output, a varying, the position or the depth, it returns a result object that holds them with the value. A discarded fragment returns `null`.
+    - [`@spec a-cpu-program-reads-its-inputs-by-slot`](#spec-a-cpu-program-reads-its-inputs-by-slot) — A compiled CPU program, a routine, a stage or a grid, reads what the context the host passes holds, by slot name: its parameters, uniforms and uniform arrays, and, in a program that has them, attributes, varyings and `fragCoord()`, which reads as `[0, 0]` when the context gives none.
+    - [`@spec a-cpu-routine-returns-its-value`](#spec-a-cpu-routine-returns-its-value) — A CPU routine returns the value its program returns, the last of several, as it is. A program that reads what only a stage has is refused, so a routine has no result object to return.
+    - [`@spec a-routine-refuses-an-input-only-a-stage-has`](#spec-a-routine-refuses-an-input-only-a-stage-has) — A routine that reads `fragCoord()`, `invocationIndex()`, `builtinPosition()`, `builtinFragDepth()`, a varying or an attribute is refused on both CPU targets. The refusal names the input and the stage that has it.
     - [`@spec a-vertex-stage-returns-its-position-and-varyings`](#spec-a-vertex-stage-returns-its-position-and-varyings) — `compileJSVertex` and `compileWasmVertex` give a stage whose `run` returns an object that holds the position, a `vec4`, and the varyings the program wrote, by slot. A vertex stage that never writes the position itself returns its `vec4` result as the position.
     - [`@spec a-fragment-stage-returns-its-colour-and-outputs`](#spec-a-fragment-stage-returns-its-colour-and-outputs) — `compileJSFragment` and `compileWasmFragment` give a stage whose `run` returns an object that holds the colour, a `vec4`, the members of the `outputStruct` the program returned, by position, and the depth when it wrote one. A stage that returns an `outputStruct` has no colour, which is undefined. A fragment that discards returns `null`.
     - [`@spec an-output-struct-writes-each-member-at-its-position`](#spec-an-output-struct-writes-each-member-at-its-position) — A fragment stage that returns an `outputStruct` writes member `i` to the output at location `i`, with the type of the member, and writes no colour. A CPU stage returns the values of the members by position.
@@ -536,7 +537,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-compute-stage-dispatches-and-returns-nothing`](#spec-a-compute-stage-dispatches-and-returns-nothing) — `compileJSCompute` and `compileWasmCompute` give a stage whose `dispatch` runs the program once per index of a count, in index order, and returns nothing. The stage names the type of each storage buffer the program reads.
     - [`@spec a-cpu-routine-answers-one-fragment-per-call`](#spec-a-cpu-routine-answers-one-fragment-per-call) — `run` of a CPU routine evaluates the program once, for the context the host passes. The same routine serves any number of calls, and a value one call returned keeps what it holds through the calls after it.
     - [`@spec a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel) — `fill` of a CPU grid evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to fill with.
-    - [`@spec a-cpu-routine-runs-one-compute-invocation-per-call`](#spec-a-cpu-routine-runs-one-compute-invocation-per-call) — A CPU routine of a program that reads `storage()` and `invocationIndex()` runs one invocation for each call. It reads and writes any element of the buffers the host passes by slot.
+    - [`@spec a-cpu-compute-stage-runs-one-invocation-per-index`](#spec-a-cpu-compute-stage-runs-one-invocation-per-index) — `dispatch` of a CPU compute stage runs the program once for each index of its count. It reads and writes any element of the buffers the host passes by slot.
     - [`@spec a-wasm-routine-is-reentrant`](#spec-a-wasm-routine-is-reentrant) — A WASM routine keeps its variables in its own module, so it computes the same with or without `reentrant`.
     - [`@spec a-cpu-target-runs-invocations-in-index-order`](#spec-a-cpu-target-runs-invocations-in-index-order) — A CPU target runs the invocations of a dispatch one at a time, in index order. An invocation sees the writes of the invocations before it.
     - [`@spec a-cpu-target-rasterizes-a-vertex-and-fragment-pair`](#spec-a-cpu-target-rasterizes-a-vertex-and-fragment-pair) — `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates varyings in perspective, clips at the near plane, and keeps the closer fragment.
@@ -883,7 +884,7 @@ _Avoid_: constant propagation
 
 ### @term cpu-routine
 
-> The callable a CPU target compiles a program into, with `run`, `draw` and `compute`.
+> The callable a CPU target compiles a program into: a function of a context, with `run`. A program that reads what only a stage has compiles as a stage, a vertex, a fragment or a compute stage, or as a grid.
 
 ### @term effect
 
@@ -3668,14 +3669,22 @@ This follows because a page whose security policy blocks `new Function` can stil
 
 > The JS target computes a scalar math function with the function of the same name on `Math`.
 
-#### @spec a-cpu-routine-reads-its-inputs-by-slot
+#### @spec a-cpu-program-reads-its-inputs-by-slot
 
-> A CPU routine reads its parameters, uniforms, uniform arrays, attributes and varyings from the context the host passes, by slot name. It reads `fragCoord()` as `[0, 0]` when the context gives none.
+> A compiled CPU program, a routine, a stage or a grid, reads what the context the host passes holds, by slot name: its parameters, uniforms and uniform arrays, and, in a program that has them, attributes, varyings and `fragCoord()`, which reads as `[0, 0]` when the context gives none.
 
-#### @spec a-cpu-routine-returns-its-value-or-a-result
+#### @spec a-cpu-routine-returns-its-value
 
-> A CPU routine returns the value its program returns, the last of several, as it is. When the program writes an output, a varying, the position or the depth, it returns a result object that holds them with the value. A discarded fragment returns `null`.
+> A CPU routine returns the value its program returns, the last of several, as it is. A program that reads what only a stage has is refused, so a routine has no result object to return.
 
+
+#### @spec a-routine-refuses-an-input-only-a-stage-has
+
+> A routine that reads `fragCoord()`, `invocationIndex()`, `builtinPosition()`, `builtinFragDepth()`, a varying or an attribute is refused on both CPU targets. The refusal names the input and the stage that has it.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs), [`axiom-a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns)
+
+This follows because a routine has no stage to give such an input, so reading one is a mistake the compiler can name, and the value a routine returns is then the only shape it has to type.
 
 #### @spec a-vertex-stage-returns-its-position-and-varyings
 
@@ -3725,9 +3734,9 @@ This follows because a compute program writes into storage and has no result to 
 
 > `fill` of a CPU grid evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to fill with.
 
-#### @spec a-cpu-routine-runs-one-compute-invocation-per-call
+#### @spec a-cpu-compute-stage-runs-one-invocation-per-index
 
-> A CPU routine of a program that reads `storage()` and `invocationIndex()` runs one invocation for each call. It reads and writes any element of the buffers the host passes by slot.
+> `dispatch` of a CPU compute stage runs the program once for each index of its count. It reads and writes any element of the buffers the host passes by slot.
 
 #### @spec a-wasm-routine-is-reentrant
 
@@ -3973,7 +3982,7 @@ This follows because the grid has a slot for every pixel, and a discarded fragme
 
 > A parameter, attribute or varying the host leaves out of the context reads zero.
 
-Derives from: [`spec-a-cpu-routine-reads-its-inputs-by-slot`](#spec-a-cpu-routine-reads-its-inputs-by-slot), [`spec-an-unset-uniform-reads-zero`](#spec-an-unset-uniform-reads-zero)
+Derives from: [`spec-a-cpu-program-reads-its-inputs-by-slot`](#spec-a-cpu-program-reads-its-inputs-by-slot), [`spec-an-unset-uniform-reads-zero`](#spec-an-unset-uniform-reads-zero)
 
 This follows because an input the host leaves out has no value, and zero is what an unset uniform reads.
 
@@ -3993,7 +4002,7 @@ Issue: #114
 
 > A CPU routine returns a matrix as one flat array of numbers, which holds its columns one after another.
 
-Derives from: [`spec-a-cpu-routine-returns-its-value-or-a-result`](#spec-a-cpu-routine-returns-its-value-or-a-result)
+Derives from: [`spec-a-cpu-routine-returns-its-value`](#spec-a-cpu-routine-returns-its-value)
 
 This follows because a host passes a matrix to every target as its columns in order, and a CPU routine returns that shape.
 
@@ -4001,7 +4010,7 @@ This follows because a host passes a matrix to every target as its columns in or
 
 > `compileJSRoutine` and `compileWasmRoutine` call the builder the caller passes once for each compile.
 
-Derives from: [`spec-a-cpu-routine-reads-its-inputs-by-slot`](#spec-a-cpu-routine-reads-its-inputs-by-slot)
+Derives from: [`spec-a-cpu-program-reads-its-inputs-by-slot`](#spec-a-cpu-program-reads-its-inputs-by-slot)
 
 This follows because a builder may declare its inputs as it runs, and a second call would name slots that the host never learns.
 
@@ -4041,7 +4050,7 @@ This follows because no typed array holds a boolean, and 1 and 0 are the integer
 
 > On a CPU target, a storage element that no invocation writes keeps the value the host passed in.
 
-Derives from: [`spec-a-cpu-routine-runs-one-compute-invocation-per-call`](#spec-a-cpu-routine-runs-one-compute-invocation-per-call)
+Derives from: [`spec-a-cpu-compute-stage-runs-one-invocation-per-index`](#spec-a-cpu-compute-stage-runs-one-invocation-per-index)
 
 This follows because a routine works on the buffers the host passes, so an element the program leaves alone stays as the host left it.
 
