@@ -19,7 +19,7 @@ let colour = r.value; // the Fn's return value (e.g. the ray-marched colour)
 let depth = r.fragDepth; // written via builtinFragDepth(), for the world pick point
 ```
 
-If that shape looks familiar: it's identical to `compileJSRoutine`'s. Both targets share the same host-facing contract — `CpuShaderContext` in, `CpuShaderResult` (or a bare scalar/boolean) out — described in full under [The context object](compilation.md#the-context-object) and [Return value](compilation.md#return-value). This page covers what's different about compiling to WASM specifically, not the shape both already share.
+If that shape looks familiar: it's identical to `compileJSRoutine`'s. Both targets share the same host-facing contract — `CpuShaderContext` in, `CpuShaderResult` (or the bare value, a scalar, a boolean or a vector) out — described in full under [The context object](compilation.md#the-context-object) and [Return value](compilation.md#return-value). This page covers what's different about compiling to WASM specifically, not the shape both already share.
 
 ## Why a second CPU target
 

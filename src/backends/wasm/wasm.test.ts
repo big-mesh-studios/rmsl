@@ -102,9 +102,9 @@ describe("WASM backend: scalar arithmetic", () => {
     expect(fn.run({})).toBe(2);
   });
   /**
-   * @canon bug-wasm-wraps-a-vector-result-in-a-result-object
+   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
    */
-  it.fails("supports a plain non-scalar result, through the same memory-based path a stage program uses", () => {
+  it("supports a plain non-scalar result, through the same memory-based path a stage program uses", () => {
     // A plain WASM function can only ever return one scalar, so an
     // aggregate root goes through `needsResult` mode automatically —
     // this is what lets a per-pixel `vec4` color work with `.draw()` (see
@@ -236,7 +236,7 @@ describe("WASM backend: uniform arrays", () => {
         ],
       },
     }) as any;
-    expect(result.value).toEqual([4, 5, 6]);
+    expect(result).toEqual([4, 5, 6]);
   });
 });
 
@@ -370,7 +370,7 @@ describe("WASM backend: clamp, mix, step, smoothstep", () => {
     const build = () => Fn(() => vec3(0.5, -0.5, 1.5).clamp(vec3(0, 0, 0), vec3(1, 1, 1)))();
     const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const result = fn.run({}) as any;
-    expect(result.value).toEqual([0.5, 0, 1]);
+    expect(result).toEqual([0.5, 0, 1]);
   });
   /**
    * @canon spec-a-function-with-an-edge-takes-the-value-last
@@ -378,7 +378,7 @@ describe("WASM backend: clamp, mix, step, smoothstep", () => {
   it("mixes a vector with a scalar blend factor, broadcasting it to every component", () => {
     const build = () => Fn(() => vec3(0, 0, 0).mix(vec3(4, 8, 12), float(0.25)))();
     const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
-    expect((fn.run({}) as any).value).toEqual([1, 2, 3]);
+    expect(fn.run({})).toEqual([1, 2, 3]);
   });
   /**
    * @canon spec-a-function-with-an-edge-takes-the-value-last
@@ -390,21 +390,17 @@ describe("WASM backend: clamp, mix, step, smoothstep", () => {
     // a real, if untyped, case worth covering.
     const build = () => Fn(() => (vec3(0, 0, 0).mix as any)(vec3(4, 8, 12), vec3(0.25, 0.5, 1)))();
     const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
-    expect((fn.run({}) as any).value).toEqual([1, 4, 12]);
+    expect(fn.run({})).toEqual([1, 4, 12]);
   });
   /**
    * @canon spec-a-function-with-an-edge-takes-the-value-last
    */
   it("steps and smoothsteps a vector componentwise", () => {
     const stepBuild = () => Fn(() => vec3(0.2, 0.8, 0.5).step(vec3(0.5, 0.5, 0.5)))();
-    expect((compileWasmRoutine(stepBuild as any, { name: "main", params: [] }).run({}) as any).value).toEqual([
-      0, 1, 1,
-    ]);
+    expect(compileWasmRoutine(stepBuild as any, { name: "main", params: [] }).run({})).toEqual([0, 1, 1]);
 
     const smoothBuild = () => Fn(() => vec3(-0.5, 0.5, 1.5).smoothstep(vec3(0, 0, 0), vec3(1, 1, 1)))();
-    expect((compileWasmRoutine(smoothBuild as any, { name: "main", params: [] }).run({}) as any).value).toEqual([
-      0, 0.5, 1,
-    ]);
+    expect(compileWasmRoutine(smoothBuild as any, { name: "main", params: [] }).run({})).toEqual([0, 0.5, 1]);
   });
 });
 
@@ -1115,9 +1111,9 @@ describe("WASM backend: matrix×vector and matrix×matrix multiplication", () =>
     const a = mat2x3(1, 2, 3, 4, 5, 6);
     const b = mat3x2(1, 0, 0, 1, 1, 1);
     const fn = compileWasmRoutine(() => (a as any).mul(b), { name: "main", params: [] });
-    const result = fn.run({}) as { value: number[] };
+    const result = fn.run({});
     // Same product pinned for the JS backend in js.test.ts.
-    expect(result.value).toEqual([1, 2, 3, 4, 5, 6, 5, 7, 9]);
+    expect(result).toEqual([1, 2, 3, 4, 5, 6, 5, 7, 9]);
   });
 });
 
@@ -1801,11 +1797,9 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
         })(),
       { name: "main", params: [] },
     );
-    // A vec4 root is an aggregate result: WASM wraps it as { value }, matching
-    // compileWasmRoutine's documented shape; JS returns the bare array.
-    const wasmResult = wasmFn.run({ textures: { [wasmTex.name]: texture } }) as { value: number[] };
-    const jsResult = jsFn.run({ textures: { [jsTex.name]: texture } }) as number[];
-    expect(wasmResult.value).toEqual(jsResult);
+    const wasmResult = wasmFn.run({ textures: { [wasmTex.name]: texture } });
+    const jsResult = jsFn.run({ textures: { [jsTex.name]: texture } });
+    expect(wasmResult).toEqual(jsResult);
   });
   /**
    * @canon exception-an-integer-cube-map-cannot-be-fetched

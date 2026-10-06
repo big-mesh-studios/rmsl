@@ -308,6 +308,6 @@ describe("the Vite plugins", () => {
     const mod = (await import(`data:text/javascript,${encodeURIComponent(code)}`)) as Record<string, any>;
     const result = mod.brightness.run({ uniforms: { _rmsl_u0: [1, 2, 3] } });
     expect(result).not.toBeInstanceOf(Promise);
-    expect(result).toEqual({ value: [0.5, 1, 1.5] });
+    expect(result).toEqual([0.5, 1, 1.5]);
   });
 });

@@ -4056,6 +4056,9 @@ export function instantiateWasmRoutine(
           break;
       }
     }
+    // a program that writes no output, varying, position or depth returns its value bare, as the JS target does
+    if (Object.keys(shaderResult).length === 1 && "value" in shaderResult)
+      return shaderResult.value as number | boolean;
     return shaderResult;
   }
 

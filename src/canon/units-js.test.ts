@@ -43,12 +43,6 @@ const routineAdapters: [string, typeof createJsRoutine][] = [
   ["WASM", createWasmRoutine as unknown as typeof createJsRoutine],
 ];
 
-/** The value a CPU routine returned, taken out of a result object if it wrapped one. */
-const valueOf = (result: unknown) =>
-  typeof result === "object" && result !== null && !Array.isArray(result) && "value" in result
-    ? (result as { value: unknown }).value
-    : result;
-
 /** The bytes a routine adapter puts on a one-pixel canvas for `draw`. */
 function shownOnCanvas(create: typeof createJsRoutine, draw: Node<any>): number[] {
   const hadImageData = "ImageData" in globalThis;
@@ -77,16 +71,21 @@ function shownOnCanvas(create: typeof createJsRoutine, draw: Node<any>): number[
 
 describe("the JS target's internal decisions, on every target they claim", () => {
   /**
-   * `mat2(1, 2, 3, 4)` has the columns (1, 2) and (3, 4). A WASM routine
-   * wraps the value in a result object, which bug
-   * wasm-wraps-a-vector-result-in-a-result-object records, so the test reads
-   * the value out of it.
+   * @canon spec-a-cpu-routine-returns-its-value-or-a-result
+   */
+  it.each(cpuTargets)("%s: returns a vector result as a bare array", (_, compile) => {
+    const routine = compile(() => Fn(() => vec3(1, 2, 3))() as any, none);
+    expect(routine.run({})).toEqual([1, 2, 3]);
+  });
+
+  /**
+   * `mat2(1, 2, 3, 4)` has the columns (1, 2) and (3, 4).
    *
    * @canon spec-a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array
    */
   it.each(cpuTargets)("%s: returns a matrix as its columns in one flat array", (_, compile) => {
     const routine = compile(() => Fn(() => mat2(vec2(1, 2), vec2(3, 4)))() as any, none);
-    expect(valueOf(routine.run({}))).toEqual([1, 2, 3, 4]);
+    expect(routine.run({})).toEqual([1, 2, 3, 4]);
   });
 
   /**
@@ -113,7 +112,7 @@ describe("the JS target's internal decisions, on every target they claim", () =>
       return Fn(() => fragCoord().x.mul(scale))();
     }, none);
     expect(calls).toBe(1);
-    expect(valueOf(routine.run({ uniforms: { [(scale as any).name]: 2 }, fragCoord: [3, 0] }))).toBe(6);
+    expect(routine.run({ uniforms: { [(scale as any).name]: 2 }, fragCoord: [3, 0] })).toBe(6);
   });
 
   /**
@@ -133,7 +132,7 @@ describe("the JS target's internal decisions, on every target they claim", () =>
       const routine = compile(() => program, none);
       const texture = { data: new Float32Array([10, 10, 10, 10, 20, 20, 20, 20]), width: 2, height: 1 };
       const red = (filters: { magFilter: "nearest" | "linear"; minFilter: "nearest" | "linear" }) =>
-        (valueOf(routine.run({ textures: { [tex.name]: { ...texture, ...filters } } })) as number[])[0];
+        (routine.run({ textures: { [tex.name]: { ...texture, ...filters } } }) as number[])[0];
       expect(red({ magFilter: "nearest", minFilter: "linear" })).toBe(20);
       expect(red({ magFilter: "linear", minFilter: "nearest" })).toBe(15);
     },
