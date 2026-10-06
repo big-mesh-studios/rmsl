@@ -298,3 +298,33 @@ export function toFragmentResult<R>(raw: CpuValue<ShaderType> | CpuShaderResult 
   if (isResultObject(raw) && raw.fragDepth !== undefined) result.fragDepth = raw.fragDepth;
   return result as FragmentResult<R>;
 }
+
+/**
+ * The typed array a grid of `A` fills: floats and matrices in a `Float64Array`,
+ * integers and booleans in an `Int32Array`, unsigned integers in a
+ * `Uint32Array`, with every component of every pixel one after another.
+ */
+export type GridBuffer<A extends ShaderType> = A extends "uint" | `uvec${string}`
+  ? Uint32Array
+  : A extends "int" | "bool" | `ivec${string}` | `bvec${string}`
+    ? Int32Array
+    : Float64Array;
+
+/**
+ * A program of `fragCoord()` evaluated over a grid of pixels, for what a
+ * fragment stage does not give: the buffer takes the type of the result, and
+ * there is no colour to convert it to.
+ */
+export type CpuGrid<A extends ShaderType = ShaderType> = {
+  /**
+   * Evaluates the program once for each pixel of a `width x height` grid, with
+   * `fragCoord()` at the centre of each pixel, and packs the results into one
+   * flat row-major buffer of `width * height * componentCount` elements. A
+   * pixel that discards is zero in every channel. Every other input, uniforms
+   * and textures included, is the same for every pixel. The buffer is the
+   * caller's: a later `fill` does not change it. Pass `out` to fill a buffer
+   * of your own instead; it must be the type `A` has and hold at least that
+   * many elements, and it is returned.
+   */
+  fill(ctx: CpuShaderContext, width: number, height: number, out?: GridBuffer<A>): GridBuffer<A>;
+};

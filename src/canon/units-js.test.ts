@@ -25,6 +25,7 @@ import {
   compileJSCompute,
   compileJSFn,
   compileJSFragment,
+  compileJSGrid,
   compileJSRoutine,
   compileJSVertex,
   createJsRoutine,
@@ -33,6 +34,7 @@ import {
   compileWasm,
   compileWasmCompute,
   compileWasmFragment,
+  compileWasmGrid,
   compileWasmRoutine,
   compileWasmVertex,
   createWasmRoutine,
@@ -50,6 +52,11 @@ const cpuTargets: [string, CompileCpuRoutine][] = [
   ["JS", compileJSRoutine],
   ["WASM", compileWasmRoutine as CompileCpuRoutine],
 ];
+
+const grids = [
+  ["JS", compileJSGrid],
+  ["WASM", compileWasmGrid],
+] as const;
 
 const rasterizers: [string, typeof compileJS][] = [
   ["JS", compileJS],
@@ -157,19 +164,19 @@ describe("the JS target's internal decisions, on every target they claim", () =>
   );
 
   /**
-   * @canon spec-draw-fills-a-float64-array-for-a-float-result
+   * @canon spec-a-grid-fills-a-float64-array-for-a-float-result
    */
-  it.each(cpuTargets)("%s: draws a float result into a Float64Array", (_, compile) => {
-    const out = compile(() => Fn(() => fragCoord().x.add(0.25))() as any, none).draw({}, 2, 1);
+  it.each(grids)("%s: fills a float result into a Float64Array", (_, compile) => {
+    const out = compile(() => Fn(() => fragCoord().x.add(0.25))(), none).fill({}, 2, 1);
     expect(out).toBeInstanceOf(Float64Array);
     expect(Array.from(out)).toEqual([0.75, 1.75]);
   });
 
   /**
-   * @canon spec-draw-fills-an-int32-array-for-an-int-result
+   * @canon spec-a-grid-fills-an-int32-array-for-an-int-result
    */
-  it.each(cpuTargets)("%s: draws an int result into an Int32Array", (_, compile) => {
-    const out = compile(() => Fn(() => fragCoord().x.toInt().sub(2))() as any, none).draw({}, 2, 1);
+  it.each(grids)("%s: fills an int result into an Int32Array", (_, compile) => {
+    const out = compile(() => Fn(() => fragCoord().x.toInt().sub(2))(), none).fill({}, 2, 1);
     expect(out).toBeInstanceOf(Int32Array);
     expect(Array.from(out)).toEqual([-2, -1]);
   });
@@ -177,19 +184,19 @@ describe("the JS target's internal decisions, on every target they claim", () =>
   /**
    * 3000000000 lies past the largest `int`, so only an unsigned array holds it.
    *
-   * @canon spec-draw-fills-a-uint32-array-for-a-uint-result
+   * @canon spec-a-grid-fills-a-uint32-array-for-a-uint-result
    */
-  it.each(cpuTargets)("%s: draws a uint result into a Uint32Array", (_, compile) => {
-    const out = compile(() => Fn(() => fragCoord().x.toUint().add(uint(3000000000)))() as any, none).draw({}, 2, 1);
+  it.each(grids)("%s: fills a uint result into a Uint32Array", (_, compile) => {
+    const out = compile(() => Fn(() => fragCoord().x.toUint().add(uint(3000000000)))(), none).fill({}, 2, 1);
     expect(out).toBeInstanceOf(Uint32Array);
     expect(Array.from(out)).toEqual([3000000000, 3000000001]);
   });
 
   /**
-   * @canon spec-draw-writes-a-bool-result-as-one-or-zero-in-an-int32-array
+   * @canon spec-a-grid-writes-a-bool-result-as-one-or-zero-in-an-int32-array
    */
-  it.each(cpuTargets)("%s: draws a bool result as 1 or 0 into an Int32Array", (_, compile) => {
-    const out = compile(() => Fn(() => fragCoord().x.greaterThan(1))() as any, none).draw({}, 2, 1);
+  it.each(grids)("%s: fills a bool result as 1 or 0 into an Int32Array", (_, compile) => {
+    const out = compile(() => Fn(() => fragCoord().x.greaterThan(1))(), none).fill({}, 2, 1);
     expect(out).toBeInstanceOf(Int32Array);
     expect(Array.from(out)).toEqual([0, 1]);
   });
@@ -475,7 +482,7 @@ describe("a CPU stage's result", () => {
   );
 
   /**
-   * @canon spec-draw-writes-a-discarded-pixel-as-zero
+   * @canon spec-a-grid-writes-a-discarded-pixel-as-zero
    */
   it.each(stages)("writes a pixel that discards as zero in every channel with quad on %s", (_, __, compileFragment) => {
     const stage = compileFragment(

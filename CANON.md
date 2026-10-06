@@ -535,7 +535,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-fragment-stage-draws-a-grid-with-quad`](#spec-a-fragment-stage-draws-a-grid-with-quad) — `quad` of a fragment stage runs the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel, and packs the colours into one row-major buffer. Every pixel of the grid is shaded, with no triangle to rasterize.
     - [`@spec a-compute-stage-dispatches-and-returns-nothing`](#spec-a-compute-stage-dispatches-and-returns-nothing) — `compileJSCompute` and `compileWasmCompute` give a stage whose `dispatch` runs the program once per index of a count, in index order, and returns nothing. The stage names the type of each storage buffer the program reads.
     - [`@spec a-cpu-routine-answers-one-fragment-per-call`](#spec-a-cpu-routine-answers-one-fragment-per-call) — `run` of a CPU routine evaluates the program once, for the context the host passes. The same routine serves any number of calls, and a value one call returned keeps what it holds through the calls after it.
-    - [`@spec a-cpu-routine-draws-a-grid-of-fragments`](#spec-a-cpu-routine-draws-a-grid-of-fragments) — `draw` of a CPU routine evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to draw.
+    - [`@spec a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel) — `fill` of a CPU grid evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to fill with.
     - [`@spec a-cpu-routine-runs-one-compute-invocation-per-call`](#spec-a-cpu-routine-runs-one-compute-invocation-per-call) — A CPU routine of a program that reads `storage()` and `invocationIndex()` runs one invocation for each call. It reads and writes any element of the buffers the host passes by slot.
     - [`@spec a-wasm-routine-is-reentrant`](#spec-a-wasm-routine-is-reentrant) — A WASM routine keeps its variables in its own module, so it computes the same with or without `reentrant`.
     - [`@spec a-cpu-target-runs-invocations-in-index-order`](#spec-a-cpu-target-runs-invocations-in-index-order) — A CPU target runs the invocations of a dispatch one at a time, in index order. An invocation sees the writes of the invocations before it.
@@ -578,16 +578,16 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-program-under-test-falls-back-when-a-value-function-throws`](#spec-a-program-under-test-falls-back-when-a-value-function-throws) — `fromProgram` binds a uniform whose value function throws as if the program gave it no value.
       - [`@spec a-slot-two-names-share-reads-back-under-the-first`](#spec-a-slot-two-names-share-reads-back-under-the-first) — When two of a program's names point at one slot, `fromProgram` hands the slot's value back under the first name.
       - [`@spec render-draws-the-only-member-of-an-output-struct`](#spec-render-draws-the-only-member-of-an-output-struct) — `render` draws the member of an `outputStruct` that a fragment stage returns, when it has exactly one member.
-    - [`@spec draw-writes-a-discarded-pixel-as-zero`](#spec-draw-writes-a-discarded-pixel-as-zero) — `draw` of a CPU routine writes a pixel whose fragment discards as zero in every channel.
+    - [`@spec a-grid-writes-a-discarded-pixel-as-zero`](#spec-a-grid-writes-a-discarded-pixel-as-zero) — `fill` of a CPU grid writes a pixel whose fragment discards as zero in every channel.
     - [`@spec an-input-the-host-leaves-out-reads-zero`](#spec-an-input-the-host-leaves-out-reads-zero) — A parameter, attribute or varying the host leaves out of the context reads zero.
       - [`@bug wasm-reads-an-unset-scalar-input-as-nan`](#bug-wasm-reads-an-unset-scalar-input-as-nan) — A scalar varying the host leaves out reads as `NaN`.
       - [`@bug wasm-throws-on-an-unset-aggregate-input`](#bug-wasm-throws-on-an-unset-aggregate-input) — A vector varying the host leaves out throws a `TypeError` while the routine writes it into memory.
     - [`@spec a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array`](#spec-a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array) — A CPU routine returns a matrix as one flat array of numbers, which holds its columns one after another.
     - [`@spec a-cpu-compiler-calls-its-builder-once`](#spec-a-cpu-compiler-calls-its-builder-once) — `compileJSRoutine` and `compileWasmRoutine` call the builder the caller passes once for each compile.
-    - [`@spec draw-fills-a-float64-array-for-a-float-result`](#spec-draw-fills-a-float64-array-for-a-float-result) — `draw` of a CPU routine whose result is a float or a float vector returns a `Float64Array`.
-    - [`@spec draw-fills-an-int32-array-for-an-int-result`](#spec-draw-fills-an-int32-array-for-an-int-result) — `draw` of a CPU routine whose result is an `int` or an integer vector returns an `Int32Array`.
-    - [`@spec draw-fills-a-uint32-array-for-a-uint-result`](#spec-draw-fills-a-uint32-array-for-a-uint-result) — `draw` of a CPU routine whose result is a `uint` or an unsigned vector returns a `Uint32Array`.
-    - [`@spec draw-writes-a-bool-result-as-one-or-zero-in-an-int32-array`](#spec-draw-writes-a-bool-result-as-one-or-zero-in-an-int32-array) — `draw` of a CPU routine whose result is a `bool` returns an `Int32Array` that holds 1 for true and 0 for false.
+    - [`@spec a-grid-fills-a-float64-array-for-a-float-result`](#spec-a-grid-fills-a-float64-array-for-a-float-result) — `fill` of a CPU grid whose result is a float or a float vector returns a `Float64Array`.
+    - [`@spec a-grid-fills-an-int32-array-for-an-int-result`](#spec-a-grid-fills-an-int32-array-for-an-int-result) — `fill` of a CPU grid whose result is an `int` or an integer vector returns an `Int32Array`.
+    - [`@spec a-grid-fills-a-uint32-array-for-a-uint-result`](#spec-a-grid-fills-a-uint32-array-for-a-uint-result) — `fill` of a CPU grid whose result is a `uint` or an unsigned vector returns a `Uint32Array`.
+    - [`@spec a-grid-writes-a-bool-result-as-one-or-zero-in-an-int32-array`](#spec-a-grid-writes-a-bool-result-as-one-or-zero-in-an-int32-array) — `fill` of a CPU grid whose result is a `bool` returns an `Int32Array` that holds 1 for true and 0 for false.
     - [`@spec an-element-no-invocation-writes-keeps-the-host-value`](#spec-an-element-no-invocation-writes-keeps-the-host-value) — On a CPU target, a storage element that no invocation writes keeps the value the host passed in.
     - [`@spec a-runner-shares-its-scratch-unless-asked`](#spec-a-runner-shares-its-scratch-unless-asked) — A `runner` keeps the variables of its graph in one scratch block that its calls share, unless its options set `reentrant`.
   - [`@spec a-wasm-module-imports-only-its-memory`](#spec-a-wasm-module-imports-only-its-memory) — A program compiled to WebAssembly imports only its memory from the host. Any host that runs WebAssembly can run it, outside JavaScript included.
@@ -3705,7 +3705,7 @@ This follows because TSL returns the outputs of a fragment as an `outputStruct`,
 
 > `quad` of a fragment stage runs the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel, and packs the colours into one row-major buffer. Every pixel of the grid is shaded, with no triangle to rasterize.
 
-Derives from: [`spec-a-cpu-routine-draws-a-grid-of-fragments`](#spec-a-cpu-routine-draws-a-grid-of-fragments)
+Derives from: [`spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel)
 
 This follows because a full-screen pass is a fragment program run over a grid, and a rasterizer that covers the screen with two triangles adds a cost and nothing else.
 
@@ -3721,9 +3721,9 @@ This follows because a compute program writes into storage and has no result to 
 
 > `run` of a CPU routine evaluates the program once, for the context the host passes. The same routine serves any number of calls, and a value one call returned keeps what it holds through the calls after it.
 
-#### @spec a-cpu-routine-draws-a-grid-of-fragments
+#### @spec a-cpu-grid-evaluates-a-fragment-for-each-pixel
 
-> `draw` of a CPU routine evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to draw.
+> `fill` of a CPU grid evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to fill with.
 
 #### @spec a-cpu-routine-runs-one-compute-invocation-per-call
 
@@ -3961,11 +3961,11 @@ Derives from: [`spec-render-evaluates-every-fragment-of-a-grid`](#spec-render-ev
 
 This follows because a fragment stage that returns one member shows the colour of that member, and `render` draws what the fragment shows.
 
-#### @spec draw-writes-a-discarded-pixel-as-zero
+#### @spec a-grid-writes-a-discarded-pixel-as-zero
 
-> `draw` of a CPU routine writes a pixel whose fragment discards as zero in every channel.
+> `fill` of a CPU grid writes a pixel whose fragment discards as zero in every channel.
 
-Derives from: [`spec-a-cpu-routine-draws-a-grid-of-fragments`](#spec-a-cpu-routine-draws-a-grid-of-fragments)
+Derives from: [`spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel)
 
 This follows because the grid has a slot for every pixel, and a discarded fragment gives no value to fill it. Zero is what a cleared pixel holds.
 
@@ -4005,35 +4005,35 @@ Derives from: [`spec-a-cpu-routine-reads-its-inputs-by-slot`](#spec-a-cpu-routin
 
 This follows because a builder may declare its inputs as it runs, and a second call would name slots that the host never learns.
 
-#### @spec draw-fills-a-float64-array-for-a-float-result
+#### @spec a-grid-fills-a-float64-array-for-a-float-result
 
-> `draw` of a CPU routine whose result is a float or a float vector returns a `Float64Array`.
+> `fill` of a CPU grid whose result is a float or a float vector returns a `Float64Array`.
 
-Derives from: [`spec-a-cpu-routine-draws-a-grid-of-fragments`](#spec-a-cpu-routine-draws-a-grid-of-fragments), [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
+Derives from: [`spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel), [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
 
 This follows because a CPU target computes a float in 64 bits, and a `Float64Array` holds that value exactly.
 
-#### @spec draw-fills-an-int32-array-for-an-int-result
+#### @spec a-grid-fills-an-int32-array-for-an-int-result
 
-> `draw` of a CPU routine whose result is an `int` or an integer vector returns an `Int32Array`.
+> `fill` of a CPU grid whose result is an `int` or an integer vector returns an `Int32Array`.
 
-Derives from: [`spec-a-cpu-routine-draws-a-grid-of-fragments`](#spec-a-cpu-routine-draws-a-grid-of-fragments)
+Derives from: [`spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel)
 
 This follows because an `Int32Array` holds every `int` the program can return, as the integer it is.
 
-#### @spec draw-fills-a-uint32-array-for-a-uint-result
+#### @spec a-grid-fills-a-uint32-array-for-a-uint-result
 
-> `draw` of a CPU routine whose result is a `uint` or an unsigned vector returns a `Uint32Array`.
+> `fill` of a CPU grid whose result is a `uint` or an unsigned vector returns a `Uint32Array`.
 
-Derives from: [`spec-a-cpu-routine-draws-a-grid-of-fragments`](#spec-a-cpu-routine-draws-a-grid-of-fragments)
+Derives from: [`spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel)
 
 This follows because only an unsigned array holds a `uint` above the largest `int` as the integer it is.
 
-#### @spec draw-writes-a-bool-result-as-one-or-zero-in-an-int32-array
+#### @spec a-grid-writes-a-bool-result-as-one-or-zero-in-an-int32-array
 
-> `draw` of a CPU routine whose result is a `bool` returns an `Int32Array` that holds 1 for true and 0 for false.
+> `fill` of a CPU grid whose result is a `bool` returns an `Int32Array` that holds 1 for true and 0 for false.
 
-Derives from: [`spec-a-cpu-routine-draws-a-grid-of-fragments`](#spec-a-cpu-routine-draws-a-grid-of-fragments)
+Derives from: [`spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel)
 
 This follows because no typed array holds a boolean, and 1 and 0 are the integers a `bool` converts to.
 

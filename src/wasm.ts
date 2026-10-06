@@ -4,12 +4,15 @@ export {
   compileWasmVertex,
   compileWasmFragment,
   compileWasmCompute,
+  compileWasmGrid,
   instantiateWasmRoutine,
 } from "./backends/wasm/wasm";
 export type { CompiledWasm, CompileWasmStageOptions, WasmParam } from "./backends/wasm/wasm";
 
 export type {
   ComputeStage,
+  CpuGrid,
+  GridBuffer,
   CpuDrawBuffer,
   CpuRoutine,
   CpuShaderContext,

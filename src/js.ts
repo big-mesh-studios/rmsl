@@ -1,8 +1,17 @@
-export { compileJSRoutine, compileJSFn, compileJSVertex, compileJSFragment, compileJSCompute } from "./backends/js/js";
+export {
+  compileJSRoutine,
+  compileJSFn,
+  compileJSVertex,
+  compileJSFragment,
+  compileJSCompute,
+  compileJSGrid,
+} from "./backends/js/js";
 export type { CompileJSOptions, CompileJSStageOptions, JsVertexStage, JsFragmentStage } from "./backends/js/js";
 
 export type {
   ComputeStage,
+  CpuGrid,
+  GridBuffer,
   CpuDrawBuffer,
   CpuRoutine,
   CpuShaderContext,

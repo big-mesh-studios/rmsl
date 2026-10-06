@@ -4,8 +4,10 @@ import {
   CpuRoutine,
   CpuShaderContext,
   CpuShaderResult,
+  CpuGrid,
   CpuStageRoutine,
   CpuValue,
+  GridBuffer,
   ComputeStage,
   FragmentResult,
   FragmentStage,
@@ -2296,4 +2298,13 @@ export function compileJSCompute(
 ): ComputeStage {
   const routine = compileJSRoutine(fn, { ...options, stage: "compute" });
   return { dispatch: (ctx, count) => routine.compute(ctx, count), storageTypes: routine.storageTypes ?? {} };
+}
+
+/** Compiles an `Fn` of `fragCoord()` as a grid: one result for each pixel, in a buffer the type of the result. */
+export function compileJSGrid<A extends ShaderType>(
+  fn: (...args: any[]) => Node<A>,
+  options: CompileJSStageOptions,
+): CpuGrid<A> {
+  const routine = compileJSRoutine(fn, options);
+  return { fill: (ctx, width, height, out) => routine.draw(ctx, width, height, out) as GridBuffer<A> };
 }

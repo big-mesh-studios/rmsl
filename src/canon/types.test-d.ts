@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest";
-import { Fn, float, int, vec2, vec3, vec4, bool, outputStruct } from "../rmsl";
-import { compileJSFragment, compileJSRoutine } from "../js";
+import { Fn, float, int, uint, vec2, vec3, vec4, bool, outputStruct } from "../rmsl";
+import { compileJSFragment, compileJSGrid, compileJSRoutine } from "../js";
 import { compileWasmRoutine } from "../wasm";
 
 describe("refusals the types make", () => {
@@ -54,5 +54,21 @@ describe("what a fragment stage returns", () => {
   it("types the colour of a stage that returns one, with no outputs", () => {
     const stage = compileJSFragment(() => Fn(() => vec4(1, 2, 3, 4))(), none);
     expectTypeOf(stage.run({})).toEqualTypeOf<{ value: number[]; outputs: []; fragDepth?: number } | null>();
+  });
+});
+
+describe("what a grid fills", () => {
+  /**
+   * @canon spec-a-grid-fills-a-float64-array-for-a-float-result
+   * @canon spec-a-grid-fills-an-int32-array-for-an-int-result
+   * @canon spec-a-grid-fills-a-uint32-array-for-a-uint-result
+   * @canon spec-a-grid-writes-a-bool-result-as-one-or-zero-in-an-int32-array
+   */
+  it("is typed by the type of the result", () => {
+    expectTypeOf(compileJSGrid(() => Fn(() => float(1))(), none).fill({}, 1, 1)).toEqualTypeOf<Float64Array>();
+    expectTypeOf(compileJSGrid(() => Fn(() => vec3(1, 2, 3))(), none).fill({}, 1, 1)).toEqualTypeOf<Float64Array>();
+    expectTypeOf(compileJSGrid(() => Fn(() => int(1))(), none).fill({}, 1, 1)).toEqualTypeOf<Int32Array>();
+    expectTypeOf(compileJSGrid(() => Fn(() => bool(true))(), none).fill({}, 1, 1)).toEqualTypeOf<Int32Array>();
+    expectTypeOf(compileJSGrid(() => Fn(() => uint(1))(), none).fill({}, 1, 1)).toEqualTypeOf<Uint32Array>();
   });
 });

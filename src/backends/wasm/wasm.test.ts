@@ -1803,7 +1803,7 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
 
 describe("WASM backend: .draw() — render a whole grid in one call", () => {
   /**
-   * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
+   * @canon spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel
    */
   it("renders a scalar per pixel, fragCoord at pixel centers", () => {
     const build = () => Fn(() => fragCoord().x)();
@@ -1814,7 +1814,7 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
     expect(Array.from(out)).toEqual([0.5, 1.5, 2.5, 0.5, 1.5, 2.5]);
   });
   /**
-   * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
+   * @canon spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel
    */
   it("renders both fragCoord axes packed into a vec4 per pixel, with no stage or output() involved", () => {
     const build = () => Fn(() => vec4(fragCoord().x, fragCoord().y, 0, 1))();
@@ -1841,7 +1841,7 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
     ]);
   });
   /**
-   * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
+   * @canon spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel
    */
   it("reads a uniform every pixel and reflects a changed uniform on the next call", () => {
     const scale = uniform("float");
@@ -1851,7 +1851,7 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
     expect(Array.from(fn.draw({ uniforms: { [scale.name]: 10 } }, 2, 1))).toEqual([5, 15]);
   });
   /**
-   * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
+   * @canon spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel
    */
   it("picks dimensions per call, not at compile time", () => {
     const build = () => Fn(() => fragCoord().x)();
@@ -1886,7 +1886,7 @@ describe("WASM backend: .draw() — render a whole grid in one call", () => {
     expect(big[width * height - 1]).toBe(width - 0.5 + (height - 0.5));
   });
   /**
-   * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
+   * @canon spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel
    */
   it("throws when the function produces no value to render", () => {
     const build = () => Fn(() => outputStruct(float(1)))();

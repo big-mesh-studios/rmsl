@@ -1447,7 +1447,7 @@ describe("JS backend: operands that are themselves expressions", () => {
 
 describe("JS backend: .draw() — render a whole grid in one call", () => {
   /**
-   * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
+   * @canon spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel
    */
   it("renders a scalar per pixel, fragCoord at pixel centers", () => {
     const build = () => Fn(() => fragCoord().x)();
@@ -1458,7 +1458,7 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
     expect(Array.from(out)).toEqual([0.5, 1.5, 2.5, 0.5, 1.5, 2.5]);
   });
   /**
-   * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
+   * @canon spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel
    */
   it("renders both fragCoord axes packed into a vec4 per pixel, with no stage or output() involved", () => {
     const build = () => Fn(() => vec4(fragCoord().x, fragCoord().y, 0, 1))();
@@ -1485,7 +1485,7 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
     ]);
   });
   /**
-   * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
+   * @canon spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel
    */
   it("reads a uniform every pixel and reflects a changed uniform on the next call", () => {
     const scale = uniform("float");
@@ -1495,7 +1495,7 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
     expect(Array.from(fn.draw({ uniforms: { [scale.name]: 10 } }, 2, 1))).toEqual([5, 15]);
   });
   /**
-   * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
+   * @canon spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel
    */
   it("picks dimensions per call, not at compile time", () => {
     const build = () => Fn(() => fragCoord().x)();
@@ -1515,7 +1515,7 @@ describe("JS backend: .draw() — render a whole grid in one call", () => {
     expect(Array.from(fn.draw({ uniforms: { [scale.name]: 2 } }, 2, 1))).toEqual([1, 3]);
   });
   /**
-   * @canon spec-a-cpu-routine-draws-a-grid-of-fragments
+   * @canon spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel
    * @canon spec-wasm-and-js-give-the-same-float-bits
    */
   it("matches compileWasmRoutine's draw() output for the same program", () => {
