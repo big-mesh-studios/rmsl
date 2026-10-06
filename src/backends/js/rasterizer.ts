@@ -1,7 +1,7 @@
 import { Node, ShaderType } from "../../core";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK } from "../adapter";
 import { componentCountOf, CpuDrawBuffer, CpuShaderContext } from "../cpu";
-import { compileJSRoutine, compileJSRoutineInPlace, CompileJSOptions } from "./js";
+import { compileJSRoutine, CompileJSOptions, ownedValue } from "./js";
 
 /** Homogeneous-clip-space near-plane epsilon — see rasterizer.md's clip-pass design (`rasterizer.wat`'s `W_CLIP_EPS`). */
 const W_CLIP_EPS = 1e-5;
@@ -159,7 +159,7 @@ export function compileJS(
     derivatives: options.derivatives,
     reentrant: options.reentrant,
   });
-  const { runInPlace: runFragment } = compileJSRoutineInPlace(fragmentFn, {
+  const fragmentRoutine = compileJSRoutine(fragmentFn, {
     name: "frag",
     params: [],
     stage: "fragment",
@@ -192,7 +192,7 @@ export function compileJS(
       const attrs: Record<string, unknown> = {};
       for (const slot in attributes) attrs[slot] = sliceAttribute(attributes[slot]!, i + first, widths[slot]!);
 
-      const raw = vertexRoutine.run({ attributes: attrs, uniforms, textures });
+      const raw = vertexRoutine.runInPlace({ attributes: attrs, uniforms, textures });
       // A vertex Fn that never calls builtinPosition() itself has its plain
       // `return vec4(...)` become the position instead (assertStageResult).
       const position = (isWrapped(raw) ? (raw.position ?? raw.value) : raw) as number[] | undefined;
@@ -201,7 +201,7 @@ export function compileJS(
           "[RMSL] compileJS: vertexFn never wrote a position (builtinPosition(), or a plain vec4 return)",
         );
       }
-      vertices[i] = { position, varyings: (isWrapped(raw) && raw.varyings) || {} };
+      vertices[i] = { position: ownedValue(position), varyings: ownedValue((isWrapped(raw) && raw.varyings) || {}) };
     }
 
     // near-plane clip pass
@@ -295,7 +295,7 @@ export function compileJS(
             varyings[slot] = scale(perspSum, 1 / invW);
           }
 
-          const raw = runFragment({ varyings, uniforms, textures, fragCoord: [px, py] });
+          const raw = fragmentRoutine.runInPlace({ varyings, uniforms, textures, fragCoord: [px, py] });
           const color = ((isWrapped(raw) ? raw.value : raw) ?? 0) as Value;
           const base = pixelIndex * 4;
           if (typeof color === "number") result[base] = color;

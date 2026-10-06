@@ -2114,11 +2114,28 @@ export function compileJSFn(
   return compileJSFnDetailed(fn, options).source;
 }
 
-/** Copies a routine's result, arrays and the objects that hold them, so no scratch slot is shared. */
-function ownedValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(ownedValue);
+/** What `compileJSRoutine` returns: the shared {@link CpuRoutine}, and the call that skips the copy of `run`. */
+export interface JsRoutine extends CpuRoutine {
+  /**
+   * Like `run`, but the result lives in the scratch slots the next call
+   * overwrites. For a caller that reads each result at once.
+   */
+  runInPlace(ctx: CpuShaderContext): number | boolean | CpuShaderResult;
+}
+
+/** Copies a routine's result, arrays and the plain objects that hold them, so no scratch slot or input is shared. */
+export function ownedValue<T>(value: T): T {
+  if (Array.isArray(value)) {
+    const copy: unknown[] = value.slice();
+    for (let i = 0; i < copy.length; i++) {
+      if (typeof copy[i] === "object" && copy[i] !== null) copy[i] = ownedValue(copy[i]);
+    }
+    return copy as T;
+  }
   if (typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Object.prototype) {
-    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, ownedValue(entry)]));
+    const copy: Record<string, unknown> = {};
+    for (const key in value) copy[key] = ownedValue(value[key]);
+    return copy as T;
   }
   return value;
 }
@@ -2139,19 +2156,7 @@ function ownedValue(value: unknown): unknown {
 export function compileJSRoutine(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
-): CpuRoutine {
-  return compileJSRoutineInPlace(fn, options).routine;
-}
-
-/**
- * {@link compileJSRoutine}'s routine, with the call that skips the copy of
- * `run`: its result lives in the scratch slots and the next call overwrites it.
- * For a caller that reads each result at once, like the rasterizer.
- */
-export function compileJSRoutineInPlace(
-  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileJSOptions,
-): { routine: CpuRoutine; runInPlace: (ctx: CpuShaderContext) => number | boolean | CpuShaderResult } {
+): JsRoutine {
   const { source, resultType, storageTypes } = compileJSFnDetailed(fn, options);
   const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuShaderResult;
   const runScratch = factory();
@@ -2203,8 +2208,5 @@ export function compileJSRoutineInPlace(
   }
 
   // A reentrant routine declares its variables per call, so nothing is shared to copy out of.
-  return {
-    routine: { run: options.reentrant ? runScratch : run, draw, compute, storageTypes },
-    runInPlace: runScratch,
-  };
+  return { run, runInPlace: runScratch, draw, compute, storageTypes };
 }

@@ -76,7 +76,7 @@ type CpuRoutine = {
 Both `compileJSRoutine` and `compileWasmRoutine` return a `CpuRoutine`, with one method per way of running the program:
 
 - `run()` runs it once and returns its result, the same shape described above.
-- `draw()` runs it once per pixel of a `width x height` grid and packs the results into one buffer.
+- `draw()` runs it once per pixel of a `width x height` grid and packs the results into one buffer. The buffer is a copy that a later `draw` does not change; pass `out` to write into a buffer of your own and skip the copy.
 - `compute()` runs a `storage()`/`invocationIndex()` program once per index in `0..count`, leaving its results in `ctx.storages`.
 
 The names match the adapters' own `draw()` and `compute()`, which call these.

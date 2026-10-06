@@ -104,12 +104,13 @@ export type CpuDrawBuffer = Float64Array | Int32Array | Uint32Array;
  * `width * height * componentCount` elements; it is returned unchanged.
  */
 export type CpuRoutine = {
-  /** Runs the program once and returns its result. */
+  /** Runs the program once and returns its result. The value is the caller's: a later call does not change it. */
   run(ctx: CpuShaderContext): number | boolean | CpuShaderResult;
   /**
    * Runs the program once per pixel of a `width x height` grid, feeding each
    * pixel's center in as `fragCoord`, and packs the results into one flat
-   * row-major buffer.
+   * row-major buffer. The buffer is the caller's: a later `draw` does not
+   * change it. Pass `out` to fill a buffer of your own instead.
    */
   draw(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer;
   /**

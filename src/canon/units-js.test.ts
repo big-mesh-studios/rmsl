@@ -13,6 +13,7 @@ import {
   vec4,
   type Node,
 } from "../rmsl";
+import type { CpuRoutine } from "../backends/cpu";
 import { compileJS, compileJSFn, compileJSRoutine, createJsRoutine } from "../js";
 import { compileWasm, compileWasmRoutine, createWasmRoutine } from "../wasm";
 import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } from "../testing/shader-eval";
@@ -24,9 +25,12 @@ afterAll(async () => {
 
 const none = { name: "main", params: [] };
 
-const cpuTargets: [string, typeof compileJSRoutine][] = [
+/** A compile function of either CPU target, which gives the routine they share. */
+type CompileCpu = (...args: Parameters<typeof compileJSRoutine>) => CpuRoutine;
+
+const cpuTargets: [string, CompileCpu][] = [
   ["JS", compileJSRoutine],
-  ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ["WASM", compileWasmRoutine as CompileCpu],
 ];
 
 const rasterizers: [string, typeof compileJS][] = [
@@ -290,8 +294,13 @@ describe("a JS routine's results", () => {
   /**
    * @canon spec-a-cpu-routine-answers-one-fragment-per-call
    */
-  it("returns the result of a reentrant routine as it is", () => {
-    const run = compileJSRoutine((a: any) => Fn(() => vec3(a, a, a).toVar())(), { ...param, reentrant: true });
-    expect(run.run({ params: { a: 1 } })).toEqual([1, 1, 1]);
+  it.each([false, true])("returns a copy of an array the caller passed in, with reentrant %s", (reentrant) => {
+    const input = uniform("vec3");
+    const routine = compileJSRoutine(() => Fn(() => input.add(0).toVar())(), { ...none, reentrant });
+    const passed = [1, 2, 3];
+    const first = routine.run({ uniforms: { [input.name]: passed } });
+    (first as number[])[0] = 9;
+    expect(passed).toEqual([1, 2, 3]);
+    expect(routine.run({ uniforms: { [input.name]: passed } })).toEqual([1, 2, 3]);
   });
 });

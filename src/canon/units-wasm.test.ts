@@ -20,11 +20,15 @@ import {
   type Node,
 } from "../rmsl";
 import { compileJS, compileJSRoutine } from "../js";
+import type { CpuRoutine } from "../backends/cpu";
 import { compileWasm, compileWasmFn, compileWasmRoutine } from "../wasm";
 
 const none = { name: "main", params: [] };
 
 /** Both CPU targets, by name, as a compiler of a routine. */
+/** A compile function of either CPU target, which gives the routine they share. */
+type CompileCpu = (...args: Parameters<typeof compileJSRoutine>) => CpuRoutine;
+
 const cpuTargets = [
   ["JS", compileJSRoutine],
   ["WASM", compileWasmRoutine],
@@ -282,7 +286,7 @@ describe("an inline Fn whose value an operation reads more than once", () => {
       counter.element(int(0)).addAssign(1);
       return float(value);
     })() as any;
-  const run = (compile: typeof compileJSRoutine, build: () => any) => {
+  const run = (compile: CompileCpu, build: () => any) => {
     const data = new Float64Array(1);
     const result = compile(build, none).run({ storages: { [counter.name]: data } });
     // A WASM routine wraps a result in an object (#62), so read the value out of it.

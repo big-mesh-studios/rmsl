@@ -408,9 +408,8 @@ callable, preallocated once (scalars as bare `let`s, vectors/matrices as
 zeroed arrays). Vector/matrix helpers take a trailing output array, so an
 assignment writes in place: a per-pixel call allocates nothing beyond the
 result, which `run` copies out of the scratch so a later call does not change
-it. `draw`, `compute` and the fragment stage of the rasterizer read each result
-at once and skip that copy, and a `reentrant` routine has no shared scratch to
-copy out of. Because shaders cannot recurse, no compiled function can clobber its
+it, including an array the caller passed in. `draw`, `compute` and the stages of
+the rasterizer read each result at once and skip that copy. Because shaders cannot recurse, no compiled function can clobber its
 own scratch through nested calls.
 
 The trade-off: the scratch is shared across calls, so two _overlapping_ calls
