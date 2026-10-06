@@ -670,7 +670,7 @@ export function compileGLSLNode(
       return {
         decls: sampler.decls,
         body: sampler.body,
-        expr: `textureSize(${sampler.expr}, 0)`,
+        expr: `${glslType(node._t as string)}(textureSize(${sampler.expr}, 0))`,
         prec: PREC_ATOM,
       };
     }

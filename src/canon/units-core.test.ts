@@ -9,6 +9,7 @@ import {
   int,
   mix,
   select,
+  textureSize,
   uniform,
   uniformArray,
   vec3,
@@ -276,5 +277,18 @@ describe("what a program does with a node it reads more than once", () => {
       })();
     expect(evaluateRecording(build, [1])).toBeCloseTo(Math.sin(1) + Math.cos(1), 10);
     expect(evaluateRecording(build, [-1])).toBeCloseTo((Math.sin(-1) + Math.cos(-1)) * 10, 10);
+  });
+});
+
+describe("the type of the size of a texture", () => {
+  /**
+   * `textureSize` is typed `uvec2`, and GLSL returns an `ivec2`, so a variable of
+   * the node's type refused it.
+   *
+   * @canon spec-a-conversion-between-numeric-types-is-written-out
+   */
+  it("converts the size of a texture to the unsigned type the node has on GLSL", () => {
+    const glsl = compileGlsl.fragment(Fn(() => vec4(textureSize(uniform("sampler2D")).x.toFloat(), 0, 0, 1))() as any);
+    expect(glsl).toContain("uvec2(textureSize(");
   });
 });
