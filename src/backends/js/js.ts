@@ -654,6 +654,22 @@ export function jsNewTemp(ctx: CompileCtx, brand: string): string {
   return name;
 }
 
+/** Whether `expr` is a name, a member of one, or a number, so reading it again costs nothing and changes nothing. */
+function jsIsReference(expr: string): boolean {
+  return /^[_$a-zA-Z][\w$]*(\.[\w$]+|\[(\d+|"[^"]*")\])*$/.test(expr) || /^-?\d+(\.\d+)?(e[+-]?\d+)?$/.test(expr);
+}
+
+/**
+ * `compiled` as an expression that can be read several times: a reference is
+ * read as it is, and any other expression is stored in a hoisted slot first,
+ * so the program emits it once however many components take from it.
+ */
+function jsReadable(compiled: CompiledNode, brand: string | undefined, ctx: CompileCtx): CompiledNode {
+  if (jsIsReference(compiled.expr) || brand === undefined) return compiled;
+  const slot = jsNewTemp(ctx, brand);
+  return { ...compiled, body: [...compiled.body, `${slot} = ${compiled.expr};`], expr: slot };
+}
+
 /**
  * An index computed at run time, kept inside `count` items as WASM keeps it:
  * truncated, and past the end or negative (a huge unsigned number) selecting
@@ -1144,7 +1160,7 @@ export function compileJSNode(
         // — vec3(2.0) is (2.0, 2.0, 2.0) — so the JS backend must too. Multiple
         // operands instead fill components in order, zero-filling the rest.
         if (params.length === 1 && (TYPE_WIDTH[params[0]?._t] ?? 1) <= 1) {
-          let c = jsCompileOperand(params[0], ctx);
+          let c = jsReadable(jsCompileOperand(params[0], ctx), params[0]?._t, ctx);
           let broadcast = jsComponentCast(c.expr, params[0]?._t, targetType);
           if (ctx.outTarget) {
             let writes = Array.from({ length: width }, (_, i) => `${ctx.outTarget}[${i}] = ${broadcast};`);
@@ -1153,11 +1169,11 @@ export function compileJSNode(
           return { decls: c.decls, body: c.body, expr: `[${Array(width).fill(broadcast).join(", ")}]` };
         }
         // Vector construct: expand every operand's components into one array.
-        let compiled = params.map((p: BaseNode<ShaderType>) => ({
-          c: jsCompileOperand(p, ctx),
-          w: TYPE_WIDTH[p?._t] ?? 1,
-          t: p?._t as string | undefined,
-        }));
+        let compiled = params.map((p: BaseNode<ShaderType>) => {
+          let w = TYPE_WIDTH[p?._t] ?? 1;
+          let c = jsCompileOperand(p, ctx);
+          return { c: w > 1 ? jsReadable(c, p?._t, ctx) : c, w, t: p?._t as string | undefined };
+        });
         let pieces: string[] = [];
         let decls: string[] = [];
         let body: string[] = [];
@@ -1209,7 +1225,9 @@ export function compileJSNode(
           return { decls: s.decls, body: s.body, expr: `_matDiag(${s.expr}, ${size}, ${rows + 1})` };
         }
         // Column-wise construction: each param is one column vector.
-        let compiled = (node.params ?? []).map((p: BaseNode<ShaderType>) => jsCompileOperand(p, ctx));
+        let compiled = (node.params ?? []).map((p: BaseNode<ShaderType>) =>
+          jsReadable(jsCompileOperand(p, ctx), p?._t, ctx),
+        );
         let decls = compiled.flatMap((c: CompiledNode) => c.decls);
         let body = compiled.flatMap((c: CompiledNode) => c.body);
         // Column-major flat layout: column 0's components first, then column 1.

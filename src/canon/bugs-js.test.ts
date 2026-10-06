@@ -273,24 +273,6 @@ describe("known bugs of the JS target, each failing until its fix", () => {
   });
 
   /**
-   * On JS, outside an assignment, a constructor writes out the expression of
-   * an operand once for every component it takes from it.
-   *
-   * @canon bug-js-emits-a-constructor-operand-once-per-component
-   */
-  it.fails("emits an operand of a constructor once on JS", () => {
-    const source = compileJSFn(
-      (a: any) =>
-        Fn(() => {
-          const v = vec3(a, a, a).toVar();
-          return vec4(v.add(v), 1).x;
-        })(),
-      param,
-    );
-    expect(source.match(/(?<!function )_v3add\(/g)?.length).toBe(1);
-  });
-
-  /**
    * The JS rasterizer shades a pixel centre on an edge two triangles share
    * with both, so the triangle drawn last wins it.
    *
