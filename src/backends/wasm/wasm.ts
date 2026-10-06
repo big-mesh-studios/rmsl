@@ -26,7 +26,7 @@ import {
   COMPUTE_REFUSES,
   assertStageResult,
   prepareRoots,
-  assertRoutineReadsNoStageInput,
+  assertReadsNoStageInput,
   assertOneDeclarationPerName,
   numberClashingVariables,
   assertAssignable,
@@ -762,7 +762,7 @@ export function compileWasmFn(
   // single result slot, matching compileGlsl/compileWgsl's "last array
   // entry wins" convention.
   const rawNodes: any[] = Array.isArray(rawResult) ? (rawResult as any[]) : [rawResult];
-  if (options.routine) assertRoutineReadsNoStageInput(rawNodes);
+  if (options.kind) assertReadsNoStageInput(rawNodes, options.kind);
   // Without a stage the function is a plain function of its context, whose
   // result can be any value.
   const resultNodes = numberClashingVariables(shareNodes(prepareRoots(options.stage, rawNodes)));
@@ -4218,12 +4218,12 @@ export function compileWasmRoutine(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmStageOptions,
 ): CpuRoutine {
-  const program = compileWasmProgram(fn, { ...options, routine: true });
+  const program = compileWasmProgram(fn, { ...options, kind: "routine" });
   return { run: (ctx) => program.run(ctx) as never };
 }
 
 /** What a stage compile function takes: the options of a routine, without the stage, which the function names. */
-export type CompileWasmStageOptions = Omit<CompileWasmFnOptions, "stage" | "routine">;
+export type CompileWasmStageOptions = Omit<CompileWasmFnOptions, "stage" | "kind">;
 
 /** Compiles an `Fn` as a vertex stage: it returns the position, and the varyings it writes. */
 export function compileWasmVertex(
@@ -4268,6 +4268,6 @@ export function compileWasmGrid<A extends ShaderType>(
   fn: (...args: any[]) => Node<A>,
   options: CompileWasmStageOptions,
 ): CpuGrid<A> {
-  const routine = compileWasmProgram(fn, options);
+  const routine = compileWasmProgram(fn, { ...options, kind: "grid" });
   return { fill: (ctx, width, height, out) => routine.draw(ctx, width, height, out) as GridBuffer<A> };
 }

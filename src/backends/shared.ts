@@ -822,17 +822,19 @@ export type CompileFnOptions = {
   name: string;
   params: Array<{ name: string; type: ShaderType }>;
   /**
-   * Set by `compileJSRoutine` and `compileWasmRoutine`: the program is a
-   * function of its parameters and uniforms, so what only a stage has is refused.
+   * Set by the compile functions of a routine and of a grid: the program has
+   * no stage, so what only a stage has is refused. A grid has `fragCoord()` and
+   * `Discard()`, which a routine has not.
    *
    * @internal
    */
-  routine?: true;
+  kind?: "routine" | "grid";
 };
 
 /** The inputs only a stage has, by the node that reads them, with the stage that has them. */
 const STAGE_INPUTS: Record<string, { what: string; stage: string }> = {
   fragCoord: { what: "fragCoord()", stage: "fragment stage, or a grid" },
+  discard: { what: "Discard()", stage: "fragment stage, or a grid" },
   builtinFragDepth: { what: "builtinFragDepth()", stage: "fragment stage" },
   invocationIndex: { what: "invocationIndex()", stage: "compute stage" },
   vertexIndex: { what: "vertexIndex()", stage: "vertex stage" },
@@ -842,13 +844,16 @@ const STAGE_INPUTS: Record<string, { what: string; stage: string }> = {
   varying: { what: "a varying", stage: "vertex or fragment stage" },
 };
 
-/** Throws when a routine, which has no stage, reads an input that only a stage has. */
-export function assertRoutineReadsNoStageInput(roots: unknown): void {
+/** What a grid has that a routine has not: the pixel it evaluates, and a fragment that drops it. */
+const GRID_INPUTS = new Set(["fragCoord", "discard"]);
+
+/** Throws when a program with no stage, a routine or a grid, reads an input that only a stage has. */
+export function assertReadsNoStageInput(roots: unknown, kind: "routine" | "grid"): void {
   someNode(roots, (node) => {
     const input = STAGE_INPUTS[node.type];
-    if (!input) return false;
+    if (!input || (kind === "grid" && GRID_INPUTS.has(node.type))) return false;
     throw new Error(
-      `[RMSL] ${input.what} is an input of a ${input.stage}, and a routine has no stage to give it. ` +
+      `[RMSL] ${input.what} is an input of a ${input.stage}, and a ${kind} has no stage to give it. ` +
         `Compile the program as a ${input.stage} instead.`,
     );
   });

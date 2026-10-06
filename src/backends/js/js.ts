@@ -39,7 +39,7 @@ import {
   parameterNode,
   assertStageResult,
   prepareRoots,
-  assertRoutineReadsNoStageInput,
+  assertReadsNoStageInput,
   assertOneDeclarationPerName,
   numberClashingVariables,
   forUpdateStatements,
@@ -2041,7 +2041,7 @@ function compileJSFnDetailed(
   const paramNodes = options.params.map((p) => parameterNode(p.name, p.type));
   const rawResult = fn(...paramNodes);
   const rawNodes: Node<ShaderType>[] = Array.isArray(rawResult) ? rawResult : [rawResult];
-  if (options.routine) assertRoutineReadsNoStageInput(rawNodes);
+  if (options.kind) assertReadsNoStageInput(rawNodes, options.kind);
   // Without a stage the function is a plain function of its context, whose
   // result can be any value.
   const resultNodes = numberClashingVariables(shareNodes(prepareRoots(options.stage, rawNodes)));
@@ -2178,7 +2178,7 @@ export function compileJSProgram(
   }
 
   function draw(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
-    if (resultType === undefined) {
+    if (resultType === undefined || resultType === "void") {
       throw new Error("[RMSL] compileJSGrid: this function produces no value to render — fill() needs a result.");
     }
     const componentCount = componentCountOf(resultType);
@@ -2228,7 +2228,7 @@ export function compileJSProgram(
 }
 
 /** What a stage compile function takes: the options of a routine, without the stage, which the function names. */
-export type CompileJSStageOptions = Omit<CompileJSOptions, "stage" | "routine">;
+export type CompileJSStageOptions = Omit<CompileJSOptions, "stage" | "kind">;
 
 /** A JS vertex stage, and the call that skips the copy of `run`. */
 export interface JsVertexStage extends VertexStage {
@@ -2289,7 +2289,7 @@ export function compileJSGrid<A extends ShaderType>(
   fn: (...args: any[]) => Node<A>,
   options: CompileJSStageOptions,
 ): CpuGrid<A> {
-  const routine = compileJSProgram(fn, options);
+  const routine = compileJSProgram(fn, { ...options, kind: "grid" });
   return { fill: (ctx, width, height, out) => routine.draw(ctx, width, height, out) as GridBuffer<A> };
 }
 
@@ -2311,6 +2311,6 @@ export function compileJSRoutine(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSStageOptions,
 ): CpuRoutine {
-  const program = compileJSProgram(fn, { ...options, routine: true });
+  const program = compileJSProgram(fn, { ...options, kind: "routine" });
   return { run: (ctx) => program.run(ctx) as never };
 }

@@ -843,7 +843,7 @@ describe("JS backend: CPU-specific behaviour", () => {
       If(float(1).greaterThan(0), () => Discard());
       return float(5);
     })();
-    const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
+    const fn = compileJSProgram(() => prog, { name: "main", params: [] });
     expect(fn.run({})).toBeNull();
   });
   /**
@@ -1358,7 +1358,7 @@ describe("JS backend: TSL loop and return", () => {
    * @canon spec-a-cpu-routine-returns-its-value
    */
   it("Discard() returns null", () => {
-    const fn = compileJSRoutine(
+    const fn = compileJSProgram(
       () =>
         Fn(() => {
           const out = float(1).toVar();

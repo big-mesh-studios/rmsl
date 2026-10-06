@@ -4,6 +4,7 @@ import {
   Break,
   builtinFragDepth,
   builtinPosition,
+  Discard,
   float,
   For,
   fragCoord,
@@ -26,8 +27,8 @@ import {
   vec4,
   type Node,
 } from "../rmsl";
-import { compileJSCompute, compileJSRoutine, compileJSVertex } from "../js";
-import { compileWasmCompute, compileWasmRoutine, compileWasmVertex } from "../wasm";
+import { compileJSCompute, compileJSGrid, compileJSRoutine, compileJSVertex } from "../js";
+import { compileWasmCompute, compileWasmGrid, compileWasmRoutine, compileWasmVertex } from "../wasm";
 import {
   assertRecordedShadersValid,
   recordShaderSource,
@@ -411,9 +412,40 @@ describe("a mistake is refused before the program runs", () => {
     ["builtinFragDepth()", () => builtinFragDepth(), /builtinFragDepth\(\) is an input of a fragment stage/],
     ["a varying", () => varying("float"), /a varying is an input of a vertex or fragment stage/],
     ["an attribute", () => attribute("float"), /an attribute is an input of a vertex stage/],
+    ["Discard()", () => Discard(), /Discard\(\) is an input of a fragment stage, or a grid/],
   ])("refuses %s in a routine, on both CPU targets", (_, read, message) => {
     for (const compile of [compileJSRoutine, compileWasmRoutine]) {
       expect(() => compile(() => Fn(() => read())(), { name: "main", params: [] })).toThrow(message);
+    }
+  });
+
+  /**
+   * @canon spec-a-routine-refuses-an-input-only-a-stage-has
+   */
+  it.each([
+    ["invocationIndex()", () => invocationIndex().toFloat(), /invocationIndex\(\) is an input of a compute stage/],
+    ["a varying", () => varying("float"), /a varying is an input of a vertex or fragment stage/],
+    ["an attribute", () => attribute("float"), /an attribute is an input of a vertex stage/],
+  ])("refuses %s in a grid, which has fragCoord() and no more, on both CPU targets", (_, read, message) => {
+    for (const compile of [compileJSGrid, compileWasmGrid]) {
+      expect(() => compile(() => Fn(() => read())(), { name: "main", params: [] })).toThrow(message);
+      expect(() => compile(() => Fn(() => fragCoord().x)(), { name: "main", params: [] })).not.toThrow();
+    }
+  });
+
+  /**
+   * @canon spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel
+   */
+  it("refuses to fill a grid with a program that returns nothing, on both CPU targets", () => {
+    for (const compile of [compileJSGrid, compileWasmGrid]) {
+      const grid = compile(
+        () =>
+          Fn(() => {
+            outputStruct(float(1));
+          })() as any,
+        { name: "main", params: [] },
+      );
+      expect(() => grid.fill({}, 1, 1)).toThrow(/produces no value to render/);
     }
   });
 });
