@@ -46,9 +46,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec wgsl-floors-a-modulus-through-a-helper`](#spec-wgsl-floors-a-modulus-through-a-helper) — On WGSL, a float `mod` calls a helper of the width of its operands, which floors the quotient as GLSL's `mod` does, and reads each operand once.
     - [`@spec wgsl-narrows-a-matrix-through-a-helper`](#spec-wgsl-narrows-a-matrix-through-a-helper) — On WGSL, a matrix built from a larger matrix calls a helper that keeps the leading rows of the leading columns. A matrix built from columns or from a scalar needs none.
   - [`@spec every-node-is-emitted-once`](#spec-every-node-is-emitted-once) — A [node](#term-node) that several roots or statements reach is emitted once, in the place it first runs. A block it holds keeps its variables in scope, and a loop it holds keeps its loop variable.
-    - [`@bug js-emits-a-constructor-operand-once-per-component`](#bug-js-emits-a-constructor-operand-once-per-component) — On JS, outside an assignment, a constructor writes out the expression of an operand once for every component it takes from it.
   - [`@spec an-operand-that-is-an-expression-keeps-its-grouping`](#spec-an-operand-that-is-an-expression-keeps-its-grouping) — An operand that is itself an expression computes as a whole before the operation that takes it. This holds on every target, whatever the precedence of its operators.
-    - [`@bug js-leaves-scalar-fract-and-inverse-sqrt-unbracketed`](#bug-js-leaves-scalar-fract-and-inverse-sqrt-unbracketed) — On JS, a scalar `fract` or `inverseSqrt` used as an operand loses its grouping, so `a.fract().mul(2)` computes `a - floor(a) * 2`.
   - [`@spec a-program-declares-any-number-of-uniforms-on-every-target`](#spec-a-program-declares-any-number-of-uniforms-on-every-target) — A [program](#term-program) declares every [uniform](#term-uniform) it reads, whatever their number, and compiles on every target.
     - [`@spec wgsl-packs-every-value-uniform-into-one-binding`](#spec-wgsl-packs-every-value-uniform-into-one-binding) — On WGSL, every uniform that holds a value is a member of one struct, bound once. GLSL declares each uniform on its own.
     - [`@spec a-texture-keeps-a-binding-of-its-own`](#spec-a-texture-keeps-a-binding-of-its-own) — On WGSL, a texture, and the sampler that goes with a float texture, each take a binding of their own outside the uniform struct. The stages of a render program number them from the whole set of its textures.
@@ -331,11 +329,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-fn-returns-what-its-body-returns`](#spec-an-fn-returns-what-its-body-returns) — A call of an `Fn` gives what its body returns: nothing, one value, or several. An empty body and a body that calls another `Fn` compile.
     - [`@spec an-inline-fn-runs-where-it-is-called`](#spec-an-inline-fn-runs-where-it-is-called) — A variable that a called `Fn` makes is declared where the call is, not where its value is first read.
     - [`@spec an-inline-fn-runs-once`](#spec-an-inline-fn-runs-once) — The statements of a called `Fn` run once, where it is called, no matter how often or where the program reads the value it returns.
-      - [`@bug wasm-runs-an-inline-fn-once-per-read-of-its-value`](#bug-wasm-runs-an-inline-fn-once-per-read-of-its-value) — An operation that reads a scalar operand once per component, or twice as `fract` and `sign` do, emits it each time. The statements of an inline `Fn` it returns then run more than once.
+      - [`@bug js-runs-an-inline-fn-only-on-the-path-that-first-reads-it`](#bug-js-runs-an-inline-fn-only-on-the-path-that-first-reads-it) — On JS, the statements of an inline `Fn` result are emitted with the first read of its value. A path that reads the value without passing that read, such as the other branch of an `If`, gets the value and never runs the statements.
   - [`@spec a-variable-keeps-the-name-the-user-gave-it`](#spec-a-variable-keeps-the-name-the-user-gave-it) — `toVar(name)` and `var(name)` declare a variable under `name` on every target, in every compile. A name already taken in the program gets a number appended.
     - [`@spec a-variable-is-declared-under-the-name-given`](#spec-a-variable-is-declared-under-the-name-given) — `toVar(name)` and `var(name)` declare the variable under `name` on every target, in every compile.
     - [`@spec a-taken-variable-name-gets-a-number`](#spec-a-taken-variable-name-gets-a-number) — A variable name already taken in the program gets the next free number appended.
-      - [`@bug roots-of-one-program-declare-one-variable-name-twice`](#bug-roots-of-one-program-declare-one-variable-name-twice) — Two `Fn`s that each take the variable name `color`, compiled as the roots of one program, both declare `color`, which GLSL and WGSL refuse.
     - [`@spec var-is-to-var`](#spec-var-is-to-var) — `var()` is `toVar()` under TSL's other name.
     - [`@spec a-variable-name-must-be-an-identifier`](#spec-a-variable-name-must-be-an-identifier) — A variable name that is not an identifier, or that starts with the prefix `_rmsl_` the compiler reserves, is refused.
     - [`@spec an-unnamed-variable-gets-a-name-no-other-variable-has`](#spec-an-unnamed-variable-gets-a-name-no-other-variable-has) — A variable made without a name gets a generated name that no other variable in the process has, across `Fn`s and builds.
@@ -968,23 +965,11 @@ Derives from: [`fact-a-wgsl-matrix-constructor-takes-no-matrix`](#fact-a-wgsl-ma
 
 This follows because emitting a node twice runs what it does twice, which changes what the program computes.
 
-#### @bug js-emits-a-constructor-operand-once-per-component
-
-> On JS, outside an assignment, a constructor writes out the expression of an operand once for every component it takes from it.
-
-Issue: #87
-
 ### @spec an-operand-that-is-an-expression-keeps-its-grouping
 
 > An operand that is itself an expression computes as a whole before the operation that takes it. This holds on every target, whatever the precedence of its operators.
 
 This follows because a target whose operators bind differently would otherwise compute another expression.
-
-#### @bug js-leaves-scalar-fract-and-inverse-sqrt-unbracketed
-
-> On JS, a scalar `fract` or `inverseSqrt` used as an operand loses its grouping, so `a.fract().mul(2)` computes `a - floor(a) * 2`.
-
-Issue: #23
 
 ### @spec a-program-declares-any-number-of-uniforms-on-every-target
 
@@ -2541,11 +2526,11 @@ This follows because TSL builds a shader the same way.
 
 > The statements of a called `Fn` run once, where it is called, no matter how often or where the program reads the value it returns.
 
-##### @bug wasm-runs-an-inline-fn-once-per-read-of-its-value
+##### @bug js-runs-an-inline-fn-only-on-the-path-that-first-reads-it
 
-> An operation that reads a scalar operand once per component, or twice as `fract` and `sign` do, emits it each time. The statements of an inline `Fn` it returns then run more than once.
+> On JS, the statements of an inline `Fn` result are emitted with the first read of its value. A path that reads the value without passing that read, such as the other branch of an `If`, gets the value and never runs the statements.
 
-Issue: #87
+Issue: #205
 
 ### @spec a-variable-keeps-the-name-the-user-gave-it
 
@@ -2562,12 +2547,6 @@ This follows because TSL's `toVar` takes a name, and a reader of the shader meet
 #### @spec a-taken-variable-name-gets-a-number
 
 > A variable name already taken in the program gets the next free number appended.
-
-##### @bug roots-of-one-program-declare-one-variable-name-twice
-
-> Two `Fn`s that each take the variable name `color`, compiled as the roots of one program, both declare `color`, which GLSL and WGSL refuse.
-
-Issue: #79
 
 #### @spec var-is-to-var
 

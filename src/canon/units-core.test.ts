@@ -1,7 +1,21 @@
 import { afterAll, describe, expect, it } from "vitest";
 import * as rmsl from "../rmsl";
-import { attribute, float, Fn, int, mix, select, uniform, uniformArray, vec3, vec4, type Node } from "../rmsl";
+import {
+  attribute,
+  float,
+  Fn,
+  instancedArray,
+  int,
+  mix,
+  select,
+  uniform,
+  uniformArray,
+  vec3,
+  vec4,
+  type Node,
+} from "../rmsl";
 import { compileJSFn, compileJSRoutine } from "../js";
+import { compileWasmRoutine } from "../wasm";
 import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } from "../testing/shader-eval";
 import {
   assertRecordedShadersValid,
@@ -173,5 +187,46 @@ describe("a uniform follows TSL", () => {
     const run = compileJSRoutine(() => Fn(() => scale.mul(weights.element(int(2))).toVar())(), none);
     expect(run.run({ uniforms: { [scale.name]: 2, [weights.name]: [1, 2, 3] } })).toBe(6);
     expect(run.run({ uniforms: { [scale.name]: 3, [weights.name]: [1, 2, 4] } })).toBe(12);
+  });
+});
+
+describe("the variable names of a program", () => {
+  /**
+   * @canon spec-a-taken-variable-name-gets-a-number
+   */
+  it.each([
+    ["GLSL", "float color = ", "float color1 = "],
+    ["WGSL", "var color: f32", "var color1: f32"],
+  ] as const)("numbers a name another root of the program took on %s", (target, first, second) => {
+    const build = () => {
+      const u = uniform("float");
+      return [Fn(() => u.add(1).toVar("color"))(), Fn(() => u.add(2).toVar("color"))()];
+    };
+    const source = (target === "GLSL" ? compileGlsl : compileWgsl).fragment(build() as any);
+    expect(source).toContain(first);
+    expect(source).toContain(second);
+  });
+
+  /**
+   * @canon spec-a-taken-variable-name-gets-a-number
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine],
+  ] as const)("keeps each root's own variable when two roots take one name on %s", (_target, compile) => {
+    const out = instancedArray(2, "float");
+    const build = () => [
+      Fn(() => {
+        const color = float(1).toVar("color");
+        out.element(int(0)).assign(color.add(1));
+      })(),
+      Fn(() => {
+        const color = float(10).toVar("color");
+        out.element(int(1)).assign(color.add(1));
+      })(),
+    ];
+    const data = new Float64Array(2);
+    compile(build as any, none).run({ storages: { [out.name]: data } });
+    expect(Array.from(data)).toEqual([2, 11]);
   });
 });

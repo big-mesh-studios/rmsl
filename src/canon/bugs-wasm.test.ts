@@ -292,29 +292,6 @@ describe("known WASM bugs, each failing until its fix", () => {
   });
 
   /**
-   * An operation that reads a scalar operand once per component, or twice
-   * as `fract` and `sign` do, emits it each time, so the statements of an
-   * inline `Fn` it returns run more than once.
-   *
-   * @canon bug-wasm-runs-an-inline-fn-once-per-read-of-its-value
-   */
-  it.fails("runs the statements of an inline Fn once when an operation reads its value twice on WASM", () => {
-    const counter = instancedArray(1, "float");
-    const counted = () =>
-      Fn(() => {
-        counter.element(int(0)).addAssign(1);
-        return float(0.25);
-      })() as any;
-    const runs = (build: () => any) => {
-      const data = new Float64Array(1);
-      compileWasmRoutine(build, none).run({ storages: { [counter.name]: data } });
-      return data[0];
-    };
-    expect(runs(() => counted().fract())).toBe(1);
-    expect(runs(() => vec3(1, 2, 3).mul(counted()))).toBe(1);
-  });
-
-  /**
    * A routine leaves a vector or matrix uniform the call does not set as the
    * last call wrote it, where an unset scalar uniform reads zero.
    *

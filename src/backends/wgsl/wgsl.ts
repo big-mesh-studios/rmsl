@@ -27,6 +27,7 @@ import {
   assertStageResult,
   fragmentColour,
   assertOneDeclarationPerName,
+  numberClashingVariables,
   forUpdateStatements,
   loopGuard,
   loopTest,
@@ -1618,6 +1619,7 @@ export function compileWGSLWithStage(
 
   let nodes = Array.isArray(root) ? root : [root];
   if (shaderStage === "fragment") nodes = fragmentColour(nodes);
+  numberClashingVariables(nodes);
   assertOneDeclarationPerName(nodes);
   let results = nodes.map((n) => compileWGSLStage(n, ctx));
   let countExpr = options?.count ? compileWGSLStage(options.count, ctx).expr : undefined;
@@ -2030,6 +2032,7 @@ export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options:
     reentrant: false,
     jsNeedsRes: false,
   };
+  numberClashingVariables(result);
   assertOneDeclarationPerName(result);
   const compiled = compileWGSLStage(result, ctx);
   const returnType = wgslType((result as any)._t || "float");

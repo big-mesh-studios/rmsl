@@ -13,7 +13,7 @@ import {
   vec4,
   type Node,
 } from "../rmsl";
-import { compileJS, compileJSRoutine, createJsRoutine } from "../js";
+import { compileJS, compileJSFn, compileJSRoutine, createJsRoutine } from "../js";
 import { compileWasm, compileWasmRoutine, createWasmRoutine } from "../wasm";
 import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } from "../testing/shader-eval";
 
@@ -205,5 +205,47 @@ describe("the JS target's internal decisions, on every target they claim", () =>
    */
   it.each(routineAdapters)("%s: writes each channel on the canvas as a rounded byte, clamped", (_, create) => {
     expect(shownOnCanvas(create, Fn(() => vec4(1.2, -0.1, 0.25, 0.5))())).toEqual([255, 0, 64, 128]);
+  });
+});
+
+describe("what the JS target emits for an operand a constructor reads several times", () => {
+  const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
+
+  /**
+   * @canon spec-every-node-is-emitted-once
+   */
+  it("emits a vector operand of a constructor once", () => {
+    const source = compileJSFn(
+      (a: any) =>
+        Fn(() => {
+          const v = vec3(a, a, a).toVar();
+          return vec4(v.add(v), 1).x;
+        })(),
+      param,
+    );
+    expect(source.match(/(?<!function )_v3add\(/g)?.length).toBe(1);
+  });
+
+  /**
+   * @canon spec-every-node-is-emitted-once
+   */
+  it("emits a scalar operand of a broadcast constructor once", () => {
+    const source = compileJSFn((a: any) => Fn(() => vec3(a.sin().mul(2)).x)(), param);
+    expect(source.match(/Math\.sin\(/g)?.length).toBe(1);
+  });
+
+  /**
+   * @canon spec-every-node-is-emitted-once
+   */
+  it("emits a column operand of a matrix constructor once", () => {
+    const source = compileJSFn(
+      (a: any) =>
+        Fn(() => {
+          const column = vec2(a, a).toVar();
+          return mat2(column.add(column), column).element(0).x;
+        })(),
+      param,
+    );
+    expect(source.match(/(?<!function )_v2add\(/g)?.length).toBe(1);
   });
 });
