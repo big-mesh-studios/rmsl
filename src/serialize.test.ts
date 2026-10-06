@@ -173,7 +173,7 @@ describe("serialize/deserialize", () => {
     const freshUniform = [...uniformNames(fresh)][0]!;
     const restoredUniform = [...uniformNames(restored)][0]!;
     expect(restoredUniform).not.toBe(freshUniform);
-    expect(run.run({ uniforms: { [freshUniform]: 1, [restoredUniform]: 2 } })).toBe(3 + 500);
+    expect(run({ uniforms: { [freshUniform]: 1, [restoredUniform]: 2 } })).toBe(3 + 500);
   });
 
   /**
@@ -202,7 +202,7 @@ describe("serialize/deserialize", () => {
     const [restoredUniform] = [...uniformNames(restored)].filter((name) => name !== "gain");
     expect(restoredUniform).not.toBe(freshUniform);
     // (1 + 10) + (2 + 10) * 100: each graph reads its own generated uniform, and both read one gain.
-    expect(run.run({ uniforms: { [freshUniform!]: 1, [restoredUniform!]: 2, gain: 10 } })).toBe(1211);
+    expect(run({ uniforms: { [freshUniform!]: 1, [restoredUniform!]: 2, gain: 10 } })).toBe(1211);
   });
   /**
    * @canon spec-time-is-one-uniform-everywhere
@@ -215,7 +215,7 @@ describe("serialize/deserialize", () => {
 
     const both = Fn(() => fresh.add(restored));
     const run = compileJSRoutine(both as any, { name: "main", params: [] });
-    expect(run.run({ uniforms: { [time().name]: 3 } })).toBe(12);
+    expect(run({ uniforms: { [time().name]: 3 } })).toBe(12);
     const code = compute([fresh, restored]).code;
     expect(code.match(/_rmsl_time: f32/g)).toHaveLength(1);
   });

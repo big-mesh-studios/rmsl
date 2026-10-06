@@ -6,7 +6,7 @@ export {
   compileJSCompute,
   compileJSGrid,
 } from "./backends/js/js";
-export type { CompileJSOptions, CompileJSStageOptions, JsVertexStage, JsFragmentStage } from "./backends/js/js";
+export type { CompileJSOptions, CompileJSStageOptions } from "./backends/js/js";
 
 export type {
   ComputeStage,

@@ -107,7 +107,7 @@ describe("known WASM bugs, each failing until its fix", () => {
       scalarsInMemory: true,
       gpuUniformLayout: { offsets: { [s.name]: 0 }, totalSize: 16 },
     });
-    expect(routine.run({ uniforms: { [s.name]: 0.5 } })).toBe(0.5);
+    expect(routine({ uniforms: { [s.name]: 0.5 } })).toBe(0.5);
   });
 
   /**
@@ -122,7 +122,7 @@ describe("known WASM bugs, each failing until its fix", () => {
       ...none,
       gpuUniformLayout: { offsets: { [s.name]: 0 }, totalSize: 16 },
     });
-    expect(routine.run({ uniforms: { [s.name]: 0.1 } })).toBe(Math.fround(0.1));
+    expect(routine({ uniforms: { [s.name]: 0.1 } })).toBe(Math.fround(0.1));
   });
 
   /**
@@ -138,8 +138,8 @@ describe("known WASM bugs, each failing until its fix", () => {
       params: [{ name: "i", type: "int" }],
     });
     const uniforms = { [arr.name]: [3, 4] };
-    expect(routine.run({ params: { i: 2 }, uniforms })).toBe(4);
-    expect(routine.run({ params: { i: -1 }, uniforms })).toBe(4);
+    expect(routine({ params: { i: 2 }, uniforms })).toBe(4);
+    expect(routine({ params: { i: -1 }, uniforms })).toBe(4);
   });
 
   /**
@@ -152,7 +152,7 @@ describe("known WASM bugs, each failing until its fix", () => {
     const tex = uniform("sampler2D");
     const routine = compileWasmRoutine((a: any) => Fn(() => tex.texture(vec2(a, 0.5)).x.toVar())(), param);
     const texture = { data: [1, 2], width: 2, height: 1, channels: 1 as const };
-    expect(routine.run({ params: { a: 1e12 }, textures: { [tex.name]: texture } })).toBe(2);
+    expect(routine({ params: { a: 1e12 }, textures: { [tex.name]: texture } })).toBe(2);
   });
 
   /**
@@ -292,8 +292,8 @@ describe("known WASM bugs, each failing until its fix", () => {
   it.fails("reads a vector uniform the call leaves out as zero on WASM", () => {
     const u = uniform("vec2");
     const routine = compileWasmRoutine(() => Fn(() => u.x.add(0).toVar())(), none);
-    routine.run({ uniforms: { [u.name]: [3, 0] } });
-    expect(routine.run({ uniforms: {} })).toBe(0);
+    routine({ uniforms: { [u.name]: [3, 0] } });
+    expect(routine({ uniforms: {} })).toBe(0);
   });
 
   /**
@@ -306,7 +306,7 @@ describe("known WASM bugs, each failing until its fix", () => {
     const tex = uniform("isampler2D") as any;
     const routine = compileWasmRoutine(() => Fn(() => tex.texture(vec2(0.75, 0.25)).x.toVar())(), none);
     const texture = { data: [10, 20, 30, 40], width: 2, height: 2, channels: 1 as const };
-    expect(routine.run({ textures: { [tex.name]: texture } })).toBe(10);
+    expect(routine({ textures: { [tex.name]: texture } })).toBe(10);
   });
 
   /**
@@ -317,7 +317,7 @@ describe("known WASM bugs, each failing until its fix", () => {
   it.fails("reads a scalar varying the host leaves out as zero on WASM", () => {
     const v = varying("float");
     const routine = compileWasmFragment(() => Fn(() => v.add(1).toVar())(), { ...none });
-    expect(routine.run({})).toBe(1);
+    expect(routine({})).toBe(1);
   });
 
   /**
@@ -329,7 +329,7 @@ describe("known WASM bugs, each failing until its fix", () => {
   it.fails("reads a vector varying the host leaves out as zero on WASM", () => {
     const v = varying("vec2");
     const routine = compileWasmFragment(() => Fn(() => v.x.add(1).toVar())(), { ...none });
-    expect(routine.run({})).toBe(1);
+    expect(routine({})).toBe(1);
   });
 
   /**
@@ -341,8 +341,8 @@ describe("known WASM bugs, each failing until its fix", () => {
   it.fails("reads a uniform array element the call leaves out as zero on WASM", () => {
     const arr = uniformArray("float", 3);
     const routine = compileWasmRoutine(() => Fn(() => arr.element(int(2)).add(0).toVar())(), none);
-    routine.run({ uniforms: { [arr.name]: [1, 2, 3] } });
-    expect(routine.run({ uniforms: { [arr.name]: [1, 2] } })).toBe(0);
+    routine({ uniforms: { [arr.name]: [1, 2, 3] } });
+    expect(routine({ uniforms: { [arr.name]: [1, 2] } })).toBe(0);
   });
 
   /**
@@ -400,7 +400,7 @@ describe("known WASM bugs, each failing until its fix", () => {
         })(),
       none,
     );
-    expect(routine.run({})).toBe(7);
+    expect(routine({})).toBe(7);
   });
 
   /**
@@ -411,8 +411,8 @@ describe("known WASM bugs, each failing until its fix", () => {
    */
   it.fails("computes pow, sin and floor of a vector on WASM", () => {
     const first = (build: (a: any) => any) => compileWasmRoutine((a: any) => Fn(() => build(a).x.toVar())(), param);
-    expect(first((a) => pow(vec3(a, 2, 3), vec3(2, 2, 2))).run({ params: { a: 4 } })).toBe(16);
-    expect(first((a) => sin(vec3(a, 2, 3))).run({ params: { a: 0 } })).toBe(0);
-    expect(first((a) => floor(vec3(a, 2, 3))).run({ params: { a: 1.5 } })).toBe(1);
+    expect(first((a) => pow(vec3(a, 2, 3), vec3(2, 2, 2)))({ params: { a: 4 } })).toBe(16);
+    expect(first((a) => sin(vec3(a, 2, 3)))({ params: { a: 0 } })).toBe(0);
+    expect(first((a) => floor(vec3(a, 2, 3)))({ params: { a: 1.5 } })).toBe(1);
   });
 });

@@ -11,11 +11,12 @@ import {
 import { AdapterResult, bufferToImageData, CpuAdapter, createCpuAdapter } from "../adapter-cpu";
 import type { CpuTextureData } from "../cpu";
 import { compileJS, CompileJSRasterOptions, JsRasterContext } from "./rasterizer";
-import { compileJSCompute, compileJSFragment, CompileJSOptions } from "./js";
+import { fragmentColour } from "../shared";
+import { compileJSCompute, compileJSGrid, CompileJSOptions } from "./js";
 
 export interface CreateJsRoutineOptions {
-  /** A fragCoord() program, evaluated once per canvas pixel by `draw()`. */
-  draw: Node<ShaderType> | readonly Node<ShaderType>[];
+  /** A fragCoord() program that returns a colour, evaluated once per canvas pixel by `draw()`. */
+  draw: Node<ShaderType>;
   name?: string;
   params?: CompileJSOptions["params"];
   derivatives?: CompileJSOptions["derivatives"];
@@ -23,9 +24,9 @@ export interface CreateJsRoutineOptions {
 }
 
 /**
- * Compiles a `fragCoord()` program with {@link compileJSFragment} and
+ * Compiles a `fragCoord()` program with {@link compileJSGrid} and
  * wraps it in a {@link createCpuAdapter} — a plain CPU-callable evaluated
- * once per pixel with its stage's `quad()`, not a wgpu pipeline shape. See
+ * once per pixel with its grid's `fill()`, not a wgpu pipeline shape. See
  * {@link createJsCompute} for the `storage()`/`invocationIndex()` shape
  * and {@link createJs} for the vertex/fragment render shape — those each
  * got their own dedicated entry point rather than living as options here
@@ -33,7 +34,7 @@ export interface CreateJsRoutineOptions {
  * split, which this mirrors).
  */
 export function createJsRoutine(options: CreateJsRoutineOptions): CpuAdapter {
-  const draw = compileJSFragment(() => options.draw, {
+  const draw = compileJSGrid(() => fragmentColour([options.draw])[0] as Node<"vec4">, {
     name: options.name ?? "draw",
     params: options.params ?? [],
     derivatives: options.derivatives,

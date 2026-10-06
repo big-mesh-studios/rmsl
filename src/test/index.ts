@@ -189,12 +189,12 @@ function compileRunner<A extends ShaderType>(
     stage === "vertex"
       ? (() => {
           const vertex = compileJSVertex(graph, withoutStage);
-          return (ctx) => readVertex<A>(vertex.run(ctx), called.varyings);
+          return (ctx) => readVertex<A>(vertex(ctx), called.varyings);
         })()
       : stage === "fragment"
         ? (() => {
             const fragment = compileJSFragment(graph, withoutStage);
-            return (ctx) => readFragment<A>(fragment.run(ctx));
+            return (ctx) => readFragment<A>(fragment(ctx));
           })()
         : (() => {
             const routine = compileJSProgram(graph, withoutStage);

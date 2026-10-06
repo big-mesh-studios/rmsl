@@ -241,7 +241,7 @@ describe("a mistake is refused before the program runs", () => {
     expect(() => compileWgsl.fragment(build())).not.toThrow();
     for (const compile of cpuCompilers) expect(() => compile(build)).not.toThrow();
     for (const compile of cpuCompilers) {
-      const result: any = compile(build).run({});
+      const result: any = compile(build)({});
       expect(Array.from(Array.isArray(result) ? result : result.value)[0]).toBe(2);
     }
   });
@@ -445,7 +445,7 @@ describe("a mistake is refused before the program runs", () => {
           })() as any,
         { name: "main", params: [] },
       );
-      expect(() => grid.fill({}, 1, 1)).toThrow(/produces no value to render/);
+      expect(() => grid({}, 1, 1)).toThrow(/produces no value to render/);
     }
   });
 });

@@ -100,7 +100,7 @@ describe("the JS target's internal decisions, on every target they claim", () =>
    */
   it.each(cpuTargets)("%s: returns a vector result as a bare array", (_, compile) => {
     const routine = compile(() => Fn(() => vec3(1, 2, 3))() as any, none);
-    expect(routine.run({})).toEqual([1, 2, 3]);
+    expect(routine({})).toEqual([1, 2, 3]);
   });
 
   /**
@@ -110,7 +110,7 @@ describe("the JS target's internal decisions, on every target they claim", () =>
    */
   it.each(cpuTargets)("%s: returns a matrix as its columns in one flat array", (_, compile) => {
     const routine = compile(() => Fn(() => mat2(vec2(1, 2), vec2(3, 4)))() as any, none);
-    expect(routine.run({})).toEqual([1, 2, 3, 4]);
+    expect(routine({})).toEqual([1, 2, 3, 4]);
   });
 
   /**
@@ -137,7 +137,7 @@ describe("the JS target's internal decisions, on every target they claim", () =>
       return Fn(() => fragCoord().x.mul(scale))();
     }, none);
     expect(calls).toBe(1);
-    expect(Array.from(grid.fill({ uniforms: { [(scale as any).name]: 2 } }, 1, 1))).toEqual([1]);
+    expect(Array.from(grid({ uniforms: { [(scale as any).name]: 2 } }, 1, 1))).toEqual([1]);
   });
 
   /**
@@ -157,7 +157,7 @@ describe("the JS target's internal decisions, on every target they claim", () =>
       const routine = compile(() => program, none);
       const texture = { data: new Float32Array([10, 10, 10, 10, 20, 20, 20, 20]), width: 2, height: 1 };
       const red = (filters: { magFilter: "nearest" | "linear"; minFilter: "nearest" | "linear" }) =>
-        (routine.run({ textures: { [tex.name]: { ...texture, ...filters } } }) as number[])[0];
+        (routine({ textures: { [tex.name]: { ...texture, ...filters } } }) as number[])[0];
       expect(red({ magFilter: "nearest", minFilter: "linear" })).toBe(20);
       expect(red({ magFilter: "linear", minFilter: "nearest" })).toBe(15);
     },
@@ -167,7 +167,7 @@ describe("the JS target's internal decisions, on every target they claim", () =>
    * @canon spec-a-grid-fills-a-float64-array-for-a-float-result
    */
   it.each(grids)("%s: fills a float result into a Float64Array", (_, compile) => {
-    const out = compile(() => Fn(() => fragCoord().x.add(0.25))(), none).fill({}, 2, 1);
+    const out = compile(() => Fn(() => fragCoord().x.add(0.25))(), none)({}, 2, 1);
     expect(out).toBeInstanceOf(Float64Array);
     expect(Array.from(out)).toEqual([0.75, 1.75]);
   });
@@ -176,7 +176,7 @@ describe("the JS target's internal decisions, on every target they claim", () =>
    * @canon spec-a-grid-fills-an-int32-array-for-an-int-result
    */
   it.each(grids)("%s: fills an int result into an Int32Array", (_, compile) => {
-    const out = compile(() => Fn(() => fragCoord().x.toInt().sub(2))(), none).fill({}, 2, 1);
+    const out = compile(() => Fn(() => fragCoord().x.toInt().sub(2))(), none)({}, 2, 1);
     expect(out).toBeInstanceOf(Int32Array);
     expect(Array.from(out)).toEqual([-2, -1]);
   });
@@ -187,7 +187,7 @@ describe("the JS target's internal decisions, on every target they claim", () =>
    * @canon spec-a-grid-fills-a-uint32-array-for-a-uint-result
    */
   it.each(grids)("%s: fills a uint result into a Uint32Array", (_, compile) => {
-    const out = compile(() => Fn(() => fragCoord().x.toUint().add(uint(3000000000)))(), none).fill({}, 2, 1);
+    const out = compile(() => Fn(() => fragCoord().x.toUint().add(uint(3000000000)))(), none)({}, 2, 1);
     expect(out).toBeInstanceOf(Uint32Array);
     expect(Array.from(out)).toEqual([3000000000, 3000000001]);
   });
@@ -196,7 +196,7 @@ describe("the JS target's internal decisions, on every target they claim", () =>
    * @canon spec-a-grid-writes-a-bool-result-as-one-or-zero-in-an-int32-array
    */
   it.each(grids)("%s: fills a bool result as 1 or 0 into an Int32Array", (_, compile) => {
-    const out = compile(() => Fn(() => fragCoord().x.greaterThan(1))(), none).fill({}, 2, 1);
+    const out = compile(() => Fn(() => fragCoord().x.greaterThan(1))(), none)({}, 2, 1);
     expect(out).toBeInstanceOf(Int32Array);
     expect(Array.from(out)).toEqual([0, 1]);
   });
@@ -286,8 +286,8 @@ describe("a JS routine's results", () => {
    */
   it("keeps the value a JS routine returned when it is called again", () => {
     const run = compileJSRoutine((a: any) => Fn(() => vec3(a, a, a).toVar())(), param);
-    const first = run.run({ params: { a: 1 } });
-    run.run({ params: { a: 2 } });
+    const first = run({ params: { a: 1 } });
+    run({ params: { a: 2 } });
     expect(first).toEqual([1, 1, 1]);
   });
 
@@ -322,10 +322,10 @@ describe("a JS routine's results", () => {
     const input = uniform("vec3");
     const routine = compileJSRoutine(() => Fn(() => input.add(0).toVar())(), { ...none, reentrant });
     const passed = [1, 2, 3];
-    const first = routine.run({ uniforms: { [input.name]: passed } });
+    const first = routine({ uniforms: { [input.name]: passed } });
     (first as number[])[0] = 9;
     expect(passed).toEqual([1, 2, 3]);
-    expect(routine.run({ uniforms: { [input.name]: passed } })).toEqual([1, 2, 3]);
+    expect(routine({ uniforms: { [input.name]: passed } })).toEqual([1, 2, 3]);
   });
 });
 
@@ -387,7 +387,7 @@ describe("a CPU stage's result", () => {
         })(),
       none,
     );
-    const result = stage.run({ attributes: { [place.name]: [1, 2, 3] } });
+    const result = stage({ attributes: { [place.name]: [1, 2, 3] } });
     expect(result.position).toEqual([1, 2, 3, 1]);
     expect(Object.values(result.varyings)).toEqual([[1, 2]]);
   });
@@ -400,7 +400,7 @@ describe("a CPU stage's result", () => {
     (_, compileVertex) => {
       const place = attribute("vec3");
       const stage = compileVertex(() => Fn(() => vec4(place, 1))(), none);
-      expect(stage.run({ attributes: { [place.name]: [1, 2, 3] } })).toEqual({ position: [1, 2, 3, 1], varyings: {} });
+      expect(stage({ attributes: { [place.name]: [1, 2, 3] } })).toEqual({ position: [1, 2, 3, 1], varyings: {} });
     },
   );
 
@@ -410,11 +410,11 @@ describe("a CPU stage's result", () => {
   it.each(stages)(
     "returns the colour of a fragment stage as a vec4, a vec3 with an opaque alpha on %s",
     (_, __, compileFragment) => {
-      expect(compileFragment(() => Fn(() => vec4(1, 2, 3, 4))(), none).run({})).toEqual({
+      expect(compileFragment(() => Fn(() => vec4(1, 2, 3, 4))(), none)({})).toEqual({
         value: [1, 2, 3, 4],
         outputs: [],
       });
-      expect(compileFragment(() => Fn(() => vec3(1, 2, 3))(), none).run({})).toEqual({
+      expect(compileFragment(() => Fn(() => vec3(1, 2, 3))(), none)({})).toEqual({
         value: [1, 2, 3, 1],
         outputs: [],
       });
@@ -428,7 +428,7 @@ describe("a CPU stage's result", () => {
     "returns the members of an outputStruct by position, with no colour on %s",
     (_, __, compileFragment) => {
       const stage = compileFragment(() => Fn(() => outputStruct(float(7), vec3(1, 2, 3)))(), none);
-      expect(stage.run({})).toEqual({ value: undefined, outputs: [7, [1, 2, 3]] });
+      expect(stage({})).toEqual({ value: undefined, outputs: [7, [1, 2, 3]] });
     },
   );
 
@@ -444,7 +444,7 @@ describe("a CPU stage's result", () => {
         })(),
       none,
     );
-    expect(stage.run({})).toBeNull();
+    expect(stage({})).toBeNull();
   });
 
   /**
@@ -462,30 +462,25 @@ describe("a CPU stage's result", () => {
         none,
       );
       const data = new Float64Array([1, 2, 3, 4]);
-      expect(stage.dispatch({ storages: { [buffer.name]: data } }, 2)).toBeUndefined();
+      expect(stage({ storages: { [buffer.name]: data } }, 2)).toBeUndefined();
       expect(Array.from(data)).toEqual([9, 2, 9, 4]);
       expect(stage.storageTypes[buffer.name]).toBe("float");
     },
   );
 
   /**
-   * @canon spec-a-fragment-stage-draws-a-grid-with-quad
+   * @canon spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel
    */
-  it.each(stages)(
-    "shades every pixel of a grid with quad, at the centre of the pixel on %s",
-    (_, __, compileFragment) => {
-      const stage = compileFragment(() => Fn(() => vec4(fragCoord().x, fragCoord().y, 0, 1))(), none);
-      expect(Array.from(stage.quad({}, 2, 2))).toEqual([
-        0.5, 0.5, 0, 1, 1.5, 0.5, 0, 1, 0.5, 1.5, 0, 1, 1.5, 1.5, 0, 1,
-      ]);
-    },
-  );
+  it.each(grids)("%s: evaluates every pixel of a grid at the centre of the pixel", (_, compile) => {
+    const grid = compile(() => Fn(() => vec4(fragCoord().x, fragCoord().y, 0, 1))(), none);
+    expect(Array.from(grid({}, 2, 2))).toEqual([0.5, 0.5, 0, 1, 1.5, 0.5, 0, 1, 0.5, 1.5, 0, 1, 1.5, 1.5, 0, 1]);
+  });
 
   /**
    * @canon spec-a-grid-writes-a-discarded-pixel-as-zero
    */
-  it.each(stages)("writes a pixel that discards as zero in every channel with quad on %s", (_, __, compileFragment) => {
-    const stage = compileFragment(
+  it.each(grids)("%s: writes a pixel that discards as zero in every channel", (_, compile) => {
+    const grid = compile(
       () =>
         Fn(() => {
           If(fragCoord().x.greaterThan(1), () => {
@@ -496,7 +491,7 @@ describe("a CPU stage's result", () => {
       none,
     );
     const out = new Float64Array(8).fill(9);
-    stage.quad({}, 2, 1, out);
+    grid({}, 2, 1, out);
     expect(Array.from(out)).toEqual([1, 2, 3, 4, 0, 0, 0, 0]);
   });
 });

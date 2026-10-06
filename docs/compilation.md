@@ -297,11 +297,11 @@ float scale(float v) {
 RMSL also compiles an `Fn` to JavaScript that runs on the CPU. What the
 program is decides which function compiles it:
 
-| The program is…                                    | Compile it with                                            | You get                          |
-| -------------------------------------------------- | ---------------------------------------------------------- | -------------------------------- |
-| a function of its parameters and uniforms          | `compileJSRoutine`                                         | `run(ctx)`, its value            |
-| a vertex, a fragment or a compute program          | `compileJSVertex`, `compileJSFragment`, `compileJSCompute` | `run(ctx)` or `dispatch(ctx, n)` |
-| a function of `fragCoord()`, over a grid of pixels | `compileJSGrid`                                            | `fill(ctx, width, height)`       |
+| The program is…                                    | Compile it with                                            | You get                           |
+| -------------------------------------------------- | ---------------------------------------------------------- | --------------------------------- |
+| a function of its parameters and uniforms          | `compileJSRoutine`                                         | `run(ctx)`, its value             |
+| a vertex, a fragment or a compute program          | `compileJSVertex`, `compileJSFragment`, `compileJSCompute` | `run(ctx)` or `dispatch(ctx, n)`  |
+| a function of `fragCoord()`, over a grid of pixels | `compileJSGrid`                                            | a function `(ctx, width, height)` |
 
 The same functions exist for WASM: `compileWasmRoutine`, `compileWasmVertex`,
 `compileWasmFragment`, `compileWasmCompute` and `compileWasmGrid`. A routine
@@ -318,7 +318,7 @@ import { compileJSFragment, Fn, uniform, builtinFragDepth } from "rmsl";
 
 let pickStage = compileJSFragment(calcColourAndDepth, { name: "pick", params: [] });
 // On pointerdown:
-let r = pickStage.run({
+let r = pickStage({
   uniforms: {
     _rmsl_u0: cameraPosition, // each slot is the uniform's .name
     _rmsl_u1: cameraViewMatrix, // flat column-major arrays
@@ -349,13 +349,13 @@ compileJSFn(fn, options): string
 // A self-contained expression that evaluates to the callable:
 //   const fn = new Function(source)();
 
-compileJSRoutine(fn, options): { run(ctx): value }
+compileJSRoutine(fn, options): (ctx) => value
 // A function of a context. `value` is typed by the type `fn` returns.
 
-compileJSVertex(fn, options): { run(ctx): { position, varyings } }
-compileJSFragment(fn, options): { run(ctx): { value, outputs, fragDepth? } | null, quad(ctx, w, h, out?) }
-compileJSCompute(fn, options): { dispatch(ctx, count): void, storageTypes }
-compileJSGrid(fn, options): { fill(ctx, width, height, out?): buffer typed by the result }
+compileJSVertex(fn, options): (ctx) => { position, varyings }
+compileJSFragment(fn, options): (ctx) => { value, outputs, fragDepth? } | null
+compileJSCompute(fn, options): (ctx, count) => void, with a `storageTypes` property
+compileJSGrid(fn, options): (ctx, width, height, out?) => buffer typed by the result
 ```
 
 Options extend the `Fn` compilers':
@@ -387,10 +387,10 @@ A routine returns the Fn's value, typed by the type the Fn returns. A stage
 returns an object, whatever its body writes:
 
 ```typescript
-// compileJSVertex: run(ctx)
+// compileJSVertex: (ctx) =>
 { position: <vec4>, varyings: { [slot]: <value> } }
 
-// compileJSFragment: run(ctx), or null for a fragment that discarded
+// compileJSFragment: (ctx) =>, or null for a fragment that discarded
 {
   value:     <vec4>,                // the colour; undefined for a stage that returns an outputStruct
   outputs:   [<value>, ...],        // the members of the outputStruct, by position
@@ -408,7 +408,7 @@ The value a call returns is the caller's own: a later call does not change it.
 `width x height` grid, instead of you driving the loop, and packs the results into
 one flat, row-major typed array, typed by the result: a `Float64Array` for a
 float, an `Int32Array` for an int or a bool, a `Uint32Array` for a uint. A
-fragment stage has the same pass as `quad`, which gives its colours. See
+A grid of a program that returns a colour draws the picture a canvas shows. See
 [wasm.md](wasm.md#cpuroutine) for the WASM grid, which has the more interesting
 implementation: it shares the compiled function's own bytecode rather than
 looping in JS.

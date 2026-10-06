@@ -108,10 +108,7 @@ export type CpuDrawBuffer = Float64Array | Int32Array | Uint32Array;
  * routine: a vertex, fragment or compute program compiles as a stage, and a
  * program of `fragCoord()` as a grid.
  */
-export type CpuRoutine<A extends ShaderType = ShaderType> = {
-  /** Runs the program once and returns its value. The value is the caller's: a later call does not change it. */
-  run(ctx: CpuShaderContext): CpuValue<A>;
-};
+export type CpuRoutine<A extends ShaderType = ShaderType> = (ctx: CpuShaderContext) => CpuValue<A>;
 
 /**
  * A program as the compilers build it, for the stages and the grid to take
@@ -226,36 +223,21 @@ export type FragmentResult<R = unknown> =
         ? { value: undefined; outputs: []; fragDepth?: number }
         : { value: number[]; outputs: []; fragDepth?: number };
 
-/** A compiled vertex program, run once per vertex. */
-export type VertexStage = {
-  run(ctx: CpuShaderContext): VertexResult;
-};
+/** A compiled vertex program: runs once per vertex, and returns what the stage hands on. */
+export type VertexStage = (ctx: CpuShaderContext) => VertexResult;
 
-/** A compiled fragment program, run once per fragment. `null` is a fragment that discarded. */
-export type FragmentStage<R = unknown> = {
-  run(ctx: CpuShaderContext): FragmentResult<R> | null;
-  /**
-   * Runs the program once for each pixel of a `width x height` grid, with
-   * `fragCoord()` at the centre of each pixel, and packs the colours into one
-   * flat row-major buffer: a full-screen pass, with no triangles to rasterize.
-   * Every other input, uniforms and textures included, is the same for every
-   * pixel. A pixel that discards is zero in every channel. The buffer is the
-   * caller's: a later `quad` does not change it. Pass `out` to fill a buffer
-   * of your own instead.
-   */
-  quad(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer;
-};
+/** A compiled fragment program: runs once per fragment, and returns `null` for a fragment that discarded. */
+export type FragmentStage<R = unknown> = (ctx: CpuShaderContext) => FragmentResult<R> | null;
 
-/** A compiled compute program, run once per index of a dispatch. */
+/**
+ * A compiled compute program: runs once per index in `0..count`, in index
+ * order, with `invocationIndex()` reading that index, and leaves the results in
+ * `ctx.storages`. It returns nothing.
+ */
 export type ComputeStage = {
-  /**
-   * Runs the program once per index in `0..count`, in index order, with
-   * `invocationIndex()` reading that index, and leaves the results in
-   * `ctx.storages`. It returns nothing.
-   */
-  dispatch(ctx: CpuShaderContext, count: number): void;
+  (ctx: CpuShaderContext, count: number): void;
   /** The shader type of one element of each storage buffer the program reads, by slot. */
-  storageTypes: Readonly<Record<string, ShaderType>>;
+  readonly storageTypes: Readonly<Record<string, ShaderType>>;
 };
 
 const isResultObject = (raw: unknown): raw is CpuProgramResult =>
@@ -305,20 +287,19 @@ export type GridBuffer<A extends ShaderType> = A extends "uint" | `uvec${string}
     : Float64Array;
 
 /**
- * A program of `fragCoord()` evaluated over a grid of pixels, for what a
- * fragment stage does not give: the buffer takes the type of the result, and
- * there is no colour to convert it to.
+ * A program of `fragCoord()` evaluated over a grid of pixels. It evaluates the
+ * program once for each pixel of a `width x height` grid, with `fragCoord()` at
+ * the centre of each pixel, and packs the results into one flat row-major
+ * buffer of `width * height * componentCount` elements, typed by the result. A
+ * pixel that discards is zero in every channel. Every other input, uniforms and
+ * textures included, is the same for every pixel. The buffer is the caller's: a
+ * later call does not change it. Pass `out` to fill a buffer of your own
+ * instead; it must be the type `A` has and hold at least that many elements,
+ * and it is returned.
  */
-export type CpuGrid<A extends ShaderType = ShaderType> = {
-  /**
-   * Evaluates the program once for each pixel of a `width x height` grid, with
-   * `fragCoord()` at the centre of each pixel, and packs the results into one
-   * flat row-major buffer of `width * height * componentCount` elements. A
-   * pixel that discards is zero in every channel. Every other input, uniforms
-   * and textures included, is the same for every pixel. The buffer is the
-   * caller's: a later `fill` does not change it. Pass `out` to fill a buffer
-   * of your own instead; it must be the type `A` has and hold at least that
-   * many elements, and it is returned.
-   */
-  fill(ctx: CpuShaderContext, width: number, height: number, out?: GridBuffer<A>): GridBuffer<A>;
-};
+export type CpuGrid<A extends ShaderType = ShaderType> = (
+  ctx: CpuShaderContext,
+  width: number,
+  height: number,
+  out?: GridBuffer<A>,
+) => GridBuffer<A>;

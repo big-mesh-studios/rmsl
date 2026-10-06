@@ -533,7 +533,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-vertex-stage-returns-its-position-and-varyings`](#spec-a-vertex-stage-returns-its-position-and-varyings) — `compileJSVertex` and `compileWasmVertex` give a stage whose `run` returns an object that holds the position, a `vec4`, and the varyings the program wrote, by slot. A vertex stage that never writes the position itself returns its `vec4` result as the position.
     - [`@spec a-fragment-stage-returns-its-colour-and-outputs`](#spec-a-fragment-stage-returns-its-colour-and-outputs) — `compileJSFragment` and `compileWasmFragment` give a stage whose `run` returns an object that holds the colour, a `vec4`, the members of the `outputStruct` the program returned, by position, and the depth when it wrote one. A stage that returns an `outputStruct` has no colour, which is undefined. A fragment that discards returns `null`.
     - [`@spec an-output-struct-writes-each-member-at-its-position`](#spec-an-output-struct-writes-each-member-at-its-position) — A fragment stage that returns an `outputStruct` writes member `i` to the output at location `i`, with the type of the member, and writes no colour. A CPU stage returns the values of the members by position.
-    - [`@spec a-fragment-stage-draws-a-grid-with-quad`](#spec-a-fragment-stage-draws-a-grid-with-quad) — `quad` of a fragment stage runs the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel, and packs the colours into one row-major buffer. Every pixel of the grid is shaded, with no triangle to rasterize.
     - [`@spec a-compute-stage-dispatches-and-returns-nothing`](#spec-a-compute-stage-dispatches-and-returns-nothing) — `compileJSCompute` and `compileWasmCompute` give a stage whose `dispatch` runs the program once per index of a count, in index order, and returns nothing. The stage names the type of each storage buffer the program reads.
     - [`@spec a-cpu-routine-answers-one-fragment-per-call`](#spec-a-cpu-routine-answers-one-fragment-per-call) — `run` of a CPU routine evaluates the program once, for the context the host passes. The same routine serves any number of calls, and a value one call returned keeps what it holds through the calls after it.
     - [`@spec a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel) — `fill` of a CPU grid evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to fill with.
@@ -3709,14 +3708,6 @@ This follows because the shape of a result follows from the function that compil
 Derives from: [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import), [`axiom-a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns)
 
 This follows because TSL returns the outputs of a fragment as an `outputStruct`, and the members of the struct are in the type of what the stage returns, so a caller reads the value at a position with the type the member has.
-
-#### @spec a-fragment-stage-draws-a-grid-with-quad
-
-> `quad` of a fragment stage runs the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel, and packs the colours into one row-major buffer. Every pixel of the grid is shaded, with no triangle to rasterize.
-
-Derives from: [`spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel)
-
-This follows because a full-screen pass is a fragment program run over a grid, and a rasterizer that covers the screen with two triangles adds a cost and nothing else.
 
 #### @spec a-compute-stage-dispatches-and-returns-nothing
 

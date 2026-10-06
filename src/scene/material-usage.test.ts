@@ -230,7 +230,7 @@ describe("node materials", () => {
     };
 
     const stage = compileJSFragment(() => program.fragmentRoot, { params: [], name: "pick" });
-    const color = stage.run({ uniforms, varyings })?.value;
+    const color = stage({ uniforms, varyings })?.value;
     if (!color) throw new Error("the fragment stage wrote no colour");
     for (const channel of color) expect(Number.isFinite(channel)).toBe(true);
     // The sunlit top face must be visibly lit, not black.

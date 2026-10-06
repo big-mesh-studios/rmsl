@@ -7,7 +7,7 @@ import { compileWasmFragment, Fn, uniform, builtinFragDepth } from "rmsl";
 
 let pickStage = compileWasmFragment(calcColourAndDepth, { name: "pick", params: [] });
 // On pointerdown:
-let r = pickStage.run({
+let r = pickStage({
   uniforms: {
     _rmsl_u0: cameraPosition, // each slot is the uniform's .name
     _rmsl_u1: cameraViewMatrix, // flat column-major arrays
@@ -59,7 +59,7 @@ compileWasmGrid(fn, options): CpuGrid
 
 `compileWasmFn(fn, options)` followed by the instantiation, in one call — what you want unless you're precompiling (see below). What the program is decides which one compiles it, as for the [JS target](compilation.md#js--cpu-target).
 
-`instantiateWasmRoutine` exists as its own export specifically so a build step can compile once and instantiate many times, or instantiate compiled bytes that were never compiled in the browser at all — which is exactly what [`precompileWasm`](vite-plugins.md#precompilewasm--wasm-modules) does.
+There is an `instantiateWasm…` for each of them: `instantiateWasmRoutine`, `instantiateWasmVertex`, `instantiateWasmFragment`, `instantiateWasmCompute` and `instantiateWasmGrid`, each taking `compileWasmFn`'s output compiled for that shape. `instantiateWasmRoutine` exists as its own export specifically so a build step can compile once and instantiate many times, or instantiate compiled bytes that were never compiled in the browser at all — which is exactly what [`precompileWasm`](vite-plugins.md#precompilewasm--wasm-modules) does.
 
 Options extend the `Fn` compilers', the same set `compileJSRoutine` accepts:
 
@@ -69,35 +69,34 @@ Options extend the `Fn` compilers', the same set `compileJSRoutine` accepts:
 ## Routine, stages and grid
 
 ```typescript
-type CpuRoutine<A> = { run(ctx: CpuShaderContext): <the value A has> };
-type VertexStage = { run(ctx): { position: number[]; varyings: Record<string, unknown> } };
-type FragmentStage = {
-  run(ctx): { value: number[] | undefined; outputs: unknown[]; fragDepth?: number } | null;
-  quad(ctx, width: number, height: number, out?): Float64Array;
-};
-type ComputeStage = { dispatch(ctx, count: number): void; storageTypes: Record<string, ShaderType> };
-type CpuGrid<A> = { fill(ctx, width: number, height: number, out?): Float64Array | Int32Array | Uint32Array };
+type CpuRoutine<A> = (ctx: CpuShaderContext) => <the value A has>;
+type VertexStage = (ctx) => { position: number[]; varyings: Record<string, unknown> };
+type FragmentStage = (ctx) => { value: number[] | undefined; outputs: unknown[]; fragDepth?: number } | null;
+type ComputeStage = ((ctx, count: number) => void) & { storageTypes: Record<string, ShaderType> };
+type CpuGrid<A> = (ctx, width: number, height: number, out?) => Float64Array | Int32Array | Uint32Array;
 ```
 
-- `run()` of a routine runs the program once and returns its value, typed by the type the `Fn` returns. A program that reads what only a stage has is not a routine.
-- `run()` of a stage runs it once and returns its result: the position and varyings of a vertex stage, the colour and outputs of a fragment stage, or `null` for a fragment that discarded.
-- `dispatch()` runs a `storage()`/`invocationIndex()` program once per index in `0..count`, leaving its results in `ctx.storages`.
-- `fill()` of a grid runs a program of `fragCoord()` once per pixel of a `width x height` grid and packs the results into one buffer, typed by the result. `quad()` of a fragment stage is the same pass for its colours. The buffer is a copy that a later call does not change; pass `out` to write into a buffer of your own and skip the copy.
+Each is a plain function:
+
+- A routine runs the program once and returns its value, typed by the type the `Fn` returns. A program that reads what only a stage has is not a routine.
+- A vertex or fragment stage runs once and returns its result: the position and varyings of a vertex stage, the colour and outputs of a fragment stage, or `null` for a fragment that discarded.
+- A compute stage runs a `storage()`/`invocationIndex()` program once per index in `0..count`, leaving its results in `ctx.storages`.
+- A grid runs a program of `fragCoord()` once per pixel of a `width x height` grid and packs the results into one buffer, typed by the result. The buffer is a copy that a later call does not change; pass `out` to write into a buffer of your own and skip the copy.
 
 The names match the adapters' own `draw()` and `compute()`, which call these.
 
 ```typescript
 let grid = compileWasmGrid(calcLuminance, { name: "main", params: [] });
-let pixels = grid.fill({ uniforms: { ... } }, 256, 256);
+let pixels = grid({ uniforms: { ... } }, 256, 256);
 // Float64Array/Int32Array/Uint32Array, length width * height * componentCount,
 // row-major, one element type picked from the Fn's own result type.
 ```
 
-`fill()` feeds each pixel's center — `(x + 0.5, y + 0.5)` — in as `fragCoord()`, holding every other input (uniforms, textures, …) fixed across the grid. On `compileWasmGrid`'s side this shares the compiled function's own bytecode via a second exported WASM function that loops internally and calls the first, so a whole-image evaluation pays the per-call marshalling cost once rather than once per pixel — the gap `compileJSGrid`'s own loop (a plain JS loop, one call per pixel) doesn't have to close the same way, since a JS function call is already cheap. A pixel that discards is zero in every channel.
+A grid feeds each pixel's center — `(x + 0.5, y + 0.5)` — in as `fragCoord()`, holding every other input (uniforms, textures, …) fixed across the grid. On `compileWasmGrid`'s side this shares the compiled function's own bytecode via a second exported WASM function that loops internally and calls the first, so a whole-image evaluation pays the per-call marshalling cost once rather than once per pixel — the gap `compileJSGrid`'s own loop (a plain JS loop, one call per pixel) doesn't have to close the same way, since a JS function call is already cheap. A pixel that discards is zero in every channel.
 
-A `void`-returning `Fn` has nothing to produce — `fill()` throws, naming that.
+A `void`-returning `Fn` has nothing to produce — the grid throws, naming that.
 
-`dispatch()` works the same way: on `compileWasmCompute`'s side, the module exports a function that loops over every index internally, so a whole dispatch is one call from the host. Each storage buffer is copied into the module's memory once before it and back out once after.
+A compute stage works the same way: on `compileWasmCompute`'s side, the module exports a function that loops over every index internally, so a whole dispatch is one call from the host. Each storage buffer is copied into the module's memory once before it and back out once after.
 
 ## Texture sampling
 

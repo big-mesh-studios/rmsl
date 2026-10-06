@@ -322,7 +322,7 @@ export function evaluateJS(build: Build, args: number[] = []): number | number[]
 export function evaluateWASM(build: Build, args: number[] = []): number | number[] {
   const fn = compileWasmRoutine(build, { name: "rmsl_eval", params: params(args.length) });
   const ctx = { params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) };
-  const result = fn.run(ctx);
+  const result = fn(ctx);
   // Scalar mode returns the raw number; an aggregate root is instead read
   // back as an output slot, wrapped in a `{ value }` shader-result object.
   if (typeof result === "number") return result;
@@ -418,7 +418,7 @@ export function evaluateIntegerJS(build: IntegerBuild, type: IntegerType, args: 
 /** Run an integer expression on the WASM backend. */
 export function evaluateIntegerWASM(build: IntegerBuild, type: IntegerType, args: number[]): number {
   const fn = compileWasmRoutine(build, { name: "rmsl_eval", params: integerParams(type, args.length) });
-  return fn.run({ params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) }) as number;
+  return fn({ params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) }) as number;
 }
 
 /**

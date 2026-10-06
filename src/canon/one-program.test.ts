@@ -195,8 +195,8 @@ describe("one program means the same on every target", () => {
       wrapS: "repeat" as const,
     };
     const ctx = { textures: { [tex.name]: texture } };
-    const js = compileJSRoutine(() => prog, { name: "main", params: [] }).run(ctx);
-    const wasm = compileWasmRoutine(() => prog, { name: "main", params: [] }).run(ctx);
+    const js = compileJSRoutine(() => prog, { name: "main", params: [] })(ctx);
+    const wasm = compileWasmRoutine(() => prog, { name: "main", params: [] })(ctx);
     expect(js).toEqual([0.5, 0, 0, 1]);
     expect((wasm as any).value ?? wasm).toEqual(js);
   });

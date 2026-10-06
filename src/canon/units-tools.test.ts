@@ -314,7 +314,7 @@ describe("the Vite plugins", () => {
       JSON.stringify(new URL("../../dist/wasm.js", import.meta.url).href),
     );
     const mod = (await import(`data:text/javascript,${encodeURIComponent(code)}`)) as Record<string, any>;
-    const result = mod.brightness.run({ uniforms: { _rmsl_u0: [1, 2, 3] } });
+    const result = mod.brightness({ uniforms: { _rmsl_u0: [1, 2, 3] } });
     expect(result).not.toBeInstanceOf(Promise);
     expect(result).toEqual([0.5, 1, 1.5]);
   });

@@ -79,7 +79,7 @@ describe("known bugs of the JS target, each failing until its fix", () => {
       })();
     const runs = (branch: number) => {
       const data = new Float64Array(1);
-      compileJSRoutine(build as any, none).run({
+      compileJSRoutine(build as any, none)({
         storages: { [counter.name]: data, [result.name]: new Float64Array(1) },
         uniforms: { [taken.name]: branch },
       });
@@ -121,7 +121,7 @@ describe("known bugs of the JS target, each failing until its fix", () => {
         return v;
       })();
     const run = compileJSRoutine(build, param);
-    expect(run.run({ params: { a: 5 }, textures: { [tex.name]: checker } })).toEqual([0, 0, 0, 0]);
+    expect(run({ params: { a: 5 }, textures: { [tex.name]: checker } })).toEqual([0, 0, 0, 0]);
   });
 
   /**
@@ -169,7 +169,7 @@ describe("known bugs of the JS target, each failing until its fix", () => {
   it.fails("reads the last element for a run-time index past a uniform array on JS", () => {
     const items = uniformArray("float", 4);
     const run = compileJSRoutine((a: any) => Fn(() => items.element(a.toInt()).add(0).toVar())(), param);
-    expect(run.run({ params: { a: 9 }, uniforms: { [items.name]: [1, 2, 3, 4] } })).toBe(4);
+    expect(run({ params: { a: 9 }, uniforms: { [items.name]: [1, 2, 3, 4] } })).toBe(4);
   });
 
   /**
@@ -277,7 +277,7 @@ describe("known bugs of the JS target, each failing until its fix", () => {
    */
   it.fails("clamps a negative float converted to uint to zero on JS", () => {
     const run = compileJSRoutine((a: any) => Fn(() => a.toUint().toVar())(), param);
-    expect(run.run({ params: { a: -1.5 } })).toBe(0);
+    expect(run({ params: { a: -1.5 } })).toBe(0);
   });
 
   /**
@@ -289,7 +289,7 @@ describe("known bugs of the JS target, each failing until its fix", () => {
   it.fails("reads a uniform array element the call leaves out as zero on JS", () => {
     const items = uniformArray("float", 3);
     const run = compileJSRoutine(() => Fn(() => items.element(int(2)).add(0).toVar())(), none);
-    expect(run.run({ uniforms: { [items.name]: [1, 2] } })).toBe(0);
+    expect(run({ uniforms: { [items.name]: [1, 2] } })).toBe(0);
   });
 
   /**

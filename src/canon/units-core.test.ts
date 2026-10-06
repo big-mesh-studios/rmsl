@@ -191,8 +191,8 @@ describe("a uniform follows TSL", () => {
     const scale = uniform("float");
     const weights = uniformArray("float", 3);
     const run = compileJSRoutine(() => Fn(() => scale.mul(weights.element(int(2))).toVar())(), none);
-    expect(run.run({ uniforms: { [scale.name]: 2, [weights.name]: [1, 2, 3] } })).toBe(6);
-    expect(run.run({ uniforms: { [scale.name]: 3, [weights.name]: [1, 2, 4] } })).toBe(12);
+    expect(run({ uniforms: { [scale.name]: 2, [weights.name]: [1, 2, 3] } })).toBe(6);
+    expect(run({ uniforms: { [scale.name]: 3, [weights.name]: [1, 2, 4] } })).toBe(12);
   });
 });
 
@@ -245,7 +245,7 @@ describe("the variable names of a program", () => {
       })(),
     ];
     const data = new Float64Array(2);
-    compile(build as any, none).run({ storages: { [out.name]: data } });
+    compile(build as any, none)({ storages: { [out.name]: data } });
     expect(Array.from(data)).toEqual([2, 11]);
   });
 });

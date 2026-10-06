@@ -125,7 +125,7 @@ describe("each leaf on every target it claims", () => {
       name: "main",
       params: [{ name: "a", type: "float" }],
     });
-    expect(wasm.run({ params: { a: Math.PI / 2 } })).toBeCloseTo(180, 6);
+    expect(wasm({ params: { a: Math.PI / 2 } })).toBeCloseTo(180, 6);
   });
 
   /**
@@ -496,9 +496,9 @@ describe("each leaf on every target it claims", () => {
   function colourOnEveryTarget(build: () => Node<any>, expected: number[]) {
     expect(compileGlsl.fragment(build()), "GLSL").toContain("out vec4");
     expect(compileWgsl.fragment(build()), "WGSL").toMatch(/: vec4<f32>/);
-    const js = compileJSFragment(build, { ...none }).run({}) as any;
+    const js = compileJSFragment(build, { ...none })({}) as any;
     expect(js.value ?? js, "JS").toEqual(expected);
-    const wasm = compileWasmFragment(build, { ...none }).run({}) as any;
+    const wasm = compileWasmFragment(build, { ...none })({}) as any;
     expect(Array.from(wasm.value ?? wasm), "WASM").toEqual(expected);
   }
 
@@ -628,7 +628,7 @@ describe("each leaf on every target it claims", () => {
     expect(() => compileWgsl.fragment(build())).not.toThrow();
     expect(() => compileJSFragment(build, { ...none })).not.toThrow();
     expect(() => compileWasmFragment(build, { ...none })).not.toThrow();
-    expect(() => compileWasmFragment(build, { ...none }).run({})).not.toThrow();
+    expect(() => compileWasmFragment(build, { ...none })({})).not.toThrow();
   });
 
   /**
@@ -680,8 +680,8 @@ describe("each leaf on every target it claims", () => {
     expect(() => compileJSFragment(build, { ...none })).not.toThrow();
     expect(() => compileWasmFragment(build, { ...none })).not.toThrow();
     // An unset uniform reads zero, so the discard does not run; a routine that runs it still returns.
-    expect(() => compileWasmFragment(build, { ...none }).run({})).not.toThrow();
-    expect(() => compileWasmFragment(build, { ...none }).run({ uniforms: {} })).not.toThrow();
+    expect(() => compileWasmFragment(build, { ...none })({})).not.toThrow();
+    expect(() => compileWasmFragment(build, { ...none })({ uniforms: {} })).not.toThrow();
   });
 
   /**
@@ -690,7 +690,7 @@ describe("each leaf on every target it claims", () => {
   it("reads a uniform the host never set as zero on WASM", () => {
     const u = uniform("float");
     const build = () => Fn(() => u.add(1).toVar())();
-    expect(compileWasmRoutine(build, none).run({})).toBe(1);
+    expect(compileWasmRoutine(build, none)({})).toBe(1);
   });
 
   /**
@@ -700,8 +700,8 @@ describe("each leaf on every target it claims", () => {
     const u = uniform("uint");
     const build = () => Fn(() => u.add(uint(1)).toVar())();
     const ctx = { uniforms: { [u.name]: 4000000000 } };
-    expect(compileJSRoutine(build, none).run(ctx)).toBe(4000000001);
-    expect(compileWasmRoutine(build, none).run(ctx)).toBe(4000000001);
+    expect(compileJSRoutine(build, none)(ctx)).toBe(4000000001);
+    expect(compileWasmRoutine(build, none)(ctx)).toBe(4000000001);
   });
 
   /**
@@ -711,8 +711,8 @@ describe("each leaf on every target it claims", () => {
     const build = () => Fn(() => vec4(time(), 0, 0, 1).toVar())();
     expect(compileGlsl.fragment(build())).toContain("_rmsl_time");
     expect(compileWgsl.fragment(build())).toContain("_rmsl_time");
-    expect(compileJSRoutine(build, none).run({ uniforms: { _rmsl_time: 2 } })).toEqual([2, 0, 0, 1]);
-    const wasm = compileWasmRoutine(build, none).run({ uniforms: { _rmsl_time: 2 } }) as any;
+    expect(compileJSRoutine(build, none)({ uniforms: { _rmsl_time: 2 } })).toEqual([2, 0, 0, 1]);
+    const wasm = compileWasmRoutine(build, none)({ uniforms: { _rmsl_time: 2 } }) as any;
     expect(wasm.value ?? wasm).toEqual([2, 0, 0, 1]);
   });
 });

@@ -2230,58 +2230,74 @@ export function compileJSProgram(
 /** What a stage compile function takes: the options of a routine, without the stage, which the function names. */
 export type CompileJSStageOptions = Omit<CompileJSOptions, "stage" | "kind">;
 
-/** A JS vertex stage, and the call that skips the copy of `run`. */
-export interface JsVertexStage extends VertexStage {
-  /** Like `run`, but the arrays of the result live in the scratch slots the next call overwrites. */
-  runInPlace(ctx: CpuShaderContext): VertexResult;
-}
-
-/** A JS fragment stage, and the call that skips the copy of `run`. */
-export interface JsFragmentStage<R = unknown> extends FragmentStage<R> {
-  /** Like `run`, but the arrays of the result live in the scratch slots the next call overwrites. */
-  runInPlace(ctx: CpuShaderContext): FragmentResult<R> | null;
-}
-
-/** Compiles an `Fn` as a vertex stage: it returns the position, and the varyings it writes. */
+/**
+ * Compiles an `Fn` as a vertex stage: a function that returns the position and
+ * the varyings the program writes.
+ */
 export function compileJSVertex(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSStageOptions,
-): JsVertexStage {
-  const routine = compileJSProgram(fn, { ...options, stage: "vertex" });
-  return {
-    run: (ctx) => toVertexResult(routine.run(ctx)),
-    runInPlace: (ctx) => toVertexResult(routine.runInPlace(ctx)),
-  };
+): VertexStage {
+  const program = compileJSProgram(fn, { ...options, stage: "vertex" });
+  return (ctx) => toVertexResult(program.run(ctx));
 }
 
-/** Compiles an `Fn` as a fragment stage: it returns the colour and the outputs it writes, or `null` for a discarded fragment. */
+/**
+ * {@link compileJSVertex}, with the arrays of the result left in the scratch
+ * slots the next call overwrites. For a caller that reads each result at once,
+ * like the rasterizer. Not public.
+ */
+export function compileJSVertexInPlace(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileJSStageOptions,
+): VertexStage {
+  const program = compileJSProgram(fn, { ...options, stage: "vertex" });
+  return (ctx) => toVertexResult(program.runInPlace(ctx));
+}
+
+/**
+ * Compiles an `Fn` as a fragment stage: a function that returns the colour and
+ * the members of the `outputStruct` the program returns, or `null` for a
+ * discarded fragment.
+ */
 export function compileJSFragment<R extends Node<ShaderType>>(
   fn: (...args: any[]) => R,
   options: CompileJSStageOptions,
-): JsFragmentStage<R>;
+): FragmentStage<R>;
 export function compileJSFragment(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSStageOptions,
-): JsFragmentStage;
+): FragmentStage;
 export function compileJSFragment(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSStageOptions,
-): JsFragmentStage {
-  const routine = compileJSProgram(fn, { ...options, stage: "fragment" });
-  return {
-    run: (ctx) => toFragmentResult(routine.run(ctx)),
-    runInPlace: (ctx) => toFragmentResult(routine.runInPlace(ctx)),
-    quad: (ctx, width, height, out) => routine.draw(ctx, width, height, out),
-  };
+): FragmentStage {
+  const program = compileJSProgram(fn, { ...options, stage: "fragment" });
+  return (ctx) => toFragmentResult(program.run(ctx));
 }
 
-/** Compiles an `Fn` as a compute stage: it reads `invocationIndex()` and writes `storage()`, and returns nothing. */
+/** {@link compileJSFragment}, as {@link compileJSVertexInPlace} is to the vertex stage. Not public. */
+export function compileJSFragmentInPlace(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileJSStageOptions,
+): FragmentStage {
+  const program = compileJSProgram(fn, { ...options, stage: "fragment" });
+  return (ctx) => toFragmentResult(program.runInPlace(ctx));
+}
+
+/**
+ * Compiles an `Fn` as a compute stage: a function that runs the program once
+ * per index of a count, and returns nothing. It reads `invocationIndex()` and
+ * writes `storage()`, and its `storageTypes` name the buffers it reads.
+ */
 export function compileJSCompute(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSStageOptions,
 ): ComputeStage {
-  const routine = compileJSProgram(fn, { ...options, stage: "compute" });
-  return { dispatch: (ctx, count) => routine.compute(ctx, count), storageTypes: routine.storageTypes ?? {} };
+  const program = compileJSProgram(fn, { ...options, stage: "compute" });
+  return Object.assign((ctx: CpuShaderContext, count: number) => program.compute(ctx, count), {
+    storageTypes: program.storageTypes ?? {},
+  });
 }
 
 /** Compiles an `Fn` of `fragCoord()` as a grid: one result for each pixel, in a buffer the type of the result. */
@@ -2289,8 +2305,8 @@ export function compileJSGrid<A extends ShaderType>(
   fn: (...args: any[]) => Node<A>,
   options: CompileJSStageOptions,
 ): CpuGrid<A> {
-  const routine = compileJSProgram(fn, { ...options, kind: "grid" });
-  return { fill: (ctx, width, height, out) => routine.draw(ctx, width, height, out) as GridBuffer<A> };
+  const program = compileJSProgram(fn, { ...options, kind: "grid" });
+  return (ctx, width, height, out) => program.draw(ctx, width, height, out) as GridBuffer<A>;
 }
 
 /**
@@ -2312,5 +2328,5 @@ export function compileJSRoutine(
   options: CompileJSStageOptions,
 ): CpuRoutine {
   const program = compileJSProgram(fn, { ...options, kind: "routine" });
-  return { run: (ctx) => program.run(ctx) as never };
+  return (ctx) => program.run(ctx) as never;
 }

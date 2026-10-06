@@ -1,6 +1,6 @@
 import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
 import { Adapter, requestedStorageSlots, slotOf, TypedArray } from "./adapter";
-import { CpuDrawBuffer, componentCountOf, ComputeStage, CpuTextureData, FragmentStage } from "./cpu";
+import { CpuDrawBuffer, componentCountOf, ComputeStage, CpuGrid, CpuTextureData } from "./cpu";
 
 /** One typed array per storage slot, keyed by name. */
 export type AdapterResult = Record<string, TypedArray>;
@@ -8,8 +8,8 @@ export type AdapterResult = Record<string, TypedArray>;
 /**
  * `compute`/`draw` here are two independently optional stages: a
  * {@link ComputeStage} that `compute()` dispatches once per entity of a
- * `storage()` program, and a {@link FragmentStage} that `draw()` runs once
- * per canvas pixel, as a full-screen `quad`. Not
+ * `storage()` program, and a {@link CpuGrid} of `vec4` colours that `draw()`
+ * fills once for each canvas pixel. Not
  * exported publicly: {@link createCpuAdapter} is wrapped by
  * `createJsCompute`/`createWasmCompute` (`compute` only) and
  * `createJsRoutine`/`createWasmRoutine` (`draw` only) — each passing a
@@ -17,7 +17,7 @@ export type AdapterResult = Record<string, TypedArray>;
  */
 export interface CpuAdapterPrograms {
   compute?: ComputeStage;
-  draw?: FragmentStage;
+  draw?: CpuGrid<"vec4">;
 }
 
 /** `compute`/`draw` here are each required — unlike the base Adapter's
@@ -120,7 +120,7 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
 
     compute(out, count) {
       if (!computeStep) throw new Error("[RMSL] this adapter has no `compute` program");
-      computeStep.dispatch({ storages, uniforms, textures } as any, count ?? elementCount());
+      computeStep({ storages, uniforms, textures } as any, count ?? elementCount());
       // storages already holds the caller's own arrays, mutated in place —
       // `out` is only for callers that want the WGSL adapter's optional-out
       // shape too, not something this loop needs to do its job.
@@ -133,7 +133,12 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
       if (!perPixel || !canvas || !ctx2d) {
         throw new Error("[RMSL] this adapter has no `draw` program, or attach() was never called");
       }
-      const buffer = perPixel.quad({ uniforms, textures } as any, canvas.width, canvas.height);
+      const buffer = perPixel({ uniforms, textures } as any, canvas.width, canvas.height);
+      if (buffer.length !== canvas.width * canvas.height * 4) {
+        throw new Error(
+          "[RMSL] the program of a draw adapter has to return a colour: a vec4, or a value that converts to one.",
+        );
+      }
       ctx2d.putImageData(bufferToImageData(buffer, canvas.width, canvas.height), 0, 0);
     },
 

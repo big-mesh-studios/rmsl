@@ -1177,13 +1177,13 @@ describe("RMSL", () => {
    */
   it("builds every matrix shape from columns of vector nodes, not just mat3/mat4", () => {
     let square = compileJSRoutine(() => mat2(vec2(1, 2), vec2(3, 4)), { name: "main", params: [] });
-    expect(square.run({})).toEqual([1, 2, 3, 4]);
+    expect(square({})).toEqual([1, 2, 3, 4]);
 
     let rect = compileJSRoutine(() => mat2x3(vec3(1, 2, 3), vec3(4, 5, 6)), { name: "main", params: [] });
-    expect(rect.run({})).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(rect({})).toEqual([1, 2, 3, 4, 5, 6]);
 
     let rectOtherWay = compileJSRoutine(() => mat3x2(vec2(1, 2), vec2(3, 4), vec2(5, 6)), { name: "main", params: [] });
-    expect(rectOtherWay.run({})).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(rectOtherWay({})).toEqual([1, 2, 3, 4, 5, 6]);
 
     let glsl = compileGlsl(
       Fn(() => {
@@ -1721,8 +1721,8 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   it("reads one value for raw uniforms sharing a name on JS and WASM", () => {
     let build = () => Fn(() => uniformRaw("brightness", "float").add(uniformRaw("brightness", "float").mul(10)))();
     let options = { name: "main", params: [] };
-    expect(compileJSRoutine(build as any, options).run({ uniforms: { brightness: 2 } })).toBe(22);
-    expect(compileWasmRoutine(build as any, options).run({ uniforms: { brightness: 2 } })).toBe(22);
+    expect(compileJSRoutine(build as any, options)({ uniforms: { brightness: 2 } })).toBe(22);
+    expect(compileWasmRoutine(build as any, options)({ uniforms: { brightness: 2 } })).toBe(22);
   });
 
   /**

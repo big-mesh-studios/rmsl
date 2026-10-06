@@ -1,7 +1,7 @@
 import { Node, ShaderType } from "../../core";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK } from "../adapter";
 import { componentCountOf, CpuDrawBuffer, CpuShaderContext } from "../cpu";
-import { compileJSFragment, compileJSVertex, CompileJSOptions, ownedValue } from "./js";
+import { compileJSFragmentInPlace, compileJSVertexInPlace, CompileJSOptions, ownedValue } from "./js";
 
 /** Homogeneous-clip-space near-plane epsilon — see rasterizer.md's clip-pass design (`rasterizer.wat`'s `W_CLIP_EPS`). */
 const W_CLIP_EPS = 1e-5;
@@ -137,13 +137,13 @@ export function compileJS(
   fragmentFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSRasterOptions,
 ): JsRasterRoutine {
-  const vertexStage = compileJSVertex(vertexFn, {
+  const vertexStage = compileJSVertexInPlace(vertexFn, {
     name: "vtx",
     params: [],
     derivatives: options.derivatives,
     reentrant: options.reentrant,
   });
-  const fragmentStage = compileJSFragment(fragmentFn, {
+  const fragmentStage = compileJSFragmentInPlace(fragmentFn, {
     name: "frag",
     params: [],
     derivatives: options.derivatives,
@@ -175,7 +175,7 @@ export function compileJS(
       const attrs: Record<string, unknown> = {};
       for (const slot in attributes) attrs[slot] = sliceAttribute(attributes[slot]!, i + first, widths[slot]!);
 
-      const { position, varyings } = vertexStage.runInPlace({ attributes: attrs, uniforms, textures });
+      const { position, varyings } = vertexStage({ attributes: attrs, uniforms, textures });
       vertices[i] = { position: ownedValue(position), varyings: ownedValue(varyings) as Record<string, Value> };
     }
 
@@ -270,7 +270,7 @@ export function compileJS(
             varyings[slot] = scale(perspSum, 1 / invW);
           }
 
-          const fragment = fragmentStage.runInPlace({ varyings, uniforms, textures, fragCoord: [px, py] });
+          const fragment = fragmentStage({ varyings, uniforms, textures, fragCoord: [px, py] });
           // A fragment that discards, or that writes no colour, leaves the pixel as it was.
           const color = fragment?.value;
           if (!color) continue;

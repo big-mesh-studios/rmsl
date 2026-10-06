@@ -11,11 +11,12 @@ import {
 import { AdapterResult, bufferToImageData, CpuAdapter, createCpuAdapter } from "../adapter-cpu";
 import type { CpuTextureData } from "../cpu";
 import { compileWasm, CompileWasmOptions, WasmRasterContext } from "./rasterizer";
-import { compileWasmCompute, compileWasmFragment, CompileWasmFnOptions } from "./wasm";
+import { fragmentColour } from "../shared";
+import { compileWasmCompute, compileWasmGrid, CompileWasmFnOptions } from "./wasm";
 
 export interface CreateWasmRoutineOptions {
-  /** A fragCoord() program, evaluated once per canvas pixel by `draw()`. */
-  draw: Node<ShaderType> | readonly Node<ShaderType>[];
+  /** A fragCoord() program that returns a colour, evaluated once per canvas pixel by `draw()`. */
+  draw: Node<ShaderType>;
   name?: string;
   params?: CompileWasmFnOptions["params"];
   derivatives?: CompileWasmFnOptions["derivatives"];
@@ -27,9 +28,9 @@ export interface CreateWasmRoutineOptions {
 }
 
 /**
- * Compiles a `fragCoord()` program with {@link compileWasmFragment} and
+ * Compiles a `fragCoord()` program with {@link compileWasmGrid} and
  * wraps it in a {@link createCpuAdapter} — a plain CPU-callable evaluated
- * once per pixel/sample via its routine's in-WASM `draw()` loop (`docs/wasm.md`'s
+ * once per pixel/sample via its grid's in-WASM `fill()` loop (`docs/wasm.md`'s
  * screen-pick/ray-march niche, or a `width x 1` per-sample audio-DSP
  * buffer), not a wgpu pipeline shape. See {@link createWasmCompute} for
  * the `storage()`/`invocationIndex()` shape and {@link createWasm} for
@@ -37,7 +38,7 @@ export interface CreateWasmRoutineOptions {
  * entry point rather than living as options here for the same reason.
  */
 export function createWasmRoutine(options: CreateWasmRoutineOptions): CpuAdapter {
-  const draw = compileWasmFragment(() => options.draw, {
+  const draw = compileWasmGrid(() => fragmentColour([options.draw])[0] as Node<"vec4">, {
     name: options.name ?? "draw",
     params: options.params ?? [],
     derivatives: options.derivatives,

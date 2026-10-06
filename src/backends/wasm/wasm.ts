@@ -4177,18 +4177,10 @@ export function instantiateWasmProgram(
   return { run, draw, compute, storageTypes };
 }
 
-/** Compiles an `Fn` to WASM and instantiates it in one step, for the stages and the grid to take what they give from. */
-export function compileWasmProgram(
-  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileWasmFnOptions,
-): CpuProgram {
-  return instantiateWasmProgram(compileWasmFn(fn, options), options.name, options.memory);
-}
-
 /**
- * Turns `compileWasmFn`'s output into a live function of a context, once: it
+ * Turns `compileWasmFn`'s output into a live function of a context: it
  * instantiates the `WebAssembly.Module` and returns its `run`, typed by the
- * type the program returns.
+ * type the program returns. Compile the program without a `stage`.
  */
 export function instantiateWasmRoutine<A extends ShaderType = ShaderType>(
   compiled: CompiledWasm,
@@ -4196,7 +4188,59 @@ export function instantiateWasmRoutine<A extends ShaderType = ShaderType>(
   externalMemory?: WebAssembly.Memory,
 ): CpuRoutine<A> {
   const program = instantiateWasmProgram(compiled, name, externalMemory);
-  return { run: (ctx) => program.run(ctx) as never };
+  return (ctx) => program.run(ctx) as never;
+}
+
+/** {@link instantiateWasmRoutine} for a program compiled with `stage: "vertex"`: a vertex stage. */
+export function instantiateWasmVertex(
+  compiled: CompiledWasm,
+  name: string,
+  externalMemory?: WebAssembly.Memory,
+): VertexStage {
+  const program = instantiateWasmProgram(compiled, name, externalMemory);
+  return (ctx) => toVertexResult(program.run(ctx));
+}
+
+/** {@link instantiateWasmRoutine} for a program compiled with `stage: "fragment"`: a fragment stage. */
+export function instantiateWasmFragment<R = unknown>(
+  compiled: CompiledWasm,
+  name: string,
+  externalMemory?: WebAssembly.Memory,
+): FragmentStage<R> {
+  const program = instantiateWasmProgram(compiled, name, externalMemory);
+  return (ctx) => toFragmentResult<R>(program.run(ctx));
+}
+
+/** {@link instantiateWasmRoutine} for a program compiled with `stage: "compute"`: a compute stage. */
+export function instantiateWasmCompute(
+  compiled: CompiledWasm,
+  name: string,
+  externalMemory?: WebAssembly.Memory,
+): ComputeStage {
+  const program = instantiateWasmProgram(compiled, name, externalMemory);
+  return Object.assign((ctx: CpuShaderContext, count: number) => program.compute(ctx, count), {
+    storageTypes: program.storageTypes ?? {},
+  });
+}
+
+/** {@link instantiateWasmRoutine} for a program of `fragCoord()`: a grid. */
+export function instantiateWasmGrid<A extends ShaderType = ShaderType>(
+  compiled: CompiledWasm,
+  name: string,
+  externalMemory?: WebAssembly.Memory,
+): CpuGrid<A> {
+  const program = instantiateWasmProgram(compiled, name, externalMemory);
+  return (ctx, width, height, out) => program.draw(ctx, width, height, out) as GridBuffer<A>;
+}
+
+/** What a compile function takes: the options of `compileWasmFn`, without the `stage` and `kind` the function names. */
+export type CompileWasmStageOptions = Omit<CompileWasmFnOptions, "stage" | "kind">;
+
+type WasmRoots = (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[];
+
+/** Compiles an `Fn` to WASM and instantiates it in one step, for the stages and the grid to take what they give from. */
+export function compileWasmProgram(fn: WasmRoots, options: CompileWasmFnOptions): CpuProgram {
+  return instantiateWasmProgram(compileWasmFn(fn, options), options.name, options.memory);
 }
 
 /**
@@ -4210,57 +4254,37 @@ export function compileWasmRoutine<A extends ShaderType>(
   fn: (...args: any[]) => Node<A>,
   options: CompileWasmStageOptions,
 ): CpuRoutine<A>;
-export function compileWasmRoutine(
-  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileWasmStageOptions,
-): CpuRoutine;
-export function compileWasmRoutine(
-  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileWasmStageOptions,
-): CpuRoutine {
-  const program = compileWasmProgram(fn, { ...options, kind: "routine" });
-  return { run: (ctx) => program.run(ctx) as never };
+export function compileWasmRoutine(fn: WasmRoots, options: CompileWasmStageOptions): CpuRoutine;
+export function compileWasmRoutine(fn: WasmRoots, options: CompileWasmStageOptions): CpuRoutine {
+  return instantiateWasmRoutine(compileWasmFn(fn, { ...options, kind: "routine" }), options.name, options.memory);
 }
 
-/** What a stage compile function takes: the options of a routine, without the stage, which the function names. */
-export type CompileWasmStageOptions = Omit<CompileWasmFnOptions, "stage" | "kind">;
-
-/** Compiles an `Fn` as a vertex stage: it returns the position, and the varyings it writes. */
-export function compileWasmVertex(
-  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileWasmStageOptions,
-): VertexStage {
-  const routine = compileWasmProgram(fn, { ...options, stage: "vertex" });
-  return { run: (ctx) => toVertexResult(routine.run(ctx)) };
+/** Compiles an `Fn` as a vertex stage: a function that returns the position and the varyings the program writes. */
+export function compileWasmVertex(fn: WasmRoots, options: CompileWasmStageOptions): VertexStage {
+  return instantiateWasmVertex(compileWasmFn(fn, { ...options, stage: "vertex" }), options.name, options.memory);
 }
 
-/** Compiles an `Fn` as a fragment stage: it returns the colour and the outputs it writes, or `null` for a discarded fragment. */
+/**
+ * Compiles an `Fn` as a fragment stage: a function that returns the colour and
+ * the members of the `outputStruct` the program returns, or `null` for a
+ * discarded fragment.
+ */
 export function compileWasmFragment<R extends Node<ShaderType>>(
   fn: (...args: any[]) => R,
   options: CompileWasmStageOptions,
 ): FragmentStage<R>;
-export function compileWasmFragment(
-  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileWasmStageOptions,
-): FragmentStage;
-export function compileWasmFragment(
-  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileWasmStageOptions,
-): FragmentStage {
-  const routine = compileWasmProgram(fn, { ...options, stage: "fragment" });
-  return {
-    run: (ctx) => toFragmentResult(routine.run(ctx)),
-    quad: (ctx, width, height, out) => routine.draw(ctx, width, height, out),
-  };
+export function compileWasmFragment(fn: WasmRoots, options: CompileWasmStageOptions): FragmentStage;
+export function compileWasmFragment(fn: WasmRoots, options: CompileWasmStageOptions): FragmentStage {
+  return instantiateWasmFragment(compileWasmFn(fn, { ...options, stage: "fragment" }), options.name, options.memory);
 }
 
-/** Compiles an `Fn` as a compute stage: it reads `invocationIndex()` and writes `storage()`, and returns nothing. */
-export function compileWasmCompute(
-  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileWasmStageOptions,
-): ComputeStage {
-  const routine = compileWasmProgram(fn, { ...options, stage: "compute" });
-  return { dispatch: (ctx, count) => routine.compute(ctx, count), storageTypes: routine.storageTypes ?? {} };
+/**
+ * Compiles an `Fn` as a compute stage: a function that runs the program once
+ * per index of a count, and returns nothing. It reads `invocationIndex()` and
+ * writes `storage()`, and its `storageTypes` name the buffers it reads.
+ */
+export function compileWasmCompute(fn: WasmRoots, options: CompileWasmStageOptions): ComputeStage {
+  return instantiateWasmCompute(compileWasmFn(fn, { ...options, stage: "compute" }), options.name, options.memory);
 }
 
 /** Compiles an `Fn` of `fragCoord()` as a grid: one result for each pixel, in a buffer the type of the result. */
@@ -4268,6 +4292,5 @@ export function compileWasmGrid<A extends ShaderType>(
   fn: (...args: any[]) => Node<A>,
   options: CompileWasmStageOptions,
 ): CpuGrid<A> {
-  const routine = compileWasmProgram(fn, { ...options, kind: "grid" });
-  return { fill: (ctx, width, height, out) => routine.draw(ctx, width, height, out) as GridBuffer<A> };
+  return instantiateWasmGrid<A>(compileWasmFn(fn, { ...options, kind: "grid" }), options.name, options.memory);
 }

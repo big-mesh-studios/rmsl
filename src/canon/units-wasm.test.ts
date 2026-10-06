@@ -91,7 +91,7 @@ describe("a CPU target's filter", () => {
         return tex.texture(vec2(0.5, 0.5)).x;
       })();
     const routine = compile(build as any, none);
-    const red = (texture: object) => routine.run({ textures: { [tex.name]: { ...texels, ...texture } } });
+    const red = (texture: object) => routine({ textures: { [tex.name]: { ...texels, ...texture } } });
     expect(red({ minFilter: "linear" })).toBe(100);
     expect(red({ magFilter: "linear", minFilter: "nearest" })).toBe(50);
   });
@@ -108,7 +108,7 @@ describe("a CPU target's storage buffers", () => {
         buffer.element(invocationIndex().mul(2)).assign(float(9));
       })();
     const data = new Float64Array([1, 2, 3, 4]);
-    compile(build as any, none).dispatch({ storages: { [buffer.name]: data } }, 2);
+    compile(build as any, none)({ storages: { [buffer.name]: data } }, 2);
     expect(Array.from(data)).toEqual([9, 2, 9, 4]);
   });
 
@@ -131,7 +131,7 @@ describe("a CPU target's storage buffers", () => {
         (target as ReturnType<typeof storage<"float">>).element(i).assign(source.element(i).mul(2));
       })();
     const data = new Float64Array([1, 2]);
-    compileWasmCompute(build as any, none).dispatch({ storages: { [storage(shared, "float").name]: data } }, 2);
+    compileWasmCompute(build as any, none)({ storages: { [storage(shared, "float").name]: data } }, 2);
     expect(Array.from(data)).toEqual([2, 4]);
   });
 });
@@ -282,8 +282,8 @@ describe("a WASM routine's results", () => {
       name: "main",
       params: [{ name: "a", type: "float" }],
     });
-    const first = routine.fill({ params: { a: 0.5 } }, 1, 1);
-    routine.fill({ params: { a: 100.5 } }, 1, 1);
+    const first = routine({ params: { a: 0.5 } }, 1, 1);
+    routine({ params: { a: 100.5 } }, 1, 1);
     expect(Array.from(first)).toEqual([0.5, 1.5]);
   });
 
@@ -296,7 +296,7 @@ describe("a WASM routine's results", () => {
         Discard();
         return float(1);
       })();
-    expect(compileWasmFragment(build, { ...none }).run({})).toBeNull();
+    expect(compileWasmFragment(build, { ...none })({})).toBeNull();
   });
 });
 
@@ -310,7 +310,7 @@ describe("an inline Fn whose value an operation reads more than once", () => {
     })() as any;
   const run = (compile: CompileCpuRoutine, build: () => any) => {
     const data = new Float64Array(1);
-    const result = compile(build, none).run({ storages: { [counter.name]: data } });
+    const result = compile(build, none)({ storages: { [counter.name]: data } });
     return { runs: data[0], result };
   };
 
@@ -370,7 +370,7 @@ describe("an inline Fn whose value an operation reads more than once", () => {
     const read = (branch: number) => {
       const data = new Float64Array(1);
       const out = new Float64Array(1);
-      compileWasmRoutine(build, none).run({
+      compileWasmRoutine(build, none)({
         storages: { [counter.name]: data, [result.name]: out },
         uniforms: { [taken.name]: branch },
       });
