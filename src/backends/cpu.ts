@@ -272,9 +272,13 @@ export function toVertexResult(raw: CpuValue<ShaderType> | CpuProgramResult | nu
   return { position, varyings: (wrapped && (raw.varyings as Record<string, unknown>)) || {} };
 }
 
+/** The outputs of a fragment that wrote none, which every such fragment shares: a per-pixel call allocates nothing for it. */
+const NO_OUTPUTS: unknown[] = Object.freeze([]) as unknown as unknown[];
+
 /** The values a routine wrote to its outputs, in the order of their locations. */
 function outputsInOrder(outputs: Record<string, unknown> | undefined): unknown[] {
-  return Object.keys(outputs ?? {})
+  if (outputs === undefined) return NO_OUTPUTS;
+  return Object.keys(outputs)
     .sort((a, b) => Number(a.replace(/\D/g, "")) - Number(b.replace(/\D/g, "")))
     .map((slot) => outputs![slot]);
 }
@@ -284,7 +288,7 @@ export function toFragmentResult<R>(raw: CpuValue<ShaderType> | CpuProgramResult
   if (raw === null) return null;
   const result: { value: number[] | undefined; outputs: unknown[]; fragDepth?: number } = isResultObject(raw)
     ? { value: Array.isArray(raw.value) ? (raw.value as number[]) : undefined, outputs: outputsInOrder(raw.outputs) }
-    : { value: Array.isArray(raw) ? (raw as number[]) : undefined, outputs: [] };
+    : { value: Array.isArray(raw) ? (raw as number[]) : undefined, outputs: NO_OUTPUTS };
   if (isResultObject(raw) && raw.fragDepth !== undefined) result.fragDepth = raw.fragDepth;
   return result as FragmentResult<R>;
 }
