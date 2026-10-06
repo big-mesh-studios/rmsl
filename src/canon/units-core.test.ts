@@ -4,6 +4,7 @@ import {
   attribute,
   float,
   Fn,
+  If,
   instancedArray,
   int,
   mix,
@@ -228,5 +229,52 @@ describe("the variable names of a program", () => {
     const data = new Float64Array(2);
     compile(build as any, none).run({ storages: { [out.name]: data } });
     expect(Array.from(data)).toEqual([2, 11]);
+  });
+});
+
+describe("what a program does with a node it reads more than once", () => {
+  /** A declaration of a generated name, such as the variable a shared computation would get. */
+  const generatedLocal = /\b(?:float|vec\d|int|uint|bool|let|var|const) _rmsl_\d+\b/;
+
+  /**
+   * @canon spec-a-node-that-is-already-a-name-is-read-where-it-is
+   */
+  it("gives a node that is already a name no variable of its own on GLSL, WGSL and JS", () => {
+    const build = () => {
+      const u = uniform("float");
+      const v = vec3(u, 2, 3);
+      return vec4(
+        u
+          .mul(u)
+          .add(v.x.mul(v.x))
+          .add(float(2).mul(float(2))),
+        0,
+        0,
+        1,
+      );
+    };
+    const { glsl, wgsl, js } = sources(build);
+    expect(glsl).not.toMatch(generatedLocal);
+    expect(wgsl).not.toMatch(generatedLocal);
+    expect(js).not.toMatch(generatedLocal);
+  });
+
+  /**
+   * @canon spec-a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in
+   */
+  it("computes a value read in both branches of an If in each, on every target", () => {
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const shared = a.sin().add(a.cos());
+        const r = float(0).toVar();
+        If(a.greaterThan(0), () => {
+          r.assign(shared);
+        }).Else(() => {
+          r.assign(shared.mul(10));
+        });
+        return r;
+      })();
+    expect(evaluateRecording(build, [1])).toBeCloseTo(Math.sin(1) + Math.cos(1), 10);
+    expect(evaluateRecording(build, [-1])).toBeCloseTo((Math.sin(-1) + Math.cos(-1)) * 10, 10);
   });
 });
