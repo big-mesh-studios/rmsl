@@ -2117,7 +2117,7 @@ export function compileJSFn(
 /** Copies a routine's result, arrays and the objects that hold them, so no scratch slot is shared. */
 function ownedValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(ownedValue);
-  if (typeof value === "object" && value !== null) {
+  if (typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Object.prototype) {
     return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, ownedValue(entry)]));
   }
   return value;
@@ -2140,6 +2140,18 @@ export function compileJSRoutine(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
 ): CpuRoutine {
+  return compileJSRoutineInPlace(fn, options).routine;
+}
+
+/**
+ * {@link compileJSRoutine}'s routine, with the call that skips the copy of
+ * `run`: its result lives in the scratch slots and the next call overwrites it.
+ * For a caller that reads each result at once, like the rasterizer.
+ */
+export function compileJSRoutineInPlace(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileJSOptions,
+): { routine: CpuRoutine; runInPlace: (ctx: CpuShaderContext) => number | boolean | CpuShaderResult } {
   const { source, resultType, storageTypes } = compileJSFnDetailed(fn, options);
   const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuShaderResult;
   const runScratch = factory();
@@ -2190,5 +2202,9 @@ export function compileJSRoutine(
     }
   }
 
-  return { run, draw, compute, storageTypes };
+  // A reentrant routine declares its variables per call, so nothing is shared to copy out of.
+  return {
+    routine: { run: options.reentrant ? runScratch : run, draw, compute, storageTypes },
+    runInPlace: runScratch,
+  };
 }

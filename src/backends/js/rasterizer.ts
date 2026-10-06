@@ -1,7 +1,7 @@
 import { Node, ShaderType } from "../../core";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK } from "../adapter";
 import { componentCountOf, CpuDrawBuffer, CpuShaderContext } from "../cpu";
-import { compileJSRoutine, CompileJSOptions } from "./js";
+import { compileJSRoutine, compileJSRoutineInPlace, CompileJSOptions } from "./js";
 
 /** Homogeneous-clip-space near-plane epsilon — see rasterizer.md's clip-pass design (`rasterizer.wat`'s `W_CLIP_EPS`). */
 const W_CLIP_EPS = 1e-5;
@@ -159,7 +159,7 @@ export function compileJS(
     derivatives: options.derivatives,
     reentrant: options.reentrant,
   });
-  const fragmentRoutine = compileJSRoutine(fragmentFn, {
+  const { runInPlace: runFragment } = compileJSRoutineInPlace(fragmentFn, {
     name: "frag",
     params: [],
     stage: "fragment",
@@ -295,7 +295,7 @@ export function compileJS(
             varyings[slot] = scale(perspSum, 1 / invW);
           }
 
-          const raw = fragmentRoutine.run({ varyings, uniforms, textures, fragCoord: [px, py] });
+          const raw = runFragment({ varyings, uniforms, textures, fragCoord: [px, py] });
           const color = ((isWrapped(raw) ? raw.value : raw) ?? 0) as Value;
           const base = pixelIndex * 4;
           if (typeof color === "number") result[base] = color;

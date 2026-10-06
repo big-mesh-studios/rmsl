@@ -259,6 +259,21 @@ describe("the WASM rasterizer's memory", () => {
   });
 });
 
+describe("a WASM routine's results", () => {
+  /**
+   * @canon spec-a-cpu-routine-answers-one-fragment-per-call
+   */
+  it("keeps the pixels a WASM routine drew when it draws again", () => {
+    const routine = compileWasmRoutine((a: any) => Fn(() => vec2(a, a.add(1)).toVar())(), {
+      name: "main",
+      params: [{ name: "a", type: "float" }],
+    });
+    const first = routine.draw({ params: { a: 0.5 } }, 1, 1);
+    routine.draw({ params: { a: 100.5 } }, 1, 1);
+    expect(Array.from(first)).toEqual([0.5, 1.5]);
+  });
+});
+
 describe("an inline Fn whose value an operation reads more than once", () => {
   const counter = instancedArray(1, "float");
   /** An inline `Fn` that counts its runs in `counter` and returns `value`. */
@@ -345,17 +360,5 @@ describe("an inline Fn whose value an operation reads more than once", () => {
    */
   it.each(cpuTargets)("%s: runs it once when mix takes it as the weight of every component", (_, compile) => {
     expect(run(compile, () => vec3(0, 0, 0).mix(vec3(4, 4, 4), counted(0.5)).z)).toEqual({ runs: 1, result: 2 });
-  });
-  /**
-   * @canon spec-a-cpu-routine-answers-one-fragment-per-call
-   */
-  it("keeps the pixels a WASM routine drew when it draws again", () => {
-    const routine = compileWasmRoutine((a: any) => Fn(() => vec2(a, a.add(1)).toVar())(), {
-      name: "main",
-      params: [{ name: "a", type: "float" }],
-    });
-    const first = routine.draw({ params: { a: 0.5 } }, 1, 1);
-    routine.draw({ params: { a: 100.5 } }, 1, 1);
-    expect(Array.from(first)).toEqual([0.5, 1.5]);
   });
 });
