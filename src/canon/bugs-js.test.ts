@@ -188,20 +188,6 @@ describe("known bugs of the JS target, each failing until its fix", () => {
   });
 
   /**
-   * On JS, a component-wise `select` calls its helper with no output
-   * argument, so the helper allocates its result on every call.
-   *
-   * @canon bug-js-select-allocates-its-result-per-call
-   */
-  it.fails("writes a component-wise select into an output argument on JS", () => {
-    const source = compileJSFn(
-      (a: any) => Fn(() => select(vec3(a, 1, -1).greaterThan(vec3(0, 0, 0)), vec3(1, 2, 3), vec3(4, 5, 6)).toVar())(),
-      param,
-    );
-    expect(source).not.toContain("_copy(_bselect(");
-  });
-
-  /**
    * On JS, sampling a cube map allocates an array for the face it picks on
    * every call.
    *

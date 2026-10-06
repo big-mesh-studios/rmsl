@@ -11,6 +11,7 @@ import {
   invocationIndex,
   ivec2,
   mat2,
+  select,
   smoothstep,
   outputStruct,
   uint,
@@ -543,5 +544,15 @@ describe("what a JS routine allocates per call", () => {
   it("computes a scalar smoothstep without a closure on JS", () => {
     const source = compileJSFn((a: any) => Fn(() => smoothstep(0, 1, a).toVar())(), param);
     expect(source).not.toMatch(/function\s*\(t\)/);
+  });
+  /**
+   * @canon spec-a-js-routine-allocates-nothing-per-call
+   */
+  it("writes a component-wise select into an output argument on JS", () => {
+    const source = compileJSFn(
+      (a: any) => Fn(() => select(vec3(a, 1, -1).greaterThan(vec3(0, 0, 0)), vec3(1, 2, 3), vec3(4, 5, 6)).toVar())(),
+      param,
+    );
+    expect(source).not.toContain("_copy(_bselect(");
   });
 });

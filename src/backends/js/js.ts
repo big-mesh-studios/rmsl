@@ -1479,10 +1479,12 @@ export function compileJSNode(
       // component, which JS has no operator for, so a helper walks the arrays.
       if (condType !== "bool") {
         jsRequireHelper(ctx, "bselect");
+        // The helper writes into a slot, the assignment's own or a hoisted one, so a call allocates nothing.
+        let target = ctx.outTarget ?? jsNewTemp(ctx, node._t);
         return {
           decls: [...cond.decls, ...a.decls, ...b.decls],
-          body: [...cond.body, ...a.body, ...b.body],
-          expr: `_bselect(${cond.expr}, ${a.expr}, ${b.expr})`,
+          body: [...cond.body, ...a.body, ...b.body, `_bselect(${cond.expr}, ${a.expr}, ${b.expr}, ${target});`],
+          expr: target,
         };
       }
       return {
