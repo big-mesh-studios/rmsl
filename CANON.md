@@ -608,7 +608,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug deserialize-accepts-unknown-and-unnamed-nodes`](#bug-deserialize-accepts-unknown-and-unnamed-nodes) — `deserialize` accepts a node type no node has, and a uniform with neither a slot nor a local name, and rebuilds a node from each.
 - [`@axiom the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing) — Code that runs once per frame, or once per call of a routine that runs every frame, allocates no memory.
   - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A JS [routine](#term-cpu-routine) keeps its variables in a scratch block outside the function. It writes vector results into them through helpers that take an output argument. With `reentrant`, it declares its variables inside the function.
-    - [`@bug js-allocates-a-vector-computed-outside-an-assignment`](#bug-js-allocates-a-vector-computed-outside-an-assignment) — On JS, a vector or matrix computed outside an assignment becomes a new array on every call. A matrix column is a copy made with `slice`, a scalar matrix goes through `_matDiag`, and a constant vector is an array literal.
   - [`@spec a-webgl-renderer-allocates-nothing-per-frame`](#spec-a-webgl-renderer-allocates-nothing-per-frame) — The WebGL renderer draws a frame without allocating. It reuses what it needs between frames, and builds no array, closure or iterator per frame or per draw.
     - [`@bug webgl-render-allocates-the-clear-colour-per-frame`](#bug-webgl-render-allocates-the-clear-colour-per-frame) — `render` reads the clear colour with `Color.toArray()`, which builds a new array on every frame.
     - [`@bug webgl-render-allocates-a-traversal-closure-per-frame`](#bug-webgl-render-allocates-a-traversal-closure-per-frame) — `render` builds a new callback for `traverseVisible` on every frame.
@@ -4157,12 +4156,6 @@ This does not follow from [running everywhere](#axiom-rmsl-runs-everywhere): a p
 ### @spec a-js-routine-allocates-nothing-per-call
 
 > A JS [routine](#term-cpu-routine) keeps its variables in a scratch block outside the function. It writes vector results into them through helpers that take an output argument. With `reentrant`, it declares its variables inside the function.
-
-#### @bug js-allocates-a-vector-computed-outside-an-assignment
-
-> On JS, a vector or matrix computed outside an assignment becomes a new array on every call. A matrix column is a copy made with `slice`, a scalar matrix goes through `_matDiag`, and a constant vector is an array literal.
-
-Issue: #86
 
 ### @spec a-webgl-renderer-allocates-nothing-per-frame
 

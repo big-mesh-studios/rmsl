@@ -176,18 +176,6 @@ describe("known bugs of the JS target, each failing until its fix", () => {
   });
 
   /**
-   * On JS, a vector or matrix computed outside an assignment is built as a new
-   * array on every call: a matrix column is copied with `slice`, a scalar
-   * matrix through `_matDiag`, and a constant vector as an array literal.
-   *
-   * @canon bug-js-allocates-a-vector-computed-outside-an-assignment
-   */
-  it.fails("reads a matrix column inside an expression without a copy on JS", () => {
-    const source = compileJSFn((a: any) => Fn(() => mat2(1, 2, 3, 4).toVar().element(a.toInt()).x)(), param);
-    expect(source).not.toContain(".slice(");
-  });
-
-  /**
    * The JS rasterizer shades a pixel centre on an edge two triangles share
    * with both, so the triangle drawn last wins it.
    *

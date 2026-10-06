@@ -664,6 +664,15 @@ export function jsRequireHelper(ctx: CompileCtx, name: string): void {
   ctx.jsHelpers.add(name);
 }
 
+/** A constant array, declared once beside the function and read from there, so reading it allocates nothing. */
+function jsConstant(ctx: CompileCtx, literal: string): string {
+  ctx.jsConstants ??= new Map();
+  for (const [name, text] of ctx.jsConstants) if (text === literal) return name;
+  const name = `_rmsl_k${ctx.jsConstants.size}`;
+  ctx.jsConstants.set(name, literal);
+  return name;
+}
+
 /** A fresh hoisted slot for an intermediate value, registered for preallocation. */
 export function jsNewTemp(ctx: CompileCtx, brand: string): string {
   let name = `_rmsl_t${ctx.nextId++}`;
@@ -724,16 +733,16 @@ function jsAssignable(node: any, ctx: CompileCtx): CompiledNode & { at(k: string
 /**
  * Compile an operand for a vector/matrix operation.
  *
- * In a plain expression (`outTarget` null) operands compile as expressions and
- * allocate. Under an assignment, an array-typed operand that itself computes
- * something needs its own scratch slot — the parent's helper writes into the
- * target while reading its operands, so an operand may never share that slot.
- * Leaves (variables, uniforms, literals) are references and need no slot.
+ * An array-typed operand that itself computes something needs its own scratch
+ * slot, in a plain expression as under an assignment: the parent's helper may
+ * write into its target while it reads its operands, so an operand may never
+ * share that slot, and a value that is not stored in one is a new array on every
+ * call. Leaves (variables, uniforms, constants) are references and need no slot.
  */
 export function jsCompileOperand(node: any, ctx: CompileCtx): CompiledNode {
   let saved = ctx.outTarget;
   let isArrayOp = jsIsArrayType(node?._t) && !isJSArrayLeaf(node);
-  if (ctx.outTarget && isArrayOp) {
+  if (isArrayOp) {
     let temp = jsNewTemp(ctx, node._t);
     ctx.outTarget = temp;
     let result = compileJSStage(node, ctx);
@@ -1158,7 +1167,7 @@ export function compileJSNode(
         let lines = values.map((v, i) => `${ctx.outTarget}[${i}] = ${JSON.stringify(v)};`);
         return { decls: [], body: lines, expr: ctx.outTarget };
       }
-      return { decls: [], body: [], expr: `[${values.map((v) => JSON.stringify(v)).join(", ")}]` };
+      return { decls: [], body: [], expr: jsConstant(ctx, `[${values.map((v) => JSON.stringify(v)).join(", ")}]`) };
     }
     case "void":
       return { decls: [], body: [], expr: "0" };
@@ -1194,11 +1203,9 @@ export function compileJSNode(
         if (params.length === 1 && (TYPE_WIDTH[params[0]?._t] ?? 1) <= 1) {
           let c = jsReadable(jsCompileOperand(params[0], ctx), params[0]?._t, ctx);
           let broadcast = jsComponentCast(c.expr, params[0]?._t, targetType);
-          if (ctx.outTarget) {
-            let writes = Array.from({ length: width }, (_, i) => `${ctx.outTarget}[${i}] = ${broadcast};`);
-            return { decls: c.decls, body: [...c.body, ...writes], expr: ctx.outTarget };
-          }
-          return { decls: c.decls, body: c.body, expr: `[${Array(width).fill(broadcast).join(", ")}]` };
+          let target = ctx.outTarget ?? jsNewTemp(ctx, targetType);
+          let writes = Array.from({ length: width }, (_, i) => `${target}[${i}] = ${broadcast};`);
+          return { decls: c.decls, body: [...c.body, ...writes], expr: target };
         }
         // Vector construct: expand every operand's components into one array.
         let compiled = params.map((p: BaseNode<ShaderType>) => {
@@ -1217,11 +1224,9 @@ export function compileJSNode(
         }
         while (pieces.length < width) pieces.push("0");
         pieces = pieces.slice(0, width);
-        if (ctx.outTarget) {
-          let writes = pieces.map((piece, i) => `${ctx.outTarget}[${i}] = ${piece};`);
-          return { decls, body: [...body, ...writes], expr: ctx.outTarget };
-        }
-        return { decls, body, expr: `[${pieces.join(", ")}]` };
+        let target = ctx.outTarget ?? jsNewTemp(ctx, targetType);
+        let writes = pieces.map((piece, i) => `${target}[${i}] = ${piece};`);
+        return { decls, body: [...body, ...writes], expr: target };
       }
       let shape = MATRIX_DIMENSIONS[targetType];
       if (shape) {
@@ -1232,29 +1237,24 @@ export function compileJSNode(
           if (MATRIX_DIMENSIONS[src?._t] !== undefined) {
             // A matrix source: copy (or truncate/extend through the same shape).
             let c = compileJSStage(src, ctx);
-            if (ctx.outTarget) {
-              jsRequireHelper(ctx, "copy");
-              return { decls: c.decls, body: [...c.body, `_copy(${c.expr}, ${ctx.outTarget});`], expr: ctx.outTarget };
-            }
-            return { decls: c.decls, body: c.body, expr: `${c.expr}.slice()` };
+            let target = ctx.outTarget ?? jsNewTemp(ctx, targetType);
+            jsRequireHelper(ctx, "copy");
+            return { decls: c.decls, body: [...c.body, `_copy(${c.expr}, ${target});`], expr: target };
           }
           // A scalar source: the diagonal. Zero the whole slot first — it is a
           // hoisted slot and could carry stale off-diagonal values from a
           // previous call.
           let s = compileJSStage(src, ctx);
-          if (ctx.outTarget) {
-            let zeroAll = Array(size)
-              .fill(0)
-              .map((_, i) => `${ctx.outTarget}[${i}] = 0;`);
-            let diag: string[] = [];
-            for (let col = 0; col < cols; col++)
-              for (let row = 0; row < rows; row++) {
-                if (col === row) diag.push(`${ctx.outTarget}[${col * rows + row}] = ${s.expr};`);
-              }
-            return { decls: s.decls, body: [...s.body, ...zeroAll, ...diag], expr: ctx.outTarget };
-          }
-          jsRequireHelper(ctx, "matDiag");
-          return { decls: s.decls, body: s.body, expr: `_matDiag(${s.expr}, ${size}, ${rows + 1})` };
+          let target = ctx.outTarget ?? jsNewTemp(ctx, targetType);
+          let zeroAll = Array(size)
+            .fill(0)
+            .map((_, i) => `${target}[${i}] = 0;`);
+          let diag: string[] = [];
+          for (let col = 0; col < cols; col++)
+            for (let row = 0; row < rows; row++) {
+              if (col === row) diag.push(`${target}[${col * rows + row}] = ${s.expr};`);
+            }
+          return { decls: s.decls, body: [...s.body, ...zeroAll, ...diag], expr: target };
         }
         // Column-wise construction: each param is one column vector.
         let compiled = (node.params ?? []).map((p: BaseNode<ShaderType>) =>
@@ -1709,18 +1709,12 @@ export function compileJSNode(
       let brand = node.params![0]?._t;
       let [, rows] = MATRIX_DIMENSIONS[brand];
       let matExpr = (mat.prec ?? PREC_ATOM) < PREC_ATOM ? `(${mat.expr})` : mat.expr;
-      if (ctx.outTarget) {
-        let lines = Array.from(
-          { length: rows },
-          (_, row) => `${ctx.outTarget}[${row}] = ${matExpr}[(${idx.expr}) * ${rows} + ${row}];`,
-        );
-        return { decls: [...mat.decls, ...idx.decls], body: [...mat.body, ...idx.body, ...lines], expr: ctx.outTarget };
-      }
-      return {
-        decls: [...mat.decls, ...idx.decls],
-        body: [...mat.body, ...idx.body],
-        expr: `${matExpr}.slice((${idx.expr}) * ${rows}, (${idx.expr}) * ${rows} + ${rows})`,
-      };
+      let target = ctx.outTarget ?? jsNewTemp(ctx, node._t);
+      let lines = Array.from(
+        { length: rows },
+        (_, row) => `${target}[${row}] = ${matExpr}[(${idx.expr}) * ${rows} + ${row}];`,
+      );
+      return { decls: [...mat.decls, ...idx.decls], body: [...mat.body, ...idx.body, ...lines], expr: target };
     }
 
     case "vectorElement": {
@@ -2079,7 +2073,15 @@ function compileJSFnDetailed(
   };
 
   assertOneDeclarationPerName(resultNodes);
-  const compiledList = resultNodes.map((n) => compileJSStage(n, ctx));
+  // The value of the function is written into a hoisted slot too, so a vector or a matrix result allocates nothing.
+  const compiledList = resultNodes.map((n, i) => {
+    if (i !== resultNodes.length - 1 || !jsIsArrayType((n as any)?._t) || isJSArrayLeaf(n))
+      return compileJSStage(n, ctx);
+    ctx.outTarget = jsNewTemp(ctx, (n as any)._t);
+    const compiled = compileJSStage(n, ctx);
+    ctx.outTarget = null;
+    return compiled;
+  });
   const lastCompiled = compiledList[compiledList.length - 1];
   const lastType = (resultNodes[resultNodes.length - 1] as any)?._t;
   if (options.stage !== undefined) assertStageResult(stage, lastType, ctx.positionWritten, ctx.outputs.size > 0);
@@ -2114,7 +2116,10 @@ function compileJSFnDetailed(
     .map((name) => jsHelperSource(name))
     .join("\n\n");
 
+  let constants = [...(ctx.jsConstants ?? [])].map(([name, literal]) => `const ${name} = ${literal};`).join("\n");
+
   let parts: string[] = [];
+  if (constants) parts.push(constants);
   if (scratch) parts.push(scratch);
   if (helpers) parts.push(helpers);
   parts.push(`return function ${options.name}(ctx) {\n${body.map((l) => "  " + l).join("\n")}\n};`);

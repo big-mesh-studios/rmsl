@@ -596,4 +596,36 @@ describe("what a JS routine allocates per call", () => {
     expect(squared({ params: { a: 3 } })).toEqual([9, 0, 4, 1]);
     expect(squared({ params: { a: 2 } })).toEqual([4, 0, 3, 1]);
   });
+  /**
+   * @canon spec-a-js-routine-allocates-nothing-per-call
+   */
+  it("reads a matrix column inside an expression without a copy on JS", () => {
+    const source = compileJSFn((a: any) => Fn(() => mat2(1, 2, 3, 4).toVar().element(a.toInt()).x)(), param);
+    expect(source).not.toContain(".slice(");
+  });
+
+  /**
+   * @canon spec-a-js-routine-allocates-nothing-per-call
+   */
+  it("reads the values of what it no longer allocates", () => {
+    const run = compileJSRoutine(
+      (a: any) =>
+        Fn(() => {
+          const m = mat2(vec2(a, 2), vec2(3, 4)).toVar();
+          const diag = mat2(a).toVar();
+          const broadcast = vec3(a).toVar();
+          const built = vec3(a, 1, 2).toVar();
+          return m
+            .element(1)
+            .y.add(diag.element(0).x)
+            .add(broadcast.y)
+            .add(built.z)
+            .add(vec3(1, 2, 3).y);
+        })(),
+      param,
+    );
+    // 4 (column 1, y) + 5 (the diagonal) + 5 (broadcast) + 2 (built) + 2 (constant).
+    expect(run({ params: { a: 5 } })).toBe(18);
+    expect(run({ params: { a: 1 } })).toBe(10);
+  });
 });
