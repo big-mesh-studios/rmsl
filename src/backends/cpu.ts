@@ -206,3 +206,68 @@ export type CompileCpuRoutine = (
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: { name: string; params: Array<{ name: string; type: ShaderType }> },
 ) => CpuRoutine;
+
+/** What a vertex stage hands on: its position, and the varyings the fragment stage reads, by slot. */
+export type VertexResult = {
+  position: number[];
+  varyings: Record<string, unknown>;
+};
+
+/**
+ * What a fragment stage writes for one fragment: its colour as the four
+ * channels of a `vec4`, which is undefined for a stage that writes no colour,
+ * the values it wrote with `output()` by slot, and the depth it wrote.
+ */
+export type FragmentResult = {
+  value: number[] | undefined;
+  outputs: Record<string, unknown>;
+  fragDepth?: number;
+};
+
+/** A compiled vertex program, run once per vertex. */
+export type VertexStage = {
+  run(ctx: CpuShaderContext): VertexResult;
+};
+
+/** A compiled fragment program, run once per fragment. `null` is a fragment that discarded. */
+export type FragmentStage = {
+  run(ctx: CpuShaderContext): FragmentResult | null;
+};
+
+/** A compiled compute program, run once per index of a dispatch. */
+export type ComputeStage = {
+  /**
+   * Runs the program once per index in `0..count`, in index order, with
+   * `invocationIndex()` reading that index, and leaves the results in
+   * `ctx.storages`. It returns nothing.
+   */
+  dispatch(ctx: CpuShaderContext, count: number): void;
+  /** The shader type of one element of each storage buffer the program reads, by slot. */
+  storageTypes: Readonly<Record<string, ShaderType>>;
+};
+
+const isResultObject = (raw: unknown): raw is CpuShaderResult =>
+  typeof raw === "object" && raw !== null && !Array.isArray(raw);
+
+/** The {@link VertexResult} of what a routine compiled for the vertex stage returned. */
+export function toVertexResult(raw: CpuValue<ShaderType> | CpuShaderResult): VertexResult {
+  // A vertex stage that never writes the position itself has its `vec4` result become the position.
+  const wrapped = isResultObject(raw);
+  const position = (wrapped ? (raw.position ?? raw.value) : raw) as number[] | undefined;
+  if (!position) {
+    throw new Error("[RMSL] A vertex stage never wrote a position, with builtinPosition() or a vec4 result.");
+  }
+  return { position, varyings: (wrapped && (raw.varyings as Record<string, unknown>)) || {} };
+}
+
+/** The {@link FragmentResult} of what a routine compiled for the fragment stage returned, `null` when it discarded. */
+export function toFragmentResult(raw: CpuValue<ShaderType> | CpuShaderResult | null): FragmentResult | null {
+  if (raw === null) return null;
+  if (!isResultObject(raw)) return { value: Array.isArray(raw) ? (raw as number[]) : undefined, outputs: {} };
+  const result: FragmentResult = {
+    value: Array.isArray(raw.value) ? (raw.value as number[]) : undefined,
+    outputs: raw.outputs ?? {},
+  };
+  if (raw.fragDepth !== undefined) result.fragDepth = raw.fragDepth;
+  return result;
+}

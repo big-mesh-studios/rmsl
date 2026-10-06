@@ -6,6 +6,13 @@ import {
   CpuShaderResult,
   CpuStageRoutine,
   CpuValue,
+  ComputeStage,
+  FragmentResult,
+  FragmentStage,
+  VertexResult,
+  VertexStage,
+  toFragmentResult,
+  toVertexResult,
   componentCountOf,
   componentKindOf,
   elementKindOf,
@@ -2229,4 +2236,52 @@ export function compileJSRoutine(
 
   // A reentrant routine declares its variables per call, so nothing is shared to copy out of.
   return { run, runInPlace: runScratch, draw, compute, storageTypes };
+}
+
+/** What a stage compile function takes: the options of a routine, without the stage, which the function names. */
+export type CompileJSStageOptions = Omit<CompileJSOptions, "stage">;
+
+/** A JS vertex stage, and the call that skips the copy of `run`. */
+export interface JsVertexStage extends VertexStage {
+  /** Like `run`, but the arrays of the result live in the scratch slots the next call overwrites. */
+  runInPlace(ctx: CpuShaderContext): VertexResult;
+}
+
+/** A JS fragment stage, and the call that skips the copy of `run`. */
+export interface JsFragmentStage extends FragmentStage {
+  /** Like `run`, but the arrays of the result live in the scratch slots the next call overwrites. */
+  runInPlace(ctx: CpuShaderContext): FragmentResult | null;
+}
+
+/** Compiles an `Fn` as a vertex stage: it returns the position, and the varyings it writes. */
+export function compileJSVertex(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileJSStageOptions,
+): JsVertexStage {
+  const routine = compileJSRoutine(fn, { ...options, stage: "vertex" });
+  return {
+    run: (ctx) => toVertexResult(routine.run(ctx)),
+    runInPlace: (ctx) => toVertexResult(routine.runInPlace(ctx)),
+  };
+}
+
+/** Compiles an `Fn` as a fragment stage: it returns the colour and the outputs it writes, or `null` for a discarded fragment. */
+export function compileJSFragment(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileJSStageOptions,
+): JsFragmentStage {
+  const routine = compileJSRoutine(fn, { ...options, stage: "fragment" });
+  return {
+    run: (ctx) => toFragmentResult(routine.run(ctx) as CpuShaderResult | null),
+    runInPlace: (ctx) => toFragmentResult(routine.runInPlace(ctx) as CpuShaderResult | null),
+  };
+}
+
+/** Compiles an `Fn` as a compute stage: it reads `invocationIndex()` and writes `storage()`, and returns nothing. */
+export function compileJSCompute(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileJSStageOptions,
+): ComputeStage {
+  const routine = compileJSRoutine(fn, { ...options, stage: "compute" });
+  return { dispatch: (ctx, count) => routine.compute(ctx, count), storageTypes: routine.storageTypes ?? {} };
 }

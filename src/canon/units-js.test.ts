@@ -2,19 +2,32 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   attribute,
   builtinPosition,
+  Discard,
   Fn,
   float,
   fragCoord,
+  instancedArray,
+  invocationIndex,
   mat2,
+  output,
   uint,
   uniform,
+  varying,
   vec2,
   vec3,
   vec4,
   type Node,
 } from "../rmsl";
 import type { CompileCpuRoutine } from "../backends/cpu";
-import { compileJS, compileJSFn, compileJSRoutine, createJsRoutine } from "../js";
+import {
+  compileJS,
+  compileJSCompute,
+  compileJSFn,
+  compileJSFragment,
+  compileJSRoutine,
+  compileJSVertex,
+  createJsRoutine,
+} from "../js";
 import { compileWasm, compileWasmRoutine, createWasmRoutine } from "../wasm";
 import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } from "../testing/shader-eval";
 
@@ -298,5 +311,98 @@ describe("a JS routine's results", () => {
     (first as number[])[0] = 9;
     expect(passed).toEqual([1, 2, 3]);
     expect(routine.run({ uniforms: { [input.name]: passed } })).toEqual([1, 2, 3]);
+  });
+});
+
+describe("a JS stage's result", () => {
+  /**
+   * @canon spec-a-vertex-stage-returns-its-position-and-varyings
+   */
+  it("returns the position and the varyings a vertex stage writes", () => {
+    const place = attribute("vec3");
+    const tint = varying("vec2");
+    const stage = compileJSVertex(
+      () =>
+        Fn(() => {
+          tint.assign(vec2(place.x, place.y));
+          builtinPosition().assign(vec4(place, 1));
+        })(),
+      none,
+    );
+    const result = stage.run({ attributes: { [place.name]: [1, 2, 3] } });
+    expect(result.position).toEqual([1, 2, 3, 1]);
+    expect(Object.values(result.varyings)).toEqual([[1, 2]]);
+  });
+
+  /**
+   * @canon spec-a-vertex-stage-returns-its-position-and-varyings
+   */
+  it("returns the vec4 a vertex stage returns as its position, with no varyings", () => {
+    const place = attribute("vec3");
+    const stage = compileJSVertex(() => Fn(() => vec4(place, 1))(), none);
+    expect(stage.run({ attributes: { [place.name]: [1, 2, 3] } })).toEqual({ position: [1, 2, 3, 1], varyings: {} });
+  });
+
+  /**
+   * @canon spec-a-fragment-stage-returns-its-colour-and-outputs
+   */
+  it("returns the colour of a fragment stage as a vec4, a vec3 with an opaque alpha", () => {
+    expect(compileJSFragment(() => Fn(() => vec4(1, 2, 3, 4))(), none).run({})).toEqual({
+      value: [1, 2, 3, 4],
+      outputs: {},
+    });
+    expect(compileJSFragment(() => Fn(() => vec3(1, 2, 3))(), none).run({})).toEqual({
+      value: [1, 2, 3, 1],
+      outputs: {},
+    });
+  });
+
+  /**
+   * @canon spec-a-fragment-stage-returns-its-colour-and-outputs
+   */
+  it("returns the outputs a fragment stage writes, and no colour when it declares one", () => {
+    const stage = compileJSFragment(
+      () =>
+        Fn(() => {
+          output("float").assign(float(7));
+        })(),
+      none,
+    );
+    const result = stage.run({});
+    expect(result?.value).toBeUndefined();
+    expect(Object.values(result?.outputs ?? {})).toEqual([7]);
+  });
+
+  /**
+   * @canon spec-a-fragment-stage-returns-its-colour-and-outputs
+   */
+  it("returns null for a fragment that discards", () => {
+    const stage = compileJSFragment(
+      () =>
+        Fn(() => {
+          Discard();
+          return vec4(1, 2, 3, 4);
+        })(),
+      none,
+    );
+    expect(stage.run({})).toBeNull();
+  });
+
+  /**
+   * @canon spec-a-compute-stage-dispatches-and-returns-nothing
+   */
+  it("dispatches a compute stage over its indices and names the storage it reads", () => {
+    const buffer = instancedArray(4, "float");
+    const stage = compileJSCompute(
+      () =>
+        Fn(() => {
+          buffer.element(invocationIndex().mul(2)).assign(float(9));
+        })(),
+      none,
+    );
+    const data = new Float64Array([1, 2, 3, 4]);
+    expect(stage.dispatch({ storages: { [buffer.name]: data } }, 2)).toBeUndefined();
+    expect(Array.from(data)).toEqual([9, 2, 9, 4]);
+    expect(stage.storageTypes[buffer.name]).toBe("float");
   });
 });
