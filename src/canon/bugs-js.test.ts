@@ -79,7 +79,10 @@ describe("known bugs of the JS target, each failing until its fix", () => {
       })();
     const runs = (branch: number) => {
       const data = new Float64Array(1);
-      compileJSRoutine(build as any, none)({
+      compileJSRoutine(
+        build as any,
+        none,
+      )({
         storages: { [counter.name]: data, [result.name]: new Float64Array(1) },
         uniforms: { [taken.name]: branch },
       });
@@ -170,16 +173,6 @@ describe("known bugs of the JS target, each failing until its fix", () => {
     const items = uniformArray("float", 4);
     const run = compileJSRoutine((a: any) => Fn(() => items.element(a.toInt()).add(0).toVar())(), param);
     expect(run({ params: { a: 9 }, uniforms: { [items.name]: [1, 2, 3, 4] } })).toBe(4);
-  });
-
-  /**
-   * A scalar `smoothstep` on JS builds a closure on every call.
-   *
-   * @canon bug-js-smoothstep-allocates-a-closure-per-call
-   */
-  it.fails("computes a scalar smoothstep without a closure on JS", () => {
-    const source = compileJSFn((a: any) => Fn(() => smoothstep(0, 1, a).toVar())(), param);
-    expect(source).not.toMatch(/function\s*\(t\)/);
   });
 
   /**

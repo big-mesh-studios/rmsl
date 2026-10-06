@@ -169,11 +169,7 @@ export const JS_ELEM: Record<string, { argc: number; fn: (xs: string[]) => strin
   step: { argc: 2, fn: (xs) => `${xs[1]} < ${xs[0]} ? 0 : 1` },
   clamp: { argc: 3, fn: (xs) => `Math.min(Math.max(${xs[0]}, ${xs[1]}), ${xs[2]})` },
   mix: { argc: 3, fn: (xs) => `${xs[0]} + ${xs[2]} * (${xs[1]} - ${xs[0]})` },
-  smoothstep: {
-    argc: 3,
-    fn: (xs) =>
-      `(function(t){ return t * t * (3 - 2 * t); })(Math.min(Math.max((${xs[2]} - ${xs[0]}) / (${xs[1]} - ${xs[0]}), 0), 1))`,
-  },
+  smoothstep: { argc: 3, fn: (xs) => `_smoothstep(${xs[0]}, ${xs[1]}, ${xs[2]})` },
   neg: { argc: 1, fn: (xs) => `-${xs[0]}` },
   ineg: { argc: 1, fn: (xs) => `-${xs[0]} | 0` },
   iabs: { argc: 1, fn: (xs) => `Math.abs(${xs[0]}) | 0` },
@@ -363,6 +359,8 @@ export function jsHelperSource(name: string): string {
   }
 
   switch (name) {
+    case "smoothstep":
+      return `function _smoothstep(e0, e1, x) {\n  let t = Math.min(Math.max((x - e0) / (e1 - e0), 0), 1);\n  return t * t * (3 - 2 * t);\n}`;
     case "idiv":
       return `function _idiv(a, b) {\n  return b === 0 || (a === -2147483648 && b === -1) ? a : (a / b) | 0;\n}`;
     case "imod":
@@ -867,7 +865,8 @@ export function jsScalarBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: 
       expr = `(${jsOperand(a)} + ${jsOperand(c!)} * (${jsOperand(b)} - ${jsOperand(a)}))`;
       break;
     case "smoothstep":
-      expr = `(function(t){ return t * t * (3 - 2 * t); })(Math.min(Math.max((${jsOperand(c!)} - ${jsOperand(a)}) / (${jsOperand(b)} - ${jsOperand(a)}), 0), 1))`;
+      jsRequireHelper(ctx, "smoothstep");
+      expr = `_smoothstep(${a.expr}, ${b.expr}, ${c!.expr})`;
       break;
     default:
       throw new Error(`[RMSL] Unknown JS scalar op: ${op}`);
@@ -881,7 +880,7 @@ export function jsVectorBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: 
   let c = node.params![2] ? jsCompileOperand(node.params![2], ctx) : null;
   jsRequireHelper(ctx, `v${width}${op}`);
   // The element-wise integer division helpers call the scalar ones.
-  if (op === "idiv" || op === "imod" || op === "udiv" || op === "umod") jsRequireHelper(ctx, op);
+  if (op === "idiv" || op === "imod" || op === "udiv" || op === "umod" || op === "smoothstep") jsRequireHelper(ctx, op);
   let args = c ? `${a.expr}, ${b.expr}, ${c.expr}` : `${a.expr}, ${b.expr}`;
   let decls = [...a.decls, ...b.decls, ...(c ? c.decls : [])];
   let body = [...a.body, ...b.body, ...(c ? c.body : [])];

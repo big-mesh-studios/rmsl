@@ -11,6 +11,7 @@ import {
   invocationIndex,
   ivec2,
   mat2,
+  smoothstep,
   outputStruct,
   uint,
   textureLoad,
@@ -530,5 +531,17 @@ describe("an adapter of a routine", () => {
     const adapter = create(Fn(() => textureLoad(tex, ivec2(1, 0)).x)(), none);
     adapter.setTexture(tex, { data: [10, 99], width: 2, height: 1, channels: 1 });
     expect(adapter.run()).toBe(99);
+  });
+});
+
+describe("what a JS routine allocates per call", () => {
+  const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
+
+  /**
+   * @canon spec-a-js-routine-allocates-nothing-per-call
+   */
+  it("computes a scalar smoothstep without a closure on JS", () => {
+    const source = compileJSFn((a: any) => Fn(() => smoothstep(0, 1, a).toVar())(), param);
+    expect(source).not.toMatch(/function\s*\(t\)/);
   });
 });

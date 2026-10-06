@@ -608,7 +608,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug deserialize-accepts-unknown-and-unnamed-nodes`](#bug-deserialize-accepts-unknown-and-unnamed-nodes) — `deserialize` accepts a node type no node has, and a uniform with neither a slot nor a local name, and rebuilds a node from each.
 - [`@axiom the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing) — Code that runs once per frame, or once per call of a routine that runs every frame, allocates no memory.
   - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A JS [routine](#term-cpu-routine) keeps its variables in a scratch block outside the function. It writes vector results into them through helpers that take an output argument. With `reentrant`, it declares its variables inside the function.
-    - [`@bug js-smoothstep-allocates-a-closure-per-call`](#bug-js-smoothstep-allocates-a-closure-per-call) — A scalar `smoothstep` on JS builds a closure on every call.
     - [`@bug js-allocates-a-vector-computed-outside-an-assignment`](#bug-js-allocates-a-vector-computed-outside-an-assignment) — On JS, a vector or matrix computed outside an assignment becomes a new array on every call. A matrix column is a copy made with `slice`, a scalar matrix goes through `_matDiag`, and a constant vector is an array literal.
     - [`@bug js-select-allocates-its-result-per-call`](#bug-js-select-allocates-its-result-per-call) — On JS, a component-wise `select` calls its helper with no output argument, so the helper allocates its result on every call.
     - [`@bug js-cube-map-allocates-its-face-per-call`](#bug-js-cube-map-allocates-its-face-per-call) — On JS, sampling a cube map allocates an array for the face it picks on every call.
@@ -4161,12 +4160,6 @@ This does not follow from [running everywhere](#axiom-rmsl-runs-everywhere): a p
 ### @spec a-js-routine-allocates-nothing-per-call
 
 > A JS [routine](#term-cpu-routine) keeps its variables in a scratch block outside the function. It writes vector results into them through helpers that take an output argument. With `reentrant`, it declares its variables inside the function.
-
-#### @bug js-smoothstep-allocates-a-closure-per-call
-
-> A scalar `smoothstep` on JS builds a closure on every call.
-
-Issue: #86
 
 #### @bug js-allocates-a-vector-computed-outside-an-assignment
 
