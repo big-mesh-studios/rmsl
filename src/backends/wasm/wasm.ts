@@ -1056,7 +1056,23 @@ export function compileWasmFn(
         ]
       : storeDynamic(destAddr(0), drawComponentKind, callMain);
     /** The whole per-pixel body: write fragCoord for this pixel, then run main() and copy its result out. */
-    const perPixel = [...writeFragCoord, ...copyResult];
+    // A discarded pixel leaves its value memory as it was, so each pixel starts from zero
+    // and a clear flag: a pixel that discards then holds zero in every channel.
+    const startPixel =
+      discardAddress === undefined || valueAddress === undefined
+        ? []
+        : [
+            ...storeComponent(discardAddress, "int", 0, i32ConstBytes(0)),
+            ...Array.from({ length: drawComponentCount }, (_, k) =>
+              storeComponent(
+                valueAddress!,
+                drawComponentKind,
+                k * compSize,
+                drawComponentKind === "float" ? f64ConstBytes(0) : i32ConstBytes(0),
+              ),
+            ).flat(),
+          ];
+    const perPixel = [...writeFragCoord, ...startPixel, ...copyResult];
     /** `for (x = 0; x < width; x++) perPixel();`, one row. */
     const innerLoop = forLoop(xIdx, i32ConstBytes(0), iGeS(local(xIdx), local(widthIdx)), perPixel, i32ConstBytes(1));
     /** `for (y = 0; y < height; y++) innerLoop();` — the whole pixel grid. */
@@ -4198,7 +4214,10 @@ export function compileWasmFragment(
   options: CompileWasmStageOptions,
 ): FragmentStage {
   const routine = compileWasmRoutine(fn, { ...options, stage: "fragment" });
-  return { run: (ctx) => toFragmentResult(routine.run(ctx)) };
+  return {
+    run: (ctx) => toFragmentResult(routine.run(ctx)),
+    quad: (ctx, width, height, out) => routine.draw(ctx, width, height, out),
+  };
 }
 
 /** Compiles an `Fn` as a compute stage: it reads `invocationIndex()` and writes `storage()`, and returns nothing. */

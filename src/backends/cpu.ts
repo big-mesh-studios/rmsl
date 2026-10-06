@@ -232,6 +232,16 @@ export type VertexStage = {
 /** A compiled fragment program, run once per fragment. `null` is a fragment that discarded. */
 export type FragmentStage = {
   run(ctx: CpuShaderContext): FragmentResult | null;
+  /**
+   * Runs the program once for each pixel of a `width x height` grid, with
+   * `fragCoord()` at the centre of each pixel, and packs the colours into one
+   * flat row-major buffer: a full-screen pass, with no triangles to rasterize.
+   * Every other input, uniforms and textures included, is the same for every
+   * pixel. A pixel that discards is zero in every channel. The buffer is the
+   * caller's: a later `quad` does not change it. Pass `out` to fill a buffer
+   * of your own instead.
+   */
+  quad(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer;
 };
 
 /** A compiled compute program, run once per index of a dispatch. */

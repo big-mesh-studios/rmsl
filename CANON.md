@@ -533,6 +533,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cpu-routine-returns-its-value-or-a-result`](#spec-a-cpu-routine-returns-its-value-or-a-result) — A CPU routine returns the value its program returns, the last of several, as it is. When the program writes an output, a varying, the position or the depth, it returns a result object that holds them with the value. A discarded fragment returns `null`.
     - [`@spec a-vertex-stage-returns-its-position-and-varyings`](#spec-a-vertex-stage-returns-its-position-and-varyings) — `compileJSVertex` and `compileWasmVertex` give a stage whose `run` returns an object that holds the position, a `vec4`, and the varyings the program wrote, by slot. A vertex stage that never writes the position itself returns its `vec4` result as the position.
     - [`@spec a-fragment-stage-returns-its-colour-and-outputs`](#spec-a-fragment-stage-returns-its-colour-and-outputs) — `compileJSFragment` and `compileWasmFragment` give a stage whose `run` returns an object that holds the colour, a `vec4`, and the outputs the program wrote, by slot, and the depth when it wrote one. A stage that declares an output has no colour, which is undefined. A fragment that discards returns `null`.
+    - [`@spec a-fragment-stage-draws-a-grid-with-quad`](#spec-a-fragment-stage-draws-a-grid-with-quad) — `quad` of a fragment stage runs the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel, and packs the colours into one row-major buffer. Every pixel of the grid is shaded, with no triangle to rasterize.
     - [`@spec a-compute-stage-dispatches-and-returns-nothing`](#spec-a-compute-stage-dispatches-and-returns-nothing) — `compileJSCompute` and `compileWasmCompute` give a stage whose `dispatch` runs the program once per index of a count, in index order, and returns nothing. The stage names the type of each storage buffer the program reads.
     - [`@spec a-cpu-routine-answers-one-fragment-per-call`](#spec-a-cpu-routine-answers-one-fragment-per-call) — `run` of a CPU routine evaluates the program once, for the context the host passes. The same routine serves any number of calls, and a value one call returned keeps what it holds through the calls after it.
     - [`@spec a-cpu-routine-draws-a-grid-of-fragments`](#spec-a-cpu-routine-draws-a-grid-of-fragments) — `draw` of a CPU routine evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to draw.
@@ -580,7 +581,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec render-draws-the-only-output-of-a-program-that-returns-nothing`](#spec-render-draws-the-only-output-of-a-program-that-returns-nothing) — `render` draws the output a fragment writes when the program returns no value and writes exactly one output.
         - [`@bug render-draws-zero-for-a-program-that-writes-one-output`](#bug-render-draws-zero-for-a-program-that-writes-one-output) — The JS routine gives a program that returns nothing the value `0`, so `render` draws `0` and never falls back to the output.
     - [`@spec draw-writes-a-discarded-pixel-as-zero`](#spec-draw-writes-a-discarded-pixel-as-zero) — `draw` of a CPU routine writes a pixel whose fragment discards as zero in every channel.
-      - [`@bug js-routine-draws-a-discarded-pixel-as-nan`](#bug-js-routine-draws-a-discarded-pixel-as-nan) — `draw` of a JS routine writes a discarded pixel as `null` read into its buffer, which leaves 0 in the first channel and `NaN` in the others.
     - [`@spec an-input-the-host-leaves-out-reads-zero`](#spec-an-input-the-host-leaves-out-reads-zero) — A parameter, attribute or varying the host leaves out of the context reads zero.
       - [`@bug wasm-reads-an-unset-scalar-input-as-nan`](#bug-wasm-reads-an-unset-scalar-input-as-nan) — A scalar varying the host leaves out reads as `NaN`.
       - [`@bug wasm-throws-on-an-unset-aggregate-input`](#bug-wasm-throws-on-an-unset-aggregate-input) — A vector varying the host leaves out throws a `TypeError` while the routine writes it into memory.
@@ -3709,6 +3709,14 @@ Derives from: [`axiom-a-program-is-typed-by-what-it-returns`](#axiom-a-program-i
 
 This follows because the shape of a result follows from the function that compiled the program. A discarded fragment has no colour, and `null` says so in a way a colour of zeros does not.
 
+#### @spec a-fragment-stage-draws-a-grid-with-quad
+
+> `quad` of a fragment stage runs the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel, and packs the colours into one row-major buffer. Every pixel of the grid is shaded, with no triangle to rasterize.
+
+Derives from: [`spec-a-cpu-routine-draws-a-grid-of-fragments`](#spec-a-cpu-routine-draws-a-grid-of-fragments)
+
+This follows because a full-screen pass is a fragment program run over a grid, and a rasterizer that covers the screen with two triangles adds a cost and nothing else.
+
 #### @spec a-compute-stage-dispatches-and-returns-nothing
 
 > `compileJSCompute` and `compileWasmCompute` give a stage whose `dispatch` runs the program once per index of a count, in index order, and returns nothing. The stage names the type of each storage buffer the program reads.
@@ -3974,12 +3982,6 @@ Issue: #119
 Derives from: [`spec-a-cpu-routine-draws-a-grid-of-fragments`](#spec-a-cpu-routine-draws-a-grid-of-fragments)
 
 This follows because the grid has a slot for every pixel, and a discarded fragment gives no value to fill it. Zero is what a cleared pixel holds.
-
-##### @bug js-routine-draws-a-discarded-pixel-as-nan
-
-> `draw` of a JS routine writes a discarded pixel as `null` read into its buffer, which leaves 0 in the first channel and `NaN` in the others.
-
-Issue: #82
 
 #### @spec an-input-the-host-leaves-out-reads-zero
 

@@ -123,21 +123,6 @@ describe("known bugs of the JS target, each failing until its fix", () => {
   });
 
   /**
-   * `draw` of a JS routine writes a discarded pixel as `null` read into its
-   * buffer, which leaves 0 in the first channel and `NaN` in the others.
-   *
-   * @canon bug-js-routine-draws-a-discarded-pixel-as-nan
-   */
-  it.fails("draws a discarded pixel as zero in every channel on JS", () => {
-    const build = () =>
-      Fn(() => {
-        Discard();
-        return vec4(1, 2, 3, 4);
-      })();
-    expect(Array.from(compileJSRoutine(build, none).draw({}, 1, 1))).toEqual([0, 0, 0, 0]);
-  });
-
-  /**
    * On JS, `textureLoad` outside the texture into a variable leaves the
    * variable as it was, rather than writing zero into it.
    *

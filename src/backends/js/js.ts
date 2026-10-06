@@ -2212,6 +2212,11 @@ export function compileJSRoutine(
         // pixel centers land at (x + 0.5, y + 0.5) — the same convention
         // compileWasmRoutine's draw() and fragCoordMemory in wasm.ts use.
         const result = runScratch({ ...ctx, fragCoord: [x + 0.5, y + 0.5] });
+        if (result === null) {
+          // a discarded fragment leaves the pixel at zero in every channel
+          buffer.fill(0, (y * width + x) * componentCount, (y * width + x + 1) * componentCount);
+          continue;
+        }
         const raw =
           typeof result === "object" && result !== null && "value" in result
             ? (result as CpuShaderResult).value
@@ -2274,6 +2279,7 @@ export function compileJSFragment(
   return {
     run: (ctx) => toFragmentResult(routine.run(ctx)),
     runInPlace: (ctx) => toFragmentResult(routine.runInPlace(ctx)),
+    quad: (ctx, width, height, out) => routine.draw(ctx, width, height, out),
   };
 }
 

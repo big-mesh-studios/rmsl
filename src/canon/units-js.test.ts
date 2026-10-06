@@ -5,6 +5,7 @@ import {
   Discard,
   Fn,
   float,
+  If,
   fragCoord,
   instancedArray,
   invocationIndex,
@@ -429,4 +430,36 @@ describe("a CPU stage's result", () => {
       expect(stage.storageTypes[buffer.name]).toBe("float");
     },
   );
+
+  /**
+   * @canon spec-a-fragment-stage-draws-a-grid-with-quad
+   */
+  it.each(stages)(
+    "shades every pixel of a grid with quad, at the centre of the pixel on %s",
+    (_, __, compileFragment) => {
+      const stage = compileFragment(() => Fn(() => vec4(fragCoord().x, fragCoord().y, 0, 1))(), none);
+      expect(Array.from(stage.quad({}, 2, 2))).toEqual([
+        0.5, 0.5, 0, 1, 1.5, 0.5, 0, 1, 0.5, 1.5, 0, 1, 1.5, 1.5, 0, 1,
+      ]);
+    },
+  );
+
+  /**
+   * @canon spec-draw-writes-a-discarded-pixel-as-zero
+   */
+  it.each(stages)("writes a pixel that discards as zero in every channel with quad on %s", (_, __, compileFragment) => {
+    const stage = compileFragment(
+      () =>
+        Fn(() => {
+          If(fragCoord().x.greaterThan(1), () => {
+            Discard();
+          });
+          return vec4(1, 2, 3, 4);
+        })(),
+      none,
+    );
+    const out = new Float64Array(8).fill(9);
+    stage.quad({}, 2, 1, out);
+    expect(Array.from(out)).toEqual([1, 2, 3, 4, 0, 0, 0, 0]);
+  });
 });
