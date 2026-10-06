@@ -19,6 +19,7 @@ import {
   assertStageResult,
   fragmentColour,
   assertOneDeclarationPerName,
+  numberClashingVariables,
   assertAssignable,
   FOR_UPDATE_BLOCK_MESSAGE,
   assertLiteralIndexInRange,
@@ -816,6 +817,7 @@ export function compileWasmFn(
   // imported math names — before any bytecode is emitted. `collect` gates
   // every allocation behind a `.has()` check, so revisiting nodes shared
   // between roots (the array-return-sugar case) is idempotent.
+  numberClashingVariables(resultNodes);
   assertOneDeclarationPerName(resultNodes);
   for (const n of resultNodes) collect(n);
   for (const p of memoryParams) if (p.kind === "storageMemory") p.written = writtenStorage.has(p.slot);

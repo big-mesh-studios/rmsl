@@ -29,6 +29,7 @@ import {
   assertStageResult,
   fragmentColour,
   assertOneDeclarationPerName,
+  numberClashingVariables,
   forUpdateStatements,
   loopTest,
   resolveSwizzleTarget,
@@ -2024,6 +2025,8 @@ function compileJSFnDetailed(
     reentrant,
     jsNeedsRes: false,
   };
+
+  numberClashingVariables(resultNodes);
 
   assertOneDeclarationPerName(resultNodes);
   const compiledList = resultNodes.map((n) => compileJSStage(n, ctx));

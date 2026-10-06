@@ -15,6 +15,7 @@ import {
   assertStageResult,
   fragmentColour,
   assertOneDeclarationPerName,
+  numberClashingVariables,
   forUpdateStatements,
   loopTest,
   tryFold,
@@ -976,6 +977,7 @@ export function compileGLSLWithStage(
 
   let nodes = Array.isArray(root) ? root : [root];
   if (shaderStage === "fragment") nodes = fragmentColour(nodes);
+  numberClashingVariables(nodes);
   assertOneDeclarationPerName(nodes);
   let results = nodes.map((n) => compileGLSLStage(n, ctx));
   let allBody: string[] = [];
@@ -1142,6 +1144,7 @@ export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options:
     reentrant: false,
     jsNeedsRes: false,
   };
+  numberClashingVariables(result);
   assertOneDeclarationPerName(result);
   const compiled = compileGLSLStage(result, ctx);
   const returnType = glslType((result as any)._t || "float");

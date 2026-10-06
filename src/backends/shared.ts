@@ -807,6 +807,34 @@ export function assertOneDeclarationPerName(roots: unknown): void {
   });
 }
 
+/**
+ * Numbers the variables of the roots that share a name, so each declares a name
+ * of its own. `toVar("color")` keeps one registry for each top-level `Fn`, so
+ * two `Fn`s compiled as the roots of one program can each take `color`, and the
+ * program would declare it twice. The first variable keeps its name and each
+ * later one gets the next free number appended, as `toVar` does within one `Fn`.
+ *
+ * A variable is one node, so renaming the node renames every read of it.
+ */
+export function numberClashingVariables(roots: unknown): void {
+  const byName = new Map<string, any[]>();
+  someNode(roots, (node) => {
+    if (node.type !== "var" || node.value.parameter) return;
+    const group = byName.get(node.value.varName);
+    if (group === undefined) byName.set(node.value.varName, [node]);
+    else if (!group.includes(node)) group.push(node);
+  });
+  const taken = new Set(byName.keys());
+  for (const [name, variables] of byName) {
+    for (const variable of variables.slice(1)) {
+      let number = 1;
+      while (taken.has(`${name}${number}`)) number++;
+      variable.value.varName = `${name}${number}`;
+      taken.add(variable.value.varName);
+    }
+  }
+}
+
 /** The node types an assignment can write, through any swizzle, component or column of them. */
 const ASSIGNABLE = new Set(["var", "storageElement", "output", "varying", "builtinPosition", "builtinFragDepth"]);
 

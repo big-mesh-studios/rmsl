@@ -101,22 +101,6 @@ describe("known bugs of the core, each failing until its fix", () => {
   });
 
   /**
-   * Two `Fn`s that each take the variable name `color`, compiled as the roots
-   * of one program, both declare `color`, which GLSL and WGSL refuse.
-   *
-   * @canon bug-roots-of-one-program-declare-one-variable-name-twice
-   */
-  it.fails("numbers a variable name another root of the program took", () => {
-    const build = () => {
-      const u = uniform("float");
-      return [Fn(() => u.add(1).toVar("color"))(), Fn(() => u.add(2).toVar("color"))()];
-    };
-    const glsl = compileGlsl.fragment(build() as any);
-    expect(glsl).toContain("float color = ");
-    expect(glsl).toContain("float color1 = ");
-  });
-
-  /**
    * `serialize` keeps the generated name of a stage output, `_rmsl_oN`, so
    * two graphs restored from it write one output.
    *
