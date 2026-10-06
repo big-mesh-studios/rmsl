@@ -424,14 +424,19 @@ shape, same semantics.
 
 ### Scratch & reentrancy
 
-Internal `toVar()` variables live in per-program scratch slots _outside_ the
-callable, preallocated once (scalars as bare `let`s, vectors/matrices as
-zeroed arrays). Vector/matrix helpers take a trailing output array, so an
-assignment writes in place: a per-pixel call allocates nothing beyond the
-result, which `run` copies out of the scratch so a later call does not change
-it, including an array the caller passed in. `draw`, `compute` and the stages of
-the rasterizer read each result at once and skip that copy. Because shaders cannot recurse, no compiled function can clobber its
-own scratch through nested calls.
+Internal `toVar()` variables, and every vector or matrix a program computes,
+live in per-program scratch slots _outside_ the callable, preallocated once
+(scalars as bare `let`s, vectors and matrices as zeroed arrays). A constant
+vector or matrix is one `const` beside the callable. Vector and matrix helpers
+take a trailing output array and write into a slot, so a call allocates nothing
+beyond its result. Because shaders cannot recurse, no compiled function can
+clobber its own scratch through nested calls.
+
+`compileJSRoutine`, the stages and the grid copy their result out of the scratch,
+so a later call does not change it. The function that `compileJSFn` returns as
+source, and that `precompileJS` ships, returns its result as it is, in a slot: copy
+a vector or a matrix you keep before the next call, or compile with
+`{ reentrant: true }`.
 
 The trade-off: the scratch is shared across calls, so two _overlapping_ calls
 to the same function must not be in flight at once. For a pick handler that is
