@@ -630,6 +630,35 @@ describe("what a JS routine allocates per call", () => {
     expect(run({ params: { a: 5 } })).toBe(18);
     expect(run({ params: { a: 1 } })).toBe(10);
   });
+
+  /**
+   * @canon spec-a-compiled-js-function-returns-its-result-in-a-slot
+   */
+  it("returns a vector in a slot it reuses, unless it is reentrant", () => {
+    const source = (reentrant: boolean) =>
+      new Function(compileJSFn((a: any) => Fn(() => vec3(a, 1, 2).toVar())(), { ...param, reentrant }))() as (
+        ctx: unknown,
+      ) => number[];
+    const shared = source(false);
+    const first = shared({ params: { a: 1 } });
+    const second = shared({ params: { a: 7 } });
+    expect(second).toBe(first);
+    expect(first).toEqual([7, 1, 2]);
+    const own = source(true);
+    const third = own({ params: { a: 1 } });
+    expect(own({ params: { a: 7 } })).not.toBe(third);
+    expect(third).toEqual([1, 1, 2]);
+  });
+
+  /**
+   * @canon spec-a-compiled-js-function-returns-its-result-in-a-slot
+   */
+  it("copies the vector a routine, a stage and a grid return", () => {
+    const routine = compileJSRoutine((a: any) => Fn(() => vec3(a, 1, 2).toVar())(), param);
+    const first = routine({ params: { a: 1 } });
+    routine({ params: { a: 7 } });
+    expect(first).toEqual([1, 1, 2]);
+  });
 });
 
 describe("a CPU compute adapter's storage", () => {
@@ -654,5 +683,36 @@ describe("a CPU compute adapter's storage", () => {
     adapter.setAttribute(buf.name, data);
     adapter.compute();
     expect(Array.from(data)).toEqual([3, 4, 3, 4]);
+  });
+});
+
+describe("a CPU compute stage's vector buffer", () => {
+  const computes = [
+    ["JS", compileJSCompute],
+    ["WASM", compileWasmCompute],
+  ] as const;
+
+  /**
+   * @canon spec-a-cpu-compute-stage-reads-a-vector-element-as-an-array
+   */
+  it.each(computes)("%s: reads and writes the element of a vector buffer as an array", (_, compile) => {
+    const buf = instancedArray(2, "vec2");
+    const stage = compile(
+      () =>
+        Fn(() => {
+          const i = invocationIndex();
+          buf.element(i).assign(buf.element(i).mul(2));
+        })() as any,
+      none,
+    );
+    const data = [
+      [1, 2],
+      [3, 4],
+    ];
+    stage({ storages: { [buf.name]: data } }, 2);
+    expect(data).toEqual([
+      [2, 4],
+      [6, 8],
+    ]);
   });
 });

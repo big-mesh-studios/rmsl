@@ -537,6 +537,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cpu-routine-answers-one-fragment-per-call`](#spec-a-cpu-routine-answers-one-fragment-per-call) — `run` of a CPU routine evaluates the program once, for the context the host passes. The same routine serves any number of calls, and a value one call returned keeps what it holds through the calls after it.
     - [`@spec a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel) — `fill` of a CPU grid evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to fill with.
     - [`@spec a-cpu-compute-stage-runs-one-invocation-per-index`](#spec-a-cpu-compute-stage-runs-one-invocation-per-index) — `dispatch` of a CPU compute stage runs the program once for each index of its count. It reads and writes any element of the buffers the host passes by slot.
+    - [`@spec a-cpu-compute-stage-reads-a-vector-element-as-an-array`](#spec-a-cpu-compute-stage-reads-a-vector-element-as-an-array) — A CPU compute stage reads and writes the element of a vector or a matrix storage buffer as an array of its components, and a scalar buffer as numbers. The buffer the host passes holds one array for each element.
     - [`@spec a-wasm-routine-is-reentrant`](#spec-a-wasm-routine-is-reentrant) — A WASM routine keeps its variables in its own module, so it computes the same with or without `reentrant`.
     - [`@spec a-cpu-target-runs-invocations-in-index-order`](#spec-a-cpu-target-runs-invocations-in-index-order) — A CPU target runs the invocations of a dispatch one at a time, in index order. An invocation sees the writes of the invocations before it.
     - [`@spec a-cpu-target-rasterizes-a-vertex-and-fragment-pair`](#spec-a-cpu-target-rasterizes-a-vertex-and-fragment-pair) — `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates varyings in perspective, clips at the near plane, and keeps the closer fragment.
@@ -606,7 +607,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec deserialize-refuses-data-serialize-could-not-have-produced`](#spec-deserialize-refuses-data-serialize-could-not-have-produced) — `deserialize` refuses data that `serialize` could not have produced.
       - [`@bug deserialize-accepts-unknown-and-unnamed-nodes`](#bug-deserialize-accepts-unknown-and-unnamed-nodes) — `deserialize` accepts a node type no node has, and a uniform with neither a slot nor a local name, and rebuilds a node from each.
 - [`@axiom the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing) — Code that runs once per frame, or once per call of a routine that runs every frame, allocates no memory.
-  - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A JS [routine](#term-cpu-routine) keeps its variables in a scratch block outside the function. It writes vector results into them through helpers that take an output argument. With `reentrant`, it declares its variables inside the function.
+  - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A compiled JS function keeps what it computes in slots it declares once, outside the function: its variables, each vector or matrix an operation computes, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. With `reentrant`, the function declares its slots inside itself, and each call has its own.
+  - [`@spec a-compiled-js-function-returns-its-result-in-a-slot`](#spec-a-compiled-js-function-returns-its-result-in-a-slot) — The function that `compileJSFn` returns as source, and that `precompileJS` ships, returns a vector or a matrix in a slot it reuses on the next call, so the result of one call is the result of the next. A caller that keeps one copies it, or compiles with `reentrant`. A [routine](#term-cpu-routine), a stage and a grid copy their result, so a later call does not change it.
   - [`@spec a-webgl-renderer-allocates-nothing-per-frame`](#spec-a-webgl-renderer-allocates-nothing-per-frame) — The WebGL renderer draws a frame without allocating. It reuses what it needs between frames, and builds no array, closure or iterator per frame or per draw.
     - [`@bug webgl-render-allocates-the-clear-colour-per-frame`](#bug-webgl-render-allocates-the-clear-colour-per-frame) — `render` reads the clear colour with `Color.toArray()`, which builds a new array on every frame.
     - [`@bug webgl-render-allocates-a-traversal-closure-per-frame`](#bug-webgl-render-allocates-a-traversal-closure-per-frame) — `render` builds a new callback for `traverseVisible` on every frame.
@@ -3728,6 +3730,14 @@ This follows because a compute program writes into storage and has no result to 
 
 > `dispatch` of a CPU compute stage runs the program once for each index of its count. It reads and writes any element of the buffers the host passes by slot.
 
+#### @spec a-cpu-compute-stage-reads-a-vector-element-as-an-array
+
+> A CPU compute stage reads and writes the element of a vector or a matrix storage buffer as an array of its components, and a scalar buffer as numbers. The buffer the host passes holds one array for each element.
+
+Derives from: [`spec-a-cpu-compute-stage-runs-one-invocation-per-index`](#spec-a-cpu-compute-stage-runs-one-invocation-per-index)
+
+This follows because the program that reads `buf.element(i)` of a `vec2` buffer reads a `vec2`, and a `vec2` is an array on the CPU. A compute adapter takes the flat typed array of [`spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array`](#spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array) and converts, so the stage reads the array of an element.
+
 #### @spec a-wasm-routine-is-reentrant
 
 > A WASM routine keeps its variables in its own module, so it computes the same with or without `reentrant`.
@@ -4150,7 +4160,17 @@ This does not follow from [running everywhere](#axiom-rmsl-runs-everywhere): a p
 
 ### @spec a-js-routine-allocates-nothing-per-call
 
-> A JS [routine](#term-cpu-routine) keeps its variables in a scratch block outside the function. It writes vector results into them through helpers that take an output argument. With `reentrant`, it declares its variables inside the function.
+> A compiled JS function keeps what it computes in slots it declares once, outside the function: its variables, each vector or matrix an operation computes, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. With `reentrant`, the function declares its slots inside itself, and each call has its own.
+
+This follows because a call that builds a new array or a closure gives the garbage collector work on every call, and a per-pixel call is the one that cannot afford it.
+
+### @spec a-compiled-js-function-returns-its-result-in-a-slot
+
+> The function that `compileJSFn` returns as source, and that `precompileJS` ships, returns a vector or a matrix in a slot it reuses on the next call, so the result of one call is the result of the next. A caller that keeps one copies it, or compiles with `reentrant`. A [routine](#term-cpu-routine), a stage and a grid copy their result, so a later call does not change it.
+
+Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call), [`spec-a-cpu-routine-answers-one-fragment-per-call`](#spec-a-cpu-routine-answers-one-fragment-per-call)
+
+This follows because a value returned in a slot allocates nothing, and the functions of the package that the application calls one result at a time copy it, where the source that an application ships does not.
 
 ### @spec a-webgl-renderer-allocates-nothing-per-frame
 
