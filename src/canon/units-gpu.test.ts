@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Fn, float, instancedArray, int, invocationIndex, select, uniform, vec3, vec4 } from "../rmsl";
+import { Fn, float, instancedArray, int, invocationIndex, outputStruct, select, uniform, vec3, vec4 } from "../rmsl";
 import { compile, compileWgsl as compileWgslStage, createWgslCompute, createWgslContext } from "../wgsl";
 import {
   assertRecordedShadersValid,
@@ -139,6 +139,28 @@ describe("what GLSL and WGSL write for an operation", () => {
     const component = (i: number) => `(${condition.name})[${i}] ? (${a.name})[${i}] : (${b.name})[${i}]`;
     expect(code).toContain(`ivec3(${component(0)}, ${component(1)}, ${component(2)})`);
     expect(code).not.toContain("mix(");
+  });
+});
+
+describe("what GLSL and WGSL write for an outputStruct", () => {
+  const build = () => Fn(() => outputStruct(vec4(1, 0, 0, 1), float(7)))();
+
+  /**
+   * @canon spec-an-output-struct-writes-each-member-at-its-position
+   */
+  it("writes member i to the output at location i on GLSL", () => {
+    const code = compileGlsl(build());
+    expect(code).toContain("layout(location=0) out vec4 _rmsl_out0;");
+    expect(code).toContain("layout(location=1) out float _rmsl_out1;");
+  });
+
+  /**
+   * @canon spec-an-output-struct-writes-each-member-at-its-position
+   */
+  it("writes member i to the output at location i on WGSL", () => {
+    const code = compileWgsl(build());
+    expect(code).toContain("@location(0) _rmsl_out0: vec4<f32>");
+    expect(code).toContain("@location(1) _rmsl_out1: f32");
   });
 });
 

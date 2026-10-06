@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { Fn, vec3, vec4, mix, ivec2, ivec3, uvec2, uvec3 } from "../rmsl";
-import { compileJSRoutine } from "../js";
+import { compileJSFragment } from "../js";
 import {
   recordingGLSL as compileGlsl,
   recordingWGSL as compileWgsl,
@@ -73,7 +73,7 @@ describe("node materials", () => {
     expect(glsl).toContain("uniform vec3 materialColor");
     const posAttr = program.attributes.find((a) => a.name === "position")!.node.name;
     expect(glsl).toContain(`in vec3 ${posAttr}`);
-    expect(glsl).toContain("layout(location=0) out vec4 _rmsl_o0");
+    expect(glsl).toContain("layout(location=0) out vec4 _rmsl_fragColor");
     expect(wgsl).toContain("modelMatrix: mat4x4<f32>");
     expect(wgsl).toContain("@builtin(position) position: vec4<f32>");
 
@@ -229,10 +229,9 @@ describe("node materials", () => {
       [program.varyings.find((v) => v.name === "normalWorld")!.node.name]: [0, 1, 0],
     };
 
-    const fn = compileJSRoutine(() => program.fragmentRoot, { stage: "fragment", params: [], name: "pick" });
-    const result = fn.run({ uniforms, varyings }) as { outputs: Record<string, number[]> };
-    const color = result.outputs[Object.keys(result.outputs)[0]];
-    expect(color).toBeDefined();
+    const stage = compileJSFragment(() => program.fragmentRoot, { params: [], name: "pick" });
+    const color = stage({ uniforms, varyings })?.value;
+    if (!color) throw new Error("the fragment stage wrote no colour");
     for (const channel of color) expect(Number.isFinite(channel)).toBe(true);
     // The sunlit top face must be visibly lit, not black.
     expect(color[0]).toBeGreaterThan(0.1);

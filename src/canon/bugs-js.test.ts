@@ -22,7 +22,7 @@ import {
   vec4,
   type Node,
 } from "../rmsl";
-import { compileJS, compileJSFn, compileJSRoutine, createJsCompute, createJsRoutine } from "../js";
+import { compileJS, compileJSFn, compileJSRoutine, createJsCompute, createJsGrid } from "../js";
 import { evaluateJS } from "../testing/shader-eval";
 
 const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
@@ -79,7 +79,7 @@ describe("known bugs of the JS target, each failing until its fix", () => {
       })();
     const runs = (branch: number) => {
       const data = new Float64Array(1);
-      compileJSRoutine(build as any, none).run({
+      compileJSRoutine(build as any, none)({
         storages: { [counter.name]: data, [result.name]: new Float64Array(1) },
         uniforms: { [taken.name]: branch },
       });
@@ -87,22 +87,6 @@ describe("known bugs of the JS target, each failing until its fix", () => {
     };
     expect(runs(1)).toBe(1);
     expect(runs(0)).toBe(1);
-  });
-
-  /**
-   * The JS rasterizer writes 0 into the red channel of a fragment that
-   * discarded, over the colour already there.
-   *
-   * @canon bug-the-cpu-rasterizers-paint-a-discarded-fragment
-   */
-  it.fails("leaves the colour under a discarded fragment as it was in the JS rasterizer", () => {
-    const draw = flatRasterizer((color, drop) => {
-      If(drop.greaterThan(0), () => Discard());
-      return color;
-    });
-    const composes = { clear: false, clearDepth: false };
-    draw(screenAt(0.5), [1, 0, 0, 1]);
-    expect(Array.from(draw(screenAt(0.25), [0, 1, 0, 1], composes, 1).slice(0, 4))).toEqual([1, 0, 0, 1]);
   });
 
   /**
@@ -123,21 +107,6 @@ describe("known bugs of the JS target, each failing until its fix", () => {
   });
 
   /**
-   * `draw` of a JS routine writes a discarded pixel as `null` read into its
-   * buffer, which leaves 0 in the first channel and `NaN` in the others.
-   *
-   * @canon bug-js-routine-draws-a-discarded-pixel-as-nan
-   */
-  it.fails("draws a discarded pixel as zero in every channel on JS", () => {
-    const build = () =>
-      Fn(() => {
-        Discard();
-        return vec4(1, 2, 3, 4);
-      })();
-    expect(Array.from(compileJSRoutine(build, none).draw({}, 1, 1))).toEqual([0, 0, 0, 0]);
-  });
-
-  /**
    * On JS, `textureLoad` outside the texture into a variable leaves the
    * variable as it was, rather than writing zero into it.
    *
@@ -152,7 +121,7 @@ describe("known bugs of the JS target, each failing until its fix", () => {
         return v;
       })();
     const run = compileJSRoutine(build, param);
-    expect(run.run({ params: { a: 5 }, textures: { [tex.name]: checker } })).toEqual([0, 0, 0, 0]);
+    expect(run({ params: { a: 5 }, textures: { [tex.name]: checker } })).toEqual([0, 0, 0, 0]);
   });
 
   /**
@@ -200,7 +169,7 @@ describe("known bugs of the JS target, each failing until its fix", () => {
   it.fails("reads the last element for a run-time index past a uniform array on JS", () => {
     const items = uniformArray("float", 4);
     const run = compileJSRoutine((a: any) => Fn(() => items.element(a.toInt()).add(0).toVar())(), param);
-    expect(run.run({ params: { a: 9 }, uniforms: { [items.name]: [1, 2, 3, 4] } })).toBe(4);
+    expect(run({ params: { a: 9 }, uniforms: { [items.name]: [1, 2, 3, 4] } })).toBe(4);
   });
 
   /**
@@ -308,7 +277,7 @@ describe("known bugs of the JS target, each failing until its fix", () => {
    */
   it.fails("clamps a negative float converted to uint to zero on JS", () => {
     const run = compileJSRoutine((a: any) => Fn(() => a.toUint().toVar())(), param);
-    expect(run.run({ params: { a: -1.5 } })).toBe(0);
+    expect(run({ params: { a: -1.5 } })).toBe(0);
   });
 
   /**
@@ -320,7 +289,7 @@ describe("known bugs of the JS target, each failing until its fix", () => {
   it.fails("reads a uniform array element the call leaves out as zero on JS", () => {
     const items = uniformArray("float", 3);
     const run = compileJSRoutine(() => Fn(() => items.element(int(2)).add(0).toVar())(), none);
-    expect(run.run({ uniforms: { [items.name]: [1, 2] } })).toBe(0);
+    expect(run({ uniforms: { [items.name]: [1, 2] } })).toBe(0);
   });
 
   /**

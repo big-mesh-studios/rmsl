@@ -9,8 +9,8 @@ import { READ_PIXEL, runInGpuPage } from "../testing/browser";
 const SCENE = `
 import { Fn, attribute, builtinPosition, fragCoord, uniform, vec2, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
-import { createJs, createJsRoutine } from "../js";
-import { createWasm, createWasmRoutine } from "../wasm";
+import { createJs, createJsGrid } from "../js";
+import { createWasm, createWasmGrid } from "../wasm";
 ${READ_PIXEL}
 const position = attribute("vec3");
 const colour = uniform("vec4");
@@ -60,8 +60,8 @@ globalThis.__rmslAdapterDraw = {
   glslTexture: () => drawTextured(createGlsl(vertex(), texturedFragment())),
   jsTexture: () => drawTextured(createJs(vertex, texturedFragment, { attributeTypes: { [position.name]: "vec3" } })),
   wasmTexture: () => drawTextured(createWasm(vertex, texturedFragment, { attributeTypes: { [position.name]: "vec3" } })),
-  jsRoutine: () => drawRoutine(createJsRoutine({ draw: routine() })),
-  wasmRoutine: () => drawRoutine(createWasmRoutine({ draw: routine() })),
+  jsRoutine: () => drawRoutine(createJsGrid({ draw: routine() })),
+  wasmRoutine: () => drawRoutine(createWasmGrid({ draw: routine() })),
 };
 `;
 
@@ -102,7 +102,7 @@ describe.skipIf(!GPU_ENABLED)("adapters drawing into a canvas in a browser", () 
   /**
    * @canon spec-an-adapter-draws-one-frame-for-each-call
    */
-  it("draws a fragCoord program over its canvas with createJsRoutine", async () => {
+  it("draws a fragCoord program over its canvas with createJsGrid", async () => {
     expect(await drawn("jsRoutine")).toEqual({ r: Math.round((3.5 / 4) * 255), g: 0, b: 0, a: 255 });
   }, 120_000);
 
@@ -128,10 +128,10 @@ describe.skipIf(!GPU_ENABLED)("adapters drawing into a canvas in a browser", () 
   }, 120_000);
 
   /**
-   * @canon bug-create-wasm-routine-fails-under-its-default-name
+   * @canon bug-create-wasm-grid-fails-under-its-default-name
    */
   it.fails(
-    "draws a fragCoord program over its canvas with createWasmRoutine",
+    "draws a fragCoord program over its canvas with createWasmGrid",
     async () => {
       expect(await drawn("wasmRoutine")).toEqual({ r: Math.round((3.5 / 4) * 255), g: 0, b: 0, a: 255 });
     },

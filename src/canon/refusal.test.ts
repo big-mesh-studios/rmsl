@@ -4,17 +4,19 @@ import {
   Break,
   builtinFragDepth,
   builtinPosition,
+  Discard,
   float,
   For,
   fragCoord,
   Fn,
   If,
   instancedArray,
+  invocationIndex,
   int,
   mat2x3,
   mat2x4,
   mat3,
-  output,
+  outputStruct,
   uniform,
   Switch,
   uint,
@@ -25,8 +27,8 @@ import {
   vec4,
   type Node,
 } from "../rmsl";
-import { compileJSRoutine } from "../js";
-import { compileWasmRoutine } from "../wasm";
+import { compileJSCompute, compileJSGrid, compileJSRoutine, compileJSVertex } from "../js";
+import { compileWasmCompute, compileWasmGrid, compileWasmRoutine, compileWasmVertex } from "../wasm";
 import {
   assertRecordedShadersValid,
   recordShaderSource,
@@ -50,8 +52,8 @@ const cpuCompilers = [
 
 /** The same two, compiling for the compute stage, where a storage program goes. */
 const cpuComputeCompilers = [
-  (build: () => Node<any>) => compileJSRoutine(build, { name: "main", params: [], stage: "compute" }),
-  (build: () => Node<any>) => compileWasmRoutine(build, { name: "main", params: [], stage: "compute" }),
+  (build: () => Node<any>) => compileJSCompute(build, { name: "main", params: [] }),
+  (build: () => Node<any>) => compileWasmCompute(build, { name: "main", params: [] }),
 ];
 
 describe("a mistake is refused before the program runs", () => {
@@ -64,13 +66,7 @@ describe("a mistake is refused before the program runs", () => {
    * @canon spec-only-a-square-matrix-is-inverted
    */
   it("compiles the matrix operations the shapes allow and refuses the others", () => {
-    const allowed = Fn(() =>
-      uniform("mat2x3")
-        .mul(uniform("mat3x2"))
-        .inverse()
-        .element(int(0))
-        .toVar(),
-    );
+    const allowed = Fn(() => uniform("mat2x3").mul(uniform("mat3x2")).inverse().element(int(0)).toVar());
     expect(compileGlsl(allowed())).toContain("inverse(");
     expect(compileWgsl(allowed())).toContain("_rmsl_inverse3");
     expect(() => (mat2x3(1, 0, 0, 1, 0, 0) as any).mul(mat2x4(1, 0, 0, 1, 0, 0, 0, 0))).toThrow();
@@ -91,12 +87,7 @@ describe("a mistake is refused before the program runs", () => {
    */
   it("gives each bare number its neighbour's type in one program, and refuses what the type cannot hold", () => {
     const prog = Fn(() =>
-      uniform("int")
-        .add(2)
-        .toFloat()
-        .add(uniform("uint").mul(3).toFloat())
-        .add(uniform("float").mul(4))
-        .toVar(),
+      uniform("int").add(2).toFloat().add(uniform("uint").mul(3).toFloat()).add(uniform("float").mul(4)).toVar(),
     );
     const wgsl = compileWgsl(prog());
     expect(wgsl).toContain("2i");
@@ -127,9 +118,7 @@ describe("a mistake is refused before the program runs", () => {
     const fragment = () =>
       Fn(() => {
         builtinFragDepth().assign(float(0.5));
-        const out = output("vec4");
-        out.assign(vec4(tint.add(fragCoord()), 0, 1));
-        return out;
+        return vec4(tint.add(fragCoord()), 0, 1);
       })();
     for (const compile of [compileGlsl, compileWgsl]) {
       expect(compile.vertex(vertex())).toContain(tint.name);
@@ -152,7 +141,12 @@ describe("a mistake is refused before the program runs", () => {
   it("refuses each operation no target can run, beside the same program written the way they run", () => {
     const values = instancedArray(4, "float");
     const runnable = () =>
-      Fn(() => vec3(1, 0, 0).cross(vec3(0, 1, 0)).x.add(values.element(int(0))).toVar())();
+      Fn(() =>
+        vec3(1, 0, 0)
+          .cross(vec3(0, 1, 0))
+          .x.add(values.element(int(0)))
+          .toVar(),
+      )();
     for (const compile of cpuCompilers) {
       expect(() => compile(runnable)).not.toThrow();
       expect(() =>
@@ -247,7 +241,7 @@ describe("a mistake is refused before the program runs", () => {
     expect(() => compileWgsl.fragment(build())).not.toThrow();
     for (const compile of cpuCompilers) expect(() => compile(build)).not.toThrow();
     for (const compile of cpuCompilers) {
-      const result: any = compile(build).run({});
+      const result: any = compile(build)({});
       expect(Array.from(Array.isArray(result) ? result : result.value)[0]).toBe(2);
     }
   });
@@ -311,20 +305,30 @@ describe("a mistake is refused before the program runs", () => {
       })();
     for (const [name, compile] of compilers) {
       expect(() => compile(writeColumn(2)), `${name} write column 2`).not.toThrow();
-      expect(() => compile(writeColumn(3)), `${name} write column 3`).toThrow(/index 3 is outside a mat3's columns 0 to 2/);
+      expect(() => compile(writeColumn(3)), `${name} write column 3`).toThrow(
+        /index 3 is outside a mat3's columns 0 to 2/,
+      );
       expect(() => compile(writeComponent(1, 2)), `${name} write component 2`).not.toThrow();
-      expect(() => compile(writeComponent(3, 0)), `${name} write column 3 component 0`).toThrow(/index 3 is outside a mat3's columns/);
-      expect(() => compile(writeComponent(0, 3)), `${name} write component 3`).toThrow(/index 3 is outside a vec3's components 0 to 2/);
+      expect(() => compile(writeComponent(3, 0)), `${name} write column 3 component 0`).toThrow(
+        /index 3 is outside a mat3's columns/,
+      );
+      expect(() => compile(writeComponent(0, 3)), `${name} write component 3`).toThrow(
+        /index 3 is outside a vec3's components 0 to 2/,
+      );
     }
     for (const [name, compile] of compilers) {
       expect(() => compile(read(2)), `${name} read 2`).not.toThrow();
       expect(() => compile(read(3)), `${name} read 3`).toThrow(/index 3 is outside a vec3's components 0 to 2/);
       expect(() => compile(read(-1)), `${name} read -1`).toThrow(/index -1 is outside a vec3's components 0 to 2/);
       expect(() => compile(write(3)), `${name} write 3`).toThrow(/index 3 is outside a vec3's components 0 to 2/);
-      expect(() => compile(column(3, threeColumns)), `${name} mat3`).toThrow(/index 3 is outside a mat3's columns 0 to 2/);
+      expect(() => compile(column(3, threeColumns)), `${name} mat3`).toThrow(
+        /index 3 is outside a mat3's columns 0 to 2/,
+      );
       // A mat2x3 has two columns of three rows: the count is the columns.
       expect(() => compile(column(1, twoColumns)), `${name} mat2x3 column 1`).not.toThrow();
-      expect(() => compile(column(2, twoColumns)), `${name} mat2x3 column 2`).toThrow(/index 2 is outside a mat2x3's columns 0 to 1/);
+      expect(() => compile(column(2, twoColumns)), `${name} mat2x3 column 2`).toThrow(
+        /index 2 is outside a mat2x3's columns 0 to 1/,
+      );
     }
   });
 
@@ -350,28 +354,6 @@ describe("a mistake is refused before the program runs", () => {
   });
 
   /**
-   * A compute program writes into a storage buffer and returns nothing, which
-   * compiles on every target. Assigning to an `output()` is refused on each,
-   * because an output is a fragment stage's result and a compute entry point
-   * returns nothing to hold one. GLSL has no compute stage, so the three
-   * targets here are all of them.
-   *
-   * @canon spec-a-compute-program-cannot-write-an-output
-   */
-  it("refuses an output assigned by a compute program, where writing a storage buffer compiles", () => {
-    const buf = instancedArray(4, "float");
-    const viaStorage = () => Fn(() => buf.element(int(0)).assign(float(2)))();
-    const viaOutput = () => Fn(() => output("float").assign(float(2)))();
-
-    expect(computeWgsl(viaStorage())).toContain("@compute");
-    expect(() => computeWgsl(viaOutput())).toThrow(/cannot write an output/);
-    for (const compile of cpuComputeCompilers) {
-      expect(() => compile(viaStorage)).not.toThrow();
-      expect(() => compile(viaOutput)).toThrow(/cannot write an output/);
-    }
-  });
-
-  /**
    * A compute program that reads a uniform compiles on every target. Reading a
    * `varying()` is refused on each, because a compute dispatch has no vertex
    * stage to pass one from. GLSL has no compute stage, so the three targets
@@ -389,6 +371,81 @@ describe("a mistake is refused before the program runs", () => {
     for (const compile of cpuComputeCompilers) {
       expect(() => compile(viaUniform)).not.toThrow();
       expect(() => compile(viaVarying)).toThrow(/cannot read a varying/);
+    }
+  });
+
+  /**
+   * An `outputStruct` is the value a fragment stage returns. A vertex stage, a
+   * compute stage and a program with no stage refuse it, on both CPU targets.
+   *
+   * @canon spec-an-output-struct-is-refused-outside-a-fragment-stage
+   */
+  it.each([
+    ["a vertex stage", compileJSVertex, compileWasmVertex],
+    ["a compute stage", compileJSCompute, compileWasmCompute],
+  ])("refuses an outputStruct in %s", (_, js, wasm) => {
+    const build = () => Fn(() => outputStruct(vec4(1, 0, 0, 1)))();
+    for (const compile of [js, wasm]) {
+      expect(() => compile(build, { name: "main", params: [] })).toThrow(
+        /outputStruct is the value a fragment stage returns/,
+      );
+    }
+  });
+
+  /**
+   * @canon spec-an-output-struct-is-refused-outside-a-fragment-stage
+   */
+  it("refuses an outputStruct in a program compiled as a routine", () => {
+    const build = () => Fn(() => outputStruct(vec4(1, 0, 0, 1)))();
+    for (const compile of [compileJSRoutine, compileWasmRoutine]) {
+      expect(() => compile(build, { name: "main", params: [] })).toThrow(/with no stage/);
+    }
+  });
+
+  /**
+   * @canon spec-a-routine-refuses-an-input-only-a-stage-has
+   */
+  it.each([
+    ["fragCoord()", () => fragCoord().x, /fragCoord\(\) is an input of a fragment stage/],
+    ["invocationIndex()", () => invocationIndex().toFloat(), /invocationIndex\(\) is an input of a compute stage/],
+    ["builtinPosition()", () => builtinPosition().x, /builtinPosition\(\) is an input of a vertex stage/],
+    ["builtinFragDepth()", () => builtinFragDepth(), /builtinFragDepth\(\) is an input of a fragment stage/],
+    ["a varying", () => varying("float"), /a varying is an input of a vertex or fragment stage/],
+    ["an attribute", () => attribute("float"), /an attribute is an input of a vertex stage/],
+    ["Discard()", () => Discard(), /Discard\(\) is an input of a fragment stage, or a grid/],
+  ])("refuses %s in a routine, on both CPU targets", (_, read, message) => {
+    for (const compile of [compileJSRoutine, compileWasmRoutine]) {
+      expect(() => compile(() => Fn(() => read())(), { name: "main", params: [] })).toThrow(message);
+    }
+  });
+
+  /**
+   * @canon spec-a-routine-refuses-an-input-only-a-stage-has
+   */
+  it.each([
+    ["invocationIndex()", () => invocationIndex().toFloat(), /invocationIndex\(\) is an input of a compute stage/],
+    ["a varying", () => varying("float"), /a varying is an input of a vertex or fragment stage/],
+    ["an attribute", () => attribute("float"), /an attribute is an input of a vertex stage/],
+  ])("refuses %s in a grid, which has fragCoord() and no more, on both CPU targets", (_, read, message) => {
+    for (const compile of [compileJSGrid, compileWasmGrid]) {
+      expect(() => compile(() => Fn(() => read())(), { name: "main", params: [] })).toThrow(message);
+      expect(() => compile(() => Fn(() => fragCoord().x)(), { name: "main", params: [] })).not.toThrow();
+    }
+  });
+
+  /**
+   * @canon spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel
+   */
+  it("refuses to fill a grid with a program that returns nothing, on both CPU targets", () => {
+    for (const compile of [compileJSGrid, compileWasmGrid]) {
+      const grid = compile(
+        () =>
+          Fn(() => {
+            outputStruct(float(1));
+          })() as any,
+        { name: "main", params: [] },
+      );
+      expect(() => grid({}, 1, 1)).toThrow(/produces no value to render/);
     }
   });
 });

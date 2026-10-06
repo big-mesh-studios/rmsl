@@ -6,7 +6,6 @@ import {
   int,
   mat2,
   mat3,
-  output,
   uniform,
   uniformArray,
   varying,
@@ -99,7 +98,6 @@ describe("one program means the same on every target", () => {
   it("declares many uniforms of every kind in one program on every target", () => {
     const build = () =>
       Fn(() => {
-        const out = output("vec4");
         let sum = float(0).toVar();
         for (let i = 0; i < 16; i++) sum.assign(sum.add(uniform("float")));
         const flags = uniformArray("bool", 4);
@@ -108,8 +106,7 @@ describe("one program means the same on every target", () => {
         If(flags.element(int(1)).and(flag), () => {
           sum.assign(sum.add(1));
         });
-        out.assign(tex.texture(vec2(0.5, 0.5)).mul(sum));
-        return out;
+        return tex.texture(vec2(0.5, 0.5)).mul(sum);
       })();
     const wgsl = compileWgsl(build());
     expect(wgsl.split("\n").filter((l) => l.includes("var<uniform>"))).toHaveLength(1);
@@ -198,8 +195,8 @@ describe("one program means the same on every target", () => {
       wrapS: "repeat" as const,
     };
     const ctx = { textures: { [tex.name]: texture } };
-    const js = compileJSRoutine(() => prog, { name: "main", params: [] }).run(ctx);
-    const wasm = compileWasmRoutine(() => prog, { name: "main", params: [] }).run(ctx);
+    const js = compileJSRoutine(() => prog, { name: "main", params: [] })(ctx);
+    const wasm = compileWasmRoutine(() => prog, { name: "main", params: [] })(ctx);
     expect(js).toEqual([0.5, 0, 0, 1]);
     expect((wasm as any).value ?? wasm).toEqual(js);
   });

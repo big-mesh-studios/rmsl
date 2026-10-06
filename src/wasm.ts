@@ -1,26 +1,45 @@
-export { compileWasmRoutine, compileWasmFn, instantiateWasmRoutine } from "./backends/wasm/wasm";
-export type { CompiledWasm, WasmParam } from "./backends/wasm/wasm";
+export {
+  compileWasmRoutine,
+  compileWasmFn,
+  compileWasmVertex,
+  compileWasmFragment,
+  compileWasmCompute,
+  compileWasmGrid,
+  instantiateWasmRoutine,
+  instantiateWasmVertex,
+  instantiateWasmFragment,
+  instantiateWasmCompute,
+  instantiateWasmGrid,
+} from "./backends/wasm/wasm";
+export type { CompiledWasm, CompileWasmStageOptions, WasmParam } from "./backends/wasm/wasm";
 
 export type {
+  ComputeStage,
+  CpuGrid,
+  GridBuffer,
   CpuDrawBuffer,
   CpuRoutine,
   CpuShaderContext,
-  CpuShaderResult,
   CpuTextureData,
   CpuTextureWrap,
+  FragmentResult,
+  FragmentStage,
+  VertexResult,
+  VertexStage,
 } from "./backends/cpu";
 
-export { createWasmRoutine, createWasmCompute, createWasm } from "./backends/wasm/adapter-wasm";
+export { createWasmGrid, createWasmRoutine, createWasmCompute, createWasm } from "./backends/wasm/adapter-wasm";
 export { createWasmContext } from "./backends/wasm/context-wasm";
 export type { WasmContext } from "./backends/wasm/context-wasm";
 export type {
+  CreateWasmGridOptions,
   CreateWasmRoutineOptions,
   CreateWasmComputeOptions,
   WasmComputeAdapter,
   WasmAdapter,
   WasmDrawOptions,
 } from "./backends/wasm/adapter-wasm";
-export type { AdapterResult as CpuAdapterResult, CpuAdapter } from "./backends/adapter-cpu";
+export type { AdapterResult as CpuAdapterResult, CpuAdapter, CpuRoutineAdapter } from "./backends/adapter-cpu";
 
 export type { Adapter, TypedArray } from "./backends/adapter";
 

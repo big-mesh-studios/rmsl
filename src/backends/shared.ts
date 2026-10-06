@@ -576,6 +576,68 @@ function assertFragmentResult(lastType: string | undefined, declaresOutput: bool
 }
 
 /**
+ * The roots of a fragment stage with an `outputStruct` it returns written out:
+ * member `i` becomes an assignment to an output at location `i`, in slot
+ * `_rmsl_out<i>`. Only the last value of a stage can be one.
+ */
+function lowerOutputStruct<T extends BaseNode<ShaderType>>(roots: readonly T[]): T[] {
+  const nothing = () => node({ _t: "void", type: "void" }) as BaseNode<ShaderType>;
+  /** The assignments of the members, which end in nothing: the stage returns no value. */
+  const written = (struct: BaseNode<ShaderType>): BaseNode<ShaderType>[] => [
+    ...struct.params!.map((member, i) => {
+      const target = node({
+        _t: member._t,
+        type: "output",
+        value: { id: i, slot: `_rmsl_out${i}`, shaderType: member._t, location: i },
+      });
+      return node({
+        _t: "void",
+        type: "assign",
+        params: [target as BaseNode<ShaderType>, member],
+      }) as BaseNode<ShaderType>;
+    }),
+    nothing(),
+  ];
+  const lower = (n: BaseNode<ShaderType>): BaseNode<ShaderType> => {
+    if (n.type === "outputStruct") return node({ _t: "void", type: "seq", params: written(n) });
+    if (n.type !== "seq") return n;
+    const params = n.params!;
+    const last = params[params.length - 1]!;
+    // The assignments join the statements before them, where every backend runs them.
+    if (last.type === "outputStruct")
+      return node({ _t: "void", type: "seq", params: [...params.slice(0, -1), ...written(last)] });
+    const lowered = lower(last);
+    return lowered === last ? n : node({ _t: lowered._t, type: "seq", params: [...params.slice(0, -1), lowered] });
+  };
+  const lowered = roots.map((root, i) => (i === roots.length - 1 ? (lower(root) as T) : root));
+  if (someNode(lowered, (n) => n.type === "outputStruct")) {
+    throw new Error(
+      "[RMSL] outputStruct is the value a fragment stage returns. It cannot be an operand or a statement.",
+    );
+  }
+  return lowered;
+}
+
+/**
+ * The roots of a stage, ready to compile. A fragment stage has its
+ * `outputStruct` written out and its implicit colour converted, see
+ * {@link fragmentColour}. Any other stage, and a program with no stage,
+ * refuses an `outputStruct`, which is a fragment stage's result.
+ */
+export function prepareRoots<T extends Node<ShaderType>>(stage: string | undefined, roots: readonly T[]): T[] {
+  if (stage === "fragment")
+    return fragmentColour(lowerOutputStruct(roots as readonly BaseNode<ShaderType>[]) as unknown as T[]);
+  if (someNode(roots, (n) => n.type === "outputStruct")) {
+    throw new Error(
+      `[RMSL] outputStruct is the value a fragment stage returns, and this program is compiled ` +
+        (stage === undefined ? "with no stage" : `as a ${stage} stage`) +
+        `. Compile it as a fragment stage.`,
+    );
+  }
+  return [...roots];
+}
+
+/**
  * The roots of a fragment stage with the implicit colour converted to a `vec4`
  * the way TSL converts it to its render target's type. A `vec3` gains an alpha
  * of 1, a `vec2` a blue of 0 and an alpha of 1, and a scalar fills every
@@ -716,11 +778,6 @@ export const COMPUTE_REFUSES = {
     because: "a compute dispatch has no vertices to read one for",
     instead: "Read the buffer with storage(attribute, type) instead.",
   },
-  output: {
-    action: "write an output",
-    because: "a compute entry point returns nothing to hold one",
-    instead: "Write the value into a storage buffer with .element(invocationIndex()) instead.",
-  },
   varying: {
     action: "read a varying",
     because: "a compute dispatch has no vertex stage to pass one from",
@@ -764,7 +821,43 @@ export type VertexRoot = Node<"vec4"> | readonly [...Node<ShaderType>[], Node<"v
 export type CompileFnOptions = {
   name: string;
   params: Array<{ name: string; type: ShaderType }>;
+  /**
+   * Set by the compile functions of a routine and of a grid: the program has
+   * no stage, so what only a stage has is refused. A grid has `fragCoord()` and
+   * `Discard()`, which a routine has not.
+   *
+   * @internal
+   */
+  kind?: "routine" | "grid";
 };
+
+/** The inputs only a stage has, by the node that reads them, with the stage that has them. */
+const STAGE_INPUTS: Record<string, { what: string; stage: string }> = {
+  fragCoord: { what: "fragCoord()", stage: "fragment stage, or a grid" },
+  discard: { what: "Discard()", stage: "fragment stage, or a grid" },
+  builtinFragDepth: { what: "builtinFragDepth()", stage: "fragment stage" },
+  invocationIndex: { what: "invocationIndex()", stage: "compute stage" },
+  vertexIndex: { what: "vertexIndex()", stage: "vertex stage" },
+  instanceIndex: { what: "instanceIndex()", stage: "vertex stage" },
+  builtinPosition: { what: "builtinPosition()", stage: "vertex stage" },
+  attribute: { what: "an attribute", stage: "vertex stage" },
+  varying: { what: "a varying", stage: "vertex or fragment stage" },
+};
+
+/** What a grid has that a routine has not: the pixel it evaluates, and a fragment that drops it. */
+const GRID_INPUTS = new Set(["fragCoord", "discard"]);
+
+/** Throws when a program with no stage, a routine or a grid, reads an input that only a stage has. */
+export function assertReadsNoStageInput(roots: unknown, kind: "routine" | "grid"): void {
+  someNode(roots, (node) => {
+    const input = STAGE_INPUTS[node.type];
+    if (!input || (kind === "grid" && GRID_INPUTS.has(node.type))) return false;
+    throw new Error(
+      `[RMSL] ${input.what} is an input of a ${input.stage}, and a ${kind} has no stage to give it. ` +
+        `Compile the program as a ${input.stage} instead.`,
+    );
+  });
+}
 
 /** Every storage attribute reachable from the roots, keyed by the slot name its nodes compile to. */
 export function storageAttributes(roots: unknown): Map<string, StorageBufferAttribute> {

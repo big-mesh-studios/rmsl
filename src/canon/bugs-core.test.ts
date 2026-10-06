@@ -5,7 +5,6 @@ import {
   float,
   instancedArray,
   int,
-  output,
   sub,
   Switch,
   uint,
@@ -60,8 +59,8 @@ describe("known bugs of the core, each failing until its fix", () => {
    */
   it.fails("makes a bare number given before an integer an integer", () => {
     const build = (a: any) => Fn(() => sub(7, a.toInt()).div(2).toVar())();
-    expect(compileJSRoutine(build, param).run({ params: { a: 0 } })).toBe(3);
-    expect(compileWasmRoutine(build, param).run({ params: { a: 0 } })).toBe(3);
+    expect(compileJSRoutine(build, param)({ params: { a: 0 } })).toBe(3);
+    expect(compileWasmRoutine(build, param)({ params: { a: 0 } })).toBe(3);
   });
 
   /**
@@ -72,7 +71,7 @@ describe("known bugs of the core, each failing until its fix", () => {
    */
   it.fails("compares a bare number with an integer on WASM", () => {
     const build = (a: any) => Fn(() => equal(1, a.toInt()).select(float(1), float(0)).toVar())();
-    expect(compileWasmRoutine(build, param).run({ params: { a: 1 } })).toBe(1);
+    expect(compileWasmRoutine(build, param)({ params: { a: 1 } })).toBe(1);
   });
 
   /**
@@ -85,8 +84,8 @@ describe("known bugs of the core, each failing until its fix", () => {
   it.fails("gives select with an integer branch and a bare-number branch the integer type", () => {
     const first = (a: any) => Fn(() => a.greaterThan(0).select(a.toInt(), 0).toVar())();
     const second = (a: any) => Fn(() => a.greaterThan(0).select(0, a.toInt()).div(2).toVar())();
-    expect(compileJSRoutine(second, param).run({ params: { a: -3 } })).toBe(-1);
-    expect(compileWasmRoutine(first, param).run({ params: { a: 1.5 } })).toBe(1);
+    expect(compileJSRoutine(second, param)({ params: { a: -3 } })).toBe(-1);
+    expect(compileWasmRoutine(first, param)({ params: { a: 1.5 } })).toBe(1);
   });
 
   /**
@@ -101,23 +100,6 @@ describe("known bugs of the core, each failing until its fix", () => {
   });
 
   /**
-   * `serialize` keeps the generated name of a stage output, `_rmsl_oN`, so
-   * two graphs restored from it write one output.
-   *
-   * @canon bug-serialize-keeps-the-generated-name-of-an-output
-   */
-  it.fails("gives each restored output a name of its own", () => {
-    const color = output("vec4");
-    const graph = serialize(
-      Fn(() => {
-        color.assign(vec4(1, 0, 0, 1));
-      })(),
-    );
-    const glsl = compileGlsl.fragment([roundTrip(graph), roundTrip(graph)] as any);
-    expect(glsl.match(/ out vec4 /g)).toHaveLength(2);
-  });
-
-  /**
    * A literal that is NaN or infinite becomes `null` in JSON, and comes back
    * as a float with no value, so a restored `u + Infinity` computes `u`.
    *
@@ -127,7 +109,7 @@ describe("known bugs of the core, each failing until its fix", () => {
     const build = () => Fn(() => uniformRaw("gain", "float").add(float(Infinity)).toVar())();
     const restored = roundTrip(serialize(build()));
     const run = compileJSRoutine(() => restored as any, none);
-    expect(run.run({ uniforms: { gain: 1 } })).toBe(Infinity);
+    expect(run({ uniforms: { gain: 1 } })).toBe(Infinity);
   });
 
   /**

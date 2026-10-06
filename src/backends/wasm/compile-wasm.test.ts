@@ -37,7 +37,7 @@ describe("WASM backend: compileWasm (vertex+fragment rasterizer pipeline)", () =
     expect(Array.from(result).some((v) => v !== 0)).toBe(true);
   });
   /**
-   * @canon spec-a-cpu-routine-reads-its-inputs-by-slot
+   * @canon spec-a-cpu-program-reads-its-inputs-by-slot
    */
   it("threads a uniform into the fragment stage", () => {
     const posAttr = attribute("vec3");

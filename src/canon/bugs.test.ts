@@ -18,8 +18,8 @@ import {
 } from "../rmsl";
 import { compileGlsl } from "../glsl";
 import { compileWgsl } from "../wgsl";
-import { compileJSRoutine } from "../js";
-import { compileWasmRoutine } from "../wasm";
+import { compileJSRoutine, compileJSVertex } from "../js";
+import { compileWasmRoutine, compileWasmVertex } from "../wasm";
 import { evaluateJS, evaluateWASM } from "../testing/shader-eval";
 
 const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
@@ -39,7 +39,7 @@ describe("known bugs, each failing until its fix", () => {
     const buf = instancedArray(data, "float");
     const build = (i: Node<"int">) => Fn(() => buf.element(i).add(float(0)).toVar())();
     const run = compileJSRoutine(build as any, { name: "main", params: [{ name: "i", type: "int" }] });
-    expect(run.run({ params: { i: 10 }, storages: { [buf.name]: data } })).toBe(0);
+    expect(run({ params: { i: 10 }, storages: { [buf.name]: data } })).toBe(0);
   });
 
   /**
@@ -47,7 +47,7 @@ describe("known bugs, each failing until its fix", () => {
    */
   it.fails("clamps a float outside the int range on WASM", () => {
     const run = compileWasmRoutine((a: any) => Fn(() => a.toInt().toVar())(), param);
-    expect(run.run({ params: { a: 3e9 } })).toBe(2147483520);
+    expect(run({ params: { a: 3e9 } })).toBe(2147483520);
   });
 
   /**
@@ -55,7 +55,7 @@ describe("known bugs, each failing until its fix", () => {
    */
   it.fails("clamps a float outside the int range on JS", () => {
     const run = compileJSRoutine((a: any) => Fn(() => a.toInt().toVar())(), param);
-    expect(run.run({ params: { a: 3e9 } })).toBe(2147483520);
+    expect(run({ params: { a: 3e9 } })).toBe(2147483520);
   });
 
   /**
@@ -109,8 +109,8 @@ describe("known bugs, each failing until its fix", () => {
    */
   it.fails("compiles vertexIndex and instanceIndex on the CPU targets", () => {
     const build = () => Fn(() => vec4(vertexIndex().toFloat(), instanceIndex().toFloat(), 0, 1))();
-    expect(() => compileJSRoutine(build, { ...none, stage: "vertex" })).not.toThrow();
-    expect(() => compileWasmRoutine(build, { ...none, stage: "vertex" })).not.toThrow();
+    expect(() => compileJSVertex(build, { ...none })).not.toThrow();
+    expect(() => compileWasmVertex(build, { ...none })).not.toThrow();
   });
 
   /**
@@ -137,7 +137,7 @@ describe("known bugs, each failing until its fix", () => {
         m.element(int(1)).yx.element(a.toInt()).assign(float(0));
         return m.element(1);
       })();
-    expect(compileJSRoutine(build, param).run({ params: { a: 0 } })).toEqual([4, 0, 6]);
+    expect(compileJSRoutine(build, param)({ params: { a: 0 } })).toEqual([4, 0, 6]);
   });
 
   /**
@@ -152,6 +152,6 @@ describe("known bugs, each failing until its fix", () => {
    */
   it.fails("reads a uniform the host never set as zero on JS", () => {
     const u = uniform("float");
-    expect(compileJSRoutine(() => Fn(() => u.add(1).toVar())(), none).run({ uniforms: {} })).toBe(1);
+    expect(compileJSRoutine(() => Fn(() => u.add(1).toVar())(), none)({ uniforms: {} })).toBe(1);
   });
 });

@@ -264,7 +264,7 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     expect(results[1]).toEqual(results[0]);
   });
   /**
-   * @canon spec-a-cpu-routine-runs-one-compute-invocation-per-call
+   * @canon spec-a-cpu-compute-stage-runs-one-invocation-per-index
    */
   it("gathers from a neighbouring element", () => {
     const src = instancedArray(4, "float").toReadOnly();
@@ -282,7 +282,7 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     expect(wasm).toEqual(js);
   });
   /**
-   * @canon spec-a-cpu-routine-runs-one-compute-invocation-per-call
+   * @canon spec-a-cpu-compute-stage-runs-one-invocation-per-index
    */
   it("scatters to another element", () => {
     const src = instancedArray(4, "int").toReadOnly();

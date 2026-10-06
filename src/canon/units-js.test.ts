@@ -2,20 +2,47 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   attribute,
   builtinPosition,
+  Discard,
   Fn,
   float,
+  If,
   fragCoord,
+  instancedArray,
+  invocationIndex,
+  ivec2,
   mat2,
+  outputStruct,
   uint,
+  textureLoad,
   uniform,
+  varying,
   vec2,
   vec3,
   vec4,
   type Node,
 } from "../rmsl";
-import type { CpuRoutine } from "../backends/cpu";
-import { compileJS, compileJSFn, compileJSRoutine, createJsRoutine } from "../js";
-import { compileWasm, compileWasmRoutine, createWasmRoutine } from "../wasm";
+import type { CompileCpuRoutine } from "../backends/cpu";
+import {
+  compileJS,
+  compileJSCompute,
+  compileJSFn,
+  compileJSFragment,
+  compileJSGrid,
+  compileJSRoutine,
+  compileJSVertex,
+  createJsGrid,
+  createJsRoutine,
+} from "../js";
+import {
+  compileWasm,
+  compileWasmCompute,
+  compileWasmFragment,
+  compileWasmGrid,
+  compileWasmRoutine,
+  compileWasmVertex,
+  createWasmGrid,
+  createWasmRoutine,
+} from "../wasm";
 import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } from "../testing/shader-eval";
 
 afterAll(async () => {
@@ -25,32 +52,28 @@ afterAll(async () => {
 
 const none = { name: "main", params: [] };
 
-/** A compile function of either CPU target, which gives the routine they share. */
-type CompileCpu = (...args: Parameters<typeof compileJSRoutine>) => CpuRoutine;
-
-const cpuTargets: [string, CompileCpu][] = [
+const cpuTargets: [string, CompileCpuRoutine][] = [
   ["JS", compileJSRoutine],
-  ["WASM", compileWasmRoutine as CompileCpu],
+  ["WASM", compileWasmRoutine as CompileCpuRoutine],
 ];
+
+const grids = [
+  ["JS", compileJSGrid],
+  ["WASM", compileWasmGrid],
+] as const;
 
 const rasterizers: [string, typeof compileJS][] = [
   ["JS", compileJS],
   ["WASM", compileWasm as unknown as typeof compileJS],
 ];
 
-const routineAdapters: [string, typeof createJsRoutine][] = [
-  ["JS", createJsRoutine],
-  ["WASM", createWasmRoutine as unknown as typeof createJsRoutine],
+const routineAdapters: [string, typeof createJsGrid][] = [
+  ["JS", createJsGrid],
+  ["WASM", createWasmGrid as unknown as typeof createJsGrid],
 ];
 
-/** The value a CPU routine returned, taken out of a result object if it wrapped one. */
-const valueOf = (result: unknown) =>
-  typeof result === "object" && result !== null && !Array.isArray(result) && "value" in result
-    ? (result as { value: unknown }).value
-    : result;
-
 /** The bytes a routine adapter puts on a one-pixel canvas for `draw`. */
-function shownOnCanvas(create: typeof createJsRoutine, draw: Node<any>): number[] {
+function shownOnCanvas(create: typeof createJsGrid, draw: Node<any>): number[] {
   const hadImageData = "ImageData" in globalThis;
   if (!hadImageData) {
     (globalThis as any).ImageData = class {
@@ -77,16 +100,21 @@ function shownOnCanvas(create: typeof createJsRoutine, draw: Node<any>): number[
 
 describe("the JS target's internal decisions, on every target they claim", () => {
   /**
-   * `mat2(1, 2, 3, 4)` has the columns (1, 2) and (3, 4). A WASM routine
-   * wraps the value in a result object, which bug
-   * wasm-wraps-a-vector-result-in-a-result-object records, so the test reads
-   * the value out of it.
+   * @canon spec-a-cpu-routine-returns-its-value
+   */
+  it.each(cpuTargets)("%s: returns a vector result as a bare array", (_, compile) => {
+    const routine = compile(() => Fn(() => vec3(1, 2, 3))() as any, none);
+    expect(routine({})).toEqual([1, 2, 3]);
+  });
+
+  /**
+   * `mat2(1, 2, 3, 4)` has the columns (1, 2) and (3, 4).
    *
    * @canon spec-a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array
    */
   it.each(cpuTargets)("%s: returns a matrix as its columns in one flat array", (_, compile) => {
     const routine = compile(() => Fn(() => mat2(vec2(1, 2), vec2(3, 4)))() as any, none);
-    expect(valueOf(routine.run({}))).toEqual([1, 2, 3, 4]);
+    expect(routine({})).toEqual([1, 2, 3, 4]);
   });
 
   /**
@@ -104,16 +132,16 @@ describe("the JS target's internal decisions, on every target they claim", () =>
    *
    * @canon spec-a-cpu-compiler-calls-its-builder-once
    */
-  it.each(cpuTargets)("%s: calls the builder it is given once", (_, compile) => {
+  it.each(grids)("%s: calls the builder it is given once", (_, compile) => {
     let calls = 0;
     let scale!: Node<"float">;
-    const routine = compile(() => {
+    const grid = compile(() => {
       calls++;
       scale = uniform("float");
       return Fn(() => fragCoord().x.mul(scale))();
     }, none);
     expect(calls).toBe(1);
-    expect(valueOf(routine.run({ uniforms: { [(scale as any).name]: 2 }, fragCoord: [3, 0] }))).toBe(6);
+    expect(Array.from(grid({ uniforms: { [(scale as any).name]: 2 } }, 1, 1))).toEqual([1]);
   });
 
   /**
@@ -133,26 +161,26 @@ describe("the JS target's internal decisions, on every target they claim", () =>
       const routine = compile(() => program, none);
       const texture = { data: new Float32Array([10, 10, 10, 10, 20, 20, 20, 20]), width: 2, height: 1 };
       const red = (filters: { magFilter: "nearest" | "linear"; minFilter: "nearest" | "linear" }) =>
-        (valueOf(routine.run({ textures: { [tex.name]: { ...texture, ...filters } } })) as number[])[0];
+        (routine({ textures: { [tex.name]: { ...texture, ...filters } } }) as number[])[0];
       expect(red({ magFilter: "nearest", minFilter: "linear" })).toBe(20);
       expect(red({ magFilter: "linear", minFilter: "nearest" })).toBe(15);
     },
   );
 
   /**
-   * @canon spec-draw-fills-a-float64-array-for-a-float-result
+   * @canon spec-a-grid-fills-a-float64-array-for-a-float-result
    */
-  it.each(cpuTargets)("%s: draws a float result into a Float64Array", (_, compile) => {
-    const out = compile(() => Fn(() => fragCoord().x.add(0.25))() as any, none).draw({}, 2, 1);
+  it.each(grids)("%s: fills a float result into a Float64Array", (_, compile) => {
+    const out = compile(() => Fn(() => fragCoord().x.add(0.25))(), none)({}, 2, 1);
     expect(out).toBeInstanceOf(Float64Array);
     expect(Array.from(out)).toEqual([0.75, 1.75]);
   });
 
   /**
-   * @canon spec-draw-fills-an-int32-array-for-an-int-result
+   * @canon spec-a-grid-fills-an-int32-array-for-an-int-result
    */
-  it.each(cpuTargets)("%s: draws an int result into an Int32Array", (_, compile) => {
-    const out = compile(() => Fn(() => fragCoord().x.toInt().sub(2))() as any, none).draw({}, 2, 1);
+  it.each(grids)("%s: fills an int result into an Int32Array", (_, compile) => {
+    const out = compile(() => Fn(() => fragCoord().x.toInt().sub(2))(), none)({}, 2, 1);
     expect(out).toBeInstanceOf(Int32Array);
     expect(Array.from(out)).toEqual([-2, -1]);
   });
@@ -160,19 +188,19 @@ describe("the JS target's internal decisions, on every target they claim", () =>
   /**
    * 3000000000 lies past the largest `int`, so only an unsigned array holds it.
    *
-   * @canon spec-draw-fills-a-uint32-array-for-a-uint-result
+   * @canon spec-a-grid-fills-a-uint32-array-for-a-uint-result
    */
-  it.each(cpuTargets)("%s: draws a uint result into a Uint32Array", (_, compile) => {
-    const out = compile(() => Fn(() => fragCoord().x.toUint().add(uint(3000000000)))() as any, none).draw({}, 2, 1);
+  it.each(grids)("%s: fills a uint result into a Uint32Array", (_, compile) => {
+    const out = compile(() => Fn(() => fragCoord().x.toUint().add(uint(3000000000)))(), none)({}, 2, 1);
     expect(out).toBeInstanceOf(Uint32Array);
     expect(Array.from(out)).toEqual([3000000000, 3000000001]);
   });
 
   /**
-   * @canon spec-draw-writes-a-bool-result-as-one-or-zero-in-an-int32-array
+   * @canon spec-a-grid-writes-a-bool-result-as-one-or-zero-in-an-int32-array
    */
-  it.each(cpuTargets)("%s: draws a bool result as 1 or 0 into an Int32Array", (_, compile) => {
-    const out = compile(() => Fn(() => fragCoord().x.greaterThan(1))() as any, none).draw({}, 2, 1);
+  it.each(grids)("%s: fills a bool result as 1 or 0 into an Int32Array", (_, compile) => {
+    const out = compile(() => Fn(() => fragCoord().x.greaterThan(1))(), none)({}, 2, 1);
     expect(out).toBeInstanceOf(Int32Array);
     expect(Array.from(out)).toEqual([0, 1]);
   });
@@ -262,8 +290,8 @@ describe("a JS routine's results", () => {
    */
   it("keeps the value a JS routine returned when it is called again", () => {
     const run = compileJSRoutine((a: any) => Fn(() => vec3(a, a, a).toVar())(), param);
-    const first = run.run({ params: { a: 1 } });
-    run.run({ params: { a: 2 } });
+    const first = run({ params: { a: 1 } });
+    run({ params: { a: 2 } });
     expect(first).toEqual([1, 1, 1]);
   });
 
@@ -298,9 +326,209 @@ describe("a JS routine's results", () => {
     const input = uniform("vec3");
     const routine = compileJSRoutine(() => Fn(() => input.add(0).toVar())(), { ...none, reentrant });
     const passed = [1, 2, 3];
-    const first = routine.run({ uniforms: { [input.name]: passed } });
+    const first = routine({ uniforms: { [input.name]: passed } });
     (first as number[])[0] = 9;
     expect(passed).toEqual([1, 2, 3]);
-    expect(routine.run({ uniforms: { [input.name]: passed } })).toEqual([1, 2, 3]);
+    expect(routine({ uniforms: { [input.name]: passed } })).toEqual([1, 2, 3]);
+  });
+});
+
+/** A JS rasterizer drawing one flat-coloured triangle list, its colour a uniform. */
+function flatRasterizer(fragment?: (color: Node<"vec4">, drop: Node<"float">) => Node<"vec4">) {
+  const position = attribute("vec3");
+  const color = uniform("vec4");
+  const drop = uniform("float");
+  const routine = compileJS(
+    () => Fn(() => builtinPosition().assign(vec4(position.x, position.y, position.z, 1)))() as any,
+    () => Fn(() => (fragment ? fragment(color, drop) : color).toVar())() as any,
+    { attributeTypes: { [position.name]: "vec3" } },
+  );
+  const draw = (triangles: number[], rgba: number[], options: Record<string, unknown> = {}, dropped = 0) =>
+    routine.draw(
+      {
+        attributes: { [position.name]: new Float64Array(triangles) },
+        uniforms: { [color.name]: rgba, [drop.name]: dropped },
+      },
+      { width: 2, height: 2, ...options },
+    );
+  return draw;
+}
+
+const screenAt = (z: number) => [-1, -1, z, 3, -1, z, -1, 3, z];
+
+describe("a JS rasterizer's discarded fragment", () => {
+  /**
+   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   */
+  it("leaves the colour under a discarded fragment as it was", () => {
+    const draw = flatRasterizer((color, drop) => {
+      If(drop.greaterThan(0), () => Discard());
+      return color;
+    });
+    const composes = { clear: false, clearDepth: false };
+    draw(screenAt(0.5), [1, 0, 0, 1]);
+    expect(Array.from(draw(screenAt(0.25), [0, 1, 0, 1], composes, 1).slice(0, 4))).toEqual([1, 0, 0, 1]);
+  });
+});
+
+const stages = [
+  ["JS", compileJSVertex, compileJSFragment, compileJSCompute],
+  ["WASM", compileWasmVertex, compileWasmFragment, compileWasmCompute],
+] as const;
+
+describe("a CPU stage's result", () => {
+  /**
+   * @canon spec-a-vertex-stage-returns-its-position-and-varyings
+   */
+  it.each(stages)("returns the position and the varyings a vertex stage writes on %s", (_, compileVertex) => {
+    const place = attribute("vec3");
+    const tint = varying("vec2");
+    const stage = compileVertex(
+      () =>
+        Fn(() => {
+          tint.assign(vec2(place.x, place.y));
+          builtinPosition().assign(vec4(place, 1));
+        })(),
+      none,
+    );
+    const result = stage({ attributes: { [place.name]: [1, 2, 3] } });
+    expect(result.position).toEqual([1, 2, 3, 1]);
+    expect(Object.values(result.varyings)).toEqual([[1, 2]]);
+  });
+
+  /**
+   * @canon spec-a-vertex-stage-returns-its-position-and-varyings
+   */
+  it.each(stages)(
+    "returns the vec4 a vertex stage returns as its position, with no varyings on %s",
+    (_, compileVertex) => {
+      const place = attribute("vec3");
+      const stage = compileVertex(() => Fn(() => vec4(place, 1))(), none);
+      expect(stage({ attributes: { [place.name]: [1, 2, 3] } })).toEqual({ position: [1, 2, 3, 1], varyings: {} });
+    },
+  );
+
+  /**
+   * @canon spec-a-fragment-stage-returns-its-colour-and-outputs
+   */
+  it.each(stages)(
+    "returns the colour of a fragment stage as a vec4, a vec3 with an opaque alpha on %s",
+    (_, __, compileFragment) => {
+      expect(compileFragment(() => Fn(() => vec4(1, 2, 3, 4))(), none)({})).toEqual({
+        value: [1, 2, 3, 4],
+        outputs: [],
+      });
+      expect(compileFragment(() => Fn(() => vec3(1, 2, 3))(), none)({})).toEqual({
+        value: [1, 2, 3, 1],
+        outputs: [],
+      });
+    },
+  );
+
+  /**
+   * @canon spec-an-output-struct-writes-each-member-at-its-position
+   */
+  it.each(stages)(
+    "returns the members of an outputStruct by position, with no colour on %s",
+    (_, __, compileFragment) => {
+      const stage = compileFragment(() => Fn(() => outputStruct(float(7), vec3(1, 2, 3)))(), none);
+      expect(stage({})).toEqual({ value: undefined, outputs: [7, [1, 2, 3]] });
+    },
+  );
+
+  /**
+   * @canon spec-a-fragment-stage-returns-its-colour-and-outputs
+   */
+  it.each(stages)("returns null for a fragment that discards on %s", (_, __, compileFragment) => {
+    const stage = compileFragment(
+      () =>
+        Fn(() => {
+          Discard();
+          return vec4(1, 2, 3, 4);
+        })(),
+      none,
+    );
+    expect(stage({})).toBeNull();
+  });
+
+  /**
+   * @canon spec-a-compute-stage-dispatches-and-returns-nothing
+   */
+  it.each(stages)(
+    "dispatches a compute stage over its indices and names the storage it reads on %s",
+    (_, __, ___, compileCompute) => {
+      const buffer = instancedArray(4, "float");
+      const stage = compileCompute(
+        () =>
+          Fn(() => {
+            buffer.element(invocationIndex().mul(2)).assign(float(9));
+          })(),
+        none,
+      );
+      const data = new Float64Array([1, 2, 3, 4]);
+      expect(stage({ storages: { [buffer.name]: data } }, 2)).toBeUndefined();
+      expect(Array.from(data)).toEqual([9, 2, 9, 4]);
+      expect(stage.storageTypes[buffer.name]).toBe("float");
+    },
+  );
+
+  /**
+   * @canon spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel
+   */
+  it.each(grids)("%s: evaluates every pixel of a grid at the centre of the pixel", (_, compile) => {
+    const grid = compile(() => Fn(() => vec4(fragCoord().x, fragCoord().y, 0, 1))(), none);
+    expect(Array.from(grid({}, 2, 2))).toEqual([0.5, 0.5, 0, 1, 1.5, 0.5, 0, 1, 0.5, 1.5, 0, 1, 1.5, 1.5, 0, 1]);
+  });
+
+  /**
+   * @canon spec-a-grid-writes-a-discarded-pixel-as-zero
+   */
+  it.each(grids)("%s: writes a pixel that discards as zero in every channel", (_, compile) => {
+    const grid = compile(
+      () =>
+        Fn(() => {
+          If(fragCoord().x.greaterThan(1), () => {
+            Discard();
+          });
+          return vec4(1, 2, 3, 4);
+        })(),
+      none,
+    );
+    const out = new Float64Array(8).fill(9);
+    grid({}, 2, 1, out);
+    expect(Array.from(out)).toEqual([1, 2, 3, 4, 0, 0, 0, 0]);
+  });
+});
+
+describe("an adapter of a routine", () => {
+  const routineAdapters = [
+    ["JS", createJsRoutine],
+    ["WASM", createWasmRoutine],
+  ] as const;
+
+  /**
+   * @canon spec-a-cpu-routine-adapter-calls-its-routine-with-what-it-was-given
+   */
+  it.each(routineAdapters)(
+    "%s: calls the routine with the uniform the host set, and again with the next",
+    (_, create) => {
+      const gain = uniform("float");
+      const adapter = create(Fn(() => gain.mul(2).add(1))(), none);
+      adapter.setUniform(gain, 3);
+      expect(adapter.run()).toBe(7);
+      adapter.setUniform(gain, 10);
+      expect(adapter.run()).toBe(21);
+      adapter.destroy();
+    },
+  );
+
+  /**
+   * @canon spec-a-cpu-routine-adapter-calls-its-routine-with-what-it-was-given
+   */
+  it.each(routineAdapters)("%s: calls the routine with the texture the host set", (_, create) => {
+    const tex = uniform("sampler2D");
+    const adapter = create(Fn(() => textureLoad(tex, ivec2(1, 0)).x)(), none);
+    adapter.setTexture(tex, { data: [10, 99], width: 2, height: 1, channels: 1 });
+    expect(adapter.run()).toBe(99);
   });
 });

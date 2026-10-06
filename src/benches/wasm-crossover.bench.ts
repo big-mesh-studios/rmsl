@@ -29,10 +29,10 @@ for (const n of [1, 2, 4, 8, 16, 32, 64, 128]) {
     const ctx = {};
 
     bench("compileWasmRoutine", () => {
-      wasmFn.run(ctx);
+      wasmFn(ctx);
     });
     bench("compileJSRoutine", () => {
-      jsFn.run(ctx);
+      jsFn(ctx);
     });
   });
 }

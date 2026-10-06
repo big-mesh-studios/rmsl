@@ -1,6 +1,6 @@
 import { compileGlsl } from "@random-mesh/rmsl/glsl";
-import { compileJSRoutine } from "@random-mesh/rmsl/js";
-import { compileWasmRoutine } from "@random-mesh/rmsl/wasm";
+import { compileJSGrid } from "@random-mesh/rmsl/js";
+import { compileWasmGrid } from "@random-mesh/rmsl/wasm";
 import { compileWgsl, wgslUniformLayout } from "@random-mesh/rmsl/wgsl";
 import {
   calcMandelbrot,
@@ -21,12 +21,12 @@ import { WasmWorkerPool } from "./wasmWorkerPool";
 
 // === Compile RMSL shaders to GLSL, WGSL, JS and WASM ===
 // The same RMSL source (mandelbrotColorAt) drives all four: GLSL for
-// WebGL, WGSL for WebGPU, and the CPU-target Fn for compileJSRoutine/compileWasmRoutine's
-// .draw() — one call per pixel, packed into a flat RGBA buffer.
+// WebGL, WGSL for WebGPU, and the CPU-target Fn for compileJSGrid/compileWasmGrid,
+// which call it once per pixel and pack the results into a flat RGBA buffer.
 const vsGLSL = compileGlsl.vertex(vertexMain());
 const fsGLSL = compileGlsl.fragment(calcMandelbrot());
-const jsRenderer = compileJSRoutine(() => calcMandelbrotCpu(), { name: "mandelbrotJS", params: [] });
-const wasmRenderer = compileWasmRoutine(() => calcMandelbrotCpu(), { name: "mandelbrotWasm", params: [] });
+const jsRenderer = compileJSGrid(() => calcMandelbrotCpu(), { name: "mandelbrotJS", params: [] });
+const wasmRenderer = compileWasmGrid(() => calcMandelbrotCpu(), { name: "mandelbrotWasm", params: [] });
 
 type RendererMode = "webgpu" | "webgl" | "js" | "wasm" | "wasm-pool";
 let mode: RendererMode = "webgl";
@@ -71,7 +71,7 @@ function computeUniformValues(w: number, h: number): Record<string, number | num
     [u_scale_hi.name]: [scaleHi, scaleHi],
     [u_scale_lo.name]: [scaleLo, scaleLo],
     [u_palette.name]: palette,
-    [u_rowOffset.name]: 0, // non-zero only inside a worker-pool draw() call — see wasmWorkerPool.ts
+    [u_rowOffset.name]: 0, // non-zero only inside a worker-pool grid call — see wasmWorkerPool.ts
   };
 }
 
@@ -106,7 +106,7 @@ if (!gl) {
   throw new Error("WebGL2 not supported");
 }
 
-// === CPU (JS/WASM) display: a visible 2D canvas the compiled .draw()
+// === CPU (JS/WASM) display: a visible 2D canvas the compiled grid
 // buffer is blitted into directly — a canvas can only ever have one kind
 // of context, so the GPU and CPU paths each need their own element even
 // though they show the same view. Its *backing store* (width/height) is
@@ -681,7 +681,7 @@ function renderCpu(cpuMode: "js" | "wasm") {
   const w = cpuCanvas.width;
   const h = cpuCanvas.height;
 
-  const buffer = renderer.draw({ uniforms: computeUniformValues(w, h) }, w, h);
+  const buffer = renderer({ uniforms: computeUniformValues(w, h) }, w, h);
 
   const image = cpuCtx.createImageData(w, h);
   for (let i = 0; i < w * h; i++) {

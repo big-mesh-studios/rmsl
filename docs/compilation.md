@@ -78,9 +78,9 @@ void main(void) {
 }
 ```
 
-### Output variables
+### Outputs
 
-`output("vec4")` declares a `layout(location=N) out vec4 _rmsl_oN;` in the fragment shader.
+A fragment that writes to several render targets returns `outputStruct(a, b)`. Member `i` is written to `layout(location=i) out <type> _rmsl_outi;` in the fragment shader, and to `@location(i)` on WGSL. A fragment that returns a colour writes it to the one output `_rmsl_fragColor` at location 0.
 
 ### Uniforms
 
@@ -294,17 +294,31 @@ float scale(float v) {
 
 ## JS / CPU Target
 
-RMSL also compiles an `Fn` to a JavaScript callable that runs on the CPU — one
-fragment at a time. Its purpose is screen picking from a ray-marched scene:
-feed the per-pixel varyings and uniforms into the compiled function and read
-the colour/depth back, with no GPU round-trip.
+RMSL also compiles an `Fn` to JavaScript that runs on the CPU. What the
+program is decides which function compiles it:
+
+| The program is…                                    | Compile it with                                            | You get                           |
+| -------------------------------------------------- | ---------------------------------------------------------- | --------------------------------- |
+| a function of its parameters and uniforms          | `compileJSRoutine`                                         | `run(ctx)`, its value             |
+| a vertex, a fragment or a compute program          | `compileJSVertex`, `compileJSFragment`, `compileJSCompute` | `run(ctx)` or `dispatch(ctx, n)`  |
+| a function of `fragCoord()`, over a grid of pixels | `compileJSGrid`                                            | a function `(ctx, width, height)` |
+
+The same functions exist for WASM: `compileWasmRoutine`, `compileWasmVertex`,
+`compileWasmFragment`, `compileWasmCompute` and `compileWasmGrid`. A routine
+that reads what only a stage has, such as `fragCoord()`, a varying or
+`invocationIndex()`, is refused when it compiles, naming the input and the stage
+that has it.
+
+Its purpose is screen picking from a ray-marched scene: feed the per-pixel
+varyings and uniforms into a compiled fragment stage and read the colour and
+depth back, with no GPU round-trip.
 
 ```typescript
-import { compileJSRoutine, compileJSFn, Fn, uniform, output, builtinFragDepth } from "rmsl";
+import { compileJSFragment, Fn, uniform, builtinFragDepth } from "rmsl";
 
-let pickFn = compileJSRoutine(calcColourAndDepth, { name: "pick", params: [] });
+let pickStage = compileJSFragment(calcColourAndDepth, { name: "pick", params: [] });
 // On pointerdown:
-let r = pickFn.run({
+let r = pickStage({
   uniforms: {
     _rmsl_u0: cameraPosition, // each slot is the uniform's .name
     _rmsl_u1: cameraViewMatrix, // flat column-major arrays
@@ -312,8 +326,8 @@ let r = pickFn.run({
   },
   varyings: { _rmsl_v0: positionGeometry }, // per-pixel, from the fragment coord
 });
-let colour = r.value; // the Fn's return value (e.g. the ray-marched colour)
-let depth = r.fragDepth; // written via builtinFragDepth(), for the world pick point
+let colour = r?.value; // the colour, a vec4; r is null for a fragment that discarded
+let depth = r?.fragDepth; // written via builtinFragDepth(), for the world pick point
 ```
 
 ### Value model
@@ -335,13 +349,17 @@ compileJSFn(fn, options): string
 // A self-contained expression that evaluates to the callable:
 //   const fn = new Function(source)();
 
-compileJSRoutine(fn, options): (ctx) => value | result
-// The real callable, scratch and helpers baked into its closure.
+compileJSRoutine(fn, options): (ctx) => value
+// A function of a context. `value` is typed by the type `fn` returns.
+
+compileJSVertex(fn, options): (ctx) => { position, varyings }
+compileJSFragment(fn, options): (ctx) => { value, outputs, fragDepth? } | null
+compileJSCompute(fn, options): (ctx, count) => void, with a `storageTypes` property
+compileJSGrid(fn, options): (ctx, width, height, out?) => buffer typed by the result
 ```
 
 Options extend the `Fn` compilers':
 
-- `stage`: `"fragment"` (default) or `"vertex"`.
 - `derivatives`: `"throw"` (default) or `"zero"`. Derivative ops have no meaning
   for a single CPU evaluation; compile with `"zero"` to make shaders that use
   `fwidth`/`dFdx`/`dFdy` runnable.
@@ -363,34 +381,37 @@ Every key is the node's `.name` (`_rmsl_u0`, `_rmsl_v0`, …), which is how the
 host knows which slot holds which value. Scalars are numbers, vectors/matrices
 are arrays.
 
-### Return value
+### What each function returns
 
-If the program writes no `output()`, `builtinPosition()` or
-`builtinFragDepth()`, the callable returns the Fn's value directly. If it
-writes any of them, it returns:
+A routine returns the Fn's value, typed by the type the Fn returns. A stage
+returns an object, whatever its body writes:
 
 ```typescript
+// compileJSVertex: (ctx) =>
+{ position: <vec4>, varyings: { [slot]: <value> } }
+
+// compileJSFragment: (ctx) =>, or null for a fragment that discarded
 {
-  value:    <the Fn's return value>,
-  outputs:  { [slot]: <value> },   // from output()
-  varyings: { [slot]: <value> },   // from varying() in a vertex stage
-  position: <vec4>,                // from builtinPosition()
-  fragDepth: <number>,             // from builtinFragDepth()
+  value:     <vec4>,                // the colour; undefined for a stage that returns an outputStruct
+  outputs:   [<value>, ...],        // the members of the outputStruct, by position
+  fragDepth: <number>,              // from builtinFragDepth()
 }
 ```
 
 This is what surfaces the picking depth: `calcColourAndDepth` assigns
 `builtinFragDepth()`, so `result.fragDepth` gives the distance along the ray.
+The value a call returns is the caller's own: a later call does not change it.
 
 ### Rendering a whole grid
 
-`compileJSRoutine`'s result also has `.draw(ctx, width, height)`: call the compiled
-function once per pixel over a `width x height` grid instead of driving the
-loop yourself, packed into one flat, row-major typed array. It's the same
-method [`compileWasmRoutine`'s result](wasm.md#cpuroutine) has — both satisfy one
-`CpuRoutine` interface — documented there since WASM's version has the more
-interesting implementation (it shares the compiled function's own bytecode
-rather than looping in JS).
+`compileJSGrid` evaluates a program of `fragCoord()` once for each pixel of a
+`width x height` grid, instead of you driving the loop, and packs the results into
+one flat, row-major typed array, typed by the result: a `Float64Array` for a
+float, an `Int32Array` for an int or a bool, a `Uint32Array` for a uint. A
+A grid of a program that returns a colour draws the picture a canvas shows. See
+[wasm.md](wasm.md#cpuroutine) for the WASM grid, which has the more interesting
+implementation: it shares the compiled function's own bytecode rather than
+looping in JS.
 
 ### Rasterizing a vertex/fragment pair
 

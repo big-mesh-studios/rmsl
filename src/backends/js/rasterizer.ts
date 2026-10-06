@@ -1,16 +1,13 @@
 import { Node, ShaderType } from "../../core";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK } from "../adapter";
 import { componentCountOf, CpuDrawBuffer, CpuShaderContext } from "../cpu";
-import { compileJSRoutine, CompileJSOptions, ownedValue } from "./js";
+import { compileJSFragmentInPlace, compileJSVertexInPlace, CompileJSOptions, ownedValue } from "./js";
 
 /** Homogeneous-clip-space near-plane epsilon — see rasterizer.md's clip-pass design (`rasterizer.wat`'s `W_CLIP_EPS`). */
 const W_CLIP_EPS = 1e-5;
 
-/** A scalar or a fixed-width vector, as `CpuShaderResult`'s fields carry it. */
+/** A scalar or a fixed-width vector, as a stage carries a varying. */
 export type Value = number | number[];
-
-/** See {@link isWrapped}. */
-export type WrappedResult = { value?: Value; position?: number[]; varyings?: Record<string, Value> };
 
 /**
  * Options shared by both stages of a {@link compileJS} pair — the same
@@ -88,18 +85,6 @@ export function sliceAttribute(buffer: ArrayLike<number>, index: number, width: 
   return out;
 }
 
-/**
- * Both compileJSRoutine and compileWasmRoutine only wrap a call's result in
- * `{ value, position, varyings, ... }` when the program actually needs to
- * report more than a bare value — a write to a varying/output/position, or
- * (WASM specifically) an aggregate return type. A program that just reads
- * and returns (a `vec4(vColor, 1.0)` fragment, say) hands back the plain
- * value instead, so callers can't assume the wrapped shape.
- */
-export function isWrapped(result: unknown): result is WrappedResult {
-  return typeof result === "object" && result !== null && !Array.isArray(result);
-}
-
 function lerpValue(a: Value, b: Value, t: number): Value {
   return typeof a === "number" ? a + ((b as number) - a) * t : a.map((x, i) => x + ((b as number[])[i] - x) * t);
 }
@@ -152,17 +137,15 @@ export function compileJS(
   fragmentFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSRasterOptions,
 ): JsRasterRoutine {
-  const vertexRoutine = compileJSRoutine(vertexFn, {
+  const vertexStage = compileJSVertexInPlace(vertexFn, {
     name: "vtx",
     params: [],
-    stage: "vertex",
     derivatives: options.derivatives,
     reentrant: options.reentrant,
   });
-  const fragmentRoutine = compileJSRoutine(fragmentFn, {
+  const fragmentStage = compileJSFragmentInPlace(fragmentFn, {
     name: "frag",
     params: [],
-    stage: "fragment",
     derivatives: options.derivatives,
     reentrant: options.reentrant,
   });
@@ -192,16 +175,8 @@ export function compileJS(
       const attrs: Record<string, unknown> = {};
       for (const slot in attributes) attrs[slot] = sliceAttribute(attributes[slot]!, i + first, widths[slot]!);
 
-      const raw = vertexRoutine.runInPlace({ attributes: attrs, uniforms, textures });
-      // A vertex Fn that never calls builtinPosition() itself has its plain
-      // `return vec4(...)` become the position instead (assertStageResult).
-      const position = (isWrapped(raw) ? (raw.position ?? raw.value) : raw) as number[] | undefined;
-      if (!position) {
-        throw new Error(
-          "[RMSL] compileJS: vertexFn never wrote a position (builtinPosition(), or a plain vec4 return)",
-        );
-      }
-      vertices[i] = { position: ownedValue(position), varyings: ownedValue((isWrapped(raw) && raw.varyings) || {}) };
+      const { position, varyings } = vertexStage({ attributes: attrs, uniforms, textures });
+      vertices[i] = { position: ownedValue(position), varyings: ownedValue(varyings) as Record<string, Value> };
     }
 
     // near-plane clip pass
@@ -295,11 +270,12 @@ export function compileJS(
             varyings[slot] = scale(perspSum, 1 / invW);
           }
 
-          const raw = fragmentRoutine.runInPlace({ varyings, uniforms, textures, fragCoord: [px, py] });
-          const color = ((isWrapped(raw) ? raw.value : raw) ?? 0) as Value;
+          const fragment = fragmentStage({ varyings, uniforms, textures, fragCoord: [px, py] });
+          // A fragment that discards, or that writes no colour, leaves the pixel as it was.
+          const color = fragment?.value;
+          if (!color) continue;
           const base = pixelIndex * 4;
-          if (typeof color === "number") result[base] = color;
-          else for (let c = 0; c < 4; c++) result[base + c] = color[c] ?? 0;
+          for (let c = 0; c < 4; c++) result[base + c] = color[c] ?? 0;
         }
       }
     }

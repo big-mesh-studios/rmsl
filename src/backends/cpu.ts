@@ -1,4 +1,4 @@
-import { MATRIX_DIMENSIONS, ShaderType, TYPE_WIDTH } from "../core";
+import { MATRIX_DIMENSIONS, Node, OutputStruct, ShaderType, TYPE_WIDTH } from "../core";
 
 /** Values a host supplies to a compiled CPU function. */
 export type CpuShaderContext = {
@@ -69,10 +69,27 @@ export type CpuTextureData = {
 };
 
 /**
+ * The JavaScript value a shader type carries on the CPU: scalars are numbers
+ * (or booleans), vectors and matrices are flat arrays — matrices in the
+ * column-major order the rest of the library uses.
+ */
+export type CpuValue<A extends ShaderType> = A extends "float" | "int" | "uint"
+  ? number
+  : A extends "bool"
+    ? boolean
+    : A extends "bvec2" | "bvec3" | "bvec4"
+      ? boolean[]
+      : A extends `${string}sampler${string}`
+        ? never
+        : A extends "void"
+          ? void
+          : number[];
+
+/**
  * What a compiled CPU function returns when the program writes outputs, a
  * position or the fragment depth; otherwise the Fn's bare return value.
  */
-export type CpuShaderResult = {
+export type CpuProgramResult = {
   value?: unknown;
   outputs?: Record<string, unknown>;
   varyings?: Record<string, unknown>;
@@ -80,32 +97,28 @@ export type CpuShaderResult = {
   fragDepth?: number;
 };
 
-/** The typed array `draw()` fills, matching the result's declared kind. */
+/** The typed array a grid fills, matching the result's declared kind. */
 export type CpuDrawBuffer = Float64Array | Int32Array | Uint32Array;
 
 /**
- * The runtime face of a compiled CPU function, common to `compileJSRoutine` and
- * `compileWasmRoutine` — not tied to any one stage or use: a plain compute
- * program runs through `compute()`, once per `storage()` index, with its
- * return value ignored (side effects land in `ctx.storages`), a vertex/fragment
- * program's `run()` is called once per vertex/pixel for its return
- * value, and `draw()` runs the whole grid in one call rather than one JS
- * call per pixel from the host side.
- *
- * `draw()` feeds each pixel's center — `(x + 0.5, y + 0.5)` — in as
- * `fragCoord`, holding every other input (uniforms, textures, ...) fixed
- * across the grid, and packs the result into one flat row-major buffer of
- * `width * height * componentCount` elements.
- *
- * Pass `out` to write into an existing buffer instead of allocating a new
- * one — e.g. a view over a `SharedArrayBuffer` so several workers can each
- * fill a row range into disjoint regions of one shared buffer. `out` must
- * already have the matching typed-array kind and be at least
- * `width * height * componentCount` elements; it is returned unchanged.
+ * A compiled `Fn` as a function of a context: `compileJSRoutine` and
+ * `compileWasmRoutine` give one. It reads its parameters and uniforms from
+ * the context, and returns the value of its program, typed by the type the
+ * program returns. A program that reads what only a stage has is not a
+ * routine: a vertex, fragment or compute program compiles as a stage, and a
+ * program of `fragCoord()` as a grid.
  */
-export type CpuRoutine = {
-  /** Runs the program once and returns its result. The value is the caller's: a later call does not change it. */
-  run(ctx: CpuShaderContext): number | boolean | CpuShaderResult;
+export type CpuRoutine<A extends ShaderType = ShaderType> = (ctx: CpuShaderContext) => CpuValue<A>;
+
+/**
+ * A program as the compilers build it, for the stages and the grid to take
+ * what each of them gives from: `run` returns the value, or the
+ * {@link CpuProgramResult} of a program that writes outputs, a position or a
+ * depth, or `null` for a discarded fragment. Not public: a routine, a stage and
+ * a grid each give a part of it.
+ */
+export type CpuProgram = {
+  run(ctx: CpuShaderContext): CpuValue<ShaderType> | CpuProgramResult | null;
   /**
    * Runs the program once per pixel of a `width x height` grid, feeding each
    * pixel's center in as `fragCoord`, and packs the results into one flat
@@ -174,3 +187,119 @@ export function componentCountOf(t: string): number {
 export function isAggregate(t: string): boolean {
   return componentCountOf(t) > 1;
 }
+
+/** A compile function of either CPU target for a program with no stage: it gives the {@link CpuRoutine} they share. */
+export type CompileCpuRoutine = (
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: { name: string; params: Array<{ name: string; type: ShaderType }> },
+) => CpuRoutine;
+
+/** What a vertex stage hands on: its position, and the varyings the fragment stage reads, by slot. */
+export type VertexResult = {
+  position: number[];
+  varyings: Record<string, unknown>;
+};
+
+/**
+ * The values an `outputStruct` writes, by position: one for each member, of
+ * the JavaScript type its shader type has.
+ */
+export type CpuOutputs<M extends readonly Node<ShaderType>[]> = {
+  -readonly [K in keyof M]: M[K] extends Node<infer A> ? CpuValue<A> : never;
+};
+
+/**
+ * What a fragment stage writes for one fragment: its colour as the four
+ * channels of a `vec4`, the values of its `outputStruct` by position, and the
+ * depth it wrote. A stage that returns an `outputStruct` has no colour, and a
+ * stage that returns a colour has no outputs. `R` is what the stage returns.
+ */
+export type FragmentResult<R = unknown> =
+  R extends OutputStruct<infer M extends readonly Node<ShaderType>[]>
+    ? { value: undefined; outputs: CpuOutputs<M>; fragDepth?: number }
+    : unknown extends R
+      ? { value: number[] | undefined; outputs: unknown[]; fragDepth?: number }
+      : R extends Node<"void">
+        ? { value: undefined; outputs: []; fragDepth?: number }
+        : { value: number[]; outputs: []; fragDepth?: number };
+
+/** A compiled vertex program: runs once per vertex, and returns what the stage hands on. */
+export type VertexStage = (ctx: CpuShaderContext) => VertexResult;
+
+/** A compiled fragment program: runs once per fragment, and returns `null` for a fragment that discarded. */
+export type FragmentStage<R = unknown> = (ctx: CpuShaderContext) => FragmentResult<R> | null;
+
+/**
+ * A compiled compute program: runs once per index in `0..count`, in index
+ * order, with `invocationIndex()` reading that index, and leaves the results in
+ * `ctx.storages`. It returns nothing.
+ */
+export type ComputeStage = {
+  (ctx: CpuShaderContext, count: number): void;
+  /** The shader type of one element of each storage buffer the program reads, by slot. */
+  readonly storageTypes: Readonly<Record<string, ShaderType>>;
+};
+
+const isResultObject = (raw: unknown): raw is CpuProgramResult =>
+  typeof raw === "object" && raw !== null && !Array.isArray(raw);
+
+/** The {@link VertexResult} of what a routine compiled for the vertex stage returned. */
+export function toVertexResult(raw: CpuValue<ShaderType> | CpuProgramResult | null): VertexResult {
+  // A vertex stage that never writes the position itself has its `vec4` result become the position.
+  const wrapped = isResultObject(raw);
+  const position = (wrapped ? (raw.position ?? raw.value) : raw) as number[] | undefined;
+  if (!position) {
+    throw new Error("[RMSL] A vertex stage never wrote a position, with builtinPosition() or a vec4 result.");
+  }
+  return { position, varyings: (wrapped && (raw.varyings as Record<string, unknown>)) || {} };
+}
+
+/** The outputs of a fragment that wrote none, which every such fragment shares: a per-pixel call allocates nothing for it. */
+const NO_OUTPUTS: unknown[] = Object.freeze([]) as unknown as unknown[];
+
+/** The values a routine wrote to its outputs, in the order of their locations. */
+function outputsInOrder(outputs: Record<string, unknown> | undefined): unknown[] {
+  if (outputs === undefined) return NO_OUTPUTS;
+  return Object.keys(outputs)
+    .sort((a, b) => Number(a.replace(/\D/g, "")) - Number(b.replace(/\D/g, "")))
+    .map((slot) => outputs![slot]);
+}
+
+/** The {@link FragmentResult} of what a routine compiled for the fragment stage returned, `null` when it discarded. */
+export function toFragmentResult<R>(raw: CpuValue<ShaderType> | CpuProgramResult | null): FragmentResult<R> | null {
+  if (raw === null) return null;
+  const result: { value: number[] | undefined; outputs: unknown[]; fragDepth?: number } = isResultObject(raw)
+    ? { value: Array.isArray(raw.value) ? (raw.value as number[]) : undefined, outputs: outputsInOrder(raw.outputs) }
+    : { value: Array.isArray(raw) ? (raw as number[]) : undefined, outputs: NO_OUTPUTS };
+  if (isResultObject(raw) && raw.fragDepth !== undefined) result.fragDepth = raw.fragDepth;
+  return result as FragmentResult<R>;
+}
+
+/**
+ * The typed array a grid of `A` fills: floats and matrices in a `Float64Array`,
+ * integers and booleans in an `Int32Array`, unsigned integers in a
+ * `Uint32Array`, with every component of every pixel one after another.
+ */
+export type GridBuffer<A extends ShaderType> = A extends "uint" | `uvec${string}`
+  ? Uint32Array
+  : A extends "int" | "bool" | `ivec${string}` | `bvec${string}`
+    ? Int32Array
+    : Float64Array;
+
+/**
+ * A program of `fragCoord()` evaluated over a grid of pixels. It evaluates the
+ * program once for each pixel of a `width x height` grid, with `fragCoord()` at
+ * the centre of each pixel, and packs the results into one flat row-major
+ * buffer of `width * height * componentCount` elements, typed by the result. A
+ * pixel that discards is zero in every channel. Every other input, uniforms and
+ * textures included, is the same for every pixel. The buffer is the caller's: a
+ * later call does not change it. Pass `out` to fill a buffer of your own
+ * instead; it must be the type `A` has and hold at least that many elements,
+ * and it is returned.
+ */
+export type CpuGrid<A extends ShaderType = ShaderType> = (
+  ctx: CpuShaderContext,
+  width: number,
+  height: number,
+  out?: GridBuffer<A>,
+) => GridBuffer<A>;

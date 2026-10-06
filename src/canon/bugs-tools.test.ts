@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { build } from "esbuild";
-import { Fn, output, uniform, vec4, type Node } from "../rmsl";
+import { Fn, uniform, vec4, type Node } from "../rmsl";
 import { render } from "../test";
 import { compileWgsl } from "../wgsl";
 import { fxaa, gaussianBlur, transition } from "../effects";
@@ -275,18 +275,5 @@ describe("known bugs of the tools, each failing until its fix", () => {
     });
     const inputs = Object.keys(result.metafile.inputs);
     expect(inputs.filter((path) => /src\/scene\/(core|objects|lights)\//.test(path))).toEqual([]);
-  });
-
-  /**
-   * The JS routine gives a program that returns nothing the value `0`, so
-   * `render` draws `0` and never falls back to the output the program wrote.
-   *
-   * @canon bug-render-draws-zero-for-a-program-that-writes-one-output
-   */
-  it.fails("draws the one output of a program that returns nothing", () => {
-    const graph = Fn(() => {
-      output("vec4").assign(vec4(1, 0.5, 0.25, 1));
-    })();
-    expect(render(() => graph, { width: 1, height: 1 }).at(0, 0)).toEqual([1, 0.5, 0.25, 1]);
   });
 });

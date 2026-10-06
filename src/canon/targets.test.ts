@@ -19,7 +19,7 @@ import {
   mat2,
   mat2x3,
   mat3,
-  output,
+  outputStruct,
   PI,
   select,
   time,
@@ -34,8 +34,8 @@ import {
 } from "../rmsl";
 import { compileGlsl } from "../glsl";
 import { compileWgsl } from "../wgsl";
-import { compileJS, compileJSRoutine, createJsRoutine } from "../js";
-import { compileWasm, compileWasmRoutine, createWasmRoutine } from "../wasm";
+import { compileJS, compileJSRoutine, createJsGrid, compileJSFragment, compileJSVertex } from "../js";
+import { compileWasm, compileWasmRoutine, createWasmGrid, compileWasmFragment, compileWasmVertex } from "../wasm";
 import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } from "../testing/shader-eval";
 
 afterAll(async () => {
@@ -53,8 +53,8 @@ function expectOnEveryTarget(stage: "vertex" | "fragment", build: () => Node<any
   const compilers: [string, () => unknown][] = [
     ["GLSL", () => compileGlsl[stage](build())],
     ["WGSL", () => compileWgsl[stage](build())],
-    ["JS", () => compileJSRoutine(build, { ...none, stage })],
-    ["WASM", () => compileWasmRoutine(build, { ...none, stage })],
+    ["JS", () => (stage === "vertex" ? compileJSVertex : compileJSFragment)(build, none)],
+    ["WASM", () => (stage === "vertex" ? compileWasmVertex : compileWasmFragment)(build, none)],
   ];
   for (const [name, compile] of compilers) {
     if (refused) expect(compile, name).toThrow(refused);
@@ -125,7 +125,7 @@ describe("each leaf on every target it claims", () => {
       name: "main",
       params: [{ name: "a", type: "float" }],
     });
-    expect(wasm.run({ params: { a: Math.PI / 2 } })).toBeCloseTo(180, 6);
+    expect(wasm({ params: { a: Math.PI / 2 } })).toBeCloseTo(180, 6);
   });
 
   /**
@@ -496,9 +496,9 @@ describe("each leaf on every target it claims", () => {
   function colourOnEveryTarget(build: () => Node<any>, expected: number[]) {
     expect(compileGlsl.fragment(build()), "GLSL").toContain("out vec4");
     expect(compileWgsl.fragment(build()), "WGSL").toMatch(/: vec4<f32>/);
-    const js = compileJSRoutine(build, { ...none, stage: "fragment" }).run({}) as any;
+    const js = compileJSFragment(build, { ...none })({}) as any;
     expect(js.value ?? js, "JS").toEqual(expected);
-    const wasm = compileWasmRoutine(build, { ...none, stage: "fragment" }).run({}) as any;
+    const wasm = compileWasmFragment(build, { ...none })({}) as any;
     expect(Array.from(wasm.value ?? wasm), "WASM").toEqual(expected);
   }
 
@@ -558,7 +558,7 @@ describe("each leaf on every target it claims", () => {
   });
 
   /** The bytes a routine adapter puts on its canvas for one pixel of `draw`. */
-  function shownBy(create: typeof createJsRoutine, draw: Node<any>): number[] {
+  function shownBy(create: typeof createJsGrid, draw: Node<any>): number[] {
     const hadImageData = "ImageData" in globalThis;
     if (!hadImageData) {
       (globalThis as any).ImageData = class {
@@ -588,7 +588,7 @@ describe("each leaf on every target it claims", () => {
    * @canon spec-a-vec3-result-takes-an-opaque-alpha
    */
   it("shows a vec3 result with an opaque alpha on the JS and WASM routine adapters", () => {
-    for (const create of [createJsRoutine, createWasmRoutine]) {
+    for (const create of [createJsGrid, createWasmGrid]) {
       expect(shownBy(create, Fn(() => vec3(1, 0.5, 0))())).toEqual([255, 128, 0, 255]);
     }
   });
@@ -597,7 +597,7 @@ describe("each leaf on every target it claims", () => {
    * @canon spec-a-vec2-result-takes-a-zero-blue-and-an-opaque-alpha
    */
   it("shows a vec2 result with a zero blue on the JS and WASM routine adapters", () => {
-    for (const create of [createJsRoutine, createWasmRoutine]) {
+    for (const create of [createJsGrid, createWasmGrid]) {
       expect(shownBy(create, Fn(() => vec2(1, 0.5))())).toEqual([255, 128, 0, 255]);
     }
   });
@@ -606,7 +606,7 @@ describe("each leaf on every target it claims", () => {
    * @canon spec-a-scalar-result-fills-every-channel
    */
   it("shows a scalar result in every channel on the JS and WASM routine adapters", () => {
-    for (const create of [createJsRoutine, createWasmRoutine]) {
+    for (const create of [createJsGrid, createWasmGrid]) {
       expect(shownBy(create, Fn(() => float(0.5))())).toEqual([128, 128, 128, 128]);
     }
   });
@@ -626,9 +626,9 @@ describe("each leaf on every target it claims", () => {
     const build = () => Fn(() => {})() as any;
     expect(() => compileGlsl.fragment(build())).not.toThrow();
     expect(() => compileWgsl.fragment(build())).not.toThrow();
-    expect(() => compileJSRoutine(build, { ...none, stage: "fragment" })).not.toThrow();
-    expect(() => compileWasmRoutine(build, { ...none, stage: "fragment" })).not.toThrow();
-    expect(() => compileWasmRoutine(build, { ...none, stage: "fragment" }).run({})).not.toThrow();
+    expect(() => compileJSFragment(build, { ...none })).not.toThrow();
+    expect(() => compileWasmFragment(build, { ...none })).not.toThrow();
+    expect(() => compileWasmFragment(build, { ...none })({})).not.toThrow();
   });
 
   /**
@@ -658,15 +658,12 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
-   * @canon spec-a-declared-output-holds-what-the-program-assigns
+   * @canon spec-an-output-struct-writes-each-member-at-its-position
    */
-  it("refuses a fragment stage that declares an output on the WASM rasterizer, which draws a colour", () => {
+  it("refuses a fragment stage that returns an outputStruct on the WASM rasterizer, which draws a colour", () => {
     const pos = attribute("vec3");
     const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))();
-    const declared = () =>
-      Fn(() => {
-        output("vec4").assign(vec4(1, 0, 0, 1));
-      })();
+    const declared = () => Fn(() => outputStruct(vec4(1, 0, 0, 1)))();
     expect(() => compileWasm(vertex as any, declared as any)).toThrow(/cannot declare outputs/);
   });
 
@@ -680,26 +677,11 @@ describe("each leaf on every target it claims", () => {
           Discard();
         });
       })() as any;
-    expect(() => compileJSRoutine(build, { ...none, stage: "fragment" })).not.toThrow();
-    expect(() => compileWasmRoutine(build, { ...none, stage: "fragment" })).not.toThrow();
+    expect(() => compileJSFragment(build, { ...none })).not.toThrow();
+    expect(() => compileWasmFragment(build, { ...none })).not.toThrow();
     // An unset uniform reads zero, so the discard does not run; a routine that runs it still returns.
-    expect(() => compileWasmRoutine(build, { ...none, stage: "fragment" }).run({})).not.toThrow();
-    expect(() => compileWasmRoutine(build, { ...none, stage: "fragment" }).run({ uniforms: {} })).not.toThrow();
-  });
-
-  /**
-   * @canon spec-a-declared-output-holds-what-the-program-assigns
-   */
-  it("compiles a fragment stage with a declared output and a result that is not a vec4", () => {
-    expectOnEveryTarget(
-      "fragment",
-      () =>
-        Fn(() => {
-          output("vec4").assign(vec4(1, 0, 0, 1));
-          return float(0.5).toVar();
-        })(),
-      false,
-    );
+    expect(() => compileWasmFragment(build, { ...none })({})).not.toThrow();
+    expect(() => compileWasmFragment(build, { ...none })({ uniforms: {} })).not.toThrow();
   });
 
   /**
@@ -708,7 +690,7 @@ describe("each leaf on every target it claims", () => {
   it("reads a uniform the host never set as zero on WASM", () => {
     const u = uniform("float");
     const build = () => Fn(() => u.add(1).toVar())();
-    expect(compileWasmRoutine(build, none).run({})).toBe(1);
+    expect(compileWasmRoutine(build, none)({})).toBe(1);
   });
 
   /**
@@ -718,8 +700,8 @@ describe("each leaf on every target it claims", () => {
     const u = uniform("uint");
     const build = () => Fn(() => u.add(uint(1)).toVar())();
     const ctx = { uniforms: { [u.name]: 4000000000 } };
-    expect(compileJSRoutine(build, none).run(ctx)).toBe(4000000001);
-    expect(compileWasmRoutine(build, none).run(ctx)).toBe(4000000001);
+    expect(compileJSRoutine(build, none)(ctx)).toBe(4000000001);
+    expect(compileWasmRoutine(build, none)(ctx)).toBe(4000000001);
   });
 
   /**
@@ -729,8 +711,8 @@ describe("each leaf on every target it claims", () => {
     const build = () => Fn(() => vec4(time(), 0, 0, 1).toVar())();
     expect(compileGlsl.fragment(build())).toContain("_rmsl_time");
     expect(compileWgsl.fragment(build())).toContain("_rmsl_time");
-    expect(compileJSRoutine(build, none).run({ uniforms: { _rmsl_time: 2 } })).toEqual([2, 0, 0, 1]);
-    const wasm = compileWasmRoutine(build, none).run({ uniforms: { _rmsl_time: 2 } }) as any;
+    expect(compileJSRoutine(build, none)({ uniforms: { _rmsl_time: 2 } })).toEqual([2, 0, 0, 1]);
+    const wasm = compileWasmRoutine(build, none)({ uniforms: { _rmsl_time: 2 } }) as any;
     expect(wasm.value ?? wasm).toEqual([2, 0, 0, 1]);
   });
 });

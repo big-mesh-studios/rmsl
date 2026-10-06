@@ -72,7 +72,7 @@ The result is one object however the graph is written:
 {
   value,      // what the graph returns, or null for a discarded fragment
   discarded,  // whether the fragment hit Discard()
-  outputs,    // written with output(), by slot
+  outputs,    // the members of an outputStruct, by position
   varyings,   // written with varying() in a vertex stage, by name
   position,   // written with builtinPosition()
   fragDepth,  // written with builtinFragDepth()

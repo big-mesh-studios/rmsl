@@ -30,7 +30,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@term folding`](#term-folding) — Computing a node whose operands are all literal values while the program compiles.
 - [`@term layout`](#term-layout) — The byte offset of each member of a uniform block or a storage element, placed under the rules of one target.
 - [`@term adapter`](#term-adapter) — An object that attaches compiled programs to one target and draws or dispatches them, with the same methods for every target.
-- [`@term cpu-routine`](#term-cpu-routine) — The callable a CPU target compiles a program into, with `run`, `draw` and `compute`.
+- [`@term cpu-routine`](#term-cpu-routine) — The callable a CPU target compiles a program into: a function of a context, with `run`. A program that reads what only a stage has compiles as a stage, a vertex, a fragment or a compute stage, or as a grid.
 - [`@term effect`](#term-effect) — A function from samplers and parameter nodes to a colour node, ported from the display effects of Three.js TSL.
 - [`@term pass-graph`](#term-pass-graph) — An ordered list of fullscreen passes and the name of the pass that produces the output.
 - [`@term node-material`](#term-node-material) — A material of `./scene` whose surface the user states as nodes.
@@ -50,7 +50,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec output-grows-in-proportion-to-the-levels-of-nested-reads`](#spec-output-grows-in-proportion-to-the-levels-of-nested-reads) — A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract` on JS, counts as two reads.
     - [`@spec a-node-that-is-already-a-name-is-read-where-it-is`](#spec-a-node-that-is-already-a-name-is-read-where-it-is) — A constant, a variable, a uniform, an attribute or a built-in input stays where it is. So does a swizzle or an element of one of them. None gets a variable of its own.
     - [`@spec a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in`](#spec-a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in) — A node that two blocks read, with neither inside the other, is computed in each. A path that skips a block runs none of its statements.
-    - [`@spec a-shared-value-is-computed-again-after-what-it-reads-changed`](#spec-a-shared-value-is-computed-again-after-what-it-reads-changed) — A shared node that reads a variable, a stage output or a storage buffer is computed again at its next read. This holds once a statement has changed it.
+    - [`@spec a-shared-value-is-computed-again-after-what-it-reads-changed`](#spec-a-shared-value-is-computed-again-after-what-it-reads-changed) — A shared node that reads a variable or a storage buffer is computed again at its next read. This holds once a statement has changed it.
     - [`@spec a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads`](#spec-a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads) — A shared node made before a loop is computed again inside the loop, when the loop body changes what the node reads.
     - [`@spec an-expression-of-constants-is-folded-not-shared`](#spec-an-expression-of-constants-is-folded-not-shared) — An expression of constants gets no variable of its own. The target folds it into one literal.
     - [`@spec a-shared-value-gets-a-generated-name`](#spec-a-shared-value-gets-a-generated-name) — The variable of a shared node is named `_rmsl_gen_` and a number. It cannot clash with a name the user gave, or with a `toVar()` name.
@@ -74,14 +74,13 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@bug the-glsl-adapter-never-sets-a-uniform-array`](#bug-the-glsl-adapter-never-sets-a-uniform-array) — WebGL reports a uniform array as `name[0]`, and `createGlsl` looks the slot up by that name, so `setUniform` on a uniform array never applies.
   - [`@spec a-stage-passes-its-values-on-every-target`](#spec-a-stage-passes-its-values-on-every-target) — A fragment stage writes its colour, and a vertex stage passes its varyings on to the fragment stage, the same way on every target.
     - [`@spec a-fragment-result-without-an-output-is-the-colour`](#spec-a-fragment-result-without-an-output-is-the-colour) — A fragment stage that declares no [output](#term-output) writes its result to the colour at location 0. The result converts as it does in TSL.
-      - [`@spec a-vec4-result-is-the-colour`](#spec-a-vec4-result-is-the-colour) — A fragment stage that declares no output and returns a `vec4` writes it to the implicit colour output unchanged.
-      - [`@spec a-vec3-result-takes-an-opaque-alpha`](#spec-a-vec3-result-takes-an-opaque-alpha) — A fragment stage that declares no output and returns a `vec3` writes it as `vec4(rgb, 1)`.
-      - [`@spec a-vec2-result-takes-a-zero-blue-and-an-opaque-alpha`](#spec-a-vec2-result-takes-a-zero-blue-and-an-opaque-alpha) — A fragment stage that declares no output and returns a `vec2` writes it as `vec4(x, y, 0, 1)`.
-      - [`@spec a-scalar-result-fills-every-channel`](#spec-a-scalar-result-fills-every-channel) — A fragment stage that declares no output and returns a `float`, `int`, `uint` or `bool` writes it as a `vec4` with the value, as a float, in every channel.
-      - [`@spec an-integer-or-boolean-vector-result-converts-to-a-float-vector-first`](#spec-an-integer-or-boolean-vector-result-converts-to-a-float-vector-first) — A fragment stage that declares no output and returns an `ivec`, `uvec` or `bvec` converts it to a float vector of the same length. The rule of that length then applies.
-      - [`@spec a-result-that-has-no-colour-is-refused`](#spec-a-result-that-has-no-colour-is-refused) — A fragment stage that declares no output and returns a matrix is refused on every target.
-    - [`@spec a-declared-output-holds-what-the-program-assigns`](#spec-a-declared-output-holds-what-the-program-assigns) — A fragment stage that declares [outputs](#term-output) writes each one with what the program assigns to it, and writes its result to none of them.
-    - [`@spec a-fragment-stage-may-write-no-colour`](#spec-a-fragment-stage-may-write-no-colour) — A fragment stage that declares no output and returns nothing compiles.
+      - [`@spec a-vec4-result-is-the-colour`](#spec-a-vec4-result-is-the-colour) — A fragment stage that returns a `vec4` writes it to the implicit colour output unchanged.
+      - [`@spec a-vec3-result-takes-an-opaque-alpha`](#spec-a-vec3-result-takes-an-opaque-alpha) — A fragment stage that returns a `vec3` writes it as `vec4(rgb, 1)`.
+      - [`@spec a-vec2-result-takes-a-zero-blue-and-an-opaque-alpha`](#spec-a-vec2-result-takes-a-zero-blue-and-an-opaque-alpha) — A fragment stage that returns a `vec2` writes it as `vec4(x, y, 0, 1)`.
+      - [`@spec a-scalar-result-fills-every-channel`](#spec-a-scalar-result-fills-every-channel) — A fragment stage that returns a `float`, `int`, `uint` or `bool` writes it as a `vec4` with the value, as a float, in every channel.
+      - [`@spec an-integer-or-boolean-vector-result-converts-to-a-float-vector-first`](#spec-an-integer-or-boolean-vector-result-converts-to-a-float-vector-first) — A fragment stage that returns an `ivec`, `uvec` or `bvec` converts it to a float vector of the same length. The rule of that length then applies.
+      - [`@spec a-result-that-has-no-colour-is-refused`](#spec-a-result-that-has-no-colour-is-refused) — A fragment stage that returns a matrix is refused on every target.
+    - [`@spec a-fragment-stage-may-write-no-colour`](#spec-a-fragment-stage-may-write-no-colour) — A fragment stage that returns nothing compiles.
     - [`@spec a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour`](#spec-a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour) — A CPU rasterizer runs a fragment stage that writes no colour, tests and writes its depth, and leaves the pixel as it was.
     - [`@spec a-varying-passes-from-the-vertex-to-the-fragment-stage`](#spec-a-varying-passes-from-the-vertex-to-the-fragment-stage) — A varying is an output of the vertex stage and an input of the fragment stage.
       - [`@bug wasm-rasterizer-interpolates-an-integer-varying-as-a-float`](#bug-wasm-rasterizer-interpolates-an-integer-varying-as-a-float) — The WASM rasterizer interpolates an integer varying as a 64-bit float, though the stages write and read it as a 32-bit integer.
@@ -194,7 +193,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-wgsl-variable-is-declared-with-var`](#spec-a-wgsl-variable-is-declared-with-var) — On WGSL, a variable compiles to a `var` declaration, also when the program never assigns it again.
   - [`@spec a-name-is-local-unless-the-user-gave-it`](#spec-a-name-is-local-unless-the-user-gave-it) — A name the compiler generates is local to its program. A name the user gives with a `*Raw` function is absolute.
     - [`@spec a-generated-name-is-local-to-its-program`](#spec-a-generated-name-is-local-to-its-program) — A name the compiler generates for an input or an output connects every reference to it inside its program. The same generated name in another program names a different input.
-      - [`@bug serialize-keeps-the-generated-name-of-an-output`](#bug-serialize-keeps-the-generated-name-of-an-output) — `serialize` keeps the generated name of a stage output, `_rmsl_oN`, so two graphs restored from it write one output.
     - [`@spec a-raw-name-is-absolute`](#spec-a-raw-name-is-absolute) — A name given to `uniformRaw`, `attributeRaw` or `varyingRaw` is used as given. Every node that carries it, in any program and any process, is one input, declared once.
       - [`@spec a-raw-name-declares-one-input-under-that-name`](#spec-a-raw-name-declares-one-input-under-that-name) — `uniformRaw`, `attributeRaw` and `varyingRaw` declare their input under the name given, once however many nodes carry it, and every target reads it by that name. An empty name is refused.
       - [`@spec a-raw-name-names-one-type`](#spec-a-raw-name-names-one-type) — Two inputs that share a name but not a type are refused on every target.
@@ -220,6 +218,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-negative-number-for-an-unsigned-type-is-refused`](#spec-a-negative-number-for-an-unsigned-type-is-refused) — A negative number beside an unsigned operand, or given to `uint` or to an unsigned vector constructor, is refused.
     - [`@bug assign-leaves-a-bare-number-untyped`](#bug-assign-leaves-a-bare-number-untyped) — `assign` passes a bare number on as it is. WASM throws on it, GLSL and WGSL write an integer literal into a float, and only JS runs it.
   - [`@spec a-statement-outside-an-fn-is-refused`](#spec-a-statement-outside-an-fn-is-refused) — `assign`, `toVar` and control flow called outside the body of an `Fn` are refused.
+  - [`@spec an-output-struct-is-refused-outside-a-fragment-stage`](#spec-an-output-struct-is-refused-outside-a-fragment-stage) — An `outputStruct` in a vertex stage, in a compute stage, or in a program compiled with no stage is refused on every target that compiles one. It cannot be an operand or a statement either.
   - [`@spec a-stage-reads-and-writes-only-what-it-has`](#spec-a-stage-reads-and-writes-only-what-it-has) — A vertex stage produces a position, and a built-in that one stage has is refused in the other.
     - [`@spec a-vertex-stage-without-a-position-is-refused`](#spec-a-vertex-stage-without-a-position-is-refused) — A vertex stage whose result is not a `vec4`, and which writes no position itself, is refused on every target, a literal zero included.
     - [`@spec a-vertex-stage-writes-its-position`](#spec-a-vertex-stage-writes-its-position) — A vertex stage writes its `vec4` result as the position, or the position it assigns through `builtinPosition()`, once.
@@ -228,7 +227,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec frag-coord-is-read-only-in-a-fragment-stage`](#spec-frag-coord-is-read-only-in-a-fragment-stage) — `fragCoord()` in a vertex stage is refused.
     - [`@spec the-position-is-read-only-in-a-vertex-stage`](#spec-the-position-is-read-only-in-a-vertex-stage) — A vertex [stage](#term-stage) reads `builtinPosition()`, and a fragment stage that reads it is refused.
     - [`@spec a-compute-program-cannot-read-an-attribute`](#spec-a-compute-program-cannot-read-an-attribute) — A compute program that reads an [attribute](#term-attribute) is refused on every target that compiles one. A compute program reaches a buffer through `storage()`, which reads what an attribute lies over.
-    - [`@spec a-compute-program-cannot-write-an-output`](#spec-a-compute-program-cannot-write-an-output) — A compute program that assigns to an [output](#term-output) is refused on every target that compiles one. A compute program writes its results into a storage buffer and returns nothing.
     - [`@spec a-compute-program-cannot-read-a-varying`](#spec-a-compute-program-cannot-read-a-varying) — A compute program that reads a [varying](#term-varying) is refused on every target that compiles one. A compute program has no vertex stage to pass a value from.
     - [`@spec a-render-stage-reads-storage-read-only`](#spec-a-render-stage-reads-storage-read-only) — A vertex or fragment stage reads a storage buffer read-only, from a group of its own whose bindings count across both stages. A write to one from a render stage is refused.
       - [`@spec a-wgsl-render-stage-reads-storage-read-only`](#spec-a-wgsl-render-stage-reads-storage-read-only) — On WGSL, a vertex or fragment stage declares a storage buffer read-only, in a group of its own numbered across both stages. It refuses a write to the buffer.
@@ -331,7 +329,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-else-if-follows-its-if-directly`](#spec-an-else-if-follows-its-if-directly) — An `ElseIf` or `Else` written after a statement that follows its `If` or `ElseIf`, a variable or a `Break` included, or called from inside another block, is refused.
   - [`@spec a-switch-runs-the-case-its-selector-matches`](#spec-a-switch-runs-the-case-its-selector-matches) — `Switch` runs the first `Case` whose values hold its selector, or the `Default` when none does, as a chain of `if` and `else` with no fall-through. A `Switch` with no `Case` and no `Default` runs nothing.
   - [`@spec break-continue-return-and-discard-leave-where-tsl-leaves`](#spec-break-continue-return-and-discard-leave-where-tsl-leaves) — `Break` leaves the loop, `Continue` starts its next iteration, `Return` leaves the function, and `Discard` drops the fragment.
-    - [`@bug the-cpu-rasterizers-paint-a-discarded-fragment`](#bug-the-cpu-rasterizers-paint-a-discarded-fragment) — The JS and WASM rasterizers write a colour for a discarded fragment. JS writes 0 into its red channel, and WASM writes the colour the fragment stage last left in its memory.
+    - [`@bug the-wasm-rasterizer-paints-a-discarded-fragment`](#bug-the-wasm-rasterizer-paints-a-discarded-fragment) — The WASM rasterizer writes a colour for a discarded fragment: the colour the fragment stage last left in its memory.
     - [`@bug the-cpu-rasterizers-write-the-depth-of-a-discarded-fragment`](#bug-the-cpu-rasterizers-write-the-depth-of-a-discarded-fragment) — The JS and WASM rasterizers write the depth of a fragment before they run it. A fragment that discards still hides what a later draw puts behind it.
   - [`@spec an-fn-records-the-statements-of-its-body`](#spec-an-fn-records-the-statements-of-its-body) — `Fn` records the statements its body makes into the [fn](#term-fn) it returns. An `Fn` may be empty, return one value or several, and call another `Fn`.
     - [`@spec an-fn-returns-what-its-body-returns`](#spec-an-fn-returns-what-its-body-returns) — A call of an `Fn` gives what its body returns: nothing, one value, or several. An empty body and a body that calls another `Fn` compile.
@@ -402,10 +400,13 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-light-uniform-carries-its-colour-times-its-intensity`](#spec-a-light-uniform-carries-its-colour-times-its-intensity) — A directional or point light gives its colour uniform the light's colour already multiplied by its intensity.
       - [`@spec position-and-normal-read-object-space-in-both-stages`](#spec-position-and-normal-read-object-space-in-both-stages) — The builder's `position` and `normal` give the object-space position and normal in both stages, as TSL's `positionLocal` and `normalLocal` do.
         - [`@bug position-and-normal-read-world-space-in-the-fragment-stage`](#bug-position-and-normal-read-world-space-in-the-fragment-stage) — The builder's `position` and `normal` read object space in the vertex stage. In the fragment stage they read the `positionWorld` and `normalWorld` varyings instead.
+- [`@axiom a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns) — What a compiled program hands back is typed by the program that was compiled. A caller reads the result as it is, with no narrowing and no cast.
+  - [`@spec a-routine-is-typed-by-the-value-it-returns`](#spec-a-routine-is-typed-by-the-value-it-returns) — `compileJSRoutine` and `compileWasmRoutine` give a routine whose `run` returns the JavaScript value of the type the program returns: a number for a `float`, `int` or `uint`, a boolean for a `bool`, an array of booleans for a `bvec`, and an array of numbers for any other vector or matrix.
 - [`@axiom each-target-keeps-what-makes-it-worth-choosing`](#axiom-each-target-keeps-what-makes-it-worth-choosing) — An interface over several targets keeps what each target does better than the others. A call that a target answers at once stays synchronous. Data that lives on the GPU stays there until the host asks for it. No target fakes a capability it lacks.
   - [`@spec an-adapter-call-is-synchronous-where-its-target-answers-at-once`](#spec-an-adapter-call-is-synchronous-where-its-target-answers-at-once) — An [adapter](#term-adapter) method returns its result directly where its target answers at once, and returns a promise only where its target cannot.
     - [`@spec a-cpu-adapter-computes-synchronously`](#spec-a-cpu-adapter-computes-synchronously) — `compute` on a JS or WASM adapter has run the dispatch and filled `out` when it returns.
       - [`@bug wasm-compute-names-its-routine-as-its-dispatch-loop`](#bug-wasm-compute-names-its-routine-as-its-dispatch-loop) — `createWasmCompute` names its routine `compute` by default, the name of the module's own dispatch export, so a program with storage fails to compile.
+    - [`@spec a-cpu-routine-adapter-calls-its-routine-with-what-it-was-given`](#spec-a-cpu-routine-adapter-calls-its-routine-with-what-it-was-given) — `createJsRoutine` and `createWasmRoutine` give an adapter that keeps the uniforms and the textures the host sets. `run(params)` calls the routine with them and the parameters it is given, returns its value at once, and calls it again with whatever the host has set since.
     - [`@spec a-wgsl-adapter-attaches-and-computes-through-a-promise`](#spec-a-wgsl-adapter-attaches-and-computes-through-a-promise) — `attach` and `compute` on a WGSL adapter return promises, because WebGPU requests its device and reads its buffers back asynchronously.
     - [`@spec a-glsl-adapter-attaches-and-draws-synchronously`](#spec-a-glsl-adapter-attaches-and-draws-synchronously) — `attach` and `draw` on a GLSL adapter return `void`, because WebGL 2 creates its context and draws synchronously.
   - [`@spec compute-copies-back-only-the-slots-out-names`](#spec-compute-copies-back-only-the-slots-out-names) — `compute(out)` copies back to the host only the storage slots that `out` names. The other storage buffers stay where the program wrote them. A slot that the program has no storage for is refused.
@@ -431,8 +432,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-wgsl-context-compiles-a-compute-node-once`](#spec-a-wgsl-context-compiles-a-compute-node-once) — A WGSL compute context creates one pipeline for a compute node at its first dispatch, and reuses it at every later one.
 - [`@axiom rmsl-compiles-and-the-application-drives`](#axiom-rmsl-compiles-and-the-application-drives) — rmsl hands the application what it compiled: shader source, callables, adapters and node graphs. The application decides when to draw and when to dispatch. It owns the canvas, the frame loop and the data it uploads.
   - [`@spec what-rmsl-hands-back-draws-nothing-on-its-own`](#spec-what-rmsl-hands-back-draws-nothing-on-its-own) — What rmsl hands back draws nothing until the application calls it. An adapter draws or dispatches once for each call.
-    - [`@spec an-adapter-draws-one-frame-for-each-call`](#spec-an-adapter-draws-one-frame-for-each-call) — `draw()` on an adapter draws one frame into the canvas it attached, and nothing more until the next call. This holds for the GLSL adapter, the JS and WASM rasterizers, and the JS and WASM routines.
-      - [`@bug create-wasm-routine-fails-under-its-default-name`](#bug-create-wasm-routine-fails-under-its-default-name) — `createWasmRoutine` names its routine `draw` by default, which collides with the grid loop the module exports as `draw`, so the module does not instantiate.
+    - [`@spec an-adapter-draws-one-frame-for-each-call`](#spec-an-adapter-draws-one-frame-for-each-call) — `draw()` on an adapter draws one frame into the canvas it attached, and nothing more until the next call. This holds for the GLSL adapter, the JS and WASM rasterizers, and the JS and WASM grids.
+      - [`@bug create-wasm-grid-fails-under-its-default-name`](#bug-create-wasm-grid-fails-under-its-default-name) — `createWasmGrid` names its program `draw` by default, which collides with the grid loop the module exports as `draw`, so the module does not instantiate.
     - [`@spec a-draw-clears-its-target-first-unless-it-asks-not-to`](#spec-a-draw-clears-its-target-first-unless-it-asks-not-to) — A draw of an adapter, and of a CPU rasterizer routine, clears the colour of its target before it draws, to its `clearColor`. A draw that passes `clear: false` draws over what is there. A CPU draw also clears its depth buffer, unless it passes `clearDepth: false`.
       - [`@spec a-draw-clears-the-colour-of-its-target-to-its-clear-colour`](#spec-a-draw-clears-the-colour-of-its-target-to-its-clear-colour) — A draw clears the colour of its target to its `clearColor` before it draws, so no pixel of an earlier draw remains.
       - [`@spec a-clear-colour-is-transparent-black-unless-the-draw-gives-one`](#spec-a-clear-colour-is-transparent-black-unless-the-draw-gives-one) — A draw that gives no `clearColor` clears to transparent black, `[0, 0, 0, 0]`.
@@ -527,13 +528,16 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec the-wasm-target-draws-within-the-call`](#spec-the-wasm-target-draws-within-the-call) — A vertex and fragment program compiled with `compileWasm` returns its pixels from `draw`, with no graphics API.
     - [`@spec the-js-target-compiles-a-function-of-a-context`](#spec-the-js-target-compiles-a-function-of-a-context) — `compileJSFn` returns the source of a named function that reads its parameters from `ctx.params` and its uniforms from `ctx.uniforms` by slot name. It returns its value, a result object when the program writes outputs or depth, and `null` for a discarded fragment.
     - [`@spec the-js-target-computes-scalar-math-with-math`](#spec-the-js-target-computes-scalar-math-with-math) — The JS target computes a scalar math function with the function of the same name on `Math`.
-    - [`@spec a-cpu-routine-reads-its-inputs-by-slot`](#spec-a-cpu-routine-reads-its-inputs-by-slot) — A CPU routine reads its parameters, uniforms, uniform arrays, attributes and varyings from the context the host passes, by slot name. It reads `fragCoord()` as `[0, 0]` when the context gives none.
-    - [`@spec a-cpu-routine-returns-its-value-or-a-result`](#spec-a-cpu-routine-returns-its-value-or-a-result) — A CPU routine returns the value its program returns, the last of several, as it is. When the program writes an output, a varying, the position or the depth, it returns a result object that holds them with the value. A discarded fragment returns `null`.
-      - [`@bug wasm-wraps-a-vector-result-in-a-result-object`](#bug-wasm-wraps-a-vector-result-in-a-result-object) — A WASM routine returns a vector or matrix value inside a result object even when the program writes no output, varying, position or depth.
-      - [`@bug wasm-returns-a-value-for-a-discarded-fragment`](#bug-wasm-returns-a-value-for-a-discarded-fragment) — A WASM routine returns `0`, or a result holding a zero value, for a discarded fragment.
+    - [`@spec a-cpu-program-reads-its-inputs-by-slot`](#spec-a-cpu-program-reads-its-inputs-by-slot) — A compiled CPU program, a routine, a stage or a grid, reads what the context the host passes holds, by slot name: its parameters, uniforms and uniform arrays, and, in a program that has them, attributes, varyings and `fragCoord()`, which reads as `[0, 0]` when the context gives none.
+    - [`@spec a-cpu-routine-returns-its-value`](#spec-a-cpu-routine-returns-its-value) — A CPU routine returns the value its program returns, the last of several, as it is. A program that reads what only a stage has is refused, so a routine has no result object to return.
+    - [`@spec a-routine-refuses-an-input-only-a-stage-has`](#spec-a-routine-refuses-an-input-only-a-stage-has) — A routine that reads `fragCoord()`, `invocationIndex()`, `builtinPosition()`, `builtinFragDepth()`, a varying or an attribute is refused on both CPU targets. The refusal names the input and the stage that has it.
+    - [`@spec a-vertex-stage-returns-its-position-and-varyings`](#spec-a-vertex-stage-returns-its-position-and-varyings) — `compileJSVertex` and `compileWasmVertex` give a stage whose `run` returns an object that holds the position, a `vec4`, and the varyings the program wrote, by slot. A vertex stage that never writes the position itself returns its `vec4` result as the position.
+    - [`@spec a-fragment-stage-returns-its-colour-and-outputs`](#spec-a-fragment-stage-returns-its-colour-and-outputs) — `compileJSFragment` and `compileWasmFragment` give a stage whose `run` returns an object that holds the colour, a `vec4`, the members of the `outputStruct` the program returned, by position, and the depth when it wrote one. A stage that returns an `outputStruct` has no colour, which is undefined. A fragment that discards returns `null`.
+    - [`@spec an-output-struct-writes-each-member-at-its-position`](#spec-an-output-struct-writes-each-member-at-its-position) — A fragment stage that returns an `outputStruct` writes member `i` to the output at location `i`, with the type of the member, and writes no colour. A CPU stage returns the values of the members by position.
+    - [`@spec a-compute-stage-dispatches-and-returns-nothing`](#spec-a-compute-stage-dispatches-and-returns-nothing) — `compileJSCompute` and `compileWasmCompute` give a stage whose `dispatch` runs the program once per index of a count, in index order, and returns nothing. The stage names the type of each storage buffer the program reads.
     - [`@spec a-cpu-routine-answers-one-fragment-per-call`](#spec-a-cpu-routine-answers-one-fragment-per-call) — `run` of a CPU routine evaluates the program once, for the context the host passes. The same routine serves any number of calls, and a value one call returned keeps what it holds through the calls after it.
-    - [`@spec a-cpu-routine-draws-a-grid-of-fragments`](#spec-a-cpu-routine-draws-a-grid-of-fragments) — `draw` of a CPU routine evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to draw.
-    - [`@spec a-cpu-routine-runs-one-compute-invocation-per-call`](#spec-a-cpu-routine-runs-one-compute-invocation-per-call) — A CPU routine of a program that reads `storage()` and `invocationIndex()` runs one invocation for each call. It reads and writes any element of the buffers the host passes by slot.
+    - [`@spec a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel) — `fill` of a CPU grid evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to fill with.
+    - [`@spec a-cpu-compute-stage-runs-one-invocation-per-index`](#spec-a-cpu-compute-stage-runs-one-invocation-per-index) — `dispatch` of a CPU compute stage runs the program once for each index of its count. It reads and writes any element of the buffers the host passes by slot.
     - [`@spec a-wasm-routine-is-reentrant`](#spec-a-wasm-routine-is-reentrant) — A WASM routine keeps its variables in its own module, so it computes the same with or without `reentrant`.
     - [`@spec a-cpu-target-runs-invocations-in-index-order`](#spec-a-cpu-target-runs-invocations-in-index-order) — A CPU target runs the invocations of a dispatch one at a time, in index order. An invocation sees the writes of the invocations before it.
     - [`@spec a-cpu-target-rasterizes-a-vertex-and-fragment-pair`](#spec-a-cpu-target-rasterizes-a-vertex-and-fragment-pair) — `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates varyings in perspective, clips at the near plane, and keeps the closer fragment.
@@ -554,7 +558,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-rasterizer-gives-each-vertex-its-own-position`](#spec-a-rasterizer-gives-each-vertex-its-own-position) — A CPU rasterizer places each vertex of a draw at the position its own vertex call returned, whatever the vertex program keeps in variables.
       - [`@spec a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds`](#spec-a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds) — A CPU rasterizer draws a triangle whether its vertices run clockwise or counter-clockwise on the screen.
     - [`@spec shader-logic-is-tested-without-a-graphics-api`](#spec-shader-logic-is-tested-without-a-graphics-api) — The `./test` library runs a graph on the JS target and hands back values or a grid of fragments. A plain unit test can then assert on the logic of a shader.
-      - [`@spec evaluate-gives-the-value-of-one-fragment`](#spec-evaluate-gives-the-value-of-one-fragment) — `evaluate` gives the value one fragment computes, at the coordinate `fragCoord()` says, with the type the graph has on the CPU. It carries the depth, the outputs, the position and the varyings the program writes, and reports a discarded fragment as discarded.
+      - [`@spec evaluate-gives-the-value-of-one-fragment`](#spec-evaluate-gives-the-value-of-one-fragment) — `evaluate` gives the value one fragment computes, at the coordinate `fragCoord()` says, with the type the graph has on the CPU. It carries the depth, the members of an `outputStruct` by position, the position and the varyings the program writes, and reports a discarded fragment as discarded.
       - [`@spec an-input-is-bound-by-its-node`](#spec-an-input-is-bound-by-its-node) — A test binds a uniform, varying, attribute or texture by the node it holds, as a `[node, value]` pair, never by its slot name. A value of the wrong shape for the node, a texture bound as a plain uniform, or pixels nothing could read are refused.
       - [`@spec a-read-of-an-input-nothing-bound-names-it`](#spec-a-read-of-an-input-nothing-bound-names-it) — A graph that reads an input nothing bound is refused with the name of that input, rather than shading with nothing. A sampler with no pixels counts as unbound.
       - [`@spec a-test-texture-is-read-as-the-renderers-read-it`](#spec-a-test-texture-is-read-as-the-renderers-read-it) — A texture bound in a test is sampled by the same rules the renderers read it by: its format, filters, wrap and channels. A scene texture binds as it stands, and an 8-bit texture reads as 0 to 1.
@@ -574,19 +578,17 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-program-under-test-sees-a-resolution-of-one-pixel`](#spec-a-program-under-test-sees-a-resolution-of-one-pixel) — `fromProgram` binds `resolution` to one pixel by one, unless its `resolution` option gives a size.
       - [`@spec a-program-under-test-falls-back-when-a-value-function-throws`](#spec-a-program-under-test-falls-back-when-a-value-function-throws) — `fromProgram` binds a uniform whose value function throws as if the program gave it no value.
       - [`@spec a-slot-two-names-share-reads-back-under-the-first`](#spec-a-slot-two-names-share-reads-back-under-the-first) — When two of a program's names point at one slot, `fromProgram` hands the slot's value back under the first name.
-      - [`@spec render-draws-the-only-output-of-a-program-that-returns-nothing`](#spec-render-draws-the-only-output-of-a-program-that-returns-nothing) — `render` draws the output a fragment writes when the program returns no value and writes exactly one output.
-        - [`@bug render-draws-zero-for-a-program-that-writes-one-output`](#bug-render-draws-zero-for-a-program-that-writes-one-output) — The JS routine gives a program that returns nothing the value `0`, so `render` draws `0` and never falls back to the output.
-    - [`@spec draw-writes-a-discarded-pixel-as-zero`](#spec-draw-writes-a-discarded-pixel-as-zero) — `draw` of a CPU routine writes a pixel whose fragment discards as zero in every channel.
-      - [`@bug js-routine-draws-a-discarded-pixel-as-nan`](#bug-js-routine-draws-a-discarded-pixel-as-nan) — `draw` of a JS routine writes a discarded pixel as `null` read into its buffer, which leaves 0 in the first channel and `NaN` in the others.
+      - [`@spec render-draws-the-only-member-of-an-output-struct`](#spec-render-draws-the-only-member-of-an-output-struct) — `render` draws the member of an `outputStruct` that a fragment stage returns, when it has exactly one member.
+    - [`@spec a-grid-writes-a-discarded-pixel-as-zero`](#spec-a-grid-writes-a-discarded-pixel-as-zero) — `fill` of a CPU grid writes a pixel whose fragment discards as zero in every channel.
     - [`@spec an-input-the-host-leaves-out-reads-zero`](#spec-an-input-the-host-leaves-out-reads-zero) — A parameter, attribute or varying the host leaves out of the context reads zero.
       - [`@bug wasm-reads-an-unset-scalar-input-as-nan`](#bug-wasm-reads-an-unset-scalar-input-as-nan) — A scalar varying the host leaves out reads as `NaN`.
       - [`@bug wasm-throws-on-an-unset-aggregate-input`](#bug-wasm-throws-on-an-unset-aggregate-input) — A vector varying the host leaves out throws a `TypeError` while the routine writes it into memory.
     - [`@spec a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array`](#spec-a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array) — A CPU routine returns a matrix as one flat array of numbers, which holds its columns one after another.
     - [`@spec a-cpu-compiler-calls-its-builder-once`](#spec-a-cpu-compiler-calls-its-builder-once) — `compileJSRoutine` and `compileWasmRoutine` call the builder the caller passes once for each compile.
-    - [`@spec draw-fills-a-float64-array-for-a-float-result`](#spec-draw-fills-a-float64-array-for-a-float-result) — `draw` of a CPU routine whose result is a float or a float vector returns a `Float64Array`.
-    - [`@spec draw-fills-an-int32-array-for-an-int-result`](#spec-draw-fills-an-int32-array-for-an-int-result) — `draw` of a CPU routine whose result is an `int` or an integer vector returns an `Int32Array`.
-    - [`@spec draw-fills-a-uint32-array-for-a-uint-result`](#spec-draw-fills-a-uint32-array-for-a-uint-result) — `draw` of a CPU routine whose result is a `uint` or an unsigned vector returns a `Uint32Array`.
-    - [`@spec draw-writes-a-bool-result-as-one-or-zero-in-an-int32-array`](#spec-draw-writes-a-bool-result-as-one-or-zero-in-an-int32-array) — `draw` of a CPU routine whose result is a `bool` returns an `Int32Array` that holds 1 for true and 0 for false.
+    - [`@spec a-grid-fills-a-float64-array-for-a-float-result`](#spec-a-grid-fills-a-float64-array-for-a-float-result) — `fill` of a CPU grid whose result is a float or a float vector returns a `Float64Array`.
+    - [`@spec a-grid-fills-an-int32-array-for-an-int-result`](#spec-a-grid-fills-an-int32-array-for-an-int-result) — `fill` of a CPU grid whose result is an `int` or an integer vector returns an `Int32Array`.
+    - [`@spec a-grid-fills-a-uint32-array-for-a-uint-result`](#spec-a-grid-fills-a-uint32-array-for-a-uint-result) — `fill` of a CPU grid whose result is a `uint` or an unsigned vector returns a `Uint32Array`.
+    - [`@spec a-grid-writes-a-bool-result-as-one-or-zero-in-an-int32-array`](#spec-a-grid-writes-a-bool-result-as-one-or-zero-in-an-int32-array) — `fill` of a CPU grid whose result is a `bool` returns an `Int32Array` that holds 1 for true and 0 for false.
     - [`@spec an-element-no-invocation-writes-keeps-the-host-value`](#spec-an-element-no-invocation-writes-keeps-the-host-value) — On a CPU target, a storage element that no invocation writes keeps the value the host passed in.
     - [`@spec a-runner-shares-its-scratch-unless-asked`](#spec-a-runner-shares-its-scratch-unless-asked) — A `runner` keeps the variables of its graph in one scratch block that its calls share, unless its options set `reentrant`.
   - [`@spec a-wasm-module-imports-only-its-memory`](#spec-a-wasm-module-imports-only-its-memory) — A program compiled to WebAssembly imports only its memory from the host. Any host that runs WebAssembly can run it, outside JavaScript included.
@@ -758,10 +760,6 @@ GLSL sets precision two ways: a statement that sets the default for a type, and 
 
 A fragment program can write depth on one path only. What depth the other paths give is open: WGSL gives 0 and GLSL leaves it undefined. TSL avoids the question by writing depth as an expression on every path, and its `depth` reads the fragment's own depth. Issue #132 holds the question.
 
-### Declared outputs
-
-rmsl's `output(type)` declares a typed output at a location, and the program assigns to it, but TSL has no such function. Its `output` is the material's one `vec4` fragment output, and `outputStruct` and `mrt` spell the rest. The `Fn` body decides whether a stage declares an output, so no type can check it. The owner leans towards porting to TSL. Issue #137 holds the question, and [`spec-a-declared-output-holds-what-the-program-assigns`](#spec-a-declared-output-holds-what-the-program-assigns) states today's behaviour.
-
 ### Divergences found
 
 The analysis found these places where the code or the documents do not hold the canon, and no spec decides the fix yet. Each has an issue. A defect that breaks a spec is a bug unit inside that spec instead.
@@ -886,7 +884,7 @@ _Avoid_: constant propagation
 
 ### @term cpu-routine
 
-> The callable a CPU target compiles a program into, with `run`, `draw` and `compute`.
+> The callable a CPU target compiles a program into: a function of a context, with `run`. A program that reads what only a stage has compiles as a stage, a vertex, a fragment or a compute stage, or as a grid.
 
 ### @term effect
 
@@ -1004,7 +1002,7 @@ This follows because the result stored in one branch of an `If` does not exist o
 
 #### @spec a-shared-value-is-computed-again-after-what-it-reads-changed
 
-> A shared node that reads a variable, a stage output or a storage buffer is computed again at its next read. This holds once a statement has changed it.
+> A shared node that reads a variable or a storage buffer is computed again at its next read. This holds once a statement has changed it.
 
 This follows because a node has the value it computes at the point of the read. An assignment between two reads can change that value.
 
@@ -1154,39 +1152,35 @@ This follows because a TSL fragment that returns a `vec3` or a `float` ports unc
 
 ##### @spec a-vec4-result-is-the-colour
 
-> A fragment stage that declares no output and returns a `vec4` writes it to the implicit colour output unchanged.
+> A fragment stage that returns a `vec4` writes it to the implicit colour output unchanged.
 
 ##### @spec a-vec3-result-takes-an-opaque-alpha
 
-> A fragment stage that declares no output and returns a `vec3` writes it as `vec4(rgb, 1)`.
+> A fragment stage that returns a `vec3` writes it as `vec4(rgb, 1)`.
 
 ##### @spec a-vec2-result-takes-a-zero-blue-and-an-opaque-alpha
 
-> A fragment stage that declares no output and returns a `vec2` writes it as `vec4(x, y, 0, 1)`.
+> A fragment stage that returns a `vec2` writes it as `vec4(x, y, 0, 1)`.
 
 ##### @spec a-scalar-result-fills-every-channel
 
-> A fragment stage that declares no output and returns a `float`, `int`, `uint` or `bool` writes it as a `vec4` with the value, as a float, in every channel.
+> A fragment stage that returns a `float`, `int`, `uint` or `bool` writes it as a `vec4` with the value, as a float, in every channel.
 
 ##### @spec an-integer-or-boolean-vector-result-converts-to-a-float-vector-first
 
-> A fragment stage that declares no output and returns an `ivec`, `uvec` or `bvec` converts it to a float vector of the same length. The rule of that length then applies.
+> A fragment stage that returns an `ivec`, `uvec` or `bvec` converts it to a float vector of the same length. The rule of that length then applies.
 
 ##### @spec a-result-that-has-no-colour-is-refused
 
-> A fragment stage that declares no output and returns a matrix is refused on every target.
+> A fragment stage that returns a matrix is refused on every target.
 
 Derives from: [`fact-tsl-leaves-a-matrix-fragment-result-unconverted`](#fact-tsl-leaves-a-matrix-fragment-result-unconverted)
 
 This follows because no conversion of a matrix to a colour is defined, and TSL leaves one open.
 
-#### @spec a-declared-output-holds-what-the-program-assigns
-
-> A fragment stage that declares [outputs](#term-output) writes each one with what the program assigns to it, and writes its result to none of them.
-
 #### @spec a-fragment-stage-may-write-no-colour
 
-> A fragment stage that declares no output and returns nothing compiles.
+> A fragment stage that returns nothing compiles.
 
 #### @spec a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour
 
@@ -1826,12 +1820,6 @@ This follows because two inputs that share a name by accident read one value, a 
 
 > A name the compiler generates for an input or an output connects every reference to it inside its program. The same generated name in another program names a different input.
 
-##### @bug serialize-keeps-the-generated-name-of-an-output
-
-> `serialize` keeps the generated name of a stage output, `_rmsl_oN`, so two graphs restored from it write one output.
-
-Issue: #80
-
 #### @spec a-raw-name-is-absolute
 
 > A name given to `uniformRaw`, `attributeRaw` or `varyingRaw` is used as given. Every node that carries it, in any program and any process, is one input, declared once.
@@ -1952,6 +1940,14 @@ Issue: #127
 
 This follows because a statement belongs to the body that records it, and outside an `Fn` no body records it.
 
+### @spec an-output-struct-is-refused-outside-a-fragment-stage
+
+> An `outputStruct` in a vertex stage, in a compute stage, or in a program compiled with no stage is refused on every target that compiles one. It cannot be an operand or a statement either.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs), [`spec-an-output-struct-writes-each-member-at-its-position`](#spec-an-output-struct-writes-each-member-at-its-position), [`fact-a-compute-entry-point-returns-nothing`](#fact-a-compute-entry-point-returns-nothing)
+
+This follows because an `outputStruct` is the value of a fragment stage, and the other stages have no render target to write it to. A compute entry point returns nothing to hold one. A program with no stage has no render target either.
+
 ### @spec a-stage-reads-and-writes-only-what-it-has
 
 > A vertex stage produces a position, and a built-in that one stage has is refused in the other.
@@ -1989,14 +1985,6 @@ This follows because a shader that breaks the rules of its stage either fails in
 Derives from: [`spec-an-attribute-is-an-input-of-the-vertex-stage`](#spec-an-attribute-is-an-input-of-the-vertex-stage), [`fact-a-compute-entry-point-takes-no-location`](#fact-a-compute-entry-point-takes-no-location), [`fact-webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage)
 
 This follows because an attribute is an input of the vertex stage, read once for each vertex, and a compute dispatch has no vertices. GLSL has no compute stage, so it has no compute program to refuse it in.
-
-#### @spec a-compute-program-cannot-write-an-output
-
-> A compute program that assigns to an [output](#term-output) is refused on every target that compiles one. A compute program writes its results into a storage buffer and returns nothing.
-
-Derives from: [`spec-a-compute-program-returns-nothing`](#spec-a-compute-program-returns-nothing), [`fact-a-compute-entry-point-returns-nothing`](#fact-a-compute-entry-point-returns-nothing), [`fact-webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage)
-
-This follows because an output is a fragment stage's result, and a compute entry point returns nothing to hold one. GLSL has no compute stage, so it has no compute program to refuse it in.
 
 #### @spec a-compute-program-cannot-read-a-varying
 
@@ -2555,9 +2543,9 @@ Derives from: [`fact-tsl-break-continue-return-and-discard-are-statements`](#fac
 
 This follows because TSL's statements of the same name do.
 
-#### @bug the-cpu-rasterizers-paint-a-discarded-fragment
+#### @bug the-wasm-rasterizer-paints-a-discarded-fragment
 
-> The JS and WASM rasterizers write a colour for a discarded fragment. JS writes 0 into its red channel, and WASM writes the colour the fragment stage last left in its memory.
+> The WASM rasterizer writes a colour for a discarded fragment: the colour the fragment stage last left in its memory.
 
 Issue: #81
 
@@ -2939,6 +2927,24 @@ This follows because a TSL node reads the same value in either stage, and a TSL 
 
 Issue: #131
 
+## @axiom a-program-is-typed-by-what-it-returns
+
+> What a compiled program hands back is typed by the program that was compiled. A caller reads the result as it is, with no narrowing and no cast.
+
+A routine returns the value its `Fn` returns, and a stage returns the shape its stage has. Both are known when the program is compiled, so the compile function carries them into the type of what it returns. A single return type for every program, a union that a caller has to narrow, moves the knowledge to the place that has the least of it. Every caller then guesses the shape, or casts, and a wrong guess shows at run time, in a value that reads fine.
+
+The axiom decides between one wide type for every program and a type for each. The shape of a result follows from the function that compiled the program, never from what the body of the program happens to write, so that a type can state it. A program is typed from what it returns, as [a TSL shader](#axiom-a-tsl-shader-ports-by-changing-its-import) is written, with its outputs as values it returns.
+
+Where the types cannot see, in a builder cast to `any`, the result still has the shape its compile function gives it. [A mistake](#axiom-a-mistake-is-refused-before-the-program-runs) the types cannot express is refused by the compiler.
+
+### @spec a-routine-is-typed-by-the-value-it-returns
+
+> `compileJSRoutine` and `compileWasmRoutine` give a routine whose `run` returns the JavaScript value of the type the program returns: a number for a `float`, `int` or `uint`, a boolean for a `bool`, an array of booleans for a `bvec`, and an array of numbers for any other vector or matrix.
+
+Derives from: [`axiom-a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns)
+
+This follows because the type of the builder's return value names the shader type, and the compile function carries it into the type of `run`. A caller then reads a `vec3` result as an array, with no cast.
+
 ## @axiom each-target-keeps-what-makes-it-worth-choosing
 
 > An interface over several targets keeps what each target does better than the others. A call that a target answers at once stays synchronous. Data that lives on the GPU stays there until the host asks for it. No target fakes a capability it lacks.
@@ -2962,6 +2968,14 @@ This follows because a promise where none is needed costs a synchronous caller i
 > `createWasmCompute` names its routine `compute` by default, the name of the module's own dispatch export, so a program with storage fails to compile.
 
 Issue: #113
+
+#### @spec a-cpu-routine-adapter-calls-its-routine-with-what-it-was-given
+
+> `createJsRoutine` and `createWasmRoutine` give an adapter that keeps the uniforms and the textures the host sets. `run(params)` calls the routine with them and the parameters it is given, returns its value at once, and calls it again with whatever the host has set since.
+
+Derives from: [`spec-an-adapter-sets-a-uniform-of-every-type-its-program-declares`](#spec-an-adapter-sets-a-uniform-of-every-type-its-program-declares), [`spec-an-adapter-call-is-synchronous-where-its-target-answers-at-once`](#spec-an-adapter-call-is-synchronous-where-its-target-answers-at-once)
+
+This follows because a routine reads its uniforms and textures from the context of each call, and an adapter is where the host keeps them between calls.
 
 #### @spec a-wgsl-adapter-attaches-and-computes-through-a-promise
 
@@ -3101,11 +3115,11 @@ This follows because the application decides when to draw.
 
 #### @spec an-adapter-draws-one-frame-for-each-call
 
-> `draw()` on an adapter draws one frame into the canvas it attached, and nothing more until the next call. This holds for the GLSL adapter, the JS and WASM rasterizers, and the JS and WASM routines.
+> `draw()` on an adapter draws one frame into the canvas it attached, and nothing more until the next call. This holds for the GLSL adapter, the JS and WASM rasterizers, and the JS and WASM grids.
 
-##### @bug create-wasm-routine-fails-under-its-default-name
+##### @bug create-wasm-grid-fails-under-its-default-name
 
-> `createWasmRoutine` names its routine `draw` by default, which collides with the grid loop the module exports as `draw`, so the module does not instantiate.
+> `createWasmGrid` names its program `draw` by default, which collides with the grid loop the module exports as `draw`, so the module does not instantiate.
 
 Issue: #72
 
@@ -3663,38 +3677,66 @@ This follows because a page whose security policy blocks `new Function` can stil
 
 > The JS target computes a scalar math function with the function of the same name on `Math`.
 
-#### @spec a-cpu-routine-reads-its-inputs-by-slot
+#### @spec a-cpu-program-reads-its-inputs-by-slot
 
-> A CPU routine reads its parameters, uniforms, uniform arrays, attributes and varyings from the context the host passes, by slot name. It reads `fragCoord()` as `[0, 0]` when the context gives none.
+> A compiled CPU program, a routine, a stage or a grid, reads what the context the host passes holds, by slot name: its parameters, uniforms and uniform arrays, and, in a program that has them, attributes, varyings and `fragCoord()`, which reads as `[0, 0]` when the context gives none.
 
-#### @spec a-cpu-routine-returns-its-value-or-a-result
+#### @spec a-cpu-routine-returns-its-value
 
-> A CPU routine returns the value its program returns, the last of several, as it is. When the program writes an output, a varying, the position or the depth, it returns a result object that holds them with the value. A discarded fragment returns `null`.
+> A CPU routine returns the value its program returns, the last of several, as it is. A program that reads what only a stage has is refused, so a routine has no result object to return.
 
 
-##### @bug wasm-wraps-a-vector-result-in-a-result-object
+#### @spec a-routine-refuses-an-input-only-a-stage-has
 
-> A WASM routine returns a vector or matrix value inside a result object even when the program writes no output, varying, position or depth.
+> A routine that reads `fragCoord()`, `invocationIndex()`, `builtinPosition()`, `builtinFragDepth()`, a varying or an attribute is refused on both CPU targets. The refusal names the input and the stage that has it.
 
-Issue: #62
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs), [`axiom-a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns)
 
-##### @bug wasm-returns-a-value-for-a-discarded-fragment
+This follows because a routine has no stage to give such an input, so reading one is a mistake the compiler can name, and the value a routine returns is then the only shape it has to type.
 
-> A WASM routine returns `0`, or a result holding a zero value, for a discarded fragment.
+#### @spec a-vertex-stage-returns-its-position-and-varyings
 
-Issue: #82
+> `compileJSVertex` and `compileWasmVertex` give a stage whose `run` returns an object that holds the position, a `vec4`, and the varyings the program wrote, by slot. A vertex stage that never writes the position itself returns its `vec4` result as the position.
+
+Derives from: [`axiom-a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns), [`spec-a-vertex-stage-writes-its-position`](#spec-a-vertex-stage-writes-its-position)
+
+This follows because the shape of a result follows from the function that compiled the program, so a caller reads the position and the varyings of a vertex stage without asking which of two shapes it got.
+
+#### @spec a-fragment-stage-returns-its-colour-and-outputs
+
+> `compileJSFragment` and `compileWasmFragment` give a stage whose `run` returns an object that holds the colour, a `vec4`, the members of the `outputStruct` the program returned, by position, and the depth when it wrote one. A stage that returns an `outputStruct` has no colour, which is undefined. A fragment that discards returns `null`.
+
+Derives from: [`axiom-a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns), [`spec-a-fragment-result-without-an-output-is-the-colour`](#spec-a-fragment-result-without-an-output-is-the-colour)
+
+This follows because the shape of a result follows from the function that compiled the program. A discarded fragment has no colour, and `null` says so in a way a colour of zeros does not.
+
+#### @spec an-output-struct-writes-each-member-at-its-position
+
+> A fragment stage that returns an `outputStruct` writes member `i` to the output at location `i`, with the type of the member, and writes no colour. A CPU stage returns the values of the members by position.
+
+Derives from: [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import), [`axiom-a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns)
+
+This follows because TSL returns the outputs of a fragment as an `outputStruct`, and the members of the struct are in the type of what the stage returns, so a caller reads the value at a position with the type the member has.
+
+#### @spec a-compute-stage-dispatches-and-returns-nothing
+
+> `compileJSCompute` and `compileWasmCompute` give a stage whose `dispatch` runs the program once per index of a count, in index order, and returns nothing. The stage names the type of each storage buffer the program reads.
+
+Derives from: [`axiom-a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns), [`spec-a-compute-program-returns-nothing`](#spec-a-compute-program-returns-nothing)
+
+This follows because a compute program writes into storage and has no result to type.
 
 #### @spec a-cpu-routine-answers-one-fragment-per-call
 
 > `run` of a CPU routine evaluates the program once, for the context the host passes. The same routine serves any number of calls, and a value one call returned keeps what it holds through the calls after it.
 
-#### @spec a-cpu-routine-draws-a-grid-of-fragments
+#### @spec a-cpu-grid-evaluates-a-fragment-for-each-pixel
 
-> `draw` of a CPU routine evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to draw.
+> `fill` of a CPU grid evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to fill with.
 
-#### @spec a-cpu-routine-runs-one-compute-invocation-per-call
+#### @spec a-cpu-compute-stage-runs-one-invocation-per-index
 
-> A CPU routine of a program that reads `storage()` and `invocationIndex()` runs one invocation for each call. It reads and writes any element of the buffers the host passes by slot.
+> `dispatch` of a CPU compute stage runs the program once for each index of its count. It reads and writes any element of the buffers the host passes by slot.
 
 #### @spec a-wasm-routine-is-reentrant
 
@@ -3810,7 +3852,7 @@ This follows because a WebGPU pipeline culls no face unless it asks to, and a CP
 
 ##### @spec evaluate-gives-the-value-of-one-fragment
 
-> `evaluate` gives the value one fragment computes, at the coordinate `fragCoord()` says, with the type the graph has on the CPU. It carries the depth, the outputs, the position and the varyings the program writes, and reports a discarded fragment as discarded.
+> `evaluate` gives the value one fragment computes, at the coordinate `fragCoord()` says, with the type the graph has on the CPU. It carries the depth, the members of an `outputStruct` by position, the position and the varyings the program writes, and reports a discarded fragment as discarded.
 
 ##### @spec an-input-is-bound-by-its-node
 
@@ -3920,39 +3962,27 @@ Derives from: [`spec-a-material-or-pass-is-tested-by-the-names-it-uses`](#spec-a
 
 This follows because a result keys each slot by one name, and the order of the program's own list picks it.
 
-##### @spec render-draws-the-only-output-of-a-program-that-returns-nothing
+##### @spec render-draws-the-only-member-of-an-output-struct
 
-> `render` draws the output a fragment writes when the program returns no value and writes exactly one output.
+> `render` draws the member of an `outputStruct` that a fragment stage returns, when it has exactly one member.
 
 Derives from: [`spec-render-evaluates-every-fragment-of-a-grid`](#spec-render-evaluates-every-fragment-of-a-grid)
 
-This follows because a fragment stage that returns nothing shows the colour of its one output, and `render` draws what the fragment shows.
+This follows because a fragment stage that returns one member shows the colour of that member, and `render` draws what the fragment shows.
 
-###### @bug render-draws-zero-for-a-program-that-writes-one-output
+#### @spec a-grid-writes-a-discarded-pixel-as-zero
 
-> The JS routine gives a program that returns nothing the value `0`, so `render` draws `0` and never falls back to the output.
+> `fill` of a CPU grid writes a pixel whose fragment discards as zero in every channel.
 
-Issue: #119
-
-#### @spec draw-writes-a-discarded-pixel-as-zero
-
-> `draw` of a CPU routine writes a pixel whose fragment discards as zero in every channel.
-
-Derives from: [`spec-a-cpu-routine-draws-a-grid-of-fragments`](#spec-a-cpu-routine-draws-a-grid-of-fragments)
+Derives from: [`spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel)
 
 This follows because the grid has a slot for every pixel, and a discarded fragment gives no value to fill it. Zero is what a cleared pixel holds.
-
-##### @bug js-routine-draws-a-discarded-pixel-as-nan
-
-> `draw` of a JS routine writes a discarded pixel as `null` read into its buffer, which leaves 0 in the first channel and `NaN` in the others.
-
-Issue: #82
 
 #### @spec an-input-the-host-leaves-out-reads-zero
 
 > A parameter, attribute or varying the host leaves out of the context reads zero.
 
-Derives from: [`spec-a-cpu-routine-reads-its-inputs-by-slot`](#spec-a-cpu-routine-reads-its-inputs-by-slot), [`spec-an-unset-uniform-reads-zero`](#spec-an-unset-uniform-reads-zero)
+Derives from: [`spec-a-cpu-program-reads-its-inputs-by-slot`](#spec-a-cpu-program-reads-its-inputs-by-slot), [`spec-an-unset-uniform-reads-zero`](#spec-an-unset-uniform-reads-zero)
 
 This follows because an input the host leaves out has no value, and zero is what an unset uniform reads.
 
@@ -3972,7 +4002,7 @@ Issue: #114
 
 > A CPU routine returns a matrix as one flat array of numbers, which holds its columns one after another.
 
-Derives from: [`spec-a-cpu-routine-returns-its-value-or-a-result`](#spec-a-cpu-routine-returns-its-value-or-a-result)
+Derives from: [`spec-a-cpu-routine-returns-its-value`](#spec-a-cpu-routine-returns-its-value)
 
 This follows because a host passes a matrix to every target as its columns in order, and a CPU routine returns that shape.
 
@@ -3980,39 +4010,39 @@ This follows because a host passes a matrix to every target as its columns in or
 
 > `compileJSRoutine` and `compileWasmRoutine` call the builder the caller passes once for each compile.
 
-Derives from: [`spec-a-cpu-routine-reads-its-inputs-by-slot`](#spec-a-cpu-routine-reads-its-inputs-by-slot)
+Derives from: [`spec-a-cpu-program-reads-its-inputs-by-slot`](#spec-a-cpu-program-reads-its-inputs-by-slot)
 
 This follows because a builder may declare its inputs as it runs, and a second call would name slots that the host never learns.
 
-#### @spec draw-fills-a-float64-array-for-a-float-result
+#### @spec a-grid-fills-a-float64-array-for-a-float-result
 
-> `draw` of a CPU routine whose result is a float or a float vector returns a `Float64Array`.
+> `fill` of a CPU grid whose result is a float or a float vector returns a `Float64Array`.
 
-Derives from: [`spec-a-cpu-routine-draws-a-grid-of-fragments`](#spec-a-cpu-routine-draws-a-grid-of-fragments), [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
+Derives from: [`spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel), [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
 
 This follows because a CPU target computes a float in 64 bits, and a `Float64Array` holds that value exactly.
 
-#### @spec draw-fills-an-int32-array-for-an-int-result
+#### @spec a-grid-fills-an-int32-array-for-an-int-result
 
-> `draw` of a CPU routine whose result is an `int` or an integer vector returns an `Int32Array`.
+> `fill` of a CPU grid whose result is an `int` or an integer vector returns an `Int32Array`.
 
-Derives from: [`spec-a-cpu-routine-draws-a-grid-of-fragments`](#spec-a-cpu-routine-draws-a-grid-of-fragments)
+Derives from: [`spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel)
 
 This follows because an `Int32Array` holds every `int` the program can return, as the integer it is.
 
-#### @spec draw-fills-a-uint32-array-for-a-uint-result
+#### @spec a-grid-fills-a-uint32-array-for-a-uint-result
 
-> `draw` of a CPU routine whose result is a `uint` or an unsigned vector returns a `Uint32Array`.
+> `fill` of a CPU grid whose result is a `uint` or an unsigned vector returns a `Uint32Array`.
 
-Derives from: [`spec-a-cpu-routine-draws-a-grid-of-fragments`](#spec-a-cpu-routine-draws-a-grid-of-fragments)
+Derives from: [`spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel)
 
 This follows because only an unsigned array holds a `uint` above the largest `int` as the integer it is.
 
-#### @spec draw-writes-a-bool-result-as-one-or-zero-in-an-int32-array
+#### @spec a-grid-writes-a-bool-result-as-one-or-zero-in-an-int32-array
 
-> `draw` of a CPU routine whose result is a `bool` returns an `Int32Array` that holds 1 for true and 0 for false.
+> `fill` of a CPU grid whose result is a `bool` returns an `Int32Array` that holds 1 for true and 0 for false.
 
-Derives from: [`spec-a-cpu-routine-draws-a-grid-of-fragments`](#spec-a-cpu-routine-draws-a-grid-of-fragments)
+Derives from: [`spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel)
 
 This follows because no typed array holds a boolean, and 1 and 0 are the integers a `bool` converts to.
 
@@ -4020,7 +4050,7 @@ This follows because no typed array holds a boolean, and 1 and 0 are the integer
 
 > On a CPU target, a storage element that no invocation writes keeps the value the host passed in.
 
-Derives from: [`spec-a-cpu-routine-runs-one-compute-invocation-per-call`](#spec-a-cpu-routine-runs-one-compute-invocation-per-call)
+Derives from: [`spec-a-cpu-compute-stage-runs-one-invocation-per-index`](#spec-a-cpu-compute-stage-runs-one-invocation-per-index)
 
 This follows because a routine works on the buffers the host passes, so an element the program leaves alone stays as the host left it.
 

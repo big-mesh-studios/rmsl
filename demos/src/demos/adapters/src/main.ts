@@ -1,7 +1,7 @@
 import { attribute, cos, Fn, fragCoord, sin, uniform, varying, vec3, vec4 } from "@random-mesh/rmsl";
 import { createGlsl } from "@random-mesh/rmsl/glsl";
-import { createJs, createJsRoutine } from "@random-mesh/rmsl/js";
-import { createWasm, createWasmRoutine } from "@random-mesh/rmsl/wasm";
+import { createJs, createJsGrid } from "@random-mesh/rmsl/js";
+import { createWasm, createWasmGrid } from "@random-mesh/rmsl/wasm";
 import { createWgsl } from "@random-mesh/rmsl/wgsl";
 
 const glCanvas = document.createElement("canvas");
@@ -79,7 +79,7 @@ const wasmAdapter = createWasm(
 wasmAdapter.attach(cpuVtxCanvas);
 wasmAdapter.setAttribute(pos.name, TRIANGLE_STRIP_QUAD);
 
-// === Draw programs (createJsRoutine / createWasmRoutine) — a full-screen color
+// === Draw programs (createJsGrid / createWasmGrid) — a full-screen color
 // gradient, one fragCoord() evaluation per pixel. No attribute, no
 // vertex stage: a CPU adapter's draw has nothing to rasterize with. ===
 const resolution = uniform("vec2");
@@ -90,10 +90,10 @@ const cpuDrawRoot = Fn(() => {
   return vec4(uv.x, uv.y, sin(cpuTime).mul(0.5).add(0.5), 1.0);
 })();
 
-const jsRoutineAdapter = createJsRoutine({ draw: cpuDrawRoot, name: "cpuDraw" });
+const jsRoutineAdapter = createJsGrid({ draw: cpuDrawRoot, name: "cpuDraw" });
 jsRoutineAdapter.attach(cpuCanvas);
 
-const wasmRoutineAdapter = createWasmRoutine({ draw: cpuDrawRoot, name: "cpuDraw" });
+const wasmRoutineAdapter = createWasmGrid({ draw: cpuDrawRoot, name: "cpuDraw" });
 wasmRoutineAdapter.attach(cpuCanvas);
 
 const startTime = performance.now();

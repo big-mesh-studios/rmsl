@@ -1,28 +1,28 @@
 import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
 import { Adapter, requestedStorageSlots, slotOf, TypedArray } from "./adapter";
-import { CpuDrawBuffer, componentCountOf, CpuRoutine, CpuTextureData } from "./cpu";
+import { CpuDrawBuffer, componentCountOf, ComputeStage, CpuGrid, CpuRoutine, CpuTextureData, CpuValue } from "./cpu";
 
 /** One typed array per storage slot, keyed by name. */
 export type AdapterResult = Record<string, TypedArray>;
 
 /**
- * `compute`/`draw` here are two independently optional {@link CpuRoutine}s,
- * each named for the routine method the adapter's own method of that name
- * runs it through: `compute()` runs a `storage()` program once per entity,
- * and `draw()` runs a `fragCoord()` program once per canvas pixel. Not
+ * `compute`/`draw` here are two independently optional stages: a
+ * {@link ComputeStage} that `compute()` dispatches once per entity of a
+ * `storage()` program, and a {@link CpuGrid} of `vec4` colours that `draw()`
+ * fills once for each canvas pixel. Not
  * exported publicly: {@link createCpuAdapter} is wrapped by
  * `createJsCompute`/`createWasmCompute` (`compute` only) and
- * `createJsRoutine`/`createWasmRoutine` (`draw` only) — each passing a
- * single already-compiled routine under its own field, never both.
+ * `createJsGrid`/`createWasmGrid` (`draw` only) — each passing a
+ * single already-compiled program under its own field, never both.
  */
 export interface CpuAdapterPrograms {
-  compute?: CpuRoutine;
-  draw?: CpuRoutine;
+  compute?: ComputeStage;
+  draw?: CpuGrid<"vec4">;
 }
 
 /** `compute`/`draw` here are each required — unlike the base Adapter's
- * optional, possibly-async versions — even though `createJsRoutine`/
- * `createWasmRoutine` only ever build the `draw` half now (`compute()`
+ * optional, possibly-async versions — even though `createJsGrid`/
+ * `createWasmGrid` only ever build the `draw` half now (`compute()`
  * throws on the result). `createJsCompute`/`createWasmCompute` build the
  * `compute` half instead, but expose it through their own narrower
  * `JsComputeAdapter`/`WasmComputeAdapter` types rather than this one, so
@@ -120,7 +120,7 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
 
     compute(out, count) {
       if (!computeStep) throw new Error("[RMSL] this adapter has no `compute` program");
-      computeStep.compute({ storages, uniforms, textures } as any, count ?? elementCount());
+      computeStep({ storages, uniforms, textures } as any, count ?? elementCount());
       // storages already holds the caller's own arrays, mutated in place —
       // `out` is only for callers that want the WGSL adapter's optional-out
       // shape too, not something this loop needs to do its job.
@@ -133,10 +133,49 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
       if (!perPixel || !canvas || !ctx2d) {
         throw new Error("[RMSL] this adapter has no `draw` program, or attach() was never called");
       }
-      const buffer = perPixel.draw({ uniforms, textures } as any, canvas.width, canvas.height);
+      const buffer = perPixel({ uniforms, textures } as any, canvas.width, canvas.height);
+      if (buffer.length !== canvas.width * canvas.height * 4) {
+        throw new Error(
+          "[RMSL] the program of a draw adapter has to return a colour: a vec4, or a value that converts to one.",
+        );
+      }
       ctx2d.putImageData(bufferToImageData(buffer, canvas.width, canvas.height), 0, 0);
     },
 
+    destroy() {},
+  };
+}
+
+/**
+ * An adapter of a routine: it keeps the uniforms and the textures the host
+ * sets, and `run` calls the routine with them and the parameters it is given,
+ * so the host does not build a context for each call. `run` answers at once.
+ */
+export interface CpuRoutineAdapter<A extends ShaderType = ShaderType> {
+  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
+  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
+  setUniform(slot: string, value: number | number[]): void;
+  setTexture(sampler: UniformNode<ShaderType> | string, texture: CpuTextureData): void;
+  /** Calls the routine with the uniforms and textures set so far, and these parameters by name. */
+  run(params?: Record<string, number | number[]>): CpuValue<A>;
+  destroy(): void;
+}
+
+/** Wraps a routine in a {@link CpuRoutineAdapter}. */
+export function createCpuRoutineAdapter<A extends ShaderType>(routine: CpuRoutine<A>): CpuRoutineAdapter<A> {
+  const uniforms: Record<string, number | number[]> = {};
+  const textures: Record<string, CpuTextureData> = {};
+
+  function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, value: unknown): void {
+    uniforms[slotOf(uniform)] = value as number | number[];
+  }
+
+  return {
+    setUniform: setUniform as CpuRoutineAdapter<A>["setUniform"],
+    setTexture(sampler, texture) {
+      textures[slotOf(sampler)] = texture;
+    },
+    run: (params) => routine({ params, uniforms, textures }),
     destroy() {},
   };
 }

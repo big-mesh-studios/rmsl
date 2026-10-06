@@ -8,14 +8,22 @@ import {
   TypedArray,
   UniformOrSlot,
 } from "../adapter";
-import { AdapterResult, bufferToImageData, CpuAdapter, createCpuAdapter } from "../adapter-cpu";
+import {
+  AdapterResult,
+  bufferToImageData,
+  CpuAdapter,
+  CpuRoutineAdapter,
+  createCpuAdapter,
+  createCpuRoutineAdapter,
+} from "../adapter-cpu";
 import type { CpuTextureData } from "../cpu";
 import { compileWasm, CompileWasmOptions, WasmRasterContext } from "./rasterizer";
-import { compileWasmRoutine, CompileWasmFnOptions } from "./wasm";
+import { fragmentColour } from "../shared";
+import { compileWasmCompute, compileWasmGrid, compileWasmRoutine, CompileWasmFnOptions } from "./wasm";
 
-export interface CreateWasmRoutineOptions {
-  /** A fragCoord() program, evaluated once per canvas pixel by `draw()`. */
-  draw: Node<ShaderType> | readonly Node<ShaderType>[];
+export interface CreateWasmGridOptions {
+  /** A fragCoord() program that returns a colour, evaluated once per canvas pixel by `draw()`. */
+  draw: Node<ShaderType>;
   name?: string;
   params?: CompileWasmFnOptions["params"];
   derivatives?: CompileWasmFnOptions["derivatives"];
@@ -27,19 +35,18 @@ export interface CreateWasmRoutineOptions {
 }
 
 /**
- * Compiles a `fragCoord()` program with {@link compileWasmRoutine} and
+ * Compiles a `fragCoord()` program with {@link compileWasmGrid} and
  * wraps it in a {@link createCpuAdapter} — a plain CPU-callable evaluated
- * once per pixel/sample via its routine's in-WASM `draw()` loop (`docs/wasm.md`'s
+ * once per pixel/sample via its grid's in-WASM loop (`docs/wasm.md`'s
  * screen-pick/ray-march niche, or a `width x 1` per-sample audio-DSP
  * buffer), not a wgpu pipeline shape. See {@link createWasmCompute} for
  * the `storage()`/`invocationIndex()` shape and {@link createWasm} for
  * the vertex/fragment render shape — those each got their own dedicated
  * entry point rather than living as options here for the same reason.
  */
-export function createWasmRoutine(options: CreateWasmRoutineOptions): CpuAdapter {
-  const draw = compileWasmRoutine(() => options.draw, {
+export function createWasmGrid(options: CreateWasmGridOptions): CpuAdapter {
+  const draw = compileWasmGrid(() => fragmentColour([options.draw])[0] as Node<"vec4">, {
     name: options.name ?? "draw",
-    stage: "fragment",
     params: options.params ?? [],
     derivatives: options.derivatives,
     reentrant: options.reentrant,
@@ -50,6 +57,40 @@ export function createWasmRoutine(options: CreateWasmRoutineOptions): CpuAdapter
   });
 
   return createCpuAdapter({ draw });
+}
+
+export interface CreateWasmRoutineOptions {
+  name?: string;
+  params?: CompileWasmFnOptions["params"];
+  derivatives?: CompileWasmFnOptions["derivatives"];
+  reentrant?: CompileWasmFnOptions["reentrant"];
+  memory?: CompileWasmFnOptions["memory"];
+  sharedMemory?: CompileWasmFnOptions["sharedMemory"];
+  maxMemoryPages?: CompileWasmFnOptions["maxMemoryPages"];
+  gpuUniformLayout?: CompileWasmFnOptions["gpuUniformLayout"];
+}
+
+/**
+ * Compiles a function of parameters and uniforms with {@link compileWasmRoutine}
+ * and wraps it in a {@link CpuRoutineAdapter}: `setUniform` and `setTexture`
+ * keep what the host gives it, and `run(params)` calls the routine with them.
+ */
+export function createWasmRoutine<A extends ShaderType>(
+  fn: Node<A>,
+  options: CreateWasmRoutineOptions = {},
+): CpuRoutineAdapter<A> {
+  return createCpuRoutineAdapter(
+    compileWasmRoutine(() => fn, {
+      name: options.name ?? "routine",
+      params: options.params ?? [],
+      derivatives: options.derivatives,
+      reentrant: options.reentrant,
+      memory: options.memory,
+      sharedMemory: options.sharedMemory,
+      maxMemoryPages: options.maxMemoryPages,
+      gpuUniformLayout: options.gpuUniformLayout,
+    }),
+  );
 }
 
 export interface CreateWasmComputeOptions {
@@ -84,22 +125,21 @@ export interface WasmComputeAdapter {
 
 /**
  * Compiles a `storage()`/`invocationIndex()` program with
- * {@link compileWasmRoutine} and wraps it in a {@link createCpuAdapter} —
+ * {@link compileWasmCompute} and wraps it in a {@link createCpuAdapter} —
  * the wgpu-compute-pipeline-shaped counterpart to {@link createWasm}'s
  * render-pipeline shape. `compute()` copies each storage buffer into WASM
  * memory once and runs every invocation in one call to the module's own
  * dispatch loop. Invocations still run one after another, with no workgroup
  * model (issue #8). This only narrows the *type*, matching
  * `storage()`/`invocationIndex()`'s own shape instead of reusing
- * `createWasmRoutine`'s `draw`-shaped, non-pipeline option bag.
+ * `createWasmGrid`'s `draw`-shaped, non-pipeline option bag.
  */
 export function createWasmCompute(
   compute: Node<ShaderType> | readonly Node<ShaderType>[],
   options: CreateWasmComputeOptions = {},
 ): WasmComputeAdapter {
-  const computeRoutine = compileWasmRoutine(() => compute, {
+  const computeRoutine = compileWasmCompute(() => compute, {
     name: options.name ?? "compute",
-    stage: "compute",
     params: options.params ?? [],
     derivatives: options.derivatives,
     reentrant: options.reentrant,

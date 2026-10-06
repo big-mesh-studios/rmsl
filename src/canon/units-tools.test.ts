@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { afterAll, describe, expect, it } from "vitest";
-import { Fn, bool, uniform, varying, vec2, vec3, vec4, builtinPosition } from "../rmsl";
+import { Fn, bool, outputStruct, uniform, varying, vec2, vec3, vec4, builtinPosition } from "../rmsl";
 import { compileGlsl } from "../glsl";
 import { compileWgsl } from "../wgsl";
 import { fxaa, gaussianBlur, getGaussianCoefficients, rgbShift } from "../effects";
@@ -252,6 +252,14 @@ describe("./test", () => {
     expect(Object.keys(written)).toEqual(["uv"]);
     expect(written.uv).toEqual([0.25, 0.75]);
   });
+
+  /**
+   * @canon spec-render-draws-the-only-member-of-an-output-struct
+   */
+  it("draws the one member of an outputStruct", () => {
+    const graph = Fn(() => outputStruct(vec4(1, 0.5, 0.25, 1)))();
+    expect(render(() => graph, { width: 1, height: 1, stage: "fragment" }).at(0, 0)).toEqual([1, 0.5, 0.25, 1]);
+  });
 });
 
 describe("the Vite plugins", () => {
@@ -306,8 +314,8 @@ describe("the Vite plugins", () => {
       JSON.stringify(new URL("../../dist/wasm.js", import.meta.url).href),
     );
     const mod = (await import(`data:text/javascript,${encodeURIComponent(code)}`)) as Record<string, any>;
-    const result = mod.brightness.run({ uniforms: { _rmsl_u0: [1, 2, 3] } });
+    const result = mod.brightness({ uniforms: { _rmsl_u0: [1, 2, 3] } });
     expect(result).not.toBeInstanceOf(Promise);
-    expect(result).toEqual({ value: [0.5, 1, 1.5] });
+    expect(result).toEqual([0.5, 1, 1.5]);
   });
 });

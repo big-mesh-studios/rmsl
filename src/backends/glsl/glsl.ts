@@ -13,7 +13,7 @@ import {
   assertSquareMatrix,
   assertLiteralIndexInRange,
   assertStageResult,
-  fragmentColour,
+  prepareRoots,
   assertOneDeclarationPerName,
   numberClashingVariables,
   forUpdateStatements,
@@ -977,7 +977,7 @@ export function compileGLSLWithStage(
   };
 
   let nodes = Array.isArray(root) ? root : [root];
-  if (shaderStage === "fragment") nodes = fragmentColour(nodes);
+  nodes = prepareRoots(shaderStage, nodes);
   nodes = numberClashingVariables(shareNodes(nodes));
   assertOneDeclarationPerName(nodes);
   let results = nodes.map((n) => compileGLSLStage(n, ctx));

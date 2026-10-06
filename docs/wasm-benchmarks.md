@@ -1,5 +1,9 @@
 # WASM backend: benchmark history and rationale
 
+> A measurement below that names `.draw()` measured the whole-grid pass as it was
+> measured, on the routine. It is a call of a grid now (`compileWasmGrid`), the
+> same pass.
+
 The measurement narrative behind `compileWasm`/`compileWasmFn`
 (`src/backends/wasm/wasm.ts`) — why the backend exists, every
 re-measurement taken as it grew, and the fixes each one led to. This is
@@ -369,7 +373,7 @@ WASM function can only return one scalar natively. `needsResult` now
 recognizes an aggregate root the same way it already recognizes an
 explicit vertex stage, routing it through the same memory-based path a
 stage program uses instead of throwing — which is what lets a per-pixel
-`vec4` color work with `.draw()` with no stage or `output()` involved at
+`vec4` color work with `.draw()` with no stage involved at
 all.
 
 `src/benches/wasm-draw.bench.ts` measures a `sqrt(distance to a uniform

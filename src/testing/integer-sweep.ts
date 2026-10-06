@@ -109,7 +109,7 @@ export function sweepJS(cases: SweepCase[]): Mismatch[] {
 export function sweepWASM(cases: SweepCase[]): Mismatch[] {
   return sweepCpu("WASM", cases, (c) => {
     const routine = compileWasmRoutine(c.build as any, { name: "rmsl_eval", params: paramsOf(c) });
-    return (args) => routine.run(argsObject(args) as any);
+    return (args) => routine(argsObject(args) as any);
   });
 }
 

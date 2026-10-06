@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { attribute, builtinPosition, float, Fn, int, output, varying, vec3, vec4 } from "./rmsl";
+import { attribute, builtinPosition, float, Fn, int, varying, vec3, vec4 } from "./rmsl";
 import { compileGlsl } from "./glsl";
 import { compileWgsl } from "./wgsl";
-import { compileJSRoutine } from "./js";
-import { compileWasmRoutine } from "./wasm";
+import { compileJSRoutine, compileJSFragment } from "./js";
+import { compileWasmRoutine, compileWasmFragment } from "./wasm";
 import { compileJS } from "./backends/js/rasterizer";
 import { compileWasm } from "./backends/wasm/rasterizer";
 
@@ -44,16 +44,16 @@ describe("writing part of a stage output", () => {
    * @canon spec-an-element-write-writes-at-its-index
    */
   it("compiles a fragment output written through a swizzle and an index, on every backend", () => {
-    const color = output("vec4");
     const fragment = () =>
       Fn(() => {
-        color.assign(vec4(0, 0, 0, 1));
+        const color = vec4(0, 0, 0, 1).toVar();
         color.zx.assign(color.xz.add(1));
         color.element(int(1)).assign(float(0.5));
+        return color;
       })();
     expect(() => compileGlsl.fragment(fragment())).not.toThrow();
     expect(() => compileWgsl.fragment(fragment())).not.toThrow();
-    expect(() => compileJSRoutine(fragment as any, { name: "main", params: [], stage: "fragment" })).not.toThrow();
-    expect(() => compileWasmRoutine(fragment as any, { name: "main", params: [], stage: "fragment" })).not.toThrow();
+    expect(() => compileJSFragment(fragment as any, { name: "main", params: [] })).not.toThrow();
+    expect(() => compileWasmFragment(fragment as any, { name: "main", params: [] })).not.toThrow();
   });
 });

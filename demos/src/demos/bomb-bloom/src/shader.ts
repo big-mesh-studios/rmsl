@@ -11,7 +11,6 @@ import {
   mod,
   mul,
   normalize,
-  output,
   pow,
   reciprocal,
   sin,
@@ -59,9 +58,7 @@ export const bodyFragment = Fn(() => {
   const diff = max(dot(n, l), 0.0);
   const spec = pow(max(dot(n, halfDir), 0.0), 32.0).mul(0.4);
   const color = bodyAlbedo.mul(add(0.4, mul(diff, 0.6))).add(vec3(1.0).mul(spec));
-  const out = output("vec4");
-  out.assign(vec4(color, 1.0));
-  return out;
+  return vec4(color, 1.0);
 });
 
 // === Flame particle uniforms ===
@@ -142,7 +139,5 @@ export const flameFragment = Fn(() => {
   const color = mix(ember, flame, heatClamped);
   const finalColor = mix(color, spark, core);
 
-  const out = output("vec4");
-  out.assign(vec4(finalColor, mul(mul(edge, vFade), circleAlpha)));
-  return out;
+  return vec4(finalColor, mul(mul(edge, vFade), circleAlpha));
 });

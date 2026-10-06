@@ -1,6 +1,7 @@
 import { bench, describe } from "vitest";
-import { compileWasmRoutine } from "../wasm";
-import { compileJSRoutine, type CpuTextureData, type CpuShaderContext } from "../js";
+import { compileWasmProgram } from "../backends/wasm/wasm";
+import { compileJSProgram } from "../backends/js/js";
+import type { CpuTextureData, CpuShaderContext } from "../js";
 import { Fn, uniform, fragCoord, sqrt, ivec2, textureLoad } from "../rmsl";
 
 for (const SIZE of [128, 512]) {
@@ -14,8 +15,8 @@ for (const SIZE of [128, 512]) {
         return sqrt(dx.mul(dx).add(dy.mul(dy)));
       })();
 
-    const wasmFn = compileWasmRoutine(build as any, { name: "main", params: [] });
-    const jsFn = compileJSRoutine(build as any, { name: "main", params: [] });
+    const wasmFn = compileWasmProgram(build as any, { name: "main", params: [] });
+    const jsFn = compileJSProgram(build as any, { name: "main", params: [] });
     const drawCtx = { uniforms: { [cx.name]: SIZE / 2, [cy.name]: SIZE / 2 } };
     // Reused across every pixel in the loops below — only `fragCoord`'s
     // two numbers change, in place, so no per-pixel allocation at all.
@@ -59,8 +60,8 @@ for (const SIZE of [128, 512]) {
   describe(`draw() with a sampled texture vs one call per pixel over a ${SIZE}x${SIZE} grid`, () => {
     const tex = uniform("sampler2D") as any;
     const build = () => Fn(() => textureLoad(tex, ivec2(fragCoord().x.toInt(), fragCoord().y.toInt())).x)();
-    const wasmFn = compileWasmRoutine(build as any, { name: "main", params: [] });
-    const jsFn = compileJSRoutine(build as any, { name: "main", params: [] });
+    const wasmFn = compileWasmProgram(build as any, { name: "main", params: [] });
+    const jsFn = compileJSProgram(build as any, { name: "main", params: [] });
     const texture: CpuTextureData = {
       data: new Float64Array(SIZE * SIZE).fill(1),
       width: SIZE,
