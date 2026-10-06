@@ -402,6 +402,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-light-uniform-carries-its-colour-times-its-intensity`](#spec-a-light-uniform-carries-its-colour-times-its-intensity) — A directional or point light gives its colour uniform the light's colour already multiplied by its intensity.
       - [`@spec position-and-normal-read-object-space-in-both-stages`](#spec-position-and-normal-read-object-space-in-both-stages) — The builder's `position` and `normal` give the object-space position and normal in both stages, as TSL's `positionLocal` and `normalLocal` do.
         - [`@bug position-and-normal-read-world-space-in-the-fragment-stage`](#bug-position-and-normal-read-world-space-in-the-fragment-stage) — The builder's `position` and `normal` read object space in the vertex stage. In the fragment stage they read the `positionWorld` and `normalWorld` varyings instead.
+- [`@axiom a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns) — What a compiled program hands back is typed by the program that was compiled. A caller reads the result as it is, with no narrowing and no cast.
+  - [`@spec a-routine-is-typed-by-the-value-it-returns`](#spec-a-routine-is-typed-by-the-value-it-returns) — `compileJSRoutine` and `compileWasmRoutine` give a routine whose `run` returns the JavaScript value of the type the program returns: a number for a `float`, `int` or `uint`, a boolean for a `bool`, an array of booleans for a `bvec`, and an array of numbers for any other vector or matrix.
 - [`@axiom each-target-keeps-what-makes-it-worth-choosing`](#axiom-each-target-keeps-what-makes-it-worth-choosing) — An interface over several targets keeps what each target does better than the others. A call that a target answers at once stays synchronous. Data that lives on the GPU stays there until the host asks for it. No target fakes a capability it lacks.
   - [`@spec an-adapter-call-is-synchronous-where-its-target-answers-at-once`](#spec-an-adapter-call-is-synchronous-where-its-target-answers-at-once) — An [adapter](#term-adapter) method returns its result directly where its target answers at once, and returns a promise only where its target cannot.
     - [`@spec a-cpu-adapter-computes-synchronously`](#spec-a-cpu-adapter-computes-synchronously) — `compute` on a JS or WASM adapter has run the dispatch and filled `out` when it returns.
@@ -2937,6 +2939,24 @@ This follows because a TSL node reads the same value in either stage, and a TSL 
 > The builder's `position` and `normal` read object space in the vertex stage. In the fragment stage they read the `positionWorld` and `normalWorld` varyings instead.
 
 Issue: #131
+
+## @axiom a-program-is-typed-by-what-it-returns
+
+> What a compiled program hands back is typed by the program that was compiled. A caller reads the result as it is, with no narrowing and no cast.
+
+A routine returns the value its `Fn` returns, and a stage returns the shape its stage has. Both are known when the program is compiled, so the compile function carries them into the type of what it returns. A single return type for every program, a union that a caller has to narrow, moves the knowledge to the place that has the least of it. Every caller then guesses the shape, or casts, and a wrong guess shows at run time, in a value that reads fine.
+
+The axiom decides between one wide type for every program and a type for each. The shape of a result follows from the function that compiled the program, never from what the body of the program happens to write, so that a type can state it. A program is typed from what it returns, as [a TSL shader](#axiom-a-tsl-shader-ports-by-changing-its-import) is written, with its outputs as values it returns.
+
+Where the types cannot see, in a builder cast to `any`, the result still has the shape its compile function gives it. [A mistake](#axiom-a-mistake-is-refused-before-the-program-runs) the types cannot express is refused by the compiler.
+
+### @spec a-routine-is-typed-by-the-value-it-returns
+
+> `compileJSRoutine` and `compileWasmRoutine` give a routine whose `run` returns the JavaScript value of the type the program returns: a number for a `float`, `int` or `uint`, a boolean for a `bool`, an array of booleans for a `bvec`, and an array of numbers for any other vector or matrix.
+
+Derives from: [`axiom-a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns)
+
+This follows because the type of the builder's return value names the shader type, and the compile function carries it into the type of `run`. A caller then reads a `vec3` result as an array, with no cast.
 
 ## @axiom each-target-keeps-what-makes-it-worth-choosing
 

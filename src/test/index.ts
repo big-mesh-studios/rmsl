@@ -1,5 +1,6 @@
 import { type Node, type ShaderType, type VariableNode } from "../rmsl";
 import { compileJSRoutine, compileJSFn, type CpuShaderContext, type CpuTextureData } from "../js";
+import type { CpuValue } from "../backends/cpu";
 // How a texture asks to be read is the renderers' question too, and they
 // already answer it without a device — so a shader tested here samples by the
 // same reading, not by a second one written for the CPU.
@@ -13,17 +14,11 @@ import type { Texture } from "../scene/textures/Texture";
  * (or booleans), vectors and matrices are flat arrays — matrices in the
  * column-major order the rest of the library uses.
  */
-export type ShaderValue<A extends ShaderType> = A extends "float" | "int" | "uint"
-  ? number
-  : A extends "bool"
-    ? boolean
-    : A extends "bvec2" | "bvec3" | "bvec4"
-      ? boolean[]
-      : A extends `${string}sampler${string}`
-        ? TextureData
-        : A extends "void"
-          ? never
-          : number[];
+export type ShaderValue<A extends ShaderType> = A extends `${string}sampler${string}`
+  ? TextureData
+  : A extends "void"
+    ? never
+    : CpuValue<A>;
 
 /**
  * Texture data to sample from. A scene `DataTexture` fits as it stands: its

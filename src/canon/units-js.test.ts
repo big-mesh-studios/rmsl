@@ -13,7 +13,7 @@ import {
   vec4,
   type Node,
 } from "../rmsl";
-import type { CpuRoutine } from "../backends/cpu";
+import type { CompileCpuRoutine } from "../backends/cpu";
 import { compileJS, compileJSFn, compileJSRoutine, createJsRoutine } from "../js";
 import { compileWasm, compileWasmRoutine, createWasmRoutine } from "../wasm";
 import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } from "../testing/shader-eval";
@@ -25,12 +25,9 @@ afterAll(async () => {
 
 const none = { name: "main", params: [] };
 
-/** A compile function of either CPU target, which gives the routine they share. */
-type CompileCpu = (...args: Parameters<typeof compileJSRoutine>) => CpuRoutine;
-
-const cpuTargets: [string, CompileCpu][] = [
+const cpuTargets: [string, CompileCpuRoutine][] = [
   ["JS", compileJSRoutine],
-  ["WASM", compileWasmRoutine as CompileCpu],
+  ["WASM", compileWasmRoutine as CompileCpuRoutine],
 ];
 
 const rasterizers: [string, typeof compileJS][] = [

@@ -1,4 +1,4 @@
-import { MATRIX_DIMENSIONS, ShaderType, TYPE_WIDTH } from "../core";
+import { MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH } from "../core";
 
 /** Values a host supplies to a compiled CPU function. */
 export type CpuShaderContext = {
@@ -69,6 +69,23 @@ export type CpuTextureData = {
 };
 
 /**
+ * The JavaScript value a shader type carries on the CPU: scalars are numbers
+ * (or booleans), vectors and matrices are flat arrays — matrices in the
+ * column-major order the rest of the library uses.
+ */
+export type CpuValue<A extends ShaderType> = A extends "float" | "int" | "uint"
+  ? number
+  : A extends "bool"
+    ? boolean
+    : A extends "bvec2" | "bvec3" | "bvec4"
+      ? boolean[]
+      : A extends `${string}sampler${string}`
+        ? never
+        : A extends "void"
+          ? void
+          : number[];
+
+/**
  * What a compiled CPU function returns when the program writes outputs, a
  * position or the fragment depth; otherwise the Fn's bare return value.
  */
@@ -103,9 +120,9 @@ export type CpuDrawBuffer = Float64Array | Int32Array | Uint32Array;
  * already have the matching typed-array kind and be at least
  * `width * height * componentCount` elements; it is returned unchanged.
  */
-export type CpuRoutine = {
-  /** Runs the program once and returns its result. The value is the caller's: a later call does not change it. */
-  run(ctx: CpuShaderContext): number | boolean | CpuShaderResult;
+export type CpuRoutine<A extends ShaderType = ShaderType> = {
+  /** Runs the program once and returns its value. The value is the caller's: a later call does not change it. */
+  run(ctx: CpuShaderContext): CpuValue<A>;
   /**
    * Runs the program once per pixel of a `width x height` grid, feeding each
    * pixel's center in as `fragCoord`, and packs the results into one flat
@@ -128,6 +145,15 @@ export type CpuRoutine = {
    * typed array the host passes for a slot.
    */
   storageTypes?: Readonly<Record<string, ShaderType>>;
+};
+
+/**
+ * A {@link CpuRoutine} compiled for a stage: its `run` returns the value, or
+ * the {@link CpuShaderResult} a program that writes outputs, a position or a
+ * depth hands back.
+ */
+export type CpuStageRoutine = Omit<CpuRoutine, "run"> & {
+  run(ctx: CpuShaderContext): CpuValue<ShaderType> | CpuShaderResult;
 };
 
 /** A compiled function's scalar element kind, at the WASM/typed-array level. */
@@ -174,3 +200,9 @@ export function componentCountOf(t: string): number {
 export function isAggregate(t: string): boolean {
   return componentCountOf(t) > 1;
 }
+
+/** A compile function of either CPU target for a program with no stage: it gives the {@link CpuRoutine} they share. */
+export type CompileCpuRoutine = (
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: { name: string; params: Array<{ name: string; type: ShaderType }> },
+) => CpuRoutine;

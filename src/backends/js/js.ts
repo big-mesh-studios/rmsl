@@ -4,6 +4,8 @@ import {
   CpuRoutine,
   CpuShaderContext,
   CpuShaderResult,
+  CpuStageRoutine,
+  CpuValue,
   componentCountOf,
   componentKindOf,
   elementKindOf,
@@ -2115,12 +2117,18 @@ export function compileJSFn(
 }
 
 /** What `compileJSRoutine` returns: the shared {@link CpuRoutine}, and the call that skips the copy of `run`. */
-export interface JsRoutine extends CpuRoutine {
+export interface JsRoutine<A extends ShaderType = ShaderType> extends CpuRoutine<A> {
   /**
    * Like `run`, but the result lives in the scratch slots the next call
    * overwrites. For a caller that reads each result at once.
    */
-  runInPlace(ctx: CpuShaderContext): number | boolean | CpuShaderResult;
+  runInPlace(ctx: CpuShaderContext): CpuValue<A>;
+}
+
+/** What `compileJSRoutine` returns for a program compiled with a `stage`. */
+export interface JsStageRoutine extends CpuStageRoutine {
+  /** Like `run`, but the result lives in the scratch slots the next call overwrites. */
+  runInPlace(ctx: CpuShaderContext): CpuValue<ShaderType> | CpuShaderResult;
 }
 
 /** Copies a routine's result, arrays and the plain objects that hold them, so no scratch slot or input is shared. */
@@ -2153,10 +2161,22 @@ export function ownedValue<T>(value: T): T {
  * result has: one JS call per pixel, feeding `fragCoord` in and packing every
  * result into one flat row-major buffer — see `CpuRoutine`.
  */
+export function compileJSRoutine<A extends ShaderType>(
+  fn: (...args: any[]) => Node<A>,
+  options: CompileJSOptions & { stage?: undefined },
+): JsRoutine<A>;
+export function compileJSRoutine(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileJSOptions & { stage?: undefined },
+): JsRoutine;
 export function compileJSRoutine(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
-): JsRoutine {
+): JsStageRoutine;
+export function compileJSRoutine(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileJSOptions,
+): JsStageRoutine {
   const { source, resultType, storageTypes } = compileJSFnDetailed(fn, options);
   const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuShaderResult;
   const runScratch = factory();

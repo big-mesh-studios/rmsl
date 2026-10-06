@@ -4,6 +4,7 @@ import {
   componentCountOf,
   CpuDrawBuffer,
   CpuRoutine,
+  CpuStageRoutine,
   CpuShaderContext,
   CpuShaderResult,
   CpuTextureData,
@@ -3968,7 +3969,7 @@ export function instantiateWasmRoutine(
   compiled: CompiledWasm,
   name: string,
   externalMemory?: WebAssembly.Memory,
-): CpuRoutine {
+): CpuStageRoutine {
   const {
     bytes,
     params,
@@ -4138,9 +4139,21 @@ export function instantiateWasmRoutine(
 }
 
 /** Compiles an `Fn` to WASM and instantiates it in one step — see `instantiateWasmRoutine`. */
+export function compileWasmRoutine<A extends ShaderType>(
+  fn: (...args: any[]) => Node<A>,
+  options: CompileWasmFnOptions & { stage?: undefined },
+): CpuRoutine<A>;
+export function compileWasmRoutine(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileWasmFnOptions & { stage?: undefined },
+): CpuRoutine;
 export function compileWasmRoutine(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmFnOptions,
-): CpuRoutine {
+): CpuStageRoutine;
+export function compileWasmRoutine(
+  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
+  options: CompileWasmFnOptions,
+): CpuStageRoutine {
   return instantiateWasmRoutine(compileWasmFn(fn, options), options.name, options.memory);
 }

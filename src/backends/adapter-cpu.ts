@@ -1,12 +1,12 @@
 import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
 import { Adapter, requestedStorageSlots, slotOf, TypedArray } from "./adapter";
-import { CpuDrawBuffer, componentCountOf, CpuRoutine, CpuTextureData } from "./cpu";
+import { CpuDrawBuffer, componentCountOf, CpuStageRoutine, CpuTextureData } from "./cpu";
 
 /** One typed array per storage slot, keyed by name. */
 export type AdapterResult = Record<string, TypedArray>;
 
 /**
- * `compute`/`draw` here are two independently optional {@link CpuRoutine}s,
+ * `compute`/`draw` here are two independently optional {@link CpuStageRoutine}s,
  * each named for the routine method the adapter's own method of that name
  * runs it through: `compute()` runs a `storage()` program once per entity,
  * and `draw()` runs a `fragCoord()` program once per canvas pixel. Not
@@ -16,8 +16,8 @@ export type AdapterResult = Record<string, TypedArray>;
  * single already-compiled routine under its own field, never both.
  */
 export interface CpuAdapterPrograms {
-  compute?: CpuRoutine;
-  draw?: CpuRoutine;
+  compute?: CpuStageRoutine;
+  draw?: CpuStageRoutine;
 }
 
 /** `compute`/`draw` here are each required — unlike the base Adapter's

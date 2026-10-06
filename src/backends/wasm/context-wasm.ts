@@ -8,7 +8,7 @@ import {
 } from "../../core";
 import { slotOf, type TypedArray } from "../adapter";
 import { assertWriteFits, storageAttributes } from "../shared";
-import type { CpuRoutine } from "../cpu";
+import type { CpuStageRoutine } from "../cpu";
 import { compileWasmFn, instantiateWasmRoutine } from "./wasm";
 
 /**
@@ -41,7 +41,7 @@ export interface WasmContext {
 }
 
 /** A compiled program, and where each storage buffer it reads lives, which never changes once allocated. */
-type Program = { routine: CpuRoutine; storageBuffers: Record<string, { address: number; length: number }> };
+type Program = { routine: CpuStageRoutine; storageBuffers: Record<string, { address: number; length: number }> };
 
 /** Bytes per component WASM stores an attribute's elements with: f64 for float, i32 otherwise. */
 function componentSize(attribute: StorageBufferAttribute): number {
