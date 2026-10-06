@@ -8,11 +8,18 @@ import {
   TypedArray,
   UniformOrSlot,
 } from "../adapter";
-import { AdapterResult, bufferToImageData, CpuAdapter, createCpuAdapter } from "../adapter-cpu";
+import {
+  AdapterResult,
+  bufferToImageData,
+  CpuAdapter,
+  CpuRoutineAdapter,
+  createCpuAdapter,
+  createCpuRoutineAdapter,
+} from "../adapter-cpu";
 import type { CpuTextureData } from "../cpu";
 import { compileWasm, CompileWasmOptions, WasmRasterContext } from "./rasterizer";
 import { fragmentColour } from "../shared";
-import { compileWasmCompute, compileWasmGrid, CompileWasmFnOptions } from "./wasm";
+import { compileWasmCompute, compileWasmGrid, compileWasmRoutine, CompileWasmFnOptions } from "./wasm";
 
 export interface CreateWasmGridOptions {
   /** A fragCoord() program that returns a colour, evaluated once per canvas pixel by `draw()`. */
@@ -50,6 +57,40 @@ export function createWasmGrid(options: CreateWasmGridOptions): CpuAdapter {
   });
 
   return createCpuAdapter({ draw });
+}
+
+export interface CreateWasmRoutineOptions {
+  name?: string;
+  params?: CompileWasmFnOptions["params"];
+  derivatives?: CompileWasmFnOptions["derivatives"];
+  reentrant?: CompileWasmFnOptions["reentrant"];
+  memory?: CompileWasmFnOptions["memory"];
+  sharedMemory?: CompileWasmFnOptions["sharedMemory"];
+  maxMemoryPages?: CompileWasmFnOptions["maxMemoryPages"];
+  gpuUniformLayout?: CompileWasmFnOptions["gpuUniformLayout"];
+}
+
+/**
+ * Compiles a function of parameters and uniforms with {@link compileWasmRoutine}
+ * and wraps it in a {@link CpuRoutineAdapter}: `setUniform` and `setTexture`
+ * keep what the host gives it, and `run(params)` calls the routine with them.
+ */
+export function createWasmRoutine<A extends ShaderType>(
+  fn: Node<A>,
+  options: CreateWasmRoutineOptions = {},
+): CpuRoutineAdapter<A> {
+  return createCpuRoutineAdapter(
+    compileWasmRoutine(() => fn, {
+      name: options.name ?? "routine",
+      params: options.params ?? [],
+      derivatives: options.derivatives,
+      reentrant: options.reentrant,
+      memory: options.memory,
+      sharedMemory: options.sharedMemory,
+      maxMemoryPages: options.maxMemoryPages,
+      gpuUniformLayout: options.gpuUniformLayout,
+    }),
+  );
 }
 
 export interface CreateWasmComputeOptions {

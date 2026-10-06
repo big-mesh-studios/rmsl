@@ -406,6 +406,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec an-adapter-call-is-synchronous-where-its-target-answers-at-once`](#spec-an-adapter-call-is-synchronous-where-its-target-answers-at-once) — An [adapter](#term-adapter) method returns its result directly where its target answers at once, and returns a promise only where its target cannot.
     - [`@spec a-cpu-adapter-computes-synchronously`](#spec-a-cpu-adapter-computes-synchronously) — `compute` on a JS or WASM adapter has run the dispatch and filled `out` when it returns.
       - [`@bug wasm-compute-names-its-routine-as-its-dispatch-loop`](#bug-wasm-compute-names-its-routine-as-its-dispatch-loop) — `createWasmCompute` names its routine `compute` by default, the name of the module's own dispatch export, so a program with storage fails to compile.
+    - [`@spec a-cpu-routine-adapter-calls-its-routine-with-what-it-was-given`](#spec-a-cpu-routine-adapter-calls-its-routine-with-what-it-was-given) — `createJsRoutine` and `createWasmRoutine` give an adapter that keeps the uniforms and the textures the host sets. `run(params)` calls the routine with them and the parameters it is given, returns its value at once, and calls it again with whatever the host has set since.
     - [`@spec a-wgsl-adapter-attaches-and-computes-through-a-promise`](#spec-a-wgsl-adapter-attaches-and-computes-through-a-promise) — `attach` and `compute` on a WGSL adapter return promises, because WebGPU requests its device and reads its buffers back asynchronously.
     - [`@spec a-glsl-adapter-attaches-and-draws-synchronously`](#spec-a-glsl-adapter-attaches-and-draws-synchronously) — `attach` and `draw` on a GLSL adapter return `void`, because WebGL 2 creates its context and draws synchronously.
   - [`@spec compute-copies-back-only-the-slots-out-names`](#spec-compute-copies-back-only-the-slots-out-names) — `compute(out)` copies back to the host only the storage slots that `out` names. The other storage buffers stay where the program wrote them. A slot that the program has no storage for is refused.
@@ -2967,6 +2968,14 @@ This follows because a promise where none is needed costs a synchronous caller i
 > `createWasmCompute` names its routine `compute` by default, the name of the module's own dispatch export, so a program with storage fails to compile.
 
 Issue: #113
+
+#### @spec a-cpu-routine-adapter-calls-its-routine-with-what-it-was-given
+
+> `createJsRoutine` and `createWasmRoutine` give an adapter that keeps the uniforms and the textures the host sets. `run(params)` calls the routine with them and the parameters it is given, returns its value at once, and calls it again with whatever the host has set since.
+
+Derives from: [`spec-an-adapter-sets-a-uniform-of-every-type-its-program-declares`](#spec-an-adapter-sets-a-uniform-of-every-type-its-program-declares), [`spec-an-adapter-call-is-synchronous-where-its-target-answers-at-once`](#spec-an-adapter-call-is-synchronous-where-its-target-answers-at-once)
+
+This follows because a routine reads its uniforms and textures from the context of each call, and an adapter is where the host keeps them between calls.
 
 #### @spec a-wgsl-adapter-attaches-and-computes-through-a-promise
 

@@ -8,11 +8,18 @@ import {
   TypedArray,
   UniformOrSlot,
 } from "../adapter";
-import { AdapterResult, bufferToImageData, CpuAdapter, createCpuAdapter } from "../adapter-cpu";
+import {
+  AdapterResult,
+  bufferToImageData,
+  CpuAdapter,
+  CpuRoutineAdapter,
+  createCpuAdapter,
+  createCpuRoutineAdapter,
+} from "../adapter-cpu";
 import type { CpuTextureData } from "../cpu";
 import { compileJS, CompileJSRasterOptions, JsRasterContext } from "./rasterizer";
 import { fragmentColour } from "../shared";
-import { compileJSCompute, compileJSGrid, CompileJSOptions } from "./js";
+import { compileJSCompute, compileJSGrid, compileJSRoutine, CompileJSOptions } from "./js";
 
 export interface CreateJsGridOptions {
   /** A fragCoord() program that returns a colour, evaluated once per canvas pixel by `draw()`. */
@@ -42,6 +49,32 @@ export function createJsGrid(options: CreateJsGridOptions): CpuAdapter {
   });
 
   return createCpuAdapter({ draw });
+}
+
+export interface CreateJsRoutineOptions {
+  name?: string;
+  params?: CompileJSOptions["params"];
+  derivatives?: CompileJSOptions["derivatives"];
+  reentrant?: CompileJSOptions["reentrant"];
+}
+
+/**
+ * Compiles a function of parameters and uniforms with {@link compileJSRoutine}
+ * and wraps it in a {@link CpuRoutineAdapter}: `setUniform` and `setTexture`
+ * keep what the host gives it, and `run(params)` calls the routine with them.
+ */
+export function createJsRoutine<A extends ShaderType>(
+  fn: Node<A>,
+  options: CreateJsRoutineOptions = {},
+): CpuRoutineAdapter<A> {
+  return createCpuRoutineAdapter(
+    compileJSRoutine(() => fn, {
+      name: options.name ?? "routine",
+      params: options.params ?? [],
+      derivatives: options.derivatives,
+      reentrant: options.reentrant,
+    }),
+  );
 }
 
 export interface CreateJsComputeOptions {

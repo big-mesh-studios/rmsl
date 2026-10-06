@@ -1,6 +1,6 @@
 import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
 import { Adapter, requestedStorageSlots, slotOf, TypedArray } from "./adapter";
-import { CpuDrawBuffer, componentCountOf, ComputeStage, CpuGrid, CpuTextureData } from "./cpu";
+import { CpuDrawBuffer, componentCountOf, ComputeStage, CpuGrid, CpuRoutine, CpuTextureData, CpuValue } from "./cpu";
 
 /** One typed array per storage slot, keyed by name. */
 export type AdapterResult = Record<string, TypedArray>;
@@ -142,6 +142,40 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
       ctx2d.putImageData(bufferToImageData(buffer, canvas.width, canvas.height), 0, 0);
     },
 
+    destroy() {},
+  };
+}
+
+/**
+ * An adapter of a routine: it keeps the uniforms and the textures the host
+ * sets, and `run` calls the routine with them and the parameters it is given,
+ * so the host does not build a context for each call. `run` answers at once.
+ */
+export interface CpuRoutineAdapter<A extends ShaderType = ShaderType> {
+  setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
+  setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
+  setUniform(slot: string, value: number | number[]): void;
+  setTexture(sampler: UniformNode<ShaderType> | string, texture: CpuTextureData): void;
+  /** Calls the routine with the uniforms and textures set so far, and these parameters by name. */
+  run(params?: Record<string, number | number[]>): CpuValue<A>;
+  destroy(): void;
+}
+
+/** Wraps a routine in a {@link CpuRoutineAdapter}. */
+export function createCpuRoutineAdapter<A extends ShaderType>(routine: CpuRoutine<A>): CpuRoutineAdapter<A> {
+  const uniforms: Record<string, number | number[]> = {};
+  const textures: Record<string, CpuTextureData> = {};
+
+  function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, value: unknown): void {
+    uniforms[slotOf(uniform)] = value as number | number[];
+  }
+
+  return {
+    setUniform: setUniform as CpuRoutineAdapter<A>["setUniform"],
+    setTexture(sampler, texture) {
+      textures[slotOf(sampler)] = texture;
+    },
+    run: (params) => routine({ params, uniforms, textures }),
     destroy() {},
   };
 }

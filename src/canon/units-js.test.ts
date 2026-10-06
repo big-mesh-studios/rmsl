@@ -9,9 +9,11 @@ import {
   fragCoord,
   instancedArray,
   invocationIndex,
+  ivec2,
   mat2,
   outputStruct,
   uint,
+  textureLoad,
   uniform,
   varying,
   vec2,
@@ -29,6 +31,7 @@ import {
   compileJSRoutine,
   compileJSVertex,
   createJsGrid,
+  createJsRoutine,
 } from "../js";
 import {
   compileWasm,
@@ -38,6 +41,7 @@ import {
   compileWasmRoutine,
   compileWasmVertex,
   createWasmGrid,
+  createWasmRoutine,
 } from "../wasm";
 import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } from "../testing/shader-eval";
 
@@ -493,5 +497,38 @@ describe("a CPU stage's result", () => {
     const out = new Float64Array(8).fill(9);
     grid({}, 2, 1, out);
     expect(Array.from(out)).toEqual([1, 2, 3, 4, 0, 0, 0, 0]);
+  });
+});
+
+describe("an adapter of a routine", () => {
+  const routineAdapters = [
+    ["JS", createJsRoutine],
+    ["WASM", createWasmRoutine],
+  ] as const;
+
+  /**
+   * @canon spec-a-cpu-routine-adapter-calls-its-routine-with-what-it-was-given
+   */
+  it.each(routineAdapters)(
+    "%s: calls the routine with the uniform the host set, and again with the next",
+    (_, create) => {
+      const gain = uniform("float");
+      const adapter = create(Fn(() => gain.mul(2).add(1))(), none);
+      adapter.setUniform(gain, 3);
+      expect(adapter.run()).toBe(7);
+      adapter.setUniform(gain, 10);
+      expect(adapter.run()).toBe(21);
+      adapter.destroy();
+    },
+  );
+
+  /**
+   * @canon spec-a-cpu-routine-adapter-calls-its-routine-with-what-it-was-given
+   */
+  it.each(routineAdapters)("%s: calls the routine with the texture the host set", (_, create) => {
+    const tex = uniform("sampler2D");
+    const adapter = create(Fn(() => textureLoad(tex, ivec2(1, 0)).x)(), none);
+    adapter.setTexture(tex, { data: [10, 99], width: 2, height: 1, channels: 1 });
+    expect(adapter.run()).toBe(99);
   });
 });

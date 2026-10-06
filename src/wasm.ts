@@ -24,17 +24,18 @@ export type {
   VertexStage,
 } from "./backends/cpu";
 
-export { createWasmGrid, createWasmCompute, createWasm } from "./backends/wasm/adapter-wasm";
+export { createWasmGrid, createWasmRoutine, createWasmCompute, createWasm } from "./backends/wasm/adapter-wasm";
 export { createWasmContext } from "./backends/wasm/context-wasm";
 export type { WasmContext } from "./backends/wasm/context-wasm";
 export type {
   CreateWasmGridOptions,
+  CreateWasmRoutineOptions,
   CreateWasmComputeOptions,
   WasmComputeAdapter,
   WasmAdapter,
   WasmDrawOptions,
 } from "./backends/wasm/adapter-wasm";
-export type { AdapterResult as CpuAdapterResult, CpuAdapter } from "./backends/adapter-cpu";
+export type { AdapterResult as CpuAdapterResult, CpuAdapter, CpuRoutineAdapter } from "./backends/adapter-cpu";
 
 export type { Adapter, TypedArray } from "./backends/adapter";
 

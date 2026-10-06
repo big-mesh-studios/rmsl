@@ -177,21 +177,23 @@ vertex module's first and the fragment module's after it. `marshal` and
 would end without writing, so `draw()` sizes every region, and moves the depth
 buffer out of the way, before the first write.
 
-`createWasmGrid`/`createWasmCompute`/`createWasm` (`adapter-wasm.ts`)
-are the outermost layer, each wrapping `compileWasmRoutine`/`compileWasm`
-for one of three distinct shapes rather than living as options on a
-single entry point: `createWasm` is the render-pipeline shape (a
+`createWasmRoutine`/`createWasmGrid`/`createWasmCompute`/`createWasm`
+(`adapter-wasm.ts`) are the outermost layer, each wrapping the compile function
+of the same name for one of four distinct shapes rather than living as options
+on a single entry point: `createWasm` is the render-pipeline shape (a
 vertex/fragment pair through the rasterizer), `createWasmCompute` is the
-compute-pipeline shape (a `storage()`/`invocationIndex()` program,
-exposed through its own `WasmComputeAdapter` — `setAttribute`/
-`setUniform`/`compute()`, no `draw()`/`attach()` in the type at all), and
-`createWasmGrid` is what's left over — a plain CPU-callable
-(`fragCoord()`-driven, its routine's in-WASM `draw()` loop) with no wgpu pipeline
-equivalent, the same niche `compileJS`/`compileWasmFn` exist for in the
-first place. `createGlsl`/`createWgsl` implement the same `Adapter`
-interface `createWasm`/`createWasmGrid` do, so calling code doesn't
-need to know which backend it got — `createWasmCompute` deliberately
-doesn't, since a compute-pipeline-shaped adapter has no `draw()` to be
+compute-pipeline shape (a `storage()`/`invocationIndex()` program, exposed
+through its own `WasmComputeAdapter` — `setAttribute`/`setUniform`/`compute()`,
+no `draw()`/`attach()` in the type at all), `createWasmGrid` is a plain
+CPU-callable (`fragCoord()`-driven, its grid's in-WASM `draw()` loop) with no
+wgpu pipeline equivalent, the same niche `compileJS`/`compileWasmFn` exist for
+in the first place, and `createWasmRoutine` is a function of parameters and
+uniforms that keeps the uniforms and textures the host sets, and calls the
+routine with them (`CpuRoutineAdapter`: `setUniform`/`setTexture`/`run`, with
+no `draw()`/`attach()`). `createGlsl`/`createWgsl` implement the same `Adapter`
+interface `createWasm`/`createWasmGrid` do, so calling code doesn't need to
+know which backend it got — `createWasmCompute` and `createWasmRoutine`
+deliberately don't, since an adapter with no `draw()` has none to be
 interchangeable about.
 
 ## Summary
@@ -208,7 +210,8 @@ CompiledWasm (bytes + WasmParam[] + resultType + textureHeapBase)
   │
   ├─ instantiateWasmProgram ─ one module, own memory ─ CpuProgram (run/draw/compute)
   │        used by:  compileWasmRoutine, the stages, compileWasmGrid  (direct calls, no rasterizer)
-  │             ├─ createWasmGrid   (fragment stage's quad, Adapter wrapper)
+  │             ├─ createWasmRoutine   (uniforms and textures kept, CpuRoutineAdapter)
+  │             ├─ createWasmGrid   (a grid drawn to a canvas, Adapter wrapper)
   │             └─ createWasmCompute   (storage()/invocationIndex() shape, WasmComputeAdapter)
   │
   └─ compileWasm ─ two modules (scalarsInMemory: true), shared memory,

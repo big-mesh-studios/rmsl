@@ -23,10 +23,11 @@ export type {
   VertexStage,
 } from "./backends/cpu";
 
-export type { CpuAdapter, AdapterResult as CpuAdapterResult } from "./backends/adapter-cpu";
-export { createJsGrid, createJsCompute, createJs } from "./backends/js/adapter-js";
+export type { CpuAdapter, CpuRoutineAdapter, AdapterResult as CpuAdapterResult } from "./backends/adapter-cpu";
+export { createJsGrid, createJsRoutine, createJsCompute, createJs } from "./backends/js/adapter-js";
 export type {
   CreateJsGridOptions,
+  CreateJsRoutineOptions,
   CreateJsComputeOptions,
   JsComputeAdapter,
   JsAdapter,
