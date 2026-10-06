@@ -449,7 +449,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-render-depends-only-on-what-it-is-given`](#spec-a-render-depends-only-on-what-it-is-given) — `render(scene, camera, target)` on a renderer of `./scene` gives the pixels that the same call gives on a fresh renderer, whatever the renderer drew before.
     - [`@spec a-draw-configures-every-enabled-vertex-attribute`](#spec-a-draw-configures-every-enabled-vertex-attribute) — A draw on the WebGL renderer runs with enabled only the vertex attribute arrays it configured itself, whatever mesh drew before it.
     - [`@spec a-render-clears-the-depth-buffer-whatever-the-last-draw-masked`](#spec-a-render-clears-the-depth-buffer-whatever-the-last-draw-masked) — A render on the WebGL renderer clears the depth buffer, whatever depth mask the last draw left.
-      - [`@bug webgl-clears-depth-under-the-mask-the-last-draw-left`](#bug-webgl-clears-depth-under-the-mask-the-last-draw-left) — `render` clears depth without setting the depth mask first. After a draw whose material has `depthWrite: false`, the clear does nothing, and the depth of the earlier render stays.
     - [`@spec a-texture-reads-as-its-sampler-asks-whichever-sampler-uploaded-it`](#spec-a-texture-reads-as-its-sampler-asks-whichever-sampler-uploaded-it) — A texture on the WebGL renderer reads as the type of the sampler that reads it asks, whichever type of sampler uploaded it.
       - [`@bug webgl-keeps-the-sampler-state-of-the-first-sampler-that-uploaded-a-texture`](#bug-webgl-keeps-the-sampler-state-of-the-first-sampler-that-uploaded-a-texture) — The WebGL renderer writes a texture's filters and wrap once, when it uploads the texture, from the type of the sampler that uploaded it. An integer sampler that reads the texture later meets linear filters, an incomplete texture, and reads zero.
     - [`@spec a-webgpu-render-records-what-a-fresh-renderer-records`](#spec-a-webgpu-render-records-what-a-fresh-renderer-records) — A render on the WebGPU renderer records the same pass as the same call on a fresh renderer, whatever the renderer drew before.
@@ -3185,19 +3184,13 @@ This follows because the application hands the renderer a scene and never touche
 
 > A draw on the WebGL renderer runs with enabled only the vertex attribute arrays it configured itself, whatever mesh drew before it.
 
-This follows because WebGL checks every enabled array against the whole draw, whether the program declares its location. An array left from a mesh with more vertices rejects the draw of a mesh with fewer attributes.
+This follows because WebGL checks every enabled array against the whole draw, even one the program does not declare. An array left from a mesh with more vertices rejects the draw of a mesh with fewer attributes.
 
 #### @spec a-render-clears-the-depth-buffer-whatever-the-last-draw-masked
 
 > A render on the WebGL renderer clears the depth buffer, whatever depth mask the last draw left.
 
 This follows because the depth mask applies to `clear`, and the renderer sets the mask for each draw from its material.
-
-##### @bug webgl-clears-depth-under-the-mask-the-last-draw-left
-
-> `render` clears depth without setting the depth mask first. After a draw whose material has `depthWrite: false`, the clear does nothing, and the depth of the earlier render stays.
-
-Issue: #185
 
 #### @spec a-texture-reads-as-its-sampler-asks-whichever-sampler-uploaded-it
 

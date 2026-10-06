@@ -1098,19 +1098,12 @@ describe.skipIf(!GPU_ENABLED)("known bugs of the scene library on a real driver"
   );
 
   /**
-   * `render` clears depth under the depth mask the last draw left, so after a
-   * `depthWrite: false` draw the clear does nothing and the earlier depth stays.
-   *
-   * @canon bug-webgl-clears-depth-under-the-mask-the-last-draw-left
+   * @canon spec-a-render-clears-the-depth-buffer-whatever-the-last-draw-masked
    */
-  it.fails(
-    "draws a far plane after a frame whose last draw wrote no depth on WebGL",
-    async () => {
-      const result = await runInGpuPage(ENTRY_DEPTH_MASK, "__rmslDepthMaskRun", new URL(".", import.meta.url).pathname);
-      expect(result.afterMaskedDraw).toEqual(result.fresh);
-    },
-    60_000,
-  );
+  it("draws a far plane after a frame whose last draw wrote no depth on WebGL", async () => {
+    const result = await runInGpuPage(ENTRY_DEPTH_MASK, "__rmslDepthMaskRun", new URL(".", import.meta.url).pathname);
+    expect(result.afterMaskedDraw).toEqual(result.fresh);
+  }, 60_000);
 
   /**
    * The WebGL renderer writes a texture's filters once, from the sampler type
