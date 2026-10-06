@@ -348,7 +348,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-storage-buffer-follows-tsl`](#spec-a-storage-buffer-follows-tsl) — `storage(attribute, type)`, `instancedArray` and `attributeArray` make a [storage buffer](#term-storage-buffer) node over a buffer of typed elements, as TSL's functions of the same names do.
     - [`@spec a-wgsl-storage-buffer-holds-a-vec3-in-16-bytes`](#spec-a-wgsl-storage-buffer-holds-a-vec3-in-16-bytes) — A WGSL storage buffer of `vec3` elements holds each element in 16 bytes. The host passes and reads the components as one flat typed array, with no padding. This holds for `createWgslCompute` and for a `createWgsl` with storage of its own.
     - [`@spec an-instanced-array-takes-its-count-from-a-number-or-its-data`](#spec-an-instanced-array-takes-its-count-from-a-number-or-its-data) — `instancedArray(count, type)` makes a buffer of `count` elements, whose host array holds zeros. `instancedArray(data, type)` takes its count and contents from a typed array.
-      - [`@bug an-instanced-array-of-a-count-keeps-no-host-array`](#bug-an-instanced-array-of-a-count-keeps-no-host-array) — `instancedArray(count, type)` and `attributeArray(count, type)` keep no host array: `attribute.array` is `null`.
     - [`@spec a-buffer-holds-one-element-type`](#spec-a-buffer-holds-one-element-type) — A buffer holds one element type, named by the first storage node over it. A node of another type over it is refused. So is a type its item size or array class cannot hold, and a typed array that is not a whole number of elements.
     - [`@spec a-storage-buffer-holds-no-bool`](#spec-a-storage-buffer-holds-no-bool) — A storage buffer of `bool` or boolean vector elements is refused.
     - [`@spec a-storage-node-is-read-write-until-to-read-only`](#spec-a-storage-node-is-read-write-until-to-read-only) — A program can read and write a storage node until `toReadOnly()`, which makes it read-only and returns it. The element of a node, by a number or an `int`, has the element type.
@@ -2646,12 +2645,6 @@ This follows because the shader indexes a `vec3` array 16 bytes at a time, and t
 > `instancedArray(count, type)` makes a buffer of `count` elements, whose host array holds zeros. `instancedArray(data, type)` takes its count and contents from a typed array.
 
 Derives from: [`fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array`](#fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array)
-
-##### @bug an-instanced-array-of-a-count-keeps-no-host-array
-
-> `instancedArray(count, type)` and `attributeArray(count, type)` keep no host array: `attribute.array` is `null`.
-
-Issue: #133
 
 #### @spec a-buffer-holds-one-element-type
 

@@ -5,6 +5,7 @@ import {
   float,
   Fn,
   If,
+  attributeArray,
   instancedArray,
   int,
   Loop,
@@ -428,5 +429,24 @@ describe("what a program does with a node it reads more than once", () => {
       return first * 0.1 + total * 0.1;
     };
     expect(evaluateRecording(build, [0.3])).toBeCloseTo(want(0.3), 10);
+  });
+});
+
+describe("a storage array made from a count", () => {
+  /**
+   * @canon spec-an-instanced-array-takes-its-count-from-a-number-or-its-data
+   */
+  it("gives an instancedArray made from a count a zeroed host array", () => {
+    const positions = instancedArray(8, "vec3");
+    expect(positions.attribute.array).toEqual(new Float32Array(24));
+  });
+
+  /**
+   * @canon spec-an-instanced-array-takes-its-count-from-a-number-or-its-data
+   */
+  it("gives an attributeArray the host array of its element type, zeroed", () => {
+    expect(attributeArray(4, "uvec2").attribute.array).toEqual(new Uint32Array(8));
+    expect(instancedArray(3, "int").attribute.array).toEqual(new Int32Array(3));
+    expect(instancedArray(2, "float").attribute.array).toEqual(new Float32Array(2));
   });
 });
