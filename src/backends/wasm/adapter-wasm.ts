@@ -37,7 +37,7 @@ export interface CreateWasmGridOptions {
 /**
  * Compiles a `fragCoord()` program with {@link compileWasmGrid} and
  * wraps it in a {@link createCpuAdapter} — a plain CPU-callable evaluated
- * once per pixel/sample via its grid's in-WASM `fill()` loop (`docs/wasm.md`'s
+ * once per pixel/sample via its grid's in-WASM loop (`docs/wasm.md`'s
  * screen-pick/ray-march niche, or a `width x 1` per-sample audio-DSP
  * buffer), not a wgpu pipeline shape. See {@link createWasmCompute} for
  * the `storage()`/`invocationIndex()` shape and {@link createWasm} for

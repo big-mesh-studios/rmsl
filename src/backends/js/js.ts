@@ -2179,7 +2179,7 @@ export function compileJSProgram(
 
   function draw(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
     if (resultType === undefined || resultType === "void") {
-      throw new Error("[RMSL] compileJSGrid: this function produces no value to render — fill() needs a result.");
+      throw new Error("[RMSL] compileJSGrid: this function produces no value to render — the grid needs a result.");
     }
     const componentCount = componentCountOf(resultType);
     const kind = isAggregate(resultType) ? elementKindOf(resultType) : scalarKindOf(resultType);

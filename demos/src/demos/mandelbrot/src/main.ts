@@ -21,8 +21,8 @@ import { WasmWorkerPool } from "./wasmWorkerPool";
 
 // === Compile RMSL shaders to GLSL, WGSL, JS and WASM ===
 // The same RMSL source (mandelbrotColorAt) drives all four: GLSL for
-// WebGL, WGSL for WebGPU, and the CPU-target Fn for compileJSGrid/compileWasmGrid's
-// a grid — one call per pixel, packed into a flat RGBA buffer.
+// WebGL, WGSL for WebGPU, and the CPU-target Fn for compileJSGrid/compileWasmGrid,
+// which call it once per pixel and pack the results into a flat RGBA buffer.
 const vsGLSL = compileGlsl.vertex(vertexMain());
 const fsGLSL = compileGlsl.fragment(calcMandelbrot());
 const jsRenderer = compileJSGrid(() => calcMandelbrotCpu(), { name: "mandelbrotJS", params: [] });

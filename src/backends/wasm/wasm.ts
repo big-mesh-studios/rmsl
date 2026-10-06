@@ -4111,7 +4111,7 @@ export function instantiateWasmProgram(
   function draw(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
     if (!drawOutput || !wasmDraw) {
       throw new Error(
-        '[RMSL] compileWasmGrid: this function produces no value to render — fill() needs a non-"void" result.',
+        '[RMSL] compileWasmGrid: this function produces no value to render — the grid needs a non-"void" result.',
       );
     }
     const { args, heapEnd } = marshalInputs(ctx);

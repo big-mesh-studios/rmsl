@@ -33,7 +33,7 @@ export interface CreateJsGridOptions {
 /**
  * Compiles a `fragCoord()` program with {@link compileJSGrid} and
  * wraps it in a {@link createCpuAdapter} — a plain CPU-callable evaluated
- * once per pixel with its grid's `fill()`, not a wgpu pipeline shape. See
+ * once per pixel with its grid, not a wgpu pipeline shape. See
  * {@link createJsCompute} for the `storage()`/`invocationIndex()` shape
  * and {@link createJs} for the vertex/fragment render shape — those each
  * got their own dedicated entry point rather than living as options here
