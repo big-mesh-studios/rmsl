@@ -46,6 +46,14 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec wgsl-floors-a-modulus-through-a-helper`](#spec-wgsl-floors-a-modulus-through-a-helper) — On WGSL, a float `mod` calls a helper of the width of its operands, which floors the quotient as GLSL's `mod` does, and reads each operand once.
     - [`@spec wgsl-narrows-a-matrix-through-a-helper`](#spec-wgsl-narrows-a-matrix-through-a-helper) — On WGSL, a matrix built from a larger matrix calls a helper that keeps the leading rows of the leading columns. A matrix built from columns or from a scalar needs none.
   - [`@spec every-node-is-emitted-once`](#spec-every-node-is-emitted-once) — A [node](#term-node) that several roots or statements reach is emitted once, in the place it first runs. A block it holds keeps its variables in scope, and a loop it holds keeps its loop variable.
+  - [`@spec a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once) — A node that an operation reads more than once is computed once, where it first runs. Each later read in that block or a block inside it takes the result, until a statement changes what the node reads.
+    - [`@spec output-grows-in-proportion-to-the-levels-of-nested-reads`](#spec-output-grows-in-proportion-to-the-levels-of-nested-reads) — A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract` on JS, counts as two reads.
+    - [`@spec a-node-that-is-already-a-name-is-read-where-it-is`](#spec-a-node-that-is-already-a-name-is-read-where-it-is) — A constant, a variable, a uniform, an attribute or a built-in input stays where it is. So does a swizzle or an element of one of them. None gets a variable of its own.
+    - [`@spec a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in`](#spec-a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in) — A node that two blocks read, with neither inside the other, is computed in each. A path that skips a block runs none of its statements.
+    - [`@spec a-shared-value-is-computed-again-after-what-it-reads-changed`](#spec-a-shared-value-is-computed-again-after-what-it-reads-changed) — A shared node that reads a variable, a stage output or a storage buffer is computed again at its next read. This holds once a statement has changed it.
+    - [`@spec a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads`](#spec-a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads) — A shared node made before a loop is computed again inside the loop, when the loop body changes what the node reads.
+    - [`@spec an-expression-of-constants-is-folded-not-shared`](#spec-an-expression-of-constants-is-folded-not-shared) — An expression of constants gets no variable of its own. The target folds it into one literal.
+    - [`@spec a-shared-value-gets-a-generated-name`](#spec-a-shared-value-gets-a-generated-name) — The variable of a shared node is named `_rmsl_gen_` and a number. It cannot clash with a name the user gave, or with a `toVar()` name.
   - [`@spec an-operand-that-is-an-expression-keeps-its-grouping`](#spec-an-operand-that-is-an-expression-keeps-its-grouping) — An operand that is itself an expression computes as a whole before the operation that takes it. This holds on every target, whatever the precedence of its operators.
   - [`@spec a-program-declares-any-number-of-uniforms-on-every-target`](#spec-a-program-declares-any-number-of-uniforms-on-every-target) — A [program](#term-program) declares every [uniform](#term-uniform) it reads, whatever their number, and compiles on every target.
     - [`@spec wgsl-packs-every-value-uniform-into-one-binding`](#spec-wgsl-packs-every-value-uniform-into-one-binding) — On WGSL, every uniform that holds a value is a member of one struct, bound once. GLSL declares each uniform on its own.
@@ -332,7 +340,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug js-runs-an-inline-fn-only-on-the-path-that-first-reads-it`](#bug-js-runs-an-inline-fn-only-on-the-path-that-first-reads-it) — On JS, the statements of an inline `Fn` result are emitted with the first read of its value. A path that reads the value without passing that read, such as the other branch of an `If`, gets the value and never runs the statements.
   - [`@spec a-variable-keeps-the-name-the-user-gave-it`](#spec-a-variable-keeps-the-name-the-user-gave-it) — `toVar(name)` and `var(name)` declare a variable under `name` on every target, in every compile. A name already taken in the program gets a number appended.
     - [`@spec a-variable-is-declared-under-the-name-given`](#spec-a-variable-is-declared-under-the-name-given) — `toVar(name)` and `var(name)` declare the variable under `name` on every target, in every compile.
-    - [`@spec a-taken-variable-name-gets-a-number`](#spec-a-taken-variable-name-gets-a-number) — A variable name already taken in the program gets the next free number appended.
+    - [`@spec a-taken-variable-name-gets-a-number`](#spec-a-taken-variable-name-gets-a-number) — A variable name already taken in the program gets the next free number appended. The variable the caller holds keeps the name it was given.
     - [`@spec var-is-to-var`](#spec-var-is-to-var) — `var()` is `toVar()` under TSL's other name.
     - [`@spec a-variable-name-must-be-an-identifier`](#spec-a-variable-name-must-be-an-identifier) — A variable name that is not an identifier, or that starts with the prefix `_rmsl_` the compiler reserves, is refused.
     - [`@spec an-unnamed-variable-gets-a-name-no-other-variable-has`](#spec-an-unnamed-variable-gets-a-name-no-other-variable-has) — A variable made without a name gets a generated name that no other variable in the process has, across `Fn`s and builds.
@@ -725,8 +733,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact webgpu-clips-a-triangle-outside-the-depth-range`](#fact-webgpu-clips-a-triangle-outside-the-depth-range) — WebGPU clips a triangle against the depth range from 0 to 1, and draws the depths 0 and 1 themselves.
 - [`@fact webgpu-draws-nothing-for-a-triangle-off-the-viewport`](#fact-webgpu-draws-nothing-for-a-triangle-off-the-viewport) — WebGPU draws no pixel for a triangle wholly outside the viewport, at any distance from it, and reports no error.
 - [`@fact webgpu-culls-no-face-by-default`](#fact-webgpu-culls-no-face-by-default) — A WebGPU render pipeline culls no face unless it asks to, so a triangle draws whichever way its vertices wind.
-- [`@fact a-webgpu-canvas-configured-opaque-drops-alpha`](#fact-a-webgpu-canvas-configured-opaque-drops-alpha) — A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha was drawn into it.
+- [`@fact a-webgpu-canvas-configured-opaque-drops-alpha`](#fact-a-webgpu-canvas-configured-opaque-drops-alpha) — A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha the draw wrote.
 - [`@fact react-three-fiber-and-threlte-create-their-renderer-with-alpha`](#fact-react-three-fiber-and-threlte-create-their-renderer-with-alpha) — react-three-fiber and Threlte build their `WebGLRenderer` with `alpha: true`, so a canvas they draw on clears to alpha 0.
+- [`@fact three-js-generates-a-node-read-more-than-once-into-a-variable`](#fact-three-js-generates-a-node-read-more-than-once-into-a-variable) — three.js counts the reads of each node while it analyzes a shader stage. It generates a node read more than once into a variable at its first read, and later reads use the variable.
+- [`@fact three-js-gives-a-cheap-node-no-variable`](#fact-three-js-gives-a-cheap-node-no-variable) — A three.js node gets no variable of its own when it is an input, a swizzle, an array element, a variable or a built-in input. An input is a uniform or a constant. An operator or math node gets one only when it has dependencies.
+- [`@fact three-js-reuses-a-generated-value-only-where-it-is-visible`](#fact-three-js-reuses-a-generated-value-only-where-it-is-visible) — three.js reuses the variable of a generated node in the block where it declared the variable, and in the blocks inside it. In any other block it generates the node again.
 <!-- toc:end -->
 
 ## Open questions
@@ -964,6 +975,58 @@ Derives from: [`fact-a-wgsl-matrix-constructor-takes-no-matrix`](#fact-a-wgsl-ma
 > A [node](#term-node) that several roots or statements reach is emitted once, in the place it first runs. A block it holds keeps its variables in scope, and a loop it holds keeps its loop variable.
 
 This follows because emitting a node twice runs what it does twice, which changes what the program computes.
+
+### @spec a-node-read-more-than-once-is-computed-once
+
+> A node that an operation reads more than once is computed once, where it first runs. Each later read in that block or a block inside it takes the result, until a statement changes what the node reads.
+
+Derives from: [`spec-every-node-is-emitted-once`](#spec-every-node-is-emitted-once), [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import), [`fact-three-js-generates-a-node-read-more-than-once-into-a-variable`](#fact-three-js-generates-a-node-read-more-than-once-into-a-variable)
+
+This follows because the output and the work at run time then grow with the nodes in the program. They do not grow with the paths through it. A TSL shader nests such reads freely, so it ports without a `toVar()` at each level.
+
+#### @spec output-grows-in-proportion-to-the-levels-of-nested-reads
+
+> A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract` on JS, counts as two reads.
+
+#### @spec a-node-that-is-already-a-name-is-read-where-it-is
+
+> A constant, a variable, a uniform, an attribute or a built-in input stays where it is. So does a swizzle or an element of one of them. None gets a variable of its own.
+
+Derives from: [`fact-three-js-gives-a-cheap-node-no-variable`](#fact-three-js-gives-a-cheap-node-no-variable)
+
+This follows because a variable for such a node would only rename what is already cheap to read.
+
+#### @spec a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in
+
+> A node that two blocks read, with neither inside the other, is computed in each. A path that skips a block runs none of its statements.
+
+Derives from: [`fact-three-js-reuses-a-generated-value-only-where-it-is-visible`](#fact-three-js-reuses-a-generated-value-only-where-it-is-visible)
+
+This follows because the result stored in one branch of an `If` does not exist on the path through the other branch.
+
+#### @spec a-shared-value-is-computed-again-after-what-it-reads-changed
+
+> A shared node that reads a variable, a stage output or a storage buffer is computed again at its next read. This holds once a statement has changed it.
+
+This follows because a node has the value it computes at the point of the read. An assignment between two reads can change that value.
+
+#### @spec a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads
+
+> A shared node made before a loop is computed again inside the loop, when the loop body changes what the node reads.
+
+This follows because the body runs again after it changes what the node reads. A value from before the loop is stale on each later iteration.
+
+#### @spec an-expression-of-constants-is-folded-not-shared
+
+> An expression of constants gets no variable of its own. The target folds it into one literal.
+
+This follows because a variable would hide the literal from the folding that gives it its value.
+
+#### @spec a-shared-value-gets-a-generated-name
+
+> The variable of a shared node is named `_rmsl_gen_` and a number. It cannot clash with a name the user gave, or with a `toVar()` name.
+
+This follows because the compiler keeps the `_rmsl_` prefix for everything it invents, and a user name may not use it.
 
 ### @spec an-operand-that-is-an-expression-keeps-its-grouping
 
@@ -2546,7 +2609,7 @@ This follows because TSL's `toVar` takes a name, and a reader of the shader meet
 
 #### @spec a-taken-variable-name-gets-a-number
 
-> A variable name already taken in the program gets the next free number appended.
+> A variable name already taken in the program gets the next free number appended. The variable the caller holds keeps the name it was given.
 
 #### @spec var-is-to-var
 
@@ -4845,7 +4908,7 @@ Chromium's WebGPU draws a counter-clockwise and a clockwise triangle alike with 
 
 ## @fact a-webgpu-canvas-configured-opaque-drops-alpha
 
-> A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha was drawn into it.
+> A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha the draw wrote.
 
 Chromium's WebGPU draws a fragment of alpha 0 into a canvas configured opaque, and the page reads the pixel back with alpha 255.
 
@@ -4854,3 +4917,21 @@ Chromium's WebGPU draws a fragment of alpha 0 into a canvas configured opaque, a
 > react-three-fiber and Threlte build their `WebGLRenderer` with `alpha: true`, so a canvas they draw on clears to alpha 0.
 
 This is how they behave, read from their source: `createRenderer` in react-three-fiber's `packages/fiber/src/core/renderer.ts`, and the renderer fragment in Threlte's `packages/core/src/lib/context/fragments/renderer.svelte.ts`. three.js clears to alpha 0 when `alpha` is `true` (`WebGLBackground`). Its own default is `false`, which clears to alpha 1.
+
+## @fact three-js-generates-a-node-read-more-than-once-into-a-variable
+
+> three.js counts the reads of each node while it analyzes a shader stage. It generates a node read more than once into a variable at its first read, and later reads use the variable.
+
+This is how three.js main behaves, read from its source: `Node.build` and `Node.analyze` in `src/nodes/core/Node.js` and `NodeBuilder.increaseUsage` (three.js 187dev). The variable is a `const`, or a `var` when the program assigns it. A node of type `void`, and a node read as a reference, get none. three.js 0.186 counts the reads and does not do this.
+
+## @fact three-js-gives-a-cheap-node-no-variable
+
+> A three.js node gets no variable of its own when it is an input, a swizzle, an array element, a variable or a built-in input. An input is a uniform or a constant. An operator or math node gets one only when it has dependencies.
+
+This is how three.js main behaves, read from its source: `isCacheable` in `InputNode.js`, `SplitNode.js`, `ArrayElementNode.js`, `VarNode.js`, `BuiltinNode.js` and `TempNode.js` under `src/nodes` (three.js 187dev).
+
+## @fact three-js-reuses-a-generated-value-only-where-it-is-visible
+
+> three.js reuses the variable of a generated node in the block where it declared the variable, and in the blocks inside it. In any other block it generates the node again.
+
+This is how three.js main behaves, read from its source: the `flowBlock` check in `Node.build` (three.js 187dev).
