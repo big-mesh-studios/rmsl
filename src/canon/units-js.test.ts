@@ -13,6 +13,7 @@ import {
   vec4,
   type Node,
 } from "../rmsl";
+import type { CpuRoutine } from "../backends/cpu";
 import { compileJS, compileJSFn, compileJSRoutine, createJsRoutine } from "../js";
 import { compileWasm, compileWasmRoutine, createWasmRoutine } from "../wasm";
 import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } from "../testing/shader-eval";
@@ -24,9 +25,12 @@ afterAll(async () => {
 
 const none = { name: "main", params: [] };
 
-const cpuTargets: [string, typeof compileJSRoutine][] = [
+/** A compile function of either CPU target, which gives the routine they share. */
+type CompileCpu = (...args: Parameters<typeof compileJSRoutine>) => CpuRoutine;
+
+const cpuTargets: [string, CompileCpu][] = [
   ["JS", compileJSRoutine],
-  ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ["WASM", compileWasmRoutine as CompileCpu],
 ];
 
 const rasterizers: [string, typeof compileJS][] = [
@@ -247,5 +251,56 @@ describe("what the JS target emits for an operand a constructor reads several ti
       param,
     );
     expect(source.match(/(?<!function )_v2add\(/g)?.length).toBe(1);
+  });
+});
+
+describe("a JS routine's results", () => {
+  const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
+
+  /**
+   * @canon spec-a-cpu-routine-answers-one-fragment-per-call
+   */
+  it("keeps the value a JS routine returned when it is called again", () => {
+    const run = compileJSRoutine((a: any) => Fn(() => vec3(a, a, a).toVar())(), param);
+    const first = run.run({ params: { a: 1 } });
+    run.run({ params: { a: 2 } });
+    expect(first).toEqual([1, 1, 1]);
+  });
+
+  /**
+   * @canon spec-a-rasterizer-gives-each-vertex-its-own-position
+   */
+  it.each(rasterizers)(
+    "rasterizes each vertex at its own position when the position is a variable on %s",
+    (_, compile) => {
+      const position = attribute("vec3");
+      const routine = compile(
+        () =>
+          Fn(() => {
+            const p = vec4(position.x, position.y, position.z, 1).toVar();
+            builtinPosition().assign(p);
+          })() as any,
+        () => Fn(() => vec4(1, 1, 1, 1).toVar())() as any,
+        { attributeTypes: { [position.name]: "vec3" } },
+      );
+      const image = routine.draw(
+        { attributes: { [position.name]: new Float64Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]) } },
+        { width: 2, height: 2, clear: true, clearDepth: true },
+      );
+      expect(Array.from(image)).toEqual(new Array(16).fill(1));
+    },
+  );
+
+  /**
+   * @canon spec-a-cpu-routine-answers-one-fragment-per-call
+   */
+  it.each([false, true])("returns a copy of an array the caller passed in, with reentrant %s", (reentrant) => {
+    const input = uniform("vec3");
+    const routine = compileJSRoutine(() => Fn(() => input.add(0).toVar())(), { ...none, reentrant });
+    const passed = [1, 2, 3];
+    const first = routine.run({ uniforms: { [input.name]: passed } });
+    (first as number[])[0] = 9;
+    expect(passed).toEqual([1, 2, 3]);
+    expect(routine.run({ uniforms: { [input.name]: passed } })).toEqual([1, 2, 3]);
   });
 });

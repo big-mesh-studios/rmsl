@@ -2114,14 +2114,40 @@ export function compileJSFn(
   return compileJSFnDetailed(fn, options).source;
 }
 
+/** What `compileJSRoutine` returns: the shared {@link CpuRoutine}, and the call that skips the copy of `run`. */
+export interface JsRoutine extends CpuRoutine {
+  /**
+   * Like `run`, but the result lives in the scratch slots the next call
+   * overwrites. For a caller that reads each result at once.
+   */
+  runInPlace(ctx: CpuShaderContext): number | boolean | CpuShaderResult;
+}
+
+/** Copies a routine's result, arrays and the plain objects that hold them, so no scratch slot or input is shared. */
+export function ownedValue<T>(value: T): T {
+  if (Array.isArray(value)) {
+    const copy: unknown[] = value.slice();
+    for (let i = 0; i < copy.length; i++) {
+      if (typeof copy[i] === "object" && copy[i] !== null) copy[i] = ownedValue(copy[i]);
+    }
+    return copy as T;
+  }
+  if (typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Object.prototype) {
+    const copy: Record<string, unknown> = {};
+    for (const key in value) copy[key] = ownedValue(value[key]);
+    return copy as T;
+  }
+  return value;
+}
+
 /**
  * Compile an Fn to an actual callable function, with the scratch slots and
  * helper functions baked into its closure.
  *
- * The result is called as `fn(ctx)` where `ctx` is a `CpuShaderContext`. Its
- * scratch slots are shared across calls, so a call must finish before the next
- * one starts — for screen picking one call per click that is the point. Pass
- * `{ reentrant: true }` for per-call bindings instead.
+ * The result is called as `fn(ctx)` where `ctx` is a `CpuShaderContext`, and
+ * the value it returns is the caller's own: a later call does not change it.
+ * The scratch slots are shared across calls, so a call must finish before the
+ * next one starts. Pass `{ reentrant: true }` for per-call bindings instead.
  *
  * Also carries `draw()`, the same whole-image entry point `compileWasmRoutine`'s
  * result has: one JS call per pixel, feeding `fragCoord` in and packing every
@@ -2130,10 +2156,15 @@ export function compileJSFn(
 export function compileJSRoutine(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
-): CpuRoutine {
+): JsRoutine {
   const { source, resultType, storageTypes } = compileJSFnDetailed(fn, options);
   const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuShaderResult;
-  const run = factory();
+  const runScratch = factory();
+
+  /** The result of one call, copied out of the scratch slots the next call writes into. */
+  function run(ctx: CpuShaderContext): number | boolean | CpuShaderResult {
+    return ownedValue(runScratch(ctx)) as number | boolean | CpuShaderResult;
+  }
 
   function draw(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
     if (resultType === undefined) {
@@ -2153,7 +2184,7 @@ export function compileJSRoutine(
       for (let x = 0; x < width; x++) {
         // pixel centers land at (x + 0.5, y + 0.5) — the same convention
         // compileWasmRoutine's draw() and fragCoordMemory in wasm.ts use.
-        const result = run({ ...ctx, fragCoord: [x + 0.5, y + 0.5] });
+        const result = runScratch({ ...ctx, fragCoord: [x + 0.5, y + 0.5] });
         const raw =
           typeof result === "object" && result !== null && "value" in result
             ? (result as CpuShaderResult).value
@@ -2172,9 +2203,10 @@ export function compileJSRoutine(
     const invocation: CpuShaderContext = { ...ctx };
     for (let i = 0; i < count; i++) {
       invocation.index = i;
-      run(invocation);
+      runScratch(invocation);
     }
   }
 
-  return { run, draw, compute, storageTypes };
+  // A reentrant routine declares its variables per call, so nothing is shared to copy out of.
+  return { run, runInPlace: runScratch, draw, compute, storageTypes };
 }

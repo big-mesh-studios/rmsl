@@ -4104,9 +4104,10 @@ export function instantiateWasmRoutine(
       return out;
     }
 
-    if (drawOutput.kind === "float") return new Float64Array(memory.buffer, bufferBase, pixelCount);
-    if (drawOutput.kind === "uint") return new Uint32Array(memory.buffer, bufferBase, pixelCount);
-    return new Int32Array(memory.buffer, bufferBase, pixelCount);
+    // A copy: the view would show the pixels of the next draw.
+    if (drawOutput.kind === "float") return new Float64Array(memory.buffer, bufferBase, pixelCount).slice();
+    if (drawOutput.kind === "uint") return new Uint32Array(memory.buffer, bufferBase, pixelCount).slice();
+    return new Int32Array(memory.buffer, bufferBase, pixelCount).slice();
   }
 
   /**
