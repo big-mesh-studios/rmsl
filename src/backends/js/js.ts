@@ -2513,6 +2513,8 @@ export interface JsProgram extends CpuProgram {
    * overwrites. For a caller that reads each result at once.
    */
   runInPlace(ctx: CpuShaderContext): CpuValue<ShaderType> | CpuProgramResult | null;
+  /** The type of each varying a vertex stage writes, by slot. */
+  readonly varyingTypes: Readonly<Record<string, string>>;
 }
 
 /** The types of what a compiled JS function returns: its value, and the varyings and outputs it writes by slot. */
@@ -2643,7 +2645,7 @@ export function compileJSProgram(
   }
 
   // A reentrant routine declares its variables per call, so nothing is shared to copy out of.
-  return { run, runInPlace: runScratch, draw, compute, storageTypes };
+  return { run, runInPlace: runScratch, draw, compute, storageTypes, varyingTypes: resultTypes.varyings };
 }
 
 /** What a stage compile function takes: the options of a routine, without the stage, which the function names. */

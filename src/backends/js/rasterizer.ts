@@ -153,12 +153,15 @@ export function compileJS(
   });
   const vertexCtx: CpuShaderContext = { attributes: vertexAttributes };
 
-  /** The varying slots the vertex stage writes, and their widths, learnt from its first vertex. */
-  let varyingSlots: string[] | null = null;
-  let varyingWidths: number[] = [];
+  /** The varying slots the vertex stage writes, and their widths, as its program declares them. */
+  const varyingSlots = Object.keys(vertexStage.varyingTypes);
+  const varyingWidths = varyingSlots.map((slot) => componentCountOf(vertexStage.varyingTypes[slot]!));
   /** The varyings of the fragment being shaded: a vector in an array of its own, filled for each fragment. */
+  const fragmentArrays = varyingWidths.map((w) => new Float64Array(w));
   const fragmentVaryings: Record<string, number | Float64Array> = {};
-  let fragmentArrays: Float64Array[] = [];
+  varyingSlots.forEach((slot, k) => {
+    fragmentVaryings[slot] = varyingWidths[k]! > 1 ? fragmentArrays[k]! : 0;
+  });
   const fragCoord = new Float64Array(2);
   const fragmentCtx: CpuShaderContext = { varyings: fragmentVaryings, fragCoord };
   /** One vertex for each the draw shades, made the first time a draw has that many and kept. */
@@ -176,19 +179,6 @@ export function compileJS(
   let target: CpuDrawBuffer = new Float64Array(0);
   let targetWidth = 0;
   let targetHeight = 0;
-
-  /** Learns the varying slots from what the vertex stage wrote, and makes the fragment's arrays for them. */
-  function learnVaryings(varyings: Record<string, unknown> | undefined): void {
-    varyingSlots = varyings ? Object.keys(varyings) : [];
-    varyingWidths = varyingSlots.map((slot) => {
-      const value = varyings![slot];
-      return typeof value === "number" ? 1 : (value as ArrayLike<number>).length;
-    });
-    fragmentArrays = varyingWidths.map((w) => new Float64Array(w));
-    varyingSlots.forEach((slot, k) => {
-      fragmentVaryings[slot] = varyingWidths[k]! > 1 ? fragmentArrays[k]! : 0;
-    });
-  }
 
   /** Rasterizes one triangle, already clipped to the near plane, into `target`. */
   function rasterize(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex): void {
@@ -223,7 +213,7 @@ export function compileJS(
     const depth0 = v0.position[2]! / w0,
       depth1 = v1.position[2]! / w1,
       depth2 = v2.position[2]! / w2;
-    const slots = varyingSlots!;
+    const slots = varyingSlots;
     const depths = depthBuffer!;
 
     for (let y = minY; y <= maxY; y++) {
@@ -313,13 +303,14 @@ export function compileJS(
         throw new Error("[RMSL] A vertex stage never wrote a position, with builtinPosition() or a vec4 result.");
       }
       const varyings = result?.varyings;
-      if (varyingSlots === null) learnVaryings(varyings);
       const vertex = (vertices[i] ??= makeVertex(varyingWidths));
       for (let c = 0; c < 4; c++) vertex.position[c] = position[c]!;
-      for (let k = 0; k < varyingSlots!.length; k++) {
-        const value = varyings![varyingSlots![k]!];
+      for (let k = 0; k < varyingSlots.length; k++) {
+        const value = varyings?.[varyingSlots[k]!];
         const into = vertex.varyings[k]!;
-        if (typeof value === "number") into[0] = value;
+        // A varying this vertex does not write is 0.
+        if (value === undefined) into.fill(0);
+        else if (typeof value === "number") into[0] = value;
         else for (let c = 0; c < into.length; c++) into[c] = (value as ArrayLike<number>)[c]!;
       }
     }

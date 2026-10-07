@@ -411,6 +411,34 @@ function flatRasterizer(fragment?: (color: Node<"vec4">, drop: Node<"float">) =>
 
 const screenAt = (z: number) => [-1, -1, z, 3, -1, z, -1, 3, z];
 
+describe("the varyings a JS rasterizer interpolates", () => {
+  /**
+   * @canon spec-a-js-rasterizer-interpolates-every-varying-the-vertex-stage-writes
+   */
+  it("interpolates a varying the first vertex does not write, as 0 at that vertex", () => {
+    const position = attribute("vec3");
+    const shade = varying("float");
+    const raster = compileJS(
+      () =>
+        Fn(() => {
+          If(position.x.greaterThan(0), () => {
+            shade.assign(float(1));
+          });
+          builtinPosition().assign(vec4(position, 1));
+        })() as any,
+      () => Fn(() => vec4(shade, 0, 0, 1))() as any,
+      { attributeTypes: { [position.name]: "vec3" } },
+    );
+    const ctx = { attributes: { [position.name]: Float64Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0) } };
+    for (let draw = 0; draw < 2; draw++) {
+      const red = Array.from(raster.draw(ctx, { width: 4, height: 4 })).filter((_, i) => i % 4 === 0);
+      // The varying grows from 0 at the left vertices to 1 at the right one.
+      expect(red.every((value) => value >= 0 && value <= 1)).toBe(true);
+      expect(red[3]).toBeGreaterThan(red[0]!);
+    }
+  });
+});
+
 describe("a JS rasterizer's discarded fragment", () => {
   /**
    * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
