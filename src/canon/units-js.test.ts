@@ -737,6 +737,34 @@ describe("what a JS routine allocates per call", () => {
   /**
    * @canon spec-a-compiled-js-function-returns-its-result-in-a-slot
    */
+  it("returns a stage's result in an object it reuses, unless it is reentrant", () => {
+    const shade = varying("float");
+    const u = uniform("float");
+    const source = (reentrant: boolean) =>
+      new Function(
+        compileJSFn(
+          () =>
+            Fn(() => {
+              shade.assign(u);
+              builtinPosition().assign(vec4(0, 0, 0, 1));
+            })(),
+          { name: "main", params: [], stage: "vertex", reentrant },
+        ),
+      )() as (ctx: unknown) => { varyings: Record<string, number> };
+    const shared = source(false);
+    const first = shared({ uniforms: { [u.name]: 1 } });
+    const second = shared({ uniforms: { [u.name]: 2 } });
+    expect(second).toBe(first);
+    expect(first.varyings[shade.name]).toBe(2);
+    const own = source(true);
+    const third = own({ uniforms: { [u.name]: 1 } });
+    expect(own({ uniforms: { [u.name]: 2 } })).not.toBe(third);
+    expect(third.varyings[shade.name]).toBe(1);
+  });
+
+  /**
+   * @canon spec-a-compiled-js-function-returns-its-result-in-a-slot
+   */
   it("copies the vector a routine, a stage and a grid return", () => {
     const routine = compileJSRoutine((a: any) => Fn(() => vec3(a, 1, 2).toVar())(), param);
     const first = routine({ params: { a: 1 } });
