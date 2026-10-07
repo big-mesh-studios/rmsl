@@ -3964,6 +3964,8 @@ export function createWasmInputMarshaller(
   /** Where the heap would end for `ctx`, without writing anything. */
   footprint(ctx: CpuShaderContext, heapStart?: number): number;
   writeBackStorages(ctx: CpuShaderContext): void;
+  /** A view of the memory, made again only when the memory grows and its buffer changes. */
+  viewOfMemory(): DataView;
 } {
   const textureParams = params.filter(
     (p): p is Extract<WasmParam, { kind: "textureMemory" }> => p.kind === "textureMemory",
@@ -4196,7 +4198,7 @@ export function createWasmInputMarshaller(
     }
   }
 
-  return { marshal, footprint, writeBackStorages };
+  return { marshal, footprint, writeBackStorages, viewOfMemory };
 }
 
 /** Heap bytes one element of a storage buffer of `shaderType` takes: f64 per float component, i32 otherwise. */
@@ -4256,12 +4258,11 @@ export function instantiateWasmProgram(
       p.kind === "valueMemory",
   );
 
-  const { marshal: marshalInputs, writeBackStorages } = createWasmInputMarshaller(
-    params,
-    textureHeapBase,
-    memory,
-    float32,
-  );
+  const {
+    marshal: marshalInputs,
+    writeBackStorages,
+    viewOfMemory,
+  } = createWasmInputMarshaller(params, textureHeapBase, memory, float32);
   /** The arguments of the `draw` and `compute` exports: the marshalled ones, then their own. Kept between calls. */
   const drawArgs: number[] = [];
   const computeArgs: number[] = [];
@@ -4275,10 +4276,10 @@ export function instantiateWasmProgram(
    */
   function run(ctx: CpuShaderContext): number | boolean | CpuProgramResult | null {
     const { args } = marshalInputs(ctx);
-    if (discardAddress !== undefined) new DataView(memory.buffer).setInt32(discardAddress, 0, true);
+    if (discardAddress !== undefined) viewOfMemory().setInt32(discardAddress, 0, true);
     const result = callExport(wasmMain, args, args.length) as number;
     writeBackStorages(ctx);
-    const view = new DataView(memory.buffer); // fresh: marshalInputs may have just grown (and detached) the buffer
+    const view = viewOfMemory();
     if (discardAddress !== undefined && view.getInt32(discardAddress, true) !== 0) return null;
 
     // scalar mode: reinterpret the raw i32 — the WASM boundary returns it
