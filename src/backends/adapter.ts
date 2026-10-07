@@ -142,7 +142,8 @@ export function requestedStorageSlots(out: object, slots: Iterable<string>): str
 
 /** The error for a `compute(out)` whose keys name a slot outside `slots`, naming each such key. */
 export function unknownStorageSlots(out: object, slots: Iterable<string>): Error {
-  let known = new Set(slots);
+  // The set requestedStorageSlots has already made is used as it is.
+  let known = slots instanceof Set ? (slots as Set<string>) : new Set(slots);
   let unknown = Object.keys(out).filter((slot) => !known.has(slot));
   return new Error(
     `[RMSL] compute(out) was given ${unknown.map((s) => `"${s}"`).join(", ")}, which the program has no storage slot for. ` +
