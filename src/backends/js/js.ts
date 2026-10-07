@@ -993,7 +993,7 @@ export function jsScalarBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: 
       // Written out in the function: V8 boxes a float returned from a call it does not inline.
       let t = jsNewTemp(ctx, "float");
       body.push(`${t} = Math.min(Math.max((${c!.expr} - ${a.expr}) / (${b.expr} - ${a.expr}), 0), 1);`);
-      expr = `${t} * ${t} * (3 - 2 * ${t})`;
+      expr = `(${t} * ${t} * (3 - 2 * ${t}))`;
       break;
     }
     default:

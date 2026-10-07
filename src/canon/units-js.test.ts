@@ -921,6 +921,17 @@ describe("the element-wise operations of a JS function", () => {
   /**
    * @canon spec-a-js-function-writes-out-what-would-cross-a-call
    */
+  it("keeps a written-out smoothstep whole inside the expression around it", () => {
+    const u = uniform("float");
+    const build = () => Fn(() => float(1).div(smoothstep(0, 1, u)).toVar())() as any;
+    const ctx = { uniforms: { [u.name]: 0.25 } };
+    expect(compileJSRoutine(build, none)(ctx)).toBe(1 / (0.25 * 0.25 * (3 - 2 * 0.25)));
+    expect(compileJSRoutine(build, none)(ctx)).toBe(compileWasmRoutine(build, none)(ctx));
+  });
+
+  /**
+   * @canon spec-a-js-function-writes-out-what-would-cross-a-call
+   */
   it("reads a scalar operand before it writes a component, even one of the slot itself", () => {
     const programs = [
       () =>
