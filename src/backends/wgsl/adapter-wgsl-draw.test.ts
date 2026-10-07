@@ -85,6 +85,25 @@ globalThis.__rmslAdapterOwnBuffersRun = async () => {
 };
 `;
 
+const ENTRY_INTEGER_UNIFORM = `
+${QUAD}
+globalThis.__rmslAdapterIntegerUniformRun = async () => {
+  const count = uniform("int");
+  const big = uniform("uint");
+  const adapter = createWgsl({
+    vertex: quad(-1, -1, 1, 1),
+    fragment: Fn(() => vec4(count.toFloat().div(10), big.equal(uint(3000000000)).select(float(1), float(0)), 0, 1))(),
+  });
+  const target = canvas();
+  await adapter.attach(target);
+  adapter.setUniform(count, 5);
+  adapter.setUniform(big, 3000000000);
+  adapter.draw({ count: 6 });
+  await adapter.device().queue.onSubmittedWorkDone();
+  return readPixel(target, 2, 2);
+};
+`;
+
 function run(source: string, entryPoint: string) {
   return runInWebGpuPage(source, entryPoint, new URL(".", import.meta.url).pathname);
 }
@@ -125,6 +144,15 @@ describe.skipIf(!WEBGPU)("createWgsl drawing storage buffers on a real adapter",
     const pixel = await run(ENTRY_OWN_BUFFERS, "__rmslAdapterOwnBuffersRun");
     expect(pixel.g).toBeGreaterThan(56);
     expect(pixel.g).toBeLessThan(72);
+  }, 60_000);
+  /**
+   * @canon spec-an-integer-reaches-the-host-as-the-integer-it-is
+   */
+  it("passes int and uint uniforms of a render stage as the integers they are", async () => {
+    const pixel = await run(ENTRY_INTEGER_UNIFORM, "__rmslAdapterIntegerUniformRun");
+    expect(pixel.r).toBeGreaterThan(120);
+    expect(pixel.r).toBeLessThan(136);
+    expect(pixel.g).toBe(255);
   }, 60_000);
 });
 

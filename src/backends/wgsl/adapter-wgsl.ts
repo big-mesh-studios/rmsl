@@ -206,6 +206,11 @@ export function elementView(type: string, views: UniformScratch): Float32Array |
 /** Where one uniform lives in its buffer: as compiled, whether from a layout member or a reflected resource. */
 export type UniformPlacement = { offset: number; size: number; type: string; length?: number };
 
+/** A uniform resource of a compiled compute program as a placement, which names its type in the WGSL spelling. */
+export function resourcePlacement(resource: Extract<WgslResource, { kind: "uniform" }>): UniformPlacement {
+  return { ...resource, type: typeToWGSL[resource.shaderType] ?? resource.shaderType };
+}
+
 /** Number of 32-bit slots between a WGSL matrix's columns, and its column and row counts. */
 function matrixShape(type: string): { columns: number; rows: number; columnStride: number } | undefined {
   let match = /^mat(\d)x(\d)<f32>$/.exec(type);
@@ -743,7 +748,7 @@ export function createWgslCompute(
 
     let computeRes = computeUniformResources().find((r) => r.name === slot);
     if (computeRes && computeUniformScratch && computeUniformBuffer) {
-      writeUniformMember(computeUniformScratch, { ...computeRes, type: computeRes.shaderType }, value);
+      writeUniformMember(computeUniformScratch, resourcePlacement(computeRes), value);
       device.queue.writeBuffer(computeUniformBuffer, 0, computeUniformScratch.f32 as BufferSource);
       return;
     }
