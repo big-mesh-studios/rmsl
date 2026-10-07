@@ -12,6 +12,7 @@ import {
   StorageInstancedBufferAttribute,
   int,
   Loop,
+  mat3,
   mix,
   select,
   smoothstep,
@@ -549,5 +550,44 @@ describe("folding a float operation on literals", () => {
   it("still gives Infinity for the same operation on a run-time value", () => {
     const build = (a: any) => Fn(() => a.div(0).toVar())();
     expect(compileJSRoutine(build, param)({ params: { a: 1 } })).toBe(Infinity);
+  });
+});
+
+describe("operands of different widths", () => {
+  /**
+   * @canon spec-operands-of-different-widths-are-refused
+   */
+  it("are refused by every operation family, with the same error", () => {
+    const narrow = vec2(1, 2) as any;
+    const wide = vec3(1, 2, 3) as any;
+    const families: [string, () => unknown][] = [
+      ["add", () => narrow.add(wide)],
+      ["mul", () => narrow.mul(wide)],
+      ["min", () => narrow.min(wide)],
+      ["dot", () => narrow.dot(wide)],
+      ["distance", () => narrow.distance(wide)],
+      ["mix", () => narrow.mix(wide, 0.5)],
+      ["lessThan", () => narrow.lessThan(wide)],
+    ];
+    for (const [name, build] of families) expect(build, name).toThrow(/one width/);
+  });
+
+  /**
+   * @canon spec-operands-of-different-widths-are-refused
+   */
+  it("still broadcast a scalar beside a vector, and multiply a matrix by a vector", () => {
+    expect(() => (vec3(1, 2, 3) as any).add(float(1))).not.toThrow();
+    expect(() => (mat3(1) as any).mul(vec3(1, 2, 3))).not.toThrow();
+  });
+});
+
+describe("a scalar beside a vector in arithmetic", () => {
+  /**
+   * @canon spec-an-arithmetic-result-has-the-width-of-the-wider-operand
+   */
+  it("gives the vector's width on either side", () => {
+    expect((float(2) as any).mul(vec3(1, 2, 3))._t).toBe("vec3");
+    expect((vec3(1, 2, 3) as any).mul(float(2))._t).toBe("vec3");
+    expect((float(2) as any).lessThan(vec3(1, 2, 3))._t).toBe("bvec3");
   });
 });

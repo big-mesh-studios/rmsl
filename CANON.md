@@ -236,7 +236,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec break-or-continue-outside-a-loop-is-refused`](#spec-break-or-continue-outside-a-loop-is-refused) — `Break` or `Continue` outside a loop is refused.
     - [`@spec cross-of-a-vector-that-is-not-a-vec3-is-refused`](#spec-cross-of-a-vector-that-is-not-a-vec3-is-refused) — `cross` of vectors that are not `vec3` is refused.
     - [`@spec operands-of-different-widths-are-refused`](#spec-operands-of-different-widths-are-refused) — An operation on two vectors of different widths is refused, by the type checker and on every target. A scalar beside a vector broadcasts instead.
-      - [`@bug every-target-compiles-operands-of-different-widths`](#bug-every-target-compiles-operands-of-different-widths) — Every target compiles an operation on vectors of different widths. GLSL and WGSL emit code no driver accepts, and JS and WASM compute with a missing component. The types accept `add` and `mul` of different widths too.
+    - [`@spec an-arithmetic-result-has-the-width-of-the-wider-operand`](#spec-an-arithmetic-result-has-the-width-of-the-wider-operand) — An arithmetic operation on a scalar and a vector gives a vector of the vector's width, whichever side the scalar is on. The types say so too.
     - [`@spec a-whole-storage-buffer-cannot-be-read`](#spec-a-whole-storage-buffer-cannot-be-read) — A storage node read as a whole, rather than through `element(i)`, is refused.
       - [`@bug js-and-wgsl-read-a-whole-storage-buffer`](#bug-js-and-wgsl-read-a-whole-storage-buffer) — JS and WGSL compile a storage node read as a whole. JS adds a number to an array, and WGSL emits a shader no driver accepts. Only WASM refuses it.
     - [`@spec a-scalar-argument-beside-a-vector-is-widened-to-it`](#spec-a-scalar-argument-beside-a-vector-is-widened-to-it) — A scalar argument beside a vector in `step`, `smoothstep`, `clamp`, `min`, `max`, `pow` or `mod` is widened to that vector before any target compiles it.
@@ -286,7 +286,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-comparison-compares-component-wise`](#spec-a-comparison-compares-component-wise) — A comparison of scalars gives a `bool`. A comparison of vectors gives a boolean vector, one component for each pair.
     - [`@spec a-scalar-comparison-gives-a-bool`](#spec-a-scalar-comparison-gives-a-bool) — A comparison of two scalars compiles to the comparison operator of each target, and gives a `bool`.
     - [`@spec a-vector-comparison-gives-a-boolean-vector`](#spec-a-vector-comparison-gives-a-boolean-vector) — A comparison of two vectors, float or integer, gives a boolean vector of their width.
-    - [`@spec a-scalar-compared-against-a-vector-is-broadcast`](#spec-a-scalar-compared-against-a-vector-is-broadcast) — A vector compared against a scalar compares each component with that scalar.
+    - [`@spec a-scalar-compared-against-a-vector-is-broadcast`](#spec-a-scalar-compared-against-a-vector-is-broadcast) — A vector and a scalar compared, in either order, compare each component with that scalar. The result is a boolean vector of the vector's width.
     - [`@spec a-boolean-vector-reduces-with-all-or-any`](#spec-a-boolean-vector-reduces-with-all-or-any) — `all` and `any` reduce a boolean vector to a `bool`. A boolean vector has no other way to a `bool`.
     - [`@spec not-negates-a-boolean-vector-component-wise`](#spec-not-negates-a-boolean-vector-component-wise) — `not` of a boolean vector negates each component.
     - [`@spec and-or-and-not-combine-bools`](#spec-and-or-and-not-combine-bools) — `and`, `or` and `not` of `bool` values compile to the logical operators of each target.
@@ -2034,11 +2034,13 @@ This follows because a driver would reject the shader, and a CPU target would co
 
 > An operation on two vectors of different widths is refused, by the type checker and on every target. A scalar beside a vector broadcasts instead.
 
-##### @bug every-target-compiles-operands-of-different-widths
+#### @spec an-arithmetic-result-has-the-width-of-the-wider-operand
 
-> Every target compiles an operation on vectors of different widths. GLSL and WGSL emit code no driver accepts, and JS and WASM compute with a missing component. The types accept `add` and `mul` of different widths too.
+> An arithmetic operation on a scalar and a vector gives a vector of the vector's width, whichever side the scalar is on. The types say so too.
 
-Issue: #69
+Derives from: [`spec-operands-of-different-widths-are-refused`](#spec-operands-of-different-widths-are-refused)
+
+This follows because a scalar beside a vector broadcasts, and the result has the width the scalar was widened to.
 
 #### @spec a-whole-storage-buffer-cannot-be-read
 
@@ -2313,7 +2315,7 @@ This follows because TSL compares vectors component by component, and a single `
 
 #### @spec a-scalar-compared-against-a-vector-is-broadcast
 
-> A vector compared against a scalar compares each component with that scalar.
+> A vector and a scalar compared, in either order, compare each component with that scalar. The result is a boolean vector of the vector's width.
 
 #### @spec a-boolean-vector-reduces-with-all-or-any
 

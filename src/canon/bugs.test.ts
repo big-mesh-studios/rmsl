@@ -141,13 +141,6 @@ describe("known bugs, each failing until its fix", () => {
   });
 
   /**
-   * @canon bug-every-target-compiles-operands-of-different-widths
-   */
-  it.fails("refuses vectors of different widths on JS", () => {
-    expect(() => compileJSRoutine(() => Fn(() => (vec2(1, 2).toVar() as any).add(vec3(1, 2, 3)).toVar())(), none)).toThrow();
-  });
-
-  /**
    * @canon bug-js-reads-an-unset-uniform-as-nan
    */
   it.fails("reads a uniform the host never set as zero on JS", () => {

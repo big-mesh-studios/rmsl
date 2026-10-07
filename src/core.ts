@@ -338,19 +338,19 @@ interface VarOps {
  * saying what it supports.
  */
 export interface NodeOps {
-  float: ArithOps<"float"> & FloatMathOps<"float"> & ComparisonOps<"bool", FloatLike>;
-  vec2: ArithOps<"vec2"> &
+  float: FloatArithOps & FloatMathOps<"float"> & FloatComparisonOps;
+  vec2: ArithOps<"vec2", Vec2Like | FloatLike> &
     FloatMathOps<"vec2"> &
     ComparisonOps<"bvec2", Vec2Like | FloatLike> &
     VecCommonOps<"vec2"> &
     Vec2Swizzles;
-  vec3: ArithOps<"vec3"> &
+  vec3: ArithOps<"vec3", Vec3Like | FloatLike> &
     FloatMathOps<"vec3"> &
     ComparisonOps<"bvec3", Vec3Like | FloatLike> &
     VecCommonOps<"vec3"> &
     Vec3Ops &
     Vec3Swizzles;
-  vec4: ArithOps<"vec4"> &
+  vec4: ArithOps<"vec4", Vec4Like | FloatLike> &
     FloatMathOps<"vec4"> &
     ComparisonOps<"bvec4", Vec4Like | FloatLike> &
     VecCommonOps<"vec4"> &
@@ -391,12 +391,61 @@ export interface NodeOps {
 export type Node<A extends ShaderType> = BaseNode<A> & NodeOps[A] & NodeMethods<A>;
 
 // === Operation interfaces (shared across Node types) ===
-export interface ArithOps<A extends ShaderType> {
-  add(other: FloatLike | Vec2Like | Vec3Like | Vec4Like): Node<A>;
-  sub(other: FloatLike | Vec2Like | Vec3Like | Vec4Like): Node<A>;
-  mul(other: FloatLike | Vec2Like | Vec3Like | Vec4Like): Node<A>;
-  div(other: FloatLike | Vec2Like | Vec3Like | Vec4Like): Node<A>;
+export interface ArithOps<A extends ShaderType, Operand> {
+  add(other: Operand): Node<A>;
+  sub(other: Operand): Node<A>;
+  mul(other: Operand): Node<A>;
+  div(other: Operand): Node<A>;
   negate(): Node<A>;
+}
+
+/** A float's arithmetic, which takes the width of a vector operand: `float.mul(vec4)` is a `vec4`. */
+export interface FloatArithOps {
+  add(other: FloatLike): Node<"float">;
+  add(other: Vec2Like): Node<"vec2">;
+  add(other: Vec3Like): Node<"vec3">;
+  add(other: Vec4Like): Node<"vec4">;
+  sub(other: FloatLike): Node<"float">;
+  sub(other: Vec2Like): Node<"vec2">;
+  sub(other: Vec3Like): Node<"vec3">;
+  sub(other: Vec4Like): Node<"vec4">;
+  mul(other: FloatLike): Node<"float">;
+  mul(other: Vec2Like): Node<"vec2">;
+  mul(other: Vec3Like): Node<"vec3">;
+  mul(other: Vec4Like): Node<"vec4">;
+  div(other: FloatLike): Node<"float">;
+  div(other: Vec2Like): Node<"vec2">;
+  div(other: Vec3Like): Node<"vec3">;
+  div(other: Vec4Like): Node<"vec4">;
+  negate(): Node<"float">;
+}
+
+/** A float's comparisons, which take the width of a vector operand: `float.lessThan(vec3)` is a `bvec3`. */
+export interface FloatComparisonOps {
+  lessThan(other: FloatLike): Node<"bool">;
+  lessThan(other: Vec2Like): Node<"bvec2">;
+  lessThan(other: Vec3Like): Node<"bvec3">;
+  lessThan(other: Vec4Like): Node<"bvec4">;
+  greaterThan(other: FloatLike): Node<"bool">;
+  greaterThan(other: Vec2Like): Node<"bvec2">;
+  greaterThan(other: Vec3Like): Node<"bvec3">;
+  greaterThan(other: Vec4Like): Node<"bvec4">;
+  lessThanEqual(other: FloatLike): Node<"bool">;
+  lessThanEqual(other: Vec2Like): Node<"bvec2">;
+  lessThanEqual(other: Vec3Like): Node<"bvec3">;
+  lessThanEqual(other: Vec4Like): Node<"bvec4">;
+  greaterThanEqual(other: FloatLike): Node<"bool">;
+  greaterThanEqual(other: Vec2Like): Node<"bvec2">;
+  greaterThanEqual(other: Vec3Like): Node<"bvec3">;
+  greaterThanEqual(other: Vec4Like): Node<"bvec4">;
+  equal(other: FloatLike): Node<"bool">;
+  equal(other: Vec2Like): Node<"bvec2">;
+  equal(other: Vec3Like): Node<"bvec3">;
+  equal(other: Vec4Like): Node<"bvec4">;
+  notEqual(other: FloatLike): Node<"bool">;
+  notEqual(other: Vec2Like): Node<"bvec2">;
+  notEqual(other: Vec3Like): Node<"bvec3">;
+  notEqual(other: Vec4Like): Node<"bvec4">;
 }
 
 export interface FloatMathOps<A extends ShaderType> {
@@ -1569,11 +1618,21 @@ function assertSameKind(type: string, params: BaseNode<ShaderType>[]): void {
   }
 }
 
+/** Refuse an operation on vectors of different widths. A scalar beside a vector broadcasts, and a matrix has no width here. */
+function assertSameWidth(type: string, params: BaseNode<ShaderType>[]): void {
+  let widths = new Set(params.map((p) => TYPE_WIDTH[(p as any)?._t] ?? 1).filter((w) => w > 1));
+  if (widths.size > 1) {
+    let types = params.map((p) => (p as any)?._t).join(" and ");
+    throw new Error(`[RMSL] ${type}() takes vectors of one width, not ${types}. Swizzle one of them to the width of the other.`);
+  }
+}
+
 export function op(type: string, ...args: any[]): Node<ShaderType> {
   let first = wrapValue(args[0]) as BaseNode<ShaderType>;
   let firstT = (first as any)?._t || "float";
   let params = [first, ...args.slice(1).map((a) => typedOperand(a, firstT))];
   if (SAME_KIND_OPS.has(type)) assertSameKind(type, params);
+  assertSameWidth(type, params);
   // The result follows the *widest* operand, so a scalar broadcast beside a
   // vector keeps the vector type (`1 - vec3` is still vec3).
   let valueIndex = VALUE_OPERAND[type] ?? 0;
@@ -1623,6 +1682,7 @@ export function comp(type: string, a: any, b: any): Node<ShaderType> {
   let first = wrapValue(a) as BaseNode<ShaderType>;
   let params = [first, typedOperand(b, (first as any)?._t || "float")];
   assertSameKind(type, params);
+  assertSameWidth(type, params);
   let widths = params.map((p) => TYPE_WIDTH[(p as any)?._t] ?? 1);
   let width = Math.max(widths[0], widths[1]);
 

@@ -12,6 +12,10 @@ describe("refusals the types make", () => {
     vec2(1, 2).dot(vec3(1, 2, 3));
     // @ts-expect-error nor a minimum
     vec2(1, 2).min(vec3(1, 2, 3));
+    // @ts-expect-error nor a sum
+    vec2(1, 2).add(vec3(1, 2, 3));
+    // @ts-expect-error nor a product
+    vec3(1, 2, 3).mul(vec2(1, 2));
   });
 });
 

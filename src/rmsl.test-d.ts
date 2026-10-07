@@ -67,16 +67,15 @@ describe("comparison result types", () => {
   });
 
   /**
-   * The reverse has no single answer. The compiler widens the scalar and
-   * produces a boolean vector, so a signature promising `bool` would be lying.
+   * The compiler widens the scalar, so the result is a boolean vector of the
+   * vector's width, whichever side the scalar is on.
    *
    * @canon spec-a-scalar-compared-against-a-vector-is-broadcast
    */
-  it("rejects a scalar compared against a vector", () => {
-    // @ts-expect-error a float has no single comparison against a vec3
-    float(1).lessThan(vec3(1, 2, 3));
-    // @ts-expect-error a float has no single comparison against a vec4
-    uniform("float").greaterThanEqual(vec4(1, 2, 3, 4));
+  it("allows a scalar compared against a vector, with a boolean vector result", () => {
+    expectTypeOf(float(1).lessThan(vec3(1, 2, 3))).toEqualTypeOf<Node<"bvec3">>();
+    expectTypeOf(uniform("float").greaterThanEqual(vec4(1, 2, 3, 4))).toEqualTypeOf<Node<"bvec4">>();
+    expectTypeOf(float(1).equal(2)).toEqualTypeOf<Node<"bool">>();
   });
 });
 
@@ -677,5 +676,16 @@ describe("what can be assigned to", () => {
     expectTypeOf(instancedArray(4, "vec4").element(0)).toEqualTypeOf<Var<"vec4">>();
     expectTypeOf(instancedArray(4, "vec4").element(int(0))).toEqualTypeOf<Var<"vec4">>();
     expectTypeOf(instancedArray(4, "mat3").element(0)).toEqualTypeOf<Var<"mat3">>();
+  });
+});
+
+describe("the width of a float's arithmetic", () => {
+  /**
+   * @canon spec-an-arithmetic-result-has-the-width-of-the-wider-operand
+   */
+  it("gives a float beside a vector the vector's width", () => {
+    expectTypeOf(float(2).mul(vec4(1, 1, 1, 1))).toEqualTypeOf<Node<"vec4">>();
+    expectTypeOf(uniform("float").add(vec2(1, 2))).toEqualTypeOf<Node<"vec2">>();
+    expectTypeOf(float(2).div(3)).toEqualTypeOf<Node<"float">>();
   });
 });
