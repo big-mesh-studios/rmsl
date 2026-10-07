@@ -40,44 +40,6 @@ describe("known bugs of the core, each failing until its fix", () => {
   });
 
   /**
-   * A bare number given as the first operand of a free function beside an
-   * integer stays a float, so `sub(7, i).div(2)` divides as floats on JS and
-   * fails to validate on WASM.
-   *
-   * @canon bug-a-bare-number-before-an-integer-stays-a-float
-   */
-  it.fails("makes a bare number given before an integer an integer", () => {
-    const build = (a: any) => Fn(() => sub(7, a.toInt()).div(2).toVar())();
-    expect(compileJSRoutine(build, param)({ params: { a: 0 } })).toBe(3);
-    expect(compileWasmRoutine(build, param)({ params: { a: 0 } })).toBe(3);
-  });
-
-  /**
-   * `equal(1, i)` compares a float literal with an integer, which the WASM
-   * target refuses to validate.
-   *
-   * @canon bug-a-bare-number-before-an-integer-stays-a-float
-   */
-  it.fails("compares a bare number with an integer on WASM", () => {
-    const build = (a: any) => Fn(() => equal(1, a.toInt()).select(float(1), float(0)).toVar())();
-    expect(compileWasmRoutine(build, param)({ params: { a: 1 } })).toBe(1);
-  });
-
-  /**
-   * `select` types a bare-number branch as a float beside an integer branch,
-   * so the node takes the type of whichever branch comes first: JS divides it
-   * as a float, and WASM fails to validate it.
-   *
-   * @canon bug-select-types-a-bare-number-branch-as-a-float
-   */
-  it.fails("gives select with an integer branch and a bare-number branch the integer type", () => {
-    const first = (a: any) => Fn(() => a.greaterThan(0).select(a.toInt(), 0).toVar())();
-    const second = (a: any) => Fn(() => a.greaterThan(0).select(0, a.toInt()).div(2).toVar())();
-    expect(compileJSRoutine(second, param)({ params: { a: -3 } })).toBe(-1);
-    expect(compileWasmRoutine(first, param)({ params: { a: 1.5 } })).toBe(1);
-  });
-
-  /**
    * `int` and `uint` given a number outside their range wrap it modulo 2^32,
    * so `int(3e9)` is -1294967296 and `uint(5e9)` is 705032704.
    *

@@ -212,11 +212,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec only-a-square-matrix-is-inverted`](#spec-only-a-square-matrix-is-inverted) — `inverse` of a matrix that is not square is refused on every target.
   - [`@spec a-bare-number-takes-the-type-of-the-operand-beside-it`](#spec-a-bare-number-takes-the-type-of-the-operand-beside-it) — A JavaScript number given as an operand takes the type of the operand it meets: an integer type beside an integer, `float` beside a float. A number that type cannot hold is refused.
     - [`@spec a-bare-number-beside-an-integer-is-an-integer`](#spec-a-bare-number-beside-an-integer-is-an-integer) — A number beside an `int`, `uint` or integer vector compiles as a literal of that integer type.
-      - [`@bug a-bare-number-before-an-integer-stays-a-float`](#bug-a-bare-number-before-an-integer-stays-a-float) — A bare number given as the first operand beside an integer stays a float. So `sub(7, i).div(2)` divides as floats on JS, and on WASM `equal(1, i)` compiles to a module WebAssembly rejects.
     - [`@spec a-bare-number-beside-a-float-is-a-float`](#spec-a-bare-number-beside-a-float-is-a-float) — A number beside a `float` or float vector compiles as a float literal, with no conversion.
     - [`@spec a-fraction-beside-an-integer-is-refused`](#spec-a-fraction-beside-an-integer-is-refused) — A number that is not whole, beside an integer operand, is refused.
     - [`@spec a-negative-number-for-an-unsigned-type-is-refused`](#spec-a-negative-number-for-an-unsigned-type-is-refused) — A negative number beside an unsigned operand, or given to `uint` or to an unsigned vector constructor, is refused.
-    - [`@bug assign-leaves-a-bare-number-untyped`](#bug-assign-leaves-a-bare-number-untyped) — `assign` passes a bare number on as it is. WASM throws on it, GLSL and WGSL write an integer literal into a float, and only JS runs it.
+    - [`@spec assign-gives-a-bare-number-the-type-of-its-target`](#spec-assign-gives-a-bare-number-the-type-of-its-target) — A bare number given to `assign` takes the type of the node it is assigned to.
   - [`@spec a-statement-outside-an-fn-is-refused`](#spec-a-statement-outside-an-fn-is-refused) — `assign`, `toVar` and control flow called outside the body of an `Fn` are refused.
   - [`@spec an-output-struct-is-refused-outside-a-fragment-stage`](#spec-an-output-struct-is-refused-outside-a-fragment-stage) — An `outputStruct` in a vertex stage, in a compute stage, or in a program compiled with no stage is refused on every target that compiles one. It cannot be an operand or a statement either.
   - [`@spec a-stage-reads-and-writes-only-what-it-has`](#spec-a-stage-reads-and-writes-only-what-it-has) — A vertex stage produces a position, and a built-in that one stage has is refused in the other.
@@ -276,7 +275,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-matrix-times-a-shorter-vector-promotes-it`](#spec-a-matrix-times-a-shorter-vector-promotes-it) — A `mat4` times a `vec3`, or a `mat3` times a `vec2`, gives the vector a last component of 1. It keeps the leading components of the product, like TSL.
     - [`@spec a-compound-assignment-writes-the-result-back`](#spec-a-compound-assignment-writes-the-result-back) — `addAssign`, `subAssign`, `mulAssign`, `divAssign` and `modAssign` write the result of their operation back to the variable.
     - [`@spec select-picks-one-of-two-values`](#spec-select-picks-one-of-two-values) — `select(condition, a, b)` gives `a` where `condition` holds and `b` where it does not, with the type of its branches. A literal condition folds to its branch.
-      - [`@bug select-types-a-bare-number-branch-as-a-float`](#bug-select-types-a-bare-number-branch-as-a-float) — `select` types a bare-number branch as a float beside an integer branch, so the node takes the type of the branch that comes first. JS then divides it as a float, and WASM emits a module WebAssembly rejects.
     - [`@spec the-screen-accessors-follow-tsl`](#spec-the-screen-accessors-follow-tsl) — `fragCoord()` gives the coordinate of the fragment, and `screenUV()` and `uv()` give it divided by the size of the screen. `screenSize()` gives one shared uniform, and `time()` a float uniform. Each does what TSL's accessor of the same name does.
       - [`@bug screen-size-makes-a-new-uniform-on-every-call`](#bug-screen-size-makes-a-new-uniform-on-every-call) — `screenSize()` declares a new uniform each time it is called, so a program that calls `uv()` twice reads two size uniforms.
     - [`@spec the-index-accessors-follow-tsl`](#spec-the-index-accessors-follow-tsl) — `vertexIndex()` and `instanceIndex()` give the vertex and the instance that the GPU draws, as TSL's accessors of the same names do. The CPU targets do not compile them yet: issue #47.
@@ -1906,12 +1904,6 @@ This follows because a number has no [shader type](#term-shader-type) of its own
 
 > A number beside an `int`, `uint` or integer vector compiles as a literal of that integer type.
 
-##### @bug a-bare-number-before-an-integer-stays-a-float
-
-> A bare number given as the first operand beside an integer stays a float. So `sub(7, i).div(2)` divides as floats on JS, and on WASM `equal(1, i)` compiles to a module WebAssembly rejects.
-
-Issue: #76
-
 #### @spec a-bare-number-beside-a-float-is-a-float
 
 > A number beside a `float` or float vector compiles as a float literal, with no conversion.
@@ -1924,11 +1916,11 @@ Issue: #76
 
 > A negative number beside an unsigned operand, or given to `uint` or to an unsigned vector constructor, is refused.
 
-#### @bug assign-leaves-a-bare-number-untyped
+#### @spec assign-gives-a-bare-number-the-type-of-its-target
 
-> `assign` passes a bare number on as it is. WASM throws on it, GLSL and WGSL write an integer literal into a float, and only JS runs it.
+> A bare number given to `assign` takes the type of the node it is assigned to.
 
-Issue: #127
+This follows because the target of an assignment is the operand beside the number.
 
 ### @spec a-statement-outside-an-fn-is-refused
 
@@ -2242,12 +2234,6 @@ Issue: #130
 #### @spec select-picks-one-of-two-values
 
 > `select(condition, a, b)` gives `a` where `condition` holds and `b` where it does not, with the type of its branches. A literal condition folds to its branch.
-
-##### @bug select-types-a-bare-number-branch-as-a-float
-
-> `select` types a bare-number branch as a float beside an integer branch, so the node takes the type of the branch that comes first. JS then divides it as a float, and WASM emits a module WebAssembly rejects.
-
-Issue: #76
 
 #### @spec the-screen-accessors-follow-tsl
 

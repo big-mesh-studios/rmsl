@@ -1175,7 +1175,7 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
         new NodeImpl({
           _t: "void",
           type: "assign",
-          params: [this, value as BaseNode<ShaderType>],
+          params: [this, typedOperand(value, this._t) as BaseNode<ShaderType>],
         }),
       );
     });
@@ -1284,8 +1284,8 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
     return node({ _t: target, type: "construct", params: [this as BaseNode<ShaderType>] });
   }
   select(ifTrue: any, ifFalse: any): any {
-    let a = wrapValue(ifTrue) as BaseNode<ShaderType>;
-    let b = wrapValue(ifFalse) as BaseNode<ShaderType>;
+    let a = toNodeBeside(ifTrue, ifFalse) as BaseNode<ShaderType>;
+    let b = typedOperand(ifFalse, (a as any)?._t ?? "float");
     // The result type follows the branches, not the condition. `vec3(0).equal(1).select(v, w)`
     // is a vec3 no matter that the selector is a bvec3.
     let t = (a as any)?._t || (b as any)?._t || this._t;
@@ -2117,83 +2117,92 @@ export function toNode(v: MathLike): any {
   return wrapValue(v);
 }
 
+/**
+ * `toNode` for the first operand of a free function. A number beside an
+ * integer node takes that node's type, as a number after it does.
+ */
+function toNodeBeside(a: MathLike, b: unknown): any {
+  let beside = (b as { _t?: string } | null | undefined)?._t;
+  return typeof a === "number" && beside !== undefined ? typedOperand(a, beside) : wrapValue(a);
+}
+
 export function add(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNode(a).add(b);
+  let r = toNodeBeside(a, b).add(b);
   for (const x of rest) r = r.add(x);
   return r;
 }
 export function sub(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNode(a).sub(b);
+  let r = toNodeBeside(a, b).sub(b);
   for (const x of rest) r = r.sub(x);
   return r;
 }
 export function mul(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNode(a).mul(b);
+  let r = toNodeBeside(a, b).mul(b);
   for (const x of rest) r = r.mul(x);
   return r;
 }
 export function div(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNode(a).div(b);
+  let r = toNodeBeside(a, b).div(b);
   for (const x of rest) r = r.div(x);
   return r;
 }
 export function mod(a: MathLike, b: MathLike): any {
-  return toNode(a).mod(b);
+  return toNodeBeside(a, b).mod(b);
 }
 
 export function equal(a: MathLike, b: MathLike): any {
-  return toNode(a).equal(b);
+  return toNodeBeside(a, b).equal(b);
 }
 export function notEqual(a: MathLike, b: MathLike): any {
-  return toNode(a).notEqual(b);
+  return toNodeBeside(a, b).notEqual(b);
 }
 export function lessThan(a: MathLike, b: MathLike): any {
-  return toNode(a).lessThan(b);
+  return toNodeBeside(a, b).lessThan(b);
 }
 export function greaterThan(a: MathLike, b: MathLike): any {
-  return toNode(a).greaterThan(b);
+  return toNodeBeside(a, b).greaterThan(b);
 }
 export function lessThanEqual(a: MathLike, b: MathLike): any {
-  return toNode(a).lessThanEqual(b);
+  return toNodeBeside(a, b).lessThanEqual(b);
 }
 export function greaterThanEqual(a: MathLike, b: MathLike): any {
-  return toNode(a).greaterThanEqual(b);
+  return toNodeBeside(a, b).greaterThanEqual(b);
 }
 
 export function and(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNode(a).and(b);
+  let r = toNodeBeside(a, b).and(b);
   for (const x of rest) r = r.and(x);
   return r;
 }
 export function or(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNode(a).or(b);
+  let r = toNodeBeside(a, b).or(b);
   for (const x of rest) r = r.or(x);
   return r;
 }
 export function xor(a: MathLike, b: MathLike): any {
-  return toNode(a).xor(b);
+  return toNodeBeside(a, b).xor(b);
 }
 export function not(a: MathLike): any {
   return toNode(a).not();
 }
 
 export function bitAnd(a: MathLike, b: MathLike): any {
-  return toNode(a).bitAnd(b);
+  return toNodeBeside(a, b).bitAnd(b);
 }
 export function bitOr(a: MathLike, b: MathLike): any {
-  return toNode(a).bitOr(b);
+  return toNodeBeside(a, b).bitOr(b);
 }
 export function bitXor(a: MathLike, b: MathLike): any {
-  return toNode(a).bitXor(b);
+  return toNodeBeside(a, b).bitXor(b);
 }
 export function bitNot(a: MathLike): any {
   return toNode(a).bitNot();
 }
 export function shiftLeft(a: MathLike, b: MathLike): any {
-  return toNode(a).shiftLeft(b);
+  return toNodeBeside(a, b).shiftLeft(b);
 }
 export function shiftRight(a: MathLike, b: MathLike): any {
-  return toNode(a).shiftRight(b);
+  return toNodeBeside(a, b).shiftRight(b);
 }
 
 export function abs(a: MathLike): any {
@@ -2328,12 +2337,12 @@ export function pow4(x: MathLike): any {
   return toNode(x).pow4();
 }
 export function min(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNode(a).min(b);
+  let r = toNodeBeside(a, b).min(b);
   for (const x of rest) r = r.min(x);
   return r;
 }
 export function max(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNode(a).max(b);
+  let r = toNodeBeside(a, b).max(b);
   for (const x of rest) r = r.max(x);
   return r;
 }
@@ -2350,22 +2359,22 @@ export function faceForward(n: MathLike, incident: MathLike, reference: MathLike
   return toNode(n).faceForward(incident, reference);
 }
 export function difference(a: MathLike, b: MathLike): any {
-  return toNode(a).difference(b);
+  return toNodeBeside(a, b).difference(b);
 }
 export function dot(a: MathLike, b: MathLike): Node<"float"> {
-  return toNode(a).dot(b);
+  return toNodeBeside(a, b).dot(b);
 }
 export function cross(a: MathLike, b: MathLike): any {
-  return toNode(a).cross(b);
+  return toNodeBeside(a, b).cross(b);
 }
 export function distance(a: MathLike, b: MathLike): Node<"float"> {
-  return toNode(a).distance(b);
+  return toNodeBeside(a, b).distance(b);
 }
 export function length(a: MathLike): Node<"float"> {
   return toNode(a).length();
 }
 export function mix(a: MathLike, b: MathLike, t: MathLike): any {
-  return toNode(a).mix(b, t);
+  return toNodeBeside(a, b).mix(b, t);
 }
 export function clamp(x: MathLike, low: MathLike = 0, high: MathLike = 1): any {
   return toNode(x).clamp(low, high);

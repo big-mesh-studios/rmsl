@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import * as rmsl from "../rmsl";
 import {
   attribute,
+  equal,
   float,
   Fn,
   If,
@@ -14,9 +15,11 @@ import {
   mix,
   select,
   smoothstep,
+  sub,
   textureSize,
   uniform,
   uniformArray,
+  vec2,
   vec3,
   vec4,
   type Node,
@@ -39,6 +42,7 @@ afterAll(async () => {
 }, 120_000);
 
 const none = { name: "main", params: [] };
+const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
 
 /** The source of `build` compiled as a fragment stage on GLSL, WGSL and JS. */
 function sources(build: () => Node<"vec4">) {
@@ -460,5 +464,50 @@ describe("a storage array made from a count", () => {
     expect(new StorageInstancedBufferAttribute(3, 1, Int32Array).array).toEqual(new Int32Array(3));
     const given = new Uint32Array([1, 2]);
     expect(new StorageBufferAttribute(given, 1).array).toBe(given);
+  });
+});
+
+describe("a bare number takes the type beside it", () => {
+  /**
+   * @canon spec-a-bare-number-beside-an-integer-is-an-integer
+   */
+  it("makes a bare number given before an integer an integer", () => {
+    const build = (a: any) => Fn(() => sub(7, a.toInt()).div(2).toVar())();
+    expect(compileJSRoutine(build, param)({ params: { a: 0 } })).toBe(3);
+    expect(compileWasmRoutine(build, param)({ params: { a: 0 } })).toBe(3);
+  });
+
+  /**
+   * @canon spec-a-bare-number-beside-an-integer-is-an-integer
+   */
+  it("compares a bare number with an integer on WASM", () => {
+    const build = (a: any) => Fn(() => equal(1, a.toInt()).select(float(1), float(0)).toVar())();
+    expect(compileWasmRoutine(build, param)({ params: { a: 1 } })).toBe(1);
+  });
+
+  /**
+   * @canon spec-select-picks-one-of-two-values
+   */
+  it("gives select with an integer branch and a bare-number branch the integer type", () => {
+    const first = (a: any) => Fn(() => a.greaterThan(0).select(a.toInt(), 0).toVar())();
+    const second = (a: any) => Fn(() => a.greaterThan(0).select(0, a.toInt()).div(2).toVar())();
+    expect(compileJSRoutine(second, param)({ params: { a: -3 } })).toBe(-1);
+    expect(compileWasmRoutine(first, param)({ params: { a: 1.5 } })).toBe(1);
+  });
+
+  /**
+   * @canon spec-assign-gives-a-bare-number-the-type-of-its-target
+   */
+  it("assigns a bare number to a float component on WASM", () => {
+    const routine = compileWasmRoutine(
+      () =>
+        Fn(() => {
+          const v = vec2(1, 2).toVar();
+          (v.x as any).assign(7);
+          return v.x;
+        })(),
+      none,
+    );
+    expect(routine({})).toBe(7);
   });
 });

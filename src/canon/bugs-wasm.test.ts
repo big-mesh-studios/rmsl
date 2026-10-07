@@ -370,25 +370,6 @@ describe("known WASM bugs, each failing until its fix", () => {
   });
 
   /**
-   * `assign` passes a bare number on as it is, and the WASM target throws on
-   * it as a node of no type.
-   *
-   * @canon bug-assign-leaves-a-bare-number-untyped
-   */
-  it.fails("assigns a bare number to a float component on WASM", () => {
-    const routine = compileWasmRoutine(
-      () =>
-        Fn(() => {
-          const v = vec2(1, 2).toVar();
-          (v.x as any).assign(7);
-          return v.x;
-        })(),
-      none,
-    );
-    expect(routine({})).toBe(7);
-  });
-
-  /**
    * The WASM target compiles no component-wise math function of a vector,
    * such as `pow`, `sin` or `floor`, and throws that the node is unsupported.
    *
