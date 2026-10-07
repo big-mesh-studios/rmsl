@@ -70,10 +70,12 @@ const none = { name: "main", params: [] };
 let profiler: Session | undefined;
 
 /**
- * The bytes `run` allocates a call, over `runs` calls after `warm` calls, by V8's
- * sampling heap profiler, collected objects included. Only the library's code
- * counts: a compiled program has no source URL, and the rest of the library
- * lies under `src/backends/`.
+ * The bytes `run` allocates a call, over `runs` calls after `warm` calls, by
+ * V8's sampling heap profiler, collected objects included. Only the library's
+ * code counts: a compiled program has no source URL, and the rest of the
+ * library lies under `src/backends/`. It measures twice and keeps the smaller:
+ * another worker's load only adds to a measurement, and an allocation the
+ * calls make shows in both.
  */
 async function allocatedBy(run: () => unknown, warm: number, runs: number): Promise<number> {
   if (!profiler) {
@@ -82,21 +84,25 @@ async function allocatedBy(run: () => unknown, warm: number, runs: number): Prom
     await profiler.post("HeapProfiler.enable");
   }
   for (let k = 0; k < warm; k++) run();
-  await profiler.post("HeapProfiler.startSampling", {
-    samplingInterval: 128,
-    includeObjectsCollectedByMajorGC: true,
-    includeObjectsCollectedByMinorGC: true,
-  });
-  for (let k = 0; k < runs; k++) run();
-  const { profile } = await profiler.post("HeapProfiler.stopSampling");
-  let allocated = 0;
-  const walk = (node: any): void => {
-    const url: string = node.callFrame.url;
-    if (url === "" || url.includes("/src/backends/")) allocated += node.selfSize;
-    for (const child of node.children) walk(child);
-  };
-  walk(profile.head);
-  return allocated / runs;
+  let least = Infinity;
+  for (let round = 0; round < 2; round++) {
+    await profiler.post("HeapProfiler.startSampling", {
+      samplingInterval: 128,
+      includeObjectsCollectedByMajorGC: true,
+      includeObjectsCollectedByMinorGC: true,
+    });
+    for (let k = 0; k < runs; k++) run();
+    const { profile } = await profiler.post("HeapProfiler.stopSampling");
+    let allocated = 0;
+    const walk = (node: any): void => {
+      const url: string = node.callFrame.url;
+      if (url === "" || url.includes("/src/backends/")) allocated += node.selfSize;
+      for (const child of node.children) walk(child);
+    };
+    walk(profile.head);
+    least = Math.min(least, allocated / runs);
+  }
+  return least;
 }
 
 const cpuTargets: [string, CompileCpuRoutine][] = [
