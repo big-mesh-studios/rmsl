@@ -29,17 +29,6 @@ const narrow = (a: Node<"float">) => mat2(mat3(vec3(a, 2, 3), vec3(4, 5, 6), vec
 
 describe("known bugs, each failing until its fix", () => {
   /**
-   * @canon bug-js-reads-a-storage-element-out-of-range-as-nan
-   */
-  it.fails("reads a storage element past the end of its buffer as zero on JS", () => {
-    const data = Float32Array.of(1, 2, 3, 4);
-    const buf = instancedArray(data, "float");
-    const build = (i: Node<"int">) => Fn(() => buf.element(i).add(float(0)).toVar())();
-    const run = compileJSRoutine(build as any, { name: "main", params: [{ name: "i", type: "int" }] });
-    expect(run({ params: { i: 10 }, storages: { [buf.name]: data } })).toBe(0);
-  });
-
-  /**
    * The casts reach `.name`, which the type of `screenSize()` hides until #68
    * is fixed.
    *

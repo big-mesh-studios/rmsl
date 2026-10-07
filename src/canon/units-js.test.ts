@@ -878,6 +878,50 @@ describe("the slots of a JS function", () => {
   });
 });
 
+describe("a JS storage access outside its buffer", () => {
+  /**
+   * @canon spec-a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing
+   */
+  it("reads a storage element past either end of its buffer as zero, as WASM does", () => {
+    const scalars = instancedArray(2, "float");
+    const pairs = instancedArray(2, "vec2");
+    const params = [{ name: "i", type: "int" as const }];
+    const build = (i: Node<"int">) =>
+      Fn(() => scalars.element(i).add(pairs.element(i).y).add(pairs.element(i).x.mul(10)).toVar())() as any;
+    const storages = () => ({ [scalars.name]: Float32Array.of(1, 2), [pairs.name]: [3, 4, 5, 6] });
+    for (const i of [10, -1, 2]) {
+      const ctx = { params: { i }, storages: storages() };
+      expect(compileJSRoutine(build, { name: "main", params })(ctx)).toBe(0);
+      expect(compileWasmRoutine(build, { name: "main", params })({ params: { i }, storages: storages() })).toBe(0);
+    }
+    const whole = (i: Node<"int">) => Fn(() => pairs.element(i).toVar())() as any;
+    expect(compileJSRoutine(whole, { name: "main", params })({ params: { i: 5 }, storages: storages() })).toEqual(
+      new Float64Array([0, 0]),
+    );
+  });
+
+  /**
+   * @canon spec-a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing
+   */
+  it("writes nothing past either end of a buffer, a plain array's included", () => {
+    const scalars = instancedArray(2, "float");
+    const pairs = instancedArray(2, "vec2");
+    const build = () =>
+      Fn(() => {
+        scalars.element(int(7)).assign(float(9));
+        scalars.element(int(-1)).assign(float(9));
+        pairs.element(int(5)).assign(vec2(9, 9));
+        pairs.element(int(-1)).x.assign(float(9));
+        pairs.element(int(2)).xy.assign(vec2(9, 9));
+      })() as any;
+    for (const compile of [compileJSCompute, compileWasmCompute]) {
+      const storages = { [scalars.name]: [1, 2], [pairs.name]: [3, 4, 5, 6] };
+      compile(build, { name: "main", params: [] })({ storages }, 1);
+      expect(storages).toEqual({ [scalars.name]: [1, 2], [pairs.name]: [3, 4, 5, 6] });
+    }
+  });
+});
+
 describe("a JS assignment to what the program also reads", () => {
   /**
    * @canon spec-a-var-can-be-assigned

@@ -377,7 +377,7 @@ export function jsHelperSource(name: string): string {
     case "fr":
       return `function _fr(a) {\n  for (let i = 0; i < a.length; i++) a[i] = Math.fround(a[i]);\n  return a;\n}`;
     case "load":
-      return `function _load(src, at, out) {\n  for (let i = 0; i < out.length; i++) out[i] = src[at + i];\n  return out;\n}`;
+      return `function _load(src, at, out) {\n  if (at >= 0 && at + out.length <= src.length) for (let i = 0; i < out.length; i++) out[i] = src[at + i];\n  else out.fill(0);\n  return out;\n}`;
     case "vdot":
       return `function _vdot(a, b) {\n  let s = 0;\n  for (let i = 0; i < a.length; i++) s += a[i] * b[i];\n  return s;\n}`;
     case "vlen":
@@ -767,14 +767,21 @@ function jsBoundedIndex(index: string, count: number): string {
  * through its index evaluated once, and bounded to the matrix, into a
  * temporary.
  */
-function jsAssignable(node: any, ctx: CompileCtx): CompiledNode & { at(k: string): string } {
+/**
+ * A target written component by component: `at(k)` is component `k`. A
+ * storage element has `inRange`, the condition that it lies inside its
+ * buffer, which its writes are made under.
+ */
+function jsAssignable(node: any, ctx: CompileCtx): CompiledNode & { at(k: string): string; inRange?: string } {
   if (node.type === "storageElement" && jsIsArrayType(node._t)) {
     let element = jsStorageElement(node, ctx);
+    let count = componentCountOf(node._t);
     return {
       decls: element.decls,
       body: element.body,
       expr: "0",
       at: (k) => `${element.buffer}[${element.start} + ${k}]`,
+      inRange: `${element.start} >= 0 && ${element.start} + ${count} <= ${element.buffer}.length`,
     };
   }
   if (node.type !== "matrixElement") {
@@ -791,6 +798,7 @@ function jsAssignable(node: any, ctx: CompileCtx): CompiledNode & { at(k: string
     body: [...mat.body, ...idx.body, `${column} = ${jsBoundedIndex(idx.expr, columns)};`],
     expr: mat.expr,
     at: (k) => mat.at(`${column} * ${rows} + ${k}`),
+    inRange: mat.inRange,
   };
 }
 
@@ -807,7 +815,9 @@ function jsComponents(
 ): CompiledNode & { at(k: string): string; inBuffer: boolean } {
   if (node?.type === "storageElement" && jsIsArrayType(node._t)) {
     let element = jsStorageElement(node, ctx);
-    return { ...element, at: (k) => `${element.buffer}[${element.start} + ${k}]`, inBuffer: true };
+    let at = (k: string) => `${element.buffer}[${element.start} + ${k}]`;
+    // A component outside the buffer reads zero, as WASM reads it.
+    return { ...element, at: asTarget ? at : (k) => `(${at(k)} ?? 0)`, inBuffer: true };
   }
   let src = asTarget ? jsCompileTarget(node, ctx) : jsCompileOperand(node, ctx);
   let srcExpr = (src.prec ?? PREC_ATOM) < PREC_ATOM ? `(${src.expr})` : src.expr;
@@ -1648,10 +1658,13 @@ export function compileJSNode(
       }
       let arr = jsCompileOperand(node.params![0], ctx);
       let idx = jsCompileOperand(node.params![1], ctx);
+      let element = `${arr.expr}[${jsStorageIndex(node, idx.expr)}]`;
       return {
         decls: [...arr.decls, ...idx.decls],
         body: [...arr.body, ...idx.body],
-        expr: `${arr.expr}[${jsStorageIndex(node, idx.expr)}]`,
+        // An element outside the buffer reads zero, as WASM reads it.
+        expr: ctx.jsTarget === node ? element : `(${element} ?? 0)`,
+        prec: PREC_ATOM,
       };
     }
 
@@ -2199,17 +2212,19 @@ export function compileJSNode(
           base = { ...base, decls: [...base.decls, ...idx.decls], body: [...base.body, ...idx.body] };
           components = [jsBoundedIndex(idx.expr, TYPE_WIDTH[parts.base._t])];
         }
+        // A storage element outside its buffer is not written.
+        let guarded = (lines: string[]) => (base.inRange ? [`if (${base.inRange}) {`, ...lines, "}"] : lines);
         if (components.length === 1) {
           let rhs = compileJSStage(rhsNode, ctx);
           return {
             decls: [...base.decls, ...rhs.decls],
-            body: [...base.body, ...rhs.body, `${base.at(components[0]!)} = ${rhs.expr};`],
+            body: [...base.body, ...rhs.body, ...guarded([`${base.at(components[0]!)} = ${rhs.expr};`])],
             expr: base.expr,
           };
         }
         let temp = jsNewTemp(ctx, rhsNode?._t || "float");
         let rhs = jsCompileInto(rhsNode, temp, ctx);
-        let writes = components.map((k, i) => `${base.at(k)} = ${temp}[${i}];`);
+        let writes = guarded(components.map((k, i) => `${base.at(k)} = ${temp}[${i}];`));
         return {
           decls: [...base.decls, ...rhs.decls],
           body: [...base.body, ...rhs.body, ...writes],
@@ -2217,6 +2232,24 @@ export function compileJSNode(
         };
       }
 
+      if (targetNode?.type === "storageElement" && !jsIsArrayType(targetNode._t)) {
+        // A scalar storage element outside its buffer is not written.
+        let arr = jsCompileOperand(targetNode.params![0], ctx);
+        let idx = jsCompileOperand(targetNode.params![1], ctx);
+        let rhs = compileJSStage(rhsNode, ctx);
+        let at = jsNewTemp(ctx, "int");
+        return {
+          decls: [...arr.decls, ...idx.decls, ...rhs.decls],
+          body: [
+            ...arr.body,
+            ...idx.body,
+            ...rhs.body,
+            `${at} = ${jsStorageIndex(targetNode, idx.expr)};`,
+            `if (${at} >= 0 && ${at} < ${arr.expr}.length) ${arr.expr}[${at}] = ${rhs.expr};`,
+          ],
+          expr: `${arr.expr}[${at}]`,
+        };
+      }
       let lhs = jsCompileTarget(targetNode, ctx);
       // Only a plain variable slot is written through out-mode helpers; an
       // external sink (res.position, res.outputs[...], ctx.varyings[...]) takes
