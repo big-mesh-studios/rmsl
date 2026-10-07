@@ -373,8 +373,6 @@ export function jsHelperSource(name: string): string {
       return `function _copy(src, out) {\n  for (let i = 0; i < src.length; i++) out[i] = src[i];\n  return out;\n}`;
     case "fr":
       return `function _fr(a) {\n  for (let i = 0; i < a.length; i++) a[i] = Math.fround(a[i]);\n  return a;\n}`;
-    case "frc":
-      return `function _frc(src, out) {\n  for (let i = 0; i < out.length; i++) out[i] = Math.fround(src[i]);\n  return out;\n}`;
     case "load":
       return `function _load(src, at, out) {\n  for (let i = 0; i < out.length; i++) out[i] = src[at + i];\n  return out;\n}`;
     case "vdot":
@@ -682,6 +680,40 @@ function jsConstant(ctx: CompileCtx, literal: string): string {
   return name;
 }
 
+/**
+ * The declarations of a function's slots. A scalar is a variable. A float,
+ * integer or unsigned vector or matrix is a typed view of its kind into one
+ * `ArrayBuffer`, made once with the declarations: `Float64Array`, or
+ * `Float32Array` when `float32`, `Int32Array` and `Uint32Array`. The 8-byte
+ * views come first, so each lies on a multiple of its element size. A boolean
+ * vector stays an array of booleans.
+ */
+function jsSlotDeclarations(varDefs: Map<string, string>, float32: boolean, keyword: "let" | "var"): string[] {
+  const floatType = float32 ? "Float32Array" : "Float64Array";
+  const typed: { name: string; type: string; bytes: number; length: number }[] = [];
+  const lines: string[] = [];
+  for (const [name, brand] of varDefs) {
+    const length = jsArrayLength(brand);
+    if (length <= 1) {
+      lines.push(keyword === "var" ? `var ${name} = 0;` : `let ${name};`);
+      continue;
+    }
+    const kind = elementKindOf(brand);
+    if (kind === "bool") lines.push(`${keyword} ${name} = ${jsScratchLiteral(brand)};`);
+    else if (kind === "float") typed.push({ name, type: floatType, bytes: float32 ? 4 : 8, length });
+    else typed.push({ name, type: kind === "uint" ? "Uint32Array" : "Int32Array", bytes: 4, length });
+  }
+  if (typed.length === 0) return lines;
+  typed.sort((a, b) => b.bytes - a.bytes);
+  let offset = 0;
+  const views = typed.map(({ name, type, bytes, length }) => {
+    const line = `${keyword} ${name} = new ${type}(_rmsl_slots, ${offset}, ${length});`;
+    offset += bytes * length;
+    return line;
+  });
+  return [`${keyword === "var" ? "var" : "const"} _rmsl_slots = new ArrayBuffer(${offset});`, ...views, ...lines];
+}
+
 /** A fresh hoisted slot for an intermediate value, registered for preallocation. */
 export function jsNewTemp(ctx: CompileCtx, brand: string): string {
   let name = `_rmsl_t${ctx.nextId++}`;
@@ -702,6 +734,11 @@ function jsIsReference(expr: string): boolean {
 function jsReadable(compiled: CompiledNode, brand: string | undefined, ctx: CompileCtx): CompiledNode {
   if (jsIsReference(compiled.expr) || brand === undefined) return compiled;
   const slot = jsNewTemp(ctx, brand);
+  if (jsIsArrayType(brand)) {
+    // An array slot is a view that is written into, never rebound.
+    jsRequireHelper(ctx, "copy");
+    return { ...compiled, body: [...compiled.body, `_copy(${compiled.expr}, ${slot});`], expr: slot };
+  }
   return { ...compiled, body: [...compiled.body, `${slot} = ${compiled.expr};`], expr: slot };
 }
 
@@ -1185,9 +1222,9 @@ const JS_HOST_INPUTS = new Set(["uniform", "uniformArrayElement", "attribute", "
 
 /**
  * `result`, the value of `node`, rounded to 32 bits, as `float: "f32"` asks. A
- * scalar is wrapped in `Math.fround`. A vector or matrix computed into a slot
- * is rounded there, and one read from the host's context is copied into a slot
- * and rounded, so the host's own array is never written.
+ * scalar is wrapped in `Math.fround`. A vector or matrix in a slot is rounded
+ * by the slot, a Float32Array; one read from the host's context is copied into
+ * a slot, so the host's own array is never written.
  */
 function jsRound32(node: any, result: CompiledNode, ctx: CompileCtx): CompiledNode {
   // A whole buffer or uniform array carries the type of its element, but is no value.
@@ -1201,15 +1238,12 @@ function jsRound32(node: any, result: CompiledNode, ctx: CompileCtx): CompiledNo
   }
   if (!t || !jsIsArrayType(t) || elementKindOf(t) !== "float") return result;
   if (/^(vec|mat)/.test(node.type) && node.type === t) return result;
-  if (isPlainJSIdentifier(result.expr)) {
-    if (result.body.length === 0) return result;
-    jsRequireHelper(ctx, "fr");
-    return { ...result, body: [...result.body, `_fr(${result.expr});`] };
-  }
+  // A slot is a Float32Array, which rounds each value it stores.
+  if (isPlainJSIdentifier(result.expr)) return result;
   if (JS_HOST_INPUTS.has(node.type) || result.expr.startsWith("ctx.")) {
     let temp = jsNewTemp(ctx, t);
-    jsRequireHelper(ctx, "frc");
-    return { ...result, body: [...result.body, `_frc(${result.expr}, ${temp});`], expr: temp };
+    jsRequireHelper(ctx, "copy");
+    return { ...result, body: [...result.body, `_copy(${result.expr}, ${temp});`], expr: temp };
   }
   jsRequireHelper(ctx, "fr");
   return { ...result, expr: `_fr(${result.expr})`, prec: PREC_ATOM };
@@ -1996,7 +2030,8 @@ export function compileJSNode(
         ctx.outTarget = temp;
         let rhs = compileJSStage(rhsNode, ctx);
         ctx.outTarget = saved;
-        let fill = rhs.expr === temp ? [] : [`${temp} = ${rhs.expr};`];
+        if (rhs.expr !== temp) jsRequireHelper(ctx, "copy");
+        let fill = rhs.expr === temp ? [] : [`_copy(${rhs.expr}, ${temp});`];
         let writes = components.map((k, i) => `${base.at(k)} = ${temp}[${i}];`);
         return {
           decls: [...base.decls, ...rhs.decls],
@@ -2214,12 +2249,7 @@ function compileJSFnDetailed(
 
   const body: string[] = [];
   if (ctx.jsNeedsRes) body.push("var res = { outputs: {}, varyings: {} };");
-  if (reentrant) {
-    for (const [v, brand] of ctx.varDefs) {
-      let init = jsScratchLiteral(brand);
-      body.push(init ? `var ${v} = ${init};` : `var ${v} = 0;`);
-    }
-  }
+  if (reentrant) body.push(...jsSlotDeclarations(ctx.varDefs, ctx.jsFloat32 === true, "var"));
   for (const compiled of compiledList) body.push(...compiled.decls, ...compiled.body);
   if (ctx.jsNeedsRes) {
     // a program that returns nothing has no value
@@ -2229,14 +2259,7 @@ function compileJSFnDetailed(
     body.push(`return ${lastCompiled.expr};`);
   }
 
-  let scratch = reentrant
-    ? ""
-    : [...ctx.varDefs]
-        .map(([v, brand]) => {
-          let init = jsScratchLiteral(brand);
-          return init ? `let ${v} = ${init};` : `let ${v};`;
-        })
-        .join("\n");
+  let scratch = reentrant ? "" : jsSlotDeclarations(ctx.varDefs, ctx.jsFloat32 === true, "let").join("\n");
   let helpers = [...ctx.jsHelpers]
     .sort()
     .map((name) => jsHelperSource(name))
@@ -2274,6 +2297,8 @@ export interface JsProgram extends CpuProgram {
 
 /** Copies a routine's result, arrays and the plain objects that hold them, so no scratch slot or input is shared. */
 export function ownedValue<T>(value: T): T {
+  // A slot is a typed view; a result leaves it as the plain array of numbers it holds.
+  if (ArrayBuffer.isView(value)) return Array.from(value as unknown as ArrayLike<number>) as T;
   if (Array.isArray(value)) {
     const copy: unknown[] = value.slice();
     for (let i = 0; i < copy.length; i++) {
@@ -2343,7 +2368,7 @@ export function compileJSProgram(
           typeof result === "object" && result !== null && "value" in result
             ? (result as CpuProgramResult).value
             : result;
-        const values = Array.isArray(raw) ? raw : [raw];
+        const values = Array.isArray(raw) || ArrayBuffer.isView(raw) ? (raw as ArrayLike<unknown>) : [raw];
         const base = (y * width + x) * componentCount;
         for (let k = 0; k < componentCount; k++) {
           buffer[base + k] = kind === "bool" ? (values[k] ? 1 : 0) : (values[k] as number);

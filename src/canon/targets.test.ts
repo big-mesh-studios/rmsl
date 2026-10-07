@@ -93,7 +93,7 @@ describe("each leaf on every target it claims", () => {
       expect(evaluateRecording(round, [half]), `round(${half})`).toBe(even);
     }
     expect(evaluateRecording(() => float(2.5).round())).toBe(2);
-    expect(evaluateRecording((a) => vec3(a, a.add(1), a.add(2)).round(), [0.5])).toEqual([0, 2, 2]);
+    expect(evaluateRecording((a) => vec3(a, a.add(1), a.add(2)).round(), [0.5])).toEqual(new Float64Array([0, 2, 2]));
   });
 
   /**
@@ -376,7 +376,9 @@ describe("each leaf on every target it claims", () => {
    * @canon spec-a-matrix-element-is-a-column
    */
   it("reads a matrix column as a vector on every target", () => {
-    expect(evaluateRecording((a) => mat2(vec2(a, 2), vec2(3, 4)).element(int(1)), [1])).toEqual([3, 4]);
+    expect(evaluateRecording((a) => mat2(vec2(a, 2), vec2(3, 4)).element(int(1)), [1])).toEqual(
+      new Float64Array([3, 4]),
+    );
   });
 
   /**
@@ -400,9 +402,11 @@ describe("each leaf on every target it claims", () => {
    * @canon spec-a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number
    */
   it("builds a matrix from numbers and scalar nodes on every target", () => {
-    expect(evaluateRecording((a) => mat2(a, 1, 2, 4).element(int(0)), [3])).toEqual([3, 1]);
+    expect(evaluateRecording((a) => mat2(a, 1, 2, 4).element(int(0)), [3])).toEqual(new Float64Array([3, 1]));
     expect(evaluateRecording((a) => mat3(1, a, 0, 0, 1, 0, 0, 0, a.add(1)).element(int(2)).z, [3])).toBe(4);
-    expect(evaluateRecording((a) => mat2x3(a, 0, 0, 0, 1, a).element(int(1)), [5])).toEqual([0, 1, 5]);
+    expect(evaluateRecording((a) => mat2x3(a, 0, 0, 0, 1, a).element(int(1)), [5])).toEqual(
+      new Float64Array([0, 1, 5]),
+    );
   });
 
   /**
@@ -420,7 +424,7 @@ describe("each leaf on every target it claims", () => {
       mat2x3(vec3(a, 2, 3), vec3(4, 5, 6))
         .transpose()
         .element(int(2));
-    expect(evaluateRecording(build, [1])).toEqual([3, 6]);
+    expect(evaluateRecording(build, [1])).toEqual(new Float64Array([3, 6]));
   });
 
   /**

@@ -640,16 +640,16 @@ describe("what a JS routine allocates per call", () => {
     const source = (reentrant: boolean) =>
       new Function(compileJSFn((a: any) => Fn(() => vec3(a, 1, 2).toVar())(), { ...param, reentrant }))() as (
         ctx: unknown,
-      ) => number[];
+      ) => Float64Array;
     const shared = source(false);
     const first = shared({ params: { a: 1 } });
     const second = shared({ params: { a: 7 } });
     expect(second).toBe(first);
-    expect(first).toEqual([7, 1, 2]);
+    expect(first).toEqual(new Float64Array([7, 1, 2]));
     const own = source(true);
     const third = own({ params: { a: 1 } });
     expect(own({ params: { a: 7 } })).not.toBe(third);
-    expect(third).toEqual([1, 1, 2]);
+    expect(third).toEqual(new Float64Array([1, 1, 2]));
   });
 
   /**
@@ -732,13 +732,59 @@ describe("a CPU compute stage's vector buffer", () => {
   });
 });
 
+describe("the slots of a JS function", () => {
+  /**
+   * @canon spec-a-js-program-keeps-its-vectors-in-views-of-one-buffer
+   */
+  it("keeps each vector in a typed view of its kind into one buffer", () => {
+    const f = uniform("vec3");
+    const i = uniform("ivec2");
+    const u = uniform("uvec4");
+    const b = uniform("bvec2");
+    const build = () =>
+      Fn(() => {
+        f.add(1).toVar();
+        i.add(1).toVar();
+        u.add(1).toVar();
+        b.not().toVar();
+      })();
+    const at = (float?: "f32") => compileJSFn(build as any, { ...none, float }).split("return function")[0]!;
+    const source = at();
+    expect(source.match(/new ArrayBuffer\(/g)).toHaveLength(1);
+    expect(source).toMatch(/= new Float64Array\(_rmsl_slots, \d+, 3\);/);
+    expect(source).toMatch(/= new Int32Array\(_rmsl_slots, \d+, 2\);/);
+    expect(source).toMatch(/= new Uint32Array\(_rmsl_slots, \d+, 4\);/);
+    expect(source).toMatch(/= \[0, 0\];/);
+    expect(at("f32")).toMatch(/= new Float32Array\(_rmsl_slots, \d+, 3\);/);
+  });
+
+  /**
+   * @canon spec-a-js-program-keeps-its-vectors-in-views-of-one-buffer
+   */
+  it("lays an 8-byte view on a multiple of 8, whatever slots come before it", () => {
+    const i = uniform("ivec3");
+    const f = uniform("vec2");
+    const run = compileJSRoutine(
+      () =>
+        Fn(() => {
+          i.add(1).toVar();
+          return f.add(1).toVar();
+        })() as any,
+      none,
+    );
+    expect(run({ uniforms: { [i.name]: [1, 2, 3], [f.name]: [0.5, 1.5] } })).toEqual([1.5, 2.5]);
+  });
+});
+
 describe("the rounding helper of JS", () => {
   /**
    * @canon spec-round-takes-a-half-to-the-even-integer
    */
   it("rounds as constant folding does, for every value of a sweep", () => {
     const helper = new Function(`${jsHelperSource("roundEven")}; return _rmsl_roundEven;`)() as (x: number) => number;
-    const values = [0, -0, 0.5, -0.5, 1.5, 2.5, -1.5, -2.5, 0.49999999999999994, 4503599627370495.5, 1e300, -1e300, 7.25, -7.75];
+    const values = [
+      0, -0, 0.5, -0.5, 1.5, 2.5, -1.5, -2.5, 0.49999999999999994, 4503599627370495.5, 1e300, -1e300, 7.25, -7.75,
+    ];
     for (const x of values) expect(Object.is(helper(x), roundHalfToEven(x)), `round(${x})`).toBe(true);
   });
 

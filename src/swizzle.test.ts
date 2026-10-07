@@ -13,11 +13,11 @@ describe("swizzles", () => {
    * @canon spec-a-swizzle-reads-the-components-it-names
    */
   it("read any components in any order, with repeats, as on every backend", () => {
-    expect(evaluateRecording(() => vec4(1, 2, 3, 4).wzyx)).toEqual([4, 3, 2, 1]);
-    expect(evaluateRecording(() => vec4(1, 2, 3, 4).zz)).toEqual([3, 3]);
-    expect(evaluateRecording(() => vec4(1, 2, 3, 4).agr)).toEqual([4, 2, 1]);
-    expect(evaluateRecording(() => vec2(5, 6).ts)).toEqual([6, 5]);
-    expect(evaluateRecording(() => vec2(5, 6).xxyy)).toEqual([5, 5, 6, 6]);
+    expect(evaluateRecording(() => vec4(1, 2, 3, 4).wzyx)).toEqual(new Float64Array([4, 3, 2, 1]));
+    expect(evaluateRecording(() => vec4(1, 2, 3, 4).zz)).toEqual(new Float64Array([3, 3]));
+    expect(evaluateRecording(() => vec4(1, 2, 3, 4).agr)).toEqual(new Float64Array([4, 2, 1]));
+    expect(evaluateRecording(() => vec2(5, 6).ts)).toEqual(new Float64Array([6, 5]));
+    expect(evaluateRecording(() => vec2(5, 6).xxyy)).toEqual(new Float64Array([5, 5, 6, 6]));
   });
 
   /**

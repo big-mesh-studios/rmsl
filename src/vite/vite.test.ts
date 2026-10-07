@@ -135,8 +135,10 @@ describe("precompileJS", () => {
     expect(typeof mod.mixColours).toBe("function");
 
     // `uniform("vec3")` inside the fixture gets the first auto slot, _rmsl_u0.
-    expect(mod.brightness({ uniforms: { _rmsl_u0: [1, 2, 3] } })).toEqual([0.5, 1, 1.5]);
-    expect(mod.mixColours({ params: { a: [0, 0, 0], b: [1, 1, 1], t: 0.5 } })).toEqual([0.5, 0.5, 0.5]);
+    expect(mod.brightness({ uniforms: { _rmsl_u0: [1, 2, 3] } })).toEqual(new Float64Array([0.5, 1, 1.5]));
+    expect(mod.mixColours({ params: { a: [0, 0, 0], b: [1, 1, 1], t: 0.5 } })).toEqual(
+      new Float64Array([0.5, 0.5, 0.5]),
+    );
   });
 
   /**

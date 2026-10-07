@@ -70,7 +70,7 @@ describe("aggregate evaluation (vectors and matrices)", () => {
    */
   it("round-trips a vec3 through the CPU (JS/WASM) backends", () => {
     const build = (a: any, b: any) => vec3(a, a, a).add(vec3(b, b, b));
-    expect(evaluateJS(build, [1, 2])).toEqual([3, 3, 3]);
+    expect(evaluateJS(build, [1, 2])).toEqual(new Float64Array([3, 3, 3]));
     expect(evaluateWASM(build, [1, 2])).toEqual([3, 3, 3]);
   });
   /**
@@ -78,7 +78,7 @@ describe("aggregate evaluation (vectors and matrices)", () => {
    */
   it("round-trips a mat3 through the CPU (JS/WASM) backends", () => {
     const build = (a: any) => mat3(a);
-    expect(evaluateJS(build, [1])).toEqual([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    expect(evaluateJS(build, [1])).toEqual(new Float64Array([1, 0, 0, 0, 1, 0, 0, 0, 1]));
     expect(evaluateWASM(build, [1])).toEqual([1, 0, 0, 0, 1, 0, 0, 0, 1]);
   });
 

@@ -85,9 +85,13 @@ describe("exports no other test reaches", () => {
    */
   it("computes difference and premultiplied alpha on every target", () => {
     expect(evaluateRecording((a, b) => difference(a, b), [2, 5])).toBe(3);
-    expect(evaluateRecording((a) => premultiplyAlpha(vec4(1, a, 3, 0.5)), [2])).toEqual([0.5, 1, 1.5, 0.5]);
-    expect(evaluateRecording((a) => unpremultiplyAlpha(vec4(0.5, a, 1.5, 0.5)), [1])).toEqual([1, 2, 3, 0.5]);
-    expect(evaluateRecording((a) => unpremultiplyAlpha(vec4(a, 1, 1, 0)), [1])).toEqual([0, 0, 0, 0]);
+    expect(evaluateRecording((a) => premultiplyAlpha(vec4(1, a, 3, 0.5)), [2])).toEqual(
+      new Float64Array([0.5, 1, 1.5, 0.5]),
+    );
+    expect(evaluateRecording((a) => unpremultiplyAlpha(vec4(0.5, a, 1.5, 0.5)), [1])).toEqual(
+      new Float64Array([1, 2, 3, 0.5]),
+    );
+    expect(evaluateRecording((a) => unpremultiplyAlpha(vec4(a, 1, 1, 0)), [1])).toEqual(new Float64Array([0, 0, 0, 0]));
   });
 
   /**

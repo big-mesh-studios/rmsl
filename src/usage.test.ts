@@ -3804,8 +3804,8 @@ describe("JS target", () => {
       return y;
     });
     let src = compileJSFn(() => prog(), { name: "main", params: [] });
-    // The scratch block lives outside the callable, one zeroed array per slot.
-    expect(src).toMatch(/let _rmsl_\d+ = \[0, 0, 0\];/);
+    // The scratch block lives outside the callable, a view of one buffer per slot.
+    expect(src).toMatch(/let _rmsl_\d+ = new Float64Array\(_rmsl_slots, \d+, 3\);/);
     // Assignments write into the hoisted slots rather than declaring them.
     expect(src).not.toContain("let _rmsl_0 = [1, 2, 3]");
   });
@@ -3886,7 +3886,9 @@ describe("JS target", () => {
       return x;
     });
     let src = compileJSFn(() => prog(), { name: "main", params: [], reentrant: true });
-    expect(src).toMatch(/var _rmsl_\d+ = \[0, 0, 0\];/);
+    const [, inside] = src.split("return function");
+    expect(inside).toMatch(/var _rmsl_slots = new ArrayBuffer\(\d+\);/);
+    expect(inside).toMatch(/var _rmsl_\d+ = new Float64Array\(_rmsl_slots, \d+, 3\);/);
   });
 
   /**
@@ -3998,6 +4000,6 @@ describe("named toVar variables", () => {
       return x;
     });
     let src = compileJSFn(() => prog(), { name: "main", params: [] });
-    expect(src).toMatch(/let local = \[0, 0, 0\];/);
+    expect(src).toMatch(/let local = new Float64Array\(_rmsl_slots, \d+, 3\);/);
   });
 });

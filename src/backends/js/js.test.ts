@@ -121,8 +121,8 @@ function evalScalar(
  * Evaluate a matrix (or vector) expression and hold every backend to the
  * answer, the same way `evalScalar` does for a scalar root.
  */
-function evalMatrix(build: (...args: Node<"float">[]) => any, args: number[] = []): number[] {
-  return evaluateRecording(build as any, args) as number[];
+function evalMatrix(build: (...args: Node<"float">[]) => any, args: number[] = []): Float64Array {
+  return evaluateRecording(build as any, args) as Float64Array;
 }
 
 afterAll(async () => {
@@ -507,35 +507,35 @@ describe("cross-backend: non-square matrix multiply", () => {
    */
   it("multiplies a mat2x3 by a mat3x2 into a mat3", () => {
     const build = () => mat2x3(1, 2, 3, 4, 5, 6).mul(mat3x2(1, 0, 0, 1, 1, 1));
-    expect(evalMatrix(build)).toEqual([1, 2, 3, 4, 5, 6, 5, 7, 9]);
+    expect(evalMatrix(build)).toEqual(new Float64Array([1, 2, 3, 4, 5, 6, 5, 7, 9]));
   });
   /**
    * @canon spec-a-matrix-product-has-the-shape-of-the-product
    */
   it("multiplies a mat3x2 by a mat2x3 into a mat2", () => {
     const build = () => mat3x2(1, 2, 3, 4, 5, 6).mul(mat2x3(1, 0, 0, 0, 1, 1));
-    expect(evalMatrix(build)).toEqual([1, 2, 8, 10]);
+    expect(evalMatrix(build)).toEqual(new Float64Array([1, 2, 8, 10]));
   });
   /**
    * @canon spec-a-matrix-product-has-the-shape-of-the-product
    */
   it("multiplies a mat2 by a mat3x2 into a mat3x2", () => {
     const build = () => mat2(2, 0, 0, 3).mul(mat3x2(1, 2, 3, 4, 5, 6));
-    expect(evalMatrix(build)).toEqual([2, 6, 6, 12, 10, 18]);
+    expect(evalMatrix(build)).toEqual(new Float64Array([2, 6, 6, 12, 10, 18]));
   });
   /**
    * @canon spec-a-matrix-product-has-the-shape-of-the-product
    */
   it("multiplies a mat4 by a mat2x4 into a mat2x4", () => {
     const build = () => mat4(1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 4).mul(mat2x4(1, 2, 3, 4, 5, 6, 7, 8));
-    expect(evalMatrix(build)).toEqual([1, 4, 9, 16, 5, 12, 21, 32]);
+    expect(evalMatrix(build)).toEqual(new Float64Array([1, 4, 9, 16, 5, 12, 21, 32]));
   });
   /**
    * @canon spec-a-matrix-product-has-the-shape-of-the-product
    */
   it("multiplies a mat2x4 by a mat4x2 into a mat4", () => {
     const build = () => mat2x4(1, 2, 3, 4, 5, 6, 7, 8).mul(mat4x2(1, 0, 0, 1, 1, 1, 2, 0));
-    expect(evalMatrix(build)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 6, 8, 10, 12, 2, 4, 6, 8]);
+    expect(evalMatrix(build)).toEqual(new Float64Array([1, 2, 3, 4, 5, 6, 7, 8, 6, 8, 10, 12, 2, 4, 6, 8]));
   });
 });
 

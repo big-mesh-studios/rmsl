@@ -20,16 +20,16 @@ describe("a matrix's column by index", () => {
    * @canon spec-an-element-reads-a-component-by-index
    */
   it("reads by a constant index, as on every backend", () => {
-    expect(evaluateRecording(() => m().element(int(1)))).toEqual([4, 5, 6]);
+    expect(evaluateRecording(() => m().element(int(1)))).toEqual(new Float64Array([4, 5, 6]));
     expect(evaluateRecording(() => m().element(2).y)).toBe(8);
-    expect(evaluateRecording(() => mat2x3(1, 2, 3, 4, 5, 6).element(int(1)))).toEqual([4, 5, 6]);
+    expect(evaluateRecording(() => mat2x3(1, 2, 3, 4, 5, 6).element(int(1)))).toEqual(new Float64Array([4, 5, 6]));
   });
 
   /**
    * @canon spec-an-element-reads-a-component-by-index
    */
   it("reads by an index computed at run time", () => {
-    expect(evaluateRecording((a) => m().element(a.toInt()), [2])).toEqual([7, 8, 9]);
+    expect(evaluateRecording((a) => m().element(a.toInt()), [2])).toEqual(new Float64Array([7, 8, 9]));
     const column = Fn((a: Node<"float">) => m().toVar().element(a.toInt()).z);
     expect(evaluateRecording((a) => column(a), [0])).toBe(3);
   });
@@ -44,7 +44,7 @@ describe("a matrix's column by index", () => {
       v.element(a.toInt()).assign(vec3(20, 21, 22));
       return v.element(0).add(v.element(1)).add(v.element(2));
     });
-    expect(evaluateRecording((a) => write(a), [2])).toEqual([34, 37, 40]);
+    expect(evaluateRecording((a) => write(a), [2])).toEqual(new Float64Array([34, 37, 40]));
   });
 
   /**
@@ -58,7 +58,7 @@ describe("a matrix's column by index", () => {
       v.element(int(0)).zx.assign(vec2(70, 80));
       return v.element(0).add(v.element(1)).add(v.element(2));
     });
-    expect(evaluateRecording((a) => write(a), [1])).toEqual([91, 112, 85]);
+    expect(evaluateRecording((a) => write(a), [1])).toEqual(new Float64Array([91, 112, 85]));
     expect(evaluateWASM((a) => write(a), [1])).toEqual([91, 112, 85]);
   });
 
@@ -105,8 +105,8 @@ describe("a matrix's column by index", () => {
       v.element(int(1)).element(a.toInt()).assign(float(50));
       return v.element(0).add(v.element(1)).add(v.element(2));
     });
-    expect(evaluateJS((a) => write(a), [9])).toEqual([5, 7, 53]);
-    expect(evaluateJS((a) => write(a), [-1])).toEqual([5, 7, 53]);
+    expect(evaluateJS((a) => write(a), [9])).toEqual(new Float64Array([5, 7, 53]));
+    expect(evaluateJS((a) => write(a), [-1])).toEqual(new Float64Array([5, 7, 53]));
     expect(evaluateWASM((a) => write(a), [9])).toEqual([5, 7, 53]);
     expect(evaluateWASM((a) => write(a), [-1])).toEqual([5, 7, 53]);
   });

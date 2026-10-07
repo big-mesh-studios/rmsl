@@ -151,9 +151,9 @@ describe("./test", () => {
       })();
     const [outside] = runner(graph).source.split("return function");
     const [before, inside] = runner(graph, { reentrant: true }).source.split("return function");
-    expect(outside).toMatch(/^let _rmsl_\w+ = \[0, 0, 0\];/m);
+    expect(outside).toMatch(/^let _rmsl_\w+ = new Float64Array\(_rmsl_slots, \d+, 3\);/m);
     expect(before).not.toMatch(/^let _rmsl_/m);
-    expect(inside).toMatch(/var _rmsl_\w+ = \[0, 0, 0\];/);
+    expect(inside).toMatch(/var _rmsl_\w+ = new Float64Array\(_rmsl_slots, \d+, 3\);/);
   });
 
   /**

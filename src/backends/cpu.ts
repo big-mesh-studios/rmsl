@@ -242,7 +242,10 @@ export type ComputeStage = {
 };
 
 const isResultObject = (raw: unknown): raw is CpuProgramResult =>
-  typeof raw === "object" && raw !== null && !Array.isArray(raw);
+  typeof raw === "object" && raw !== null && !Array.isArray(raw) && !ArrayBuffer.isView(raw);
+
+/** Whether a value is a vector or matrix: an array, or the typed view a JS slot is. */
+const isVector = (value: unknown): value is ArrayLike<number> => Array.isArray(value) || ArrayBuffer.isView(value);
 
 /** The {@link VertexResult} of what a routine compiled for the vertex stage returned. */
 export function toVertexResult(raw: CpuValue<ShaderType> | CpuProgramResult | null): VertexResult {
@@ -270,8 +273,8 @@ function outputsInOrder(outputs: Record<string, unknown> | undefined): unknown[]
 export function toFragmentResult<R>(raw: CpuValue<ShaderType> | CpuProgramResult | null): FragmentResult<R> | null {
   if (raw === null) return null;
   const result: { value: number[] | undefined; outputs: unknown[]; fragDepth?: number } = isResultObject(raw)
-    ? { value: Array.isArray(raw.value) ? (raw.value as number[]) : undefined, outputs: outputsInOrder(raw.outputs) }
-    : { value: Array.isArray(raw) ? (raw as number[]) : undefined, outputs: NO_OUTPUTS };
+    ? { value: isVector(raw.value) ? (raw.value as number[]) : undefined, outputs: outputsInOrder(raw.outputs) }
+    : { value: isVector(raw) ? (raw as number[]) : undefined, outputs: NO_OUTPUTS };
   if (isResultObject(raw) && raw.fragDepth !== undefined) result.fragDepth = raw.fragDepth;
   return result as FragmentResult<R>;
 }
