@@ -1310,6 +1310,17 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
   return result;
 }
 
+/** `node`'s value in `slot`: computed there where it can be, and copied in where it was computed elsewhere. */
+function jsCompileInto(node: any, slot: string, ctx: CompileCtx): CompiledNode {
+  let saved = ctx.outTarget;
+  ctx.outTarget = slot;
+  let value = compileJSStage(node, ctx);
+  ctx.outTarget = saved;
+  if (value.expr === slot) return { decls: value.decls, body: value.body, expr: slot };
+  jsRequireHelper(ctx, "copy");
+  return { decls: value.decls, body: [...value.body, `_copy(${value.expr}, ${slot});`], expr: slot };
+}
+
 /** A component of a boolean vector, which its slot holds as 1 or 0, read as `true` or `false`; a target as it is. */
 function jsBooleanComponent(node: any, read: CompiledNode, ctx: CompileCtx): CompiledNode {
   if (node._t !== "bool" || ctx.jsTarget === node) return read;
@@ -2112,17 +2123,7 @@ export function compileJSNode(
       let varName = (lhsNode.value as any)?.varName || (lhsNode as any)?.name;
       ctx.varDefs.set(varName, lhsNode._t);
       let rhsNode = node.params![1];
-      if (jsIsArrayType(rhsNode?._t)) {
-        let saved = ctx.outTarget;
-        ctx.outTarget = varName;
-        let rhs = compileJSStage(rhsNode, ctx);
-        ctx.outTarget = saved;
-        if (rhs.expr !== varName) {
-          jsRequireHelper(ctx, "copy");
-          return { decls: rhs.decls, body: [...rhs.body, `_copy(${rhs.expr}, ${varName});`], expr: varName };
-        }
-        return { decls: rhs.decls, body: rhs.body, expr: varName };
-      }
+      if (jsIsArrayType(rhsNode?._t)) return jsCompileInto(rhsNode, varName, ctx);
       let rhs = compileJSStage(rhsNode, ctx);
       return { decls: rhs.decls, body: [...rhs.body, `${varName} = ${rhs.expr};`], expr: varName };
     }
@@ -2173,16 +2174,11 @@ export function compileJSNode(
           };
         }
         let temp = jsNewTemp(ctx, rhsNode?._t || "float");
-        let saved = ctx.outTarget;
-        ctx.outTarget = temp;
-        let rhs = compileJSStage(rhsNode, ctx);
-        ctx.outTarget = saved;
-        if (rhs.expr !== temp) jsRequireHelper(ctx, "copy");
-        let fill = rhs.expr === temp ? [] : [`_copy(${rhs.expr}, ${temp});`];
+        let rhs = jsCompileInto(rhsNode, temp, ctx);
         let writes = components.map((k, i) => `${base.at(k)} = ${temp}[${i}];`);
         return {
           decls: [...base.decls, ...rhs.decls],
-          body: [...base.body, ...rhs.body, ...fill, ...writes],
+          body: [...base.body, ...rhs.body, ...writes],
           expr: base.expr,
         };
       }
@@ -2192,32 +2188,16 @@ export function compileJSNode(
       // external sink (res.position, res.outputs[...], ctx.varyings[...]) takes
       // the whole value in one assignment.
       if (jsIsArrayType(rhsNode?._t) && isPlainJSIdentifier(lhs.expr)) {
-        let saved = ctx.outTarget;
-        ctx.outTarget = lhs.expr;
-        let rhs = compileJSStage(rhsNode, ctx);
-        ctx.outTarget = saved;
-        if (rhs.expr !== lhs.expr) {
-          jsRequireHelper(ctx, "copy");
-          return {
-            decls: [...lhs.decls, ...rhs.decls],
-            body: [...lhs.body, ...rhs.body, `_copy(${rhs.expr}, ${lhs.expr});`],
-            expr: lhs.expr,
-          };
-        }
+        let rhs = jsCompileInto(rhsNode, lhs.expr, ctx);
         return { decls: [...lhs.decls, ...rhs.decls], body: [...lhs.body, ...rhs.body], expr: lhs.expr };
       }
       if (jsIsArrayType(rhsNode?._t)) {
         // The sink takes a slot of its own, so a write through it leaves what it was assigned from as it was.
         let slot = jsNewTemp(ctx, rhsNode._t);
-        let saved = ctx.outTarget;
-        ctx.outTarget = slot;
-        let rhs = compileJSStage(rhsNode, ctx);
-        ctx.outTarget = saved;
-        if (rhs.expr !== slot) jsRequireHelper(ctx, "copy");
-        let fill = rhs.expr === slot ? [] : [`_copy(${rhs.expr}, ${slot});`];
+        let rhs = jsCompileInto(rhsNode, slot, ctx);
         return {
           decls: [...lhs.decls, ...rhs.decls],
-          body: [...lhs.body, ...rhs.body, ...fill, `${lhs.expr} = ${slot};`],
+          body: [...lhs.body, ...rhs.body, `${lhs.expr} = ${slot};`],
           expr: lhs.expr,
         };
       }
