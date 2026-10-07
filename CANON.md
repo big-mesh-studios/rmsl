@@ -641,7 +641,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined) — GLSL ES 3.00 leaves undefined the result of an integer division or remainder by zero. It also leaves undefined a shift by a negative amount, or by the bit width or more.
 - [`@fact wgsl-rejects-a-constant-expression-that-fails`](#fact-wgsl-rejects-a-constant-expression-that-fails) — A WGSL shader fails to compile when a constant expression divides an integer by zero, shifts by the bit width or more, or overflows.
 - [`@fact wgsl-rejects-a-constant-expression-that-is-not-finite`](#fact-wgsl-rejects-a-constant-expression-that-is-not-finite) — A WGSL shader fails to compile when a constant expression has a result that is not finite, such as `1.0 / 0.0` or `sqrt(-1.0)`, and WGSL has no literal for infinity or NaN. The same expression read from a variable compiles.
-- [`@fact wgsl-leaves-the-integer-of-a-nan-open`](#fact-wgsl-leaves-the-integer-of-a-nan-open) — WGSL gives a NaN converted to `i32` or `u32` an indeterminate value of that type, where it clamps a float outside the range to the largest or smallest value.
+- [`@fact wgsl-an-indeterminate-value-is-any-value-of-its-type`](#fact-wgsl-an-indeterminate-value-is-any-value-of-its-type) — Where the WGSL specification gives an operation an indeterminate value, the result is any value of the result type. It need not be the same on two devices, or on two evaluations of the same expression.
+- [`@fact wgsl-leaves-the-integer-of-a-nan-open`](#fact-wgsl-leaves-the-integer-of-a-nan-open) — WGSL gives a NaN converted to `i32` or `u32` an [indeterminate value](#fact-wgsl-an-indeterminate-value-is-any-value-of-its-type) of that type, where it clamps a float outside the range to the largest or smallest value.
 - [`@fact wgsl-converts-a-bool-to-one-or-zero-and-a-number-by-testing-it-against-zero`](#fact-wgsl-converts-a-bool-to-one-or-zero-and-a-number-by-testing-it-against-zero) — In WGSL, `f32`, `i32` and `u32` of a `bool` give 1 for `true` and 0 for `false`, and `bool` of a number gives `true` when the number is not zero.
 - [`@fact tsl-leaves-a-constant-that-is-not-finite-to-the-driver`](#fact-tsl-leaves-a-constant-that-is-not-finite-to-the-driver) — TSL folds no constants and writes a literal float as the text of its number, so `float(1).div(0)` reaches a WGSL driver as `1.0 / 0.0`, which the driver refuses.
 - [`@fact wgsl-has-no-implicit-numeric-conversion`](#fact-wgsl-has-no-implicit-numeric-conversion) — WGSL converts no value of a concrete numeric type to another type implicitly. A program spells out every conversion.
@@ -4370,9 +4371,15 @@ This is a fact of the WGSL specification, not a choice.
 
 This is a fact of the WGSL specification, which Dawn enforces. Dawn reports `'1.0 / 0.0' cannot be represented as 'abstract-float'`, and `sqrt must be called with a value >= 0`.
 
+## @fact wgsl-an-indeterminate-value-is-any-value-of-its-type
+
+> Where the WGSL specification gives an operation an indeterminate value, the result is any value of the result type. It need not be the same on two devices, or on two evaluations of the same expression.
+
+This is a fact of the WGSL specification, not a choice. A device usually gives one fixed value in practice, but the specification promises none, so a program cannot rely on it and a test cannot hold two targets to the same one.
+
 ## @fact wgsl-leaves-the-integer-of-a-nan-open
 
-> WGSL gives a NaN converted to `i32` or `u32` an indeterminate value of that type, where it clamps a float outside the range to the largest or smallest value.
+> WGSL gives a NaN converted to `i32` or `u32` an [indeterminate value](#fact-wgsl-an-indeterminate-value-is-any-value-of-its-type) of that type, where it clamps a float outside the range to the largest or smallest value.
 
 This is a fact of the floating point conversion section of the WGSL specification, not a choice. Dawn on Metal gives `-2147483648` for `i32` and `0` for `u32`, and GLSL on SwiftShader gives `0` for both.
 
