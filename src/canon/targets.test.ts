@@ -202,15 +202,23 @@ describe("each leaf on every target it claims", () => {
         m.assign(inverse(m));
         return m.element(int(1)).y;
       })();
+    const rebuilt = (a: Node<"float">) =>
+      Fn(() => {
+        const v = vec3(a, 2, 3).toVar();
+        v.assign(vec3(v.z, v.x, v.y));
+        return v.x.mul(100).add(v.y.mul(10)).add(v.z);
+      })();
     const [x, y, z] = [1.13 * 0.57 - 0.1 * 2, 0.1 * 0.11 - 0.37 * 0.57, 0.37 * 2 - 1.13 * 0.11];
     expect(evaluateRecording(crossed, [0.37])).toBeCloseTo(x + y * 10 + z * 100, 12);
     expect(evaluateRecording(swizzled, [1])).toBe(21);
     expect(evaluateRecording(transposed, [1])).toBe(42);
     expect(evaluateRecording(inverted, [1])).toBe(-0.5);
+    expect(evaluateRecording(rebuilt, [1])).toBe(312);
     // The WASM target compiles neither transpose nor inverse (#65, #220).
     for (const [build, a] of [
       [crossed, 0.37],
       [swizzled, 1],
+      [rebuilt, 1],
     ] as const) {
       const params = [{ name: "a", type: "float" as const }];
       const wasm = compileWasmRoutine((p: any) => build(p), { name: "main", params })({ params: { a } });

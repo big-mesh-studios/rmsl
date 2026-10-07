@@ -1310,6 +1310,32 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
   return result;
 }
 
+/**
+ * Operations that, written into a slot they also read, read every component
+ * they need before they write it: element-wise ones read component `i` to
+ * write component `i`, and the helpers and reductions read their operands
+ * whole first.
+ */
+const JS_READS_BEFORE_WRITING = new Set([
+  ...["add", "sub", "mul", "div", "mod", "pow", "atan2", "min", "max", "mix", "step", "smoothstep", "clamp"],
+  ...["negate", "not", "select", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh"],
+  ...["asinh", "acosh", "atanh", "abs", "sign", "floor", "ceil", "fract", "round", "trunc", "radians"],
+  ...["degrees", "sqrt", "inverseSqrt", "exp", "log", "exp2", "log2"],
+  ...["cross", "transpose", "inverse", "normalize", "reflect", "refract", "faceforward", "dot", "length", "distance"],
+]);
+
+/**
+ * Whether `node`, computed into the variable `name`, reads it other than
+ * through operations that read before they write: through a swizzle, a
+ * constructor or a component, a component written early would be read.
+ */
+function jsReadsAcrossComponents(node: any, name: string, direct: boolean): boolean {
+  if (!node || typeof node !== "object") return false;
+  if (node.type === "var" && (node.value?.varName ?? node.name) === name) return !direct;
+  const through = direct && JS_READS_BEFORE_WRITING.has(node.type);
+  return (node.params ?? []).some((p: unknown) => jsReadsAcrossComponents(p, name, through));
+}
+
 /** `node`'s value in `slot`: computed there where it can be, and copied in where it was computed elsewhere. */
 function jsCompileInto(node: any, slot: string, ctx: CompileCtx): CompiledNode {
   let saved = ctx.outTarget;
@@ -2188,6 +2214,17 @@ export function compileJSNode(
       // external sink (res.position, res.outputs[...], ctx.varyings[...]) takes
       // the whole value in one assignment.
       if (jsIsArrayType(rhsNode?._t) && isPlainJSIdentifier(lhs.expr)) {
+        if (jsReadsAcrossComponents(rhsNode, lhs.expr, true)) {
+          // A value that reads its own target is computed whole before the target is written.
+          let temp = jsNewTemp(ctx, rhsNode._t);
+          let rhs = jsCompileInto(rhsNode, temp, ctx);
+          jsRequireHelper(ctx, "copy");
+          return {
+            decls: [...lhs.decls, ...rhs.decls],
+            body: [...lhs.body, ...rhs.body, `_copy(${temp}, ${lhs.expr});`],
+            expr: lhs.expr,
+          };
+        }
         let rhs = jsCompileInto(rhsNode, lhs.expr, ctx);
         return { decls: [...lhs.decls, ...rhs.decls], body: [...lhs.body, ...rhs.body], expr: lhs.expr };
       }
