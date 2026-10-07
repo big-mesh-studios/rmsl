@@ -11,6 +11,7 @@ import {
   invocationIndex,
   ivec2,
   mat2,
+  mix,
   select,
   smoothstep,
   outputStruct,
@@ -261,7 +262,7 @@ describe("what the JS target emits for an operand a constructor reads several ti
         })(),
       param,
     );
-    expect(source.match(/(?<!function )_v3add\(/g)?.length).toBe(1);
+    expect(source.match(/(?<!function )_v3add_vv\(/g)?.length).toBe(1);
   });
 
   /**
@@ -284,7 +285,7 @@ describe("what the JS target emits for an operand a constructor reads several ti
         })(),
       param,
     );
-    expect(source.match(/(?<!function )_v2add\(/g)?.length).toBe(1);
+    expect(source.match(/(?<!function )_v2add_vv\(/g)?.length).toBe(1);
   });
 });
 
@@ -773,6 +774,23 @@ describe("the slots of a JS function", () => {
       none,
     );
     expect(run({ uniforms: { [i.name]: [1, 2, 3], [f.name]: [0.5, 1.5] } })).toEqual([1.5, 2.5]);
+  });
+});
+
+describe("the element-wise helpers of a JS function", () => {
+  /**
+   * @canon spec-a-js-helper-serves-the-shapes-it-is-called-with
+   */
+  it("are written for the shape of each operand, and never ask it", () => {
+    const v = uniform("vec3");
+    const t = uniform("float");
+    const source = compileJSFn(() => Fn(() => mix(v.mul(t), t.mul(v), t).toVar())() as any, none);
+    expect(source).toContain("function _v3mul_vs(a, b, out)");
+    expect(source).toContain("function _v3mul_sv(a, b, out)");
+    expect(source).toContain("function _v3mix_vvs(a, b, c, out)");
+    expect(source).not.toContain("typeof");
+    const run = compileJSRoutine(() => Fn(() => mix(v.mul(t), t.mul(v), t).toVar())() as any, none);
+    expect(run({ uniforms: { [v.name]: [1, 2, 3], [t.name]: 0.5 } })).toEqual([0.5, 1, 1.5]);
   });
 });
 

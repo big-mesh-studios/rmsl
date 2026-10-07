@@ -3820,9 +3820,9 @@ describe("JS target", () => {
       return x;
     });
     let src = compileJSFn(() => prog(), { name: "main", params: [] });
-    expect(src).toContain("function _v3add(a, b, out)");
+    expect(src).toContain("function _v3add_vv(a, b, out)");
     // The assignment passes the hoisted slot as the output.
-    expect(src).toMatch(/_v3add\([^)]*,\s*_rmsl_\d+\);/);
+    expect(src).toMatch(/_v3add_vv\([^)]*,\s*_rmsl_\d+\);/);
   });
 
   /**

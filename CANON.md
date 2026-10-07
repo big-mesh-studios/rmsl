@@ -614,6 +614,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A compiled JS function keeps what it computes in slots it declares once, outside the function: its variables, each vector or matrix an operation computes, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. With `reentrant`, the function declares its slots inside itself, and each call has its own.
   - [`@spec a-cpu-compute-dispatch-allocates-nothing`](#spec-a-cpu-compute-dispatch-allocates-nothing) — `compute` of a CPU compute adapter allocates nothing, on JS and on WASM, with `out` or without it. A WASM routine reuses its argument list and its views of memory from one call to the next, and makes a view again only when the memory grows. The WASM adapter reads its scalar uniforms from the module's memory, and keeps them in an object in dictionary mode.
   - [`@spec a-js-program-keeps-its-vectors-in-views-of-one-buffer`](#spec-a-js-program-keeps-its-vectors-in-views-of-one-buffer) — A compiled JS function keeps each float, integer and unsigned vector and matrix it holds in a typed view of one `ArrayBuffer`, which it makes once, or once per call with `reentrant`. A float slot is a `Float64Array`, or a `Float32Array` at `float: "f32"`; an integer slot an `Int32Array`; an unsigned slot a `Uint32Array`. A boolean vector is an array of booleans.
+  - [`@spec a-js-helper-serves-the-shapes-it-is-called-with`](#spec-a-js-helper-serves-the-shapes-it-is-called-with) — A JS helper that applies an operation to each component of its operands is written for the shape of each operand, a vector or a scalar, which the compiler knows. It reads a vector's component and a scalar's value without asking which each is at run time.
   - [`@spec a-compiled-js-function-returns-its-result-in-a-slot`](#spec-a-compiled-js-function-returns-its-result-in-a-slot) — The function that `compileJSFn` returns as source, and that `precompileJS` ships, returns a vector or a matrix in a slot it reuses on the next call, so the result of one call is the result of the next. A caller that keeps one copies it, or compiles with `reentrant`. A [routine](#term-cpu-routine), a stage and a grid copy their result, so a later call does not change it.
   - [`@spec a-webgl-renderer-allocates-nothing-per-frame`](#spec-a-webgl-renderer-allocates-nothing-per-frame) — The WebGL renderer draws a frame without allocating. It reuses what it needs between frames, and builds no array, closure or iterator per frame or per draw.
     - [`@bug webgl-render-allocates-the-clear-colour-per-frame`](#bug-webgl-render-allocates-the-clear-colour-per-frame) — `render` reads the clear colour with `Color.toArray()`, which builds a new array on every frame.
@@ -4234,6 +4235,14 @@ This follows because a compute dispatch runs every frame, and a stage that takes
 Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call)
 
 This follows because one buffer is one allocation per function, where an array per slot is one each. A view is indexed as an array is, so the code that reads and writes a slot is the code that read and wrote an array. A `Float32Array` rounds each value it stores to 32 bits, which a program at `float: "f32"` asks of every vector it computes, so it needs no pass of its own to round one. On the programs of the effects and the materials, a slot that rounds on store ran f32 10 to 45 percent faster than a rounding pass, and as fast as a separate typed array for each slot.
+
+### @spec a-js-helper-serves-the-shapes-it-is-called-with
+
+> A JS helper that applies an operation to each component of its operands is written for the shape of each operand, a vector or a scalar, which the compiler knows. It reads a vector's component and a scalar's value without asking which each is at run time.
+
+Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call)
+
+This follows because a helper that serves every shape asks for each component whether its operand is a number, and an engine compiles a function called with several shapes to code that checks them. On a shading program, helpers written per shape ran 1.3 to 1.8 times faster in V8 and JavaScriptCore than one helper that asked.
 
 ### @spec a-compiled-js-function-returns-its-result-in-a-slot
 

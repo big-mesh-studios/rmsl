@@ -251,16 +251,18 @@ export function jsZeroes(width: number): string {
  * compiled with a target slot allocates nothing.
  */
 export function jsHelperSource(name: string): string {
-  let m = /^v(\d+)([a-zA-Z]+)$/.exec(name);
+  let m = /^v(\d+)([a-zA-Z]+)(?:_([vs]+))?$/.exec(name);
   if (m) {
     let width = Number(m[1]);
-    let op = m[2];
+    let op = m[2]!;
     let e = JS_ELEM[op];
     if (e) {
       let args = "abcdef".slice(0, e.argc).split("");
+      // One letter per operand, `v` for a vector and `s` for a scalar; every operand a vector without one.
+      let shape = m[3] ?? "v".repeat(e.argc);
       let lines: string[] = [];
       for (let i = 0; i < width; i++) {
-        let xs = args.map((a) => `(typeof ${a} === "number" ? ${a} : ${a}[${i}])`);
+        let xs = args.map((a, k) => (shape[k] === "s" ? a : `${a}[${i}]`));
         lines.push(`  out[${i}] = ${e.fn(xs)};`);
       }
       return (
@@ -667,7 +669,7 @@ function _texCube(tex, dir, out) {
 export function jsRequireHelper(ctx: CompileCtx, name: string): void {
   ctx.jsHelpers.add(name);
   // A vector helper calls the helper its `JS_ELEM` entry names.
-  const elementHelper = JS_ELEM[/^v\d+([a-zA-Z]+)$/.exec(name)?.[1] ?? ""]?.helper;
+  const elementHelper = JS_ELEM[/^v\d+([a-zA-Z]+)(?:_[vs]+)?$/.exec(name)?.[1] ?? ""]?.helper;
   if (elementHelper) ctx.jsHelpers.add(elementHelper);
 }
 
@@ -988,16 +990,19 @@ export function jsVectorBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: 
   let a = jsCompileOperand(node.params![0], ctx);
   let b = jsCompileOperand(node.params![1], ctx);
   let c = node.params![2] ? jsCompileOperand(node.params![2], ctx) : null;
-  jsRequireHelper(ctx, `v${width}${op}`);
+  // The helper is written for the shape of each operand, which the types give.
+  let shape = (node.params ?? []).map((p) => (jsArrayLength(p?._t) > 1 ? "v" : "s")).join("");
+  let helper = `v${width}${op}_${shape}`;
+  jsRequireHelper(ctx, helper);
   // The element-wise integer division helpers call the scalar ones.
   if (op === "idiv" || op === "imod" || op === "udiv" || op === "umod" || op === "smoothstep") jsRequireHelper(ctx, op);
   let args = c ? `${a.expr}, ${b.expr}, ${c.expr}` : `${a.expr}, ${b.expr}`;
   let decls = [...a.decls, ...b.decls, ...(c ? c.decls : [])];
   let body = [...a.body, ...b.body, ...(c ? c.body : [])];
   if (ctx.outTarget) {
-    return { decls, body: [...body, `_v${width}${op}(${args}, ${ctx.outTarget});`], expr: ctx.outTarget };
+    return { decls, body: [...body, `_${helper}(${args}, ${ctx.outTarget});`], expr: ctx.outTarget };
   }
-  return { decls, body, expr: `_v${width}${op}(${args})` };
+  return { decls, body, expr: `_${helper}(${args})` };
 }
 
 /**

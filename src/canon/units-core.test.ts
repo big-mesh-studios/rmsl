@@ -89,7 +89,7 @@ describe("units of the core", () => {
     const { glsl, wgsl, js } = sources(() => vec4(mix(u, vec3(1), 0.25), 1));
     expect(glsl).toMatch(/mix\(_rmsl_u\d+, vec3\(1\.0\), 0\.25\)/);
     expect(wgsl).toMatch(/mix\(_rmsl_uniforms\._rmsl_u\d+, vec3<f32>\(1f\), 0\.25f\)/);
-    expect(js).toMatch(/_v3mix\(ctx\.uniforms\["_rmsl_u\d+"\], _rmsl_t\d+, 0\.25, _rmsl_t\d+\)/);
+    expect(js).toMatch(/_v3mix_vvs\(ctx\.uniforms\["_rmsl_u\d+"\], _rmsl_t\d+, 0\.25, _rmsl_t\d+\)/);
     expect(evaluateRecording((a) => mix(vec3(a), vec3(1), 0.25).x, [-3])).toBe(-2);
   });
 
