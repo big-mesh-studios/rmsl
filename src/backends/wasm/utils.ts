@@ -38,6 +38,8 @@ export const WASM_OP = {
   i32Load8U: 0x2d,
   /** `f32.load`: load an f32 from memory. */
   f32Load: 0x2a,
+  /** `f32.store`: store an f32 to memory. */
+  f32Store: 0x38,
   /** `f64.load`: load an f64 from memory. */
   f64Load: 0x2b,
   /** `i32.store`: store an i32 to memory. */

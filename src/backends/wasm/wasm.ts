@@ -13,6 +13,7 @@ import {
   toFragmentResult,
   toVertexResult,
   typedArrayOf,
+  typedArrayOfKind,
   FloatWidth,
   CpuShaderContext,
   CpuProgramResult,
@@ -1055,6 +1056,8 @@ export function compileWasmFn(
       : isAggregate(root._t as string)
         ? elementKindOf(root._t as string)
         : scalarKindOf(root._t as string);
+  /** Whether `draw` writes its float components as f32, as `float: "f32"` asks of the buffer it fills. */
+  const drawFloat32 = float32 && drawComponentKind === "float";
 
   // A "draw(width, height, bufferBase)" export: loops every pixel, runs the
   // main function (feeding the pixel in as fragCoord), and stores the output
@@ -1070,6 +1073,8 @@ export function compileWasmFn(
     /** Pushes local `y`. */
     const getY = [WASM_OP.localGet, ...wasmUleb128(yIdx)];
     const compSize = componentSizeOf(drawComponentKind);
+    /** The bytes a component takes in the caller's buffer: 4 for a float at `float: "f32"`, as a `Float32Array` holds it. */
+    const outSize = drawFloat32 ? 4 : compSize;
     /**
      * Pushes every one of the main function's own params, in order —
      * `draw` and `main` share the same leading params, so this forwards
@@ -1108,7 +1113,7 @@ export function compileWasmFn(
       WASM_OP.i32Mul,
       ...getX,
       WASM_OP.i32Add,
-      ...i32ConstBytes(drawComponentCount * compSize),
+      ...i32ConstBytes(drawComponentCount * outSize),
       WASM_OP.i32Mul,
     ];
     /**
@@ -1120,9 +1125,14 @@ export function compileWasmFn(
       ...wasmUleb128(bufferBaseIdx),
       ...pixelByteOffset,
       WASM_OP.i32Add,
-      ...i32ConstBytes(k * compSize),
+      ...i32ConstBytes(k * outSize),
       WASM_OP.i32Add,
     ];
+    /** Stores a component at `addrBytes` in the caller's buffer, a float as an f32 at `float: "f32"`. */
+    const storeOut = (addrBytes: number[], valueBytes: number[]) =>
+      drawFloat32
+        ? [...addrBytes, ...valueBytes, WASM_OP.f32DemoteF64, WASM_OP.f32Store, 0x00, 0x00]
+        : storeDynamic(addrBytes, drawComponentKind, valueBytes);
     /**
      * Calls `main` and copies its result into the output buffer. A
      * needs-result function returns nothing directly — main() already wrote
@@ -1134,10 +1144,10 @@ export function compileWasmFn(
       ? [
           ...callMain,
           ...Array.from({ length: drawComponentCount }, (_, k) =>
-            storeDynamic(destAddr(k), drawComponentKind, loadComponent(valueAddress!, drawComponentKind, k * compSize)),
+            storeOut(destAddr(k), loadComponent(valueAddress!, drawComponentKind, k * compSize)),
           ).flat(),
         ]
-      : storeDynamic(destAddr(0), drawComponentKind, callMain);
+      : storeOut(destAddr(0), callMain);
     /** The whole per-pixel body: write fragCoord for this pixel, then run main() and copy its result out. */
     // A discarded pixel leaves its value memory as it was, so each pixel starts from zero
     // and a clear flag: a pixel that discards then holds zero in every channel.
@@ -4312,6 +4322,9 @@ export function instantiateWasmProgram(
    * (growing the buffer if needed) — see "A whole grid in one call" in
    * docs/wasm-benchmarks.md for why this exists.
    */
+  /** The typed array the module's `draw` writes its components as: 32-bit floats at `float: "f32"`. */
+  const DrawArray = typedArrayOfKind(drawOutput?.kind ?? "float", float32 === true);
+
   function draw(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
     if (!drawOutput || !wasmDraw) {
       throw new Error(
@@ -4325,7 +4338,7 @@ export function instantiateWasmProgram(
     // its offset — this is the zero-copy multi-worker path, where each
     // worker's instance imports the same SharedArrayBuffer-backed memory and
     // `out` is a view pinning where in it this call should land.
-    if (out && out.buffer === memory.buffer) {
+    if (out && out.buffer === memory.buffer && out instanceof DrawArray) {
       const n = copyArgs(drawArgs, args);
       drawArgs[n] = width;
       drawArgs[n + 1] = height;
@@ -4335,7 +4348,7 @@ export function instantiateWasmProgram(
     }
 
     const bufferBase = Math.ceil(heapEnd / 8) * 8; // align to 8 bytes — the typed-array constructors require it
-    const neededBytes = bufferBase + pixelCount * componentSizeOf(drawOutput.kind);
+    const neededBytes = bufferBase + pixelCount * DrawArray.BYTES_PER_ELEMENT;
     if (neededBytes > memory.buffer.byteLength) {
       memory.grow(Math.ceil((neededBytes - memory.buffer.byteLength) / 65536));
     }
@@ -4348,24 +4361,13 @@ export function instantiateWasmProgram(
     // `out` backed by a different buffer than this instance's memory: wasm
     // can only write into the memory it was instantiated with, so this has
     // to copy rather than return a view straight into wasm memory.
+    const pixels = new DrawArray(memory.buffer, bufferBase, pixelCount);
     if (out) {
-      out.set(
-        drawOutput.kind === "float"
-          ? new Float64Array(memory.buffer, bufferBase, pixelCount)
-          : drawOutput.kind === "uint"
-            ? new Uint32Array(memory.buffer, bufferBase, pixelCount)
-            : new Int32Array(memory.buffer, bufferBase, pixelCount),
-      );
+      out.set(pixels);
       return out;
     }
-
     // A copy: the view would show the pixels of the next draw.
-    if (drawOutput.kind === "float") {
-      const pixels = new Float64Array(memory.buffer, bufferBase, pixelCount);
-      return float32 ? Float32Array.from(pixels) : pixels.slice();
-    }
-    if (drawOutput.kind === "uint") return new Uint32Array(memory.buffer, bufferBase, pixelCount).slice();
-    return new Int32Array(memory.buffer, bufferBase, pixelCount).slice();
+    return pixels.slice();
   }
 
   /**

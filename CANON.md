@@ -589,7 +589,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug wasm-throws-on-an-unset-aggregate-input`](#bug-wasm-throws-on-an-unset-aggregate-input) — A vector varying the host leaves out throws a `TypeError` while the routine writes it into memory.
     - [`@spec a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array`](#spec-a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array) — A CPU routine returns a matrix as one flat typed array, which holds its columns one after another.
     - [`@spec a-cpu-compiler-calls-its-builder-once`](#spec-a-cpu-compiler-calls-its-builder-once) — `compileJSRoutine` and `compileWasmRoutine` call the builder the caller passes once for each compile.
-    - [`@spec a-grid-fills-a-float64-array-for-a-float-result`](#spec-a-grid-fills-a-float64-array-for-a-float-result) — `fill` of a CPU grid whose result is a float or a float vector returns a `Float64Array`, or a `Float32Array` at `float: "f32"`.
+    - [`@spec a-grid-fills-a-float64-array-for-a-float-result`](#spec-a-grid-fills-a-float64-array-for-a-float-result) — `fill` of a CPU grid whose result is a float or a float vector returns a `Float64Array`, or a `Float32Array` at `float: "f32"`. An `out` the caller passes is that array too, and is filled with the same values wherever it lies, in the WASM module's own memory included.
     - [`@spec a-grid-fills-an-int32-array-for-an-int-result`](#spec-a-grid-fills-an-int32-array-for-an-int-result) — `fill` of a CPU grid whose result is an `int` or an integer vector returns an `Int32Array`.
     - [`@spec a-grid-fills-a-uint32-array-for-a-uint-result`](#spec-a-grid-fills-a-uint32-array-for-a-uint-result) — `fill` of a CPU grid whose result is a `uint` or an unsigned vector returns a `Uint32Array`.
     - [`@spec a-grid-writes-a-bool-result-as-one-or-zero-in-an-int32-array`](#spec-a-grid-writes-a-bool-result-as-one-or-zero-in-an-int32-array) — `fill` of a CPU grid whose result is a `bool` returns an `Int32Array` that holds 1 for true and 0 for false.
@@ -4077,7 +4077,7 @@ This follows because a builder may declare its inputs as it runs, and a second c
 
 #### @spec a-grid-fills-a-float64-array-for-a-float-result
 
-> `fill` of a CPU grid whose result is a float or a float vector returns a `Float64Array`, or a `Float32Array` at `float: "f32"`.
+> `fill` of a CPU grid whose result is a float or a float vector returns a `Float64Array`, or a `Float32Array` at `float: "f32"`. An `out` the caller passes is that array too, and is filled with the same values wherever it lies, in the WASM module's own memory included.
 
 Derives from: [`spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel), [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
 

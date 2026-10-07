@@ -3,6 +3,7 @@ import {
   attribute,
   builtinPosition,
   Fn,
+  fragCoord,
   float,
   instancedArray,
   invocationIndex,
@@ -14,8 +15,8 @@ import {
   vec4,
   type Node,
 } from "./rmsl";
-import { compileJS, compileJSCompute, compileJSRoutine, createJsCompute } from "./js";
-import { compileWasm, compileWasmCompute, compileWasmRoutine, createWasmCompute } from "./wasm";
+import { compileJS, compileJSCompute, compileJSGrid, compileJSRoutine, createJsCompute } from "./js";
+import { compileWasm, compileWasmCompute, compileWasmGrid, compileWasmRoutine, createWasmCompute } from "./wasm";
 import type { CompileCpuRoutine } from "./backends/cpu";
 
 const f = Math.fround;
@@ -188,6 +189,24 @@ describe("a CPU compile at float: f32", () => {
     adapter.setUniform(t, 0.1);
     adapter.compute();
     expect(data[0]).toBe(f(f(0.1) + f(0.2)));
+  });
+});
+
+describe("a CPU grid at float: f32", () => {
+  /**
+   * @canon spec-a-grid-fills-a-float64-array-for-a-float-result
+   */
+  it("fills an out in the WASM module's own memory with the values the JS grid gives", () => {
+    const memory = new WebAssembly.Memory({ initial: 2, maximum: 2, shared: true });
+    const build = () => Fn(() => vec4(fragCoord().x.mul(0.1), 0.5, 0.25, 1))() as any;
+    const grid = compileWasmGrid(build, { name: "main", params: [], memory, sharedMemory: true, float: "f32" });
+    const offset = 65536;
+    const out = new Float32Array(memory.buffer, offset, 8);
+    const guard = new Float32Array(memory.buffer, offset + out.byteLength, 8).fill(7);
+    expect(grid({}, 2, 1, out)).toBe(out);
+    const js = compileJSGrid(build, { name: "main", params: [], float: "f32" })({}, 2, 1);
+    expect(Array.from(out)).toEqual(Array.from(js));
+    expect(Array.from(guard)).toEqual(new Array(8).fill(7));
   });
 });
 

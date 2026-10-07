@@ -115,11 +115,16 @@ export type FloatArray<W extends FloatWidth> = W extends "f32" ? Float32Array : 
  * in a `Float64Array`, or a `Float32Array` when `float32`, integers and
  * booleans in an `Int32Array`, and unsigned integers in a `Uint32Array`.
  */
-export function typedArrayOf(
-  type: string,
-  float32: boolean,
-): Float64ArrayConstructor | Float32ArrayConstructor | Int32ArrayConstructor | Uint32ArrayConstructor {
-  const kind = elementKindOf(type);
+export function typedArrayOf(type: string, float32: boolean): TypedArrayConstructor {
+  return typedArrayOfKind(elementKindOf(type), float32);
+}
+
+/** The constructors of the typed arrays a CPU target holds a value in. */
+export type TypedArrayConstructor =
+  Float64ArrayConstructor | Float32ArrayConstructor | Int32ArrayConstructor | Uint32ArrayConstructor;
+
+/** {@link typedArrayOf} for the kind of a component: `"float"`, `"int"`, `"uint"` or `"bool"`. */
+export function typedArrayOfKind(kind: ScalarKind, float32: boolean): TypedArrayConstructor {
   if (kind === "float") return float32 ? Float32Array : Float64Array;
   return kind === "uint" ? Uint32Array : Int32Array;
 }
