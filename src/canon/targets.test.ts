@@ -348,6 +348,23 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
+   * @canon spec-a-bool-converts-to-one-or-zero-and-a-number-to-whether-it-is-nonzero
+   */
+  it("converts between bool and the numeric types the same way on every target", () => {
+    const flag = (a: Node<"float">) => bool(a).select(10, 20) as Node<"float">;
+    expect(evaluateRecording(flag, [0.5])).toBe(10);
+    expect(evaluateRecording(flag, [-0.25])).toBe(10);
+    expect(evaluateRecording(flag, [0])).toBe(20);
+    expect(evaluateRecording((a) => bool(a.toInt()).select(10, 20) as Node<"float">, [3])).toBe(10);
+    expect(evaluateRecording((a) => bool(a.toInt()).select(10, 20) as Node<"float">, [0])).toBe(20);
+    expect(evaluateRecording((a) => bool(a.toUint()).select(10, 20) as Node<"float">, [0])).toBe(20);
+    expect(evaluateRecording((a) => float(a.greaterThan(0)).add(1) as Node<"float">, [2])).toBe(2);
+    expect(evaluateRecording((a) => float(a.greaterThan(0)).add(1) as Node<"float">, [-2])).toBe(1);
+    expect(evaluateRecording((a) => int(a.greaterThan(0)).add(1).toFloat(), [2])).toBe(2);
+    expect(evaluateRecording((a) => uint(a.lessThan(0)).add(1).toFloat(), [2])).toBe(1);
+  });
+
+  /**
    * @canon spec-a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number
    */
   it("builds a matrix from numbers and scalar nodes on every target", () => {

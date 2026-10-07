@@ -1911,7 +1911,7 @@ export function buildBlock(body: () => void): Node<"void"> {
 }
 
 // === Literal constructors (with overloads) ===
-export function float(v: number | Node<"int">): Node<"float"> {
+export function float(v: number | Node<"int"> | Node<"uint"> | Node<"bool">): Node<"float"> {
   if (isNode(v)) {
     return node({ _t: "float", type: "construct", params: [v] }) as Node<"float">;
   }
@@ -2002,13 +2002,13 @@ function integerLiteral(type: "int" | "uint", v: number): number {
   return truncated;
 }
 
-export function int(v: number | Node<"float">): Node<"int"> {
+export function int(v: number | Node<"float"> | Node<"uint"> | Node<"bool">): Node<"int"> {
   if (isNode(v)) {
     return node({ _t: "int", type: "construct", params: [v] }) as Node<"int">;
   }
   return node({ _t: "int", type: "int", value: integerLiteral("int", v) }) as Node<"int">;
 }
-export function uint(v: number | Node<"float"> | Node<"int">): Node<"uint"> {
+export function uint(v: number | Node<"float"> | Node<"int"> | Node<"bool">): Node<"uint"> {
   if (isNode(v)) {
     return node({ _t: "uint", type: "construct", params: [v] }) as Node<"uint">;
   }

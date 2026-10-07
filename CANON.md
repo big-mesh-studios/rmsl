@@ -41,6 +41,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-fold-that-is-not-finite-is-refused`](#spec-a-fold-that-is-not-finite-is-refused) — A float operation on literal operands whose result is not finite, such as `float(1).div(0)` or `float(-1).sqrt()`, is refused with one error on every target. The same operation on a run-time value gives its result.
     - [`@spec integer-folding-gives-the-run-time-result`](#spec-integer-folding-gives-the-run-time-result) — An integer operation on literal operands folds to the value the target would compute, a truncating division included.
   - [`@spec a-conversion-between-numeric-types-is-written-out`](#spec-a-conversion-between-numeric-types-is-written-out) — A conversion between numeric types compiles to an explicit conversion on every target, whether the program asks for it with a constructor, a `to` method or `convert`.
+  - [`@spec a-bool-converts-to-one-or-zero-and-a-number-to-whether-it-is-nonzero`](#spec-a-bool-converts-to-one-or-zero-and-a-number-to-whether-it-is-nonzero) — `float`, `int` and `uint` of a `bool` give 1 for `true` and 0 for `false`. `bool` of a `float`, `int` or `uint` gives `true` for any value that is not zero, a fraction between -1 and 1 included.
   - [`@spec a-target-without-a-builtin-gets-a-helper`](#spec-a-target-without-a-builtin-gets-a-helper) — Where one target has no built-in for an operation, the compiler emits a helper function that computes it. It emits the helper once per program, and calls it like the built-in.
     - [`@spec wgsl-inverts-a-matrix-through-a-helper-of-its-size`](#spec-wgsl-inverts-a-matrix-through-a-helper-of-its-size) — On WGSL, `inverse` calls a helper written for the size of its square matrix.
     - [`@spec wgsl-floors-a-modulus-through-a-helper`](#spec-wgsl-floors-a-modulus-through-a-helper) — On WGSL, a float `mod` calls a helper of the width of its operands, which floors the quotient as GLSL's `mod` does, and reads each operand once.
@@ -640,6 +641,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact wgsl-rejects-a-constant-expression-that-fails`](#fact-wgsl-rejects-a-constant-expression-that-fails) — A WGSL shader fails to compile when a constant expression divides an integer by zero, shifts by the bit width or more, or overflows.
 - [`@fact wgsl-rejects-a-constant-expression-that-is-not-finite`](#fact-wgsl-rejects-a-constant-expression-that-is-not-finite) — A WGSL shader fails to compile when a constant expression has a result that is not finite, such as `1.0 / 0.0` or `sqrt(-1.0)`, and WGSL has no literal for infinity or NaN. The same expression read from a variable compiles.
 - [`@fact wgsl-leaves-the-integer-of-a-nan-open`](#fact-wgsl-leaves-the-integer-of-a-nan-open) — WGSL does not define the `i32` or `u32` a NaN converts to, where it clamps a float outside the range to the largest or smallest value.
+- [`@fact wgsl-converts-a-bool-to-one-or-zero-and-a-number-by-testing-it-against-zero`](#fact-wgsl-converts-a-bool-to-one-or-zero-and-a-number-by-testing-it-against-zero) — In WGSL, `f32`, `i32` and `u32` of a `bool` give 1 for `true` and 0 for `false`, and `bool` of a number gives `true` when the number is not zero.
 - [`@fact tsl-leaves-a-constant-that-is-not-finite-to-the-driver`](#fact-tsl-leaves-a-constant-that-is-not-finite-to-the-driver) — TSL folds no constants and writes a literal float as the text of its number, so `float(1).div(0)` reaches a WGSL driver as `1.0 / 0.0`, which the driver refuses.
 - [`@fact wgsl-has-no-implicit-numeric-conversion`](#fact-wgsl-has-no-implicit-numeric-conversion) — WGSL converts no value of a concrete numeric type to another type implicitly. A program spells out every conversion.
 - [`@fact a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64) — GLSL and WGSL compute `float` in 32 bits. JavaScript numbers, and the `f64` type of WebAssembly, are 64 bits.
@@ -940,6 +942,14 @@ This follows because WGSL has no literal for such a result and WebGPU defines no
 Derives from: [`fact-wgsl-has-no-implicit-numeric-conversion`](#fact-wgsl-has-no-implicit-numeric-conversion)
 
 This follows because WGSL accepts no implicit conversion, so a program that relied on one would compile on GLSL only.
+
+### @spec a-bool-converts-to-one-or-zero-and-a-number-to-whether-it-is-nonzero
+
+> `float`, `int` and `uint` of a `bool` give 1 for `true` and 0 for `false`. `bool` of a `float`, `int` or `uint` gives `true` for any value that is not zero, a fraction between -1 and 1 included.
+
+Derives from: [`fact-wgsl-converts-a-bool-to-one-or-zero-and-a-number-by-testing-it-against-zero`](#fact-wgsl-converts-a-bool-to-one-or-zero-and-a-number-by-testing-it-against-zero)
+
+This follows because a conversion means the same on every target, and TSL writes the conversion natively, so a TSL shader gets WGSL's rule.
 
 ### @spec a-target-without-a-builtin-gets-a-helper
 
@@ -4356,6 +4366,12 @@ This is a fact of the WGSL specification, which Dawn enforces. Dawn reports `'1.
 ## @fact wgsl-leaves-the-integer-of-a-nan-open
 
 > WGSL does not define the `i32` or `u32` a NaN converts to, where it clamps a float outside the range to the largest or smallest value.
+
+This is a fact of the WGSL specification, not a choice.
+
+## @fact wgsl-converts-a-bool-to-one-or-zero-and-a-number-by-testing-it-against-zero
+
+> In WGSL, `f32`, `i32` and `u32` of a `bool` give 1 for `true` and 0 for `false`, and `bool` of a number gives `true` when the number is not zero.
 
 This is a fact of the WGSL specification, not a choice.
 
