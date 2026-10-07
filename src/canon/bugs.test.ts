@@ -25,10 +25,7 @@ import { evaluateJS, evaluateWASM } from "../testing/shader-eval";
 const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
 const none = { name: "main", params: [] };
 
-const narrow = (a: Node<"float">) =>
-  mat2(mat3(vec3(a, 2, 3), vec3(4, 5, 6), vec3(7, 8, 9)))
-    .element(int(1))
-    .y;
+const narrow = (a: Node<"float">) => mat2(mat3(vec3(a, 2, 3), vec3(4, 5, 6), vec3(7, 8, 9))).element(int(1)).y;
 
 describe("known bugs, each failing until its fix", () => {
   /**
@@ -70,10 +67,7 @@ describe("known bugs, each failing until its fix", () => {
    * @canon bug-wasm-compiles-no-matrix-inverse
    */
   it.fails("inverts a matrix on WASM", () => {
-    const build = (a: Node<"float">) =>
-      mat2(vec2(a, 1), vec2(2, 4))
-        .inverse()
-        .element(int(0)).x;
+    const build = (a: Node<"float">) => mat2(vec2(a, 1), vec2(2, 4)).inverse().element(int(0)).x;
     expect(evaluateWASM(build, [3])).toBeCloseTo(0.4, 12);
   });
 
