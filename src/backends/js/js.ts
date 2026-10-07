@@ -815,8 +815,8 @@ function jsComponents(node: any, ctx: CompileCtx): CompiledNode & { at(k: string
 
 /** The index of a storage element, a float index without its fraction as WGSL's `u32()` and WASM give it. */
 function jsStorageIndex(node: any, index: string): string {
-  // As WGSL's u32(): the fraction dropped, and a negative index clamped to 0.
-  return node.params![1]?._t === "float" ? `Math.trunc(Math.max(${index}, 0))` : `(${index})`;
+  // As WASM's i32.trunc_sat_f64_u: the fraction dropped, a negative or NaN index 0, a huge one past every buffer.
+  return node.params![1]?._t === "float" ? `(Math.min(Math.trunc(Math.max(${index}, 0)), 4294967295) || 0)` : `(${index})`;
 }
 
 /**
