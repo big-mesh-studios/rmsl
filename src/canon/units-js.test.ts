@@ -1,7 +1,9 @@
 import { afterAll, describe, expect, it } from "vitest";
 import {
   attribute,
+  bool,
   builtinPosition,
+  bvec2,
   Discard,
   Fn,
   float,
@@ -785,6 +787,25 @@ describe("the slots of a JS function", () => {
     );
     expect(run({ uniforms: { [i.name]: [1, 2, 3], [f.name]: [0.5, 1.5] } })).toEqual(new Float64Array([1.5, 2.5]));
   });
+
+  /**
+   * @canon spec-a-js-program-keeps-its-vectors-in-views-of-one-buffer
+   */
+  it("reads a component of a boolean vector as true or false", () => {
+    const flags = () => bvec2(true, false).toVar();
+    const programs: [string, () => Node<"bool">][] = [
+      ["x", () => flags().x],
+      ["y", () => flags().y],
+      ["y and true", () => flags().y.and(bool(true))],
+      ["x or false", () => flags().x.or(bool(false))],
+    ];
+    for (const [name, build] of programs) {
+      const program = () => Fn(build)() as any;
+      const wasm = compileWasmRoutine(program, none)({});
+      expect([name, compileJSRoutine(program, none)({})]).toEqual([name, wasm]);
+      expect(typeof wasm).toBe("boolean");
+    }
+  });
 });
 
 describe("the element-wise operations of a JS function", () => {
@@ -798,7 +819,8 @@ describe("the element-wise operations of a JS function", () => {
     const source = compileJSFn(build, none);
     expect(source).not.toMatch(/function _v3(mul|mix)/);
     expect(source).not.toContain("typeof");
-    expect(source).toMatch(/\[0\] = _rmsl_\w+\[0\] \* ctx\.uniforms\["_rmsl_u\d+"\];/);
+    // A scalar that is not a local is read into one once, before the components are written.
+    expect(source).toMatch(/(_rmsl_t\d+) = ctx\.uniforms\["_rmsl_u\d+"\];[\s\S]*\[0\] = _rmsl_\w+\[0\] \* \1;/);
     expect(compileJSRoutine(build, none)({ uniforms: { [v.name]: [1, 2, 3], [t.name]: 0.5 } })).toEqual(
       new Float64Array([0.5, 1, 1.5]),
     );
@@ -819,6 +841,31 @@ describe("the element-wise operations of a JS function", () => {
     const js = compileJSRoutine(() => Fn(() => a.dot(b).toVar())() as any, none)(ctx);
     const wasm = compileWasmRoutine(() => Fn(() => a.dot(b).toVar())() as any, none)(ctx);
     expect(Object.is(js, wasm)).toBe(true);
+  });
+
+  /**
+   * @canon spec-a-js-function-writes-out-what-would-cross-a-call
+   */
+  it("reads a scalar operand before it writes a component, even one of the slot itself", () => {
+    const programs = [
+      () =>
+        Fn(() => {
+          const v = vec3(2, 3, 4).toVar();
+          v.assign(v.mul(v.x));
+          return v;
+        })() as any,
+      () =>
+        Fn(() => {
+          const v = vec3(2, 3, 4).toVar();
+          v.assign(v.x.add(v));
+          return v;
+        })() as any,
+    ];
+    expect(compileJSRoutine(programs[0]!, none)({})).toEqual(new Float64Array([4, 6, 8]));
+    expect(compileJSRoutine(programs[1]!, none)({})).toEqual(new Float64Array([4, 5, 6]));
+    for (const program of programs) {
+      expect(compileJSRoutine(program, none)({})).toEqual(compileWasmRoutine(program, none)({}));
+    }
   });
 });
 

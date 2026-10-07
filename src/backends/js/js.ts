@@ -1080,7 +1080,8 @@ export function jsMatrixUnary(node: BaseNode<ShaderType>, ctx: CompileCtx, suffi
  * component of `target`, or `null` where it cannot be. V8 boxes a float it
  * passes to a call it does not inline, and a large function inlines few. A
  * component reads only the same component of each operand, so `target` may be
- * one of them. A scalar operand that is not a name is stored in a local first.
+ * one of them. A scalar operand that is not a local or a number is stored in a
+ * local first, since it may read a component of `target` written before it.
  */
 function jsElementwise(
   target: string,
@@ -1101,7 +1102,7 @@ function jsElementwise(
     if (shape[k] === "v") {
       if (!jsIsReference(o.expr)) return null;
       reads.push(o.expr);
-    } else if (jsIsReference(o.expr)) reads.push(o.expr);
+    } else if (isPlainJSIdentifier(o.expr) || /^-?\d+(\.\d+)?(e[+-]?\d+)?$/.test(o.expr)) reads.push(o.expr);
     else {
       let local = jsNewTemp(ctx, nodes[k]?._t ?? "float");
       body.push(`${local} = ${o.expr};`);
@@ -1286,6 +1287,12 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
   ctx.memo.set(node, readsSlot ? { ...result, jsEpoch: ctx.jsEpoch } : result);
   if (node.type === "let" || node.type === "assign") ctx.jsEpoch++;
   return result;
+}
+
+/** A component of a boolean vector, which its slot holds as 1 or 0, read as `true` or `false`; a target as it is. */
+function jsBooleanComponent(node: any, read: CompiledNode, ctx: CompileCtx): CompiledNode {
+  if (node._t !== "bool" || ctx.jsTarget === node) return read;
+  return { ...read, expr: `!!${wrapExpr(read.prec, PREC_UNARY, read.expr)}`, prec: PREC_UNARY };
 }
 
 /** `node` compiled as the target of an assignment: what it names, to be written, and not its value rounded. */
@@ -1646,7 +1653,8 @@ export function compileJSNode(
       let src = jsComponents(node.params![0], ctx);
       let pattern = node.value as string;
       if (pattern.length === 1) {
-        return { decls: src.decls, body: src.body, expr: src.at(`${JS_COMPONENT_INDEX[pattern]}`) };
+        let read = { decls: src.decls, body: src.body, expr: src.at(`${JS_COMPONENT_INDEX[pattern]}`) };
+        return jsBooleanComponent(node, read, ctx);
       }
       let idx = [...pattern].map((ch) => JS_COMPONENT_INDEX[ch]);
       if (ctx.outTarget) {
@@ -1981,7 +1989,8 @@ export function compileJSNode(
       let src = jsComponents(node.params![0], ctx);
       let idx = jsCompileOperand(node.params![1], ctx);
       let component = src.inBuffer ? jsBoundedIndex(idx.expr, TYPE_WIDTH[node.params![0]._t]) : idx.expr;
-      return { decls: [...src.decls, ...idx.decls], body: [...src.body, ...idx.body], expr: src.at(component) };
+      let read = { decls: [...src.decls, ...idx.decls], body: [...src.body, ...idx.body], expr: src.at(component) };
+      return jsBooleanComponent(node, read, ctx);
     }
 
     case "texture":
