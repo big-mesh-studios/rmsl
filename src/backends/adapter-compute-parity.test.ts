@@ -317,6 +317,36 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     expect(js[acc.name]).toEqual([1, 3, 6, 10]);
     expect(wasm).toEqual(js);
   });
+  /**
+   * @canon spec-a-vector-written-to-a-storage-element-is-copied-into-it
+   */
+  it("keeps the vector each invocation writes to its own element", () => {
+    const buf = instancedArray(3, "vec2");
+    const root = Fn(() => {
+      buf.element(invocationIndex()).assign(vec2(invocationIndex().toFloat(), 1));
+    })();
+
+    const [js, wasm] = runBoth(root, () => ({ [buf.name]: new Float32Array(6) }));
+    expect(js[buf.name]).toEqual([0, 1, 1, 1, 2, 1]);
+    expect(wasm).toEqual(js);
+  });
+  /**
+   * @canon spec-a-vector-written-to-a-storage-element-is-copied-into-it
+   */
+  it("leaves a literal vector alone when a component of the element it was written to changes", () => {
+    const buf = instancedArray(3, "vec2");
+    const root = Fn(() => {
+      const i = invocationIndex();
+      buf.element(i).assign(vec2(5, 6));
+      If(i.equal(uint(0)), () => {
+        buf.element(i).x.assign(float(7));
+      });
+    })();
+
+    const [js, wasm] = runBoth(root, () => ({ [buf.name]: new Float32Array(6) }));
+    expect(js[buf.name]).toEqual([7, 6, 5, 6, 5, 6]);
+    expect(wasm).toEqual(js);
+  });
 });
 
 describe("createJsCompute/createWasmCompute reading back into out", () => {

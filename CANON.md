@@ -541,6 +541,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel) — `fill` of a CPU grid evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to fill with.
     - [`@spec a-cpu-compute-stage-runs-one-invocation-per-index`](#spec-a-cpu-compute-stage-runs-one-invocation-per-index) — `dispatch` of a CPU compute stage runs the program once for each index of its count. It reads and writes any element of the buffers the host passes by slot.
     - [`@spec a-cpu-compute-stage-reads-a-vector-element-as-an-array`](#spec-a-cpu-compute-stage-reads-a-vector-element-as-an-array) — A CPU compute stage reads and writes the element of a vector or a matrix storage buffer as an array of its components, and a scalar buffer as numbers. The buffer the host passes holds one array for each element.
+    - [`@spec a-vector-written-to-a-storage-element-is-copied-into-it`](#spec-a-vector-written-to-a-storage-element-is-copied-into-it) — A CPU compute stage writes a vector or matrix assigned to a storage element into the array of that element, one component at a time. A later write to the value it came from leaves the element as it is, and a later write to the element leaves the value as it is.
     - [`@spec a-wasm-routine-is-reentrant`](#spec-a-wasm-routine-is-reentrant) — A WASM routine keeps its variables in its own module, so it computes the same with or without `reentrant`.
     - [`@spec a-cpu-target-runs-invocations-in-index-order`](#spec-a-cpu-target-runs-invocations-in-index-order) — A CPU target runs the invocations of a dispatch one at a time, in index order. An invocation sees the writes of the invocations before it.
     - [`@spec a-cpu-target-rasterizes-a-vertex-and-fragment-pair`](#spec-a-cpu-target-rasterizes-a-vertex-and-fragment-pair) — `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates varyings in perspective, clips at the near plane, and keeps the closer fragment.
@@ -3770,6 +3771,14 @@ This follows because a compute program writes into storage and has no result to 
 Derives from: [`spec-a-cpu-compute-stage-runs-one-invocation-per-index`](#spec-a-cpu-compute-stage-runs-one-invocation-per-index)
 
 This follows because the program that reads `buf.element(i)` of a `vec2` buffer reads a `vec2`, and a `vec2` is an array on the CPU. A compute adapter takes the flat typed array of [`spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array`](#spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array) and converts, so the stage reads the array of an element.
+
+#### @spec a-vector-written-to-a-storage-element-is-copied-into-it
+
+> A CPU compute stage writes a vector or matrix assigned to a storage element into the array of that element, one component at a time. A later write to the value it came from leaves the element as it is, and a later write to the element leaves the value as it is.
+
+Derives from: [`spec-a-cpu-compute-stage-reads-a-vector-element-as-an-array`](#spec-a-cpu-compute-stage-reads-a-vector-element-as-an-array), [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call)
+
+This follows because the vector a JS function computes lives in a slot that the next invocation writes again, and a literal vector is one constant that every call shares. An element that held the slot or the constant itself would change with them.
 
 #### @spec a-wasm-routine-is-reentrant
 

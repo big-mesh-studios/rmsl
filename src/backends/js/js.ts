@@ -1912,6 +1912,15 @@ export function compileJSNode(
         return { decls: [...lhs.decls, ...rhs.decls], body: [...lhs.body, ...rhs.body], expr: lhs.expr };
       }
       let rhs = compileJSStage(rhsNode, ctx);
+      // A storage element owns its array; the value may be a slot or a constant that changes later.
+      if (targetNode?.type === "storageElement" && jsIsArrayType(rhsNode?._t)) {
+        jsRequireHelper(ctx, "copy");
+        return {
+          decls: [...lhs.decls, ...rhs.decls],
+          body: [...lhs.body, ...rhs.body, `_copy(${rhs.expr}, ${lhs.expr});`],
+          expr: lhs.expr,
+        };
+      }
       return {
         decls: [...lhs.decls, ...rhs.decls],
         body: [...lhs.body, ...rhs.body, `${lhs.expr} = ${rhs.expr};`],
