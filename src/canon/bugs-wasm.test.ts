@@ -338,4 +338,16 @@ describe("known WASM bugs, each failing until its fix", () => {
     expect(first((a) => sin(vec3(a, 2, 3)))({ params: { a: 0 } })).toBe(0);
     expect(first((a) => floor(vec3(a, 2, 3)))({ params: { a: 1.5 } })).toBe(1);
   });
+  /**
+   * @canon bug-a-gpu-uniform-layout-is-accepted-without-f32
+   */
+  it.fails("refuses gpuUniformLayout on a compile at 64 bits", () => {
+    const s = uniform("float");
+    expect(() =>
+      compileWasmRoutine(() => Fn(() => s.add(0).toVar())(), {
+        ...none,
+        gpuUniformLayout: { offsets: { [s.name]: 0 }, totalSize: 16 },
+      }),
+    ).toThrow(/float: "f32"/);
+  });
 });

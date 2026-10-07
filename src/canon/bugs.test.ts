@@ -125,4 +125,18 @@ describe("known bugs, each failing until its fix", () => {
     const u = uniform("float");
     expect(compileJSRoutine(() => Fn(() => u.add(1).toVar())(), none)({ uniforms: {} })).toBe(1);
   });
+  /**
+   * The options are cast because no compile function declares `float` until
+   * the bug is fixed.
+   *
+   * @canon bug-no-cpu-compile-takes-a-float-width
+   */
+  it.fails.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine],
+  ] as const)("%s: computes a float in 32 bits when the compile asks for f32", (_, compile) => {
+    const options = { name: "main", params: [{ name: "a", type: "float" }], float: "f32" } as any;
+    const run = compile((a: Node<"float">) => Fn(() => a.add(0.2).toVar())(), options);
+    expect(run({ params: { a: 0.1 } })).toBe(Math.fround(Math.fround(0.1) + Math.fround(0.2)));
+  });
 });

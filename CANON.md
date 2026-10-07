@@ -136,7 +136,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@bug the-harness-reads-negative-zero-as-zero`](#bug-the-harness-reads-negative-zero-as-zero) — The harness compares a WASM result with the JS one by `===`, which holds between `-0` and `0`, so a WASM result whose sign of zero differs passes.
         - [`@exception a-wasm-uniform-in-the-gpu-layout-holds-an-f32`](#exception-a-wasm-uniform-in-the-gpu-layout-holds-an-f32) — A WASM uniform placed with `gpuUniformLayout` holds a 32-bit float, so a program that reads it differs from the JS result by that rounding.
       - [`@spec cpu-float-arithmetic-matches-the-gpu-targets`](#spec-cpu-float-arithmetic-matches-the-gpu-targets) — The CPU targets give a float operation the result the [GPU targets](#term-gpu-target) give.
-        - [`@exception a-cpu-target-computes-floats-in-64-bits`](#exception-a-cpu-target-computes-floats-in-64-bits) — A CPU target computes a float in 64 bits, where a GPU computes it in 32 bits. Its result can differ from the GPU's by at most a millionth of the result's size, and by at most `1e-6` near zero.
+        - [`@exception a-cpu-target-computes-floats-in-64-bits`](#exception-a-cpu-target-computes-floats-in-64-bits) — A CPU target computes a float in 64 bits unless its compile asks for 32, where a GPU computes it in 32 bits. Its result can differ from the GPU's by at most a millionth of the result's size, and by at most `1e-6` near zero.
+      - [`@spec a-cpu-compile-can-run-a-program-at-64-bit-precision`](#spec-a-cpu-compile-can-run-a-program-at-64-bit-precision) — A compile function or adapter of a CPU target, JS and WASM alike, takes the option `float`, which sets the width its program computes a `float` in: `"f64"`, the default, or `"f32"`, as a GPU computes it. At 32 bits, an addition, subtraction, multiplication, division or square root gives exactly the result a GPU gives. The same program then runs on the CPU at the precision the caller picked. A compile function of a GPU target takes no such option.
+        - [`@bug no-cpu-compile-takes-a-float-width`](#bug-no-cpu-compile-takes-a-float-width) — No compile function or adapter of a CPU target takes `float` yet. Each computes every `float` in 64 bits.
     - [`@spec a-run-time-index-past-the-end-reaches-the-last-element`](#spec-a-run-time-index-past-the-end-reaches-the-last-element) — A vector component or matrix column reached by a run-time index below zero or past its end reads and writes the last component or column.
       - [`@spec a-cpu-target-reaches-the-last-element-out-of-range`](#spec-a-cpu-target-reaches-the-last-element-out-of-range) — On a CPU target, a run-time index below zero or past the end reaches the last component or column of a vector or a matrix. This holds for a vector or matrix held in a storage element too. An index past the end of the storage buffer itself is a storage access outside its buffer.
         - [`@bug js-reads-a-vector-component-out-of-range-as-undefined`](#bug-js-reads-a-vector-component-out-of-range-as-undefined) — On JS, a vector component read by a run-time index past the end gives `undefined`.
@@ -504,8 +506,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec uniforms-are-ordered-by-alignment-then-by-declaration`](#spec-uniforms-are-ordered-by-alignment-then-by-declaration) — Uniform members are placed in order of descending alignment, and members that align alike keep the order they were declared in.
     - [`@spec an-array-member-has-a-stride-of-sixteen`](#spec-an-array-member-has-a-stride-of-sixteen) — An array member reports a stride of at least 16 bytes, and a `bool` array the stride of what it travels as. The struct rounds its size up to the array's alignment.
     - [`@spec a-matrix-member-pads-each-column`](#spec-a-matrix-member-pads-each-column) — A matrix member takes one aligned column for each of its columns, so a `mat2x3` takes two columns of 16 bytes.
-    - [`@spec a-wasm-routine-reads-uniforms-from-the-wgsl-layout`](#spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout) — Given `gpuUniformLayout`, a WASM routine reads each uniform, arrays included, at the offset and stride `wgslUniformLayout` reports, so one buffer serves WGSL and WASM.
+    - [`@spec a-wasm-routine-reads-uniforms-from-the-wgsl-layout`](#spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout) — Given `gpuUniformLayout`, a WASM routine reads each uniform, arrays included, at the offset and stride `wgslUniformLayout` reports, so one buffer serves WGSL and WASM. Without it, a WASM module lays out its own memory and holds each float uniform in 64 bits.
       - [`@bug wasm-passes-a-gpu-placed-scalar-uniform-around-the-layout`](#bug-wasm-passes-a-gpu-placed-scalar-uniform-around-the-layout) — Without `scalarsInMemory`, a scalar uniform placed by `gpuUniformLayout` arrives as a 64-bit argument and never reads from the layout.
+    - [`@spec a-gpu-uniform-layout-needs-32-bit-floats`](#spec-a-gpu-uniform-layout-needs-32-bit-floats) — A WASM compile function or adapter given `gpuUniformLayout` must also be given `float: "f32"`. The type checker refuses the layout beside `float: "f64"`, or beside no `float`, when the options are written in the call. The compile refuses it too, with an error that names both ways out: `float: "f32"` to share the buffer with the GPU, or no layout to keep 64 bits.
+      - [`@bug a-gpu-uniform-layout-is-accepted-without-f32`](#bug-a-gpu-uniform-layout-is-accepted-without-f32) — A WASM compile given `gpuUniformLayout` is accepted without `float: "f32"`, because no compile function takes `float` yet.
     - [`@spec a-type-with-no-layout-is-refused`](#spec-a-type-with-no-layout-is-refused) — A member whose type has no WGSL layout is refused, rather than placed by a guess.
     - [`@spec a-wgsl-stage-hands-its-uniforms-to-the-layout-in-creation-order`](#spec-a-wgsl-stage-hands-its-uniforms-to-the-layout-in-creation-order) — A WGSL stage given no uniform list declares its uniforms to the layout in the order the program created them.
       - [`@bug wgsl-hands-uniforms-to-the-layout-in-the-string-order-of-slot-names`](#bug-wgsl-hands-uniforms-to-the-layout-in-the-string-order-of-slot-names) — A WGSL stage given no uniform list declares its uniforms to the layout in the string order of their slot names, so `_rmsl_u10` comes before `_rmsl_u2`.
@@ -1504,11 +1508,25 @@ Derives from: [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu
 
 ###### @exception a-cpu-target-computes-floats-in-64-bits
 
-> A CPU target computes a float in 64 bits, where a GPU computes it in 32 bits. Its result can differ from the GPU's by at most a millionth of the result's size, and by at most `1e-6` near zero.
+> A CPU target computes a float in 64 bits unless its compile asks for 32, where a GPU computes it in 32 bits. Its result can differ from the GPU's by at most a millionth of the result's size, and by at most `1e-6` near zero.
 
 Derives from: [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
 
-The bound is about eight units in the last place of a 32-bit float. JavaScript and WebAssembly can both round to 32 bits, so this departs from WebGPU only until they do: issue #11.
+The bound is about eight units in the last place of a 32-bit float. A compile that asks for 32 bits gives a basic operation the GPU's result exactly, as [`spec-a-cpu-compile-can-run-a-program-at-64-bit-precision`](#spec-a-cpu-compile-can-run-a-program-at-64-bit-precision) states.
+
+##### @spec a-cpu-compile-can-run-a-program-at-64-bit-precision
+
+> A compile function or adapter of a CPU target, JS and WASM alike, takes the option `float`, which sets the width its program computes a `float` in: `"f64"`, the default, or `"f32"`, as a GPU computes it. At 32 bits, an addition, subtraction, multiplication, division or square root gives exactly the result a GPU gives. The same program then runs on the CPU at the precision the caller picked. A compile function of a GPU target takes no such option.
+
+Derives from: [`axiom-each-target-keeps-what-makes-it-worth-choosing`](#axiom-each-target-keeps-what-makes-it-worth-choosing), [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
+
+This follows because a CPU target computes in 64 bits, which a GPU cannot, and a user who wants that precision for a program should not have to rewrite the program to get it. 64 bits is the default because it is the native number of JavaScript: V8 computes a chain of 32-bit float operations up to about 2.7 times slower than the same chain in 64 bits, where SpiderMonkey and JavaScriptCore pay little or nothing. JS and WASM share the option and its default, as [`spec-wasm-and-js-give-the-same-float-bits`](#spec-wasm-and-js-give-the-same-float-bits) requires: WebAssembly's 32-bit float operations are correctly rounded, so they give the bits that JavaScript gives by rounding each result with `Math.fround`. A program compiled at 64 bits departs from the GPU result by the rounding it avoids, by the caller's choice, as a compile that asks for `derivatives: "zero"` departs from it. A type of its own for 64-bit floats would be a different feature: it would change what a program means, where this option changes only how precisely a CPU target runs it.
+
+###### @bug no-cpu-compile-takes-a-float-width
+
+> No compile function or adapter of a CPU target takes `float` yet. Each computes every `float` in 64 bits.
+
+Issue: #11
 
 #### @spec a-run-time-index-past-the-end-reaches-the-last-element
 
@@ -3553,13 +3571,27 @@ Derives from: [`fact-a-wgsl-uniform-array-has-a-16-byte-stride`](#fact-a-wgsl-un
 
 #### @spec a-wasm-routine-reads-uniforms-from-the-wgsl-layout
 
-> Given `gpuUniformLayout`, a WASM routine reads each uniform, arrays included, at the offset and stride `wgslUniformLayout` reports, so one buffer serves WGSL and WASM.
+> Given `gpuUniformLayout`, a WASM routine reads each uniform, arrays included, at the offset and stride `wgslUniformLayout` reports, so one buffer serves WGSL and WASM. Without it, a WASM module lays out its own memory and holds each float uniform in 64 bits.
 
 ##### @bug wasm-passes-a-gpu-placed-scalar-uniform-around-the-layout
 
 > Without `scalarsInMemory`, a scalar uniform placed by `gpuUniformLayout` arrives as a 64-bit argument and never reads from the layout.
 
 Issue: #111
+
+#### @spec a-gpu-uniform-layout-needs-32-bit-floats
+
+> A WASM compile function or adapter given `gpuUniformLayout` must also be given `float: "f32"`. The type checker refuses the layout beside `float: "f64"`, or beside no `float`, when the options are written in the call. The compile refuses it too, with an error that names both ways out: `float: "f32"` to share the buffer with the GPU, or no layout to keep 64 bits.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs), [`spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout`](#spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout), [`spec-a-cpu-compile-can-run-a-program-at-64-bit-precision`](#spec-a-cpu-compile-can-run-a-program-at-64-bit-precision)
+
+This follows because a layout shares its bytes with a WGSL uniform buffer, which holds 32-bit floats, while a program compiled at 64 bits asked for a precision those bytes cannot carry. A user who picks 64 bits gives up sharing the buffer with the GPU. The precision stays written at the call, rather than following from the layout without a word.
+
+##### @bug a-gpu-uniform-layout-is-accepted-without-f32
+
+> A WASM compile given `gpuUniformLayout` is accepted without `float: "f32"`, because no compile function takes `float` yet.
+
+Issue: #11
 
 #### @spec a-type-with-no-layout-is-refused
 
