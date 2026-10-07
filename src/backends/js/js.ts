@@ -1390,8 +1390,8 @@ function jsCompileTarget(node: any, ctx: CompileCtx): CompiledNode {
   }
 }
 
-/** The node types whose value the host passes in, which a program at `float: "f32"` rounds as it reads them. */
-const JS_HOST_INPUTS = new Set(["uniform", "uniformArrayElement", "attribute", "varying", "storageElement", "var"]);
+/** The node types whose vector or matrix the host passes in as an array of its own. */
+const JS_HOST_INPUTS = new Set(["uniform", "uniformArrayElement", "attribute", "varying", "var"]);
 
 /**
  * `result`, the value of `node`, in a typed slot of its kind when it is a
