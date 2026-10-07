@@ -291,13 +291,21 @@ export const isVector = (value: unknown): value is ArrayLike<number> =>
 
 /** The {@link VertexResult} of what a routine compiled for the vertex stage returned. */
 export function toVertexResult(raw: CpuValue<ShaderType> | CpuProgramResult | null): VertexResult {
-  // A vertex stage that never writes the position itself has its `vec4` result become the position.
-  const wrapped = isResultObject(raw);
-  const position = (wrapped ? (raw.position ?? raw.value) : raw) as VertexResult["position"] | undefined;
+  const position = vertexPosition(raw) as VertexResult["position"];
+  return { position, varyings: (isResultObject(raw) && (raw.varyings as Record<string, unknown>)) || {} };
+}
+
+/**
+ * The position of what a vertex stage returned: the one it wrote with
+ * `builtinPosition()`, or else its `vec4` result. A stage that gave neither
+ * is refused.
+ */
+export function vertexPosition(raw: unknown): ArrayLike<number> {
+  const position = (isResultObject(raw) ? (raw.position ?? raw.value) : raw) as ArrayLike<number> | undefined;
   if (!position) {
     throw new Error("[RMSL] A vertex stage never wrote a position, with builtinPosition() or a vec4 result.");
   }
-  return { position, varyings: (wrapped && (raw.varyings as Record<string, unknown>)) || {} };
+  return position;
 }
 
 /** The outputs of a fragment that wrote none, which every such fragment shares: a per-pixel call allocates nothing for it. */

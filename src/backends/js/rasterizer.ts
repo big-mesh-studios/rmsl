@@ -1,6 +1,6 @@
 import { Node, ShaderType } from "../../core";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK } from "../adapter";
-import { componentCountOf, CpuDrawBuffer, CpuShaderContext, isResultObject } from "../cpu";
+import { componentCountOf, CpuDrawBuffer, CpuShaderContext, isResultObject, vertexPosition } from "../cpu";
 import { compileJSProgram, CompileJSOptions } from "./js";
 
 /** Homogeneous-clip-space near-plane epsilon — see rasterizer.md's clip-pass design (`rasterizer.wat`'s `W_CLIP_EPS`). */
@@ -296,13 +296,8 @@ export function compileJS(
         }
       }
       const raw = vertexStage.runInPlace(vertexCtx);
-      const result = isResultObject(raw) ? raw : null;
-      // A vertex stage that never writes the position itself has its `vec4` result become the position.
-      const position = (result ? (result.position ?? result.value) : raw) as ArrayLike<number> | undefined;
-      if (!position) {
-        throw new Error("[RMSL] A vertex stage never wrote a position, with builtinPosition() or a vec4 result.");
-      }
-      const varyings = result?.varyings;
+      const position = vertexPosition(raw);
+      const varyings = isResultObject(raw) ? raw.varyings : undefined;
       const vertex = (vertices[i] ??= makeVertex(varyingWidths));
       for (let c = 0; c < 4; c++) vertex.position[c] = position[c]!;
       for (let k = 0; k < varyingSlots.length; k++) {
