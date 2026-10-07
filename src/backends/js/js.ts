@@ -745,6 +745,25 @@ function jsAssignable(node: any, ctx: CompileCtx): CompiledNode & { at(k: string
 }
 
 /**
+ * An operand whose components a read reaches one by one: `at(k)` is component
+ * `k`. A vector or matrix storage element is read in its buffer, without a copy.
+ */
+function jsComponents(node: any, ctx: CompileCtx): CompiledNode & { at(k: string): string; inBuffer: boolean } {
+  if (node?.type === "storageElement" && jsIsArrayType(node._t)) {
+    let element = jsStorageElement(node, ctx);
+    return { ...element, at: (k) => `${element.buffer}[${element.start} + ${k}]`, inBuffer: true };
+  }
+  let src = jsCompileOperand(node, ctx);
+  let srcExpr = (src.prec ?? PREC_ATOM) < PREC_ATOM ? `(${src.expr})` : src.expr;
+  return { ...src, at: (k) => `${srcExpr}[${k}]`, inBuffer: false };
+}
+
+/** The index of a storage element, a float index without its fraction as WGSL's `u32()` and WASM give it. */
+function jsStorageIndex(node: any, index: string): string {
+  return node.params![1]?._t === "float" ? `Math.trunc(${index})` : `(${index})`;
+}
+
+/**
  * A vector or matrix element of a storage buffer, which holds its components
  * one after another: they lie in `buffer` from `start`, evaluated once.
  */
@@ -754,7 +773,7 @@ function jsStorageElement(node: any, ctx: CompileCtx): CompiledNode & { buffer: 
   let start = jsNewTemp(ctx, "int");
   return {
     decls: [...buffer.decls, ...idx.decls],
-    body: [...buffer.body, ...idx.body, `${start} = (${idx.expr}) * ${componentCountOf(node._t)};`],
+    body: [...buffer.body, ...idx.body, `${start} = ${jsStorageIndex(node, idx.expr)} * ${componentCountOf(node._t)};`],
     expr: start,
     buffer: buffer.expr,
     start,
@@ -1364,7 +1383,7 @@ export function compileJSNode(
       return {
         decls: [...arr.decls, ...idx.decls],
         body: [...arr.body, ...idx.body],
-        expr: `${arr.expr}[${idx.expr}]`,
+        expr: `${arr.expr}[${jsStorageIndex(node, idx.expr)}]`,
       };
     }
 
@@ -1422,18 +1441,17 @@ export function compileJSNode(
     }
 
     case "swizzle": {
-      let src = jsCompileOperand(node.params![0], ctx);
+      let src = jsComponents(node.params![0], ctx);
       let pattern = node.value as string;
-      let srcExpr = (src.prec ?? PREC_ATOM) < PREC_ATOM ? `(${src.expr})` : src.expr;
       if (pattern.length === 1) {
-        return { decls: src.decls, body: src.body, expr: `${srcExpr}[${JS_COMPONENT_INDEX[pattern]}]` };
+        return { decls: src.decls, body: src.body, expr: src.at(`${JS_COMPONENT_INDEX[pattern]}`) };
       }
       let idx = [...pattern].map((ch) => JS_COMPONENT_INDEX[ch]);
       if (ctx.outTarget) {
-        let lines = idx.map((j, i) => `${ctx.outTarget}[${i}] = ${srcExpr}[${j}];`);
+        let lines = idx.map((j, i) => `${ctx.outTarget}[${i}] = ${src.at(`${j}`)};`);
         return { decls: src.decls, body: [...src.body, ...lines], expr: ctx.outTarget };
       }
-      return { decls: src.decls, body: src.body, expr: `[${idx.map((j) => `${srcExpr}[${j}]`).join(", ")}]` };
+      return { decls: src.decls, body: src.body, expr: `[${idx.map((j) => src.at(`${j}`)).join(", ")}]` };
     }
 
     case "negate": {
@@ -1743,25 +1761,25 @@ export function compileJSNode(
 
     case "matrixElement": {
       assertLiteralIndexInRange(node.params![0], node.params![1]);
-      let mat = jsCompileOperand(node.params![0], ctx);
+      let mat = jsComponents(node.params![0], ctx);
       let idx = jsCompileOperand(node.params![1], ctx);
       let brand = node.params![0]?._t;
-      let [, rows] = MATRIX_DIMENSIONS[brand];
-      let matExpr = (mat.prec ?? PREC_ATOM) < PREC_ATOM ? `(${mat.expr})` : mat.expr;
+      let [columns, rows] = MATRIX_DIMENSIONS[brand];
+      let column = mat.inBuffer ? jsBoundedIndex(idx.expr, columns) : `(${idx.expr})`;
       let target = ctx.outTarget ?? jsNewTemp(ctx, node._t);
       let lines = Array.from(
         { length: rows },
-        (_, row) => `${target}[${row}] = ${matExpr}[(${idx.expr}) * ${rows} + ${row}];`,
+        (_, row) => `${target}[${row}] = ${mat.at(`${column} * ${rows} + ${row}`)};`,
       );
       return { decls: [...mat.decls, ...idx.decls], body: [...mat.body, ...idx.body, ...lines], expr: target };
     }
 
     case "vectorElement": {
       assertLiteralIndexInRange(node.params![0], node.params![1]);
-      let src = jsCompileOperand(node.params![0], ctx);
+      let src = jsComponents(node.params![0], ctx);
       let idx = jsCompileOperand(node.params![1], ctx);
-      let srcExpr = (src.prec ?? PREC_ATOM) < PREC_ATOM ? `(${src.expr})` : src.expr;
-      return { decls: [...src.decls, ...idx.decls], body: [...src.body, ...idx.body], expr: `${srcExpr}[${idx.expr}]` };
+      let component = src.inBuffer ? jsBoundedIndex(idx.expr, TYPE_WIDTH[node.params![0]._t]) : idx.expr;
+      return { decls: [...src.decls, ...idx.decls], body: [...src.body, ...idx.body], expr: src.at(component) };
     }
 
     case "texture":
@@ -2274,14 +2292,21 @@ export function compileJSProgram(
     return buffer;
   }
 
-  /** Runs each invocation on `ctx` itself, so a dispatch allocates nothing, and gives `ctx` its index back after. */
+  /**
+   * Runs each invocation on `ctx` itself, so a dispatch allocates nothing:
+   * `ctx.index` is each invocation's index while it runs, and what it was
+   * before once the dispatch returns or throws.
+   */
   function compute(ctx: CpuShaderContext, count: number): void {
     const index = ctx.index;
-    for (let i = 0; i < count; i++) {
-      ctx.index = i;
-      runScratch(ctx);
+    try {
+      for (let i = 0; i < count; i++) {
+        ctx.index = i;
+        runScratch(ctx);
+      }
+    } finally {
+      ctx.index = index;
     }
-    ctx.index = index;
   }
 
   // A reentrant routine declares its variables per call, so nothing is shared to copy out of.

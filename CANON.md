@@ -505,7 +505,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-array-member-has-a-stride-of-sixteen`](#spec-an-array-member-has-a-stride-of-sixteen) — An array member reports a stride of at least 16 bytes, and a `bool` array the stride of what it travels as. The struct rounds its size up to the array's alignment.
     - [`@spec a-matrix-member-pads-each-column`](#spec-a-matrix-member-pads-each-column) — A matrix member takes one aligned column for each of its columns, so a `mat2x3` takes two columns of 16 bytes.
     - [`@spec a-wasm-routine-reads-uniforms-from-the-wgsl-layout`](#spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout) — Given `gpuUniformLayout`, a WASM routine reads each uniform, arrays included, at the offset and stride `wgslUniformLayout` reports, so one buffer serves WGSL and WASM.
-      - [`@bug wasm-reads-a-gpu-placed-scalar-uniform-from-the-wrong-address`](#bug-wasm-reads-a-gpu-placed-scalar-uniform-from-the-wrong-address) — Under `scalarsInMemory`, the host writes a scalar uniform at its offset in `gpuUniformLayout`, while the program reads it from a place of its own.
       - [`@bug wasm-passes-a-gpu-placed-scalar-uniform-around-the-layout`](#bug-wasm-passes-a-gpu-placed-scalar-uniform-around-the-layout) — Without `scalarsInMemory`, a scalar uniform placed by `gpuUniformLayout` arrives as a 64-bit argument and never reads from the layout.
     - [`@spec a-type-with-no-layout-is-refused`](#spec-a-type-with-no-layout-is-refused) — A member whose type has no WGSL layout is refused, rather than placed by a guess.
     - [`@spec a-wgsl-stage-hands-its-uniforms-to-the-layout-in-creation-order`](#spec-a-wgsl-stage-hands-its-uniforms-to-the-layout-in-creation-order) — A WGSL stage given no uniform list declares its uniforms to the layout in the order the program created them.
@@ -541,6 +540,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel) — `fill` of a CPU grid evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to fill with.
     - [`@spec a-cpu-compute-stage-runs-one-invocation-per-index`](#spec-a-cpu-compute-stage-runs-one-invocation-per-index) — `dispatch` of a CPU compute stage runs the program once for each index of its count. It reads and writes any element of the buffers the host passes by slot.
     - [`@spec a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array`](#spec-a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array) — A CPU compute stage takes a storage buffer as one flat array, which holds the components of its elements one after another. Element `i` of a buffer whose element has `n` components is the `n` entries from `i * n` on. The stage reads and writes them in the array the host passes.
+    - [`@spec a-float-index-of-a-storage-element-drops-its-fraction`](#spec-a-float-index-of-a-storage-element-drops-its-fraction) — A storage element reached by a float index is the element at that index with its fraction dropped, on every target, for a read and for a write.
     - [`@spec a-vector-written-to-a-storage-element-is-copied-into-it`](#spec-a-vector-written-to-a-storage-element-is-copied-into-it) — A CPU compute stage writes a vector or matrix assigned to a storage element into the components of that element in the buffer. A later write to the value it came from leaves the element as it is, and a later write to the element leaves the value as it is.
     - [`@spec a-wasm-routine-is-reentrant`](#spec-a-wasm-routine-is-reentrant) — A WASM routine keeps its variables in its own module, so it computes the same with or without `reentrant`.
     - [`@spec a-cpu-target-runs-invocations-in-index-order`](#spec-a-cpu-target-runs-invocations-in-index-order) — A CPU target runs the invocations of a dispatch one at a time, in index order. An invocation sees the writes of the invocations before it.
@@ -3555,12 +3555,6 @@ Derives from: [`fact-a-wgsl-uniform-array-has-a-16-byte-stride`](#fact-a-wgsl-un
 
 > Given `gpuUniformLayout`, a WASM routine reads each uniform, arrays included, at the offset and stride `wgslUniformLayout` reports, so one buffer serves WGSL and WASM.
 
-##### @bug wasm-reads-a-gpu-placed-scalar-uniform-from-the-wrong-address
-
-> Under `scalarsInMemory`, the host writes a scalar uniform at its offset in `gpuUniformLayout`, while the program reads it from a place of its own.
-
-Issue: #111
-
 ##### @bug wasm-passes-a-gpu-placed-scalar-uniform-around-the-layout
 
 > Without `scalarsInMemory`, a scalar uniform placed by `gpuUniformLayout` arrives as a 64-bit argument and never reads from the layout.
@@ -3773,6 +3767,14 @@ This follows because a compute program writes into storage and has no result to 
 Derives from: [`spec-a-cpu-compute-stage-runs-one-invocation-per-index`](#spec-a-cpu-compute-stage-runs-one-invocation-per-index), [`spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array`](#spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array), [`axiom-the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing)
 
 This follows because a compute adapter takes a storage buffer as one flat typed array, and a dispatch runs every frame. A stage that took a buffer in any other form would make the adapter convert the buffer on every dispatch, and a conversion into one array per element allocates as many arrays as the buffer has elements.
+
+#### @spec a-float-index-of-a-storage-element-drops-its-fraction
+
+> A storage element reached by a float index is the element at that index with its fraction dropped, on every target, for a read and for a write.
+
+Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target), [`spec-a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array`](#spec-a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array)
+
+This follows because WGSL converts a float index with `u32()`, which drops the fraction, and a CPU target that kept it would reach into the next element of a flat buffer.
 
 #### @spec a-vector-written-to-a-storage-element-is-copied-into-it
 

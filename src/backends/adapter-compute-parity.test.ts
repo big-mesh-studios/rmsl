@@ -192,6 +192,29 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     expect(wasm).toEqual(js);
   });
   /**
+   * @canon spec-a-cpu-target-reaches-the-last-element-out-of-range
+   */
+  it("reads a component and a column of a storage element by an index computed outside it", () => {
+    const vectors = instancedArray(2, "vec4").toReadOnly();
+    const matrices = instancedArray(2, "mat2").toReadOnly();
+    const out = instancedArray(2, "vec4");
+    const root = Fn(() => {
+      const i = invocationIndex();
+      const column = matrices.element(i).element(i.toInt().add(5));
+      out
+        .element(i)
+        .assign(vec4(vectors.element(i).element(i.toInt().add(7)), vectors.element(i).y, column.x, column.y));
+    })();
+
+    const [js, wasm] = runBoth(root, () => ({
+      [vectors.name]: Float32Array.of(1, 2, 3, 4, 5, 6, 7, 8),
+      [matrices.name]: Float32Array.of(10, 11, 12, 13, 20, 21, 22, 23),
+      [out.name]: new Float32Array(8),
+    }));
+    expect(js[out.name]).toEqual([4, 2, 12, 13, 8, 6, 22, 23]);
+    expect(wasm).toEqual(js);
+  });
+  /**
    * @canon spec-a-cpu-compute-stage-runs-one-invocation-per-index
    */
   it("gathers from a neighbouring element", () => {
@@ -273,6 +296,27 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
 
     const [js, wasm] = runBoth(root, () => ({ [buf.name]: new Float32Array(6) }));
     expect(js[buf.name]).toEqual([7, 6, 5, 6, 5, 6]);
+    expect(wasm).toEqual(js);
+  });
+  /**
+   * @canon spec-a-float-index-of-a-storage-element-drops-its-fraction
+   */
+  it("reads and writes the element at the index without its fraction", () => {
+    const buf = instancedArray(3, "vec2");
+    const scalars = instancedArray(3, "float");
+    const root = Fn(() => {
+      If(invocationIndex().equal(uint(0)), () => {
+        buf.element(float(1.5)).assign(buf.element(float(2.75)).add(vec2(10, 20)));
+        scalars.element(float(1.5)).assign(scalars.element(float(2.75)).add(1));
+      });
+    })();
+
+    const [js, wasm] = runBoth(root, () => ({
+      [buf.name]: Float32Array.of(0, 0, 0, 0, 5, 6),
+      [scalars.name]: Float32Array.of(0, 0, 7),
+    }));
+    expect(js[buf.name]).toEqual([0, 0, 15, 26, 5, 6]);
+    expect(js[scalars.name]).toEqual([0, 8, 7]);
     expect(wasm).toEqual(js);
   });
 });

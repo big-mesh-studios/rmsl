@@ -3188,6 +3188,13 @@ export function compileWasmFn(
         }
         return [WASM_OP.localGet, ...wasmUleb128(localSlotIndex(node.value.varName))];
       case "uniform": {
+        const rawAddr = gpuRawUniformAddress.get(node.value.slot); // the host wrote it into the GPU layout, as an f32 if a float
+        if (rawAddr !== undefined) {
+          const kind = scalarKindOf(node._t);
+          return kind === "float"
+            ? [...i32ConstBytes(rawAddr), WASM_OP.f32Load, 0x00, ...wasmUleb128(0), WASM_OP.f64PromoteF32]
+            : loadComponent(rawAddr, kind, 0);
+        }
         const addr = uniformAddress.get(node.value.slot);
         if (addr !== undefined) return loadComponent(addr, scalarKindOf(node._t), 0); // scalarsInMemory: memory-resident, not a param
         return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`uniform:${node.value.slot}`))];
@@ -3782,6 +3789,50 @@ export function compileWasmFn(
 }
 
 /**
+ * Calls a WASM export with the first `length` numbers of `args`, and returns
+ * what it returns. A call through `apply` or a spread converts the list on
+ * every call, so up to eleven arguments are passed one by one, which
+ * allocates nothing.
+ */
+function callExport(f: (...args: number[]) => number | void, args: readonly number[], length: number): number | void {
+  const a = args;
+  switch (length) {
+    case 0:
+      return f();
+    case 1:
+      return f(a[0]!);
+    case 2:
+      return f(a[0]!, a[1]!);
+    case 3:
+      return f(a[0]!, a[1]!, a[2]!);
+    case 4:
+      return f(a[0]!, a[1]!, a[2]!, a[3]!);
+    case 5:
+      return f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!);
+    case 6:
+      return f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!);
+    case 7:
+      return f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!, a[6]!);
+    case 8:
+      return f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!, a[6]!, a[7]!);
+    case 9:
+      return f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!, a[6]!, a[7]!, a[8]!);
+    case 10:
+      return f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!, a[6]!, a[7]!, a[8]!, a[9]!);
+    case 11:
+      return f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!, a[6]!, a[7]!, a[8]!, a[9]!, a[10]!);
+    default:
+      return f(...a.slice(0, length));
+  }
+}
+
+/** Writes `args` into `into`, which keeps them from one call to the next, and returns how many it wrote. */
+function copyArgs(into: number[], args: readonly number[]): number {
+  for (let i = 0; i < args.length; i++) into[i] = args[i]!;
+  return args.length;
+}
+
+/**
  * Instantiates a compiled module and binds it to JS: marshals params and
  * textures into memory/args, calls the function, and reads results back
  * into a CpuProgramResult.
@@ -3791,79 +3842,6 @@ export function compileWasmFn(
  * and this instantiation glue — never the graph builder or bytecode
  * emitter that produced them.
  */
-/**
- * Calls a WASM export with the numbers in `args`. A call through `apply` or a
- * spread converts the list on every call, so up to eight arguments are passed
- * one by one, which allocates nothing.
- */
-function callWith(f: (...args: number[]) => number | void, args: readonly number[]): void {
-  const a = args;
-  switch (a.length) {
-    case 0:
-      f();
-      return;
-    case 1:
-      f(a[0]!);
-      return;
-    case 2:
-      f(a[0]!, a[1]!);
-      return;
-    case 3:
-      f(a[0]!, a[1]!, a[2]!);
-      return;
-    case 4:
-      f(a[0]!, a[1]!, a[2]!, a[3]!);
-      return;
-    case 5:
-      f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!);
-      return;
-    case 6:
-      f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!);
-      return;
-    case 7:
-      f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!, a[6]!);
-      return;
-    case 8:
-      f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!, a[6]!, a[7]!);
-      return;
-    default:
-      f(...a);
-  }
-}
-
-/** {@link callWith}, with `last` after the numbers in `args`. */
-function callWithLast(f: (...args: number[]) => number | void, args: readonly number[], last: number): void {
-  const a = args;
-  switch (a.length) {
-    case 0:
-      f(last);
-      return;
-    case 1:
-      f(a[0]!, last);
-      return;
-    case 2:
-      f(a[0]!, a[1]!, last);
-      return;
-    case 3:
-      f(a[0]!, a[1]!, a[2]!, last);
-      return;
-    case 4:
-      f(a[0]!, a[1]!, a[2]!, a[3]!, last);
-      return;
-    case 5:
-      f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, last);
-      return;
-    case 6:
-      f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!, last);
-      return;
-    case 7:
-      f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!, a[6]!, last);
-      return;
-    default:
-      f(...a, last);
-  }
-}
-
 /**
  * Marshals a `CpuShaderContext` into one compiled module's own memory and
  * scalar args — the shared translation both `instantiateWasmRoutine` (one call per
@@ -3979,8 +3957,9 @@ export function createWasmInputMarshaller(
           // Read once: each read of a float the host set boxes it anew.
           const value = (ctx.uniforms as any)?.[p.slot];
           if (value === undefined) break; // left as the zeroed memory it starts as
-          if (typeof value !== "number") writeValueToMemory(view, p.address, p.shaderType, value, p.narrow);
-          else if (scalarKindOf(p.shaderType) !== "float") view.setInt32(p.address, value, true);
+          if (typeof value !== "number" || isAggregate(p.shaderType)) {
+            writeValueToMemory(view, p.address, p.shaderType, value, p.narrow);
+          } else if (scalarKindOf(p.shaderType) !== "float") view.setInt32(p.address, value, true);
           else if (p.narrow) view.setFloat32(p.address, value, true);
           else view.setFloat64(p.address, value, true);
           break;
@@ -4168,6 +4147,9 @@ export function instantiateWasmProgram(
   );
 
   const { marshal: marshalInputs, writeBackStorages } = createWasmInputMarshaller(params, textureHeapBase, memory);
+  /** The arguments of the `draw` and `compute` exports: the marshalled ones, then their own. Kept between calls. */
+  const drawArgs: number[] = [];
+  const computeArgs: number[] = [];
   const discardAddress = params.find((p) => p.kind === "discardMemory")?.address;
 
   /**
@@ -4179,7 +4161,7 @@ export function instantiateWasmProgram(
   function run(ctx: CpuShaderContext): number | boolean | CpuProgramResult | null {
     const { args } = marshalInputs(ctx);
     if (discardAddress !== undefined) new DataView(memory.buffer).setInt32(discardAddress, 0, true);
-    const result = wasmMain(...args);
+    const result = callExport(wasmMain, args, args.length) as number;
     writeBackStorages(ctx);
     const view = new DataView(memory.buffer); // fresh: marshalInputs may have just grown (and detached) the buffer
     if (discardAddress !== undefined && view.getInt32(discardAddress, true) !== 0) return null;
@@ -4238,7 +4220,11 @@ export function instantiateWasmProgram(
     // worker's instance imports the same SharedArrayBuffer-backed memory and
     // `out` is a view pinning where in it this call should land.
     if (out && out.buffer === memory.buffer) {
-      wasmDraw(...args, width, height, out.byteOffset);
+      const n = copyArgs(drawArgs, args);
+      drawArgs[n] = width;
+      drawArgs[n + 1] = height;
+      drawArgs[n + 2] = out.byteOffset;
+      callExport(wasmDraw, drawArgs, n + 3);
       return out;
     }
 
@@ -4247,7 +4233,11 @@ export function instantiateWasmProgram(
     if (neededBytes > memory.buffer.byteLength) {
       memory.grow(Math.ceil((neededBytes - memory.buffer.byteLength) / 65536));
     }
-    wasmDraw(...args, width, height, bufferBase);
+    const n = copyArgs(drawArgs, args);
+    drawArgs[n] = width;
+    drawArgs[n + 1] = height;
+    drawArgs[n + 2] = bufferBase;
+    callExport(wasmDraw, drawArgs, n + 3);
 
     // `out` backed by a different buffer than this instance's memory: wasm
     // can only write into the memory it was instantiated with, so this has
@@ -4277,8 +4267,11 @@ export function instantiateWasmProgram(
    */
   function compute(ctx: CpuShaderContext, count: number): void {
     const { args } = marshalInputs(ctx);
-    if (wasmCompute) callWithLast(wasmCompute, args, count);
-    else for (let i = 0; i < count; i++) callWith(wasmMain, args);
+    if (wasmCompute) {
+      const n = copyArgs(computeArgs, args);
+      computeArgs[n] = count;
+      callExport(wasmCompute, computeArgs, n + 1);
+    } else for (let i = 0; i < count; i++) callExport(wasmMain, args, args.length);
     writeBackStorages(ctx);
   }
 

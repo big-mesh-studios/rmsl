@@ -47,6 +47,20 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
   /**
    * @canon spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout
    */
+  it("reads a scalar uniform at its offset in the layout under scalarsInMemory", () => {
+    const s = uniform("float");
+    const routine = compileWasmRoutine(() => Fn(() => s.add(0).toVar())(), {
+      name: "main",
+      params: [],
+      scalarsInMemory: true,
+      gpuUniformLayout: { offsets: { [s.name]: 0 }, totalSize: 16 },
+    });
+    expect(routine({ uniforms: { [s.name]: 0.5 } })).toBe(0.5);
+  });
+
+  /**
+   * @canon spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout
+   */
   it("no longer corrupts an adjacent uniform at tight GPU spacing", () => {
     const dir = uniform("vec3");
     const scale = uniform("vec2");

@@ -95,22 +95,6 @@ describe("known WASM bugs, each failing until its fix", () => {
   });
 
   /**
-   * Under `scalarsInMemory`, the host writes a scalar uniform at its offset in
-   * `gpuUniformLayout`, while the program reads it from an address of its own.
-   *
-   * @canon bug-wasm-reads-a-gpu-placed-scalar-uniform-from-the-wrong-address
-   */
-  it.fails("reads a scalar uniform placed by gpuUniformLayout with scalarsInMemory on WASM", () => {
-    const s = uniform("float");
-    const routine = compileWasmRoutine(() => Fn(() => s.add(0).toVar())(), {
-      ...none,
-      scalarsInMemory: true,
-      gpuUniformLayout: { offsets: { [s.name]: 0 }, totalSize: 16 },
-    });
-    expect(routine({ uniforms: { [s.name]: 0.5 } })).toBe(0.5);
-  });
-
-  /**
    * Without `scalarsInMemory`, a scalar uniform placed by `gpuUniformLayout`
    * arrives as a 64-bit argument and never reads from the layout.
    *

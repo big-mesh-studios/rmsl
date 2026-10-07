@@ -136,14 +136,18 @@ export type AttributeOrSlot = AttributeNode<ShaderType> | string;
 export function requestedStorageSlots(out: object, slots: Iterable<string>): string[] {
   let known = new Set(slots);
   let requested = Object.keys(out);
-  let unknown = requested.filter((slot) => !known.has(slot));
-  if (unknown.length > 0) {
-    throw new Error(
-      `[RMSL] compute(out) was given ${unknown.map((s) => `"${s}"`).join(", ")}, which the program has no storage slot for. ` +
-        `Its storage slots are: ${[...known].map((s) => `"${s}"`).join(", ") || "none"}.`,
-    );
-  }
+  if (requested.some((slot) => !known.has(slot))) throw unknownStorageSlots(out, known);
   return requested;
+}
+
+/** The error for a `compute(out)` whose keys name a slot outside `slots`, naming each such key. */
+export function unknownStorageSlots(out: object, slots: Iterable<string>): Error {
+  let known = new Set(slots);
+  let unknown = Object.keys(out).filter((slot) => !known.has(slot));
+  return new Error(
+    `[RMSL] compute(out) was given ${unknown.map((s) => `"${s}"`).join(", ")}, which the program has no storage slot for. ` +
+      `Its storage slots are: ${[...known].map((s) => `"${s}"`).join(", ") || "none"}.`,
+  );
 }
 
 export function slotOf(uniformOrAttribute: UniformOrSlot | AttributeOrSlot): string {

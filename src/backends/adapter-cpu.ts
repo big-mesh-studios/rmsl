@@ -1,5 +1,5 @@
 import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
-import { Adapter, requestedStorageSlots, slotOf, TypedArray } from "./adapter";
+import { Adapter, slotOf, TypedArray, unknownStorageSlots } from "./adapter";
 import {
   CpuDrawBuffer,
   componentCountOf,
@@ -107,7 +107,7 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeNode<ShaderType> | string, data: TypedArray): void {
     const slot = slotOf(attribute);
-    if (!(slot in storages)) storageSlots.push(slot);
+    if (!Object.hasOwn(storages, slot)) storageSlots.push(slot);
     storages[slot] = data;
     elementWidths.set(
       slot,
@@ -141,10 +141,10 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
       // `out` is only for callers that want the WGSL adapter's optional-out
       // shape too, not something this loop needs to do its job.
       if (!out) return;
-      for (const slot in out) if (!(slot in storages)) requestedStorageSlots(out, storageSlots);
+      for (const slot in out) if (!Object.hasOwn(storages, slot)) throw unknownStorageSlots(out, storageSlots);
       for (let i = 0; i < storageSlots.length; i++) {
         const slot = storageSlots[i]!;
-        out[slot]?.set(storages[slot]!);
+        if (Object.hasOwn(out, slot)) out[slot]!.set(storages[slot]!);
       }
       return out;
     },
