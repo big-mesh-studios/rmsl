@@ -281,11 +281,13 @@ export type ComputeStage = {
   readonly storageTypes: Readonly<Record<string, ShaderType>>;
 };
 
-const isResultObject = (raw: unknown): raw is CpuProgramResult =>
+/** Whether a compiled function returned its outputs in an object, rather than its value bare. */
+export const isResultObject = (raw: unknown): raw is CpuProgramResult =>
   typeof raw === "object" && raw !== null && !Array.isArray(raw) && !ArrayBuffer.isView(raw);
 
 /** Whether a value is a vector or matrix: an array, or the typed view a JS slot is. */
-const isVector = (value: unknown): value is ArrayLike<number> => Array.isArray(value) || ArrayBuffer.isView(value);
+export const isVector = (value: unknown): value is ArrayLike<number> =>
+  Array.isArray(value) || ArrayBuffer.isView(value);
 
 /** The {@link VertexResult} of what a routine compiled for the vertex stage returned. */
 export function toVertexResult(raw: CpuValue<ShaderType> | CpuProgramResult | null): VertexResult {

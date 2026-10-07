@@ -4,6 +4,7 @@ import {
   CpuRoutine,
   CpuShaderContext,
   CpuProgramResult,
+  isVector,
   CpuGrid,
   CpuProgram,
   CpuValue,
@@ -2406,6 +2407,15 @@ function compileJSFnDetailed(
   if (options.stage !== undefined) assertStageResult(stage, lastType, ctx.positionWritten, ctx.outputs.size > 0);
 
   const body: string[] = [];
+  // A grid takes a scalar result from a slot of one element: V8 boxes a float a call returns.
+  const scalarResult =
+    options.kind === "grid" &&
+    !ctx.jsNeedsRes &&
+    lastType !== undefined &&
+    lastType !== "void" &&
+    !isAggregate(lastType)
+      ? `${reentrant ? "var" : "const"} _rmsl_result = new ${typedArrayOfKind(scalarKindOf(lastType), ctx.jsFloat32 === true).name}(1);`
+      : "";
   // The object a stage returns its outputs in is made once, as its slots are, or once a call with `reentrant`.
   const res = ctx.jsNeedsRes ? "var res = { outputs: {}, varyings: {} };" : "";
   if (res && reentrant) body.push(res);
@@ -2417,11 +2427,16 @@ function compileJSFnDetailed(
     // a program that returns nothing has no value
     if (lastType !== "void") body.push(`res.value = ${lastCompiled.expr};`);
     body.push("return res;");
+  } else if (scalarResult) {
+    if (reentrant) body.push(scalarResult);
+    body.push(`_rmsl_result[0] = ${lastCompiled.expr};`, "return _rmsl_result;");
   } else {
     body.push(`return ${lastCompiled.expr};`);
   }
 
-  let scratch = reentrant ? "" : [...(res ? [res] : []), ...slots.views].join("\n");
+  let scratch = reentrant
+    ? ""
+    : [...(res ? [res] : []), ...(scalarResult ? [scalarResult] : []), ...slots.views].join("\n");
   let helpers = [...ctx.jsHelpers]
     .sort()
     .map((name) => jsHelperSource(name))
@@ -2525,6 +2540,10 @@ export function compileJSProgram(
     return ownedResult(runScratch(ctx), resultTypes) as number | boolean | CpuProgramResult | null;
   }
 
+  /** The context a grid calls the program with for each pixel, made once and filled for each fill. */
+  const pixelFragCoord = new Float64Array(2);
+  const pixelCtx: CpuShaderContext = { fragCoord: pixelFragCoord };
+
   function draw(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
     if (resultType === undefined || resultType === "void") {
       throw new Error("[RMSL] compileJSGrid: this function produces no value to render — the grid needs a result.");
@@ -2532,18 +2551,21 @@ export function compileJSProgram(
     const componentCount = componentCountOf(resultType);
     const kind = isAggregate(resultType) ? elementKindOf(resultType) : scalarKindOf(resultType);
     const buffer: CpuDrawBuffer =
-      out ??
-      (kind === "float"
-        ? new (resultTypes.float32 ? Float32Array : Float64Array)(width * height * componentCount)
-        : kind === "uint"
-          ? new Uint32Array(width * height * componentCount)
-          : new Int32Array(width * height * componentCount));
+      out ?? new (typedArrayOfKind(kind, resultTypes.float32))(width * height * componentCount);
+    pixelCtx.params = ctx.params;
+    pixelCtx.uniforms = ctx.uniforms;
+    pixelCtx.varyings = ctx.varyings;
+    pixelCtx.attributes = ctx.attributes;
+    pixelCtx.textures = ctx.textures;
+    pixelCtx.storages = ctx.storages;
 
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         // pixel centers land at (x + 0.5, y + 0.5) — the same convention
         // compileWasmRoutine's draw() and fragCoordMemory in wasm.ts use.
-        const result = runScratch({ ...ctx, fragCoord: [x + 0.5, y + 0.5] });
+        pixelFragCoord[0] = x + 0.5;
+        pixelFragCoord[1] = y + 0.5;
+        const result = runScratch(pixelCtx);
         if (result === null) {
           // a discarded fragment leaves the pixel at zero in every channel
           buffer.fill(0, (y * width + x) * componentCount, (y * width + x + 1) * componentCount);
@@ -2553,10 +2575,13 @@ export function compileJSProgram(
           typeof result === "object" && result !== null && "value" in result
             ? (result as CpuProgramResult).value
             : result;
-        const values = Array.isArray(raw) || ArrayBuffer.isView(raw) ? (raw as ArrayLike<unknown>) : [raw];
         const base = (y * width + x) * componentCount;
+        if (!isVector(raw)) {
+          buffer[base] = kind === "bool" ? (raw ? 1 : 0) : (raw as number);
+          continue;
+        }
         for (let k = 0; k < componentCount; k++) {
-          buffer[base + k] = kind === "bool" ? (values[k] ? 1 : 0) : (values[k] as number);
+          buffer[base + k] = kind === "bool" ? (raw[k] ? 1 : 0) : (raw[k] as number);
         }
       }
     }

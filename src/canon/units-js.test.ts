@@ -923,7 +923,12 @@ describe("the element-wise operations of a JS function", () => {
    */
   it("keeps a written-out smoothstep whole inside the expression around it", () => {
     const u = uniform("float");
-    const build = () => Fn(() => float(1).div(smoothstep(0, 1, u)).toVar())() as any;
+    const build = () =>
+      Fn(() =>
+        float(1)
+          .div(smoothstep(0, 1, u))
+          .toVar(),
+      )() as any;
     const ctx = { uniforms: { [u.name]: 0.25 } };
     expect(compileJSRoutine(build, none)(ctx)).toBe(1 / (0.25 * 0.25 * (3 - 2 * 0.25)));
     expect(compileJSRoutine(build, none)(ctx)).toBe(compileWasmRoutine(build, none)(ctx));
@@ -1005,6 +1010,20 @@ describe("the scalars and inputs of a JS function", () => {
     const raw = new Function(compileJSFn(build, none))() as (c: unknown) => unknown;
     // An object is 16 bytes at the least, so a call that allocated one would count that many.
     expect(await allocatedBy(() => raw(ctx), 50000, 20000)).toBeLessThan(1);
+  });
+
+  /**
+   * @canon spec-a-js-grid-allocates-nothing-per-pixel
+   */
+  it.each([
+    ["a vector", () => vec4(fragCoord().x.mul(0.1), fragCoord().y, 0.5, 1)],
+    ["a scalar", () => fragCoord().x.mul(fragCoord().y)],
+  ] as const)("allocates nothing per pixel of a grid of %s", async (_, root) => {
+    const grid = compileJSGrid(() => Fn(() => root().toVar())() as any, none);
+    const ctx = {};
+    const out = grid(ctx, 16, 16);
+    // A fill calls the program 256 times, and an object is 16 bytes at the least.
+    expect(await allocatedBy(() => grid(ctx, 16, 16, out as any), 2000, 200)).toBeLessThan(64);
   });
 
   /**

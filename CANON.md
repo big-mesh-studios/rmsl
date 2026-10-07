@@ -614,6 +614,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@axiom the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing) — Code that runs once per frame, or once per call of a routine that runs every frame, allocates no memory.
   - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A compiled JS function keeps each vector and matrix it computes in a slot it declares once, outside the function: a variable's, an operation's, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. A stage keeps the object it returns its position, varyings and outputs in beside the function too, so a stage output the program writes on one call and not the next holds what it was given last. With `reentrant`, the function declares its slots and that object inside itself, and each call has its own.
   - [`@spec a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment) — A draw of the JS rasterizer, `compileJS`, allocates nothing for each vertex or fragment it shades. It keeps each vertex's position and varyings, each varying it interpolates for a fragment, and the context it passes each stage in arrays and objects it makes once, and it reads a stage's result where the stage left it. A triangle clipped at the near plane makes the vertices the clip adds.
+  - [`@spec a-js-grid-allocates-nothing-per-pixel`](#spec-a-js-grid-allocates-nothing-per-pixel) — `fill` of a JS grid allocates nothing for each pixel it evaluates. It calls the program with one context for the whole fill and one `fragCoord` it sets for each pixel, and the program hands it a scalar result in a slot of one element, as it hands a vector in a slot.
   - [`@spec a-cpu-compute-dispatch-allocates-nothing`](#spec-a-cpu-compute-dispatch-allocates-nothing) — `compute` of a CPU compute adapter allocates nothing, on JS and on WASM, with `out` or without it. A WASM routine reuses its argument list and its views of memory from one call to the next, and makes a view again only when the memory grows. The WASM adapter reads its scalar uniforms from the module's memory, and keeps them in an object in dictionary mode.
   - [`@spec a-js-program-keeps-its-vectors-in-views-of-one-buffer`](#spec-a-js-program-keeps-its-vectors-in-views-of-one-buffer) — A compiled JS function keeps each vector and matrix it holds in a typed view of one `ArrayBuffer`, which it makes once, or once per call with `reentrant`. A float slot is a `Float64Array`, or a `Float32Array` at `float: "f32"`; an integer slot an `Int32Array`, and a boolean slot one too, holding 1 for true and 0 for false; an unsigned slot a `Uint32Array`. A component read from a boolean slot is `true` or `false` again.
   - [`@spec a-js-function-keeps-a-scalar-in-a-local`](#spec-a-js-function-keeps-a-scalar-in-a-local) — A compiled JS function keeps each scalar it computes in a local of its own, declared in the function, and only its vectors and matrices in slots outside it.
@@ -4242,6 +4243,14 @@ This follows because a call that builds a new array or a closure gives the garba
 Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call)
 
 This follows because a draw runs a stage once for each vertex and once for each pixel it covers, so whatever a stage call allocates, a frame allocates thousands of times.
+
+### @spec a-js-grid-allocates-nothing-per-pixel
+
+> `fill` of a JS grid allocates nothing for each pixel it evaluates. It calls the program with one context for the whole fill and one `fragCoord` it sets for each pixel, and the program hands it a scalar result in a slot of one element, as it hands a vector in a slot.
+
+Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call), [`fact-v8-boxes-a-float-that-crosses-a-call-it-does-not-inline`](#fact-v8-boxes-a-float-that-crosses-a-call-it-does-not-inline)
+
+This follows because a grid calls the program once for each pixel, so whatever a call to it allocates, a fill allocates as many times as it has pixels.
 
 ### @spec a-cpu-compute-dispatch-allocates-nothing
 
