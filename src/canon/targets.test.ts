@@ -348,6 +348,22 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
+   * @canon spec-a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number
+   */
+  it("builds a matrix from numbers and scalar nodes on every target", () => {
+    expect(evaluateRecording((a) => mat2(a, 1, 2, 4).element(int(0)), [3])).toEqual([3, 1]);
+    expect(evaluateRecording((a) => mat3(1, a, 0, 0, 1, 0, 0, 0, a.add(1)).element(int(2)).z, [3])).toBe(4);
+    expect(evaluateRecording((a) => mat2x3(a, 0, 0, 0, 1, a).element(int(1)), [5])).toEqual([0, 1, 5]);
+  });
+
+  /**
+   * @canon spec-a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number
+   */
+  it("refuses a matrix built from the wrong number of values when one is a node", () => {
+    expect(() => mat2(float(3), 1, 2)).toThrow(/takes 4 values/);
+  });
+
+  /**
    * @canon spec-a-transpose-swaps-the-shape
    */
   it("transposes a matrix that is not square on every target", () => {

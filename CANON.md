@@ -298,6 +298,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug wasm-compiles-no-matrix-narrowing`](#bug-wasm-compiles-no-matrix-narrowing) — The WASM target does not compile a matrix built from a larger matrix.
       - [`@bug js-narrows-a-matrix-by-its-flat-values`](#bug-js-narrows-a-matrix-by-its-flat-values) — On JS, a matrix built from a larger matrix takes its leading values in flat order. It does not keep the leading rows of the leading columns.
     - [`@spec a-matrix-is-built-from-its-columns`](#spec-a-matrix-is-built-from-its-columns) — A matrix constructor of any shape, square or not, takes its values column by column, as numbers or as vector columns.
+    - [`@spec a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number`](#spec-a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number) — A matrix constructor given scalar nodes among its numbers builds the matrix from them, in column order, on every target. A mix of values whose count is not the matrix's is refused.
     - [`@spec a-literal-compiles-to-a-literal-of-its-type`](#spec-a-literal-compiles-to-a-literal-of-its-type) — `int`, `uint`, `bool`, boolean vector and integer vector constructors given literals compile to literals of their type on each target.
     - [`@spec a-javascript-array-is-a-vector-of-its-length`](#spec-a-javascript-array-is-a-vector-of-its-length) — A JavaScript array given where a node goes is a vector of its length. An array whose length no vector has is refused.
     - [`@spec the-tsl-constants-are-float-literals`](#spec-the-tsl-constants-are-float-literals) — `PI`, `TWO_PI`, `PI2`, `HALF_PI`, `EPSILON` and `INFINITY` are float literals of TSL's values.
@@ -661,6 +662,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact glsl-es-300-has-no-gl-fragcolor`](#fact-glsl-es-300-has-no-gl-fragcolor) — GLSL ES 3.00 has no `gl_FragColor`. A fragment shader writes its colour to an `out` variable it declares.
 - [`@fact wgsl-has-no-matrix-inverse`](#fact-wgsl-has-no-matrix-inverse) — WGSL has no built-in that inverts a matrix.
 - [`@fact wgsl-percent-truncates`](#fact-wgsl-percent-truncates) — The `%` operator of WGSL truncates the quotient toward zero, where the `mod` of GLSL floors it.
+- [`@fact tsl-joins-the-values-of-a-matrix-constructor-numbers-and-nodes-alike`](#fact-tsl-joins-the-values-of-a-matrix-constructor-numbers-and-nodes-alike) — TSL's `mat2`, `mat3` and `mat4` join the values they are given into one constructor call when any of them is a node, so `mat2(a, 1, 2, 4)` is a call with a node and three numbers.
 - [`@fact a-wgsl-matrix-constructor-takes-no-matrix`](#fact-a-wgsl-matrix-constructor-takes-no-matrix) — A WGSL matrix constructor takes scalars or column vectors, and no matrix.
 - [`@fact a-wgsl-texture-is-not-host-shareable`](#fact-a-wgsl-texture-is-not-host-shareable) — A WGSL texture or sampler can be neither a member of a uniform struct nor an element of a uniform array. Each one takes a binding of its own.
 - [`@fact chromium-needs-a-precision-for-every-sampler`](#fact-chromium-needs-a-precision-for-every-sampler) — Chromium rejects a GLSL ES 3.00 shader that uses a sampler type with no declared precision. `sampler3D` and the integer sampler types have no default precision.
@@ -762,11 +764,10 @@ The analysis found these places where the code or the documents do not hold the 
 1. `toReadOnly()` changes the storage node it is called on, as it does in TSL, so a reference typed as writable becomes read-only. The type checker accepts a write that the compiler refuses. Issue #52 asks whether to depart from TSL here.
 2. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
 3. The documents call `While` and `For` TSL functions, but TSL has only `Loop`. Issue #59.
-4. A matrix constructor given a scalar node among its numbers compiles to `[object Object]`. Issue #66 asks whether to accept such a node or refuse it.
-5. `var_`, `assertBlockScope` and `compileWat` are exported with no documented purpose. Issue #73 asks whether they are public API.
-6. The WebGL renderer sets a texture's sampler state only when `needsUpdate` uploads the texture, as three.js does, where the WebGPU renderer follows a change at once. Issue #187 asks which rule both renderers keep.
-7. `createWgsl` configures its canvas opaque, so a transparent clear shows as opaque black where the other adapters show the page. Issue #188 asks whether to configure it premultiplied.
-8. rmsl changes the state of a WebGL context that the application hands it, such as the unpack alignment, and does not restore it. The canon says nothing about what rmsl leaves for code that shares the context. Issue #189 asks for a ruling.
+4. `var_`, `assertBlockScope` and `compileWat` are exported with no documented purpose. Issue #73 asks whether they are public API.
+5. The WebGL renderer sets a texture's sampler state only when `needsUpdate` uploads the texture, as three.js does, where the WebGPU renderer follows a change at once. Issue #187 asks which rule both renderers keep.
+6. `createWgsl` configures its canvas opaque, so a transparent clear shows as opaque black where the other adapters show the page. Issue #188 asks whether to configure it premultiplied.
+7. rmsl changes the state of a WebGL context that the application hands it, such as the unpack alignment, and does not restore it. The canon says nothing about what rmsl leaves for code that shares the context. Issue #189 asks for a ruling.
 
 ### Coverage gaps
 
@@ -2365,6 +2366,14 @@ Issue: #64
 #### @spec a-matrix-is-built-from-its-columns
 
 > A matrix constructor of any shape, square or not, takes its values column by column, as numbers or as vector columns.
+
+#### @spec a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number
+
+> A matrix constructor given scalar nodes among its numbers builds the matrix from them, in column order, on every target. A mix of values whose count is not the matrix's is refused.
+
+Derives from: [`fact-tsl-joins-the-values-of-a-matrix-constructor-numbers-and-nodes-alike`](#fact-tsl-joins-the-values-of-a-matrix-constructor-numbers-and-nodes-alike)
+
+This follows because a vector constructor takes a node wherever it takes a number, and TSL's matrix constructors do too.
 
 #### @spec a-literal-compiles-to-a-literal-of-its-type
 
@@ -4480,6 +4489,12 @@ This is a fact of the WGSL specification, not a choice.
 > The `%` operator of WGSL truncates the quotient toward zero, where the `mod` of GLSL floors it.
 
 This is a fact of both specifications, not a choice.
+
+## @fact tsl-joins-the-values-of-a-matrix-constructor-numbers-and-nodes-alike
+
+> TSL's `mat2`, `mat3` and `mat4` join the values they are given into one constructor call when any of them is a node, so `mat2(a, 1, 2, 4)` is a call with a node and three numbers.
+
+This is a fact of `ConvertType` in `src/nodes/tsl/TSLCore.js` of three.js 0.186.0.
 
 ## @fact a-wgsl-matrix-constructor-takes-no-matrix
 
