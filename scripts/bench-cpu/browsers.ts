@@ -24,7 +24,7 @@ import type { Report } from "./run.ts";
 const reports: Report[] = files.map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")));
 // The page runs JavaScript, so the runner goes in with its types stripped.
 const runner = stripTypeScriptTypes(readFileSync(join(here, "run.ts"), "utf8"))
-  .replace(/^export function runBench/m, "function runBench")
+  .replace(/^export /gm, "")
   .replace(/^const isMain[\s\S]*$/m, "");
 
 const engines: [string, BrowserType, LaunchOptions][] = [
