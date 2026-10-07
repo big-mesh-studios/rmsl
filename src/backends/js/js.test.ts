@@ -787,7 +787,7 @@ describe("JS backend: shader I/O", () => {
     const second = raw.runInPlace({ uniforms: { [write.name]: 0 } }) as any;
     // The stage returns its outputs in one object, made once, as it keeps its slots.
     expect(second).toBe(first);
-    expect(second.varyings[shade.name]).toBeUndefined();
+    expect(second.varyings[shade.name]).toBe(0);
 
     const depth = compileJSProgram(
       () =>

@@ -411,6 +411,34 @@ function flatRasterizer(fragment?: (color: Node<"vec4">, drop: Node<"float">) =>
 
 const screenAt = (z: number) => [-1, -1, z, 3, -1, z, -1, 3, z];
 
+describe("a varying a CPU vertex stage does not write", () => {
+  /**
+   * @canon spec-a-cpu-vertex-stage-gives-zero-for-a-varying-a-call-does-not-write
+   */
+  it("is 0 in what the call returns, whatever the call before wrote", () => {
+    const shade = varying("float");
+    const pair = varying("vec2");
+    const write = uniform("int");
+    const build = () =>
+      Fn(() => {
+        If(write.equal(int(1)), () => {
+          shade.assign(float(0.25));
+          pair.assign(vec2(1, 2));
+        });
+        builtinPosition().assign(vec4(0, 0, 0, 1));
+      })() as any;
+    for (const compile of [compileJSVertex, compileWasmVertex]) {
+      const stage = (compile as any)(build, { name: "main", params: [] });
+      const written = stage({ uniforms: { [write.name]: 1 } });
+      expect(written.varyings[shade.name]).toBe(0.25);
+      expect(Array.from(written.varyings[pair.name])).toEqual([1, 2]);
+      const skipped = stage({ uniforms: { [write.name]: 0 } });
+      expect(skipped.varyings[shade.name]).toBe(0);
+      expect(Array.from(skipped.varyings[pair.name])).toEqual([0, 0]);
+    }
+  });
+});
+
 describe("the varyings a JS rasterizer interpolates", () => {
   /**
    * @canon spec-a-js-rasterizer-interpolates-every-varying-the-vertex-stage-writes

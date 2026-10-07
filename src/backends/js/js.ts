@@ -2496,12 +2496,19 @@ function compileJSFnDetailed(
   if (res && !reentrant) {
     // A stage output the program does not write on a call is undefined in what that call returns.
     for (const o of ctx.outputs.values()) body.push(`res.outputs[${JSON.stringify(o.slot)}] = undefined;`);
-    for (const v of ctx.varyings.values()) body.push(`res.varyings[${JSON.stringify(v.slot)}] = undefined;`);
     body.push("res.position = undefined;", "res.fragDepth = undefined;", "res.value = undefined;");
   }
+  // A varying the program does not write on a call is 0, a vector one a slot of zeros of its own.
+  const varyingResets = [...ctx.varyings.values()].map((v) => {
+    const key = `res.varyings[${JSON.stringify(v.slot)}]`;
+    if (!jsIsArrayType(v.type)) return `${key} = ${v.type === "bool" ? "false" : "0"};`;
+    const zeros = jsNewTemp(ctx, v.type);
+    return `${zeros}.fill(0); ${key} = ${zeros};`;
+  });
   const slots = jsSlotDeclarations(ctx.varDefs, ctx.jsFloat32 === true, reentrant ? "var" : "let");
   body.push(...slots.scalars);
   if (reentrant) body.push(...slots.views);
+  body.push(...varyingResets);
   for (const compiled of compiledList) body.push(...compiled.decls, ...compiled.body);
   if (ctx.jsNeedsRes) {
     // a program that returns nothing has no value

@@ -4275,6 +4275,12 @@ export function instantiateWasmProgram(
   const drawArgs: number[] = [];
   const computeArgs: number[] = [];
   const discardAddress = params.find((p) => p.kind === "discardMemory")?.address;
+  /** Where each varying a vertex stage writes lies, and its size in bytes, cleared as a call starts. */
+  const varyingBytes = outputParams.flatMap((p) =>
+    p.kind === "varyingOutputMemory"
+      ? [{ address: p.address, size: planLayout([{ slot: p.slot, type: p.shaderType }], PACKED_RULES).size }]
+      : [],
+  );
 
   /**
    * `CpuRoutine.run`: marshals `ctx` into the compiled function's args
@@ -4285,6 +4291,10 @@ export function instantiateWasmProgram(
   function run(ctx: CpuShaderContext): number | boolean | CpuProgramResult | null {
     const { args } = marshalInputs(ctx);
     if (discardAddress !== undefined) viewOfMemory().setInt32(discardAddress, 0, true);
+    // A varying the program does not write on a call is 0, not what the call before wrote.
+    for (const { address, size } of varyingBytes) {
+      for (let b = 0; b < size; b += 4) viewOfMemory().setInt32(address + b, 0, true);
+    }
     const result = callExport(wasmMain, args, args.length) as number;
     writeBackStorages(ctx);
     const view = viewOfMemory();
