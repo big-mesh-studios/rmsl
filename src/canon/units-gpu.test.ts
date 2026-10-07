@@ -245,6 +245,24 @@ describe("where WGSL declares a uniform or a buffer", () => {
   });
 
   /**
+   * @canon spec-a-compute-uniform-resource-names-the-rmsl-type-of-its-uniform
+   */
+  it("names the rmsl type of each uniform of a compute program, not its WGSL spelling", () => {
+    const count = uniform("int");
+    const offset = uniform("uvec2");
+    const gain = uniform("float");
+    const out = instancedArray(2, "float");
+    const program = Fn(() => {
+      out.element(invocationIndex()).assign(count.toFloat().add(offset.x.toFloat()).add(gain));
+    })().compute(2);
+    const { resources } = compile({ stage: "compute" }, program);
+    const typeOf = (name: string) => resources.find((r) => r.kind === "uniform" && r.name === name)?.shaderType;
+    expect(typeOf(count.name)).toBe("int");
+    expect(typeOf(offset.name)).toBe("uvec2");
+    expect(typeOf(gain.name)).toBe("float");
+  });
+
+  /**
    * The list names the buffer the program made second first, so the order of
    * the list is all that can put it at binding 0. WGSL names a buffer by the
    * order the stage first reads it, so `second` is `_rmsl_s1`.

@@ -348,6 +348,39 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
+   * @canon spec-a-bool-converts-to-one-or-zero-and-a-number-to-whether-it-is-nonzero
+   */
+  it("converts between bool and the numeric types the same way on every target", () => {
+    const flag = (a: Node<"float">) => bool(a).select(10, 20) as Node<"float">;
+    expect(evaluateRecording(flag, [0.5])).toBe(10);
+    expect(evaluateRecording(flag, [-0.25])).toBe(10);
+    expect(evaluateRecording(flag, [0])).toBe(20);
+    expect(evaluateRecording((a) => bool(a.toInt()).select(10, 20) as Node<"float">, [3])).toBe(10);
+    expect(evaluateRecording((a) => bool(a.toInt()).select(10, 20) as Node<"float">, [0])).toBe(20);
+    expect(evaluateRecording((a) => bool(a.toUint()).select(10, 20) as Node<"float">, [0])).toBe(20);
+    expect(evaluateRecording((a) => float(a.greaterThan(0)).add(1) as Node<"float">, [2])).toBe(2);
+    expect(evaluateRecording((a) => float(a.greaterThan(0)).add(1) as Node<"float">, [-2])).toBe(1);
+    expect(evaluateRecording((a) => int(a.greaterThan(0)).add(1).toFloat(), [2])).toBe(2);
+    expect(evaluateRecording((a) => uint(a.lessThan(0)).add(1).toFloat(), [2])).toBe(1);
+  });
+
+  /**
+   * @canon spec-a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number
+   */
+  it("builds a matrix from numbers and scalar nodes on every target", () => {
+    expect(evaluateRecording((a) => mat2(a, 1, 2, 4).element(int(0)), [3])).toEqual([3, 1]);
+    expect(evaluateRecording((a) => mat3(1, a, 0, 0, 1, 0, 0, 0, a.add(1)).element(int(2)).z, [3])).toBe(4);
+    expect(evaluateRecording((a) => mat2x3(a, 0, 0, 0, 1, a).element(int(1)), [5])).toEqual([0, 1, 5]);
+  });
+
+  /**
+   * @canon spec-a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number
+   */
+  it("refuses a matrix built from the wrong number of values when one is a node", () => {
+    expect(() => mat2(float(3), 1, 2)).toThrow(/takes 4 values/);
+  });
+
+  /**
    * @canon spec-a-transpose-swaps-the-shape
    */
   it("transposes a matrix that is not square on every target", () => {

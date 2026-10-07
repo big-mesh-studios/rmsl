@@ -24,6 +24,8 @@ import {
   type Node,
 } from "../rmsl";
 import type { CompileCpuRoutine } from "../backends/cpu";
+import { jsHelperSource } from "../backends/js/js";
+import { roundHalfToEven } from "../backends/shared";
 import {
   compileJS,
   compileJSCompute,
@@ -714,5 +716,25 @@ describe("a CPU compute stage's vector buffer", () => {
       [2, 4],
       [6, 8],
     ]);
+  });
+});
+
+describe("the rounding helper of JS", () => {
+  /**
+   * @canon spec-round-takes-a-half-to-the-even-integer
+   */
+  it("rounds as constant folding does, for every value of a sweep", () => {
+    const helper = new Function(`${jsHelperSource("roundEven")}; return _rmsl_roundEven;`)() as (x: number) => number;
+    const values = [0, -0, 0.5, -0.5, 1.5, 2.5, -1.5, -2.5, 0.49999999999999994, 4503599627370495.5, 1e300, -1e300, 7.25, -7.75];
+    for (const x of values) expect(Object.is(helper(x), roundHalfToEven(x)), `round(${x})`).toBe(true);
+  });
+
+  /**
+   * @canon spec-round-takes-a-half-to-the-even-integer
+   */
+  it("comes with every compiled function that rounds a scalar or a vector", () => {
+    const scalar = compileJSFn(() => Fn(() => uniform("float").round())() as any, none);
+    const vector = compileJSFn(() => Fn(() => vec3(uniform("float")).round())() as any, none);
+    for (const compiled of [scalar, vector]) expect(String(compiled)).toContain("function _rmsl_roundEven");
   });
 });

@@ -362,6 +362,24 @@ function foldIntegerOperands(n: BaseNode<ShaderType>): BaseNode<ShaderType> | nu
 }
 
 export function tryFold(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+  let folded = foldNode(n);
+  if (
+    folded &&
+    folded._t === "float" &&
+    folded.type === "float" &&
+    n.type !== "float" &&
+    n.type !== "select" &&
+    !Number.isFinite(Math.fround(folded.value as number))
+  ) {
+    throw new Error(
+      `[RMSL] ${n.type}() of literal operands is ${folded.value}, which a 32-bit float cannot hold and no target can write as a constant. ` +
+        `Compute it from a value that is not a literal, such as a uniform.`,
+    );
+  }
+  return folded;
+}
+
+function foldNode(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
   // Integer operands are folded first, so a constant subexpression counts as
   // the literal it is when this node is folded or its divisor is rewritten.
   let operands = n.params?.map((p) => integerConstant(p) ?? p);
@@ -736,7 +754,7 @@ export function assertLiteralIndexInRange(target: { _t?: string }, index: BaseNo
 }
 
 /** `Math.round` takes a half toward +Infinity. WGSL takes it to the even neighbour, so folding does too. */
-function roundHalfToEven(x: number): number {
+export function roundHalfToEven(x: number): number {
   const r = Math.round(x);
   return x - Math.floor(x) === 0.5 && r % 2 !== 0 ? r - 1 : r;
 }

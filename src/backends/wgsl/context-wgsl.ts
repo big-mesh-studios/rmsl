@@ -16,6 +16,7 @@ import { assertWriteFits } from "../shared";
 import {
   assertStorageBufferLimit,
   requestComputeDevice,
+  resourcePlacement,
   uniformBufferSize,
   uniformScratch,
   writeUniformMember,
@@ -187,7 +188,7 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
     uniforms.uploaded = { version: uniformVersion, count: node.count };
     for (const resource of uniforms.resources) {
       const value = resource.name === node.countNode.name ? node.count : uniformValues.get(resource.name);
-      if (value !== undefined) writeUniformMember(uniforms.scratch, { ...resource, type: resource.shaderType }, value);
+      if (value !== undefined) writeUniformMember(uniforms.scratch, resourcePlacement(resource), value);
     }
     gpu.queue.writeBuffer(uniforms.buffer, 0, uniforms.scratch.f32 as BufferSource);
   }

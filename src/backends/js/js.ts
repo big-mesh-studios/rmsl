@@ -45,6 +45,7 @@ import {
   forUpdateStatements,
   loopTest,
   resolveSwizzleTarget,
+  roundHalfToEven,
   tryFold,
   withoutSemicolon,
   wrapExpr,
@@ -128,7 +129,7 @@ export function isJSArrayLeaf(node: any): boolean {
 }
 
 /** Element-wise operations the JS vector helpers implement, per index. */
-export const JS_ELEM: Record<string, { argc: number; fn: (xs: string[]) => string }> = {
+export const JS_ELEM: Record<string, { argc: number; fn: (xs: string[]) => string; helper?: string }> = {
   add: { argc: 2, fn: (xs) => `${xs[0]} + ${xs[1]}` },
   sub: { argc: 2, fn: (xs) => `${xs[0]} - ${xs[1]}` },
   mul: { argc: 2, fn: (xs) => `${xs[0]} * ${xs[1]}` },
@@ -177,7 +178,7 @@ export const JS_ELEM: Record<string, { argc: number; fn: (xs: string[]) => strin
   sign: { argc: 1, fn: (xs) => `Math.sign(${xs[0]})` },
   floor: { argc: 1, fn: (xs) => `Math.floor(${xs[0]})` },
   ceil: { argc: 1, fn: (xs) => `Math.ceil(${xs[0]})` },
-  round: { argc: 1, fn: (xs) => `_rmsl_roundEven(${xs[0]})` },
+  round: { argc: 1, fn: (xs) => `_rmsl_roundEven(${xs[0]})`, helper: "roundEven" },
   trunc: { argc: 1, fn: (xs) => `Math.trunc(${xs[0]})` },
   radians: { argc: 1, fn: (xs) => `(${xs[0]} * ${RADIANS_PER_DEGREE})` },
   degrees: { argc: 1, fn: (xs) => `(${xs[0]} * ${DEGREES_PER_RADIAN})` },
@@ -649,12 +650,12 @@ function _texCube(tex, dir, out) {
   }
 
   if (name === "roundEven") {
-    // `Math.round` takes a half toward +Infinity, and WGSL takes it to the even neighbour.
-    return (
-      `function _rmsl_roundEven(x) {\n` +
-      `  const r = Math.round(x);\n` +
-      `  return x - Math.floor(x) === 0.5 && r % 2 !== 0 ? r - 1 : r;\n}`
-    );
+    // The function constant folding uses, so folded and run-time rounding cannot differ.
+    const source = roundHalfToEven.toString().replace(/^function[^(]*/, "function _rmsl_roundEven");
+    if (!source.startsWith("function _rmsl_roundEven(")) {
+      throw new Error("[RMSL] roundHalfToEven must be a function declaration to become the JS rounding helper");
+    }
+    return source;
   }
 
   throw new Error(`[RMSL] Unknown JS helper: ${name}`);
@@ -662,6 +663,9 @@ function _texCube(tex, dir, out) {
 
 export function jsRequireHelper(ctx: CompileCtx, name: string): void {
   ctx.jsHelpers.add(name);
+  // A vector helper calls the helper its `JS_ELEM` entry names.
+  const elementHelper = JS_ELEM[/^v\d+([a-zA-Z]+)$/.exec(name)?.[1] ?? ""]?.helper;
+  if (elementHelper) ctx.jsHelpers.add(elementHelper);
 }
 
 /** A constant array, declared once beside the function and read from there, so reading it allocates nothing. */
@@ -785,6 +789,9 @@ export function jsComponentCast(expr: string, sourceType: string | undefined, ta
   if (from === "bool") expr = `(${expr} ? 1 : 0)`;
   if (to === "bool") return `(${expr} !== 0)`;
   // uint and int convert to each other keeping the bits, as WGSL's do.
+  // A float truncates toward zero and clamps to the range WebGPU clamps to, with NaN as 0.
+  if (to === "int" && from === "float") return `(Math.trunc(Math.min(Math.max(${expr}, -2147483648), 2147483520)) || 0)`;
+  if (to === "uint" && from === "float") return `(Math.trunc(Math.min(Math.max(${expr}, 0), 4294967040)) || 0)`;
   if (to === "int") return from === "uint" ? `((${expr}) | 0)` : `Math.trunc(${expr})`;
   if (to === "uint") return `((${expr}) >>> 0)`;
   return expr;
@@ -959,12 +966,12 @@ export function jsMatrixUnary(node: BaseNode<ShaderType>, ctx: CompileCtx, suffi
 }
 
 export function jsUnaryMath(node: BaseNode<ShaderType>, ctx: CompileCtx, suffix: string): CompiledNode {
-  if (suffix === "round") jsRequireHelper(ctx, "roundEven");
   let width = jsArrayLength(node.params![0]?._t);
   if (width <= 1) {
     let a = compileJSStage(node.params![0], ctx);
     let e = JS_ELEM[suffix];
     if (!e) throw new Error(`[RMSL] Unknown JS unary op: ${suffix}`);
+    if (e.helper) jsRequireHelper(ctx, e.helper);
     // `fract` writes its operand out twice.
     if (suffix === "fract") a = jsReadable(a, node.params![0]?._t, ctx);
     return { decls: a.decls, body: a.body, expr: e.fn([`(${a.expr})`]), prec: JS_FORM_PREC[suffix] };

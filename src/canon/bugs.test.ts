@@ -43,22 +43,6 @@ describe("known bugs, each failing until its fix", () => {
   });
 
   /**
-   * @canon bug-wasm-traps-on-a-float-outside-an-integer-range
-   */
-  it.fails("clamps a float outside the int range on WASM", () => {
-    const run = compileWasmRoutine((a: any) => Fn(() => a.toInt().toVar())(), param);
-    expect(run({ params: { a: 3e9 } })).toBe(2147483520);
-  });
-
-  /**
-   * @canon bug-js-leaves-a-float-outside-an-integer-range-unclamped
-   */
-  it.fails("clamps a float outside the int range on JS", () => {
-    const run = compileJSRoutine((a: any) => Fn(() => a.toInt().toVar())(), param);
-    expect(run({ params: { a: 3e9 } })).toBe(2147483520);
-  });
-
-  /**
    * The casts reach `.name`, which the type of `screenSize()` hides until #68
    * is fixed.
    *
@@ -138,13 +122,6 @@ describe("known bugs, each failing until its fix", () => {
         return m.element(1);
       })();
     expect(compileJSRoutine(build, param)({ params: { a: 0 } })).toEqual([4, 0, 6]);
-  });
-
-  /**
-   * @canon bug-every-target-compiles-operands-of-different-widths
-   */
-  it.fails("refuses vectors of different widths on JS", () => {
-    expect(() => compileJSRoutine(() => Fn(() => (vec2(1, 2).toVar() as any).add(vec3(1, 2, 3)).toVar())(), none)).toThrow();
   });
 
   /**

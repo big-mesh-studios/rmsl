@@ -143,33 +143,6 @@ describe("known WASM bugs, each failing until its fix", () => {
   });
 
   /**
-   * Sampling truncates a coordinate far past the edge to an i32 before it
-   * wraps, which traps.
-   *
-   * @canon bug-wasm-traps-on-a-sampling-coordinate-far-past-the-edge
-   */
-  it.fails("clamps a sampling coordinate far past the edge on WASM", () => {
-    const tex = uniform("sampler2D");
-    const routine = compileWasmRoutine((a: any) => Fn(() => tex.texture(vec2(a, 0.5)).x.toVar())(), param);
-    const texture = { data: [1, 2], width: 2, height: 1, channels: 1 as const };
-    expect(routine({ params: { a: 1e12 }, textures: { [tex.name]: texture } })).toBe(2);
-  });
-
-  /**
-   * The rasterizer truncates a triangle's bounding box to i32 before it
-   * clamps it to the viewport, which traps for a triangle far off screen.
-   *
-   * @canon bug-wasm-rasterizer-traps-on-a-triangle-far-off-screen
-   */
-  it.fails("draws nothing for a triangle far off screen on WASM", () => {
-    const { pos, routine } = flat();
-    const far = new Float64Array([1e12, 0, 0, 2e12, 0, 0, 1e12, 1, 0]);
-    expect(Array.from(routine.draw({ attributes: { [pos.name]: far } }, { width: 1, height: 1 }))).toEqual([
-      0, 0, 0, 0,
-    ]);
-  });
-
-  /**
    * The WASM rasterizer writes a colour for a discarded fragment: the colour
    * the fragment stage last left in its memory.
    *
@@ -367,25 +340,6 @@ describe("known WASM bugs, each failing until its fix", () => {
     draw(lower, [0, 0, 1, 1], true);
     const lowerFirst = draw(upper, [1, 0, 0, 1], false);
     expect(upperFirst).toEqual(lowerFirst);
-  });
-
-  /**
-   * `assign` passes a bare number on as it is, and the WASM target throws on
-   * it as a node of no type.
-   *
-   * @canon bug-assign-leaves-a-bare-number-untyped
-   */
-  it.fails("assigns a bare number to a float component on WASM", () => {
-    const routine = compileWasmRoutine(
-      () =>
-        Fn(() => {
-          const v = vec2(1, 2).toVar();
-          (v.x as any).assign(7);
-          return v.x;
-        })(),
-      none,
-    );
-    expect(routine({})).toBe(7);
   });
 
   /**

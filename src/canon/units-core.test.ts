@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import * as rmsl from "../rmsl";
 import {
   attribute,
+  equal,
   float,
   Fn,
   If,
@@ -11,12 +12,19 @@ import {
   StorageInstancedBufferAttribute,
   int,
   Loop,
+  mat3,
   mix,
   select,
+  shiftLeft,
+  shiftRight,
   smoothstep,
+  sub,
   textureSize,
+  uint,
   uniform,
   uniformArray,
+  uvec2,
+  vec2,
   vec3,
   vec4,
   type Node,
@@ -39,6 +47,7 @@ afterAll(async () => {
 }, 120_000);
 
 const none = { name: "main", params: [] };
+const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
 
 /** The source of `build` compiled as a fragment stage on GLSL, WGSL and JS. */
 function sources(build: () => Node<"vec4">) {
@@ -460,5 +469,204 @@ describe("a storage array made from a count", () => {
     expect(new StorageInstancedBufferAttribute(3, 1, Int32Array).array).toEqual(new Int32Array(3));
     const given = new Uint32Array([1, 2]);
     expect(new StorageBufferAttribute(given, 1).array).toBe(given);
+  });
+});
+
+describe("a bare number takes the type beside it", () => {
+  /**
+   * @canon spec-a-bare-number-beside-an-integer-is-an-integer
+   */
+  it("makes a bare number given before an integer an integer", () => {
+    const build = (a: any) => Fn(() => sub(7, a.toInt()).div(2).toVar())();
+    expect(compileJSRoutine(build, param)({ params: { a: 0 } })).toBe(3);
+    expect(compileWasmRoutine(build, param)({ params: { a: 0 } })).toBe(3);
+  });
+
+  /**
+   * @canon spec-a-bare-number-beside-an-integer-is-an-integer
+   */
+  it("compares a bare number with an integer on WASM", () => {
+    const build = (a: any) => Fn(() => equal(1, a.toInt()).select(float(1), float(0)).toVar())();
+    expect(compileWasmRoutine(build, param)({ params: { a: 1 } })).toBe(1);
+  });
+
+  /**
+   * @canon spec-select-picks-one-of-two-values
+   */
+  it("gives select with an integer branch and a bare-number branch the integer type", () => {
+    const first = (a: any) => Fn(() => a.greaterThan(0).select(a.toInt(), 0).toVar())();
+    const second = (a: any) => Fn(() => a.greaterThan(0).select(0, a.toInt()).div(2).toVar())();
+    expect(compileJSRoutine(second, param)({ params: { a: -3 } })).toBe(-1);
+    expect(compileWasmRoutine(first, param)({ params: { a: 1.5 } })).toBe(1);
+  });
+
+  /**
+   * @canon spec-assign-gives-a-bare-number-the-type-of-its-target
+   */
+  it("assigns a bare number to a float component on WASM", () => {
+    const routine = compileWasmRoutine(
+      () =>
+        Fn(() => {
+          const v = vec2(1, 2).toVar();
+          (v.x as any).assign(7);
+          return v.x;
+        })(),
+      none,
+    );
+    expect(routine({})).toBe(7);
+  });
+});
+
+describe("an integer and a float operand", () => {
+  /**
+   * @canon spec-an-integer-and-a-float-operand-are-refused
+   */
+  it("are refused by an operation and by a comparison, with the same error on every target", () => {
+    const count = uniform("int") as any;
+    const scale = uniform("float") as any;
+    const arithmetic = () => Fn(() => vec4(count.add(scale), 0, 0, 1))();
+    const comparison = () => Fn(() => vec4(count.lessThan(scale).select(1, 0), 0, 0, 1))();
+    for (const build of [arithmetic, comparison]) {
+      expect(() => compileGlsl.fragment(build())).toThrow(/one kind/);
+      expect(() => compileWgsl.fragment(build())).toThrow(/one kind/);
+      expect(() => compileJSFn(build as any, none)).toThrow(/one kind/);
+    }
+  });
+});
+
+describe("folding a float operation on literals", () => {
+  /**
+   * @canon spec-a-fold-that-is-not-finite-is-refused
+   */
+  it("refuses a result that is not finite on every target", () => {
+    const divided = () => Fn(() => vec4(float(1).div(0)))();
+    const rooted = () => Fn(() => vec4(float(-1).sqrt()))();
+    const overflowing = () => Fn(() => vec4(float(1e30).mul(1e30)))();
+    for (const build of [divided, rooted, overflowing]) {
+      expect(() => compileGlsl.fragment(build())).toThrow(/no target can write/);
+      expect(() => compileWgsl.fragment(build())).toThrow(/no target can write/);
+      expect(() => compileJSFn(build as any, none)).toThrow(/no target can write/);
+    }
+  });
+
+  /**
+   * @canon spec-a-fold-that-is-not-finite-is-refused
+   */
+  it("still gives Infinity for the same operation on a run-time value", () => {
+    const build = (a: any) => Fn(() => a.div(0).toVar())();
+    expect(compileJSRoutine(build, param)({ params: { a: 1 } })).toBe(Infinity);
+  });
+});
+
+describe("operands of different widths", () => {
+  /**
+   * @canon spec-operands-of-different-widths-are-refused
+   */
+  it("are refused by every operation family, with the same error", () => {
+    const narrow = vec2(1, 2) as any;
+    const wide = vec3(1, 2, 3) as any;
+    const families: [string, () => unknown][] = [
+      ["add", () => narrow.add(wide)],
+      ["mul", () => narrow.mul(wide)],
+      ["min", () => narrow.min(wide)],
+      ["dot", () => narrow.dot(wide)],
+      ["distance", () => narrow.distance(wide)],
+      ["mix", () => narrow.mix(wide, 0.5)],
+      ["lessThan", () => narrow.lessThan(wide)],
+    ];
+    for (const [name, build] of families) expect(build, name).toThrow(/one width/);
+  });
+
+  /**
+   * @canon spec-operands-of-different-widths-are-refused
+   */
+  it("still broadcast a scalar beside a vector, and multiply a matrix by a vector", () => {
+    expect(() => (vec3(1, 2, 3) as any).add(float(1))).not.toThrow();
+    expect(() => (mat3(1) as any).mul(vec3(1, 2, 3))).not.toThrow();
+  });
+});
+
+describe("a scalar beside a vector in arithmetic", () => {
+  /**
+   * @canon spec-an-arithmetic-result-has-the-width-of-the-wider-operand
+   */
+  it("gives the vector's width on either side", () => {
+    expect((float(2) as any).mul(vec3(1, 2, 3))._t).toBe("vec3");
+    expect((vec3(1, 2, 3) as any).mul(float(2))._t).toBe("vec3");
+    expect((float(2) as any).lessThan(vec3(1, 2, 3))._t).toBe("bvec3");
+  });
+});
+
+describe("a float converted to an integer", () => {
+  const cases: [number, number, number][] = [
+    [2.9, 2, 2],
+    [-2.9, -2, 0],
+    [3e9, 2147483520, 3000000000],
+    [-3e9, -2147483648, 0],
+    [5e9, 2147483520, 4294967040],
+    [Infinity, 2147483520, 4294967040],
+    [-Infinity, -2147483648, 0],
+  ];
+
+  /**
+   * @canon spec-a-float-outside-an-integer-range-clamps-to-it
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine],
+  ] as const)("truncates and clamps to the range of int and uint on %s", (_, compile) => {
+    const toInt = compile((a: any) => Fn(() => a.toInt().toVar())(), param);
+    const toUint = compile((a: any) => Fn(() => a.toUint().toVar())(), param);
+    for (const [x, asInt, asUint] of cases) {
+      expect(toInt({ params: { a: x } }), `int(${x})`).toBe(asInt);
+      expect(toUint({ params: { a: x } }), `uint(${x})`).toBe(asUint);
+    }
+  });
+
+  /**
+   * @canon spec-a-cpu-target-gives-zero-for-a-nan-converted-to-an-integer
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine],
+  ] as const)("gives 0 for a NaN on %s", (_, compile) => {
+    const toInt = compile((a: any) => Fn(() => a.toInt().toVar())(), param);
+    const toUint = compile((a: any) => Fn(() => a.toUint().toVar())(), param);
+    expect(toInt({ params: { a: NaN } })).toBe(0);
+    expect(toUint({ params: { a: NaN } })).toBe(0);
+  });
+
+  /**
+   * @canon spec-a-number-outside-an-integer-type-is-refused-by-its-constructor
+   */
+  it("is refused when a constructor is given a number outside the range", () => {
+    expect(() => int(3e9)).toThrow(/outside the range of int/);
+    expect(() => int(-2147483649)).toThrow(/outside the range of int/);
+    expect(() => uint(5e9)).toThrow(/outside the range of uint/);
+    expect(() => uvec2(1, 5e9)).toThrow(/outside the range of uint/);
+    expect(() => int(NaN)).toThrow(/outside the range of int/);
+    expect((int(2147483647) as any).value).toBe(2147483647);
+    expect((int(-2.9) as any).value).toBe(-2);
+  });
+});
+
+describe("a bare number beside an integer", () => {
+  /**
+   * @canon spec-a-number-beyond-an-integer-types-range-is-refused-beside-it
+   */
+  it("is refused when the integer type cannot hold it", () => {
+    const count = uniform("int") as any;
+    const mask = uniform("uint") as any;
+    expect(() => count.add(3e9)).toThrow(/outside the range of int/);
+    expect(() => mask.bitAnd(5e9)).toThrow(/outside the range of uint/);
+    expect(() => count.add(2147483647)).not.toThrow();
+  });
+
+  /**
+   * @canon spec-a-bare-number-shifted-is-an-int-whatever-the-amount
+   */
+  it("shifted by an unsigned amount stays an int", () => {
+    expect(() => shiftRight(-8, uint(1))).not.toThrow();
+    expect((shiftLeft(1, uint(1)) as any)._t).toBe("int");
   });
 });

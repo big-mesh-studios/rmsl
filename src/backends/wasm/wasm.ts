@@ -52,6 +52,8 @@ import {
   WASM_F64,
   WASM_FUNC,
   WASM_I32,
+  I32_TRUNC_SAT_F64_S,
+  I32_TRUNC_SAT_F64_U,
   WASM_OP,
   wasmF64Bytes,
   wasmSection,
@@ -384,6 +386,27 @@ function uniformArrayElementAddress(base: number, elementStride: number, indexBy
   return [...i32ConstBytes(base), ...indexBytes, ...i32ConstBytes(elementStride), WASM_OP.i32Mul, WASM_OP.i32Add];
 }
 
+/** The largest `int` and `uint` a 32-bit float holds exactly, which a float converted to an integer clamps to. */
+const INT_MAX_OF_F32 = 2147483520;
+const UINT_MAX_OF_F32 = 4294967040;
+
+/**
+ * An f64 truncated toward zero to an `int` or `uint`, clamped to the range WebGPU clamps to, with NaN as 0. The
+ * clamp runs on the f64 first, since the saturating truncation alone stops at the i32 range.
+ */
+function floatToInteger(valueBytes: number[], kind: "int" | "uint"): number[] {
+  const low = kind === "uint" ? 0 : -2147483648;
+  const high = kind === "uint" ? UINT_MAX_OF_F32 : INT_MAX_OF_F32;
+  return [
+    ...valueBytes,
+    ...f64ConstBytes(low),
+    WASM_OP.f64Max,
+    ...f64ConstBytes(high),
+    WASM_OP.f64Min,
+    ...(kind === "uint" ? I32_TRUNC_SAT_F64_U : I32_TRUNC_SAT_F64_S),
+  ];
+}
+
 /**
  * Casts one scalar to another kind: f64<->i32 via trunc/convert. A bool is an
  * i32 0 or 1, so it converts to a number as it is and from one by `!= 0`.
@@ -397,7 +420,7 @@ function convertComponent(valueBytes: number[], fromKind: ScalarKind, toKind: Sc
   }
   if (fromKind === "bool") return toKind === "float" ? [...valueBytes, WASM_OP.f64ConvertI32U] : valueBytes;
   if (fromKind === "float") {
-    return [...valueBytes, toKind === "uint" ? WASM_OP.i32TruncF64U : WASM_OP.i32TruncF64S];
+    return floatToInteger(valueBytes, toKind === "uint" ? "uint" : "int");
   }
   if (toKind === "float") {
     return [...valueBytes, fromKind === "uint" ? WASM_OP.f64ConvertI32U : WASM_OP.f64ConvertI32S];
@@ -1709,7 +1732,7 @@ export function compileWasmFn(
     const stride = componentCountOf(type) * compSize;
     const index = node.params[1];
     const indexBytes =
-      scalarKindOf(index._t as string) === "float" ? [...walkExpr(index), WASM_OP.i32TruncF64S] : walkExpr(index);
+      scalarKindOf(index._t as string) === "float" ? [...walkExpr(index), ...I32_TRUNC_SAT_F64_S] : walkExpr(index);
     const indexLocal = wasmUleb128(localSlotIndex(storageIndexLocal.get(node)!));
     return {
       inBounds: [
@@ -1767,7 +1790,7 @@ export function compileWasmFn(
    */
   function clampedIndexOffset(index: any, count: number, size: number): number[] {
     const indexBytes =
-      scalarKindOf(index._t as string) === "float" ? [...walkExpr(index), WASM_OP.i32TruncF64S] : walkExpr(index);
+      scalarKindOf(index._t as string) === "float" ? [...walkExpr(index), ...I32_TRUNC_SAT_F64_S] : walkExpr(index);
     const local = wasmUleb128(localSlotIndex("$element_index"));
     return [
       ...selectExpr([...indexBytes, WASM_OP.localTee, ...local], i32ConstBytes(count - 1), [
@@ -1989,7 +2012,7 @@ export function compileWasmFn(
         const width = componentCountOf(node._t as string);
         const index = node.params[1];
         const indexBytes =
-          scalarKindOf(index._t as string) === "float" ? [...walkExpr(index), WASM_OP.i32TruncF64S] : walkExpr(index);
+          scalarKindOf(index._t as string) === "float" ? [...walkExpr(index), ...I32_TRUNC_SAT_F64_S] : walkExpr(index);
         const baseAddr = nodeAddress(node);
         const out: number[] = [];
         for (let k = 0; k < width; k++) {
@@ -2324,8 +2347,11 @@ export function compileWasmFn(
       const present = [...i32ConstBytes(i), ...loadComponent(metaAddr, "int", TEX_META_CHANNELS), WASM_OP.i32LtS];
       const oob = loadComponent(OOB_FLAG, "int", 0);
       if (isInteger) {
-        const truncOp = samplerType.startsWith("isampler") ? WASM_OP.i32TruncF64S : WASM_OP.i32TruncF64U;
-        const fetched = [...loadDynamic(elemAddrBytes(i), "float"), truncOp];
+        // A texel holds an exact integer, so the truncation saturates at the type's own range, not at the floats' ends.
+        const fetched = [
+          ...loadDynamic(elemAddrBytes(i), "float"),
+          ...(samplerType.startsWith("isampler") ? I32_TRUNC_SAT_F64_S : I32_TRUNC_SAT_F64_U),
+        ];
         const missingChannelDefault = i === 3 ? i32ConstBytes(1) : i32ConstBytes(0);
         const inRange = selectExpr(fetched, missingChannelDefault, present);
         return selectExpr(i32ConstBytes(0), inRange, oob);
@@ -2507,16 +2533,16 @@ export function compileWasmFn(
     function fracAxis(k: number, dimOffset: number): { i0: number[]; t: number[] } {
       const f = [...uv(k), ...dimF64(dimOffset), WASM_OP.f64Mul, ...f64ConstBytes(0.5), WASM_OP.f64Sub];
       const f0 = [...f, WASM_OP.f64Floor];
-      return { i0: [...f0, WASM_OP.i32TruncF64S], t: [...f, ...f0, WASM_OP.f64Sub] };
+      return { i0: [...f0, ...I32_TRUNC_SAT_F64_S], t: [...f, ...f0, WASM_OP.f64Sub] };
     }
 
     const nearestX = wrapAxis(
-      [...uv(0), ...dimF64(TEX_META_WIDTH), WASM_OP.f64Mul, WASM_OP.f64Floor, WASM_OP.i32TruncF64S],
+      [...uv(0), ...dimF64(TEX_META_WIDTH), WASM_OP.f64Mul, WASM_OP.f64Floor, ...I32_TRUNC_SAT_F64_S],
       TEX_META_WIDTH,
       TEX_META_WRAP_S,
     );
     const nearestY = wrapAxis(
-      [...uv(1), ...dimF64(TEX_META_HEIGHT), WASM_OP.f64Mul, WASM_OP.f64Floor, WASM_OP.i32TruncF64S],
+      [...uv(1), ...dimF64(TEX_META_HEIGHT), WASM_OP.f64Mul, WASM_OP.f64Floor, ...I32_TRUNC_SAT_F64_S],
       TEX_META_HEIGHT,
       TEX_META_WRAP_T,
     );
@@ -2539,7 +2565,7 @@ export function compileWasmFn(
 
     if (is3D) {
       const nearestZ = wrapAxis(
-        [...uv(2), ...dimF64(TEX_META_DEPTH), WASM_OP.f64Mul, WASM_OP.f64Floor, WASM_OP.i32TruncF64S],
+        [...uv(2), ...dimF64(TEX_META_DEPTH), WASM_OP.f64Mul, WASM_OP.f64Floor, ...I32_TRUNC_SAT_F64_S],
         TEX_META_DEPTH,
         TEX_META_WRAP_R,
       );
@@ -3377,7 +3403,7 @@ export function compileWasmFn(
         const targetIsFloat = targetKind === "float";
         if (sourceIsFloat && !targetIsFloat) {
           if (targetKind === "bool") return [...bytes, ...f64ConstBytes(0), WASM_OP.f64Ne];
-          return [...bytes, targetKind === "uint" ? WASM_OP.i32TruncF64U : WASM_OP.i32TruncF64S];
+          return floatToInteger(bytes, targetKind === "uint" ? "uint" : "int");
         }
         if (!sourceIsFloat && targetIsFloat) {
           return [...bytes, sourceKind === "uint" ? WASM_OP.f64ConvertI32U : WASM_OP.f64ConvertI32S];
@@ -3483,7 +3509,7 @@ export function compileWasmFn(
         const kind = isAggregate(type) ? elementKindOf(type) : scalarKindOf(type);
         const index = node.params[1];
         const indexBytes =
-          scalarKindOf(index._t as string) === "float" ? [...walkExpr(index), WASM_OP.i32TruncF64S] : walkExpr(index);
+          scalarKindOf(index._t as string) === "float" ? [...walkExpr(index), ...I32_TRUNC_SAT_F64_S] : walkExpr(index);
         const addrBytes = uniformArrayElementAddress(info.base, info.elementStride, indexBytes);
         if (info.narrow && kind === "float") {
           return [...addrBytes, WASM_OP.f32Load, 0x00, 0x00, WASM_OP.f64PromoteF32];

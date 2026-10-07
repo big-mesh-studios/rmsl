@@ -6,7 +6,7 @@ import {
   type StorageAccess,
   type StorageBufferAttribute,
 } from "./core";
-import { compileWgsl, wgslUniformLayout, WGSL_UNIFORM_STRUCT } from "./backends/wgsl/wgsl";
+import { compileWgsl, typeToWGSL, wgslUniformLayout, WGSL_UNIFORM_STRUCT } from "./backends/wgsl/wgsl";
 
 export type WgslStage = "compute" | "vertex" | "fragment";
 
@@ -80,6 +80,12 @@ function collectStorageResources(root: Node<ShaderType> | readonly Node<ShaderTy
     }));
 }
 
+/** The rmsl type a WGSL uniform member type stands for: `i32` is `int`, `vec2<u32>` is `uvec2`. */
+function shaderTypeOfWgsl(wgslType: string): ShaderType {
+  let match = Object.keys(typeToWGSL).find((key) => typeToWGSL[key] === wgslType);
+  return (match ?? wgslType) as ShaderType;
+}
+
 /**
  * Every uniform lives as a member of the one `_RmslUniforms` struct at
  * `@group(0) @binding(0)` (see `compileWGSLWithStage` in
@@ -113,7 +119,7 @@ function inferUniformResources(code: string): WgslResource[] {
   return layout.members.map((m) => ({
     kind: "uniform",
     name: m.name,
-    shaderType: m.type as ShaderType,
+    shaderType: shaderTypeOfWgsl(m.type),
     group: 0,
     binding: 0,
     offset: m.offset,

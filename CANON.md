@@ -38,9 +38,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@axiom one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target) — A program computes the same result on every [target](#term-target), or every target refuses it with the same error.
   - [`@spec folding-gives-the-run-time-result`](#spec-folding-gives-the-run-time-result) — An operation whose operands are all literal values compiles to the literal it would compute at run time, on every target. This is [folding](#term-folding).
     - [`@spec float-folding-gives-the-run-time-result`](#spec-float-folding-gives-the-run-time-result) — A float operation on literal operands folds to the value the target would compute, a floored `mod` included.
-      - [`@bug folding-a-non-finite-float-writes-infinity-or-nan-as-a-literal`](#bug-folding-a-non-finite-float-writes-infinity-or-nan-as-a-literal) — Folding a float operation whose result is not finite writes JavaScript's spelling of it as the literal. GLSL gets `Infinity.0` and WGSL gets `NaNf`, which no driver accepts.
+    - [`@spec a-fold-that-is-not-finite-is-refused`](#spec-a-fold-that-is-not-finite-is-refused) — A float operation on literal operands whose result is not finite as a 32-bit float, such as `float(1).div(0)`, `float(-1).sqrt()` or `float(1e30).mul(1e30)`, is refused with one error on every target. The same operation on a run-time value gives its result.
     - [`@spec integer-folding-gives-the-run-time-result`](#spec-integer-folding-gives-the-run-time-result) — An integer operation on literal operands folds to the value the target would compute, a truncating division included.
   - [`@spec a-conversion-between-numeric-types-is-written-out`](#spec-a-conversion-between-numeric-types-is-written-out) — A conversion between numeric types compiles to an explicit conversion on every target, whether the program asks for it with a constructor, a `to` method or `convert`.
+  - [`@spec a-bool-converts-to-one-or-zero-and-a-number-to-whether-it-is-nonzero`](#spec-a-bool-converts-to-one-or-zero-and-a-number-to-whether-it-is-nonzero) — `float`, `int` and `uint` of a `bool` give 1 for `true` and 0 for `false`. `bool` of a `float`, `int` or `uint` gives `true` for any value that is not zero, a fraction between -1 and 1 included.
   - [`@spec a-target-without-a-builtin-gets-a-helper`](#spec-a-target-without-a-builtin-gets-a-helper) — Where one target has no built-in for an operation, the compiler emits a helper function that computes it. It emits the helper once per program, and calls it like the built-in.
     - [`@spec wgsl-inverts-a-matrix-through-a-helper-of-its-size`](#spec-wgsl-inverts-a-matrix-through-a-helper-of-its-size) — On WGSL, `inverse` calls a helper written for the size of its square matrix.
     - [`@spec wgsl-floors-a-modulus-through-a-helper`](#spec-wgsl-floors-a-modulus-through-a-helper) — On WGSL, a float `mod` calls a helper of the width of its operands, which floors the quotient as GLSL's `mod` does, and reads each operand once.
@@ -97,7 +98,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@exception a-mipmapped-filter-reads-as-its-base-filter`](#exception-a-mipmapped-filter-reads-as-its-base-filter) — A minification filter that reads mipmaps reads as the filter it is based on, because no target builds a mip chain. Issue #4 asks for one.
     - [`@spec a-cpu-target-filters-as-the-texture-asks`](#spec-a-cpu-target-filters-as-the-texture-asks) — A CPU target reads the nearest texel when the host's texture names no filter. It blends neighbouring texels when the texture asks for linear filtering. A scene texture names linear filtering unless told otherwise, through the sampler rule.
     - [`@spec a-cpu-target-wraps-as-the-texture-asks`](#spec-a-cpu-target-wraps-as-the-texture-asks) — A coordinate past an edge of a texture, on either side, wraps the way the texture asks.
-      - [`@bug wasm-traps-on-a-sampling-coordinate-far-past-the-edge`](#bug-wasm-traps-on-a-sampling-coordinate-far-past-the-edge) — Sampling truncates a coordinate far past the edge to an i32 before it wraps, which traps.
     - [`@spec a-byte-texture-reads-as-zero-to-one`](#spec-a-byte-texture-reads-as-zero-to-one) — A byte texture read through a float sampler gives values from 0 to 1, through `texture`, `textureLod` and `textureLoad` alike. A float texture keeps its values, and an integer texture keeps its bytes as they are.
     - [`@spec a-texel-holds-the-channels-its-texture-stores`](#spec-a-texel-holds-the-channels-its-texture-stores) — A texel holds as many channels as its texture stores, and a filter blends each channel only with the same channel of its neighbours. A channel the texel lacks reads as 0, and a missing alpha as 1.
     - [`@spec a-3d-texture-blends-across-its-depth`](#spec-a-3d-texture-blends-across-its-depth) — A linear filter on a 3D texture blends neighbouring texels across its depth as well as its width and height.
@@ -113,10 +113,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@bug wasm-keeps-an-aggregate-uniform-the-call-leaves-out`](#bug-wasm-keeps-an-aggregate-uniform-the-call-leaves-out) — A routine keeps a vector or matrix uniform the call does not set as the last call wrote it. An unset scalar uniform reads zero.
   - [`@spec an-integer-reaches-the-host-as-the-integer-it-is`](#spec-an-integer-reaches-the-host-as-the-integer-it-is) — An `int` or `uint` passes between the host and a program as the integer it is. A `uint` above the largest `int` stays unsigned, in a uniform and in a storage buffer read back.
   - [`@axiom a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives) — Where the targets could give different results, the CPU targets give the result WebGPU gives. Where WebGL and WebGPU differ, rmsl follows WebGPU, and an exception names where WebGL departs. Where WebGPU itself leaves a result open, rmsl picks one, and the GPU targets are the exception.
-    - [`@spec a-float-converted-to-an-integer-clamps-to-its-range`](#spec-a-float-converted-to-an-integer-clamps-to-its-range) — Converting a float to `int` or `uint` truncates it toward zero and clamps the result to the range WebGPU clamps to. For `int`, that runs from -2147483648 to 2147483520, the largest `int` a 32-bit float holds exactly.
-      - [`@bug wasm-traps-on-a-float-outside-an-integer-range`](#bug-wasm-traps-on-a-float-outside-an-integer-range) — On WASM, converting a float that is NaN or outside the integer's range traps.
-      - [`@bug js-leaves-a-float-outside-an-integer-range-unclamped`](#bug-js-leaves-a-float-outside-an-integer-range-unclamped) — On JS, converting a float outside the integer's range leaves it unclamped. A float above an `int`'s range stays above it, a negative float converted to `uint` wraps to a large one, and NaN stays NaN.
-      - [`@bug an-integer-literal-out-of-range-wraps`](#bug-an-integer-literal-out-of-range-wraps) — `int` and `uint` given a number outside their range wrap it modulo 2^32, so `int(3e9)` is -1294967296 and `uint(5e9)` is 705032704.
+    - [`@spec a-float-converted-to-an-integer-clamps-to-its-range`](#spec-a-float-converted-to-an-integer-clamps-to-its-range) — Converting a float to `int` or `uint` truncates it toward zero and clamps the result to the range WebGPU clamps to, and a NaN gives 0. For `int`, that range runs from -2147483648 to 2147483520, the largest `int` a 32-bit float holds exactly.
+      - [`@spec a-float-outside-an-integer-range-clamps-to-it`](#spec-a-float-outside-an-integer-range-clamps-to-it) — A float that is not NaN converts to the integer nearest it inside the range, truncated toward zero. An infinity converts to an end of the range.
+      - [`@spec a-nan-converted-to-an-integer-gives-zero`](#spec-a-nan-converted-to-an-integer-gives-zero) — A NaN converted to `int` or `uint` gives 0.
+        - [`@spec a-cpu-target-gives-zero-for-a-nan-converted-to-an-integer`](#spec-a-cpu-target-gives-zero-for-a-nan-converted-to-an-integer) — On a CPU target, a NaN converted to `int` or `uint` gives 0.
+        - [`@exception a-gpu-target-lets-the-driver-pick-the-integer-of-a-nan`](#exception-a-gpu-target-lets-the-driver-pick-the-integer-of-a-nan) — On GLSL and WGSL, a NaN converted to `int` or `uint` gives what the driver gives.
+    - [`@spec a-number-outside-an-integer-type-is-refused-by-its-constructor`](#spec-a-number-outside-an-integer-type-is-refused-by-its-constructor) — `int`, `uint`, and the integer vector constructors given a number outside their range refuse it, with an error that names the type and its range. A fraction inside the range truncates toward zero.
     - [`@spec integer-arithmetic-follows-wgsl`](#spec-integer-arithmetic-follows-wgsl) — Every target gives an integer operation the result that WGSL defines for it.
       - [`@spec js-integer-arithmetic-follows-wgsl`](#spec-js-integer-arithmetic-follows-wgsl) — The JavaScript target gives an integer operation the result that WGSL defines for it.
       - [`@spec wasm-integer-arithmetic-follows-wgsl`](#spec-wasm-integer-arithmetic-follows-wgsl) — The WebAssembly target gives an integer operation the result that WGSL defines for it.
@@ -212,11 +214,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec only-a-square-matrix-is-inverted`](#spec-only-a-square-matrix-is-inverted) — `inverse` of a matrix that is not square is refused on every target.
   - [`@spec a-bare-number-takes-the-type-of-the-operand-beside-it`](#spec-a-bare-number-takes-the-type-of-the-operand-beside-it) — A JavaScript number given as an operand takes the type of the operand it meets: an integer type beside an integer, `float` beside a float. A number that type cannot hold is refused.
     - [`@spec a-bare-number-beside-an-integer-is-an-integer`](#spec-a-bare-number-beside-an-integer-is-an-integer) — A number beside an `int`, `uint` or integer vector compiles as a literal of that integer type.
-      - [`@bug a-bare-number-before-an-integer-stays-a-float`](#bug-a-bare-number-before-an-integer-stays-a-float) — A bare number given as the first operand beside an integer stays a float. So `sub(7, i).div(2)` divides as floats on JS, and on WASM `equal(1, i)` compiles to a module WebAssembly rejects.
     - [`@spec a-bare-number-beside-a-float-is-a-float`](#spec-a-bare-number-beside-a-float-is-a-float) — A number beside a `float` or float vector compiles as a float literal, with no conversion.
     - [`@spec a-fraction-beside-an-integer-is-refused`](#spec-a-fraction-beside-an-integer-is-refused) — A number that is not whole, beside an integer operand, is refused.
+    - [`@spec a-number-beyond-an-integer-types-range-is-refused-beside-it`](#spec-a-number-beyond-an-integer-types-range-is-refused-beside-it) — A number beside an `int` or `uint` operand that the type cannot hold is refused, with an error that names the type and its range.
+    - [`@spec a-bare-number-shifted-is-an-int-whatever-the-amount`](#spec-a-bare-number-shifted-is-an-int-whatever-the-amount) — A bare number given as the value of a shift is an `int`. The type of the shift amount does not type it.
     - [`@spec a-negative-number-for-an-unsigned-type-is-refused`](#spec-a-negative-number-for-an-unsigned-type-is-refused) — A negative number beside an unsigned operand, or given to `uint` or to an unsigned vector constructor, is refused.
-    - [`@bug assign-leaves-a-bare-number-untyped`](#bug-assign-leaves-a-bare-number-untyped) — `assign` passes a bare number on as it is. WASM throws on it, GLSL and WGSL write an integer literal into a float, and only JS runs it.
+    - [`@spec assign-gives-a-bare-number-the-type-of-its-target`](#spec-assign-gives-a-bare-number-the-type-of-its-target) — A bare number given to `assign` takes the type of the node it is assigned to.
   - [`@spec a-statement-outside-an-fn-is-refused`](#spec-a-statement-outside-an-fn-is-refused) — `assign`, `toVar` and control flow called outside the body of an `Fn` are refused.
   - [`@spec an-output-struct-is-refused-outside-a-fragment-stage`](#spec-an-output-struct-is-refused-outside-a-fragment-stage) — An `outputStruct` in a vertex stage, in a compute stage, or in a program compiled with no stage is refused on every target that compiles one. It cannot be an operand or a statement either.
   - [`@spec a-stage-reads-and-writes-only-what-it-has`](#spec-a-stage-reads-and-writes-only-what-it-has) — A vertex stage produces a position, and a built-in that one stage has is refused in the other.
@@ -237,12 +240,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec break-or-continue-outside-a-loop-is-refused`](#spec-break-or-continue-outside-a-loop-is-refused) — `Break` or `Continue` outside a loop is refused.
     - [`@spec cross-of-a-vector-that-is-not-a-vec3-is-refused`](#spec-cross-of-a-vector-that-is-not-a-vec3-is-refused) — `cross` of vectors that are not `vec3` is refused.
     - [`@spec operands-of-different-widths-are-refused`](#spec-operands-of-different-widths-are-refused) — An operation on two vectors of different widths is refused, by the type checker and on every target. A scalar beside a vector broadcasts instead.
-      - [`@bug every-target-compiles-operands-of-different-widths`](#bug-every-target-compiles-operands-of-different-widths) — Every target compiles an operation on vectors of different widths. GLSL and WGSL emit code no driver accepts, and JS and WASM compute with a missing component. The types accept `add` and `mul` of different widths too.
+    - [`@spec an-arithmetic-result-has-the-width-of-the-wider-operand`](#spec-an-arithmetic-result-has-the-width-of-the-wider-operand) — An arithmetic operation on a scalar and a vector gives a vector of the vector's width, whichever side the scalar is on. The types say so too.
     - [`@spec a-whole-storage-buffer-cannot-be-read`](#spec-a-whole-storage-buffer-cannot-be-read) — A storage node read as a whole, rather than through `element(i)`, is refused.
       - [`@bug js-and-wgsl-read-a-whole-storage-buffer`](#bug-js-and-wgsl-read-a-whole-storage-buffer) — JS and WGSL compile a storage node read as a whole. JS adds a number to an array, and WGSL emits a shader no driver accepts. Only WASM refuses it.
     - [`@spec a-scalar-argument-beside-a-vector-is-widened-to-it`](#spec-a-scalar-argument-beside-a-vector-is-widened-to-it) — A scalar argument beside a vector in `step`, `smoothstep`, `clamp`, `min`, `max`, `pow` or `mod` is widened to that vector before any target compiles it.
     - [`@spec an-integer-and-a-float-operand-are-refused`](#spec-an-integer-and-a-float-operand-are-refused) — An operation on an integer operand and a float operand is refused, by the type checker and on every target. A bare number takes the type beside it instead.
-      - [`@bug an-int-and-a-float-operand-compile-with-a-hidden-conversion`](#bug-an-int-and-a-float-operand-compile-with-a-hidden-conversion) — GLSL and WGSL compile an operation on an `int` and a `float` operand. WGSL truncates the float to `i32`, and GLSL converts the int to `float`.
     - [`@spec a-for-update-that-holds-a-block-is-refused`](#spec-a-for-update-that-holds-a-block-is-refused) — A `For` whose update holds a block, such as an `If`, is refused on every target.
   - [`@spec a-case-with-no-values-is-refused`](#spec-a-case-with-no-values-is-refused) — A `Case` given no values is refused as the program builds it, with an error that names `Case`.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
@@ -276,7 +278,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-matrix-times-a-shorter-vector-promotes-it`](#spec-a-matrix-times-a-shorter-vector-promotes-it) — A `mat4` times a `vec3`, or a `mat3` times a `vec2`, gives the vector a last component of 1. It keeps the leading components of the product, like TSL.
     - [`@spec a-compound-assignment-writes-the-result-back`](#spec-a-compound-assignment-writes-the-result-back) — `addAssign`, `subAssign`, `mulAssign`, `divAssign` and `modAssign` write the result of their operation back to the variable.
     - [`@spec select-picks-one-of-two-values`](#spec-select-picks-one-of-two-values) — `select(condition, a, b)` gives `a` where `condition` holds and `b` where it does not, with the type of its branches. A literal condition folds to its branch.
-      - [`@bug select-types-a-bare-number-branch-as-a-float`](#bug-select-types-a-bare-number-branch-as-a-float) — `select` types a bare-number branch as a float beside an integer branch, so the node takes the type of the branch that comes first. JS then divides it as a float, and WASM emits a module WebAssembly rejects.
     - [`@spec the-screen-accessors-follow-tsl`](#spec-the-screen-accessors-follow-tsl) — `fragCoord()` gives the coordinate of the fragment, and `screenUV()` and `uv()` give it divided by the size of the screen. `screenSize()` gives one shared uniform, and `time()` a float uniform. Each does what TSL's accessor of the same name does.
       - [`@bug screen-size-makes-a-new-uniform-on-every-call`](#bug-screen-size-makes-a-new-uniform-on-every-call) — `screenSize()` declares a new uniform each time it is called, so a program that calls `uv()` twice reads two size uniforms.
     - [`@spec the-index-accessors-follow-tsl`](#spec-the-index-accessors-follow-tsl) — `vertexIndex()` and `instanceIndex()` give the vertex and the instance that the GPU draws, as TSL's accessors of the same names do. The CPU targets do not compile them yet: issue #47.
@@ -289,7 +290,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-comparison-compares-component-wise`](#spec-a-comparison-compares-component-wise) — A comparison of scalars gives a `bool`. A comparison of vectors gives a boolean vector, one component for each pair.
     - [`@spec a-scalar-comparison-gives-a-bool`](#spec-a-scalar-comparison-gives-a-bool) — A comparison of two scalars compiles to the comparison operator of each target, and gives a `bool`.
     - [`@spec a-vector-comparison-gives-a-boolean-vector`](#spec-a-vector-comparison-gives-a-boolean-vector) — A comparison of two vectors, float or integer, gives a boolean vector of their width.
-    - [`@spec a-scalar-compared-against-a-vector-is-broadcast`](#spec-a-scalar-compared-against-a-vector-is-broadcast) — A vector compared against a scalar compares each component with that scalar.
+    - [`@spec a-scalar-compared-against-a-vector-is-broadcast`](#spec-a-scalar-compared-against-a-vector-is-broadcast) — A vector and a scalar compared, in either order, compare each component with that scalar. The result is a boolean vector of the vector's width.
     - [`@spec a-boolean-vector-reduces-with-all-or-any`](#spec-a-boolean-vector-reduces-with-all-or-any) — `all` and `any` reduce a boolean vector to a `bool`. A boolean vector has no other way to a `bool`.
     - [`@spec not-negates-a-boolean-vector-component-wise`](#spec-not-negates-a-boolean-vector-component-wise) — `not` of a boolean vector negates each component.
     - [`@spec and-or-and-not-combine-bools`](#spec-and-or-and-not-combine-bools) — `and`, `or` and `not` of `bool` values compile to the logical operators of each target.
@@ -301,6 +302,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug wasm-compiles-no-matrix-narrowing`](#bug-wasm-compiles-no-matrix-narrowing) — The WASM target does not compile a matrix built from a larger matrix.
       - [`@bug js-narrows-a-matrix-by-its-flat-values`](#bug-js-narrows-a-matrix-by-its-flat-values) — On JS, a matrix built from a larger matrix takes its leading values in flat order. It does not keep the leading rows of the leading columns.
     - [`@spec a-matrix-is-built-from-its-columns`](#spec-a-matrix-is-built-from-its-columns) — A matrix constructor of any shape, square or not, takes its values column by column, as numbers or as vector columns.
+    - [`@spec a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number`](#spec-a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number) — A matrix constructor given scalar nodes among its numbers builds the matrix from them, in column order, on every target. A mix of values whose count is not the matrix's is refused.
     - [`@spec a-literal-compiles-to-a-literal-of-its-type`](#spec-a-literal-compiles-to-a-literal-of-its-type) — `int`, `uint`, `bool`, boolean vector and integer vector constructors given literals compile to literals of their type on each target.
     - [`@spec a-javascript-array-is-a-vector-of-its-length`](#spec-a-javascript-array-is-a-vector-of-its-length) — A JavaScript array given where a node goes is a vector of its length. An array whose length no vector has is refused.
     - [`@spec the-tsl-constants-are-float-literals`](#spec-the-tsl-constants-are-float-literals) — `PI`, `TWO_PI`, `PI2`, `HALF_PI`, `EPSILON` and `INFINITY` are float literals of TSL's values.
@@ -366,6 +368,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-context-writes-a-buffer-and-reads-it-back`](#spec-a-context-writes-a-buffer-and-reads-it-back) — A context writes host data into a buffer, converted to the buffer's type, and reads the buffer back in the layout of its attribute. A write past the end of the buffer is refused.
     - [`@spec a-context-runs-no-program-it-cannot-bind`](#spec-a-context-runs-no-program-it-cannot-bind) — A context refuses a program that samples a texture, and a program over a buffer laid out before a storage node named its type. It refuses a dispatch past the device's limits on workgroup size or count.
     - [`@spec a-wgsl-compute-program-declares-its-storage-in-group-one`](#spec-a-wgsl-compute-program-declares-its-storage-in-group-one) — A WGSL compute program declares its storage buffers in group 1.
+    - [`@spec a-compute-uniform-resource-names-the-rmsl-type-of-its-uniform`](#spec-a-compute-uniform-resource-names-the-rmsl-type-of-its-uniform) — A uniform resource of a compiled WGSL compute program carries the rmsl type of the uniform in `shaderType`, so an `int` is `"int"` and not `"i32"`. The adapter lays it out in the WGSL spelling.
   - [`@spec an-effect-is-a-port-of-a-tsl-display-effect`](#spec-an-effect-is-a-port-of-a-tsl-display-effect) — An [effect](#term-effect) of `./effects` computes what the TSL display effect of the same name computes, and compiles on GLSL and WGSL.
     - [`@spec a-single-pass-effect-gives-a-colour-node`](#spec-a-single-pass-effect-gives-a-colour-node) — A single-pass effect takes samplers and parameter nodes and gives a node: a colour, or a float mask for `circle`.
       - [`@bug transition-reads-a-null-mix-texture`](#bug-transition-reads-a-null-mix-texture) — `transition` builds the branch that samples the mix texture whatever `useTexture` is, so a `null` mix texture throws a `TypeError`.
@@ -554,7 +557,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-rasterizer-clips-outside-the-depth-range`](#spec-a-rasterizer-clips-outside-the-depth-range) — The rasterizer clips a triangle at depth 0 and depth 1, so it draws nothing whose depth lies outside that range.
         - [`@bug js-rasterizer-draws-a-triangle-below-zero-depth`](#bug-js-rasterizer-draws-a-triangle-below-zero-depth) — The JS rasterizer draws a triangle whose depth lies below zero, which WebGPU clips away.
       - [`@spec a-triangle-off-screen-draws-nothing`](#spec-a-triangle-off-screen-draws-nothing) — A triangle wholly outside the viewport draws nothing, at any distance from it.
-        - [`@bug wasm-rasterizer-traps-on-a-triangle-far-off-screen`](#bug-wasm-rasterizer-traps-on-a-triangle-far-off-screen) — The rasterizer truncates a triangle's bounding box to i32 before it clamps it to the viewport, which traps for a triangle far off screen.
       - [`@spec a-rasterizer-gives-each-vertex-its-own-position`](#spec-a-rasterizer-gives-each-vertex-its-own-position) — A CPU rasterizer places each vertex of a draw at the position its own vertex call returned, whatever the vertex program keeps in variables.
       - [`@spec a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds`](#spec-a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds) — A CPU rasterizer draws a triangle whether its vertices run clockwise or counter-clockwise on the screen.
     - [`@spec shader-logic-is-tested-without-a-graphics-api`](#spec-shader-logic-is-tested-without-a-graphics-api) — The `./test` library runs a graph on the JS target and hands back values or a grid of fragments. A plain unit test can then assert on the logic of a shader.
@@ -640,6 +642,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact wgsl-defines-every-integer-edge-case`](#fact-wgsl-defines-every-integer-edge-case) — WGSL defines the result of every integer operation on run-time values. Overflow wraps. A division by zero returns the dividend and a remainder by zero returns zero. The most negative `i32` divided by `-1` returns itself. A shift uses its amount modulo the bit width.
 - [`@fact glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined) — GLSL ES 3.00 leaves undefined the result of an integer division or remainder by zero. It also leaves undefined a shift by a negative amount, or by the bit width or more.
 - [`@fact wgsl-rejects-a-constant-expression-that-fails`](#fact-wgsl-rejects-a-constant-expression-that-fails) — A WGSL shader fails to compile when a constant expression divides an integer by zero, shifts by the bit width or more, or overflows.
+- [`@fact wgsl-rejects-a-constant-expression-that-is-not-finite`](#fact-wgsl-rejects-a-constant-expression-that-is-not-finite) — A WGSL shader fails to compile when a constant expression has a result that is not finite, such as `1.0 / 0.0` or `sqrt(-1.0)`, and WGSL has no literal for infinity or NaN. The same expression read from a variable compiles.
+- [`@fact wgsl-an-indeterminate-value-is-any-value-of-its-type`](#fact-wgsl-an-indeterminate-value-is-any-value-of-its-type) — Where the WGSL specification gives an operation an indeterminate value, the result is any value of the result type. It need not be the same on two devices, or on two evaluations of the same expression.
+- [`@fact wgsl-leaves-the-integer-of-a-nan-open`](#fact-wgsl-leaves-the-integer-of-a-nan-open) — WGSL gives a NaN converted to `i32` or `u32` an [indeterminate value](#fact-wgsl-an-indeterminate-value-is-any-value-of-its-type) of that type, where it clamps a float outside the range to the largest or smallest value.
+- [`@fact wgsl-converts-a-bool-to-one-or-zero-and-a-number-by-testing-it-against-zero`](#fact-wgsl-converts-a-bool-to-one-or-zero-and-a-number-by-testing-it-against-zero) — In WGSL, `f32`, `i32` and `u32` of a `bool` give 1 for `true` and 0 for `false`, and `bool` of a number gives `true` when the number is not zero.
+- [`@fact tsl-leaves-a-constant-that-is-not-finite-to-the-driver`](#fact-tsl-leaves-a-constant-that-is-not-finite-to-the-driver) — TSL folds no constants and writes a literal float as the text of its number, so `float(1).div(0)` reaches a WGSL driver as `1.0 / 0.0`, which the driver refuses.
 - [`@fact wgsl-has-no-implicit-numeric-conversion`](#fact-wgsl-has-no-implicit-numeric-conversion) — WGSL converts no value of a concrete numeric type to another type implicitly. A program spells out every conversion.
 - [`@fact a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64) — GLSL and WGSL compute `float` in 32 bits. JavaScript numbers, and the `f64` type of WebAssembly, are 64 bits.
 - [`@fact wasm-traps-on-an-integer-division-by-zero`](#fact-wasm-traps-on-an-integer-division-by-zero) — A WebAssembly integer division or remainder by zero traps, and so does a float-to-integer truncation of NaN or of a value out of range.
@@ -662,6 +669,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact glsl-es-300-has-no-gl-fragcolor`](#fact-glsl-es-300-has-no-gl-fragcolor) — GLSL ES 3.00 has no `gl_FragColor`. A fragment shader writes its colour to an `out` variable it declares.
 - [`@fact wgsl-has-no-matrix-inverse`](#fact-wgsl-has-no-matrix-inverse) — WGSL has no built-in that inverts a matrix.
 - [`@fact wgsl-percent-truncates`](#fact-wgsl-percent-truncates) — The `%` operator of WGSL truncates the quotient toward zero, where the `mod` of GLSL floors it.
+- [`@fact tsl-joins-the-values-of-a-matrix-constructor-numbers-and-nodes-alike`](#fact-tsl-joins-the-values-of-a-matrix-constructor-numbers-and-nodes-alike) — TSL's `mat2`, `mat3` and `mat4` join the values they are given into one constructor call when any of them is a node, so `mat2(a, 1, 2, 4)` is a call with a node and three numbers.
 - [`@fact a-wgsl-matrix-constructor-takes-no-matrix`](#fact-a-wgsl-matrix-constructor-takes-no-matrix) — A WGSL matrix constructor takes scalars or column vectors, and no matrix.
 - [`@fact a-wgsl-texture-is-not-host-shareable`](#fact-a-wgsl-texture-is-not-host-shareable) — A WGSL texture or sampler can be neither a member of a uniform struct nor an element of a uniform array. Each one takes a binding of its own.
 - [`@fact chromium-needs-a-precision-for-every-sampler`](#fact-chromium-needs-a-precision-for-every-sampler) — Chromium rejects a GLSL ES 3.00 shader that uses a sampler type with no declared precision. `sampler3D` and the integer sampler types have no default precision.
@@ -763,11 +771,10 @@ The analysis found these places where the code or the documents do not hold the 
 1. `toReadOnly()` changes the storage node it is called on, as it does in TSL, so a reference typed as writable becomes read-only. The type checker accepts a write that the compiler refuses. Issue #52 asks whether to depart from TSL here.
 2. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
 3. The documents call `While` and `For` TSL functions, but TSL has only `Loop`. Issue #59.
-4. A matrix constructor given a scalar node among its numbers compiles to `[object Object]`. Issue #66 asks whether to accept such a node or refuse it.
-5. `var_`, `assertBlockScope` and `compileWat` are exported with no documented purpose. Issue #73 asks whether they are public API.
-6. The WebGL renderer sets a texture's sampler state only when `needsUpdate` uploads the texture, as three.js does, where the WebGPU renderer follows a change at once. Issue #187 asks which rule both renderers keep.
-7. `createWgsl` configures its canvas opaque, so a transparent clear shows as opaque black where the other adapters show the page. Issue #188 asks whether to configure it premultiplied.
-8. rmsl changes the state of a WebGL context that the application hands it, such as the unpack alignment, and does not restore it. The canon says nothing about what rmsl leaves for code that shares the context. Issue #189 asks for a ruling.
+4. `var_`, `assertBlockScope` and `compileWat` are exported with no documented purpose. Issue #73 asks whether they are public API.
+5. The WebGL renderer sets a texture's sampler state only when `needsUpdate` uploads the texture, as three.js does, where the WebGPU renderer follows a change at once. Issue #187 asks which rule both renderers keep.
+6. `createWgsl` configures its canvas opaque, so a transparent clear shows as opaque black where the other adapters show the page. Issue #188 asks whether to configure it premultiplied.
+7. rmsl changes the state of a WebGL context that the application hands it, such as the unpack alignment, and does not restore it. The canon says nothing about what rmsl leaves for code that shares the context. Issue #189 asks for a ruling.
 
 ### Coverage gaps
 
@@ -920,11 +927,13 @@ This follows because a program means the same whether its operands arrive at run
 
 > A float operation on literal operands folds to the value the target would compute, a floored `mod` included.
 
-##### @bug folding-a-non-finite-float-writes-infinity-or-nan-as-a-literal
+#### @spec a-fold-that-is-not-finite-is-refused
 
-> Folding a float operation whose result is not finite writes JavaScript's spelling of it as the literal. GLSL gets `Infinity.0` and WGSL gets `NaNf`, which no driver accepts.
+> A float operation on literal operands whose result is not finite as a 32-bit float, such as `float(1).div(0)`, `float(-1).sqrt()` or `float(1e30).mul(1e30)`, is refused with one error on every target. The same operation on a run-time value gives its result.
 
-Issue: #74
+Derives from: [`fact-wgsl-rejects-a-constant-expression-that-is-not-finite`](#fact-wgsl-rejects-a-constant-expression-that-is-not-finite), [`fact-tsl-leaves-a-constant-that-is-not-finite-to-the-driver`](#fact-tsl-leaves-a-constant-that-is-not-finite-to-the-driver)
+
+This follows because WGSL has no literal for such a result and WebGPU defines no run-time value to fall back to, so there is no result to give. Integer folding differs: WGSL defines the run-time result of an integer operation, and the compiler gives it ([`spec-wgsl-integer-arithmetic-keeps-its-defined-result`](#spec-wgsl-integer-arithmetic-keeps-its-defined-result)).
 
 #### @spec integer-folding-gives-the-run-time-result
 
@@ -937,6 +946,14 @@ Issue: #74
 Derives from: [`fact-wgsl-has-no-implicit-numeric-conversion`](#fact-wgsl-has-no-implicit-numeric-conversion)
 
 This follows because WGSL accepts no implicit conversion, so a program that relied on one would compile on GLSL only.
+
+### @spec a-bool-converts-to-one-or-zero-and-a-number-to-whether-it-is-nonzero
+
+> `float`, `int` and `uint` of a `bool` give 1 for `true` and 0 for `false`. `bool` of a `float`, `int` or `uint` gives `true` for any value that is not zero, a fraction between -1 and 1 included.
+
+Derives from: [`fact-wgsl-converts-a-bool-to-one-or-zero-and-a-number-by-testing-it-against-zero`](#fact-wgsl-converts-a-bool-to-one-or-zero-and-a-number-by-testing-it-against-zero)
+
+This follows because a conversion means the same on every target, and TSL writes the conversion natively, so a TSL shader gets WGSL's rule.
 
 ### @spec a-target-without-a-builtin-gets-a-helper
 
@@ -1262,12 +1279,6 @@ Derives from: [`fact-a-mipmapped-texture-without-its-chain-samples-black`](#fact
 
 > A coordinate past an edge of a texture, on either side, wraps the way the texture asks.
 
-##### @bug wasm-traps-on-a-sampling-coordinate-far-past-the-edge
-
-> Sampling truncates a coordinate far past the edge to an i32 before it wraps, which traps.
-
-Issue: #89
-
 #### @spec a-byte-texture-reads-as-zero-to-one
 
 > A byte texture read through a float sampler gives values from 0 to 1, through `texture`, `textureLod` and `textureLoad` alike. A float texture keeps its values, and an integer texture keeps its bytes as they are.
@@ -1352,25 +1363,35 @@ This narrows [the first axiom](#axiom-one-program-means-the-same-on-every-target
 
 #### @spec a-float-converted-to-an-integer-clamps-to-its-range
 
-> Converting a float to `int` or `uint` truncates it toward zero and clamps the result to the range WebGPU clamps to. For `int`, that runs from -2147483648 to 2147483520, the largest `int` a 32-bit float holds exactly.
+> Converting a float to `int` or `uint` truncates it toward zero and clamps the result to the range WebGPU clamps to, and a NaN gives 0. For `int`, that range runs from -2147483648 to 2147483520, the largest `int` a 32-bit float holds exactly.
 
-##### @bug wasm-traps-on-a-float-outside-an-integer-range
+##### @spec a-float-outside-an-integer-range-clamps-to-it
 
-> On WASM, converting a float that is NaN or outside the integer's range traps.
+> A float that is not NaN converts to the integer nearest it inside the range, truncated toward zero. An infinity converts to an end of the range.
 
-Issue: #50
+##### @spec a-nan-converted-to-an-integer-gives-zero
 
-##### @bug js-leaves-a-float-outside-an-integer-range-unclamped
+> A NaN converted to `int` or `uint` gives 0.
 
-> On JS, converting a float outside the integer's range leaves it unclamped. A float above an `int`'s range stays above it, a negative float converted to `uint` wraps to a large one, and NaN stays NaN.
+###### @spec a-cpu-target-gives-zero-for-a-nan-converted-to-an-integer
 
-Issue: #50
+> On a CPU target, a NaN converted to `int` or `uint` gives 0.
 
-##### @bug an-integer-literal-out-of-range-wraps
+###### @exception a-gpu-target-lets-the-driver-pick-the-integer-of-a-nan
 
-> `int` and `uint` given a number outside their range wrap it modulo 2^32, so `int(3e9)` is -1294967296 and `uint(5e9)` is 705032704.
+> On GLSL and WGSL, a NaN converted to `int` or `uint` gives what the driver gives.
 
-Issue: #50
+Derives from: [`fact-wgsl-leaves-the-integer-of-a-nan-open`](#fact-wgsl-leaves-the-integer-of-a-nan-open)
+
+WebGPU leaves the result open, so rmsl picks 0, which a saturating conversion gives, for the CPU targets. A test can only read some integer back, because the driver picks which.
+
+#### @spec a-number-outside-an-integer-type-is-refused-by-its-constructor
+
+> `int`, `uint`, and the integer vector constructors given a number outside their range refuse it, with an error that names the type and its range. A fraction inside the range truncates toward zero.
+
+Derives from: [`fact-wgsl-refuses-an-i32-literal-out-of-its-range`](#fact-wgsl-refuses-an-i32-literal-out-of-its-range), [`fact-tsl-leaves-a-constant-that-is-not-finite-to-the-driver`](#fact-tsl-leaves-a-constant-that-is-not-finite-to-the-driver)
+
+This follows because WGSL refuses an integer literal outside its range, and TSL writes the number as it is and leaves the refusal to the driver, so a program that kept such a number would compile on no GPU target. A number that no integer holds has no result to give, as a float fold that is not finite has none.
 
 #### @spec integer-arithmetic-follows-wgsl
 
@@ -1906,12 +1927,6 @@ This follows because a number has no [shader type](#term-shader-type) of its own
 
 > A number beside an `int`, `uint` or integer vector compiles as a literal of that integer type.
 
-##### @bug a-bare-number-before-an-integer-stays-a-float
-
-> A bare number given as the first operand beside an integer stays a float. So `sub(7, i).div(2)` divides as floats on JS, and on WASM `equal(1, i)` compiles to a module WebAssembly rejects.
-
-Issue: #76
-
 #### @spec a-bare-number-beside-a-float-is-a-float
 
 > A number beside a `float` or float vector compiles as a float literal, with no conversion.
@@ -1920,15 +1935,27 @@ Issue: #76
 
 > A number that is not whole, beside an integer operand, is refused.
 
+#### @spec a-number-beyond-an-integer-types-range-is-refused-beside-it
+
+> A number beside an `int` or `uint` operand that the type cannot hold is refused, with an error that names the type and its range.
+
+Derives from: [`fact-wgsl-refuses-an-i32-literal-out-of-its-range`](#fact-wgsl-refuses-an-i32-literal-out-of-its-range)
+
+#### @spec a-bare-number-shifted-is-an-int-whatever-the-amount
+
+> A bare number given as the value of a shift is an `int`. The type of the shift amount does not type it.
+
+This follows because a shift amount is a separate operand that WGSL converts to `u32`, and the value shifted keeps its own type.
+
 #### @spec a-negative-number-for-an-unsigned-type-is-refused
 
 > A negative number beside an unsigned operand, or given to `uint` or to an unsigned vector constructor, is refused.
 
-#### @bug assign-leaves-a-bare-number-untyped
+#### @spec assign-gives-a-bare-number-the-type-of-its-target
 
-> `assign` passes a bare number on as it is. WASM throws on it, GLSL and WGSL write an integer literal into a float, and only JS runs it.
+> A bare number given to `assign` takes the type of the node it is assigned to.
 
-Issue: #127
+This follows because the target of an assignment is the operand beside the number.
 
 ### @spec a-statement-outside-an-fn-is-refused
 
@@ -2038,11 +2065,13 @@ This follows because a driver would reject the shader, and a CPU target would co
 
 > An operation on two vectors of different widths is refused, by the type checker and on every target. A scalar beside a vector broadcasts instead.
 
-##### @bug every-target-compiles-operands-of-different-widths
+#### @spec an-arithmetic-result-has-the-width-of-the-wider-operand
 
-> Every target compiles an operation on vectors of different widths. GLSL and WGSL emit code no driver accepts, and JS and WASM compute with a missing component. The types accept `add` and `mul` of different widths too.
+> An arithmetic operation on a scalar and a vector gives a vector of the vector's width, whichever side the scalar is on. The types say so too.
 
-Issue: #69
+Derives from: [`spec-operands-of-different-widths-are-refused`](#spec-operands-of-different-widths-are-refused)
+
+This follows because a scalar beside a vector broadcasts, and the result has the width the scalar was widened to.
 
 #### @spec a-whole-storage-buffer-cannot-be-read
 
@@ -2066,13 +2095,9 @@ This follows because a scalar beside a vector broadcasts, and widening it once i
 
 > An operation on an integer operand and a float operand is refused, by the type checker and on every target. A bare number takes the type beside it instead.
 
-spec-operands-of-different-widths-are-refused
+Derives from: [`fact-wgsl-has-no-implicit-numeric-conversion`](#fact-wgsl-has-no-implicit-numeric-conversion)
 
-##### @bug an-int-and-a-float-operand-compile-with-a-hidden-conversion
-
-> GLSL and WGSL compile an operation on an `int` and a `float` operand. WGSL truncates the float to `i32`, and GLSL converts the int to `float`.
-
-Issue: #124
+This follows because WGSL converts nothing implicitly and GLSL converts the integer to a float, so a target that compiled it would give a result the others do not.
 
 #### @spec a-for-update-that-holds-a-block-is-refused
 
@@ -2243,12 +2268,6 @@ Issue: #130
 
 > `select(condition, a, b)` gives `a` where `condition` holds and `b` where it does not, with the type of its branches. A literal condition folds to its branch.
 
-##### @bug select-types-a-bare-number-branch-as-a-float
-
-> `select` types a bare-number branch as a float beside an integer branch, so the node takes the type of the branch that comes first. JS then divides it as a float, and WASM emits a module WebAssembly rejects.
-
-Issue: #76
-
 #### @spec the-screen-accessors-follow-tsl
 
 > `fragCoord()` gives the coordinate of the fragment, and `screenUV()` and `uv()` give it divided by the size of the screen. `screenSize()` gives one shared uniform, and `time()` a float uniform. Each does what TSL's accessor of the same name does.
@@ -2327,7 +2346,7 @@ This follows because TSL compares vectors component by component, and a single `
 
 #### @spec a-scalar-compared-against-a-vector-is-broadcast
 
-> A vector compared against a scalar compares each component with that scalar.
+> A vector and a scalar compared, in either order, compare each component with that scalar. The result is a boolean vector of the vector's width.
 
 #### @spec a-boolean-vector-reduces-with-all-or-any
 
@@ -2380,6 +2399,14 @@ Issue: #64
 #### @spec a-matrix-is-built-from-its-columns
 
 > A matrix constructor of any shape, square or not, takes its values column by column, as numbers or as vector columns.
+
+#### @spec a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number
+
+> A matrix constructor given scalar nodes among its numbers builds the matrix from them, in column order, on every target. A mix of values whose count is not the matrix's is refused.
+
+Derives from: [`fact-tsl-joins-the-values-of-a-matrix-constructor-numbers-and-nodes-alike`](#fact-tsl-joins-the-values-of-a-matrix-constructor-numbers-and-nodes-alike)
+
+This follows because a vector constructor takes a node wherever it takes a number, and TSL's matrix constructors do too.
 
 #### @spec a-literal-compiles-to-a-literal-of-its-type
 
@@ -2742,6 +2769,12 @@ This follows because a TSL compute shader ports only if its dispatch means the s
 Derives from: [`spec-wgsl-compiles-a-compute-node-to-a-compute-entry-point`](#spec-wgsl-compiles-a-compute-node-to-a-compute-entry-point)
 
 This follows because group 0 holds the uniform struct, and storage takes the next group.
+
+#### @spec a-compute-uniform-resource-names-the-rmsl-type-of-its-uniform
+
+> A uniform resource of a compiled WGSL compute program carries the rmsl type of the uniform in `shaderType`, so an `int` is `"int"` and not `"i32"`. The adapter lays it out in the WGSL spelling.
+
+This follows because `shaderType` is typed as an rmsl type, and a reader of a resource has no reason to expect another spelling.
 
 ### @spec an-effect-is-a-port-of-a-tsl-display-effect
 
@@ -3824,12 +3857,6 @@ Derives from: [`fact-webgpu-draws-nothing-for-a-triangle-off-the-viewport`](#fac
 
 This follows because a GPU draws no pixel outside the viewport and fails on no coordinate, and a CPU target gives what WebGPU gives.
 
-###### @bug wasm-rasterizer-traps-on-a-triangle-far-off-screen
-
-> The rasterizer truncates a triangle's bounding box to i32 before it clamps it to the viewport, which traps for a triangle far off screen.
-
-Issue: #89
-
 ##### @spec a-rasterizer-gives-each-vertex-its-own-position
 
 > A CPU rasterizer places each vertex of a draw at the position its own vertex call returned, whatever the vertex program keeps in variables.
@@ -4352,6 +4379,36 @@ This is a fact of the GLSL ES 3.00 specification, not a choice.
 
 This is a fact of the WGSL specification, not a choice.
 
+## @fact wgsl-rejects-a-constant-expression-that-is-not-finite
+
+> A WGSL shader fails to compile when a constant expression has a result that is not finite, such as `1.0 / 0.0` or `sqrt(-1.0)`, and WGSL has no literal for infinity or NaN. The same expression read from a variable compiles.
+
+This is a fact of the WGSL specification, which Dawn enforces. Dawn reports `'1.0 / 0.0' cannot be represented as 'abstract-float'`, and `sqrt must be called with a value >= 0`.
+
+## @fact wgsl-an-indeterminate-value-is-any-value-of-its-type
+
+> Where the WGSL specification gives an operation an indeterminate value, the result is any value of the result type. It need not be the same on two devices, or on two evaluations of the same expression.
+
+This is a fact of the WGSL specification, not a choice. A device usually gives one fixed value in practice, but the specification promises none, so a program cannot rely on it and a test cannot hold two targets to the same one.
+
+## @fact wgsl-leaves-the-integer-of-a-nan-open
+
+> WGSL gives a NaN converted to `i32` or `u32` an [indeterminate value](#fact-wgsl-an-indeterminate-value-is-any-value-of-its-type) of that type, where it clamps a float outside the range to the largest or smallest value.
+
+This is a fact of the floating point conversion section of the WGSL specification, not a choice. Dawn on Metal gives `-2147483648` for `i32` and `0` for `u32`, and GLSL on SwiftShader gives `0` for both.
+
+## @fact wgsl-converts-a-bool-to-one-or-zero-and-a-number-by-testing-it-against-zero
+
+> In WGSL, `f32`, `i32` and `u32` of a `bool` give 1 for `true` and 0 for `false`, and `bool` of a number gives `true` when the number is not zero.
+
+This is a fact of the WGSL specification, not a choice.
+
+## @fact tsl-leaves-a-constant-that-is-not-finite-to-the-driver
+
+> TSL folds no constants and writes a literal float as the text of its number, so `float(1).div(0)` reaches a WGSL driver as `1.0 / 0.0`, which the driver refuses.
+
+This is a fact of `src/nodes/core/NodeBuilder.js` in three.js 0.186.0.
+
 ## @fact wgsl-has-no-implicit-numeric-conversion
 
 > WGSL converts no value of a concrete numeric type to another type implicitly. A program spells out every conversion.
@@ -4483,6 +4540,12 @@ This is a fact of the WGSL specification, not a choice.
 > The `%` operator of WGSL truncates the quotient toward zero, where the `mod` of GLSL floors it.
 
 This is a fact of both specifications, not a choice.
+
+## @fact tsl-joins-the-values-of-a-matrix-constructor-numbers-and-nodes-alike
+
+> TSL's `mat2`, `mat3` and `mat4` join the values they are given into one constructor call when any of them is a node, so `mat2(a, 1, 2, 4)` is a call with a node and three numbers.
+
+This is a fact of `ConvertType` in `src/nodes/tsl/TSLCore.js` of three.js 0.186.0.
 
 ## @fact a-wgsl-matrix-constructor-takes-no-matrix
 

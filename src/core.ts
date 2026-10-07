@@ -338,19 +338,19 @@ interface VarOps {
  * saying what it supports.
  */
 export interface NodeOps {
-  float: ArithOps<"float"> & FloatMathOps<"float"> & ComparisonOps<"bool", FloatLike>;
-  vec2: ArithOps<"vec2"> &
+  float: FloatArithOps & FloatMathOps<"float"> & FloatComparisonOps;
+  vec2: ArithOps<"vec2", Vec2Like | FloatLike> &
     FloatMathOps<"vec2"> &
     ComparisonOps<"bvec2", Vec2Like | FloatLike> &
     VecCommonOps<"vec2"> &
     Vec2Swizzles;
-  vec3: ArithOps<"vec3"> &
+  vec3: ArithOps<"vec3", Vec3Like | FloatLike> &
     FloatMathOps<"vec3"> &
     ComparisonOps<"bvec3", Vec3Like | FloatLike> &
     VecCommonOps<"vec3"> &
     Vec3Ops &
     Vec3Swizzles;
-  vec4: ArithOps<"vec4"> &
+  vec4: ArithOps<"vec4", Vec4Like | FloatLike> &
     FloatMathOps<"vec4"> &
     ComparisonOps<"bvec4", Vec4Like | FloatLike> &
     VecCommonOps<"vec4"> &
@@ -391,12 +391,61 @@ export interface NodeOps {
 export type Node<A extends ShaderType> = BaseNode<A> & NodeOps[A] & NodeMethods<A>;
 
 // === Operation interfaces (shared across Node types) ===
-export interface ArithOps<A extends ShaderType> {
-  add(other: FloatLike | Vec2Like | Vec3Like | Vec4Like): Node<A>;
-  sub(other: FloatLike | Vec2Like | Vec3Like | Vec4Like): Node<A>;
-  mul(other: FloatLike | Vec2Like | Vec3Like | Vec4Like): Node<A>;
-  div(other: FloatLike | Vec2Like | Vec3Like | Vec4Like): Node<A>;
+export interface ArithOps<A extends ShaderType, Operand> {
+  add(other: Operand): Node<A>;
+  sub(other: Operand): Node<A>;
+  mul(other: Operand): Node<A>;
+  div(other: Operand): Node<A>;
   negate(): Node<A>;
+}
+
+/** A float's arithmetic, which takes the width of a vector operand: `float.mul(vec4)` is a `vec4`. */
+export interface FloatArithOps {
+  add(other: FloatLike): Node<"float">;
+  add(other: Vec2Like): Node<"vec2">;
+  add(other: Vec3Like): Node<"vec3">;
+  add(other: Vec4Like): Node<"vec4">;
+  sub(other: FloatLike): Node<"float">;
+  sub(other: Vec2Like): Node<"vec2">;
+  sub(other: Vec3Like): Node<"vec3">;
+  sub(other: Vec4Like): Node<"vec4">;
+  mul(other: FloatLike): Node<"float">;
+  mul(other: Vec2Like): Node<"vec2">;
+  mul(other: Vec3Like): Node<"vec3">;
+  mul(other: Vec4Like): Node<"vec4">;
+  div(other: FloatLike): Node<"float">;
+  div(other: Vec2Like): Node<"vec2">;
+  div(other: Vec3Like): Node<"vec3">;
+  div(other: Vec4Like): Node<"vec4">;
+  negate(): Node<"float">;
+}
+
+/** A float's comparisons, which take the width of a vector operand: `float.lessThan(vec3)` is a `bvec3`. */
+export interface FloatComparisonOps {
+  lessThan(other: FloatLike): Node<"bool">;
+  lessThan(other: Vec2Like): Node<"bvec2">;
+  lessThan(other: Vec3Like): Node<"bvec3">;
+  lessThan(other: Vec4Like): Node<"bvec4">;
+  greaterThan(other: FloatLike): Node<"bool">;
+  greaterThan(other: Vec2Like): Node<"bvec2">;
+  greaterThan(other: Vec3Like): Node<"bvec3">;
+  greaterThan(other: Vec4Like): Node<"bvec4">;
+  lessThanEqual(other: FloatLike): Node<"bool">;
+  lessThanEqual(other: Vec2Like): Node<"bvec2">;
+  lessThanEqual(other: Vec3Like): Node<"bvec3">;
+  lessThanEqual(other: Vec4Like): Node<"bvec4">;
+  greaterThanEqual(other: FloatLike): Node<"bool">;
+  greaterThanEqual(other: Vec2Like): Node<"bvec2">;
+  greaterThanEqual(other: Vec3Like): Node<"bvec3">;
+  greaterThanEqual(other: Vec4Like): Node<"bvec4">;
+  equal(other: FloatLike): Node<"bool">;
+  equal(other: Vec2Like): Node<"bvec2">;
+  equal(other: Vec3Like): Node<"bvec3">;
+  equal(other: Vec4Like): Node<"bvec4">;
+  notEqual(other: FloatLike): Node<"bool">;
+  notEqual(other: Vec2Like): Node<"bvec2">;
+  notEqual(other: Vec3Like): Node<"bvec3">;
+  notEqual(other: Vec4Like): Node<"bvec4">;
 }
 
 export interface FloatMathOps<A extends ShaderType> {
@@ -1175,7 +1224,7 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
         new NodeImpl({
           _t: "void",
           type: "assign",
-          params: [this, value as BaseNode<ShaderType>],
+          params: [this, typedOperand(value, this._t) as BaseNode<ShaderType>],
         }),
       );
     });
@@ -1284,8 +1333,8 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
     return node({ _t: target, type: "construct", params: [this as BaseNode<ShaderType>] });
   }
   select(ifTrue: any, ifFalse: any): any {
-    let a = wrapValue(ifTrue) as BaseNode<ShaderType>;
-    let b = wrapValue(ifFalse) as BaseNode<ShaderType>;
+    let a = toNodeBeside(ifTrue, ifFalse) as BaseNode<ShaderType>;
+    let b = typedOperand(ifFalse, (a as any)?._t ?? "float");
     // The result type follows the branches, not the condition. `vec3(0).equal(1).select(v, w)`
     // is a vec3 no matter that the selector is a bvec3.
     let t = (a as any)?._t || (b as any)?._t || this._t;
@@ -1544,13 +1593,46 @@ export function typedOperand(value: any, operandType: string): BaseNode<ShaderTy
         `Use a signed operand, or a literal that is not negative.`,
     );
   }
-  return node({ _t: scalarType, type: scalarType, value }) as BaseNode<ShaderType>;
+  return node({ _t: scalarType, type: scalarType, value: integerLiteral(scalarType as "int" | "uint", value) }) as BaseNode<ShaderType>;
+}
+
+/** The operations whose operands share one component kind, integer or float. */
+const SAME_KIND_OPS = new Set(["add", "sub", "mul", "div", "mod", "min", "max"]);
+
+/** `"integer"` for an int, uint or integer vector, `"float"` for a float, float vector or matrix, otherwise `undefined`. */
+function componentKind(type: string | undefined): "integer" | "float" | undefined {
+  if (type === undefined) return undefined;
+  if (/^(int|uint|ivec[234]|uvec[234])$/.test(type)) return "integer";
+  if (/^(float|vec[234]|mat)/.test(type)) return "float";
+  return undefined;
+}
+
+/** Refuse an operation on an integer operand and a float operand, which no target converts the same way. */
+function assertSameKind(type: string, params: BaseNode<ShaderType>[]): void {
+  let kinds = params.map((p) => componentKind((p as any)?._t));
+  if (kinds.includes("integer") && kinds.includes("float")) {
+    let types = params.map((p) => (p as any)?._t).join(" and ");
+    throw new Error(
+      `[RMSL] ${type}() takes operands of one kind, not ${types}. Convert one of them with toFloat() or toInt() first.`,
+    );
+  }
+}
+
+/** Refuse an operation on vectors of different widths. A scalar beside a vector broadcasts, and a matrix has no width here. */
+function assertSameWidth(type: string, params: BaseNode<ShaderType>[]): void {
+  let widths = new Set(params.map((p) => TYPE_WIDTH[(p as any)?._t] ?? 1).filter((w) => w > 1));
+  if (widths.size > 1) {
+    let types = params.map((p) => (p as any)?._t).join(" and ");
+    throw new Error(`[RMSL] ${type}() takes vectors of one width, not ${types}. Swizzle one of them to the width of the other.`);
+  }
 }
 
 export function op(type: string, ...args: any[]): Node<ShaderType> {
   let first = wrapValue(args[0]) as BaseNode<ShaderType>;
   let firstT = (first as any)?._t || "float";
   let params = [first, ...args.slice(1).map((a) => typedOperand(a, firstT))];
+  if (SAME_KIND_OPS.has(type)) assertSameKind(type, params);
+  assertSameWidth(type, params);
   // The result follows the *widest* operand, so a scalar broadcast beside a
   // vector keeps the vector type (`1 - vec3` is still vec3).
   let valueIndex = VALUE_OPERAND[type] ?? 0;
@@ -1599,6 +1681,8 @@ export function comp(type: string, a: any, b: any): Node<ShaderType> {
   // operand compared against a plain number must be typed accordingly.
   let first = wrapValue(a) as BaseNode<ShaderType>;
   let params = [first, typedOperand(b, (first as any)?._t || "float")];
+  assertSameKind(type, params);
+  assertSameWidth(type, params);
   let widths = params.map((p) => TYPE_WIDTH[(p as any)?._t] ?? 1);
   let width = Math.max(widths[0], widths[1]);
 
@@ -1827,7 +1911,7 @@ export function buildBlock(body: () => void): Node<"void"> {
 }
 
 // === Literal constructors (with overloads) ===
-export function float(v: number | Node<"int">): Node<"float"> {
+export function float(v: number | Node<"int"> | Node<"uint"> | Node<"bool">): Node<"float"> {
   if (isNode(v)) {
     return node({ _t: "float", type: "construct", params: [v] }) as Node<"float">;
   }
@@ -1908,20 +1992,30 @@ export function vec4(
   if (w !== undefined) params.push(wrapValue(w) as BaseNode<ShaderType>);
   return node({ _t: "vec4", type: "construct", params }) as Node<"vec4">;
 }
-export function int(v: number | Node<"float">): Node<"int"> {
+/** The number as an integer of `type`, truncated toward zero. A number the type cannot hold is refused. */
+function integerLiteral(type: "int" | "uint", v: number): number {
+  let [low, high] = type === "int" ? [-2147483648, 2147483647] : [0, 4294967295];
+  let truncated = Math.trunc(v);
+  if (!(truncated >= low && truncated <= high)) {
+    throw new Error(`[RMSL] ${v} is outside the range of ${type}, ${low} to ${high}. Use a number inside it.`);
+  }
+  return truncated;
+}
+
+export function int(v: number | Node<"float"> | Node<"uint"> | Node<"bool">): Node<"int"> {
   if (isNode(v)) {
     return node({ _t: "int", type: "construct", params: [v] }) as Node<"int">;
   }
-  return node({ _t: "int", type: "int", value: v | 0 }) as Node<"int">;
+  return node({ _t: "int", type: "int", value: integerLiteral("int", v) }) as Node<"int">;
 }
-export function uint(v: number | Node<"float"> | Node<"int">): Node<"uint"> {
+export function uint(v: number | Node<"float"> | Node<"int"> | Node<"bool">): Node<"uint"> {
   if (isNode(v)) {
     return node({ _t: "uint", type: "construct", params: [v] }) as Node<"uint">;
   }
   if (v < 0) {
     throw new Error(`[RMSL] uint(${v}) is negative. An unsigned literal cannot be negative.`);
   }
-  return node({ _t: "uint", type: "uint", value: v >>> 0 }) as Node<"uint">;
+  return node({ _t: "uint", type: "uint", value: integerLiteral("uint", v) }) as Node<"uint">;
 }
 
 /**
@@ -1934,7 +2028,7 @@ export function makeIntVecConstructor<T extends ShaderType>(
   width: number,
   scalarType: "int" | "uint",
 ): (...args: any[]) => Node<T> {
-  let toComponent = scalarType === "uint" ? (v: number) => v >>> 0 : (v: number) => v | 0;
+  let toComponent = (v: number) => integerLiteral(scalarType, v);
   return (...args: any[]): Node<T> => {
     // Every number, whatever form the call takes: uvec2(-1) is as wrong as uvec2(-1, 0).
     if (scalarType === "uint") {
@@ -1988,6 +2082,21 @@ export function bool(v: boolean | Node<"float"> | Node<"int"> | Node<"uint">): N
   return node({ _t: "bool", type: "bool", value: v }) as Node<"bool">;
 }
 /**
+ * A matrix given its values, one per component in column order. All numbers make a literal. With a scalar node
+ * among them the values become the column vectors the matrix is built from, which every target constructs.
+ */
+function matrixOfValues(t: ShaderType, values: any[]): any {
+  if (!values.some(isNode)) return node({ _t: t, type: t, value: values });
+  let [columns, rows] = MATRIX_DIMENSIONS[t];
+  if (values.length !== columns * rows) {
+    throw new Error(`[RMSL] ${t}() takes ${columns * rows} values, or ${columns} columns, not ${values.length}.`);
+  }
+  let vector = rows === 2 ? vec2 : rows === 3 ? vec3 : vec4;
+  let params = Array.from({ length: columns }, (_, c) => (vector as any)(...values.slice(c * rows, (c + 1) * rows)));
+  return node({ _t: t, type: "construct", params });
+}
+
+/**
  * Build a matrix constructor. `columns` is what a "columns of vector nodes"
  * call takes — `mat2(colA, colB)`, not `mat2(4-number-literal)` — the same
  * overload `mat3`/`mat4` hand-write for themselves below. Without it, that
@@ -2017,7 +2126,7 @@ export function makeMatConstructor<T extends ShaderType>(
     if (args.length === 0) {
       return node({ _t: t, type: t, value: defaultVal }) as Node<T>;
     }
-    return node({ _t: t, type: t, value: args }) as Node<T>;
+    return matrixOfValues(t, args) as Node<T>;
   };
 }
 export const mat2 = makeMatConstructor("mat2", 4, 2, [1, 0, 0, 1]);
@@ -2041,7 +2150,7 @@ export function mat3(...args: any[]): Node<"mat3"> {
   if (args.length === 0) {
     return node({ _t: "mat3", type: "mat3", value: [1, 0, 0, 0, 1, 0, 0, 0, 1] }) as Node<"mat3">;
   }
-  return node({ _t: "mat3", type: "mat3", value: args }) as Node<"mat3">;
+  return matrixOfValues("mat3", args) as Node<"mat3">;
 }
 export const mat3x4 = makeMatConstructor("mat3x4", 12, 3, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);
 export const mat4x2 = makeMatConstructor("mat4x2", 8, 4, [1, 0, 0, 0, 0, 1, 0, 0]);
@@ -2063,7 +2172,7 @@ export function mat4(...args: any[]): Node<"mat4"> {
   if (args.length === 0) {
     return node({ _t: "mat4", type: "mat4", value: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] }) as Node<"mat4">;
   }
-  return node({ _t: "mat4", type: "mat4", value: args }) as Node<"mat4">;
+  return matrixOfValues("mat4", args) as Node<"mat4">;
 }
 
 export function makeBoolVecConstructor<T extends ShaderType>(t: T, width: number): (...args: any[]) => Node<T> {
@@ -2117,83 +2226,92 @@ export function toNode(v: MathLike): any {
   return wrapValue(v);
 }
 
+/**
+ * `toNode` for the first operand of a free function. A number beside an
+ * integer node takes that node's type, as a number after it does.
+ */
+function toNodeBeside(a: MathLike, b: unknown): any {
+  let beside = (b as { _t?: string } | null | undefined)?._t;
+  return typeof a === "number" && beside !== undefined ? typedOperand(a, beside) : wrapValue(a);
+}
+
 export function add(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNode(a).add(b);
+  let r = toNodeBeside(a, b).add(b);
   for (const x of rest) r = r.add(x);
   return r;
 }
 export function sub(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNode(a).sub(b);
+  let r = toNodeBeside(a, b).sub(b);
   for (const x of rest) r = r.sub(x);
   return r;
 }
 export function mul(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNode(a).mul(b);
+  let r = toNodeBeside(a, b).mul(b);
   for (const x of rest) r = r.mul(x);
   return r;
 }
 export function div(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNode(a).div(b);
+  let r = toNodeBeside(a, b).div(b);
   for (const x of rest) r = r.div(x);
   return r;
 }
 export function mod(a: MathLike, b: MathLike): any {
-  return toNode(a).mod(b);
+  return toNodeBeside(a, b).mod(b);
 }
 
 export function equal(a: MathLike, b: MathLike): any {
-  return toNode(a).equal(b);
+  return toNodeBeside(a, b).equal(b);
 }
 export function notEqual(a: MathLike, b: MathLike): any {
-  return toNode(a).notEqual(b);
+  return toNodeBeside(a, b).notEqual(b);
 }
 export function lessThan(a: MathLike, b: MathLike): any {
-  return toNode(a).lessThan(b);
+  return toNodeBeside(a, b).lessThan(b);
 }
 export function greaterThan(a: MathLike, b: MathLike): any {
-  return toNode(a).greaterThan(b);
+  return toNodeBeside(a, b).greaterThan(b);
 }
 export function lessThanEqual(a: MathLike, b: MathLike): any {
-  return toNode(a).lessThanEqual(b);
+  return toNodeBeside(a, b).lessThanEqual(b);
 }
 export function greaterThanEqual(a: MathLike, b: MathLike): any {
-  return toNode(a).greaterThanEqual(b);
+  return toNodeBeside(a, b).greaterThanEqual(b);
 }
 
 export function and(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNode(a).and(b);
+  let r = toNodeBeside(a, b).and(b);
   for (const x of rest) r = r.and(x);
   return r;
 }
 export function or(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNode(a).or(b);
+  let r = toNodeBeside(a, b).or(b);
   for (const x of rest) r = r.or(x);
   return r;
 }
 export function xor(a: MathLike, b: MathLike): any {
-  return toNode(a).xor(b);
+  return toNodeBeside(a, b).xor(b);
 }
 export function not(a: MathLike): any {
   return toNode(a).not();
 }
 
 export function bitAnd(a: MathLike, b: MathLike): any {
-  return toNode(a).bitAnd(b);
+  return toNodeBeside(a, b).bitAnd(b);
 }
 export function bitOr(a: MathLike, b: MathLike): any {
-  return toNode(a).bitOr(b);
+  return toNodeBeside(a, b).bitOr(b);
 }
 export function bitXor(a: MathLike, b: MathLike): any {
-  return toNode(a).bitXor(b);
+  return toNodeBeside(a, b).bitXor(b);
 }
 export function bitNot(a: MathLike): any {
   return toNode(a).bitNot();
 }
 export function shiftLeft(a: MathLike, b: MathLike): any {
-  return toNode(a).shiftLeft(b);
+  return (typeof a === "number" ? int(a) : toNode(a)).shiftLeft(b);
 }
 export function shiftRight(a: MathLike, b: MathLike): any {
-  return toNode(a).shiftRight(b);
+  return (typeof a === "number" ? int(a) : toNode(a)).shiftRight(b);
 }
 
 export function abs(a: MathLike): any {
@@ -2328,12 +2446,12 @@ export function pow4(x: MathLike): any {
   return toNode(x).pow4();
 }
 export function min(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNode(a).min(b);
+  let r = toNodeBeside(a, b).min(b);
   for (const x of rest) r = r.min(x);
   return r;
 }
 export function max(a: MathLike, b: MathLike, ...rest: MathLike[]): any {
-  let r = toNode(a).max(b);
+  let r = toNodeBeside(a, b).max(b);
   for (const x of rest) r = r.max(x);
   return r;
 }
@@ -2350,22 +2468,22 @@ export function faceForward(n: MathLike, incident: MathLike, reference: MathLike
   return toNode(n).faceForward(incident, reference);
 }
 export function difference(a: MathLike, b: MathLike): any {
-  return toNode(a).difference(b);
+  return toNodeBeside(a, b).difference(b);
 }
 export function dot(a: MathLike, b: MathLike): Node<"float"> {
-  return toNode(a).dot(b);
+  return toNodeBeside(a, b).dot(b);
 }
 export function cross(a: MathLike, b: MathLike): any {
-  return toNode(a).cross(b);
+  return toNodeBeside(a, b).cross(b);
 }
 export function distance(a: MathLike, b: MathLike): Node<"float"> {
-  return toNode(a).distance(b);
+  return toNodeBeside(a, b).distance(b);
 }
 export function length(a: MathLike): Node<"float"> {
   return toNode(a).length();
 }
 export function mix(a: MathLike, b: MathLike, t: MathLike): any {
-  return toNode(a).mix(b, t);
+  return toNodeBeside(a, b).mix(b, t);
 }
 export function clamp(x: MathLike, low: MathLike = 0, high: MathLike = 1): any {
   return toNode(x).clamp(low, high);
