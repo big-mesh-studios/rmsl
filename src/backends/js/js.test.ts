@@ -767,6 +767,24 @@ describe("JS backend: shader I/O", () => {
     expect(fn({ uniforms: { [v.name]: [1, 2, 3] } })).toBe(11);
   });
   /**
+   * @canon spec-a-variable-holds-a-copy
+   */
+  it("keeps a constant as it is when a varying assigned from it is written", () => {
+    const shade = varying("vec3");
+    const k = uniform("int");
+    const stage = compileJSVertex(
+      () =>
+        Fn(() => {
+          shade.assign(vec3(1, 2, 3));
+          shade.element(k).assign(9);
+          builtinPosition().assign(vec4(0, 0, 0, 1));
+        })(),
+      { name: "main", params: [] },
+    );
+    expect(stage({ uniforms: { [k.name]: 1 } }).varyings[shade.name]).toEqual(new Float64Array([1, 9, 3]));
+    expect(stage({ uniforms: { [k.name]: 0 } }).varyings[shade.name]).toEqual(new Float64Array([9, 2, 3]));
+  });
+  /**
    * @canon spec-a-cpu-program-reads-its-inputs-by-slot
    */
   it("reads varyings and attributes", () => {

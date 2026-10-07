@@ -2181,6 +2181,21 @@ export function compileJSNode(
         }
         return { decls: [...lhs.decls, ...rhs.decls], body: [...lhs.body, ...rhs.body], expr: lhs.expr };
       }
+      if (jsIsArrayType(rhsNode?._t)) {
+        // The sink takes a slot of its own, so a write through it leaves what it was assigned from as it was.
+        let slot = jsNewTemp(ctx, rhsNode._t);
+        let saved = ctx.outTarget;
+        ctx.outTarget = slot;
+        let rhs = compileJSStage(rhsNode, ctx);
+        ctx.outTarget = saved;
+        if (rhs.expr !== slot) jsRequireHelper(ctx, "copy");
+        let fill = rhs.expr === slot ? [] : [`_copy(${rhs.expr}, ${slot});`];
+        return {
+          decls: [...lhs.decls, ...rhs.decls],
+          body: [...lhs.body, ...rhs.body, ...fill, `${lhs.expr} = ${slot};`],
+          expr: lhs.expr,
+        };
+      }
       let rhs = compileJSStage(rhsNode, ctx);
       return {
         decls: [...lhs.decls, ...rhs.decls],
