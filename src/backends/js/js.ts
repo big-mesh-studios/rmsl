@@ -2274,12 +2274,14 @@ export function compileJSProgram(
     return buffer;
   }
 
+  /** Runs each invocation on `ctx` itself, so a dispatch allocates nothing, and gives `ctx` its index back after. */
   function compute(ctx: CpuShaderContext, count: number): void {
-    const invocation: CpuShaderContext = { ...ctx };
+    const index = ctx.index;
     for (let i = 0; i < count; i++) {
-      invocation.index = i;
-      runScratch(invocation);
+      ctx.index = i;
+      runScratch(ctx);
     }
+    ctx.index = index;
   }
 
   // A reentrant routine declares its variables per call, so nothing is shared to copy out of.

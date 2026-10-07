@@ -27,6 +27,13 @@ export type AdapterResult = Record<string, TypedArray>;
 export interface CpuAdapterPrograms {
   compute?: ComputeStage;
   draw?: CpuGrid<"vec4">;
+  /**
+   * Keep the uniforms in a dictionary-mode object, whose values V8 stores
+   * boxed, so a stage that reads a float uniform by a variable key reads it
+   * without boxing it again. A stage that reads each uniform by name, once per
+   * invocation, is faster without it.
+   */
+  boxedUniforms?: boolean;
 }
 
 /** `compute`/`draw` here are each required — unlike the base Adapter's
@@ -71,7 +78,9 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
    *  node's own type; a slot passed by name falls back to the program's. */
   const elementWidths = new Map<string, number>();
   const storages: Record<string, TypedArray> = {};
-  const uniforms: Record<string, number | number[]> = {};
+  /** The slots of `storages`, in the order the host first passed them. */
+  const storageSlots: string[] = [];
+  const uniforms: Record<string, number | number[]> = programs.boxedUniforms ? Object.create(null) : {};
   const textures: Record<string, CpuTextureData> = {};
   /** The stage takes the host's own flat arrays, so one context serves every dispatch. */
   const stepContext = { storages, uniforms, textures } as unknown as CpuShaderContext;
@@ -98,6 +107,7 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeNode<ShaderType> | string, data: TypedArray): void {
     const slot = slotOf(attribute);
+    if (!(slot in storages)) storageSlots.push(slot);
     storages[slot] = data;
     elementWidths.set(
       slot,
@@ -131,7 +141,11 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
       // `out` is only for callers that want the WGSL adapter's optional-out
       // shape too, not something this loop needs to do its job.
       if (!out) return;
-      for (const slot of requestedStorageSlots(out, Object.keys(storages))) out[slot]!.set(storages[slot]);
+      for (const slot in out) if (!(slot in storages)) requestedStorageSlots(out, storageSlots);
+      for (let i = 0; i < storageSlots.length; i++) {
+        const slot = storageSlots[i]!;
+        out[slot]?.set(storages[slot]!);
+      }
       return out;
     },
 

@@ -147,9 +147,12 @@ export function createWasmCompute(
     sharedMemory: options.sharedMemory,
     maxMemoryPages: options.maxMemoryPages,
     gpuUniformLayout: options.gpuUniformLayout,
+    // A float passed as an argument to a module is boxed on every call; in memory it allocates nothing.
+    scalarsInMemory: true,
   });
 
-  return createCpuAdapter({ compute: computeRoutine });
+  // The module reads each uniform once per dispatch, by its slot.
+  return createCpuAdapter({ compute: computeRoutine, boxedUniforms: true });
 }
 
 /**

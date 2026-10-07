@@ -611,6 +611,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug deserialize-accepts-unknown-and-unnamed-nodes`](#bug-deserialize-accepts-unknown-and-unnamed-nodes) — `deserialize` accepts a node type no node has, and a uniform with neither a slot nor a local name, and rebuilds a node from each.
 - [`@axiom the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing) — Code that runs once per frame, or once per call of a routine that runs every frame, allocates no memory.
   - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A compiled JS function keeps what it computes in slots it declares once, outside the function: its variables, each vector or matrix an operation computes, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. With `reentrant`, the function declares its slots inside itself, and each call has its own.
+  - [`@spec a-cpu-compute-dispatch-allocates-nothing`](#spec-a-cpu-compute-dispatch-allocates-nothing) — `compute` of a CPU compute adapter allocates nothing, on JS and on WASM, with `out` or without it. A WASM routine reuses its argument list and its views of memory from one call to the next, and makes a view again only when the memory grows. The WASM adapter reads its scalar uniforms from the module's memory, and keeps them in an object in dictionary mode.
   - [`@spec a-compiled-js-function-returns-its-result-in-a-slot`](#spec-a-compiled-js-function-returns-its-result-in-a-slot) — The function that `compileJSFn` returns as source, and that `precompileJS` ships, returns a vector or a matrix in a slot it reuses on the next call, so the result of one call is the result of the next. A caller that keeps one copies it, or compiles with `reentrant`. A [routine](#term-cpu-routine), a stage and a grid copy their result, so a later call does not change it.
   - [`@spec a-webgl-renderer-allocates-nothing-per-frame`](#spec-a-webgl-renderer-allocates-nothing-per-frame) — The WebGL renderer draws a frame without allocating. It reuses what it needs between frames, and builds no array, closure or iterator per frame or per draw.
     - [`@bug webgl-render-allocates-the-clear-colour-per-frame`](#bug-webgl-render-allocates-the-clear-colour-per-frame) — `render` reads the clear colour with `Color.toArray()`, which builds a new array on every frame.
@@ -664,6 +665,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-three-js-renderer-draws-its-scene-graph`](#fact-a-three-js-renderer-draws-its-scene-graph) — In three.js, `renderer.render(scene, camera)` walks the scene graph, binds the geometry and the material of each object, uploads their uniforms and draws them. A scene graph in the shape of three.js comes with a renderer that draws it.
 - [`@fact webassembly-has-no-transcendental-instructions`](#fact-webassembly-has-no-transcendental-instructions) — WebAssembly has instructions for the basic float operations and the square root, but none for trigonometric, exponential or logarithmic functions.
 - [`@fact webassembly-passes-only-numbers-across-its-boundary`](#fact-webassembly-passes-only-numbers-across-its-boundary) — A call into a WebAssembly module passes and returns only numbers. A vector, a matrix or a record crosses the boundary through the module's memory, which code on the host side has to read and write.
+- [`@fact v8-boxes-a-float-it-reads-by-a-variable-key`](#fact-v8-boxes-a-float-it-reads-by-a-variable-key) — V8 holds a float in a property of an ordinary object unboxed, and boxes it into a new heap number each time code reads it by a key held in a variable or passes it as an argument across a call it does not inline. An object in dictionary mode, such as one `Object.create(null)` makes, holds its floats boxed, and reading one allocates nothing.
 - [`@fact tsl-converts-a-fragment-result-to-the-type-of-its-render-target`](#fact-tsl-converts-a-fragment-result-to-the-type-of-its-render-target) — TSL converts the result of a fragment node to the type of its render target's texture, which is `vec4` when it draws to the canvas. It trims a longer value. A `vec3` gains an alpha of 1, a `vec2` gains a blue of 0 and an alpha of 1, and a scalar fills every component.
 - [`@fact webgpu-refuses-a-fragment-output-with-fewer-components-than-its-target`](#fact-webgpu-refuses-a-fragment-output-with-fewer-components-than-its-target) — A WebGPU render pipeline whose fragment output has fewer components than its colour target's format is a validation error. An output with more components than the format is accepted, and the extra ones are dropped.
 - [`@fact glsl-es-300-leaves-a-missing-output-channel-undefined`](#fact-glsl-es-300-leaves-a-missing-output-channel-undefined) — A GLSL ES 3.00 fragment shader may declare an output of `float`, `vec2` or `vec3`. Written to an RGBA target, the channels it lacks are not defined by the program: WebGL on SwiftShader gives 0 in each, alpha included.
@@ -4200,6 +4202,14 @@ This does not follow from [running everywhere](#axiom-rmsl-runs-everywhere): a p
 
 This follows because a call that builds a new array or a closure gives the garbage collector work on every call, and a per-pixel call is the one that cannot afford it.
 
+### @spec a-cpu-compute-dispatch-allocates-nothing
+
+> `compute` of a CPU compute adapter allocates nothing, on JS and on WASM, with `out` or without it. A WASM routine reuses its argument list and its views of memory from one call to the next, and makes a view again only when the memory grows. The WASM adapter reads its scalar uniforms from the module's memory, and keeps them in an object in dictionary mode.
+
+Derives from: [`spec-a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array`](#spec-a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array), [`fact-v8-boxes-a-float-it-reads-by-a-variable-key`](#fact-v8-boxes-a-float-it-reads-by-a-variable-key)
+
+This follows because a compute dispatch runs every frame, and a stage that takes the host's own buffers leaves a dispatch nothing it has to build.
+
 ### @spec a-compiled-js-function-returns-its-result-in-a-slot
 
 > The function that `compileJSFn` returns as source, and that `precompileJS` ships, returns a vector or a matrix in a slot it reuses on the next call, so the result of one call is the result of the next. A caller that keeps one copies it, or compiles with `reentrant`. A [routine](#term-cpu-routine), a stage and a grid copy their result, so a later call does not change it.
@@ -4513,6 +4523,12 @@ This is a fact of the WebAssembly specification, not a choice.
 > A call into a WebAssembly module passes and returns only numbers. A vector, a matrix or a record crosses the boundary through the module's memory, which code on the host side has to read and write.
 
 This is a fact of the WebAssembly specification, not a choice.
+
+## @fact v8-boxes-a-float-it-reads-by-a-variable-key
+
+> V8 holds a float in a property of an ordinary object unboxed, and boxes it into a new heap number each time code reads it by a key held in a variable or passes it as an argument across a call it does not inline. An object in dictionary mode, such as one `Object.create(null)` makes, holds its floats boxed, and reading one allocates nothing.
+
+This is how V8 behaves, in Node 24 and in Chromium, and not a choice. A reproduction reads a uniform of `0.5` from an ordinary object once per dispatch and allocates 16 bytes a dispatch; from an object made by `Object.create(null)` it allocates nothing.
 
 ## @fact tsl-converts-a-fragment-result-to-the-type-of-its-render-target
 

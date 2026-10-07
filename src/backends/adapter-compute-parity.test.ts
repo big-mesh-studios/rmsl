@@ -10,6 +10,7 @@ import {
   uint,
   uniform,
   vec2,
+  vec4,
   type Node,
   type ShaderType,
   type UniformNode,
@@ -377,6 +378,48 @@ describe("createJsCompute/createWasmCompute dispatching a count", () => {
       adapter.setAttribute(marks.name, data);
       adapter.compute();
       expect(Array.from(data)).toEqual([1, 1, 0, 0, 0, 0, 0, 0]);
+    });
+  }
+});
+
+describe("createJsCompute/createWasmCompute dispatching every frame", () => {
+  const buf = instancedArray(256, "vec4");
+  const scale = uniform("float");
+  const program = () =>
+    Fn(() => {
+      const i = invocationIndex();
+      buf.element(i).assign(
+        buf
+          .element(i)
+          .mul(scale)
+          .add(vec4(1, 2, 3, 4)),
+      );
+    })();
+
+  /** Heap growth over `count` calls of `step`, after a warm-up. A collection during the loop only shrinks it. */
+  function heapGrowth(step: () => void, count: number): number {
+    for (let i = 0; i < count; i++) step();
+    const before = process.memoryUsage().heapUsed;
+    for (let i = 0; i < count; i++) step();
+    return process.memoryUsage().heapUsed - before;
+  }
+
+  for (const [name, create] of [
+    ["JS", createJsCompute],
+    ["WASM", createWasmCompute],
+  ] as const) {
+    /**
+     * @canon spec-a-cpu-compute-dispatch-allocates-nothing
+     */
+    it(`${name}: allocates nothing per dispatch`, () => {
+      const adapter = create(program(), { name: "step" });
+      const data = new Float32Array(256 * 4);
+      const out = { [buf.name]: new Float32Array(256 * 4) };
+      adapter.setAttribute(buf.name, data);
+      adapter.setUniform(scale, 0.5);
+      const count = 20000;
+      expect(heapGrowth(() => adapter.compute(), count)).toBeLessThan(count * 4);
+      expect(heapGrowth(() => adapter.compute(out), count)).toBeLessThan(count * 4);
     });
   }
 });

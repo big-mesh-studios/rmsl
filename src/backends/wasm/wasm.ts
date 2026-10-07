@@ -3792,6 +3792,79 @@ export function compileWasmFn(
  * emitter that produced them.
  */
 /**
+ * Calls a WASM export with the numbers in `args`. A call through `apply` or a
+ * spread converts the list on every call, so up to eight arguments are passed
+ * one by one, which allocates nothing.
+ */
+function callWith(f: (...args: number[]) => number | void, args: readonly number[]): void {
+  const a = args;
+  switch (a.length) {
+    case 0:
+      f();
+      return;
+    case 1:
+      f(a[0]!);
+      return;
+    case 2:
+      f(a[0]!, a[1]!);
+      return;
+    case 3:
+      f(a[0]!, a[1]!, a[2]!);
+      return;
+    case 4:
+      f(a[0]!, a[1]!, a[2]!, a[3]!);
+      return;
+    case 5:
+      f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!);
+      return;
+    case 6:
+      f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!);
+      return;
+    case 7:
+      f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!, a[6]!);
+      return;
+    case 8:
+      f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!, a[6]!, a[7]!);
+      return;
+    default:
+      f(...a);
+  }
+}
+
+/** {@link callWith}, with `last` after the numbers in `args`. */
+function callWithLast(f: (...args: number[]) => number | void, args: readonly number[], last: number): void {
+  const a = args;
+  switch (a.length) {
+    case 0:
+      f(last);
+      return;
+    case 1:
+      f(a[0]!, last);
+      return;
+    case 2:
+      f(a[0]!, a[1]!, last);
+      return;
+    case 3:
+      f(a[0]!, a[1]!, a[2]!, last);
+      return;
+    case 4:
+      f(a[0]!, a[1]!, a[2]!, a[3]!, last);
+      return;
+    case 5:
+      f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, last);
+      return;
+    case 6:
+      f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!, last);
+      return;
+    case 7:
+      f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!, a[6]!, last);
+      return;
+    default:
+      f(...a, last);
+  }
+}
+
+/**
  * Marshals a `CpuShaderContext` into one compiled module's own memory and
  * scalar args — the shared translation both `instantiateWasmRoutine` (one call per
  * `run()`/`draw()`/`compute()`) and the rasterizer's `compileWasm` (one call per
@@ -3821,8 +3894,21 @@ export function createWasmInputMarshaller(
   // texture cache: skip re-uploading an unchanged texture object, and only
   // grow the module memory when the total footprint changes between calls
   const lastTexture: (CpuTextureData | undefined)[] = new Array(textureParams.length);
-  let lastSizes: number[] | null = null;
+  const textureSizes: number[] = new Array(textureParams.length).fill(-1);
+  const textureOffsets: number[] = new Array(textureParams.length).fill(0);
   let lastHeapBase: number | undefined;
+
+  /** What `marshal` returns, and the argument list in it, kept from one call to the next so a call allocates nothing. */
+  const args: number[] = [];
+  const marshalled = { args, heapEnd: 0 };
+  const storageLengths: number[] = new Array(storageParams.length).fill(0);
+  let memoryView = new DataView(memory.buffer);
+
+  /** A view of the memory, made again only when the memory grows and its buffer changes. */
+  function viewOfMemory(): DataView {
+    if (memoryView.buffer !== memory.buffer) memoryView = new DataView(memory.buffer);
+    return memoryView;
+  }
 
   /**
    * Appends each texture's pixels after the compiled layout (growing memory
@@ -3833,61 +3919,72 @@ export function createWasmInputMarshaller(
   function marshal(ctx: CpuShaderContext, heapStart = textureHeapBase): { args: number[]; heapEnd: number } {
     let textureHeapEnd = heapStart;
     if (textureParams.length > 0) {
-      const textures = textureParams.map((p) => (ctx.textures as any)?.[p.slot] as CpuTextureData);
-      const sizes = textures.map((tex, i) => textureByteSize(tex, textureParams[i]!.samplerType.endsWith("Cube")));
-      const heapOffsets: number[] = [];
+      let needsRepack = heapStart !== lastHeapBase;
       let heapCursor = heapStart;
-      for (const size of sizes) {
-        heapOffsets.push(heapCursor);
+      for (let i = 0; i < textureParams.length; i++) {
+        const p = textureParams[i]!;
+        const size = textureByteSize((ctx.textures as any)?.[p.slot] as CpuTextureData, p.samplerType.endsWith("Cube"));
+        if (size !== textureSizes[i]) needsRepack = true;
+        textureSizes[i] = size;
+        textureOffsets[i] = heapCursor;
         heapCursor += size;
       }
       textureHeapEnd = heapCursor;
 
-      const needsRepack = lastSizes === null || heapStart !== lastHeapBase || sizes.some((s, i) => s !== lastSizes![i]);
       if (needsRepack && heapCursor > memory.buffer.byteLength) {
         memory.grow(Math.ceil((heapCursor - memory.buffer.byteLength) / 65536));
       }
-      if (needsRepack || textures.some((t, i) => t !== lastTexture[i])) {
-        const view = new DataView(memory.buffer); // fresh in case the grow above just detached the old buffer
-        textureParams.forEach((p, i) => {
-          if (!needsRepack && textures[i] === lastTexture[i]) return;
-          writeTextureToMemory(view, p.metadataAddress, heapOffsets[i], textures[i], p.samplerType.endsWith("Cube"));
-          lastTexture[i] = textures[i];
-        });
+      for (let i = 0; i < textureParams.length; i++) {
+        const p = textureParams[i]!;
+        const texture = (ctx.textures as any)?.[p.slot] as CpuTextureData;
+        if (!needsRepack && texture === lastTexture[i]) continue;
+        writeTextureToMemory(
+          viewOfMemory(),
+          p.metadataAddress,
+          textureOffsets[i]!,
+          texture,
+          p.samplerType.endsWith("Cube"),
+        );
+        lastTexture[i] = texture;
       }
-      lastSizes = sizes;
       lastHeapBase = heapStart;
     }
     const heapEnd = marshalStorages(ctx, textureHeapEnd);
-    const view = new DataView(memory.buffer);
-    const args: number[] = [];
+    const view = viewOfMemory();
+    let argCount = 0;
     for (const p of params) {
       switch (p.kind) {
         case "textureMemory":
           break;
         case "param":
-          args.push((ctx.params as any)?.[p.name] as number);
+          args[argCount++] = (ctx.params as any)?.[p.name] as number;
           break;
         case "uniform":
           // An unset uniform reads zero, as in a zeroed GPU uniform buffer.
-          args.push(((ctx.uniforms as any)?.[p.slot] as number | undefined) ?? 0);
+          args[argCount++] = ((ctx.uniforms as any)?.[p.slot] as number | undefined) ?? 0;
           break;
         case "attribute":
-          args.push((ctx.attributes as any)?.[p.slot] as number);
+          args[argCount++] = (ctx.attributes as any)?.[p.slot] as number;
           break;
         case "varying":
-          args.push((ctx.varyings as any)?.[p.slot] as number);
+          args[argCount++] = (ctx.varyings as any)?.[p.slot] as number;
           break;
         case "invocationIndex":
-          args.push(ctx.index ?? 0);
+          args[argCount++] = ctx.index ?? 0;
           break;
         case "paramMemory":
           writeAggregateToMemory(view, p.address, p.shaderType, (ctx.params as any)?.[p.name]);
           break;
-        case "uniformMemory":
-          if ((ctx.uniforms as any)?.[p.slot] === undefined) break; // left as the zeroed memory it starts as
-          writeValueToMemory(view, p.address, p.shaderType, (ctx.uniforms as any)?.[p.slot], p.narrow);
+        case "uniformMemory": {
+          // Read once: each read of a float the host set boxes it anew.
+          const value = (ctx.uniforms as any)?.[p.slot];
+          if (value === undefined) break; // left as the zeroed memory it starts as
+          if (typeof value !== "number") writeValueToMemory(view, p.address, p.shaderType, value, p.narrow);
+          else if (scalarKindOf(p.shaderType) !== "float") view.setInt32(p.address, value, true);
+          else if (p.narrow) view.setFloat32(p.address, value, true);
+          else view.setFloat64(p.address, value, true);
           break;
+        }
         case "uniformArrayMemory":
           if ((ctx.uniforms as any)?.[p.slot] === undefined) break;
           writeArrayToMemory(
@@ -3914,7 +4011,8 @@ export function createWasmInputMarshaller(
           break;
       }
     }
-    return { args, heapEnd };
+    marshalled.heapEnd = heapEnd;
+    return marshalled;
   }
 
   /** The end of the heap for `ctx` from `heapStart`: each texture's pixels, then each storage buffer. */
@@ -3948,30 +4046,31 @@ export function createWasmInputMarshaller(
   function marshalStorages(ctx: CpuShaderContext, heapBase: number): number {
     if (storageParams.length === 0) return heapBase;
     let cursor = Math.ceil(heapBase / 8) * 8;
-    const resident = storageParams.map((p) => ctx.storageBuffers?.[p.slot]);
-    const lengths = storageParams.map((p, i) => resident[i]?.length ?? elementsOf(ctx, p));
-    storageParams.forEach((p, i) => {
-      if (resident[i]) {
-        storageHeapAddress[i] = resident[i]!.address;
-        return;
+    for (let i = 0; i < storageParams.length; i++) {
+      const p = storageParams[i]!;
+      const resident = ctx.storageBuffers?.[p.slot];
+      storageLengths[i] = resident?.length ?? elementsOf(ctx, p);
+      if (resident) {
+        storageHeapAddress[i] = resident.address;
+        continue;
       }
       storageHeapAddress[i] = cursor;
-      cursor = Math.ceil((cursor + lengths[i]! * storageElementSize(p.shaderType)) / 8) * 8;
-    });
+      cursor = Math.ceil((cursor + storageLengths[i]! * storageElementSize(p.shaderType)) / 8) * 8;
+    }
     if (cursor > memory.buffer.byteLength) {
       memory.grow(Math.ceil((cursor - memory.buffer.byteLength) / 65536));
     }
-    const view = new DataView(memory.buffer);
-    storageParams.forEach((p, i) => {
+    const view = viewOfMemory();
+    for (let i = 0; i < storageParams.length; i++) {
+      const p = storageParams[i]!;
       const array = (ctx.storages as any)?.[p.slot] as ArrayLike<number> | undefined;
-      const base = storageHeapAddress[i]!;
-      view.setInt32(p.metadataAddress + STORAGE_META_DATA_ADDR, base, true);
-      view.setInt32(p.metadataAddress + STORAGE_META_LENGTH, lengths[i]!, true);
-      if (!array || resident[i]) return;
-      const heap = componentView(i, p.shaderType, lengths[i]!);
+      view.setInt32(p.metadataAddress + STORAGE_META_DATA_ADDR, storageHeapAddress[i]!, true);
+      view.setInt32(p.metadataAddress + STORAGE_META_LENGTH, storageLengths[i]!, true);
+      if (!array || ctx.storageBuffers?.[p.slot]) continue;
+      const heap = componentView(i, p.shaderType, storageLengths[i]!);
       if (array.length === heap.length) heap.set(array);
       else for (let k = 0; k < heap.length; k++) heap[k] = array[k]!;
-    });
+    }
     return cursor;
   }
 
@@ -3998,15 +4097,15 @@ export function createWasmInputMarshaller(
 
   /** Copies every writable storage buffer back into the caller's array, where the last `marshal` placed it. */
   function writeBackStorages(ctx: CpuShaderContext): void {
-    if (storageParams.length === 0) return;
-    storageParams.forEach((p, i) => {
-      if (p.access === "read" || !p.written || ctx.storageBuffers?.[p.slot]) return;
+    for (let i = 0; i < storageParams.length; i++) {
+      const p = storageParams[i]!;
+      if (p.access === "read" || !p.written || ctx.storageBuffers?.[p.slot]) continue;
       const array = (ctx.storages as any)?.[p.slot] as { length: number; [e: number]: number } | undefined;
-      if (!array) return;
+      if (!array) continue;
       const heap = componentView(i, p.shaderType, elementsOf(ctx, p));
       if (ArrayBuffer.isView(array) && array.length === heap.length) (array as unknown as Float64Array).set(heap);
       else for (let k = 0; k < heap.length; k++) array[k] = heap[k]!;
-    });
+    }
   }
 
   return { marshal, footprint, writeBackStorages };
@@ -4178,11 +4277,8 @@ export function instantiateWasmProgram(
    */
   function compute(ctx: CpuShaderContext, count: number): void {
     const { args } = marshalInputs(ctx);
-    if (wasmCompute) {
-      wasmCompute(...args, count);
-    } else {
-      for (let i = 0; i < count; i++) wasmMain(...args);
-    }
+    if (wasmCompute) callWithLast(wasmCompute, args, count);
+    else for (let i = 0; i < count; i++) callWith(wasmMain, args);
     writeBackStorages(ctx);
   }
 
