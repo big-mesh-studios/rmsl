@@ -357,7 +357,10 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
       });
     })();
 
-    const [js, wasm] = runBoth(root, () => ({ [buf.name]: Float32Array.of(1, 2, 3, 4), [zeros.name]: new Float32Array(1) }));
+    const [js, wasm] = runBoth(root, () => ({
+      [buf.name]: Float32Array.of(1, 2, 3, 4),
+      [zeros.name]: new Float32Array(1),
+    }));
     expect(js[buf.name]).toEqual([11, 22, 3, 4]);
     expect(wasm).toEqual(js);
   });
