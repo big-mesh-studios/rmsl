@@ -60,12 +60,12 @@ export function runBench(reports: Report[]): string[] {
         const frame = makeFrame(program, width);
         for (let i = 0; i < WARMUP; i++) frame();
         const times: number[] = [];
-        let checksum = 0;
         for (let i = 0; i < SAMPLES; i++) {
           const t = performance.now();
-          for (let b = 0; b < BATCH; b++) checksum = frame();
+          for (let b = 0; b < BATCH; b++) frame();
           times.push((performance.now() - t) / BATCH);
         }
+        const checksum = frame(true);
         times.sort((a, b) => a - b);
         cells.push(`${times[SAMPLES >> 1].toFixed(2)} ms`.padStart(16));
         (checks[width] ??= []).push([report.label, checksum]);
@@ -88,6 +88,7 @@ export function runBench(reports: Report[]): string[] {
 /** Compiled copies of a program held at once to measure what one keeps, and frames run to measure what one allocates. */
 const COPIES = 200;
 const FRAMES = 20;
+const MEMORY_WARMUP = 40;
 
 /**
  * What every program of every report keeps and allocates, as text lines:
@@ -120,7 +121,8 @@ export async function runMemory(
         const kept = (used() - before) / COPIES;
         copies.length = 0;
         const frame = makeFrame(program, width);
-        for (let i = 0; i < WARMUP; i++) frame();
+        // Code V8 has not optimized yet boxes every float it computes, so a frame is counted once it has.
+        for (let i = 0; i < MEMORY_WARMUP; i++) frame();
         const perFrame = allocated
           ? (await allocated(() => {
               for (let i = 0; i < FRAMES; i++) frame();
@@ -137,8 +139,13 @@ export async function runMemory(
   return lines;
 }
 
-/** One frame of `program` at `width`: the program run once per pixel. Returns a checksum of every value it gave. */
-function makeFrame(program: Program, width: string): () => number {
+/**
+ * One frame of `program` at `width`: the program run once per pixel. Given
+ * `check`, it returns a checksum of every value the program gave, which is
+ * left out of a frame that is timed or counted: reading results of every kind
+ * through the one loop here would box the numbers it reads.
+ */
+function makeFrame(program: Program, width: string): (check?: boolean) => number {
   const fn = new Function(program.sources[width]!)() as (ctx: any) => any;
   const ctx: any = structuredClone(program.ctx);
   for (const tex of Object.values(ctx.textures) as TextureJson[]) {
@@ -147,9 +154,12 @@ function makeFrame(program: Program, width: string): () => number {
   const fragCoord: number[] = [0, 0];
   ctx.fragCoord = fragCoord;
   const { width: w, height: h, surface } = program;
+  // The surface goes in as typed arrays, as a rasterizer gives it, so writing it allocates nothing.
+  if (surface?.position) ctx.varyings[surface.position] = new Float64Array(3);
+  if (surface?.normal) ctx.varyings[surface.normal] = new Float64Array(3);
   const position = surface?.position ? ctx.varyings[surface.position] : null;
   const normal = surface?.normal ? ctx.varyings[surface.normal] : null;
-  return () => {
+  return (check = false) => {
     let checksum = 0;
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
@@ -170,6 +180,7 @@ function makeFrame(program: Program, width: string): () => number {
           }
         }
         const result = fn(ctx);
+        if (!check) continue;
         const value = result && typeof result === "object" && "value" in result ? result.value : result;
         for (let k = 0; k < value.length; k++) checksum = (checksum * 31 + value[k]) % 1e9;
       }
