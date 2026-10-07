@@ -87,12 +87,6 @@ export function jsIsArrayType(brand: string | undefined): boolean {
   return jsArrayLength(brand) > 1;
 }
 
-/** Zero-array initializer for a hoisted scratch slot, "" for a scalar. */
-export function jsScratchLiteral(brand: string | undefined): string {
-  let n = jsArrayLength(brand);
-  return n > 1 ? `[${Array(n).fill(0).join(", ")}]` : "";
-}
-
 /** Node types that read an existing array rather than producing one. */
 export const JS_ARRAY_LEAF_TYPES = new Set([
   "vec2",
