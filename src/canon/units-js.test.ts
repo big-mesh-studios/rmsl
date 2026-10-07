@@ -1,3 +1,4 @@
+import { Session } from "node:inspector/promises";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   attribute,
@@ -57,11 +58,45 @@ import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } fr
 import type { ComputeStage, FragmentStage, VertexStage } from "../backends/cpu";
 
 afterAll(async () => {
+  profiler?.disconnect();
   await assertRecordedEvaluationsAgree();
   await closeEvaluators();
 }, 120_000);
 
 const none = { name: "main", params: [] };
+
+/** One inspector session for the file: connecting one deoptimizes the code it finds running. */
+let profiler: Session | undefined;
+
+/**
+ * The bytes `run` allocates a call, over `runs` calls after `warm` calls, by V8's
+ * sampling heap profiler, collected objects included. Only the library's code
+ * counts: a compiled program has no source URL, and the rest of the library
+ * lies under `src/backends/`.
+ */
+async function allocatedBy(run: () => unknown, warm: number, runs: number): Promise<number> {
+  if (!profiler) {
+    profiler = new Session();
+    profiler.connect();
+    await profiler.post("HeapProfiler.enable");
+  }
+  for (let k = 0; k < warm; k++) run();
+  await profiler.post("HeapProfiler.startSampling", {
+    samplingInterval: 128,
+    includeObjectsCollectedByMajorGC: true,
+    includeObjectsCollectedByMinorGC: true,
+  });
+  for (let k = 0; k < runs; k++) run();
+  const { profile } = await profiler.post("HeapProfiler.stopSampling");
+  let allocated = 0;
+  const walk = (node: any): void => {
+    const url: string = node.callFrame.url;
+    if (url === "" || url.includes("/src/backends/")) allocated += node.selfSize;
+    for (const child of node.children) walk(child);
+  };
+  walk(profile.head);
+  return allocated / runs;
+}
 
 const cpuTargets: [string, CompileCpuRoutine][] = [
   ["JS", compileJSRoutine],
@@ -917,28 +952,36 @@ describe("the scalars and inputs of a JS function", () => {
     };
     // A routine copies its result out, so the program is called through the function the routine wraps.
     const raw = new Function(compileJSFn(build, none))() as (c: unknown) => unknown;
-    for (let k = 0; k < 50000; k++) raw(ctx);
-    // V8's sampling heap profiler counts what the calls allocate, collected objects included. The
-    // compiled function has no source URL, which sets what it allocates apart from the profiler's own.
-    const { Session } = await import("node:inspector/promises");
-    const session = new Session();
-    session.connect();
-    await session.post("HeapProfiler.enable");
-    await session.post("HeapProfiler.startSampling", {
-      samplingInterval: 128,
-      includeObjectsCollectedByMajorGC: true,
-      includeObjectsCollectedByMinorGC: true,
-    });
-    for (let k = 0; k < 20000; k++) raw(ctx);
-    const { profile } = await session.post("HeapProfiler.stopSampling");
-    session.disconnect();
-    let allocated = 0;
-    const walk = (node: any): void => {
-      if (node.callFrame.url === "") allocated += node.selfSize;
-      for (const child of node.children) walk(child);
+    // An object is 16 bytes at the least, so a call that allocated one would count that many.
+    expect(await allocatedBy(() => raw(ctx), 50000, 20000)).toBeLessThan(1);
+  });
+
+  /**
+   * @canon spec-a-js-draw-allocates-nothing-per-vertex-or-fragment
+   */
+  it("allocates nothing per vertex or fragment of a rasterized draw", async () => {
+    const position = attribute("vec3");
+    const colour = attribute("vec3");
+    const shade = varying("vec3");
+    const raster = compileJS(
+      () =>
+        Fn(() => {
+          shade.assign(colour.mul(0.5));
+          builtinPosition().assign(vec4(position, 1));
+        })(),
+      () => Fn(() => vec4(shade, 1))(),
+      { attributeTypes: { [position.name]: "vec3", [colour.name]: "vec3" } },
+    );
+    // Two triangles covering a 16 by 16 target: 6 vertices and 256 fragments a draw.
+    const ctx = {
+      attributes: {
+        [position.name]: Float64Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0),
+        [colour.name]: Float64Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 1, 1, 0, 0, 1),
+      },
     };
-    walk(profile.head);
-    expect(allocated).toBeLessThan(1024);
+    const options = { width: 16, height: 16, clear: true, clearDepth: true };
+    // A draw calls a stage 262 times, and an object is 16 bytes at the least.
+    expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
   });
 });
 

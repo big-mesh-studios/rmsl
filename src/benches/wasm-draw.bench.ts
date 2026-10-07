@@ -29,8 +29,8 @@ for (const SIZE of [128, 512]) {
     bench("compileWasmRoutine, one call per pixel — same grid, same program", () => {
       for (let y = 0; y < SIZE; y++) {
         for (let x = 0; x < SIZE; x++) {
-          (perPixelCtx.fragCoord as number[])[0] = x + 0.5;
-          (perPixelCtx.fragCoord as number[])[1] = y + 0.5;
+          perPixelCtx.fragCoord![0] = x + 0.5;
+          perPixelCtx.fragCoord![1] = y + 0.5;
           wasmFn.run(perPixelCtx);
         }
       }
@@ -43,8 +43,8 @@ for (const SIZE of [128, 512]) {
     bench("compileJSRoutine, one call per pixel — same grid, same program", () => {
       for (let y = 0; y < SIZE; y++) {
         for (let x = 0; x < SIZE; x++) {
-          (perPixelCtx.fragCoord as number[])[0] = x + 0.5;
-          (perPixelCtx.fragCoord as number[])[1] = y + 0.5;
+          perPixelCtx.fragCoord![0] = x + 0.5;
+          perPixelCtx.fragCoord![1] = y + 0.5;
           jsFn.run(perPixelCtx);
         }
       }
@@ -78,8 +78,8 @@ for (const SIZE of [128, 512]) {
     bench("compileJSRoutine, one call per pixel, sampling the same texture", () => {
       for (let y = 0; y < SIZE; y++) {
         for (let x = 0; x < SIZE; x++) {
-          (perPixelCtx.fragCoord as number[])[0] = x + 0.5;
-          (perPixelCtx.fragCoord as number[])[1] = y + 0.5;
+          perPixelCtx.fragCoord![0] = x + 0.5;
+          perPixelCtx.fragCoord![1] = y + 0.5;
           jsFn.run(perPixelCtx);
         }
       }

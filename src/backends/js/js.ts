@@ -2485,24 +2485,6 @@ function ownedResult(raw: unknown, types: JsResultTypes): unknown {
   return owned;
 }
 
-/** Copies a routine's result, arrays and the plain objects that hold them, so no scratch slot or input is shared. */
-export function ownedValue<T>(value: T): T {
-  if (ArrayBuffer.isView(value)) return (value as unknown as Float64Array).slice() as T;
-  if (Array.isArray(value)) {
-    const copy: unknown[] = value.slice();
-    for (let i = 0; i < copy.length; i++) {
-      if (typeof copy[i] === "object" && copy[i] !== null) copy[i] = ownedValue(copy[i]);
-    }
-    return copy as T;
-  }
-  if (typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Object.prototype) {
-    const copy: Record<string, unknown> = {};
-    for (const key in value) copy[key] = ownedValue(value[key]);
-    return copy as T;
-  }
-  return value;
-}
-
 /**
  * Compile an Fn to an actual callable program, with the scratch slots and
  * helper functions baked into its closure.
@@ -2604,19 +2586,6 @@ export function compileJSVertex<W extends FloatWidth = "f64">(
 }
 
 /**
- * {@link compileJSVertex}, with the arrays of the result left in the scratch
- * slots the next call overwrites. For a caller that reads each result at once,
- * like the rasterizer. Not public.
- */
-export function compileJSVertexInPlace<W extends FloatWidth = "f64">(
-  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileJSStageOptions & { float?: W },
-): VertexStage<W> {
-  const program = compileJSProgram(fn, { ...options, stage: "vertex" });
-  return (ctx) => toVertexResult(program.runInPlace(ctx)) as VertexResult<W>;
-}
-
-/**
  * Compiles an `Fn` as a fragment stage: a function that returns the colour and
  * the members of the `outputStruct` the program returns, or `null` for a
  * discarded fragment.
@@ -2635,15 +2604,6 @@ export function compileJSFragment(
 ): FragmentStage {
   const program = compileJSProgram(fn, { ...options, stage: "fragment" });
   return (ctx) => toFragmentResult(program.run(ctx));
-}
-
-/** {@link compileJSFragment}, as {@link compileJSVertexInPlace} is to the vertex stage. Not public. */
-export function compileJSFragmentInPlace<W extends FloatWidth = "f64">(
-  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileJSStageOptions & { float?: W },
-): FragmentStage<unknown, W> {
-  const program = compileJSProgram(fn, { ...options, stage: "fragment" });
-  return (ctx) => toFragmentResult(program.runInPlace(ctx)) as FragmentResult<unknown, W> | null;
 }
 
 /**
