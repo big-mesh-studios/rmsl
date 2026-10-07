@@ -51,6 +51,7 @@ import {
   createWasmRoutine,
 } from "../wasm";
 import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } from "../testing/shader-eval";
+import type { ComputeStage, FragmentStage, VertexStage } from "../backends/cpu";
 
 afterAll(async () => {
   await assertRecordedEvaluationsAgree();
@@ -111,7 +112,7 @@ describe("the JS target's internal decisions, on every target they claim", () =>
    */
   it.each(cpuTargets)("%s: returns a vector result as a bare array", (_, compile) => {
     const routine = compile(() => Fn(() => vec3(1, 2, 3))() as any, none);
-    expect(routine({})).toEqual([1, 2, 3]);
+    expect(routine({})).toEqual(new Float64Array([1, 2, 3]));
   });
 
   /**
@@ -121,7 +122,7 @@ describe("the JS target's internal decisions, on every target they claim", () =>
    */
   it.each(cpuTargets)("%s: returns a matrix as its columns in one flat array", (_, compile) => {
     const routine = compile(() => Fn(() => mat2(vec2(1, 2), vec2(3, 4)))() as any, none);
-    expect(routine({})).toEqual([1, 2, 3, 4]);
+    expect(routine({})).toEqual(new Float64Array([1, 2, 3, 4]));
   });
 
   /**
@@ -168,7 +169,7 @@ describe("the JS target's internal decisions, on every target they claim", () =>
       const routine = compile(() => program, none);
       const texture = { data: new Float32Array([10, 10, 10, 10, 20, 20, 20, 20]), width: 2, height: 1 };
       const red = (filters: { magFilter: "nearest" | "linear"; minFilter: "nearest" | "linear" }) =>
-        (routine({ textures: { [tex.name]: { ...texture, ...filters } } }) as number[])[0];
+        (routine({ textures: { [tex.name]: { ...texture, ...filters } } }) as Float64Array)[0];
       expect(red({ magFilter: "nearest", minFilter: "linear" })).toBe(20);
       expect(red({ magFilter: "linear", minFilter: "nearest" })).toBe(15);
     },
@@ -299,7 +300,7 @@ describe("a JS routine's results", () => {
     const run = compileJSRoutine((a: any) => Fn(() => vec3(a, a, a).toVar())(), param);
     const first = run({ params: { a: 1 } });
     run({ params: { a: 2 } });
-    expect(first).toEqual([1, 1, 1]);
+    expect(first).toEqual(new Float64Array([1, 1, 1]));
   });
 
   /**
@@ -334,9 +335,9 @@ describe("a JS routine's results", () => {
     const routine = compileJSRoutine(() => Fn(() => input.add(0).toVar())(), { ...none, reentrant });
     const passed = [1, 2, 3];
     const first = routine({ uniforms: { [input.name]: passed } });
-    (first as number[])[0] = 9;
+    (first as Float64Array)[0] = 9;
     expect(passed).toEqual([1, 2, 3]);
-    expect(routine({ uniforms: { [input.name]: passed } })).toEqual([1, 2, 3]);
+    expect(routine({ uniforms: { [input.name]: passed } })).toEqual(new Float64Array([1, 2, 3]));
   });
 });
 
@@ -378,10 +379,12 @@ describe("a JS rasterizer's discarded fragment", () => {
   });
 });
 
-const stages = [
+/** A compile function of either CPU target for a stage, as these tests call it. */
+type CompileStage<T> = (fn: (...args: any[]) => any, options: { name: string; params: never[] }) => T;
+const stages: [string, CompileStage<VertexStage>, CompileStage<FragmentStage<any>>, CompileStage<ComputeStage>][] = [
   ["JS", compileJSVertex, compileJSFragment, compileJSCompute],
   ["WASM", compileWasmVertex, compileWasmFragment, compileWasmCompute],
-] as const;
+];
 
 describe("a CPU stage's result", () => {
   /**
@@ -399,8 +402,8 @@ describe("a CPU stage's result", () => {
       none,
     );
     const result = stage({ attributes: { [place.name]: [1, 2, 3] } });
-    expect(result.position).toEqual([1, 2, 3, 1]);
-    expect(Object.values(result.varyings)).toEqual([[1, 2]]);
+    expect(result.position).toEqual(new Float64Array([1, 2, 3, 1]));
+    expect(Object.values(result.varyings)).toEqual([new Float64Array([1, 2])]);
   });
 
   /**
@@ -411,7 +414,10 @@ describe("a CPU stage's result", () => {
     (_, compileVertex) => {
       const place = attribute("vec3");
       const stage = compileVertex(() => Fn(() => vec4(place, 1))(), none);
-      expect(stage({ attributes: { [place.name]: [1, 2, 3] } })).toEqual({ position: [1, 2, 3, 1], varyings: {} });
+      expect(stage({ attributes: { [place.name]: [1, 2, 3] } })).toEqual({
+        position: new Float64Array([1, 2, 3, 1]),
+        varyings: {},
+      });
     },
   );
 
@@ -422,11 +428,11 @@ describe("a CPU stage's result", () => {
     "returns the colour of a fragment stage as a vec4, a vec3 with an opaque alpha on %s",
     (_, __, compileFragment) => {
       expect(compileFragment(() => Fn(() => vec4(1, 2, 3, 4))(), none)({})).toEqual({
-        value: [1, 2, 3, 4],
+        value: new Float64Array([1, 2, 3, 4]),
         outputs: [],
       });
       expect(compileFragment(() => Fn(() => vec3(1, 2, 3))(), none)({})).toEqual({
-        value: [1, 2, 3, 1],
+        value: new Float64Array([1, 2, 3, 1]),
         outputs: [],
       });
     },
@@ -439,7 +445,7 @@ describe("a CPU stage's result", () => {
     "returns the members of an outputStruct by position, with no colour on %s",
     (_, __, compileFragment) => {
       const stage = compileFragment(() => Fn(() => outputStruct(float(7), vec3(1, 2, 3)))(), none);
-      expect(stage({})).toEqual({ value: undefined, outputs: [7, [1, 2, 3]] });
+      expect(stage({})).toEqual({ value: undefined, outputs: [7, new Float64Array([1, 2, 3])] });
     },
   );
 
@@ -598,8 +604,8 @@ describe("what a JS routine allocates per call", () => {
       param,
     );
     // The columns (a, 0) and (1, 1), squared, are (a * a, 0) and (a + 1, 1).
-    expect(squared({ params: { a: 3 } })).toEqual([9, 0, 4, 1]);
-    expect(squared({ params: { a: 2 } })).toEqual([4, 0, 3, 1]);
+    expect(squared({ params: { a: 3 } })).toEqual(new Float64Array([9, 0, 4, 1]));
+    expect(squared({ params: { a: 2 } })).toEqual(new Float64Array([4, 0, 3, 1]));
   });
   /**
    * @canon spec-a-js-routine-allocates-nothing-per-call
@@ -660,7 +666,7 @@ describe("what a JS routine allocates per call", () => {
     const routine = compileJSRoutine((a: any) => Fn(() => vec3(a, 1, 2).toVar())(), param);
     const first = routine({ params: { a: 1 } });
     routine({ params: { a: 7 } });
-    expect(first).toEqual([1, 1, 2]);
+    expect(first).toEqual(new Float64Array([1, 1, 2]));
   });
 });
 
@@ -755,7 +761,7 @@ describe("the slots of a JS function", () => {
     expect(source).toMatch(/= new Float64Array\(_rmsl_slots, \d+, 3\);/);
     expect(source).toMatch(/= new Int32Array\(_rmsl_slots, \d+, 2\);/);
     expect(source).toMatch(/= new Uint32Array\(_rmsl_slots, \d+, 4\);/);
-    expect(source).toMatch(/= \[0, 0\];/);
+    expect(source.match(/= new Int32Array\(_rmsl_slots, \d+, 2\);/g)).toHaveLength(2);
     expect(at("f32")).toMatch(/= new Float32Array\(_rmsl_slots, \d+, 3\);/);
   });
 
@@ -773,7 +779,7 @@ describe("the slots of a JS function", () => {
         })() as any,
       none,
     );
-    expect(run({ uniforms: { [i.name]: [1, 2, 3], [f.name]: [0.5, 1.5] } })).toEqual([1.5, 2.5]);
+    expect(run({ uniforms: { [i.name]: [1, 2, 3], [f.name]: [0.5, 1.5] } })).toEqual(new Float64Array([1.5, 2.5]));
   });
 });
 
@@ -790,7 +796,7 @@ describe("the element-wise helpers of a JS function", () => {
     expect(source).toContain("function _v3mix_vvs(a, b, c, out)");
     expect(source).not.toContain("typeof");
     const run = compileJSRoutine(() => Fn(() => mix(v.mul(t), t.mul(v), t).toVar())() as any, none);
-    expect(run({ uniforms: { [v.name]: [1, 2, 3], [t.name]: 0.5 } })).toEqual([0.5, 1, 1.5]);
+    expect(run({ uniforms: { [v.name]: [1, 2, 3], [t.name]: 0.5 } })).toEqual(new Float64Array([0.5, 1, 1.5]));
   });
 });
 

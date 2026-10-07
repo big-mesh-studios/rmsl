@@ -42,10 +42,10 @@ const computes = [
   ["WASM", compileWasmCompute],
 ] as const;
 
-const cpuTargets = [
+const cpuTargets: [string, CompileCpuRoutine][] = [
   ["JS", compileJSRoutine],
   ["WASM", compileWasmRoutine],
-] as const;
+];
 
 /** Compiles `build` to WASM, instantiates the module by hand, and calls its `main` with `args`. */
 function callMain(build: (...args: any[]) => Node<any>, params: { name: string; type: "float" }[], args: number[]) {

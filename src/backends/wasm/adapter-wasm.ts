@@ -16,7 +16,7 @@ import {
   createCpuAdapter,
   createCpuRoutineAdapter,
 } from "../adapter-cpu";
-import type { CpuTextureData } from "../cpu";
+import type { CpuTextureData, FloatWidth } from "../cpu";
 import { compileWasm, CompileWasmOptions, WasmRasterContext } from "./rasterizer";
 import { fragmentColour } from "../shared";
 import {
@@ -80,11 +80,11 @@ export type CreateWasmRoutineOptions = WasmFloatWidth & {
  * and wraps it in a {@link CpuRoutineAdapter}: `setUniform` and `setTexture`
  * keep what the host gives it, and `run(params)` calls the routine with them.
  */
-export function createWasmRoutine<A extends ShaderType>(
+export function createWasmRoutine<A extends ShaderType, W extends FloatWidth = "f64">(
   fn: Node<A>,
-  options: CreateWasmRoutineOptions = {},
-): CpuRoutineAdapter<A> {
-  return createCpuRoutineAdapter(
+  options: CreateWasmRoutineOptions & { float?: W } = {},
+): CpuRoutineAdapter<A, W> {
+  return createCpuRoutineAdapter<A, W>(
     compileWasmRoutine(() => fn, {
       name: options.name ?? "routine",
       params: options.params ?? [],

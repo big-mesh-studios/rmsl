@@ -41,7 +41,9 @@ describe("evaluate", () => {
   it("binds a uniform by its node, not by its slot name", () => {
     const tint = uniform("vec3");
     const graph = vec4(tint.mul(0.5), 1);
-    expect(evaluate(() => graph, { uniforms: [[tint, [1, 0.5, 0]]] }).value).toEqual([0.5, 0.25, 0, 1]);
+    expect(evaluate(() => graph, { uniforms: [[tint, [1, 0.5, 0]]] }).value).toEqual(
+      new Float64Array([0.5, 0.25, 0, 1]),
+    );
   });
   /**
    * @canon spec-an-input-is-bound-by-its-node
@@ -54,7 +56,7 @@ describe("evaluate", () => {
       attributes: [[position, [1, 2, 3]]],
       varyings: [[weight, 2]],
     });
-    expect(result.value).toEqual([2, 4, 6]);
+    expect(result.value).toEqual(new Float64Array([2, 4, 6]));
   });
   /**
    * @canon spec-evaluate-gives-the-value-of-one-fragment
@@ -71,7 +73,7 @@ describe("evaluate", () => {
     const graph = map.texture(vec2(0.5, 0.5));
     const data = [1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4];
     const result = evaluate(() => graph, { textures: [[map, { data, width: 2, height: 2 }]] });
-    expect(result.value).toEqual([4, 4, 4, 4]);
+    expect(result.value).toEqual(new Float64Array([4, 4, 4, 4]));
   });
   /**
    * @canon spec-a-test-texture-is-read-as-the-renderers-read-it
@@ -80,12 +82,9 @@ describe("evaluate", () => {
     const map = uniform("sampler2D");
     const graph = map.texture(vec2(0.5, 0.5));
     const data = new Uint8Array([0, 128, 255, 255]);
-    expect(evaluate(() => graph, { textures: [[map, { data, width: 1, height: 1 }]] }).value).toEqual([
-      0,
-      128 / 255,
-      1,
-      1,
-    ]);
+    expect(evaluate(() => graph, { textures: [[map, { data, width: 1, height: 1 }]] }).value).toEqual(
+      new Float64Array([0, 128 / 255, 1, 1]),
+    );
   });
   /**
    * @canon spec-a-test-texture-is-read-as-the-renderers-read-it
@@ -96,7 +95,7 @@ describe("evaluate", () => {
     // What `new DataTexture(data, 2, 2)` looks like: pixels under `image`.
     const image = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
     const result = evaluate(() => graph, { textures: [[map, { image, width: 2, height: 2 }]] });
-    expect(result.value).toEqual([5, 6, 7, 8]);
+    expect(result.value).toEqual(new Int32Array([5, 6, 7, 8]));
   });
   /**
    * @canon spec-a-test-texture-is-read-as-the-renderers-read-it
@@ -110,7 +109,7 @@ describe("evaluate", () => {
     const image = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
     const volume = new DataTexture(image, 2, 2, 2, RedIntegerFormat);
     const result = evaluate(() => graph, { textures: [[map, volume]] });
-    expect(result.value).toEqual([4, 0, 0, 1]);
+    expect(result.value).toEqual(new Uint32Array([4, 0, 0, 1]));
   });
   /**
    * @canon spec-a-test-texture-is-read-as-the-renderers-read-it
@@ -124,9 +123,9 @@ describe("evaluate", () => {
     // counts as its base filter, which is `samplerState`'s rule, not a second
     // one written here.
     texture.magFilter = LinearFilter;
-    expect(evaluate(() => graph, { textures: [[map, texture]] }).value).toEqual([0.5, 0.5, 0.5, 0.5]);
+    expect(evaluate(() => graph, { textures: [[map, texture]] }).value).toEqual(new Float64Array([0.5, 0.5, 0.5, 0.5]));
     texture.magFilter = NearestMipmapNearestFilter;
-    expect(evaluate(() => graph, { textures: [[map, texture]] }).value).toEqual([1, 1, 1, 1]);
+    expect(evaluate(() => graph, { textures: [[map, texture]] }).value).toEqual(new Float64Array([1, 1, 1, 1]));
   });
   /**
    * @canon spec-evaluate-gives-the-value-of-one-fragment
@@ -153,7 +152,7 @@ describe("evaluate", () => {
     })();
     const result = evaluate(() => graph, { stage: "fragment" });
     expect(result.fragDepth).toBe(0.25);
-    expect(Object.values(result.outputs)).toEqual([[1, 0, 0, 1]]);
+    expect(Object.values(result.outputs)).toEqual([new Float64Array([1, 0, 0, 1])]);
   });
   /**
    * @canon spec-evaluate-gives-the-value-of-one-fragment
@@ -167,8 +166,8 @@ describe("evaluate", () => {
       return position;
     })();
     const result = evaluate(() => graph, { stage: "vertex" });
-    expect(result.position).toEqual([0, 0, 0, 1]);
-    expect(Object.values(result.varyings)).toEqual([[1, 2, 3]]);
+    expect(result.position).toEqual(new Float64Array([0, 0, 0, 1]));
+    expect(Object.values(result.varyings)).toEqual([new Float64Array([1, 2, 3])]);
   });
   /**
    * @canon spec-a-test-reads-derivatives-as-zero-unless-asked-to-throw

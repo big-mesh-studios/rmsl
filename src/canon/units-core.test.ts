@@ -39,6 +39,7 @@ import {
   recordingGLSL as compileGlsl,
   recordingWGSL as compileWgsl,
 } from "../testing/shader-validity";
+import type { CompileCpuRoutine } from "../backends/cpu";
 
 afterAll(async () => {
   await assertRecordedShadersValid();
@@ -244,22 +245,25 @@ describe("the variable names of a program", () => {
   it.each([
     ["JS", compileJSRoutine],
     ["WASM", compileWasmRoutine],
-  ] as const)("keeps each root's own variable when two roots take one name on %s", (_target, compile) => {
-    const out = instancedArray(2, "float");
-    const build = () => [
-      Fn(() => {
-        const color = float(1).toVar("color");
-        out.element(int(0)).assign(color.add(1));
-      })(),
-      Fn(() => {
-        const color = float(10).toVar("color");
-        out.element(int(1)).assign(color.add(1));
-      })(),
-    ];
-    const data = new Float64Array(2);
-    compile(build as any, none)({ storages: { [out.name]: data } });
-    expect(Array.from(data)).toEqual([2, 11]);
-  });
+  ] as [string, CompileCpuRoutine][])(
+    "keeps each root's own variable when two roots take one name on %s",
+    (_target, compile) => {
+      const out = instancedArray(2, "float");
+      const build = () => [
+        Fn(() => {
+          const color = float(1).toVar("color");
+          out.element(int(0)).assign(color.add(1));
+        })(),
+        Fn(() => {
+          const color = float(10).toVar("color");
+          out.element(int(1)).assign(color.add(1));
+        })(),
+      ];
+      const data = new Float64Array(2);
+      compile(build as any, none)({ storages: { [out.name]: data } });
+      expect(Array.from(data)).toEqual([2, 11]);
+    },
+  );
 });
 
 describe("the type of the size of a texture", () => {
@@ -614,7 +618,7 @@ describe("a float converted to an integer", () => {
   it.each([
     ["JS", compileJSRoutine],
     ["WASM", compileWasmRoutine],
-  ] as const)("truncates and clamps to the range of int and uint on %s", (_, compile) => {
+  ] as [string, CompileCpuRoutine][])("truncates and clamps to the range of int and uint on %s", (_, compile) => {
     const toInt = compile((a: any) => Fn(() => a.toInt().toVar())(), param);
     const toUint = compile((a: any) => Fn(() => a.toUint().toVar())(), param);
     for (const [x, asInt, asUint] of cases) {
@@ -629,7 +633,7 @@ describe("a float converted to an integer", () => {
   it.each([
     ["JS", compileJSRoutine],
     ["WASM", compileWasmRoutine],
-  ] as const)("gives 0 for a NaN on %s", (_, compile) => {
+  ] as [string, CompileCpuRoutine][])("gives 0 for a NaN on %s", (_, compile) => {
     const toInt = compile((a: any) => Fn(() => a.toInt().toVar())(), param);
     const toUint = compile((a: any) => Fn(() => a.toUint().toVar())(), param);
     expect(toInt({ params: { a: NaN } })).toBe(0);

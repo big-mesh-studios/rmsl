@@ -1,7 +1,7 @@
 import { describe, it, expectTypeOf } from "vitest";
 import { float, vec2, vec3, vec4, uniform, varying } from "../rmsl";
 import { DataTexture, RedIntegerFormat } from "../scene";
-import { evaluate, render, runner, type ShaderValue, type EvaluationResult } from "./index";
+import { evaluate, render, runner, type ShaderInput, type ShaderValue, type EvaluationResult } from "./index";
 
 describe("bound values", () => {
   /**
@@ -88,8 +88,8 @@ describe("results", () => {
   it("carries the value type of the graph", () => {
     expectTypeOf(evaluate(() => float(1))).toEqualTypeOf<EvaluationResult<"float">>();
     expectTypeOf(evaluate(() => float(1)).value).toEqualTypeOf<number | null>();
-    expectTypeOf(evaluate(() => vec4(1, 0, 0, 1)).value).toEqualTypeOf<number[] | null>();
-    expectTypeOf(runner(() => vec3(1, 2, 3))().value).toEqualTypeOf<number[] | null>();
+    expectTypeOf(evaluate(() => vec4(1, 0, 0, 1)).value).toEqualTypeOf<Float64Array | null>();
+    expectTypeOf(runner(() => vec3(1, 2, 3))().value).toEqualTypeOf<Float64Array | null>();
   });
   /**
    * @canon spec-evaluate-gives-the-value-of-one-fragment
@@ -98,8 +98,19 @@ describe("results", () => {
     expectTypeOf<ShaderValue<"float">>().toEqualTypeOf<number>();
     expectTypeOf<ShaderValue<"int">>().toEqualTypeOf<number>();
     expectTypeOf<ShaderValue<"bool">>().toEqualTypeOf<boolean>();
-    expectTypeOf<ShaderValue<"bvec3">>().toEqualTypeOf<boolean[]>();
-    expectTypeOf<ShaderValue<"vec4">>().toEqualTypeOf<number[]>();
-    expectTypeOf<ShaderValue<"mat4">>().toEqualTypeOf<number[]>();
+    expectTypeOf<ShaderValue<"bvec3">>().toEqualTypeOf<Int32Array>();
+    expectTypeOf<ShaderValue<"uvec2">>().toEqualTypeOf<Uint32Array>();
+    expectTypeOf<ShaderValue<"vec4">>().toEqualTypeOf<Float64Array>();
+    expectTypeOf<ShaderValue<"mat4">>().toEqualTypeOf<Float64Array>();
+  });
+  /**
+   * @canon spec-evaluate-gives-the-value-of-one-fragment
+   */
+  it("takes a vector as a plain array or as the typed array a result comes back in", () => {
+    expectTypeOf<number[]>().toExtend<ShaderInput<"vec3">>();
+    expectTypeOf<Float64Array>().toExtend<ShaderInput<"vec3">>();
+    expectTypeOf<boolean[]>().toExtend<ShaderInput<"bvec2">>();
+    expectTypeOf<Int32Array>().toExtend<ShaderInput<"bvec2">>();
+    expectTypeOf<number>().toEqualTypeOf<ShaderInput<"float">>();
   });
 });

@@ -1177,13 +1177,13 @@ describe("RMSL", () => {
    */
   it("builds every matrix shape from columns of vector nodes, not just mat3/mat4", () => {
     let square = compileJSRoutine(() => mat2(vec2(1, 2), vec2(3, 4)), { name: "main", params: [] });
-    expect(square({})).toEqual([1, 2, 3, 4]);
+    expect(square({})).toEqual(new Float64Array([1, 2, 3, 4]));
 
     let rect = compileJSRoutine(() => mat2x3(vec3(1, 2, 3), vec3(4, 5, 6)), { name: "main", params: [] });
-    expect(rect({})).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(rect({})).toEqual(new Float64Array([1, 2, 3, 4, 5, 6]));
 
     let rectOtherWay = compileJSRoutine(() => mat3x2(vec2(1, 2), vec2(3, 4), vec2(5, 6)), { name: "main", params: [] });
-    expect(rectOtherWay({})).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(rectOtherWay({})).toEqual(new Float64Array([1, 2, 3, 4, 5, 6]));
 
     let glsl = compileGlsl(
       Fn(() => {

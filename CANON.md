@@ -404,7 +404,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec position-and-normal-read-object-space-in-both-stages`](#spec-position-and-normal-read-object-space-in-both-stages) — The builder's `position` and `normal` give the object-space position and normal in both stages, as TSL's `positionLocal` and `normalLocal` do.
         - [`@bug position-and-normal-read-world-space-in-the-fragment-stage`](#bug-position-and-normal-read-world-space-in-the-fragment-stage) — The builder's `position` and `normal` read object space in the vertex stage. In the fragment stage they read the `positionWorld` and `normalWorld` varyings instead.
 - [`@axiom a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns) — What a compiled program hands back is typed by the program that was compiled. A caller reads the result as it is, with no narrowing and no cast.
-  - [`@spec a-routine-is-typed-by-the-value-it-returns`](#spec-a-routine-is-typed-by-the-value-it-returns) — `compileJSRoutine` and `compileWasmRoutine` give a routine whose `run` returns the JavaScript value of the type the program returns: a number for a `float`, `int` or `uint`, a boolean for a `bool`, an array of booleans for a `bvec`, and an array of numbers for any other vector or matrix.
+  - [`@spec a-routine-is-typed-by-the-value-it-returns`](#spec-a-routine-is-typed-by-the-value-it-returns) — `compileJSRoutine` and `compileWasmRoutine` give a routine whose `run` returns the JavaScript value of the type the program returns: a number for a `float`, `int` or `uint`, and a boolean for a `bool`. A vector or matrix comes back as a typed array of its kind: a `Float64Array` for a float vector or matrix, or a `Float32Array` at `float: "f32"`; an `Int32Array` for an `ivec`, and for a `bvec`, which holds 1 for true and 0 for false; and a `Uint32Array` for a `uvec`. The type of `run` names the array, from the type of the program and the `float` option.
 - [`@axiom each-target-keeps-what-makes-it-worth-choosing`](#axiom-each-target-keeps-what-makes-it-worth-choosing) — An interface over several targets keeps what each target does better than the others. A call that a target answers at once stays synchronous. Data that lives on the GPU stays there until the host asks for it. No target fakes a capability it lacks.
   - [`@spec an-adapter-call-is-synchronous-where-its-target-answers-at-once`](#spec-an-adapter-call-is-synchronous-where-its-target-answers-at-once) — An [adapter](#term-adapter) method returns its result directly where its target answers at once, and returns a promise only where its target cannot.
     - [`@spec a-cpu-adapter-computes-synchronously`](#spec-a-cpu-adapter-computes-synchronously) — `compute` on a JS or WASM adapter has run the dispatch and filled `out` when it returns.
@@ -587,9 +587,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-input-the-host-leaves-out-reads-zero`](#spec-an-input-the-host-leaves-out-reads-zero) — A parameter, attribute or varying the host leaves out of the context reads zero.
       - [`@bug wasm-reads-an-unset-scalar-input-as-nan`](#bug-wasm-reads-an-unset-scalar-input-as-nan) — A scalar varying the host leaves out reads as `NaN`.
       - [`@bug wasm-throws-on-an-unset-aggregate-input`](#bug-wasm-throws-on-an-unset-aggregate-input) — A vector varying the host leaves out throws a `TypeError` while the routine writes it into memory.
-    - [`@spec a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array`](#spec-a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array) — A CPU routine returns a matrix as one flat array of numbers, which holds its columns one after another.
+    - [`@spec a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array`](#spec-a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array) — A CPU routine returns a matrix as one flat typed array, which holds its columns one after another.
     - [`@spec a-cpu-compiler-calls-its-builder-once`](#spec-a-cpu-compiler-calls-its-builder-once) — `compileJSRoutine` and `compileWasmRoutine` call the builder the caller passes once for each compile.
-    - [`@spec a-grid-fills-a-float64-array-for-a-float-result`](#spec-a-grid-fills-a-float64-array-for-a-float-result) — `fill` of a CPU grid whose result is a float or a float vector returns a `Float64Array`.
+    - [`@spec a-grid-fills-a-float64-array-for-a-float-result`](#spec-a-grid-fills-a-float64-array-for-a-float-result) — `fill` of a CPU grid whose result is a float or a float vector returns a `Float64Array`, or a `Float32Array` at `float: "f32"`.
     - [`@spec a-grid-fills-an-int32-array-for-an-int-result`](#spec-a-grid-fills-an-int32-array-for-an-int-result) — `fill` of a CPU grid whose result is an `int` or an integer vector returns an `Int32Array`.
     - [`@spec a-grid-fills-a-uint32-array-for-a-uint-result`](#spec-a-grid-fills-a-uint32-array-for-a-uint-result) — `fill` of a CPU grid whose result is a `uint` or an unsigned vector returns a `Uint32Array`.
     - [`@spec a-grid-writes-a-bool-result-as-one-or-zero-in-an-int32-array`](#spec-a-grid-writes-a-bool-result-as-one-or-zero-in-an-int32-array) — `fill` of a CPU grid whose result is a `bool` returns an `Int32Array` that holds 1 for true and 0 for false.
@@ -613,7 +613,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@axiom the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing) — Code that runs once per frame, or once per call of a routine that runs every frame, allocates no memory.
   - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A compiled JS function keeps what it computes in slots it declares once, outside the function: its variables, each vector or matrix an operation computes, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. With `reentrant`, the function declares its slots inside itself, and each call has its own.
   - [`@spec a-cpu-compute-dispatch-allocates-nothing`](#spec-a-cpu-compute-dispatch-allocates-nothing) — `compute` of a CPU compute adapter allocates nothing, on JS and on WASM, with `out` or without it. A WASM routine reuses its argument list and its views of memory from one call to the next, and makes a view again only when the memory grows. The WASM adapter reads its scalar uniforms from the module's memory, and keeps them in an object in dictionary mode.
-  - [`@spec a-js-program-keeps-its-vectors-in-views-of-one-buffer`](#spec-a-js-program-keeps-its-vectors-in-views-of-one-buffer) — A compiled JS function keeps each float, integer and unsigned vector and matrix it holds in a typed view of one `ArrayBuffer`, which it makes once, or once per call with `reentrant`. A float slot is a `Float64Array`, or a `Float32Array` at `float: "f32"`; an integer slot an `Int32Array`; an unsigned slot a `Uint32Array`. A boolean vector is an array of booleans.
+  - [`@spec a-js-program-keeps-its-vectors-in-views-of-one-buffer`](#spec-a-js-program-keeps-its-vectors-in-views-of-one-buffer) — A compiled JS function keeps each vector and matrix it holds in a typed view of one `ArrayBuffer`, which it makes once, or once per call with `reentrant`. A float slot is a `Float64Array`, or a `Float32Array` at `float: "f32"`; an integer slot an `Int32Array`, and a boolean slot one too, holding 1 for true and 0 for false; an unsigned slot a `Uint32Array`.
   - [`@spec a-js-helper-serves-the-shapes-it-is-called-with`](#spec-a-js-helper-serves-the-shapes-it-is-called-with) — A JS helper that applies an operation to each component of its operands is written for the shape of each operand, a vector or a scalar, which the compiler knows. It reads a vector's component and a scalar's value without asking which each is at run time.
   - [`@spec a-compiled-js-function-returns-its-result-in-a-slot`](#spec-a-compiled-js-function-returns-its-result-in-a-slot) — The function that `compileJSFn` returns as source, and that `precompileJS` ships, returns a vector or a matrix in a slot it reuses on the next call, so the result of one call is the result of the next. A caller that keeps one copies it, or compiles with `reentrant`. A [routine](#term-cpu-routine), a stage and a grid copy their result, so a later call does not change it.
   - [`@spec a-webgl-renderer-allocates-nothing-per-frame`](#spec-a-webgl-renderer-allocates-nothing-per-frame) — The WebGL renderer draws a frame without allocating. It reuses what it needs between frames, and builds no array, closure or iterator per frame or per draw.
@@ -2980,11 +2980,11 @@ Where the types cannot see, in a builder cast to `any`, the result still has the
 
 ### @spec a-routine-is-typed-by-the-value-it-returns
 
-> `compileJSRoutine` and `compileWasmRoutine` give a routine whose `run` returns the JavaScript value of the type the program returns: a number for a `float`, `int` or `uint`, a boolean for a `bool`, an array of booleans for a `bvec`, and an array of numbers for any other vector or matrix.
+> `compileJSRoutine` and `compileWasmRoutine` give a routine whose `run` returns the JavaScript value of the type the program returns: a number for a `float`, `int` or `uint`, and a boolean for a `bool`. A vector or matrix comes back as a typed array of its kind: a `Float64Array` for a float vector or matrix, or a `Float32Array` at `float: "f32"`; an `Int32Array` for an `ivec`, and for a `bvec`, which holds 1 for true and 0 for false; and a `Uint32Array` for a `uvec`. The type of `run` names the array, from the type of the program and the `float` option.
 
 Derives from: [`axiom-a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns)
 
-This follows because the type of the builder's return value names the shader type, and the compile function carries it into the type of `run`. A caller then reads a `vec3` result as an array, with no cast.
+This follows because the type of the builder's return value names the shader type, and the compile function carries it into the type of `run`. A caller then reads a `vec3` result as the typed array it is, with no cast. A typed array is what a JS program holds a vector in, as [`spec-a-js-program-keeps-its-vectors-in-views-of-one-buffer`](#spec-a-js-program-keeps-its-vectors-in-views-of-one-buffer) states, and its kinds are those a grid fills.
 
 ## @axiom each-target-keeps-what-makes-it-worth-choosing
 
@@ -4056,7 +4056,7 @@ Issue: #114
 
 #### @spec a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array
 
-> A CPU routine returns a matrix as one flat array of numbers, which holds its columns one after another.
+> A CPU routine returns a matrix as one flat typed array, which holds its columns one after another.
 
 Derives from: [`spec-a-cpu-routine-returns-its-value`](#spec-a-cpu-routine-returns-its-value)
 
@@ -4072,11 +4072,11 @@ This follows because a builder may declare its inputs as it runs, and a second c
 
 #### @spec a-grid-fills-a-float64-array-for-a-float-result
 
-> `fill` of a CPU grid whose result is a float or a float vector returns a `Float64Array`.
+> `fill` of a CPU grid whose result is a float or a float vector returns a `Float64Array`, or a `Float32Array` at `float: "f32"`.
 
 Derives from: [`spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel), [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
 
-This follows because a CPU target computes a float in 64 bits, and a `Float64Array` holds that value exactly.
+This follows because a CPU target computes a float in the width its compile picks, and a typed array of that width holds the value exactly.
 
 #### @spec a-grid-fills-an-int32-array-for-an-int-result
 
@@ -4230,7 +4230,7 @@ This follows because a compute dispatch runs every frame, and a stage that takes
 
 ### @spec a-js-program-keeps-its-vectors-in-views-of-one-buffer
 
-> A compiled JS function keeps each float, integer and unsigned vector and matrix it holds in a typed view of one `ArrayBuffer`, which it makes once, or once per call with `reentrant`. A float slot is a `Float64Array`, or a `Float32Array` at `float: "f32"`; an integer slot an `Int32Array`; an unsigned slot a `Uint32Array`. A boolean vector is an array of booleans.
+> A compiled JS function keeps each vector and matrix it holds in a typed view of one `ArrayBuffer`, which it makes once, or once per call with `reentrant`. A float slot is a `Float64Array`, or a `Float32Array` at `float: "f32"`; an integer slot an `Int32Array`, and a boolean slot one too, holding 1 for true and 0 for false; an unsigned slot a `Uint32Array`.
 
 Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call)
 

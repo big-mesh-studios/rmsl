@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 import { Fn, float, instancedArray, invocationIndex, normalize, smoothstep, uniform, vec3, type Node } from "./rmsl";
 import { compileJSCompute, compileJSRoutine, createJsCompute } from "./js";
 import { compileWasmCompute, compileWasmRoutine, createWasmCompute } from "./wasm";
+import type { CompileCpuRoutine } from "./backends/cpu";
 
 const f = Math.fround;
-const routines = [
+const routines: [string, CompileCpuRoutine][] = [
   ["JS", compileJSRoutine],
   ["WASM", compileWasmRoutine],
-] as const;
+];
 const two = {
   name: "main",
   params: [
@@ -69,8 +70,8 @@ describe("a CPU compile at float: f32", () => {
       })();
     const options = { name: "main", params: [], float: "f32" as const };
     const ctx = { uniforms: { [dir.name]: [0.3, -1.7, 2.9], [t.name]: 0.4 } };
-    const js = compileJSRoutine(build as any, options)(ctx) as number[];
-    const wasm = compileWasmRoutine(build as any, options)(ctx) as number[];
+    const js = compileJSRoutine(build as any, options)(ctx) as Float32Array;
+    const wasm = compileWasmRoutine(build as any, options)(ctx) as Float32Array;
     expect(wasm).toEqual(js);
     for (const component of js) expect(f(component)).toBe(component);
   });

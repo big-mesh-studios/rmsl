@@ -53,8 +53,8 @@ function expectOnEveryTarget(stage: "vertex" | "fragment", build: () => Node<any
   const compilers: [string, () => unknown][] = [
     ["GLSL", () => compileGlsl[stage](build())],
     ["WGSL", () => compileWgsl[stage](build())],
-    ["JS", () => (stage === "vertex" ? compileJSVertex : compileJSFragment)(build, none)],
-    ["WASM", () => (stage === "vertex" ? compileWasmVertex : compileWasmFragment)(build, none)],
+    ["JS", () => (stage === "vertex" ? compileJSVertex(build, none) : compileJSFragment(build, none))],
+    ["WASM", () => (stage === "vertex" ? compileWasmVertex(build, none) : compileWasmFragment(build, none))],
   ];
   for (const [name, compile] of compilers) {
     if (refused) expect(compile, name).toThrow(refused);
@@ -582,9 +582,9 @@ describe("each leaf on every target it claims", () => {
     expect(compileGlsl.fragment(build()), "GLSL").toContain("out vec4");
     expect(compileWgsl.fragment(build()), "WGSL").toMatch(/: vec4<f32>/);
     const js = compileJSFragment(build, { ...none })({}) as any;
-    expect(js.value ?? js, "JS").toEqual(expected);
+    expect(js.value ?? js, "JS").toEqual(new Float64Array(expected));
     const wasm = compileWasmFragment(build, { ...none })({}) as any;
-    expect(Array.from(wasm.value ?? wasm), "WASM").toEqual(expected);
+    expect(wasm.value ?? wasm, "WASM").toEqual(new Float64Array(expected));
   }
 
   /**
@@ -798,8 +798,8 @@ describe("each leaf on every target it claims", () => {
     const build = () => Fn(() => vec4(time(), 0, 0, 1).toVar())();
     expect(compileGlsl.fragment(build())).toContain("_rmsl_time");
     expect(compileWgsl.fragment(build())).toContain("_rmsl_time");
-    expect(compileJSRoutine(build, none)({ uniforms: { _rmsl_time: 2 } })).toEqual([2, 0, 0, 1]);
+    expect(compileJSRoutine(build, none)({ uniforms: { _rmsl_time: 2 } })).toEqual(new Float64Array([2, 0, 0, 1]));
     const wasm = compileWasmRoutine(build, none)({ uniforms: { _rmsl_time: 2 } }) as any;
-    expect(wasm.value ?? wasm).toEqual([2, 0, 0, 1]);
+    expect(wasm.value ?? wasm).toEqual(new Float64Array([2, 0, 0, 1]));
   });
 });

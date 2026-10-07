@@ -9,6 +9,7 @@ import {
   CpuShaderContext,
   CpuTextureData,
   CpuValue,
+  FloatWidth,
 } from "./cpu";
 
 /** One typed array per storage slot, keyed by name. */
@@ -171,18 +172,20 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
  * sets, and `run` calls the routine with them and the parameters it is given,
  * so the host does not build a context for each call. `run` answers at once.
  */
-export interface CpuRoutineAdapter<A extends ShaderType = ShaderType> {
+export interface CpuRoutineAdapter<A extends ShaderType = ShaderType, W extends FloatWidth = "f64"> {
   setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
   setUniform(slot: string, value: number | number[]): void;
   setTexture(sampler: UniformNode<ShaderType> | string, texture: CpuTextureData): void;
   /** Calls the routine with the uniforms and textures set so far, and these parameters by name. */
-  run(params?: Record<string, number | number[]>): CpuValue<A>;
+  run(params?: Record<string, number | number[]>): CpuValue<A, W>;
   destroy(): void;
 }
 
 /** Wraps a routine in a {@link CpuRoutineAdapter}. */
-export function createCpuRoutineAdapter<A extends ShaderType>(routine: CpuRoutine<A>): CpuRoutineAdapter<A> {
+export function createCpuRoutineAdapter<A extends ShaderType, W extends FloatWidth = "f64">(
+  routine: CpuRoutine<A, W>,
+): CpuRoutineAdapter<A, W> {
   const uniforms: Record<string, number | number[]> = {};
   const textures: Record<string, CpuTextureData> = {};
 
@@ -191,7 +194,7 @@ export function createCpuRoutineAdapter<A extends ShaderType>(routine: CpuRoutin
   }
 
   return {
-    setUniform: setUniform as CpuRoutineAdapter<A>["setUniform"],
+    setUniform: setUniform as CpuRoutineAdapter<A, W>["setUniform"],
     setTexture(sampler, texture) {
       textures[slotOf(sampler)] = texture;
     },

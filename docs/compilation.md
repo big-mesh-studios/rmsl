@@ -332,15 +332,18 @@ let depth = r?.fragDepth; // written via builtinFragDepth(), for the world pick 
 
 ### Value model
 
-| RMSL                                           | JavaScript                                         |
-| ---------------------------------------------- | -------------------------------------------------- |
-| `float`/`int`/`uint`/`bool`                    | number / boolean                                   |
-| `vec2`–`vec4`, `ivecN`, `uvecN`, `bvecN`       | arrays `[x, y, z]`                                 |
-| `matCxR`                                       | flat column-major array of numbers                 |
-| `sampler2D`/`sampler3D` (and integer variants) | sampled from `ctx.textures[slot]` (see _Sampling_) |
+| RMSL                                           | JavaScript                                          |
+| ---------------------------------------------- | --------------------------------------------------- |
+| `float`/`int`/`uint`/`bool`                    | number / boolean                                    |
+| `vec2`–`vec4`                                  | `Float64Array`, or `Float32Array` at `float: "f32"` |
+| `ivecN`, `bvecN`                               | `Int32Array`, a `bvec` holding 1 and 0              |
+| `uvecN`                                        | `Uint32Array`                                       |
+| `matCxR`                                       | flat column-major `Float64Array` or `Float32Array`  |
+| `sampler2D`/`sampler3D` (and integer variants) | sampled from `ctx.textures[slot]` (see _Sampling_)  |
 
-Vectors and matrices are plain arrays, matching the flat `Float32Array`
-conventions the apps already use.
+A vector or matrix comes back as the typed array of its kind, which is what a
+compiled function holds it in, and the type of a routine's result names it. An
+input may be a plain array or a typed array.
 
 ### API
 
@@ -364,6 +367,10 @@ Options extend the `Fn` compilers':
   for a single CPU evaluation; compile with `"zero"` to make shaders that use
   `fwidth`/`dFdx`/`dFdy` runnable.
 - `reentrant`: `false` (default) or `true`. See _Scratch & reentrancy_.
+- `float`: `"f64"` (default) or `"f32"`. At `"f32"` every float the program
+  computes is rounded to 32 bits, as a GPU holds it, so an addition,
+  subtraction, multiplication, division or square root gives exactly the GPU's
+  result. A vector result comes back as a `Float32Array`.
 
 ### The context object
 

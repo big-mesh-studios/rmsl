@@ -779,12 +779,12 @@ describe("WASM backend: generic rasterizer module — near-plane clipping", () =
 
     const jsVertex = compileJSVertex(vertexBuild as any, { name: "vertex", params: [] });
     const clipSpacePositions = positions.map(
-      (p) => (jsVertex({ attributes: { [posAttr.name]: p } }) as { position: number[] }).position,
+      (p) => (jsVertex({ attributes: { [posAttr.name]: p } }) as { position: Float64Array }).position,
     );
 
     const EPS = 1e-5;
-    const clipAgainstW = (poly: number[][]): number[][] => {
-      const out: number[][] = [];
+    const clipAgainstW = (poly: ArrayLike<number>[]): ArrayLike<number>[] => {
+      const out: ArrayLike<number>[] = [];
       for (let i = 0; i < poly.length; i++) {
         const a = poly[i];
         const b = poly[(i + 1) % poly.length];
@@ -793,7 +793,7 @@ describe("WASM backend: generic rasterizer module — near-plane clipping", () =
         if (aIn) out.push(a);
         if (aIn !== bIn) {
           const t = (EPS - a[3]) / (b[3] - a[3]);
-          out.push(a.map((av, k) => av + (b[k] - av) * t));
+          out.push(Array.from(a, (av, k) => av + (b[k]! - av) * t));
         }
       }
       return out;
@@ -830,7 +830,7 @@ describe("WASM backend: generic rasterizer module — near-plane clipping", () =
     };
 
     const expected = new Float64Array(width * height * 4);
-    const clippedPoly = clipAgainstW(clipSpacePositions);
+    const clippedPoly = clipAgainstW(clipSpacePositions).map((vertex) => Array.from(vertex));
     expect(clippedPoly.length).toBe(4); // one vertex out, two in -> a quad
     for (const [a, b, c] of fanTriangulate(clippedPoly)) rasterizeTriangleInto(expected, a, b, c, [9, 8, 7, 6]);
     expect(Array.from(expected).some((v) => v !== 0)).toBe(true);

@@ -12,6 +12,8 @@ import {
   VertexStage,
   toFragmentResult,
   toVertexResult,
+  typedArrayOf,
+  FloatWidth,
   CpuShaderContext,
   CpuProgramResult,
   CpuTextureData,
@@ -176,7 +178,7 @@ export type CompileWasmFnOptions = CompileFnOptions & WasmCompileFields & WasmFl
  * where a WGSL buffer of 32-bit floats has them, so it needs `"f32"`.
  */
 export type WasmFloatWidth =
-  { float?: "f64"; gpuUniformLayout?: never } | { float: "f32"; gpuUniformLayout?: GpuUniformLayout };
+  { float?: FloatWidth; gpuUniformLayout?: never } | { float: "f32"; gpuUniformLayout?: GpuUniformLayout };
 
 /** The width part of `options`, kept as the one `WasmFloatWidth` it is, for passing on. */
 export function floatWidthOf(options: WasmFloatWidth): WasmFloatWidth {
@@ -659,17 +661,22 @@ function writeArrayToMemory(
 }
 
 /** Host-side: reads an array value back, converting i32 bits to bool/uint as needed. */
-function readAggregateFromMemory(view: DataView, address: number, shaderType: ShaderType): (number | boolean)[] {
+/** Host-side: reads a vector or matrix back from memory, into the typed array it is held in on the CPU. */
+function readAggregateFromMemory(
+  view: DataView,
+  address: number,
+  shaderType: ShaderType,
+  float32 = false,
+): CpuDrawBuffer {
   const kind = elementKindOf(shaderType);
   const compSize = componentSizeOf(kind);
   const width = componentCountOf(shaderType);
-  const out: (number | boolean)[] = [];
+  const out = new (typedArrayOf(shaderType, float32))(width);
   for (let i = 0; i < width; i++) {
-    if (kind === "float") {
-      out.push(view.getFloat64(address + i * compSize, true));
-    } else {
+    if (kind === "float") out[i] = view.getFloat64(address + i * compSize, true);
+    else {
       const raw = view.getInt32(address + i * compSize, true);
-      out.push(kind === "bool" ? raw !== 0 : kind === "uint" ? raw >>> 0 : raw);
+      out[i] = kind === "bool" ? (raw !== 0 ? 1 : 0) : kind === "uint" ? raw >>> 0 : raw;
     }
   }
   return out;
@@ -688,9 +695,9 @@ function readScalarFromMemory(view: DataView, address: number, shaderType: Shade
  * Host-side: reads a value (scalar or aggregate) from memory — the
  * read-side counterpart of `writeValueToMemory`.
  */
-function readValueFromMemory(view: DataView, address: number, shaderType: ShaderType): unknown {
+function readValueFromMemory(view: DataView, address: number, shaderType: ShaderType, float32 = false): unknown {
   return isAggregate(shaderType)
-    ? readAggregateFromMemory(view, address, shaderType)
+    ? readAggregateFromMemory(view, address, shaderType, float32)
     : readScalarFromMemory(view, address, shaderType);
 }
 
@@ -4257,19 +4264,19 @@ export function instantiateWasmProgram(
     for (const p of outputParams) {
       switch (p.kind) {
         case "outputMemory":
-          (shaderResult.outputs ??= {})[p.slot] = readValueFromMemory(view, p.address, p.shaderType);
+          (shaderResult.outputs ??= {})[p.slot] = readValueFromMemory(view, p.address, p.shaderType, float32);
           break;
         case "varyingOutputMemory":
-          (shaderResult.varyings ??= {})[p.slot] = readValueFromMemory(view, p.address, p.shaderType);
+          (shaderResult.varyings ??= {})[p.slot] = readValueFromMemory(view, p.address, p.shaderType, float32);
           break;
         case "positionMemory":
-          shaderResult.position = readAggregateFromMemory(view, p.address, "vec4") as number[];
+          shaderResult.position = readAggregateFromMemory(view, p.address, "vec4", float32) as unknown as number[];
           break;
         case "fragDepthMemory":
           shaderResult.fragDepth = view.getFloat64(p.address, true);
           break;
         case "valueMemory":
-          shaderResult.value = readValueFromMemory(view, p.address, p.shaderType);
+          shaderResult.value = readValueFromMemory(view, p.address, p.shaderType, float32);
           break;
       }
     }
@@ -4333,7 +4340,10 @@ export function instantiateWasmProgram(
     }
 
     // A copy: the view would show the pixels of the next draw.
-    if (drawOutput.kind === "float") return new Float64Array(memory.buffer, bufferBase, pixelCount).slice();
+    if (drawOutput.kind === "float") {
+      const pixels = new Float64Array(memory.buffer, bufferBase, pixelCount);
+      return float32 ? Float32Array.from(pixels) : pixels.slice();
+    }
     if (drawOutput.kind === "uint") return new Uint32Array(memory.buffer, bufferBase, pixelCount).slice();
     return new Int32Array(memory.buffer, bufferBase, pixelCount).slice();
   }
@@ -4435,18 +4445,28 @@ export function compileWasmProgram(fn: WasmRoots, options: CompileWasmFnOptions)
  * a stage has, such as `fragCoord()` or a varying, is refused: compile it as a
  * stage or as a grid.
  */
-export function compileWasmRoutine<A extends ShaderType>(
+export function compileWasmRoutine<A extends ShaderType, W extends FloatWidth = "f64">(
   fn: (...args: any[]) => Node<A>,
-  options: CompileWasmStageOptions,
-): CpuRoutine<A>;
-export function compileWasmRoutine(fn: WasmRoots, options: CompileWasmStageOptions): CpuRoutine;
+  options: CompileWasmStageOptions & { float?: W },
+): CpuRoutine<A, W>;
+export function compileWasmRoutine<W extends FloatWidth = "f64">(
+  fn: WasmRoots,
+  options: CompileWasmStageOptions & { float?: W },
+): CpuRoutine<ShaderType, W>;
 export function compileWasmRoutine(fn: WasmRoots, options: CompileWasmStageOptions): CpuRoutine {
   return instantiateWasmRoutine(compileWasmFn(fn, { ...options, kind: "routine" }), options.name, options.memory);
 }
 
 /** Compiles an `Fn` as a vertex stage: a function that returns the position and the varyings the program writes. */
-export function compileWasmVertex(fn: WasmRoots, options: CompileWasmStageOptions): VertexStage {
-  return instantiateWasmVertex(compileWasmFn(fn, { ...options, stage: "vertex" }), options.name, options.memory);
+export function compileWasmVertex<W extends FloatWidth = "f64">(
+  fn: WasmRoots,
+  options: CompileWasmStageOptions & { float?: W },
+): VertexStage<W> {
+  return instantiateWasmVertex(
+    compileWasmFn(fn, { ...options, stage: "vertex" }),
+    options.name,
+    options.memory,
+  ) as unknown as VertexStage<W>;
 }
 
 /**
@@ -4454,11 +4474,14 @@ export function compileWasmVertex(fn: WasmRoots, options: CompileWasmStageOption
  * the members of the `outputStruct` the program returns, or `null` for a
  * discarded fragment.
  */
-export function compileWasmFragment<R extends Node<ShaderType>>(
+export function compileWasmFragment<R extends Node<ShaderType>, W extends FloatWidth = "f64">(
   fn: (...args: any[]) => R,
-  options: CompileWasmStageOptions,
-): FragmentStage<R>;
-export function compileWasmFragment(fn: WasmRoots, options: CompileWasmStageOptions): FragmentStage;
+  options: CompileWasmStageOptions & { float?: W },
+): FragmentStage<R, W>;
+export function compileWasmFragment<W extends FloatWidth = "f64">(
+  fn: WasmRoots,
+  options: CompileWasmStageOptions & { float?: W },
+): FragmentStage<unknown, W>;
 export function compileWasmFragment(fn: WasmRoots, options: CompileWasmStageOptions): FragmentStage {
   return instantiateWasmFragment(compileWasmFn(fn, { ...options, stage: "fragment" }), options.name, options.memory);
 }
@@ -4473,9 +4496,13 @@ export function compileWasmCompute(fn: WasmRoots, options: CompileWasmStageOptio
 }
 
 /** Compiles an `Fn` of `fragCoord()` as a grid: one result for each pixel, in a buffer the type of the result. */
-export function compileWasmGrid<A extends ShaderType>(
+export function compileWasmGrid<A extends ShaderType, W extends FloatWidth = "f64">(
   fn: (...args: any[]) => Node<A>,
-  options: CompileWasmStageOptions,
-): CpuGrid<A> {
-  return instantiateWasmGrid<A>(compileWasmFn(fn, { ...options, kind: "grid" }), options.name, options.memory);
+  options: CompileWasmStageOptions & { float?: W },
+): CpuGrid<A, W> {
+  return instantiateWasmGrid<A>(
+    compileWasmFn(fn, { ...options, kind: "grid" }),
+    options.name,
+    options.memory,
+  ) as unknown as CpuGrid<A, W>;
 }

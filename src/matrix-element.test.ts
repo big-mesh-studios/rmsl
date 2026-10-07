@@ -59,7 +59,7 @@ describe("a matrix's column by index", () => {
       return v.element(0).add(v.element(1)).add(v.element(2));
     });
     expect(evaluateRecording((a) => write(a), [1])).toEqual(new Float64Array([91, 112, 85]));
-    expect(evaluateWASM((a) => write(a), [1])).toEqual([91, 112, 85]);
+    expect(evaluateWASM((a) => write(a), [1])).toEqual(new Float64Array([91, 112, 85]));
   });
 
   /**
@@ -69,30 +69,30 @@ describe("a matrix's column by index", () => {
    * @canon spec-an-element-write-writes-at-its-index
    */
   it("compiles on WASM, rather than being reported unsupported", () => {
-    expect(evaluateWASM(() => m().element(int(1)))).toEqual([4, 5, 6]);
-    expect(evaluateWASM((a) => m().element(a.toInt()), [2])).toEqual([7, 8, 9]);
+    expect(evaluateWASM(() => m().element(int(1)))).toEqual(new Float64Array([4, 5, 6]));
+    expect(evaluateWASM((a) => m().element(a.toInt()), [2])).toEqual(new Float64Array([7, 8, 9]));
     const write = Fn((a: Node<"float">) => {
       const v = m().toVar();
       v.element(a.toInt()).assign(vec3(20, 21, 22));
       return v.element(0).add(v.element(1)).add(v.element(2));
     });
-    expect(evaluateWASM((a) => write(a), [1])).toEqual([28, 31, 34]);
+    expect(evaluateWASM((a) => write(a), [1])).toEqual(new Float64Array([28, 31, 34]));
   });
 
   /**
    * @canon spec-a-cpu-target-reaches-the-last-element-out-of-range
    */
   it("clamps an index computed past the matrix's end, or below zero, to its last column on WASM", () => {
-    expect(evaluateWASM((a) => m().element(a.toInt()), [9])).toEqual([7, 8, 9]);
-    expect(evaluateWASM((a) => m().element(a.toInt()), [-1])).toEqual([7, 8, 9]);
+    expect(evaluateWASM((a) => m().element(a.toInt()), [9])).toEqual(new Float64Array([7, 8, 9]));
+    expect(evaluateWASM((a) => m().element(a.toInt()), [-1])).toEqual(new Float64Array([7, 8, 9]));
     const write = Fn((a: Node<"float">) => {
       const v = m().toVar();
       const w = vec3(100, 100, 100).toVar();
       v.element(a.toInt()).assign(vec3(0, 0, 0));
       return v.element(2).add(w);
     });
-    expect(evaluateWASM((a) => write(a), [9])).toEqual([100, 100, 100]);
-    expect(evaluateWASM((a) => write(a), [-1])).toEqual([100, 100, 100]);
+    expect(evaluateWASM((a) => write(a), [9])).toEqual(new Float64Array([100, 100, 100]));
+    expect(evaluateWASM((a) => write(a), [-1])).toEqual(new Float64Array([100, 100, 100]));
   });
 
   /**
@@ -107,8 +107,8 @@ describe("a matrix's column by index", () => {
     });
     expect(evaluateJS((a) => write(a), [9])).toEqual(new Float64Array([5, 7, 53]));
     expect(evaluateJS((a) => write(a), [-1])).toEqual(new Float64Array([5, 7, 53]));
-    expect(evaluateWASM((a) => write(a), [9])).toEqual([5, 7, 53]);
-    expect(evaluateWASM((a) => write(a), [-1])).toEqual([5, 7, 53]);
+    expect(evaluateWASM((a) => write(a), [9])).toEqual(new Float64Array([5, 7, 53]));
+    expect(evaluateWASM((a) => write(a), [-1])).toEqual(new Float64Array([5, 7, 53]));
   });
 
   /**

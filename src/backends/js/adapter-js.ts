@@ -16,7 +16,7 @@ import {
   createCpuAdapter,
   createCpuRoutineAdapter,
 } from "../adapter-cpu";
-import type { CpuTextureData } from "../cpu";
+import type { CpuTextureData, FloatWidth } from "../cpu";
 import { compileJS, CompileJSRasterOptions, JsRasterContext } from "./rasterizer";
 import { fragmentColour } from "../shared";
 import { compileJSCompute, compileJSGrid, compileJSRoutine, CompileJSOptions } from "./js";
@@ -66,11 +66,11 @@ export interface CreateJsRoutineOptions {
  * and wraps it in a {@link CpuRoutineAdapter}: `setUniform` and `setTexture`
  * keep what the host gives it, and `run(params)` calls the routine with them.
  */
-export function createJsRoutine<A extends ShaderType>(
+export function createJsRoutine<A extends ShaderType, W extends FloatWidth = "f64">(
   fn: Node<A>,
-  options: CreateJsRoutineOptions = {},
-): CpuRoutineAdapter<A> {
-  return createCpuRoutineAdapter(
+  options: CreateJsRoutineOptions & { float?: W } = {},
+): CpuRoutineAdapter<A, W> {
+  return createCpuRoutineAdapter<A, W>(
     compileJSRoutine(() => fn, {
       name: options.name ?? "routine",
       params: options.params ?? [],

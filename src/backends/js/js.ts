@@ -13,8 +13,10 @@ import {
   FragmentStage,
   VertexResult,
   VertexStage,
+  FloatWidth,
   toFragmentResult,
   toVertexResult,
+  typedValue,
   componentCountOf,
   componentKindOf,
   elementKindOf,
@@ -683,12 +685,11 @@ function jsConstant(ctx: CompileCtx, literal: string): string {
 }
 
 /**
- * The declarations of a function's slots. A scalar is a variable. A float,
- * integer or unsigned vector or matrix is a typed view of its kind into one
- * `ArrayBuffer`, made once with the declarations: `Float64Array`, or
- * `Float32Array` when `float32`, `Int32Array` and `Uint32Array`. The 8-byte
- * views come first, so each lies on a multiple of its element size. A boolean
- * vector stays an array of booleans.
+ * The declarations of a function's slots. A scalar is a variable. A vector or
+ * matrix is a typed view of its kind into one `ArrayBuffer`, made once with the
+ * declarations: `Float64Array`, or `Float32Array` when `float32`, `Int32Array`
+ * for integers and for booleans as 1 or 0, and `Uint32Array`. The 8-byte views
+ * come first, so each lies on a multiple of its element size.
  */
 function jsSlotDeclarations(varDefs: Map<string, string>, float32: boolean, keyword: "let" | "var"): string[] {
   const floatType = float32 ? "Float32Array" : "Float64Array";
@@ -701,8 +702,7 @@ function jsSlotDeclarations(varDefs: Map<string, string>, float32: boolean, keyw
       continue;
     }
     const kind = elementKindOf(brand);
-    if (kind === "bool") lines.push(`${keyword} ${name} = ${jsScratchLiteral(brand)};`);
-    else if (kind === "float") typed.push({ name, type: floatType, bytes: float32 ? 4 : 8, length });
+    if (kind === "float") typed.push({ name, type: floatType, bytes: float32 ? 4 : 8, length });
     else typed.push({ name, type: kind === "uint" ? "Uint32Array" : "Int32Array", bytes: 4, length });
   }
   if (typed.length === 0) return lines;
@@ -1499,6 +1499,7 @@ export function compileJSNode(
       // the host can read it back; in a fragment stage it is an input.
       if (ctx.shaderStage === "vertex") {
         ctx.jsNeedsRes = true;
+        ctx.varyings.set(slot, { id: 0, type: v.shaderType ?? node._t, slot });
         return jsLeafRef(`res.varyings[${JSON.stringify(slot)}]`, v.shaderType ?? node._t, ctx);
       }
       return jsLeafRef(`ctx.varyings[${JSON.stringify(slot)}]`, v.shaderType ?? node._t, ctx);
@@ -2200,7 +2201,12 @@ export type CompileJSOptions = CompileFnOptions & {
 function compileJSFnDetailed(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
-): { source: string; resultType: ShaderType | undefined; storageTypes: Record<string, ShaderType> } {
+): {
+  source: string;
+  resultType: ShaderType | undefined;
+  storageTypes: Record<string, ShaderType>;
+  resultTypes: JsResultTypes;
+} {
   let stage = options.stage ?? "fragment";
   let derivatives = options.derivatives ?? "throw";
   let reentrant = options.reentrant ?? false;
@@ -2281,6 +2287,12 @@ function compileJSFnDetailed(
     source: parts.join("\n\n"),
     resultType: lastType as ShaderType | undefined,
     storageTypes: Object.fromEntries(ctx.storageTypes ?? []) as Record<string, ShaderType>,
+    resultTypes: {
+      value: lastType as ShaderType | undefined,
+      varyings: Object.fromEntries([...ctx.varyings.values()].map((v) => [v.slot, v.type])),
+      outputs: Object.fromEntries([...ctx.outputs.values()].map((o) => [o.slot, o.type])),
+      float32: ctx.jsFloat32 === true,
+    },
   };
 }
 
@@ -2300,10 +2312,45 @@ export interface JsProgram extends CpuProgram {
   runInPlace(ctx: CpuShaderContext): CpuValue<ShaderType> | CpuProgramResult | null;
 }
 
+/** The types of what a compiled JS function returns: its value, and the varyings and outputs it writes by slot. */
+type JsResultTypes = {
+  value: ShaderType | undefined;
+  varyings: Record<string, string>;
+  outputs: Record<string, string>;
+  float32: boolean;
+};
+
+/**
+ * A copy of what one call returned, so the next call does not change it: each
+ * vector or matrix in a new typed array of its kind, from the type the compile
+ * gave it.
+ */
+function ownedResult(raw: unknown, types: JsResultTypes): unknown {
+  const copy = (value: unknown, type: string | undefined): unknown =>
+    type !== undefined && (Array.isArray(value) || ArrayBuffer.isView(value))
+      ? typedValue(value as ArrayLike<number>, type, types.float32)
+      : value;
+  if (raw === null || typeof raw !== "object") return raw;
+  if (Array.isArray(raw) || ArrayBuffer.isView(raw)) return copy(raw, types.value);
+  const result = raw as CpuProgramResult;
+  const owned: CpuProgramResult = {};
+  if ("value" in result) owned.value = copy(result.value, types.value);
+  if (result.position !== undefined) owned.position = copy(result.position, "vec4") as number[];
+  if (result.varyings) {
+    owned.varyings = {};
+    for (const slot in result.varyings) owned.varyings[slot] = copy(result.varyings[slot], types.varyings[slot]);
+  }
+  if (result.outputs) {
+    owned.outputs = {};
+    for (const slot in result.outputs) owned.outputs[slot] = copy(result.outputs[slot], types.outputs[slot]);
+  }
+  if (result.fragDepth !== undefined) owned.fragDepth = result.fragDepth;
+  return owned;
+}
+
 /** Copies a routine's result, arrays and the plain objects that hold them, so no scratch slot or input is shared. */
 export function ownedValue<T>(value: T): T {
-  // A slot is a typed view; a result leaves it as the plain array of numbers it holds.
-  if (ArrayBuffer.isView(value)) return Array.from(value as unknown as ArrayLike<number>) as T;
+  if (ArrayBuffer.isView(value)) return (value as unknown as Float64Array).slice() as T;
   if (Array.isArray(value)) {
     const copy: unknown[] = value.slice();
     for (let i = 0; i < copy.length; i++) {
@@ -2336,13 +2383,13 @@ export function compileJSProgram(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
 ): JsProgram {
-  const { source, resultType, storageTypes } = compileJSFnDetailed(fn, options);
+  const { source, resultType, storageTypes, resultTypes } = compileJSFnDetailed(fn, options);
   const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuProgramResult | null;
   const runScratch = factory();
 
   /** The result of one call, copied out of the scratch slots the next call writes into. */
   function run(ctx: CpuShaderContext): number | boolean | CpuProgramResult | null {
-    return ownedValue(runScratch(ctx)) as number | boolean | CpuProgramResult | null;
+    return ownedResult(runScratch(ctx), resultTypes) as number | boolean | CpuProgramResult | null;
   }
 
   function draw(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
@@ -2354,7 +2401,7 @@ export function compileJSProgram(
     const buffer: CpuDrawBuffer =
       out ??
       (kind === "float"
-        ? new Float64Array(width * height * componentCount)
+        ? new (resultTypes.float32 ? Float32Array : Float64Array)(width * height * componentCount)
         : kind === "uint"
           ? new Uint32Array(width * height * componentCount)
           : new Int32Array(width * height * componentCount));
@@ -2411,12 +2458,12 @@ export type CompileJSStageOptions = Omit<CompileJSOptions, "stage" | "kind">;
  * Compiles an `Fn` as a vertex stage: a function that returns the position and
  * the varyings the program writes.
  */
-export function compileJSVertex(
+export function compileJSVertex<W extends FloatWidth = "f64">(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileJSStageOptions,
-): VertexStage {
+  options: CompileJSStageOptions & { float?: W },
+): VertexStage<W> {
   const program = compileJSProgram(fn, { ...options, stage: "vertex" });
-  return (ctx) => toVertexResult(program.run(ctx));
+  return (ctx) => toVertexResult(program.run(ctx)) as VertexResult<W>;
 }
 
 /**
@@ -2424,12 +2471,12 @@ export function compileJSVertex(
  * slots the next call overwrites. For a caller that reads each result at once,
  * like the rasterizer. Not public.
  */
-export function compileJSVertexInPlace(
+export function compileJSVertexInPlace<W extends FloatWidth = "f64">(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileJSStageOptions,
-): VertexStage {
+  options: CompileJSStageOptions & { float?: W },
+): VertexStage<W> {
   const program = compileJSProgram(fn, { ...options, stage: "vertex" });
-  return (ctx) => toVertexResult(program.runInPlace(ctx));
+  return (ctx) => toVertexResult(program.runInPlace(ctx)) as VertexResult<W>;
 }
 
 /**
@@ -2437,14 +2484,14 @@ export function compileJSVertexInPlace(
  * the members of the `outputStruct` the program returns, or `null` for a
  * discarded fragment.
  */
-export function compileJSFragment<R extends Node<ShaderType>>(
+export function compileJSFragment<R extends Node<ShaderType>, W extends FloatWidth = "f64">(
   fn: (...args: any[]) => R,
-  options: CompileJSStageOptions,
-): FragmentStage<R>;
-export function compileJSFragment(
+  options: CompileJSStageOptions & { float?: W },
+): FragmentStage<R, W>;
+export function compileJSFragment<W extends FloatWidth = "f64">(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileJSStageOptions,
-): FragmentStage;
+  options: CompileJSStageOptions & { float?: W },
+): FragmentStage<unknown, W>;
 export function compileJSFragment(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSStageOptions,
@@ -2454,12 +2501,12 @@ export function compileJSFragment(
 }
 
 /** {@link compileJSFragment}, as {@link compileJSVertexInPlace} is to the vertex stage. Not public. */
-export function compileJSFragmentInPlace(
+export function compileJSFragmentInPlace<W extends FloatWidth = "f64">(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileJSStageOptions,
-): FragmentStage {
+  options: CompileJSStageOptions & { float?: W },
+): FragmentStage<unknown, W> {
   const program = compileJSProgram(fn, { ...options, stage: "fragment" });
-  return (ctx) => toFragmentResult(program.runInPlace(ctx));
+  return (ctx) => toFragmentResult(program.runInPlace(ctx)) as FragmentResult<unknown, W> | null;
 }
 
 /**
@@ -2478,12 +2525,12 @@ export function compileJSCompute(
 }
 
 /** Compiles an `Fn` of `fragCoord()` as a grid: one result for each pixel, in a buffer the type of the result. */
-export function compileJSGrid<A extends ShaderType>(
+export function compileJSGrid<A extends ShaderType, W extends FloatWidth = "f64">(
   fn: (...args: any[]) => Node<A>,
-  options: CompileJSStageOptions,
-): CpuGrid<A> {
+  options: CompileJSStageOptions & { float?: W },
+): CpuGrid<A, W> {
   const program = compileJSProgram(fn, { ...options, kind: "grid" });
-  return (ctx, width, height, out) => program.draw(ctx, width, height, out) as GridBuffer<A>;
+  return (ctx, width, height, out) => program.draw(ctx, width, height, out) as GridBuffer<A, W>;
 }
 
 /**
@@ -2492,14 +2539,14 @@ export function compileJSGrid<A extends ShaderType>(
  * returns. A program that reads what only a stage has, such as `fragCoord()`
  * or a varying, is refused: compile it as a stage or as a grid.
  */
-export function compileJSRoutine<A extends ShaderType>(
+export function compileJSRoutine<A extends ShaderType, W extends FloatWidth = "f64">(
   fn: (...args: any[]) => Node<A>,
-  options: CompileJSStageOptions,
-): CpuRoutine<A>;
-export function compileJSRoutine(
+  options: CompileJSStageOptions & { float?: W },
+): CpuRoutine<A, W>;
+export function compileJSRoutine<W extends FloatWidth = "f64">(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileJSStageOptions,
-): CpuRoutine;
+  options: CompileJSStageOptions & { float?: W },
+): CpuRoutine<ShaderType, W>;
 export function compileJSRoutine(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSStageOptions,

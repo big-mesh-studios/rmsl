@@ -7,7 +7,7 @@ import { compileJSFragmentInPlace, compileJSVertexInPlace, CompileJSOptions, own
 const W_CLIP_EPS = 1e-5;
 
 /** A scalar or a fixed-width vector, as a stage carries a varying. */
-export type Value = number | number[];
+export type Value = number | ArrayLike<number>;
 
 /**
  * Options shared by both stages of a {@link compileJS} pair — the same
@@ -65,18 +65,18 @@ export interface JsRasterRoutine {
 }
 
 interface ClipVertex {
-  position: number[];
+  position: ArrayLike<number>;
   varyings: Record<string, Value>;
 }
 
 // === Utilities ===
 
 export function scale(v: Value, s: number): Value {
-  return typeof v === "number" ? v * s : v.map((x) => x * s);
+  return typeof v === "number" ? v * s : Array.from(v, (x) => x * s);
 }
 
 export function add(a: Value, b: Value): Value {
-  return typeof a === "number" ? a + (b as number) : a.map((x, i) => x + (b as number[])[i]);
+  return typeof a === "number" ? a + (b as number) : Array.from(a, (x, i) => x + (b as ArrayLike<number>)[i]!);
 }
 
 export function sliceAttribute(buffer: ArrayLike<number>, index: number, width: number): Value {
@@ -87,13 +87,15 @@ export function sliceAttribute(buffer: ArrayLike<number>, index: number, width: 
 }
 
 function lerpValue(a: Value, b: Value, t: number): Value {
-  return typeof a === "number" ? a + ((b as number) - a) * t : a.map((x, i) => x + ((b as number[])[i] - x) * t);
+  return typeof a === "number"
+    ? a + ((b as number) - a) * t
+    : Array.from(a, (x, i) => x + ((b as ArrayLike<number>)[i]! - x) * t);
 }
 
 function lerpVertex(a: ClipVertex, b: ClipVertex, t: number): ClipVertex {
   const varyings: Record<string, Value> = {};
   for (const slot in a.varyings) varyings[slot] = lerpValue(a.varyings[slot], b.varyings[slot], t);
-  return { position: a.position.map((x, i) => x + (b.position[i] - x) * t), varyings };
+  return { position: Array.from(a.position, (x, i) => x + (b.position[i]! - x) * t), varyings };
 }
 
 /**

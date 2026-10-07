@@ -120,7 +120,7 @@ describe("WASM backend: scalar arithmetic", () => {
     // this is what lets a per-pixel `vec4` color work with `.draw()` (see
     // that describe block below) with no stage/output() involved at all.
     const fn = compileWasmRoutine(() => vec3(1, 2, 3) as any, { name: "main", params: [] });
-    expect(fn({})).toEqual([1, 2, 3]);
+    expect(fn({})).toEqual(new Float64Array([1, 2, 3]));
   });
   /**
    * @canon spec-a-cpu-program-reads-its-inputs-by-slot
@@ -246,7 +246,7 @@ describe("WASM backend: uniform arrays", () => {
         ],
       },
     }) as any;
-    expect(result).toEqual([4, 5, 6]);
+    expect(result).toEqual(new Float64Array([4, 5, 6]));
   });
 });
 
@@ -380,7 +380,7 @@ describe("WASM backend: clamp, mix, step, smoothstep", () => {
     const build = () => Fn(() => vec3(0.5, -0.5, 1.5).clamp(vec3(0, 0, 0), vec3(1, 1, 1)))();
     const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
     const result = fn({}) as any;
-    expect(result).toEqual([0.5, 0, 1]);
+    expect(result).toEqual(new Float64Array([0.5, 0, 1]));
   });
   /**
    * @canon spec-a-function-with-an-edge-takes-the-value-last
@@ -388,7 +388,7 @@ describe("WASM backend: clamp, mix, step, smoothstep", () => {
   it("mixes a vector with a scalar blend factor, broadcasting it to every component", () => {
     const build = () => Fn(() => vec3(0, 0, 0).mix(vec3(4, 8, 12), float(0.25)))();
     const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
-    expect(fn({})).toEqual([1, 2, 3]);
+    expect(fn({})).toEqual(new Float64Array([1, 2, 3]));
   });
   /**
    * @canon spec-a-function-with-an-edge-takes-the-value-last
@@ -400,17 +400,19 @@ describe("WASM backend: clamp, mix, step, smoothstep", () => {
     // a real, if untyped, case worth covering.
     const build = () => Fn(() => (vec3(0, 0, 0).mix as any)(vec3(4, 8, 12), vec3(0.25, 0.5, 1)))();
     const fn = compileWasmRoutine(build as any, { name: "main", params: [] });
-    expect(fn({})).toEqual([1, 4, 12]);
+    expect(fn({})).toEqual(new Float64Array([1, 4, 12]));
   });
   /**
    * @canon spec-a-function-with-an-edge-takes-the-value-last
    */
   it("steps and smoothsteps a vector componentwise", () => {
     const stepBuild = () => Fn(() => vec3(0.2, 0.8, 0.5).step(vec3(0.5, 0.5, 0.5)))();
-    expect(compileWasmRoutine(stepBuild as any, { name: "main", params: [] })({})).toEqual([0, 1, 1]);
+    expect(compileWasmRoutine(stepBuild as any, { name: "main", params: [] })({})).toEqual(new Float64Array([0, 1, 1]));
 
     const smoothBuild = () => Fn(() => vec3(-0.5, 0.5, 1.5).smoothstep(vec3(0, 0, 0), vec3(1, 1, 1)))();
-    expect(compileWasmRoutine(smoothBuild as any, { name: "main", params: [] })({})).toEqual([0, 0.5, 1]);
+    expect(compileWasmRoutine(smoothBuild as any, { name: "main", params: [] })({})).toEqual(
+      new Float64Array([0, 0.5, 1]),
+    );
   });
 });
 
@@ -1123,7 +1125,7 @@ describe("WASM backend: matrix×vector and matrix×matrix multiplication", () =>
     const fn = compileWasmRoutine(() => (a as any).mul(b), { name: "main", params: [] });
     const result = fn({});
     // Same product pinned for the JS backend in js.test.ts.
-    expect(result).toEqual([1, 2, 3, 4, 5, 6, 5, 7, 9]);
+    expect(result).toEqual(new Float64Array([1, 2, 3, 4, 5, 6, 5, 7, 9]));
   });
 });
 
@@ -1207,7 +1209,7 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
   it("writes the scalar and aggregate members of an outputStruct", () => {
     const build = () => Fn(() => outputStruct(vec4(1, 0, 0, 1), float(7)))();
     const result = compileWasmFragment(build, { name: "main", params: [] })({});
-    expect(result?.outputs).toEqual([[1, 0, 0, 1], 7]);
+    expect(result?.outputs).toEqual([new Float64Array([1, 0, 0, 1]), 7]);
   });
   /**
    * @canon spec-a-fragment-stage-returns-its-colour-and-outputs
@@ -1248,8 +1250,8 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
       })();
     const fn = compileWasmVertex(build as any, { name: "main", params: [] });
     const result = fn({}) as any;
-    expect(result.position).toEqual([0, 0, 0, 1]);
-    expect(Object.values(result.varyings as Record<string, unknown>)).toEqual([[1, 2, 3]]);
+    expect(result.position).toEqual(new Float64Array([0, 0, 0, 1]));
+    expect(Object.values(result.varyings as Record<string, unknown>)).toEqual([new Float64Array([1, 2, 3])]);
   });
   /**
    * @canon spec-a-vertex-stage-writes-its-position
@@ -1258,7 +1260,7 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
     const build = () => Fn(() => vec4(5, 6, 7, 8))();
     const fn = compileWasmVertex(build as any, { name: "main", params: [] });
     const result = fn({}) as any;
-    expect(result.position).toEqual([5, 6, 7, 8]);
+    expect(result.position).toEqual(new Float64Array([5, 6, 7, 8]));
     expect(result.value).toBeUndefined();
   });
   /**
@@ -1272,7 +1274,7 @@ describe("WASM backend: output direction (output/varying/builtinPosition/builtin
       })();
     const fn = compileWasmVertex(build as any, { name: "main", params: [] });
     const result = fn({}) as any;
-    expect(result.position).toEqual([1, 2, 3, 4]);
+    expect(result.position).toEqual(new Float64Array([1, 2, 3, 4]));
   });
   /**
    * @canon spec-a-vertex-stage-without-a-position-is-refused

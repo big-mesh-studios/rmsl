@@ -24,7 +24,7 @@ describe("fromProgram", () => {
    */
   it("shades a material from its own uniforms", () => {
     const shade = fromProgram(build(new MeshBasicMaterial({ color: 0x336699 })));
-    expect(shade().value).toEqual([0.2, 0.4, 0.6, 1]);
+    expect(shade().value).toEqual(new Float64Array([0.2, 0.4, 0.6, 1]));
   });
   /**
    * @canon spec-a-material-or-pass-is-tested-by-the-names-it-uses
@@ -42,7 +42,7 @@ describe("fromProgram", () => {
     });
     const brightness = (normal: number[]): number => {
       const result = shade({ varyings: { normalWorld: normal, positionWorld: [0, 0, 0] } });
-      return (result.value as number[])[0];
+      return (result.value as Float64Array)[0];
     };
 
     // The light is overhead: a surface facing it is lit, one facing away or
@@ -59,7 +59,7 @@ describe("fromProgram", () => {
     const material = new MeshBasicMaterial({ color: 0xffffff });
     material.map = new DataTexture(new Uint8Array([0, 0, 255, 255]), 1, 1);
     const shade = fromProgram(build(material));
-    const colour = shade({ varyings: { uv: [0.5, 0.5] } }).value as number[];
+    const colour = shade({ varyings: { uv: [0.5, 0.5] } }).value as Float64Array;
     expect(closeTo(colour.slice(0, 3), [0, 0, 1])).toBe(true);
   });
   /**
@@ -85,8 +85,8 @@ describe("fromProgram", () => {
   it("lets a caller override what the material says", () => {
     const program = build(new MeshBasicMaterial({ color: 0x000000 }));
     const shade = fromProgram(program, { uniforms: { materialColor: [1, 0, 0] } });
-    expect(shade().value).toEqual([1, 0, 0, 1]);
-    expect(shade({ uniforms: { materialColor: [0, 1, 0] } }).value).toEqual([0, 1, 0, 1]);
+    expect(shade().value).toEqual(new Float64Array([1, 0, 0, 1]));
+    expect(shade({ uniforms: { materialColor: [0, 1, 0] } }).value).toEqual(new Float64Array([0, 1, 0, 1]));
   });
   /**
    * @canon spec-a-material-or-pass-is-tested-by-the-names-it-uses
@@ -117,12 +117,12 @@ describe("fromProgram", () => {
     // driver test in `renderer.test.ts` — which is the point: what a test
     // measures here is what a renderer draws.
     const texels = () => new Uint8Array([255, 0, 0, 255, 0, 0, 255, 255]);
-    const shadeAt = (texture: DataTexture, x: number): number[] => {
+    const shadeAt = (texture: DataTexture, x: number): Float64Array => {
       const material = new MeshBasicMaterial({ color: 0xffffff });
       material.map = texture;
       const program = build(material);
       const shade = fromProgram(program);
-      return shade({ varyings: { uv: [x, 0.5] } }).value as number[];
+      return shade({ varyings: { uv: [x, 0.5] } }).value as Float64Array;
     };
 
     const clamped = new DataTexture(texels(), 2, 1);
@@ -155,7 +155,7 @@ describe("fromProgram", () => {
     // What went in by name comes back by name: nothing here has to look
     // `_rmsl_v1` up in the program to read the varying it just wrote.
     expect(Object.keys(written.varyings)).toContain("uv");
-    expect(written.varyings.uv).toEqual([0.25, 0.75]);
+    expect(written.varyings.uv).toEqual(new Float64Array([0.25, 0.75]));
   });
   /**
    * @canon spec-a-read-of-an-input-nothing-bound-names-it
@@ -223,7 +223,7 @@ describe("fromPass", () => {
     const run = fromPass(pass);
     const result = run({ textures: { source: { data: [1, 1, 1, 1], width: 1, height: 1 } } });
     // Sepia of white: warm, and brighter in red than in blue.
-    const [r, g, b] = result.value as number[];
+    const [r, g, b] = result.value as Float64Array;
     expect(r).toBeGreaterThan(g);
     expect(g).toBeGreaterThan(b);
   });
