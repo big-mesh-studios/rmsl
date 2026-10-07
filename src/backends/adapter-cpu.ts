@@ -1,6 +1,15 @@
 import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
 import { Adapter, requestedStorageSlots, slotOf, TypedArray } from "./adapter";
-import { CpuDrawBuffer, componentCountOf, ComputeStage, CpuGrid, CpuRoutine, CpuTextureData, CpuValue } from "./cpu";
+import {
+  CpuDrawBuffer,
+  componentCountOf,
+  ComputeStage,
+  CpuGrid,
+  CpuRoutine,
+  CpuShaderContext,
+  CpuTextureData,
+  CpuValue,
+} from "./cpu";
 
 /** One typed array per storage slot, keyed by name. */
 export type AdapterResult = Record<string, TypedArray>;
@@ -64,21 +73,18 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
   const storages: Record<string, TypedArray> = {};
   const uniforms: Record<string, number | number[]> = {};
   const textures: Record<string, CpuTextureData> = {};
+  /** The stage takes the host's own flat arrays, so one context serves every dispatch. */
+  const stepContext = { storages, uniforms, textures } as unknown as CpuShaderContext;
   let canvas: HTMLCanvasElement | null = null;
   let ctx2d: CanvasRenderingContext2D | null = null;
 
   /** One invocation per element of the first storage buffer the host passed:
    *  the count TSL's caller would have written beside `instancedArray(count,
    *  type)`. A flat array holds one entry per component, so an array of `vec4`
-   *  holds a quarter as many elements as it has components. An array that
-   *  holds one array per element holds one element per entry, which is how
-   *  these two adapters read a vector storage buffer. */
+   *  holds a quarter as many elements as it has components. */
   function elementCount(): number {
     if (firstStorage === undefined) return 0;
-    const data = storages[firstStorage];
-    if (!data) return 0;
-    if (Array.isArray(data[0])) return data.length;
-    return Math.floor(data.length / (elementWidths.get(firstStorage) ?? componentCountOf("float")));
+    return Math.floor(storages[firstStorage]!.length / elementWidths.get(firstStorage)!);
   }
 
   function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
@@ -120,27 +126,7 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
 
     compute(out, count) {
       if (!computeStep) throw new Error("[RMSL] this adapter has no `compute` program");
-      // The program reads and writes the element of a vector buffer as an array. The host's flat
-      // typed array holds the components of its elements one after another, so each such
-      // buffer goes in as one array per element and is written back after the dispatch.
-      const given: Record<string, unknown> = {};
-      const unpacked: { slot: string; width: number; elements: number[][] }[] = [];
-      for (const slot in storages) {
-        const data = storages[slot]!;
-        const width = elementWidths.get(slot) ?? componentCountOf(storageTypes[slot] ?? "float");
-        if (width > 1 && ArrayBuffer.isView(data)) {
-          const elements = Array.from({ length: Math.floor(data.length / width) }, (_, i) =>
-            Array.from((data as Float64Array).subarray(i * width, (i + 1) * width)),
-          );
-          unpacked.push({ slot, width, elements });
-          given[slot] = elements;
-        } else given[slot] = data;
-      }
-      computeStep({ storages: given, uniforms, textures } as any, count ?? elementCount());
-      for (const { slot, width, elements } of unpacked) {
-        const data = storages[slot] as unknown as Float64Array;
-        elements.forEach((element, i) => data.set(element, i * width));
-      }
+      computeStep(stepContext, count ?? elementCount());
       // storages already holds the caller's own arrays, mutated in place —
       // `out` is only for callers that want the WGSL adapter's optional-out
       // shape too, not something this loop needs to do its job.

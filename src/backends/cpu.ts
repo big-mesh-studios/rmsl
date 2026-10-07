@@ -14,11 +14,10 @@ export type CpuShaderContext = {
    * A `storage()`-based program runs once per element with `index` set to
    * that element's position — the same per-invocation semantics WGSL's
    * compute path gives it, driven by a compute stage instead of the GPU's own
-   * dispatch. Any invocation may read or write any element. A scalar buffer is
-   * an array of numbers, and a vector or matrix buffer one array of components
-   * for each element.
+   * dispatch. Any invocation may read or write any element. Each buffer is one
+   * flat array that holds the components of its elements one after another.
    */
-  storages?: Record<string, (ArrayLike<number> & { [i: number]: number }) | number[][]>;
+  storages?: Record<string, ArrayLike<number> & { [i: number]: number }>;
   /**
    * Storage buffers already in the WASM routine's own memory, by slot: the
    * byte address of the first element and the element count. A slot listed

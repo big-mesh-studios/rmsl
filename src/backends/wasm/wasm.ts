@@ -3816,6 +3816,7 @@ export function createWasmInputMarshaller(
   );
   /** Heap address of each storage buffer as the last `marshal` placed it, in `storageParams` order. */
   const storageHeapAddress: number[] = new Array(storageParams.length);
+  const storageViews: (Float64Array | Int32Array | Uint32Array | undefined)[] = new Array(storageParams.length);
 
   // texture cache: skip re-uploading an unchanged texture object, and only
   // grow the module memory when the total footprint changes between calls
@@ -3927,10 +3928,15 @@ export function createWasmInputMarshaller(
     let cursor = Math.ceil(end / 8) * 8;
     storageParams.forEach((p) => {
       if (ctx.storageBuffers?.[p.slot]) return;
-      const length = ((ctx.storages as any)?.[p.slot] as ArrayLike<unknown> | undefined)?.length ?? 0;
-      cursor = Math.ceil((cursor + length * storageElementSize(p.shaderType)) / 8) * 8;
+      cursor = Math.ceil((cursor + elementsOf(ctx, p) * storageElementSize(p.shaderType)) / 8) * 8;
     });
     return cursor;
+  }
+
+  /** The elements of the flat array the host passes for `p`, which holds their components one after another. */
+  function elementsOf(ctx: CpuShaderContext, p: { slot: string; shaderType: ShaderType }): number {
+    const array = (ctx.storages as any)?.[p.slot] as ArrayLike<number> | undefined;
+    return Math.floor((array?.length ?? 0) / componentCountOf(p.shaderType));
   }
 
   /**
@@ -3943,9 +3949,7 @@ export function createWasmInputMarshaller(
     if (storageParams.length === 0) return heapBase;
     let cursor = Math.ceil(heapBase / 8) * 8;
     const resident = storageParams.map((p) => ctx.storageBuffers?.[p.slot]);
-    const lengths = storageParams.map(
-      (p, i) => resident[i]?.length ?? ((ctx.storages as any)?.[p.slot] as ArrayLike<unknown> | undefined)?.length ?? 0,
-    );
+    const lengths = storageParams.map((p, i) => resident[i]?.length ?? elementsOf(ctx, p));
     storageParams.forEach((p, i) => {
       if (resident[i]) {
         storageHeapAddress[i] = resident[i]!.address;
@@ -3959,62 +3963,49 @@ export function createWasmInputMarshaller(
     }
     const view = new DataView(memory.buffer);
     storageParams.forEach((p, i) => {
-      const array = (ctx.storages as any)?.[p.slot] as ArrayLike<unknown> | undefined;
+      const array = (ctx.storages as any)?.[p.slot] as ArrayLike<number> | undefined;
       const base = storageHeapAddress[i]!;
       view.setInt32(p.metadataAddress + STORAGE_META_DATA_ADDR, base, true);
       view.setInt32(p.metadataAddress + STORAGE_META_LENGTH, lengths[i]!, true);
       if (!array || resident[i]) return;
-      const heap = scalarStorageView(p.shaderType, base, lengths[i]!);
-      if (heap && ArrayBuffer.isView(array)) {
-        heap.set(array as unknown as ArrayLike<number>);
-        return;
-      }
-      const stride = storageElementSize(p.shaderType);
-      for (let e = 0; e < lengths[i]!; e++) writeValueToMemory(view, base + e * stride, p.shaderType, array[e]);
+      const heap = componentView(i, p.shaderType, lengths[i]!);
+      if (array.length === heap.length) heap.set(array);
+      else for (let k = 0; k < heap.length; k++) heap[k] = array[k]!;
     });
     return cursor;
   }
 
   /**
-   * A typed-array view over a scalar storage buffer's heap region, so a
-   * typed-array buffer copies in and out in one `set()` rather than an
-   * element at a time. Undefined for a vector, matrix or bool element,
-   * which still copy one element at a time.
+   * A typed-array view over the components of storage buffer `i` in the heap,
+   * kept until the memory grows or the buffer moves or changes length, so a
+   * dispatch copies a buffer in and out in one `set()` and allocates nothing.
    */
-  function scalarStorageView(
-    shaderType: ShaderType,
-    base: number,
-    length: number,
-  ): Float64Array | Int32Array | Uint32Array | undefined {
-    if (isAggregate(shaderType)) return undefined;
-    switch (scalarKindOf(shaderType)) {
-      case "float":
-        return new Float64Array(memory.buffer, base, length);
-      case "int":
-        return new Int32Array(memory.buffer, base, length);
-      case "uint":
-        return new Uint32Array(memory.buffer, base, length);
-      default:
-        return undefined;
-    }
+  function componentView(i: number, shaderType: ShaderType, length: number): Float64Array | Int32Array | Uint32Array {
+    const base = storageHeapAddress[i]!;
+    const count = length * componentCountOf(shaderType);
+    const kept = storageViews[i];
+    if (kept && kept.buffer === memory.buffer && kept.byteOffset === base && kept.length === count) return kept;
+    const kind = isAggregate(shaderType) ? elementKindOf(shaderType) : scalarKindOf(shaderType);
+    const made =
+      kind === "float"
+        ? new Float64Array(memory.buffer, base, count)
+        : kind === "uint"
+          ? new Uint32Array(memory.buffer, base, count)
+          : new Int32Array(memory.buffer, base, count);
+    storageViews[i] = made;
+    return made;
   }
 
   /** Copies every writable storage buffer back into the caller's array, where the last `marshal` placed it. */
   function writeBackStorages(ctx: CpuShaderContext): void {
     if (storageParams.length === 0) return;
-    const view = new DataView(memory.buffer);
     storageParams.forEach((p, i) => {
       if (p.access === "read" || !p.written || ctx.storageBuffers?.[p.slot]) return;
-      const array = (ctx.storages as any)?.[p.slot] as { length: number; [e: number]: unknown } | undefined;
+      const array = (ctx.storages as any)?.[p.slot] as { length: number; [e: number]: number } | undefined;
       if (!array) return;
-      const base = storageHeapAddress[i]!;
-      const heap = scalarStorageView(p.shaderType, base, array.length);
-      if (heap && ArrayBuffer.isView(array)) {
-        (array as unknown as Float64Array).set(heap);
-        return;
-      }
-      const stride = storageElementSize(p.shaderType);
-      for (let e = 0; e < array.length; e++) array[e] = readValueFromMemory(view, base + e * stride, p.shaderType);
+      const heap = componentView(i, p.shaderType, elementsOf(ctx, p));
+      if (ArrayBuffer.isView(array) && array.length === heap.length) (array as unknown as Float64Array).set(heap);
+      else for (let k = 0; k < heap.length; k++) array[k] = heap[k]!;
     });
   }
 

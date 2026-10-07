@@ -121,7 +121,6 @@ export const JS_ARRAY_LEAF_TYPES = new Set([
   "output",
   "builtinPosition",
   "storage",
-  "storageElement",
 ]);
 
 export function isJSArrayLeaf(node: any): boolean {
@@ -372,6 +371,8 @@ export function jsHelperSource(name: string): string {
       return `function _umod(a, b) {\n  return b === 0 ? 0 : a % b;\n}`;
     case "copy":
       return `function _copy(src, out) {\n  for (let i = 0; i < src.length; i++) out[i] = src[i];\n  return out;\n}`;
+    case "load":
+      return `function _load(src, at, out) {\n  for (let i = 0; i < out.length; i++) out[i] = src[at + i];\n  return out;\n}`;
     case "vdot":
       return `function _vdot(a, b) {\n  let s = 0;\n  for (let i = 0; i < a.length; i++) s += a[i] * b[i];\n  return s;\n}`;
     case "vlen":
@@ -717,12 +718,21 @@ function jsBoundedIndex(index: string, count: number): string {
  * temporary.
  */
 function jsAssignable(node: any, ctx: CompileCtx): CompiledNode & { at(k: string): string } {
+  if (node.type === "storageElement" && jsIsArrayType(node._t)) {
+    let element = jsStorageElement(node, ctx);
+    return {
+      decls: element.decls,
+      body: element.body,
+      expr: "0",
+      at: (k) => `${element.buffer}[${element.start} + ${k}]`,
+    };
+  }
   if (node.type !== "matrixElement") {
     let target = compileJSStage(node, ctx);
     return { ...target, at: (k) => `${target.expr}[${k}]` };
   }
   assertLiteralIndexInRange(node.params![0], node.params![1]);
-  let mat = compileJSStage(node.params![0], ctx);
+  let mat = jsAssignable(node.params![0], ctx);
   let idx = compileJSStage(node.params![1], ctx);
   let [columns, rows] = MATRIX_DIMENSIONS[node.params![0]._t];
   let column = jsNewTemp(ctx, "int");
@@ -730,7 +740,24 @@ function jsAssignable(node: any, ctx: CompileCtx): CompiledNode & { at(k: string
     decls: [...mat.decls, ...idx.decls],
     body: [...mat.body, ...idx.body, `${column} = ${jsBoundedIndex(idx.expr, columns)};`],
     expr: mat.expr,
-    at: (k) => `${mat.expr}[${column} * ${rows} + ${k}]`,
+    at: (k) => mat.at(`${column} * ${rows} + ${k}`),
+  };
+}
+
+/**
+ * A vector or matrix element of a storage buffer, which holds its components
+ * one after another: they lie in `buffer` from `start`, evaluated once.
+ */
+function jsStorageElement(node: any, ctx: CompileCtx): CompiledNode & { buffer: string; start: string } {
+  let buffer = jsCompileOperand(node.params![0], ctx);
+  let idx = jsCompileOperand(node.params![1], ctx);
+  let start = jsNewTemp(ctx, "int");
+  return {
+    decls: [...buffer.decls, ...idx.decls],
+    body: [...buffer.body, ...idx.body, `${start} = (${idx.expr}) * ${componentCountOf(node._t)};`],
+    expr: start,
+    buffer: buffer.expr,
+    start,
   };
 }
 
@@ -1322,18 +1349,23 @@ export function compileJSNode(
     }
 
     case "storageElement": {
-      let arr = jsCompileOperand(node.params![0], ctx);
-      let idx = jsCompileOperand(node.params![1], ctx);
-      let element = `${arr.expr}[${idx.expr}]`;
-      if (ctx.outTarget && jsIsArrayType(node._t)) {
-        jsRequireHelper(ctx, "copy");
+      if (jsIsArrayType(node._t)) {
+        let element = jsStorageElement(node, ctx);
+        let target = ctx.outTarget ?? jsNewTemp(ctx, node._t);
+        jsRequireHelper(ctx, "load");
         return {
-          decls: [...arr.decls, ...idx.decls],
-          body: [...arr.body, ...idx.body, `_copy(${element}, ${ctx.outTarget});`],
-          expr: ctx.outTarget,
+          decls: element.decls,
+          body: [...element.body, `_load(${element.buffer}, ${element.start}, ${target});`],
+          expr: target,
         };
       }
-      return { decls: [...arr.decls, ...idx.decls], body: [...arr.body, ...idx.body], expr: element };
+      let arr = jsCompileOperand(node.params![0], ctx);
+      let idx = jsCompileOperand(node.params![1], ctx);
+      return {
+        decls: [...arr.decls, ...idx.decls],
+        body: [...arr.body, ...idx.body],
+        expr: `${arr.expr}[${idx.expr}]`,
+      };
     }
 
     case "invocationIndex": {
@@ -1858,8 +1890,16 @@ export function compileJSNode(
       } else if (targetNode?.type === "matrixElement") {
         let [, rows] = MATRIX_DIMENSIONS[targetNode.params![0]._t];
         parts = { base: targetNode, components: Array.from({ length: rows }, (_, row) => `${row}`) };
-      } else if (targetNode?.type === "vectorElement" && targetNode.params![0]?.type === "matrixElement") {
+      } else if (
+        targetNode?.type === "vectorElement" &&
+        (targetNode.params![0]?.type === "matrixElement" || targetNode.params![0]?.type === "storageElement")
+      ) {
         parts = { base: targetNode.params![0], index: targetNode.params![1] };
+      } else if (targetNode?.type === "storageElement" && jsIsArrayType(targetNode._t)) {
+        parts = {
+          base: targetNode,
+          components: Array.from({ length: componentCountOf(targetNode._t) }, (_, k) => `${k}`),
+        };
       }
       if (parts) {
         let base = jsAssignable(parts.base, ctx);
@@ -1912,15 +1952,6 @@ export function compileJSNode(
         return { decls: [...lhs.decls, ...rhs.decls], body: [...lhs.body, ...rhs.body], expr: lhs.expr };
       }
       let rhs = compileJSStage(rhsNode, ctx);
-      // A storage element owns its array; the value may be a slot or a constant that changes later.
-      if (targetNode?.type === "storageElement" && jsIsArrayType(rhsNode?._t)) {
-        jsRequireHelper(ctx, "copy");
-        return {
-          decls: [...lhs.decls, ...rhs.decls],
-          body: [...lhs.body, ...rhs.body, `_copy(${rhs.expr}, ${lhs.expr});`],
-          expr: lhs.expr,
-        };
-      }
       return {
         decls: [...lhs.decls, ...rhs.decls],
         body: [...lhs.body, ...rhs.body, `${lhs.expr} = ${rhs.expr};`],

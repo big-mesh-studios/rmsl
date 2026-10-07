@@ -695,9 +695,9 @@ describe("a CPU compute stage's vector buffer", () => {
   ] as const;
 
   /**
-   * @canon spec-a-cpu-compute-stage-reads-a-vector-element-as-an-array
+   * @canon spec-a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array
    */
-  it.each(computes)("%s: reads and writes the element of a vector buffer as an array", (_, compile) => {
+  it.each(computes)("%s: reads and writes the element of a vector buffer in the flat array", (_, compile) => {
     const buf = instancedArray(2, "vec2");
     const stage = compile(
       () =>
@@ -707,15 +707,28 @@ describe("a CPU compute stage's vector buffer", () => {
         })() as any,
       none,
     );
-    const data = [
-      [1, 2],
-      [3, 4],
-    ];
+    const data = Float32Array.of(1, 2, 3, 4);
     stage({ storages: { [buf.name]: data } }, 2);
-    expect(data).toEqual([
-      [2, 4],
-      [6, 8],
-    ]);
+    expect(Array.from(data)).toEqual([2, 4, 6, 8]);
+  });
+
+  /**
+   * @canon spec-a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array
+   */
+  it.each(computes)("%s: reaches a column and a component of a matrix element in the flat array", (_, compile) => {
+    const buf = instancedArray(2, "mat2");
+    const stage = compile(
+      () =>
+        Fn(() => {
+          const i = invocationIndex();
+          buf.element(i).element(1).assign(buf.element(i).element(0).add(10));
+          buf.element(i).element(0).y.assign(i.toFloat().add(100));
+        })() as any,
+      none,
+    );
+    const data = Float32Array.of(1, 2, 0, 0, 3, 4, 0, 0);
+    stage({ storages: { [buf.name]: data } }, 2);
+    expect(Array.from(data)).toEqual([1, 100, 11, 12, 3, 101, 13, 14]);
   });
 });
 

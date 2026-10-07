@@ -118,23 +118,9 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
       out.element(i).element(2).assign(value.mul(1000));
     })();
 
-    // Both adapters hold a vector storage buffer as one array per element.
-    const results = [createJsCompute, createWasmCompute].map((create) => {
-      const adapter = create(root, { name: "step" });
-      const data = [
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-      ];
-      adapter.setAttribute(out.name, data as any);
-      adapter.compute();
-      return data;
-    });
-
-    expect(results[0]).toEqual([
-      [1, 100, 1000, 10],
-      [2, 200, 2000, 20],
-    ]);
-    expect(results[1]).toEqual(results[0]);
+    const [js, wasm] = runBoth(root, () => ({ [out.name]: new Float32Array(8) }));
+    expect(js[out.name]).toEqual([1, 100, 1000, 10, 2, 200, 2000, 20]);
+    expect(wasm).toEqual(js);
   });
   /**
    * @canon spec-an-element-write-writes-at-its-index
@@ -146,22 +132,9 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
       out.element(i).element(i.toInt().add(1)).assign(i.toFloat().add(1));
     })();
 
-    const results = [createJsCompute, createWasmCompute].map((create) => {
-      const adapter = create(root, { name: "step" });
-      const data = [
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-      ];
-      adapter.setAttribute(out.name, data as any);
-      adapter.compute();
-      return data;
-    });
-
-    expect(results[0]).toEqual([
-      [0, 1, 0, 0],
-      [0, 0, 2, 0],
-    ]);
-    expect(results[1]).toEqual(results[0]);
+    const [js, wasm] = runBoth(root, () => ({ [out.name]: new Float32Array(8) }));
+    expect(js[out.name]).toEqual([0, 1, 0, 0, 0, 0, 2, 0]);
+    expect(wasm).toEqual(js);
   });
   /**
    * @canon spec-an-element-write-writes-at-its-index
@@ -178,33 +151,13 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
       columns.element(i).assign(out.element(i).element(i.toInt()).yx);
     })();
 
-    const results = [createJsCompute, createWasmCompute].map((create) => {
-      const adapter = create(root, { name: "step" });
-      const data = [
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-      ];
-      const read = [
-        [0, 0],
-        [0, 0],
-      ];
-      adapter.setAttribute(out.name, data as any);
-      adapter.setAttribute(columns.name, read as any);
-      adapter.compute();
-      return [data, read];
-    });
-
-    expect(results[0]).toEqual([
-      [
-        [1, 10, 0, 0],
-        [0, 0, 2, 11],
-      ],
-      [
-        [10, 1],
-        [11, 2],
-      ],
-    ]);
-    expect(results[1]).toEqual(results[0]);
+    const [js, wasm] = runBoth(root, () => ({
+      [out.name]: new Float32Array(8),
+      [columns.name]: new Float32Array(4),
+    }));
+    expect(js[out.name]).toEqual([1, 10, 0, 0, 0, 0, 2, 11]);
+    expect(js[columns.name]).toEqual([10, 1, 11, 2]);
+    expect(wasm).toEqual(js);
   });
   /**
    * @canon spec-a-swizzle-write-writes-the-components-it-names
@@ -218,22 +171,9 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
       out.element(i).element(int(0)).element(i.toInt()).assign(i.toFloat().add(10));
     })();
 
-    const results = [createJsCompute, createWasmCompute].map((create) => {
-      const adapter = create(root, { name: "step" });
-      const data = [
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-      ];
-      adapter.setAttribute(out.name, data as any);
-      adapter.compute();
-      return data;
-    });
-
-    expect(results[0]).toEqual([
-      [10, 0, 0, 1],
-      [0, 11, 0, 2],
-    ]);
-    expect(results[1]).toEqual(results[0]);
+    const [js, wasm] = runBoth(root, () => ({ [out.name]: new Float32Array(8) }));
+    expect(js[out.name]).toEqual([10, 0, 0, 1, 0, 11, 0, 2]);
+    expect(wasm).toEqual(js);
   });
   /**
    * @canon spec-a-cpu-target-reaches-the-last-element-out-of-range
@@ -246,22 +186,9 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
       out.element(i).element(int(0)).element(i.toInt().sub(5)).assign(i.toFloat().add(10));
     })();
 
-    const results = [createJsCompute, createWasmCompute].map((create) => {
-      const adapter = create(root, { name: "step" });
-      const data = [
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-      ];
-      adapter.setAttribute(out.name, data as any);
-      adapter.compute();
-      return data;
-    });
-
-    expect(results[0]).toEqual([
-      [0, 10, 0, 1],
-      [0, 11, 0, 2],
-    ]);
-    expect(results[1]).toEqual(results[0]);
+    const [js, wasm] = runBoth(root, () => ({ [out.name]: new Float32Array(8) }));
+    expect(js[out.name]).toEqual([0, 10, 0, 1, 0, 11, 0, 2]);
+    expect(wasm).toEqual(js);
   });
   /**
    * @canon spec-a-cpu-compute-stage-runs-one-invocation-per-index

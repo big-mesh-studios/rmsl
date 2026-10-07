@@ -2093,25 +2093,13 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
         dstNode.element(uint(2).sub(i)).assign(srcNode.element(i).mul(2));
       })();
     const run = (stage: ComputeStage) => {
-      const src = [
-        [1, 2, 3],
-        [4, 5, 6],
-        [7, 8, 9],
-      ];
-      const dst = [
-        [0, 0, 0],
-        [0, 0, 0],
-        [0, 0, 0],
-      ];
-      stage({ storages: { [srcNode.name]: src, [dstNode.name]: dst } as any }, 3);
-      return dst;
+      const src = Float32Array.of(1, 2, 3, 4, 5, 6, 7, 8, 9);
+      const dst = new Float32Array(9);
+      stage({ storages: { [srcNode.name]: src, [dstNode.name]: dst } }, 3);
+      return Array.from(dst);
     };
 
-    const want = [
-      [14, 16, 18],
-      [8, 10, 12],
-      [2, 4, 6],
-    ];
+    const want = [14, 16, 18, 8, 10, 12, 2, 4, 6];
     expect(run(compileJSCompute(build as any, { name: "step", params: [] }))).toEqual(want);
     expect(run(compileWasmCompute(build as any, { name: "step", params: [] }))).toEqual(want);
   });
@@ -2342,14 +2330,11 @@ describe("WASM backend: writing a vector component by index", () => {
     const root = Fn(() => {
       out.element(invocationIndex()).element(invocationIndex().toInt().add(8)).assign(float(1));
     })();
-    const data = [new Array(4).fill(0), new Array(4).fill(0)];
+    const data = new Float32Array(8);
     const adapter = createWasmCompute(root, { name: "step" });
-    adapter.setAttribute(out.name, data as any);
+    adapter.setAttribute(out.name, data);
     adapter.compute();
-    expect(data).toEqual([
-      [0, 0, 0, 1],
-      [0, 0, 0, 1],
-    ]);
+    expect(Array.from(data)).toEqual([0, 0, 0, 1, 0, 0, 0, 1]);
   });
 });
 
