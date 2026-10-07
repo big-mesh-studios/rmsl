@@ -19,9 +19,16 @@ import {
 import type { CpuTextureData } from "../cpu";
 import { compileWasm, CompileWasmOptions, WasmRasterContext } from "./rasterizer";
 import { fragmentColour } from "../shared";
-import { compileWasmCompute, compileWasmGrid, compileWasmRoutine, CompileWasmFnOptions } from "./wasm";
+import {
+  compileWasmCompute,
+  compileWasmGrid,
+  compileWasmRoutine,
+  CompileWasmFnOptions,
+  floatWidthOf,
+  WasmFloatWidth,
+} from "./wasm";
 
-export interface CreateWasmGridOptions {
+export type CreateWasmGridOptions = WasmFloatWidth & {
   /** A fragCoord() program that returns a colour, evaluated once per canvas pixel by `draw()`. */
   draw: Node<ShaderType>;
   name?: string;
@@ -31,8 +38,7 @@ export interface CreateWasmGridOptions {
   memory?: CompileWasmFnOptions["memory"];
   sharedMemory?: CompileWasmFnOptions["sharedMemory"];
   maxMemoryPages?: CompileWasmFnOptions["maxMemoryPages"];
-  gpuUniformLayout?: CompileWasmFnOptions["gpuUniformLayout"];
-}
+};
 
 /**
  * Compiles a `fragCoord()` program with {@link compileWasmGrid} and
@@ -53,13 +59,13 @@ export function createWasmGrid(options: CreateWasmGridOptions): CpuAdapter {
     memory: options.memory,
     sharedMemory: options.sharedMemory,
     maxMemoryPages: options.maxMemoryPages,
-    gpuUniformLayout: options.gpuUniformLayout,
+    ...floatWidthOf(options),
   });
 
   return createCpuAdapter({ draw });
 }
 
-export interface CreateWasmRoutineOptions {
+export type CreateWasmRoutineOptions = WasmFloatWidth & {
   name?: string;
   params?: CompileWasmFnOptions["params"];
   derivatives?: CompileWasmFnOptions["derivatives"];
@@ -67,8 +73,7 @@ export interface CreateWasmRoutineOptions {
   memory?: CompileWasmFnOptions["memory"];
   sharedMemory?: CompileWasmFnOptions["sharedMemory"];
   maxMemoryPages?: CompileWasmFnOptions["maxMemoryPages"];
-  gpuUniformLayout?: CompileWasmFnOptions["gpuUniformLayout"];
-}
+};
 
 /**
  * Compiles a function of parameters and uniforms with {@link compileWasmRoutine}
@@ -88,12 +93,12 @@ export function createWasmRoutine<A extends ShaderType>(
       memory: options.memory,
       sharedMemory: options.sharedMemory,
       maxMemoryPages: options.maxMemoryPages,
-      gpuUniformLayout: options.gpuUniformLayout,
+      ...floatWidthOf(options),
     }),
   );
 }
 
-export interface CreateWasmComputeOptions {
+export type CreateWasmComputeOptions = WasmFloatWidth & {
   name?: string;
   params?: CompileWasmFnOptions["params"];
   derivatives?: CompileWasmFnOptions["derivatives"];
@@ -101,8 +106,7 @@ export interface CreateWasmComputeOptions {
   memory?: CompileWasmFnOptions["memory"];
   sharedMemory?: CompileWasmFnOptions["sharedMemory"];
   maxMemoryPages?: CompileWasmFnOptions["maxMemoryPages"];
-  gpuUniformLayout?: CompileWasmFnOptions["gpuUniformLayout"];
-}
+};
 
 /**
  * `setAttribute`/`setUniform` collect draw state the way {@link CpuAdapter}
@@ -146,7 +150,7 @@ export function createWasmCompute(
     memory: options.memory,
     sharedMemory: options.sharedMemory,
     maxMemoryPages: options.maxMemoryPages,
-    gpuUniformLayout: options.gpuUniformLayout,
+    ...floatWidthOf(options),
     // A float passed as an argument to a module is boxed on every call; in memory it allocates nothing.
     scalarsInMemory: true,
   });

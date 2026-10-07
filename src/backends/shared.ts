@@ -159,6 +159,10 @@ export interface CompileCtx {
   reentrant: boolean;
   /** Whether the program writes outputs/position/fragDepth via a result object. */
   jsNeedsRes: boolean;
+  /** JS target: whether the program computes every float in 32 bits, as `float: "f32"` asks. */
+  jsFloat32?: boolean;
+  /** JS target: the node being compiled as the target of an assignment, which is written, not read. */
+  jsTarget?: unknown;
 }
 
 // === Constant folding ===
@@ -361,8 +365,13 @@ function foldIntegerOperands(n: BaseNode<ShaderType>): BaseNode<ShaderType> | nu
   return mkNode({ _t: t, type: n.type, params: [lhs, integerLiteral(rhs._t as string, b.map(rewrite))] });
 }
 
-export function tryFold(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
-  let folded = foldNode(n);
+/**
+ * `n` folded to the literal it computes, or null. With `float32`, a float
+ * literal operand and a float result are rounded to 32 bits, as a CPU target at
+ * `float: "f32"` computes them at run time.
+ */
+export function tryFold(n: BaseNode<ShaderType>, float32 = false): BaseNode<ShaderType> | null {
+  let folded = float32 ? foldNode32(n) : foldNode(n);
   if (
     folded &&
     folded._t === "float" &&
@@ -377,6 +386,23 @@ export function tryFold(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
     );
   }
   return folded;
+}
+
+function foldNode32(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+  let params = n.params?.map((p) => (p && isLeafLiteral(p) ? roundLiteral32(p) : p));
+  let rounded = params?.some((p, i) => p !== n.params![i])
+    ? mkNode({ _t: n._t as string, type: n.type, params, value: n.value })
+    : n;
+  let folded = foldNode(rounded);
+  return folded && isLeafLiteral(folded) ? roundLiteral32(folded) : folded;
+}
+
+/** A float literal, scalar, vector or matrix, with each value rounded to 32 bits; any other node as it is. */
+function roundLiteral32(n: BaseNode<ShaderType>): BaseNode<ShaderType> {
+  let t = n._t as string;
+  if (t !== "float" && !/^(vec|mat)/.test(t)) return n;
+  let value = Array.isArray(n.value) ? (n.value as number[]).map(Math.fround) : Math.fround(n.value as number);
+  return mkNode({ _t: t, type: n.type, value });
 }
 
 function foldNode(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {

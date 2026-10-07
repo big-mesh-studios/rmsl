@@ -28,6 +28,7 @@ export interface CreateJsGridOptions {
   params?: CompileJSOptions["params"];
   derivatives?: CompileJSOptions["derivatives"];
   reentrant?: CompileJSOptions["reentrant"];
+  float?: CompileJSOptions["float"];
 }
 
 /**
@@ -46,6 +47,7 @@ export function createJsGrid(options: CreateJsGridOptions): CpuAdapter {
     params: options.params ?? [],
     derivatives: options.derivatives,
     reentrant: options.reentrant,
+    float: options.float,
   });
 
   return createCpuAdapter({ draw });
@@ -56,6 +58,7 @@ export interface CreateJsRoutineOptions {
   params?: CompileJSOptions["params"];
   derivatives?: CompileJSOptions["derivatives"];
   reentrant?: CompileJSOptions["reentrant"];
+  float?: CompileJSOptions["float"];
 }
 
 /**
@@ -73,6 +76,7 @@ export function createJsRoutine<A extends ShaderType>(
       params: options.params ?? [],
       derivatives: options.derivatives,
       reentrant: options.reentrant,
+      float: options.float,
     }),
   );
 }
@@ -82,6 +86,7 @@ export interface CreateJsComputeOptions {
   params?: CompileJSOptions["params"];
   derivatives?: CompileJSOptions["derivatives"];
   reentrant?: CompileJSOptions["reentrant"];
+  float?: CompileJSOptions["float"];
 }
 
 /**
@@ -118,6 +123,7 @@ export function createJsCompute(
     params: options.params ?? [],
     derivatives: options.derivatives,
     reentrant: options.reentrant,
+    float: options.float,
   });
 
   return createCpuAdapter({ compute: computeRoutine });

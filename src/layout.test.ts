@@ -3,6 +3,7 @@ import { Fn, uniform, uniformArray, int } from "./rmsl";
 import { wgslUniformLayout } from "./wgsl";
 import { wgslType } from "./backends/wgsl/wgsl";
 import { compileWasmRoutine, compileWasmFn, type CompileWasmFnOptions } from "./backends/wasm/wasm";
+import { compileJSRoutine } from "./js";
 
 describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
   /**
@@ -24,6 +25,7 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
     const options: CompileWasmFnOptions = {
       name: "main",
       params: [],
+      float: "f32",
       gpuUniformLayout: {
         offsets: { [dir.name]: offsetOf(dir.name), [scale.name]: offsetOf(scale.name) },
         totalSize: layout.size,
@@ -53,6 +55,7 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
       name: "main",
       params: [],
       scalarsInMemory: true,
+      float: "f32",
       gpuUniformLayout: { offsets: { [s.name]: 0 }, totalSize: 16 },
     });
     expect(routine({ uniforms: { [s.name]: 0.5 } })).toBe(0.5);
@@ -79,6 +82,7 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
     const options: CompileWasmFnOptions = {
       name: "main",
       params: [],
+      float: "f32",
       gpuUniformLayout: {
         offsets: { [dir.name]: dirOffset, [scale.name]: scaleOffset },
         totalSize: layout.size,
@@ -91,24 +95,61 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
   });
 
   /**
-   * @canon exception-a-wasm-uniform-in-the-gpu-layout-holds-an-f32
+   * @canon spec-a-cpu-target-at-f32-rounds-every-float-value-it-computes
+   * @canon spec-wasm-and-js-give-the-same-float-bits
    */
-  it("is only as precise as f32 for a GPU-placed uniform — real, not a bug", () => {
+  it("reads a GPU-placed uniform as JS reads it at f32", () => {
     const scale = uniform("vec2");
     const layout = wgslUniformLayout([{ slot: scale.name, type: wgslType("vec2") }]);
     const options: CompileWasmFnOptions = {
       name: "main",
       params: [],
+      float: "f32",
       gpuUniformLayout: { offsets: { [scale.name]: layout.members[0].offset }, totalSize: layout.size },
     };
-    // 0.1 has no exact f32 (or f64) representation; Math.fround is JS's own
-    // "round this f64 to the nearest f32" — the same rounding
-    // `writeAggregateToMemory`'s `setFloat32` applies when this uniform's
-    // value crosses into its narrow, GPU-shaped storage.
-    const fn = compileWasmRoutine(() => Fn(() => scale.x)() as any, options);
-    const result = fn({ uniforms: { [scale.name]: [0.1, 0] } });
-    expect(result).toBe(Math.fround(0.1));
-    expect(result).not.toBe(0.1); // the real, inherent cost: an ordinary (non-GPU) uniform would keep full f64 precision here
+    const build = () => Fn(() => scale.x)() as any;
+    const ctx = { uniforms: { [scale.name]: [0.1, 0] } };
+    const wasm = compileWasmRoutine(build, options)(ctx);
+    expect(wasm).toBe(Math.fround(0.1));
+    expect(wasm).toBe(compileJSRoutine(build, { name: "main", params: [], float: "f32" })(ctx));
+  });
+
+  /**
+   * @canon spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout
+   */
+  it("reads a scalar uniform placed by gpuUniformLayout from the layout without scalarsInMemory", () => {
+    const s = uniform("float");
+    const routine = compileWasmRoutine(() => Fn(() => s.add(0).toVar())(), {
+      name: "main",
+      params: [],
+      float: "f32",
+      gpuUniformLayout: { offsets: { [s.name]: 0 }, totalSize: 16 },
+    });
+    expect(routine({ uniforms: { [s.name]: 0.1 } })).toBe(Math.fround(0.1));
+  });
+
+  /**
+   * The options are cast, as a caller that bypasses the types does, since the
+   * types refuse a layout without `float: "f32"` before the compile can.
+   *
+   * @canon spec-a-gpu-uniform-layout-needs-32-bit-floats
+   */
+  it("refuses gpuUniformLayout on a compile at 64 bits", () => {
+    const s = uniform("float");
+    const options = { name: "main", params: [], gpuUniformLayout: { offsets: { [s.name]: 0 }, totalSize: 16 } } as any;
+    expect(() => compileWasmRoutine(() => Fn(() => s.add(0).toVar())(), options)).toThrow(/float: "f32"/);
+    expect(() => compileWasmRoutine(() => Fn(() => s.add(0).toVar())(), { ...options, float: "f64" })).toThrow(
+      /drop gpuUniformLayout/,
+    );
+    const layout = { offsets: { [s.name]: 0 }, totalSize: 16 };
+    const build = () => Fn(() => s.add(0).toVar())();
+    // @ts-expect-error a layout needs float: "f32"
+    expect(() => compileWasmRoutine(build, { name: "main", params: [], gpuUniformLayout: layout })).toThrow();
+    const at64 = { name: "main", params: [], float: "f64" as const, gpuUniformLayout: layout };
+    expect(() =>
+      // @ts-expect-error a layout needs float: "f32", not "f64"
+      compileWasmRoutine(build, at64),
+    ).toThrow();
   });
 
   /**
@@ -123,6 +164,7 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
     const options: CompileWasmFnOptions = {
       name: "main",
       params: [],
+      float: "f32",
       gpuUniformLayout: {
         offsets: { [arr.name]: member.offset },
         strides: { [arr.name]: member.stride! },

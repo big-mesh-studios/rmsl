@@ -139,6 +139,8 @@ export type CompiledWasm = {
   draw?: { componentCount: number; kind: "float" | "int" | "uint" | "bool" }; // set when "draw" is exported
   /** Whether the module exports `compute(...params, count)`, which runs `main` once per invocation index. */
   compute?: boolean;
+  /** Whether the program computes every float in 32 bits, so the host rounds each float input it passes. */
+  float32?: boolean;
 };
 
 /**
@@ -165,9 +167,26 @@ export type GpuUniformLayout = {
  * WASM locals are fresh per call frame, so there is no shared scratch to
  * privatize.
  */
-export type CompileWasmFnOptions = CompileFnOptions & {
-  gpuUniformLayout?: GpuUniformLayout;
+export type CompileWasmFnOptions = CompileFnOptions & WasmCompileFields & WasmFloatWidth;
 
+/**
+ * The width a WASM program computes a `float` in, and the uniform layout it
+ * may share with WGSL. `"f64"` is the default. `"f32"` rounds every float
+ * value to 32 bits, as a GPU holds it. A `gpuUniformLayout` places uniforms
+ * where a WGSL buffer of 32-bit floats has them, so it needs `"f32"`.
+ */
+export type WasmFloatWidth =
+  { float?: "f64"; gpuUniformLayout?: never } | { float: "f32"; gpuUniformLayout?: GpuUniformLayout };
+
+/** The width part of `options`, kept as the one `WasmFloatWidth` it is, for passing on. */
+export function floatWidthOf(options: WasmFloatWidth): WasmFloatWidth {
+  return options.float === "f32"
+    ? { float: "f32", gpuUniformLayout: options.gpuUniformLayout }
+    : { float: options.float };
+}
+
+/** The options of a WASM compile beside its name, parameters and float width. */
+export type WasmCompileFields = {
   stage?: "vertex" | "fragment" | "compute";
 
   derivatives?: "throw" | "zero";
@@ -578,6 +597,7 @@ function writeAggregateToMemory(
   shaderType: ShaderType,
   value: any,
   narrow?: boolean,
+  round32?: boolean,
 ): void {
   const kind = elementKindOf(shaderType);
 
@@ -588,7 +608,7 @@ function writeAggregateToMemory(
     const num = typeof raw === "boolean" ? (raw ? 1 : 0) : (raw as number);
     if (kind === "float") {
       if (narrow) view.setFloat32(address + i * compSize, num, true);
-      else view.setFloat64(address + i * compSize, num, true);
+      else view.setFloat64(address + i * compSize, round32 ? Math.fround(num) : num, true);
     } else {
       view.setInt32(address + i * compSize, num, true);
     }
@@ -604,6 +624,7 @@ function writeArrayToMemory(
   value: any,
   elementStride: number,
   narrow?: boolean,
+  round32?: boolean,
 ): void {
   const kind = isAggregate(shaderType) ? elementKindOf(shaderType) : scalarKindOf(shaderType);
   const compSize = narrow && kind === "float" ? 4 : componentSizeOf(kind);
@@ -617,7 +638,7 @@ function writeArrayToMemory(
       const num = typeof el === "boolean" ? (el ? 1 : 0) : (el as number);
       if (kind === "float") {
         if (narrow) view.setFloat32(base, num, true);
-        else view.setFloat64(base, num, true);
+        else view.setFloat64(base, round32 ? Math.fround(num) : num, true);
       } else {
         view.setInt32(base, num, true);
       }
@@ -628,7 +649,7 @@ function writeArrayToMemory(
         const at = base + k * compSize;
         if (kind === "float") {
           if (narrow) view.setFloat32(at, num, true);
-          else view.setFloat64(at, num, true);
+          else view.setFloat64(at, round32 ? Math.fround(num) : num, true);
         } else {
           view.setInt32(at, num, true);
         }
@@ -680,12 +701,13 @@ function writeScalarToMemory(
   shaderType: ShaderType,
   value: unknown,
   narrow?: boolean,
+  round32?: boolean,
 ): void {
   const kind = scalarKindOf(shaderType);
   const num = typeof value === "boolean" ? (value ? 1 : 0) : ((value as number | undefined) ?? 0);
   if (kind === "float") {
     if (narrow) view.setFloat32(address, num, true);
-    else view.setFloat64(address, num, true);
+    else view.setFloat64(address, round32 ? Math.fround(num) : num, true);
   } else view.setInt32(address, num, true);
 }
 
@@ -696,9 +718,10 @@ function writeValueToMemory(
   shaderType: ShaderType,
   value: unknown,
   narrow?: boolean,
+  round32?: boolean,
 ): void {
-  if (isAggregate(shaderType)) writeAggregateToMemory(view, address, shaderType, value, narrow);
-  else writeScalarToMemory(view, address, shaderType, value, narrow);
+  if (isAggregate(shaderType)) writeAggregateToMemory(view, address, shaderType, value, narrow, round32);
+  else writeScalarToMemory(view, address, shaderType, value, narrow, round32);
 }
 
 /**
@@ -773,6 +796,14 @@ export function compileWasmFn(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmFnOptions,
 ): CompiledWasm {
+  if (options.gpuUniformLayout && options.float !== "f32") {
+    throw new Error(
+      `[RMSL] compileWasmFn: gpuUniformLayout shares a uniform buffer with the GPU, which holds 32-bit floats, ` +
+        `but this compile computes in 64 bits. Pass float: "f32" to share the buffer, or drop gpuUniformLayout to keep 64-bit precision.`,
+    );
+  }
+  /** Whether every float value is rounded to 32 bits, as `float: "f32"` asks. */
+  const float32 = options.float === "f32";
   const paramNodes = options.params.map((p) => parameterNode(p.name, p.type));
   const rawResult = fn(...paramNodes) as any;
   // `rawResult` is either one root or an array of roots (a caller-supplied
@@ -1259,6 +1290,7 @@ export function compileWasmFn(
     maxMemoryPages,
     draw: drawTypeIdx === undefined ? undefined : { componentCount: drawComponentCount, kind: drawComponentKind },
     compute: computeTypeIdx !== undefined,
+    float32,
   };
 
   /** Advances a fixed-size region from the cursor. */
@@ -1324,7 +1356,11 @@ export function compileWasmFn(
               metadataAddress: addr,
             });
           }
-        } else if (isAggregate(v.shaderType) || options.scalarsInMemory) {
+        } else if (
+          isAggregate(v.shaderType) ||
+          options.scalarsInMemory ||
+          options.gpuUniformLayout?.offsets[v.slot] !== undefined
+        ) {
           if (!uniformAddress.has(v.slot)) {
             const addr = allocateFor(v.shaderType);
             uniformAddress.set(v.slot, addr);
@@ -1991,7 +2027,23 @@ export function compileWasmFn(
    * uniforms get promoted, and pure expressions are computed into their
    * scratch address on first use.
    */
+  /**
+   * The bytes that write the value of an aggregate `node` to its address. At
+   * `float: "f32"`, the float components a node computes are rounded there.
+   */
   function materializeIfNeeded(node: any): number[] {
+    const bytes = materializeValue(node);
+    if (!float32 || bytes.length === 0 || elementKindOf(node._t as string) !== "float") return bytes;
+    const addr = nodeAddress(node);
+    const width = componentCountOf(node._t as string);
+    for (let k = 0; k < width; k++) {
+      const rounded = [...loadComponent(addr, "float", k * 8), WASM_OP.f32DemoteF64, WASM_OP.f64PromoteF32];
+      bytes.push(...storeComponent(addr, "float", k * 8, rounded));
+    }
+    return bytes;
+  }
+
+  function materializeValue(node: any): number[] {
     switch (node.type) {
       case "var":
         return [];
@@ -3173,10 +3225,20 @@ export function compileWasmFn(
    * an f64 for floats, an i32 for int/uint/bool. A component of an aggregate
    * is read through readComponent/materialize, never held on the stack.
    */
+  /**
+   * The bytes that push the value of a scalar `node`. At `float: "f32"`, a float
+   * value is rounded to 32 bits and widened back, so it holds what an f32 holds.
+   */
   function walkExpr(node: any): number[] {
+    const bytes = walkExprValue(node);
+    if (!float32 || node._t !== "float" || node.type === "float" || node.type === "var") return bytes;
+    return [...bytes, WASM_OP.f32DemoteF64, WASM_OP.f64PromoteF32];
+  }
+
+  function walkExprValue(node: any): number[] {
     switch (node.type) {
       case "float":
-        return f64ConstBytes(node.value);
+        return f64ConstBytes(float32 ? Math.fround(node.value) : node.value);
       case "int":
       case "uint":
         return i32ConstBytes(node.value);
@@ -3852,6 +3914,8 @@ export function createWasmInputMarshaller(
   params: readonly WasmParam[],
   textureHeapBase: number,
   memory: WebAssembly.Memory,
+  /** Round each float input to 32 bits, for a program compiled at `float: "f32"`. */
+  float32 = false,
 ): {
   /** With `heapStart`, the texture heap starts there for this call, as when another stage's heap lies before it. */
   marshal(ctx: CpuShaderContext, heapStart?: number): { args: number[]; heapEnd: number };
@@ -3881,6 +3945,11 @@ export function createWasmInputMarshaller(
   const marshalled = { args, heapEnd: 0 };
   const storageLengths: number[] = new Array(storageParams.length).fill(0);
   let memoryView = new DataView(memory.buffer);
+
+  /** A scalar argument as the program takes it: a float rounded to 32 bits at `float: "f32"`. */
+  function scalarArg(shaderType: ShaderType, value: number): number {
+    return float32 && scalarKindOf(shaderType) === "float" ? Math.fround(value) : value;
+  }
 
   /** A view of the memory, made again only when the memory grows and its buffer changes. */
   function viewOfMemory(): DataView {
@@ -3935,33 +4004,33 @@ export function createWasmInputMarshaller(
         case "textureMemory":
           break;
         case "param":
-          args[argCount++] = (ctx.params as any)?.[p.name] as number;
+          args[argCount++] = scalarArg(p.shaderType, (ctx.params as any)?.[p.name] as number);
           break;
         case "uniform":
           // An unset uniform reads zero, as in a zeroed GPU uniform buffer.
-          args[argCount++] = ((ctx.uniforms as any)?.[p.slot] as number | undefined) ?? 0;
+          args[argCount++] = scalarArg(p.shaderType, ((ctx.uniforms as any)?.[p.slot] as number | undefined) ?? 0);
           break;
         case "attribute":
-          args[argCount++] = (ctx.attributes as any)?.[p.slot] as number;
+          args[argCount++] = scalarArg(p.shaderType, (ctx.attributes as any)?.[p.slot] as number);
           break;
         case "varying":
-          args[argCount++] = (ctx.varyings as any)?.[p.slot] as number;
+          args[argCount++] = scalarArg(p.shaderType, (ctx.varyings as any)?.[p.slot] as number);
           break;
         case "invocationIndex":
           args[argCount++] = ctx.index ?? 0;
           break;
         case "paramMemory":
-          writeAggregateToMemory(view, p.address, p.shaderType, (ctx.params as any)?.[p.name]);
+          writeAggregateToMemory(view, p.address, p.shaderType, (ctx.params as any)?.[p.name], false, float32);
           break;
         case "uniformMemory": {
           // Read once: each read of a float the host set boxes it anew.
           const value = (ctx.uniforms as any)?.[p.slot];
           if (value === undefined) break; // left as the zeroed memory it starts as
           if (typeof value !== "number" || isAggregate(p.shaderType)) {
-            writeValueToMemory(view, p.address, p.shaderType, value, p.narrow);
+            writeValueToMemory(view, p.address, p.shaderType, value, p.narrow, float32);
           } else if (scalarKindOf(p.shaderType) !== "float") view.setInt32(p.address, value, true);
           else if (p.narrow) view.setFloat32(p.address, value, true);
-          else view.setFloat64(p.address, value, true);
+          else view.setFloat64(p.address, float32 ? Math.fround(value) : value, true);
           break;
         }
         case "uniformArrayMemory":
@@ -3974,17 +4043,18 @@ export function createWasmInputMarshaller(
             (ctx.uniforms as any)?.[p.slot],
             p.elementStride,
             p.narrow,
+            float32,
           );
           break;
         case "attributeMemory":
-          writeValueToMemory(view, p.address, p.shaderType, (ctx.attributes as any)?.[p.slot]);
+          writeValueToMemory(view, p.address, p.shaderType, (ctx.attributes as any)?.[p.slot], false, float32);
           break;
         case "varyingMemory":
-          writeValueToMemory(view, p.address, p.shaderType, (ctx.varyings as any)?.[p.slot]);
+          writeValueToMemory(view, p.address, p.shaderType, (ctx.varyings as any)?.[p.slot], false, float32);
           break;
         case "fragCoordMemory":
           // the host's fragCoord for CPU invocations; draw() overwrites it per pixel — harmless
-          writeAggregateToMemory(view, p.address, "vec2", ctx.fragCoord ?? [0, 0]);
+          writeAggregateToMemory(view, p.address, "vec2", ctx.fragCoord ?? [0, 0], false, float32);
           break;
         case "storageMemory":
           break;
@@ -4049,6 +4119,9 @@ export function createWasmInputMarshaller(
       const heap = componentView(i, p.shaderType, storageLengths[i]!);
       if (array.length === heap.length) heap.set(array);
       else for (let k = 0; k < heap.length; k++) heap[k] = array[k]!;
+      if (float32 && heap instanceof Float64Array && !(array instanceof Float32Array)) {
+        for (let k = 0; k < heap.length; k++) heap[k] = Math.fround(heap[k]!);
+      }
     }
     return cursor;
   }
@@ -4111,6 +4184,7 @@ export function instantiateWasmProgram(
     maxMemoryPages,
     draw: drawOutput,
     compute: hasCompute,
+    float32,
   } = compiled;
 
   // no memory passed in: own one, sized for the compile-time layout, growable
@@ -4146,7 +4220,12 @@ export function instantiateWasmProgram(
       p.kind === "valueMemory",
   );
 
-  const { marshal: marshalInputs, writeBackStorages } = createWasmInputMarshaller(params, textureHeapBase, memory);
+  const { marshal: marshalInputs, writeBackStorages } = createWasmInputMarshaller(
+    params,
+    textureHeapBase,
+    memory,
+    float32,
+  );
   /** The arguments of the `draw` and `compute` exports: the marshalled ones, then their own. Kept between calls. */
   const drawArgs: number[] = [];
   const computeArgs: number[] = [];
@@ -4340,7 +4419,7 @@ export function instantiateWasmGrid<A extends ShaderType = ShaderType>(
 }
 
 /** What a compile function takes: the options of `compileWasmFn`, without the `stage` and `kind` the function names. */
-export type CompileWasmStageOptions = Omit<CompileWasmFnOptions, "stage" | "kind">;
+export type CompileWasmStageOptions = Omit<CompileFnOptions & WasmCompileFields, "stage" | "kind"> & WasmFloatWidth;
 
 type WasmRoots = (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[];
 

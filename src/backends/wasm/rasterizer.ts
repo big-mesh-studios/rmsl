@@ -1,7 +1,7 @@
 import { Node, ShaderType } from "../../core";
 import { componentCountOf, CpuDrawBuffer, CpuShaderContext, CpuTextureData } from "../cpu";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray } from "../adapter";
-import { compileWasmFn, CompileWasmFnOptions, createWasmInputMarshaller, WasmParam } from "./wasm";
+import { compileWasmFn, createWasmInputMarshaller, WasmCompileFields, WasmFloatWidth, WasmParam } from "./wasm";
 import { wasmUleb128 } from "./utils";
 import RASTERIZER_WASM_BYTES from "./rasterizer.wat";
 
@@ -223,9 +223,10 @@ export function instantiateRasterizer(
  * each stage, and the two share one memory at non-overlapping bases).
  */
 export type CompileWasmOptions = Pick<
-  CompileWasmFnOptions,
-  "derivatives" | "reentrant" | "memory" | "sharedMemory" | "maxMemoryPages" | "gpuUniformLayout"
->;
+  WasmCompileFields,
+  "derivatives" | "reentrant" | "memory" | "sharedMemory" | "maxMemoryPages"
+> &
+  WasmFloatWidth;
 
 /**
  * One draw call's inputs: per-vertex attribute buffers (one flat, planar
@@ -410,11 +411,13 @@ export function compileWasm(
     vertexCompiled.params.filter((p) => p.kind !== "attributeMemory"),
     heapStart,
     memory,
+    vertexCompiled.float32,
   );
   const fragmentMarshaller = createWasmInputMarshaller(
     fragmentCompiled.params.filter((p) => p.kind !== "varyingMemory"),
     heapStart,
     memory,
+    fragmentCompiled.float32,
   );
 
   let depthBufferBase: number | undefined;

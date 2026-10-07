@@ -24,6 +24,7 @@ export interface CompileJSRasterOptions {
   attributeTypes: Record<string, ShaderType>;
   derivatives?: CompileJSOptions["derivatives"];
   reentrant?: CompileJSOptions["reentrant"];
+  float?: CompileJSOptions["float"];
 }
 
 /**
@@ -142,12 +143,14 @@ export function compileJS(
     params: [],
     derivatives: options.derivatives,
     reentrant: options.reentrant,
+    float: options.float,
   });
   const fragmentStage = compileJSFragmentInPlace(fragmentFn, {
     name: "frag",
     params: [],
     derivatives: options.derivatives,
     reentrant: options.reentrant,
+    float: options.float,
   });
 
   const widths: Record<string, number> = {};

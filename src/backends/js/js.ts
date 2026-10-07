@@ -371,6 +371,10 @@ export function jsHelperSource(name: string): string {
       return `function _umod(a, b) {\n  return b === 0 ? 0 : a % b;\n}`;
     case "copy":
       return `function _copy(src, out) {\n  for (let i = 0; i < src.length; i++) out[i] = src[i];\n  return out;\n}`;
+    case "fr":
+      return `function _fr(a) {\n  for (let i = 0; i < a.length; i++) a[i] = Math.fround(a[i]);\n  return a;\n}`;
+    case "frc":
+      return `function _frc(src, out) {\n  for (let i = 0; i < out.length; i++) out[i] = Math.fround(src[i]);\n  return out;\n}`;
     case "load":
       return `function _load(src, at, out) {\n  for (let i = 0; i < out.length; i++) out[i] = src[at + i];\n  return out;\n}`;
     case "vdot":
@@ -728,7 +732,7 @@ function jsAssignable(node: any, ctx: CompileCtx): CompiledNode & { at(k: string
     };
   }
   if (node.type !== "matrixElement") {
-    let target = compileJSStage(node, ctx);
+    let target = jsCompileTarget(node, ctx);
     return { ...target, at: (k) => `${target.expr}[${k}]` };
   }
   assertLiteralIndexInRange(node.params![0], node.params![1]);
@@ -1155,6 +1159,7 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
   let outer = ctx.jsReadsSlot;
   ctx.jsReadsSlot = false;
   let result = compileJSNode(node, ctx);
+  if (ctx.jsFloat32 && ctx.jsTarget !== node) result = jsRound32(node, result, ctx);
   // A value computed into a slot holds what it was there, so it is reused only
   // until a write or the end of the block it was computed in.
   let readsSlot = ctx.jsReadsSlot || result.body.length > 0;
@@ -1162,6 +1167,52 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
   ctx.memo.set(node, readsSlot ? { ...result, jsEpoch: ctx.jsEpoch } : result);
   if (node.type === "let" || node.type === "assign") ctx.jsEpoch++;
   return result;
+}
+
+/** `node` compiled as the target of an assignment: what it names, to be written, and not its value rounded. */
+function jsCompileTarget(node: any, ctx: CompileCtx): CompiledNode {
+  let saved = ctx.jsTarget;
+  ctx.jsTarget = node;
+  try {
+    return compileJSStage(node, ctx);
+  } finally {
+    ctx.jsTarget = saved;
+  }
+}
+
+/** The node types whose value the host passes in, which a program at `float: "f32"` rounds as it reads them. */
+const JS_HOST_INPUTS = new Set(["uniform", "uniformArrayElement", "attribute", "varying", "storageElement", "var"]);
+
+/**
+ * `result`, the value of `node`, rounded to 32 bits, as `float: "f32"` asks. A
+ * scalar is wrapped in `Math.fround`. A vector or matrix computed into a slot
+ * is rounded there, and one read from the host's context is copied into a slot
+ * and rounded, so the host's own array is never written.
+ */
+function jsRound32(node: any, result: CompiledNode, ctx: CompileCtx): CompiledNode {
+  // A whole buffer or uniform array carries the type of its element, but is no value.
+  if (node?.type === "storage" || node?.type === "uniformArray") return result;
+  let t = node?._t as string | undefined;
+  if (t === "float") {
+    if (node.type === "float") return result;
+    if (node.type === "var" && !ctx.jsParams.has(node.value?.varName)) return result;
+    if (/^Math\.fround\([^()]*\)$/.test(result.expr)) return result;
+    return { ...result, expr: `Math.fround(${result.expr})`, prec: PREC_ATOM };
+  }
+  if (!t || !jsIsArrayType(t) || elementKindOf(t) !== "float") return result;
+  if (/^(vec|mat)/.test(node.type) && node.type === t) return result;
+  if (isPlainJSIdentifier(result.expr)) {
+    if (result.body.length === 0) return result;
+    jsRequireHelper(ctx, "fr");
+    return { ...result, body: [...result.body, `_fr(${result.expr});`] };
+  }
+  if (JS_HOST_INPUTS.has(node.type) || result.expr.startsWith("ctx.")) {
+    let temp = jsNewTemp(ctx, t);
+    jsRequireHelper(ctx, "frc");
+    return { ...result, body: [...result.body, `_frc(${result.expr}, ${temp});`], expr: temp };
+  }
+  jsRequireHelper(ctx, "fr");
+  return { ...result, expr: `_fr(${result.expr})`, prec: PREC_ATOM };
 }
 
 /**
@@ -1184,12 +1235,14 @@ export function compileJSNode(
   node: BaseNode<ShaderType> | ShaderType extends never ? never : any,
   ctx: CompileCtx,
 ): CompiledNode {
-  let folded = tryFold(node);
+  let folded = tryFold(node, ctx.jsFloat32);
   if (folded) node = folded;
 
   switch (node.type) {
-    case "float":
-      return { decls: [], body: [], expr: String(node.value), prec: jsLiteralPrec(node.value as number) };
+    case "float": {
+      let value = ctx.jsFloat32 ? Math.fround(node.value as number) : (node.value as number);
+      return { decls: [], body: [], expr: String(value), prec: jsLiteralPrec(value) };
+    }
     case "int":
     case "uint":
       return { decls: [], body: [], expr: String(node.value), prec: jsLiteralPrec(node.value as number) };
@@ -1217,6 +1270,7 @@ export function compileJSNode(
     case "mat4x3":
     case "mat4": {
       let values = node.value as number[];
+      if (ctx.jsFloat32 && elementKindOf(node._t) === "float") values = values.map(Math.fround);
       if (ctx.outTarget) {
         let lines = values.map((v, i) => `${ctx.outTarget}[${i}] = ${JSON.stringify(v)};`);
         return { decls: [], body: lines, expr: ctx.outTarget };
@@ -1951,7 +2005,7 @@ export function compileJSNode(
         };
       }
 
-      let lhs = compileJSStage(targetNode, ctx);
+      let lhs = jsCompileTarget(targetNode, ctx);
       // Only a plain variable slot is written through out-mode helpers; an
       // external sink (res.position, res.outputs[...], ctx.varyings[...]) takes
       // the whole value in one assignment.
@@ -2081,6 +2135,11 @@ export type CompileJSOptions = CompileFnOptions & {
   stage?: "vertex" | "fragment" | "compute";
   derivatives?: "throw" | "zero";
   reentrant?: boolean;
+  /**
+   * The width the program computes a `float` in: `"f64"`, the default, or
+   * `"f32"`, which rounds every float value to 32 bits as a GPU holds it.
+   */
+  float?: "f64" | "f32";
 };
 
 /**
@@ -2136,6 +2195,7 @@ function compileJSFnDetailed(
     derivatives,
     reentrant,
     jsNeedsRes: false,
+    jsFloat32: options.float === "f32",
   };
 
   assertOneDeclarationPerName(resultNodes);
