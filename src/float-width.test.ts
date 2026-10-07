@@ -141,6 +141,34 @@ describe("a CPU compile at float: f32", () => {
   });
 
   /**
+   * @canon spec-a-cpu-target-at-f32-rounds-every-float-value-it-computes
+   * @canon spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws
+   */
+  it("reads an attribute at 32 bits in the WASM rasterizer's vertex stage", async () => {
+    const position = attribute("vec3");
+    const colour = attribute("vec3");
+    const shade = varying("vec3");
+    // The vertex stage computes with the attribute, so an unrounded one changes the varying it writes.
+    const vertex = () =>
+      Fn(() => {
+        shade.assign(colour.mul(3));
+        builtinPosition().assign(vec4(position.x, position.y, position.z, 1));
+      })();
+    const fragment = () => Fn(() => vec4(shade, 1))();
+    const attributes = {
+      [position.name]: new Float64Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]),
+      [colour.name]: new Float64Array([0.1, 0.2, 0.3, 0.7, 0.11, 0.13, 0.17, 0.19, 0.23]),
+    };
+    const draw = { width: 4, height: 4, clear: true, clearDepth: true };
+    const js = compileJS(vertex, fragment, {
+      attributeTypes: { [position.name]: "vec3", [colour.name]: "vec3" },
+      float: "f32",
+    }).draw({ attributes }, draw);
+    const wasm = await compileWasm(vertex, fragment, { float: "f32" }).draw({ attributes }, draw);
+    expect(Array.from(wasm)).toEqual(Array.from(js));
+  });
+
+  /**
    * @canon spec-a-cpu-compile-can-run-a-program-at-64-bit-precision
    */
   it.each([
