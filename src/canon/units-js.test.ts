@@ -988,6 +988,26 @@ describe("the scalars and inputs of a JS function", () => {
   });
 
   /**
+   * @canon spec-a-js-function-copies-a-host-vector-into-a-slot-of-its-kind
+   */
+  it("reads its copy of a host vector again through a write, until the block ends", () => {
+    const v = uniform("vec3");
+    const build = () =>
+      Fn(() => {
+        const sum = v.add(1).toVar();
+        sum.assign(sum.add(v));
+        If(sum.x.greaterThan(0), () => {
+          sum.assign(sum.mul(v));
+        });
+        return sum;
+      })() as any;
+    const source = compileJSFn(build, none);
+    // Once: the copy made before the block has run when the block runs.
+    expect(source.match(/\[0\] = ctx\.uniforms\["_rmsl_u\d+"\]\[0\];/g)).toHaveLength(1);
+    expect(compileJSRoutine(build, none)({ uniforms: { [v.name]: [1, 2, 3] } })).toEqual(new Float64Array([3, 10, 21]));
+  });
+
+  /**
    * @canon spec-a-js-routine-allocates-nothing-per-call
    */
   it("allocates nothing per call of a shading program fed plain arrays", async () => {

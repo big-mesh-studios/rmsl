@@ -1274,7 +1274,12 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
     // A statement runs once. A seq's statements have run, and its value is read as any value is.
     if (node._t === "void") return { decls: [], body: [], expr: seen.expr, prec: seen.prec };
     if (node.type === "seq") return compileJSStage(node.params[node.params.length - 1], ctx);
-    if (seen.jsEpoch === undefined || seen.jsEpoch === ctx.jsEpoch) {
+    if (seen.jsBlock !== undefined) {
+      if (ctx.jsBlocks!.includes(seen.jsBlock)) {
+        ctx.jsReadsSlot = true;
+        return { decls: [], body: [], expr: seen.expr, prec: seen.prec };
+      }
+    } else if (seen.jsEpoch === undefined || seen.jsEpoch === ctx.jsEpoch) {
       if (seen.jsEpoch !== undefined) ctx.jsReadsSlot = true;
       return { decls: [], body: [], expr: seen.expr, prec: seen.prec };
     }
@@ -1287,8 +1292,15 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
     ctx.jsReadsSlot = outer || ctx.jsReadsSlot;
     return result;
   }
+  let read = result.expr;
   result = jsTypedInput(node, result, ctx);
   if (ctx.jsFloat32) result = jsRound32(node, result, ctx);
+  // A copy of what the host passed by name holds through any write: nothing in a call changes it.
+  if (result.expr !== read && /^ctx\.(uniforms|attributes|varyings|params)\["[^"]*"\]$/.test(read)) {
+    ctx.jsReadsSlot = true;
+    ctx.memo.set(node, { ...result, jsBlock: ctx.jsBlocks!.at(-1) });
+    return result;
+  }
   // A value computed into a slot holds what it was there, so it is reused only
   // until a write or the end of the block it was computed in.
   let readsSlot = ctx.jsReadsSlot || result.body.length > 0;
@@ -1372,7 +1384,9 @@ function jsRound32(node: any, result: CompiledNode, ctx: CompileCtx): CompiledNo
  */
 function compileJSBoundary(node: any, ctx: CompileCtx): CompiledNode {
   ctx.jsEpoch++;
+  ctx.jsBlocks!.push(ctx.jsEpoch);
   let result = compileJSStage(node, ctx);
+  ctx.jsBlocks!.pop();
   ctx.jsEpoch++;
   return result;
 }
@@ -2379,6 +2393,7 @@ function compileJSFnDetailed(
     jsHelpers: new Set(),
     outTarget: null,
     jsEpoch: 0,
+    jsBlocks: [0],
     jsReadsSlot: false,
     derivatives,
     reentrant,
