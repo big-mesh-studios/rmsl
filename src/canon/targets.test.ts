@@ -246,6 +246,36 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
+   * @canon spec-length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one
+   */
+  it("converts an integer scalar to float before length, distance and dot, on every target", () => {
+    const build = (a: Node<"float">) => {
+      const i = a.toInt();
+      return length(i)
+        .add(distance(i, int(3)).mul(10))
+        .add(dot(i, int(2)).mul(100))
+        .add(dot(uint(7), uint(5)).mul(1000));
+    };
+    expect(evaluateRecording(build, [-2])).toBe(2 + 50 - 400 + 35000);
+    const params = [
+      { name: "a", type: "int" as const },
+      { name: "b", type: "uint" as const },
+    ];
+    const run = (compile: CompileCpuRoutine, float: "f64" | "f32") =>
+      compile((a: any, b: any) => Fn(() => dot(a, a).add(length(b)).add(distance(a, b)).toVar())(), {
+        name: "main",
+        params,
+        float,
+      })({ params: { a: 70000, b: 4294967295 } });
+    expect(run(compileJSRoutine as CompileCpuRoutine, "f64")).toBe(70000 * 70000 + 4294967295 + (4294967295 - 70000));
+    for (const float of ["f64", "f32"] as const) {
+      expect(run(compileWasmRoutine as CompileCpuRoutine, float)).toBe(
+        run(compileJSRoutine as CompileCpuRoutine, float),
+      );
+    }
+  });
+
+  /**
    * @canon spec-a-boolean-vector-reduces-with-all-or-any
    */
   it("reduces a boolean vector with all and any on every target", () => {

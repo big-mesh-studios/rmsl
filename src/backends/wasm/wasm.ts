@@ -3268,6 +3268,14 @@ export function compileWasmFn(
     return [...bytes, WASM_OP.f32DemoteF64, WASM_OP.f64PromoteF32];
   }
 
+  /** The bytes that push the value of a scalar `node` as an f64, converting an integer or a bool. */
+  function walkFloat(node: any): number[] {
+    const kind = scalarKindOf(node._t);
+    const bytes = convertComponent(walkExpr(node), kind, "float");
+    if (!float32 || kind === "float") return bytes;
+    return [...bytes, WASM_OP.f32DemoteF64, WASM_OP.f64PromoteF32];
+  }
+
   /**
    * Expression pass: evaluates a node down to one value on the WASM stack —
    * an f64 for floats, an i32 for int/uint/bool. A component of an aggregate
@@ -3552,8 +3560,8 @@ export function compileWasmFn(
       case "dot": {
         const a = node.params[0],
           b = node.params[1];
-        // A scalar is a vector of one: its dot is the product.
-        if (!isAggregate(a._t)) return [...walkExpr(a), ...walkExpr(b), WASM_OP.f64Mul];
+        // A scalar is a vector of one: its dot is the product, of floats.
+        if (!isAggregate(a._t)) return [...walkFloat(a), ...walkFloat(b), WASM_OP.f64Mul];
         const width = componentCountOf(a._t);
         const pre = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
         const aAddr = nodeAddress(a);
@@ -3578,7 +3586,7 @@ export function compileWasmFn(
       }
       case "length": {
         const src = node.params[0];
-        if (!isAggregate(src._t)) return [...walkExpr(src), WASM_OP.f64Abs];
+        if (!isAggregate(src._t)) return [...walkFloat(src), WASM_OP.f64Abs];
         const width = componentCountOf(src._t);
         const pre = materializeIfNeeded(src);
         const addr = nodeAddress(src);
@@ -3592,7 +3600,7 @@ export function compileWasmFn(
       case "distance": {
         const a = node.params[0],
           b = node.params[1];
-        if (!isAggregate(a._t)) return [...walkExpr(a), ...walkExpr(b), WASM_OP.f64Sub, WASM_OP.f64Abs];
+        if (!isAggregate(a._t)) return [...walkFloat(a), ...walkFloat(b), WASM_OP.f64Sub, WASM_OP.f64Abs];
         const width = componentCountOf(a._t);
         const pre = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
         const aAddr = nodeAddress(a);

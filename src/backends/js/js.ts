@@ -1186,10 +1186,12 @@ export function jsVecReduce(node: BaseNode<ShaderType>, ctx: CompileCtx, helper:
   let width = jsArrayLength(node.params![0]?._t);
   if (width <= 1 && (helper === "vdot" || helper === "vlen" || helper === "vdist")) {
     // A scalar is a vector of one: its dot is the product, its length the absolute value.
-    let x = wrapExpr(a.prec, PRECEDENCE.mul!, a.expr);
-    let y = b ? wrapExpr(b.prec, PRECEDENCE.mul!, b.expr) : "";
-    let expr =
-      helper === "vdot" ? `(${x} * ${y})` : helper === "vlen" ? `Math.abs(${a.expr})` : `Math.abs(${x} - ${y})`;
+    // An integer is already the float it converts to, which f32 rounds as it does any value.
+    let asFloat = (operand: CompiledNode, n: BaseNode<ShaderType>, prec: number) =>
+      ctx.jsFloat32 && n._t !== "float" ? `Math.fround(${operand.expr})` : wrapExpr(operand.prec, prec, operand.expr);
+    let x = asFloat(a, node.params![0]!, PRECEDENCE.mul!);
+    let y = b ? asFloat(b, node.params![1]!, PRECEDENCE.mul!) : "";
+    let expr = helper === "vdot" ? `(${x} * ${y})` : helper === "vlen" ? `Math.abs(${x})` : `Math.abs(${x} - ${y})`;
     return { decls, body, expr, prec: PREC_ATOM };
   }
   if (helper !== "ball" && helper !== "bany" && jsIsReference(a.expr) && (!b || jsIsReference(b.expr))) {

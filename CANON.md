@@ -148,7 +148,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-run-time-index-past-a-uniform-array-reaches-its-last-element`](#spec-a-run-time-index-past-a-uniform-array-reaches-its-last-element) — On a CPU target, a uniform array element read by a run-time index past the end reads the last element.
         - [`@bug js-reads-a-uniform-array-element-out-of-range-as-undefined`](#bug-js-reads-a-uniform-array-element-out-of-range-as-undefined) — On JS, a uniform array element read by a run-time index past the end gives `undefined`.
         - [`@bug wasm-reads-a-uniform-array-element-out-of-range-from-foreign-memory`](#bug-wasm-reads-a-uniform-array-element-out-of-range-from-foreign-memory) — A uniform array element at a run-time index out of range reads whatever memory lies there, and traps below zero.
-    - [`@spec length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one`](#spec-length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one) — `length` of a scalar is its absolute value, `distance` of two scalars is the absolute value of their difference, and `dot` of two scalars is their product, on every target.
+    - [`@spec length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one`](#spec-length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one) — `length` of a scalar is its absolute value, `distance` of two scalars is the absolute value of their difference, and `dot` of two scalars is their product, on every target. An integer scalar converts to `float` first, so the result is a `float` and does not wrap.
     - [`@spec normalizing-a-zero-vector-gives-it-back`](#spec-normalizing-a-zero-vector-gives-it-back) — `normalize` of a vector of length zero gives the zero vector.
       - [`@spec a-cpu-target-normalizes-a-zero-vector-to-zero`](#spec-a-cpu-target-normalizes-a-zero-vector-to-zero) — On a CPU target, `normalize` of a vector of length zero gives the zero vector.
       - [`@exception a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver`](#exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver) — On GLSL and WGSL, `normalize` of a vector of length zero gives what the driver gives.
@@ -1595,9 +1595,9 @@ Issue: #85
 
 #### @spec length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one
 
-> `length` of a scalar is its absolute value, `distance` of two scalars is the absolute value of their difference, and `dot` of two scalars is their product, on every target.
+> `length` of a scalar is its absolute value, `distance` of two scalars is the absolute value of their difference, and `dot` of two scalars is their product, on every target. An integer scalar converts to `float` first, so the result is a `float` and does not wrap.
 
-This follows because WGSL and GLSL define the three for a scalar as for a vector of one component, and the program must give one result for them on every target.
+This follows because GLSL defines the three for a scalar as for a vector of one component, WGSL defines `length` and `distance` so, and the program must give one result for them on every target. The three have the type `float`, and both languages define them for floats only, so an integer converts before it is reduced.
 
 #### @spec normalizing-a-zero-vector-gives-it-back
 
