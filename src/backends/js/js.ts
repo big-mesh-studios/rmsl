@@ -2392,7 +2392,9 @@ function compileJSFnDetailed(
   if (options.stage !== undefined) assertStageResult(stage, lastType, ctx.positionWritten, ctx.outputs.size > 0);
 
   const body: string[] = [];
-  if (ctx.jsNeedsRes) body.push("var res = { outputs: {}, varyings: {} };");
+  // The object a stage returns its outputs in is made once, as its slots are, or once a call with `reentrant`.
+  const res = ctx.jsNeedsRes ? "var res = { outputs: {}, varyings: {} };" : "";
+  if (res && reentrant) body.push(res);
   const slots = jsSlotDeclarations(ctx.varDefs, ctx.jsFloat32 === true, reentrant ? "var" : "let");
   body.push(...slots.scalars);
   if (reentrant) body.push(...slots.views);
@@ -2405,7 +2407,7 @@ function compileJSFnDetailed(
     body.push(`return ${lastCompiled.expr};`);
   }
 
-  let scratch = reentrant ? "" : slots.views.join("\n");
+  let scratch = reentrant ? "" : [...(res ? [res] : []), ...slots.views].join("\n");
   let helpers = [...ctx.jsHelpers]
     .sort()
     .map((name) => jsHelperSource(name))

@@ -767,6 +767,28 @@ describe("JS backend: shader I/O", () => {
     expect(fn({ uniforms: { [v.name]: [1, 2, 3] } })).toBe(11);
   });
   /**
+   * @canon spec-a-js-routine-allocates-nothing-per-call
+   */
+  it("keeps a varying a vertex stage writes on one call and not the next as it was last given", () => {
+    const shade = varying("float");
+    const write = uniform("int");
+    const raw = compileJSProgram(
+      () =>
+        Fn(() => {
+          If(write.equal(int(1)), () => {
+            shade.assign(float(0.25));
+          });
+          builtinPosition().assign(vec4(0, 0, 0, 1));
+        })(),
+      { name: "main", params: [], stage: "vertex" },
+    );
+    const first = raw.runInPlace({ uniforms: { [write.name]: 1 } }) as any;
+    const second = raw.runInPlace({ uniforms: { [write.name]: 0 } }) as any;
+    // The stage returns its outputs in one object, made once, as it keeps its slots.
+    expect(second).toBe(first);
+    expect(second.varyings[shade.name]).toBe(0.25);
+  });
+  /**
    * @canon spec-a-variable-holds-a-copy
    */
   it("keeps a constant as it is when a varying assigned from it is written", () => {
