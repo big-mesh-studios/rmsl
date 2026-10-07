@@ -1,7 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { Fn, float, instancedArray, invocationIndex, normalize, smoothstep, uniform, vec3, type Node } from "./rmsl";
-import { compileJSCompute, compileJSRoutine, createJsCompute } from "./js";
-import { compileWasmCompute, compileWasmRoutine, createWasmCompute } from "./wasm";
+import {
+  attribute,
+  builtinPosition,
+  Fn,
+  float,
+  instancedArray,
+  invocationIndex,
+  normalize,
+  smoothstep,
+  uniform,
+  varying,
+  vec3,
+  vec4,
+  type Node,
+} from "./rmsl";
+import { compileJS, compileJSCompute, compileJSRoutine, createJsCompute } from "./js";
+import { compileWasm, compileWasmCompute, compileWasmRoutine, createWasmCompute } from "./wasm";
 import type { CompileCpuRoutine } from "./backends/cpu";
 
 const f = Math.fround;
@@ -95,6 +109,35 @@ describe("a CPU compile at float: f32", () => {
     const data = [0.1, 0.2, 1 / 3, 16777217];
     stage({ storages: { [buf.name]: data } }, 2);
     expect(data).toEqual([f(0.1), f(0.2), f(1 / 3), f(16777217)]);
+  });
+
+  /**
+   * @canon spec-a-cpu-target-at-f32-rounds-every-float-value-it-computes
+   * @canon spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws
+   */
+  it("draws the same 32-bit pixels through the JS and the WASM rasterizer", async () => {
+    const position = attribute("vec3");
+    const colour = attribute("vec3");
+    const shade = varying("vec3");
+    const vertex = () =>
+      Fn(() => {
+        shade.assign(colour);
+        builtinPosition().assign(vec4(position.x, position.y, position.z, 1));
+      })();
+    // Each varying arrives interpolated in 64 bits, and is read at 32 before it is multiplied.
+    const fragment = () => Fn(() => vec4(shade.mul(3).x, shade.y.mul(7), shade.z, 1))();
+    const attributes = {
+      [position.name]: new Float64Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]),
+      [colour.name]: new Float64Array([0.1, 0.2, 0.3, 0.7, 0.11, 0.13, 0.17, 0.19, 0.23]),
+    };
+    const draw = { width: 4, height: 4, clear: true, clearDepth: true };
+    const js = compileJS(vertex, fragment, {
+      attributeTypes: { [position.name]: "vec3", [colour.name]: "vec3" },
+      float: "f32",
+    }).draw({ attributes }, draw);
+    const wasm = await compileWasm(vertex, fragment, { float: "f32" }).draw({ attributes }, draw);
+    expect(Array.from(wasm)).toEqual(Array.from(js));
+    for (const component of js) expect(f(component)).toBe(component);
   });
 
   /**

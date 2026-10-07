@@ -993,8 +993,29 @@ export function compileWasmFn(
     // statements of its own — its value is unused, so there's nothing to emit.
   });
 
+  /**
+   * At `float: "f32"`, the bytes that round each float of the attributes and
+   * varyings in memory to 32 bits, once as a call starts. The rasterizer writes
+   * them there in 64 bits, as the host's marshaller does not see them.
+   */
+  function roundInputsInMemory(): number[] {
+    if (!float32) return [];
+    const bytes: number[] = [];
+    for (const p of memoryParams) {
+      if (p.kind !== "attributeMemory" && p.kind !== "varyingMemory") continue;
+      const aggregate = isAggregate(p.shaderType);
+      if ((aggregate ? elementKindOf(p.shaderType) : scalarKindOf(p.shaderType)) !== "float") continue;
+      const width = aggregate ? componentCountOf(p.shaderType) : 1;
+      for (let k = 0; k < width; k++) {
+        const rounded = [...loadComponent(p.address, "float", k * 8), WASM_OP.f32DemoteF64, WASM_OP.f64PromoteF32];
+        bytes.push(...storeComponent(p.address, "float", k * 8, rounded));
+      }
+    }
+    return bytes;
+  }
+
   const exitBlockType = needsResult ? WASM_BLOCKTYPE_VOID : wasmTypeOf(resultKind); // the outer block carries the function's result type (or void)
-  const code = [WASM_OP.block, exitBlockType, ...bodyBytes, WASM_OP.end];
+  const code = [WASM_OP.block, exitBlockType, ...roundInputsInMemory(), ...bodyBytes, WASM_OP.end];
 
   // Module assembly: type section, math imports, the main function (whose type
   // carries every scalar param and, when !needsResult, one result), a linear
