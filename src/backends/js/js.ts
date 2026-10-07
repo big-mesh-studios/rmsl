@@ -2443,8 +2443,19 @@ function compileJSFnDetailed(
       ? `${reentrant ? "var" : "const"} _rmsl_result = new ${typedArrayOfKind(scalarKindOf(lastType), ctx.jsFloat32 === true).name}(1);`
       : "";
   // The object a stage returns its outputs in is made once, as its slots are, or once a call with `reentrant`.
-  const res = ctx.jsNeedsRes ? "var res = { outputs: {}, varyings: {} };" : "";
+  // Every output it may hold is named from the start, so clearing them all as a call starts keeps its shape.
+  const outputKeys = [...ctx.outputs.values()].map((o) => `${JSON.stringify(o.slot)}: undefined`).join(", ");
+  const varyingKeys = [...ctx.varyings.values()].map((v) => `${JSON.stringify(v.slot)}: undefined`).join(", ");
+  const res = ctx.jsNeedsRes
+    ? `var res = { outputs: ${outputKeys ? `{ ${outputKeys} }` : "{}"}, varyings: ${varyingKeys ? `{ ${varyingKeys} }` : "{}"}, position: undefined, fragDepth: undefined, value: undefined };`
+    : "";
   if (res && reentrant) body.push(res);
+  if (res && !reentrant) {
+    // A stage output the program does not write on a call is undefined in what that call returns.
+    for (const o of ctx.outputs.values()) body.push(`res.outputs[${JSON.stringify(o.slot)}] = undefined;`);
+    for (const v of ctx.varyings.values()) body.push(`res.varyings[${JSON.stringify(v.slot)}] = undefined;`);
+    body.push("res.position = undefined;", "res.fragDepth = undefined;", "res.value = undefined;");
+  }
   const slots = jsSlotDeclarations(ctx.varDefs, ctx.jsFloat32 === true, reentrant ? "var" : "let");
   body.push(...slots.scalars);
   if (reentrant) body.push(...slots.views);

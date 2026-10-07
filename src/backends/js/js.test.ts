@@ -769,7 +769,7 @@ describe("JS backend: shader I/O", () => {
   /**
    * @canon spec-a-js-routine-allocates-nothing-per-call
    */
-  it("keeps a varying a vertex stage writes on one call and not the next as it was last given", () => {
+  it("clears a stage output a call does not write, in the one object it returns them in", () => {
     const shade = varying("float");
     const write = uniform("int");
     const raw = compileJSProgram(
@@ -783,10 +783,24 @@ describe("JS backend: shader I/O", () => {
       { name: "main", params: [], stage: "vertex" },
     );
     const first = raw.runInPlace({ uniforms: { [write.name]: 1 } }) as any;
+    expect(first.varyings[shade.name]).toBe(0.25);
     const second = raw.runInPlace({ uniforms: { [write.name]: 0 } }) as any;
     // The stage returns its outputs in one object, made once, as it keeps its slots.
     expect(second).toBe(first);
-    expect(second.varyings[shade.name]).toBe(0.25);
+    expect(second.varyings[shade.name]).toBeUndefined();
+
+    const depth = compileJSProgram(
+      () =>
+        Fn(() => {
+          If(fragCoord().x.greaterThan(1), () => {
+            builtinFragDepth().assign(float(0.25));
+          });
+          return vec4(1, 0, 0, 1);
+        })(),
+      { name: "main", params: [], stage: "fragment" },
+    );
+    expect((depth.runInPlace({ fragCoord: [2, 0] }) as any).fragDepth).toBe(0.25);
+    expect((depth.runInPlace({ fragCoord: [0, 0] }) as any).fragDepth).toBeUndefined();
   });
   /**
    * @canon spec-a-variable-holds-a-copy

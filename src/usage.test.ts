@@ -3859,10 +3859,11 @@ describe("JS target", () => {
       return outputStruct(vec4(1, 1, 1, 1));
     });
     let src = compileJSFn(() => prog(), { name: "main", params: [], stage: "fragment" });
-    expect(src).toContain("var res = { outputs: {}, varyings: {} };");
+    expect(src).toMatch(/var res = \{ outputs: \{ "_rmsl_out\d+": undefined \}, varyings: \{\}/);
     expect(src).toContain("res.outputs");
-    expect(src).toContain("res.fragDepth");
-    expect(src).not.toContain("res.value");
+    expect(src).toMatch(/res\.fragDepth = (?!undefined)/);
+    // The value is only cleared, as a call starts: an outputStruct program has none.
+    expect(src).not.toMatch(/res\.value = (?!undefined)/);
   });
 
   /**
