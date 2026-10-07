@@ -775,6 +775,22 @@ describe("what a JS routine allocates per call", () => {
 
 describe("a CPU compute adapter's storage", () => {
   /**
+   * @canon spec-a-cpu-compute-dispatch-allocates-nothing
+   */
+  it("writes nothing to the context a JS compute stage is given", () => {
+    const buf = instancedArray(3, "float");
+    const stage = compileJSCompute(
+      () => Fn(() => buf.element(invocationIndex()).assign(invocationIndex().toFloat()))() as any,
+      { name: "main", params: [] },
+    );
+    const data = new Float64Array(3);
+    const ctx = Object.freeze({ storages: Object.freeze({ [buf.name]: data }) });
+    stage(ctx, 3);
+    expect(Array.from(data)).toEqual([0, 1, 2]);
+    expect(Object.keys(ctx)).toEqual(["storages"]);
+  });
+
+  /**
    * @canon spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array
    */
   it("writes a vector storage buffer given as a flat typed array on JS", () => {

@@ -2676,20 +2676,19 @@ export function compileJSProgram(
     return buffer;
   }
 
-  /**
-   * Runs each invocation on `ctx` itself, so a dispatch allocates nothing:
-   * `ctx.index` is each invocation's index while it runs, and what it was
-   * before once the dispatch returns or throws.
-   */
+  /** The context each invocation of a dispatch runs on, made once, so the host's is never written. */
+  const invocationCtx: CpuShaderContext = { index: 0 };
+
   function compute(ctx: CpuShaderContext, count: number): void {
-    const index = ctx.index;
-    try {
-      for (let i = 0; i < count; i++) {
-        ctx.index = i;
-        runScratch(ctx);
-      }
-    } finally {
-      ctx.index = index;
+    invocationCtx.params = ctx.params;
+    invocationCtx.uniforms = ctx.uniforms;
+    invocationCtx.varyings = ctx.varyings;
+    invocationCtx.attributes = ctx.attributes;
+    invocationCtx.textures = ctx.textures;
+    invocationCtx.storages = ctx.storages;
+    for (let i = 0; i < count; i++) {
+      invocationCtx.index = i;
+      runScratch(invocationCtx);
     }
   }
 
