@@ -4157,9 +4157,6 @@ export function createWasmInputMarshaller(
       const heap = componentView(i, p.shaderType, storageLengths[i]!);
       if (array.length === heap.length) heap.set(array);
       else for (let k = 0; k < heap.length; k++) heap[k] = array[k]!;
-      if (float32 && heap instanceof Float64Array && !(array instanceof Float32Array)) {
-        for (let k = 0; k < heap.length; k++) heap[k] = Math.fround(heap[k]!);
-      }
     }
     return cursor;
   }

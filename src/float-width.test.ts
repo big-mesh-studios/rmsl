@@ -114,6 +114,26 @@ describe("a CPU compile at float: f32", () => {
 
   /**
    * @canon spec-a-cpu-target-at-f32-rounds-every-float-value-it-computes
+   */
+  it.each([
+    ["JS", compileJSCompute],
+    ["WASM", compileWasmCompute],
+  ] as const)("%s: leaves a storage element it does not write as the host gave it", (_, compile) => {
+    const buf = instancedArray(2, "vec2");
+    const stage = compile(
+      () =>
+        Fn(() => {
+          buf.element(invocationIndex()).x.assign(0.2);
+        })() as any,
+      { name: "step", params: [], float: "f32" },
+    );
+    const data = Float64Array.of(0.1, 0.2, 0.3, 0.4);
+    stage({ storages: { [buf.name]: data } }, 1);
+    expect(Array.from(data)).toEqual([f(0.2), 0.2, 0.3, 0.4]);
+  });
+
+  /**
+   * @canon spec-a-cpu-target-at-f32-rounds-every-float-value-it-computes
    * @canon spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws
    */
   it("draws the same 32-bit pixels through the JS and the WASM rasterizer", async () => {
