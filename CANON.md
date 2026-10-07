@@ -38,7 +38,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@axiom one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target) — A program computes the same result on every [target](#term-target), or every target refuses it with the same error.
   - [`@spec folding-gives-the-run-time-result`](#spec-folding-gives-the-run-time-result) — An operation whose operands are all literal values compiles to the literal it would compute at run time, on every target. This is [folding](#term-folding).
     - [`@spec float-folding-gives-the-run-time-result`](#spec-float-folding-gives-the-run-time-result) — A float operation on literal operands folds to the value the target would compute, a floored `mod` included.
-      - [`@bug folding-a-non-finite-float-writes-infinity-or-nan-as-a-literal`](#bug-folding-a-non-finite-float-writes-infinity-or-nan-as-a-literal) — Folding a float operation whose result is not finite writes JavaScript's spelling of it as the literal. GLSL gets `Infinity.0` and WGSL gets `NaNf`, which no driver accepts.
+    - [`@spec a-fold-that-is-not-finite-is-refused`](#spec-a-fold-that-is-not-finite-is-refused) — A float operation on literal operands whose result is not finite, such as `float(1).div(0)` or `float(-1).sqrt()`, is refused with one error on every target. The same operation on a run-time value gives its result.
     - [`@spec integer-folding-gives-the-run-time-result`](#spec-integer-folding-gives-the-run-time-result) — An integer operation on literal operands folds to the value the target would compute, a truncating division included.
   - [`@spec a-conversion-between-numeric-types-is-written-out`](#spec-a-conversion-between-numeric-types-is-written-out) — A conversion between numeric types compiles to an explicit conversion on every target, whether the program asks for it with a constructor, a `to` method or `convert`.
   - [`@spec a-target-without-a-builtin-gets-a-helper`](#spec-a-target-without-a-builtin-gets-a-helper) — Where one target has no built-in for an operation, the compiler emits a helper function that computes it. It emits the helper once per program, and calls it like the built-in.
@@ -637,6 +637,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact wgsl-defines-every-integer-edge-case`](#fact-wgsl-defines-every-integer-edge-case) — WGSL defines the result of every integer operation on run-time values. Overflow wraps. A division by zero returns the dividend and a remainder by zero returns zero. The most negative `i32` divided by `-1` returns itself. A shift uses its amount modulo the bit width.
 - [`@fact glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined) — GLSL ES 3.00 leaves undefined the result of an integer division or remainder by zero. It also leaves undefined a shift by a negative amount, or by the bit width or more.
 - [`@fact wgsl-rejects-a-constant-expression-that-fails`](#fact-wgsl-rejects-a-constant-expression-that-fails) — A WGSL shader fails to compile when a constant expression divides an integer by zero, shifts by the bit width or more, or overflows.
+- [`@fact wgsl-rejects-a-constant-expression-that-is-not-finite`](#fact-wgsl-rejects-a-constant-expression-that-is-not-finite) — A WGSL shader fails to compile when a constant expression has a result that is not finite, such as `1.0 / 0.0` or `sqrt(-1.0)`, and WGSL has no literal for infinity or NaN. The same expression read from a variable compiles.
+- [`@fact tsl-leaves-a-constant-that-is-not-finite-to-the-driver`](#fact-tsl-leaves-a-constant-that-is-not-finite-to-the-driver) — TSL folds no constants and writes a literal float as the text of its number, so `float(1).div(0)` reaches a WGSL driver as `1.0 / 0.0`, which the driver refuses.
 - [`@fact wgsl-has-no-implicit-numeric-conversion`](#fact-wgsl-has-no-implicit-numeric-conversion) — WGSL converts no value of a concrete numeric type to another type implicitly. A program spells out every conversion.
 - [`@fact a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64) — GLSL and WGSL compute `float` in 32 bits. JavaScript numbers, and the `f64` type of WebAssembly, are 64 bits.
 - [`@fact wasm-traps-on-an-integer-division-by-zero`](#fact-wasm-traps-on-an-integer-division-by-zero) — A WebAssembly integer division or remainder by zero traps, and so does a float-to-integer truncation of NaN or of a value out of range.
@@ -917,11 +919,13 @@ This follows because a program means the same whether its operands arrive at run
 
 > A float operation on literal operands folds to the value the target would compute, a floored `mod` included.
 
-##### @bug folding-a-non-finite-float-writes-infinity-or-nan-as-a-literal
+#### @spec a-fold-that-is-not-finite-is-refused
 
-> Folding a float operation whose result is not finite writes JavaScript's spelling of it as the literal. GLSL gets `Infinity.0` and WGSL gets `NaNf`, which no driver accepts.
+> A float operation on literal operands whose result is not finite, such as `float(1).div(0)` or `float(-1).sqrt()`, is refused with one error on every target. The same operation on a run-time value gives its result.
 
-Issue: #74
+Derives from: [`fact-wgsl-rejects-a-constant-expression-that-is-not-finite`](#fact-wgsl-rejects-a-constant-expression-that-is-not-finite), [`fact-tsl-leaves-a-constant-that-is-not-finite-to-the-driver`](#fact-tsl-leaves-a-constant-that-is-not-finite-to-the-driver)
+
+This follows because WGSL has no literal for such a result and WebGPU defines no run-time value to fall back to, so there is no result to give. Integer folding differs: WGSL defines the run-time result of an integer operation, and the compiler gives it ([`spec-wgsl-integer-arithmetic-keeps-its-defined-result`](#spec-wgsl-integer-arithmetic-keeps-its-defined-result)).
 
 #### @spec integer-folding-gives-the-run-time-result
 
@@ -4332,6 +4336,18 @@ This is a fact of the GLSL ES 3.00 specification, not a choice.
 > A WGSL shader fails to compile when a constant expression divides an integer by zero, shifts by the bit width or more, or overflows.
 
 This is a fact of the WGSL specification, not a choice.
+
+## @fact wgsl-rejects-a-constant-expression-that-is-not-finite
+
+> A WGSL shader fails to compile when a constant expression has a result that is not finite, such as `1.0 / 0.0` or `sqrt(-1.0)`, and WGSL has no literal for infinity or NaN. The same expression read from a variable compiles.
+
+This is a fact of the WGSL specification, which Dawn enforces. Dawn reports `'1.0 / 0.0' cannot be represented as 'abstract-float'`, and `sqrt must be called with a value >= 0`.
+
+## @fact tsl-leaves-a-constant-that-is-not-finite-to-the-driver
+
+> TSL folds no constants and writes a literal float as the text of its number, so `float(1).div(0)` reaches a WGSL driver as `1.0 / 0.0`, which the driver refuses.
+
+This is a fact of `src/nodes/core/NodeBuilder.js` in three.js 0.186.0.
 
 ## @fact wgsl-has-no-implicit-numeric-conversion
 

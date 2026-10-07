@@ -28,18 +28,6 @@ const roundTrip = (graph: SerializedGraph) => deserialize(JSON.parse(JSON.string
 
 describe("known bugs of the core, each failing until its fix", () => {
   /**
-   * Folding a float operation whose result is not finite writes JavaScript's
-   * spelling of it as the literal, `Infinity.0` on GLSL and `NaNf` on WGSL,
-   * which no driver accepts.
-   *
-   * @canon bug-folding-a-non-finite-float-writes-infinity-or-nan-as-a-literal
-   */
-  it.fails("folds a division by zero and the root of a negative number to source a driver accepts", () => {
-    expect(compileGlsl.fragment(Fn(() => vec4(float(1).div(0)))())).not.toMatch(/Infinity|NaN/);
-    expect(compileWgsl.fragment(Fn(() => vec4(float(-1).sqrt()))())).not.toMatch(/Infinity|NaN/);
-  });
-
-  /**
    * `int` and `uint` given a number outside their range wrap it modulo 2^32,
    * so `int(3e9)` is -1294967296 and `uint(5e9)` is 705032704.
    *

@@ -528,3 +528,26 @@ describe("an integer and a float operand", () => {
     }
   });
 });
+
+describe("folding a float operation on literals", () => {
+  /**
+   * @canon spec-a-fold-that-is-not-finite-is-refused
+   */
+  it("refuses a result that is not finite on every target", () => {
+    const divided = () => Fn(() => vec4(float(1).div(0)))();
+    const rooted = () => Fn(() => vec4(float(-1).sqrt()))();
+    for (const build of [divided, rooted]) {
+      expect(() => compileGlsl.fragment(build())).toThrow(/no target can write/);
+      expect(() => compileWgsl.fragment(build())).toThrow(/no target can write/);
+      expect(() => compileJSFn(build as any, none)).toThrow(/no target can write/);
+    }
+  });
+
+  /**
+   * @canon spec-a-fold-that-is-not-finite-is-refused
+   */
+  it("still gives Infinity for the same operation on a run-time value", () => {
+    const build = (a: any) => Fn(() => a.div(0).toVar())();
+    expect(compileJSRoutine(build, param)({ params: { a: 1 } })).toBe(Infinity);
+  });
+});
