@@ -1547,10 +1547,33 @@ export function typedOperand(value: any, operandType: string): BaseNode<ShaderTy
   return node({ _t: scalarType, type: scalarType, value }) as BaseNode<ShaderType>;
 }
 
+/** The operations whose operands share one component kind, integer or float. */
+const SAME_KIND_OPS = new Set(["add", "sub", "mul", "div", "mod", "min", "max"]);
+
+/** `"integer"` for an int, uint or integer vector, `"float"` for a float, float vector or matrix, otherwise `undefined`. */
+function componentKind(type: string | undefined): "integer" | "float" | undefined {
+  if (type === undefined) return undefined;
+  if (/^(int|uint|ivec[234]|uvec[234])$/.test(type)) return "integer";
+  if (/^(float|vec[234]|mat)/.test(type)) return "float";
+  return undefined;
+}
+
+/** Refuse an operation on an integer operand and a float operand, which no target converts the same way. */
+function assertSameKind(type: string, params: BaseNode<ShaderType>[]): void {
+  let kinds = params.map((p) => componentKind((p as any)?._t));
+  if (kinds.includes("integer") && kinds.includes("float")) {
+    let types = params.map((p) => (p as any)?._t).join(" and ");
+    throw new Error(
+      `[RMSL] ${type}() takes operands of one kind, not ${types}. Convert one of them with toFloat() or toInt() first.`,
+    );
+  }
+}
+
 export function op(type: string, ...args: any[]): Node<ShaderType> {
   let first = wrapValue(args[0]) as BaseNode<ShaderType>;
   let firstT = (first as any)?._t || "float";
   let params = [first, ...args.slice(1).map((a) => typedOperand(a, firstT))];
+  if (SAME_KIND_OPS.has(type)) assertSameKind(type, params);
   // The result follows the *widest* operand, so a scalar broadcast beside a
   // vector keeps the vector type (`1 - vec3` is still vec3).
   let valueIndex = VALUE_OPERAND[type] ?? 0;
@@ -1599,6 +1622,7 @@ export function comp(type: string, a: any, b: any): Node<ShaderType> {
   // operand compared against a plain number must be typed accordingly.
   let first = wrapValue(a) as BaseNode<ShaderType>;
   let params = [first, typedOperand(b, (first as any)?._t || "float")];
+  assertSameKind(type, params);
   let widths = params.map((p) => TYPE_WIDTH[(p as any)?._t] ?? 1);
   let width = Math.max(widths[0], widths[1]);
 

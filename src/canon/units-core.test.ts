@@ -511,3 +511,20 @@ describe("a bare number takes the type beside it", () => {
     expect(routine({})).toBe(7);
   });
 });
+
+describe("an integer and a float operand", () => {
+  /**
+   * @canon spec-an-integer-and-a-float-operand-are-refused
+   */
+  it("are refused by an operation and by a comparison, with the same error on every target", () => {
+    const count = uniform("int") as any;
+    const scale = uniform("float") as any;
+    const arithmetic = () => Fn(() => vec4(count.add(scale), 0, 0, 1))();
+    const comparison = () => Fn(() => vec4(count.lessThan(scale).select(1, 0), 0, 0, 1))();
+    for (const build of [arithmetic, comparison]) {
+      expect(() => compileGlsl.fragment(build())).toThrow(/one kind/);
+      expect(() => compileWgsl.fragment(build())).toThrow(/one kind/);
+      expect(() => compileJSFn(build as any, none)).toThrow(/one kind/);
+    }
+  });
+});

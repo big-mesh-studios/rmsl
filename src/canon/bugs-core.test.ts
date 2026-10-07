@@ -87,19 +87,4 @@ describe("known bugs of the core, each failing until its fix", () => {
     expect(() => deserialize(graph({ _t: "float", type: "frobnicate" }))).toThrow();
     expect(() => deserialize(graph({ _t: "float", type: "uniform", value: { shaderType: "float" } }))).toThrow();
   });
-
-  /**
-   * An operation on an `int` and a `float` operand compiles, converting one
-   * of them: WGSL truncates the float to `i32`, GLSL widens the int to
-   * `float`, so the targets disagree.
-   *
-   * @canon bug-an-int-and-a-float-operand-compile-with-a-hidden-conversion
-   */
-  it.fails("refuses an operation on an int and a float operand on GLSL and WGSL", () => {
-    const count = uniform("int");
-    const scale = uniform("float");
-    const build = () => Fn(() => vec4((count as any).add(scale), 0, 0, 1))();
-    expect(() => compileGlsl.fragment(build())).toThrow();
-    expect(() => compileWgsl.fragment(build())).toThrow();
-  });
 });

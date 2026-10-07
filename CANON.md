@@ -241,7 +241,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug js-and-wgsl-read-a-whole-storage-buffer`](#bug-js-and-wgsl-read-a-whole-storage-buffer) — JS and WGSL compile a storage node read as a whole. JS adds a number to an array, and WGSL emits a shader no driver accepts. Only WASM refuses it.
     - [`@spec a-scalar-argument-beside-a-vector-is-widened-to-it`](#spec-a-scalar-argument-beside-a-vector-is-widened-to-it) — A scalar argument beside a vector in `step`, `smoothstep`, `clamp`, `min`, `max`, `pow` or `mod` is widened to that vector before any target compiles it.
     - [`@spec an-integer-and-a-float-operand-are-refused`](#spec-an-integer-and-a-float-operand-are-refused) — An operation on an integer operand and a float operand is refused, by the type checker and on every target. A bare number takes the type beside it instead.
-      - [`@bug an-int-and-a-float-operand-compile-with-a-hidden-conversion`](#bug-an-int-and-a-float-operand-compile-with-a-hidden-conversion) — GLSL and WGSL compile an operation on an `int` and a `float` operand. WGSL truncates the float to `i32`, and GLSL converts the int to `float`.
     - [`@spec a-for-update-that-holds-a-block-is-refused`](#spec-a-for-update-that-holds-a-block-is-refused) — A `For` whose update holds a block, such as an `If`, is refused on every target.
   - [`@spec a-case-with-no-values-is-refused`](#spec-a-case-with-no-values-is-refused) — A `Case` given no values is refused as the program builds it, with an error that names `Case`.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
@@ -2058,13 +2057,9 @@ This follows because a scalar beside a vector broadcasts, and widening it once i
 
 > An operation on an integer operand and a float operand is refused, by the type checker and on every target. A bare number takes the type beside it instead.
 
-spec-operands-of-different-widths-are-refused
+Derives from: [`fact-wgsl-has-no-implicit-numeric-conversion`](#fact-wgsl-has-no-implicit-numeric-conversion)
 
-##### @bug an-int-and-a-float-operand-compile-with-a-hidden-conversion
-
-> GLSL and WGSL compile an operation on an `int` and a `float` operand. WGSL truncates the float to `i32`, and GLSL converts the int to `float`.
-
-Issue: #124
+This follows because WGSL converts nothing implicitly and GLSL converts the integer to a float, so a target that compiled it would give a result the others do not.
 
 #### @spec a-for-update-that-holds-a-block-is-refused
 
