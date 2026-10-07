@@ -228,6 +228,17 @@ describe("a CPU grid at float: f32", () => {
     expect(Array.from(out)).toEqual(Array.from(js));
     expect(Array.from(guard)).toEqual(new Array(8).fill(7));
   });
+
+  /**
+   * @canon spec-a-grid-fills-a-float64-array-for-a-float-result
+   */
+  it("refuses an out of another kind in the WASM module's own memory", () => {
+    const memory = new WebAssembly.Memory({ initial: 2, maximum: 2, shared: true });
+    const build = () => Fn(() => vec4(fragCoord().x, 0.5, 0.25, 1))() as any;
+    const grid = compileWasmGrid(build, { name: "main", params: [], memory, sharedMemory: true, float: "f32" });
+    const out = new Float64Array(memory.buffer, 65536, 8);
+    expect(() => grid({}, 2, 1, out as any)).toThrow(/Float32Array/);
+  });
 });
 
 describe("a CPU compile at the default width", () => {

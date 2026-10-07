@@ -4311,15 +4311,15 @@ export function instantiateWasmProgram(
     return shaderResult;
   }
 
+  /** The typed array the module's `draw` writes its components as: 32-bit floats at `float: "f32"`. */
+  const DrawArray = typedArrayOfKind(drawOutput?.kind ?? "float", float32 === true);
+
   /**
    * `CpuRoutine.draw`: marshals `ctx` once, then calls the module's own
    * `draw` export to render the whole `width x height` grid in one call
    * (growing the buffer if needed) — see "A whole grid in one call" in
    * docs/wasm-benchmarks.md for why this exists.
    */
-  /** The typed array the module's `draw` writes its components as: 32-bit floats at `float: "f32"`. */
-  const DrawArray = typedArrayOfKind(drawOutput?.kind ?? "float", float32 === true);
-
   function draw(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
     if (!drawOutput || !wasmDraw) {
       throw new Error(
@@ -4333,7 +4333,12 @@ export function instantiateWasmProgram(
     // its offset — this is the zero-copy multi-worker path, where each
     // worker's instance imports the same SharedArrayBuffer-backed memory and
     // `out` is a view pinning where in it this call should land.
-    if (out && out.buffer === memory.buffer && out instanceof DrawArray) {
+    if (out && out.buffer === memory.buffer) {
+      if (!(out instanceof DrawArray)) {
+        throw new Error(
+          `[RMSL] compileWasmGrid: an out in the module's own memory is written in place, so it must be the ${DrawArray.name} the grid fills, not a ${out.constructor.name}.`,
+        );
+      }
       const n = copyArgs(drawArgs, args);
       drawArgs[n] = width;
       drawArgs[n + 1] = height;
