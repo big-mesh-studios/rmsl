@@ -422,3 +422,29 @@ describe("an inline Fn whose value an operation reads more than once", () => {
     expect(run(compile, () => vec3(0, 0, 0).mix(vec3(4, 4, 4), counted(0.5)).z)).toEqual({ runs: 1, result: 2 });
   });
 });
+
+describe("a coordinate far past the edge on WASM", () => {
+  /**
+   * @canon spec-a-cpu-target-wraps-as-the-texture-asks
+   */
+  it("clamps a sampling coordinate far past the edge", () => {
+    const tex = uniform("sampler2D");
+    const routine = compileWasmRoutine(
+      (a: any) => Fn(() => tex.texture(vec2(a, 0.5)).x.toVar())(),
+      { name: "main", params: [{ name: "a", type: "float" as const }] },
+    );
+    const texture = { data: [1, 2], width: 2, height: 1, channels: 1 as const };
+    expect(routine({ params: { a: 1e12 }, textures: { [tex.name]: texture } })).toBe(2);
+  });
+
+  /**
+   * @canon spec-a-triangle-off-screen-draws-nothing
+   */
+  it("draws nothing for a triangle far off screen", () => {
+    const { pos, routine } = flat();
+    const far = new Float64Array([1e12, 0, 0, 2e12, 0, 0, 1e12, 1, 0]);
+    expect(Array.from(routine.draw({ attributes: { [pos.name]: far } }, { width: 1, height: 1 }))).toEqual([
+      0, 0, 0, 0,
+    ]);
+  });
+});

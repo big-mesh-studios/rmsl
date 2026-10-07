@@ -202,17 +202,6 @@ describe("known bugs of the JS target, each failing until its fix", () => {
   });
 
   /**
-   * On JS, converting a negative float to `uint` wraps it to a large unsigned
-   * integer instead of clamping it to zero.
-   *
-   * @canon bug-js-leaves-a-float-outside-an-integer-range-unclamped
-   */
-  it.fails("clamps a negative float converted to uint to zero on JS", () => {
-    const run = compileJSRoutine((a: any) => Fn(() => a.toUint().toVar())(), param);
-    expect(run({ params: { a: -1.5 } })).toBe(0);
-  });
-
-  /**
    * On JS, an element past the end of a shorter array the call passes reads
    * as `undefined`, which makes `NaN`.
    *

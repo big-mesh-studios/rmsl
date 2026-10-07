@@ -286,6 +286,11 @@ export const iDivS = bin(WASM_OP.i32DivS);
 export const toF64 = un(WASM_OP.f64ConvertI32S);
 export const toI32 = un(WASM_OP.i32TruncF64S);
 
+/** `i32.trunc_sat_f64_s`: truncate an f64 toward zero to a signed i32, saturating at its range, with NaN as 0. */
+export const I32_TRUNC_SAT_F64_S = [0xfc, 0x02];
+/** `i32.trunc_sat_f64_u`: truncate an f64 toward zero to an unsigned i32, saturating at its range, with NaN as 0. */
+export const I32_TRUNC_SAT_F64_U = [0xfc, 0x03];
+
 export const loadF64 = (addr: number[]): number[] => [...addr, WASM_OP.f64Load, ...MEMARG_NATURAL];
 export const storeF64 = (addr: number[], value: number[]): number[] => [
   ...addr,

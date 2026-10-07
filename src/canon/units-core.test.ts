@@ -18,8 +18,10 @@ import {
   smoothstep,
   sub,
   textureSize,
+  uint,
   uniform,
   uniformArray,
+  uvec2,
   vec2,
   vec3,
   vec4,
@@ -589,5 +591,58 @@ describe("a scalar beside a vector in arithmetic", () => {
     expect((float(2) as any).mul(vec3(1, 2, 3))._t).toBe("vec3");
     expect((vec3(1, 2, 3) as any).mul(float(2))._t).toBe("vec3");
     expect((float(2) as any).lessThan(vec3(1, 2, 3))._t).toBe("bvec3");
+  });
+});
+
+describe("a float converted to an integer", () => {
+  const cases: [number, number, number][] = [
+    [2.9, 2, 2],
+    [-2.9, -2, 0],
+    [3e9, 2147483520, 3000000000],
+    [-3e9, -2147483648, 0],
+    [5e9, 2147483520, 4294967040],
+    [Infinity, 2147483520, 4294967040],
+    [-Infinity, -2147483648, 0],
+  ];
+
+  /**
+   * @canon spec-a-float-outside-an-integer-range-clamps-to-it
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine],
+  ] as const)("truncates and clamps to the range of int and uint on %s", (_, compile) => {
+    const toInt = compile((a: any) => Fn(() => a.toInt().toVar())(), param);
+    const toUint = compile((a: any) => Fn(() => a.toUint().toVar())(), param);
+    for (const [x, asInt, asUint] of cases) {
+      expect(toInt({ params: { a: x } }), `int(${x})`).toBe(asInt);
+      expect(toUint({ params: { a: x } }), `uint(${x})`).toBe(asUint);
+    }
+  });
+
+  /**
+   * @canon spec-a-cpu-target-gives-zero-for-a-nan-converted-to-an-integer
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine],
+  ] as const)("gives 0 for a NaN on %s", (_, compile) => {
+    const toInt = compile((a: any) => Fn(() => a.toInt().toVar())(), param);
+    const toUint = compile((a: any) => Fn(() => a.toUint().toVar())(), param);
+    expect(toInt({ params: { a: NaN } })).toBe(0);
+    expect(toUint({ params: { a: NaN } })).toBe(0);
+  });
+
+  /**
+   * @canon spec-a-number-outside-an-integer-type-is-refused-by-its-constructor
+   */
+  it("is refused when a constructor is given a number outside the range", () => {
+    expect(() => int(3e9)).toThrow(/outside the range of int/);
+    expect(() => int(-2147483649)).toThrow(/outside the range of int/);
+    expect(() => uint(5e9)).toThrow(/outside the range of uint/);
+    expect(() => uvec2(1, 5e9)).toThrow(/outside the range of uint/);
+    expect(() => int(NaN)).toThrow(/outside the range of int/);
+    expect((int(2147483647) as any).value).toBe(2147483647);
+    expect((int(-2.9) as any).value).toBe(-2);
   });
 });

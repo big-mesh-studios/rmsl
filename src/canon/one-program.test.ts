@@ -79,11 +79,23 @@ describe("one program means the same on every target", () => {
   /**
    * Converting a float past the range of an `int` clamps it on WGSL.
    *
-   * @canon spec-a-float-converted-to-an-integer-clamps-to-its-range
+   * @canon spec-a-float-outside-an-integer-range-clamps-to-it
    */
   it.skipIf(GPU_EVALUATION_SKIPPED)("clamps a float past the int range on WGSL", async () => {
     expect(await evaluateWGSL((a) => a.toInt().toFloat(), [3e9])).toBe(2147483520);
     expect(await evaluateWGSL((a) => a.toInt().toFloat(), [-3e9])).toBe(-2147483648);
+  });
+
+  /**
+   * `0 / 0` computed at run time is NaN, and what a driver converts it to is
+   * its own choice, so the test can only read some integer back.
+   *
+   * @canon exception-a-gpu-target-lets-the-driver-pick-the-integer-of-a-nan
+   */
+  it.skipIf(GPU_EVALUATION_SKIPPED)("reads some integer from a NaN converted to int on the GPU targets", async () => {
+    const build = (a: Node<"float">) => a.div(a).toInt().toFloat();
+    expect(Number.isInteger(await evaluateGLSL(build, [0]))).toBe(true);
+    expect(Number.isInteger(await evaluateWGSL(build, [0]))).toBe(true);
   });
 
   /**

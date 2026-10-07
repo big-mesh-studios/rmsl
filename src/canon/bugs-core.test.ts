@@ -28,17 +28,6 @@ const roundTrip = (graph: SerializedGraph) => deserialize(JSON.parse(JSON.string
 
 describe("known bugs of the core, each failing until its fix", () => {
   /**
-   * `int` and `uint` given a number outside their range wrap it modulo 2^32,
-   * so `int(3e9)` is -1294967296 and `uint(5e9)` is 705032704.
-   *
-   * @canon bug-an-integer-literal-out-of-range-wraps
-   */
-  it.fails("clamps a number outside the range of int or uint given to its constructor", () => {
-    expect(evaluateJS(() => Fn(() => int(3e9).toFloat())())).toBe(2147483520);
-    expect(evaluateJS(() => Fn(() => uint(5e9).toFloat())())).toBe(4294967040);
-  });
-
-  /**
    * A literal that is NaN or infinite becomes `null` in JSON, and comes back
    * as a float with no value, so a restored `u + Infinity` computes `u`.
    *

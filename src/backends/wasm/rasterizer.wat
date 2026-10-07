@@ -369,10 +369,10 @@
               (f64.mul (f64.sub (local.get $s1y) (local.get $s0y)) (f64.sub (local.get $s2x) (local.get $s0x)))))
           (br_if $skipDegenerate (f64.eq (local.get $area) (f64.const 0)))
 
-          (local.set $minX (i32.trunc_f64_s (f64.max (f64.floor (f64.min (f64.min (local.get $s0x) (local.get $s1x)) (local.get $s2x))) (f64.const 0))))
-          (local.set $maxX (i32.trunc_f64_s (f64.min (f64.ceil (f64.max (f64.max (local.get $s0x) (local.get $s1x)) (local.get $s2x))) (f64.sub (local.get $widthF) (f64.const 1)))))
-          (local.set $minY (i32.trunc_f64_s (f64.max (f64.floor (f64.min (f64.min (local.get $s0y) (local.get $s1y)) (local.get $s2y))) (f64.const 0))))
-          (local.set $maxY (i32.trunc_f64_s (f64.min (f64.ceil (f64.max (f64.max (local.get $s0y) (local.get $s1y)) (local.get $s2y))) (f64.sub (local.get $heightF) (f64.const 1)))))
+          (local.set $minX (i32.trunc_sat_f64_s (f64.max (f64.floor (f64.min (f64.min (local.get $s0x) (local.get $s1x)) (local.get $s2x))) (f64.const 0))))
+          (local.set $maxX (i32.trunc_sat_f64_s (f64.min (f64.ceil (f64.max (f64.max (local.get $s0x) (local.get $s1x)) (local.get $s2x))) (f64.sub (local.get $widthF) (f64.const 1)))))
+          (local.set $minY (i32.trunc_sat_f64_s (f64.max (f64.floor (f64.min (f64.min (local.get $s0y) (local.get $s1y)) (local.get $s2y))) (f64.const 0))))
+          (local.set $maxY (i32.trunc_sat_f64_s (f64.min (f64.ceil (f64.max (f64.max (local.get $s0y) (local.get $s1y)) (local.get $s2y))) (f64.sub (local.get $heightF) (f64.const 1)))))
 
           (local.set $y (local.get $minY))
           (block $yBreak

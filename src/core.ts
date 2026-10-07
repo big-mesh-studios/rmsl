@@ -1992,11 +1992,21 @@ export function vec4(
   if (w !== undefined) params.push(wrapValue(w) as BaseNode<ShaderType>);
   return node({ _t: "vec4", type: "construct", params }) as Node<"vec4">;
 }
+/** The number as an integer of `type`, truncated toward zero. A number the type cannot hold is refused. */
+function integerLiteral(type: "int" | "uint", v: number): number {
+  let [low, high] = type === "int" ? [-2147483648, 2147483647] : [0, 4294967295];
+  let truncated = Math.trunc(v);
+  if (!(truncated >= low && truncated <= high)) {
+    throw new Error(`[RMSL] ${v} is outside the range of ${type}, ${low} to ${high}. Use a number inside it.`);
+  }
+  return truncated;
+}
+
 export function int(v: number | Node<"float">): Node<"int"> {
   if (isNode(v)) {
     return node({ _t: "int", type: "construct", params: [v] }) as Node<"int">;
   }
-  return node({ _t: "int", type: "int", value: v | 0 }) as Node<"int">;
+  return node({ _t: "int", type: "int", value: integerLiteral("int", v) }) as Node<"int">;
 }
 export function uint(v: number | Node<"float"> | Node<"int">): Node<"uint"> {
   if (isNode(v)) {
@@ -2005,7 +2015,7 @@ export function uint(v: number | Node<"float"> | Node<"int">): Node<"uint"> {
   if (v < 0) {
     throw new Error(`[RMSL] uint(${v}) is negative. An unsigned literal cannot be negative.`);
   }
-  return node({ _t: "uint", type: "uint", value: v >>> 0 }) as Node<"uint">;
+  return node({ _t: "uint", type: "uint", value: integerLiteral("uint", v) }) as Node<"uint">;
 }
 
 /**
@@ -2018,7 +2028,7 @@ export function makeIntVecConstructor<T extends ShaderType>(
   width: number,
   scalarType: "int" | "uint",
 ): (...args: any[]) => Node<T> {
-  let toComponent = scalarType === "uint" ? (v: number) => v >>> 0 : (v: number) => v | 0;
+  let toComponent = (v: number) => integerLiteral(scalarType, v);
   return (...args: any[]): Node<T> => {
     // Every number, whatever form the call takes: uvec2(-1) is as wrong as uvec2(-1, 0).
     if (scalarType === "uint") {

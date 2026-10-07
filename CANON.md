@@ -97,7 +97,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@exception a-mipmapped-filter-reads-as-its-base-filter`](#exception-a-mipmapped-filter-reads-as-its-base-filter) — A minification filter that reads mipmaps reads as the filter it is based on, because no target builds a mip chain. Issue #4 asks for one.
     - [`@spec a-cpu-target-filters-as-the-texture-asks`](#spec-a-cpu-target-filters-as-the-texture-asks) — A CPU target reads the nearest texel when the host's texture names no filter. It blends neighbouring texels when the texture asks for linear filtering. A scene texture names linear filtering unless told otherwise, through the sampler rule.
     - [`@spec a-cpu-target-wraps-as-the-texture-asks`](#spec-a-cpu-target-wraps-as-the-texture-asks) — A coordinate past an edge of a texture, on either side, wraps the way the texture asks.
-      - [`@bug wasm-traps-on-a-sampling-coordinate-far-past-the-edge`](#bug-wasm-traps-on-a-sampling-coordinate-far-past-the-edge) — Sampling truncates a coordinate far past the edge to an i32 before it wraps, which traps.
     - [`@spec a-byte-texture-reads-as-zero-to-one`](#spec-a-byte-texture-reads-as-zero-to-one) — A byte texture read through a float sampler gives values from 0 to 1, through `texture`, `textureLod` and `textureLoad` alike. A float texture keeps its values, and an integer texture keeps its bytes as they are.
     - [`@spec a-texel-holds-the-channels-its-texture-stores`](#spec-a-texel-holds-the-channels-its-texture-stores) — A texel holds as many channels as its texture stores, and a filter blends each channel only with the same channel of its neighbours. A channel the texel lacks reads as 0, and a missing alpha as 1.
     - [`@spec a-3d-texture-blends-across-its-depth`](#spec-a-3d-texture-blends-across-its-depth) — A linear filter on a 3D texture blends neighbouring texels across its depth as well as its width and height.
@@ -113,10 +112,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@bug wasm-keeps-an-aggregate-uniform-the-call-leaves-out`](#bug-wasm-keeps-an-aggregate-uniform-the-call-leaves-out) — A routine keeps a vector or matrix uniform the call does not set as the last call wrote it. An unset scalar uniform reads zero.
   - [`@spec an-integer-reaches-the-host-as-the-integer-it-is`](#spec-an-integer-reaches-the-host-as-the-integer-it-is) — An `int` or `uint` passes between the host and a program as the integer it is. A `uint` above the largest `int` stays unsigned, in a uniform and in a storage buffer read back.
   - [`@axiom a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives) — Where the targets could give different results, the CPU targets give the result WebGPU gives. Where WebGL and WebGPU differ, rmsl follows WebGPU, and an exception names where WebGL departs. Where WebGPU itself leaves a result open, rmsl picks one, and the GPU targets are the exception.
-    - [`@spec a-float-converted-to-an-integer-clamps-to-its-range`](#spec-a-float-converted-to-an-integer-clamps-to-its-range) — Converting a float to `int` or `uint` truncates it toward zero and clamps the result to the range WebGPU clamps to. For `int`, that runs from -2147483648 to 2147483520, the largest `int` a 32-bit float holds exactly.
-      - [`@bug wasm-traps-on-a-float-outside-an-integer-range`](#bug-wasm-traps-on-a-float-outside-an-integer-range) — On WASM, converting a float that is NaN or outside the integer's range traps.
-      - [`@bug js-leaves-a-float-outside-an-integer-range-unclamped`](#bug-js-leaves-a-float-outside-an-integer-range-unclamped) — On JS, converting a float outside the integer's range leaves it unclamped. A float above an `int`'s range stays above it, a negative float converted to `uint` wraps to a large one, and NaN stays NaN.
-      - [`@bug an-integer-literal-out-of-range-wraps`](#bug-an-integer-literal-out-of-range-wraps) — `int` and `uint` given a number outside their range wrap it modulo 2^32, so `int(3e9)` is -1294967296 and `uint(5e9)` is 705032704.
+    - [`@spec a-float-converted-to-an-integer-clamps-to-its-range`](#spec-a-float-converted-to-an-integer-clamps-to-its-range) — Converting a float to `int` or `uint` truncates it toward zero and clamps the result to the range WebGPU clamps to, and a NaN gives 0. For `int`, that range runs from -2147483648 to 2147483520, the largest `int` a 32-bit float holds exactly.
+      - [`@spec a-float-outside-an-integer-range-clamps-to-it`](#spec-a-float-outside-an-integer-range-clamps-to-it) — A float that is not NaN converts to the integer nearest it inside the range, truncated toward zero. An infinity converts to an end of the range.
+      - [`@spec a-nan-converted-to-an-integer-gives-zero`](#spec-a-nan-converted-to-an-integer-gives-zero) — A NaN converted to `int` or `uint` gives 0.
+        - [`@spec a-cpu-target-gives-zero-for-a-nan-converted-to-an-integer`](#spec-a-cpu-target-gives-zero-for-a-nan-converted-to-an-integer) — On a CPU target, a NaN converted to `int` or `uint` gives 0.
+        - [`@exception a-gpu-target-lets-the-driver-pick-the-integer-of-a-nan`](#exception-a-gpu-target-lets-the-driver-pick-the-integer-of-a-nan) — On GLSL and WGSL, a NaN converted to `int` or `uint` gives what the driver gives.
+    - [`@spec a-number-outside-an-integer-type-is-refused-by-its-constructor`](#spec-a-number-outside-an-integer-type-is-refused-by-its-constructor) — `int`, `uint`, and the integer vector constructors given a number outside their range refuse it, with an error that names the type and its range. A fraction inside the range truncates toward zero.
     - [`@spec integer-arithmetic-follows-wgsl`](#spec-integer-arithmetic-follows-wgsl) — Every target gives an integer operation the result that WGSL defines for it.
       - [`@spec js-integer-arithmetic-follows-wgsl`](#spec-js-integer-arithmetic-follows-wgsl) — The JavaScript target gives an integer operation the result that WGSL defines for it.
       - [`@spec wasm-integer-arithmetic-follows-wgsl`](#spec-wasm-integer-arithmetic-follows-wgsl) — The WebAssembly target gives an integer operation the result that WGSL defines for it.
@@ -552,7 +553,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-rasterizer-clips-outside-the-depth-range`](#spec-a-rasterizer-clips-outside-the-depth-range) — The rasterizer clips a triangle at depth 0 and depth 1, so it draws nothing whose depth lies outside that range.
         - [`@bug js-rasterizer-draws-a-triangle-below-zero-depth`](#bug-js-rasterizer-draws-a-triangle-below-zero-depth) — The JS rasterizer draws a triangle whose depth lies below zero, which WebGPU clips away.
       - [`@spec a-triangle-off-screen-draws-nothing`](#spec-a-triangle-off-screen-draws-nothing) — A triangle wholly outside the viewport draws nothing, at any distance from it.
-        - [`@bug wasm-rasterizer-traps-on-a-triangle-far-off-screen`](#bug-wasm-rasterizer-traps-on-a-triangle-far-off-screen) — The rasterizer truncates a triangle's bounding box to i32 before it clamps it to the viewport, which traps for a triangle far off screen.
       - [`@spec a-rasterizer-gives-each-vertex-its-own-position`](#spec-a-rasterizer-gives-each-vertex-its-own-position) — A CPU rasterizer places each vertex of a draw at the position its own vertex call returned, whatever the vertex program keeps in variables.
       - [`@spec a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds`](#spec-a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds) — A CPU rasterizer draws a triangle whether its vertices run clockwise or counter-clockwise on the screen.
     - [`@spec shader-logic-is-tested-without-a-graphics-api`](#spec-shader-logic-is-tested-without-a-graphics-api) — The `./test` library runs a graph on the JS target and hands back values or a grid of fragments. A plain unit test can then assert on the logic of a shader.
@@ -639,6 +639,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined) — GLSL ES 3.00 leaves undefined the result of an integer division or remainder by zero. It also leaves undefined a shift by a negative amount, or by the bit width or more.
 - [`@fact wgsl-rejects-a-constant-expression-that-fails`](#fact-wgsl-rejects-a-constant-expression-that-fails) — A WGSL shader fails to compile when a constant expression divides an integer by zero, shifts by the bit width or more, or overflows.
 - [`@fact wgsl-rejects-a-constant-expression-that-is-not-finite`](#fact-wgsl-rejects-a-constant-expression-that-is-not-finite) — A WGSL shader fails to compile when a constant expression has a result that is not finite, such as `1.0 / 0.0` or `sqrt(-1.0)`, and WGSL has no literal for infinity or NaN. The same expression read from a variable compiles.
+- [`@fact wgsl-leaves-the-integer-of-a-nan-open`](#fact-wgsl-leaves-the-integer-of-a-nan-open) — WGSL does not define the `i32` or `u32` a NaN converts to, where it clamps a float outside the range to the largest or smallest value.
 - [`@fact tsl-leaves-a-constant-that-is-not-finite-to-the-driver`](#fact-tsl-leaves-a-constant-that-is-not-finite-to-the-driver) — TSL folds no constants and writes a literal float as the text of its number, so `float(1).div(0)` reaches a WGSL driver as `1.0 / 0.0`, which the driver refuses.
 - [`@fact wgsl-has-no-implicit-numeric-conversion`](#fact-wgsl-has-no-implicit-numeric-conversion) — WGSL converts no value of a concrete numeric type to another type implicitly. A program spells out every conversion.
 - [`@fact a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64) — GLSL and WGSL compute `float` in 32 bits. JavaScript numbers, and the `f64` type of WebAssembly, are 64 bits.
@@ -1264,12 +1265,6 @@ Derives from: [`fact-a-mipmapped-texture-without-its-chain-samples-black`](#fact
 
 > A coordinate past an edge of a texture, on either side, wraps the way the texture asks.
 
-##### @bug wasm-traps-on-a-sampling-coordinate-far-past-the-edge
-
-> Sampling truncates a coordinate far past the edge to an i32 before it wraps, which traps.
-
-Issue: #89
-
 #### @spec a-byte-texture-reads-as-zero-to-one
 
 > A byte texture read through a float sampler gives values from 0 to 1, through `texture`, `textureLod` and `textureLoad` alike. A float texture keeps its values, and an integer texture keeps its bytes as they are.
@@ -1354,25 +1349,35 @@ This narrows [the first axiom](#axiom-one-program-means-the-same-on-every-target
 
 #### @spec a-float-converted-to-an-integer-clamps-to-its-range
 
-> Converting a float to `int` or `uint` truncates it toward zero and clamps the result to the range WebGPU clamps to. For `int`, that runs from -2147483648 to 2147483520, the largest `int` a 32-bit float holds exactly.
+> Converting a float to `int` or `uint` truncates it toward zero and clamps the result to the range WebGPU clamps to, and a NaN gives 0. For `int`, that range runs from -2147483648 to 2147483520, the largest `int` a 32-bit float holds exactly.
 
-##### @bug wasm-traps-on-a-float-outside-an-integer-range
+##### @spec a-float-outside-an-integer-range-clamps-to-it
 
-> On WASM, converting a float that is NaN or outside the integer's range traps.
+> A float that is not NaN converts to the integer nearest it inside the range, truncated toward zero. An infinity converts to an end of the range.
 
-Issue: #50
+##### @spec a-nan-converted-to-an-integer-gives-zero
 
-##### @bug js-leaves-a-float-outside-an-integer-range-unclamped
+> A NaN converted to `int` or `uint` gives 0.
 
-> On JS, converting a float outside the integer's range leaves it unclamped. A float above an `int`'s range stays above it, a negative float converted to `uint` wraps to a large one, and NaN stays NaN.
+###### @spec a-cpu-target-gives-zero-for-a-nan-converted-to-an-integer
 
-Issue: #50
+> On a CPU target, a NaN converted to `int` or `uint` gives 0.
 
-##### @bug an-integer-literal-out-of-range-wraps
+###### @exception a-gpu-target-lets-the-driver-pick-the-integer-of-a-nan
 
-> `int` and `uint` given a number outside their range wrap it modulo 2^32, so `int(3e9)` is -1294967296 and `uint(5e9)` is 705032704.
+> On GLSL and WGSL, a NaN converted to `int` or `uint` gives what the driver gives.
 
-Issue: #50
+Derives from: [`fact-wgsl-leaves-the-integer-of-a-nan-open`](#fact-wgsl-leaves-the-integer-of-a-nan-open)
+
+WebGPU leaves the result open, so rmsl picks 0, which a saturating conversion gives, for the CPU targets. A test can only read some integer back, because the driver picks which.
+
+#### @spec a-number-outside-an-integer-type-is-refused-by-its-constructor
+
+> `int`, `uint`, and the integer vector constructors given a number outside their range refuse it, with an error that names the type and its range. A fraction inside the range truncates toward zero.
+
+Derives from: [`fact-wgsl-refuses-an-i32-literal-out-of-its-range`](#fact-wgsl-refuses-an-i32-literal-out-of-its-range), [`fact-tsl-leaves-a-constant-that-is-not-finite-to-the-driver`](#fact-tsl-leaves-a-constant-that-is-not-finite-to-the-driver)
+
+This follows because WGSL refuses an integer literal outside its range, and TSL writes the number as it is and leaves the refusal to the driver, so a program that kept such a number would compile on no GPU target. A number that no integer holds has no result to give, as a float fold that is not finite has none.
 
 #### @spec integer-arithmetic-follows-wgsl
 
@@ -3820,12 +3825,6 @@ Derives from: [`fact-webgpu-draws-nothing-for-a-triangle-off-the-viewport`](#fac
 
 This follows because a GPU draws no pixel outside the viewport and fails on no coordinate, and a CPU target gives what WebGPU gives.
 
-###### @bug wasm-rasterizer-traps-on-a-triangle-far-off-screen
-
-> The rasterizer truncates a triangle's bounding box to i32 before it clamps it to the viewport, which traps for a triangle far off screen.
-
-Issue: #89
-
 ##### @spec a-rasterizer-gives-each-vertex-its-own-position
 
 > A CPU rasterizer places each vertex of a draw at the position its own vertex call returned, whatever the vertex program keeps in variables.
@@ -4353,6 +4352,12 @@ This is a fact of the WGSL specification, not a choice.
 > A WGSL shader fails to compile when a constant expression has a result that is not finite, such as `1.0 / 0.0` or `sqrt(-1.0)`, and WGSL has no literal for infinity or NaN. The same expression read from a variable compiles.
 
 This is a fact of the WGSL specification, which Dawn enforces. Dawn reports `'1.0 / 0.0' cannot be represented as 'abstract-float'`, and `sqrt must be called with a value >= 0`.
+
+## @fact wgsl-leaves-the-integer-of-a-nan-open
+
+> WGSL does not define the `i32` or `u32` a NaN converts to, where it clamps a float outside the range to the largest or smallest value.
+
+This is a fact of the WGSL specification, not a choice.
 
 ## @fact tsl-leaves-a-constant-that-is-not-finite-to-the-driver
 
