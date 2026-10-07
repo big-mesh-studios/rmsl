@@ -2,6 +2,9 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   attribute,
   cross,
+  distance,
+  dot,
+  length,
   inverse,
   transpose,
   bool,
@@ -35,6 +38,7 @@ import {
   vec4,
   type Node,
 } from "../rmsl";
+import type { CompileCpuRoutine } from "../backends/cpu";
 import { compileGlsl } from "../glsl";
 import { compileWgsl } from "../wgsl";
 import { compileJS, compileJSRoutine, createJsGrid, compileJSFragment, compileJSVertex } from "../js";
@@ -224,6 +228,21 @@ describe("each leaf on every target it claims", () => {
       const wasm = compileWasmRoutine((p: any) => build(p), { name: "main", params })({ params: { a } });
       expect(wasm).toBe(compileJSRoutine((p: any) => build(p), { name: "main", params })({ params: { a } }));
     }
+  });
+
+  /**
+   * @canon spec-length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one
+   */
+  it("gives length, distance and dot of a scalar as of a vector of one, on every target", () => {
+    const build = (a: Node<"float">) =>
+      length(a)
+        .add(distance(a, float(3)).mul(10))
+        .add(dot(a, float(2)).mul(100));
+    expect(evaluateRecording(build, [-2])).toBe(2 + 50 - 400);
+    const params = [{ name: "a", type: "float" as const }];
+    const run = (compile: CompileCpuRoutine) =>
+      compile((a: any) => Fn(() => build(a).toVar())(), { name: "main", params })({ params: { a: -2 } });
+    expect(run(compileWasmRoutine as CompileCpuRoutine)).toBe(run(compileJSRoutine as CompileCpuRoutine));
   });
 
   /**

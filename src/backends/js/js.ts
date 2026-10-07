@@ -1174,6 +1174,14 @@ export function jsVecReduce(node: BaseNode<ShaderType>, ctx: CompileCtx, helper:
   // A sum written out in the function: V8 boxes a float returned from a call it does not inline.
   // It starts from 0 and adds in order, as the helper does, so the bits stay the same.
   let width = jsArrayLength(node.params![0]?._t);
+  if (width <= 1 && (helper === "vdot" || helper === "vlen" || helper === "vdist")) {
+    // A scalar is a vector of one: its dot is the product, its length the absolute value.
+    let x = wrapExpr(a.prec, PRECEDENCE.mul!, a.expr);
+    let y = b ? wrapExpr(b.prec, PRECEDENCE.mul!, b.expr) : "";
+    let expr =
+      helper === "vdot" ? `(${x} * ${y})` : helper === "vlen" ? `Math.abs(${a.expr})` : `Math.abs(${x} - ${y})`;
+    return { decls, body, expr, prec: PREC_ATOM };
+  }
   if (helper !== "ball" && helper !== "bany" && jsIsReference(a.expr) && (!b || jsIsReference(b.expr))) {
     let term = (i: number) =>
       helper === "vdot"

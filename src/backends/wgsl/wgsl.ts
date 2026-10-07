@@ -783,6 +783,8 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     case "max":
       return binaryWGSL(node, ctx, "max", true);
     case "dot":
+      // WGSL's dot takes vectors only; of two scalars it is their product, as GLSL gives it.
+      if (!/vec/.test((node.params![0] as any)?._t ?? "")) return binaryWGSL(node, ctx, "*");
       return binaryWGSL(node, ctx, "dot", true);
     case "cross":
       return binaryWGSL(node, ctx, "cross", true);

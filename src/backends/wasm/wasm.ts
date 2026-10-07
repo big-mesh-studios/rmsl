@@ -3552,6 +3552,8 @@ export function compileWasmFn(
       case "dot": {
         const a = node.params[0],
           b = node.params[1];
+        // A scalar is a vector of one: its dot is the product.
+        if (!isAggregate(a._t)) return [...walkExpr(a), ...walkExpr(b), WASM_OP.f64Mul];
         const width = componentCountOf(a._t);
         const pre = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
         const aAddr = nodeAddress(a);
@@ -3576,6 +3578,7 @@ export function compileWasmFn(
       }
       case "length": {
         const src = node.params[0];
+        if (!isAggregate(src._t)) return [...walkExpr(src), WASM_OP.f64Abs];
         const width = componentCountOf(src._t);
         const pre = materializeIfNeeded(src);
         const addr = nodeAddress(src);
@@ -3589,6 +3592,7 @@ export function compileWasmFn(
       case "distance": {
         const a = node.params[0],
           b = node.params[1];
+        if (!isAggregate(a._t)) return [...walkExpr(a), ...walkExpr(b), WASM_OP.f64Sub, WASM_OP.f64Abs];
         const width = componentCountOf(a._t);
         const pre = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
         const aAddr = nodeAddress(a);
