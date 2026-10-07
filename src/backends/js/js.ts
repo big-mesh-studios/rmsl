@@ -2604,6 +2604,19 @@ function ownedResult(raw: unknown, types: JsResultTypes): unknown {
   return owned;
 }
 
+/** A context with no inputs, which a context made once takes when a call is done with the host's. */
+const EMPTY_CONTEXT: CpuShaderContext = Object.freeze({});
+
+/** Points `own`, a context made once, at the inputs of `from`. */
+function takeInputs(own: CpuShaderContext, from: CpuShaderContext): void {
+  own.params = from.params;
+  own.uniforms = from.uniforms;
+  own.varyings = from.varyings;
+  own.attributes = from.attributes;
+  own.textures = from.textures;
+  own.storages = from.storages;
+}
+
 /** A vector or matrix of `type` copied into a new typed array of its kind; any other value as it is. */
 function ownedCopy(value: unknown, type: string | undefined, float32: boolean): unknown {
   return type !== undefined && isVector(value) ? typedValue(value, type, float32) : value;
@@ -2647,13 +2660,23 @@ export function compileJSProgram(
     const kind = isAggregate(resultType) ? elementKindOf(resultType) : scalarKindOf(resultType);
     const buffer: CpuDrawBuffer =
       out ?? new (typedArrayOfKind(kind, resultTypes.float32))(width * height * componentCount);
-    pixelCtx.params = ctx.params;
-    pixelCtx.uniforms = ctx.uniforms;
-    pixelCtx.varyings = ctx.varyings;
-    pixelCtx.attributes = ctx.attributes;
-    pixelCtx.textures = ctx.textures;
-    pixelCtx.storages = ctx.storages;
+    takeInputs(pixelCtx, ctx);
+    try {
+      fillPixels(buffer, width, height, componentCount, kind);
+    } finally {
+      takeInputs(pixelCtx, EMPTY_CONTEXT);
+    }
+    return buffer;
+  }
 
+  /** Calls the program on `pixelCtx` for each pixel, and writes what it gives into `buffer`. */
+  function fillPixels(
+    buffer: CpuDrawBuffer,
+    width: number,
+    height: number,
+    componentCount: number,
+    kind: string,
+  ): void {
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         // pixel centers land at (x + 0.5, y + 0.5) — the same convention
@@ -2680,22 +2703,20 @@ export function compileJSProgram(
         }
       }
     }
-    return buffer;
   }
 
   /** The context each invocation of a dispatch runs on, made once, so the host's is never written. */
   const invocationCtx: CpuShaderContext = { index: 0 };
 
   function compute(ctx: CpuShaderContext, count: number): void {
-    invocationCtx.params = ctx.params;
-    invocationCtx.uniforms = ctx.uniforms;
-    invocationCtx.varyings = ctx.varyings;
-    invocationCtx.attributes = ctx.attributes;
-    invocationCtx.textures = ctx.textures;
-    invocationCtx.storages = ctx.storages;
-    for (let i = 0; i < count; i++) {
-      invocationCtx.index = i;
-      runScratch(invocationCtx);
+    takeInputs(invocationCtx, ctx);
+    try {
+      for (let i = 0; i < count; i++) {
+        invocationCtx.index = i;
+        runScratch(invocationCtx);
+      }
+    } finally {
+      takeInputs(invocationCtx, EMPTY_CONTEXT);
     }
   }
 

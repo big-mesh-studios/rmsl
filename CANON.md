@@ -618,6 +618,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment) — A draw of the JS rasterizer, `compileJS`, allocates nothing for each vertex or fragment it shades. It keeps each vertex's position and varyings, each varying it interpolates for a fragment, and the context it passes each stage in arrays and objects it makes once, and it reads a stage's result where the stage left it. A triangle clipped at the near plane makes the vertices the clip adds.
   - [`@spec a-js-grid-allocates-nothing-per-pixel`](#spec-a-js-grid-allocates-nothing-per-pixel) — `fill` of a JS grid allocates nothing for each pixel it evaluates. It calls the program with one context for the whole fill and one `fragCoord` it sets for each pixel, and the program hands it a scalar result in a slot of one element, as it hands a vector in a slot.
   - [`@spec a-cpu-compute-dispatch-allocates-nothing`](#spec-a-cpu-compute-dispatch-allocates-nothing) — `compute` of a CPU compute adapter allocates nothing, on JS and on WASM, with `out` or without it. A JS compute stage runs its invocations on one context it makes once, and writes nothing to the context the host passes it. A WASM routine reuses its argument list and its views of memory from one call to the next, and makes a view again only when the memory grows. The WASM adapter reads its scalar uniforms from the module's memory, and keeps them in an object in dictionary mode.
+  - [`@spec a-js-program-keeps-no-host-input-after-a-call`](#spec-a-js-program-keeps-no-host-input-after-a-call) — A JS grid, compute stage and rasterizer keep none of the inputs a call passes them once the call returns or throws.
   - [`@spec a-js-program-keeps-its-vectors-in-views-of-one-buffer`](#spec-a-js-program-keeps-its-vectors-in-views-of-one-buffer) — A compiled JS function keeps each vector and matrix it holds in a typed view of one `ArrayBuffer`, which it makes once, or once per call with `reentrant`. A float slot is a `Float64Array`, or a `Float32Array` at `float: "f32"`; an integer slot an `Int32Array`, and a boolean slot one too, holding 1 for true and 0 for false; an unsigned slot a `Uint32Array`. A component read from a boolean slot is `true` or `false` again.
   - [`@spec a-js-function-keeps-a-scalar-in-a-local`](#spec-a-js-function-keeps-a-scalar-in-a-local) — A compiled JS function keeps each scalar it computes in a local of its own, declared in the function, and only its vectors and matrices in slots outside it.
   - [`@spec a-js-function-copies-a-host-vector-into-a-slot-of-its-kind`](#spec-a-js-function-copies-a-host-vector-into-a-slot-of-its-kind) — A compiled JS function copies a vector or matrix the host passes, a uniform, an attribute, a varying or a parameter, into a typed slot of its kind before it reads it, so the code that reads a vector reads only typed arrays of one kind. It reads that copy again, through any write, in the block it was made in and the blocks inside it, since a write cannot change what the host passed.
@@ -4277,6 +4278,14 @@ This follows because a grid calls the program once for each pixel, so whatever a
 Derives from: [`spec-a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array`](#spec-a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array), [`fact-v8-boxes-a-float-it-reads-by-a-variable-key`](#fact-v8-boxes-a-float-it-reads-by-a-variable-key)
 
 This follows because a compute dispatch runs every frame, and a stage that takes the host's own buffers leaves a dispatch nothing it has to build.
+
+### @spec a-js-program-keeps-no-host-input-after-a-call
+
+> A JS grid, compute stage and rasterizer keep none of the inputs a call passes them once the call returns or throws.
+
+Derives from: [`spec-a-js-grid-allocates-nothing-per-pixel`](#spec-a-js-grid-allocates-nothing-per-pixel), [`spec-a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment), [`spec-a-cpu-compute-dispatch-allocates-nothing`](#spec-a-cpu-compute-dispatch-allocates-nothing)
+
+This follows because each keeps the context it calls the program with from one call to the next, and a reference that context kept to the host's uniforms, textures or buffers would hold them in memory for as long as the grid, stage or rasterizer lives.
 
 ### @spec a-js-program-keeps-its-vectors-in-views-of-one-buffer
 

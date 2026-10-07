@@ -70,6 +70,9 @@ interface ClipVertex {
   varyings: Float64Array[];
 }
 
+/** The target of a rasterizer between draws. */
+const NO_TARGET = new Float64Array(0);
+
 /** A vertex with room for a position and varyings of these widths. */
 function makeVertex(widths: readonly number[]): ClipVertex {
   return { position: new Float64Array(4), varyings: widths.map((w) => new Float64Array(w)) };
@@ -176,7 +179,7 @@ export function compileJS(
   let colorBuffer: Float64Array | null = null;
 
   /** What the triangle being rasterized writes into, set by each draw. */
-  let target: CpuDrawBuffer = new Float64Array(0);
+  let target: CpuDrawBuffer = NO_TARGET;
   let targetWidth = 0;
   let targetHeight = 0;
 
@@ -266,6 +269,16 @@ export function compileJS(
   }
 
   function draw(ctx: JsRasterContext, options: JsRasterDrawOptions): CpuDrawBuffer {
+    try {
+      return drawShaded(ctx, options);
+    } finally {
+      // The contexts are kept for the next draw, so they let go of this one's inputs.
+      vertexCtx.uniforms = vertexCtx.textures = fragmentCtx.uniforms = fragmentCtx.textures = undefined;
+      target = NO_TARGET;
+    }
+  }
+
+  function drawShaded(ctx: JsRasterContext, options: JsRasterDrawOptions): CpuDrawBuffer {
     const { width, height, out } = options;
     const { attributes, uniforms, textures } = ctx;
     const first = options.first ?? 0;

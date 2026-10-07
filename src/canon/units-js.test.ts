@@ -1,4 +1,6 @@
 import { Session } from "node:inspector/promises";
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   attribute,
@@ -1246,6 +1248,52 @@ describe("the scalars and inputs of a JS function", () => {
     const options = { width: 16, height: 16, clear: true, clearDepth: true };
     // A draw calls a stage 262 times, and an object is 16 bytes at the least.
     expect(await allocatedBy(() => raster.draw(ctx, options), 2000, 200)).toBeLessThan(64);
+  });
+});
+
+describe("what a JS program keeps after a call", () => {
+  /** Whether the object `call` is given is collected once the call returns and nothing else holds it. */
+  async function collectedAfter(call: (input: object) => void): Promise<boolean> {
+    setFlagsFromString("--expose-gc");
+    const gc = runInNewContext("gc") as () => void;
+    let ref!: WeakRef<object>;
+    (() => {
+      const input = {};
+      ref = new WeakRef(input);
+      call(input);
+    })();
+    // A WeakRef keeps its target until the job that made it ends.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    gc();
+    return ref.deref() === undefined;
+  }
+
+  /**
+   * @canon spec-a-js-program-keeps-no-host-input-after-a-call
+   */
+  it("keeps none of the inputs of a grid fill, a compute dispatch or a draw", async () => {
+    const grid = compileJSGrid(() => Fn(() => fragCoord().x.toVar())() as any, none);
+    expect(await collectedAfter((uniforms) => grid({ uniforms } as any, 2, 2))).toBe(true);
+
+    const buf = instancedArray(2, "float");
+    const stage = compileJSCompute(() => Fn(() => buf.element(invocationIndex()).assign(float(1)))() as any, {
+      name: "main",
+      params: [],
+    });
+    expect(
+      await collectedAfter((uniforms) => stage({ uniforms, storages: { [buf.name]: new Float64Array(2) } } as any, 2)),
+    ).toBe(true);
+
+    const position = attribute("vec3");
+    const raster = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(position, 1)))(),
+      () => Fn(() => vec4(1))(),
+      { attributeTypes: { [position.name]: "vec3" } },
+    );
+    const attributes = { [position.name]: Float64Array.of(-1, -1, 0, 1, -1, 0, -1, 1, 0) };
+    expect(
+      await collectedAfter((uniforms) => raster.draw({ attributes, uniforms } as any, { width: 2, height: 2 })),
+    ).toBe(true);
   });
 });
 
