@@ -836,7 +836,8 @@ export function jsComponentCast(expr: string, sourceType: string | undefined, ta
   if (to === "bool") return `(${expr} !== 0)`;
   // uint and int convert to each other keeping the bits, as WGSL's do.
   // A float truncates toward zero and clamps to the range WebGPU clamps to, with NaN as 0.
-  if (to === "int" && from === "float") return `(Math.trunc(Math.min(Math.max(${expr}, -2147483648), 2147483520)) || 0)`;
+  if (to === "int" && from === "float")
+    return `(Math.trunc(Math.min(Math.max(${expr}, -2147483648), 2147483520)) || 0)`;
   if (to === "uint" && from === "float") return `(Math.trunc(Math.min(Math.max(${expr}, 0), 4294967040)) || 0)`;
   if (to === "int") return from === "uint" ? `((${expr}) | 0)` : `Math.trunc(${expr})`;
   if (to === "uint") return `((${expr}) >>> 0)`;
