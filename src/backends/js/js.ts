@@ -802,13 +802,19 @@ function jsAssignable(node: any, ctx: CompileCtx): CompiledNode & { at(k: string
 /**
  * An operand whose components a read reaches one by one: `at(k)` is component
  * `k`. A vector or matrix storage element is read in its buffer, without a copy.
+ * With `asTarget`, the operand is what a write through one of its components
+ * names, so it is compiled as the place it is, not as a copy of its value.
  */
-function jsComponents(node: any, ctx: CompileCtx): CompiledNode & { at(k: string): string; inBuffer: boolean } {
+function jsComponents(
+  node: any,
+  ctx: CompileCtx,
+  asTarget = false,
+): CompiledNode & { at(k: string): string; inBuffer: boolean } {
   if (node?.type === "storageElement" && jsIsArrayType(node._t)) {
     let element = jsStorageElement(node, ctx);
     return { ...element, at: (k) => `${element.buffer}[${element.start} + ${k}]`, inBuffer: true };
   }
-  let src = jsCompileOperand(node, ctx);
+  let src = asTarget ? jsCompileTarget(node, ctx) : jsCompileOperand(node, ctx);
   let srcExpr = (src.prec ?? PREC_ATOM) < PREC_ATOM ? `(${src.expr})` : src.expr;
   return { ...src, at: (k) => `${srcExpr}[${k}]`, inBuffer: false };
 }
@@ -1648,7 +1654,7 @@ export function compileJSNode(
     }
 
     case "swizzle": {
-      let src = jsComponents(node.params![0], ctx);
+      let src = jsComponents(node.params![0], ctx, ctx.jsTarget === node);
       let pattern = node.value as string;
       if (pattern.length === 1) {
         let read = { decls: src.decls, body: src.body, expr: src.at(`${JS_COMPONENT_INDEX[pattern]}`) };
@@ -1979,7 +1985,7 @@ export function compileJSNode(
 
     case "matrixElement": {
       assertLiteralIndexInRange(node.params![0], node.params![1]);
-      let mat = jsComponents(node.params![0], ctx);
+      let mat = jsComponents(node.params![0], ctx, ctx.jsTarget === node);
       let idx = jsCompileOperand(node.params![1], ctx);
       let brand = node.params![0]?._t;
       let [columns, rows] = MATRIX_DIMENSIONS[brand];
@@ -1994,7 +2000,7 @@ export function compileJSNode(
 
     case "vectorElement": {
       assertLiteralIndexInRange(node.params![0], node.params![1]);
-      let src = jsComponents(node.params![0], ctx);
+      let src = jsComponents(node.params![0], ctx, ctx.jsTarget === node);
       let idx = jsCompileOperand(node.params![1], ctx);
       let component = src.inBuffer ? jsBoundedIndex(idx.expr, TYPE_WIDTH[node.params![0]._t]) : idx.expr;
       let read = { decls: [...src.decls, ...idx.decls], body: [...src.body, ...idx.body], expr: src.at(component) };
