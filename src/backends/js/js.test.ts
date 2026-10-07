@@ -776,7 +776,7 @@ describe("JS backend: shader I/O", () => {
       () =>
         Fn(() => {
           shade.assign(vec3(1, 2, 3));
-          shade.element(k).assign(9);
+          shade.element(k).assign(float(9));
           builtinPosition().assign(vec4(0, 0, 0, 1));
         })(),
       { name: "main", params: [] },

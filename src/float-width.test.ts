@@ -123,7 +123,7 @@ describe("a CPU compile at float: f32", () => {
     const stage = compile(
       () =>
         Fn(() => {
-          buf.element(invocationIndex()).x.assign(0.2);
+          buf.element(invocationIndex()).x.assign(float(0.2));
         })() as any,
       { name: "step", params: [], float: "f32" },
     );
