@@ -2347,10 +2347,11 @@ export function compileWasmFn(
       const present = [...i32ConstBytes(i), ...loadComponent(metaAddr, "int", TEX_META_CHANNELS), WASM_OP.i32LtS];
       const oob = loadComponent(OOB_FLAG, "int", 0);
       if (isInteger) {
-        const fetched = floatToInteger(
-          loadDynamic(elemAddrBytes(i), "float"),
-          samplerType.startsWith("isampler") ? "int" : "uint",
-        );
+        // A texel holds an exact integer, so the truncation saturates at the type's own range, not at the floats' ends.
+        const fetched = [
+          ...loadDynamic(elemAddrBytes(i), "float"),
+          ...(samplerType.startsWith("isampler") ? I32_TRUNC_SAT_F64_S : I32_TRUNC_SAT_F64_U),
+        ];
         const missingChannelDefault = i === 3 ? i32ConstBytes(1) : i32ConstBytes(0);
         const inRange = selectExpr(fetched, missingChannelDefault, present);
         return selectExpr(i32ConstBytes(0), inRange, oob);

@@ -448,3 +448,19 @@ describe("a coordinate far past the edge on WASM", () => {
     ]);
   });
 });
+
+describe("an integer texel on WASM", () => {
+  /**
+   * @canon spec-an-integer-texture-is-fetched-unfiltered
+   */
+  it("is read exactly, a uint above the largest float-exact one and an int at its maximum included", () => {
+    const unsigned = uniform("usampler2D");
+    const signed = uniform("isampler2D");
+    const readUnsigned = compileWasmRoutine(() => Fn(() => textureLoad(unsigned as any, ivec2(0, 0)).x.toFloat().toVar())(), none);
+    const readSigned = compileWasmRoutine(() => Fn(() => textureLoad(signed as any, ivec2(0, 0)).x.toFloat().toVar())(), none);
+    const texture = (value: number) => ({ data: [value], width: 1, height: 1, channels: 1 as const });
+    expect(readUnsigned({ textures: { [unsigned.name]: texture(4294967295) } })).toBe(4294967295);
+    expect(readSigned({ textures: { [signed.name]: texture(2147483647) } })).toBe(2147483647);
+    expect(readSigned({ textures: { [signed.name]: texture(-2147483648) } })).toBe(-2147483648);
+  });
+});

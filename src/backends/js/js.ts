@@ -651,7 +651,11 @@ function _texCube(tex, dir, out) {
 
   if (name === "roundEven") {
     // The function constant folding uses, so folded and run-time rounding cannot differ.
-    return roundHalfToEven.toString().replace(/^function\s*\w*/, "function _rmsl_roundEven");
+    const source = roundHalfToEven.toString().replace(/^function[^(]*/, "function _rmsl_roundEven");
+    if (!source.startsWith("function _rmsl_roundEven(")) {
+      throw new Error("[RMSL] roundHalfToEven must be a function declaration to become the JS rounding helper");
+    }
+    return source;
   }
 
   throw new Error(`[RMSL] Unknown JS helper: ${name}`);

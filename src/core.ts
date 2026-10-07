@@ -1593,7 +1593,7 @@ export function typedOperand(value: any, operandType: string): BaseNode<ShaderTy
         `Use a signed operand, or a literal that is not negative.`,
     );
   }
-  return node({ _t: scalarType, type: scalarType, value }) as BaseNode<ShaderType>;
+  return node({ _t: scalarType, type: scalarType, value: integerLiteral(scalarType as "int" | "uint", value) }) as BaseNode<ShaderType>;
 }
 
 /** The operations whose operands share one component kind, integer or float. */
@@ -2308,10 +2308,10 @@ export function bitNot(a: MathLike): any {
   return toNode(a).bitNot();
 }
 export function shiftLeft(a: MathLike, b: MathLike): any {
-  return toNodeBeside(a, b).shiftLeft(b);
+  return (typeof a === "number" ? int(a) : toNode(a)).shiftLeft(b);
 }
 export function shiftRight(a: MathLike, b: MathLike): any {
-  return toNodeBeside(a, b).shiftRight(b);
+  return (typeof a === "number" ? int(a) : toNode(a)).shiftRight(b);
 }
 
 export function abs(a: MathLike): any {

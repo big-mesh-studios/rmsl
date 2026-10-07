@@ -80,6 +80,12 @@ function collectStorageResources(root: Node<ShaderType> | readonly Node<ShaderTy
     }));
 }
 
+/** The rmsl type a WGSL uniform member type stands for: `i32` is `int`, `vec2<u32>` is `uvec2`. */
+function shaderTypeOfWgsl(wgslType: string): ShaderType {
+  let match = Object.keys(typeToWGSL).find((key) => typeToWGSL[key] === wgslType);
+  return (match ?? wgslType) as ShaderType;
+}
+
 /**
  * Every uniform lives as a member of the one `_RmslUniforms` struct at
  * `@group(0) @binding(0)` (see `compileWGSLWithStage` in
@@ -91,12 +97,6 @@ function collectStorageResources(root: Node<ShaderType> | readonly Node<ShaderTy
  * used to place them, so it reproduces the same offsets for the same member
  * set regardless of the order they're parsed back in.
  */
-/** The rmsl type a WGSL uniform member type stands for: `i32` is `int`, `vec2<u32>` is `uvec2`. */
-function shaderTypeOfWgsl(wgslType: string): ShaderType {
-  let match = Object.keys(typeToWGSL).find((key) => typeToWGSL[key] === wgslType);
-  return (match ?? wgslType) as ShaderType;
-}
-
 function inferUniformResources(code: string): WgslResource[] {
   const structMatch = new RegExp(`struct ${WGSL_UNIFORM_STRUCT} \\{([\\s\\S]*?)\\n\\};`).exec(code);
   if (!structMatch) return [];

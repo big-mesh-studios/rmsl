@@ -38,7 +38,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@axiom one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target) — A program computes the same result on every [target](#term-target), or every target refuses it with the same error.
   - [`@spec folding-gives-the-run-time-result`](#spec-folding-gives-the-run-time-result) — An operation whose operands are all literal values compiles to the literal it would compute at run time, on every target. This is [folding](#term-folding).
     - [`@spec float-folding-gives-the-run-time-result`](#spec-float-folding-gives-the-run-time-result) — A float operation on literal operands folds to the value the target would compute, a floored `mod` included.
-    - [`@spec a-fold-that-is-not-finite-is-refused`](#spec-a-fold-that-is-not-finite-is-refused) — A float operation on literal operands whose result is not finite, such as `float(1).div(0)` or `float(-1).sqrt()`, is refused with one error on every target. The same operation on a run-time value gives its result.
+    - [`@spec a-fold-that-is-not-finite-is-refused`](#spec-a-fold-that-is-not-finite-is-refused) — A float operation on literal operands whose result is not finite as a 32-bit float, such as `float(1).div(0)`, `float(-1).sqrt()` or `float(1e30).mul(1e30)`, is refused with one error on every target. The same operation on a run-time value gives its result.
     - [`@spec integer-folding-gives-the-run-time-result`](#spec-integer-folding-gives-the-run-time-result) — An integer operation on literal operands folds to the value the target would compute, a truncating division included.
   - [`@spec a-conversion-between-numeric-types-is-written-out`](#spec-a-conversion-between-numeric-types-is-written-out) — A conversion between numeric types compiles to an explicit conversion on every target, whether the program asks for it with a constructor, a `to` method or `convert`.
   - [`@spec a-bool-converts-to-one-or-zero-and-a-number-to-whether-it-is-nonzero`](#spec-a-bool-converts-to-one-or-zero-and-a-number-to-whether-it-is-nonzero) — `float`, `int` and `uint` of a `bool` give 1 for `true` and 0 for `false`. `bool` of a `float`, `int` or `uint` gives `true` for any value that is not zero, a fraction between -1 and 1 included.
@@ -216,6 +216,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-bare-number-beside-an-integer-is-an-integer`](#spec-a-bare-number-beside-an-integer-is-an-integer) — A number beside an `int`, `uint` or integer vector compiles as a literal of that integer type.
     - [`@spec a-bare-number-beside-a-float-is-a-float`](#spec-a-bare-number-beside-a-float-is-a-float) — A number beside a `float` or float vector compiles as a float literal, with no conversion.
     - [`@spec a-fraction-beside-an-integer-is-refused`](#spec-a-fraction-beside-an-integer-is-refused) — A number that is not whole, beside an integer operand, is refused.
+    - [`@spec a-number-beyond-an-integer-types-range-is-refused-beside-it`](#spec-a-number-beyond-an-integer-types-range-is-refused-beside-it) — A number beside an `int` or `uint` operand that the type cannot hold is refused, with an error that names the type and its range.
+    - [`@spec a-bare-number-shifted-is-an-int-whatever-the-amount`](#spec-a-bare-number-shifted-is-an-int-whatever-the-amount) — A bare number given as the value of a shift is an `int`. The type of the shift amount does not type it.
     - [`@spec a-negative-number-for-an-unsigned-type-is-refused`](#spec-a-negative-number-for-an-unsigned-type-is-refused) — A negative number beside an unsigned operand, or given to `uint` or to an unsigned vector constructor, is refused.
     - [`@spec assign-gives-a-bare-number-the-type-of-its-target`](#spec-assign-gives-a-bare-number-the-type-of-its-target) — A bare number given to `assign` takes the type of the node it is assigned to.
   - [`@spec a-statement-outside-an-fn-is-refused`](#spec-a-statement-outside-an-fn-is-refused) — `assign`, `toVar` and control flow called outside the body of an `Fn` are refused.
@@ -927,7 +929,7 @@ This follows because a program means the same whether its operands arrive at run
 
 #### @spec a-fold-that-is-not-finite-is-refused
 
-> A float operation on literal operands whose result is not finite, such as `float(1).div(0)` or `float(-1).sqrt()`, is refused with one error on every target. The same operation on a run-time value gives its result.
+> A float operation on literal operands whose result is not finite as a 32-bit float, such as `float(1).div(0)`, `float(-1).sqrt()` or `float(1e30).mul(1e30)`, is refused with one error on every target. The same operation on a run-time value gives its result.
 
 Derives from: [`fact-wgsl-rejects-a-constant-expression-that-is-not-finite`](#fact-wgsl-rejects-a-constant-expression-that-is-not-finite), [`fact-tsl-leaves-a-constant-that-is-not-finite-to-the-driver`](#fact-tsl-leaves-a-constant-that-is-not-finite-to-the-driver)
 
@@ -1932,6 +1934,18 @@ This follows because a number has no [shader type](#term-shader-type) of its own
 #### @spec a-fraction-beside-an-integer-is-refused
 
 > A number that is not whole, beside an integer operand, is refused.
+
+#### @spec a-number-beyond-an-integer-types-range-is-refused-beside-it
+
+> A number beside an `int` or `uint` operand that the type cannot hold is refused, with an error that names the type and its range.
+
+Derives from: [`fact-wgsl-refuses-an-i32-literal-out-of-its-range`](#fact-wgsl-refuses-an-i32-literal-out-of-its-range)
+
+#### @spec a-bare-number-shifted-is-an-int-whatever-the-amount
+
+> A bare number given as the value of a shift is an `int`. The type of the shift amount does not type it.
+
+This follows because a shift amount is a separate operand that WGSL converts to `u32`, and the value shifted keeps its own type.
 
 #### @spec a-negative-number-for-an-unsigned-type-is-refused
 

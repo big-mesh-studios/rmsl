@@ -15,6 +15,8 @@ import {
   mat3,
   mix,
   select,
+  shiftLeft,
+  shiftRight,
   smoothstep,
   sub,
   textureSize,
@@ -539,7 +541,8 @@ describe("folding a float operation on literals", () => {
   it("refuses a result that is not finite on every target", () => {
     const divided = () => Fn(() => vec4(float(1).div(0)))();
     const rooted = () => Fn(() => vec4(float(-1).sqrt()))();
-    for (const build of [divided, rooted]) {
+    const overflowing = () => Fn(() => vec4(float(1e30).mul(1e30)))();
+    for (const build of [divided, rooted, overflowing]) {
       expect(() => compileGlsl.fragment(build())).toThrow(/no target can write/);
       expect(() => compileWgsl.fragment(build())).toThrow(/no target can write/);
       expect(() => compileJSFn(build as any, none)).toThrow(/no target can write/);
@@ -644,5 +647,26 @@ describe("a float converted to an integer", () => {
     expect(() => int(NaN)).toThrow(/outside the range of int/);
     expect((int(2147483647) as any).value).toBe(2147483647);
     expect((int(-2.9) as any).value).toBe(-2);
+  });
+});
+
+describe("a bare number beside an integer", () => {
+  /**
+   * @canon spec-a-number-beyond-an-integer-types-range-is-refused-beside-it
+   */
+  it("is refused when the integer type cannot hold it", () => {
+    const count = uniform("int") as any;
+    const mask = uniform("uint") as any;
+    expect(() => count.add(3e9)).toThrow(/outside the range of int/);
+    expect(() => mask.bitAnd(5e9)).toThrow(/outside the range of uint/);
+    expect(() => count.add(2147483647)).not.toThrow();
+  });
+
+  /**
+   * @canon spec-a-bare-number-shifted-is-an-int-whatever-the-amount
+   */
+  it("shifted by an unsigned amount stays an int", () => {
+    expect(() => shiftRight(-8, uint(1))).not.toThrow();
+    expect((shiftLeft(1, uint(1)) as any)._t).toBe("int");
   });
 });

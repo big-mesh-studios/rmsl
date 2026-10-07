@@ -369,10 +369,10 @@ export function tryFold(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
     folded.type === "float" &&
     n.type !== "float" &&
     n.type !== "select" &&
-    !Number.isFinite(folded.value as number)
+    !Number.isFinite(Math.fround(folded.value as number))
   ) {
     throw new Error(
-      `[RMSL] ${n.type}() of literal operands is ${folded.value}, which no target can write as a constant. ` +
+      `[RMSL] ${n.type}() of literal operands is ${folded.value}, which a 32-bit float cannot hold and no target can write as a constant. ` +
         `Compute it from a value that is not a literal, such as a uniform.`,
     );
   }
