@@ -1,11 +1,5 @@
 import { type Node, type ShaderType, type VariableNode } from "../rmsl";
-import {
-  compileJSFn,
-  compileJSFragment,
-  compileJSVertex,
-  type CpuShaderContext,
-  type CpuTextureData,
-} from "../js";
+import { compileJSFn, compileJSFragment, compileJSVertex, type CpuShaderContext, type CpuTextureData } from "../js";
 import type { CpuValue, FragmentResult, VertexResult } from "../backends/cpu";
 import { compileJSProgram } from "../backends/js/js";
 // How a texture asks to be read is the renderers' question too, and they

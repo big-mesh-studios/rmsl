@@ -1365,9 +1365,9 @@ describe("WASM backend: texture uniforms", () => {
     expect(fn({ textures: { [tex.name]: { data: new Float32Array(4 * 4), width: 4, height: 4 } } })).toBe(4);
     // A much larger texture forces `memory.grow` — must not corrupt the
     // compile-time-fixed metadata address or throw.
-    expect(
-      fn({ textures: { [tex.name]: { data: new Float32Array(2000 * 2000), width: 2000, height: 2000 } } }),
-    ).toBe(2000);
+    expect(fn({ textures: { [tex.name]: { data: new Float32Array(2000 * 2000), width: 2000, height: 2000 } } })).toBe(
+      2000,
+    );
   });
   /**
    * @canon spec-a-wasm-routine-copies-a-texture-into-its-memory-once
