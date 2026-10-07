@@ -4,6 +4,7 @@
  * give the same bits for each program and width.
  *
  * Usage: node scripts/bench-cpu/run.ts [label ...]   (or: bun ..., deno run -A ...)
+ * Memory: node --expose-gc scripts/bench-cpu/run.ts --memory [label ...]   (or: bun ... --memory)
  * With no label, runs every reports/bench-cpu/*.json. scripts/bench-cpu/browsers.ts
  * runs the same code in Firefox and Chromium through `runBench`.
  */
@@ -84,6 +85,58 @@ export function runBench(reports: Report[]): string[] {
   return lines;
 }
 
+/** Compiled copies of a program held at once to measure what one keeps, and frames run to measure what one allocates. */
+const COPIES = 200;
+const FRAMES = 20;
+
+/**
+ * What every program of every report keeps and allocates, as text lines:
+ * the bytes one compiled function holds on to, slots, constants and helpers
+ * included, and the bytes a frame allocates. `collect` runs a full garbage
+ * collection, which the engine must expose (`node --expose-gc`, or Bun).
+ * `allocated` gives the bytes a call allocates, collected ones included, or
+ * is absent where the engine cannot count them.
+ */
+export async function runMemory(
+  reports: Report[],
+  collect: () => void,
+  used: () => number,
+  allocated?: (run: () => void) => Promise<number>,
+): Promise<string[]> {
+  const lines: string[] = [];
+  const widths = Object.keys(reports[0]!.programs[0]!.sources);
+  const columns = reports.flatMap((r) => widths.flatMap((w) => [`${r.label} ${w} kept`, `${r.label} ${w} /frame`]));
+  lines.push(["program".padEnd(12), ...columns.map((c) => c.padStart(18))].join(""));
+  for (const name of reports[0]!.programs.map((p) => p.name)) {
+    const cells: string[] = [];
+    for (const report of reports) {
+      const program = report.programs.find((p) => p.name === name)!;
+      for (const width of widths) {
+        const make = new Function(program.sources[width]!);
+        collect();
+        const before = used();
+        const copies = Array.from({ length: COPIES }, () => make());
+        collect();
+        const kept = (used() - before) / COPIES;
+        copies.length = 0;
+        const frame = makeFrame(program, width);
+        for (let i = 0; i < WARMUP; i++) frame();
+        const perFrame = allocated
+          ? (await allocated(() => {
+              for (let i = 0; i < FRAMES; i++) frame();
+            })) / FRAMES
+          : undefined;
+        cells.push(
+          `${(kept / 1024).toFixed(1)} KB`.padStart(18),
+          (perFrame === undefined ? "-" : `${(perFrame / 1024).toFixed(1)} KB`).padStart(18),
+        );
+      }
+    }
+    lines.push([name.padEnd(12), ...cells].join(""));
+  }
+  return lines;
+}
+
 /** One frame of `program` at `width`: the program run once per pixel. Returns a checksum of every value it gave. */
 function makeFrame(program: Program, width: string): () => number {
   const fn = new Function(program.sources[width]!)() as (ctx: any) => any;
@@ -132,7 +185,8 @@ if (isMain) {
   const { join, dirname } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
   const dir = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "reports", "bench-cpu");
-  const asked = process.argv.slice(2);
+  const memory = process.argv.includes("--memory");
+  const asked = process.argv.slice(2).filter((a) => a !== "--memory");
   const files = asked.length
     ? asked.map((l) => `${l}.json`)
     : readdirSync(dir)
@@ -146,8 +200,51 @@ if (isMain) {
       : typeof g.Deno !== "undefined"
         ? `deno ${g.Deno.version.deno}`
         : `node ${process.version}`;
-  console.log(
-    `== ${engine}, ${reports[0].programs[0].width}x${reports[0].programs[0].height} per frame, median of ${SAMPLES} batches of ${BATCH} frames`,
-  );
-  for (const line of runBench(reports)) console.log(line);
+  if (memory) {
+    const collect: () => void =
+      typeof g.Bun !== "undefined"
+        ? () => g.Bun.gc(true)
+        : typeof g.gc === "function"
+          ? () => g.gc()
+          : () => {
+              throw new Error("--memory needs a garbage collection to call: run node with --expose-gc, or use bun");
+            };
+    const v8 = typeof g.Bun === "undefined" ? await import("node:v8") : null;
+    const used = () =>
+      v8
+        ? v8.getHeapStatistics().used_heap_size + process.memoryUsage().arrayBuffers
+        : process.memoryUsage().heapUsed + process.memoryUsage().arrayBuffers;
+    // V8's sampling heap profiler counts what a call allocates, collected objects included.
+    const allocated =
+      typeof g.Bun === "undefined" && typeof g.Deno === "undefined"
+        ? async (run: () => void): Promise<number> => {
+            const { Session } = await import("node:inspector/promises");
+            const session = new Session();
+            session.connect();
+            await session.post("HeapProfiler.enable");
+            await session.post("HeapProfiler.startSampling", {
+              samplingInterval: 4096,
+              includeObjectsCollectedByMajorGC: true,
+              includeObjectsCollectedByMinorGC: true,
+            });
+            run();
+            const { profile } = await session.post("HeapProfiler.stopSampling");
+            session.disconnect();
+            let total = 0;
+            const walk = (node: any): void => {
+              total += node.selfSize;
+              for (const child of node.children) walk(child);
+            };
+            walk(profile.head);
+            return total;
+          }
+        : undefined;
+    console.log(`== ${engine}, memory: what one compiled function keeps, and what one frame allocates`);
+    for (const line of await runMemory(reports, collect, used, allocated)) console.log(line);
+  } else {
+    console.log(
+      `== ${engine}, ${reports[0].programs[0].width}x${reports[0].programs[0].height} per frame, median of ${SAMPLES} batches of ${BATCH} frames`,
+    );
+    for (const line of runBench(reports)) console.log(line);
+  }
 }
