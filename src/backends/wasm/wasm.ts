@@ -181,11 +181,12 @@ export type CompileWasmFnOptions = CompileFnOptions & WasmCompileFields & WasmFl
 export type WasmFloatWidth =
   { float?: FloatWidth; gpuUniformLayout?: never } | { float: "f32"; gpuUniformLayout?: GpuUniformLayout };
 
-/** The width part of `options`, kept as the one `WasmFloatWidth` it is, for passing on. */
+/**
+ * The width part of `options`, for passing on as it is: a layout given at 64
+ * bits reaches the compile, which refuses it.
+ */
 export function floatWidthOf(options: WasmFloatWidth): WasmFloatWidth {
-  return options.float === "f32"
-    ? { float: "f32", gpuUniformLayout: options.gpuUniformLayout }
-    : { float: options.float };
+  return { float: options.float, gpuUniformLayout: options.gpuUniformLayout } as WasmFloatWidth;
 }
 
 /** The options of a WASM compile beside its name, parameters and float width. */

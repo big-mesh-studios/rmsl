@@ -1,9 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { Fn, uniform, uniformArray, int } from "./rmsl";
+import { Fn, fragCoord, uniform, uniformArray, int, vec4 } from "./rmsl";
 import { wgslUniformLayout } from "./wgsl";
 import { wgslType } from "./backends/wgsl/wgsl";
 import { compileWasmRoutine, compileWasmFn, type CompileWasmFnOptions } from "./backends/wasm/wasm";
 import { compileJSRoutine } from "./js";
+import { createWasmCompute, createWasmGrid, createWasmRoutine } from "./wasm";
 
 describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
   /**
@@ -150,6 +151,19 @@ describe("stage 2: WASM uniforms placed at WGSL-computed offsets", () => {
       // @ts-expect-error a layout needs float: "f32", not "f64"
       compileWasmRoutine(build, at64),
     ).toThrow();
+  });
+
+  /**
+   * @canon spec-a-gpu-uniform-layout-needs-32-bit-floats
+   */
+  it("refuses gpuUniformLayout at 64 bits through an adapter too", () => {
+    const s = uniform("float");
+    const gpuUniformLayout = { offsets: { [s.name]: 0 }, totalSize: 16 };
+    const options = { gpuUniformLayout } as any;
+    expect(() => createWasmRoutine(s.mul(2), options)).toThrow(/float: "f32"/);
+    expect(() => createWasmGrid({ draw: vec4(fragCoord().x.mul(s), 0, 0, 1), ...options })).toThrow(/float: "f32"/);
+    expect(() => createWasmCompute(Fn(() => s.mul(2).toVar())(), options)).toThrow(/float: "f32"/);
+    expect(() => createWasmRoutine(s.mul(2), { ...options, float: "f64" })).toThrow(/float: "f32"/);
   });
 
   /**
