@@ -660,7 +660,6 @@ function writeArrayToMemory(
   }
 }
 
-/** Host-side: reads an array value back, converting i32 bits to bool/uint as needed. */
 /** Host-side: reads a vector or matrix back from memory, into the typed array it is held in on the CPU. */
 function readAggregateFromMemory(
   view: DataView,
@@ -2029,12 +2028,6 @@ export function compileWasmFn(
   }
 
   /**
-   * Emits the stores that guarantee node's aggregate value sits in memory
-   * at nodeAddress(node). Most inputs already live there; gpu-placed
-   * uniforms get promoted, and pure expressions are computed into their
-   * scratch address on first use.
-   */
-  /**
    * The bytes that write the value of an aggregate `node` to its address. At
    * `float: "f32"`, the float components a node computes are rounded there.
    */
@@ -2050,6 +2043,12 @@ export function compileWasmFn(
     return bytes;
   }
 
+  /**
+   * Emits the stores that guarantee node's aggregate value sits in memory
+   * at nodeAddress(node). Most inputs already live there; gpu-placed
+   * uniforms get promoted, and pure expressions are computed into their
+   * scratch address on first use.
+   */
   function materializeValue(node: any): number[] {
     switch (node.type) {
       case "var":
@@ -3228,11 +3227,6 @@ export function compileWasmFn(
   }
 
   /**
-   * Expression pass: evaluates a node down to one value on the WASM stack —
-   * an f64 for floats, an i32 for int/uint/bool. A component of an aggregate
-   * is read through readComponent/materialize, never held on the stack.
-   */
-  /**
    * The bytes that push the value of a scalar `node`. At `float: "f32"`, a float
    * value is rounded to 32 bits and widened back, so it holds what an f32 holds.
    */
@@ -3242,6 +3236,11 @@ export function compileWasmFn(
     return [...bytes, WASM_OP.f32DemoteF64, WASM_OP.f64PromoteF32];
   }
 
+  /**
+   * Expression pass: evaluates a node down to one value on the WASM stack —
+   * an f64 for floats, an i32 for int/uint/bool. A component of an aggregate
+   * is read through readComponent/materialize, never held on the stack.
+   */
   function walkExprValue(node: any): number[] {
     switch (node.type) {
       case "float":
