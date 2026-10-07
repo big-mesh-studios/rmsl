@@ -319,6 +319,28 @@ describe("createJsCompute/createWasmCompute reading and writing elements other t
     expect(js[scalars.name]).toEqual([0, 8, 7]);
     expect(wasm).toEqual(js);
   });
+
+  /**
+   * @canon spec-a-float-index-of-a-storage-element-drops-its-fraction
+   */
+  it("reaches element 0 by a negative float index", () => {
+    const buf = instancedArray(2, "vec2");
+    const scalars = instancedArray(2, "float");
+    const root = Fn(() => {
+      If(invocationIndex().equal(uint(0)), () => {
+        buf.element(float(-1.5)).assign(buf.element(float(-0.5)).add(vec2(10, 20)));
+        scalars.element(float(-1.5)).assign(scalars.element(float(-3)).add(1));
+      });
+    })();
+
+    const [js, wasm] = runBoth(root, () => ({
+      [buf.name]: Float32Array.of(1, 2, 3, 4),
+      [scalars.name]: Float32Array.of(7, 8),
+    }));
+    expect(js[buf.name]).toEqual([11, 22, 3, 4]);
+    expect(js[scalars.name]).toEqual([8, 8]);
+    expect(wasm).toEqual(js);
+  });
 });
 
 describe("createJsCompute/createWasmCompute reading back into out", () => {

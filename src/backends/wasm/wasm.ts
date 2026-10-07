@@ -1806,7 +1806,7 @@ export function compileWasmFn(
     const stride = componentCountOf(type) * compSize;
     const index = node.params[1];
     const indexBytes =
-      scalarKindOf(index._t as string) === "float" ? [...walkExpr(index), ...I32_TRUNC_SAT_F64_S] : walkExpr(index);
+      scalarKindOf(index._t as string) === "float" ? [...walkExpr(index), ...I32_TRUNC_SAT_F64_U] : walkExpr(index);
     const indexLocal = wasmUleb128(localSlotIndex(storageIndexLocal.get(node)!));
     return {
       inBounds: [

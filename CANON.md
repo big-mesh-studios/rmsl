@@ -542,7 +542,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel) — `fill` of a CPU grid evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to fill with.
     - [`@spec a-cpu-compute-stage-runs-one-invocation-per-index`](#spec-a-cpu-compute-stage-runs-one-invocation-per-index) — `dispatch` of a CPU compute stage runs the program once for each index of its count. It reads and writes any element of the buffers the host passes by slot.
     - [`@spec a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array`](#spec-a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array) — A CPU compute stage takes a storage buffer as one flat array, which holds the components of its elements one after another. Element `i` of a buffer whose element has `n` components is the `n` entries from `i * n` on. The stage reads and writes them in the array the host passes.
-    - [`@spec a-float-index-of-a-storage-element-drops-its-fraction`](#spec-a-float-index-of-a-storage-element-drops-its-fraction) — A storage element reached by a float index is the element at that index with its fraction dropped, on every target, for a read and for a write.
+    - [`@spec a-float-index-of-a-storage-element-drops-its-fraction`](#spec-a-float-index-of-a-storage-element-drops-its-fraction) — A storage element reached by a float index is the element at that index with its fraction dropped, on every target, for a read and for a write. A negative float index reaches element 0.
     - [`@spec a-vector-written-to-a-storage-element-is-copied-into-it`](#spec-a-vector-written-to-a-storage-element-is-copied-into-it) — A CPU compute stage writes a vector or matrix assigned to a storage element into the components of that element in the buffer. A later write to the value it came from leaves the element as it is, and a later write to the element leaves the value as it is.
     - [`@spec a-wasm-routine-is-reentrant`](#spec-a-wasm-routine-is-reentrant) — A WASM routine keeps its variables in its own module, so it computes the same with or without `reentrant`.
     - [`@spec a-cpu-target-runs-invocations-in-index-order`](#spec-a-cpu-target-runs-invocations-in-index-order) — A CPU target runs the invocations of a dispatch one at a time, in index order. An invocation sees the writes of the invocations before it.
@@ -3800,11 +3800,11 @@ This follows because a compute adapter takes a storage buffer as one flat typed 
 
 #### @spec a-float-index-of-a-storage-element-drops-its-fraction
 
-> A storage element reached by a float index is the element at that index with its fraction dropped, on every target, for a read and for a write.
+> A storage element reached by a float index is the element at that index with its fraction dropped, on every target, for a read and for a write. A negative float index reaches element 0.
 
 Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target), [`spec-a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array`](#spec-a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array)
 
-This follows because WGSL converts a float index with `u32()`, which drops the fraction, and a CPU target that kept it would reach into the next element of a flat buffer.
+This follows because WGSL converts a float index with `u32()`, which drops the fraction and clamps a negative value to 0, and a CPU target that kept the fraction would reach into the next element of a flat buffer.
 
 #### @spec a-vector-written-to-a-storage-element-is-copied-into-it
 
