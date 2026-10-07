@@ -17,6 +17,7 @@ import {
   toFragmentResult,
   toVertexResult,
   typedValue,
+  typedArrayOfKind,
   componentCountOf,
   componentKindOf,
   elementKindOf,
@@ -140,13 +141,13 @@ export const JS_ELEM: Record<string, { argc: number; fn: (xs: string[]) => strin
   iadd: { argc: 2, fn: (xs) => `(${xs[0]} + ${xs[1]}) | 0` },
   isub: { argc: 2, fn: (xs) => `(${xs[0]} - ${xs[1]}) | 0` },
   imul: { argc: 2, fn: (xs) => `Math.imul(${xs[0]}, ${xs[1]})` },
-  idiv: { argc: 2, fn: (xs) => `_idiv(${xs[0]}, ${xs[1]})` },
-  imod: { argc: 2, fn: (xs) => `_imod(${xs[0]}, ${xs[1]})` },
+  idiv: { argc: 2, fn: (xs) => `_idiv(${xs[0]}, ${xs[1]})`, helper: "idiv" },
+  imod: { argc: 2, fn: (xs) => `_imod(${xs[0]}, ${xs[1]})`, helper: "imod" },
   uadd: { argc: 2, fn: (xs) => `(${xs[0]} + ${xs[1]}) >>> 0` },
   usub: { argc: 2, fn: (xs) => `(${xs[0]} - ${xs[1]}) >>> 0` },
   umul: { argc: 2, fn: (xs) => `Math.imul(${xs[0]}, ${xs[1]}) >>> 0` },
-  udiv: { argc: 2, fn: (xs) => `_udiv(${xs[0]}, ${xs[1]})` },
-  umod: { argc: 2, fn: (xs) => `_umod(${xs[0]}, ${xs[1]})` },
+  udiv: { argc: 2, fn: (xs) => `_udiv(${xs[0]}, ${xs[1]})`, helper: "udiv" },
+  umod: { argc: 2, fn: (xs) => `_umod(${xs[0]}, ${xs[1]})`, helper: "umod" },
   // Bitwise operations: JS already works on 32 bits here and takes shift
   // amounts modulo 32; a uint result only needs reading back unsigned.
   iand: { argc: 2, fn: (xs) => `${xs[0]} & ${xs[1]}` },
@@ -171,7 +172,7 @@ export const JS_ELEM: Record<string, { argc: number; fn: (xs: string[]) => strin
   step: { argc: 2, fn: (xs) => `${xs[1]} < ${xs[0]} ? 0 : 1` },
   clamp: { argc: 3, fn: (xs) => `Math.min(Math.max(${xs[0]}, ${xs[1]}), ${xs[2]})` },
   mix: { argc: 3, fn: (xs) => `${xs[0]} + ${xs[2]} * (${xs[1]} - ${xs[0]})` },
-  smoothstep: { argc: 3, fn: (xs) => `_smoothstep(${xs[0]}, ${xs[1]}, ${xs[2]})` },
+  smoothstep: { argc: 3, fn: (xs) => `_smoothstep(${xs[0]}, ${xs[1]}, ${xs[2]})`, helper: "smoothstep" },
   neg: { argc: 1, fn: (xs) => `-${xs[0]}` },
   ineg: { argc: 1, fn: (xs) => `-${xs[0]} | 0` },
   iabs: { argc: 1, fn: (xs) => `Math.abs(${xs[0]}) | 0` },
@@ -700,7 +701,6 @@ function jsSlotDeclarations(
   float32: boolean,
   keyword: "let" | "var",
 ): { views: string[]; scalars: string[] } {
-  const floatType = float32 ? "Float32Array" : "Float64Array";
   const typed: { name: string; type: string; bytes: number; length: number }[] = [];
   const names: string[] = [];
   for (const [name, brand] of varDefs) {
@@ -709,9 +709,8 @@ function jsSlotDeclarations(
       names.push(name);
       continue;
     }
-    const kind = elementKindOf(brand);
-    if (kind === "float") typed.push({ name, type: floatType, bytes: float32 ? 4 : 8, length });
-    else typed.push({ name, type: kind === "uint" ? "Uint32Array" : "Int32Array", bytes: 4, length });
+    const Typed = typedArrayOfKind(elementKindOf(brand), float32);
+    typed.push({ name, type: Typed.name, bytes: Typed.BYTES_PER_ELEMENT, length });
   }
   // A scalar is a local of the function: V8 boxes a float stored in a variable the closure keeps.
   const scalars = names.length ? [`let ${names.join(", ")};`] : [];
@@ -1015,8 +1014,6 @@ export function jsVectorBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: 
   }
   let helper = `v${width}${op}_${shape}`;
   jsRequireHelper(ctx, helper);
-  // The element-wise integer division helpers call the scalar ones.
-  if (op === "idiv" || op === "imod" || op === "udiv" || op === "umod" || op === "smoothstep") jsRequireHelper(ctx, op);
   let args = c ? `${a.expr}, ${b.expr}, ${c.expr}` : `${a.expr}, ${b.expr}`;
   let decls = [...a.decls, ...b.decls, ...(c ? c.decls : [])];
   let body = [...a.body, ...b.body, ...(c ? c.body : [])];
@@ -1114,7 +1111,6 @@ function jsElementwise(
     }
   }
   if (e.helper) jsRequireHelper(ctx, e.helper);
-  if (op === "idiv" || op === "imod" || op === "udiv" || op === "umod" || op === "smoothstep") jsRequireHelper(ctx, op);
   for (let i = 0; i < width; i++) {
     let xs = reads.map((r, k) => (shape[k] === "v" ? `${r}[${i}]` : r));
     body.push(`${target}[${i}] = ${e.fn(xs)};`);
@@ -1422,15 +1418,7 @@ export function compileJSNode(
         return { decls: [], body: lines, expr: ctx.outTarget };
       }
       // A constant is a typed array of its kind, as a slot is, so a helper reads one kind of array.
-      let kind = elementKindOf(node._t);
-      let typed =
-        kind === "float"
-          ? ctx.jsFloat32
-            ? "Float32Array"
-            : "Float64Array"
-          : kind === "uint"
-            ? "Uint32Array"
-            : "Int32Array";
+      let typed = typedArrayOfKind(elementKindOf(node._t), ctx.jsFloat32 === true).name;
       let literal = `new ${typed}([${values.map((v) => (typeof v === "boolean" ? (v ? 1 : 0) : JSON.stringify(v))).join(", ")}])`;
       return { decls: [], body: [], expr: jsConstant(ctx, literal) };
     }

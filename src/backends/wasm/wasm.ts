@@ -997,8 +997,8 @@ export function compileWasmFn(
 
   /**
    * At `float: "f32"`, the bytes that round each float of the attributes and
-   * varyings in memory to 32 bits, once as a call starts. The rasterizer writes
-   * them there in 64 bits, as the host's marshaller does not see them.
+   * varyings in memory to 32 bits, once as a call starts: whether the host's
+   * marshaller or the rasterizer wrote them, they arrive in 64 bits.
    */
   function roundInputsInMemory(): number[] {
     if (!float32) return [];
@@ -1007,11 +1007,17 @@ export function compileWasmFn(
       if (p.kind !== "attributeMemory" && p.kind !== "varyingMemory") continue;
       const aggregate = isAggregate(p.shaderType);
       if ((aggregate ? elementKindOf(p.shaderType) : scalarKindOf(p.shaderType)) !== "float") continue;
-      const width = aggregate ? componentCountOf(p.shaderType) : 1;
-      for (let k = 0; k < width; k++) {
-        const rounded = [...loadComponent(p.address, "float", k * 8), WASM_OP.f32DemoteF64, WASM_OP.f64PromoteF32];
-        bytes.push(...storeComponent(p.address, "float", k * 8, rounded));
-      }
+      bytes.push(...roundFloatsInMemory(p.address, aggregate ? componentCountOf(p.shaderType) : 1));
+    }
+    return bytes;
+  }
+
+  /** The bytes that round the `width` f64s at `addr` to 32 bits, in place. */
+  function roundFloatsInMemory(addr: number, width: number): number[] {
+    const bytes: number[] = [];
+    for (let k = 0; k < width; k++) {
+      const rounded = [...loadComponent(addr, "float", k * 8), WASM_OP.f32DemoteF64, WASM_OP.f64PromoteF32];
+      bytes.push(...storeComponent(addr, "float", k * 8, rounded));
     }
     return bytes;
   }
@@ -2066,13 +2072,7 @@ export function compileWasmFn(
   function materializeIfNeeded(node: any): number[] {
     const bytes = materializeValue(node);
     if (!float32 || bytes.length === 0 || elementKindOf(node._t as string) !== "float") return bytes;
-    const addr = nodeAddress(node);
-    const width = componentCountOf(node._t as string);
-    for (let k = 0; k < width; k++) {
-      const rounded = [...loadComponent(addr, "float", k * 8), WASM_OP.f32DemoteF64, WASM_OP.f64PromoteF32];
-      bytes.push(...storeComponent(addr, "float", k * 8, rounded));
-    }
-    return bytes;
+    return [...bytes, ...roundFloatsInMemory(nodeAddress(node), componentCountOf(node._t as string))];
   }
 
   /**
@@ -4085,10 +4085,10 @@ export function createWasmInputMarshaller(
           );
           break;
         case "attributeMemory":
-          writeValueToMemory(view, p.address, p.shaderType, (ctx.attributes as any)?.[p.slot], false, float32);
+          writeValueToMemory(view, p.address, p.shaderType, (ctx.attributes as any)?.[p.slot]);
           break;
         case "varyingMemory":
-          writeValueToMemory(view, p.address, p.shaderType, (ctx.varyings as any)?.[p.slot], false, float32);
+          writeValueToMemory(view, p.address, p.shaderType, (ctx.varyings as any)?.[p.slot]);
           break;
         case "fragCoordMemory":
           // the host's fragCoord for CPU invocations; draw() overwrites it per pixel — harmless
@@ -4172,12 +4172,9 @@ export function createWasmInputMarshaller(
     const kept = storageViews[i];
     if (kept && kept.buffer === memory.buffer && kept.byteOffset === base && kept.length === count) return kept;
     const kind = isAggregate(shaderType) ? elementKindOf(shaderType) : scalarKindOf(shaderType);
-    const made =
-      kind === "float"
-        ? new Float64Array(memory.buffer, base, count)
-        : kind === "uint"
-          ? new Uint32Array(memory.buffer, base, count)
-          : new Int32Array(memory.buffer, base, count);
+    // The heap holds a float in 64 bits at either width.
+    const made = new (typedArrayOfKind(kind, false))(memory.buffer, base, count) as
+      Float64Array | Int32Array | Uint32Array;
     storageViews[i] = made;
     return made;
   }
