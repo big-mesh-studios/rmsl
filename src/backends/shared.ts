@@ -155,6 +155,11 @@ export interface CompileCtx {
   jsEpoch: number;
   /** JS target: the blocks being compiled, outermost first; a copy of a host input is valid inside its own. */
   jsBlocks?: number[];
+  /**
+   * JS target: inside a loop, the copies of host inputs to make before the
+   * outermost one, and the block that loop is in, where those copies hold.
+   */
+  jsLoopCopies?: { lines: string[]; block: number };
   /** JS target: whether the value being compiled reads a slot that statements filled. */
   jsReadsSlot: boolean;
   /** What derivative ops (dFdx/dFdy/fwidth) compile to on the CPU. */

@@ -12,6 +12,7 @@ import {
   float,
   If,
   int,
+  Loop,
   fragCoord,
   instancedArray,
   invocationIndex,
@@ -1181,6 +1182,28 @@ describe("the scalars and inputs of a JS function", () => {
     // Once: the copy made before the block has run when the block runs.
     expect(source.match(/\[0\] = ctx\.uniforms\["_rmsl_u\d+"\]\[0\];/g)).toHaveLength(1);
     expect(compileJSRoutine(build, none)({ uniforms: { [v.name]: [1, 2, 3] } })).toEqual(new Float64Array([3, 10, 21]));
+  });
+
+  /**
+   * @canon spec-a-js-function-copies-a-host-vector-into-a-slot-of-its-kind
+   */
+  it("copies a host vector first read in a loop once, before the outermost loop", () => {
+    const v = uniform("vec3");
+    const build = () =>
+      Fn(() => {
+        const sum = vec3(0).toVar();
+        Loop(int(3), () => {
+          Loop(int(2), () => {
+            sum.addAssign(v);
+          });
+        });
+        return sum.add(v);
+      })() as any;
+    const source = compileJSFn(build, none);
+    const copies = source.match(/\[0\] = ctx\.uniforms\["_rmsl_u\d+"\]\[0\];/g);
+    expect(copies).toHaveLength(1);
+    expect(source.indexOf(copies![0]!)).toBeLessThan(source.indexOf("for ("));
+    expect(compileJSRoutine(build, none)({ uniforms: { [v.name]: [1, 2, 3] } })).toEqual(new Float64Array([7, 14, 21]));
   });
 
   /**

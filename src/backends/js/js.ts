@@ -1318,7 +1318,13 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
   // A copy of what the host passed by name holds through any write: nothing in a call changes it.
   if (result.expr !== read && /^ctx\.(uniforms|attributes|varyings|params)\["[^"]*"\]$/.test(read)) {
     ctx.jsReadsSlot = true;
-    ctx.memo.set(node, { ...result, jsBlock: ctx.jsBlocks!.at(-1) });
+    let loop = ctx.jsLoopCopies;
+    if (loop) {
+      // Made once before the outermost loop, rather than on every iteration.
+      loop.lines.push(...result.body);
+      result = { ...result, body: [] };
+    }
+    ctx.memo.set(node, { ...result, jsBlock: loop ? loop.block : ctx.jsBlocks!.at(-1) });
     return result;
   }
   // A value computed into a slot holds what it was there, so it is reused only
@@ -1446,6 +1452,21 @@ function compileJSBoundary(node: any, ctx: CompileCtx): CompiledNode {
   ctx.jsBlocks!.pop();
   ctx.jsEpoch++;
   return result;
+}
+
+/** Starts compiling a loop: the outermost one collects the copies of host inputs its reads make. */
+function jsEnterLoop(ctx: CompileCtx): boolean {
+  if (ctx.jsLoopCopies) return false;
+  ctx.jsLoopCopies = { lines: [], block: ctx.jsBlocks!.at(-1)! };
+  return true;
+}
+
+/** Ends compiling a loop: the copies to make before it, if it is the outermost one. */
+function jsLeaveLoop(outermost: boolean, ctx: CompileCtx): string[] {
+  if (!outermost) return [];
+  let lines = ctx.jsLoopCopies!.lines;
+  ctx.jsLoopCopies = undefined;
+  return lines;
 }
 
 /** A negative literal is a negation, and brackets like one: `-(-7)`, not `--7`. */
@@ -2329,9 +2350,11 @@ export function compileJSNode(
 
     case "for": {
       let init = compileJSStage(node.params![0], ctx);
+      let copies = jsEnterLoop(ctx);
       let cond = compileJSStage(node.params![1], ctx);
       let update = compileJSBoundary(node.params![2], ctx);
       let body = compileJSBoundary(node.params![3], ctx);
+      let before = jsLeaveLoop(copies, ctx);
       // An init that makes no statement, such as a variable made before the loop, leaves the header's init empty.
       let initExpr = "";
       let initBody = init.body;
@@ -2348,6 +2371,7 @@ export function compileJSNode(
         decls: [...init.decls, ...cond.decls, ...update.decls, ...body.decls],
         body: [
           ...initBody,
+          ...before,
           `for (${initExpr}; ${header}; ${forUpdateStatements(update).map(withoutSemicolon).join(", ")}) {`,
           ...[...guard, ...body.body].map((l) => "  " + l),
           "}",
@@ -2357,12 +2381,14 @@ export function compileJSNode(
     }
 
     case "while": {
+      let copies = jsEnterLoop(ctx);
       let cond = compileJSStage(node.params![0], ctx);
       let body = compileJSBoundary(node.params![1], ctx);
+      let before = jsLeaveLoop(copies, ctx);
       let { header, guard } = loopTest(cond);
       return {
         decls: [...cond.decls, ...body.decls],
-        body: [`while (${header}) {`, ...[...guard, ...body.body].map((l) => "  " + l), "}"],
+        body: [...before, `while (${header}) {`, ...[...guard, ...body.body].map((l) => "  " + l), "}"],
         expr: "0",
       };
     }
