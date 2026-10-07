@@ -138,6 +138,8 @@ export interface CompileCtx {
   jsParams: Set<string>;
   /** Names of JS helper functions the compiled function needs. */
   jsHelpers: Set<string>;
+  /** The constant vectors and matrices a JS function reads, by the name each is declared under once. */
+  jsConstants?: Map<string, string>;
   /**
    * Slot a vector/matrix-typed expression should be written into, when the JS
    * target is lowering an assignment. `null` means a plain expression.

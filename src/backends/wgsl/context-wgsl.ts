@@ -117,8 +117,7 @@ export async function createWgslContext(options: CreateWgslContextOptions = {}):
       layout,
     };
     buffers.set(attribute, existing);
-    if (attribute.array)
-      gpu.queue.writeBuffer(existing.buffer, 0, spread(attribute.array, 0, layout).data as BufferSource);
+    gpu.queue.writeBuffer(existing.buffer, 0, spread(attribute.array, 0, layout).data as BufferSource);
     return existing;
   }
 

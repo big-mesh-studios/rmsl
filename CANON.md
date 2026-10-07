@@ -347,15 +347,14 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@exception a-uniform-holds-no-value`](#exception-a-uniform-holds-no-value) — `uniform(type)` and `uniformArray(type, length)` take a type where TSL's take values. The uniform holds no value, and the host passes one at each call.
   - [`@spec a-storage-buffer-follows-tsl`](#spec-a-storage-buffer-follows-tsl) — `storage(attribute, type)`, `instancedArray` and `attributeArray` make a [storage buffer](#term-storage-buffer) node over a buffer of typed elements, as TSL's functions of the same names do.
     - [`@spec a-wgsl-storage-buffer-holds-a-vec3-in-16-bytes`](#spec-a-wgsl-storage-buffer-holds-a-vec3-in-16-bytes) — A WGSL storage buffer of `vec3` elements holds each element in 16 bytes. The host passes and reads the components as one flat typed array, with no padding. This holds for `createWgslCompute` and for a `createWgsl` with storage of its own.
+    - [`@spec a-storage-buffer-attribute-of-a-count-holds-a-zeroed-array`](#spec-a-storage-buffer-attribute-of-a-count-holds-a-zeroed-array) — A `StorageBufferAttribute` and a `StorageInstancedBufferAttribute` made from a count hold a zeroed typed array of `count * itemSize` elements, of the array class they are given, `Float32Array` by default. The array is the buffer's contents on the host, which the application fills. One made from a typed array holds that array.
     - [`@spec an-instanced-array-takes-its-count-from-a-number-or-its-data`](#spec-an-instanced-array-takes-its-count-from-a-number-or-its-data) — `instancedArray(count, type)` makes a buffer of `count` elements, whose host array holds zeros. `instancedArray(data, type)` takes its count and contents from a typed array.
-      - [`@bug an-instanced-array-of-a-count-keeps-no-host-array`](#bug-an-instanced-array-of-a-count-keeps-no-host-array) — `instancedArray(count, type)` and `attributeArray(count, type)` keep no host array: `attribute.array` is `null`.
     - [`@spec a-buffer-holds-one-element-type`](#spec-a-buffer-holds-one-element-type) — A buffer holds one element type, named by the first storage node over it. A node of another type over it is refused. So is a type its item size or array class cannot hold, and a typed array that is not a whole number of elements.
     - [`@spec a-storage-buffer-holds-no-bool`](#spec-a-storage-buffer-holds-no-bool) — A storage buffer of `bool` or boolean vector elements is refused.
     - [`@spec a-storage-node-is-read-write-until-to-read-only`](#spec-a-storage-node-is-read-write-until-to-read-only) — A program can read and write a storage node until `toReadOnly()`, which makes it read-only and returns it. The element of a node, by a number or an `int`, has the element type.
     - [`@spec nodes-over-one-buffer-share-one-binding`](#spec-nodes-over-one-buffer-share-one-binding) — Several storage nodes over one buffer compile to one binding, with the widest access any of them needs.
     - [`@exception a-vec3-storage-element-is-padded-only-on-the-gpu`](#exception-a-vec3-storage-element-is-padded-only-on-the-gpu) — A `vec3` element, or a matrix with columns of three, keeps its packed layout on its attribute and in what the host reads back. Only the WGSL buffer pads each to 16 bytes, where TSL pads the attribute itself.
     - [`@spec a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array`](#spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array) — `setAttribute` on a compute adapter takes a storage buffer as one typed array, which holds the components of its elements one after another.
-      - [`@bug the-cpu-compute-adapters-take-a-vector-storage-element-as-an-array`](#bug-the-cpu-compute-adapters-take-a-vector-storage-element-as-an-array) — `createJsCompute` and `createWasmCompute` read a vector storage buffer as one array per element. A flat typed array from `setAttribute` ends up as `NaN`.
   - [`@spec compute-follows-tsl`](#spec-compute-follows-tsl) — `fn().compute(count, workgroupSize)` and `compute(node, count, workgroupSize)` make a [compute node](#term-compute-node), dispatched once for each index below `count`, as TSL's `compute` does.
     - [`@spec a-compute-program-returns-nothing`](#spec-a-compute-program-returns-nothing) — A compute program writes its results into storage and returns nothing, and every compute entry point takes it as it is.
     - [`@spec a-compute-node-carries-its-count-and-workgroup-size`](#spec-a-compute-node-carries-its-count-and-workgroup-size) — A compute node carries its count and its workgroup size, which is 64 by default.
@@ -538,6 +537,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cpu-routine-answers-one-fragment-per-call`](#spec-a-cpu-routine-answers-one-fragment-per-call) — `run` of a CPU routine evaluates the program once, for the context the host passes. The same routine serves any number of calls, and a value one call returned keeps what it holds through the calls after it.
     - [`@spec a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel) — `fill` of a CPU grid evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to fill with.
     - [`@spec a-cpu-compute-stage-runs-one-invocation-per-index`](#spec-a-cpu-compute-stage-runs-one-invocation-per-index) — `dispatch` of a CPU compute stage runs the program once for each index of its count. It reads and writes any element of the buffers the host passes by slot.
+    - [`@spec a-cpu-compute-stage-reads-a-vector-element-as-an-array`](#spec-a-cpu-compute-stage-reads-a-vector-element-as-an-array) — A CPU compute stage reads and writes the element of a vector or a matrix storage buffer as an array of its components, and a scalar buffer as numbers. The buffer the host passes holds one array for each element.
     - [`@spec a-wasm-routine-is-reentrant`](#spec-a-wasm-routine-is-reentrant) — A WASM routine keeps its variables in its own module, so it computes the same with or without `reentrant`.
     - [`@spec a-cpu-target-runs-invocations-in-index-order`](#spec-a-cpu-target-runs-invocations-in-index-order) — A CPU target runs the invocations of a dispatch one at a time, in index order. An invocation sees the writes of the invocations before it.
     - [`@spec a-cpu-target-rasterizes-a-vertex-and-fragment-pair`](#spec-a-cpu-target-rasterizes-a-vertex-and-fragment-pair) — `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates varyings in perspective, clips at the near plane, and keeps the closer fragment.
@@ -607,12 +607,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec deserialize-refuses-data-serialize-could-not-have-produced`](#spec-deserialize-refuses-data-serialize-could-not-have-produced) — `deserialize` refuses data that `serialize` could not have produced.
       - [`@bug deserialize-accepts-unknown-and-unnamed-nodes`](#bug-deserialize-accepts-unknown-and-unnamed-nodes) — `deserialize` accepts a node type no node has, and a uniform with neither a slot nor a local name, and rebuilds a node from each.
 - [`@axiom the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing) — Code that runs once per frame, or once per call of a routine that runs every frame, allocates no memory.
-  - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A JS [routine](#term-cpu-routine) keeps its variables in a scratch block outside the function. It writes vector results into them through helpers that take an output argument. With `reentrant`, it declares its variables inside the function.
-    - [`@bug js-smoothstep-allocates-a-closure-per-call`](#bug-js-smoothstep-allocates-a-closure-per-call) — A scalar `smoothstep` on JS builds a closure on every call.
-    - [`@bug js-allocates-a-vector-computed-outside-an-assignment`](#bug-js-allocates-a-vector-computed-outside-an-assignment) — On JS, a vector or matrix computed outside an assignment becomes a new array on every call. A matrix column is a copy made with `slice`, a scalar matrix goes through `_matDiag`, and a constant vector is an array literal.
-    - [`@bug js-select-allocates-its-result-per-call`](#bug-js-select-allocates-its-result-per-call) — On JS, a component-wise `select` calls its helper with no output argument, so the helper allocates its result on every call.
-    - [`@bug js-cube-map-allocates-its-face-per-call`](#bug-js-cube-map-allocates-its-face-per-call) — On JS, sampling a cube map allocates an array for the face it picks on every call.
-    - [`@bug js-matrix-product-into-its-operand-allocates`](#bug-js-matrix-product-into-its-operand-allocates) — On JS, a matrix product written into one of its own operands copies that operand with `slice` on every call.
+  - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A compiled JS function keeps what it computes in slots it declares once, outside the function: its variables, each vector or matrix an operation computes, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. With `reentrant`, the function declares its slots inside itself, and each call has its own.
+  - [`@spec a-compiled-js-function-returns-its-result-in-a-slot`](#spec-a-compiled-js-function-returns-its-result-in-a-slot) — The function that `compileJSFn` returns as source, and that `precompileJS` ships, returns a vector or a matrix in a slot it reuses on the next call, so the result of one call is the result of the next. A caller that keeps one copies it, or compiles with `reentrant`. A [routine](#term-cpu-routine), a stage and a grid copy their result, so a later call does not change it.
   - [`@spec a-webgl-renderer-allocates-nothing-per-frame`](#spec-a-webgl-renderer-allocates-nothing-per-frame) — The WebGL renderer draws a frame without allocating. It reuses what it needs between frames, and builds no array, closure or iterator per frame or per draw.
     - [`@bug webgl-render-allocates-the-clear-colour-per-frame`](#bug-webgl-render-allocates-the-clear-colour-per-frame) — `render` reads the clear colour with `Color.toArray()`, which builds a new array on every frame.
     - [`@bug webgl-render-allocates-a-traversal-closure-per-frame`](#bug-webgl-render-allocates-a-traversal-closure-per-frame) — `render` builds a new callback for `traverseVisible` on every frame.
@@ -682,7 +678,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact wgsl-assigns-no-swizzle-of-several-components`](#fact-wgsl-assigns-no-swizzle-of-several-components) — WGSL refuses an assignment to a swizzle of several components, and accepts one to a single component.
 - [`@fact glsl-mixes-by-a-boolean-vector-only-floats`](#fact-glsl-mixes-by-a-boolean-vector-only-floats) — GLSL ES 3.00 offers `mix` with a boolean vector selector for float types only, and has no such overload for integer vectors.
 - [`@fact tsl-uniforms-hold-their-values`](#fact-tsl-uniforms-hold-their-values) — TSL's `uniform(value)` and `uniformArray(values, type)` take the values the uniform holds, and the renderer uploads them.
-- [`@fact a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array`](#fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array) — TSL's `instancedArray(count, type)` and `attributeArray(count, type)` make a zeroed typed array of the buffer's contents on the host.
+- [`@fact a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array`](#fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array) — The constructors of TSL's `StorageBufferAttribute` and `StorageInstancedBufferAttribute` allocate, for a count, a zeroed typed array of `count * itemSize` elements on the host. `instancedArray(count, type)` and `attributeArray(count, type)` build them from a count.
 - [`@fact tsl-takes-a-compute-count-from-its-caller`](#fact-tsl-takes-a-compute-count-from-its-caller) — TSL's `compute(node, count)` takes the count from the code that writes it. A number is the number of invocations, and the compiler guards `instanceIndex` against it through a uniform. Any other value is a dispatch size in workgroups. TSL never infers a count from a buffer.
 - [`@fact a-compute-entry-point-takes-no-location`](#fact-a-compute-entry-point-takes-no-location) — A WGSL compute entry point takes no `@location` parameter. That attribute is the only way a GPU hands a shader its vertices, and a compute dispatch has none.
 - [`@fact a-compute-entry-point-returns-nothing`](#fact-a-compute-entry-point-returns-nothing) — A WGSL compute entry point returns nothing. A function that declares a return type must give that type an entry point IO attribute, and a compute entry point has none to give.
@@ -2647,17 +2643,19 @@ Derives from: [`fact-a-wgsl-storage-vec3-takes-16-bytes`](#fact-a-wgsl-storage-v
 
 This follows because the shader indexes a `vec3` array 16 bytes at a time, and the host passes the components as TSL's attribute holds them.
 
+#### @spec a-storage-buffer-attribute-of-a-count-holds-a-zeroed-array
+
+> A `StorageBufferAttribute` and a `StorageInstancedBufferAttribute` made from a count hold a zeroed typed array of `count * itemSize` elements, of the array class they are given, `Float32Array` by default. The array is the buffer's contents on the host, which the application fills. One made from a typed array holds that array.
+
+Derives from: [`axiom-a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import), [`fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array`](#fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array)
+
+This follows because a program that fills the array of a buffer it made from a count ports from TSL by changing its import, and a graph keeps the contents of its buffers through `serialize`.
+
 #### @spec an-instanced-array-takes-its-count-from-a-number-or-its-data
 
 > `instancedArray(count, type)` makes a buffer of `count` elements, whose host array holds zeros. `instancedArray(data, type)` takes its count and contents from a typed array.
 
-Derives from: [`fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array`](#fact-a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array)
-
-##### @bug an-instanced-array-of-a-count-keeps-no-host-array
-
-> `instancedArray(count, type)` and `attributeArray(count, type)` keep no host array: `attribute.array` is `null`.
-
-Issue: #133
+Derives from: [`spec-a-storage-buffer-attribute-of-a-count-holds-a-zeroed-array`](#spec-a-storage-buffer-attribute-of-a-count-holds-a-zeroed-array)
 
 #### @spec a-buffer-holds-one-element-type
 
@@ -2692,12 +2690,6 @@ Derives from: [`fact-a-wgsl-storage-vec3-takes-16-bytes`](#fact-a-wgsl-storage-v
 Derives from: [`fact-tsl-fills-a-storage-buffer-attribute-from-one-typed-array`](#fact-tsl-fills-a-storage-buffer-attribute-from-one-typed-array)
 
 This follows because a storage buffer lies over an attribute, and TSL fills an attribute from one flat typed array.
-
-##### @bug the-cpu-compute-adapters-take-a-vector-storage-element-as-an-array
-
-> `createJsCompute` and `createWasmCompute` read a vector storage buffer as one array per element. A flat typed array from `setAttribute` ends up as `NaN`.
-
-Issue: #126
 
 ### @spec compute-follows-tsl
 
@@ -3738,6 +3730,14 @@ This follows because a compute program writes into storage and has no result to 
 
 > `dispatch` of a CPU compute stage runs the program once for each index of its count. It reads and writes any element of the buffers the host passes by slot.
 
+#### @spec a-cpu-compute-stage-reads-a-vector-element-as-an-array
+
+> A CPU compute stage reads and writes the element of a vector or a matrix storage buffer as an array of its components, and a scalar buffer as numbers. The buffer the host passes holds one array for each element.
+
+Derives from: [`spec-a-cpu-compute-stage-runs-one-invocation-per-index`](#spec-a-cpu-compute-stage-runs-one-invocation-per-index)
+
+This follows because the program that reads `buf.element(i)` of a `vec2` buffer reads a `vec2`, and a `vec2` is an array on the CPU. A compute adapter takes the flat typed array of [`spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array`](#spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array) and converts, so the stage reads the array of an element.
+
 #### @spec a-wasm-routine-is-reentrant
 
 > A WASM routine keeps its variables in its own module, so it computes the same with or without `reentrant`.
@@ -4160,37 +4160,17 @@ This does not follow from [running everywhere](#axiom-rmsl-runs-everywhere): a p
 
 ### @spec a-js-routine-allocates-nothing-per-call
 
-> A JS [routine](#term-cpu-routine) keeps its variables in a scratch block outside the function. It writes vector results into them through helpers that take an output argument. With `reentrant`, it declares its variables inside the function.
+> A compiled JS function keeps what it computes in slots it declares once, outside the function: its variables, each vector or matrix an operation computes, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. With `reentrant`, the function declares its slots inside itself, and each call has its own.
 
-#### @bug js-smoothstep-allocates-a-closure-per-call
+This follows because a call that builds a new array or a closure gives the garbage collector work on every call, and a per-pixel call is the one that cannot afford it.
 
-> A scalar `smoothstep` on JS builds a closure on every call.
+### @spec a-compiled-js-function-returns-its-result-in-a-slot
 
-Issue: #86
+> The function that `compileJSFn` returns as source, and that `precompileJS` ships, returns a vector or a matrix in a slot it reuses on the next call, so the result of one call is the result of the next. A caller that keeps one copies it, or compiles with `reentrant`. A [routine](#term-cpu-routine), a stage and a grid copy their result, so a later call does not change it.
 
-#### @bug js-allocates-a-vector-computed-outside-an-assignment
+Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call), [`spec-a-cpu-routine-answers-one-fragment-per-call`](#spec-a-cpu-routine-answers-one-fragment-per-call)
 
-> On JS, a vector or matrix computed outside an assignment becomes a new array on every call. A matrix column is a copy made with `slice`, a scalar matrix goes through `_matDiag`, and a constant vector is an array literal.
-
-Issue: #86
-
-#### @bug js-select-allocates-its-result-per-call
-
-> On JS, a component-wise `select` calls its helper with no output argument, so the helper allocates its result on every call.
-
-Issue: #86
-
-#### @bug js-cube-map-allocates-its-face-per-call
-
-> On JS, sampling a cube map allocates an array for the face it picks on every call.
-
-Issue: #86
-
-#### @bug js-matrix-product-into-its-operand-allocates
-
-> On JS, a matrix product written into one of its own operands copies that operand with `slice` on every call.
-
-Issue: #86
+This follows because a value returned in a slot allocates nothing, and the functions of the package that the application calls one result at a time copy it, where the source that an application ships does not.
 
 ### @spec a-webgl-renderer-allocates-nothing-per-frame
 
@@ -4602,9 +4582,9 @@ This is how three.js's TSL behaves, read from its source (`UniformNode` and `Uni
 
 ## @fact a-tsl-storage-buffer-of-a-count-holds-a-zeroed-host-array
 
-> TSL's `instancedArray(count, type)` and `attributeArray(count, type)` make a zeroed typed array of the buffer's contents on the host.
+> The constructors of TSL's `StorageBufferAttribute` and `StorageInstancedBufferAttribute` allocate, for a count, a zeroed typed array of `count * itemSize` elements on the host. `instancedArray(count, type)` and `attributeArray(count, type)` build them from a count.
 
-This is how three.js's TSL behaves, read from its source (`StorageBufferAttribute`, three.js 0.186).
+This is how three.js's TSL behaves, read from its source (`src/renderers/common/StorageBufferAttribute.js` and `StorageInstancedBufferAttribute.js`, with `src/nodes/accessors/Arrays.js` for the functions).
 
 ## @fact tsl-takes-a-compute-count-from-its-caller
 

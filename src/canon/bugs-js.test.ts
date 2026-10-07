@@ -8,21 +8,17 @@ import {
   If,
   instancedArray,
   int,
-  invocationIndex,
   ivec2,
   mat2,
   mat3,
-  select,
-  smoothstep,
   textureLoad,
   uniform,
   uniformArray,
-  vec2,
   vec3,
   vec4,
   type Node,
 } from "../rmsl";
-import { compileJS, compileJSFn, compileJSRoutine, createJsCompute, createJsGrid } from "../js";
+import { compileJS, compileJSFn, compileJSRoutine, createJsGrid } from "../js";
 import { evaluateJS } from "../testing/shader-eval";
 
 const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
@@ -79,7 +75,10 @@ describe("known bugs of the JS target, each failing until its fix", () => {
       })();
     const runs = (branch: number) => {
       const data = new Float64Array(1);
-      compileJSRoutine(build as any, none)({
+      compileJSRoutine(
+        build as any,
+        none,
+      )({
         storages: { [counter.name]: data, [result.name]: new Float64Array(1) },
         uniforms: { [taken.name]: branch },
       });
@@ -173,73 +172,6 @@ describe("known bugs of the JS target, each failing until its fix", () => {
   });
 
   /**
-   * A scalar `smoothstep` on JS builds a closure on every call.
-   *
-   * @canon bug-js-smoothstep-allocates-a-closure-per-call
-   */
-  it.fails("computes a scalar smoothstep without a closure on JS", () => {
-    const source = compileJSFn((a: any) => Fn(() => smoothstep(0, 1, a).toVar())(), param);
-    expect(source).not.toMatch(/function\s*\(t\)/);
-  });
-
-  /**
-   * On JS, a vector or matrix computed outside an assignment is built as a new
-   * array on every call: a matrix column is copied with `slice`, a scalar
-   * matrix through `_matDiag`, and a constant vector as an array literal.
-   *
-   * @canon bug-js-allocates-a-vector-computed-outside-an-assignment
-   */
-  it.fails("reads a matrix column inside an expression without a copy on JS", () => {
-    const source = compileJSFn((a: any) => Fn(() => mat2(1, 2, 3, 4).toVar().element(a.toInt()).x)(), param);
-    expect(source).not.toContain(".slice(");
-  });
-
-  /**
-   * On JS, a component-wise `select` calls its helper with no output
-   * argument, so the helper allocates its result on every call.
-   *
-   * @canon bug-js-select-allocates-its-result-per-call
-   */
-  it.fails("writes a component-wise select into an output argument on JS", () => {
-    const source = compileJSFn(
-      (a: any) => Fn(() => select(vec3(a, 1, -1).greaterThan(vec3(0, 0, 0)), vec3(1, 2, 3), vec3(4, 5, 6)).toVar())(),
-      param,
-    );
-    expect(source).not.toContain("_copy(_bselect(");
-  });
-
-  /**
-   * On JS, sampling a cube map allocates an array for the face it picks on
-   * every call.
-   *
-   * @canon bug-js-cube-map-allocates-its-face-per-call
-   */
-  it.fails("samples a cube map without allocating on JS", () => {
-    const cube = uniform("samplerCube");
-    const source = compileJSFn(() => Fn(() => cube.texture(vec3(1, 0, 0)).toVar())(), none);
-    expect(source).not.toMatch(/_cubeFace\([^)]*\[0, 0, 0\]\)/);
-  });
-
-  /**
-   * On JS, a matrix product written into one of its own operands copies that
-   * operand with `slice` on every call.
-   *
-   * @canon bug-js-matrix-product-into-its-operand-allocates
-   */
-  it.fails("multiplies a matrix into itself without a copy on JS", () => {
-    const source = compileJSFn(
-      (a: any) =>
-        Fn(() => {
-          const m = mat2(a, 0, 0, 1).toVar();
-          m.assign(m.mul(m));
-          return m;
-        })(),
-      param,
-    );
-    expect(source).not.toContain(".slice()");
-  });
-
-  /**
    * The JS rasterizer shades a pixel centre on an edge two triangles share
    * with both, so the triangle drawn last wins it.
    *
@@ -290,20 +222,5 @@ describe("known bugs of the JS target, each failing until its fix", () => {
     const items = uniformArray("float", 3);
     const run = compileJSRoutine(() => Fn(() => items.element(int(2)).add(0).toVar())(), none);
     expect(run({ uniforms: { [items.name]: [1, 2] } })).toBe(0);
-  });
-
-  /**
-   * `createJsCompute` reads a vector storage buffer as one array per element,
-   * so the flat typed array `setAttribute` takes ends up as `NaN`.
-   *
-   * @canon bug-the-cpu-compute-adapters-take-a-vector-storage-element-as-an-array
-   */
-  it.fails("writes a vector storage buffer given as a flat typed array on JS", () => {
-    const buf = instancedArray(2, "vec2");
-    const adapter = createJsCompute(Fn(() => buf.element(invocationIndex()).assign(vec2(3, 4)))());
-    const data = new Float32Array(4);
-    adapter.setAttribute(buf.name, data);
-    adapter.compute();
-    expect(Array.from(data)).toEqual([3, 4, 3, 4]);
   });
 });

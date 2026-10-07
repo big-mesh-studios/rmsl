@@ -11,6 +11,8 @@ import {
   invocationIndex,
   ivec2,
   mat2,
+  select,
+  smoothstep,
   outputStruct,
   uint,
   textureLoad,
@@ -30,6 +32,7 @@ import {
   compileJSGrid,
   compileJSRoutine,
   compileJSVertex,
+  createJsCompute,
   createJsGrid,
   createJsRoutine,
 } from "../js";
@@ -40,6 +43,7 @@ import {
   compileWasmGrid,
   compileWasmRoutine,
   compileWasmVertex,
+  createWasmCompute,
   createWasmGrid,
   createWasmRoutine,
 } from "../wasm";
@@ -530,5 +534,185 @@ describe("an adapter of a routine", () => {
     const adapter = create(Fn(() => textureLoad(tex, ivec2(1, 0)).x)(), none);
     adapter.setTexture(tex, { data: [10, 99], width: 2, height: 1, channels: 1 });
     expect(adapter.run()).toBe(99);
+  });
+});
+
+describe("what a JS routine allocates per call", () => {
+  const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
+
+  /**
+   * @canon spec-a-js-routine-allocates-nothing-per-call
+   */
+  it("computes a scalar smoothstep without a closure on JS", () => {
+    const source = compileJSFn((a: any) => Fn(() => smoothstep(0, 1, a).toVar())(), param);
+    expect(source).not.toMatch(/function\s*\(t\)/);
+  });
+  /**
+   * @canon spec-a-js-routine-allocates-nothing-per-call
+   */
+  it("writes a component-wise select into an output argument on JS", () => {
+    const source = compileJSFn(
+      (a: any) => Fn(() => select(vec3(a, 1, -1).greaterThan(vec3(0, 0, 0)), vec3(1, 2, 3), vec3(4, 5, 6)).toVar())(),
+      param,
+    );
+    expect(source).not.toContain("_copy(_bselect(");
+  });
+  /**
+   * @canon spec-a-js-routine-allocates-nothing-per-call
+   */
+  it("samples a cube map without allocating on JS", () => {
+    const cube = uniform("samplerCube");
+    const source = compileJSFn(() => Fn(() => cube.texture(vec3(1, 0, 0)).toVar())(), none);
+    expect(source).not.toMatch(/_cubeFace\([^)]*\[0, 0, 0\]\)/);
+  });
+  /**
+   * @canon spec-a-js-routine-allocates-nothing-per-call
+   */
+  it("multiplies a matrix into itself without a copy on JS", () => {
+    const source = compileJSFn(
+      (a: any) =>
+        Fn(() => {
+          const m = mat2(a, 0, 0, 1).toVar();
+          m.assign(m.mul(m));
+          return m;
+        })(),
+      param,
+    );
+    expect(source).not.toContain(".slice()");
+  });
+
+  /**
+   * @canon spec-a-js-routine-allocates-nothing-per-call
+   */
+  it("still squares a matrix into itself, from the operand as it was", () => {
+    const squared = compileJSRoutine(
+      (a: any) =>
+        Fn(() => {
+          const m = mat2(vec2(a, 0), vec2(1, 1)).toVar();
+          m.assign(m.mul(m));
+          return m;
+        })(),
+      param,
+    );
+    // The columns (a, 0) and (1, 1), squared, are (a * a, 0) and (a + 1, 1).
+    expect(squared({ params: { a: 3 } })).toEqual([9, 0, 4, 1]);
+    expect(squared({ params: { a: 2 } })).toEqual([4, 0, 3, 1]);
+  });
+  /**
+   * @canon spec-a-js-routine-allocates-nothing-per-call
+   */
+  it("reads a matrix column inside an expression without a copy on JS", () => {
+    const source = compileJSFn((a: any) => Fn(() => mat2(1, 2, 3, 4).toVar().element(a.toInt()).x)(), param);
+    expect(source).not.toContain(".slice(");
+  });
+
+  /**
+   * @canon spec-a-js-routine-allocates-nothing-per-call
+   */
+  it("reads the values of what it no longer allocates", () => {
+    const run = compileJSRoutine(
+      (a: any) =>
+        Fn(() => {
+          const m = mat2(vec2(a, 2), vec2(3, 4)).toVar();
+          const diag = mat2(a).toVar();
+          const broadcast = vec3(a).toVar();
+          const built = vec3(a, 1, 2).toVar();
+          return m
+            .element(1)
+            .y.add(diag.element(0).x)
+            .add(broadcast.y)
+            .add(built.z)
+            .add(vec3(1, 2, 3).y);
+        })(),
+      param,
+    );
+    // 4 (column 1, y) + 5 (the diagonal) + 5 (broadcast) + 2 (built) + 2 (constant).
+    expect(run({ params: { a: 5 } })).toBe(18);
+    expect(run({ params: { a: 1 } })).toBe(10);
+  });
+
+  /**
+   * @canon spec-a-compiled-js-function-returns-its-result-in-a-slot
+   */
+  it("returns a vector in a slot it reuses, unless it is reentrant", () => {
+    const source = (reentrant: boolean) =>
+      new Function(compileJSFn((a: any) => Fn(() => vec3(a, 1, 2).toVar())(), { ...param, reentrant }))() as (
+        ctx: unknown,
+      ) => number[];
+    const shared = source(false);
+    const first = shared({ params: { a: 1 } });
+    const second = shared({ params: { a: 7 } });
+    expect(second).toBe(first);
+    expect(first).toEqual([7, 1, 2]);
+    const own = source(true);
+    const third = own({ params: { a: 1 } });
+    expect(own({ params: { a: 7 } })).not.toBe(third);
+    expect(third).toEqual([1, 1, 2]);
+  });
+
+  /**
+   * @canon spec-a-compiled-js-function-returns-its-result-in-a-slot
+   */
+  it("copies the vector a routine, a stage and a grid return", () => {
+    const routine = compileJSRoutine((a: any) => Fn(() => vec3(a, 1, 2).toVar())(), param);
+    const first = routine({ params: { a: 1 } });
+    routine({ params: { a: 7 } });
+    expect(first).toEqual([1, 1, 2]);
+  });
+});
+
+describe("a CPU compute adapter's storage", () => {
+  /**
+   * @canon spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array
+   */
+  it("writes a vector storage buffer given as a flat typed array on JS", () => {
+    const buf = instancedArray(2, "vec2");
+    const adapter = createJsCompute(Fn(() => buf.element(invocationIndex()).assign(vec2(3, 4)))());
+    const data = new Float32Array(4);
+    adapter.setAttribute(buf.name, data);
+    adapter.compute();
+    expect(Array.from(data)).toEqual([3, 4, 3, 4]);
+  });
+  /**
+   * @canon spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array
+   */
+  it("writes a vector storage buffer given as a flat typed array on WASM", () => {
+    const buf = instancedArray(2, "vec2");
+    const adapter = createWasmCompute(Fn(() => buf.element(invocationIndex()).assign(vec2(3, 4)))(), { name: "step" });
+    const data = new Float32Array(4);
+    adapter.setAttribute(buf.name, data);
+    adapter.compute();
+    expect(Array.from(data)).toEqual([3, 4, 3, 4]);
+  });
+});
+
+describe("a CPU compute stage's vector buffer", () => {
+  const computes = [
+    ["JS", compileJSCompute],
+    ["WASM", compileWasmCompute],
+  ] as const;
+
+  /**
+   * @canon spec-a-cpu-compute-stage-reads-a-vector-element-as-an-array
+   */
+  it.each(computes)("%s: reads and writes the element of a vector buffer as an array", (_, compile) => {
+    const buf = instancedArray(2, "vec2");
+    const stage = compile(
+      () =>
+        Fn(() => {
+          const i = invocationIndex();
+          buf.element(i).assign(buf.element(i).mul(2));
+        })() as any,
+      none,
+    );
+    const data = [
+      [1, 2],
+      [3, 4],
+    ];
+    stage({ storages: { [buf.name]: data } }, 2);
+    expect(data).toEqual([
+      [2, 4],
+      [6, 8],
+    ]);
   });
 });

@@ -35,13 +35,13 @@ export interface SerializedNode {
   params?: number[];
 }
 
-/** A storage buffer: its layout, and its initial contents when it was built from an array. */
+/** A storage buffer: its layout, and its contents. */
 export interface SerializedBuffer {
   instanced: boolean;
   count: number;
   itemSize: number;
   arrayClass: "Float32Array" | "Int32Array" | "Uint32Array";
-  array: number[] | null;
+  array: number[];
 }
 
 type Root = Node<ShaderType> | readonly Node<ShaderType>[];
@@ -85,7 +85,7 @@ export function serialize(root: Root | (() => Root)): SerializedGraph {
     count: attribute.count,
     itemSize: attribute.itemSize,
     arrayClass: attribute.arrayClass.name as SerializedBuffer["arrayClass"],
-    array: attribute.array ? Array.from(attribute.array) : null,
+    array: Array.from(attribute.array),
   }));
 
   // A generated name is saved as a number local to this graph, the same for every node that had it.
@@ -152,9 +152,7 @@ export function deserialize(graph: SerializedGraph): Node<ShaderType> | Node<Sha
         `[RMSL] deserialize: buffer ${i} holds a ${b.arrayClass}, not a Float32Array, Int32Array or Uint32Array`,
       );
     }
-    return b.array
-      ? new Attribute(ArrayClass.from(b.array), b.itemSize)
-      : new Attribute(b.count, b.itemSize, ArrayClass);
+    return new Attribute(ArrayClass.from(b.array), b.itemSize);
   });
 
   const nodes: Node<ShaderType>[] = [];

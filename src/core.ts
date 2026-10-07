@@ -2606,15 +2606,15 @@ let nextStorageBufferId = 0;
  * The buffer behind a {@link storage} node, as TSL's `StorageBufferAttribute`:
  * `count` elements of `itemSize` components each. Built from a typed array,
  * that array is the buffer's initial contents; built from a count, the buffer
- * starts zeroed and `array` stays `null` — unlike TSL, no CPU-side copy is
- * kept for a buffer that only the GPU (or WASM) side reads and writes.
+ * holds a zeroed array of that many elements, on the host, for the application
+ * to fill, as TSL's does.
  */
 export class StorageBufferAttribute {
   readonly id = nextStorageBufferId++;
   readonly count: number;
   readonly itemSize: number;
   readonly arrayClass: StorageArrayClass;
-  readonly array: Float32Array | Int32Array | Uint32Array | null;
+  readonly array: Float32Array | Int32Array | Uint32Array;
   /**
    * The type of the attribute's elements, set by the first {@link storage}
    * node over it, or `null` before one. A GPU buffer's layout depends on it:
@@ -2631,7 +2631,7 @@ export class StorageBufferAttribute {
     if (typeof countOrArray === "number") {
       this.count = countOrArray;
       this.arrayClass = arrayClass;
-      this.array = null;
+      this.array = new arrayClass(countOrArray * itemSize);
     } else {
       if (countOrArray.length % itemSize !== 0) {
         throw new Error(

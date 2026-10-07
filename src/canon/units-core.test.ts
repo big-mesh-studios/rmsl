@@ -5,7 +5,10 @@ import {
   float,
   Fn,
   If,
+  attributeArray,
   instancedArray,
+  StorageBufferAttribute,
+  StorageInstancedBufferAttribute,
   int,
   Loop,
   mix,
@@ -77,7 +80,7 @@ describe("units of the core", () => {
     const { glsl, wgsl, js } = sources(() => vec4(mix(u, vec3(1), 0.25), 1));
     expect(glsl).toMatch(/mix\(_rmsl_u\d+, vec3\(1\.0\), 0\.25\)/);
     expect(wgsl).toMatch(/mix\(_rmsl_uniforms\._rmsl_u\d+, vec3<f32>\(1f\), 0\.25f\)/);
-    expect(js).toMatch(/_v3mix\(ctx\.uniforms\["_rmsl_u\d+"\], \[1, 1, 1\], 0\.25\)/);
+    expect(js).toMatch(/_v3mix\(ctx\.uniforms\["_rmsl_u\d+"\], _rmsl_t\d+, 0\.25, _rmsl_t\d+\)/);
     expect(evaluateRecording((a) => mix(vec3(a), vec3(1), 0.25).x, [-3])).toBe(-2);
   });
 
@@ -428,5 +431,34 @@ describe("what a program does with a node it reads more than once", () => {
       return first * 0.1 + total * 0.1;
     };
     expect(evaluateRecording(build, [0.3])).toBeCloseTo(want(0.3), 10);
+  });
+});
+
+describe("a storage array made from a count", () => {
+  /**
+   * @canon spec-an-instanced-array-takes-its-count-from-a-number-or-its-data
+   */
+  it("gives an instancedArray made from a count a zeroed host array", () => {
+    const positions = instancedArray(8, "vec3");
+    expect(positions.attribute.array).toEqual(new Float32Array(24));
+  });
+
+  /**
+   * @canon spec-an-instanced-array-takes-its-count-from-a-number-or-its-data
+   */
+  it("gives an attributeArray the host array of its element type, zeroed", () => {
+    expect(attributeArray(4, "uvec2").attribute.array).toEqual(new Uint32Array(8));
+    expect(instancedArray(3, "int").attribute.array).toEqual(new Int32Array(3));
+    expect(instancedArray(2, "float").attribute.array).toEqual(new Float32Array(2));
+  });
+
+  /**
+   * @canon spec-a-storage-buffer-attribute-of-a-count-holds-a-zeroed-array
+   */
+  it("gives a buffer attribute made from a count the zeroed array of its array class", () => {
+    expect(new StorageBufferAttribute(4, 2).array).toEqual(new Float32Array(8));
+    expect(new StorageInstancedBufferAttribute(3, 1, Int32Array).array).toEqual(new Int32Array(3));
+    const given = new Uint32Array([1, 2]);
+    expect(new StorageBufferAttribute(given, 1).array).toBe(given);
   });
 });

@@ -297,8 +297,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       size: Math.max(4, attribute.count * layout.stride * 4),
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
-    if (attribute.array)
-      device!.queue.writeBuffer(existing, 0, spread(attribute.array, 0, layout).data as BufferSource);
+    device!.queue.writeBuffer(existing, 0, spread(attribute.array, 0, layout).data as BufferSource);
     ownStorageBuffers.set(attribute, existing);
     return existing;
   }
