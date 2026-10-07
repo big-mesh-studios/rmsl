@@ -1,6 +1,6 @@
 import { type Node, type ShaderType, type VariableNode } from "../rmsl";
 import { compileJSFn, compileJSFragment, compileJSVertex, type CpuShaderContext, type CpuTextureData } from "../js";
-import type { CpuValue, FragmentResult, VertexResult } from "../backends/cpu";
+import { isVector, type CpuValue, type FragmentResult, type VertexResult } from "../backends/cpu";
 import { compileJSProgram } from "../backends/js/js";
 // How a texture asks to be read is the renderers' question too, and they
 // already answer it without a device — so a shader tested here samples by the
@@ -704,18 +704,13 @@ export function assertClose(
   );
 }
 
-/** Whether a value is a vector or matrix: a plain array, or the typed array a CPU target returns one in. */
-function isList(value: unknown): value is ArrayLike<unknown> {
-  return Array.isArray(value) || ArrayBuffer.isView(value);
-}
-
 /** What differs between two values, or `null` when nothing does. */
 function difference(actual: unknown, expected: unknown, allowed?: number): string | null {
   if (typeof expected === "boolean" || typeof actual === "boolean") {
     return actual === expected ? null : `expected ${format(expected)}, got ${format(actual)}`;
   }
-  if (isList(expected)) {
-    if (!isList(actual)) return `expected an array of ${expected.length}, got ${format(actual)}`;
+  if (isVector(expected)) {
+    if (!isVector(actual)) return `expected an array of ${expected.length}, got ${format(actual)}`;
     if (actual.length !== expected.length) {
       return `expected ${expected.length} components, got ${actual.length}`;
     }
@@ -735,7 +730,7 @@ function difference(actual: unknown, expected: unknown, allowed?: number): strin
 }
 
 function format(value: unknown): string {
-  if (isList(value)) return `[${Array.from(value, format).join(", ")}]`;
+  if (isVector(value)) return `[${Array.from(value, format).join(", ")}]`;
   return String(value);
 }
 
@@ -903,7 +898,7 @@ function toRGBA(result: EvaluationResult<ShaderType>): [number, number, number, 
   const value = result.value ?? onlyOutput(result.outputs);
   if (typeof value === "number") return [value, value, value, 1];
   if (typeof value === "boolean") return value ? [1, 1, 1, 1] : [0, 0, 0, 1];
-  if (isList(value)) {
+  if (isVector(value)) {
     const channel = (i: number): number => {
       const component = value[i];
       return typeof component === "boolean" ? (component ? 1 : 0) : ((component ?? 0) as number);

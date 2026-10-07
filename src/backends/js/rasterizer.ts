@@ -1,6 +1,6 @@
 import { Node, ShaderType } from "../../core";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK } from "../adapter";
-import { componentCountOf, CpuDrawBuffer, CpuProgramResult, CpuShaderContext } from "../cpu";
+import { componentCountOf, CpuDrawBuffer, CpuShaderContext, isResultObject } from "../cpu";
 import { compileJSProgram, CompileJSOptions } from "./js";
 
 /** Homogeneous-clip-space near-plane epsilon — see rasterizer.md's clip-pass design (`rasterizer.wat`'s `W_CLIP_EPS`). */
@@ -115,13 +115,6 @@ function clipTriangle(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex, out: ClipV
   clipEdge(poly, v2, v0);
   if (poly.length >= 3) out.push([poly[0]!, poly[1]!, poly[2]!]);
   if (poly.length === 4) out.push([poly[0]!, poly[2]!, poly[3]!]);
-}
-
-/** The value and the stage outputs of what a compiled stage returned, a bare vector being its value. */
-function resultObject(raw: unknown): CpuProgramResult | null {
-  return typeof raw === "object" && raw !== null && !ArrayBuffer.isView(raw) && !Array.isArray(raw)
-    ? (raw as CpuProgramResult)
-    : null;
 }
 
 // === Exported functions ===
@@ -272,7 +265,9 @@ export function compileJS(
 
         const raw = fragmentStage.runInPlace(fragmentCtx);
         // A fragment that discards, or that writes no colour, leaves the pixel as it was.
-        const color = ArrayBuffer.isView(raw) ? (raw as Float64Array) : (resultObject(raw)?.value as Float64Array);
+        const color = ArrayBuffer.isView(raw)
+          ? (raw as Float64Array)
+          : ((isResultObject(raw) ? raw.value : undefined) as Float64Array);
         if (!color) continue;
         const base = pixelIndex * 4;
         for (let c = 0; c < 4; c++) target[base + c] = color[c] ?? 0;
@@ -311,7 +306,7 @@ export function compileJS(
         }
       }
       const raw = vertexStage.runInPlace(vertexCtx);
-      const result = resultObject(raw);
+      const result = isResultObject(raw) ? raw : null;
       // A vertex stage that never writes the position itself has its `vec4` result become the position.
       const position = (result ? (result.position ?? result.value) : raw) as ArrayLike<number> | undefined;
       if (!position) {

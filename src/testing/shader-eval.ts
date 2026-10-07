@@ -5,6 +5,7 @@ import { compileWgslFn } from "../wgsl";
 import { compileJSFn } from "../js";
 import { compileWasmRoutine } from "../wasm";
 import { MATRIX_DIMENSIONS, TYPE_WIDTH } from "../core";
+import { isVector } from "../backends/cpu";
 
 // Written to rather than console.warn: vitest intercepts console output and
 // does not surface it here, so a warning sent that way is not seen at all.
@@ -308,11 +309,6 @@ export function evaluateJS(build: Build, args: number[] = []): number | Float64A
 
 /** What an evaluation gives: a scalar, or the components of a vector or matrix, as a plain or a typed array. */
 export type EvalValue = number | number[] | Float64Array;
-
-/** Whether a value holds a vector or matrix: a plain array, or the typed array a JS function returns one in. */
-function isVector(v: unknown): v is ArrayLike<number> {
-  return Array.isArray(v) || ArrayBuffer.isView(v);
-}
 
 /**
  * Run an expression on the WASM backend — in-process, no GPU, no browser,
