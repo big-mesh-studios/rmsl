@@ -9,6 +9,7 @@ import {
   Fn,
   float,
   If,
+  int,
   fragCoord,
   instancedArray,
   invocationIndex,
@@ -840,6 +841,45 @@ describe("the slots of a JS function", () => {
       expect([name, compileJSRoutine(program, none)({})]).toEqual([name, wasm]);
       expect(typeof wasm).toBe("boolean");
     }
+  });
+});
+
+describe("a JS assignment to what the program also reads", () => {
+  /**
+   * @canon spec-a-var-can-be-assigned
+   */
+  it.each(["f64", "f32"] as const)("writes a target it read before, at %s, as WASM does", (float) => {
+    const buf = instancedArray(3, "float");
+    const pairs = instancedArray(2, "vec2");
+    const build = () =>
+      Fn(() => {
+        const e = buf.element(invocationIndex());
+        If(e.greaterThan(1), () => {
+          e.assign(0);
+        });
+        const v = vec3(1, 2, 3).toVar();
+        const k = int(invocationIndex());
+        If(v.element(k).greaterThan(1), () => {
+          v.element(k).assign(9);
+        });
+        const flags = bvec2(true, false).toVar();
+        If(flags.x, () => {
+          flags.x.assign(false);
+        });
+        const p = pairs.element(uint(0));
+        If(p.x.greaterThan(0), () => {
+          p.assign(vec2(v.element(k), select(flags.x, 1, 2)));
+        });
+      })() as any;
+    const run = (compile: typeof compileJSCompute | typeof compileWasmCompute) => {
+      const storages = { [buf.name]: Float64Array.of(0.5, 2, 3), [pairs.name]: Float64Array.of(1, 1, 1, 1) };
+      compile(build, { name: "main", params: [], float })({ storages }, 3);
+      return storages;
+    };
+    const js = run(compileJSCompute);
+    expect(Array.from(js[buf.name]!)).toEqual([0.5, 0, 0]);
+    expect(Array.from(js[pairs.name]!)).toEqual([9, 2, 1, 1]);
+    expect(js).toEqual(run(compileWasmCompute));
   });
 });
 

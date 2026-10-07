@@ -1264,7 +1264,9 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
     return { decls: [], body: [], expr: `[${node.join(", ")}]` };
   }
 
-  let seen = ctx.memo.get(node);
+  // A target is compiled as what it names: a read of the same node is cached as its value, rounded or copied.
+  let target = ctx.jsTarget === node;
+  let seen = target ? undefined : ctx.memo.get(node);
   if (seen) {
     // A statement runs once. A seq's statements have run, and its value is read as any value is.
     if (node._t === "void") return { decls: [], body: [], expr: seen.expr, prec: seen.prec };
@@ -1278,8 +1280,12 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
   let outer = ctx.jsReadsSlot;
   ctx.jsReadsSlot = false;
   let result = compileJSNode(node, ctx);
-  if (ctx.jsTarget !== node) result = jsTypedInput(node, result, ctx);
-  if (ctx.jsFloat32 && ctx.jsTarget !== node) result = jsRound32(node, result, ctx);
+  if (target) {
+    ctx.jsReadsSlot = outer || ctx.jsReadsSlot;
+    return result;
+  }
+  result = jsTypedInput(node, result, ctx);
+  if (ctx.jsFloat32) result = jsRound32(node, result, ctx);
   // A value computed into a slot holds what it was there, so it is reused only
   // until a write or the end of the block it was computed in.
   let readsSlot = ctx.jsReadsSlot || result.body.length > 0;
