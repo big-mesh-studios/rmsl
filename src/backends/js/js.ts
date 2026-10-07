@@ -2572,26 +2572,32 @@ type JsResultTypes = {
  * gave it.
  */
 function ownedResult(raw: unknown, types: JsResultTypes): unknown {
-  const copy = (value: unknown, type: string | undefined): unknown =>
-    type !== undefined && (Array.isArray(value) || ArrayBuffer.isView(value))
-      ? typedValue(value as ArrayLike<number>, type, types.float32)
-      : value;
+  const float32 = types.float32;
   if (raw === null || typeof raw !== "object") return raw;
-  if (Array.isArray(raw) || ArrayBuffer.isView(raw)) return copy(raw, types.value);
+  if (isVector(raw)) return ownedCopy(raw, types.value, float32);
   const result = raw as CpuProgramResult;
   const owned: CpuProgramResult = {};
-  if ("value" in result) owned.value = copy(result.value, types.value);
-  if (result.position !== undefined) owned.position = copy(result.position, "vec4") as number[];
+  if ("value" in result) owned.value = ownedCopy(result.value, types.value, float32);
+  if (result.position !== undefined) owned.position = ownedCopy(result.position, "vec4", float32) as number[];
   if (result.varyings) {
     owned.varyings = {};
-    for (const slot in result.varyings) owned.varyings[slot] = copy(result.varyings[slot], types.varyings[slot]);
+    for (const slot in result.varyings) {
+      owned.varyings[slot] = ownedCopy(result.varyings[slot], types.varyings[slot], float32);
+    }
   }
   if (result.outputs) {
     owned.outputs = {};
-    for (const slot in result.outputs) owned.outputs[slot] = copy(result.outputs[slot], types.outputs[slot]);
+    for (const slot in result.outputs) {
+      owned.outputs[slot] = ownedCopy(result.outputs[slot], types.outputs[slot], float32);
+    }
   }
   if (result.fragDepth !== undefined) owned.fragDepth = result.fragDepth;
   return owned;
+}
+
+/** A vector or matrix of `type` copied into a new typed array of its kind; any other value as it is. */
+function ownedCopy(value: unknown, type: string | undefined, float32: boolean): unknown {
+  return type !== undefined && isVector(value) ? typedValue(value, type, float32) : value;
 }
 
 /**
