@@ -92,6 +92,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-column-index-runs-before-a-component-index`](#spec-a-column-index-runs-before-a-component-index) — When a program computes both indices of a write to a component of a matrix column, the column index runs first.
   - [`@spec a-value-is-computed-where-it-is-read`](#spec-a-value-is-computed-where-it-is-read) — A value that no variable holds computes, where the program reads it, from what its operands hold there. A write to a variable it reads changes what it gives after the write. A branch that first computed it does not keep it from the code outside.
   - [`@spec a-variable-holds-a-copy`](#spec-a-variable-holds-a-copy) — A variable made with `toVar()`, or a variable or stage output assigned a value, holds a copy. A write to the variable or the output leaves the value it was copied from as it was.
+  - [`@spec an-assignment-computes-its-value-before-it-writes`](#spec-an-assignment-computes-its-value-before-it-writes) — An assignment computes the whole value it assigns before it writes its target. A value that reads the target, such as `v.assign(cross(v, u))`, `v.assign(v.yx)` or `m.assign(transpose(m))`, reads it as it was before the assignment.
   - [`@spec a-cpu-target-samples-a-texture-as-a-gpu-sampler-does`](#spec-a-cpu-target-samples-a-texture-as-a-gpu-sampler-does) — A CPU target reads a texture by the rules a GPU sampler follows. It takes them from the texture: its filter, its wrap, its channels and its format.
     - [`@spec one-rule-decides-how-every-target-samples-a-texture`](#spec-one-rule-decides-how-every-target-samples-a-texture) — One rule, shared by every target, reads a texture's sampler state. Its filters are linear by default. Its wrap is clamped by default, and for a mode the rule does not know. It reads an integer texture as nearest, whatever the texture asks, and a single-channel format as one channel.
       - [`@spec the-sampler-rule-reads-filters-wrap-and-channels-from-the-texture`](#spec-the-sampler-rule-reads-filters-wrap-and-channels-from-the-texture) — The sampler rule gives linear filters and clamped edges by default, and carries what the texture asks for. It clamps a wrap it does not know, holds an integer texture to nearest, and reads a single-channel format as one channel.
@@ -1259,6 +1260,14 @@ This follows because a value means the expression that makes it, and every targe
 > A variable made with `toVar()`, or a variable or stage output assigned a value, holds a copy. A write to the variable or the output leaves the value it was copied from as it was.
 
 This follows because a variable that shared its storage with what it copied would change a value the program still reads.
+
+### @spec an-assignment-computes-its-value-before-it-writes
+
+> An assignment computes the whole value it assigns before it writes its target. A value that reads the target, such as `v.assign(cross(v, u))`, `v.assign(v.yx)` or `m.assign(transpose(m))`, reads it as it was before the assignment.
+
+Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because GLSL and WGSL evaluate the right-hand side of an assignment before they store it, and a CPU target that wrote a component before it read the rest would compute another value.
 
 ### @spec a-cpu-target-samples-a-texture-as-a-gpu-sampler-does
 

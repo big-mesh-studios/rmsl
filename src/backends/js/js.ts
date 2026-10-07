@@ -328,9 +328,11 @@ export function jsHelperSource(name: string): string {
       return (
         `function _v3cross(a, b, out) {\n` +
         `  out = out || [0, 0, 0];\n` +
-        `  out[0] = a[1] * b[2] - a[2] * b[1];\n` +
-        `  out[1] = a[2] * b[0] - a[0] * b[2];\n` +
-        `  out[2] = a[0] * b[1] - a[1] * b[0];\n` +
+        // Read before written: `out` may be `a` or `b`.
+        `  let a0 = a[0], a1 = a[1], a2 = a[2], b0 = b[0], b1 = b[1], b2 = b[2];\n` +
+        `  out[0] = a1 * b2 - a2 * b1;\n` +
+        `  out[1] = a2 * b0 - a0 * b2;\n` +
+        `  out[2] = a0 * b1 - a1 * b0;\n` +
         `  return out;\n}`
       );
     }
@@ -577,7 +579,7 @@ function _texCube(tex, dir, out) {
     case "texSize":
       return `function _texSize(tex, out) {\n  out = out || [0, 0, 0];\n  out[0] = tex.width;\n  out[1] = tex.height;\n  if (tex.depth !== undefined) out[2] = tex.depth;\n  return out;\n}`;
     case "mat2x2inv":
-      return `function _mat2x2inv(m, out) {\n  out = out || new Array(4);\n  let det = m[0] * m[3] - m[1] * m[2];\n  let inv = 1 / det;\n  out[0] = m[3] * inv;\n  out[1] = -m[1] * inv;\n  out[2] = -m[2] * inv;\n  out[3] = m[0] * inv;\n  return out;\n}`;
+      return `function _mat2x2inv(m, out) {\n  out = out || new Array(4);\n  let a00 = m[0], a01 = m[1], a10 = m[2], a11 = m[3];\n  let inv = 1 / (a00 * a11 - a01 * a10);\n  out[0] = a11 * inv;\n  out[1] = -a01 * inv;\n  out[2] = -a10 * inv;\n  out[3] = a00 * inv;\n  return out;\n}`;
     case "mat3x3inv":
       return `function _mat3x3inv(m, out) {\n  out = out || new Array(9);\n  let a00 = m[0], a01 = m[1], a02 = m[2];\n  let a10 = m[3], a11 = m[4], a12 = m[5];\n  let a20 = m[6], a21 = m[7], a22 = m[8];\n  let b01 = a22 * a11 - a12 * a21;\n  let b11 = -a22 * a10 + a12 * a20;\n  let b21 = a21 * a10 - a11 * a20;\n  let det = a00 * b01 + a01 * b11 + a02 * b21;\n  let inv = 1 / det;\n  out[0] = b01 * inv;\n  out[1] = (-a22 * a01 + a02 * a21) * inv;\n  out[2] = (a12 * a01 - a02 * a11) * inv;\n  out[3] = b11 * inv;\n  out[4] = (a22 * a00 - a02 * a20) * inv;\n  out[5] = (-a12 * a00 + a02 * a10) * inv;\n  out[6] = b21 * inv;\n  out[7] = (-a21 * a00 + a01 * a20) * inv;\n  out[8] = (a11 * a00 - a01 * a10) * inv;\n  return out;\n}`;
     case "mat4x4inv":
@@ -623,15 +625,16 @@ function _texCube(tex, dir, out) {
   if (mmT) {
     let cols = Number(mmT[1]);
     let rows = Number(mmT[2]);
-    // Transpose: out[r*cols + c] = m[c*rows + r].
+    // Transpose: out[r*cols + c] = m[c*rows + r], from locals, since `out` may be `m`.
+    let locals = Array.from({ length: cols * rows }, (_, i) => `m${i} = m[${i}]`);
     let lines: string[] = [];
     for (let c = 0; c < cols; c++)
       for (let r = 0; r < rows; r++) {
-        lines.push(`  out[${r * cols + c}] = m[${c * rows + r}];`);
+        lines.push(`  out[${r * cols + c}] = m${c * rows + r};`);
       }
     return (
       `function _${name}(m, out) {\n` +
-      `  out = out || new Array(${cols * rows});\n${lines.join("\n")}\n  return out;\n}`
+      `  out = out || new Array(${cols * rows});\n  let ${locals.join(", ")};\n${lines.join("\n")}\n  return out;\n}`
     );
   }
 
@@ -1658,8 +1661,18 @@ export function compileJSNode(
       }
       let idx = [...pattern].map((ch) => JS_COMPONENT_INDEX[ch]);
       if (ctx.outTarget) {
-        let lines = idx.map((j, i) => `${ctx.outTarget}[${i}] = ${src.at(`${j}`)};`);
-        return { decls: src.decls, body: [...src.body, ...lines], expr: ctx.outTarget };
+        let reads = idx.map((j) => src.at(`${j}`));
+        let body = [...src.body];
+        // A swizzle of the target itself reads every component before it writes one.
+        if (reads.some((read) => read.startsWith(`${ctx.outTarget}[`))) {
+          reads = reads.map((read) => {
+            let local = jsNewTemp(ctx, elementKindOf(node._t));
+            body.push(`${local} = ${read};`);
+            return local;
+          });
+        }
+        let lines = reads.map((read, i) => `${ctx.outTarget}[${i}] = ${read};`);
+        return { decls: src.decls, body: [...body, ...lines], expr: ctx.outTarget };
       }
       return { decls: src.decls, body: src.body, expr: `[${idx.map((j) => src.at(`${j}`)).join(", ")}]` };
     }

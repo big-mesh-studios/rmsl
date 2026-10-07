@@ -1,6 +1,9 @@
 import { afterAll, describe, expect, it } from "vitest";
 import {
   attribute,
+  cross,
+  inverse,
+  transpose,
   bool,
   builtinFragDepth,
   builtinPosition,
@@ -166,6 +169,53 @@ describe("each leaf on every target it claims", () => {
   it("compares a vector against a scalar on every target", () => {
     expect(evaluateRecording((a) => asFloat(vec3(1, 2, 3).lessThan(a).all()), [4])).toBe(1);
     expect(evaluateRecording((a) => asFloat(vec3(1, 2, 3).lessThan(a).all()), [3])).toBe(0);
+  });
+
+  /**
+   * @canon spec-an-assignment-computes-its-value-before-it-writes
+   */
+  it("reads an assignment's target as it was before the assignment on every target", () => {
+    const crossed = (a: Node<"float">) =>
+      Fn(() => {
+        const v = vec3(a, 1.13, 0.1).toVar();
+        v.assign(cross(v, vec3(0.11, 2, 0.57)));
+        return v.x.add(v.y.mul(10)).add(v.z.mul(100));
+      })();
+    const swizzled = (a: Node<"float">) =>
+      Fn(() => {
+        const v = vec2(a, 2).toVar();
+        v.assign(v.yx);
+        return v.x.mul(10).add(v.y);
+      })();
+    const transposed = (a: Node<"float">) =>
+      Fn(() => {
+        const m = mat3(a, 2, 3, 4, 5, 6, 7, 8, 9).toVar();
+        m.assign(transpose(m));
+        return m
+          .element(int(0))
+          .y.mul(10)
+          .add(m.element(int(1)).x);
+      })();
+    const inverted = (a: Node<"float">) =>
+      Fn(() => {
+        const m = mat2(a, 2, 3, 4).toVar();
+        m.assign(inverse(m));
+        return m.element(int(1)).y;
+      })();
+    const [x, y, z] = [1.13 * 0.57 - 0.1 * 2, 0.1 * 0.11 - 0.37 * 0.57, 0.37 * 2 - 1.13 * 0.11];
+    expect(evaluateRecording(crossed, [0.37])).toBeCloseTo(x + y * 10 + z * 100, 12);
+    expect(evaluateRecording(swizzled, [1])).toBe(21);
+    expect(evaluateRecording(transposed, [1])).toBe(42);
+    expect(evaluateRecording(inverted, [1])).toBe(-0.5);
+    // The WASM target compiles neither transpose nor inverse (#65, #220).
+    for (const [build, a] of [
+      [crossed, 0.37],
+      [swizzled, 1],
+    ] as const) {
+      const params = [{ name: "a", type: "float" as const }];
+      const wasm = compileWasmRoutine((p: any) => build(p), { name: "main", params })({ params: { a } });
+      expect(wasm).toBe(compileJSRoutine((p: any) => build(p), { name: "main", params })({ params: { a } }));
+    }
   });
 
   /**
