@@ -78,7 +78,7 @@ describe("units of the core", () => {
     const u = uniform("vec3");
     expect(compileGlsl.fragment(vec4(apply(u), 1))).toContain(glsl);
     expect(compileWgsl.fragment(vec4(apply(u), 1))).toMatch(/vec3<f32>\((0\.25|0|1|2)f\)/);
-    expect(compileJSFn(() => vec4(apply(u), 1), none)).toMatch(/\[(0\.25|0|1|2), \1, \1\]/);
+    expect(compileJSFn(() => vec4(apply(u), 1), none)).toMatch(/\[2\] = (0\.25|0|1|2);/);
     expect(evaluateRecording((a) => apply(vec3(a, 0.3, 0.6)).x, [0.4])).toBeCloseTo(expected, 12);
   });
 
@@ -90,7 +90,7 @@ describe("units of the core", () => {
     const { glsl, wgsl, js } = sources(() => vec4(mix(u, vec3(1), 0.25), 1));
     expect(glsl).toMatch(/mix\(_rmsl_u\d+, vec3\(1\.0\), 0\.25\)/);
     expect(wgsl).toMatch(/mix\(_rmsl_uniforms\._rmsl_u\d+, vec3<f32>\(1f\), 0\.25f\)/);
-    expect(js).toMatch(/_v3mix_vvs\(ctx\.uniforms\["_rmsl_u\d+"\], _rmsl_t\d+, 0\.25, _rmsl_t\d+\)/);
+    expect(js).toMatch(/\[0\] = (_rmsl_t\d+)\[0\] \+ 0\.25 \* \(_rmsl_t\d+\[0\] - \1\[0\]\);/);
     expect(evaluateRecording((a) => mix(vec3(a), vec3(1), 0.25).x, [-3])).toBe(-2);
   });
 

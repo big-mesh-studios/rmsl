@@ -373,8 +373,9 @@ export function jsHelperSource(name: string): string {
       return `function _udiv(a, b) {\n  return b === 0 ? a : (a / b) >>> 0;\n}`;
     case "umod":
       return `function _umod(a, b) {\n  return b === 0 ? 0 : a % b;\n}`;
+    // A typed array's own set copies without boxing what it reads, whatever kind of array the source is.
     case "copy":
-      return `function _copy(src, out) {\n  for (let i = 0; i < src.length; i++) out[i] = src[i];\n  return out;\n}`;
+      return `function _copy(src, out) {\n  if (src.length === out.length && ArrayBuffer.isView(out)) out.set(src);\n  else for (let i = 0; i < src.length; i++) out[i] = src[i];\n  return out;\n}`;
     case "fr":
       return `function _fr(a) {\n  for (let i = 0; i < a.length; i++) a[i] = Math.fround(a[i]);\n  return a;\n}`;
     case "load":
@@ -685,27 +686,33 @@ function jsConstant(ctx: CompileCtx, literal: string): string {
 }
 
 /**
- * The declarations of a function's slots. A scalar is a variable. A vector or
- * matrix is a typed view of its kind into one `ArrayBuffer`, made once with the
- * declarations: `Float64Array`, or `Float32Array` when `float32`, `Int32Array`
- * for integers and for booleans as 1 or 0, and `Uint32Array`. The 8-byte views
- * come first, so each lies on a multiple of its element size.
+ * The declarations of a function's slots. A scalar is a local of the function.
+ * A vector or matrix is a typed view of its kind into one `ArrayBuffer`, made
+ * once with the declarations: `Float64Array`, or `Float32Array` when `float32`,
+ * `Int32Array` for integers and for booleans as 1 or 0, and `Uint32Array`. The
+ * 8-byte views come first, so each lies on a multiple of its element size.
  */
-function jsSlotDeclarations(varDefs: Map<string, string>, float32: boolean, keyword: "let" | "var"): string[] {
+function jsSlotDeclarations(
+  varDefs: Map<string, string>,
+  float32: boolean,
+  keyword: "let" | "var",
+): { views: string[]; scalars: string[] } {
   const floatType = float32 ? "Float32Array" : "Float64Array";
   const typed: { name: string; type: string; bytes: number; length: number }[] = [];
-  const lines: string[] = [];
+  const names: string[] = [];
   for (const [name, brand] of varDefs) {
     const length = jsArrayLength(brand);
     if (length <= 1) {
-      lines.push(keyword === "var" ? `var ${name} = 0;` : `let ${name};`);
+      names.push(name);
       continue;
     }
     const kind = elementKindOf(brand);
     if (kind === "float") typed.push({ name, type: floatType, bytes: float32 ? 4 : 8, length });
     else typed.push({ name, type: kind === "uint" ? "Uint32Array" : "Int32Array", bytes: 4, length });
   }
-  if (typed.length === 0) return lines;
+  // A scalar is a local of the function: V8 boxes a float stored in a variable the closure keeps.
+  const scalars = names.length ? [`let ${names.join(", ")};`] : [];
+  if (typed.length === 0) return { views: [], scalars };
   typed.sort((a, b) => b.bytes - a.bytes);
   let offset = 0;
   const views = typed.map(({ name, type, bytes, length }) => {
@@ -713,7 +720,10 @@ function jsSlotDeclarations(varDefs: Map<string, string>, float32: boolean, keyw
     offset += bytes * length;
     return line;
   });
-  return [`${keyword === "var" ? "var" : "const"} _rmsl_slots = new ArrayBuffer(${offset});`, ...views, ...lines];
+  return {
+    views: [`${keyword === "var" ? "var" : "const"} _rmsl_slots = new ArrayBuffer(${offset});`, ...views],
+    scalars,
+  };
 }
 
 /** A fresh hoisted slot for an intermediate value, registered for preallocation. */
@@ -976,10 +986,13 @@ export function jsScalarBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: 
     case "mix":
       expr = `(${jsOperand(a)} + ${jsOperand(c!)} * (${jsOperand(b)} - ${jsOperand(a)}))`;
       break;
-    case "smoothstep":
-      jsRequireHelper(ctx, "smoothstep");
-      expr = `_smoothstep(${a.expr}, ${b.expr}, ${c!.expr})`;
+    case "smoothstep": {
+      // Written out in the function: V8 boxes a float returned from a call it does not inline.
+      let t = jsNewTemp(ctx, "float");
+      body.push(`${t} = Math.min(Math.max((${c!.expr} - ${a.expr}) / (${b.expr} - ${a.expr}), 0), 1);`);
+      expr = `${t} * ${t} * (3 - 2 * ${t})`;
       break;
+    }
     default:
       throw new Error(`[RMSL] Unknown JS scalar op: ${op}`);
   }
@@ -992,6 +1005,10 @@ export function jsVectorBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: 
   let c = node.params![2] ? jsCompileOperand(node.params![2], ctx) : null;
   // The helper is written for the shape of each operand, which the types give.
   let shape = (node.params ?? []).map((p) => (jsArrayLength(p?._t) > 1 ? "v" : "s")).join("");
+  if (ctx.outTarget) {
+    let written = jsElementwise(ctx.outTarget, op, width, shape, [a, b, ...(c ? [c] : [])], node.params!, ctx);
+    if (written) return written;
+  }
   let helper = `v${width}${op}_${shape}`;
   jsRequireHelper(ctx, helper);
   // The element-wise integer division helpers call the scalar ones.
@@ -1058,6 +1075,48 @@ export function jsMatrixUnary(node: BaseNode<ShaderType>, ctx: CompileCtx, suffi
   return { decls: a.decls, body: a.body, expr: `_${name}(${a.expr})` };
 }
 
+/**
+ * An element-wise operation written out in the function, one line for each
+ * component of `target`, or `null` where it cannot be. V8 boxes a float it
+ * passes to a call it does not inline, and a large function inlines few. A
+ * component reads only the same component of each operand, so `target` may be
+ * one of them. A scalar operand that is not a name is stored in a local first.
+ */
+function jsElementwise(
+  target: string,
+  op: string,
+  width: number,
+  shape: string,
+  operands: CompiledNode[],
+  nodes: any[],
+  ctx: CompileCtx,
+): CompiledNode | null {
+  let e = JS_ELEM[op];
+  if (!e || !isPlainJSIdentifier(target)) return null;
+  let decls = operands.flatMap((o) => o.decls);
+  let body = operands.flatMap((o) => o.body);
+  let reads: string[] = [];
+  for (let k = 0; k < operands.length; k++) {
+    let o = operands[k]!;
+    if (shape[k] === "v") {
+      if (!jsIsReference(o.expr)) return null;
+      reads.push(o.expr);
+    } else if (jsIsReference(o.expr)) reads.push(o.expr);
+    else {
+      let local = jsNewTemp(ctx, nodes[k]?._t ?? "float");
+      body.push(`${local} = ${o.expr};`);
+      reads.push(local);
+    }
+  }
+  if (e.helper) jsRequireHelper(ctx, e.helper);
+  if (op === "idiv" || op === "imod" || op === "udiv" || op === "umod" || op === "smoothstep") jsRequireHelper(ctx, op);
+  for (let i = 0; i < width; i++) {
+    let xs = reads.map((r, k) => (shape[k] === "v" ? `${r}[${i}]` : r));
+    body.push(`${target}[${i}] = ${e.fn(xs)};`);
+  }
+  return { decls, body, expr: target };
+}
+
 export function jsUnaryMath(node: BaseNode<ShaderType>, ctx: CompileCtx, suffix: string): CompiledNode {
   let width = jsArrayLength(node.params![0]?._t);
   if (width <= 1) {
@@ -1069,8 +1128,12 @@ export function jsUnaryMath(node: BaseNode<ShaderType>, ctx: CompileCtx, suffix:
     if (suffix === "fract") a = jsReadable(a, node.params![0]?._t, ctx);
     return { decls: a.decls, body: a.body, expr: e.fn([`(${a.expr})`]), prec: JS_FORM_PREC[suffix] };
   }
-  jsRequireHelper(ctx, `v${width}${suffix}`);
   let a = jsCompileOperand(node.params![0], ctx);
+  if (ctx.outTarget) {
+    let written = jsElementwise(ctx.outTarget, suffix, width, "v", [a], node.params!, ctx);
+    if (written) return written;
+  }
+  jsRequireHelper(ctx, `v${width}${suffix}`);
   if (ctx.outTarget) {
     return {
       decls: a.decls,
@@ -1100,11 +1163,24 @@ export function jsVecOutOp(node: BaseNode<ShaderType>, ctx: CompileCtx, suffix: 
 
 /** dot/length/distance — reduce to a scalar, so never written into a target. */
 export function jsVecReduce(node: BaseNode<ShaderType>, ctx: CompileCtx, helper: string): CompiledNode {
-  jsRequireHelper(ctx, helper);
   let a = jsCompileOperand(node.params![0], ctx);
   let b = node.params![1] ? jsCompileOperand(node.params![1], ctx) : null;
   let decls = b ? [...a.decls, ...b.decls] : a.decls;
   let body = b ? [...a.body, ...b.body] : a.body;
+  // A sum written out in the function: V8 boxes a float returned from a call it does not inline.
+  // It starts from 0 and adds in order, as the helper does, so the bits stay the same.
+  let width = jsArrayLength(node.params![0]?._t);
+  if (helper !== "ball" && helper !== "bany" && jsIsReference(a.expr) && (!b || jsIsReference(b.expr))) {
+    let term = (i: number) =>
+      helper === "vdot"
+        ? `${a.expr}[${i}] * ${b!.expr}[${i}]`
+        : helper === "vlen"
+          ? `${a.expr}[${i}] * ${a.expr}[${i}]`
+          : `(${a.expr}[${i}] - ${b!.expr}[${i}]) * (${a.expr}[${i}] - ${b!.expr}[${i}])`;
+    let sum = `0 + ${Array.from({ length: width }, (_, i) => term(i)).join(" + ")}`;
+    return { decls, body, expr: helper === "vdot" ? `(${sum})` : `Math.sqrt(${sum})`, prec: PREC_ATOM };
+  }
+  jsRequireHelper(ctx, helper);
   return {
     decls,
     body,
@@ -1201,6 +1277,7 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
   let outer = ctx.jsReadsSlot;
   ctx.jsReadsSlot = false;
   let result = compileJSNode(node, ctx);
+  if (ctx.jsTarget !== node) result = jsTypedInput(node, result, ctx);
   if (ctx.jsFloat32 && ctx.jsTarget !== node) result = jsRound32(node, result, ctx);
   // A value computed into a slot holds what it was there, so it is reused only
   // until a write or the end of the block it was computed in.
@@ -1226,6 +1303,30 @@ function jsCompileTarget(node: any, ctx: CompileCtx): CompiledNode {
 const JS_HOST_INPUTS = new Set(["uniform", "uniformArrayElement", "attribute", "varying", "storageElement", "var"]);
 
 /**
+ * `result`, the value of `node`, in a typed slot of its kind when it is a
+ * vector or matrix the host passed in. A helper then reads only typed arrays of
+ * one kind: V8 boxes each number it reads through a load that has seen arrays
+ * of many kinds, as the host's plain arrays and the slots together are.
+ */
+function jsTypedInput(node: any, result: CompiledNode, ctx: CompileCtx): CompiledNode {
+  if (node?.type === "storage" || node?.type === "uniformArray") return result;
+  let t = node?._t as string | undefined;
+  if (!t || !jsIsArrayType(t) || isPlainJSIdentifier(result.expr)) return result;
+  if (!JS_HOST_INPUTS.has(node.type) && !result.expr.startsWith("ctx.")) return result;
+  let temp = jsNewTemp(ctx, t);
+  // Copied here, one line a component: this load sees only the arrays this input arrives in, so it
+  // stays specialised, where one shared copy would see every kind and box what it read.
+  let source = jsIsReference(result.expr) ? result.expr : null;
+  let body = [...result.body];
+  if (!source) {
+    source = jsNewTemp(ctx, "float");
+    body.push(`${source} = ${result.expr};`);
+  }
+  for (let i = 0; i < jsArrayLength(t); i++) body.push(`${temp}[${i}] = ${source}[${i}];`);
+  return { ...result, body, expr: temp };
+}
+
+/**
  * `result`, the value of `node`, rounded to 32 bits, as `float: "f32"` asks. A
  * scalar is wrapped in `Math.fround`. A vector or matrix in a slot is rounded
  * by the slot, a Float32Array; one read from the host's context is copied into
@@ -1243,13 +1344,8 @@ function jsRound32(node: any, result: CompiledNode, ctx: CompileCtx): CompiledNo
   }
   if (!t || !jsIsArrayType(t) || elementKindOf(t) !== "float") return result;
   if (/^(vec|mat)/.test(node.type) && node.type === t) return result;
-  // A slot is a Float32Array, which rounds each value it stores.
+  // A slot is a Float32Array, which rounds each value it stores, and a host input is copied into one.
   if (isPlainJSIdentifier(result.expr)) return result;
-  if (JS_HOST_INPUTS.has(node.type) || result.expr.startsWith("ctx.")) {
-    let temp = jsNewTemp(ctx, t);
-    jsRequireHelper(ctx, "copy");
-    return { ...result, body: [...result.body, `_copy(${result.expr}, ${temp});`], expr: temp };
-  }
   jsRequireHelper(ctx, "fr");
   return { ...result, expr: `_fr(${result.expr})`, prec: PREC_ATOM };
 }
@@ -1314,7 +1410,18 @@ export function compileJSNode(
         let lines = values.map((v, i) => `${ctx.outTarget}[${i}] = ${JSON.stringify(v)};`);
         return { decls: [], body: lines, expr: ctx.outTarget };
       }
-      return { decls: [], body: [], expr: jsConstant(ctx, `[${values.map((v) => JSON.stringify(v)).join(", ")}]`) };
+      // A constant is a typed array of its kind, as a slot is, so a helper reads one kind of array.
+      let kind = elementKindOf(node._t);
+      let typed =
+        kind === "float"
+          ? ctx.jsFloat32
+            ? "Float32Array"
+            : "Float64Array"
+          : kind === "uint"
+            ? "Uint32Array"
+            : "Int32Array";
+      let literal = `new ${typed}([${values.map((v) => (typeof v === "boolean" ? (v ? 1 : 0) : JSON.stringify(v))).join(", ")}])`;
+      return { decls: [], body: [], expr: jsConstant(ctx, literal) };
     }
     case "void":
       return { decls: [], body: [], expr: "0" };
@@ -2260,7 +2367,9 @@ function compileJSFnDetailed(
 
   const body: string[] = [];
   if (ctx.jsNeedsRes) body.push("var res = { outputs: {}, varyings: {} };");
-  if (reentrant) body.push(...jsSlotDeclarations(ctx.varDefs, ctx.jsFloat32 === true, "var"));
+  const slots = jsSlotDeclarations(ctx.varDefs, ctx.jsFloat32 === true, reentrant ? "var" : "let");
+  body.push(...slots.scalars);
+  if (reentrant) body.push(...slots.views);
   for (const compiled of compiledList) body.push(...compiled.decls, ...compiled.body);
   if (ctx.jsNeedsRes) {
     // a program that returns nothing has no value
@@ -2270,7 +2379,7 @@ function compileJSFnDetailed(
     body.push(`return ${lastCompiled.expr};`);
   }
 
-  let scratch = reentrant ? "" : jsSlotDeclarations(ctx.varDefs, ctx.jsFloat32 === true, "let").join("\n");
+  let scratch = reentrant ? "" : slots.views.join("\n");
   let helpers = [...ctx.jsHelpers]
     .sort()
     .map((name) => jsHelperSource(name))

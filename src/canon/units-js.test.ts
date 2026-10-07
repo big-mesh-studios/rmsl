@@ -12,6 +12,7 @@ import {
   ivec2,
   mat2,
   mix,
+  normalize,
   select,
   smoothstep,
   outputStruct,
@@ -263,7 +264,8 @@ describe("what the JS target emits for an operand a constructor reads several ti
         })(),
       param,
     );
-    expect(source.match(/(?<!function )_v3add_vv\(/g)?.length).toBe(1);
+    // The sum is written out once: one line writes its first component.
+    expect(source.match(/\[0\] = (_rmsl_\w+)\[0\] \+ \1\[0\];/g)).toHaveLength(1);
   });
 
   /**
@@ -286,7 +288,8 @@ describe("what the JS target emits for an operand a constructor reads several ti
         })(),
       param,
     );
-    expect(source.match(/(?<!function )_v2add_vv\(/g)?.length).toBe(1);
+    // The sum is written out once: one line writes its first component.
+    expect(source.match(/\[0\] = (_rmsl_\w+)\[0\] \+ \1\[0\];/g)).toHaveLength(1);
   });
 });
 
@@ -761,7 +764,8 @@ describe("the slots of a JS function", () => {
     expect(source).toMatch(/= new Float64Array\(_rmsl_slots, \d+, 3\);/);
     expect(source).toMatch(/= new Int32Array\(_rmsl_slots, \d+, 2\);/);
     expect(source).toMatch(/= new Uint32Array\(_rmsl_slots, \d+, 4\);/);
-    expect(source.match(/= new Int32Array\(_rmsl_slots, \d+, 2\);/g)).toHaveLength(2);
+    // An ivec2 and a bvec2 uniform, each copied into a slot, and each one's result.
+    expect(source.match(/= new Int32Array\(_rmsl_slots, \d+, 2\);/g)).toHaveLength(4);
     expect(at("f32")).toMatch(/= new Float32Array\(_rmsl_slots, \d+, 3\);/);
   });
 
@@ -783,20 +787,111 @@ describe("the slots of a JS function", () => {
   });
 });
 
-describe("the element-wise helpers of a JS function", () => {
+describe("the element-wise operations of a JS function", () => {
   /**
-   * @canon spec-a-js-helper-serves-the-shapes-it-is-called-with
+   * @canon spec-a-js-function-writes-out-what-would-cross-a-call
    */
-  it("are written for the shape of each operand, and never ask it", () => {
+  it("are written out component by component, with no helper and no question of shape", () => {
     const v = uniform("vec3");
     const t = uniform("float");
-    const source = compileJSFn(() => Fn(() => mix(v.mul(t), t.mul(v), t).toVar())() as any, none);
-    expect(source).toContain("function _v3mul_vs(a, b, out)");
-    expect(source).toContain("function _v3mul_sv(a, b, out)");
-    expect(source).toContain("function _v3mix_vvs(a, b, c, out)");
+    const build = () => Fn(() => mix(v.mul(t), t.mul(v), t).toVar())() as any;
+    const source = compileJSFn(build, none);
+    expect(source).not.toMatch(/function _v3(mul|mix)/);
     expect(source).not.toContain("typeof");
-    const run = compileJSRoutine(() => Fn(() => mix(v.mul(t), t.mul(v), t).toVar())() as any, none);
-    expect(run({ uniforms: { [v.name]: [1, 2, 3], [t.name]: 0.5 } })).toEqual(new Float64Array([0.5, 1, 1.5]));
+    expect(source).toMatch(/\[0\] = _rmsl_\w+\[0\] \* ctx\.uniforms\["_rmsl_u\d+"\];/);
+    expect(compileJSRoutine(build, none)({ uniforms: { [v.name]: [1, 2, 3], [t.name]: 0.5 } })).toEqual(
+      new Float64Array([0.5, 1, 1.5]),
+    );
+  });
+
+  /**
+   * @canon spec-a-js-function-writes-out-what-would-cross-a-call
+   */
+  it("writes a dot product, a length and a distance out, summing from zero in order", () => {
+    const a = uniform("vec3");
+    const b = uniform("vec3");
+    const build = () => Fn(() => a.dot(b).add(a.length()).add(a.distance(b)).toVar())() as any;
+    const source = compileJSFn(build, none);
+    expect(source).not.toMatch(/_vdot|_vlen|_vdist/);
+    expect(source).toMatch(/\(0 \+ \w+\[0\] \* \w+\[0\] \+ \w+\[1\] \* \w+\[1\] \+ \w+\[2\] \* \w+\[2\]\)/);
+    // A product of -0 summed from zero is +0, as the helper and WASM give it.
+    const ctx = { uniforms: { [a.name]: [-0, 0, 0], [b.name]: [1, 0, 0] } };
+    const js = compileJSRoutine(() => Fn(() => a.dot(b).toVar())() as any, none)(ctx);
+    const wasm = compileWasmRoutine(() => Fn(() => a.dot(b).toVar())() as any, none)(ctx);
+    expect(Object.is(js, wasm)).toBe(true);
+  });
+});
+
+describe("the scalars and inputs of a JS function", () => {
+  /**
+   * @canon spec-a-js-function-keeps-a-scalar-in-a-local
+   */
+  it("declares its scalars in the function and its vectors outside it", () => {
+    const t = uniform("float");
+    const source = compileJSFn(() => Fn(() => t.mul(2).sin().add(vec3(1).x).toVar())() as any, none);
+    const [outside, inside] = source.split("return function");
+    expect(outside).not.toMatch(/^let _rmsl_\w+;$/m);
+    expect(inside).toMatch(/^\s*let _rmsl_\w+(, _rmsl_\w+)*;$/m);
+  });
+
+  /**
+   * @canon spec-a-js-function-copies-a-host-vector-into-a-slot-of-its-kind
+   */
+  it("copies a vector the host passes into a slot of its kind before it reads it", () => {
+    const v = uniform("vec3");
+    const i = uniform("ivec2");
+    const source = compileJSFn(() => Fn(() => vec3(v.add(1).x, i.add(1).toFloat()).toVar())() as any, none);
+    // Copied one component at a time where it is read, into a slot of the input's kind.
+    expect(source).toMatch(/(_rmsl_t\d+)\[2\] = ctx\.uniforms\["_rmsl_u\d+"\]\[2\];/);
+    expect(source).toMatch(/= new Int32Array\(_rmsl_slots, \d+, 2\);/);
+    const run = compileJSRoutine(() => Fn(() => v.add(1).toVar())() as any, none);
+    expect(run({ uniforms: { [v.name]: [1, 2, 3] } })).toEqual(new Float64Array([2, 3, 4]));
+    expect(run({ uniforms: { [v.name]: Float32Array.of(1, 2, 3) } })).toEqual(new Float64Array([2, 3, 4]));
+  });
+
+  /**
+   * @canon spec-a-js-routine-allocates-nothing-per-call
+   */
+  it("allocates nothing per call of a shading program fed plain arrays", async () => {
+    const n = uniform("vec3");
+    const l = uniform("vec3");
+    const base = uniform("vec3");
+    const rough = uniform("float");
+    const build = () =>
+      Fn(() => {
+        const nl = n.dot(l).max(0).toVar();
+        const spec = smoothstep(0.5, 1, nl).mul(rough).toVar();
+        return mix(base.mul(nl), vec3(1), spec)
+          .add(normalize(n.add(l)).mul(0.05))
+          .toVar();
+      })() as any;
+    const ctx = {
+      uniforms: { [n.name]: [0, 1, 0], [l.name]: [0.3, 0.8, 0.5], [base.name]: [0.8, 0.2, 0.1], [rough.name]: 0.37 },
+    };
+    // A routine copies its result out, so the program is called through the function the routine wraps.
+    const raw = new Function(compileJSFn(build, none))() as (c: unknown) => unknown;
+    for (let k = 0; k < 50000; k++) raw(ctx);
+    // V8's sampling heap profiler counts what the calls allocate, collected objects included. The
+    // compiled function has no source URL, which sets what it allocates apart from the profiler's own.
+    const { Session } = await import("node:inspector/promises");
+    const session = new Session();
+    session.connect();
+    await session.post("HeapProfiler.enable");
+    await session.post("HeapProfiler.startSampling", {
+      samplingInterval: 128,
+      includeObjectsCollectedByMajorGC: true,
+      includeObjectsCollectedByMinorGC: true,
+    });
+    for (let k = 0; k < 20000; k++) raw(ctx);
+    const { profile } = await session.post("HeapProfiler.stopSampling");
+    session.disconnect();
+    let allocated = 0;
+    const walk = (node: any): void => {
+      if (node.callFrame.url === "") allocated += node.selfSize;
+      for (const child of node.children) walk(child);
+    };
+    walk(profile.head);
+    expect(allocated).toBeLessThan(1024);
   });
 });
 

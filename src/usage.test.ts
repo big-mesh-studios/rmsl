@@ -3813,16 +3813,16 @@ describe("JS target", () => {
   /**
    * @canon spec-a-js-routine-allocates-nothing-per-call
    */
-  it("emits out-parameter vector helpers for assignments", () => {
+  it("writes an assignment's vector into the hoisted slot, component by component", () => {
     let prog = Fn(() => {
       let x = vec3(1, 2, 3).toVar();
       x.assign(x.add(vec3(1, 1, 1)));
       return x;
     });
     let src = compileJSFn(() => prog(), { name: "main", params: [] });
-    expect(src).toContain("function _v3add_vv(a, b, out)");
-    // The assignment passes the hoisted slot as the output.
-    expect(src).toMatch(/_v3add_vv\([^)]*,\s*_rmsl_\d+\);/);
+    expect(src).not.toContain("function _v3add_vv");
+    // Each component of the sum is written straight into the variable's slot.
+    expect(src).toMatch(/(_rmsl_\d+)\[2\] = \1\[2\] \+ _rmsl_k\d+\[2\];/);
   });
 
   /**

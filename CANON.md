@@ -614,7 +614,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A compiled JS function keeps what it computes in slots it declares once, outside the function: its variables, each vector or matrix an operation computes, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. With `reentrant`, the function declares its slots inside itself, and each call has its own.
   - [`@spec a-cpu-compute-dispatch-allocates-nothing`](#spec-a-cpu-compute-dispatch-allocates-nothing) — `compute` of a CPU compute adapter allocates nothing, on JS and on WASM, with `out` or without it. A WASM routine reuses its argument list and its views of memory from one call to the next, and makes a view again only when the memory grows. The WASM adapter reads its scalar uniforms from the module's memory, and keeps them in an object in dictionary mode.
   - [`@spec a-js-program-keeps-its-vectors-in-views-of-one-buffer`](#spec-a-js-program-keeps-its-vectors-in-views-of-one-buffer) — A compiled JS function keeps each vector and matrix it holds in a typed view of one `ArrayBuffer`, which it makes once, or once per call with `reentrant`. A float slot is a `Float64Array`, or a `Float32Array` at `float: "f32"`; an integer slot an `Int32Array`, and a boolean slot one too, holding 1 for true and 0 for false; an unsigned slot a `Uint32Array`.
-  - [`@spec a-js-helper-serves-the-shapes-it-is-called-with`](#spec-a-js-helper-serves-the-shapes-it-is-called-with) — A JS helper that applies an operation to each component of its operands is written for the shape of each operand, a vector or a scalar, which the compiler knows. It reads a vector's component and a scalar's value without asking which each is at run time.
+  - [`@spec a-js-function-keeps-a-scalar-in-a-local`](#spec-a-js-function-keeps-a-scalar-in-a-local) — A compiled JS function keeps each scalar it computes in a local of its own, declared in the function, and only its vectors and matrices in slots outside it.
+  - [`@spec a-js-function-copies-a-host-vector-into-a-slot-of-its-kind`](#spec-a-js-function-copies-a-host-vector-into-a-slot-of-its-kind) — A compiled JS function copies a vector or matrix the host passes, a uniform, an attribute, a varying or a parameter, into a typed slot of its kind before it reads it, so the code that reads a vector reads only typed arrays of one kind.
+  - [`@spec a-js-function-writes-out-what-would-cross-a-call`](#spec-a-js-function-writes-out-what-would-cross-a-call) — A compiled JS function writes an element-wise operation into a slot one component at a time, and a dot product, a length, a distance and a scalar `smoothstep` as expressions of their own, rather than through a call. Each component reads a vector operand's component and a scalar operand as it is, which the compiler knows from their types. A helper remains for an operation with no slot to write into, written for the shape of each operand.
   - [`@spec a-compiled-js-function-returns-its-result-in-a-slot`](#spec-a-compiled-js-function-returns-its-result-in-a-slot) — The function that `compileJSFn` returns as source, and that `precompileJS` ships, returns a vector or a matrix in a slot it reuses on the next call, so the result of one call is the result of the next. A caller that keeps one copies it, or compiles with `reentrant`. A [routine](#term-cpu-routine), a stage and a grid copy their result, so a later call does not change it.
   - [`@spec a-webgl-renderer-allocates-nothing-per-frame`](#spec-a-webgl-renderer-allocates-nothing-per-frame) — The WebGL renderer draws a frame without allocating. It reuses what it needs between frames, and builds no array, closure or iterator per frame or per draw.
     - [`@bug webgl-render-allocates-the-clear-colour-per-frame`](#bug-webgl-render-allocates-the-clear-colour-per-frame) — `render` reads the clear colour with `Color.toArray()`, which builds a new array on every frame.
@@ -669,6 +671,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact webassembly-has-no-transcendental-instructions`](#fact-webassembly-has-no-transcendental-instructions) — WebAssembly has instructions for the basic float operations and the square root, but none for trigonometric, exponential or logarithmic functions.
 - [`@fact webassembly-passes-only-numbers-across-its-boundary`](#fact-webassembly-passes-only-numbers-across-its-boundary) — A call into a WebAssembly module passes and returns only numbers. A vector, a matrix or a record crosses the boundary through the module's memory, which code on the host side has to read and write.
 - [`@fact v8-boxes-a-float-it-reads-by-a-variable-key`](#fact-v8-boxes-a-float-it-reads-by-a-variable-key) — V8 holds a float in a property of an ordinary object unboxed, and boxes it into a new heap number each time code reads it by a key held in a variable or passes it as an argument across a call it does not inline. An object in dictionary mode, such as one `Object.create(null)` makes, holds its floats boxed, and reading one allocates nothing.
+- [`@fact v8-boxes-a-float-a-closure-variable-holds`](#fact-v8-boxes-a-float-a-closure-variable-holds) — V8 boxes a float that code stores in a variable a closure keeps, which a function reads from outside itself, into a new heap number on each store. A float in a local of the function is not boxed.
+- [`@fact v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads) — V8 compiles a load from an array, at one place in the code, for the kinds of array it has seen there. Once it has seen more than four, the load is generic, and a generic load boxes each number it reads from a typed array or from an array of floats. A typed array's own `set` copies from any kind of array without boxing.
+- [`@fact v8-boxes-a-float-that-crosses-a-call-it-does-not-inline`](#fact-v8-boxes-a-float-that-crosses-a-call-it-does-not-inline) — V8 boxes a float passed as an argument to, or returned from, a call it does not inline. A large function inlines few of the calls it makes.
 - [`@fact tsl-converts-a-fragment-result-to-the-type-of-its-render-target`](#fact-tsl-converts-a-fragment-result-to-the-type-of-its-render-target) — TSL converts the result of a fragment node to the type of its render target's texture, which is `vec4` when it draws to the canvas. It trims a longer value. A `vec3` gains an alpha of 1, a `vec2` gains a blue of 0 and an alpha of 1, and a scalar fills every component.
 - [`@fact webgpu-refuses-a-fragment-output-with-fewer-components-than-its-target`](#fact-webgpu-refuses-a-fragment-output-with-fewer-components-than-its-target) — A WebGPU render pipeline whose fragment output has fewer components than its colour target's format is a validation error. An output with more components than the format is accepted, and the extra ones are dropped.
 - [`@fact glsl-es-300-leaves-a-missing-output-channel-undefined`](#fact-glsl-es-300-leaves-a-missing-output-channel-undefined) — A GLSL ES 3.00 fragment shader may declare an output of `float`, `vec2` or `vec3`. Written to an RGBA target, the channels it lacks are not defined by the program: WebGL on SwiftShader gives 0 in each, alpha included.
@@ -4236,13 +4241,29 @@ Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routin
 
 This follows because one buffer is one allocation per function, where an array per slot is one each. A view is indexed as an array is, so the code that reads and writes a slot is the code that read and wrote an array. A `Float32Array` rounds each value it stores to 32 bits, which a program at `float: "f32"` asks of every vector it computes, so it needs no pass of its own to round one. On the programs of the effects and the materials, a slot that rounds on store ran f32 10 to 45 percent faster than a rounding pass, and as fast as a separate typed array for each slot.
 
-### @spec a-js-helper-serves-the-shapes-it-is-called-with
+### @spec a-js-function-keeps-a-scalar-in-a-local
 
-> A JS helper that applies an operation to each component of its operands is written for the shape of each operand, a vector or a scalar, which the compiler knows. It reads a vector's component and a scalar's value without asking which each is at run time.
+> A compiled JS function keeps each scalar it computes in a local of its own, declared in the function, and only its vectors and matrices in slots outside it.
 
-Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call)
+Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call), [`fact-v8-boxes-a-float-a-closure-variable-holds`](#fact-v8-boxes-a-float-a-closure-variable-holds)
 
-This follows because a helper that serves every shape asks for each component whether its operand is a number, and an engine compiles a function called with several shapes to code that checks them. On a shading program, helpers written per shape ran 1.3 to 1.8 times faster in V8 and JavaScriptCore than one helper that asked.
+This follows because a scalar needs no memory between calls, and a float the function stored in a variable outside it would be boxed on every store.
+
+### @spec a-js-function-copies-a-host-vector-into-a-slot-of-its-kind
+
+> A compiled JS function copies a vector or matrix the host passes, a uniform, an attribute, a varying or a parameter, into a typed slot of its kind before it reads it, so the code that reads a vector reads only typed arrays of one kind.
+
+Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call), [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because a host passes its vectors as arrays of its own, plain or typed, of any kind, and a helper that read them beside the function's own slots would box what it read. Each read copies its input one component at a time where it reads it, so a copy sees only the arrays its own input arrives in. One copy that served every input would see every kind of array, box what it read, and cost a call as well. On the Lambert material at f64 in `scripts/bench-cpu`, a copy at each read ran a 128×128 frame in 1.5 ms, where one shared copy took 13 ms.
+
+### @spec a-js-function-writes-out-what-would-cross-a-call
+
+> A compiled JS function writes an element-wise operation into a slot one component at a time, and a dot product, a length, a distance and a scalar `smoothstep` as expressions of their own, rather than through a call. Each component reads a vector operand's component and a scalar operand as it is, which the compiler knows from their types. A helper remains for an operation with no slot to write into, written for the shape of each operand.
+
+Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call), [`fact-v8-boxes-a-float-that-crosses-a-call-it-does-not-inline`](#fact-v8-boxes-a-float-that-crosses-a-call-it-does-not-inline)
+
+This follows because a float passed to or returned from a call is boxed unless the engine inlines the call, and a large program inlines few of its calls. A sum written out starts from zero and adds in order, as the helper did, so it gives the same bits.
 
 ### @spec a-compiled-js-function-returns-its-result-in-a-slot
 
@@ -4563,6 +4584,24 @@ This is a fact of the WebAssembly specification, not a choice.
 > V8 holds a float in a property of an ordinary object unboxed, and boxes it into a new heap number each time code reads it by a key held in a variable or passes it as an argument across a call it does not inline. An object in dictionary mode, such as one `Object.create(null)` makes, holds its floats boxed, and reading one allocates nothing.
 
 This is how V8 behaves, in Node 24 and in Chromium, and not a choice. A reproduction reads a uniform of `0.5` from an ordinary object once per dispatch and allocates 16 bytes a dispatch; from an object made by `Object.create(null)` it allocates nothing.
+
+## @fact v8-boxes-a-float-a-closure-variable-holds
+
+> V8 boxes a float that code stores in a variable a closure keeps, which a function reads from outside itself, into a new heap number on each store. A float in a local of the function is not boxed.
+
+This is how V8 behaves, in Node 24 and in Chromium, and not a choice. In `scripts/bench-cpu`, the Sobel effect at f64 allocated about 3 MB a 128×128 frame with its scalars in variables beside the function, and nothing with them in locals.
+
+## @fact v8-boxes-a-number-a-load-of-many-kinds-of-array-reads
+
+> V8 compiles a load from an array, at one place in the code, for the kinds of array it has seen there. Once it has seen more than four, the load is generic, and a generic load boxes each number it reads from a typed array or from an array of floats. A typed array's own `set` copies from any kind of array without boxing.
+
+This is how V8 behaves, in Node 24 and in Chromium, and not a choice. In `scripts/bench-cpu`, the Standard material at f64 allocated about 26 MB a 128×128 frame with its helpers reading the host's plain uniform arrays beside the function's typed slots, and about 2 MB once each input was copied into a slot of its kind.
+
+## @fact v8-boxes-a-float-that-crosses-a-call-it-does-not-inline
+
+> V8 boxes a float passed as an argument to, or returned from, a call it does not inline. A large function inlines few of the calls it makes.
+
+This is how V8 behaves, in Node 24 and in Chromium, and not a choice. In `scripts/bench-cpu`, the Standard material at f64 still allocated about 760 KB a 128×128 frame with its element-wise operations and dot products as calls that took or gave a float, and nothing with them written out.
 
 ## @fact tsl-converts-a-fragment-result-to-the-type-of-its-render-target
 
