@@ -754,7 +754,7 @@ export function assertLiteralIndexInRange(target: { _t?: string }, index: BaseNo
 }
 
 /** `Math.round` takes a half toward +Infinity. WGSL takes it to the even neighbour, so folding does too. */
-function roundHalfToEven(x: number): number {
+export function roundHalfToEven(x: number): number {
   const r = Math.round(x);
   return x - Math.floor(x) === 0.5 && r % 2 !== 0 ? r - 1 : r;
 }
