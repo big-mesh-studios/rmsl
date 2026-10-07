@@ -761,27 +761,21 @@ function jsBoundedIndex(index: string, count: number): string {
 }
 
 /**
- * A vector or a matrix column as the target of a component write: `at(k)` is
- * the expression holding its `k`th component. Reading a column gives a copy
- * (`slice`), so a column's components are addressed in the matrix itself,
- * through its index evaluated once, and bounded to the matrix, into a
- * temporary.
- */
-/**
- * A target written component by component: `at(k)` is component `k`. A
- * storage element has `inRange`, the condition that it lies inside its
- * buffer, which its writes are made under.
+ * A target written component by component: `at(k)` is component `k`. A matrix
+ * column's components are addressed in the matrix itself, through its index
+ * evaluated once and bounded to the matrix. A storage element has `inRange`,
+ * the condition that it lies wholly inside its buffer, which its writes are
+ * made under.
  */
 function jsAssignable(node: any, ctx: CompileCtx): CompiledNode & { at(k: string): string; inRange?: string } {
   if (node.type === "storageElement" && jsIsArrayType(node._t)) {
     let element = jsStorageElement(node, ctx);
-    let count = componentCountOf(node._t);
     return {
       decls: element.decls,
       body: element.body,
       expr: "0",
       at: (k) => `${element.buffer}[${element.start} + ${k}]`,
-      inRange: `${element.start} >= 0 && ${element.start} + ${count} <= ${element.buffer}.length`,
+      inRange: element.inRange,
     };
   }
   if (node.type !== "matrixElement") {
@@ -816,8 +810,8 @@ function jsComponents(
   if (node?.type === "storageElement" && jsIsArrayType(node._t)) {
     let element = jsStorageElement(node, ctx);
     let at = (k: string) => `${element.buffer}[${element.start} + ${k}]`;
-    // A component outside the buffer reads zero, as WASM reads it.
-    return { ...element, at: asTarget ? at : (k) => `(${at(k)} ?? 0)`, inBuffer: true };
+    // An element not wholly inside the buffer reads zero, as WASM reads it.
+    return { ...element, at: asTarget ? at : (k) => `(${element.inRange} ? ${at(k)} : 0)`, inBuffer: true };
   }
   let src = asTarget ? jsCompileTarget(node, ctx) : jsCompileOperand(node, ctx);
   let srcExpr = (src.prec ?? PREC_ATOM) < PREC_ATOM ? `(${src.expr})` : src.expr;
@@ -835,17 +829,23 @@ function jsStorageIndex(node: any, index: string): string {
 /**
  * A vector or matrix element of a storage buffer, which holds its components
  * one after another: they lie in `buffer` from `start`, evaluated once.
+ * `inRange` holds when the buffer holds every one of them.
  */
-function jsStorageElement(node: any, ctx: CompileCtx): CompiledNode & { buffer: string; start: string } {
+function jsStorageElement(
+  node: any,
+  ctx: CompileCtx,
+): CompiledNode & { buffer: string; start: string; inRange: string } {
   let buffer = jsCompileOperand(node.params![0], ctx);
   let idx = jsCompileOperand(node.params![1], ctx);
   let start = jsNewTemp(ctx, "int");
+  let count = componentCountOf(node._t);
   return {
     decls: [...buffer.decls, ...idx.decls],
-    body: [...buffer.body, ...idx.body, `${start} = ${jsStorageIndex(node, idx.expr)} * ${componentCountOf(node._t)};`],
+    body: [...buffer.body, ...idx.body, `${start} = ${jsStorageIndex(node, idx.expr)} * ${count};`],
     expr: start,
     buffer: buffer.expr,
     start,
+    inRange: `${start} >= 0 && ${start} + ${count} <= ${buffer.expr}.length`,
   };
 }
 

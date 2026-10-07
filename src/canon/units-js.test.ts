@@ -931,6 +931,30 @@ describe("a JS storage access outside its buffer", () => {
   /**
    * @canon spec-a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing
    */
+  it("reads and writes nothing of an element the buffer holds only some components of", () => {
+    const pairs = instancedArray(3, "vec2");
+    const read = () =>
+      Fn(() =>
+        pairs
+          .element(int(2))
+          .x.add(pairs.element(int(2)).toVar().y.mul(10))
+          .toVar(),
+      )() as any;
+    const write = () => Fn(() => pairs.element(int(2)).x.assign(float(9)))() as any;
+    for (const [routine, compute] of [
+      [compileJSRoutine, compileJSCompute],
+      [compileWasmRoutine, compileWasmCompute],
+    ] as const) {
+      const storages = { [pairs.name]: Float64Array.of(1, 2, 3, 4, 5) };
+      expect((routine as CompileCpuRoutine)(read, { name: "main", params: [] })({ storages })).toBe(0);
+      compute(write, { name: "main", params: [] })({ storages }, 1);
+      expect(Array.from(storages[pairs.name]!)).toEqual([1, 2, 3, 4, 5]);
+    }
+  });
+
+  /**
+   * @canon spec-a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing
+   */
   it("writes nothing past either end of a buffer, a plain array's included", () => {
     const scalars = instancedArray(2, "float");
     const pairs = instancedArray(2, "vec2");
