@@ -5,7 +5,14 @@ import {
   closeEvaluators,
   type CpuOnlyReason,
 } from "../../testing/shader-eval";
-import { compileJSRoutine, compileJSFn, compileJSFragment, type CpuTextureData, compileJSVertex, compileJSGrid } from "../../js";
+import {
+  compileJSRoutine,
+  compileJSFn,
+  compileJSFragment,
+  type CpuTextureData,
+  compileJSVertex,
+  compileJSGrid,
+} from "../../js";
 import { compileWasmRoutine, compileWasmGrid } from "../../wasm";
 import { compileJSProgram } from "./js";
 import { compileWasmProgram } from "../wasm/wasm";
@@ -1026,9 +1033,7 @@ describe("JS backend: CPU-specific behaviour", () => {
     const data = [0, 0, 0, 0, 100, 100, 100, 100];
     const texture = { data, width: 2, height: 1 };
     expect(fn({ textures: { [tex.name]: texture } })).toEqual([100, 100, 100, 100]);
-    expect(fn({ textures: { [tex.name]: { ...texture, magFilter: "linear" as const } } })).toEqual([
-      50, 50, 50, 50,
-    ]);
+    expect(fn({ textures: { [tex.name]: { ...texture, magFilter: "linear" as const } } })).toEqual([50, 50, 50, 50]);
   });
   /**
    * @canon spec-a-cpu-target-wraps-as-the-texture-asks
