@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { build } from "esbuild";
-import { Fn, bool, outputStruct, uniform, varying, vec2, vec3, vec4, builtinPosition } from "../rmsl";
+import { Fn, bool, outputStruct, uniform, varying, vec2, vec3, vec4, builtinPosition, type Node } from "../rmsl";
 import { compileGlsl } from "../glsl";
 import { compileWgsl } from "../wgsl";
 import { fxaa, gaussianBlur, getGaussianCoefficients, rgbShift, transition } from "../effects";
@@ -14,6 +14,8 @@ import {
   recordedEvaluationSummary,
 } from "../testing/shader-eval";
 import { assertRecordedShadersValid, recordingGLSL, recordingWGSL } from "../testing/shader-validity";
+import { GPU_ENABLED } from "../testing/gpu";
+import { sweepWGSL } from "../testing/integer-sweep";
 import cpuFnsSource from "../vite/fixtures/cpu-fns.ts?raw";
 import wasmFnsSource from "../vite/fixtures/wasm-fns.ts?raw";
 
@@ -47,7 +49,119 @@ const glslUniforms = (code: string) => code.split("\n").filter((line) => line.st
 const wgslUniformFields = (code: string) =>
   (code.split("struct _RmslUniforms {")[1] ?? "").split("};")[0]!.trim().split("\n").filter(Boolean);
 
+/**
+ * The evaluation harness and the rmsl it compiles with, loaded afresh so what
+ * a test records stays out of every other test. `skipGpu` leaves the CPU and
+ * WASM targets alone in the comparison.
+ */
+async function freshHarness(skipGpu: boolean) {
+  if (skipGpu) vi.stubEnv("RMSL_SKIP_SHADER_EVALUATION", "1");
+  vi.resetModules();
+  const harness = await import("../testing/shader-eval");
+  const rmsl = await import("../rmsl");
+  const gpu = await import("../testing/gpu");
+  return { harness, rmsl, gpu };
+}
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.doUnmock("playwright");
+});
+
 describe("the harness checks what it recorded", () => {
+  /**
+   * @canon spec-evaluation-counts-equal-results-as-agreeing
+   */
+  it("passes a program that gives NaN on both CPU targets", async () => {
+    const { harness } = await freshHarness(true);
+    harness.evaluateRecording((a) => a.div(a), [0]);
+    await expect(harness.assertRecordedEvaluationsAgree()).resolves.toBeUndefined();
+  });
+
+  /**
+   * @canon spec-wasm-and-js-give-the-same-float-bits
+   */
+  it("reports a WASM zero whose sign differs from the JS one", async () => {
+    const { harness } = await freshHarness(true);
+    // The build reads the sign when a target compiles it, so JS and WASM
+    // compile programs that differ only in the sign of their zero.
+    let sign = -1;
+    const build = (a: Node<"float">) => a.mul(sign);
+    expect(Object.is(harness.evaluateRecording(build, [0]), -0)).toBe(true);
+    sign = 1;
+    expect(Object.is(harness.evaluateWASM(build, [0]), 0)).toBe(true);
+    await expect(harness.assertRecordedEvaluationsAgree()).rejects.toThrow(/WASM computed 0, CPU computed 0/);
+  });
+
+  /**
+   * @canon spec-evaluation-counts-equal-results-as-agreeing
+   */
+  it.skipIf(!GPU_ENABLED)(
+    "passes a program that gives the same infinity on every target",
+    async () => {
+      const { harness, rmsl, gpu } = await freshHarness(false);
+      try {
+        harness.evaluateRecording((a) => rmsl.float(1).div(a), [0]);
+        await expect(harness.assertRecordedEvaluationsAgree()).resolves.toBeUndefined();
+      } finally {
+        await gpu.releaseGpu();
+      }
+    },
+    120_000,
+  );
+
+  /**
+   * @canon spec-a-program-wasm-refuses-names-its-issue
+   */
+  it("fails a run in which WASM refused a recorded program", async () => {
+    const { harness, rmsl } = await freshHarness(true);
+    const build = (a: Node<"float">) => rmsl.mat2(rmsl.vec2(a, 1), rmsl.vec2(2, 4)).inverse().element(rmsl.int(0)).x;
+    expect(() => harness.evaluateWASM(build, [3])).toThrow(/compileWasmFn/);
+    harness.evaluateRecording(build, [3]);
+    await expect(harness.assertRecordedEvaluationsAgree()).rejects.toThrow(/WASM/);
+  });
+
+  /**
+   * @canon spec-a-program-wasm-refuses-names-its-issue
+   */
+  it("fails a run in which a program listed as refused by WASM compiles", async () => {
+    const { harness } = await freshHarness(true);
+    harness.KNOWN_WASM_REFUSALS[expect.getState().currentTestName!] = "a stand-in issue";
+    harness.evaluateRecording((a) => a.add(1), [3]);
+    await expect(harness.assertRecordedEvaluationsAgree()).rejects.toThrow(/delete it from KNOWN_WASM_REFUSALS/);
+  });
+
+  /**
+   * @canon spec-the-integer-sweep-tells-right-from-wrong
+   */
+  it.skipIf(!GPU_ENABLED)("passes a right case of nine arguments on WGSL", async () => {
+    const mismatches = await sweepWGSL([
+      {
+        label: "nine arguments",
+        type: "int",
+        width: 1,
+        paramTypes: Array(9).fill("int"),
+        build: (...args: Node<"int">[]) => args.reduce((sum, a) => sum.add(a)),
+        runs: [
+          { args: [0, 0, 0, 0, 0, 0, 0, 0, 1], want: [1] },
+          { args: [10, 0, 0, 0, 0, 0, 0, 0, 2], want: [12] },
+        ],
+      },
+    ]);
+    expect(mismatches).toEqual([]);
+  });
+
+  /**
+   * @canon spec-releasing-the-harness-never-throws
+   */
+  it("releases the harness's resources after a browser failed to launch", async () => {
+    vi.doMock("playwright", () => ({ chromium: { launch: () => Promise.reject(new Error("no browser")) } }));
+    vi.resetModules();
+    const gpu = await import("../testing/gpu");
+    await expect(gpu.gpuPage()).rejects.toThrow("no browser");
+    await expect(gpu.releaseGpu()).resolves.toBeUndefined();
+  });
+
   /**
    * Runs before any test of this file records a program.
    *

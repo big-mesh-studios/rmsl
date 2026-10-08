@@ -1,12 +1,9 @@
 /// <reference types="vite/client" />
-import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Node } from "../rmsl";
 import { precompileJS, precompileShaders, precompileWasm } from "../vite/vite";
-import { GPU_ENABLED, releaseGpu } from "../testing/gpu";
-import { sweepWGSL } from "../testing/integer-sweep";
 import wasmFnsSource from "../vite/fixtures/wasm-fns.ts?raw";
 
 type TransformResult = { code: string; map: null } | null;
@@ -19,29 +16,6 @@ function pluginContext() {
   const emitted: unknown[] = [];
   return { context: { emitFile: (asset: unknown) => `ref${emitted.push(asset) - 1}` }, emitted };
 }
-
-/**
- * The evaluation harness and the rmsl it compiles with, loaded afresh so what
- * a test records stays out of every other test. `skipGpu` leaves the CPU and
- * WASM targets alone in the comparison.
- */
-async function freshHarness(skipGpu: boolean) {
-  if (skipGpu) vi.stubEnv("RMSL_SKIP_SHADER_EVALUATION", "1");
-  vi.resetModules();
-  const harness = await import("../testing/shader-eval");
-  const rmsl = await import("../rmsl");
-  const gpu = await import("../testing/gpu");
-  return { harness, rmsl, gpu };
-}
-
-afterEach(() => {
-  vi.unstubAllEnvs();
-  vi.doUnmock("playwright");
-});
-
-afterAll(async () => {
-  await releaseGpu();
-}, 120_000);
 
 describe("known bugs of the tools, each failing until its fix", () => {
   /**
@@ -107,107 +81,5 @@ describe("known bugs of the tools, each failing until its fix", () => {
     const plugin = precompileJS({ include: "bad-name.ts" }) as unknown as Transform;
     const source = `export const __RMSL_JS_CODE = { "my-fn": "return () => 1;" };\n`;
     await expect(plugin.transform.call({}, source, id)).rejects.toThrow();
-  });
-
-  /**
-   * The harness compares a WASM result with the JS one by `===`, which a NaN
-   * never meets, so two targets that both give NaN are reported as disagreeing.
-   *
-   * @canon bug-the-harness-reports-nan-on-both-targets-as-a-disagreement
-   */
-  it.fails("passes a program that gives NaN on both CPU targets", async () => {
-    const { harness } = await freshHarness(true);
-    harness.evaluateRecording((a) => a.div(a), [0]);
-    await expect(harness.assertRecordedEvaluationsAgree()).resolves.toBeUndefined();
-  });
-
-  /**
-   * The harness compares a WASM result with the JS one by `===`, which holds
-   * between `-0` and `0`, so a WASM result whose sign of zero differs passes.
-   *
-   * @canon bug-the-harness-reads-negative-zero-as-zero
-   */
-  it.fails("reports a WASM zero whose sign differs from the JS one", async () => {
-    const { harness } = await freshHarness(true);
-    // The build reads the sign when a target compiles it, so JS and WASM
-    // compile programs that differ only in the sign of their zero.
-    let sign = -1;
-    const build = (a: Node<"float">) => a.mul(sign);
-    expect(Object.is(harness.evaluateRecording(build, [0]), -0)).toBe(true);
-    sign = 1;
-    expect(Object.is(harness.evaluateWASM(build, [0]), 0)).toBe(true);
-    await expect(harness.assertRecordedEvaluationsAgree()).rejects.toThrow(/WASM computed 0, CPU computed 0/);
-  });
-
-  /**
-   * The harness compares a GPU result with the JS one by the distance between
-   * them, which is NaN between two equal infinities, so a program that gives
-   * the same infinity everywhere is reported as disagreeing.
-   *
-   * @canon bug-the-harness-reports-an-infinity-on-every-target-as-a-disagreement
-   */
-  it.skipIf(!GPU_ENABLED).fails(
-    "passes a program that gives the same infinity on every target",
-    async () => {
-      const { harness, rmsl, gpu } = await freshHarness(false);
-      try {
-        harness.evaluateRecording((a) => rmsl.float(1).div(a), [0]);
-        await expect(harness.assertRecordedEvaluationsAgree()).resolves.toBeUndefined();
-      } finally {
-        await gpu.releaseGpu();
-      }
-    },
-    120_000,
-  );
-
-  /**
-   * The harness counts a program WASM refuses as a skip and passes the run,
-   * so a program evaluated on no WASM at all passes as if it agreed.
-   *
-   * @canon bug-the-harness-passes-a-program-wasm-refuses
-   */
-  it.fails("fails a run in which WASM refused a recorded program", async () => {
-    const { harness, rmsl } = await freshHarness(true);
-    const build = (a: Node<"float">) => rmsl.mat2(rmsl.vec2(a, 1), rmsl.vec2(2, 4)).inverse().element(rmsl.int(0)).x;
-    expect(() => harness.evaluateWASM(build, [3])).toThrow(/compileWasmFn/);
-    harness.evaluateRecording(build, [3]);
-    await expect(harness.assertRecordedEvaluationsAgree()).rejects.toThrow(/WASM/);
-  });
-
-  /**
-   * The WGSL sweep gives each invocation eight argument slots and never checks
-   * a case fits them, so a ninth argument is read from the next invocation's.
-   *
-   * @canon bug-the-wgsl-sweep-reads-a-ninth-argument-from-the-next-run
-   */
-  it.skipIf(!GPU_ENABLED).fails("passes a right case of nine arguments on WGSL", async () => {
-    const mismatches = await sweepWGSL([
-      {
-        label: "nine arguments",
-        type: "int",
-        width: 1,
-        paramTypes: Array(9).fill("int"),
-        build: (...args: Node<"int">[]) => args.reduce((sum, a) => sum.add(a)),
-        runs: [
-          { args: [0, 0, 0, 0, 0, 0, 0, 0, 1], want: [1] },
-          { args: [10, 0, 0, 0, 0, 0, 0, 0, 2], want: [12] },
-        ],
-      },
-    ]);
-    expect(mismatches).toEqual([]);
-  });
-
-  /**
-   * `releaseGpu` awaits each browser and page it opened, so a browser that
-   * failed to launch makes it throw that failure again.
-   *
-   * @canon bug-release-gpu-throws-when-a-launch-failed
-   */
-  it.fails("releases the harness's resources after a browser failed to launch", async () => {
-    vi.doMock("playwright", () => ({ chromium: { launch: () => Promise.reject(new Error("no browser")) } }));
-    vi.resetModules();
-    const gpu = await import("../testing/gpu");
-    await expect(gpu.gpuPage()).rejects.toThrow("no browser");
-    await expect(gpu.releaseGpu()).resolves.toBeUndefined();
   });
 });

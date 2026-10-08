@@ -434,6 +434,27 @@ export function evaluateIntegerWASM(build: IntegerBuild, type: IntegerType, args
  * prefix, so this check only ever recognizes "doesn't compile", never
  * "crashed" or "computed the wrong answer".
  */
+/**
+ * The tests whose recorded programs the WASM target does not compile yet, each
+ * with the issue that tracks it. Keyed by the test's full name, as
+ * `KNOWN_INVALID` is, so a refusal is a listed gap rather than a quiet skip.
+ */
+export const KNOWN_WASM_REFUSALS: Record<string, string> = {
+  "each leaf on every target it claims > compares a vector against a scalar on every target": "all: #219",
+  "each leaf on every target it claims > reduces a boolean vector with all and any on every target": "all, any: #219",
+  "each leaf on every target it claims > computes with int, uint, bool and integer vector literals on every target":
+    "any: #219",
+  "each leaf on every target it claims > transposes a matrix that is not square on every target": "transpose: #220",
+  "each leaf on every target it claims > reads an assignment's target as it was before the assignment on every target":
+    "inverse: #65, transpose: #220",
+  "each leaf on every target it claims > computes the geometric functions on every target": "faceForward: #130",
+  "each leaf on every target it claims > negates a boolean vector component by component on every target":
+    "not of a vector: #130",
+  "each leaf on every target it claims > rounds a value halfway between two integers to the even one on every target":
+    "round of a vector: #130",
+  "units of the core > widens the scalar argument of pow to the vector on every target": "pow of a vector: #130",
+};
+
 function isWasmUnsupported(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith("[RMSL] compileWasmFn");
 }
@@ -506,21 +527,30 @@ function formatValue(v: EvalValue): string {
   return isVector(v) ? `[${Array.from(v).join(", ")}]` : String(v);
 }
 
-/** Exact equality, elementwise for an aggregate. */
+/** The same bits, elementwise for an aggregate: a NaN equals a NaN, and `-0` differs from `0`. */
 function valuesExactlyEqual(a: EvalValue, b: EvalValue): boolean {
   const av = asArray(a);
   const bv = asArray(b);
   if (av.length !== bv.length) return false;
-  for (let i = 0; i < av.length; i++) if (av[i] !== bv[i]) return false;
+  for (let i = 0; i < av.length; i++) if (!Object.is(av[i], bv[i])) return false;
   return true;
 }
 
-/** Within `floatTolerance` of each other, elementwise for an aggregate. */
+/**
+ * Within `floatTolerance` of each other, elementwise for an aggregate. Two
+ * equal values agree whatever they are, two infinities of one sign and two
+ * NaNs included, where their distance is NaN.
+ */
 function valuesWithinTolerance(a: EvalValue, b: EvalValue): boolean {
   const av = asArray(a);
   const bv = asArray(b);
   if (av.length !== bv.length) return false;
-  for (let i = 0; i < av.length; i++) if (!(Math.abs(av[i]! - bv[i]!) < floatTolerance(av[i]!))) return false;
+  for (let i = 0; i < av.length; i++) {
+    const x = av[i]!;
+    const y = bv[i]!;
+    if (x === y || (Number.isNaN(x) && Number.isNaN(y))) continue;
+    if (!(Math.abs(x - y) < floatTolerance(x))) return false;
+  }
   return true;
 }
 
@@ -581,11 +611,10 @@ export async function assertRecordedEvaluationsAgree(): Promise<void> {
 
   // WASM needs neither a browser nor a graphics device, so — unlike GLSL/WGSL
   // below — it always runs, even under RMSL_SKIP_GPU/RMSL_SKIP_SHADER_EVALUATION
-  // (those exist specifically to skip hardware-dependent work). A case this
-  // backend doesn't compile yet is a countable, visible skip, never a silent
-  // one — see `isWasmUnsupported`'s doc comment for why that's safe to do
-  // without also hiding a real bug.
-  let wasmUnsupported = 0;
+  // (those exist specifically to skip hardware-dependent work). A program it
+  // refuses fails the run, unless KNOWN_WASM_REFUSALS names the issue that
+  // tracks it; a listed program that compiles fails the run too.
+  const refused = new Set<string>();
   for (const item of runnable) {
     try {
       const wasm = evaluateWASM(item.build, item.args);
@@ -595,13 +624,16 @@ export async function assertRecordedEvaluationsAgree(): Promise<void> {
       }
     } catch (error) {
       if (!isWasmUnsupported(error)) throw error;
-      wasmUnsupported++;
+      refused.add(item.test);
+      if (KNOWN_WASM_REFUSALS[item.test] === undefined) {
+        failures.push(`  ${item.test}\n      WASM refused it — ${(error as Error).message}`);
+      }
     }
   }
-  if (wasmUnsupported > 0) {
-    process.stderr.write(
-      `\n[shader-eval] WASM: ${wasmUnsupported} of ${runnable.length} recorded programs are not supported by this backend yet (skipped, not failed) — see ROADMAP.md.\n`,
-    );
+  for (const test of new Set(runnable.map((item) => item.test))) {
+    if (KNOWN_WASM_REFUSALS[test] !== undefined && !refused.has(test)) {
+      failures.push(`  ${test}\n      WASM compiles every program of it now — delete it from KNOWN_WASM_REFUSALS`);
+    }
   }
 
   if (GPU_EVALUATION_SKIPPED) {

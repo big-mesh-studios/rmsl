@@ -131,7 +131,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@exception a-cpu-target-has-no-derivatives`](#exception-a-cpu-target-has-no-derivatives) — On a CPU target, a derivative is refused, unless the compile asks for `derivatives: "zero"`, which makes every derivative zero.
       - [`@spec wasm-float-arithmetic-matches-js-exactly`](#spec-wasm-float-arithmetic-matches-js-exactly) — The WebAssembly target gives a float operation exactly the result the JavaScript target gives.
         - [`@spec wasm-and-js-give-the-same-float-bits`](#spec-wasm-and-js-give-the-same-float-bits) — A float program gives the same bits on WASM as on JS, transcendental functions and sampling included.
-        - [`@bug the-harness-reads-negative-zero-as-zero`](#bug-the-harness-reads-negative-zero-as-zero) — The harness compares a WASM result with the JS one by `===`, which holds between `-0` and `0`, so a WASM result whose sign of zero differs passes.
       - [`@spec cpu-float-arithmetic-matches-the-gpu-targets`](#spec-cpu-float-arithmetic-matches-the-gpu-targets) — The CPU targets give a float operation the result the [GPU targets](#term-gpu-target) give.
         - [`@exception a-cpu-target-computes-floats-in-64-bits`](#exception-a-cpu-target-computes-floats-in-64-bits) — A CPU target computes a float in 64 bits unless its compile asks for 32, where a GPU computes it in 32 bits. Its result can differ from the GPU's by at most a millionth of the result's size, and by at most `1e-6` near zero.
       - [`@spec a-cpu-compile-can-run-a-program-at-64-bit-precision`](#spec-a-cpu-compile-can-run-a-program-at-64-bit-precision) — A compile function or adapter of a CPU target, JS and WASM alike, takes the option `float`, which sets the width its program computes a `float` in: `"f64"`, the default, or `"f32"`, as a GPU computes it. At 32 bits, an addition, subtraction, multiplication, division or square root gives exactly the result a GPU gives. The same program then runs on the CPU at the precision the caller picked. A compile function of a GPU target takes no such option.
@@ -154,15 +153,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec validation-reports-every-shader-a-driver-refuses`](#spec-validation-reports-every-shader-a-driver-refuses) — Validation reports every shader a driver refused, from every test, and refuses to pass when it recorded none. A shader listed as known to be invalid stays quiet until it compiles. A program both GPU targets refuse passes, and one that only one refuses fails.
     - [`@spec an-expected-rejection-must-be-a-rejection`](#spec-an-expected-rejection-must-be-a-rejection) — A test that expects a refused compile gets the message of the refusal, and records nothing from that compile. It fails when the compile succeeds.
     - [`@spec the-integer-sweep-tells-right-from-wrong`](#spec-the-integer-sweep-tells-right-from-wrong) — The integer sweep passes the right results and reports the wrong ones, on JS, WASM and WGSL, and holds GLSL to compiling.
-      - [`@bug the-wgsl-sweep-reads-a-ninth-argument-from-the-next-run`](#bug-the-wgsl-sweep-reads-a-ninth-argument-from-the-next-run) — The WGSL sweep gives each invocation eight argument slots and never checks that a case fits them. A ninth argument reads from the next invocation's slots.
     - [`@spec releasing-the-harness-never-throws`](#spec-releasing-the-harness-never-throws) — Releasing the harness's browser and device never throws, after a failed launch too.
-      - [`@bug release-gpu-throws-when-a-launch-failed`](#bug-release-gpu-throws-when-a-launch-failed) — `releaseGpu()` throws the launch error again after the browser could not launch.
-    - [`@bug the-harness-reports-nan-on-both-targets-as-a-disagreement`](#bug-the-harness-reports-nan-on-both-targets-as-a-disagreement) — The harness compares a WASM result with the JS one by `===`, which a NaN never meets. The harness then reports two targets that both give NaN as disagreeing.
-    - [`@bug the-harness-reports-an-infinity-on-every-target-as-a-disagreement`](#bug-the-harness-reports-an-infinity-on-every-target-as-a-disagreement) — The harness compares a GPU result with the JS one by the distance between them, which is NaN between two equal infinities. It then reports a program that gives the same infinity everywhere as disagreeing.
-    - [`@bug the-harness-passes-a-program-wasm-refuses`](#bug-the-harness-passes-a-program-wasm-refuses) — The harness counts a program WASM refuses as skipped, so a run in which WASM refused a recorded program passes.
     - [`@spec evaluation-fails-when-it-recorded-nothing`](#spec-evaluation-fails-when-it-recorded-nothing) — The replay of recorded evaluations fails when the run recorded no program.
     - [`@spec evaluate-recording-returns-the-cpu-result-at-once`](#spec-evaluate-recording-returns-the-cpu-result-at-once) — `evaluateRecording` returns the JS result at once, and keeps the program for a replay on the other targets after the tests.
     - [`@spec a-program-kept-off-the-gpu-names-its-reason`](#spec-a-program-kept-off-the-gpu-names-its-reason) — A test keeps a recorded program off the GPU targets only by naming a reason from a fixed list.
+    - [`@spec evaluation-counts-equal-results-as-agreeing`](#spec-evaluation-counts-equal-results-as-agreeing) — The evaluation harness counts two equal results as agreeing whatever they are, two NaNs or two infinities of one sign included, and holds a WASM result to the exact bits of the JS one, the sign of a zero included.
+    - [`@spec a-program-wasm-refuses-names-its-issue`](#spec-a-program-wasm-refuses-names-its-issue) — A recorded program the WASM target refuses fails the run, unless the list of known refusals names it with the issue that tracks it. A listed program that compiles fails the run too.
   - [`@spec a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type) — A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A format no buffer of its own can carry, a raw integer array, and a width no format covers are refused.
     - [`@bug the-glsl-adapter-uploads-an-integer-attribute-as-floats`](#bug-the-glsl-adapter-uploads-an-integer-attribute-as-floats) — `createGlsl` points every attribute at its buffer as floats, so an `int` attribute mismatches its declaration and the draw is refused.
   - [`@spec wgsl-brackets-a-bitwise-operand-that-is-not-unary`](#spec-wgsl-brackets-a-bitwise-operand-that-is-not-unary) — On WGSL, the compiler brackets each operand of a bitwise or shift operator that is not a unary expression.
@@ -1474,14 +1470,6 @@ This follows because both CPU targets compute in 64 bits, so nothing keeps them 
 
 > A float program gives the same bits on WASM as on JS, transcendental functions and sampling included.
 
-###### @bug the-harness-reads-negative-zero-as-zero
-
-> The harness compares a WASM result with the JS one by `===`, which holds between `-0` and `0`, so a WASM result whose sign of zero differs passes.
-
-Derives from: [`spec-wasm-and-js-give-the-same-float-bits`](#spec-wasm-and-js-give-the-same-float-bits)
-
-Issue: #101
-
 
 ##### @spec cpu-float-arithmetic-matches-the-gpu-targets
 
@@ -1607,41 +1595,11 @@ This follows because most mistakes in a shader are silent, and a target nobody r
 
 > The integer sweep passes the right results and reports the wrong ones, on JS, WASM and WGSL, and holds GLSL to compiling.
 
-##### @bug the-wgsl-sweep-reads-a-ninth-argument-from-the-next-run
-
-> The WGSL sweep gives each invocation eight argument slots and never checks that a case fits them. A ninth argument reads from the next invocation's slots.
-
-Issue: #101
-
 #### @spec releasing-the-harness-never-throws
 
 > Releasing the harness's browser and device never throws, after a failed launch too.
 
 This follows because the release runs after every suite. A throw there reports the launch failure as the failure of a suite that passed.
-
-##### @bug release-gpu-throws-when-a-launch-failed
-
-> `releaseGpu()` throws the launch error again after the browser could not launch.
-
-Issue: #101
-
-#### @bug the-harness-reports-nan-on-both-targets-as-a-disagreement
-
-> The harness compares a WASM result with the JS one by `===`, which a NaN never meets. The harness then reports two targets that both give NaN as disagreeing.
-
-Issue: #101
-
-#### @bug the-harness-reports-an-infinity-on-every-target-as-a-disagreement
-
-> The harness compares a GPU result with the JS one by the distance between them, which is NaN between two equal infinities. It then reports a program that gives the same infinity everywhere as disagreeing.
-
-Issue: #101
-
-#### @bug the-harness-passes-a-program-wasm-refuses
-
-> The harness counts a program WASM refuses as skipped, so a run in which WASM refused a recorded program passes.
-
-Issue: #101
 
 #### @spec evaluation-fails-when-it-recorded-nothing
 
@@ -1660,6 +1618,18 @@ This follows because one synchronous call then holds a program to every target, 
 > A test keeps a recorded program off the GPU targets only by naming a reason from a fixed list.
 
 This follows because the suite holds every target to every program, so a program that escapes the GPU check must say why it may.
+
+#### @spec evaluation-counts-equal-results-as-agreeing
+
+> The evaluation harness counts two equal results as agreeing whatever they are, two NaNs or two infinities of one sign included, and holds a WASM result to the exact bits of the JS one, the sign of a zero included.
+
+This follows because a check that reports equal results as different, or different bits as equal, proves nothing about the targets it compares.
+
+#### @spec a-program-wasm-refuses-names-its-issue
+
+> A recorded program the WASM target refuses fails the run, unless the list of known refusals names it with the issue that tracks it. A listed program that compiles fails the run too.
+
+This follows because the suite evaluates every program it records on every target, so a program WASM does not run is a gap that must say where it is tracked, and leave the list when it closes.
 
 ### @spec a-vertex-attribute-reaches-the-shader-as-its-declared-type
 

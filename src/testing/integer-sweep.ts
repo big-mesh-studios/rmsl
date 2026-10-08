@@ -120,9 +120,6 @@ const WGSL_SCALAR = { int: "i32", uint: "u32" } as const;
 /** Most functions run from one module, and most invocations in one dispatch. */
 const WGSL_FUNCTIONS_PER_MODULE = 1000;
 const WGSL_INVOCATIONS_PER_DISPATCH = 1 << 20;
-/** Argument slots each invocation has in the argument buffer. */
-const WGSL_ARG_STRIDE = 8;
-
 type WgslProgram = { body: string; failure?: string; cases: SweepCase[] };
 
 /**
@@ -152,6 +149,8 @@ async function recordWgslFailures(gpu: any, programs: WgslProgram[]): Promise<vo
 type WgslInvocation = { program: number; c: SweepCase; run: SweepCase["runs"][number] };
 
 async function dispatchWgsl(gpu: any, programs: WgslProgram[], invocations: WgslInvocation[]): Promise<Uint32Array> {
+  // Each invocation has as many argument slots as the widest case of the dispatch takes, and at least one.
+  const stride = Math.max(1, ...programs.map((p) => p.cases[0]!.paramTypes.length));
   const functions = programs.map((p, i) => p.body.replace("fn rmsl_case(", `fn c${i}(`));
   const branches = programs.map((p, i) => {
     const c = p.cases[0]!;
@@ -171,7 +170,7 @@ async function dispatchWgsl(gpu: any, programs: WgslProgram[], invocations: Wgsl
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   let w = id.x + id.y * 65535u * 64u;
   if (w >= arrayLength(&programs)) { return; }
-  let base = w * ${WGSL_ARG_STRIDE}u;
+  let base = w * ${stride}u;
   // An unread binding is dropped from the pipeline's layout, and the bind
   // group naming it would then fail; this keeps it read when no case is.
   _ = args[base];
@@ -192,8 +191,8 @@ ${branches.join("\n")}
   const pipeline = gpu.createComputePipeline({ layout: "auto", compute: { module, entryPoint: "main" } });
 
   const programIndex = Uint32Array.from(invocations, (inv) => inv.program);
-  const argData = new Uint32Array(invocations.length * WGSL_ARG_STRIDE);
-  invocations.forEach((inv, w) => inv.run.args.forEach((a, k) => (argData[w * WGSL_ARG_STRIDE + k] = a >>> 0)));
+  const argData = new Uint32Array(invocations.length * stride);
+  invocations.forEach((inv, w) => inv.run.args.forEach((a, k) => (argData[w * stride + k] = a >>> 0)));
   const outBytes = invocations.length * 2 * 4;
 
   const programBuffer = gpu.createBuffer({ size: programIndex.byteLength, usage: STORAGE | COPY_DST });
