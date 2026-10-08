@@ -189,6 +189,7 @@ export type {
   UintLike,
   UniformArrayNode,
   UniformNode,
+  UniformPrecision,
   USampler3DLike,
   UVec2Like,
   UVec3Like,

@@ -1,4 +1,4 @@
-import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH } from "../../core";
+import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH, UniformPrecision } from "../../core";
 import {
   assertAssignable,
   parameterNode,
@@ -206,7 +206,7 @@ export function compileGLSLNode(
     case "uniform": {
       let v = node.value as any;
       if (!ctx.uniforms.has(v.slot)) {
-        ctx.uniforms.set(v.slot, { type: glslType(v.shaderType), slot: v.slot });
+        ctx.uniforms.set(v.slot, { type: glslType(v.shaderType), slot: v.slot, precision: v.precision });
       }
       return { decls: [], body: [], expr: v.slot };
     }
@@ -220,6 +220,7 @@ export function compileGLSLNode(
           type: glslType(v.shaderType),
           slot: v.slot,
           length: v.length,
+          precision: v.precision,
         });
       }
       return { decls: [], body: [], expr: v.slot };
@@ -933,6 +934,9 @@ export function unaryGLSL(
  */
 export type GLSLPrecision = "lowp" | "mediump" | "highp";
 
+/** The GLSL qualifier for each precision a uniform can set on itself. */
+const UNIFORM_PRECISION: Record<UniformPrecision, GLSLPrecision> = { low: "lowp", medium: "mediump", high: "highp" };
+
 /** Options for the GLSL shader compilers. */
 export interface CompileGLSLOptions {
   /**
@@ -1025,10 +1029,10 @@ export function compileGLSLWithStage(
   lines.push("");
 
   ctx.uniforms.forEach((info) => {
+    // GLSL ES 3.00 puts a precision qualifier after the storage qualifier.
+    const type = info.precision ? `${UNIFORM_PRECISION[info.precision]} ${info.type}` : info.type;
     lines.push(
-      info.length !== undefined
-        ? `uniform ${info.type} ${info.slot}[${info.length}];`
-        : `uniform ${info.type} ${info.slot};`,
+      info.length !== undefined ? `uniform ${type} ${info.slot}[${info.length}];` : `uniform ${type} ${info.slot};`,
     );
   });
   ctx.attributes.forEach((info) => {

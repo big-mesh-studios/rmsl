@@ -2973,6 +2973,38 @@ describe("GLSL precision", () => {
     let prog = Fn(() => float(1).toVar());
     expect(expectCompileRejection(() => compileGlsl(prog(), { precision: "high" as any }))).toMatch(/precision/);
   });
+
+  /**
+   * @canon spec-a-uniform-can-set-a-precision-of-its-own
+   */
+  it("qualifies the declaration of a uniform that sets its own precision", () => {
+    const gain = uniform("float");
+    const tints = uniformArray("vec4", 2);
+    const image = uniform("sampler2D");
+    expect(gain.setPrecision("medium")).toBe(gain);
+    tints.setPrecision("low");
+    image.setPrecision("high");
+    const prog = Fn(() =>
+      texture(image, vec2(0, 0))
+        .add(tints.element(int(1)))
+        .mul(gain)
+        .toVar(),
+    );
+    const glsl = compileGlsl(prog(), { precision: "mediump" });
+    expect(glsl).toContain(`uniform mediump float ${gain.name};`);
+    expect(glsl).toContain(`uniform lowp vec4 ${tints.name}[2];`);
+    expect(glsl).toContain(`uniform highp sampler2D ${image.name};`);
+    expect(glsl).toContain("precision mediump float;");
+    expect(compileWgsl(prog())).not.toMatch(/lowp|mediump|highp/);
+  });
+
+  /**
+   * @canon spec-a-uniform-can-set-a-precision-of-its-own
+   */
+  it("refuses a precision other than low, medium or high on a uniform", () => {
+    // @ts-expect-error: a uniform's precision is "low", "medium" or "high"
+    expect(() => uniform("float").setPrecision("mediump")).toThrow(/precision/);
+  });
 });
 
 describe("matrix narrowing", () => {

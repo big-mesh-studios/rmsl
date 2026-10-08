@@ -5,6 +5,7 @@ import {
   Node,
   NodeImpl,
   ShaderType,
+  UniformPrecision,
   StorageBufferAttribute,
   TYPE_WIDTH,
   node,
@@ -82,7 +83,7 @@ export interface CompileCtx {
    * The uniforms the program reads, by name: two nodes with one name are one
    * uniform. `length` is set only for uniform arrays, and gives their element count.
    */
-  uniforms: Map<string, { type: string; slot: string; length?: number }>;
+  uniforms: Map<string, { type: string; slot: string; length?: number; precision?: UniformPrecision }>;
   storages?: Map<
     string,
     {

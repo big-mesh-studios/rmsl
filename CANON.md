@@ -413,6 +413,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-float-sampler-declares-the-asked-precision`](#spec-a-float-sampler-declares-the-asked-precision) — A GLSL shader declares the precision the caller asks for on each float sampler it uses.
     - [`@spec an-integer-sampler-declares-the-asked-precision`](#spec-an-integer-sampler-declares-the-asked-precision) — A GLSL shader declares the precision the caller asks for on each integer sampler it uses, `highp` when the caller asks for none.
     - [`@spec glsl-refuses-an-unknown-precision`](#spec-glsl-refuses-an-unknown-precision) — A GLSL compile refuses a precision other than `lowp`, `mediump` or `highp`, and the types refuse it before the program runs.
+    - [`@spec a-uniform-can-set-a-precision-of-its-own`](#spec-a-uniform-can-set-a-precision-of-its-own) — `setPrecision(precision)` on a uniform or a uniform array, with `"low"`, `"medium"` or `"high"`, sets the precision of its GLSL declaration to `lowp`, `mediump` or `highp`, over the shader's default, and returns the uniform. Another value is refused. WGSL, which has no precision, declares the uniform as it would without one.
     - [`@spec every-glsl-call-shape-takes-a-precision`](#spec-every-glsl-call-shape-takes-a-precision) — `compileGlsl`, `compileGlsl.fragment` and `compileGlsl.vertex` each take a `precision` option.
   - [`@spec a-wasm-routine-loops-inside-its-module`](#spec-a-wasm-routine-loops-inside-its-module) — `draw` and `compute` of a WASM routine run their whole grid or dispatch inside the module, in one call from the host. A program that never reads `invocationIndex()`, or returns a value, still runs once for each invocation.
     - [`@bug wasm-loops-a-program-without-storage-from-the-host`](#bug-wasm-loops-a-program-without-storage-from-the-host) — A program with neither `storage()` nor `invocationIndex()` gets no dispatch export, and `compute` calls its `main` from the host once per invocation.
@@ -725,6 +726,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact three-js-uploads-a-data-texture-in-its-type`](#fact-three-js-uploads-a-data-texture-in-its-type) — A three.js `DataTexture` takes a typed array and a texture `type`, `UnsignedByteType` by default, and uploads its data to the GPU as that type.
 - [`@fact three-js-sums-ambient-lights-into-one-colour`](#fact-three-js-sums-ambient-lights-into-one-colour) — three.js adds the colour of each ambient light, times its intensity, into one ambient colour for the scene.
 - [`@fact three-js-scales-a-light-colour-by-its-intensity`](#fact-three-js-scales-a-light-colour-by-its-intensity) — three.js sets the colour uniform of a directional light and of a point light to the light's colour multiplied by its intensity, on the host.
+- [`@fact tsl-lets-an-input-set-its-own-precision`](#fact-tsl-lets-an-input-set-its-own-precision) — TSL's `setPrecision(precision)` on an input node, a uniform among them, takes `"low"`, `"medium"` or `"high"` and returns the node. Its GLSL builder writes `lowp`, `mediump` or `highp` on that uniform's declaration, and declares every default at `highp`.
 - [`@fact three-js-declares-one-precision-for-every-sampler`](#fact-three-js-declares-one-precision-for-every-sampler) — The `WebGLProgram` of three.js declares one precision for `float`, `int` and every sampler type, the integer samplers `isampler2D`, `isampler3D` and `isamplerCube` included.
 - [`@fact wgsl-refuses-a-constant-index-out-of-range`](#fact-wgsl-refuses-a-constant-index-out-of-range) — WGSL refuses a constant index past the components of a vector, the columns of a matrix or the elements of a fixed-size array, also when it indexes a variable.
 - [`@fact glsl-refuses-a-constant-index-out-of-range`](#fact-glsl-refuses-a-constant-index-out-of-range) — GLSL ES 3.00 refuses a constant index past the components of a vector, the columns of a matrix or the elements of a fixed-size array, also when it indexes a variable.
@@ -763,10 +765,6 @@ Every refusal is a plain `Error` today, and a caller can tell refusals apart onl
 ### Control flow
 
 Whether rmsl's loops converge on TSL's `Loop`, or keep `While` and `For` as loops of rmsl's own, is open. Issue #60 holds the question. The canon states the loops as they behave today, under [`spec-a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop), with an exception for each departure from TSL.
-
-### Precision
-
-GLSL sets precision two ways: a statement that sets the default for a type, and a qualifier on one declaration. Under [`spec-glsl-takes-a-precision`](#spec-glsl-takes-a-precision), rmsl writes only the statement, at the precision the caller asks for, as three.js's `WebGLRenderer` does. TSL fixes that default at `highp` and lets a uniform lower its own precision. Issue #117 asks whether rmsl adds the qualifier as well.
 
 ### Fragment depth
 
@@ -3033,6 +3031,14 @@ This follows because three.js's `WebGLRenderer` declares its one precision for e
 
 > A GLSL compile refuses a precision other than `lowp`, `mediump` or `highp`, and the types refuse it before the program runs.
 
+#### @spec a-uniform-can-set-a-precision-of-its-own
+
+> `setPrecision(precision)` on a uniform or a uniform array, with `"low"`, `"medium"` or `"high"`, sets the precision of its GLSL declaration to `lowp`, `mediump` or `highp`, over the shader's default, and returns the uniform. Another value is refused. WGSL, which has no precision, declares the uniform as it would without one.
+
+Derives from: [`fact-tsl-lets-an-input-set-its-own-precision`](#fact-tsl-lets-an-input-set-its-own-precision)
+
+This follows because a TSL material that lowers the precision of one uniform ports by changing its import, and the caller's precision stays the default for the rest, as three.js's `WebGLRenderer` sets it.
+
 #### @spec every-glsl-call-shape-takes-a-precision
 
 > `compileGlsl`, `compileGlsl.fragment` and `compileGlsl.vertex` each take a `precision` option.
@@ -4940,6 +4946,12 @@ This is how three.js behaves, read from its source (`WebGLLights`, three.js 0.18
 > three.js sets the colour uniform of a directional light and of a point light to the light's colour multiplied by its intensity, on the host.
 
 This is how three.js behaves, read from its source (`WebGLLights`, three.js 0.186).
+
+## @fact tsl-lets-an-input-set-its-own-precision
+
+> TSL's `setPrecision(precision)` on an input node, a uniform among them, takes `"low"`, `"medium"` or `"high"` and returns the node. Its GLSL builder writes `lowp`, `mediump` or `highp` on that uniform's declaration, and declares every default at `highp`.
+
+This is how TSL behaves, read from its source: `setPrecision` in `src/nodes/core/InputNode.js`, and `precisionLib` and `getUniforms` in `src/renderers/webgl-fallback/nodes/GLSLNodeBuilder.js`.
 
 ## @fact three-js-declares-one-precision-for-every-sampler
 

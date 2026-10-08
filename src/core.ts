@@ -118,7 +118,13 @@ export type VariableNode<A extends ShaderType> = Node<A> & {
 
 // Aliases rather than interfaces: `Node<A>` resolves through an indexed access,
 // and an interface may only extend a type whose members are statically known.
-export type UniformNode<A extends ShaderType> = VariableNode<A>;
+/** The precision a uniform can ask for its GLSL declaration, as TSL's `setPrecision` takes it. */
+export type UniformPrecision = "low" | "medium" | "high";
+
+export type UniformNode<A extends ShaderType> = VariableNode<A> & {
+  /** Sets the precision of this uniform's GLSL declaration, over the shader's default, and returns it. */
+  setPrecision(precision: UniformPrecision): UniformNode<A>;
+};
 
 /**
  * A uniform array. Not a `Node<A>` itself — the array as a whole has no value,
@@ -129,6 +135,8 @@ export interface UniformArrayNode<A extends ShaderType> {
   readonly name: string;
   readonly length: number;
   element(index: IntLike | UintLike | FloatLike): Node<A>;
+  /** Sets the precision of this array's GLSL declaration, over the shader's default, and returns it. */
+  setPrecision(precision: UniformPrecision): UniformArrayNode<A>;
 }
 export type AttributeNode<A extends ShaderType> = VariableNode<A>;
 /** A varying: written by the vertex stage, read by the fragment stage. */
@@ -1277,6 +1285,20 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
       type: "bitNot",
       params: [this as BaseNode<ShaderType>],
     });
+  }
+
+  // === Uniform precision ===
+  setPrecision(precision: UniformPrecision): any {
+    if (this.type !== "uniform" && this.type !== "uniformArray") {
+      throw new Error(`[RMSL] setPrecision: only a uniform has a precision of its own, not a ${this.type} node`);
+    }
+    if (precision !== "low" && precision !== "medium" && precision !== "high") {
+      throw new Error(
+        `[RMSL] setPrecision: a precision is "low", "medium" or "high", not ${JSON.stringify(precision)}`,
+      );
+    }
+    (this.value as { precision?: UniformPrecision }).precision = precision;
+    return this;
   }
 
   // === BoolOps ===
