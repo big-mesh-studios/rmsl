@@ -98,6 +98,25 @@ describe("a scene renderer manages what it uploads", () => {
   });
 
   /**
+   * @canon spec-a-changed-attribute-uploads-only-its-update-range
+   */
+  it("writes a 16-bit index of a length and a range that are not whole words on WebGPU", () => {
+    const { device, canvas, bytesOf } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const geometry = new BufferGeometry();
+    geometry.setAttribute("position", new BufferAttribute(new Float32Array(9), 3));
+    geometry.setIndex(new BufferAttribute(new Uint16Array([0, 1, 2]), 1));
+    const buffers = renderer.ensureGeometryBuffers(geometry);
+    expect(Array.from(new Uint16Array(bytesOf(buffers.index).buffer, 0, 3))).toEqual([0, 1, 2]);
+
+    (geometry.index!.array as Uint16Array)[1] = 7;
+    geometry.index!.addUpdateRange(1, 1);
+    geometry.index!.needsUpdate = true;
+    renderer.ensureGeometryBuffers(geometry);
+    expect(Array.from(new Uint16Array(bytesOf(buffers.index).buffer, 0, 3))).toEqual([0, 7, 2]);
+  });
+
+  /**
    * @canon spec-a-renderer-supplies-the-camera-and-object-uniforms
    */
   it("gives a line the render target's resolution when drawing into one on WebGL", () => {

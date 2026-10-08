@@ -709,18 +709,42 @@ export class WebGPURenderer {
     whole: boolean,
   ): void {
     const ranges = mergedUpdateRanges(attribute);
+    const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
     if (whole || ranges.length === 0) {
-      this.device.queue.writeBuffer(buffer, 0, data);
+      this.writeBytes(buffer, bytes, 0, bytes.length);
     } else {
-      const bytes = (data as unknown as { BYTES_PER_ELEMENT: number }).BYTES_PER_ELEMENT;
-      const length = data.byteLength / bytes;
+      const element = (data as unknown as { BYTES_PER_ELEMENT: number }).BYTES_PER_ELEMENT;
+      const length = data.byteLength / element;
       for (const range of ranges) {
         const start = Math.min(length, Math.max(0, range.start));
         const count = Math.min(length - start, Math.max(0, range.count));
-        if (count > 0) this.device.queue.writeBuffer(buffer, start * bytes, data, start, count);
+        if (count > 0) this.writeBytes(buffer, bytes, start * element, (start + count) * element);
       }
     }
     attribute.clearUpdateRanges();
+  }
+
+  /** The last word of a write that runs past its data, padded with zeros; `writeBuffer` copies it at once. */
+  private readonly tailWord = new Uint8Array(4);
+
+  /**
+   * Writes bytes `from` to `to` of `bytes` into `buffer` at the same offset,
+   * widened to whole 4-byte words, since WebGPU writes nothing smaller. A last
+   * word that runs past the data goes up padded with zeros, which the buffer,
+   * sized to whole words, holds.
+   */
+  private writeBytes(buffer: GPUBuffer, bytes: Uint8Array<ArrayBuffer>, from: number, to: number): void {
+    const start = from & ~3;
+    const end = Math.ceil(to / 4) * 4;
+    if (end <= bytes.length) {
+      this.device.queue.writeBuffer(buffer, start, bytes, start, end - start);
+      return;
+    }
+    const words = Math.max(start, bytes.length & ~3);
+    if (words > start) this.device.queue.writeBuffer(buffer, start, bytes, start, words - start);
+    this.tailWord.fill(0);
+    this.tailWord.set(bytes.subarray(words));
+    this.device.queue.writeBuffer(buffer, words, this.tailWord, 0, 4);
   }
 
   /**

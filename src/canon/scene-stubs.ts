@@ -86,6 +86,7 @@ export function stubDevice() {
         const element = (data as any).BYTES_PER_ELEMENT ?? 1;
         const bytes = new Uint8Array(data.buffer, data.byteOffset + dataOffset * element);
         const length = size === undefined ? bytes.length : size * element;
+        if (offset % 4 !== 0 || length % 4 !== 0) throw new Error("writeBuffer of an offset or size not a multiple of 4");
         const target = contents.get(buffer)!;
         if (offset + length > target.length) throw new Error("writeBuffer past the end of the buffer");
         target.set(bytes.subarray(0, length), offset);
