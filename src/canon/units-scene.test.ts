@@ -579,24 +579,28 @@ describe("a scene renderer manages what it uploads", () => {
   /**
    * @canon exception-preserving-webgl-state-allocates-on-each-call
    */
-  it("reads the viewport and the clear colour on each render with preserveState", () => {
-    let vectors: Record<number, ArrayBufferView> = {};
+  it("reads the viewport, the clear colour and the colour mask on each render with preserveState", () => {
+    let vectors: Record<number, unknown> = {};
     const { renderer, gl, calls } = stubWebGl(
       { getParameter: (name: number) => vectors[name] ?? 16 },
       { preserveState: true },
     );
-    vectors = { [gl.VIEWPORT]: new Int32Array(4), [gl.COLOR_CLEAR_VALUE]: new Float32Array(4) };
+    vectors = {
+      [gl.VIEWPORT]: new Int32Array(4),
+      [gl.COLOR_CLEAR_VALUE]: new Float32Array(4),
+      [gl.COLOR_WRITEMASK]: [true, true, true, true],
+    };
     const scene = new Scene();
     scene.add(new Mesh(new PlaneGeometry(), new MeshBasicMaterial()));
     const reads = () =>
       calls.filter(
-        (c) => c.name === "getParameter" && (c.args[0] === gl.VIEWPORT || c.args[0] === gl.COLOR_CLEAR_VALUE),
+        (c) => c.name === "getParameter" && [gl.VIEWPORT, gl.COLOR_CLEAR_VALUE, gl.COLOR_WRITEMASK].includes(c.args[0]),
       ).length;
     renderer.render(scene, camera());
     const first = reads();
     renderer.render(scene, camera());
-    expect(first).toBe(2);
-    expect(reads()).toBe(4);
+    expect(first).toBe(3);
+    expect(reads()).toBe(6);
   });
 
   /**
@@ -908,7 +912,7 @@ globalThis.__rmslFloatThenIntegerRun = () => {
 // readbacks, each run over state the page set: every piece of state that a
 // call left changed.
 const ENTRY_PRESERVE_STATE = `
-import { WebGLRenderer, WebGLRenderTarget, Scene, Mesh, PerspectiveCamera, PlaneGeometry, MeshBasicMaterial, DataTexture } from "../scene";
+import { Color, WebGLRenderer, WebGLRenderTarget, Scene, Mesh, PerspectiveCamera, PlaneGeometry, MeshBasicMaterial, DataTexture } from "../scene";
 import { float, uvec2, vec2 } from "../rmsl";
 ${GL_STATE}
 const preserveStateRun = async (preserveState) => {
@@ -964,11 +968,47 @@ const ownVertexArrayRun = (vertexArray) => {
   gl.bindVertexArray(before.VERTEX_ARRAY_BINDING);
   return changedGlState(before, glState(gl)).filter((name) => /^(ELEMENT_ARRAY|VERTEX_ATTRIB)/.test(name));
 };
+// One frame, a transparent textured mesh over a background, read back from a
+// render target, drawn over state the page set and over a fresh context.
+const pixelsOver = (dirty) => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 16;
+  canvas.height = 16;
+  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const gl = renderer.gl;
+  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 1);
+  camera.lookAt(0, 0, 0);
+  const texture = new DataTexture(Uint8Array.of(255, 0, 0, 128, 0, 255, 0, 128, 0, 0, 255, 128, 255, 255, 255, 128), 2, 2);
+  const material = new MeshBasicMaterial();
+  material.transparent = true;
+  material.fragmentNode = (b) => b.sampler("map", "sampler2D", () => texture).texture(vec2(0.25, 0.75));
+  const scene = new Scene();
+  scene.background = new Color(0.2, 0.4, 0.6);
+  scene.add(new Mesh(new PlaneGeometry(2, 2), material));
+  if (dirty) dirtyGlState(gl);
+  const target = new WebGLRenderTarget(4, 4);
+  renderer.render(scene, camera, target);
+  return Array.from(renderer.readPixels(target));
+};
+globalThis.__rmslDrawsOverState = () => ({ dirty: pixelsOver(true), clean: pixelsOver(false) });
 globalThis.__rmslDefaultVertexArray = () => ownVertexArrayRun("default");
 globalThis.__rmslApplicationVertexArray = () => ownVertexArrayRun("application");
 `;
 
 describe.skipIf(!GPU_ENABLED)("a render depends only on what it is given, on a real driver", () => {
+  /**
+   * @canon spec-a-webgl-call-sets-the-state-it-reads
+   */
+  it("draws over state the page set as it draws on a fresh context on WebGL", async () => {
+    const { dirty, clean } = await runInGpuPage(
+      ENTRY_PRESERVE_STATE,
+      "__rmslDrawsOverState",
+      new URL(".", import.meta.url).pathname,
+    );
+    expect(dirty).toEqual(clean);
+  }, 60_000);
+
   /**
    * @canon spec-a-webgl-call-leaves-the-state-it-set
    */

@@ -23,8 +23,8 @@ const readPixel = (canvas, x, y) => {
 
 /**
  * Helpers for an entry to check what a call leaves on a WebGL 2 context:
- * `dirtyGlState(gl)` sets every piece of state rmsl touches to a value of the
- * page's own, with objects of its own; `glState(gl)` reads that state, the
+ * `dirtyGlState(gl)` sets every piece of state rmsl touches or reads to a value
+ * of the page's own, with objects of its own; `glState(gl)` reads that state, the
  * first eight texture units and the current vertex array's element buffer and
  * first eight attribute switches included; `changedGlState(before, after)`
  * names each piece that differs.
@@ -35,6 +35,10 @@ const GL_STATE_NAMES = [
   "VERTEX_ARRAY_BINDING", "ARRAY_BUFFER_BINDING", "ELEMENT_ARRAY_BUFFER_BINDING", "PIXEL_PACK_BUFFER_BINDING",
   "VIEWPORT", "COLOR_CLEAR_VALUE", "DEPTH_TEST", "DEPTH_WRITEMASK", "BLEND", "BLEND_SRC_RGB", "BLEND_DST_RGB",
   "BLEND_SRC_ALPHA", "BLEND_DST_ALPHA", "CULL_FACE", "CULL_FACE_MODE", "ACTIVE_TEXTURE", "UNPACK_ALIGNMENT",
+  "UNPACK_FLIP_Y_WEBGL", "UNPACK_PREMULTIPLY_ALPHA_WEBGL", "UNPACK_COLORSPACE_CONVERSION_WEBGL", "UNPACK_ROW_LENGTH",
+  "UNPACK_IMAGE_HEIGHT", "UNPACK_SKIP_PIXELS", "UNPACK_SKIP_ROWS", "UNPACK_SKIP_IMAGES", "PIXEL_UNPACK_BUFFER_BINDING",
+  "PACK_ALIGNMENT", "PACK_ROW_LENGTH", "PACK_SKIP_PIXELS", "PACK_SKIP_ROWS", "SCISSOR_TEST", "COLOR_WRITEMASK",
+  "BLEND_EQUATION_RGB", "BLEND_EQUATION_ALPHA", "DEPTH_FUNC",
 ];
 const glState = (gl) => {
   const state = {};
@@ -51,7 +55,7 @@ const glState = (gl) => {
 };
 const changedGlState = (before, after) =>
   Object.keys(before).filter((name) =>
-    ArrayBuffer.isView(before[name])
+    ArrayBuffer.isView(before[name]) || Array.isArray(before[name])
       ? Array.from(before[name]).join() !== Array.from(after[name]).join()
       : before[name] !== after[name],
   );
@@ -89,6 +93,26 @@ const dirtyGlState = (gl) => {
   }
   gl.activeTexture(gl.TEXTURE5);
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 8);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+  gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+  gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 7);
+  gl.pixelStorei(gl.UNPACK_IMAGE_HEIGHT, 7);
+  gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 1);
+  gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 1);
+  gl.pixelStorei(gl.UNPACK_SKIP_IMAGES, 1);
+  const unpack = gl.createBuffer();
+  gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, unpack);
+  gl.bufferData(gl.PIXEL_UNPACK_BUFFER, 1024, gl.STATIC_DRAW);
+  gl.pixelStorei(gl.PACK_ALIGNMENT, 8);
+  gl.pixelStorei(gl.PACK_ROW_LENGTH, 7);
+  gl.pixelStorei(gl.PACK_SKIP_PIXELS, 1);
+  gl.pixelStorei(gl.PACK_SKIP_ROWS, 1);
+  gl.enable(gl.SCISSOR_TEST);
+  gl.scissor(0, 0, 1, 1);
+  gl.colorMask(false, true, true, true);
+  gl.blendEquationSeparate(gl.FUNC_SUBTRACT, gl.FUNC_REVERSE_SUBTRACT);
+  gl.depthFunc(gl.GREATER);
 };
 `;
 

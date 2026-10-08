@@ -16,8 +16,56 @@ export const GlState = {
   pixelPackBuffer: 1 << 9,
   /** The active texture unit and the textures bound to it. */
   activeTexture: 1 << 10,
-  unpackAlignment: 1 << 11,
+  /** The unpack parameters and the pixel-unpack buffer. */
+  unpack: 1 << 11,
+  /** The pack parameters. */
+  pack: 1 << 12,
+  /** The scissor test, the colour mask, the blend equation and the depth function. */
+  raster: 1 << 13,
 } as const;
+
+/** The unpack parameters, with the value each upload of rmsl's reads: tight rows, read as they are. */
+const UNPACK = [
+  ["UNPACK_ALIGNMENT", 1],
+  ["UNPACK_FLIP_Y_WEBGL", 0],
+  ["UNPACK_PREMULTIPLY_ALPHA_WEBGL", 0],
+  ["UNPACK_ROW_LENGTH", 0],
+  ["UNPACK_IMAGE_HEIGHT", 0],
+  ["UNPACK_SKIP_PIXELS", 0],
+  ["UNPACK_SKIP_ROWS", 0],
+  ["UNPACK_SKIP_IMAGES", 0],
+] as const;
+
+/** The pack parameters, with the value each readback of rmsl's reads: tight rows from the first pixel. */
+const PACK = [
+  ["PACK_ALIGNMENT", 1],
+  ["PACK_ROW_LENGTH", 0],
+  ["PACK_SKIP_PIXELS", 0],
+  ["PACK_SKIP_ROWS", 0],
+] as const;
+
+/**
+ * Sets the state a texture upload reads: tight rows read as they are, in the
+ * browser's colour space, from the data the call gives rather than a buffer.
+ */
+export function setUnpackState(gl: WebGL2RenderingContext): void {
+  gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
+  for (const [name, value] of UNPACK) gl.pixelStorei(gl[name], value);
+  gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.BROWSER_DEFAULT_WEBGL);
+}
+
+/** Sets the state a readback into an array reads: tight rows from the first pixel, into the array. */
+export function setPackState(gl: WebGL2RenderingContext): void {
+  for (const [name, value] of PACK) gl.pixelStorei(gl[name], value);
+}
+
+/** Sets the state a clear and a draw read that rmsl never changes per draw. */
+export function setRasterState(gl: WebGL2RenderingContext): void {
+  gl.disable(gl.SCISSOR_TEST);
+  gl.colorMask(true, true, true, true);
+  gl.blendEquation(gl.FUNC_ADD);
+  gl.depthFunc(gl.LESS);
+}
 
 /**
  * Saves the state of a WebGL 2 context that a call is about to change, and
@@ -47,7 +95,15 @@ export class GlStateKeeper {
   private arrayBuffer: WebGLBuffer | null = null;
   private pixelPackBuffer: WebGLBuffer | null = null;
   private activeTexture = 0;
-  private unpackAlignment = 4;
+  private readonly unpackValues: unknown[] = [];
+  private unpackColorspace = 0;
+  private pixelUnpackBuffer: WebGLBuffer | null = null;
+  private readonly packValues: unknown[] = [];
+  private scissorTest = false;
+  private colorMask: boolean[] | null = null;
+  private blendEquationRgb = 0;
+  private blendEquationAlpha = 0;
+  private depthFunc = 0;
   /** The units whose bindings are saved, and the 2D and 3D texture each had. */
   private readonly units: number[] = [];
   private readonly textures2D: (WebGLTexture | null)[] = [];
@@ -93,7 +149,21 @@ export class GlStateKeeper {
     if (fresh & GlState.vertexArray) this.vertexArray = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
     if (fresh & GlState.arrayBuffer) this.arrayBuffer = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
     if (fresh & GlState.pixelPackBuffer) this.pixelPackBuffer = gl.getParameter(gl.PIXEL_PACK_BUFFER_BINDING);
-    if (fresh & GlState.unpackAlignment) this.unpackAlignment = gl.getParameter(gl.UNPACK_ALIGNMENT);
+    if (fresh & GlState.unpack) {
+      for (let i = 0; i < UNPACK.length; i++) this.unpackValues[i] = gl.getParameter(gl[UNPACK[i]![0]]);
+      this.unpackColorspace = gl.getParameter(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL);
+      this.pixelUnpackBuffer = gl.getParameter(gl.PIXEL_UNPACK_BUFFER_BINDING);
+    }
+    if (fresh & GlState.pack) {
+      for (let i = 0; i < PACK.length; i++) this.packValues[i] = gl.getParameter(gl[PACK[i]![0]]);
+    }
+    if (fresh & GlState.raster) {
+      this.scissorTest = gl.getParameter(gl.SCISSOR_TEST);
+      this.colorMask = gl.getParameter(gl.COLOR_WRITEMASK);
+      this.blendEquationRgb = gl.getParameter(gl.BLEND_EQUATION_RGB);
+      this.blendEquationAlpha = gl.getParameter(gl.BLEND_EQUATION_ALPHA);
+      this.depthFunc = gl.getParameter(gl.DEPTH_FUNC);
+    }
     if (fresh & GlState.activeTexture) {
       this.activeTexture = gl.getParameter(gl.ACTIVE_TEXTURE);
       this.keepUnit(this.activeTexture - gl.TEXTURE0);
@@ -147,7 +217,21 @@ export class GlStateKeeper {
     if (kept & GlState.vertexArray) gl.bindVertexArray(this.vertexArray);
     if (kept & GlState.arrayBuffer) gl.bindBuffer(gl.ARRAY_BUFFER, this.arrayBuffer);
     if (kept & GlState.pixelPackBuffer) gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.pixelPackBuffer);
-    if (kept & GlState.unpackAlignment) gl.pixelStorei(gl.UNPACK_ALIGNMENT, this.unpackAlignment);
+    if (kept & GlState.unpack) {
+      for (let i = 0; i < UNPACK.length; i++) gl.pixelStorei(gl[UNPACK[i]![0]], this.unpackValues[i] as number);
+      gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, this.unpackColorspace);
+      gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, this.pixelUnpackBuffer);
+    }
+    if (kept & GlState.pack) {
+      for (let i = 0; i < PACK.length; i++) gl.pixelStorei(gl[PACK[i]![0]], this.packValues[i] as number);
+    }
+    if (kept & GlState.raster) {
+      switchTo(gl, gl.SCISSOR_TEST, this.scissorTest);
+      const [r, g, b, a] = this.colorMask!;
+      gl.colorMask(r!, g!, b!, a!);
+      gl.blendEquationSeparate(this.blendEquationRgb, this.blendEquationAlpha);
+      gl.depthFunc(this.depthFunc);
+    }
     for (let i = 0; i < this.units.length; i++) {
       gl.activeTexture(gl.TEXTURE0 + this.units[i]!);
       gl.bindTexture(gl.TEXTURE_2D, this.textures2D[i]!);
@@ -160,6 +244,7 @@ export class GlStateKeeper {
     this.textures3D.length = 0;
     this.viewport = null;
     this.clearColor = null;
+    this.colorMask = null;
   }
 }
 

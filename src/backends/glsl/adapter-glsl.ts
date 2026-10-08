@@ -4,7 +4,7 @@ import { VertexRoot } from "../shared";
 import type { CpuTextureData } from "../cpu";
 import { textureImage } from "../texture-image";
 import { compileGlsl, CompileGLSLOptions } from "./glsl";
-import { GlState, GlStateKeeper } from "./gl-state";
+import { GlState, GlStateKeeper, setRasterState, setUnpackState } from "./gl-state";
 
 type UniformInfo = { location: WebGLUniformLocation; type: number };
 /** A sampler's GL texture, with the shape and internal format it was made with. */
@@ -151,10 +151,20 @@ export interface GlslAdapterOptions extends CompileGLSLOptions {
 
 /** The state `attach` changes, a value set before it applied included. */
 const ATTACH_STATE =
-  GlState.program | GlState.vertexArray | GlState.arrayBuffer | GlState.activeTexture | GlState.unpackAlignment;
+  GlState.program | GlState.vertexArray | GlState.arrayBuffer | GlState.activeTexture | GlState.unpack;
 
 /** The state `draw` changes. */
-const DRAW_STATE = GlState.program | GlState.vertexArray | GlState.clearColor | GlState.activeTexture;
+const DRAW_STATE =
+  GlState.framebuffers |
+  GlState.viewport |
+  GlState.program |
+  GlState.vertexArray |
+  GlState.clearColor |
+  GlState.depth |
+  GlState.blend |
+  GlState.cull |
+  GlState.raster |
+  GlState.activeTexture;
 
 /** Narrower than the base Adapter's `void | Promise<void>` on both
  * `attach` and `draw` — `getContext("webgl2")` and GL's own draw call are
@@ -249,7 +259,7 @@ export function createGlsl(
       pendingTextures.set(slot, data);
       return;
     }
-    state?.begin(GlState.activeTexture | GlState.unpackAlignment | GlState.program);
+    state?.begin(GlState.activeTexture | GlState.unpack | GlState.program);
     try {
       uploadTexture(gl, program, slot, info, data);
     } finally {
@@ -296,7 +306,7 @@ export function createGlsl(
     state?.keepUnit(held!.unit);
     gl.activeTexture(gl.TEXTURE0 + held!.unit);
     gl.bindTexture(target, held!.texture);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    setUnpackState(gl);
     if (reuse && target === gl.TEXTURE_3D) {
       gl.texSubImage3D(target, 0, 0, 0, 0, image.width, image.height, image.depth, format, type, image.texels);
     } else if (reuse) {
@@ -384,6 +394,13 @@ export function createGlsl(
   ): void {
     gl.useProgram(program);
     gl.bindVertexArray(vao);
+    // The draw covers the canvas and blends, tests and culls nothing, as a WGSL draw does.
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.CULL_FACE);
+    setRasterState(gl);
     if (draw?.clear !== false) {
       const [r, g, b, a] = draw?.clearColor ?? TRANSPARENT_BLACK;
       gl.clearColor(r, g, b, a);

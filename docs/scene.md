@@ -136,18 +136,25 @@ the farthest to the nearest, so each blends over what lies behind it.
 `depth`, `precision` (`"highp" | "mediump" | "lowp"`, default `"highp"`), and
 `preserveState`.
 
-The renderer sets the WebGL state each call needs and leaves it as it set it:
-after `render`, its program, its framebuffer and its blend and depth state are
-still bound, and a data texture upload leaves the unpack alignment at 1. Code
-that shares the context sets what it reads. With `preserveState: true`,
-`render`, `readPixels` and `readPixelsAsync` put back the state they changed
-before they return: the framebuffer, program, vertex array and buffer bindings,
-the viewport, clear colour, depth, blend and cull state, the active texture
-unit and the textures of each unit they used, and the unpack alignment. That
-costs a few state queries per call, and the viewport and clear colour each come
-back as a new array. `createGlsl(vertex, fragment, { preserveState: true })`
-does the same for its own calls. The renderer draws from a vertex array of its
-own either way, so it never changes the application's.
+The renderer sets each piece of WebGL state it reads, so it draws over any
+state the application left as on a fresh context: the scissor test, colour
+mask, blend equation and depth function before a frame, the unpack parameters
+before a texture upload, and the pack parameters before a readback. It leaves
+that state as it set it: after `render`, its program, its framebuffer and its
+blend and depth state are still bound, and a texture upload leaves the unpack
+alignment at 1. Code that shares the context sets what it reads.
+
+With `preserveState: true`, `render`, `readPixels` and `readPixelsAsync` put
+back the state they changed before they return: the framebuffer, program,
+vertex array and buffer bindings, the viewport, clear colour, colour mask,
+scissor, depth, blend and cull state, the active texture unit and the textures
+of each unit they used, and the pack and unpack parameters. That costs a few
+state queries per call, and the viewport, clear colour and colour mask each
+come back as a new array. `createGlsl(vertex, fragment, { preserveState: true
+})` does the same for its own calls; a `createGlsl` draw covers its canvas and
+blends, depth-tests and culls nothing, as a `createWgsl` draw does. The
+renderer draws from a vertex array of its own either way, so it never changes
+the application's.
 
 `setClearColor`, `setSize`, `setAnimationLoop`, `render(scene, camera)`.
 Programs are compiled per material and cached; geometry buffers per geometry;

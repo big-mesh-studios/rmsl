@@ -63,6 +63,22 @@ const drawRetextured = (adapter) => {
   adapter.draw({ count: 3 });
   return { pixel: readPixel(target, 1, 2), created };
 };
+// The textured triangle drawn over state the page set, and over a fresh context.
+const drawnOver = (dirty) => {
+  const target = canvas();
+  const gl = target.getContext("webgl2");
+  if (dirty) dirtyGlState(gl);
+  const adapter = createGlsl(vertex(), texturedFragment());
+  adapter.attach(target);
+  adapter.setAttribute(position, TRIANGLE);
+  adapter.setTexture(image, {
+    data: Uint8Array.of(255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255),
+    width: 2,
+    height: 2,
+  });
+  adapter.draw({ count: 3, clearColor: [0.2, 0.4, 0.6, 1] });
+  return [readPixel(target, 1, 2), readPixel(target, 3, 3), readPixel(target, 0, 0)];
+};
 // Every piece of state that a call of a GLSL adapter left changed, over state the page set.
 const glslStateChanged = (preserveState) => {
   const target = canvas();
@@ -102,6 +118,7 @@ globalThis.__rmslAdapterDraw = {
   jsRoutine: () => drawRoutine(createJsGrid({ draw: routine() })),
   wasmRoutine: () => drawRoutine(createWasmGrid({ draw: routine() })),
   glslStateKept: () => glslStateChanged(false),
+  glslDrawsOver: () => ({ dirty: drawnOver(true), clean: drawnOver(false) }),
   glslStatePreserved: () => glslStateChanged(true),
 };
 `;
@@ -145,6 +162,14 @@ describe.skipIf(!GPU_ENABLED)("adapters drawing into a canvas in a browser", () 
    */
   it("draws a fragCoord program over its canvas with createJsGrid", async () => {
     expect(await drawn("jsRoutine")).toEqual({ r: Math.round((3.5 / 4) * 255), g: 0, b: 0, a: 255 });
+  }, 120_000);
+
+  /**
+   * @canon spec-a-webgl-call-sets-the-state-it-reads
+   */
+  it("draws over state the page set as it draws on a fresh context with createGlsl", async () => {
+    const { dirty, clean } = await drawn("glslDrawsOver");
+    expect(dirty).toEqual(clean);
   }, 120_000);
 
   /**

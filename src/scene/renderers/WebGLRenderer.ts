@@ -1,5 +1,5 @@
 import { compileGlsl, type GLSLPrecision } from "../../glsl";
-import { GlState, GlStateKeeper } from "../../backends/glsl/gl-state";
+import { GlState, GlStateKeeper, setPackState, setRasterState, setUnpackState } from "../../backends/glsl/gl-state";
 import { Color } from "../math/Color";
 import { Vector4 } from "../math/Vector4";
 import { WebGLRenderTarget } from "./WebGLRenderTarget";
@@ -204,6 +204,7 @@ export class WebGLRenderer {
     gl.clearColor(clear.r, clear.g, clear.b, clear.a);
     // The depth mask applies to `clear`, and the last draw left it as its material set it.
     gl.depthMask(true);
+    setRasterState(gl);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
 
@@ -259,6 +260,7 @@ export class WebGLRenderer {
     const framebuffer = gl.createFramebuffer()!;
     const color = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, color);
+    setUnpackState(gl);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, target.width, target.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
@@ -291,6 +293,7 @@ export class WebGLRenderer {
     try {
       gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.renderTargetFramebuffer(target));
       gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      setPackState(gl);
       gl.readPixels(0, 0, target.width, target.height, gl.RGBA, gl.UNSIGNED_BYTE, buffer);
       gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
     } finally {
@@ -315,6 +318,7 @@ export class WebGLRenderer {
     try {
       gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo);
       gl.bufferData(gl.PIXEL_PACK_BUFFER, buffer.byteLength, gl.STREAM_READ);
+      setPackState(gl);
       gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.renderTargetFramebuffer(target));
       gl.readPixels(0, 0, target.width, target.height, gl.RGBA, gl.UNSIGNED_BYTE, 0);
       gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
@@ -561,6 +565,8 @@ export class WebGLRenderer {
         texture.addEventListener("dispose", this.onTextureDispose);
       }
       gl.bindTexture(target, glTexture);
+      // Rows of data are packed tight, and a single-channel row is rarely a multiple of four bytes.
+      setUnpackState(gl);
       const asked = samplerState(texture, samplerType);
       // A float texture with linear filters it cannot honour would be incomplete and read black.
       const sampling =
@@ -573,8 +579,6 @@ export class WebGLRenderer {
       gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, glFilter(gl, sampling.minFilter));
       gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, glFilter(gl, sampling.magFilter));
       if (ArrayBuffer.isView(image)) {
-        // A data texture's rows are packed tight, and a single-channel row is rarely a multiple of four bytes.
-        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
         const width = (texture as { width?: number }).width ?? 1;
         const height = (texture as { height?: number }).height ?? 1;
         if (integer) {
@@ -947,10 +951,12 @@ const RENDER_STATE =
   GlState.vertexArray |
   GlState.arrayBuffer |
   GlState.activeTexture |
-  GlState.unpackAlignment;
+  GlState.unpack |
+  GlState.raster;
 
 /** The state a readback changes, the render target it makes on first use included. */
-const READ_STATE = GlState.framebuffers | GlState.pixelPackBuffer | GlState.activeTexture;
+const READ_STATE =
+  GlState.framebuffers | GlState.pixelPackBuffer | GlState.pack | GlState.activeTexture | GlState.unpack;
 
 /** A wrapping mode as the `texParameteri` constant that sets it. */
 function glWrap(gl: WebGL2RenderingContext, wrap: TextureWrap): number {
