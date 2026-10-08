@@ -448,6 +448,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas) — Several adapters can draw on one canvas. An adapter ignores a uniform its program does not read.
     - [`@spec an-effect-with-several-passes-is-a-pass-graph`](#spec-an-effect-with-several-passes-is-a-pass-graph) — An [effect](#term-effect) with several passes returns a [pass graph](#term-pass-graph): its passes, the samplers each pass reads, and the pass that gives the output. The application draws each pass.
     - [`@exception a-scene-renderer-draws-its-scene-graph`](#exception-a-scene-renderer-draws-its-scene-graph) — `render(scene, camera)` on a renderer of `./scene` walks the scene graph, binds the geometry and the [node material](#term-node-material) of each mesh, uploads their uniforms and draws them.
+    - [`@spec a-scene-renderer-refuses-a-material-that-reads-storage`](#spec-a-scene-renderer-refuses-a-material-that-reads-storage) — A [node material](#term-node-material) whose graph reads a storage buffer is refused as it is built for a draw, on both renderers of `./scene`. The error names the buffer. A scene renderer binds no storage buffer.
     - [`@spec a-pass-keys-an-input-by-the-pass-that-makes-it`](#spec-a-pass-keys-an-input-by-the-pass-that-makes-it) — A pass keys an input another pass makes by that pass's name, such as `gaussianBlur.horizontal`, and an outside texture by any other name.
     - [`@spec a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads) — A `createGlsl` or `createWgsl` draw that names no vertex count takes it from the first attribute its program reads, in the order the host passed them. The count is that attribute's vertices after the draw's first vertex. An attribute the program does not read is taken and counts for nothing.
     - [`@spec a-compute-call-dispatches-the-count-it-is-given`](#spec-a-compute-call-dispatches-the-count-it-is-given) — A `compute` call on a compute adapter runs one invocation for each index below its count. The count is the one the caller names, or else the number of elements of the first storage buffer the host passed.
@@ -3269,6 +3270,14 @@ This follows because the pixels of an image of another size lie at other places,
 Derives from: [`fact-a-three-js-renderer-draws-its-scene-graph`](#fact-a-three-js-renderer-draws-its-scene-graph)
 
 `./scene` offers a scene graph in the shape of three.js, so it offers the renderer that draws it. The application still decides when to call `render`.
+
+#### @spec a-scene-renderer-refuses-a-material-that-reads-storage
+
+> A [node material](#term-node-material) whose graph reads a storage buffer is refused as it is built for a draw, on both renderers of `./scene`. The error names the buffer. A scene renderer binds no storage buffer.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+This follows because a renderer that binds no buffer would draw from whatever its context holds there: on WebGL the texture on unit 0, and on WebGPU a group its pipeline never laid out.
 
 #### @spec a-pass-keys-an-input-by-the-pass-that-makes-it
 
