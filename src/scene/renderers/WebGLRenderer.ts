@@ -79,6 +79,11 @@ export class WebGLRenderer {
    * the object, as three.js keeps it per renderer.
    */
   private uploadedVersions = new WeakMap<Texture | BufferAttribute, number>();
+  /**
+   * Whether each texture was last uploaded for an integer sampler. A sampler of
+   * the other kind needs another format and other filters, so it uploads again.
+   */
+  private uploadedAsInteger = new WeakMap<Texture, boolean>();
   /** Whether a float texture can filter linearly here; where it cannot, it reads its nearest texel. */
   private floatLinear = false;
   /** The 1×1 black textures a sampler with no texture reads, one for each dimension and sample type. */
@@ -494,7 +499,11 @@ export class WebGLRenderer {
     const unit = this.nextTextureUnit();
     gl.activeTexture(gl.TEXTURE0 + unit);
     let glTexture = this.textures.get(texture);
-    if (!glTexture || this.uploadedVersions.get(texture) !== texture.version) {
+    if (
+      !glTexture ||
+      this.uploadedVersions.get(texture) !== texture.version ||
+      this.uploadedAsInteger.get(texture) !== integer
+    ) {
       if (!glTexture) {
         glTexture = gl.createTexture()!;
         this.textures.set(texture, glTexture);
@@ -549,6 +558,7 @@ export class WebGLRenderer {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image as TexImageSource);
       }
       this.uploadedVersions.set(texture, texture.version);
+      this.uploadedAsInteger.set(texture, integer);
     }
     gl.bindTexture(target, glTexture);
     return unit;
@@ -565,6 +575,7 @@ export class WebGLRenderer {
     if (glTexture) this.gl.deleteTexture(glTexture);
     this.textures.delete(texture);
     this.uploadedVersions.delete(texture);
+    this.uploadedAsInteger.delete(texture);
     texture.removeEventListener("dispose", this.onTextureDispose);
   };
 

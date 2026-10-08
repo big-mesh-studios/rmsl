@@ -628,7 +628,66 @@ globalThis.__rmslTexturelessRun = () => {
 };
 `;
 
+// One texture read through a float sampler and then through an integer one. The
+// second read must give what it gives on a renderer that never read the texture
+// as a float.
+const ENTRY_FLOAT_THEN_INTEGER = `
+import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry, MeshBasicMaterial, DataTexture } from "../scene";
+import { float, uvec2, vec2 } from "../rmsl";
+globalThis.__rmslFloatThenIntegerRun = () => {
+  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 1);
+  camera.lookAt(0, 0, 0);
+  const make = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    const renderer = new WebGLRenderer(canvas, { antialias: false });
+    renderer.setClearColor(0x000000);
+    return renderer;
+  };
+  const reading = (texture, type) => {
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => {
+      const sampler = b.sampler("map", type, () => texture);
+      return type === "sampler2D"
+        ? sampler.texture(vec2(0.5, 0.5))
+        : sampler.texture(uvec2(0, 0)).toVec4().div(float(255));
+    };
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(2, 2), material));
+    return scene;
+  };
+  const centre = (renderer) => {
+    const gl = renderer.gl;
+    const pixels = new Uint8Array(4);
+    gl.readPixels(8, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    return [pixels[0], pixels[1], pixels[2]];
+  };
+  const texture = () => new DataTexture(new Uint8Array([0, 0, 255, 255]), 1, 1);
+
+  const shared = texture();
+  const renderer = make();
+  renderer.render(reading(shared, "sampler2D"), camera);
+  renderer.render(reading(shared, "usampler2D"), camera);
+  const fresh = make();
+  fresh.render(reading(texture(), "usampler2D"), camera);
+  return { afterFloat: centre(renderer), fresh: centre(fresh) };
+};
+`;
+
 describe.skipIf(!GPU_ENABLED)("a render depends only on what it is given, on a real driver", () => {
+  /**
+   * @canon spec-a-texture-reads-as-its-sampler-asks-whichever-sampler-uploaded-it
+   */
+  it("reads a texture as an integer after reading it as a float on WebGL", async () => {
+    const result = await runInGpuPage(
+      ENTRY_FLOAT_THEN_INTEGER,
+      "__rmslFloatThenIntegerRun",
+      new URL(".", import.meta.url).pathname,
+    );
+    expect(result.afterFloat).toEqual(result.fresh);
+  }, 60_000);
   /**
    * @canon spec-a-render-clears-the-depth-buffer-whatever-the-last-draw-masked
    */

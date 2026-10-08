@@ -445,7 +445,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-draw-configures-every-enabled-vertex-attribute`](#spec-a-draw-configures-every-enabled-vertex-attribute) — A draw on the WebGL renderer runs with enabled only the vertex attribute arrays it configured itself, whatever mesh drew before it.
     - [`@spec a-render-clears-the-depth-buffer-whatever-the-last-draw-masked`](#spec-a-render-clears-the-depth-buffer-whatever-the-last-draw-masked) — A render on the WebGL renderer clears the depth buffer, whatever depth mask the last draw left.
     - [`@spec a-texture-reads-as-its-sampler-asks-whichever-sampler-uploaded-it`](#spec-a-texture-reads-as-its-sampler-asks-whichever-sampler-uploaded-it) — A texture on the WebGL renderer reads as the type of the sampler that reads it asks, whichever type of sampler uploaded it.
-      - [`@bug webgl-keeps-the-sampler-state-of-the-first-sampler-that-uploaded-a-texture`](#bug-webgl-keeps-the-sampler-state-of-the-first-sampler-that-uploaded-a-texture) — The WebGL renderer writes a texture's filters and wrap once, when it uploads the texture, from the type of the sampler that uploaded it. An integer sampler that reads the texture later meets linear filters, an incomplete texture, and reads zero.
     - [`@spec a-webgpu-render-records-what-a-fresh-renderer-records`](#spec-a-webgpu-render-records-what-a-fresh-renderer-records) — A render on the WebGPU renderer records the same pass as the same call on a fresh renderer, whatever the renderer drew before.
   - [`@spec a-scene-renderer-manages-what-it-uploads`](#spec-a-scene-renderer-manages-what-it-uploads) — A renderer of `./scene` uploads each geometry, texture and uniform once, again when it changes, and frees it when it is disposed. It compiles a program once for each light set and kind of mesh.
     - [`@spec a-texture-uploads-whatever-holds-its-image`](#spec-a-texture-uploads-whatever-holds-its-image) — A texture uploads its image whether the image is data, as a `DataTexture` holds it, or an image element, bitmap or canvas, at the size of that image.
@@ -3190,13 +3189,7 @@ This follows because the depth mask applies to `clear`, and the renderer sets th
 
 > A texture on the WebGL renderer reads as the type of the sampler that reads it asks, whichever type of sampler uploaded it.
 
-This follows because [one rule decides how every target samples a texture](#spec-one-rule-decides-how-every-target-samples-a-texture), and reads an integer texture as nearest. A renderer that wrote the filters and wrap once, for the first sampler, would give a later sampler another answer.
-
-##### @bug webgl-keeps-the-sampler-state-of-the-first-sampler-that-uploaded-a-texture
-
-> The WebGL renderer writes a texture's filters and wrap once, when it uploads the texture, from the type of the sampler that uploaded it. An integer sampler that reads the texture later meets linear filters, an incomplete texture, and reads zero.
-
-Issue: #186
+This follows because [one rule decides how every target samples a texture](#spec-one-rule-decides-how-every-target-samples-a-texture), and reads an integer texture as nearest. A renderer that wrote the filters and wrap once, for the first sampler, would give a later sampler another answer. A WebGL texture holds one format and one set of filters, and an integer sampler reads only an integer format, so the renderer uploads the texture again when a sampler of the other kind, integer or float, reads it.
 
 #### @spec a-webgpu-render-records-what-a-fresh-renderer-records
 
