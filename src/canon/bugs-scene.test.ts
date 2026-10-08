@@ -4,7 +4,6 @@ import { compileWgsl } from "../wgsl";
 import {
   BufferAttribute,
   BufferGeometry,
-  Color,
   DataTexture,
   Line2NodeMaterial,
   LineSegments2,
@@ -446,75 +445,6 @@ describe("known bugs of the scene library, each failing until its fix", () => {
   });
 
   /**
-   * The WebGPU renderer clears in the first draw's render pass, so a scene
-   * with nothing to draw leaves the canvas as it was.
-   *
-   * @canon bug-webgpu-leaves-an-empty-scene-uncleared
-   */
-  it.fails("clears the canvas when the scene draws nothing on WebGPU", () => {
-    const { device, canvas, passes } = stubDevice();
-    const renderer = new WebGPURenderer(canvas, device as any);
-    renderer.render(new Scene(), camera());
-
-    expect(passes.map((p) => p.descriptor.colorAttachments[0].loadOp)).toEqual(["clear"]);
-  });
-
-  /**
-   * Both renderers ignore `scene.background` and clear to the renderer's clear
-   * colour.
-   *
-   * @canon bug-render-ignores-the-scene-background
-   */
-  it.fails("clears to the scene's background colour", () => {
-    const { device, canvas, passes } = stubDevice();
-    const gpu = new WebGPURenderer(canvas, device as any);
-    const { renderer: gl, calls } = stubWebGl();
-    const scene = new Scene();
-    scene.background = new Color(1, 0, 0);
-    scene.add(new Mesh(new PlaneGeometry(), new MeshBasicMaterial()));
-    gpu.render(scene, camera());
-    gl.render(scene, camera());
-
-    expect(passes[0].descriptor.colorAttachments[0].clearValue).toMatchObject({ r: 1, g: 0, b: 0 });
-    expect(calls.find((c) => c.name === "clearColor")!.args.slice(0, 3)).toEqual([1, 0, 0]);
-  });
-
-  /**
-   * Both renderers draw meshes in scene-graph order, so a transparent mesh
-   * drawn before a farther one hides it instead of blending over it.
-   *
-   * @canon bug-transparent-meshes-draw-in-scene-graph-order
-   */
-  it.fails("draws transparent meshes back to front", () => {
-    const { device, canvas, passes, bytesOf } = stubDevice();
-    const gpu = new WebGPURenderer(canvas, device as any) as any;
-    const { renderer: gl, calls } = stubWebGl();
-    const material = new MeshBasicMaterial({ transparent: true, opacity: 0.5 });
-    const geometry = new PlaneGeometry();
-    const scene = new Scene();
-    for (const z of [1, -1]) {
-      const mesh = new Mesh(geometry, material);
-      mesh.position.z = z;
-      scene.add(mesh);
-    }
-    gpu.render(scene, camera());
-    gl.render(scene, camera());
-
-    const entry = [...gpu.pipelines.get(material).values()][0];
-    const floats = new Float32Array(bytesOf(entry.ringBuffer).buffer);
-    const depth = offsetOf(entry, "modelMatrix") / 4 + 14;
-    const gpuOrder = passes.map((pass) => {
-      const [offset] = pass.calls.find((c) => c.name === "setBindGroup" && c.args[0] === 0)!.args[2];
-      return floats[offset / 4 + depth];
-    });
-    const glOrder = calls
-      .filter((c) => c.name === "uniformMatrix4fv" && /modelMatrix/.test(c.args[0].name))
-      .map((c) => c.args[2][14]);
-    expect(gpuOrder).toEqual([-1, 1]);
-    expect(glOrder).toEqual([-1, 1]);
-  });
-
-  /**
    * The WebGPU renderer writes a changed attribute whole, from byte 0, ignoring
    * the slice its `updateRange` selects.
    *
@@ -553,7 +483,6 @@ describe("known bugs of the scene library, each failing until its fix", () => {
     expect(names).not.toContain("positionWorld");
     expect(names).not.toContain("normalWorld");
   });
-
 });
 
 // One texture read through a float sampler and then through an integer one. The

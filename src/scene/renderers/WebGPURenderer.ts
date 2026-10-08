@@ -7,6 +7,7 @@ import { Vector4 } from "../math/Vector4";
 import type { Scene } from "../scenes/Scene";
 import type { Camera } from "../cameras/Camera";
 import type { Mesh } from "../objects/Mesh";
+import type { Object3D } from "../core/Object3D";
 import type { InstancedMesh } from "../objects/InstancedMesh";
 import type { BufferGeometry } from "../geometries/BufferGeometry";
 import type { BufferAttribute } from "../geometries/BufferAttribute";
@@ -18,6 +19,8 @@ import { Side } from "../materials/Material";
 import {
   blankTexture,
   cameraUniformValue,
+  clearColourOf,
+  FrameOrder,
   isFloatTexture,
   isIntegerSampler,
   objectUniformValue,
@@ -224,21 +227,23 @@ export class WebGPURenderer {
     frameMeshes.length = frameEntries.length = frameVariants.length = 0;
     frameDrawCounts.clear();
     frameSlots.clear();
+    const order = this.frameOrder;
+    order.clear();
     try {
-      scene.traverseVisible((object) => {
-        if (!object.isMesh) return;
-        const mesh = object as Mesh;
+      scene.traverseVisible(this.collectVisible);
+      order.sort(camera);
+      for (const mesh of order.meshes) {
         const material = mesh.material;
-        if (!(material as NodeMaterial).isNodeMaterial) return;
+        if (!(material as NodeMaterial).isNodeMaterial) continue;
         const instancing = (mesh as InstancedMesh).isInstancedMesh === true;
         const instancingColor = instancing && (mesh as InstancedMesh).instanceColor !== null;
         const entry = this.ensurePipeline(material as NodeMaterial, scene, instancing, instancingColor);
-        if (!entry) return;
+        if (!entry) continue;
         frameMeshes.push(mesh);
         frameEntries.push(entry);
         frameVariants.push(this.pipelineVariant(entry, mesh));
         frameDrawCounts.set(entry, (frameDrawCounts.get(entry) ?? 0) + 1);
-      });
+      }
       // Every draw's uniforms are written before the frame is submitted, so each draw needs a slot of its own.
       for (const bySignature of this.pipelines.values()) {
         for (const entry of bySignature.values()) this.fitRing(entry, frameDrawCounts.get(entry) ?? 0);
@@ -247,6 +252,21 @@ export class WebGPURenderer {
       // After the draws are collected, so an attribute that is refused leaves no half-recorded frame.
       const encoder = device.createCommandEncoder();
       const colorView = this.context.getCurrentTexture().createView();
+      const clear = clearColourOf(scene, this.clearColor, this.clearAlpha);
+      // A frame with nothing to draw still clears, in a pass of its own.
+      if (frameMeshes.length === 0) {
+        encoder
+          .beginRenderPass({
+            colorAttachments: [{ view: colorView, clearValue: clear, loadOp: "clear", storeOp: "store" }],
+            depthStencilAttachment: {
+              view: this.depthView!,
+              depthClearValue: 1.0,
+              depthLoadOp: "clear",
+              depthStoreOp: "store",
+            },
+          })
+          .end();
+      }
 
       let firstPass = true;
       for (let draw = 0; draw < frameMeshes.length; draw++) {
@@ -266,7 +286,7 @@ export class WebGPURenderer {
           colorAttachments: [
             {
               view: colorView,
-              clearValue: { r: this.clearColor.r, g: this.clearColor.g, b: this.clearColor.b, a: this.clearAlpha },
+              clearValue: clear,
               loadOp: firstPass ? "clear" : "load",
               storeOp: "store",
             },
@@ -304,8 +324,17 @@ export class WebGPURenderer {
     } finally {
       // Holding the meshes between frames would keep a removed mesh alive.
       frameMeshes.length = frameEntries.length = frameVariants.length = 0;
+      order.clear();
     }
   }
+
+  /** The meshes of the frame `render` is drawing, opaque ones first and transparent ones back to front. */
+  private frameOrder = new FrameOrder();
+
+  /** Adds a mesh of the frame to `frameOrder`; made once, so a frame allocates no callback. */
+  private collectVisible = (object: Object3D): void => {
+    if (object.isMesh) this.frameOrder.add(object as Mesh);
+  };
 
   /**
    * Makes the uniform ring of `entry` hold `draws` slots of a frame: it grows

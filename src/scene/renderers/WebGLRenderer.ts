@@ -16,6 +16,8 @@ import { Blending, Side } from "../materials/Material";
 import {
   blankTexture,
   cameraUniformValue,
+  clearColourOf,
+  FrameOrder,
   isFloatTexture,
   isIntegerSampler,
   objectUniformValue,
@@ -160,28 +162,35 @@ export class WebGLRenderer {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     }
-    gl.clearColor(this.clearColor.r, this.clearColor.g, this.clearColor.b, this.clearAlpha);
+    const clear = clearColourOf(scene, this.clearColor, this.clearAlpha);
+    gl.clearColor(clear.r, clear.g, clear.b, clear.a);
     // The depth mask applies to `clear`, and the last draw left it as its material set it.
     gl.depthMask(true);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
 
-    this.frameScene = scene;
-    this.frameCamera = camera;
-    scene.traverseVisible(this.drawVisible);
+    const order = this.frameOrder;
+    order.clear();
+    scene.traverseVisible(this.collectVisible);
+    order.sort(camera);
+    try {
+      for (const mesh of order.meshes) {
+        // Give objects a chance to update per-draw state (line resolution, ...).
+        mesh.onBeforeRender?.(this, scene, camera);
+        this.drawMesh(mesh, scene, camera);
+      }
+    } finally {
+      // Holding the meshes between frames would keep a removed mesh alive.
+      order.clear();
+    }
   }
 
-  /** The scene and camera of the frame `render` is drawing, which `drawVisible` reads. */
-  private frameScene: Scene | null = null;
-  private frameCamera: Camera | null = null;
+  /** The meshes of the frame `render` is drawing, opaque ones first and transparent ones back to front. */
+  private frameOrder = new FrameOrder();
 
-  /** Draws a mesh of the frame; made once, so a frame allocates no callback. */
-  private drawVisible = (object: Object3D): void => {
-    if (!object.isMesh) return;
-    const mesh = object as Mesh;
-    // Give objects a chance to update per-draw state (line resolution, ...).
-    mesh.onBeforeRender?.(this, this.frameScene!, this.frameCamera!);
-    this.drawMesh(mesh, this.frameScene!, this.frameCamera!);
+  /** Adds a mesh of the frame to `frameOrder`; made once, so a frame allocates no callback. */
+  private collectVisible = (object: Object3D): void => {
+    if (object.isMesh) this.frameOrder.add(object as Mesh);
   };
 
   /** The drawing surface viewport: `(x, y, width, height)` in device pixels. */

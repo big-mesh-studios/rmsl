@@ -124,6 +124,12 @@ object, material) and build the WebGPU uniform-buffer layout.
 
 ## Renderers
 
+Both renderers clear to `scene.background` when it is a `Color`, and to the
+colour `setClearColor` set when it is `null`, the default, as in three.js. They
+clear even when the scene has nothing to draw. They draw opaque meshes in
+scene-graph order, then transparent meshes (`material.transparent = true`) from
+the farthest to the nearest, so each blends over what lies behind it.
+
 ### WebGLRenderer
 
 `new WebGLRenderer(canvas?, options?)` — WebGL2. Options: `antialias`,

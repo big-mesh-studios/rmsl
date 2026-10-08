@@ -1,8 +1,10 @@
 import { Matrix3 } from "../math/Matrix3";
+import { Vector3 } from "../math/Vector3";
 import type { Camera } from "../cameras/Camera";
 import type { Mesh } from "../objects/Mesh";
 import type { InstancedMesh } from "../objects/InstancedMesh";
 import type { Scene } from "../scenes/Scene";
+import type { Color } from "../math/Color";
 import type { BufferGeometry } from "../geometries/BufferGeometry";
 import type { BufferAttribute } from "../geometries/BufferAttribute";
 import { AmbientLight } from "../lights/AmbientLight";
@@ -352,3 +354,68 @@ export function vertexFormatOf(attr: BufferAttribute, count = attr.itemSize): Ve
 function arrayTypeName(array: ArrayLike<number>): string {
   return ArrayBuffer.isView(array) ? array.constructor.name : "number[]";
 }
+
+/**
+ * The meshes of one frame in the order a renderer draws them: the opaque ones
+ * in scene-graph order, then the transparent ones from the farthest to the
+ * nearest, so each blends over what lies behind it, as three.js orders them.
+ * Kept by a renderer across frames, so ordering a frame allocates nothing.
+ */
+export class FrameOrder {
+  /** The meshes to draw, in order, after `sort`. */
+  readonly meshes: Mesh[] = [];
+  private readonly transparent: Mesh[] = [];
+  private readonly depths: number[] = [];
+  private readonly position = new Vector3();
+
+  /** Empties the order for a new frame. */
+  clear(): void {
+    this.meshes.length = this.transparent.length = this.depths.length = 0;
+  }
+
+  /** Adds a mesh of the frame, in scene-graph order. */
+  add(mesh: Mesh): void {
+    if ((mesh.material as { transparent?: boolean }).transparent) this.transparent.push(mesh);
+    else this.meshes.push(mesh);
+  }
+
+  /** Appends the transparent meshes to `meshes`, the farthest from `camera` first. */
+  sort(camera: Camera): void {
+    const { transparent, depths, position } = this;
+    for (let i = 0; i < transparent.length; i++) {
+      // The view-space z, which grows towards the camera.
+      depths[i] = position.setFromMatrixPosition(transparent[i]!.matrixWorld).applyMatrix4(camera.matrixWorldInverse).z;
+    }
+    // An insertion sort, stable and in place, over the few transparent meshes a frame holds.
+    for (let i = 1; i < transparent.length; i++) {
+      const mesh = transparent[i]!;
+      const depth = depths[i]!;
+      let j = i - 1;
+      while (j >= 0 && depths[j]! > depth) {
+        transparent[j + 1] = transparent[j]!;
+        depths[j + 1] = depths[j]!;
+        j--;
+      }
+      transparent[j + 1] = mesh;
+      depths[j + 1] = depth;
+    }
+    for (const mesh of transparent) this.meshes.push(mesh);
+  }
+}
+
+/** The colour `render` clears to: the scene's background when it has one, and the renderer's clear colour otherwise. */
+export function clearColourOf(
+  scene: Scene,
+  clearColor: Color,
+  clearAlpha: number,
+): { r: number; g: number; b: number; a: number } {
+  const colour = scene.background ?? clearColor;
+  CLEAR.r = colour.r;
+  CLEAR.g = colour.g;
+  CLEAR.b = colour.b;
+  CLEAR.a = scene.background ? 1 : clearAlpha;
+  return CLEAR;
+}
+
+/** The value `clearColourOf` hands back, reused across frames. */
+const CLEAR = { r: 0, g: 0, b: 0, a: 1 };

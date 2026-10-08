@@ -474,11 +474,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-renderer-blends-and-depth-tests-as-the-material-asks`](#spec-a-renderer-blends-and-depth-tests-as-the-material-asks) — A renderer blends and depth-tests each draw as its material's `transparent`, `blending`, `depthTest` and `depthWrite` ask.
       - [`@bug webgpu-ignores-the-material-blend-and-depth-state`](#bug-webgpu-ignores-the-material-blend-and-depth-state) — The WebGPU renderer builds every pipeline with no blend state, a depth test and depth writes, whatever the material's `transparent`, `blending`, `depthTest` and `depthWrite` ask for.
       - [`@spec a-renderer-draws-transparent-meshes-back-to-front`](#spec-a-renderer-draws-transparent-meshes-back-to-front) — A renderer draws opaque meshes first, then transparent meshes from the farthest to the nearest.
-        - [`@bug transparent-meshes-draw-in-scene-graph-order`](#bug-transparent-meshes-draw-in-scene-graph-order) — Both renderers draw meshes in scene-graph order. A transparent mesh drawn before a farther one hides it instead of blending over it.
     - [`@spec render-clears-the-canvas-on-every-call`](#spec-render-clears-the-canvas-on-every-call) — `render` clears the canvas to the clear colour on every call, whatever the scene holds.
-      - [`@bug webgpu-leaves-an-empty-scene-uncleared`](#bug-webgpu-leaves-an-empty-scene-uncleared) — The WebGPU renderer clears in the first draw's render pass, so a scene with nothing to draw leaves the canvas as it was.
+      - [`@spec a-scene-that-draws-nothing-still-clears`](#spec-a-scene-that-draws-nothing-still-clears) — `render` of a scene with nothing to draw clears the canvas, as a scene with meshes does.
       - [`@spec render-clears-to-the-scene-background`](#spec-render-clears-to-the-scene-background) — `render` clears to the scene's background colour when the scene has one, and to the clear colour otherwise.
-        - [`@bug render-ignores-the-scene-background`](#bug-render-ignores-the-scene-background) — Both renderers ignore `scene.background` and clear to the renderer's clear colour.
     - [`@spec the-webgpu-renderer-declares-one-uniform-struct-in-both-stages`](#spec-the-webgpu-renderer-declares-one-uniform-struct-in-both-stages) — The WebGPU renderer declares every uniform of a material in both stages, so the vertex and fragment shaders read one struct at the same offsets.
     - [`@spec a-render-target-takes-its-new-size-on-the-next-render`](#spec-a-render-target-takes-its-new-size-on-the-next-render) — A renderer draws a render target at its new size on the next render after its width or height changes, and frees the old storage.
     - [`@spec a-sampler-without-a-texture-reads-black`](#spec-a-sampler-without-a-texture-reads-black) — A sampler that its material gives no texture reads opaque black on every renderer.
@@ -3360,12 +3358,6 @@ Derives from: [`fact-three-js-renders-opaque-before-transparent-objects`](#fact-
 
 This follows because three.js sorts its transparent list back to front, so each transparent mesh blends over what lies behind it.
 
-###### @bug transparent-meshes-draw-in-scene-graph-order
-
-> Both renderers draw meshes in scene-graph order. A transparent mesh drawn before a farther one hides it instead of blending over it.
-
-Issue: #121
-
 #### @spec render-clears-the-canvas-on-every-call
 
 > `render` clears the canvas to the clear colour on every call, whatever the scene holds.
@@ -3374,11 +3366,11 @@ Derives from: [`fact-three-js-clears-before-it-renders-when-auto-clear-is-set`](
 
 This follows because a frame shows only the scene it renders, as three.js's `autoClear` does.
 
-##### @bug webgpu-leaves-an-empty-scene-uncleared
+##### @spec a-scene-that-draws-nothing-still-clears
 
-> The WebGPU renderer clears in the first draw's render pass, so a scene with nothing to draw leaves the canvas as it was.
+> `render` of a scene with nothing to draw clears the canvas, as a scene with meshes does.
 
-Issue: #92
+This follows because a frame that drew nothing still shows, and it must not show the frame before it.
 
 ##### @spec render-clears-to-the-scene-background
 
@@ -3387,12 +3379,6 @@ Issue: #92
 Derives from: [`fact-three-js-clears-to-a-colour-background`](#fact-three-js-clears-to-a-colour-background)
 
 This follows because three.js's renderer clears to `scene.background` when it is a colour.
-
-###### @bug render-ignores-the-scene-background
-
-> Both renderers ignore `scene.background` and clear to the renderer's clear colour.
-
-Issue: #121
 
 #### @spec the-webgpu-renderer-declares-one-uniform-struct-in-both-stages
 
