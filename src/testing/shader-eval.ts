@@ -406,6 +406,94 @@ fn main() {
   }
 }
 
+/**
+ * Run an integer expression on the GLSL backend and read the result back as
+ * the integer it is, from an integer render target rather than through a float.
+ *
+ * The arguments reach the shader as uniforms rather than literals, so the
+ * driver computes the operation at run time instead of folding it.
+ */
+export async function evaluateIntegerGLSL(build: IntegerBuild, type: IntegerType, args: number[]): Promise<number> {
+  const fn = compileGlslFn(build, { name: "rmsl_eval", params: integerParams(type, args.length) });
+  const scalar = type === "int" ? "int" : "uint";
+  const uniforms = args.map((_, i) => `uniform ${scalar} rmsl_arg${i};`).join("\n");
+  const call = `rmsl_eval(${args.map((_, i) => `rmsl_arg${i}`).join(", ")})`;
+  const fragment = `#version 300 es
+precision highp float;
+precision highp int;
+${uniforms}
+${fn}
+layout(location=0) out highp ${type === "int" ? "ivec4" : "uvec4"} result;
+void main() {
+  result = ${type === "int" ? "ivec4" : "uvec4"}(${call}, 0, 0, 0);
+}`;
+
+  const { gpuPage } = await import("./gpu");
+  const page = await gpuPage();
+  const out = await page.evaluate(
+    ({ fragment, args, signed }: { fragment: string; args: number[]; signed: boolean }) => {
+      // A fresh context per call, as the float evaluator makes one.
+      const gl = document.createElement("canvas").getContext("webgl2")!;
+      const texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        signed ? gl.RGBA32I : gl.RGBA32UI,
+        1,
+        1,
+        0,
+        gl.RGBA_INTEGER,
+        signed ? gl.INT : gl.UNSIGNED_INT,
+        null,
+      );
+      const framebuffer = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+      const vertices = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, vertices);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+
+      // Compiled inline rather than through a helper: the bundler renames
+      // functions and injects a `__name` shim that does not exist in the page.
+      const program = gl.createProgram()!;
+      for (const [src, kind] of [
+        [`#version 300 es\nin vec2 p; void main(){ gl_Position = vec4(p,0.,1.); }`, gl.VERTEX_SHADER],
+        [fragment, gl.FRAGMENT_SHADER],
+      ] as [string, number][]) {
+        const shader = gl.createShader(kind)!;
+        gl.shaderSource(shader, src);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+          throw new Error(gl.getShaderInfoLog(shader) || "shader failed to compile");
+        }
+        gl.attachShader(program, shader);
+      }
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        throw new Error(gl.getProgramInfoLog(program) ?? "program failed to link");
+      }
+      gl.useProgram(program);
+      args.forEach((a, i) => {
+        const location = gl.getUniformLocation(program, `rmsl_arg${i}`);
+        if (signed) gl.uniform1i(location, a);
+        else gl.uniform1ui(location, a >>> 0);
+      });
+
+      const location = gl.getAttribLocation(program, "p");
+      gl.enableVertexAttribArray(location);
+      gl.vertexAttribPointer(location, 2, gl.FLOAT, false, 0, 0);
+      gl.viewport(0, 0, 1, 1);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      const out = signed ? new Int32Array(4) : new Uint32Array(4);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA_INTEGER, signed ? gl.INT : gl.UNSIGNED_INT, out);
+      return out[0]!;
+    },
+    { fragment, args, signed: type === "int" },
+  );
+  return out;
+}
+
 /** Run an integer expression on the JS backend. */
 export function evaluateIntegerJS(build: IntegerBuild, type: IntegerType, args: number[]): number {
   const fn = compileJSFn(build, { name: "rmsl_eval", params: integerParams(type, args.length) });

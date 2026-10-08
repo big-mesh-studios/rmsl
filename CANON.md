@@ -125,6 +125,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@exception dawn-on-metal-divides-some-u32-constants-wrongly`](#exception-dawn-on-metal-divides-some-u32-constants-wrongly) — On Dawn on Metal, a constant `u32` numerator from `0xFFFFFF80` to `0xFFFFFFFE` divided by a run-time value gives the wrong quotient.
         - [`@spec a-divisor-that-folds-to-zero-divides-like-a-literal-zero`](#spec-a-divisor-that-folds-to-zero-divides-like-a-literal-zero) — On WGSL, an integer divisor built from literals that comes to zero compiles as a literal divisor of one.
       - [`@spec glsl-integer-arithmetic-follows-wgsl`](#spec-glsl-integer-arithmetic-follows-wgsl) — The GLSL target gives an integer operation the result that WGSL defines for it.
+        - [`@bug glsl-gives-a-negative-remainder-and-an-overflowing-division-as-the-driver-does`](#bug-glsl-gives-a-negative-remainder-and-an-overflowing-division-as-the-driver-does) — On GLSL, an `int` remainder with a negative operand, and `INT_MIN / -1`, give what the driver gives rather than the result WGSL defines, for a run-time operand and a literal one alike.
         - [`@spec glsl-gives-the-wgsl-result-for-a-defined-integer-operation`](#spec-glsl-gives-the-wgsl-result-for-a-defined-integer-operation) — On GLSL, an integer operation whose result GLSL ES 3.00 defines gives the result WGSL defines for it.
         - [`@exception glsl-integer-edge-cases-on-run-time-values-follow-the-driver`](#exception-glsl-integer-edge-cases-on-run-time-values-follow-the-driver) — On GLSL, an integer division or remainder by a run-time zero gives whatever the driver gives. So does a shift by a run-time amount that is negative, or 32 or more.
     - [`@spec float-arithmetic-gives-one-result`](#spec-float-arithmetic-gives-one-result) — Every target gives a float operation the result WebGPU gives, computed in 32 bits.
@@ -1427,6 +1428,12 @@ This follows because WGSL refuses a constant division by zero, so a constant sub
 ##### @spec glsl-integer-arithmetic-follows-wgsl
 
 > The GLSL target gives an integer operation the result that WGSL defines for it.
+
+###### @bug glsl-gives-a-negative-remainder-and-an-overflowing-division-as-the-driver-does
+
+> On GLSL, an `int` remainder with a negative operand, and `INT_MIN / -1`, give what the driver gives rather than the result WGSL defines, for a run-time operand and a literal one alike.
+
+Issue: #226
 
 ###### @spec glsl-gives-the-wgsl-result-for-a-defined-integer-operation
 
