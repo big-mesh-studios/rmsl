@@ -236,7 +236,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@spec a-storage-texture-is-a-power-of-two-wide`](#spec-a-storage-texture-is-a-power-of-two-wide) — A storage texture is as wide as the smallest power of two at or above the square root of its texel count, and as tall as its texels need. Texel `t` sits at column `t % width` and row `t / width`, where the stage reads `width` from the texture's size.
         - [`@spec the-glsl-adapter-refuses-a-storage-texture-past-the-size-limit`](#spec-the-glsl-adapter-refuses-a-storage-texture-past-the-size-limit) — `createGlsl` refuses a storage buffer too large for the textures of its context. The error names the buffer, the size of texture it needs, and the context's `MAX_TEXTURE_SIZE`.
         - [`@spec the-glsl-adapter-uploads-each-storage-buffer-it-reads`](#spec-the-glsl-adapter-uploads-each-storage-buffer-it-reads) — `createGlsl` uploads each storage buffer its stages read as a storage texture, from the buffer's contents at `attach`. `setAttribute` on the buffer's slot fills it again.
-        - [`@spec a-glsl-stage-reads-a-storage-element-in-one-expression`](#spec-a-glsl-stage-reads-a-storage-element-in-one-expression) — A GLSL render stage reads a storage element through a call of a function it declares for the element's type, which takes the sampler and the index. The read adds no statement to the stage, so it compiles wherever an expression stands, a `For` update included.
+        - [`@spec a-glsl-stage-reads-a-storage-element-in-one-expression`](#spec-a-glsl-stage-reads-a-storage-element-in-one-expression) — A GLSL render stage reads a storage element by calling a function it declares for the element's type. The function takes the sampler and the index. The read adds no statement to the stage, so it compiles wherever an expression stands, a `For` update included.
         - [`@spec a-glsl-stage-reads-storage-at-highp`](#spec-a-glsl-stage-reads-storage-at-highp) — A GLSL render stage declares each storage sampler with its own `highp` qualifier, and reads its elements at `highp`, whatever precision the program is compiled at.
       - [`@spec a-wgsl-render-stage-declares-its-storage-in-group-three`](#spec-a-wgsl-render-stage-declares-its-storage-in-group-three) — On WGSL, a vertex or fragment stage declares its storage buffers in group 3.
   - [`@spec a-constant-index-outside-a-vector-or-matrix-is-refused`](#spec-a-constant-index-outside-a-vector-or-matrix-is-refused) — A constant index outside a vector's components or a matrix's columns is refused on every target. Such an index is a literal, or an operation of literals that folds to one. A write by index through a swizzle is refused for an index outside the swizzle, as its read is. So it is in a graph `deserialize` rebuilt.
@@ -449,7 +449,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas) — Several adapters can draw on one canvas. An adapter ignores a uniform its program does not read.
     - [`@spec an-effect-with-several-passes-is-a-pass-graph`](#spec-an-effect-with-several-passes-is-a-pass-graph) — An [effect](#term-effect) with several passes returns a [pass graph](#term-pass-graph): its passes, the samplers each pass reads, and the pass that gives the output. The application draws each pass.
     - [`@exception a-scene-renderer-draws-its-scene-graph`](#exception-a-scene-renderer-draws-its-scene-graph) — `render(scene, camera)` on a renderer of `./scene` walks the scene graph, binds the geometry and the [node material](#term-node-material) of each mesh, uploads their uniforms and draws them.
-    - [`@spec a-scene-renderer-refuses-a-material-that-reads-storage`](#spec-a-scene-renderer-refuses-a-material-that-reads-storage) — A [node material](#term-node-material) whose graph reads a storage buffer is refused as it is built for a draw, on both renderers of `./scene`. The error names the buffer. A scene renderer binds no storage buffer.
+    - [`@spec a-scene-renderer-refuses-a-material-that-reads-storage`](#spec-a-scene-renderer-refuses-a-material-that-reads-storage) — Both renderers of `./scene` refuse a [node material](#term-node-material) whose graph reads a storage buffer, as they build its program. The error names the buffer. A scene renderer binds no storage buffer.
     - [`@spec a-pass-keys-an-input-by-the-pass-that-makes-it`](#spec-a-pass-keys-an-input-by-the-pass-that-makes-it) — A pass keys an input another pass makes by that pass's name, such as `gaussianBlur.horizontal`, and an outside texture by any other name.
     - [`@spec a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads) — A `createGlsl` or `createWgsl` draw that names no vertex count takes it from the first attribute its program reads, in the order the host passed them. The count is that attribute's vertices after the draw's first vertex. An attribute the program does not read is taken and counts for nothing.
     - [`@spec a-compute-call-dispatches-the-count-it-is-given`](#spec-a-compute-call-dispatches-the-count-it-is-given) — A `compute` call on a compute adapter runs one invocation for each index below its count. The count is the one the caller names, or else the number of elements of the first storage buffer the host passed.
@@ -2094,7 +2094,7 @@ Derives from: [`spec-setting-one-storage-slot-keeps-the-others`](#spec-setting-o
 
 ###### @spec a-glsl-stage-reads-a-storage-element-in-one-expression
 
-> A GLSL render stage reads a storage element through a call of a function it declares for the element's type, which takes the sampler and the index. The read adds no statement to the stage, so it compiles wherever an expression stands, a `For` update included.
+> A GLSL render stage reads a storage element by calling a function it declares for the element's type. The function takes the sampler and the index. The read adds no statement to the stage, so it compiles wherever an expression stands, a `For` update included.
 
 Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
 
@@ -2106,7 +2106,7 @@ This follows because GLSL builds a `For` update into the loop's header, which ho
 
 Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target), [`fact-a-glsl-sampler-returns-values-at-its-own-precision`](#fact-a-glsl-sampler-returns-values-at-its-own-precision)
 
-This follows because a storage element holds 32 bits, which a `mediump` sampler may read as 16. The storage texture is how the target holds a buffer, not a texture of the caller's that the precision the caller asks for covers.
+This follows because a storage element holds 32 bits, and a `mediump` sampler may read only 16 of them. The storage texture is how the target holds a buffer. It is not a texture of the caller's, which the asked precision covers.
 
 ##### @spec a-wgsl-render-stage-declares-its-storage-in-group-three
 
@@ -3282,11 +3282,11 @@ Derives from: [`fact-a-three-js-renderer-draws-its-scene-graph`](#fact-a-three-j
 
 #### @spec a-scene-renderer-refuses-a-material-that-reads-storage
 
-> A [node material](#term-node-material) whose graph reads a storage buffer is refused as it is built for a draw, on both renderers of `./scene`. The error names the buffer. A scene renderer binds no storage buffer.
+> Both renderers of `./scene` refuse a [node material](#term-node-material) whose graph reads a storage buffer, as they build its program. The error names the buffer. A scene renderer binds no storage buffer.
 
 Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
 
-This follows because a renderer that binds no buffer would draw from whatever its context holds there: on WebGL the texture on unit 0, and on WebGPU a group its pipeline never laid out.
+This follows because a scene renderer binds no such buffer. A draw would read what its context holds there: WebGL's texture on unit 0, or a group missing from the WebGPU pipeline's layout.
 
 #### @spec a-pass-keys-an-input-by-the-pass-that-makes-it
 
@@ -4398,7 +4398,7 @@ This follows because a value returned in a slot allocates nothing, and the funct
 
 Derives from: [`spec-overlapping-compute-calls-each-read-back-their-own-result`](#spec-overlapping-compute-calls-each-read-back-their-own-result)
 
-This follows because a call made every frame would otherwise make and destroy a buffer for each slot it reads back. A buffer that another call has mapped cannot take a second copy. One buffer for each slot is what calls made one after another need, and a buffer kept for its own slot leaves a small readback no larger buffer to hold.
+This follows because a call made every frame would otherwise make and destroy a buffer for each slot it reads back. A buffer that another call has mapped cannot take a second copy. One buffer for each slot is what calls made one after another need. A buffer kept for its own slot never hands a small readback a much larger buffer.
 
 ## @axiom a-user-ships-only-what-runs
 
