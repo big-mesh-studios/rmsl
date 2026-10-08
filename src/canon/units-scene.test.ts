@@ -30,7 +30,8 @@ import {
 } from "../scene";
 import { GPU_ENABLED, releaseGpu } from "../testing/gpu";
 import { GL_STATE, runInGpuPage } from "../testing/browser";
-import { camera, offsetOf, sampling, stubDevice, stubWebGl } from "./scene-stubs";
+import { camera, offsetOf, sampling, stubDevice, stubGl, stubWebGl } from "./scene-stubs";
+import { drawToCanvas, GlStateKeeper } from "../backends/glsl/gl-state";
 
 /** The value a built program's uniform of that name holds now. */
 function uniformValue(material: MeshLambertMaterial, scene: Scene, name: string): unknown {
@@ -682,6 +683,27 @@ describe("a scene renderer manages what it uploads", () => {
     const values = calls.filter((c) => c.name === "vertexAttrib4f");
     expect(values).toHaveLength(1);
     expect(values[0]!.args.slice(1)).toEqual([0, 0, 0, 1]);
+  });
+
+  /**
+   * @canon spec-a-webgl-renderer-asked-to-preserve-state-puts-it-back
+   * @canon spec-a-glsl-adapter-asked-to-preserve-state-puts-it-back
+   */
+  it("puts back the framebuffer a draw to the canvas replaced, whatever else the call keeps", () => {
+    const framebuffer = {};
+    const { gl, calls } = stubGl(
+      { width: 4, height: 4 },
+      { getParameter: (name: number) => (name === gl.DRAW_FRAMEBUFFER_BINDING ? framebuffer : 0) },
+    );
+    const state = new GlStateKeeper(gl);
+    state.begin(0);
+    drawToCanvas(gl, state);
+    state.end();
+
+    const draws = calls.filter(
+      (c) => c.name === "bindFramebuffer" && (c.args[0] === gl.DRAW_FRAMEBUFFER || c.args[0] === gl.FRAMEBUFFER),
+    );
+    expect(draws.at(-1)!.args[1]).toBe(framebuffer);
   });
 
   /**

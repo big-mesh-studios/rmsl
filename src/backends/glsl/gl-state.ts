@@ -101,9 +101,11 @@ const backBuffer: number[] = [];
 
 /**
  * Binds the canvas's framebuffer and has it draw into its back buffer, which
- * an application may have turned off. `state` keeps the draw buffer it had.
+ * an application may have turned off. `state` keeps the framebuffers bound
+ * before and the draw buffer the canvas had.
  */
 export function drawToCanvas(gl: WebGL2RenderingContext, state: GlStateKeeper | null): void {
+  state?.keep(GlState.framebuffers);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   state?.keepCanvasDrawBuffer();
   backBuffer[0] = gl.BACK;
@@ -245,7 +247,7 @@ export class GlStateKeeper {
 
   /**
    * Saves the draw buffer of the canvas's framebuffer, which must be bound,
-   * before a call sets it. The call keeps `GlState.framebuffers` from its start.
+   * before a call sets it. The call keeps `GlState.framebuffers` before it binds it.
    */
   keepCanvasDrawBuffer(): void {
     if (this.depth === 0 || this.keptCanvasDrawBuffer) return;
