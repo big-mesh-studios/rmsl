@@ -13,7 +13,7 @@ import {
   vec3,
   vec4,
 } from "../rmsl";
-import { compile, compileWgsl as compileWgslStage, createWgslCompute, createWgslContext } from "../wgsl";
+import { compile, compileWgsl as compileWgslStage, compileWgslFn, createWgslCompute, createWgslContext } from "../wgsl";
 import {
   assertRecordedShadersValid,
   recordingGLSL as compileGlsl,
@@ -401,6 +401,25 @@ describe("where WGSL declares a uniform or a buffer", () => {
     expect(code).toContain(`@group(1) @binding(1) var ${second!.name}:`);
     expect(code).toContain(`@group(2) @binding(0) var ${first!.name}_s:`);
     expect(code).toContain(`@group(2) @binding(1) var ${second!.name}_s:`);
+  });
+
+  /**
+   * The function samples the texture made second before the one made first,
+   * so visit order would bind their samplers the other way round.
+   *
+   * @canon spec-a-wgsl-stage-given-no-samplers-binds-its-textures-in-creation-order
+   */
+  it("binds a WGSL function's samplers in the order of its textures", () => {
+    const first = uniform("sampler2D");
+    const second = uniform("sampler2D");
+    const code = compileWgslFn(() => second.texture(vec2(0, 0)).add(first.texture(vec2(0, 0))), {
+      name: "sampleBoth",
+      params: [],
+    });
+    expect(code).toContain(`@group(1) @binding(0) var ${first.name}:`);
+    expect(code).toContain(`@group(1) @binding(1) var ${second.name}:`);
+    expect(code).toContain(`@group(2) @binding(0) var ${first.name}_s:`);
+    expect(code).toContain(`@group(2) @binding(1) var ${second.name}_s:`);
   });
 
   /**

@@ -2114,15 +2114,20 @@ export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options:
   // A texture is sampled through a companion sampler, so both are declared
   // or neither resolves. The whole-shader path does the same, in the same
   // binding groups.
-  let samplerDecls = "";
-  let samplerBinding = 0;
-  ctx.wgslSamplers.forEach((info) => {
-    samplerDecls += `@group(2) @binding(${samplerBinding++}) var ${info.samplerSlot}: sampler;\n`;
-  });
+  let textures = sortedUniforms.filter(([, i]) => isWgslTexture(i.type)).map(([, info]) => info);
   let textureDecls = "";
   let texBinding = 0;
-  for (let [, info] of sortedUniforms.filter(([, i]) => isWgslTexture(i.type))) {
+  for (let info of textures) {
     textureDecls += `@group(1) @binding(${texBinding++}) var ${info.slot}: ${info.type};\n`;
+  }
+  // In the order of the textures they sample, so the n-th sampler goes with the n-th float texture.
+  let textureOrder = textures.map((info) => info.slot);
+  let samplerDecls = "";
+  let samplerBinding = 0;
+  for (let info of [...ctx.wgslSamplers.values()].sort(
+    (a, b) => textureOrder.indexOf(a.textureSlot) - textureOrder.indexOf(b.textureSlot),
+  )) {
+    samplerDecls += `@group(2) @binding(${samplerBinding++}) var ${info.samplerSlot}: sampler;\n`;
   }
   if (textureDecls || samplerDecls) code = textureDecls + samplerDecls + "\n" + code;
   let plainUniforms = sortedUniforms.filter(([, i]) => !isWgslTexture(i.type));
