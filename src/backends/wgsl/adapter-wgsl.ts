@@ -734,21 +734,25 @@ export function createWgslCompute(
   let computeUniformBuffer: GPUBuffer | null = null;
   let computeUniformScratch: UniformScratch | null = null;
   let computeBindGroup0: GPUBindGroup | null = null;
-  /** Staging buffers of earlier readbacks that no call has mapped, which a readback takes before it makes one. */
-  let freeStagings: GPUBuffer[] = [];
+  /** The staging buffer an earlier readback of each slot freed, which the next readback of the slot takes. */
+  let freeStagings = new Map<string, GPUBuffer>();
 
   let pendingUniforms = new Map<string, number | number[]>();
   let pendingAttributes = new Map<string, TypedArray>();
 
-  /** A free staging buffer of at least `bytes`, taken out of the free ones, or else a new one. */
-  function takeStaging(bytes: number): GPUBuffer {
-    const index = freeStagings.findIndex((staging) => staging.size >= bytes);
-    if (index < 0)
-      return device!.createBuffer({ size: bytes, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-    const staging = freeStagings[index]!;
-    freeStagings[index] = freeStagings[freeStagings.length - 1]!;
-    freeStagings.pop();
-    return staging;
+  /** The free staging buffer of `slot` when it holds `bytes`, or else a new one. */
+  function takeStaging(slot: string, bytes: number): GPUBuffer {
+    const staging = freeStagings.get(slot);
+    freeStagings.delete(slot);
+    if (staging && staging.size >= bytes) return staging;
+    staging?.destroy();
+    return device!.createBuffer({ size: bytes, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+  }
+
+  /** Keeps `staging` as the free buffer of `slot`, or destroys it when the slot already keeps one. */
+  function freeStaging(slot: string, staging: GPUBuffer): void {
+    if (freeStagings.has(slot)) staging.destroy();
+    else freeStagings.set(slot, staging);
   }
 
   function computeStorageResources(): Extract<WgslResource, { kind: "storage" }>[] {
@@ -931,8 +935,8 @@ export function createWgslCompute(
           return { resource, state, target, valueCount, bytes: Math.max(4, state.elements * state.layout.stride * 4) };
         });
       let readEncoder = device.createCommandEncoder();
-      let stagings = reads.map(({ state, bytes }) => {
-        let staging = takeStaging(bytes);
+      let stagings = reads.map(({ resource, state, bytes }) => {
+        let staging = takeStaging(resource.name, bytes);
         readEncoder.copyBufferToBuffer(state.buffer, 0, staging, 0, bytes);
         return staging;
       });
@@ -954,13 +958,13 @@ export function createWgslCompute(
         });
       } finally {
         // A buffer that failed to map is not given to another call.
-        for (let staging of stagings) {
+        stagings.forEach((staging, i) => {
           if (!mapped) staging.destroy();
           else {
             staging.unmap();
-            freeStagings.push(staging);
+            freeStaging(reads[i]!.resource.name, staging);
           }
-        }
+        });
       }
       return out;
     },
@@ -975,8 +979,8 @@ export function createWgslCompute(
 
     destroy() {
       for (let state of storageSlots.values()) state.buffer.destroy();
-      for (let staging of freeStagings) staging.destroy();
-      freeStagings = [];
+      for (let staging of freeStagings.values()) staging.destroy();
+      freeStagings.clear();
       computeUniformBuffer?.destroy();
       device?.destroy();
     },

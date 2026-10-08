@@ -66,6 +66,39 @@ describe.skipIf(!GPU_ENABLED)("createWgslCompute staging buffers", () => {
     expect(Array.from(out[values.name])).toEqual([3, 3, 3, 3]);
     adapter.destroy();
   });
+
+  /**
+   * Three overlapping calls each take a staging buffer of their own. Once they
+   * resolve, the slot keeps one and the other two are destroyed.
+   *
+   * @canon spec-a-wgsl-compute-call-reuses-its-staging-buffers
+   */
+  it("keeps one staging buffer for a slot after overlapping calls", async () => {
+    const values = instancedArray(4, "float");
+    const program = Fn(() => {
+      const i = invocationIndex();
+      values.element(i).assign(values.element(i).add(1));
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    adapter.setAttribute(values.name, new Float32Array(4));
+    const device = adapter.device()!;
+    let destroyed = 0;
+    const createBuffer = device.createBuffer.bind(device);
+    device.createBuffer = (descriptor) => {
+      const buffer = createBuffer(descriptor);
+      const destroy = buffer.destroy.bind(buffer);
+      buffer.destroy = () => {
+        destroyed++;
+        destroy();
+      };
+      return buffer;
+    };
+    const outs = [0, 1, 2].map(() => ({ [values.name]: new Float32Array(4) }));
+    await Promise.all(outs.map((out) => adapter.compute(out)));
+    expect(destroyed).toBe(2);
+    adapter.destroy();
+  });
 });
 
 describe.skipIf(!GPU_ENABLED)("createWgslCompute with integer data", () => {
