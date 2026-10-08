@@ -1061,6 +1061,8 @@ const READ_ONLY_NAMES: Record<string, string> = {
   attribute: "an attribute",
   fragCoord: "a built-in input",
   invocationIndex: "a built-in input",
+  vertexIndex: "a built-in input",
+  instanceIndex: "a built-in input",
 };
 
 /** The stage outputs only one stage writes, which stage, and what to call them in an error. */

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { Fn, float, instanceIndex, instancedArray, varying, vec4, vertexIndex } from "../../rmsl";
+import { Fn, float, instanceIndex, instancedArray, uint, varying, vec4, vertexIndex } from "../../rmsl";
 import { compileGlsl } from "../../glsl";
 import { compileWgsl, createWgslContext } from "../../wgsl";
 import { GPU_ENABLED, installWebGpuGlobals } from "../../testing/gpu";
@@ -33,7 +33,7 @@ function program() {
 describe("storage buffers in render stages", () => {
   /**
    * @canon spec-a-wgsl-render-stage-reads-storage-read-only
-   * @canon spec-the-index-accessors-follow-tsl
+   * @canon spec-a-gpu-target-reads-the-index-accessors-from-its-builtins
    */
   it("are declared read-only in their own group, numbered across both stages", () => {
     const { offsets, colors, vertex, fragment } = program();
@@ -81,7 +81,18 @@ describe("storage buffers in render stages", () => {
     expect(() => compileGlsl.vertex(vertex)).toThrow(/read-only in a vertex shader/);
   });
   /**
-   * @canon spec-the-index-accessors-follow-tsl
+   * @canon spec-the-index-accessors-are-read-only
+   */
+  it("refuses a write to the instance index on GLSL and WGSL", () => {
+    const vertex = Fn(() => {
+      (instanceIndex() as any).assign(uint(1));
+      return vec4(0, 0, 0, 1);
+    })();
+    expect(() => compileGlsl.vertex(vertex)).toThrow(/built-in input/);
+    expect(() => compileWgsl.vertex(vertex)).toThrow(/built-in input/);
+  });
+  /**
+   * @canon spec-a-gpu-target-reads-the-index-accessors-from-its-builtins
    */
   it("maps the index builtins on GLSL", () => {
     const indices = Fn(() => vec4(vertexIndex().toFloat(), instanceIndex().toFloat(), 0, 1))();

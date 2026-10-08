@@ -278,8 +278,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-compound-assignment-writes-the-result-back`](#spec-a-compound-assignment-writes-the-result-back) — `addAssign`, `subAssign`, `mulAssign`, `divAssign` and `modAssign` write the result of their operation back to the variable.
     - [`@spec select-picks-one-of-two-values`](#spec-select-picks-one-of-two-values) — `select(condition, a, b)` gives `a` where `condition` holds and `b` where it does not, with the type of its branches. A literal condition folds to its branch.
     - [`@spec the-screen-accessors-follow-tsl`](#spec-the-screen-accessors-follow-tsl) — `fragCoord()` gives the coordinate of the fragment, and `screenUV()` and `uv()` give it divided by the size of the screen. `screenSize()` gives one shared uniform, and `time()` a float uniform. Each does what TSL's accessor of the same name does.
-    - [`@spec the-index-accessors-follow-tsl`](#spec-the-index-accessors-follow-tsl) — `vertexIndex()` and `instanceIndex()` give the vertex and the instance that the GPU draws, as TSL's accessors of the same names do. The CPU targets do not compile them yet: issue #47.
-      - [`@bug the-cpu-targets-compile-no-index-accessors`](#bug-the-cpu-targets-compile-no-index-accessors) — The JS and WASM targets do not compile `vertexIndex()` or `instanceIndex()`.
+    - [`@spec the-index-accessors-follow-tsl`](#spec-the-index-accessors-follow-tsl) — `vertexIndex()` and `instanceIndex()` give a vertex stage the vertex and the instance being drawn, as TSL's accessors of the same names do, on every target. A write to either is refused.
+      - [`@spec a-gpu-target-reads-the-index-accessors-from-its-builtins`](#spec-a-gpu-target-reads-the-index-accessors-from-its-builtins) — On GLSL, `vertexIndex()` and `instanceIndex()` read `gl_VertexID` and `gl_InstanceID`; on WGSL, the `vertex_index` and `instance_index` builtins.
+      - [`@spec a-cpu-vertex-stage-reads-the-vertex-it-runs-for`](#spec-a-cpu-vertex-stage-reads-the-vertex-it-runs-for) — On JS and WASM, a vertex stage reads `vertexIndex()` as the index of the vertex the rasterizer runs it for, counted as a GPU counts it, from the start of the attributes and not from the draw's first vertex.
+      - [`@spec a-cpu-vertex-stage-reads-instance-zero`](#spec-a-cpu-vertex-stage-reads-instance-zero) — On JS and WASM, a vertex stage reads `instanceIndex()` as 0.
+      - [`@spec the-index-accessors-are-read-only`](#spec-the-index-accessors-are-read-only) — The compiler refuses a write to `vertexIndex()` or `instanceIndex()` on every target, and names it a built-in input.
     - [`@spec the-weight-of-mix-stays-a-scalar`](#spec-the-weight-of-mix-stays-a-scalar) — The scalar weight of `mix` reaches every target as a scalar beside its vectors.
     - [`@spec cbrt-is-composed-of-sign-abs-and-pow`](#spec-cbrt-is-composed-of-sign-abs-and-pow) — `cbrt(x)` compiles to `sign(x)` times `pow(abs(x), 1/3)` on every target.
     - [`@spec a-select-on-a-comparison-of-integer-literals-folds-to-its-branch`](#spec-a-select-on-a-comparison-of-integer-literals-folds-to-its-branch) — A `select` whose condition compares integer literals compiles to the branch the comparison picks.
@@ -2294,13 +2297,25 @@ This follows because a TSL shader ports by changing its import only if each oper
 
 #### @spec the-index-accessors-follow-tsl
 
-> `vertexIndex()` and `instanceIndex()` give the vertex and the instance that the GPU draws, as TSL's accessors of the same names do. The CPU targets do not compile them yet: issue #47.
+> `vertexIndex()` and `instanceIndex()` give a vertex stage the vertex and the instance being drawn, as TSL's accessors of the same names do, on every target. A write to either is refused.
 
-##### @bug the-cpu-targets-compile-no-index-accessors
+##### @spec a-gpu-target-reads-the-index-accessors-from-its-builtins
 
-> The JS and WASM targets do not compile `vertexIndex()` or `instanceIndex()`.
+> On GLSL, `vertexIndex()` and `instanceIndex()` read `gl_VertexID` and `gl_InstanceID`; on WGSL, the `vertex_index` and `instance_index` builtins.
 
-Issue: #47
+##### @spec a-cpu-vertex-stage-reads-the-vertex-it-runs-for
+
+> On JS and WASM, a vertex stage reads `vertexIndex()` as the index of the vertex the rasterizer runs it for, counted as a GPU counts it, from the start of the attributes and not from the draw's first vertex.
+
+##### @spec a-cpu-vertex-stage-reads-instance-zero
+
+> On JS and WASM, a vertex stage reads `instanceIndex()` as 0.
+
+This follows because a CPU rasterizer draws one instance, and the one instance of a draw that is not instanced is instance 0 on a GPU.
+
+##### @spec the-index-accessors-are-read-only
+
+> The compiler refuses a write to `vertexIndex()` or `instanceIndex()` on every target, and names it a built-in input.
 
 #### @spec the-weight-of-mix-stays-a-scalar
 

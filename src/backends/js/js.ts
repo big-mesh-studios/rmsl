@@ -1778,6 +1778,13 @@ export function compileJSNode(
       return { decls: [], body: [], expr: "ctx.index" };
     }
 
+    case "vertexIndex":
+    case "instanceIndex": {
+      if (ctx.shaderStage !== "vertex") throw new Error(`${node.type}() can only be used in vertex shaders`);
+      // A CPU rasterizer draws one instance, instance 0.
+      return { decls: [], body: [], expr: node.type === "vertexIndex" ? "(ctx.vertexIndex ?? 0)" : "0" };
+    }
+
     case "attribute": {
       let v = node.value as any;
       assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.attribute);

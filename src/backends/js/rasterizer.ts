@@ -363,6 +363,7 @@ export function compileJS(
           for (let k = 0; k < w; k++) into[k] = buffer[(i + first) * w + k]!;
         }
       }
+      vertexCtx.vertexIndex = i + first;
       const raw = vertexStage.runInPlace(vertexCtx);
       const position = vertexPosition(raw);
       const varyings = isResultObject(raw) ? raw.varyings : undefined;

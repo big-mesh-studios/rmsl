@@ -9,6 +9,8 @@ export type CpuShaderContext = {
   textures?: Record<string, CpuTextureData>;
   /** Pixel being evaluated, which `fragCoord()` reads on the CPU target. */
   fragCoord?: [number, number] | Float64Array;
+  /** Vertex being processed, which `vertexIndex()` reads on the CPU target. */
+  vertexIndex?: number;
   /** The depth `builtinFragDepth()` reads on the CPU target until the program writes one. */
   fragDepth?: number;
   /**

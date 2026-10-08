@@ -33,6 +33,8 @@ import {
   vec3,
   vec4,
   type Node,
+  instanceIndex,
+  vertexIndex,
 } from "../rmsl";
 import type { CompileCpuRoutine } from "../backends/cpu";
 import { jsHelperSource } from "../backends/js/js";
@@ -1773,5 +1775,55 @@ describe("the fragments a CPU rasterizer draws", () => {
     const draw = flatRasterizer();
     const image = draw(screenAt(-0.5), [1, 0, 0, 1]);
     expect(Array.from(image)).toEqual(new Array(16).fill(0));
+  });
+});
+
+describe("the index accessors on JS", () => {
+  /** A triangle over the pixel only when its vertices read the indices 3, 4 and 5, coloured by its instance. */
+  function indexed() {
+    const pos = attribute("vec3");
+    const instance = varying("float");
+    const vertex = () =>
+      Fn(() => {
+        const v = vertexIndex();
+        instance.assign(instanceIndex().toFloat().add(0.5));
+        builtinPosition().assign(
+          vec4(v.equal(uint(4)).select(float(3), float(-1)), v.equal(uint(5)).select(float(3), float(-1)), 0, 1),
+        );
+      })();
+    const fragment = () => Fn(() => vec4(instance, 0, 0, 1))();
+    const routine = compileJS(vertex as any, fragment as any, { attributeTypes: { [pos.name]: "vec3" } });
+    return routine.draw(
+      { attributes: { [pos.name]: new Float64Array(18) } },
+      { width: 1, height: 1, first: 3, count: 3 },
+    );
+  }
+
+  /**
+   * @canon spec-a-cpu-vertex-stage-reads-the-vertex-it-runs-for
+   */
+  it("reads the vertex index counted from the start of the attributes on JS", () => {
+    expect(Array.from(indexed())[3]).toBe(1);
+  });
+
+  /**
+   * @canon spec-a-cpu-vertex-stage-reads-instance-zero
+   */
+  it("reads instance 0 on JS", () => {
+    expect(Array.from(indexed())[0]).toBe(0.5);
+  });
+
+  /**
+   * @canon spec-the-index-accessors-are-read-only
+   */
+  it("refuses a write to the vertex index on JS", () => {
+    const vertex = () =>
+      Fn(() => {
+        (vertexIndex() as any).assign(uint(1));
+        builtinPosition().assign(vec4(0, 0, 0, 1));
+      })();
+    expect(() => compileJS(vertex as any, (() => Fn(() => vec4(1))()) as any, { attributeTypes: {} })).toThrow(
+      /built-in input/,
+    );
   });
 });
