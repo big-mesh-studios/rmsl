@@ -298,7 +298,7 @@ export function compileWasm(
     );
   }
 
-  // Each varying starts on a whole f64, so the clip pass can interpolate a record f64 by f64.
+  // Each varying starts on a whole f64, so a float one's components lie on f64s for the clip pass to interpolate.
   let varyingCursor = 0;
   const varyingLayout = vertexVaryingParams.map((v) => {
     const kind = componentKindOf(v.shaderType);
