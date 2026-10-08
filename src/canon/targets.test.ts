@@ -10,6 +10,7 @@ import {
   bool,
   builtinFragDepth,
   builtinPosition,
+  bvec2,
   bvec3,
   Discard,
   EPSILON,
@@ -22,6 +23,7 @@ import {
   int,
   ivec2,
   ivec3,
+  ivec4,
   Loop,
   mat2,
   mat2x3,
@@ -484,6 +486,22 @@ describe("each leaf on every target it claims", () => {
         .add(m.element(int(2)).z.mul(100));
     };
     expect(evaluateRecording(build, [2])).toBe(202);
+  });
+
+  /**
+   * @canon spec-an-integer-or-boolean-column-converts-to-float
+   */
+  it("converts integer and boolean columns of a matrix to float on every target", () => {
+    const build = (a: Node<"float">) => mat3x2(ivec2(a.toInt(), -2), uvec2(3, 4), bvec2(a.greaterThan(0), false));
+    expect(Array.from(evaluateRecording(build, [5]) as Float64Array)).toEqual([5, -2, 3, 4, 1, 0]);
+  });
+
+  /**
+   * @canon spec-an-integer-or-boolean-column-converts-to-float
+   */
+  it("converts the integer vector mat2 splits into columns to float on every target", () => {
+    const build = (a: Node<"float">) => mat2(ivec4(a.toInt(), 2, -3, 4));
+    expect(Array.from(evaluateRecording(build, [5]) as Float64Array)).toEqual([5, 2, -3, 4]);
   });
 
   /**

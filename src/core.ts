@@ -2353,26 +2353,38 @@ function matrixOfValues(t: ShaderType, values: any[]): any {
   return node({ _t: t, type: "construct", params });
 }
 
+/** `vector` as a float vector of its width: an integer or boolean vector converted, as GLSL converts it in a constructor. */
+function asFloatVector(vector: BaseNode<ShaderType>): BaseNode<ShaderType> {
+  const integerOrBoolean = /^[iub]vec([234])$/.exec(vector._t);
+  if (integerOrBoolean === null) return vector;
+  return node({ _t: `vec${integerOrBoolean[1]}` as ShaderType, type: "construct", params: [vector] });
+}
+
 /**
  * The columns of a matrix of type `t` built from one vector node: its
- * components in column order, which only a vector with one component for
- * each of the matrix's does, as `mat2(vec4)`.
+ * components in column order, converted to float, which only a vector with
+ * one component for each of the matrix's has, as `mat2(vec4)`.
  */
 function columnsOfVector(t: ShaderType, vector: BaseNode<ShaderType>): BaseNode<ShaderType>[] {
   const [columns, rows] = MATRIX_DIMENSIONS[t];
-  if (vector._t !== `vec${columns * rows}`) {
-    throw new Error(`[RMSL] ${t}() takes ${columns} columns of vec${rows}, a matrix or a scalar, not a ${vector._t}.`);
+  if (TYPE_WIDTH[vector._t] !== columns * rows) {
+    throw new Error(
+      `[RMSL] ${t}() takes ${columns} columns of ${rows} components, a matrix, a scalar or one vector of ` +
+        `${columns * rows} components, not a ${vector._t}.`,
+    );
   }
+  const floats = asFloatVector(vector) as any;
   return Array.from(
     { length: columns },
-    (_, c) => (vector as any)["xyzw".slice(c * rows, (c + 1) * rows)] as BaseNode<ShaderType>,
+    (_, c) => floats["xyzw".slice(c * rows, (c + 1) * rows)] as BaseNode<ShaderType>,
   );
 }
 
 /**
  * Build a matrix constructor: from a matrix, a scalar, a vector holding every
  * component, its columns as vector nodes, or its values one per component.
- * A column must be a vector with one component for each row. Given nothing,
+ * A column must be a vector with one component for each row; an integer or
+ * boolean one converts to float. Given nothing,
  * it builds the identity, column by column.
  */
 export function makeMatConstructor<T extends ShaderType>(
@@ -2390,15 +2402,13 @@ export function makeMatConstructor<T extends ShaderType>(
     }
     if (args.length === columns && args.every((a: any) => isNode(a))) {
       for (const column of args as BaseNode<ShaderType>[]) {
-        if (column._t !== `vec${rows}`) {
-          throw new Error(`[RMSL] ${t}() takes ${columns} columns of vec${rows}, not a ${column._t}.`);
+        if (!/^[iub]?vec[234]$/.test(column._t) || TYPE_WIDTH[column._t] !== rows) {
+          throw new Error(
+            `[RMSL] ${t}() takes ${columns} columns, each a vector of ${rows} components, not a ${column._t}.`,
+          );
         }
       }
-      return node({
-        _t: t,
-        type: "construct",
-        params: args.map((a: any) => a as BaseNode<ShaderType>),
-      }) as Node<T>;
+      return node({ _t: t, type: "construct", params: args.map((a: any) => asFloatVector(a)) }) as Node<T>;
     }
     if (args.length === 1 && typeof args[0] === "number") {
       return node({ _t: t, type: "construct", params: [wrapValue(args[0])] }) as Node<T>;
