@@ -861,8 +861,9 @@ export class WebGLRenderer {
    * The buffer holding `attr`, uploaded first when this renderer holds none
    * for it or holds an older version. An upload sends each range
    * `addUpdateRange` marked, merged as three.js merges them, when those ranges
-   * hold every change the buffer lacks, and otherwise the whole attribute. The
-   * ranges are cleared afterwards, as three.js clears them.
+   * hold every change the buffer lacks in elements of the size it holds, and
+   * otherwise the whole attribute. The ranges are cleared afterwards, as
+   * three.js clears them.
    */
   private attributeBuffer(target: number, attr: BufferAttribute, index: boolean): WebGLBuffer {
     const gl = this.gl;
@@ -871,7 +872,8 @@ export class WebGLRenderer {
     const data = toBufferView(attr.array, index);
     const element = (data as unknown as { BYTES_PER_ELEMENT: number }).BYTES_PER_ELEMENT;
     const ranges = mergedUpdateRanges(attr);
-    const whole = held === undefined || ranges.length === 0 || !rangesCover(attr, held.version);
+    const whole =
+      held === undefined || held.elementSize !== element || ranges.length === 0 || !rangesCover(attr, held.version);
     if (held === undefined) {
       held = { buffer: gl.createBuffer()!, version: attr.version, elementSize: element };
       this.attributeBuffers.set(attr, held);

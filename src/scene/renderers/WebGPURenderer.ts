@@ -694,8 +694,9 @@ export class WebGPURenderer {
    * The buffer holding `attribute`, written first when this renderer holds none
    * for it or holds an older version. A write sends each range
    * `addUpdateRange` marked, merged as three.js merges them, when those ranges
-   * hold every change the buffer lacks, and otherwise the whole attribute. The
-   * ranges are cleared afterwards, as three.js clears them.
+   * hold every change the buffer lacks in elements of the size it holds, and
+   * otherwise the whole attribute. The ranges are cleared afterwards, as
+   * three.js clears them.
    */
   private attributeBuffer(attribute: BufferAttribute, usage: number, index: boolean): AttributeBuffer<GPUBuffer> {
     let held = this.attributeBuffers.get(attribute);
@@ -705,7 +706,11 @@ export class WebGPURenderer {
     const buffer = this.bufferFitting(held?.buffer, data, usage);
     const ranges = mergedUpdateRanges(attribute);
     const whole =
-      held === undefined || buffer !== held.buffer || ranges.length === 0 || !rangesCover(attribute, held.version);
+      held === undefined ||
+      buffer !== held.buffer ||
+      held.elementSize !== element ||
+      ranges.length === 0 ||
+      !rangesCover(attribute, held.version);
     if (held === undefined) {
       held = { buffer, version: attribute.version, elementSize: element };
       this.attributeBuffers.set(attribute, held);

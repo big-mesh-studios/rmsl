@@ -529,6 +529,42 @@ describe("a scene renderer manages what it uploads", () => {
   });
 
   /**
+   * @canon spec-an-attribute-whose-elements-changed-size-uploads-whole
+   */
+  it("uploads whole an index whose values passed 16 bits, ranges or not, on WebGPU", () => {
+    const { device, canvas, bytesOf } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const geometry = new BufferGeometry().setAttribute("position", new BufferAttribute(new Float32Array(12), 3));
+    geometry.setIndex([0, 1, 2, 3, 0, 1, 2, 3]);
+    renderer.ensureGeometryBuffers(geometry);
+    geometry.index!.setArray([0, 1, 2, 70000]);
+    geometry.index!.addUpdateRange(3, 1);
+    const buffers = renderer.ensureGeometryBuffers(geometry);
+
+    expect(buffers.indexFormat).toBe("uint32");
+    expect(Array.from(new Uint32Array(bytesOf(buffers.index).buffer, 0, 4))).toEqual([0, 1, 2, 70000]);
+  });
+
+  /**
+   * @canon spec-an-attribute-whose-elements-changed-size-uploads-whole
+   */
+  it("uploads whole an index whose values passed 16 bits, ranges or not, on WebGL", () => {
+    const { renderer, calls } = stubWebGl();
+    const geometry = new BufferGeometry().setAttribute("position", new BufferAttribute(new Float32Array(12), 3));
+    geometry.setIndex([0, 1, 2, 3, 0, 1, 2, 3]);
+    const scene = new Scene();
+    scene.add(new Mesh(geometry, new MeshBasicMaterial()));
+    renderer.render(scene, camera());
+    geometry.index!.setArray([0, 1, 2, 70000]);
+    geometry.index!.addUpdateRange(3, 1);
+    const before = calls.length;
+    renderer.render(scene, camera());
+
+    const uploads = calls.slice(before).filter((c) => c.name === "bufferData" || c.name === "bufferSubData");
+    expect(uploads.map((c) => [c.args[1], Array.from(c.args[2])])).toEqual([[0, [0, 1, 2, 70000]]]);
+  });
+
+  /**
    * @canon spec-a-changed-index-uploads-on-the-next-render
    */
   it("uploads a changed index on the next render on WebGPU", () => {

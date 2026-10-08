@@ -459,6 +459,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-loaded-image-uploads-at-its-own-size`](#spec-a-loaded-image-uploads-at-its-own-size) — A texture whose image is a loaded image element, video, bitmap or canvas uploads at the size of that image, into a texture the image can be copied into, whatever the texture held before.
       - [`@spec an-image-uploads-once-it-has-loaded`](#spec-an-image-uploads-once-it-has-loaded) — A texture whose image has not loaded, such as an image element still loading or a video with no frame yet, reads as a blank texture on both renderers. It uploads at the first render after the image has loaded, without `needsUpdate`.
     - [`@spec a-grown-attribute-gets-a-buffer-that-holds-it`](#spec-a-grown-attribute-gets-a-buffer-that-holds-it) — An attribute whose array grew uploads into a buffer big enough for all of it.
+    - [`@spec an-attribute-whose-elements-changed-size-uploads-whole`](#spec-an-attribute-whose-elements-changed-size-uploads-whole) — An attribute or an index whose elements changed size uploads whole, whatever ranges it marked. A `number[]` index uploads as 32-bit elements once a value in it passes 65535, and as 16-bit ones before.
     - [`@spec a-changed-index-uploads-on-the-next-render`](#spec-a-changed-index-uploads-on-the-next-render) — A geometry's index uploads again on the next render after `index.needsUpdate = true`, whether or not an attribute of the geometry changed.
     - [`@spec a-replaced-attribute-uploads-again`](#spec-a-replaced-attribute-uploads-again) — An attribute that replaces another under its name in a geometry, as `LineSegmentsGeometry.setPositions` replaces them, uploads whole on the next render.
     - [`@spec an-attribute-two-geometries-share-uploads-into-each`](#spec-an-attribute-two-geometries-share-uploads-into-each) — A buffer attribute that two geometries share has one buffer on each renderer, which both geometries draw from. After a change it uploads into that buffer once, ranges included, so each geometry draws the new data.
@@ -3291,6 +3292,12 @@ This follows because an image that has not loaded has no size, and a texture mad
 > An attribute whose array grew uploads into a buffer big enough for all of it.
 
 This follows because a GPU buffer keeps the size it was made with, and the grown array would not fit the old one.
+
+#### @spec an-attribute-whose-elements-changed-size-uploads-whole
+
+> An attribute or an index whose elements changed size uploads whole, whatever ranges it marked. A `number[]` index uploads as 32-bit elements once a value in it passes 65535, and as 16-bit ones before.
+
+This follows because the buffer holds elements of the old size. A range of the new ones would land among them, and the rest would read as other values.
 
 #### @spec a-changed-index-uploads-on-the-next-render
 
