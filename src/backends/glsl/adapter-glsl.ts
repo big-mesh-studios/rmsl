@@ -1,10 +1,27 @@
-import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
+import {
+  AttributeNode,
+  MATRIX_DIMENSIONS,
+  Node,
+  ShaderType,
+  StorageNode,
+  UniformArrayNode,
+  UniformNode,
+  UniformValue,
+} from "../../core";
 import { Adapter, DrawClearOptions, DrawCountOptions, slotOf, TRANSPARENT_BLACK, TypedArray } from "../adapter";
-import { VertexRoot } from "../shared";
-import type { CpuTextureData } from "../cpu";
+import { storageNodesOf, VertexRoot } from "../shared";
+import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
 import { textureImage } from "../texture-image";
 import { compileGlsl, CompileGLSLOptions } from "./glsl";
-import { drawToCanvas, GlState, GlStateKeeper, setAttributeValue, setRasterState, setUnpackState } from "./gl-state";
+import {
+  AttributeKind,
+  drawToCanvas,
+  GlState,
+  GlStateKeeper,
+  setAttributeValue,
+  setRasterState,
+  setUnpackState,
+} from "./gl-state";
 
 type UniformInfo = { location: WebGLUniformLocation; type: number };
 /** A sampler's GL texture, with the shape and internal format it was made with. */
@@ -17,12 +34,13 @@ type TextureSlot = {
   depth: number;
   internal: number;
 };
-/** A program attribute: its first location, how many locations it spans, and whether the host has set its data. */
+/** A program attribute: its first location, how many locations it spans, the kind its components read, and whether the host has set its data. */
 type AttributeInfo = {
   location: number;
   locations: number;
   buffer: WebGLBuffer;
   componentCount: number;
+  kind: AttributeKind;
   hasData: boolean;
 };
 
@@ -58,12 +76,15 @@ function componentCountForType(gl: WebGL2RenderingContext, type: number): number
   switch (type) {
     case gl.FLOAT_VEC2:
     case gl.INT_VEC2:
+    case gl.UNSIGNED_INT_VEC2:
       return 2;
     case gl.FLOAT_VEC3:
     case gl.INT_VEC3:
+    case gl.UNSIGNED_INT_VEC3:
       return 3;
     case gl.FLOAT_VEC4:
     case gl.INT_VEC4:
+    case gl.UNSIGNED_INT_VEC4:
       return 4;
     default:
       return 1;
@@ -115,49 +136,130 @@ function texelFormat(gl: WebGL2RenderingContext, bits: 8 | 16 | 32, signed: bool
   return { internal: table[0]!, format: gl.RGBA_INTEGER, type: table[1]! };
 }
 
+/**
+ * The size of the texture a storage buffer of `values` values of `shaderType`
+ * is read through: a texel for each element, or for each column of a matrix,
+ * in a texture the smallest power of two at or above the square root of the
+ * texel count wide.
+ */
+function storageTextureShape(shaderType: string, values: number) {
+  const [columns, components] = MATRIX_DIMENSIONS[shaderType] ?? [1, componentCountOf(shaderType)];
+  const texels = Math.max(1, Math.ceil(values / components));
+  const width = 2 ** Math.ceil(Math.log2(Math.sqrt(texels)));
+  return { width, height: Math.ceil(texels / width), components, columns, kind: componentKindOf(shaderType) };
+}
+
+/** The format a storage texture of `components` channels of `kind` is uploaded in, and the array that holds its texels. */
+function storageFormat(gl: WebGL2RenderingContext, kind: string, components: number) {
+  const channel = components - 1;
+  if (kind === "int") {
+    return {
+      internal: [gl.R32I, gl.RG32I, gl.RGB32I, gl.RGBA32I][channel]!,
+      format: [gl.RED_INTEGER, gl.RG_INTEGER, gl.RGB_INTEGER, gl.RGBA_INTEGER][channel]!,
+      type: gl.INT,
+      array: Int32Array,
+    };
+  }
+  if (kind === "uint") {
+    return {
+      internal: [gl.R32UI, gl.RG32UI, gl.RGB32UI, gl.RGBA32UI][channel]!,
+      format: [gl.RED_INTEGER, gl.RG_INTEGER, gl.RGB_INTEGER, gl.RGBA_INTEGER][channel]!,
+      type: gl.UNSIGNED_INT,
+      array: Uint32Array,
+    };
+  }
+  return {
+    internal: [gl.R32F, gl.RG32F, gl.RGB32F, gl.RGBA32F][channel]!,
+    format: [gl.RED, gl.RG, gl.RGB, gl.RGBA][channel]!,
+    type: gl.FLOAT,
+    array: Float32Array,
+  };
+}
+
 function wrapMode(gl: WebGL2RenderingContext, wrap: CpuTextureData["wrapS"]): number {
   return wrap === "repeat" ? gl.REPEAT : wrap === "mirror" ? gl.MIRRORED_REPEAT : gl.CLAMP_TO_EDGE;
 }
 
-function setUniformValue(gl: WebGL2RenderingContext, info: UniformInfo, value: number | number[]): void {
-  const values = Array.isArray(value) ? value : [value];
-  switch (info.type) {
+/** The `uniform*v` call a reflected uniform of `type` takes its values through, or nothing for a sampler. */
+function uniformSetter(
+  gl: WebGL2RenderingContext,
+  type: number,
+): ((location: WebGLUniformLocation, values: number[]) => void) | undefined {
+  switch (type) {
     case gl.FLOAT:
-      gl.uniform1f(info.location, values[0]);
-      return;
+      return (location, values) => gl.uniform1fv(location, values);
     case gl.FLOAT_VEC2:
-      gl.uniform2fv(info.location, values);
-      return;
+      return (location, values) => gl.uniform2fv(location, values);
     case gl.FLOAT_VEC3:
-      gl.uniform3fv(info.location, values);
-      return;
+      return (location, values) => gl.uniform3fv(location, values);
     case gl.FLOAT_VEC4:
-      gl.uniform4fv(info.location, values);
-      return;
+      return (location, values) => gl.uniform4fv(location, values);
     case gl.INT:
     case gl.BOOL:
-      gl.uniform1i(info.location, values[0]);
-      return;
+      return (location, values) => gl.uniform1iv(location, values);
     case gl.INT_VEC2:
-      gl.uniform2iv(info.location, values);
-      return;
+    case gl.BOOL_VEC2:
+      return (location, values) => gl.uniform2iv(location, values);
     case gl.INT_VEC3:
-      gl.uniform3iv(info.location, values);
-      return;
+    case gl.BOOL_VEC3:
+      return (location, values) => gl.uniform3iv(location, values);
     case gl.INT_VEC4:
-      gl.uniform4iv(info.location, values);
-      return;
+    case gl.BOOL_VEC4:
+      return (location, values) => gl.uniform4iv(location, values);
+    case gl.UNSIGNED_INT:
+      return (location, values) => gl.uniform1uiv(location, values);
+    case gl.UNSIGNED_INT_VEC2:
+      return (location, values) => gl.uniform2uiv(location, values);
+    case gl.UNSIGNED_INT_VEC3:
+      return (location, values) => gl.uniform3uiv(location, values);
+    case gl.UNSIGNED_INT_VEC4:
+      return (location, values) => gl.uniform4uiv(location, values);
     case gl.FLOAT_MAT2:
-      gl.uniformMatrix2fv(info.location, false, values);
-      return;
+      return (location, values) => gl.uniformMatrix2fv(location, false, values);
     case gl.FLOAT_MAT3:
-      gl.uniformMatrix3fv(info.location, false, values);
-      return;
+      return (location, values) => gl.uniformMatrix3fv(location, false, values);
     case gl.FLOAT_MAT4:
-      gl.uniformMatrix4fv(info.location, false, values);
-      return;
+      return (location, values) => gl.uniformMatrix4fv(location, false, values);
+    case gl.FLOAT_MAT2x3:
+      return (location, values) => gl.uniformMatrix2x3fv(location, false, values);
+    case gl.FLOAT_MAT2x4:
+      return (location, values) => gl.uniformMatrix2x4fv(location, false, values);
+    case gl.FLOAT_MAT3x2:
+      return (location, values) => gl.uniformMatrix3x2fv(location, false, values);
+    case gl.FLOAT_MAT3x4:
+      return (location, values) => gl.uniformMatrix3x4fv(location, false, values);
+    case gl.FLOAT_MAT4x2:
+      return (location, values) => gl.uniformMatrix4x2fv(location, false, values);
+    case gl.FLOAT_MAT4x3:
+      return (location, values) => gl.uniformMatrix4x3fv(location, false, values);
     default:
-      throw new Error(`[RMSL] unsupported GLSL uniform type (GLenum ${info.type})`);
+      return undefined;
+  }
+}
+
+/** Uploads `value` to a uniform, one element after another for a uniform array, a bool as 0 or 1. */
+function setUniformValue(gl: WebGL2RenderingContext, slot: string, info: UniformInfo, value: unknown): void {
+  const set = uniformSetter(gl, info.type);
+  if (!set) throw new Error(`[RMSL] setUniform: "${slot}" is a sampler, which setTexture sets`);
+  const values = (Array.isArray(value) ? value.flat(2) : [value]).map(Number);
+  set(info.location, values);
+}
+
+/** The kind of the components a reflected attribute of `type` reads. */
+function reflectedAttributeKind(gl: WebGL2RenderingContext, type: number): AttributeKind {
+  switch (type) {
+    case gl.INT:
+    case gl.INT_VEC2:
+    case gl.INT_VEC3:
+    case gl.INT_VEC4:
+      return "int";
+    case gl.UNSIGNED_INT:
+    case gl.UNSIGNED_INT_VEC2:
+    case gl.UNSIGNED_INT_VEC3:
+    case gl.UNSIGNED_INT_VEC4:
+      return "uint";
+    default:
+      return "float";
   }
 }
 
@@ -223,18 +325,19 @@ export function createGlsl(
   const pendingUniforms = new Map<string, number | number[]>();
   const pendingAttributes = new Map<string, TypedArray>();
   const pendingTextures = new Map<string, CpuTextureData>();
-  /** The WebGL texture and texture unit each sampler the host has set reads. */
+  /** The WebGL texture and texture unit each sampler the host has set reads, a storage buffer's included. */
   const textures = new Map<string, TextureSlot>();
+  /** The storage buffers the stages read, by slot. */
+  const storages = new Map<string, StorageNode<ShaderType>>();
 
   function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
   function setUniform(slot: string, value: number | number[]): void;
-  function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, _value: unknown): void {
+  function setUniform(uniform: UniformNode<ShaderType> | UniformArrayNode<ShaderType> | string, value: unknown): void {
     const slot = slotOf(uniform);
-    const value = _value as number | number[];
     const info = uniforms.get(slot);
     if (!gl || !program || !info) {
-      pendingUniforms.set(slot, value);
+      pendingUniforms.set(slot, value as number | number[]);
       return;
     }
     // Another createGlsl adapter sharing this canvas's context may have
@@ -244,7 +347,7 @@ export function createGlsl(
     state?.begin(GlState.program);
     try {
       gl.useProgram(program);
-      setUniformValue(gl, info, value);
+      setUniformValue(gl, slot, info, value);
     } finally {
       state?.end();
     }
@@ -254,6 +357,17 @@ export function createGlsl(
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeNode<ShaderType> | string, data: TypedArray): void {
     const slot = slotOf(attribute);
+    const storage = storages.get(slot);
+    const sampler = uniforms.get(slot);
+    if (gl && program && storage && sampler) {
+      state?.begin(GlState.activeTexture | GlState.unpack | GlState.program);
+      try {
+        uploadStorage(gl, program, slot, sampler, storage._t, data);
+      } finally {
+        state?.end();
+      }
+      return;
+    }
     const info = attributes.get(slot);
     if (!gl || !vao || !info) {
       pendingAttributes.set(slot, data);
@@ -263,9 +377,16 @@ export function createGlsl(
     try {
       gl.bindVertexArray(vao);
       gl.bindBuffer(gl.ARRAY_BUFFER, info.buffer);
-      gl.bufferData(gl.ARRAY_BUFFER, data as Float32Array, gl.STATIC_DRAW);
       gl.enableVertexAttribArray(info.location);
-      gl.vertexAttribPointer(info.location, info.componentCount, gl.FLOAT, false, 0, 0);
+      if (info.kind === "float") {
+        gl.bufferData(gl.ARRAY_BUFFER, data as Float32Array, gl.STATIC_DRAW);
+        gl.vertexAttribPointer(info.location, info.componentCount, gl.FLOAT, false, 0, 0);
+      } else {
+        const integers = info.kind === "int" ? Int32Array.from(data) : Uint32Array.from(data);
+        gl.bufferData(gl.ARRAY_BUFFER, integers, gl.STATIC_DRAW);
+        const type = info.kind === "int" ? gl.INT : gl.UNSIGNED_INT;
+        gl.vertexAttribIPointer(info.location, info.componentCount, type, 0, 0);
+      }
       info.hasData = true;
     } finally {
       state?.end();
@@ -302,33 +423,7 @@ export function createGlsl(
     const image = textureImage(data, samplerType);
     const target = samplerType.endsWith("3D") ? gl.TEXTURE_3D : gl.TEXTURE_2D;
     const { internal, format, type } = texelFormat(gl, image.bits, image.signed, image.normalized);
-    let held = textures.get(slot);
-    // A texture of the shape the sampler already holds is written in place.
-    const reuse =
-      held !== undefined &&
-      held.target === target &&
-      held.width === image.width &&
-      held.height === image.height &&
-      held.depth === image.depth &&
-      held.internal === internal;
-    if (!reuse) {
-      if (held) gl.deleteTexture(held.texture);
-      held = {
-        texture: gl.createTexture()!,
-        target,
-        unit: held?.unit ?? textures.size,
-        width: image.width,
-        height: image.height,
-        depth: image.depth,
-        internal,
-      };
-      textures.set(slot, held);
-    }
-
-    state?.keepUnit(held!.unit);
-    gl.activeTexture(gl.TEXTURE0 + held!.unit);
-    gl.bindTexture(target, held!.texture);
-    setUnpackState(gl);
+    const { held, reuse } = holdTexture(gl, slot, target, image.width, image.height, image.depth, internal);
     if (reuse && target === gl.TEXTURE_3D) {
       gl.texSubImage3D(target, 0, 0, 0, 0, image.width, image.height, image.depth, format, type, image.texels);
     } else if (reuse) {
@@ -349,7 +444,73 @@ export function createGlsl(
     gl.texParameteri(target, gl.TEXTURE_WRAP_T, wrapMode(gl, data.wrapT));
     if (target === gl.TEXTURE_3D) gl.texParameteri(target, gl.TEXTURE_WRAP_R, wrapMode(gl, data.wrapR));
     gl.useProgram(program);
-    gl.uniform1i(info.location, held!.unit);
+    gl.uniform1i(info.location, held.unit);
+  }
+
+  /**
+   * The GL texture of the sampler `slot`, bound to its unit: the one it holds
+   * when that has this shape and format, which is then written in place, or
+   * else a new one on the same unit.
+   */
+  function holdTexture(
+    gl: WebGL2RenderingContext,
+    slot: string,
+    target: number,
+    width: number,
+    height: number,
+    depth: number,
+    internal: number,
+  ): { held: TextureSlot; reuse: boolean } {
+    let held = textures.get(slot);
+    const reuse =
+      held !== undefined &&
+      held.target === target &&
+      held.width === width &&
+      held.height === height &&
+      held.depth === depth &&
+      held.internal === internal;
+    if (!reuse) {
+      if (held) gl.deleteTexture(held.texture);
+      held = {
+        texture: gl.createTexture()!,
+        target,
+        unit: held?.unit ?? textures.size,
+        width,
+        height,
+        depth,
+        internal,
+      };
+      textures.set(slot, held);
+    }
+    state?.keepUnit(held!.unit);
+    gl.activeTexture(gl.TEXTURE0 + held!.unit);
+    gl.bindTexture(target, held!.texture);
+    setUnpackState(gl);
+    return { held: held!, reuse };
+  }
+
+  /** Uploads `data` into the storage texture of the buffer `slot`, and points its sampler at its unit. */
+  function uploadStorage(
+    gl: WebGL2RenderingContext,
+    program: WebGLProgram,
+    slot: string,
+    info: UniformInfo,
+    shaderType: string,
+    data: ArrayLike<number>,
+  ): void {
+    const { width, height, components, kind } = storageTextureShape(shaderType, data.length);
+    const { internal, format, type, array } = storageFormat(gl, kind, components);
+    const texels = new array(width * height * components);
+    texels.set(data);
+    const { held, reuse } = holdTexture(gl, slot, gl.TEXTURE_2D, width, height, 1, internal);
+    if (reuse) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, format, type, texels);
+    else gl.texImage2D(gl.TEXTURE_2D, 0, internal, width, height, 0, format, type, texels);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.useProgram(program);
+    gl.uniform1i(info.location, held.unit);
   }
 
   /** Compiles and links the program on `gl`, reflects its inputs, and applies what the host set before. */
@@ -385,7 +546,8 @@ export function createGlsl(
     for (let i = 0; i < uniformCount; i++) {
       const info = gl.getActiveUniform(program, i)!;
       const location = gl.getUniformLocation(program, info.name);
-      if (location) uniforms.set(info.name, { location, type: info.type });
+      // WebGL names a uniform array by its first element, `name[0]`.
+      if (location) uniforms.set(info.name.replace(/\[0\]$/, ""), { location, type: info.type });
     }
 
     vao = gl.createVertexArray();
@@ -401,8 +563,15 @@ export function createGlsl(
         locations: locationCountForType(gl, info.type),
         buffer,
         componentCount: componentCountForType(gl, info.type),
+        kind: reflectedAttributeKind(gl, info.type),
         hasData: false,
       });
+    }
+
+    for (const node of storageNodesOf([vertexRoot, fragmentRoot])) {
+      storages.set(node.name, node);
+      const sampler = uniforms.get(node.name);
+      if (sampler) uploadStorage(gl, program, node.name, sampler, node._t, node.attribute.array);
     }
 
     for (const [slot, value] of pendingUniforms) adapter.setUniform(slot, value);
@@ -431,7 +600,7 @@ export function createGlsl(
     setRasterState(gl);
     for (const info of attributes.values()) {
       if (info.hasData || info.location < 0) continue;
-      for (let i = 0; i < info.locations; i++) setAttributeValue(gl, info.location + i, state);
+      for (let i = 0; i < info.locations; i++) setAttributeValue(gl, info.location + i, info.kind, state);
     }
     if (draw?.clear !== false) {
       const [r, g, b, a] = draw?.clearColor ?? TRANSPARENT_BLACK;

@@ -72,6 +72,9 @@ import {
  * position/fragDepth/value kinds are written by the call and read back
  * after it; "narrow" floats are stored as f32 instead of f64.
  */
+
+/** The attribute slot a vertex stage reads `vertexIndex()` from on WASM, which the rasterizer fills with each vertex's index. */
+export const VERTEX_INDEX_SLOT = "_rmsl_vertexIndex";
 export type WasmParam =
   | { kind: "param"; name: string; shaderType: ShaderType }
   | { kind: "uniform"; slot: string; shaderType: ShaderType }
@@ -315,7 +318,7 @@ function wasmTypeOf(kind: ScalarKind): number {
 }
 
 /** Bytes per component: 8 for float, 4 for int/uint/bool. */
-function componentSizeOf(kind: ScalarKind): number {
+export function componentSizeOf(kind: ScalarKind): number {
   return kind === "float" ? 8 : 4;
 }
 
@@ -1499,8 +1502,15 @@ export function compileWasmFn(
         break;
       }
 
+      case "vertexIndex":
+      case "instanceIndex":
       case "attribute": {
-        const v = node.value;
+        if (node.type !== "attribute" && effectiveStage !== "vertex") {
+          throw new Error(`[RMSL] compileWasmFn: ${node.type}() can only be used in vertex shaders`);
+        }
+        // A CPU rasterizer draws one instance, instance 0, which needs no input.
+        if (node.type === "instanceIndex") break;
+        const v = node.type === "vertexIndex" ? { slot: VERTEX_INDEX_SLOT, shaderType: "uint" as const } : node.value;
         assertNotInAComputeStage(effectiveStage, COMPUTE_REFUSES.attribute);
         if (isAggregate(v.shaderType) || options.scalarsInMemory) {
           if (!attributeAddress.has(v.slot)) {
@@ -1832,8 +1842,9 @@ export function compileWasmFn(
         return addr;
       }
 
+      case "vertexIndex":
       case "attribute": {
-        const addr = attributeAddress.get(node.value.slot);
+        const addr = attributeAddress.get(node.type === "vertexIndex" ? VERTEX_INDEX_SLOT : node.value.slot);
         if (addr === undefined)
           throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed attribute "${node.value.slot}"`);
         return addr;
@@ -2231,6 +2242,8 @@ export function compileWasmFn(
         return out;
       }
       case "attribute":
+      case "vertexIndex":
+      case "instanceIndex":
       case "fragCoord":
         return [];
       case "storageElement":
@@ -3610,11 +3623,15 @@ export function compileWasmFn(
         if (addr !== undefined) return loadComponent(addr, scalarKindOf(node._t), 0); // scalarsInMemory: memory-resident, not a param
         return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`uniform:${node.value.slot}`))];
       }
+      case "vertexIndex":
       case "attribute": {
-        const addr = attributeAddress.get(node.value.slot);
+        const slot = node.type === "vertexIndex" ? VERTEX_INDEX_SLOT : node.value.slot;
+        const addr = attributeAddress.get(slot);
         if (addr !== undefined) return loadComponent(addr, scalarKindOf(node._t), 0); // scalarsInMemory: memory-resident, not a param
-        return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`attribute:${node.value.slot}`))];
+        return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`attribute:${slot}`))];
       }
+      case "instanceIndex":
+        return i32ConstBytes(0);
       case "invocationIndex":
         return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex("invocationIndex"))];
       case "storageElement": {
@@ -4351,7 +4368,10 @@ export function createWasmInputMarshaller(
           args[argCount++] = scalarArg(p.shaderType, (ctx.uniforms as any)?.[p.slot] ?? 0);
           break;
         case "attribute":
-          args[argCount++] = scalarArg(p.shaderType, (ctx.attributes as any)?.[p.slot] ?? 0);
+          args[argCount++] = scalarArg(
+            p.shaderType,
+            (p.slot === VERTEX_INDEX_SLOT ? ctx.vertexIndex : (ctx.attributes as any)?.[p.slot]) ?? 0,
+          );
           break;
         case "varying":
           args[argCount++] = scalarArg(p.shaderType, (ctx.varyings as any)?.[p.slot] ?? 0);
@@ -4385,7 +4405,12 @@ export function createWasmInputMarshaller(
           );
           break;
         case "attributeMemory":
-          writeValueToMemory(view, p.address, p.shaderType, (ctx.attributes as any)?.[p.slot]);
+          writeValueToMemory(
+            view,
+            p.address,
+            p.shaderType,
+            p.slot === VERTEX_INDEX_SLOT ? (ctx.vertexIndex ?? 0) : (ctx.attributes as any)?.[p.slot],
+          );
           break;
         case "varyingMemory":
           writeValueToMemory(view, p.address, p.shaderType, (ctx.varyings as any)?.[p.slot]);

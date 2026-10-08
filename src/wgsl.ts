@@ -6,7 +6,13 @@ import {
   type StorageAccess,
   type StorageBufferAttribute,
 } from "./core";
-import { compileWgsl, typeToWGSL, wgslUniformLayout, WGSL_UNIFORM_STRUCT } from "./backends/wgsl/wgsl";
+import {
+  compileWgsl,
+  typeToWGSL,
+  wgslUniformDeclaration,
+  wgslUniformLayout,
+  WGSL_UNIFORM_STRUCT,
+} from "./backends/wgsl/wgsl";
 
 export type WgslStage = "compute" | "vertex" | "fragment";
 
@@ -55,7 +61,8 @@ export interface WgslCompileOptions {
  * in `src/backends/wgsl.ts`), never the storage node's slot name (its `.name`,
  * one per buffer attribute) — that name exists only on the graph's nodes.
  * Binding order is reproduced exactly as the backend assigns it: every
- * distinct `storage()` slot reachable from `root`, sorted by slot name.
+ * distinct `storage()` slot reachable from `root`, in the order the program
+ * created its buffers.
  */
 function collectStorageResources(root: Node<ShaderType> | readonly Node<ShaderType>[]): WgslResource[] {
   const seen = new Map<string, { shaderType: ShaderType; access: StorageAccess; attribute: StorageBufferAttribute }>();
@@ -68,7 +75,7 @@ function collectStorageResources(root: Node<ShaderType> | readonly Node<ShaderTy
   });
 
   return [...seen.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
+    .sort((a, b) => a[1].attribute.id - b[1].attribute.id)
     .map(([name, info], binding) => ({
       kind: "storage" as const,
       name,
@@ -156,7 +163,7 @@ export function compile(
   };
 }
 
-export { compileWgsl, wgslUniformLayout };
+export { compileWgsl, wgslUniformDeclaration, wgslUniformLayout };
 export type {
   CompileWGSLOptions,
   WgslSamplerDeclaration,
@@ -175,6 +182,7 @@ export type {
   CreateWgslAdapterOptions,
   CreateWgslComputeOptions,
   WgslAdapter,
+  WgslAttachOptions,
   WgslComputeAdapter,
   WgslDrawOptions,
 } from "./backends/wgsl/adapter-wgsl";

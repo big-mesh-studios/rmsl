@@ -1,6 +1,13 @@
 import { Node, ShaderType } from "../../core";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK } from "../adapter";
-import { componentCountOf, CpuDrawBuffer, CpuShaderContext, isResultObject, vertexPosition } from "../cpu";
+import {
+  componentCountOf,
+  componentKindOf,
+  CpuDrawBuffer,
+  CpuShaderContext,
+  isResultObject,
+  vertexPosition,
+} from "../cpu";
 import { compileJSProgram, CompileJSOptions } from "./js";
 
 /** Homogeneous-clip-space near-plane epsilon — see rasterizer.md's clip-pass design (`rasterizer.wat`'s `W_CLIP_EPS`). */
@@ -73,6 +80,17 @@ interface ClipVertex {
 /** The target of a rasterizer between draws. */
 const NO_TARGET = new Float64Array(0);
 
+/**
+ * Whether an edge running `(dx, dy)`, in a triangle wound so that its inside
+ * lies where every edge function is positive, owns the pixel centres on it:
+ * a left edge, running up the screen, or a top edge, running right, by
+ * WebGPU's top-left rule. The two triangles sharing an edge run it in opposite
+ * directions, so exactly one owns it.
+ */
+function ownsEdge(dx: number, dy: number): boolean {
+  return dy < 0 || (dy === 0 && dx > 0);
+}
+
 /** A vertex with room for a position and varyings of these widths. */
 function makeVertex(widths: readonly number[]): ClipVertex {
   return { position: new Float64Array(4), varyings: widths.map((w) => new Float64Array(w)) };
@@ -144,6 +162,7 @@ export function compileJS(
   };
   const vertexStage = compileJSProgram(vertexFn, { ...stageOptions, name: "vtx", stage: "vertex" });
   const fragmentStage = compileJSProgram(fragmentFn, { ...stageOptions, name: "frag", stage: "fragment" });
+  const writesDepth = fragmentStage.writesDepth;
 
   const attributeSlots = Object.keys(options.attributeTypes);
   const attributeWidths = attributeSlots.map((slot) => componentCountOf(options.attributeTypes[slot]!));
@@ -159,6 +178,8 @@ export function compileJS(
   /** The varying slots the vertex stage writes, and their widths, as its program declares them. */
   const varyingSlots = Object.keys(vertexStage.varyingTypes);
   const varyingWidths = varyingSlots.map((slot) => componentCountOf(vertexStage.varyingTypes[slot]!));
+  /** Whether each varying is an integer one, which a fragment reads flat, as its triangle's first vertex wrote it. */
+  const varyingFlat = varyingSlots.map((slot) => componentKindOf(vertexStage.varyingTypes[slot]!) !== "float");
   /** The varyings of the fragment being shaded: a vector in an array of its own, filled for each fragment. */
   const fragmentArrays = varyingWidths.map((w) => new Float64Array(w));
   const fragmentVaryings: Record<string, number | Float64Array> = {};
@@ -170,10 +191,11 @@ export function compileJS(
   /** One vertex for each the draw shades, made the first time a draw has that many and kept. */
   const vertices: ClipVertex[] = [];
 
-  // Persists across draw() calls, like WasmRasterRoutine's depth buffer —
-  // grown (and re-cleared) only when a draw() needs more pixels than it
-  // currently holds, never moved or shrunk otherwise.
+  // Persists across draw() calls of one size, like WasmRasterRoutine's depth
+  // buffer: a draw of another width or height clears it, as its pixels lie elsewhere.
   let depthBuffer: Float64Array | null = null;
+  let depthWidth = 0;
+  let depthHeight = 0;
   // Persists across draw() calls too, same as WasmRasterRoutine's output
   // buffer address does — a draw that passes `clear: false` composes onto it.
   let colorBuffer: Float64Array | null = null;
@@ -183,8 +205,11 @@ export function compileJS(
   let targetWidth = 0;
   let targetHeight = 0;
 
-  /** Rasterizes one triangle, already clipped to the near plane, into `target`. */
-  function rasterize(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex): void {
+  /**
+   * Rasterizes one triangle, already clipped to the near plane, into `target`.
+   * `first` is the first vertex of the triangle it was clipped from, which gives the flat varyings.
+   */
+  function rasterize(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex, first: ClipVertex): void {
     const width = targetWidth;
     const height = targetHeight;
     const w0 = v0.position[3]!,
@@ -202,6 +227,11 @@ export function compileJS(
 
     const area = (s1x - s0x) * (s2y - s0y) - (s1y - s0y) * (s2x - s0x);
     if (area === 0) return; // degenerate (zero-area) triangle: skip it
+    // Each edge function, times `wind`, is positive inside whichever way the triangle winds.
+    const wind = area > 0 ? 1 : -1;
+    const owns0 = ownsEdge((s2x - s1x) * wind, (s2y - s1y) * wind);
+    const owns1 = ownsEdge((s0x - s2x) * wind, (s0y - s2y) * wind);
+    const owns2 = ownsEdge((s1x - s0x) * wind, (s1y - s0y) * wind);
 
     const minX = Math.max(0, Math.floor(Math.min(s0x, s1x, s2x)));
     const maxX = Math.min(width - 1, Math.ceil(Math.max(s0x, s1x, s2x)));
@@ -218,6 +248,13 @@ export function compileJS(
       depth2 = v2.position[2]! / w2;
     const slots = varyingSlots;
     const depths = depthBuffer!;
+    // A triangle wholly outside depth 0 to 1 draws nothing. One that crosses it drops each
+    // pixel outside it, which is what clipping there drops, as depth over w is affine in
+    // screen space; one inside it draws every pixel, whatever the rounding of its depth.
+    const nearest = Math.min(depth0, depth1, depth2);
+    const farthest = Math.max(depth0, depth1, depth2);
+    if (farthest < 0 || nearest > 1) return;
+    const crossesDepthRange = nearest < 0 || farthest > 1;
 
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
@@ -226,8 +263,11 @@ export function compileJS(
         const e0 = (s1x - px) * (s2y - py) - (s1y - py) * (s2x - px);
         const e1 = (s2x - px) * (s0y - py) - (s2y - py) * (s0x - px);
         const e2 = (s0x - px) * (s1y - py) - (s0y - py) * (s1x - px);
-        const inside = area > 0 ? e0 >= 0 && e1 >= 0 && e2 >= 0 : e0 <= 0 && e1 <= 0 && e2 <= 0;
-        if (!inside) continue;
+        const f0 = e0 * wind,
+          f1 = e1 * wind,
+          f2 = e2 * wind;
+        if (f0 < 0 || f1 < 0 || f2 < 0) continue;
+        if ((f0 === 0 && !owns0) || (f1 === 0 && !owns1) || (f2 === 0 && !owns2)) continue;
 
         const b0 = e0 / area,
           b1 = e1 / area,
@@ -235,10 +275,10 @@ export function compileJS(
         const invW = b0 * invW0 + b1 * invW1 + b2 * invW2;
         const pixelDepth = b0 * depth0 + b1 * depth1 + b2 * depth2;
 
+        if (crossesDepthRange && (pixelDepth < 0 || pixelDepth > 1)) continue;
         const pixelIndex = y * width + x;
-        // LEQUAL depth test: closer-or-equal wins.
-        if (pixelDepth > depths[pixelIndex]!) continue;
-        depths[pixelIndex] = pixelDepth;
+        // LEQUAL depth test: closer-or-equal wins. A stage that writes its depth is tested once it has run.
+        if (!writesDepth && pixelDepth > depths[pixelIndex]!) continue;
 
         // Perspective-correct: each vertex's varying weighted by its barycentric over w, the sum over w again.
         const p0 = b0 * invW0,
@@ -250,14 +290,23 @@ export function compileJS(
             b = v1.varyings[k]!,
             c = v2.varyings[k]!,
             out = fragmentArrays[k]!;
-          for (let i = 0; i < out.length; i++) out[i] = (a[i]! * p0 + b[i]! * p1 + c[i]! * p2) * perspective;
+          if (varyingFlat[k]) out.set(first.varyings[k]!);
+          else for (let i = 0; i < out.length; i++) out[i] = (a[i]! * p0 + b[i]! * p1 + c[i]! * p2) * perspective;
           if (out.length === 1) fragmentVaryings[slots[k]!] = out[0]!;
         }
         fragCoord[0] = px;
         fragCoord[1] = py;
+        fragmentCtx.fragDepth = pixelDepth;
 
         const raw = fragmentStage.runInPlace(fragmentCtx);
-        // A fragment that discards, or that writes no colour, leaves the pixel as it was.
+        // A fragment that discards leaves the pixel and its depth as they were.
+        if (raw === null) continue;
+        const written = isResultObject(raw) ? raw.fragDepth : undefined;
+        // A written depth is clamped to the depth range, as WebGPU clamps it.
+        const depth = typeof written === "number" ? Math.min(Math.max(written, 0), 1) : pixelDepth;
+        if (writesDepth && depth > depths[pixelIndex]!) continue;
+        depths[pixelIndex] = depth;
+        // A fragment that writes no colour leaves the pixel as it was.
         const color = ArrayBuffer.isView(raw)
           ? (raw as Float64Array)
           : ((isResultObject(raw) ? raw.value : undefined) as Float64Array);
@@ -292,8 +341,11 @@ export function compileJS(
     const { width, height, out } = options;
     const { attributes } = ctx;
     const first = options.first ?? 0;
+    // An attribute the program does not read counts for nothing, as a WebGPU
+    // draw reads no buffer its shader does not declare.
     let firstSlot: string | undefined;
     for (const slot in attributes) {
+      if (widths[slot] === undefined) continue;
       firstSlot = slot;
       break;
     }
@@ -314,6 +366,7 @@ export function compileJS(
           for (let k = 0; k < w; k++) into[k] = buffer[(i + first) * w + k]!;
         }
       }
+      vertexCtx.vertexIndex = i + first;
       const raw = vertexStage.runInPlace(vertexCtx);
       const position = vertexPosition(raw);
       const varyings = isResultObject(raw) ? raw.varyings : undefined;
@@ -332,9 +385,11 @@ export function compileJS(
     const pixelCount = width * height;
     if (!depthBuffer || depthBuffer.length < pixelCount) {
       depthBuffer = new Float64Array(pixelCount).fill(Infinity);
-    } else if (options.clearDepth !== false) {
+    } else if (options.clearDepth !== false || width !== depthWidth || height !== depthHeight) {
       depthBuffer.fill(Infinity);
     }
+    depthWidth = width;
+    depthHeight = height;
 
     if (!out && (!colorBuffer || colorBuffer.length < pixelCount * 4)) {
       colorBuffer = new Float64Array(pixelCount * 4);
@@ -359,12 +414,12 @@ export function compileJS(
         v2 = vertices[t + 2]!;
       // A triangle wholly in front of the near plane is rasterized as it is; only one that crosses it is clipped.
       if (v0.position[3]! > W_CLIP_EPS && v1.position[3]! > W_CLIP_EPS && v2.position[3]! > W_CLIP_EPS) {
-        rasterize(v0, v1, v2);
+        rasterize(v0, v1, v2, v0);
         continue;
       }
       const clipped: ClipVertex[][] = [];
       clipTriangle(v0, v1, v2, clipped);
-      for (const [c0, c1, c2] of clipped) rasterize(c0!, c1!, c2!);
+      for (const [c0, c1, c2] of clipped) rasterize(c0!, c1!, c2!, v0);
     }
 
     return result;

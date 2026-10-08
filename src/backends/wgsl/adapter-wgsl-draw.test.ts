@@ -9,7 +9,7 @@ const WEBGPU = await webgpuAvailable();
  * `vertexIndex()`, and a 4×4 canvas. Pixel (x, y) counts from the top left.
  */
 const QUAD = `
-import { Fn, float, instancedArray, invocationIndex, uint, uniform, vec2, vec4, vertexIndex } from "../../rmsl";
+import { Fn, float, instancedArray, invocationIndex, uint, uniform, varying, vec2, vec4, vertexIndex } from "../../rmsl";
 import { createWgsl, createWgslContext } from "../../wgsl";
 ${READ_PIXEL}
 const quad = (x0, y0, x1, y1) => Fn(() => {
@@ -23,6 +23,24 @@ const canvas = () => {
   c.width = 4;
   c.height = 4;
   return c;
+};
+`;
+
+const ENTRY_FLAT_INDEX = `
+${QUAD}
+globalThis.__rmslAdapterFlatIndexRun = async () => {
+  const k = varying("int");
+  const vertex = Fn(() => {
+    const v = vertexIndex();
+    k.assign(v.toInt());
+    return vec4(v.equal(uint(1)).select(float(3), float(-1)), v.equal(uint(2)).select(float(3), float(-1)), 0, 1);
+  })();
+  const adapter = createWgsl({ vertex, fragment: Fn(() => vec4(k.toFloat().div(2), 0, 0, 1))() });
+  const target = canvas();
+  await adapter.attach(target);
+  adapter.draw({ count: 3 });
+  await adapter.device().queue.onSubmittedWorkDone();
+  return readPixel(target, 1, 2);
 };
 `;
 
@@ -82,14 +100,15 @@ globalThis.__rmslAdapterComposeRun = async () => {
 
 const ENTRY_DEFAULT_CLEAR = `
 ${QUAD}
-globalThis.__rmslAdapterDefaultClearRun = async () => {
+globalThis.__rmslAdapterDefaultClearRun = async (attachOptions) => {
   const target = canvas();
   const adapter = createWgsl({ vertex: quad(-1, -1, 0, 0), fragment: Fn(() => vec4(1, 0, 0, 1))() });
-  await adapter.attach(target);
+  await adapter.attach(target, attachOptions);
   adapter.draw({ count: 6 });
   await adapter.device().queue.onSubmittedWorkDone();
   return readPixel(target, 3, 3);
 };
+globalThis.__rmslAdapterOpaqueClearRun = () => globalThis.__rmslAdapterDefaultClearRun({ alpha: false });
 `;
 
 const ENTRY_OWN_BUFFERS = `
@@ -131,6 +150,15 @@ function run(source: string, entryPoint: string) {
 
 describe.skipIf(!WEBGPU)("createWgsl drawing storage buffers on a real adapter", () => {
   /**
+   * The vertices write 0, 1 and 2, drawn as red of half that.
+   *
+   * @canon spec-a-flat-varying-takes-the-first-vertex
+   */
+  it("reads an integer varying as the triangle's first vertex wrote it on WGSL", async () => {
+    expect(await run(ENTRY_FLAT_INDEX, "__rmslAdapterFlatIndexRun")).toEqual({ r: 0, g: 0, b: 0, a: 255 });
+  }, 60_000);
+
+  /**
    * @canon spec-an-adapter-writes-a-texture-of-the-same-shape-in-place
    */
   it("writes a texture of the same shape into the texture it has", async () => {
@@ -138,6 +166,7 @@ describe.skipIf(!WEBGPU)("createWgsl drawing storage buffers on a real adapter",
     expect(result.pixel).toEqual({ r: 255, g: 0, b: 0, a: 255 });
     expect(result.created).toBe(1);
   }, 60_000);
+
   /**
    * @canon spec-a-wgsl-buffer-feeds-a-draw-without-a-copy
    */
@@ -158,12 +187,17 @@ describe.skipIf(!WEBGPU)("createWgsl drawing storage buffers on a real adapter",
     expect(cleared).toMatchObject({ r: 0, g: 0, b: 255 });
   }, 60_000);
   /**
-   * The clear is transparent black, but the canvas shows every pixel opaque.
-   *
-   * @canon exception-a-wgsl-canvas-shows-a-transparent-clear-as-opaque-black
+   * @canon spec-a-wgsl-canvas-shows-a-transparent-clear-as-transparent
    */
-  it("clears to a pixel of alpha 1 when the draw gives no clear colour", async () => {
+  it("clears to transparent black when the draw gives no clear colour", async () => {
     const pixel = await run(ENTRY_DEFAULT_CLEAR, "__rmslAdapterDefaultClearRun");
+    expect(pixel).toEqual({ r: 0, g: 0, b: 0, a: 0 });
+  }, 60_000);
+  /**
+   * @canon spec-a-wgsl-adapter-attached-without-alpha-draws-opaque
+   */
+  it("clears to a pixel of alpha 1 on a canvas attached without alpha", async () => {
+    const pixel = await run(ENTRY_DEFAULT_CLEAR, "__rmslAdapterOpaqueClearRun");
     expect(pixel).toEqual({ r: 0, g: 0, b: 0, a: 255 });
   }, 60_000);
   /**

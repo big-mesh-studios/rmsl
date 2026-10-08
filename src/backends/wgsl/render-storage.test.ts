@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { Fn, float, instanceIndex, instancedArray, varying, vec4, vertexIndex } from "../../rmsl";
+import { Fn, float, instanceIndex, instancedArray, uint, varying, vec4, vertexIndex } from "../../rmsl";
 import { compileGlsl } from "../../glsl";
 import { compileWgsl, createWgslContext } from "../../wgsl";
 import { GPU_ENABLED, installWebGpuGlobals } from "../../testing/gpu";
-import { storageAttributes } from "../shared";
+import { storageNodesOf } from "../shared";
 import { WGSL_RENDER_STORAGE_GROUP } from "./wgsl";
 
 let uninstall: (() => void) | undefined;
@@ -33,15 +33,15 @@ function program() {
 describe("storage buffers in render stages", () => {
   /**
    * @canon spec-a-wgsl-render-stage-reads-storage-read-only
-   * @canon spec-the-index-accessors-follow-tsl
+   * @canon spec-a-gpu-target-reads-the-index-accessors-from-its-builtins
    */
   it("are declared read-only in their own group, numbered across both stages", () => {
     const { offsets, colors, vertex, fragment } = program();
-    const storages = [offsets.name, colors.name].sort();
+    const storages = [offsets, colors];
     const vertexCode = compileWgsl.vertex(vertex, { storages });
     const fragmentCode = compileWgsl.fragment(fragment, { storages });
     const binding = (name: string) =>
-      `@group(${WGSL_RENDER_STORAGE_GROUP}) @binding(${storages.indexOf(name)}) var<storage, read>`;
+      `@group(${WGSL_RENDER_STORAGE_GROUP}) @binding(${storages.findIndex((node) => node.name === name)}) var<storage, read>`;
     expect(vertexCode).toContain(binding(offsets.name));
     expect(vertexCode).not.toContain(binding(colors.name));
     expect(fragmentCode).toContain(binding(colors.name));
@@ -60,12 +60,41 @@ describe("storage buffers in render stages", () => {
     expect(() => compileWgsl.vertex(vertex)).toThrow(/read-only in a vertex shader/);
   });
   /**
-   * @canon exception-glsl-has-no-storage-buffers
-   * @canon spec-the-index-accessors-follow-tsl
+   * @canon spec-a-glsl-stage-declares-a-storage-buffer-as-a-sampler-under-its-slot
    */
-  it("reports that GLSL has no storage buffers, and maps the index builtins", () => {
-    const { vertex } = program();
-    expect(() => compileGlsl.vertex(vertex)).toThrow(/GLSL has no storage buffers/);
+  it("reads storage on GLSL through a sampler named after the buffer's slot", () => {
+    const { offsets, colors, vertex, fragment } = program();
+    const vertexCode = compileGlsl.vertex(vertex);
+    expect(vertexCode).toContain(`uniform sampler2D ${offsets.name};`);
+    expect(vertexCode).toMatch(new RegExp(`texelFetch\\(${offsets.name}, ivec2\\(`));
+    expect(compileGlsl.fragment(fragment)).toContain(`uniform sampler2D ${colors.name};`);
+  });
+  /**
+   * @canon spec-a-glsl-render-stage-refuses-a-write-to-storage
+   */
+  it("rejects a write from a render stage on GLSL", () => {
+    const values = instancedArray(4, "float");
+    const vertex = Fn(() => {
+      values.element(0).assign(float(1));
+      return vec4(0, 0, 0, 1);
+    })();
+    expect(() => compileGlsl.vertex(vertex)).toThrow(/read-only in a vertex shader/);
+  });
+  /**
+   * @canon spec-the-index-accessors-are-read-only
+   */
+  it("refuses a write to the instance index on GLSL and WGSL", () => {
+    const vertex = Fn(() => {
+      (instanceIndex() as any).assign(uint(1));
+      return vec4(0, 0, 0, 1);
+    })();
+    expect(() => compileGlsl.vertex(vertex)).toThrow(/built-in input/);
+    expect(() => compileWgsl.vertex(vertex)).toThrow(/built-in input/);
+  });
+  /**
+   * @canon spec-a-gpu-target-reads-the-index-accessors-from-its-builtins
+   */
+  it("maps the index builtins on GLSL", () => {
     const indices = Fn(() => vec4(vertexIndex().toFloat(), instanceIndex().toFloat(), 0, 1))();
     const glsl = compileGlsl.vertex(indices);
     expect(glsl).toContain("uint(gl_VertexID)");
@@ -79,8 +108,7 @@ describe("storage buffers in render stages", () => {
     const context = await createWgslContext();
     const device = context.device;
     const { vertex, fragment } = program();
-    const attributes = storageAttributes([vertex, fragment]);
-    const storages = [...attributes.keys()].sort();
+    const storages = storageNodesOf([vertex, fragment]);
 
     device.pushErrorScope("validation");
     const pipeline = device.createRenderPipeline({
@@ -97,9 +125,9 @@ describe("storage buffers in render stages", () => {
     });
     device.createBindGroup({
       layout: pipeline.getBindGroupLayout(WGSL_RENDER_STORAGE_GROUP),
-      entries: storages.map((slot, binding) => ({
+      entries: storages.map((node, binding) => ({
         binding,
-        resource: { buffer: context.buffer(attributes.get(slot)!) },
+        resource: { buffer: context.buffer(node.attribute) },
       })),
     });
     const error = await device.popErrorScope();

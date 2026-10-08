@@ -1,5 +1,18 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Fn, float, instancedArray, int, invocationIndex, outputStruct, select, uniform, vec3, vec4 } from "../rmsl";
+import {
+  Fn,
+  float,
+  instancedArray,
+  int,
+  invocationIndex,
+  outputStruct,
+  select,
+  uniform,
+  uniformRaw,
+  vec2,
+  vec3,
+  vec4,
+} from "../rmsl";
 import { compile, compileWgsl as compileWgslStage, createWgslCompute, createWgslContext } from "../wgsl";
 import {
   assertRecordedShadersValid,
@@ -192,6 +205,27 @@ describe("what WGSL writes for a variable", () => {
   });
 });
 
+/**
+ * Two storage buffers, the second made after the first, whose slot names sort
+ * the other way round as strings, as `_rmsl_b10` sorts before `_rmsl_b9`.
+ */
+function buffersAcrossADigit() {
+  let first = instancedArray(2, "float");
+  let second = instancedArray(2, "float");
+  while (first.name.localeCompare(second.name) < 0) {
+    first = second;
+    second = instancedArray(2, "float");
+  }
+  return { first, second };
+}
+
+/**
+ * The binding WGSL declares for the buffer the stage reads `n`th. WGSL names
+ * a buffer `_rmsl_sN` by the order the stage first reads it.
+ */
+const bindingOfRead = (code: string, n: number) =>
+  new RegExp(`@binding\\((\\d+)\\) var<storage, [\\w ,]+> _rmsl_s${n}:`).exec(code)?.[1];
+
 describe("where WGSL declares a uniform or a buffer", () => {
   /**
    * @canon spec-a-wgsl-stage-given-the-program-uniforms-declares-every-one
@@ -200,10 +234,7 @@ describe("where WGSL declares a uniform or a buffer", () => {
     const read = uniform("float");
     const unread = uniform("vec2");
     const code = compileWgslStage.fragment(vec4(read, 0, 0, 1), {
-      uniforms: [
-        { slot: read.name, type: "f32" },
-        { slot: unread.name, type: "vec2<f32>" },
-      ],
+      uniforms: [read, unread],
     });
     expect(structMembers(code).sort()).toEqual([read.name, unread.name].sort());
   });
@@ -214,9 +245,9 @@ describe("where WGSL declares a uniform or a buffer", () => {
   it("refuses a uniform the stage reads that the given uniforms leave out on WGSL", () => {
     const read = uniform("float");
     const other = uniform("float");
-    expect(() =>
-      compileWgslStage.fragment(vec4(read, 0, 0, 1), { uniforms: [{ slot: other.name, type: "f32" }] }),
-    ).toThrow(new RegExp(`"${read.name}" is read by this stage but missing`));
+    expect(() => compileWgslStage.fragment(vec4(read, 0, 0, 1), { uniforms: [other] })).toThrow(
+      new RegExp(`"${read.name}" is read by this stage but missing`),
+    );
   });
 
   /**
@@ -273,10 +304,129 @@ describe("where WGSL declares a uniform or a buffer", () => {
     const first = instancedArray(2, "float");
     const second = instancedArray(2, "float");
     const code = compileWgslStage.fragment(vec4(first.element(int(0)), second.element(int(0)), 0, 1), {
-      storages: [second.name, first.name],
+      storages: [second, first],
     });
     expect(code).toMatch(/@binding\(0\) var<storage, read> _rmsl_s1:/);
     expect(code).toMatch(/@binding\(1\) var<storage, read> _rmsl_s0:/);
+  });
+
+  /**
+   * The list names a buffer the program does not read first, so the one it
+   * reads binds at 1.
+   *
+   * @canon spec-a-wgsl-compute-program-binds-its-storage-in-the-listed-order
+   */
+  it("binds compute storage at its index in a list that names a buffer it does not read on WGSL", () => {
+    const unread = instancedArray(2, "float");
+    const values = instancedArray(2, "float");
+    const code = compileWgslStage.compute(
+      Fn(() => {
+        values.element(invocationIndex()).assign(float(1));
+      })(),
+      { storages: [unread, values] },
+    );
+    expect(code).toMatch(/@group\(1\) @binding\(1\) var<storage, read_write> _rmsl_s0:/);
+    expect(code).not.toMatch(/@binding\(0\) var<storage/);
+  });
+
+  /**
+   * @canon spec-a-wgsl-stage-refuses-a-buffer-the-given-storages-leave-out
+   */
+  it("refuses a buffer the stage reads that the given storages leave out on WGSL", () => {
+    const listed = instancedArray(2, "float");
+    const missing = instancedArray(2, "float");
+    expect(() =>
+      compileWgslStage.fragment(vec4(listed.element(int(0)), missing.element(int(0)), 0, 1), { storages: [listed] }),
+    ).toThrow(new RegExp(`"${missing.name}" is read by this stage but missing`));
+  });
+
+  /**
+   * @canon spec-the-storages-list-holds-the-storage-nodes
+   */
+  it("takes the storage nodes themselves as the storages list on WGSL", () => {
+    const first = instancedArray(2, "float");
+    const second = instancedArray(2, "float");
+    const code = compileWgslStage.fragment(vec4(first.element(int(0)), second.element(int(0)), 0, 1), {
+      storages: [second, first],
+    });
+    expect(bindingOfRead(code, 1)).toBe("0");
+    expect(bindingOfRead(code, 0)).toBe("1");
+  });
+
+  /**
+   * @canon spec-a-wgsl-compute-program-binds-its-storage-in-the-listed-order
+   */
+  it("binds compute storage at its index in the storages list on WGSL", () => {
+    const first = instancedArray(2, "float");
+    const second = instancedArray(2, "float");
+    const code = compileWgslStage.compute(
+      Fn(() => {
+        second.element(invocationIndex()).assign(first.element(invocationIndex()));
+      })(),
+      { storages: [second, first] },
+    );
+    expect(bindingOfRead(code, 1)).toBe("0");
+    expect(bindingOfRead(code, 0)).toBe("1");
+  });
+
+  /**
+   * @canon spec-a-wgsl-program-given-no-storage-list-binds-in-creation-order
+   */
+  it("binds storage in the order the program made it when no list is given on WGSL", () => {
+    const { first, second } = buffersAcrossADigit();
+    const compute = compileWgslStage.compute(
+      Fn(() => {
+        second.element(invocationIndex()).assign(first.element(invocationIndex()));
+      })(),
+    );
+    const render = compileWgslStage.fragment(vec4(first.element(int(0)), second.element(int(0)), 0, 1));
+    for (const code of [compute, render]) {
+      expect(bindingOfRead(code, 0)).toBe("0");
+      expect(bindingOfRead(code, 1)).toBe("1");
+    }
+  });
+
+  /**
+   * The last two of the textures made sort the other way round as strings, as
+   * `_rmsl_u10` sorts before `_rmsl_u9`.
+   *
+   * @canon spec-a-wgsl-stage-given-no-samplers-binds-its-textures-in-creation-order
+   */
+  it("binds textures and their samplers in the order the program made them on WGSL", () => {
+    const made = [uniform("sampler2D"), uniform("sampler2D")];
+    while (made.at(-1)!.name.localeCompare(made.at(-2)!.name) > 0) made.push(uniform("sampler2D"));
+    const [first, second] = made.slice(-2);
+    const code = compileWgslStage.fragment(Fn(() => first!.texture(vec2(0, 0)).add(second!.texture(vec2(0, 0))))());
+    expect(code).toContain(`@group(1) @binding(0) var ${first!.name}:`);
+    expect(code).toContain(`@group(1) @binding(1) var ${second!.name}:`);
+    expect(code).toContain(`@group(2) @binding(0) var ${first!.name}_s:`);
+    expect(code).toContain(`@group(2) @binding(1) var ${second!.name}_s:`);
+  });
+
+  /**
+   * Two uniforms of one alignment, `zeta` made first, so creation order puts
+   * it before `alpha` in the struct.
+   *
+   * @canon spec-a-wgsl-stage-hands-its-uniforms-to-the-layout-in-creation-order
+   */
+  it("declares uniforms of one alignment in the order the program made them on WGSL", () => {
+    const zeta = uniformRaw("zeta", "float");
+    const alpha = uniformRaw("alpha", "float");
+    const code = compileWgslStage.fragment(vec4(zeta, alpha, 0, 1));
+    const members = [...(/struct _RmslUniforms \{([\s\S]*?)\n\};/.exec(code)?.[1] ?? "").matchAll(/^\s*(\w+):/gm)].map(
+      (m) => m[1],
+    );
+    expect(members).toEqual(["zeta", "alpha"]);
+  });
+
+  /**
+   * @canon spec-the-uniforms-list-holds-the-uniform-nodes
+   */
+  it("takes the uniform nodes themselves as the uniforms list on WGSL", () => {
+    const read = uniform("float");
+    const other = uniform("vec2");
+    const code = compileWgslStage.fragment(vec4(read, 0, 0, 1), { uniforms: [read, other] });
+    expect(code).toMatch(new RegExp(`${other.name}: vec2<f32>`));
   });
 });
 
@@ -348,6 +498,195 @@ describe.skipIf(!GPU_ENABLED)("an adapter applies what the host set before attac
     },
     60_000,
   );
+});
+
+/**
+ * A full-screen triangle on a 4×4 canvas that a uniform or an attribute of
+ * one type draws green, by entry. Each entry returns what it read, or the
+ * error it hit.
+ */
+const VALUE_TYPES = `
+import { Fn, attribute, builtinPosition, float, uniform, uniformArray, vec2, vec4 } from "../rmsl";
+import { createGlsl } from "../glsl";
+import { createWgsl } from "../wgsl";
+${READ_PIXEL}
+const TRIANGLE = Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
+const canvas = () => {
+  const c = document.createElement("canvas");
+  c.width = 4;
+  c.height = 4;
+  return c;
+};
+const attempt = async (run) => {
+  try {
+    return await run();
+  } catch (error) {
+    return { error: error.message };
+  }
+};
+const position = attribute("vec3");
+const plainVertex = () => Fn(() => { builtinPosition().assign(vec4(position, 1)); })();
+/** Draws \`fragment\` with createGlsl, after \`set\` gives the adapter its values. */
+const glsl = (fragment, set, vertex = plainVertex(), drawWith) => attempt(() => {
+  const target = canvas();
+  const adapter = createGlsl(vertex, fragment);
+  adapter.attach(target);
+  if (drawWith) drawWith(adapter);
+  else {
+    adapter.setAttribute(position, TRIANGLE);
+    set(adapter);
+    adapter.draw({ count: 3 });
+  }
+  return readPixel(target, 1, 2);
+});
+/** The vertex stage of \`glsl\`, moved along x by an integer attribute it reads. */
+const shiftedVertex = (shift) =>
+  Fn(() => { builtinPosition().assign(vec4(position.x.add(shift.toFloat()), position.y, 0, 1)); })();
+const colours = () => uniformArray("vec4", 2);
+globalThis.__rmslValueTypes = {
+  uniformArray: () => {
+    const array = colours();
+    return glsl(Fn(() => array.element(1))(), (a) => a.setUniform(array, [[1, 0, 0, 1], [0, 1, 0, 1]]));
+  },
+  uint: () => {
+    const green = uniform("uint");
+    return glsl(Fn(() => vec4(0, green.toFloat(), 0, 1))(), (a) => a.setUniform(green, 1));
+  },
+  uvec2: () => {
+    const green = uniform("uvec2");
+    return glsl(Fn(() => vec4(0, green.y.toFloat(), 0, 1))(), (a) => a.setUniform(green, [0, 1]));
+  },
+  bvec2: () => {
+    const green = uniform("bvec2");
+    return glsl(Fn(() => vec4(0, green.y.select(float(1), float(0)), 0, 1))(), (a) => a.setUniform(green, [0, 1]));
+  },
+  mat2x3: () => {
+    const columns = uniform("mat2x3");
+    return glsl(Fn(() => vec4(columns.mul(vec2(1, 0)), 1))(), (a) => a.setUniform(columns, [0, 1, 0, 1, 0, 0]));
+  },
+  intAttribute: () => {
+    const shift = attribute("int");
+    return glsl(Fn(() => vec4(0, 1, 0, 1))(), (a) => a.setAttribute(shift, Int32Array.of(0, 0, 0)), shiftedVertex(shift));
+  },
+  uintAttribute: () => {
+    const shift = attribute("uint");
+    return glsl(Fn(() => vec4(0, 1, 0, 1))(), (a) => a.setAttribute(shift, Uint32Array.of(0, 0, 0)), shiftedVertex(shift));
+  },
+  intAttributeWithoutData: () => {
+    const shift = attribute("int");
+    return glsl(Fn(() => vec4(0, 1, 0, 1))(), () => {}, shiftedVertex(shift));
+  },
+  unreadFirst: () => {
+    const unused = attribute("vec2");
+    return glsl(Fn(() => vec4(0, 1, 0, 1))(), () => {}, plainVertex(), (adapter) => {
+      adapter.setAttribute(unused, new Float32Array(12));
+      adapter.setAttribute(position, TRIANGLE);
+      adapter.draw();
+    });
+  },
+  wgslUnreadFirst: () => attempt(async () => {
+    const unused = attribute("vec2");
+    const target = canvas();
+    const adapter = createWgsl({ vertex: plainVertex(), fragment: Fn(() => vec4(0, 1, 0, 1))() });
+    await adapter.attach(target);
+    adapter.setAttribute(unused, new Float32Array(12));
+    adapter.setAttribute(position, TRIANGLE);
+    adapter.draw();
+    await adapter.device().queue.onSubmittedWorkDone();
+    return readPixel(target, 1, 2);
+  }),
+  wgslUniformArray: () => attempt(async () => {
+    const array = colours();
+    const target = canvas();
+    const adapter = createWgsl({ vertex: plainVertex(), fragment: Fn(() => array.element(1))() });
+    await adapter.attach(target);
+    adapter.setAttribute(position, TRIANGLE);
+    adapter.setUniform(array, [[1, 0, 0, 1], [0, 1, 0, 1]]);
+    adapter.draw({ count: 3 });
+    await adapter.device().queue.onSubmittedWorkDone();
+    return readPixel(target, 1, 2);
+  }),
+};
+`;
+
+/** Runs the entry `name` of `VALUE_TYPES` in the WebGL page. */
+const glslValueType = (name: string) =>
+  runInGpuPage(
+    `${VALUE_TYPES}\nglobalThis.__rmslValueTypesRun = () => globalThis.__rmslValueTypes.${name}();`,
+    "__rmslValueTypesRun",
+    new URL(".", import.meta.url).pathname,
+  );
+
+describe.skipIf(!GPU_ENABLED)("an adapter takes a value of every type its program declares", () => {
+  /**
+   * @canon spec-an-adapter-sets-a-uniform-array-from-one-value-per-element
+   */
+  it("sets a uniform array with createGlsl", async () => {
+    expect(await glslValueType("uniformArray")).toEqual(GREEN);
+  }, 120_000);
+
+  /**
+   * @canon spec-an-adapter-sets-a-uniform-array-from-one-value-per-element
+   */
+  it.skipIf(!WEBGPU)(
+    "sets a uniform array with createWgsl",
+    async () => {
+      const run = `${VALUE_TYPES}\nglobalThis.__rmslValueTypesRun = () => globalThis.__rmslValueTypes.wgslUniformArray();`;
+      expect(await runInWebGpuPage(run, "__rmslValueTypesRun", new URL(".", import.meta.url).pathname)).toEqual(GREEN);
+    },
+    120_000,
+  );
+
+  /**
+   * The program reads only \`position\`, so the 12 values of an attribute it
+   * does not read, passed first, count for nothing.
+   *
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads
+   */
+  it("counts a createGlsl draw from the first attribute the program reads", async () => {
+    expect(await glslValueType("unreadFirst")).toEqual(GREEN);
+  }, 120_000);
+
+  /**
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads
+   */
+  it.skipIf(!WEBGPU)(
+    "counts a createWgsl draw from the first attribute the program reads",
+    async () => {
+      const run = `${VALUE_TYPES}\nglobalThis.__rmslValueTypesRun = () => globalThis.__rmslValueTypes.wgslUnreadFirst();`;
+      expect(await runInWebGpuPage(run, "__rmslValueTypesRun", new URL(".", import.meta.url).pathname)).toEqual(GREEN);
+    },
+    120_000,
+  );
+
+  /**
+   * @canon spec-an-adapter-sets-a-uniform-of-every-type-its-program-declares
+   */
+  it.each(["uint", "uvec2", "bvec2", "mat2x3"])(
+    "sets a %s uniform with createGlsl",
+    async (type) => {
+      expect(await glslValueType(type)).toEqual(GREEN);
+    },
+    120_000,
+  );
+
+  /**
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   */
+  it.each(["intAttribute", "uintAttribute"])(
+    "draws with an integer attribute through createGlsl, %s",
+    async (entry) => {
+      expect(await glslValueType(entry)).toEqual(GREEN);
+    },
+    120_000,
+  );
+
+  /**
+   * @canon spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value
+   */
+  it("draws with an integer attribute given no data through createGlsl", async () => {
+    expect(await glslValueType("intAttributeWithoutData")).toEqual(GREEN);
+  }, 120_000);
 });
 
 describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {

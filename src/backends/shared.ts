@@ -5,6 +5,7 @@ import {
   Node,
   NodeImpl,
   ShaderType,
+  StorageNode,
   StorageBufferAttribute,
   TYPE_WIDTH,
   node,
@@ -81,8 +82,10 @@ export interface CompileCtx {
   /**
    * The uniforms the program reads, by name: two nodes with one name are one
    * uniform. `length` is set only for uniform arrays, and gives their element count.
+   * WGSL also records each uniform's node and its `order` of creation.
    */
-  uniforms: Map<string, { type: string; slot: string; length?: number }>;
+  uniforms: Map<string, { type: string; slot: string; length?: number; order?: number; node?: BaseNode<ShaderType> }>;
+  /** The storage buffers the program reads, by slot; `order` is the creation order of the buffer. */
   storages?: Map<
     string,
     {
@@ -90,6 +93,7 @@ export interface CompileCtx {
       type: string;
       access: "read" | "write" | "read_write";
       wgslName: string;
+      order: number;
     }
   >;
   /**
@@ -963,6 +967,16 @@ export function storageAttributes(roots: unknown): Map<string, StorageBufferAttr
   return attributes;
 }
 
+/** One storage node for each buffer reachable from the roots, in the order the program created the buffers. */
+export function storageNodesOf(roots: unknown): StorageNode<ShaderType>[] {
+  const nodes = new Map<string, StorageNode<ShaderType>>();
+  someNode(roots, (node) => {
+    if (node.type === "storage" && !nodes.has(node.value.slot))
+      nodes.set(node.value.slot, node as StorageNode<ShaderType>);
+  });
+  return [...nodes.values()].sort((a, b) => a.attribute.id - b.attribute.id);
+}
+
 /** What a uniform, attribute or varying node declares, in the words of an error about its name. */
 function describeNamed(node: any): string | undefined {
   const value = node.value;
@@ -1047,6 +1061,8 @@ const READ_ONLY_NAMES: Record<string, string> = {
   attribute: "an attribute",
   fragCoord: "a built-in input",
   invocationIndex: "a built-in input",
+  vertexIndex: "a built-in input",
+  instanceIndex: "a built-in input",
 };
 
 /** The stage outputs only one stage writes, which stage, and what to call them in an error. */

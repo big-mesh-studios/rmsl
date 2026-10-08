@@ -1778,6 +1778,13 @@ export function compileJSNode(
       return { decls: [], body: [], expr: "ctx.index" };
     }
 
+    case "vertexIndex":
+    case "instanceIndex": {
+      if (ctx.shaderStage !== "vertex") throw new Error(`${node.type}() can only be used in vertex shaders`);
+      // A CPU rasterizer draws one instance, instance 0.
+      return { decls: [], body: [], expr: node.type === "vertexIndex" ? "(ctx.vertexIndex ?? 0)" : "0" };
+    }
+
     case "attribute": {
       let v = node.value as any;
       assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.attribute);
@@ -1816,6 +1823,7 @@ export function compileJSNode(
         throw new Error("builtinFragDepth() can only be used in fragment shaders");
       }
       ctx.jsNeedsRes = true;
+      ctx.fragDepthUsed = true;
       return { decls: [], body: [], expr: "res.fragDepth" };
     }
 
@@ -2539,6 +2547,7 @@ function compileJSFnDetailed(
   resultType: ShaderType | undefined;
   storageTypes: Record<string, ShaderType>;
   resultTypes: JsResultTypes;
+  writesDepth: boolean;
 } {
   let stage = options.stage ?? "fragment";
   let derivatives = options.derivatives ?? "throw";
@@ -2609,11 +2618,16 @@ function compileJSFnDetailed(
   const res = ctx.jsNeedsRes
     ? `var res = { outputs: ${outputKeys ? `{ ${outputKeys} }` : "{}"}, varyings: ${varyingKeys ? `{ ${varyingKeys} }` : "{}"}, position: undefined, fragDepth: undefined, value: undefined };`
     : "";
-  if (res && reentrant) body.push(res);
+  // A fragment's depth starts as the one its context holds, which a rasterizer sets to its interpolated depth.
+  const initialDepth = ctx.fragDepthUsed ? "ctx.fragDepth" : "undefined";
+  if (res && reentrant) {
+    body.push(res);
+    if (ctx.fragDepthUsed) body.push(`res.fragDepth = ${initialDepth};`);
+  }
   if (res && !reentrant) {
     // A stage output the program does not write on a call is undefined in what that call returns.
     for (const o of ctx.outputs.values()) body.push(`res.outputs[${JSON.stringify(o.slot)}] = undefined;`);
-    body.push("res.position = undefined;", "res.fragDepth = undefined;", "res.value = undefined;");
+    body.push("res.position = undefined;", `res.fragDepth = ${initialDepth};`, "res.value = undefined;");
   }
   // A varying the program does not write on a call is 0, a vector one a slot of zeros of its own.
   // One every call writes whole before anything else touches it needs no clearing.
@@ -2661,6 +2675,7 @@ function compileJSFnDetailed(
   parts.push(`return function ${options.name}(ctx) {\n${body.map((l) => "  " + l).join("\n")}\n};`);
   return {
     source: parts.join("\n\n"),
+    writesDepth: ctx.fragDepthUsed,
     resultType: lastType as ShaderType | undefined,
     storageTypes: Object.fromEntries(ctx.storageTypes ?? []) as Record<string, ShaderType>,
     resultTypes: {
@@ -2688,6 +2703,8 @@ export interface JsProgram extends CpuProgram {
   runInPlace(ctx: CpuShaderContext): CpuValue<ShaderType> | CpuProgramResult | null;
   /** The type of each varying a vertex stage writes, by slot. */
   readonly varyingTypes: Readonly<Record<string, string>>;
+  /** Whether a fragment stage can write its depth, so a rasterizer tests the depth it writes. */
+  readonly writesDepth: boolean;
 }
 
 /** The types of what a compiled JS function returns: its value, and the varyings and outputs it writes by slot. */
@@ -2791,7 +2808,7 @@ export function compileJSProgram(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
 ): JsProgram {
-  const { source, resultType, storageTypes, resultTypes } = compileJSFnDetailed(fn, options);
+  const { source, resultType, storageTypes, resultTypes, writesDepth } = compileJSFnDetailed(fn, options);
   const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuProgramResult | null;
   const runScratch = factory();
 
@@ -2873,7 +2890,7 @@ export function compileJSProgram(
   }
 
   // A reentrant routine declares its variables per call, so nothing is shared to copy out of.
-  return { run, runInPlace: runScratch, draw, compute, storageTypes, varyingTypes: resultTypes.varyings };
+  return { run, runInPlace: runScratch, draw, compute, storageTypes, varyingTypes: resultTypes.varyings, writesDepth };
 }
 
 /** What a stage compile function takes: the options of a routine, without the stage, which the function names. */

@@ -64,17 +64,15 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-adapter-writes-a-texture-of-the-same-shape-in-place`](#spec-an-adapter-writes-a-texture-of-the-same-shape-in-place) — `setTexture` of a texture of the size and format a sampler's GPU texture already has writes into that GPU texture on `createGlsl` and `createWgsl`, rather than making a new one, and four-channel data of the array type the texture holds goes up without a copy.
     - [`@spec an-adapter-takes-the-texture-a-sampler-reads-from-the-host`](#spec-an-adapter-takes-the-texture-a-sampler-reads-from-the-host) — `setTexture(sampler, texture)` gives a sampler uniform the texture it reads on every adapter that draws: `createGlsl`, `createWgsl`, `createJs` and `createWasm`. The sampler is named by its node or its slot, and the texture is described as a CPU target samples it. A GPU target reads 8-bit data as 0 to 1, and takes an integer array for an integer sampler.
     - [`@spec an-adapter-sets-a-uniform-of-every-type-its-program-declares`](#spec-an-adapter-sets-a-uniform-of-every-type-its-program-declares) — An adapter's `setUniform` uploads a uniform of every value type its program can declare.
-      - [`@bug the-glsl-adapter-refuses-a-uint-uniform`](#bug-the-glsl-adapter-refuses-a-uint-uniform) — `createGlsl.setUniform` uploads only float, int and bool scalars and vectors and square matrices, and throws for a `uint` uniform.
     - [`@spec a-wgsl-stage-given-the-program-uniforms-declares-every-one`](#spec-a-wgsl-stage-given-the-program-uniforms-declares-every-one) — A WGSL stage given the program's `uniforms` declares each of them in its struct, whether the stage reads it or not.
     - [`@spec the-uniforms-list-holds-the-uniform-nodes`](#spec-the-uniforms-list-holds-the-uniform-nodes) — The `uniforms` list a WGSL stage takes holds the uniform nodes themselves, not declarations of their slots.
-      - [`@bug wgsl-takes-the-uniforms-list-as-slot-declarations`](#bug-wgsl-takes-the-uniforms-list-as-slot-declarations) — A WGSL stage takes its `uniforms` list as `{ slot, type }` declarations, and refuses a stage whose uniform the list gives as a node.
     - [`@spec a-wgsl-stage-refuses-a-uniform-the-given-uniforms-leave-out`](#spec-a-wgsl-stage-refuses-a-uniform-the-given-uniforms-leave-out) — The compiler refuses a WGSL stage that reads a uniform the given `uniforms` leave out, and names that uniform.
   - [`@spec a-uniform-array-takes-one-slot`](#spec-a-uniform-array-takes-one-slot) — `uniformArray(type, length)` declares one uniform of `length` elements, whatever the length. The program reads an element with `element(i)`.
     - [`@spec a-uniform-array-is-read-by-element`](#spec-a-uniform-array-is-read-by-element) — A uniform array is declared once, and `element(i)` reads its element at `i`, by a literal, a float or a computed index.
     - [`@spec a-uniform-array-element-is-padded-out-of-sight`](#spec-a-uniform-array-element-is-padded-out-of-sight) — On WGSL, a uniform array whose element is narrower than 16 bytes stores each element widened to a `vec4`. It reads the element back out of the leading components.
     - [`@spec a-uniform-array-holds-no-texture`](#spec-a-uniform-array-holds-no-texture) — A uniform array of a texture type, float or integer, is refused.
     - [`@spec a-uniform-array-length-is-a-positive-integer`](#spec-a-uniform-array-length-is-a-positive-integer) — A uniform array whose length is not a positive integer is refused.
-    - [`@bug the-glsl-adapter-never-sets-a-uniform-array`](#bug-the-glsl-adapter-never-sets-a-uniform-array) — WebGL reports a uniform array as `name[0]`, and `createGlsl` looks the slot up by that name, so `setUniform` on a uniform array never applies.
+    - [`@spec an-adapter-sets-a-uniform-array-from-one-value-per-element`](#spec-an-adapter-sets-a-uniform-array-from-one-value-per-element) — An adapter's `setUniform` on a uniform array takes one value for each of its elements, in order, and the program reads each by `element(i)`.
   - [`@spec a-stage-passes-its-values-on-every-target`](#spec-a-stage-passes-its-values-on-every-target) — A fragment stage writes its colour, and a vertex stage passes its varyings on to the fragment stage, the same way on every target.
     - [`@spec a-fragment-result-without-an-output-is-the-colour`](#spec-a-fragment-result-without-an-output-is-the-colour) — A fragment stage that declares no [output](#term-output) writes its result to the colour at location 0. The result converts as it does in TSL.
       - [`@spec a-vec4-result-is-the-colour`](#spec-a-vec4-result-is-the-colour) — A fragment stage that returns a `vec4` writes it to the implicit colour output unchanged.
@@ -86,9 +84,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-fragment-stage-may-write-no-colour`](#spec-a-fragment-stage-may-write-no-colour) — A fragment stage that returns nothing compiles.
     - [`@spec a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour`](#spec-a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour) — A CPU rasterizer runs a fragment stage that writes no colour, tests and writes its depth, and leaves the pixel as it was.
     - [`@spec a-varying-passes-from-the-vertex-to-the-fragment-stage`](#spec-a-varying-passes-from-the-vertex-to-the-fragment-stage) — A varying is an output of the vertex stage and an input of the fragment stage.
-      - [`@bug wasm-rasterizer-interpolates-an-integer-varying-as-a-float`](#bug-wasm-rasterizer-interpolates-an-integer-varying-as-a-float) — The WASM rasterizer interpolates an integer varying as a 64-bit float, though the stages write and read it as a 32-bit integer.
+    - [`@spec an-integer-varying-is-flat`](#spec-an-integer-varying-is-flat) — An integer varying is not interpolated. Each fragment of a triangle reads the value one vertex of the triangle wrote. GLSL and WGSL declare it `flat`.
+      - [`@spec a-flat-varying-takes-the-first-vertex`](#spec-a-flat-varying-takes-the-first-vertex) — On WGSL, JS and WASM, a fragment reads an integer varying as the first vertex of its triangle wrote it. A triangle clipped at the near plane keeps that vertex's value.
+      - [`@exception a-glsl-flat-varying-takes-the-last-vertex`](#exception-a-glsl-flat-varying-takes-the-last-vertex) — On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it.
     - [`@spec an-attribute-is-an-input-of-the-vertex-stage`](#spec-an-attribute-is-an-input-of-the-vertex-stage) — An attribute is an input of the vertex stage, read once for each vertex.
-      - [`@bug wasm-rasterizer-writes-an-integer-attribute-as-a-float`](#bug-wasm-rasterizer-writes-an-integer-attribute-as-a-float) — `compileWasm` copies an integer attribute in as a 64-bit float, where the vertex stage reads a 32-bit integer.
   - [`@spec a-program-runs-its-statements-in-the-order-it-writes-them`](#spec-a-program-runs-its-statements-in-the-order-it-writes-them) — A program runs its statements in the order its body made them, on every target, the statements that compute an index or a value included.
     - [`@spec the-index-of-a-write-is-read-after-the-value-is-computed`](#spec-the-index-of-a-write-is-read-after-the-value-is-computed) — A write through a computed index reads the index after the statements that compute the value it writes.
     - [`@spec a-column-index-runs-before-a-component-index`](#spec-a-column-index-runs-before-a-component-index) — When a program computes both indices of a write to a component of a matrix column, the column index runs first.
@@ -165,7 +164,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-test-is-held-to-its-own-programs`](#spec-a-test-is-held-to-its-own-programs) — The evaluation harness compares the programs a test records on every target after that test, so a target that disagrees fails the test that made the program, and the file's last comparison takes only the programs no test compared.
     - [`@spec a-program-wasm-refuses-names-its-issue`](#spec-a-program-wasm-refuses-names-its-issue) — A recorded program the WASM target refuses fails the run, unless the list of known refusals names it with the issue that tracks it. A listed program that compiles fails the run too.
   - [`@spec a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type) — A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A format no buffer of its own can carry, a raw integer array, and a width no format covers are refused.
-    - [`@bug the-glsl-adapter-uploads-an-integer-attribute-as-floats`](#bug-the-glsl-adapter-uploads-an-integer-attribute-as-floats) — `createGlsl` points every attribute at its buffer as floats, so an `int` attribute mismatches its declaration and the draw is refused.
   - [`@spec wgsl-brackets-a-bitwise-operand-that-is-not-unary`](#spec-wgsl-brackets-a-bitwise-operand-that-is-not-unary) — On WGSL, the compiler brackets each operand of a bitwise or shift operator that is not a unary expression.
   - [`@spec wgsl-brackets-a-logical-operator-nested-in-another`](#spec-wgsl-brackets-a-logical-operator-nested-in-another) — On WGSL, the compiler brackets an `&&` or `||` that is the operand of another logical operator.
   - [`@spec wgsl-converts-a-shift-amount-to-unsigned`](#spec-wgsl-converts-a-shift-amount-to-unsigned) — On WGSL, the compiler converts a signed shift amount to `u32`, and a scalar amount beside a vector to a `u32` vector of its width.
@@ -227,9 +225,14 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec the-position-is-read-only-in-a-vertex-stage`](#spec-the-position-is-read-only-in-a-vertex-stage) — A vertex [stage](#term-stage) reads `builtinPosition()`, and a fragment stage that reads it is refused.
     - [`@spec a-compute-program-cannot-read-an-attribute`](#spec-a-compute-program-cannot-read-an-attribute) — A compute program that reads an [attribute](#term-attribute) is refused on every target that compiles one. A compute program reaches a buffer through `storage()`, which reads what an attribute lies over.
     - [`@spec a-compute-program-cannot-read-a-varying`](#spec-a-compute-program-cannot-read-a-varying) — A compute program that reads a [varying](#term-varying) is refused on every target that compiles one. A compute program has no vertex stage to pass a value from.
-    - [`@spec a-render-stage-reads-storage-read-only`](#spec-a-render-stage-reads-storage-read-only) — A vertex or fragment stage reads a storage buffer read-only, from a group of its own whose bindings count across both stages. A write to one from a render stage is refused.
+    - [`@spec a-render-stage-reads-storage-read-only`](#spec-a-render-stage-reads-storage-read-only) — A vertex or fragment stage reads a storage buffer read-only, on WGSL and on GLSL. A write to one from a render stage is refused.
       - [`@spec a-wgsl-render-stage-reads-storage-read-only`](#spec-a-wgsl-render-stage-reads-storage-read-only) — On WGSL, a vertex or fragment stage declares a storage buffer read-only, in a group of its own numbered across both stages. It refuses a write to the buffer.
-      - [`@exception glsl-has-no-storage-buffers`](#exception-glsl-has-no-storage-buffers) — A GLSL stage that reads a storage buffer is refused. Issue #48 asks to read one through a data texture instead.
+      - [`@spec a-glsl-render-stage-reads-storage-through-a-data-texture`](#spec-a-glsl-render-stage-reads-storage-through-a-data-texture) — On GLSL, a vertex or fragment stage reads a storage buffer through a texture that holds its elements, declared as a sampler uniform under the buffer's slot name. It refuses a write to the buffer.
+        - [`@spec a-glsl-stage-declares-a-storage-buffer-as-a-sampler-under-its-slot`](#spec-a-glsl-stage-declares-a-storage-buffer-as-a-sampler-under-its-slot) — A GLSL render stage declares each storage buffer it reads as a sampler uniform named after the buffer's slot, and reads `element(i)` with `texelFetch`.
+        - [`@spec a-glsl-render-stage-refuses-a-write-to-storage`](#spec-a-glsl-render-stage-refuses-a-write-to-storage) — The GLSL compiler refuses a write to a storage buffer from a vertex or fragment stage.
+        - [`@spec a-storage-texel-holds-one-element-or-one-column`](#spec-a-storage-texel-holds-one-element-or-one-column) — A texel of a storage texture holds one element, with as many channels as the element has components, of an integer format for an `int` or `uint` element. A matrix element takes one texel for each of its columns, in consecutive texels.
+        - [`@spec a-storage-texture-is-a-power-of-two-wide`](#spec-a-storage-texture-is-a-power-of-two-wide) — A storage texture is as wide as the smallest power of two at or above the square root of its texel count, and as tall as its texels need. Texel `t` sits at column `t % width` and row `t / width`, where the stage reads `width` from the texture's size.
+        - [`@spec the-glsl-adapter-uploads-each-storage-buffer-it-reads`](#spec-the-glsl-adapter-uploads-each-storage-buffer-it-reads) — `createGlsl` uploads each storage buffer its stages read as a storage texture, from the buffer's contents at `attach`. `setAttribute` on the buffer's slot fills it again.
       - [`@spec a-wgsl-render-stage-declares-its-storage-in-group-three`](#spec-a-wgsl-render-stage-declares-its-storage-in-group-three) — On WGSL, a vertex or fragment stage declares its storage buffers in group 3.
   - [`@spec a-constant-index-outside-a-vector-or-matrix-is-refused`](#spec-a-constant-index-outside-a-vector-or-matrix-is-refused) — A constant index outside a vector's components or a matrix's columns is refused on every target. Such an index is a literal, or an operation of literals that folds to one. A write by index through a swizzle is refused for an index outside the swizzle, as its read is. So it is in a graph `deserialize` rebuilt.
   - [`@spec a-constant-index-outside-a-uniform-array-is-refused`](#spec-a-constant-index-outside-a-uniform-array-is-refused) — A constant index outside the elements of a uniform array is refused on every target: a literal, or an operation of literals that folds to one.
@@ -275,8 +278,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-compound-assignment-writes-the-result-back`](#spec-a-compound-assignment-writes-the-result-back) — `addAssign`, `subAssign`, `mulAssign`, `divAssign` and `modAssign` write the result of their operation back to the variable.
     - [`@spec select-picks-one-of-two-values`](#spec-select-picks-one-of-two-values) — `select(condition, a, b)` gives `a` where `condition` holds and `b` where it does not, with the type of its branches. A literal condition folds to its branch.
     - [`@spec the-screen-accessors-follow-tsl`](#spec-the-screen-accessors-follow-tsl) — `fragCoord()` gives the coordinate of the fragment, and `screenUV()` and `uv()` give it divided by the size of the screen. `screenSize()` gives one shared uniform, and `time()` a float uniform. Each does what TSL's accessor of the same name does.
-    - [`@spec the-index-accessors-follow-tsl`](#spec-the-index-accessors-follow-tsl) — `vertexIndex()` and `instanceIndex()` give the vertex and the instance that the GPU draws, as TSL's accessors of the same names do. The CPU targets do not compile them yet: issue #47.
-      - [`@bug the-cpu-targets-compile-no-index-accessors`](#bug-the-cpu-targets-compile-no-index-accessors) — The JS and WASM targets do not compile `vertexIndex()` or `instanceIndex()`.
+    - [`@spec the-index-accessors-follow-tsl`](#spec-the-index-accessors-follow-tsl) — `vertexIndex()` and `instanceIndex()` give a vertex stage the vertex and the instance being drawn, as TSL's accessors of the same names do, on every target. A write to either is refused.
+      - [`@spec a-gpu-target-reads-the-index-accessors-from-its-builtins`](#spec-a-gpu-target-reads-the-index-accessors-from-its-builtins) — On GLSL, `vertexIndex()` and `instanceIndex()` read `gl_VertexID` and `gl_InstanceID`; on WGSL, the `vertex_index` and `instance_index` builtins.
+      - [`@spec a-cpu-vertex-stage-reads-the-vertex-it-runs-for`](#spec-a-cpu-vertex-stage-reads-the-vertex-it-runs-for) — On JS and WASM, a vertex stage reads `vertexIndex()` as the index of the vertex the rasterizer runs it for, counted as a GPU counts it, from the start of the attributes and not from the draw's first vertex.
+      - [`@spec a-cpu-vertex-stage-reads-instance-zero`](#spec-a-cpu-vertex-stage-reads-instance-zero) — On JS and WASM, a vertex stage reads `instanceIndex()` as 0.
+      - [`@spec the-index-accessors-are-read-only`](#spec-the-index-accessors-are-read-only) — The compiler refuses a write to `vertexIndex()` or `instanceIndex()` on every target, and names it a built-in input.
     - [`@spec the-weight-of-mix-stays-a-scalar`](#spec-the-weight-of-mix-stays-a-scalar) — The scalar weight of `mix` reaches every target as a scalar beside its vectors.
     - [`@spec cbrt-is-composed-of-sign-abs-and-pow`](#spec-cbrt-is-composed-of-sign-abs-and-pow) — `cbrt(x)` compiles to `sign(x)` times `pow(abs(x), 1/3)` on every target.
     - [`@spec a-select-on-a-comparison-of-integer-literals-folds-to-its-branch`](#spec-a-select-on-a-comparison-of-integer-literals-folds-to-its-branch) — A `select` whose condition compares integer literals compiles to the branch the comparison picks.
@@ -325,8 +331,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-else-if-follows-its-if-directly`](#spec-an-else-if-follows-its-if-directly) — An `ElseIf` or `Else` written after a statement that follows its `If` or `ElseIf`, a variable or a `Break` included, or called from inside another block, is refused.
   - [`@spec a-switch-runs-the-case-its-selector-matches`](#spec-a-switch-runs-the-case-its-selector-matches) — `Switch` runs the first `Case` whose values hold its selector, or the `Default` when none does, as a chain of `if` and `else` with no fall-through. It is written as TSL writes it, `Switch(selector).Case(value, …, body).Default(body)`, and the chain stands where its first `Case` or `Default` is added. A statement made between `Switch` and that call runs before the chain. A `Switch` with no `Case` and no `Default` runs nothing.
   - [`@spec break-continue-return-and-discard-leave-where-tsl-leaves`](#spec-break-continue-return-and-discard-leave-where-tsl-leaves) — `Break` leaves the loop, `Continue` starts its next iteration, `Return` leaves the function, and `Discard` drops the fragment.
-    - [`@bug the-wasm-rasterizer-paints-a-discarded-fragment`](#bug-the-wasm-rasterizer-paints-a-discarded-fragment) — The WASM rasterizer writes a colour for a discarded fragment: the colour the fragment stage last left in its memory.
-    - [`@bug the-cpu-rasterizers-write-the-depth-of-a-discarded-fragment`](#bug-the-cpu-rasterizers-write-the-depth-of-a-discarded-fragment) — The JS and WASM rasterizers write the depth of a fragment before they run it. A fragment that discards still hides what a later draw puts behind it.
   - [`@spec an-fn-records-the-statements-of-its-body`](#spec-an-fn-records-the-statements-of-its-body) — `Fn` records the statements its body makes into the [fn](#term-fn) it returns. An `Fn` may be empty, return one value or several, and call another `Fn`.
     - [`@spec an-fn-returns-what-its-body-returns`](#spec-an-fn-returns-what-its-body-returns) — A call of an `Fn` gives what its body returns: nothing, one value, or several. An empty body and a body that calls another `Fn` compile.
     - [`@spec an-inline-fn-runs-where-it-is-called`](#spec-an-inline-fn-runs-where-it-is-called) — A variable that a called `Fn` makes is declared where the call is, not where its value is first read.
@@ -402,6 +406,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-glsl-adapter-attaches-and-draws-synchronously`](#spec-a-glsl-adapter-attaches-and-draws-synchronously) — `attach` and `draw` on a GLSL adapter return `void`, because WebGL 2 creates its context and draws synchronously.
   - [`@spec compute-copies-back-only-the-slots-out-names`](#spec-compute-copies-back-only-the-slots-out-names) — `compute(out)` copies back to the host only the storage slots that `out` names. The other storage buffers stay where the program wrote them. A slot that the program has no storage for is refused.
     - [`@spec compute-copies-back-only-the-named-slots`](#spec-compute-copies-back-only-the-named-slots) — `compute(out)` fills only the slots `out` names.
+    - [`@spec overlapping-compute-calls-each-read-back-their-own-result`](#spec-overlapping-compute-calls-each-read-back-their-own-result) — Two `compute(out)` calls on one WGSL adapter, the second made before the first resolves, each fill their own `out` with what their own dispatch left in the buffers.
     - [`@spec compute-refuses-a-slot-with-no-storage`](#spec-compute-refuses-a-slot-with-no-storage) — `compute(out)` refuses a slot that the program has no storage buffer for.
     - [`@spec a-wasm-routine-copies-back-only-the-buffers-the-program-writes`](#spec-a-wasm-routine-copies-back-only-the-buffers-the-program-writes) — A WASM routine marks a storage buffer as written only when its program assigns to it, and copies back only the buffers so marked.
     - [`@spec setting-one-storage-slot-keeps-the-others`](#spec-setting-one-storage-slot-keeps-the-others) — `setAttribute` on one storage slot of a compute adapter leaves what the other slots hold.
@@ -430,14 +435,15 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-draw-clears-the-colour-of-its-target-to-its-clear-colour`](#spec-a-draw-clears-the-colour-of-its-target-to-its-clear-colour) — A draw clears the colour of its target to its `clearColor` before it draws, so no pixel of an earlier draw remains.
       - [`@spec a-clear-colour-is-transparent-black-unless-the-draw-gives-one`](#spec-a-clear-colour-is-transparent-black-unless-the-draw-gives-one) — A draw that gives no `clearColor` clears to transparent black, `[0, 0, 0, 0]`.
         - [`@spec a-glsl-js-and-wasm-draw-clears-to-transparent-black`](#spec-a-glsl-js-and-wasm-draw-clears-to-transparent-black) — A draw of the GLSL adapter, and of a JS or WASM rasterizer routine, that gives no `clearColor` leaves the cleared pixels at `[0, 0, 0, 0]`.
-        - [`@exception a-wgsl-canvas-shows-a-transparent-clear-as-opaque-black`](#exception-a-wgsl-canvas-shows-a-transparent-clear-as-opaque-black) — The WGSL adapter clears to `[0, 0, 0, 0]` as well, but its canvas shows every pixel with alpha 1, so the clear reads as opaque black.
-      - [`@spec a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear`](#spec-a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear) — A draw that passes `clear: false` leaves the colour of the pixels it does not cover as an earlier draw left them.
+        - [`@spec a-wgsl-canvas-shows-a-transparent-clear-as-transparent`](#spec-a-wgsl-canvas-shows-a-transparent-clear-as-transparent) — The WGSL adapter configures its canvas `premultiplied`, so a draw that gives no `clearColor` leaves the cleared pixels at `[0, 0, 0, 0]`.
+        - [`@spec a-wgsl-adapter-attached-without-alpha-draws-opaque`](#spec-a-wgsl-adapter-attached-without-alpha-draws-opaque) — `attach(canvas, { alpha: false })` on a WGSL adapter configures its canvas `opaque`, so every pixel shows with alpha 1.
+      - [`@spec a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear`](#spec-a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear) — A draw that passes `clear: false` leaves the colour of the pixels it does not cover as an earlier draw left them. A CPU rasterizer draw given an output buffer draws over what that buffer holds.
       - [`@spec a-cpu-draw-clears-its-depth-first-unless-it-asks-not-to`](#spec-a-cpu-draw-clears-its-depth-first-unless-it-asks-not-to) — A draw of a CPU rasterizer routine clears its depth buffer before it draws, so no depth of an earlier draw hides it. With `clearDepth: false` it tests against the depth an earlier draw left.
     - [`@spec several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas) — Several adapters can draw on one canvas. An adapter ignores a uniform its program does not read.
     - [`@spec an-effect-with-several-passes-is-a-pass-graph`](#spec-an-effect-with-several-passes-is-a-pass-graph) — An [effect](#term-effect) with several passes returns a [pass graph](#term-pass-graph): its passes, the samplers each pass reads, and the pass that gives the output. The application draws each pass.
     - [`@exception a-scene-renderer-draws-its-scene-graph`](#exception-a-scene-renderer-draws-its-scene-graph) — `render(scene, camera)` on a renderer of `./scene` walks the scene graph, binds the geometry and the [node material](#term-node-material) of each mesh, uploads their uniforms and draws them.
     - [`@spec a-pass-keys-an-input-by-the-pass-that-makes-it`](#spec-a-pass-keys-an-input-by-the-pass-that-makes-it) — A pass keys an input another pass makes by that pass's name, such as `gaussianBlur.horizontal`, and an outside texture by any other name.
-    - [`@spec a-gpu-adapter-takes-its-count-from-the-first-attribute`](#spec-a-gpu-adapter-takes-its-count-from-the-first-attribute) — A `createGlsl` or `createWgsl` draw that names no vertex count takes it from the first attribute the host passes. The count is that attribute's vertices after the draw's first vertex.
+    - [`@spec a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads) — A `createGlsl` or `createWgsl` draw that names no vertex count takes it from the first attribute its program reads, in the order the host passed them. The count is that attribute's vertices after the draw's first vertex. An attribute the program does not read is taken and counts for nothing.
     - [`@spec a-compute-call-dispatches-the-count-it-is-given`](#spec-a-compute-call-dispatches-the-count-it-is-given) — A `compute` call on a compute adapter runs one invocation for each index below its count. The count is the one the caller names, or else the number of elements of the first storage buffer the host passed.
       - [`@spec a-compute-call-takes-the-count-the-caller-names`](#spec-a-compute-call-takes-the-count-the-caller-names) — `compute(out, count)` runs one invocation for each index below `count`, whatever the buffers hold. A count of zero runs none.
       - [`@spec a-compute-call-takes-its-count-from-the-first-storage-buffer`](#spec-a-compute-call-takes-its-count-from-the-first-storage-buffer) — A `compute` call given no count runs one invocation for each element of the first storage buffer the host passed. A buffer the host passes after it does not change that count.
@@ -502,8 +508,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-wasm-routine-reads-uniforms-from-the-wgsl-layout`](#spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout) — Given `gpuUniformLayout`, a WASM routine reads each uniform, arrays included, at the offset and stride `wgslUniformLayout` reports, so one buffer serves WGSL and WASM. Without it, a WASM module lays out its own memory and holds each float uniform in 64 bits.
     - [`@spec a-gpu-uniform-layout-needs-32-bit-floats`](#spec-a-gpu-uniform-layout-needs-32-bit-floats) — A WASM compile function or adapter given `gpuUniformLayout` must also be given `float: "f32"`. The type checker refuses the layout beside `float: "f64"`, or beside no `float`, when the options are written in the call. The compile refuses it too, with an error that names both ways out: `float: "f32"` to share the buffer with the GPU, or no layout to keep 64 bits.
     - [`@spec a-type-with-no-layout-is-refused`](#spec-a-type-with-no-layout-is-refused) — A member whose type has no WGSL layout is refused, rather than placed by a guess.
+    - [`@spec a-wgsl-stage-given-no-samplers-binds-its-textures-in-creation-order`](#spec-a-wgsl-stage-given-no-samplers-binds-its-textures-in-creation-order) — A WGSL stage given no `samplers` list binds its textures in group 1, and the samplers of its float textures in group 2, in the order the program created the textures.
     - [`@spec a-wgsl-stage-hands-its-uniforms-to-the-layout-in-creation-order`](#spec-a-wgsl-stage-hands-its-uniforms-to-the-layout-in-creation-order) — A WGSL stage given no uniform list declares its uniforms to the layout in the order the program created them.
-      - [`@bug wgsl-hands-uniforms-to-the-layout-in-the-string-order-of-slot-names`](#bug-wgsl-hands-uniforms-to-the-layout-in-the-string-order-of-slot-names) — A WGSL stage given no uniform list declares its uniforms to the layout in the string order of their slot names, so `_rmsl_u10` comes before `_rmsl_u2`.
   - [`@spec a-function-compiles-on-its-own`](#spec-a-function-compiles-on-its-own) — `compileGlslFn` and `compileWgslFn` compile one function, under the name and the typed parameters the caller gives. The application places it in a shader of its own. A function compiled on its own returns one value, and a function that returns several is refused.
   - [`@spec the-glsl-adapter-applies-a-value-set-before-attach`](#spec-the-glsl-adapter-applies-a-value-set-before-attach) — A uniform or attribute the host sets on `createGlsl` before `attach` applies from the first draw after it.
   - [`@spec the-wgsl-adapter-applies-a-value-set-before-attach`](#spec-the-wgsl-adapter-applies-a-value-set-before-attach) — A uniform or attribute the host sets on `createWgsl` before `attach` resolves applies from the first draw after it.
@@ -511,12 +517,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec an-effect-writes-its-constant-tables-into-its-code`](#spec-an-effect-writes-its-constant-tables-into-its-code) — An effect writes TSL's constant tables, such as its blur weights, into its code and declares no uniform for them.
   - [`@spec a-wgsl-program-binds-its-storage-in-the-order-the-caller-lists`](#spec-a-wgsl-program-binds-its-storage-in-the-order-the-caller-lists) — A WGSL program binds each storage buffer at its index in the `storages` list the caller gives, in a render stage and a compute program alike.
     - [`@spec the-storages-list-holds-the-storage-nodes`](#spec-the-storages-list-holds-the-storage-nodes) — The `storages` list holds the storage nodes themselves, not their slot names.
-      - [`@bug wgsl-takes-the-storages-list-as-slot-names`](#bug-wgsl-takes-the-storages-list-as-slot-names) — A WGSL render stage takes its `storages` list as slot names, so a storage node in the list gets `@binding(-1)`.
     - [`@spec a-wgsl-render-stage-binds-its-storage-in-the-listed-order`](#spec-a-wgsl-render-stage-binds-its-storage-in-the-listed-order) — A WGSL vertex or fragment stage binds each storage buffer at its index in the `storages` list.
     - [`@spec a-wgsl-compute-program-binds-its-storage-in-the-listed-order`](#spec-a-wgsl-compute-program-binds-its-storage-in-the-listed-order) — A WGSL compute program binds each storage buffer at its index in the `storages` list.
-      - [`@bug wgsl-compute-ignores-the-storages-list`](#bug-wgsl-compute-ignores-the-storages-list) — A WGSL compute program ignores the `storages` list, and binds its buffers by the string order of their slot names.
+    - [`@spec a-wgsl-stage-refuses-a-buffer-the-given-storages-leave-out`](#spec-a-wgsl-stage-refuses-a-buffer-the-given-storages-leave-out) — The compiler refuses a WGSL stage that reads a storage buffer the given `storages` leave out, and names that buffer.
     - [`@spec a-wgsl-program-given-no-storage-list-binds-in-creation-order`](#spec-a-wgsl-program-given-no-storage-list-binds-in-creation-order) — Given no `storages` list, a WGSL program binds its storage buffers in the order the program created them.
-      - [`@bug wgsl-binds-storage-in-the-string-order-of-slot-names`](#bug-wgsl-binds-storage-in-the-string-order-of-slot-names) — Given no list, a WGSL program binds its storage buffers by the string order of their slot names, so `_rmsl_b10` binds before `_rmsl_b9`. A graph restored from JSON gets new numbers, and its buffers can swap bindings.
 - [`@axiom rmsl-runs-everywhere`](#axiom-rmsl-runs-everywhere) — A program written in rmsl runs everywhere code runs. It runs on a GPU through a graphics API, and on the CPU, as JavaScript source or as a WebAssembly module. A WebAssembly module carries it further: a tool such as `wasm2c` turns the module into C, which builds for any environment.
   - [`@axiom a-program-runs-without-a-graphics-api`](#axiom-a-program-runs-without-a-graphics-api) — A program also runs in the host's own JavaScript, with no [graphics API](#term-graphics-api). The application gets its answer within the same call, and can run the program where no graphics API exists.
     - [`@spec a-cpu-target-draws-within-the-call`](#spec-a-cpu-target-draws-within-the-call) — A program compiled for a CPU target draws a grid of fragments and returns the pixels within the same call, with no graphics API.
@@ -543,16 +547,13 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cpu-target-rasterizes-a-vertex-and-fragment-pair`](#spec-a-cpu-target-rasterizes-a-vertex-and-fragment-pair) — `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates varyings in perspective, clips at the near plane, and keeps the closer fragment.
       - [`@spec the-wasm-rasterizer-links-its-stages-in-one-memory`](#spec-the-wasm-rasterizer-links-its-stages-in-one-memory) — The WASM rasterizer calls the vertex module, then the fragment module, as imports that share one memory.
       - [`@spec a-rasterizer-clips-at-the-near-plane`](#spec-a-rasterizer-clips-at-the-near-plane) — The rasterizer clips a triangle with a vertex behind the eye into the triangles in front of it. A triangle wholly behind the eye draws nothing.
-      - [`@spec a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment) — The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles. Its depth buffer persists across draws until a draw asks for `clearDepth`.
-        - [`@bug wasm-rasterizer-ignores-the-fragment-depth`](#bug-wasm-rasterizer-ignores-the-fragment-depth) — The WASM rasterizer tests and stores the interpolated depth, ignoring the depth the fragment stage writes.
-      - [`@spec a-rasterizer-takes-its-count-from-the-first-attribute`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute) — A draw that names no vertex count takes it from the first attribute the host passes.
+      - [`@spec a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment) — The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles: the depth the fragment stage writes, clamped to 0 to 1, or else its interpolated depth. Its depth buffer persists across draws of one size until a draw asks for `clearDepth`, and a draw of another width or height starts from a cleared one.
+      - [`@spec a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one`](#spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one) — In a CPU rasterizer, `builtinFragDepth()` read before the fragment stage writes it gives the fragment's interpolated depth.
+      - [`@spec a-rasterizer-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads) — A draw that names no vertex count takes it from the first attribute its program reads, in the order the host passed them. An attribute the program does not read is taken and counts for nothing.
       - [`@spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws) — The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
-        - [`@bug wasm-rasterizer-gives-every-fragment-coordinate-zero`](#bug-wasm-rasterizer-gives-every-fragment-coordinate-zero) — The WASM rasterizer never writes `fragCoord()`, so every fragment reads it as `[0, 0]`, where the JS rasterizer passes the pixel's centre.
-      - [`@spec a-pixel-on-a-shared-edge-is-shaded-once`](#spec-a-pixel-on-a-shared-edge-is-shaded-once) — A pixel centre on an edge two triangles share takes the colour of one of them. WebGPU's rasterization rules pick which one, whatever the order of the triangles.
-        - [`@bug js-rasterizer-shades-a-shared-edge-twice`](#bug-js-rasterizer-shades-a-shared-edge-twice) — The JS rasterizer shades a pixel centre on an edge two triangles share with both, so the triangle drawn last wins it.
-        - [`@bug wasm-rasterizer-shades-a-shared-edge-twice`](#bug-wasm-rasterizer-shades-a-shared-edge-twice) — The WASM rasterizer shades a pixel centre on an edge two triangles share with both, so the triangle drawn last wins it.
+      - [`@spec a-pixel-on-a-shared-edge-is-shaded-once`](#spec-a-pixel-on-a-shared-edge-is-shaded-once) — A pixel centre on an edge that two triangles share takes the colour of one of them, whatever their order. It takes the colour of the triangle whose top or left edge it is.
+      - [`@spec a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge`](#spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge) — A CPU rasterizer shades a pixel centre on a top or a left edge of a triangle, and not one on a bottom or a right edge. This holds whichever way the triangle winds.
       - [`@spec a-rasterizer-clips-outside-the-depth-range`](#spec-a-rasterizer-clips-outside-the-depth-range) — The rasterizer clips a triangle at depth 0 and depth 1, so it draws nothing whose depth lies outside that range.
-        - [`@bug js-rasterizer-draws-a-triangle-below-zero-depth`](#bug-js-rasterizer-draws-a-triangle-below-zero-depth) — The JS rasterizer draws a triangle whose depth lies below zero, which WebGPU clips away.
       - [`@spec a-triangle-off-screen-draws-nothing`](#spec-a-triangle-off-screen-draws-nothing) — A triangle wholly outside the viewport draws nothing, at any distance from it.
       - [`@spec a-rasterizer-gives-each-vertex-its-own-position`](#spec-a-rasterizer-gives-each-vertex-its-own-position) — A CPU rasterizer places each vertex of a draw at the position its own vertex call returned, whatever the vertex program keeps in variables.
       - [`@spec a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds`](#spec-a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds) — A CPU rasterizer draws a triangle whether its vertices run clockwise or counter-clockwise on the screen.
@@ -632,6 +633,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-material-program-holds-only-what-its-graph-reads`](#spec-a-material-program-holds-only-what-its-graph-reads) — A `MaterialProgram` holds only the uniforms, attributes and varyings its graph reads. A scene with no lights declares no light uniforms.
   - [`@spec the-main-entry-exports-no-compiler`](#spec-the-main-entry-exports-no-compiler) — The main entry exports the graph functions and serialization, and no compiler, so each target is imported from its own subpath.
   - [`@spec compile-wat-loads-every-wat-module`](#spec-compile-wat-loads-every-wat-module) — `compileWat` given no `include` loads every `.wat` module as its WebAssembly bytes.
+  - [`@spec a-wat-module-exports-its-shared-variant-or-undefined`](#spec-a-wat-module-exports-its-shared-variant-or-undefined) — A loaded `.wat` module exports `shared`: the bytes of the same module importing its memory shared, or `undefined` when the module imports no memory.
 - [`@fact wgsl-defines-every-integer-edge-case`](#fact-wgsl-defines-every-integer-edge-case) — WGSL defines the result of every integer operation on run-time values. Overflow wraps. A division by zero returns the dividend and a remainder by zero returns zero. The most negative `i32` divided by `-1` returns itself. A shift uses its amount modulo the bit width.
 - [`@fact glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined) — GLSL ES 3.00 leaves undefined the result of an integer division or remainder by zero. It also leaves undefined a shift by a negative amount, or by the bit width or more.
 - [`@fact wgsl-rejects-a-constant-expression-that-fails`](#fact-wgsl-rejects-a-constant-expression-that-fails) — A WGSL shader fails to compile when a constant expression divides an integer by zero, shifts by the bit width or more, or overflows.
@@ -646,6 +648,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact wgsl-allows-twelve-uniform-buffers-per-stage`](#fact-wgsl-allows-twelve-uniform-buffers-per-stage) — WebGPU guarantees 12 uniform buffers per shader stage, and a device may give no more.
 - [`@fact wgsl-cannot-share-a-bool-with-the-host`](#fact-wgsl-cannot-share-a-bool-with-the-host) — A WGSL `bool` is not host-shareable: it can be neither a member of a uniform buffer nor an element of a storage buffer.
 - [`@fact a-wgsl-uniform-array-has-a-16-byte-stride`](#fact-a-wgsl-uniform-array-has-a-16-byte-stride) — The elements of an array in the WGSL uniform address space align to 16 bytes, and a `vec3` takes the 16 bytes of a `vec4`.
+- [`@fact wgsl-takes-an-integer-varying-flat-from-the-first-vertex`](#fact-wgsl-takes-an-integer-varying-flat-from-the-first-vertex) — WGSL requires a vertex output or fragment input of integer type to be `@interpolate(flat)`, and a flat value with no sampling named comes from the first vertex of the primitive.
+- [`@fact glsl-takes-an-integer-varying-flat-from-the-last-vertex`](#fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex) — GLSL ES 3.00 requires a vertex output of integer type to be `flat`, and WebGL 2 takes a flat value from the last vertex of a triangle, its provoking vertex.
 - [`@fact webgl-reads-a-vector-state-into-a-new-array`](#fact-webgl-reads-a-vector-state-into-a-new-array) — WebGL gives a vector state, such as the viewport or the clear colour, only through `getParameter`, which returns a new array on each call. It gives a vertex attribute's value only through `getVertexAttrib`, which does the same.
 - [`@fact webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage) — WebGL 2 has no compute shaders and no storage buffers.
 - [`@fact an-integer-texture-cannot-be-filtered`](#fact-an-integer-texture-cannot-be-filtered) — Neither GLSL nor WGSL filters an integer texture. A shader reads it one texel at a time, with `texelFetch` or `textureLoad`.
@@ -741,11 +745,16 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact glsl-inverts-only-a-square-matrix`](#fact-glsl-inverts-only-a-square-matrix) — GLSL's `inverse` takes a square matrix only.
 - [`@fact wgsl-round-takes-a-half-to-the-even-integer`](#fact-wgsl-round-takes-a-half-to-the-even-integer) — WGSL's `round` takes a value halfway between two integers to the even one.
 - [`@fact webgpu-stores-a-float-in-an-8-bit-channel-clamped-and-rounded`](#fact-webgpu-stores-a-float-in-an-8-bit-channel-clamped-and-rounded) — WebGPU stores a float into an 8-bit normalised channel by clamping it to 0 to 1 and rounding it to the nearest byte.
-- [`@fact webgpu-shades-a-pixel-on-a-shared-edge-once`](#fact-webgpu-shades-a-pixel-on-a-shared-edge-once) — WebGPU gives a pixel whose centre lies on an edge that two triangles share to exactly one of them, whatever their order and winding.
+- [`@fact webgpu-shades-a-pixel-on-a-shared-edge-once`](#fact-webgpu-shades-a-pixel-on-a-shared-edge-once) — Chromium's WebGPU gives a pixel whose centre lies on an edge that two triangles share to exactly one of them, whatever their order and winding.
+- [`@fact webgpu-shades-a-pixel-centre-on-a-top-or-left-edge`](#fact-webgpu-shades-a-pixel-centre-on-a-top-or-left-edge) — Chromium's WebGPU shades a pixel centre that lies exactly on a top or a left edge of a triangle, and not one on a bottom or a right edge. A top edge is horizontal, with the rest of the triangle below it. A left edge is not horizontal, and has the inside of the triangle on its right.
+- [`@fact webgpu-clamps-a-written-depth-to-the-depth-range`](#fact-webgpu-clamps-a-written-depth-to-the-depth-range) — WebGPU clamps the depth a fragment stage writes to the viewport's depth range, 0 to 1 by default, before it tests and stores it.
 - [`@fact webgpu-clips-a-triangle-outside-the-depth-range`](#fact-webgpu-clips-a-triangle-outside-the-depth-range) — WebGPU clips a triangle against the depth range from 0 to 1, and draws the depths 0 and 1 themselves.
 - [`@fact webgpu-draws-nothing-for-a-triangle-off-the-viewport`](#fact-webgpu-draws-nothing-for-a-triangle-off-the-viewport) — WebGPU draws no pixel for a triangle wholly outside the viewport, at any distance from it, and reports no error.
 - [`@fact webgpu-culls-no-face-by-default`](#fact-webgpu-culls-no-face-by-default) — A WebGPU render pipeline culls no face unless it asks to, so a triangle draws whichever way its vertices wind.
 - [`@fact a-webgpu-canvas-configured-opaque-drops-alpha`](#fact-a-webgpu-canvas-configured-opaque-drops-alpha) — A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha the draw wrote.
+- [`@fact a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares`](#fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares) — A WebGPU draw takes its vertex count from the caller, and infers none. It reads only the vertex buffers of its pipeline's vertex layout, which holds the attributes the shader declares, and each of those must hold the vertices the draw reads.
+- [`@fact three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture`](#fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture) — three.js's WebGL renderer reads a storage node in a render stage through a data texture, when the node asks for it with `setPBO(true)`. A texel holds one element, with a channel for each component and an integer format for integer data. The texture is as wide as the smallest power of two at or above the square root of the element count. Element `i` sits at column `i % width` and row `i / width`, the width read with `textureSize`.
+- [`@fact three-js-configures-its-webgpu-canvas-by-its-alpha-parameter`](#fact-three-js-configures-its-webgpu-canvas-by-its-alpha-parameter) — three.js's WebGPU renderer takes an `alpha` parameter, `true` by default. It configures its canvas `premultiplied` when `alpha` is `true`, and `opaque` when it is `false`.
 - [`@fact react-three-fiber-and-threlte-create-their-renderer-with-alpha`](#fact-react-three-fiber-and-threlte-create-their-renderer-with-alpha) — react-three-fiber and Threlte build their `WebGLRenderer` with `alpha: true`, so a canvas they draw on clears to alpha 0.
 - [`@fact three-js-generates-a-node-read-more-than-once-into-a-variable`](#fact-three-js-generates-a-node-read-more-than-once-into-a-variable) — three.js counts the reads of each node while it analyzes a shader stage. It generates a node read more than once into a variable at its first read, and later reads use the variable.
 - [`@fact three-js-gives-a-cheap-node-no-variable`](#fact-three-js-gives-a-cheap-node-no-variable) — A three.js node gets no variable of its own when it is an input, a swizzle, an array element, a variable or a built-in input. An input is a uniform or a constant. An operator or math node gets one only when it has dependencies.
@@ -770,7 +779,7 @@ GLSL sets precision two ways: a statement that sets the default for a type, and 
 
 ### Fragment depth
 
-A fragment program can write depth on one path only. What depth the other paths give is open: WGSL gives 0 and GLSL leaves it undefined. TSL avoids the question by writing depth as an expression on every path, and its `depth` reads the fragment's own depth. Issue #132 holds the question.
+A fragment program can write depth on one path only. What depth the other paths give is open: WGSL gives 0 and GLSL leaves it undefined. TSL avoids the question by writing depth as an expression on every path, and its `depth` reads the fragment's own depth. The CPU rasterizers give such a path the interpolated depth. A read of the depth before a write gets it too, under [`spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one`](#spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one), where WGSL reads 0. Issue #132 holds the question.
 
 ### Divergences found
 
@@ -780,7 +789,7 @@ The analysis found these places where the code or the documents do not hold the 
 2. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
 3. The documents call `While` and `For` TSL functions, but TSL has only `Loop`. Issue #59.
 4. `var_`, `assertBlockScope` and `compileWat` are exported with no documented purpose. Issue #73 asks whether they are public API.
-5. `createWgsl` configures its canvas opaque, so a transparent clear shows as opaque black where the other adapters show the page. Issue #188 asks whether to configure it premultiplied.
+5. On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it, where the other targets take the first. Issue #232 asks whether the GLSL adapter and the WebGL renderer should ask for the first vertex through `WEBGL_provoking_vertex`.
 
 ### Coverage gaps
 
@@ -1099,12 +1108,6 @@ This follows because a texture cannot sit in a uniform value, so the host gives 
 
 This follows because a program may declare a uniform of any value type, and the adapter is how the host gives it a value.
 
-##### @bug the-glsl-adapter-refuses-a-uint-uniform
-
-> `createGlsl.setUniform` uploads only float, int and bool scalars and vectors and square matrices, and throws for a `uint` uniform.
-
-Issue: #107
-
 #### @spec a-wgsl-stage-given-the-program-uniforms-declares-every-one
 
 > A WGSL stage given the program's `uniforms` declares each of them in its struct, whether the stage reads it or not.
@@ -1120,12 +1123,6 @@ This follows because a vertex and a fragment stage share one uniform buffer, so 
 Derives from: [`spec-the-storages-list-holds-the-storage-nodes`](#spec-the-storages-list-holds-the-storage-nodes)
 
 This follows because both lists name the inputs of one program, and the caller names them the same way in each.
-
-##### @bug wgsl-takes-the-uniforms-list-as-slot-declarations
-
-> A WGSL stage takes its `uniforms` list as `{ slot, type }` declarations, and refuses a stage whose uniform the list gives as a node.
-
-Issue: #118
 
 #### @spec a-wgsl-stage-refuses-a-uniform-the-given-uniforms-leave-out
 
@@ -1161,11 +1158,11 @@ Derives from: [`fact-a-wgsl-texture-is-not-host-shareable`](#fact-a-wgsl-texture
 
 > A uniform array whose length is not a positive integer is refused.
 
-#### @bug the-glsl-adapter-never-sets-a-uniform-array
+#### @spec an-adapter-sets-a-uniform-array-from-one-value-per-element
 
-> WebGL reports a uniform array as `name[0]`, and `createGlsl` looks the slot up by that name, so `setUniform` on a uniform array never applies.
+> An adapter's `setUniform` on a uniform array takes one value for each of its elements, in order, and the program reads each by `element(i)`.
 
-Issue: #107
+This follows because the array is one uniform, so the host sets it in one call.
 
 ### @spec a-stage-passes-its-values-on-every-target
 
@@ -1225,21 +1222,29 @@ This follows because a stage with no colour has nothing to write into a pixel, a
 
 > A varying is an output of the vertex stage and an input of the fragment stage.
 
-##### @bug wasm-rasterizer-interpolates-an-integer-varying-as-a-float
+#### @spec an-integer-varying-is-flat
 
-> The WASM rasterizer interpolates an integer varying as a 64-bit float, though the stages write and read it as a 32-bit integer.
+> An integer varying is not interpolated. Each fragment of a triangle reads the value one vertex of the triangle wrote. GLSL and WGSL declare it `flat`.
 
-Issue: #110
+Derives from: [`fact-wgsl-takes-an-integer-varying-flat-from-the-first-vertex`](#fact-wgsl-takes-an-integer-varying-flat-from-the-first-vertex), [`fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex`](#fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex)
+
+This follows because both GPU languages refuse an integer varying that is not flat, and a value between two integers is no integer.
+
+##### @spec a-flat-varying-takes-the-first-vertex
+
+> On WGSL, JS and WASM, a fragment reads an integer varying as the first vertex of its triangle wrote it. A triangle clipped at the near plane keeps that vertex's value.
+
+This follows because WebGPU takes a flat value from the first vertex, and a CPU target gives what WebGPU gives.
+
+##### @exception a-glsl-flat-varying-takes-the-last-vertex
+
+> On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it.
+
+Derives from: [`fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex`](#fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex)
 
 #### @spec an-attribute-is-an-input-of-the-vertex-stage
 
 > An attribute is an input of the vertex stage, read once for each vertex.
-
-##### @bug wasm-rasterizer-writes-an-integer-attribute-as-a-float
-
-> `compileWasm` copies an integer attribute in as a 64-bit float, where the vertex stage reads a 32-bit integer.
-
-Issue: #110
 
 ### @spec a-program-runs-its-statements-in-the-order-it-writes-them
 
@@ -1674,12 +1679,6 @@ Derives from: [`fact-a-webgpu-vertex-stride-is-a-multiple-of-four`](#fact-a-webg
 
 This follows because a format one renderer reads as another type would make the two draw differently.
 
-#### @bug the-glsl-adapter-uploads-an-integer-attribute-as-floats
-
-> `createGlsl` points every attribute at its buffer as floats, so an `int` attribute mismatches its declaration and the draw is refused.
-
-Issue: #107
-
 ### @spec wgsl-brackets-a-bitwise-operand-that-is-not-unary
 
 > On WGSL, the compiler brackets each operand of a bitwise or shift operator that is not a unary expression.
@@ -2010,17 +2009,49 @@ This follows because a varying is an output of the vertex stage and an input of 
 
 #### @spec a-render-stage-reads-storage-read-only
 
-> A vertex or fragment stage reads a storage buffer read-only, from a group of its own whose bindings count across both stages. A write to one from a render stage is refused.
+> A vertex or fragment stage reads a storage buffer read-only, on WGSL and on GLSL. A write to one from a render stage is refused.
 
 ##### @spec a-wgsl-render-stage-reads-storage-read-only
 
 > On WGSL, a vertex or fragment stage declares a storage buffer read-only, in a group of its own numbered across both stages. It refuses a write to the buffer.
 
-##### @exception glsl-has-no-storage-buffers
+##### @spec a-glsl-render-stage-reads-storage-through-a-data-texture
 
-> A GLSL stage that reads a storage buffer is refused. Issue #48 asks to read one through a data texture instead.
+> On GLSL, a vertex or fragment stage reads a storage buffer through a texture that holds its elements, declared as a sampler uniform under the buffer's slot name. It refuses a write to the buffer.
 
-Derives from: [`fact-webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage)
+Derives from: [`fact-webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage), [`fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture`](#fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture)
+
+This follows because WebGL 2 has no storage buffers, and a texture can be read at any element, as `element(i)` asks.
+
+###### @spec a-glsl-stage-declares-a-storage-buffer-as-a-sampler-under-its-slot
+
+> A GLSL render stage declares each storage buffer it reads as a sampler uniform named after the buffer's slot, and reads `element(i)` with `texelFetch`.
+
+###### @spec a-glsl-render-stage-refuses-a-write-to-storage
+
+> The GLSL compiler refuses a write to a storage buffer from a vertex or fragment stage.
+
+###### @spec a-storage-texel-holds-one-element-or-one-column
+
+> A texel of a storage texture holds one element, with as many channels as the element has components, of an integer format for an `int` or `uint` element. A matrix element takes one texel for each of its columns, in consecutive texels.
+
+Derives from: [`fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture`](#fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture)
+
+This follows because a texel holds at most four components, as a matrix column does.
+
+###### @spec a-storage-texture-is-a-power-of-two-wide
+
+> A storage texture is as wide as the smallest power of two at or above the square root of its texel count, and as tall as its texels need. Texel `t` sits at column `t % width` and row `t / width`, where the stage reads `width` from the texture's size.
+
+Derives from: [`fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture`](#fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture)
+
+This follows because a texture is limited in width and in height alike, so a square one holds the most texels.
+
+###### @spec the-glsl-adapter-uploads-each-storage-buffer-it-reads
+
+> `createGlsl` uploads each storage buffer its stages read as a storage texture, from the buffer's contents at `attach`. `setAttribute` on the buffer's slot fills it again.
+
+Derives from: [`spec-setting-one-storage-slot-keeps-the-others`](#spec-setting-one-storage-slot-keeps-the-others)
 
 ##### @spec a-wgsl-render-stage-declares-its-storage-in-group-three
 
@@ -2268,13 +2299,25 @@ This follows because a TSL shader ports by changing its import only if each oper
 
 #### @spec the-index-accessors-follow-tsl
 
-> `vertexIndex()` and `instanceIndex()` give the vertex and the instance that the GPU draws, as TSL's accessors of the same names do. The CPU targets do not compile them yet: issue #47.
+> `vertexIndex()` and `instanceIndex()` give a vertex stage the vertex and the instance being drawn, as TSL's accessors of the same names do, on every target. A write to either is refused.
 
-##### @bug the-cpu-targets-compile-no-index-accessors
+##### @spec a-gpu-target-reads-the-index-accessors-from-its-builtins
 
-> The JS and WASM targets do not compile `vertexIndex()` or `instanceIndex()`.
+> On GLSL, `vertexIndex()` and `instanceIndex()` read `gl_VertexID` and `gl_InstanceID`; on WGSL, the `vertex_index` and `instance_index` builtins.
 
-Issue: #47
+##### @spec a-cpu-vertex-stage-reads-the-vertex-it-runs-for
+
+> On JS and WASM, a vertex stage reads `vertexIndex()` as the index of the vertex the rasterizer runs it for, counted as a GPU counts it, from the start of the attributes and not from the draw's first vertex.
+
+##### @spec a-cpu-vertex-stage-reads-instance-zero
+
+> On JS and WASM, a vertex stage reads `instanceIndex()` as 0.
+
+This follows because a CPU rasterizer draws one instance, and the one instance of a draw that is not instanced is instance 0 on a GPU.
+
+##### @spec the-index-accessors-are-read-only
+
+> The compiler refuses a write to `vertexIndex()` or `instanceIndex()` on every target, and names it a built-in input.
 
 #### @spec the-weight-of-mix-stays-a-scalar
 
@@ -2553,18 +2596,6 @@ This follows because TSL's `Switch` compiles the same way.
 Derives from: [`fact-tsl-break-continue-return-and-discard-are-statements`](#fact-tsl-break-continue-return-and-discard-are-statements)
 
 This follows because TSL's statements of the same name do.
-
-#### @bug the-wasm-rasterizer-paints-a-discarded-fragment
-
-> The WASM rasterizer writes a colour for a discarded fragment: the colour the fragment stage last left in its memory.
-
-Issue: #81
-
-#### @bug the-cpu-rasterizers-write-the-depth-of-a-discarded-fragment
-
-> The JS and WASM rasterizers write the depth of a fragment before they run it. A fragment that discards still hides what a later draw puts behind it.
-
-Issue: #81
 
 ### @spec an-fn-records-the-statements-of-its-body
 
@@ -2974,6 +3005,12 @@ This follows because a copy back from the GPU costs a round trip, and a buffer t
 
 > `compute(out)` fills only the slots `out` names.
 
+#### @spec overlapping-compute-calls-each-read-back-their-own-result
+
+> Two `compute(out)` calls on one WGSL adapter, the second made before the first resolves, each fill their own `out` with what their own dispatch left in the buffers.
+
+This follows because each call's promise stands for that call's result.
+
 #### @spec compute-refuses-a-slot-with-no-storage
 
 > `compute(out)` refuses a slot that the program has no storage buffer for.
@@ -3132,15 +3169,25 @@ This follows because the three.js frameworks that most applications draw through
 
 > A draw of the GLSL adapter, and of a JS or WASM rasterizer routine, that gives no `clearColor` leaves the cleared pixels at `[0, 0, 0, 0]`.
 
-###### @exception a-wgsl-canvas-shows-a-transparent-clear-as-opaque-black
+###### @spec a-wgsl-canvas-shows-a-transparent-clear-as-transparent
 
-> The WGSL adapter clears to `[0, 0, 0, 0]` as well, but its canvas shows every pixel with alpha 1, so the clear reads as opaque black.
+> The WGSL adapter configures its canvas `premultiplied`, so a draw that gives no `clearColor` leaves the cleared pixels at `[0, 0, 0, 0]`.
 
-Derives from: [`fact-a-webgpu-canvas-configured-opaque-drops-alpha`](#fact-a-webgpu-canvas-configured-opaque-drops-alpha)
+Derives from: [`fact-three-js-configures-its-webgpu-canvas-by-its-alpha-parameter`](#fact-three-js-configures-its-webgpu-canvas-by-its-alpha-parameter)
+
+This follows because three.js gives its WebGPU canvas an alpha channel unless the application asks it not to.
+
+###### @spec a-wgsl-adapter-attached-without-alpha-draws-opaque
+
+> `attach(canvas, { alpha: false })` on a WGSL adapter configures its canvas `opaque`, so every pixel shows with alpha 1.
+
+Derives from: [`fact-three-js-configures-its-webgpu-canvas-by-its-alpha-parameter`](#fact-three-js-configures-its-webgpu-canvas-by-its-alpha-parameter), [`fact-a-webgpu-canvas-configured-opaque-drops-alpha`](#fact-a-webgpu-canvas-configured-opaque-drops-alpha)
+
+This follows because an application that draws an opaque scene asks three.js for an opaque canvas the same way.
 
 ##### @spec a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear
 
-> A draw that passes `clear: false` leaves the colour of the pixels it does not cover as an earlier draw left them.
+> A draw that passes `clear: false` leaves the colour of the pixels it does not cover as an earlier draw left them. A CPU rasterizer draw given an output buffer draws over what that buffer holds.
 
 ##### @spec a-cpu-draw-clears-its-depth-first-unless-it-asks-not-to
 
@@ -3170,19 +3217,19 @@ Derives from: [`spec-an-effect-with-several-passes-is-a-pass-graph`](#spec-an-ef
 
 This follows because the application draws the passes in order. It finds the target a pass reads by the name of the pass that wrote it.
 
-#### @spec a-gpu-adapter-takes-its-count-from-the-first-attribute
+#### @spec a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads
 
-> A `createGlsl` or `createWgsl` draw that names no vertex count takes it from the first attribute the host passes. The count is that attribute's vertices after the draw's first vertex.
+> A `createGlsl` or `createWgsl` draw that names no vertex count takes it from the first attribute its program reads, in the order the host passed them. The count is that attribute's vertices after the draw's first vertex. An attribute the program does not read is taken and counts for nothing.
 
-Derives from: [`spec-an-adapter-draws-one-frame-for-each-call`](#spec-an-adapter-draws-one-frame-for-each-call), [`spec-a-rasterizer-takes-its-count-from-the-first-attribute`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute)
+Derives from: [`spec-an-adapter-draws-one-frame-for-each-call`](#spec-an-adapter-draws-one-frame-for-each-call), [`spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads)
 
-This follows because every adapter draws one program the same way, and the rasterizers count from the first attribute.
+This follows because every adapter draws one program the same way, and the rasterizers count from the first attribute their program reads.
 
 #### @spec a-compute-call-dispatches-the-count-it-is-given
 
 > A `compute` call on a compute adapter runs one invocation for each index below its count. The count is the one the caller names, or else the number of elements of the first storage buffer the host passed.
 
-Derives from: [`spec-what-rmsl-hands-back-draws-nothing-on-its-own`](#spec-what-rmsl-hands-back-draws-nothing-on-its-own), [`spec-compute-follows-tsl`](#spec-compute-follows-tsl), [`fact-tsl-takes-a-compute-count-from-its-caller`](#fact-tsl-takes-a-compute-count-from-its-caller), [`spec-a-rasterizer-takes-its-count-from-the-first-attribute`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute)
+Derives from: [`spec-what-rmsl-hands-back-draws-nothing-on-its-own`](#spec-what-rmsl-hands-back-draws-nothing-on-its-own), [`spec-compute-follows-tsl`](#spec-compute-follows-tsl), [`fact-tsl-takes-a-compute-count-from-its-caller`](#fact-tsl-takes-a-compute-count-from-its-caller), [`spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads)
 
 This follows because the application owns the data it uploads and decides how many invocations run over it. TSL's caller writes the count out. An adapter given none takes it from the first buffer the host passed, where a draw takes its count from the first attribute.
 
@@ -3566,6 +3613,14 @@ This follows because a layout shares its bytes with a WGSL uniform buffer, which
 
 > A member whose type has no WGSL layout is refused, rather than placed by a guess.
 
+#### @spec a-wgsl-stage-given-no-samplers-binds-its-textures-in-creation-order
+
+> A WGSL stage given no `samplers` list binds its textures in group 1, and the samplers of its float textures in group 2, in the order the program created the textures.
+
+Derives from: [`spec-a-wgsl-program-given-no-storage-list-binds-in-creation-order`](#spec-a-wgsl-program-given-no-storage-list-binds-in-creation-order)
+
+This follows because a texture and its sampler are found by the same place in their groups.
+
 #### @spec a-wgsl-stage-hands-its-uniforms-to-the-layout-in-creation-order
 
 > A WGSL stage given no uniform list declares its uniforms to the layout in the order the program created them.
@@ -3573,12 +3628,6 @@ This follows because a layout shares its bytes with a WGSL uniform buffer, which
 Derives from: [`spec-uniforms-are-ordered-by-alignment-then-by-declaration`](#spec-uniforms-are-ordered-by-alignment-then-by-declaration), [`spec-a-wgsl-program-given-no-storage-list-binds-in-creation-order`](#spec-a-wgsl-program-given-no-storage-list-binds-in-creation-order)
 
 This follows because a graph restored from JSON keeps its uniforms in creation order, so it lays them out as the original did.
-
-##### @bug wgsl-hands-uniforms-to-the-layout-in-the-string-order-of-slot-names
-
-> A WGSL stage given no uniform list declares its uniforms to the layout in the string order of their slot names, so `_rmsl_u10` comes before `_rmsl_u2`.
-
-Issue: #118
 
 ### @spec a-function-compiles-on-its-own
 
@@ -3624,12 +3673,6 @@ This follows because the application builds the bind groups, so it decides where
 
 This follows because a node cannot be misspelled, and a graph restored from JSON passes its restored nodes and binds as the original did.
 
-##### @bug wgsl-takes-the-storages-list-as-slot-names
-
-> A WGSL render stage takes its `storages` list as slot names, so a storage node in the list gets `@binding(-1)`.
-
-Issue: #118
-
 #### @spec a-wgsl-render-stage-binds-its-storage-in-the-listed-order
 
 > A WGSL vertex or fragment stage binds each storage buffer at its index in the `storages` list.
@@ -3638,11 +3681,11 @@ Issue: #118
 
 > A WGSL compute program binds each storage buffer at its index in the `storages` list.
 
-##### @bug wgsl-compute-ignores-the-storages-list
+#### @spec a-wgsl-stage-refuses-a-buffer-the-given-storages-leave-out
 
-> A WGSL compute program ignores the `storages` list, and binds its buffers by the string order of their slot names.
+> The compiler refuses a WGSL stage that reads a storage buffer the given `storages` leave out, and names that buffer.
 
-Issue: #118
+This follows because the buffer has no index in the list, and so no binding.
 
 #### @spec a-wgsl-program-given-no-storage-list-binds-in-creation-order
 
@@ -3651,12 +3694,6 @@ Issue: #118
 Derives from: [`spec-a-graph-compiles-the-same-after-json`](#spec-a-graph-compiles-the-same-after-json)
 
 This follows because a graph restored from JSON keeps its buffers in creation order, so it binds them as the original did.
-
-##### @bug wgsl-binds-storage-in-the-string-order-of-slot-names
-
-> Given no list, a WGSL program binds its storage buffers by the string order of their slot names, so `_rmsl_b10` binds before `_rmsl_b9`. A graph restored from JSON gets new numbers, and its buffers can swap bindings.
-
-Issue: #118
 
 ## @axiom rmsl-runs-everywhere
 
@@ -3814,47 +3851,45 @@ This follows because the vector a JS function computes lives in a slot that the 
 
 ##### @spec a-rasterizer-keeps-the-closer-fragment
 
-> The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles. Its depth buffer persists across draws until a draw asks for `clearDepth`.
+> The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles: the depth the fragment stage writes, clamped to 0 to 1, or else its interpolated depth. Its depth buffer persists across draws of one size until a draw asks for `clearDepth`, and a draw of another width or height starts from a cleared one.
 
-###### @bug wasm-rasterizer-ignores-the-fragment-depth
+Derives from: [`fact-webgpu-clamps-a-written-depth-to-the-depth-range`](#fact-webgpu-clamps-a-written-depth-to-the-depth-range)
 
-> The WASM rasterizer tests and stores the interpolated depth, ignoring the depth the fragment stage writes.
+##### @spec a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one
 
-Issue: #112
+> In a CPU rasterizer, `builtinFragDepth()` read before the fragment stage writes it gives the fragment's interpolated depth.
 
-##### @spec a-rasterizer-takes-its-count-from-the-first-attribute
+Derives from: [`spec-a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment)
 
-> A draw that names no vertex count takes it from the first attribute the host passes.
+This follows because a fragment that writes no depth keeps its interpolated depth, so that depth is the one it holds until it writes another.
+
+##### @spec a-rasterizer-takes-its-count-from-the-first-attribute-it-reads
+
+> A draw that names no vertex count takes it from the first attribute its program reads, in the order the host passed them. An attribute the program does not read is taken and counts for nothing.
+
+Derives from: [`fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares`](#fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares)
+
+This follows because a WebGPU draw reads no buffer its shader does not declare, so such a buffer cannot change what is drawn.
 
 ##### @spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws
 
 > The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
 
-###### @bug wasm-rasterizer-gives-every-fragment-coordinate-zero
-
-> The WASM rasterizer never writes `fragCoord()`, so every fragment reads it as `[0, 0]`, where the JS rasterizer passes the pixel's centre.
-
-Issue: #112
-
 ##### @spec a-pixel-on-a-shared-edge-is-shaded-once
 
-> A pixel centre on an edge two triangles share takes the colour of one of them. WebGPU's rasterization rules pick which one, whatever the order of the triangles.
+> A pixel centre on an edge that two triangles share takes the colour of one of them, whatever their order. It takes the colour of the triangle whose top or left edge it is.
 
-Derives from: [`fact-webgpu-shades-a-pixel-on-a-shared-edge-once`](#fact-webgpu-shades-a-pixel-on-a-shared-edge-once)
+Derives from: [`fact-webgpu-shades-a-pixel-on-a-shared-edge-once`](#fact-webgpu-shades-a-pixel-on-a-shared-edge-once), [`spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge`](#spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge)
 
-This follows because WebGPU gives such a pixel to exactly one triangle, and a CPU target gives what WebGPU gives.
+This follows because WebGPU gives such a pixel to exactly one triangle. The top or left edge of one triangle is the bottom or right edge of the triangle on its other side.
 
-###### @bug js-rasterizer-shades-a-shared-edge-twice
+##### @spec a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge
 
-> The JS rasterizer shades a pixel centre on an edge two triangles share with both, so the triangle drawn last wins it.
+> A CPU rasterizer shades a pixel centre on a top or a left edge of a triangle, and not one on a bottom or a right edge. This holds whichever way the triangle winds.
 
-Issue: #88
+Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`fact-webgpu-shades-a-pixel-centre-on-a-top-or-left-edge`](#fact-webgpu-shades-a-pixel-centre-on-a-top-or-left-edge)
 
-###### @bug wasm-rasterizer-shades-a-shared-edge-twice
-
-> The WASM rasterizer shades a pixel centre on an edge two triangles share with both, so the triangle drawn last wins it.
-
-Issue: #88
+This follows because Chromium's WebGPU decides a pixel centre on an edge by the top-left rule, and a CPU target gives what WebGPU gives.
 
 ##### @spec a-rasterizer-clips-outside-the-depth-range
 
@@ -3863,12 +3898,6 @@ Issue: #88
 Derives from: [`fact-webgpu-clips-a-triangle-outside-the-depth-range`](#fact-webgpu-clips-a-triangle-outside-the-depth-range)
 
 This follows because WebGPU clips to the depth range from 0 to 1, and a CPU target gives what WebGPU gives.
-
-###### @bug js-rasterizer-draws-a-triangle-below-zero-depth
-
-> The JS rasterizer draws a triangle whose depth lies below zero, which WebGPU clips away.
-
-Issue: #88
 
 ##### @spec a-triangle-off-screen-draws-nothing
 
@@ -4376,6 +4405,14 @@ This follows because an application that uses one target pays nothing for the co
 
 This follows because a `.wat` module runs only as bytes, so the application ships the bytes and not the toolchain that assembles them.
 
+### @spec a-wat-module-exports-its-shared-variant-or-undefined
+
+> A loaded `.wat` module exports `shared`: the bytes of the same module importing its memory shared, or `undefined` when the module imports no memory.
+
+Derives from: [`spec-compile-wat-loads-every-wat-module`](#spec-compile-wat-loads-every-wat-module), [`spec-compile-wasm-makes-its-memory-as-its-modules-declare`](#spec-compile-wasm-makes-its-memory-as-its-modules-declare)
+
+This follows because a shared memory links only against a module that imports it shared. Every `.wat` module is declared with the same exports, so an import of `shared` always finds the export. A module with no memory to share leaves it empty.
+
 ## @fact wgsl-defines-every-integer-edge-case
 
 > WGSL defines the result of every integer operation on run-time values. Overflow wraps. A division by zero returns the dividend and a remainder by zero returns zero. The most negative `i32` divided by `-1` returns itself. A shift uses its amount modulo the bit width.
@@ -4459,6 +4496,18 @@ This is a fact of the WGSL specification, not a choice.
 > The elements of an array in the WGSL uniform address space align to 16 bytes, and a `vec3` takes the 16 bytes of a `vec4`.
 
 This is a fact of the WGSL specification, not a choice.
+
+## @fact wgsl-takes-an-integer-varying-flat-from-the-first-vertex
+
+> WGSL requires a vertex output or fragment input of integer type to be `@interpolate(flat)`, and a flat value with no sampling named comes from the first vertex of the primitive.
+
+This is a fact of the WGSL specification, section Interpolation, and Dawn gives a triangle's first vertex.
+
+## @fact glsl-takes-an-integer-varying-flat-from-the-last-vertex
+
+> GLSL ES 3.00 requires a vertex output of integer type to be `flat`, and WebGL 2 takes a flat value from the last vertex of a triangle, its provoking vertex.
+
+This is a fact of the GLSL ES 3.00 and OpenGL ES 3.0 specifications, and Chromium's WebGL 2 gives a triangle's last vertex.
 
 ## @fact webgl-reads-a-vector-state-into-a-new-array
 
@@ -5052,9 +5101,21 @@ Chromium's WebGPU writes the values -1, 0, 0.001, 0.3, 0.5, 0.7, 0.999, 1, 1.5 a
 
 ## @fact webgpu-shades-a-pixel-on-a-shared-edge-once
 
-> WebGPU gives a pixel whose centre lies on an edge that two triangles share to exactly one of them, whatever their order and winding.
+> Chromium's WebGPU gives a pixel whose centre lies on an edge that two triangles share to exactly one of them, whatever their order and winding.
 
-Chromium's WebGPU draws a 4×4 square as two triangles split on a diagonal through four pixel centres. Each adds 0.25 by blending. Every pixel gets the byte 64, in either triangle order and with either winding, so none was shaded twice.
+The WebGPU specification leaves such a pixel undefined; OpenGL ES 3.0, section 3.6.1, gives it to exactly one triangle, and Chromium's WebGPU does the same. Chromium's WebGPU draws a 4×4 square as two triangles split on a diagonal through four pixel centres. Each adds 0.25 by blending. Every pixel gets the byte 64, in either triangle order and with either winding, so none was shaded twice.
+
+## @fact webgpu-shades-a-pixel-centre-on-a-top-or-left-edge
+
+> Chromium's WebGPU shades a pixel centre that lies exactly on a top or a left edge of a triangle, and not one on a bottom or a right edge. A top edge is horizontal, with the rest of the triangle below it. A left edge is not horizontal, and has the inside of the triangle on its right.
+
+This is the top-left rule that Direct3D specifies. Chromium's WebGPU on Metal draws into a 4×4 target, in both windings. A rectangle from x 0.5 to 2.5, in pixels, shades columns 0 and 1. A rectangle from y 0.5 to 2.5 shades rows 0 and 1. A triangle with its left edge at x 0.5 and its top edge at y 0.5 shades all 16 pixels. A triangle with its right edge at x 2.5 and its bottom edge at y 2.5 shades four pixels, those of columns 0 and 1 in rows 0 and 1.
+
+## @fact webgpu-clamps-a-written-depth-to-the-depth-range
+
+> WebGPU clamps the depth a fragment stage writes to the viewport's depth range, 0 to 1 by default, before it tests and stores it.
+
+This is a fact of the WebGPU specification, section Fragment Processing.
 
 ## @fact webgpu-clips-a-triangle-outside-the-depth-range
 
@@ -5079,6 +5140,24 @@ Chromium's WebGPU draws a counter-clockwise and a clockwise triangle alike with 
 > A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha the draw wrote.
 
 Chromium's WebGPU draws a fragment of alpha 0 into a canvas configured opaque, and the page reads the pixel back with alpha 255.
+
+## @fact a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares
+
+> A WebGPU draw takes its vertex count from the caller, and infers none. It reads only the vertex buffers of its pipeline's vertex layout, which holds the attributes the shader declares, and each of those must hold the vertices the draw reads.
+
+This is a fact of the WebGPU specification: `draw(vertexCount, instanceCount, firstVertex, firstInstance)` in `GPURenderCommandsMixin`, and its validation of the bound vertex buffers against the draw's vertex range.
+
+## @fact three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture
+
+> three.js's WebGL renderer reads a storage node in a render stage through a data texture, when the node asks for it with `setPBO(true)`. A texel holds one element, with a channel for each component and an integer format for integer data. The texture is as wide as the smallest power of two at or above the square root of the element count. Element `i` sits at column `i % width` and row `i / width`, the width read with `textureSize`.
+
+This is how three.js behaves, read from its source: `setupPBO` and `generatePBO` in `src/renderers/webgl-fallback/nodes/GLSLNodeBuilder.js`. It carries elements of one to four components.
+
+## @fact three-js-configures-its-webgpu-canvas-by-its-alpha-parameter
+
+> three.js's WebGPU renderer takes an `alpha` parameter, `true` by default. It configures its canvas `premultiplied` when `alpha` is `true`, and `opaque` when it is `false`.
+
+This is how three.js behaves, read from its source: the constructor and `init` of `WebGPUBackend` in `src/renderers/webgpu/WebGPUBackend.js`.
 
 ## @fact react-three-fiber-and-threlte-create-their-renderer-with-alpha
 

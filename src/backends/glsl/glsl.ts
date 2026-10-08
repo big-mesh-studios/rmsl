@@ -22,6 +22,7 @@ import {
   withoutSemicolon,
   wrapExpr,
 } from "../shared";
+import { componentCountOf, componentKindOf } from "../cpu";
 import { shareNodes } from "../share";
 
 export const typeToGLSL: Record<string, string> = {
@@ -700,6 +701,11 @@ export function compileGLSLNode(
         ctx.positionWritten = true;
       }
       assertAssignable(node.params![0], ctx.shaderStage);
+      if ((node.params![0] as any)?.type === "storageElement") {
+        throw new Error(
+          `[RMSL] storage buffers are read-only in a ${ctx.shaderStage} shader; write them from a compute program`,
+        );
+      }
       let lhs = compileGLSLStage(node.params![0], ctx);
       let rhs = compileGLSLStage(node.params![1], ctx);
       return {
@@ -799,9 +805,45 @@ export function compileGLSLNode(
       return { decls: [], body: ["return;"], expr: "0.0" };
     }
 
-    case "storage":
-    case "storageElement":
-      throw new Error("[RMSL] GLSL has no storage buffers (WebGL2 doesn't support them); use the WGSL backend");
+    case "storage": {
+      // WebGL 2 has no storage buffers, so a render stage reads one through a
+      // texture of its elements, under the buffer's slot name.
+      let v = node.value as { slot: string; shaderType: string };
+      if (!ctx.uniforms.has(v.slot)) {
+        let kind = componentKindOf(v.shaderType);
+        ctx.uniforms.set(v.slot, { type: kind === "float" ? "sampler2D" : `${kind[0]}sampler2D`, slot: v.slot });
+      }
+      return { decls: [], body: [], expr: v.slot };
+    }
+
+    case "storageElement": {
+      let texture = compileGLSLStage(node.params![0], ctx);
+      let index = compileGLSLStage(node.params![1], ctx);
+      let shaderType = (node.params![0] as any).value.shaderType as string;
+      // A matrix element takes a texel for each column, one after another.
+      let [columns, rows] = MATRIX_DIMENSIONS[shaderType] ?? [1, componentCountOf(shaderType)];
+      let id = ctx.nextId++;
+      let first = `_rmsl_storageTexel${id}`;
+      let width = `_rmsl_storageWidth${id}`;
+      let fetch = (column: number) => {
+        let texel = column === 0 ? first : `(${first} + ${column})`;
+        let swizzle = rows === 4 ? "" : `.${"xyzw".slice(0, rows)}`;
+        return `texelFetch(${texture.expr}, ivec2(${texel} % ${width}, ${texel} / ${width}), 0)${swizzle}`;
+      };
+      return {
+        decls: [...texture.decls, ...index.decls],
+        body: [
+          ...texture.body,
+          ...index.body,
+          `int ${width} = textureSize(${texture.expr}, 0).x;`,
+          `int ${first} = int(${index.expr})${columns > 1 ? ` * ${columns}` : ""};`,
+        ],
+        expr:
+          columns > 1
+            ? `${glslType(shaderType)}(${Array.from({ length: columns }, (_, c) => fetch(c)).join(", ")})`
+            : fetch(0),
+      };
+    }
 
     default:
       // Emitting a placeholder here would silently corrupt the shader: an
@@ -1035,11 +1077,9 @@ export function compileGLSLWithStage(
     lines.push(`in ${info.type} ${info.slot};`);
   });
   ctx.varyings.forEach((info) => {
-    if (shaderStage === "vertex") {
-      lines.push(`out ${info.type} ${info.slot};`);
-    } else {
-      lines.push(`in ${info.type} ${info.slot};`);
-    }
+    // GLSL ES 3.00 passes an integer varying flat, and refuses one declared otherwise.
+    const flat = /^(u?int|[iu]vec[234])$/.test(info.type) ? "flat " : "";
+    lines.push(`${flat}${shaderStage === "vertex" ? "out" : "in"} ${info.type} ${info.slot};`);
   });
   // Numbered per shader, not from the id the output was declared with.
   let outputLocation = 0;
