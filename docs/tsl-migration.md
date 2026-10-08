@@ -53,7 +53,7 @@ normalize length dFdx dFdy fwidth sin cos tan asin acos atan sinh cosh tanh
 asinh acosh atanh pow pow2 pow3 pow4 min max step reflect distance difference
 dot cross mix clamp refract smoothstep faceForward all any transpose determinant
 inverse element select luminance rand interleavedGradientNoise
-premultiplyAlpha unpremultiplyAlpha textureLoad textureSize`
+premultiplyAlpha unpremultiplyAlpha texture textureLevel textureLoad textureSize`
 
 Argument order matches TSL: `step(edge, x)`, `smoothstep(low, high, x)`,
 `mix(a, b, t)`, `clamp(x, low, high)`, `faceForward(n, i, nref)`, `atan(y, x)`.
@@ -145,7 +145,7 @@ value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
   parameters, get a color node. See [effects.md](./effects.md) for the
   mapping of three.js's renderer-bound wrappers (`convertToTexture`,
   `passTexture`, `uv()`, `time`, ...) to RMSL.
-- **`textureLoad(tex, coords)` / `textureSize(tex)`** are supported as free
-  functions, and `select(cond, a, b)`, `luminance`, `rand`,
+- **`texture(tex, uv)` / `textureLevel(tex, uv, level)` / `textureLoad(tex, coords)` / `textureSize(tex)`**
+  are supported as free functions, as TSL's are, and `select(cond, a, b)`, `luminance`, `rand`,
   `interleavedGradientNoise`, `premultiplyAlpha` / `unpremultiplyAlpha` mirror
   the TSL names.

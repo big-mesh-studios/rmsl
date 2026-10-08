@@ -12,6 +12,7 @@ import {
   vec3,
   vec4,
   type Node,
+  texture,
 } from "../rmsl";
 import { type FloatIn, type Sampler2D, type Vec3In, vec3In } from "./util";
 import { getGaussianCoefficients, type PassDescriptor, type PassGraph } from "./passes";
@@ -101,7 +102,7 @@ export const bloom = (textureNode: Sampler2D, options: BloomOptions = {}): PassG
   const sH4 = uniform("sampler2D");
   const sV4 = uniform("sampler2D");
 
-  const highPassColor = Fn(() => highPassFn(textureNode.texture(uv()), threshold, smoothWidth));
+  const highPassColor = Fn(() => highPassFn(texture(textureNode, uv()), threshold, smoothWidth));
 
   const highpass: PassDescriptor = {
     name: "bloom.highpass",
@@ -166,14 +167,14 @@ function bloomBlurPass(
       .mul(pixelScale);
     const dir = vec2(direction[0], direction[1]);
 
-    const diffuseSum = inputTex.texture(uvNode).rgb.mul(coefficients[0]).toVar();
+    const diffuseSum = texture(inputTex, uvNode).rgb.mul(coefficients[0]).toVar();
 
     for (let i = 1; i < kernelRadius; i++) {
       const x = float(i);
       const w = float(coefficients[i]);
       const uvOffset = dir.mul(invSize.mul(x)).toVar();
-      const sample1 = inputTex.texture(uvNode.add(uvOffset)).rgb;
-      const sample2 = inputTex.texture(uvNode.sub(uvOffset)).rgb;
+      const sample1 = texture(inputTex, uvNode.add(uvOffset)).rgb;
+      const sample2 = texture(inputTex, uvNode.sub(uvOffset)).rgb;
       diffuseSum.addAssign(sample1.add(sample2).mul(w));
     }
 
@@ -200,7 +201,7 @@ function bloomCompositePass(
       // The vec4 goes first: RMSL types a mul by its first operand, so a
       // float·vec4 would come out typed float and vanish from the output.
       const tinted = vec4(vec3In(tints[i]), 1.0).mul(lerpFactor);
-      const mip = mips[i][1].texture(uvNode);
+      const mip = texture(mips[i][1], uvNode);
       sum = sum === null ? tinted.mul(mip) : sum.add(tinted.mul(mip));
     }
 

@@ -109,7 +109,7 @@ function materialWorkload(name: string, material: any): Workload {
 }
 
 const { uv } = rmsl;
-const sample = (tex: any) => tex.texture(uv());
+const sample = (tex: any) => texture(tex, uv());
 const workloads = [
   effectWorkload("sepia", (tex) => effects.sepia(sample(tex))),
   effectWorkload("bleach", (tex) => effects.bleach(sample(tex))),

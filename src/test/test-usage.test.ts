@@ -20,6 +20,7 @@ import {
   step,
   length,
   smoothstep,
+  texture,
 } from "../rmsl";
 import { DataTexture } from "../scene/textures/DataTexture";
 import { LinearFilter, NearestMipmapNearestFilter, RedIntegerFormat } from "../scene/textures/constants";
@@ -69,7 +70,7 @@ describe("evaluate", () => {
    */
   it("samples a texture bound to its sampler", () => {
     const map = uniform("sampler2D");
-    const graph = map.texture(vec2(0.5, 0.5));
+    const graph = texture(map, vec2(0.5, 0.5));
     const data = [1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4];
     const result = evaluate(() => graph, { textures: [[map, { data, width: 2, height: 2 }]] });
     expect(result.value).toEqual(new Float64Array([4, 4, 4, 4]));
@@ -79,7 +80,7 @@ describe("evaluate", () => {
    */
   it("reads an 8-bit texture as the 0-1 a float sampler gives a shader", () => {
     const map = uniform("sampler2D");
-    const graph = map.texture(vec2(0.5, 0.5));
+    const graph = texture(map, vec2(0.5, 0.5));
     const data = new Uint8Array([0, 128, 255, 255]);
     expect(evaluate(() => graph, { textures: [[map, { data, width: 1, height: 1 }]] }).value).toEqual(
       new Float64Array([0, 128 / 255, 1, 1]),
@@ -90,7 +91,7 @@ describe("evaluate", () => {
    */
   it("takes a texture in the shape a scene DataTexture already has", () => {
     const map = uniform("isampler2D");
-    const graph = map.texture(ivec2(1, 0));
+    const graph = texture(map, ivec2(1, 0));
     // What `new DataTexture(data, 2, 2)` looks like: pixels under `image`.
     const image = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
     const result = evaluate(() => graph, { textures: [[map, { image, width: 2, height: 2 }]] });
@@ -101,7 +102,7 @@ describe("evaluate", () => {
    */
   it("reads a single-channel DataTexture a texel at a time", () => {
     const map = uniform("usampler3D");
-    const graph = map.texture(uvec3(1, 1, 0));
+    const graph = texture(map, uvec3(1, 1, 0));
     // A voxel volume, one byte a voxel: the format is what says where one texel
     // ends and the next begins, and green, blue and alpha read as a sampler
     // reports the channels the texture does not store.
@@ -115,16 +116,16 @@ describe("evaluate", () => {
    */
   it("samples a scene texture the way the renderers read it", () => {
     const map = uniform("sampler2D");
-    const graph = map.texture(vec2(0.5, 0.5));
-    const texture = new DataTexture(new Uint8Array([0, 0, 0, 0, 255, 255, 255, 255]), 2, 1);
+    const graph = texture(map, vec2(0.5, 0.5));
+    const texels = new DataTexture(new Uint8Array([0, 0, 0, 0, 255, 255, 255, 255]), 2, 1);
     // Two texels, black and white, sampled halfway between their centres. What
     // that returns is the texture's own filtering — and a mipmapped spelling
     // counts as its base filter, which is `samplerState`'s rule, not a second
     // one written here.
-    texture.magFilter = LinearFilter;
-    expect(evaluate(() => graph, { textures: [[map, texture]] }).value).toEqual(new Float64Array([0.5, 0.5, 0.5, 0.5]));
-    texture.magFilter = NearestMipmapNearestFilter;
-    expect(evaluate(() => graph, { textures: [[map, texture]] }).value).toEqual(new Float64Array([1, 1, 1, 1]));
+    texels.magFilter = LinearFilter;
+    expect(evaluate(() => graph, { textures: [[map, texels]] }).value).toEqual(new Float64Array([0.5, 0.5, 0.5, 0.5]));
+    texels.magFilter = NearestMipmapNearestFilter;
+    expect(evaluate(() => graph, { textures: [[map, texels]] }).value).toEqual(new Float64Array([1, 1, 1, 1]));
   });
   /**
    * @canon spec-evaluate-gives-the-value-of-one-fragment

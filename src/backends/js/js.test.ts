@@ -76,6 +76,7 @@ import {
   pow,
   textureLoad,
   type Node,
+  texture,
 } from "../../rmsl";
 
 const approx = (actual: number, want: number) => expect(actual).toBeCloseTo(want, 9);
@@ -976,7 +977,7 @@ describe("JS backend: CPU-specific behaviour", () => {
     let tex!: any;
     const prog = Fn(() => {
       tex = uniform("sampler2D");
-      return tex.texture(vec2(0.5, 0.5));
+      return texture(tex, vec2(0.5, 0.5));
     })();
     const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     // 2x2 RGBA; uv (0.5, 0.5) -> texel (1, 1).
@@ -990,7 +991,7 @@ describe("JS backend: CPU-specific behaviour", () => {
     let tex!: any;
     const prog = Fn(() => {
       tex = uniform("sampler2D");
-      return tex.texture(vec2(0.5, 0.5));
+      return texture(tex, vec2(0.5, 0.5));
     })();
     const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     // What a DataTexture holds: 8-bit channels. Both backends upload that as a
@@ -1007,7 +1008,7 @@ describe("JS backend: CPU-specific behaviour", () => {
     let tex!: any;
     const prog = Fn(() => {
       tex = uniform("sampler2D");
-      return tex.texture(vec2(0.5, 0.5));
+      return texture(tex, vec2(0.5, 0.5));
     })();
     const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     const data = new Float32Array([0, 0.5, 1, 1]);
@@ -1024,7 +1025,7 @@ describe("JS backend: CPU-specific behaviour", () => {
     let tex!: any;
     const prog = Fn(() => {
       tex = uniform("usampler2D");
-      return tex.texture(ivec2(0, 0));
+      return texture(tex, ivec2(0, 0));
     })();
     const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     // An integer sampler fetches raw texels on a GPU too — there is no
@@ -1041,7 +1042,7 @@ describe("JS backend: CPU-specific behaviour", () => {
     let tex!: any;
     const prog = Fn(() => {
       tex = uniform("usampler2D");
-      return tex.texture(ivec2(2, 0));
+      return texture(tex, ivec2(2, 0));
     })();
     const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     // Four single-channel texels in a row: the third is 30. Read as RGBA, the
@@ -1059,12 +1060,12 @@ describe("JS backend: CPU-specific behaviour", () => {
     let tex!: any;
     const prog = Fn(() => {
       tex = uniform("sampler2D");
-      return tex.texture(vec2(0.5, 0.5));
+      return texture(tex, vec2(0.5, 0.5));
     })();
     const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
-    const texture = { data: [0, 100], width: 2, height: 1, channels: 1 as const };
-    expect(fn({ textures: { [tex.name]: texture } })).toEqual(new Float64Array([100, 0, 0, 1]));
-    expect(fn({ textures: { [tex.name]: { ...texture, magFilter: "linear" as const } } })).toEqual(
+    const texels = { data: [0, 100], width: 2, height: 1, channels: 1 as const };
+    expect(fn({ textures: { [tex.name]: texels } })).toEqual(new Float64Array([100, 0, 0, 1]));
+    expect(fn({ textures: { [tex.name]: { ...texels, magFilter: "linear" as const } } })).toEqual(
       new Float64Array([50, 0, 0, 1]),
     );
   });
@@ -1090,16 +1091,16 @@ describe("JS backend: CPU-specific behaviour", () => {
     let tex!: any;
     const prog = Fn(() => {
       tex = uniform("sampler2D");
-      return tex.texture(vec2(0.5, 0.5));
+      return texture(tex, vec2(0.5, 0.5));
     })();
     const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     // Two texels, 0 and 100, whose centres sit at 0.25 and 0.75. Sampling
     // halfway between them lands in the second texel outright without
     // filtering, and is half of each with it.
     const data = [0, 0, 0, 0, 100, 100, 100, 100];
-    const texture = { data, width: 2, height: 1 };
-    expect(fn({ textures: { [tex.name]: texture } })).toEqual(new Float64Array([100, 100, 100, 100]));
-    expect(fn({ textures: { [tex.name]: { ...texture, magFilter: "linear" as const } } })).toEqual(
+    const texels = { data, width: 2, height: 1 };
+    expect(fn({ textures: { [tex.name]: texels } })).toEqual(new Float64Array([100, 100, 100, 100]));
+    expect(fn({ textures: { [tex.name]: { ...texels, magFilter: "linear" as const } } })).toEqual(
       new Float64Array([50, 50, 50, 50]),
     );
   });
@@ -1110,17 +1111,17 @@ describe("JS backend: CPU-specific behaviour", () => {
     let tex!: any;
     const prog = Fn(() => {
       tex = uniform("sampler2D");
-      return tex.texture(vec2(1.25, 0.5));
+      return texture(tex, vec2(1.25, 0.5));
     })();
     const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
-    const texture = { data: [10, 10, 10, 10, 20, 20, 20, 20], width: 2, height: 1 };
+    const texels = { data: [10, 10, 10, 10, 20, 20, 20, 20], width: 2, height: 1 };
     const red = (t: CpuTextureData): number => (fn({ textures: { [tex.name]: t } }) as Float64Array)[0];
 
     // A quarter past the right edge: the last texel stretched, the image
     // tiled back to the first, or tiled and flipped back to the last.
-    expect(red(texture)).toBe(20);
-    expect(red({ ...texture, wrapS: "repeat" as const })).toBe(10);
-    expect(red({ ...texture, wrapS: "mirror" as const })).toBe(20);
+    expect(red(texels)).toBe(20);
+    expect(red({ ...texels, wrapS: "repeat" as const })).toBe(10);
+    expect(red({ ...texels, wrapS: "mirror" as const })).toBe(20);
   });
   /**
    * @canon spec-a-cpu-target-wraps-as-the-texture-asks
@@ -1129,15 +1130,15 @@ describe("JS backend: CPU-specific behaviour", () => {
     let tex!: any;
     const prog = Fn(() => {
       tex = uniform("sampler2D");
-      return tex.texture(vec2(-0.25, 0.5));
+      return texture(tex, vec2(-0.25, 0.5));
     })();
     const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
-    const texture = { data: [10, 10, 10, 10, 20, 20, 20, 20], width: 2, height: 1 };
+    const texels = { data: [10, 10, 10, 10, 20, 20, 20, 20], width: 2, height: 1 };
     const red = (t: CpuTextureData): number => (fn({ textures: { [tex.name]: t } }) as Float64Array)[0];
 
-    expect(red(texture)).toBe(10);
-    expect(red({ ...texture, wrapS: "repeat" as const })).toBe(20);
-    expect(red({ ...texture, wrapS: "mirror" as const })).toBe(10);
+    expect(red(texels)).toBe(10);
+    expect(red({ ...texels, wrapS: "repeat" as const })).toBe(20);
+    expect(red({ ...texels, wrapS: "mirror" as const })).toBe(10);
   });
   /**
    * @canon spec-a-3d-texture-blends-across-its-depth
@@ -1146,18 +1147,18 @@ describe("JS backend: CPU-specific behaviour", () => {
     let tex!: any;
     const prog = Fn(() => {
       tex = uniform("sampler3D");
-      return tex.texture(vec3(0.5, 0.5, 0.5));
+      return texture(tex, vec3(0.5, 0.5, 0.5));
     })();
     const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     // Two slices, 0 and 100, sampled halfway between their centres.
-    const texture: CpuTextureData = {
+    const texels: CpuTextureData = {
       data: [0, 0, 0, 0, 100, 100, 100, 100],
       width: 1,
       height: 1,
       depth: 2,
       magFilter: "linear",
     };
-    expect(fn({ textures: { [tex.name]: texture } })).toEqual(new Float64Array([50, 50, 50, 50]));
+    expect(fn({ textures: { [tex.name]: texels } })).toEqual(new Float64Array([50, 50, 50, 50]));
   });
   /**
    * @canon spec-a-cube-map-is-sampled-on-the-face-its-direction-picks
@@ -1165,17 +1166,17 @@ describe("JS backend: CPU-specific behaviour", () => {
   it("samples the right face of a cube map by direction", () => {
     // 6 faces, one texel each, face order +X,-X,+Y,-Y,+Z,-Z: 10,20,30,40,50,60.
     const data = [10, 10, 10, 10, 20, 20, 20, 20, 30, 30, 30, 30, 40, 40, 40, 40, 50, 50, 50, 50, 60, 60, 60, 60];
-    const texture: CpuTextureData = { data, width: 1, height: 1 };
+    const texels: CpuTextureData = { data, width: 1, height: 1 };
 
     const at = (dx: number, dy: number, dz: number): Float64Array => {
       let tex!: any;
       const build = () =>
         Fn(() => {
           tex = uniform("samplerCube");
-          return tex.texture(vec3(dx, dy, dz));
+          return texture(tex, vec3(dx, dy, dz));
         })();
       const fn = compileJSRoutine(build, { name: "main", params: [] });
-      return fn({ textures: { [tex.name]: texture } }) as Float64Array;
+      return fn({ textures: { [tex.name]: texels } }) as Float64Array;
     };
 
     expect(at(1, 0, 0)).toEqual(new Float64Array([10, 10, 10, 10]));
@@ -1194,15 +1195,15 @@ describe("JS backend: CPU-specific behaviour", () => {
       tex = uniform("samplerCube");
       // Direction close to the edge of the +Z face (u near 1): should stay
       // within +Z's own 2x1 texel row, not bleed toward another face.
-      return tex.texture(vec3(0.9, 0, 1));
+      return texture(tex, vec3(0.9, 0, 1));
     })();
     const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     // +Z is face index 4: two texels side by side, 0 and 100.
     const data = new Array(6 * 2 * 1 * 4).fill(0);
     data[4 * 2 * 4 + 0] = 0;
     data[4 * 2 * 4 + 4] = 100;
-    const texture: CpuTextureData = { data, width: 2, height: 1, magFilter: "linear" };
-    const [r] = fn({ textures: { [tex.name]: texture } }) as Float64Array;
+    const texels: CpuTextureData = { data, width: 2, height: 1, magFilter: "linear" };
+    const [r] = fn({ textures: { [tex.name]: texels } }) as Float64Array;
     expect(r).toBeGreaterThan(0);
     expect(r).toBeLessThanOrEqual(100);
   });
@@ -1213,7 +1214,7 @@ describe("JS backend: CPU-specific behaviour", () => {
     let tex!: any;
     const prog = Fn(() => {
       tex = uniform("isampler2D");
-      return tex.texture(ivec2(1, 0));
+      return texture(tex, ivec2(1, 0));
     })();
     const fn = compileJSRoutine(() => prog, { name: "main", params: [] });
     const data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];

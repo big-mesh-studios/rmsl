@@ -235,7 +235,7 @@ Three things to know:
 - **The CPU target follows them too.** A material tested with
   [`@random-mesh/rmsl/test`](testing.md) filters and wraps the way its renderer
   does, so what a test measures is what the renderer draws. It has no mip chain
-  either, so `textureLod`'s level is ignored there.
+  either, so `textureLevel`'s level is ignored there.
 
 ### Texture lifetime
 

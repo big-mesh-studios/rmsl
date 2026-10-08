@@ -26,6 +26,7 @@ import {
   vec3,
   vec4,
   type Node,
+  texture,
 } from "../rmsl";
 import { compileJSRoutine } from "../js";
 import { compileWasmRoutine } from "../wasm";
@@ -277,7 +278,7 @@ describe("one program means the same on every target", () => {
         If(flags.element(int(1)).and(flag), () => {
           sum.assign(sum.add(1));
         });
-        return tex.texture(vec2(0.5, 0.5)).mul(sum);
+        return texture(tex, vec2(0.5, 0.5)).mul(sum);
       })();
     const wgsl = compileWgsl(build());
     expect(wgsl.split("\n").filter((l) => l.includes("var<uniform>"))).toHaveLength(1);
@@ -355,9 +356,9 @@ describe("one program means the same on every target", () => {
     let tex!: any;
     const prog = Fn(() => {
       tex = uniform("sampler2D");
-      return tex.texture(vec2(1.5, 0.5));
+      return texture(tex, vec2(1.5, 0.5));
     })();
-    const texture = {
+    const image = {
       data: new Uint8Array([0, 255]),
       width: 2,
       height: 1,
@@ -365,7 +366,7 @@ describe("one program means the same on every target", () => {
       magFilter: "linear" as const,
       wrapS: "repeat" as const,
     };
-    const ctx = { textures: { [tex.name]: texture } };
+    const ctx = { textures: { [tex.name]: image } };
     const js = compileJSRoutine(() => prog, { name: "main", params: [] })(ctx);
     const wasm = compileWasmRoutine(() => prog, { name: "main", params: [] })(ctx);
     expect(js).toEqual(new Float64Array([0.5, 0, 0, 1]));

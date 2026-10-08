@@ -34,6 +34,8 @@ import {
   type ShaderType,
   type Var,
   type VaryingNode,
+  texture,
+  textureLevel,
 } from "./rmsl";
 import { compileGlsl, type GlslAdapter } from "./glsl";
 import { compileWgsl, createWgslCompute } from "./wgsl";
@@ -398,9 +400,9 @@ describe("texture sampling", () => {
    * @canon spec-a-float-texture-is-sampled-through-a-sampler
    */
   it("types a sampler3D's sample as a vec4", () => {
-    expectTypeOf(uniform("sampler3D").texture(vec3(1, 2, 3))).toEqualTypeOf<Node<"vec4">>();
-    expectTypeOf(uniform("sampler3D").textureLod(vec3(1, 2, 3), float(0))).toEqualTypeOf<Node<"vec4">>();
-    expectTypeOf(uniform("sampler2D").texture(vec2(1, 2))).toEqualTypeOf<Node<"vec4">>();
+    expectTypeOf(texture(uniform("sampler3D"), vec3(1, 2, 3))).toEqualTypeOf<Node<"vec4">>();
+    expectTypeOf(textureLevel(uniform("sampler3D"), vec3(1, 2, 3), float(0))).toEqualTypeOf<Node<"vec4">>();
+    expectTypeOf(texture(uniform("sampler2D"), vec2(1, 2))).toEqualTypeOf<Node<"vec4">>();
   });
 });
 
@@ -469,11 +471,11 @@ describe("integer samplers", () => {
    * @canon spec-an-integer-texture-is-fetched-unfiltered
    */
   it("types isampler and usampler samples as integer vectors", () => {
-    expectTypeOf(uniform("isampler2D").texture(ivec2(1, 2))).toEqualTypeOf<Node<"ivec4">>();
-    expectTypeOf(uniform("isampler3D").texture(ivec3(1, 2, 3))).toEqualTypeOf<Node<"ivec4">>();
-    expectTypeOf(uniform("isamplerCube").textureLod(ivec3(1, 2, 3), int(0))).toEqualTypeOf<Node<"ivec4">>();
-    expectTypeOf(uniform("usampler2D").texture(uvec2(1, 2))).toEqualTypeOf<Node<"uvec4">>();
-    expectTypeOf(uniform("usampler3D").texture(uvec3(1, 2, 3))).toEqualTypeOf<Node<"uvec4">>();
+    expectTypeOf(texture(uniform("isampler2D"), ivec2(1, 2))).toEqualTypeOf<Node<"ivec4">>();
+    expectTypeOf(texture(uniform("isampler3D"), ivec3(1, 2, 3))).toEqualTypeOf<Node<"ivec4">>();
+    expectTypeOf(textureLevel(uniform("isamplerCube"), ivec3(1, 2, 3), int(0))).toEqualTypeOf<Node<"ivec4">>();
+    expectTypeOf(texture(uniform("usampler2D"), uvec2(1, 2))).toEqualTypeOf<Node<"uvec4">>();
+    expectTypeOf(texture(uniform("usampler3D"), uvec3(1, 2, 3))).toEqualTypeOf<Node<"uvec4">>();
   });
 
   /**
@@ -484,11 +486,11 @@ describe("integer samplers", () => {
     // texelFetch/textureLoad both backends emit take an integer vector, so a
     // float one is rejected rather than silently truncated.
     // @ts-expect-error integer samplers fetch at integer texel coordinates
-    uniform("isampler2D").texture(vec2(1, 2));
+    texture(uniform("isampler2D"), vec2(1, 2));
     // @ts-expect-error a 2D sampler takes an ivec2, not an ivec3
-    uniform("isampler2D").texture(ivec3(1, 2, 3));
+    texture(uniform("isampler2D"), ivec3(1, 2, 3));
     // @ts-expect-error a 2D sampler takes a uvec2, not a uvec3
-    uniform("usampler2D").texture(uvec3(1, 2, 3));
+    texture(uniform("usampler2D"), uvec3(1, 2, 3));
   });
 });
 

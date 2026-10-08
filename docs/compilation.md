@@ -492,7 +492,7 @@ from a texture's three.js constants for the two renderers — so the same readin
 of what a texture asked for drives all three backends.
 
 Two things a GPU does that this does not: there is no mip chain, so
-`textureLod`'s level argument is ignored, and a texel fetch neither filters nor
+`textureLevel`'s level argument is ignored, and a texel fetch neither filters nor
 wraps — as on a GPU, where `texelFetch`/`textureLoad` read the texel or nothing.
 
 `@random-mesh/rmsl/scene` textures state this in three.js's constants
@@ -572,13 +572,13 @@ tolerant comparisons. See [Testing](testing.md).
 
 ### Integer texture sampling
 
-Integer textures are not filterable in either language, so `texture()`/`textureLod()`
+Integer textures are not filterable in either language, so `texture()`/`textureLevel()`
 compile to an unfiltered fetch at **integer texel coordinates**:
 
-| RMSL                                | GLSL                             | WGSL                                  |
-| ----------------------------------- | -------------------------------- | ------------------------------------- |
-| `isampler2D.texture(ivec2)`         | `texelFetch(s, ivec2, 0)`        | `textureLoad(t, vec2<i32>, 0i)`       |
-| `usampler3D.textureLod(uvec3, lod)` | `texelFetch(s, ivec3, int(lod))` | `textureLoad(t, vec3<i32>, i32(lod))` |
+| RMSL                                   | GLSL                             | WGSL                                  |
+| -------------------------------------- | -------------------------------- | ------------------------------------- |
+| `texture(isampler2D, ivec2)`           | `texelFetch(s, ivec2, 0)`        | `textureLoad(t, vec2<i32>, 0i)`       |
+| `textureLevel(usampler3D, uvec3, lod)` | `texelFetch(s, ivec3, int(lod))` | `textureLoad(t, vec3<i32>, i32(lod))` |
 
 The result is `ivec4` for `isampler*` and `uvec4` for `usampler*`. WGSL binds no
 sampler for these — only the texture — because `textureLoad` does not take one.

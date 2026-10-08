@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { vec2 } from "../rmsl";
+import { texture, vec2 } from "../rmsl";
 import {
   WebGPURenderer,
   Scene,
@@ -73,19 +73,19 @@ function stubDevice(): StubDevice {
     },
     createTexture: (descriptor: any) => {
       const [width, height, depth] = descriptor.size;
-      const texture: StubTexture = {
+      const texels: StubTexture = {
         width,
         height,
         depthOrArrayLayers: depth,
         format: descriptor.format,
         destroyed: false,
-        createView: () => ({ texture }),
+        createView: () => ({ texture: texels }),
         destroy: () => {
-          texture.destroyed = true;
+          texels.destroyed = true;
         },
       };
-      textures.push(texture);
-      return texture;
+      textures.push(texels);
+      return texels;
     },
     queue: {
       writeTexture: (destination: any, data: ArrayBufferView) => {
@@ -106,9 +106,13 @@ function stubCanvas(): any {
 }
 
 /** A material whose only fragment work is sampling `texture`. */
-function texturedMaterial(texture: DataTexture): MeshBasicMaterial {
+function texturedMaterial(texels: DataTexture): MeshBasicMaterial {
   const material = new MeshBasicMaterial();
-  material.fragmentNode = (b) => b.sampler("map", () => texture).texture(vec2(0.5, 0.5));
+  material.fragmentNode = (b) =>
+    texture(
+      b.sampler("map", () => texels),
+      vec2(0.5, 0.5),
+    );
   return material;
 }
 
@@ -151,12 +155,12 @@ describe("WebGPURenderer samplers", () => {
   it("describes the sampler the way the texture asked", () => {
     const { device, samplers } = stubDevice();
     const renderer = new WebGPURenderer(stubCanvas(), device) as any;
-    const texture = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
-    texture.magFilter = NearestFilter;
-    texture.minFilter = NearestFilter;
-    texture.wrapS = RepeatWrapping;
-    texture.wrapT = MirroredRepeatWrapping;
-    renderer.ensurePipeline(texturedMaterial(texture), new Scene(), false, false);
+    const texels = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
+    texels.magFilter = NearestFilter;
+    texels.minFilter = NearestFilter;
+    texels.wrapS = RepeatWrapping;
+    texels.wrapT = MirroredRepeatWrapping;
+    renderer.ensurePipeline(texturedMaterial(texels), new Scene(), false, false);
     expect(samplers[0]).toEqual({
       magFilter: "nearest",
       minFilter: "nearest",
@@ -171,14 +175,14 @@ describe("WebGPURenderer samplers", () => {
   it("rebinds when a texture is updated with a different sampler state", () => {
     const { device, samplers } = stubDevice();
     const renderer = new WebGPURenderer(stubCanvas(), device) as any;
-    const texture = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
-    const material = texturedMaterial(texture);
+    const texels = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
+    const material = texturedMaterial(texels);
     const scene = new Scene();
     const entry = renderer.ensurePipeline(material, scene, false, false);
     const first = entry.samplerBindGroup;
 
-    texture.wrapS = RepeatWrapping;
-    texture.needsUpdate = true;
+    texels.wrapS = RepeatWrapping;
+    texels.needsUpdate = true;
     const again = renderer.ensurePipeline(material, scene, false, false);
 
     // The bind group held the clamping sampler, so it cannot stand.
@@ -191,14 +195,14 @@ describe("WebGPURenderer samplers", () => {
   it("leaves the bind group alone when an update changes nothing about sampling", () => {
     const { device, samplers } = stubDevice();
     const renderer = new WebGPURenderer(stubCanvas(), device) as any;
-    const texture = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
-    const material = texturedMaterial(texture);
+    const texels = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
+    const material = texturedMaterial(texels);
     const scene = new Scene();
     const entry = renderer.ensurePipeline(material, scene, false, false);
     const first = entry.samplerBindGroup;
 
-    texture.image = new Uint8Array([220, 0, 0, 255]);
-    texture.needsUpdate = true;
+    texels.image = new Uint8Array([220, 0, 0, 255]);
+    texels.needsUpdate = true;
     const again = renderer.ensurePipeline(material, scene, false, false);
 
     expect(samplers).toHaveLength(1);
@@ -213,16 +217,16 @@ describe("WebGPURenderer texture updates", () => {
   it("uploads a changed image again on the next render", () => {
     const { device, textures, bindGroups, writes } = stubDevice();
     const renderer = new WebGPURenderer(stubCanvas(), device) as any;
-    const texture = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
-    const material = texturedMaterial(texture);
+    const texels = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
+    const material = texturedMaterial(texels);
     const scene = new Scene();
 
     const entry = renderer.ensurePipeline(material, scene, false, false);
     expect(writes).toHaveLength(1);
     const boundTexture = entry.textureBindGroup;
 
-    texture.image = new Uint8Array([220, 0, 0, 255]);
-    texture.needsUpdate = true;
+    texels.image = new Uint8Array([220, 0, 0, 255]);
+    texels.needsUpdate = true;
     renderer.ensurePipeline(material, scene, false, false);
 
     expect(writes).toHaveLength(2);
@@ -239,8 +243,8 @@ describe("WebGPURenderer texture updates", () => {
   it("leaves an unchanged texture alone", () => {
     const { device, writes } = stubDevice();
     const renderer = new WebGPURenderer(stubCanvas(), device) as any;
-    const texture = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
-    const material = texturedMaterial(texture);
+    const texels = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
+    const material = texturedMaterial(texels);
     const scene = new Scene();
 
     renderer.ensurePipeline(material, scene, false, false);
@@ -253,17 +257,17 @@ describe("WebGPURenderer texture updates", () => {
   it("replaces and rebinds a texture whose image changed size", () => {
     const { device, textures, bindGroups, writes } = stubDevice();
     const renderer = new WebGPURenderer(stubCanvas(), device) as any;
-    const texture = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
-    const material = texturedMaterial(texture);
+    const texels = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
+    const material = texturedMaterial(texels);
     const scene = new Scene();
 
     const entry = renderer.ensurePipeline(material, scene, false, false);
     const first = entry.textureBindGroup;
 
-    texture.image = new Uint8Array(2 * 2 * 4).fill(220);
-    texture.width = 2;
-    texture.height = 2;
-    texture.needsUpdate = true;
+    texels.image = new Uint8Array(2 * 2 * 4).fill(220);
+    texels.width = 2;
+    texels.height = 2;
+    texels.needsUpdate = true;
     const again = renderer.ensurePipeline(material, scene, false, false);
 
     // A GPU texture is fixed at the size it was created with, so the bigger
@@ -272,7 +276,7 @@ describe("WebGPURenderer texture updates", () => {
     expect(textures[0].destroyed).toBe(true);
     expect(textures[1].width).toBe(2);
     expect(writes[1].texture).toBe(textures[1]);
-    expect(renderer.textures.get(texture)).toBe(textures[1]);
+    expect(renderer.textures.get(texels)).toBe(textures[1]);
     expect(again.textureBindGroup).not.toBe(first);
   });
 });
@@ -284,8 +288,8 @@ describe("WebGPURenderer texture disposal", () => {
   it("destroys the GPU texture and rebuilds the bind groups that named it", () => {
     const { device, textures, bindGroups } = stubDevice();
     const renderer = new WebGPURenderer(stubCanvas(), device) as any;
-    const texture = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
-    const material = texturedMaterial(texture);
+    const texels = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
+    const material = texturedMaterial(texels);
     const scene = new Scene();
 
     const entry = renderer.ensurePipeline(material, scene, false, false);
@@ -294,7 +298,7 @@ describe("WebGPURenderer texture disposal", () => {
     expect(bindGroups).toHaveLength(3);
     const first = entry.textureBindGroup;
 
-    texture.dispose();
+    texels.dispose();
     expect(textures[0].destroyed).toBe(true);
     expect(renderer.textures.size).toBe(0);
     // The sampler is shared with every texture filtered and wrapped the same
@@ -313,7 +317,7 @@ describe("WebGPURenderer texture disposal", () => {
     expect(again).toBe(entry);
     expect(textures).toHaveLength(2);
     expect(again.textureBindGroup).not.toBe(first);
-    expect(renderer.textures.get(texture)).toBe(textures[1]);
+    expect(renderer.textures.get(texels)).toBe(textures[1]);
   });
   /**
    * @canon spec-a-disposed-resource-is-freed-by-every-renderer-holding-it
@@ -336,12 +340,12 @@ describe("WebGPURenderer texture disposal", () => {
   it("stops listening to the textures it frees when the renderer is disposed", () => {
     const { device, textures } = stubDevice();
     const renderer = new WebGPURenderer(stubCanvas(), device) as any;
-    const texture = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
-    renderer.ensurePipeline(texturedMaterial(texture), new Scene(), false, false);
+    const texels = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
+    renderer.ensurePipeline(texturedMaterial(texels), new Scene(), false, false);
 
     renderer.dispose();
     expect(textures[0].destroyed).toBe(true);
-    expect(texture.hasEventListener("dispose", renderer.onTextureDispose)).toBe(false);
+    expect(texels.hasEventListener("dispose", renderer.onTextureDispose)).toBe(false);
   });
 });
 

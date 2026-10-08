@@ -21,6 +21,7 @@ import {
   uv,
   screenCoordinate,
   time,
+  texture,
 } from "../rmsl";
 import { compileGlslFn } from "../glsl";
 import { compileWgslFn } from "../wgsl";
@@ -414,7 +415,7 @@ describe("bloom", () => {
    * @canon spec-bloom-follows-tsl
    */
   it("luminosityHighPass is available standalone", () => {
-    const input = uniform("sampler2D").texture(uv());
+    const input = texture(uniform("sampler2D"), uv());
     const glsl = compileGlsl(luminosityHighPass(input, 0.3, 0.01));
     expect(glsl).toContain("smoothstep(");
   });

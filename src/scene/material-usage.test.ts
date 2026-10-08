@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { Fn, vec3, vec4, mix, ivec2, ivec3, uvec2, uvec3 } from "../rmsl";
+import { Fn, vec3, vec4, mix, ivec2, ivec3, uvec2, uvec3, texture } from "../rmsl";
 import { compileJSFragment } from "../js";
 import {
   recordingGLSL as compileGlsl,
@@ -240,7 +240,7 @@ describe("node materials", () => {
    * @canon spec-a-material-reads-any-sampler-type
    */
   it("registers and compiles the integer and 3D samplers", () => {
-    const texture = () => new DataTexture(new Uint8Array([1, 2, 3, 4]), 1, 1);
+    const image = () => new DataTexture(new Uint8Array([1, 2, 3, 4]), 1, 1);
     const cases: {
       type: "isampler2D" | "isampler3D" | "usampler2D" | "usampler3D";
       coords: ReturnType<typeof ivec2 | typeof ivec3 | typeof uvec2 | typeof uvec3>;
@@ -254,8 +254,8 @@ describe("node materials", () => {
     for (const { type, coords, wgsl } of cases) {
       const material = new MeshBasicMaterial();
       material.fragmentNode = (b) => {
-        const tex = b.sampler("data", type, texture);
-        return tex.texture(coords as never).toVec4();
+        const tex = b.sampler("data", type, image);
+        return texture(tex as never, coords as never).toVec4();
       };
       const program = material.build(new Scene());
       const binding = program.samplers.find((s) => s.name === "data")!;
@@ -282,7 +282,7 @@ describe("node materials", () => {
       // qualifier and reserved.
       const flat = b.sampler("diffuse", () => new DataTexture(new Uint8Array(4), 1, 1));
       const volume = b.sampler("volume", "sampler3D", () => new DataTexture(new Uint8Array(8), 2, 2, 2));
-      return flat.texture(b.uv).add(volume.texture(vec3(0, 0, 0)));
+      return texture(flat, b.uv).add(texture(volume, vec3(0, 0, 0)));
     };
     const program = material.build(new Scene());
     const flat = program.samplers.find((s) => s.name === "diffuse")!;

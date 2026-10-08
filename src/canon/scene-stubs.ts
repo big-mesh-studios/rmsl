@@ -1,5 +1,5 @@
 import { MeshBasicMaterial, PerspectiveCamera, WebGLRenderer, type Texture } from "../scene";
-import { vec2 } from "../rmsl";
+import { texture, vec2 } from "../rmsl";
 
 /**
  * Stand-ins for a GPU device and a WebGL context that record what a scene
@@ -54,17 +54,17 @@ export function stubDevice() {
     createBindGroup: (descriptor: any) => descriptor,
     createTexture: (descriptor: any) => {
       const [width, height, depth] = descriptor.size;
-      const texture = {
+      const image = {
         width,
         height,
         depthOrArrayLayers: depth ?? 1,
         format: descriptor.format,
         usage: descriptor.usage,
-        createView: () => ({ texture }),
+        createView: () => ({ texture: image }),
         destroy: () => {},
       };
-      textures.push(texture);
-      return texture;
+      textures.push(image);
+      return image;
     },
     createCommandEncoder: () => ({
       beginRenderPass: (descriptor: any) => {
@@ -87,7 +87,8 @@ export function stubDevice() {
         const element = (data as any).BYTES_PER_ELEMENT ?? 1;
         const bytes = new Uint8Array(data.buffer, data.byteOffset + dataOffset * element);
         const length = size === undefined ? bytes.length : size * element;
-        if (offset % 4 !== 0 || length % 4 !== 0) throw new Error("writeBuffer of an offset or size not a multiple of 4");
+        if (offset % 4 !== 0 || length % 4 !== 0)
+          throw new Error("writeBuffer of an offset or size not a multiple of 4");
         const target = contents.get(buffer)!;
         if (offset + length > target.length) throw new Error("writeBuffer past the end of the buffer");
         target.set(bytes.subarray(0, length), offset);
@@ -185,9 +186,13 @@ export function camera(): PerspectiveCamera {
 }
 
 /** A material whose fragment stage samples `texture` and nothing else. */
-export function sampling(texture: Texture): MeshBasicMaterial {
+export function sampling(image: Texture): MeshBasicMaterial {
   const material = new MeshBasicMaterial();
-  material.fragmentNode = (b) => b.sampler("map", () => texture).texture(vec2(0.5, 0.5));
+  material.fragmentNode = (b) =>
+    texture(
+      b.sampler("map", () => image),
+      vec2(0.5, 0.5),
+    );
   return material;
 }
 

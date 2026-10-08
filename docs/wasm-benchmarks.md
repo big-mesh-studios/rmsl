@@ -276,7 +276,7 @@ measuring it.
 A fifth, found later while investigating why `.draw()` combined with a
 texture was slower than expected (see "A whole grid in one call:
 `.draw()`" below): `emitTexelFetchStores` — `textureLoad()`'s own
-codegen, and also what `texture()`/`textureLod()` fall back to for an
+codegen, and also what `texture()`/`textureLevel()` fall back to for an
 integer sampler — had the exact same per-channel redundancy the filtered
 path above was already fixed for (its bounds check and safe, clamped
 texel index recomputed once per channel instead of once per texel), just

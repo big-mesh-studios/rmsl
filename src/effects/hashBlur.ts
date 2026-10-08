@@ -14,6 +14,7 @@ import {
   vec2,
   vec4,
   type Node,
+  texture,
 } from "../rmsl";
 import { f, type FloatIn, type IntIn, type Vec2In, type Sampler2D, type Sampler3D } from "./util";
 
@@ -47,7 +48,7 @@ export const hashBlur = (
   const premultipliedAlpha = options.premultipliedAlpha ?? false;
 
   const tap = (u: Node<"vec2">): Node<"vec4"> => {
-    const sample = textureNode.texture(u);
+    const sample = texture(textureNode, u);
     return premultipliedAlpha ? premultiplyAlpha(sample) : sample;
   };
 

@@ -25,6 +25,7 @@ import {
   vec3,
   vec4,
   type Node,
+  texture,
 } from "../rmsl";
 import { compileJS, compileJSCompute, compileJSRoutine } from "../js";
 import type { CompileCpuRoutine } from "../backends/cpu";
@@ -97,10 +98,10 @@ describe("a CPU target's filter", () => {
     const build = () =>
       Fn(() => {
         tex = uniform("sampler2D");
-        return tex.texture(vec2(0.5, 0.5)).x;
+        return texture(tex, vec2(0.5, 0.5)).x;
       })();
     const routine = compile(build as any, none);
-    const red = (texture: object) => routine({ textures: { [tex.name]: { ...texels, ...texture } } });
+    const red = (image: object) => routine({ textures: { [tex.name]: { ...texels, ...image } } });
     expect(red({ minFilter: "linear" })).toBe(100);
     expect(red({ magFilter: "linear", minFilter: "nearest" })).toBe(50);
   });
@@ -496,12 +497,12 @@ describe("a coordinate far past the edge on WASM", () => {
    */
   it("clamps a sampling coordinate far past the edge", () => {
     const tex = uniform("sampler2D");
-    const routine = compileWasmRoutine((a: any) => Fn(() => tex.texture(vec2(a, 0.5)).x.toVar())(), {
+    const routine = compileWasmRoutine((a: any) => Fn(() => texture(tex, vec2(a, 0.5)).x.toVar())(), {
       name: "main",
       params: [{ name: "a", type: "float" as const }],
     });
-    const texture = { data: [1, 2], width: 2, height: 1, channels: 1 as const };
-    expect(routine({ params: { a: 1e12 }, textures: { [tex.name]: texture } })).toBe(2);
+    const image = { data: [1, 2], width: 2, height: 1, channels: 1 as const };
+    expect(routine({ params: { a: 1e12 }, textures: { [tex.name]: image } })).toBe(2);
   });
 
   /**
@@ -541,10 +542,10 @@ describe("an integer texel on WASM", () => {
         )(),
       none,
     );
-    const texture = (value: number) => ({ data: [value], width: 1, height: 1, channels: 1 as const });
-    expect(readUnsigned({ textures: { [unsigned.name]: texture(4294967295) } })).toBe(4294967295);
-    expect(readSigned({ textures: { [signed.name]: texture(2147483647) } })).toBe(2147483647);
-    expect(readSigned({ textures: { [signed.name]: texture(-2147483648) } })).toBe(-2147483648);
+    const image = (value: number) => ({ data: [value], width: 1, height: 1, channels: 1 as const });
+    expect(readUnsigned({ textures: { [unsigned.name]: image(4294967295) } })).toBe(4294967295);
+    expect(readSigned({ textures: { [signed.name]: image(2147483647) } })).toBe(2147483647);
+    expect(readSigned({ textures: { [signed.name]: image(-2147483648) } })).toBe(-2147483648);
   });
 });
 

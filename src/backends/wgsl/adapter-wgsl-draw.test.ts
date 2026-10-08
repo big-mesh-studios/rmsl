@@ -9,7 +9,7 @@ const WEBGPU = await webgpuAvailable();
  * `vertexIndex()`, and a 4×4 canvas. Pixel (x, y) counts from the top left.
  */
 const QUAD = `
-import { Fn, float, instancedArray, invocationIndex, uint, uniform, vec2, vec4, vertexIndex } from "../../rmsl";
+import { Fn, float, instancedArray, invocationIndex, texture, uint, uniform, vec2, vec4, vertexIndex } from "../../rmsl";
 import { createWgsl, createWgslContext } from "../../wgsl";
 ${READ_PIXEL}
 const quad = (x0, y0, x1, y1) => Fn(() => {
@@ -34,7 +34,7 @@ globalThis.__rmslAdapterRetextureRun = async () => {
   const createTexture = context.device.createTexture.bind(context.device);
   context.device.createTexture = (descriptor) => (created++, createTexture(descriptor));
   const image = uniform("sampler2D");
-  const adapter = createWgsl({ context, vertex: quad(-1, -1, 1, 1), fragment: Fn(() => image.texture(vec2(0.5, 0.5)))() });
+  const adapter = createWgsl({ context, vertex: quad(-1, -1, 1, 1), fragment: Fn(() => texture(image, vec2(0.5, 0.5)))() });
   const target = canvas();
   await adapter.attach(target);
   const texels = (r, g, b) => ({ data: Uint8Array.of(r, g, b, 255, r, g, b, 255, r, g, b, 255, r, g, b, 255), width: 2, height: 2 });

@@ -72,6 +72,11 @@ export type Sampler2DLike = BaseNode<"sampler2D"> | Node<"sampler2D">;
 export type Sampler3DLike = BaseNode<"sampler3D"> | Node<"sampler3D">;
 export type ISampler2DLike = BaseNode<"isampler2D"> | Node<"isampler2D">;
 export type USampler3DLike = BaseNode<"usampler3D"> | Node<"usampler3D">;
+export type SamplerCubeLike = BaseNode<"samplerCube"> | Node<"samplerCube">;
+export type ISampler3DLike = BaseNode<"isampler3D"> | Node<"isampler3D">;
+export type ISamplerCubeLike = BaseNode<"isamplerCube"> | Node<"isamplerCube">;
+export type USampler2DLike = BaseNode<"usampler2D"> | Node<"usampler2D">;
+export type USamplerCubeLike = BaseNode<"usamplerCube"> | Node<"usamplerCube">;
 
 /**
  * The plain-JS shape `setUniform`/`setUniform` on a uniform array element
@@ -390,15 +395,15 @@ export interface NodeOps {
   mat4x2: RectMatOps<"mat4x2", "vec4", "vec2", "mat2x4">;
   mat4x3: RectMatOps<"mat4x3", "vec4", "vec3", "mat3x4">;
   mat4: MatOps<"mat4", "vec4", "vec3">;
-  sampler2D: SamplerOps;
-  sampler3D: Sampler3DOps;
-  samplerCube: CubeSamplerOps;
-  isampler2D: ISampler2DOps;
-  isampler3D: ISampler3DOps;
-  isamplerCube: ISamplerCubeOps;
-  usampler2D: USampler2DOps;
-  usampler3D: USampler3DOps;
-  usamplerCube: USamplerCubeOps;
+  sampler2D: {};
+  sampler3D: {};
+  samplerCube: {};
+  isampler2D: {};
+  isampler3D: {};
+  isamplerCube: {};
+  usampler2D: {};
+  usampler3D: {};
+  usamplerCube: {};
   void: {};
 }
 
@@ -638,18 +643,6 @@ export interface RectMatOps<
   transpose(): Node<Transposed>;
 }
 
-/** A cube map is sampled with a direction rather than a surface coordinate. */
-export interface CubeSamplerOps {
-  texture(coords: Vec3Like): Node<"vec4">;
-  textureLod(coords: Vec3Like, lod: FloatLike): Node<"vec4">;
-}
-
-/** A 3D texture is sampled at its volume coordinate. */
-export interface Sampler3DOps {
-  texture(coords: Vec3Like): Node<"vec4">;
-  textureLod(coords: Vec3Like, lod: FloatLike): Node<"vec4">;
-}
-
 export interface IntOps {
   add(other: IntLike): Node<"int">;
   sub(other: IntLike): Node<"int">;
@@ -739,52 +732,6 @@ export interface UVecOps<A extends "uvec2" | "uvec3" | "uvec4"> {
   shiftRight(other: UintLike | UVec2Like | UVec3Like | UVec4Like): Node<A>;
   bitNot(): Node<A>;
   element(i: IntLike): Node<"uint">;
-}
-
-export interface SamplerOps {
-  texture(coords: Vec2Like): Node<"vec4">;
-  textureLod(coords: Vec2Like, lod: FloatLike): Node<"vec4">;
-}
-
-/**
- * A signed or unsigned integer texture. Integer textures are not filterable in
- * either language, so `texture()`/`textureLod()` compile to an unfiltered
- * fetch (`texelFetch` in GLSL, `textureLoad` in WGSL — which there needs no
- * sampler) and return an integer vector. Coordinates are texel coordinates and
- * must be integers, matching how the underlying fetch is parameterised in both
- * languages, and the LOD is an int. Each is written out per dimension so a 2D
- * sampler cannot be given an `ivec3`/`uvec3` — a conditional would make the
- * checker expand the whole `Node` intersection at every use, exhausting its
- * heap.
- */
-export interface ISampler2DOps {
-  texture(coords: IVec2Like): Node<"ivec4">;
-  textureLod(coords: IVec2Like, lod: IntLike): Node<"ivec4">;
-}
-
-export interface ISampler3DOps {
-  texture(coords: IVec3Like): Node<"ivec4">;
-  textureLod(coords: IVec3Like, lod: IntLike): Node<"ivec4">;
-}
-
-export interface ISamplerCubeOps {
-  texture(coords: IVec3Like): Node<"ivec4">;
-  textureLod(coords: IVec3Like, lod: IntLike): Node<"ivec4">;
-}
-
-export interface USampler2DOps {
-  texture(coords: UVec2Like): Node<"uvec4">;
-  textureLod(coords: UVec2Like, lod: IntLike): Node<"uvec4">;
-}
-
-export interface USampler3DOps {
-  texture(coords: UVec3Like): Node<"uvec4">;
-  textureLod(coords: UVec3Like, lod: IntLike): Node<"uvec4">;
-}
-
-export interface USamplerCubeOps {
-  texture(coords: UVec3Like): Node<"uvec4">;
-  textureLod(coords: UVec3Like, lod: IntLike): Node<"uvec4">;
 }
 
 export interface BoolOps {
@@ -1329,26 +1276,6 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
       _t: this._t,
       type: "bitNot",
       params: [this as BaseNode<ShaderType>],
-    });
-  }
-
-  // === SamplerOps ===
-  texture(coords: any): any {
-    return node({
-      _t: textureResultType(this._t),
-      type: "texture",
-      params: [this as BaseNode<ShaderType>, wrapValue(coords) as BaseNode<ShaderType>],
-    });
-  }
-  textureLod(coords: any, lod: any): any {
-    return node({
-      _t: textureResultType(this._t),
-      type: "textureLod",
-      params: [
-        this as BaseNode<ShaderType>,
-        wrapValue(coords) as BaseNode<ShaderType>,
-        wrapValue(lod) as BaseNode<ShaderType>,
-      ],
     });
   }
 
@@ -2819,6 +2746,45 @@ export function premultiplyAlpha(color: MathLike): any {
 export function unpremultiplyAlpha(color: MathLike): any {
   let c = toNode(color);
   return c.a.equal(0).select(vec4(0), vec4(c.rgb.div(c.a), c.a));
+}
+
+/**
+ * Samples a texture at a coordinate of its dimension, as TSL's `texture(value,
+ * uv)`. A cube map takes a direction. An integer texture cannot be filtered,
+ * so it is read unfiltered (`texelFetch` in GLSL, `textureLoad` in WGSL) at
+ * integer texel coordinates, and gives an integer vector.
+ */
+export function texture(value: Sampler2DLike, uv: Vec2Like): Node<"vec4">;
+export function texture(value: Sampler3DLike | SamplerCubeLike, uv: Vec3Like): Node<"vec4">;
+export function texture(value: ISampler2DLike, uv: IVec2Like): Node<"ivec4">;
+export function texture(value: ISampler3DLike | ISamplerCubeLike, uv: IVec3Like): Node<"ivec4">;
+export function texture(value: USampler2DLike, uv: UVec2Like): Node<"uvec4">;
+export function texture(value: USampler3DLike | USamplerCubeLike, uv: UVec3Like): Node<"uvec4">;
+export function texture(value: BaseNode<ShaderType>, uv: unknown): any {
+  return node({
+    _t: textureResultType(value._t),
+    type: "texture",
+    params: [value, wrapValue(uv as any) as BaseNode<ShaderType>],
+  });
+}
+
+/**
+ * Samples a texture at a coordinate of its dimension and at mip level `level`,
+ * as TSL's `textureLevel(value, uv, level)`. An integer texture takes an
+ * integer level.
+ */
+export function textureLevel(value: Sampler2DLike, uv: Vec2Like, level: FloatLike): Node<"vec4">;
+export function textureLevel(value: Sampler3DLike | SamplerCubeLike, uv: Vec3Like, level: FloatLike): Node<"vec4">;
+export function textureLevel(value: ISampler2DLike, uv: IVec2Like, level: IntLike): Node<"ivec4">;
+export function textureLevel(value: ISampler3DLike | ISamplerCubeLike, uv: IVec3Like, level: IntLike): Node<"ivec4">;
+export function textureLevel(value: USampler2DLike, uv: UVec2Like, level: IntLike): Node<"uvec4">;
+export function textureLevel(value: USampler3DLike | USamplerCubeLike, uv: UVec3Like, level: IntLike): Node<"uvec4">;
+export function textureLevel(value: BaseNode<ShaderType>, uv: unknown, level: unknown): any {
+  return node({
+    _t: textureResultType(value._t),
+    type: "textureLod",
+    params: [value, wrapValue(uv as any) as BaseNode<ShaderType>, wrapValue(level as any) as BaseNode<ShaderType>],
+  });
 }
 
 /**

@@ -174,39 +174,35 @@ reduce to `bvecN`. An operand that is an `int` scalar is broadcast.
 As IVecOps but unsigned and without `.negate()`/`.abs()`; `.element(i)` →
 `Node<"uint">`.
 
-### SamplerOps (sampler2D)
+### Sampling a texture
 
-| Method                     | Returns | Description                   |
-| -------------------------- | ------- | ----------------------------- |
-| `.texture(coords)`         | `vec4`  | Sample texture at coordinates |
-| `.textureLod(coords, lod)` | `vec4`  | Sample with explicit LOD      |
+A texture is sampled with functions that take the sampler first, as TSL's are:
 
-### Sampler3DOps (sampler3D)
+| Function                           | Returns | Description                     |
+| ---------------------------------- | ------- | ------------------------------- |
+| `texture(sampler, uv)`             | `vec4`  | Sample the texture at `uv`      |
+| `textureLevel(sampler, uv, level)` | `vec4`  | Sample at an explicit mip level |
 
-A 3D texture is sampled at its volume coordinate — a `vec3`, as with a cube map.
-
-| Method                     | Returns | Description                          |
-| -------------------------- | ------- | ------------------------------------ |
-| `.texture(coords)`         | `vec4`  | Sample texture at volume coordinates |
-| `.textureLod(coords, lod)` | `vec4`  | Sample with explicit LOD             |
+A `sampler2D` takes a `vec2`. A `sampler3D` takes its volume coordinate, a
+`vec3`, as a `samplerCube` takes a direction.
 
 ### Integer samplers (isampler2D/3D/Cube, usampler2D/3D/Cube)
 
 Signed and unsigned integer textures. Integer textures are not filterable, so
-`.texture()`/`.textureLod()` compile to an unfiltered fetch — `texelFetch` in
+`texture()`/`textureLevel()` compile to an unfiltered fetch — `texelFetch` in
 GLSL, `textureLoad` in WGSL, which there needs **no sampler binding**. They take
 integer texel coordinates of the sampler's width and return an integer vector:
 
-| Sampler                     | `.texture()` returns | Coordinates |
-| --------------------------- | -------------------- | ----------- |
-| `isampler2D`                | `Node<"ivec4">`      | `ivec2`     |
-| `isampler3D`/`isamplerCube` | `Node<"ivec4">`      | `ivec3`     |
-| `usampler2D`                | `Node<"uvec4">`      | `uvec2`     |
-| `usampler3D`/`usamplerCube` | `Node<"uvec4">`      | `uvec3`     |
+| Sampler                     | `texture()` returns | Coordinates |
+| --------------------------- | ------------------- | ----------- |
+| `isampler2D`                | `Node<"ivec4">`     | `ivec2`     |
+| `isampler3D`/`isamplerCube` | `Node<"ivec4">`     | `ivec3`     |
+| `usampler2D`                | `Node<"uvec4">`     | `uvec2`     |
+| `usampler3D`/`usamplerCube` | `Node<"uvec4">`     | `uvec3`     |
 
 ```typescript
 let voxel = uniform("usampler3D");
-let density = voxel.texture(uvec3(x, y, z)); // Node<"uvec4">
+let density = texture(voxel, uvec3(x, y, z)); // Node<"uvec4">
 ```
 
 ### BoolOps

@@ -305,7 +305,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec int-min-compiles-to-a-subtraction-of-two-in-range-literals`](#spec-int-min-compiles-to-a-subtraction-of-two-in-range-literals) — On GLSL and WGSL, the `int` literal -2147483648 compiles to `(-2147483647 - 1)`, a subtraction of two literals in range.
     - [`@spec a-vector-converted-to-a-scalar-takes-its-first-component`](#spec-a-vector-converted-to-a-scalar-takes-its-first-component) — Converting a vector to `float`, `int` or `uint` gives its first component, converted to that type.
   - [`@spec sampling-reads-a-texture-at-a-coordinate`](#spec-sampling-reads-a-texture-at-a-coordinate) — `texture(sampler, uv)` and `textureLevel(sampler, uv, level)` read a texture at a coordinate of its dimension.
-    - [`@bug samplers-are-sampled-by-method-where-tsl-samples-by-function`](#bug-samplers-are-sampled-by-method-where-tsl-samples-by-function) — rmsl samples a texture through the methods `texture` and `textureLod` of its sampler node, and exports no `textureLevel` function.
+    - [`@spec texture-and-texture-level-are-functions-of-the-sampler`](#spec-texture-and-texture-level-are-functions-of-the-sampler) — rmsl exports `texture` and `textureLevel` as functions that take the sampler first. A sampler node has no sampling method.
     - [`@spec a-float-texture-is-sampled-through-a-sampler`](#spec-a-float-texture-is-sampled-through-a-sampler) — A float texture, 2D or 3D, is sampled with filtering, through `texture` or `textureSample` and a sampler of its own on WGSL.
     - [`@spec an-integer-texture-reads-one-texel`](#spec-an-integer-texture-reads-one-texel) — A program reads an integer texture one texel at a time, with `texelFetch` on GLSL and `textureLoad` with no sampler on WGSL.
       - [`@spec an-integer-texture-is-fetched-unfiltered`](#spec-an-integer-texture-is-fetched-unfiltered) — A program reads an integer texture at an integer texel coordinate with no filter, and gets an integer vector.
@@ -2443,11 +2443,9 @@ Derives from: [`fact-tsl-samples-a-texture-with-texture-and-texture-level`](#fac
 
 This follows because a port changes its import and nothing else, so a shader that reads a texture must read it as TSL does. TSL has no sampler method and no `textureLod`, so rmsl has none.
 
-#### @bug samplers-are-sampled-by-method-where-tsl-samples-by-function
+#### @spec texture-and-texture-level-are-functions-of-the-sampler
 
-> rmsl samples a texture through the methods `texture` and `textureLod` of its sampler node, and exports no `textureLevel` function.
-
-Issue: #139
+> rmsl exports `texture` and `textureLevel` as functions that take the sampler first. A sampler node has no sampling method.
 
 #### @spec a-float-texture-is-sampled-through-a-sampler
 

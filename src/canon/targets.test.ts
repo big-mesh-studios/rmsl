@@ -52,6 +52,7 @@ import {
   vec3,
   vec4,
   type Node,
+  texture,
 } from "../rmsl";
 import type { CompileCpuRoutine } from "../backends/cpu";
 import { compileGlsl } from "../glsl";
@@ -1090,7 +1091,7 @@ describe("each leaf on every target it claims", () => {
     ["WASM", compileWasmRoutine as typeof compileJSRoutine],
   ] as const)("fetches the texel a float coordinate truncates to from an integer texture on %s", (_, compile) => {
     const tex = uniform("isampler2D") as any;
-    const build = (x: any) => Fn(() => tex.texture(vec2(x, 0.25)).x.toVar())() as any;
+    const build = (x: any) => Fn(() => texture(tex, vec2(x, 0.25)).x.toVar())() as any;
     const run = compile(build, { name: "main", params: [{ name: "x", type: "float" }] });
     const textures = { [tex.name]: { data: Int32Array.of(10, 20, 30, 40), width: 2, height: 2, channels: 1 as const } };
     expect(run({ params: { x: 0.75 }, textures })).toBe(10);

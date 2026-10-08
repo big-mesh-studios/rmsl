@@ -7,7 +7,7 @@ import { GL_STATE, READ_PIXEL, runInGpuPage } from "../testing/browser";
  * draws it in. Pixel (x, y) counts from the top left.
  */
 const SCENE = `
-import { Fn, attribute, builtinPosition, fragCoord, uniform, vec2, vec4 } from "../rmsl";
+import { Fn, attribute, builtinPosition, fragCoord, uniform, vec2, vec4, texture } from "../rmsl";
 import { createGlsl } from "../glsl";
 import { createJs, createJsGrid } from "../js";
 import { createWasm, createWasmGrid } from "../wasm";
@@ -36,7 +36,7 @@ const drawWith = (adapter) => {
   return readPixel(target, 1, 2);
 };
 const image = uniform("sampler2D");
-const texturedFragment = () => Fn(() => image.texture(vec2(0.75, 0.25)))();
+const texturedFragment = () => Fn(() => texture(image, vec2(0.75, 0.25)))();
 const drawTextured = (adapter) => {
   const target = canvas();
   adapter.attach(target);
@@ -90,7 +90,7 @@ const glslStateChanged = (preserveState) => {
   const before = glState(gl);
   const changed = new Set();
   const check = () => changedGlState(before, glState(gl)).forEach((name) => changed.add(name));
-  const adapter = createGlsl(offsetVertex(), Fn(() => image.texture(vec2(0.75, 0.25)).mul(colour))(), { preserveState });
+  const adapter = createGlsl(offsetVertex(), Fn(() => texture(image, vec2(0.75, 0.25)).mul(colour))(), { preserveState });
   adapter.attach(target);
   check();
   adapter.setAttribute(position, TRIANGLE);

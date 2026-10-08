@@ -34,7 +34,7 @@ globalThis.__rmslGpuLitRun = async () => {
 const ENTRY_SAMPLER_STATE = `
 import { WebGPURenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
   MeshBasicMaterial, DataTexture, NearestFilter, RepeatWrapping } from "./index";
-import { vec2 } from "../rmsl";
+import { vec2, texture } from "../rmsl";
 ${READ_PIXEL}
 globalThis.__rmslGpuSamplerRun = async () => {
   const canvas = document.createElement("canvas");
@@ -47,10 +47,10 @@ globalThis.__rmslGpuSamplerRun = async () => {
   camera.lookAt(0, 0, 0);
 
   const texels = () => new Uint8Array([255, 0, 0, 255, 0, 0, 255, 255]);
-  const draw = async (texture, x) => {
+  const draw = async (dataTexture, x) => {
     const scene = new Scene();
     const material = new MeshBasicMaterial();
-    material.fragmentNode = (b) => b.sampler("map", () => texture).texture(vec2(x, 0.5));
+    material.fragmentNode = (b) => texture(b.sampler("map", () => dataTexture), vec2(x, 0.5));
     scene.add(new Mesh(new PlaneGeometry(2, 2), material));
     renderer.render(scene, camera);
     await renderer.device.queue.onSubmittedWorkDone();
@@ -77,7 +77,7 @@ globalThis.__rmslGpuSamplerRun = async () => {
 const ENTRY_UPDATE = `
 import { WebGPURenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
   MeshBasicMaterial, DataTexture } from "./index";
-import { vec2 } from "../rmsl";
+import { vec2, texture } from "../rmsl";
 ${READ_PIXEL}
 globalThis.__rmslGpuUpdateRun = async () => {
   const canvas = document.createElement("canvas");
@@ -89,10 +89,10 @@ globalThis.__rmslGpuUpdateRun = async () => {
   camera.position.set(0, 0, 1);
   camera.lookAt(0, 0, 0);
 
-  const texture = new DataTexture(new Uint8Array([255, 0, 0, 255]), 1, 1);
+  const dataTexture = new DataTexture(new Uint8Array([255, 0, 0, 255]), 1, 1);
   const scene = new Scene();
   const material = new MeshBasicMaterial();
-  material.fragmentNode = (b) => b.sampler("map", () => texture).texture(vec2(0.5, 0.5));
+  material.fragmentNode = (b) => texture(b.sampler("map", () => dataTexture), vec2(0.5, 0.5));
   scene.add(new Mesh(new PlaneGeometry(2, 2), material));
 
   const draw = async () => {
@@ -102,8 +102,8 @@ globalThis.__rmslGpuUpdateRun = async () => {
   };
 
   const before = await draw();
-  texture.image = new Uint8Array([0, 0, 255, 255]);
-  texture.needsUpdate = true;
+  dataTexture.image = new Uint8Array([0, 0, 255, 255]);
+  dataTexture.needsUpdate = true;
   const after = await draw();
   return { before, after };
 };
@@ -115,7 +115,7 @@ globalThis.__rmslGpuUpdateRun = async () => {
 const ENTRY_SAMPLERS = `
 import { WebGPURenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
   MeshBasicMaterial, DataTexture, NearestFilter } from "./index";
-import { float, uvec2, vec2, vec4 } from "../rmsl";
+import { float, uvec2, vec2, vec4, texture } from "../rmsl";
 ${READ_PIXEL}
 globalThis.__rmslGpuSamplersRun = async () => {
   const canvas = document.createElement("canvas");
@@ -133,9 +133,9 @@ globalThis.__rmslGpuSamplersRun = async () => {
     const c = b.sampler("second", "usampler2D", () => second);
     const d = b.sampler("third", "sampler2D", () => third);
     return vec4(
-      a.texture(uvec2(0, 0)).r.toFloat().div(float(255)),
-      c.texture(uvec2(0, 0)).r.toFloat().div(float(255)),
-      d.texture(vec2(0.5, 0.5)).b,
+      texture(a, uvec2(0, 0)).r.toFloat().div(float(255)),
+      texture(c, uvec2(0, 0)).r.toFloat().div(float(255)),
+      texture(d, vec2(0.5, 0.5)).b,
       float(1),
     );
   };

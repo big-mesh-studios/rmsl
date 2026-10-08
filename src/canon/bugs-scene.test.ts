@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { float, vec2, vec4 } from "../rmsl";
+import { float, vec2, vec4, texture, textureLevel } from "../rmsl";
 import { compileWgsl } from "../wgsl";
 import {
   BufferAttribute,
@@ -307,12 +307,12 @@ describe("known bugs of the scene library, each failing until its fix", () => {
     const { device, canvas, pipelines } = stubDevice();
     const renderer = new WebGPURenderer(canvas, device as any) as any;
     const material = new MeshBasicMaterial();
-    const texture = () => new DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+    const image = () => new DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
     material.fragmentNode = (b) => {
-      b.sampler("unused", texture);
-      const first = b.sampler("first", texture);
-      const second = b.sampler("second", texture);
-      return second.texture(vec2(0.5, 0.5)).add(first.texture(vec2(0.5, 0.5)));
+      b.sampler("unused", image);
+      const first = b.sampler("first", image);
+      const second = b.sampler("second", image);
+      return texture(second, vec2(0.5, 0.5)).add(texture(first, vec2(0.5, 0.5)));
     };
     const scene = new Scene();
     scene.add(new Mesh(new PlaneGeometry(), material));
@@ -343,7 +343,14 @@ describe("known bugs of the scene library, each failing until its fix", () => {
     const renderer = new WebGPURenderer(canvas, device as any) as any;
     const height = new DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
     const material = new MeshBasicMaterial();
-    material.positionNode = (b) => b.position.add(b.sampler("height", () => height).textureLod(b.uv, float(0)).xyz);
+    material.positionNode = (b) =>
+      b.position.add(
+        textureLevel(
+          b.sampler("height", () => height),
+          b.uv,
+          float(0),
+        ).xyz,
+      );
     renderer.ensurePipeline(material, new Scene(), false, false);
 
     const textureLayout = layouts.find((l) => l.entries.some((e: any) => e.texture))!;

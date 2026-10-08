@@ -140,6 +140,8 @@ export {
   Switch,
   tan,
   tanh,
+  texture,
+  textureLevel,
   textureLoad,
   textureSize,
   time,

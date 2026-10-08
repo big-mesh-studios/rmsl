@@ -18,6 +18,7 @@ import {
   vec3,
   vec4,
   builtinPosition,
+  texture,
 } from "../rmsl";
 import { compileGlsl } from "../glsl";
 import { compile, compileWgsl, createWgslCompute } from "../wgsl";
@@ -115,7 +116,7 @@ globalThis.__rmslBugsGlsl = {
 
 /** The `createWgsl` counterparts, on a 4×4 canvas; each returns what it read, or the error it hit. */
 const WGSL_SCENE = `
-import { Fn, attribute, builtinPosition, instancedArray, ivec2, uniform, vec2, vec4 } from "../rmsl";
+import { Fn, attribute, builtinPosition, instancedArray, ivec2, uniform, vec2, vec4, texture } from "../rmsl";
 import { createWgsl } from "../wgsl";
 ${READ_PIXEL}
 const TRIANGLE = Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
@@ -144,7 +145,7 @@ globalThis.__rmslBugsWgsl = {
     const image = uniform("sampler2D");
     const adapter = createWgsl({
       vertex: plainVertex(),
-      fragment: Fn(() => image.texture(vec2(0.75, 0.25)))(),
+      fragment: Fn(() => texture(image, vec2(0.75, 0.25)))(),
     });
     await adapter.attach(target);
     adapter.setAttribute(position, TRIANGLE);
@@ -162,7 +163,7 @@ globalThis.__rmslBugsWgsl = {
     const image = uniform("usampler2D");
     const adapter = createWgsl({
       vertex: plainVertex(),
-      fragment: Fn(() => vec4(0, image.texture(ivec2(0, 0)).y.toFloat().div(255), 0, 1))(),
+      fragment: Fn(() => vec4(0, texture(image, ivec2(0, 0)).y.toFloat().div(255), 0, 1))(),
     });
     adapter.setTexture(image, { data: Uint8Array.of(0, 255, 0, 255), width: 1, height: 1 });
     await adapter.attach(target);
@@ -335,7 +336,7 @@ describe("known GPU bugs, each failing until its fix", () => {
     const values = instancedArray(2, "float");
     const image = uniform("isampler2D");
     const program = Fn(() => {
-      values.element(invocationIndex()).assign(image.texture(ivec2(0, 0)).x.toFloat());
+      values.element(invocationIndex()).assign(texture(image, ivec2(0, 0)).x.toFloat());
     })();
     const bindings = bindingsOf(compile({ stage: "compute" }, program).code);
     expect(new Set(bindings).size).toBe(bindings.length);
@@ -352,9 +353,9 @@ describe("known GPU bugs, each failing until its fix", () => {
     const near = uniform("isampler2D");
     const far = uniform("isampler2D");
     const vertex = Fn(() => {
-      builtinPosition().assign(vec4(near.texture(ivec2(0, 0)).x.toFloat(), 0, 0, 1));
+      builtinPosition().assign(vec4(texture(near, ivec2(0, 0)).x.toFloat(), 0, 0, 1));
     })();
-    const fragment = Fn(() => vec4(far.texture(ivec2(0, 0)).x.toFloat(), 0, 0, 1))();
+    const fragment = Fn(() => vec4(texture(far, ivec2(0, 0)).x.toFloat(), 0, 0, 1))();
     const samplers = [near, far].map((node) => ({ slot: node.name, type: "isampler2D" }));
     const vertexCode = compileWgsl.vertex(vertex, { samplers });
     const fragmentCode = compileWgsl.fragment(fragment, { samplers });
@@ -376,7 +377,7 @@ describe("known GPU bugs, each failing until its fix", () => {
     const zebra = uniformRaw("zebra", "sampler2D");
     const apple = uniformRaw("apple", "sampler2D");
     const vertex = Fn(() => {
-      builtinPosition().assign(vec4(zebra.texture(vec2(0, 0)).x.add(apple.texture(vec2(0, 0)).x), 0, 0, 1));
+      builtinPosition().assign(vec4(texture(zebra, vec2(0, 0)).x.add(texture(apple, vec2(0, 0)).x), 0, 0, 1));
     })();
     const code = compileWgsl.vertex(vertex);
     expect(code).toContain("textureSampleLevel(");

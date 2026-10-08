@@ -13,6 +13,7 @@ import {
   vec3,
   vec4,
   type StorageNode,
+  texture,
 } from "./rmsl";
 import { createWgslContext } from "./wgsl";
 import { createWasmContext } from "./wasm";
@@ -448,9 +449,9 @@ describe.skipIf(!GPU_ENABLED)("WGSL compute context limits", () => {
   it("rejects a program that samples a texture, which the context doesn't bind", async () => {
     const context = await createWgslContext();
     const out = instancedArray(1, "float");
-    const texture = uniform("sampler2D");
+    const image = uniform("sampler2D");
     const sample = Fn(() => {
-      out.element(0).assign(texture.texture(vec2(0.5, 0.5)).x);
+      out.element(0).assign(texture(image, vec2(0.5, 0.5)).x);
     })().compute(1);
     expect(() => context.compute(sample)).toThrow(/sample textures/);
     context.destroy();
