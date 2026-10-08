@@ -566,17 +566,6 @@ function isScratchNode(node: any): boolean {
 }
 
 /**
- * A `storage()` node used as a value rather than through `.element(i)`. The
- * JS target hands back the whole array there, which has no WASM value to
- * match.
- */
-function bareStorageError(node: any): Error {
-  return new Error(
-    `[RMSL] compileWasmFn: storage "${node.value.slot}" is read as a whole; read one element with .element(i).`,
-  );
-}
-
-/**
  * Promotes a gpu-placed uniform from the host's narrow f32 region into the
  * packed f64 layout.
  */
@@ -1851,9 +1840,6 @@ export function compileWasmFn(
         return addr;
       }
 
-      case "storage":
-        throw bareStorageError(node);
-
       case "varying": {
         if (effectiveStage === "fragment") {
           const addr = varyingAddress.get(node.value.slot);
@@ -2248,8 +2234,6 @@ export function compileWasmFn(
       case "attribute":
       case "fragCoord":
         return [];
-      case "storage":
-        throw bareStorageError(node);
       case "storageElement":
         return emitStorageElementLoadStores(node, nodeAddress(node));
       case "matrixElement":
@@ -3667,8 +3651,6 @@ export function compileWasmFn(
       }
       case "invocationIndex":
         return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex("invocationIndex"))];
-      case "storage":
-        throw bareStorageError(node);
       case "storageElement": {
         const kind = scalarKindOf(node._t);
         const element = storageElementAccess(node);
