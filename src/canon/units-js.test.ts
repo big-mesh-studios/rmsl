@@ -5,6 +5,7 @@ import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   attribute,
   bool,
+  builtinFragDepth,
   builtinPosition,
   bvec2,
   Discard,
@@ -1479,5 +1480,400 @@ describe("the rounding helper of JS", () => {
     const scalar = compileJSFn(() => Fn(() => uniform("float").round())() as any, none);
     const vector = compileJSFn(() => Fn(() => vec3(uniform("float")).round())() as any, none);
     for (const compiled of [scalar, vector]) expect(String(compiled)).toContain("function _rmsl_roundEven");
+  });
+});
+
+describe("the fragments a CPU rasterizer draws", () => {
+  /**
+   * The first draw writes -1, kept as 0; the second writes -0.5, also 0, which
+   * passes a less-or-equal test against it.
+   *
+   * @canon spec-a-rasterizer-keeps-the-closer-fragment
+   */
+  it.each(rasterizers)("%s: clamps the depth a fragment writes to 0 to 1", (_, compileRaster) => {
+    const pos = attribute("vec3");
+    const depth = uniform("float");
+    const color = uniform("vec4");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any,
+      () =>
+        Fn(() => {
+          builtinFragDepth().assign(depth);
+          return color;
+        })() as any,
+      { attributeTypes: { [pos.name]: "vec3" } },
+    );
+    const draw = (d: number, rgba: number[], clearDepth = false) =>
+      routine.draw(
+        {
+          attributes: { [pos.name]: new Float64Array(screenAt(0.5)) },
+          uniforms: { [depth.name]: d, [color.name]: rgba },
+        },
+        { width: 1, height: 1, clearDepth },
+      );
+    draw(-1, [1, 0, 0, 1], true);
+    expect(Array.from(draw(-0.5, [0, 0, 1, 1]))).toEqual([0, 0, 1, 1]);
+  });
+
+  /**
+   * A whole triangle, one whose first vertex lies behind the eye, so that no
+   * triangle the clip makes starts at it, and one whose first two vertices do,
+   * so that the clip makes its first vertex between the other two.
+   *
+   * @canon spec-a-flat-varying-takes-the-first-vertex
+   */
+  it.each(rasterizers)("%s: reads an integer varying as the triangle's first vertex wrote it", (_, compileRaster) => {
+    const pos = attribute("vec3");
+    const id = attribute("int");
+    const k = varying("int");
+    const routine = compileRaster(
+      () =>
+        Fn(() => {
+          k.assign(id);
+          builtinPosition().assign(vec4(pos.x, pos.y, pos.z, pos.z));
+        })() as any,
+      () => Fn(() => vec4(k.toFloat(), 0, 0, 1))() as any,
+      { attributeTypes: { [pos.name]: "vec3", [id.name]: "int" } },
+    );
+    const reds = (positions: number[]) =>
+      Array.from(
+        routine.draw(
+          { attributes: { [pos.name]: new Float64Array(positions), [id.name]: Int32Array.of(7, 1, 2) } },
+          { width: 4, height: 4 },
+        ),
+      ).filter((_, i) => i % 4 === 0 && i < 64);
+    const whole = reds([-1, -1, 1, 3, -1, 1, -1, 3, 1]);
+    const clipped = reds([-1, -1, -1, 1, -1, 2, -1, 1, 2]);
+    const clippedTwice = reds([-1, -1, -1, 1, -1, -1, 0, 0, 2]);
+    expect(new Set(whole)).toEqual(new Set([7]));
+    for (const image of [clipped, clippedTwice]) {
+      expect(new Set(image.filter((r) => r !== 0))).toEqual(new Set([7]));
+      expect(image.some((r) => r === 7)).toBe(true);
+    }
+  });
+
+  /**
+   * The second draw has twice the vertices of the first, so a WASM routine
+   * lays out its memory for it differently.
+   *
+   * @canon spec-a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear
+   */
+  it.each(rasterizers)("%s: keeps the image of the last draw under a draw that does not clear", (_, compileRaster) => {
+    const pos = attribute("vec2");
+    const color = uniform("vec4");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
+      () => Fn(() => color)() as any,
+      { attributeTypes: { [pos.name]: "vec2" } },
+    );
+    const left = [-1, -1, 0, -1, -1, 3];
+    const right = [0, -1, 2, -1, 0, 3];
+    const draw = (corners: number[], rgba: number[], clear: boolean) =>
+      Array.from(
+        routine.draw(
+          { attributes: { [pos.name]: new Float64Array(corners) }, uniforms: { [color.name]: rgba } },
+          { width: 2, height: 1, clear },
+        ),
+      );
+    draw(left, [1, 0, 0, 1], true);
+    expect(draw([...right, ...right], [0, 0, 1, 1], false)).toEqual([1, 0, 0, 1, 0, 0, 1, 1]);
+  });
+
+  /**
+   * The triangle lies at depth 0.5, and the fragment writes the depth it reads
+   * plus 0.25 and draws it as red.
+   *
+   * @canon spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one
+   */
+  it.each(rasterizers)("%s: reads the interpolated depth before the fragment writes one", (_, compileRaster) => {
+    const pos = attribute("vec3");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any,
+      () =>
+        Fn(() => {
+          builtinFragDepth().assign(builtinFragDepth().add(0.25));
+          return vec4(builtinFragDepth(), 0, 0, 1);
+        })() as any,
+      { attributeTypes: { [pos.name]: "vec3" } },
+    );
+    const got = routine.draw({ attributes: { [pos.name]: new Float64Array(screenAt(0.5)) } }, { width: 1, height: 1 });
+    expect(Array.from(got)).toEqual([0.75, 0, 0, 1]);
+  });
+
+  /**
+   * Each shape is drawn into a 4×4 target in both windings, its edges given in
+   * pixels. Each pattern is what Chromium's WebGPU shades for the same shape,
+   * a row of `#` for each row of pixels from the top.
+   *
+   * @canon spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge
+   */
+  it.each(rasterizers)(
+    "%s: shades a pixel centre on a top or left edge, not a bottom or right one",
+    (_, compileRaster) => {
+      const pos = attribute("vec2");
+      const routine = compileRaster(
+        () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
+        () => Fn(() => vec4(1, 0, 0, 1))() as any,
+        { attributeTypes: { [pos.name]: "vec2" } },
+      );
+      /** The pattern a draw of `corners`, x and y in pixels, shades: a row of `#` and `.` for each row from the top. */
+      const shaded = (corners: number[]) => {
+        const clip = corners.map((v, i) => (i % 2 === 0 ? (v / 4) * 2 - 1 : 1 - (v / 4) * 2));
+        const reds = routine.draw({ attributes: { [pos.name]: new Float64Array(clip) } }, { width: 4, height: 4 });
+        return Array.from({ length: 4 }, (_, y) =>
+          Array.from({ length: 4 }, (_, x) => (reds[(y * 4 + x) * 4] === 1 ? "#" : ".")).join(""),
+        ).join("/");
+      };
+      /** The patterns of `corners` as given and with each triangle's vertices in reverse. */
+      const bothWindings = (corners: number[]) => {
+        const reversed = corners.map((_, i) => corners[i - (i % 6) + 4 - (i % 6) + 2 * (i % 2)]!);
+        return [shaded(corners), shaded(reversed)];
+      };
+      const rectangle = (l: number, t: number, r: number, b: number) => [l, t, r, t, l, b, l, b, r, t, r, b];
+      const columns = "##../##../##../##..";
+      const rows = "####/####/..../....";
+      const topLeft = "####/####/####/####";
+      const bottomRight = "##../##../..../....";
+      expect(bothWindings(rectangle(0.5, -1, 2.5, 5))).toEqual([columns, columns]);
+      expect(bothWindings(rectangle(-1, 0.5, 5, 2.5))).toEqual([rows, rows]);
+      expect(bothWindings([0.5, 0.5, 0.5, 9, 9, 0.5])).toEqual([topLeft, topLeft]);
+      expect(bothWindings([2.5, 2.5, 2.5, -9, -9, 2.5])).toEqual([bottomRight, bottomRight]);
+    },
+  );
+
+  /**
+   * The host passes the integer attribute first, which holds one triangle, and
+   * the positions, which the program reads first, two. A count taken from
+   * anything but the integer attribute's components draws the second.
+   *
+   * @canon spec-a-rasterizer-takes-its-count-from-the-first-attribute
+   */
+  it.each(rasterizers)("%s: counts the vertices of an integer first attribute", (_, compileRaster) => {
+    const id = attribute("int");
+    const pos = attribute("vec2");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos.x, pos.y, id.toFloat().mul(0), 1)))() as any,
+      () => Fn(() => vec4(1, 0, 0, 1))() as any,
+      { attributeTypes: { [id.name]: "int", [pos.name]: "vec2" } },
+    );
+    const left = [-1, -1, 0, -1, -1, 3];
+    const right = [0, -1, 2, -1, 0, 3];
+    const reds = Array.from(
+      routine.draw(
+        { attributes: { [id.name]: Int32Array.of(0, 0, 0), [pos.name]: new Float64Array([...left, ...right]) } },
+        { width: 2, height: 1 },
+      ),
+    ).filter((_, i) => i % 4 === 0);
+    expect(reds).toEqual([1, 0]);
+  });
+
+  /**
+   * @canon spec-a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour
+   * @canon spec-a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear
+   */
+  it.each(rasterizers)("%s: leaves a pixel's colour for a fragment stage that writes none", (_, compileRaster) => {
+    const pos = attribute("vec3");
+    const color = uniform("vec4");
+    const options = { attributeTypes: { [pos.name]: "vec3" as const } };
+    const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any;
+    const drawn = compileRaster(vertex, () => Fn(() => color)() as any, options);
+    const colourless = compileRaster(vertex, () => Fn(() => {})() as any, options);
+    const ctx = {
+      attributes: { [pos.name]: new Float64Array(screenAt(0.5)) },
+      uniforms: { [color.name]: [1, 0, 0, 1] },
+    };
+    const out = drawn.draw(ctx, { width: 1, height: 1 });
+    expect(Array.from(colourless.draw(ctx, { width: 1, height: 1, out, clear: false }))).toEqual([1, 0, 0, 1]);
+  });
+
+  /**
+   * The first draw paints both pixels red into a buffer of the caller's; the
+   * second, given none, paints only the left one blue over the routine's own
+   * image, which no draw has painted.
+   *
+   * @canon spec-a-cpu-draw-given-an-output-buffer-leaves-the-routines-image-alone
+   */
+  it.each(rasterizers)("%s: leaves its own image alone in a draw given an output buffer", (_, compileRaster) => {
+    const pos = attribute("vec2");
+    const color = uniform("vec4");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
+      () => Fn(() => color)() as any,
+      { attributeTypes: { [pos.name]: "vec2" } },
+    );
+    const draw = (corners: number[], rgba: number[], options: { clear: boolean; out?: Float64Array }) =>
+      Array.from(
+        routine.draw(
+          { attributes: { [pos.name]: new Float64Array(corners) }, uniforms: { [color.name]: rgba } },
+          { width: 2, height: 1, ...options },
+        ),
+      );
+    const out = new Float64Array(8);
+    expect(draw([-1, -1, 3, -1, -1, 3], [1, 0, 0, 1], { clear: true, out })).toEqual([1, 0, 0, 1, 1, 0, 0, 1]);
+    expect(draw([-1, -1, 0, -1, -1, 3], [0, 0, 1, 1], { clear: false })).toEqual([0, 0, 1, 1, 0, 0, 0, 0]);
+  });
+
+  /**
+   * The first draw paints the routine's 2×1 image red; the second draws a
+   * larger image into a buffer of the caller's; the third, at 2×1 again,
+   * paints nothing and does not clear, so it shows the red image.
+   *
+   * @canon spec-a-cpu-draw-given-an-output-buffer-leaves-the-routines-image-alone
+   */
+  it.each(rasterizers)("%s: keeps its own image through a larger draw given an output buffer", (_, compileRaster) => {
+    const pos = attribute("vec2");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
+      () => Fn(() => vec4(1, 0, 0, 1))() as any,
+      { attributeTypes: { [pos.name]: "vec2" } },
+    );
+    const draw = (corners: number[], width: number, height: number, options: { clear: boolean; out?: Float64Array }) =>
+      Array.from(
+        routine.draw({ attributes: { [pos.name]: new Float64Array(corners) } }, { width, height, ...options }),
+      );
+    draw([-1, -1, 3, -1, -1, 3], 2, 1, { clear: true });
+    draw([-1, -1, 3, -1, -1, 3], 4, 4, { clear: true, out: new Float64Array(64) });
+    expect(draw([2, 2, 3, 2, 2, 3], 2, 1, { clear: false })).toEqual([1, 0, 0, 1, 1, 0, 0, 1]);
+  });
+
+  /**
+   * The first draw paints a 4×4 image red; the second, at 2×8, paints nothing
+   * and does not clear, so it shows what it draws over.
+   *
+   * @canon spec-a-cpu-draw-of-another-size-starts-from-a-transparent-image
+   */
+  it.each(rasterizers)("%s: draws over a transparent image at another size", (_, compileRaster) => {
+    const pos = attribute("vec2");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
+      () => Fn(() => vec4(1, 0, 0, 1))() as any,
+      { attributeTypes: { [pos.name]: "vec2" } },
+    );
+    const draw = (corners: number[], width: number, height: number, clear: boolean) =>
+      Array.from(routine.draw({ attributes: { [pos.name]: new Float64Array(corners) } }, { width, height, clear }));
+    draw([-1, -1, 3, -1, -1, 3], 4, 4, true);
+    expect(draw([2, 2, 3, 2, 2, 3], 2, 8, false)).toEqual(new Array(64).fill(0));
+  });
+
+  /**
+   * The triangle's colour is what its integer attributes read: a fraction in
+   * a scalar `int`, and a negative `uint` and a fraction in a vector one.
+   *
+   * @canon spec-a-cpu-rasterizer-reads-an-integer-attribute-as-a-32-bit-integer
+   */
+  it.each(rasterizers)("%s: reads an integer attribute as a 32-bit integer of its type", (_, compileRaster) => {
+    const pos = attribute("vec2");
+    const signed = attribute("int");
+    const unsigned = attribute("uvec2");
+    const shade = varying("vec3");
+    const routine = compileRaster(
+      () =>
+        Fn(() => {
+          shade.assign(vec3(signed.toFloat(), unsigned.x.toFloat(), unsigned.y.toFloat()));
+          builtinPosition().assign(vec4(pos, 0, 1));
+        })() as any,
+      () => Fn(() => vec4(shade, 1))() as any,
+      { attributeTypes: { [pos.name]: "vec2", [signed.name]: "int", [unsigned.name]: "uvec2" } },
+    );
+    const got = routine.draw(
+      {
+        attributes: {
+          [pos.name]: new Float64Array([-1, -1, 3, -1, -1, 3]),
+          [signed.name]: new Float64Array([-1.5, -1.5, -1.5]),
+          [unsigned.name]: new Float64Array([-1, 2.5, -1, 2.5, -1, 2.5]),
+        },
+      },
+      { width: 1, height: 1 },
+    );
+    expect(Array.from(got)).toEqual([-1, 4294967295, 2, 1]);
+  });
+
+  /**
+   * A depth kept from a draw of another size would be read at another pixel.
+   *
+   * @canon spec-a-rasterizer-keeps-the-closer-fragment
+   */
+  it.each(rasterizers)("%s: clears its depth buffer for a draw of another size", (_, compileRaster) => {
+    const pos = attribute("vec3");
+    const color = uniform("vec4");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any,
+      () => Fn(() => color)() as any,
+      { attributeTypes: { [pos.name]: "vec3" } },
+    );
+    const draw = (z: number, rgba: number[], width: number, height: number, clearDepth: boolean) =>
+      routine.draw(
+        { attributes: { [pos.name]: new Float64Array(screenAt(z)) }, uniforms: { [color.name]: rgba } },
+        { width, height, clearDepth },
+      );
+    draw(0.1, [1, 0, 0, 1], 4, 1, true);
+    expect(Array.from(draw(0.5, [0, 0, 1, 1], 2, 2, false))).toEqual([0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1]);
+  });
+
+  /**
+   * @canon spec-a-rasterizer-keeps-the-closer-fragment
+   */
+  it("tests the depth the fragment stage writes in the JS rasterizer", () => {
+    const pos = attribute("vec3");
+    const depth = uniform("float");
+    const color = uniform("vec4");
+    const routine = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any,
+      () =>
+        Fn(() => {
+          builtinFragDepth().assign(depth);
+          return color;
+        })() as any,
+      { attributeTypes: { [pos.name]: "vec3" } },
+    );
+    const draw = (z: number, d: number, rgba: number[], clearDepth = false) =>
+      routine.draw(
+        {
+          attributes: { [pos.name]: new Float64Array(screenAt(z)) },
+          uniforms: { [depth.name]: d, [color.name]: rgba },
+        },
+        { width: 1, height: 1, clearDepth },
+      );
+    // Each depth the fragment writes reverses the order its triangle's own depth gives.
+    draw(0.25, 0.9, [1, 0, 0, 1], true);
+    expect(Array.from(draw(0.5, 0, [0, 0, 1, 1]))).toEqual([0, 0, 1, 1]);
+  });
+
+  /**
+   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   */
+  it("writes no depth for a discarded fragment in the JS rasterizer", () => {
+    const draw = flatRasterizer((color, drop) => {
+      If(drop.greaterThan(0), () => Discard());
+      return color;
+    });
+    draw(screenAt(0.25), [0, 1, 0, 1], {}, 1);
+    expect(Array.from(draw(screenAt(0.5), [0, 0, 1, 1], { clear: false, clearDepth: false }).slice(0, 4))).toEqual([
+      0, 0, 1, 1,
+    ]);
+  });
+
+  /**
+   * @canon spec-a-pixel-on-a-shared-edge-is-shaded-once
+   */
+  it("gives a pixel on a shared edge to one triangle whatever their order in the JS rasterizer", () => {
+    const draw = flatRasterizer();
+    const upper = [-1, 1, 0, 1, -1, 0, 1, 1, 0];
+    const lower = [-1, 1, 0, -1, -1, 0, 1, -1, 0];
+    const composes = { clear: false, clearDepth: false };
+    draw(upper, [1, 0, 0, 1]);
+    const upperFirst = Array.from(draw(lower, [0, 0, 1, 1], composes));
+    draw(lower, [0, 0, 1, 1]);
+    const lowerFirst = Array.from(draw(upper, [1, 0, 0, 1], composes));
+    expect(upperFirst).toEqual(lowerFirst);
+  });
+
+  /**
+   * @canon spec-a-rasterizer-clips-outside-the-depth-range
+   */
+  it("clips a triangle below zero depth in the JS rasterizer", () => {
+    const draw = flatRasterizer();
+    const image = draw(screenAt(-0.5), [1, 0, 0, 1]);
+    expect(Array.from(image)).toEqual(new Array(16).fill(0));
   });
 });

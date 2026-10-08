@@ -54,6 +54,7 @@ describe("WASM backend: generic rasterizer module — linking skeleton", () => {
       vertexInstance.exports.main as () => void,
       fragmentInstance.exports.main as () => void,
       memory,
+      false,
     );
 
     const attrSrcBase = 1024;
@@ -168,6 +169,7 @@ describe("WASM backend: generic rasterizer module — triangle setup and edge fu
       vertexInstance.exports.main as () => void,
       fragmentInstance.exports.main as () => void,
       memory,
+      false,
     );
 
     const attrSrcBase = 1024;
@@ -204,6 +206,7 @@ describe("WASM backend: generic rasterizer module — triangle setup and edge fu
       12288,
       16384,
       depthBufferBase,
+      1,
     );
 
     const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
@@ -283,6 +286,7 @@ describe("WASM backend: generic rasterizer module — perspective-correct varyin
       vertexInstance.exports.main as () => void,
       fragmentInstance.exports.main as () => void,
       memory,
+      false,
     );
 
     const attrSrcBase = 2048;
@@ -332,6 +336,7 @@ describe("WASM backend: generic rasterizer module — perspective-correct varyin
       28672,
       32768,
       depthBufferBase,
+      1,
     );
 
     const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
@@ -415,6 +420,7 @@ describe("WASM backend: generic rasterizer module — multiple attribute slots",
       vertexInstance.exports.main as () => void,
       fragmentInstance.exports.main as () => void,
       memory,
+      false,
     );
 
     const attrSrcBase = 2048;
@@ -472,6 +478,7 @@ describe("WASM backend: generic rasterizer module — multiple attribute slots",
       28672,
       32768,
       depthBufferBase,
+      1,
     );
 
     const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
@@ -561,6 +568,7 @@ describe("WASM backend: generic rasterizer module — multiple varying slots", (
       vertexInstance.exports.main as () => void,
       fragmentInstance.exports.main as () => void,
       memory,
+      false,
     );
 
     const attrSrcBase = 2048;
@@ -628,6 +636,7 @@ describe("WASM backend: generic rasterizer module — multiple varying slots", (
       28672,
       32768,
       depthBufferBase,
+      1,
     );
 
     const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
@@ -708,6 +717,7 @@ describe("WASM backend: generic rasterizer module — scalarsInMemory for a scal
       vertexInstance.exports.main as () => void,
       fragmentInstance.exports.main as () => void,
       memory,
+      false,
     );
 
     const attrSrcBase = 2048;
@@ -744,6 +754,7 @@ describe("WASM backend: generic rasterizer module — scalarsInMemory for a scal
       28672,
       32768,
       depthBufferBase,
+      1,
     );
 
     // rasterize() re-reads brightness fresh from its own memory address
@@ -821,8 +832,14 @@ describe("WASM backend: generic rasterizer module — near-plane clipping", () =
           const e0 = (s1[0] - px) * (s2[1] - py) - (s1[1] - py) * (s2[0] - px);
           const e1 = (s2[0] - px) * (s0[1] - py) - (s2[1] - py) * (s0[0] - px);
           const e2 = (s0[0] - px) * (s1[1] - py) - (s0[1] - py) * (s1[0] - px);
-          const inside = (e0 >= 0 && e1 >= 0 && e2 >= 0) || (e0 <= 0 && e1 <= 0 && e2 <= 0);
-          if (!inside) continue;
+          // A centre on an edge belongs to the triangle whose left edge, running up, or top edge, running right, it is.
+          const wind = area > 0 ? 1 : -1;
+          const owns = (a: number[], b: number[]) => {
+            const dy = (b[1] - a[1]) * wind;
+            return dy < 0 || (dy === 0 && (b[0] - a[0]) * wind > 0);
+          };
+          const inside = (e: number, a: number[], b: number[]) => e * wind > 0 || (e === 0 && owns(a, b));
+          if (!inside(e0, s1, s2) || !inside(e1, s2, s0) || !inside(e2, s0, s1)) continue;
           const base = (y * width + x) * 4;
           for (let c = 0; c < 4; c++) out[base + c] = color[c];
         }
@@ -867,6 +884,7 @@ describe("WASM backend: generic rasterizer module — near-plane clipping", () =
       vertexInstance.exports.main as () => void,
       fragmentInstance.exports.main as () => void,
       memory,
+      false,
     );
 
     const attrSrcBase = 2048;
@@ -905,6 +923,7 @@ describe("WASM backend: generic rasterizer module — near-plane clipping", () =
       clippedPositionsOutBase,
       clippedVaryingsOutBase,
       depthBufferBase,
+      1,
     );
 
     const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
@@ -963,6 +982,7 @@ describe("WASM backend: generic rasterizer module — near-plane clipping", () =
       vertexInstance.exports.main as () => void,
       fragmentInstance.exports.main as () => void,
       memory,
+      false,
     );
 
     const attrSrcBase = 2048;
@@ -998,6 +1018,7 @@ describe("WASM backend: generic rasterizer module — near-plane clipping", () =
       28672,
       32768,
       depthBufferBase,
+      1,
     );
 
     const actual = new Float64Array(view.buffer, outputBase, width * height * 4);
@@ -1030,7 +1051,7 @@ describe("WASM backend: generic rasterizer module — depth test", () => {
       [0, 10, z],
     ];
     const farTriangle = triangleAt(0.5);
-    const nearTriangle = triangleAt(-0.5); // smaller z = closer, per this rasterizer's depth convention
+    const nearTriangle = triangleAt(0.25); // smaller z = closer, per this rasterizer's depth convention
 
     function draw(order: "far-then-near" | "near-then-far"): Float64Array {
       const memory = new WebAssembly.Memory({ initial: 1 });
@@ -1075,11 +1096,13 @@ describe("WASM backend: generic rasterizer module — depth test", () => {
         vertexInstance.exports.main as () => void,
         redInstance.exports.main as () => void,
         memory,
+        false,
       );
       const { rasterize: rasterizeBlue } = instantiateRasterizer(
         vertexInstance.exports.main as () => void,
         blueInstance.exports.main as () => void,
         memory,
+        false,
       );
 
       const attrSrcBase = 4096;
@@ -1120,6 +1143,7 @@ describe("WASM backend: generic rasterizer module — depth test", () => {
           clippedPositionsOutBase,
           clippedVaryingsOutBase,
           depthBufferBase,
+          1,
         );
       };
 

@@ -7,7 +7,7 @@ import { GL_STATE, READ_PIXEL, runInGpuPage } from "../testing/browser";
  * draws it in. Pixel (x, y) counts from the top left.
  */
 const SCENE = `
-import { Fn, attribute, builtinPosition, fragCoord, uniform, vec2, vec4 } from "../rmsl";
+import { Fn, attribute, builtinPosition, float, fragCoord, uint, uniform, varying, vec2, vec4, vertexIndex } from "../rmsl";
 import { createGlsl } from "../glsl";
 import { createJs, createJsGrid } from "../js";
 import { createWasm, createWasmGrid } from "../wasm";
@@ -47,6 +47,20 @@ const drawTextured = (adapter) => {
     width: 2,
     height: 2,
   });
+  adapter.draw({ count: 3 });
+  return readPixel(target, 1, 2);
+};
+// A triangle over the canvas whose vertices write their index to an integer varying.
+const flatIndex = () => {
+  const k = varying("int");
+  const vertex = Fn(() => {
+    const v = vertexIndex();
+    k.assign(v.toInt());
+    return vec4(v.equal(uint(1)).select(float(3), float(-1)), v.equal(uint(2)).select(float(3), float(-1)), 0, 1);
+  })();
+  const target = canvas();
+  const adapter = createGlsl(vertex, Fn(() => vec4(k.toFloat().div(2), 0, 0, 1))());
+  adapter.attach(target);
   adapter.draw({ count: 3 });
   return readPixel(target, 1, 2);
 };
@@ -120,6 +134,7 @@ globalThis.__rmslAdapterDraw = {
   wasmTexture: () => drawTextured(createWasm(vertex, texturedFragment, { attributeTypes: { [position.name]: "vec3" } })),
   jsRoutine: () => drawRoutine(createJsGrid({ draw: routine() })),
   wasmRoutine: () => drawRoutine(createWasmGrid({ draw: routine() })),
+  glslFlatIndex: () => flatIndex(),
   glslStateKept: () => glslStateChanged(false),
   glslDrawsOver: () => ({ dirty: drawnOver(true), clean: drawnOver(false) }),
   glslStatePreserved: () => glslStateChanged(true),
@@ -165,6 +180,15 @@ describe.skipIf(!GPU_ENABLED)("adapters drawing into a canvas in a browser", () 
    */
   it("draws a fragCoord program over its canvas with createJsGrid", async () => {
     expect(await drawn("jsRoutine")).toEqual({ r: Math.round((3.5 / 4) * 255), g: 0, b: 0, a: 255 });
+  }, 120_000);
+
+  /**
+   * The vertices write 0, 1 and 2, drawn as red of half that.
+   *
+   * @canon exception-a-glsl-flat-varying-takes-the-last-vertex
+   */
+  it("reads an integer varying as the triangle's last vertex wrote it on GLSL", async () => {
+    expect(await drawn("glslFlatIndex")).toEqual({ r: 255, g: 0, b: 0, a: 255 });
   }, 120_000);
 
   /**

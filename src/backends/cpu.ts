@@ -9,6 +9,8 @@ export type CpuShaderContext = {
   textures?: Record<string, CpuTextureData>;
   /** Pixel being evaluated, which `fragCoord()` reads on the CPU target. */
   fragCoord?: [number, number] | Float64Array;
+  /** The depth `builtinFragDepth()` reads on the CPU target until the program writes one. */
+  fragDepth?: number;
   /**
    * Backing arrays for `storage()` slots, keyed by each storage node's `.name`.
    * A `storage()`-based program runs once per element with `index` set to

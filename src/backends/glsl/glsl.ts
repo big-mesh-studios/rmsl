@@ -1035,11 +1035,9 @@ export function compileGLSLWithStage(
     lines.push(`in ${info.type} ${info.slot};`);
   });
   ctx.varyings.forEach((info) => {
-    if (shaderStage === "vertex") {
-      lines.push(`out ${info.type} ${info.slot};`);
-    } else {
-      lines.push(`in ${info.type} ${info.slot};`);
-    }
+    // GLSL ES 3.00 passes an integer varying flat, and refuses one declared otherwise.
+    const flat = /^(u?int|[iu]vec[234])$/.test(info.type) ? "flat " : "";
+    lines.push(`${flat}${shaderStage === "vertex" ? "out" : "in"} ${info.type} ${info.slot};`);
   });
   // Numbered per shader, not from the id the output was declared with.
   let outputLocation = 0;
