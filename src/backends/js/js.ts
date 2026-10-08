@@ -2530,11 +2530,15 @@ function compileJSFnDetailed(
     body.push("res.position = undefined;", "res.fragDepth = undefined;", "res.value = undefined;");
   }
   // A varying the program does not write on a call is 0, a vector one a slot of zeros of its own.
-  const varyingResets = [...ctx.varyings.values()].map((v) => {
+  // One every call writes whole before anything else touches it needs no clearing.
+  const writtenFirst = jsVaryingsWrittenFirst(resultNodes);
+  const varyingResets = [...ctx.varyings.values()].flatMap((v) => {
+    if (writtenFirst.has(v.slot)) return [];
     const key = `res.varyings[${JSON.stringify(v.slot)}]`;
-    if (!jsIsArrayType(v.type)) return `${key} = ${v.type === "bool" ? "false" : "0"};`;
+    if (!jsIsArrayType(v.type)) return [`${key} = ${v.type === "bool" ? "false" : "0"};`];
     const zeros = jsNewTemp(ctx, v.type);
-    return `${zeros}.fill(0); ${key} = ${zeros};`;
+    // A reentrant call's slots are new, and so already zero.
+    return [reentrant ? `${key} = ${zeros};` : `${zeros}.fill(0); ${key} = ${zeros};`];
   });
   const slots = jsSlotDeclarations(ctx.varDefs, ctx.jsFloat32 === true, reentrant ? "var" : "let");
   body.push(...slots.scalars);
@@ -2633,6 +2637,31 @@ function ownedResult(raw: unknown, types: JsResultTypes): unknown {
   }
   if (result.fragDepth !== undefined) owned.fragDepth = result.fragDepth;
   return owned;
+}
+
+/**
+ * The slots of the varyings that `roots` write whole, in a statement at their
+ * top level, before any statement reads or writes them otherwise: every call
+ * writes each of them before it can be read.
+ */
+function jsVaryingsWrittenFirst(roots: readonly any[]): Set<string> {
+  const written = new Set<string>();
+  const touched = new Set<string>();
+  const mention = (node: any, seen: Set<unknown>): void => {
+    if (!node || typeof node !== "object" || seen.has(node)) return;
+    seen.add(node);
+    if (node.type === "varying") touched.add(node.value.slot);
+    for (const p of node.params ?? []) mention(p, seen);
+  };
+  for (const root of roots) {
+    for (const statement of root?.type === "seq" ? root.params : [root]) {
+      const target = statement?.type === "assign" ? statement.params[0] : undefined;
+      mention(target?.type === "varying" ? statement.params[1] : statement, new Set());
+      if (target?.type === "varying" && !touched.has(target.value.slot)) written.add(target.value.slot);
+      if (target?.type === "varying") touched.add(target.value.slot);
+    }
+  }
+  return written;
 }
 
 /** A context with no inputs, which a context made once takes when a call is done with the host's. */

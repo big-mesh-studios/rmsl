@@ -444,6 +444,57 @@ describe("a varying a CPU vertex stage does not write", () => {
   /**
    * @canon spec-a-cpu-vertex-stage-gives-zero-for-a-varying-a-call-does-not-write
    */
+  it("clears on JS only a varying a call may leave unwritten", () => {
+    const always = varying("vec3");
+    const sometimes = varying("vec2");
+    const write = uniform("int");
+    const source = compileJSFn(
+      () =>
+        Fn(() => {
+          always.assign(vec3(1, 2, 3));
+          If(write.equal(int(1)), () => {
+            sometimes.assign(vec2(1, 2));
+          });
+          builtinPosition().assign(vec4(0, 0, 0, 1));
+        })(),
+      { name: "main", params: [], stage: "vertex" },
+    );
+    expect(source.match(/\.fill\(0\)/g)).toHaveLength(1);
+    expect(source).toContain(`res.varyings["${sometimes.name}"] = `);
+  });
+
+  /**
+   * @canon spec-a-cpu-vertex-stage-gives-zero-for-a-varying-a-call-does-not-write
+   */
+  it("interpolates a bool varying as 1 or 0 on the JS rasterizer", () => {
+    const position = attribute("vec3");
+    const flag = attribute("float");
+    const hit = varying("bool");
+    const raster = compileJS(
+      () =>
+        Fn(() => {
+          If(flag.greaterThan(0.5), () => {
+            hit.assign(bool(true));
+          });
+          builtinPosition().assign(vec4(position, 1));
+        })() as any,
+      () => Fn(() => vec4(select(hit, float(1), float(0)), 0, 0, 1))() as any,
+      { attributeTypes: { [position.name]: "vec3", [flag.name]: "float" } },
+    );
+    const ctx = {
+      attributes: {
+        [position.name]: Float64Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0),
+        [flag.name]: Float64Array.of(1, 1, 1),
+      },
+    };
+    // Every vertex writes true, so every fragment of the triangle, which covers the target, reads it.
+    const red = Array.from(raster.draw(ctx, { width: 4, height: 4 })).filter((_, i) => i % 4 === 0);
+    expect(red).toEqual(Array(16).fill(1));
+  });
+
+  /**
+   * @canon spec-a-cpu-vertex-stage-gives-zero-for-a-varying-a-call-does-not-write
+   */
   it("is 0 for the vertices of a draw that do not write it, on both rasterizers", () => {
     const position = attribute("vec3");
     const flag = attribute("float");

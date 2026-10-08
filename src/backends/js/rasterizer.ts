@@ -314,11 +314,11 @@ export function compileJS(
       const vertex = (vertices[i] ??= makeVertex(varyingWidths));
       for (let c = 0; c < 4; c++) vertex.position[c] = position[c]!;
       for (let k = 0; k < varyingSlots.length; k++) {
-        const value = varyings?.[varyingSlots[k]!];
+        // The stage gives 0 for a varying this vertex does not write, and a bool as true or false.
+        const value = varyings![varyingSlots[k]!];
         const into = vertex.varyings[k]!;
-        // A varying this vertex does not write is 0.
-        if (value === undefined) into.fill(0);
-        else if (typeof value === "number") into[0] = value;
+        if (typeof value === "number") into[0] = value;
+        else if (typeof value === "boolean") into[0] = value ? 1 : 0;
         else for (let c = 0; c < into.length; c++) into[c] = (value as ArrayLike<number>)[c]!;
       }
     }
