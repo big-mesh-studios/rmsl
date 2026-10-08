@@ -7,6 +7,8 @@ import { Vector4 } from "../math/Vector4";
 import type { Scene } from "../scenes/Scene";
 import type { Camera } from "../cameras/Camera";
 import type { Mesh } from "../objects/Mesh";
+import type { WebGLRenderTarget } from "./WebGLRenderTarget";
+import type { Object3D } from "../core/Object3D";
 import type { InstancedMesh } from "../objects/InstancedMesh";
 import type { BufferGeometry } from "../geometries/BufferGeometry";
 import type { BufferAttribute } from "../geometries/BufferAttribute";
@@ -14,11 +16,15 @@ import type { Texture } from "../textures/Texture";
 import { DataTexture } from "../textures/DataTexture";
 import type { NodeMaterial, MaterialProgram } from "../materials/NodeMaterial";
 import type { SamplerShaderType } from "../materials/nodes/Builder";
-import { Side } from "../materials/Material";
+import { Blending, Side } from "../materials/Material";
 import {
   blankTexture,
   cameraUniformValue,
+  clearColourOf,
+  FrameOrder,
+  isFloatTexture,
   isIntegerSampler,
+  mergedUpdateRanges,
   objectUniformValue,
   lightsSignature,
   samplerDimension,
@@ -35,10 +41,20 @@ import {
   textureChannels,
   type SamplerState,
   type TextureWrap,
+  drawSlice,
+  imageHeight,
+  imageLoaded,
+  imageWidth,
+  isMirrored,
+  rangesCover,
+  clearUpdateRanges,
+  type AttributeBuffer,
 } from "./common";
 
 interface PipelineEntry {
   program: MaterialProgram;
+  /** The `version` of the material the pipeline was built from. */
+  version: number;
   /** The uniform buffer's group, which nothing invalidates. */
   bindGroup: GPUBindGroup;
   /**
@@ -50,14 +66,16 @@ interface PipelineEntry {
    */
   textureBindGroup: GPUBindGroup | null;
   samplerBindGroup: GPUBindGroup | null;
-  bindGroupLayouts: {
-    uniforms: GPUBindGroupLayout;
-    textures: GPUBindGroupLayout | null;
-    samplers: GPUBindGroupLayout | null;
-  };
-  /** One entry per texture binding, and per sampler binding, of those groups. */
-  textureBindings: { name: string; type: SamplerShaderType; binding: number }[];
-  samplerBindings: { name: string; binding: number }[];
+  /** The layout of the uniform buffer's group, which no texture changes. */
+  uniformLayout: GPUBindGroupLayout;
+  /** The texture, sampler and pipeline layouts, for the textures the samplers read when they were built. */
+  layouts: PipelineLayouts;
+  /**
+   * One entry per texture binding, and per sampler binding, of those groups,
+   * with the index in `program.samplers` of the sampler it binds.
+   */
+  textureBindings: { name: string; sampler: number; type: SamplerShaderType; binding: number }[];
+  samplerBindings: { name: string; sampler: number; binding: number }[];
   /** Ring of uniform slots so per-draw writes never race the previous draw. */
   ringBuffer: GPUBuffer;
   slotSize: number;
@@ -67,10 +85,23 @@ interface PipelineEntry {
   layoutMembers: { name: string; type: string; offset: number; size: number; length?: number }[];
   /** Where `packUniforms` lays one draw's uniforms out before it writes them to the ring. */
   scratch: UniformScratch;
-  /** What a render pipeline of this program is built from. */
-  pipelineDescriptor: Omit<GPURenderPipelineDescriptor, "vertex"> & { vertexModule: GPUShaderModule };
+  /** What a render pipeline of this program is built from, beside its layout. */
+  pipelineDescriptor: Omit<GPURenderPipelineDescriptor, "vertex" | "layout"> & { vertexModule: GPUShaderModule };
   /** One render pipeline for each set of vertex formats the meshes drawn with this program hold. */
   variants: Map<string, PipelineVariant>;
+}
+
+/**
+ * The texture and sampler group layouts of a program, and the pipeline layout
+ * over them, for which of its samplers read a texture the device cannot filter.
+ */
+interface PipelineLayouts {
+  pipeline: GPUPipelineLayout;
+  /** Null when the program samples nothing. */
+  textures: GPUBindGroupLayout | null;
+  samplers: GPUBindGroupLayout | null;
+  /** Which samplers, by bit of their index in `program.samplers`, read a float texture the device cannot filter. */
+  unfilterable: number;
 }
 
 /** A render pipeline and the vertex buffer layout it was built with. */
@@ -94,11 +125,11 @@ interface VertexBufferLayout {
   attributes: { shaderLocation: number; offset: number; format: GPUVertexFormat }[];
 }
 
+/** The buffers a geometry draws from, by attribute name, as `ensureGeometryBuffers` last found them. */
 interface GeometryBuffers {
   attributes: Map<string, GPUBuffer>;
   index: GPUBuffer | null;
   indexFormat: "uint16" | "uint32" | null;
-  needsUpload: boolean;
 }
 
 const UNIFORM_SLOTS = 64;
@@ -127,14 +158,26 @@ export class WebGPURenderer {
   /** How many draws of the frame each program has, and how many of them are recorded so far. */
   private frameDrawCounts = new Map<PipelineEntry, number>();
   private frameSlots = new Map<PipelineEntry, number>();
+  /** The buffers of each geometry this renderer drew, whose attributes it frees when the geometry is disposed. */
   private geometryBuffers = new Map<BufferGeometry, GeometryBuffers>();
   /**
-   * Buffers for attributes that live on the object rather than the geometry —
-   * an `InstancedMesh`'s `instanceMatrix`/`instanceColor`. Keyed by the
-   * attribute so two instanced meshes sharing a geometry keep separate buffers.
+   * The buffer of each attribute this renderer uploaded, and the version it
+   * holds. A buffer belongs to its attribute, as three.js keys it, so an
+   * attribute that several geometries share uploads once.
    */
-  private attributeBuffers = new Map<BufferAttribute, GPUBuffer>();
+  private attributeBuffers = new WeakMap<BufferAttribute, AttributeBuffer<GPUBuffer>>();
+  /**
+   * The attributes that live on a mesh rather than a geometry, an
+   * `InstancedMesh`'s `instanceMatrix` and `instanceColor`, which `dispose` frees.
+   */
+  private meshAttributes = new Set<BufferAttribute>();
   private textures = new Map<Texture, GPUTexture>();
+  /**
+   * The `version` of each texture this renderer last uploaded.
+   * Each renderer keeps its own, so a change reaches every renderer that draws
+   * the object, as three.js keeps it per renderer.
+   */
+  private uploadedVersions = new WeakMap<Texture, number>();
   /**
    * Samplers by the state they were made for, not by texture: a sampler holds
    * no image, so every texture filtered and wrapped the same way shares one.
@@ -150,9 +193,13 @@ export class WebGPURenderer {
   private animationHandle: number | null = null;
   private blankTextures = new Map<string, DataTexture>();
 
+  /** Whether the device filters a 32-bit float texture, read once since a device's features are fixed. */
+  private readonly floatFilterable: boolean;
+
   constructor(canvas: HTMLCanvasElement, device: GPUDevice) {
     this.canvas = canvas;
     this.device = device;
+    this.floatFilterable = device.features?.has("float32-filterable") ?? false;
     const context = canvas.getContext("webgpu");
     if (!context) throw new Error("[RMSL/scene] WebGPU context unavailable");
     this.context = context as GPUCanvasContext;
@@ -164,7 +211,10 @@ export class WebGPURenderer {
     if (!navigator.gpu) throw new Error("[RMSL/scene] WebGPU is not supported by this browser");
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("[RMSL/scene] no WebGPU adapter available");
-    const device = await adapter.requestDevice();
+    // A float texture filters linearly where the adapter can, as in three.js; elsewhere it reads its nearest texel.
+    const device = await adapter.requestDevice({
+      requiredFeatures: adapter.features.has("float32-filterable") ? ["float32-filterable"] : [],
+    });
     const c = canvas ?? document.createElement("canvas");
     return new WebGPURenderer(c, device);
   }
@@ -201,32 +251,49 @@ export class WebGPURenderer {
     return target;
   }
 
-  render(scene: Scene, camera: Camera): void {
+  /**
+   * Draws `scene` from `camera` into the canvas, or into `target` when one is
+   * given, which `readPixels(target)` then reads back.
+   */
+  render(scene: Scene, camera: Camera, target: WebGLRenderTarget | null = null): void {
     scene.updateMatrixWorld(true);
     camera.updateMatrixWorld(true);
 
     this.ensureDepthTexture();
+    const surface = target === null ? null : this.renderTargetTextures(target);
+    // The surface the frame draws into, whose size a renderer-scoped uniform such as `resolution` gives.
+    this.frameWidth = target?.width ?? this.canvas.width;
+    this.frameHeight = target?.height ?? this.canvas.height;
+    const depthView = surface === null ? this.depthView! : surface.depthView;
     const device = this.device;
 
     const { frameMeshes, frameEntries, frameVariants, frameDrawCounts, frameSlots } = this;
     frameMeshes.length = frameEntries.length = frameVariants.length = 0;
     frameDrawCounts.clear();
     frameSlots.clear();
+    const order = this.frameOrder;
+    order.clear();
     try {
-      scene.traverseVisible((object) => {
-        if (!object.isMesh) return;
-        const mesh = object as Mesh;
+      scene.traverseVisible(this.collectVisible);
+      order.sort(camera);
+      for (const mesh of order.meshes) {
         const material = mesh.material;
-        if (!(material as NodeMaterial).isNodeMaterial) return;
+        if (!(material as NodeMaterial).isNodeMaterial) continue;
         const instancing = (mesh as InstancedMesh).isInstancedMesh === true;
         const instancingColor = instancing && (mesh as InstancedMesh).instanceColor !== null;
         const entry = this.ensurePipeline(material as NodeMaterial, scene, instancing, instancingColor);
-        if (!entry) return;
+        if (!entry) continue;
         frameMeshes.push(mesh);
         frameEntries.push(entry);
-        frameVariants.push(this.pipelineVariant(entry, mesh));
         frameDrawCounts.set(entry, (frameDrawCounts.get(entry) ?? 0) + 1);
-      });
+      }
+      // A later mesh's textures can lay a program out again, so the pipelines
+      // and groups are taken once every program of the frame is laid out.
+      for (let draw = 0; draw < frameMeshes.length; draw++) {
+        const entry = frameEntries[draw]!;
+        this.bindTextures(entry);
+        frameVariants.push(this.pipelineVariant(entry, frameMeshes[draw]!));
+      }
       // Every draw's uniforms are written before the frame is submitted, so each draw needs a slot of its own.
       for (const bySignature of this.pipelines.values()) {
         for (const entry of bySignature.values()) this.fitRing(entry, frameDrawCounts.get(entry) ?? 0);
@@ -234,7 +301,22 @@ export class WebGPURenderer {
 
       // After the draws are collected, so an attribute that is refused leaves no half-recorded frame.
       const encoder = device.createCommandEncoder();
-      const colorView = this.context.getCurrentTexture().createView();
+      const colorView = surface === null ? this.context.getCurrentTexture().createView() : surface.colorView;
+      const clear = clearColourOf(scene, this.clearColor, this.clearAlpha);
+      // A frame with nothing to draw still clears, in a pass of its own.
+      if (frameMeshes.length === 0) {
+        encoder
+          .beginRenderPass({
+            colorAttachments: [{ view: colorView, clearValue: clear, loadOp: "clear", storeOp: "store" }],
+            depthStencilAttachment: {
+              view: depthView,
+              depthClearValue: 1.0,
+              depthLoadOp: "clear",
+              depthStoreOp: "store",
+            },
+          })
+          .end();
+      }
 
       let firstPass = true;
       for (let draw = 0; draw < frameMeshes.length; draw++) {
@@ -254,13 +336,13 @@ export class WebGPURenderer {
           colorAttachments: [
             {
               view: colorView,
-              clearValue: { r: this.clearColor.r, g: this.clearColor.g, b: this.clearColor.b, a: this.clearAlpha },
+              clearValue: clear,
               loadOp: firstPass ? "clear" : "load",
               storeOp: "store",
             },
           ],
           depthStencilAttachment: {
-            view: this.depthView!,
+            view: depthView,
             depthClearValue: 1.0,
             depthLoadOp: firstPass ? "clear" : "load",
             depthStoreOp: "store",
@@ -278,12 +360,15 @@ export class WebGPURenderer {
 
         const geometry = mesh.geometry;
         const instanceCount = instancing ? (mesh as InstancedMesh).count : geometry.instanceCount;
+        // A mesh can draw a slice of its geometry; an infinite count draws the rest of it.
         if (geometry.index) {
           const buffers = this.ensureGeometryBuffers(geometry);
           pass.setIndexBuffer(buffers.index!, buffers.indexFormat as GPUIndexFormat, 0);
-          pass.drawIndexed(geometry.index.count, instanceCount);
+          const { start, count } = drawSlice(mesh.drawRange, geometry.index.count);
+          if (count > 0) pass.drawIndexed(count, instanceCount, start);
         } else {
-          pass.draw(geometry.attributes.position?.count ?? 0, instanceCount);
+          const { start, count } = drawSlice(mesh.drawRange, geometry.attributes.position?.count ?? Infinity);
+          if (count > 0) pass.draw(count, instanceCount, start);
         }
         pass.end();
       }
@@ -292,8 +377,21 @@ export class WebGPURenderer {
     } finally {
       // Holding the meshes between frames would keep a removed mesh alive.
       frameMeshes.length = frameEntries.length = frameVariants.length = 0;
+      order.clear();
     }
   }
+
+  /** The size of the surface the frame draws into: a render target's, or the canvas's. */
+  private frameWidth = 0;
+  private frameHeight = 0;
+
+  /** The meshes of the frame `render` is drawing, opaque ones first and transparent ones back to front. */
+  private frameOrder = new FrameOrder();
+
+  /** Adds a mesh of the frame to `frameOrder`; made once, so a frame allocates no callback. */
+  private collectVisible = (object: Object3D): void => {
+    if (object.isMesh) this.frameOrder.add(object as Mesh);
+  };
 
   /**
    * Makes the uniform ring of `entry` hold `draws` slots of a frame: it grows
@@ -315,7 +413,7 @@ export class WebGPURenderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     entry.bindGroup = this.device.createBindGroup({
-      layout: entry.bindGroupLayouts.uniforms,
+      layout: entry.uniformLayout,
       entries: [{ binding: 0, resource: { buffer: entry.ringBuffer, offset: 0, size: entry.slotSize } }],
     });
     entry.slots = slots;
@@ -333,7 +431,7 @@ export class WebGPURenderer {
       } else if (binding.scope === "object") {
         value = objectUniformValue(binding.name, mesh);
       } else if (binding.scope === "renderer") {
-        value = rendererUniformValue(binding.name, this.canvas.width, this.canvas.height);
+        value = rendererUniformValue(binding.name, this.frameWidth, this.frameHeight);
       } else {
         value = binding.value?.({ camera, mesh }) ?? [];
       }
@@ -357,7 +455,16 @@ export class WebGPURenderer {
     const signature = programSignature(lightsSignature(scene), instancing, instancingColor);
     let bySignature = this.pipelines.get(material);
     const entry = bySignature?.get(signature);
-    if (entry && !material.needsUpdate) {
+    if (entry && entry.version === material.version) {
+      // A texture that now can or cannot be filtered needs other layouts, not another program.
+      const unfilterable = this.unfilterableSamplers(entry.program);
+      if (unfilterable !== entry.layouts.unfilterable) {
+        entry.layouts = this.layOut(entry.uniformLayout, entry.textureBindings, entry.samplerBindings, unfilterable);
+        // A pipeline or bind group made for the old layouts cannot bind the textures.
+        entry.variants.clear();
+        entry.textureBindGroup = null;
+        entry.samplerBindGroup = null;
+      }
       this.refreshTextures(entry);
       // A texture disposed since the last draw took this entry's texture and
       // sampler groups with it, and so does one re-created at a new size;
@@ -398,12 +505,16 @@ export class WebGPURenderer {
     // Both stages number the textures (group 1) and the samplers of the float
     // ones (group 2) from the program's whole set, as the compiler does.
     const sharedSamplers = sharedSamplerDeclarations(declaredSamplers);
+    const samplerIndex = (name: string) => program.samplers.findIndex((s) => s.name === name);
     const textureBindings = sharedSamplers.map((t, binding) => ({
       name: t.slot,
+      sampler: samplerIndex(t.slot),
       type: t.shaderType as SamplerShaderType,
       binding,
     }));
-    const samplerBindings = sharedSamplers.filter((t) => !t.integer).map((t, binding) => ({ name: t.slot, binding }));
+    const samplerBindings = sharedSamplers
+      .filter((t) => !t.integer)
+      .map((t, binding) => ({ name: t.slot, sampler: samplerIndex(t.slot), binding }));
 
     // One layout per group the WGSL declares: uniforms in group 0, textures
     // in group 1, samplers in group 2.
@@ -416,41 +527,13 @@ export class WebGPURenderer {
         },
       ],
     });
-    const textureLayout =
-      textureBindings.length === 0
-        ? null
-        : device.createBindGroupLayout({
-            entries: textureBindings.map((t) => ({
-              binding: t.binding,
-              visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-              texture: {
-                sampleType: samplerSampleType(t.type),
-                viewDimension: samplerDimension(t.type),
-              },
-            })),
-          });
-    const samplerLayout =
-      samplerBindings.length === 0
-        ? null
-        : device.createBindGroupLayout({
-            entries: samplerBindings.map((s) => ({
-              binding: s.binding,
-              visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-              sampler: { type: "filtering" },
-            })),
-          });
-    const groupLayouts = [uniformLayout];
-    if (textureLayout) groupLayouts.push(textureLayout);
-    if (samplerLayout) groupLayouts.push(samplerLayout);
-    const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: groupLayouts });
-
     const cullMode: GPUCullMode =
       material.side === Side.FrontSide ? "back" : material.side === Side.BackSide ? "front" : "none";
 
     const built: PipelineEntry = {
       program,
+      version: material.version,
       pipelineDescriptor: {
-        layout: pipelineLayout,
         vertexModule,
         fragment: {
           module: fragmentModule,
@@ -471,7 +554,8 @@ export class WebGPURenderer {
       }),
       textureBindGroup: null,
       samplerBindGroup: null,
-      bindGroupLayouts: { uniforms: uniformLayout, textures: textureLayout, samplers: samplerLayout },
+      uniformLayout,
+      layouts: this.layOut(uniformLayout, textureBindings, samplerBindings, this.unfilterableSamplers(program)),
       textureBindings,
       samplerBindings,
       ringBuffer,
@@ -489,7 +573,6 @@ export class WebGPURenderer {
     // The entry this one replaces is never drawn again, so its ring goes with it.
     bySignature.get(signature)?.ringBuffer.destroy();
     bySignature.set(signature, built);
-    material.needsUpdate = false;
     return built;
   }
 
@@ -503,13 +586,14 @@ export class WebGPURenderer {
    * holds the view of the texture that went away.
    */
   private bindTextures(entry: PipelineEntry): void {
-    const { textures, samplers } = entry.bindGroupLayouts;
+    const { textures, samplers } = entry.layouts;
+    const programSamplers = entry.program.samplers;
     if (textures && !entry.textureBindGroup) {
       entry.textureBindGroup = this.device.createBindGroup({
         layout: textures,
         entries: entry.textureBindings.map((t) => ({
           binding: t.binding,
-          resource: this.ensureGpuTexture(this.samplerBinding(entry, t.name).texture(), t.type).createView(),
+          resource: this.ensureGpuTexture(programSamplers[t.sampler]!.texture(), t.type).createView(),
         })),
       });
     }
@@ -517,21 +601,17 @@ export class WebGPURenderer {
       entry.samplerBindGroup = this.device.createBindGroup({
         layout: samplers,
         entries: entry.samplerBindings.map((s) => {
-          const binding = this.samplerBinding(entry, s.name);
-          return { binding: s.binding, resource: this.ensureSampler(binding.texture(), binding.type) };
+          const sampler = programSamplers[s.sampler]!;
+          return { binding: s.binding, resource: this.ensureSampler(sampler.texture(), sampler.type) };
         }),
       });
     }
   }
 
-  /** The program's sampler of that name — what a binding number stands for. */
-  private samplerBinding(entry: PipelineEntry, name: string) {
-    return entry.program.samplers.find((s) => s.name === name)!;
-  }
-
   /**
-   * Upload again the textures of this entry whose `needsUpdate` is set, so a
-   * texture whose image changed reaches the GPU on the next draw.
+   * Upload again the textures of this entry whose `version` passed the one this
+   * renderer uploaded, so a texture whose image changed reaches the GPU on the
+   * next draw.
    *
    * A bind group binds the *texture*, not its contents, so an image rewritten
    * at the same size needs nothing else. One that changed size or format is a
@@ -540,11 +620,11 @@ export class WebGPURenderer {
    */
   private refreshTextures(entry: PipelineEntry): void {
     for (const t of entry.textureBindings) {
-      const texture = entry.program.samplers.find((s) => s.name === t.name)!.texture();
-      if (!texture?.needsUpdate) continue;
+      const texture = entry.program.samplers[t.sampler]!.texture();
+      if (!texture || this.uploadedVersions.get(texture) === texture.version) continue;
       // Filtering or wrapping changed with it means a different sampler, and
       // this bind group holds the old one.
-      const key = samplerKey(samplerState(texture, t.type));
+      const key = samplerKey(this.samplingOf(texture, t.type));
       if (this.samplerKeys.has(texture) && this.samplerKeys.get(texture) !== key) {
         this.invalidateBindGroups(texture);
       }
@@ -571,21 +651,30 @@ export class WebGPURenderer {
   };
 
   /**
-   * Destroy the vertex and index buffers a disposed `BufferGeometry` owns, and
-   * stop listening to it. Drawing with the geometry again is allowed:
-   * `ensureGeometryBuffers` finds no buffers for it and uploads its attributes
-   * into new ones. No bind group names a vertex buffer, so none is invalidated.
+   * Destroy the buffers of the attributes and the index a disposed
+   * `BufferGeometry` holds, as three.js frees them, and stop listening to it.
+   * Drawing with the geometry, or another that shares an attribute, again is
+   * allowed: `ensureGeometryBuffers` finds no buffer for the attribute and
+   * uploads it into a new one. No bind group names a vertex buffer, so none is
+   * invalidated.
    */
   private onGeometryDispose = (event: unknown): void => {
-    const geometry = (event as { target: BufferGeometry }).target;
-    const buffers = this.geometryBuffers.get(geometry);
-    if (buffers) {
-      for (const buffer of buffers.attributes.values()) buffer.destroy();
-      buffers.index?.destroy();
-    }
+    this.releaseGeometry((event as { target: BufferGeometry }).target);
+  };
+
+  /** Destroys the buffers of the attributes and the index `geometry` holds, and stops listening to it. */
+  private releaseGeometry(geometry: BufferGeometry): void {
+    for (const name in geometry.attributes) this.releaseAttribute(geometry.attributes[name]!);
+    if (geometry.index) this.releaseAttribute(geometry.index);
     this.geometryBuffers.delete(geometry);
     geometry.removeEventListener("dispose", this.onGeometryDispose);
-  };
+  }
+
+  /** Destroys the buffer this renderer holds for `attribute`, if it holds one. */
+  private releaseAttribute(attribute: BufferAttribute): void {
+    this.attributeBuffers.get(attribute)?.buffer.destroy();
+    this.attributeBuffers.delete(attribute);
+  }
 
   /**
    * Drop the bind group of every cached pipeline that binds this texture, so
@@ -602,43 +691,107 @@ export class WebGPURenderer {
     }
   }
 
+  /** The buffers `geometry` draws from, each attribute's and the index's uploaded first where it changed. */
   private ensureGeometryBuffers(geometry: BufferGeometry): GeometryBuffers {
     let buffers = this.geometryBuffers.get(geometry);
     if (!buffers) {
-      buffers = { attributes: new Map(), index: null, indexFormat: null, needsUpload: true };
+      buffers = { attributes: new Map(), index: null, indexFormat: null };
       this.geometryBuffers.set(geometry, buffers);
       geometry.addEventListener("dispose", this.onGeometryDispose);
     }
-    const needsUpload = buffers.needsUpload || Object.values(geometry.attributes).some((a) => a.needsUpdate);
-    if (!needsUpload) return buffers;
-
-    for (const [name, attribute] of Object.entries(geometry.attributes)) {
-      let buffer = buffers.attributes.get(name);
-      if (!buffer) {
-        buffer = this.device.createBuffer({
-          size: Math.max(toBufferView(attribute.array).byteLength, 4),
-          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        });
-        buffers.attributes.set(name, buffer);
-      }
-      this.device.queue.writeBuffer(buffer, 0, toBufferView(attribute.array));
-      attribute.needsUpdate = false;
+    for (const name in geometry.attributes) {
+      buffers.attributes.set(
+        name,
+        this.attributeBuffer(geometry.attributes[name]!, GPUBufferUsage.VERTEX, false).buffer,
+      );
     }
-    if (geometry.index) {
-      if (!buffers.index) {
-        buffers.index = this.device.createBuffer({
-          size: Math.max(toBufferView(geometry.index.array, true).byteLength, 4),
-          usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-        });
-      }
-      this.device.queue.writeBuffer(buffers.index, 0, toBufferView(geometry.index.array, true));
-      buffers.indexFormat =
-        (toBufferView(geometry.index.array, true) as Uint16Array | Uint32Array).BYTES_PER_ELEMENT === 2
-          ? "uint16"
-          : "uint32";
+    const index = geometry.index;
+    if (index) {
+      const held = this.attributeBuffer(index, GPUBufferUsage.INDEX, true);
+      buffers.index = held.buffer;
+      buffers.indexFormat = held.elementSize === 2 ? "uint16" : "uint32";
     }
-    buffers.needsUpload = false;
     return buffers;
+  }
+
+  /**
+   * The buffer holding `attribute`, written first when this renderer holds none
+   * for it or holds an older version. A write sends each range
+   * `addUpdateRange` marked, merged as three.js merges them, when those ranges
+   * hold every change the buffer lacks in elements of the size it holds, and
+   * otherwise the whole attribute. The ranges are cleared afterwards, as
+   * three.js clears them.
+   */
+  private attributeBuffer(attribute: BufferAttribute, usage: number, index: boolean): AttributeBuffer<GPUBuffer> {
+    let held = this.attributeBuffers.get(attribute);
+    if (held !== undefined && held.version === attribute.version) return held;
+    const data = toBufferView(attribute.array, index);
+    const element = (data as unknown as { BYTES_PER_ELEMENT: number }).BYTES_PER_ELEMENT;
+    const buffer = this.bufferFitting(held?.buffer, data, usage);
+    const ranges = mergedUpdateRanges(attribute);
+    const whole =
+      held === undefined ||
+      buffer !== held.buffer ||
+      held.elementSize !== element ||
+      ranges.length === 0 ||
+      !rangesCover(attribute, held.version);
+    if (held === undefined) {
+      held = { buffer, version: attribute.version, elementSize: element };
+      this.attributeBuffers.set(attribute, held);
+    }
+    held.buffer = buffer;
+    const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    if (whole) {
+      this.writeBytes(buffer, bytes, 0, bytes.length);
+    } else {
+      const length = data.byteLength / element;
+      for (const range of ranges) {
+        const start = Math.min(length, Math.max(0, range.start));
+        const count = Math.min(length - start, Math.max(0, range.count));
+        if (count > 0) this.writeBytes(buffer, bytes, start * element, (start + count) * element);
+      }
+    }
+    held.version = attribute.version;
+    held.elementSize = element;
+    clearUpdateRanges(attribute);
+    return held;
+  }
+
+  /** The last word of a write that runs past its data, padded with zeros; `writeBuffer` copies it at once. */
+  private readonly tailWord = new Uint8Array(4);
+
+  /**
+   * Writes bytes `from` to `to` of `bytes` into `buffer` at the same offset,
+   * widened to whole 4-byte words, since WebGPU writes nothing smaller. A last
+   * word that runs past the data goes up padded with zeros, which the buffer,
+   * sized to whole words, holds.
+   */
+  private writeBytes(buffer: GPUBuffer, bytes: Uint8Array<ArrayBuffer>, from: number, to: number): void {
+    const start = from & ~3;
+    const end = Math.ceil(to / 4) * 4;
+    if (end <= bytes.length) {
+      this.device.queue.writeBuffer(buffer, start, bytes, start, end - start);
+      return;
+    }
+    const words = Math.max(start, bytes.length & ~3);
+    if (words > start) this.device.queue.writeBuffer(buffer, start, bytes, start, words - start);
+    this.tailWord.fill(0);
+    this.tailWord.set(bytes.subarray(words));
+    this.device.queue.writeBuffer(buffer, words, this.tailWord, 0, 4);
+  }
+
+  /**
+   * `buffer` when it holds `data`, or a new buffer of `usage` that does, the
+   * old one destroyed: a buffer's size is fixed when it is made, so an
+   * attribute whose array grew needs a bigger one.
+   */
+  private bufferFitting(buffer: GPUBuffer | undefined, data: ArrayBufferView, usage: number): GPUBuffer {
+    if (buffer && buffer.size >= data.byteLength) return buffer;
+    buffer?.destroy();
+    return this.device.createBuffer({
+      size: Math.max(Math.ceil(data.byteLength / 4) * 4, 4),
+      usage: usage | GPUBufferUsage.COPY_DST,
+    });
   }
 
   /**
@@ -648,7 +801,10 @@ export class WebGPURenderer {
    * resolved as `WebGLRenderer` resolves them.
    */
   private pipelineVariant(entry: PipelineEntry, mesh: Mesh): PipelineVariant {
-    let key = "";
+    const material = mesh.material as RenderStateMaterial;
+    // The material's blend and depth state and the mesh's winding are part of the pipeline, read at each draw as WebGL reads them.
+    const mirrored = isMirrored(mesh);
+    let key = `${material.transparent},${material.blending},${material.depthTest},${material.depthWrite},${mirrored};`;
     for (const attribute of entry.program.attributes) {
       key += `${this.formatOf(attribute, mesh)},`;
     }
@@ -676,6 +832,17 @@ export class WebGPURenderer {
     const variant = {
       pipeline: this.device.createRenderPipeline({
         ...descriptor,
+        layout: entry.layouts.pipeline,
+        primitive: { ...descriptor.primitive, frontFace: mirrored ? "cw" : "ccw" },
+        fragment: {
+          ...descriptor.fragment!,
+          targets: [{ format: this.format, blend: blendState(material) }],
+        },
+        depthStencil: {
+          format: "depth24plus",
+          depthWriteEnabled: material.depthWrite,
+          depthCompare: material.depthTest ? "less" : "always",
+        },
         vertex: {
           module: vertexModule,
           entryPoint: "main",
@@ -708,7 +875,7 @@ export class WebGPURenderer {
     // location — a mat4 entry spans several locations from a single buffer.
     for (let slot = 0; slot < variant.vertexFormats.length; slot++) {
       const layout = variant.vertexFormats[slot];
-      const buffer = this.attributeBuffer(mesh, layout.name, buffers);
+      const buffer = this.vertexBuffer(mesh, layout.name, buffers);
       if (buffer) pass.setVertexBuffer(slot, buffer);
     }
   }
@@ -719,53 +886,50 @@ export class WebGPURenderer {
    * the per-geometry cache; an `InstancedMesh`'s `instanceMatrix`/
    * `instanceColor` live on the object, so those use a per-attribute cache.
    */
-  private attributeBuffer(mesh: Mesh, name: string, buffers: GeometryBuffers): GPUBuffer | null {
+  private vertexBuffer(mesh: Mesh, name: string, buffers: GeometryBuffers): GPUBuffer | null {
     const attr = geometryAttribute(mesh, mesh.geometry, name);
     if (!attr) return null;
     if (mesh.geometry.attributes[name] !== undefined) {
       return buffers.attributes.get(name) ?? null;
     }
-    let buffer = this.attributeBuffers.get(attr);
-    const isNew = buffer === undefined;
-    if (!buffer) {
-      buffer = this.device.createBuffer({
-        size: Math.max(toBufferView(attr.array).byteLength, 4),
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-      });
-      this.attributeBuffers.set(attr, buffer);
-    }
-    if (isNew || attr.needsUpdate) {
-      this.device.queue.writeBuffer(buffer, 0, toBufferView(attr.array));
-      attr.needsUpdate = false;
-    }
-    return buffer;
+    this.meshAttributes.add(attr);
+    return this.attributeBuffer(attr, GPUBufferUsage.VERTEX, false).buffer;
   }
 
   /**
    * The GPU texture holding this `Texture`'s image, created on first use and
-   * written again whenever `needsUpdate` says the image changed.
+   * written again whenever its `version` passes the one this renderer uploaded.
    */
   private ensureGpuTexture(texture: Texture | null, samplerType: string): GPUTexture {
     const t = texture ?? this.blankTexture(samplerType);
     const integer = isIntegerSampler(samplerType);
     const dimension = samplerDimension(samplerType);
     let gpu = this.textures.get(t);
-    if (!gpu || t.needsUpdate) {
-      const width = ArrayBuffer.isView(t.image) ? ((t as DataTexture).width ?? 1) : 1;
-      const height = ArrayBuffer.isView(t.image) ? ((t as DataTexture).height ?? 1) : 1;
+    if (!gpu || this.uploadedVersions.get(t) !== t.version) {
+      // An image that has not loaded uploads at the first draw after it has, as three.js uploads it.
+      const source = imageSource(t.image);
+      if (source && !imageLoaded(source)) return gpu ?? this.ensureGpuTexture(null, samplerType);
+      const width = source ? imageWidth(source) : ArrayBuffer.isView(t.image) ? ((t as DataTexture).width ?? 1) : 1;
+      const height = source ? imageHeight(source) : ArrayBuffer.isView(t.image) ? ((t as DataTexture).height ?? 1) : 1;
       const depth = dimension === "3d" ? ((t as DataTexture).depth ?? 1) : 1;
-      const format = integer
+      const format: GPUTextureFormat = integer
         ? textureChannels(t) === 1
           ? samplerType.startsWith("isampler")
             ? "r8sint"
             : "r8uint"
           : integerGpuFormat(samplerType, ArrayBuffer.isView(t.image) ? t.image : null)
-        : "rgba8unorm";
+        : isFloatTexture(t)
+          ? "rgba32float"
+          : "rgba8unorm";
       // A WebGPU texture's size/format is fixed at creation, so a reshaped
       // image gets a new texture — whatever bound the old one must rebind.
       if (
         gpu &&
-        (gpu.width !== width || gpu.height !== height || gpu.depthOrArrayLayers !== depth || gpu.format !== format)
+        (gpu.width !== width ||
+          gpu.height !== height ||
+          gpu.depthOrArrayLayers !== depth ||
+          gpu.format !== format ||
+          (source && !(gpu.usage & GPUTextureUsage.RENDER_ATTACHMENT)))
       ) {
         gpu.destroy();
         this.textures.delete(t);
@@ -776,15 +940,27 @@ export class WebGPURenderer {
         gpu = this.device.createTexture({
           size: [width, height, depth],
           format,
-          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+          // Copying an image source in renders into the texture.
+          usage:
+            GPUTextureUsage.TEXTURE_BINDING |
+            GPUTextureUsage.COPY_DST |
+            (source ? GPUTextureUsage.RENDER_ATTACHMENT : 0),
         });
         this.textures.set(t, gpu);
         t.addEventListener("dispose", this.onTextureDispose);
+        // A bind group made while the texture's image was loading binds the blank texture.
+        this.invalidateBindGroups(t);
       }
       if (ArrayBuffer.isView(t.image)) {
         this.writeTexture(gpu, t.image as unknown as ArrayBufferView<ArrayBuffer>, width, height, depth, format);
+      } else if (source) {
+        this.device.queue.copyExternalImageToTexture(
+          { source: source as GPUCopyExternalImageSource },
+          { texture: gpu },
+          [width, height],
+        );
       }
-      t.needsUpdate = false;
+      this.uploadedVersions.set(t, t.version);
     }
     return gpu;
   }
@@ -803,7 +979,7 @@ export class WebGPURenderer {
     format: GPUTextureFormat,
   ): void {
     const bytesPerTexel =
-      format === "rgba32uint" || format === "rgba32sint"
+      format === "rgba32uint" || format === "rgba32sint" || format === "rgba32float"
         ? 16
         : format === "rgba16uint" || format === "rgba16sint"
           ? 8
@@ -835,10 +1011,86 @@ export class WebGPURenderer {
     return blankTexture(this.blankTextures, samplerType);
   }
 
+  /**
+   * Whether `texture` holds 32-bit floats the device cannot filter, so it binds
+   * as an unfilterable texture and reads through a sampler that takes the
+   * nearest texel.
+   */
+  private unfilterable(texture: Texture | null): boolean {
+    return texture !== null && isFloatTexture(texture) && !this.floatFilterable;
+  }
+
+  /**
+   * The texture and sampler layouts of a program's bindings, for which of its
+   * samplers read a texture the device cannot filter, `unfilterable` by bit,
+   * and the pipeline layout over them after the uniforms' `uniformLayout`.
+   */
+  private layOut(
+    uniformLayout: GPUBindGroupLayout,
+    textureBindings: PipelineEntry["textureBindings"],
+    samplerBindings: PipelineEntry["samplerBindings"],
+    unfilterable: number,
+  ): PipelineLayouts {
+    const device = this.device;
+    const cannotFilter = (sampler: number) => (unfilterable & (1 << sampler)) !== 0;
+    const textures =
+      textureBindings.length === 0
+        ? null
+        : device.createBindGroupLayout({
+            entries: textureBindings.map((t) => ({
+              binding: t.binding,
+              visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+              texture: {
+                sampleType: cannotFilter(t.sampler) ? "unfilterable-float" : samplerSampleType(t.type),
+                viewDimension: samplerDimension(t.type),
+              },
+            })),
+          });
+    const samplers =
+      samplerBindings.length === 0
+        ? null
+        : device.createBindGroupLayout({
+            entries: samplerBindings.map((s) => ({
+              binding: s.binding,
+              visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+              sampler: { type: cannotFilter(s.sampler) ? "non-filtering" : "filtering" },
+            })),
+          });
+    const groupLayouts = [uniformLayout];
+    if (textures) groupLayouts.push(textures);
+    if (samplers) groupLayouts.push(samplers);
+    return {
+      pipeline: device.createPipelineLayout({ bindGroupLayouts: groupLayouts }),
+      textures,
+      samplers,
+      unfilterable,
+    };
+  }
+
+  /**
+   * The bits of the samplers of `program` that read a float texture the device
+   * cannot filter. A layout built for other textures cannot bind it.
+   */
+  private unfilterableSamplers(program: MaterialProgram): number {
+    let bits = 0;
+    for (let i = 0; i < program.samplers.length; i++) {
+      if (this.unfilterable(program.samplers[i]!.texture())) bits |= 1 << i;
+    }
+    return bits;
+  }
+
+  /** How a sampler reads `texture`: as it asks, or nearest where the device cannot filter it. */
+  private samplingOf(texture: Texture, samplerType: string) {
+    const asked = samplerState(texture, samplerType);
+    return this.unfilterable(texture)
+      ? { ...asked, magFilter: "nearest" as const, minFilter: "nearest" as const }
+      : asked;
+  }
+
   /** The sampler that reads this texture the way the texture asks to be read. */
   private ensureSampler(texture: Texture | null, samplerType = "sampler2D"): GPUSampler {
     const t = texture ?? this.blankTexture();
-    const state = samplerState(t, samplerType);
+    const state = this.samplingOf(t, samplerType);
     const key = samplerKey(state);
     this.samplerKeys.set(t, key);
     let sampler = this.samplers.get(key);
@@ -853,6 +1105,78 @@ export class WebGPURenderer {
       this.samplers.set(key, sampler);
     }
     return sampler;
+  }
+
+  /** The colour and depth textures behind each render target, at its size when it was last drawn into. */
+  private renderTargets = new Map<
+    WebGLRenderTarget,
+    { color: GPUTexture; depth: GPUTexture; colorView: GPUTextureView; depthView: GPUTextureView }
+  >();
+
+  /**
+   * The textures behind `target`, made on first use and made again at the
+   * target's new size when it changed, so a target is resized by setting its
+   * `width` and `height` before the next render.
+   */
+  private renderTargetTextures(target: WebGLRenderTarget) {
+    const existing = this.renderTargets.get(target);
+    if (existing && existing.color.width === target.width && existing.color.height === target.height) return existing;
+    existing?.color.destroy();
+    existing?.depth.destroy();
+    const color = this.device.createTexture({
+      size: [target.width, target.height],
+      format: this.format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+    });
+    const depth = this.device.createTexture({
+      size: [target.width, target.height],
+      format: "depth24plus",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    const textures = { color, depth, colorView: color.createView(), depthView: depth.createView() };
+    this.renderTargets.set(target, textures);
+    return textures;
+  }
+
+  /**
+   * Reads a render target's colour back as RGBA bytes, row by row from the
+   * bottom as the WebGL renderer's `readPixels` gives them, into `out` or a new
+   * array, so the same frame gives the same bytes on both. WebGPU reads a texture back only
+   * asynchronously, so this gives a promise; it resolves once the copy has
+   * landed, typically a frame or a few after the call.
+   */
+  async readPixels(target: WebGLRenderTarget, out?: Uint8Array): Promise<Uint8Array> {
+    const { color } = this.renderTargetTextures(target);
+    const { width, height } = target;
+    const bytesPerRow = Math.ceil((width * 4) / 256) * 256;
+    const staging = this.device.createBuffer({
+      size: bytesPerRow * height,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    try {
+      const encoder = this.device.createCommandEncoder();
+      encoder.copyTextureToBuffer({ texture: color }, { buffer: staging, bytesPerRow }, [width, height]);
+      this.device.queue.submit([encoder.finish()]);
+      await staging.mapAsync(GPUMapMode.READ);
+      const rows = new Uint8Array(staging.getMappedRange());
+      const pixels = out ?? new Uint8Array(width * height * 4);
+      // The texture is in the canvas's format, BGRA on some platforms; the bytes come back as RGBA.
+      const bgra = this.format === "bgra8unorm";
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const from = y * bytesPerRow + x * 4;
+          const to = ((height - 1 - y) * width + x) * 4;
+          pixels[to] = rows[from + (bgra ? 2 : 0)]!;
+          pixels[to + 1] = rows[from + 1]!;
+          pixels[to + 2] = rows[from + (bgra ? 0 : 2)]!;
+          pixels[to + 3] = rows[from + 3]!;
+        }
+      }
+      staging.unmap();
+      return pixels;
+    } finally {
+      staging.destroy();
+    }
   }
 
   private ensureDepthTexture(): void {
@@ -871,23 +1195,23 @@ export class WebGPURenderer {
   }
 
   dispose(): void {
+    for (const { color, depth } of this.renderTargets.values()) {
+      color.destroy();
+      depth.destroy();
+    }
+    this.renderTargets.clear();
     for (const bySignature of this.pipelines.values()) {
       for (const entry of bySignature.values()) entry.ringBuffer.destroy();
     }
-    for (const [geometry, buffers] of this.geometryBuffers) {
-      for (const buffer of buffers.attributes.values()) buffer.destroy();
-      buffers.index?.destroy();
-      geometry.removeEventListener("dispose", this.onGeometryDispose);
-    }
-    for (const buffer of this.attributeBuffers.values()) buffer.destroy();
+    for (const geometry of this.geometryBuffers.keys()) this.releaseGeometry(geometry);
+    for (const attribute of this.meshAttributes) this.releaseAttribute(attribute);
     for (const [texture, gpu] of this.textures) {
       gpu.destroy();
       texture.removeEventListener("dispose", this.onTextureDispose);
     }
     this.depthTexture?.destroy();
     this.pipelines.clear();
-    this.geometryBuffers.clear();
-    this.attributeBuffers.clear();
+    this.meshAttributes.clear();
     this.textures.clear();
     this.samplers.clear();
     this.samplerKeys.clear();
@@ -926,6 +1250,28 @@ function vertexFormatFromType(type: string): VertexFormat {
     default:
       return "float32x3";
   }
+}
+
+/** `image` when it is an image element, video, bitmap or canvas, which has a size of its own, or null for data or nothing. */
+function imageSource(image: Texture["image"]): object | null {
+  return image === null || ArrayBuffer.isView(image) ? null : (image as object);
+}
+
+/** What a draw's blend and depth state is read from. */
+type RenderStateMaterial = { transparent: boolean; blending: Blending; depthTest: boolean; depthWrite: boolean };
+
+/**
+ * The blend state a material asks for, as three.js sets it: none for an opaque
+ * material of normal blending, additive for additive blending, and over the
+ * destination by the source alpha otherwise.
+ */
+function blendState(material: RenderStateMaterial): GPUBlendState | undefined {
+  if (!material.transparent && material.blending === Blending.NormalBlending) return undefined;
+  const dstFactor: GPUBlendFactor = material.blending === Blending.AdditiveBlending ? "one" : "one-minus-src-alpha";
+  return {
+    color: { srcFactor: "src-alpha", dstFactor, operation: "add" },
+    alpha: { srcFactor: "one", dstFactor, operation: "add" },
+  };
 }
 
 /**

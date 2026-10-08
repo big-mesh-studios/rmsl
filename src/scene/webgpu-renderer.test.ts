@@ -219,7 +219,6 @@ describe("WebGPURenderer texture updates", () => {
 
     const entry = renderer.ensurePipeline(material, scene, false, false);
     expect(writes).toHaveLength(1);
-    expect(texture.needsUpdate).toBe(false);
     const boundTexture = entry.textureBindGroup;
 
     texture.image = new Uint8Array([220, 0, 0, 255]);

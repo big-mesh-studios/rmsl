@@ -1,8 +1,10 @@
 import { Matrix3 } from "../math/Matrix3";
+import { Vector3 } from "../math/Vector3";
 import type { Camera } from "../cameras/Camera";
 import type { Mesh } from "../objects/Mesh";
 import type { InstancedMesh } from "../objects/InstancedMesh";
 import type { Scene } from "../scenes/Scene";
+import type { Color } from "../math/Color";
 import type { BufferGeometry } from "../geometries/BufferGeometry";
 import type { BufferAttribute } from "../geometries/BufferAttribute";
 import { AmbientLight } from "../lights/AmbientLight";
@@ -14,7 +16,14 @@ import type { GLSLPrecision } from "../../glsl";
 
 // The sampling helpers live apart, so a test of a plain shader can read a texture as the renderers do
 // without loading the scene graph.
-export { isIntegerSampler, samplerState, textureChannels, type SamplerState, type TextureWrap } from "./sampling";
+export {
+  isFloatTexture,
+  isIntegerSampler,
+  samplerState,
+  textureChannels,
+  type SamplerState,
+  type TextureWrap,
+} from "./sampling";
 
 /**
  * Which shader precision a program compiles with, mirroring three.js: a
@@ -74,6 +83,14 @@ export function geometryAttribute(mesh: Mesh, geometry: BufferGeometry, name: st
 }
 
 const _normalMatrix = new Matrix3();
+
+/**
+ * Whether a mesh's world matrix mirrors it, which reverses the winding of its
+ * triangles, so its front face winds clockwise, as three.js winds it.
+ */
+export function isMirrored(mesh: Mesh): boolean {
+  return mesh.matrixWorld.determinant() < 0;
+}
 
 /**
  * The value a renderer-scoped uniform should hold this frame, given its
@@ -344,4 +361,174 @@ export function vertexFormatOf(attr: BufferAttribute, count = attr.itemSize): Ve
 /** What to call an attribute's array in a message about it. */
 function arrayTypeName(array: ArrayLike<number>): string {
   return ArrayBuffer.isView(array) ? array.constructor.name : "number[]";
+}
+
+/**
+ * The meshes of one frame in the order a renderer draws them: the opaque ones
+ * in scene-graph order, then the transparent ones from the farthest to the
+ * nearest, so each blends over what lies behind it, as three.js orders them.
+ * Kept by a renderer across frames, so ordering a frame allocates nothing.
+ */
+export class FrameOrder {
+  /** The meshes to draw, in order, after `sort`. */
+  readonly meshes: Mesh[] = [];
+  private readonly transparent: Mesh[] = [];
+  private readonly depths: number[] = [];
+  private readonly position = new Vector3();
+
+  /** Empties the order for a new frame. */
+  clear(): void {
+    this.meshes.length = this.transparent.length = this.depths.length = 0;
+  }
+
+  /** Adds a mesh of the frame, in scene-graph order. */
+  add(mesh: Mesh): void {
+    if ((mesh.material as { transparent?: boolean }).transparent) this.transparent.push(mesh);
+    else this.meshes.push(mesh);
+  }
+
+  /** Appends the transparent meshes to `meshes`, the farthest from `camera` first. */
+  sort(camera: Camera): void {
+    const { transparent, depths, position } = this;
+    for (let i = 0; i < transparent.length; i++) {
+      // The view-space z, which grows towards the camera.
+      depths[i] = position.setFromMatrixPosition(transparent[i]!.matrixWorld).applyMatrix4(camera.matrixWorldInverse).z;
+    }
+    // An insertion sort, stable and in place, over the few transparent meshes a frame holds.
+    for (let i = 1; i < transparent.length; i++) {
+      const mesh = transparent[i]!;
+      const depth = depths[i]!;
+      let j = i - 1;
+      while (j >= 0 && depths[j]! > depth) {
+        transparent[j + 1] = transparent[j]!;
+        depths[j + 1] = depths[j]!;
+        j--;
+      }
+      transparent[j + 1] = mesh;
+      depths[j + 1] = depth;
+    }
+    for (const mesh of transparent) this.meshes.push(mesh);
+  }
+}
+
+/** The colour `render` clears to: the scene's background when it has one, and the renderer's clear colour otherwise. */
+export function clearColourOf(
+  scene: Scene,
+  clearColor: Color,
+  clearAlpha: number,
+): { r: number; g: number; b: number; a: number } {
+  const colour = scene.background ?? clearColor;
+  CLEAR.r = colour.r;
+  CLEAR.g = colour.g;
+  CLEAR.b = colour.b;
+  CLEAR.a = scene.background ? 1 : clearAlpha;
+  return CLEAR;
+}
+
+/** The value `clearColourOf` hands back, reused across frames. */
+const CLEAR = { r: 0, g: 0, b: 0, a: 1 };
+
+/**
+ * The ranges of `attribute` to upload, sorted and merged where they touch, as
+ * three.js's `WebGLAttributes` merges them, in place. Empty means the whole
+ * attribute.
+ */
+export function mergedUpdateRanges(attribute: BufferAttribute): readonly { start: number; count: number }[] {
+  const ranges = attribute.updateRanges;
+  ranges.sort((a, b) => a.start - b.start);
+  let merged = 0;
+  for (let i = 1; i < ranges.length; i++) {
+    const previous = ranges[merged]!;
+    const range = ranges[i]!;
+    if (range.start <= previous.start + previous.count + 1) {
+      previous.count = Math.max(previous.count, range.start + range.count - previous.start);
+    } else {
+      ranges[++merged] = range;
+    }
+  }
+  if (ranges.length > 0) ranges.length = merged + 1;
+  return ranges;
+}
+
+/** The parts of an image element, video, bitmap or canvas that say whether it has loaded and how big it is. */
+type ImageLike = {
+  complete?: boolean;
+  readyState?: number;
+  naturalWidth?: number;
+  naturalHeight?: number;
+  videoWidth?: number;
+  videoHeight?: number;
+  displayWidth?: number;
+  displayHeight?: number;
+  width?: number;
+  height?: number;
+};
+
+/** A video's `readyState` once it has a frame to draw, `HTMLMediaElement.HAVE_CURRENT_DATA`. */
+const HAVE_CURRENT_DATA = 2;
+
+/** The width of a loaded image source: a video's frame, a `VideoFrame`'s display size, an image's own pixels, or a bitmap's or canvas's size. */
+export function imageWidth(image: unknown): number {
+  const i = image as ImageLike;
+  return i.videoWidth ?? i.displayWidth ?? i.naturalWidth ?? i.width ?? 0;
+}
+
+/** The height of a loaded image source, as `imageWidth` reads the width. */
+export function imageHeight(image: unknown): number {
+  const i = image as ImageLike;
+  return i.videoHeight ?? i.displayHeight ?? i.naturalHeight ?? i.height ?? 0;
+}
+
+/**
+ * Whether an image source a texture holds has loaded: an image element that
+ * is complete, a video with a frame, and any source with a size.
+ */
+export function imageLoaded(image: unknown): boolean {
+  const i = image as ImageLike;
+  if (i.complete === false || (i.readyState !== undefined && i.readyState < HAVE_CURRENT_DATA)) return false;
+  return imageWidth(image) > 0 && imageHeight(image) > 0;
+}
+
+/** The slice `drawSlice` gives, reused so a draw allocates nothing. */
+const slice = { start: 0, count: 0 };
+
+/**
+ * The elements a draw range selects out of `total`, cut to them as three.js
+ * cuts it; an infinite `total` leaves the range uncut. A count of 0 means the
+ * range selects none, or has no end, and the draw is skipped. The result is
+ * reused by the next call.
+ */
+export function drawSlice(range: { start: number; count: number }, total: number): Readonly<typeof slice> {
+  slice.start = Math.max(range.start, 0);
+  const count = Math.min(range.start + range.count, total) - slice.start;
+  slice.count = Number.isFinite(count) ? Math.max(0, count) : 0;
+  return slice;
+}
+
+/** The GPU buffer a renderer keeps for one attribute, the version of the attribute it holds, and the bytes of each element it holds. */
+export interface AttributeBuffer<Buffer> {
+  buffer: Buffer;
+  version: number;
+  elementSize: number;
+}
+
+/**
+ * The version of each attribute at which a renderer last cleared its update
+ * ranges. A renderer whose buffer holds an older version lacks changes whose
+ * ranges another renderer cleared.
+ */
+const rangesClearedAt = new WeakMap<BufferAttribute, number>();
+
+/**
+ * Whether the update ranges marked on `attribute` cover every change a buffer
+ * that holds it at `version` lacks. Otherwise the attribute uploads whole.
+ */
+export function rangesCover(attribute: BufferAttribute, version: number): boolean {
+  return version >= (rangesClearedAt.get(attribute) ?? -1);
+}
+
+/** Clears the update ranges of `attribute` once a renderer uploaded them, as three.js clears them. */
+export function clearUpdateRanges(attribute: BufferAttribute): void {
+  attribute.clearUpdateRanges();
+  rangesClearedAt.set(attribute, attribute.version);
 }

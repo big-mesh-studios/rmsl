@@ -7,6 +7,7 @@ import {
   NearestMipmapNearestFilter,
   RedIntegerFormat,
   RepeatWrapping,
+  FloatType,
 } from "../textures/constants";
 
 /**
@@ -89,4 +90,9 @@ function textureWrap(wrap: number): TextureWrap {
 /** Whether a sampler type reads an integer texture (unfiltered texels). */
 export function isIntegerSampler(type: string): boolean {
   return isIntegerSamplerType(type);
+}
+
+/** Whether `texture` holds 32-bit floats, as a `DataTexture` of `FloatType` does, rather than bytes. */
+export function isFloatTexture(texture: Texture): boolean {
+  return (texture as { type?: number }).type === FloatType;
 }

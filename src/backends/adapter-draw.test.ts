@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { GPU_ENABLED, releaseGpu } from "../testing/gpu";
-import { READ_PIXEL, runInGpuPage } from "../testing/browser";
+import { GL_STATE, READ_PIXEL, runInGpuPage } from "../testing/browser";
 
 /**
  * A full-screen triangle, a 4×4 canvas, and a uniform colour every adapter
@@ -12,10 +12,14 @@ import { createGlsl } from "../glsl";
 import { createJs, createJsGrid } from "../js";
 import { createWasm, createWasmGrid } from "../wasm";
 ${READ_PIXEL}
+${GL_STATE}
 const position = attribute("vec3");
 const colour = uniform("vec4");
 const vertex = () => Fn(() => { builtinPosition().assign(vec4(position, 1)); })();
 const fragment = () => Fn(() => colour)();
+// A vertex stage that also reads an attribute the host never sets, which moves the triangle out of view unless it holds 0.
+const offset = attribute("vec4");
+const offsetVertex = () => Fn(() => { builtinPosition().assign(vec4(position.add(offset.xyz.mul(8)), 1)); })();
 const TRIANGLE = Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
 const canvas = () => {
   const c = document.createElement("canvas");
@@ -46,6 +50,59 @@ const drawTextured = (adapter) => {
   adapter.draw({ count: 3 });
   return readPixel(target, 1, 2);
 };
+// Two textures of one shape, the second set over the first: the draw shows the
+// second, written into the GL texture the first made.
+const drawRetextured = (adapter) => {
+  const target = canvas();
+  const gl = target.getContext("webgl2");
+  let created = 0;
+  const createTexture = gl.createTexture.bind(gl);
+  gl.createTexture = () => (created++, createTexture());
+  adapter.attach(target);
+  adapter.setAttribute(position, TRIANGLE);
+  const texels = (r, g, b) => ({ data: Uint8Array.of(r, g, b, 255, r, g, b, 255, r, g, b, 255, r, g, b, 255), width: 2, height: 2 });
+  adapter.setTexture(image, texels(0, 255, 0));
+  adapter.setTexture(image, texels(255, 0, 0));
+  adapter.draw({ count: 3 });
+  return { pixel: readPixel(target, 1, 2), created };
+};
+// The textured triangle drawn over state the page set, and over a fresh context.
+const drawnOver = (dirty) => {
+  const target = canvas();
+  const gl = target.getContext("webgl2");
+  if (dirty) dirtyGlState(gl);
+  const adapter = createGlsl(offsetVertex(), texturedFragment());
+  adapter.attach(target);
+  adapter.setAttribute(position, TRIANGLE);
+  adapter.setTexture(image, {
+    data: Uint8Array.of(255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255),
+    width: 2,
+    height: 2,
+  });
+  adapter.draw({ count: 3, clearColor: [0.2, 0.4, 0.6, 1] });
+  return [readPixel(target, 1, 2), readPixel(target, 3, 3), readPixel(target, 0, 0)];
+};
+// Every piece of state that a call of a GLSL adapter left changed, over state the page set.
+const glslStateChanged = (preserveState) => {
+  const target = canvas();
+  const gl = target.getContext("webgl2");
+  dirtyGlState(gl);
+  const before = glState(gl);
+  const changed = new Set();
+  const check = () => changedGlState(before, glState(gl)).forEach((name) => changed.add(name));
+  const adapter = createGlsl(offsetVertex(), Fn(() => image.texture(vec2(0.75, 0.25)).mul(colour))(), { preserveState });
+  adapter.attach(target);
+  check();
+  adapter.setAttribute(position, TRIANGLE);
+  check();
+  adapter.setUniform(colour, [0, 1, 0, 1]);
+  check();
+  adapter.setTexture(image, { data: Uint8Array.of(255, 0, 0), width: 1, height: 1, channels: 3 });
+  check();
+  adapter.draw({ count: 3 });
+  check();
+  return [...changed].sort();
+};
 const routine = () => vec4(fragCoord().x.div(4), 0, 0, 1);
 const drawRoutine = (adapter) => {
   const target = canvas();
@@ -58,10 +115,14 @@ globalThis.__rmslAdapterDraw = {
   js: () => drawWith(createJs(vertex, fragment, { attributeTypes: { [position.name]: "vec3" } })),
   wasm: () => drawWith(createWasm(vertex, fragment, { attributeTypes: { [position.name]: "vec3" } })),
   glslTexture: () => drawTextured(createGlsl(vertex(), texturedFragment())),
+  glslRetexture: () => drawRetextured(createGlsl(vertex(), texturedFragment())),
   jsTexture: () => drawTextured(createJs(vertex, texturedFragment, { attributeTypes: { [position.name]: "vec3" } })),
   wasmTexture: () => drawTextured(createWasm(vertex, texturedFragment, { attributeTypes: { [position.name]: "vec3" } })),
   jsRoutine: () => drawRoutine(createJsGrid({ draw: routine() })),
   wasmRoutine: () => drawRoutine(createWasmGrid({ draw: routine() })),
+  glslStateKept: () => glslStateChanged(false),
+  glslDrawsOver: () => ({ dirty: drawnOver(true), clean: drawnOver(false) }),
+  glslStatePreserved: () => glslStateChanged(true),
 };
 `;
 
@@ -107,10 +168,49 @@ describe.skipIf(!GPU_ENABLED)("adapters drawing into a canvas in a browser", () 
   }, 120_000);
 
   /**
+   * @canon spec-a-webgl-call-sets-the-state-it-reads
+   * @canon spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value
+   */
+  it("draws over state the page set as it draws on a fresh context with createGlsl", async () => {
+    const { dirty, clean } = await drawn("glslDrawsOver");
+    expect(dirty).toEqual(clean);
+  }, 120_000);
+
+  /**
+   * @canon spec-a-webgl-call-leaves-the-state-it-set
+   */
+  it("leaves the unpack alignment and its program as it set them with createGlsl", async () => {
+    expect(await drawn("glslStateKept")).toEqual(expect.arrayContaining(["UNPACK_ALIGNMENT", "CURRENT_PROGRAM"]));
+  }, 120_000);
+
+  /**
+   * @canon spec-a-webgl-call-sets-the-state-it-reads
+   */
+  it("turns dithering off over a page that turned it on with createGlsl", async () => {
+    expect(await drawn("glslStateKept")).toContain("DITHER");
+  }, 120_000);
+
+  /**
+   * @canon spec-a-glsl-adapter-asked-to-preserve-state-puts-it-back
+   */
+  it("puts back every piece of state it changed with preserveState with createGlsl", async () => {
+    expect(await drawn("glslStatePreserved")).toEqual([]);
+  }, 120_000);
+
+  /**
    * @canon spec-an-adapter-takes-the-texture-a-sampler-reads-from-the-host
    */
   it("samples the texture set with setTexture with createGlsl", async () => {
     expect(await drawn("glslTexture")).toEqual({ r: 0, g: 255, b: 0, a: 255 });
+  }, 120_000);
+
+  /**
+   * @canon spec-an-adapter-writes-a-texture-of-the-same-shape-in-place
+   */
+  it("writes a texture of the same shape into the texture it has with createGlsl", async () => {
+    const result = await drawn("glslRetexture");
+    expect(result.pixel).toEqual({ r: 255, g: 0, b: 0, a: 255 });
+    expect(result.created).toBe(1);
   }, 120_000);
 
   /**

@@ -5,6 +5,8 @@ export const RedIntegerFormat = 36244;
 
 /** The element type of the image data, like three.js's `UnsignedByteType`. */
 export const UnsignedByteType = 1009;
+/** 32-bit float image data, like three.js's `FloatType`: a texture of it holds floats rather than bytes. */
+export const FloatType = 1015;
 
 // What a sampler does with a coordinate outside 0..1. Numbers are three.js's own.
 

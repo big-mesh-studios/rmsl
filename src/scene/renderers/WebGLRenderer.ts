@@ -1,10 +1,20 @@
 import { compileGlsl, type GLSLPrecision } from "../../glsl";
+import {
+  drawToCanvas,
+  GlState,
+  GlStateKeeper,
+  setAttributeValue,
+  setPackState,
+  setRasterState,
+  setUnpackState,
+} from "../../backends/glsl/gl-state";
 import { Color } from "../math/Color";
 import { Vector4 } from "../math/Vector4";
 import { WebGLRenderTarget } from "./WebGLRenderTarget";
 import type { Scene } from "../scenes/Scene";
 import type { Camera } from "../cameras/Camera";
 import type { Mesh } from "../objects/Mesh";
+import type { Object3D } from "../core/Object3D";
 import type { InstancedMesh } from "../objects/InstancedMesh";
 import type { BufferGeometry } from "../geometries/BufferGeometry";
 import type { BufferAttribute } from "../geometries/BufferAttribute";
@@ -15,7 +25,11 @@ import { Blending, Side } from "../materials/Material";
 import {
   blankTexture,
   cameraUniformValue,
+  clearColourOf,
+  FrameOrder,
+  isFloatTexture,
   isIntegerSampler,
+  mergedUpdateRanges,
   objectUniformValue,
   lightsSignature,
   shaderPrecision,
@@ -28,19 +42,27 @@ import {
   geometryAttribute,
   VERTEX_FORMATS,
   vertexFormatOf,
+  drawSlice,
+  imageLoaded,
+  isMirrored,
+  rangesCover,
+  clearUpdateRanges,
+  type AttributeBuffer,
 } from "./common";
 
 interface ProgramEntry {
   program: MaterialProgram;
+  /** The `version` of the material the program was built from. */
+  version: number;
   glProgram: WebGLProgram;
   uniformLocations: Map<string, WebGLUniformLocation | null>;
   attributeLocations: Map<string, number>;
 }
 
+/** The buffers a geometry draws from, by attribute name, as its last draw found them. */
 interface GeometryBuffers {
   attributes: Map<string, WebGLBuffer>;
   index: WebGLBuffer | null;
-  needsUpload: boolean;
 }
 
 /**
@@ -55,17 +77,36 @@ export class WebGLRenderer {
   gl: WebGL2RenderingContext;
 
   private programs = new Map<NodeMaterial, Map<string, ProgramEntry>>();
+  /** The buffers of each geometry this renderer drew, whose attributes it frees when the geometry is disposed. */
   private geometryBuffers = new Map<BufferGeometry, GeometryBuffers>();
   /**
-   * Buffers for attributes that live on the object rather than the geometry —
-   * an `InstancedMesh`'s `instanceMatrix`/`instanceColor`. Keyed by the
-   * attribute so two instanced meshes sharing a geometry keep separate buffers.
+   * The buffer of each attribute this renderer uploaded, and the version it
+   * holds. A buffer belongs to its attribute, as three.js keys it, so an
+   * attribute that several geometries share uploads once.
    */
-  private attributeBuffers = new Map<BufferAttribute, WebGLBuffer>();
+  private attributeBuffers = new WeakMap<BufferAttribute, AttributeBuffer<WebGLBuffer>>();
+  /**
+   * The attributes that live on a mesh rather than a geometry, an
+   * `InstancedMesh`'s `instanceMatrix` and `instanceColor`, which `dispose` frees.
+   */
+  private meshAttributes = new Set<BufferAttribute>();
   /** Bytes allocated per `WebGLBuffer`, so a buffer that grew past its first
    * upload is re-allocated only when the new data no longer fits. */
   private bufferCapacities = new WeakMap<WebGLBuffer, number>();
   private textures = new Map<Texture, WebGLTexture>();
+  /**
+   * The `version` of each texture this renderer last uploaded.
+   * Each renderer keeps its own, so a change reaches every renderer that draws
+   * the object, as three.js keeps it per renderer.
+   */
+  private uploadedVersions = new WeakMap<Texture, number>();
+  /**
+   * Whether each texture was last uploaded for an integer sampler. A sampler of
+   * the other kind needs another format and other filters, so it uploads again.
+   */
+  private uploadedAsInteger = new WeakMap<Texture, boolean>();
+  /** Whether a float texture can filter linearly here; where it cannot, it reads its nearest texel. */
+  private floatLinear = false;
   /** The 1×1 black textures a sampler with no texture reads, one for each dimension and sample type. */
   private blankTextures = new Map<string, DataTexture>();
   /** The framebuffer, color texture, and depth renderbuffer behind each render target, at its bound size. */
@@ -82,10 +123,23 @@ export class WebGLRenderer {
    * overrides it, like three.js's `WebGLRenderer` `precision` option.
    */
   readonly precision: GLSLPrecision;
+  /** Saves the state each call changes and puts it back, when `preserveState` asks for it. */
+  private readonly state: GlStateKeeper | null;
+  /**
+   * The vertex array every draw binds its buffers and attributes in, so none of
+   * the application's changes; made on the first render after construction or
+   * `dispose`.
+   */
+  private vertexArray: WebGLVertexArrayObject | null = null;
 
+  /**
+   * With `preserveState: true`, each call puts back the WebGL state it changed
+   * before it returns, for code that shares the context. Without it, a call
+   * leaves the state as it set it.
+   */
   constructor(
     canvas?: HTMLCanvasElement,
-    options: { antialias?: boolean; depth?: boolean; precision?: GLSLPrecision } = {},
+    options: { antialias?: boolean; depth?: boolean; precision?: GLSLPrecision; preserveState?: boolean } = {},
   ) {
     this.canvas = canvas ?? document.createElement("canvas");
     this.precision = options.precision ?? "highp";
@@ -97,6 +151,9 @@ export class WebGLRenderer {
       throw new Error("[RMSL/scene] WebGL2 is not available on this canvas");
     }
     this.gl = gl;
+    // A float texture filters linearly only with this extension, as in three.js.
+    this.floatLinear = gl.getExtension("OES_texture_float_linear") !== null;
+    this.state = options.preserveState ? new GlStateKeeper(gl) : null;
   }
 
   setClearColor(color: Color | number, alpha = 1): void {
@@ -133,7 +190,17 @@ export class WebGLRenderer {
    * touching the canvas's drawing buffer.
    */
   render(scene: Scene, camera: Camera, target: WebGLRenderTarget | null = null): void {
+    this.state?.begin(RENDER_STATE);
+    try {
+      this.renderFrame(scene, camera, target);
+    } finally {
+      this.state?.end();
+    }
+  }
+
+  private renderFrame(scene: Scene, camera: Camera, target: WebGLRenderTarget | null): void {
     const gl = this.gl;
+    gl.bindVertexArray((this.vertexArray ??= gl.createVertexArray()));
 
     scene.updateMatrixWorld(true);
     camera.updateMatrixWorld(true);
@@ -143,25 +210,47 @@ export class WebGLRenderer {
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.renderTargetFramebuffer(target, gl));
       gl.viewport(0, 0, target.width, target.height);
     } else {
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      drawToCanvas(gl, this.state);
       gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     }
-    const [r, g, b] = this.clearColor.toArray();
-    gl.clearColor(r, g, b, this.clearAlpha);
+    // The surface the frame draws into, whose size a renderer-scoped uniform such as `resolution` gives.
+    this.frameWidth = target?.width ?? gl.drawingBufferWidth;
+    this.frameHeight = target?.height ?? gl.drawingBufferHeight;
+    const clear = clearColourOf(scene, this.clearColor, this.clearAlpha);
+    gl.clearColor(clear.r, clear.g, clear.b, clear.a);
     // The depth mask applies to `clear`, and the last draw left it as its material set it.
     gl.depthMask(true);
+    setRasterState(gl);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
 
-    scene.traverseVisible((object) => {
-      if (object.isMesh) {
-        const mesh = object as Mesh;
+    const order = this.frameOrder;
+    order.clear();
+    scene.traverseVisible(this.collectVisible);
+    order.sort(camera);
+    try {
+      for (const mesh of order.meshes) {
         // Give objects a chance to update per-draw state (line resolution, ...).
         mesh.onBeforeRender?.(this, scene, camera);
         this.drawMesh(mesh, scene, camera);
       }
-    });
+    } finally {
+      // Holding the meshes between frames would keep a removed mesh alive.
+      order.clear();
+    }
   }
+
+  /** The size of the surface the frame draws into: a render target's, or the drawing buffer's. */
+  private frameWidth = 0;
+  private frameHeight = 0;
+
+  /** The meshes of the frame `render` is drawing, opaque ones first and transparent ones back to front. */
+  private frameOrder = new FrameOrder();
+
+  /** Adds a mesh of the frame to `frameOrder`; made once, so a frame allocates no callback. */
+  private collectVisible = (object: Object3D): void => {
+    if (object.isMesh) this.frameOrder.add(object as Mesh);
+  };
 
   /** The drawing surface viewport: `(x, y, width, height)` in device pixels. */
   getViewport(target = new Vector4()): Vector4 {
@@ -184,9 +273,20 @@ export class WebGLRenderer {
     if (existing !== undefined) {
       this.deleteRenderTarget(target, existing, gl);
     }
+    this.state?.begin(TARGET_STATE);
+    try {
+      return this.makeRenderTarget(target, gl);
+    } finally {
+      this.state?.end();
+    }
+  }
+
+  /** Makes the framebuffer, colour texture and depth buffer of `target` at its size. */
+  private makeRenderTarget(target: WebGLRenderTarget, gl: WebGL2RenderingContext): WebGLFramebuffer {
     const framebuffer = gl.createFramebuffer()!;
     const color = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, color);
+    setUnpackState(gl);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, target.width, target.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
@@ -215,9 +315,16 @@ export class WebGLRenderer {
   readPixels(target: WebGLRenderTarget, out?: Uint8Array): Uint8Array {
     const gl = this.gl;
     const buffer = out ?? new Uint8Array(target.width * target.height * 4);
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.renderTargetFramebuffer(target));
-    gl.readPixels(0, 0, target.width, target.height, gl.RGBA, gl.UNSIGNED_BYTE, buffer);
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+    this.state?.begin(READ_STATE);
+    try {
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.renderTargetFramebuffer(target));
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      setPackState(gl);
+      gl.readPixels(0, 0, target.width, target.height, gl.RGBA, gl.UNSIGNED_BYTE, buffer);
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+    } finally {
+      this.state?.end();
+    }
     return buffer;
   }
 
@@ -233,12 +340,18 @@ export class WebGLRenderer {
     const gl = this.gl;
     const buffer = out ?? new Uint8Array(target.width * target.height * 4);
     const pbo = gl.createBuffer()!;
-    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo);
-    gl.bufferData(gl.PIXEL_PACK_BUFFER, buffer.byteLength, gl.STREAM_READ);
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.renderTargetFramebuffer(target));
-    gl.readPixels(0, 0, target.width, target.height, gl.RGBA, gl.UNSIGNED_BYTE, 0);
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
-    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    this.state?.begin(READ_STATE);
+    try {
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo);
+      gl.bufferData(gl.PIXEL_PACK_BUFFER, buffer.byteLength, gl.STREAM_READ);
+      setPackState(gl);
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.renderTargetFramebuffer(target));
+      gl.readPixels(0, 0, target.width, target.height, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    } finally {
+      this.state?.end();
+    }
     const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
     gl.flush();
     return new Promise<Uint8Array>((resolve, reject) => {
@@ -254,9 +367,14 @@ export class WebGLRenderer {
           reject(new Error("[RMSL/scene] readPixelsAsync: GPU sync wait failed"));
           return;
         }
-        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo);
-        gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, buffer);
-        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        this.state?.begin(GlState.pixelPackBuffer);
+        try {
+          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo);
+          gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, buffer);
+          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        } finally {
+          this.state?.end();
+        }
         gl.deleteBuffer(pbo);
         resolve(buffer);
       };
@@ -274,7 +392,7 @@ export class WebGLRenderer {
     const gl = this.gl;
 
     gl.useProgram(entry.glProgram);
-    this.setRenderState(material);
+    this.setRenderState(material, isMirrored(mesh));
     this.uploadUniforms(entry, mesh, camera);
     this.bindGeometry(mesh, entry, mesh.geometry);
 
@@ -282,26 +400,31 @@ export class WebGLRenderer {
     const instanceCount = instancing ? (mesh as InstancedMesh).count : geometry.instanceCount;
     // A mesh can draw a slice of its geometry (an object sharing one merged
     // buffer with several others); omit the mesh's `drawRange` to draw it all.
-    const range = mesh.drawRange;
     if (geometry.index) {
       const indexView = toBufferView(geometry.index.array, true) as Uint16Array | Uint32Array;
       const type = indexView instanceof Uint16Array ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT;
-      const count = Number.isFinite(range.count) ? range.count : indexView.length;
-      gl.drawElementsInstanced(gl.TRIANGLES, count, type, range.start * indexView.BYTES_PER_ELEMENT, instanceCount);
+      const { start, count } = drawSlice(mesh.drawRange, indexView.length);
+      if (count > 0)
+        gl.drawElementsInstanced(gl.TRIANGLES, count, type, start * indexView.BYTES_PER_ELEMENT, instanceCount);
     } else {
-      const count = Number.isFinite(range.count) ? range.count : (geometry.attributes.position?.count ?? 0);
-      gl.drawArraysInstanced(gl.TRIANGLES, range.start, count, instanceCount);
+      const { start, count } = drawSlice(mesh.drawRange, geometry.attributes.position?.count ?? Infinity);
+      if (count > 0) gl.drawArraysInstanced(gl.TRIANGLES, start, count, instanceCount);
     }
   }
 
-  private setRenderState(material: {
-    side: Side;
-    blending: Blending;
-    depthTest: boolean;
-    depthWrite: boolean;
-    transparent: boolean;
-  }): void {
+  /** Sets the cull, depth and blend state `material` asks for, and the winding of a front face, clockwise when `mirrored`. */
+  private setRenderState(
+    material: {
+      side: Side;
+      blending: Blending;
+      depthTest: boolean;
+      depthWrite: boolean;
+      transparent: boolean;
+    },
+    mirrored: boolean,
+  ): void {
     const gl = this.gl;
+    gl.frontFace(mirrored ? gl.CW : gl.CCW);
     switch (material.side) {
       case Side.FrontSide:
         gl.enable(gl.CULL_FACE);
@@ -321,10 +444,11 @@ export class WebGLRenderer {
 
     if (material.transparent || material.blending !== Blending.NormalBlending) {
       gl.enable(gl.BLEND);
+      // Colour is weighed by the source alpha and alpha by one, as three.js blends them.
       if (material.blending === Blending.AdditiveBlending) {
-        gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+        gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE, gl.ONE, gl.ONE);
       } else {
-        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
       }
     } else {
       gl.disable(gl.BLEND);
@@ -342,7 +466,7 @@ export class WebGLRenderer {
       } else if (binding.scope === "object") {
         value = objectUniformValue(binding.name, mesh);
       } else if (binding.scope === "renderer") {
-        value = rendererUniformValue(binding.name, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
+        value = rendererUniformValue(binding.name, this.frameWidth, this.frameHeight);
       } else {
         value = binding.value?.({ camera, mesh }) ?? [];
       }
@@ -454,22 +578,37 @@ export class WebGLRenderer {
     // unit, so binding first would leave the previous sampler's unit
     // reading this texture instead of its own.
     const unit = this.nextTextureUnit();
+    this.state?.keepUnit(unit);
     gl.activeTexture(gl.TEXTURE0 + unit);
     let glTexture = this.textures.get(texture);
-    if (!glTexture || texture.needsUpdate) {
+    const image = texture.image;
+    // An image that has not loaded uploads at the first draw after it has, as three.js uploads it.
+    const loading = image != null && !ArrayBuffer.isView(image) && !imageLoaded(image);
+    if (
+      !loading &&
+      (!glTexture ||
+        this.uploadedVersions.get(texture) !== texture.version ||
+        this.uploadedAsInteger.get(texture) !== integer)
+    ) {
       if (!glTexture) {
         glTexture = gl.createTexture()!;
         this.textures.set(texture, glTexture);
         texture.addEventListener("dispose", this.onTextureDispose);
       }
       gl.bindTexture(target, glTexture);
-      const sampling = samplerState(texture, samplerType);
+      // Rows of data are packed tight, and a single-channel row is rarely a multiple of four bytes.
+      setUnpackState(gl);
+      const asked = samplerState(texture, samplerType);
+      // A float texture with linear filters it cannot honour would be incomplete and read black.
+      const sampling =
+        isFloatTexture(texture) && !this.floatLinear
+          ? { ...asked, magFilter: "nearest" as const, minFilter: "nearest" as const }
+          : asked;
       gl.texParameteri(target, gl.TEXTURE_WRAP_S, glWrap(gl, sampling.wrapS));
       gl.texParameteri(target, gl.TEXTURE_WRAP_T, glWrap(gl, sampling.wrapT));
       if (is3D) gl.texParameteri(target, gl.TEXTURE_WRAP_R, glWrap(gl, sampling.wrapR));
       gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, glFilter(gl, sampling.minFilter));
       gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, glFilter(gl, sampling.magFilter));
-      const image = texture.image;
       if (ArrayBuffer.isView(image)) {
         const width = (texture as { width?: number }).width ?? 1;
         const height = (texture as { height?: number }).height ?? 1;
@@ -487,29 +626,26 @@ export class WebGLRenderer {
           } else {
             gl.texImage2D(target, 0, internalFormat, width, height, 0, format, type, image as ArrayBufferView);
           }
-        } else if (is3D) {
-          const depth = (texture as { depth?: number }).depth ?? 1;
-          gl.texImage3D(
-            target,
-            0,
-            gl.RGBA,
-            width,
-            height,
-            depth,
-            0,
-            gl.RGBA,
-            gl.UNSIGNED_BYTE,
-            image as ArrayBufferView,
-          );
         } else {
-          gl.texImage2D(target, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, image as ArrayBufferView);
+          // A float texture holds the floats its data gives, a byte texture its bytes.
+          const float = isFloatTexture(texture);
+          const internalFormat = float ? gl.RGBA32F : gl.RGBA;
+          const type = float ? gl.FLOAT : gl.UNSIGNED_BYTE;
+          if (is3D) {
+            const depth = (texture as { depth?: number }).depth ?? 1;
+            gl.texImage3D(target, 0, internalFormat, width, height, depth, 0, gl.RGBA, type, image as ArrayBufferView);
+          } else {
+            gl.texImage2D(target, 0, internalFormat, width, height, 0, gl.RGBA, type, image as ArrayBufferView);
+          }
         }
       } else if (image != null && !is3D && !integer) {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image as TexImageSource);
       }
-      texture.needsUpdate = false;
+      this.uploadedVersions.set(texture, texture.version);
+      this.uploadedAsInteger.set(texture, integer);
     }
-    gl.bindTexture(target, glTexture);
+    // A texture still loading binds no texture, which reads as blank.
+    gl.bindTexture(target, glTexture ?? null);
     return unit;
   }
 
@@ -523,25 +659,37 @@ export class WebGLRenderer {
     const glTexture = this.textures.get(texture);
     if (glTexture) this.gl.deleteTexture(glTexture);
     this.textures.delete(texture);
+    this.uploadedVersions.delete(texture);
+    this.uploadedAsInteger.delete(texture);
     texture.removeEventListener("dispose", this.onTextureDispose);
   };
 
   /**
-   * Free the vertex and index buffers a disposed `BufferGeometry` owns, and
-   * stop listening to it. Drawing with the geometry again is allowed:
-   * `bindGeometry` finds no buffers for it and uploads its attributes into new
-   * ones.
+   * Free the buffers of the attributes and the index a disposed
+   * `BufferGeometry` holds, as three.js frees them, and stop listening to it.
+   * Drawing with the geometry, or another that shares an attribute, again is
+   * allowed: `bindGeometry` finds no buffer for the attribute and uploads it
+   * into a new one.
    */
   private onGeometryDispose = (event: unknown): void => {
-    const geometry = (event as { target: BufferGeometry }).target;
-    const buffers = this.geometryBuffers.get(geometry);
-    if (buffers) {
-      for (const buffer of buffers.attributes.values()) this.gl.deleteBuffer(buffer);
-      if (buffers.index) this.gl.deleteBuffer(buffers.index);
-    }
+    this.releaseGeometry((event as { target: BufferGeometry }).target);
+  };
+
+  /** Frees the buffers of the attributes and the index `geometry` holds, and stops listening to it. */
+  private releaseGeometry(geometry: BufferGeometry): void {
+    for (const name in geometry.attributes) this.releaseAttribute(geometry.attributes[name]!);
+    if (geometry.index) this.releaseAttribute(geometry.index);
     this.geometryBuffers.delete(geometry);
     geometry.removeEventListener("dispose", this.onGeometryDispose);
-  };
+  }
+
+  /** Frees the buffer this renderer holds for `attribute`, if it holds one. */
+  private releaseAttribute(attribute: BufferAttribute): void {
+    const held = this.attributeBuffers.get(attribute);
+    if (!held) return;
+    this.gl.deleteBuffer(held.buffer);
+    this.attributeBuffers.delete(attribute);
+  }
 
   private nextTextureUnit(): number {
     const gl = this.gl;
@@ -576,7 +724,7 @@ export class WebGLRenderer {
     const signature = programSignature(lightsSignature(scene), instancing, instancingColor);
     let bySignature = this.programs.get(material);
     const entry = bySignature?.get(signature);
-    if (entry && !material.needsUpdate) {
+    if (entry && entry.version === material.version) {
       return entry;
     }
 
@@ -610,13 +758,12 @@ export class WebGLRenderer {
       attributeLocations.set(attribute.node.name, gl.getAttribLocation(glProgram, attribute.node.name));
     }
 
-    const built: ProgramEntry = { program, glProgram, uniformLocations, attributeLocations };
+    const built: ProgramEntry = { program, version: material.version, glProgram, uniformLocations, attributeLocations };
     if (!bySignature) {
       bySignature = new Map();
       this.programs.set(material, bySignature);
     }
     bySignature.set(signature, built);
-    material.needsUpdate = false;
     return built;
   }
 
@@ -635,12 +782,10 @@ export class WebGLRenderer {
     const gl = this.gl;
     let buffers = this.geometryBuffers.get(geometry);
     if (!buffers) {
-      buffers = { attributes: new Map(), index: null, needsUpload: true };
+      buffers = { attributes: new Map(), index: null };
       this.geometryBuffers.set(geometry, buffers);
       geometry.addEventListener("dispose", this.onGeometryDispose);
     }
-
-    const needsUpload = buffers.needsUpload || Object.values(geometry.attributes).some((a) => a.needsUpdate);
 
     // The locations this draw configures, so that any left enabled by a previous
     // draw can be turned off. See `boundAttributeLocations`.
@@ -649,34 +794,25 @@ export class WebGLRenderer {
     for (const attribute of entry.program.attributes) {
       const attr = geometryAttribute(mesh, geometry, attribute.name);
       const location = entry.attributeLocations.get(attribute.node.name);
-      if (!attr || location == null) continue;
+      if (location == null) continue;
+      // A mat4 attribute spans four consecutive vertex attribute locations;
+      // each is fed from one column of the 64-byte instance record. The GLSL
+      // linker handed the base location, so the columns land at location..+3.
+      const locationSize = attribute.node._t === "mat4" ? 4 : 1;
+      if (!attr) {
+        // The shader reads an attribute with no data from the value its location holds.
+        if (location >= 0) for (let i = 0; i < locationSize; i++) setAttributeValue(gl, location + i, this.state);
+        continue;
+      }
 
-      // `instanceMatrix`/`instanceColor` live on the object rather than the
-      // geometry, so their buffers are cached per attribute (not per geometry).
-      const ownedByGeometry = geometry.attributes[attribute.name] !== undefined;
-      let buffer = ownedByGeometry ? buffers.attributes.get(attribute.name) : this.attributeBuffers.get(attr);
-      const isNewBuffer = buffer === undefined;
-      if (!buffer) {
-        buffer = gl.createBuffer()!;
-        if (ownedByGeometry) buffers.attributes.set(attribute.name, buffer);
-        else this.attributeBuffers.set(attr, buffer);
-      }
-      if (isNewBuffer || attr.needsUpdate) {
-        const data = toBufferView(attr.array);
-        buffer = this.uploadSlice(gl, gl.ARRAY_BUFFER, buffer, data, this.uploadRangeOf(data, attr, isNewBuffer));
-        if (ownedByGeometry) buffers.attributes.set(attribute.name, buffer);
-        else this.attributeBuffers.set(attr, buffer);
-        attr.needsUpdate = false;
-      }
+      const buffer = this.attributeBuffer(gl.ARRAY_BUFFER, attr, false);
+      if (geometry.attributes[attribute.name] !== undefined) buffers.attributes.set(attribute.name, buffer);
+      else this.meshAttributes.add(attr);
       // The attribute pointers below capture whatever buffer is bound when
       // they run, so bind this attribute's buffer on every draw, whether or
       // not its data changed this frame.
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
 
-      // A mat4 attribute spans four consecutive vertex attribute locations;
-      // each is fed from one column of the 64-byte instance record. The GLSL
-      // linker handed the base location, so the columns land at location..+3.
-      const locationSize = attribute.node._t === "mat4" ? 4 : 1;
       const components = attr.itemSize / locationSize;
       const format = VERTEX_FORMATS[vertexFormatOf(attr, components)];
       // One buffer per attribute, so the stride is the whole record.
@@ -712,40 +848,49 @@ export class WebGLRenderer {
     }
     this.boundAttributeLocations = usedLocations;
 
-    if (geometry.index) {
-      const isNewIndex = buffers.index === null;
-      const indexBuffer = buffers.index ?? (buffers.index = gl.createBuffer()!);
-      if (isNewIndex || needsUpload || geometry.index.needsUpdate) {
-        const data = toBufferView(geometry.index.array, true);
-        buffers.index = this.uploadSlice(
-          gl,
-          gl.ELEMENT_ARRAY_BUFFER,
-          indexBuffer,
-          data,
-          this.uploadRangeOf(data, geometry.index, isNewIndex),
-        );
-        geometry.index.needsUpdate = false;
-      }
+    const index = geometry.index;
+    if (index) {
+      buffers.index = this.attributeBuffer(gl.ELEMENT_ARRAY_BUFFER, index, true);
       // The element buffer binding must name this geometry's indices when the
       // draw runs, whatever the previous draw left bound.
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.index!);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.index);
     }
-    buffers.needsUpload = false;
   }
 
-  /** The byte window of `data` an update should send, per `updateRange`. */
-  private uploadRangeOf(
-    data: ArrayBufferView,
-    attr: BufferAttribute,
-    full: boolean,
-  ): { byteOffset: number; byteEnd: number } {
-    if (full || attr.updateRange.count === -1) {
-      return { byteOffset: 0, byteEnd: data.byteLength };
+  /**
+   * The buffer holding `attr`, uploaded first when this renderer holds none
+   * for it or holds an older version. An upload sends each range
+   * `addUpdateRange` marked, merged as three.js merges them, when those ranges
+   * hold every change the buffer lacks in elements of the size it holds, and
+   * otherwise the whole attribute. The ranges are cleared afterwards, as
+   * three.js clears them.
+   */
+  private attributeBuffer(target: number, attr: BufferAttribute, index: boolean): WebGLBuffer {
+    const gl = this.gl;
+    let held = this.attributeBuffers.get(attr);
+    if (held !== undefined && held.version === attr.version) return held.buffer;
+    const data = toBufferView(attr.array, index);
+    const element = (data as unknown as { BYTES_PER_ELEMENT: number }).BYTES_PER_ELEMENT;
+    const ranges = mergedUpdateRanges(attr);
+    const whole =
+      held === undefined || held.elementSize !== element || ranges.length === 0 || !rangesCover(attr, held.version);
+    if (held === undefined) {
+      held = { buffer: gl.createBuffer()!, version: attr.version, elementSize: element };
+      this.attributeBuffers.set(attr, held);
     }
-    const bytes = (data as unknown as { BYTES_PER_ELEMENT: number }).BYTES_PER_ELEMENT;
-    const byteOffset = Math.min(data.byteLength, Math.max(0, attr.updateRange.offset) * bytes);
-    const byteEnd = Math.min(data.byteLength, byteOffset + Math.max(0, attr.updateRange.count) * bytes);
-    return { byteOffset, byteEnd };
+    if (whole) {
+      held.buffer = this.uploadSlice(gl, target, held.buffer, data, { byteOffset: 0, byteEnd: data.byteLength });
+    } else {
+      for (const range of ranges) {
+        const byteOffset = Math.min(data.byteLength, Math.max(0, range.start) * element);
+        const byteEnd = Math.min(data.byteLength, byteOffset + Math.max(0, range.count) * element);
+        held.buffer = this.uploadSlice(gl, target, held.buffer, data, { byteOffset, byteEnd });
+      }
+    }
+    held.version = attr.version;
+    held.elementSize = element;
+    clearUpdateRanges(attr);
+    return held.buffer;
   }
 
   /**
@@ -806,25 +951,42 @@ export class WebGLRenderer {
     for (const bySignature of this.programs.values()) {
       for (const entry of bySignature.values()) gl.deleteProgram(entry.glProgram);
     }
-    for (const [geometry, buffers] of this.geometryBuffers) {
-      for (const buffer of buffers.attributes.values()) gl.deleteBuffer(buffer);
-      if (buffers.index) gl.deleteBuffer(buffers.index);
-      geometry.removeEventListener("dispose", this.onGeometryDispose);
-    }
-    for (const buffer of this.attributeBuffers.values()) gl.deleteBuffer(buffer);
+    for (const geometry of this.geometryBuffers.keys()) this.releaseGeometry(geometry);
+    for (const attribute of this.meshAttributes) this.releaseAttribute(attribute);
     for (const [texture, glTexture] of this.textures) {
       gl.deleteTexture(glTexture);
       texture.removeEventListener("dispose", this.onTextureDispose);
     }
     for (const [target, entry] of this.renderTargets) this.deleteRenderTarget(target, entry);
-    for (const location of this.boundAttributeLocations) gl.disableVertexAttribArray(location);
+    gl.deleteVertexArray(this.vertexArray);
+    this.vertexArray = null;
     this.programs.clear();
-    this.geometryBuffers.clear();
-    this.attributeBuffers.clear();
+    this.meshAttributes.clear();
     this.textures.clear();
     this.boundAttributeLocations.clear();
   }
 }
+
+/** The state a render changes. */
+const RENDER_STATE =
+  GlState.framebuffers |
+  GlState.viewport |
+  GlState.clearColor |
+  GlState.depth |
+  GlState.blend |
+  GlState.cull |
+  GlState.program |
+  GlState.vertexArray |
+  GlState.arrayBuffer |
+  GlState.activeTexture |
+  GlState.unpack |
+  GlState.raster;
+
+/** The state a readback changes. */
+const READ_STATE = GlState.framebuffers | GlState.pixelPackBuffer | GlState.pack;
+
+/** The state making a render target changes. */
+const TARGET_STATE = GlState.framebuffers | GlState.activeTexture | GlState.unpack;
 
 /** A wrapping mode as the `texParameteri` constant that sets it. */
 function glWrap(gl: WebGL2RenderingContext, wrap: TextureWrap): number {
