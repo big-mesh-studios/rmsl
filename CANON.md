@@ -603,8 +603,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-js-function-writes-out-what-would-cross-a-call`](#spec-a-js-function-writes-out-what-would-cross-a-call) — A compiled JS function writes an element-wise operation into a slot one component at a time, and a dot product, a length, a distance and a scalar `smoothstep` as expressions of their own, rather than through a call. Each component reads a vector operand's component and a scalar operand as it is, which the compiler knows from their types. A scalar operand that is not a local is read into one before the first component is written, so a component of the slot itself is read as it was. A helper remains for an operation with no slot to write into, written for the shape of each operand.
   - [`@spec a-compiled-js-function-returns-its-result-in-a-slot`](#spec-a-compiled-js-function-returns-its-result-in-a-slot) — The function that `compileJSFn` returns as source, and that `precompileJS` ships, returns a vector or a matrix in a slot it reuses on the next call, and a stage returns its position, varyings and outputs in an object it reuses, so the result of one call is the result of the next. A caller that keeps one copies it, or compiles with `reentrant`. A [routine](#term-cpu-routine), a stage and a grid copy their result, so a later call does not change it.
   - [`@spec a-webgl-renderer-allocates-nothing-per-frame`](#spec-a-webgl-renderer-allocates-nothing-per-frame) — The WebGL renderer draws a frame without allocating. It reuses what it needs between frames, and builds no array, closure or iterator per frame or per draw.
-    - [`@bug webgl-render-allocates-the-clear-colour-per-frame`](#bug-webgl-render-allocates-the-clear-colour-per-frame) — `render` reads the clear colour with `Color.toArray()`, which builds a new array on every frame.
-    - [`@bug webgl-render-allocates-a-traversal-closure-per-frame`](#bug-webgl-render-allocates-a-traversal-closure-per-frame) — `render` builds a new callback for `traverseVisible` on every frame.
 - [`@axiom a-user-ships-only-what-runs`](#axiom-a-user-ships-only-what-runs) — An application pays only for what it uses. A program declares only the inputs it reads. An application that compiles ahead of time ships the compiled code, without the compiler and without a toolchain.
   - [`@spec a-precompiled-program-ships-without-the-compiler`](#spec-a-precompiled-program-ships-without-the-compiler) — An application that [precompiles](#term-precompile) its programs with the Vite plugins ships the compiled code without the rmsl compiler.
     - [`@spec a-precompiled-shader-ships-as-a-string`](#spec-a-precompiled-shader-ships-as-a-string) — `precompileShaders` replaces a module with the GLSL and WGSL it compiled to, and the slot names it uses, as one JSON constant that imports nothing.
@@ -4177,18 +4175,6 @@ This follows because a value returned in a slot allocates nothing, and the funct
 ### @spec a-webgl-renderer-allocates-nothing-per-frame
 
 > The WebGL renderer draws a frame without allocating. It reuses what it needs between frames, and builds no array, closure or iterator per frame or per draw.
-
-#### @bug webgl-render-allocates-the-clear-colour-per-frame
-
-> `render` reads the clear colour with `Color.toArray()`, which builds a new array on every frame.
-
-Issue: #134
-
-#### @bug webgl-render-allocates-a-traversal-closure-per-frame
-
-> `render` builds a new callback for `traverseVisible` on every frame.
-
-Issue: #134
 
 ## @axiom a-user-ships-only-what-runs
 

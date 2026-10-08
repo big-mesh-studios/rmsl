@@ -5,6 +5,7 @@ import { WebGLRenderTarget } from "./WebGLRenderTarget";
 import type { Scene } from "../scenes/Scene";
 import type { Camera } from "../cameras/Camera";
 import type { Mesh } from "../objects/Mesh";
+import type { Object3D } from "../core/Object3D";
 import type { InstancedMesh } from "../objects/InstancedMesh";
 import type { BufferGeometry } from "../geometries/BufferGeometry";
 import type { BufferAttribute } from "../geometries/BufferAttribute";
@@ -159,22 +160,29 @@ export class WebGLRenderer {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     }
-    const [r, g, b] = this.clearColor.toArray();
-    gl.clearColor(r, g, b, this.clearAlpha);
+    gl.clearColor(this.clearColor.r, this.clearColor.g, this.clearColor.b, this.clearAlpha);
     // The depth mask applies to `clear`, and the last draw left it as its material set it.
     gl.depthMask(true);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
 
-    scene.traverseVisible((object) => {
-      if (object.isMesh) {
-        const mesh = object as Mesh;
-        // Give objects a chance to update per-draw state (line resolution, ...).
-        mesh.onBeforeRender?.(this, scene, camera);
-        this.drawMesh(mesh, scene, camera);
-      }
-    });
+    this.frameScene = scene;
+    this.frameCamera = camera;
+    scene.traverseVisible(this.drawVisible);
   }
+
+  /** The scene and camera of the frame `render` is drawing, which `drawVisible` reads. */
+  private frameScene: Scene | null = null;
+  private frameCamera: Camera | null = null;
+
+  /** Draws a mesh of the frame; made once, so a frame allocates no callback. */
+  private drawVisible = (object: Object3D): void => {
+    if (!object.isMesh) return;
+    const mesh = object as Mesh;
+    // Give objects a chance to update per-draw state (line resolution, ...).
+    mesh.onBeforeRender?.(this, this.frameScene!, this.frameCamera!);
+    this.drawMesh(mesh, this.frameScene!, this.frameCamera!);
+  };
 
   /** The drawing surface viewport: `(x, y, width, height)` in device pixels. */
   getViewport(target = new Vector4()): Vector4 {

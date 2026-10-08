@@ -4,6 +4,7 @@ import {
   AmbientLight,
   BufferAttribute,
   BufferGeometry,
+  Color,
   DataTexture,
   DirectionalLight,
   FloatType,
@@ -76,6 +77,33 @@ globalThis.__rmslR8UIRowsRun = () => {
 `;
 
 describe("a scene renderer manages what it uploads", () => {
+  /**
+   * @canon spec-a-webgl-renderer-allocates-nothing-per-frame
+   */
+  it("renders a frame without allocating the clear colour on WebGL", () => {
+    const { renderer } = stubWebGl();
+    const toArray = vi.spyOn(Color.prototype, "toArray");
+    renderer.render(new Scene(), camera());
+    expect(toArray).not.toHaveBeenCalled();
+  });
+
+  /**
+   * @canon spec-a-webgl-renderer-allocates-nothing-per-frame
+   */
+  it("renders every frame with one traversal callback on WebGL", () => {
+    const { renderer } = stubWebGl();
+    const scene = new Scene();
+    const callbacks: unknown[] = [];
+    const traverse = scene.traverseVisible.bind(scene);
+    scene.traverseVisible = (callback) => {
+      callbacks.push(callback);
+      traverse(callback);
+    };
+    renderer.render(scene, camera());
+    renderer.render(scene, camera());
+    expect(callbacks[1]).toBe(callbacks[0]);
+  });
+
   /**
    * @canon spec-a-texture-uploads-whatever-holds-its-image
    */

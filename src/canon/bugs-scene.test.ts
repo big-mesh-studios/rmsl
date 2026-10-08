@@ -554,42 +554,8 @@ describe("known bugs of the scene library, each failing until its fix", () => {
     expect(names).not.toContain("normalWorld");
   });
 
-  /**
-   * The WebGL renderer reads the clear colour into a new array on every
-   * frame, with `Color.toArray()`.
-   *
-   * @canon bug-webgl-render-allocates-the-clear-colour-per-frame
-   */
-  it.fails("renders a frame without allocating the clear colour on WebGL", () => {
-    const { renderer } = stubWebGl();
-    const toArray = vi.spyOn(Color.prototype, "toArray");
-    renderer.render(new Scene(), camera());
-    expect(toArray).not.toHaveBeenCalled();
-  });
-
-  /**
-   * The WebGL renderer builds a new callback for `traverseVisible` on every
-   * frame.
-   *
-   * @canon bug-webgl-render-allocates-a-traversal-closure-per-frame
-   */
-  it.fails("renders every frame with one traversal callback on WebGL", () => {
-    const { renderer } = stubWebGl();
-    const scene = new Scene();
-    const callbacks: unknown[] = [];
-    const traverse = scene.traverseVisible.bind(scene);
-    scene.traverseVisible = (callback) => {
-      callbacks.push(callback);
-      traverse(callback);
-    };
-    renderer.render(scene, camera());
-    renderer.render(scene, camera());
-    expect(callbacks[1]).toBe(callbacks[0]);
-  });
 });
 
-// A 3×2 single-channel texture: its rows are three bytes long, so the second
-// row starts at byte 3, not at the next multiple of four.
 // One texture read through a float sampler and then through an integer one. The
 // second read must give what it gives on a renderer that never read the texture
 // as a float.
