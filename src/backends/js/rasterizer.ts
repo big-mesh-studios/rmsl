@@ -268,19 +268,29 @@ export function compileJS(
     }
   }
 
+  /**
+   * Points both stages' contexts at the inputs of `from` that every vertex and
+   * fragment shares. The contexts own their attributes and varyings.
+   */
+  function shareInputs(from: Pick<JsRasterContext, "uniforms" | "textures">): void {
+    vertexCtx.uniforms = fragmentCtx.uniforms = from.uniforms;
+    vertexCtx.textures = fragmentCtx.textures = from.textures;
+  }
+
   function draw(ctx: JsRasterContext, options: JsRasterDrawOptions): CpuDrawBuffer {
+    shareInputs(ctx);
     try {
       return drawShaded(ctx, options);
     } finally {
       // The contexts are kept for the next draw, so they let go of this one's inputs.
-      vertexCtx.uniforms = vertexCtx.textures = fragmentCtx.uniforms = fragmentCtx.textures = undefined;
+      shareInputs({});
       target = NO_TARGET;
     }
   }
 
   function drawShaded(ctx: JsRasterContext, options: JsRasterDrawOptions): CpuDrawBuffer {
     const { width, height, out } = options;
-    const { attributes, uniforms, textures } = ctx;
+    const { attributes } = ctx;
     const first = options.first ?? 0;
     let firstSlot: string | undefined;
     for (const slot in attributes) {
@@ -289,10 +299,6 @@ export function compileJS(
     }
     const inferredCount = firstSlot ? Math.floor(attributes[firstSlot]!.length / widths[firstSlot]!) - first : 0;
     const vertexCount = options.count ?? inferredCount;
-    vertexCtx.uniforms = uniforms;
-    vertexCtx.textures = textures;
-    fragmentCtx.uniforms = uniforms;
-    fragmentCtx.textures = textures;
 
     // vertex pass
     for (let i = 0; i < vertexCount; i++) {
