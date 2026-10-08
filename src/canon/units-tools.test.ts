@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { afterAll, describe, expect, it } from "vitest";
+import { build } from "esbuild";
 import { Fn, bool, outputStruct, uniform, varying, vec2, vec3, vec4, builtinPosition } from "../rmsl";
 import { compileGlsl } from "../glsl";
 import { compileWgsl } from "../wgsl";
@@ -135,6 +136,22 @@ describe("effects", () => {
 });
 
 describe("./test", () => {
+  /**
+   * @canon spec-the-test-library-loads-no-scene-graph
+   */
+  it("loads no scene graph from the test library", async () => {
+    const result = await build({
+      entryPoints: [new URL("../test/index.ts", import.meta.url).pathname],
+      bundle: true,
+      write: false,
+      metafile: true,
+      format: "esm",
+      logLevel: "silent",
+    });
+    const inputs = Object.keys(result.metafile.inputs);
+    expect(inputs.filter((path) => /src\/scene\/(core|objects|lights)\//.test(path))).toEqual([]);
+  });
+
   /**
    * A variable a graph declares lives outside the routine unless the runner
    * is reentrant.

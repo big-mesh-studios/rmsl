@@ -569,7 +569,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-float-comparison-allows-for-the-last-bits`](#spec-a-float-comparison-allows-for-the-last-bits) — `approx`, `closeTo` and `assertClose` let a float differ in its last bits, by a tolerance that scales with its size or one the caller gives. They compare lengths, booleans and NaN, work as a predicate, and name the component that differs.
       - [`@spec a-material-or-pass-is-tested-by-the-names-it-uses`](#spec-a-material-or-pass-is-tested-by-the-names-it-uses) — `fromProgram` and `fromPass` run a built material or a pass of an effect. They bind its inputs by the names the program gives them, and hand back its varyings under those names. A stage the program has no root for is refused.
       - [`@spec the-test-library-loads-no-scene-graph`](#spec-the-test-library-loads-no-scene-graph) — The `./test` library loads none of the scene graph.
-        - [`@bug the-test-library-loads-the-scene-graph`](#bug-the-test-library-loads-the-scene-graph) — `./test` imports the sampling helpers of the scene renderers, which import the scene's lights and through them its objects. A test of a plain shader then loads the scene graph.
       - [`@spec render-draws-a-bool-as-black-or-white`](#spec-render-draws-a-bool-as-black-or-white) — `render` draws a fragment that gives `true` as opaque white, and one that gives `false` as opaque black.
       - [`@spec render-draws-a-short-vector-opaque`](#spec-render-draws-a-short-vector-opaque) — `render` draws a vector of fewer than four components with an alpha of 1.
       - [`@spec a-program-under-test-reads-a-renderer-matrix-as-the-identity`](#spec-a-program-under-test-reads-a-renderer-matrix-as-the-identity) — `fromProgram` binds a matrix a renderer would supply, such as `modelMatrix`, to the identity when nothing else gives it a value.
@@ -3940,12 +3939,6 @@ This follows because a GPU passes the fragment stage every varying the vertex st
 > The `./test` library loads none of the scene graph.
 
 This follows because a test of shader logic needs no scene, and loading one ties the test to code it does not check.
-
-###### @bug the-test-library-loads-the-scene-graph
-
-> `./test` imports the sampling helpers of the scene renderers, which import the scene's lights and through them its objects. A test of a plain shader then loads the scene graph.
-
-Issue: #102
 
 ##### @spec render-draws-a-bool-as-black-or-white
 

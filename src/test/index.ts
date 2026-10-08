@@ -5,7 +5,7 @@ import { compileJSProgram } from "../backends/js/js";
 // How a texture asks to be read is the renderers' question too, and they
 // already answer it without a device — so a shader tested here samples by the
 // same reading, not by a second one written for the CPU.
-import { samplerState, textureChannels } from "../scene/renderers/common";
+import { samplerState, textureChannels } from "../scene/renderers/sampling";
 import type { Texture } from "../scene/textures/Texture";
 
 // === Values ===

@@ -256,24 +256,4 @@ describe("known bugs of the tools, each failing until its fix", () => {
     await expect(gpu.gpuPage()).rejects.toThrow("no browser");
     await expect(gpu.releaseGpu()).resolves.toBeUndefined();
   });
-
-  /**
-   * `./test` imports the sampling helpers of the scene renderers, which import
-   * the scene's lights and through them its objects, so a test of a plain
-   * shader loads the scene graph.
-   *
-   * @canon bug-the-test-library-loads-the-scene-graph
-   */
-  it.fails("loads no scene graph from the test library", async () => {
-    const result = await build({
-      entryPoints: [new URL("../test/index.ts", import.meta.url).pathname],
-      bundle: true,
-      write: false,
-      metafile: true,
-      format: "esm",
-      logLevel: "silent",
-    });
-    const inputs = Object.keys(result.metafile.inputs);
-    expect(inputs.filter((path) => /src\/scene\/(core|objects|lights)\//.test(path))).toEqual([]);
-  });
 });
