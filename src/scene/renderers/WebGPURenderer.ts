@@ -172,9 +172,13 @@ export class WebGPURenderer {
   private animationHandle: number | null = null;
   private blankTextures = new Map<string, DataTexture>();
 
+  /** Whether the device filters a 32-bit float texture, read once since a device's features are fixed. */
+  private readonly floatFilterable: boolean;
+
   constructor(canvas: HTMLCanvasElement, device: GPUDevice) {
     this.canvas = canvas;
     this.device = device;
+    this.floatFilterable = device.features?.has("float32-filterable") ?? false;
     const context = canvas.getContext("webgpu");
     if (!context) throw new Error("[RMSL/scene] WebGPU context unavailable");
     this.context = context as GPUCanvasContext;
@@ -424,11 +428,9 @@ export class WebGPURenderer {
     const signature = programSignature(lightsSignature(scene), instancing, instancingColor);
     let bySignature = this.pipelines.get(material);
     const entry = bySignature?.get(signature);
-    if (
-      entry &&
-      entry.version === material.version &&
-      entry.unfilterable === this.unfilterableSamplers(entry.program)
-    ) {
+    if (entry && entry.version === material.version) {
+      // A texture that now can or cannot be filtered needs other layouts, not another program.
+      if (entry.unfilterable !== this.unfilterableSamplers(entry.program)) this.layOut(entry);
       this.refreshTextures(entry);
       // A texture disposed since the last draw took this entry's texture and
       // sampler groups with it, and so does one re-created at a new size;
@@ -487,45 +489,15 @@ export class WebGPURenderer {
         },
       ],
     });
-    const textureLayout =
-      textureBindings.length === 0
-        ? null
-        : device.createBindGroupLayout({
-            entries: textureBindings.map((t) => ({
-              binding: t.binding,
-              visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-              texture: {
-                sampleType: this.unfilterable(entryTexture(program, t.name))
-                  ? "unfilterable-float"
-                  : samplerSampleType(t.type),
-                viewDimension: samplerDimension(t.type),
-              },
-            })),
-          });
-    const samplerLayout =
-      samplerBindings.length === 0
-        ? null
-        : device.createBindGroupLayout({
-            entries: samplerBindings.map((s) => ({
-              binding: s.binding,
-              visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-              sampler: { type: this.unfilterable(entryTexture(program, s.name)) ? "non-filtering" : "filtering" },
-            })),
-          });
-    const groupLayouts = [uniformLayout];
-    if (textureLayout) groupLayouts.push(textureLayout);
-    if (samplerLayout) groupLayouts.push(samplerLayout);
-    const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: groupLayouts });
-
     const cullMode: GPUCullMode =
       material.side === Side.FrontSide ? "back" : material.side === Side.BackSide ? "front" : "none";
 
     const built: PipelineEntry = {
       program,
       version: material.version,
-      unfilterable: this.unfilterableSamplers(program),
+      unfilterable: 0,
       pipelineDescriptor: {
-        layout: pipelineLayout,
+        layout: null as unknown as GPUPipelineLayout,
         vertexModule,
         fragment: {
           module: fragmentModule,
@@ -546,7 +518,7 @@ export class WebGPURenderer {
       }),
       textureBindGroup: null,
       samplerBindGroup: null,
-      bindGroupLayouts: { uniforms: uniformLayout, textures: textureLayout, samplers: samplerLayout },
+      bindGroupLayouts: { uniforms: uniformLayout, textures: null, samplers: null },
       textureBindings,
       samplerBindings,
       ringBuffer,
@@ -556,6 +528,7 @@ export class WebGPURenderer {
       layoutMembers,
       scratch: uniformScratch(slotSize),
     };
+    this.layOut(built);
     this.bindTextures(built);
     if (!bySignature) {
       bySignature = new Map();
@@ -989,7 +962,51 @@ export class WebGPURenderer {
    * nearest texel.
    */
   private unfilterable(texture: Texture | null): boolean {
-    return texture !== null && isFloatTexture(texture) && !this.device.features?.has("float32-filterable");
+    return texture !== null && isFloatTexture(texture) && !this.floatFilterable;
+  }
+
+  /**
+   * Builds the texture and sampler layouts of `entry` for whether each
+   * sampler's texture can be filtered, and the pipeline layout over them. A
+   * pipeline or bind group made for other layouts cannot bind the textures, so
+   * they go, and are made again at the next draw.
+   */
+  private layOut(entry: PipelineEntry): void {
+    const { program, textureBindings, samplerBindings, bindGroupLayouts } = entry;
+    const device = this.device;
+    bindGroupLayouts.textures =
+      textureBindings.length === 0
+        ? null
+        : device.createBindGroupLayout({
+            entries: textureBindings.map((t) => ({
+              binding: t.binding,
+              visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+              texture: {
+                sampleType: this.unfilterable(entryTexture(program, t.name))
+                  ? "unfilterable-float"
+                  : samplerSampleType(t.type),
+                viewDimension: samplerDimension(t.type),
+              },
+            })),
+          });
+    bindGroupLayouts.samplers =
+      samplerBindings.length === 0
+        ? null
+        : device.createBindGroupLayout({
+            entries: samplerBindings.map((s) => ({
+              binding: s.binding,
+              visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+              sampler: { type: this.unfilterable(entryTexture(program, s.name)) ? "non-filtering" : "filtering" },
+            })),
+          });
+    const groupLayouts = [bindGroupLayouts.uniforms];
+    if (bindGroupLayouts.textures) groupLayouts.push(bindGroupLayouts.textures);
+    if (bindGroupLayouts.samplers) groupLayouts.push(bindGroupLayouts.samplers);
+    entry.pipelineDescriptor.layout = device.createPipelineLayout({ bindGroupLayouts: groupLayouts });
+    entry.unfilterable = this.unfilterableSamplers(program);
+    entry.variants.clear();
+    entry.textureBindGroup = null;
+    entry.samplerBindGroup = null;
   }
 
   /**

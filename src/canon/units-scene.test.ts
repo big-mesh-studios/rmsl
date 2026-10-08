@@ -559,6 +559,23 @@ describe("a scene renderer manages what it uploads", () => {
   });
 
   /**
+   * @canon spec-a-data-texture-uploads-in-the-type-it-names
+   */
+  it("lays a sampler out again for a float texture without compiling the material again on WebGPU", () => {
+    const { device, canvas, modules } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    let current = new DataTexture(new Uint8Array([0, 0, 255, 255]), 1, 1);
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => b.sampler("map", () => current).texture(vec2(0.5, 0.5));
+    const first = renderer.ensurePipeline(material, new Scene(), false, false);
+    const compiled = modules.length;
+    current = new DataTexture(new Float32Array([1, 0.5, 0.25, 1]), 1, 1, 1, RGBAFormat, FloatType);
+
+    expect(renderer.ensurePipeline(material, new Scene(), false, false)).toBe(first);
+    expect(modules).toHaveLength(compiled);
+  });
+
+  /**
    * @canon spec-the-webgpu-renderer-shares-one-sampler-per-state
    */
   it("keeps the bind groups of a float texture it cannot filter when the texture updates on WebGPU", () => {
