@@ -450,7 +450,11 @@ export function compileWasm(
     const previousBase = frameBase;
     if (movesTo !== undefined) frameBase = movesTo;
     if (outgrown) frameCapacityPixels = neededPixels;
-    const memoryEnd = frameBase! + frameBytes(frameCapacityPixels);
+    const frameEnd = frameBase! + frameBytes(frameCapacityPixels);
+    const depthBufferBase = frameBase!;
+    // A draw given an output buffer draws past the kept buffers, leaving the routine's image as it was.
+    const outputBase = out ? frameEnd : depthBufferBase + frameCapacityPixels * 8;
+    const memoryEnd = out ? frameEnd + neededPixels * VEC4_BYTES : frameEnd;
 
     if (memoryEnd > memory.buffer.byteLength) {
       memory.grow(Math.ceil((memoryEnd - memory.buffer.byteLength) / 65536));
@@ -461,8 +465,6 @@ export function compileWasm(
       new Uint8Array(memory.buffer).copyWithin(movesTo, previousBase, previousBase + frameBytes(frameCapacityPixels));
     }
     if (needsClear) clearDepthBuffer();
-    const depthBufferBase = frameBase!;
-    const outputBase = depthBufferBase + frameCapacityPixels * 8;
 
     vertexMarshaller.marshal(sharedCtx, heapStart);
     fragmentMarshaller.marshal(sharedCtx, fragmentHeapStart);

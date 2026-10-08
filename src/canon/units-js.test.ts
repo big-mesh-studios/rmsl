@@ -1687,6 +1687,33 @@ describe("the fragments a CPU rasterizer draws", () => {
   });
 
   /**
+   * The first draw paints both pixels red into a buffer of the caller's; the
+   * second, given none, paints only the left one blue over the routine's own
+   * image, which no draw has painted.
+   *
+   * @canon spec-a-cpu-draw-given-an-output-buffer-leaves-the-routines-image-alone
+   */
+  it.each(rasterizers)("%s: leaves its own image alone in a draw given an output buffer", (_, compileRaster) => {
+    const pos = attribute("vec2");
+    const color = uniform("vec4");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
+      () => Fn(() => color)() as any,
+      { attributeTypes: { [pos.name]: "vec2" } },
+    );
+    const draw = (corners: number[], rgba: number[], options: { clear: boolean; out?: Float64Array }) =>
+      Array.from(
+        routine.draw(
+          { attributes: { [pos.name]: new Float64Array(corners) }, uniforms: { [color.name]: rgba } },
+          { width: 2, height: 1, ...options },
+        ),
+      );
+    const out = new Float64Array(8);
+    expect(draw([-1, -1, 3, -1, -1, 3], [1, 0, 0, 1], { clear: true, out })).toEqual([1, 0, 0, 1, 1, 0, 0, 1]);
+    expect(draw([-1, -1, 0, -1, -1, 3], [0, 0, 1, 1], { clear: false })).toEqual([0, 0, 1, 1, 0, 0, 0, 0]);
+  });
+
+  /**
    * A depth kept from a draw of another size would be read at another pixel.
    *
    * @canon spec-a-rasterizer-keeps-the-closer-fragment
