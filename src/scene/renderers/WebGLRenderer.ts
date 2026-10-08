@@ -1,5 +1,12 @@
 import { compileGlsl, type GLSLPrecision } from "../../glsl";
-import { GlState, GlStateKeeper, setPackState, setRasterState, setUnpackState } from "../../backends/glsl/gl-state";
+import {
+  drawToCanvas,
+  GlState,
+  GlStateKeeper,
+  setPackState,
+  setRasterState,
+  setUnpackState,
+} from "../../backends/glsl/gl-state";
 import { Color } from "../math/Color";
 import { Vector4 } from "../math/Vector4";
 import { WebGLRenderTarget } from "./WebGLRenderTarget";
@@ -194,7 +201,7 @@ export class WebGLRenderer {
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.renderTargetFramebuffer(target, gl));
       gl.viewport(0, 0, target.width, target.height);
     } else {
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      drawToCanvas(gl, this.state);
       gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     }
     // The surface the frame draws into, whose size a renderer-scoped uniform such as `resolution` gives.
@@ -257,6 +264,16 @@ export class WebGLRenderer {
     if (existing !== undefined) {
       this.deleteRenderTarget(target, existing, gl);
     }
+    this.state?.begin(TARGET_STATE);
+    try {
+      return this.makeRenderTarget(target, gl);
+    } finally {
+      this.state?.end();
+    }
+  }
+
+  /** Makes the framebuffer, colour texture and depth buffer of `target` at its size. */
+  private makeRenderTarget(target: WebGLRenderTarget, gl: WebGL2RenderingContext): WebGLFramebuffer {
     const framebuffer = gl.createFramebuffer()!;
     const color = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, color);
@@ -949,9 +966,11 @@ const RENDER_STATE =
   GlState.unpack |
   GlState.raster;
 
-/** The state a readback changes, the render target it makes on first use included. */
-const READ_STATE =
-  GlState.framebuffers | GlState.pixelPackBuffer | GlState.pack | GlState.activeTexture | GlState.unpack;
+/** The state a readback changes. */
+const READ_STATE = GlState.framebuffers | GlState.pixelPackBuffer | GlState.pack;
+
+/** The state making a render target changes. */
+const TARGET_STATE = GlState.framebuffers | GlState.activeTexture | GlState.unpack;
 
 /** A wrapping mode as the `texParameteri` constant that sets it. */
 function glWrap(gl: WebGL2RenderingContext, wrap: TextureWrap): number {

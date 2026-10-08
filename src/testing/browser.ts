@@ -25,8 +25,8 @@ const readPixel = (canvas, x, y) => {
  * Helpers for an entry to check what a call leaves on a WebGL 2 context:
  * `dirtyGlState(gl)` sets every piece of state rmsl touches or reads to a value
  * of the page's own, with objects of its own; `glState(gl)` reads that state, the
- * first eight texture units and the current vertex array's element buffer and
- * first eight attribute switches included; `changedGlState(before, after)`
+ * first eight texture units, the current vertex array's element buffer and
+ * first eight attribute switches, and the canvas's draw buffer included; `changedGlState(before, after)`
  * names each piece that differs.
  */
 export const GL_STATE = `
@@ -38,7 +38,8 @@ const GL_STATE_NAMES = [
   "UNPACK_FLIP_Y_WEBGL", "UNPACK_PREMULTIPLY_ALPHA_WEBGL", "UNPACK_COLORSPACE_CONVERSION_WEBGL", "UNPACK_ROW_LENGTH",
   "UNPACK_IMAGE_HEIGHT", "UNPACK_SKIP_PIXELS", "UNPACK_SKIP_ROWS", "UNPACK_SKIP_IMAGES", "PIXEL_UNPACK_BUFFER_BINDING",
   "PACK_ALIGNMENT", "PACK_ROW_LENGTH", "PACK_SKIP_PIXELS", "PACK_SKIP_ROWS", "SCISSOR_TEST", "COLOR_WRITEMASK",
-  "BLEND_EQUATION_RGB", "BLEND_EQUATION_ALPHA", "DEPTH_FUNC",
+  "BLEND_EQUATION_RGB", "BLEND_EQUATION_ALPHA", "DEPTH_FUNC", "FRONT_FACE", "STENCIL_TEST", "RASTERIZER_DISCARD",
+  "POLYGON_OFFSET_FILL", "SAMPLE_ALPHA_TO_COVERAGE", "SAMPLE_COVERAGE", "DITHER",
 ];
 const glState = (gl) => {
   const state = {};
@@ -51,6 +52,10 @@ const glState = (gl) => {
     state["TEXTURE_BINDING_3D@" + unit] = gl.getParameter(gl.TEXTURE_BINDING_3D);
   }
   gl.activeTexture(active);
+  const framebuffer = gl.getParameter(gl.DRAW_FRAMEBUFFER_BINDING);
+  gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+  state["DRAW_BUFFER0@canvas"] = gl.getParameter(gl.DRAW_BUFFER0);
+  gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, framebuffer);
   return state;
 };
 const changedGlState = (before, after) =>
@@ -71,6 +76,7 @@ const dirtyGlState = (gl) => {
   gl.attachShader(program, shader(gl.FRAGMENT_SHADER, "#version 300 es\\nprecision mediump float;\\nout vec4 o;\\nvoid main() { o = vec4(1.0); }"));
   gl.linkProgram(program);
   gl.useProgram(program);
+  gl.drawBuffers([gl.NONE]);
   gl.bindFramebuffer(gl.FRAMEBUFFER, gl.createFramebuffer());
   gl.bindRenderbuffer(gl.RENDERBUFFER, gl.createRenderbuffer());
   gl.bindVertexArray(gl.createVertexArray());
@@ -113,6 +119,15 @@ const dirtyGlState = (gl) => {
   gl.colorMask(false, true, true, true);
   gl.blendEquationSeparate(gl.FUNC_SUBTRACT, gl.FUNC_REVERSE_SUBTRACT);
   gl.depthFunc(gl.GREATER);
+  gl.frontFace(gl.CW);
+  gl.enable(gl.STENCIL_TEST);
+  gl.stencilFunc(gl.NEVER, 0, 0xff);
+  gl.enable(gl.POLYGON_OFFSET_FILL);
+  gl.polygonOffset(1, 1);
+  gl.enable(gl.SAMPLE_ALPHA_TO_COVERAGE);
+  gl.enable(gl.SAMPLE_COVERAGE);
+  gl.sampleCoverage(0.5, false);
+  gl.disable(gl.DITHER);
 };
 `;
 

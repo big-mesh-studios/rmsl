@@ -20,9 +20,24 @@ export const GlState = {
   unpack: 1 << 11,
   /** The pack parameters. */
   pack: 1 << 12,
-  /** The scissor test, the colour mask, the blend equation and the depth function. */
+  /**
+   * The scissor test, the colour mask, the blend equation, the depth function,
+   * the front face, and the stencil, discard, polygon offset, coverage and
+   * dithering switches.
+   */
   raster: 1 << 13,
 } as const;
+
+/** The switches a draw reads, with the state each draw of rmsl's sets them to. */
+const SWITCHES = [
+  ["SCISSOR_TEST", false],
+  ["STENCIL_TEST", false],
+  ["RASTERIZER_DISCARD", false],
+  ["POLYGON_OFFSET_FILL", false],
+  ["SAMPLE_ALPHA_TO_COVERAGE", false],
+  ["SAMPLE_COVERAGE", false],
+  ["DITHER", true],
+] as const;
 
 /** The unpack parameters, with the value each upload of rmsl's reads: tight rows, read as they are. */
 const UNPACK = [
@@ -59,12 +74,27 @@ export function setPackState(gl: WebGL2RenderingContext): void {
   for (const [name, value] of PACK) gl.pixelStorei(gl[name], value);
 }
 
-/** Sets the state a clear and a draw read that rmsl never changes per draw. */
+/** Sets the state a clear and a draw read that rmsl never changes per draw, as a fresh context has it. */
 export function setRasterState(gl: WebGL2RenderingContext): void {
-  gl.disable(gl.SCISSOR_TEST);
+  for (const [name, on] of SWITCHES) switchTo(gl, gl[name], on);
   gl.colorMask(true, true, true, true);
   gl.blendEquation(gl.FUNC_ADD);
   gl.depthFunc(gl.LESS);
+  gl.frontFace(gl.CCW);
+}
+
+/** The draw buffers of a canvas that draws into its back buffer, filled on first use. */
+const backBuffer: number[] = [];
+
+/**
+ * Binds the canvas's framebuffer and has it draw into its back buffer, which
+ * an application may have turned off. `state` keeps the draw buffer it had.
+ */
+export function drawToCanvas(gl: WebGL2RenderingContext, state: GlStateKeeper | null): void {
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  state?.keepCanvasDrawBuffer();
+  backBuffer[0] = gl.BACK;
+  gl.drawBuffers(backBuffer);
 }
 
 /**
@@ -99,7 +129,11 @@ export class GlStateKeeper {
   private unpackColorspace = 0;
   private pixelUnpackBuffer: WebGLBuffer | null = null;
   private readonly packValues: unknown[] = [];
-  private scissorTest = false;
+  private readonly switches: boolean[] = [];
+  private frontFace = 0;
+  private canvasDrawBuffer = 0;
+  private keptCanvasDrawBuffer = false;
+  private readonly drawBufferList: number[] = [];
   private colorMask: boolean[] | null = null;
   private blendEquationRgb = 0;
   private blendEquationAlpha = 0;
@@ -158,7 +192,8 @@ export class GlStateKeeper {
       for (let i = 0; i < PACK.length; i++) this.packValues[i] = gl.getParameter(gl[PACK[i]![0]]);
     }
     if (fresh & GlState.raster) {
-      this.scissorTest = gl.getParameter(gl.SCISSOR_TEST);
+      for (let i = 0; i < SWITCHES.length; i++) this.switches[i] = gl.getParameter(gl[SWITCHES[i]![0]]);
+      this.frontFace = gl.getParameter(gl.FRONT_FACE);
       this.colorMask = gl.getParameter(gl.COLOR_WRITEMASK);
       this.blendEquationRgb = gl.getParameter(gl.BLEND_EQUATION_RGB);
       this.blendEquationAlpha = gl.getParameter(gl.BLEND_EQUATION_ALPHA);
@@ -183,11 +218,27 @@ export class GlStateKeeper {
     gl.activeTexture(active);
   }
 
+  /**
+   * Saves the draw buffer of the canvas's framebuffer, which must be bound,
+   * before a call sets it. The call keeps `GlState.framebuffers` from its start.
+   */
+  keepCanvasDrawBuffer(): void {
+    if (this.depth === 0 || this.keptCanvasDrawBuffer) return;
+    this.canvasDrawBuffer = this.gl.getParameter(this.gl.DRAW_BUFFER0);
+    this.keptCanvasDrawBuffer = true;
+  }
+
   /** Ends a call; the outermost one puts back every piece of state it saved. */
   end(): void {
     if (--this.depth > 0) return;
     const gl = this.gl;
     const kept = this.kept;
+    if (this.keptCanvasDrawBuffer) {
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+      this.drawBufferList[0] = this.canvasDrawBuffer;
+      gl.drawBuffers(this.drawBufferList);
+      this.keptCanvasDrawBuffer = false;
+    }
     if (kept & GlState.framebuffers) {
       gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, this.drawFramebuffer);
       gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.readFramebuffer);
@@ -226,7 +277,8 @@ export class GlStateKeeper {
       for (let i = 0; i < PACK.length; i++) gl.pixelStorei(gl[PACK[i]![0]], this.packValues[i] as number);
     }
     if (kept & GlState.raster) {
-      switchTo(gl, gl.SCISSOR_TEST, this.scissorTest);
+      for (let i = 0; i < SWITCHES.length; i++) switchTo(gl, gl[SWITCHES[i]![0]], this.switches[i]!);
+      gl.frontFace(this.frontFace);
       const [r, g, b, a] = this.colorMask!;
       gl.colorMask(r!, g!, b!, a!);
       gl.blendEquationSeparate(this.blendEquationRgb, this.blendEquationAlpha);

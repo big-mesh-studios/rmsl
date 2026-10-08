@@ -4,7 +4,7 @@ import { VertexRoot } from "../shared";
 import type { CpuTextureData } from "../cpu";
 import { textureImage } from "../texture-image";
 import { compileGlsl, CompileGLSLOptions } from "./glsl";
-import { GlState, GlStateKeeper, setRasterState, setUnpackState } from "./gl-state";
+import { drawToCanvas, GlState, GlStateKeeper, setRasterState, setUnpackState } from "./gl-state";
 
 type UniformInfo = { location: WebGLUniformLocation; type: number };
 /** A sampler's GL texture, with the shape and internal format it was made with. */
@@ -395,7 +395,7 @@ export function createGlsl(
     gl.useProgram(program);
     gl.bindVertexArray(vao);
     // The draw covers the canvas and blends, tests and culls nothing, as a WGSL draw does.
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    drawToCanvas(gl, state);
     gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
     gl.disable(gl.BLEND);
     gl.disable(gl.DEPTH_TEST);

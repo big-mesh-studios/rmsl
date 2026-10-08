@@ -138,7 +138,9 @@ the farthest to the nearest, so each blends over what lies behind it.
 
 The renderer sets each piece of WebGL state it reads, so it draws over any
 state the application left as on a fresh context: the scissor test, colour
-mask, blend equation and depth function before a frame, the unpack parameters
+mask, blend equation, depth function, front face, and the stencil, discard,
+polygon offset, coverage and dithering switches before a frame, the canvas's
+back buffer when it draws to the canvas, the unpack parameters
 before a texture upload, and the pack parameters before a readback. It leaves
 that state as it set it: after `render`, its program, its framebuffer and its
 blend and depth state are still bound, and a texture upload leaves the unpack
