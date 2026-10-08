@@ -1689,6 +1689,108 @@ describe("the fragments a CPU rasterizer draws", () => {
   });
 
   /**
+   * The first draw paints both pixels red into a buffer of the caller's; the
+   * second, given none, paints only the left one blue over the routine's own
+   * image, which no draw has painted.
+   *
+   * @canon spec-a-cpu-draw-given-an-output-buffer-leaves-the-routines-image-alone
+   */
+  it.each(rasterizers)("%s: leaves its own image alone in a draw given an output buffer", (_, compileRaster) => {
+    const pos = attribute("vec2");
+    const color = uniform("vec4");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
+      () => Fn(() => color)() as any,
+      { attributeTypes: { [pos.name]: "vec2" } },
+    );
+    const draw = (corners: number[], rgba: number[], options: { clear: boolean; out?: Float64Array }) =>
+      Array.from(
+        routine.draw(
+          { attributes: { [pos.name]: new Float64Array(corners) }, uniforms: { [color.name]: rgba } },
+          { width: 2, height: 1, ...options },
+        ),
+      );
+    const out = new Float64Array(8);
+    expect(draw([-1, -1, 3, -1, -1, 3], [1, 0, 0, 1], { clear: true, out })).toEqual([1, 0, 0, 1, 1, 0, 0, 1]);
+    expect(draw([-1, -1, 0, -1, -1, 3], [0, 0, 1, 1], { clear: false })).toEqual([0, 0, 1, 1, 0, 0, 0, 0]);
+  });
+
+  /**
+   * The first draw paints the routine's 2×1 image red; the second draws a
+   * larger image into a buffer of the caller's; the third, at 2×1 again,
+   * paints nothing and does not clear, so it shows the red image.
+   *
+   * @canon spec-a-cpu-draw-given-an-output-buffer-leaves-the-routines-image-alone
+   */
+  it.each(rasterizers)("%s: keeps its own image through a larger draw given an output buffer", (_, compileRaster) => {
+    const pos = attribute("vec2");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
+      () => Fn(() => vec4(1, 0, 0, 1))() as any,
+      { attributeTypes: { [pos.name]: "vec2" } },
+    );
+    const draw = (corners: number[], width: number, height: number, options: { clear: boolean; out?: Float64Array }) =>
+      Array.from(
+        routine.draw({ attributes: { [pos.name]: new Float64Array(corners) } }, { width, height, ...options }),
+      );
+    draw([-1, -1, 3, -1, -1, 3], 2, 1, { clear: true });
+    draw([-1, -1, 3, -1, -1, 3], 4, 4, { clear: true, out: new Float64Array(64) });
+    expect(draw([2, 2, 3, 2, 2, 3], 2, 1, { clear: false })).toEqual([1, 0, 0, 1, 1, 0, 0, 1]);
+  });
+
+  /**
+   * The first draw paints a 4×4 image red; the second, at 2×8, paints nothing
+   * and does not clear, so it shows what it draws over.
+   *
+   * @canon spec-a-cpu-draw-of-another-size-starts-from-a-transparent-image
+   */
+  it.each(rasterizers)("%s: draws over a transparent image at another size", (_, compileRaster) => {
+    const pos = attribute("vec2");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
+      () => Fn(() => vec4(1, 0, 0, 1))() as any,
+      { attributeTypes: { [pos.name]: "vec2" } },
+    );
+    const draw = (corners: number[], width: number, height: number, clear: boolean) =>
+      Array.from(routine.draw({ attributes: { [pos.name]: new Float64Array(corners) } }, { width, height, clear }));
+    draw([-1, -1, 3, -1, -1, 3], 4, 4, true);
+    expect(draw([2, 2, 3, 2, 2, 3], 2, 8, false)).toEqual(new Array(64).fill(0));
+  });
+
+  /**
+   * The triangle's colour is what its integer attributes read: a fraction in
+   * a scalar `int`, and a negative `uint` and a fraction in a vector one.
+   *
+   * @canon spec-a-cpu-rasterizer-reads-an-integer-attribute-as-a-32-bit-integer
+   */
+  it.each(rasterizers)("%s: reads an integer attribute as a 32-bit integer of its type", (_, compileRaster) => {
+    const pos = attribute("vec2");
+    const signed = attribute("int");
+    const unsigned = attribute("uvec2");
+    const shade = varying("vec3");
+    const routine = compileRaster(
+      () =>
+        Fn(() => {
+          shade.assign(vec3(signed.toFloat(), unsigned.x.toFloat(), unsigned.y.toFloat()));
+          builtinPosition().assign(vec4(pos, 0, 1));
+        })() as any,
+      () => Fn(() => vec4(shade, 1))() as any,
+      { attributeTypes: { [pos.name]: "vec2", [signed.name]: "int", [unsigned.name]: "uvec2" } },
+    );
+    const got = routine.draw(
+      {
+        attributes: {
+          [pos.name]: new Float64Array([-1, -1, 3, -1, -1, 3]),
+          [signed.name]: new Float64Array([-1.5, -1.5, -1.5]),
+          [unsigned.name]: new Float64Array([-1, 2.5, -1, 2.5, -1, 2.5]),
+        },
+      },
+      { width: 1, height: 1 },
+    );
+    expect(Array.from(got)).toEqual([-1, 4294967295, 2, 1]);
+  });
+
+  /**
    * A depth kept from a draw of another size would be read at another pixel.
    *
    * @canon spec-a-rasterizer-keeps-the-closer-fragment

@@ -54,6 +54,7 @@ describe("WASM backend: generic rasterizer module — linking skeleton", () => {
       vertexInstance.exports.main as () => void,
       fragmentInstance.exports.main as () => void,
       memory,
+      false,
     );
 
     const attrSrcBase = 1024;
@@ -168,6 +169,7 @@ describe("WASM backend: generic rasterizer module — triangle setup and edge fu
       vertexInstance.exports.main as () => void,
       fragmentInstance.exports.main as () => void,
       memory,
+      false,
     );
 
     const attrSrcBase = 1024;
@@ -284,6 +286,7 @@ describe("WASM backend: generic rasterizer module — perspective-correct varyin
       vertexInstance.exports.main as () => void,
       fragmentInstance.exports.main as () => void,
       memory,
+      false,
     );
 
     const attrSrcBase = 2048;
@@ -417,6 +420,7 @@ describe("WASM backend: generic rasterizer module — multiple attribute slots",
       vertexInstance.exports.main as () => void,
       fragmentInstance.exports.main as () => void,
       memory,
+      false,
     );
 
     const attrSrcBase = 2048;
@@ -564,6 +568,7 @@ describe("WASM backend: generic rasterizer module — multiple varying slots", (
       vertexInstance.exports.main as () => void,
       fragmentInstance.exports.main as () => void,
       memory,
+      false,
     );
 
     const attrSrcBase = 2048;
@@ -712,6 +717,7 @@ describe("WASM backend: generic rasterizer module — scalarsInMemory for a scal
       vertexInstance.exports.main as () => void,
       fragmentInstance.exports.main as () => void,
       memory,
+      false,
     );
 
     const attrSrcBase = 2048;
@@ -878,6 +884,7 @@ describe("WASM backend: generic rasterizer module — near-plane clipping", () =
       vertexInstance.exports.main as () => void,
       fragmentInstance.exports.main as () => void,
       memory,
+      false,
     );
 
     const attrSrcBase = 2048;
@@ -975,6 +982,7 @@ describe("WASM backend: generic rasterizer module — near-plane clipping", () =
       vertexInstance.exports.main as () => void,
       fragmentInstance.exports.main as () => void,
       memory,
+      false,
     );
 
     const attrSrcBase = 2048;
@@ -1088,11 +1096,13 @@ describe("WASM backend: generic rasterizer module — depth test", () => {
         vertexInstance.exports.main as () => void,
         redInstance.exports.main as () => void,
         memory,
+        false,
       );
       const { rasterize: rasterizeBlue } = instantiateRasterizer(
         vertexInstance.exports.main as () => void,
         blueInstance.exports.main as () => void,
         memory,
+        false,
       );
 
       const attrSrcBase = 4096;

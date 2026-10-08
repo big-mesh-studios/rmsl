@@ -50,9 +50,9 @@ Results land in `clippedPositionsOutBase`/`clippedVaryingsOutBase`, using
 For each clipped triangle: perspective divide and screen-space mapping, a
 degenerate-area skip, a clamped bounding box, and per pixel in that box an
 edge-function coverage test. A pixel centre that lies on an edge belongs to
-the triangle whose edge, wound so its inside is positive, runs down the
-screen or left along it, so a pixel on an edge two triangles share is shaded
-once.
+the triangle whose edge, wound so its inside is positive, runs up the
+screen (a left edge) or right along it (a top edge), by WebGPU's top-left
+rule, so a pixel on an edge two triangles share is shaded once.
 
 A covered pixel's depth is NDC `z/w`, interpolated with the plain
 barycentric weights screen coordinates use, since it is affine in screen

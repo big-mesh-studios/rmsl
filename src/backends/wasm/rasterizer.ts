@@ -146,13 +146,14 @@ export function writeVaryingDescriptors(view: DataView, base: number, descriptor
  * Instantiates {@link buildRasterizerModule}'s module against a specific
  * vertex/fragment pair's exported `main` functions and the `memory` those
  * two were themselves instantiated with, returning its `rasterize` export.
+ * `shared` says whether that memory is shared, which picks the module that links against it.
  */
 export function instantiateRasterizer(
   vertexMain: () => void,
   fragmentMain: () => void,
   memory: WebAssembly.Memory,
+  shared: boolean,
 ): { rasterize: (...args: number[]) => void } {
-  const shared = typeof SharedArrayBuffer !== "undefined" && memory.buffer instanceof SharedArrayBuffer;
   const instance = new WebAssembly.Instance(
     new WebAssembly.Module(buildRasterizerModule(shared).buffer as ArrayBuffer),
     {
@@ -359,6 +360,7 @@ export function compileWasm(
     vertexInstance.exports.main as () => void,
     fragmentInstance.exports.main as () => void,
     memory,
+    memoryIsShared,
   );
 
   // Each stage's textures sit after both stages' fixed layouts, the vertex
@@ -379,17 +381,23 @@ export function compileWasm(
     fragmentCompiled.float32,
   );
 
-  /** Where the depth buffer lies, with the colour buffer after it, both kept across draws. */
+  /**
+   * Where the routine's image lies, with the depth buffer after it, both kept
+   * across draws. The image comes first, so it stays in place when the buffers grow.
+   */
   let frameBase: number | undefined;
-  /** The pixels the depth and colour buffers have room for. */
+  /** The pixels the image and depth buffers have room for. */
   let frameCapacityPixels = 0;
   /** The size of the draw the depth buffer holds, whose pixels another size would read at the wrong places. */
-  let frameWidth = 0;
-  let frameHeight = 0;
+  let depthWidth = 0;
+  let depthHeight = 0;
+  /** The size of the image the draws given no output buffer left. */
+  let imageWidth = 0;
+  let imageHeight = 0;
 
-  /** The bytes of the depth and colour buffers of `pixels` pixels together. */
+  /** The bytes of the image and depth buffers of `pixels` pixels together. */
   function frameBytes(pixels: number): number {
-    return pixels * (8 + VEC4_BYTES);
+    return pixels * (VEC4_BYTES + 8);
   }
 
   /**
@@ -404,12 +412,6 @@ export function compileWasm(
       if (layout) return Math.floor(attributes[slot]!.length / layout.componentCount) - first;
     }
     return 0;
-  }
-
-  function clearDepthBuffer(): void {
-    if (frameBase === undefined) return;
-    const view = new DataView(memory.buffer);
-    for (let i = 0; i < frameCapacityPixels; i++) view.setFloat64(frameBase + i * 8, Infinity, true);
   }
 
   function draw(ctx: WasmRasterContext, options: WasmRasterDrawOptions): CpuDrawBuffer {
@@ -443,32 +445,40 @@ export function compileWasm(
     const clippedVaryingsOutBase = cursor;
     cursor = align8(cursor + maxClippedVertices * varyingBytes);
 
-    // The depth and colour buffers stay where they are until a draw's regions
+    // The image and depth buffers stay where they are until a draw's regions
     // reach them, and move above them then, so what they hold carries across
     // draws that differ in vertices or inputs without a copy on each draw.
     const neededPixels = width * height;
     const outgrown = neededPixels > frameCapacityPixels;
-    const resized = width !== frameWidth || height !== frameHeight;
+    const resized = width !== depthWidth || height !== depthHeight;
     const needsClear = frameBase === undefined || outgrown || resized || options.clearDepth !== false;
-    frameWidth = width;
-    frameHeight = height;
+    depthWidth = width;
+    depthHeight = height;
     const movesTo = frameBase === undefined || cursor > frameBase ? cursor : undefined;
     const previousBase = frameBase;
+    const previousBytes = frameBytes(frameCapacityPixels);
     if (movesTo !== undefined) frameBase = movesTo;
     if (outgrown) frameCapacityPixels = neededPixels;
-    const memoryEnd = frameBase! + frameBytes(frameCapacityPixels);
+    const imageBase = frameBase!;
+    const depthBufferBase = imageBase + frameCapacityPixels * VEC4_BYTES;
+    const frameEnd = imageBase + frameBytes(frameCapacityPixels);
+    // A draw given an output buffer draws past the kept buffers, leaving the routine's image as it was.
+    const outputBase = out ? frameEnd : imageBase;
+    const memoryEnd = out ? frameEnd + neededPixels * VEC4_BYTES : frameEnd;
 
     if (memoryEnd > memory.buffer.byteLength) {
       memory.grow(Math.ceil((memoryEnd - memory.buffer.byteLength) / 65536));
     }
-    // Buffers that outgrow their room start over, as the JS rasterizer's new colour buffer does.
-    if (outgrown) new Uint8Array(memory.buffer, frameBase!, frameBytes(frameCapacityPixels)).fill(0);
-    else if (movesTo !== undefined && previousBase !== undefined) {
-      new Uint8Array(memory.buffer).copyWithin(movesTo, previousBase, previousBase + frameBytes(frameCapacityPixels));
+    if (movesTo !== undefined && previousBase !== undefined) {
+      new Uint8Array(memory.buffer).copyWithin(movesTo, previousBase, previousBase + previousBytes);
     }
-    if (needsClear) clearDepthBuffer();
-    const depthBufferBase = frameBase!;
-    const outputBase = depthBufferBase + frameCapacityPixels * 8;
+    if (needsClear) new Float64Array(memory.buffer, depthBufferBase, frameCapacityPixels).fill(Infinity);
+    // An image of another size lies at other pixels, so a draw of that size starts from a transparent one.
+    if (!out && (width !== imageWidth || height !== imageHeight)) {
+      new Float64Array(memory.buffer, imageBase, neededPixels * 4).fill(0);
+      imageWidth = width;
+      imageHeight = height;
+    }
 
     vertexMarshaller.marshal(sharedCtx, heapStart);
     fragmentMarshaller.marshal(sharedCtx, fragmentHeapStart);

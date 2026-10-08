@@ -439,6 +439,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@spec a-wgsl-adapter-attached-without-alpha-draws-opaque`](#spec-a-wgsl-adapter-attached-without-alpha-draws-opaque) — `attach(canvas, { alpha: false })` on a WGSL adapter configures its canvas `opaque`, so every pixel shows with alpha 1.
       - [`@spec a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear`](#spec-a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear) — A draw that passes `clear: false` leaves the colour of the pixels it does not cover as an earlier draw left them. A CPU rasterizer draw given an output buffer draws over what that buffer holds.
       - [`@spec a-cpu-draw-clears-its-depth-first-unless-it-asks-not-to`](#spec-a-cpu-draw-clears-its-depth-first-unless-it-asks-not-to) — A draw of a CPU rasterizer routine clears its depth buffer before it draws, so no depth of an earlier draw hides it. With `clearDepth: false` it tests against the depth an earlier draw left.
+      - [`@spec a-cpu-draw-given-an-output-buffer-leaves-the-routines-image-alone`](#spec-a-cpu-draw-given-an-output-buffer-leaves-the-routines-image-alone) — A CPU rasterizer draw given an output buffer draws into that buffer only. A later draw given none draws over the image that the routine's own draws left.
+      - [`@spec a-cpu-draw-of-another-size-starts-from-a-transparent-image`](#spec-a-cpu-draw-of-another-size-starts-from-a-transparent-image) — A CPU rasterizer draw given no output buffer, at another width or height than the routine's image, draws over a transparent image. Every pixel starts at `[0, 0, 0, 0]`, even when the draw passes `clear: false`.
     - [`@spec several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas) — Several adapters can draw on one canvas. An adapter ignores a uniform its program does not read.
     - [`@spec an-effect-with-several-passes-is-a-pass-graph`](#spec-an-effect-with-several-passes-is-a-pass-graph) — An [effect](#term-effect) with several passes returns a [pass graph](#term-pass-graph): its passes, the samplers each pass reads, and the pass that gives the output. The application draws each pass.
     - [`@exception a-scene-renderer-draws-its-scene-graph`](#exception-a-scene-renderer-draws-its-scene-graph) — `render(scene, camera)` on a renderer of `./scene` walks the scene graph, binds the geometry and the [node material](#term-node-material) of each mesh, uploads their uniforms and draws them.
@@ -550,6 +552,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment) — The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles: the depth the fragment stage writes, clamped to 0 to 1, or else its interpolated depth. Its depth buffer persists across draws of one size until a draw asks for `clearDepth`, and a draw of another width or height starts from a cleared one.
       - [`@spec a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one`](#spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one) — In a CPU rasterizer, `builtinFragDepth()` read before the fragment stage writes it gives the fragment's interpolated depth.
       - [`@spec a-rasterizer-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads) — A draw that names no vertex count takes it from the first attribute its program reads, in the order the host passed them. An attribute the program does not read is taken and counts for nothing.
+      - [`@spec a-cpu-rasterizer-reads-an-integer-attribute-as-a-32-bit-integer`](#spec-a-cpu-rasterizer-reads-an-integer-attribute-as-a-32-bit-integer) — A CPU rasterizer reads each component of an `int` attribute as an `Int32Array` stores the host's value, and each component of a `uint` attribute as a `Uint32Array` stores it. A fraction truncates toward zero, and a value outside the type's range wraps.
       - [`@spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws) — The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
       - [`@spec a-pixel-on-a-shared-edge-is-shaded-once`](#spec-a-pixel-on-a-shared-edge-is-shaded-once) — A pixel centre on an edge that two triangles share takes the colour of one of them, whatever their order. It takes the colour of the triangle whose top or left edge it is.
       - [`@spec a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge`](#spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge) — A CPU rasterizer shades a pixel centre on a top or a left edge of a triangle, and not one on a bottom or a right edge. This holds whichever way the triangle winds.
@@ -634,6 +637,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec the-main-entry-exports-no-compiler`](#spec-the-main-entry-exports-no-compiler) — The main entry exports the graph functions and serialization, and no compiler, so each target is imported from its own subpath.
   - [`@spec compile-wat-loads-every-wat-module`](#spec-compile-wat-loads-every-wat-module) — `compileWat` given no `include` loads every `.wat` module as its WebAssembly bytes.
   - [`@spec a-wat-module-exports-its-shared-variant-or-undefined`](#spec-a-wat-module-exports-its-shared-variant-or-undefined) — A loaded `.wat` module exports `shared`: the bytes of the same module importing its memory shared, or `undefined` when the module imports no memory.
+  - [`@spec compile-wat-refuses-a-memory-import-it-cannot-make-shared`](#spec-compile-wat-refuses-a-memory-import-it-cannot-make-shared) — `compileWat` fails to load a `.wat` module that imports a memory in a form it cannot rewrite to import shared, with an error that names the module.
 - [`@fact wgsl-defines-every-integer-edge-case`](#fact-wgsl-defines-every-integer-edge-case) — WGSL defines the result of every integer operation on run-time values. Overflow wraps. A division by zero returns the dividend and a remainder by zero returns zero. The most negative `i32` divided by `-1` returns itself. A shift uses its amount modulo the bit width.
 - [`@fact glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined) — GLSL ES 3.00 leaves undefined the result of an integer division or remainder by zero. It also leaves undefined a shift by a negative amount, or by the bit width or more.
 - [`@fact wgsl-rejects-a-constant-expression-that-fails`](#fact-wgsl-rejects-a-constant-expression-that-fails) — A WGSL shader fails to compile when a constant expression divides an integer by zero, shifts by the bit width or more, or overflows.
@@ -3193,6 +3197,22 @@ This follows because an application that draws an opaque scene asks three.js for
 
 > A draw of a CPU rasterizer routine clears its depth buffer before it draws, so no depth of an earlier draw hides it. With `clearDepth: false` it tests against the depth an earlier draw left.
 
+##### @spec a-cpu-draw-given-an-output-buffer-leaves-the-routines-image-alone
+
+> A CPU rasterizer draw given an output buffer draws into that buffer only. A later draw given none draws over the image that the routine's own draws left.
+
+Derives from: [`spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws), [`spec-a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear`](#spec-a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear)
+
+This follows because the output buffer is that draw's target, and a draw changes the colour of its own target and of nothing else. The JS rasterizer keeps its own image apart from the buffers a caller passes it, and the WASM rasterizer gives what the JS rasterizer gives.
+
+##### @spec a-cpu-draw-of-another-size-starts-from-a-transparent-image
+
+> A CPU rasterizer draw given no output buffer, at another width or height than the routine's image, draws over a transparent image. Every pixel starts at `[0, 0, 0, 0]`, even when the draw passes `clear: false`.
+
+Derives from: [`spec-a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment), [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives)
+
+This follows because the pixels of an image of another size lie at other places, as a depth buffer's do. A draw of another size starts from a cleared depth buffer for that reason. A WebGPU canvas of another size gives a new texture, whose pixels start at zero.
+
 #### @spec several-adapters-draw-on-one-canvas
 
 > Several adapters can draw on one canvas. An adapter ignores a uniform its program does not read.
@@ -3871,6 +3891,14 @@ Derives from: [`fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-it
 
 This follows because a WebGPU draw reads no buffer its shader does not declare, so such a buffer cannot change what is drawn.
 
+##### @spec a-cpu-rasterizer-reads-an-integer-attribute-as-a-32-bit-integer
+
+> A CPU rasterizer reads each component of an `int` attribute as an `Int32Array` stores the host's value, and each component of a `uint` attribute as a `Uint32Array` stores it. A fraction truncates toward zero, and a value outside the type's range wraps.
+
+Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws)
+
+This follows because a GPU renderer uploads an integer attribute in a buffer of 32-bit integers, which stores a host's value so. The WASM rasterizer writes each component into its memory as a 32-bit integer, and the JS rasterizer gives what the WASM rasterizer gives.
+
 ##### @spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws
 
 > The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
@@ -4412,6 +4440,14 @@ This follows because a `.wat` module runs only as bytes, so the application ship
 Derives from: [`spec-compile-wat-loads-every-wat-module`](#spec-compile-wat-loads-every-wat-module), [`spec-compile-wasm-makes-its-memory-as-its-modules-declare`](#spec-compile-wasm-makes-its-memory-as-its-modules-declare)
 
 This follows because a shared memory links only against a module that imports it shared. Every `.wat` module is declared with the same exports, so an import of `shared` always finds the export. A module with no memory to share leaves it empty.
+
+### @spec compile-wat-refuses-a-memory-import-it-cannot-make-shared
+
+> `compileWat` fails to load a `.wat` module that imports a memory in a form it cannot rewrite to import shared, with an error that names the module.
+
+Derives from: [`spec-a-wat-module-exports-its-shared-variant-or-undefined`](#spec-a-wat-module-exports-its-shared-variant-or-undefined)
+
+This follows because `shared` is `undefined` only for a module that imports no memory. A module that imports one and still exported `undefined` would fail only when a shared memory is linked against it, far from the module at fault.
 
 ## @fact wgsl-defines-every-integer-edge-case
 

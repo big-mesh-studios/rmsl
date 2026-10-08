@@ -6,6 +6,7 @@ import {
   CpuDrawBuffer,
   CpuShaderContext,
   isResultObject,
+  ScalarKind,
   vertexPosition,
 } from "../cpu";
 import { compileJSProgram, CompileJSOptions } from "./js";
@@ -91,6 +92,14 @@ function ownsEdge(dx: number, dy: number): boolean {
   return dy < 0 || (dy === 0 && dx > 0);
 }
 
+/**
+ * A host's value as an attribute component of `kind` reads it: an integer one
+ * as a typed array of 32-bit integers of its type stores it, as the WASM rasterizer writes it.
+ */
+function attributeComponent(kind: ScalarKind, value: number): number {
+  return kind === "int" ? value | 0 : kind === "uint" ? value >>> 0 : value;
+}
+
 /** A vertex with room for a position and varyings of these widths. */
 function makeVertex(widths: readonly number[]): ClipVertex {
   return { position: new Float64Array(4), varyings: widths.map((w) => new Float64Array(w)) };
@@ -166,6 +175,7 @@ export function compileJS(
 
   const attributeSlots = Object.keys(options.attributeTypes);
   const attributeWidths = attributeSlots.map((slot) => componentCountOf(options.attributeTypes[slot]!));
+  const attributeKinds = attributeSlots.map((slot) => componentKindOf(options.attributeTypes[slot]!));
   const widths: Record<string, number> = {};
   attributeSlots.forEach((slot, i) => (widths[slot] = attributeWidths[i]!));
   /** The attributes of the vertex being shaded: a vector in an array of its own, filled for each vertex. */
@@ -196,9 +206,11 @@ export function compileJS(
   let depthBuffer: Float64Array | null = null;
   let depthWidth = 0;
   let depthHeight = 0;
-  // Persists across draw() calls too, same as WasmRasterRoutine's output
-  // buffer address does — a draw that passes `clear: false` composes onto it.
+  // Persists across draw() calls of one size too, as WasmRasterRoutine's image
+  // does — a draw that passes `clear: false` composes onto it.
   let colorBuffer: Float64Array | null = null;
+  let imageWidth = 0;
+  let imageHeight = 0;
 
   /** What the triangle being rasterized writes into, set by each draw. */
   let target: CpuDrawBuffer = NO_TARGET;
@@ -358,12 +370,13 @@ export function compileJS(
         const slot = attributeSlots[a]!;
         const buffer = attributes[slot];
         const w = attributeWidths[a]!;
+        const kind = attributeKinds[a]!;
         if (buffer === undefined) vertexAttributes[slot] = undefined;
-        else if (w === 1) vertexAttributes[slot] = buffer[i + first]!;
+        else if (w === 1) vertexAttributes[slot] = attributeComponent(kind, buffer[i + first]!);
         else {
           let into = vertexAttributes[slot];
           if (!(into instanceof Float64Array)) into = vertexAttributes[slot] = new Float64Array(w);
-          for (let k = 0; k < w; k++) into[k] = buffer[(i + first) * w + k]!;
+          for (let k = 0; k < w; k++) into[k] = attributeComponent(kind, buffer[(i + first) * w + k]!);
         }
       }
       vertexCtx.vertexIndex = i + first;
@@ -391,8 +404,12 @@ export function compileJS(
     depthWidth = width;
     depthHeight = height;
 
-    if (!out && (!colorBuffer || colorBuffer.length < pixelCount * 4)) {
-      colorBuffer = new Float64Array(pixelCount * 4);
+    // An image of another size lies at other pixels, so a draw of that size starts from a transparent one.
+    if (!out && (width !== imageWidth || height !== imageHeight)) {
+      if (!colorBuffer || colorBuffer.length < pixelCount * 4) colorBuffer = new Float64Array(pixelCount * 4);
+      else colorBuffer.fill(0, 0, pixelCount * 4);
+      imageWidth = width;
+      imageHeight = height;
     }
     const result = out ?? colorBuffer!;
     if (options.clear !== false) {

@@ -573,6 +573,46 @@ describe("the Vite plugins", () => {
   });
 
   /**
+   * The memory import is spread over lines, names its memory and gives a
+   * maximum; the shared variant links against a shared memory.
+   *
+   * @canon spec-a-wat-module-exports-its-shared-variant-or-undefined
+   */
+  it("exports a shared variant of a .wat module whose memory import has a name, a maximum and line breaks", async () => {
+    const plugin = compileWat() as unknown as Load;
+    const dir = mkdtempSync(join(tmpdir(), "rmsl-wat-"));
+    try {
+      const path = join(dir, "named.wat");
+      writeFileSync(path, '(module\n  (import "env" "memory"\n    (memory $mem 1 4)))');
+      const { shared } = (await import(
+        `data:text/javascript,${encodeURIComponent((await plugin.load(path))!)}`
+      )) as Record<string, any>;
+      const memory = new WebAssembly.Memory({ initial: 1, maximum: 65536, shared: true });
+      expect(() => new WebAssembly.Instance(new WebAssembly.Module(shared), { env: { memory } })).not.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * The memory is imported inline in its own declaration, a form the loader
+   * does not rewrite.
+   *
+   * @canon spec-compile-wat-refuses-a-memory-import-it-cannot-make-shared
+   */
+  it("refuses a .wat module whose memory import it cannot make shared", async () => {
+    const plugin = compileWat() as unknown as Load;
+    const dir = mkdtempSync(join(tmpdir(), "rmsl-wat-"));
+    try {
+      const path = join(dir, "inline.wat");
+      writeFileSync(path, '(module (memory (import "env" "memory") 1))');
+      await expect(plugin.load(path)).rejects.toThrow(/inline\.wat/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
    * @canon spec-a-precompiled-wasm-program-is-ready-when-its-module-loads
    */
   it("instantiates each WASM program before its module finishes loading", async () => {
