@@ -30,17 +30,4 @@ describe("known bugs, each failing until its fix", () => {
     });
     expect(() => compileGlsl(program())).toThrow();
   });
-
-  /**
-   * @canon bug-a-write-by-index-through-a-swizzle-differs-by-target
-   */
-  it.fails("writes by index through a swizzle of a matrix column on JS", () => {
-    const build = (a: any) =>
-      Fn(() => {
-        const m = mat3(1, 2, 3, 4, 5, 6, 7, 8, 9).toVar();
-        m.element(int(1)).yx.element(a.toInt()).assign(float(0));
-        return m.element(1);
-      })();
-    expect(compileJSRoutine(build, param)({ params: { a: 0 } })).toEqual([4, 0, 6]);
-  });
 });

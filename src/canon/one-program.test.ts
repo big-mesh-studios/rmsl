@@ -175,6 +175,33 @@ describe("one program means the same on every target", () => {
   });
 
   /**
+   * A write by index through a swizzle, of a vector and of a matrix column,
+   * writes the component the swizzle names at that index, on every target. An
+   * index past the swizzle reaches its last component on the CPU targets.
+   *
+   * @canon spec-an-element-write-writes-at-its-index
+   */
+  it("writes by index through a swizzle on every target", () => {
+    const column: Build = (a) =>
+      Fn(() => {
+        const m = mat3(1, 2, 3, 4, 5, 6, 7, 8, 9).toVar();
+        m.element(int(1)).yx.element(a.toInt()).assign(float(0));
+        return m.element(1);
+      })();
+    const vector: Build = (a) =>
+      Fn(() => {
+        const v = vec4(1, 2, 3, 4).toVar();
+        v.wzyx.zy.element(a.toInt()).assign(float(0));
+        return v;
+      })();
+    expect(Array.from(evaluateRecording(column, [0]) as Float64Array)).toEqual([4, 0, 6]);
+    expect(Array.from(evaluateRecording(column, [1]) as Float64Array)).toEqual([0, 5, 6]);
+    expect(Array.from(evaluateJS(column, [5]) as Float64Array)).toEqual([0, 5, 6]);
+    expect(Array.from(evaluateRecording(vector, [0]) as Float64Array)).toEqual([1, 0, 3, 4]);
+    expect(Array.from(evaluateRecording(vector, [1]) as Float64Array)).toEqual([1, 2, 0, 4]);
+  });
+
+  /**
    * @canon spec-a-transpose-swaps-the-shape
    */
   it("transposes a matrix that arrives at run time on the CPU targets", () => {

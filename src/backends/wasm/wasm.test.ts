@@ -2319,17 +2319,6 @@ describe("WASM backend: which storage buffers are copied back", () => {
 
 describe("WASM backend: writing a vector component by index", () => {
   /**
-   * @canon bug-a-write-by-index-through-a-swizzle-differs-by-target
-   */
-  it.fails("writes by index through a swizzle", () => {
-    const root = Fn(() => {
-      const v = vec4(1, 2, 3, 4).toVar();
-      v.xy.element(int(0)).assign(float(1));
-      return v.x;
-    })();
-    expect(compileWasmRoutine(() => root, { name: "main", params: [] })({})).toBe(1);
-  });
-  /**
    * @canon spec-a-cpu-target-reaches-the-last-element-out-of-range
    */
   it("keeps a storage element's write by an index computed past its end inside the element", () => {

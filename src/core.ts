@@ -1381,7 +1381,7 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
         new NodeImpl({
           _t: "void",
           type: "assign",
-          params: [this, typedOperand(value, this._t) as BaseNode<ShaderType>],
+          params: [assignmentPlace(this), typedOperand(value, this._t) as BaseNode<ShaderType>],
         }),
       );
     });
@@ -2113,6 +2113,44 @@ function captureStatements<T>(build: () => T): { value: T; statements: BaseNode<
   } finally {
     blockScope = oldBlockScope;
   }
+}
+
+/** The component of a vector each swizzle letter names, in the spellings `xyzw`, `rgba` and `stpq`. */
+function swizzleComponent(letter: string): number {
+  return Math.max("xyzw".indexOf(letter), "rgba".indexOf(letter), "stpq".indexOf(letter));
+}
+
+/**
+ * The place an assignment to `target` writes. A write by index through a
+ * swizzle, as `m.element(1).yx.element(i)`, becomes a write by index into the
+ * vector the swizzle reads: index `k` of `.yx` is component `"yx"[k]` of it.
+ * Every target writes by index into a vector, so each writes the same
+ * component. A run-time index outside the swizzle reaches its last component,
+ * as a CPU target reaches the last element.
+ */
+function assignmentPlace(target: BaseNode<ShaderType>): BaseNode<ShaderType> {
+  if (target.type !== "vectorElement" || target.params![0]?.type !== "swizzle") return target;
+  // A swizzle of a swizzle names components of the vector the last one reads.
+  let pattern = target.params![0].value as string;
+  let base = target.params![0].params![0]!;
+  while (base.type === "swizzle") {
+    const inner = base.value as string;
+    pattern = [...pattern].map((c) => inner[swizzleComponent(c)]).join("");
+    base = base.params![0]!;
+  }
+  const components = [...pattern].map(swizzleComponent);
+  const index = target.params![1]!;
+  const component = (c: number) => typedOperand(c, index._t) as BaseNode<ShaderType>;
+  let mapped: BaseNode<ShaderType>;
+  if (typeof index.value === "number" && Number.isInteger(index.value) && components[index.value] !== undefined) {
+    mapped = component(components[index.value]!);
+  } else {
+    mapped = component(components[components.length - 1]!);
+    for (let k = components.length - 2; k >= 0; k--) {
+      mapped = (comp("equal", index, component(k)) as any).select(component(components[k]!), mapped);
+    }
+  }
+  return node({ _t: target._t, type: "vectorElement", params: [base, mapped] });
 }
 
 export function buildBlock(body: () => void): Node<"void"> {

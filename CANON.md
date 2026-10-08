@@ -312,7 +312,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-swizzle-write-writes-the-components-it-names`](#spec-a-swizzle-write-writes-the-components-it-names) — An assignment through a swizzle, or through a swizzle of a swizzle, writes the components it names of the variable it reaches, on every target.
     - [`@spec an-element-reads-a-component-by-index`](#spec-an-element-reads-a-component-by-index) — `element(i)` of a vector reads the component at `i`, and of a matrix the column at `i`, by a literal or a computed index.
     - [`@spec an-element-write-writes-at-its-index`](#spec-an-element-write-writes-at-its-index) — An assignment through `element(i)` of a vector or matrix variable, or through a swizzle or an element of a column, writes at that index.
-      - [`@bug a-write-by-index-through-a-swizzle-differs-by-target`](#bug-a-write-by-index-through-a-swizzle-differs-by-target) — A write by index through a swizzle, such as into a swizzle of a matrix column, differs by target. JS ignores it, WASM refuses it, and WGSL emits a shader no driver accepts.
     - [`@spec a-wgsl-write-through-a-swizzle-of-several-components-stores-its-value-once`](#spec-a-wgsl-write-through-a-swizzle-of-several-components-stores-its-value-once) — On WGSL, a write through a swizzle of several components stores its value in a temporary once, then writes each component from it.
   - [`@spec an-if-chain-runs-the-first-branch-whose-condition-holds`](#spec-an-if-chain-runs-the-first-branch-whose-condition-holds) — `If`, `ElseIf` and `Else` run the first branch whose condition holds, or the `Else` branch when none does.
     - [`@spec an-if-chain-takes-the-branch-its-conditions-select`](#spec-an-if-chain-takes-the-branch-its-conditions-select) — An `If` chain runs the branch of the first condition that holds, and the `Else` branch when none does.
@@ -2449,12 +2448,6 @@ This follows because TSL swizzles in these spellings.
 #### @spec an-element-write-writes-at-its-index
 
 > An assignment through `element(i)` of a vector or matrix variable, or through a swizzle or an element of a column, writes at that index.
-
-##### @bug a-write-by-index-through-a-swizzle-differs-by-target
-
-> A write by index through a swizzle, such as into a swizzle of a matrix column, differs by target. JS ignores it, WASM refuses it, and WGSL emits a shader no driver accepts.
-
-Issue: #32
 
 #### @spec a-wgsl-write-through-a-swizzle-of-several-components-stores-its-value-once
 
