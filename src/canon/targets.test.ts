@@ -28,6 +28,7 @@ import {
   outputStruct,
   PI,
   select,
+  textureLoad,
   time,
   TWO_PI,
   uint,
@@ -959,6 +960,27 @@ describe("each leaf on every target it claims", () => {
     const build = (p: any) => Fn(() => vec4(s.add(v.y).add(p).add(1), 0, 0, 1))() as any;
     const fragment = compile(build, { name: "main", params: [{ name: "p", type: "float" }] }) as any;
     expect(Array.from(fragment({}).value)).toEqual([1, 0, 0, 1]);
+  });
+
+  /**
+   * @canon spec-a-cpu-target-reads-zero-for-a-texel-out-of-range
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ] as const)("reads zero for a texel out of range into a variable that held a texel on %s", (_, compile) => {
+    const tex = uniform("sampler2D");
+    const build = (x: any) =>
+      Fn(() => {
+        const v = textureLoad(tex, ivec2(0, 0)).toVar();
+        v.assign(textureLoad(tex, ivec2(x, 0)));
+        return v;
+      })() as any;
+    const run = compile(build, { name: "main", params: [{ name: "x", type: "int" }] });
+    const textures = { [tex.name]: { data: Float32Array.of(1, 2, 3, 4, 5, 6, 7, 8), width: 2, height: 1 } };
+    expect(run({ params: { x: 1 }, textures })).toEqual(new Float64Array([5, 6, 7, 8]));
+    expect(run({ params: { x: 5 }, textures })).toEqual(new Float64Array([0, 0, 0, 0]));
+    expect(run({ params: { x: -1 }, textures })).toEqual(new Float64Array([0, 0, 0, 0]));
   });
 
   /**

@@ -105,7 +105,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cube-map-is-sampled-on-the-face-its-direction-picks`](#spec-a-cube-map-is-sampled-on-the-face-its-direction-picks) — A cube map is sampled on the face its direction points to, and a filter blends within that face, never across its edge.
     - [`@spec a-texel-fetched-out-of-range-reads-zero`](#spec-a-texel-fetched-out-of-range-reads-zero) — `textureLoad` at a coordinate outside the texture, a negative one included, reads zero in every channel.
       - [`@spec a-cpu-target-reads-zero-for-a-texel-out-of-range`](#spec-a-cpu-target-reads-zero-for-a-texel-out-of-range) — On a CPU target, `textureLoad` outside the texture, at a negative coordinate too, reads zero in every channel.
-        - [`@bug js-keeps-a-stale-texel-out-of-range`](#bug-js-keeps-a-stale-texel-out-of-range) — On JS, `textureLoad` outside the texture into a variable leaves the variable as it was, rather than writing zero into it.
       - [`@exception a-gpu-target-lets-the-driver-pick-a-texel-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-a-texel-out-of-range) — On GLSL and WGSL, a texel fetched out of range reads what the driver gives.
     - [`@spec a-cpu-target-filters-by-the-magnification-filter-alone`](#spec-a-cpu-target-filters-by-the-magnification-filter-alone) — A CPU target filters a texture as its magnification filter asks, and ignores its minification filter.
   - [`@spec every-root-of-a-program-keeps-its-effects`](#spec-every-root-of-a-program-keeps-its-effects) — A program compiled from several roots runs the statements of every root, each once, the statements they share included.
@@ -1319,12 +1318,6 @@ Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target
 ##### @spec a-cpu-target-reads-zero-for-a-texel-out-of-range
 
 > On a CPU target, `textureLoad` outside the texture, at a negative coordinate too, reads zero in every channel.
-
-###### @bug js-keeps-a-stale-texel-out-of-range
-
-> On JS, `textureLoad` outside the texture into a variable leaves the variable as it was, rather than writing zero into it.
-
-Issue: #84
 
 ##### @exception a-gpu-target-lets-the-driver-pick-a-texel-out-of-range
 

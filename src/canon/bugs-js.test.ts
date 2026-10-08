@@ -8,9 +8,7 @@ import {
   If,
   instancedArray,
   int,
-  ivec2,
   mat2,
-  textureLoad,
   uniform,
   vec3,
   vec4,
@@ -18,7 +16,6 @@ import {
 } from "../rmsl";
 import { compileJS, compileJSFn, compileJSRoutine, createJsGrid } from "../js";
 
-const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
 const none = { name: "main", params: [] };
 
 /** A JS rasterizer drawing one flat-coloured triangle list, its colour a uniform. */
@@ -43,8 +40,6 @@ function flatRasterizer(fragment?: (color: Node<"vec4">, drop: Node<"float">) =>
 }
 
 const screenAt = (z: number) => [-1, -1, z, 3, -1, z, -1, 3, z];
-
-const checker = { data: Float32Array.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16), width: 2, height: 2 };
 
 describe("known bugs of the JS target, each failing until its fix", () => {
   /**
@@ -100,24 +95,6 @@ describe("known bugs of the JS target, each failing until its fix", () => {
     expect(Array.from(draw(screenAt(0.5), [0, 0, 1, 1], { clear: false, clearDepth: false }).slice(0, 4))).toEqual([
       0, 0, 1, 1,
     ]);
-  });
-
-  /**
-   * On JS, `textureLoad` outside the texture into a variable leaves the
-   * variable as it was, rather than writing zero into it.
-   *
-   * @canon bug-js-keeps-a-stale-texel-out-of-range
-   */
-  it.fails("reads zero for a texel out of range into a variable that held a texel on JS", () => {
-    const tex = uniform("sampler2D");
-    const build = (a: any) =>
-      Fn(() => {
-        const v = textureLoad(tex, ivec2(0, 0)).toVar();
-        v.assign(textureLoad(tex, ivec2(a.toInt(), 0)));
-        return v;
-      })();
-    const run = compileJSRoutine(build, param);
-    expect(run({ params: { a: 5 }, textures: { [tex.name]: checker } })).toEqual([0, 0, 0, 0]);
   });
 
   /**
