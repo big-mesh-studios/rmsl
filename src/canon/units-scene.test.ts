@@ -669,9 +669,25 @@ describe("a scene renderer manages what it uploads", () => {
   });
 
   /**
+   * @canon spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value
+   */
+  it("gives an attribute its geometry lacks the value 0, 0, 0, 1 on WebGL", () => {
+    const { renderer, calls } = stubWebGl();
+    const material = new MeshBasicMaterial();
+    material.positionNode = (b) => b.position.add(b.attribute("offset", "vec4").xyz);
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(), material));
+    renderer.render(scene, camera());
+
+    const values = calls.filter((c) => c.name === "vertexAttrib4f");
+    expect(values).toHaveLength(1);
+    expect(values[0]!.args.slice(1)).toEqual([0, 0, 0, 1]);
+  });
+
+  /**
    * @canon exception-preserving-webgl-state-allocates-on-each-call
    */
-  it("reads the viewport, the clear colour and the colour mask on each render with preserveState", () => {
+  it("reads the viewport, the clear colour, the colour mask and the depth range on each render with preserveState", () => {
     let vectors: Record<number, unknown> = {};
     const { renderer, gl, calls } = stubWebGl(
       { getParameter: (name: number) => vectors[name] ?? 16 },
@@ -681,18 +697,21 @@ describe("a scene renderer manages what it uploads", () => {
       [gl.VIEWPORT]: new Int32Array(4),
       [gl.COLOR_CLEAR_VALUE]: new Float32Array(4),
       [gl.COLOR_WRITEMASK]: [true, true, true, true],
+      [gl.DEPTH_RANGE]: new Float32Array(2),
     };
     const scene = new Scene();
     scene.add(new Mesh(new PlaneGeometry(), new MeshBasicMaterial()));
     const reads = () =>
       calls.filter(
-        (c) => c.name === "getParameter" && [gl.VIEWPORT, gl.COLOR_CLEAR_VALUE, gl.COLOR_WRITEMASK].includes(c.args[0]),
+        (c) =>
+          c.name === "getParameter" &&
+          [gl.VIEWPORT, gl.COLOR_CLEAR_VALUE, gl.COLOR_WRITEMASK, gl.DEPTH_RANGE].includes(c.args[0]),
       ).length;
     renderer.render(scene, camera());
     const first = reads();
     renderer.render(scene, camera());
-    expect(first).toBe(3);
-    expect(reads()).toBe(6);
+    expect(first).toBe(4);
+    expect(reads()).toBe(8);
   });
 
   /**
@@ -1022,6 +1041,7 @@ const preserveStateRun = async (preserveState) => {
   floats.fragmentNode = (b) => b.sampler("map", "sampler2D", texel).texture(vec2(0.5, 0.5));
   const integers = new MeshBasicMaterial();
   integers.fragmentNode = (b) => b.sampler("map", "usampler2D", texel).texture(uvec2(0, 0)).toVec4().div(float(255));
+  integers.positionNode = (b) => b.position.add(b.attribute("offset", "vec4").xyz);
   const scene = new Scene();
   scene.add(new Mesh(new PlaneGeometry(2, 2), integers), new Mesh(new PlaneGeometry(2, 2), floats));
   const target = new WebGLRenderTarget(4, 4);
@@ -1060,8 +1080,10 @@ const ownVertexArrayRun = (vertexArray) => {
   gl.bindVertexArray(before.VERTEX_ARRAY_BINDING);
   return changedGlState(before, glState(gl)).filter((name) => /^(ELEMENT_ARRAY|VERTEX_ATTRIB)/.test(name));
 };
-// One frame, a transparent textured mesh over a background, read back from a
-// render target, drawn over state the page set and over a fresh context.
+// One frame, a transparent textured mesh in front of an opaque one over a
+// background, read back from a render target, drawn over state the page set and
+// over a fresh context. The transparent mesh reads an attribute its geometry
+// lacks, which moves it out of view unless it holds 0.
 const pixelsOver = (dirty) => {
   const canvas = document.createElement("canvas");
   canvas.width = 16;
@@ -1075,9 +1097,12 @@ const pixelsOver = (dirty) => {
   const material = new MeshBasicMaterial();
   material.transparent = true;
   material.fragmentNode = (b) => b.sampler("map", "sampler2D", () => texture).texture(vec2(0.25, 0.75));
+  material.positionNode = (b) => b.position.add(b.attribute("offset", "vec4").xyz.mul(8));
+  const behind = new Mesh(new PlaneGeometry(2, 2), new MeshBasicMaterial({ color: 0xff00ff }));
+  behind.position.z = -0.5;
   const scene = new Scene();
   scene.background = new Color(0.2, 0.4, 0.6);
-  scene.add(new Mesh(new PlaneGeometry(2, 2), material));
+  scene.add(behind, new Mesh(new PlaneGeometry(2, 2), material));
   if (dirty) dirtyGlState(gl);
   const target = new WebGLRenderTarget(4, 4);
   renderer.render(scene, camera, target);
@@ -1091,6 +1116,7 @@ globalThis.__rmslApplicationVertexArray = () => ownVertexArrayRun("application")
 describe.skipIf(!GPU_ENABLED)("a render depends only on what it is given, on a real driver", () => {
   /**
    * @canon spec-a-webgl-call-sets-the-state-it-reads
+   * @canon spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value
    */
   it("draws over state the page set as it draws on a fresh context on WebGL", async () => {
     const { dirty, clean } = await runInGpuPage(

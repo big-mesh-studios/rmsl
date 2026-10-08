@@ -3,6 +3,7 @@ import {
   drawToCanvas,
   GlState,
   GlStateKeeper,
+  setAttributeValue,
   setPackState,
   setRasterState,
   setUnpackState,
@@ -770,7 +771,16 @@ export class WebGLRenderer {
     for (const attribute of entry.program.attributes) {
       const attr = geometryAttribute(mesh, geometry, attribute.name);
       const location = entry.attributeLocations.get(attribute.node.name);
-      if (!attr || location == null) continue;
+      if (location == null) continue;
+      // A mat4 attribute spans four consecutive vertex attribute locations;
+      // each is fed from one column of the 64-byte instance record. The GLSL
+      // linker handed the base location, so the columns land at location..+3.
+      const locationSize = attribute.node._t === "mat4" ? 4 : 1;
+      if (!attr) {
+        // The shader reads an attribute with no data from the value its location holds.
+        if (location >= 0) for (let i = 0; i < locationSize; i++) setAttributeValue(gl, location + i, this.state);
+        continue;
+      }
 
       // `instanceMatrix`/`instanceColor` live on the object rather than the
       // geometry, so their buffers are cached per attribute (not per geometry).
@@ -791,10 +801,6 @@ export class WebGLRenderer {
       // not its data changed this frame.
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
 
-      // A mat4 attribute spans four consecutive vertex attribute locations;
-      // each is fed from one column of the 64-byte instance record. The GLSL
-      // linker handed the base location, so the columns land at location..+3.
-      const locationSize = attribute.node._t === "mat4" ? 4 : 1;
       const components = attr.itemSize / locationSize;
       const format = VERTEX_FORMATS[vertexFormatOf(attr, components)];
       // One buffer per attribute, so the stride is the whole record.

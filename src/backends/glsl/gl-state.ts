@@ -22,8 +22,8 @@ export const GlState = {
   pack: 1 << 12,
   /**
    * The scissor test, the colour mask, the blend equation, the depth function,
-   * the front face, and the stencil, discard, polygon offset, coverage and
-   * dithering switches.
+   * the depth range, the front face, and the stencil, discard, polygon offset,
+   * coverage and dithering switches.
    */
   raster: 1 << 13,
 } as const;
@@ -80,7 +80,17 @@ export function setRasterState(gl: WebGL2RenderingContext): void {
   gl.colorMask(true, true, true, true);
   gl.blendEquation(gl.FUNC_ADD);
   gl.depthFunc(gl.LESS);
+  gl.depthRange(0, 1);
   gl.frontFace(gl.CCW);
+}
+
+/**
+ * Sets the value a vertex attribute with no data reads at `location` to a
+ * fresh context's, 0, 0, 0, 1. `state` keeps the value it had.
+ */
+export function setAttributeValue(gl: WebGL2RenderingContext, location: number, state: GlStateKeeper | null): void {
+  state?.keepAttributeValue(location);
+  gl.vertexAttrib4f(location, 0, 0, 0, 1);
 }
 
 /** The draw buffers of a canvas that draws into its back buffer, filled on first use. */
@@ -138,6 +148,10 @@ export class GlStateKeeper {
   private blendEquationRgb = 0;
   private blendEquationAlpha = 0;
   private depthFunc = 0;
+  private depthRange: Float32Array | null = null;
+  /** The attribute locations whose values are saved, and the value each had. */
+  private readonly attributeLocations: number[] = [];
+  private readonly attributeValues: (Float32Array | Int32Array | Uint32Array)[] = [];
   /** The units whose bindings are saved, and the 2D and 3D texture each had. */
   private readonly units: number[] = [];
   private readonly textures2D: (WebGLTexture | null)[] = [];
@@ -198,6 +212,7 @@ export class GlStateKeeper {
       this.blendEquationRgb = gl.getParameter(gl.BLEND_EQUATION_RGB);
       this.blendEquationAlpha = gl.getParameter(gl.BLEND_EQUATION_ALPHA);
       this.depthFunc = gl.getParameter(gl.DEPTH_FUNC);
+      this.depthRange = gl.getParameter(gl.DEPTH_RANGE);
     }
     if (fresh & GlState.activeTexture) {
       this.activeTexture = gl.getParameter(gl.ACTIVE_TEXTURE);
@@ -216,6 +231,13 @@ export class GlStateKeeper {
     this.textures2D.push(gl.getParameter(gl.TEXTURE_BINDING_2D));
     this.textures3D.push(gl.getParameter(gl.TEXTURE_BINDING_3D));
     gl.activeTexture(active);
+  }
+
+  /** Saves the value of the vertex attribute at `location`, before a call sets it. */
+  keepAttributeValue(location: number): void {
+    if (this.depth === 0 || this.attributeLocations.includes(location)) return;
+    this.attributeLocations.push(location);
+    this.attributeValues.push(this.gl.getVertexAttrib(location, this.gl.CURRENT_VERTEX_ATTRIB));
   }
 
   /**
@@ -283,6 +305,15 @@ export class GlStateKeeper {
       gl.colorMask(r!, g!, b!, a!);
       gl.blendEquationSeparate(this.blendEquationRgb, this.blendEquationAlpha);
       gl.depthFunc(this.depthFunc);
+      gl.depthRange(this.depthRange![0]!, this.depthRange![1]!);
+    }
+    for (let i = 0; i < this.attributeLocations.length; i++) {
+      const location = this.attributeLocations[i]!;
+      const value = this.attributeValues[i]!;
+      // The value keeps the type it was set with, which an integer attribute reads.
+      if (value instanceof Int32Array) gl.vertexAttribI4iv(location, value);
+      else if (value instanceof Uint32Array) gl.vertexAttribI4uiv(location, value);
+      else gl.vertexAttrib4fv(location, value);
     }
     for (let i = 0; i < this.units.length; i++) {
       gl.activeTexture(gl.TEXTURE0 + this.units[i]!);
@@ -294,6 +325,9 @@ export class GlStateKeeper {
     this.units.length = 0;
     this.textures2D.length = 0;
     this.textures3D.length = 0;
+    this.attributeLocations.length = 0;
+    this.attributeValues.length = 0;
+    this.depthRange = null;
     this.viewport = null;
     this.clearColor = null;
     this.colorMask = null;

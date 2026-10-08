@@ -442,12 +442,13 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-vector-storage-buffer-counts-its-elements`](#spec-a-vector-storage-buffer-counts-its-elements) — The elements of a storage buffer are counted as its type says. A buffer of `vec4` holds a quarter as many elements as it has components, and a dispatch over it runs one invocation per element.
     - [`@spec a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte`](#spec-a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte) — A JS or WASM routine adapter clamps each channel to 0 to 1 and writes it on its canvas as the nearest byte.
   - [`@spec a-webgl-caller-restores-the-context-state-only-when-asked`](#spec-a-webgl-caller-restores-the-context-state-only-when-asked) — `WebGLRenderer` and `createGlsl` set the WebGL state each of their calls needs, and leave it as they set it. With `preserveState: true`, each call puts back the state it changed before it returns.
-    - [`@spec a-webgl-call-sets-the-state-it-reads`](#spec-a-webgl-call-sets-the-state-it-reads) — A call of `WebGLRenderer` or `createGlsl` sets every piece of WebGL state it reads, whatever the application left there. An upload sets the unpack parameters and unbinds the pixel-unpack buffer, and a readback sets the pack parameters. A draw sets the colour mask, blend equation, depth function and front face, and draws a canvas into its back buffer. It turns off the scissor, stencil, discard, polygon offset and coverage tests, and turns on dithering, as a fresh context has them. A draw of `createGlsl` also covers its whole canvas, and turns off blending, depth testing and culling, as a WGSL draw has none of them.
+    - [`@spec a-webgl-call-sets-the-state-it-reads`](#spec-a-webgl-call-sets-the-state-it-reads) — A call of `WebGLRenderer` or `createGlsl` sets every piece of WebGL state it reads, whatever the application left there. An upload sets the unpack parameters and unbinds the pixel-unpack buffer, and a readback sets the pack parameters. A draw sets the colour mask, blend equation, depth function, depth range and front face, and draws a canvas into its back buffer. It turns off the scissor, stencil, discard, polygon offset and coverage tests, and turns on dithering, as a fresh context has them. A draw of `createGlsl` also covers its whole canvas, and turns off blending, depth testing and culling, as a WGSL draw has none of them.
+    - [`@spec a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value`](#spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value) — A draw of `WebGLRenderer` or `createGlsl` gives each vertex attribute that its program declares and that has no data the value (0, 0, 0, 1). A fresh context holds that value.
     - [`@spec a-webgl-call-leaves-the-state-it-set`](#spec-a-webgl-call-leaves-the-state-it-set) — Without `preserveState`, a call of `WebGLRenderer` or `createGlsl` puts back none of the state it set. A texture upload leaves the unpack alignment at 1, and a draw leaves its program bound.
-    - [`@spec a-webgl-renderer-asked-to-preserve-state-puts-it-back`](#spec-a-webgl-renderer-asked-to-preserve-state-puts-it-back) — With `preserveState: true`, `render`, `readPixels` and `readPixelsAsync` of `WebGLRenderer` put back the state they changed before they return. That is the state [a call sets because it reads it](#spec-a-webgl-call-sets-the-state-it-reads), and the framebuffer, renderbuffer, program, vertex array, array buffer and pixel-pack buffer bindings. They also put back the viewport, the clear colour, and the depth, blend and cull state they set for each draw. They put back the active texture unit and the textures of each unit they used.
-    - [`@spec a-glsl-adapter-asked-to-preserve-state-puts-it-back`](#spec-a-glsl-adapter-asked-to-preserve-state-puts-it-back) — With `preserveState: true`, `attach`, `draw`, `setUniform`, `setAttribute` and `setTexture` of `createGlsl` put back the state they changed before they return. That is the state [a call sets because it reads it](#spec-a-webgl-call-sets-the-state-it-reads), and the program, vertex array and array buffer bindings and the clear colour. They put back the active texture unit and the textures of each unit they used.
+    - [`@spec a-webgl-renderer-asked-to-preserve-state-puts-it-back`](#spec-a-webgl-renderer-asked-to-preserve-state-puts-it-back) — With `preserveState: true`, `render`, `readPixels` and `readPixelsAsync` of `WebGLRenderer` put back the state they changed before they return. That is the state [a call sets because it reads it](#spec-a-webgl-call-sets-the-state-it-reads) and [the attribute values a draw gives](#spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value). It is also the framebuffer, renderbuffer, program, vertex array, array buffer and pixel-pack buffer bindings. They also put back the viewport, the clear colour, and the depth, blend and cull state they set for each draw. They put back the active texture unit and the textures of each unit they used.
+    - [`@spec a-glsl-adapter-asked-to-preserve-state-puts-it-back`](#spec-a-glsl-adapter-asked-to-preserve-state-puts-it-back) — With `preserveState: true`, `attach`, `draw`, `setUniform`, `setAttribute` and `setTexture` of `createGlsl` put back the state they changed before they return. That is the state [a call sets because it reads it](#spec-a-webgl-call-sets-the-state-it-reads) and [the attribute values a draw gives](#spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value). It is also the program, vertex array and array buffer bindings and the clear colour. They put back the active texture unit and the textures of each unit they used.
     - [`@spec the-webgl-renderer-draws-from-its-own-vertex-array`](#spec-the-webgl-renderer-draws-from-its-own-vertex-array) — The WebGL renderer draws from a vertex array of its own. It changes no vertex array of the application's, the default one included.
-    - [`@exception preserving-webgl-state-allocates-on-each-call`](#exception-preserving-webgl-state-allocates-on-each-call) — With `preserveState: true`, a `render` or a `draw` reads the viewport, the clear colour or the colour mask into a new array. The call allocates, where [the frame path allocates nothing](#axiom-the-frame-path-allocates-nothing).
+    - [`@exception preserving-webgl-state-allocates-on-each-call`](#exception-preserving-webgl-state-allocates-on-each-call) — With `preserveState: true`, a `render` or a `draw` reads the viewport, the clear colour, the colour mask, the depth range or a vertex attribute's value into a new array. The call allocates, where [the frame path allocates nothing](#axiom-the-frame-path-allocates-nothing).
   - [`@spec a-render-depends-only-on-what-it-is-given`](#spec-a-render-depends-only-on-what-it-is-given) — `render(scene, camera, target)` on a renderer of `./scene` gives the pixels that the same call gives on a fresh renderer, whatever the renderer drew before.
     - [`@spec a-draw-configures-every-enabled-vertex-attribute`](#spec-a-draw-configures-every-enabled-vertex-attribute) — A draw on the WebGL renderer runs with enabled only the vertex attribute arrays it configured itself, whatever mesh drew before it.
     - [`@spec a-render-clears-the-depth-buffer-whatever-the-last-draw-masked`](#spec-a-render-clears-the-depth-buffer-whatever-the-last-draw-masked) — A render on the WebGL renderer clears the depth buffer, whatever depth mask the last draw left.
@@ -640,7 +641,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact wgsl-allows-twelve-uniform-buffers-per-stage`](#fact-wgsl-allows-twelve-uniform-buffers-per-stage) — WebGPU guarantees 12 uniform buffers per shader stage, and a device may give no more.
 - [`@fact wgsl-cannot-share-a-bool-with-the-host`](#fact-wgsl-cannot-share-a-bool-with-the-host) — A WGSL `bool` is not host-shareable: it can be neither a member of a uniform buffer nor an element of a storage buffer.
 - [`@fact a-wgsl-uniform-array-has-a-16-byte-stride`](#fact-a-wgsl-uniform-array-has-a-16-byte-stride) — The elements of an array in the WGSL uniform address space align to 16 bytes, and a `vec3` takes the 16 bytes of a `vec4`.
-- [`@fact webgl-reads-a-vector-state-into-a-new-array`](#fact-webgl-reads-a-vector-state-into-a-new-array) — WebGL gives a vector state, such as the viewport, the clear colour or the colour mask, only through `getParameter`, which returns a new array on each call.
+- [`@fact webgl-reads-a-vector-state-into-a-new-array`](#fact-webgl-reads-a-vector-state-into-a-new-array) — WebGL gives a vector state, such as the viewport or the clear colour, only through `getParameter`, which returns a new array on each call. It gives a vertex attribute's value only through `getVertexAttrib`, which does the same.
 - [`@fact webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage) — WebGL 2 has no compute shaders and no storage buffers.
 - [`@fact an-integer-texture-cannot-be-filtered`](#fact-an-integer-texture-cannot-be-filtered) — Neither GLSL nor WGSL filters an integer texture. A shader reads it one texel at a time, with `texelFetch` or `textureLoad`.
 - [`@fact a-mipmapped-texture-without-its-chain-samples-black`](#fact-a-mipmapped-texture-without-its-chain-samples-black) — In WebGL 2, a texture whose minification filter reads mipmaps but which has no mip chain is incomplete, and samples as black.
@@ -3185,9 +3186,17 @@ This follows because the application owns the context, so it decides what a call
 
 #### @spec a-webgl-call-sets-the-state-it-reads
 
-> A call of `WebGLRenderer` or `createGlsl` sets every piece of WebGL state it reads, whatever the application left there. An upload sets the unpack parameters and unbinds the pixel-unpack buffer, and a readback sets the pack parameters. A draw sets the colour mask, blend equation, depth function and front face, and draws a canvas into its back buffer. It turns off the scissor, stencil, discard, polygon offset and coverage tests, and turns on dithering, as a fresh context has them. A draw of `createGlsl` also covers its whole canvas, and turns off blending, depth testing and culling, as a WGSL draw has none of them.
+> A call of `WebGLRenderer` or `createGlsl` sets every piece of WebGL state it reads, whatever the application left there. An upload sets the unpack parameters and unbinds the pixel-unpack buffer, and a readback sets the pack parameters. A draw sets the colour mask, blend equation, depth function, depth range and front face, and draws a canvas into its back buffer. It turns off the scissor, stencil, discard, polygon offset and coverage tests, and turns on dithering, as a fresh context has them. A draw of `createGlsl` also covers its whole canvas, and turns off blending, depth testing and culling, as a WGSL draw has none of them.
 
 Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+#### @spec a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value
+
+> A draw of `WebGLRenderer` or `createGlsl` gives each vertex attribute that its program declares and that has no data the value (0, 0, 0, 1). A fresh context holds that value.
+
+Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because a shader reads such an attribute from a value the context keeps for its location. The application can set that value, as it can set any other state a draw reads.
 
 #### @spec a-webgl-call-leaves-the-state-it-set
 
@@ -3195,11 +3204,11 @@ Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-pr
 
 #### @spec a-webgl-renderer-asked-to-preserve-state-puts-it-back
 
-> With `preserveState: true`, `render`, `readPixels` and `readPixelsAsync` of `WebGLRenderer` put back the state they changed before they return. That is the state [a call sets because it reads it](#spec-a-webgl-call-sets-the-state-it-reads), and the framebuffer, renderbuffer, program, vertex array, array buffer and pixel-pack buffer bindings. They also put back the viewport, the clear colour, and the depth, blend and cull state they set for each draw. They put back the active texture unit and the textures of each unit they used.
+> With `preserveState: true`, `render`, `readPixels` and `readPixelsAsync` of `WebGLRenderer` put back the state they changed before they return. That is the state [a call sets because it reads it](#spec-a-webgl-call-sets-the-state-it-reads) and [the attribute values a draw gives](#spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value). It is also the framebuffer, renderbuffer, program, vertex array, array buffer and pixel-pack buffer bindings. They also put back the viewport, the clear colour, and the depth, blend and cull state they set for each draw. They put back the active texture unit and the textures of each unit they used.
 
 #### @spec a-glsl-adapter-asked-to-preserve-state-puts-it-back
 
-> With `preserveState: true`, `attach`, `draw`, `setUniform`, `setAttribute` and `setTexture` of `createGlsl` put back the state they changed before they return. That is the state [a call sets because it reads it](#spec-a-webgl-call-sets-the-state-it-reads), and the program, vertex array and array buffer bindings and the clear colour. They put back the active texture unit and the textures of each unit they used.
+> With `preserveState: true`, `attach`, `draw`, `setUniform`, `setAttribute` and `setTexture` of `createGlsl` put back the state they changed before they return. That is the state [a call sets because it reads it](#spec-a-webgl-call-sets-the-state-it-reads) and [the attribute values a draw gives](#spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value). It is also the program, vertex array and array buffer bindings and the clear colour. They put back the active texture unit and the textures of each unit they used.
 
 #### @spec the-webgl-renderer-draws-from-its-own-vertex-array
 
@@ -3209,7 +3218,7 @@ This follows because a vertex array holds the element buffer binding and every a
 
 #### @exception preserving-webgl-state-allocates-on-each-call
 
-> With `preserveState: true`, a `render` or a `draw` reads the viewport, the clear colour or the colour mask into a new array. The call allocates, where [the frame path allocates nothing](#axiom-the-frame-path-allocates-nothing).
+> With `preserveState: true`, a `render` or a `draw` reads the viewport, the clear colour, the colour mask, the depth range or a vertex attribute's value into a new array. The call allocates, where [the frame path allocates nothing](#axiom-the-frame-path-allocates-nothing).
 
 Derives from: [`fact-webgl-reads-a-vector-state-into-a-new-array`](#fact-webgl-reads-a-vector-state-into-a-new-array)
 
@@ -4401,9 +4410,9 @@ This is a fact of the WGSL specification, not a choice.
 
 ## @fact webgl-reads-a-vector-state-into-a-new-array
 
-> WebGL gives a vector state, such as the viewport, the clear colour or the colour mask, only through `getParameter`, which returns a new array on each call.
+> WebGL gives a vector state, such as the viewport or the clear colour, only through `getParameter`, which returns a new array on each call. It gives a vertex attribute's value only through `getVertexAttrib`, which does the same.
 
-This is how WebGL behaves. The WebGL 2 specification has `getParameter` return an `Int32Array` for `VIEWPORT` and a `Float32Array` for `COLOR_CLEAR_VALUE`. It has no call that reads them into an array the caller gives, and Chromium returns a different array on each call.
+This is how WebGL behaves. The WebGL 2 specification has `getParameter` return an `Int32Array` for `VIEWPORT` and a `Float32Array` for `COLOR_CLEAR_VALUE` and `DEPTH_RANGE`. It has `getVertexAttrib` return a `Float32Array` for `CURRENT_VERTEX_ATTRIB`. It has no call that reads them into an array the caller gives, and Chromium returns a different array on each call.
 
 ## @fact webgl2-has-no-compute-stage
 

@@ -26,7 +26,8 @@ const readPixel = (canvas, x, y) => {
  * `dirtyGlState(gl)` sets every piece of state rmsl touches or reads to a value
  * of the page's own, with objects of its own; `glState(gl)` reads that state, the
  * first eight texture units, the current vertex array's element buffer and
- * first eight attribute switches, and the canvas's draw buffer included; `changedGlState(before, after)`
+ * first eight attribute switches, the values of the first eight attributes,
+ * and the canvas's draw buffer included; `changedGlState(before, after)`
  * names each piece that differs.
  */
 export const GL_STATE = `
@@ -39,12 +40,15 @@ const GL_STATE_NAMES = [
   "UNPACK_IMAGE_HEIGHT", "UNPACK_SKIP_PIXELS", "UNPACK_SKIP_ROWS", "UNPACK_SKIP_IMAGES", "PIXEL_UNPACK_BUFFER_BINDING",
   "PACK_ALIGNMENT", "PACK_ROW_LENGTH", "PACK_SKIP_PIXELS", "PACK_SKIP_ROWS", "SCISSOR_TEST", "COLOR_WRITEMASK",
   "BLEND_EQUATION_RGB", "BLEND_EQUATION_ALPHA", "DEPTH_FUNC", "FRONT_FACE", "STENCIL_TEST", "RASTERIZER_DISCARD",
-  "POLYGON_OFFSET_FILL", "SAMPLE_ALPHA_TO_COVERAGE", "SAMPLE_COVERAGE", "DITHER",
+  "POLYGON_OFFSET_FILL", "SAMPLE_ALPHA_TO_COVERAGE", "SAMPLE_COVERAGE", "DITHER", "DEPTH_RANGE",
 ];
 const glState = (gl) => {
   const state = {};
   for (const name of GL_STATE_NAMES) state[name] = gl.getParameter(gl[name]);
-  for (let i = 0; i < 8; i++) state["VERTEX_ATTRIB_ARRAY_ENABLED@" + i] = gl.getVertexAttrib(i, gl.VERTEX_ATTRIB_ARRAY_ENABLED);
+  for (let i = 0; i < 8; i++) {
+    state["VERTEX_ATTRIB_ARRAY_ENABLED@" + i] = gl.getVertexAttrib(i, gl.VERTEX_ATTRIB_ARRAY_ENABLED);
+    state["CURRENT_VERTEX_ATTRIB@" + i] = gl.getVertexAttrib(i, gl.CURRENT_VERTEX_ATTRIB);
+  }
   const active = gl.getParameter(gl.ACTIVE_TEXTURE);
   for (let unit = 0; unit < 8; unit++) {
     gl.activeTexture(gl.TEXTURE0 + unit);
@@ -128,6 +132,8 @@ const dirtyGlState = (gl) => {
   gl.enable(gl.SAMPLE_COVERAGE);
   gl.sampleCoverage(0.5, false);
   gl.disable(gl.DITHER);
+  gl.depthRange(1, 0);
+  for (let i = 0; i < 8; i++) gl.vertexAttrib4f(i, 0.5, 0.5, 0.5, 0.5);
 };
 `;
 

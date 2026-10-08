@@ -4,7 +4,7 @@ import { VertexRoot } from "../shared";
 import type { CpuTextureData } from "../cpu";
 import { textureImage } from "../texture-image";
 import { compileGlsl, CompileGLSLOptions } from "./glsl";
-import { drawToCanvas, GlState, GlStateKeeper, setRasterState, setUnpackState } from "./gl-state";
+import { drawToCanvas, GlState, GlStateKeeper, setAttributeValue, setRasterState, setUnpackState } from "./gl-state";
 
 type UniformInfo = { location: WebGLUniformLocation; type: number };
 /** A sampler's GL texture, with the shape and internal format it was made with. */
@@ -17,7 +17,14 @@ type TextureSlot = {
   depth: number;
   internal: number;
 };
-type AttributeInfo = { location: number; buffer: WebGLBuffer; componentCount: number };
+/** A program attribute: its first location, how many locations it spans, and whether the host has set its data. */
+type AttributeInfo = {
+  location: number;
+  locations: number;
+  buffer: WebGLBuffer;
+  componentCount: number;
+  hasData: boolean;
+};
 
 /**
  * The one shape a WebGL draw call actually varies along beyond
@@ -57,6 +64,20 @@ function componentCountForType(gl: WebGL2RenderingContext, type: number): number
       return 3;
     case gl.FLOAT_VEC4:
     case gl.INT_VEC4:
+      return 4;
+    default:
+      return 1;
+  }
+}
+
+/** The vertex attribute locations an attribute of `type` spans: one for each column of a matrix. */
+function locationCountForType(gl: WebGL2RenderingContext, type: number): number {
+  switch (type) {
+    case gl.FLOAT_MAT2:
+      return 2;
+    case gl.FLOAT_MAT3:
+      return 3;
+    case gl.FLOAT_MAT4:
       return 4;
     default:
       return 1;
@@ -245,6 +266,7 @@ export function createGlsl(
       gl.bufferData(gl.ARRAY_BUFFER, data as Float32Array, gl.STATIC_DRAW);
       gl.enableVertexAttribArray(info.location);
       gl.vertexAttribPointer(info.location, info.componentCount, gl.FLOAT, false, 0, 0);
+      info.hasData = true;
     } finally {
       state?.end();
     }
@@ -374,7 +396,13 @@ export function createGlsl(
       const info = gl.getActiveAttrib(program, i)!;
       const location = gl.getAttribLocation(program, info.name);
       const buffer = gl.createBuffer()!;
-      attributes.set(info.name, { location, buffer, componentCount: componentCountForType(gl, info.type) });
+      attributes.set(info.name, {
+        location,
+        locations: locationCountForType(gl, info.type),
+        buffer,
+        componentCount: componentCountForType(gl, info.type),
+        hasData: false,
+      });
     }
 
     for (const [slot, value] of pendingUniforms) adapter.setUniform(slot, value);
@@ -401,6 +429,10 @@ export function createGlsl(
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
     setRasterState(gl);
+    for (const info of attributes.values()) {
+      if (info.hasData || info.location < 0) continue;
+      for (let i = 0; i < info.locations; i++) setAttributeValue(gl, info.location + i, state);
+    }
     if (draw?.clear !== false) {
       const [r, g, b, a] = draw?.clearColor ?? TRANSPARENT_BLACK;
       gl.clearColor(r, g, b, a);

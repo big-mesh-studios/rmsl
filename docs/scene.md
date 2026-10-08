@@ -138,9 +138,10 @@ the farthest to the nearest, so each blends over what lies behind it.
 
 The renderer sets each piece of WebGL state it reads, so it draws over any
 state the application left as on a fresh context: the scissor test, colour
-mask, blend equation, depth function, front face, and the stencil, discard,
-polygon offset, coverage and dithering switches before a frame, the canvas's
-back buffer when it draws to the canvas, the unpack parameters
+mask, blend equation, depth function, depth range, front face, and the
+stencil, discard, polygon offset, coverage and dithering switches before a
+frame, the value (0, 0, 0, 1) of each attribute a shader declares that the
+geometry lacks, the canvas's back buffer when it draws to the canvas, the unpack parameters
 before a texture upload, and the pack parameters before a readback. It leaves
 that state as it set it: after `render`, its program, its framebuffer and its
 blend and depth state are still bound, and a texture upload leaves the unpack
@@ -149,10 +150,11 @@ alignment at 1. Code that shares the context sets what it reads.
 With `preserveState: true`, `render`, `readPixels` and `readPixelsAsync` put
 back the state they changed before they return: the framebuffer, program,
 vertex array and buffer bindings, the viewport, clear colour, colour mask,
-scissor, depth, blend and cull state, the active texture unit and the textures
-of each unit they used, and the pack and unpack parameters. That costs a few
-state queries per call, and the viewport, clear colour and colour mask each
-come back as a new array. `createGlsl(vertex, fragment, { preserveState: true
+scissor, depth, blend and cull state, the attribute values they set, the
+active texture unit and the textures of each unit they used, and the pack and
+unpack parameters. That costs a few state queries per call, and the viewport,
+clear colour, colour mask, depth range and each attribute value come back as a
+new array. `createGlsl(vertex, fragment, { preserveState: true
 })` does the same for its own calls; a `createGlsl` draw covers its canvas and
 blends, depth-tests and culls nothing, as a `createWgsl` draw does. The
 renderer draws from a vertex array of its own either way, so it never changes
