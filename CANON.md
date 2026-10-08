@@ -427,7 +427,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-draw-clears-the-colour-of-its-target-to-its-clear-colour`](#spec-a-draw-clears-the-colour-of-its-target-to-its-clear-colour) — A draw clears the colour of its target to its `clearColor` before it draws, so no pixel of an earlier draw remains.
       - [`@spec a-clear-colour-is-transparent-black-unless-the-draw-gives-one`](#spec-a-clear-colour-is-transparent-black-unless-the-draw-gives-one) — A draw that gives no `clearColor` clears to transparent black, `[0, 0, 0, 0]`.
         - [`@spec a-glsl-js-and-wasm-draw-clears-to-transparent-black`](#spec-a-glsl-js-and-wasm-draw-clears-to-transparent-black) — A draw of the GLSL adapter, and of a JS or WASM rasterizer routine, that gives no `clearColor` leaves the cleared pixels at `[0, 0, 0, 0]`.
-        - [`@exception a-wgsl-canvas-shows-a-transparent-clear-as-opaque-black`](#exception-a-wgsl-canvas-shows-a-transparent-clear-as-opaque-black) — The WGSL adapter clears to `[0, 0, 0, 0]` as well, but its canvas shows every pixel with alpha 1, so the clear reads as opaque black.
+        - [`@spec a-wgsl-canvas-shows-a-transparent-clear-as-transparent`](#spec-a-wgsl-canvas-shows-a-transparent-clear-as-transparent) — The WGSL adapter configures its canvas `premultiplied`, so a draw that gives no `clearColor` leaves the cleared pixels at `[0, 0, 0, 0]`.
+        - [`@spec a-wgsl-adapter-attached-without-alpha-draws-opaque`](#spec-a-wgsl-adapter-attached-without-alpha-draws-opaque) — `attach(canvas, { alpha: false })` on a WGSL adapter configures its canvas `opaque`, so every pixel shows with alpha 1.
       - [`@spec a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear`](#spec-a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear) — A draw that passes `clear: false` leaves the colour of the pixels it does not cover as an earlier draw left them. A CPU rasterizer draw given an output buffer draws over what that buffer holds.
       - [`@spec a-cpu-draw-clears-its-depth-first-unless-it-asks-not-to`](#spec-a-cpu-draw-clears-its-depth-first-unless-it-asks-not-to) — A draw of a CPU rasterizer routine clears its depth buffer before it draws, so no depth of an earlier draw hides it. With `clearDepth: false` it tests against the depth an earlier draw left.
     - [`@spec several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas) — Several adapters can draw on one canvas. An adapter ignores a uniform its program does not read.
@@ -738,6 +739,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact webgpu-draws-nothing-for-a-triangle-off-the-viewport`](#fact-webgpu-draws-nothing-for-a-triangle-off-the-viewport) — WebGPU draws no pixel for a triangle wholly outside the viewport, at any distance from it, and reports no error.
 - [`@fact webgpu-culls-no-face-by-default`](#fact-webgpu-culls-no-face-by-default) — A WebGPU render pipeline culls no face unless it asks to, so a triangle draws whichever way its vertices wind.
 - [`@fact a-webgpu-canvas-configured-opaque-drops-alpha`](#fact-a-webgpu-canvas-configured-opaque-drops-alpha) — A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha the draw wrote.
+- [`@fact three-js-configures-its-webgpu-canvas-by-its-alpha-parameter`](#fact-three-js-configures-its-webgpu-canvas-by-its-alpha-parameter) — three.js's WebGPU renderer takes an `alpha` parameter, `true` by default. It configures its canvas `premultiplied` when `alpha` is `true`, and `opaque` when it is `false`.
 - [`@fact react-three-fiber-and-threlte-create-their-renderer-with-alpha`](#fact-react-three-fiber-and-threlte-create-their-renderer-with-alpha) — react-three-fiber and Threlte build their `WebGLRenderer` with `alpha: true`, so a canvas they draw on clears to alpha 0.
 - [`@fact three-js-generates-a-node-read-more-than-once-into-a-variable`](#fact-three-js-generates-a-node-read-more-than-once-into-a-variable) — three.js counts the reads of each node while it analyzes a shader stage. It generates a node read more than once into a variable at its first read, and later reads use the variable.
 - [`@fact three-js-gives-a-cheap-node-no-variable`](#fact-three-js-gives-a-cheap-node-no-variable) — A three.js node gets no variable of its own when it is an input, a swizzle, an array element, a variable or a built-in input. An input is a uniform or a constant. An operator or math node gets one only when it has dependencies.
@@ -772,8 +774,7 @@ The analysis found these places where the code or the documents do not hold the 
 2. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
 3. The documents call `While` and `For` TSL functions, but TSL has only `Loop`. Issue #59.
 4. `var_`, `assertBlockScope` and `compileWat` are exported with no documented purpose. Issue #73 asks whether they are public API.
-5. `createWgsl` configures its canvas opaque, so a transparent clear shows as opaque black where the other adapters show the page. Issue #188 asks whether to configure it premultiplied.
-6. On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it, where the other targets take the first. Issue #232 asks whether the GLSL adapter and the WebGL renderer should ask for the first vertex through `WEBGL_provoking_vertex`.
+5. On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it, where the other targets take the first. Issue #232 asks whether the GLSL adapter and the WebGL renderer should ask for the first vertex through `WEBGL_provoking_vertex`.
 
 ### Coverage gaps
 
@@ -3109,11 +3110,21 @@ This follows because the three.js frameworks that most applications draw through
 
 > A draw of the GLSL adapter, and of a JS or WASM rasterizer routine, that gives no `clearColor` leaves the cleared pixels at `[0, 0, 0, 0]`.
 
-###### @exception a-wgsl-canvas-shows-a-transparent-clear-as-opaque-black
+###### @spec a-wgsl-canvas-shows-a-transparent-clear-as-transparent
 
-> The WGSL adapter clears to `[0, 0, 0, 0]` as well, but its canvas shows every pixel with alpha 1, so the clear reads as opaque black.
+> The WGSL adapter configures its canvas `premultiplied`, so a draw that gives no `clearColor` leaves the cleared pixels at `[0, 0, 0, 0]`.
 
-Derives from: [`fact-a-webgpu-canvas-configured-opaque-drops-alpha`](#fact-a-webgpu-canvas-configured-opaque-drops-alpha)
+Derives from: [`fact-three-js-configures-its-webgpu-canvas-by-its-alpha-parameter`](#fact-three-js-configures-its-webgpu-canvas-by-its-alpha-parameter)
+
+This follows because three.js gives its WebGPU canvas an alpha channel unless the application asks it not to.
+
+###### @spec a-wgsl-adapter-attached-without-alpha-draws-opaque
+
+> `attach(canvas, { alpha: false })` on a WGSL adapter configures its canvas `opaque`, so every pixel shows with alpha 1.
+
+Derives from: [`fact-three-js-configures-its-webgpu-canvas-by-its-alpha-parameter`](#fact-three-js-configures-its-webgpu-canvas-by-its-alpha-parameter), [`fact-a-webgpu-canvas-configured-opaque-drops-alpha`](#fact-a-webgpu-canvas-configured-opaque-drops-alpha)
+
+This follows because an application that draws an opaque scene asks three.js for an opaque canvas the same way.
 
 ##### @spec a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear
 
@@ -5028,6 +5039,12 @@ Chromium's WebGPU draws a counter-clockwise and a clockwise triangle alike with 
 > A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha the draw wrote.
 
 Chromium's WebGPU draws a fragment of alpha 0 into a canvas configured opaque, and the page reads the pixel back with alpha 255.
+
+## @fact three-js-configures-its-webgpu-canvas-by-its-alpha-parameter
+
+> three.js's WebGPU renderer takes an `alpha` parameter, `true` by default. It configures its canvas `premultiplied` when `alpha` is `true`, and `opaque` when it is `false`.
+
+This is how three.js behaves, read from its source: the constructor and `init` of `WebGPUBackend` in `src/renderers/webgpu/WebGPUBackend.js`.
 
 ## @fact react-three-fiber-and-threlte-create-their-renderer-with-alpha
 

@@ -182,6 +182,7 @@ export type {
   CreateWgslAdapterOptions,
   CreateWgslComputeOptions,
   WgslAdapter,
+  WgslAttachOptions,
   WgslComputeAdapter,
   WgslDrawOptions,
 } from "./backends/wgsl/adapter-wgsl";

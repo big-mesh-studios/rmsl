@@ -96,6 +96,16 @@ export interface CreateWgslAdapterOptions {
   context?: WgslContext;
 }
 
+/** How a WGSL adapter configures the canvas it attaches to. */
+export interface WgslAttachOptions {
+  /**
+   * Whether the canvas has an alpha channel, as three.js's `alpha` parameter.
+   * `true`, the default, configures it `premultiplied`, so a pixel the draw
+   * leaves transparent shows the page. `false` configures it `opaque`.
+   */
+  alpha?: boolean;
+}
+
 /** A WGSL adapter, plus the one thing the shared `Adapter` shape has no
  * generic name for: direct access to a vertex attribute's persistent GPU
  * buffer, so another adapter's `compute` pass sharing this one's device
@@ -103,7 +113,7 @@ export interface CreateWgslAdapterOptions {
 export interface WgslAdapter extends Adapter<AdapterResult, WgslDrawOptions> {
   // Narrower than the base Adapter's `void | Promise<void>` — requesting a
   // GPUAdapter/GPUDevice is always async, unlike GL's attach.
-  attach(canvas?: HTMLCanvasElement): Promise<void>;
+  attach(canvas?: HTMLCanvasElement, options?: WgslAttachOptions): Promise<void>;
   draw(options?: WgslDrawOptions): void;
   buffer(slot: string): GPUBuffer | undefined;
   /** The device backing this adapter, once `attach()` has resolved — a
@@ -473,7 +483,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
   }
 
   let adapter: WgslAdapter = {
-    async attach(canvas) {
+    async attach(canvas, attachOptions) {
       if (options.context) {
         device = options.context.device;
       } else {
@@ -487,7 +497,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       if (!glCanvasContext) throw new Error("[RMSL] WebGPU canvas context unavailable");
       context = glCanvasContext;
       let format = navigator.gpu.getPreferredCanvasFormat();
-      context.configure({ device, format, alphaMode: "opaque" });
+      context.configure({ device, format, alphaMode: attachOptions?.alpha === false ? "opaque" : "premultiplied" });
 
       let vertexReflection = reflectStage(options.vertex, "vertex");
       let fragmentReflection = reflectStage(options.fragment, "fragment");
