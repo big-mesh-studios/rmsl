@@ -632,6 +632,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec the-main-entry-exports-no-compiler`](#spec-the-main-entry-exports-no-compiler) — The main entry exports the graph functions and serialization, and no compiler, so each target is imported from its own subpath.
   - [`@spec compile-wat-loads-every-wat-module`](#spec-compile-wat-loads-every-wat-module) — `compileWat` given no `include` loads every `.wat` module as its WebAssembly bytes.
   - [`@spec a-wat-module-exports-its-shared-variant-or-undefined`](#spec-a-wat-module-exports-its-shared-variant-or-undefined) — A loaded `.wat` module exports `shared`: the bytes of the same module importing its memory shared, or `undefined` when the module imports no memory.
+  - [`@spec compile-wat-refuses-a-memory-import-it-cannot-make-shared`](#spec-compile-wat-refuses-a-memory-import-it-cannot-make-shared) — `compileWat` fails to load a `.wat` module that imports a memory in a form it cannot rewrite to import shared, with an error that names the module.
 - [`@fact wgsl-defines-every-integer-edge-case`](#fact-wgsl-defines-every-integer-edge-case) — WGSL defines the result of every integer operation on run-time values. Overflow wraps. A division by zero returns the dividend and a remainder by zero returns zero. The most negative `i32` divided by `-1` returns itself. A shift uses its amount modulo the bit width.
 - [`@fact glsl-leaves-integer-edge-cases-undefined`](#fact-glsl-leaves-integer-edge-cases-undefined) — GLSL ES 3.00 leaves undefined the result of an integer division or remainder by zero. It also leaves undefined a shift by a negative amount, or by the bit width or more.
 - [`@fact wgsl-rejects-a-constant-expression-that-fails`](#fact-wgsl-rejects-a-constant-expression-that-fails) — A WGSL shader fails to compile when a constant expression divides an integer by zero, shifts by the bit width or more, or overflows.
@@ -4396,6 +4397,14 @@ This follows because a `.wat` module runs only as bytes, so the application ship
 Derives from: [`spec-compile-wat-loads-every-wat-module`](#spec-compile-wat-loads-every-wat-module), [`spec-compile-wasm-makes-its-memory-as-its-modules-declare`](#spec-compile-wasm-makes-its-memory-as-its-modules-declare)
 
 This follows because a shared memory links only against a module that imports it shared. Every `.wat` module is declared with the same exports, so an import of `shared` always finds the export. A module with no memory to share leaves it empty.
+
+### @spec compile-wat-refuses-a-memory-import-it-cannot-make-shared
+
+> `compileWat` fails to load a `.wat` module that imports a memory in a form it cannot rewrite to import shared, with an error that names the module.
+
+Derives from: [`spec-a-wat-module-exports-its-shared-variant-or-undefined`](#spec-a-wat-module-exports-its-shared-variant-or-undefined)
+
+This follows because `shared` is `undefined` only for a module that imports no memory. A module that imports one and still exported `undefined` would fail only when a shared memory is linked against it, far from the module at fault.
 
 ## @fact wgsl-defines-every-integer-edge-case
 
