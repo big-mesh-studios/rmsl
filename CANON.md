@@ -707,7 +707,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact three-js-sorts-transparent-objects-back-to-front`](#fact-three-js-sorts-transparent-objects-back-to-front) — three.js sorts the transparent objects of a render list by `renderOrder`, then by depth from the farthest to the nearest.
 - [`@fact three-js-clears-before-it-renders-when-auto-clear-is-set`](#fact-three-js-clears-before-it-renders-when-auto-clear-is-set) — A three.js renderer clears its colour, depth and stencil buffers at the start of each `render` when its `autoClear` is `true`, which it is by default.
 - [`@fact three-js-clears-to-a-colour-background`](#fact-three-js-clears-to-a-colour-background) — When `scene.background` is a colour, three.js clears to that colour with alpha 1 and forces the clear, with `autoClear` on or off. With no background it clears to the renderer's clear colour.
-- [`@fact three-js-sets-blending-and-depth-from-the-material`](#fact-three-js-sets-blending-and-depth-from-the-material) — In three.js, `transparent`, `blending`, `depthTest` and `depthWrite` are properties of a material, and the renderer sets its blend and depth state from them for each draw. A material with normal blending that is not transparent draws with no blending.
+- [`@fact three-js-sets-blending-and-depth-from-the-material`](#fact-three-js-sets-blending-and-depth-from-the-material) — In three.js, `transparent`, `blending`, `depthTest` and `depthWrite` are properties of a material, and the renderer sets its blend and depth state from them for each draw. A material with normal blending that is not transparent draws with no blending. Normal blending weighs colour by the source alpha and alpha by one, both over one minus the source alpha. Additive blending adds colour weighed by the source alpha, and adds alpha.
 - [`@fact three-js-uploads-a-changed-attribute-through-update-ranges`](#fact-three-js-uploads-a-changed-attribute-through-update-ranges) — three.js holds the changed part of a `BufferAttribute` as a list `updateRanges`, which `addUpdateRange(start, count)` adds to. It sends those ranges to the GPU, and sends the whole attribute when the list is empty.
 - [`@fact three-js-cuts-a-draw-range-to-its-geometry`](#fact-three-js-cuts-a-draw-range-to-its-geometry) — three.js draws the part of a draw range that lies within the geometry's index, or within its vertices when it has no index, and draws nothing when that part is empty.
 - [`@fact three-js-uploads-an-image-once-it-has-loaded`](#fact-three-js-uploads-an-image-once-it-has-loaded) — three.js's `WebGLRenderer` does not upload a texture whose image element has not loaded, and records no version for it, so it uploads the texture at the first render after the image loads.
@@ -4810,9 +4810,9 @@ This is how three.js behaves, read from its source (`WebGLBackground`, three.js 
 
 ## @fact three-js-sets-blending-and-depth-from-the-material
 
-> In three.js, `transparent`, `blending`, `depthTest` and `depthWrite` are properties of a material, and the renderer sets its blend and depth state from them for each draw. A material with normal blending that is not transparent draws with no blending.
+> In three.js, `transparent`, `blending`, `depthTest` and `depthWrite` are properties of a material, and the renderer sets its blend and depth state from them for each draw. A material with normal blending that is not transparent draws with no blending. Normal blending weighs colour by the source alpha and alpha by one, both over one minus the source alpha. Additive blending adds colour weighed by the source alpha, and adds alpha.
 
-This is how three.js behaves, read from its source (`Material` and `WebGLState`, `setMaterial`, three.js 0.186).
+This is how three.js behaves, read from its source (`Material` and `WebGLState`, `setMaterial` and `setBlending` without premultiplied alpha, three.js 0.186).
 
 ## @fact three-js-uploads-a-changed-attribute-through-update-ranges
 

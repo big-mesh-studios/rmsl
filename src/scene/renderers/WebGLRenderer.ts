@@ -409,10 +409,11 @@ export class WebGLRenderer {
 
     if (material.transparent || material.blending !== Blending.NormalBlending) {
       gl.enable(gl.BLEND);
+      // Colour is weighed by the source alpha and alpha by one, as three.js blends them.
       if (material.blending === Blending.AdditiveBlending) {
-        gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+        gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE, gl.ONE, gl.ONE);
       } else {
-        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
       }
     } else {
       gl.disable(gl.BLEND);

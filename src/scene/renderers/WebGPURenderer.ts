@@ -1217,16 +1217,16 @@ function imageSource(image: Texture["image"]): object | null {
 type RenderStateMaterial = { transparent: boolean; blending: Blending; depthTest: boolean; depthWrite: boolean };
 
 /**
- * The blend state a material asks for, as the WebGL renderer sets it: none for
- * an opaque material of normal blending, additive for additive blending, and
- * over the destination by the source alpha otherwise.
+ * The blend state a material asks for, as three.js sets it: none for an opaque
+ * material of normal blending, additive for additive blending, and over the
+ * destination by the source alpha otherwise.
  */
 function blendState(material: RenderStateMaterial): GPUBlendState | undefined {
   if (!material.transparent && material.blending === Blending.NormalBlending) return undefined;
   const dstFactor: GPUBlendFactor = material.blending === Blending.AdditiveBlending ? "one" : "one-minus-src-alpha";
   return {
     color: { srcFactor: "src-alpha", dstFactor, operation: "add" },
-    alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+    alpha: { srcFactor: "one", dstFactor, operation: "add" },
   };
 }
 

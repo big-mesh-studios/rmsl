@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { vec2, vec4 } from "../rmsl";
 import {
   AmbientLight,
+  Blending,
   BufferAttribute,
   BufferGeometry,
   Color,
@@ -243,6 +244,36 @@ describe("a scene renderer manages what it uploads", () => {
     gl.render(scene, camera());
     expect(passes.at(-1)!.calls.some((c) => c.name === "drawIndexed")).toBe(false);
     expect(calls.slice(before).some((c) => c.name === "drawElementsInstanced")).toBe(false);
+  });
+
+  /**
+   * @canon spec-a-draw-takes-its-material-blend-and-depth-state
+   */
+  it("blends colour and alpha with the factors three.js uses on both renderers", () => {
+    const { device, canvas, pipelines } = stubDevice();
+    const gpu = new WebGPURenderer(canvas, device as any);
+    const { renderer: gl, gl: context, calls } = stubWebGl();
+    const normal = new MeshBasicMaterial({ transparent: true, opacity: 0.5 });
+    const additive = new MeshBasicMaterial({ transparent: true, opacity: 0.5 });
+    additive.blending = Blending.AdditiveBlending;
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(), normal), new Mesh(new PlaneGeometry(), additive));
+    gpu.render(scene, camera());
+    gl.render(scene, camera());
+
+    const blends = pipelines.map((p) => p.fragment.targets[0].blend);
+    expect(blends).toContainEqual({
+      color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+      alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+    });
+    expect(blends).toContainEqual({
+      color: { srcFactor: "src-alpha", dstFactor: "one", operation: "add" },
+      alpha: { srcFactor: "one", dstFactor: "one", operation: "add" },
+    });
+    const { SRC_ALPHA, ONE_MINUS_SRC_ALPHA, ONE } = context;
+    const functions = calls.filter((c) => c.name === "blendFuncSeparate").map((c) => c.args);
+    expect(functions).toContainEqual([SRC_ALPHA, ONE_MINUS_SRC_ALPHA, ONE, ONE_MINUS_SRC_ALPHA]);
+    expect(functions).toContainEqual([SRC_ALPHA, ONE, ONE, ONE]);
   });
 
   /**
