@@ -1603,6 +1603,58 @@ describe("the fragments a CPU rasterizer draws", () => {
   });
 
   /**
+   * The triangle lies at depth 0.5, and the fragment draws the depth it reads
+   * as red without writing one.
+   *
+   * @canon spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one
+   */
+  it.each(rasterizers)("%s: reads the interpolated depth in a fragment that never writes one", (_, compileRaster) => {
+    const pos = attribute("vec3");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any,
+      () => Fn(() => vec4(builtinFragDepth(), 0, 0, 1))() as any,
+      { attributeTypes: { [pos.name]: "vec3" } },
+    );
+    const got = routine.draw({ attributes: { [pos.name]: new Float64Array(screenAt(0.5)) } }, { width: 1, height: 1 });
+    expect(Array.from(got)).toEqual([0.5, 0, 0, 1]);
+  });
+
+  /**
+   * A fragment stage that reads its depth and a uniform draws a triangle at
+   * depth 0.25, then one at 0.75 behind it. The uniforms are counted as the
+   * stage reads them. The WASM rasterizer copies its uniforms into memory, so
+   * the host cannot count its reads.
+   *
+   * @canon spec-a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects
+   */
+  it("JS: runs no fragment stage that only reads its depth for a fragment behind the depth buffer", () => {
+    const pos = attribute("vec3");
+    const tint = uniform("float");
+    const routine = compileJS(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any,
+      () => Fn(() => vec4(builtinFragDepth(), tint, 0, 1))() as any,
+      { attributeTypes: { [pos.name]: "vec3" } },
+    );
+    let reads = 0;
+    const uniforms = new Proxy({ [tint.name]: 1 } as Record<string, unknown>, {
+      get: (target, key) => {
+        if (key === tint.name) reads++;
+        return target[key as string];
+      },
+    });
+    const draw = (z: number, clear: boolean) =>
+      routine.draw(
+        { attributes: { [pos.name]: new Float64Array(screenAt(z)) }, uniforms },
+        { width: 1, height: 1, clear, clearDepth: clear },
+      );
+    draw(0.25, true);
+    const readsInFront = reads;
+    expect(readsInFront).toBeGreaterThan(0);
+    expect(Array.from(draw(0.75, false))).toEqual([0.25, 1, 0, 1]);
+    expect(reads).toBe(readsInFront);
+  });
+
+  /**
    * Each shape is drawn into a 4×4 target in both windings, its edges given in
    * pixels. Each pattern is what Chromium's WebGPU shades for the same shape,
    * a row of `#` for each row of pixels from the top.

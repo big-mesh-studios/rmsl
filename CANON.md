@@ -553,6 +553,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-rasterizer-clips-at-the-near-plane`](#spec-a-rasterizer-clips-at-the-near-plane) — The rasterizer clips a triangle with a vertex behind the eye into the triangles in front of it. A triangle wholly behind the eye draws nothing.
       - [`@spec a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment) — The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles: the depth the fragment stage writes, clamped to 0 to 1, or else its interpolated depth. Its depth buffer persists across draws of one size until a draw asks for `clearDepth`, and a draw of another width or height starts from a cleared one.
       - [`@spec a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one`](#spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one) — In a CPU rasterizer, `builtinFragDepth()` read before the fragment stage writes it gives the fragment's interpolated depth.
+      - [`@spec a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects`](#spec-a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects) — A CPU rasterizer tests a fragment's interpolated depth before it runs the fragment stage, and runs no stage for a fragment that test rejects. A stage that writes its depth is tested once it has run instead. A stage that only reads its depth is tested before it runs.
       - [`@spec a-rasterizer-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads) — A draw that names no vertex count takes it from the first attribute its program reads, in the order the host passed them. An attribute the program does not read is taken and counts for nothing.
       - [`@spec a-cpu-rasterizer-reads-an-integer-attribute-as-a-32-bit-integer`](#spec-a-cpu-rasterizer-reads-an-integer-attribute-as-a-32-bit-integer) — A CPU rasterizer reads each component of an `int` attribute as an `Int32Array` stores the host's value, and each component of a `uint` attribute as a `Uint32Array` stores it. A fraction truncates toward zero, and a value outside the type's range wraps.
       - [`@spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws) — The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
@@ -3901,6 +3902,14 @@ Derives from: [`fact-webgpu-clamps-a-written-depth-to-the-depth-range`](#fact-we
 Derives from: [`spec-a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment)
 
 This follows because a fragment that writes no depth keeps its interpolated depth, so that depth is the one it holds until it writes another.
+
+##### @spec a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects
+
+> A CPU rasterizer tests a fragment's interpolated depth before it runs the fragment stage, and runs no stage for a fragment that test rejects. A stage that writes its depth is tested once it has run instead. A stage that only reads its depth is tested before it runs.
+
+Derives from: [`spec-a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment)
+
+This follows because a stage that does not write its depth cannot change the outcome of the test, so its work on a fragment the test rejects is thrown away.
 
 ##### @spec a-rasterizer-takes-its-count-from-the-first-attribute-it-reads
 

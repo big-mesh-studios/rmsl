@@ -323,7 +323,7 @@
     ;; is used only when the flag after it is 1.
     (param $writesColour i32)
     (param $fragCoordAddress i32) (param $readsFragCoord i32)
-    (param $fragDepthAddress i32) (param $writesDepth i32)
+    (param $fragDepthAddress i32) (param $usesDepth i32) (param $writesDepth i32)
     (param $discardAddress i32) (param $mayDiscard i32)
 
     (local $i i32) (local $t i32) (local $t1 i32) (local $t2 i32)
@@ -504,7 +504,7 @@
                             (f64.store (i32.add (local.get $fragCoordAddress) (i32.const 8)) (local.get $py))))
                         (if (local.get $mayDiscard) (then (i32.store (local.get $discardAddress) (i32.const 0))))
                         ;; A stage that leaves its depth unwritten keeps the interpolated one.
-                        (if (local.get $writesDepth) (then (f64.store (local.get $fragDepthAddress) (local.get $pixelDepth))))
+                        (if (local.get $usesDepth) (then (f64.store (local.get $fragDepthAddress) (local.get $pixelDepth))))
                         (call $fragmentMain)
                         ;; A fragment that discards leaves the pixel and its depth as they were.
                         (if (local.get $mayDiscard) (then (br_if $skipPixel (i32.load (local.get $discardAddress)))))

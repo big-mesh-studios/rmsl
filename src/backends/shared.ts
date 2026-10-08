@@ -137,6 +137,8 @@ export interface CompileCtx {
   positionWritten: boolean;
   inFn: boolean;
   fragDepthUsed: boolean;
+  /** Whether a fragment stage assigns its depth, where `fragDepthUsed` holds for a read too. */
+  fragDepthWritten?: boolean;
   /** Whether the shader reads the fragment's screen position. */
   fragCoordUsed: boolean;
   /** Whether a vertex stage reads `vertexIndex()` / `instanceIndex()`. */

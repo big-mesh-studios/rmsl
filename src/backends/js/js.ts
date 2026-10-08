@@ -2298,6 +2298,7 @@ export function compileJSNode(
     case "assign": {
       let targetNode = node.params![0];
       if (targetNode?.type === "builtinPosition") ctx.positionWritten = true;
+      if (targetNode?.type === "builtinFragDepth") ctx.fragDepthWritten = true;
       assertAssignable(targetNode, ctx.shaderStage);
       let rhsNode = node.params![1];
 
@@ -2675,7 +2676,7 @@ function compileJSFnDetailed(
   parts.push(`return function ${options.name}(ctx) {\n${body.map((l) => "  " + l).join("\n")}\n};`);
   return {
     source: parts.join("\n\n"),
-    writesDepth: ctx.fragDepthUsed,
+    writesDepth: ctx.fragDepthWritten ?? false,
     resultType: lastType as ShaderType | undefined,
     storageTypes: Object.fromEntries(ctx.storageTypes ?? []) as Record<string, ShaderType>,
     resultTypes: {

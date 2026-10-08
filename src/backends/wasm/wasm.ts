@@ -96,7 +96,7 @@ export type WasmParam =
   | { kind: "outputMemory"; slot: string; shaderType: ShaderType; address: number }
   | { kind: "varyingOutputMemory"; slot: string; shaderType: ShaderType; address: number }
   | { kind: "positionMemory"; address: number }
-  | { kind: "fragDepthMemory"; address: number }
+  | { kind: "fragDepthMemory"; address: number; written: boolean }
   | { kind: "discardMemory"; address: number }
   | { kind: "valueMemory"; shaderType: ShaderType; address: number }
   | { kind: "textureMemory"; slot: string; samplerType: ShaderType; metadataAddress: number }
@@ -884,6 +884,8 @@ export function compileWasmFn(
   // A program that returns nothing has no value slot and nothing to read back.
   let needsResult = options.stage === "vertex" || isAggregate(root._t as string) || root._t === "void";
   let positionWritten = false;
+  /** Whether a fragment stage assigns its depth, not only reads it. */
+  let fragDepthWritten = false;
   const outputAddress = new Map<string, number>();
   const varyingOutputAddress = new Map<string, number>();
   let positionAddress: number | undefined;
@@ -904,7 +906,10 @@ export function compileWasmFn(
   // between roots (the array-return-sugar case) is idempotent.
   assertOneDeclarationPerName(resultNodes);
   for (const n of resultNodes) collect(n);
-  for (const p of memoryParams) if (p.kind === "storageMemory") p.written = writtenStorage.has(p.slot);
+  for (const p of memoryParams) {
+    if (p.kind === "storageMemory") p.written = writtenStorage.has(p.slot);
+    if (p.kind === "fragDepthMemory") p.written = fragDepthWritten;
+  }
 
   let resultKind: ScalarKind;
   let valueAddress: number | undefined;
@@ -1640,7 +1645,7 @@ export function compileWasmFn(
         needsResult = true;
         if (fragDepthAddress === undefined) {
           fragDepthAddress = allocateFor("float");
-          memoryParams.push({ kind: "fragDepthMemory", address: fragDepthAddress });
+          memoryParams.push({ kind: "fragDepthMemory", address: fragDepthAddress, written: false });
         }
         break;
       }
@@ -1648,6 +1653,7 @@ export function compileWasmFn(
       case "assign": {
         // remember a direct gl_Position write
         if (node.params[0].type === "builtinPosition") positionWritten = true;
+        if (node.params[0].type === "builtinFragDepth") fragDepthWritten = true;
         // and which storage buffers are written
         assertAssignable(node.params[0], effectiveStage);
         const element = assignedStorageElement(node.params[0]);
