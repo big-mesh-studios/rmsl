@@ -461,7 +461,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-uniform-uploads-in-the-shape-its-type-has`](#spec-a-uniform-uploads-in-the-shape-its-type-has) — A renderer uploads a scalar uniform as a scalar and a vector or matrix as an array. An integer uniform goes up as an integer, and each column of a `mat3` is padded to 16 bytes, as WGSL reads it. It places every uniform a material collects in the WGSL layout.
     - [`@spec an-instanced-attribute-comes-from-its-mesh`](#spec-an-instanced-attribute-comes-from-its-mesh) — A renderer reads an instanced attribute from the geometry, or from the mesh that owns it when the geometry has none. Its WGSL locations match the compiler's.
     - [`@spec each-sampler-gets-its-own-texture`](#spec-each-sampler-gets-its-own-texture) — Several samplers in one draw each read their own texture.
-    - [`@spec the-webgpu-renderer-shares-one-sampler-per-state`](#spec-the-webgpu-renderer-shares-one-sampler-per-state) — The WebGPU renderer makes one sampler for each combination of filters and wrap, described as the texture asks, and binds each sampler by its type. It rebinds a texture whose sampler state changes, and leaves alone one whose update changes nothing.
+    - [`@spec the-webgpu-renderer-shares-one-sampler-per-state`](#spec-the-webgpu-renderer-shares-one-sampler-per-state) — The WebGPU renderer makes one sampler for each combination of filters and wrap, described as the texture asks, and binds each sampler by its type. When a texture's version changes, it rebinds the texture if its sampler state changed, and leaves it alone if not.
+    - [`@spec a-sampler-change-takes-effect-after-needs-update`](#spec-a-sampler-change-takes-effect-after-needs-update) — A change to a texture's filters or wrap takes effect on both renderers at the first render after `texture.needsUpdate = true`, and not before, as a change to its image does.
     - [`@spec a-changed-texture-shows-on-the-next-render`](#spec-a-changed-texture-shows-on-the-next-render) — A texture whose image changes uploads again on the next render, and a texture that does not change stays as it is. The renderer replaces and binds again a texture whose size changes.
     - [`@spec a-disposed-resource-is-freed-by-every-renderer-holding-it`](#spec-a-disposed-resource-is-freed-by-every-renderer-holding-it) — Disposing a geometry or a texture tells every renderer that holds it. Each frees its own copy and uploads it again if it draws it again, and pipelines that do not use it stay as they are. A disposed renderer stops listening.
     - [`@spec a-render-target-reads-its-pixels-back`](#spec-a-render-target-reads-its-pixels-back) — A renderer draws into a render target and reads its pixels back as RGBA bytes, the bottom row first, alike on both renderers: on WebGL at once, or asynchronously without stalling the pipeline, and on WebGPU through a promise, since WebGPU reads a texture back only asynchronously.
@@ -699,6 +700,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact three-js-clears-to-a-colour-background`](#fact-three-js-clears-to-a-colour-background) — When `scene.background` is a colour, three.js clears to that colour with alpha 1 and forces the clear, with `autoClear` on or off. With no background it clears to the renderer's clear colour.
 - [`@fact three-js-sets-blending-and-depth-from-the-material`](#fact-three-js-sets-blending-and-depth-from-the-material) — In three.js, `transparent`, `blending`, `depthTest` and `depthWrite` are properties of a material, and the renderer sets its blend and depth state from them for each draw. A material with normal blending that is not transparent draws with no blending.
 - [`@fact three-js-uploads-a-changed-attribute-through-update-ranges`](#fact-three-js-uploads-a-changed-attribute-through-update-ranges) — three.js holds the changed part of a `BufferAttribute` as a list `updateRanges`, which `addUpdateRange(start, count)` adds to. It sends those ranges to the GPU, and sends the whole attribute when the list is empty.
+- [`@fact three-js-writes-a-texture-sampler-state-when-its-version-changes`](#fact-three-js-writes-a-texture-sampler-state-when-its-version-changes) — three.js's `WebGLRenderer` writes a texture's filters and wrap when it uploads the texture, which it does when the texture's `version` differs from the one it uploaded. A change to `minFilter`, `magFilter` or a wrap mode with no `needsUpdate` leaves the texture read as before.
 - [`@fact three-js-uploads-a-data-texture-in-its-type`](#fact-three-js-uploads-a-data-texture-in-its-type) — A three.js `DataTexture` takes a typed array and a texture `type`, `UnsignedByteType` by default, and uploads its data to the GPU as that type.
 - [`@fact three-js-sums-ambient-lights-into-one-colour`](#fact-three-js-sums-ambient-lights-into-one-colour) — three.js adds the colour of each ambient light, times its intensity, into one ambient colour for the scene.
 - [`@fact three-js-scales-a-light-colour-by-its-intensity`](#fact-three-js-scales-a-light-colour-by-its-intensity) — three.js sets the colour uniform of a directional light and of a point light to the light's colour multiplied by its intensity, on the host.
@@ -753,9 +755,8 @@ The analysis found these places where the code or the documents do not hold the 
 2. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
 3. The documents call `While` and `For` TSL functions, but TSL has only `Loop`. Issue #59.
 4. `var_`, `assertBlockScope` and `compileWat` are exported with no documented purpose. Issue #73 asks whether they are public API.
-5. The WebGL renderer sets a texture's sampler state only when `needsUpdate` uploads the texture, as three.js does, where the WebGPU renderer follows a change at once. Issue #187 asks which rule both renderers keep.
-6. `createWgsl` configures its canvas opaque, so a transparent clear shows as opaque black where the other adapters show the page. Issue #188 asks whether to configure it premultiplied.
-7. rmsl changes the state of a WebGL context that the application hands it, such as the unpack alignment, and does not restore it. The canon says nothing about what rmsl leaves for code that shares the context. Issue #189 asks for a ruling.
+5. `createWgsl` configures its canvas opaque, so a transparent clear shows as opaque black where the other adapters show the page. Issue #188 asks whether to configure it premultiplied.
+6. rmsl changes the state of a WebGL context that the application hands it, such as the unpack alignment, and does not restore it. The canon says nothing about what rmsl leaves for code that shares the context. Issue #189 asks for a ruling.
 
 ### Coverage gaps
 
@@ -3281,7 +3282,15 @@ This follows because a renderer that owns what it uploads frees what nothing rea
 
 #### @spec the-webgpu-renderer-shares-one-sampler-per-state
 
-> The WebGPU renderer makes one sampler for each combination of filters and wrap, described as the texture asks, and binds each sampler by its type. It rebinds a texture whose sampler state changes, and leaves alone one whose update changes nothing.
+> The WebGPU renderer makes one sampler for each combination of filters and wrap, described as the texture asks, and binds each sampler by its type. When a texture's version changes, it rebinds the texture if its sampler state changed, and leaves it alone if not.
+
+#### @spec a-sampler-change-takes-effect-after-needs-update
+
+> A change to a texture's filters or wrap takes effect on both renderers at the first render after `texture.needsUpdate = true`, and not before, as a change to its image does.
+
+Derives from: [`spec-a-change-raises-a-version-every-renderer-reads`](#spec-a-change-raises-a-version-every-renderer-reads), [`fact-three-js-writes-a-texture-sampler-state-when-its-version-changes`](#fact-three-js-writes-a-texture-sampler-state-when-its-version-changes)
+
+This follows because three.js writes a texture's sampler state only when the texture's version changes, and a renderer that compared the state at each draw would pay for that comparison on every sampler of every draw.
 
 #### @spec a-changed-texture-shows-on-the-next-render
 
@@ -4748,6 +4757,12 @@ This is how three.js behaves, read from its source (`Material` and `WebGLState`,
 > three.js holds the changed part of a `BufferAttribute` as a list `updateRanges`, which `addUpdateRange(start, count)` adds to. It sends those ranges to the GPU, and sends the whole attribute when the list is empty.
 
 This is how three.js behaves, read from its source (`BufferAttribute` and `WebGLAttributes`, three.js 0.186).
+
+## @fact three-js-writes-a-texture-sampler-state-when-its-version-changes
+
+> three.js's `WebGLRenderer` writes a texture's filters and wrap when it uploads the texture, which it does when the texture's `version` differs from the one it uploaded. A change to `minFilter`, `magFilter` or a wrap mode with no `needsUpdate` leaves the texture read as before.
+
+This is how three.js behaves, read from its source (`WebGLTextures`, `setTexture2D`, `uploadTexture` and `setTextureParameters`, three.js 0.186).
 
 ## @fact three-js-uploads-a-data-texture-in-its-type
 

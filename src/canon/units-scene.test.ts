@@ -15,10 +15,12 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshLambertMaterial,
+  NearestFilter,
   PerspectiveCamera,
   PlaneGeometry,
   PointLight,
   RGBAFormat,
+  RepeatWrapping,
   Scene,
   Texture,
   WebGLRenderer,
@@ -324,6 +326,49 @@ describe("a scene renderer manages what it uploads", () => {
     );
     const named = (value: number) => (value === gl.NEAREST ? "nearest" : value === gl.LINEAR ? "linear" : value);
     expect(new Set(filters.map((c) => named(c.args[2])))).toEqual(new Set(["nearest"]));
+  });
+
+  /**
+   * @canon spec-a-sampler-change-takes-effect-after-needs-update
+   */
+  it("writes a changed filter on WebGL only after needsUpdate", () => {
+    const { renderer, gl, calls } = stubWebGl();
+    const scene = new Scene();
+    const texture = new DataTexture(new Uint8Array([0, 0, 255, 255]), 1, 1);
+    scene.add(new Mesh(new PlaneGeometry(), sampling(texture)));
+    const minFilters = (from: number) =>
+      calls.slice(from).filter((c) => c.name === "texParameteri" && c.args[1] === gl.TEXTURE_MIN_FILTER);
+    renderer.render(scene, camera());
+
+    texture.minFilter = NearestFilter;
+    let before = calls.length;
+    renderer.render(scene, camera());
+    expect(minFilters(before)).toHaveLength(0);
+
+    texture.needsUpdate = true;
+    before = calls.length;
+    renderer.render(scene, camera());
+    expect(minFilters(before).map((c) => c.args[2])).toEqual([gl.NEAREST]);
+  });
+
+  /**
+   * @canon spec-a-sampler-change-takes-effect-after-needs-update
+   */
+  it("binds a changed wrap on WebGPU only after needsUpdate", () => {
+    const { device, canvas, samplers } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const texture = new DataTexture(new Uint8Array([0, 0, 255, 255]), 1, 1);
+    const material = sampling(texture);
+    const scene = new Scene();
+    const first = renderer.ensurePipeline(material, scene, false, false).samplerBindGroup;
+
+    texture.wrapS = RepeatWrapping;
+    expect(renderer.ensurePipeline(material, scene, false, false).samplerBindGroup).toBe(first);
+    expect(samplers).toHaveLength(1);
+
+    texture.needsUpdate = true;
+    expect(renderer.ensurePipeline(material, scene, false, false).samplerBindGroup).not.toBe(first);
+    expect(samplers[1]).toMatchObject({ addressModeU: "repeat" });
   });
 
   /**

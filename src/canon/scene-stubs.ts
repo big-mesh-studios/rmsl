@@ -13,13 +13,14 @@ export interface Call {
 
 /**
  * A `GPUDevice` and canvas context that record what the renderer asks of them:
- * buffer and texture writes kept as bytes, pipelines and layouts by descriptor,
+ * buffer and texture writes kept as bytes, pipelines, samplers and layouts by descriptor,
  * and every call a render pass receives.
  */
 export function stubDevice() {
   const contents = new Map<object, Uint8Array>();
   const textures: any[] = [];
   const pipelines: any[] = [];
+  const samplers: any[] = [];
   const layouts: any[] = [];
   const textureWrites: { texture: any; data: ArrayBufferView }[] = [];
   const bufferWrites: { buffer: any; offset: number }[] = [];
@@ -46,7 +47,10 @@ export function stubDevice() {
       pipelines.push(descriptor);
       return descriptor;
     },
-    createSampler: (descriptor: any) => descriptor,
+    createSampler: (descriptor: any) => {
+      samplers.push(descriptor);
+      return descriptor;
+    },
     createBindGroup: (descriptor: any) => descriptor,
     createTexture: (descriptor: any) => {
       const [width, height, depth] = descriptor.size;
@@ -109,6 +113,7 @@ export function stubDevice() {
     modules,
     textures,
     pipelines,
+    samplers,
     layouts,
     textureWrites,
     bufferWrites,
