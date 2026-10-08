@@ -15,6 +15,10 @@ import {
   mat3,
   outputStruct,
   attribute,
+  dot,
+  length,
+  distance,
+  type Node,
 } from "../rmsl";
 import { compileJSFragment, compileJSGrid, compileJSRoutine, compileJSVertex, createJsRoutine } from "../js";
 import {
@@ -38,6 +42,22 @@ describe("refusals the types make", () => {
     vec2(1, 2).add(vec3(1, 2, 3));
     // @ts-expect-error nor a product
     vec3(1, 2, 3).mul(vec2(1, 2));
+  });
+
+  /**
+   * @canon spec-length-distance-and-dot-take-only-floats
+   */
+  it("refuses length, distance and dot of an integer or a boolean", () => {
+    expectTypeOf(dot(float(2), float(3))).toEqualTypeOf<Node<"float">>();
+    expectTypeOf(length(vec3(1, 2, 3))).toEqualTypeOf<Node<"float">>();
+    // @ts-expect-error an int has no length
+    length(int(3));
+    // @ts-expect-error nor two uints a distance
+    distance(uint(3), uint(4));
+    // @ts-expect-error nor two ivec2s a dot product
+    dot(ivec2(1, 2), ivec2(3, 4));
+    // @ts-expect-error nor a bool a length
+    length(bool(true));
   });
 });
 

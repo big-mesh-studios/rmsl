@@ -246,33 +246,16 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
-   * @canon spec-length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one
+   * @canon spec-length-distance-and-dot-take-only-floats
    */
-  it("converts an integer scalar to float before length, distance and dot, on every target", () => {
-    const build = (a: Node<"float">) => {
-      const i = a.toInt();
-      return length(i)
-        .add(distance(i, int(3)).mul(10))
-        .add(dot(i, int(2)).mul(100))
-        .add(dot(uint(7), uint(5)).mul(1000));
-    };
-    expect(evaluateRecording(build, [-2])).toBe(2 + 50 - 400 + 35000);
-    const params = [
-      { name: "a", type: "int" as const },
-      { name: "b", type: "uint" as const },
-    ];
-    const run = (compile: CompileCpuRoutine, float: "f64" | "f32") =>
-      compile((a: any, b: any) => Fn(() => dot(a, a).add(length(b)).add(distance(a, b)).toVar())(), {
-        name: "main",
-        params,
-        float,
-      })({ params: { a: 70000, b: 4294967295 } });
-    expect(run(compileJSRoutine as CompileCpuRoutine, "f64")).toBe(70000 * 70000 + 4294967295 + (4294967295 - 70000));
-    for (const float of ["f64", "f32"] as const) {
-      expect(run(compileWasmRoutine as CompileCpuRoutine, float)).toBe(
-        run(compileJSRoutine as CompileCpuRoutine, float),
-      );
-    }
+  it("refuses length, distance and dot of an integer or a boolean as the graph is built", () => {
+    expect(() => length(int(3) as any)).toThrow(
+      /length\(\) takes a float or a float vector, not int\. Convert it with toFloat\(\) first/,
+    );
+    expect(() => distance(uint(3) as any, uint(4) as any)).toThrow(/distance\(\) takes .*, not uint/);
+    expect(() => dot(ivec2(1, 2) as any, ivec2(3, 4) as any)).toThrow(/dot\(\) takes .*, not ivec2/);
+    expect(() => (vec2(1, 2) as any).dot(ivec2(3, 4))).toThrow(/dot\(\) takes .*, not ivec2/);
+    expect(() => length(bvec3(true, false, true) as any)).toThrow(/Convert it with toVec3\(\) first/);
   });
 
   /**

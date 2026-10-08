@@ -884,11 +884,16 @@ describe("WASM backend: vector/matrix construct and literals", () => {
    * @canon spec-a-matrix-is-built-from-its-columns
    * @canon spec-a-scalar-matrix-is-a-diagonal
    */
-  it("dots a matrix (Frobenius inner product) built from columns or a scalar diagonal", () => {
-    const m = () => mat3(vec3(1, 2, 3), vec3(4, 5, 6), vec3(7, 8, 9));
-    expect(run(() => (m() as any).dot(m() as any))).toBe(285); // sum of squares 1..9
-    expect(run(() => (mat2(2) as any).dot(mat2(2) as any))).toBe(8); // diag(2,2) -> 4+4
-    expect(run(() => (mat4(3) as any).dot(mat4(3) as any))).toBe(36); // diag(3,3,3,3) -> 4*9
+  it("sums the squares of a matrix built from columns or a scalar diagonal", () => {
+    /** The sum of the squares of a matrix's components, one column's dot product at a time. */
+    const squares = (m: any, columns: number) => {
+      let sum = m.element(int(0)).dot(m.element(int(0)));
+      for (let c = 1; c < columns; c++) sum = sum.add(m.element(int(c)).dot(m.element(int(c))));
+      return sum;
+    };
+    expect(run(() => squares(mat3(vec3(1, 2, 3), vec3(4, 5, 6), vec3(7, 8, 9)), 3))).toBe(285); // 1..9
+    expect(run(() => squares(mat2(2), 2))).toBe(8); // diag(2,2) -> 4+4
+    expect(run(() => squares(mat4(3), 4))).toBe(36); // diag(3,3,3,3) -> 4*9
   });
 });
 

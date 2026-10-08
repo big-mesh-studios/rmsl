@@ -345,12 +345,10 @@ export function compileGLSLNode(
     case "max":
       return binaryGLSL(node, ctx, "max", true);
     case "dot":
-      if (!/vec/.test((node.params![0] as any)?._t ?? "")) return scalarReductionGLSL(node, ctx, "dot");
       return binaryGLSL(node, ctx, "dot", true);
     case "cross":
       return binaryGLSL(node, ctx, "cross", true);
     case "distance":
-      if (!/vec/.test((node.params![0] as any)?._t ?? "")) return scalarReductionGLSL(node, ctx, "distance");
       return binaryGLSL(node, ctx, "distance", true);
     case "reflect":
       return binaryGLSL(node, ctx, "reflect", true);
@@ -547,7 +545,6 @@ export function compileGLSLNode(
     case "normalize":
       return unaryGLSL(node, ctx, "normalize");
     case "length":
-      if (!/vec/.test((node.params![0] as any)?._t ?? "")) return scalarReductionGLSL(node, ctx, "length");
       return unaryGLSL(node, ctx, "length");
     case "transpose":
       return unaryGLSL(node, ctx, "transpose");
@@ -912,24 +909,6 @@ export function ternaryGLSL(
     decls: [...a.decls, ...b.decls, ...c.decls],
     body: [...a.body, ...b.body, ...c.body],
     expr: format(aExpr, bExpr, cExpr),
-  };
-}
-
-/** `length`, `distance` or `dot` of scalars, which GLSL defines for floats only: an integer converts first. */
-function scalarReductionGLSL(
-  node: BaseNode<ShaderType>,
-  ctx: CompileCtx,
-  fn: "dot" | "length" | "distance",
-): CompiledNode {
-  let operands = node.params!.map((param) => {
-    let operand = compileGLSLStage(param, ctx);
-    return (param as any)._t === "float" ? operand : { ...operand, expr: `float(${operand.expr})` };
-  });
-  return {
-    decls: operands.flatMap((o) => o.decls),
-    body: operands.flatMap((o) => o.body),
-    expr: `${fn}(${operands.map((o) => o.expr).join(", ")})`,
-    prec: PREC_ATOM,
   };
 }
 

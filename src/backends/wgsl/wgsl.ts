@@ -783,12 +783,12 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     case "max":
       return binaryWGSL(node, ctx, "max", true);
     case "dot":
-      if (!/vec/.test((node.params![0] as any)?._t ?? "")) return scalarReductionWGSL(node, ctx, "dot");
+      // WGSL's dot takes vectors only; of two scalars it is their product, as GLSL gives it.
+      if (!/vec/.test((node.params![0] as any)?._t ?? "")) return binaryWGSL(node, ctx, "*");
       return binaryWGSL(node, ctx, "dot", true);
     case "cross":
       return binaryWGSL(node, ctx, "cross", true);
     case "distance":
-      if (!/vec/.test((node.params![0] as any)?._t ?? "")) return scalarReductionWGSL(node, ctx, "distance");
       return binaryWGSL(node, ctx, "distance", true);
     case "reflect":
       return binaryWGSL(node, ctx, "reflect", true);
@@ -948,7 +948,6 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     case "normalize":
       return unaryWGSL(node, ctx, "normalize");
     case "length":
-      if (!/vec/.test((node.params![0] as any)?._t ?? "")) return scalarReductionWGSL(node, ctx, "length");
       return unaryWGSL(node, ctx, "length");
     case "transpose":
       return unaryWGSL(node, ctx, "transpose");
@@ -1573,35 +1572,6 @@ export function ternaryWGSL(
     decls: [...a.decls, ...b.decls, ...c.decls],
     body: [...a.body, ...b.body, ...c.body],
     expr: format(aExpr, bExpr, cExpr),
-  };
-}
-
-/**
- * `length`, `distance` or `dot` of scalars. WGSL defines the first two for floats
- * only, so an integer converts first; its `dot` takes vectors only, so of two
- * scalars it is their product.
- */
-function scalarReductionWGSL(
-  node: BaseNode<ShaderType>,
-  ctx: CompileCtx,
-  fn: "dot" | "length" | "distance",
-): CompiledNode {
-  let operands = node.params!.map((param) => {
-    let operand = compileWGSLStage(param, ctx);
-    return (param as any)._t === "float" ? operand : { ...operand, expr: `f32(${operand.expr})`, prec: PREC_ATOM };
-  });
-  let [a, b] = operands;
-  let expr =
-    fn === "dot"
-      ? `(${wrapExpr(a!.prec, PRECEDENCE.mul!, a!.expr)} * ${wrapExpr(b!.prec, PRECEDENCE.mul!, b!.expr)})`
-      : fn === "length"
-        ? `length(${a!.expr})`
-        : `distance(${a!.expr}, ${b!.expr})`;
-  return {
-    decls: operands.flatMap((o) => o.decls),
-    body: operands.flatMap((o) => o.body),
-    expr,
-    prec: PREC_ATOM,
   };
 }
 
