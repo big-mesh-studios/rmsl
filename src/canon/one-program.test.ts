@@ -1,5 +1,20 @@
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import { Fn, If, float, int, mat2, mat3, uniform, uniformArray, varying, vec2, vec3, vec4, type Node } from "../rmsl";
+import {
+  Fn,
+  If,
+  float,
+  int,
+  mat2,
+  mat3,
+  mat4,
+  uniform,
+  uniformArray,
+  varying,
+  vec2,
+  vec3,
+  vec4,
+  type Node,
+} from "../rmsl";
 import { compileJSRoutine } from "../js";
 import { compileWasmRoutine } from "../wasm";
 import {
@@ -59,9 +74,23 @@ describe("one program means the same on every target", () => {
   });
 
   /**
+   * Each narrowing, of a matrix that arrives at run time, read whole as its
+   * columns.
+   *
+   * @canon spec-a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns
+   */
+  it("narrows a matrix to its leading rows and columns on JS", () => {
+    const m3 = (a: Node<"float">) => mat3(vec3(a, 2, 3), vec3(4, 5, 6), vec3(7, 8, 9));
+    const m4 = (a: Node<"float">) =>
+      mat4(vec4(a, 2, 3, 4), vec4(5, 6, 7, 8), vec4(9, 10, 11, 12), vec4(13, 14, 15, 16));
+    expect(Array.from(evaluateJS((a) => mat2(m3(a)), [1]) as Float64Array)).toEqual([1, 2, 4, 5]);
+    expect(Array.from(evaluateJS((a) => mat2(m4(a)), [1]) as Float64Array)).toEqual([1, 2, 5, 6]);
+    expect(Array.from(evaluateJS((a) => mat3(m4(a)), [1]) as Float64Array)).toEqual([1, 2, 3, 5, 6, 7, 9, 10, 11]);
+  });
+
+  /**
    * A `mat2` cut down from a `mat3` that arrives at run time keeps the leading
-   * rows of its leading columns on GLSL and WGSL. JS and WASM depart from it,
-   * as their bugs say.
+   * rows of its leading columns on GLSL and WGSL.
    *
    * @canon spec-a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns
    */

@@ -19,7 +19,7 @@ import { compileGlsl } from "../glsl";
 import { compileWgsl } from "../wgsl";
 import { compileJSRoutine, compileJSVertex } from "../js";
 import { compileWasmRoutine, compileWasmVertex } from "../wasm";
-import { evaluateJS, evaluateWASM } from "../testing/shader-eval";
+import { evaluateWASM } from "../testing/shader-eval";
 
 const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
 const none = { name: "main", params: [] };
@@ -27,13 +27,6 @@ const none = { name: "main", params: [] };
 const narrow = (a: Node<"float">) => mat2(mat3(vec3(a, 2, 3), vec3(4, 5, 6), vec3(7, 8, 9))).element(int(1)).y;
 
 describe("known bugs, each failing until its fix", () => {
-  /**
-   * @canon bug-js-narrows-a-matrix-by-its-flat-values
-   */
-  it.fails("keeps the leading rows of the leading columns when narrowing on JS", () => {
-    expect(evaluateJS(narrow, [1])).toBe(5);
-  });
-
   /**
    * @canon bug-wasm-compiles-no-matrix-narrowing
    */

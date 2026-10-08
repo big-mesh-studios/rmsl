@@ -295,7 +295,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-scalar-matrix-is-a-diagonal`](#spec-a-scalar-matrix-is-a-diagonal) — A matrix constructor given one scalar builds the matrix with that scalar on its diagonal and zero elsewhere, written out in full on WGSL.
     - [`@spec a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns`](#spec-a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns) — A matrix constructor given a larger matrix keeps the leading rows of its leading columns, on every target.
       - [`@bug wasm-compiles-no-matrix-narrowing`](#bug-wasm-compiles-no-matrix-narrowing) — The WASM target does not compile a matrix built from a larger matrix.
-      - [`@bug js-narrows-a-matrix-by-its-flat-values`](#bug-js-narrows-a-matrix-by-its-flat-values) — On JS, a matrix built from a larger matrix takes its leading values in flat order. It does not keep the leading rows of the leading columns.
     - [`@spec a-matrix-is-built-from-its-columns`](#spec-a-matrix-is-built-from-its-columns) — A matrix constructor of any shape, square or not, takes its values column by column, as numbers or as vector columns.
     - [`@spec a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number`](#spec-a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number) — A matrix constructor given scalar nodes among its numbers builds the matrix from them, in column order, on every target. A mix of values whose count is not the matrix's is refused.
     - [`@spec a-literal-compiles-to-a-literal-of-its-type`](#spec-a-literal-compiles-to-a-literal-of-its-type) — `int`, `uint`, `bool`, boolean vector and integer vector constructors given literals compile to literals of their type on each target.
@@ -2366,12 +2365,6 @@ This follows because TSL builds values with the constructors of the shading lang
 > The WASM target does not compile a matrix built from a larger matrix.
 
 Issue: #65
-
-##### @bug js-narrows-a-matrix-by-its-flat-values
-
-> On JS, a matrix built from a larger matrix takes its leading values in flat order. It does not keep the leading rows of the leading columns.
-
-Issue: #64
 
 #### @spec a-matrix-is-built-from-its-columns
 

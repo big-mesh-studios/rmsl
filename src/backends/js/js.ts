@@ -1645,12 +1645,28 @@ export function compileJSNode(
         let size = cols * rows;
         if ((node.params ?? []).length === 1) {
           let src = node.params![0];
-          if (MATRIX_DIMENSIONS[src?._t] !== undefined) {
-            // A matrix source: copy (or truncate/extend through the same shape).
-            let c = compileJSStage(src, ctx);
+          let source = MATRIX_DIMENSIONS[src?._t];
+          if (source !== undefined) {
+            let c = jsReadable(jsCompileOperand(src, ctx), src._t, ctx);
             let target = ctx.outTarget ?? jsNewTemp(ctx, targetType);
-            jsRequireHelper(ctx, "copy");
-            return { decls: c.decls, body: [...c.body, `_copy(${c.expr}, ${target});`], expr: target };
+            let [sourceCols, sourceRows] = source;
+            if (sourceCols === cols && sourceRows === rows) {
+              jsRequireHelper(ctx, "copy");
+              return { decls: c.decls, body: [...c.body, `_copy(${c.expr}, ${target});`], expr: target };
+            }
+            // Column by column: the source's leading rows of its leading columns, and the identity's where it has none.
+            let writes: string[] = [];
+            for (let col = 0; col < cols; col++)
+              for (let row = 0; row < rows; row++) {
+                let value =
+                  col < sourceCols && row < sourceRows
+                    ? `${c.expr}[${col * sourceRows + row}]`
+                    : col === row
+                      ? "1"
+                      : "0";
+                writes.push(`${target}[${col * rows + row}] = ${value};`);
+              }
+            return { decls: c.decls, body: [...c.body, ...writes], expr: target };
           }
           // A scalar source: the diagonal. Zero the whole slot first — it is a
           // hoisted slot and could carry stale off-diagonal values from a
