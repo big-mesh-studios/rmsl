@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import wabtInit from "wabt";
 import {
   attribute,
   builtinPosition,
@@ -11,6 +12,7 @@ import {
   int,
   invocationIndex,
   ivec2,
+  mat3,
   storage,
   StorageBufferAttribute,
   textureLoad,
@@ -24,6 +26,7 @@ import {
 import { compileJS, compileJSCompute, compileJSRoutine } from "../js";
 import type { CompileCpuRoutine } from "../backends/cpu";
 import {
+  createWasmCompute,
   compileWasm,
   compileWasmCompute,
   compileWasmFn,
@@ -478,5 +481,53 @@ describe("an integer texel on WASM", () => {
     expect(readUnsigned({ textures: { [unsigned.name]: texture(4294967295) } })).toBe(4294967295);
     expect(readSigned({ textures: { [signed.name]: texture(2147483647) } })).toBe(2147483647);
     expect(readSigned({ textures: { [signed.name]: texture(-2147483648) } })).toBe(-2147483648);
+  });
+});
+
+describe("a matrix column read on WASM", () => {
+  /**
+   * One read of a component of a column, at constant indices, adds one load
+   * to the module: a second read beside the first costs that much.
+   *
+   * @canon spec-a-wasm-routine-reads-a-matrix-column-where-it-lies
+   */
+  it("reads a component of a column at constant indices with one load", async () => {
+    const wabt = await wabtInit();
+    const loads = (read: (m: any) => Node<"float">) => {
+      const compiled = compileWasmFn(
+        () =>
+          Fn(() => {
+            const m = mat3(1, 2, 3, 4, 5, 6, 7, 8, 9).toVar();
+            return read(m);
+          })(),
+        { name: "main", params: [] },
+      );
+      return (
+        wabt
+          .readWasm(compiled.bytes, {})
+          .toText({})
+          .match(/f64\.load/g) ?? []
+      ).length;
+    };
+    const once = loads((m) => m.element(int(2)).y);
+    expect(loads((m) => m.element(int(2)).y.add(m.element(int(1)).z)) - once).toBe(1);
+  });
+
+  /**
+   * @canon spec-a-wasm-routine-reads-a-matrix-column-where-it-lies
+   */
+  it("reads a column of a storage element from the buffer, and as zero past its end", () => {
+    const matrices = instancedArray(1, "mat3");
+    const out = instancedArray(2, "vec3");
+    const root = Fn(() => {
+      out.element(int(0)).assign(matrices.element(int(0)).element(int(1)));
+      out.element(int(1)).assign(vec3(matrices.element(int(4)).element(int(1)).y, 0, 0));
+    })();
+    const adapter = createWasmCompute(root, { name: "step" });
+    adapter.setAttribute(matrices.name, Float32Array.of(1, 2, 3, 4, 5, 6, 7, 8, 9));
+    const data = new Float32Array(6);
+    adapter.setAttribute(out.name, data);
+    adapter.compute();
+    expect(Array.from(data)).toEqual([4, 5, 6, 0, 0, 0]);
   });
 });

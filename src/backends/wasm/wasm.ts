@@ -2169,9 +2169,20 @@ export function compileWasmFn(
     return [...base, ...clampedIndexOffset(index, cols, rows * 8), WASM_OP.i32Add];
   }
 
-  /** Copies the matrix column a `matrixElement` node selects into its scratch address at `addr`. */
+  /**
+   * Copies the matrix column a `matrixElement` node selects into its scratch
+   * address at `addr`. A storage element's column is copied from the buffer,
+   * inside the element's bounds check, and is zero outside it.
+   */
   function emitMatrixColumnLoadStores(node: any, addr: number): number[] {
     const [matrix, index] = node.params;
+    if (matrix.type === "storageElement") {
+      const access = storageElementAccess(matrix);
+      const rows = columnRows(matrix);
+      const copy = copyColumn(columnAddress(matrix, index, access.address(0)), rows, addr, true);
+      const zeroes = rows.flatMap((_, i) => storeComponent(addr, "float", i * 8, f64ConstBytes(0)));
+      return [...access.inBounds, WASM_OP.if_, WASM_BLOCKTYPE_VOID, ...copy, WASM_OP.else_, ...zeroes, WASM_OP.end];
+    }
     return [
       ...materializeIfNeeded(matrix),
       ...copyColumn(columnAddress(matrix, index, i32ConstBytes(nodeAddress(matrix))), columnRows(matrix), addr, true),
@@ -3563,10 +3574,33 @@ export function compileWasmFn(
 
   /** Loads component k, materializing the aggregate into memory first if needed. */
   function readComponent(node: any, k: number): number[] {
+    if (node.type === "matrixElement") return readColumnComponent(node, k);
     const out = [...materializeIfNeeded(node)];
     const kind = elementKindOf(node._t as string);
     out.push(...loadComponent(nodeAddress(node), kind, k * componentSizeOf(kind)));
     return out;
+  }
+
+  /**
+   * Component `k` of the matrix column `column` selects, read where the matrix
+   * holds it rather than through a copy of the column: one load for a column
+   * at a constant index. A storage element's column reads from the buffer,
+   * and as zero outside it, as the whole element does.
+   */
+  function readColumnComponent(column: any, k: number): number[] {
+    const [matrix, index] = column.params;
+    const rows = MATRIX_DIMENSIONS[matrix._t as string][1];
+    const atRow = (address: number[]) => (k === 0 ? address : [...address, ...i32ConstBytes(k * 8), WASM_OP.i32Add]);
+    if (matrix.type === "storageElement") {
+      const access = storageElementAccess(matrix);
+      const load = loadDynamic(atRow(columnAddress(matrix, index, access.address(0))), "float");
+      return [...access.inBounds, WASM_OP.if_, WASM_F64, ...load, WASM_OP.else_, ...f64ConstBytes(0), WASM_OP.end];
+    }
+    const out = materializeIfNeeded(matrix);
+    if (isLeafLiteral(index)) {
+      return [...out, ...loadComponent(nodeAddress(matrix), "float", (constantIndex(matrix, index) * rows + k) * 8)];
+    }
+    return [...out, ...loadDynamic(atRow(columnAddress(matrix, index, i32ConstBytes(nodeAddress(matrix)))), "float")];
   }
 
   /** f64 op for float operands, the i32 op otherwise — int/uint/bool share bit patterns for add/sub/mul. */

@@ -416,6 +416,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-wasm-routine-loops-inside-its-module`](#spec-a-wasm-routine-loops-inside-its-module) — `draw` and `compute` of a WASM routine run their whole grid or dispatch inside the module, in one call from the host. A program that never reads `invocationIndex()`, or returns a value, still runs once for each invocation.
     - [`@bug wasm-loops-a-program-without-storage-from-the-host`](#bug-wasm-loops-a-program-without-storage-from-the-host) — A program with neither `storage()` nor `invocationIndex()` gets no dispatch export, and `compute` calls its `main` from the host once per invocation.
   - [`@spec a-wasm-routine-copies-a-texture-into-its-memory-once`](#spec-a-wasm-routine-copies-a-texture-into-its-memory-once) — A WASM routine copies a texture into its memory the first time a slot holds it. It copies again only when the slot holds a different texture object. A texture whose data changes without a new object keeps its old copy. The memory grows to fit a larger texture or grid without corrupting what it holds.
+  - [`@spec a-wasm-routine-reads-a-matrix-column-where-it-lies`](#spec-a-wasm-routine-reads-a-matrix-column-where-it-lies) — On WASM, a component of a matrix column is read where the matrix holds it, with one load for a column and a component at constant indices. A column of a storage element is read from the buffer, inside the element's bounds check, and as zero outside it.
   - [`@spec a-wgsl-buffer-feeds-a-draw-without-a-copy`](#spec-a-wgsl-buffer-feeds-a-draw-without-a-copy) — A buffer of a WGSL compute context can feed a draw on the same device. The function `createWgsl` binds the storage nodes of its stages to the context's buffers. A render pipeline can read them as vertex data. A WGSL adapter fills storage of its own through `setAttribute` when it has no context.
   - [`@spec a-program-uses-as-many-storage-buffers-as-the-hardware-binds`](#spec-a-program-uses-as-many-storage-buffers-as-the-hardware-binds) — A WGSL program may use more storage buffers than WebGPU's default, up to what the adapter binds in one stage. A program past that is refused before a device is requested.
   - [`@spec a-wgsl-context-compiles-a-compute-node-once`](#spec-a-wgsl-context-compiles-a-compute-node-once) — A WGSL compute context creates one pipeline for a compute node at its first dispatch, and reuses it at every later one.
@@ -3030,6 +3031,12 @@ Issue: #113
 > A WASM routine copies a texture into its memory the first time a slot holds it. It copies again only when the slot holds a different texture object. A texture whose data changes without a new object keeps its old copy. The memory grows to fit a larger texture or grid without corrupting what it holds.
 
 This follows because copying every texture on every call would cost more than the call itself.
+
+### @spec a-wasm-routine-reads-a-matrix-column-where-it-lies
+
+> On WASM, a component of a matrix column is read where the matrix holds it, with one load for a column and a component at constant indices. A column of a storage element is read from the buffer, inside the element's bounds check, and as zero outside it.
+
+This follows because a copy of a column, or of a whole storage matrix, for each read is work the result does not need, on the target chosen for its speed.
 
 ### @spec a-wgsl-buffer-feeds-a-draw-without-a-copy
 
