@@ -553,6 +553,26 @@ describe("the Vite plugins", () => {
   });
 
   /**
+   * @canon spec-a-wat-module-exports-its-shared-variant-or-undefined
+   */
+  it("exports a shared variant of a .wat module that imports a memory, and undefined for one that does not", async () => {
+    const plugin = compileWat() as unknown as Load;
+    const dir = mkdtempSync(join(tmpdir(), "rmsl-wat-"));
+    try {
+      const plain = join(dir, "plain.wat");
+      writeFileSync(plain, "(module)");
+      const load = async (path: string) =>
+        (await import(`data:text/javascript,${encodeURIComponent((await plugin.load(path))!)}`)) as Record<string, any>;
+      const withoutMemory = await load(plain);
+      expect(Object.keys(withoutMemory)).toContain("shared");
+      expect(withoutMemory.shared).toBeUndefined();
+      expect((await load(RASTERIZER_WAT)).shared).toBeInstanceOf(Uint8Array);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
    * @canon spec-a-precompiled-wasm-program-is-ready-when-its-module-loads
    */
   it("instantiates each WASM program before its module finishes loading", async () => {
