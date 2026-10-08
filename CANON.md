@@ -711,7 +711,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact three-js-sets-blending-and-depth-from-the-material`](#fact-three-js-sets-blending-and-depth-from-the-material) — In three.js, `transparent`, `blending`, `depthTest` and `depthWrite` are properties of a material, and the renderer sets its blend and depth state from them for each draw. A material with normal blending that is not transparent draws with no blending. Normal blending weighs colour by the source alpha and alpha by one, both over one minus the source alpha. Additive blending adds colour weighed by the source alpha, and adds alpha.
 - [`@fact three-js-uploads-a-changed-attribute-through-update-ranges`](#fact-three-js-uploads-a-changed-attribute-through-update-ranges) — three.js holds the changed part of a `BufferAttribute` as a list `updateRanges`, which `addUpdateRange(start, count)` adds to. It sends those ranges to the GPU, and sends the whole attribute when the list is empty.
 - [`@fact three-js-cuts-a-draw-range-to-its-geometry`](#fact-three-js-cuts-a-draw-range-to-its-geometry) — three.js draws the part of a draw range that lies within the geometry's index, or within its vertices when it has no index, and draws nothing when that part is empty.
-- [`@fact three-js-uploads-an-image-once-it-has-loaded`](#fact-three-js-uploads-an-image-once-it-has-loaded) — three.js's `WebGLRenderer` does not upload a texture whose image element has not loaded, and records no version for it, so it uploads the texture at the first render after the image loads.
+- [`@fact three-js-uploads-an-image-once-it-has-loaded`](#fact-three-js-uploads-an-image-once-it-has-loaded) — three.js's `WebGLRenderer` skips the upload of a texture marked for update whose image element has not loaded, and records no version for it. It tries again at each render, and uploads the texture once the image has loaded. A texture never marked for update it does not upload; its `TextureLoader` marks a texture when the image loads.
 - [`@fact three-js-writes-a-texture-sampler-state-when-its-version-changes`](#fact-three-js-writes-a-texture-sampler-state-when-its-version-changes) — three.js's `WebGLRenderer` writes a texture's filters and wrap when it uploads the texture, which it does when the texture's `version` differs from the one it uploaded. A change to `minFilter`, `magFilter` or a wrap mode with no `needsUpdate` leaves the texture read as before.
 - [`@fact three-js-uploads-a-data-texture-in-its-type`](#fact-three-js-uploads-a-data-texture-in-its-type) — A three.js `DataTexture` takes a typed array and a texture `type`, `UnsignedByteType` by default, and uploads its data to the GPU as that type.
 - [`@fact three-js-sums-ambient-lights-into-one-colour`](#fact-three-js-sums-ambient-lights-into-one-colour) — three.js adds the colour of each ambient light, times its intensity, into one ambient colour for the scene.
@@ -3269,7 +3269,7 @@ This follows because three.js draws a texture whose image is either, and a scene
 
 Derives from: [`fact-three-js-uploads-an-image-once-it-has-loaded`](#fact-three-js-uploads-an-image-once-it-has-loaded)
 
-This follows because an image that has not loaded has no size, and a texture made from it could hold nothing.
+This follows because an image that has not loaded has no size, and a texture made from it could hold nothing. A renderer of `./scene` uploads a texture the first time it draws it, marked or not, so it needs no `needsUpdate` where three.js needs one.
 
 #### @spec a-grown-attribute-gets-a-buffer-that-holds-it
 
@@ -4835,9 +4835,9 @@ This is how three.js behaves, read from its source (`WebGLRenderer`, `renderBuff
 
 ## @fact three-js-uploads-an-image-once-it-has-loaded
 
-> three.js's `WebGLRenderer` does not upload a texture whose image element has not loaded, and records no version for it, so it uploads the texture at the first render after the image loads.
+> three.js's `WebGLRenderer` skips the upload of a texture marked for update whose image element has not loaded, and records no version for it. It tries again at each render, and uploads the texture once the image has loaded. A texture never marked for update it does not upload; its `TextureLoader` marks a texture when the image loads.
 
-This is how three.js behaves, read from its source (`WebGLTextures`, `setTexture2D`, which skips an image whose `complete` is `false`, three.js 0.186).
+This is how three.js behaves, read from its source (`WebGLTextures`, `setTexture2D`, which skips an image whose `complete` is `false` when `version > 0`, and `TextureLoader`, three.js 0.186).
 
 ## @fact three-js-writes-a-texture-sampler-state-when-its-version-changes
 
