@@ -12,9 +12,6 @@ import {
 } from "./wasm";
 import RASTERIZER_WASM_BYTES, { shared as RASTERIZER_SHARED_WASM_BYTES } from "./rasterizer.wat";
 
-/** The index of each of the first `count` vertices, which a vertex stage reads as `vertexIndex()`. */
-const vertexIndices = (count: number) => Uint32Array.from({ length: count }, (_, i) => i);
-
 /**
  * Import name the rasterizer module expects for the vertex stage's exported function.
  */
@@ -487,7 +484,13 @@ export function compileWasm(
 
     const view = new DataView(memory.buffer);
     for (const a of attrLayout) {
-      const src = a.slot === VERTEX_INDEX_SLOT ? vertexIndices(first + vertexCount) : ctx.attributes[a.slot];
+      // A vertex stage reads `vertexIndex()` as an attribute holding each vertex's index.
+      if (a.slot === VERTEX_INDEX_SLOT) {
+        for (let v = 0; v < vertexCount; v++)
+          view.setUint32(attrSrcBase + v * attrStrideBytes + a.offset, v + first, true);
+        continue;
+      }
+      const src = ctx.attributes[a.slot];
       if (!src) throw new Error(`[RMSL] compileWasm: draw() is missing attribute "${a.slot}"`);
       const componentCount = a.componentCount;
       for (let v = 0; v < vertexCount; v++) {
