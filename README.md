@@ -6,7 +6,11 @@
 A TypeScript DSL for building shader programs. Define a node graph in TypeScript and compile it to **GLSL** (WebGL 2), **WGSL** (WebGPU), **JavaScript**, or **WebAssembly** (two CPU targets for screen picking and other per-pixel host-side work).
 
 ```typescript
-import { Fn, float, vec4, uniform, compileGLSL, compileWGSL, compileJSRoutine, compileWasmRoutine } from "rmsl";
+import { Fn, float, uniform } from "@random-mesh/rmsl";
+import { compileGlsl } from "@random-mesh/rmsl/glsl";
+import { compileWgsl } from "@random-mesh/rmsl/wgsl";
+import { compileJSRoutine } from "@random-mesh/rmsl/js";
+import { compileWasmRoutine } from "@random-mesh/rmsl/wasm";
 
 let prog = Fn(() => {
   let color = uniform("vec4");
@@ -14,9 +18,9 @@ let prog = Fn(() => {
   return color.mul(brightness).toVar();
 });
 
-let glsl = compileGLSL(prog());
-let wgsl = compileWGSL(prog());
-let js = compileJSRoutine(() => prog()); // fn(ctx) -> color, run on the CPU
+let glsl = compileGlsl(prog());
+let wgsl = compileWgsl(prog());
+let js = compileJSRoutine(() => prog(), { name: "main", params: [] }); // fn(ctx) -> color, run on the CPU
 let wasm = compileWasmRoutine(() => prog(), { name: "main", params: [] }); // same contract, real WASM module
 ```
 

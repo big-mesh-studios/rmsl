@@ -406,6 +406,94 @@ fn main() {
   }
 }
 
+/**
+ * Run an integer expression on the GLSL backend and read the result back as
+ * the integer it is, from an integer render target rather than through a float.
+ *
+ * The arguments reach the shader as uniforms rather than literals, so the
+ * driver computes the operation at run time instead of folding it.
+ */
+export async function evaluateIntegerGLSL(build: IntegerBuild, type: IntegerType, args: number[]): Promise<number> {
+  const fn = compileGlslFn(build, { name: "rmsl_eval", params: integerParams(type, args.length) });
+  const scalar = type === "int" ? "int" : "uint";
+  const uniforms = args.map((_, i) => `uniform ${scalar} rmsl_arg${i};`).join("\n");
+  const call = `rmsl_eval(${args.map((_, i) => `rmsl_arg${i}`).join(", ")})`;
+  const fragment = `#version 300 es
+precision highp float;
+precision highp int;
+${uniforms}
+${fn}
+layout(location=0) out highp ${type === "int" ? "ivec4" : "uvec4"} result;
+void main() {
+  result = ${type === "int" ? "ivec4" : "uvec4"}(${call}, 0, 0, 0);
+}`;
+
+  const { gpuPage } = await import("./gpu");
+  const page = await gpuPage();
+  const out = await page.evaluate(
+    ({ fragment, args, signed }: { fragment: string; args: number[]; signed: boolean }) => {
+      // A fresh context per call, as the float evaluator makes one.
+      const gl = document.createElement("canvas").getContext("webgl2")!;
+      const texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        signed ? gl.RGBA32I : gl.RGBA32UI,
+        1,
+        1,
+        0,
+        gl.RGBA_INTEGER,
+        signed ? gl.INT : gl.UNSIGNED_INT,
+        null,
+      );
+      const framebuffer = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+      const vertices = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, vertices);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+
+      // Compiled inline rather than through a helper: the bundler renames
+      // functions and injects a `__name` shim that does not exist in the page.
+      const program = gl.createProgram()!;
+      for (const [src, kind] of [
+        [`#version 300 es\nin vec2 p; void main(){ gl_Position = vec4(p,0.,1.); }`, gl.VERTEX_SHADER],
+        [fragment, gl.FRAGMENT_SHADER],
+      ] as [string, number][]) {
+        const shader = gl.createShader(kind)!;
+        gl.shaderSource(shader, src);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+          throw new Error(gl.getShaderInfoLog(shader) || "shader failed to compile");
+        }
+        gl.attachShader(program, shader);
+      }
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        throw new Error(gl.getProgramInfoLog(program) ?? "program failed to link");
+      }
+      gl.useProgram(program);
+      args.forEach((a, i) => {
+        const location = gl.getUniformLocation(program, `rmsl_arg${i}`);
+        if (signed) gl.uniform1i(location, a);
+        else gl.uniform1ui(location, a >>> 0);
+      });
+
+      const location = gl.getAttribLocation(program, "p");
+      gl.enableVertexAttribArray(location);
+      gl.vertexAttribPointer(location, 2, gl.FLOAT, false, 0, 0);
+      gl.viewport(0, 0, 1, 1);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      const out = signed ? new Int32Array(4) : new Uint32Array(4);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA_INTEGER, signed ? gl.INT : gl.UNSIGNED_INT, out);
+      return out[0]!;
+    },
+    { fragment, args, signed: type === "int" },
+  );
+  return out;
+}
+
 /** Run an integer expression on the JS backend. */
 export function evaluateIntegerJS(build: IntegerBuild, type: IntegerType, args: number[]): number {
   const fn = compileJSFn(build, { name: "rmsl_eval", params: integerParams(type, args.length) });
@@ -434,6 +522,27 @@ export function evaluateIntegerWASM(build: IntegerBuild, type: IntegerType, args
  * prefix, so this check only ever recognizes "doesn't compile", never
  * "crashed" or "computed the wrong answer".
  */
+/**
+ * The tests whose recorded programs the WASM target does not compile yet, each
+ * with the issue that tracks it. Keyed by the test's full name, as
+ * `KNOWN_INVALID` is, so a refusal is a listed gap rather than a quiet skip.
+ */
+export const KNOWN_WASM_REFUSALS: Record<string, string> = {
+  "each leaf on every target it claims > compares a vector against a scalar on every target": "all: #219",
+  "each leaf on every target it claims > reduces a boolean vector with all and any on every target": "all, any: #219",
+  "each leaf on every target it claims > computes with int, uint, bool and integer vector literals on every target":
+    "any: #219",
+  "each leaf on every target it claims > transposes a matrix that is not square on every target": "transpose: #220",
+  "each leaf on every target it claims > reads an assignment's target as it was before the assignment on every target":
+    "inverse: #65, transpose: #220",
+  "each leaf on every target it claims > computes the geometric functions on every target": "faceForward: #130",
+  "each leaf on every target it claims > negates a boolean vector component by component on every target":
+    "not of a vector: #130",
+  "each leaf on every target it claims > rounds a value halfway between two integers to the even one on every target":
+    "round of a vector: #130",
+  "units of the core > widens the scalar argument of pow to the vector on every target": "pow of a vector: #130",
+};
+
 function isWasmUnsupported(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith("[RMSL] compileWasmFn");
 }
@@ -506,21 +615,30 @@ function formatValue(v: EvalValue): string {
   return isVector(v) ? `[${Array.from(v).join(", ")}]` : String(v);
 }
 
-/** Exact equality, elementwise for an aggregate. */
+/** The same bits, elementwise for an aggregate: a NaN equals a NaN, and `-0` differs from `0`. */
 function valuesExactlyEqual(a: EvalValue, b: EvalValue): boolean {
   const av = asArray(a);
   const bv = asArray(b);
   if (av.length !== bv.length) return false;
-  for (let i = 0; i < av.length; i++) if (av[i] !== bv[i]) return false;
+  for (let i = 0; i < av.length; i++) if (!Object.is(av[i], bv[i])) return false;
   return true;
 }
 
-/** Within `floatTolerance` of each other, elementwise for an aggregate. */
+/**
+ * Within `floatTolerance` of each other, elementwise for an aggregate. Two
+ * equal values agree whatever they are, two infinities of one sign and two
+ * NaNs included, where their distance is NaN.
+ */
 function valuesWithinTolerance(a: EvalValue, b: EvalValue): boolean {
   const av = asArray(a);
   const bv = asArray(b);
   if (av.length !== bv.length) return false;
-  for (let i = 0; i < av.length; i++) if (!(Math.abs(av[i]! - bv[i]!) < floatTolerance(av[i]!))) return false;
+  for (let i = 0; i < av.length; i++) {
+    const x = av[i]!;
+    const y = bv[i]!;
+    if (x === y || (Number.isNaN(x) && Number.isNaN(y))) continue;
+    if (!(Math.abs(x - y) < floatTolerance(x))) return false;
+  }
   return true;
 }
 
@@ -558,8 +676,25 @@ function currentTestName(): string {
   return expect.getState().currentTestName ?? "<unknown test>";
 }
 
+/** How many of `recordedEvaluations` have been compared, from the start: those recorded since are the current test's. */
+let compared = 0;
+
 /**
- * Replay every recorded program on the GPU backends and report disagreements.
+ * Compare the programs recorded since the last comparison, which are the
+ * current test's, on every target. Called from a file's `afterEach`, so a
+ * disagreement fails the test whose program caused it, and a tool that maps
+ * tests to what they check sees the comparison in that test.
+ */
+export async function assertEvaluationsOfTheTestAgree(): Promise<void> {
+  const items = recordedEvaluations.slice(compared);
+  compared = recordedEvaluations.length;
+  await compareEvaluations(items);
+}
+
+/**
+ * Compare every recorded program not compared yet on every target, and refuse
+ * a file that recorded none. Called from a file's `afterAll`, after its
+ * `afterEach` has compared each test's own programs.
  *
  * Compared against the CPU result rather than against a separately written
  * expectation, because the caller already pinned that result with an assertion
@@ -567,7 +702,6 @@ function currentTestName(): string {
  * whose answer is already known to be right.
  */
 export async function assertRecordedEvaluationsAgree(): Promise<void> {
-  const runnable = recordedEvaluations.filter((r) => r.cpuOnly === undefined);
   // Recording nothing is not the same as everything agreeing. A file that
   // stopped going through the shared helper would otherwise finish green having
   // checked one backend of three, which is the arrangement this replaced.
@@ -576,16 +710,28 @@ export async function assertRecordedEvaluationsAgree(): Promise<void> {
       `Evaluated no programs at all. Either the run was filtered down to tests that evaluate nothing, or a test file stopped calling the shared evaluation helper in src/testing/shader-eval.ts. Set RMSL_SKIP_SHADER_EVALUATION=1 if skipping evaluation is what you meant.`,
     );
   }
+  const items = recordedEvaluations.slice(compared);
+  compared = recordedEvaluations.length;
+  await compareEvaluations(items);
+  if (GPU_EVALUATION_SKIPPED) {
+    const runnable = recordedEvaluations.filter((r) => r.cpuOnly === undefined).length;
+    process.stderr.write(
+      `\n[shader-eval] SKIPPED — ${runnable} programs ran on the CPU and WASM targets only; neither shading language was evaluated.\n`,
+    );
+  }
+}
 
+/** Compare `items` on every target, and throw naming each one a target disagrees about. */
+async function compareEvaluations(items: readonly RecordedEvaluation[]): Promise<void> {
+  const runnable = items.filter((r) => r.cpuOnly === undefined);
   const failures: string[] = [];
 
   // WASM needs neither a browser nor a graphics device, so — unlike GLSL/WGSL
   // below — it always runs, even under RMSL_SKIP_GPU/RMSL_SKIP_SHADER_EVALUATION
-  // (those exist specifically to skip hardware-dependent work). A case this
-  // backend doesn't compile yet is a countable, visible skip, never a silent
-  // one — see `isWasmUnsupported`'s doc comment for why that's safe to do
-  // without also hiding a real bug.
-  let wasmUnsupported = 0;
+  // (those exist specifically to skip hardware-dependent work). A program it
+  // refuses fails the run, unless KNOWN_WASM_REFUSALS names the issue that
+  // tracks it; a listed program that compiles fails the run too.
+  const refused = new Set<string>();
   for (const item of runnable) {
     try {
       const wasm = evaluateWASM(item.build, item.args);
@@ -595,20 +741,19 @@ export async function assertRecordedEvaluationsAgree(): Promise<void> {
       }
     } catch (error) {
       if (!isWasmUnsupported(error)) throw error;
-      wasmUnsupported++;
+      refused.add(item.test);
+      if (KNOWN_WASM_REFUSALS[item.test] === undefined) {
+        failures.push(`  ${item.test}\n      WASM refused it — ${(error as Error).message}`);
+      }
     }
   }
-  if (wasmUnsupported > 0) {
-    process.stderr.write(
-      `\n[shader-eval] WASM: ${wasmUnsupported} of ${runnable.length} recorded programs are not supported by this backend yet (skipped, not failed) — see ROADMAP.md.\n`,
-    );
+  for (const test of new Set(runnable.map((item) => item.test))) {
+    if (KNOWN_WASM_REFUSALS[test] !== undefined && !refused.has(test)) {
+      failures.push(`  ${test}\n      WASM compiles every program of it now — delete it from KNOWN_WASM_REFUSALS`);
+    }
   }
 
-  if (GPU_EVALUATION_SKIPPED) {
-    process.stderr.write(
-      `\n[shader-eval] SKIPPED — ${runnable.length} programs ran on the CPU and WASM targets only; neither shading language was evaluated.\n`,
-    );
-  } else if (runnable.length > 0) {
+  if (!GPU_EVALUATION_SKIPPED && runnable.length > 0) {
     for (const item of runnable) {
       let glsl: number | number[];
       let wgsl: number | number[];

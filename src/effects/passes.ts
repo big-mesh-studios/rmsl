@@ -69,14 +69,17 @@ export const gaussianBlur = (
   const premultipliedAlpha = options.premultipliedAlpha ?? false;
   const horizontal = gaussianBlurPass(
     "gaussianBlur.horizontal",
+    "input",
     textureNode,
     [direction[0], 0],
     sigma,
     premultipliedAlpha,
   );
   const verticalInput = uniform("sampler2D");
+  // The vertical pass reads the horizontal pass's target, so it keys that input by the horizontal pass's name.
   const vertical = gaussianBlurPass(
     "gaussianBlur.vertical",
+    horizontal.name,
     verticalInput,
     [0, direction[1]],
     sigma,
@@ -98,6 +101,7 @@ export const premultipliedGaussianBlur = (
 
 function gaussianBlurPass(
   name: string,
+  inputKey: string,
   inputTex: Sampler2D,
   direction: [number, number],
   sigma: number,
@@ -129,7 +133,7 @@ function gaussianBlurPass(
     return premultipliedAlpha ? unpremultiplyAlpha(diffuseSum) : diffuseSum;
   });
 
-  return { name, color: color(), inputs: { input: inputTex } };
+  return { name, color: color(), inputs: { [inputKey]: inputTex } };
 }
 
 /**

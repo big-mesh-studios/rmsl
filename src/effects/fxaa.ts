@@ -39,7 +39,9 @@ export const fxaa = (textureNode: Sampler2D): Node<"vec4"> => {
   const _RelativeThreshold = float(0.063);
   const _SubpixelBlending = float(1.0);
 
-  const Sample = (u: Node<"vec2">): Node<"vec4"> => textureNode.texture(u);
+  // The base level, as TSL's bias(-100) reads it. A sample at an explicit level may be taken where the
+  // control flow depends on what an earlier sample read, which WGSL refuses an implicit-level sample.
+  const Sample = (u: Node<"vec2">): Node<"vec4"> => textureNode.textureLod(u, 0);
   const SampleLuminance = (u: Node<"vec2">): Node<"float"> => dot(Sample(u).rgb, vec3(0.3, 0.59, 0.11));
   const SampleLuminanceOffset = (
     texSize: Node<"vec2">,

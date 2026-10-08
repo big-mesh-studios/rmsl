@@ -1,8 +1,9 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { Fn, If, float, int, mat2, mat3, uniform, uniformArray, varying, vec2, vec3, vec4, type Node } from "../rmsl";
 import { compileJSRoutine } from "../js";
 import { compileWasmRoutine } from "../wasm";
 import {
+  assertEvaluationsOfTheTestAgree,
   assertRecordedEvaluationsAgree,
   closeEvaluators,
   evaluateIntegerJS,
@@ -21,6 +22,9 @@ import {
   recordingGLSL as compileGlsl,
   recordingWGSL as compileWgsl,
 } from "../testing/shader-validity";
+
+// Each test's programs are compared after it, so a disagreement fails the test that made the program.
+afterEach(assertEvaluationsOfTheTestAgree, 120_000);
 
 afterAll(async () => {
   await assertRecordedShadersValid();

@@ -18,7 +18,6 @@ import {
   fragCoord,
   mix,
   step,
-  uv,
   length,
   smoothstep,
 } from "../rmsl";
@@ -365,17 +364,17 @@ describe("uniformsIn", () => {
    * @canon spec-uniforms-in-finds-the-uniforms-a-graph-made-for-itself
    */
   it("hands back the uniforms a graph made for itself", () => {
-    // `uv()` mints a screen-size uniform inside the graph: the caller never
-    // sees the node, so this is the only way to bind it.
-    const graph = vec4(uv(), 0, 1);
-    const [resolution] = uniformsIn(graph, "vec2");
+    // The helper makes its uniform inside the graph: the caller never sees the
+    // node, so this is the only way to bind it.
+    const tinted = () => vec4(uniform("vec3"), 1);
+    const graph = tinted();
+    const [tint] = uniformsIn(graph, "vec3");
     const image = render(() => graph, {
       width: 4,
       height: 4,
-      uniforms: [[resolution, [4, 4]]],
+      uniforms: [[tint, [1, 0, 0.5]]],
     });
-    expect(image.at(0, 0)).toEqual([0.125, 0.125, 0, 1]);
-    expect(image.at(3, 3)).toEqual([0.875, 0.875, 0, 1]);
+    expect(image.at(0, 0)).toEqual([1, 0, 0.5, 1]);
   });
   /**
    * @canon spec-uniforms-in-finds-the-uniforms-a-graph-made-for-itself

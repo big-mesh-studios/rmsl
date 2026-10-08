@@ -2,6 +2,7 @@ import { describe, it, expect, afterAll } from "vitest";
 import { int, ivec2, uint, uvec2, type Node } from "./rmsl";
 import {
   closeEvaluators,
+  evaluateIntegerGLSL,
   evaluateIntegerJS,
   evaluateIntegerWASM,
   evaluateIntegerWGSL,
@@ -126,6 +127,15 @@ const runs = [
   ),
 ];
 
+/** Whether GLSL ES 3.00 defines the result of `c`'s operation on its operands. */
+function definedInGlsl(c: Case): boolean {
+  if ((c.op === "div" || c.op === "mod") && c.b === 0) return false;
+  if (c.op === "mod" && c.type === "int" && (c.a < 0 || c.b < 0)) return false;
+  if (c.op === "div" && c.type === "int" && c.a === INT_MIN && c.b === -1) return false;
+  if ((c.op === "shiftLeft" || c.op === "shiftRight") && (c.b < 0 || c.b >= 32)) return false;
+  return true;
+}
+
 describe("integer semantics match WGSL", () => {
   /**
    * @canon spec-js-integer-arithmetic-follows-wgsl
@@ -142,9 +152,58 @@ describe("integer semantics match WGSL", () => {
   });
 
   /**
+   * GLSL ES 3.00 defines every case here but a division or remainder by zero,
+   * a remainder with a negative operand, a division that overflows, and a
+   * shift by an amount that is negative or 32 or more.
+   *
+   * @canon spec-glsl-gives-the-wgsl-result-for-a-defined-integer-operation
+   */
+  it.skipIf(GPU_EVALUATION_SKIPPED).each(runs.filter(definedInGlsl))(
+    "GLSL: $name ($shape)",
+    async ({ type, args, want, build }) => {
+      expect(await evaluateIntegerGLSL(build, type, args)).toBe(want);
+    },
+  );
+
+  /**
    * @canon spec-wgsl-gives-the-defined-integer-result
    */
   it.skipIf(GPU_EVALUATION_SKIPPED).each(runs)("WGSL: $name ($shape)", async ({ type, args, want, build }) => {
     expect(await evaluateIntegerWGSL(build, type, args)).toBe(want);
+  });
+});
+
+describe("a defect of Dawn on Metal", () => {
+  /**
+   * Dawn on Metal divides a constant `u32` numerator from `0xFFFFFF80` to
+   * `0xFFFFFFFE` by a run-time value wrongly: `0xFFFFFFF0u / 3` gives
+   * 1431655765. This test fails while the defect lasts, so it starts passing,
+   * and fails the run, once Dawn fixes it. Then the exception, this test and
+   * the integer sweep's filter for it can all go.
+   *
+   * @canon exception-dawn-on-metal-divides-some-u32-constants-wrongly
+   */
+  it.skipIf(GPU_EVALUATION_SKIPPED || process.platform !== "darwin").fails(
+    "divides a constant u32 numerator near the top of its range by a run-time value on WGSL",
+    async () => {
+      expect(await evaluateIntegerWGSL((a) => uint(0xfffffff0).div(a as Node<"uint">), "uint", [3])).toBe(1431655760);
+    },
+  );
+});
+
+describe("integer cases GLSL leaves to the driver", () => {
+  /**
+   * GLSL ES 3.00 leaves a remainder with a negative operand, and a division
+   * that overflows, undefined, and the GLSL target emits them as they are.
+   *
+   * @canon bug-glsl-gives-a-negative-remainder-and-an-overflowing-division-as-the-driver-does
+   */
+  it.skipIf(GPU_EVALUATION_SKIPPED).fails.each([
+    ["-7 % 3", "mod", -7, 3, -1],
+    ["7 % -3", "mod", 7, -3, 1],
+    ["INT_MIN / -1", "div", INT_MIN, -1, INT_MIN],
+  ] as const)("gives %s the result WGSL defines on GLSL", async (_, op, a, b, want) => {
+    const build = (x: Node<"int">, y: Node<"int">) => apply(op, x, y) as Node<"int">;
+    expect(await evaluateIntegerGLSL(build, "int", [a, b])).toBe(want);
   });
 });

@@ -176,15 +176,17 @@ export async function releaseGpu(): Promise<void> {
   pagePromise = browserPromise = devicePromise = undefined;
   webgpuPagePromise = webgpuBrowserPromise = originPromise = undefined;
 
-  if (page) await (await page).close().catch(() => {});
-  if (browser) await (await browser).close().catch(() => {});
-  if (gpuPageHandle) await (await gpuPageHandle).close().catch(() => {});
-  if (gpuBrowserHandle) await (await gpuBrowserHandle).close().catch(() => {});
+  // A handle whose launch failed has nothing to release, so its failure is not thrown again here.
+  const settled = async <T>(handle: Promise<T> | undefined): Promise<T | undefined> => handle?.catch(() => undefined);
+  await (await settled(page))?.close().catch(() => {});
+  await (await settled(browser))?.close().catch(() => {});
+  await (await settled(gpuPageHandle))?.close().catch(() => {});
+  await (await settled(gpuBrowserHandle))?.close().catch(() => {});
   // A listening socket keeps the process alive on its own.
-  if (origin) (await origin).close();
+  (await settled(origin))?.close();
   // The device holds native resources, so it is released rather than left for
   // the process to clean up.
-  if (device) (await device).destroy?.();
+  (await settled(device))?.destroy?.();
 }
 
 /**

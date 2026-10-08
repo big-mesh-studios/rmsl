@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   attribute,
   cross,
@@ -28,6 +28,8 @@ import {
   mat3,
   outputStruct,
   PI,
+  screenSize,
+  screenUV,
   select,
   textureLoad,
   time,
@@ -35,6 +37,7 @@ import {
   uint,
   uniform,
   uniformArray,
+  uv,
   uvec2,
   varying,
   vec2,
@@ -47,7 +50,15 @@ import { compileGlsl } from "../glsl";
 import { compileWgsl } from "../wgsl";
 import { compileJS, compileJSRoutine, createJsGrid, compileJSFragment, compileJSVertex } from "../js";
 import { compileWasm, compileWasmRoutine, createWasmGrid, compileWasmFragment, compileWasmVertex } from "../wasm";
-import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } from "../testing/shader-eval";
+import {
+  assertEvaluationsOfTheTestAgree,
+  assertRecordedEvaluationsAgree,
+  closeEvaluators,
+  evaluateRecording,
+} from "../testing/shader-eval";
+
+// Each test's programs are compared after it, so a disagreement fails the test that made the program.
+afterEach(assertEvaluationsOfTheTestAgree, 120_000);
 
 afterAll(async () => {
   await assertRecordedEvaluationsAgree();
@@ -1057,6 +1068,21 @@ describe("each leaf on every target it claims", () => {
     const ctx = { uniforms: { [u.name]: 4000000000 } };
     expect(compileJSRoutine(build, none)(ctx)).toBe(4000000001);
     expect(compileWasmRoutine(build, none)(ctx)).toBe(4000000001);
+  });
+
+  /**
+   * @canon spec-screen-size-is-one-uniform-everywhere
+   */
+  it("gives one screen-size uniform, named _rmsl_screenSize, however often a program reads it", () => {
+    expect(screenSize().name).toBe("_rmsl_screenSize");
+    expect(screenSize()).toBe(screenSize());
+    const build = () => Fn(() => vec4(uv().add(screenUV()), 0, 1).toVar())();
+    expect(compileGlsl.fragment(build()).match(/uniform vec2 _rmsl_screenSize;/g)).toHaveLength(1);
+    expect(compileWgsl.fragment(build()).match(/_rmsl_screenSize: vec2<f32>/g)).toHaveLength(1);
+    const ctx = { fragCoord: [2, 1] as [number, number], uniforms: { [screenSize().name]: [4, 2] } };
+    for (const compile of [compileJSFragment, compileWasmFragment as typeof compileJSFragment]) {
+      expect((compile(build, none) as any)(ctx).value).toEqual(new Float64Array([1, 1, 0, 1]));
+    }
   });
 
   /**

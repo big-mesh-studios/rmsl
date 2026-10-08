@@ -3,7 +3,8 @@
 RMSL also compiles an `Fn` straight to a raw WebAssembly binary module — hand-encoded bytes, no wabt/binaryen — instead of JavaScript source. It targets the same CPU-eval niche the [JS target](compilation.md#js--cpu-target) does: screen picking, ray-march hit tests, anything calling a compiled shader graph once per pixel/click from plain JS, where per-call overhead matters more than raw throughput on a hot, already-warm loop.
 
 ```typescript
-import { compileWasmFragment, Fn, uniform, builtinFragDepth } from "rmsl";
+import { Fn, uniform, builtinFragDepth } from "@random-mesh/rmsl";
+import { compileWasmFragment } from "@random-mesh/rmsl/wasm";
 
 let pickStage = compileWasmFragment(calcColourAndDepth, { name: "pick", params: [] });
 // On pointerdown:

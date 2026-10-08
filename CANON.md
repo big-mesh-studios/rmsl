@@ -125,13 +125,13 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@exception dawn-on-metal-divides-some-u32-constants-wrongly`](#exception-dawn-on-metal-divides-some-u32-constants-wrongly) — On Dawn on Metal, a constant `u32` numerator from `0xFFFFFF80` to `0xFFFFFFFE` divided by a run-time value gives the wrong quotient.
         - [`@spec a-divisor-that-folds-to-zero-divides-like-a-literal-zero`](#spec-a-divisor-that-folds-to-zero-divides-like-a-literal-zero) — On WGSL, an integer divisor built from literals that comes to zero compiles as a literal divisor of one.
       - [`@spec glsl-integer-arithmetic-follows-wgsl`](#spec-glsl-integer-arithmetic-follows-wgsl) — The GLSL target gives an integer operation the result that WGSL defines for it.
+        - [`@bug glsl-gives-a-negative-remainder-and-an-overflowing-division-as-the-driver-does`](#bug-glsl-gives-a-negative-remainder-and-an-overflowing-division-as-the-driver-does) — On GLSL, an `int` remainder with a negative operand, and `INT_MIN / -1`, give what the driver gives rather than the result WGSL defines, for a run-time operand and a literal one alike.
         - [`@spec glsl-gives-the-wgsl-result-for-a-defined-integer-operation`](#spec-glsl-gives-the-wgsl-result-for-a-defined-integer-operation) — On GLSL, an integer operation whose result GLSL ES 3.00 defines gives the result WGSL defines for it.
         - [`@exception glsl-integer-edge-cases-on-run-time-values-follow-the-driver`](#exception-glsl-integer-edge-cases-on-run-time-values-follow-the-driver) — On GLSL, an integer division or remainder by a run-time zero gives whatever the driver gives. So does a shift by a run-time amount that is negative, or 32 or more.
     - [`@spec float-arithmetic-gives-one-result`](#spec-float-arithmetic-gives-one-result) — Every target gives a float operation the result WebGPU gives, computed in 32 bits.
       - [`@exception a-cpu-target-has-no-derivatives`](#exception-a-cpu-target-has-no-derivatives) — On a CPU target, a derivative is refused, unless the compile asks for `derivatives: "zero"`, which makes every derivative zero.
       - [`@spec wasm-float-arithmetic-matches-js-exactly`](#spec-wasm-float-arithmetic-matches-js-exactly) — The WebAssembly target gives a float operation exactly the result the JavaScript target gives.
         - [`@spec wasm-and-js-give-the-same-float-bits`](#spec-wasm-and-js-give-the-same-float-bits) — A float program gives the same bits on WASM as on JS, transcendental functions and sampling included.
-        - [`@bug the-harness-reads-negative-zero-as-zero`](#bug-the-harness-reads-negative-zero-as-zero) — The harness compares a WASM result with the JS one by `===`, which holds between `-0` and `0`, so a WASM result whose sign of zero differs passes.
       - [`@spec cpu-float-arithmetic-matches-the-gpu-targets`](#spec-cpu-float-arithmetic-matches-the-gpu-targets) — The CPU targets give a float operation the result the [GPU targets](#term-gpu-target) give.
         - [`@exception a-cpu-target-computes-floats-in-64-bits`](#exception-a-cpu-target-computes-floats-in-64-bits) — A CPU target computes a float in 64 bits unless its compile asks for 32, where a GPU computes it in 32 bits. Its result can differ from the GPU's by at most a millionth of the result's size, and by at most `1e-6` near zero.
       - [`@spec a-cpu-compile-can-run-a-program-at-64-bit-precision`](#spec-a-cpu-compile-can-run-a-program-at-64-bit-precision) — A compile function or adapter of a CPU target, JS and WASM alike, takes the option `float`, which sets the width its program computes a `float` in: `"f64"`, the default, or `"f32"`, as a GPU computes it. At 32 bits, an addition, subtraction, multiplication, division or square root gives exactly the result a GPU gives. The same program then runs on the CPU at the precision the caller picked. A compile function of a GPU target takes no such option.
@@ -154,15 +154,13 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec validation-reports-every-shader-a-driver-refuses`](#spec-validation-reports-every-shader-a-driver-refuses) — Validation reports every shader a driver refused, from every test, and refuses to pass when it recorded none. A shader listed as known to be invalid stays quiet until it compiles. A program both GPU targets refuse passes, and one that only one refuses fails.
     - [`@spec an-expected-rejection-must-be-a-rejection`](#spec-an-expected-rejection-must-be-a-rejection) — A test that expects a refused compile gets the message of the refusal, and records nothing from that compile. It fails when the compile succeeds.
     - [`@spec the-integer-sweep-tells-right-from-wrong`](#spec-the-integer-sweep-tells-right-from-wrong) — The integer sweep passes the right results and reports the wrong ones, on JS, WASM and WGSL, and holds GLSL to compiling.
-      - [`@bug the-wgsl-sweep-reads-a-ninth-argument-from-the-next-run`](#bug-the-wgsl-sweep-reads-a-ninth-argument-from-the-next-run) — The WGSL sweep gives each invocation eight argument slots and never checks that a case fits them. A ninth argument reads from the next invocation's slots.
     - [`@spec releasing-the-harness-never-throws`](#spec-releasing-the-harness-never-throws) — Releasing the harness's browser and device never throws, after a failed launch too.
-      - [`@bug release-gpu-throws-when-a-launch-failed`](#bug-release-gpu-throws-when-a-launch-failed) — `releaseGpu()` throws the launch error again after the browser could not launch.
-    - [`@bug the-harness-reports-nan-on-both-targets-as-a-disagreement`](#bug-the-harness-reports-nan-on-both-targets-as-a-disagreement) — The harness compares a WASM result with the JS one by `===`, which a NaN never meets. The harness then reports two targets that both give NaN as disagreeing.
-    - [`@bug the-harness-reports-an-infinity-on-every-target-as-a-disagreement`](#bug-the-harness-reports-an-infinity-on-every-target-as-a-disagreement) — The harness compares a GPU result with the JS one by the distance between them, which is NaN between two equal infinities. It then reports a program that gives the same infinity everywhere as disagreeing.
-    - [`@bug the-harness-passes-a-program-wasm-refuses`](#bug-the-harness-passes-a-program-wasm-refuses) — The harness counts a program WASM refuses as skipped, so a run in which WASM refused a recorded program passes.
     - [`@spec evaluation-fails-when-it-recorded-nothing`](#spec-evaluation-fails-when-it-recorded-nothing) — The replay of recorded evaluations fails when the run recorded no program.
     - [`@spec evaluate-recording-returns-the-cpu-result-at-once`](#spec-evaluate-recording-returns-the-cpu-result-at-once) — `evaluateRecording` returns the JS result at once, and keeps the program for a replay on the other targets after the tests.
     - [`@spec a-program-kept-off-the-gpu-names-its-reason`](#spec-a-program-kept-off-the-gpu-names-its-reason) — A test keeps a recorded program off the GPU targets only by naming a reason from a fixed list.
+    - [`@spec evaluation-counts-equal-results-as-agreeing`](#spec-evaluation-counts-equal-results-as-agreeing) — The evaluation harness counts two equal results as agreeing whatever they are, two NaNs or two infinities of one sign included, and holds a WASM result to the exact bits of the JS one, the sign of a zero included.
+    - [`@spec a-test-is-held-to-its-own-programs`](#spec-a-test-is-held-to-its-own-programs) — The evaluation harness compares the programs a test records on every target after that test, so a target that disagrees fails the test that made the program, and the file's last comparison takes only the programs no test compared.
+    - [`@spec a-program-wasm-refuses-names-its-issue`](#spec-a-program-wasm-refuses-names-its-issue) — A recorded program the WASM target refuses fails the run, unless the list of known refusals names it with the issue that tracks it. A listed program that compiles fails the run too.
   - [`@spec a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type) — A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A format no buffer of its own can carry, a raw integer array, and a width no format covers are refused.
     - [`@bug the-glsl-adapter-uploads-an-integer-attribute-as-floats`](#bug-the-glsl-adapter-uploads-an-integer-attribute-as-floats) — `createGlsl` points every attribute at its buffer as floats, so an `int` attribute mismatches its declaration and the draw is refused.
   - [`@spec wgsl-brackets-a-bitwise-operand-that-is-not-unary`](#spec-wgsl-brackets-a-bitwise-operand-that-is-not-unary) — On WGSL, the compiler brackets each operand of a bitwise or shift operator that is not a unary expression.
@@ -193,6 +191,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-raw-name-declares-one-input-under-that-name`](#spec-a-raw-name-declares-one-input-under-that-name) — `uniformRaw`, `attributeRaw` and `varyingRaw` declare their input under the name given, once however many nodes carry it, and every target reads it by that name. An empty name is refused.
       - [`@spec a-raw-name-names-one-type`](#spec-a-raw-name-names-one-type) — Two inputs that share a name but not a type are refused on every target.
       - [`@spec time-is-one-uniform-everywhere`](#spec-time-is-one-uniform-everywhere) — `time()` gives one uniform, named `_rmsl_time`, in every program and every process, so every program that reads it reads one clock.
+      - [`@spec screen-size-is-one-uniform-everywhere`](#spec-screen-size-is-one-uniform-everywhere) — `screenSize()` gives one `vec2` uniform, named `_rmsl_screenSize`, in every program and every process, and its type names it a uniform, so the host binds it by its `.name`. `screenUV()` and `uv()` read it.
     - [`@spec a-location-is-numbered-within-its-program`](#spec-a-location-is-numbered-within-its-program) — The locations of a program's outputs, and of the values a vertex stage passes on, count from 0 within that program, each used once.
     - [`@spec wgsl-numbers-attributes-in-the-order-of-their-creation`](#spec-wgsl-numbers-attributes-in-the-order-of-their-creation) — On WGSL, a vertex stage gives its attributes locations from 0 in the order the application created them.
   - [`@spec a-node-has-the-type-its-signature-declares`](#spec-a-node-has-the-type-its-signature-declares) — The type a signature declares for a node is the type the node has at run time, and the type a compiler declares for it.
@@ -274,7 +273,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-compound-assignment-writes-the-result-back`](#spec-a-compound-assignment-writes-the-result-back) — `addAssign`, `subAssign`, `mulAssign`, `divAssign` and `modAssign` write the result of their operation back to the variable.
     - [`@spec select-picks-one-of-two-values`](#spec-select-picks-one-of-two-values) — `select(condition, a, b)` gives `a` where `condition` holds and `b` where it does not, with the type of its branches. A literal condition folds to its branch.
     - [`@spec the-screen-accessors-follow-tsl`](#spec-the-screen-accessors-follow-tsl) — `fragCoord()` gives the coordinate of the fragment, and `screenUV()` and `uv()` give it divided by the size of the screen. `screenSize()` gives one shared uniform, and `time()` a float uniform. Each does what TSL's accessor of the same name does.
-      - [`@bug screen-size-makes-a-new-uniform-on-every-call`](#bug-screen-size-makes-a-new-uniform-on-every-call) — `screenSize()` declares a new uniform each time it is called, so a program that calls `uv()` twice reads two size uniforms.
     - [`@spec the-index-accessors-follow-tsl`](#spec-the-index-accessors-follow-tsl) — `vertexIndex()` and `instanceIndex()` give the vertex and the instance that the GPU draws, as TSL's accessors of the same names do. The CPU targets do not compile them yet: issue #47.
       - [`@bug the-cpu-targets-compile-no-index-accessors`](#bug-the-cpu-targets-compile-no-index-accessors) — The JS and WASM targets do not compile `vertexIndex()` or `instanceIndex()`.
     - [`@spec the-weight-of-mix-stays-a-scalar`](#spec-the-weight-of-mix-stays-a-scalar) — The scalar weight of `mix` reaches every target as a scalar beside its vectors.
@@ -365,11 +363,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-compute-uniform-resource-names-the-rmsl-type-of-its-uniform`](#spec-a-compute-uniform-resource-names-the-rmsl-type-of-its-uniform) — A uniform resource of a compiled WGSL compute program carries the rmsl type of the uniform in `shaderType`, so an `int` is `"int"` and not `"i32"`. The adapter lays it out in the WGSL spelling.
   - [`@spec an-effect-is-a-port-of-a-tsl-display-effect`](#spec-an-effect-is-a-port-of-a-tsl-display-effect) — An [effect](#term-effect) of `./effects` computes what the TSL display effect of the same name computes, and compiles on GLSL and WGSL.
     - [`@spec a-single-pass-effect-gives-a-colour-node`](#spec-a-single-pass-effect-gives-a-colour-node) — A single-pass effect takes samplers and parameter nodes and gives a node: a colour, or a float mask for `circle`.
-      - [`@bug transition-reads-a-null-mix-texture`](#bug-transition-reads-a-null-mix-texture) — `transition` builds the branch that samples the mix texture whatever `useTexture` is, so a `null` mix texture throws a `TypeError`.
     - [`@spec bloom-follows-tsl`](#spec-bloom-follows-tsl) — `bloom` gives TSL's pass graph of twelve passes. Its high pass keeps what is brighter than a luminance threshold, or applies a filter the caller gives. Its composite sums five tinted mips, scaled by its strength. `luminosityHighPass` is also available on its own.
     - [`@spec gaussian-blur-weights-follow-tsl`](#spec-gaussian-blur-weights-follow-tsl) — `getGaussianCoefficients(radius)` gives the weights TSL's Gaussian blur uses: for each offset `i` below the radius, `0.39894 · exp(-i² / 2σ²) / σ`, with `σ` a third of the radius.
     - [`@spec an-effect-compiles-as-a-function-of-its-own`](#spec-an-effect-compiles-as-a-function-of-its-own) — An effect compiles with `compileGlslFn` and `compileWgslFn` into a function the application places in its own shader.
-    - [`@bug fxaa-samples-in-non-uniform-control-flow-on-wgsl`](#bug-fxaa-samples-in-non-uniform-control-flow-on-wgsl) — `fxaa` samples its input inside a branch whose condition depends on a sampled value, which WGSL refuses as sampling outside uniform control flow.
     - [`@spec a-number-given-to-an-effect-compiles-as-a-literal`](#spec-a-number-given-to-an-effect-compiles-as-a-literal) — A number given as a parameter of an effect compiles as a literal in the effect's code.
     - [`@spec a-node-given-to-an-effect-is-read-as-given`](#spec-a-node-given-to-an-effect-is-read-as-given) — An effect reads a node the caller passes as a parameter, so a uniform can drive that parameter.
   - [`@spec the-scene-library-follows-three-js`](#spec-the-scene-library-follows-three-js) — The classes of `./scene` behave as the three.js classes of the same names, so a three.js scene ports by changing its import.
@@ -441,7 +437,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-effect-with-several-passes-is-a-pass-graph`](#spec-an-effect-with-several-passes-is-a-pass-graph) — An [effect](#term-effect) with several passes returns a [pass graph](#term-pass-graph): its passes, the samplers each pass reads, and the pass that gives the output. The application draws each pass.
     - [`@exception a-scene-renderer-draws-its-scene-graph`](#exception-a-scene-renderer-draws-its-scene-graph) — `render(scene, camera)` on a renderer of `./scene` walks the scene graph, binds the geometry and the [node material](#term-node-material) of each mesh, uploads their uniforms and draws them.
     - [`@spec a-pass-keys-an-input-by-the-pass-that-makes-it`](#spec-a-pass-keys-an-input-by-the-pass-that-makes-it) — A pass keys an input another pass makes by that pass's name, such as `gaussianBlur.horizontal`, and an outside texture by any other name.
-      - [`@bug gaussian-blur-keys-its-internal-link-as-input`](#bug-gaussian-blur-keys-its-internal-link-as-input) — `gaussianBlur`'s vertical pass keys the horizontal pass's target as `input`, where `bloom` keys such a link by the pass's name.
     - [`@spec a-gpu-adapter-takes-its-count-from-the-first-attribute`](#spec-a-gpu-adapter-takes-its-count-from-the-first-attribute) — A `createGlsl` or `createWgsl` draw that names no vertex count takes it from the first attribute the host passes. The count is that attribute's vertices after the draw's first vertex.
     - [`@spec a-compute-call-dispatches-the-count-it-is-given`](#spec-a-compute-call-dispatches-the-count-it-is-given) — A `compute` call on a compute adapter runs one invocation for each index below its count. The count is the one the caller names, or else the number of elements of the first storage buffer the host passed.
       - [`@spec a-compute-call-takes-the-count-the-caller-names`](#spec-a-compute-call-takes-the-count-the-caller-names) — `compute(out, count)` runs one invocation for each index below `count`, whatever the buffers hold. A count of zero runs none.
@@ -569,7 +564,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-float-comparison-allows-for-the-last-bits`](#spec-a-float-comparison-allows-for-the-last-bits) — `approx`, `closeTo` and `assertClose` let a float differ in its last bits, by a tolerance that scales with its size or one the caller gives. They compare lengths, booleans and NaN, work as a predicate, and name the component that differs.
       - [`@spec a-material-or-pass-is-tested-by-the-names-it-uses`](#spec-a-material-or-pass-is-tested-by-the-names-it-uses) — `fromProgram` and `fromPass` run a built material or a pass of an effect. They bind its inputs by the names the program gives them, and hand back its varyings under those names. A stage the program has no root for is refused.
       - [`@spec the-test-library-loads-no-scene-graph`](#spec-the-test-library-loads-no-scene-graph) — The `./test` library loads none of the scene graph.
-        - [`@bug the-test-library-loads-the-scene-graph`](#bug-the-test-library-loads-the-scene-graph) — `./test` imports the sampling helpers of the scene renderers, which import the scene's lights and through them its objects. A test of a plain shader then loads the scene graph.
       - [`@spec render-draws-a-bool-as-black-or-white`](#spec-render-draws-a-bool-as-black-or-white) — `render` draws a fragment that gives `true` as opaque white, and one that gives `false` as opaque black.
       - [`@spec render-draws-a-short-vector-opaque`](#spec-render-draws-a-short-vector-opaque) — `render` draws a vector of fewer than four components with an alpha of 1.
       - [`@spec a-program-under-test-reads-a-renderer-matrix-as-the-identity`](#spec-a-program-under-test-reads-a-renderer-matrix-as-the-identity) — `fromProgram` binds a matrix a renderer would supply, such as `modelMatrix`, to the identity when nothing else gives it a value.
@@ -598,11 +592,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-wasm-function-returns-a-vector-result-through-memory`](#spec-a-wasm-function-returns-a-vector-result-through-memory) — A WASM function whose program returns a vector or matrix returns nothing itself and writes the value to a slot in memory.
   - [`@spec a-graph-survives-json`](#spec-a-graph-survives-json) — The function `serialize` turns the graph an `Fn` builds into JSON. Then `deserialize` turns that JSON back into a graph that compiles to the same code, in another process or on another machine.
     - [`@spec a-graph-compiles-the-same-after-json`](#spec-a-graph-compiles-the-same-after-json) — A graph restored from JSON compiles to the same code as the graph it came from, and `serialize` takes the callable an `Fn` returns.
-      - [`@bug a-non-finite-literal-does-not-survive-json`](#bug-a-non-finite-literal-does-not-survive-json) — A literal that is NaN or infinite becomes `null` in JSON, and comes back as a float with no value, so a restored `u + Infinity` computes `u`.
     - [`@spec a-restored-graph-keeps-its-shape`](#spec-a-restored-graph-keeps-its-shape) — A node read in several places stays one node, and what several roots share stays shared. A storage buffer is rebuilt once, with its layout, its contents or none, and its access. A uniform array keeps its length.
-      - [`@bug a-non-finite-buffer-value-does-not-survive-json`](#bug-a-non-finite-buffer-value-does-not-survive-json) — A buffer's contents that are NaN or infinite become `null` in JSON, and the restored buffer holds 0 in their place.
     - [`@spec deserialize-refuses-data-serialize-could-not-have-produced`](#spec-deserialize-refuses-data-serialize-could-not-have-produced) — `deserialize` refuses data that `serialize` could not have produced.
-      - [`@bug deserialize-accepts-unknown-and-unnamed-nodes`](#bug-deserialize-accepts-unknown-and-unnamed-nodes) — `deserialize` accepts a node type no node has, and a uniform with neither a slot nor a local name, and rebuilds a node from each.
 - [`@axiom the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing) — Code that runs once per frame, or once per call of a routine that runs every frame, allocates no memory.
   - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A compiled JS function keeps each vector and matrix it computes in a slot it declares once, outside the function: a variable's, an operation's, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. A stage keeps the object it returns its position, varyings and outputs in beside the function too, and clears each of them as a call starts, so a stage output or depth the program does not write on a call is `undefined` in what that call returns, and a varying 0. With `reentrant`, the function declares its slots and that object inside itself, and each call has its own.
   - [`@spec a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment) — A draw of the JS rasterizer, `compileJS`, allocates nothing for each vertex or fragment it shades. It keeps each vertex's position and varyings, each varying it interpolates for a fragment, and the context it passes each stage in arrays and objects it makes once, and it reads a stage's result where the stage left it. A triangle clipped at the near plane makes the vertices the clip adds.
@@ -624,17 +615,13 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-precompiled-js-program-ships-as-a-plain-function`](#spec-a-precompiled-js-program-ships-as-a-plain-function) — `precompileJS` replaces each program of a module with the plain JavaScript function it compiled to, which imports nothing and calls no `eval`.
     - [`@spec a-precompiled-wasm-program-ships-as-an-asset`](#spec-a-precompiled-wasm-program-ships-as-an-asset) — `precompileWasm` emits each program of a module as a `.wasm` asset, and replaces the program with code that fetches and instantiates it.
       - [`@spec precompile-wasm-emits-each-program-as-an-asset`](#spec-precompile-wasm-emits-each-program-as-an-asset) — `precompileWasm` emits each program of a module as a `.wasm` asset and replaces it with code that fetches and instantiates it into a working routine.
-        - [`@bug precompile-wasm-emits-no-asset-on-a-cached-transform`](#bug-precompile-wasm-emits-no-asset-on-a-cached-transform) — `precompileWasm` emits its assets only on the first transform of a source. A later build answers from its cache, with a reference to an asset that build never emitted.
       - [`@exception a-precompiled-wasm-program-ships-with-its-instantiation-glue`](#exception-a-precompiled-wasm-program-ships-with-its-instantiation-glue) — A precompiled WASM program imports `instantiateWasmRoutine` from `@random-mesh/rmsl/wasm`, which moves its inputs and outputs in and out of the module's memory. It does not import the compiler.
       - [`@spec a-precompiled-wasm-program-is-ready-when-its-module-loads`](#spec-a-precompiled-wasm-program-is-ready-when-its-module-loads) — A precompiled WASM program is fetched and instantiated before its module finishes loading, so its routine runs at once.
     - [`@spec a-plugin-rewrites-only-the-modules-it-includes`](#spec-a-plugin-rewrites-only-the-modules-it-includes) — A Vite plugin leaves a module its `include` option does not match as it is.
     - [`@spec a-plugin-reads-the-export-it-is-told-to`](#spec-a-plugin-reads-the-export-it-is-told-to) — `precompileJS` and `precompileWasm` read the map of programs from the export their option names, `__RMSL_JS_CODE` or `__RMSL_WASM_CODE` by default.
     - [`@spec a-plugin-fails-the-build-on-a-module-it-cannot-compile`](#spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile) — A Vite plugin fails the build on a module it includes when the export it reads is unusable. That export may be missing, not JSON, not a map of strings, or hold no bytes.
-      - [`@bug precompile-shaders-drops-a-function-silently`](#bug-precompile-shaders-drops-a-function-silently) — `precompileShaders` checks only that `JSON.stringify` gives a string, which it does after dropping a function, so a default export holding one ships without it.
-      - [`@bug precompile-js-writes-a-key-that-is-no-identifier`](#bug-precompile-js-writes-a-key-that-is-no-identifier) — `precompileJS` writes each key of the code map as `export const <key>` without checking it is an identifier, so `my-fn` gives a module that does not parse.
     - [`@spec a-wasm-module-is-compiled-and-instantiated-in-separate-steps`](#spec-a-wasm-module-is-compiled-and-instantiated-in-separate-steps) — `compileWasmFn` gives the bytes of a module, and `instantiateWasmRoutine` turns them into a routine that behaves as `compileWasmRoutine` would. The same bytes instantiate any number of times, each instance independent of the others.
     - [`@spec a-plugin-compiles-a-module-again-when-an-import-changes`](#spec-a-plugin-compiles-a-module-again-when-an-import-changes) — A plugin compiles a module again when the module or any module it imports changes.
-      - [`@bug a-plugin-serves-a-stale-result-after-an-import-changes`](#bug-a-plugin-serves-a-stale-result-after-an-import-changes) — The plugins cache a result by the source of the module alone. A module whose import changed gives the result it gave before the change.
     - [`@spec the-glsl-entry-point-loads-where-no-graphics-api-exists`](#spec-the-glsl-entry-point-loads-where-no-graphics-api-exists) — The GLSL entry point imports and compiles where no graphics API exists, such as under Node.
     - [`@spec the-wgsl-entry-point-loads-where-no-graphics-api-exists`](#spec-the-wgsl-entry-point-loads-where-no-graphics-api-exists) — The WGSL entry point imports and compiles where no graphics API exists, such as under Node.
     - [`@spec a-plugin-with-no-include-rewrites-nothing`](#spec-a-plugin-with-no-include-rewrites-nothing) — A Vite plugin given no `include` rewrites no module.
@@ -1442,6 +1429,12 @@ This follows because WGSL refuses a constant division by zero, so a constant sub
 
 > The GLSL target gives an integer operation the result that WGSL defines for it.
 
+###### @bug glsl-gives-a-negative-remainder-and-an-overflowing-division-as-the-driver-does
+
+> On GLSL, an `int` remainder with a negative operand, and `INT_MIN / -1`, give what the driver gives rather than the result WGSL defines, for a run-time operand and a literal one alike.
+
+Issue: #226
+
 ###### @spec glsl-gives-the-wgsl-result-for-a-defined-integer-operation
 
 > On GLSL, an integer operation whose result GLSL ES 3.00 defines gives the result WGSL defines for it.
@@ -1477,14 +1470,6 @@ This follows because both CPU targets compute in 64 bits, so nothing keeps them 
 ###### @spec wasm-and-js-give-the-same-float-bits
 
 > A float program gives the same bits on WASM as on JS, transcendental functions and sampling included.
-
-###### @bug the-harness-reads-negative-zero-as-zero
-
-> The harness compares a WASM result with the JS one by `===`, which holds between `-0` and `0`, so a WASM result whose sign of zero differs passes.
-
-Derives from: [`spec-wasm-and-js-give-the-same-float-bits`](#spec-wasm-and-js-give-the-same-float-bits)
-
-Issue: #101
 
 
 ##### @spec cpu-float-arithmetic-matches-the-gpu-targets
@@ -1611,41 +1596,11 @@ This follows because most mistakes in a shader are silent, and a target nobody r
 
 > The integer sweep passes the right results and reports the wrong ones, on JS, WASM and WGSL, and holds GLSL to compiling.
 
-##### @bug the-wgsl-sweep-reads-a-ninth-argument-from-the-next-run
-
-> The WGSL sweep gives each invocation eight argument slots and never checks that a case fits them. A ninth argument reads from the next invocation's slots.
-
-Issue: #101
-
 #### @spec releasing-the-harness-never-throws
 
 > Releasing the harness's browser and device never throws, after a failed launch too.
 
 This follows because the release runs after every suite. A throw there reports the launch failure as the failure of a suite that passed.
-
-##### @bug release-gpu-throws-when-a-launch-failed
-
-> `releaseGpu()` throws the launch error again after the browser could not launch.
-
-Issue: #101
-
-#### @bug the-harness-reports-nan-on-both-targets-as-a-disagreement
-
-> The harness compares a WASM result with the JS one by `===`, which a NaN never meets. The harness then reports two targets that both give NaN as disagreeing.
-
-Issue: #101
-
-#### @bug the-harness-reports-an-infinity-on-every-target-as-a-disagreement
-
-> The harness compares a GPU result with the JS one by the distance between them, which is NaN between two equal infinities. It then reports a program that gives the same infinity everywhere as disagreeing.
-
-Issue: #101
-
-#### @bug the-harness-passes-a-program-wasm-refuses
-
-> The harness counts a program WASM refuses as skipped, so a run in which WASM refused a recorded program passes.
-
-Issue: #101
 
 #### @spec evaluation-fails-when-it-recorded-nothing
 
@@ -1664,6 +1619,24 @@ This follows because one synchronous call then holds a program to every target, 
 > A test keeps a recorded program off the GPU targets only by naming a reason from a fixed list.
 
 This follows because the suite holds every target to every program, so a program that escapes the GPU check must say why it may.
+
+#### @spec evaluation-counts-equal-results-as-agreeing
+
+> The evaluation harness counts two equal results as agreeing whatever they are, two NaNs or two infinities of one sign included, and holds a WASM result to the exact bits of the JS one, the sign of a zero included.
+
+This follows because a check that reports equal results as different, or different bits as equal, proves nothing about the targets it compares.
+
+#### @spec a-test-is-held-to-its-own-programs
+
+> The evaluation harness compares the programs a test records on every target after that test, so a target that disagrees fails the test that made the program, and the file's last comparison takes only the programs no test compared.
+
+This follows because a disagreement reported against the whole file names no program, and a check made outside the test that states a claim does not count for that claim.
+
+#### @spec a-program-wasm-refuses-names-its-issue
+
+> A recorded program the WASM target refuses fails the run, unless the list of known refusals names it with the issue that tracks it. A listed program that compiles fails the run too.
+
+This follows because the suite evaluates every program it records on every target, so a program WASM does not run is a gap that must say where it is tracked, and leave the list when it closes.
 
 ### @spec a-vertex-attribute-reaches-the-shader-as-its-declared-type
 
@@ -1834,6 +1807,14 @@ This follows because two inputs that share a name by accident read one value, a 
 ##### @spec time-is-one-uniform-everywhere
 
 > `time()` gives one uniform, named `_rmsl_time`, in every program and every process, so every program that reads it reads one clock.
+
+##### @spec screen-size-is-one-uniform-everywhere
+
+> `screenSize()` gives one `vec2` uniform, named `_rmsl_screenSize`, in every program and every process, and its type names it a uniform, so the host binds it by its `.name`. `screenUV()` and `uv()` read it.
+
+Derives from: [`spec-the-screen-accessors-follow-tsl`](#spec-the-screen-accessors-follow-tsl)
+
+This follows because every program drawn to one screen reads one size, as every program reads one clock, and a host can bind only a uniform it can name.
 
 #### @spec a-location-is-numbered-within-its-program
 
@@ -2260,12 +2241,6 @@ Issue: #130
 #### @spec the-screen-accessors-follow-tsl
 
 > `fragCoord()` gives the coordinate of the fragment, and `screenUV()` and `uv()` give it divided by the size of the screen. `screenSize()` gives one shared uniform, and `time()` a float uniform. Each does what TSL's accessor of the same name does.
-
-##### @bug screen-size-makes-a-new-uniform-on-every-call
-
-> `screenSize()` declares a new uniform each time it is called, so a program that calls `uv()` twice reads two size uniforms.
-
-Issue: #51
 
 #### @spec the-index-accessors-follow-tsl
 
@@ -2771,12 +2746,6 @@ This follows because a TSL shader that uses a display effect ports only if the e
 
 > A single-pass effect takes samplers and parameter nodes and gives a node: a colour, or a float mask for `circle`.
 
-##### @bug transition-reads-a-null-mix-texture
-
-> `transition` builds the branch that samples the mix texture whatever `useTexture` is, so a `null` mix texture throws a `TypeError`.
-
-Issue: #99
-
 #### @spec bloom-follows-tsl
 
 > `bloom` gives TSL's pass graph of twelve passes. Its high pass keeps what is brighter than a luminance threshold, or applies a filter the caller gives. Its composite sums five tinted mips, scaled by its strength. `luminosityHighPass` is also available on its own.
@@ -2788,12 +2757,6 @@ Issue: #99
 #### @spec an-effect-compiles-as-a-function-of-its-own
 
 > An effect compiles with `compileGlslFn` and `compileWgslFn` into a function the application places in its own shader.
-
-#### @bug fxaa-samples-in-non-uniform-control-flow-on-wgsl
-
-> `fxaa` samples its input inside a branch whose condition depends on a sampled value, which WGSL refuses as sampling outside uniform control flow.
-
-Issue: #98
 
 #### @spec a-number-given-to-an-effect-compiles-as-a-literal
 
@@ -3192,12 +3155,6 @@ Derives from: [`fact-a-three-js-renderer-draws-its-scene-graph`](#fact-a-three-j
 Derives from: [`spec-an-effect-with-several-passes-is-a-pass-graph`](#spec-an-effect-with-several-passes-is-a-pass-graph)
 
 This follows because the application draws the passes in order. It finds the target a pass reads by the name of the pass that wrote it.
-
-##### @bug gaussian-blur-keys-its-internal-link-as-input
-
-> `gaussianBlur`'s vertical pass keys the horizontal pass's target as `input`, where `bloom` keys such a link by the pass's name.
-
-Issue: #99
 
 #### @spec a-gpu-adapter-takes-its-count-from-the-first-attribute
 
@@ -3939,12 +3896,6 @@ This follows because a GPU passes the fragment stage every varying the vertex st
 
 This follows because a test of shader logic needs no scene, and loading one ties the test to code it does not check.
 
-###### @bug the-test-library-loads-the-scene-graph
-
-> `./test` imports the sampling helpers of the scene renderers, which import the scene's lights and through them its objects. A test of a plain shader then loads the scene graph.
-
-Issue: #102
-
 ##### @spec render-draws-a-bool-as-black-or-white
 
 > `render` draws a fragment that gives `true` as opaque white, and one that gives `false` as opaque black.
@@ -4149,33 +4100,15 @@ This follows because a program that runs everywhere has to travel to where it ru
 
 > A graph restored from JSON compiles to the same code as the graph it came from, and `serialize` takes the callable an `Fn` returns.
 
-##### @bug a-non-finite-literal-does-not-survive-json
-
-> A literal that is NaN or infinite becomes `null` in JSON, and comes back as a float with no value, so a restored `u + Infinity` computes `u`.
-
-Issue: #80
-
 #### @spec a-restored-graph-keeps-its-shape
 
 > A node read in several places stays one node, and what several roots share stays shared. A storage buffer is rebuilt once, with its layout, its contents or none, and its access. A uniform array keeps its length.
-
-##### @bug a-non-finite-buffer-value-does-not-survive-json
-
-> A buffer's contents that are NaN or infinite become `null` in JSON, and the restored buffer holds 0 in their place.
-
-Issue: #80
 
 #### @spec deserialize-refuses-data-serialize-could-not-have-produced
 
 > `deserialize` refuses data that `serialize` could not have produced.
 
 Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
-
-##### @bug deserialize-accepts-unknown-and-unnamed-nodes
-
-> `deserialize` accepts a node type no node has, and a uniform with neither a slot nor a local name, and rebuilds a node from each.
-
-Issue: #80
 
 ## @axiom the-frame-path-allocates-nothing
 
@@ -4313,12 +4246,6 @@ This follows because the compiled code is all the application runs.
 
 > `precompileWasm` emits each program of a module as a `.wasm` asset and replaces it with code that fetches and instantiates it into a working routine.
 
-###### @bug precompile-wasm-emits-no-asset-on-a-cached-transform
-
-> `precompileWasm` emits its assets only on the first transform of a source. A later build answers from its cache, with a reference to an asset that build never emitted.
-
-Issue: #100
-
 ##### @exception a-precompiled-wasm-program-ships-with-its-instantiation-glue
 
 > A precompiled WASM program imports `instantiateWasmRoutine` from `@random-mesh/rmsl/wasm`, which moves its inputs and outputs in and out of the module's memory. It does not import the compiler.
@@ -4347,18 +4274,6 @@ This follows because the precompiled program stands in for a routine of `compile
 
 Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
 
-##### @bug precompile-shaders-drops-a-function-silently
-
-> `precompileShaders` checks only that `JSON.stringify` gives a string, which it does after dropping a function, so a default export holding one ships without it.
-
-Issue: #100
-
-##### @bug precompile-js-writes-a-key-that-is-no-identifier
-
-> `precompileJS` writes each key of the code map as `export const <key>` without checking it is an identifier, so `my-fn` gives a module that does not parse.
-
-Issue: #100
-
 #### @spec a-wasm-module-is-compiled-and-instantiated-in-separate-steps
 
 > `compileWasmFn` gives the bytes of a module, and `instantiateWasmRoutine` turns them into a routine that behaves as `compileWasmRoutine` would. The same bytes instantiate any number of times, each instance independent of the others.
@@ -4368,12 +4283,6 @@ Issue: #100
 > A plugin compiles a module again when the module or any module it imports changes.
 
 This follows because a program holds everything its module imports. A result kept past a change to an import is no longer that program's.
-
-##### @bug a-plugin-serves-a-stale-result-after-an-import-changes
-
-> The plugins cache a result by the source of the module alone. A module whose import changed gives the result it gave before the change.
-
-Issue: #100
 
 #### @spec the-glsl-entry-point-loads-where-no-graphics-api-exists
 

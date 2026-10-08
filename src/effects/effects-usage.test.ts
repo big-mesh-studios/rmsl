@@ -240,7 +240,7 @@ describe("texture-based effects", () => {
    */
   it("fxaa", () => {
     const glsl = compileGlsl(fxaa(tex()));
-    expect(glsl).toContain("texture(");
+    expect(glsl).toContain("textureLod(");
     // The edge walk cannot break out of a sampling loop in WGSL, so it steps
     // every iteration and selects the state once the edge is found — the GLSL
     // emitter spells select as a ternary, the WGSL one keeps the builtin.
@@ -340,8 +340,8 @@ describe("gaussianBlur pass graph", () => {
     const input = uniform("sampler2D");
     const graph = gaussianBlur(input);
     expect(graph.passes[0].inputs.input).toBe(input);
-    // The vertical pass reads the horizontal pass's render target.
-    expect(graph.passes[1].inputs.input).not.toBe(input);
+    // The vertical pass reads the horizontal pass's render target, keyed by that pass's name.
+    expect(graph.passes[1].inputs["gaussianBlur.horizontal"]).not.toBe(input);
   });
 });
 

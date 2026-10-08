@@ -40,16 +40,7 @@ let nextPair = 0;
  * without removing its entry is itself reported, so the list cannot outlive
  * the problems it documents.
  */
-export const KNOWN_INVALID: Record<string, string> = {
-  // FXAA's whole algorithm is data-dependent: it decides whether a pixel sits
-  // on an edge from sampled luminance, then walks that edge. WebGPU requires
-  // texture sampling to happen in uniform control flow, so Dawn rejects every
-  // sample that ends up inside the skip-pixel guard or an edge branch. A
-  // branchless (select-based) port would satisfy it, but that is a rewrite of
-  // the algorithm, not a codegen fix.
-  "wgsl:texture-based effects > fxaa":
-    "WGSL forbids textureSample in the non-uniform control flow FXAA's edge detection requires",
-};
+export const KNOWN_INVALID: Record<string, string> = {};
 
 /**
  * Compile a program to *both* backends, whichever one the test asked for.

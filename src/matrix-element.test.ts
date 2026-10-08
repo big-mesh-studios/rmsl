@@ -1,12 +1,16 @@
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, afterAll, afterEach } from "vitest";
 import { float, Fn, int, mat2x3, mat3, vec2, vec3, type Node } from "./rmsl";
 import {
+  assertEvaluationsOfTheTestAgree,
   assertRecordedEvaluationsAgree,
   closeEvaluators,
   evaluateJS,
   evaluateRecording,
   evaluateWASM,
 } from "./testing/shader-eval";
+
+// Each test's programs are compared after it, so a disagreement fails the test that made the program.
+afterEach(assertEvaluationsOfTheTestAgree, 120_000);
 
 afterAll(async () => {
   await assertRecordedEvaluationsAgree();

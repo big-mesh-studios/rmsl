@@ -1,5 +1,6 @@
 import { build } from "esbuild";
 import { readFile } from "fs/promises";
+import { resolve } from "path";
 import type { Plugin } from "vite";
 import wabtInit from "wabt";
 
@@ -44,7 +45,7 @@ export interface PrecompileWasmOptions extends PrecompileShadersOptions {
  * rmsl is never shipped and the shader sources are constants at runtime.
  */
 export function precompileShaders(options: PrecompileShadersOptions = {}): Plugin {
-  const cache = new Map<string, string>();
+  const cache: ModuleCache = new Map();
 
   return {
     name: "rmsl:precompile-shaders",
@@ -55,28 +56,20 @@ export function precompileShaders(options: PrecompileShadersOptions = {}): Plugi
         return null;
       }
 
-      const hash = hashSource(code);
-      const cached = cache.get(hash);
-      if (cached !== undefined) {
-        return { code: cached, map: null };
-      }
-
-      const mod = await evaluateModule(code, filePath);
+      const mod = await loadModule(this, cache, code, filePath);
       const shaders = mod.default;
       if (shaders === undefined) {
         throw new Error(`${id} must have a default export of the compiled shaders`);
       }
-      const serialized = JSON.stringify(shaders);
-      if (serialized === undefined) {
+      const lost = notJsonData(shaders, "default");
+      if (lost !== undefined) {
         throw new Error(
-          `${id}'s default export is not JSON-serializable; export plain data such as ` +
+          `${id}'s default export is not JSON-serializable: it holds ${lost}. Export plain data such as ` +
             "compiled shader strings and slot names",
         );
       }
 
-      const compiled = `export default ${serialized};`;
-      cache.set(hash, compiled);
-      return { code: compiled, map: null };
+      return { code: `export default ${JSON.stringify(shaders)};`, map: null };
     },
   };
 }
@@ -94,7 +87,7 @@ export function precompileShaders(options: PrecompileShadersOptions = {}): Plugi
  */
 export function precompileJS(options: PrecompileJSOptions = {}): Plugin {
   const codeExport = options.codeExport ?? "__RMSL_JS_CODE";
-  const cache = new Map<string, string>();
+  const cache: ModuleCache = new Map();
 
   return {
     name: "rmsl:precompile-js",
@@ -105,13 +98,7 @@ export function precompileJS(options: PrecompileJSOptions = {}): Plugin {
         return null;
       }
 
-      const hash = hashSource(code);
-      const cached = cache.get(hash);
-      if (cached !== undefined) {
-        return { code: cached, map: null };
-      }
-
-      const mod = await evaluateModule(code, filePath);
+      const mod = await loadModule(this, cache, code, filePath);
       const codeMap = mod[codeExport];
       if (codeMap === undefined) {
         throw new Error(`${id} must export ${codeExport} as a { name: code } map of compileJSFn() output`);
@@ -122,15 +109,14 @@ export function precompileJS(options: PrecompileJSOptions = {}): Plugin {
 
       const exports: string[] = [];
       for (const [name, jsCode] of Object.entries(codeMap)) {
+        assertIdentifier(id, codeExport, name);
         if (typeof jsCode !== "string") {
           throw new Error(`${id}'s ${codeExport} map value for ${name} must be a string of compileJSFn() output`);
         }
         exports.push(`export const ${name} = (() => {`, jsCode, "})();", "");
       }
 
-      const compiled = exports.join("\n");
-      cache.set(hash, compiled);
-      return { code: compiled, map: null };
+      return { code: exports.join("\n"), map: null };
     },
   };
 }
@@ -154,7 +140,7 @@ export function precompileJS(options: PrecompileJSOptions = {}): Plugin {
  */
 export function precompileWasm(options: PrecompileWasmOptions = {}): Plugin {
   const codeExport = options.codeExport ?? "__RMSL_WASM_CODE";
-  const cache = new Map<string, string>();
+  const cache: ModuleCache = new Map();
 
   return {
     name: "rmsl:precompile-wasm",
@@ -165,13 +151,7 @@ export function precompileWasm(options: PrecompileWasmOptions = {}): Plugin {
         return null;
       }
 
-      const hash = hashSource(code);
-      const cached = cache.get(hash);
-      if (cached !== undefined) {
-        return { code: cached, map: null };
-      }
-
-      const mod = await evaluateModule(code, filePath);
+      const mod = await loadModule(this, cache, code, filePath);
       const codeMap = mod[codeExport];
       if (codeMap === undefined) {
         throw new Error(`${id} must export ${codeExport} as a { name: compiled } map of compileWasmFn() output`);
@@ -182,6 +162,7 @@ export function precompileWasm(options: PrecompileWasmOptions = {}): Plugin {
 
       const exports: string[] = [`import { instantiateWasmRoutine } from "@random-mesh/rmsl/wasm";`, ""];
       for (const [name, compiled] of Object.entries(codeMap)) {
+        assertIdentifier(id, codeExport, name);
         if (typeof compiled !== "object" || compiled === null || !("bytes" in compiled)) {
           throw new Error(`${id}'s ${codeExport} map value for ${name} must be compileWasmFn() output`);
         }
@@ -203,9 +184,8 @@ export function precompileWasm(options: PrecompileWasmOptions = {}): Plugin {
         );
       }
 
-      const rewritten = exports.join("\n");
-      cache.set(hash, rewritten);
-      return { code: rewritten, map: null };
+      // The assets are emitted on every transform, a cached one too: each build emits the assets it references.
+      return { code: exports.join("\n"), map: null };
     },
   };
 }
@@ -248,7 +228,7 @@ const dirname = (p: string) => {
   return i === -1 ? "." : p.slice(0, i);
 };
 
-// FNV-1a over the source, used just as a cache key for dev HMR.
+// FNV-1a over a bundle, used just as a cache key for dev HMR.
 const hashSource = (s: string) => {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) {
@@ -273,15 +253,91 @@ const matches = (filePath: string, filter?: ViteFilter): boolean => {
   });
 };
 
+/** The exports of a module evaluated at build time, by a hash of its bundle. */
+type ModuleCache = Map<string, Record<string, unknown>>;
+
 /**
- * Bundle a module for Node and run it, returning its exports.
+ * The exports of the module at `filePath`, evaluated once for each bundle of
+ * it and of everything it imports, so a module whose import changed is
+ * evaluated again. Each file of the bundle is watched, so Vite transforms the
+ * module again when one of them changes.
+ */
+async function loadModule(
+  context: unknown,
+  cache: ModuleCache,
+  code: string,
+  filePath: string,
+): Promise<Record<string, unknown>> {
+  const { text, inputs } = await bundleModule(code, filePath);
+  const watch = (context as { addWatchFile?: (file: string) => void }).addWatchFile;
+  for (const input of inputs) watch?.call(context, input);
+  const key = hashSource(text);
+  let mod = cache.get(key);
+  if (mod === undefined) {
+    mod = await runBundle(text);
+    cache.set(key, mod);
+  }
+  return mod;
+}
+
+/** The shape of a name that can be written as `export const <name>`, which a rewritten module does with each key. */
+const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
+
+/** The words of that shape a module still cannot declare as a `const`. */
+const RESERVED_WORDS = new Set(
+  (
+    "await break case catch class const continue debugger default delete do else enum export extends false " +
+    "finally for function if implements import in instanceof interface let new null package private protected " +
+    "public return static super switch this throw true try typeof var void while with yield arguments eval"
+  ).split(" "),
+);
+
+/** Refuses a key of a code map that is not a JavaScript identifier, which would give a module that does not parse. */
+function assertIdentifier(id: string, codeExport: string, name: string): void {
+  if (!IDENTIFIER.test(name) || RESERVED_WORDS.has(name)) {
+    throw new Error(`${id}'s ${codeExport} map names a program "${name}", which is not a JavaScript identifier`);
+  }
+}
+
+/**
+ * Where within `value` the first thing lies that JSON does not carry as it
+ * is, described for an error, or undefined when JSON carries all of it: a
+ * function, a symbol, `undefined`, a bigint, a number that is not finite, or
+ * a negative zero.
+ */
+function notJsonData(value: unknown, path: string): string | undefined {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return undefined;
+  if (typeof value === "number") {
+    // JSON writes -0 as 0, so it loses its sign as a non-finite number loses its value.
+    if (Object.is(value, -0)) return `-0 at ${path}`;
+    return Number.isFinite(value) ? undefined : `${value} at ${path}`;
+  }
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      const lost = notJsonData(value[i], `${path}[${i}]`);
+      if (lost !== undefined) return lost;
+    }
+    return undefined;
+  }
+  if (typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
+    for (const [key, v] of Object.entries(value)) {
+      const lost = notJsonData(v, `${path}.${key}`);
+      if (lost !== undefined) return lost;
+    }
+    return undefined;
+  }
+  const what = typeof value === "object" ? `a ${(value as object).constructor?.name ?? "object"}` : `a ${typeof value}`;
+  return `${what} at ${path}`;
+}
+
+/**
+ * Bundle a module for Node, with the files the bundle was made from.
  *
  * The module's imports resolve relative to the file being transformed, so a
  * shader module importing rmsl (or anything else) gets it bundled in and can be
  * executed here — which is the whole point: the compile runs once, here.
  */
-async function evaluateModule(code: string, filePath: string): Promise<Record<string, unknown>> {
-  let bundle: string;
+async function bundleModule(code: string, filePath: string): Promise<{ text: string; inputs: string[] }> {
   try {
     const result = await build({
       stdin: {
@@ -291,6 +347,7 @@ async function evaluateModule(code: string, filePath: string): Promise<Record<st
         loader: "ts",
       },
       bundle: true,
+      metafile: true,
       format: "esm",
       platform: "node",
       write: false,
@@ -312,14 +369,20 @@ async function evaluateModule(code: string, filePath: string): Promise<Record<st
         },
       ],
     });
-    bundle = result.outputFiles[0].text;
+    const inputs = Object.keys(result.metafile.inputs)
+      .filter((input) => input !== "<stdin>")
+      .map((input) => resolve(input));
+    return { text: result.outputFiles[0].text, inputs };
   } catch (e) {
     if (e instanceof Error) {
       e.message = `Failed to bundle ${filePath} for build-time evaluation:\n${e.message}`;
     }
     throw e;
   }
+}
 
+/** Run a bundle, returning its exports. */
+async function runBundle(bundle: string): Promise<Record<string, unknown>> {
   const dataUrl = `data:text/javascript,${encodeURIComponent(bundle)}`;
   return (await import(dataUrl)) as Record<string, unknown>;
 }

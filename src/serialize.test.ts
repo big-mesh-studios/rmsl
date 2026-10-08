@@ -6,6 +6,7 @@ import {
   If,
   float,
   instancedArray,
+  int,
   invocationIndex,
   storage,
   StorageBufferAttribute,
@@ -36,6 +37,7 @@ function normalized(code: string): string {
 
 /** `graph` after a real JSON round-trip, rebuilt. */
 const roundTrip = (graph: SerializedGraph) => deserialize(JSON.parse(JSON.stringify(graph)));
+const none = { name: "main", params: [] };
 
 /** The names of the uniforms reachable from `root`. */
 function uniformNames(root: any, found = new Set<string>()): Set<string> {
@@ -81,7 +83,7 @@ describe("serialize/deserialize", () => {
   it("refuses a rebuilt uniform with an empty name", () => {
     const graph = serialize(() => uniformRaw("scale", "float").mul(2));
     const json = JSON.stringify(graph).replace('"slot":"scale"', '"slot":""');
-    expect(() => deserialize(JSON.parse(json))).toThrow(/empty name/);
+    expect(() => deserialize(JSON.parse(json))).toThrow(/has no name/);
   });
 
   /**
@@ -287,5 +289,34 @@ describe("serialize/deserialize", () => {
     const kernel = movementKernel();
     const restored = roundTrip(serialize(kernel)) as Node<ShaderType>;
     expect(compute(restored).code).toContain("_RmslUniforms");
+  });
+
+  /**
+   * @canon spec-a-graph-compiles-the-same-after-json
+   */
+  it("restores a literal that is not finite", () => {
+    const build = () => Fn(() => uniformRaw("gain", "float").add(float(Infinity)).toVar())();
+    const restored = roundTrip(serialize(build()));
+    const run = compileJSRoutine(() => restored as any, none);
+    expect(run({ uniforms: { gain: 1 } })).toBe(Infinity);
+  });
+
+  /**
+   * @canon spec-a-restored-graph-keeps-its-shape
+   */
+  it("restores the contents of a buffer that are not finite", () => {
+    const values = instancedArray(Float32Array.of(NaN, Infinity), "float");
+    const restored = roundTrip(serialize(Fn(() => values.element(int(0)).toVar())())) as any;
+    const storageNode = (n: any): any => (n.type === "storage" ? n : (n.params ?? []).map(storageNode).find(Boolean));
+    expect(Array.from(storageNode(restored).attribute.array)).toEqual([NaN, Infinity]);
+  });
+
+  /**
+   * @canon spec-deserialize-refuses-data-serialize-could-not-have-produced
+   */
+  it("refuses an unknown node type and a uniform without a name", () => {
+    const graph = (node: object) => ({ nodes: [node], buffers: [], roots: 0 }) as unknown as SerializedGraph;
+    expect(() => deserialize(graph({ _t: "float", type: "frobnicate" }))).toThrow();
+    expect(() => deserialize(graph({ _t: "float", type: "uniform", value: { shaderType: "float" } }))).toThrow();
   });
 });

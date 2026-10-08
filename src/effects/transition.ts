@@ -9,7 +9,7 @@ import { f, type FloatIn, type IntIn, type Vec2In, type Sampler2D, type Sampler3
  * @param textureNodeA - The beauty pass of the first scene.
  * @param textureNodeB - The beauty pass of the second scene.
  * @param mixTextureNode - A texture that defines how the transition looks; pass
- *                         `null` to get a plain cross-fade.
+ *                         `null` to get a plain cross-fade, whatever `useTexture` is.
  * @param mixRatio - The interpolation factor that controls the mix.
  * @param threshold - Tweaks the linear interpolation.
  * @param useTexture - Whether `mixTextureNode` should influence the transition.
@@ -29,15 +29,21 @@ export const transition = (
     const texelOne = textureNodeA.texture(uvNode);
     const texelTwo = textureNodeB.texture(uvNode);
     const color = vec4().toVar();
+    const crossFade = () => {
+      color.assign(mix(texelTwo, texelOne, mixRatio));
+    };
+    // With no mix texture there is nothing for useTexture to choose, so the transition is a cross-fade.
+    if (mixTextureNode === null) {
+      crossFade();
+      return color;
+    }
 
     If(useMixTexture, () => {
-      const transitionTexel = mixTextureNode!.texture(uvNode);
+      const transitionTexel = mixTextureNode.texture(uvNode);
       const r = sub(mul(mixRatio, add(mul(threshold, 2.0), 1.0)), threshold);
       const mixf = clamp(mul(transitionTexel.r.sub(r), div(1.0, threshold)), 0.0, 1.0);
       color.assign(mix(texelOne, texelTwo, mixf));
-    }).Else(() => {
-      color.assign(mix(texelTwo, texelOne, mixRatio));
-    });
+    }).Else(crossFade);
 
     return color;
   })();

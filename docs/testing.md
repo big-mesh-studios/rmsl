@@ -227,8 +227,8 @@ const run = fromPass(pass, {
 });
 ```
 
-A pass that reads `uv()` also holds a screen-size uniform it never named; reach
-it with `uniformsIn(pass.color, "vec2")`.
+A pass that reads `uv()` reads `screenSize()`, one uniform for every program,
+which a test binds as `[screenSize(), [width, height]]`.
 
 The program is taken by shape, not by import, so nothing here drags the scene
 graph or the effects into a test that only wanted a shader.
@@ -252,13 +252,13 @@ expected 1, got 0` — and needs no test runner, so it works under vitest, jest 
 
 ## Uniforms the graph made for itself
 
-Most uniforms are held by the test that made them. Some are not: `uv()` mints a
-screen-size uniform _inside_ the graph, and a caller who never saw that node has
-no other way to reach it.
+Most uniforms are held by the test that made them. Some are not: a helper may
+make a uniform _inside_ the graph it returns, and a caller who never saw that
+node has no other way to reach it.
 
 ```typescript
-const [resolution] = uniformsIn(graph, "vec2");
-render(() => graph, { width: 8, height: 8, uniforms: [[resolution, [8, 8]]] });
+const [tint] = uniformsIn(graph, "vec3");
+render(() => graph, { width: 8, height: 8, uniforms: [[tint, [1, 0, 0]]] });
 ```
 
 `uniformsIn(graph)` without a type lists every uniform the graph reads, in the

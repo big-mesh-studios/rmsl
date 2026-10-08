@@ -1,15 +1,16 @@
 # Contributing to RMSL
 
 RMSL builds a shader node graph in TypeScript and emits GLSL ES 3.00 and WGSL.
-The compiler lives in `src/rmsl-*.ts` and `src/backends/`: `core.ts` is
+The compiler lives in `src/core.ts` and `src/backends/`: `core.ts` is
 the DSL (types, the node graph, the TSL-style API); `src/backends/shared.ts`
 is the context and helpers all four backends use;
-`src/backends/glsl.ts`, `src/backends/wgsl.ts`,
-`src/backends/js.ts`, and `src/backends/wasm.ts` are the
-backends themselves, each with its own test file colocated next to it (e.g.
-`src/backends/wasm.test.ts`); `standalone-fn.ts` covers
-`compileGLSLFn`/`compileWGSLFn`. `rmsl.ts` is a thin barrel re-exporting the
-public surface from all of them — it's what a consumer imports, but not
+`src/backends/glsl/glsl.ts`, `src/backends/wgsl/wgsl.ts`,
+`src/backends/js/js.ts`, and `src/backends/wasm/wasm.ts` are the
+backends themselves, each next to its adapter and most with a test file
+beside them (e.g. `src/backends/wasm/wasm.test.ts`); the same files hold
+`compileGlslFn`/`compileWgslFn`. `rmsl.ts` is a thin barrel re-exporting the
+graph API, and `glsl.ts`, `wgsl.ts`, `js.ts` and `wasm.ts` beside it re-export
+each target's compilers — they are what a consumer imports, but not
 where to go looking for an implementation. `src/benches/` holds the
 `*.bench.ts` performance benchmarks (run with `npx vitest bench <path>`).
 
@@ -38,7 +39,7 @@ weak — `refract(I, N)` still contains `refract(`.
 under an alias:
 
 ```typescript
-import { recordingGLSL as compileGLSL, recordingWGSL as compileWGSL } from "./testing/shader-validity";
+import { recordingGLSL as compileGlsl, recordingWGSL as compileWgsl } from "./testing/shader-validity";
 ```
 
 The stand-ins compile every program to _both_ backends and record it. An
@@ -47,7 +48,7 @@ fails the run on any rejection. A test asserting only on GLSL still has its WGSL
 output checked by a real driver.
 
 So: **write codegen tests in `src/usage.test.ts`.** A new file importing
-`compileGLSL` from `../rmsl` directly gets the text layer only, silently.
+`compileGlsl` from `./glsl` directly gets the text layer only, silently.
 
 **Values.** `src/eval.test.ts` runs the expression on real hardware and
 reads the number back from both backends. Text and validity both pass for a
@@ -57,6 +58,12 @@ computes the answer before codegen runs.
 
 Add a case here when operands could plausibly be emitted in the wrong order:
 `min`/`max`, the edge order in `step(edge, x)`.
+
+A file that records programs with `evaluateRecording` registers
+`afterEach(assertEvaluationsOfTheTestAgree)` and
+`afterAll(assertRecordedEvaluationsAgree)`. Each test's programs are compared
+on JS, WASM, GLSL and WGSL right after it, so a target that disagrees fails the
+test that made the program; the `afterAll` fails a file that recorded none.
 
 **Types.** `src/rmsl.test-d.ts` asserts what the signatures promise, with
 `expectTypeOf`. Several defects here were a signature saying one thing while

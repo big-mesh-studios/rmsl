@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   difference,
   float,
@@ -50,12 +50,20 @@ import {
   standardLight,
   toBufferView,
 } from "../scene";
-import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } from "../testing/shader-eval";
+import {
+  assertEvaluationsOfTheTestAgree,
+  assertRecordedEvaluationsAgree,
+  closeEvaluators,
+  evaluateRecording,
+} from "../testing/shader-eval";
 import {
   assertRecordedShadersValid,
   recordingGLSL as compileGlsl,
   recordingWGSL as compileWgsl,
 } from "../testing/shader-validity";
+
+// Each test's programs are compared after it, so a disagreement fails the test that made the program.
+afterEach(assertEvaluationsOfTheTestAgree, 120_000);
 
 afterAll(async () => {
   await assertRecordedShadersValid();

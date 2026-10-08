@@ -18,7 +18,9 @@ import {
   dot,
   length,
   distance,
+  screenSize,
   type Node,
+  type UniformNode,
 } from "../rmsl";
 import { compileJSFragment, compileJSGrid, compileJSRoutine, compileJSVertex, createJsRoutine } from "../js";
 import {
@@ -205,5 +207,15 @@ describe("what a grid fills", () => {
     expectTypeOf(
       compileJSGrid(() => Fn(() => int(1))(), { ...none, float: "f32" })({}, 1, 1),
     ).toEqualTypeOf<Int32Array>();
+  });
+});
+
+describe("the screen size", () => {
+  /**
+   * @canon spec-screen-size-is-one-uniform-everywhere
+   */
+  it("is typed a uniform, whose name the host binds", () => {
+    expectTypeOf(screenSize()).toEqualTypeOf<UniformNode<"vec2">>();
+    expectTypeOf(screenSize().name).toEqualTypeOf<string>();
   });
 });
