@@ -1,5 +1,17 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Fn, float, instancedArray, int, invocationIndex, outputStruct, select, uniform, vec3, vec4 } from "../rmsl";
+import {
+  Fn,
+  float,
+  instancedArray,
+  int,
+  invocationIndex,
+  outputStruct,
+  select,
+  uniform,
+  uniformRaw,
+  vec3,
+  vec4,
+} from "../rmsl";
 import { compile, compileWgsl as compileWgslStage, createWgslCompute, createWgslContext } from "../wgsl";
 import {
   assertRecordedShadersValid,
@@ -192,6 +204,27 @@ describe("what WGSL writes for a variable", () => {
   });
 });
 
+/**
+ * Two storage buffers, the second made after the first, whose slot names sort
+ * the other way round as strings, as `_rmsl_b10` sorts before `_rmsl_b9`.
+ */
+function buffersAcrossADigit() {
+  let first = instancedArray(2, "float");
+  let second = instancedArray(2, "float");
+  while (first.name.localeCompare(second.name) < 0) {
+    first = second;
+    second = instancedArray(2, "float");
+  }
+  return { first, second };
+}
+
+/**
+ * The binding WGSL declares for the buffer the stage reads `n`th. WGSL names
+ * a buffer `_rmsl_sN` by the order the stage first reads it.
+ */
+const bindingOfRead = (code: string, n: number) =>
+  new RegExp(`@binding\\((\\d+)\\) var<storage, [\\w ,]+> _rmsl_s${n}:`).exec(code)?.[1];
+
 describe("where WGSL declares a uniform or a buffer", () => {
   /**
    * @canon spec-a-wgsl-stage-given-the-program-uniforms-declares-every-one
@@ -200,10 +233,7 @@ describe("where WGSL declares a uniform or a buffer", () => {
     const read = uniform("float");
     const unread = uniform("vec2");
     const code = compileWgslStage.fragment(vec4(read, 0, 0, 1), {
-      uniforms: [
-        { slot: read.name, type: "f32" },
-        { slot: unread.name, type: "vec2<f32>" },
-      ],
+      uniforms: [read, unread],
     });
     expect(structMembers(code).sort()).toEqual([read.name, unread.name].sort());
   });
@@ -214,9 +244,9 @@ describe("where WGSL declares a uniform or a buffer", () => {
   it("refuses a uniform the stage reads that the given uniforms leave out on WGSL", () => {
     const read = uniform("float");
     const other = uniform("float");
-    expect(() =>
-      compileWgslStage.fragment(vec4(read, 0, 0, 1), { uniforms: [{ slot: other.name, type: "f32" }] }),
-    ).toThrow(new RegExp(`"${read.name}" is read by this stage but missing`));
+    expect(() => compileWgslStage.fragment(vec4(read, 0, 0, 1), { uniforms: [other] })).toThrow(
+      new RegExp(`"${read.name}" is read by this stage but missing`),
+    );
   });
 
   /**
@@ -273,10 +303,93 @@ describe("where WGSL declares a uniform or a buffer", () => {
     const first = instancedArray(2, "float");
     const second = instancedArray(2, "float");
     const code = compileWgslStage.fragment(vec4(first.element(int(0)), second.element(int(0)), 0, 1), {
-      storages: [second.name, first.name],
+      storages: [second, first],
     });
     expect(code).toMatch(/@binding\(0\) var<storage, read> _rmsl_s1:/);
     expect(code).toMatch(/@binding\(1\) var<storage, read> _rmsl_s0:/);
+  });
+
+  /**
+   * @canon spec-a-wgsl-stage-refuses-a-buffer-the-given-storages-leave-out
+   */
+  it("refuses a buffer the stage reads that the given storages leave out on WGSL", () => {
+    const listed = instancedArray(2, "float");
+    const missing = instancedArray(2, "float");
+    expect(() =>
+      compileWgslStage.fragment(vec4(listed.element(int(0)), missing.element(int(0)), 0, 1), { storages: [listed] }),
+    ).toThrow(new RegExp(`"${missing.name}" is read by this stage but missing`));
+  });
+
+  /**
+   * @canon spec-the-storages-list-holds-the-storage-nodes
+   */
+  it("takes the storage nodes themselves as the storages list on WGSL", () => {
+    const first = instancedArray(2, "float");
+    const second = instancedArray(2, "float");
+    const code = compileWgslStage.fragment(vec4(first.element(int(0)), second.element(int(0)), 0, 1), {
+      storages: [second, first],
+    });
+    expect(bindingOfRead(code, 1)).toBe("0");
+    expect(bindingOfRead(code, 0)).toBe("1");
+  });
+
+  /**
+   * @canon spec-a-wgsl-compute-program-binds-its-storage-in-the-listed-order
+   */
+  it("binds compute storage at its index in the storages list on WGSL", () => {
+    const first = instancedArray(2, "float");
+    const second = instancedArray(2, "float");
+    const code = compileWgslStage.compute(
+      Fn(() => {
+        second.element(invocationIndex()).assign(first.element(invocationIndex()));
+      })(),
+      { storages: [second, first] },
+    );
+    expect(bindingOfRead(code, 1)).toBe("0");
+    expect(bindingOfRead(code, 0)).toBe("1");
+  });
+
+  /**
+   * @canon spec-a-wgsl-program-given-no-storage-list-binds-in-creation-order
+   */
+  it("binds storage in the order the program made it when no list is given on WGSL", () => {
+    const { first, second } = buffersAcrossADigit();
+    const compute = compileWgslStage.compute(
+      Fn(() => {
+        second.element(invocationIndex()).assign(first.element(invocationIndex()));
+      })(),
+    );
+    const render = compileWgslStage.fragment(vec4(first.element(int(0)), second.element(int(0)), 0, 1));
+    for (const code of [compute, render]) {
+      expect(bindingOfRead(code, 0)).toBe("0");
+      expect(bindingOfRead(code, 1)).toBe("1");
+    }
+  });
+
+  /**
+   * Two uniforms of one alignment, `zeta` made first, so creation order puts
+   * it before `alpha` in the struct.
+   *
+   * @canon spec-a-wgsl-stage-hands-its-uniforms-to-the-layout-in-creation-order
+   */
+  it("declares uniforms of one alignment in the order the program made them on WGSL", () => {
+    const zeta = uniformRaw("zeta", "float");
+    const alpha = uniformRaw("alpha", "float");
+    const code = compileWgslStage.fragment(vec4(zeta, alpha, 0, 1));
+    const members = [...(/struct _RmslUniforms \{([\s\S]*?)\n\};/.exec(code)?.[1] ?? "").matchAll(/^\s*(\w+):/gm)].map(
+      (m) => m[1],
+    );
+    expect(members).toEqual(["zeta", "alpha"]);
+  });
+
+  /**
+   * @canon spec-the-uniforms-list-holds-the-uniform-nodes
+   */
+  it("takes the uniform nodes themselves as the uniforms list on WGSL", () => {
+    const read = uniform("float");
+    const other = uniform("vec2");
+    const code = compileWgslStage.fragment(vec4(read, 0, 0, 1), { uniforms: [read, other] });
+    expect(code).toMatch(new RegExp(`${other.name}: vec2<f32>`));
   });
 });
 

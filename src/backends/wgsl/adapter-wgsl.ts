@@ -19,7 +19,7 @@ import {
 } from "../adapter";
 import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
 import { textureImage } from "../texture-image";
-import { CompileCtx, storageAttributes, VertexRoot } from "../shared";
+import { CompileCtx, storageAttributes, storageNodesOf, VertexRoot } from "../shared";
 import type { WgslContext } from "./context-wgsl";
 import { spread, storageLayout, type StorageLayout } from "./storage-layout";
 import {
@@ -141,7 +141,12 @@ function freshCtx(shaderStage: CompileCtx["shaderStage"]): CompileCtx {
 }
 
 type ReflectedAttribute = { slot: string; type: string };
-type ReflectedUniform = { slot: string; type: string; length?: number };
+type ReflectedUniform = {
+  slot: string;
+  type: string;
+  length?: number;
+  node: UniformNode<ShaderType> | UniformArrayNode<ShaderType>;
+};
 
 /** What a vertex/fragment stage reads: its own attributes (vertex only,
  * in creation order) and uniforms — same ctx-walking trick `compile()`
@@ -158,10 +163,13 @@ function reflectStage(
       .sort((a, b) => a[1].id - b[1].id)
       .map(([, info]) => ({ slot: info.slot, type: info.type })),
     uniforms: [...ctx.uniforms.values()]
-      .sort((a, b) => a.slot.localeCompare(b.slot))
-      .map((u) => ({ slot: u.slot, type: u.type, length: u.length })),
+      .sort((a, b) => a.order! - b.order!)
+      .map((u) => ({ slot: u.slot, type: u.type, length: u.length, node: u.node as ReflectedUniform["node"] })),
   };
 }
+
+/** The place of a uniform in the order the program created its uniforms. */
+const creationOf = (node: ReflectedUniform["node"]) => (node as unknown as { value: { id: number } }).value.id;
 
 /** Scalar/vector f32 only — a matrix attribute arrives as several columns
  * (see wgslMatrixColumns in wgsl.ts) with no single `GPUVertexFormat` of
@@ -502,7 +510,8 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       for (let u of [...vertexReflection.uniforms, ...fragmentReflection.uniforms]) {
         (isWgslTexture(u.type) ? sharedTextures : sharedUniforms).set(u.slot, u);
       }
-      let renderUniforms = [...sharedUniforms.values()];
+      let renderDeclarations = [...sharedUniforms.values()].sort((a, b) => creationOf(a.node) - creationOf(b.node));
+      let renderUniforms = renderDeclarations.map((u) => u.node);
       // A texture takes a binding of its own, in the order of the whole program's textures.
       textureDeclarations = sharedSamplerDeclarations(
         [...sharedTextures.values()].map((u) => ({
@@ -511,10 +520,11 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
         })),
       );
       storages = storageAttributes([options.vertex, options.fragment]);
-      let storageOrder = [...storages.keys()].sort();
+      let storageNodes = storageNodesOf([options.vertex, options.fragment]);
+      let storageOrder = storageNodes.map((node) => node.name);
       let stageOptions = {
         ...(renderUniforms.length > 0 ? { uniforms: renderUniforms } : {}),
-        ...(storageOrder.length > 0 ? { storages: storageOrder } : {}),
+        ...(storageNodes.length > 0 ? { storages: storageNodes } : {}),
         ...(textureDeclarations.length > 0
           ? { samplers: textureDeclarations.map((t) => ({ slot: t.slot, type: t.shaderType })) }
           : {}),
@@ -544,7 +554,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       });
 
       if (renderUniforms.length > 0) {
-        renderUniformLayout = wgslUniformLayout(renderUniforms);
+        renderUniformLayout = wgslUniformLayout(renderDeclarations);
         renderUniformBuffer = device.createBuffer({
           size: uniformBufferSize(renderUniformLayout.size),
           usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,

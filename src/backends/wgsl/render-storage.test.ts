@@ -3,7 +3,7 @@ import { Fn, float, instanceIndex, instancedArray, varying, vec4, vertexIndex } 
 import { compileGlsl } from "../../glsl";
 import { compileWgsl, createWgslContext } from "../../wgsl";
 import { GPU_ENABLED, installWebGpuGlobals } from "../../testing/gpu";
-import { storageAttributes } from "../shared";
+import { storageNodesOf } from "../shared";
 import { WGSL_RENDER_STORAGE_GROUP } from "./wgsl";
 
 let uninstall: (() => void) | undefined;
@@ -37,11 +37,11 @@ describe("storage buffers in render stages", () => {
    */
   it("are declared read-only in their own group, numbered across both stages", () => {
     const { offsets, colors, vertex, fragment } = program();
-    const storages = [offsets.name, colors.name].sort();
+    const storages = [offsets, colors];
     const vertexCode = compileWgsl.vertex(vertex, { storages });
     const fragmentCode = compileWgsl.fragment(fragment, { storages });
     const binding = (name: string) =>
-      `@group(${WGSL_RENDER_STORAGE_GROUP}) @binding(${storages.indexOf(name)}) var<storage, read>`;
+      `@group(${WGSL_RENDER_STORAGE_GROUP}) @binding(${storages.findIndex((node) => node.name === name)}) var<storage, read>`;
     expect(vertexCode).toContain(binding(offsets.name));
     expect(vertexCode).not.toContain(binding(colors.name));
     expect(fragmentCode).toContain(binding(colors.name));
@@ -79,8 +79,7 @@ describe("storage buffers in render stages", () => {
     const context = await createWgslContext();
     const device = context.device;
     const { vertex, fragment } = program();
-    const attributes = storageAttributes([vertex, fragment]);
-    const storages = [...attributes.keys()].sort();
+    const storages = storageNodesOf([vertex, fragment]);
 
     device.pushErrorScope("validation");
     const pipeline = device.createRenderPipeline({
@@ -97,9 +96,9 @@ describe("storage buffers in render stages", () => {
     });
     device.createBindGroup({
       layout: pipeline.getBindGroupLayout(WGSL_RENDER_STORAGE_GROUP),
-      entries: storages.map((slot, binding) => ({
+      entries: storages.map((node, binding) => ({
         binding,
-        resource: { buffer: context.buffer(attributes.get(slot)!) },
+        resource: { buffer: context.buffer(node.attribute) },
       })),
     });
     const error = await device.popErrorScope();
