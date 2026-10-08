@@ -64,7 +64,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-adapter-writes-a-texture-of-the-same-shape-in-place`](#spec-an-adapter-writes-a-texture-of-the-same-shape-in-place) — `setTexture` of a texture of the size and format a sampler's GPU texture already has writes into that GPU texture on `createGlsl` and `createWgsl`, rather than making a new one, and four-channel data of the array type the texture holds goes up without a copy.
     - [`@spec an-adapter-takes-the-texture-a-sampler-reads-from-the-host`](#spec-an-adapter-takes-the-texture-a-sampler-reads-from-the-host) — `setTexture(sampler, texture)` gives a sampler uniform the texture it reads on every adapter that draws: `createGlsl`, `createWgsl`, `createJs` and `createWasm`. The sampler is named by its node or its slot, and the texture is described as a CPU target samples it. A GPU target reads 8-bit data as 0 to 1, and takes an integer array for an integer sampler.
     - [`@spec an-adapter-sets-a-uniform-of-every-type-its-program-declares`](#spec-an-adapter-sets-a-uniform-of-every-type-its-program-declares) — An adapter's `setUniform` uploads a uniform of every value type its program can declare.
-    - [`@spec the-glsl-adapter-names-the-call-that-sets-a-sampler-slot`](#spec-the-glsl-adapter-names-the-call-that-sets-a-sampler-slot) — `setUniform` on `createGlsl` refuses a slot its program declares as a sampler, and names the call that sets it: `setTexture` for a texture, and `setAttribute` for a storage buffer a render stage reads.
+    - [`@spec the-glsl-adapter-names-the-call-that-sets-a-sampler-slot`](#spec-the-glsl-adapter-names-the-call-that-sets-a-sampler-slot) — `setUniform` on `createGlsl` refuses a slot its program declares as a sampler. Its error names the call that sets the slot: `setTexture` for a texture, and `setAttribute` for a storage buffer.
     - [`@spec a-wgsl-stage-given-the-program-uniforms-declares-every-one`](#spec-a-wgsl-stage-given-the-program-uniforms-declares-every-one) — A WGSL stage given the program's `uniforms` declares each of them in its struct, whether the stage reads it or not.
     - [`@spec the-uniforms-list-holds-the-uniform-nodes`](#spec-the-uniforms-list-holds-the-uniform-nodes) — The `uniforms` list a WGSL stage takes holds the uniform nodes themselves, not declarations of their slots.
     - [`@spec a-wgsl-stage-refuses-a-uniform-the-given-uniforms-leave-out`](#spec-a-wgsl-stage-refuses-a-uniform-the-given-uniforms-leave-out) — The compiler refuses a WGSL stage that reads a uniform the given `uniforms` leave out, and names that uniform.
@@ -233,7 +233,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@spec a-glsl-render-stage-refuses-a-write-to-storage`](#spec-a-glsl-render-stage-refuses-a-write-to-storage) — The GLSL compiler refuses a write to a storage buffer from a vertex or fragment stage, to a whole element or to a component of one.
         - [`@spec a-storage-texel-holds-one-element-or-one-column`](#spec-a-storage-texel-holds-one-element-or-one-column) — A texel of a storage texture holds one element, with as many channels as the element has components, of an integer format for an `int` or `uint` element. A matrix element takes one texel for each of its columns, in consecutive texels.
         - [`@spec a-storage-texture-is-a-power-of-two-wide`](#spec-a-storage-texture-is-a-power-of-two-wide) — A storage texture is as wide as the smallest power of two at or above the square root of its texel count, and as tall as its texels need. Texel `t` sits at column `t % width` and row `t / width`, where the stage reads `width` from the texture's size.
-        - [`@spec the-glsl-adapter-refuses-a-storage-texture-past-the-size-limit`](#spec-the-glsl-adapter-refuses-a-storage-texture-past-the-size-limit) — `createGlsl` refuses a storage buffer whose storage texture would be wider or taller than the context's `MAX_TEXTURE_SIZE`. The error names the buffer, the size it needs and the limit.
+        - [`@spec the-glsl-adapter-refuses-a-storage-texture-past-the-size-limit`](#spec-the-glsl-adapter-refuses-a-storage-texture-past-the-size-limit) — `createGlsl` refuses a storage buffer too large for the textures of its context. The error names the buffer, the size of texture it needs, and the context's `MAX_TEXTURE_SIZE`.
         - [`@spec the-glsl-adapter-uploads-each-storage-buffer-it-reads`](#spec-the-glsl-adapter-uploads-each-storage-buffer-it-reads) — `createGlsl` uploads each storage buffer its stages read as a storage texture, from the buffer's contents at `attach`. `setAttribute` on the buffer's slot fills it again.
       - [`@spec a-wgsl-render-stage-declares-its-storage-in-group-three`](#spec-a-wgsl-render-stage-declares-its-storage-in-group-three) — On WGSL, a vertex or fragment stage declares its storage buffers in group 3.
   - [`@spec a-constant-index-outside-a-vector-or-matrix-is-refused`](#spec-a-constant-index-outside-a-vector-or-matrix-is-refused) — A constant index outside a vector's components or a matrix's columns is refused on every target. Such an index is a literal, or an operation of literals that folds to one. A write by index through a swizzle is refused for an index outside the swizzle, as its read is. So it is in a graph `deserialize` rebuilt.
@@ -509,7 +509,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec uniforms-are-ordered-by-alignment-then-by-declaration`](#spec-uniforms-are-ordered-by-alignment-then-by-declaration) — Uniform members are placed in order of descending alignment, and members that align alike keep the order they were declared in.
     - [`@spec an-array-member-has-a-stride-of-sixteen`](#spec-an-array-member-has-a-stride-of-sixteen) — An array member reports a stride of at least 16 bytes, and a `bool` array the stride of what it travels as. The struct rounds its size up to the array's alignment.
     - [`@spec a-matrix-member-pads-each-column`](#spec-a-matrix-member-pads-each-column) — A matrix member takes one aligned column for each of its columns, so a `mat2x3` takes two columns of 16 bytes.
-    - [`@spec the-wgsl-uniform-layout-leaves-out-a-texture`](#spec-the-wgsl-uniform-layout-leaves-out-a-texture) — `wgslUniformLayout` leaves out a texture, as the struct of a WGSL stage does. The program's whole uniform list, mapped through `wgslUniformDeclaration`, gives the layout of the struct a stage given that list declares.
+    - [`@spec the-wgsl-uniform-layout-leaves-out-a-texture`](#spec-the-wgsl-uniform-layout-leaves-out-a-texture) — `wgslUniformLayout` leaves out a texture, as the struct of a WGSL stage does. The host lays out its buffer from the list it gives the stages, mapped through `wgslUniformDeclaration`.
     - [`@spec a-wasm-routine-reads-uniforms-from-the-wgsl-layout`](#spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout) — Given `gpuUniformLayout`, a WASM routine reads each uniform, arrays included, at the offset and stride `wgslUniformLayout` reports, so one buffer serves WGSL and WASM. Without it, a WASM module lays out its own memory and holds each float uniform in 64 bits.
     - [`@spec a-gpu-uniform-layout-needs-32-bit-floats`](#spec-a-gpu-uniform-layout-needs-32-bit-floats) — A WASM compile function or adapter given `gpuUniformLayout` must also be given `float: "f32"`. The type checker refuses the layout beside `float: "f64"`, or beside no `float`, when the options are written in the call. The compile refuses it too, with an error that names both ways out: `float: "f32"` to share the buffer with the GPU, or no layout to keep 64 bits.
     - [`@spec a-type-with-no-layout-is-refused`](#spec-a-type-with-no-layout-is-refused) — A member whose type has no WGSL layout is refused, rather than placed by a guess.
@@ -620,7 +620,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-js-function-writes-out-what-would-cross-a-call`](#spec-a-js-function-writes-out-what-would-cross-a-call) — A compiled JS function writes an element-wise operation into a slot one component at a time, and a dot product, a length, a distance and a scalar `smoothstep` as expressions of their own, rather than through a call. Each component reads a vector operand's component and a scalar operand as it is, which the compiler knows from their types. A scalar operand that is not a local is read into one before the first component is written, so a component of the slot itself is read as it was. A helper remains for an operation with no slot to write into, written for the shape of each operand.
   - [`@spec a-compiled-js-function-returns-its-result-in-a-slot`](#spec-a-compiled-js-function-returns-its-result-in-a-slot) — The function that `compileJSFn` returns as source, and that `precompileJS` ships, returns a vector or a matrix in a slot it reuses on the next call, and a stage returns its position, varyings and outputs in an object it reuses, so the result of one call is the result of the next. A caller that keeps one copies it, or compiles with `reentrant`. A [routine](#term-cpu-routine), a stage and a grid copy their result, so a later call does not change it.
   - [`@spec a-webgl-renderer-allocates-nothing-per-frame`](#spec-a-webgl-renderer-allocates-nothing-per-frame) — The WebGL renderer draws a frame without allocating. It reuses what it needs between frames, and builds no array, closure or iterator per frame or per draw.
-  - [`@spec a-wgsl-compute-call-reuses-its-staging-buffers`](#spec-a-wgsl-compute-call-reuses-its-staging-buffers) — `compute(out)` of a WGSL compute adapter reads back through staging buffers it keeps from its earlier calls. It makes a new one only when each one it keeps is too small for the slot or mapped by a call that has not resolved. `destroy()` destroys the ones it keeps.
+  - [`@spec a-wgsl-compute-call-reuses-its-staging-buffers`](#spec-a-wgsl-compute-call-reuses-its-staging-buffers) — `compute(out)` of a WGSL compute adapter reads back through staging buffers it keeps from its earlier calls. It makes a new one only when none it keeps is both free and large enough for the slot. A buffer is not free while a call that has not resolved maps it. `destroy()` destroys the ones it keeps.
 - [`@axiom a-user-ships-only-what-runs`](#axiom-a-user-ships-only-what-runs) — An application pays only for what it uses. A program declares only the inputs it reads. An application that compiles ahead of time ships the compiled code, without the compiler and without a toolchain.
   - [`@spec a-precompiled-program-ships-without-the-compiler`](#spec-a-precompiled-program-ships-without-the-compiler) — An application that [precompiles](#term-precompile) its programs with the Vite plugins ships the compiled code without the rmsl compiler.
     - [`@spec a-precompiled-shader-ships-as-a-string`](#spec-a-precompiled-shader-ships-as-a-string) — `precompileShaders` replaces a module with the GLSL and WGSL it compiled to, and the slot names it uses, as one JSON constant that imports nothing.
@@ -763,7 +763,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-webgpu-canvas-configured-opaque-drops-alpha`](#fact-a-webgpu-canvas-configured-opaque-drops-alpha) — A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha the draw wrote.
 - [`@fact a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares`](#fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares) — A WebGPU draw takes its vertex count from the caller, and infers none. It reads only the vertex buffers of its pipeline's vertex layout, which holds the attributes the shader declares, and each of those must hold the vertices the draw reads.
 - [`@fact three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture`](#fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture) — three.js's WebGL renderer reads a storage node in a render stage through a data texture, when the node asks for it with `setPBO(true)`. A texel holds one element, with a channel for each component and an integer format for integer data. The texture is as wide as the smallest power of two at or above the square root of the element count. Element `i` sits at column `i % width` and row `i / width`, the width read with `textureSize`.
-- [`@fact webgl2-refuses-a-texture-past-max-texture-size`](#fact-webgl2-refuses-a-texture-past-max-texture-size) — WebGL 2 refuses a 2D texture wider or taller than the context's `MAX_TEXTURE_SIZE`. `texImage2D` with such a size raises `INVALID_VALUE` and specifies no texture, so a shader reads nothing from it but zeros.
+- [`@fact webgl2-refuses-a-texture-past-max-texture-size`](#fact-webgl2-refuses-a-texture-past-max-texture-size) — WebGL 2 refuses a 2D texture wider or taller than the context's `MAX_TEXTURE_SIZE`. `texImage2D` with such a size raises `INVALID_VALUE` and specifies no texture. A shader then reads only zeros from it.
 - [`@fact three-js-configures-its-webgpu-canvas-by-its-alpha-parameter`](#fact-three-js-configures-its-webgpu-canvas-by-its-alpha-parameter) — three.js's WebGPU renderer takes an `alpha` parameter, `true` by default. It configures its canvas `premultiplied` when `alpha` is `true`, and `opaque` when it is `false`.
 - [`@fact react-three-fiber-and-threlte-create-their-renderer-with-alpha`](#fact-react-three-fiber-and-threlte-create-their-renderer-with-alpha) — react-three-fiber and Threlte build their `WebGLRenderer` with `alpha: true`, so a canvas they draw on clears to alpha 0.
 - [`@fact three-js-generates-a-node-read-more-than-once-into-a-variable`](#fact-three-js-generates-a-node-read-more-than-once-into-a-variable) — three.js counts the reads of each node while it analyzes a shader stage. It generates a node read more than once into a variable at its first read, and later reads use the variable.
@@ -1120,11 +1120,11 @@ This follows because a program may declare a uniform of any value type, and the 
 
 #### @spec the-glsl-adapter-names-the-call-that-sets-a-sampler-slot
 
-> `setUniform` on `createGlsl` refuses a slot its program declares as a sampler, and names the call that sets it: `setTexture` for a texture, and `setAttribute` for a storage buffer a render stage reads.
+> `setUniform` on `createGlsl` refuses a slot its program declares as a sampler. Its error names the call that sets the slot: `setTexture` for a texture, and `setAttribute` for a storage buffer.
 
 Derives from: [`spec-a-glsl-stage-declares-a-storage-buffer-as-a-sampler-under-its-slot`](#spec-a-glsl-stage-declares-a-storage-buffer-as-a-sampler-under-its-slot), [`spec-the-glsl-adapter-uploads-each-storage-buffer-it-reads`](#spec-the-glsl-adapter-uploads-each-storage-buffer-it-reads)
 
-This follows because a sampler holds no value that `setUniform` could upload, and both a texture and a storage buffer reach a GLSL stage as a sampler, each through a call of its own.
+This follows because a sampler holds no value for `setUniform` to upload. A texture and a storage buffer both reach a GLSL stage as a sampler, each through a call of its own.
 
 #### @spec a-wgsl-stage-given-the-program-uniforms-declares-every-one
 
@@ -2067,7 +2067,7 @@ This follows because a texture is limited in width and in height alike, so a squ
 
 ###### @spec the-glsl-adapter-refuses-a-storage-texture-past-the-size-limit
 
-> `createGlsl` refuses a storage buffer whose storage texture would be wider or taller than the context's `MAX_TEXTURE_SIZE`. The error names the buffer, the size it needs and the limit.
+> `createGlsl` refuses a storage buffer too large for the textures of its context. The error names the buffer, the size of texture it needs, and the context's `MAX_TEXTURE_SIZE`.
 
 Derives from: [`spec-a-storage-texture-is-a-power-of-two-wide`](#spec-a-storage-texture-is-a-power-of-two-wide), [`fact-webgl2-refuses-a-texture-past-max-texture-size`](#fact-webgl2-refuses-a-texture-past-max-texture-size)
 
@@ -3639,11 +3639,11 @@ Derives from: [`fact-a-wgsl-uniform-array-has-a-16-byte-stride`](#fact-a-wgsl-un
 
 #### @spec the-wgsl-uniform-layout-leaves-out-a-texture
 
-> `wgslUniformLayout` leaves out a texture, as the struct of a WGSL stage does. The program's whole uniform list, mapped through `wgslUniformDeclaration`, gives the layout of the struct a stage given that list declares.
+> `wgslUniformLayout` leaves out a texture, as the struct of a WGSL stage does. The host lays out its buffer from the list it gives the stages, mapped through `wgslUniformDeclaration`.
 
 Derives from: [`spec-wgsl-packs-every-value-uniform-into-one-binding`](#spec-wgsl-packs-every-value-uniform-into-one-binding), [`spec-a-wgsl-stage-given-the-program-uniforms-declares-every-one`](#spec-a-wgsl-stage-given-the-program-uniforms-declares-every-one)
 
-This follows because a texture holds no value in the uniform buffer, and the host packs the buffer from the same list it gives the stages.
+This follows because a texture holds no value in the uniform buffer. The host packs the buffer from the same list it gives the stages.
 
 #### @spec a-wasm-routine-reads-uniforms-from-the-wgsl-layout
 
@@ -3919,7 +3919,7 @@ This follows because a fragment that writes no depth keeps its interpolated dept
 
 Derives from: [`spec-a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment)
 
-This follows because a stage that does not write its depth cannot change the outcome of the test, so its work on a fragment the test rejects is thrown away.
+This follows because a stage that does not write its depth cannot change what the test decides. Its work on a fragment the test rejects would go to waste.
 
 ##### @spec a-rasterizer-takes-its-count-from-the-first-attribute-it-reads
 
@@ -4357,11 +4357,11 @@ This follows because a value returned in a slot allocates nothing, and the funct
 
 ### @spec a-wgsl-compute-call-reuses-its-staging-buffers
 
-> `compute(out)` of a WGSL compute adapter reads back through staging buffers it keeps from its earlier calls. It makes a new one only when each one it keeps is too small for the slot or mapped by a call that has not resolved. `destroy()` destroys the ones it keeps.
+> `compute(out)` of a WGSL compute adapter reads back through staging buffers it keeps from its earlier calls. It makes a new one only when none it keeps is both free and large enough for the slot. A buffer is not free while a call that has not resolved maps it. `destroy()` destroys the ones it keeps.
 
 Derives from: [`spec-overlapping-compute-calls-each-read-back-their-own-result`](#spec-overlapping-compute-calls-each-read-back-their-own-result)
 
-This follows because a call made every frame would otherwise make and destroy a buffer for each slot it reads back, and a buffer that another call has mapped cannot take a second copy.
+This follows because a call made every frame would otherwise make and destroy a buffer for each slot it reads back. A buffer that another call has mapped cannot take a second copy.
 
 ## @axiom a-user-ships-only-what-runs
 
@@ -5237,7 +5237,7 @@ This is how three.js behaves, read from its source: `setupPBO` and `generatePBO`
 
 ## @fact webgl2-refuses-a-texture-past-max-texture-size
 
-> WebGL 2 refuses a 2D texture wider or taller than the context's `MAX_TEXTURE_SIZE`. `texImage2D` with such a size raises `INVALID_VALUE` and specifies no texture, so a shader reads nothing from it but zeros.
+> WebGL 2 refuses a 2D texture wider or taller than the context's `MAX_TEXTURE_SIZE`. `texImage2D` with such a size raises `INVALID_VALUE` and specifies no texture. A shader then reads only zeros from it.
 
 This is the OpenGL ES 3.0 specification, section 3.8.3, which WebGL 2 follows. The limit is at least 2048 and differs between devices.
 
