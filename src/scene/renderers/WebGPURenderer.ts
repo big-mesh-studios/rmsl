@@ -227,6 +227,9 @@ export class WebGPURenderer {
 
     this.ensureDepthTexture();
     const surface = target === null ? null : this.renderTargetTextures(target);
+    // The surface the frame draws into, whose size a renderer-scoped uniform such as `resolution` gives.
+    this.frameWidth = target?.width ?? this.canvas.width;
+    this.frameHeight = target?.height ?? this.canvas.height;
     const depthView = surface === null ? this.depthView! : surface.depthView;
     const device = this.device;
 
@@ -340,6 +343,10 @@ export class WebGPURenderer {
     }
   }
 
+  /** The size of the surface the frame draws into: a render target's, or the canvas's. */
+  private frameWidth = 0;
+  private frameHeight = 0;
+
   /** The meshes of the frame `render` is drawing, opaque ones first and transparent ones back to front. */
   private frameOrder = new FrameOrder();
 
@@ -386,7 +393,7 @@ export class WebGPURenderer {
       } else if (binding.scope === "object") {
         value = objectUniformValue(binding.name, mesh);
       } else if (binding.scope === "renderer") {
-        value = rendererUniformValue(binding.name, this.canvas.width, this.canvas.height);
+        value = rendererUniformValue(binding.name, this.frameWidth, this.frameHeight);
       } else {
         value = binding.value?.({ camera, mesh }) ?? [];
       }

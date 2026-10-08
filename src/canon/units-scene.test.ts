@@ -78,6 +78,34 @@ globalThis.__rmslR8UIRowsRun = () => {
 
 describe("a scene renderer manages what it uploads", () => {
   /**
+   * @canon spec-a-renderer-supplies-the-camera-and-object-uniforms
+   */
+  it("gives a line the render target's resolution when drawing into one on WebGL", () => {
+    const { renderer, calls } = stubWebGl();
+    const geometry = new LineSegmentsGeometry();
+    geometry.setPositions([0, 0, 0, 1, 0, 0]);
+    const scene = new Scene();
+    scene.add(new LineSegments2(geometry, new Line2NodeMaterial()));
+    renderer.render(scene, camera(), new WebGLRenderTarget(8, 4));
+
+    const resolution = calls.find((c) => c.name === "uniform2f" && /resolution/.test(c.args[0].name))!;
+    expect(resolution.args.slice(1)).toEqual([8, 4]);
+  });
+
+  /**
+   * @canon spec-wide-lines-follow-three-js
+   */
+  it("shows a line's opacity changed after its first render", () => {
+    const material = new Line2NodeMaterial({ opacity: 0.5, transparent: true });
+    const program = material.build(new Scene());
+    const version = material.version;
+    material.opacity = 0.25;
+
+    const live = program.uniforms.some((u) => u.value?.({} as any) === 0.25);
+    expect(live || material.version > version).toBe(true);
+  });
+
+  /**
    * @canon spec-a-mesh-draws-the-slice-its-draw-range-selects
    */
   it("draws only the slice a mesh's drawRange selects on WebGPU", () => {

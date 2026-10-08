@@ -379,7 +379,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-instanced-mesh-follows-three-js`](#spec-an-instanced-mesh-follows-three-js) — An `InstancedMesh` holds a transform per instance, the identity by default, and a colour per instance once the program sets one. It clones with its geometry, material, transforms and instance data.
     - [`@spec a-material-built-for-an-instanced-mesh-reads-each-instance`](#spec-a-material-built-for-an-instanced-mesh-reads-each-instance) — A material built for an instanced mesh declares the instance matrix, as four column attributes, and the instance colour when the mesh carries colours. It transforms position and normal by the matrix and tints the colour. The same material also builds for a mesh that is not instanced.
     - [`@spec wide-lines-follow-three-js`](#spec-wide-lines-follow-three-js) — `LineSegmentsGeometry`, `LineGeometry`, `Line2NodeMaterial` and `LineSegments2` draw lines of a width in pixels or world units, as three.js's do. They draw dashes and a colour per segment when asked.
-      - [`@bug line-opacity-is-compiled-as-a-literal`](#bug-line-opacity-is-compiled-as-a-literal) — `Line2NodeMaterial` compiles its `opacity` as a literal, so a change to it after the first render does nothing.
     - [`@spec a-node-material-shades-as-three-js-does`](#spec-a-node-material-shades-as-three-js-does) — `MeshBasicMaterial`, `MeshLambertMaterial` and `MeshStandardMaterial` shade as three.js's do, the standard material with a GGX specular term, from a [node material](#term-node-material) graph.
       - [`@spec the-built-in-materials-shade-as-three-js-does`](#spec-the-built-in-materials-shade-as-three-js-does) — `MeshBasicMaterial`, `MeshLambertMaterial` and `MeshStandardMaterial` build programs that shade as three.js's do, to a finite colour.
       - [`@spec a-material-slot-takes-a-node-or-a-builder`](#spec-a-material-slot-takes-a-node-or-a-builder) — A material slot such as `colorNode` takes a node, or a function of the builder that gives one. `vertexNode` and `fragmentNode` replace a whole stage.
@@ -457,7 +456,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-webgpu-draw-keeps-its-own-uniforms-however-many-draws-a-frame-has`](#spec-a-webgpu-draw-keeps-its-own-uniforms-however-many-draws-a-frame-has) — Each draw of a frame on the WebGPU renderer reads its own uniforms, whatever the number of draws in the frame.
     - [`@spec a-webgpu-renderer-frees-the-uniform-buffers-it-no-longer-uses`](#spec-a-webgpu-renderer-frees-the-uniform-buffers-it-no-longer-uses) — The WebGPU renderer frees the uniform buffer of a pipeline it replaces, and shrinks a program's uniform ring once a frame needs far fewer slots.
     - [`@spec a-renderer-supplies-the-camera-and-object-uniforms`](#spec-a-renderer-supplies-the-camera-and-object-uniforms) — A renderer gives a program the camera's projection, view and position, the object's world and normal matrices, and its own resolution. It gives nothing for a name it does not know.
-      - [`@bug line-resolution-ignores-the-render-target`](#bug-line-resolution-ignores-the-render-target) — The WebGL renderer gives the `resolution` uniform the canvas's drawing buffer size even while it draws into a smaller render target. A line it draws into the target then has the wrong width.
     - [`@spec a-program-is-compiled-once-per-signature`](#spec-a-program-is-compiled-once-per-signature) — A renderer compiles a material once for each light set, in order, and each instancing flag of the mesh.
     - [`@spec a-uniform-uploads-in-the-shape-its-type-has`](#spec-a-uniform-uploads-in-the-shape-its-type-has) — A renderer uploads a scalar uniform as a scalar and a vector or matrix as an array. An integer uniform goes up as an integer, and each column of a `mat3` is padded to 16 bytes, as WGSL reads it. It places every uniform a material collects in the WGSL layout.
     - [`@spec an-instanced-attribute-comes-from-its-mesh`](#spec-an-instanced-attribute-comes-from-its-mesh) — A renderer reads an instanced attribute from the geometry, or from the mesh that owns it when the geometry has none. Its WGSL locations match the compiler's.
@@ -2812,14 +2810,6 @@ This follows because TSL is the shading language of three.js, and its users brin
 
 > `LineSegmentsGeometry`, `LineGeometry`, `Line2NodeMaterial` and `LineSegments2` draw lines of a width in pixels or world units, as three.js's do. They draw dashes and a colour per segment when asked.
 
-##### @bug line-opacity-is-compiled-as-a-literal
-
-> `Line2NodeMaterial` compiles its `opacity` as a literal, so a change to it after the first render does nothing.
-
-Derives from: [`spec-a-render-depends-only-on-what-it-is-given`](#spec-a-render-depends-only-on-what-it-is-given)
-
-Issue: #97
-
 #### @spec a-node-material-shades-as-three-js-does
 
 > `MeshBasicMaterial`, `MeshLambertMaterial` and `MeshStandardMaterial` shade as three.js's do, the standard material with a GGX specular term, from a [node material](#term-node-material) graph.
@@ -3265,12 +3255,6 @@ This follows because a renderer that owns what it uploads frees what nothing rea
 #### @spec a-renderer-supplies-the-camera-and-object-uniforms
 
 > A renderer gives a program the camera's projection, view and position, the object's world and normal matrices, and its own resolution. It gives nothing for a name it does not know.
-
-##### @bug line-resolution-ignores-the-render-target
-
-> The WebGL renderer gives the `resolution` uniform the canvas's drawing buffer size even while it draws into a smaller render target. A line it draws into the target then has the wrong width.
-
-Issue: #97
 
 #### @spec a-program-is-compiled-once-per-signature
 

@@ -5,9 +5,6 @@ import {
   BufferAttribute,
   BufferGeometry,
   DataTexture,
-  Line2NodeMaterial,
-  LineSegments2,
-  LineSegmentsGeometry,
   Matrix3,
   Mesh,
   MeshBasicMaterial,
@@ -15,7 +12,6 @@ import {
   PlaneGeometry,
   Scene,
   WebGLRenderer,
-  WebGLRenderTarget,
   WebGPURenderer,
 } from "../scene";
 import { collectNodes } from "../scene/materials/nodes/graph";
@@ -355,41 +351,6 @@ describe("known bugs of the scene library, each failing until its fix", () => {
     const textureLayout = layouts.find((l) => l.entries.some((e: any) => e.texture))!;
     expect(textureLayout.entries[0].visibility & 1).toBe(1);
     expect(textureLayout.entries[0].visibility & 2).toBe(2);
-  });
-
-  /**
-   * The WebGL renderer gives the `resolution` uniform the canvas's drawing
-   * buffer size even while it draws into a smaller render target, so a line
-   * drawn there is the wrong width.
-   *
-   * @canon bug-line-resolution-ignores-the-render-target
-   */
-  it.fails("gives a line the render target's resolution when drawing into one on WebGL", () => {
-    const { renderer, calls } = stubWebGl();
-    const geometry = new LineSegmentsGeometry();
-    geometry.setPositions([0, 0, 0, 1, 0, 0]);
-    const scene = new Scene();
-    scene.add(new LineSegments2(geometry, new Line2NodeMaterial()));
-    renderer.render(scene, camera(), new WebGLRenderTarget(8, 4));
-
-    const resolution = calls.find((c) => c.name === "uniform2f" && /resolution/.test(c.args[0].name))!;
-    expect(resolution.args.slice(1)).toEqual([8, 4]);
-  });
-
-  /**
-   * `Line2NodeMaterial` compiles its `opacity` as a literal, so changing it
-   * after the first render has no effect.
-   *
-   * @canon bug-line-opacity-is-compiled-as-a-literal
-   */
-  it.fails("shows a line's opacity changed after its first render", () => {
-    const material = new Line2NodeMaterial({ opacity: 0.5, transparent: true });
-    const program = material.build(new Scene());
-    const version = material.version;
-    material.opacity = 0.25;
-
-    const live = program.uniforms.some((u) => u.value?.({} as any) === 0.25);
-    expect(live || material.version > version).toBe(true);
   });
 
   /**

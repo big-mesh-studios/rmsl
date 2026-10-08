@@ -162,6 +162,9 @@ export class WebGLRenderer {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     }
+    // The surface the frame draws into, whose size a renderer-scoped uniform such as `resolution` gives.
+    this.frameWidth = target?.width ?? gl.drawingBufferWidth;
+    this.frameHeight = target?.height ?? gl.drawingBufferHeight;
     const clear = clearColourOf(scene, this.clearColor, this.clearAlpha);
     gl.clearColor(clear.r, clear.g, clear.b, clear.a);
     // The depth mask applies to `clear`, and the last draw left it as its material set it.
@@ -184,6 +187,10 @@ export class WebGLRenderer {
       order.clear();
     }
   }
+
+  /** The size of the surface the frame draws into: a render target's, or the drawing buffer's. */
+  private frameWidth = 0;
+  private frameHeight = 0;
 
   /** The meshes of the frame `render` is drawing, opaque ones first and transparent ones back to front. */
   private frameOrder = new FrameOrder();
@@ -372,7 +379,7 @@ export class WebGLRenderer {
       } else if (binding.scope === "object") {
         value = objectUniformValue(binding.name, mesh);
       } else if (binding.scope === "renderer") {
-        value = rendererUniformValue(binding.name, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
+        value = rendererUniformValue(binding.name, this.frameWidth, this.frameHeight);
       } else {
         value = binding.value?.({ camera, mesh }) ?? [];
       }
