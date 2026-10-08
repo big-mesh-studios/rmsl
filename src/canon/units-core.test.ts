@@ -320,11 +320,15 @@ describe("what a program does with a node it reads more than once", () => {
    */
   it.each([
     ["fract", (x: any) => x.fract()],
+    ["sign", (x: any) => x.sign().add(x)],
     ["mod", (x: any) => x.mod(float(0.7))],
     ["mix", (x: any) => mix(x, float(1), float(0.5))],
     ["smoothstep", (x: any) => smoothstep(x, float(4), float(2))],
+    ["atan2 of a vector and a scalar", (x: any) => vec3(1, 2, 3).atan(x).y],
+    ["atan2 of a scalar and a vector", (x: any) => x.atan(vec3(1, 2, 3)).y],
+    ["a sum of a vector and a scalar", (x: any) => vec3(1, 2, 3).add(x).y],
   ] as const)(
-    "compiles a chain of %s that each level reads once in output that grows in proportion to the levels on JS",
+    "compiles a chain of %s that each level reads once in output that grows in proportion to the levels on JS and WASM",
     (_op, step) => {
       const chain = (levels: number) => (a: Node<"float">) =>
         Fn(() => {
@@ -333,6 +337,8 @@ describe("what a program does with a node it reads more than once", () => {
           return x;
         })();
       expect(compileJSFn(chain(12), param).length / compileJSFn(chain(6), param).length).toBeLessThan(4);
+      const wasm = (levels: number) => compileWasmFn(chain(levels), param).bytes.length;
+      expect(wasm(12) / wasm(6)).toBeLessThan(4);
     },
   );
 

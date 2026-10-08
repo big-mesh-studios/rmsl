@@ -49,7 +49,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec wgsl-narrows-a-matrix-through-a-helper`](#spec-wgsl-narrows-a-matrix-through-a-helper) — On WGSL, a matrix built from a larger matrix calls a helper that keeps the leading rows of the leading columns. A matrix built from columns or from a scalar needs none.
   - [`@spec every-node-is-emitted-once`](#spec-every-node-is-emitted-once) — A [node](#term-node) that several roots or statements reach is emitted once, in the place it first runs. A block it holds keeps its variables in scope, and a loop it holds keeps its loop variable.
   - [`@spec a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once) — A node that an operation reads more than once is computed once, where it first runs. Each later read in that block or a block inside it takes the result, until a statement changes what the node reads.
-    - [`@spec output-grows-in-proportion-to-the-levels-of-nested-reads`](#spec-output-grows-in-proportion-to-the-levels-of-nested-reads) — A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract` on JS, counts as two reads.
+    - [`@spec output-grows-in-proportion-to-the-levels-of-nested-reads`](#spec-output-grows-in-proportion-to-the-levels-of-nested-reads) — A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract`, counts as two reads. So does a scalar operand beside a vector in a component-wise function, such as `atan2`.
     - [`@spec a-node-that-is-already-a-name-is-read-where-it-is`](#spec-a-node-that-is-already-a-name-is-read-where-it-is) — A constant, a variable, a uniform, an attribute or a built-in input stays where it is. So does a swizzle or an element of one of them. None gets a variable of its own.
     - [`@spec a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in`](#spec-a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in) — A node that two blocks read, with neither inside the other, is computed in each. A path that skips a block runs none of its statements.
     - [`@spec a-shared-value-is-computed-again-after-what-it-reads-changed`](#spec-a-shared-value-is-computed-again-after-what-it-reads-changed) — A shared node that reads a variable or a storage buffer is computed again at its next read. This holds once a statement has changed it.
@@ -991,7 +991,7 @@ This follows because the output and the work at run time then grow with the node
 
 #### @spec output-grows-in-proportion-to-the-levels-of-nested-reads
 
-> A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract` on JS, counts as two reads.
+> A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract`, counts as two reads. So does a scalar operand beside a vector in a component-wise function, such as `atan2`.
 
 #### @spec a-node-that-is-already-a-name-is-read-where-it-is
 

@@ -533,6 +533,41 @@ const SCRATCH_NODE_TYPES = new Set([
   "notEqual",
 ]);
 
+/** The vector and matrix operations a loop over components computes, which read a scalar operand at every component. */
+const COMPONENT_LOOP_TYPES = new Set([
+  ...COMPONENT_MATH_TYPES,
+  "add",
+  "sub",
+  "mul",
+  "div",
+  "mod",
+  "bitAnd",
+  "bitOr",
+  "bitXor",
+  "bitNot",
+  "shiftLeft",
+  "shiftRight",
+  "negate",
+  "abs",
+  "radians",
+  "degrees",
+  "min",
+  "max",
+  "lessThan",
+  "greaterThan",
+  "lessThanEqual",
+  "greaterThanEqual",
+  "equal",
+  "notEqual",
+  "not",
+  "clamp",
+  "mix",
+  "select",
+]);
+
+/** The scalar operations whose formula reads an operand more than once. */
+const SCALAR_REREAD_TYPES = new Set(["sign", "fract", "mix", "mod", "smoothstep", "min", "max", "abs", "clamp"]);
+
 /** The comparison opcodes for each comparison node: `[float, int, uint]`. */
 const COMPARISON_OPCODES: Record<string, [number, number, number]> = {
   lessThan: [WASM_OP.f64Lt, WASM_OP.i32LtS, WASM_OP.i32LtU],
@@ -854,6 +889,10 @@ export function compileWasmFn(
   const localSlots: string[] = [];
   const localIndex = new Map<string, number>();
   const localType = new Map<string, ScalarKind>();
+  /** The local each operand of an operation that reads it more than once is computed into, by operand index. */
+  const operandLocals = new Map<any, (string | undefined)[]>();
+  /** The bytes that read an operand while its operation is emitted: the local it was computed into. */
+  const operandReads = new Map<any, number[]>();
   const importsUsed = new Set<string>();
 
   // memory-kind params, host-written before the call (or read after)
@@ -1711,6 +1750,18 @@ export function compileWasmFn(
         if (MATH_UNARY_IMPORTS.has(node.type) || MATH_BINARY_IMPORTS.has(node.type)) importsUsed.add(node.type);
         break;
     }
+    const rereads = isAggregate(node._t) ? COMPONENT_LOOP_TYPES.has(node.type) : SCALAR_REREAD_TYPES.has(node.type);
+    if (rereads && !operandLocals.has(node)) {
+      const id = operandLocals.size;
+      operandLocals.set(
+        node,
+        (node.params as any[]).map((p, i) => {
+          if (isAggregate(p._t) || !Array.isArray(p.params) || p.params.length === 0) return undefined;
+          addLocal(`$operand_${id}_${i}`, scalarKindOf(p._t));
+          return `$operand_${id}_${i}`;
+        }),
+      );
+    }
     if (isScratchNode(node) && !scratchAddress.has(node)) {
       const addr = allocateFor(node._t as string);
 
@@ -2182,7 +2233,7 @@ export function compileWasmFn(
    * `float: "f32"`, the float components a node computes are rounded there.
    */
   function materializeIfNeeded(node: any): number[] {
-    const bytes = materializeValue(node);
+    const bytes = withOperandsOnce(node, () => materializeValue(node));
     if (!float32 || bytes.length === 0 || elementKindOf(node._t as string) !== "float") return bytes;
     return [...bytes, ...roundFloatsInMemory(nodeAddress(node), componentCountOf(node._t as string))];
   }
@@ -3608,9 +3659,40 @@ export function compileWasmFn(
    * value is rounded to 32 bits and widened back, so it holds what an f32 holds.
    */
   function walkExpr(node: any): number[] {
-    const bytes = walkExprValue(node);
+    const read = operandReads.get(node);
+    if (read !== undefined) return read;
+    const bytes = withOperandsOnce(node, () => walkExprValue(node));
     if (!float32 || node._t !== "float" || node.type === "float" || node.type === "var") return bytes;
     return [...bytes, WASM_OP.f32DemoteF64, WASM_OP.f64PromoteF32];
+  }
+
+  /**
+   * The bytes `emit` gives for `node`, after each scalar operand `node` reads
+   * more than once, or once for each component, is computed into a local of
+   * its own. While `emit` runs, a read of that operand reads the local, so the
+   * operand runs once, as on JS.
+   */
+  function withOperandsOnce(node: any, emit: () => number[]): number[] {
+    const locals = operandLocals.get(node);
+    if (locals === undefined) return emit();
+    const setup: number[] = [];
+    const replaced: [any, number[] | undefined][] = [];
+    (node.params as any[]).forEach((operand, i) => {
+      const name = locals[i];
+      if (name === undefined) return;
+      const slot = wasmUleb128(localSlotIndex(name));
+      setup.push(...walkExpr(operand), WASM_OP.localSet, ...slot);
+      replaced.push([operand, operandReads.get(operand)]);
+      operandReads.set(operand, [WASM_OP.localGet, ...slot]);
+    });
+    try {
+      return [...setup, ...emit()];
+    } finally {
+      for (const [operand, before] of replaced.reverse()) {
+        if (before === undefined) operandReads.delete(operand);
+        else operandReads.set(operand, before);
+      }
+    }
   }
 
   /**
