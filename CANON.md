@@ -193,6 +193,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-raw-name-declares-one-input-under-that-name`](#spec-a-raw-name-declares-one-input-under-that-name) — `uniformRaw`, `attributeRaw` and `varyingRaw` declare their input under the name given, once however many nodes carry it, and every target reads it by that name. An empty name is refused.
       - [`@spec a-raw-name-names-one-type`](#spec-a-raw-name-names-one-type) — Two inputs that share a name but not a type are refused on every target.
       - [`@spec time-is-one-uniform-everywhere`](#spec-time-is-one-uniform-everywhere) — `time()` gives one uniform, named `_rmsl_time`, in every program and every process, so every program that reads it reads one clock.
+      - [`@spec screen-size-is-one-uniform-everywhere`](#spec-screen-size-is-one-uniform-everywhere) — `screenSize()` gives one `vec2` uniform, named `_rmsl_screenSize`, in every program and every process, and its type names it a uniform, so the host binds it by its `.name`. `screenUV()` and `uv()` read it.
     - [`@spec a-location-is-numbered-within-its-program`](#spec-a-location-is-numbered-within-its-program) — The locations of a program's outputs, and of the values a vertex stage passes on, count from 0 within that program, each used once.
     - [`@spec wgsl-numbers-attributes-in-the-order-of-their-creation`](#spec-wgsl-numbers-attributes-in-the-order-of-their-creation) — On WGSL, a vertex stage gives its attributes locations from 0 in the order the application created them.
   - [`@spec a-node-has-the-type-its-signature-declares`](#spec-a-node-has-the-type-its-signature-declares) — The type a signature declares for a node is the type the node has at run time, and the type a compiler declares for it.
@@ -274,7 +275,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-compound-assignment-writes-the-result-back`](#spec-a-compound-assignment-writes-the-result-back) — `addAssign`, `subAssign`, `mulAssign`, `divAssign` and `modAssign` write the result of their operation back to the variable.
     - [`@spec select-picks-one-of-two-values`](#spec-select-picks-one-of-two-values) — `select(condition, a, b)` gives `a` where `condition` holds and `b` where it does not, with the type of its branches. A literal condition folds to its branch.
     - [`@spec the-screen-accessors-follow-tsl`](#spec-the-screen-accessors-follow-tsl) — `fragCoord()` gives the coordinate of the fragment, and `screenUV()` and `uv()` give it divided by the size of the screen. `screenSize()` gives one shared uniform, and `time()` a float uniform. Each does what TSL's accessor of the same name does.
-      - [`@bug screen-size-makes-a-new-uniform-on-every-call`](#bug-screen-size-makes-a-new-uniform-on-every-call) — `screenSize()` declares a new uniform each time it is called, so a program that calls `uv()` twice reads two size uniforms.
     - [`@spec the-index-accessors-follow-tsl`](#spec-the-index-accessors-follow-tsl) — `vertexIndex()` and `instanceIndex()` give the vertex and the instance that the GPU draws, as TSL's accessors of the same names do. The CPU targets do not compile them yet: issue #47.
       - [`@bug the-cpu-targets-compile-no-index-accessors`](#bug-the-cpu-targets-compile-no-index-accessors) — The JS and WASM targets do not compile `vertexIndex()` or `instanceIndex()`.
     - [`@spec the-weight-of-mix-stays-a-scalar`](#spec-the-weight-of-mix-stays-a-scalar) — The scalar weight of `mix` reaches every target as a scalar beside its vectors.
@@ -1835,6 +1835,14 @@ This follows because two inputs that share a name by accident read one value, a 
 
 > `time()` gives one uniform, named `_rmsl_time`, in every program and every process, so every program that reads it reads one clock.
 
+##### @spec screen-size-is-one-uniform-everywhere
+
+> `screenSize()` gives one `vec2` uniform, named `_rmsl_screenSize`, in every program and every process, and its type names it a uniform, so the host binds it by its `.name`. `screenUV()` and `uv()` read it.
+
+Derives from: [`spec-the-screen-accessors-follow-tsl`](#spec-the-screen-accessors-follow-tsl)
+
+This follows because every program drawn to one screen reads one size, as every program reads one clock, and a host can bind only a uniform it can name.
+
 #### @spec a-location-is-numbered-within-its-program
 
 > The locations of a program's outputs, and of the values a vertex stage passes on, count from 0 within that program, each used once.
@@ -2260,12 +2268,6 @@ Issue: #130
 #### @spec the-screen-accessors-follow-tsl
 
 > `fragCoord()` gives the coordinate of the fragment, and `screenUV()` and `uv()` give it divided by the size of the screen. `screenSize()` gives one shared uniform, and `time()` a float uniform. Each does what TSL's accessor of the same name does.
-
-##### @bug screen-size-makes-a-new-uniform-on-every-call
-
-> `screenSize()` declares a new uniform each time it is called, so a program that calls `uv()` twice reads two size uniforms.
-
-Issue: #51
 
 #### @spec the-index-accessors-follow-tsl
 

@@ -538,8 +538,8 @@ export function fromProgram(program: ProgramLike, options: ProgramOptions = {}):
  * render(run, { width: 4, height: 4 });
  * ```
  *
- * A pass that reads `uv()` also holds a screen-size uniform it never named;
- * bind it with `uniformsIn(pass.color, "vec2")`.
+ * A pass that reads `uv()` reads `screenSize()`, one uniform the test binds
+ * as `[screenSize(), [width, height]]`.
  */
 export function fromPass(pass: PassLike, options: RunnerOptions = {}): ShaderRunner<"vec4"> {
   const textures = new Map<string, string>();
@@ -629,12 +629,13 @@ function statesTextureConstants(texture: Record<string, unknown>): boolean {
  * is the form that can be bound, since a binding has to know what it holds.
  *
  * Most uniforms are held by the test that made them, and binding is
- * `[uTint, [1, 0, 0]]`. Some are not: `uv()` mints a screen-size uniform inside
- * the graph, and a caller who never saw that node has no other way to reach it:
+ * `[uTint, [1, 0, 0]]`. Some are not: a helper that makes a uniform inside the
+ * graph it returns, and a caller who never saw that node has no other way to
+ * reach it:
  *
  * ```typescript
- * const [resolution] = uniformsIn(graph, "vec2");
- * render(() => graph, { width: 8, height: 8, uniforms: [[resolution, [8, 8]]] });
+ * const [tint] = uniformsIn(graph, "vec3");
+ * render(() => graph, { width: 8, height: 8, uniforms: [[tint, [1, 0, 0]]] });
  * ```
  */
 export function uniformsIn<A extends ShaderType>(graph: Node<ShaderType>, type: A): VariableNode<A>[];

@@ -8,7 +8,6 @@ import {
   Loop,
   mat2,
   mat3,
-  screenSize,
   uniform,
   vec2,
   vec3,
@@ -28,16 +27,6 @@ const none = { name: "main", params: [] };
 const narrow = (a: Node<"float">) => mat2(mat3(vec3(a, 2, 3), vec3(4, 5, 6), vec3(7, 8, 9))).element(int(1)).y;
 
 describe("known bugs, each failing until its fix", () => {
-  /**
-   * The casts reach `.name`, which the type of `screenSize()` hides until #68
-   * is fixed.
-   *
-   * @canon bug-screen-size-makes-a-new-uniform-on-every-call
-   */
-  it.fails("gives one screen-size uniform however often it is asked for", () => {
-    expect((screenSize() as any).name).toBe((screenSize() as any).name);
-  });
-
   /**
    * @canon bug-js-narrows-a-matrix-by-its-flat-values
    */

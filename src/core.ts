@@ -3087,9 +3087,15 @@ export function screenCoordinate(): Node<"vec2"> {
   return fragCoord();
 }
 
-/** Drawing-buffer size in pixels, a `vec2` uniform the host must bind. */
-export function screenSize(): Node<"vec2"> {
-  return uniform("vec2");
+/**
+ * The drawing-buffer size in pixels, as TSL's `screenSize`. One `vec2` uniform
+ * for every shader that references it, named `_rmsl_screenSize` in every
+ * process, so the host binds a single uniform by its `.name`, as it updates
+ * `time()`. Created lazily, as `time()` is.
+ */
+let _screenSizeUniform: UniformNode<"vec2"> | undefined;
+export function screenSize(): UniformNode<"vec2"> {
+  return (_screenSizeUniform ??= uniformRaw("_rmsl_screenSize", "vec2"));
 }
 
 /** Normalized fragment coordinate — `fragCoord() / screenSize()`. */
