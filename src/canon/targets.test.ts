@@ -18,6 +18,7 @@ import {
   fragCoord,
   HALF_PI,
   If,
+  instancedArray,
   int,
   ivec2,
   ivec3,
@@ -888,9 +889,25 @@ describe("each leaf on every target it claims", () => {
     const routine = compile(build, none);
     expect(routine({})).toBe(1);
     expect(routine({ uniforms: {} })).toBe(1);
+    expect(routine({ uniforms: { [s.name]: null, [v.name]: null, [m.name]: null } as any })).toBe(1);
     // A call that leaves out what an earlier call set reads zero too.
     expect(routine({ uniforms: { [s.name]: 2, [v.name]: [3, 0], [m.name]: [0, 0, 0, 4] } })).toBe(10);
     expect(routine({ uniforms: {} })).toBe(1);
+  });
+
+  /**
+   * @canon spec-an-unset-uniform-reads-zero
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ] as const)("reads a uniform the host passes as null as zero, and nothing beside it, on %s", (_, compile) => {
+    const v = uniform("vec2");
+    const items = instancedArray(4, "float");
+    const build = () => Fn(() => items.element(int(2)).add(v.x).toVar())() as any;
+    const routine = compile(build, none);
+    const storages = { [items.name]: Float64Array.of(1, 2, 3, 4) };
+    expect(routine({ uniforms: { [v.name]: null } as any, storages })).toBe(3);
   });
 
   /**

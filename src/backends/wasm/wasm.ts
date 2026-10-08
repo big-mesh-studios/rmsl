@@ -606,7 +606,7 @@ function writeAggregateToMemory(
   const compSize = narrow && kind === "float" ? 4 : componentSizeOf(kind);
   // A value the host leaves out is written as zeros.
   const arr = (value ?? ZERO_COMPONENTS) as ArrayLike<number | boolean>;
-  const count = value === undefined ? componentCountOf(shaderType) : arr.length;
+  const count = value == null ? componentCountOf(shaderType) : arr.length;
   for (let i = 0; i < count; i++) {
     const raw = arr[i];
     const num = typeof raw === "boolean" ? (raw ? 1 : 0) : (raw as number);
