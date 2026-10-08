@@ -672,6 +672,34 @@ describe("a scene renderer manages what it uploads", () => {
   });
 
   /**
+   * @canon spec-a-webgpu-draw-binds-groups-of-the-layout-its-pipeline-has
+   */
+  it("binds each draw's groups through the layout of its pipeline when a texture changes mid-frame on WebGPU", () => {
+    const { device, canvas, passes } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    let current = new DataTexture(new Uint8Array([0, 0, 255, 255]), 1, 1);
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => b.sampler("map", () => current).texture(vec2(0.5, 0.5));
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(), material), new Mesh(new PlaneGeometry(), material));
+    // The texture becomes one the device cannot filter between the two meshes' pipelines.
+    const ensurePipeline = renderer.ensurePipeline.bind(renderer);
+    let calls = 0;
+    renderer.ensurePipeline = (...args: unknown[]) => {
+      if (calls++ === 1) current = new DataTexture(new Float32Array([1, 0.5, 0.25, 1]), 1, 1, 1, RGBAFormat, FloatType);
+      return ensurePipeline(...args);
+    };
+    renderer.render(scene, camera());
+
+    expect(passes).toHaveLength(2);
+    for (const { calls } of passes) {
+      const pipeline = calls.find((c) => c.name === "setPipeline")!.args[0];
+      const textures = calls.find((c) => c.name === "setBindGroup" && c.args[0] === 1)!.args[1];
+      expect(textures.layout).toBe(pipeline.layout.bindGroupLayouts[1]);
+    }
+  });
+
+  /**
    * @canon spec-the-webgpu-renderer-shares-one-sampler-per-state
    */
   it("keeps the bind groups of a float texture it cannot filter when the texture updates on WebGPU", () => {

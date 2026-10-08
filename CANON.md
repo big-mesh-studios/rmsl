@@ -455,6 +455,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-texture-reads-as-its-sampler-asks-whichever-sampler-uploaded-it`](#spec-a-texture-reads-as-its-sampler-asks-whichever-sampler-uploaded-it) — A texture on the WebGL renderer reads as the type of the sampler that reads it asks, whichever type of sampler uploaded it.
     - [`@spec a-webgpu-render-records-what-a-fresh-renderer-records`](#spec-a-webgpu-render-records-what-a-fresh-renderer-records) — A render on the WebGPU renderer records the same pass as the same call on a fresh renderer, whatever the renderer drew before.
   - [`@spec a-scene-renderer-manages-what-it-uploads`](#spec-a-scene-renderer-manages-what-it-uploads) — A renderer of `./scene` uploads each geometry, texture and uniform once, again when it changes, and frees it when it is disposed. It compiles a program once for each light set and kind of mesh.
+    - [`@spec a-webgpu-draw-binds-groups-of-the-layout-its-pipeline-has`](#spec-a-webgpu-draw-binds-groups-of-the-layout-its-pipeline-has) — Each draw of a WebGPU render binds texture and sampler groups made for the layout of its pipeline. That holds when a texture a sampler reads changes during the render, so that it can or cannot be filtered.
     - [`@spec a-texture-uploads-whatever-holds-its-image`](#spec-a-texture-uploads-whatever-holds-its-image) — A texture uploads its image whether the image is data, as a `DataTexture` holds it, or an image element, bitmap or canvas, at the size of that image.
       - [`@spec a-loaded-image-uploads-at-its-own-size`](#spec-a-loaded-image-uploads-at-its-own-size) — A texture whose image is a loaded image element, video, bitmap or canvas uploads at the size of that image, into a texture the image can be copied into, whatever the texture held before.
       - [`@spec an-image-uploads-once-it-has-loaded`](#spec-an-image-uploads-once-it-has-loaded) — A texture whose image has not loaded, such as an image element still loading or a video with no frame yet, reads as a blank texture on both renderers. It uploads at the first render after the image has loaded, without `needsUpdate`.
@@ -3268,6 +3269,12 @@ This follows because the renderer builds each pass from the scene, and keeps no 
 Derives from: [`spec-a-render-depends-only-on-what-it-is-given`](#spec-a-render-depends-only-on-what-it-is-given)
 
 This follows because a renderer that owns the drawing of a scene owns its resources too. A copy it kept after the geometry, texture or uniform changed would give pixels that a fresh renderer does not give.
+
+#### @spec a-webgpu-draw-binds-groups-of-the-layout-its-pipeline-has
+
+> Each draw of a WebGPU render binds texture and sampler groups made for the layout of its pipeline. That holds when a texture a sampler reads changes during the render, so that it can or cannot be filtered.
+
+This follows because WebGPU refuses a draw whose groups do not match its pipeline's layout. The renderer lays out every program of the render before it builds any pipeline. A later mesh then cannot change the layout of a pipeline an earlier draw holds.
 
 #### @spec a-texture-uploads-whatever-holds-its-image
 

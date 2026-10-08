@@ -285,8 +285,14 @@ export class WebGPURenderer {
         if (!entry) continue;
         frameMeshes.push(mesh);
         frameEntries.push(entry);
-        frameVariants.push(this.pipelineVariant(entry, mesh));
         frameDrawCounts.set(entry, (frameDrawCounts.get(entry) ?? 0) + 1);
+      }
+      // A later mesh's textures can lay a program out again, so the pipelines
+      // and groups are taken once every program of the frame is laid out.
+      for (let draw = 0; draw < frameMeshes.length; draw++) {
+        const entry = frameEntries[draw]!;
+        this.bindTextures(entry);
+        frameVariants.push(this.pipelineVariant(entry, frameMeshes[draw]!));
       }
       // Every draw's uniforms are written before the frame is submitted, so each draw needs a slot of its own.
       for (const bySignature of this.pipelines.values()) {
