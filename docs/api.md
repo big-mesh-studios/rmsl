@@ -438,21 +438,23 @@ It lowers to the same `For` machinery.
 ### Switch
 
 ```typescript
-Switch(int(level), (s) => {
-  s.Case(0, () => {
+Switch(int(level))
+  .Case(0, () => {
     colour.assign(black);
-  });
-  s.Case([1, 2], () => {
+  })
+  .Case(1, 2, () => {
     colour.assign(grey);
-  }); // several values, one body
-  s.Default(() => {
+  }) // several values, one body
+  .Default(() => {
     colour.assign(white);
   });
-});
 ```
 
-Compiles to an if/else-if chain comparing the selector with each case value —
-the same lowering TSL uses — so there is no fall-through and no `Break()`.
+Written as TSL writes it, and compiled to an if/else-if chain comparing the
+selector with each case value — the same lowering TSL uses — so there is no
+fall-through and no `Break()`. The chain stands where `Switch` is called; a
+`Case` or `Default` added from another block, or a `Case` after the `Default`,
+is refused.
 
 ### For
 

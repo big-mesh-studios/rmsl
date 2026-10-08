@@ -3472,73 +3472,90 @@ export function While(cond: BooleanLike | (() => BooleanLike), body: () => void)
   });
 }
 
-export type SwitchCase = { values: BaseNode<ShaderType>[]; body: Node<"void"> };
-
+/** The chain `Switch` returns, which adds its cases as TSL's does. */
 export type SwitchChain = {
-  Case: (values: IntLike | readonly IntLike[], body: () => void) => SwitchChain;
-  Default: (body: () => void) => void;
+  /** Runs `body` when the selector equals one of the values before it. */
+  Case: <V extends IntLike[]>(...params: [...values: V, body: () => void]) => SwitchChain;
+  /** Runs `body` when no case matched. No case can follow it. */
+  Default: (body: () => void) => SwitchChain;
 };
 
 /**
- * Multi-way branch on an integer selector.
+ * Multi-way branch on an integer selector, written as TSL writes it:
  *
- *   Switch(level, (s) => {
- *     s.Case(0, () => { colour.assign(black); });
- *     s.Case([1, 2], () => { colour.assign(grey); });
- *     s.Default(() => { colour.assign(white); });
- *   });
+ *   Switch(level)
+ *     .Case(0, () => { colour.assign(black); })
+ *     .Case(1, 2, () => { colour.assign(grey); })
+ *     .Default(() => { colour.assign(white); });
  *
- * Compiles to an if/else-if chain comparing the selector with each case value —
- * the same lowering Three.js's TSL uses for its `Switch`/`Case`/`Default` — so
- * there is no fall-through and no `Break()` inside a case.
+ * Compiles to an if/else-if chain comparing the selector with each case value,
+ * the lowering TSL uses, so there is no fall-through and no `Break()` inside a
+ * case. The chain stands where `Switch` is called, and each `Case` and the
+ * `Default` must be added from that block.
  */
-export function Switch(selector: Node<"int"> | Node<"uint">, body: (chain: SwitchChain) => void): SwitchChain {
-  let cases: SwitchCase[] = [];
-  let defaultBody: Node<"void"> | undefined;
-  const addCase = (values: IntLike | readonly IntLike[], caseBody: () => void): SwitchChain => {
-    let vals = (Array.isArray(values) ? values : [values]) as IntLike[];
-    if (vals.length === 0) {
-      throw new Error("[RMSL] Case() needs at least one value: a case with no values can never match.");
+export function Switch(selector: Node<"int"> | Node<"uint">): SwitchChain {
+  let scope: BaseNode<ShaderType>[] | undefined;
+  assertBlockScope("Switch", (s) => {
+    scope = s;
+  });
+  const block = scope!;
+  const at = block.length;
+  const selectorNode = wrapValue(selector) as BaseNode<ShaderType>;
+  let head: BaseNode<ShaderType> | undefined;
+  let tail: BaseNode<ShaderType> | undefined;
+  let closed = false;
+  /** Checks that a `Case` or `Default` is added where it can still reach the program. */
+  const check = (name: string) => {
+    if (closed) throw new Error(`[RMSL] ${name}() after Default(): a Switch takes no case after its Default.`);
+    if (blockScope !== block) {
+      throw new Error(
+        `[RMSL] ${name}() must be called from the block that holds its Switch(), as Switch(x).Case(...).Default(...).`,
+      );
     }
-    cases.push({
-      // `typedOperand`, not `wrapValue`: a bare number here is a case value
-      // beside an int/uint selector, and `wrapValue` alone would default it
-      // to `float`, mismatched against the selector (a mismatch the WASM
-      // backend surfaces as a real type error).
-      values: vals.map((v) => typedOperand(v, selector._t) as BaseNode<ShaderType>),
-      body: buildBlock(caseBody),
-    });
-    return chain;
+  };
+  /** Puts `branch` at the end of the chain, the first one where `Switch` was called. */
+  const append = (branch: BaseNode<ShaderType>) => {
+    if (tail === undefined) {
+      head = branch;
+      block.splice(at, 0, head);
+    } else {
+      tail.params![2] = branch;
+    }
+    tail = branch;
   };
   const chain: SwitchChain = {
-    Case: addCase,
-    Default: (dBody) => {
-      defaultBody = buildBlock(dBody);
+    Case: (...params) => {
+      check("Case");
+      const caseBody = params[params.length - 1] as () => void;
+      const values = params.slice(0, -1) as IntLike[];
+      if (values.length === 0) {
+        throw new Error("[RMSL] Case() needs at least one value: a case with no values can never match.");
+      }
+      let cond: BaseNode<ShaderType> | undefined;
+      for (const value of values) {
+        // `typedOperand`, not `wrapValue`: a bare number here is a case value
+        // beside an int/uint selector, and `wrapValue` alone would default it
+        // to `float`, mismatched against the selector.
+        const eq = comp("equal", selectorNode, typedOperand(value, selector._t) as BaseNode<ShaderType>);
+        cond = cond === undefined ? eq : (op("or", cond, eq) as BaseNode<ShaderType>);
+      }
+      append(node({ _t: "void", type: "if", params: [cond!, buildBlock(caseBody)] }));
+      return chain;
+    },
+    Default: (defaultBody) => {
+      check("Default");
+      const branch = buildBlock(defaultBody);
+      // A Default with no case before it always runs: its body stands alone.
+      if (tail === undefined) {
+        head = branch;
+        block.splice(at, 0, branch);
+      } else {
+        tail.params![2] = branch;
+      }
+      closed = true;
+      return chain;
     },
   };
-  body(chain);
-
-  let root = node({ _t: "void", type: "if", params: [] });
-  let cursor = root;
-  let selectorNode = wrapValue(selector) as BaseNode<ShaderType>;
-  for (let c of cases) {
-    let cond: BaseNode<ShaderType> | undefined;
-    for (let v of c.values) {
-      let eq = comp("equal", selectorNode, v);
-      cond = cond === undefined ? eq : (op("or", cond, eq) as BaseNode<ShaderType>);
-    }
-    let ifNode = node({ _t: "void", type: "if", params: [cond!, c.body] });
-    cursor.params![2] = ifNode;
-    cursor = ifNode;
-  }
-  if (defaultBody !== undefined) {
-    cursor.params![2] = defaultBody;
-  }
-  let switchNode = root.params![2] as BaseNode<ShaderType> | undefined;
-  assertBlockScope("Switch", (scope) => {
-    // A Switch with no Case and no Default has nothing to run, so it leaves no statement.
-    if (switchNode !== undefined) scope.push(switchNode);
-  });
   return chain;
 }
 

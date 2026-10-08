@@ -3192,17 +3192,16 @@ describe("Switch", () => {
   it("branches on an integer selector as an if/else chain", () => {
     let prog = Fn(() => {
       let out = float(0).toVar();
-      Switch(int(1), (s) => {
-        s.Case(0, () => {
+      Switch(int(1))
+        .Case(0, () => {
           out.assign(float(10));
-        });
-        s.Case([1, 2], () => {
+        })
+        .Case(1, 2, () => {
           out.assign(float(20));
-        });
-        s.Default(() => {
+        })
+        .Default(() => {
           out.assign(float(30));
         });
-      });
       return out;
     });
     let glsl = compileGlsl(prog());
@@ -3315,14 +3314,13 @@ describe("TSL control flow", () => {
   it("Switch / Case / Default branch like Switch", () => {
     let prog = Fn(() => {
       let out = float(0).toVar();
-      Switch(int(2), (s) => {
-        s.Case([1, 2], () => {
+      Switch(int(2))
+        .Case(1, 2, () => {
           out.assign(float(20));
-        });
-        s.Default(() => {
+        })
+        .Default(() => {
           out.assign(float(30));
         });
-      });
       return out;
     });
     let glsl = compileGlsl(prog());

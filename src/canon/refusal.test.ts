@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import {
   attribute,
+  bool,
   Break,
   builtinFragDepth,
   builtinPosition,
@@ -215,14 +216,49 @@ describe("a mistake is refused before the program runs", () => {
     const program = () =>
       Fn(() => {
         const v = float(0).toVar();
-        Switch(int(uniform("float")), (s) => {
-          s.Case([], () => {
-            v.assign(float(1));
-          });
+        Switch(int(uniform("float"))).Case(() => {
+          v.assign(float(1));
         });
         return vec4(v);
       })();
     expect(program).toThrow(/Case\(\) needs at least one value/);
+  });
+
+  /**
+   * A `Case` added from a block other than its `Switch`'s, or after its
+   * `Default`, could not reach the program, so it is refused, naming it.
+   *
+   * @canon spec-a-case-is-added-in-the-block-of-its-switch
+   */
+  it("refuses a Case added from another block or after the Default, naming it", () => {
+    const fromAnotherBlock = () =>
+      Fn(() => {
+        const v = float(0).toVar();
+        const s = Switch(int(uniform("float")));
+        If(bool(true), () => {
+          s.Case(0, () => v.assign(float(1)));
+        });
+        return vec4(v);
+      })();
+    const afterDefault = () =>
+      Fn(() => {
+        const v = float(0).toVar();
+        Switch(int(uniform("float")))
+          .Default(() => v.assign(float(2)))
+          .Case(0, () => v.assign(float(1)));
+        return vec4(v);
+      })();
+    let kept: ReturnType<typeof Switch> | undefined;
+    const afterTheFunction = () => {
+      Fn(() => {
+        kept = Switch(int(uniform("float")));
+        return vec4(0);
+      })();
+      kept!.Case(0, () => {});
+    };
+    expect(fromAnotherBlock).toThrow(/Case\(\) must be called from the block that holds its Switch\(\)/);
+    expect(afterDefault).toThrow(/Case\(\) after Default\(\)/);
+    expect(afterTheFunction).toThrow(/Case\(\) must be called from the block that holds its Switch\(\)/);
   });
 
   /**
@@ -235,7 +271,7 @@ describe("a mistake is refused before the program runs", () => {
     const build = () =>
       Fn(() => {
         const v = float(0).toVar();
-        Switch(int(uniform("float")), () => {});
+        Switch(int(uniform("float")));
         v.assign(float(2));
         return vec4(v);
       })();
