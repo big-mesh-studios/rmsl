@@ -826,11 +826,11 @@ describe("WASM backend: generic rasterizer module — near-plane clipping", () =
           const e0 = (s1[0] - px) * (s2[1] - py) - (s1[1] - py) * (s2[0] - px);
           const e1 = (s2[0] - px) * (s0[1] - py) - (s2[1] - py) * (s0[0] - px);
           const e2 = (s0[0] - px) * (s1[1] - py) - (s0[1] - py) * (s1[0] - px);
-          // A centre on an edge belongs to the triangle whose edge runs down, or left when flat.
+          // A centre on an edge belongs to the triangle whose left edge, running up, or top edge, running right, it is.
           const wind = area > 0 ? 1 : -1;
           const owns = (a: number[], b: number[]) => {
             const dy = (b[1] - a[1]) * wind;
-            return dy > 0 || (dy === 0 && (b[0] - a[0]) * wind < 0);
+            return dy < 0 || (dy === 0 && (b[0] - a[0]) * wind > 0);
           };
           const inside = (e: number, a: number[], b: number[]) => e * wind > 0 || (e === 0 && owns(a, b));
           if (!inside(e0, s1, s2) || !inside(e1, s2, s0) || !inside(e2, s0, s1)) continue;

@@ -2,12 +2,10 @@ import { Node, ShaderType } from "../../core";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK } from "../adapter";
 import {
   componentCountOf,
+  componentKindOf,
   CpuDrawBuffer,
   CpuShaderContext,
-  elementKindOf,
-  isAggregate,
   isResultObject,
-  scalarKindOf,
   vertexPosition,
 } from "../cpu";
 import { compileJSProgram, CompileJSOptions } from "./js";
@@ -85,12 +83,12 @@ const NO_TARGET = new Float64Array(0);
 /**
  * Whether an edge running `(dx, dy)`, in a triangle wound so that its inside
  * lies where every edge function is positive, owns the pixel centres on it:
- * one that runs down the screen, or left along it. The two triangles sharing
- * an edge run it in opposite directions, so exactly one owns it, as WebGPU
- * gives a pixel on a shared edge to one triangle.
+ * a left edge, running up the screen, or a top edge, running right, by
+ * WebGPU's top-left rule. The two triangles sharing an edge run it in opposite
+ * directions, so exactly one owns it.
  */
 function ownsEdge(dx: number, dy: number): boolean {
-  return dy > 0 || (dy === 0 && dx < 0);
+  return dy < 0 || (dy === 0 && dx > 0);
 }
 
 /** A vertex with room for a position and varyings of these widths. */
@@ -181,10 +179,7 @@ export function compileJS(
   const varyingSlots = Object.keys(vertexStage.varyingTypes);
   const varyingWidths = varyingSlots.map((slot) => componentCountOf(vertexStage.varyingTypes[slot]!));
   /** Whether each varying is an integer one, which a fragment reads flat, as its triangle's first vertex wrote it. */
-  const varyingFlat = varyingSlots.map((slot) => {
-    const type = vertexStage.varyingTypes[slot]!;
-    return (isAggregate(type) ? elementKindOf(type) : scalarKindOf(type)) !== "float";
-  });
+  const varyingFlat = varyingSlots.map((slot) => componentKindOf(vertexStage.varyingTypes[slot]!) !== "float");
   /** The varyings of the fragment being shaded: a vector in an array of its own, filled for each fragment. */
   const fragmentArrays = varyingWidths.map((w) => new Float64Array(w));
   const fragmentVaryings: Record<string, number | Float64Array> = {};
@@ -301,6 +296,7 @@ export function compileJS(
         }
         fragCoord[0] = px;
         fragCoord[1] = py;
+        fragmentCtx.fragDepth = pixelDepth;
 
         const raw = fragmentStage.runInPlace(fragmentCtx);
         // A fragment that discards leaves the pixel and its depth as they were.

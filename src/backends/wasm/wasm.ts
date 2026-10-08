@@ -315,7 +315,7 @@ function wasmTypeOf(kind: ScalarKind): number {
 }
 
 /** Bytes per component: 8 for float, 4 for int/uint/bool. */
-function componentSizeOf(kind: ScalarKind): number {
+export function componentSizeOf(kind: ScalarKind): number {
   return kind === "float" ? 8 : 4;
 }
 

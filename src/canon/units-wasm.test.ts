@@ -159,6 +159,9 @@ describe("a CPU rasterizer's triangles", () => {
   ] as const;
 
   /**
+   * Three pixel centres lie on the triangle's long edge, a right edge, which
+   * shades none of them, so it covers the three below it.
+   *
    * @canon spec-a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds
    */
   it.each(rasterizers)("draws the same pixels for either winding on %s", (_, make) => {
@@ -171,7 +174,7 @@ describe("a CPU rasterizer's triangles", () => {
         ),
       ).filter((_, i) => i % 4 === 3);
     expect(covered(counterClockwise)).toEqual(covered(clockwise));
-    expect(covered(clockwise).filter((alpha) => alpha === 1)).toHaveLength(6);
+    expect(covered(clockwise).filter((alpha) => alpha === 1)).toHaveLength(3);
   });
 });
 

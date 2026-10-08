@@ -10,16 +10,16 @@ const MAX_PAGES = 65536;
 
 /**
  * The JavaScript module a `.wat` file compiles to: its bytes as the default
- * export, and, when it imports a memory, `shared`, the bytes of the same module
- * importing that memory shared, which a shared memory links against.
+ * export, and `shared`, the bytes of the same module importing its memory
+ * shared, which a shared memory links against, or `undefined` when it imports
+ * no memory.
  */
 export function watModuleSource(wabt: Wabt, path: string, source: string): string {
-  const compile = (text: string) => new Uint8Array(wabt.parseWat(path, text, { threads: true }).toBinary({}).buffer);
-  const lines = [`export default new Uint8Array([${compile(source).join(",")}]);`];
+  const bytes = (text: string) =>
+    `new Uint8Array([${new Uint8Array(wabt.parseWat(path, text, { threads: true }).toBinary({}).buffer).join(",")}])`;
   const memory = MEMORY_IMPORT.exec(source);
-  if (memory) {
-    const shared = source.replace(MEMORY_IMPORT, `(import "env" "memory" (memory ${memory[1]} ${MAX_PAGES} shared))`);
-    lines.push(`export const shared = new Uint8Array([${compile(shared).join(",")}]);`);
-  }
-  return lines.join("\n");
+  const shared = memory
+    ? bytes(source.replace(MEMORY_IMPORT, `(import "env" "memory" (memory ${memory[1]} ${MAX_PAGES} shared))`))
+    : "undefined";
+  return `export default ${bytes(source)};\nexport const shared = ${shared};`;
 }

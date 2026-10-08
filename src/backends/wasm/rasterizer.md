@@ -73,7 +73,7 @@ depth 0 and 1 drops. A pixel then:
 
 Each address the fragment function writes or reads besides its varyings
 comes with a flag, 1 when the function has it and 0 when it does not:
-`writesColour` for `fragmentValueAddress`, `writesFragCoord`, `writesDepth`
+`writesColour` for `fragmentValueAddress`, `readsFragCoord`, `writesDepth`
 and `mayDiscard`. A function that writes no colour leaves the pixel as it
 was. The host must pre-clear `depthBufferBase` to a large value before the
 first draw over it, and again before a draw of another size.
@@ -84,9 +84,11 @@ table (`AttributeDescriptor`/`writeAttributeDescriptors`) — each entry is
 `[srcOffset, destAddress, sizeBytes]`, letting the source buffer pack
 slots in any per-vertex layout the host chooses. Varyings work the same
 way, via `VaryingDescriptor`/`writeVaryingDescriptors` — each entry is
-`[recordOffset, vertexSrcAddress, fragmentDestAddress, sizeBytes]`, since
-a varying (unlike an attribute) has two addresses to reconcile, one per
-stage, matched by the shared node's slot name.
+`[recordOffset, vertexSrcAddress, fragmentDestAddress, sizeBytes, flat]`,
+since a varying (unlike an attribute) has two addresses to reconcile, one
+per stage, matched by the shared node's slot name. A `flat` varying is
+copied from the triangle's first vertex wherever the others interpolate,
+in the clip pass and per pixel alike.
 
 ## Scope (v1)
 
