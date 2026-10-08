@@ -47,7 +47,7 @@ export const RASTERIZE_PARAMS = [
   "depthBufferBase",
   "writesColour",
   "fragCoordAddress",
-  "writesFragCoord",
+  "readsFragCoord",
   "fragDepthAddress",
   "writesDepth",
   "discardAddress",
@@ -287,7 +287,7 @@ export function compileWasm(
     return [param?.address ?? 0, param ? 1 : 0] as const;
   };
   const [fragmentValueAddress, writesColour] = fragmentInput("valueMemory");
-  const [fragCoordAddress, writesFragCoord] = fragmentInput("fragCoordMemory");
+  const [fragCoordAddress, readsFragCoord] = fragmentInput("fragCoordMemory");
   const [fragDepthAddress, writesDepth] = fragmentInput("fragDepthMemory");
   const [discardAddress, mayDiscard] = fragmentInput("discardMemory");
 
@@ -537,7 +537,7 @@ export function compileWasm(
       depthBufferBase,
       writesColour,
       fragCoordAddress,
-      writesFragCoord,
+      readsFragCoord,
       fragDepthAddress,
       writesDepth,
       discardAddress,

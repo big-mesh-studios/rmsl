@@ -322,7 +322,7 @@
     ;; What the fragment stage writes or reads besides its colour: each address
     ;; is used only when the flag after it is 1.
     (param $writesColour i32)
-    (param $fragCoordAddress i32) (param $writesFragCoord i32)
+    (param $fragCoordAddress i32) (param $readsFragCoord i32)
     (param $fragDepthAddress i32) (param $writesDepth i32)
     (param $discardAddress i32) (param $mayDiscard i32)
 
@@ -498,7 +498,7 @@
                           (local.get $clippedVaryingsOutBase) (local.get $varyingBytes)
                           (local.get $t) (local.get $t1) (local.get $t2)
                           (local.get $b0) (local.get $invW0) (local.get $b1) (local.get $invW1) (local.get $b2) (local.get $invW2) (local.get $invW))
-                        (if (local.get $writesFragCoord)
+                        (if (local.get $readsFragCoord)
                           (then
                             (f64.store (local.get $fragCoordAddress) (local.get $px))
                             (f64.store (i32.add (local.get $fragCoordAddress) (i32.const 8)) (local.get $py))))
