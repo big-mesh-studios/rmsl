@@ -55,8 +55,6 @@ interface PipelineEntry {
   program: MaterialProgram;
   /** The `version` of the material the pipeline was built from. */
   version: number;
-  /** Which samplers, by bit, read a float texture the device cannot filter, as the layout was built for. */
-  unfilterable: number;
   /** The uniform buffer's group, which nothing invalidates. */
   bindGroup: GPUBindGroup;
   /**
@@ -68,14 +66,16 @@ interface PipelineEntry {
    */
   textureBindGroup: GPUBindGroup | null;
   samplerBindGroup: GPUBindGroup | null;
-  bindGroupLayouts: {
-    uniforms: GPUBindGroupLayout;
-    textures: GPUBindGroupLayout | null;
-    samplers: GPUBindGroupLayout | null;
-  };
-  /** One entry per texture binding, and per sampler binding, of those groups. */
-  textureBindings: { name: string; type: SamplerShaderType; binding: number }[];
-  samplerBindings: { name: string; binding: number }[];
+  /** The layout of the uniform buffer's group, which no texture changes. */
+  uniformLayout: GPUBindGroupLayout;
+  /** The texture, sampler and pipeline layouts, for the textures the samplers read when they were built. */
+  layouts: PipelineLayouts;
+  /**
+   * One entry per texture binding, and per sampler binding, of those groups,
+   * with the index in `program.samplers` of the sampler it binds.
+   */
+  textureBindings: { name: string; sampler: number; type: SamplerShaderType; binding: number }[];
+  samplerBindings: { name: string; sampler: number; binding: number }[];
   /** Ring of uniform slots so per-draw writes never race the previous draw. */
   ringBuffer: GPUBuffer;
   slotSize: number;
@@ -85,10 +85,23 @@ interface PipelineEntry {
   layoutMembers: { name: string; type: string; offset: number; size: number; length?: number }[];
   /** Where `packUniforms` lays one draw's uniforms out before it writes them to the ring. */
   scratch: UniformScratch;
-  /** What a render pipeline of this program is built from. */
-  pipelineDescriptor: Omit<GPURenderPipelineDescriptor, "vertex"> & { vertexModule: GPUShaderModule };
+  /** What a render pipeline of this program is built from, beside its layout. */
+  pipelineDescriptor: Omit<GPURenderPipelineDescriptor, "vertex" | "layout"> & { vertexModule: GPUShaderModule };
   /** One render pipeline for each set of vertex formats the meshes drawn with this program hold. */
   variants: Map<string, PipelineVariant>;
+}
+
+/**
+ * The texture and sampler group layouts of a program, and the pipeline layout
+ * over them, for which of its samplers read a texture the device cannot filter.
+ */
+interface PipelineLayouts {
+  pipeline: GPUPipelineLayout;
+  /** Null when the program samples nothing. */
+  textures: GPUBindGroupLayout | null;
+  samplers: GPUBindGroupLayout | null;
+  /** Which samplers, by bit of their index in `program.samplers`, read a float texture the device cannot filter. */
+  unfilterable: number;
 }
 
 /** A render pipeline and the vertex buffer layout it was built with. */
@@ -394,7 +407,7 @@ export class WebGPURenderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     entry.bindGroup = this.device.createBindGroup({
-      layout: entry.bindGroupLayouts.uniforms,
+      layout: entry.uniformLayout,
       entries: [{ binding: 0, resource: { buffer: entry.ringBuffer, offset: 0, size: entry.slotSize } }],
     });
     entry.slots = slots;
@@ -438,7 +451,14 @@ export class WebGPURenderer {
     const entry = bySignature?.get(signature);
     if (entry && entry.version === material.version) {
       // A texture that now can or cannot be filtered needs other layouts, not another program.
-      if (entry.unfilterable !== this.unfilterableSamplers(entry.program)) this.layOut(entry);
+      const unfilterable = this.unfilterableSamplers(entry.program);
+      if (unfilterable !== entry.layouts.unfilterable) {
+        entry.layouts = this.layOut(entry.uniformLayout, entry.textureBindings, entry.samplerBindings, unfilterable);
+        // A pipeline or bind group made for the old layouts cannot bind the textures.
+        entry.variants.clear();
+        entry.textureBindGroup = null;
+        entry.samplerBindGroup = null;
+      }
       this.refreshTextures(entry);
       // A texture disposed since the last draw took this entry's texture and
       // sampler groups with it, and so does one re-created at a new size;
@@ -479,12 +499,16 @@ export class WebGPURenderer {
     // Both stages number the textures (group 1) and the samplers of the float
     // ones (group 2) from the program's whole set, as the compiler does.
     const sharedSamplers = sharedSamplerDeclarations(declaredSamplers);
+    const samplerIndex = (name: string) => program.samplers.findIndex((s) => s.name === name);
     const textureBindings = sharedSamplers.map((t, binding) => ({
       name: t.slot,
+      sampler: samplerIndex(t.slot),
       type: t.shaderType as SamplerShaderType,
       binding,
     }));
-    const samplerBindings = sharedSamplers.filter((t) => !t.integer).map((t, binding) => ({ name: t.slot, binding }));
+    const samplerBindings = sharedSamplers
+      .filter((t) => !t.integer)
+      .map((t, binding) => ({ name: t.slot, sampler: samplerIndex(t.slot), binding }));
 
     // One layout per group the WGSL declares: uniforms in group 0, textures
     // in group 1, samplers in group 2.
@@ -503,9 +527,7 @@ export class WebGPURenderer {
     const built: PipelineEntry = {
       program,
       version: material.version,
-      unfilterable: 0,
       pipelineDescriptor: {
-        layout: null as unknown as GPUPipelineLayout,
         vertexModule,
         fragment: {
           module: fragmentModule,
@@ -526,7 +548,8 @@ export class WebGPURenderer {
       }),
       textureBindGroup: null,
       samplerBindGroup: null,
-      bindGroupLayouts: { uniforms: uniformLayout, textures: null, samplers: null },
+      uniformLayout,
+      layouts: this.layOut(uniformLayout, textureBindings, samplerBindings, this.unfilterableSamplers(program)),
       textureBindings,
       samplerBindings,
       ringBuffer,
@@ -536,7 +559,6 @@ export class WebGPURenderer {
       layoutMembers,
       scratch: uniformScratch(slotSize),
     };
-    this.layOut(built);
     this.bindTextures(built);
     if (!bySignature) {
       bySignature = new Map();
@@ -558,13 +580,14 @@ export class WebGPURenderer {
    * holds the view of the texture that went away.
    */
   private bindTextures(entry: PipelineEntry): void {
-    const { textures, samplers } = entry.bindGroupLayouts;
+    const { textures, samplers } = entry.layouts;
+    const programSamplers = entry.program.samplers;
     if (textures && !entry.textureBindGroup) {
       entry.textureBindGroup = this.device.createBindGroup({
         layout: textures,
         entries: entry.textureBindings.map((t) => ({
           binding: t.binding,
-          resource: this.ensureGpuTexture(this.samplerBinding(entry, t.name).texture(), t.type).createView(),
+          resource: this.ensureGpuTexture(programSamplers[t.sampler]!.texture(), t.type).createView(),
         })),
       });
     }
@@ -572,16 +595,11 @@ export class WebGPURenderer {
       entry.samplerBindGroup = this.device.createBindGroup({
         layout: samplers,
         entries: entry.samplerBindings.map((s) => {
-          const binding = this.samplerBinding(entry, s.name);
-          return { binding: s.binding, resource: this.ensureSampler(binding.texture(), binding.type) };
+          const sampler = programSamplers[s.sampler]!;
+          return { binding: s.binding, resource: this.ensureSampler(sampler.texture(), sampler.type) };
         }),
       });
     }
-  }
-
-  /** The program's sampler of that name — what a binding number stands for. */
-  private samplerBinding(entry: PipelineEntry, name: string) {
-    return entry.program.samplers.find((s) => s.name === name)!;
   }
 
   /**
@@ -596,7 +614,7 @@ export class WebGPURenderer {
    */
   private refreshTextures(entry: PipelineEntry): void {
     for (const t of entry.textureBindings) {
-      const texture = entry.program.samplers.find((s) => s.name === t.name)!.texture();
+      const texture = entry.program.samplers[t.sampler]!.texture();
       if (!texture || this.uploadedVersions.get(texture) === texture.version) continue;
       // Filtering or wrapping changed with it means a different sampler, and
       // this bind group holds the old one.
@@ -808,6 +826,7 @@ export class WebGPURenderer {
     const variant = {
       pipeline: this.device.createRenderPipeline({
         ...descriptor,
+        layout: entry.layouts.pipeline,
         primitive: { ...descriptor.primitive, frontFace: mirrored ? "cw" : "ccw" },
         fragment: {
           ...descriptor.fragment!,
@@ -996,15 +1015,19 @@ export class WebGPURenderer {
   }
 
   /**
-   * Builds the texture and sampler layouts of `entry` for whether each
-   * sampler's texture can be filtered, and the pipeline layout over them. A
-   * pipeline or bind group made for other layouts cannot bind the textures, so
-   * they go, and are made again at the next draw.
+   * The texture and sampler layouts of a program's bindings, for which of its
+   * samplers read a texture the device cannot filter, `unfilterable` by bit,
+   * and the pipeline layout over them after the uniforms' `uniformLayout`.
    */
-  private layOut(entry: PipelineEntry): void {
-    const { program, textureBindings, samplerBindings, bindGroupLayouts } = entry;
+  private layOut(
+    uniformLayout: GPUBindGroupLayout,
+    textureBindings: PipelineEntry["textureBindings"],
+    samplerBindings: PipelineEntry["samplerBindings"],
+    unfilterable: number,
+  ): PipelineLayouts {
     const device = this.device;
-    bindGroupLayouts.textures =
+    const cannotFilter = (sampler: number) => (unfilterable & (1 << sampler)) !== 0;
+    const textures =
       textureBindings.length === 0
         ? null
         : device.createBindGroupLayout({
@@ -1012,31 +1035,30 @@ export class WebGPURenderer {
               binding: t.binding,
               visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
               texture: {
-                sampleType: this.unfilterable(entryTexture(program, t.name))
-                  ? "unfilterable-float"
-                  : samplerSampleType(t.type),
+                sampleType: cannotFilter(t.sampler) ? "unfilterable-float" : samplerSampleType(t.type),
                 viewDimension: samplerDimension(t.type),
               },
             })),
           });
-    bindGroupLayouts.samplers =
+    const samplers =
       samplerBindings.length === 0
         ? null
         : device.createBindGroupLayout({
             entries: samplerBindings.map((s) => ({
               binding: s.binding,
               visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-              sampler: { type: this.unfilterable(entryTexture(program, s.name)) ? "non-filtering" : "filtering" },
+              sampler: { type: cannotFilter(s.sampler) ? "non-filtering" : "filtering" },
             })),
           });
-    const groupLayouts = [bindGroupLayouts.uniforms];
-    if (bindGroupLayouts.textures) groupLayouts.push(bindGroupLayouts.textures);
-    if (bindGroupLayouts.samplers) groupLayouts.push(bindGroupLayouts.samplers);
-    entry.pipelineDescriptor.layout = device.createPipelineLayout({ bindGroupLayouts: groupLayouts });
-    entry.unfilterable = this.unfilterableSamplers(program);
-    entry.variants.clear();
-    entry.textureBindGroup = null;
-    entry.samplerBindGroup = null;
+    const groupLayouts = [uniformLayout];
+    if (textures) groupLayouts.push(textures);
+    if (samplers) groupLayouts.push(samplers);
+    return {
+      pipeline: device.createPipelineLayout({ bindGroupLayouts: groupLayouts }),
+      textures,
+      samplers,
+      unfilterable,
+    };
   }
 
   /**
@@ -1224,15 +1246,6 @@ function vertexFormatFromType(type: string): VertexFormat {
   }
 }
 
-/**
- * The WebGPU format for an integer RGBA texture, from the bit depth of its
- * data view and the sampler's signedness.
- */
-/** The texture a program's sampler of that name reads now, or null. */
-function entryTexture(program: MaterialProgram, name: string): Texture | null {
-  return program.samplers.find((s) => s.name === name)?.texture() ?? null;
-}
-
 /** `image` when it is an image element, video, bitmap or canvas, which has a size of its own, or null for data or nothing. */
 function imageSource(image: Texture["image"]): object | null {
   return image === null || ArrayBuffer.isView(image) ? null : (image as object);
@@ -1255,6 +1268,10 @@ function blendState(material: RenderStateMaterial): GPUBlendState | undefined {
   };
 }
 
+/**
+ * The WebGPU format for an integer RGBA texture, from the bit depth of its
+ * data view and the sampler's signedness.
+ */
 function integerGpuFormat(samplerType: string, view: ArrayBufferView | null): GPUTextureFormat {
   const signed = samplerType.startsWith("isampler");
   const bytes = (view as { BYTES_PER_ELEMENT?: number } | null)?.BYTES_PER_ELEMENT ?? 1;
