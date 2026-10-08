@@ -109,9 +109,9 @@ value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
   the shader compiler to refuse it. A swizzle written through names each
   component once: TSL's WebGPU backend writes `v.xx.assign(value)` component
   by component, so the last one wins; RMSL throws.
-- **`Loop`** takes `(count, (i) => …)` with `i` as a direct `int` node, not an
-  object to destructure. The `{ start, end, update }` and nested-loop forms of
-  TSL's `Loop` are not implemented; use `For`/`While` for those.
+- **`Loop`** takes each of TSL's shapes and passes `{ i }`, but refuses an
+  `update` given as a string, which TSL writes into the shader as text: give a
+  number, a node or a function.
 - **`Fn` return values** are implicit — the value the body returns is the
   result. `Return()` only emits a void early-return.
 - **`mul(mat4, vec3)`** promotes the position with an implied `w = 1` and drops

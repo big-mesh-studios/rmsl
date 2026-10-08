@@ -3587,6 +3587,13 @@ function isLoopRange(range: unknown): range is LoopRange {
   return typeof range === "object" && range !== null && !isNode(range) && !Array.isArray(range);
 }
 
+/** The number a `Loop` bound stands for, when it is a number or a literal such as `int(10)`. */
+function constantOf(value: number | Node<ShaderType> | undefined): number | undefined {
+  if (typeof value === "number") return value;
+  const literal = value as BaseNode<ShaderType> | undefined;
+  return literal && literal.type === literal._t && typeof literal.value === "number" ? literal.value : undefined;
+}
+
 /** A comparison of a `Loop` index with its end, by TSL's operator. */
 function compare(index: Node<any>, condition: string, end: Node<any>): Node<"bool"> {
   if (condition === "<") return index.lessThan(end);
@@ -3598,27 +3605,37 @@ function compare(index: Node<any>, condition: string, end: Node<any>): Node<"boo
 /** The start, end, condition and step of a `Loop` range, with what TSL fills in where the range gives none. */
 function loopBounds(range: IntLike | FloatLike | LoopRange) {
   if (!isLoopRange(range)) {
-    return { start: int(0), end: range as Node<any>, condition: "<", step: int(1) as Node<any> };
+    // A count is built as the index's type, as TSL builds it.
+    const end = isNode(range) && range._t !== "int" ? int(range as Node<"float">) : range;
+    return { start: int(0), end: end as Node<any>, condition: "<", step: int(1) as Node<any> };
   }
   const type = range.type ?? "int";
   if (type !== "int" && type !== "uint" && type !== "float") {
     throw new Error(`[RMSL] Loop: an index is an int, a uint or a float, not ${JSON.stringify(type)}`);
   }
+  // Each bound is built as the index's type, as TSL builds it.
   const of = (value: number | Node<ShaderType>): Node<any> =>
-    isNode(value) ? value : type === "float" ? float(value) : type === "uint" ? uint(value) : int(value);
+    isNode(value) && value._t === type
+      ? value
+      : type === "float"
+        ? float(value as number)
+        : type === "uint"
+          ? uint(value as number)
+          : int(value as number);
   let start = range.start;
   let end = range.end;
   let condition: string | undefined = range.condition;
   if (start !== undefined && end === undefined) {
     // Only a start counts down to 0, from the value below it.
-    start = isNode(start) ? (start as any).sub(1) : start - 1;
+    start = isNode(start) ? (of(start) as any).sub(1) : start - 1;
     end = 0;
     condition = ">=";
   } else if (start === undefined) {
     start = 0;
-    condition ??= "<";
+    condition = "<";
   }
-  condition ??= typeof start === "number" && typeof end === "number" && start > end ? ">=" : "<";
+  const [first, last] = [constantOf(start!), constantOf(end!)];
+  condition ??= first !== undefined && last !== undefined && first > last ? ">=" : "<";
   if (!["<", "<=", ">", ">="].includes(condition)) {
     throw new Error(`[RMSL] Loop: a condition is "<", "<=", ">" or ">=", not ${JSON.stringify(condition)}`);
   }

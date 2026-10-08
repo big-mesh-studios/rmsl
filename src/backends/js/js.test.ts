@@ -1394,7 +1394,7 @@ describe("JS backend: TSL loop and return", () => {
   /**
    * @canon spec-loop-runs-its-body-count-times
    */
-  it("Loop(count, (i) => ...) sums 0..3", () => {
+  it("Loop(count, ({ i }) => ...) sums 0..3", () => {
     const fn = compileJSRoutine(
       () =>
         Fn(() => {

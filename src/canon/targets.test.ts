@@ -713,6 +713,28 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
+   * A literal start above its end counts down, as numbers do; a range given
+   * only an end counts up whatever condition it names; a float count is built
+   * as an int.
+   *
+   * @canon spec-loop-fills-in-the-range-it-is-not-given
+   */
+  it("fills in a Loop range from literals, an end alone and a float count on every target", () => {
+    const digitsOf = (loop: (digit: (i: Node<"int">) => void, a: Node<"float">) => void) => (a: Node<"float">) =>
+      Fn(() => {
+        const digits = a.toVar();
+        loop((i) => digits.assign(digits.mul(10).add(i.toFloat())), a);
+        return digits;
+      })();
+    const fromLiterals = digitsOf((digit) => Loop({ start: int(3), end: int(0) }, ({ i }) => digit(i)));
+    const fromEnd = digitsOf((digit) => Loop({ end: 3, condition: ">" }, ({ i }) => digit(i)));
+    const fromFloatCount = digitsOf((digit, a) => Loop(a.add(3), ({ i }) => digit(i)));
+    expect(evaluateRecording(fromLiterals, [0])).toBe(3210);
+    expect(evaluateRecording(fromEnd, [0])).toBe(12);
+    expect(evaluateRecording(fromFloatCount, [0])).toBe(12);
+  });
+
+  /**
    * @canon spec-loop-fills-in-the-range-it-is-not-given
    */
   it("counts a Loop over a float index it names on every target", () => {

@@ -1385,6 +1385,19 @@ describe("a material reads position and normal as TSL does", () => {
   /**
    * @canon spec-position-and-normal-read-object-space-in-both-stages
    */
+  it("passes the object-space position and normal under a custom vertexNode too", () => {
+    const material = new MeshBasicMaterial();
+    material.vertexNode = (b) => vec4(b.position, 1);
+    material.fragmentNode = (b) => vec4(b.normal, 1);
+    const program = material.build(new Scene());
+    const written = collectNodes(program.vertexRoot).varyings;
+    const names = program.varyings.filter((v) => written.has(v.node)).map((v) => v.name);
+    expect(names).toContain("normalLocal");
+  });
+
+  /**
+   * @canon spec-position-and-normal-read-object-space-in-both-stages
+   */
   it("passes the object-space position and normal the fragment stage reads from the vertex stage", () => {
     const material = new MeshBasicMaterial();
     material.fragmentNode = (b) => vec4(b.position.add(b.normal), 1);
