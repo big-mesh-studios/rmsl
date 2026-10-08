@@ -1549,6 +1549,33 @@ describe("the fragments a CPU rasterizer draws", () => {
   });
 
   /**
+   * The second draw has twice the vertices of the first, so a WASM routine
+   * lays out its memory for it differently.
+   *
+   * @canon spec-a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear
+   */
+  it.each(rasterizers)("%s: keeps the image of the last draw under a draw that does not clear", (_, compileRaster) => {
+    const pos = attribute("vec2");
+    const color = uniform("vec4");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
+      () => Fn(() => color)() as any,
+      { attributeTypes: { [pos.name]: "vec2" } },
+    );
+    const left = [-1, -1, 0, -1, -1, 3];
+    const right = [0, -1, 2, -1, 0, 3];
+    const draw = (corners: number[], rgba: number[], clear: boolean) =>
+      Array.from(
+        routine.draw(
+          { attributes: { [pos.name]: new Float64Array(corners) }, uniforms: { [color.name]: rgba } },
+          { width: 2, height: 1, clear },
+        ),
+      );
+    draw(left, [1, 0, 0, 1], true);
+    expect(draw([...right, ...right], [0, 0, 1, 1], false)).toEqual([1, 0, 0, 1, 0, 0, 1, 1]);
+  });
+
+  /**
    * The triangle lies at depth 0.5, and the fragment writes the depth it reads
    * plus 0.25 and draws it as red.
    *

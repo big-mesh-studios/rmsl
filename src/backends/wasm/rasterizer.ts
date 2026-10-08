@@ -188,8 +188,8 @@ export interface WasmRasterContext {
 }
 
 /**
- * Both the output buffer's and the depth buffer's own addresses are
- * reused deterministically call to call, so a draw that passes
+ * The routine keeps its colour and depth buffers across draws, whatever
+ * each draw's vertices and inputs, so a draw that passes
  * `clear: false` or `clearDepth: false` composes onto them exactly like
  * several draws into one real framebuffer would (occlusion included) —
  * matching how a WebGPU render pass declares `loadOp`/`depthLoadOp`
@@ -386,11 +386,18 @@ export function compileWasm(
     fragmentCompiled.float32,
   );
 
-  let depthBufferBase: number | undefined;
-  let depthCapacityPixels = 0;
+  /** Where the depth buffer lies, with the colour buffer after it, both kept across draws. */
+  let frameBase: number | undefined;
+  /** The pixels the depth and colour buffers have room for. */
+  let frameCapacityPixels = 0;
   /** The size of the draw the depth buffer holds, whose pixels another size would read at the wrong places. */
-  let depthWidth = 0;
-  let depthHeight = 0;
+  let frameWidth = 0;
+  let frameHeight = 0;
+
+  /** The bytes of the depth and colour buffers of `pixels` pixels together. */
+  function frameBytes(pixels: number): number {
+    return pixels * (8 + VEC4_BYTES);
+  }
 
   /**
    * The vertices from `first` on that the first attribute the host passes holds,
@@ -405,9 +412,9 @@ export function compileWasm(
   }
 
   function clearDepthBuffer(): void {
-    if (depthBufferBase === undefined) return;
+    if (frameBase === undefined) return;
     const view = new DataView(memory.buffer);
-    for (let i = 0; i < depthCapacityPixels; i++) view.setFloat64(depthBufferBase + i * 8, Infinity, true);
+    for (let i = 0; i < frameCapacityPixels; i++) view.setFloat64(frameBase + i * 8, Infinity, true);
   }
 
   function draw(ctx: WasmRasterContext, options: WasmRasterDrawOptions): CpuDrawBuffer {
@@ -440,31 +447,33 @@ export function compileWasm(
     cursor = align8(cursor + maxClippedVertices * VEC4_BYTES);
     const clippedVaryingsOutBase = cursor;
     cursor = align8(cursor + maxClippedVertices * varyingBytes);
-    const outputBase = cursor;
-    cursor = align8(cursor + width * height * VEC4_BYTES);
 
-    // The depth buffer stays where it is until a draw's regions reach it, and
-    // moves above them then, so occlusion carries across draws that differ in
-    // size without a copy on each draw.
-    const neededDepthPixels = width * height;
-    const outgrown = neededDepthPixels > depthCapacityPixels;
-    const resized = width !== depthWidth || height !== depthHeight;
-    const needsClear = depthBufferBase === undefined || outgrown || resized || options.clearDepth !== false;
-    depthWidth = width;
-    depthHeight = height;
-    const movesTo = depthBufferBase === undefined || cursor > depthBufferBase ? cursor : undefined;
-    const previous = { base: depthBufferBase, pixels: depthCapacityPixels };
-    if (movesTo !== undefined) depthBufferBase = movesTo;
-    if (outgrown) depthCapacityPixels = neededDepthPixels;
-    const memoryEnd = depthBufferBase! + depthCapacityPixels * 8;
+    // The depth and colour buffers stay where they are until a draw's regions
+    // reach them, and move above them then, so what they hold carries across
+    // draws that differ in vertices or inputs without a copy on each draw.
+    const neededPixels = width * height;
+    const outgrown = neededPixels > frameCapacityPixels;
+    const resized = width !== frameWidth || height !== frameHeight;
+    const needsClear = frameBase === undefined || outgrown || resized || options.clearDepth !== false;
+    frameWidth = width;
+    frameHeight = height;
+    const movesTo = frameBase === undefined || cursor > frameBase ? cursor : undefined;
+    const previousBase = frameBase;
+    if (movesTo !== undefined) frameBase = movesTo;
+    if (outgrown) frameCapacityPixels = neededPixels;
+    const memoryEnd = frameBase! + frameBytes(frameCapacityPixels);
 
     if (memoryEnd > memory.buffer.byteLength) {
       memory.grow(Math.ceil((memoryEnd - memory.buffer.byteLength) / 65536));
     }
-    if (needsClear) clearDepthBuffer();
-    else if (movesTo !== undefined && previous.base !== undefined) {
-      new Uint8Array(memory.buffer).copyWithin(movesTo, previous.base, previous.base + previous.pixels * 8);
+    // Buffers that outgrow their room start over, as the JS rasterizer's new colour buffer does.
+    if (outgrown) new Uint8Array(memory.buffer, frameBase!, frameBytes(frameCapacityPixels)).fill(0);
+    else if (movesTo !== undefined && previousBase !== undefined) {
+      new Uint8Array(memory.buffer).copyWithin(movesTo, previousBase, previousBase + frameBytes(frameCapacityPixels));
     }
+    if (needsClear) clearDepthBuffer();
+    const depthBufferBase = frameBase!;
+    const outputBase = depthBufferBase + frameCapacityPixels * 8;
 
     vertexMarshaller.marshal(sharedCtx, heapStart);
     fragmentMarshaller.marshal(sharedCtx, fragmentHeapStart);
@@ -536,7 +545,7 @@ export function compileWasm(
       clipScratchBase,
       clippedPositionsOutBase,
       clippedVaryingsOutBase,
-      depthBufferBase!,
+      depthBufferBase,
       writesColour,
       fragCoordAddress,
       writesFragCoord,
