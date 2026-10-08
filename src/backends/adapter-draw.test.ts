@@ -151,7 +151,7 @@ afterAll(async () => {
  * it hit.
  */
 const STORAGE_SCENE = `
-import { Fn, attribute, builtinPosition, instancedArray, int, uniform, vec2, vec3, vec4 } from "../rmsl";
+import { For, Fn, attribute, builtinPosition, float, instancedArray, int, uniform, vec2, vec3, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
 ${READ_PIXEL}
 const position = attribute("vec3");
@@ -221,6 +221,22 @@ globalThis.__rmslStorageDraw = {
       WebGL2RenderingContext.prototype.getParameter = getParameter;
     }
   },
+  // The update steps i through 0, 1, 2, 3, so the body runs three times.
+  forUpdate: () => {
+    const next = instancedArray(Int32Array.of(1, 2, 3, 3), "int");
+    return draw(
+      Fn(() => {
+        const steps = float(0).toVar();
+        For(
+          () => int(0).toVar(),
+          (i) => i.lessThan(3),
+          (i) => i.assign(next.element(i)),
+          () => steps.addAssign(1),
+        );
+        return vec4(0, steps.div(3), 0, 1);
+      })(),
+    );
+  },
   vertexStage: () => {
     const shift = instancedArray(Float32Array.of(0, 0, 8, 8), "vec2");
     const shifted = Fn(() => { builtinPosition().assign(vec4(position.xy.add(shift.element(int(0))), 0, 1)); })();
@@ -284,6 +300,13 @@ describe.skipIf(!GPU_ENABLED)("createGlsl reading storage in a render stage", ()
   it("refuses a storage buffer past the context's texture size limit with createGlsl", async () => {
     const { error, name } = (await drawn("oversize")) as { error?: string; name: string };
     expect(error).toMatch(new RegExp(`"${name}".*8×5.*MAX_TEXTURE_SIZE of 4`));
+  }, 120_000);
+
+  /**
+   * @canon spec-a-glsl-stage-reads-a-storage-element-in-one-expression
+   */
+  it("reads a storage element in the update of a For with createGlsl", async () => {
+    expect(await drawn("forUpdate")).toEqual(GREEN);
   }, 120_000);
 
   /**

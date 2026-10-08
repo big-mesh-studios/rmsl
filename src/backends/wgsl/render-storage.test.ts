@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { Fn, float, instanceIndex, instancedArray, uint, varying, vec4, vertexIndex } from "../../rmsl";
+import { Fn, float, instanceIndex, instancedArray, int, uint, varying, vec4, vertexIndex } from "../../rmsl";
 import { compileGlsl } from "../../glsl";
 import { compileWgsl, createWgslContext } from "../../wgsl";
 import { GPU_ENABLED, installWebGpuGlobals } from "../../testing/gpu";
@@ -65,9 +65,21 @@ describe("storage buffers in render stages", () => {
   it("reads storage on GLSL through a sampler named after the buffer's slot", () => {
     const { offsets, colors, vertex, fragment } = program();
     const vertexCode = compileGlsl.vertex(vertex);
-    expect(vertexCode).toContain(`uniform sampler2D ${offsets.name};`);
-    expect(vertexCode).toMatch(new RegExp(`texelFetch\\(${offsets.name}, ivec2\\(`));
-    expect(compileGlsl.fragment(fragment)).toContain(`uniform sampler2D ${colors.name};`);
+    expect(vertexCode).toContain(`uniform highp sampler2D ${offsets.name};`);
+    expect(vertexCode).toMatch(/texelFetch\(s, ivec2\(/);
+    expect(vertexCode).toContain(`_rmsl_storage_float(${offsets.name}, `);
+    expect(compileGlsl.fragment(fragment)).toContain(`uniform highp sampler2D ${colors.name};`);
+  });
+  /**
+   * @canon spec-a-glsl-stage-reads-storage-at-highp
+   */
+  it("declares a storage sampler highp on GLSL compiled at mediump", () => {
+    const counts = instancedArray(Int32Array.of(1, 2), "int");
+    const code = compileGlsl.fragment(Fn(() => vec4(counts.element(int(1)).toFloat(), 0, 0, 1))(), {
+      precision: "mediump",
+    });
+    expect(code).toContain(`uniform highp isampler2D ${counts.name};`);
+    expect(code).toMatch(/highp int \w+\(highp isampler2D \w+, highp int \w+\)/);
   });
   /**
    * @canon spec-a-glsl-render-stage-refuses-a-write-to-storage

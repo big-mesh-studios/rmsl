@@ -235,6 +235,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@spec a-storage-texture-is-a-power-of-two-wide`](#spec-a-storage-texture-is-a-power-of-two-wide) — A storage texture is as wide as the smallest power of two at or above the square root of its texel count, and as tall as its texels need. Texel `t` sits at column `t % width` and row `t / width`, where the stage reads `width` from the texture's size.
         - [`@spec the-glsl-adapter-refuses-a-storage-texture-past-the-size-limit`](#spec-the-glsl-adapter-refuses-a-storage-texture-past-the-size-limit) — `createGlsl` refuses a storage buffer too large for the textures of its context. The error names the buffer, the size of texture it needs, and the context's `MAX_TEXTURE_SIZE`.
         - [`@spec the-glsl-adapter-uploads-each-storage-buffer-it-reads`](#spec-the-glsl-adapter-uploads-each-storage-buffer-it-reads) — `createGlsl` uploads each storage buffer its stages read as a storage texture, from the buffer's contents at `attach`. `setAttribute` on the buffer's slot fills it again.
+        - [`@spec a-glsl-stage-reads-a-storage-element-in-one-expression`](#spec-a-glsl-stage-reads-a-storage-element-in-one-expression) — A GLSL render stage reads a storage element through a call of a function it declares for the element's type, which takes the sampler and the index. The read adds no statement to the stage, so it compiles wherever an expression stands, a `For` update included.
+        - [`@spec a-glsl-stage-reads-storage-at-highp`](#spec-a-glsl-stage-reads-storage-at-highp) — A GLSL render stage declares each storage sampler with its own `highp` qualifier, and reads its elements at `highp`, whatever precision the program is compiled at.
       - [`@spec a-wgsl-render-stage-declares-its-storage-in-group-three`](#spec-a-wgsl-render-stage-declares-its-storage-in-group-three) — On WGSL, a vertex or fragment stage declares its storage buffers in group 3.
   - [`@spec a-constant-index-outside-a-vector-or-matrix-is-refused`](#spec-a-constant-index-outside-a-vector-or-matrix-is-refused) — A constant index outside a vector's components or a matrix's columns is refused on every target. Such an index is a literal, or an operation of literals that folds to one. A write by index through a swizzle is refused for an index outside the swizzle, as its read is. So it is in a graph `deserialize` rebuilt.
   - [`@spec a-constant-index-outside-a-uniform-array-is-refused`](#spec-a-constant-index-outside-a-uniform-array-is-refused) — A constant index outside the elements of a uniform array is refused on every target: a literal, or an operation of literals that folds to one.
@@ -684,6 +686,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-wgsl-matrix-constructor-takes-no-matrix`](#fact-a-wgsl-matrix-constructor-takes-no-matrix) — A WGSL matrix constructor takes scalars or column vectors, and no matrix. A column vector has as many components as the matrix has rows.
 - [`@fact a-wgsl-texture-is-not-host-shareable`](#fact-a-wgsl-texture-is-not-host-shareable) — A WGSL texture or sampler can be neither a member of a uniform struct nor an element of a uniform array. Each one takes a binding of its own.
 - [`@fact chromium-needs-a-precision-for-every-sampler`](#fact-chromium-needs-a-precision-for-every-sampler) — Chromium rejects a GLSL ES 3.00 shader that uses a sampler type with no declared precision. `sampler3D` and the integer sampler types have no default precision.
+- [`@fact a-glsl-sampler-returns-values-at-its-own-precision`](#fact-a-glsl-sampler-returns-values-at-its-own-precision) — In GLSL ES 3.00, a texture lookup returns its value at the precision of its sampler. A `mediump` value need only hold an integer of 16 bits, or a float with a mantissa of 10 bits.
 - [`@fact a-derivative-needs-neighbouring-fragments`](#fact-a-derivative-needs-neighbouring-fragments) — A GPU computes `dFdx`, `dFdy` and `fwidth` from the values of neighbouring fragments that run together. A single evaluation of one fragment has no neighbours.
 - [`@fact an-index-out-of-range-is-left-to-the-gpu`](#fact-an-index-out-of-range-is-left-to-the-gpu) — GLSL ES 3.00 leaves undefined what a run-time index out of range reaches in a vector or a matrix. It also leaves undefined what a texel fetch out of range reads. WGSL lets the implementation choose an element or texel within range, or zero.
 - [`@fact a-cube-map-has-no-texel-fetch`](#fact-a-cube-map-has-no-texel-fetch) — GLSL ES 3.00 has no `texelFetch` for a cube map, and WGSL has no `textureLoad` for one. A program reads an integer cube map only through them.
@@ -785,7 +788,7 @@ Whether rmsl's loops converge on TSL's `Loop`, or keep `While` and `For` as loop
 
 ### Precision
 
-GLSL sets precision two ways: a statement that sets the default for a type, and a qualifier on one declaration. Under [`spec-glsl-takes-a-precision`](#spec-glsl-takes-a-precision), rmsl writes only the statement, at the precision the caller asks for, as three.js's `WebGLRenderer` does. TSL fixes that default at `highp` and lets a uniform lower its own precision. Issue #117 asks whether rmsl adds the qualifier as well.
+GLSL sets precision two ways: a statement that sets the default for a type, and a qualifier on one declaration. Under [`spec-glsl-takes-a-precision`](#spec-glsl-takes-a-precision), rmsl writes only the statement, at the precision the caller asks for, as three.js's `WebGLRenderer` does. A storage sampler alone carries a qualifier, under [`spec-a-glsl-stage-reads-storage-at-highp`](#spec-a-glsl-stage-reads-storage-at-highp). TSL fixes that default at `highp` and lets a uniform lower its own precision. Issue #117 asks whether rmsl adds the qualifier as well.
 
 ### Fragment depth
 
@@ -2078,6 +2081,22 @@ This follows because the target cannot carry such a texture, and a stage would r
 > `createGlsl` uploads each storage buffer its stages read as a storage texture, from the buffer's contents at `attach`. `setAttribute` on the buffer's slot fills it again.
 
 Derives from: [`spec-setting-one-storage-slot-keeps-the-others`](#spec-setting-one-storage-slot-keeps-the-others)
+
+###### @spec a-glsl-stage-reads-a-storage-element-in-one-expression
+
+> A GLSL render stage reads a storage element through a call of a function it declares for the element's type, which takes the sampler and the index. The read adds no statement to the stage, so it compiles wherever an expression stands, a `For` update included.
+
+Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because GLSL builds a `For` update into the loop's header, which holds expressions and no declaration, and WGSL compiles a read of storage there.
+
+###### @spec a-glsl-stage-reads-storage-at-highp
+
+> A GLSL render stage declares each storage sampler with its own `highp` qualifier, and reads its elements at `highp`, whatever precision the program is compiled at.
+
+Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target), [`fact-a-glsl-sampler-returns-values-at-its-own-precision`](#fact-a-glsl-sampler-returns-values-at-its-own-precision)
+
+This follows because a storage element holds 32 bits, which a `mediump` sampler may read as 16. The storage texture is how the target holds a buffer, not a texture of the caller's that the precision the caller asks for covers.
 
 ##### @spec a-wgsl-render-stage-declares-its-storage-in-group-three
 
@@ -4740,6 +4759,12 @@ This is a fact of the WGSL specification, not a choice.
 > Chromium rejects a GLSL ES 3.00 shader that uses a sampler type with no declared precision. `sampler3D` and the integer sampler types have no default precision.
 
 This is a fact of the GLSL ES 3.00 specification as Chromium applies it, not a choice.
+
+## @fact a-glsl-sampler-returns-values-at-its-own-precision
+
+> In GLSL ES 3.00, a texture lookup returns its value at the precision of its sampler. A `mediump` value need only hold an integer of 16 bits, or a float with a mantissa of 10 bits.
+
+This is a fact of the GLSL ES 3.00 specification, in its sections on range and precision and on texture lookup functions.
 
 ## @fact a-derivative-needs-neighbouring-fragments
 

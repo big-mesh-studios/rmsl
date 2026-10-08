@@ -82,9 +82,13 @@ export interface CompileCtx {
   /**
    * The uniforms the program reads, by name: two nodes with one name are one
    * uniform. `length` is set only for uniform arrays, and gives their element count.
-   * WGSL also records each uniform's node and its `order` of creation.
+   * WGSL also records each uniform's node and its `order` of creation. GLSL
+   * sets `precision` on a uniform that carries a qualifier of its own.
    */
-  uniforms: Map<string, { type: string; slot: string; length?: number; order?: number; node?: BaseNode<ShaderType> }>;
+  uniforms: Map<
+    string,
+    { type: string; slot: string; length?: number; order?: number; node?: BaseNode<ShaderType>; precision?: "highp" }
+  >;
   /** The storage buffers the program reads, by slot; `order` is the creation order of the buffer. */
   storages?: Map<
     string,
@@ -130,6 +134,8 @@ export interface CompileCtx {
    * out on demand rather than always.
    */
   wgslHelpers: Set<string>;
+  /** GLSL helper functions the shader needs, by name, emitted ahead of `main`. */
+  glslHelpers?: Map<string, string>;
   /**
    * Whether the program assigned the position itself. A vertex stage that has
    * done so needs no implicit write, and its result is free to be anything.
