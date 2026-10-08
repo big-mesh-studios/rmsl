@@ -1,6 +1,6 @@
 # Vite Plugins
 
-RMSL compiles node graphs at runtime by default: `compileGLSL`/`compileWGSL`/`compileJSRoutine`/`compileWasmRoutine` all run in the browser. For an app with a large shader, that means shipping rmsl itself (the whole DSL) to every client just to produce output that never changes.
+RMSL compiles node graphs at runtime by default: `compileGlsl`/`compileWgsl`/`compileJSRoutine`/`compileWasmRoutine` all run in the browser. For an app with a large shader, that means shipping rmsl itself (the whole DSL) to every client just to produce output that never changes.
 
 The three plugins in `@random-mesh/rmsl/vite` move that compilation to build time. Each targets a module you write, bundles it with esbuild, executes it once in the Node process running Vite, and rewrites the module so the browser gets only the finished result — no rmsl, no `eval`, just constants, plain functions, or (for WASM) a real binary module.
 
@@ -30,7 +30,8 @@ Targets a module whose **default export** is the compiled shader program: the GL
 
 ```typescript
 // src/shaders.ts
-import { Fn, attribute, compileGLSL, uniformRaw, varying, vec2, vec4 } from "@random-mesh/rmsl";
+import { Fn, attribute, uniformRaw, varying, vec2, vec4 } from "@random-mesh/rmsl";
+import { compileGlsl } from "@random-mesh/rmsl/glsl";
 
 export const uColour = uniformRaw("uColour", "vec3");
 export const vUv = varying("vec2");
@@ -47,8 +48,8 @@ export default {
   uColour: uColour.name,
   vUv: vUv.name,
   positionAttr: positionAttr.name,
-  vertexGLSL: compileGLSL.vertex(vertexFn()),
-  fragmentGLSL: compileGLSL.fragment(fragmentFn()),
+  vertexGLSL: compileGlsl.vertex(vertexFn()),
+  fragmentGLSL: compileGlsl.fragment(fragmentFn()),
 };
 ```
 
@@ -68,7 +69,8 @@ The target module exports a **map of name → `compileJSFn()` output** under the
 
 ```typescript
 // src/cpu-fns.ts
-import { Fn, compileJSFn, float, uniform, type Node } from "@random-mesh/rmsl";
+import { Fn, float, uniform, type Node } from "@random-mesh/rmsl";
+import { compileJSFn } from "@random-mesh/rmsl/js";
 
 const brightness = Fn(() => uniform("vec3").mul(float(0.5)).toVar());
 const mixColours = Fn((a: Node<"vec3">, b: Node<"vec3">, t: Node<"float">) => a.mix(b, t).toVar());
@@ -117,7 +119,8 @@ The target module exports a **map of name → `compileWasmFn()` output** under t
 
 ```typescript
 // src/wasm-fns.ts
-import { Fn, compileWasmFn, float, uniform, type Node } from "@random-mesh/rmsl";
+import { Fn, float, uniform, type Node } from "@random-mesh/rmsl";
+import { compileWasmFn } from "@random-mesh/rmsl/wasm";
 
 const brightness = Fn(() => uniform("vec3").mul(float(0.5)).toVar());
 const mixColours = Fn((a: Node<"vec3">, b: Node<"vec3">, t: Node<"float">) => a.mix(b, t).toVar());

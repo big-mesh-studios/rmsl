@@ -59,11 +59,12 @@ These take an input color node or a sampler and return the output color:
 Textures are declared by the caller and passed in:
 
 ```typescript
-import { Fn, uniform, compileGLSL } from "rmsl";
+import { uniform } from "@random-mesh/rmsl";
+import { compileGlsl } from "@random-mesh/rmsl/glsl";
 import { fxaa } from "@random-mesh/rmsl/effects";
 
 let colorTex = uniform("sampler2D");
-let glsl = compileGLSL(fxaa(colorTex));
+let glsl = compileGlsl(fxaa(colorTex));
 ```
 
 ## Multi-pass effects: pass graphs
@@ -98,7 +99,7 @@ import { gaussianBlur } from "@random-mesh/rmsl/effects";
 let graph = gaussianBlur(uniform("sampler2D"), [1, 1], 4);
 
 for (const pass of graph.passes) {
-  let src = compileGLSL(pass.color); // fullscreen quad fragment shader
+  let src = compileGlsl(pass.color); // fullscreen quad fragment shader
   // bind each of pass.inputs: a key naming a pass -> that pass's render target,
   // any other key -> your texture (the scene, for pass 0)
   // draw into a render target

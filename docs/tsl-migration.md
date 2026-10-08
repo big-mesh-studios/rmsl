@@ -7,7 +7,7 @@ shader written against `three/tsl` ports by changing its import:
 // before
 import { Fn, float, vec3, mul, sin, mix } from "three/tsl";
 // after
-import { Fn, float, vec3, mul, sin, mix } from "rmsl";
+import { Fn, float, vec3, mul, sin, mix } from "@random-mesh/rmsl";
 ```
 
 Everything below is available in RMSL under the same name and the same argument

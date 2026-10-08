@@ -5,40 +5,41 @@ RMSL compiles node graphs to **GLSL** (WebGL 2 / OpenGL ES 3.0), **WGSL** (WebGP
 ## Compiler API
 
 ```typescript
-import { compileGLSL, compileWGSL } from "rmsl";
+import { compileGlsl } from "@random-mesh/rmsl/glsl";
+import { compileWgsl } from "@random-mesh/rmsl/wgsl";
 ```
 
 ### Fragment shader (default)
 
 ```typescript
-compileGLSL(root); // fragment shader
-compileGLSL.fragment(root); // explicit fragment
-compileWGSL(root); // fragment shader
-compileWGSL.fragment(root); // explicit fragment
+compileGlsl(root); // fragment shader
+compileGlsl.fragment(root); // explicit fragment
+compileWgsl(root); // fragment shader
+compileWgsl.fragment(root); // explicit fragment
 ```
 
 ### Vertex shader
 
 ```typescript
-compileGLSL.vertex(root);
-compileWGSL.vertex(root);
+compileGlsl.vertex(root);
+compileWgsl.vertex(root);
 ```
 
 ### Shader precision (GLSL)
 
 GLSL output defaults to `highp`. To compile with `mediump` or `lowp` — the
 usual choice on mobile GPUs, mirroring three.js's `precision` option — pass an
-options object to any of the `compileGLSL` forms:
+options object to any of the `compileGlsl` forms:
 
 ```typescript
-compileGLSL(root, { precision: "mediump" }); // fragment
-compileGLSL.fragment(root, { precision: "lowp" });
-compileGLSL.vertex(root, { precision: "mediump" });
+compileGlsl(root, { precision: "mediump" }); // fragment
+compileGlsl.fragment(root, { precision: "lowp" });
+compileGlsl.vertex(root, { precision: "mediump" });
 ```
 
 The configured precision is applied to the `float` declaration and to every
 sampler the shader declares. WGSL and the JS target have no precision
-qualifiers, so `compileWGSL` and `compileJSRoutine` take no such option.
+qualifiers, so `compileWgsl` and `compileJSRoutine` take no such option.
 
 ### Multiple return values
 
@@ -49,7 +50,7 @@ let prog = Fn(() => {
   return [a, b];
 });
 let [a, b] = prog();
-compileGLSL.vertex([a, b]); // pass array of roots
+compileGlsl.vertex([a, b]); // pass array of roots
 ```
 
 ## GLSL Output
@@ -228,8 +229,8 @@ const uniforms = [
   { slot: "viewMatrix", type: "mat4x4<f32>" },
 ];
 
-const vertex = compileWGSL.vertex(vertexRoot, { uniforms });
-const fragment = compileWGSL.fragment(fragmentRoot, { uniforms });
+const vertex = compileWgsl.vertex(vertexRoot, { uniforms });
+const fragment = compileWgsl.fragment(fragmentRoot, { uniforms });
 const layout = wgslUniformLayout(uniforms); // the offsets to write at
 ```
 
@@ -240,12 +241,13 @@ for every material it draws.
 
 ## Standalone Function Compilers
 
-For use with Three.js `glslFn`/`wgslFn` or other embedding scenarios, RMSL provides `compileGLSLFn` and `compileWGSLFn` to compile individual functions with custom names and parameters:
+For use with Three.js `glslFn`/`wgslFn` or other embedding scenarios, RMSL provides `compileGlslFn` and `compileWgslFn` to compile individual functions with custom names and parameters:
 
 ```typescript
-import { compileGLSLFn, compileWGSLFn, float, var_ } from "rmsl";
+import { compileGlslFn } from "@random-mesh/rmsl/glsl";
+import { compileWgslFn } from "@random-mesh/rmsl/wgsl";
 
-let glsl = compileGLSLFn((a, b) => a.add(b).sin(), {
+let glsl = compileGlslFn((a, b) => a.add(b).sin(), {
   name: "myFunc",
   params: [
     { name: "a", type: "float" },
@@ -258,7 +260,7 @@ let glsl = compileGLSLFn((a, b) => a.add(b).sin(), {
 
 ```glsl
 float myFunc(float a, float b) {
-  return sin((a + b));
+  return sin(a + b);
 }
 ```
 
@@ -266,14 +268,14 @@ float myFunc(float a, float b) {
 
 ```wgsl
 fn myFunc(a: f32, b: f32) -> f32 {
-  return sin((a + b));
+  return sin(a + b);
 }
 ```
 
 Uniforms referenced inside the function body are declared automatically with their bindings:
 
 ```typescript
-let glsl = compileGLSLFn(
+let glsl = compileGlslFn(
   (v) => {
     let u = uniformRaw("uScale", "float");
     return v.mul(u);
@@ -288,7 +290,7 @@ Produces:
 uniform float uScale;
 
 float scale(float v) {
-  return (v * uScale);
+  return v * uScale;
 }
 ```
 
@@ -314,7 +316,8 @@ varyings and uniforms into a compiled fragment stage and read the colour and
 depth back, with no GPU round-trip.
 
 ```typescript
-import { compileJSFragment, Fn, uniform, builtinFragDepth } from "rmsl";
+import { Fn, uniform, builtinFragDepth } from "@random-mesh/rmsl";
+import { compileJSFragment } from "@random-mesh/rmsl/js";
 
 let pickStage = compileJSFragment(calcColourAndDepth, { name: "pick", params: [] });
 // On pointerdown:
