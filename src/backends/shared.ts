@@ -1,4 +1,5 @@
 import {
+  assertForUpdateHoldsNoBlock,
   BaseNode,
   MATRIX_DIMENSIONS,
   Node,
@@ -679,6 +680,9 @@ export function assertNoWholeStorageRead(roots: readonly unknown[]): void {
 export function prepareRoots<T extends Node<ShaderType>>(stage: string | undefined, roots: readonly T[]): T[] {
   assertNoWholeStorageRead(roots);
   assertSwizzleWrites(roots);
+  someNode(roots, (n) => {
+    if (n.type === "for") assertForUpdateHoldsNoBlock(n);
+  });
   if (stage === "fragment")
     return fragmentColour(lowerOutputStruct(roots as readonly BaseNode<ShaderType>[]) as unknown as T[]);
   if (someNode(roots, (n) => n.type === "outputStruct")) {

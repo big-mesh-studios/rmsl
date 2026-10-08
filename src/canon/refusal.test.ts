@@ -29,6 +29,8 @@ import {
   vec4,
   type Node,
   type Var,
+  serialize,
+  deserialize,
 } from "../rmsl";
 import { compileJSCompute, compileJSGrid, compileJSRoutine, compileJSVertex } from "../js";
 import { compileWasmCompute, compileWasmGrid, compileWasmRoutine, compileWasmVertex } from "../wasm";
@@ -212,6 +214,36 @@ describe("a mistake is refused before the program runs", () => {
       expect(() => compileWgsl(block())).toThrow(refusal);
       for (const compile of cpuCompilers) expect(() => compile(block)).toThrow(refusal);
     }
+  });
+
+  /**
+   * A `For` whose update holds a block in a graph `deserialize` rebuilt never
+   * met the `For` builder, and every target refuses it as it compiles.
+   *
+   * @canon spec-a-for-update-that-holds-a-block-is-refused
+   */
+  it("refuses a deserialized For whose update holds a block on every target", () => {
+    const build = () =>
+      Fn(() => {
+        const sum = float(0).toVar();
+        // The If comes first: a deserialized node names only children before it.
+        If(sum.greaterThan(1), () => sum.addAssign(1));
+        For(
+          () => int(0).toVar(),
+          (i) => i.lessThan(3),
+          (i) => i.addAssign(1),
+          () => sum.addAssign(1),
+        );
+        return sum;
+      })();
+    const graph = serialize(build());
+    const loop = graph.nodes.find((n) => n.type === "for")!;
+    loop.params![2] = graph.nodes.findIndex((n) => n.type === "if");
+    const refusal = /update cannot contain a block/;
+    expect(() => compileGlsl(deserialize(graph) as Node<"float">)).toThrow(refusal);
+    expect(() => compileWgsl(deserialize(graph) as Node<"float">)).toThrow(refusal);
+    for (const compile of cpuCompilers)
+      expect(() => compile(() => deserialize(graph) as Node<"float">)).toThrow(refusal);
   });
 
   /**

@@ -3496,6 +3496,11 @@ function holdsBlock(statement: unknown): boolean {
   return someNode(statement, (node) => BLOCK_STATEMENTS.has(node.type));
 }
 
+/** Refuses a `for` node whose update holds a block, which the update slot of a `for` cannot take. */
+export function assertForUpdateHoldsNoBlock(loop: BaseNode<ShaderType>): void {
+  if (holdsBlock(loop.params![2])) throw new Error(FOR_UPDATE_BLOCK_MESSAGE);
+}
+
 /**
  * A loop as a JavaScript `for` writes it. Its update is the update slot of a
  * GLSL, WGSL or JavaScript `for`, which takes no block, so an update that holds
