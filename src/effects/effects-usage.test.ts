@@ -340,8 +340,8 @@ describe("gaussianBlur pass graph", () => {
     const input = uniform("sampler2D");
     const graph = gaussianBlur(input);
     expect(graph.passes[0].inputs.input).toBe(input);
-    // The vertical pass reads the horizontal pass's render target.
-    expect(graph.passes[1].inputs.input).not.toBe(input);
+    // The vertical pass reads the horizontal pass's render target, keyed by that pass's name.
+    expect(graph.passes[1].inputs["gaussianBlur.horizontal"]).not.toBe(input);
   });
 });
 

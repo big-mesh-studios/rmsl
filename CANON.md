@@ -365,7 +365,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-compute-uniform-resource-names-the-rmsl-type-of-its-uniform`](#spec-a-compute-uniform-resource-names-the-rmsl-type-of-its-uniform) — A uniform resource of a compiled WGSL compute program carries the rmsl type of the uniform in `shaderType`, so an `int` is `"int"` and not `"i32"`. The adapter lays it out in the WGSL spelling.
   - [`@spec an-effect-is-a-port-of-a-tsl-display-effect`](#spec-an-effect-is-a-port-of-a-tsl-display-effect) — An [effect](#term-effect) of `./effects` computes what the TSL display effect of the same name computes, and compiles on GLSL and WGSL.
     - [`@spec a-single-pass-effect-gives-a-colour-node`](#spec-a-single-pass-effect-gives-a-colour-node) — A single-pass effect takes samplers and parameter nodes and gives a node: a colour, or a float mask for `circle`.
-      - [`@bug transition-reads-a-null-mix-texture`](#bug-transition-reads-a-null-mix-texture) — `transition` builds the branch that samples the mix texture whatever `useTexture` is, so a `null` mix texture throws a `TypeError`.
     - [`@spec bloom-follows-tsl`](#spec-bloom-follows-tsl) — `bloom` gives TSL's pass graph of twelve passes. Its high pass keeps what is brighter than a luminance threshold, or applies a filter the caller gives. Its composite sums five tinted mips, scaled by its strength. `luminosityHighPass` is also available on its own.
     - [`@spec gaussian-blur-weights-follow-tsl`](#spec-gaussian-blur-weights-follow-tsl) — `getGaussianCoefficients(radius)` gives the weights TSL's Gaussian blur uses: for each offset `i` below the radius, `0.39894 · exp(-i² / 2σ²) / σ`, with `σ` a third of the radius.
     - [`@spec an-effect-compiles-as-a-function-of-its-own`](#spec-an-effect-compiles-as-a-function-of-its-own) — An effect compiles with `compileGlslFn` and `compileWgslFn` into a function the application places in its own shader.
@@ -441,7 +440,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-effect-with-several-passes-is-a-pass-graph`](#spec-an-effect-with-several-passes-is-a-pass-graph) — An [effect](#term-effect) with several passes returns a [pass graph](#term-pass-graph): its passes, the samplers each pass reads, and the pass that gives the output. The application draws each pass.
     - [`@exception a-scene-renderer-draws-its-scene-graph`](#exception-a-scene-renderer-draws-its-scene-graph) — `render(scene, camera)` on a renderer of `./scene` walks the scene graph, binds the geometry and the [node material](#term-node-material) of each mesh, uploads their uniforms and draws them.
     - [`@spec a-pass-keys-an-input-by-the-pass-that-makes-it`](#spec-a-pass-keys-an-input-by-the-pass-that-makes-it) — A pass keys an input another pass makes by that pass's name, such as `gaussianBlur.horizontal`, and an outside texture by any other name.
-      - [`@bug gaussian-blur-keys-its-internal-link-as-input`](#bug-gaussian-blur-keys-its-internal-link-as-input) — `gaussianBlur`'s vertical pass keys the horizontal pass's target as `input`, where `bloom` keys such a link by the pass's name.
     - [`@spec a-gpu-adapter-takes-its-count-from-the-first-attribute`](#spec-a-gpu-adapter-takes-its-count-from-the-first-attribute) — A `createGlsl` or `createWgsl` draw that names no vertex count takes it from the first attribute the host passes. The count is that attribute's vertices after the draw's first vertex.
     - [`@spec a-compute-call-dispatches-the-count-it-is-given`](#spec-a-compute-call-dispatches-the-count-it-is-given) — A `compute` call on a compute adapter runs one invocation for each index below its count. The count is the one the caller names, or else the number of elements of the first storage buffer the host passed.
       - [`@spec a-compute-call-takes-the-count-the-caller-names`](#spec-a-compute-call-takes-the-count-the-caller-names) — `compute(out, count)` runs one invocation for each index below `count`, whatever the buffers hold. A count of zero runs none.
@@ -2772,12 +2770,6 @@ This follows because a TSL shader that uses a display effect ports only if the e
 
 > A single-pass effect takes samplers and parameter nodes and gives a node: a colour, or a float mask for `circle`.
 
-##### @bug transition-reads-a-null-mix-texture
-
-> `transition` builds the branch that samples the mix texture whatever `useTexture` is, so a `null` mix texture throws a `TypeError`.
-
-Issue: #99
-
 #### @spec bloom-follows-tsl
 
 > `bloom` gives TSL's pass graph of twelve passes. Its high pass keeps what is brighter than a luminance threshold, or applies a filter the caller gives. Its composite sums five tinted mips, scaled by its strength. `luminosityHighPass` is also available on its own.
@@ -3193,12 +3185,6 @@ Derives from: [`fact-a-three-js-renderer-draws-its-scene-graph`](#fact-a-three-j
 Derives from: [`spec-an-effect-with-several-passes-is-a-pass-graph`](#spec-an-effect-with-several-passes-is-a-pass-graph)
 
 This follows because the application draws the passes in order. It finds the target a pass reads by the name of the pass that wrote it.
-
-##### @bug gaussian-blur-keys-its-internal-link-as-input
-
-> `gaussianBlur`'s vertical pass keys the horizontal pass's target as `input`, where `bloom` keys such a link by the pass's name.
-
-Issue: #99
 
 #### @spec a-gpu-adapter-takes-its-count-from-the-first-attribute
 

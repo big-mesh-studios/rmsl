@@ -4,7 +4,7 @@ import { build } from "esbuild";
 import { Fn, bool, outputStruct, uniform, varying, vec2, vec3, vec4, builtinPosition } from "../rmsl";
 import { compileGlsl } from "../glsl";
 import { compileWgsl } from "../wgsl";
-import { fxaa, gaussianBlur, getGaussianCoefficients, rgbShift } from "../effects";
+import { fxaa, gaussianBlur, getGaussianCoefficients, rgbShift, transition } from "../effects";
 import { fromProgram, render, runner } from "../test";
 import { compileWat, precompileJS, precompileShaders, precompileWasm } from "../vite/vite";
 import {
@@ -82,6 +82,21 @@ describe("the harness checks what it recorded", () => {
 });
 
 describe("effects", () => {
+  /**
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
+  it("cross-fades without a mix texture when useTexture is 0", () => {
+    expect(() => transition(uniform("sampler2D"), uniform("sampler2D"), null, 0.5, 0.1, 0)).not.toThrow();
+  });
+
+  /**
+   * @canon spec-a-pass-keys-an-input-by-the-pass-that-makes-it
+   */
+  it("keys the vertical pass's input by the horizontal pass", () => {
+    const graph = gaussianBlur(uniform("sampler2D"));
+    expect(Object.keys(graph.passes[1]!.inputs)).toEqual(["gaussianBlur.horizontal"]);
+  });
+
   /**
    * @canon spec-a-number-given-to-an-effect-compiles-as-a-literal
    */

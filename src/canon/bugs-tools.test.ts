@@ -7,7 +7,7 @@ import { build } from "esbuild";
 import { Fn, uniform, vec4, type Node } from "../rmsl";
 import { render } from "../test";
 import { compileWgsl } from "../wgsl";
-import { fxaa, gaussianBlur, transition } from "../effects";
+import { fxaa } from "../effects";
 import { precompileJS, precompileShaders, precompileWasm } from "../vite/vite";
 import { GPU_ENABLED, gpuDevice, releaseGpu } from "../testing/gpu";
 import { sweepWGSL } from "../testing/integer-sweep";
@@ -66,28 +66,6 @@ describe("known bugs of the tools, each failing until its fix", () => {
    */
   it.skipIf(!GPU_ENABLED).fails("compiles fxaa on WGSL", async () => {
     expect(await wgslError(compileWgsl.fragment(fxaa(uniform("sampler2D"))))).toBeNull();
-  });
-
-  /**
-   * The vertical pass of `gaussianBlur` keys the horizontal pass's render
-   * target as `input`, where `bloom` keys an internal link by the pass that
-   * produces it.
-   *
-   * @canon bug-gaussian-blur-keys-its-internal-link-as-input
-   */
-  it.fails("keys the vertical pass's input by the horizontal pass", () => {
-    const graph = gaussianBlur(uniform("sampler2D"));
-    expect(Object.keys(graph.passes[1]!.inputs)).toEqual(["gaussianBlur.horizontal"]);
-  });
-
-  /**
-   * `transition` builds the branch that samples the mix texture whatever
-   * `useTexture` is, so a `null` mix texture throws a `TypeError`.
-   *
-   * @canon bug-transition-reads-a-null-mix-texture
-   */
-  it.fails("cross-fades without a mix texture when useTexture is 0", () => {
-    expect(() => transition(uniform("sampler2D"), uniform("sampler2D"), null, 0.5, 0.1, 0)).not.toThrow();
   });
 
   /**
