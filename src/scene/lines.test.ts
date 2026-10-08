@@ -151,9 +151,9 @@ describe("Line2NodeMaterial", () => {
   it("renders double-sided and toggles rebuild on worldUnits", () => {
     const material = new Line2NodeMaterial();
     expect(material.side).toBe(2); // Side.DoubleSide
-    expect(material.needsUpdate).toBe(false);
+    const version = material.version;
     material.worldUnits = true;
-    expect(material.needsUpdate).toBe(true);
+    expect(material.version).toBe(version + 1);
   });
 });
 

@@ -17,7 +17,13 @@ export class BufferAttribute {
   normalized: boolean;
   count: number;
   stepMode: "vertex" | "instance";
-  needsUpdate = false;
+  /** How many times the attribute was marked changed, as three.js counts it: a renderer uploads it again when this passes the version it uploaded. */
+  version = 0;
+
+  /** Marks the attribute changed, raising `version`, as in three.js. Reading it gives `undefined`, as in three.js. */
+  set needsUpdate(value: boolean) {
+    if (value) this.version++;
+  }
   /**
    * The vertex format these bytes are in, for the cases the array's own type
    * cannot say. A `Uint16Array` of half floats is the one that needs it: it is

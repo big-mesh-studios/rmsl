@@ -3,7 +3,8 @@ import { ClampToEdgeWrapping, LinearFilter } from "./constants";
 
 /**
  * A texture to sample in a material, like three.js's `Texture`. The GPU object
- * is owned by the renderer and created when `needsUpdate` is set.
+ * is owned by each renderer that draws it, created on its first draw and
+ * written again when `version` passes the one it uploaded.
  */
 export class Texture extends EventDispatcher {
   readonly isTexture = true;
@@ -11,11 +12,21 @@ export class Texture extends EventDispatcher {
   name = "";
   image: TexImageSource | ArrayBufferView | null = null;
   /**
-   * Tells the renderer to create or refresh the GPU resource. The filtering and
-   * wrapping below need it too: a renderer reads them when it uploads, so a
-   * change made after that reaches the GPU on the next upload.
+   * How many times the texture was marked changed, as three.js counts it. A
+   * renderer uploads the texture again when this passes the version it
+   * uploaded.
    */
-  needsUpdate = true;
+  version = 0;
+
+  /**
+   * Marks the image changed, raising `version`, as in three.js. The filtering
+   * and wrapping below need it too: a renderer reads them when it uploads, so a
+   * change made after that reaches the GPU on the next upload. Reading it
+   * gives `undefined`, as in three.js.
+   */
+  set needsUpdate(value: boolean) {
+    if (value) this.version++;
+  }
 
   /**
    * How a texel is chosen when the sampled point falls between texels, like

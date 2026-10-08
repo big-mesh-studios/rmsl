@@ -32,6 +32,8 @@ import {
 
 interface ProgramEntry {
   program: MaterialProgram;
+  /** The `version` of the material the program was built from. */
+  version: number;
   glProgram: WebGLProgram;
   uniformLocations: Map<string, WebGLUniformLocation | null>;
   attributeLocations: Map<string, number>;
@@ -66,6 +68,12 @@ export class WebGLRenderer {
    * upload is re-allocated only when the new data no longer fits. */
   private bufferCapacities = new WeakMap<WebGLBuffer, number>();
   private textures = new Map<Texture, WebGLTexture>();
+  /**
+   * The `version` of each texture and attribute this renderer last uploaded.
+   * Each renderer keeps its own, so a change reaches every renderer that draws
+   * the object, as three.js keeps it per renderer.
+   */
+  private uploadedVersions = new WeakMap<Texture | BufferAttribute, number>();
   /** The 1×1 black textures a sampler with no texture reads, one for each dimension and sample type. */
   private blankTextures = new Map<string, DataTexture>();
   /** The framebuffer, color texture, and depth renderbuffer behind each render target, at its bound size. */
@@ -456,7 +464,7 @@ export class WebGLRenderer {
     const unit = this.nextTextureUnit();
     gl.activeTexture(gl.TEXTURE0 + unit);
     let glTexture = this.textures.get(texture);
-    if (!glTexture || texture.needsUpdate) {
+    if (!glTexture || this.uploadedVersions.get(texture) !== texture.version) {
       if (!glTexture) {
         glTexture = gl.createTexture()!;
         this.textures.set(texture, glTexture);
@@ -507,7 +515,7 @@ export class WebGLRenderer {
       } else if (image != null && !is3D && !integer) {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image as TexImageSource);
       }
-      texture.needsUpdate = false;
+      this.uploadedVersions.set(texture, texture.version);
     }
     gl.bindTexture(target, glTexture);
     return unit;
@@ -523,6 +531,7 @@ export class WebGLRenderer {
     const glTexture = this.textures.get(texture);
     if (glTexture) this.gl.deleteTexture(glTexture);
     this.textures.delete(texture);
+    this.uploadedVersions.delete(texture);
     texture.removeEventListener("dispose", this.onTextureDispose);
   };
 
@@ -576,7 +585,7 @@ export class WebGLRenderer {
     const signature = programSignature(lightsSignature(scene), instancing, instancingColor);
     let bySignature = this.programs.get(material);
     const entry = bySignature?.get(signature);
-    if (entry && !material.needsUpdate) {
+    if (entry && entry.version === material.version) {
       return entry;
     }
 
@@ -610,13 +619,12 @@ export class WebGLRenderer {
       attributeLocations.set(attribute.node.name, gl.getAttribLocation(glProgram, attribute.node.name));
     }
 
-    const built: ProgramEntry = { program, glProgram, uniformLocations, attributeLocations };
+    const built: ProgramEntry = { program, version: material.version, glProgram, uniformLocations, attributeLocations };
     if (!bySignature) {
       bySignature = new Map();
       this.programs.set(material, bySignature);
     }
     bySignature.set(signature, built);
-    material.needsUpdate = false;
     return built;
   }
 
@@ -640,8 +648,6 @@ export class WebGLRenderer {
       geometry.addEventListener("dispose", this.onGeometryDispose);
     }
 
-    const needsUpload = buffers.needsUpload || Object.values(geometry.attributes).some((a) => a.needsUpdate);
-
     // The locations this draw configures, so that any left enabled by a previous
     // draw can be turned off. See `boundAttributeLocations`.
     const usedLocations = new Set<number>();
@@ -661,12 +667,15 @@ export class WebGLRenderer {
         if (ownedByGeometry) buffers.attributes.set(attribute.name, buffer);
         else this.attributeBuffers.set(attr, buffer);
       }
-      if (isNewBuffer || attr.needsUpdate) {
+      // An attribute this renderer has not uploaded, one that replaced another under its name included, goes up whole.
+      const uploaded = this.uploadedVersions.get(attr);
+      if (isNewBuffer || uploaded !== attr.version) {
         const data = toBufferView(attr.array);
-        buffer = this.uploadSlice(gl, gl.ARRAY_BUFFER, buffer, data, this.uploadRangeOf(data, attr, isNewBuffer));
+        const full = isNewBuffer || uploaded === undefined;
+        buffer = this.uploadSlice(gl, gl.ARRAY_BUFFER, buffer, data, this.uploadRangeOf(data, attr, full));
         if (ownedByGeometry) buffers.attributes.set(attribute.name, buffer);
         else this.attributeBuffers.set(attr, buffer);
-        attr.needsUpdate = false;
+        this.uploadedVersions.set(attr, attr.version);
       }
       // The attribute pointers below capture whatever buffer is bound when
       // they run, so bind this attribute's buffer on every draw, whether or
@@ -715,16 +724,18 @@ export class WebGLRenderer {
     if (geometry.index) {
       const isNewIndex = buffers.index === null;
       const indexBuffer = buffers.index ?? (buffers.index = gl.createBuffer()!);
-      if (isNewIndex || needsUpload || geometry.index.needsUpdate) {
+      const uploaded = this.uploadedVersions.get(geometry.index);
+      if (isNewIndex || buffers.needsUpload || uploaded !== geometry.index.version) {
         const data = toBufferView(geometry.index.array, true);
+        const full = isNewIndex || buffers.needsUpload || uploaded === undefined;
         buffers.index = this.uploadSlice(
           gl,
           gl.ELEMENT_ARRAY_BUFFER,
           indexBuffer,
           data,
-          this.uploadRangeOf(data, geometry.index, isNewIndex),
+          this.uploadRangeOf(data, geometry.index, full),
         );
-        geometry.index.needsUpdate = false;
+        this.uploadedVersions.set(geometry.index, geometry.index.version);
       }
       // The element buffer binding must name this geometry's indices when the
       // draw runs, whatever the previous draw left bound.

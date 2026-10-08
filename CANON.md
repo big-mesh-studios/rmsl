@@ -387,7 +387,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-material-reads-any-sampler-type`](#spec-a-material-reads-any-sampler-type) — A material reads a float, integer or 3D sampler, and keeps the two-argument sampler form as a 2D sampler.
         - [`@bug webgl-rejects-a-narrow-r8ui-texture`](#bug-webgl-rejects-a-narrow-r8ui-texture) — The WebGL renderer uploads a single-channel integer texture under the default unpack alignment of four. WebGL rejects a tightly packed image whose width four does not divide, and the texture reads zero.
       - [`@spec a-material-takes-the-renderer-precision-unless-it-sets-one`](#spec-a-material-takes-the-renderer-precision-unless-it-sets-one) — A material compiles at the precision of its renderer unless it sets one of its own, and changing it rebuilds the material.
-        - [`@bug a-rebuild-reaches-one-signature-of-a-shared-material`](#bug-a-rebuild-reaches-one-signature-of-a-shared-material) — A rebuild flagged by `needsUpdate` rebuilds only the program of the first kind of mesh drawn after it, and clears the flag. A material shared by a `Mesh` and an `InstancedMesh` keeps the stale program for the other.
       - [`@spec ambient-lights-sum-into-one-colour`](#spec-ambient-lights-sum-into-one-colour) — A material sums the ambient lights of its scene, each scaled by its intensity, into one colour uniform.
       - [`@spec a-light-uniform-carries-its-colour-times-its-intensity`](#spec-a-light-uniform-carries-its-colour-times-its-intensity) — A directional or point light gives its colour uniform the light's colour already multiplied by its intensity.
       - [`@spec position-and-normal-read-object-space-in-both-stages`](#spec-position-and-normal-read-object-space-in-both-stages) — The builder's `position` and `normal` give the object-space position and normal in both stages, as TSL's `positionLocal` and `normalLocal` do.
@@ -450,6 +449,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug webgl-keeps-the-sampler-state-of-the-first-sampler-that-uploaded-a-texture`](#bug-webgl-keeps-the-sampler-state-of-the-first-sampler-that-uploaded-a-texture) — The WebGL renderer writes a texture's filters and wrap once, when it uploads the texture, from the type of the sampler that uploaded it. An integer sampler that reads the texture later meets linear filters, an incomplete texture, and reads zero.
     - [`@spec a-webgpu-render-records-what-a-fresh-renderer-records`](#spec-a-webgpu-render-records-what-a-fresh-renderer-records) — A render on the WebGPU renderer records the same pass as the same call on a fresh renderer, whatever the renderer drew before.
   - [`@spec a-scene-renderer-manages-what-it-uploads`](#spec-a-scene-renderer-manages-what-it-uploads) — A renderer of `./scene` uploads each geometry, texture and uniform once, again when it changes, and frees it when it is disposed. It compiles a program once for each light set and kind of mesh.
+    - [`@spec a-replaced-attribute-uploads-again`](#spec-a-replaced-attribute-uploads-again) — An attribute that replaces another under its name in a geometry, as `LineSegmentsGeometry.setPositions` replaces them, uploads whole on the next render.
+    - [`@spec a-change-raises-a-version-every-renderer-reads`](#spec-a-change-raises-a-version-every-renderer-reads) — `needsUpdate = true` on a texture, a material or a buffer attribute raises its `version` by one, as in three.js, and reading `needsUpdate` gives `undefined`. Each renderer compares the version it last uploaded or built from with the object's, so every renderer that draws the object, and every program built from a shared material, takes the change.
     - [`@spec a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise`](#spec-a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise) — `new WebGLRenderer()` gives a renderer at once, and `WebGPURenderer.init()` gives one through a promise, because WebGPU requests its device asynchronously.
     - [`@spec a-webgpu-draw-keeps-its-own-uniforms-however-many-draws-a-frame-has`](#spec-a-webgpu-draw-keeps-its-own-uniforms-however-many-draws-a-frame-has) — Each draw of a frame on the WebGPU renderer reads its own uniforms, whatever the number of draws in the frame.
     - [`@spec a-webgpu-renderer-frees-the-uniform-buffers-it-no-longer-uses`](#spec-a-webgpu-renderer-frees-the-uniform-buffers-it-no-longer-uses) — The WebGPU renderer frees the uniform buffer of a pipeline it replaces, and shrinks a program's uniform ring once a frame needs far fewer slots.
@@ -461,7 +462,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec each-sampler-gets-its-own-texture`](#spec-each-sampler-gets-its-own-texture) — Several samplers in one draw each read their own texture.
     - [`@spec the-webgpu-renderer-shares-one-sampler-per-state`](#spec-the-webgpu-renderer-shares-one-sampler-per-state) — The WebGPU renderer makes one sampler for each combination of filters and wrap, described as the texture asks, and binds each sampler by its type. It rebinds a texture whose sampler state changes, and leaves alone one whose update changes nothing.
     - [`@spec a-changed-texture-shows-on-the-next-render`](#spec-a-changed-texture-shows-on-the-next-render) — A texture whose image changes uploads again on the next render, and a texture that does not change stays as it is. The renderer replaces and binds again a texture whose size changes.
-      - [`@bug the-first-renderer-consumes-needs-update`](#bug-the-first-renderer-consumes-needs-update) — A renderer clears `needsUpdate` once it uploads a texture, so a second renderer drawing the same texture never sees the change.
     - [`@spec a-disposed-resource-is-freed-by-every-renderer-holding-it`](#spec-a-disposed-resource-is-freed-by-every-renderer-holding-it) — Disposing a geometry or a texture tells every renderer that holds it. Each frees its own copy and uploads it again if it draws it again, and pipelines that do not use it stay as they are. A disposed renderer stops listening.
     - [`@spec a-render-target-reads-its-pixels-back`](#spec-a-render-target-reads-its-pixels-back) — A renderer draws into a render target and reads its pixels back, at once or, on WebGL, asynchronously without stalling the pipeline.
       - [`@bug webgpu-has-no-render-target`](#bug-webgpu-has-no-render-target) — The WebGPU renderer takes no render target and has no `readPixels`, so it can only draw to its canvas.
@@ -481,7 +481,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@bug webgpu-never-uploads-an-image-source`](#bug-webgpu-never-uploads-an-image-source) — The WebGPU renderer uploads only an `ArrayBufferView` image: a texture holding an image element or bitmap becomes a 1×1 texture with nothing written to it.
     - [`@bug webgpu-never-grows-a-geometry-buffer`](#bug-webgpu-never-grows-a-geometry-buffer) — The WebGPU renderer sizes a geometry's vertex buffer at its first upload and writes a grown attribute into it unchanged, past its end.
     - [`@bug webgpu-ignores-a-changed-index`](#bug-webgpu-ignores-a-changed-index) — The WebGPU renderer never reads `geometry.index.needsUpdate`, so changed indices are not uploaded unless a vertex attribute changed too.
-    - [`@bug a-replaced-attribute-keeps-its-old-data`](#bug-a-replaced-attribute-keeps-its-old-data) — Both renderers cache a geometry's buffers by attribute name. They never upload an attribute replaced by a new object after the first render, as `LineSegmentsGeometry.setPositions` does.
     - [`@spec the-webgpu-renderer-declares-one-uniform-struct-in-both-stages`](#spec-the-webgpu-renderer-declares-one-uniform-struct-in-both-stages) — The WebGPU renderer declares every uniform of a material in both stages, so the vertex and fragment shaders read one struct at the same offsets.
     - [`@spec a-render-target-takes-its-new-size-on-the-next-render`](#spec-a-render-target-takes-its-new-size-on-the-next-render) — A renderer draws a render target at its new size on the next render after its width or height changes, and frees the old storage.
     - [`@spec a-sampler-without-a-texture-reads-black`](#spec-a-sampler-without-a-texture-reads-black) — A sampler that its material gives no texture reads opaque black on every renderer.
@@ -608,7 +607,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-webgl-renderer-allocates-nothing-per-frame`](#spec-a-webgl-renderer-allocates-nothing-per-frame) — The WebGL renderer draws a frame without allocating. It reuses what it needs between frames, and builds no array, closure or iterator per frame or per draw.
     - [`@bug webgl-render-allocates-the-clear-colour-per-frame`](#bug-webgl-render-allocates-the-clear-colour-per-frame) — `render` reads the clear colour with `Color.toArray()`, which builds a new array on every frame.
     - [`@bug webgl-render-allocates-a-traversal-closure-per-frame`](#bug-webgl-render-allocates-a-traversal-closure-per-frame) — `render` builds a new callback for `traverseVisible` on every frame.
-    - [`@bug webgl-draw-allocates-the-attribute-list-per-draw`](#bug-webgl-draw-allocates-the-attribute-list-per-draw) — `bindGeometry` lists the geometry's attributes with `Object.values` and `some` on every draw, which builds an array and a closure.
 - [`@axiom a-user-ships-only-what-runs`](#axiom-a-user-ships-only-what-runs) — An application pays only for what it uses. A program declares only the inputs it reads. An application that compiles ahead of time ships the compiled code, without the compiler and without a toolchain.
   - [`@spec a-precompiled-program-ships-without-the-compiler`](#spec-a-precompiled-program-ships-without-the-compiler) — An application that [precompiles](#term-precompile) its programs with the Vite plugins ships the compiled code without the rmsl compiler.
     - [`@spec a-precompiled-shader-ships-as-a-string`](#spec-a-precompiled-shader-ships-as-a-string) — `precompileShaders` replaces a module with the GLSL and WGSL it compiled to, and the slot names it uses, as one JSON constant that imports nothing.
@@ -2860,14 +2858,6 @@ Issue: #95
 
 > A material compiles at the precision of its renderer unless it sets one of its own, and changing it rebuilds the material.
 
-###### @bug a-rebuild-reaches-one-signature-of-a-shared-material
-
-> A rebuild flagged by `needsUpdate` rebuilds only the program of the first kind of mesh drawn after it, and clears the flag. A material shared by a `Mesh` and an `InstancedMesh` keeps the stale program for the other.
-
-Derives from: [`spec-a-render-depends-only-on-what-it-is-given`](#spec-a-render-depends-only-on-what-it-is-given)
-
-Issue: #96
-
 ##### @spec ambient-lights-sum-into-one-colour
 
 > A material sums the ambient lights of its scene, each scaled by its intensity, into one colour uniform.
@@ -3238,6 +3228,20 @@ Derives from: [`spec-a-render-depends-only-on-what-it-is-given`](#spec-a-render-
 
 This follows because a renderer that owns the drawing of a scene owns its resources too. A copy it kept after the geometry, texture or uniform changed would give pixels that a fresh renderer does not give.
 
+#### @spec a-replaced-attribute-uploads-again
+
+> An attribute that replaces another under its name in a geometry, as `LineSegmentsGeometry.setPositions` replaces them, uploads whole on the next render.
+
+This follows because a renderer that kept the buffer it uploaded for the name would draw the old attribute's data.
+
+#### @spec a-change-raises-a-version-every-renderer-reads
+
+> `needsUpdate = true` on a texture, a material or a buffer attribute raises its `version` by one, as in three.js, and reading `needsUpdate` gives `undefined`. Each renderer compares the version it last uploaded or built from with the object's, so every renderer that draws the object, and every program built from a shared material, takes the change.
+
+Derives from: [`spec-the-scene-library-follows-three-js`](#spec-the-scene-library-follows-three-js)
+
+This follows because a flag one renderer clears is a change the others never see, and three.js counts changes in a version for that reason.
+
 #### @spec a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise
 
 > `new WebGLRenderer()` gives a renderer at once, and `WebGPURenderer.init()` gives one through a promise, because WebGPU requests its device asynchronously.
@@ -3287,12 +3291,6 @@ Issue: #97
 #### @spec a-changed-texture-shows-on-the-next-render
 
 > A texture whose image changes uploads again on the next render, and a texture that does not change stays as it is. The renderer replaces and binds again a texture whose size changes.
-
-##### @bug the-first-renderer-consumes-needs-update
-
-> A renderer clears `needsUpdate` once it uploads a texture, so a second renderer drawing the same texture never sees the change.
-
-Issue: #96
 
 #### @spec a-disposed-resource-is-freed-by-every-renderer-holding-it
 
@@ -3409,12 +3407,6 @@ Issue: #95
 #### @bug webgpu-ignores-a-changed-index
 
 > The WebGPU renderer never reads `geometry.index.needsUpdate`, so changed indices are not uploaded unless a vertex attribute changed too.
-
-Issue: #95
-
-#### @bug a-replaced-attribute-keeps-its-old-data
-
-> Both renderers cache a geometry's buffers by attribute name. They never upload an attribute replaced by a new object after the first render, as `LineSegmentsGeometry.setPositions` does.
 
 Issue: #95
 
@@ -4209,12 +4201,6 @@ Issue: #134
 #### @bug webgl-render-allocates-a-traversal-closure-per-frame
 
 > `render` builds a new callback for `traverseVisible` on every frame.
-
-Issue: #134
-
-#### @bug webgl-draw-allocates-the-attribute-list-per-draw
-
-> `bindGeometry` lists the geometry's attributes with `Object.values` and `some` on every draw, which builds an array and a closure.
 
 Issue: #134
 

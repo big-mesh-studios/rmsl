@@ -39,6 +39,8 @@ import {
 
 interface PipelineEntry {
   program: MaterialProgram;
+  /** The `version` of the material the pipeline was built from. */
+  version: number;
   /** The uniform buffer's group, which nothing invalidates. */
   bindGroup: GPUBindGroup;
   /**
@@ -135,6 +137,12 @@ export class WebGPURenderer {
    */
   private attributeBuffers = new Map<BufferAttribute, GPUBuffer>();
   private textures = new Map<Texture, GPUTexture>();
+  /**
+   * The `version` of each texture and attribute this renderer last uploaded.
+   * Each renderer keeps its own, so a change reaches every renderer that draws
+   * the object, as three.js keeps it per renderer.
+   */
+  private uploadedVersions = new WeakMap<Texture | BufferAttribute, number>();
   /**
    * Samplers by the state they were made for, not by texture: a sampler holds
    * no image, so every texture filtered and wrapped the same way shares one.
@@ -357,7 +365,7 @@ export class WebGPURenderer {
     const signature = programSignature(lightsSignature(scene), instancing, instancingColor);
     let bySignature = this.pipelines.get(material);
     const entry = bySignature?.get(signature);
-    if (entry && !material.needsUpdate) {
+    if (entry && entry.version === material.version) {
       this.refreshTextures(entry);
       // A texture disposed since the last draw took this entry's texture and
       // sampler groups with it, and so does one re-created at a new size;
@@ -449,6 +457,7 @@ export class WebGPURenderer {
 
     const built: PipelineEntry = {
       program,
+      version: material.version,
       pipelineDescriptor: {
         layout: pipelineLayout,
         vertexModule,
@@ -489,7 +498,6 @@ export class WebGPURenderer {
     // The entry this one replaces is never drawn again, so its ring goes with it.
     bySignature.get(signature)?.ringBuffer.destroy();
     bySignature.set(signature, built);
-    material.needsUpdate = false;
     return built;
   }
 
@@ -530,8 +538,9 @@ export class WebGPURenderer {
   }
 
   /**
-   * Upload again the textures of this entry whose `needsUpdate` is set, so a
-   * texture whose image changed reaches the GPU on the next draw.
+   * Upload again the textures of this entry whose `version` passed the one this
+   * renderer uploaded, so a texture whose image changed reaches the GPU on the
+   * next draw.
    *
    * A bind group binds the *texture*, not its contents, so an image rewritten
    * at the same size needs nothing else. One that changed size or format is a
@@ -541,7 +550,7 @@ export class WebGPURenderer {
   private refreshTextures(entry: PipelineEntry): void {
     for (const t of entry.textureBindings) {
       const texture = entry.program.samplers.find((s) => s.name === t.name)!.texture();
-      if (!texture?.needsUpdate) continue;
+      if (!texture || this.uploadedVersions.get(texture) === texture.version) continue;
       // Filtering or wrapping changed with it means a different sampler, and
       // this bind group holds the old one.
       const key = samplerKey(samplerState(texture, t.type));
@@ -609,7 +618,11 @@ export class WebGPURenderer {
       this.geometryBuffers.set(geometry, buffers);
       geometry.addEventListener("dispose", this.onGeometryDispose);
     }
-    const needsUpload = buffers.needsUpload || Object.values(geometry.attributes).some((a) => a.needsUpdate);
+    let needsUpload = buffers.needsUpload;
+    for (const name in geometry.attributes) {
+      if (this.uploadedVersions.get(geometry.attributes[name]!) !== geometry.attributes[name]!.version)
+        needsUpload = true;
+    }
     if (!needsUpload) return buffers;
 
     for (const [name, attribute] of Object.entries(geometry.attributes)) {
@@ -622,7 +635,7 @@ export class WebGPURenderer {
         buffers.attributes.set(name, buffer);
       }
       this.device.queue.writeBuffer(buffer, 0, toBufferView(attribute.array));
-      attribute.needsUpdate = false;
+      this.uploadedVersions.set(attribute, attribute.version);
     }
     if (geometry.index) {
       if (!buffers.index) {
@@ -734,23 +747,23 @@ export class WebGPURenderer {
       });
       this.attributeBuffers.set(attr, buffer);
     }
-    if (isNew || attr.needsUpdate) {
+    if (isNew || this.uploadedVersions.get(attr) !== attr.version) {
       this.device.queue.writeBuffer(buffer, 0, toBufferView(attr.array));
-      attr.needsUpdate = false;
+      this.uploadedVersions.set(attr, attr.version);
     }
     return buffer;
   }
 
   /**
    * The GPU texture holding this `Texture`'s image, created on first use and
-   * written again whenever `needsUpdate` says the image changed.
+   * written again whenever its `version` passes the one this renderer uploaded.
    */
   private ensureGpuTexture(texture: Texture | null, samplerType: string): GPUTexture {
     const t = texture ?? this.blankTexture(samplerType);
     const integer = isIntegerSampler(samplerType);
     const dimension = samplerDimension(samplerType);
     let gpu = this.textures.get(t);
-    if (!gpu || t.needsUpdate) {
+    if (!gpu || this.uploadedVersions.get(t) !== t.version) {
       const width = ArrayBuffer.isView(t.image) ? ((t as DataTexture).width ?? 1) : 1;
       const height = ArrayBuffer.isView(t.image) ? ((t as DataTexture).height ?? 1) : 1;
       const depth = dimension === "3d" ? ((t as DataTexture).depth ?? 1) : 1;
@@ -784,7 +797,7 @@ export class WebGPURenderer {
       if (ArrayBuffer.isView(t.image)) {
         this.writeTexture(gpu, t.image as unknown as ArrayBufferView<ArrayBuffer>, width, height, depth, format);
       }
-      t.needsUpdate = false;
+      this.uploadedVersions.set(t, t.version);
     }
     return gpu;
   }

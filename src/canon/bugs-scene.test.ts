@@ -6,7 +6,6 @@ import {
   BufferGeometry,
   Color,
   DataTexture,
-  InstancedMesh,
   Line2NodeMaterial,
   LineSegments2,
   LineSegmentsGeometry,
@@ -23,182 +22,12 @@ import {
   WebGPURenderer,
 } from "../scene";
 import { collectNodes } from "../scene/materials/nodes/graph";
+import { camera, offsetOf, sampling, stubDevice, stubWebGl } from "./scene-stubs";
 import { GPU_ENABLED, releaseGpu } from "../testing/gpu";
 import { runInGpuPage } from "../testing/browser";
 
 /** three.js's `FloatType`, which `./scene` does not export. */
 const FloatType = 1015;
-
-interface Call {
-  name: string;
-  args: any[];
-}
-
-/**
- * A `GPUDevice` and canvas context that record what the renderer asks of them:
- * buffer and texture writes kept as bytes, pipelines and layouts by descriptor,
- * and every call a render pass receives.
- */
-function stubDevice() {
-  const contents = new Map<object, Uint8Array>();
-  const textures: any[] = [];
-  const pipelines: any[] = [];
-  const layouts: any[] = [];
-  const textureWrites: { texture: any; data: ArrayBufferView }[] = [];
-  const bufferWrites: { buffer: any; offset: number }[] = [];
-  const passes: { descriptor: any; calls: Call[] }[] = [];
-  const queue: Call[] = [];
-  const destroyed = new Set<object>();
-  const device = {
-    createShaderModule: (descriptor: any) => descriptor,
-    createBuffer: (descriptor: any) => {
-      const buffer: any = { size: descriptor.size, usage: descriptor.usage, destroy: () => destroyed.add(buffer) };
-      contents.set(buffer, new Uint8Array(descriptor.size));
-      return buffer;
-    },
-    createBindGroupLayout: (descriptor: any) => {
-      layouts.push(descriptor);
-      return descriptor;
-    },
-    createPipelineLayout: (descriptor: any) => descriptor,
-    createRenderPipeline: (descriptor: any) => {
-      pipelines.push(descriptor);
-      return descriptor;
-    },
-    createSampler: (descriptor: any) => descriptor,
-    createBindGroup: (descriptor: any) => descriptor,
-    createTexture: (descriptor: any) => {
-      const [width, height, depth] = descriptor.size;
-      const texture = {
-        width,
-        height,
-        depthOrArrayLayers: depth ?? 1,
-        format: descriptor.format,
-        createView: () => ({ texture }),
-        destroy: () => {},
-      };
-      textures.push(texture);
-      return texture;
-    },
-    createCommandEncoder: () => ({
-      beginRenderPass: (descriptor: any) => {
-        const calls: Call[] = [];
-        passes.push({ descriptor, calls });
-        return new Proxy(
-          {},
-          {
-            get:
-              (_target, name: string) =>
-              (...args: any[]) =>
-                calls.push({ name, args }),
-          },
-        );
-      },
-      finish: () => ({}),
-    }),
-    queue: {
-      writeBuffer: (buffer: any, offset: number, data: ArrayBufferView, dataOffset = 0, size?: number) => {
-        const element = (data as any).BYTES_PER_ELEMENT ?? 1;
-        const bytes = new Uint8Array(data.buffer, data.byteOffset + dataOffset * element);
-        const length = size === undefined ? bytes.length : size * element;
-        const target = contents.get(buffer)!;
-        if (offset + length > target.length) throw new Error("writeBuffer past the end of the buffer");
-        target.set(bytes.subarray(0, length), offset);
-        bufferWrites.push({ buffer, offset });
-      },
-      writeTexture: (destination: any, data: ArrayBufferView) => {
-        textureWrites.push({ texture: destination.texture, data });
-      },
-      copyExternalImageToTexture: (_source: any, destination: any) => {
-        queue.push({ name: "copyExternalImageToTexture", args: [destination] });
-      },
-      submit: () => {},
-    },
-  };
-  const canvas: any = {
-    width: 16,
-    height: 16,
-    getContext: () => ({ configure: () => {}, getCurrentTexture: () => ({ createView: () => ({}) }) }),
-  };
-  /** The bytes a buffer holds once everything written to it has landed. */
-  const bytesOf = (buffer: object) => contents.get(buffer)!;
-  return {
-    device,
-    canvas,
-    textures,
-    pipelines,
-    layouts,
-    textureWrites,
-    bufferWrites,
-    passes,
-    queue,
-    bytesOf,
-    destroyed,
-  };
-}
-
-/**
- * A `WebGL2RenderingContext` that accepts every call and records it. Constants
- * read as distinct numbers, shaders compile and programs link, and each
- * uniform location is an object naming its uniform.
- */
-function stubGl(canvas: { width: number; height: number }) {
-  const calls: Call[] = [];
-  const constants = new Map<string, number>();
-  let location = 0;
-  const answers: Record<string, (...args: any[]) => unknown> = {
-    getShaderParameter: () => true,
-    getProgramParameter: () => true,
-    getParameter: () => 16,
-    getAttribLocation: () => (location += 4),
-    getUniformLocation: (_program: unknown, name: string) => ({ name }),
-  };
-  const gl = new Proxy(
-    {},
-    {
-      get: (_target, name: string) => {
-        if (name === "drawingBufferWidth") return canvas.width;
-        if (name === "drawingBufferHeight") return canvas.height;
-        if (/^[A-Z0-9_]+$/.test(name)) {
-          if (!constants.has(name)) constants.set(name, 0x1000 + constants.size);
-          return constants.get(name);
-        }
-        return (...args: any[]) => {
-          calls.push({ name, args });
-          return answers[name]?.(...args) ?? {};
-        };
-      },
-    },
-  ) as any;
-  return { gl, calls };
-}
-
-/** A WebGL renderer drawing through `stubGl`, on a 32×32 canvas. */
-function stubWebGl() {
-  const canvas: any = { width: 32, height: 32 };
-  const { gl, calls } = stubGl(canvas);
-  canvas.getContext = () => gl;
-  return { renderer: new WebGLRenderer(canvas) as any, gl, calls };
-}
-
-function camera(): PerspectiveCamera {
-  const c = new PerspectiveCamera(50, 1, 0.1, 100);
-  c.position.set(0, 0, 4);
-  c.lookAt(0, 0, 0);
-  return c;
-}
-
-/** A material whose fragment stage samples `texture` and nothing else. */
-function sampling(texture: Texture): MeshBasicMaterial {
-  const material = new MeshBasicMaterial();
-  material.fragmentNode = (b) => b.sampler("map", () => texture).texture(vec2(0.5, 0.5));
-  return material;
-}
-
-/** The byte offset the uniform layout gives a uniform of an entry's program. */
-function offsetOf(entry: any, slot: string): number {
-  return entry.layoutMembers.find((m: any) => m.name === slot)!.offset;
-}
 
 beforeEach(() => {
   vi.stubGlobal("navigator", { gpu: { getPreferredCanvasFormat: () => "bgra8unorm" } });
@@ -620,90 +449,6 @@ describe("known bugs of the scene library, each failing until its fix", () => {
   });
 
   /**
-   * Both renderers cache a geometry's buffers by attribute name, so an
-   * attribute replaced by a new object after the first render — what
-   * `LineSegmentsGeometry.setPositions` does — is never uploaded.
-   *
-   * @canon bug-a-replaced-attribute-keeps-its-old-data
-   */
-  it.fails("uploads an attribute replaced after the first render", () => {
-    const { device, canvas, bufferWrites } = stubDevice();
-    const gpu = new WebGPURenderer(canvas, device as any) as any;
-    const { renderer: gl, calls } = stubWebGl();
-    const geometry = new LineSegmentsGeometry();
-    geometry.setPositions([0, 0, 0, 1, 0, 0]);
-    const scene = new Scene();
-    scene.add(new LineSegments2(geometry, new Line2NodeMaterial()));
-    gpu.render(scene, camera());
-    gl.render(scene, camera());
-
-    geometry.setPositions([0, 0, 0, 0, 1, 0]);
-    const gpuWrites = bufferWrites.length;
-    const glUploads = calls.filter((c) => c.name === "bufferData" || c.name === "bufferSubData").length;
-    gpu.render(scene, camera());
-    gl.render(scene, camera());
-
-    expect(
-      bufferWrites
-        .slice(gpuWrites)
-        .some((w) => w.buffer === gpu.geometryBuffers.get(geometry).attributes.get("instanceEnd")),
-    ).toBe(true);
-    expect(calls.filter((c) => c.name === "bufferData" || c.name === "bufferSubData").length).toBeGreaterThan(
-      glUploads,
-    );
-  });
-
-  /**
-   * A renderer clears `needsUpdate` once it uploads a texture, so a second
-   * renderer drawing the same texture never sees the change.
-   *
-   * @canon bug-the-first-renderer-consumes-needs-update
-   */
-  it.fails("shows a changed texture in every renderer that draws it", () => {
-    const first = stubDevice();
-    const second = stubDevice();
-    const a = new WebGPURenderer(first.canvas, first.device as any) as any;
-    const b = new WebGPURenderer(second.canvas, second.device as any) as any;
-    const texture = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
-    const material = sampling(texture);
-    const scene = new Scene();
-    a.ensurePipeline(material, scene, false, false);
-    b.ensurePipeline(material, scene, false, false);
-
-    texture.image = new Uint8Array([220, 0, 0, 255]);
-    texture.needsUpdate = true;
-    a.ensurePipeline(material, scene, false, false);
-    b.ensurePipeline(material, scene, false, false);
-
-    expect(second.textureWrites).toHaveLength(2);
-  });
-
-  /**
-   * A rebuild flagged by `needsUpdate` rebuilds only the program of the first
-   * kind of mesh drawn after it, and clears the flag, so a material shared by
-   * a `Mesh` and an `InstancedMesh` keeps the stale program for the other.
-   *
-   * @canon bug-a-rebuild-reaches-one-signature-of-a-shared-material
-   */
-  it.fails("rebuilds the program of every kind of mesh after a precision change on WebGL", () => {
-    const { renderer, calls } = stubWebGl();
-    const material = new MeshBasicMaterial();
-    const scene = new Scene();
-    scene.add(new Mesh(new PlaneGeometry(), material));
-    scene.add(new InstancedMesh(new PlaneGeometry(), material, 1));
-    renderer.render(scene, camera());
-
-    material.precision = "mediump";
-    const before = calls.length;
-    renderer.render(scene, camera());
-    const sources = calls
-      .slice(before)
-      .filter((c) => c.name === "shaderSource")
-      .map((c) => c.args[1] as string);
-    expect(sources.filter((s) => s.includes("precision mediump float"))).toHaveLength(4);
-  });
-
-  /**
    * The WebGL renderer gives the `resolution` uniform the canvas's drawing
    * buffer size even while it draws into a smaller render target, so a line
    * drawn there is the wrong width.
@@ -731,11 +476,11 @@ describe("known bugs of the scene library, each failing until its fix", () => {
   it.fails("shows a line's opacity changed after its first render", () => {
     const material = new Line2NodeMaterial({ opacity: 0.5, transparent: true });
     const program = material.build(new Scene());
-    material.needsUpdate = false;
+    const version = material.version;
     material.opacity = 0.25;
 
     const live = program.uniforms.some((u) => u.value?.({} as any) === 0.25);
-    expect(live || material.needsUpdate).toBe(true);
+    expect(live || material.version > version).toBe(true);
   });
 
   /**
@@ -917,22 +662,6 @@ describe("known bugs of the scene library, each failing until its fix", () => {
     renderer.render(scene, camera());
     renderer.render(scene, camera());
     expect(callbacks[1]).toBe(callbacks[0]);
-  });
-
-  /**
-   * The WebGL renderer lists a geometry's attributes with `Object.values` on
-   * every draw, to ask whether any needs an update.
-   *
-   * @canon bug-webgl-draw-allocates-the-attribute-list-per-draw
-   */
-  it.fails("draws a mesh without listing its attributes on WebGL", () => {
-    const { renderer } = stubWebGl();
-    const scene = new Scene();
-    scene.add(new Mesh(new PlaneGeometry(), new MeshBasicMaterial()));
-    renderer.render(scene, camera());
-    const values = vi.spyOn(Object, "values");
-    renderer.render(scene, camera());
-    expect(values).not.toHaveBeenCalled();
   });
 });
 

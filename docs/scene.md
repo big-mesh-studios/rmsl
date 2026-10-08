@@ -196,11 +196,15 @@ Three things to know:
 ### Texture lifetime
 
 A renderer creates the GPU texture behind a `Texture` the first time it draws
-with it, and uploads the image again on the next render whenever
-`needsUpdate` is set, at a new size if the image changed shape. Pointing a
-material at a _different_ `Texture` object instead needs
-`material.needsUpdate = true`, so the renderer rebuilds what the shader reads
-from.
+with it, and uploads the image again on the next render after
+`texture.needsUpdate = true`, at a new size if the image changed shape. As in
+three.js, setting `needsUpdate` raises the texture's `version`, and each
+renderer compares it with the version it uploaded, so every renderer that draws
+the texture takes the change; reading `needsUpdate` gives `undefined`. The same
+holds for a material and a buffer attribute. Pointing a material at a
+_different_ `Texture` object instead needs `material.needsUpdate = true`, so
+the renderer rebuilds what the shader reads from, for every kind of mesh that
+draws the material.
 
 `texture.dispose()` gives the GPU texture back:
 

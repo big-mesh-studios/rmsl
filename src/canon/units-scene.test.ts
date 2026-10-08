@@ -2,7 +2,12 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { vec4 } from "../rmsl";
 import {
   AmbientLight,
+  DataTexture,
   DirectionalLight,
+  InstancedMesh,
+  Line2NodeMaterial,
+  LineSegments2,
+  LineSegmentsGeometry,
   Mesh,
   MeshBasicMaterial,
   MeshLambertMaterial,
@@ -16,81 +21,7 @@ import {
 } from "../scene";
 import { GPU_ENABLED, releaseGpu } from "../testing/gpu";
 import { runInGpuPage } from "../testing/browser";
-
-interface Call {
-  name: string;
-  args: any[];
-}
-
-/** A `GPUDevice` and canvas whose shader modules keep the WGSL they were made from. */
-function stubDevice() {
-  const modules: { code: string }[] = [];
-  const device = {
-    createShaderModule: (descriptor: any) => {
-      modules.push(descriptor);
-      return descriptor;
-    },
-    createBuffer: (descriptor: any) => ({ size: descriptor.size, destroy: () => {} }),
-    createBindGroupLayout: (descriptor: any) => descriptor,
-    createPipelineLayout: (descriptor: any) => descriptor,
-    createRenderPipeline: (descriptor: any) => descriptor,
-    createSampler: (descriptor: any) => descriptor,
-    createBindGroup: (descriptor: any) => descriptor,
-    createTexture: (descriptor: any) => ({ createView: () => ({}), destroy: () => {}, ...descriptor }),
-    queue: { writeBuffer: () => {}, writeTexture: () => {}, submit: () => {} },
-  };
-  const canvas: any = {
-    width: 16,
-    height: 16,
-    getContext: () => ({ configure: () => {}, getCurrentTexture: () => ({ createView: () => ({}) }) }),
-  };
-  return { device, canvas, modules };
-}
-
-/**
- * A WebGL renderer drawing into a `WebGL2RenderingContext` that accepts every
- * call and records it. Constants read as distinct numbers, shaders compile and
- * programs link.
- */
-function stubWebGl() {
-  const canvas: any = { width: 32, height: 32 };
-  const calls: Call[] = [];
-  const constants = new Map<string, number>();
-  let location = 0;
-  const answers: Record<string, (...args: any[]) => unknown> = {
-    getShaderParameter: () => true,
-    getProgramParameter: () => true,
-    getParameter: () => 16,
-    getAttribLocation: () => (location += 4),
-    getUniformLocation: (_program: unknown, name: string) => ({ name }),
-  };
-  const gl = new Proxy(
-    {},
-    {
-      get: (_target, name: string) => {
-        if (name === "drawingBufferWidth") return canvas.width;
-        if (name === "drawingBufferHeight") return canvas.height;
-        if (/^[A-Z0-9_]+$/.test(name)) {
-          if (!constants.has(name)) constants.set(name, 0x1000 + constants.size);
-          return constants.get(name);
-        }
-        return (...args: any[]) => {
-          calls.push({ name, args });
-          return answers[name]?.(...args) ?? {};
-        };
-      },
-    },
-  ) as any;
-  canvas.getContext = () => gl;
-  return { renderer: new WebGLRenderer(canvas), gl, calls };
-}
-
-function camera(): PerspectiveCamera {
-  const c = new PerspectiveCamera(50, 1, 0.1, 100);
-  c.position.set(0, 0, 4);
-  c.lookAt(0, 0, 0);
-  return c;
-}
+import { camera, sampling, stubDevice, stubWebGl } from "./scene-stubs";
 
 /** The value a built program's uniform of that name holds now. */
 function uniformValue(material: MeshLambertMaterial, scene: Scene, name: string): unknown {
@@ -110,6 +41,92 @@ afterEach(() => {
 });
 
 describe("a scene renderer manages what it uploads", () => {
+  /**
+   * @canon spec-a-change-raises-a-version-every-renderer-reads
+   */
+  it("shows a changed texture in every renderer that draws it", () => {
+    const first = stubDevice();
+    const second = stubDevice();
+    const a = new WebGPURenderer(first.canvas, first.device as any) as any;
+    const b = new WebGPURenderer(second.canvas, second.device as any) as any;
+    const texture = new DataTexture(new Uint8Array([0, 0, 220, 255]), 1, 1);
+    const material = sampling(texture);
+    const scene = new Scene();
+    a.ensurePipeline(material, scene, false, false);
+    b.ensurePipeline(material, scene, false, false);
+
+    texture.image = new Uint8Array([220, 0, 0, 255]);
+    texture.needsUpdate = true;
+    a.ensurePipeline(material, scene, false, false);
+    b.ensurePipeline(material, scene, false, false);
+
+    expect(second.textureWrites).toHaveLength(2);
+  });
+
+  /**
+   * @canon spec-a-change-raises-a-version-every-renderer-reads
+   */
+  it("rebuilds the program of every kind of mesh after a precision change on WebGL", () => {
+    const { renderer, calls } = stubWebGl();
+    const material = new MeshBasicMaterial();
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(), material));
+    scene.add(new InstancedMesh(new PlaneGeometry(), material, 1));
+    renderer.render(scene, camera());
+
+    material.precision = "mediump";
+    const before = calls.length;
+    renderer.render(scene, camera());
+    const sources = calls
+      .slice(before)
+      .filter((c) => c.name === "shaderSource")
+      .map((c) => c.args[1] as string);
+    expect(sources.filter((s) => s.includes("precision mediump float"))).toHaveLength(4);
+  });
+
+  /**
+   * @canon spec-a-replaced-attribute-uploads-again
+   */
+  it("uploads an attribute replaced after the first render", () => {
+    const { device, canvas, bufferWrites } = stubDevice();
+    const gpu = new WebGPURenderer(canvas, device as any) as any;
+    const { renderer: gl, calls } = stubWebGl();
+    const geometry = new LineSegmentsGeometry();
+    geometry.setPositions([0, 0, 0, 1, 0, 0]);
+    const scene = new Scene();
+    scene.add(new LineSegments2(geometry, new Line2NodeMaterial()));
+    gpu.render(scene, camera());
+    gl.render(scene, camera());
+
+    geometry.setPositions([0, 0, 0, 0, 1, 0]);
+    const gpuWrites = bufferWrites.length;
+    const glUploads = calls.filter((c) => c.name === "bufferData" || c.name === "bufferSubData").length;
+    gpu.render(scene, camera());
+    gl.render(scene, camera());
+
+    expect(
+      bufferWrites
+        .slice(gpuWrites)
+        .some((w) => w.buffer === gpu.geometryBuffers.get(geometry).attributes.get("instanceEnd")),
+    ).toBe(true);
+    expect(calls.filter((c) => c.name === "bufferData" || c.name === "bufferSubData").length).toBeGreaterThan(
+      glUploads,
+    );
+  });
+
+  /**
+   * @canon spec-a-webgl-renderer-allocates-nothing-per-frame
+   */
+  it("draws a mesh without listing its attributes on WebGL", () => {
+    const { renderer } = stubWebGl();
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(), new MeshBasicMaterial()));
+    renderer.render(scene, camera());
+    const values = vi.spyOn(Object, "values");
+    renderer.render(scene, camera());
+    expect(values).not.toHaveBeenCalled();
+  });
+
   /**
    * The vertex stage reads only the matrices and the fragment stage only the
    * material's tint, yet both declare every uniform at the same offsets, so
