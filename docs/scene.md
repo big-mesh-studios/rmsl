@@ -94,7 +94,7 @@ attribute/uniform/varying nodes:
 
 | Accessor                             | Kind      | Meaning                            |
 | ------------------------------------ | --------- | ---------------------------------- |
-| `b.position`, `b.normal`, `b.uv`     | attribute | geometry inputs                    |
+| `b.position`, `b.normal`, `b.uv`     | attribute | geometry inputs, in object space   |
 | `b.positionWorld`, `b.normalWorld`   | varying   | world space, from the vertex stage |
 | `b.cameraPosition`                   | uniform   | camera position (world)            |
 | `b.projectionMatrix`, `b.viewMatrix` | uniform   | camera matrices                    |

@@ -390,7 +390,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec ambient-lights-sum-into-one-colour`](#spec-ambient-lights-sum-into-one-colour) — A material sums the ambient lights of its scene, each scaled by its intensity, into one colour uniform.
       - [`@spec a-light-uniform-carries-its-colour-times-its-intensity`](#spec-a-light-uniform-carries-its-colour-times-its-intensity) — A directional or point light gives its colour uniform the light's colour already multiplied by its intensity.
       - [`@spec position-and-normal-read-object-space-in-both-stages`](#spec-position-and-normal-read-object-space-in-both-stages) — The builder's `position` and `normal` give the object-space position and normal in both stages, as TSL's `positionLocal` and `normalLocal` do.
-        - [`@bug position-and-normal-read-world-space-in-the-fragment-stage`](#bug-position-and-normal-read-world-space-in-the-fragment-stage) — The builder's `position` and `normal` read object space in the vertex stage. In the fragment stage they read the `positionWorld` and `normalWorld` varyings instead.
 - [`@axiom a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns) — What a compiled program hands back is typed by the program that was compiled. A caller reads the result as it is, with no narrowing and no cast.
   - [`@spec a-routine-is-typed-by-the-value-it-returns`](#spec-a-routine-is-typed-by-the-value-it-returns) — `compileJSRoutine` and `compileWasmRoutine` give a routine whose `run` returns the JavaScript value of the type the program returns: a number for a `float`, `int` or `uint`, and a boolean for a `bool`. A vector or matrix comes back as a typed array of its kind: a `Float64Array` for a float vector or matrix, or a `Float32Array` at `float: "f32"`; an `Int32Array` for an `ivec`, and for a `bvec`, which holds 1 for true and 0 for false; and a `Uint32Array` for a `uvec`. The type of `run` names the array, from the type of the program and the `float` option.
 - [`@axiom each-target-keeps-what-makes-it-worth-choosing`](#axiom-each-target-keeps-what-makes-it-worth-choosing) — An interface over several targets keeps what each target does better than the others. A call that a target answers at once stays synchronous. Data that lives on the GPU stays there until the host asks for it. No target fakes a capability it lacks.
@@ -2899,12 +2898,6 @@ This follows because three.js scales a light's colour by its intensity on the ho
 Derives from: [`fact-tsl-reads-position-and-normal-local-in-both-stages`](#fact-tsl-reads-position-and-normal-local-in-both-stages)
 
 This follows because a TSL node reads the same value in either stage, and a TSL material ports to rmsl by changing its import.
-
-###### @bug position-and-normal-read-world-space-in-the-fragment-stage
-
-> The builder's `position` and `normal` read object space in the vertex stage. In the fragment stage they read the `positionWorld` and `normalWorld` varyings instead.
-
-Issue: #131
 
 ## @axiom a-program-is-typed-by-what-it-returns
 

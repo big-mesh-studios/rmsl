@@ -29,6 +29,7 @@ import {
   WebGPURenderer,
 } from "../scene";
 import { GPU_ENABLED, releaseGpu } from "../testing/gpu";
+import { collectNodes } from "../scene/materials/nodes/graph";
 import { GL_STATE, runInGpuPage } from "../testing/browser";
 import { camera, offsetOf, sampling, stubDevice, stubGl, stubWebGl } from "./scene-stubs";
 import { drawToCanvas, GlStateKeeper } from "../backends/glsl/gl-state";
@@ -1351,6 +1352,35 @@ describe.skipIf(!GPU_ENABLED)("a render depends only on what it is given, on a r
     expect(result.fresh).toEqual([0, 0, 0, 255]);
     expect(result.afterTextured).toEqual(result.fresh);
   }, 60_000);
+});
+
+describe("a material reads position and normal as TSL does", () => {
+  /**
+   * @canon spec-position-and-normal-read-object-space-in-both-stages
+   */
+  it("reads position and normal in object space in the fragment stage", () => {
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => vec4(b.position.add(b.normal), 1);
+    const program = material.build(new Scene());
+
+    const read = collectNodes(program.fragmentRoot).varyings;
+    const names = program.varyings.filter((v) => read.has(v.node)).map((v) => v.name);
+    expect(names).toHaveLength(2);
+    expect(names).not.toContain("positionWorld");
+    expect(names).not.toContain("normalWorld");
+  });
+
+  /**
+   * @canon spec-position-and-normal-read-object-space-in-both-stages
+   */
+  it("passes the object-space position and normal the fragment stage reads from the vertex stage", () => {
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => vec4(b.position.add(b.normal), 1);
+    const program = material.build(new Scene());
+    const written = collectNodes(program.vertexRoot).varyings;
+    const names = program.varyings.filter((v) => written.has(v.node)).map((v) => v.name);
+    expect(names).toEqual(expect.arrayContaining(["positionLocal", "normalLocal"]));
+  });
 });
 
 afterAll(async () => {

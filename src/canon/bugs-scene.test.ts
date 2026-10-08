@@ -350,23 +350,4 @@ describe("known bugs of the scene library, each failing until its fix", () => {
     expect(textureLayout.entries[0].visibility & 1).toBe(1);
     expect(textureLayout.entries[0].visibility & 2).toBe(2);
   });
-
-  /**
-   * The builder's `position` and `normal` read the attributes in object space
-   * in the vertex stage, but the world-space `positionWorld` and `normalWorld`
-   * varyings in the fragment stage.
-   *
-   * @canon bug-position-and-normal-read-world-space-in-the-fragment-stage
-   */
-  it.fails("reads position and normal in object space in the fragment stage", () => {
-    const material = new MeshBasicMaterial();
-    material.fragmentNode = (b) => vec4(b.position.add(b.normal), 1);
-    const program = material.build(new Scene());
-
-    const read = collectNodes(program.fragmentRoot).varyings;
-    const names = program.varyings.filter((v) => read.has(v.node)).map((v) => v.name);
-    expect(names).toHaveLength(2);
-    expect(names).not.toContain("positionWorld");
-    expect(names).not.toContain("normalWorld");
-  });
 });

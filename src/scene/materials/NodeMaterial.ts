@@ -92,13 +92,19 @@ export class NodeMaterial extends Material {
     b.instancingColor = options.instancingColor ?? false;
     this.setup(b, scene);
 
-    b.stage = "vertex";
-    const vertex = Fn(() => (this.vertexNode ? this.vertexNode(b) : this.buildVertexBody(b)))() as Node<"vec4">;
+    // The fragment stage is built first, so the vertex stage knows which
+    // object-space attributes to pass it.
     b.stage = "fragment";
     const fragment = Fn(() => {
       const color = this.fragmentNode ? this.fragmentNode(b) : this.buildFragmentBody(b);
       // The per-instance color tints the material's color, whatever it is.
       return b.instancingColor ? vec4(color.rgb.mul(b.instanceColorVarying), color.a) : color;
+    })() as Node<"vec4">;
+    b.stage = "vertex";
+    const vertex = Fn(() => {
+      const clip = this.vertexNode ? this.vertexNode(b) : this.buildVertexBody(b);
+      for (const name of b.fragmentReads) b.varying(`${name}Local`, "vec3").assign(b.attribute(name, "vec3"));
+      return clip;
     })() as Node<"vec4">;
 
     const v = collectNodes(vertex);

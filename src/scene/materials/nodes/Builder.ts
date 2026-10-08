@@ -167,15 +167,24 @@ export class Builder {
     return existing.node as UniformNode<T>;
   }
 
-  // Each resolves to the raw attribute in the vertex stage, and to the
-  // varying it writes in the fragment stage (which cannot read a vertex
-  // input directly).
+  /** The object-space attributes the fragment stage reads, which the vertex stage passes on as varyings. */
+  readonly fragmentReads = new Set<"position" | "normal">();
+
+  // Each resolves to the raw attribute in the vertex stage, and to a varying
+  // of the same object-space value in the fragment stage, which cannot read
+  // a vertex input directly, as TSL's positionLocal and normalLocal do.
   get position(): AttributeNode<"vec3"> {
-    return this.stage === "vertex" ? this.attribute("position", "vec3") : this.varying("positionWorld", "vec3");
+    return this.objectSpace("position");
   }
 
   get normal(): AttributeNode<"vec3"> {
-    return this.stage === "vertex" ? this.attribute("normal", "vec3") : this.varying("normalWorld", "vec3");
+    return this.objectSpace("normal");
+  }
+
+  private objectSpace(name: "position" | "normal"): AttributeNode<"vec3"> {
+    if (this.stage === "vertex") return this.attribute(name, "vec3");
+    this.fragmentReads.add(name);
+    return this.varying(`${name}Local`, "vec3") as unknown as AttributeNode<"vec3">;
   }
 
   get uv(): AttributeNode<"vec2"> {
