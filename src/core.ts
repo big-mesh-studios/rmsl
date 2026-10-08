@@ -1075,7 +1075,7 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
 
   // === VecCommonOps ===
   dot(other: any): any {
-    return op("dot", assertFloats("dot", this), assertFloats("dot", wrapValue(other)));
+    return op("dot", ...assertOneFloatType("dot", this, wrapValue(other)));
   }
   length(): any {
     return op1("length", assertFloats("length", this));
@@ -1084,7 +1084,7 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
     return op1("normalize", this);
   }
   distance(other: any): any {
-    return op("distance", assertFloats("distance", this), assertFloats("distance", wrapValue(other)));
+    return op("distance", ...assertOneFloatType("distance", this, wrapValue(other)));
   }
   reflect(normal: any): any {
     return op("reflect", this, normal);
@@ -1670,10 +1670,26 @@ function assertFloats(name: string, a: any): any {
   const type = (a as { _t?: string })._t ?? "float";
   if (!/^(float|vec[234])$/.test(type)) {
     const width = /^[a-z]*vec([234])$/.exec(type)?.[1];
-    const fix = width ? `toVec${width}()` : "toFloat()";
-    throw new Error(`[RMSL] ${name}() takes a float or a float vector, not ${type}. Convert it with ${fix} first.`);
+    const fix = MATRIX_DIMENSIONS[type]
+      ? "Take it a column at a time, with element(i)."
+      : `Convert it with ${width ? `toVec${width}()` : "toFloat()"} first.`;
+    throw new Error(`[RMSL] ${name}() takes a float or a float vector, not ${type}. ${fix}`);
   }
   return a;
+}
+
+/**
+ * `a` and `b`, the two floats or float vectors of `name`, which must be of one
+ * type. Two vectors of different widths are left to the check every operation
+ * makes of them.
+ */
+function assertOneFloatType(name: string, a: any, b: any): [any, any] {
+  assertFloats(name, a);
+  assertFloats(name, b);
+  if (a._t !== b._t && (a._t === "float" || b._t === "float")) {
+    throw new Error(`[RMSL] ${name}() takes two arguments of one type, not ${a._t} and ${b._t}.`);
+  }
+  return [a, b];
 }
 
 export function op1(type: string, a: any): Node<ShaderType> {
@@ -2482,20 +2498,32 @@ export function faceForward(n: MathLike, incident: MathLike, reference: MathLike
 export function difference(a: MathLike, b: MathLike): any {
   return toNodeBeside(a, b).difference(b);
 }
-/** A float or a float vector, which `length`, `distance` and `dot` take. */
-export type FloatValueLike = number | readonly number[] | Node<"float" | "vec2" | "vec3" | "vec4">;
+/** A float or a float vector of each width, as `length`, `distance` and `dot` take it. */
+export type FloatScalarLike = number | Node<"float">;
+export type FloatVec2Like = readonly [number, number] | Node<"vec2">;
+export type FloatVec3Like = readonly [number, number, number] | Node<"vec3">;
+export type FloatVec4Like = readonly [number, number, number, number] | Node<"vec4">;
+export type FloatValueLike = FloatScalarLike | FloatVec2Like | FloatVec3Like | FloatVec4Like;
 
+export function dot(a: FloatScalarLike, b: FloatScalarLike): Node<"float">;
+export function dot(a: FloatVec2Like, b: FloatVec2Like): Node<"float">;
+export function dot(a: FloatVec3Like, b: FloatVec3Like): Node<"float">;
+export function dot(a: FloatVec4Like, b: FloatVec4Like): Node<"float">;
 export function dot(a: FloatValueLike, b: FloatValueLike): Node<"float"> {
-  return toNodeBeside(a, b).dot(b);
+  return toNodeBeside(a as MathLike, b as MathLike).dot(b);
 }
 export function cross(a: MathLike, b: MathLike): any {
   return toNodeBeside(a, b).cross(b);
 }
+export function distance(a: FloatScalarLike, b: FloatScalarLike): Node<"float">;
+export function distance(a: FloatVec2Like, b: FloatVec2Like): Node<"float">;
+export function distance(a: FloatVec3Like, b: FloatVec3Like): Node<"float">;
+export function distance(a: FloatVec4Like, b: FloatVec4Like): Node<"float">;
 export function distance(a: FloatValueLike, b: FloatValueLike): Node<"float"> {
-  return toNodeBeside(a, b).distance(b);
+  return toNodeBeside(a as MathLike, b as MathLike).distance(b);
 }
 export function length(a: FloatValueLike): Node<"float"> {
-  return toNode(a).length();
+  return toNode(a as MathLike).length();
 }
 export function mix(a: MathLike, b: MathLike, t: MathLike): any {
   return toNodeBeside(a, b).mix(b, t);
@@ -2540,8 +2568,8 @@ export function select(cond: MathLike, a: MathLike, b: MathLike): any {
  * linear-sRGB is Rec. 709.
  */
 export function luminance(
-  color: FloatValueLike,
-  luminanceCoefficients: FloatValueLike = [0.2126, 0.7152, 0.0722],
+  color: FloatVec3Like | FloatVec4Like,
+  luminanceCoefficients: FloatVec3Like = [0.2126, 0.7152, 0.0722],
 ): Node<"float"> {
   let c = toNode(color);
   let rgb = (c as any)?._t === "vec4" ? c.rgb : c;

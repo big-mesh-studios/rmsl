@@ -149,7 +149,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@bug js-reads-a-uniform-array-element-out-of-range-as-undefined`](#bug-js-reads-a-uniform-array-element-out-of-range-as-undefined) — On JS, a uniform array element read by a run-time index past the end gives `undefined`.
         - [`@bug wasm-reads-a-uniform-array-element-out-of-range-from-foreign-memory`](#bug-wasm-reads-a-uniform-array-element-out-of-range-from-foreign-memory) — A uniform array element at a run-time index out of range reads whatever memory lies there, and traps below zero.
     - [`@spec length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one`](#spec-length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one) — `length` of a scalar is its absolute value, `distance` of two scalars is the absolute value of their difference, and `dot` of two scalars is their product, on every target.
-    - [`@spec length-distance-and-dot-take-only-floats`](#spec-length-distance-and-dot-take-only-floats) — `length`, `distance` and `dot` take a float or a float vector. An integer, unsigned or boolean argument, scalar or vector, is a type error, and building the graph throws.
+    - [`@spec length-distance-and-dot-take-only-floats`](#spec-length-distance-and-dot-take-only-floats) — `length`, `distance` and `dot` take a float or a float vector, and `distance` and `dot` take two of one type. An integer, unsigned or boolean argument, scalar or vector, a matrix, or a scalar beside a vector is a type error, and building the graph throws, naming the conversion where one exists.
     - [`@spec normalizing-a-zero-vector-gives-it-back`](#spec-normalizing-a-zero-vector-gives-it-back) — `normalize` of a vector of length zero gives the zero vector.
       - [`@spec a-cpu-target-normalizes-a-zero-vector-to-zero`](#spec-a-cpu-target-normalizes-a-zero-vector-to-zero) — On a CPU target, `normalize` of a vector of length zero gives the zero vector.
       - [`@exception a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver`](#exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver) — On GLSL and WGSL, `normalize` of a vector of length zero gives what the driver gives.
@@ -1604,11 +1604,11 @@ This follows because GLSL defines the three for a scalar as for a vector of one 
 
 #### @spec length-distance-and-dot-take-only-floats
 
-> `length`, `distance` and `dot` take a float or a float vector. An integer, unsigned or boolean argument, scalar or vector, is a type error, and building the graph throws.
+> `length`, `distance` and `dot` take a float or a float vector, and `distance` and `dot` take two of one type. An integer, unsigned or boolean argument, scalar or vector, a matrix, or a scalar beside a vector is a type error, and building the graph throws, naming the conversion where one exists.
 
 Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
 
-This follows because no target defines the three for integers as a `float`. GLSL defines them for floats only. WGSL defines `length` and `distance` for floats only, and `dot` of two integer vectors as an integer that wraps. TSL types the three as `float` but builds code that passes an integer as it is, which neither language compiles.
+This follows because no target defines the three for integers as a `float`. GLSL defines them for floats only. WGSL defines `length` and `distance` for floats only, and `dot` of two integer vectors as an integer that wraps. TSL types the three as `float` but builds code that passes an integer as it is, which neither language compiles. Neither language takes a matrix in the three, nor a scalar beside a vector in `distance` or `dot`.
 
 #### @spec normalizing-a-zero-vector-gives-it-back
 

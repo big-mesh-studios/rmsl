@@ -256,6 +256,9 @@ describe("each leaf on every target it claims", () => {
     expect(() => dot(ivec2(1, 2) as any, ivec2(3, 4) as any)).toThrow(/dot\(\) takes .*, not ivec2/);
     expect(() => (vec2(1, 2) as any).dot(ivec2(3, 4))).toThrow(/dot\(\) takes .*, not ivec2/);
     expect(() => length(bvec3(true, false, true) as any)).toThrow(/Convert it with toVec3\(\) first/);
+    expect(() => dot(vec3(1, 2, 3), 2 as any)).toThrow(/dot\(\) takes two arguments of one type, not vec3 and float/);
+    expect(() => distance(float(2), vec2(1, 2) as any)).toThrow(/distance\(\) takes two arguments of one type/);
+    expect(() => (mat3(1) as any).dot(mat3(1))).toThrow(/not mat3\. Take it a column at a time, with element\(i\)/);
   });
 
   /**

@@ -58,6 +58,13 @@ describe("refusals the types make", () => {
     dot(ivec2(1, 2), ivec2(3, 4));
     // @ts-expect-error nor a bool a length
     length(bool(true));
+    // @ts-expect-error nor a vector and a scalar a dot product
+    dot(vec3(1, 2, 3), 2);
+    // @ts-expect-error nor a scalar and a vector a distance
+    distance(float(2), vec2(1, 2));
+    // @ts-expect-error nor a matrix a length
+    length(mat3(1));
+    expectTypeOf(dot(vec3(1, 2, 3), [1, 2, 3])).toEqualTypeOf<Node<"float">>();
   });
 });
 
