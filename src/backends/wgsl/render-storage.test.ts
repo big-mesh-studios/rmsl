@@ -60,12 +60,30 @@ describe("storage buffers in render stages", () => {
     expect(() => compileWgsl.vertex(vertex)).toThrow(/read-only in a vertex shader/);
   });
   /**
-   * @canon exception-glsl-has-no-storage-buffers
+   * @canon spec-a-glsl-stage-declares-a-storage-buffer-as-a-sampler-under-its-slot
+   */
+  it("reads storage on GLSL through a sampler named after the buffer's slot", () => {
+    const { offsets, colors, vertex, fragment } = program();
+    const vertexCode = compileGlsl.vertex(vertex);
+    expect(vertexCode).toContain(`uniform sampler2D ${offsets.name};`);
+    expect(vertexCode).toMatch(new RegExp(`texelFetch\\(${offsets.name}, ivec2\\(`));
+    expect(compileGlsl.fragment(fragment)).toContain(`uniform sampler2D ${colors.name};`);
+  });
+  /**
+   * @canon spec-a-glsl-render-stage-refuses-a-write-to-storage
+   */
+  it("rejects a write from a render stage on GLSL", () => {
+    const values = instancedArray(4, "float");
+    const vertex = Fn(() => {
+      values.element(0).assign(float(1));
+      return vec4(0, 0, 0, 1);
+    })();
+    expect(() => compileGlsl.vertex(vertex)).toThrow(/read-only in a vertex shader/);
+  });
+  /**
    * @canon spec-the-index-accessors-follow-tsl
    */
-  it("reports that GLSL has no storage buffers, and maps the index builtins", () => {
-    const { vertex } = program();
-    expect(() => compileGlsl.vertex(vertex)).toThrow(/GLSL has no storage buffers/);
+  it("maps the index builtins on GLSL", () => {
     const indices = Fn(() => vec4(vertexIndex().toFloat(), instanceIndex().toFloat(), 0, 1))();
     const glsl = compileGlsl.vertex(indices);
     expect(glsl).toContain("uint(gl_VertexID)");

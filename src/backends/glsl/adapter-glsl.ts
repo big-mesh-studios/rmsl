@@ -1,7 +1,16 @@
-import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
+import {
+  AttributeNode,
+  MATRIX_DIMENSIONS,
+  Node,
+  ShaderType,
+  StorageNode,
+  UniformArrayNode,
+  UniformNode,
+  UniformValue,
+} from "../../core";
 import { Adapter, DrawClearOptions, DrawCountOptions, slotOf, TRANSPARENT_BLACK, TypedArray } from "../adapter";
-import { VertexRoot } from "../shared";
-import type { CpuTextureData } from "../cpu";
+import { storageNodesOf, VertexRoot } from "../shared";
+import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
 import { textureImage } from "../texture-image";
 import { compileGlsl, CompileGLSLOptions } from "./glsl";
 import {
@@ -125,6 +134,46 @@ function texelFormat(gl: WebGL2RenderingContext, bits: 8 | 16 | 32, signed: bool
     32: signed ? [gl.RGBA32I, gl.INT] : [gl.RGBA32UI, gl.UNSIGNED_INT],
   }[bits];
   return { internal: table[0]!, format: gl.RGBA_INTEGER, type: table[1]! };
+}
+
+/**
+ * The size of the texture a storage buffer of `values` values of `shaderType`
+ * is read through: a texel for each element, or for each column of a matrix,
+ * in a texture the smallest power of two at or above the square root of the
+ * texel count wide.
+ */
+function storageTextureShape(shaderType: string, values: number) {
+  const [columns, components] = MATRIX_DIMENSIONS[shaderType] ?? [1, componentCountOf(shaderType)];
+  const texels = Math.max(1, Math.ceil(values / components));
+  const width = 2 ** Math.ceil(Math.log2(Math.sqrt(texels)));
+  return { width, height: Math.ceil(texels / width), components, columns, kind: componentKindOf(shaderType) };
+}
+
+/** The format a storage texture of `components` channels of `kind` is uploaded in, and the array that holds its texels. */
+function storageFormat(gl: WebGL2RenderingContext, kind: string, components: number) {
+  const channel = components - 1;
+  if (kind === "int") {
+    return {
+      internal: [gl.R32I, gl.RG32I, gl.RGB32I, gl.RGBA32I][channel]!,
+      format: [gl.RED_INTEGER, gl.RG_INTEGER, gl.RGB_INTEGER, gl.RGBA_INTEGER][channel]!,
+      type: gl.INT,
+      array: Int32Array,
+    };
+  }
+  if (kind === "uint") {
+    return {
+      internal: [gl.R32UI, gl.RG32UI, gl.RGB32UI, gl.RGBA32UI][channel]!,
+      format: [gl.RED_INTEGER, gl.RG_INTEGER, gl.RGB_INTEGER, gl.RGBA_INTEGER][channel]!,
+      type: gl.UNSIGNED_INT,
+      array: Uint32Array,
+    };
+  }
+  return {
+    internal: [gl.R32F, gl.RG32F, gl.RGB32F, gl.RGBA32F][channel]!,
+    format: [gl.RED, gl.RG, gl.RGB, gl.RGBA][channel]!,
+    type: gl.FLOAT,
+    array: Float32Array,
+  };
 }
 
 function wrapMode(gl: WebGL2RenderingContext, wrap: CpuTextureData["wrapS"]): number {
@@ -276,8 +325,10 @@ export function createGlsl(
   const pendingUniforms = new Map<string, number | number[]>();
   const pendingAttributes = new Map<string, TypedArray>();
   const pendingTextures = new Map<string, CpuTextureData>();
-  /** The WebGL texture and texture unit each sampler the host has set reads. */
+  /** The WebGL texture and texture unit each sampler the host has set reads, a storage buffer's included. */
   const textures = new Map<string, TextureSlot>();
+  /** The storage buffers the stages read, by slot. */
+  const storages = new Map<string, StorageNode<ShaderType>>();
 
   function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
@@ -306,6 +357,17 @@ export function createGlsl(
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeNode<ShaderType> | string, data: TypedArray): void {
     const slot = slotOf(attribute);
+    const storage = storages.get(slot);
+    const sampler = uniforms.get(slot);
+    if (gl && program && storage && sampler) {
+      state?.begin(GlState.activeTexture | GlState.unpack | GlState.program);
+      try {
+        uploadStorage(gl, program, slot, sampler, storage._t, data);
+      } finally {
+        state?.end();
+      }
+      return;
+    }
     const info = attributes.get(slot);
     if (!gl || !vao || !info) {
       pendingAttributes.set(slot, data);
@@ -361,33 +423,7 @@ export function createGlsl(
     const image = textureImage(data, samplerType);
     const target = samplerType.endsWith("3D") ? gl.TEXTURE_3D : gl.TEXTURE_2D;
     const { internal, format, type } = texelFormat(gl, image.bits, image.signed, image.normalized);
-    let held = textures.get(slot);
-    // A texture of the shape the sampler already holds is written in place.
-    const reuse =
-      held !== undefined &&
-      held.target === target &&
-      held.width === image.width &&
-      held.height === image.height &&
-      held.depth === image.depth &&
-      held.internal === internal;
-    if (!reuse) {
-      if (held) gl.deleteTexture(held.texture);
-      held = {
-        texture: gl.createTexture()!,
-        target,
-        unit: held?.unit ?? textures.size,
-        width: image.width,
-        height: image.height,
-        depth: image.depth,
-        internal,
-      };
-      textures.set(slot, held);
-    }
-
-    state?.keepUnit(held!.unit);
-    gl.activeTexture(gl.TEXTURE0 + held!.unit);
-    gl.bindTexture(target, held!.texture);
-    setUnpackState(gl);
+    const { held, reuse } = holdTexture(gl, slot, target, image.width, image.height, image.depth, internal);
     if (reuse && target === gl.TEXTURE_3D) {
       gl.texSubImage3D(target, 0, 0, 0, 0, image.width, image.height, image.depth, format, type, image.texels);
     } else if (reuse) {
@@ -408,7 +444,73 @@ export function createGlsl(
     gl.texParameteri(target, gl.TEXTURE_WRAP_T, wrapMode(gl, data.wrapT));
     if (target === gl.TEXTURE_3D) gl.texParameteri(target, gl.TEXTURE_WRAP_R, wrapMode(gl, data.wrapR));
     gl.useProgram(program);
-    gl.uniform1i(info.location, held!.unit);
+    gl.uniform1i(info.location, held.unit);
+  }
+
+  /**
+   * The GL texture of the sampler `slot`, bound to its unit: the one it holds
+   * when that has this shape and format, which is then written in place, or
+   * else a new one on the same unit.
+   */
+  function holdTexture(
+    gl: WebGL2RenderingContext,
+    slot: string,
+    target: number,
+    width: number,
+    height: number,
+    depth: number,
+    internal: number,
+  ): { held: TextureSlot; reuse: boolean } {
+    let held = textures.get(slot);
+    const reuse =
+      held !== undefined &&
+      held.target === target &&
+      held.width === width &&
+      held.height === height &&
+      held.depth === depth &&
+      held.internal === internal;
+    if (!reuse) {
+      if (held) gl.deleteTexture(held.texture);
+      held = {
+        texture: gl.createTexture()!,
+        target,
+        unit: held?.unit ?? textures.size,
+        width,
+        height,
+        depth,
+        internal,
+      };
+      textures.set(slot, held);
+    }
+    state?.keepUnit(held!.unit);
+    gl.activeTexture(gl.TEXTURE0 + held!.unit);
+    gl.bindTexture(target, held!.texture);
+    setUnpackState(gl);
+    return { held: held!, reuse };
+  }
+
+  /** Uploads `data` into the storage texture of the buffer `slot`, and points its sampler at its unit. */
+  function uploadStorage(
+    gl: WebGL2RenderingContext,
+    program: WebGLProgram,
+    slot: string,
+    info: UniformInfo,
+    shaderType: string,
+    data: ArrayLike<number>,
+  ): void {
+    const { width, height, components, kind } = storageTextureShape(shaderType, data.length);
+    const { internal, format, type, array } = storageFormat(gl, kind, components);
+    const texels = new array(width * height * components);
+    texels.set(data);
+    const { held, reuse } = holdTexture(gl, slot, gl.TEXTURE_2D, width, height, 1, internal);
+    if (reuse) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, format, type, texels);
+    else gl.texImage2D(gl.TEXTURE_2D, 0, internal, width, height, 0, format, type, texels);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.useProgram(program);
+    gl.uniform1i(info.location, held.unit);
   }
 
   /** Compiles and links the program on `gl`, reflects its inputs, and applies what the host set before. */
@@ -464,6 +566,12 @@ export function createGlsl(
         kind: reflectedAttributeKind(gl, info.type),
         hasData: false,
       });
+    }
+
+    for (const node of storageNodesOf([vertexRoot, fragmentRoot])) {
+      storages.set(node.name, node);
+      const sampler = uniforms.get(node.name);
+      if (sampler) uploadStorage(gl, program, node.name, sampler, node._t, node.attribute.array);
     }
 
     for (const [slot, value] of pendingUniforms) adapter.setUniform(slot, value);

@@ -225,9 +225,14 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec the-position-is-read-only-in-a-vertex-stage`](#spec-the-position-is-read-only-in-a-vertex-stage) — A vertex [stage](#term-stage) reads `builtinPosition()`, and a fragment stage that reads it is refused.
     - [`@spec a-compute-program-cannot-read-an-attribute`](#spec-a-compute-program-cannot-read-an-attribute) — A compute program that reads an [attribute](#term-attribute) is refused on every target that compiles one. A compute program reaches a buffer through `storage()`, which reads what an attribute lies over.
     - [`@spec a-compute-program-cannot-read-a-varying`](#spec-a-compute-program-cannot-read-a-varying) — A compute program that reads a [varying](#term-varying) is refused on every target that compiles one. A compute program has no vertex stage to pass a value from.
-    - [`@spec a-render-stage-reads-storage-read-only`](#spec-a-render-stage-reads-storage-read-only) — A vertex or fragment stage reads a storage buffer read-only, from a group of its own whose bindings count across both stages. A write to one from a render stage is refused.
+    - [`@spec a-render-stage-reads-storage-read-only`](#spec-a-render-stage-reads-storage-read-only) — A vertex or fragment stage reads a storage buffer read-only, on WGSL and on GLSL. A write to one from a render stage is refused.
       - [`@spec a-wgsl-render-stage-reads-storage-read-only`](#spec-a-wgsl-render-stage-reads-storage-read-only) — On WGSL, a vertex or fragment stage declares a storage buffer read-only, in a group of its own numbered across both stages. It refuses a write to the buffer.
-      - [`@exception glsl-has-no-storage-buffers`](#exception-glsl-has-no-storage-buffers) — A GLSL stage that reads a storage buffer is refused. Issue #48 asks to read one through a data texture instead.
+      - [`@spec a-glsl-render-stage-reads-storage-through-a-data-texture`](#spec-a-glsl-render-stage-reads-storage-through-a-data-texture) — On GLSL, a vertex or fragment stage reads a storage buffer through a texture that holds its elements, declared as a sampler uniform under the buffer's slot name. It refuses a write to the buffer.
+        - [`@spec a-glsl-stage-declares-a-storage-buffer-as-a-sampler-under-its-slot`](#spec-a-glsl-stage-declares-a-storage-buffer-as-a-sampler-under-its-slot) — A GLSL render stage declares each storage buffer it reads as a sampler uniform named after the buffer's slot, and reads `element(i)` with `texelFetch`.
+        - [`@spec a-glsl-render-stage-refuses-a-write-to-storage`](#spec-a-glsl-render-stage-refuses-a-write-to-storage) — The GLSL compiler refuses a write to a storage buffer from a vertex or fragment stage.
+        - [`@spec a-storage-texel-holds-one-element-or-one-column`](#spec-a-storage-texel-holds-one-element-or-one-column) — A texel of a storage texture holds one element, with as many channels as the element has components, of an integer format for an `int` or `uint` element. A matrix element takes one texel for each of its columns, in consecutive texels.
+        - [`@spec a-storage-texture-is-a-power-of-two-wide`](#spec-a-storage-texture-is-a-power-of-two-wide) — A storage texture is as wide as the smallest power of two at or above the square root of its texel count, and as tall as its texels need. Texel `t` sits at column `t % width` and row `t / width`, where the stage reads `width` from the texture's size.
+        - [`@spec the-glsl-adapter-uploads-each-storage-buffer-it-reads`](#spec-the-glsl-adapter-uploads-each-storage-buffer-it-reads) — `createGlsl` uploads each storage buffer its stages read as a storage texture, from the buffer's contents at `attach`. `setAttribute` on the buffer's slot fills it again.
       - [`@spec a-wgsl-render-stage-declares-its-storage-in-group-three`](#spec-a-wgsl-render-stage-declares-its-storage-in-group-three) — On WGSL, a vertex or fragment stage declares its storage buffers in group 3.
   - [`@spec a-constant-index-outside-a-vector-or-matrix-is-refused`](#spec-a-constant-index-outside-a-vector-or-matrix-is-refused) — A constant index outside a vector's components or a matrix's columns is refused on every target. Such an index is a literal, or an operation of literals that folds to one. A write by index through a swizzle is refused for an index outside the swizzle, as its read is. So it is in a graph `deserialize` rebuilt.
   - [`@spec a-constant-index-outside-a-uniform-array-is-refused`](#spec-a-constant-index-outside-a-uniform-array-is-refused) — A constant index outside the elements of a uniform array is refused on every target: a literal, or an operation of literals that folds to one.
@@ -739,6 +744,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact webgpu-draws-nothing-for-a-triangle-off-the-viewport`](#fact-webgpu-draws-nothing-for-a-triangle-off-the-viewport) — WebGPU draws no pixel for a triangle wholly outside the viewport, at any distance from it, and reports no error.
 - [`@fact webgpu-culls-no-face-by-default`](#fact-webgpu-culls-no-face-by-default) — A WebGPU render pipeline culls no face unless it asks to, so a triangle draws whichever way its vertices wind.
 - [`@fact a-webgpu-canvas-configured-opaque-drops-alpha`](#fact-a-webgpu-canvas-configured-opaque-drops-alpha) — A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha the draw wrote.
+- [`@fact three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture`](#fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture) — three.js's WebGL renderer reads a storage node in a render stage through a data texture, when the node asks for it with `setPBO(true)`. A texel holds one element, with a channel for each component and an integer format for integer data. The texture is as wide as the smallest power of two at or above the square root of the element count. Element `i` sits at column `i % width` and row `i / width`, the width read with `textureSize`.
 - [`@fact three-js-configures-its-webgpu-canvas-by-its-alpha-parameter`](#fact-three-js-configures-its-webgpu-canvas-by-its-alpha-parameter) — three.js's WebGPU renderer takes an `alpha` parameter, `true` by default. It configures its canvas `premultiplied` when `alpha` is `true`, and `opaque` when it is `false`.
 - [`@fact react-three-fiber-and-threlte-create-their-renderer-with-alpha`](#fact-react-three-fiber-and-threlte-create-their-renderer-with-alpha) — react-three-fiber and Threlte build their `WebGLRenderer` with `alpha: true`, so a canvas they draw on clears to alpha 0.
 - [`@fact three-js-generates-a-node-read-more-than-once-into-a-variable`](#fact-three-js-generates-a-node-read-more-than-once-into-a-variable) — three.js counts the reads of each node while it analyzes a shader stage. It generates a node read more than once into a variable at its first read, and later reads use the variable.
@@ -1994,17 +2000,49 @@ This follows because a varying is an output of the vertex stage and an input of 
 
 #### @spec a-render-stage-reads-storage-read-only
 
-> A vertex or fragment stage reads a storage buffer read-only, from a group of its own whose bindings count across both stages. A write to one from a render stage is refused.
+> A vertex or fragment stage reads a storage buffer read-only, on WGSL and on GLSL. A write to one from a render stage is refused.
 
 ##### @spec a-wgsl-render-stage-reads-storage-read-only
 
 > On WGSL, a vertex or fragment stage declares a storage buffer read-only, in a group of its own numbered across both stages. It refuses a write to the buffer.
 
-##### @exception glsl-has-no-storage-buffers
+##### @spec a-glsl-render-stage-reads-storage-through-a-data-texture
 
-> A GLSL stage that reads a storage buffer is refused. Issue #48 asks to read one through a data texture instead.
+> On GLSL, a vertex or fragment stage reads a storage buffer through a texture that holds its elements, declared as a sampler uniform under the buffer's slot name. It refuses a write to the buffer.
 
-Derives from: [`fact-webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage)
+Derives from: [`fact-webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage), [`fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture`](#fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture)
+
+This follows because WebGL 2 has no storage buffers, and a texture can be read at any element, as `element(i)` asks.
+
+###### @spec a-glsl-stage-declares-a-storage-buffer-as-a-sampler-under-its-slot
+
+> A GLSL render stage declares each storage buffer it reads as a sampler uniform named after the buffer's slot, and reads `element(i)` with `texelFetch`.
+
+###### @spec a-glsl-render-stage-refuses-a-write-to-storage
+
+> The GLSL compiler refuses a write to a storage buffer from a vertex or fragment stage.
+
+###### @spec a-storage-texel-holds-one-element-or-one-column
+
+> A texel of a storage texture holds one element, with as many channels as the element has components, of an integer format for an `int` or `uint` element. A matrix element takes one texel for each of its columns, in consecutive texels.
+
+Derives from: [`fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture`](#fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture)
+
+This follows because a texel holds at most four components, as a matrix column does.
+
+###### @spec a-storage-texture-is-a-power-of-two-wide
+
+> A storage texture is as wide as the smallest power of two at or above the square root of its texel count, and as tall as its texels need. Texel `t` sits at column `t % width` and row `t / width`, where the stage reads `width` from the texture's size.
+
+Derives from: [`fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture`](#fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture)
+
+This follows because a texture is limited in width and in height alike, so a square one holds the most texels.
+
+###### @spec the-glsl-adapter-uploads-each-storage-buffer-it-reads
+
+> `createGlsl` uploads each storage buffer its stages read as a storage texture, from the buffer's contents at `attach`. `setAttribute` on the buffer's slot fills it again.
+
+Derives from: [`spec-setting-one-storage-slot-keeps-the-others`](#spec-setting-one-storage-slot-keeps-the-others)
 
 ##### @spec a-wgsl-render-stage-declares-its-storage-in-group-three
 
@@ -5039,6 +5077,12 @@ Chromium's WebGPU draws a counter-clockwise and a clockwise triangle alike with 
 > A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha the draw wrote.
 
 Chromium's WebGPU draws a fragment of alpha 0 into a canvas configured opaque, and the page reads the pixel back with alpha 255.
+
+## @fact three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture
+
+> three.js's WebGL renderer reads a storage node in a render stage through a data texture, when the node asks for it with `setPBO(true)`. A texel holds one element, with a channel for each component and an integer format for integer data. The texture is as wide as the smallest power of two at or above the square root of the element count. Element `i` sits at column `i % width` and row `i / width`, the width read with `textureSize`.
+
+This is how three.js behaves, read from its source: `setupPBO` and `generatePBO` in `src/renderers/webgl-fallback/nodes/GLSLNodeBuilder.js`. It carries elements of one to four components.
 
 ## @fact three-js-configures-its-webgpu-canvas-by-its-alpha-parameter
 

@@ -145,6 +145,114 @@ afterAll(async () => {
   await releaseGpu();
 }, 120_000);
 
+/**
+ * A full-screen triangle on a 4×4 canvas that `createGlsl` colours from a
+ * storage buffer, by entry. Each entry returns the pixel it read, or the error
+ * it hit.
+ */
+const STORAGE_SCENE = `
+import { Fn, attribute, builtinPosition, instancedArray, int, vec3, vec4 } from "../rmsl";
+import { createGlsl } from "../glsl";
+${READ_PIXEL}
+const position = attribute("vec3");
+const TRIANGLE = Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
+const vertex = () => Fn(() => { builtinPosition().assign(vec4(position, 1)); })();
+/** Draws \`fragment\` with createGlsl over \`vertexStage\`, after \`set\` gives the adapter its values. */
+const draw = (fragment, set = () => {}, vertexStage = vertex()) => {
+  try {
+    const target = document.createElement("canvas");
+    target.width = 4;
+    target.height = 4;
+    const adapter = createGlsl(vertexStage, fragment);
+    adapter.attach(target);
+    adapter.setAttribute(position, TRIANGLE);
+    set(adapter);
+    adapter.draw({ count: 3 });
+    return readPixel(target, 1, 2);
+  } catch (error) {
+    return { error: error.message };
+  }
+};
+globalThis.__rmslStorageDraw = {
+  vec3: () => {
+    const colours = instancedArray(Float32Array.of(1, 0, 0, 0, 1, 0), "vec3");
+    return draw(Fn(() => vec4(colours.element(int(1)), 1))());
+  },
+  wrapped: () => {
+    const values = instancedArray(Float32Array.from({ length: 40 }, (_, i) => i / 64), "float");
+    return draw(Fn(() => vec4(values.element(int(37)), 0, 0, 1))());
+  },
+  ivec2: () => {
+    const values = instancedArray(Int32Array.of(0, 0, -3, 255), "ivec2");
+    return draw(Fn(() => vec4(0, values.element(int(1)).y.toFloat().div(255), 0, 1))());
+  },
+  uint: () => {
+    const values = instancedArray(Uint32Array.of(7, 4294967295), "uint");
+    return draw(Fn(() => vec4(0, values.element(int(1)).equal(4294967295).select(1, 0), 0, 1))());
+  },
+  mat3: () => {
+    const matrices = instancedArray(Float32Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0), "mat3");
+    return draw(Fn(() => vec4(matrices.element(int(1)).mul(vec3(0, 0, 1)), 1))());
+  },
+  refilled: () => {
+    const colours = instancedArray(2, "vec4");
+    return draw(Fn(() => colours.element(int(1)))(), (adapter) =>
+      adapter.setAttribute(colours.name, Float32Array.of(1, 0, 0, 1, 0, 1, 0, 1)),
+    );
+  },
+  vertexStage: () => {
+    const shift = instancedArray(Float32Array.of(0, 0, 8, 8), "vec2");
+    const shifted = Fn(() => { builtinPosition().assign(vec4(position.xy.add(shift.element(int(0))), 0, 1)); })();
+    return draw(Fn(() => vec4(0, 1, 0, 1))(), undefined, shifted);
+  },
+};
+`;
+
+describe.skipIf(!GPU_ENABLED)("createGlsl reading storage in a render stage", () => {
+  /** Draws the entry \`name\` of \`STORAGE_SCENE\` and reads back its pixel. */
+  const drawn = async (name: string) =>
+    runInGpuPage(
+      `${STORAGE_SCENE}\nglobalThis.__rmslStorageDrawRun = async () => globalThis.__rmslStorageDraw.${name}();`,
+      "__rmslStorageDrawRun",
+      new URL(".", import.meta.url).pathname,
+    );
+  const GREEN = { r: 0, g: 255, b: 0, a: 255 };
+
+  /**
+   * @canon spec-a-storage-texel-holds-one-element-or-one-column
+   */
+  it.each(["vec3", "ivec2", "uint", "mat3"])(
+    "reads a %s element of a storage buffer with createGlsl",
+    async (entry) => {
+      expect(await drawn(entry)).toEqual(GREEN);
+    },
+    120_000,
+  );
+
+  /**
+   * 40 texels make a texture 8 wide, so element 37 sits at column 5 of row 4.
+   *
+   * @canon spec-a-storage-texture-is-a-power-of-two-wide
+   */
+  it("reads an element past the first row of a storage texture with createGlsl", async () => {
+    expect(await drawn("wrapped")).toEqual({ r: 147, g: 0, b: 0, a: 255 });
+  }, 120_000);
+
+  /**
+   * @canon spec-the-glsl-adapter-uploads-each-storage-buffer-it-reads
+   */
+  it("reads storage from a vertex stage with createGlsl", async () => {
+    expect(await drawn("vertexStage")).toEqual(GREEN);
+  }, 120_000);
+
+  /**
+   * @canon spec-the-glsl-adapter-uploads-each-storage-buffer-it-reads
+   */
+  it("reads what setAttribute put in a storage buffer with createGlsl", async () => {
+    expect(await drawn("refilled")).toEqual(GREEN);
+  }, 120_000);
+});
+
 describe.skipIf(!GPU_ENABLED)("adapters drawing into a canvas in a browser", () => {
   /** Draws with one adapter in the browser and reads back its pixel. */
   const drawn = async (adapter: string) =>
