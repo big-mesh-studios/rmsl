@@ -454,7 +454,8 @@ describe("a mistake is refused before the program runs", () => {
    * matrix is refused by every target when it compiles the element, for a read
    * and for a write, and for the component of a column too, whether it is a
    * literal or an operation of literals that folds to one. So is a write by
-   * index through a swizzle at a constant index outside the swizzle. An index
+   * index through a swizzle at a constant index outside the swizzle, in a graph
+   * `deserialize` rebuilt too. An index
    * inside them compiles on every target.
    *
    * @canon spec-a-constant-index-outside-a-vector-or-matrix-is-refused
@@ -536,6 +537,10 @@ describe("a mistake is refused before the program runs", () => {
           new RegExp(`index ${k} is outside a vec2's components 0 to 1`),
         );
       }
+      const restored = () => deserialize(serialize(throughSwizzle(() => int(5))())) as Node<"vec3">;
+      expect(() => compile(restored), `${name} write .zy 5 after JSON`).toThrow(
+        /index 5 is outside a vec2's components 0 to 1/,
+      );
     }
     for (const [name, compile] of compilers) {
       expect(() => compile(read(2)), `${name} read 2`).not.toThrow();

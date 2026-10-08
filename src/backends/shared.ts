@@ -9,7 +9,7 @@ import {
   TYPE_WIDTH,
   node,
   someNode,
-  swizzleWriteOrigin,
+  swizzleWritePlace,
   var_,
   vec4,
 } from "../core";
@@ -681,10 +681,10 @@ export function assertNoWholeStorageRead(roots: readonly unknown[]): void {
  */
 export function prepareRoots<T extends Node<ShaderType>>(stage: string | undefined, roots: readonly T[]): T[] {
   assertNoWholeStorageRead(roots);
-  assertSwizzleWrites(roots);
   someNode(roots, (n) => {
     if (n.type === "for") assertForUpdateHoldsNoBlock(n);
   });
+  roots = lowerSwizzleWrites(roots);
   if (stage === "fragment")
     return fragmentColour(lowerOutputStruct(roots as readonly BaseNode<ShaderType>[]) as unknown as T[]);
   if (someNode(roots, (n) => n.type === "outputStruct")) {
@@ -1004,22 +1004,7 @@ export function numberClashingVariables<T>(roots: T): T {
       );
     }
   }
-  if (renamed.size === 0) return roots;
-  const copies = new Map<any, any>();
-  const substitute = (node: any): any => {
-    if (Array.isArray(node)) return node.map(substitute);
-    if (!node || typeof node !== "object") return node;
-    const known = renamed.get(node) ?? copies.get(node);
-    if (known !== undefined) return known;
-    if (!Array.isArray(node.params)) return node;
-    const params = node.params.map(substitute);
-    const result = params.every((p: any, i: number) => p === node.params[i])
-      ? node
-      : Object.assign(Object.create(Object.getPrototypeOf(node)), node, { params });
-    copies.set(node, result);
-    return result;
-  };
-  return substitute(roots);
+  return substituteNodes(roots, renamed);
 }
 
 /** The node types an assignment can write, through any swizzle, component or column of them. */
@@ -1072,19 +1057,56 @@ function assertNoRepeatedSwizzle(target: any): void {
   }
 }
 
+/** Whether an assignment to `target` writes by index through a swizzle. */
+function isSwizzleWrite(target: any): boolean {
+  return target?.type === "vectorElement" && target.params[0]?.type === "swizzle";
+}
+
 /**
- * Refuses a write by index through a swizzle as the read of it is refused:
- * through a swizzle that names a component more than once, or at a constant
- * index outside the swizzle. The assignment made it a write into the vector
- * the swizzle reads, and {@link swizzleWriteOrigin} keeps the write it was.
+ * The roots with every write by index through a swizzle made a write into the
+ * vector the swizzle reads, see {@link swizzleWritePlace}, once each is
+ * refused as its read is: through a swizzle that names a component more than
+ * once, or at a constant index outside the swizzle.
  */
-export function assertSwizzleWrites(roots: readonly unknown[]): void {
+export function lowerSwizzleWrites<T>(roots: T): T {
+  const lowered = new Map<any, any>();
   someNode(roots, (node) => {
-    const origin = node.type === "assign" ? swizzleWriteOrigin.get(node.params[0]) : undefined;
-    if (origin === undefined) return;
-    assertNoRepeatedSwizzle(origin);
-    assertConstantIndexInRange(origin.params![0]!, origin.params![1]!);
+    if (node.type !== "assign" || !isSwizzleWrite(node.params[0])) return;
+    const target = node.params[0];
+    assertNoRepeatedSwizzle(target);
+    assertConstantIndexInRange(target.params[0], target.params[1]);
+    lowered.set(
+      node,
+      Object.assign(Object.create(Object.getPrototypeOf(node)), node, {
+        params: [swizzleWritePlace(target), ...node.params.slice(1)],
+      }),
+    );
   });
+  return substituteNodes(roots, lowered);
+}
+
+/**
+ * `roots` with each node `replaced` maps to put in its place. A node that
+ * holds a replaced node is copied, once, so a node several others hold stays
+ * one node. The graph the caller holds is left as it is.
+ */
+function substituteNodes<T>(roots: T, replaced: Map<any, any>): T {
+  if (replaced.size === 0) return roots;
+  const copies = new Map<any, any>();
+  const substitute = (node: any): any => {
+    if (Array.isArray(node)) return node.map(substitute);
+    if (!node || typeof node !== "object") return node;
+    const known = replaced.get(node) ?? copies.get(node);
+    if (known !== undefined) return known;
+    if (!Array.isArray(node.params)) return node;
+    const params = node.params.map(substitute);
+    const result = params.every((p: any, i: number) => p === node.params[i])
+      ? node
+      : Object.assign(Object.create(Object.getPrototypeOf(node)), node, { params });
+    copies.set(node, result);
+    return result;
+  };
+  return substitute(roots);
 }
 
 /**

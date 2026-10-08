@@ -184,7 +184,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-stage-output-is-assigned-only-in-its-stage`](#spec-a-stage-output-is-assigned-only-in-its-stage) — An assignment to a [varying](#term-varying) or to the position outside the vertex stage, or to the fragment depth outside the fragment stage, is refused.
       - [`@spec a-stage-output-is-refused-in-the-other-render-stage`](#spec-a-stage-output-is-refused-in-the-other-render-stage) — A fragment stage that assigns a [varying](#term-varying) or the position is refused, and so is a vertex stage that assigns the fragment depth. Every target refuses them.
       - [`@spec a-compute-program-cannot-assign-a-stage-output`](#spec-a-compute-program-cannot-assign-a-stage-output) — A compute program that assigns to a varying, to the position or to the fragment depth is refused on every target that compiles one.
-    - [`@spec a-swizzle-that-repeats-a-component-cannot-be-assigned`](#spec-a-swizzle-that-repeats-a-component-cannot-be-assigned) — An assignment through a [swizzle](#term-swizzle) that names a component more than once is refused, also when it is reached through another swizzle. So is a write by index through such a swizzle.
+    - [`@spec a-swizzle-that-repeats-a-component-cannot-be-assigned`](#spec-a-swizzle-that-repeats-a-component-cannot-be-assigned) — An assignment through a [swizzle](#term-swizzle) that names a component more than once is refused, also when it is reached through another swizzle. So is a write by index through such a swizzle. The graph keeps the swizzle of such a write, so a graph `deserialize` rebuilt is refused alike.
     - [`@spec a-swizzle-that-names-each-component-once-can-be-assigned`](#spec-a-swizzle-that-names-each-component-once-can-be-assigned) — An assignment through a swizzle of a var that names each component once compiles on every target, also when it is reached through another swizzle.
     - [`@spec a-wgsl-variable-is-declared-with-var`](#spec-a-wgsl-variable-is-declared-with-var) — On WGSL, a variable compiles to a `var` declaration, also when the program never assigns it again.
   - [`@spec a-name-is-local-unless-the-user-gave-it`](#spec-a-name-is-local-unless-the-user-gave-it) — A name the compiler generates is local to its program. A name the user gives with a `*Raw` function is absolute.
@@ -230,7 +230,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-wgsl-render-stage-reads-storage-read-only`](#spec-a-wgsl-render-stage-reads-storage-read-only) — On WGSL, a vertex or fragment stage declares a storage buffer read-only, in a group of its own numbered across both stages. It refuses a write to the buffer.
       - [`@exception glsl-has-no-storage-buffers`](#exception-glsl-has-no-storage-buffers) — A GLSL stage that reads a storage buffer is refused. Issue #48 asks to read one through a data texture instead.
       - [`@spec a-wgsl-render-stage-declares-its-storage-in-group-three`](#spec-a-wgsl-render-stage-declares-its-storage-in-group-three) — On WGSL, a vertex or fragment stage declares its storage buffers in group 3.
-  - [`@spec a-constant-index-outside-a-vector-or-matrix-is-refused`](#spec-a-constant-index-outside-a-vector-or-matrix-is-refused) — A constant index outside a vector's components or a matrix's columns is refused on every target. Such an index is a literal, or an operation of literals that folds to one. A write by index through a swizzle is refused for an index outside the swizzle, as its read is.
+  - [`@spec a-constant-index-outside-a-vector-or-matrix-is-refused`](#spec-a-constant-index-outside-a-vector-or-matrix-is-refused) — A constant index outside a vector's components or a matrix's columns is refused on every target. Such an index is a literal, or an operation of literals that folds to one. A write by index through a swizzle is refused for an index outside the swizzle, as its read is. So it is in a graph `deserialize` rebuilt.
   - [`@spec a-constant-index-outside-a-uniform-array-is-refused`](#spec-a-constant-index-outside-a-uniform-array-is-refused) — A constant index outside the elements of a uniform array is refused on every target: a literal, or an operation of literals that folds to one.
   - [`@spec an-operation-a-target-cannot-run-is-refused`](#spec-an-operation-a-target-cannot-run-is-refused) — An operation that no target can run where the program puts it is refused on every target.
     - [`@spec break-or-continue-outside-a-loop-is-refused`](#spec-break-or-continue-outside-a-loop-is-refused) — `Break` or `Continue` outside a loop is refused.
@@ -1779,7 +1779,7 @@ This follows because a stage output is what the stage hands on. On WGSL a comput
 
 #### @spec a-swizzle-that-repeats-a-component-cannot-be-assigned
 
-> An assignment through a [swizzle](#term-swizzle) that names a component more than once is refused, also when it is reached through another swizzle. So is a write by index through such a swizzle.
+> An assignment through a [swizzle](#term-swizzle) that names a component more than once is refused, also when it is reached through another swizzle. So is a write by index through such a swizzle. The graph keeps the swizzle of such a write, so a graph `deserialize` rebuilt is refused alike.
 
 #### @spec a-swizzle-that-names-each-component-once-can-be-assigned
 
@@ -2015,7 +2015,7 @@ This follows because the uniform struct, the textures and the samplers hold grou
 
 ### @spec a-constant-index-outside-a-vector-or-matrix-is-refused
 
-> A constant index outside a vector's components or a matrix's columns is refused on every target. Such an index is a literal, or an operation of literals that folds to one. A write by index through a swizzle is refused for an index outside the swizzle, as its read is.
+> A constant index outside a vector's components or a matrix's columns is refused on every target. Such an index is a literal, or an operation of literals that folds to one. A write by index through a swizzle is refused for an index outside the swizzle, as its read is. So it is in a graph `deserialize` rebuilt.
 
 Derives from: [`fact-wgsl-refuses-a-constant-index-out-of-range`](#fact-wgsl-refuses-a-constant-index-out-of-range), [`fact-glsl-refuses-a-constant-index-out-of-range`](#fact-glsl-refuses-a-constant-index-out-of-range)
 
