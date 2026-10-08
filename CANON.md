@@ -232,6 +232,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@spec a-glsl-render-stage-refuses-a-write-to-storage`](#spec-a-glsl-render-stage-refuses-a-write-to-storage) — The GLSL compiler refuses a write to a storage buffer from a vertex or fragment stage, to a whole element or to a component of one.
         - [`@spec a-storage-texel-holds-one-element-or-one-column`](#spec-a-storage-texel-holds-one-element-or-one-column) — A texel of a storage texture holds one element, with as many channels as the element has components, of an integer format for an `int` or `uint` element. A matrix element takes one texel for each of its columns, in consecutive texels.
         - [`@spec a-storage-texture-is-a-power-of-two-wide`](#spec-a-storage-texture-is-a-power-of-two-wide) — A storage texture is as wide as the smallest power of two at or above the square root of its texel count, and as tall as its texels need. Texel `t` sits at column `t % width` and row `t / width`, where the stage reads `width` from the texture's size.
+        - [`@spec the-glsl-adapter-refuses-a-storage-texture-past-the-size-limit`](#spec-the-glsl-adapter-refuses-a-storage-texture-past-the-size-limit) — `createGlsl` refuses a storage buffer whose storage texture would be wider or taller than the context's `MAX_TEXTURE_SIZE`. The error names the buffer, the size it needs and the limit.
         - [`@spec the-glsl-adapter-uploads-each-storage-buffer-it-reads`](#spec-the-glsl-adapter-uploads-each-storage-buffer-it-reads) — `createGlsl` uploads each storage buffer its stages read as a storage texture, from the buffer's contents at `attach`. `setAttribute` on the buffer's slot fills it again.
       - [`@spec a-wgsl-render-stage-declares-its-storage-in-group-three`](#spec-a-wgsl-render-stage-declares-its-storage-in-group-three) — On WGSL, a vertex or fragment stage declares its storage buffers in group 3.
   - [`@spec a-constant-index-outside-a-vector-or-matrix-is-refused`](#spec-a-constant-index-outside-a-vector-or-matrix-is-refused) — A constant index outside a vector's components or a matrix's columns is refused on every target. Such an index is a literal, or an operation of literals that folds to one. A write by index through a swizzle is refused for an index outside the swizzle, as its read is. So it is in a graph `deserialize` rebuilt.
@@ -759,6 +760,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-webgpu-canvas-configured-opaque-drops-alpha`](#fact-a-webgpu-canvas-configured-opaque-drops-alpha) — A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha the draw wrote.
 - [`@fact a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares`](#fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares) — A WebGPU draw takes its vertex count from the caller, and infers none. It reads only the vertex buffers of its pipeline's vertex layout, which holds the attributes the shader declares, and each of those must hold the vertices the draw reads.
 - [`@fact three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture`](#fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture) — three.js's WebGL renderer reads a storage node in a render stage through a data texture, when the node asks for it with `setPBO(true)`. A texel holds one element, with a channel for each component and an integer format for integer data. The texture is as wide as the smallest power of two at or above the square root of the element count. Element `i` sits at column `i % width` and row `i / width`, the width read with `textureSize`.
+- [`@fact webgl2-refuses-a-texture-past-max-texture-size`](#fact-webgl2-refuses-a-texture-past-max-texture-size) — WebGL 2 refuses a 2D texture wider or taller than the context's `MAX_TEXTURE_SIZE`. `texImage2D` with such a size raises `INVALID_VALUE` and specifies no texture, so a shader reads nothing from it but zeros.
 - [`@fact three-js-configures-its-webgpu-canvas-by-its-alpha-parameter`](#fact-three-js-configures-its-webgpu-canvas-by-its-alpha-parameter) — three.js's WebGPU renderer takes an `alpha` parameter, `true` by default. It configures its canvas `premultiplied` when `alpha` is `true`, and `opaque` when it is `false`.
 - [`@fact react-three-fiber-and-threlte-create-their-renderer-with-alpha`](#fact-react-three-fiber-and-threlte-create-their-renderer-with-alpha) — react-three-fiber and Threlte build their `WebGLRenderer` with `alpha: true`, so a canvas they draw on clears to alpha 0.
 - [`@fact three-js-generates-a-node-read-more-than-once-into-a-variable`](#fact-three-js-generates-a-node-read-more-than-once-into-a-variable) — three.js counts the reads of each node while it analyzes a shader stage. It generates a node read more than once into a variable at its first read, and later reads use the variable.
@@ -2051,6 +2053,14 @@ This follows because a texel holds at most four components, as a matrix column d
 Derives from: [`fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture`](#fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture)
 
 This follows because a texture is limited in width and in height alike, so a square one holds the most texels.
+
+###### @spec the-glsl-adapter-refuses-a-storage-texture-past-the-size-limit
+
+> `createGlsl` refuses a storage buffer whose storage texture would be wider or taller than the context's `MAX_TEXTURE_SIZE`. The error names the buffer, the size it needs and the limit.
+
+Derives from: [`spec-a-storage-texture-is-a-power-of-two-wide`](#spec-a-storage-texture-is-a-power-of-two-wide), [`fact-webgl2-refuses-a-texture-past-max-texture-size`](#fact-webgl2-refuses-a-texture-past-max-texture-size)
+
+This follows because the target cannot carry such a texture, and a stage would read zeros from it without an error.
 
 ###### @spec the-glsl-adapter-uploads-each-storage-buffer-it-reads
 
@@ -5197,6 +5207,12 @@ This is a fact of the WebGPU specification: `draw(vertexCount, instanceCount, fi
 > three.js's WebGL renderer reads a storage node in a render stage through a data texture, when the node asks for it with `setPBO(true)`. A texel holds one element, with a channel for each component and an integer format for integer data. The texture is as wide as the smallest power of two at or above the square root of the element count. Element `i` sits at column `i % width` and row `i / width`, the width read with `textureSize`.
 
 This is how three.js behaves, read from its source: `setupPBO` and `generatePBO` in `src/renderers/webgl-fallback/nodes/GLSLNodeBuilder.js`. It carries elements of one to four components.
+
+## @fact webgl2-refuses-a-texture-past-max-texture-size
+
+> WebGL 2 refuses a 2D texture wider or taller than the context's `MAX_TEXTURE_SIZE`. `texImage2D` with such a size raises `INVALID_VALUE` and specifies no texture, so a shader reads nothing from it but zeros.
+
+This is the OpenGL ES 3.0 specification, section 3.8.3, which WebGL 2 follows. The limit is at least 2048 and differs between devices.
 
 ## @fact three-js-configures-its-webgpu-canvas-by-its-alpha-parameter
 

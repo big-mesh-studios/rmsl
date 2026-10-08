@@ -200,6 +200,19 @@ globalThis.__rmslStorageDraw = {
       adapter.setAttribute(colours.name, Float32Array.of(1, 0, 0, 1, 0, 1, 0, 1)),
     );
   },
+  // A context whose MAX_TEXTURE_SIZE is 4, where 40 texels need a texture 8 wide.
+  oversize: () => {
+    const values = instancedArray(Float32Array.from({ length: 40 }, (_, i) => i / 64), "float");
+    const getParameter = WebGL2RenderingContext.prototype.getParameter;
+    WebGL2RenderingContext.prototype.getParameter = function (name) {
+      return name === this.MAX_TEXTURE_SIZE ? 4 : getParameter.call(this, name);
+    };
+    try {
+      return { ...draw(Fn(() => vec4(values.element(int(37)), 0, 0, 1))()), name: values.name };
+    } finally {
+      WebGL2RenderingContext.prototype.getParameter = getParameter;
+    }
+  },
   vertexStage: () => {
     const shift = instancedArray(Float32Array.of(0, 0, 8, 8), "vec2");
     const shifted = Fn(() => { builtinPosition().assign(vec4(position.xy.add(shift.element(int(0))), 0, 1)); })();
@@ -236,6 +249,17 @@ describe.skipIf(!GPU_ENABLED)("createGlsl reading storage in a render stage", ()
    */
   it("reads an element past the first row of a storage texture with createGlsl", async () => {
     expect(await drawn("wrapped")).toEqual({ r: 147, g: 0, b: 0, a: 255 });
+  }, 120_000);
+
+  /**
+   * The page lowers the context's MAX_TEXTURE_SIZE to 4, below the 8 texels
+   * wide that 40 elements need.
+   *
+   * @canon spec-the-glsl-adapter-refuses-a-storage-texture-past-the-size-limit
+   */
+  it("refuses a storage buffer past the context's texture size limit with createGlsl", async () => {
+    const { error, name } = (await drawn("oversize")) as { error?: string; name: string };
+    expect(error).toMatch(new RegExp(`"${name}".*8×5.*MAX_TEXTURE_SIZE of 4`));
   }, 120_000);
 
   /**

@@ -499,6 +499,12 @@ export function createGlsl(
     data: ArrayLike<number>,
   ): void {
     const { width, height, components, kind } = storageTextureShape(shaderType, data.length);
+    const limit = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
+    if (width > limit || height > limit) {
+      throw new Error(
+        `[RMSL] the storage buffer "${slot}" needs a ${width}×${height} texture to be read in a render stage, past this context's MAX_TEXTURE_SIZE of ${limit}`,
+      );
+    }
     const { internal, format, type, array } = storageFormat(gl, kind, components);
     const texels = new array(width * height * components);
     texels.set(data);
