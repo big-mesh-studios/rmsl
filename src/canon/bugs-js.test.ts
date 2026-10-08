@@ -10,7 +10,6 @@ import {
   int,
   ivec2,
   mat2,
-  mat3,
   textureLoad,
   uniform,
   vec3,
@@ -18,7 +17,6 @@ import {
   type Node,
 } from "../rmsl";
 import { compileJS, compileJSFn, compileJSRoutine, createJsGrid } from "../js";
-import { evaluateJS } from "../testing/shader-eval";
 
 const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
 const none = { name: "main", params: [] };
@@ -120,42 +118,6 @@ describe("known bugs of the JS target, each failing until its fix", () => {
       })();
     const run = compileJSRoutine(build, param);
     expect(run({ params: { a: 5 }, textures: { [tex.name]: checker } })).toEqual([0, 0, 0, 0]);
-  });
-
-  /**
-   * On JS, a vector component read by a run-time index past the end gives
-   * `undefined`.
-   *
-   * @canon bug-js-reads-a-vector-component-out-of-range-as-undefined
-   */
-  it.fails("reads the last component for a run-time index past a vector on JS", () => {
-    expect(evaluateJS((a) => vec4(1, 2, 3, 4).element(a.toInt()), [9])).toBe(4);
-  });
-
-  /**
-   * On JS, a matrix column read by a run-time index past the end gives an
-   * empty array.
-   *
-   * @canon bug-js-reads-a-matrix-column-out-of-range-as-empty
-   */
-  it.fails("reads the last column for a run-time index past a matrix on JS", () => {
-    const m = () => mat3(1, 2, 3, 4, 5, 6, 7, 8, 9);
-    expect(evaluateJS((a) => m().element(a.toInt()), [9])).toEqual(new Float64Array([7, 8, 9]));
-  });
-
-  /**
-   * On JS, a write to a vector component by a run-time index past the end
-   * adds a component to the vector instead of writing the last one.
-   *
-   * @canon bug-js-writes-a-vector-component-out-of-range-past-its-end
-   */
-  it.fails("writes the last component for a run-time index past a vector on JS", () => {
-    const write = Fn((a: Node<"float">) => {
-      const v = vec4(1, 2, 3, 4).toVar();
-      v.element(a.toInt()).assign(float(20));
-      return v;
-    });
-    expect(evaluateJS((a) => write(a), [9])).toEqual(new Float64Array([1, 2, 3, 20]));
   });
 
   /**

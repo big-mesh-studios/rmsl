@@ -139,9 +139,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-cpu-target-at-f32-rounds-every-float-value-it-computes`](#spec-a-cpu-target-at-f32-rounds-every-float-value-it-computes) — At `float: "f32"`, a CPU target rounds every float value of its program to 32 bits: each input as it reads it, each literal, each constant it folds, and the value of each operation. A storage element it does not write keeps the value the host gave it. A built-in function, such as `dot`, `normalize`, `sin` or a texture sample, computes its value at 64 bits and rounds it once.
     - [`@spec a-run-time-index-past-the-end-reaches-the-last-element`](#spec-a-run-time-index-past-the-end-reaches-the-last-element) — A vector component or matrix column reached by a run-time index below zero or past its end reads and writes the last component or column.
       - [`@spec a-cpu-target-reaches-the-last-element-out-of-range`](#spec-a-cpu-target-reaches-the-last-element-out-of-range) — On a CPU target, a run-time index below zero or past the end reaches the last component or column of a vector or a matrix. This holds for a vector or matrix held in a storage element too. An index past the end of the storage buffer itself is a storage access outside its buffer.
-        - [`@bug js-reads-a-vector-component-out-of-range-as-undefined`](#bug-js-reads-a-vector-component-out-of-range-as-undefined) — On JS, a vector component read by a run-time index past the end gives `undefined`.
-        - [`@bug js-reads-a-matrix-column-out-of-range-as-empty`](#bug-js-reads-a-matrix-column-out-of-range-as-empty) — On JS, a matrix column read by a run-time index past the end gives an empty array.
-        - [`@bug js-writes-a-vector-component-out-of-range-past-its-end`](#bug-js-writes-a-vector-component-out-of-range-past-its-end) — On JS, a write to a vector component by a run-time index past the end adds a component, rather than writing the last one.
       - [`@exception a-gpu-target-lets-the-driver-pick-an-element-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range) — On GLSL and WGSL, a run-time index out of range reaches whatever element the driver picks.
       - [`@spec a-run-time-index-past-a-uniform-array-reaches-its-last-element`](#spec-a-run-time-index-past-a-uniform-array-reaches-its-last-element) — On a CPU target, a uniform array element read by a run-time index past the end reads the last element.
     - [`@spec length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one`](#spec-length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one) — `length` of a scalar is its absolute value, `distance` of two scalars is the absolute value of their difference, and `dot` of two scalars is their product, on every target.
@@ -1533,24 +1530,6 @@ This follows because an index out of range must reach the same element on every 
 ##### @spec a-cpu-target-reaches-the-last-element-out-of-range
 
 > On a CPU target, a run-time index below zero or past the end reaches the last component or column of a vector or a matrix. This holds for a vector or matrix held in a storage element too. An index past the end of the storage buffer itself is a storage access outside its buffer.
-
-###### @bug js-reads-a-vector-component-out-of-range-as-undefined
-
-> On JS, a vector component read by a run-time index past the end gives `undefined`.
-
-Issue: #85
-
-###### @bug js-reads-a-matrix-column-out-of-range-as-empty
-
-> On JS, a matrix column read by a run-time index past the end gives an empty array.
-
-Issue: #85
-
-###### @bug js-writes-a-vector-component-out-of-range-past-its-end
-
-> On JS, a write to a vector component by a run-time index past the end adds a component, rather than writing the last one.
-
-Issue: #85
 
 ##### @exception a-gpu-target-lets-the-driver-pick-an-element-out-of-range
 

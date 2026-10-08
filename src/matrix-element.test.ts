@@ -82,18 +82,24 @@ describe("a matrix's column by index", () => {
   /**
    * @canon spec-a-cpu-target-reaches-the-last-element-out-of-range
    */
-  it("clamps an index computed past the matrix's end, or below zero, to its last column on WASM", () => {
-    expect(evaluateWASM((a) => m().element(a.toInt()), [9])).toEqual(new Float64Array([7, 8, 9]));
-    expect(evaluateWASM((a) => m().element(a.toInt()), [-1])).toEqual(new Float64Array([7, 8, 9]));
-    const write = Fn((a: Node<"float">) => {
-      const v = m().toVar();
-      const w = vec3(100, 100, 100).toVar();
-      v.element(a.toInt()).assign(vec3(0, 0, 0));
-      return v.element(2).add(w);
-    });
-    expect(evaluateWASM((a) => write(a), [9])).toEqual(new Float64Array([100, 100, 100]));
-    expect(evaluateWASM((a) => write(a), [-1])).toEqual(new Float64Array([100, 100, 100]));
-  });
+  it.each([
+    ["JS", evaluateJS],
+    ["WASM", evaluateWASM],
+  ] as const)(
+    "clamps an index computed past the matrix's end, or below zero, to its last column on %s",
+    (_, evaluate) => {
+      expect(evaluate((a) => m().element(a.toInt()), [9])).toEqual(new Float64Array([7, 8, 9]));
+      expect(evaluate((a) => m().element(a.toInt()), [-1])).toEqual(new Float64Array([7, 8, 9]));
+      const write = Fn((a: Node<"float">) => {
+        const v = m().toVar();
+        const w = vec3(100, 100, 100).toVar();
+        v.element(a.toInt()).assign(vec3(0, 0, 0));
+        return v.element(2).add(w);
+      });
+      expect(evaluate((a) => write(a), [9])).toEqual(new Float64Array([100, 100, 100]));
+      expect(evaluate((a) => write(a), [-1])).toEqual(new Float64Array([100, 100, 100]));
+    },
+  );
 
   /**
    * @canon spec-a-cpu-target-reaches-the-last-element-out-of-range

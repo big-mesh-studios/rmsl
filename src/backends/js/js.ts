@@ -765,6 +765,11 @@ function jsBoundedIndex(index: string, count: number): string {
   return `Math.min((${index}) >>> 0, ${count - 1})`;
 }
 
+/** Whether `index` is a literal index, which the compiler has already checked lies inside what it indexes. */
+function jsIsLiteralIndex(index: string): boolean {
+  return /^\d+$/.test(index);
+}
+
 /**
  * A target written component by component: `at(k)` is component `k`. A matrix
  * column's components are addressed in the matrix itself, through its index
@@ -1696,9 +1701,9 @@ export function compileJSNode(
       // An index below zero or past the end reaches the last element.
       let last = (node.params![0].value as any).length - 1;
       let at = idx.expr;
-      if (!/^\d+$/.test(at)) {
+      if (!jsIsLiteralIndex(at)) {
         at = jsNewTemp(ctx, "int");
-        body.push(`${at} = ${idx.expr};`, `if (${at} < 0 || ${at} > ${last}) ${at} = ${last};`);
+        body.push(`${at} = ${jsBoundedIndex(idx.expr, last + 1)};`);
       }
       // An element past the end of a shorter array the host passes, or of one it leaves out, reads zero.
       jsRequireHelper(ctx, "none");
@@ -2138,20 +2143,26 @@ export function compileJSNode(
       let idx = jsCompileOperand(node.params![1], ctx);
       let brand = node.params![0]?._t;
       let [columns, rows] = MATRIX_DIMENSIONS[brand];
-      let column = mat.inBuffer ? jsBoundedIndex(idx.expr, columns) : `(${idx.expr})`;
+      let column = jsIsLiteralIndex(idx.expr) ? idx.expr : jsNewTemp(ctx, "int");
+      let bound = column === idx.expr ? [] : [`${column} = ${jsBoundedIndex(idx.expr, columns)};`];
       let target = ctx.outTarget ?? jsNewTemp(ctx, node._t);
       let lines = Array.from(
         { length: rows },
         (_, row) => `${target}[${row}] = ${mat.at(`${column} * ${rows} + ${row}`)};`,
       );
-      return { decls: [...mat.decls, ...idx.decls], body: [...mat.body, ...idx.body, ...lines], expr: target };
+      return {
+        decls: [...mat.decls, ...idx.decls],
+        body: [...mat.body, ...idx.body, ...bound, ...lines],
+        expr: target,
+      };
     }
 
     case "vectorElement": {
       assertLiteralIndexInRange(node.params![0], node.params![1]);
       let src = jsComponents(node.params![0], ctx, ctx.jsTarget === node);
       let idx = jsCompileOperand(node.params![1], ctx);
-      let component = src.inBuffer ? jsBoundedIndex(idx.expr, TYPE_WIDTH[node.params![0]._t]) : idx.expr;
+      // A run-time index below zero or past the end reaches the last component.
+      let component = jsIsLiteralIndex(idx.expr) ? idx.expr : jsBoundedIndex(idx.expr, TYPE_WIDTH[node.params![0]._t]);
       let read = { decls: [...src.decls, ...idx.decls], body: [...src.body, ...idx.body], expr: src.at(component) };
       return jsBooleanComponent(node, read, ctx);
     }
