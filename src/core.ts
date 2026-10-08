@@ -3481,15 +3481,13 @@ const BLOCK_STATEMENTS = new Set(["if", "for", "while"]);
 const JUMP_STATEMENTS = new Set(["break", "continue", "discard", "return"]);
 
 /**
- * Refuses an update of a `for` that holds a block or a statement that leaves
- * the loop or the function, neither of which the update slot of a `for` takes.
- * Each node of the update is visited once.
+ * Refuses `node`, a node of the update of a `for`, when it is a block or a
+ * statement that leaves the loop or the function, neither of which the
+ * update slot of a `for` takes.
  */
-export function assertForUpdate(update: unknown): void {
-  someNode(update, (node) => {
-    if (BLOCK_STATEMENTS.has(node.type)) throw new Error(FOR_UPDATE_BLOCK_MESSAGE);
-    if (JUMP_STATEMENTS.has(node.type)) throw new Error(FOR_UPDATE_JUMP_MESSAGE);
-  });
+export function assertForUpdateNode(node: { type?: string }): void {
+  if (BLOCK_STATEMENTS.has(node.type!)) throw new Error(FOR_UPDATE_BLOCK_MESSAGE);
+  if (JUMP_STATEMENTS.has(node.type!)) throw new Error(FOR_UPDATE_JUMP_MESSAGE);
 }
 
 /**
@@ -3513,7 +3511,7 @@ export function For<T extends Node<ShaderType>>(
     // Condition, update, body: the order they were always built in, which names their variables.
     const { declarations, condition } = loopCondition(() => cond(v));
     let updateNode = buildBlock(() => update(v));
-    assertForUpdate(updateNode);
+    someNode(updateNode, assertForUpdateNode);
     let bodyNode = buildBlock(() => body(v));
     scope.push(...declarations);
     scope.push(
