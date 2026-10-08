@@ -433,6 +433,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear`](#spec-a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear) — A draw that passes `clear: false` leaves the colour of the pixels it does not cover as an earlier draw left them. A CPU rasterizer draw given an output buffer draws over what that buffer holds.
       - [`@spec a-cpu-draw-clears-its-depth-first-unless-it-asks-not-to`](#spec-a-cpu-draw-clears-its-depth-first-unless-it-asks-not-to) — A draw of a CPU rasterizer routine clears its depth buffer before it draws, so no depth of an earlier draw hides it. With `clearDepth: false` it tests against the depth an earlier draw left.
       - [`@spec a-cpu-draw-given-an-output-buffer-leaves-the-routines-image-alone`](#spec-a-cpu-draw-given-an-output-buffer-leaves-the-routines-image-alone) — A CPU rasterizer draw given an output buffer draws into that buffer only. A later draw given none draws over the image that the routine's own draws left.
+      - [`@spec a-cpu-draw-of-another-size-starts-from-a-transparent-image`](#spec-a-cpu-draw-of-another-size-starts-from-a-transparent-image) — A CPU rasterizer draw given no output buffer, at another width or height than the image the routine keeps, draws over a transparent image, `[0, 0, 0, 0]` in every pixel, even when it passes `clear: false`.
     - [`@spec several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas) — Several adapters can draw on one canvas. An adapter ignores a uniform its program does not read.
     - [`@spec an-effect-with-several-passes-is-a-pass-graph`](#spec-an-effect-with-several-passes-is-a-pass-graph) — An [effect](#term-effect) with several passes returns a [pass graph](#term-pass-graph): its passes, the samplers each pass reads, and the pass that gives the output. The application draws each pass.
     - [`@exception a-scene-renderer-draws-its-scene-graph`](#exception-a-scene-renderer-draws-its-scene-graph) — `render(scene, camera)` on a renderer of `./scene` walks the scene graph, binds the geometry and the [node material](#term-node-material) of each mesh, uploads their uniforms and draws them.
@@ -3152,6 +3153,14 @@ Derives from: [`fact-a-webgpu-canvas-configured-opaque-drops-alpha`](#fact-a-web
 Derives from: [`spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws), [`spec-a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear`](#spec-a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear)
 
 This follows because the output buffer is that draw's target, and a draw changes the colour of its own target and of nothing else. The JS rasterizer keeps its own image apart from the buffers it is given, and the WASM rasterizer gives what the JS rasterizer gives.
+
+##### @spec a-cpu-draw-of-another-size-starts-from-a-transparent-image
+
+> A CPU rasterizer draw given no output buffer, at another width or height than the image the routine keeps, draws over a transparent image, `[0, 0, 0, 0]` in every pixel, even when it passes `clear: false`.
+
+Derives from: [`spec-a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment), [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives)
+
+This follows because the pixels of an image of another size lie at other places, as a depth buffer's do, and a draw of another size starts from a cleared depth buffer for that reason. A WebGPU canvas of another size gives a new texture, whose pixels start at zero.
 
 #### @spec several-adapters-draw-on-one-canvas
 

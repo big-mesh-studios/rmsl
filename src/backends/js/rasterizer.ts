@@ -196,9 +196,11 @@ export function compileJS(
   let depthBuffer: Float64Array | null = null;
   let depthWidth = 0;
   let depthHeight = 0;
-  // Persists across draw() calls too, same as WasmRasterRoutine's output
-  // buffer address does — a draw that passes `clear: false` composes onto it.
+  // Persists across draw() calls of one size too, as WasmRasterRoutine's image
+  // does — a draw that passes `clear: false` composes onto it.
   let colorBuffer: Float64Array | null = null;
+  let imageWidth = 0;
+  let imageHeight = 0;
 
   /** What the triangle being rasterized writes into, set by each draw. */
   let target: CpuDrawBuffer = NO_TARGET;
@@ -387,8 +389,12 @@ export function compileJS(
     depthWidth = width;
     depthHeight = height;
 
-    if (!out && (!colorBuffer || colorBuffer.length < pixelCount * 4)) {
-      colorBuffer = new Float64Array(pixelCount * 4);
+    // An image of another size lies at other pixels, so a draw of that size starts from a transparent one.
+    if (!out && (width !== imageWidth || height !== imageHeight)) {
+      if (!colorBuffer || colorBuffer.length < pixelCount * 4) colorBuffer = new Float64Array(pixelCount * 4);
+      else colorBuffer.fill(0, 0, pixelCount * 4);
+      imageWidth = width;
+      imageHeight = height;
     }
     const result = out ?? colorBuffer!;
     if (options.clear !== false) {

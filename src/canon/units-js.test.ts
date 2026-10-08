@@ -1714,6 +1714,48 @@ describe("the fragments a CPU rasterizer draws", () => {
   });
 
   /**
+   * The first draw paints the routine's 2×1 image red; the second draws a
+   * larger image into a buffer of the caller's; the third, at 2×1 again,
+   * paints nothing and does not clear, so it shows the red image.
+   *
+   * @canon spec-a-cpu-draw-given-an-output-buffer-leaves-the-routines-image-alone
+   */
+  it.each(rasterizers)("%s: keeps its own image through a larger draw given an output buffer", (_, compileRaster) => {
+    const pos = attribute("vec2");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
+      () => Fn(() => vec4(1, 0, 0, 1))() as any,
+      { attributeTypes: { [pos.name]: "vec2" } },
+    );
+    const draw = (corners: number[], width: number, height: number, options: { clear: boolean; out?: Float64Array }) =>
+      Array.from(
+        routine.draw({ attributes: { [pos.name]: new Float64Array(corners) } }, { width, height, ...options }),
+      );
+    draw([-1, -1, 3, -1, -1, 3], 2, 1, { clear: true });
+    draw([-1, -1, 3, -1, -1, 3], 4, 4, { clear: true, out: new Float64Array(64) });
+    expect(draw([2, 2, 3, 2, 2, 3], 2, 1, { clear: false })).toEqual([1, 0, 0, 1, 1, 0, 0, 1]);
+  });
+
+  /**
+   * The first draw paints a 4×4 image red; the second, at 2×8, paints nothing
+   * and does not clear, so it shows what it draws over.
+   *
+   * @canon spec-a-cpu-draw-of-another-size-starts-from-a-transparent-image
+   */
+  it.each(rasterizers)("%s: draws over a transparent image at another size", (_, compileRaster) => {
+    const pos = attribute("vec2");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
+      () => Fn(() => vec4(1, 0, 0, 1))() as any,
+      { attributeTypes: { [pos.name]: "vec2" } },
+    );
+    const draw = (corners: number[], width: number, height: number, clear: boolean) =>
+      Array.from(routine.draw({ attributes: { [pos.name]: new Float64Array(corners) } }, { width, height, clear }));
+    draw([-1, -1, 3, -1, -1, 3], 4, 4, true);
+    expect(draw([2, 2, 3, 2, 2, 3], 2, 8, false)).toEqual(new Array(64).fill(0));
+  });
+
+  /**
    * A depth kept from a draw of another size would be read at another pixel.
    *
    * @canon spec-a-rasterizer-keeps-the-closer-fragment
