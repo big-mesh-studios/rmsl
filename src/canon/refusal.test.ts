@@ -28,6 +28,7 @@ import {
   vec3,
   vec4,
   type Node,
+  type Var,
 } from "../rmsl";
 import { compileJSCompute, compileJSGrid, compileJSRoutine, compileJSVertex } from "../js";
 import { compileWasmCompute, compileWasmGrid, compileWasmRoutine, compileWasmVertex } from "../wasm";
@@ -267,7 +268,9 @@ describe("a mistake is refused before the program runs", () => {
 
   /**
    * A `Case` added from a block other than its `Switch`'s, or after its
-   * `Default`, could not reach the program, so it is refused, naming it.
+   * `Default`, could not reach the program, so it is refused, naming it. So is
+   * a `Case` or `Default` added after a statement that follows the case before
+   * it, which the chain would run before that statement.
    *
    * @canon spec-a-case-is-added-in-the-block-of-its-switch
    */
@@ -300,6 +303,20 @@ describe("a mistake is refused before the program runs", () => {
     expect(fromAnotherBlock).toThrow(/Case\(\) must be called from the block that holds its Switch\(\)/);
     expect(afterDefault).toThrow(/Case\(\) after Default\(\)/);
     expect(afterTheFunction).toThrow(/Case\(\) must be called from the block that holds its Switch\(\)/);
+    const afterAStatement = (add: (s: ReturnType<typeof Switch>, w: Var<"float">, v: Var<"float">) => void) => () =>
+      Fn(() => {
+        const v = float(0).toVar();
+        const s = Switch(int(uniform("float"))).Case(0, () => v.assign(float(1)));
+        const w = float(5).toVar();
+        add(s, w, v);
+        return vec4(v);
+      })();
+    expect(afterAStatement((s, w, v) => s.Case(1, () => v.assign(w)))).toThrow(
+      /Case\(\) after a statement that follows the case before it/,
+    );
+    expect(afterAStatement((s, w, v) => s.Default(() => v.assign(w)))).toThrow(
+      /Default\(\) after a statement that follows the case before it/,
+    );
   });
 
   /**

@@ -3574,8 +3574,8 @@ export type SwitchChain = {
  *
  * Compiles to an if/else-if chain comparing the selector with each case value,
  * the lowering TSL uses, so there is no fall-through and no `Break()` inside a
- * case. The chain stands where `Switch` is called, and each `Case` and the
- * `Default` must be added from that block.
+ * case. The chain stands where its first `Case` or `Default` is added, as
+ * TSL's does, and each later one must follow the one before it in that block.
  */
 export function Switch(selector: Node<"int"> | Node<"uint">): SwitchChain {
   let scope: BaseNode<ShaderType>[] | undefined;
@@ -3583,9 +3583,9 @@ export function Switch(selector: Node<"int"> | Node<"uint">): SwitchChain {
     scope = s;
   });
   const block = scope!;
-  const at = block.length;
+  /** The length of the block once the previous `Case` or `Default` was added. */
+  let after: number | undefined;
   const selectorNode = wrapValue(selector) as BaseNode<ShaderType>;
-  let head: BaseNode<ShaderType> | undefined;
   let tail: BaseNode<ShaderType> | undefined;
   let closed = false;
   /** Checks that a `Case` or `Default` is added where it can still reach the program. */
@@ -3596,16 +3596,18 @@ export function Switch(selector: Node<"int"> | Node<"uint">): SwitchChain {
         `[RMSL] ${name}() must be called from the block that holds its Switch(), as Switch(x).Case(...).Default(...).`,
       );
     }
-  };
-  /** Puts `branch` at the end of the chain, the first one where `Switch` was called. */
-  const append = (branch: BaseNode<ShaderType>) => {
-    if (tail === undefined) {
-      head = branch;
-      block.splice(at, 0, head);
-    } else {
-      tail.params![2] = branch;
+    if (after !== undefined && block.length !== after) {
+      throw new Error(
+        `[RMSL] ${name}() after a statement that follows the case before it: the chain would run before that statement.`,
+      );
     }
+  };
+  /** Puts `branch` at the end of the chain, the first one at the end of the block. */
+  const append = (branch: BaseNode<ShaderType>) => {
+    if (tail === undefined) block.push(branch);
+    else tail.params![2] = branch;
     tail = branch;
+    after = block.length;
   };
   const chain: SwitchChain = {
     Case: (...params) => {
@@ -3628,14 +3630,8 @@ export function Switch(selector: Node<"int"> | Node<"uint">): SwitchChain {
     },
     Default: (defaultBody) => {
       check("Default");
-      const branch = buildBlock(defaultBody);
       // A Default with no case before it always runs: its body stands alone.
-      if (tail === undefined) {
-        head = branch;
-        block.splice(at, 0, branch);
-      } else {
-        tail.params![2] = branch;
-      }
+      append(buildBlock(defaultBody));
       closed = true;
       return chain;
     },

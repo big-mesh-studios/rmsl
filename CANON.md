@@ -240,7 +240,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-scalar-argument-beside-a-vector-is-widened-to-it`](#spec-a-scalar-argument-beside-a-vector-is-widened-to-it) — A scalar argument beside a vector in `step`, `smoothstep`, `clamp`, `min`, `max`, `pow` or `mod` is widened to that vector before any target compiles it.
     - [`@spec an-integer-and-a-float-operand-are-refused`](#spec-an-integer-and-a-float-operand-are-refused) — An operation on an integer operand and a float operand is refused, by the type checker and on every target. A bare number takes the type beside it instead.
     - [`@spec a-for-update-that-holds-a-block-is-refused`](#spec-a-for-update-that-holds-a-block-is-refused) — A `For` whose update holds a block, such as an `If`, is refused where the `For` is built, before any target compiles it, so it is refused on every target alike. A write to a storage element holds no block, so an update that makes one compiles on every target that has storage buffers.
-  - [`@spec a-case-is-added-in-the-block-of-its-switch`](#spec-a-case-is-added-in-the-block-of-its-switch) — A `Case` or `Default` called from a block other than the one that holds its `Switch`, or after its `Default`, is refused as the program builds it, with an error that names it.
+  - [`@spec a-case-is-added-in-the-block-of-its-switch`](#spec-a-case-is-added-in-the-block-of-its-switch) — A `Case` or `Default` called from a block other than its `Switch`'s, or after its `Default`, is refused as the program builds it. The error names it. So is one added after a statement that follows the `Case` before it, a variable included.
   - [`@spec a-case-with-no-values-is-refused`](#spec-a-case-with-no-values-is-refused) — A `Case` given no values is refused as the program builds it, with an error that names `Case`.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
   - [`@spec a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop) — A loop follows TSL's `Loop`. It tests its condition before every iteration, and runs its body while the condition holds. It builds the condition once, before the loop.
@@ -318,7 +318,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-else-if-condition-is-computed-only-when-tested`](#spec-an-else-if-condition-is-computed-only-when-tested) — A variable that an `ElseIf` condition makes is computed when that condition is tested, after the conditions before it failed.
     - [`@spec a-variable-an-else-if-condition-makes-belongs-to-its-chain`](#spec-a-variable-an-else-if-condition-makes-belongs-to-its-chain) — The rest of an `If` chain can read a variable that an `ElseIf` condition makes, and a use of it after the chain is refused.
     - [`@spec an-else-if-follows-its-if-directly`](#spec-an-else-if-follows-its-if-directly) — An `ElseIf` or `Else` written after a statement that follows its `If` or `ElseIf`, a variable or a `Break` included, or called from inside another block, is refused.
-  - [`@spec a-switch-runs-the-case-its-selector-matches`](#spec-a-switch-runs-the-case-its-selector-matches) — `Switch` runs the first `Case` whose values hold its selector, or the `Default` when none does, as a chain of `if` and `else` with no fall-through. It is written as TSL writes it, `Switch(selector).Case(value, …, body).Default(body)`, and the chain stands where `Switch` is called. A `Switch` with no `Case` and no `Default` runs nothing.
+  - [`@spec a-switch-runs-the-case-its-selector-matches`](#spec-a-switch-runs-the-case-its-selector-matches) — `Switch` runs the first `Case` whose values hold its selector, or the `Default` when none does, as a chain of `if` and `else` with no fall-through. It is written as TSL writes it, `Switch(selector).Case(value, …, body).Default(body)`, and the chain stands where its first `Case` or `Default` is added. A statement made between `Switch` and that call runs before the chain. A `Switch` with no `Case` and no `Default` runs nothing.
   - [`@spec break-continue-return-and-discard-leave-where-tsl-leaves`](#spec-break-continue-return-and-discard-leave-where-tsl-leaves) — `Break` leaves the loop, `Continue` starts its next iteration, `Return` leaves the function, and `Discard` drops the fragment.
     - [`@bug the-wasm-rasterizer-paints-a-discarded-fragment`](#bug-the-wasm-rasterizer-paints-a-discarded-fragment) — The WASM rasterizer writes a colour for a discarded fragment: the colour the fragment stage last left in its memory.
     - [`@bug the-cpu-rasterizers-write-the-depth-of-a-discarded-fragment`](#bug-the-cpu-rasterizers-write-the-depth-of-a-discarded-fragment) — The JS and WASM rasterizers write the depth of a fragment before they run it. A fragment that discards still hides what a later draw puts behind it.
@@ -692,7 +692,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-swizzles-in-xyzw-rgba-and-stpq`](#fact-tsl-swizzles-in-xyzw-rgba-and-stpq) — A TSL node swizzles with the component names `xyzw`, `rgba` and `stpq`.
 - [`@fact tsl-samples-a-texture-with-texture-and-texture-level`](#fact-tsl-samples-a-texture-with-texture-and-texture-level) — TSL samples a texture with the function `texture(value, uv)`. At a level it uses `textureLevel(value, uv, level)` or `.level(level)`. three.js 0.186 defines no TSL export named `textureLod`. That name appears only in `NodeBuilder`, as the GLSL function it emits.
 - [`@fact tsl-chains-if-elseif-and-else-as-conditions`](#fact-tsl-chains-if-elseif-and-else-as-conditions) — TSL's `If`, `ElseIf` and `Else` build a chain of conditional nodes. Each branch after the first is the `elseNode` of the branch before it, so the first branch whose condition holds runs, and `Else` runs when none does.
-- [`@fact tsl-builds-switch-as-a-chain-of-conditions`](#fact-tsl-builds-switch-as-a-chain-of-conditions) — TSL's `Switch(x)` with `Case(v1, v2, …, body)` and `Default(body)` builds the same chain of conditional nodes. A `Case` is the condition `x == v1 || x == v2 …`, and `Default` is an `Else`, so no case falls through to the next.
+- [`@fact tsl-builds-switch-as-a-chain-of-conditions`](#fact-tsl-builds-switch-as-a-chain-of-conditions) — TSL's `Switch(x)` with `Case(v1, v2, …, body)` and `Default(body)` builds the same chain of conditional nodes. A `Case` is the condition `x == v1 || x == v2 …`, and `Default` is an `Else`, so no case falls through to the next. The first `Case` adds the chain to the stack, after the statements made before it.
 - [`@fact tsl-break-continue-return-and-discard-are-statements`](#fact-tsl-break-continue-return-and-discard-are-statements) — TSL's `Break()`, `Continue()`, `Return()` and `Discard()` each add the statement `break`, `continue`, `return` or `discard` to the current stack. `Discard(condition)` adds it only where the condition holds.
 - [`@fact tsl-fn-runs-its-body-in-a-stack-of-its-own`](#fact-tsl-fn-runs-its-body-in-a-stack-of-its-own) — TSL's `Fn(jsFunction)` wraps a JavaScript function. Calling the result runs it with the arguments in a stack of its own. The stack collects the statements the body makes, and the node the body returns is the result.
 - [`@fact tsl-to-var-takes-a-name`](#fact-tsl-to-var-takes-a-name) — TSL's `toVar(name)` declares a variable that holds the node's value, under `name`. A call with no name leaves the node system to generate one.
@@ -2076,7 +2076,7 @@ This follows because the update slot of a GLSL or WGSL `for` takes no block, and
 
 ### @spec a-case-is-added-in-the-block-of-its-switch
 
-> A `Case` or `Default` called from a block other than the one that holds its `Switch`, or after its `Default`, is refused as the program builds it, with an error that names it.
+> A `Case` or `Default` called from a block other than its `Switch`'s, or after its `Default`, is refused as the program builds it. The error names it. So is one added after a statement that follows the `Case` before it, a variable included.
 
 This follows because a case added once its block is built could not reach the program, and a mistake is refused before the program runs.
 
@@ -2488,7 +2488,7 @@ Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mi
 
 ### @spec a-switch-runs-the-case-its-selector-matches
 
-> `Switch` runs the first `Case` whose values hold its selector, or the `Default` when none does, as a chain of `if` and `else` with no fall-through. It is written as TSL writes it, `Switch(selector).Case(value, …, body).Default(body)`, and the chain stands where `Switch` is called. A `Switch` with no `Case` and no `Default` runs nothing.
+> `Switch` runs the first `Case` whose values hold its selector, or the `Default` when none does, as a chain of `if` and `else` with no fall-through. It is written as TSL writes it, `Switch(selector).Case(value, …, body).Default(body)`, and the chain stands where its first `Case` or `Default` is added. A statement made between `Switch` and that call runs before the chain. A `Switch` with no `Case` and no `Default` runs nothing.
 
 Derives from: [`fact-tsl-builds-switch-as-a-chain-of-conditions`](#fact-tsl-builds-switch-as-a-chain-of-conditions)
 
@@ -4718,7 +4718,7 @@ This is how three.js's TSL behaves, read from its source (`StackNode`, three.js 
 
 ## @fact tsl-builds-switch-as-a-chain-of-conditions
 
-> TSL's `Switch(x)` with `Case(v1, v2, …, body)` and `Default(body)` builds the same chain of conditional nodes. A `Case` is the condition `x == v1 || x == v2 …`, and `Default` is an `Else`, so no case falls through to the next.
+> TSL's `Switch(x)` with `Case(v1, v2, …, body)` and `Default(body)` builds the same chain of conditional nodes. A `Case` is the condition `x == v1 || x == v2 …`, and `Default` is an `Else`, so no case falls through to the next. The first `Case` adds the chain to the stack, after the statements made before it.
 
 This is how three.js's TSL behaves, read from its source (`StackNode`, three.js 0.186).
 

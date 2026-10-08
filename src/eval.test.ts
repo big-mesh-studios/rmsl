@@ -942,6 +942,26 @@ describe("RMSL evaluation", () => {
   }, 60_000);
 
   /**
+   * A variable made between `Switch` and its first `Case` is declared before
+   * the chain, so the cases read it on every target.
+   *
+   * @canon spec-a-switch-runs-the-case-its-selector-matches
+   */
+  it("runs a statement made between Switch and its first Case before the chain", async () => {
+    const pick = (x: Node<"float">) =>
+      Fn(() => {
+        const out = float(0).toVar();
+        const s = Switch(int(x));
+        const w = float(5).toVar("w");
+        s.Case(0, () => out.assign(w)).Default(() => out.assign(w.add(1)));
+        return out;
+      })();
+
+    await expectValue(pick, [0], 5);
+    await expectValue(pick, [1], 6);
+  }, 60_000);
+
+  /**
    * The lowercase aliases are the same nodes, so they must compute the same
    * results — an alias that silently did nothing would fail here.
    *
