@@ -1200,10 +1200,30 @@ describe("the scalars and inputs of a JS function", () => {
         return sum.add(v);
       })() as any;
     const source = compileJSFn(build, none);
-    const copies = source.match(/\[0\] = ctx\.uniforms\["_rmsl_u\d+"\]\[0\];/g);
+    const copies = source.match(/\[0\] = \(ctx\.uniforms\?\.\["_rmsl_u\d+"\]\?\.\[0\] \?\? 0\);/g);
     expect(copies).toHaveLength(1);
     expect(source.indexOf(copies![0]!)).toBeLessThan(source.indexOf("for ("));
     expect(compileJSRoutine(build, none)({ uniforms: { [v.name]: [1, 2, 3] } })).toEqual(new Float64Array([7, 14, 21]));
+  });
+
+  /**
+   * @canon spec-a-js-function-copies-a-host-vector-into-a-slot-of-its-kind
+   */
+  it("reads a host vector it copies before a loop as zero when the host leaves it out", () => {
+    const v = uniform("vec3");
+    const n = uniform("int");
+    const build = () =>
+      Fn(() => {
+        const sum = vec3(0).toVar();
+        Loop(n, () => {
+          sum.addAssign(v);
+        });
+        return sum;
+      })() as any;
+    const run = compileJSRoutine(build, none);
+    expect(run({ uniforms: { [n.name]: 0 } })).toEqual(new Float64Array([0, 0, 0]));
+    expect(run({ uniforms: { [n.name]: 2 } })).toEqual(new Float64Array([0, 0, 0]));
+    expect(run({ uniforms: { [n.name]: 2, [v.name]: [1, 2, 3] } })).toEqual(new Float64Array([2, 4, 6]));
   });
 
   /**

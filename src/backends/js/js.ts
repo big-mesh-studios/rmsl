@@ -1314,7 +1314,7 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
   result = jsTypedInput(node, result, ctx);
   if (ctx.jsFloat32) result = jsRound32(node, result, ctx);
   // A copy of what the host passed by name holds through any write: nothing in a call changes it.
-  if (result.expr !== read && /^ctx\.(uniforms|attributes|varyings|params)\["[^"]*"\]$/.test(read)) {
+  if (result.expr !== read && JS_INPUT_BY_NAME.test(read)) {
     ctx.jsReadsSlot = true;
     let loop = ctx.jsLoopCopies;
     if (loop) {
@@ -1388,6 +1388,9 @@ function jsCompileTarget(node: any, ctx: CompileCtx): CompiledNode {
   }
 }
 
+/** A read of an input the host passes by name, which no statement of a call changes. */
+const JS_INPUT_BY_NAME = /^ctx\.(uniforms|attributes|varyings|params)\["[^"]*"\]$/;
+
 /** The node types whose vector or matrix the host passes in as an array of its own. */
 const JS_HOST_INPUTS = new Set(["uniform", "uniformArrayElement", "attribute", "varying", "var"]);
 
@@ -1411,7 +1414,11 @@ function jsTypedInput(node: any, result: CompiledNode, ctx: CompileCtx): Compile
     source = jsNewTemp(ctx, "float");
     body.push(`${source} = ${result.expr};`);
   }
-  for (let i = 0; i < jsArrayLength(t); i++) body.push(`${temp}[${i}] = ${source}[${i}];`);
+  // A copy made before a loop runs whether the read in it does or not, so it reads an input left out as zero.
+  let hoisted = ctx.jsLoopCopies !== undefined && JS_INPUT_BY_NAME.test(source);
+  let at = (i: number) =>
+    hoisted ? `(${source!.replace(/^ctx\.(\w+)\[/, "ctx.$1?.[")}?.[${i}] ?? 0)` : `${source}[${i}]`;
+  for (let i = 0; i < jsArrayLength(t); i++) body.push(`${temp}[${i}] = ${at(i)};`);
   return { ...result, body, expr: temp };
 }
 
