@@ -77,9 +77,9 @@ describe("WASM backend: compileWasm (vertex+fragment rasterizer pipeline)", () =
     );
     expect(Array.from(first).every((_, i) => i % 4 !== 3 || first[i] === 1)).toBe(true); // every pixel's alpha is 1: fully covered
 
-    // draw 2: a tiny blue triangle covering exactly one corner pixel (NDC 0.5 units, one quarter of a 4-wide axis),
-    // with `clear: true` — the "one draw, one frame" case this option exists for
-    const tinyTriangle = new Float64Array([-1, -1, 0, -0.5, -1, 0, -1, -0.5, 0]);
+    // draw 2: a tiny blue triangle covering exactly one corner pixel (NDC 0.75 units, so its long edge
+    // passes beyond that pixel's centre), with `clear: true` — the "one draw, one frame" case this option exists for
+    const tinyTriangle = new Float64Array([-1, -1, 0, -0.25, -1, 0, -1, -0.25, 0]);
     const second = routine.draw(
       { attributes: { [posAttr.name]: tinyTriangle }, uniforms: { [colorUniform.name]: [0, 0, 1] } },
       { count: 3, width, height, clear: true },

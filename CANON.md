@@ -541,7 +541,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment) — The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles: the depth the fragment stage writes, clamped to 0 to 1, or else its interpolated depth. Its depth buffer persists across draws of one size until a draw asks for `clearDepth`, and a draw of another width or height starts from a cleared one.
       - [`@spec a-rasterizer-takes-its-count-from-the-first-attribute`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute) — A draw that names no vertex count takes it from the first attribute the host passes.
       - [`@spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws) — The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
-      - [`@spec a-pixel-on-a-shared-edge-is-shaded-once`](#spec-a-pixel-on-a-shared-edge-is-shaded-once) — A pixel centre on an edge two triangles share takes the colour of one of them. WebGPU's rasterization rules pick which one, whatever the order of the triangles.
+      - [`@spec a-pixel-on-a-shared-edge-is-shaded-once`](#spec-a-pixel-on-a-shared-edge-is-shaded-once) — A pixel centre on an edge two triangles share takes the colour of one of them, whatever the order of the triangles: the one whose top or left edge it is.
+      - [`@spec a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge`](#spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge) — A CPU rasterizer shades a pixel whose centre lies on an edge of a triangle when that edge is a top or a left edge of the triangle, and does not shade it when the edge is a bottom or a right edge, whichever way the triangle winds.
       - [`@spec a-rasterizer-clips-outside-the-depth-range`](#spec-a-rasterizer-clips-outside-the-depth-range) — The rasterizer clips a triangle at depth 0 and depth 1, so it draws nothing whose depth lies outside that range.
       - [`@spec a-triangle-off-screen-draws-nothing`](#spec-a-triangle-off-screen-draws-nothing) — A triangle wholly outside the viewport draws nothing, at any distance from it.
       - [`@spec a-rasterizer-gives-each-vertex-its-own-position`](#spec-a-rasterizer-gives-each-vertex-its-own-position) — A CPU rasterizer places each vertex of a draw at the position its own vertex call returned, whatever the vertex program keeps in variables.
@@ -730,6 +731,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact wgsl-round-takes-a-half-to-the-even-integer`](#fact-wgsl-round-takes-a-half-to-the-even-integer) — WGSL's `round` takes a value halfway between two integers to the even one.
 - [`@fact webgpu-stores-a-float-in-an-8-bit-channel-clamped-and-rounded`](#fact-webgpu-stores-a-float-in-an-8-bit-channel-clamped-and-rounded) — WebGPU stores a float into an 8-bit normalised channel by clamping it to 0 to 1 and rounding it to the nearest byte.
 - [`@fact webgpu-shades-a-pixel-on-a-shared-edge-once`](#fact-webgpu-shades-a-pixel-on-a-shared-edge-once) — Chromium's WebGPU gives a pixel whose centre lies on an edge that two triangles share to exactly one of them, whatever their order and winding.
+- [`@fact webgpu-shades-a-pixel-centre-on-a-top-or-left-edge`](#fact-webgpu-shades-a-pixel-centre-on-a-top-or-left-edge) — Chromium's WebGPU shades a pixel whose centre lies exactly on an edge of a triangle when the edge is a top edge or a left edge of the triangle, and not when it is a bottom or a right edge, with either winding. A top edge is horizontal, with the rest of the triangle below it. A left edge is not horizontal, and has the inside of the triangle on its right.
 - [`@fact webgpu-clamps-a-written-depth-to-the-depth-range`](#fact-webgpu-clamps-a-written-depth-to-the-depth-range) — WebGPU clamps the depth a fragment stage writes to the viewport's depth range, 0 to 1 by default, before it tests and stores it.
 - [`@fact webgpu-clips-a-triangle-outside-the-depth-range`](#fact-webgpu-clips-a-triangle-outside-the-depth-range) — WebGPU clips a triangle against the depth range from 0 to 1, and draws the depths 0 and 1 themselves.
 - [`@fact webgpu-draws-nothing-for-a-triangle-off-the-viewport`](#fact-webgpu-draws-nothing-for-a-triangle-off-the-viewport) — WebGPU draws no pixel for a triangle wholly outside the viewport, at any distance from it, and reports no error.
@@ -3784,11 +3786,19 @@ Derives from: [`fact-webgpu-clamps-a-written-depth-to-the-depth-range`](#fact-we
 
 ##### @spec a-pixel-on-a-shared-edge-is-shaded-once
 
-> A pixel centre on an edge two triangles share takes the colour of one of them. WebGPU's rasterization rules pick which one, whatever the order of the triangles.
+> A pixel centre on an edge two triangles share takes the colour of one of them, whatever the order of the triangles: the one whose top or left edge it is.
 
-Derives from: [`fact-webgpu-shades-a-pixel-on-a-shared-edge-once`](#fact-webgpu-shades-a-pixel-on-a-shared-edge-once)
+Derives from: [`fact-webgpu-shades-a-pixel-on-a-shared-edge-once`](#fact-webgpu-shades-a-pixel-on-a-shared-edge-once), [`spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge`](#spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge)
 
-This follows because WebGPU gives such a pixel to exactly one triangle, and a CPU target gives what WebGPU gives.
+This follows because WebGPU gives such a pixel to exactly one triangle, and an edge that is the top or left edge of one triangle is the bottom or right edge of the triangle on its other side.
+
+##### @spec a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge
+
+> A CPU rasterizer shades a pixel whose centre lies on an edge of a triangle when that edge is a top or a left edge of the triangle, and does not shade it when the edge is a bottom or a right edge, whichever way the triangle winds.
+
+Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`fact-webgpu-shades-a-pixel-centre-on-a-top-or-left-edge`](#fact-webgpu-shades-a-pixel-centre-on-a-top-or-left-edge)
+
+This follows because Chromium's WebGPU decides a pixel centre on an edge by the top-left rule, and a CPU target gives what WebGPU gives.
 
 ##### @spec a-rasterizer-clips-outside-the-depth-range
 
@@ -4971,6 +4981,12 @@ Chromium's WebGPU writes the values -1, 0, 0.001, 0.3, 0.5, 0.7, 0.999, 1, 1.5 a
 > Chromium's WebGPU gives a pixel whose centre lies on an edge that two triangles share to exactly one of them, whatever their order and winding.
 
 The WebGPU specification leaves such a pixel undefined; OpenGL ES 3.0, section 3.6.1, gives it to exactly one triangle, and Chromium's WebGPU does the same. Chromium's WebGPU draws a 4×4 square as two triangles split on a diagonal through four pixel centres. Each adds 0.25 by blending. Every pixel gets the byte 64, in either triangle order and with either winding, so none was shaded twice.
+
+## @fact webgpu-shades-a-pixel-centre-on-a-top-or-left-edge
+
+> Chromium's WebGPU shades a pixel whose centre lies exactly on an edge of a triangle when the edge is a top edge or a left edge of the triangle, and not when it is a bottom or a right edge, with either winding. A top edge is horizontal, with the rest of the triangle below it. A left edge is not horizontal, and has the inside of the triangle on its right.
+
+This is the top-left rule that Direct3D specifies. Chromium's WebGPU on Metal draws into a 4×4 target, in both windings. A rectangle from x 0.5 to 2.5, in pixels, shades columns 0 and 1. A rectangle from y 0.5 to 2.5 shades rows 0 and 1. A triangle whose left edge lies at x 0.5 and whose top edge lies at y 0.5 shades all 16 pixels. A triangle whose right edge lies at x 2.5 and whose bottom edge lies at y 2.5 shades the four pixels of columns 0 and 1 in rows 0 and 1.
 
 ## @fact webgpu-clamps-a-written-depth-to-the-depth-range
 

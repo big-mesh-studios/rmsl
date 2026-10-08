@@ -1549,6 +1549,47 @@ describe("the fragments a CPU rasterizer draws", () => {
   });
 
   /**
+   * Each shape is drawn into a 4×4 target in both windings, its edges given in
+   * pixels. Each pattern is what Chromium's WebGPU shades for the same shape,
+   * a row of `#` for each row of pixels from the top.
+   *
+   * @canon spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge
+   */
+  it.each(rasterizers)(
+    "%s: shades a pixel centre on a top or left edge, not a bottom or right one",
+    (_, compileRaster) => {
+      const pos = attribute("vec2");
+      const routine = compileRaster(
+        () => Fn(() => builtinPosition().assign(vec4(pos, 0, 1)))() as any,
+        () => Fn(() => vec4(1, 0, 0, 1))() as any,
+        { attributeTypes: { [pos.name]: "vec2" } },
+      );
+      /** The pattern a draw of `corners`, x and y in pixels, shades: a row of `#` and `.` for each row from the top. */
+      const shaded = (corners: number[]) => {
+        const clip = corners.map((v, i) => (i % 2 === 0 ? (v / 4) * 2 - 1 : 1 - (v / 4) * 2));
+        const reds = routine.draw({ attributes: { [pos.name]: new Float64Array(clip) } }, { width: 4, height: 4 });
+        return Array.from({ length: 4 }, (_, y) =>
+          Array.from({ length: 4 }, (_, x) => (reds[(y * 4 + x) * 4] === 1 ? "#" : ".")).join(""),
+        ).join("/");
+      };
+      /** The patterns of `corners` as given and with each triangle's vertices in reverse. */
+      const bothWindings = (corners: number[]) => {
+        const reversed = corners.map((_, i) => corners[i - (i % 6) + 4 - (i % 6) + 2 * (i % 2)]!);
+        return [shaded(corners), shaded(reversed)];
+      };
+      const rectangle = (l: number, t: number, r: number, b: number) => [l, t, r, t, l, b, l, b, r, t, r, b];
+      const columns = "##../##../##../##..";
+      const rows = "####/####/..../....";
+      const topLeft = "####/####/####/####";
+      const bottomRight = "##../##../..../....";
+      expect(bothWindings(rectangle(0.5, -1, 2.5, 5))).toEqual([columns, columns]);
+      expect(bothWindings(rectangle(-1, 0.5, 5, 2.5))).toEqual([rows, rows]);
+      expect(bothWindings([0.5, 0.5, 0.5, 9, 9, 0.5])).toEqual([topLeft, topLeft]);
+      expect(bothWindings([2.5, 2.5, 2.5, -9, -9, 2.5])).toEqual([bottomRight, bottomRight]);
+    },
+  );
+
+  /**
    * The host passes the integer attribute first, which holds one triangle, and
    * the positions, which the program reads first, two. A count taken from
    * anything but the integer attribute's components draws the second.

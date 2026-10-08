@@ -217,13 +217,13 @@
 
   ;; ---- triangle pass ----
   ;; Whether an edge running (dx, dy), in a triangle wound so its inside is where
-  ;; every edge function is positive, owns the pixel centres on it: one running
-  ;; down the screen, or left along it. Two triangles run a shared edge in
-  ;; opposite directions, so exactly one owns it.
+  ;; every edge function is positive, owns the pixel centres on it: a left edge,
+  ;; running up the screen, or a top edge, running right, by WebGPU's top-left rule.
+  ;; Two triangles run a shared edge in opposite directions, so exactly one owns it.
   (func $ownsEdge (param $dx f64) (param $dy f64) (result i32)
     (i32.or
-      (f64.gt (local.get $dy) (f64.const 0))
-      (i32.and (f64.eq (local.get $dy) (f64.const 0)) (f64.lt (local.get $dx) (f64.const 0)))))
+      (f64.lt (local.get $dy) (f64.const 0))
+      (i32.and (f64.eq (local.get $dy) (f64.const 0)) (f64.gt (local.get $dx) (f64.const 0)))))
 
   ;; Whether a pixel centre lies on the inside of an edge whose function, wound
   ;; positive inside, is $f, an edge the triangle $owns included.

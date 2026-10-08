@@ -85,12 +85,12 @@ const NO_TARGET = new Float64Array(0);
 /**
  * Whether an edge running `(dx, dy)`, in a triangle wound so that its inside
  * lies where every edge function is positive, owns the pixel centres on it:
- * one that runs down the screen, or left along it. The two triangles sharing
- * an edge run it in opposite directions, so exactly one owns it, as WebGPU
- * gives a pixel on a shared edge to one triangle.
+ * a left edge, running up the screen, or a top edge, running right, by
+ * WebGPU's top-left rule. The two triangles sharing an edge run it in opposite
+ * directions, so exactly one owns it.
  */
 function ownsEdge(dx: number, dy: number): boolean {
-  return dy > 0 || (dy === 0 && dx < 0);
+  return dy < 0 || (dy === 0 && dx > 0);
 }
 
 /** A vertex with room for a position and varyings of these widths. */
