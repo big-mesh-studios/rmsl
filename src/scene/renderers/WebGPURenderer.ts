@@ -7,6 +7,7 @@ import { Vector4 } from "../math/Vector4";
 import type { Scene } from "../scenes/Scene";
 import type { Camera } from "../cameras/Camera";
 import type { Mesh } from "../objects/Mesh";
+import type { WebGLRenderTarget } from "./WebGLRenderTarget";
 import type { Object3D } from "../core/Object3D";
 import type { InstancedMesh } from "../objects/InstancedMesh";
 import type { BufferGeometry } from "../geometries/BufferGeometry";
@@ -15,7 +16,7 @@ import type { Texture } from "../textures/Texture";
 import { DataTexture } from "../textures/DataTexture";
 import type { NodeMaterial, MaterialProgram } from "../materials/NodeMaterial";
 import type { SamplerShaderType } from "../materials/nodes/Builder";
-import { Side } from "../materials/Material";
+import { Blending, Side } from "../materials/Material";
 import {
   blankTexture,
   cameraUniformValue,
@@ -216,11 +217,17 @@ export class WebGPURenderer {
     return target;
   }
 
-  render(scene: Scene, camera: Camera): void {
+  /**
+   * Draws `scene` from `camera` into the canvas, or into `target` when one is
+   * given, which `readPixels(target)` then reads back.
+   */
+  render(scene: Scene, camera: Camera, target: WebGLRenderTarget | null = null): void {
     scene.updateMatrixWorld(true);
     camera.updateMatrixWorld(true);
 
     this.ensureDepthTexture();
+    const surface = target === null ? null : this.renderTargetTextures(target);
+    const depthView = surface === null ? this.depthView! : surface.depthView;
     const device = this.device;
 
     const { frameMeshes, frameEntries, frameVariants, frameDrawCounts, frameSlots } = this;
@@ -251,7 +258,7 @@ export class WebGPURenderer {
 
       // After the draws are collected, so an attribute that is refused leaves no half-recorded frame.
       const encoder = device.createCommandEncoder();
-      const colorView = this.context.getCurrentTexture().createView();
+      const colorView = surface === null ? this.context.getCurrentTexture().createView() : surface.colorView;
       const clear = clearColourOf(scene, this.clearColor, this.clearAlpha);
       // A frame with nothing to draw still clears, in a pass of its own.
       if (frameMeshes.length === 0) {
@@ -259,7 +266,7 @@ export class WebGPURenderer {
           .beginRenderPass({
             colorAttachments: [{ view: colorView, clearValue: clear, loadOp: "clear", storeOp: "store" }],
             depthStencilAttachment: {
-              view: this.depthView!,
+              view: depthView,
               depthClearValue: 1.0,
               depthLoadOp: "clear",
               depthStoreOp: "store",
@@ -292,7 +299,7 @@ export class WebGPURenderer {
             },
           ],
           depthStencilAttachment: {
-            view: this.depthView!,
+            view: depthView,
             depthClearValue: 1.0,
             depthLoadOp: firstPass ? "clear" : "load",
             depthStoreOp: "store",
@@ -310,12 +317,17 @@ export class WebGPURenderer {
 
         const geometry = mesh.geometry;
         const instanceCount = instancing ? (mesh as InstancedMesh).count : geometry.instanceCount;
+        // A mesh can draw a slice of its geometry; an infinite count draws the rest of it.
+        const range = mesh.drawRange;
         if (geometry.index) {
           const buffers = this.ensureGeometryBuffers(geometry);
           pass.setIndexBuffer(buffers.index!, buffers.indexFormat as GPUIndexFormat, 0);
-          pass.drawIndexed(geometry.index.count, instanceCount);
+          const count = Number.isFinite(range.count) ? range.count : geometry.index.count - range.start;
+          pass.drawIndexed(count, instanceCount, range.start);
         } else {
-          pass.draw(geometry.attributes.position?.count ?? 0, instanceCount);
+          const vertices = geometry.attributes.position?.count ?? 0;
+          const count = Number.isFinite(range.count) ? range.count : vertices - range.start;
+          pass.draw(count, instanceCount, range.start);
         }
         pass.end();
       }
@@ -695,7 +707,9 @@ export class WebGPURenderer {
    * resolved as `WebGLRenderer` resolves them.
    */
   private pipelineVariant(entry: PipelineEntry, mesh: Mesh): PipelineVariant {
-    let key = "";
+    const material = mesh.material as RenderStateMaterial;
+    // The material's blend and depth state is part of the pipeline, read at each draw as WebGL reads it.
+    let key = `${material.transparent},${material.blending},${material.depthTest},${material.depthWrite};`;
     for (const attribute of entry.program.attributes) {
       key += `${this.formatOf(attribute, mesh)},`;
     }
@@ -723,6 +737,15 @@ export class WebGPURenderer {
     const variant = {
       pipeline: this.device.createRenderPipeline({
         ...descriptor,
+        fragment: {
+          ...descriptor.fragment!,
+          targets: [{ format: this.format, blend: blendState(material) }],
+        },
+        depthStencil: {
+          format: "depth24plus",
+          depthWriteEnabled: material.depthWrite,
+          depthCompare: material.depthTest ? "less" : "always",
+        },
         vertex: {
           module: vertexModule,
           entryPoint: "main",
@@ -923,6 +946,78 @@ export class WebGPURenderer {
     return sampler;
   }
 
+  /** The colour and depth textures behind each render target, at its size when it was last drawn into. */
+  private renderTargets = new Map<
+    WebGLRenderTarget,
+    { color: GPUTexture; depth: GPUTexture; colorView: GPUTextureView; depthView: GPUTextureView }
+  >();
+
+  /**
+   * The textures behind `target`, made on first use and made again at the
+   * target's new size when it changed, so a target is resized by setting its
+   * `width` and `height` before the next render.
+   */
+  private renderTargetTextures(target: WebGLRenderTarget) {
+    const existing = this.renderTargets.get(target);
+    if (existing && existing.color.width === target.width && existing.color.height === target.height) return existing;
+    existing?.color.destroy();
+    existing?.depth.destroy();
+    const color = this.device.createTexture({
+      size: [target.width, target.height],
+      format: this.format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+    });
+    const depth = this.device.createTexture({
+      size: [target.width, target.height],
+      format: "depth24plus",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    const textures = { color, depth, colorView: color.createView(), depthView: depth.createView() };
+    this.renderTargets.set(target, textures);
+    return textures;
+  }
+
+  /**
+   * Reads a render target's colour back as RGBA bytes, row by row from the
+   * bottom as the WebGL renderer's `readPixels` gives them, into `out` or a new
+   * array, so the same frame gives the same bytes on both. WebGPU reads a texture back only
+   * asynchronously, so this gives a promise; it resolves once the copy has
+   * landed, typically a frame or a few after the call.
+   */
+  async readPixels(target: WebGLRenderTarget, out?: Uint8Array): Promise<Uint8Array> {
+    const { color } = this.renderTargetTextures(target);
+    const { width, height } = target;
+    const bytesPerRow = Math.ceil((width * 4) / 256) * 256;
+    const staging = this.device.createBuffer({
+      size: bytesPerRow * height,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    try {
+      const encoder = this.device.createCommandEncoder();
+      encoder.copyTextureToBuffer({ texture: color }, { buffer: staging, bytesPerRow }, [width, height]);
+      this.device.queue.submit([encoder.finish()]);
+      await staging.mapAsync(GPUMapMode.READ);
+      const rows = new Uint8Array(staging.getMappedRange());
+      const pixels = out ?? new Uint8Array(width * height * 4);
+      // The texture is in the canvas's format, BGRA on some platforms; the bytes come back as RGBA.
+      const bgra = this.format === "bgra8unorm";
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const from = y * bytesPerRow + x * 4;
+          const to = ((height - 1 - y) * width + x) * 4;
+          pixels[to] = rows[from + (bgra ? 2 : 0)]!;
+          pixels[to + 1] = rows[from + 1]!;
+          pixels[to + 2] = rows[from + (bgra ? 0 : 2)]!;
+          pixels[to + 3] = rows[from + 3]!;
+        }
+      }
+      staging.unmap();
+      return pixels;
+    } finally {
+      staging.destroy();
+    }
+  }
+
   private ensureDepthTexture(): void {
     const width = this.canvas.width;
     const height = this.canvas.height;
@@ -939,6 +1034,11 @@ export class WebGPURenderer {
   }
 
   dispose(): void {
+    for (const { color, depth } of this.renderTargets.values()) {
+      color.destroy();
+      depth.destroy();
+    }
+    this.renderTargets.clear();
     for (const bySignature of this.pipelines.values()) {
       for (const entry of bySignature.values()) entry.ringBuffer.destroy();
     }
@@ -1010,6 +1110,23 @@ function imageSource(image: Texture["image"]): { width: number; height: number }
   if (image === null || ArrayBuffer.isView(image)) return null;
   const { width, height } = image as { width?: number; height?: number };
   return typeof width === "number" && typeof height === "number" ? { width, height } : null;
+}
+
+/** What a draw's blend and depth state is read from. */
+type RenderStateMaterial = { transparent: boolean; blending: Blending; depthTest: boolean; depthWrite: boolean };
+
+/**
+ * The blend state a material asks for, as the WebGL renderer sets it: none for
+ * an opaque material of normal blending, additive for additive blending, and
+ * over the destination by the source alpha otherwise.
+ */
+function blendState(material: RenderStateMaterial): GPUBlendState | undefined {
+  if (!material.transparent && material.blending === Blending.NormalBlending) return undefined;
+  const dstFactor: GPUBlendFactor = material.blending === Blending.AdditiveBlending ? "one" : "one-minus-src-alpha";
+  return {
+    color: { srcFactor: "src-alpha", dstFactor, operation: "add" },
+    alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+  };
 }
 
 function integerGpuFormat(samplerType: string, view: ArrayBufferView | null): GPUTextureFormat {

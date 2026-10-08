@@ -236,39 +236,6 @@ describe("known bugs of the scene library, each failing until its fix", () => {
   });
 
   /**
-   * The WebGPU renderer draws a mesh's whole geometry, ignoring the slice its
-   * `drawRange` selects.
-   *
-   * @canon bug-webgpu-ignores-the-draw-range
-   */
-  it.fails("draws only the slice a mesh's drawRange selects on WebGPU", () => {
-    const { device, canvas, passes } = stubDevice();
-    const renderer = new WebGPURenderer(canvas, device as any);
-    const mesh = new Mesh(new PlaneGeometry(), new MeshBasicMaterial());
-    mesh.drawRange = { start: 3, count: 3 };
-    const scene = new Scene();
-    scene.add(mesh);
-    renderer.render(scene, camera());
-
-    const draw = passes[0].calls.find((c) => c.name === "drawIndexed")!;
-    expect(draw.args[0]).toBe(3);
-    expect(draw.args[2]).toBe(3);
-  });
-
-  /**
-   * The WebGPU renderer takes no render target and has no `readPixels`, so it
-   * can only draw to its canvas.
-   *
-   * @canon bug-webgpu-has-no-render-target
-   */
-  it.fails("draws into a render target and reads its pixels back on WebGPU", () => {
-    const { device, canvas } = stubDevice();
-    const renderer = new WebGPURenderer(canvas, device as any) as any;
-    expect(renderer.render.length).toBeGreaterThanOrEqual(3);
-    expect(typeof renderer.readPixels).toBe("function");
-  });
-
-  /**
    * Each of 65 draws of one material reads its own model matrix, so the
    * frame holds more draws than the ring held at first.
    *
@@ -423,25 +390,6 @@ describe("known bugs of the scene library, each failing until its fix", () => {
 
     const live = program.uniforms.some((u) => u.value?.({} as any) === 0.25);
     expect(live || material.version > version).toBe(true);
-  });
-
-  /**
-   * The WebGPU renderer builds every pipeline with no blend state, a depth
-   * test and depth writes, whatever the material's `transparent`, `blending`,
-   * `depthTest` and `depthWrite` ask for.
-   *
-   * @canon bug-webgpu-ignores-the-material-blend-and-depth-state
-   */
-  it.fails("blends a transparent material and honours depthTest and depthWrite on WebGPU", () => {
-    const { device, canvas, pipelines } = stubDevice();
-    const renderer = new WebGPURenderer(canvas, device as any) as any;
-    const material = new MeshBasicMaterial({ transparent: true, opacity: 0.5 });
-    material.depthTest = false;
-    material.depthWrite = false;
-    renderer.ensurePipeline(material, new Scene(), false, false);
-
-    expect(pipelines[0].fragment.targets[0].blend).toBeDefined();
-    expect(pipelines[0].depthStencil).toMatchObject({ depthWriteEnabled: false, depthCompare: "always" });
   });
 
   /**

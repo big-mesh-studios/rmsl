@@ -154,7 +154,10 @@ confirms the transfer landed, typically a frame or a few later.
 
 ### WebGPURenderer
 
-`await WebGPURenderer.init(canvas?)`. Same API. Uniform values are packed into
+`await WebGPURenderer.init(canvas?)`. Same API, except that `readPixels(target,
+out?)` returns a promise, since WebGPU reads a texture back only
+asynchronously; it gives the same RGBA bytes, the bottom row first, as the
+WebGL renderer's. Uniform values are packed into
 per-program ring buffers using the same layout the WGSL compiler emits, so
 per-draw writes never race the previous draw.
 

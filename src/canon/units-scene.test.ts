@@ -78,6 +78,45 @@ globalThis.__rmslR8UIRowsRun = () => {
 
 describe("a scene renderer manages what it uploads", () => {
   /**
+   * @canon spec-a-mesh-draws-the-slice-its-draw-range-selects
+   */
+  it("draws only the slice a mesh's drawRange selects on WebGPU", () => {
+    const { device, canvas, passes } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any);
+    const mesh = new Mesh(new PlaneGeometry(), new MeshBasicMaterial());
+    mesh.drawRange = { start: 3, count: 3 };
+    const scene = new Scene();
+    scene.add(mesh);
+    renderer.render(scene, camera());
+
+    const draw = passes[0].calls.find((c) => c.name === "drawIndexed")!;
+    expect(draw.args[0]).toBe(3);
+    expect(draw.args[2]).toBe(3);
+  });
+
+  /**
+   * @canon spec-a-draw-takes-its-material-blend-and-depth-state
+   */
+  it("blends a transparent material and honours depthTest and depthWrite on WebGPU", () => {
+    const { device, canvas, pipelines } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any);
+    const material = new MeshBasicMaterial({ transparent: true, opacity: 0.5 });
+    material.depthTest = false;
+    material.depthWrite = false;
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(), material));
+    renderer.render(scene, camera());
+
+    expect(pipelines[0].fragment.targets[0].blend).toBeDefined();
+    expect(pipelines[0].depthStencil).toMatchObject({ depthWriteEnabled: false, depthCompare: "always" });
+
+    // A change to the depth state after the first draw is read at the next one, without needsUpdate.
+    material.depthTest = true;
+    renderer.render(scene, camera());
+    expect(pipelines.at(-1).depthStencil).toMatchObject({ depthCompare: "less" });
+  });
+
+  /**
    * @canon spec-render-clears-to-the-scene-background
    */
   it("clears to the scene's background colour", () => {

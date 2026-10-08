@@ -465,14 +465,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec the-webgpu-renderer-shares-one-sampler-per-state`](#spec-the-webgpu-renderer-shares-one-sampler-per-state) — The WebGPU renderer makes one sampler for each combination of filters and wrap, described as the texture asks, and binds each sampler by its type. It rebinds a texture whose sampler state changes, and leaves alone one whose update changes nothing.
     - [`@spec a-changed-texture-shows-on-the-next-render`](#spec-a-changed-texture-shows-on-the-next-render) — A texture whose image changes uploads again on the next render, and a texture that does not change stays as it is. The renderer replaces and binds again a texture whose size changes.
     - [`@spec a-disposed-resource-is-freed-by-every-renderer-holding-it`](#spec-a-disposed-resource-is-freed-by-every-renderer-holding-it) — Disposing a geometry or a texture tells every renderer that holds it. Each frees its own copy and uploads it again if it draws it again, and pipelines that do not use it stay as they are. A disposed renderer stops listening.
-    - [`@spec a-render-target-reads-its-pixels-back`](#spec-a-render-target-reads-its-pixels-back) — A renderer draws into a render target and reads its pixels back, at once or, on WebGL, asynchronously without stalling the pipeline.
-      - [`@bug webgpu-has-no-render-target`](#bug-webgpu-has-no-render-target) — The WebGPU renderer takes no render target and has no `readPixels`, so it can only draw to its canvas.
+    - [`@spec a-render-target-reads-its-pixels-back`](#spec-a-render-target-reads-its-pixels-back) — A renderer draws into a render target and reads its pixels back as RGBA bytes, the bottom row first, alike on both renderers: on WebGL at once, or asynchronously without stalling the pipeline, and on WebGPU through a promise, since WebGPU reads a texture back only asynchronously.
     - [`@spec a-mesh-draws-the-slice-its-draw-range-selects`](#spec-a-mesh-draws-the-slice-its-draw-range-selects) — A mesh draws only the vertices its `drawRange` selects from its geometry.
-      - [`@bug webgpu-ignores-the-draw-range`](#bug-webgpu-ignores-the-draw-range) — The WebGPU renderer draws a mesh's whole geometry, ignoring the slice its `drawRange` selects.
     - [`@spec a-texture-is-bound-to-every-stage-that-samples-it`](#spec-a-texture-is-bound-to-every-stage-that-samples-it) — A renderer binds a texture to every stage that samples it, the vertex stage included.
     - [`@spec a-data-texture-uploads-in-the-type-it-names`](#spec-a-data-texture-uploads-in-the-type-it-names) — A data texture uploads in the element type its `type` names, so a float texture holds floats. A float texture filters linearly where the device can, and reads its nearest texel where it cannot.
     - [`@spec a-renderer-blends-and-depth-tests-as-the-material-asks`](#spec-a-renderer-blends-and-depth-tests-as-the-material-asks) — A renderer blends and depth-tests each draw as its material's `transparent`, `blending`, `depthTest` and `depthWrite` ask.
-      - [`@bug webgpu-ignores-the-material-blend-and-depth-state`](#bug-webgpu-ignores-the-material-blend-and-depth-state) — The WebGPU renderer builds every pipeline with no blend state, a depth test and depth writes, whatever the material's `transparent`, `blending`, `depthTest` and `depthWrite` ask for.
+      - [`@spec a-draw-takes-its-material-blend-and-depth-state`](#spec-a-draw-takes-its-material-blend-and-depth-state) — A draw blends as its material's `transparent` and `blending` ask, and depth-tests and writes depth as its `depthTest` and `depthWrite` ask. A renderer reads them at each draw, so a change to them takes effect without `needsUpdate`.
       - [`@spec a-renderer-draws-transparent-meshes-back-to-front`](#spec-a-renderer-draws-transparent-meshes-back-to-front) — A renderer draws opaque meshes first, then transparent meshes from the farthest to the nearest.
     - [`@spec render-clears-the-canvas-on-every-call`](#spec-render-clears-the-canvas-on-every-call) — `render` clears the canvas to the clear colour on every call, whatever the scene holds.
       - [`@spec a-scene-that-draws-nothing-still-clears`](#spec-a-scene-that-draws-nothing-still-clears) — `render` of a scene with nothing to draw clears the canvas, as a scene with meshes does.
@@ -3304,23 +3302,11 @@ Issue: #97
 
 #### @spec a-render-target-reads-its-pixels-back
 
-> A renderer draws into a render target and reads its pixels back, at once or, on WebGL, asynchronously without stalling the pipeline.
-
-##### @bug webgpu-has-no-render-target
-
-> The WebGPU renderer takes no render target and has no `readPixels`, so it can only draw to its canvas.
-
-Issue: #92
+> A renderer draws into a render target and reads its pixels back as RGBA bytes, the bottom row first, alike on both renderers: on WebGL at once, or asynchronously without stalling the pipeline, and on WebGPU through a promise, since WebGPU reads a texture back only asynchronously.
 
 #### @spec a-mesh-draws-the-slice-its-draw-range-selects
 
 > A mesh draws only the vertices its `drawRange` selects from its geometry.
-
-##### @bug webgpu-ignores-the-draw-range
-
-> The WebGPU renderer draws a mesh's whole geometry, ignoring the slice its `drawRange` selects.
-
-Issue: #92
 
 #### @spec a-texture-is-bound-to-every-stage-that-samples-it
 
@@ -3344,11 +3330,11 @@ Derives from: [`fact-three-js-sets-blending-and-depth-from-the-material`](#fact-
 
 This follows because these properties are the material's in three.js, and both renderers draw the same scene.
 
-##### @bug webgpu-ignores-the-material-blend-and-depth-state
+##### @spec a-draw-takes-its-material-blend-and-depth-state
 
-> The WebGPU renderer builds every pipeline with no blend state, a depth test and depth writes, whatever the material's `transparent`, `blending`, `depthTest` and `depthWrite` ask for.
+> A draw blends as its material's `transparent` and `blending` ask, and depth-tests and writes depth as its `depthTest` and `depthWrite` ask. A renderer reads them at each draw, so a change to them takes effect without `needsUpdate`.
 
-Issue: #92
+This follows because the WebGL renderer sets them for each draw, and a renderer that read them once would draw a changed material as it was.
 
 ##### @spec a-renderer-draws-transparent-meshes-back-to-front
 
