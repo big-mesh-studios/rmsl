@@ -34,6 +34,7 @@ import {
   geometryAttribute,
   VERTEX_FORMATS,
   vertexFormatOf,
+  drawSlice,
   imageLoaded,
 } from "./common";
 
@@ -369,15 +370,15 @@ export class WebGLRenderer {
     const instanceCount = instancing ? (mesh as InstancedMesh).count : geometry.instanceCount;
     // A mesh can draw a slice of its geometry (an object sharing one merged
     // buffer with several others); omit the mesh's `drawRange` to draw it all.
-    const range = mesh.drawRange;
     if (geometry.index) {
       const indexView = toBufferView(geometry.index.array, true) as Uint16Array | Uint32Array;
       const type = indexView instanceof Uint16Array ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT;
-      const count = Number.isFinite(range.count) ? range.count : indexView.length;
-      gl.drawElementsInstanced(gl.TRIANGLES, count, type, range.start * indexView.BYTES_PER_ELEMENT, instanceCount);
+      const { start, count } = drawSlice(mesh.drawRange, indexView.length);
+      if (count > 0)
+        gl.drawElementsInstanced(gl.TRIANGLES, count, type, start * indexView.BYTES_PER_ELEMENT, instanceCount);
     } else {
-      const count = Number.isFinite(range.count) ? range.count : (geometry.attributes.position?.count ?? 0);
-      gl.drawArraysInstanced(gl.TRIANGLES, range.start, count, instanceCount);
+      const { start, count } = drawSlice(mesh.drawRange, geometry.attributes.position?.count ?? 0);
+      if (count > 0) gl.drawArraysInstanced(gl.TRIANGLES, start, count, instanceCount);
     }
   }
 

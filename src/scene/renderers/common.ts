@@ -478,3 +478,17 @@ export function imageLoaded(image: unknown): boolean {
   if (i.complete === false || (i.readyState !== undefined && i.readyState < HAVE_CURRENT_DATA)) return false;
   return imageWidth(image) > 0 && imageHeight(image) > 0;
 }
+
+/** The slice `drawSlice` gives, reused so a draw allocates nothing. */
+const slice = { start: 0, count: 0 };
+
+/**
+ * The elements a draw range selects out of `total`, cut to them as three.js
+ * cuts it. A count of 0 means the range selects none, and the draw is skipped.
+ * The result is reused by the next call.
+ */
+export function drawSlice(range: { start: number; count: number }, total: number): Readonly<typeof slice> {
+  slice.start = Math.max(range.start, 0);
+  slice.count = Math.max(0, Math.min(range.start + range.count, total) - slice.start);
+  return slice;
+}

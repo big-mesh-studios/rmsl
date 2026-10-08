@@ -41,6 +41,7 @@ import {
   textureChannels,
   type SamplerState,
   type TextureWrap,
+  drawSlice,
   imageHeight,
   imageLoaded,
   imageWidth,
@@ -332,16 +333,14 @@ export class WebGPURenderer {
         const geometry = mesh.geometry;
         const instanceCount = instancing ? (mesh as InstancedMesh).count : geometry.instanceCount;
         // A mesh can draw a slice of its geometry; an infinite count draws the rest of it.
-        const range = mesh.drawRange;
         if (geometry.index) {
           const buffers = this.ensureGeometryBuffers(geometry);
           pass.setIndexBuffer(buffers.index!, buffers.indexFormat as GPUIndexFormat, 0);
-          const count = Number.isFinite(range.count) ? range.count : geometry.index.count - range.start;
-          pass.drawIndexed(count, instanceCount, range.start);
+          const { start, count } = drawSlice(mesh.drawRange, geometry.index.count);
+          if (count > 0) pass.drawIndexed(count, instanceCount, start);
         } else {
-          const vertices = geometry.attributes.position?.count ?? 0;
-          const count = Number.isFinite(range.count) ? range.count : vertices - range.start;
-          pass.draw(count, instanceCount, range.start);
+          const { start, count } = drawSlice(mesh.drawRange, geometry.attributes.position?.count ?? 0);
+          if (count > 0) pass.draw(count, instanceCount, start);
         }
         pass.end();
       }

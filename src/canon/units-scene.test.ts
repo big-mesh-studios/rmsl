@@ -216,6 +216,36 @@ describe("a scene renderer manages what it uploads", () => {
   });
 
   /**
+   * @canon spec-a-mesh-draws-the-slice-its-draw-range-selects
+   */
+  it("cuts a draw range to its geometry, and draws nothing for one past its end", () => {
+    const { device, canvas, passes } = stubDevice();
+    const gpu = new WebGPURenderer(canvas, device as any);
+    const { renderer: gl, calls } = stubWebGl();
+    const mesh = new Mesh(new PlaneGeometry(), new MeshBasicMaterial());
+    const scene = new Scene();
+    scene.add(mesh);
+    const drawn = () => [
+      passes
+        .at(-1)!
+        .calls.find((c) => c.name === "drawIndexed")
+        ?.args.slice(0, 1),
+      calls.filter((c) => c.name === "drawElementsInstanced").at(-1)?.args[1],
+    ];
+    mesh.drawRange = { start: 0, count: 1000 };
+    gpu.render(scene, camera());
+    gl.render(scene, camera());
+    expect(drawn()).toEqual([[6], 6]);
+
+    mesh.drawRange = { start: 400, count: Infinity };
+    const before = calls.length;
+    gpu.render(scene, camera());
+    gl.render(scene, camera());
+    expect(passes.at(-1)!.calls.some((c) => c.name === "drawIndexed")).toBe(false);
+    expect(calls.slice(before).some((c) => c.name === "drawElementsInstanced")).toBe(false);
+  });
+
+  /**
    * @canon spec-a-draw-takes-its-material-blend-and-depth-state
    */
   it("blends a transparent material and honours depthTest and depthWrite on WebGPU", () => {
