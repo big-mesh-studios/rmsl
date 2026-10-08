@@ -230,6 +230,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@exception glsl-has-no-storage-buffers`](#exception-glsl-has-no-storage-buffers) — A GLSL stage that reads a storage buffer is refused. Issue #48 asks to read one through a data texture instead.
       - [`@spec a-wgsl-render-stage-declares-its-storage-in-group-three`](#spec-a-wgsl-render-stage-declares-its-storage-in-group-three) — On WGSL, a vertex or fragment stage declares its storage buffers in group 3.
   - [`@spec a-constant-index-outside-a-vector-or-matrix-is-refused`](#spec-a-constant-index-outside-a-vector-or-matrix-is-refused) — A constant index outside a vector's components or a matrix's columns is refused on every target: a literal, or an operation of literals that folds to one.
+  - [`@spec a-constant-index-outside-a-uniform-array-is-refused`](#spec-a-constant-index-outside-a-uniform-array-is-refused) — A constant index outside the elements of a uniform array is refused on every target: a literal, or an operation of literals that folds to one.
   - [`@spec an-operation-a-target-cannot-run-is-refused`](#spec-an-operation-a-target-cannot-run-is-refused) — An operation that no target can run where the program puts it is refused on every target.
     - [`@spec break-or-continue-outside-a-loop-is-refused`](#spec-break-or-continue-outside-a-loop-is-refused) — `Break` or `Continue` outside a loop is refused.
     - [`@spec cross-of-a-vector-that-is-not-a-vec3-is-refused`](#spec-cross-of-a-vector-that-is-not-a-vec3-is-refused) — `cross` of vectors that are not `vec3` is refused.
@@ -728,8 +729,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact three-js-sums-ambient-lights-into-one-colour`](#fact-three-js-sums-ambient-lights-into-one-colour) — three.js adds the colour of each ambient light, times its intensity, into one ambient colour for the scene.
 - [`@fact three-js-scales-a-light-colour-by-its-intensity`](#fact-three-js-scales-a-light-colour-by-its-intensity) — three.js sets the colour uniform of a directional light and of a point light to the light's colour multiplied by its intensity, on the host.
 - [`@fact three-js-declares-one-precision-for-every-sampler`](#fact-three-js-declares-one-precision-for-every-sampler) — The `WebGLProgram` of three.js declares one precision for `float`, `int` and every sampler type, the integer samplers `isampler2D`, `isampler3D` and `isamplerCube` included.
-- [`@fact wgsl-refuses-a-constant-index-out-of-range`](#fact-wgsl-refuses-a-constant-index-out-of-range) — WGSL refuses a constant index past the components of a vector or the columns of a matrix, also when it indexes a variable.
-- [`@fact glsl-refuses-a-constant-index-out-of-range`](#fact-glsl-refuses-a-constant-index-out-of-range) — GLSL ES 3.00 refuses a constant index past the components of a vector or the columns of a matrix, also when it indexes a variable.
+- [`@fact wgsl-refuses-a-constant-index-out-of-range`](#fact-wgsl-refuses-a-constant-index-out-of-range) — WGSL refuses a constant index past the components of a vector, the columns of a matrix or the elements of a fixed-size array, also when it indexes a variable.
+- [`@fact glsl-refuses-a-constant-index-out-of-range`](#fact-glsl-refuses-a-constant-index-out-of-range) — GLSL ES 3.00 refuses a constant index past the components of a vector, the columns of a matrix or the elements of a fixed-size array, also when it indexes a variable.
 - [`@fact wgsl-takes-no-block-in-a-for-update`](#fact-wgsl-takes-no-block-in-a-for-update) — The update of a WGSL `for` is a single statement, so a block such as an `if` in it is a syntax error.
 - [`@fact glsl-takes-no-block-in-a-for-update`](#fact-glsl-takes-no-block-in-a-for-update) — The update of a GLSL `for` is an expression, so a block such as an `if` in it is a syntax error.
 - [`@fact glsl-scalar-constructor-takes-the-first-component`](#fact-glsl-scalar-constructor-takes-the-first-component) — In GLSL ES 3.00, `float(v)`, `int(v)` and `uint(v)` of a vector `v` take its first component, converted to that type.
@@ -2027,6 +2028,14 @@ This follows because the uniform struct, the textures and the samplers hold grou
 Derives from: [`fact-wgsl-refuses-a-constant-index-out-of-range`](#fact-wgsl-refuses-a-constant-index-out-of-range), [`fact-glsl-refuses-a-constant-index-out-of-range`](#fact-glsl-refuses-a-constant-index-out-of-range)
 
 This follows because GLSL and WGSL both refuse such an index, so the program could not run on them.
+
+### @spec a-constant-index-outside-a-uniform-array-is-refused
+
+> A constant index outside the elements of a uniform array is refused on every target: a literal, or an operation of literals that folds to one.
+
+Derives from: [`fact-wgsl-refuses-a-constant-index-out-of-range`](#fact-wgsl-refuses-a-constant-index-out-of-range), [`fact-glsl-refuses-a-constant-index-out-of-range`](#fact-glsl-refuses-a-constant-index-out-of-range)
+
+This follows because GLSL and WGSL both refuse such an index into a fixed-size array, which a uniform array compiles to, so the program could not run on them.
 
 ### @spec an-operation-a-target-cannot-run-is-refused
 
@@ -4948,17 +4957,17 @@ This is how three.js behaves, read from its source (`WebGLProgram`, three.js 0.1
 
 ## @fact wgsl-refuses-a-constant-index-out-of-range
 
-> WGSL refuses a constant index past the components of a vector or the columns of a matrix, also when it indexes a variable.
+> WGSL refuses a constant index past the components of a vector, the columns of a matrix or the elements of a fixed-size array, also when it indexes a variable.
 
-Dawn refuses `vec3<f32>(…)[3]` and `v[3]` with `index 3 out of bounds [0..2]`, and `m[2]` of a `mat2x2<f32>` with `index 2 out of bounds [0..1]`.
+Dawn refuses `vec3<f32>(…)[3]` and `v[3]` with `index 3 out of bounds [0..2]`, and `m[2]` of a `mat2x2<f32>` with `index 2 out of bounds [0..1]`. It refuses `u.a[5]`, `u.a[1 + 4]` and `u.a[-1]` of an `array<vec4<f32>, 3>` in a uniform buffer with `index 5 out of bounds [0..2]` and `index -1 out of bounds [0..2]`.
 
 This is a fact of the WGSL specification, not a choice.
 
 ## @fact glsl-refuses-a-constant-index-out-of-range
 
-> GLSL ES 3.00 refuses a constant index past the components of a vector or the columns of a matrix, also when it indexes a variable.
+> GLSL ES 3.00 refuses a constant index past the components of a vector, the columns of a matrix or the elements of a fixed-size array, also when it indexes a variable.
 
-Chromium's WebGL 2 compiler refuses `v[3]` of a `vec3` with `vector field selection out of range`, and `m[2]` of a `mat2` with `matrix field selection out of range`.
+Chromium's WebGL 2 compiler refuses `v[3]` of a `vec3` with `vector field selection out of range`, and `m[2]` of a `mat2` with `matrix field selection out of range`. It refuses `a[5]` and `a[1 + 4]` of a `uniform float a[3]` with `array index out of range`, and `a[-1]` with `index expression is negative`.
 
 ## @fact wgsl-takes-no-block-in-a-for-update
 

@@ -1666,6 +1666,7 @@ export function compileWasmFn(
         break;
 
       case "uniformArrayElement":
+        assertConstantIndexInRange(node.params[0], node.params[1]);
         addLocal("$element_index", "int");
         break;
 

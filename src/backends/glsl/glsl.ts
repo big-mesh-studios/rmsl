@@ -227,6 +227,7 @@ export function compileGLSLNode(
     }
 
     case "uniformArrayElement": {
+      assertConstantIndexInRange(node.params![0], node.params![1]);
       let arr = compileGLSLStage(node.params![0], ctx);
       let index = compileGLSLStage(node.params![1], ctx);
       // GLSL indexes with an int; a float loop counter has to be converted.

@@ -18,6 +18,7 @@ import {
   mat3,
   outputStruct,
   uniform,
+  uniformArray,
   Switch,
   uint,
   varying,
@@ -264,6 +265,36 @@ describe("a mistake is refused before the program runs", () => {
     expect(() => build(4)()).not.toThrow();
     for (const length of [0, 1, 5, 7]) {
       expect(build(length), `length ${length}`).toThrow(new RegExp(`array of length ${length} is no vector`));
+    }
+  });
+
+  /**
+   * A constant index outside the elements of a uniform array is refused by
+   * every target, a literal or an operation of literals that folds to one, and
+   * an index inside them compiles.
+   *
+   * @canon spec-a-constant-index-outside-a-uniform-array-is-refused
+   */
+  it("refuses a constant index outside a uniform array on every target", () => {
+    const items = uniformArray("float", 3);
+    const read = (index: () => any) => () => Fn(() => vec4(items.element(index()), 0, 0, 1).toVar())();
+    const compilers: Array<[string, (build: () => any) => unknown]> = [
+      ["GLSL", (build) => compileGlsl.fragment(build())],
+      ["WGSL", (build) => compileWgsl.fragment(build())],
+      ["JS", (build) => cpuCompilers[0]!(build)],
+      ["WASM", (build) => cpuCompilers[1]!(build)],
+    ];
+    for (const [name, compile] of compilers) {
+      expect(() => compile(read(() => int(2))), `${name} read 2`).not.toThrow();
+      expect(() => compile(read(() => int(3))), `${name} read 3`).toThrow(
+        /index 3 is outside a float\[3\]'s elements 0 to 2/,
+      );
+      expect(() => compile(read(() => int(-1))), `${name} read -1`).toThrow(
+        /index -1 is outside a float\[3\]'s elements 0 to 2/,
+      );
+      expect(() => compile(read(() => int(1).add(int(4)))), `${name} read 1 + 4`).toThrow(
+        /index 5 is outside a float\[3\]'s elements 0 to 2/,
+      );
     }
   });
 

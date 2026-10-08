@@ -569,6 +569,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     }
 
     case "uniformArrayElement": {
+      assertConstantIndexInRange(node.params![0], node.params![1]);
       let arr = compileWGSLStage(node.params![0], ctx);
       let index = compileWGSLStage(node.params![1], ctx);
       // WGSL indexes with i32 or u32; a float loop counter has to be converted.

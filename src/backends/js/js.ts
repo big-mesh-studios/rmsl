@@ -1696,6 +1696,7 @@ export function compileJSNode(
     }
 
     case "uniformArrayElement": {
+      assertConstantIndexInRange(node.params![0], node.params![1]);
       let arr = jsCompileOperand(node.params![0], ctx);
       let idx = jsCompileOperand(node.params![1], ctx);
       let body = [...arr.body, ...idx.body];
