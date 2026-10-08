@@ -67,8 +67,8 @@ depth 0 and 1 drops. A pixel then:
    `fragCoord` address, the discard flag cleared, and the interpolated depth
    written to the fragment depth address;
 3. runs the fragment function;
-4. is dropped when the function discarded, or when the depth it wrote is
-   farther than the stored one;
+4. is dropped when the function discarded, or when the depth it wrote,
+   clamped to 0 to 1, is farther than the stored one;
 5. stores its depth, and its `vec4` result into `outputBase`.
 
 Each address the fragment function writes or reads besides its varyings

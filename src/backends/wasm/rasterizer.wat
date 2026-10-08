@@ -513,8 +513,12 @@
                         (call $fragmentMain)
                         ;; A fragment that discards leaves the pixel and its depth as they were.
                         (if (local.get $mayDiscard) (then (br_if $skipPixel (i32.load (local.get $discardAddress)))))
+                        ;; A written depth is clamped to the depth range, as WebGPU clamps it.
                         (local.set $fragDepth
-                          (select (f64.load (local.get $fragDepthAddress)) (local.get $pixelDepth) (local.get $writesDepth)))
+                          (select
+                            (f64.min (f64.max (f64.load (local.get $fragDepthAddress)) (f64.const 0)) (f64.const 1))
+                            (local.get $pixelDepth)
+                            (local.get $writesDepth)))
                         (br_if $skipPixel
                           (i32.and (local.get $writesDepth)
                             (f64.gt (local.get $fragDepth) (f64.load (local.get $depthAddr)))))

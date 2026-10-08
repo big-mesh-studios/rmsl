@@ -1485,6 +1485,37 @@ describe("the rounding helper of JS", () => {
 
 describe("the fragments a CPU rasterizer draws", () => {
   /**
+   * The first draw writes -1, kept as 0; the second writes -0.5, also 0, which
+   * passes a less-or-equal test against it.
+   *
+   * @canon spec-a-rasterizer-keeps-the-closer-fragment
+   */
+  it.each(rasterizers)("%s: clamps the depth a fragment writes to 0 to 1", (_, compileRaster) => {
+    const pos = attribute("vec3");
+    const depth = uniform("float");
+    const color = uniform("vec4");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any,
+      () =>
+        Fn(() => {
+          builtinFragDepth().assign(depth);
+          return color;
+        })() as any,
+      { attributeTypes: { [pos.name]: "vec3" } },
+    );
+    const draw = (d: number, rgba: number[], clearDepth = false) =>
+      routine.draw(
+        {
+          attributes: { [pos.name]: new Float64Array(screenAt(0.5)) },
+          uniforms: { [depth.name]: d, [color.name]: rgba },
+        },
+        { width: 1, height: 1, clearDepth },
+      );
+    draw(-1, [1, 0, 0, 1], true);
+    expect(Array.from(draw(-0.5, [0, 0, 1, 1]))).toEqual([0, 0, 1, 1]);
+  });
+
+  /**
    * A whole triangle, and one whose first vertex lies behind the eye, so that
    * no triangle the clip makes starts at it.
    *

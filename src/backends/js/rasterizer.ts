@@ -306,7 +306,8 @@ export function compileJS(
         // A fragment that discards leaves the pixel and its depth as they were.
         if (raw === null) continue;
         const written = isResultObject(raw) ? raw.fragDepth : undefined;
-        const depth = typeof written === "number" ? written : pixelDepth;
+        // A written depth is clamped to the depth range, as WebGPU clamps it.
+        const depth = typeof written === "number" ? Math.min(Math.max(written, 0), 1) : pixelDepth;
         if (writesDepth && depth > depths[pixelIndex]!) continue;
         depths[pixelIndex] = depth;
         // A fragment that writes no colour leaves the pixel as it was.
