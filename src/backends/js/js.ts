@@ -38,7 +38,7 @@ import {
   RADIANS_PER_DEGREE,
   assertPositionIsReadable,
   assertSquareMatrix,
-  assertLiteralIndexInRange,
+  assertConstantIndexInRange,
   assertAssignable,
   parameterNode,
   assertStageResult,
@@ -792,7 +792,7 @@ function jsAssignable(node: any, ctx: CompileCtx): CompiledNode & { at(k: string
     let target = jsCompileTarget(node, ctx);
     return { ...target, at: (k) => `${target.expr}[${k}]` };
   }
-  assertLiteralIndexInRange(node.params![0], node.params![1]);
+  assertConstantIndexInRange(node.params![0], node.params![1]);
   let mat = jsAssignable(node.params![0], ctx);
   let idx = compileJSStage(node.params![1], ctx);
   let [columns, rows] = MATRIX_DIMENSIONS[node.params![0]._t];
@@ -2138,7 +2138,7 @@ export function compileJSNode(
     }
 
     case "matrixElement": {
-      assertLiteralIndexInRange(node.params![0], node.params![1]);
+      assertConstantIndexInRange(node.params![0], node.params![1]);
       let mat = jsComponents(node.params![0], ctx, ctx.jsTarget === node);
       let idx = jsCompileOperand(node.params![1], ctx);
       let brand = node.params![0]?._t;
@@ -2158,7 +2158,7 @@ export function compileJSNode(
     }
 
     case "vectorElement": {
-      assertLiteralIndexInRange(node.params![0], node.params![1]);
+      assertConstantIndexInRange(node.params![0], node.params![1]);
       let src = jsComponents(node.params![0], ctx, ctx.jsTarget === node);
       let idx = jsCompileOperand(node.params![1], ctx);
       // A run-time index below zero or past the end reaches the last component.
@@ -2298,7 +2298,7 @@ export function compileJSNode(
         let base = jsAssignable(parts.base, ctx);
         let components = parts.components ?? [];
         if (parts.index) {
-          assertLiteralIndexInRange(parts.base, parts.index);
+          assertConstantIndexInRange(parts.base, parts.index);
           let idx = compileJSStage(parts.index, ctx);
           base = { ...base, decls: [...base.decls, ...idx.decls], body: [...base.body, ...idx.body] };
           components = [jsBoundedIndex(idx.expr, TYPE_WIDTH[parts.base._t])];

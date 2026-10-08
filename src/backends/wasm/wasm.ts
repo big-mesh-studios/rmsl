@@ -34,7 +34,7 @@ import {
   numberClashingVariables,
   assertAssignable,
   FOR_UPDATE_BLOCK_MESSAGE,
-  assertLiteralIndexInRange,
+  assertConstantIndexInRange,
   DEGREES_PER_RADIAN,
   RADIANS_PER_DEGREE,
   assignedStorageElement,
@@ -1661,11 +1661,16 @@ export function compileWasmFn(
         break;
 
       case "vectorElement":
+        assertConstantIndexInRange(node.params[0], node.params[1]);
+        addLocal("$element_index", "int");
+        break;
+
       case "uniformArrayElement":
         addLocal("$element_index", "int");
         break;
 
       case "matrixElement":
+        assertConstantIndexInRange(node.params[0], node.params[1]);
         addLocal("$element_index", "int");
         addLocal("$column_address", "int");
         break;
@@ -1885,7 +1890,7 @@ export function compileWasmFn(
    * WGSL and GLSL compile it.
    */
   function constantIndex(target: any, index: any): number {
-    return assertLiteralIndexInRange(target, index)!;
+    return assertConstantIndexInRange(target, index)!;
   }
 
   /**
