@@ -85,6 +85,14 @@ export function geometryAttribute(mesh: Mesh, geometry: BufferGeometry, name: st
 const _normalMatrix = new Matrix3();
 
 /**
+ * Whether a mesh's world matrix mirrors it, which reverses the winding of its
+ * triangles, so its front face winds clockwise, as three.js winds it.
+ */
+export function isMirrored(mesh: Mesh): boolean {
+  return mesh.matrixWorld.determinant() < 0;
+}
+
+/**
  * The value a renderer-scoped uniform should hold this frame, given its
  * logical name and the drawing surface's device-pixel size. Unknown names
  * return an empty array, which the renderer treats as "nothing to upload".

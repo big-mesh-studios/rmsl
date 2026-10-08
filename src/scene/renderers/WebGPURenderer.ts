@@ -45,6 +45,7 @@ import {
   imageHeight,
   imageLoaded,
   imageWidth,
+  isMirrored,
   HeldBuffers,
 } from "./common";
 
@@ -744,8 +745,9 @@ export class WebGPURenderer {
    */
   private pipelineVariant(entry: PipelineEntry, mesh: Mesh): PipelineVariant {
     const material = mesh.material as RenderStateMaterial;
-    // The material's blend and depth state is part of the pipeline, read at each draw as WebGL reads it.
-    let key = `${material.transparent},${material.blending},${material.depthTest},${material.depthWrite};`;
+    // The material's blend and depth state and the mesh's winding are part of the pipeline, read at each draw as WebGL reads them.
+    const mirrored = isMirrored(mesh);
+    let key = `${material.transparent},${material.blending},${material.depthTest},${material.depthWrite},${mirrored};`;
     for (const attribute of entry.program.attributes) {
       key += `${this.formatOf(attribute, mesh)},`;
     }
@@ -773,6 +775,7 @@ export class WebGPURenderer {
     const variant = {
       pipeline: this.device.createRenderPipeline({
         ...descriptor,
+        primitive: { ...descriptor.primitive, frontFace: mirrored ? "cw" : "ccw" },
         fragment: {
           ...descriptor.fragment!,
           targets: [{ format: this.format, blend: blendState(material) }],

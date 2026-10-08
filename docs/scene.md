@@ -128,7 +128,10 @@ Both renderers clear to `scene.background` when it is a `Color`, and to the
 colour `setClearColor` set when it is `null`, the default, as in three.js. They
 clear even when the scene has nothing to draw. They draw opaque meshes in
 scene-graph order, then transparent meshes (`material.transparent = true`) from
-the farthest to the nearest, so each blends over what lies behind it.
+the farthest to the nearest, so each blends over what lies behind it. A mesh
+whose world matrix mirrors it, such as one scaled by -1 along an axis, winds
+its front face clockwise, as in three.js, so its material's `side` shows the
+same faces it shows unmirrored.
 
 ### WebGLRenderer
 
@@ -138,8 +141,8 @@ the farthest to the nearest, so each blends over what lies behind it.
 
 The renderer sets each piece of WebGL state it reads, so it draws over any
 state the application left. Before a frame it sets the colour mask, blend
-equation, depth function, depth range and front face as a fresh context has
-them, and turns off the scissor, stencil, discard, polygon offset, coverage and
+equation, depth function and depth range as a fresh context has them, and the
+front face for each draw, and turns off the scissor, stencil, discard, polygon offset, coverage and
 dithering switches, as a WebGPU draw has them. It gives each attribute a shader
 declares that the geometry lacks the value (0, 0, 0, 1), draws to the canvas's
 back buffer, sets the unpack parameters before a texture upload, and sets the

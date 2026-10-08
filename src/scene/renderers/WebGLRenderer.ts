@@ -44,6 +44,7 @@ import {
   vertexFormatOf,
   drawSlice,
   imageLoaded,
+  isMirrored,
   HeldBuffers,
 } from "./common";
 
@@ -384,7 +385,7 @@ export class WebGLRenderer {
     const gl = this.gl;
 
     gl.useProgram(entry.glProgram);
-    this.setRenderState(material);
+    this.setRenderState(material, isMirrored(mesh));
     this.uploadUniforms(entry, mesh, camera);
     this.bindGeometry(mesh, entry, mesh.geometry);
 
@@ -404,14 +405,19 @@ export class WebGLRenderer {
     }
   }
 
-  private setRenderState(material: {
-    side: Side;
-    blending: Blending;
-    depthTest: boolean;
-    depthWrite: boolean;
-    transparent: boolean;
-  }): void {
+  /** Sets the cull, depth and blend state `material` asks for, and the winding of a front face, clockwise when `mirrored`. */
+  private setRenderState(
+    material: {
+      side: Side;
+      blending: Blending;
+      depthTest: boolean;
+      depthWrite: boolean;
+      transparent: boolean;
+    },
+    mirrored: boolean,
+  ): void {
     const gl = this.gl;
+    gl.frontFace(mirrored ? gl.CW : gl.CCW);
     switch (material.side) {
       case Side.FrontSide:
         gl.enable(gl.CULL_FACE);

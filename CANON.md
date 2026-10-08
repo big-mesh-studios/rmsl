@@ -482,6 +482,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-renderer-blends-and-depth-tests-as-the-material-asks`](#spec-a-renderer-blends-and-depth-tests-as-the-material-asks) — A renderer blends and depth-tests each draw as its material's `transparent`, `blending`, `depthTest` and `depthWrite` ask.
       - [`@spec a-draw-takes-its-material-blend-and-depth-state`](#spec-a-draw-takes-its-material-blend-and-depth-state) — A draw blends as its material's `transparent` and `blending` ask, and depth-tests and writes depth as its `depthTest` and `depthWrite` ask. A renderer reads them at each draw, so a change to them takes effect without `needsUpdate`.
       - [`@spec a-renderer-draws-transparent-meshes-back-to-front`](#spec-a-renderer-draws-transparent-meshes-back-to-front) — A renderer draws opaque meshes first, then transparent meshes from the farthest to the nearest.
+    - [`@spec a-mirrored-mesh-shows-the-faces-its-material-asks-for`](#spec-a-mirrored-mesh-shows-the-faces-its-material-asks-for) — A mesh whose world matrix mirrors it, with a negative determinant, draws with its front face wound clockwise on both renderers. Its material's `side` then culls the faces it culls on a mesh that is not mirrored.
     - [`@spec render-clears-the-canvas-on-every-call`](#spec-render-clears-the-canvas-on-every-call) — `render` clears the canvas to the clear colour on every call, whatever the scene holds.
       - [`@spec a-scene-that-draws-nothing-still-clears`](#spec-a-scene-that-draws-nothing-still-clears) — `render` of a scene with nothing to draw clears the canvas, as a scene with meshes does.
       - [`@spec render-clears-to-the-scene-background`](#spec-render-clears-to-the-scene-background) — `render` clears to the scene's background colour when the scene has one, and to the clear colour otherwise.
@@ -712,6 +713,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact three-js-sets-blending-and-depth-from-the-material`](#fact-three-js-sets-blending-and-depth-from-the-material) — In three.js, `transparent`, `blending`, `depthTest` and `depthWrite` are properties of a material, and the renderer sets its blend and depth state from them for each draw. A material with normal blending that is not transparent draws with no blending. Normal blending weighs colour by the source alpha and alpha by one, both over one minus the source alpha. Additive blending adds colour weighed by the source alpha, and adds alpha.
 - [`@fact three-js-uploads-a-changed-attribute-through-update-ranges`](#fact-three-js-uploads-a-changed-attribute-through-update-ranges) — three.js holds the changed part of a `BufferAttribute` as a list `updateRanges`, which `addUpdateRange(start, count)` adds to. It sends those ranges to the GPU, and sends the whole attribute when the list is empty.
 - [`@fact three-js-dithers-in-the-shader-not-through-the-dither-switch`](#fact-three-js-dithers-in-the-shader-not-through-the-dither-switch) — three.js never sets WebGL's `DITHER` switch. A material with `dithering: true` dithers in its fragment shader, through the `DITHERING` define.
+- [`@fact three-js-flips-the-front-face-of-a-mirrored-mesh`](#fact-three-js-flips-the-front-face-of-a-mirrored-mesh) — three.js draws a mesh whose world matrix has a negative determinant with its front face wound clockwise, on both of its renderers. A `BackSide` material flips the winding once more.
 - [`@fact three-js-cuts-a-draw-range-to-its-geometry`](#fact-three-js-cuts-a-draw-range-to-its-geometry) — three.js draws the part of a draw range that lies within the geometry's index, or within its position attribute when it has no index, and the range as it is when the geometry has neither. It draws nothing when that part is empty or has no end.
 - [`@fact three-js-uploads-an-image-once-it-has-loaded`](#fact-three-js-uploads-an-image-once-it-has-loaded) — three.js's `WebGLRenderer` skips the upload of a texture marked for update whose image element has not loaded, and records no version for it. It tries again at each render, and uploads the texture once the image has loaded. A texture never marked for update it does not upload; its `TextureLoader` marks a texture when the image loads.
 - [`@fact three-js-writes-a-texture-sampler-state-when-its-version-changes`](#fact-three-js-writes-a-texture-sampler-state-when-its-version-changes) — three.js's `WebGLRenderer` writes a texture's filters and wrap when it uploads the texture, which it does when the texture's `version` differs from the one it uploaded. A change to `minFilter`, `magFilter` or a wrap mode with no `needsUpdate` leaves the texture read as before.
@@ -3419,6 +3421,14 @@ Derives from: [`fact-three-js-renders-opaque-before-transparent-objects`](#fact-
 
 This follows because three.js sorts its transparent list back to front, so each transparent mesh blends over what lies behind it.
 
+#### @spec a-mirrored-mesh-shows-the-faces-its-material-asks-for
+
+> A mesh whose world matrix mirrors it, with a negative determinant, draws with its front face wound clockwise on both renderers. Its material's `side` then culls the faces it culls on a mesh that is not mirrored.
+
+Derives from: [`fact-three-js-flips-the-front-face-of-a-mirrored-mesh`](#fact-three-js-flips-the-front-face-of-a-mirrored-mesh)
+
+This follows because a mirror reverses the winding of every triangle. A renderer that kept the winding would cull the faces a `FrontSide` material shows.
+
 #### @spec render-clears-the-canvas-on-every-call
 
 > `render` clears the canvas to the clear colour on every call, whatever the scene holds.
@@ -4844,6 +4854,12 @@ This is how three.js behaves, read from its source (`BufferAttribute` and `WebGL
 > three.js never sets WebGL's `DITHER` switch. A material with `dithering: true` dithers in its fragment shader, through the `DITHERING` define.
 
 This is how three.js behaves, read from its source (`WebGLState`, `WebGLPrograms` and `WebGLProgram`, three.js 0.186).
+
+## @fact three-js-flips-the-front-face-of-a-mirrored-mesh
+
+> three.js draws a mesh whose world matrix has a negative determinant with its front face wound clockwise, on both of its renderers. A `BackSide` material flips the winding once more.
+
+This is how three.js behaves, read from its source (`WebGLRenderer` `renderBufferDirect`, `WebGLState` `setMaterial`, and `WebGPUPipelineUtils` `_getPrimitiveState`, three.js 0.186).
 
 ## @fact three-js-cuts-a-draw-range-to-its-geometry
 

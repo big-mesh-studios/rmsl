@@ -356,6 +356,38 @@ describe("a scene renderer manages what it uploads", () => {
   });
 
   /**
+   * @canon spec-a-mirrored-mesh-shows-the-faces-its-material-asks-for
+   */
+  it("winds the front face of a mirrored mesh clockwise on WebGL", () => {
+    const { renderer, gl, calls } = stubWebGl();
+    const mirrored = new Mesh(new PlaneGeometry(), new MeshBasicMaterial());
+    mirrored.scale.x = -1;
+    const scene = new Scene();
+    scene.add(mirrored, new Mesh(new PlaneGeometry(), new MeshBasicMaterial()));
+    renderer.render(scene, camera());
+
+    const draws = calls.filter((c) => c.name === "frontFace" || c.name === "drawElementsInstanced");
+    const facesAtDraws = draws.flatMap((c, i) => (c.name === "frontFace" ? [] : [draws[i - 1]!.args[0]]));
+    expect(facesAtDraws).toEqual([gl.CW, gl.CCW]);
+  });
+
+  /**
+   * @canon spec-a-mirrored-mesh-shows-the-faces-its-material-asks-for
+   */
+  it("winds the front face of a mirrored mesh clockwise on WebGPU", () => {
+    const { device, canvas, passes } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any);
+    const mirrored = new Mesh(new PlaneGeometry(), new MeshBasicMaterial());
+    mirrored.scale.x = -1;
+    const scene = new Scene();
+    scene.add(mirrored, new Mesh(new PlaneGeometry(), new MeshBasicMaterial()));
+    renderer.render(scene, camera());
+
+    const faces = passes.map((p) => p.calls.find((c) => c.name === "setPipeline")!.args[0].primitive.frontFace);
+    expect(faces).toEqual(["cw", "ccw"]);
+  });
+
+  /**
    * @canon spec-render-clears-to-the-scene-background
    */
   it("clears to the scene's background colour", () => {
