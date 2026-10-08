@@ -223,17 +223,4 @@ describe("known WASM bugs, each failing until its fix", () => {
     const lowerFirst = draw(upper, [1, 0, 0, 1], false);
     expect(upperFirst).toEqual(lowerFirst);
   });
-
-  /**
-   * The WASM target compiles no component-wise math function of a vector,
-   * such as `pow`, `sin` or `floor`, and throws that the node is unsupported.
-   *
-   * @canon bug-wasm-compiles-no-component-wise-math-on-a-vector
-   */
-  it.fails("computes pow, sin and floor of a vector on WASM", () => {
-    const first = (build: (a: any) => any) => compileWasmRoutine((a: any) => Fn(() => build(a).x.toVar())(), param);
-    expect(first((a) => pow(vec3(a, 2, 3), vec3(2, 2, 2)))({ params: { a: 4 } })).toBe(16);
-    expect(first((a) => sin(vec3(a, 2, 3)))({ params: { a: 0 } })).toBe(0);
-    expect(first((a) => floor(vec3(a, 2, 3)))({ params: { a: 1.5 } })).toBe(1);
-  });
 });

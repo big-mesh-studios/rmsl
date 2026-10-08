@@ -25,6 +25,7 @@ import {
   scalarKindOf,
 } from "../cpu";
 import {
+  assertSquareMatrix,
   assertNotInAComputeStage,
   COMPUTE_REFUSES,
   assertStageResult,
@@ -45,6 +46,7 @@ import {
   resolveSwizzleTarget,
 } from "../shared";
 import { shareNodes } from "../share";
+import { jsHelperSource } from "../js/js";
 import {
   f64ConstBytes,
   forLoop,
@@ -465,7 +467,28 @@ function minMaxBytes(a: number[], b: number[], kind: ScalarKind, pick: "min" | "
  * var/uniform/param...) and therefore need their own fixed address to be
  * materialized into before any component can be read.
  */
+/** The math functions that apply to each component of a vector, through {@link mathBytes} in the compiler. */
+const COMPONENT_MATH_TYPES = new Set([
+  "sign",
+  "floor",
+  "ceil",
+  "trunc",
+  "fract",
+  "round",
+  "sqrt",
+  "inverseSqrt",
+  "exp2",
+  ...MATH_UNARY_IMPORTS,
+  ...MATH_BINARY_IMPORTS,
+]);
+
 const SCRATCH_NODE_TYPES = new Set([
+  ...COMPONENT_MATH_TYPES,
+  "inverse",
+  "transpose",
+  "faceForward",
+  "refract",
+  "not",
   "construct",
   "uniformArrayElement",
   "storageElement",
@@ -532,6 +555,92 @@ function comparisonBytes(type: string, a: number[], b: number[], kind: ScalarKin
  * {@link SCRATCH_NODE_TYPES} describes: it needs its own scratch address
  * materialized before any of its components can be read.
  */
+/** An expression of the JS target's inverse helper, read into a tree. */
+type Formula =
+  | { kind: "number"; value: number }
+  | { kind: "input"; index: number }
+  | { kind: "name"; name: string }
+  | { kind: "negate"; operand: Formula }
+  | { kind: "add" | "sub" | "mul" | "div"; left: Formula; right: Formula };
+
+/** One statement of a JS matrix helper: a local it sets, a component of its result, or the value it returns. */
+type FormulaStatement =
+  | { target: "local"; name: string; value: Formula }
+  | { target: "out"; index: number; value: Formula }
+  | { target: "return"; value: Formula };
+
+const FORMULA_OPCODES = { add: WASM_OP.f64Add, sub: WASM_OP.f64Sub, mul: WASM_OP.f64Mul, div: WASM_OP.f64Div };
+
+/**
+ * The statements of a JS target matrix helper, such as `mat3x3inv`, read from
+ * its source: `let` declarations of locals, from `m[i]` or from earlier
+ * locals, `out[i]` assignments and a `return`. Reading the one source keeps
+ * the WASM function the same arithmetic, in the same order, as the JS one.
+ */
+function helperFormulas(helper: string): FormulaStatement[] {
+  const source = jsHelperSource(helper);
+  const statements: FormulaStatement[] = [];
+  for (const raw of source.split("\n")) {
+    const line = raw.trim().replace(/;$/, "");
+    const declaration = /^let (.*)$/.exec(line);
+    const assignment = /^out\[(\d+)\] = (.*)$/.exec(line);
+    const result = /^return (?!out$)(.*)$/.exec(line);
+    if (result) {
+      statements.push({ target: "return", value: parseFormula(result[1]!) });
+    } else if (declaration) {
+      for (const part of declaration[1]!.split(/,(?![^(]*\))/)) {
+        const [name, expression] = part.split(" = ").map((t) => t.trim()) as [string, string];
+        statements.push({ target: "local", name, value: parseFormula(expression) });
+      }
+    } else if (assignment) {
+      statements.push({ target: "out", index: Number(assignment[1]), value: parseFormula(assignment[2]!) });
+    }
+  }
+  return statements;
+}
+
+/** Parses an arithmetic expression of the inverse helper, with JS's precedence and left-to-right order. */
+function parseFormula(text: string): Formula {
+  const tokens = text.match(/\d+(?:\.\d+)?|[A-Za-z_]\w*|[-+*/()[\]]/g)!;
+  let at = 0;
+  const peek = () => tokens[at];
+  const take = () => tokens[at++]!;
+  const primary = (): Formula => {
+    const token = take();
+    if (token === "(") {
+      const inner = sum();
+      take();
+      return inner;
+    }
+    if (token === "-") return { kind: "negate", operand: primary() };
+    if (/^\d/.test(token)) return { kind: "number", value: Number(token) };
+    if (token === "m" && peek() === "[") {
+      take();
+      const index = Number(take());
+      take();
+      return { kind: "input", index };
+    }
+    return { kind: "name", name: token };
+  };
+  const product = (): Formula => {
+    let left = primary();
+    while (peek() === "*" || peek() === "/") {
+      const kind = take() === "*" ? "mul" : "div";
+      left = { kind, left, right: primary() };
+    }
+    return left;
+  };
+  const sum = (): Formula => {
+    let left = product();
+    while (peek() === "+" || peek() === "-") {
+      const kind = take() === "+" ? "add" : "sub";
+      left = { kind, left, right: product() };
+    }
+    return left;
+  };
+  return sum();
+}
+
 function isScratchNode(node: any): boolean {
   const t = node._t as string;
   if (!isAggregate(t)) return false;
@@ -1679,6 +1788,22 @@ export function compileWasmFn(
         addLocal("$column_address", "int");
         break;
 
+      case "faceForward":
+        addLocal("$face_forward_sign", "float");
+        break;
+
+      case "inverse":
+      case "determinant":
+        assertSquareMatrix(node.params[0]._t);
+        for (const statement of helperFormulas(matrixHelper(node))) {
+          if (statement.target === "local") addLocal(`$${matrixHelper(node)}_${statement.name}`, "float");
+        }
+        break;
+
+      case "refract":
+        for (const name of ["eta", "d", "k", "r"]) addLocal(`$refract_${name}`, "float");
+        break;
+
       case "div":
       case "mod":
         if ((isAggregate(node._t) ? elementKindOf(node._t) : scalarKindOf(node._t)) !== "float") {
@@ -1738,6 +1863,60 @@ export function compileWasmFn(
   /**
    * Emits a `call` to a math/transcendental import by name (`sin`, `pow`, ...).
    */
+  /**
+   * The bytes of a math function of one component: `args` emits each
+   * operand's component, in `kind`, once for each time the function reads it,
+   * so an operand's statements run where its first read runs. A scalar applies
+   * the function once, and a vector once for each component.
+   */
+  function mathBytes(type: string, args: (() => number[])[], kind: ScalarKind): number[] {
+    const [readX, readY] = args as [() => number[], () => number[]];
+    const x = readX();
+    switch (type) {
+      case "sign": {
+        const float = kind === "float";
+        const zero = float ? f64ConstBytes(0) : i32ConstBytes(0);
+        const one = float ? f64ConstBytes(1) : i32ConstBytes(1);
+        const minusOne = float ? f64ConstBytes(-1) : i32ConstBytes(-1);
+        const gtZero = float
+          ? [...x, ...f64ConstBytes(0), WASM_OP.f64Gt]
+          : [...x, ...i32ConstBytes(0), kind === "uint" ? WASM_OP.i32GtU : WASM_OP.i32GtS];
+        const again = readX();
+        const ltZero = float
+          ? [...again, ...f64ConstBytes(0), WASM_OP.f64Lt]
+          : [...again, ...i32ConstBytes(0), kind === "uint" ? WASM_OP.i32LtU : WASM_OP.i32LtS];
+        return selectExpr(minusOne, selectExpr(one, zero, gtZero), ltZero);
+      }
+      case "floor":
+        return [...x, WASM_OP.f64Floor];
+      case "ceil":
+        return [...x, WASM_OP.f64Ceil];
+      case "trunc":
+        return [...x, WASM_OP.f64Trunc];
+      case "radians":
+        return [...x, ...f64ConstBytes(RADIANS_PER_DEGREE), WASM_OP.f64Mul];
+      case "degrees":
+        return [...x, ...f64ConstBytes(DEGREES_PER_RADIAN), WASM_OP.f64Mul];
+      case "fract":
+        // x - floor(x); x is emitted twice to keep the stack flat — cheap, side-effect free
+        return [...x, ...readX(), WASM_OP.f64Floor, WASM_OP.f64Sub];
+      case "round":
+        // WGSL's round takes a half to the even neighbour, as f64.nearest does.
+        return [...x, WASM_OP.f64Nearest];
+      case "sqrt":
+        return [...x, WASM_OP.f64Sqrt];
+      case "inverseSqrt":
+        return [...f64ConstBytes(1), ...x, WASM_OP.f64Sqrt, WASM_OP.f64Div];
+      case "exp2":
+        return [...f64ConstBytes(2), ...x, ...callImport("pow")]; // exp2(x) = pow(2, x)
+      case "pow":
+      case "atan2":
+        return [...x, ...readY(), ...callImport(type)];
+      default:
+        return [...x, ...callImport(type)];
+    }
+  }
+
   function callImport(name: string): number[] {
     return [WASM_OP.call, ...wasmUleb128(importIndexOf.get(name)!)];
   }
@@ -2233,6 +2412,16 @@ export function compileWasmFn(
         return emitSmoothstepStores(node, nodeAddress(node));
       case "select":
         return emitSelectStores(node, nodeAddress(node));
+      case "inverse":
+        return emitMatrixHelper(node, nodeAddress(node));
+      case "refract":
+        return emitRefractStores(node, nodeAddress(node));
+      case "not":
+        return emitComponentwiseStores(node, nodeAddress(node));
+      case "faceForward":
+        return emitFaceForwardStores(node, nodeAddress(node));
+      case "transpose":
+        return emitTransposeStores(node, nodeAddress(node));
       case "seq": {
         // a nested Fn call's aggregate result: statements, then materialize
         // the final value (which nodeAddress() already resolves to for this node).
@@ -2245,6 +2434,7 @@ export function compileWasmFn(
           // node.type matching the type name with an array value identifies a literal
           return emitLiteralStores(node, nodeAddress(node));
         }
+        if (COMPONENT_MATH_TYPES.has(node.type)) return emitMathStores(node, nodeAddress(node));
         throw new Error(`[RMSL] compileWasmFn: unsupported node type in vector position: "${node.type}"`);
     }
   }
@@ -2259,10 +2449,21 @@ export function compileWasmFn(
     const matShape = MATRIX_DIMENSIONS[targetType];
     if (matShape) {
       const [cols, rows] = matShape;
-      if (node.params.length === 1 && componentCountOf(node.params[0]._t) > 1) {
-        throw new Error(
-          '[RMSL] compileWasmFn: unsupported node type in vector position: "matrix-from-matrix construct"',
-        );
+      const source = node.params.length === 1 ? MATRIX_DIMENSIONS[node.params[0]._t as string] : undefined;
+      if (source !== undefined) {
+        // Column by column: the source's leading rows of its leading columns, and the identity's where it has none.
+        const [sourceCols, sourceRows] = source;
+        const out = materializeIfNeeded(node.params[0]);
+        const from = nodeAddress(node.params[0]);
+        for (let c = 0; c < cols; c++)
+          for (let r = 0; r < rows; r++) {
+            const value =
+              c < sourceCols && r < sourceRows
+                ? loadComponent(from, "float", (c * sourceRows + r) * 8)
+                : f64ConstBytes(c === r ? 1 : 0);
+            out.push(...storeComponent(addr, "float", (c * rows + r) * 8, value));
+          }
+        return out;
       }
       const out: number[] = [];
       if (node.params.length === 1) {
@@ -2885,6 +3086,7 @@ export function compileWasmFn(
         return [...aBytes, ...bBytes, ...integerDivision(operandKind as "int" | "uint", node.type)];
       }
       if (node.type === "bitNot") return [...aBytes, ...i32ConstBytes(-1), WASM_OP.i32Xor];
+      if (node.type === "not") return [...aBytes, WASM_OP.i32Eqz];
       const opcode = {
         add: float ? WASM_OP.f64Add : WASM_OP.i32Add,
         sub: float ? WASM_OP.f64Sub : WASM_OP.i32Sub,
@@ -2904,6 +3106,190 @@ export function compileWasmFn(
         b === undefined ? [] : bWidth > 1 ? loadComponent(bAddr!, operandKind, k * operandSize) : walkExpr(b);
       out.push(...storeComponent(addr, targetKind, k * compSize, combine(aBytes, bBytes)));
     }
+    return out;
+  }
+
+  /** A math function of a vector, applied to each component; a scalar operand applies to every one. */
+  function emitMathStores(node: any, addr: number): number[] {
+    const kind = elementKindOf(node._t as string);
+    const size = componentSizeOf(kind);
+    const out: number[] = [];
+    const operands = (node.params as any[]).map((p) => {
+      const wide = componentCountOf(p._t) > 1;
+      if (wide) out.push(...materializeIfNeeded(p));
+      return { node: p, address: wide ? nodeAddress(p) : undefined };
+    });
+    for (let k = 0; k < componentCountOf(node._t as string); k++) {
+      const args = operands.map(
+        (o) => () => (o.address === undefined ? walkExpr(o.node) : loadComponent(o.address, kind, k * size)),
+      );
+      out.push(...storeComponent(addr, kind, k * size, mathBytes(node.type, args, kind)));
+    }
+    return out;
+  }
+
+  /** The JS helper a matrix function of `node` is computed as, by its name in the JS target. */
+  function matrixHelper(node: any): string {
+    const [cols, rows] = MATRIX_DIMENSIONS[node.params[0]._t as string];
+    return `mat${cols}x${rows}${node.type === "inverse" ? "inv" : "det"}`;
+  }
+
+  /**
+   * A matrix function of `node`, computed as the JS target computes it: each
+   * statement of the JS helper, in the same order, on f64 locals, so the two
+   * targets agree to the bit. Its result goes to `addr`, or stays on the stack
+   * for a helper that returns a number.
+   */
+  function emitMatrixHelper(node: any, addr?: number): number[] {
+    const helper = matrixHelper(node);
+    const source = node.params[0];
+    const out = materializeIfNeeded(source);
+    const from = nodeAddress(source);
+    const local = (name: string) => wasmUleb128(localSlotIndex(`$${helper}_${name}`));
+    const bytes = (e: Formula): number[] => {
+      switch (e.kind) {
+        case "number":
+          return f64ConstBytes(e.value);
+        case "input":
+          return loadComponent(from, "float", e.index * 8);
+        case "name":
+          return [WASM_OP.localGet, ...local(e.name)];
+        case "negate":
+          return [...bytes(e.operand), WASM_OP.f64Neg];
+        default:
+          return [...bytes(e.left), ...bytes(e.right), FORMULA_OPCODES[e.kind]];
+      }
+    };
+    for (const statement of helperFormulas(helper)) {
+      if (statement.target === "local") out.push(...bytes(statement.value), WASM_OP.localSet, ...local(statement.name));
+      else if (statement.target === "out")
+        out.push(...storeComponent(addr!, "float", statement.index * 8, bytes(statement.value)));
+      else out.push(...bytes(statement.value));
+    }
+    return out;
+  }
+
+  /**
+   * `refract(i, n, eta)` as the JS target computes it: the dot summed from
+   * zero, `k = 1 - eta * eta * (1 - d * d)`, and each component
+   * `eta * i - (eta * d + sqrt(k)) * n`, or zero where `k` is below zero.
+   */
+  function emitRefractStores(node: any, addr: number): number[] {
+    const [incident, normal, eta] = node.params;
+    const width = componentCountOf(node._t as string);
+    const out = [...materializeIfNeeded(incident), ...materializeIfNeeded(normal)];
+    const [iAddr, nAddr] = [nodeAddress(incident), nodeAddress(normal)];
+    const get = (name: string) => [WASM_OP.localGet, ...wasmUleb128(localSlotIndex(`$refract_${name}`))];
+    const set = (name: string, value: number[]) => [
+      ...value,
+      WASM_OP.localSet,
+      ...wasmUleb128(localSlotIndex(`$refract_${name}`)),
+    ];
+    let dot = f64ConstBytes(0);
+    for (let k = 0; k < width; k++) {
+      dot = [
+        ...dot,
+        ...loadComponent(nAddr, "float", k * 8),
+        ...loadComponent(iAddr, "float", k * 8),
+        WASM_OP.f64Mul,
+        WASM_OP.f64Add,
+      ];
+    }
+    out.push(...set("eta", walkExpr(eta)), ...set("d", dot));
+    const dd = [...get("d"), ...get("d"), WASM_OP.f64Mul];
+    out.push(
+      ...set("k", [
+        ...f64ConstBytes(1),
+        ...get("eta"),
+        ...get("eta"),
+        WASM_OP.f64Mul,
+        ...f64ConstBytes(1),
+        ...dd,
+        WASM_OP.f64Sub,
+        WASM_OP.f64Mul,
+        WASM_OP.f64Sub,
+      ]),
+      ...set("r", [...get("eta"), ...get("d"), WASM_OP.f64Mul, ...get("k"), WASM_OP.f64Sqrt, WASM_OP.f64Add]),
+    );
+    for (let k = 0; k < width; k++) {
+      const value = [
+        ...get("eta"),
+        ...loadComponent(iAddr, "float", k * 8),
+        WASM_OP.f64Mul,
+        ...get("r"),
+        ...loadComponent(nAddr, "float", k * 8),
+        WASM_OP.f64Mul,
+        WASM_OP.f64Sub,
+      ];
+      out.push(
+        ...storeComponent(
+          addr,
+          "float",
+          k * 8,
+          selectExpr(f64ConstBytes(0), value, [...get("k"), ...f64ConstBytes(0), WASM_OP.f64Lt]),
+        ),
+      );
+    }
+    return out;
+  }
+
+  /**
+   * `faceForward(n, i, nref)`: `n` when `dot(nref, i)` is below zero and `-n`
+   * otherwise, as the JS target computes it: the dot summed from zero, and `n`
+   * multiplied by a sign.
+   */
+  function emitFaceForwardStores(node: any, addr: number): number[] {
+    const [n, incident, reference] = node.params;
+    const width = componentCountOf(node._t as string);
+    const out = [...materializeIfNeeded(n), ...materializeIfNeeded(incident), ...materializeIfNeeded(reference)];
+    const [nAddr, iAddr, refAddr] = [nodeAddress(n), nodeAddress(incident), nodeAddress(reference)];
+    let dot = f64ConstBytes(0);
+    for (let k = 0; k < width; k++) {
+      dot = [
+        ...dot,
+        ...loadComponent(refAddr, "float", k * 8),
+        ...loadComponent(iAddr, "float", k * 8),
+        WASM_OP.f64Mul,
+        WASM_OP.f64Add,
+      ];
+    }
+    const sign = wasmUleb128(localSlotIndex("$face_forward_sign"));
+    out.push(
+      ...selectExpr(f64ConstBytes(1), f64ConstBytes(-1), [...dot, ...f64ConstBytes(0), WASM_OP.f64Lt]),
+      WASM_OP.localSet,
+      ...sign,
+    );
+    for (let k = 0; k < width; k++) {
+      out.push(
+        ...storeComponent(addr, "float", k * 8, [
+          WASM_OP.localGet,
+          ...sign,
+          ...loadComponent(nAddr, "float", k * 8),
+          WASM_OP.f64Mul,
+        ]),
+      );
+    }
+    return out;
+  }
+
+  /** The matrix of `node`'s columns as rows, element by element. */
+  function emitTransposeStores(node: any, addr: number): number[] {
+    const source = node.params[0];
+    const [cols, rows] = MATRIX_DIMENSIONS[source._t as string];
+    const out = materializeIfNeeded(source);
+    const from = nodeAddress(source);
+    for (let col = 0; col < cols; col++)
+      for (let row = 0; row < rows; row++) {
+        // Element (col, row) of the source is element (row, col) of the result, which has `cols` rows.
+        out.push(
+          ...storeComponent(
+            addr,
+            "float",
+            (row * cols + col) * 8,
+            loadComponent(from, "float", (col * rows + row) * 8),
+          ),
+        );
+      }
     return out;
   }
 
@@ -3437,48 +3823,17 @@ export function compileWasmFn(
         const isNeg = [...walkExpr(x), ...i32ConstBytes(0), WASM_OP.i32LtS];
         return selectExpr(negated, walkExpr(x), isNeg);
       }
-      case "sign": {
-        const kind = scalarKindOf(node.params[0]._t);
-        const x = node.params[0];
-        const zero = kind === "float" ? f64ConstBytes(0) : i32ConstBytes(0);
-        const one = kind === "float" ? f64ConstBytes(1) : i32ConstBytes(1);
-        const minusOne = kind === "float" ? f64ConstBytes(-1) : i32ConstBytes(-1);
-        const gtZero =
-          kind === "float"
-            ? [...walkExpr(x), ...f64ConstBytes(0), WASM_OP.f64Gt]
-            : [...walkExpr(x), ...i32ConstBytes(0), kind === "uint" ? WASM_OP.i32GtU : WASM_OP.i32GtS];
-        const ltZero =
-          kind === "float"
-            ? [...walkExpr(x), ...f64ConstBytes(0), WASM_OP.f64Lt]
-            : [...walkExpr(x), ...i32ConstBytes(0), kind === "uint" ? WASM_OP.i32LtU : WASM_OP.i32LtS];
-        const positiveOrZero = selectExpr(one, zero, gtZero);
-        return selectExpr(minusOne, positiveOrZero, ltZero);
-      }
+      case "sign":
       case "floor":
-        return [...walkExpr(node.params[0]), WASM_OP.f64Floor];
       case "ceil":
-        return [...walkExpr(node.params[0]), WASM_OP.f64Ceil];
       case "trunc":
-        return [...walkExpr(node.params[0]), WASM_OP.f64Trunc];
       case "radians":
-        return [...walkExpr(node.params[0]), ...f64ConstBytes(RADIANS_PER_DEGREE), WASM_OP.f64Mul];
       case "degrees":
-        return [...walkExpr(node.params[0]), ...f64ConstBytes(DEGREES_PER_RADIAN), WASM_OP.f64Mul];
-      case "fract": {
-        const x = node.params[0];
-        // x - floor(x); x is emitted twice to keep the stack flat — cheap, side-effect free
-        return [...walkExpr(x), ...walkExpr(x), WASM_OP.f64Floor, WASM_OP.f64Sub];
-      }
+      case "fract":
       case "round":
-        // WGSL's round takes a half to the even neighbour, as f64.nearest does.
-        return [...walkExpr(node.params[0]), WASM_OP.f64Nearest];
       case "sqrt":
-        return [...walkExpr(node.params[0]), WASM_OP.f64Sqrt];
       case "inverseSqrt":
-        return [...f64ConstBytes(1), ...walkExpr(node.params[0]), WASM_OP.f64Sqrt, WASM_OP.f64Div];
       case "exp2":
-        return [...f64ConstBytes(2), ...walkExpr(node.params[0]), ...callImport("pow")]; // exp2(x) = pow(2, x)
-
       case "sin":
       case "cos":
       case "tan":
@@ -3494,10 +3849,13 @@ export function compileWasmFn(
       case "exp":
       case "log":
       case "log2":
-        return [...walkExpr(node.params[0]), ...callImport(node.type)];
       case "pow":
       case "atan2":
-        return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), ...callImport(node.type)];
+        return mathBytes(
+          node.type,
+          node.params.map((p: any) => () => walkExpr(p)),
+          scalarKindOf(node.params[0]._t),
+        );
 
       case "lessThan":
         return comparison(node, WASM_OP.f64Lt, WASM_OP.i32LtS, WASM_OP.i32LtU);
@@ -3588,6 +3946,23 @@ export function compileWasmFn(
         return readComponent(node.params[0], COMPONENT_INDEX[pattern]);
       }
 
+      case "determinant":
+        return emitMatrixHelper(node);
+      case "all":
+      case "any": {
+        // Every or some component of a boolean vector, each an i32 of 0 or 1.
+        const v = node.params[0];
+        if (!isAggregate(v._t)) return walkExpr(v);
+        const pre = materializeIfNeeded(v);
+        const from = nodeAddress(v);
+        const kind = elementKindOf(v._t as string);
+        const size = componentSizeOf(kind);
+        let acc = loadComponent(from, kind, 0);
+        for (let k = 1; k < componentCountOf(v._t); k++) {
+          acc = [...acc, ...loadComponent(from, kind, k * size), node.type === "all" ? WASM_OP.i32And : WASM_OP.i32Or];
+        }
+        return [...pre, ...acc];
+      }
       case "dot": {
         const a = node.params[0],
           b = node.params[1];

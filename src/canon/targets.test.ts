@@ -639,9 +639,6 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
-   * WASM refuses the inverse for another reason too: it compiles no inverse at
-   * all yet (#65).
-   *
    * @canon spec-only-a-square-matrix-is-inverted
    */
   it("refuses to invert a matrix that is not square on every target", () => {

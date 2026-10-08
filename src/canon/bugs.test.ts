@@ -28,21 +28,6 @@ const narrow = (a: Node<"float">) => mat2(mat3(vec3(a, 2, 3), vec3(4, 5, 6), vec
 
 describe("known bugs, each failing until its fix", () => {
   /**
-   * @canon bug-wasm-compiles-no-matrix-narrowing
-   */
-  it.fails("narrows a matrix on WASM", () => {
-    expect(evaluateWASM(narrow, [1])).toBe(5);
-  });
-
-  /**
-   * @canon bug-wasm-compiles-no-matrix-inverse
-   */
-  it.fails("inverts a matrix on WASM", () => {
-    const build = (a: Node<"float">) => mat2(vec2(a, 1), vec2(2, 4)).inverse().element(int(0)).x;
-    expect(evaluateWASM(build, [3])).toBeCloseTo(0.4, 12);
-  });
-
-  /**
    * @canon bug-js-and-wgsl-read-a-whole-storage-buffer
    */
   it.fails("refuses a whole storage buffer read as a value on JS and WGSL", () => {

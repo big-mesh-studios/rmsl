@@ -75,6 +75,7 @@ async function freshHarness(skipGpu: boolean) {
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.doUnmock("playwright");
+  vi.doUnmock("../wasm");
 });
 
 describe("the harness checks what it recorded", () => {
@@ -138,8 +139,15 @@ describe("the harness checks what it recorded", () => {
    * @canon spec-a-program-wasm-refuses-names-its-issue
    */
   it("fails a run in which WASM refused a recorded program", async () => {
-    const { harness, rmsl } = await freshHarness(true);
-    const build = (a: Node<"float">) => rmsl.mat2(rmsl.vec2(a, 1), rmsl.vec2(2, 4)).inverse().element(rmsl.int(0)).x;
+    // A WASM compiler that refuses every program stands in for a gap in it.
+    vi.doMock("../wasm", async (original) => ({
+      ...(await original<typeof import("../wasm")>()),
+      compileWasmRoutine: () => {
+        throw new Error('[RMSL] compileWasmFn: unsupported node type in expression position: "stand-in"');
+      },
+    }));
+    const { harness } = await freshHarness(true);
+    const build = (a: Node<"float">) => a.add(1);
     expect(() => harness.evaluateWASM(build, [3])).toThrow(/compileWasmFn/);
     harness.evaluateRecording(build, [3]);
     await expect(harness.assertRecordedEvaluationsAgree()).rejects.toThrow(/WASM/);

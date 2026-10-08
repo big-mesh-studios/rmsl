@@ -48,7 +48,7 @@ export type EvaluableRoot =
   | Node<"mat4x2">
   | Node<"mat4x3">;
 
-type Build = (...args: Node<"float">[]) => EvaluableRoot;
+export type Build = (...args: Node<"float">[]) => EvaluableRoot;
 
 function params(count: number) {
   return Array.from({ length: count }, (_, i) => ({ name: `a${i}`, type: "float" as const }));
@@ -527,21 +527,7 @@ export function evaluateIntegerWASM(build: IntegerBuild, type: IntegerType, args
  * with the issue that tracks it. Keyed by the test's full name, as
  * `KNOWN_INVALID` is, so a refusal is a listed gap rather than a quiet skip.
  */
-export const KNOWN_WASM_REFUSALS: Record<string, string> = {
-  "each leaf on every target it claims > compares a vector against a scalar on every target": "all: #219",
-  "each leaf on every target it claims > reduces a boolean vector with all and any on every target": "all, any: #219",
-  "each leaf on every target it claims > computes with int, uint, bool and integer vector literals on every target":
-    "any: #219",
-  "each leaf on every target it claims > transposes a matrix that is not square on every target": "transpose: #220",
-  "each leaf on every target it claims > reads an assignment's target as it was before the assignment on every target":
-    "inverse: #65, transpose: #220",
-  "each leaf on every target it claims > computes the geometric functions on every target": "faceForward: #130",
-  "each leaf on every target it claims > negates a boolean vector component by component on every target":
-    "not of a vector: #130",
-  "each leaf on every target it claims > rounds a value halfway between two integers to the even one on every target":
-    "round of a vector: #130",
-  "units of the core > widens the scalar argument of pow to the vector on every target": "pow of a vector: #130",
-};
+export const KNOWN_WASM_REFUSALS: Record<string, string> = {};
 
 function isWasmUnsupported(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith("[RMSL] compileWasmFn");

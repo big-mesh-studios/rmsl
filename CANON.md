@@ -266,8 +266,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec an-operation-means-what-it-means-in-tsl`](#spec-an-operation-means-what-it-means-in-tsl) — An operation computes what the operation of the same name computes in TSL, and takes its arguments in the same order. It compiles to the built-in of each target that computes it.
     - [`@spec arithmetic-compiles-to-the-operators-of-the-target`](#spec-arithmetic-compiles-to-the-operators-of-the-target) — `add`, `sub`, `mul` and `div`, as methods or free functions, compile to the operators of each target.
     - [`@spec a-math-function-compiles-to-the-builtin-of-the-target`](#spec-a-math-function-compiles-to-the-builtin-of-the-target) — A math function, such as `sin`, `floor`, `pow`, `inversesqrt` or `determinant`, compiles to the built-in of each target, under the name that target gives it.
-      - [`@bug wasm-compiles-no-matrix-inverse`](#bug-wasm-compiles-no-matrix-inverse) — The WASM target does not compile `inverse`.
-      - [`@bug wasm-compiles-no-component-wise-math-on-a-vector`](#bug-wasm-compiles-no-component-wise-math-on-a-vector) — The WASM target compiles no component-wise math function of a vector, such as `pow`, `sin`, `floor`, `fract` or `sqrt`.
     - [`@spec a-function-with-an-edge-takes-the-value-last`](#spec-a-function-with-an-edge-takes-the-value-last) — `step(edge, x)`, `smoothstep(low, high, x)`, `clamp(x, low, high)` and `mix(a, b, t)` take their arguments in TSL's order. A method puts its receiver where the function puts the value.
     - [`@spec a-geometric-function-compiles-to-the-builtin-of-the-target`](#spec-a-geometric-function-compiles-to-the-builtin-of-the-target) — `dot`, `length`, `distance`, `normalize`, `cross`, `reflect`, `refract` and `faceForward` compile to the built-ins of each target, `refract` with its three arguments.
     - [`@spec an-operation-no-target-has-is-composed`](#spec-an-operation-no-target-has-is-composed) — `xor`, `saturate`, `oneMinus`, `reciprocal`, `difference`, the powers, `lengthSq` of a scalar, `premultiplyAlpha` and `unpremultiplyAlpha` compile to the operations that make them up.
@@ -294,7 +292,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec parts-fill-a-vector-in-order`](#spec-parts-fill-a-vector-in-order) — A vector constructor given vectors and scalars fills its components with theirs, in order, and keeps the leading components of a longer vector.
     - [`@spec a-scalar-matrix-is-a-diagonal`](#spec-a-scalar-matrix-is-a-diagonal) — A matrix constructor given one scalar builds the matrix with that scalar on its diagonal and zero elsewhere, written out in full on WGSL.
     - [`@spec a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns`](#spec-a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns) — A matrix constructor given a larger matrix keeps the leading rows of its leading columns, on every target.
-      - [`@bug wasm-compiles-no-matrix-narrowing`](#bug-wasm-compiles-no-matrix-narrowing) — The WASM target does not compile a matrix built from a larger matrix.
     - [`@spec a-matrix-is-built-from-its-columns`](#spec-a-matrix-is-built-from-its-columns) — A matrix constructor of any shape, square or not, takes its values column by column, as numbers or as vector columns.
     - [`@spec a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number`](#spec-a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number) — A matrix constructor given scalar nodes among its numbers builds the matrix from them, in column order, on every target. A mix of values whose count is not the matrix's is refused.
     - [`@spec a-literal-compiles-to-a-literal-of-its-type`](#spec-a-literal-compiles-to-a-literal-of-its-type) — `int`, `uint`, `bool`, boolean vector and integer vector constructors given literals compile to literals of their type on each target.
@@ -2214,18 +2211,6 @@ This follows because a TSL shader ports by changing its import only if each oper
 
 > A math function, such as `sin`, `floor`, `pow`, `inversesqrt` or `determinant`, compiles to the built-in of each target, under the name that target gives it.
 
-##### @bug wasm-compiles-no-matrix-inverse
-
-> The WASM target does not compile `inverse`.
-
-Issue: #65
-
-##### @bug wasm-compiles-no-component-wise-math-on-a-vector
-
-> The WASM target compiles no component-wise math function of a vector, such as `pow`, `sin`, `floor`, `fract` or `sqrt`.
-
-Issue: #130
-
 #### @spec a-function-with-an-edge-takes-the-value-last
 
 > `step(edge, x)`, `smoothstep(low, high, x)`, `clamp(x, low, high)` and `mix(a, b, t)` take their arguments in TSL's order. A method puts its receiver where the function puts the value.
@@ -2359,12 +2344,6 @@ This follows because TSL builds values with the constructors of the shading lang
 #### @spec a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns
 
 > A matrix constructor given a larger matrix keeps the leading rows of its leading columns, on every target.
-
-##### @bug wasm-compiles-no-matrix-narrowing
-
-> The WASM target does not compile a matrix built from a larger matrix.
-
-Issue: #65
 
 #### @spec a-matrix-is-built-from-its-columns
 
