@@ -32,51 +32,6 @@ function flat() {
 
 describe("known WASM bugs, each failing until its fix", () => {
   /**
-   * `compileWasm` copies an integer attribute in as an f64, where the vertex
-   * stage reads an i32.
-   *
-   * @canon bug-wasm-rasterizer-writes-an-integer-attribute-as-a-float
-   */
-  it.fails("passes an int attribute to the vertex stage on WASM", () => {
-    const pos = attribute("vec3");
-    const k = attribute("int");
-    const shade = varying("float");
-    const vertex = () =>
-      Fn(() => {
-        shade.assign(k.toFloat());
-        builtinPosition().assign(vec4(pos, 1));
-      })();
-    const fragment = () => Fn(() => vec4(shade, 0, 0, 1))();
-    const routine = compileWasm(vertex as any, fragment as any);
-    const got = routine.draw(
-      { attributes: { [pos.name]: screen(), [k.name]: Int32Array.of(5, 5, 5) } },
-      { width: 1, height: 1 },
-    );
-    expect(Array.from(got)).toEqual([5, 0, 0, 1]);
-  });
-
-  /**
-   * The WASM rasterizer interpolates an integer varying as an f64, though the
-   * stages write and read it as an i32.
-   *
-   * @canon bug-wasm-rasterizer-interpolates-an-integer-varying-as-a-float
-   */
-  it.fails("passes an int varying from the vertex to the fragment stage on WASM", () => {
-    const pos = attribute("vec3");
-    const k = varying("int");
-    const vertex = () =>
-      Fn(() => {
-        k.assign(int(5));
-        builtinPosition().assign(vec4(pos, 1));
-      })();
-    const fragment = () => Fn(() => vec4(k.toFloat(), 0, 0, 1))();
-    const routine = compileWasm(vertex as any, fragment as any);
-    expect(Array.from(routine.draw({ attributes: { [pos.name]: screen() } }, { width: 1, height: 1 }))).toEqual([
-      5, 0, 0, 1,
-    ]);
-  });
-
-  /**
    * `createWasmCompute` names its routine `compute` by default, the name of
    * the module's own dispatch export, so a program with storage fails to compile.
    *

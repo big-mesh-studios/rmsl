@@ -81,7 +81,7 @@
     (block $break
       (loop $continue
         (br_if $break (i32.ge_s (local.get $d) (local.get $varyingDescCount)))
-        (local.set $entry (call $descAddr (local.get $varyingDescBase) (local.get $d) (i32.const 16)))
+        (local.set $entry (call $descAddr (local.get $varyingDescBase) (local.get $d) (i32.const 20)))
         (call $byteCopy
           (i32.add
             (i32.add (local.get $varyingsOutBase) (i32.mul (local.get $vertexIndex) (local.get $varyingBytes)))
@@ -196,6 +196,25 @@
         (br $continue)))
     (i32.add (local.get $clippedVertexCount) (i32.const 3)))
 
+  ;; Gives the clipped vertex record at $dst the flat varyings of the record at $src,
+  ;; the first vertex of the triangle it was clipped from, which interpolation lost.
+  (func $keepFlatVaryings
+    (param $varyingDescBase i32) (param $varyingDescCount i32) (param $dst i32) (param $src i32)
+    (local $d i32) (local $entry i32)
+    (local.set $d (i32.const 0))
+    (block $break
+      (loop $continue
+        (br_if $break (i32.ge_s (local.get $d) (local.get $varyingDescCount)))
+        (local.set $entry (call $descAddr (local.get $varyingDescBase) (local.get $d) (i32.const 20)))
+        (if (i32.load (i32.add (local.get $entry) (i32.const 16)))
+          (then
+            (call $byteCopy
+              (i32.add (local.get $dst) (i32.load (local.get $entry)))
+              (i32.add (local.get $src) (i32.load (local.get $entry)))
+              (i32.load (i32.add (local.get $entry) (i32.const 12))))))
+        (local.set $d (i32.add (local.get $d) (i32.const 1)))
+        (br $continue))))
+
   ;; ---- triangle pass ----
   ;; Whether an edge running (dx, dy), in a triangle wound so its inside is where
   ;; every edge function is positive, owns the pixel centres on it: one running
@@ -253,10 +272,20 @@
     (block $break
       (loop $continue
         (br_if $break (i32.ge_s (local.get $d) (local.get $varyingDescCount)))
-        (local.set $entry (call $descAddr (local.get $varyingDescBase) (local.get $d) (i32.const 16)))
+        (local.set $entry (call $descAddr (local.get $varyingDescBase) (local.get $d) (i32.const 20)))
         (local.set $recordOffset (i32.load (local.get $entry)))
         (local.set $fragmentDestAddress (i32.load (i32.add (local.get $entry) (i32.const 8))))
         (local.set $numComponents (i32.div_s (i32.load (i32.add (local.get $entry) (i32.const 12))) (i32.const 8)))
+        ;; A flat varying is copied as the triangle's vertices all hold it, and none is interpolated.
+        (if (i32.load (i32.add (local.get $entry) (i32.const 16)))
+          (then
+            (call $byteCopy
+              (local.get $fragmentDestAddress)
+              (i32.add
+                (i32.add (local.get $clippedVaryingsOutBase) (i32.mul (local.get $t0) (local.get $varyingBytes)))
+                (local.get $recordOffset))
+              (i32.load (i32.add (local.get $entry) (i32.const 12))))
+            (local.set $numComponents (i32.const 0))))
         (local.set $c (i32.const 0))
         (block $innerBreak
           (loop $innerContinue
@@ -294,7 +323,7 @@
     (param $fragDepthAddress i32) (param $writesDepth i32)
     (param $discardAddress i32) (param $mayDiscard i32)
 
-    (local $i i32) (local $t i32) (local $t1 i32) (local $t2 i32)
+    (local $i i32) (local $t i32) (local $t1 i32) (local $t2 i32) (local $slot i32)
     (local $widthF f64) (local $heightF f64)
     (local $wholeRecordComponents i32)
     (local $outCount i32) (local $clippedVertexCount i32)
@@ -348,6 +377,15 @@
         (local.set $outCount
           (call $clipEdge (local.get $positionsOutBase) (local.get $varyingsOutBase) (local.get $varyingBytes)
             (local.get $clipScratchBase) (local.get $wholeRecordComponents) (local.get $t2) (local.get $t) (local.get $outCount)))
+        (local.set $slot (i32.const 0))
+        (block $flatBreak
+          (loop $flatContinue
+            (br_if $flatBreak (i32.ge_s (local.get $slot) (local.get $outCount)))
+            (call $keepFlatVaryings (local.get $varyingDescBase) (local.get $varyingDescCount)
+              (call $scratchVaryingAddr (local.get $clipScratchBase) (local.get $varyingBytes) (local.get $slot))
+              (i32.add (local.get $varyingsOutBase) (i32.mul (local.get $t) (local.get $varyingBytes))))
+            (local.set $slot (i32.add (local.get $slot) (i32.const 1)))
+            (br $flatContinue)))
         (if (i32.ge_s (local.get $outCount) (i32.const 3))
           (then
             (local.set $clippedVertexCount

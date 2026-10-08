@@ -1485,6 +1485,39 @@ describe("the rounding helper of JS", () => {
 
 describe("the fragments a CPU rasterizer draws", () => {
   /**
+   * A whole triangle, and one whose first vertex lies behind the eye, so that
+   * no triangle the clip makes starts at it.
+   *
+   * @canon spec-a-flat-varying-takes-the-first-vertex
+   */
+  it.each(rasterizers)("%s: reads an integer varying as the triangle's first vertex wrote it", (_, compileRaster) => {
+    const pos = attribute("vec3");
+    const id = attribute("int");
+    const k = varying("int");
+    const routine = compileRaster(
+      () =>
+        Fn(() => {
+          k.assign(id);
+          builtinPosition().assign(vec4(pos.x, pos.y, pos.z, pos.z));
+        })() as any,
+      () => Fn(() => vec4(k.toFloat(), 0, 0, 1))() as any,
+      { attributeTypes: { [pos.name]: "vec3", [id.name]: "int" } },
+    );
+    const reds = (positions: number[]) =>
+      Array.from(
+        routine.draw(
+          { attributes: { [pos.name]: new Float64Array(positions), [id.name]: Int32Array.of(7, 1, 2) } },
+          { width: 4, height: 4 },
+        ),
+      ).filter((_, i) => i % 4 === 0 && i < 64);
+    const whole = reds([-1, -1, 1, 3, -1, 1, -1, 3, 1]);
+    const clipped = reds([-1, -1, -1, 1, -1, 2, -1, 1, 2]);
+    expect(new Set(whole)).toEqual(new Set([7]));
+    expect(new Set(clipped.filter((r) => r !== 0))).toEqual(new Set([7]));
+    expect(clipped.some((r) => r === 7)).toBe(true);
+  });
+
+  /**
    * @canon spec-a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour
    * @canon spec-a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear
    */

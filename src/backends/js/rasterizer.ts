@@ -1,6 +1,15 @@
 import { Node, ShaderType } from "../../core";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK } from "../adapter";
-import { componentCountOf, CpuDrawBuffer, CpuShaderContext, isResultObject, vertexPosition } from "../cpu";
+import {
+  componentCountOf,
+  CpuDrawBuffer,
+  CpuShaderContext,
+  elementKindOf,
+  isAggregate,
+  isResultObject,
+  scalarKindOf,
+  vertexPosition,
+} from "../cpu";
 import { compileJSProgram, CompileJSOptions } from "./js";
 
 /** Homogeneous-clip-space near-plane epsilon — see rasterizer.md's clip-pass design (`rasterizer.wat`'s `W_CLIP_EPS`). */
@@ -171,6 +180,11 @@ export function compileJS(
   /** The varying slots the vertex stage writes, and their widths, as its program declares them. */
   const varyingSlots = Object.keys(vertexStage.varyingTypes);
   const varyingWidths = varyingSlots.map((slot) => componentCountOf(vertexStage.varyingTypes[slot]!));
+  /** Whether each varying is an integer one, which a fragment reads flat, as its triangle's first vertex wrote it. */
+  const varyingFlat = varyingSlots.map((slot) => {
+    const type = vertexStage.varyingTypes[slot]!;
+    return (isAggregate(type) ? elementKindOf(type) : scalarKindOf(type)) !== "float";
+  });
   /** The varyings of the fragment being shaded: a vector in an array of its own, filled for each fragment. */
   const fragmentArrays = varyingWidths.map((w) => new Float64Array(w));
   const fragmentVaryings: Record<string, number | Float64Array> = {};
@@ -196,8 +210,11 @@ export function compileJS(
   let targetWidth = 0;
   let targetHeight = 0;
 
-  /** Rasterizes one triangle, already clipped to the near plane, into `target`. */
-  function rasterize(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex): void {
+  /**
+   * Rasterizes one triangle, already clipped to the near plane, into `target`.
+   * `first` is the first vertex of the triangle it was clipped from, which gives the flat varyings.
+   */
+  function rasterize(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex, first: ClipVertex): void {
     const width = targetWidth;
     const height = targetHeight;
     const w0 = v0.position[3]!,
@@ -278,7 +295,8 @@ export function compileJS(
             b = v1.varyings[k]!,
             c = v2.varyings[k]!,
             out = fragmentArrays[k]!;
-          for (let i = 0; i < out.length; i++) out[i] = (a[i]! * p0 + b[i]! * p1 + c[i]! * p2) * perspective;
+          if (varyingFlat[k]) out.set(first.varyings[k]!);
+          else for (let i = 0; i < out.length; i++) out[i] = (a[i]! * p0 + b[i]! * p1 + c[i]! * p2) * perspective;
           if (out.length === 1) fragmentVaryings[slots[k]!] = out[0]!;
         }
         fragCoord[0] = px;
@@ -395,12 +413,12 @@ export function compileJS(
         v2 = vertices[t + 2]!;
       // A triangle wholly in front of the near plane is rasterized as it is; only one that crosses it is clipped.
       if (v0.position[3]! > W_CLIP_EPS && v1.position[3]! > W_CLIP_EPS && v2.position[3]! > W_CLIP_EPS) {
-        rasterize(v0, v1, v2);
+        rasterize(v0, v1, v2, v0);
         continue;
       }
       const clipped: ClipVertex[][] = [];
       clipTriangle(v0, v1, v2, clipped);
-      for (const [c0, c1, c2] of clipped) rasterize(c0!, c1!, c2!);
+      for (const [c0, c1, c2] of clipped) rasterize(c0!, c1!, c2!, v0);
     }
 
     return result;

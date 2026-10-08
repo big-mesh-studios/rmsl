@@ -599,6 +599,45 @@ describe("a matrix column read on WASM", () => {
 
 describe("the fragments the WASM rasterizer draws", () => {
   /**
+   * @canon spec-an-attribute-is-an-input-of-the-vertex-stage
+   */
+  it("passes an int attribute to the vertex stage on WASM", () => {
+    const pos = attribute("vec3");
+    const k = attribute("int");
+    const shade = varying("float");
+    const vertex = () =>
+      Fn(() => {
+        shade.assign(k.toFloat());
+        builtinPosition().assign(vec4(pos, 1));
+      })();
+    const fragment = () => Fn(() => vec4(shade, 0, 0, 1))();
+    const routine = compileWasm(vertex as any, fragment as any);
+    const got = routine.draw(
+      { attributes: { [pos.name]: screen(), [k.name]: Int32Array.of(5, 5, 5) } },
+      { width: 1, height: 1 },
+    );
+    expect(Array.from(got)).toEqual([5, 0, 0, 1]);
+  });
+
+  /**
+   * @canon spec-a-flat-varying-takes-the-first-vertex
+   */
+  it("passes an int varying from the vertex to the fragment stage on WASM", () => {
+    const pos = attribute("vec3");
+    const k = varying("int");
+    const vertex = () =>
+      Fn(() => {
+        k.assign(int(5));
+        builtinPosition().assign(vec4(pos, 1));
+      })();
+    const fragment = () => Fn(() => vec4(k.toFloat(), 0, 0, 1))();
+    const routine = compileWasm(vertex as any, fragment as any);
+    expect(Array.from(routine.draw({ attributes: { [pos.name]: screen() } }, { width: 1, height: 1 }))).toEqual([
+      5, 0, 0, 1,
+    ]);
+  });
+
+  /**
    * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
    */
   it("lets a discarded fragment leave the depth buffer as it was on WASM", () => {

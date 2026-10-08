@@ -1759,7 +1759,7 @@ export function compileWGSLWithStage(
     let outgoingLocation = 0;
     for (let [, info] of sortedVaryings) {
       outgoingLocation = Math.max(outgoingLocation, varyingLocation(info) + 1);
-      lines.push(`  @location(${varyingLocation(info)}) ${info.slot}: ${info.type},`);
+      lines.push(`  @location(${varyingLocation(info)})${interpolation(info.type)} ${info.slot}: ${info.type},`);
     }
     ctx.outputs.forEach((info) => {
       if (info && info.slot && info.type) {
@@ -1862,7 +1862,7 @@ export function compileWGSLWithStage(
     let sortedFVaryings = [...ctx.varyings.entries()].sort((a, b) => a[1].slot.localeCompare(b[1].slot));
     for (let [, info] of sortedFVaryings) {
       if (fragParams) fragParams += ", ";
-      fragParams += `@location(${varyingLocation(info)}) ${info.slot}: ${info.type}`;
+      fragParams += `@location(${varyingLocation(info)})${interpolation(info.type)} ${info.slot}: ${info.type}`;
     }
     // fragCoord() reads the fragment's position in the framebuffer, which WGSL
     // passes in as a builtin parameter rather than a global.
@@ -2093,4 +2093,9 @@ export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options:
     code = struct + code;
   }
   return code;
+}
+
+/** The interpolation of a varying of WGSL type `type`: flat for an integer one, which WGSL refuses otherwise. */
+function interpolation(type: string): string {
+  return /[iu]32/.test(type) ? " @interpolate(flat)" : "";
 }

@@ -1,5 +1,13 @@
 import { Node, ShaderType } from "../../core";
-import { componentCountOf, CpuDrawBuffer, CpuShaderContext, CpuTextureData } from "../cpu";
+import {
+  componentCountOf,
+  CpuDrawBuffer,
+  CpuShaderContext,
+  CpuTextureData,
+  elementKindOf,
+  isAggregate,
+  scalarKindOf,
+} from "../cpu";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray } from "../adapter";
 import { compileWasmFn, createWasmInputMarshaller, WasmCompileFields, WasmFloatWidth, WasmParam } from "./wasm";
 import { wasmUleb128 } from "./utils";
@@ -60,9 +68,9 @@ const ATTR_DESC_BYTES = 12;
 
 /**
  * Byte size of one `[recordOffset, vertexSrcAddress, fragmentDestAddress,
- * sizeBytes]` varying descriptor entry.
+ * sizeBytes, flat]` varying descriptor entry.
  */
-const VARYING_DESC_BYTES = 16;
+const VARYING_DESC_BYTES = 20;
 
 /**
  * The rasterizer module's bytes — see rasterizer.md for the full
@@ -181,6 +189,8 @@ export interface VaryingDescriptor {
   vertexSrcAddress: number;
   fragmentDestAddress: number;
   sizeBytes: number;
+  /** Whether the varying is an integer one, which a fragment reads as its triangle's first vertex wrote it. */
+  flat?: boolean;
 }
 
 /**
@@ -193,6 +203,7 @@ export function writeVaryingDescriptors(view: DataView, base: number, descriptor
     view.setInt32(base + i * VARYING_DESC_BYTES + 4, d.vertexSrcAddress, true);
     view.setInt32(base + i * VARYING_DESC_BYTES + 8, d.fragmentDestAddress, true);
     view.setInt32(base + i * VARYING_DESC_BYTES + 12, d.sizeBytes, true);
+    view.setInt32(base + i * VARYING_DESC_BYTES + 16, d.flat ? 1 : 0, true);
   });
 }
 
@@ -279,6 +290,16 @@ export interface WasmRasterRoutine {
   draw(ctx: WasmRasterContext, options: WasmRasterDrawOptions): CpuDrawBuffer;
 }
 
+/** The kind of each component of a value of `type`: float, int, uint or bool. */
+function componentKindOf(type: string): "float" | "int" | "uint" | "bool" {
+  return isAggregate(type) ? elementKindOf(type) : scalarKindOf(type);
+}
+
+/** The bytes a stage keeps a component of `kind` in: an f64 for a float, an i32 for any other. */
+function componentBytes(kind: string): number {
+  return kind === "float" ? 8 : 4;
+}
+
 function align8(n: number): number {
   return Math.ceil(n / 8) * 8;
 }
@@ -357,15 +378,18 @@ export function compileWasm(
     );
   }
 
+  // Each varying starts on a whole f64, so the clip pass can interpolate a record f64 by f64.
   let varyingCursor = 0;
   const varyingLayout = vertexVaryingParams.map((v) => {
-    const sizeBytes = componentCountOf(v.shaderType) * 8;
+    const kind = componentKindOf(v.shaderType);
+    const sizeBytes = componentCountOf(v.shaderType) * componentBytes(kind);
     const offset = varyingCursor;
-    varyingCursor += sizeBytes;
+    varyingCursor = align8(varyingCursor + sizeBytes);
     return {
       slot: v.slot,
       offset,
       sizeBytes,
+      flat: kind !== "float",
       vertexSrcAddress: v.address,
       fragmentDestAddress: fragmentVaryingParams.find((f) => f.slot === v.slot)!.address,
     };
@@ -374,10 +398,11 @@ export function compileWasm(
 
   let attrCursor = 0;
   const attrLayout = attrParams.map((p) => {
-    const sizeBytes = componentCountOf(p.shaderType) * 8;
+    const kind = componentKindOf(p.shaderType);
+    const sizeBytes = componentCountOf(p.shaderType) * componentBytes(kind);
     const offset = attrCursor;
     attrCursor += sizeBytes;
-    return { slot: p.slot, offset, sizeBytes, destAddress: p.address };
+    return { slot: p.slot, offset, sizeBytes, kind, destAddress: p.address };
   });
   const attrStrideBytes = attrCursor;
 
@@ -509,12 +534,17 @@ export function compileWasm(
     for (const a of attrLayout) {
       const src = ctx.attributes[a.slot];
       if (!src) throw new Error(`[RMSL] compileWasm: draw() is missing attribute "${a.slot}"`);
-      const componentCount = a.sizeBytes / 8;
+      const size = componentBytes(a.kind);
+      const componentCount = a.sizeBytes / size;
       for (let v = 0; v < vertexCount; v++) {
         const base = attrSrcBase + v * attrStrideBytes + a.offset;
         const srcIndex = (v + first) * componentCount;
         for (let c = 0; c < componentCount; c++) {
-          view.setFloat64(base + c * 8, src[srcIndex + c] as number, true);
+          const value = src[srcIndex + c] as number;
+          // The vertex stage reads an integer attribute as a 32-bit integer, and a float one as an f64.
+          if (a.kind === "float") view.setFloat64(base + c * 8, value, true);
+          else if (a.kind === "uint") view.setUint32(base + c * 4, value, true);
+          else view.setInt32(base + c * 4, value, true);
         }
       }
     }
@@ -531,6 +561,7 @@ export function compileWasm(
         vertexSrcAddress: v.vertexSrcAddress,
         fragmentDestAddress: v.fragmentDestAddress,
         sizeBytes: v.sizeBytes,
+        flat: v.flat,
       })),
     );
 

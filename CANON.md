@@ -85,9 +85,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-fragment-stage-may-write-no-colour`](#spec-a-fragment-stage-may-write-no-colour) — A fragment stage that returns nothing compiles.
     - [`@spec a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour`](#spec-a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour) — A CPU rasterizer runs a fragment stage that writes no colour, tests and writes its depth, and leaves the pixel as it was.
     - [`@spec a-varying-passes-from-the-vertex-to-the-fragment-stage`](#spec-a-varying-passes-from-the-vertex-to-the-fragment-stage) — A varying is an output of the vertex stage and an input of the fragment stage.
-      - [`@bug wasm-rasterizer-interpolates-an-integer-varying-as-a-float`](#bug-wasm-rasterizer-interpolates-an-integer-varying-as-a-float) — The WASM rasterizer interpolates an integer varying as a 64-bit float, though the stages write and read it as a 32-bit integer.
+    - [`@spec an-integer-varying-is-flat`](#spec-an-integer-varying-is-flat) — An integer varying is not interpolated. Each fragment of a triangle reads the value one vertex of the triangle wrote. GLSL and WGSL declare it `flat`.
+      - [`@spec a-flat-varying-takes-the-first-vertex`](#spec-a-flat-varying-takes-the-first-vertex) — On WGSL, JS and WASM, a fragment reads an integer varying as the first vertex of its triangle wrote it. A triangle clipped at the near plane keeps that vertex's value.
+      - [`@exception a-glsl-flat-varying-takes-the-last-vertex`](#exception-a-glsl-flat-varying-takes-the-last-vertex) — On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it.
     - [`@spec an-attribute-is-an-input-of-the-vertex-stage`](#spec-an-attribute-is-an-input-of-the-vertex-stage) — An attribute is an input of the vertex stage, read once for each vertex.
-      - [`@bug wasm-rasterizer-writes-an-integer-attribute-as-a-float`](#bug-wasm-rasterizer-writes-an-integer-attribute-as-a-float) — `compileWasm` copies an integer attribute in as a 64-bit float, where the vertex stage reads a 32-bit integer.
   - [`@spec a-program-runs-its-statements-in-the-order-it-writes-them`](#spec-a-program-runs-its-statements-in-the-order-it-writes-them) — A program runs its statements in the order its body made them, on every target, the statements that compute an index or a value included.
     - [`@spec the-index-of-a-write-is-read-after-the-value-is-computed`](#spec-the-index-of-a-write-is-read-after-the-value-is-computed) — A write through a computed index reads the index after the statements that compute the value it writes.
     - [`@spec a-column-index-runs-before-a-component-index`](#spec-a-column-index-runs-before-a-component-index) — When a program computes both indices of a write to a component of a matrix column, the column index runs first.
@@ -638,6 +639,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact wgsl-allows-twelve-uniform-buffers-per-stage`](#fact-wgsl-allows-twelve-uniform-buffers-per-stage) — WebGPU guarantees 12 uniform buffers per shader stage, and a device may give no more.
 - [`@fact wgsl-cannot-share-a-bool-with-the-host`](#fact-wgsl-cannot-share-a-bool-with-the-host) — A WGSL `bool` is not host-shareable: it can be neither a member of a uniform buffer nor an element of a storage buffer.
 - [`@fact a-wgsl-uniform-array-has-a-16-byte-stride`](#fact-a-wgsl-uniform-array-has-a-16-byte-stride) — The elements of an array in the WGSL uniform address space align to 16 bytes, and a `vec3` takes the 16 bytes of a `vec4`.
+- [`@fact wgsl-takes-an-integer-varying-flat-from-the-first-vertex`](#fact-wgsl-takes-an-integer-varying-flat-from-the-first-vertex) — WGSL requires a vertex output or fragment input of integer type to be `@interpolate(flat)`, and a flat value with no sampling named comes from the first vertex of the primitive.
+- [`@fact glsl-takes-an-integer-varying-flat-from-the-last-vertex`](#fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex) — GLSL ES 3.00 requires a vertex output of integer type to be `flat`, and WebGL 2 takes a flat value from the last vertex of a triangle, its provoking vertex.
 - [`@fact webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage) — WebGL 2 has no compute shaders and no storage buffers.
 - [`@fact an-integer-texture-cannot-be-filtered`](#fact-an-integer-texture-cannot-be-filtered) — Neither GLSL nor WGSL filters an integer texture. A shader reads it one texel at a time, with `texelFetch` or `textureLoad`.
 - [`@fact a-mipmapped-texture-without-its-chain-samples-black`](#fact-a-mipmapped-texture-without-its-chain-samples-black) — In WebGL 2, a texture whose minification filter reads mipmaps but which has no mip chain is incomplete, and samples as black.
@@ -768,6 +771,7 @@ The analysis found these places where the code or the documents do not hold the 
 5. The WebGL renderer sets a texture's sampler state only when `needsUpdate` uploads the texture, as three.js does, where the WebGPU renderer follows a change at once. Issue #187 asks which rule both renderers keep.
 6. `createWgsl` configures its canvas opaque, so a transparent clear shows as opaque black where the other adapters show the page. Issue #188 asks whether to configure it premultiplied.
 7. rmsl changes the state of a WebGL context that the application hands it, such as the unpack alignment, and does not restore it. The canon says nothing about what rmsl leaves for code that shares the context. Issue #189 asks for a ruling.
+8. On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it, where the other targets take the first. Issue #232 asks whether the GLSL adapter and the WebGL renderer should ask for the first vertex through `WEBGL_provoking_vertex`.
 
 ### Coverage gaps
 
@@ -1204,21 +1208,29 @@ This follows because a stage with no colour has nothing to write into a pixel, a
 
 > A varying is an output of the vertex stage and an input of the fragment stage.
 
-##### @bug wasm-rasterizer-interpolates-an-integer-varying-as-a-float
+#### @spec an-integer-varying-is-flat
 
-> The WASM rasterizer interpolates an integer varying as a 64-bit float, though the stages write and read it as a 32-bit integer.
+> An integer varying is not interpolated. Each fragment of a triangle reads the value one vertex of the triangle wrote. GLSL and WGSL declare it `flat`.
 
-Issue: #110
+Derives from: [`fact-wgsl-takes-an-integer-varying-flat-from-the-first-vertex`](#fact-wgsl-takes-an-integer-varying-flat-from-the-first-vertex), [`fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex`](#fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex)
+
+This follows because both GPU languages refuse an integer varying that is not flat, and a value between two integers is no integer.
+
+##### @spec a-flat-varying-takes-the-first-vertex
+
+> On WGSL, JS and WASM, a fragment reads an integer varying as the first vertex of its triangle wrote it. A triangle clipped at the near plane keeps that vertex's value.
+
+This follows because WebGPU takes a flat value from the first vertex, and a CPU target gives what WebGPU gives.
+
+##### @exception a-glsl-flat-varying-takes-the-last-vertex
+
+> On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it.
+
+Derives from: [`fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex`](#fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex)
 
 #### @spec an-attribute-is-an-input-of-the-vertex-stage
 
 > An attribute is an input of the vertex stage, read once for each vertex.
-
-##### @bug wasm-rasterizer-writes-an-integer-attribute-as-a-float
-
-> `compileWasm` copies an integer attribute in as a 64-bit float, where the vertex stage reads a 32-bit integer.
-
-Issue: #110
 
 ### @spec a-program-runs-its-statements-in-the-order-it-writes-them
 
@@ -4390,6 +4402,18 @@ This is a fact of the WGSL specification, not a choice.
 > The elements of an array in the WGSL uniform address space align to 16 bytes, and a `vec3` takes the 16 bytes of a `vec4`.
 
 This is a fact of the WGSL specification, not a choice.
+
+## @fact wgsl-takes-an-integer-varying-flat-from-the-first-vertex
+
+> WGSL requires a vertex output or fragment input of integer type to be `@interpolate(flat)`, and a flat value with no sampling named comes from the first vertex of the primitive.
+
+This is a fact of the WGSL specification, section Interpolation, and Dawn gives a triangle's first vertex.
+
+## @fact glsl-takes-an-integer-varying-flat-from-the-last-vertex
+
+> GLSL ES 3.00 requires a vertex output of integer type to be `flat`, and WebGL 2 takes a flat value from the last vertex of a triangle, its provoking vertex.
+
+This is a fact of the GLSL ES 3.00 and OpenGL ES 3.0 specifications, and Chromium's WebGL 2 gives a triangle's last vertex.
 
 ## @fact webgl2-has-no-compute-stage
 
