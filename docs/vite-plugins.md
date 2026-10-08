@@ -59,7 +59,7 @@ After the plugin runs, `src/shaders.ts` is effectively `export default {"uColour
 import shaders from "./shaders"; // plain JSON at runtime
 ```
 
-The default export must be JSON-serializable (strings, finite numbers, booleans, arrays, plain objects). A module without a default export, or one whose default export holds anything else, such as a function, `undefined` or `NaN`, fails the build with a message naming the module and where in the export the value lies.
+The default export must be JSON-serializable (strings, finite numbers, booleans, arrays, plain objects). A module without a default export, or one whose default export holds anything else, such as a function, `undefined`, `NaN` or `-0`, fails the build with a message naming the module and where in the export the value lies.
 
 ## precompileJS — CPU-callable shader functions
 
@@ -153,7 +153,7 @@ mixColours({ params: { a: [0, 0, 0], b: [1, 1, 1], t: 0.5 } }); // [0.5, 0.5, 0.
 
 ## How it works
 
-A matching module is handed to esbuild with `bundle: true`, `platform: "node"`, and its own file as `resolveDir`, so imports (including `@random-mesh/rmsl` itself) resolve and get bundled in. The bundle is then loaded through a `data:` URL `import()` and the module's exports are read. All three plugins keep a cache keyed by a hash of that bundle, which holds the module and everything it imports, so dev HMR re-evaluates a module when it or one of its imports changes, and Vite watches each of those files. The keys of a `__RMSL_JS_CODE` or `__RMSL_WASM_CODE` map become `export const` names, so a key that is not a JavaScript identifier fails the build.
+A matching module is handed to esbuild with `bundle: true`, `platform: "node"`, and its own file as `resolveDir`, so imports (including `@random-mesh/rmsl` itself) resolve and get bundled in. The bundle is then loaded through a `data:` URL `import()` and the module's exports are read. All three plugins keep a cache keyed by a hash of that bundle, which holds the module and everything it imports, so dev HMR re-evaluates a module when it or one of its imports changes, and Vite watches each of those files. The keys of a `__RMSL_JS_CODE` or `__RMSL_WASM_CODE` map become `export const` names, so a key that is not a JavaScript identifier, a reserved word such as `default` included, fails the build.
 
 Consequences worth knowing:
 

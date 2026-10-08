@@ -495,6 +495,19 @@ describe("the Vite plugins", () => {
     const plugin = precompileJS({ include: "bad-name.ts" }) as unknown as Transform;
     const source = `export const __RMSL_JS_CODE = { "my-fn": "return () => 1;" };\n`;
     await expect(plugin.transform.call({}, source, id)).rejects.toThrow();
+    const reserved = `export const __RMSL_JS_CODE = { default: "return () => 1;" };\n`;
+    await expect(plugin.transform.call({}, reserved, id)).rejects.toThrow(/"default", which is not/);
+  });
+
+  /**
+   * @canon spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile
+   */
+  it("fails the build on a default export holding a negative zero", async () => {
+    const id = `${FIXTURES}negative-zero.ts`;
+    const plugin = precompileShaders({ include: "negative-zero.ts" }) as unknown as Transform;
+    await expect(plugin.transform.call({}, "export default { offset: -0 };\n", id)).rejects.toThrow(
+      /-0 at default\.offset/,
+    );
   });
 
   const plugins = [

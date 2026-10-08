@@ -280,12 +280,21 @@ async function loadModule(
   return mod;
 }
 
-/** Whether `name` can be written as `export const <name>`, which a rewritten module does with each key. */
+/** The shape of a name that can be written as `export const <name>`, which a rewritten module does with each key. */
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
+
+/** The words of that shape a module still cannot declare as a `const`. */
+const RESERVED_WORDS = new Set(
+  (
+    "await break case catch class const continue debugger default delete do else enum export extends false " +
+    "finally for function if implements import in instanceof interface let new null package private protected " +
+    "public return static super switch this throw true try typeof var void while with yield arguments eval"
+  ).split(" "),
+);
 
 /** Refuses a key of a code map that is not a JavaScript identifier, which would give a module that does not parse. */
 function assertIdentifier(id: string, codeExport: string, name: string): void {
-  if (!IDENTIFIER.test(name)) {
+  if (!IDENTIFIER.test(name) || RESERVED_WORDS.has(name)) {
     throw new Error(`${id}'s ${codeExport} map names a program "${name}", which is not a JavaScript identifier`);
   }
 }
@@ -293,11 +302,16 @@ function assertIdentifier(id: string, codeExport: string, name: string): void {
 /**
  * Where within `value` the first thing lies that JSON does not carry as it
  * is, described for an error, or undefined when JSON carries all of it: a
- * function, a symbol, `undefined`, a bigint, or a number that is not finite.
+ * function, a symbol, `undefined`, a bigint, a number that is not finite, or
+ * a negative zero.
  */
 function notJsonData(value: unknown, path: string): string | undefined {
   if (value === null || typeof value === "string" || typeof value === "boolean") return undefined;
-  if (typeof value === "number") return Number.isFinite(value) ? undefined : `${value} at ${path}`;
+  if (typeof value === "number") {
+    // JSON writes -0 as 0, so it loses its sign as a non-finite number loses its value.
+    if (Object.is(value, -0)) return `-0 at ${path}`;
+    return Number.isFinite(value) ? undefined : `${value} at ${path}`;
+  }
   if (Array.isArray(value)) {
     for (let i = 0; i < value.length; i++) {
       const lost = notJsonData(value[i], `${path}[${i}]`);
