@@ -4,6 +4,7 @@ import {
   CpuRoutine,
   CpuShaderContext,
   CpuProgramResult,
+  isVector,
   CpuGrid,
   CpuProgram,
   CpuValue,
@@ -13,8 +14,11 @@ import {
   FragmentStage,
   VertexResult,
   VertexStage,
+  FloatWidth,
   toFragmentResult,
   toVertexResult,
+  typedValue,
+  typedArrayOfKind,
   componentCountOf,
   componentKindOf,
   elementKindOf,
@@ -83,12 +87,6 @@ export function jsIsArrayType(brand: string | undefined): boolean {
   return jsArrayLength(brand) > 1;
 }
 
-/** Zero-array initializer for a hoisted scratch slot, "" for a scalar. */
-export function jsScratchLiteral(brand: string | undefined): string {
-  let n = jsArrayLength(brand);
-  return n > 1 ? `[${Array(n).fill(0).join(", ")}]` : "";
-}
-
 /** Node types that read an existing array rather than producing one. */
 export const JS_ARRAY_LEAF_TYPES = new Set([
   "vec2",
@@ -121,7 +119,6 @@ export const JS_ARRAY_LEAF_TYPES = new Set([
   "output",
   "builtinPosition",
   "storage",
-  "storageElement",
 ]);
 
 export function isJSArrayLeaf(node: any): boolean {
@@ -139,13 +136,13 @@ export const JS_ELEM: Record<string, { argc: number; fn: (xs: string[]) => strin
   iadd: { argc: 2, fn: (xs) => `(${xs[0]} + ${xs[1]}) | 0` },
   isub: { argc: 2, fn: (xs) => `(${xs[0]} - ${xs[1]}) | 0` },
   imul: { argc: 2, fn: (xs) => `Math.imul(${xs[0]}, ${xs[1]})` },
-  idiv: { argc: 2, fn: (xs) => `_idiv(${xs[0]}, ${xs[1]})` },
-  imod: { argc: 2, fn: (xs) => `_imod(${xs[0]}, ${xs[1]})` },
+  idiv: { argc: 2, fn: (xs) => `_idiv(${xs[0]}, ${xs[1]})`, helper: "idiv" },
+  imod: { argc: 2, fn: (xs) => `_imod(${xs[0]}, ${xs[1]})`, helper: "imod" },
   uadd: { argc: 2, fn: (xs) => `(${xs[0]} + ${xs[1]}) >>> 0` },
   usub: { argc: 2, fn: (xs) => `(${xs[0]} - ${xs[1]}) >>> 0` },
   umul: { argc: 2, fn: (xs) => `Math.imul(${xs[0]}, ${xs[1]}) >>> 0` },
-  udiv: { argc: 2, fn: (xs) => `_udiv(${xs[0]}, ${xs[1]})` },
-  umod: { argc: 2, fn: (xs) => `_umod(${xs[0]}, ${xs[1]})` },
+  udiv: { argc: 2, fn: (xs) => `_udiv(${xs[0]}, ${xs[1]})`, helper: "udiv" },
+  umod: { argc: 2, fn: (xs) => `_umod(${xs[0]}, ${xs[1]})`, helper: "umod" },
   // Bitwise operations: JS already works on 32 bits here and takes shift
   // amounts modulo 32; a uint result only needs reading back unsigned.
   iand: { argc: 2, fn: (xs) => `${xs[0]} & ${xs[1]}` },
@@ -170,7 +167,7 @@ export const JS_ELEM: Record<string, { argc: number; fn: (xs: string[]) => strin
   step: { argc: 2, fn: (xs) => `${xs[1]} < ${xs[0]} ? 0 : 1` },
   clamp: { argc: 3, fn: (xs) => `Math.min(Math.max(${xs[0]}, ${xs[1]}), ${xs[2]})` },
   mix: { argc: 3, fn: (xs) => `${xs[0]} + ${xs[2]} * (${xs[1]} - ${xs[0]})` },
-  smoothstep: { argc: 3, fn: (xs) => `_smoothstep(${xs[0]}, ${xs[1]}, ${xs[2]})` },
+  smoothstep: { argc: 3, fn: (xs) => `_smoothstep(${xs[0]}, ${xs[1]}, ${xs[2]})`, helper: "smoothstep" },
   neg: { argc: 1, fn: (xs) => `-${xs[0]}` },
   ineg: { argc: 1, fn: (xs) => `-${xs[0]} | 0` },
   iabs: { argc: 1, fn: (xs) => `Math.abs(${xs[0]}) | 0` },
@@ -252,16 +249,18 @@ export function jsZeroes(width: number): string {
  * compiled with a target slot allocates nothing.
  */
 export function jsHelperSource(name: string): string {
-  let m = /^v(\d+)([a-zA-Z]+)$/.exec(name);
+  let m = /^v(\d+)([a-zA-Z]+)(?:_([vs]+))?$/.exec(name);
   if (m) {
     let width = Number(m[1]);
-    let op = m[2];
+    let op = m[2]!;
     let e = JS_ELEM[op];
     if (e) {
       let args = "abcdef".slice(0, e.argc).split("");
+      // One letter per operand, `v` for a vector and `s` for a scalar; every operand a vector without one.
+      let shape = m[3] ?? "v".repeat(e.argc);
       let lines: string[] = [];
       for (let i = 0; i < width; i++) {
-        let xs = args.map((a) => `(typeof ${a} === "number" ? ${a} : ${a}[${i}])`);
+        let xs = args.map((a, k) => (shape[k] === "s" ? a : `${a}[${i}]`));
         lines.push(`  out[${i}] = ${e.fn(xs)};`);
       }
       return (
@@ -325,9 +324,11 @@ export function jsHelperSource(name: string): string {
       return (
         `function _v3cross(a, b, out) {\n` +
         `  out = out || [0, 0, 0];\n` +
-        `  out[0] = a[1] * b[2] - a[2] * b[1];\n` +
-        `  out[1] = a[2] * b[0] - a[0] * b[2];\n` +
-        `  out[2] = a[0] * b[1] - a[1] * b[0];\n` +
+        // Read before written: `out` may be `a` or `b`.
+        `  let a0 = a[0], a1 = a[1], a2 = a[2], b0 = b[0], b1 = b[1], b2 = b[2];\n` +
+        `  out[0] = a1 * b2 - a2 * b1;\n` +
+        `  out[1] = a2 * b0 - a0 * b2;\n` +
+        `  out[2] = a0 * b1 - a1 * b0;\n` +
         `  return out;\n}`
       );
     }
@@ -370,8 +371,13 @@ export function jsHelperSource(name: string): string {
       return `function _udiv(a, b) {\n  return b === 0 ? a : (a / b) >>> 0;\n}`;
     case "umod":
       return `function _umod(a, b) {\n  return b === 0 ? 0 : a % b;\n}`;
+    // A typed array's own set copies without boxing what it reads, whatever kind of array the source is.
     case "copy":
-      return `function _copy(src, out) {\n  for (let i = 0; i < src.length; i++) out[i] = src[i];\n  return out;\n}`;
+      return `function _copy(src, out) {\n  if (src.length === out.length && ArrayBuffer.isView(out)) out.set(src);\n  else for (let i = 0; i < src.length; i++) out[i] = src[i];\n  return out;\n}`;
+    case "fr":
+      return `function _fr(a) {\n  for (let i = 0; i < a.length; i++) a[i] = Math.fround(a[i]);\n  return a;\n}`;
+    case "load":
+      return `function _load(src, at, out) {\n  if (at >= 0 && at + out.length <= src.length) for (let i = 0; i < out.length; i++) out[i] = src[at + i];\n  else out.fill(0);\n  return out;\n}`;
     case "vdot":
       return `function _vdot(a, b) {\n  let s = 0;\n  for (let i = 0; i < a.length; i++) s += a[i] * b[i];\n  return s;\n}`;
     case "vlen":
@@ -569,7 +575,7 @@ function _texCube(tex, dir, out) {
     case "texSize":
       return `function _texSize(tex, out) {\n  out = out || [0, 0, 0];\n  out[0] = tex.width;\n  out[1] = tex.height;\n  if (tex.depth !== undefined) out[2] = tex.depth;\n  return out;\n}`;
     case "mat2x2inv":
-      return `function _mat2x2inv(m, out) {\n  out = out || new Array(4);\n  let det = m[0] * m[3] - m[1] * m[2];\n  let inv = 1 / det;\n  out[0] = m[3] * inv;\n  out[1] = -m[1] * inv;\n  out[2] = -m[2] * inv;\n  out[3] = m[0] * inv;\n  return out;\n}`;
+      return `function _mat2x2inv(m, out) {\n  out = out || new Array(4);\n  let a00 = m[0], a01 = m[1], a10 = m[2], a11 = m[3];\n  let inv = 1 / (a00 * a11 - a01 * a10);\n  out[0] = a11 * inv;\n  out[1] = -a01 * inv;\n  out[2] = -a10 * inv;\n  out[3] = a00 * inv;\n  return out;\n}`;
     case "mat3x3inv":
       return `function _mat3x3inv(m, out) {\n  out = out || new Array(9);\n  let a00 = m[0], a01 = m[1], a02 = m[2];\n  let a10 = m[3], a11 = m[4], a12 = m[5];\n  let a20 = m[6], a21 = m[7], a22 = m[8];\n  let b01 = a22 * a11 - a12 * a21;\n  let b11 = -a22 * a10 + a12 * a20;\n  let b21 = a21 * a10 - a11 * a20;\n  let det = a00 * b01 + a01 * b11 + a02 * b21;\n  let inv = 1 / det;\n  out[0] = b01 * inv;\n  out[1] = (-a22 * a01 + a02 * a21) * inv;\n  out[2] = (a12 * a01 - a02 * a11) * inv;\n  out[3] = b11 * inv;\n  out[4] = (a22 * a00 - a02 * a20) * inv;\n  out[5] = (-a12 * a00 + a02 * a10) * inv;\n  out[6] = b21 * inv;\n  out[7] = (-a21 * a00 + a01 * a20) * inv;\n  out[8] = (a11 * a00 - a01 * a10) * inv;\n  return out;\n}`;
     case "mat4x4inv":
@@ -615,15 +621,16 @@ function _texCube(tex, dir, out) {
   if (mmT) {
     let cols = Number(mmT[1]);
     let rows = Number(mmT[2]);
-    // Transpose: out[r*cols + c] = m[c*rows + r].
+    // Transpose: out[r*cols + c] = m[c*rows + r], from locals, since `out` may be `m`.
+    let locals = Array.from({ length: cols * rows }, (_, i) => `m${i} = m[${i}]`);
     let lines: string[] = [];
     for (let c = 0; c < cols; c++)
       for (let r = 0; r < rows; r++) {
-        lines.push(`  out[${r * cols + c}] = m[${c * rows + r}];`);
+        lines.push(`  out[${r * cols + c}] = m${c * rows + r};`);
       }
     return (
       `function _${name}(m, out) {\n` +
-      `  out = out || new Array(${cols * rows});\n${lines.join("\n")}\n  return out;\n}`
+      `  out = out || new Array(${cols * rows});\n  let ${locals.join(", ")};\n${lines.join("\n")}\n  return out;\n}`
     );
   }
 
@@ -664,7 +671,7 @@ function _texCube(tex, dir, out) {
 export function jsRequireHelper(ctx: CompileCtx, name: string): void {
   ctx.jsHelpers.add(name);
   // A vector helper calls the helper its `JS_ELEM` entry names.
-  const elementHelper = JS_ELEM[/^v\d+([a-zA-Z]+)$/.exec(name)?.[1] ?? ""]?.helper;
+  const elementHelper = JS_ELEM[/^v\d+([a-zA-Z]+)(?:_[vs]+)?$/.exec(name)?.[1] ?? ""]?.helper;
   if (elementHelper) ctx.jsHelpers.add(elementHelper);
 }
 
@@ -675,6 +682,45 @@ function jsConstant(ctx: CompileCtx, literal: string): string {
   const name = `_rmsl_k${ctx.jsConstants.size}`;
   ctx.jsConstants.set(name, literal);
   return name;
+}
+
+/**
+ * The declarations of a function's slots. A scalar is a local of the function.
+ * A vector or matrix is a typed view of its kind into one `ArrayBuffer`, made
+ * once with the declarations: `Float64Array`, or `Float32Array` when `float32`,
+ * `Int32Array` for integers and for booleans as 1 or 0, and `Uint32Array`. The
+ * 8-byte views come first, so each lies on a multiple of its element size.
+ */
+function jsSlotDeclarations(
+  varDefs: Map<string, string>,
+  float32: boolean,
+  keyword: "let" | "var",
+): { views: string[]; scalars: string[] } {
+  const typed: { name: string; type: string; bytes: number; length: number }[] = [];
+  const names: string[] = [];
+  for (const [name, brand] of varDefs) {
+    const length = jsArrayLength(brand);
+    if (length <= 1) {
+      names.push(name);
+      continue;
+    }
+    const Typed = typedArrayOfKind(elementKindOf(brand), float32);
+    typed.push({ name, type: Typed.name, bytes: Typed.BYTES_PER_ELEMENT, length });
+  }
+  // A scalar is a local of the function: V8 boxes a float stored in a variable the closure keeps.
+  const scalars = names.length ? [`let ${names.join(", ")};`] : [];
+  if (typed.length === 0) return { views: [], scalars };
+  typed.sort((a, b) => b.bytes - a.bytes);
+  let offset = 0;
+  const views = typed.map(({ name, type, bytes, length }) => {
+    const line = `${keyword} ${name} = new ${type}(_rmsl_slots, ${offset}, ${length});`;
+    offset += bytes * length;
+    return line;
+  });
+  return {
+    views: [`${keyword === "var" ? "var" : "const"} _rmsl_slots = new ArrayBuffer(${offset});`, ...views],
+    scalars,
+  };
 }
 
 /** A fresh hoisted slot for an intermediate value, registered for preallocation. */
@@ -697,6 +743,11 @@ function jsIsReference(expr: string): boolean {
 function jsReadable(compiled: CompiledNode, brand: string | undefined, ctx: CompileCtx): CompiledNode {
   if (jsIsReference(compiled.expr) || brand === undefined) return compiled;
   const slot = jsNewTemp(ctx, brand);
+  if (jsIsArrayType(brand)) {
+    // An array slot is a view that is written into, never rebound.
+    jsRequireHelper(ctx, "copy");
+    return { ...compiled, body: [...compiled.body, `_copy(${compiled.expr}, ${slot});`], expr: slot };
+  }
   return { ...compiled, body: [...compiled.body, `${slot} = ${compiled.expr};`], expr: slot };
 }
 
@@ -710,19 +761,29 @@ function jsBoundedIndex(index: string, count: number): string {
 }
 
 /**
- * A vector or a matrix column as the target of a component write: `at(k)` is
- * the expression holding its `k`th component. Reading a column gives a copy
- * (`slice`), so a column's components are addressed in the matrix itself,
- * through its index evaluated once, and bounded to the matrix, into a
- * temporary.
+ * A target written component by component: `at(k)` is component `k`. A matrix
+ * column's components are addressed in the matrix itself, through its index
+ * evaluated once and bounded to the matrix. A storage element has `inRange`,
+ * the condition that it lies wholly inside its buffer, which its writes are
+ * made under.
  */
-function jsAssignable(node: any, ctx: CompileCtx): CompiledNode & { at(k: string): string } {
+function jsAssignable(node: any, ctx: CompileCtx): CompiledNode & { at(k: string): string; inRange?: string } {
+  if (node.type === "storageElement" && jsIsArrayType(node._t)) {
+    let element = jsStorageElement(node, ctx);
+    return {
+      decls: element.decls,
+      body: element.body,
+      expr: "0",
+      at: (k) => `${element.buffer}[${element.start} + ${k}]`,
+      inRange: element.inRange,
+    };
+  }
   if (node.type !== "matrixElement") {
-    let target = compileJSStage(node, ctx);
+    let target = jsCompileTarget(node, ctx);
     return { ...target, at: (k) => `${target.expr}[${k}]` };
   }
   assertLiteralIndexInRange(node.params![0], node.params![1]);
-  let mat = compileJSStage(node.params![0], ctx);
+  let mat = jsAssignable(node.params![0], ctx);
   let idx = compileJSStage(node.params![1], ctx);
   let [columns, rows] = MATRIX_DIMENSIONS[node.params![0]._t];
   let column = jsNewTemp(ctx, "int");
@@ -730,7 +791,68 @@ function jsAssignable(node: any, ctx: CompileCtx): CompiledNode & { at(k: string
     decls: [...mat.decls, ...idx.decls],
     body: [...mat.body, ...idx.body, `${column} = ${jsBoundedIndex(idx.expr, columns)};`],
     expr: mat.expr,
-    at: (k) => `${mat.expr}[${column} * ${rows} + ${k}]`,
+    at: (k) => mat.at(`${column} * ${rows} + ${k}`),
+    inRange: mat.inRange,
+  };
+}
+
+/**
+ * An operand whose components a read reaches one by one: `at(k)` is component
+ * `k`. A vector or matrix storage element is read in its buffer, without a copy.
+ * With `asTarget`, the operand is what a write through one of its components
+ * names, so it is compiled as the place it is, not as a copy of its value.
+ */
+function jsComponents(
+  node: any,
+  ctx: CompileCtx,
+  asTarget = false,
+): CompiledNode & { at(k: string): string; inBuffer: boolean } {
+  if (node?.type === "storageElement" && jsIsArrayType(node._t)) {
+    let element = jsStorageElement(node, ctx);
+    let at = (k: string) => `${element.buffer}[${element.start} + ${k}]`;
+    // An element not wholly inside the buffer reads zero, as WASM reads it.
+    return { ...element, at: asTarget ? at : (k) => `(${element.inRange} ? ${at(k)} : 0)`, inBuffer: true };
+  }
+  let src = asTarget ? jsCompileTarget(node, ctx) : jsCompileOperand(node, ctx);
+  let srcExpr = (src.prec ?? PREC_ATOM) < PREC_ATOM ? `(${src.expr})` : src.expr;
+  return { ...src, at: (k) => `${srcExpr}[${k}]`, inBuffer: false };
+}
+
+/** The index of a storage element, a float index without its fraction as WGSL's `u32()` and WASM give it. */
+function jsStorageIndex(node: any, index: string): string {
+  // As WASM's i32.trunc_sat_f64_u: the fraction dropped, a negative or NaN index 0, a huge one past every buffer.
+  return node.params![1]?._t === "float"
+    ? `(Math.min(Math.trunc(Math.max(${index}, 0)), 4294967295) || 0)`
+    : `(${index})`;
+}
+
+/**
+ * A vector or matrix element of a storage buffer, which holds its components
+ * one after another: they lie in `buffer` from `start`, evaluated once.
+ * `inRange`, computed once beside `start`, holds when the buffer holds every
+ * one of them.
+ */
+function jsStorageElement(
+  node: any,
+  ctx: CompileCtx,
+): CompiledNode & { buffer: string; start: string; inRange: string } {
+  let buffer = jsCompileOperand(node.params![0], ctx);
+  let idx = jsCompileOperand(node.params![1], ctx);
+  let start = jsNewTemp(ctx, "int");
+  let inRange = jsNewTemp(ctx, "bool");
+  let count = componentCountOf(node._t);
+  return {
+    decls: [...buffer.decls, ...idx.decls],
+    body: [
+      ...buffer.body,
+      ...idx.body,
+      `${start} = ${jsStorageIndex(node, idx.expr)} * ${count};`,
+      `${inRange} = ${start} >= 0 && ${start} + ${count} <= ${buffer.expr}.length;`,
+    ],
+    expr: start,
+    buffer: buffer.expr,
+    start,
+    inRange,
   };
 }
 
@@ -790,7 +912,8 @@ export function jsComponentCast(expr: string, sourceType: string | undefined, ta
   if (to === "bool") return `(${expr} !== 0)`;
   // uint and int convert to each other keeping the bits, as WGSL's do.
   // A float truncates toward zero and clamps to the range WebGPU clamps to, with NaN as 0.
-  if (to === "int" && from === "float") return `(Math.trunc(Math.min(Math.max(${expr}, -2147483648), 2147483520)) || 0)`;
+  if (to === "int" && from === "float")
+    return `(Math.trunc(Math.min(Math.max(${expr}, -2147483648), 2147483520)) || 0)`;
   if (to === "uint" && from === "float") return `(Math.trunc(Math.min(Math.max(${expr}, 0), 4294967040)) || 0)`;
   if (to === "int") return from === "uint" ? `((${expr}) | 0)` : `Math.trunc(${expr})`;
   if (to === "uint") return `((${expr}) >>> 0)`;
@@ -886,10 +1009,13 @@ export function jsScalarBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: 
     case "mix":
       expr = `(${jsOperand(a)} + ${jsOperand(c!)} * (${jsOperand(b)} - ${jsOperand(a)}))`;
       break;
-    case "smoothstep":
-      jsRequireHelper(ctx, "smoothstep");
-      expr = `_smoothstep(${a.expr}, ${b.expr}, ${c!.expr})`;
+    case "smoothstep": {
+      // Written out in the function: V8 boxes a float returned from a call it does not inline.
+      let t = jsNewTemp(ctx, "float");
+      body.push(`${t} = Math.min(Math.max((${c!.expr} - ${a.expr}) / (${b.expr} - ${a.expr}), 0), 1);`);
+      expr = `(${t} * ${t} * (3 - 2 * ${t}))`;
       break;
+    }
     default:
       throw new Error(`[RMSL] Unknown JS scalar op: ${op}`);
   }
@@ -900,16 +1026,21 @@ export function jsVectorBinary(node: BaseNode<ShaderType>, ctx: CompileCtx, op: 
   let a = jsCompileOperand(node.params![0], ctx);
   let b = jsCompileOperand(node.params![1], ctx);
   let c = node.params![2] ? jsCompileOperand(node.params![2], ctx) : null;
-  jsRequireHelper(ctx, `v${width}${op}`);
-  // The element-wise integer division helpers call the scalar ones.
-  if (op === "idiv" || op === "imod" || op === "udiv" || op === "umod" || op === "smoothstep") jsRequireHelper(ctx, op);
+  // The helper is written for the shape of each operand, which the types give.
+  let shape = (node.params ?? []).map((p) => (jsArrayLength(p?._t) > 1 ? "v" : "s")).join("");
+  if (ctx.outTarget) {
+    let written = jsElementwise(ctx.outTarget, op, width, shape, [a, b, ...(c ? [c] : [])], node.params!, ctx);
+    if (written) return written;
+  }
+  let helper = `v${width}${op}_${shape}`;
+  jsRequireHelper(ctx, helper);
   let args = c ? `${a.expr}, ${b.expr}, ${c.expr}` : `${a.expr}, ${b.expr}`;
   let decls = [...a.decls, ...b.decls, ...(c ? c.decls : [])];
   let body = [...a.body, ...b.body, ...(c ? c.body : [])];
   if (ctx.outTarget) {
-    return { decls, body: [...body, `_v${width}${op}(${args}, ${ctx.outTarget});`], expr: ctx.outTarget };
+    return { decls, body: [...body, `_${helper}(${args}, ${ctx.outTarget});`], expr: ctx.outTarget };
   }
-  return { decls, body, expr: `_v${width}${op}(${args})` };
+  return { decls, body, expr: `_${helper}(${args})` };
 }
 
 /**
@@ -965,6 +1096,48 @@ export function jsMatrixUnary(node: BaseNode<ShaderType>, ctx: CompileCtx, suffi
   return { decls: a.decls, body: a.body, expr: `_${name}(${a.expr})` };
 }
 
+/**
+ * An element-wise operation written out in the function, one line for each
+ * component of `target`, or `null` where it cannot be. V8 boxes a float it
+ * passes to a call it does not inline, and a large function inlines few. A
+ * component reads only the same component of each operand, so `target` may be
+ * one of them. A scalar operand that is not a local or a number is stored in a
+ * local first, since it may read a component of `target` written before it.
+ */
+function jsElementwise(
+  target: string,
+  op: string,
+  width: number,
+  shape: string,
+  operands: CompiledNode[],
+  nodes: any[],
+  ctx: CompileCtx,
+): CompiledNode | null {
+  let e = JS_ELEM[op];
+  if (!e || !isPlainJSIdentifier(target)) return null;
+  let decls = operands.flatMap((o) => o.decls);
+  let body = operands.flatMap((o) => o.body);
+  let reads: string[] = [];
+  for (let k = 0; k < operands.length; k++) {
+    let o = operands[k]!;
+    if (shape[k] === "v") {
+      if (!jsIsReference(o.expr)) return null;
+      reads.push(o.expr);
+    } else if (isPlainJSIdentifier(o.expr) || /^-?\d+(\.\d+)?(e[+-]?\d+)?$/.test(o.expr)) reads.push(o.expr);
+    else {
+      let local = jsNewTemp(ctx, nodes[k]?._t ?? "float");
+      body.push(`${local} = ${o.expr};`);
+      reads.push(local);
+    }
+  }
+  if (e.helper) jsRequireHelper(ctx, e.helper);
+  for (let i = 0; i < width; i++) {
+    let xs = reads.map((r, k) => (shape[k] === "v" ? `${r}[${i}]` : r));
+    body.push(`${target}[${i}] = ${e.fn(xs)};`);
+  }
+  return { decls, body, expr: target };
+}
+
 export function jsUnaryMath(node: BaseNode<ShaderType>, ctx: CompileCtx, suffix: string): CompiledNode {
   let width = jsArrayLength(node.params![0]?._t);
   if (width <= 1) {
@@ -976,8 +1149,12 @@ export function jsUnaryMath(node: BaseNode<ShaderType>, ctx: CompileCtx, suffix:
     if (suffix === "fract") a = jsReadable(a, node.params![0]?._t, ctx);
     return { decls: a.decls, body: a.body, expr: e.fn([`(${a.expr})`]), prec: JS_FORM_PREC[suffix] };
   }
-  jsRequireHelper(ctx, `v${width}${suffix}`);
   let a = jsCompileOperand(node.params![0], ctx);
+  if (ctx.outTarget) {
+    let written = jsElementwise(ctx.outTarget, suffix, width, "v", [a], node.params!, ctx);
+    if (written) return written;
+  }
+  jsRequireHelper(ctx, `v${width}${suffix}`);
   if (ctx.outTarget) {
     return {
       decls: a.decls,
@@ -1007,11 +1184,32 @@ export function jsVecOutOp(node: BaseNode<ShaderType>, ctx: CompileCtx, suffix: 
 
 /** dot/length/distance — reduce to a scalar, so never written into a target. */
 export function jsVecReduce(node: BaseNode<ShaderType>, ctx: CompileCtx, helper: string): CompiledNode {
-  jsRequireHelper(ctx, helper);
   let a = jsCompileOperand(node.params![0], ctx);
   let b = node.params![1] ? jsCompileOperand(node.params![1], ctx) : null;
   let decls = b ? [...a.decls, ...b.decls] : a.decls;
   let body = b ? [...a.body, ...b.body] : a.body;
+  // A sum written out in the function: V8 boxes a float returned from a call it does not inline.
+  // It starts from 0 and adds in order, as the helper does, so the bits stay the same.
+  let width = jsArrayLength(node.params![0]?._t);
+  if (width <= 1 && (helper === "vdot" || helper === "vlen" || helper === "vdist")) {
+    // A scalar is a vector of one: its dot is the product, its length the absolute value.
+    let x = wrapExpr(a.prec, PRECEDENCE.mul!, a.expr);
+    let y = b ? wrapExpr(b.prec, PRECEDENCE.mul!, b.expr) : "";
+    let expr =
+      helper === "vdot" ? `(${x} * ${y})` : helper === "vlen" ? `Math.abs(${a.expr})` : `Math.abs(${x} - ${y})`;
+    return { decls, body, expr, prec: PREC_ATOM };
+  }
+  if (helper !== "ball" && helper !== "bany" && jsIsReference(a.expr) && (!b || jsIsReference(b.expr))) {
+    let term = (i: number) =>
+      helper === "vdot"
+        ? `${a.expr}[${i}] * ${b!.expr}[${i}]`
+        : helper === "vlen"
+          ? `${a.expr}[${i}] * ${a.expr}[${i}]`
+          : `(${a.expr}[${i}] - ${b!.expr}[${i}]) * (${a.expr}[${i}] - ${b!.expr}[${i}])`;
+    let sum = `0 + ${Array.from({ length: width }, (_, i) => term(i)).join(" + ")}`;
+    return { decls, body, expr: helper === "vdot" ? `(${sum})` : `Math.sqrt(${sum})`, prec: PREC_ATOM };
+  }
+  jsRequireHelper(ctx, helper);
   return {
     decls,
     body,
@@ -1094,12 +1292,19 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
     return { decls: [], body: [], expr: `[${node.join(", ")}]` };
   }
 
-  let seen = ctx.memo.get(node);
+  // A target is compiled as what it names: a read of the same node is cached as its value, rounded or copied.
+  let target = ctx.jsTarget === node;
+  let seen = target ? undefined : ctx.memo.get(node);
   if (seen) {
     // A statement runs once. A seq's statements have run, and its value is read as any value is.
     if (node._t === "void") return { decls: [], body: [], expr: seen.expr, prec: seen.prec };
     if (node.type === "seq") return compileJSStage(node.params[node.params.length - 1], ctx);
-    if (seen.jsEpoch === undefined || seen.jsEpoch === ctx.jsEpoch) {
+    if (seen.jsBlock !== undefined) {
+      if (ctx.jsBlocks!.includes(seen.jsBlock)) {
+        ctx.jsReadsSlot = true;
+        return { decls: [], body: [], expr: seen.expr, prec: seen.prec };
+      }
+    } else if (seen.jsEpoch === undefined || seen.jsEpoch === ctx.jsEpoch) {
       if (seen.jsEpoch !== undefined) ctx.jsReadsSlot = true;
       return { decls: [], body: [], expr: seen.expr, prec: seen.prec };
     }
@@ -1108,6 +1313,25 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
   let outer = ctx.jsReadsSlot;
   ctx.jsReadsSlot = false;
   let result = compileJSNode(node, ctx);
+  if (target) {
+    ctx.jsReadsSlot = outer || ctx.jsReadsSlot;
+    return result;
+  }
+  let read = result.expr;
+  result = jsTypedInput(node, result, ctx);
+  if (ctx.jsFloat32) result = jsRound32(node, result, ctx);
+  // A copy of what the host passed by name holds through any write: nothing in a call changes it.
+  if (result.expr !== read && JS_INPUT_BY_NAME.test(read)) {
+    ctx.jsReadsSlot = true;
+    let loop = ctx.jsLoopCopies;
+    if (loop) {
+      // Made once before the outermost loop, rather than on every iteration.
+      loop.lines.push(...result.body);
+      result = { ...result, body: [] };
+    }
+    ctx.memo.set(node, { ...result, jsBlock: loop ? loop.block : ctx.jsBlocks!.at(-1) });
+    return result;
+  }
   // A value computed into a slot holds what it was there, so it is reused only
   // until a write or the end of the block it was computed in.
   let readsSlot = ctx.jsReadsSlot || result.body.length > 0;
@@ -1118,14 +1342,143 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
 }
 
 /**
+ * Operations that, written into a slot they also read, read every component
+ * they need before they write it: element-wise ones read component `i` to
+ * write component `i`, and the helpers and reductions read their operands
+ * whole first.
+ */
+const JS_READS_BEFORE_WRITING = new Set([
+  ...["add", "sub", "mul", "div", "mod", "pow", "atan2", "min", "max", "mix", "step", "smoothstep", "clamp"],
+  ...["negate", "not", "select", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh"],
+  ...["asinh", "acosh", "atanh", "abs", "sign", "floor", "ceil", "fract", "round", "trunc", "radians"],
+  ...["degrees", "sqrt", "inverseSqrt", "exp", "log", "exp2", "log2"],
+  ...["cross", "transpose", "inverse", "normalize", "reflect", "refract", "faceforward", "dot", "length", "distance"],
+]);
+
+/**
+ * Whether `node`, computed into the variable `name`, reads it other than
+ * through operations that read before they write: through a swizzle, a
+ * constructor or a component, a component written early would be read.
+ */
+function jsReadsAcrossComponents(node: any, name: string, direct: boolean): boolean {
+  if (!node || typeof node !== "object") return false;
+  if (node.type === "var" && (node.value?.varName ?? node.name) === name) return !direct;
+  const through = direct && JS_READS_BEFORE_WRITING.has(node.type);
+  return (node.params ?? []).some((p: unknown) => jsReadsAcrossComponents(p, name, through));
+}
+
+/** `node`'s value in `slot`: computed there where it can be, and copied in where it was computed elsewhere. */
+function jsCompileInto(node: any, slot: string, ctx: CompileCtx): CompiledNode {
+  let saved = ctx.outTarget;
+  ctx.outTarget = slot;
+  let value = compileJSStage(node, ctx);
+  ctx.outTarget = saved;
+  if (value.expr === slot) return { decls: value.decls, body: value.body, expr: slot };
+  jsRequireHelper(ctx, "copy");
+  return { decls: value.decls, body: [...value.body, `_copy(${value.expr}, ${slot});`], expr: slot };
+}
+
+/** A component of a boolean vector, which its slot holds as 1 or 0, read as `true` or `false`; a target as it is. */
+function jsBooleanComponent(node: any, read: CompiledNode, ctx: CompileCtx): CompiledNode {
+  if (node._t !== "bool" || ctx.jsTarget === node) return read;
+  return { ...read, expr: `!!${wrapExpr(read.prec, PREC_UNARY, read.expr)}`, prec: PREC_UNARY };
+}
+
+/** `node` compiled as the target of an assignment: what it names, to be written, and not its value rounded. */
+function jsCompileTarget(node: any, ctx: CompileCtx): CompiledNode {
+  let saved = ctx.jsTarget;
+  ctx.jsTarget = node;
+  try {
+    return compileJSStage(node, ctx);
+  } finally {
+    ctx.jsTarget = saved;
+  }
+}
+
+/** A read of an input the host passes by name, which no statement of a call changes. */
+const JS_INPUT_BY_NAME = /^ctx\.(uniforms|attributes|varyings|params)\["[^"]*"\]$/;
+
+/** The node types whose vector or matrix the host passes in as an array of its own. */
+const JS_HOST_INPUTS = new Set(["uniform", "uniformArrayElement", "attribute", "varying", "var"]);
+
+/**
+ * `result`, the value of `node`, in a typed slot of its kind when it is a
+ * vector or matrix the host passed in. A helper then reads only typed arrays of
+ * one kind: V8 boxes each number it reads through a load that has seen arrays
+ * of many kinds, as the host's plain arrays and the slots together are.
+ */
+function jsTypedInput(node: any, result: CompiledNode, ctx: CompileCtx): CompiledNode {
+  if (node?.type === "storage" || node?.type === "uniformArray") return result;
+  let t = node?._t as string | undefined;
+  if (!t || !jsIsArrayType(t) || isPlainJSIdentifier(result.expr)) return result;
+  if (!JS_HOST_INPUTS.has(node.type) && !result.expr.startsWith("ctx.")) return result;
+  let temp = jsNewTemp(ctx, t);
+  // Copied here, one line a component: this load sees only the arrays this input arrives in, so it
+  // stays specialised, where one shared copy would see every kind and box what it read.
+  let source = jsIsReference(result.expr) ? result.expr : null;
+  let body = [...result.body];
+  if (!source) {
+    source = jsNewTemp(ctx, "float");
+    body.push(`${source} = ${result.expr};`);
+  }
+  // A copy made before a loop runs whether the read in it does or not, so it reads an input left out as zero.
+  let hoisted = ctx.jsLoopCopies !== undefined && JS_INPUT_BY_NAME.test(source);
+  let at = (i: number) =>
+    hoisted ? `(${source!.replace(/^ctx\.(\w+)\[/, "ctx.$1?.[")}?.[${i}] ?? 0)` : `${source}[${i}]`;
+  for (let i = 0; i < jsArrayLength(t); i++) body.push(`${temp}[${i}] = ${at(i)};`);
+  return { ...result, body, expr: temp };
+}
+
+/**
+ * `result`, the value of `node`, rounded to 32 bits, as `float: "f32"` asks. A
+ * scalar is wrapped in `Math.fround`. A vector or matrix in a slot is rounded
+ * by the slot, a Float32Array; one read from the host's context is copied into
+ * a slot, so the host's own array is never written.
+ */
+function jsRound32(node: any, result: CompiledNode, ctx: CompileCtx): CompiledNode {
+  // A whole buffer or uniform array carries the type of its element, but is no value.
+  if (node?.type === "storage" || node?.type === "uniformArray") return result;
+  let t = node?._t as string | undefined;
+  if (t === "float") {
+    if (node.type === "float") return result;
+    if (node.type === "var" && !ctx.jsParams.has(node.value?.varName)) return result;
+    if (/^Math\.fround\([^()]*\)$/.test(result.expr)) return result;
+    return { ...result, expr: `Math.fround(${result.expr})`, prec: PREC_ATOM };
+  }
+  if (!t || !jsIsArrayType(t) || elementKindOf(t) !== "float") return result;
+  if (/^(vec|mat)/.test(node.type) && node.type === t) return result;
+  // A slot is a Float32Array, which rounds each value it stores, and a host input is copied into one.
+  if (isPlainJSIdentifier(result.expr)) return result;
+  jsRequireHelper(ctx, "fr");
+  return { ...result, expr: `_fr(${result.expr})`, prec: PREC_ATOM };
+}
+
+/**
  * Compile a block that may run any number of times, or not at all: a value
  * computed into a slot on one side of it is not reused on the other.
  */
 function compileJSBoundary(node: any, ctx: CompileCtx): CompiledNode {
   ctx.jsEpoch++;
+  ctx.jsBlocks!.push(ctx.jsEpoch);
   let result = compileJSStage(node, ctx);
+  ctx.jsBlocks!.pop();
   ctx.jsEpoch++;
   return result;
+}
+
+/** Starts compiling a loop: the outermost one collects the copies of host inputs its reads make. */
+function jsEnterLoop(ctx: CompileCtx): boolean {
+  if (ctx.jsLoopCopies) return false;
+  ctx.jsLoopCopies = { lines: [], block: ctx.jsBlocks!.at(-1)! };
+  return true;
+}
+
+/** Ends compiling a loop: the copies to make before it, if it is the outermost one. */
+function jsLeaveLoop(outermost: boolean, ctx: CompileCtx): string[] {
+  if (!outermost) return [];
+  let lines = ctx.jsLoopCopies!.lines;
+  ctx.jsLoopCopies = undefined;
+  return lines;
 }
 
 /** A negative literal is a negation, and brackets like one: `-(-7)`, not `--7`. */
@@ -1137,12 +1490,14 @@ export function compileJSNode(
   node: BaseNode<ShaderType> | ShaderType extends never ? never : any,
   ctx: CompileCtx,
 ): CompiledNode {
-  let folded = tryFold(node);
+  let folded = tryFold(node, ctx.jsFloat32);
   if (folded) node = folded;
 
   switch (node.type) {
-    case "float":
-      return { decls: [], body: [], expr: String(node.value), prec: jsLiteralPrec(node.value as number) };
+    case "float": {
+      let value = ctx.jsFloat32 ? Math.fround(node.value as number) : (node.value as number);
+      return { decls: [], body: [], expr: String(value), prec: jsLiteralPrec(value) };
+    }
     case "int":
     case "uint":
       return { decls: [], body: [], expr: String(node.value), prec: jsLiteralPrec(node.value as number) };
@@ -1170,11 +1525,15 @@ export function compileJSNode(
     case "mat4x3":
     case "mat4": {
       let values = node.value as number[];
+      if (ctx.jsFloat32 && elementKindOf(node._t) === "float") values = values.map(Math.fround);
       if (ctx.outTarget) {
         let lines = values.map((v, i) => `${ctx.outTarget}[${i}] = ${JSON.stringify(v)};`);
         return { decls: [], body: lines, expr: ctx.outTarget };
       }
-      return { decls: [], body: [], expr: jsConstant(ctx, `[${values.map((v) => JSON.stringify(v)).join(", ")}]`) };
+      // A constant is a typed array of its kind, as a slot is, so a helper reads one kind of array.
+      let typed = typedArrayOfKind(elementKindOf(node._t), ctx.jsFloat32 === true).name;
+      let literal = `new ${typed}([${values.map((v) => (typeof v === "boolean" ? (v ? 1 : 0) : JSON.stringify(v))).join(", ")}])`;
+      return { decls: [], body: [], expr: jsConstant(ctx, literal) };
     }
     case "void":
       return { decls: [], body: [], expr: "0" };
@@ -1322,18 +1681,26 @@ export function compileJSNode(
     }
 
     case "storageElement": {
-      let arr = jsCompileOperand(node.params![0], ctx);
-      let idx = jsCompileOperand(node.params![1], ctx);
-      let element = `${arr.expr}[${idx.expr}]`;
-      if (ctx.outTarget && jsIsArrayType(node._t)) {
-        jsRequireHelper(ctx, "copy");
+      if (jsIsArrayType(node._t)) {
+        let element = jsStorageElement(node, ctx);
+        let target = ctx.outTarget ?? jsNewTemp(ctx, node._t);
+        jsRequireHelper(ctx, "load");
         return {
-          decls: [...arr.decls, ...idx.decls],
-          body: [...arr.body, ...idx.body, `_copy(${element}, ${ctx.outTarget});`],
-          expr: ctx.outTarget,
+          decls: element.decls,
+          body: [...element.body, `_load(${element.buffer}, ${element.start}, ${target});`],
+          expr: target,
         };
       }
-      return { decls: [...arr.decls, ...idx.decls], body: [...arr.body, ...idx.body], expr: element };
+      let arr = jsCompileOperand(node.params![0], ctx);
+      let idx = jsCompileOperand(node.params![1], ctx);
+      let element = `${arr.expr}[${jsStorageIndex(node, idx.expr)}]`;
+      return {
+        decls: [...arr.decls, ...idx.decls],
+        body: [...arr.body, ...idx.body],
+        // An element outside the buffer reads zero, as WASM reads it.
+        expr: ctx.jsTarget === node ? element : `(${element} ?? 0)`,
+        prec: PREC_ATOM,
+      };
     }
 
     case "invocationIndex": {
@@ -1354,6 +1721,7 @@ export function compileJSNode(
       // the host can read it back; in a fragment stage it is an input.
       if (ctx.shaderStage === "vertex") {
         ctx.jsNeedsRes = true;
+        ctx.varyings.set(slot, { id: 0, type: v.shaderType ?? node._t, slot });
         return jsLeafRef(`res.varyings[${JSON.stringify(slot)}]`, v.shaderType ?? node._t, ctx);
       }
       return jsLeafRef(`ctx.varyings[${JSON.stringify(slot)}]`, v.shaderType ?? node._t, ctx);
@@ -1390,18 +1758,28 @@ export function compileJSNode(
     }
 
     case "swizzle": {
-      let src = jsCompileOperand(node.params![0], ctx);
+      let src = jsComponents(node.params![0], ctx, ctx.jsTarget === node);
       let pattern = node.value as string;
-      let srcExpr = (src.prec ?? PREC_ATOM) < PREC_ATOM ? `(${src.expr})` : src.expr;
       if (pattern.length === 1) {
-        return { decls: src.decls, body: src.body, expr: `${srcExpr}[${JS_COMPONENT_INDEX[pattern]}]` };
+        let read = { decls: src.decls, body: src.body, expr: src.at(`${JS_COMPONENT_INDEX[pattern]}`) };
+        return jsBooleanComponent(node, read, ctx);
       }
       let idx = [...pattern].map((ch) => JS_COMPONENT_INDEX[ch]);
       if (ctx.outTarget) {
-        let lines = idx.map((j, i) => `${ctx.outTarget}[${i}] = ${srcExpr}[${j}];`);
-        return { decls: src.decls, body: [...src.body, ...lines], expr: ctx.outTarget };
+        let reads = idx.map((j) => src.at(`${j}`));
+        let body = [...src.body];
+        // A swizzle of the target itself reads every component before it writes one.
+        if (reads.some((read) => read.startsWith(`${ctx.outTarget}[`))) {
+          reads = reads.map((read) => {
+            let local = jsNewTemp(ctx, elementKindOf(node._t));
+            body.push(`${local} = ${read};`);
+            return local;
+          });
+        }
+        let lines = reads.map((read, i) => `${ctx.outTarget}[${i}] = ${read};`);
+        return { decls: src.decls, body: [...body, ...lines], expr: ctx.outTarget };
       }
-      return { decls: src.decls, body: src.body, expr: `[${idx.map((j) => `${srcExpr}[${j}]`).join(", ")}]` };
+      return { decls: src.decls, body: src.body, expr: `[${idx.map((j) => src.at(`${j}`)).join(", ")}]` };
     }
 
     case "negate": {
@@ -1711,25 +2089,26 @@ export function compileJSNode(
 
     case "matrixElement": {
       assertLiteralIndexInRange(node.params![0], node.params![1]);
-      let mat = jsCompileOperand(node.params![0], ctx);
+      let mat = jsComponents(node.params![0], ctx, ctx.jsTarget === node);
       let idx = jsCompileOperand(node.params![1], ctx);
       let brand = node.params![0]?._t;
-      let [, rows] = MATRIX_DIMENSIONS[brand];
-      let matExpr = (mat.prec ?? PREC_ATOM) < PREC_ATOM ? `(${mat.expr})` : mat.expr;
+      let [columns, rows] = MATRIX_DIMENSIONS[brand];
+      let column = mat.inBuffer ? jsBoundedIndex(idx.expr, columns) : `(${idx.expr})`;
       let target = ctx.outTarget ?? jsNewTemp(ctx, node._t);
       let lines = Array.from(
         { length: rows },
-        (_, row) => `${target}[${row}] = ${matExpr}[(${idx.expr}) * ${rows} + ${row}];`,
+        (_, row) => `${target}[${row}] = ${mat.at(`${column} * ${rows} + ${row}`)};`,
       );
       return { decls: [...mat.decls, ...idx.decls], body: [...mat.body, ...idx.body, ...lines], expr: target };
     }
 
     case "vectorElement": {
       assertLiteralIndexInRange(node.params![0], node.params![1]);
-      let src = jsCompileOperand(node.params![0], ctx);
+      let src = jsComponents(node.params![0], ctx, ctx.jsTarget === node);
       let idx = jsCompileOperand(node.params![1], ctx);
-      let srcExpr = (src.prec ?? PREC_ATOM) < PREC_ATOM ? `(${src.expr})` : src.expr;
-      return { decls: [...src.decls, ...idx.decls], body: [...src.body, ...idx.body], expr: `${srcExpr}[${idx.expr}]` };
+      let component = src.inBuffer ? jsBoundedIndex(idx.expr, TYPE_WIDTH[node.params![0]._t]) : idx.expr;
+      let read = { decls: [...src.decls, ...idx.decls], body: [...src.body, ...idx.body], expr: src.at(component) };
+      return jsBooleanComponent(node, read, ctx);
     }
 
     case "texture":
@@ -1826,17 +2205,7 @@ export function compileJSNode(
       let varName = (lhsNode.value as any)?.varName || (lhsNode as any)?.name;
       ctx.varDefs.set(varName, lhsNode._t);
       let rhsNode = node.params![1];
-      if (jsIsArrayType(rhsNode?._t)) {
-        let saved = ctx.outTarget;
-        ctx.outTarget = varName;
-        let rhs = compileJSStage(rhsNode, ctx);
-        ctx.outTarget = saved;
-        if (rhs.expr !== varName) {
-          jsRequireHelper(ctx, "copy");
-          return { decls: rhs.decls, body: [...rhs.body, `_copy(${rhs.expr}, ${varName});`], expr: varName };
-        }
-        return { decls: rhs.decls, body: rhs.body, expr: varName };
-      }
+      if (jsIsArrayType(rhsNode?._t)) return jsCompileInto(rhsNode, varName, ctx);
       let rhs = compileJSStage(rhsNode, ctx);
       return { decls: rhs.decls, body: [...rhs.body, `${varName} = ${rhs.expr};`], expr: varName };
     }
@@ -1858,8 +2227,16 @@ export function compileJSNode(
       } else if (targetNode?.type === "matrixElement") {
         let [, rows] = MATRIX_DIMENSIONS[targetNode.params![0]._t];
         parts = { base: targetNode, components: Array.from({ length: rows }, (_, row) => `${row}`) };
-      } else if (targetNode?.type === "vectorElement" && targetNode.params![0]?.type === "matrixElement") {
+      } else if (
+        targetNode?.type === "vectorElement" &&
+        (targetNode.params![0]?.type === "matrixElement" || targetNode.params![0]?.type === "storageElement")
+      ) {
         parts = { base: targetNode.params![0], index: targetNode.params![1] };
+      } else if (targetNode?.type === "storageElement" && jsIsArrayType(targetNode._t)) {
+        parts = {
+          base: targetNode,
+          components: Array.from({ length: componentCountOf(targetNode._t) }, (_, k) => `${k}`),
+        };
       }
       if (parts) {
         let base = jsAssignable(parts.base, ctx);
@@ -1870,46 +2247,72 @@ export function compileJSNode(
           base = { ...base, decls: [...base.decls, ...idx.decls], body: [...base.body, ...idx.body] };
           components = [jsBoundedIndex(idx.expr, TYPE_WIDTH[parts.base._t])];
         }
+        // A storage element outside its buffer is not written.
+        let guarded = (lines: string[]) => (base.inRange ? [`if (${base.inRange}) {`, ...lines, "}"] : lines);
         if (components.length === 1) {
           let rhs = compileJSStage(rhsNode, ctx);
           return {
             decls: [...base.decls, ...rhs.decls],
-            body: [...base.body, ...rhs.body, `${base.at(components[0]!)} = ${rhs.expr};`],
+            body: [...base.body, ...rhs.body, ...guarded([`${base.at(components[0]!)} = ${rhs.expr};`])],
             expr: base.expr,
           };
         }
         let temp = jsNewTemp(ctx, rhsNode?._t || "float");
-        let saved = ctx.outTarget;
-        ctx.outTarget = temp;
-        let rhs = compileJSStage(rhsNode, ctx);
-        ctx.outTarget = saved;
-        let fill = rhs.expr === temp ? [] : [`${temp} = ${rhs.expr};`];
-        let writes = components.map((k, i) => `${base.at(k)} = ${temp}[${i}];`);
+        let rhs = jsCompileInto(rhsNode, temp, ctx);
+        let writes = guarded(components.map((k, i) => `${base.at(k)} = ${temp}[${i}];`));
         return {
           decls: [...base.decls, ...rhs.decls],
-          body: [...base.body, ...rhs.body, ...fill, ...writes],
+          body: [...base.body, ...rhs.body, ...writes],
           expr: base.expr,
         };
       }
 
-      let lhs = compileJSStage(targetNode, ctx);
+      if (targetNode?.type === "storageElement" && !jsIsArrayType(targetNode._t)) {
+        // A scalar storage element outside its buffer is not written.
+        let arr = jsCompileOperand(targetNode.params![0], ctx);
+        let idx = jsCompileOperand(targetNode.params![1], ctx);
+        let rhs = compileJSStage(rhsNode, ctx);
+        let at = jsNewTemp(ctx, "int");
+        return {
+          decls: [...arr.decls, ...idx.decls, ...rhs.decls],
+          body: [
+            ...arr.body,
+            ...idx.body,
+            ...rhs.body,
+            `${at} = ${jsStorageIndex(targetNode, idx.expr)};`,
+            `if (${at} >= 0 && ${at} < ${arr.expr}.length) ${arr.expr}[${at}] = ${rhs.expr};`,
+          ],
+          expr: `${arr.expr}[${at}]`,
+        };
+      }
+      let lhs = jsCompileTarget(targetNode, ctx);
       // Only a plain variable slot is written through out-mode helpers; an
       // external sink (res.position, res.outputs[...], ctx.varyings[...]) takes
       // the whole value in one assignment.
       if (jsIsArrayType(rhsNode?._t) && isPlainJSIdentifier(lhs.expr)) {
-        let saved = ctx.outTarget;
-        ctx.outTarget = lhs.expr;
-        let rhs = compileJSStage(rhsNode, ctx);
-        ctx.outTarget = saved;
-        if (rhs.expr !== lhs.expr) {
+        if (jsReadsAcrossComponents(rhsNode, lhs.expr, true)) {
+          // A value that reads its own target is computed whole before the target is written.
+          let temp = jsNewTemp(ctx, rhsNode._t);
+          let rhs = jsCompileInto(rhsNode, temp, ctx);
           jsRequireHelper(ctx, "copy");
           return {
             decls: [...lhs.decls, ...rhs.decls],
-            body: [...lhs.body, ...rhs.body, `_copy(${rhs.expr}, ${lhs.expr});`],
+            body: [...lhs.body, ...rhs.body, `_copy(${temp}, ${lhs.expr});`],
             expr: lhs.expr,
           };
         }
+        let rhs = jsCompileInto(rhsNode, lhs.expr, ctx);
         return { decls: [...lhs.decls, ...rhs.decls], body: [...lhs.body, ...rhs.body], expr: lhs.expr };
+      }
+      if (jsIsArrayType(rhsNode?._t)) {
+        // The sink takes a slot of its own, so a write through it leaves what it was assigned from as it was.
+        let slot = jsNewTemp(ctx, rhsNode._t);
+        let rhs = jsCompileInto(rhsNode, slot, ctx);
+        return {
+          decls: [...lhs.decls, ...rhs.decls],
+          body: [...lhs.body, ...rhs.body, `${lhs.expr} = ${slot};`],
+          expr: lhs.expr,
+        };
       }
       let rhs = compileJSStage(rhsNode, ctx);
       return {
@@ -1959,9 +2362,11 @@ export function compileJSNode(
 
     case "for": {
       let init = compileJSStage(node.params![0], ctx);
+      let copies = jsEnterLoop(ctx);
       let cond = compileJSStage(node.params![1], ctx);
       let update = compileJSBoundary(node.params![2], ctx);
       let body = compileJSBoundary(node.params![3], ctx);
+      let before = jsLeaveLoop(copies, ctx);
       // An init that makes no statement, such as a variable made before the loop, leaves the header's init empty.
       let initExpr = "";
       let initBody = init.body;
@@ -1978,6 +2383,7 @@ export function compileJSNode(
         decls: [...init.decls, ...cond.decls, ...update.decls, ...body.decls],
         body: [
           ...initBody,
+          ...before,
           `for (${initExpr}; ${header}; ${forUpdateStatements(update).map(withoutSemicolon).join(", ")}) {`,
           ...[...guard, ...body.body].map((l) => "  " + l),
           "}",
@@ -1987,12 +2393,14 @@ export function compileJSNode(
     }
 
     case "while": {
+      let copies = jsEnterLoop(ctx);
       let cond = compileJSStage(node.params![0], ctx);
       let body = compileJSBoundary(node.params![1], ctx);
+      let before = jsLeaveLoop(copies, ctx);
       let { header, guard } = loopTest(cond);
       return {
         decls: [...cond.decls, ...body.decls],
-        body: [`while (${header}) {`, ...[...guard, ...body.body].map((l) => "  " + l), "}"],
+        body: [...before, `while (${header}) {`, ...[...guard, ...body.body].map((l) => "  " + l), "}"],
         expr: "0",
       };
     }
@@ -2022,6 +2430,11 @@ export type CompileJSOptions = CompileFnOptions & {
   stage?: "vertex" | "fragment" | "compute";
   derivatives?: "throw" | "zero";
   reentrant?: boolean;
+  /**
+   * The width the program computes a `float` in: `"f64"`, the default, or
+   * `"f32"`, which rounds every float value to 32 bits as a GPU holds it.
+   */
+  float?: "f64" | "f32";
 };
 
 /**
@@ -2042,7 +2455,12 @@ export type CompileJSOptions = CompileFnOptions & {
 function compileJSFnDetailed(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
-): { source: string; resultType: ShaderType | undefined; storageTypes: Record<string, ShaderType> } {
+): {
+  source: string;
+  resultType: ShaderType | undefined;
+  storageTypes: Record<string, ShaderType>;
+  resultTypes: JsResultTypes;
+} {
   let stage = options.stage ?? "fragment";
   let derivatives = options.derivatives ?? "throw";
   let reentrant = options.reentrant ?? false;
@@ -2073,10 +2491,12 @@ function compileJSFnDetailed(
     jsHelpers: new Set(),
     outTarget: null,
     jsEpoch: 0,
+    jsBlocks: [0],
     jsReadsSlot: false,
     derivatives,
     reentrant,
     jsNeedsRes: false,
+    jsFloat32: options.float === "f32",
   };
 
   assertOneDeclarationPerName(resultNodes);
@@ -2094,30 +2514,58 @@ function compileJSFnDetailed(
   if (options.stage !== undefined) assertStageResult(stage, lastType, ctx.positionWritten, ctx.outputs.size > 0);
 
   const body: string[] = [];
-  if (ctx.jsNeedsRes) body.push("var res = { outputs: {}, varyings: {} };");
-  if (reentrant) {
-    for (const [v, brand] of ctx.varDefs) {
-      let init = jsScratchLiteral(brand);
-      body.push(init ? `var ${v} = ${init};` : `var ${v} = 0;`);
-    }
+  // A grid takes a scalar result from a slot of one element: V8 boxes a float a call returns.
+  const scalarResult =
+    options.kind === "grid" &&
+    !ctx.jsNeedsRes &&
+    lastType !== undefined &&
+    lastType !== "void" &&
+    !isAggregate(lastType)
+      ? `${reentrant ? "var" : "const"} _rmsl_result = new ${typedArrayOfKind(scalarKindOf(lastType), ctx.jsFloat32 === true).name}(1);`
+      : "";
+  // The object a stage returns its outputs in is made once, as its slots are, or once a call with `reentrant`.
+  // Every output it may hold is named from the start, so clearing them all as a call starts keeps its shape.
+  const outputKeys = [...ctx.outputs.values()].map((o) => `${JSON.stringify(o.slot)}: undefined`).join(", ");
+  const varyingKeys = [...ctx.varyings.values()].map((v) => `${JSON.stringify(v.slot)}: undefined`).join(", ");
+  const res = ctx.jsNeedsRes
+    ? `var res = { outputs: ${outputKeys ? `{ ${outputKeys} }` : "{}"}, varyings: ${varyingKeys ? `{ ${varyingKeys} }` : "{}"}, position: undefined, fragDepth: undefined, value: undefined };`
+    : "";
+  if (res && reentrant) body.push(res);
+  if (res && !reentrant) {
+    // A stage output the program does not write on a call is undefined in what that call returns.
+    for (const o of ctx.outputs.values()) body.push(`res.outputs[${JSON.stringify(o.slot)}] = undefined;`);
+    body.push("res.position = undefined;", "res.fragDepth = undefined;", "res.value = undefined;");
   }
+  // A varying the program does not write on a call is 0, a vector one a slot of zeros of its own.
+  // One every call writes whole before anything else touches it needs no clearing.
+  const writtenFirst = jsVaryingsWrittenFirst(resultNodes);
+  const varyingResets = [...ctx.varyings.values()].flatMap((v) => {
+    if (writtenFirst.has(v.slot)) return [];
+    const key = `res.varyings[${JSON.stringify(v.slot)}]`;
+    if (!jsIsArrayType(v.type)) return [`${key} = ${v.type === "bool" ? "false" : "0"};`];
+    const zeros = jsNewTemp(ctx, v.type);
+    // A reentrant call's slots are new, and so already zero.
+    return [reentrant ? `${key} = ${zeros};` : `${zeros}.fill(0); ${key} = ${zeros};`];
+  });
+  const slots = jsSlotDeclarations(ctx.varDefs, ctx.jsFloat32 === true, reentrant ? "var" : "let");
+  body.push(...slots.scalars);
+  if (reentrant) body.push(...slots.views);
+  body.push(...varyingResets);
   for (const compiled of compiledList) body.push(...compiled.decls, ...compiled.body);
   if (ctx.jsNeedsRes) {
     // a program that returns nothing has no value
     if (lastType !== "void") body.push(`res.value = ${lastCompiled.expr};`);
     body.push("return res;");
+  } else if (scalarResult) {
+    if (reentrant) body.push(scalarResult);
+    body.push(`_rmsl_result[0] = ${lastCompiled.expr};`, "return _rmsl_result;");
   } else {
     body.push(`return ${lastCompiled.expr};`);
   }
 
   let scratch = reentrant
     ? ""
-    : [...ctx.varDefs]
-        .map(([v, brand]) => {
-          let init = jsScratchLiteral(brand);
-          return init ? `let ${v} = ${init};` : `let ${v};`;
-        })
-        .join("\n");
+    : [...(res ? [res] : []), ...(scalarResult ? [scalarResult] : []), ...slots.views].join("\n");
   let helpers = [...ctx.jsHelpers]
     .sort()
     .map((name) => jsHelperSource(name))
@@ -2134,6 +2582,12 @@ function compileJSFnDetailed(
     source: parts.join("\n\n"),
     resultType: lastType as ShaderType | undefined,
     storageTypes: Object.fromEntries(ctx.storageTypes ?? []) as Record<string, ShaderType>,
+    resultTypes: {
+      value: lastType as ShaderType | undefined,
+      varyings: Object.fromEntries([...ctx.varyings.values()].map((v) => [v.slot, v.type])),
+      outputs: Object.fromEntries([...ctx.outputs.values()].map((o) => [o.slot, o.type])),
+      float32: ctx.jsFloat32 === true,
+    },
   };
 }
 
@@ -2151,23 +2605,92 @@ export interface JsProgram extends CpuProgram {
    * overwrites. For a caller that reads each result at once.
    */
   runInPlace(ctx: CpuShaderContext): CpuValue<ShaderType> | CpuProgramResult | null;
+  /** The type of each varying a vertex stage writes, by slot. */
+  readonly varyingTypes: Readonly<Record<string, string>>;
 }
 
-/** Copies a routine's result, arrays and the plain objects that hold them, so no scratch slot or input is shared. */
-export function ownedValue<T>(value: T): T {
-  if (Array.isArray(value)) {
-    const copy: unknown[] = value.slice();
-    for (let i = 0; i < copy.length; i++) {
-      if (typeof copy[i] === "object" && copy[i] !== null) copy[i] = ownedValue(copy[i]);
+/** The types of what a compiled JS function returns: its value, and the varyings and outputs it writes by slot. */
+type JsResultTypes = {
+  value: ShaderType | undefined;
+  varyings: Record<string, string>;
+  outputs: Record<string, string>;
+  float32: boolean;
+};
+
+/**
+ * A copy of what one call returned, so the next call does not change it: each
+ * vector or matrix in a new typed array of its kind, from the type the compile
+ * gave it.
+ */
+function ownedResult(raw: unknown, types: JsResultTypes): unknown {
+  const float32 = types.float32;
+  if (raw === null || typeof raw !== "object") return raw;
+  if (isVector(raw)) return ownedCopy(raw, types.value, float32);
+  const result = raw as CpuProgramResult;
+  const owned: CpuProgramResult = {};
+  if ("value" in result) owned.value = ownedCopy(result.value, types.value, float32);
+  if (result.position !== undefined) owned.position = ownedCopy(result.position, "vec4", float32) as number[];
+  if (result.varyings) {
+    owned.varyings = {};
+    for (const slot in result.varyings) {
+      owned.varyings[slot] = ownedCopy(result.varyings[slot], types.varyings[slot], float32);
     }
-    return copy as T;
   }
-  if (typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Object.prototype) {
-    const copy: Record<string, unknown> = {};
-    for (const key in value) copy[key] = ownedValue(value[key]);
-    return copy as T;
+  if (result.outputs) {
+    owned.outputs = {};
+    for (const slot in result.outputs) {
+      owned.outputs[slot] = ownedCopy(result.outputs[slot], types.outputs[slot], float32);
+    }
   }
-  return value;
+  if (result.fragDepth !== undefined) owned.fragDepth = result.fragDepth;
+  return owned;
+}
+
+/**
+ * The slots of the varyings that `roots` write whole, in a statement at their
+ * top level, before any statement reads or writes them otherwise or may
+ * return: every call writes each of them before it can be read.
+ */
+function jsVaryingsWrittenFirst(roots: readonly any[]): Set<string> {
+  const written = new Set<string>();
+  const touched = new Set<string>();
+  let mayHaveReturned = false;
+  const mention = (node: any, seen: Set<unknown>): void => {
+    if (!node || typeof node !== "object" || seen.has(node)) return;
+    seen.add(node);
+    if (node.type === "varying") touched.add(node.value.slot);
+    if (node.type === "return") mayHaveReturned = true;
+    for (const p of node.params ?? []) mention(p, seen);
+  };
+  for (const root of roots) {
+    for (const statement of root?.type === "seq" ? root.params : [root]) {
+      const target = statement?.type === "assign" ? statement.params[0] : undefined;
+      mention(target?.type === "varying" ? statement.params[1] : statement, new Set());
+      if (target?.type === "varying" && !touched.has(target.value.slot) && !mayHaveReturned) {
+        written.add(target.value.slot);
+      }
+      if (target?.type === "varying") touched.add(target.value.slot);
+    }
+  }
+  return written;
+}
+
+/** A context with no inputs, which a context made once takes when a call is done with the host's. */
+const EMPTY_CONTEXT: CpuShaderContext = Object.freeze({});
+
+/** Points `own`, a context made once, at the inputs of `from`. */
+function takeInputs(own: CpuShaderContext, from: CpuShaderContext): void {
+  own.params = from.params;
+  own.uniforms = from.uniforms;
+  own.varyings = from.varyings;
+  own.attributes = from.attributes;
+  own.textures = from.textures;
+  own.storages = from.storages;
+}
+
+/** A vector or matrix of `type` copied into a new typed array of its kind; any other value as it is. */
+function ownedCopy(value: unknown, type: string | undefined, float32: boolean): unknown {
+  return type !== undefined && isVector(value) ? typedValue(value, type, float32) : value;
 }
 
 /**
@@ -2187,14 +2710,18 @@ export function compileJSProgram(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
 ): JsProgram {
-  const { source, resultType, storageTypes } = compileJSFnDetailed(fn, options);
+  const { source, resultType, storageTypes, resultTypes } = compileJSFnDetailed(fn, options);
   const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuProgramResult | null;
   const runScratch = factory();
 
   /** The result of one call, copied out of the scratch slots the next call writes into. */
   function run(ctx: CpuShaderContext): number | boolean | CpuProgramResult | null {
-    return ownedValue(runScratch(ctx)) as number | boolean | CpuProgramResult | null;
+    return ownedResult(runScratch(ctx), resultTypes) as number | boolean | CpuProgramResult | null;
   }
+
+  /** The context a grid calls the program with for each pixel, made once and filled for each fill. */
+  const pixelFragCoord = new Float64Array(2);
+  const pixelCtx: CpuShaderContext = { fragCoord: pixelFragCoord };
 
   function draw(ctx: CpuShaderContext, width: number, height: number, out?: CpuDrawBuffer): CpuDrawBuffer {
     if (resultType === undefined || resultType === "void") {
@@ -2203,18 +2730,31 @@ export function compileJSProgram(
     const componentCount = componentCountOf(resultType);
     const kind = isAggregate(resultType) ? elementKindOf(resultType) : scalarKindOf(resultType);
     const buffer: CpuDrawBuffer =
-      out ??
-      (kind === "float"
-        ? new Float64Array(width * height * componentCount)
-        : kind === "uint"
-          ? new Uint32Array(width * height * componentCount)
-          : new Int32Array(width * height * componentCount));
+      out ?? new (typedArrayOfKind(kind, resultTypes.float32))(width * height * componentCount);
+    takeInputs(pixelCtx, ctx);
+    try {
+      fillPixels(buffer, width, height, componentCount, kind);
+    } finally {
+      takeInputs(pixelCtx, EMPTY_CONTEXT);
+    }
+    return buffer;
+  }
 
+  /** Calls the program on `pixelCtx` for each pixel, and writes what it gives into `buffer`. */
+  function fillPixels(
+    buffer: CpuDrawBuffer,
+    width: number,
+    height: number,
+    componentCount: number,
+    kind: string,
+  ): void {
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         // pixel centers land at (x + 0.5, y + 0.5) — the same convention
         // compileWasmRoutine's draw() and fragCoordMemory in wasm.ts use.
-        const result = runScratch({ ...ctx, fragCoord: [x + 0.5, y + 0.5] });
+        pixelFragCoord[0] = x + 0.5;
+        pixelFragCoord[1] = y + 0.5;
+        const result = runScratch(pixelCtx);
         if (result === null) {
           // a discarded fragment leaves the pixel at zero in every channel
           buffer.fill(0, (y * width + x) * componentCount, (y * width + x + 1) * componentCount);
@@ -2224,26 +2764,35 @@ export function compileJSProgram(
           typeof result === "object" && result !== null && "value" in result
             ? (result as CpuProgramResult).value
             : result;
-        const values = Array.isArray(raw) ? raw : [raw];
         const base = (y * width + x) * componentCount;
+        if (!isVector(raw)) {
+          buffer[base] = kind === "bool" ? (raw ? 1 : 0) : (raw as number);
+          continue;
+        }
         for (let k = 0; k < componentCount; k++) {
-          buffer[base + k] = kind === "bool" ? (values[k] ? 1 : 0) : (values[k] as number);
+          buffer[base + k] = kind === "bool" ? (raw[k] ? 1 : 0) : (raw[k] as number);
         }
       }
     }
-    return buffer;
   }
 
+  /** The context each invocation of a dispatch runs on, made once, so the host's is never written. */
+  const invocationCtx: CpuShaderContext = { index: 0 };
+
   function compute(ctx: CpuShaderContext, count: number): void {
-    const invocation: CpuShaderContext = { ...ctx };
-    for (let i = 0; i < count; i++) {
-      invocation.index = i;
-      runScratch(invocation);
+    takeInputs(invocationCtx, ctx);
+    try {
+      for (let i = 0; i < count; i++) {
+        invocationCtx.index = i;
+        runScratch(invocationCtx);
+      }
+    } finally {
+      takeInputs(invocationCtx, EMPTY_CONTEXT);
     }
   }
 
   // A reentrant routine declares its variables per call, so nothing is shared to copy out of.
-  return { run, runInPlace: runScratch, draw, compute, storageTypes };
+  return { run, runInPlace: runScratch, draw, compute, storageTypes, varyingTypes: resultTypes.varyings };
 }
 
 /** What a stage compile function takes: the options of a routine, without the stage, which the function names. */
@@ -2253,25 +2802,12 @@ export type CompileJSStageOptions = Omit<CompileJSOptions, "stage" | "kind">;
  * Compiles an `Fn` as a vertex stage: a function that returns the position and
  * the varyings the program writes.
  */
-export function compileJSVertex(
+export function compileJSVertex<W extends FloatWidth = "f64">(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileJSStageOptions,
-): VertexStage {
+  options: CompileJSStageOptions & { float?: W },
+): VertexStage<W> {
   const program = compileJSProgram(fn, { ...options, stage: "vertex" });
-  return (ctx) => toVertexResult(program.run(ctx));
-}
-
-/**
- * {@link compileJSVertex}, with the arrays of the result left in the scratch
- * slots the next call overwrites. For a caller that reads each result at once,
- * like the rasterizer. Not public.
- */
-export function compileJSVertexInPlace(
-  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileJSStageOptions,
-): VertexStage {
-  const program = compileJSProgram(fn, { ...options, stage: "vertex" });
-  return (ctx) => toVertexResult(program.runInPlace(ctx));
+  return (ctx) => toVertexResult(program.run(ctx)) as VertexResult<W>;
 }
 
 /**
@@ -2279,29 +2815,20 @@ export function compileJSVertexInPlace(
  * the members of the `outputStruct` the program returns, or `null` for a
  * discarded fragment.
  */
-export function compileJSFragment<R extends Node<ShaderType>>(
+export function compileJSFragment<R extends Node<ShaderType>, W extends FloatWidth = "f64">(
   fn: (...args: any[]) => R,
-  options: CompileJSStageOptions,
-): FragmentStage<R>;
-export function compileJSFragment(
+  options: CompileJSStageOptions & { float?: W },
+): FragmentStage<R, W>;
+export function compileJSFragment<W extends FloatWidth = "f64">(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileJSStageOptions,
-): FragmentStage;
+  options: CompileJSStageOptions & { float?: W },
+): FragmentStage<unknown, W>;
 export function compileJSFragment(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSStageOptions,
 ): FragmentStage {
   const program = compileJSProgram(fn, { ...options, stage: "fragment" });
   return (ctx) => toFragmentResult(program.run(ctx));
-}
-
-/** {@link compileJSFragment}, as {@link compileJSVertexInPlace} is to the vertex stage. Not public. */
-export function compileJSFragmentInPlace(
-  fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileJSStageOptions,
-): FragmentStage {
-  const program = compileJSProgram(fn, { ...options, stage: "fragment" });
-  return (ctx) => toFragmentResult(program.runInPlace(ctx));
 }
 
 /**
@@ -2320,12 +2847,12 @@ export function compileJSCompute(
 }
 
 /** Compiles an `Fn` of `fragCoord()` as a grid: one result for each pixel, in a buffer the type of the result. */
-export function compileJSGrid<A extends ShaderType>(
+export function compileJSGrid<A extends ShaderType, W extends FloatWidth = "f64">(
   fn: (...args: any[]) => Node<A>,
-  options: CompileJSStageOptions,
-): CpuGrid<A> {
+  options: CompileJSStageOptions & { float?: W },
+): CpuGrid<A, W> {
   const program = compileJSProgram(fn, { ...options, kind: "grid" });
-  return (ctx, width, height, out) => program.draw(ctx, width, height, out) as GridBuffer<A>;
+  return (ctx, width, height, out) => program.draw(ctx, width, height, out) as GridBuffer<A, W>;
 }
 
 /**
@@ -2334,14 +2861,14 @@ export function compileJSGrid<A extends ShaderType>(
  * returns. A program that reads what only a stage has, such as `fragCoord()`
  * or a varying, is refused: compile it as a stage or as a grid.
  */
-export function compileJSRoutine<A extends ShaderType>(
+export function compileJSRoutine<A extends ShaderType, W extends FloatWidth = "f64">(
   fn: (...args: any[]) => Node<A>,
-  options: CompileJSStageOptions,
-): CpuRoutine<A>;
-export function compileJSRoutine(
+  options: CompileJSStageOptions & { float?: W },
+): CpuRoutine<A, W>;
+export function compileJSRoutine<W extends FloatWidth = "f64">(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileJSStageOptions,
-): CpuRoutine;
+  options: CompileJSStageOptions & { float?: W },
+): CpuRoutine<ShaderType, W>;
 export function compileJSRoutine(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSStageOptions,

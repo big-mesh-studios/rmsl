@@ -47,7 +47,8 @@ function expectRefusedInStage(stage: "vertex" | "fragment", write: () => void, m
   expect(() => compileGlsl[stage](build()), "GLSL").toThrow(message);
   expect(() => compileWgsl[stage](build()), "WGSL").toThrow(message);
   const none = { name: "main", params: [] };
-  const [js, wasm] = stage === "vertex" ? [compileJSVertex, compileWasmVertex] : [compileJSFragment, compileWasmFragment];
+  const [js, wasm]: ((fn: any, options: typeof none) => unknown)[] =
+    stage === "vertex" ? [compileJSVertex, compileWasmVertex] : [compileJSFragment, compileWasmFragment];
   expect(() => js(build as any, none), "JS").toThrow(message);
   expect(() => wasm(build as any, none), "WASM").toThrow(message);
 }

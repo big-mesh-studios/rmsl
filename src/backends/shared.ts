@@ -26,6 +26,8 @@ export interface CompiledNode {
   prec?: number;
   /** JS target: the {@link CompileCtx.jsEpoch} a value reading a filled slot was compiled at. */
   jsEpoch?: number;
+  /** JS target: the block a copy of a host input was made in, which a write leaves valid. */
+  jsBlock?: number;
 }
 
 /**
@@ -151,6 +153,13 @@ export interface CompileCtx {
    * only reused while this is the count it was compiled at.
    */
   jsEpoch: number;
+  /** JS target: the blocks being compiled, outermost first; a copy of a host input is valid inside its own. */
+  jsBlocks?: number[];
+  /**
+   * JS target: inside a loop, the copies of host inputs to make before the
+   * outermost one, and the block that loop is in, where those copies hold.
+   */
+  jsLoopCopies?: { lines: string[]; block: number };
   /** JS target: whether the value being compiled reads a slot that statements filled. */
   jsReadsSlot: boolean;
   /** What derivative ops (dFdx/dFdy/fwidth) compile to on the CPU. */
@@ -159,6 +168,10 @@ export interface CompileCtx {
   reentrant: boolean;
   /** Whether the program writes outputs/position/fragDepth via a result object. */
   jsNeedsRes: boolean;
+  /** JS target: whether the program computes every float in 32 bits, as `float: "f32"` asks. */
+  jsFloat32?: boolean;
+  /** JS target: the node being compiled as the target of an assignment, which is written, not read. */
+  jsTarget?: unknown;
 }
 
 // === Constant folding ===
@@ -361,8 +374,13 @@ function foldIntegerOperands(n: BaseNode<ShaderType>): BaseNode<ShaderType> | nu
   return mkNode({ _t: t, type: n.type, params: [lhs, integerLiteral(rhs._t as string, b.map(rewrite))] });
 }
 
-export function tryFold(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
-  let folded = foldNode(n);
+/**
+ * `n` folded to the literal it computes, or null. With `float32`, a float
+ * literal operand and a float result are rounded to 32 bits, as a CPU target at
+ * `float: "f32"` computes them at run time.
+ */
+export function tryFold(n: BaseNode<ShaderType>, float32 = false): BaseNode<ShaderType> | null {
+  let folded = float32 ? foldNode32(n) : foldNode(n);
   if (
     folded &&
     folded._t === "float" &&
@@ -377,6 +395,23 @@ export function tryFold(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
     );
   }
   return folded;
+}
+
+function foldNode32(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {
+  let params = n.params?.map((p) => (p && isLeafLiteral(p) ? roundLiteral32(p) : p));
+  let rounded = params?.some((p, i) => p !== n.params![i])
+    ? mkNode({ _t: n._t as string, type: n.type, params, value: n.value })
+    : n;
+  let folded = foldNode(rounded);
+  return folded && isLeafLiteral(folded) ? roundLiteral32(folded) : folded;
+}
+
+/** A float literal, scalar, vector or matrix, with each value rounded to 32 bits; any other node as it is. */
+function roundLiteral32(n: BaseNode<ShaderType>): BaseNode<ShaderType> {
+  let t = n._t as string;
+  if (t !== "float" && !/^(vec|mat)/.test(t)) return n;
+  let value = Array.isArray(n.value) ? (n.value as number[]).map(Math.fround) : Math.fround(n.value as number);
+  return mkNode({ _t: t, type: n.type, value });
 }
 
 function foldNode(n: BaseNode<ShaderType>): BaseNode<ShaderType> | null {

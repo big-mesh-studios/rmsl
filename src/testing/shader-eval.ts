@@ -5,6 +5,7 @@ import { compileWgslFn } from "../wgsl";
 import { compileJSFn } from "../js";
 import { compileWasmRoutine } from "../wasm";
 import { MATRIX_DIMENSIONS, TYPE_WIDTH } from "../core";
+import { isVector } from "../backends/cpu";
 
 // Written to rather than console.warn: vitest intercepts console output and
 // does not surface it here, so a warning sent that way is not seen at all.
@@ -299,14 +300,15 @@ export async function runWGSL(code: string): Promise<number> {
  * it is the natural arbiter when the two GPUs disagree: whatever the shaders
  * compute, the CPU must agree with the caller's arithmetic.
  */
-export function evaluateJS(build: Build, args: number[] = []): number | number[] {
+export function evaluateJS(build: Build, args: number[] = []): number | Float64Array {
   const fn = compileJSFn(build, { name: "rmsl_eval", params: params(args.length) });
-  const callable = new Function(fn)() as (ctx: { params: Record<string, number> }) => number | number[];
+  const callable = new Function(fn)() as (ctx: { params: Record<string, number> }) => number | Float64Array;
   const ctx = { params: Object.fromEntries(args.map((a, i) => [`a${i}`, a])) };
-  const value = callable(ctx);
-  if (typeof value === "number" || Array.isArray(value)) return value;
-  return value as unknown as number;
+  return callable(ctx);
 }
+
+/** What an evaluation gives: a scalar, or the components of a vector or matrix, as a plain or a typed array. */
+export type EvalValue = number | number[] | Float64Array;
 
 /**
  * Run an expression on the WASM backend — in-process, no GPU, no browser,
@@ -459,7 +461,7 @@ export async function evaluateBoth(
 export async function evaluateAll(
   build: Build,
   args: number[] = [],
-): Promise<{ glsl: number | number[]; wgsl: number | number[]; js: number | number[] }> {
+): Promise<{ glsl: number | number[]; wgsl: number | number[]; js: EvalValue }> {
   const [glsl, wgsl] = await Promise.all([evaluateGLSL(build, args), evaluateWGSL(build, args)]);
   return { glsl, wgsl, js: evaluateJS(build, args) };
 }
@@ -491,31 +493,35 @@ interface RecordedEvaluation {
   test: string;
   build: Build;
   args: number[];
-  js: number | number[];
+  js: EvalValue;
   /** Set when the case deliberately does not run on the GPU backends. */
   cpuOnly?: string;
 }
 
-function asArray(v: number | number[]): number[] {
-  return Array.isArray(v) ? v : [v];
+function asArray(v: EvalValue): ArrayLike<number> {
+  return isVector(v) ? v : [v];
 }
 
-function formatValue(v: number | number[]): string {
-  return Array.isArray(v) ? `[${v.join(", ")}]` : String(v);
+function formatValue(v: EvalValue): string {
+  return isVector(v) ? `[${Array.from(v).join(", ")}]` : String(v);
 }
 
 /** Exact equality, elementwise for an aggregate. */
-function valuesExactlyEqual(a: number | number[], b: number | number[]): boolean {
+function valuesExactlyEqual(a: EvalValue, b: EvalValue): boolean {
   const av = asArray(a);
   const bv = asArray(b);
-  return av.length === bv.length && av.every((x, i) => x === bv[i]);
+  if (av.length !== bv.length) return false;
+  for (let i = 0; i < av.length; i++) if (av[i] !== bv[i]) return false;
+  return true;
 }
 
 /** Within `floatTolerance` of each other, elementwise for an aggregate. */
-function valuesWithinTolerance(a: number | number[], b: number | number[]): boolean {
+function valuesWithinTolerance(a: EvalValue, b: EvalValue): boolean {
   const av = asArray(a);
   const bv = asArray(b);
-  return av.length === bv.length && av.every((x, i) => Math.abs(x - bv[i]!) < floatTolerance(x));
+  if (av.length !== bv.length) return false;
+  for (let i = 0; i < av.length; i++) if (!(Math.abs(av[i]! - bv[i]!) < floatTolerance(av[i]!))) return false;
+  return true;
 }
 
 const recordedEvaluations: RecordedEvaluation[] = [];
@@ -536,7 +542,7 @@ export type CpuOnlyReason = "derivatives" | "reentrant" | "texture" | "js-only-a
  * assertion pins. The GPU backends are compared against that same value later,
  * which is what makes one assertion cover three backends.
  */
-export function evaluateRecording(build: Build, args: number[] = [], cpuOnly?: CpuOnlyReason): number | number[] {
+export function evaluateRecording(build: Build, args: number[] = [], cpuOnly?: CpuOnlyReason): EvalValue {
   const js = evaluateJS(build, args);
   recordedEvaluations.push({
     test: currentTestName(),

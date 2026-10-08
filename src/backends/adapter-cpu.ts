@@ -1,6 +1,16 @@
 import { AttributeNode, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../core";
-import { Adapter, requestedStorageSlots, slotOf, TypedArray } from "./adapter";
-import { CpuDrawBuffer, componentCountOf, ComputeStage, CpuGrid, CpuRoutine, CpuTextureData, CpuValue } from "./cpu";
+import { Adapter, slotOf, TypedArray, unknownStorageSlots } from "./adapter";
+import {
+  CpuDrawBuffer,
+  componentCountOf,
+  ComputeStage,
+  CpuGrid,
+  CpuRoutine,
+  CpuShaderContext,
+  CpuTextureData,
+  CpuValue,
+  FloatWidth,
+} from "./cpu";
 
 /** One typed array per storage slot, keyed by name. */
 export type AdapterResult = Record<string, TypedArray>;
@@ -18,6 +28,13 @@ export type AdapterResult = Record<string, TypedArray>;
 export interface CpuAdapterPrograms {
   compute?: ComputeStage;
   draw?: CpuGrid<"vec4">;
+  /**
+   * Keep the uniforms in a dictionary-mode object, whose values V8 stores
+   * boxed, so a stage that reads a float uniform by a variable key reads it
+   * without boxing it again. A stage that reads each uniform by name, once per
+   * invocation, is faster without it.
+   */
+  boxedUniforms?: boolean;
 }
 
 /** `compute`/`draw` here are each required — unlike the base Adapter's
@@ -62,23 +79,22 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
    *  node's own type; a slot passed by name falls back to the program's. */
   const elementWidths = new Map<string, number>();
   const storages: Record<string, TypedArray> = {};
-  const uniforms: Record<string, number | number[]> = {};
+  /** The slots of `storages`, in the order the host first passed them. */
+  const storageSlots: string[] = [];
+  const uniforms: Record<string, number | number[]> = programs.boxedUniforms ? Object.create(null) : {};
   const textures: Record<string, CpuTextureData> = {};
+  /** The stage takes the host's own flat arrays, so one context serves every dispatch. */
+  const stepContext = { storages, uniforms, textures } as unknown as CpuShaderContext;
   let canvas: HTMLCanvasElement | null = null;
   let ctx2d: CanvasRenderingContext2D | null = null;
 
   /** One invocation per element of the first storage buffer the host passed:
    *  the count TSL's caller would have written beside `instancedArray(count,
    *  type)`. A flat array holds one entry per component, so an array of `vec4`
-   *  holds a quarter as many elements as it has components. An array that
-   *  holds one array per element holds one element per entry, which is how
-   *  these two adapters read a vector storage buffer. */
+   *  holds a quarter as many elements as it has components. */
   function elementCount(): number {
     if (firstStorage === undefined) return 0;
-    const data = storages[firstStorage];
-    if (!data) return 0;
-    if (Array.isArray(data[0])) return data.length;
-    return Math.floor(data.length / (elementWidths.get(firstStorage) ?? componentCountOf("float")));
+    return Math.floor(storages[firstStorage]!.length / elementWidths.get(firstStorage)!);
   }
 
   function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
@@ -92,6 +108,7 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
   function setAttribute(slot: string, data: TypedArray): void;
   function setAttribute(attribute: AttributeNode<ShaderType> | string, data: TypedArray): void {
     const slot = slotOf(attribute);
+    if (!Object.hasOwn(storages, slot)) storageSlots.push(slot);
     storages[slot] = data;
     elementWidths.set(
       slot,
@@ -120,32 +137,16 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
 
     compute(out, count) {
       if (!computeStep) throw new Error("[RMSL] this adapter has no `compute` program");
-      // The program reads and writes the element of a vector buffer as an array. The host's flat
-      // typed array holds the components of its elements one after another, so each such
-      // buffer goes in as one array per element and is written back after the dispatch.
-      const given: Record<string, unknown> = {};
-      const unpacked: { slot: string; width: number; elements: number[][] }[] = [];
-      for (const slot in storages) {
-        const data = storages[slot]!;
-        const width = elementWidths.get(slot) ?? componentCountOf(storageTypes[slot] ?? "float");
-        if (width > 1 && ArrayBuffer.isView(data)) {
-          const elements = Array.from({ length: Math.floor(data.length / width) }, (_, i) =>
-            Array.from((data as Float64Array).subarray(i * width, (i + 1) * width)),
-          );
-          unpacked.push({ slot, width, elements });
-          given[slot] = elements;
-        } else given[slot] = data;
-      }
-      computeStep({ storages: given, uniforms, textures } as any, count ?? elementCount());
-      for (const { slot, width, elements } of unpacked) {
-        const data = storages[slot] as unknown as Float64Array;
-        elements.forEach((element, i) => data.set(element, i * width));
-      }
+      computeStep(stepContext, count ?? elementCount());
       // storages already holds the caller's own arrays, mutated in place —
       // `out` is only for callers that want the WGSL adapter's optional-out
       // shape too, not something this loop needs to do its job.
       if (!out) return;
-      for (const slot of requestedStorageSlots(out, Object.keys(storages))) out[slot]!.set(storages[slot]);
+      for (const slot in out) if (!Object.hasOwn(storages, slot)) throw unknownStorageSlots(out, storageSlots);
+      for (let i = 0; i < storageSlots.length; i++) {
+        const slot = storageSlots[i]!;
+        if (Object.hasOwn(out, slot)) out[slot]!.set(storages[slot]!);
+      }
       return out;
     },
 
@@ -171,18 +172,20 @@ export function createCpuAdapter(programs: CpuAdapterPrograms): CpuAdapter {
  * sets, and `run` calls the routine with them and the parameters it is given,
  * so the host does not build a context for each call. `run` answers at once.
  */
-export interface CpuRoutineAdapter<A extends ShaderType = ShaderType> {
+export interface CpuRoutineAdapter<A extends ShaderType = ShaderType, W extends FloatWidth = "f64"> {
   setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
   setUniform(slot: string, value: number | number[]): void;
   setTexture(sampler: UniformNode<ShaderType> | string, texture: CpuTextureData): void;
   /** Calls the routine with the uniforms and textures set so far, and these parameters by name. */
-  run(params?: Record<string, number | number[]>): CpuValue<A>;
+  run(params?: Record<string, number | number[]>): CpuValue<A, W>;
   destroy(): void;
 }
 
 /** Wraps a routine in a {@link CpuRoutineAdapter}. */
-export function createCpuRoutineAdapter<A extends ShaderType>(routine: CpuRoutine<A>): CpuRoutineAdapter<A> {
+export function createCpuRoutineAdapter<A extends ShaderType, W extends FloatWidth = "f64">(
+  routine: CpuRoutine<A, W>,
+): CpuRoutineAdapter<A, W> {
   const uniforms: Record<string, number | number[]> = {};
   const textures: Record<string, CpuTextureData> = {};
 
@@ -191,7 +194,7 @@ export function createCpuRoutineAdapter<A extends ShaderType>(routine: CpuRoutin
   }
 
   return {
-    setUniform: setUniform as CpuRoutineAdapter<A>["setUniform"],
+    setUniform: setUniform as CpuRoutineAdapter<A, W>["setUniform"],
     setTexture(sampler, texture) {
       textures[slotOf(sampler)] = texture;
     },

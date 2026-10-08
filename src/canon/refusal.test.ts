@@ -38,6 +38,7 @@ import {
 // The real compiler: the recording stand-ins cover vertex and fragment only,
 // so a compute program's source is recorded by hand to reach Dawn.
 import { compileWgsl as realCompileWgsl } from "../backends/wgsl/wgsl";
+import type { CompileCpuRoutine } from "../backends/cpu";
 
 const computeWgsl = (root: Node<any>) => recordShaderSource("wgsl", "compute", realCompileWgsl.compute(root));
 
@@ -242,7 +243,7 @@ describe("a mistake is refused before the program runs", () => {
     for (const compile of cpuCompilers) expect(() => compile(build)).not.toThrow();
     for (const compile of cpuCompilers) {
       const result: any = compile(build)({});
-      expect(Array.from(Array.isArray(result) ? result : result.value)[0]).toBe(2);
+      expect(Array.from(Array.isArray(result) || ArrayBuffer.isView(result) ? result : result.value)[0]).toBe(2);
     }
   });
 
@@ -397,7 +398,7 @@ describe("a mistake is refused before the program runs", () => {
    */
   it("refuses an outputStruct in a program compiled as a routine", () => {
     const build = () => Fn(() => outputStruct(vec4(1, 0, 0, 1)))();
-    for (const compile of [compileJSRoutine, compileWasmRoutine]) {
+    for (const compile of [compileJSRoutine, compileWasmRoutine] as CompileCpuRoutine[]) {
       expect(() => compile(build, { name: "main", params: [] })).toThrow(/with no stage/);
     }
   });
@@ -414,7 +415,7 @@ describe("a mistake is refused before the program runs", () => {
     ["an attribute", () => attribute("float"), /an attribute is an input of a vertex stage/],
     ["Discard()", () => Discard(), /Discard\(\) is an input of a fragment stage, or a grid/],
   ])("refuses %s in a routine, on both CPU targets", (_, read, message) => {
-    for (const compile of [compileJSRoutine, compileWasmRoutine]) {
+    for (const compile of [compileJSRoutine, compileWasmRoutine] as CompileCpuRoutine[]) {
       expect(() => compile(() => Fn(() => read())(), { name: "main", params: [] })).toThrow(message);
     }
   });

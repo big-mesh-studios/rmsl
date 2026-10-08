@@ -1,13 +1,10 @@
 import { Node, ShaderType } from "../../core";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK } from "../adapter";
-import { componentCountOf, CpuDrawBuffer, CpuShaderContext } from "../cpu";
-import { compileJSFragmentInPlace, compileJSVertexInPlace, CompileJSOptions, ownedValue } from "./js";
+import { componentCountOf, CpuDrawBuffer, CpuShaderContext, isResultObject, vertexPosition } from "../cpu";
+import { compileJSProgram, CompileJSOptions } from "./js";
 
 /** Homogeneous-clip-space near-plane epsilon — see rasterizer.md's clip-pass design (`rasterizer.wat`'s `W_CLIP_EPS`). */
 const W_CLIP_EPS = 1e-5;
-
-/** A scalar or a fixed-width vector, as a stage carries a varying. */
-export type Value = number | number[];
 
 /**
  * Options shared by both stages of a {@link compileJS} pair — the same
@@ -24,6 +21,7 @@ export interface CompileJSRasterOptions {
   attributeTypes: Record<string, ShaderType>;
   derivatives?: CompileJSOptions["derivatives"];
   reentrant?: CompileJSOptions["reentrant"];
+  float?: CompileJSOptions["float"];
 }
 
 /**
@@ -63,36 +61,33 @@ export interface JsRasterRoutine {
   draw(ctx: JsRasterContext, options: JsRasterDrawOptions): CpuDrawBuffer;
 }
 
+/**
+ * A vertex as the rasterizer keeps it: its clip-space position, and each
+ * varying in the order of the draw's varying slots, a scalar as one component.
+ */
 interface ClipVertex {
-  position: number[];
-  varyings: Record<string, Value>;
+  position: Float64Array;
+  varyings: Float64Array[];
 }
 
-// === Utilities ===
+/** The target of a rasterizer between draws. */
+const NO_TARGET = new Float64Array(0);
 
-export function scale(v: Value, s: number): Value {
-  return typeof v === "number" ? v * s : v.map((x) => x * s);
+/** A vertex with room for a position and varyings of these widths. */
+function makeVertex(widths: readonly number[]): ClipVertex {
+  return { position: new Float64Array(4), varyings: widths.map((w) => new Float64Array(w)) };
 }
 
-export function add(a: Value, b: Value): Value {
-  return typeof a === "number" ? a + (b as number) : a.map((x, i) => x + (b as number[])[i]);
-}
-
-export function sliceAttribute(buffer: ArrayLike<number>, index: number, width: number): Value {
-  if (width === 1) return buffer[index];
-  const out = new Array(width);
-  for (let i = 0; i < width; i++) out[i] = buffer[index * width + i];
-  return out;
-}
-
-function lerpValue(a: Value, b: Value, t: number): Value {
-  return typeof a === "number" ? a + ((b as number) - a) * t : a.map((x, i) => x + ((b as number[])[i] - x) * t);
-}
-
+/** The vertex a fraction `t` of the way from `a` to `b`. */
 function lerpVertex(a: ClipVertex, b: ClipVertex, t: number): ClipVertex {
-  const varyings: Record<string, Value> = {};
-  for (const slot in a.varyings) varyings[slot] = lerpValue(a.varyings[slot], b.varyings[slot], t);
-  return { position: a.position.map((x, i) => x + (b.position[i] - x) * t), varyings };
+  const out = makeVertex(a.varyings.map((v) => v.length));
+  for (let i = 0; i < 4; i++) out.position[i] = a.position[i]! + (b.position[i]! - a.position[i]!) * t;
+  for (let k = 0; k < a.varyings.length; k++) {
+    const x = a.varyings[k]!;
+    const y = b.varyings[k]!;
+    for (let i = 0; i < x.length; i++) out.varyings[k]![i] = x[i]! + (y[i]! - x[i]!) * t;
+  }
+  return out;
 }
 
 /**
@@ -102,11 +97,11 @@ function lerpVertex(a: ClipVertex, b: ClipVertex, t: number): ClipVertex {
  * point — same as `rasterizer.wat`'s `$clipEdge`.
  */
 function clipEdge(poly: ClipVertex[], a: ClipVertex, b: ClipVertex): void {
-  const aIn = a.position[3] > W_CLIP_EPS;
-  const bIn = b.position[3] > W_CLIP_EPS;
+  const aIn = a.position[3]! > W_CLIP_EPS;
+  const bIn = b.position[3]! > W_CLIP_EPS;
   if (aIn) poly.push(a);
   if (aIn !== bIn) {
-    const t = (W_CLIP_EPS - a.position[3]) / (b.position[3] - a.position[3]);
+    const t = (W_CLIP_EPS - a.position[3]!) / (b.position[3]! - a.position[3]!);
     poly.push(lerpVertex(a, b, t));
   }
 }
@@ -131,27 +126,49 @@ function clipTriangle(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex, out: ClipV
  * Compiles a vertex/fragment `Fn` pair and rasterizes them exactly like
  * `compileWasm`'s `WasmRasterRoutine` does, in plain JS instead of a
  * shared WASM module — see rasterizer.md for the algorithm both share.
+ *
+ * A draw allocates nothing for each vertex or fragment: the vertices, the
+ * varyings a fragment reads and the context each stage is called with are
+ * made once and filled again, and a stage's result is read where it left it.
  */
 export function compileJS(
   vertexFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   fragmentFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSRasterOptions,
 ): JsRasterRoutine {
-  const vertexStage = compileJSVertexInPlace(vertexFn, {
-    name: "vtx",
+  const stageOptions = {
     params: [],
     derivatives: options.derivatives,
     reentrant: options.reentrant,
-  });
-  const fragmentStage = compileJSFragmentInPlace(fragmentFn, {
-    name: "frag",
-    params: [],
-    derivatives: options.derivatives,
-    reentrant: options.reentrant,
-  });
+    float: options.float,
+  };
+  const vertexStage = compileJSProgram(vertexFn, { ...stageOptions, name: "vtx", stage: "vertex" });
+  const fragmentStage = compileJSProgram(fragmentFn, { ...stageOptions, name: "frag", stage: "fragment" });
 
+  const attributeSlots = Object.keys(options.attributeTypes);
+  const attributeWidths = attributeSlots.map((slot) => componentCountOf(options.attributeTypes[slot]!));
   const widths: Record<string, number> = {};
-  for (const slot in options.attributeTypes) widths[slot] = componentCountOf(options.attributeTypes[slot]!);
+  attributeSlots.forEach((slot, i) => (widths[slot] = attributeWidths[i]!));
+  /** The attributes of the vertex being shaded: a vector in an array of its own, filled for each vertex. */
+  const vertexAttributes: Record<string, number | Float64Array | undefined> = {};
+  attributeSlots.forEach((slot, i) => {
+    vertexAttributes[slot] = attributeWidths[i]! > 1 ? new Float64Array(attributeWidths[i]!) : 0;
+  });
+  const vertexCtx: CpuShaderContext = { attributes: vertexAttributes };
+
+  /** The varying slots the vertex stage writes, and their widths, as its program declares them. */
+  const varyingSlots = Object.keys(vertexStage.varyingTypes);
+  const varyingWidths = varyingSlots.map((slot) => componentCountOf(vertexStage.varyingTypes[slot]!));
+  /** The varyings of the fragment being shaded: a vector in an array of its own, filled for each fragment. */
+  const fragmentArrays = varyingWidths.map((w) => new Float64Array(w));
+  const fragmentVaryings: Record<string, number | Float64Array> = {};
+  varyingSlots.forEach((slot, k) => {
+    fragmentVaryings[slot] = varyingWidths[k]! > 1 ? fragmentArrays[k]! : 0;
+  });
+  const fragCoord = new Float64Array(2);
+  const fragmentCtx: CpuShaderContext = { varyings: fragmentVaryings, fragCoord };
+  /** One vertex for each the draw shades, made the first time a draw has that many and kept. */
+  const vertices: ClipVertex[] = [];
 
   // Persists across draw() calls, like WasmRasterRoutine's depth buffer —
   // grown (and re-cleared) only when a draw() needs more pixels than it
@@ -161,28 +178,155 @@ export function compileJS(
   // buffer address does — a draw that passes `clear: false` composes onto it.
   let colorBuffer: Float64Array | null = null;
 
+  /** What the triangle being rasterized writes into, set by each draw. */
+  let target: CpuDrawBuffer = NO_TARGET;
+  let targetWidth = 0;
+  let targetHeight = 0;
+
+  /** Rasterizes one triangle, already clipped to the near plane, into `target`. */
+  function rasterize(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex): void {
+    const width = targetWidth;
+    const height = targetHeight;
+    const w0 = v0.position[3]!,
+      w1 = v1.position[3]!,
+      w2 = v2.position[3]!;
+
+    // Clip space -> NDC (perspective divide) -> screen space, y flipped
+    // to match a canvas's top-down row order.
+    const s0x = ((v0.position[0]! / w0) * 0.5 + 0.5) * width;
+    const s0y = (1 - ((v0.position[1]! / w0) * 0.5 + 0.5)) * height;
+    const s1x = ((v1.position[0]! / w1) * 0.5 + 0.5) * width;
+    const s1y = (1 - ((v1.position[1]! / w1) * 0.5 + 0.5)) * height;
+    const s2x = ((v2.position[0]! / w2) * 0.5 + 0.5) * width;
+    const s2y = (1 - ((v2.position[1]! / w2) * 0.5 + 0.5)) * height;
+
+    const area = (s1x - s0x) * (s2y - s0y) - (s1y - s0y) * (s2x - s0x);
+    if (area === 0) return; // degenerate (zero-area) triangle: skip it
+
+    const minX = Math.max(0, Math.floor(Math.min(s0x, s1x, s2x)));
+    const maxX = Math.min(width - 1, Math.ceil(Math.max(s0x, s1x, s2x)));
+    const minY = Math.max(0, Math.floor(Math.min(s0y, s1y, s2y)));
+    const maxY = Math.min(height - 1, Math.ceil(Math.max(s0y, s1y, s2y)));
+
+    const invW0 = 1 / w0,
+      invW1 = 1 / w1,
+      invW2 = 1 / w2;
+    // NDC depth (z/w) is affine in screen space, like x/w and y/w above,
+    // so it interpolates with plain barycentric weights — no invW needed.
+    const depth0 = v0.position[2]! / w0,
+      depth1 = v1.position[2]! / w1,
+      depth2 = v2.position[2]! / w2;
+    const slots = varyingSlots;
+    const depths = depthBuffer!;
+
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        const px = x + 0.5,
+          py = y + 0.5;
+        const e0 = (s1x - px) * (s2y - py) - (s1y - py) * (s2x - px);
+        const e1 = (s2x - px) * (s0y - py) - (s2y - py) * (s0x - px);
+        const e2 = (s0x - px) * (s1y - py) - (s0y - py) * (s1x - px);
+        const inside = area > 0 ? e0 >= 0 && e1 >= 0 && e2 >= 0 : e0 <= 0 && e1 <= 0 && e2 <= 0;
+        if (!inside) continue;
+
+        const b0 = e0 / area,
+          b1 = e1 / area,
+          b2 = e2 / area;
+        const invW = b0 * invW0 + b1 * invW1 + b2 * invW2;
+        const pixelDepth = b0 * depth0 + b1 * depth1 + b2 * depth2;
+
+        const pixelIndex = y * width + x;
+        // LEQUAL depth test: closer-or-equal wins.
+        if (pixelDepth > depths[pixelIndex]!) continue;
+        depths[pixelIndex] = pixelDepth;
+
+        // Perspective-correct: each vertex's varying weighted by its barycentric over w, the sum over w again.
+        const p0 = b0 * invW0,
+          p1 = b1 * invW1,
+          p2 = b2 * invW2,
+          perspective = 1 / invW;
+        for (let k = 0; k < slots.length; k++) {
+          const a = v0.varyings[k]!,
+            b = v1.varyings[k]!,
+            c = v2.varyings[k]!,
+            out = fragmentArrays[k]!;
+          for (let i = 0; i < out.length; i++) out[i] = (a[i]! * p0 + b[i]! * p1 + c[i]! * p2) * perspective;
+          if (out.length === 1) fragmentVaryings[slots[k]!] = out[0]!;
+        }
+        fragCoord[0] = px;
+        fragCoord[1] = py;
+
+        const raw = fragmentStage.runInPlace(fragmentCtx);
+        // A fragment that discards, or that writes no colour, leaves the pixel as it was.
+        const color = ArrayBuffer.isView(raw)
+          ? (raw as Float64Array)
+          : ((isResultObject(raw) ? raw.value : undefined) as Float64Array);
+        if (!color) continue;
+        const base = pixelIndex * 4;
+        for (let c = 0; c < 4; c++) target[base + c] = color[c] ?? 0;
+      }
+    }
+  }
+
+  /**
+   * Points both stages' contexts at the inputs of `from` that every vertex and
+   * fragment shares. The contexts own their attributes and varyings.
+   */
+  function shareInputs(from: Pick<JsRasterContext, "uniforms" | "textures">): void {
+    vertexCtx.uniforms = fragmentCtx.uniforms = from.uniforms;
+    vertexCtx.textures = fragmentCtx.textures = from.textures;
+  }
+
   function draw(ctx: JsRasterContext, options: JsRasterDrawOptions): CpuDrawBuffer {
+    shareInputs(ctx);
+    try {
+      return drawShaded(ctx, options);
+    } finally {
+      // The contexts are kept for the next draw, so they let go of this one's inputs.
+      shareInputs({});
+      target = NO_TARGET;
+    }
+  }
+
+  function drawShaded(ctx: JsRasterContext, options: JsRasterDrawOptions): CpuDrawBuffer {
     const { width, height, out } = options;
-    const { attributes, uniforms, textures } = ctx;
+    const { attributes } = ctx;
     const first = options.first ?? 0;
-    const firstSlot = Object.keys(attributes)[0];
+    let firstSlot: string | undefined;
+    for (const slot in attributes) {
+      firstSlot = slot;
+      break;
+    }
     const inferredCount = firstSlot ? Math.floor(attributes[firstSlot]!.length / widths[firstSlot]!) - first : 0;
     const vertexCount = options.count ?? inferredCount;
 
     // vertex pass
-    const vertices: ClipVertex[] = new Array(vertexCount);
     for (let i = 0; i < vertexCount; i++) {
-      const attrs: Record<string, unknown> = {};
-      for (const slot in attributes) attrs[slot] = sliceAttribute(attributes[slot]!, i + first, widths[slot]!);
-
-      const { position, varyings } = vertexStage({ attributes: attrs, uniforms, textures });
-      vertices[i] = { position: ownedValue(position), varyings: ownedValue(varyings) as Record<string, Value> };
-    }
-
-    // near-plane clip pass
-    const clippedTriangles: ClipVertex[][] = [];
-    for (let t = 0; t + 2 < vertexCount; t += 3) {
-      clipTriangle(vertices[t]!, vertices[t + 1]!, vertices[t + 2]!, clippedTriangles);
+      for (let a = 0; a < attributeSlots.length; a++) {
+        const slot = attributeSlots[a]!;
+        const buffer = attributes[slot];
+        const w = attributeWidths[a]!;
+        if (buffer === undefined) vertexAttributes[slot] = undefined;
+        else if (w === 1) vertexAttributes[slot] = buffer[i + first]!;
+        else {
+          let into = vertexAttributes[slot];
+          if (!(into instanceof Float64Array)) into = vertexAttributes[slot] = new Float64Array(w);
+          for (let k = 0; k < w; k++) into[k] = buffer[(i + first) * w + k]!;
+        }
+      }
+      const raw = vertexStage.runInPlace(vertexCtx);
+      const position = vertexPosition(raw);
+      const varyings = isResultObject(raw) ? raw.varyings : undefined;
+      const vertex = (vertices[i] ??= makeVertex(varyingWidths));
+      for (let c = 0; c < 4; c++) vertex.position[c] = position[c]!;
+      for (let k = 0; k < varyingSlots.length; k++) {
+        // The stage gives 0 for a varying this vertex does not write, and a bool as true or false.
+        const value = varyings![varyingSlots[k]!];
+        const into = vertex.varyings[k]!;
+        if (typeof value === "number") into[0] = value;
+        else if (typeof value === "boolean") into[0] = value ? 1 : 0;
+        else for (let c = 0; c < into.length; c++) into[c] = (value as ArrayLike<number>)[c]!;
+      }
     }
 
     const pixelCount = width * height;
@@ -197,87 +341,30 @@ export function compileJS(
     }
     const result = out ?? colorBuffer!;
     if (options.clear !== false) {
-      const [r, g, b, a] = options.clearColor ?? TRANSPARENT_BLACK;
+      const clearColor = options.clearColor ?? TRANSPARENT_BLACK;
       for (let i = 0; i < pixelCount * 4; i += 4) {
-        result[i] = r;
-        result[i + 1] = g;
-        result[i + 2] = b;
-        result[i + 3] = a;
+        result[i] = clearColor[0]!;
+        result[i + 1] = clearColor[1]!;
+        result[i + 2] = clearColor[2]!;
+        result[i + 3] = clearColor[3]!;
       }
     }
 
-    for (const [v0, v1, v2] of clippedTriangles) {
-      const w0 = v0!.position[3]!,
-        w1 = v1!.position[3]!,
-        w2 = v2!.position[3]!;
-
-      // Clip space -> NDC (perspective divide) -> screen space, y flipped
-      // to match a canvas's top-down row order.
-      const s0x = ((v0!.position[0]! / w0) * 0.5 + 0.5) * width;
-      const s0y = (1 - ((v0!.position[1]! / w0) * 0.5 + 0.5)) * height;
-      const s1x = ((v1!.position[0]! / w1) * 0.5 + 0.5) * width;
-      const s1y = (1 - ((v1!.position[1]! / w1) * 0.5 + 0.5)) * height;
-      const s2x = ((v2!.position[0]! / w2) * 0.5 + 0.5) * width;
-      const s2y = (1 - ((v2!.position[1]! / w2) * 0.5 + 0.5)) * height;
-
-      const area = (s1x - s0x) * (s2y - s0y) - (s1y - s0y) * (s2x - s0x);
-      if (area === 0) continue; // degenerate (zero-area) triangle: skip it
-
-      const minX = Math.max(0, Math.floor(Math.min(s0x, s1x, s2x)));
-      const maxX = Math.min(width - 1, Math.ceil(Math.max(s0x, s1x, s2x)));
-      const minY = Math.max(0, Math.floor(Math.min(s0y, s1y, s2y)));
-      const maxY = Math.min(height - 1, Math.ceil(Math.max(s0y, s1y, s2y)));
-
-      const invW0 = 1 / w0,
-        invW1 = 1 / w1,
-        invW2 = 1 / w2;
-      // NDC depth (z/w) is affine in screen space, like x/w and y/w above,
-      // so it interpolates with plain barycentric weights — no invW needed.
-      const depth0 = v0!.position[2]! / w0,
-        depth1 = v1!.position[2]! / w1,
-        depth2 = v2!.position[2]! / w2;
-      const vary0 = v0!.varyings,
-        vary1 = v1!.varyings,
-        vary2 = v2!.varyings;
-
-      for (let y = minY; y <= maxY; y++) {
-        for (let x = minX; x <= maxX; x++) {
-          const px = x + 0.5,
-            py = y + 0.5;
-          const e0 = (s1x - px) * (s2y - py) - (s1y - py) * (s2x - px);
-          const e1 = (s2x - px) * (s0y - py) - (s2y - py) * (s0x - px);
-          const e2 = (s0x - px) * (s1y - py) - (s0y - py) * (s1x - px);
-          const inside = area > 0 ? e0 >= 0 && e1 >= 0 && e2 >= 0 : e0 <= 0 && e1 <= 0 && e2 <= 0;
-          if (!inside) continue;
-
-          const b0 = e0 / area,
-            b1 = e1 / area,
-            b2 = e2 / area;
-          const invW = b0 * invW0 + b1 * invW1 + b2 * invW2;
-          const pixelDepth = b0 * depth0 + b1 * depth1 + b2 * depth2;
-
-          const pixelIndex = y * width + x;
-          // LEQUAL depth test: closer-or-equal wins.
-          if (pixelDepth > depthBuffer[pixelIndex]!) continue;
-          depthBuffer[pixelIndex] = pixelDepth;
-
-          const varyings: Record<string, unknown> = {};
-          for (const slot in vary0) {
-            const perspSum = add(
-              add(scale(vary0[slot]!, b0 * invW0), scale(vary1[slot]!, b1 * invW1)),
-              scale(vary2[slot]!, b2 * invW2),
-            );
-            varyings[slot] = scale(perspSum, 1 / invW);
-          }
-
-          const fragment = fragmentStage({ varyings, uniforms, textures, fragCoord: [px, py] });
-          // A fragment that discards, or that writes no colour, leaves the pixel as it was.
-          const color = fragment?.value;
-          if (!color) continue;
-          const base = pixelIndex * 4;
-          for (let c = 0; c < 4; c++) result[base + c] = color[c] ?? 0;
-        }
+    target = result;
+    targetWidth = width;
+    targetHeight = height;
+    for (let t = 0; t + 2 < vertexCount; t += 3) {
+      const v0 = vertices[t]!,
+        v1 = vertices[t + 1]!,
+        v2 = vertices[t + 2]!;
+      // A triangle wholly in front of the near plane is rasterized as it is; only one that crosses it is clipped.
+      if (v0.position[3]! > W_CLIP_EPS && v1.position[3]! > W_CLIP_EPS && v2.position[3]! > W_CLIP_EPS) {
+        rasterize(v0, v1, v2);
+        continue;
       }
+      const clipped: ClipVertex[][] = [];
+      clipTriangle(v0, v1, v2, clipped);
+      for (const [c0, c1, c2] of clipped) rasterize(c0!, c1!, c2!);
     }
 
     return result;

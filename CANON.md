@@ -91,7 +91,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec the-index-of-a-write-is-read-after-the-value-is-computed`](#spec-the-index-of-a-write-is-read-after-the-value-is-computed) — A write through a computed index reads the index after the statements that compute the value it writes.
     - [`@spec a-column-index-runs-before-a-component-index`](#spec-a-column-index-runs-before-a-component-index) — When a program computes both indices of a write to a component of a matrix column, the column index runs first.
   - [`@spec a-value-is-computed-where-it-is-read`](#spec-a-value-is-computed-where-it-is-read) — A value that no variable holds computes, where the program reads it, from what its operands hold there. A write to a variable it reads changes what it gives after the write. A branch that first computed it does not keep it from the code outside.
-  - [`@spec a-variable-holds-a-copy`](#spec-a-variable-holds-a-copy) — A variable made with `toVar()`, or assigned a value, holds a copy. A write to the variable leaves the value it was copied from as it was.
+  - [`@spec a-variable-holds-a-copy`](#spec-a-variable-holds-a-copy) — A variable made with `toVar()`, or a variable or stage output assigned a value, holds a copy. A write to the variable or the output leaves the value it was copied from as it was.
+  - [`@spec an-assignment-computes-its-value-before-it-writes`](#spec-an-assignment-computes-its-value-before-it-writes) — An assignment computes the whole value it assigns before it writes its target. A value that reads the target, such as `v.assign(cross(v, u))`, `v.assign(v.yx)` or `m.assign(transpose(m))`, reads it as it was before the assignment.
   - [`@spec a-cpu-target-samples-a-texture-as-a-gpu-sampler-does`](#spec-a-cpu-target-samples-a-texture-as-a-gpu-sampler-does) — A CPU target reads a texture by the rules a GPU sampler follows. It takes them from the texture: its filter, its wrap, its channels and its format.
     - [`@spec one-rule-decides-how-every-target-samples-a-texture`](#spec-one-rule-decides-how-every-target-samples-a-texture) — One rule, shared by every target, reads a texture's sampler state. Its filters are linear by default. Its wrap is clamped by default, and for a mode the rule does not know. It reads an integer texture as nearest, whatever the texture asks, and a single-channel format as one channel.
       - [`@spec the-sampler-rule-reads-filters-wrap-and-channels-from-the-texture`](#spec-the-sampler-rule-reads-filters-wrap-and-channels-from-the-texture) — The sampler rule gives linear filters and clamped edges by default, and carries what the texture asks for. It clamps a wrap it does not know, holds an integer texture to nearest, and reads a single-channel format as one channel.
@@ -134,9 +135,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec wasm-float-arithmetic-matches-js-exactly`](#spec-wasm-float-arithmetic-matches-js-exactly) — The WebAssembly target gives a float operation exactly the result the JavaScript target gives.
         - [`@spec wasm-and-js-give-the-same-float-bits`](#spec-wasm-and-js-give-the-same-float-bits) — A float program gives the same bits on WASM as on JS, transcendental functions and sampling included.
         - [`@bug the-harness-reads-negative-zero-as-zero`](#bug-the-harness-reads-negative-zero-as-zero) — The harness compares a WASM result with the JS one by `===`, which holds between `-0` and `0`, so a WASM result whose sign of zero differs passes.
-        - [`@exception a-wasm-uniform-in-the-gpu-layout-holds-an-f32`](#exception-a-wasm-uniform-in-the-gpu-layout-holds-an-f32) — A WASM uniform placed with `gpuUniformLayout` holds a 32-bit float, so a program that reads it differs from the JS result by that rounding.
       - [`@spec cpu-float-arithmetic-matches-the-gpu-targets`](#spec-cpu-float-arithmetic-matches-the-gpu-targets) — The CPU targets give a float operation the result the [GPU targets](#term-gpu-target) give.
-        - [`@exception a-cpu-target-computes-floats-in-64-bits`](#exception-a-cpu-target-computes-floats-in-64-bits) — A CPU target computes a float in 64 bits, where a GPU computes it in 32 bits. Its result can differ from the GPU's by at most a millionth of the result's size, and by at most `1e-6` near zero.
+        - [`@exception a-cpu-target-computes-floats-in-64-bits`](#exception-a-cpu-target-computes-floats-in-64-bits) — A CPU target computes a float in 64 bits unless its compile asks for 32, where a GPU computes it in 32 bits. Its result can differ from the GPU's by at most a millionth of the result's size, and by at most `1e-6` near zero.
+      - [`@spec a-cpu-compile-can-run-a-program-at-64-bit-precision`](#spec-a-cpu-compile-can-run-a-program-at-64-bit-precision) — A compile function or adapter of a CPU target, JS and WASM alike, takes the option `float`, which sets the width its program computes a `float` in: `"f64"`, the default, or `"f32"`, as a GPU computes it. At 32 bits, an addition, subtraction, multiplication, division or square root gives exactly the result a GPU gives. The same program then runs on the CPU at the precision the caller picked. A compile function of a GPU target takes no such option.
+      - [`@spec a-cpu-target-at-f32-rounds-every-float-value-it-computes`](#spec-a-cpu-target-at-f32-rounds-every-float-value-it-computes) — At `float: "f32"`, a CPU target rounds every float value of its program to 32 bits: each input as it reads it, each literal, each constant it folds, and the value of each operation. A storage element it does not write keeps the value the host gave it. A built-in function, such as `dot`, `normalize`, `sin` or a texture sample, computes its value at 64 bits and rounds it once.
     - [`@spec a-run-time-index-past-the-end-reaches-the-last-element`](#spec-a-run-time-index-past-the-end-reaches-the-last-element) — A vector component or matrix column reached by a run-time index below zero or past its end reads and writes the last component or column.
       - [`@spec a-cpu-target-reaches-the-last-element-out-of-range`](#spec-a-cpu-target-reaches-the-last-element-out-of-range) — On a CPU target, a run-time index below zero or past the end reaches the last component or column of a vector or a matrix. This holds for a vector or matrix held in a storage element too. An index past the end of the storage buffer itself is a storage access outside its buffer.
         - [`@bug js-reads-a-vector-component-out-of-range-as-undefined`](#bug-js-reads-a-vector-component-out-of-range-as-undefined) — On JS, a vector component read by a run-time index past the end gives `undefined`.
@@ -146,11 +148,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-run-time-index-past-a-uniform-array-reaches-its-last-element`](#spec-a-run-time-index-past-a-uniform-array-reaches-its-last-element) — On a CPU target, a uniform array element read by a run-time index past the end reads the last element.
         - [`@bug js-reads-a-uniform-array-element-out-of-range-as-undefined`](#bug-js-reads-a-uniform-array-element-out-of-range-as-undefined) — On JS, a uniform array element read by a run-time index past the end gives `undefined`.
         - [`@bug wasm-reads-a-uniform-array-element-out-of-range-from-foreign-memory`](#bug-wasm-reads-a-uniform-array-element-out-of-range-from-foreign-memory) — A uniform array element at a run-time index out of range reads whatever memory lies there, and traps below zero.
+    - [`@spec length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one`](#spec-length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one) — `length` of a scalar is its absolute value, `distance` of two scalars is the absolute value of their difference, and `dot` of two scalars is their product, on every target.
+    - [`@spec length-distance-and-dot-take-only-floats`](#spec-length-distance-and-dot-take-only-floats) — `length`, `distance` and `dot` take a float or a float vector, and `distance` and `dot` take two of one type. An integer, unsigned or boolean argument, scalar or vector, a matrix, or a scalar beside a vector is a type error, and building the graph throws, naming the conversion where one exists.
     - [`@spec normalizing-a-zero-vector-gives-it-back`](#spec-normalizing-a-zero-vector-gives-it-back) — `normalize` of a vector of length zero gives the zero vector.
       - [`@spec a-cpu-target-normalizes-a-zero-vector-to-zero`](#spec-a-cpu-target-normalizes-a-zero-vector-to-zero) — On a CPU target, `normalize` of a vector of length zero gives the zero vector.
       - [`@exception a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver`](#exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver) — On GLSL and WGSL, `normalize` of a vector of length zero gives what the driver gives.
-    - [`@spec a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing`](#spec-a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing) — A storage element read past the end of its buffer reads zero, and a write past its end changes nothing.
-      - [`@bug js-reads-a-storage-element-out-of-range-as-nan`](#bug-js-reads-a-storage-element-out-of-range-as-nan) — On JS, a storage element read past the end of its buffer gives `NaN`.
+    - [`@spec a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing`](#spec-a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing) — A storage element read past the end of its buffer reads zero, and a write past its end changes nothing. An element the buffer holds only some components of is past its end, whichever of its components a program reads or writes.
     - [`@spec round-takes-a-half-to-the-even-integer`](#spec-round-takes-a-half-to-the-even-integer) — `round` of a value halfway between two integers gives the even one, so `round(2.5)` is 2 and `round(3.5)` is 4.
   - [`@spec the-test-suite-holds-every-target-to-the-program`](#spec-the-test-suite-holds-every-target-to-the-program) — The test suite compiles every shader it records on a real GLSL and WGSL implementation, and evaluates every program it records on every target. A check that would prove nothing fails instead.
     - [`@spec the-float-tolerance-allows-a-few-units-in-the-last-place`](#spec-the-float-tolerance-allows-a-few-units-in-the-last-place) — The tolerance for a float result allows at least one unit in the last place at every size, and stays usable near zero. It stays tight enough to catch a wrong answer.
@@ -403,7 +406,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec position-and-normal-read-object-space-in-both-stages`](#spec-position-and-normal-read-object-space-in-both-stages) — The builder's `position` and `normal` give the object-space position and normal in both stages, as TSL's `positionLocal` and `normalLocal` do.
         - [`@bug position-and-normal-read-world-space-in-the-fragment-stage`](#bug-position-and-normal-read-world-space-in-the-fragment-stage) — The builder's `position` and `normal` read object space in the vertex stage. In the fragment stage they read the `positionWorld` and `normalWorld` varyings instead.
 - [`@axiom a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns) — What a compiled program hands back is typed by the program that was compiled. A caller reads the result as it is, with no narrowing and no cast.
-  - [`@spec a-routine-is-typed-by-the-value-it-returns`](#spec-a-routine-is-typed-by-the-value-it-returns) — `compileJSRoutine` and `compileWasmRoutine` give a routine whose `run` returns the JavaScript value of the type the program returns: a number for a `float`, `int` or `uint`, a boolean for a `bool`, an array of booleans for a `bvec`, and an array of numbers for any other vector or matrix.
+  - [`@spec a-routine-is-typed-by-the-value-it-returns`](#spec-a-routine-is-typed-by-the-value-it-returns) — `compileJSRoutine` and `compileWasmRoutine` give a routine whose `run` returns the JavaScript value of the type the program returns: a number for a `float`, `int` or `uint`, and a boolean for a `bool`. A vector or matrix comes back as a typed array of its kind: a `Float64Array` for a float vector or matrix, or a `Float32Array` at `float: "f32"`; an `Int32Array` for an `ivec`, and for a `bvec`, which holds 1 for true and 0 for false; and a `Uint32Array` for a `uvec`. The type of `run` names the array, from the type of the program and the `float` option.
 - [`@axiom each-target-keeps-what-makes-it-worth-choosing`](#axiom-each-target-keeps-what-makes-it-worth-choosing) — An interface over several targets keeps what each target does better than the others. A call that a target answers at once stays synchronous. Data that lives on the GPU stays there until the host asks for it. No target fakes a capability it lacks.
   - [`@spec an-adapter-call-is-synchronous-where-its-target-answers-at-once`](#spec-an-adapter-call-is-synchronous-where-its-target-answers-at-once) — An [adapter](#term-adapter) method returns its result directly where its target answers at once, and returns a promise only where its target cannot.
     - [`@spec a-cpu-adapter-computes-synchronously`](#spec-a-cpu-adapter-computes-synchronously) — `compute` on a JS or WASM adapter has run the dispatch and filled `out` when it returns.
@@ -504,9 +507,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec uniforms-are-ordered-by-alignment-then-by-declaration`](#spec-uniforms-are-ordered-by-alignment-then-by-declaration) — Uniform members are placed in order of descending alignment, and members that align alike keep the order they were declared in.
     - [`@spec an-array-member-has-a-stride-of-sixteen`](#spec-an-array-member-has-a-stride-of-sixteen) — An array member reports a stride of at least 16 bytes, and a `bool` array the stride of what it travels as. The struct rounds its size up to the array's alignment.
     - [`@spec a-matrix-member-pads-each-column`](#spec-a-matrix-member-pads-each-column) — A matrix member takes one aligned column for each of its columns, so a `mat2x3` takes two columns of 16 bytes.
-    - [`@spec a-wasm-routine-reads-uniforms-from-the-wgsl-layout`](#spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout) — Given `gpuUniformLayout`, a WASM routine reads each uniform, arrays included, at the offset and stride `wgslUniformLayout` reports, so one buffer serves WGSL and WASM.
-      - [`@bug wasm-reads-a-gpu-placed-scalar-uniform-from-the-wrong-address`](#bug-wasm-reads-a-gpu-placed-scalar-uniform-from-the-wrong-address) — Under `scalarsInMemory`, the host writes a scalar uniform at its offset in `gpuUniformLayout`, while the program reads it from a place of its own.
-      - [`@bug wasm-passes-a-gpu-placed-scalar-uniform-around-the-layout`](#bug-wasm-passes-a-gpu-placed-scalar-uniform-around-the-layout) — Without `scalarsInMemory`, a scalar uniform placed by `gpuUniformLayout` arrives as a 64-bit argument and never reads from the layout.
+    - [`@spec a-wasm-routine-reads-uniforms-from-the-wgsl-layout`](#spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout) — Given `gpuUniformLayout`, a WASM routine reads each uniform, arrays included, at the offset and stride `wgslUniformLayout` reports, so one buffer serves WGSL and WASM. Without it, a WASM module lays out its own memory and holds each float uniform in 64 bits.
+    - [`@spec a-gpu-uniform-layout-needs-32-bit-floats`](#spec-a-gpu-uniform-layout-needs-32-bit-floats) — A WASM compile function or adapter given `gpuUniformLayout` must also be given `float: "f32"`. The type checker refuses the layout beside `float: "f64"`, or beside no `float`, when the options are written in the call. The compile refuses it too, with an error that names both ways out: `float: "f32"` to share the buffer with the GPU, or no layout to keep 64 bits.
     - [`@spec a-type-with-no-layout-is-refused`](#spec-a-type-with-no-layout-is-refused) — A member whose type has no WGSL layout is refused, rather than placed by a guess.
     - [`@spec a-wgsl-stage-hands-its-uniforms-to-the-layout-in-creation-order`](#spec-a-wgsl-stage-hands-its-uniforms-to-the-layout-in-creation-order) — A WGSL stage given no uniform list declares its uniforms to the layout in the order the program created them.
       - [`@bug wgsl-hands-uniforms-to-the-layout-in-the-string-order-of-slot-names`](#bug-wgsl-hands-uniforms-to-the-layout-in-the-string-order-of-slot-names) — A WGSL stage given no uniform list declares its uniforms to the layout in the string order of their slot names, so `_rmsl_u10` comes before `_rmsl_u2`.
@@ -534,13 +536,16 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cpu-routine-returns-its-value`](#spec-a-cpu-routine-returns-its-value) — A CPU routine returns the value its program returns, the last of several, as it is. A program that reads what only a stage has is refused, so a routine has no result object to return.
     - [`@spec a-routine-refuses-an-input-only-a-stage-has`](#spec-a-routine-refuses-an-input-only-a-stage-has) — A routine that reads `fragCoord()`, `invocationIndex()`, `builtinPosition()`, `builtinFragDepth()`, a varying or an attribute is refused on both CPU targets. The refusal names the input and the stage that has it.
     - [`@spec a-vertex-stage-returns-its-position-and-varyings`](#spec-a-vertex-stage-returns-its-position-and-varyings) — `compileJSVertex` and `compileWasmVertex` give a stage whose `run` returns an object that holds the position, a `vec4`, and the varyings the program wrote, by slot. A vertex stage that never writes the position itself returns its `vec4` result as the position.
+    - [`@spec a-cpu-vertex-stage-gives-zero-for-a-varying-a-call-does-not-write`](#spec-a-cpu-vertex-stage-gives-zero-for-a-varying-a-call-does-not-write) — On a CPU target, a varying of the program that a call of the vertex stage does not write is 0, or a vector of zeros, in what the call returns.
     - [`@spec a-fragment-stage-returns-its-colour-and-outputs`](#spec-a-fragment-stage-returns-its-colour-and-outputs) — `compileJSFragment` and `compileWasmFragment` give a stage whose `run` returns an object that holds the colour, a `vec4`, the members of the `outputStruct` the program returned, by position, and the depth when it wrote one. A stage that returns an `outputStruct` has no colour, which is undefined. A fragment that discards returns `null`.
     - [`@spec an-output-struct-writes-each-member-at-its-position`](#spec-an-output-struct-writes-each-member-at-its-position) — A fragment stage that returns an `outputStruct` writes member `i` to the output at location `i`, with the type of the member, and writes no colour. A CPU stage returns the values of the members by position.
     - [`@spec a-compute-stage-dispatches-and-returns-nothing`](#spec-a-compute-stage-dispatches-and-returns-nothing) — `compileJSCompute` and `compileWasmCompute` give a stage whose `dispatch` runs the program once per index of a count, in index order, and returns nothing. The stage names the type of each storage buffer the program reads.
     - [`@spec a-cpu-routine-answers-one-fragment-per-call`](#spec-a-cpu-routine-answers-one-fragment-per-call) — `run` of a CPU routine evaluates the program once, for the context the host passes. The same routine serves any number of calls, and a value one call returned keeps what it holds through the calls after it.
     - [`@spec a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel) — `fill` of a CPU grid evaluates the program once for each pixel of a grid, with `fragCoord()` at the centre of each pixel. It takes the size of the grid per call. It reads the uniforms on every call, and refuses a program that gives no value to fill with.
     - [`@spec a-cpu-compute-stage-runs-one-invocation-per-index`](#spec-a-cpu-compute-stage-runs-one-invocation-per-index) — `dispatch` of a CPU compute stage runs the program once for each index of its count. It reads and writes any element of the buffers the host passes by slot.
-    - [`@spec a-cpu-compute-stage-reads-a-vector-element-as-an-array`](#spec-a-cpu-compute-stage-reads-a-vector-element-as-an-array) — A CPU compute stage reads and writes the element of a vector or a matrix storage buffer as an array of its components, and a scalar buffer as numbers. The buffer the host passes holds one array for each element.
+    - [`@spec a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array`](#spec-a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array) — A CPU compute stage takes a storage buffer as one flat array, which holds the components of its elements one after another. Element `i` of a buffer whose element has `n` components is the `n` entries from `i * n` on. The stage reads and writes them in the array the host passes.
+    - [`@spec a-float-index-of-a-storage-element-drops-its-fraction`](#spec-a-float-index-of-a-storage-element-drops-its-fraction) — A storage element reached by a float index is the element at that index with its fraction dropped, on every target, for a read and for a write. A negative float index reaches element 0. On a CPU target a NaN index reaches element 0 too, where WGSL leaves the element it reaches undecided.
+    - [`@spec a-vector-written-to-a-storage-element-is-copied-into-it`](#spec-a-vector-written-to-a-storage-element-is-copied-into-it) — A CPU compute stage writes a vector or matrix assigned to a storage element into the components of that element in the buffer. A later write to the value it came from leaves the element as it is, and a later write to the element leaves the value as it is.
     - [`@spec a-wasm-routine-is-reentrant`](#spec-a-wasm-routine-is-reentrant) — A WASM routine keeps its variables in its own module, so it computes the same with or without `reentrant`.
     - [`@spec a-cpu-target-runs-invocations-in-index-order`](#spec-a-cpu-target-runs-invocations-in-index-order) — A CPU target runs the invocations of a dispatch one at a time, in index order. An invocation sees the writes of the invocations before it.
     - [`@spec a-cpu-target-rasterizes-a-vertex-and-fragment-pair`](#spec-a-cpu-target-rasterizes-a-vertex-and-fragment-pair) — `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates varyings in perspective, clips at the near plane, and keeps the closer fragment.
@@ -559,6 +564,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-triangle-off-screen-draws-nothing`](#spec-a-triangle-off-screen-draws-nothing) — A triangle wholly outside the viewport draws nothing, at any distance from it.
       - [`@spec a-rasterizer-gives-each-vertex-its-own-position`](#spec-a-rasterizer-gives-each-vertex-its-own-position) — A CPU rasterizer places each vertex of a draw at the position its own vertex call returned, whatever the vertex program keeps in variables.
       - [`@spec a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds`](#spec-a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds) — A CPU rasterizer draws a triangle whether its vertices run clockwise or counter-clockwise on the screen.
+      - [`@spec a-js-rasterizer-interpolates-every-varying-the-vertex-stage-writes`](#spec-a-js-rasterizer-interpolates-every-varying-the-vertex-stage-writes) — The JS rasterizer interpolates every varying the vertex stage's program writes, whichever of a triangle's vertices write it. A vertex that does not write a varying gives it 0.
     - [`@spec shader-logic-is-tested-without-a-graphics-api`](#spec-shader-logic-is-tested-without-a-graphics-api) — The `./test` library runs a graph on the JS target and hands back values or a grid of fragments. A plain unit test can then assert on the logic of a shader.
       - [`@spec evaluate-gives-the-value-of-one-fragment`](#spec-evaluate-gives-the-value-of-one-fragment) — `evaluate` gives the value one fragment computes, at the coordinate `fragCoord()` says, with the type the graph has on the CPU. It carries the depth, the members of an `outputStruct` by position, the position and the varyings the program writes, and reports a discarded fragment as discarded.
       - [`@spec an-input-is-bound-by-its-node`](#spec-an-input-is-bound-by-its-node) — A test binds a uniform, varying, attribute or texture by the node it holds, as a `[node, value]` pair, never by its slot name. A value of the wrong shape for the node, a texture bound as a plain uniform, or pixels nothing could read are refused.
@@ -585,9 +591,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-input-the-host-leaves-out-reads-zero`](#spec-an-input-the-host-leaves-out-reads-zero) — A parameter, attribute or varying the host leaves out of the context reads zero.
       - [`@bug wasm-reads-an-unset-scalar-input-as-nan`](#bug-wasm-reads-an-unset-scalar-input-as-nan) — A scalar varying the host leaves out reads as `NaN`.
       - [`@bug wasm-throws-on-an-unset-aggregate-input`](#bug-wasm-throws-on-an-unset-aggregate-input) — A vector varying the host leaves out throws a `TypeError` while the routine writes it into memory.
-    - [`@spec a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array`](#spec-a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array) — A CPU routine returns a matrix as one flat array of numbers, which holds its columns one after another.
+    - [`@spec a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array`](#spec-a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array) — A CPU routine returns a matrix as one flat typed array, which holds its columns one after another.
     - [`@spec a-cpu-compiler-calls-its-builder-once`](#spec-a-cpu-compiler-calls-its-builder-once) — `compileJSRoutine` and `compileWasmRoutine` call the builder the caller passes once for each compile.
-    - [`@spec a-grid-fills-a-float64-array-for-a-float-result`](#spec-a-grid-fills-a-float64-array-for-a-float-result) — `fill` of a CPU grid whose result is a float or a float vector returns a `Float64Array`.
+    - [`@spec a-grid-fills-a-float64-array-for-a-float-result`](#spec-a-grid-fills-a-float64-array-for-a-float-result) — `fill` of a CPU grid whose result is a float or a float vector returns a `Float64Array`, or a `Float32Array` at `float: "f32"`. An `out` the caller passes is that array too, and is filled with the same values wherever it lies, in the WASM module's own memory included. An `out` of another kind of array is refused.
     - [`@spec a-grid-fills-an-int32-array-for-an-int-result`](#spec-a-grid-fills-an-int32-array-for-an-int-result) — `fill` of a CPU grid whose result is an `int` or an integer vector returns an `Int32Array`.
     - [`@spec a-grid-fills-a-uint32-array-for-a-uint-result`](#spec-a-grid-fills-a-uint32-array-for-a-uint-result) — `fill` of a CPU grid whose result is a `uint` or an unsigned vector returns a `Uint32Array`.
     - [`@spec a-grid-writes-a-bool-result-as-one-or-zero-in-an-int32-array`](#spec-a-grid-writes-a-bool-result-as-one-or-zero-in-an-int32-array) — `fill` of a CPU grid whose result is a `bool` returns an `Int32Array` that holds 1 for true and 0 for false.
@@ -609,8 +615,16 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec deserialize-refuses-data-serialize-could-not-have-produced`](#spec-deserialize-refuses-data-serialize-could-not-have-produced) — `deserialize` refuses data that `serialize` could not have produced.
       - [`@bug deserialize-accepts-unknown-and-unnamed-nodes`](#bug-deserialize-accepts-unknown-and-unnamed-nodes) — `deserialize` accepts a node type no node has, and a uniform with neither a slot nor a local name, and rebuilds a node from each.
 - [`@axiom the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing) — Code that runs once per frame, or once per call of a routine that runs every frame, allocates no memory.
-  - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A compiled JS function keeps what it computes in slots it declares once, outside the function: its variables, each vector or matrix an operation computes, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. With `reentrant`, the function declares its slots inside itself, and each call has its own.
-  - [`@spec a-compiled-js-function-returns-its-result-in-a-slot`](#spec-a-compiled-js-function-returns-its-result-in-a-slot) — The function that `compileJSFn` returns as source, and that `precompileJS` ships, returns a vector or a matrix in a slot it reuses on the next call, so the result of one call is the result of the next. A caller that keeps one copies it, or compiles with `reentrant`. A [routine](#term-cpu-routine), a stage and a grid copy their result, so a later call does not change it.
+  - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A compiled JS function keeps each vector and matrix it computes in a slot it declares once, outside the function: a variable's, an operation's, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. A stage keeps the object it returns its position, varyings and outputs in beside the function too, and clears each of them as a call starts, so a stage output or depth the program does not write on a call is `undefined` in what that call returns, and a varying 0. With `reentrant`, the function declares its slots and that object inside itself, and each call has its own.
+  - [`@spec a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment) — A draw of the JS rasterizer, `compileJS`, allocates nothing for each vertex or fragment it shades. It keeps each vertex's position and varyings, each varying it interpolates for a fragment, and the context it passes each stage in arrays and objects it makes once, and it reads a stage's result where the stage left it. A triangle clipped at the near plane makes the vertices the clip adds.
+  - [`@spec a-js-grid-allocates-nothing-per-pixel`](#spec-a-js-grid-allocates-nothing-per-pixel) — `fill` of a JS grid allocates nothing for each pixel it evaluates. It calls the program with one context for the whole fill and one `fragCoord` it sets for each pixel, and the program hands it a scalar result in a slot of one element, as it hands a vector in a slot.
+  - [`@spec a-cpu-compute-dispatch-allocates-nothing`](#spec-a-cpu-compute-dispatch-allocates-nothing) — `compute` of a CPU compute adapter allocates nothing, on JS and on WASM, with `out` or without it. A JS compute stage runs its invocations on one context it makes once, and writes nothing to the context the host passes it. A WASM routine reuses its argument list and its views of memory from one call to the next, and makes a view again only when the memory grows. The WASM adapter reads its scalar uniforms from the module's memory, and keeps them in an object in dictionary mode.
+  - [`@spec a-js-program-keeps-no-host-input-after-a-call`](#spec-a-js-program-keeps-no-host-input-after-a-call) — A JS grid, compute stage and rasterizer keep none of the inputs a call passes them once the call returns or throws.
+  - [`@spec a-js-program-keeps-its-vectors-in-views-of-one-buffer`](#spec-a-js-program-keeps-its-vectors-in-views-of-one-buffer) — A compiled JS function keeps each vector and matrix it holds in a typed view of one `ArrayBuffer`, which it makes once, or once per call with `reentrant`. A float slot is a `Float64Array`, or a `Float32Array` at `float: "f32"`; an integer slot an `Int32Array`, and a boolean slot one too, holding 1 for true and 0 for false; an unsigned slot a `Uint32Array`. A component read from a boolean slot is `true` or `false` again.
+  - [`@spec a-js-function-keeps-a-scalar-in-a-local`](#spec-a-js-function-keeps-a-scalar-in-a-local) — A compiled JS function keeps each scalar it computes in a local of its own, declared in the function, and only its vectors and matrices in slots outside it.
+  - [`@spec a-js-function-copies-a-host-vector-into-a-slot-of-its-kind`](#spec-a-js-function-copies-a-host-vector-into-a-slot-of-its-kind) — A compiled JS function copies a vector or matrix the host passes, a uniform, an attribute, a varying or a parameter, into a typed slot of its kind before it reads it, so the code that reads a vector reads only typed arrays of one kind. It reads that copy again, through any write, in the block it was made in and the blocks inside it, since a write cannot change what the host passed. An input first read inside a loop is copied before the outermost loop around that read, once, not on every iteration, and that copy reads an input the host leaves out as zero, whether the loop runs or not.
+  - [`@spec a-js-function-writes-out-what-would-cross-a-call`](#spec-a-js-function-writes-out-what-would-cross-a-call) — A compiled JS function writes an element-wise operation into a slot one component at a time, and a dot product, a length, a distance and a scalar `smoothstep` as expressions of their own, rather than through a call. Each component reads a vector operand's component and a scalar operand as it is, which the compiler knows from their types. A scalar operand that is not a local is read into one before the first component is written, so a component of the slot itself is read as it was. A helper remains for an operation with no slot to write into, written for the shape of each operand.
+  - [`@spec a-compiled-js-function-returns-its-result-in-a-slot`](#spec-a-compiled-js-function-returns-its-result-in-a-slot) — The function that `compileJSFn` returns as source, and that `precompileJS` ships, returns a vector or a matrix in a slot it reuses on the next call, and a stage returns its position, varyings and outputs in an object it reuses, so the result of one call is the result of the next. A caller that keeps one copies it, or compiles with `reentrant`. A [routine](#term-cpu-routine), a stage and a grid copy their result, so a later call does not change it.
   - [`@spec a-webgl-renderer-allocates-nothing-per-frame`](#spec-a-webgl-renderer-allocates-nothing-per-frame) — The WebGL renderer draws a frame without allocating. It reuses what it needs between frames, and builds no array, closure or iterator per frame or per draw.
     - [`@bug webgl-render-allocates-the-clear-colour-per-frame`](#bug-webgl-render-allocates-the-clear-colour-per-frame) — `render` reads the clear colour with `Color.toArray()`, which builds a new array on every frame.
     - [`@bug webgl-render-allocates-a-traversal-closure-per-frame`](#bug-webgl-render-allocates-a-traversal-closure-per-frame) — `render` builds a new callback for `traverseVisible` on every frame.
@@ -663,6 +677,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-three-js-renderer-draws-its-scene-graph`](#fact-a-three-js-renderer-draws-its-scene-graph) — In three.js, `renderer.render(scene, camera)` walks the scene graph, binds the geometry and the material of each object, uploads their uniforms and draws them. A scene graph in the shape of three.js comes with a renderer that draws it.
 - [`@fact webassembly-has-no-transcendental-instructions`](#fact-webassembly-has-no-transcendental-instructions) — WebAssembly has instructions for the basic float operations and the square root, but none for trigonometric, exponential or logarithmic functions.
 - [`@fact webassembly-passes-only-numbers-across-its-boundary`](#fact-webassembly-passes-only-numbers-across-its-boundary) — A call into a WebAssembly module passes and returns only numbers. A vector, a matrix or a record crosses the boundary through the module's memory, which code on the host side has to read and write.
+- [`@fact v8-boxes-a-float-it-reads-by-a-variable-key`](#fact-v8-boxes-a-float-it-reads-by-a-variable-key) — V8 holds a float in a property of an ordinary object unboxed, and boxes it into a new heap number each time code reads it by a key held in a variable or passes it as an argument across a call it does not inline. An object in dictionary mode, such as one `Object.create(null)` makes, holds its floats boxed, and reading one allocates nothing.
+- [`@fact v8-boxes-a-float-a-closure-variable-holds`](#fact-v8-boxes-a-float-a-closure-variable-holds) — V8 boxes a float that code stores in a variable a closure keeps, which a function reads from outside itself, into a new heap number on each store. A float in a local of the function is not boxed.
+- [`@fact v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads) — V8 compiles a load from an array, at one place in the code, for the kinds of array it has seen there. Once it has seen more than four, the load is generic, and a generic load boxes each number it reads from a typed array or from an array of floats. A typed array's own `set` copies from any kind of array without boxing.
+- [`@fact v8-boxes-a-float-that-crosses-a-call-it-does-not-inline`](#fact-v8-boxes-a-float-that-crosses-a-call-it-does-not-inline) — V8 boxes a float passed as an argument to, or returned from, a call it does not inline. A large function inlines few of the calls it makes.
 - [`@fact tsl-converts-a-fragment-result-to-the-type-of-its-render-target`](#fact-tsl-converts-a-fragment-result-to-the-type-of-its-render-target) — TSL converts the result of a fragment node to the type of its render target's texture, which is `vec4` when it draws to the canvas. It trims a longer value. A `vec3` gains an alpha of 1, a `vec2` gains a blue of 0 and an alpha of 1, and a scalar fills every component.
 - [`@fact webgpu-refuses-a-fragment-output-with-fewer-components-than-its-target`](#fact-webgpu-refuses-a-fragment-output-with-fewer-components-than-its-target) — A WebGPU render pipeline whose fragment output has fewer components than its colour target's format is a validation error. An output with more components than the format is accepted, and the extra ones are dropped.
 - [`@fact glsl-es-300-leaves-a-missing-output-channel-undefined`](#fact-glsl-es-300-leaves-a-missing-output-channel-undefined) — A GLSL ES 3.00 fragment shader may declare an output of `float`, `vec2` or `vec3`. Written to an RGBA target, the channels it lacks are not defined by the program: WebGL on SwiftShader gives 0 in each, alpha included.
@@ -1245,9 +1263,17 @@ This follows because a value means the expression that makes it, and every targe
 
 ### @spec a-variable-holds-a-copy
 
-> A variable made with `toVar()`, or assigned a value, holds a copy. A write to the variable leaves the value it was copied from as it was.
+> A variable made with `toVar()`, or a variable or stage output assigned a value, holds a copy. A write to the variable or the output leaves the value it was copied from as it was.
 
 This follows because a variable that shared its storage with what it copied would change a value the program still reads.
+
+### @spec an-assignment-computes-its-value-before-it-writes
+
+> An assignment computes the whole value it assigns before it writes its target. A value that reads the target, such as `v.assign(cross(v, u))`, `v.assign(v.yx)` or `m.assign(transpose(m))`, reads it as it was before the assignment.
+
+Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because GLSL and WGSL evaluate the right-hand side of an assignment before they store it, and a CPU target that wrote a component before it read the rest would compute another value.
 
 ### @spec a-cpu-target-samples-a-texture-as-a-gpu-sampler-does
 
@@ -1489,11 +1515,6 @@ Derives from: [`spec-wasm-and-js-give-the-same-float-bits`](#spec-wasm-and-js-gi
 
 Issue: #101
 
-###### @exception a-wasm-uniform-in-the-gpu-layout-holds-an-f32
-
-> A WASM uniform placed with `gpuUniformLayout` holds a 32-bit float, so a program that reads it differs from the JS result by that rounding.
-
-Derives from: [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
 
 ##### @spec cpu-float-arithmetic-matches-the-gpu-targets
 
@@ -1501,11 +1522,27 @@ Derives from: [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu
 
 ###### @exception a-cpu-target-computes-floats-in-64-bits
 
-> A CPU target computes a float in 64 bits, where a GPU computes it in 32 bits. Its result can differ from the GPU's by at most a millionth of the result's size, and by at most `1e-6` near zero.
+> A CPU target computes a float in 64 bits unless its compile asks for 32, where a GPU computes it in 32 bits. Its result can differ from the GPU's by at most a millionth of the result's size, and by at most `1e-6` near zero.
 
 Derives from: [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
 
-The bound is about eight units in the last place of a 32-bit float. JavaScript and WebAssembly can both round to 32 bits, so this departs from WebGPU only until they do: issue #11.
+The bound is about eight units in the last place of a 32-bit float. A compile that asks for 32 bits gives a basic operation the GPU's result exactly, as [`spec-a-cpu-compile-can-run-a-program-at-64-bit-precision`](#spec-a-cpu-compile-can-run-a-program-at-64-bit-precision) states.
+
+##### @spec a-cpu-compile-can-run-a-program-at-64-bit-precision
+
+> A compile function or adapter of a CPU target, JS and WASM alike, takes the option `float`, which sets the width its program computes a `float` in: `"f64"`, the default, or `"f32"`, as a GPU computes it. At 32 bits, an addition, subtraction, multiplication, division or square root gives exactly the result a GPU gives. The same program then runs on the CPU at the precision the caller picked. A compile function of a GPU target takes no such option.
+
+Derives from: [`axiom-each-target-keeps-what-makes-it-worth-choosing`](#axiom-each-target-keeps-what-makes-it-worth-choosing), [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
+
+This follows because a CPU target computes in 64 bits, which a GPU cannot, and a user who wants that precision for a program should not have to rewrite the program to get it. 64 bits is the default because it is the native number of JavaScript: V8 computes a chain of 32-bit float operations up to about 2.7 times slower than the same chain in 64 bits, where SpiderMonkey and JavaScriptCore pay little or nothing. JS and WASM share the option and its default, as [`spec-wasm-and-js-give-the-same-float-bits`](#spec-wasm-and-js-give-the-same-float-bits) requires: WebAssembly's 32-bit float operations are correctly rounded, so they give the bits that JavaScript gives by rounding each result with `Math.fround`. A program compiled at 64 bits departs from the GPU result by the rounding it avoids, by the caller's choice, as a compile that asks for `derivatives: "zero"` departs from it. A type of its own for 64-bit floats would be a different feature: it would change what a program means, where this option changes only how precisely a CPU target runs it.
+
+##### @spec a-cpu-target-at-f32-rounds-every-float-value-it-computes
+
+> At `float: "f32"`, a CPU target rounds every float value of its program to 32 bits: each input as it reads it, each literal, each constant it folds, and the value of each operation. A storage element it does not write keeps the value the host gave it. A built-in function, such as `dot`, `normalize`, `sin` or a texture sample, computes its value at 64 bits and rounds it once.
+
+Derives from: [`spec-a-cpu-compile-can-run-a-program-at-64-bit-precision`](#spec-a-cpu-compile-can-run-a-program-at-64-bit-precision), [`spec-wasm-and-js-give-the-same-float-bits`](#spec-wasm-and-js-give-the-same-float-bits)
+
+This follows because the 64-bit result of an addition, subtraction, multiplication, division or square root of two 32-bit values, rounded to 32 bits, is the result the 32-bit operation gives. A built-in function rounded once gives JS and WASM the bits they already share at 64 bits. WGSL lets an implementation compute a built-in function more accurately than the expression it is inherited from, so the value stays one a GPU may give.
 
 #### @spec a-run-time-index-past-the-end-reaches-the-last-element
 
@@ -1559,6 +1596,20 @@ Issue: #85
 
 Issue: #85
 
+#### @spec length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one
+
+> `length` of a scalar is its absolute value, `distance` of two scalars is the absolute value of their difference, and `dot` of two scalars is their product, on every target.
+
+This follows because GLSL defines the three for a scalar as for a vector of one component, WGSL defines `length` and `distance` so, and the program must give one result for them on every target.
+
+#### @spec length-distance-and-dot-take-only-floats
+
+> `length`, `distance` and `dot` take a float or a float vector, and `distance` and `dot` take two of one type. An integer, unsigned or boolean argument, scalar or vector, a matrix, or a scalar beside a vector is a type error, and building the graph throws, naming the conversion where one exists.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+This follows because no target defines the three for integers as a `float`. GLSL defines them for floats only. WGSL defines `length` and `distance` for floats only, and `dot` of two integer vectors as an integer that wraps. TSL types the three as `float` but builds code that passes an integer as it is, which neither language compiles. Neither language takes a matrix in the three, nor a scalar beside a vector in `distance` or `dot`.
+
 #### @spec normalizing-a-zero-vector-gives-it-back
 
 > `normalize` of a vector of length zero gives the zero vector.
@@ -1577,15 +1628,9 @@ Derives from: [`fact-normalizing-a-zero-vector-is-undefined-on-a-gpu`](#fact-nor
 
 #### @spec a-storage-access-outside-its-buffer-reads-zero-and-writes-nothing
 
-> A storage element read past the end of its buffer reads zero, and a write past its end changes nothing.
+> A storage element read past the end of its buffer reads zero, and a write past its end changes nothing. An element the buffer holds only some components of is past its end, whichever of its components a program reads or writes.
 
 This follows because an access out of range must do the same on every target.
-
-##### @bug js-reads-a-storage-element-out-of-range-as-nan
-
-> On JS, a storage element read past the end of its buffer gives `NaN`.
-
-Issue: #49
 
 #### @spec round-takes-a-half-to-the-even-integer
 
@@ -2154,7 +2199,6 @@ Derives from: [`fact-tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-o
 > `Loop` takes only a count. It does not take TSL's `bool` condition or TSL's object of `start`, `end`, `condition` and `update`.
 
 Derives from: [`fact-tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-one-loop-function-in-three-shapes)
-
 
 #### @spec while-runs-while-its-condition-holds
 
@@ -2964,11 +3008,11 @@ Where the types cannot see, in a builder cast to `any`, the result still has the
 
 ### @spec a-routine-is-typed-by-the-value-it-returns
 
-> `compileJSRoutine` and `compileWasmRoutine` give a routine whose `run` returns the JavaScript value of the type the program returns: a number for a `float`, `int` or `uint`, a boolean for a `bool`, an array of booleans for a `bvec`, and an array of numbers for any other vector or matrix.
+> `compileJSRoutine` and `compileWasmRoutine` give a routine whose `run` returns the JavaScript value of the type the program returns: a number for a `float`, `int` or `uint`, and a boolean for a `bool`. A vector or matrix comes back as a typed array of its kind: a `Float64Array` for a float vector or matrix, or a `Float32Array` at `float: "f32"`; an `Int32Array` for an `ivec`, and for a `bvec`, which holds 1 for true and 0 for false; and a `Uint32Array` for a `uvec`. The type of `run` names the array, from the type of the program and the `float` option.
 
 Derives from: [`axiom-a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns)
 
-This follows because the type of the builder's return value names the shader type, and the compile function carries it into the type of `run`. A caller then reads a `vec3` result as an array, with no cast.
+This follows because the type of the builder's return value names the shader type, and the compile function carries it into the type of `run`. A caller then reads a `vec3` result as the typed array it is, with no cast. A typed array is what a JS program holds a vector in, as [`spec-a-js-program-keeps-its-vectors-in-views-of-one-buffer`](#spec-a-js-program-keeps-its-vectors-in-views-of-one-buffer) states, and its kinds are those a grid fills.
 
 ## @axiom each-target-keeps-what-makes-it-worth-choosing
 
@@ -3550,19 +3594,17 @@ Derives from: [`fact-a-wgsl-uniform-array-has-a-16-byte-stride`](#fact-a-wgsl-un
 
 #### @spec a-wasm-routine-reads-uniforms-from-the-wgsl-layout
 
-> Given `gpuUniformLayout`, a WASM routine reads each uniform, arrays included, at the offset and stride `wgslUniformLayout` reports, so one buffer serves WGSL and WASM.
+> Given `gpuUniformLayout`, a WASM routine reads each uniform, arrays included, at the offset and stride `wgslUniformLayout` reports, so one buffer serves WGSL and WASM. Without it, a WASM module lays out its own memory and holds each float uniform in 64 bits.
 
-##### @bug wasm-reads-a-gpu-placed-scalar-uniform-from-the-wrong-address
 
-> Under `scalarsInMemory`, the host writes a scalar uniform at its offset in `gpuUniformLayout`, while the program reads it from a place of its own.
+#### @spec a-gpu-uniform-layout-needs-32-bit-floats
 
-Issue: #111
+> A WASM compile function or adapter given `gpuUniformLayout` must also be given `float: "f32"`. The type checker refuses the layout beside `float: "f64"`, or beside no `float`, when the options are written in the call. The compile refuses it too, with an error that names both ways out: `float: "f32"` to share the buffer with the GPU, or no layout to keep 64 bits.
 
-##### @bug wasm-passes-a-gpu-placed-scalar-uniform-around-the-layout
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs), [`spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout`](#spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout), [`spec-a-cpu-compile-can-run-a-program-at-64-bit-precision`](#spec-a-cpu-compile-can-run-a-program-at-64-bit-precision)
 
-> Without `scalarsInMemory`, a scalar uniform placed by `gpuUniformLayout` arrives as a 64-bit argument and never reads from the layout.
+This follows because a layout shares its bytes with a WGSL uniform buffer, which holds 32-bit floats, while a program compiled at 64 bits asked for a precision those bytes cannot carry. A user who picks 64 bits gives up sharing the buffer with the GPU. The precision stays written at the call, rather than following from the layout without a word.
 
-Issue: #111
 
 #### @spec a-type-with-no-layout-is-refused
 
@@ -3710,7 +3752,6 @@ This follows because a page whose security policy blocks `new Function` can stil
 
 > A CPU routine returns the value its program returns, the last of several, as it is. A program that reads what only a stage has is refused, so a routine has no result object to return.
 
-
 #### @spec a-routine-refuses-an-input-only-a-stage-has
 
 > A routine that reads `fragCoord()`, `invocationIndex()`, `builtinPosition()`, `builtinFragDepth()`, a varying or an attribute is refused on both CPU targets. The refusal names the input and the stage that has it.
@@ -3726,6 +3767,14 @@ This follows because a routine has no stage to give such an input, so reading on
 Derives from: [`axiom-a-program-is-typed-by-what-it-returns`](#axiom-a-program-is-typed-by-what-it-returns), [`spec-a-vertex-stage-writes-its-position`](#spec-a-vertex-stage-writes-its-position)
 
 This follows because the shape of a result follows from the function that compiled the program, so a caller reads the position and the varyings of a vertex stage without asking which of two shapes it got.
+
+#### @spec a-cpu-vertex-stage-gives-zero-for-a-varying-a-call-does-not-write
+
+> On a CPU target, a varying of the program that a call of the vertex stage does not write is 0, or a vector of zeros, in what the call returns.
+
+Derives from: [`spec-a-vertex-stage-returns-its-position-and-varyings`](#spec-a-vertex-stage-returns-its-position-and-varyings), [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives)
+
+This follows because a GPU passes the fragment stage every varying the vertex stage declares, and leaves one a vertex does not write undefined, which 0 is as good a value for as any. The JS rasterizer gives such a varying 0 too, and a call that gave the value of the call before would make its result depend on the order of the calls.
 
 #### @spec a-fragment-stage-returns-its-colour-and-outputs
 
@@ -3763,13 +3812,29 @@ This follows because a compute program writes into storage and has no result to 
 
 > `dispatch` of a CPU compute stage runs the program once for each index of its count. It reads and writes any element of the buffers the host passes by slot.
 
-#### @spec a-cpu-compute-stage-reads-a-vector-element-as-an-array
+#### @spec a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array
 
-> A CPU compute stage reads and writes the element of a vector or a matrix storage buffer as an array of its components, and a scalar buffer as numbers. The buffer the host passes holds one array for each element.
+> A CPU compute stage takes a storage buffer as one flat array, which holds the components of its elements one after another. Element `i` of a buffer whose element has `n` components is the `n` entries from `i * n` on. The stage reads and writes them in the array the host passes.
 
-Derives from: [`spec-a-cpu-compute-stage-runs-one-invocation-per-index`](#spec-a-cpu-compute-stage-runs-one-invocation-per-index)
+Derives from: [`spec-a-cpu-compute-stage-runs-one-invocation-per-index`](#spec-a-cpu-compute-stage-runs-one-invocation-per-index), [`spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array`](#spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array), [`axiom-the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing)
 
-This follows because the program that reads `buf.element(i)` of a `vec2` buffer reads a `vec2`, and a `vec2` is an array on the CPU. A compute adapter takes the flat typed array of [`spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array`](#spec-a-compute-adapter-takes-a-storage-buffer-as-one-flat-typed-array) and converts, so the stage reads the array of an element.
+This follows because a compute adapter takes a storage buffer as one flat typed array, and a dispatch runs every frame. A stage that took a buffer in any other form would make the adapter convert the buffer on every dispatch, and a conversion into one array per element allocates as many arrays as the buffer has elements.
+
+#### @spec a-float-index-of-a-storage-element-drops-its-fraction
+
+> A storage element reached by a float index is the element at that index with its fraction dropped, on every target, for a read and for a write. A negative float index reaches element 0. On a CPU target a NaN index reaches element 0 too, where WGSL leaves the element it reaches undecided.
+
+Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target), [`spec-a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array`](#spec-a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array)
+
+This follows because WGSL converts a float index with `u32()`, which drops the fraction and clamps a negative value to 0, and a CPU target that kept the fraction would reach into the next element of a flat buffer.
+
+#### @spec a-vector-written-to-a-storage-element-is-copied-into-it
+
+> A CPU compute stage writes a vector or matrix assigned to a storage element into the components of that element in the buffer. A later write to the value it came from leaves the element as it is, and a later write to the element leaves the value as it is.
+
+Derives from: [`spec-a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array`](#spec-a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array), [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call)
+
+This follows because the vector a JS function computes lives in a slot that the next invocation writes again, and a literal vector is one constant that every call shares. An element that held the slot or the constant itself would change with them.
 
 #### @spec a-wasm-routine-is-reentrant
 
@@ -3872,6 +3937,14 @@ This follows because a GPU shades each vertex apart from the others, and a CPU t
 Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives), [`fact-webgpu-culls-no-face-by-default`](#fact-webgpu-culls-no-face-by-default)
 
 This follows because a WebGPU pipeline culls no face unless it asks to, and a CPU target gives what WebGPU gives.
+
+##### @spec a-js-rasterizer-interpolates-every-varying-the-vertex-stage-writes
+
+> The JS rasterizer interpolates every varying the vertex stage's program writes, whichever of a triangle's vertices write it. A vertex that does not write a varying gives it 0.
+
+Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives)
+
+This follows because a GPU passes the fragment stage every varying the vertex stage declares, from every vertex, and leaves the value of one a vertex does not write undefined, which 0 is as good a value for as any.
 
 #### @spec shader-logic-is-tested-without-a-graphics-api
 
@@ -4027,7 +4100,7 @@ Issue: #114
 
 #### @spec a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array
 
-> A CPU routine returns a matrix as one flat array of numbers, which holds its columns one after another.
+> A CPU routine returns a matrix as one flat typed array, which holds its columns one after another.
 
 Derives from: [`spec-a-cpu-routine-returns-its-value`](#spec-a-cpu-routine-returns-its-value)
 
@@ -4043,11 +4116,11 @@ This follows because a builder may declare its inputs as it runs, and a second c
 
 #### @spec a-grid-fills-a-float64-array-for-a-float-result
 
-> `fill` of a CPU grid whose result is a float or a float vector returns a `Float64Array`.
+> `fill` of a CPU grid whose result is a float or a float vector returns a `Float64Array`, or a `Float32Array` at `float: "f32"`. An `out` the caller passes is that array too, and is filled with the same values wherever it lies, in the WASM module's own memory included. An `out` of another kind of array is refused.
 
 Derives from: [`spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel`](#spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel), [`fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64`](#fact-a-gpu-computes-in-f32-and-a-cpu-target-in-f64)
 
-This follows because a CPU target computes a float in 64 bits, and a `Float64Array` holds that value exactly.
+This follows because a CPU target computes a float in the width its compile picks, and a typed array of that width holds the value exactly.
 
 #### @spec a-grid-fills-an-int32-array-for-an-int-result
 
@@ -4187,13 +4260,77 @@ This does not follow from [running everywhere](#axiom-rmsl-runs-everywhere): a p
 
 ### @spec a-js-routine-allocates-nothing-per-call
 
-> A compiled JS function keeps what it computes in slots it declares once, outside the function: its variables, each vector or matrix an operation computes, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. With `reentrant`, the function declares its slots inside itself, and each call has its own.
+> A compiled JS function keeps each vector and matrix it computes in a slot it declares once, outside the function: a variable's, an operation's, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. A stage keeps the object it returns its position, varyings and outputs in beside the function too, and clears each of them as a call starts, so a stage output or depth the program does not write on a call is `undefined` in what that call returns, and a varying 0. With `reentrant`, the function declares its slots and that object inside itself, and each call has its own.
 
 This follows because a call that builds a new array or a closure gives the garbage collector work on every call, and a per-pixel call is the one that cannot afford it.
 
+### @spec a-js-draw-allocates-nothing-per-vertex-or-fragment
+
+> A draw of the JS rasterizer, `compileJS`, allocates nothing for each vertex or fragment it shades. It keeps each vertex's position and varyings, each varying it interpolates for a fragment, and the context it passes each stage in arrays and objects it makes once, and it reads a stage's result where the stage left it. A triangle clipped at the near plane makes the vertices the clip adds.
+
+Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call)
+
+This follows because a draw runs a stage once for each vertex and once for each pixel it covers, so whatever a stage call allocates, a frame allocates thousands of times.
+
+### @spec a-js-grid-allocates-nothing-per-pixel
+
+> `fill` of a JS grid allocates nothing for each pixel it evaluates. It calls the program with one context for the whole fill and one `fragCoord` it sets for each pixel, and the program hands it a scalar result in a slot of one element, as it hands a vector in a slot.
+
+Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call), [`fact-v8-boxes-a-float-that-crosses-a-call-it-does-not-inline`](#fact-v8-boxes-a-float-that-crosses-a-call-it-does-not-inline)
+
+This follows because a grid calls the program once for each pixel, so whatever a call to it allocates, a fill allocates as many times as it has pixels.
+
+### @spec a-cpu-compute-dispatch-allocates-nothing
+
+> `compute` of a CPU compute adapter allocates nothing, on JS and on WASM, with `out` or without it. A JS compute stage runs its invocations on one context it makes once, and writes nothing to the context the host passes it. A WASM routine reuses its argument list and its views of memory from one call to the next, and makes a view again only when the memory grows. The WASM adapter reads its scalar uniforms from the module's memory, and keeps them in an object in dictionary mode.
+
+Derives from: [`spec-a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array`](#spec-a-cpu-compute-stage-takes-a-storage-buffer-as-one-flat-array), [`fact-v8-boxes-a-float-it-reads-by-a-variable-key`](#fact-v8-boxes-a-float-it-reads-by-a-variable-key)
+
+This follows because a compute dispatch runs every frame, and a stage that takes the host's own buffers leaves a dispatch nothing it has to build.
+
+### @spec a-js-program-keeps-no-host-input-after-a-call
+
+> A JS grid, compute stage and rasterizer keep none of the inputs a call passes them once the call returns or throws.
+
+Derives from: [`spec-a-js-grid-allocates-nothing-per-pixel`](#spec-a-js-grid-allocates-nothing-per-pixel), [`spec-a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment), [`spec-a-cpu-compute-dispatch-allocates-nothing`](#spec-a-cpu-compute-dispatch-allocates-nothing)
+
+This follows because each keeps the context it calls the program with from one call to the next, and a reference that context kept to the host's uniforms, textures or buffers would hold them in memory for as long as the grid, stage or rasterizer lives.
+
+### @spec a-js-program-keeps-its-vectors-in-views-of-one-buffer
+
+> A compiled JS function keeps each vector and matrix it holds in a typed view of one `ArrayBuffer`, which it makes once, or once per call with `reentrant`. A float slot is a `Float64Array`, or a `Float32Array` at `float: "f32"`; an integer slot an `Int32Array`, and a boolean slot one too, holding 1 for true and 0 for false; an unsigned slot a `Uint32Array`. A component read from a boolean slot is `true` or `false` again.
+
+Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call)
+
+This follows because one buffer is one allocation per function, where an array per slot is one each. A view is indexed as an array is, so the code that reads and writes a slot is the code that read and wrote an array. A `Float32Array` rounds each value it stores to 32 bits, which a program at `float: "f32"` asks of every vector it computes, so it needs no pass of its own to round one. On the programs of the effects and the materials, a slot that rounds on store ran f32 10 to 45 percent faster than a rounding pass, and as fast as a separate typed array for each slot.
+
+### @spec a-js-function-keeps-a-scalar-in-a-local
+
+> A compiled JS function keeps each scalar it computes in a local of its own, declared in the function, and only its vectors and matrices in slots outside it.
+
+Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call), [`fact-v8-boxes-a-float-a-closure-variable-holds`](#fact-v8-boxes-a-float-a-closure-variable-holds)
+
+This follows because a scalar needs no memory between calls, and a float the function stored in a variable outside it would be boxed on every store.
+
+### @spec a-js-function-copies-a-host-vector-into-a-slot-of-its-kind
+
+> A compiled JS function copies a vector or matrix the host passes, a uniform, an attribute, a varying or a parameter, into a typed slot of its kind before it reads it, so the code that reads a vector reads only typed arrays of one kind. It reads that copy again, through any write, in the block it was made in and the blocks inside it, since a write cannot change what the host passed. An input first read inside a loop is copied before the outermost loop around that read, once, not on every iteration, and that copy reads an input the host leaves out as zero, whether the loop runs or not.
+
+Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call), [`fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads`](#fact-v8-boxes-a-number-a-load-of-many-kinds-of-array-reads)
+
+This follows because a host passes its vectors as arrays of its own, plain or typed, of any kind, and a helper that read them beside the function's own slots would box what it read. Each read copies its input one component at a time where it reads it, so a copy sees only the arrays its own input arrives in. One copy that served every input would see every kind of array, box what it read, and cost a call as well. On the Lambert material at f64 in `scripts/bench-cpu`, a copy at each read ran a 128×128 frame in 1.5 ms, where one shared copy took 13 ms.
+
+### @spec a-js-function-writes-out-what-would-cross-a-call
+
+> A compiled JS function writes an element-wise operation into a slot one component at a time, and a dot product, a length, a distance and a scalar `smoothstep` as expressions of their own, rather than through a call. Each component reads a vector operand's component and a scalar operand as it is, which the compiler knows from their types. A scalar operand that is not a local is read into one before the first component is written, so a component of the slot itself is read as it was. A helper remains for an operation with no slot to write into, written for the shape of each operand.
+
+Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call), [`fact-v8-boxes-a-float-that-crosses-a-call-it-does-not-inline`](#fact-v8-boxes-a-float-that-crosses-a-call-it-does-not-inline)
+
+This follows because a float passed to or returned from a call is boxed unless the engine inlines the call, and a large program inlines few of its calls. A sum written out starts from zero and adds in order, as the helper did, so it gives the same bits.
+
 ### @spec a-compiled-js-function-returns-its-result-in-a-slot
 
-> The function that `compileJSFn` returns as source, and that `precompileJS` ships, returns a vector or a matrix in a slot it reuses on the next call, so the result of one call is the result of the next. A caller that keeps one copies it, or compiles with `reentrant`. A [routine](#term-cpu-routine), a stage and a grid copy their result, so a later call does not change it.
+> The function that `compileJSFn` returns as source, and that `precompileJS` ships, returns a vector or a matrix in a slot it reuses on the next call, and a stage returns its position, varyings and outputs in an object it reuses, so the result of one call is the result of the next. A caller that keeps one copies it, or compiles with `reentrant`. A [routine](#term-cpu-routine), a stage and a grid copy their result, so a later call does not change it.
 
 Derives from: [`spec-a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call), [`spec-a-cpu-routine-answers-one-fragment-per-call`](#spec-a-cpu-routine-answers-one-fragment-per-call)
 
@@ -4504,6 +4641,30 @@ This is a fact of the WebAssembly specification, not a choice.
 > A call into a WebAssembly module passes and returns only numbers. A vector, a matrix or a record crosses the boundary through the module's memory, which code on the host side has to read and write.
 
 This is a fact of the WebAssembly specification, not a choice.
+
+## @fact v8-boxes-a-float-it-reads-by-a-variable-key
+
+> V8 holds a float in a property of an ordinary object unboxed, and boxes it into a new heap number each time code reads it by a key held in a variable or passes it as an argument across a call it does not inline. An object in dictionary mode, such as one `Object.create(null)` makes, holds its floats boxed, and reading one allocates nothing.
+
+This is how V8 behaves, in Node 24 and in Chromium, and not a choice. A reproduction reads a uniform of `0.5` from an ordinary object once per dispatch and allocates 16 bytes a dispatch; from an object made by `Object.create(null)` it allocates nothing.
+
+## @fact v8-boxes-a-float-a-closure-variable-holds
+
+> V8 boxes a float that code stores in a variable a closure keeps, which a function reads from outside itself, into a new heap number on each store. A float in a local of the function is not boxed.
+
+This is how V8 behaves, in Node 24 and in Chromium, and not a choice. In `scripts/bench-cpu`, the Sobel effect at f64 allocated about 3 MB a 128×128 frame with its scalars in variables beside the function, and nothing with them in locals.
+
+## @fact v8-boxes-a-number-a-load-of-many-kinds-of-array-reads
+
+> V8 compiles a load from an array, at one place in the code, for the kinds of array it has seen there. Once it has seen more than four, the load is generic, and a generic load boxes each number it reads from a typed array or from an array of floats. A typed array's own `set` copies from any kind of array without boxing.
+
+This is how V8 behaves, in Node 24 and in Chromium, and not a choice. In `scripts/bench-cpu`, the Standard material at f64 allocated about 26 MB a 128×128 frame with its helpers reading the host's plain uniform arrays beside the function's typed slots, and about 2 MB once each input was copied into a slot of its kind.
+
+## @fact v8-boxes-a-float-that-crosses-a-call-it-does-not-inline
+
+> V8 boxes a float passed as an argument to, or returned from, a call it does not inline. A large function inlines few of the calls it makes.
+
+This is how V8 behaves, in Node 24 and in Chromium, and not a choice. In `scripts/bench-cpu`, the Standard material at f64 still allocated about 760 KB a 128×128 frame with its element-wise operations and dot products as calls that took or gave a float, and nothing with them written out.
 
 ## @fact tsl-converts-a-fragment-result-to-the-type-of-its-render-target
 

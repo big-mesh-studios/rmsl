@@ -15,7 +15,15 @@ import {
 } from "../rmsl";
 import { compileJSRoutine, compileJSGrid } from "../js";
 import { uniformsIn } from "../test";
-import { barrelMask, barrelUV, colorBleeding, getGaussianCoefficients, premultipliedGaussianBlur, scanlines, vignette } from "../effects";
+import {
+  barrelMask,
+  barrelUV,
+  colorBleeding,
+  getGaussianCoefficients,
+  premultipliedGaussianBlur,
+  scanlines,
+  vignette,
+} from "../effects";
 import {
   Blending,
   Builder,
@@ -77,9 +85,13 @@ describe("exports no other test reaches", () => {
    */
   it("computes difference and premultiplied alpha on every target", () => {
     expect(evaluateRecording((a, b) => difference(a, b), [2, 5])).toBe(3);
-    expect(evaluateRecording((a) => premultiplyAlpha(vec4(1, a, 3, 0.5)), [2])).toEqual([0.5, 1, 1.5, 0.5]);
-    expect(evaluateRecording((a) => unpremultiplyAlpha(vec4(0.5, a, 1.5, 0.5)), [1])).toEqual([1, 2, 3, 0.5]);
-    expect(evaluateRecording((a) => unpremultiplyAlpha(vec4(a, 1, 1, 0)), [1])).toEqual([0, 0, 0, 0]);
+    expect(evaluateRecording((a) => premultiplyAlpha(vec4(1, a, 3, 0.5)), [2])).toEqual(
+      new Float64Array([0.5, 1, 1.5, 0.5]),
+    );
+    expect(evaluateRecording((a) => unpremultiplyAlpha(vec4(0.5, a, 1.5, 0.5)), [1])).toEqual(
+      new Float64Array([1, 2, 3, 0.5]),
+    );
+    expect(evaluateRecording((a) => unpremultiplyAlpha(vec4(a, 1, 1, 0)), [1])).toEqual(new Float64Array([0, 0, 0, 0]));
   });
 
   /**
@@ -116,7 +128,9 @@ describe("exports no other test reaches", () => {
    */
   it("gives the Gaussian weights TSL gives", () => {
     const sigma = 1;
-    expect(getGaussianCoefficients(3)).toEqual([0, 1, 2].map((i) => (0.39894 * Math.exp((-0.5 * i * i) / (sigma * sigma))) / sigma));
+    expect(getGaussianCoefficients(3)).toEqual(
+      [0, 1, 2].map((i) => (0.39894 * Math.exp((-0.5 * i * i) / (sigma * sigma))) / sigma),
+    );
   });
 
   /**
@@ -166,7 +180,9 @@ describe("exports no other test reaches", () => {
     const l = vec3(0, 1, 0);
     const c = vec3(1, 1, 1);
     compileOnBothGpus(() => vec4(lambertDiffuse(c, n, l, c), 1));
-    compileOnBothGpus(() => vec4(standardLight(c, n, vec3(0, 0, 1), l, c, float(0.5), float(0), vec3(0.04, 0.04, 0.04)), 1));
+    compileOnBothGpus(() =>
+      vec4(standardLight(c, n, vec3(0, 0, 1), l, c, float(0.5), float(0), vec3(0.04, 0.04, 0.04)), 1),
+    );
     compileOnBothGpus(() => vec4(pointLightAttenuation(vec3(0, 2, 0), vec3(0, 0, 0), float(10), float(2)), 0, 0, 1));
   });
 

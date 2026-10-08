@@ -38,6 +38,8 @@ export const WASM_OP = {
   i32Load8U: 0x2d,
   /** `f32.load`: load an f32 from memory. */
   f32Load: 0x2a,
+  /** `f32.store`: store an f32 to memory. */
+  f32Store: 0x38,
   /** `f64.load`: load an f64 from memory. */
   f64Load: 0x2b,
   /** `i32.store`: store an i32 to memory. */
@@ -48,6 +50,8 @@ export const WASM_OP = {
   f64Store: 0x39,
   /** `f64.promote_f32`: widen an f32 to an f64. */
   f64PromoteF32: 0xbb,
+  /** `f32.demote_f64`: round an f64 to the nearest f32. */
+  f32DemoteF64: 0xb6,
 
   /** `i32.eqz`: 1 if the i32 is zero, else 0. */
   i32Eqz: 0x45,

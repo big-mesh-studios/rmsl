@@ -141,7 +141,7 @@ describe("known bugs of the JS target, each failing until its fix", () => {
    */
   it.fails("reads the last column for a run-time index past a matrix on JS", () => {
     const m = () => mat3(1, 2, 3, 4, 5, 6, 7, 8, 9);
-    expect(evaluateJS((a) => m().element(a.toInt()), [9])).toEqual([7, 8, 9]);
+    expect(evaluateJS((a) => m().element(a.toInt()), [9])).toEqual(new Float64Array([7, 8, 9]));
   });
 
   /**
@@ -156,7 +156,7 @@ describe("known bugs of the JS target, each failing until its fix", () => {
       v.element(a.toInt()).assign(float(20));
       return v;
     });
-    expect(evaluateJS((a) => write(a), [9])).toEqual([1, 2, 3, 20]);
+    expect(evaluateJS((a) => write(a), [9])).toEqual(new Float64Array([1, 2, 3, 20]));
   });
 
   /**

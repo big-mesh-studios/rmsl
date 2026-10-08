@@ -1177,13 +1177,13 @@ describe("RMSL", () => {
    */
   it("builds every matrix shape from columns of vector nodes, not just mat3/mat4", () => {
     let square = compileJSRoutine(() => mat2(vec2(1, 2), vec2(3, 4)), { name: "main", params: [] });
-    expect(square({})).toEqual([1, 2, 3, 4]);
+    expect(square({})).toEqual(new Float64Array([1, 2, 3, 4]));
 
     let rect = compileJSRoutine(() => mat2x3(vec3(1, 2, 3), vec3(4, 5, 6)), { name: "main", params: [] });
-    expect(rect({})).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(rect({})).toEqual(new Float64Array([1, 2, 3, 4, 5, 6]));
 
     let rectOtherWay = compileJSRoutine(() => mat3x2(vec2(1, 2), vec2(3, 4), vec2(5, 6)), { name: "main", params: [] });
-    expect(rectOtherWay({})).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(rectOtherWay({})).toEqual(new Float64Array([1, 2, 3, 4, 5, 6]));
 
     let glsl = compileGlsl(
       Fn(() => {
@@ -3804,8 +3804,8 @@ describe("JS target", () => {
       return y;
     });
     let src = compileJSFn(() => prog(), { name: "main", params: [] });
-    // The scratch block lives outside the callable, one zeroed array per slot.
-    expect(src).toMatch(/let _rmsl_\d+ = \[0, 0, 0\];/);
+    // The scratch block lives outside the callable, a view of one buffer per slot.
+    expect(src).toMatch(/let _rmsl_\d+ = new Float64Array\(_rmsl_slots, \d+, 3\);/);
     // Assignments write into the hoisted slots rather than declaring them.
     expect(src).not.toContain("let _rmsl_0 = [1, 2, 3]");
   });
@@ -3813,16 +3813,16 @@ describe("JS target", () => {
   /**
    * @canon spec-a-js-routine-allocates-nothing-per-call
    */
-  it("emits out-parameter vector helpers for assignments", () => {
+  it("writes an assignment's vector into the hoisted slot, component by component", () => {
     let prog = Fn(() => {
       let x = vec3(1, 2, 3).toVar();
       x.assign(x.add(vec3(1, 1, 1)));
       return x;
     });
     let src = compileJSFn(() => prog(), { name: "main", params: [] });
-    expect(src).toContain("function _v3add(a, b, out)");
-    // The assignment passes the hoisted slot as the output.
-    expect(src).toMatch(/_v3add\([^)]*,\s*_rmsl_\d+\);/);
+    expect(src).not.toContain("function _v3add_vv");
+    // Each component of the sum is written straight into the variable's slot.
+    expect(src).toMatch(/(_rmsl_\d+)\[2\] = \1\[2\] \+ _rmsl_k\d+\[2\];/);
   });
 
   /**
@@ -3859,10 +3859,11 @@ describe("JS target", () => {
       return outputStruct(vec4(1, 1, 1, 1));
     });
     let src = compileJSFn(() => prog(), { name: "main", params: [], stage: "fragment" });
-    expect(src).toContain("var res = { outputs: {}, varyings: {} };");
+    expect(src).toMatch(/var res = \{ outputs: \{ "_rmsl_out\d+": undefined \}, varyings: \{\}/);
     expect(src).toContain("res.outputs");
-    expect(src).toContain("res.fragDepth");
-    expect(src).not.toContain("res.value");
+    expect(src).toMatch(/res\.fragDepth = (?!undefined)/);
+    // The value is only cleared, as a call starts: an outputStruct program has none.
+    expect(src).not.toMatch(/res\.value = (?!undefined)/);
   });
 
   /**
@@ -3886,7 +3887,9 @@ describe("JS target", () => {
       return x;
     });
     let src = compileJSFn(() => prog(), { name: "main", params: [], reentrant: true });
-    expect(src).toMatch(/var _rmsl_\d+ = \[0, 0, 0\];/);
+    const [, inside] = src.split("return function");
+    expect(inside).toMatch(/var _rmsl_slots = new ArrayBuffer\(\d+\);/);
+    expect(inside).toMatch(/var _rmsl_\d+ = new Float64Array\(_rmsl_slots, \d+, 3\);/);
   });
 
   /**
@@ -3998,6 +4001,6 @@ describe("named toVar variables", () => {
       return x;
     });
     let src = compileJSFn(() => prog(), { name: "main", params: [] });
-    expect(src).toMatch(/let local = \[0, 0, 0\];/);
+    expect(src).toMatch(/let local = new Float64Array\(_rmsl_slots, \d+, 3\);/);
   });
 });

@@ -42,10 +42,10 @@ const computes = [
   ["WASM", compileWasmCompute],
 ] as const;
 
-const cpuTargets = [
+const cpuTargets: [string, CompileCpuRoutine][] = [
   ["JS", compileJSRoutine],
   ["WASM", compileWasmRoutine],
-] as const;
+];
 
 /** Compiles `build` to WASM, instantiates the module by hand, and calls its `main` with `args`. */
 function callMain(build: (...args: any[]) => Node<any>, params: { name: string; type: "float" }[], args: number[]) {
@@ -429,10 +429,10 @@ describe("a coordinate far past the edge on WASM", () => {
    */
   it("clamps a sampling coordinate far past the edge", () => {
     const tex = uniform("sampler2D");
-    const routine = compileWasmRoutine(
-      (a: any) => Fn(() => tex.texture(vec2(a, 0.5)).x.toVar())(),
-      { name: "main", params: [{ name: "a", type: "float" as const }] },
-    );
+    const routine = compileWasmRoutine((a: any) => Fn(() => tex.texture(vec2(a, 0.5)).x.toVar())(), {
+      name: "main",
+      params: [{ name: "a", type: "float" as const }],
+    });
     const texture = { data: [1, 2], width: 2, height: 1, channels: 1 as const };
     expect(routine({ params: { a: 1e12 }, textures: { [tex.name]: texture } })).toBe(2);
   });
@@ -456,8 +456,24 @@ describe("an integer texel on WASM", () => {
   it("is read exactly, a uint above the largest float-exact one and an int at its maximum included", () => {
     const unsigned = uniform("usampler2D");
     const signed = uniform("isampler2D");
-    const readUnsigned = compileWasmRoutine(() => Fn(() => textureLoad(unsigned as any, ivec2(0, 0)).x.toFloat().toVar())(), none);
-    const readSigned = compileWasmRoutine(() => Fn(() => textureLoad(signed as any, ivec2(0, 0)).x.toFloat().toVar())(), none);
+    const readUnsigned = compileWasmRoutine(
+      () =>
+        Fn(() =>
+          textureLoad(unsigned as any, ivec2(0, 0))
+            .x.toFloat()
+            .toVar(),
+        )(),
+      none,
+    );
+    const readSigned = compileWasmRoutine(
+      () =>
+        Fn(() =>
+          textureLoad(signed as any, ivec2(0, 0))
+            .x.toFloat()
+            .toVar(),
+        )(),
+      none,
+    );
     const texture = (value: number) => ({ data: [value], width: 1, height: 1, channels: 1 as const });
     expect(readUnsigned({ textures: { [unsigned.name]: texture(4294967295) } })).toBe(4294967295);
     expect(readSigned({ textures: { [signed.name]: texture(2147483647) } })).toBe(2147483647);

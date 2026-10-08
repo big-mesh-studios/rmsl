@@ -60,19 +60,24 @@ afterAll(async () => {
 }, 120_000);
 
 /**
- * How much of the sweep runs, from `RMSL_INTEGER_SWEEP`:
- * - unset: every composition, in every shape, with every leaf kind, but a
+ * How much of the sweep runs, from `RMSL_INTEGER_SWEEP`. It is opt-in, since
+ * it takes as long as the rest of the suite together:
+ * - unset: none of it;
+ * - `sample`: every composition, in every shape, with every leaf kind, but a
  *   sample of which kinds go together — about a minute with the GPU layers;
- * - `full`: every combination of leaf kinds — several minutes;
- * - `skip`: none of it, for the fast and mutation runs, which it would
- *   otherwise slow from under a second to half a minute.
+ * - `full`: every combination of leaf kinds — several minutes.
  */
 const SWEEP = process.env.RMSL_INTEGER_SWEEP;
+if (SWEEP !== undefined && SWEEP !== "sample" && SWEEP !== "full") {
+  throw new Error(`RMSL_INTEGER_SWEEP is "${SWEEP}"; it takes "sample" or "full", or is left unset to skip the sweep.`);
+}
+const RUN_SWEEP = SWEEP !== undefined;
 const FULL_SWEEP = SWEEP === "full";
 
-if (SWEEP === "skip") {
+if (!RUN_SWEEP) {
   process.stderr.write(
-    `\n[integer-sweep] SKIPPED — no integer operation was checked against the reference on any backend.\n`,
+    `\n[integer-sweep] SKIPPED — no integer operation was checked against the reference on any backend. ` +
+      `Run it with \`pnpm test:sweep\`.\n`,
   );
 }
 
@@ -587,7 +592,7 @@ function expectNoMismatches(mismatches: Mismatch[]) {
   expect(counted.length, describeMismatches(counted)).toBe(0);
 }
 
-describe.skipIf(SWEEP === "skip")("integer sweep", () => {
+describe.skipIf(!RUN_SWEEP)("integer sweep", () => {
   for (const group of groups) {
     describe(group.name, () => {
       afterAll(() => group.release());

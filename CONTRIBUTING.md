@@ -105,17 +105,16 @@ loop and a workable mutation run:
 | `RMSL_SKIP_GPU`               | every layer needing a device or a browser, drawing included |
 | `RMSL_SKIP_SHADER_VALIDATION` | validity only                                               |
 | `RMSL_SKIP_SHADER_EVALUATION` | evaluating the two shading languages                        |
-| `RMSL_INTEGER_SWEEP=skip`     | the integer sweep, on every backend                         |
 
 ```bash
-pnpm test          # everything, including the GPU layers
-pnpm test:fast     # RMSL_SKIP_GPU=1 RMSL_INTEGER_SWEEP=skip, well under a second
+pnpm test          # everything but the integer sweep, the GPU layers included
+pnpm test:fast     # RMSL_SKIP_GPU=1, well under a second
 pnpm test:mutate   # mutation testing with those layers off
+pnpm test:sweep    # the integer sweep, sampled
 ```
 
-Apart from the integer sweep, nothing turns off the CPU target: it needs no
-hardware, so it evaluates on every run, and the two shading languages are
-checked against what it computed.
+Nothing turns off the CPU target: it needs no hardware, so it evaluates on
+every run, and the two shading languages are checked against what it computed.
 
 Skipping is announced on stderr, and says how much went unchecked, because a
 run without these layers proves much less than it appears to — the score from a
@@ -125,10 +124,11 @@ is what a change is judged on.
 
 The integer sweep (`src/integer-sweep.test.ts`) runs every integer operation,
 and every pair of them composed, on every backend against a model of WGSL's
-semantics. By default it samples which kinds of operand go together, which
-keeps it to about a minute; `RMSL_INTEGER_SWEEP=full` runs every combination,
-which takes several minutes and is worth doing after a change to integer
-arithmetic, folding or precedence in any backend.
+semantics. It takes as long as the rest of the suite together, so `pnpm test`
+leaves it out. `pnpm test:sweep` runs it with a sample of which kinds of operand
+go together, in about a minute, and `pnpm test:sweep:full` runs every
+combination, in several minutes. Run it after a change to integer arithmetic,
+folding or precedence in any backend.
 
 ## Adding an operation
 

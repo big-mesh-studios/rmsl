@@ -12,6 +12,9 @@ import {
   VertexStage,
   toFragmentResult,
   toVertexResult,
+  typedArrayOf,
+  typedArrayOfKind,
+  FloatWidth,
   CpuShaderContext,
   CpuProgramResult,
   CpuTextureData,
@@ -139,6 +142,8 @@ export type CompiledWasm = {
   draw?: { componentCount: number; kind: "float" | "int" | "uint" | "bool" }; // set when "draw" is exported
   /** Whether the module exports `compute(...params, count)`, which runs `main` once per invocation index. */
   compute?: boolean;
+  /** Whether the program computes every float in 32 bits, so the host rounds each float input it passes. */
+  float32?: boolean;
 };
 
 /**
@@ -165,9 +170,27 @@ export type GpuUniformLayout = {
  * WASM locals are fresh per call frame, so there is no shared scratch to
  * privatize.
  */
-export type CompileWasmFnOptions = CompileFnOptions & {
-  gpuUniformLayout?: GpuUniformLayout;
+export type CompileWasmFnOptions = CompileFnOptions & WasmCompileFields & WasmFloatWidth;
 
+/**
+ * The width a WASM program computes a `float` in, and the uniform layout it
+ * may share with WGSL. `"f64"` is the default. `"f32"` rounds every float
+ * value to 32 bits, as a GPU holds it. A `gpuUniformLayout` places uniforms
+ * where a WGSL buffer of 32-bit floats has them, so it needs `"f32"`.
+ */
+export type WasmFloatWidth =
+  { float?: FloatWidth; gpuUniformLayout?: never } | { float: "f32"; gpuUniformLayout?: GpuUniformLayout };
+
+/**
+ * The width part of `options`, for passing on as it is: a layout given at 64
+ * bits reaches the compile, which refuses it.
+ */
+export function floatWidthOf(options: WasmFloatWidth): WasmFloatWidth {
+  return { float: options.float, gpuUniformLayout: options.gpuUniformLayout } as WasmFloatWidth;
+}
+
+/** The options of a WASM compile beside its name, parameters and float width. */
+export type WasmCompileFields = {
   stage?: "vertex" | "fragment" | "compute";
 
   derivatives?: "throw" | "zero";
@@ -578,6 +601,7 @@ function writeAggregateToMemory(
   shaderType: ShaderType,
   value: any,
   narrow?: boolean,
+  round32?: boolean,
 ): void {
   const kind = elementKindOf(shaderType);
 
@@ -588,7 +612,7 @@ function writeAggregateToMemory(
     const num = typeof raw === "boolean" ? (raw ? 1 : 0) : (raw as number);
     if (kind === "float") {
       if (narrow) view.setFloat32(address + i * compSize, num, true);
-      else view.setFloat64(address + i * compSize, num, true);
+      else view.setFloat64(address + i * compSize, round32 ? Math.fround(num) : num, true);
     } else {
       view.setInt32(address + i * compSize, num, true);
     }
@@ -604,6 +628,7 @@ function writeArrayToMemory(
   value: any,
   elementStride: number,
   narrow?: boolean,
+  round32?: boolean,
 ): void {
   const kind = isAggregate(shaderType) ? elementKindOf(shaderType) : scalarKindOf(shaderType);
   const compSize = narrow && kind === "float" ? 4 : componentSizeOf(kind);
@@ -617,7 +642,7 @@ function writeArrayToMemory(
       const num = typeof el === "boolean" ? (el ? 1 : 0) : (el as number);
       if (kind === "float") {
         if (narrow) view.setFloat32(base, num, true);
-        else view.setFloat64(base, num, true);
+        else view.setFloat64(base, round32 ? Math.fround(num) : num, true);
       } else {
         view.setInt32(base, num, true);
       }
@@ -628,7 +653,7 @@ function writeArrayToMemory(
         const at = base + k * compSize;
         if (kind === "float") {
           if (narrow) view.setFloat32(at, num, true);
-          else view.setFloat64(at, num, true);
+          else view.setFloat64(at, round32 ? Math.fround(num) : num, true);
         } else {
           view.setInt32(at, num, true);
         }
@@ -637,18 +662,22 @@ function writeArrayToMemory(
   }
 }
 
-/** Host-side: reads an array value back, converting i32 bits to bool/uint as needed. */
-function readAggregateFromMemory(view: DataView, address: number, shaderType: ShaderType): (number | boolean)[] {
+/** Host-side: reads a vector or matrix back from memory, into the typed array it is held in on the CPU. */
+function readAggregateFromMemory(
+  view: DataView,
+  address: number,
+  shaderType: ShaderType,
+  float32 = false,
+): CpuDrawBuffer {
   const kind = elementKindOf(shaderType);
   const compSize = componentSizeOf(kind);
   const width = componentCountOf(shaderType);
-  const out: (number | boolean)[] = [];
+  const out = new (typedArrayOf(shaderType, float32))(width);
   for (let i = 0; i < width; i++) {
-    if (kind === "float") {
-      out.push(view.getFloat64(address + i * compSize, true));
-    } else {
+    if (kind === "float") out[i] = view.getFloat64(address + i * compSize, true);
+    else {
       const raw = view.getInt32(address + i * compSize, true);
-      out.push(kind === "bool" ? raw !== 0 : kind === "uint" ? raw >>> 0 : raw);
+      out[i] = kind === "bool" ? (raw !== 0 ? 1 : 0) : kind === "uint" ? raw >>> 0 : raw;
     }
   }
   return out;
@@ -667,9 +696,9 @@ function readScalarFromMemory(view: DataView, address: number, shaderType: Shade
  * Host-side: reads a value (scalar or aggregate) from memory — the
  * read-side counterpart of `writeValueToMemory`.
  */
-function readValueFromMemory(view: DataView, address: number, shaderType: ShaderType): unknown {
+function readValueFromMemory(view: DataView, address: number, shaderType: ShaderType, float32 = false): unknown {
   return isAggregate(shaderType)
-    ? readAggregateFromMemory(view, address, shaderType)
+    ? readAggregateFromMemory(view, address, shaderType, float32)
     : readScalarFromMemory(view, address, shaderType);
 }
 
@@ -680,12 +709,13 @@ function writeScalarToMemory(
   shaderType: ShaderType,
   value: unknown,
   narrow?: boolean,
+  round32?: boolean,
 ): void {
   const kind = scalarKindOf(shaderType);
   const num = typeof value === "boolean" ? (value ? 1 : 0) : ((value as number | undefined) ?? 0);
   if (kind === "float") {
     if (narrow) view.setFloat32(address, num, true);
-    else view.setFloat64(address, num, true);
+    else view.setFloat64(address, round32 ? Math.fround(num) : num, true);
   } else view.setInt32(address, num, true);
 }
 
@@ -696,9 +726,10 @@ function writeValueToMemory(
   shaderType: ShaderType,
   value: unknown,
   narrow?: boolean,
+  round32?: boolean,
 ): void {
-  if (isAggregate(shaderType)) writeAggregateToMemory(view, address, shaderType, value, narrow);
-  else writeScalarToMemory(view, address, shaderType, value, narrow);
+  if (isAggregate(shaderType)) writeAggregateToMemory(view, address, shaderType, value, narrow, round32);
+  else writeScalarToMemory(view, address, shaderType, value, narrow, round32);
 }
 
 /**
@@ -773,6 +804,14 @@ export function compileWasmFn(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmFnOptions,
 ): CompiledWasm {
+  if (options.gpuUniformLayout && options.float !== "f32") {
+    throw new Error(
+      `[RMSL] compileWasmFn: gpuUniformLayout shares a uniform buffer with the GPU, which holds 32-bit floats, ` +
+        `but this compile computes in 64 bits. Pass float: "f32" to share the buffer, or drop gpuUniformLayout to keep 64-bit precision.`,
+    );
+  }
+  /** Whether every float value is rounded to 32 bits, as `float: "f32"` asks. */
+  const float32 = options.float === "f32";
   const paramNodes = options.params.map((p) => parameterNode(p.name, p.type));
   const rawResult = fn(...paramNodes) as any;
   // `rawResult` is either one root or an array of roots (a caller-supplied
@@ -956,8 +995,60 @@ export function compileWasmFn(
     // statements of its own — its value is unused, so there's nothing to emit.
   });
 
+  /**
+   * At `float: "f32"`, the bytes that round each float of the attributes and
+   * varyings in memory to 32 bits, once as a call starts: whether the host's
+   * marshaller or the rasterizer wrote them, they arrive in 64 bits.
+   */
+  function roundInputsInMemory(): number[] {
+    if (!float32) return [];
+    const bytes: number[] = [];
+    for (const p of memoryParams) {
+      if (p.kind !== "attributeMemory" && p.kind !== "varyingMemory") continue;
+      const aggregate = isAggregate(p.shaderType);
+      if ((aggregate ? elementKindOf(p.shaderType) : scalarKindOf(p.shaderType)) !== "float") continue;
+      bytes.push(...roundFloatsInMemory(p.address, aggregate ? componentCountOf(p.shaderType) : 1));
+    }
+    return bytes;
+  }
+
+  /** The bytes that round the `width` f64s at `addr` to 32 bits, in place. */
+  function roundFloatsInMemory(addr: number, width: number): number[] {
+    const bytes: number[] = [];
+    for (let k = 0; k < width; k++) {
+      const rounded = [...loadComponent(addr, "float", k * 8), WASM_OP.f32DemoteF64, WASM_OP.f64PromoteF32];
+      bytes.push(...storeComponent(addr, "float", k * 8, rounded));
+    }
+    return bytes;
+  }
+
   const exitBlockType = needsResult ? WASM_BLOCKTYPE_VOID : wasmTypeOf(resultKind); // the outer block carries the function's result type (or void)
-  const code = [WASM_OP.block, exitBlockType, ...bodyBytes, WASM_OP.end];
+  /**
+   * The bytes that zero each varying a vertex stage writes, as a call starts, so
+   * one the call does not write is 0 rather than what the call before wrote,
+   * whether the host or the rasterizer calls it.
+   */
+  function clearVaryingsInMemory(): number[] {
+    const bytes: number[] = [];
+    for (const p of memoryParams) {
+      if (p.kind !== "varyingOutputMemory") continue;
+      const kind = isAggregate(p.shaderType) ? elementKindOf(p.shaderType) : scalarKindOf(p.shaderType);
+      const zero = kind === "float" ? f64ConstBytes(0) : i32ConstBytes(0);
+      for (let k = 0; k < componentCountOf(p.shaderType); k++) {
+        bytes.push(...storeComponent(p.address, kind, k * componentSizeOf(kind), zero));
+      }
+    }
+    return bytes;
+  }
+
+  const code = [
+    WASM_OP.block,
+    exitBlockType,
+    ...roundInputsInMemory(),
+    ...clearVaryingsInMemory(),
+    ...bodyBytes,
+    WASM_OP.end,
+  ];
 
   // Module assembly: type section, math imports, the main function (whose type
   // carries every scalar param and, when !needsResult, one result), a linear
@@ -997,6 +1088,8 @@ export function compileWasmFn(
       : isAggregate(root._t as string)
         ? elementKindOf(root._t as string)
         : scalarKindOf(root._t as string);
+  /** Whether `draw` writes its float components as f32, as `float: "f32"` asks of the buffer it fills. */
+  const drawFloat32 = float32 && drawComponentKind === "float";
 
   // A "draw(width, height, bufferBase)" export: loops every pixel, runs the
   // main function (feeding the pixel in as fragCoord), and stores the output
@@ -1012,6 +1105,8 @@ export function compileWasmFn(
     /** Pushes local `y`. */
     const getY = [WASM_OP.localGet, ...wasmUleb128(yIdx)];
     const compSize = componentSizeOf(drawComponentKind);
+    /** The bytes a component takes in the caller's buffer: 4 for a float at `float: "f32"`, as a `Float32Array` holds it. */
+    const outSize = drawFloat32 ? 4 : compSize;
     /**
      * Pushes every one of the main function's own params, in order —
      * `draw` and `main` share the same leading params, so this forwards
@@ -1050,7 +1145,7 @@ export function compileWasmFn(
       WASM_OP.i32Mul,
       ...getX,
       WASM_OP.i32Add,
-      ...i32ConstBytes(drawComponentCount * compSize),
+      ...i32ConstBytes(drawComponentCount * outSize),
       WASM_OP.i32Mul,
     ];
     /**
@@ -1062,9 +1157,14 @@ export function compileWasmFn(
       ...wasmUleb128(bufferBaseIdx),
       ...pixelByteOffset,
       WASM_OP.i32Add,
-      ...i32ConstBytes(k * compSize),
+      ...i32ConstBytes(k * outSize),
       WASM_OP.i32Add,
     ];
+    /** Stores a component at `addrBytes` in the caller's buffer, a float as an f32 at `float: "f32"`. */
+    const storeOut = (addrBytes: number[], valueBytes: number[]) =>
+      drawFloat32
+        ? [...addrBytes, ...valueBytes, WASM_OP.f32DemoteF64, WASM_OP.f32Store, 0x00, 0x00]
+        : storeDynamic(addrBytes, drawComponentKind, valueBytes);
     /**
      * Calls `main` and copies its result into the output buffer. A
      * needs-result function returns nothing directly — main() already wrote
@@ -1076,10 +1176,10 @@ export function compileWasmFn(
       ? [
           ...callMain,
           ...Array.from({ length: drawComponentCount }, (_, k) =>
-            storeDynamic(destAddr(k), drawComponentKind, loadComponent(valueAddress!, drawComponentKind, k * compSize)),
+            storeOut(destAddr(k), loadComponent(valueAddress!, drawComponentKind, k * compSize)),
           ).flat(),
         ]
-      : storeDynamic(destAddr(0), drawComponentKind, callMain);
+      : storeOut(destAddr(0), callMain);
     /** The whole per-pixel body: write fragCoord for this pixel, then run main() and copy its result out. */
     // A discarded pixel leaves its value memory as it was, so each pixel starts from zero
     // and a clear flag: a pixel that discards then holds zero in every channel.
@@ -1259,6 +1359,7 @@ export function compileWasmFn(
     maxMemoryPages,
     draw: drawTypeIdx === undefined ? undefined : { componentCount: drawComponentCount, kind: drawComponentKind },
     compute: computeTypeIdx !== undefined,
+    float32,
   };
 
   /** Advances a fixed-size region from the cursor. */
@@ -1324,7 +1425,11 @@ export function compileWasmFn(
               metadataAddress: addr,
             });
           }
-        } else if (isAggregate(v.shaderType) || options.scalarsInMemory) {
+        } else if (
+          isAggregate(v.shaderType) ||
+          options.scalarsInMemory ||
+          options.gpuUniformLayout?.offsets[v.slot] !== undefined
+        ) {
           if (!uniformAddress.has(v.slot)) {
             const addr = allocateFor(v.shaderType);
             uniformAddress.set(v.slot, addr);
@@ -1732,7 +1837,7 @@ export function compileWasmFn(
     const stride = componentCountOf(type) * compSize;
     const index = node.params[1];
     const indexBytes =
-      scalarKindOf(index._t as string) === "float" ? [...walkExpr(index), ...I32_TRUNC_SAT_F64_S] : walkExpr(index);
+      scalarKindOf(index._t as string) === "float" ? [...walkExpr(index), ...I32_TRUNC_SAT_F64_U] : walkExpr(index);
     const indexLocal = wasmUleb128(localSlotIndex(storageIndexLocal.get(node)!));
     return {
       inBounds: [
@@ -1986,12 +2091,22 @@ export function compileWasmFn(
   }
 
   /**
+   * The bytes that write the value of an aggregate `node` to its address. At
+   * `float: "f32"`, the float components a node computes are rounded there.
+   */
+  function materializeIfNeeded(node: any): number[] {
+    const bytes = materializeValue(node);
+    if (!float32 || bytes.length === 0 || elementKindOf(node._t as string) !== "float") return bytes;
+    return [...bytes, ...roundFloatsInMemory(nodeAddress(node), componentCountOf(node._t as string))];
+  }
+
+  /**
    * Emits the stores that guarantee node's aggregate value sits in memory
    * at nodeAddress(node). Most inputs already live there; gpu-placed
    * uniforms get promoted, and pure expressions are computed into their
    * scratch address on first use.
    */
-  function materializeIfNeeded(node: any): number[] {
+  function materializeValue(node: any): number[] {
     switch (node.type) {
       case "var":
         return [];
@@ -3169,14 +3284,24 @@ export function compileWasmFn(
   }
 
   /**
+   * The bytes that push the value of a scalar `node`. At `float: "f32"`, a float
+   * value is rounded to 32 bits and widened back, so it holds what an f32 holds.
+   */
+  function walkExpr(node: any): number[] {
+    const bytes = walkExprValue(node);
+    if (!float32 || node._t !== "float" || node.type === "float" || node.type === "var") return bytes;
+    return [...bytes, WASM_OP.f32DemoteF64, WASM_OP.f64PromoteF32];
+  }
+
+  /**
    * Expression pass: evaluates a node down to one value on the WASM stack —
    * an f64 for floats, an i32 for int/uint/bool. A component of an aggregate
    * is read through readComponent/materialize, never held on the stack.
    */
-  function walkExpr(node: any): number[] {
+  function walkExprValue(node: any): number[] {
     switch (node.type) {
       case "float":
-        return f64ConstBytes(node.value);
+        return f64ConstBytes(float32 ? Math.fround(node.value) : node.value);
       case "int":
       case "uint":
         return i32ConstBytes(node.value);
@@ -3188,6 +3313,13 @@ export function compileWasmFn(
         }
         return [WASM_OP.localGet, ...wasmUleb128(localSlotIndex(node.value.varName))];
       case "uniform": {
+        const rawAddr = gpuRawUniformAddress.get(node.value.slot); // the host wrote it into the GPU layout, as an f32 if a float
+        if (rawAddr !== undefined) {
+          const kind = scalarKindOf(node._t);
+          return kind === "float"
+            ? [...i32ConstBytes(rawAddr), WASM_OP.f32Load, 0x00, ...wasmUleb128(0), WASM_OP.f64PromoteF32]
+            : loadComponent(rawAddr, kind, 0);
+        }
         const addr = uniformAddress.get(node.value.slot);
         if (addr !== undefined) return loadComponent(addr, scalarKindOf(node._t), 0); // scalarsInMemory: memory-resident, not a param
         return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex(`uniform:${node.value.slot}`))];
@@ -3445,6 +3577,8 @@ export function compileWasmFn(
       case "dot": {
         const a = node.params[0],
           b = node.params[1];
+        // A scalar is a vector of one: its dot is the product.
+        if (!isAggregate(a._t)) return [...walkExpr(a), ...walkExpr(b), WASM_OP.f64Mul];
         const width = componentCountOf(a._t);
         const pre = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
         const aAddr = nodeAddress(a);
@@ -3469,6 +3603,7 @@ export function compileWasmFn(
       }
       case "length": {
         const src = node.params[0];
+        if (!isAggregate(src._t)) return [...walkExpr(src), WASM_OP.f64Abs];
         const width = componentCountOf(src._t);
         const pre = materializeIfNeeded(src);
         const addr = nodeAddress(src);
@@ -3482,6 +3617,7 @@ export function compileWasmFn(
       case "distance": {
         const a = node.params[0],
           b = node.params[1];
+        if (!isAggregate(a._t)) return [...walkExpr(a), ...walkExpr(b), WASM_OP.f64Sub, WASM_OP.f64Abs];
         const width = componentCountOf(a._t);
         const pre = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
         const aAddr = nodeAddress(a);
@@ -3782,6 +3918,50 @@ export function compileWasmFn(
 }
 
 /**
+ * Calls a WASM export with the first `length` numbers of `args`, and returns
+ * what it returns. A call through `apply` or a spread converts the list on
+ * every call, so up to eleven arguments are passed one by one, which
+ * allocates nothing.
+ */
+function callExport(f: (...args: number[]) => number | void, args: readonly number[], length: number): number | void {
+  const a = args;
+  switch (length) {
+    case 0:
+      return f();
+    case 1:
+      return f(a[0]!);
+    case 2:
+      return f(a[0]!, a[1]!);
+    case 3:
+      return f(a[0]!, a[1]!, a[2]!);
+    case 4:
+      return f(a[0]!, a[1]!, a[2]!, a[3]!);
+    case 5:
+      return f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!);
+    case 6:
+      return f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!);
+    case 7:
+      return f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!, a[6]!);
+    case 8:
+      return f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!, a[6]!, a[7]!);
+    case 9:
+      return f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!, a[6]!, a[7]!, a[8]!);
+    case 10:
+      return f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!, a[6]!, a[7]!, a[8]!, a[9]!);
+    case 11:
+      return f(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!, a[6]!, a[7]!, a[8]!, a[9]!, a[10]!);
+    default:
+      return f(...a.slice(0, length));
+  }
+}
+
+/** Writes `args` into `into`, which keeps them from one call to the next, and returns how many it wrote. */
+function copyArgs(into: number[], args: readonly number[]): number {
+  for (let i = 0; i < args.length; i++) into[i] = args[i]!;
+  return args.length;
+}
+
+/**
  * Instantiates a compiled module and binds it to JS: marshals params and
  * textures into memory/args, calls the function, and reads results back
  * into a CpuProgramResult.
@@ -3801,12 +3981,16 @@ export function createWasmInputMarshaller(
   params: readonly WasmParam[],
   textureHeapBase: number,
   memory: WebAssembly.Memory,
+  /** Round each float input to 32 bits, for a program compiled at `float: "f32"`. */
+  float32 = false,
 ): {
   /** With `heapStart`, the texture heap starts there for this call, as when another stage's heap lies before it. */
   marshal(ctx: CpuShaderContext, heapStart?: number): { args: number[]; heapEnd: number };
   /** Where the heap would end for `ctx`, without writing anything. */
   footprint(ctx: CpuShaderContext, heapStart?: number): number;
   writeBackStorages(ctx: CpuShaderContext): void;
+  /** A view of the memory, made again only when the memory grows and its buffer changes. */
+  viewOfMemory(): DataView;
 } {
   const textureParams = params.filter(
     (p): p is Extract<WasmParam, { kind: "textureMemory" }> => p.kind === "textureMemory",
@@ -3816,12 +4000,31 @@ export function createWasmInputMarshaller(
   );
   /** Heap address of each storage buffer as the last `marshal` placed it, in `storageParams` order. */
   const storageHeapAddress: number[] = new Array(storageParams.length);
+  const storageViews: (Float64Array | Int32Array | Uint32Array | undefined)[] = new Array(storageParams.length);
 
   // texture cache: skip re-uploading an unchanged texture object, and only
   // grow the module memory when the total footprint changes between calls
   const lastTexture: (CpuTextureData | undefined)[] = new Array(textureParams.length);
-  let lastSizes: number[] | null = null;
+  const textureSizes: number[] = new Array(textureParams.length).fill(-1);
+  const textureOffsets: number[] = new Array(textureParams.length).fill(0);
   let lastHeapBase: number | undefined;
+
+  /** What `marshal` returns, and the argument list in it, kept from one call to the next so a call allocates nothing. */
+  const args: number[] = [];
+  const marshalled = { args, heapEnd: 0 };
+  const storageLengths: number[] = new Array(storageParams.length).fill(0);
+  let memoryView = new DataView(memory.buffer);
+
+  /** A scalar argument as the program takes it: a float rounded to 32 bits at `float: "f32"`. */
+  function scalarArg(shaderType: ShaderType, value: number): number {
+    return float32 && scalarKindOf(shaderType) === "float" ? Math.fround(value) : value;
+  }
+
+  /** A view of the memory, made again only when the memory grows and its buffer changes. */
+  function viewOfMemory(): DataView {
+    if (memoryView.buffer !== memory.buffer) memoryView = new DataView(memory.buffer);
+    return memoryView;
+  }
 
   /**
    * Appends each texture's pixels after the compiled layout (growing memory
@@ -3832,61 +4035,73 @@ export function createWasmInputMarshaller(
   function marshal(ctx: CpuShaderContext, heapStart = textureHeapBase): { args: number[]; heapEnd: number } {
     let textureHeapEnd = heapStart;
     if (textureParams.length > 0) {
-      const textures = textureParams.map((p) => (ctx.textures as any)?.[p.slot] as CpuTextureData);
-      const sizes = textures.map((tex, i) => textureByteSize(tex, textureParams[i]!.samplerType.endsWith("Cube")));
-      const heapOffsets: number[] = [];
+      let needsRepack = heapStart !== lastHeapBase;
       let heapCursor = heapStart;
-      for (const size of sizes) {
-        heapOffsets.push(heapCursor);
+      for (let i = 0; i < textureParams.length; i++) {
+        const p = textureParams[i]!;
+        const size = textureByteSize((ctx.textures as any)?.[p.slot] as CpuTextureData, p.samplerType.endsWith("Cube"));
+        if (size !== textureSizes[i]) needsRepack = true;
+        textureSizes[i] = size;
+        textureOffsets[i] = heapCursor;
         heapCursor += size;
       }
       textureHeapEnd = heapCursor;
 
-      const needsRepack = lastSizes === null || heapStart !== lastHeapBase || sizes.some((s, i) => s !== lastSizes![i]);
       if (needsRepack && heapCursor > memory.buffer.byteLength) {
         memory.grow(Math.ceil((heapCursor - memory.buffer.byteLength) / 65536));
       }
-      if (needsRepack || textures.some((t, i) => t !== lastTexture[i])) {
-        const view = new DataView(memory.buffer); // fresh in case the grow above just detached the old buffer
-        textureParams.forEach((p, i) => {
-          if (!needsRepack && textures[i] === lastTexture[i]) return;
-          writeTextureToMemory(view, p.metadataAddress, heapOffsets[i], textures[i], p.samplerType.endsWith("Cube"));
-          lastTexture[i] = textures[i];
-        });
+      for (let i = 0; i < textureParams.length; i++) {
+        const p = textureParams[i]!;
+        const texture = (ctx.textures as any)?.[p.slot] as CpuTextureData;
+        if (!needsRepack && texture === lastTexture[i]) continue;
+        writeTextureToMemory(
+          viewOfMemory(),
+          p.metadataAddress,
+          textureOffsets[i]!,
+          texture,
+          p.samplerType.endsWith("Cube"),
+        );
+        lastTexture[i] = texture;
       }
-      lastSizes = sizes;
       lastHeapBase = heapStart;
     }
     const heapEnd = marshalStorages(ctx, textureHeapEnd);
-    const view = new DataView(memory.buffer);
-    const args: number[] = [];
+    const view = viewOfMemory();
+    let argCount = 0;
     for (const p of params) {
       switch (p.kind) {
         case "textureMemory":
           break;
         case "param":
-          args.push((ctx.params as any)?.[p.name] as number);
+          args[argCount++] = scalarArg(p.shaderType, (ctx.params as any)?.[p.name] as number);
           break;
         case "uniform":
           // An unset uniform reads zero, as in a zeroed GPU uniform buffer.
-          args.push(((ctx.uniforms as any)?.[p.slot] as number | undefined) ?? 0);
+          args[argCount++] = scalarArg(p.shaderType, ((ctx.uniforms as any)?.[p.slot] as number | undefined) ?? 0);
           break;
         case "attribute":
-          args.push((ctx.attributes as any)?.[p.slot] as number);
+          args[argCount++] = scalarArg(p.shaderType, (ctx.attributes as any)?.[p.slot] as number);
           break;
         case "varying":
-          args.push((ctx.varyings as any)?.[p.slot] as number);
+          args[argCount++] = scalarArg(p.shaderType, (ctx.varyings as any)?.[p.slot] as number);
           break;
         case "invocationIndex":
-          args.push(ctx.index ?? 0);
+          args[argCount++] = ctx.index ?? 0;
           break;
         case "paramMemory":
-          writeAggregateToMemory(view, p.address, p.shaderType, (ctx.params as any)?.[p.name]);
+          writeAggregateToMemory(view, p.address, p.shaderType, (ctx.params as any)?.[p.name], false, float32);
           break;
-        case "uniformMemory":
-          if ((ctx.uniforms as any)?.[p.slot] === undefined) break; // left as the zeroed memory it starts as
-          writeValueToMemory(view, p.address, p.shaderType, (ctx.uniforms as any)?.[p.slot], p.narrow);
+        case "uniformMemory": {
+          // Read once: each read of a float the host set boxes it anew.
+          const value = (ctx.uniforms as any)?.[p.slot];
+          if (value === undefined) break; // left as the zeroed memory it starts as
+          if (typeof value !== "number" || isAggregate(p.shaderType)) {
+            writeValueToMemory(view, p.address, p.shaderType, value, p.narrow, float32);
+          } else if (scalarKindOf(p.shaderType) !== "float") view.setInt32(p.address, value, true);
+          else if (p.narrow) view.setFloat32(p.address, value, true);
+          else view.setFloat64(p.address, float32 ? Math.fround(value) : value, true);
           break;
+        }
         case "uniformArrayMemory":
           if ((ctx.uniforms as any)?.[p.slot] === undefined) break;
           writeArrayToMemory(
@@ -3897,6 +4112,7 @@ export function createWasmInputMarshaller(
             (ctx.uniforms as any)?.[p.slot],
             p.elementStride,
             p.narrow,
+            float32,
           );
           break;
         case "attributeMemory":
@@ -3907,13 +4123,14 @@ export function createWasmInputMarshaller(
           break;
         case "fragCoordMemory":
           // the host's fragCoord for CPU invocations; draw() overwrites it per pixel — harmless
-          writeAggregateToMemory(view, p.address, "vec2", ctx.fragCoord ?? [0, 0]);
+          writeAggregateToMemory(view, p.address, "vec2", ctx.fragCoord ?? [0, 0], false, float32);
           break;
         case "storageMemory":
           break;
       }
     }
-    return { args, heapEnd };
+    marshalled.heapEnd = heapEnd;
+    return marshalled;
   }
 
   /** The end of the heap for `ctx` from `heapStart`: each texture's pixels, then each storage buffer. */
@@ -3927,10 +4144,15 @@ export function createWasmInputMarshaller(
     let cursor = Math.ceil(end / 8) * 8;
     storageParams.forEach((p) => {
       if (ctx.storageBuffers?.[p.slot]) return;
-      const length = ((ctx.storages as any)?.[p.slot] as ArrayLike<unknown> | undefined)?.length ?? 0;
-      cursor = Math.ceil((cursor + length * storageElementSize(p.shaderType)) / 8) * 8;
+      cursor = Math.ceil((cursor + elementsOf(ctx, p) * storageElementSize(p.shaderType)) / 8) * 8;
     });
     return cursor;
+  }
+
+  /** The elements of the flat array the host passes for `p`, which holds their components one after another. */
+  function elementsOf(ctx: CpuShaderContext, p: { slot: string; shaderType: ShaderType }): number {
+    const array = (ctx.storages as any)?.[p.slot] as ArrayLike<number> | undefined;
+    return Math.floor((array?.length ?? 0) / componentCountOf(p.shaderType));
   }
 
   /**
@@ -3942,83 +4164,66 @@ export function createWasmInputMarshaller(
   function marshalStorages(ctx: CpuShaderContext, heapBase: number): number {
     if (storageParams.length === 0) return heapBase;
     let cursor = Math.ceil(heapBase / 8) * 8;
-    const resident = storageParams.map((p) => ctx.storageBuffers?.[p.slot]);
-    const lengths = storageParams.map(
-      (p, i) => resident[i]?.length ?? ((ctx.storages as any)?.[p.slot] as ArrayLike<unknown> | undefined)?.length ?? 0,
-    );
-    storageParams.forEach((p, i) => {
-      if (resident[i]) {
-        storageHeapAddress[i] = resident[i]!.address;
-        return;
+    for (let i = 0; i < storageParams.length; i++) {
+      const p = storageParams[i]!;
+      const resident = ctx.storageBuffers?.[p.slot];
+      storageLengths[i] = resident?.length ?? elementsOf(ctx, p);
+      if (resident) {
+        storageHeapAddress[i] = resident.address;
+        continue;
       }
       storageHeapAddress[i] = cursor;
-      cursor = Math.ceil((cursor + lengths[i]! * storageElementSize(p.shaderType)) / 8) * 8;
-    });
+      cursor = Math.ceil((cursor + storageLengths[i]! * storageElementSize(p.shaderType)) / 8) * 8;
+    }
     if (cursor > memory.buffer.byteLength) {
       memory.grow(Math.ceil((cursor - memory.buffer.byteLength) / 65536));
     }
-    const view = new DataView(memory.buffer);
-    storageParams.forEach((p, i) => {
-      const array = (ctx.storages as any)?.[p.slot] as ArrayLike<unknown> | undefined;
-      const base = storageHeapAddress[i]!;
-      view.setInt32(p.metadataAddress + STORAGE_META_DATA_ADDR, base, true);
-      view.setInt32(p.metadataAddress + STORAGE_META_LENGTH, lengths[i]!, true);
-      if (!array || resident[i]) return;
-      const heap = scalarStorageView(p.shaderType, base, lengths[i]!);
-      if (heap && ArrayBuffer.isView(array)) {
-        heap.set(array as unknown as ArrayLike<number>);
-        return;
-      }
-      const stride = storageElementSize(p.shaderType);
-      for (let e = 0; e < lengths[i]!; e++) writeValueToMemory(view, base + e * stride, p.shaderType, array[e]);
-    });
+    const view = viewOfMemory();
+    for (let i = 0; i < storageParams.length; i++) {
+      const p = storageParams[i]!;
+      const array = (ctx.storages as any)?.[p.slot] as ArrayLike<number> | undefined;
+      view.setInt32(p.metadataAddress + STORAGE_META_DATA_ADDR, storageHeapAddress[i]!, true);
+      view.setInt32(p.metadataAddress + STORAGE_META_LENGTH, storageLengths[i]!, true);
+      if (!array || ctx.storageBuffers?.[p.slot]) continue;
+      const heap = componentView(i, p.shaderType, storageLengths[i]!);
+      if (array.length === heap.length) heap.set(array);
+      else for (let k = 0; k < heap.length; k++) heap[k] = array[k]!;
+    }
     return cursor;
   }
 
   /**
-   * A typed-array view over a scalar storage buffer's heap region, so a
-   * typed-array buffer copies in and out in one `set()` rather than an
-   * element at a time. Undefined for a vector, matrix or bool element,
-   * which still copy one element at a time.
+   * A typed-array view over the components of storage buffer `i` in the heap,
+   * kept until the memory grows or the buffer moves or changes length, so a
+   * dispatch copies a buffer in and out in one `set()` and allocates nothing.
    */
-  function scalarStorageView(
-    shaderType: ShaderType,
-    base: number,
-    length: number,
-  ): Float64Array | Int32Array | Uint32Array | undefined {
-    if (isAggregate(shaderType)) return undefined;
-    switch (scalarKindOf(shaderType)) {
-      case "float":
-        return new Float64Array(memory.buffer, base, length);
-      case "int":
-        return new Int32Array(memory.buffer, base, length);
-      case "uint":
-        return new Uint32Array(memory.buffer, base, length);
-      default:
-        return undefined;
-    }
+  function componentView(i: number, shaderType: ShaderType, length: number): Float64Array | Int32Array | Uint32Array {
+    const base = storageHeapAddress[i]!;
+    const count = length * componentCountOf(shaderType);
+    const kept = storageViews[i];
+    if (kept && kept.buffer === memory.buffer && kept.byteOffset === base && kept.length === count) return kept;
+    const kind = isAggregate(shaderType) ? elementKindOf(shaderType) : scalarKindOf(shaderType);
+    // The heap holds a float in 64 bits at either width.
+    const made = new (typedArrayOfKind(kind, false))(memory.buffer, base, count) as
+      Float64Array | Int32Array | Uint32Array;
+    storageViews[i] = made;
+    return made;
   }
 
   /** Copies every writable storage buffer back into the caller's array, where the last `marshal` placed it. */
   function writeBackStorages(ctx: CpuShaderContext): void {
-    if (storageParams.length === 0) return;
-    const view = new DataView(memory.buffer);
-    storageParams.forEach((p, i) => {
-      if (p.access === "read" || !p.written || ctx.storageBuffers?.[p.slot]) return;
-      const array = (ctx.storages as any)?.[p.slot] as { length: number; [e: number]: unknown } | undefined;
-      if (!array) return;
-      const base = storageHeapAddress[i]!;
-      const heap = scalarStorageView(p.shaderType, base, array.length);
-      if (heap && ArrayBuffer.isView(array)) {
-        (array as unknown as Float64Array).set(heap);
-        return;
-      }
-      const stride = storageElementSize(p.shaderType);
-      for (let e = 0; e < array.length; e++) array[e] = readValueFromMemory(view, base + e * stride, p.shaderType);
-    });
+    for (let i = 0; i < storageParams.length; i++) {
+      const p = storageParams[i]!;
+      if (p.access === "read" || !p.written || ctx.storageBuffers?.[p.slot]) continue;
+      const array = (ctx.storages as any)?.[p.slot] as { length: number; [e: number]: number } | undefined;
+      if (!array) continue;
+      const heap = componentView(i, p.shaderType, elementsOf(ctx, p));
+      if (ArrayBuffer.isView(array) && array.length === heap.length) (array as unknown as Float64Array).set(heap);
+      else for (let k = 0; k < heap.length; k++) array[k] = heap[k]!;
+    }
   }
 
-  return { marshal, footprint, writeBackStorages };
+  return { marshal, footprint, writeBackStorages, viewOfMemory };
 }
 
 /** Heap bytes one element of a storage buffer of `shaderType` takes: f64 per float component, i32 otherwise. */
@@ -4042,6 +4247,7 @@ export function instantiateWasmProgram(
     maxMemoryPages,
     draw: drawOutput,
     compute: hasCompute,
+    float32,
   } = compiled;
 
   // no memory passed in: own one, sized for the compile-time layout, growable
@@ -4077,7 +4283,14 @@ export function instantiateWasmProgram(
       p.kind === "valueMemory",
   );
 
-  const { marshal: marshalInputs, writeBackStorages } = createWasmInputMarshaller(params, textureHeapBase, memory);
+  const {
+    marshal: marshalInputs,
+    writeBackStorages,
+    viewOfMemory,
+  } = createWasmInputMarshaller(params, textureHeapBase, memory, float32);
+  /** The arguments of the `draw` and `compute` exports: the marshalled ones, then their own. Kept between calls. */
+  const drawArgs: number[] = [];
+  const computeArgs: number[] = [];
   const discardAddress = params.find((p) => p.kind === "discardMemory")?.address;
 
   /**
@@ -4088,10 +4301,10 @@ export function instantiateWasmProgram(
    */
   function run(ctx: CpuShaderContext): number | boolean | CpuProgramResult | null {
     const { args } = marshalInputs(ctx);
-    if (discardAddress !== undefined) new DataView(memory.buffer).setInt32(discardAddress, 0, true);
-    const result = wasmMain(...args);
+    if (discardAddress !== undefined) viewOfMemory().setInt32(discardAddress, 0, true);
+    const result = callExport(wasmMain, args, args.length) as number;
     writeBackStorages(ctx);
-    const view = new DataView(memory.buffer); // fresh: marshalInputs may have just grown (and detached) the buffer
+    const view = viewOfMemory();
     if (discardAddress !== undefined && view.getInt32(discardAddress, true) !== 0) return null;
 
     // scalar mode: reinterpret the raw i32 — the WASM boundary returns it
@@ -4106,19 +4319,19 @@ export function instantiateWasmProgram(
     for (const p of outputParams) {
       switch (p.kind) {
         case "outputMemory":
-          (shaderResult.outputs ??= {})[p.slot] = readValueFromMemory(view, p.address, p.shaderType);
+          (shaderResult.outputs ??= {})[p.slot] = readValueFromMemory(view, p.address, p.shaderType, float32);
           break;
         case "varyingOutputMemory":
-          (shaderResult.varyings ??= {})[p.slot] = readValueFromMemory(view, p.address, p.shaderType);
+          (shaderResult.varyings ??= {})[p.slot] = readValueFromMemory(view, p.address, p.shaderType, float32);
           break;
         case "positionMemory":
-          shaderResult.position = readAggregateFromMemory(view, p.address, "vec4") as number[];
+          shaderResult.position = readAggregateFromMemory(view, p.address, "vec4", float32) as unknown as number[];
           break;
         case "fragDepthMemory":
           shaderResult.fragDepth = view.getFloat64(p.address, true);
           break;
         case "valueMemory":
-          shaderResult.value = readValueFromMemory(view, p.address, p.shaderType);
+          shaderResult.value = readValueFromMemory(view, p.address, p.shaderType, float32);
           break;
       }
     }
@@ -4127,6 +4340,9 @@ export function instantiateWasmProgram(
       return shaderResult.value as number | boolean;
     return shaderResult;
   }
+
+  /** The typed array the module's `draw` writes its components as: 32-bit floats at `float: "f32"`. */
+  const DrawArray = typedArrayOfKind(drawOutput?.kind ?? "float", float32 === true);
 
   /**
    * `CpuRoutine.draw`: marshals `ctx` once, then calls the module's own
@@ -4148,35 +4364,40 @@ export function instantiateWasmProgram(
     // worker's instance imports the same SharedArrayBuffer-backed memory and
     // `out` is a view pinning where in it this call should land.
     if (out && out.buffer === memory.buffer) {
-      wasmDraw(...args, width, height, out.byteOffset);
+      if (!(out instanceof DrawArray)) {
+        throw new Error(
+          `[RMSL] compileWasmGrid: an out in the module's own memory is written in place, so it must be the ${DrawArray.name} the grid fills, not a ${out.constructor.name}.`,
+        );
+      }
+      const n = copyArgs(drawArgs, args);
+      drawArgs[n] = width;
+      drawArgs[n + 1] = height;
+      drawArgs[n + 2] = out.byteOffset;
+      callExport(wasmDraw, drawArgs, n + 3);
       return out;
     }
 
     const bufferBase = Math.ceil(heapEnd / 8) * 8; // align to 8 bytes — the typed-array constructors require it
-    const neededBytes = bufferBase + pixelCount * componentSizeOf(drawOutput.kind);
+    const neededBytes = bufferBase + pixelCount * DrawArray.BYTES_PER_ELEMENT;
     if (neededBytes > memory.buffer.byteLength) {
       memory.grow(Math.ceil((neededBytes - memory.buffer.byteLength) / 65536));
     }
-    wasmDraw(...args, width, height, bufferBase);
+    const n = copyArgs(drawArgs, args);
+    drawArgs[n] = width;
+    drawArgs[n + 1] = height;
+    drawArgs[n + 2] = bufferBase;
+    callExport(wasmDraw, drawArgs, n + 3);
 
     // `out` backed by a different buffer than this instance's memory: wasm
     // can only write into the memory it was instantiated with, so this has
     // to copy rather than return a view straight into wasm memory.
+    const pixels = new DrawArray(memory.buffer, bufferBase, pixelCount);
     if (out) {
-      out.set(
-        drawOutput.kind === "float"
-          ? new Float64Array(memory.buffer, bufferBase, pixelCount)
-          : drawOutput.kind === "uint"
-            ? new Uint32Array(memory.buffer, bufferBase, pixelCount)
-            : new Int32Array(memory.buffer, bufferBase, pixelCount),
-      );
+      out.set(pixels);
       return out;
     }
-
     // A copy: the view would show the pixels of the next draw.
-    if (drawOutput.kind === "float") return new Float64Array(memory.buffer, bufferBase, pixelCount).slice();
-    if (drawOutput.kind === "uint") return new Uint32Array(memory.buffer, bufferBase, pixelCount).slice();
-    return new Int32Array(memory.buffer, bufferBase, pixelCount).slice();
+    return pixels.slice();
   }
 
   /**
@@ -4188,10 +4409,10 @@ export function instantiateWasmProgram(
   function compute(ctx: CpuShaderContext, count: number): void {
     const { args } = marshalInputs(ctx);
     if (wasmCompute) {
-      wasmCompute(...args, count);
-    } else {
-      for (let i = 0; i < count; i++) wasmMain(...args);
-    }
+      const n = copyArgs(computeArgs, args);
+      computeArgs[n] = count;
+      callExport(wasmCompute, computeArgs, n + 1);
+    } else for (let i = 0; i < count; i++) callExport(wasmMain, args, args.length);
     writeBackStorages(ctx);
   }
 
@@ -4260,7 +4481,7 @@ export function instantiateWasmGrid<A extends ShaderType = ShaderType>(
 }
 
 /** What a compile function takes: the options of `compileWasmFn`, without the `stage` and `kind` the function names. */
-export type CompileWasmStageOptions = Omit<CompileWasmFnOptions, "stage" | "kind">;
+export type CompileWasmStageOptions = Omit<CompileFnOptions & WasmCompileFields, "stage" | "kind"> & WasmFloatWidth;
 
 type WasmRoots = (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[];
 
@@ -4276,18 +4497,28 @@ export function compileWasmProgram(fn: WasmRoots, options: CompileWasmFnOptions)
  * a stage has, such as `fragCoord()` or a varying, is refused: compile it as a
  * stage or as a grid.
  */
-export function compileWasmRoutine<A extends ShaderType>(
+export function compileWasmRoutine<A extends ShaderType, W extends FloatWidth = "f64">(
   fn: (...args: any[]) => Node<A>,
-  options: CompileWasmStageOptions,
-): CpuRoutine<A>;
-export function compileWasmRoutine(fn: WasmRoots, options: CompileWasmStageOptions): CpuRoutine;
+  options: CompileWasmStageOptions & { float?: W },
+): CpuRoutine<A, W>;
+export function compileWasmRoutine<W extends FloatWidth = "f64">(
+  fn: WasmRoots,
+  options: CompileWasmStageOptions & { float?: W },
+): CpuRoutine<ShaderType, W>;
 export function compileWasmRoutine(fn: WasmRoots, options: CompileWasmStageOptions): CpuRoutine {
   return instantiateWasmRoutine(compileWasmFn(fn, { ...options, kind: "routine" }), options.name, options.memory);
 }
 
 /** Compiles an `Fn` as a vertex stage: a function that returns the position and the varyings the program writes. */
-export function compileWasmVertex(fn: WasmRoots, options: CompileWasmStageOptions): VertexStage {
-  return instantiateWasmVertex(compileWasmFn(fn, { ...options, stage: "vertex" }), options.name, options.memory);
+export function compileWasmVertex<W extends FloatWidth = "f64">(
+  fn: WasmRoots,
+  options: CompileWasmStageOptions & { float?: W },
+): VertexStage<W> {
+  return instantiateWasmVertex(
+    compileWasmFn(fn, { ...options, stage: "vertex" }),
+    options.name,
+    options.memory,
+  ) as unknown as VertexStage<W>;
 }
 
 /**
@@ -4295,11 +4526,14 @@ export function compileWasmVertex(fn: WasmRoots, options: CompileWasmStageOption
  * the members of the `outputStruct` the program returns, or `null` for a
  * discarded fragment.
  */
-export function compileWasmFragment<R extends Node<ShaderType>>(
+export function compileWasmFragment<R extends Node<ShaderType>, W extends FloatWidth = "f64">(
   fn: (...args: any[]) => R,
-  options: CompileWasmStageOptions,
-): FragmentStage<R>;
-export function compileWasmFragment(fn: WasmRoots, options: CompileWasmStageOptions): FragmentStage;
+  options: CompileWasmStageOptions & { float?: W },
+): FragmentStage<R, W>;
+export function compileWasmFragment<W extends FloatWidth = "f64">(
+  fn: WasmRoots,
+  options: CompileWasmStageOptions & { float?: W },
+): FragmentStage<unknown, W>;
 export function compileWasmFragment(fn: WasmRoots, options: CompileWasmStageOptions): FragmentStage {
   return instantiateWasmFragment(compileWasmFn(fn, { ...options, stage: "fragment" }), options.name, options.memory);
 }
@@ -4314,9 +4548,13 @@ export function compileWasmCompute(fn: WasmRoots, options: CompileWasmStageOptio
 }
 
 /** Compiles an `Fn` of `fragCoord()` as a grid: one result for each pixel, in a buffer the type of the result. */
-export function compileWasmGrid<A extends ShaderType>(
+export function compileWasmGrid<A extends ShaderType, W extends FloatWidth = "f64">(
   fn: (...args: any[]) => Node<A>,
-  options: CompileWasmStageOptions,
-): CpuGrid<A> {
-  return instantiateWasmGrid<A>(compileWasmFn(fn, { ...options, kind: "grid" }), options.name, options.memory);
+  options: CompileWasmStageOptions & { float?: W },
+): CpuGrid<A, W> {
+  return instantiateWasmGrid<A>(
+    compileWasmFn(fn, { ...options, kind: "grid" }),
+    options.name,
+    options.memory,
+  ) as unknown as CpuGrid<A, W>;
 }

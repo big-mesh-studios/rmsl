@@ -39,6 +39,7 @@ import {
   recordingGLSL as compileGlsl,
   recordingWGSL as compileWgsl,
 } from "../testing/shader-validity";
+import type { CompileCpuRoutine } from "../backends/cpu";
 
 afterAll(async () => {
   await assertRecordedShadersValid();
@@ -77,7 +78,7 @@ describe("units of the core", () => {
     const u = uniform("vec3");
     expect(compileGlsl.fragment(vec4(apply(u), 1))).toContain(glsl);
     expect(compileWgsl.fragment(vec4(apply(u), 1))).toMatch(/vec3<f32>\((0\.25|0|1|2)f\)/);
-    expect(compileJSFn(() => vec4(apply(u), 1), none)).toMatch(/\[(0\.25|0|1|2), \1, \1\]/);
+    expect(compileJSFn(() => vec4(apply(u), 1), none)).toMatch(/\[2\] = (0\.25|0|1|2);/);
     expect(evaluateRecording((a) => apply(vec3(a, 0.3, 0.6)).x, [0.4])).toBeCloseTo(expected, 12);
   });
 
@@ -89,7 +90,7 @@ describe("units of the core", () => {
     const { glsl, wgsl, js } = sources(() => vec4(mix(u, vec3(1), 0.25), 1));
     expect(glsl).toMatch(/mix\(_rmsl_u\d+, vec3\(1\.0\), 0\.25\)/);
     expect(wgsl).toMatch(/mix\(_rmsl_uniforms\._rmsl_u\d+, vec3<f32>\(1f\), 0\.25f\)/);
-    expect(js).toMatch(/_v3mix\(ctx\.uniforms\["_rmsl_u\d+"\], _rmsl_t\d+, 0\.25, _rmsl_t\d+\)/);
+    expect(js).toMatch(/\[0\] = (_rmsl_t\d+)\[0\] \+ 0\.25 \* \(_rmsl_t\d+\[0\] - \1\[0\]\);/);
     expect(evaluateRecording((a) => mix(vec3(a), vec3(1), 0.25).x, [-3])).toBe(-2);
   });
 
@@ -244,22 +245,25 @@ describe("the variable names of a program", () => {
   it.each([
     ["JS", compileJSRoutine],
     ["WASM", compileWasmRoutine],
-  ] as const)("keeps each root's own variable when two roots take one name on %s", (_target, compile) => {
-    const out = instancedArray(2, "float");
-    const build = () => [
-      Fn(() => {
-        const color = float(1).toVar("color");
-        out.element(int(0)).assign(color.add(1));
-      })(),
-      Fn(() => {
-        const color = float(10).toVar("color");
-        out.element(int(1)).assign(color.add(1));
-      })(),
-    ];
-    const data = new Float64Array(2);
-    compile(build as any, none)({ storages: { [out.name]: data } });
-    expect(Array.from(data)).toEqual([2, 11]);
-  });
+  ] as [string, CompileCpuRoutine][])(
+    "keeps each root's own variable when two roots take one name on %s",
+    (_target, compile) => {
+      const out = instancedArray(2, "float");
+      const build = () => [
+        Fn(() => {
+          const color = float(1).toVar("color");
+          out.element(int(0)).assign(color.add(1));
+        })(),
+        Fn(() => {
+          const color = float(10).toVar("color");
+          out.element(int(1)).assign(color.add(1));
+        })(),
+      ];
+      const data = new Float64Array(2);
+      compile(build as any, none)({ storages: { [out.name]: data } });
+      expect(Array.from(data)).toEqual([2, 11]);
+    },
+  );
 });
 
 describe("the type of the size of a texture", () => {
@@ -614,7 +618,7 @@ describe("a float converted to an integer", () => {
   it.each([
     ["JS", compileJSRoutine],
     ["WASM", compileWasmRoutine],
-  ] as const)("truncates and clamps to the range of int and uint on %s", (_, compile) => {
+  ] as [string, CompileCpuRoutine][])("truncates and clamps to the range of int and uint on %s", (_, compile) => {
     const toInt = compile((a: any) => Fn(() => a.toInt().toVar())(), param);
     const toUint = compile((a: any) => Fn(() => a.toUint().toVar())(), param);
     for (const [x, asInt, asUint] of cases) {
@@ -629,7 +633,7 @@ describe("a float converted to an integer", () => {
   it.each([
     ["JS", compileJSRoutine],
     ["WASM", compileWasmRoutine],
-  ] as const)("gives 0 for a NaN on %s", (_, compile) => {
+  ] as [string, CompileCpuRoutine][])("gives 0 for a NaN on %s", (_, compile) => {
     const toInt = compile((a: any) => Fn(() => a.toInt().toVar())(), param);
     const toUint = compile((a: any) => Fn(() => a.toUint().toVar())(), param);
     expect(toInt({ params: { a: NaN } })).toBe(0);

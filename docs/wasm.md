@@ -70,10 +70,10 @@ Options extend the `Fn` compilers', the same set `compileJSRoutine` accepts:
 
 ```typescript
 type CpuRoutine<A> = (ctx: CpuShaderContext) => <the value A has>;
-type VertexStage = (ctx) => { position: number[]; varyings: Record<string, unknown> };
-type FragmentStage = (ctx) => { value: number[] | undefined; outputs: unknown[]; fragDepth?: number } | null;
+type VertexStage = (ctx) => { position: Float64Array; varyings: Record<string, unknown> };
+type FragmentStage = (ctx) => { value: Float64Array | undefined; outputs: unknown[]; fragDepth?: number } | null;
 type ComputeStage = ((ctx, count: number) => void) & { storageTypes: Record<string, ShaderType> };
-type CpuGrid<A> = (ctx, width: number, height: number, out?) => Float64Array | Int32Array | Uint32Array;
+type CpuGrid<A> = (ctx, width: number, height: number, out?) => Float64Array | Float32Array | Int32Array | Uint32Array;
 ```
 
 Each is a plain function:

@@ -1,19 +1,5 @@
 import { afterAll, describe, expect, it } from "vitest";
-import {
-  Fn,
-  If,
-  float,
-  int,
-  mat2,
-  mat3,
-  uniform,
-  uniformArray,
-  varying,
-  vec2,
-  vec3,
-  vec4,
-  type Node,
-} from "../rmsl";
+import { Fn, If, float, int, mat2, mat3, uniform, uniformArray, varying, vec2, vec3, vec4, type Node } from "../rmsl";
 import { compileJSRoutine } from "../js";
 import { compileWasmRoutine } from "../wasm";
 import {
@@ -54,8 +40,16 @@ describe("one program means the same on every target", () => {
    * @canon spec-integer-folding-gives-the-run-time-result
    */
   it("folds literals to what the same program computes at run time", () => {
-    const folded = evaluateRecording(() => int(7).div(int(-2)).toFloat().add(float(-7).mod(float(3))));
-    const computed = evaluateRecording((a, b, c, d) => a.toInt().div(b.toInt()).toFloat().add(c.mod(d)), [7, -2, -7, 3]);
+    const folded = evaluateRecording(() =>
+      int(7)
+        .div(int(-2))
+        .toFloat()
+        .add(float(-7).mod(float(3))),
+    );
+    const computed = evaluateRecording(
+      (a, b, c, d) => a.toInt().div(b.toInt()).toFloat().add(c.mod(d)),
+      [7, -2, -7, 3],
+    );
     expect(folded).toBe(-1);
     expect(computed).toBe(folded);
   });
@@ -68,10 +62,7 @@ describe("one program means the same on every target", () => {
    * @canon spec-a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns
    */
   it.skipIf(GPU_EVALUATION_SKIPPED)("narrows a matrix to its leading rows and columns on the GPU targets", async () => {
-    const build = (a: Node<"float">) =>
-      mat2(mat3(vec3(a, 2, 3), vec3(4, 5, 6), vec3(7, 8, 9)))
-        .element(int(1))
-        .y;
+    const build = (a: Node<"float">) => mat2(mat3(vec3(a, 2, 3), vec3(4, 5, 6), vec3(7, 8, 9))).element(int(1)).y;
     expect(await evaluateGLSL(build, [1])).toBe(5);
     expect(await evaluateWGSL(build, [1])).toBe(5);
   });
@@ -209,7 +200,7 @@ describe("one program means the same on every target", () => {
     const ctx = { textures: { [tex.name]: texture } };
     const js = compileJSRoutine(() => prog, { name: "main", params: [] })(ctx);
     const wasm = compileWasmRoutine(() => prog, { name: "main", params: [] })(ctx);
-    expect(js).toEqual([0.5, 0, 0, 1]);
+    expect(js).toEqual(new Float64Array([0.5, 0, 0, 1]));
     expect((wasm as any).value ?? wasm).toEqual(js);
   });
 
@@ -222,8 +213,7 @@ describe("one program means the same on every target", () => {
    * @canon spec-wgsl-gives-the-defined-integer-result
    */
   it("wraps, divides by zero and shifts past the width in one expression", async () => {
-    const build = (a: Node<"int">, b: Node<"int">, c: Node<"int">) =>
-      a.add(int(1)).div(b).shiftRight(c) as Node<"int">;
+    const build = (a: Node<"int">, b: Node<"int">, c: Node<"int">) => a.add(int(1)).div(b).shiftRight(c) as Node<"int">;
     const args = [INT_MAX, 0, 33];
     const want = -1073741824;
     expect(evaluateIntegerJS(build as any, "int", args)).toBe(want);

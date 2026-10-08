@@ -1,6 +1,11 @@
-import { compileWgsl } from "@random-mesh/rmsl/wgsl";
+import { compileWgsl, wgslUniformLayout } from "@random-mesh/rmsl/wgsl";
 import {
   calcColourAndDepth,
+  cameraPosition,
+  cameraProjectionMatrix,
+  cameraProjectionMatrixInverse,
+  cameraViewMatrix,
+  cameraWorldMatrix,
   mat4Inverse,
   mat4LookAt,
   mat4Perspective,
@@ -9,8 +14,20 @@ import {
 } from "./shader";
 
 // === Compile shaders ===
-const vsWGSL = compileWgsl.vertex(vertexMain());
-const fsWGSL = compileWgsl.fragment(calcColourAndDepth());
+// Every uniform lives in one struct at binding 0. Both stages declare all of
+// them, so the struct each reads is the one wgslUniformLayout packs below.
+const uniforms = [
+  { slot: cameraProjectionMatrix.name, type: "mat4x4<f32>" },
+  { slot: cameraViewMatrix.name, type: "mat4x4<f32>" },
+  { slot: cameraProjectionMatrixInverse.name, type: "mat4x4<f32>" },
+  { slot: cameraWorldMatrix.name, type: "mat4x4<f32>" },
+  { slot: cameraPosition.name, type: "vec3<f32>" },
+];
+const vsWGSL = compileWgsl.vertex(vertexMain(), { uniforms });
+const fsWGSL = compileWgsl.fragment(calcColourAndDepth(), { uniforms });
+const uniformLayout = wgslUniformLayout(uniforms);
+/** Where a uniform starts in the buffer, in floats. */
+const uniformAt = (slot: string) => uniformLayout.members.find((m) => m.name === slot)!.offset / 4;
 
 // === Orbital camera state ===
 let theta = 0;
@@ -74,28 +91,25 @@ let vertexBuffer = device.createBuffer({
 });
 device.queue.writeBuffer(vertexBuffer, 0, quadVerts);
 
-let uniformSizes = [64, 64, 64, 64, 16];
-let uniformBuffers = uniformSizes.map((size) =>
-  device.createBuffer({
-    size,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-  }),
-);
+let uniformBuffer = device.createBuffer({
+  size: Math.ceil(uniformLayout.size / 16) * 16,
+  usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+});
+let uniformData = new Float32Array(uniformBuffer.size / 4);
 
 let bindGroupLayout = device.createBindGroupLayout({
-  entries: uniformBuffers.map((_, i) => ({
-    binding: i,
-    visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-    buffer: { type: "uniform" },
-  })),
+  entries: [
+    {
+      binding: 0,
+      visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+      buffer: { type: "uniform" },
+    },
+  ],
 });
 
 let bindGroup = device.createBindGroup({
   layout: bindGroupLayout,
-  entries: uniformBuffers.map((buf, i) => ({
-    binding: i,
-    resource: { buffer: buf },
-  })),
+  entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
 });
 
 let pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] });
@@ -213,11 +227,12 @@ function render() {
   let world = mat4Inverse(view);
   let camPos = getCameraPosition();
 
-  device.queue.writeBuffer(uniformBuffers[0], 0, proj);
-  device.queue.writeBuffer(uniformBuffers[1], 0, view);
-  device.queue.writeBuffer(uniformBuffers[2], 0, projInv);
-  device.queue.writeBuffer(uniformBuffers[3], 0, world);
-  device.queue.writeBuffer(uniformBuffers[4], 0, new Float32Array(camPos));
+  uniformData.set(proj, uniformAt(cameraProjectionMatrix.name));
+  uniformData.set(view, uniformAt(cameraViewMatrix.name));
+  uniformData.set(projInv, uniformAt(cameraProjectionMatrixInverse.name));
+  uniformData.set(world, uniformAt(cameraWorldMatrix.name));
+  uniformData.set(camPos, uniformAt(cameraPosition.name));
+  device.queue.writeBuffer(uniformBuffer, 0, uniformData);
 
   let commandEncoder = device.createCommandEncoder();
   let renderPass = commandEncoder.beginRenderPass({

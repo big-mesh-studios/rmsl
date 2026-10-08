@@ -151,9 +151,9 @@ describe("./test", () => {
       })();
     const [outside] = runner(graph).source.split("return function");
     const [before, inside] = runner(graph, { reentrant: true }).source.split("return function");
-    expect(outside).toMatch(/^let _rmsl_\w+ = \[0, 0, 0\];/m);
+    expect(outside).toMatch(/^let _rmsl_\w+ = new Float64Array\(_rmsl_slots, \d+, 3\);/m);
     expect(before).not.toMatch(/^let _rmsl_/m);
-    expect(inside).toMatch(/var _rmsl_\w+ = \[0, 0, 0\];/);
+    expect(inside).toMatch(/var _rmsl_\w+ = new Float64Array\(_rmsl_slots, \d+, 3\);/);
   });
 
   /**
@@ -196,22 +196,24 @@ describe("./test", () => {
   ] as const)("reads %s as the identity", (name, type) => {
     const shade = fromProgram(program(name, type));
     expect(shade.unbound).toEqual([]);
-    expect(shade().value).toEqual([1, 2, 3, 1]);
+    expect(shade().value).toEqual(new Float64Array([1, 2, 3, 1]));
   });
 
   /**
    * @canon spec-a-program-under-test-sees-its-camera-at-the-origin
    */
   it("reads cameraPosition as the origin", () => {
-    expect(fromProgram(program("cameraPosition", "vec3"))().value).toEqual([0, 0, 0, 1]);
+    expect(fromProgram(program("cameraPosition", "vec3"))().value).toEqual(new Float64Array([0, 0, 0, 1]));
   });
 
   /**
    * @canon spec-a-program-under-test-sees-a-resolution-of-one-pixel
    */
   it("reads resolution as one pixel unless the options give one", () => {
-    expect(fromProgram(program("resolution", "vec2"))().value).toEqual([1, 1, 0, 1]);
-    expect(fromProgram(program("resolution", "vec2"), { resolution: [4, 2] })().value).toEqual([4, 2, 0, 1]);
+    expect(fromProgram(program("resolution", "vec2"))().value).toEqual(new Float64Array([1, 1, 0, 1]));
+    expect(fromProgram(program("resolution", "vec2"), { resolution: [4, 2] })().value).toEqual(
+      new Float64Array([4, 2, 0, 1]),
+    );
   });
 
   /**
@@ -223,7 +225,7 @@ describe("./test", () => {
     };
     const shade = fromProgram(program("cameraPosition", "vec3", throws as () => never));
     expect(shade.unbound).toEqual([]);
-    expect(shade().value).toEqual([0, 0, 0, 1]);
+    expect(shade().value).toEqual(new Float64Array([0, 0, 0, 1]));
   });
 
   /**
@@ -250,7 +252,7 @@ describe("./test", () => {
     );
     const written = project().varyings;
     expect(Object.keys(written)).toEqual(["uv"]);
-    expect(written.uv).toEqual([0.25, 0.75]);
+    expect(written.uv).toEqual(new Float64Array([0.25, 0.75]));
   });
 
   /**
@@ -316,6 +318,6 @@ describe("the Vite plugins", () => {
     const mod = (await import(`data:text/javascript,${encodeURIComponent(code)}`)) as Record<string, any>;
     const result = mod.brightness({ uniforms: { _rmsl_u0: [1, 2, 3] } });
     expect(result).not.toBeInstanceOf(Promise);
-    expect(result).toEqual([0.5, 1, 1.5]);
+    expect(result).toEqual(new Float64Array([0.5, 1, 1.5]));
   });
 });

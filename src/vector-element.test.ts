@@ -40,7 +40,7 @@ describe("a vector's component by index", () => {
       v.element(a.toInt()).assign(float(20));
       return v;
     });
-    expect(evaluateRecording((a) => write(a), [2])).toEqual([10, 2, 20, 4]);
+    expect(evaluateRecording((a) => write(a), [2])).toEqual(new Float64Array([10, 2, 20, 4]));
   });
 
   /**
@@ -57,7 +57,7 @@ describe("a vector's component by index", () => {
       v.element(a.toInt()).assign(float(20));
       return v;
     });
-    expect(evaluateWASM((a) => write(a), [1])).toEqual([1, 20, 3, 4]);
+    expect(evaluateWASM((a) => write(a), [1])).toEqual(new Float64Array([1, 20, 3, 4]));
   });
 
   /**
@@ -72,8 +72,8 @@ describe("a vector's component by index", () => {
       v.element(a.toInt()).assign(float(20));
       return v.add(w);
     });
-    expect(evaluateWASM((a) => write(a), [9])).toEqual([6, 8, 10, 28]);
-    expect(evaluateWASM((a) => write(a), [-1])).toEqual([6, 8, 10, 28]);
+    expect(evaluateWASM((a) => write(a), [9])).toEqual(new Float64Array([6, 8, 10, 28]));
+    expect(evaluateWASM((a) => write(a), [-1])).toEqual(new Float64Array([6, 8, 10, 28]));
   });
 
   /**

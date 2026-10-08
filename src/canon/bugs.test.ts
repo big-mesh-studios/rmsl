@@ -25,23 +25,9 @@ import { evaluateJS, evaluateWASM } from "../testing/shader-eval";
 const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
 const none = { name: "main", params: [] };
 
-const narrow = (a: Node<"float">) =>
-  mat2(mat3(vec3(a, 2, 3), vec3(4, 5, 6), vec3(7, 8, 9)))
-    .element(int(1))
-    .y;
+const narrow = (a: Node<"float">) => mat2(mat3(vec3(a, 2, 3), vec3(4, 5, 6), vec3(7, 8, 9))).element(int(1)).y;
 
 describe("known bugs, each failing until its fix", () => {
-  /**
-   * @canon bug-js-reads-a-storage-element-out-of-range-as-nan
-   */
-  it.fails("reads a storage element past the end of its buffer as zero on JS", () => {
-    const data = Float32Array.of(1, 2, 3, 4);
-    const buf = instancedArray(data, "float");
-    const build = (i: Node<"int">) => Fn(() => buf.element(i).add(float(0)).toVar())();
-    const run = compileJSRoutine(build as any, { name: "main", params: [{ name: "i", type: "int" }] });
-    expect(run({ params: { i: 10 }, storages: { [buf.name]: data } })).toBe(0);
-  });
-
   /**
    * The casts reach `.name`, which the type of `screenSize()` hides until #68
    * is fixed.
@@ -70,10 +56,7 @@ describe("known bugs, each failing until its fix", () => {
    * @canon bug-wasm-compiles-no-matrix-inverse
    */
   it.fails("inverts a matrix on WASM", () => {
-    const build = (a: Node<"float">) =>
-      mat2(vec2(a, 1), vec2(2, 4))
-        .inverse()
-        .element(int(0)).x;
+    const build = (a: Node<"float">) => mat2(vec2(a, 1), vec2(2, 4)).inverse().element(int(0)).x;
     expect(evaluateWASM(build, [3])).toBeCloseTo(0.4, 12);
   });
 

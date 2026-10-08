@@ -1,12 +1,6 @@
 import { type Node, type ShaderType, type VariableNode } from "../rmsl";
-import {
-  compileJSFn,
-  compileJSFragment,
-  compileJSVertex,
-  type CpuShaderContext,
-  type CpuTextureData,
-} from "../js";
-import type { CpuValue, FragmentResult, VertexResult } from "../backends/cpu";
+import { compileJSFn, compileJSFragment, compileJSVertex, type CpuShaderContext, type CpuTextureData } from "../js";
+import { isVector, type CpuValue, type FragmentResult, type VertexResult } from "../backends/cpu";
 import { compileJSProgram } from "../backends/js/js";
 // How a texture asks to be read is the renderers' question too, and they
 // already answer it without a device — so a shader tested here samples by the
@@ -18,14 +12,29 @@ import type { Texture } from "../scene/textures/Texture";
 
 /**
  * The JavaScript value a shader type carries on the CPU: scalars are numbers
- * (or booleans), vectors and matrices are flat arrays — matrices in the
- * column-major order the rest of the library uses.
+ * (or booleans), vectors and matrices typed arrays of their kind — matrices in
+ * the column-major order the rest of the library uses.
  */
 export type ShaderValue<A extends ShaderType> = A extends `${string}sampler${string}`
   ? TextureData
   : A extends "void"
     ? never
     : CpuValue<A>;
+
+/**
+ * A value given for a uniform, varying or attribute of a shader type: a scalar
+ * as a number or a boolean, and a vector or matrix as its components, in a
+ * plain array or in the typed array a result comes back in.
+ */
+export type ShaderInput<A extends ShaderType> = A extends `${string}sampler${string}`
+  ? TextureData
+  : A extends "void"
+    ? never
+    : A extends "float" | "int" | "uint" | "bool"
+      ? CpuValue<A>
+      : A extends `bvec${string}`
+        ? readonly boolean[] | readonly number[] | Int32Array
+        : readonly number[] | ArrayLike<number>;
 
 /**
  * Texture data to sample from. A scene `DataTexture` fits as it stands: its
@@ -59,7 +68,7 @@ export type TextureData =
  * generated `_rmsl_u0` names.
  */
 export type ValueBinding = {
-  [A in ShaderType]: readonly [VariableNode<A>, ShaderValue<A>];
+  [A in ShaderType]: readonly [VariableNode<A>, ShaderInput<A>];
 }[ShaderType];
 
 /** A texture for one sampler node. */
@@ -118,7 +127,7 @@ export interface EvaluationResult<A extends ShaderType = ShaderType> {
    */
   varyings: Record<string, unknown>;
   /** Written with `builtinPosition()`. */
-  position?: number[];
+  position?: Float64Array | Float32Array;
   /** Written with `builtinFragDepth()`. */
   fragDepth?: number;
 }
@@ -700,8 +709,8 @@ function difference(actual: unknown, expected: unknown, allowed?: number): strin
   if (typeof expected === "boolean" || typeof actual === "boolean") {
     return actual === expected ? null : `expected ${format(expected)}, got ${format(actual)}`;
   }
-  if (Array.isArray(expected)) {
-    if (!Array.isArray(actual)) return `expected an array of ${expected.length}, got ${format(actual)}`;
+  if (isVector(expected)) {
+    if (!isVector(actual)) return `expected an array of ${expected.length}, got ${format(actual)}`;
     if (actual.length !== expected.length) {
       return `expected ${expected.length} components, got ${actual.length}`;
     }
@@ -721,7 +730,7 @@ function difference(actual: unknown, expected: unknown, allowed?: number): strin
 }
 
 function format(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(format).join(", ")}]`;
+  if (isVector(value)) return `[${Array.from(value, format).join(", ")}]`;
   return String(value);
 }
 
@@ -889,7 +898,7 @@ function toRGBA(result: EvaluationResult<ShaderType>): [number, number, number, 
   const value = result.value ?? onlyOutput(result.outputs);
   if (typeof value === "number") return [value, value, value, 1];
   if (typeof value === "boolean") return value ? [1, 1, 1, 1] : [0, 0, 0, 1];
-  if (Array.isArray(value)) {
+  if (isVector(value)) {
     const channel = (i: number): number => {
       const component = value[i];
       return typeof component === "boolean" ? (component ? 1 : 0) : ((component ?? 0) as number);

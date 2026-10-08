@@ -54,13 +54,13 @@ Each binding is `[node, value]`. The node knows which slot it is and what it
 holds, so `[tint, 1]` on a `vec3` is a compile error rather than a `NaN` halfway
 through a render.
 
-| Shader type                                  | Value                                              |
-| -------------------------------------------- | -------------------------------------------------- |
-| `float`, `int`, `uint`                       | `number`                                           |
-| `bool`                                       | `boolean`                                          |
-| `bvec2`–`bvec4`                              | `boolean[]`                                        |
-| `vec2`–`vec4`, `ivecN`, `uvecN`, `matCxR`    | `number[]` (matrices column-major)                 |
-| `sampler2D`/`sampler3D` and integer variants | `{ data, width, height, depth? }` under `textures` |
+| Shader type                                  | Value                                               |
+| -------------------------------------------- | --------------------------------------------------- |
+| `float`, `int`, `uint`                       | `number`                                            |
+| `bool`                                       | `boolean`                                           |
+| `bvec2`–`bvec4`                              | `boolean[]`, or an `Int32Array` of 1 and 0          |
+| `vec2`–`vec4`, `ivecN`, `uvecN`, `matCxR`    | `number[]` or a typed array (matrices column-major) |
+| `sampler2D`/`sampler3D` and integer variants | `{ data, width, height, depth? }` under `textures`  |
 
 Texture data may also arrive as `{ image, width, height }`, which is the shape a
 scene `DataTexture` already has. Its `format` comes with it, so a single-channel

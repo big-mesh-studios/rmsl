@@ -1,6 +1,12 @@
 import { afterAll, describe, expect, it } from "vitest";
 import {
   attribute,
+  cross,
+  distance,
+  dot,
+  length,
+  inverse,
+  transpose,
   bool,
   builtinFragDepth,
   builtinPosition,
@@ -32,6 +38,7 @@ import {
   vec4,
   type Node,
 } from "../rmsl";
+import type { CompileCpuRoutine } from "../backends/cpu";
 import { compileGlsl } from "../glsl";
 import { compileWgsl } from "../wgsl";
 import { compileJS, compileJSRoutine, createJsGrid, compileJSFragment, compileJSVertex } from "../js";
@@ -53,8 +60,8 @@ function expectOnEveryTarget(stage: "vertex" | "fragment", build: () => Node<any
   const compilers: [string, () => unknown][] = [
     ["GLSL", () => compileGlsl[stage](build())],
     ["WGSL", () => compileWgsl[stage](build())],
-    ["JS", () => (stage === "vertex" ? compileJSVertex : compileJSFragment)(build, none)],
-    ["WASM", () => (stage === "vertex" ? compileWasmVertex : compileWasmFragment)(build, none)],
+    ["JS", () => (stage === "vertex" ? compileJSVertex(build, none) : compileJSFragment(build, none))],
+    ["WASM", () => (stage === "vertex" ? compileWasmVertex(build, none) : compileWasmFragment(build, none))],
   ];
   for (const [name, compile] of compilers) {
     if (refused) expect(compile, name).toThrow(refused);
@@ -93,7 +100,7 @@ describe("each leaf on every target it claims", () => {
       expect(evaluateRecording(round, [half]), `round(${half})`).toBe(even);
     }
     expect(evaluateRecording(() => float(2.5).round())).toBe(2);
-    expect(evaluateRecording((a) => vec3(a, a.add(1), a.add(2)).round(), [0.5])).toEqual([0, 2, 2]);
+    expect(evaluateRecording((a) => vec3(a, a.add(1), a.add(2)).round(), [0.5])).toEqual(new Float64Array([0, 2, 2]));
   });
 
   /**
@@ -132,15 +139,21 @@ describe("each leaf on every target it claims", () => {
    * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
    */
   it("refuses the radians or degrees of an integer, which no target has", () => {
-    expect(() => Fn(() => (int(90) as any).radians().toVar())()).toThrow(/radians\(\) takes a float or a float vector, not int/);
-    expect(() => Fn(() => (uvec2(1, 2) as any).degrees().toVar())()).toThrow(/degrees\(\) takes a float or a float vector, not uvec2/);
+    expect(() => Fn(() => (int(90) as any).radians().toVar())()).toThrow(
+      /radians\(\) takes a float or a float vector, not int/,
+    );
+    expect(() => Fn(() => (uvec2(1, 2) as any).degrees().toVar())()).toThrow(
+      /degrees\(\) takes a float or a float vector, not uvec2/,
+    );
   });
 
   /**
    * @canon spec-a-scalar-comparison-gives-a-bool
    */
   it("compares scalars on every target", () => {
-    expect(evaluateRecording((a, b) => asFloat(a.lessThan(b)).add(asFloat(a.greaterThanEqual(b)).mul(10)), [1, 2])).toBe(1);
+    expect(
+      evaluateRecording((a, b) => asFloat(a.lessThan(b)).add(asFloat(a.greaterThanEqual(b)).mul(10)), [1, 2]),
+    ).toBe(1);
   });
 
   /**
@@ -163,6 +176,92 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
+   * @canon spec-an-assignment-computes-its-value-before-it-writes
+   */
+  it("reads an assignment's target as it was before the assignment on every target", () => {
+    const crossed = (a: Node<"float">) =>
+      Fn(() => {
+        const v = vec3(a, 1.13, 0.1).toVar();
+        v.assign(cross(v, vec3(0.11, 2, 0.57)));
+        return v.x.add(v.y.mul(10)).add(v.z.mul(100));
+      })();
+    const swizzled = (a: Node<"float">) =>
+      Fn(() => {
+        const v = vec2(a, 2).toVar();
+        v.assign(v.yx);
+        return v.x.mul(10).add(v.y);
+      })();
+    const transposed = (a: Node<"float">) =>
+      Fn(() => {
+        const m = mat3(a, 2, 3, 4, 5, 6, 7, 8, 9).toVar();
+        m.assign(transpose(m));
+        return m
+          .element(int(0))
+          .y.mul(10)
+          .add(m.element(int(1)).x);
+      })();
+    const inverted = (a: Node<"float">) =>
+      Fn(() => {
+        const m = mat2(a, 2, 3, 4).toVar();
+        m.assign(inverse(m));
+        return m.element(int(1)).y;
+      })();
+    const rebuilt = (a: Node<"float">) =>
+      Fn(() => {
+        const v = vec3(a, 2, 3).toVar();
+        v.assign(vec3(v.z, v.x, v.y));
+        return v.x.mul(100).add(v.y.mul(10)).add(v.z);
+      })();
+    const [x, y, z] = [1.13 * 0.57 - 0.1 * 2, 0.1 * 0.11 - 0.37 * 0.57, 0.37 * 2 - 1.13 * 0.11];
+    expect(evaluateRecording(crossed, [0.37])).toBeCloseTo(x + y * 10 + z * 100, 12);
+    expect(evaluateRecording(swizzled, [1])).toBe(21);
+    expect(evaluateRecording(transposed, [1])).toBe(42);
+    expect(evaluateRecording(inverted, [1])).toBe(-0.5);
+    expect(evaluateRecording(rebuilt, [1])).toBe(312);
+    // The WASM target compiles neither transpose nor inverse (#65, #220).
+    for (const [build, a] of [
+      [crossed, 0.37],
+      [swizzled, 1],
+      [rebuilt, 1],
+    ] as const) {
+      const params = [{ name: "a", type: "float" as const }];
+      const wasm = compileWasmRoutine((p: any) => build(p), { name: "main", params })({ params: { a } });
+      expect(wasm).toBe(compileJSRoutine((p: any) => build(p), { name: "main", params })({ params: { a } }));
+    }
+  });
+
+  /**
+   * @canon spec-length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one
+   */
+  it("gives length, distance and dot of a scalar as of a vector of one, on every target", () => {
+    const build = (a: Node<"float">) =>
+      length(a)
+        .add(distance(a, float(3)).mul(10))
+        .add(dot(a, float(2)).mul(100));
+    expect(evaluateRecording(build, [-2])).toBe(2 + 50 - 400);
+    const params = [{ name: "a", type: "float" as const }];
+    const run = (compile: CompileCpuRoutine) =>
+      compile((a: any) => Fn(() => build(a).toVar())(), { name: "main", params })({ params: { a: -2 } });
+    expect(run(compileWasmRoutine as CompileCpuRoutine)).toBe(run(compileJSRoutine as CompileCpuRoutine));
+  });
+
+  /**
+   * @canon spec-length-distance-and-dot-take-only-floats
+   */
+  it("refuses length, distance and dot of an integer or a boolean as the graph is built", () => {
+    expect(() => length(int(3) as any)).toThrow(
+      /length\(\) takes a float or a float vector, not int\. Convert it with toFloat\(\) first/,
+    );
+    expect(() => distance(uint(3) as any, uint(4) as any)).toThrow(/distance\(\) takes .*, not uint/);
+    expect(() => dot(ivec2(1, 2) as any, ivec2(3, 4) as any)).toThrow(/dot\(\) takes .*, not ivec2/);
+    expect(() => (vec2(1, 2) as any).dot(ivec2(3, 4))).toThrow(/dot\(\) takes .*, not ivec2/);
+    expect(() => length(bvec3(true, false, true) as any)).toThrow(/Convert it with toVec3\(\) first/);
+    expect(() => dot(vec3(1, 2, 3), 2 as any)).toThrow(/dot\(\) takes two arguments of one type, not vec3 and float/);
+    expect(() => distance(float(2), vec2(1, 2) as any)).toThrow(/distance\(\) takes two arguments of one type/);
+    expect(() => (mat3(1) as any).dot(mat3(1))).toThrow(/not mat3\. Take it a column at a time, with element\(i\)/);
+  });
+
+  /**
    * @canon spec-a-boolean-vector-reduces-with-all-or-any
    */
   it("reduces a boolean vector with all and any on every target", () => {
@@ -178,7 +277,9 @@ describe("each leaf on every target it claims", () => {
    */
   it("negates a boolean vector component by component on every target", () => {
     const build = (a: Node<"float">) => {
-      const c = vec3(a, 2, 3).lessThan(vec3(2, 2, 4)).not();
+      const c = vec3(a, 2, 3)
+        .lessThan(vec3(2, 2, 4))
+        .not();
       return asFloat(c.x).add(asFloat(c.y).mul(10)).add(asFloat(c.z).mul(100));
     };
     expect(evaluateRecording(build, [1])).toBe(10);
@@ -191,7 +292,9 @@ describe("each leaf on every target it claims", () => {
     const build = (a: Node<"float">) => {
       const p = a.greaterThan(0);
       const q = a.greaterThan(5);
-      return asFloat(p.and(q)).add(asFloat(p.or(q)).mul(10)).add(asFloat(q.not()).mul(100));
+      return asFloat(p.and(q))
+        .add(asFloat(p.or(q)).mul(10))
+        .add(asFloat(q.not()).mul(100));
     };
     expect(evaluateRecording(build, [1])).toBe(110);
   });
@@ -245,7 +348,15 @@ describe("each leaf on every target it claims", () => {
    * @canon spec-a-reducing-operation-has-a-scalar-type
    */
   it("reduces vectors to scalars with length, distance and dot on every target", () => {
-    expect(evaluateRecording((a) => vec2(a, 4).length().add(vec2(a, 4).dot(vec2(1, 1))), [3])).toBe(12);
+    expect(
+      evaluateRecording(
+        (a) =>
+          vec2(a, 4)
+            .length()
+            .add(vec2(a, 4).dot(vec2(1, 1))),
+        [3],
+      ),
+    ).toBe(12);
   });
 
   /**
@@ -303,7 +414,15 @@ describe("each leaf on every target it claims", () => {
    * @canon spec-a-javascript-array-is-a-vector-of-its-length
    */
   it("reads a JavaScript array as a vector on every target", () => {
-    expect(evaluateRecording((a) => vec3(a, 1, 1).mul([1, 2, 3]).dot(vec3(1, 1, 1)), [2])).toBe(7);
+    expect(
+      evaluateRecording(
+        (a) =>
+          vec3(a, 1, 1)
+            .mul([1, 2, 3])
+            .dot(vec3(1, 1, 1)),
+        [2],
+      ),
+    ).toBe(7);
   });
 
   /**
@@ -325,7 +444,10 @@ describe("each leaf on every target it claims", () => {
    * @canon spec-a-matrix-is-built-from-its-columns
    */
   it("builds a matrix from its columns on every target", () => {
-    const build = (a: Node<"float">) => mat2x3(vec3(a, 2, 3), vec3(4, 5, 6)).element(int(1)).dot(vec3(1, 10, 100));
+    const build = (a: Node<"float">) =>
+      mat2x3(vec3(a, 2, 3), vec3(4, 5, 6))
+        .element(int(1))
+        .dot(vec3(1, 10, 100));
     expect(evaluateRecording(build, [1])).toBe(654);
   });
 
@@ -335,7 +457,10 @@ describe("each leaf on every target it claims", () => {
   it("builds a diagonal matrix from one scalar on every target", () => {
     const build = (a: Node<"float">) => {
       const m = mat3(a);
-      return m.element(int(0)).x.add(m.element(int(0)).y.mul(10)).add(m.element(int(2)).z.mul(100));
+      return m
+        .element(int(0))
+        .x.add(m.element(int(0)).y.mul(10))
+        .add(m.element(int(2)).z.mul(100));
     };
     expect(evaluateRecording(build, [2])).toBe(202);
   });
@@ -344,7 +469,9 @@ describe("each leaf on every target it claims", () => {
    * @canon spec-a-matrix-element-is-a-column
    */
   it("reads a matrix column as a vector on every target", () => {
-    expect(evaluateRecording((a) => mat2(vec2(a, 2), vec2(3, 4)).element(int(1)), [1])).toEqual([3, 4]);
+    expect(evaluateRecording((a) => mat2(vec2(a, 2), vec2(3, 4)).element(int(1)), [1])).toEqual(
+      new Float64Array([3, 4]),
+    );
   });
 
   /**
@@ -368,9 +495,11 @@ describe("each leaf on every target it claims", () => {
    * @canon spec-a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number
    */
   it("builds a matrix from numbers and scalar nodes on every target", () => {
-    expect(evaluateRecording((a) => mat2(a, 1, 2, 4).element(int(0)), [3])).toEqual([3, 1]);
+    expect(evaluateRecording((a) => mat2(a, 1, 2, 4).element(int(0)), [3])).toEqual(new Float64Array([3, 1]));
     expect(evaluateRecording((a) => mat3(1, a, 0, 0, 1, 0, 0, 0, a.add(1)).element(int(2)).z, [3])).toBe(4);
-    expect(evaluateRecording((a) => mat2x3(a, 0, 0, 0, 1, a).element(int(1)), [5])).toEqual([0, 1, 5]);
+    expect(evaluateRecording((a) => mat2x3(a, 0, 0, 0, 1, a).element(int(1)), [5])).toEqual(
+      new Float64Array([0, 1, 5]),
+    );
   });
 
   /**
@@ -384,8 +513,11 @@ describe("each leaf on every target it claims", () => {
    * @canon spec-a-transpose-swaps-the-shape
    */
   it("transposes a matrix that is not square on every target", () => {
-    const build = (a: Node<"float">) => mat2x3(vec3(a, 2, 3), vec3(4, 5, 6)).transpose().element(int(2));
-    expect(evaluateRecording(build, [1])).toEqual([3, 6]);
+    const build = (a: Node<"float">) =>
+      mat2x3(vec3(a, 2, 3), vec3(4, 5, 6))
+        .transpose()
+        .element(int(2));
+    expect(evaluateRecording(build, [1])).toEqual(new Float64Array([3, 6]));
   });
 
   /**
@@ -414,7 +546,16 @@ describe("each leaf on every target it claims", () => {
    * @canon spec-an-operand-that-is-an-expression-keeps-its-grouping
    */
   it("keeps the grouping of an operand that is an expression on every target", () => {
-    expect(evaluateRecording((a, b) => a.add(b).mod(a.sub(b)).mul(a.div(b.add(1))), [7, 2])).toBe(4 * (7 / 3));
+    expect(
+      evaluateRecording(
+        (a, b) =>
+          a
+            .add(b)
+            .mod(a.sub(b))
+            .mul(a.div(b.add(1))),
+        [7, 2],
+      ),
+    ).toBe(4 * (7 / 3));
   });
 
   /**
@@ -504,7 +645,11 @@ describe("each leaf on every target it claims", () => {
    * @canon spec-the-fragment-depth-is-written-only-in-a-fragment-stage
    */
   it("refuses the fragment depth in a vertex stage on every target", () => {
-    expectOnEveryTarget("vertex", () => Fn(() => vec4(builtinFragDepth(), 0, 0, 1).toVar())(), /builtinFragDepth|depth|fragment/i);
+    expectOnEveryTarget(
+      "vertex",
+      () => Fn(() => vec4(builtinFragDepth(), 0, 0, 1).toVar())(),
+      /builtinFragDepth|depth|fragment/i,
+    );
   });
 
   /**
@@ -530,9 +675,9 @@ describe("each leaf on every target it claims", () => {
     expect(compileGlsl.fragment(build()), "GLSL").toContain("out vec4");
     expect(compileWgsl.fragment(build()), "WGSL").toMatch(/: vec4<f32>/);
     const js = compileJSFragment(build, { ...none })({}) as any;
-    expect(js.value ?? js, "JS").toEqual(expected);
+    expect(js.value ?? js, "JS").toEqual(new Float64Array(expected));
     const wasm = compileWasmFragment(build, { ...none })({}) as any;
-    expect(Array.from(wasm.value ?? wasm), "WASM").toEqual(expected);
+    expect(wasm.value ?? wasm, "WASM").toEqual(new Float64Array(expected));
   }
 
   /**
@@ -683,7 +828,9 @@ describe("each leaf on every target it claims", () => {
       Fn(() => {
         builtinFragDepth().assign(float(0.5));
       })();
-    expect(Array.from(compileWasm(vertex as any, colour as any).draw(ctx, { width: 1, height: 1 }))).toEqual([1, 1, 1, 1]);
+    expect(Array.from(compileWasm(vertex as any, colour as any).draw(ctx, { width: 1, height: 1 }))).toEqual([
+      1, 1, 1, 1,
+    ]);
     for (const fragment of [nothing, depthOnly]) {
       const routine = compileWasm(vertex as any, fragment as any);
       expect(Array.from(routine.draw(ctx, { width: 1, height: 1 }))).toEqual([0, 0, 0, 0]);
@@ -744,8 +891,8 @@ describe("each leaf on every target it claims", () => {
     const build = () => Fn(() => vec4(time(), 0, 0, 1).toVar())();
     expect(compileGlsl.fragment(build())).toContain("_rmsl_time");
     expect(compileWgsl.fragment(build())).toContain("_rmsl_time");
-    expect(compileJSRoutine(build, none)({ uniforms: { _rmsl_time: 2 } })).toEqual([2, 0, 0, 1]);
+    expect(compileJSRoutine(build, none)({ uniforms: { _rmsl_time: 2 } })).toEqual(new Float64Array([2, 0, 0, 1]));
     const wasm = compileWasmRoutine(build, none)({ uniforms: { _rmsl_time: 2 } }) as any;
-    expect(wasm.value ?? wasm).toEqual([2, 0, 0, 1]);
+    expect(wasm.value ?? wasm).toEqual(new Float64Array([2, 0, 0, 1]));
   });
 });
