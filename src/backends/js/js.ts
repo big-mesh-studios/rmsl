@@ -2328,8 +2328,10 @@ export function compileJSNode(
           base = { ...base, decls: [...base.decls, ...idx.decls], body: [...base.body, ...idx.body] };
           components = [jsBoundedIndex(idx.expr, TYPE_WIDTH[parts.base._t])];
         }
-        // A storage element outside its buffer is not written.
-        let guarded = (lines: string[]) => (base.inRange ? [`if (${base.inRange}) {`, ...lines, "}"] : lines);
+        // A storage element outside its buffer is not written. The guard is an
+        // expression, so the write stays one in a for-loop's update.
+        let guarded = (lines: string[]) =>
+          base.inRange ? [`${base.inRange} && (${lines.map(withoutSemicolon).join(", ")});`] : lines;
         if (components.length === 1) {
           let rhs = compileJSStage(rhsNode, ctx);
           return {
@@ -2361,7 +2363,7 @@ export function compileJSNode(
             ...idx.body,
             ...rhs.body,
             `${at} = ${jsStorageIndex(targetNode, idx.expr)};`,
-            `if (${at} >= 0 && ${at} < ${arr.expr}.length) ${arr.expr}[${at}] = ${rhs.expr};`,
+            `${at} >= 0 && ${at} < ${arr.expr}.length && (${arr.expr}[${at}] = ${rhs.expr});`,
           ],
           expr: `${arr.expr}[${at}]`,
         };

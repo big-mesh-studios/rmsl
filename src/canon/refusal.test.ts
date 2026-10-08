@@ -214,6 +214,40 @@ describe("a mistake is refused before the program runs", () => {
   });
 
   /**
+   * A `For` whose update writes a storage element, a scalar one and a
+   * component of a vector one, past the end of the buffer too, compiles on
+   * every target with storage buffers, and the CPU targets write the same.
+   *
+   * @canon spec-a-for-update-that-holds-a-block-is-refused
+   */
+  it("compiles a For whose update writes a storage element on every target with storage buffers", () => {
+    const scalars = instancedArray(4, "float");
+    const triples = instancedArray(4, "vec3");
+    const build = () =>
+      Fn(() => {
+        For(
+          () => int(0).toVar(),
+          (i) => i.lessThan(6),
+          (i) => {
+            triples.element(i).x.assign(float(1));
+            scalars.element(i).assign(i.toFloat());
+            i.assign(i.add(1));
+          },
+          () => {},
+        );
+      })();
+    expect(computeWgsl(build())).toContain("continuing");
+    for (const compile of [compileJSCompute, compileWasmCompute]) {
+      const storages = { [scalars.name]: [9, 9, 9, 9], [triples.name]: new Array(12).fill(0) };
+      compile(build, { name: "main", params: [] })({ storages }, 1);
+      expect(storages).toEqual({
+        [scalars.name]: [0, 1, 2, 3],
+        [triples.name]: [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0],
+      });
+    }
+  });
+
+  /**
    * A `Case` given no values can match no selector, so it is refused, naming
    * `Case`.
    *
