@@ -142,13 +142,14 @@ export function writeVaryingDescriptors(view: DataView, base: number, descriptor
  * Instantiates {@link buildRasterizerModule}'s module against a specific
  * vertex/fragment pair's exported `main` functions and the `memory` those
  * two were themselves instantiated with, returning its `rasterize` export.
+ * `shared` says whether that memory is shared, which picks the module that links against it.
  */
 export function instantiateRasterizer(
   vertexMain: () => void,
   fragmentMain: () => void,
   memory: WebAssembly.Memory,
+  shared: boolean,
 ): { rasterize: (...args: number[]) => void } {
-  const shared = typeof SharedArrayBuffer !== "undefined" && memory.buffer instanceof SharedArrayBuffer;
   const instance = new WebAssembly.Instance(
     new WebAssembly.Module(buildRasterizerModule(shared).buffer as ArrayBuffer),
     {
@@ -355,6 +356,7 @@ export function compileWasm(
     vertexInstance.exports.main as () => void,
     fragmentInstance.exports.main as () => void,
     memory,
+    memoryIsShared,
   );
 
   // Each stage's textures sit after both stages' fixed layouts, the vertex

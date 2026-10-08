@@ -278,12 +278,12 @@ describe("the WASM rasterizer's memory", () => {
    */
   it("links its rasterizer against a memory that is not shared, and a shared one of any maximum, on WASM", () => {
     const stages = { vertex: { main: () => {} }, fragment: { main: () => {} } };
-    for (const memory of [
-      new WebAssembly.Memory({ initial: 1 }),
-      new WebAssembly.Memory({ initial: 1, maximum: 2, shared: true }),
-      new WebAssembly.Memory({ initial: 1, maximum: 65536, shared: true }),
-    ]) {
-      expect(() => instantiateRasterizer(stages.vertex.main, stages.fragment.main, memory)).not.toThrow();
+    for (const [memory, shared] of [
+      [new WebAssembly.Memory({ initial: 1 }), false],
+      [new WebAssembly.Memory({ initial: 1, maximum: 2, shared: true }), true],
+      [new WebAssembly.Memory({ initial: 1, maximum: 65536, shared: true }), true],
+    ] as const) {
+      expect(() => instantiateRasterizer(stages.vertex.main, stages.fragment.main, memory, shared)).not.toThrow();
     }
   });
 
