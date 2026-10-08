@@ -651,6 +651,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-mipmapped-texture-without-its-chain-samples-black`](#fact-a-mipmapped-texture-without-its-chain-samples-black) — In WebGL 2, a texture whose minification filter reads mipmaps but which has no mip chain is incomplete, and samples as black.
 - [`@fact a-content-security-policy-can-block-new-function`](#fact-a-content-security-policy-can-block-new-function) — A Content-Security-Policy without `unsafe-eval` stops `new Function` from compiling source.
 - [`@fact dawn-on-metal-divides-some-u32-constants-wrongly`](#fact-dawn-on-metal-divides-some-u32-constants-wrongly) — Dawn on Metal computes the wrong quotient when a constant `u32` numerator from `0xFFFFFF80` to `0xFFFFFFFE` is divided by a run-time value.
+- [`@fact tsl-to-read-only-changes-the-node-it-is-called-on`](#fact-tsl-to-read-only-changes-the-node-it-is-called-on) — TSL's `toReadOnly()` on a storage node sets the access of that node to read-only and returns the same node.
 - [`@fact tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-one-loop-function-in-three-shapes) — Three.js TSL has one loop function, `Loop`, and no `While` or `For`. `Loop` takes a count, a `bool` condition, or an object of `start`, `end`, `type`, `condition` and `update`. It passes the loop index to its body as `{ i }`.
 - [`@fact tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-condition-once) — TSL builds the `bool` condition of a `Loop`, and its `start` and `end`, before it emits the loop. A variable they make is computed once, before the first test.
 - [`@fact a-three-js-renderer-draws-its-scene-graph`](#fact-a-three-js-renderer-draws-its-scene-graph) — In three.js, `renderer.render(scene, camera)` walks the scene graph, binds the geometry and the material of each object, uploads their uniforms and draws them. A scene graph in the shape of three.js comes with a renderer that draws it.
@@ -775,11 +776,10 @@ A fragment program can write depth on one path only. What depth the other paths 
 
 The analysis found these places where the code or the documents do not hold the canon, and no spec decides the fix yet. Each has an issue. A defect that breaks a spec is a bug unit inside that spec instead.
 
-1. `toReadOnly()` changes the storage node it is called on, as it does in TSL, so a reference typed as writable becomes read-only. The type checker accepts a write that the compiler refuses. Issue #52 asks whether to depart from TSL here.
-2. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
-3. The documents call `While` and `For` TSL functions, but TSL has only `Loop`. Issue #59.
-4. `var_`, `assertBlockScope` and `compileWat` are exported with no documented purpose. Issue #73 asks whether they are public API.
-5. `createWgsl` configures its canvas opaque, so a transparent clear shows as opaque black where the other adapters show the page. Issue #188 asks whether to configure it premultiplied.
+1. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
+2. The documents call `While` and `For` TSL functions, but TSL has only `Loop`. Issue #59.
+3. `var_`, `assertBlockScope` and `compileWat` are exported with no documented purpose. Issue #73 asks whether they are public API.
+4. `createWgsl` configures its canvas opaque, so a transparent clear shows as opaque black where the other adapters show the page. Issue #188 asks whether to configure it premultiplied.
 
 ### Coverage gaps
 
@@ -2685,7 +2685,9 @@ Derives from: [`fact-wgsl-cannot-share-a-bool-with-the-host`](#fact-wgsl-cannot-
 
 > A program can read and write a storage node until `toReadOnly()`, which makes it read-only and returns it. The element of a node, by a number or an `int`, has the element type.
 
-`toReadOnly()` changes the node it is called on, as TSL's does. Issue #52 asks whether to return a separate node instead.
+Derives from: [`fact-tsl-to-read-only-changes-the-node-it-is-called-on`](#fact-tsl-to-read-only-changes-the-node-it-is-called-on)
+
+This follows because a TSL shader ports by changing its import, and one that calls `toReadOnly()` for its effect on the node reads that node as read-only. A reference typed as writable before the call becomes read-only with it, so the compiler, not the type checker, refuses a write through that reference.
 
 #### @spec nodes-over-one-buffer-share-one-binding
 
@@ -4488,6 +4490,12 @@ This is a fact of the browser platform, not a choice.
 > Dawn on Metal computes the wrong quotient when a constant `u32` numerator from `0xFFFFFF80` to `0xFFFFFFFE` is divided by a run-time value.
 
 This is a fact of one driver, not a choice. It holds until Dawn fixes it.
+
+## @fact tsl-to-read-only-changes-the-node-it-is-called-on
+
+> TSL's `toReadOnly()` on a storage node sets the access of that node to read-only and returns the same node.
+
+This is how TSL behaves, read from its source: `toReadOnly()` in `src/nodes/accessors/StorageBufferNode.js` calls `setAccess(NodeAccess.READ_ONLY)`, which sets the node's access and returns it.
 
 ## @fact tsl-has-one-loop-function-in-three-shapes
 

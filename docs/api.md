@@ -289,8 +289,10 @@ uniform("vec4").assign(b); // type error: a uniform is read-only
 ```
 
 A `Var<A>` is accepted wherever a `Node<A>` is. A function that writes a node it
-is given takes a `Var<A>`. `.toReadOnly()` on a storage node returns a
-`ReadOnlyStorageNode<A>`, whose elements are `Node<A>`s.
+is given takes a `Var<A>`. `.toReadOnly()` on a storage node makes that node read-only, as TSL's does, and
+returns it as a `ReadOnlyStorageNode<A>`, whose elements are `Node<A>`s. Another
+reference to the node, typed as writable, is read-only too, and the compiler
+refuses a write through it.
 
 ## Node Methods
 
