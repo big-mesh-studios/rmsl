@@ -325,7 +325,7 @@ describe("a scene renderer manages what it uploads", () => {
   });
 
   /**
-   * @canon spec-a-texture-uploads-whatever-holds-its-image
+   * @canon spec-a-loaded-image-uploads-at-its-own-size
    */
   it("uploads a texture whose image is an image source on WebGPU", () => {
     const { device, canvas, textures, queue } = stubDevice();
@@ -382,6 +382,45 @@ describe("a scene renderer manages what it uploads", () => {
 
     expect(textures[0].format).toMatch(/float$/);
     expect(calls.find((c) => c.name === "texImage2D")!.args[7]).toBe(context.FLOAT);
+  });
+
+  /**
+   * @canon spec-an-image-uploads-once-it-has-loaded
+   */
+  it("uploads an image at the first render after it loads", () => {
+    const { device, canvas, queue } = stubDevice();
+    const gpu = new WebGPURenderer(canvas, device as any);
+    const { renderer: gl, calls } = stubWebGl();
+    const image: any = { complete: false, width: 0, height: 0 };
+    const texture = new Texture(image);
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(), sampling(texture)));
+    const copies = () => queue.filter((c) => c.name === "copyExternalImageToTexture").length;
+    const uploads = () => calls.filter((c) => c.name === "texImage2D").length;
+    gpu.render(scene, camera());
+    gl.render(scene, camera());
+    expect([copies(), uploads()]).toEqual([0, 0]);
+
+    Object.assign(image, { complete: true, width: 2, height: 2 });
+    gpu.render(scene, camera());
+    gl.render(scene, camera());
+    expect([copies(), uploads()]).toEqual([1, 1]);
+  });
+
+  /**
+   * @canon spec-a-loaded-image-uploads-at-its-own-size
+   */
+  it("makes a texture an image can be copied into when an image replaces data of its size on WebGPU", () => {
+    const { device, canvas, textures } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const texture = new DataTexture(new Uint8Array(16), 2, 2);
+    const material = sampling(texture);
+    renderer.ensurePipeline(material, new Scene(), false, false);
+    texture.image = { width: 2, height: 2 } as any;
+    texture.needsUpdate = true;
+    renderer.ensurePipeline(material, new Scene(), false, false);
+
+    expect(textures.at(-1).usage & GPUTextureUsage.RENDER_ATTACHMENT).toBeTruthy();
   });
 
   /**

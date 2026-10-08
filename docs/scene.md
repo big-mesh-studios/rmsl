@@ -429,6 +429,8 @@ See [Testing](testing.md).
   their values; a `uniform()` declared deep inside an escape-hatch graph that
   the builder never sees will not be bound.
 - Both renderers upload a `DataTexture` and a texture whose image is an image
-  element, bitmap or canvas.
+  element, video, bitmap or canvas. An image still loading, or a video with no
+  frame yet, reads as blank and uploads at the first render after it has
+  loaded, without `needsUpdate`, as in three.js.
 - The test suite validates every material shader on real Chromium/Dawn drivers
   by default; `RMSL_SKIP_GPU=1` turns that off (see `CONTRIBUTING.md`).

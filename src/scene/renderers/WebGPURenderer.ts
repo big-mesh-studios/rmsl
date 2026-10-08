@@ -41,6 +41,9 @@ import {
   textureChannels,
   type SamplerState,
   type TextureWrap,
+  imageHeight,
+  imageLoaded,
+  imageWidth,
 } from "./common";
 
 interface PipelineEntry {
@@ -893,10 +896,11 @@ export class WebGPURenderer {
     const dimension = samplerDimension(samplerType);
     let gpu = this.textures.get(t);
     if (!gpu || this.uploadedVersions.get(t) !== t.version) {
-      // An image element, bitmap or canvas has a size of its own; a data texture names its size.
+      // An image that has not loaded uploads at the first draw after it has, as three.js uploads it.
       const source = imageSource(t.image);
-      const width = source ? source.width : ArrayBuffer.isView(t.image) ? ((t as DataTexture).width ?? 1) : 1;
-      const height = source ? source.height : ArrayBuffer.isView(t.image) ? ((t as DataTexture).height ?? 1) : 1;
+      if (source && !imageLoaded(source)) return gpu ?? this.ensureGpuTexture(null, samplerType);
+      const width = source ? imageWidth(source) : ArrayBuffer.isView(t.image) ? ((t as DataTexture).width ?? 1) : 1;
+      const height = source ? imageHeight(source) : ArrayBuffer.isView(t.image) ? ((t as DataTexture).height ?? 1) : 1;
       const depth = dimension === "3d" ? ((t as DataTexture).depth ?? 1) : 1;
       const format: GPUTextureFormat = integer
         ? textureChannels(t) === 1
@@ -911,7 +915,11 @@ export class WebGPURenderer {
       // image gets a new texture — whatever bound the old one must rebind.
       if (
         gpu &&
-        (gpu.width !== width || gpu.height !== height || gpu.depthOrArrayLayers !== depth || gpu.format !== format)
+        (gpu.width !== width ||
+          gpu.height !== height ||
+          gpu.depthOrArrayLayers !== depth ||
+          gpu.format !== format ||
+          (source && !(gpu.usage & GPUTextureUsage.RENDER_ATTACHMENT)))
       ) {
         gpu.destroy();
         this.textures.delete(t);
@@ -930,6 +938,8 @@ export class WebGPURenderer {
         });
         this.textures.set(t, gpu);
         t.addEventListener("dispose", this.onTextureDispose);
+        // A bind group made while the texture's image was loading binds the blank texture.
+        this.invalidateBindGroups(t);
       }
       if (ArrayBuffer.isView(t.image)) {
         this.writeTexture(gpu, t.image as unknown as ArrayBufferView<ArrayBuffer>, width, height, depth, format);
@@ -1199,11 +1209,9 @@ function entryTexture(program: MaterialProgram, name: string): Texture | null {
   return program.samplers.find((s) => s.name === name)?.texture() ?? null;
 }
 
-/** `image` when it is an image element, bitmap or canvas, which has a size of its own, or null for data or nothing. */
-function imageSource(image: Texture["image"]): { width: number; height: number } | null {
-  if (image === null || ArrayBuffer.isView(image)) return null;
-  const { width, height } = image as { width?: number; height?: number };
-  return typeof width === "number" && typeof height === "number" ? { width, height } : null;
+/** `image` when it is an image element, video, bitmap or canvas, which has a size of its own, or null for data or nothing. */
+function imageSource(image: Texture["image"]): object | null {
+  return image === null || ArrayBuffer.isView(image) ? null : (image as object);
 }
 
 /** What a draw's blend and depth state is read from. */

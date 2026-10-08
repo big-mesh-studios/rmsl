@@ -59,6 +59,7 @@ export function stubDevice() {
         height,
         depthOrArrayLayers: depth ?? 1,
         format: descriptor.format,
+        usage: descriptor.usage,
         createView: () => ({ texture }),
         destroy: () => {},
       };

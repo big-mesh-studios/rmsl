@@ -34,6 +34,7 @@ import {
   geometryAttribute,
   VERTEX_FORMATS,
   vertexFormatOf,
+  imageLoaded,
 } from "./common";
 
 interface ProgramEntry {
@@ -543,10 +544,14 @@ export class WebGLRenderer {
     this.state?.keepUnit(unit);
     gl.activeTexture(gl.TEXTURE0 + unit);
     let glTexture = this.textures.get(texture);
+    const image = texture.image;
+    // An image that has not loaded uploads at the first draw after it has, as three.js uploads it.
+    const loading = image != null && !ArrayBuffer.isView(image) && !imageLoaded(image);
     if (
-      !glTexture ||
-      this.uploadedVersions.get(texture) !== texture.version ||
-      this.uploadedAsInteger.get(texture) !== integer
+      !loading &&
+      (!glTexture ||
+        this.uploadedVersions.get(texture) !== texture.version ||
+        this.uploadedAsInteger.get(texture) !== integer)
     ) {
       if (!glTexture) {
         glTexture = gl.createTexture()!;
@@ -565,7 +570,6 @@ export class WebGLRenderer {
       if (is3D) gl.texParameteri(target, gl.TEXTURE_WRAP_R, glWrap(gl, sampling.wrapR));
       gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, glFilter(gl, sampling.minFilter));
       gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, glFilter(gl, sampling.magFilter));
-      const image = texture.image;
       if (ArrayBuffer.isView(image)) {
         // A data texture's rows are packed tight, and a single-channel row is rarely a multiple of four bytes.
         gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
@@ -603,7 +607,8 @@ export class WebGLRenderer {
       this.uploadedVersions.set(texture, texture.version);
       this.uploadedAsInteger.set(texture, integer);
     }
-    gl.bindTexture(target, glTexture);
+    // A texture still loading binds no texture, which reads as blank.
+    gl.bindTexture(target, glTexture ?? null);
     return unit;
   }
 

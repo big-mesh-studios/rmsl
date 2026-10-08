@@ -441,3 +441,40 @@ export function mergedUpdateRanges(attribute: BufferAttribute): readonly { start
   if (ranges.length > 0) ranges.length = merged + 1;
   return ranges;
 }
+
+/** The parts of an image element, video, bitmap or canvas that say whether it has loaded and how big it is. */
+type ImageLike = {
+  complete?: boolean;
+  readyState?: number;
+  naturalWidth?: number;
+  naturalHeight?: number;
+  videoWidth?: number;
+  videoHeight?: number;
+  width?: number;
+  height?: number;
+};
+
+/** A video's `readyState` once it has a frame to draw, `HTMLMediaElement.HAVE_CURRENT_DATA`. */
+const HAVE_CURRENT_DATA = 2;
+
+/** The width of a loaded image source: a video's frame, an image's own pixels, or a bitmap's or canvas's size. */
+export function imageWidth(image: unknown): number {
+  const i = image as ImageLike;
+  return i.videoWidth ?? i.naturalWidth ?? i.width ?? 0;
+}
+
+/** The height of a loaded image source, as `imageWidth` reads the width. */
+export function imageHeight(image: unknown): number {
+  const i = image as ImageLike;
+  return i.videoHeight ?? i.naturalHeight ?? i.height ?? 0;
+}
+
+/**
+ * Whether an image source a texture holds has loaded: an image element that
+ * is complete, a video with a frame, and any source with a size.
+ */
+export function imageLoaded(image: unknown): boolean {
+  const i = image as ImageLike;
+  if (i.complete === false || (i.readyState !== undefined && i.readyState < HAVE_CURRENT_DATA)) return false;
+  return imageWidth(image) > 0 && imageHeight(image) > 0;
+}
