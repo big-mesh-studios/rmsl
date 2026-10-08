@@ -381,7 +381,7 @@ export class WebGLRenderer {
       if (count > 0)
         gl.drawElementsInstanced(gl.TRIANGLES, count, type, start * indexView.BYTES_PER_ELEMENT, instanceCount);
     } else {
-      const { start, count } = drawSlice(mesh.drawRange, geometry.attributes.position?.count ?? 0);
+      const { start, count } = drawSlice(mesh.drawRange, geometry.attributes.position?.count ?? Infinity);
       if (count > 0) gl.drawArraysInstanced(gl.TRIANGLES, start, count, instanceCount);
     }
   }

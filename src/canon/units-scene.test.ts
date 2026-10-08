@@ -272,6 +272,37 @@ describe("a scene renderer manages what it uploads", () => {
   });
 
   /**
+   * @canon spec-a-mesh-draws-the-slice-its-draw-range-selects
+   */
+  it("draws the range of a geometry with no index and no position uncut", () => {
+    const { device, canvas, passes } = stubDevice();
+    const gpu = new WebGPURenderer(canvas, device as any);
+    const { renderer: gl, calls } = stubWebGl();
+    const mesh = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+    mesh.drawRange = { start: 0, count: 3 };
+    const scene = new Scene();
+    scene.add(mesh);
+    gpu.render(scene, camera());
+    gl.render(scene, camera());
+
+    expect(passes.at(-1)!.calls.find((c) => c.name === "draw")?.args[0]).toBe(3);
+    expect(calls.find((c) => c.name === "drawArraysInstanced")?.args[2]).toBe(3);
+  });
+
+  /**
+   * @canon spec-an-image-uploads-once-it-has-loaded
+   */
+  it("takes a VideoFrame's display size as its size", () => {
+    const { device, canvas, textures } = stubDevice();
+    const gpu = new WebGPURenderer(canvas, device as any);
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(), sampling(new Texture({ displayWidth: 4, displayHeight: 2 } as any))));
+    gpu.render(scene, camera());
+
+    expect(textures.some((t) => t.width === 4 && t.height === 2)).toBe(true);
+  });
+
+  /**
    * @canon spec-a-draw-takes-its-material-blend-and-depth-state
    */
   it("blends colour and alpha with the factors three.js uses on both renderers", () => {

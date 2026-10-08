@@ -336,7 +336,7 @@ export class WebGPURenderer {
           const { start, count } = drawSlice(mesh.drawRange, geometry.index.count);
           if (count > 0) pass.drawIndexed(count, instanceCount, start);
         } else {
-          const { start, count } = drawSlice(mesh.drawRange, geometry.attributes.position?.count ?? 0);
+          const { start, count } = drawSlice(mesh.drawRange, geometry.attributes.position?.count ?? Infinity);
           if (count > 0) pass.draw(count, instanceCount, start);
         }
         pass.end();

@@ -450,6 +450,8 @@ type ImageLike = {
   naturalHeight?: number;
   videoWidth?: number;
   videoHeight?: number;
+  displayWidth?: number;
+  displayHeight?: number;
   width?: number;
   height?: number;
 };
@@ -457,16 +459,16 @@ type ImageLike = {
 /** A video's `readyState` once it has a frame to draw, `HTMLMediaElement.HAVE_CURRENT_DATA`. */
 const HAVE_CURRENT_DATA = 2;
 
-/** The width of a loaded image source: a video's frame, an image's own pixels, or a bitmap's or canvas's size. */
+/** The width of a loaded image source: a video's frame, a `VideoFrame`'s display size, an image's own pixels, or a bitmap's or canvas's size. */
 export function imageWidth(image: unknown): number {
   const i = image as ImageLike;
-  return i.videoWidth ?? i.naturalWidth ?? i.width ?? 0;
+  return i.videoWidth ?? i.displayWidth ?? i.naturalWidth ?? i.width ?? 0;
 }
 
 /** The height of a loaded image source, as `imageWidth` reads the width. */
 export function imageHeight(image: unknown): number {
   const i = image as ImageLike;
-  return i.videoHeight ?? i.naturalHeight ?? i.height ?? 0;
+  return i.videoHeight ?? i.displayHeight ?? i.naturalHeight ?? i.height ?? 0;
 }
 
 /**
@@ -484,12 +486,14 @@ const slice = { start: 0, count: 0 };
 
 /**
  * The elements a draw range selects out of `total`, cut to them as three.js
- * cuts it. A count of 0 means the range selects none, and the draw is skipped.
- * The result is reused by the next call.
+ * cuts it; an infinite `total` leaves the range uncut. A count of 0 means the
+ * range selects none, or has no end, and the draw is skipped. The result is
+ * reused by the next call.
  */
 export function drawSlice(range: { start: number; count: number }, total: number): Readonly<typeof slice> {
   slice.start = Math.max(range.start, 0);
-  slice.count = Math.max(0, Math.min(range.start + range.count, total) - slice.start);
+  const count = Math.min(range.start + range.count, total) - slice.start;
+  slice.count = Number.isFinite(count) ? Math.max(0, count) : 0;
   return slice;
 }
 

@@ -475,7 +475,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-changed-texture-shows-on-the-next-render`](#spec-a-changed-texture-shows-on-the-next-render) — A texture whose image changes uploads again on the next render, and a texture that does not change stays as it is. The renderer replaces and binds again a texture whose size changes.
     - [`@spec a-disposed-resource-is-freed-by-every-renderer-holding-it`](#spec-a-disposed-resource-is-freed-by-every-renderer-holding-it) — Disposing a geometry or a texture tells every renderer that holds it. Each frees its own copy and uploads it again if it draws it again, and pipelines that do not use it stay as they are. A disposed renderer stops listening.
     - [`@spec a-render-target-reads-its-pixels-back`](#spec-a-render-target-reads-its-pixels-back) — A renderer draws into a render target and reads its pixels back as RGBA bytes, the bottom row first, alike on both renderers: on WebGL at once, or asynchronously without stalling the pipeline, and on WebGPU through a promise, since WebGPU reads a texture back only asynchronously.
-    - [`@spec a-mesh-draws-the-slice-its-draw-range-selects`](#spec-a-mesh-draws-the-slice-its-draw-range-selects) — A mesh draws only the vertices its `drawRange` selects from its geometry, cut to the geometry's indices, or to its vertices when it has no index. A range that selects none draws nothing.
+    - [`@spec a-mesh-draws-the-slice-its-draw-range-selects`](#spec-a-mesh-draws-the-slice-its-draw-range-selects) — A mesh draws only the vertices its `drawRange` selects from its geometry, cut to the geometry's indices, or to its vertices when it has no index. A geometry with neither, whose vertex stage places its vertices itself, draws its range uncut. A range that selects none, or no end, draws nothing.
     - [`@spec a-texture-is-bound-to-every-stage-that-samples-it`](#spec-a-texture-is-bound-to-every-stage-that-samples-it) — A renderer binds a texture to every stage that samples it, the vertex stage included.
     - [`@spec a-data-texture-uploads-in-the-type-it-names`](#spec-a-data-texture-uploads-in-the-type-it-names) — A data texture uploads in the element type its `type` names, so a float texture holds floats. A float texture filters linearly where the device can, and reads its nearest texel where it cannot.
     - [`@spec a-renderer-blends-and-depth-tests-as-the-material-asks`](#spec-a-renderer-blends-and-depth-tests-as-the-material-asks) — A renderer blends and depth-tests each draw as its material's `transparent`, `blending`, `depthTest` and `depthWrite` ask.
@@ -710,7 +710,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact three-js-clears-to-a-colour-background`](#fact-three-js-clears-to-a-colour-background) — When `scene.background` is a colour, three.js clears to that colour with alpha 1 and forces the clear, with `autoClear` on or off. With no background it clears to the renderer's clear colour.
 - [`@fact three-js-sets-blending-and-depth-from-the-material`](#fact-three-js-sets-blending-and-depth-from-the-material) — In three.js, `transparent`, `blending`, `depthTest` and `depthWrite` are properties of a material, and the renderer sets its blend and depth state from them for each draw. A material with normal blending that is not transparent draws with no blending. Normal blending weighs colour by the source alpha and alpha by one, both over one minus the source alpha. Additive blending adds colour weighed by the source alpha, and adds alpha.
 - [`@fact three-js-uploads-a-changed-attribute-through-update-ranges`](#fact-three-js-uploads-a-changed-attribute-through-update-ranges) — three.js holds the changed part of a `BufferAttribute` as a list `updateRanges`, which `addUpdateRange(start, count)` adds to. It sends those ranges to the GPU, and sends the whole attribute when the list is empty.
-- [`@fact three-js-cuts-a-draw-range-to-its-geometry`](#fact-three-js-cuts-a-draw-range-to-its-geometry) — three.js draws the part of a draw range that lies within the geometry's index, or within its vertices when it has no index, and draws nothing when that part is empty.
+- [`@fact three-js-cuts-a-draw-range-to-its-geometry`](#fact-three-js-cuts-a-draw-range-to-its-geometry) — three.js draws the part of a draw range that lies within the geometry's index, or within its position attribute when it has no index, and the range as it is when the geometry has neither. It draws nothing when that part is empty or has no end.
 - [`@fact three-js-uploads-an-image-once-it-has-loaded`](#fact-three-js-uploads-an-image-once-it-has-loaded) — three.js's `WebGLRenderer` skips the upload of a texture marked for update whose image element has not loaded, and records no version for it. It tries again at each render, and uploads the texture once the image has loaded. A texture never marked for update it does not upload; its `TextureLoader` marks a texture when the image loads.
 - [`@fact three-js-writes-a-texture-sampler-state-when-its-version-changes`](#fact-three-js-writes-a-texture-sampler-state-when-its-version-changes) — three.js's `WebGLRenderer` writes a texture's filters and wrap when it uploads the texture, which it does when the texture's `version` differs from the one it uploaded. A change to `minFilter`, `magFilter` or a wrap mode with no `needsUpdate` leaves the texture read as before.
 - [`@fact three-js-uploads-a-data-texture-in-its-type`](#fact-three-js-uploads-a-data-texture-in-its-type) — A three.js `DataTexture` takes a typed array and a texture `type`, `UnsignedByteType` by default, and uploads its data to the GPU as that type.
@@ -3365,7 +3365,7 @@ This follows because three.js writes a texture's sampler state only when the tex
 
 #### @spec a-mesh-draws-the-slice-its-draw-range-selects
 
-> A mesh draws only the vertices its `drawRange` selects from its geometry, cut to the geometry's indices, or to its vertices when it has no index. A range that selects none draws nothing.
+> A mesh draws only the vertices its `drawRange` selects from its geometry, cut to the geometry's indices, or to its vertices when it has no index. A geometry with neither, whose vertex stage places its vertices itself, draws its range uncut. A range that selects none, or no end, draws nothing.
 
 Derives from: [`fact-three-js-cuts-a-draw-range-to-its-geometry`](#fact-three-js-cuts-a-draw-range-to-its-geometry)
 
@@ -4829,7 +4829,7 @@ This is how three.js behaves, read from its source (`BufferAttribute` and `WebGL
 
 ## @fact three-js-cuts-a-draw-range-to-its-geometry
 
-> three.js draws the part of a draw range that lies within the geometry's index, or within its vertices when it has no index, and draws nothing when that part is empty.
+> three.js draws the part of a draw range that lies within the geometry's index, or within its position attribute when it has no index, and the range as it is when the geometry has neither. It draws nothing when that part is empty or has no end.
 
 This is how three.js behaves, read from its source (`WebGLRenderer`, `renderBufferDirect`, three.js 0.186).
 
