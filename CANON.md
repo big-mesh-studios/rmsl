@@ -460,7 +460,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-uniform-uploads-in-the-shape-its-type-has`](#spec-a-uniform-uploads-in-the-shape-its-type-has) — A renderer uploads a scalar uniform as a scalar and a vector or matrix as an array. An integer uniform goes up as an integer, and each column of a `mat3` is padded to 16 bytes, as WGSL reads it. It places every uniform a material collects in the WGSL layout.
     - [`@spec an-instanced-attribute-comes-from-its-mesh`](#spec-an-instanced-attribute-comes-from-its-mesh) — A renderer reads an instanced attribute from the geometry, or from the mesh that owns it when the geometry has none. Its WGSL locations match the compiler's.
     - [`@spec each-sampler-gets-its-own-texture`](#spec-each-sampler-gets-its-own-texture) — Several samplers in one draw each read their own texture.
-    - [`@spec the-webgpu-renderer-shares-one-sampler-per-state`](#spec-the-webgpu-renderer-shares-one-sampler-per-state) — The WebGPU renderer makes one sampler for each combination of filters and wrap, described as the texture asks, and binds each sampler by its type. When a texture's version changes, it rebinds the texture if its sampler state changed, and leaves it alone if not.
+    - [`@spec the-webgpu-renderer-shares-one-sampler-per-state`](#spec-the-webgpu-renderer-shares-one-sampler-per-state) — The WebGPU renderer makes one sampler for each combination of filters and wrap, described as the texture asks, and binds each sampler by its type. When a texture's version changes, it rebinds the texture only if its sampler state changed.
     - [`@spec a-sampler-change-takes-effect-after-needs-update`](#spec-a-sampler-change-takes-effect-after-needs-update) — A change to a texture's filters or wrap takes effect on both renderers at the first render after `texture.needsUpdate = true`, and not before, as a change to its image does.
     - [`@spec a-changed-texture-shows-on-the-next-render`](#spec-a-changed-texture-shows-on-the-next-render) — A texture whose image changes uploads again on the next render, and a texture that does not change stays as it is. The renderer replaces and binds again a texture whose size changes.
     - [`@spec a-disposed-resource-is-freed-by-every-renderer-holding-it`](#spec-a-disposed-resource-is-freed-by-every-renderer-holding-it) — Disposing a geometry or a texture tells every renderer that holds it. Each frees its own copy and uploads it again if it draws it again, and pipelines that do not use it stay as they are. A disposed renderer stops listening.
@@ -3189,7 +3189,7 @@ This follows because the depth mask applies to `clear`, and the renderer sets th
 
 > A texture on the WebGL renderer reads as the type of the sampler that reads it asks, whichever type of sampler uploaded it.
 
-This follows because [one rule decides how every target samples a texture](#spec-one-rule-decides-how-every-target-samples-a-texture), and reads an integer texture as nearest. A renderer that wrote the filters and wrap once, for the first sampler, would give a later sampler another answer. A WebGL texture holds one format and one set of filters, and an integer sampler reads only an integer format, so the renderer uploads the texture again when a sampler of the other kind, integer or float, reads it.
+This follows because [one rule decides how every target samples a texture](#spec-one-rule-decides-how-every-target-samples-a-texture), and reads an integer texture as nearest. A renderer that wrote the filters and wrap once, for the first sampler, would give a later sampler another answer. A WebGL texture holds one format and one set of filters, and an integer sampler reads only an integer format. So the renderer uploads the texture again when a sampler of the other kind reads it.
 
 #### @spec a-webgpu-render-records-what-a-fresh-renderer-records
 
@@ -3275,7 +3275,7 @@ This follows because a renderer that owns what it uploads frees what nothing rea
 
 #### @spec the-webgpu-renderer-shares-one-sampler-per-state
 
-> The WebGPU renderer makes one sampler for each combination of filters and wrap, described as the texture asks, and binds each sampler by its type. When a texture's version changes, it rebinds the texture if its sampler state changed, and leaves it alone if not.
+> The WebGPU renderer makes one sampler for each combination of filters and wrap, described as the texture asks, and binds each sampler by its type. When a texture's version changes, it rebinds the texture only if its sampler state changed.
 
 #### @spec a-sampler-change-takes-effect-after-needs-update
 
@@ -3283,7 +3283,7 @@ This follows because a renderer that owns what it uploads frees what nothing rea
 
 Derives from: [`spec-a-change-raises-a-version-every-renderer-reads`](#spec-a-change-raises-a-version-every-renderer-reads), [`fact-three-js-writes-a-texture-sampler-state-when-its-version-changes`](#fact-three-js-writes-a-texture-sampler-state-when-its-version-changes)
 
-This follows because three.js writes a texture's sampler state only when the texture's version changes, and a renderer that compared the state at each draw would pay for that comparison on every sampler of every draw.
+This follows because three.js writes a texture's sampler state only when the texture's version changes. A renderer that compared the state at each draw would pay for it on every sampler of every draw.
 
 #### @spec a-changed-texture-shows-on-the-next-render
 
