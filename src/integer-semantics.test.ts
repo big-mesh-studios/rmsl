@@ -148,3 +148,21 @@ describe("integer semantics match WGSL", () => {
     expect(await evaluateIntegerWGSL(build, type, args)).toBe(want);
   });
 });
+
+describe("a defect of Dawn on Metal", () => {
+  /**
+   * Dawn on Metal divides a constant `u32` numerator from `0xFFFFFF80` to
+   * `0xFFFFFFFE` by a run-time value wrongly: `0xFFFFFFF0u / 3` gives
+   * 1431655765. This test fails while the defect lasts, so it starts passing,
+   * and fails the run, once Dawn fixes it. Then the exception, this test and
+   * the integer sweep's filter for it can all go.
+   *
+   * @canon exception-dawn-on-metal-divides-some-u32-constants-wrongly
+   */
+  it.skipIf(GPU_EVALUATION_SKIPPED || process.platform !== "darwin").fails(
+    "divides a constant u32 numerator near the top of its range by a run-time value on WGSL",
+    async () => {
+      expect(await evaluateIntegerWGSL((a) => uint(0xfffffff0).div(a as Node<"uint">), "uint", [3])).toBe(1431655760);
+    },
+  );
+});
