@@ -2,12 +2,10 @@ import { Node, ShaderType } from "../../core";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK } from "../adapter";
 import {
   componentCountOf,
+  componentKindOf,
   CpuDrawBuffer,
   CpuShaderContext,
-  elementKindOf,
-  isAggregate,
   isResultObject,
-  scalarKindOf,
   vertexPosition,
 } from "../cpu";
 import { compileJSProgram, CompileJSOptions } from "./js";
@@ -181,10 +179,7 @@ export function compileJS(
   const varyingSlots = Object.keys(vertexStage.varyingTypes);
   const varyingWidths = varyingSlots.map((slot) => componentCountOf(vertexStage.varyingTypes[slot]!));
   /** Whether each varying is an integer one, which a fragment reads flat, as its triangle's first vertex wrote it. */
-  const varyingFlat = varyingSlots.map((slot) => {
-    const type = vertexStage.varyingTypes[slot]!;
-    return (isAggregate(type) ? elementKindOf(type) : scalarKindOf(type)) !== "float";
-  });
+  const varyingFlat = varyingSlots.map((slot) => componentKindOf(vertexStage.varyingTypes[slot]!) !== "float");
   /** The varyings of the fragment being shaded: a vector in an array of its own, filled for each fragment. */
   const fragmentArrays = varyingWidths.map((w) => new Float64Array(w));
   const fragmentVaryings: Record<string, number | Float64Array> = {};

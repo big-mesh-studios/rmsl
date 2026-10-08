@@ -1,15 +1,14 @@
 import { Node, ShaderType } from "../../core";
-import {
-  componentCountOf,
-  CpuDrawBuffer,
-  CpuShaderContext,
-  CpuTextureData,
-  elementKindOf,
-  isAggregate,
-  scalarKindOf,
-} from "../cpu";
+import { componentCountOf, componentKindOf, CpuDrawBuffer, CpuShaderContext, CpuTextureData } from "../cpu";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray } from "../adapter";
-import { compileWasmFn, createWasmInputMarshaller, WasmCompileFields, WasmFloatWidth, WasmParam } from "./wasm";
+import {
+  compileWasmFn,
+  componentSizeOf,
+  createWasmInputMarshaller,
+  WasmCompileFields,
+  WasmFloatWidth,
+  WasmParam,
+} from "./wasm";
 import RASTERIZER_WASM_BYTES, { shared as RASTERIZER_SHARED_WASM_BYTES } from "./rasterizer.wat";
 
 /**
@@ -221,16 +220,6 @@ export interface WasmRasterRoutine {
   draw(ctx: WasmRasterContext, options: WasmRasterDrawOptions): CpuDrawBuffer;
 }
 
-/** The kind of each component of a value of `type`: float, int, uint or bool. */
-function componentKindOf(type: string): "float" | "int" | "uint" | "bool" {
-  return isAggregate(type) ? elementKindOf(type) : scalarKindOf(type);
-}
-
-/** The bytes a stage keeps a component of `kind` in: an f64 for a float, an i32 for any other. */
-function componentBytes(kind: string): number {
-  return kind === "float" ? 8 : 4;
-}
-
 function align8(n: number): number {
   return Math.ceil(n / 8) * 8;
 }
@@ -313,7 +302,7 @@ export function compileWasm(
   let varyingCursor = 0;
   const varyingLayout = vertexVaryingParams.map((v) => {
     const kind = componentKindOf(v.shaderType);
-    const sizeBytes = componentCountOf(v.shaderType) * componentBytes(kind);
+    const sizeBytes = componentCountOf(v.shaderType) * componentSizeOf(kind);
     const offset = varyingCursor;
     varyingCursor = align8(varyingCursor + sizeBytes);
     return {
@@ -331,7 +320,7 @@ export function compileWasm(
   const attrLayout = attrParams.map((p) => {
     const kind = componentKindOf(p.shaderType);
     const componentCount = componentCountOf(p.shaderType);
-    const sizeBytes = componentCount * componentBytes(kind);
+    const sizeBytes = componentCount * componentSizeOf(kind);
     const offset = attrCursor;
     attrCursor += sizeBytes;
     return { slot: p.slot, offset, sizeBytes, componentCount, kind, destAddress: p.address };
