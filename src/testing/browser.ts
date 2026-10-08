@@ -22,6 +22,77 @@ const readPixel = (canvas, x, y) => {
 `;
 
 /**
+ * Helpers for an entry to check what a call leaves on a WebGL 2 context:
+ * `dirtyGlState(gl)` sets every piece of state rmsl touches to a value of the
+ * page's own, with objects of its own; `glState(gl)` reads that state, the
+ * first eight texture units and the current vertex array's element buffer and
+ * first eight attribute switches included; `changedGlState(before, after)`
+ * names each piece that differs.
+ */
+export const GL_STATE = `
+const GL_STATE_NAMES = [
+  "DRAW_FRAMEBUFFER_BINDING", "READ_FRAMEBUFFER_BINDING", "RENDERBUFFER_BINDING", "CURRENT_PROGRAM",
+  "VERTEX_ARRAY_BINDING", "ARRAY_BUFFER_BINDING", "ELEMENT_ARRAY_BUFFER_BINDING", "PIXEL_PACK_BUFFER_BINDING",
+  "VIEWPORT", "COLOR_CLEAR_VALUE", "DEPTH_TEST", "DEPTH_WRITEMASK", "BLEND", "BLEND_SRC_RGB", "BLEND_DST_RGB",
+  "BLEND_SRC_ALPHA", "BLEND_DST_ALPHA", "CULL_FACE", "CULL_FACE_MODE", "ACTIVE_TEXTURE", "UNPACK_ALIGNMENT",
+];
+const glState = (gl) => {
+  const state = {};
+  for (const name of GL_STATE_NAMES) state[name] = gl.getParameter(gl[name]);
+  for (let i = 0; i < 8; i++) state["VERTEX_ATTRIB_ARRAY_ENABLED@" + i] = gl.getVertexAttrib(i, gl.VERTEX_ATTRIB_ARRAY_ENABLED);
+  const active = gl.getParameter(gl.ACTIVE_TEXTURE);
+  for (let unit = 0; unit < 8; unit++) {
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    state["TEXTURE_BINDING_2D@" + unit] = gl.getParameter(gl.TEXTURE_BINDING_2D);
+    state["TEXTURE_BINDING_3D@" + unit] = gl.getParameter(gl.TEXTURE_BINDING_3D);
+  }
+  gl.activeTexture(active);
+  return state;
+};
+const changedGlState = (before, after) =>
+  Object.keys(before).filter((name) =>
+    ArrayBuffer.isView(before[name])
+      ? Array.from(before[name]).join() !== Array.from(after[name]).join()
+      : before[name] !== after[name],
+  );
+const dirtyGlState = (gl) => {
+  const shader = (type, source) => {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, source);
+    gl.compileShader(s);
+    return s;
+  };
+  const program = gl.createProgram();
+  gl.attachShader(program, shader(gl.VERTEX_SHADER, "#version 300 es\\nvoid main() { gl_Position = vec4(0.0); }"));
+  gl.attachShader(program, shader(gl.FRAGMENT_SHADER, "#version 300 es\\nprecision mediump float;\\nout vec4 o;\\nvoid main() { o = vec4(1.0); }"));
+  gl.linkProgram(program);
+  gl.useProgram(program);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, gl.createFramebuffer());
+  gl.bindRenderbuffer(gl.RENDERBUFFER, gl.createRenderbuffer());
+  gl.bindVertexArray(gl.createVertexArray());
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer());
+  gl.enableVertexAttribArray(1);
+  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, gl.createBuffer());
+  gl.viewport(1, 2, 3, 4);
+  gl.clearColor(0.25, 0.5, 0.75, 0.5);
+  gl.disable(gl.DEPTH_TEST);
+  gl.depthMask(false);
+  gl.enable(gl.BLEND);
+  gl.blendFuncSeparate(gl.DST_COLOR, gl.SRC_COLOR, gl.DST_ALPHA, gl.SRC_ALPHA);
+  gl.enable(gl.CULL_FACE);
+  gl.cullFace(gl.FRONT_AND_BACK);
+  for (let unit = 0; unit < 8; unit++) {
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+    gl.bindTexture(gl.TEXTURE_3D, gl.createTexture());
+  }
+  gl.activeTexture(gl.TEXTURE5);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 8);
+};
+`;
+
+/**
  * Compiles an imported `.wat` file to the bytes of its module, as the
  * `compileWat` Vite plugin does for the library build, so an entry can bundle
  * the WASM rasterizer.

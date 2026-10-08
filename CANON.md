@@ -441,6 +441,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-compute-call-takes-its-count-from-the-first-storage-buffer`](#spec-a-compute-call-takes-its-count-from-the-first-storage-buffer) — A `compute` call given no count runs one invocation for each element of the first storage buffer the host passed. A buffer the host passes after it does not change that count.
       - [`@spec a-vector-storage-buffer-counts-its-elements`](#spec-a-vector-storage-buffer-counts-its-elements) — The elements of a storage buffer are counted as its type says. A buffer of `vec4` holds a quarter as many elements as it has components, and a dispatch over it runs one invocation per element.
     - [`@spec a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte`](#spec-a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte) — A JS or WASM routine adapter clamps each channel to 0 to 1 and writes it on its canvas as the nearest byte.
+  - [`@spec a-webgl-caller-restores-the-context-state-only-when-asked`](#spec-a-webgl-caller-restores-the-context-state-only-when-asked) — `WebGLRenderer` and `createGlsl` set the WebGL state each of their calls needs, and leave it as they set it. With `preserveState: true`, each call puts back the state it changed before it returns.
+    - [`@spec a-webgl-call-leaves-the-state-it-set`](#spec-a-webgl-call-leaves-the-state-it-set) — Without `preserveState`, a call of `WebGLRenderer` or `createGlsl` puts back none of the state it set. A texture upload leaves the unpack alignment at 1, and a draw leaves its program bound.
+    - [`@spec a-webgl-renderer-asked-to-preserve-state-puts-it-back`](#spec-a-webgl-renderer-asked-to-preserve-state-puts-it-back) — With `preserveState: true`, `render`, `readPixels` and `readPixelsAsync` of `WebGLRenderer` put back the state they changed before they return. They put back the framebuffer, renderbuffer, program, vertex array, array buffer and pixel-pack buffer bindings. They put back the viewport, the clear colour, the depth test and mask, the blend switch and function, and the cull switch and face. They put back the active texture unit, the textures of each unit they used, and the unpack alignment.
+    - [`@spec a-glsl-adapter-asked-to-preserve-state-puts-it-back`](#spec-a-glsl-adapter-asked-to-preserve-state-puts-it-back) — With `preserveState: true`, `attach`, `draw`, `setUniform`, `setAttribute` and `setTexture` of `createGlsl` put back the state they changed before they return. They put back the program, vertex array and array buffer bindings, the clear colour and the unpack alignment. They put back the active texture unit and the textures of each unit they used.
+    - [`@spec the-webgl-renderer-draws-from-its-own-vertex-array`](#spec-the-webgl-renderer-draws-from-its-own-vertex-array) — The WebGL renderer draws from a vertex array of its own. It changes no vertex array of the application's, the default one included.
+    - [`@exception preserving-webgl-state-allocates-on-each-call`](#exception-preserving-webgl-state-allocates-on-each-call) — With `preserveState: true`, a `render` or a `draw` reads the viewport or the clear colour into a new array. The call allocates, where [the frame path allocates nothing](#axiom-the-frame-path-allocates-nothing).
   - [`@spec a-render-depends-only-on-what-it-is-given`](#spec-a-render-depends-only-on-what-it-is-given) — `render(scene, camera, target)` on a renderer of `./scene` gives the pixels that the same call gives on a fresh renderer, whatever the renderer drew before.
     - [`@spec a-draw-configures-every-enabled-vertex-attribute`](#spec-a-draw-configures-every-enabled-vertex-attribute) — A draw on the WebGL renderer runs with enabled only the vertex attribute arrays it configured itself, whatever mesh drew before it.
     - [`@spec a-render-clears-the-depth-buffer-whatever-the-last-draw-masked`](#spec-a-render-clears-the-depth-buffer-whatever-the-last-draw-masked) — A render on the WebGL renderer clears the depth buffer, whatever depth mask the last draw left.
@@ -630,6 +636,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact wgsl-allows-twelve-uniform-buffers-per-stage`](#fact-wgsl-allows-twelve-uniform-buffers-per-stage) — WebGPU guarantees 12 uniform buffers per shader stage, and a device may give no more.
 - [`@fact wgsl-cannot-share-a-bool-with-the-host`](#fact-wgsl-cannot-share-a-bool-with-the-host) — A WGSL `bool` is not host-shareable: it can be neither a member of a uniform buffer nor an element of a storage buffer.
 - [`@fact a-wgsl-uniform-array-has-a-16-byte-stride`](#fact-a-wgsl-uniform-array-has-a-16-byte-stride) — The elements of an array in the WGSL uniform address space align to 16 bytes, and a `vec3` takes the 16 bytes of a `vec4`.
+- [`@fact webgl-reads-a-vector-state-into-a-new-array`](#fact-webgl-reads-a-vector-state-into-a-new-array) — WebGL gives a vector state, such as the viewport or the clear colour, only through `getParameter`, which returns a new typed array on each call.
 - [`@fact webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage) — WebGL 2 has no compute shaders and no storage buffers.
 - [`@fact an-integer-texture-cannot-be-filtered`](#fact-an-integer-texture-cannot-be-filtered) — Neither GLSL nor WGSL filters an integer texture. A shader reads it one texel at a time, with `texelFetch` or `textureLoad`.
 - [`@fact a-mipmapped-texture-without-its-chain-samples-black`](#fact-a-mipmapped-texture-without-its-chain-samples-black) — In WebGL 2, a texture whose minification filter reads mipmaps but which has no mip chain is incomplete, and samples as black.
@@ -755,7 +762,6 @@ The analysis found these places where the code or the documents do not hold the 
 3. The documents call `While` and `For` TSL functions, but TSL has only `Loop`. Issue #59.
 4. `var_`, `assertBlockScope` and `compileWat` are exported with no documented purpose. Issue #73 asks whether they are public API.
 5. `createWgsl` configures its canvas opaque, so a transparent clear shows as opaque black where the other adapters show the page. Issue #188 asks whether to configure it premultiplied.
-6. rmsl changes the state of a WebGL context that the application hands it, such as the unpack alignment, and does not restore it. The canon says nothing about what rmsl leaves for code that shares the context. Issue #189 asks for a ruling.
 
 ### Coverage gaps
 
@@ -3165,6 +3171,36 @@ Derives from: [`spec-an-adapter-draws-one-frame-for-each-call`](#spec-an-adapter
 
 This follows because WebGPU stores a float into an 8-bit canvas by clamping and rounding it, and a CPU target gives what WebGPU gives.
 
+### @spec a-webgl-caller-restores-the-context-state-only-when-asked
+
+> `WebGLRenderer` and `createGlsl` set the WebGL state each of their calls needs, and leave it as they set it. With `preserveState: true`, each call puts back the state it changed before it returns.
+
+This follows because the application owns the context, so it decides what a call leaves there. Code that shares the context knows which state it reads. Putting back every piece of state on every call would cost each application that shares nothing.
+
+#### @spec a-webgl-call-leaves-the-state-it-set
+
+> Without `preserveState`, a call of `WebGLRenderer` or `createGlsl` puts back none of the state it set. A texture upload leaves the unpack alignment at 1, and a draw leaves its program bound.
+
+#### @spec a-webgl-renderer-asked-to-preserve-state-puts-it-back
+
+> With `preserveState: true`, `render`, `readPixels` and `readPixelsAsync` of `WebGLRenderer` put back the state they changed before they return. They put back the framebuffer, renderbuffer, program, vertex array, array buffer and pixel-pack buffer bindings. They put back the viewport, the clear colour, the depth test and mask, the blend switch and function, and the cull switch and face. They put back the active texture unit, the textures of each unit they used, and the unpack alignment.
+
+#### @spec a-glsl-adapter-asked-to-preserve-state-puts-it-back
+
+> With `preserveState: true`, `attach`, `draw`, `setUniform`, `setAttribute` and `setTexture` of `createGlsl` put back the state they changed before they return. They put back the program, vertex array and array buffer bindings, the clear colour and the unpack alignment. They put back the active texture unit and the textures of each unit they used.
+
+#### @spec the-webgl-renderer-draws-from-its-own-vertex-array
+
+> The WebGL renderer draws from a vertex array of its own. It changes no vertex array of the application's, the default one included.
+
+This follows because a vertex array holds the element buffer binding and every attribute pointer. Putting back that one binding puts back the element buffer and every pointer.
+
+#### @exception preserving-webgl-state-allocates-on-each-call
+
+> With `preserveState: true`, a `render` or a `draw` reads the viewport or the clear colour into a new array. The call allocates, where [the frame path allocates nothing](#axiom-the-frame-path-allocates-nothing).
+
+Derives from: [`fact-webgl-reads-a-vector-state-into-a-new-array`](#fact-webgl-reads-a-vector-state-into-a-new-array)
+
 ### @spec a-render-depends-only-on-what-it-is-given
 
 > `render(scene, camera, target)` on a renderer of `./scene` gives the pixels that the same call gives on a fresh renderer, whatever the renderer drew before.
@@ -4328,6 +4364,12 @@ This is a fact of the WGSL specification, not a choice.
 > The elements of an array in the WGSL uniform address space align to 16 bytes, and a `vec3` takes the 16 bytes of a `vec4`.
 
 This is a fact of the WGSL specification, not a choice.
+
+## @fact webgl-reads-a-vector-state-into-a-new-array
+
+> WebGL gives a vector state, such as the viewport or the clear colour, only through `getParameter`, which returns a new typed array on each call.
+
+This is how WebGL behaves. The WebGL 2 specification has `getParameter` return an `Int32Array` for `VIEWPORT` and a `Float32Array` for `COLOR_CLEAR_VALUE`. It has no call that reads them into an array the caller gives, and Chromium returns a different array on each call.
 
 ## @fact webgl2-has-no-compute-stage
 

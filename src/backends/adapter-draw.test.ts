@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { GPU_ENABLED, releaseGpu } from "../testing/gpu";
-import { READ_PIXEL, runInGpuPage } from "../testing/browser";
+import { GL_STATE, READ_PIXEL, runInGpuPage } from "../testing/browser";
 
 /**
  * A full-screen triangle, a 4×4 canvas, and a uniform colour every adapter
@@ -12,6 +12,7 @@ import { createGlsl } from "../glsl";
 import { createJs, createJsGrid } from "../js";
 import { createWasm, createWasmGrid } from "../wasm";
 ${READ_PIXEL}
+${GL_STATE}
 const position = attribute("vec3");
 const colour = uniform("vec4");
 const vertex = () => Fn(() => { builtinPosition().assign(vec4(position, 1)); })();
@@ -62,6 +63,27 @@ const drawRetextured = (adapter) => {
   adapter.draw({ count: 3 });
   return { pixel: readPixel(target, 1, 2), created };
 };
+// Every piece of state that a call of a GLSL adapter left changed, over state the page set.
+const glslStateChanged = (preserveState) => {
+  const target = canvas();
+  const gl = target.getContext("webgl2");
+  dirtyGlState(gl);
+  const before = glState(gl);
+  const changed = new Set();
+  const check = () => changedGlState(before, glState(gl)).forEach((name) => changed.add(name));
+  const adapter = createGlsl(vertex(), Fn(() => image.texture(vec2(0.75, 0.25)).mul(colour))(), { preserveState });
+  adapter.attach(target);
+  check();
+  adapter.setAttribute(position, TRIANGLE);
+  check();
+  adapter.setUniform(colour, [0, 1, 0, 1]);
+  check();
+  adapter.setTexture(image, { data: Uint8Array.of(255, 0, 0), width: 1, height: 1, channels: 3 });
+  check();
+  adapter.draw({ count: 3 });
+  check();
+  return [...changed].sort();
+};
 const routine = () => vec4(fragCoord().x.div(4), 0, 0, 1);
 const drawRoutine = (adapter) => {
   const target = canvas();
@@ -79,6 +101,8 @@ globalThis.__rmslAdapterDraw = {
   wasmTexture: () => drawTextured(createWasm(vertex, texturedFragment, { attributeTypes: { [position.name]: "vec3" } })),
   jsRoutine: () => drawRoutine(createJsGrid({ draw: routine() })),
   wasmRoutine: () => drawRoutine(createWasmGrid({ draw: routine() })),
+  glslStateKept: () => glslStateChanged(false),
+  glslStatePreserved: () => glslStateChanged(true),
 };
 `;
 
@@ -121,6 +145,20 @@ describe.skipIf(!GPU_ENABLED)("adapters drawing into a canvas in a browser", () 
    */
   it("draws a fragCoord program over its canvas with createJsGrid", async () => {
     expect(await drawn("jsRoutine")).toEqual({ r: Math.round((3.5 / 4) * 255), g: 0, b: 0, a: 255 });
+  }, 120_000);
+
+  /**
+   * @canon spec-a-webgl-call-leaves-the-state-it-set
+   */
+  it("leaves the unpack alignment and its program as it set them with createGlsl", async () => {
+    expect(await drawn("glslStateKept")).toEqual(expect.arrayContaining(["UNPACK_ALIGNMENT", "CURRENT_PROGRAM"]));
+  }, 120_000);
+
+  /**
+   * @canon spec-a-glsl-adapter-asked-to-preserve-state-puts-it-back
+   */
+  it("puts back every piece of state it changed with preserveState with createGlsl", async () => {
+    expect(await drawn("glslStatePreserved")).toEqual([]);
   }, 120_000);
 
   /**

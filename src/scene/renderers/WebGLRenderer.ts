@@ -1,4 +1,5 @@
 import { compileGlsl, type GLSLPrecision } from "../../glsl";
+import { GlState, GlStateKeeper } from "../../backends/glsl/gl-state";
 import { Color } from "../math/Color";
 import { Vector4 } from "../math/Vector4";
 import { WebGLRenderTarget } from "./WebGLRenderTarget";
@@ -102,10 +103,19 @@ export class WebGLRenderer {
    * overrides it, like three.js's `WebGLRenderer` `precision` option.
    */
   readonly precision: GLSLPrecision;
+  /** Saves the state each call changes and puts it back, when `preserveState` asks for it. */
+  private readonly state: GlStateKeeper | null;
+  /** The vertex array every draw binds its buffers and attributes in, so none of the application's changes. */
+  private readonly vertexArray: WebGLVertexArrayObject;
 
+  /**
+   * With `preserveState: true`, each call puts back the WebGL state it changed
+   * before it returns, for code that shares the context. Without it, a call
+   * leaves the state as it set it.
+   */
   constructor(
     canvas?: HTMLCanvasElement,
-    options: { antialias?: boolean; depth?: boolean; precision?: GLSLPrecision } = {},
+    options: { antialias?: boolean; depth?: boolean; precision?: GLSLPrecision; preserveState?: boolean } = {},
   ) {
     this.canvas = canvas ?? document.createElement("canvas");
     this.precision = options.precision ?? "highp";
@@ -119,6 +129,8 @@ export class WebGLRenderer {
     this.gl = gl;
     // A float texture filters linearly only with this extension, as in three.js.
     this.floatLinear = gl.getExtension("OES_texture_float_linear") !== null;
+    this.state = options.preserveState ? new GlStateKeeper(gl) : null;
+    this.vertexArray = gl.createVertexArray()!;
   }
 
   setClearColor(color: Color | number, alpha = 1): void {
@@ -155,7 +167,17 @@ export class WebGLRenderer {
    * touching the canvas's drawing buffer.
    */
   render(scene: Scene, camera: Camera, target: WebGLRenderTarget | null = null): void {
+    this.state?.begin(RENDER_STATE);
+    try {
+      this.renderFrame(scene, camera, target);
+    } finally {
+      this.state?.end();
+    }
+  }
+
+  private renderFrame(scene: Scene, camera: Camera, target: WebGLRenderTarget | null): void {
     const gl = this.gl;
+    gl.bindVertexArray(this.vertexArray);
 
     scene.updateMatrixWorld(true);
     camera.updateMatrixWorld(true);
@@ -258,9 +280,15 @@ export class WebGLRenderer {
   readPixels(target: WebGLRenderTarget, out?: Uint8Array): Uint8Array {
     const gl = this.gl;
     const buffer = out ?? new Uint8Array(target.width * target.height * 4);
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.renderTargetFramebuffer(target));
-    gl.readPixels(0, 0, target.width, target.height, gl.RGBA, gl.UNSIGNED_BYTE, buffer);
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+    this.state?.begin(READ_STATE);
+    try {
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.renderTargetFramebuffer(target));
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      gl.readPixels(0, 0, target.width, target.height, gl.RGBA, gl.UNSIGNED_BYTE, buffer);
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+    } finally {
+      this.state?.end();
+    }
     return buffer;
   }
 
@@ -276,12 +304,17 @@ export class WebGLRenderer {
     const gl = this.gl;
     const buffer = out ?? new Uint8Array(target.width * target.height * 4);
     const pbo = gl.createBuffer()!;
-    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo);
-    gl.bufferData(gl.PIXEL_PACK_BUFFER, buffer.byteLength, gl.STREAM_READ);
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.renderTargetFramebuffer(target));
-    gl.readPixels(0, 0, target.width, target.height, gl.RGBA, gl.UNSIGNED_BYTE, 0);
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
-    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    this.state?.begin(READ_STATE);
+    try {
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo);
+      gl.bufferData(gl.PIXEL_PACK_BUFFER, buffer.byteLength, gl.STREAM_READ);
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.renderTargetFramebuffer(target));
+      gl.readPixels(0, 0, target.width, target.height, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    } finally {
+      this.state?.end();
+    }
     const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
     gl.flush();
     return new Promise<Uint8Array>((resolve, reject) => {
@@ -297,9 +330,14 @@ export class WebGLRenderer {
           reject(new Error("[RMSL/scene] readPixelsAsync: GPU sync wait failed"));
           return;
         }
-        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo);
-        gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, buffer);
-        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        this.state?.begin(GlState.pixelPackBuffer);
+        try {
+          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo);
+          gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, buffer);
+          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        } finally {
+          this.state?.end();
+        }
         gl.deleteBuffer(pbo);
         resolve(buffer);
       };
@@ -497,6 +535,7 @@ export class WebGLRenderer {
     // unit, so binding first would leave the previous sampler's unit
     // reading this texture instead of its own.
     const unit = this.nextTextureUnit();
+    this.state?.keepUnit(unit);
     gl.activeTexture(gl.TEXTURE0 + unit);
     let glTexture = this.textures.get(texture);
     if (
@@ -523,12 +562,12 @@ export class WebGLRenderer {
       gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, glFilter(gl, sampling.magFilter));
       const image = texture.image;
       if (ArrayBuffer.isView(image)) {
+        // A data texture's rows are packed tight, and a single-channel row is rarely a multiple of four bytes.
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
         const width = (texture as { width?: number }).width ?? 1;
         const height = (texture as { height?: number }).height ?? 1;
         if (integer) {
           const singleChannel = textureChannels(texture) === 1;
-          // A single-channel row is as wide as its texels, rarely a multiple of the default alignment of four.
-          gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
           const { internalFormat, format, type } = integerInternalFormat(
             gl,
             samplerType.startsWith("isampler"),
@@ -541,7 +580,6 @@ export class WebGLRenderer {
           } else {
             gl.texImage2D(target, 0, internalFormat, width, height, 0, format, type, image as ArrayBufferView);
           }
-          gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
         } else {
           // A float texture holds the floats its data gives, a byte texture its bytes.
           const float = isFloatTexture(texture);
@@ -880,7 +918,7 @@ export class WebGLRenderer {
       texture.removeEventListener("dispose", this.onTextureDispose);
     }
     for (const [target, entry] of this.renderTargets) this.deleteRenderTarget(target, entry);
-    for (const location of this.boundAttributeLocations) gl.disableVertexAttribArray(location);
+    gl.deleteVertexArray(this.vertexArray);
     this.programs.clear();
     this.geometryBuffers.clear();
     this.attributeBuffers.clear();
@@ -888,6 +926,23 @@ export class WebGLRenderer {
     this.boundAttributeLocations.clear();
   }
 }
+
+/** The state a render changes. */
+const RENDER_STATE =
+  GlState.framebuffers |
+  GlState.viewport |
+  GlState.clearColor |
+  GlState.depth |
+  GlState.blend |
+  GlState.cull |
+  GlState.program |
+  GlState.vertexArray |
+  GlState.arrayBuffer |
+  GlState.activeTexture |
+  GlState.unpackAlignment;
+
+/** The state a readback changes, the render target it makes on first use included. */
+const READ_STATE = GlState.framebuffers | GlState.pixelPackBuffer | GlState.activeTexture;
 
 /** A wrapping mode as the `texParameteri` constant that sets it. */
 function glWrap(gl: WebGL2RenderingContext, wrap: TextureWrap): number {

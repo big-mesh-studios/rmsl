@@ -28,7 +28,7 @@ import {
   WebGPURenderer,
 } from "../scene";
 import { GPU_ENABLED, releaseGpu } from "../testing/gpu";
-import { runInGpuPage } from "../testing/browser";
+import { GL_STATE, runInGpuPage } from "../testing/browser";
 import { camera, offsetOf, sampling, stubDevice, stubWebGl } from "./scene-stubs";
 
 /** The value a built program's uniform of that name holds now. */
@@ -372,6 +372,29 @@ describe("a scene renderer manages what it uploads", () => {
   });
 
   /**
+   * @canon exception-preserving-webgl-state-allocates-on-each-call
+   */
+  it("reads the viewport and the clear colour on each render with preserveState", () => {
+    let vectors: Record<number, ArrayBufferView> = {};
+    const { renderer, gl, calls } = stubWebGl(
+      { getParameter: (name: number) => vectors[name] ?? 16 },
+      { preserveState: true },
+    );
+    vectors = { [gl.VIEWPORT]: new Int32Array(4), [gl.COLOR_CLEAR_VALUE]: new Float32Array(4) };
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(), new MeshBasicMaterial()));
+    const reads = () =>
+      calls.filter(
+        (c) => c.name === "getParameter" && (c.args[0] === gl.VIEWPORT || c.args[0] === gl.COLOR_CLEAR_VALUE),
+      ).length;
+    renderer.render(scene, camera());
+    const first = reads();
+    renderer.render(scene, camera());
+    expect(first).toBe(2);
+    expect(reads()).toBe(4);
+  });
+
+  /**
    * @canon spec-a-material-reads-any-sampler-type
    */
   it("reads the second row of a three-texel-wide R8UI texture on WebGL", async () => {
@@ -676,7 +699,107 @@ globalThis.__rmslFloatThenIntegerRun = () => {
 };
 `;
 
+// A float and an integer texture, a transparent mesh, a render target and both
+// readbacks, each run over state the page set: every piece of state that a
+// call left changed.
+const ENTRY_PRESERVE_STATE = `
+import { WebGLRenderer, WebGLRenderTarget, Scene, Mesh, PerspectiveCamera, PlaneGeometry, MeshBasicMaterial, DataTexture } from "../scene";
+import { float, uvec2, vec2 } from "../rmsl";
+${GL_STATE}
+const preserveStateRun = async (preserveState) => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 16;
+  canvas.height = 16;
+  const renderer = new WebGLRenderer(canvas, { antialias: false, preserveState });
+  const gl = renderer.gl;
+  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 1);
+  camera.lookAt(0, 0, 0);
+  const texel = () => new DataTexture(new Uint8Array([0, 0, 255, 255]), 1, 1);
+  const floats = new MeshBasicMaterial();
+  floats.transparent = true;
+  floats.fragmentNode = (b) => b.sampler("map", "sampler2D", texel).texture(vec2(0.5, 0.5));
+  const integers = new MeshBasicMaterial();
+  integers.fragmentNode = (b) => b.sampler("map", "usampler2D", texel).texture(uvec2(0, 0)).toVec4().div(float(255));
+  const scene = new Scene();
+  scene.add(new Mesh(new PlaneGeometry(2, 2), integers), new Mesh(new PlaneGeometry(2, 2), floats));
+  const target = new WebGLRenderTarget(4, 4);
+  dirtyGlState(gl);
+  const before = glState(gl);
+  const changed = new Set();
+  const check = () => changedGlState(before, glState(gl)).forEach((name) => changed.add(name));
+  renderer.render(scene, camera);
+  check();
+  renderer.render(scene, camera, target);
+  check();
+  renderer.readPixels(target);
+  check();
+  await renderer.readPixelsAsync(target);
+  check();
+  return [...changed].sort();
+};
+globalThis.__rmslPreserveStateOff = () => preserveStateRun(false);
+globalThis.__rmslPreserveStateOn = () => preserveStateRun(true);
+const ownVertexArrayRun = (vertexArray) => {
+  const canvas = document.createElement("canvas");
+  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  const gl = renderer.gl;
+  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 1);
+  dirtyGlState(gl);
+  if (vertexArray === "default") {
+    gl.bindVertexArray(null);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer());
+    gl.enableVertexAttribArray(1);
+  }
+  const before = glState(gl);
+  const scene = new Scene();
+  scene.add(new Mesh(new PlaneGeometry(2, 2), new MeshBasicMaterial()));
+  renderer.render(scene, camera);
+  gl.bindVertexArray(before.VERTEX_ARRAY_BINDING);
+  return changedGlState(before, glState(gl)).filter((name) => /^(ELEMENT_ARRAY|VERTEX_ATTRIB)/.test(name));
+};
+globalThis.__rmslDefaultVertexArray = () => ownVertexArrayRun("default");
+globalThis.__rmslApplicationVertexArray = () => ownVertexArrayRun("application");
+`;
+
 describe.skipIf(!GPU_ENABLED)("a render depends only on what it is given, on a real driver", () => {
+  /**
+   * @canon spec-a-webgl-call-leaves-the-state-it-set
+   */
+  it("leaves the unpack alignment and its program as it set them on WebGL", async () => {
+    const changed = await runInGpuPage(
+      ENTRY_PRESERVE_STATE,
+      "__rmslPreserveStateOff",
+      new URL(".", import.meta.url).pathname,
+    );
+    expect(changed).toEqual(expect.arrayContaining(["UNPACK_ALIGNMENT", "CURRENT_PROGRAM"]));
+  }, 60_000);
+
+  /**
+   * @canon spec-a-webgl-renderer-asked-to-preserve-state-puts-it-back
+   */
+  it("puts back every piece of state it changed with preserveState on WebGL", async () => {
+    const changed = await runInGpuPage(
+      ENTRY_PRESERVE_STATE,
+      "__rmslPreserveStateOn",
+      new URL(".", import.meta.url).pathname,
+    );
+    expect(changed).toEqual([]);
+  }, 60_000);
+
+  /**
+   * @canon spec-the-webgl-renderer-draws-from-its-own-vertex-array
+   */
+  it.each(["__rmslDefaultVertexArray", "__rmslApplicationVertexArray"])(
+    "leaves a vertex array of the application's as it found it on WebGL (%s)",
+    async (entryPoint) => {
+      const changed = await runInGpuPage(ENTRY_PRESERVE_STATE, entryPoint, new URL(".", import.meta.url).pathname);
+      expect(changed).toEqual([]);
+    },
+    60_000,
+  );
+
   /**
    * @canon spec-a-texture-reads-as-its-sampler-asks-whichever-sampler-uploaded-it
    */

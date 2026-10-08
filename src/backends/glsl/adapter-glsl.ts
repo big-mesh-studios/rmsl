@@ -4,6 +4,7 @@ import { VertexRoot } from "../shared";
 import type { CpuTextureData } from "../cpu";
 import { textureImage } from "../texture-image";
 import { compileGlsl, CompileGLSLOptions } from "./glsl";
+import { GlState, GlStateKeeper } from "./gl-state";
 
 type UniformInfo = { location: WebGLUniformLocation; type: number };
 /** A sampler's GL texture, with the shape and internal format it was made with. */
@@ -139,6 +140,22 @@ function setUniformValue(gl: WebGL2RenderingContext, info: UniformInfo, value: n
   }
 }
 
+/** The options of `createGlsl`: the compiler's, and how the adapter shares its context. */
+export interface GlslAdapterOptions extends CompileGLSLOptions {
+  /**
+   * Each call puts back the WebGL state it changed before it returns, for code
+   * that shares the context. Without it, a call leaves the state as it set it.
+   */
+  preserveState?: boolean;
+}
+
+/** The state `attach` changes, a value set before it applied included. */
+const ATTACH_STATE =
+  GlState.program | GlState.vertexArray | GlState.arrayBuffer | GlState.activeTexture | GlState.unpackAlignment;
+
+/** The state `draw` changes. */
+const DRAW_STATE = GlState.program | GlState.vertexArray | GlState.clearColor | GlState.activeTexture;
+
 /** Narrower than the base Adapter's `void | Promise<void>` on both
  * `attach` and `draw` — `getContext("webgl2")` and GL's own draw call are
  * both synchronous, unlike WGSL's device request/GPU submit. */
@@ -157,9 +174,10 @@ export interface GlslAdapter extends Adapter<never, GlslDrawOptions> {
 export function createGlsl(
   vertexRoot: VertexRoot,
   fragmentRoot: Node<ShaderType> | readonly Node<ShaderType>[],
-  options?: CompileGLSLOptions,
+  options?: GlslAdapterOptions,
 ): GlslAdapter {
   let gl: WebGL2RenderingContext | null = null;
+  let state: GlStateKeeper | null = null;
   let program: WebGLProgram | null = null;
   let vao: WebGLVertexArrayObject | null = null;
   let vertexCount = 0;
@@ -192,8 +210,13 @@ export function createGlsl(
     // called useProgram since this one's attach() — a uniform location
     // is only valid against the program it came from, so this has to
     // re-bind its own before touching it, not assume it's still current.
-    gl.useProgram(program);
-    setUniformValue(gl, info, value);
+    state?.begin(GlState.program);
+    try {
+      gl.useProgram(program);
+      setUniformValue(gl, info, value);
+    } finally {
+      state?.end();
+    }
   }
 
   function setAttribute<T extends ShaderType>(attribute: AttributeNode<T>, data: TypedArray): void;
@@ -205,11 +228,16 @@ export function createGlsl(
       pendingAttributes.set(slot, data);
       return;
     }
-    gl.bindVertexArray(vao);
-    gl.bindBuffer(gl.ARRAY_BUFFER, info.buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, data as Float32Array, gl.STATIC_DRAW);
-    gl.enableVertexAttribArray(info.location);
-    gl.vertexAttribPointer(info.location, info.componentCount, gl.FLOAT, false, 0, 0);
+    state?.begin(GlState.vertexArray | GlState.arrayBuffer);
+    try {
+      gl.bindVertexArray(vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, info.buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, data as Float32Array, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(info.location);
+      gl.vertexAttribPointer(info.location, info.componentCount, gl.FLOAT, false, 0, 0);
+    } finally {
+      state?.end();
+    }
     countSlot ??= slot;
     if (slot === countSlot) vertexCount = Math.floor(data.length / info.componentCount);
   }
@@ -221,6 +249,22 @@ export function createGlsl(
       pendingTextures.set(slot, data);
       return;
     }
+    state?.begin(GlState.activeTexture | GlState.unpackAlignment | GlState.program);
+    try {
+      uploadTexture(gl, program, slot, info, data);
+    } finally {
+      state?.end();
+    }
+  }
+
+  /** Uploads `data` into the GL texture of the sampler `slot`, and points the sampler at its unit. */
+  function uploadTexture(
+    gl: WebGL2RenderingContext,
+    program: WebGLProgram,
+    slot: string,
+    info: UniformInfo,
+    data: CpuTextureData,
+  ): void {
     const samplerType = samplerTypeOf(gl, info.type);
     if (!samplerType) throw new Error(`[RMSL] setTexture: "${slot}" is not a sampler`);
     const image = textureImage(data, samplerType);
@@ -249,6 +293,7 @@ export function createGlsl(
       textures.set(slot, held);
     }
 
+    state?.keepUnit(held!.unit);
     gl.activeTexture(gl.TEXTURE0 + held!.unit);
     gl.bindTexture(target, held!.texture);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
@@ -261,7 +306,6 @@ export function createGlsl(
     } else {
       gl.texImage2D(target, 0, internal, image.width, image.height, 0, format, type, image.texels);
     }
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
     // An integer texture cannot be filtered.
     const context = gl;
     const filter = (name: CpuTextureData["magFilter"]) =>
@@ -276,64 +320,104 @@ export function createGlsl(
     gl.uniform1i(info.location, held!.unit);
   }
 
+  /** Compiles and links the program on `gl`, reflects its inputs, and applies what the host set before. */
+  function link(gl: WebGL2RenderingContext): void {
+    const vertexSource = compileGlsl.vertex(vertexRoot, options);
+    const fragmentSource = compileGlsl.fragment(fragmentRoot, options);
+
+    const compile = (source: string, type: number): WebGLShader => {
+      const shader = gl.createShader(type)!;
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        const log = gl.getShaderInfoLog(shader);
+        gl.deleteShader(shader);
+        throw new Error(`[RMSL] GLSL shader failed to compile: ${log}`);
+      }
+      return shader;
+    };
+
+    const vertexShader = compile(vertexSource, gl.VERTEX_SHADER);
+    const fragmentShader = compile(fragmentSource, gl.FRAGMENT_SHADER);
+    program = gl.createProgram()!;
+    gl.attachShader(program, vertexShader);
+    gl.attachShader(program, fragmentShader);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      const log = gl.getProgramInfoLog(program);
+      throw new Error(`[RMSL] GLSL program failed to link: ${log}`);
+    }
+    gl.useProgram(program);
+
+    const uniformCount = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS);
+    for (let i = 0; i < uniformCount; i++) {
+      const info = gl.getActiveUniform(program, i)!;
+      const location = gl.getUniformLocation(program, info.name);
+      if (location) uniforms.set(info.name, { location, type: info.type });
+    }
+
+    vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+
+    const attributeCount = gl.getProgramParameter(program, gl.ACTIVE_ATTRIBUTES);
+    for (let i = 0; i < attributeCount; i++) {
+      const info = gl.getActiveAttrib(program, i)!;
+      const location = gl.getAttribLocation(program, info.name);
+      const buffer = gl.createBuffer()!;
+      attributes.set(info.name, { location, buffer, componentCount: componentCountForType(gl, info.type) });
+    }
+
+    for (const [slot, value] of pendingUniforms) adapter.setUniform(slot, value);
+    for (const [slot, data] of pendingAttributes) adapter.setAttribute(slot, data);
+    for (const [slot, data] of pendingTextures) setTexture(slot, data);
+    pendingUniforms.clear();
+    pendingAttributes.clear();
+    pendingTextures.clear();
+  }
+
+  /** Draws with this adapter's program, vertex array and textures, as `draw` asks. */
+  function drawArrays(
+    gl: WebGL2RenderingContext,
+    program: WebGLProgram,
+    vao: WebGLVertexArrayObject,
+    draw: GlslDrawOptions | undefined,
+  ): void {
+    gl.useProgram(program);
+    gl.bindVertexArray(vao);
+    if (draw?.clear !== false) {
+      const [r, g, b, a] = draw?.clearColor ?? TRANSPARENT_BLACK;
+      gl.clearColor(r, g, b, a);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    }
+    // Another adapter sharing this context may have bound its own texture to a unit since.
+    for (const held of textures.values()) {
+      state?.keepUnit(held.unit);
+      gl.activeTexture(gl.TEXTURE0 + held.unit);
+      gl.bindTexture(held.target, held.texture);
+    }
+    const mode = GL_MODE[draw?.mode ?? "triangles"];
+    const first = draw?.first ?? 0;
+    const count = draw?.count ?? Math.max(0, vertexCount - first);
+    if (draw?.instanceCount !== undefined) {
+      gl.drawArraysInstanced(mode, first, count, draw.instanceCount);
+    } else {
+      gl.drawArrays(mode, first, count);
+    }
+  }
+
   const adapter: GlslAdapter = {
     attach(canvas) {
       const target = canvas ?? document.createElement("canvas");
       const context = target.getContext("webgl2");
       if (!context) throw new Error("[RMSL] WebGL2 is not available");
       gl = context;
-
-      const vertexSource = compileGlsl.vertex(vertexRoot, options);
-      const fragmentSource = compileGlsl.fragment(fragmentRoot, options);
-
-      const compile = (source: string, type: number): WebGLShader => {
-        const shader = gl!.createShader(type)!;
-        gl!.shaderSource(shader, source);
-        gl!.compileShader(shader);
-        if (!gl!.getShaderParameter(shader, gl!.COMPILE_STATUS)) {
-          const log = gl!.getShaderInfoLog(shader);
-          gl!.deleteShader(shader);
-          throw new Error(`[RMSL] GLSL shader failed to compile: ${log}`);
-        }
-        return shader;
-      };
-
-      const vertexShader = compile(vertexSource, gl.VERTEX_SHADER);
-      const fragmentShader = compile(fragmentSource, gl.FRAGMENT_SHADER);
-      program = gl.createProgram()!;
-      gl.attachShader(program, vertexShader);
-      gl.attachShader(program, fragmentShader);
-      gl.linkProgram(program);
-      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-        const log = gl.getProgramInfoLog(program);
-        throw new Error(`[RMSL] GLSL program failed to link: ${log}`);
+      state = options?.preserveState ? new GlStateKeeper(context) : null;
+      state?.begin(ATTACH_STATE);
+      try {
+        link(context);
+      } finally {
+        state?.end();
       }
-      gl.useProgram(program);
-
-      const uniformCount = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS);
-      for (let i = 0; i < uniformCount; i++) {
-        const info = gl.getActiveUniform(program, i)!;
-        const location = gl.getUniformLocation(program, info.name);
-        if (location) uniforms.set(info.name, { location, type: info.type });
-      }
-
-      vao = gl.createVertexArray();
-      gl.bindVertexArray(vao);
-
-      const attributeCount = gl.getProgramParameter(program, gl.ACTIVE_ATTRIBUTES);
-      for (let i = 0; i < attributeCount; i++) {
-        const info = gl.getActiveAttrib(program, i)!;
-        const location = gl.getAttribLocation(program, info.name);
-        const buffer = gl.createBuffer()!;
-        attributes.set(info.name, { location, buffer, componentCount: componentCountForType(gl, info.type) });
-      }
-
-      for (const [slot, value] of pendingUniforms) adapter.setUniform(slot, value);
-      for (const [slot, data] of pendingAttributes) adapter.setAttribute(slot, data);
-      for (const [slot, data] of pendingTextures) setTexture(slot, data);
-      pendingUniforms.clear();
-      pendingAttributes.clear();
-      pendingTextures.clear();
     },
 
     setUniform,
@@ -342,25 +426,11 @@ export function createGlsl(
 
     draw(options) {
       if (!gl || !program || !vao) throw new Error("[RMSL] adapter not attached — call attach() before draw()");
-      gl.useProgram(program);
-      gl.bindVertexArray(vao);
-      if (options?.clear !== false) {
-        const [r, g, b, a] = options?.clearColor ?? TRANSPARENT_BLACK;
-        gl.clearColor(r, g, b, a);
-        gl.clear(gl.COLOR_BUFFER_BIT);
-      }
-      // Another adapter sharing this context may have bound its own texture to a unit since.
-      for (const held of textures.values()) {
-        gl.activeTexture(gl.TEXTURE0 + held.unit);
-        gl.bindTexture(held.target, held.texture);
-      }
-      const mode = GL_MODE[options?.mode ?? "triangles"];
-      const first = options?.first ?? 0;
-      const count = options?.count ?? Math.max(0, vertexCount - first);
-      if (options?.instanceCount !== undefined) {
-        gl.drawArraysInstanced(mode, first, count, options.instanceCount);
-      } else {
-        gl.drawArrays(mode, first, count);
+      state?.begin(DRAW_STATE);
+      try {
+        drawArrays(gl, program, vao, options);
+      } finally {
+        state?.end();
       }
     },
 

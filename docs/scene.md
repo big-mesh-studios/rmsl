@@ -133,7 +133,22 @@ the farthest to the nearest, so each blends over what lies behind it.
 ### WebGLRenderer
 
 `new WebGLRenderer(canvas?, options?)` — WebGL2. Options: `antialias`,
-`depth`, and `precision` (`"highp" | "mediump" | "lowp"`, default `"highp"`).
+`depth`, `precision` (`"highp" | "mediump" | "lowp"`, default `"highp"`), and
+`preserveState`.
+
+The renderer sets the WebGL state each call needs and leaves it as it set it:
+after `render`, its program, its framebuffer and its blend and depth state are
+still bound, and a data texture upload leaves the unpack alignment at 1. Code
+that shares the context sets what it reads. With `preserveState: true`,
+`render`, `readPixels` and `readPixelsAsync` put back the state they changed
+before they return: the framebuffer, program, vertex array and buffer bindings,
+the viewport, clear colour, depth, blend and cull state, the active texture
+unit and the textures of each unit they used, and the unpack alignment. That
+costs a few state queries per call, and the viewport and clear colour each come
+back as a new array. `createGlsl(vertex, fragment, { preserveState: true })`
+does the same for its own calls. The renderer draws from a vertex array of its
+own either way, so it never changes the application's.
+
 `setClearColor`, `setSize`, `setAnimationLoop`, `render(scene, camera)`.
 Programs are compiled per material and cached; geometry buffers per geometry;
 uniforms are uploaded per draw, grouped by scope:

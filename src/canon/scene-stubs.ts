@@ -165,11 +165,14 @@ export function stubGl(
 }
 
 /** A WebGL renderer drawing through `stubGl`, on a 32×32 canvas. */
-export function stubWebGl(overrides: Record<string, (...args: any[]) => unknown> = {}) {
+export function stubWebGl(
+  overrides: Record<string, (...args: any[]) => unknown> = {},
+  options: ConstructorParameters<typeof WebGLRenderer>[1] = {},
+) {
   const canvas: any = { width: 32, height: 32 };
   const { gl, calls } = stubGl(canvas, overrides);
   canvas.getContext = () => gl;
-  return { renderer: new WebGLRenderer(canvas) as any, gl, calls };
+  return { renderer: new WebGLRenderer(canvas, options) as any, gl, calls };
 }
 
 export function camera(): PerspectiveCamera {
