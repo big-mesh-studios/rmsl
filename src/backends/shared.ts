@@ -1,4 +1,5 @@
 import {
+  assertForUpdateNode,
   BaseNode,
   MATRIX_DIMENSIONS,
   Node,
@@ -8,6 +9,7 @@ import {
   TYPE_WIDTH,
   node,
   someNode,
+  swizzleWritePlace,
   var_,
   vec4,
 } from "../core";
@@ -537,30 +539,6 @@ export function mkNode(config: {
   }) as BaseNode<ShaderType>;
 }
 
-/**
- * Render a for-loop's update clause.
- *
- * The clause is authored as statements — `(i) => i.assign(i.add(1))` — so it
- * arrives with its work in `body` and only a bare variable reference in `expr`.
- * Emitting `expr` alone drops the increment and produces an infinite loop.
- *
- * GLSL's update slot accepts a comma expression, so every statement survives.
- * WGSL's grammar allows exactly one update statement, so callers there keep
- * the last.
- */
-export const FOR_UPDATE_BLOCK_MESSAGE =
-  "[RMSL] A for-loop's update cannot contain a block. Move the branch into the loop body, or write the loop with While.";
-
-export function forUpdateStatements(update: CompiledNode): string[] {
-  // A nested block cannot go in either language's update slot: GLSL's takes an
-  // expression, and accepting one in WGSL alone would make a program that runs
-  // on one backend and not the other.
-  if (update.body.some((line) => line.includes("{"))) {
-    throw new Error(FOR_UPDATE_BLOCK_MESSAGE);
-  }
-  return update.body;
-}
-
 /** Drop a trailing semicolon, for the slots that take an expression. */
 export function withoutSemicolon(statement: string): string {
   return statement.endsWith(";") ? statement.slice(0, -1) : statement;
@@ -675,16 +653,67 @@ function lowerOutputStruct<T extends BaseNode<ShaderType>>(roots: readonly T[]):
   return lowered;
 }
 
+/** Refuses a storage node read as a whole value: a whole buffer has no value a program computes with. */
+function refuseWholeStorageRead(storage: any): never {
+  throw new Error(`[RMSL] storage "${storage.value.slot}" is read as a whole; read one element with .element(i).`);
+}
+
 /**
- * The roots of a stage, ready to compile. A fragment stage has its
- * `outputStruct` written out and its implicit colour converted, see
- * {@link fragmentColour}. Any other stage, and a program with no stage,
- * refuses an `outputStruct`, which is a fragment stage's result.
+ * Checks every node of `roots`, in one walk, for the refusals every compiler
+ * shares: a storage node read as a whole rather than through `.element(i)`
+ * (an assignment to one has its own refusal, in `assertAssignable`), a node of
+ * a `for` update that the update slot of a `for` cannot take, and a write by
+ * index through a swizzle that its read would refuse. It gives each such write
+ * made a write into the vector the swizzle reads, see {@link swizzleWritePlace},
+ * and whether the program holds an `outputStruct`.
+ */
+function checkRoots(roots: readonly unknown[]): { swizzleWrites: Map<any, any>; holdsOutputStruct: boolean } {
+  const swizzleWrites = new Map<any, any>();
+  let holdsOutputStruct = false;
+  for (const root of roots) if ((root as any)?.type === "storage") refuseWholeStorageRead(root);
+  // A node is visited once outside every update and once inside one.
+  const visited = [new Set<unknown>(), new Set<unknown>()];
+  const visit = (node: any, inUpdate: boolean): void => {
+    if (!node || typeof node !== "object" || visited[+inUpdate]!.has(node)) return;
+    visited[+inUpdate]!.add(node);
+    if (Array.isArray(node)) return node.forEach((n) => visit(n, inUpdate));
+    if (inUpdate) assertForUpdateNode(node);
+    if (node.type === "outputStruct") holdsOutputStruct = true;
+    if (node.type === "assign" && isSwizzleWrite(node.params[0])) {
+      const target = node.params[0];
+      assertNoRepeatedSwizzle(target);
+      assertConstantIndexInRange(target.params[0], target.params[1]);
+      swizzleWrites.set(
+        node,
+        Object.assign(Object.create(Object.getPrototypeOf(node)), node, {
+          params: [swizzleWritePlace(target), ...node.params.slice(1)],
+        }),
+      );
+    }
+    node.params?.forEach((param: any, i: number) => {
+      const asBuffer = i === 0 && (node.type === "storageElement" || node.type === "assign");
+      if (param?.type === "storage" && !asBuffer) refuseWholeStorageRead(param);
+      visit(param, inUpdate || (node.type === "for" && i === 2));
+    });
+  };
+  visit(roots, false);
+  return { swizzleWrites, holdsOutputStruct };
+}
+
+/**
+ * The roots of a stage, ready to compile, once every compiler's shared
+ * refusals have checked them, see {@link checkRoots}, and each write by index
+ * through a swizzle is made a write into the vector the swizzle reads. A
+ * fragment stage has its `outputStruct` written out and its implicit colour
+ * converted, see {@link fragmentColour}. Any other stage, and a program with
+ * no stage, refuses an `outputStruct`, which is a fragment stage's result.
  */
 export function prepareRoots<T extends Node<ShaderType>>(stage: string | undefined, roots: readonly T[]): T[] {
+  const { swizzleWrites, holdsOutputStruct } = checkRoots(roots);
+  roots = substituteNodes(roots, swizzleWrites);
   if (stage === "fragment")
     return fragmentColour(lowerOutputStruct(roots as readonly BaseNode<ShaderType>[]) as unknown as T[]);
-  if (someNode(roots, (n) => n.type === "outputStruct")) {
+  if (holdsOutputStruct) {
     throw new Error(
       `[RMSL] outputStruct is the value a fragment stage returns, and this program is compiled ` +
         (stage === undefined ? "with no stage" : `as a ${stage} stage`) +
@@ -1001,22 +1030,7 @@ export function numberClashingVariables<T>(roots: T): T {
       );
     }
   }
-  if (renamed.size === 0) return roots;
-  const copies = new Map<any, any>();
-  const substitute = (node: any): any => {
-    if (Array.isArray(node)) return node.map(substitute);
-    if (!node || typeof node !== "object") return node;
-    const known = renamed.get(node) ?? copies.get(node);
-    if (known !== undefined) return known;
-    if (!Array.isArray(node.params)) return node;
-    const params = node.params.map(substitute);
-    const result = params.every((p: any, i: number) => p === node.params[i])
-      ? node
-      : Object.assign(Object.create(Object.getPrototypeOf(node)), node, { params });
-    copies.set(node, result);
-    return result;
-  };
-  return substitute(roots);
+  return substituteNodes(roots, renamed);
 }
 
 /** The node types an assignment can write, through any swizzle, component or column of them. */
@@ -1058,6 +1072,46 @@ function assignmentRoot(target: any): any {
   return target;
 }
 
+/** Throws when a swizzle an assignment to `target` writes through names a component more than once. */
+function assertNoRepeatedSwizzle(target: any): void {
+  for (let node = target; ASSIGNMENT_PATH.has(node?.type); node = node.params[0]) {
+    if (node.type === "swizzle" && new Set(node.value).size !== node.value.length) {
+      throw new Error(
+        `[RMSL] can't assign through the swizzle .${node.value}, which names a component more than once; name each component once`,
+      );
+    }
+  }
+}
+
+/** Whether an assignment to `target` writes by index through a swizzle. */
+function isSwizzleWrite(target: any): boolean {
+  return target?.type === "vectorElement" && target.params[0]?.type === "swizzle";
+}
+
+/**
+ * `roots` with each node `replaced` maps to put in its place. A node that
+ * holds a replaced node is copied, once, so a node several others hold stays
+ * one node. The graph the caller holds is left as it is.
+ */
+function substituteNodes<T>(roots: T, replaced: Map<any, any>): T {
+  if (replaced.size === 0) return roots;
+  const copies = new Map<any, any>();
+  const substitute = (node: any): any => {
+    if (Array.isArray(node)) return node.map(substitute);
+    if (!node || typeof node !== "object") return node;
+    const known = replaced.get(node) ?? copies.get(node);
+    if (known !== undefined) return known;
+    if (!Array.isArray(node.params)) return node;
+    const params = node.params.map(substitute);
+    const result = params.every((p: any, i: number) => p === node.params[i])
+      ? node
+      : Object.assign(Object.create(Object.getPrototypeOf(node)), node, { params });
+    copies.set(node, result);
+    return result;
+  };
+  return substitute(roots);
+}
+
 /**
  * Throws unless an assignment to `target`, compiled for `stage`, writes
  * something writable: a variable, a storage element or a stage output,
@@ -1069,13 +1123,7 @@ function assignmentRoot(target: any): any {
  * function.
  */
 export function assertAssignable(target: any, stage: "vertex" | "fragment" | "compute"): void {
-  for (let node = target; ASSIGNMENT_PATH.has(node?.type); node = node.params[0]) {
-    if (node.type === "swizzle" && new Set(node.value).size !== node.value.length) {
-      throw new Error(
-        `[RMSL] can't assign through the swizzle .${node.value}, which names a component more than once; name each component once`,
-      );
-    }
-  }
+  assertNoRepeatedSwizzle(target);
   const root = assignmentRoot(target);
   if (root?.type === "storage") {
     throw new Error("[RMSL] can't assign to a whole storage buffer; assign to one of its elements with .element(i)");

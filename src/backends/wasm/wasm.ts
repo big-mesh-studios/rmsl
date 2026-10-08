@@ -25,6 +25,7 @@ import {
   scalarKindOf,
 } from "../cpu";
 import {
+  assertSquareMatrix,
   assertNotInAComputeStage,
   COMPUTE_REFUSES,
   assertStageResult,
@@ -33,7 +34,6 @@ import {
   assertOneDeclarationPerName,
   numberClashingVariables,
   assertAssignable,
-  FOR_UPDATE_BLOCK_MESSAGE,
   assertConstantIndexInRange,
   DEGREES_PER_RADIAN,
   RADIANS_PER_DEGREE,
@@ -45,6 +45,7 @@ import {
   resolveSwizzleTarget,
 } from "../shared";
 import { shareNodes } from "../share";
+import { MATRIX_HELPER_FORMULAS, type Formula, type MatrixHelper } from "../matrix-formulas";
 import {
   f64ConstBytes,
   forLoop,
@@ -460,12 +461,33 @@ function minMaxBytes(a: number[], b: number[], kind: ScalarKind, pick: "min" | "
   return selectExpr(a, b, [...a, ...b, cmp]);
 }
 
+/** The math functions that apply to each component of a vector, through {@link mathBytes} in the compiler. */
+const COMPONENT_MATH_TYPES = new Set([
+  "sign",
+  "floor",
+  "ceil",
+  "trunc",
+  "fract",
+  "round",
+  "sqrt",
+  "inverseSqrt",
+  "exp2",
+  ...MATH_UNARY_IMPORTS,
+  ...MATH_BINARY_IMPORTS,
+]);
+
 /**
  * True for aggregate-typed expressions that are anonymous results (not a
  * var/uniform/param...) and therefore need their own fixed address to be
  * materialized into before any component can be read.
  */
 const SCRATCH_NODE_TYPES = new Set([
+  ...COMPONENT_MATH_TYPES,
+  "inverse",
+  "transpose",
+  "faceForward",
+  "refract",
+  "not",
   "construct",
   "uniformArrayElement",
   "storageElement",
@@ -527,6 +549,9 @@ function comparisonBytes(type: string, a: number[], b: number[], kind: ScalarKin
   return [...a, ...b, kind === "float" ? f64op : kind === "uint" ? i32uOp : i32sOp];
 }
 
+/** The WASM instruction of each binary operation of a matrix formula. */
+const FORMULA_OPCODES = { add: WASM_OP.f64Add, sub: WASM_OP.f64Sub, mul: WASM_OP.f64Mul, div: WASM_OP.f64Div };
+
 /**
  * True when `node` is one of the anonymous aggregate results
  * {@link SCRATCH_NODE_TYPES} describes: it needs its own scratch address
@@ -538,17 +563,6 @@ function isScratchNode(node: any): boolean {
   if (node.type === t) return true;
   if (node.type === "swizzle") return (node.value as string).length > 1;
   return SCRATCH_NODE_TYPES.has(node.type);
-}
-
-/**
- * A `storage()` node used as a value rather than through `.element(i)`. The
- * JS target hands back the whole array there, which has no WASM value to
- * match.
- */
-function bareStorageError(node: any): Error {
-  return new Error(
-    `[RMSL] compileWasmFn: storage "${node.value.slot}" is read as a whole; read one element with .element(i).`,
-  );
 }
 
 /**
@@ -775,17 +789,6 @@ function writeTextureToMemory(
 /** Heap bytes for a texture: f64 per component. A cube map is always 6 layers. */
 function textureByteSize(tex: CpuTextureData, isCube: boolean): number {
   return tex.width * tex.height * (isCube ? 6 : tex.depth || 1) * (tex.channels ?? 4) * 8;
-}
-
-/** The statements that hold a block of their own. */
-const BLOCK_STATEMENTS = new Set(["if", "for", "while"]);
-
-/** Whether a statement, or any it holds, is a block. Each node of the graph is visited once. */
-function holdsBlock(node: any, seen = new Set<unknown>()): boolean {
-  if (node === null || typeof node !== "object" || seen.has(node)) return false;
-  seen.add(node);
-  if (BLOCK_STATEMENTS.has(node.type)) return true;
-  return Array.isArray(node.params) && node.params.some((param: unknown) => holdsBlock(param, seen));
 }
 
 /**
@@ -1679,6 +1682,23 @@ export function compileWasmFn(
         addLocal("$column_address", "int");
         break;
 
+      case "faceForward":
+        addLocal("$face_forward_sign", "float");
+        break;
+
+      case "inverse":
+      case "determinant":
+        assertSquareMatrix(node.params[0]._t);
+        for (const statement of MATRIX_HELPER_FORMULAS[matrixHelper(node)]) {
+          if (statement.target !== "locals") continue;
+          for (const [name] of statement.locals) addLocal(`$${matrixHelper(node)}_${name}`, "float");
+        }
+        break;
+
+      case "refract":
+        for (const name of ["eta", "d", "k", "r"]) addLocal(`$refract_${name}`, "float");
+        break;
+
       case "div":
       case "mod":
         if ((isAggregate(node._t) ? elementKindOf(node._t) : scalarKindOf(node._t)) !== "float") {
@@ -1736,6 +1756,59 @@ export function compileWasmFn(
   }
 
   /**
+   * The bytes of a math function of one component: `args` reads each
+   * operand's component, in `kind`, each time the function reads it. A scalar
+   * applies the function once, and a vector once for each component.
+   */
+  function mathBytes(type: string, args: (() => number[])[], kind: ScalarKind): number[] {
+    const [readX, readY] = args as [() => number[], () => number[]];
+    const x = readX();
+    switch (type) {
+      case "sign": {
+        const float = kind === "float";
+        const zero = float ? f64ConstBytes(0) : i32ConstBytes(0);
+        const one = float ? f64ConstBytes(1) : i32ConstBytes(1);
+        const minusOne = float ? f64ConstBytes(-1) : i32ConstBytes(-1);
+        const gtZero = float
+          ? [...x, ...f64ConstBytes(0), WASM_OP.f64Gt]
+          : [...x, ...i32ConstBytes(0), kind === "uint" ? WASM_OP.i32GtU : WASM_OP.i32GtS];
+        const again = readX();
+        const ltZero = float
+          ? [...again, ...f64ConstBytes(0), WASM_OP.f64Lt]
+          : [...again, ...i32ConstBytes(0), kind === "uint" ? WASM_OP.i32LtU : WASM_OP.i32LtS];
+        return selectExpr(minusOne, selectExpr(one, zero, gtZero), ltZero);
+      }
+      case "floor":
+        return [...x, WASM_OP.f64Floor];
+      case "ceil":
+        return [...x, WASM_OP.f64Ceil];
+      case "trunc":
+        return [...x, WASM_OP.f64Trunc];
+      case "radians":
+        return [...x, ...f64ConstBytes(RADIANS_PER_DEGREE), WASM_OP.f64Mul];
+      case "degrees":
+        return [...x, ...f64ConstBytes(DEGREES_PER_RADIAN), WASM_OP.f64Mul];
+      case "fract":
+        // x - floor(x); x is emitted twice to keep the stack flat — cheap, side-effect free
+        return [...x, ...readX(), WASM_OP.f64Floor, WASM_OP.f64Sub];
+      case "round":
+        // WGSL's round takes a half to the even neighbour, as f64.nearest does.
+        return [...x, WASM_OP.f64Nearest];
+      case "sqrt":
+        return [...x, WASM_OP.f64Sqrt];
+      case "inverseSqrt":
+        return [...f64ConstBytes(1), ...x, WASM_OP.f64Sqrt, WASM_OP.f64Div];
+      case "exp2":
+        return [...f64ConstBytes(2), ...x, ...callImport("pow")]; // exp2(x) = pow(2, x)
+      case "pow":
+      case "atan2":
+        return [...x, ...readY(), ...callImport(type)];
+      default:
+        return [...x, ...callImport(type)];
+    }
+  }
+
+  /**
    * Emits a `call` to a math/transcendental import by name (`sin`, `pow`, ...).
    */
   function callImport(name: string): number[] {
@@ -1765,9 +1838,6 @@ export function compileWasmFn(
           throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed attribute "${node.value.slot}"`);
         return addr;
       }
-
-      case "storage":
-        throw bareStorageError(node);
 
       case "varying": {
         if (effectiveStage === "fragment") {
@@ -1949,11 +2019,6 @@ export function compileWasmFn(
         WASM_OP.end,
       ];
     }
-    if (vector.type === "swizzle") {
-      throw new Error(
-        "[RMSL] compileWasmFn: writing a component by index through a swizzle isn't supported yet; write it through the swizzle's letters, as .x",
-      );
-    }
     const base = nodeAddress(vector);
     if (isLeafLiteral(index)) return storeComponent(base, kind, constantIndex(vector, index) * compSize, walkExpr(rhs));
     return storeDynamic(
@@ -2002,9 +2067,20 @@ export function compileWasmFn(
     return [...base, ...clampedIndexOffset(index, cols, rows * 8), WASM_OP.i32Add];
   }
 
-  /** Copies the matrix column a `matrixElement` node selects into its scratch address at `addr`. */
+  /**
+   * Copies the matrix column a `matrixElement` node selects into its scratch
+   * address at `addr`. A storage element's column is copied from the buffer,
+   * inside the element's bounds check, and is zero outside it.
+   */
   function emitMatrixColumnLoadStores(node: any, addr: number): number[] {
     const [matrix, index] = node.params;
+    if (matrix.type === "storageElement") {
+      const access = storageElementAccess(matrix);
+      const rows = columnRows(matrix);
+      const copy = copyColumn(columnAddress(matrix, index, access.address(0)), rows, addr, true);
+      const zeroes = rows.flatMap((_, i) => storeComponent(addr, "float", i * 8, f64ConstBytes(0)));
+      return [...access.inBounds, WASM_OP.if_, WASM_BLOCKTYPE_VOID, ...copy, WASM_OP.else_, ...zeroes, WASM_OP.end];
+    }
     return [
       ...materializeIfNeeded(matrix),
       ...copyColumn(columnAddress(matrix, index, i32ConstBytes(nodeAddress(matrix))), columnRows(matrix), addr, true),
@@ -2157,8 +2233,6 @@ export function compileWasmFn(
       case "attribute":
       case "fragCoord":
         return [];
-      case "storage":
-        throw bareStorageError(node);
       case "storageElement":
         return emitStorageElementLoadStores(node, nodeAddress(node));
       case "matrixElement":
@@ -2233,6 +2307,16 @@ export function compileWasmFn(
         return emitSmoothstepStores(node, nodeAddress(node));
       case "select":
         return emitSelectStores(node, nodeAddress(node));
+      case "inverse":
+        return emitMatrixHelper(node, nodeAddress(node));
+      case "refract":
+        return emitRefractStores(node, nodeAddress(node));
+      case "not":
+        return emitComponentwiseStores(node, nodeAddress(node));
+      case "faceForward":
+        return emitFaceForwardStores(node, nodeAddress(node));
+      case "transpose":
+        return emitTransposeStores(node, nodeAddress(node));
       case "seq": {
         // a nested Fn call's aggregate result: statements, then materialize
         // the final value (which nodeAddress() already resolves to for this node).
@@ -2245,6 +2329,7 @@ export function compileWasmFn(
           // node.type matching the type name with an array value identifies a literal
           return emitLiteralStores(node, nodeAddress(node));
         }
+        if (COMPONENT_MATH_TYPES.has(node.type)) return emitMathStores(node, nodeAddress(node));
         throw new Error(`[RMSL] compileWasmFn: unsupported node type in vector position: "${node.type}"`);
     }
   }
@@ -2259,22 +2344,35 @@ export function compileWasmFn(
     const matShape = MATRIX_DIMENSIONS[targetType];
     if (matShape) {
       const [cols, rows] = matShape;
-      if (node.params.length === 1 && componentCountOf(node.params[0]._t) > 1) {
-        throw new Error(
-          '[RMSL] compileWasmFn: unsupported node type in vector position: "matrix-from-matrix construct"',
-        );
+      const source = node.params.length === 1 ? MATRIX_DIMENSIONS[node.params[0]._t as string] : undefined;
+      if (source !== undefined) {
+        // Column by column: the source's leading rows of its leading columns, and the identity's where it has none.
+        const [sourceCols, sourceRows] = source;
+        const out = materializeIfNeeded(node.params[0]);
+        const from = nodeAddress(node.params[0]);
+        for (let c = 0; c < cols; c++)
+          for (let r = 0; r < rows; r++) {
+            const value =
+              c < sourceCols && r < sourceRows
+                ? loadComponent(from, "float", (c * sourceRows + r) * 8)
+                : f64ConstBytes(c === r ? 1 : 0);
+            out.push(...storeComponent(addr, "float", (c * rows + r) * 8, value));
+          }
+        return out;
       }
-      const out: number[] = [];
       if (node.params.length === 1) {
         // single scalar param -> diagonal matrix (identity-scaled)
+        const scalar = readOnce(node.params[0], "float");
+        const out = [...scalar.setup];
         for (let c = 0; c < cols; c++) {
           for (let r = 0; r < rows; r++) {
-            const valueBytes = c === r ? walkExpr(node.params[0]) : f64ConstBytes(0);
+            const valueBytes = c === r ? scalar.at(0) : f64ConstBytes(0);
             out.push(...storeComponent(addr, "float", (c * rows + r) * 8, valueBytes));
           }
         }
         return out;
       }
+      const out: number[] = [];
 
       node.params.forEach((colNode: any, c: number) => {
         out.push(...materializeIfNeeded(colNode));
@@ -2842,10 +2940,9 @@ export function compileWasmFn(
 
   /**
    * Element-wise op over same-width vectors — binary, or unary for `bitNot`,
-   * `negate` and `abs` — with scalar operands broadcast by re-evaluating them
-   * (walkExpr) per component; aggregate operands are materialized once and
-   * loaded per component. A comparison reads operands of its first operand's
-   * kind and stores a boolean vector.
+   * `negate` and `abs` — with a scalar operand applying to every component.
+   * A comparison reads operands of its first operand's kind and stores a
+   * boolean vector.
    */
   function emitComponentwiseStores(node: any, addr: number): number[] {
     const [a, b] = node.params;
@@ -2859,13 +2956,8 @@ export function compileWasmFn(
       : aWidth > 1
         ? elementKindOf(a._t as string)
         : scalarKindOf(a._t as string);
-    const operandSize = componentSizeOf(operandKind);
-    const bWidth = b === undefined ? 0 : componentCountOf(b._t);
-    const out: number[] = [];
-    if (aWidth > 1) out.push(...materializeIfNeeded(a));
-    if (bWidth > 1) out.push(...materializeIfNeeded(b));
-    const aAddr = aWidth > 1 ? nodeAddress(a) : undefined;
-    const bAddr = bWidth > 1 ? nodeAddress(b) : undefined;
+    const { setup, reads } = readEachOnce(node, operandKind);
+    const out = [...setup];
     const combine = (aBytes: number[], bBytes: number[]): number[] => {
       const float = operandKind === "float";
       if (COMPARISON_OPCODES[node.type]) return comparisonBytes(node.type, aBytes, bBytes, operandKind);
@@ -2885,6 +2977,7 @@ export function compileWasmFn(
         return [...aBytes, ...bBytes, ...integerDivision(operandKind as "int" | "uint", node.type)];
       }
       if (node.type === "bitNot") return [...aBytes, ...i32ConstBytes(-1), WASM_OP.i32Xor];
+      if (node.type === "not") return [...aBytes, WASM_OP.i32Eqz];
       const opcode = {
         add: float ? WASM_OP.f64Add : WASM_OP.i32Add,
         sub: float ? WASM_OP.f64Sub : WASM_OP.i32Sub,
@@ -2899,32 +2992,201 @@ export function compileWasmFn(
       return [...aBytes, ...bBytes, opcode];
     };
     for (let k = 0; k < width; k++) {
-      const aBytes = aWidth > 1 ? loadComponent(aAddr!, operandKind, k * operandSize) : walkExpr(a);
-      const bBytes =
-        b === undefined ? [] : bWidth > 1 ? loadComponent(bAddr!, operandKind, k * operandSize) : walkExpr(b);
-      out.push(...storeComponent(addr, targetKind, k * compSize, combine(aBytes, bBytes)));
+      out.push(
+        ...storeComponent(addr, targetKind, k * compSize, combine(reads[0](k), b === undefined ? [] : reads[1](k))),
+      );
     }
     return out;
   }
 
-  /** clamp = max(x, lo) then min(hi); an core guarantee keeps all three params the same width. */
+  /** A math function of a vector, applied to each component; a scalar operand applies to every one. */
+  function emitMathStores(node: any, addr: number): number[] {
+    const kind = elementKindOf(node._t as string);
+    const size = componentSizeOf(kind);
+    const { setup, reads } = readEachOnce(node, kind);
+    const out = [...setup];
+    for (let k = 0; k < componentCountOf(node._t as string); k++) {
+      const args = reads.map((read) => () => read(k));
+      out.push(...storeComponent(addr, kind, k * size, mathBytes(node.type, args, kind)));
+    }
+    return out;
+  }
+
+  /** The formulas a matrix function of `node` is computed with, named as the JS target names its helper. */
+  function matrixHelper(node: any): MatrixHelper {
+    const [cols, rows] = MATRIX_DIMENSIONS[node.params[0]._t as string];
+    return `mat${cols}x${rows}${node.type === "inverse" ? "inv" : "det"}` as MatrixHelper;
+  }
+
+  /**
+   * A matrix function of `node`, computed as the JS target computes it: each
+   * statement of its formulas, in the same order, on f64 locals, so the two
+   * targets agree to the bit. Its result goes to `addr`, or stays on the stack
+   * for a helper that returns a number.
+   */
+  function emitMatrixHelper(node: any, addr?: number): number[] {
+    const helper = matrixHelper(node);
+    const source = node.params[0];
+    const out = materializeIfNeeded(source);
+    const from = nodeAddress(source);
+    const local = (name: string) => wasmUleb128(localSlotIndex(`$${helper}_${name}`));
+    const bytes = (e: Formula): number[] => {
+      switch (e.kind) {
+        case "number":
+          return f64ConstBytes(e.value);
+        case "input":
+          return loadComponent(from, "float", e.index * 8);
+        case "name":
+          return [WASM_OP.localGet, ...local(e.name)];
+        case "negate":
+          return [...bytes(e.operand), WASM_OP.f64Neg];
+        default:
+          return [...bytes(e.left), ...bytes(e.right), FORMULA_OPCODES[e.kind]];
+      }
+    };
+    for (const statement of MATRIX_HELPER_FORMULAS[helper]) {
+      if (statement.target === "locals") {
+        for (const [name, value] of statement.locals) out.push(...bytes(value), WASM_OP.localSet, ...local(name));
+      } else if (statement.target === "out")
+        out.push(...storeComponent(addr!, "float", statement.index * 8, bytes(statement.value)));
+      else out.push(...bytes(statement.value));
+    }
+    return out;
+  }
+
+  /**
+   * `refract(i, n, eta)` as the JS target computes it: the dot summed from
+   * zero, `k = 1 - eta * eta * (1 - d * d)`, and each component
+   * `eta * i - (eta * d + sqrt(k)) * n`, or zero where `k` is below zero.
+   */
+  function emitRefractStores(node: any, addr: number): number[] {
+    const [incident, normal, eta] = node.params;
+    const width = componentCountOf(node._t as string);
+    const out = [...materializeIfNeeded(incident), ...materializeIfNeeded(normal)];
+    const [iAddr, nAddr] = [nodeAddress(incident), nodeAddress(normal)];
+    const get = (name: string) => [WASM_OP.localGet, ...wasmUleb128(localSlotIndex(`$refract_${name}`))];
+    const set = (name: string, value: number[]) => [
+      ...value,
+      WASM_OP.localSet,
+      ...wasmUleb128(localSlotIndex(`$refract_${name}`)),
+    ];
+    let dot = f64ConstBytes(0);
+    for (let k = 0; k < width; k++) {
+      dot = [
+        ...dot,
+        ...loadComponent(nAddr, "float", k * 8),
+        ...loadComponent(iAddr, "float", k * 8),
+        WASM_OP.f64Mul,
+        WASM_OP.f64Add,
+      ];
+    }
+    out.push(...set("eta", walkExpr(eta)), ...set("d", dot));
+    const dd = [...get("d"), ...get("d"), WASM_OP.f64Mul];
+    out.push(
+      ...set("k", [
+        ...f64ConstBytes(1),
+        ...get("eta"),
+        ...get("eta"),
+        WASM_OP.f64Mul,
+        ...f64ConstBytes(1),
+        ...dd,
+        WASM_OP.f64Sub,
+        WASM_OP.f64Mul,
+        WASM_OP.f64Sub,
+      ]),
+      ...set("r", [...get("eta"), ...get("d"), WASM_OP.f64Mul, ...get("k"), WASM_OP.f64Sqrt, WASM_OP.f64Add]),
+    );
+    for (let k = 0; k < width; k++) {
+      const value = [
+        ...get("eta"),
+        ...loadComponent(iAddr, "float", k * 8),
+        WASM_OP.f64Mul,
+        ...get("r"),
+        ...loadComponent(nAddr, "float", k * 8),
+        WASM_OP.f64Mul,
+        WASM_OP.f64Sub,
+      ];
+      out.push(
+        ...storeComponent(
+          addr,
+          "float",
+          k * 8,
+          selectExpr(f64ConstBytes(0), value, [...get("k"), ...f64ConstBytes(0), WASM_OP.f64Lt]),
+        ),
+      );
+    }
+    return out;
+  }
+
+  /**
+   * `faceForward(n, i, nref)`: `n` when `dot(nref, i)` is below zero and `-n`
+   * otherwise, as the JS target computes it: the dot summed from zero, and `n`
+   * multiplied by a sign.
+   */
+  function emitFaceForwardStores(node: any, addr: number): number[] {
+    const [n, incident, reference] = node.params;
+    const width = componentCountOf(node._t as string);
+    const out = [...materializeIfNeeded(n), ...materializeIfNeeded(incident), ...materializeIfNeeded(reference)];
+    const [nAddr, iAddr, refAddr] = [nodeAddress(n), nodeAddress(incident), nodeAddress(reference)];
+    let dot = f64ConstBytes(0);
+    for (let k = 0; k < width; k++) {
+      dot = [
+        ...dot,
+        ...loadComponent(refAddr, "float", k * 8),
+        ...loadComponent(iAddr, "float", k * 8),
+        WASM_OP.f64Mul,
+        WASM_OP.f64Add,
+      ];
+    }
+    const sign = wasmUleb128(localSlotIndex("$face_forward_sign"));
+    out.push(
+      ...selectExpr(f64ConstBytes(1), f64ConstBytes(-1), [...dot, ...f64ConstBytes(0), WASM_OP.f64Lt]),
+      WASM_OP.localSet,
+      ...sign,
+    );
+    for (let k = 0; k < width; k++) {
+      out.push(
+        ...storeComponent(addr, "float", k * 8, [
+          WASM_OP.localGet,
+          ...sign,
+          ...loadComponent(nAddr, "float", k * 8),
+          WASM_OP.f64Mul,
+        ]),
+      );
+    }
+    return out;
+  }
+
+  /** The matrix of `node`'s columns as rows, element by element. */
+  function emitTransposeStores(node: any, addr: number): number[] {
+    const source = node.params[0];
+    const [cols, rows] = MATRIX_DIMENSIONS[source._t as string];
+    const out = materializeIfNeeded(source);
+    const from = nodeAddress(source);
+    for (let col = 0; col < cols; col++)
+      for (let row = 0; row < rows; row++) {
+        // Element (col, row) of the source is element (row, col) of the result, which has `cols` rows.
+        out.push(
+          ...storeComponent(
+            addr,
+            "float",
+            (row * cols + col) * 8,
+            loadComponent(from, "float", (col * rows + row) * 8),
+          ),
+        );
+      }
+    return out;
+  }
+
+  /** clamp = max(x, lo) then min(hi); a scalar bound applies to every component. */
   function emitClampStores(node: any, addr: number): number[] {
-    const [x, lo, hi] = node.params;
     const targetKind = elementKindOf(node._t as string);
     const compSize = componentSizeOf(targetKind);
     const width = componentCountOf(node._t as string);
-    // A scalar bound applies to every component, and is re-evaluated for each.
-    const component = (n: any) => {
-      if (componentCountOf(n._t) === 1) return { setup: [], at: () => walkExpr(n) };
-      const nAddr = nodeAddress(n);
-      return { setup: materializeIfNeeded(n), at: (k: number) => loadComponent(nAddr, targetKind, k * compSize) };
-    };
-    const [xc, loc, hic] = [component(x), component(lo), component(hi)];
-    const out = [...xc.setup, ...loc.setup, ...hic.setup];
+    const { setup, reads } = readEachOnce(node, targetKind);
+    const out = [...setup];
     for (let k = 0; k < width; k++) {
-      const xk = xc.at(k);
-      const lok = loc.at(k);
-      const hik = hic.at(k);
+      const [xk, lok, hik] = reads.map((read) => read(k));
       out.push(
         ...storeComponent(
           addr,
@@ -2937,20 +3199,13 @@ export function compileWasmFn(
     return out;
   }
 
-  /** mix(a, b, t) = a + t*(b - a) per component; t may be scalar (re-evaluated) or same-width vector. */
+  /** mix(a, b, t) = a + t*(b - a) per component; a scalar t weighs every component. */
   function emitMixStores(node: any, addr: number): number[] {
-    const [a, b, t] = node.params;
     const width = componentCountOf(node._t as string);
-    const tWidth = componentCountOf(t._t as string);
-    const out = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
-    if (tWidth > 1) out.push(...materializeIfNeeded(t));
-    const aAddr = nodeAddress(a),
-      bAddr = nodeAddress(b);
-    const tAddr = tWidth > 1 ? nodeAddress(t) : undefined;
+    const { setup, reads } = readEachOnce(node, "float");
+    const out = [...setup];
     for (let k = 0; k < width; k++) {
-      const ak = loadComponent(aAddr, "float", k * 8);
-      const bk = loadComponent(bAddr, "float", k * 8);
-      const tk = tWidth > 1 ? loadComponent(tAddr!, "float", k * 8) : walkExpr(t);
+      const [ak, bk, tk] = reads.map((read) => read(k));
       out.push(
         ...storeComponent(addr, "float", k * 8, [
           ...ak,
@@ -2968,14 +3223,11 @@ export function compileWasmFn(
 
   /** step(edge, x) = 0.0 when x < edge, else 1.0. */
   function emitStepStores(node: any, addr: number): number[] {
-    const [edge, x] = node.params;
     const width = componentCountOf(node._t as string);
-    const out = [...materializeIfNeeded(edge), ...materializeIfNeeded(x)];
-    const edgeAddr = nodeAddress(edge),
-      xAddr = nodeAddress(x);
+    const { setup, reads } = readEachOnce(node, "float");
+    const out = [...setup];
     for (let k = 0; k < width; k++) {
-      const ek = loadComponent(edgeAddr, "float", k * 8);
-      const xk = loadComponent(xAddr, "float", k * 8);
+      const [ek, xk] = reads.map((read) => read(k));
       out.push(
         ...storeComponent(
           addr,
@@ -2998,36 +3250,22 @@ export function compileWasmFn(
     const targetKind = elementKindOf(node._t as string);
     const compSize = componentSizeOf(targetKind);
     const width = componentCountOf(node._t as string);
-    const condWidth = componentCountOf(cond._t as string);
-    const out = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
-    if (condWidth > 1) out.push(...materializeIfNeeded(cond));
-    const aAddr = nodeAddress(a),
-      bAddr = nodeAddress(b);
-    const condAddr = condWidth > 1 ? nodeAddress(cond) : undefined;
+    const [c, x, y] = [readOnce(cond, "bool"), readOnce(a, targetKind), readOnce(b, targetKind)];
+    const out = [...c.setup, ...x.setup, ...y.setup];
     for (let k = 0; k < width; k++) {
-      const ak = loadComponent(aAddr, targetKind, k * compSize);
-      const bk = loadComponent(bAddr, targetKind, k * compSize);
-      const condK = condWidth > 1 ? loadComponent(condAddr!, "bool", k * componentSizeOf("bool")) : walkExpr(cond);
-      out.push(...storeComponent(addr, targetKind, k * compSize, selectExpr(ak, bk, condK)));
+      out.push(...storeComponent(addr, targetKind, k * compSize, selectExpr(x.at(k), y.at(k), c.at(k))));
     }
     return out;
   }
 
   /** smoothstep(e0, e1, x) per component, via the shared t computation in emitSmoothstepValue. */
   function emitSmoothstepStores(node: any, addr: number): number[] {
-    const [e0, e1, x] = node.params;
     const width = componentCountOf(node._t as string);
-    const out = [...materializeIfNeeded(e0), ...materializeIfNeeded(e1), ...materializeIfNeeded(x)];
-    const e0Addr = nodeAddress(e0),
-      e1Addr = nodeAddress(e1),
-      xAddr = nodeAddress(x);
+    const { setup, reads } = readEachOnce(node, "float");
+    const out = [...setup];
     for (let k = 0; k < width; k++) {
-      const value = emitSmoothstepValue(
-        loadComponent(e0Addr, "float", k * 8),
-        loadComponent(e1Addr, "float", k * 8),
-        loadComponent(xAddr, "float", k * 8),
-      );
-      out.push(...storeComponent(addr, "float", k * 8, value));
+      const [e0k, e1k, xk] = reads.map((read) => read(k));
+      out.push(...storeComponent(addr, "float", k * 8, emitSmoothstepValue(e0k, e1k, xk)));
     }
     return out;
   }
@@ -3189,10 +3427,33 @@ export function compileWasmFn(
 
   /** Loads component k, materializing the aggregate into memory first if needed. */
   function readComponent(node: any, k: number): number[] {
+    if (node.type === "matrixElement") return readColumnComponent(node, k);
     const out = [...materializeIfNeeded(node)];
     const kind = elementKindOf(node._t as string);
     out.push(...loadComponent(nodeAddress(node), kind, k * componentSizeOf(kind)));
     return out;
+  }
+
+  /**
+   * Component `k` of the matrix column `column` selects, read where the matrix
+   * holds it rather than through a copy of the column: one load for a column
+   * at a constant index. A storage element's column reads from the buffer,
+   * and as zero outside it, as the whole element does.
+   */
+  function readColumnComponent(column: any, k: number): number[] {
+    const [matrix, index] = column.params;
+    const rows = MATRIX_DIMENSIONS[matrix._t as string][1];
+    const atRow = (address: number[]) => (k === 0 ? address : [...address, ...i32ConstBytes(k * 8), WASM_OP.i32Add]);
+    if (matrix.type === "storageElement") {
+      const access = storageElementAccess(matrix);
+      const load = loadDynamic(atRow(columnAddress(matrix, index, access.address(0))), "float");
+      return [...access.inBounds, WASM_OP.if_, WASM_F64, ...load, WASM_OP.else_, ...f64ConstBytes(0), WASM_OP.end];
+    }
+    const out = materializeIfNeeded(matrix);
+    if (isLeafLiteral(index)) {
+      return [...out, ...loadComponent(nodeAddress(matrix), "float", (constantIndex(matrix, index) * rows + k) * 8)];
+    }
+    return [...out, ...loadDynamic(atRow(columnAddress(matrix, index, i32ConstBytes(nodeAddress(matrix)))), "float")];
   }
 
   /** f64 op for float operands, the i32 op otherwise — int/uint/bool share bit patterns for add/sub/mul. */
@@ -3206,22 +3467,6 @@ export function compileWasmFn(
     const kind = scalarKindOf(node.params[0]._t);
     const op = kind === "float" ? f64op : kind === "uint" ? i32uOp : i32sOp;
     return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), op];
-  }
-
-  /** float min/max use native f64.min/max; int/uint fall back to a compare + select. */
-  function minOrMax(a: any, b: any, kind: ScalarKind, pick: "min" | "max"): number[] {
-    if (kind === "float") {
-      return [...walkExpr(a), ...walkExpr(b), pick === "min" ? WASM_OP.f64Min : WASM_OP.f64Max];
-    }
-    const cmp =
-      kind === "uint"
-        ? pick === "min"
-          ? WASM_OP.i32LtU
-          : WASM_OP.i32GtU
-        : pick === "min"
-          ? WASM_OP.i32LtS
-          : WASM_OP.i32GtS;
-    return selectExpr(walkExpr(a), walkExpr(b), [...walkExpr(a), ...walkExpr(b), cmp]);
   }
 
   /**
@@ -3308,6 +3553,33 @@ export function compileWasmFn(
   }
 
   /**
+   * How an operation reads `operand`: `setup` computes it, once and in its
+   * place among the operands, and `at(k)` reads its component `k` as `kind`.
+   * A scalar gives the same value at every `k`. One that is not already a name
+   * is computed into a local of its own, so a second read does not compute it again.
+   */
+  function readOnce(operand: any, kind?: ScalarKind): { setup: number[]; at(k: number): number[] } {
+    if (isAggregate(operand._t)) {
+      const elementKind = kind ?? elementKindOf(operand._t as string);
+      const setup = materializeIfNeeded(operand);
+      const address = nodeAddress(operand);
+      return { setup, at: (k) => loadComponent(address, elementKind, k * componentSizeOf(elementKind)) };
+    }
+    if (!Array.isArray(operand.params) || operand.params.length === 0)
+      return { setup: [], at: () => walkExpr(operand) };
+    const name = `$operand${localSlots.length}`;
+    addLocal(name, scalarKindOf(operand._t));
+    const slot = wasmUleb128(localSlotIndex(name));
+    return { setup: [...walkExpr(operand), WASM_OP.localSet, ...slot], at: () => [WASM_OP.localGet, ...slot] };
+  }
+
+  /** `readOnce` of each operand of `node`, with the setup of every one, in the order `node` takes them. */
+  function readEachOnce(node: any, kind?: ScalarKind): { setup: number[]; reads: ((k: number) => number[])[] } {
+    const operands = (node.params as any[]).map((p) => readOnce(p, kind));
+    return { setup: operands.flatMap((o) => o.setup), reads: operands.map((o) => o.at) };
+  }
+
+  /**
    * Expression pass: evaluates a node down to one value on the WASM stack —
    * an f64 for floats, an i32 for int/uint/bool. A component of an aggregate
    * is read through readComponent/materialize, never held on the stack.
@@ -3345,8 +3617,6 @@ export function compileWasmFn(
       }
       case "invocationIndex":
         return [WASM_OP.localGet, ...wasmUleb128(paramSlotIndex("invocationIndex"))];
-      case "storage":
-        throw bareStorageError(node);
       case "storageElement": {
         const kind = scalarKindOf(node._t);
         const element = storageElementAccess(node);
@@ -3381,47 +3651,44 @@ export function compileWasmFn(
       case "div":
       case "mod": {
         const kind = scalarKindOf(node.params[0]._t);
-        const a = walkExpr(node.params[0]);
-        const b = walkExpr(node.params[1]);
-        if (kind === "int" || kind === "uint") return [...a, ...b, ...integerDivision(kind, node.type)];
-        if (node.type === "div") return [...a, ...b, WASM_OP.f64Div];
-        return flooredModulo(a, b);
+        if (kind === "int" || kind === "uint") {
+          return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), ...integerDivision(kind, node.type)];
+        }
+        if (node.type === "div") return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), WASM_OP.f64Div];
+        const { setup, reads } = readEachOnce(node);
+        return [...setup, ...flooredModulo(reads[0](0), reads[1](0))];
       }
       case "min":
-        return minOrMax(node.params[0], node.params[1], scalarKindOf(node.params[0]._t), "min");
-      case "max":
-        return minOrMax(node.params[0], node.params[1], scalarKindOf(node.params[0]._t), "max");
+      case "max": {
+        const { setup, reads } = readEachOnce(node);
+        return [...setup, ...minMaxBytes(reads[0](0), reads[1](0), scalarKindOf(node.params[0]._t), node.type)];
+      }
 
       case "clamp": {
         const kind = scalarKindOf(node._t as string);
-        const x = walkExpr(node.params[0]);
-        const lo = walkExpr(node.params[1]);
-        const hi = walkExpr(node.params[2]);
-        return minMaxBytes(minMaxBytes(x, lo, kind, "max"), hi, kind, "min");
+        const { setup, reads } = readEachOnce(node);
+        const [x, lo, hi] = reads.map((read) => read(0));
+        return [...setup, ...minMaxBytes(minMaxBytes(x, lo, kind, "max"), hi, kind, "min")];
       }
       case "mix": {
-        const [a, b, t] = node.params;
-        return [
-          ...walkExpr(a),
-          ...walkExpr(t),
-          ...walkExpr(b),
-          ...walkExpr(a),
-          WASM_OP.f64Sub,
-          WASM_OP.f64Mul,
-          WASM_OP.f64Add,
-        ];
+        const { setup, reads } = readEachOnce(node);
+        const [a, b, t] = reads.map((read) => read(0));
+        return [...setup, ...a, ...t, ...b, ...a, WASM_OP.f64Sub, WASM_OP.f64Mul, WASM_OP.f64Add];
       }
       case "step": {
-        const [edge, x] = node.params;
-        return selectExpr(f64ConstBytes(0), f64ConstBytes(1), [...walkExpr(x), ...walkExpr(edge), WASM_OP.f64Lt]);
+        const { setup, reads } = readEachOnce(node);
+        const [edge, x] = reads.map((read) => read(0));
+        return [...setup, ...selectExpr(f64ConstBytes(0), f64ConstBytes(1), [...x, ...edge, WASM_OP.f64Lt])];
       }
       case "smoothstep": {
-        const [e0, e1, x] = node.params;
-        return emitSmoothstepValue(walkExpr(e0), walkExpr(e1), walkExpr(x));
+        const { setup, reads } = readEachOnce(node);
+        const [e0, e1, x] = reads.map((read) => read(0));
+        return [...setup, ...emitSmoothstepValue(e0, e1, x)];
       }
       case "select": {
-        const [cond, a, b] = node.params;
-        return selectExpr(walkExpr(a), walkExpr(b), walkExpr(cond));
+        const { setup, reads } = readEachOnce(node);
+        const [cond, a, b] = reads.map((read) => read(0));
+        return [...setup, ...selectExpr(a, b, cond)];
       }
 
       case "negate": {
@@ -3432,53 +3699,22 @@ export function compileWasmFn(
       case "abs": {
         const kind = scalarKindOf(node.params[0]._t);
         if (kind === "float") return [...walkExpr(node.params[0]), WASM_OP.f64Abs];
-        const x = node.params[0];
-        const negated = [...i32ConstBytes(0), ...walkExpr(x), WASM_OP.i32Sub];
-        const isNeg = [...walkExpr(x), ...i32ConstBytes(0), WASM_OP.i32LtS];
-        return selectExpr(negated, walkExpr(x), isNeg);
+        const x = readOnce(node.params[0]);
+        const negated = [...i32ConstBytes(0), ...x.at(0), WASM_OP.i32Sub];
+        const isNeg = [...x.at(0), ...i32ConstBytes(0), WASM_OP.i32LtS];
+        return [...x.setup, ...selectExpr(negated, x.at(0), isNeg)];
       }
-      case "sign": {
-        const kind = scalarKindOf(node.params[0]._t);
-        const x = node.params[0];
-        const zero = kind === "float" ? f64ConstBytes(0) : i32ConstBytes(0);
-        const one = kind === "float" ? f64ConstBytes(1) : i32ConstBytes(1);
-        const minusOne = kind === "float" ? f64ConstBytes(-1) : i32ConstBytes(-1);
-        const gtZero =
-          kind === "float"
-            ? [...walkExpr(x), ...f64ConstBytes(0), WASM_OP.f64Gt]
-            : [...walkExpr(x), ...i32ConstBytes(0), kind === "uint" ? WASM_OP.i32GtU : WASM_OP.i32GtS];
-        const ltZero =
-          kind === "float"
-            ? [...walkExpr(x), ...f64ConstBytes(0), WASM_OP.f64Lt]
-            : [...walkExpr(x), ...i32ConstBytes(0), kind === "uint" ? WASM_OP.i32LtU : WASM_OP.i32LtS];
-        const positiveOrZero = selectExpr(one, zero, gtZero);
-        return selectExpr(minusOne, positiveOrZero, ltZero);
-      }
+      case "sign":
       case "floor":
-        return [...walkExpr(node.params[0]), WASM_OP.f64Floor];
       case "ceil":
-        return [...walkExpr(node.params[0]), WASM_OP.f64Ceil];
       case "trunc":
-        return [...walkExpr(node.params[0]), WASM_OP.f64Trunc];
       case "radians":
-        return [...walkExpr(node.params[0]), ...f64ConstBytes(RADIANS_PER_DEGREE), WASM_OP.f64Mul];
       case "degrees":
-        return [...walkExpr(node.params[0]), ...f64ConstBytes(DEGREES_PER_RADIAN), WASM_OP.f64Mul];
-      case "fract": {
-        const x = node.params[0];
-        // x - floor(x); x is emitted twice to keep the stack flat — cheap, side-effect free
-        return [...walkExpr(x), ...walkExpr(x), WASM_OP.f64Floor, WASM_OP.f64Sub];
-      }
+      case "fract":
       case "round":
-        // WGSL's round takes a half to the even neighbour, as f64.nearest does.
-        return [...walkExpr(node.params[0]), WASM_OP.f64Nearest];
       case "sqrt":
-        return [...walkExpr(node.params[0]), WASM_OP.f64Sqrt];
       case "inverseSqrt":
-        return [...f64ConstBytes(1), ...walkExpr(node.params[0]), WASM_OP.f64Sqrt, WASM_OP.f64Div];
       case "exp2":
-        return [...f64ConstBytes(2), ...walkExpr(node.params[0]), ...callImport("pow")]; // exp2(x) = pow(2, x)
-
       case "sin":
       case "cos":
       case "tan":
@@ -3494,10 +3730,18 @@ export function compileWasmFn(
       case "exp":
       case "log":
       case "log2":
-        return [...walkExpr(node.params[0]), ...callImport(node.type)];
       case "pow":
-      case "atan2":
-        return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), ...callImport(node.type)];
+      case "atan2": {
+        const { setup, reads } = readEachOnce(node);
+        return [
+          ...setup,
+          ...mathBytes(
+            node.type,
+            reads.map((read) => () => read(0)),
+            scalarKindOf(node.params[0]._t),
+          ),
+        ];
+      }
 
       case "lessThan":
         return comparison(node, WASM_OP.f64Lt, WASM_OP.i32LtS, WASM_OP.i32LtU);
@@ -3588,6 +3832,23 @@ export function compileWasmFn(
         return readComponent(node.params[0], COMPONENT_INDEX[pattern]);
       }
 
+      case "determinant":
+        return emitMatrixHelper(node);
+      case "all":
+      case "any": {
+        // Every or some component of a boolean vector, each an i32 of 0 or 1.
+        const v = node.params[0];
+        if (!isAggregate(v._t)) return walkExpr(v);
+        const pre = materializeIfNeeded(v);
+        const from = nodeAddress(v);
+        const kind = elementKindOf(v._t as string);
+        const size = componentSizeOf(kind);
+        let acc = loadComponent(from, kind, 0);
+        for (let k = 1; k < componentCountOf(v._t); k++) {
+          acc = [...acc, ...loadComponent(from, kind, k * size), node.type === "all" ? WASM_OP.i32And : WASM_OP.i32Or];
+        }
+        return [...pre, ...acc];
+      }
       case "dot": {
         const a = node.params[0],
           b = node.params[1];
@@ -3855,11 +4116,6 @@ export function compileWasmFn(
       }
       case "for": {
         const [initNode, condNode, updateNode, bodyNode] = node.params;
-        // The update slot of a GLSL, WGSL or JavaScript `for` takes no block, so
-        // a program that put one there would run on this target alone.
-        if (holdsBlock(updateNode)) {
-          throw new Error(FOR_UPDATE_BLOCK_MESSAGE);
-        }
         return emitLoop(walkStmt(initNode, depth), condNode, bodyNode, updateNode, depth);
       }
       case "while": {

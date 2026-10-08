@@ -40,6 +40,30 @@ import { compileWgsl, createWgslCompute } from "./wgsl";
 import { createJsCompute } from "./js";
 import { createWasmCompute } from "./wasm";
 
+describe("what an Fn returns", () => {
+  /**
+   * @canon spec-a-returned-array-lists-roots
+   */
+  it("types an array of numbers it returns as that many float roots", () => {
+    expectTypeOf(Fn(() => [1, 2, 3, 4])()).toEqualTypeOf<
+      [Node<"float">, Node<"float">, Node<"float">, Node<"float">]
+    >();
+    expectTypeOf(Fn(() => [float(1), true])()).toEqualTypeOf<[Node<"float">, Node<"bool">]>();
+    expectTypeOf(Fn(() => 1)()).toEqualTypeOf<Node<"float">>();
+  });
+});
+
+describe("a JavaScript array given as a vector", () => {
+  /**
+   * @canon spec-a-javascript-array-is-a-vector-of-its-length
+   */
+  it("takes the lengths a vector or matrix has, and refuses any other as it is written", () => {
+    expectTypeOf(dot(vec3(1, 0, 0), [1, 2, 3])).toEqualTypeOf<Node<"float">>();
+    // @ts-expect-error an array of five numbers is no vector
+    dot(vec3(1, 0, 0), [1, 2, 3, 4, 5]);
+  });
+});
+
 describe("comparison result types", () => {
   /**
    * Only a scalar reduces to a single boolean; a comparison is component-wise,

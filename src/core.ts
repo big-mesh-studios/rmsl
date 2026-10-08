@@ -52,8 +52,22 @@ export type IVec4Like = [number, number, number, number] | BaseNode<"ivec4">;
 export type UVec2Like = [number, number] | BaseNode<"uvec2">;
 export type UVec3Like = [number, number, number] | BaseNode<"uvec3">;
 export type UVec4Like = [number, number, number, number] | BaseNode<"uvec4">;
-export type Mat3Like = number[] | BaseNode<"mat3">;
-export type Mat4Like = number[] | BaseNode<"mat4">;
+/** Nine numbers, a `mat3`'s columns one after another. */
+type Mat3Array = readonly [number, number, number, number, number, number, number, number, number];
+/** Sixteen numbers, a `mat4`'s columns one after another. */
+type Mat4Array = readonly [...Mat3Array, number, number, number, number, number, number, number];
+/**
+ * A JavaScript array given where a node goes: the lengths a vector, a `mat3`
+ * or a `mat4` has, so an array of another length is refused as it is written.
+ */
+export type VectorArray =
+  | readonly [number, number]
+  | readonly [number, number, number]
+  | readonly [number, number, number, number]
+  | Mat3Array
+  | Mat4Array;
+export type Mat3Like = Mat3Array | BaseNode<"mat3">;
+export type Mat4Like = Mat4Array | BaseNode<"mat4">;
 export type Sampler2DLike = BaseNode<"sampler2D"> | Node<"sampler2D">;
 export type Sampler3DLike = BaseNode<"sampler3D"> | Node<"sampler3D">;
 export type ISampler2DLike = BaseNode<"isampler2D"> | Node<"isampler2D">;
@@ -836,8 +850,8 @@ export interface NodeMethods<A extends ShaderType> {
    * boolean vector, in which case the selection is component-wise.
    */
   select<T extends ShaderType>(
-    ifTrue: BaseNode<T> | number | readonly number[],
-    ifFalse: BaseNode<T> | number | readonly number[],
+    ifTrue: BaseNode<T> | number | VectorArray,
+    ifFalse: BaseNode<T> | number | VectorArray,
   ): Node<T>;
 }
 
@@ -1367,7 +1381,7 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
         new NodeImpl({
           _t: "void",
           type: "assign",
-          params: [this, typedOperand(value, this._t) as BaseNode<ShaderType>],
+          params: [this as BaseNode<ShaderType>, typedOperand(value, this._t) as BaseNode<ShaderType>],
         }),
       );
     });
@@ -1577,6 +1591,22 @@ export type ExtractType<V> = V extends FloatLike
                   ? "mat4"
                   : "void";
 
+/** The vector or matrix type a JavaScript array of each length is. */
+const ARRAY_TYPES: Record<number, "vec2" | "vec3" | "vec4" | "mat3" | "mat4"> = {
+  2: "vec2",
+  3: "vec3",
+  4: "vec4",
+  9: "mat3",
+  16: "mat4",
+};
+
+/** What an element of an array is, for the message that refuses it. */
+function describeElement(element: unknown): string {
+  if (element === undefined) return "an empty or undefined element";
+  if (Array.isArray(element)) return "a nested array";
+  return `a ${typeof element}, ${JSON.stringify(element)}`;
+}
+
 export function wrapValue<V>(x: V): Node<ExtractType<V>> {
   if (x === undefined || x === null) {
     return node({ _t: "void", type: "void" }) as any;
@@ -1588,24 +1618,22 @@ export function wrapValue<V>(x: V): Node<ExtractType<V>> {
     return node({ _t: "float", type: "float", value: x }) as any;
   }
   if (Array.isArray(x)) {
-    if (x.length === 3) {
-      return node({ _t: "vec3", type: "vec3", value: x }) as any;
+    const type = ARRAY_TYPES[x.length];
+    if (type === undefined) {
+      throw new Error(
+        `[RMSL] A JavaScript array of length ${x.length} is no vector or matrix. Give 2, 3 or 4 numbers for a vector, or 9 or 16 for a mat3 or mat4. Other matrices come from mat2, mat2x3 and the other matrix constructors.`,
+      );
     }
-    if (x.length === 4) {
-      return node({ _t: "vec4", type: "vec4", value: x }) as any;
+    const at = x.findIndex((element) => typeof element !== "number" && !isNode(element));
+    if (at >= 0) {
+      throw new Error(
+        `[RMSL] A JavaScript array given as a ${type} holds numbers or nodes, and this one holds ${describeElement(x[at])}. Build the ${type} from nodes with ${type}(...) instead.`,
+      );
     }
-    if (x.length === 2) {
-      return node({ _t: "vec2", type: "vec2", value: x }) as any;
-    }
-    if (x.length === 9) {
-      return node({ _t: "mat3", type: "mat3", value: x }) as any;
-    }
-    if (x.length === 16) {
-      return node({ _t: "mat4", type: "mat4", value: x }) as any;
-    }
-    throw new Error(
-      `[RMSL] A JavaScript array of length ${x.length} is no vector or matrix. Give 2, 3 or 4 numbers for a vector, or 9 or 16 for a mat3 or mat4. Other matrices come from mat2, mat2x3 and the other matrix constructors.`,
-    );
+    if (x.every((element) => typeof element === "number")) return node({ _t: type, type, value: x }) as any;
+    // An array that holds nodes is built as its constructor builds it.
+    const construct = { vec2, vec3, vec4, mat3, mat4 }[type] as (...elements: unknown[]) => unknown;
+    return construct(...x) as any;
   }
   return x as any;
 }
@@ -2057,12 +2085,23 @@ type IsAny<T> = 0 extends 1 & T ? true : false;
  */
 type ReturnsNothing<R> = IsAny<R> extends true ? false : [R] extends [void] ? true : false;
 
+/** The node `Fn` makes of a value its body returns, as `wrapValue` makes it; a node stays as it is. */
+type ReturnedNode<V> = IsAny<V> extends true ? V : V extends BaseNode<ShaderType> ? V : Node<ExtractType<V>>;
+
 /**
- * What calling an `Fn` gives back: the body's own return, or `Node<"void">`
- * for a body that returns nothing, since the call still produces the `seq`
- * node holding its statements.
+ * What calling an `Fn` gives back: the node of the body's return, a root for
+ * each element of an array it returns, or `Node<"void">` for a body that
+ * returns nothing, since the call still produces the `seq` node holding its
+ * statements.
  */
-export type FnResult<R> = ReturnsNothing<R> extends true ? Node<"void"> : R;
+export type FnResult<R> =
+  ReturnsNothing<R> extends true
+    ? Node<"void">
+    : IsAny<R> extends true
+      ? R
+      : R extends readonly unknown[]
+        ? { -readonly [K in keyof R]: ReturnedNode<R[K]> }
+        : ReturnedNode<R>;
 
 /** Runs `build` in a block of its own: what it returns, and the statements it made. */
 function captureStatements<T>(build: () => T): { value: T; statements: BaseNode<ShaderType>[] } {
@@ -2074,6 +2113,44 @@ function captureStatements<T>(build: () => T): { value: T; statements: BaseNode<
   } finally {
     blockScope = oldBlockScope;
   }
+}
+
+/** The component of a vector each swizzle letter names, in the spellings `xyzw`, `rgba` and `stpq`. */
+function swizzleComponent(letter: string): number {
+  return Math.max("xyzw".indexOf(letter), "rgba".indexOf(letter), "stpq".indexOf(letter));
+}
+
+/**
+ * The place a write by index through a swizzle, as `m.element(1).yx.element(i)`,
+ * writes: a write by index into the vector the swizzle reads, where index `k`
+ * of `.yx` is component `"yx"[k]` of it. Every target writes by index into a
+ * vector, so each writes the same component. A run-time index outside the
+ * swizzle reaches its last component, as a CPU target reaches the last element.
+ * The graph keeps the write through the swizzle, which the compilers refuse
+ * as they refuse its read, and each compiles this place in its stead.
+ */
+export function swizzleWritePlace(target: BaseNode<ShaderType>): BaseNode<ShaderType> {
+  // A swizzle of a swizzle names components of the vector the last one reads.
+  let pattern = target.params![0].value as string;
+  let base = target.params![0].params![0]!;
+  while (base.type === "swizzle") {
+    const inner = base.value as string;
+    pattern = [...pattern].map((c) => inner[swizzleComponent(c)]).join("");
+    base = base.params![0]!;
+  }
+  const components = [...pattern].map(swizzleComponent);
+  const index = target.params![1]!;
+  const component = (c: number) => typedOperand(c, index._t) as BaseNode<ShaderType>;
+  let mapped: BaseNode<ShaderType>;
+  if (typeof index.value === "number" && Number.isInteger(index.value) && components[index.value] !== undefined) {
+    mapped = component(components[index.value]!);
+  } else {
+    mapped = component(components[components.length - 1]!);
+    for (let k = components.length - 2; k >= 0; k--) {
+      mapped = (comp("equal", index, component(k)) as any).select(component(components[k]!), mapped);
+    }
+  }
+  return node({ _t: target._t, type: "vectorElement", params: [base, mapped] }) as BaseNode<ShaderType>;
 }
 
 export function buildBlock(body: () => void): Node<"void"> {
@@ -2267,84 +2344,81 @@ function matrixOfValues(t: ShaderType, values: any[]): any {
   return node({ _t: t, type: "construct", params });
 }
 
+/** `vector` as a float vector of its width: an integer or boolean vector converted, as GLSL converts it in a constructor. */
+function asFloatVector(vector: BaseNode<ShaderType>): BaseNode<ShaderType> {
+  const integerOrBoolean = /^[iub]vec([234])$/.exec(vector._t);
+  if (integerOrBoolean === null) return vector;
+  return node({ _t: `vec${integerOrBoolean[1]}` as ShaderType, type: "construct", params: [vector] });
+}
+
 /**
- * Build a matrix constructor. `columns` is what a "columns of vector nodes"
- * call takes — `mat2(colA, colB)`, not `mat2(4-number-literal)` — the same
- * overload `mat3`/`mat4` hand-write for themselves below. Without it, that
- * call fell through to the number-literal branch and built a broken literal
- * node holding `Node` objects instead of numbers, silently.
+ * The columns of a matrix of type `t` built from one vector node: its
+ * components in column order, converted to float, which only a vector with
+ * one component for each of the matrix's has, as `mat2(vec4)`.
+ */
+function columnsOfVector(t: ShaderType, vector: BaseNode<ShaderType>): BaseNode<ShaderType>[] {
+  const [columns, rows] = MATRIX_DIMENSIONS[t];
+  if (TYPE_WIDTH[vector._t] !== columns * rows) {
+    throw new Error(
+      `[RMSL] ${t}() takes ${columns} columns of ${rows} components, a matrix, a scalar or one vector of ` +
+        `${columns * rows} components, not a ${vector._t}.`,
+    );
+  }
+  const floats = asFloatVector(vector) as any;
+  return Array.from(
+    { length: columns },
+    (_, c) => floats["xyzw".slice(c * rows, (c + 1) * rows)] as BaseNode<ShaderType>,
+  );
+}
+
+/**
+ * Build a matrix constructor: from a matrix, a scalar, a vector holding every
+ * component, its columns as vector nodes, or its values one per component.
+ * A column must be a vector with one component for each row; an integer or
+ * boolean one converts to float. Given nothing,
+ * it builds the identity, column by column.
  */
 export function makeMatConstructor<T extends ShaderType>(
   t: T,
   size: number,
   columns: number,
-  defaultVal: number[],
 ): (...args: any[]) => Node<T> {
+  const rows = size / columns;
+  const identity = Array.from({ length: size }, (_, i) => (Math.floor(i / rows) === i % rows ? 1 : 0));
   return (...args: any[]): Node<T> => {
     if (args.length === 1 && isNode(args[0])) {
-      return node({ _t: t, type: "construct", params: [args[0] as BaseNode<ShaderType>] }) as Node<T>;
+      const arg = args[0] as BaseNode<ShaderType>;
+      const params = /^vec[234]$|^[iub]vec[234]$/.test(arg._t) ? columnsOfVector(t, arg) : [arg];
+      return node({ _t: t, type: "construct", params }) as Node<T>;
     }
     if (args.length === columns && args.every((a: any) => isNode(a))) {
-      return node({
-        _t: t,
-        type: "construct",
-        params: args.map((a: any) => a as BaseNode<ShaderType>),
-      }) as Node<T>;
+      for (const column of args as BaseNode<ShaderType>[]) {
+        if (!/^[iub]?vec[234]$/.test(column._t) || TYPE_WIDTH[column._t] !== rows) {
+          throw new Error(
+            `[RMSL] ${t}() takes ${columns} columns, each a vector of ${rows} components, not a ${column._t}.`,
+          );
+        }
+      }
+      return node({ _t: t, type: "construct", params: args.map((a: any) => asFloatVector(a)) }) as Node<T>;
     }
     if (args.length === 1 && typeof args[0] === "number") {
       return node({ _t: t, type: "construct", params: [wrapValue(args[0])] }) as Node<T>;
     }
     if (args.length === 0) {
-      return node({ _t: t, type: t, value: defaultVal }) as Node<T>;
+      return node({ _t: t, type: t, value: identity }) as Node<T>;
     }
     return matrixOfValues(t, args) as Node<T>;
   };
 }
-export const mat2 = makeMatConstructor("mat2", 4, 2, [1, 0, 0, 1]);
-export const mat2x3 = makeMatConstructor("mat2x3", 6, 2, [1, 0, 0, 0, 1, 0]);
-export const mat2x4 = makeMatConstructor("mat2x4", 8, 2, [1, 0, 0, 0, 0, 1, 0, 0]);
-export const mat3x2 = makeMatConstructor("mat3x2", 6, 3, [1, 0, 0, 0, 1, 0]);
-export function mat3(...args: any[]): Node<"mat3"> {
-  if (args.length === 1 && isNode(args[0])) {
-    return node({ _t: "mat3", type: "construct", params: [args[0] as BaseNode<ShaderType>] }) as Node<"mat3">;
-  }
-  if (args.length === 3 && args.every((a: any) => isNode(a))) {
-    return node({
-      _t: "mat3",
-      type: "construct",
-      params: args.map((a: any) => a as BaseNode<ShaderType>),
-    }) as Node<"mat3">;
-  }
-  if (args.length === 1 && typeof args[0] === "number") {
-    return node({ _t: "mat3", type: "construct", params: [wrapValue(args[0])] }) as Node<"mat3">;
-  }
-  if (args.length === 0) {
-    return node({ _t: "mat3", type: "mat3", value: [1, 0, 0, 0, 1, 0, 0, 0, 1] }) as Node<"mat3">;
-  }
-  return matrixOfValues("mat3", args) as Node<"mat3">;
-}
-export const mat3x4 = makeMatConstructor("mat3x4", 12, 3, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);
-export const mat4x2 = makeMatConstructor("mat4x2", 8, 4, [1, 0, 0, 0, 0, 1, 0, 0]);
-export const mat4x3 = makeMatConstructor("mat4x3", 12, 4, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);
-export function mat4(...args: any[]): Node<"mat4"> {
-  if (args.length === 1 && isNode(args[0])) {
-    return node({ _t: "mat4", type: "construct", params: [args[0] as BaseNode<ShaderType>] }) as Node<"mat4">;
-  }
-  if (args.length === 4 && args.every((a: any) => isNode(a))) {
-    return node({
-      _t: "mat4",
-      type: "construct",
-      params: args.map((a: any) => a as BaseNode<ShaderType>),
-    }) as Node<"mat4">;
-  }
-  if (args.length === 1 && typeof args[0] === "number") {
-    return node({ _t: "mat4", type: "construct", params: [wrapValue(args[0])] }) as Node<"mat4">;
-  }
-  if (args.length === 0) {
-    return node({ _t: "mat4", type: "mat4", value: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] }) as Node<"mat4">;
-  }
-  return matrixOfValues("mat4", args) as Node<"mat4">;
-}
+export const mat2 = makeMatConstructor("mat2", 4, 2);
+export const mat2x3 = makeMatConstructor("mat2x3", 6, 2);
+export const mat2x4 = makeMatConstructor("mat2x4", 8, 2);
+export const mat3x2 = makeMatConstructor("mat3x2", 6, 3);
+export const mat3 = makeMatConstructor("mat3", 9, 3);
+export const mat3x4 = makeMatConstructor("mat3x4", 12, 3);
+export const mat4x2 = makeMatConstructor("mat4x2", 8, 4);
+export const mat4x3 = makeMatConstructor("mat4x3", 12, 4);
+export const mat4 = makeMatConstructor("mat4", 16, 4);
 
 export function makeBoolVecConstructor<T extends ShaderType>(t: T, width: number): (...args: any[]) => Node<T> {
   return (...args: any[]): Node<T> => {
@@ -2383,7 +2457,7 @@ export const bvec4 = makeBoolVecConstructor<"bvec4">("bvec4", 4);
  * The argument order follows TSL — `step(edge, x)`, `smoothstep(low, high, x)`
  * and `mix(a, b, t)` all take the value last, as both GLSL and WGSL spell them.
  */
-export type MathLike = number | boolean | readonly number[] | Node<ShaderType>;
+export type MathLike = number | boolean | VectorArray | Node<ShaderType>;
 
 /**
  * Wrap a raw value as a node for method delegation. The free functions then
@@ -3392,11 +3466,38 @@ function loopCondition(cond: () => BooleanLike) {
   return { declarations, condition: withStatements(assignments, wrapValue(value) as BaseNode<ShaderType>) };
 }
 
+/** Why a `For` whose update holds a block is refused. */
+export const FOR_UPDATE_BLOCK_MESSAGE =
+  "[RMSL] A for-loop's update cannot contain a block. Move the branch into the loop body, or write the loop with While.";
+
+/** Why a `For` whose update leaves the loop or the function is refused. */
+export const FOR_UPDATE_JUMP_MESSAGE =
+  "[RMSL] A for-loop's update cannot contain a break, continue, discard or return. Move it into the loop body.";
+
+/** The statements that open a block of their own on every target. */
+const BLOCK_STATEMENTS = new Set(["if", "for", "while"]);
+
+/** The statements that leave the loop or the function they are in. */
+const JUMP_STATEMENTS = new Set(["break", "continue", "discard", "return"]);
+
+/**
+ * Refuses `node`, a node of the update of a `for`, when it is a block or a
+ * statement that leaves the loop or the function, neither of which the
+ * update slot of a `for` takes.
+ */
+export function assertForUpdateNode(node: { type?: string }): void {
+  if (BLOCK_STATEMENTS.has(node.type!)) throw new Error(FOR_UPDATE_BLOCK_MESSAGE);
+  if (JUMP_STATEMENTS.has(node.type!)) throw new Error(FOR_UPDATE_JUMP_MESSAGE);
+}
+
 /**
  * A counting loop, as TSL's `For`: `init` makes the loop variable, `cond`
  * tests it before every iteration, `update` steps it after every one. A
  * variable `cond` makes is computed before every test, and stays in scope
- * after the loop, and in `update`.
+ * after the loop, and in `update`. The update is the update slot of a GLSL,
+ * WGSL or JavaScript `for`, which takes no block and no `break`, `continue`,
+ * `discard` or `return`, so an update that holds one is refused here, before
+ * any target compiles it.
  */
 export function For<T extends Node<ShaderType>>(
   init: () => T,
@@ -3410,6 +3511,7 @@ export function For<T extends Node<ShaderType>>(
     // Condition, update, body: the order they were always built in, which names their variables.
     const { declarations, condition } = loopCondition(() => cond(v));
     let updateNode = buildBlock(() => update(v));
+    someNode(updateNode, assertForUpdateNode);
     let bodyNode = buildBlock(() => body(v));
     scope.push(...declarations);
     scope.push(
@@ -3461,73 +3563,86 @@ export function While(cond: BooleanLike | (() => BooleanLike), body: () => void)
   });
 }
 
-export type SwitchCase = { values: BaseNode<ShaderType>[]; body: Node<"void"> };
-
+/** The chain `Switch` returns, which adds its cases as TSL's does. */
 export type SwitchChain = {
-  Case: (values: IntLike | readonly IntLike[], body: () => void) => SwitchChain;
-  Default: (body: () => void) => void;
+  /** Runs `body` when the selector equals one of the values before it. */
+  Case: <V extends IntLike[]>(...params: [...values: V, body: () => void]) => SwitchChain;
+  /** Runs `body` when no case matched. No case can follow it. */
+  Default: (body: () => void) => SwitchChain;
 };
 
 /**
- * Multi-way branch on an integer selector.
+ * Multi-way branch on an integer selector, written as TSL writes it:
  *
- *   Switch(level, (s) => {
- *     s.Case(0, () => { colour.assign(black); });
- *     s.Case([1, 2], () => { colour.assign(grey); });
- *     s.Default(() => { colour.assign(white); });
- *   });
+ *   Switch(level)
+ *     .Case(0, () => { colour.assign(black); })
+ *     .Case(1, 2, () => { colour.assign(grey); })
+ *     .Default(() => { colour.assign(white); });
  *
- * Compiles to an if/else-if chain comparing the selector with each case value —
- * the same lowering Three.js's TSL uses for its `Switch`/`Case`/`Default` — so
- * there is no fall-through and no `Break()` inside a case.
+ * Compiles to an if/else-if chain comparing the selector with each case value,
+ * the lowering TSL uses, so there is no fall-through and no `Break()` inside a
+ * case. The chain stands where its first `Case` or `Default` is added, as
+ * TSL's does, and each later one must follow the one before it in that block.
  */
-export function Switch(selector: Node<"int"> | Node<"uint">, body: (chain: SwitchChain) => void): SwitchChain {
-  let cases: SwitchCase[] = [];
-  let defaultBody: Node<"void"> | undefined;
-  const addCase = (values: IntLike | readonly IntLike[], caseBody: () => void): SwitchChain => {
-    let vals = (Array.isArray(values) ? values : [values]) as IntLike[];
-    if (vals.length === 0) {
-      throw new Error("[RMSL] Case() needs at least one value: a case with no values can never match.");
+export function Switch(selector: Node<"int"> | Node<"uint">): SwitchChain {
+  let scope: BaseNode<ShaderType>[] | undefined;
+  assertBlockScope("Switch", (s) => {
+    scope = s;
+  });
+  const block = scope!;
+  /** The length of the block once the previous `Case` or `Default` was added. */
+  let after: number | undefined;
+  const selectorNode = wrapValue(selector) as BaseNode<ShaderType>;
+  let tail: BaseNode<ShaderType> | undefined;
+  let closed = false;
+  /** Checks that a `Case` or `Default` is added where it can still reach the program. */
+  const check = (name: string) => {
+    if (closed) throw new Error(`[RMSL] ${name}() after Default(): a Switch takes no case after its Default.`);
+    if (blockScope !== block) {
+      throw new Error(
+        `[RMSL] ${name}() must be called from the block that holds its Switch(), as Switch(x).Case(...).Default(...).`,
+      );
     }
-    cases.push({
-      // `typedOperand`, not `wrapValue`: a bare number here is a case value
-      // beside an int/uint selector, and `wrapValue` alone would default it
-      // to `float`, mismatched against the selector (a mismatch the WASM
-      // backend surfaces as a real type error).
-      values: vals.map((v) => typedOperand(v, selector._t) as BaseNode<ShaderType>),
-      body: buildBlock(caseBody),
-    });
-    return chain;
+    if (after !== undefined && block.length !== after) {
+      throw new Error(
+        `[RMSL] ${name}() after a statement that follows the case before it: the chain would run before that statement.`,
+      );
+    }
+  };
+  /** Puts `branch` at the end of the chain, the first one at the end of the block. */
+  const append = (branch: BaseNode<ShaderType>) => {
+    if (tail === undefined) block.push(branch);
+    else tail.params![2] = branch;
+    tail = branch;
+    after = block.length;
   };
   const chain: SwitchChain = {
-    Case: addCase,
-    Default: (dBody) => {
-      defaultBody = buildBlock(dBody);
+    Case: (...params) => {
+      check("Case");
+      const caseBody = params[params.length - 1] as () => void;
+      const values = params.slice(0, -1) as IntLike[];
+      if (values.length === 0) {
+        throw new Error("[RMSL] Case() needs at least one value: a case with no values can never match.");
+      }
+      let cond: BaseNode<ShaderType> | undefined;
+      for (const value of values) {
+        // `typedOperand`, not `wrapValue`: a bare number here is a case value
+        // beside an int/uint selector, and `wrapValue` alone would default it
+        // to `float`, mismatched against the selector.
+        const eq = comp("equal", selectorNode, typedOperand(value, selector._t) as BaseNode<ShaderType>);
+        cond = cond === undefined ? eq : (op("or", cond, eq) as BaseNode<ShaderType>);
+      }
+      append(node({ _t: "void", type: "if", params: [cond!, buildBlock(caseBody)] }));
+      return chain;
+    },
+    Default: (defaultBody) => {
+      check("Default");
+      // A Default with no case before it always runs: its body stands alone.
+      append(buildBlock(defaultBody));
+      closed = true;
+      return chain;
     },
   };
-  body(chain);
-
-  let root = node({ _t: "void", type: "if", params: [] });
-  let cursor = root;
-  let selectorNode = wrapValue(selector) as BaseNode<ShaderType>;
-  for (let c of cases) {
-    let cond: BaseNode<ShaderType> | undefined;
-    for (let v of c.values) {
-      let eq = comp("equal", selectorNode, v);
-      cond = cond === undefined ? eq : (op("or", cond, eq) as BaseNode<ShaderType>);
-    }
-    let ifNode = node({ _t: "void", type: "if", params: [cond!, c.body] });
-    cursor.params![2] = ifNode;
-    cursor = ifNode;
-  }
-  if (defaultBody !== undefined) {
-    cursor.params![2] = defaultBody;
-  }
-  let switchNode = root.params![2] as BaseNode<ShaderType> | undefined;
-  assertBlockScope("Switch", (scope) => {
-    // A Switch with no Case and no Default has nothing to run, so it leaves no statement.
-    if (switchNode !== undefined) scope.push(switchNode);
-  });
   return chain;
 }
 

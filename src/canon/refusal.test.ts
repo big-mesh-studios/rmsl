@@ -1,12 +1,15 @@
 import { afterAll, describe, expect, it } from "vitest";
 import {
   attribute,
+  bool,
   Break,
+  Continue,
   builtinFragDepth,
   builtinPosition,
   Discard,
   float,
   For,
+  Return,
   fragCoord,
   Fn,
   If,
@@ -15,6 +18,7 @@ import {
   int,
   mat2x3,
   mat2x4,
+  mat2,
   mat3,
   outputStruct,
   uniform,
@@ -27,9 +31,18 @@ import {
   vec3,
   vec4,
   type Node,
+  type Var,
+  serialize,
+  deserialize,
 } from "../rmsl";
-import { compileJSCompute, compileJSGrid, compileJSRoutine, compileJSVertex } from "../js";
-import { compileWasmCompute, compileWasmGrid, compileWasmRoutine, compileWasmVertex } from "../wasm";
+import { compileJSCompute, compileJSFragment, compileJSGrid, compileJSRoutine, compileJSVertex } from "../js";
+import {
+  compileWasmCompute,
+  compileWasmFragment,
+  compileWasmGrid,
+  compileWasmRoutine,
+  compileWasmVertex,
+} from "../wasm";
 import {
   assertRecordedShadersValid,
   recordShaderSource,
@@ -133,8 +146,8 @@ describe("a mistake is refused before the program runs", () => {
   /**
    * A `Break` outside a loop and a `cross` of vectors that are not `vec3` are
    * each refused on the CPU targets, beside a program that does both the way
-   * a target can run them. WASM also refuses a whole storage buffer read as a
-   * value.
+   * a target can run them. Every target refuses a whole storage buffer read as
+   * a value, beside the element of it the runnable program reads.
    *
    * @canon spec-break-or-continue-outside-a-loop-is-refused
    * @canon spec-cross-of-a-vector-that-is-not-a-vec3-is-refused
@@ -160,14 +173,19 @@ describe("a mistake is refused before the program runs", () => {
         ),
       ).toThrow();
       expect(() => compile(() => Fn(() => (vec2(1, 0) as any).cross(vec2(0, 1)).toVar())())).toThrow();
+      expect(() => compile(() => Fn(() => (values as any).add(1).toVar())())).toThrow(
+        /read as a whole; read one element/,
+      );
     }
-    expect(() => cpuCompilers[1]!(() => Fn(() => (values as any).add(1).toVar())())).toThrow(/read as a whole/);
+    const wholeRead = () => Fn(() => vec4((values as any).add(1), 0, 0, 1).toVar())();
+    expect(() => compileWgsl.fragment(wholeRead())).toThrow(/read as a whole; read one element/);
+    expect(() => compileGlsl.fragment(wholeRead())).toThrow(/read as a whole; read one element/);
   });
 
   /**
-   * A `For` whose update holds a block, such as an `If`, is refused on every
-   * target, because the update slot of a GLSL, WGSL or JavaScript `for` takes
-   * none. A `For` whose update is a plain statement compiles on each.
+   * A `For` whose update holds a block, such as an `If`, is refused as it is
+   * built, so on every target, because the update slot of a GLSL, WGSL or
+   * JavaScript `for` takes none. A `For` whose update is a plain statement compiles on each.
    *
    * @canon spec-a-for-update-that-holds-a-block-is-refused
    */
@@ -199,10 +217,152 @@ describe("a mistake is refused before the program runs", () => {
       ),
     ];
     for (const block of blocks) {
+      // Refused as the program is built, before any target compiles it.
+      expect(block).toThrow(refusal);
       expect(() => compileGlsl(block())).toThrow(refusal);
       expect(() => compileWgsl(block())).toThrow(refusal);
       for (const compile of cpuCompilers) expect(() => compile(block)).toThrow(refusal);
     }
+  });
+
+  /**
+   * A `For` whose update holds a block in a graph `deserialize` rebuilt never
+   * met the `For` builder, and every target refuses it as it compiles.
+   *
+   * @canon spec-a-for-update-that-holds-a-block-is-refused
+   */
+  it("refuses a deserialized For whose update holds a block on every target", () => {
+    const build = () =>
+      Fn(() => {
+        const sum = float(0).toVar();
+        // The If comes first: a deserialized node names only children before it.
+        If(sum.greaterThan(1), () => sum.addAssign(1));
+        For(
+          () => int(0).toVar(),
+          (i) => i.lessThan(3),
+          (i) => i.addAssign(1),
+          () => sum.addAssign(1),
+        );
+        return sum;
+      })();
+    const graph = serialize(build());
+    const loop = graph.nodes.find((n) => n.type === "for")!;
+    loop.params![2] = graph.nodes.findIndex((n) => n.type === "if");
+    const refusal = /update cannot contain a block/;
+    expect(() => compileGlsl(deserialize(graph) as Node<"float">)).toThrow(refusal);
+    expect(() => compileWgsl(deserialize(graph) as Node<"float">)).toThrow(refusal);
+    for (const compile of cpuCompilers)
+      expect(() => compile(() => deserialize(graph) as Node<"float">)).toThrow(refusal);
+  });
+
+  /**
+   * A `For` whose update leaves the loop or the function is refused as it is
+   * built, and as every target compiles it, a graph `deserialize` rebuilt
+   * included: the update slot of a GLSL, WGSL or JavaScript `for` takes no
+   * `break`, `continue`, `discard` or `return`.
+   *
+   * @canon spec-a-for-update-that-jumps-is-refused
+   */
+  it.each([
+    ["Break", Break],
+    ["Continue", Continue],
+    ["Discard", Discard],
+    ["Return", Return],
+  ] as const)("refuses a For whose update holds a %s on every target", (_, jump) => {
+    const refusal = /update cannot contain a break, continue, discard or return/;
+    const none = { name: "main", params: [] };
+    const compilers: [string, (build: () => Node<any>) => unknown][] = [
+      ["GLSL", (build) => compileGlsl.fragment(build())],
+      ["WGSL", (build) => compileWgsl.fragment(build())],
+      ["JS", (build) => compileJSFragment(build, none)],
+      ["WASM", (build) => compileWasmFragment(build, none)],
+    ];
+    const loop = (update: (i: any) => void) => () =>
+      Fn(() => {
+        const sum = float(0).toVar();
+        // A loop of its own before the For, whose jump a rebuilt update can name.
+        While(sum.lessThan(1), () => {
+          sum.addAssign(1);
+          jump();
+        });
+        For(
+          () => int(0).toVar(),
+          (i) => i.lessThan(3),
+          update,
+          () => sum.addAssign(1),
+        );
+        return vec4(sum);
+      })();
+    expect(
+      loop((i) => {
+        i.addAssign(1);
+        jump();
+      }),
+    ).toThrow(refusal);
+    const graph = serialize(loop((i) => i.addAssign(1))());
+    const update = graph.nodes[graph.nodes.find((n) => n.type === "for")!.params![2]!]!;
+    update.params!.push(graph.nodes.findIndex((n) => n.type === jump.name.toLowerCase()));
+    for (const [name, compile] of compilers) {
+      expect(() => compile(() => deserialize(graph) as Node<"vec4">), name).toThrow(refusal);
+    }
+  });
+
+  /**
+   * A `For` whose update writes a storage element, a scalar one and a
+   * component of a vector one, past the end of the buffer too, compiles on
+   * every target with storage buffers, and the CPU targets write the same.
+   *
+   * @canon spec-a-for-update-that-holds-a-block-is-refused
+   */
+  it("compiles a For whose update writes a storage element on every target with storage buffers", () => {
+    const scalars = instancedArray(4, "float");
+    const triples = instancedArray(4, "vec3");
+    const build = () =>
+      Fn(() => {
+        For(
+          () => int(0).toVar(),
+          (i) => i.lessThan(6),
+          (i) => {
+            triples.element(i).x.assign(float(1));
+            scalars.element(i).assign(i.toFloat());
+            i.assign(i.add(1));
+          },
+          () => {},
+        );
+      })();
+    expect(computeWgsl(build())).toContain("continuing");
+    for (const compile of [compileJSCompute, compileWasmCompute]) {
+      const storages = { [scalars.name]: [9, 9, 9, 9], [triples.name]: new Array(12).fill(0) };
+      compile(build, { name: "main", params: [] })({ storages }, 1);
+      expect(storages).toEqual({
+        [scalars.name]: [0, 1, 2, 3],
+        [triples.name]: [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0],
+      });
+    }
+  });
+
+  /**
+   * A vector given as a whole matrix, other than a `vec4` to `mat2`, and a
+   * column with a length other than the matrix's rows are refused as the
+   * program builds them, so on every target alike.
+   *
+   * @canon spec-a-matrix-is-built-from-its-columns
+   */
+  it("refuses a matrix built from a vector alone or from columns of the wrong length", () => {
+    const v = (type: "vec2" | "vec3" | "vec4") => uniform(type);
+    const refused: [string, () => unknown][] = [
+      ["mat2(vec2)", () => mat2(v("vec2"))],
+      ["mat2(vec3)", () => mat2(v("vec3"))],
+      ["mat3(vec4)", () => mat3(v("vec4"))],
+      ["mat2x3(vec4)", () => mat2x3(v("vec4"))],
+      ["mat2(vec3, vec3)", () => mat2(v("vec3"), v("vec3"))],
+      ["mat3(vec4, vec4, vec4)", () => mat3(v("vec4"), v("vec4"), v("vec4"))],
+      ["mat2x3(vec2, vec2)", () => mat2x3(v("vec2"), v("vec2"))],
+      ["mat2(float, float)", () => mat2(uniform("float"), uniform("float"))],
+    ];
+    for (const [name, build] of refused) expect(build, name).toThrow(/\[RMSL\] mat\w+\(\) takes/);
+    expect(() => mat2(v("vec4"))).not.toThrow();
+    expect(() => mat2x3(v("vec3"), v("vec3"))).not.toThrow();
   });
 
   /**
@@ -215,14 +375,65 @@ describe("a mistake is refused before the program runs", () => {
     const program = () =>
       Fn(() => {
         const v = float(0).toVar();
-        Switch(int(uniform("float")), (s) => {
-          s.Case([], () => {
-            v.assign(float(1));
-          });
+        Switch(int(uniform("float"))).Case(() => {
+          v.assign(float(1));
         });
         return vec4(v);
       })();
     expect(program).toThrow(/Case\(\) needs at least one value/);
+  });
+
+  /**
+   * A `Case` added from a block other than its `Switch`'s, or after its
+   * `Default`, could not reach the program, so it is refused, naming it. So is
+   * a `Case` or `Default` added after a statement that follows the case before
+   * it, which the chain would run before that statement.
+   *
+   * @canon spec-a-case-is-added-in-the-block-of-its-switch
+   */
+  it("refuses a Case added from another block or after the Default, naming it", () => {
+    const fromAnotherBlock = () =>
+      Fn(() => {
+        const v = float(0).toVar();
+        const s = Switch(int(uniform("float")));
+        If(bool(true), () => {
+          s.Case(0, () => v.assign(float(1)));
+        });
+        return vec4(v);
+      })();
+    const afterDefault = () =>
+      Fn(() => {
+        const v = float(0).toVar();
+        Switch(int(uniform("float")))
+          .Default(() => v.assign(float(2)))
+          .Case(0, () => v.assign(float(1)));
+        return vec4(v);
+      })();
+    let kept: ReturnType<typeof Switch> | undefined;
+    const afterTheFunction = () => {
+      Fn(() => {
+        kept = Switch(int(uniform("float")));
+        return vec4(0);
+      })();
+      kept!.Case(0, () => {});
+    };
+    expect(fromAnotherBlock).toThrow(/Case\(\) must be called from the block that holds its Switch\(\)/);
+    expect(afterDefault).toThrow(/Case\(\) after Default\(\)/);
+    expect(afterTheFunction).toThrow(/Case\(\) must be called from the block that holds its Switch\(\)/);
+    const afterAStatement = (add: (s: ReturnType<typeof Switch>, w: Var<"float">, v: Var<"float">) => void) => () =>
+      Fn(() => {
+        const v = float(0).toVar();
+        const s = Switch(int(uniform("float"))).Case(0, () => v.assign(float(1)));
+        const w = float(5).toVar();
+        add(s, w, v);
+        return vec4(v);
+      })();
+    expect(afterAStatement((s, w, v) => s.Case(1, () => v.assign(w)))).toThrow(
+      /Case\(\) after a statement that follows the case before it/,
+    );
+    expect(afterAStatement((s, w, v) => s.Default(() => v.assign(w)))).toThrow(
+      /Default\(\) after a statement that follows the case before it/,
+    );
   });
 
   /**
@@ -235,7 +446,7 @@ describe("a mistake is refused before the program runs", () => {
     const build = () =>
       Fn(() => {
         const v = float(0).toVar();
-        Switch(int(uniform("float")), () => {});
+        Switch(int(uniform("float")));
         v.assign(float(2));
         return vec4(v);
       })();
@@ -302,8 +513,10 @@ describe("a mistake is refused before the program runs", () => {
    * A constant index outside the components of a vector or the columns of a
    * matrix is refused by every target when it compiles the element, for a read
    * and for a write, and for the component of a column too, whether it is a
-   * literal or an operation of literals that folds to one. An index inside
-   * them compiles on every target.
+   * literal or an operation of literals that folds to one. So is a write by
+   * index through a swizzle at a constant index outside the swizzle, in a graph
+   * `deserialize` rebuilt too. An index
+   * inside them compiles on every target.
    *
    * @canon spec-a-constant-index-outside-a-vector-or-matrix-is-refused
    */
@@ -365,6 +578,28 @@ describe("a mistake is refused before the program runs", () => {
         )();
       expect(() => compile(foldedColumn), `${name} mat3 column 2 * 2`).toThrow(
         /index 4 is outside a mat3's columns 0 to 2/,
+      );
+    }
+    const throughSwizzle = (index: () => any) => () =>
+      Fn(() => {
+        const v = vec3(1, 2, 3).toVar();
+        v.zy.element(index()).assign(float(5));
+        return v;
+      })();
+    for (const [name, compile] of compilers) {
+      expect(() => compile(throughSwizzle(() => int(1))), `${name} write .zy 1`).not.toThrow();
+      for (const [index, k] of [
+        [() => int(5), 5],
+        [() => int(-1), -1],
+        [() => int(1).add(int(1)), 2],
+      ] as const) {
+        expect(() => compile(throughSwizzle(index)), `${name} write .zy ${k}`).toThrow(
+          new RegExp(`index ${k} is outside a vec2's components 0 to 1`),
+        );
+      }
+      const restored = () => deserialize(serialize(throughSwizzle(() => int(5))())) as Node<"vec3">;
+      expect(() => compile(restored), `${name} write .zy 5 after JSON`).toThrow(
+        /index 5 is outside a vec2's components 0 to 1/,
       );
     }
     for (const [name, compile] of compilers) {

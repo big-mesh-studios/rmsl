@@ -3192,17 +3192,16 @@ describe("Switch", () => {
   it("branches on an integer selector as an if/else chain", () => {
     let prog = Fn(() => {
       let out = float(0).toVar();
-      Switch(int(1), (s) => {
-        s.Case(0, () => {
+      Switch(int(1))
+        .Case(0, () => {
           out.assign(float(10));
-        });
-        s.Case([1, 2], () => {
+        })
+        .Case(1, 2, () => {
           out.assign(float(20));
-        });
-        s.Default(() => {
+        })
+        .Default(() => {
           out.assign(float(30));
         });
-      });
       return out;
     });
     let glsl = compileGlsl(prog());
@@ -3315,14 +3314,13 @@ describe("TSL control flow", () => {
   it("Switch / Case / Default branch like Switch", () => {
     let prog = Fn(() => {
       let out = float(0).toVar();
-      Switch(int(2), (s) => {
-        s.Case([1, 2], () => {
+      Switch(int(2))
+        .Case(1, 2, () => {
           out.assign(float(20));
-        });
-        s.Default(() => {
+        })
+        .Default(() => {
           out.assign(float(30));
         });
-      });
       return out;
     });
     let glsl = compileGlsl(prog());
@@ -3640,6 +3638,47 @@ describe("TSL free-function API", () => {
     expect(glsl).toContain("inverse(");
     let wgsl = compileWgsl(prog());
     expect(wgsl).toContain("transpose(");
+  });
+
+  /**
+   * @canon spec-a-returned-array-lists-roots
+   */
+  it("reads an array of numbers a function returns as that many float roots", () => {
+    const roots = Fn(() => [1, 2, 3, 4])();
+    expect(roots).toHaveLength(4);
+    expect(roots.map((root) => root._t)).toEqual(["float", "float", "float", "float"]);
+  });
+
+  /**
+   * @canon spec-a-javascript-array-is-a-vector-of-its-length
+   */
+  it("refuses an array that holds anything but numbers and nodes, naming what it holds", () => {
+    expect(() => vec4(0).add([1, 2, "x", 4] as any)).toThrow(
+      /vec4 holds numbers or nodes, and this one holds a string, "x"/,
+    );
+    expect(() => vec4(0).add([1, 2, undefined, 4] as any)).toThrow(/holds an empty or undefined element/);
+    expect(() => vec3(0).add([[1], [2], [3]] as any)).toThrow(
+      /vec3 holds numbers or nodes, and this one holds a nested array/,
+    );
+  });
+
+  /**
+   * @canon spec-a-javascript-array-is-a-vector-of-its-length
+   */
+  it("builds an array that holds nodes as the vector of its elements", () => {
+    const run = compileJSRoutine(
+      (a: any) =>
+        Fn(() =>
+          vec3(0)
+            .add([a, 1, a.mul(2)] as any)
+            .toVar(),
+        )(),
+      {
+        name: "main",
+        params: [{ name: "a", type: "float" }],
+      },
+    );
+    expect(Array.from(run({ params: { a: 3 } }) as ArrayLike<number>)).toEqual([3, 1, 6]);
   });
 
   /**

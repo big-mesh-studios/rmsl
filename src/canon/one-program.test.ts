@@ -1,5 +1,32 @@
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import { Fn, If, float, int, mat2, mat3, uniform, uniformArray, varying, vec2, vec3, vec4, type Node } from "../rmsl";
+import {
+  all,
+  any,
+  bvec2,
+  determinant,
+  refract,
+  floor,
+  fract,
+  pow,
+  sign,
+  sin,
+  sqrt,
+  transpose,
+  Fn,
+  If,
+  float,
+  int,
+  mat2,
+  mat3,
+  mat4,
+  uniform,
+  uniformArray,
+  varying,
+  vec2,
+  vec3,
+  vec4,
+  type Node,
+} from "../rmsl";
 import { compileJSRoutine } from "../js";
 import { compileWasmRoutine } from "../wasm";
 import {
@@ -15,6 +42,7 @@ import {
   evaluateRecording,
   evaluateWASM,
   GPU_EVALUATION_SKIPPED,
+  type Build,
   recordedEvaluationSummary,
 } from "../testing/shader-eval";
 import {
@@ -59,9 +87,145 @@ describe("one program means the same on every target", () => {
   });
 
   /**
+   * Each narrowing, of a matrix that arrives at run time, read whole as its
+   * columns.
+   *
+   * @canon spec-a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns
+   */
+  it("narrows a matrix to its leading rows and columns on the CPU targets", () => {
+    const m3 = (a: Node<"float">) => mat3(vec3(a, 2, 3), vec3(4, 5, 6), vec3(7, 8, 9));
+    const m4 = (a: Node<"float">) =>
+      mat4(vec4(a, 2, 3, 4), vec4(5, 6, 7, 8), vec4(9, 10, 11, 12), vec4(13, 14, 15, 16));
+    const cases: [Build, number[]][] = [
+      [(a) => mat2(m3(a)), [1, 2, 4, 5]],
+      [(a) => mat2(m4(a)), [1, 2, 5, 6]],
+      [(a) => mat3(m4(a)), [1, 2, 3, 5, 6, 7, 9, 10, 11]],
+    ];
+    for (const [build, columns] of cases) {
+      expect(Array.from(evaluateJS(build, [1]) as Float64Array)).toEqual(columns);
+      expect(Array.from(evaluateWASM(build, [1]) as number[])).toEqual(columns);
+    }
+  });
+
+  /**
+   * Each square inverse, of a matrix that arrives at run time, is the same
+   * arithmetic on both CPU targets, so the two agree to the bit.
+   *
+   * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
+   */
+  it("inverts a matrix of each size to the same bits on the CPU targets", () => {
+    const inverses: Build[] = [
+      (a) => mat2(vec2(a, 1), vec2(2, 4)).inverse(),
+      (a) => mat3(vec3(a, 1, 2), vec3(0, 4, 5), vec3(1, 0, 6.5)).inverse(),
+      (a) => mat4(vec4(a, 2, 3, 4), vec4(5, 6, 7, 8.5), vec4(9, 10, 11.25, 12), vec4(13, 14, 15, 16.75)).inverse(),
+    ];
+    for (const build of inverses) {
+      expect(Array.from(evaluateWASM(build, [0.3]) as number[])).toEqual(
+        Array.from(evaluateJS(build, [0.3]) as Float64Array),
+      );
+    }
+    expect(Array.from(evaluateWASM(inverses[0]!, [3]) as number[])).toEqual([0.4, -0.1, -0.2, 0.30000000000000004]);
+  });
+
+  /**
+   * A math function of a vector that arrives at run time applies to each
+   * component on both CPU targets, `cbrt` through the functions it is built from.
+   *
+   * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
+   */
+  it("applies a math function to each component of a vector on the CPU targets", () => {
+    const functions: [Build, number][] = [
+      [(a) => pow(vec3(a, 2, 3), vec3(2, 2, 2)), 4],
+      [(a) => sin(vec3(a, 2, 3)), 0.5],
+      [(a) => floor(vec3(a, 2.5, -3.5)), 1.5],
+      [(a) => fract(vec2(a, -1.25)), 1.75],
+      [(a) => sign(vec3(a, 0, -2)), 3],
+      [(a) => sqrt(vec2(a, 9)), 2],
+      [(a) => vec3(a, -8, 27).cbrt(), 2],
+    ];
+    for (const [build, a] of functions) {
+      expect(Array.from(evaluateWASM(build, [a]) as number[])).toEqual(
+        Array.from(evaluateJS(build, [a]) as Float64Array),
+      );
+    }
+  });
+
+  /**
+   * The determinant of each square size, and `refract` past and short of total
+   * internal reflection, of values that arrive at run time, agree to the bit
+   * on both CPU targets.
+   *
+   * @canon spec-a-math-function-compiles-to-the-builtin-of-the-target
+   */
+  it("computes determinant and refract to the same bits on the CPU targets", () => {
+    const programs: [Build, number][] = [
+      [(a) => determinant(mat2(vec2(a, 1), vec2(2, 4))), 0.3],
+      [(a) => determinant(mat3(vec3(a, 1, 2), vec3(0, 4, 5), vec3(1, 0, 6.5))), 0.3],
+      [
+        (a) => determinant(mat4(vec4(a, 2, 3, 4), vec4(5, 6, 7, 8.5), vec4(9, 10, 11.25, 12), vec4(13, 14, 15, 16.75))),
+        0.3,
+      ],
+      [(a) => refract(vec3(0.6, -0.8, 0), vec3(0, 1, 0), a), 0.5],
+      [(a) => refract(vec3(0.6, -0.8, 0), vec3(0, 1, 0), a), 3],
+    ];
+    const values = (x: number | ArrayLike<number>) => (typeof x === "number" ? [x] : Array.from(x));
+    for (const [build, a] of programs) {
+      expect(values(evaluateWASM(build, [a]))).toEqual(values(evaluateJS(build, [a])));
+    }
+  });
+
+  /**
+   * A write by index through a swizzle, of a vector and of a matrix column,
+   * writes the component the swizzle names at that index, on every target. An
+   * index past the swizzle reaches its last component on the CPU targets.
+   *
+   * @canon spec-an-element-write-writes-at-its-index
+   */
+  it("writes by index through a swizzle on every target", () => {
+    const column: Build = (a) =>
+      Fn(() => {
+        const m = mat3(1, 2, 3, 4, 5, 6, 7, 8, 9).toVar();
+        m.element(int(1)).yx.element(a.toInt()).assign(float(0));
+        return m.element(1);
+      })();
+    const vector: Build = (a) =>
+      Fn(() => {
+        const v = vec4(1, 2, 3, 4).toVar();
+        v.wzyx.zy.element(a.toInt()).assign(float(0));
+        return v;
+      })();
+    expect(Array.from(evaluateRecording(column, [0]) as Float64Array)).toEqual([4, 0, 6]);
+    expect(Array.from(evaluateRecording(column, [1]) as Float64Array)).toEqual([0, 5, 6]);
+    expect(Array.from(evaluateJS(column, [5]) as Float64Array)).toEqual([0, 5, 6]);
+    expect(Array.from(evaluateRecording(vector, [0]) as Float64Array)).toEqual([1, 0, 3, 4]);
+    expect(Array.from(evaluateRecording(vector, [1]) as Float64Array)).toEqual([1, 2, 0, 4]);
+  });
+
+  /**
+   * @canon spec-a-transpose-swaps-the-shape
+   */
+  it("transposes a matrix that arrives at run time on the CPU targets", () => {
+    const build = (a: Node<"float">) => transpose(mat3(vec3(a, 2, 3), vec3(4, 5, 6), vec3(7, 8, 9)));
+    expect(Array.from(evaluateJS(build, [1]) as Float64Array)).toEqual([1, 4, 7, 2, 5, 8, 3, 6, 9]);
+    expect(Array.from(evaluateWASM(build, [1]) as number[])).toEqual([1, 4, 7, 2, 5, 8, 3, 6, 9]);
+  });
+
+  /**
+   * @canon spec-a-boolean-vector-reduces-with-all-or-any
+   */
+  it("reduces a boolean vector computed at run time with all and any on the CPU targets", () => {
+    const every = (a: Node<"float">) => all(bvec2(a.greaterThan(0), true)).select(float(1), float(0));
+    const some = (a: Node<"float">) => any(bvec2(a.greaterThan(5), false)).select(float(1), float(0));
+    for (const evaluate of [evaluateJS, evaluateWASM]) {
+      expect([evaluate(every, [1]), evaluate(every, [-1]), evaluate(some, [6]), evaluate(some, [1])]).toEqual([
+        1, 0, 1, 0,
+      ]);
+    }
+  });
+
+  /**
    * A `mat2` cut down from a `mat3` that arrives at run time keeps the leading
-   * rows of its leading columns on GLSL and WGSL. JS and WASM depart from it,
-   * as their bugs say.
+   * rows of its leading columns on GLSL and WGSL.
    *
    * @canon spec-a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns
    */

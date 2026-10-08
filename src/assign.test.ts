@@ -18,6 +18,8 @@ import {
   vec4,
   type Node,
   type ShaderType,
+  serialize,
+  deserialize,
 } from "./rmsl";
 import { compileGlsl, compileGlslFn } from "./glsl";
 import { compileWgsl, compileWgslFn } from "./wgsl";
@@ -26,14 +28,16 @@ import { compileWasmFn, compileWasmCompute, compileWasmFragment, compileWasmVert
 
 const compilers = { compileGlslFn, compileWgslFn, compileJSFn, compileWasmFn };
 
-/** Expects compiling `write` to throw `message` on every backend. */
+/** Expects compiling `write` to throw `message` on every backend, and compiling the graph `deserialize` rebuilds from it too. */
 function expectRefusedEverywhere(write: () => void, message: RegExp) {
   const root = Fn(() => {
     write();
     return float(0);
   })();
+  const restored = deserialize(serialize(root)) as Node<ShaderType>;
   for (const [name, compile] of Object.entries(compilers)) {
     expect(() => compile(() => root as Node<ShaderType>, { name: "main", params: [] }), name).toThrow(message);
+    expect(() => compile(() => restored, { name: "main", params: [] }), `${name} after JSON`).toThrow(message);
   }
 }
 
@@ -208,6 +212,16 @@ describe("an assignment's target", () => {
       const v = vec3(1, 2, 3).toVar();
       // @ts-expect-error: refused at run time, and by its type
       v.xxy.z.assign(float(1));
+    }, refused("xxy"));
+    expectRefusedEverywhere(() => {
+      const v = vec3(1, 2, 3).toVar();
+      // @ts-expect-error: refused at run time, and by its type
+      v.xx.element(int(1)).assign(float(1));
+    }, refused("xx"));
+    expectRefusedEverywhere(() => {
+      const v = vec3(1, 2, 3).toVar();
+      // @ts-expect-error: refused at run time, and by its type
+      v.xxy.element(int(uniform("float"))).assign(float(1));
     }, refused("xxy"));
   });
 

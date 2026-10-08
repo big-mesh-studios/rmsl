@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import wabtInit from "wabt";
 import {
   attribute,
   builtinPosition,
@@ -11,6 +12,10 @@ import {
   int,
   invocationIndex,
   ivec2,
+  mat3,
+  mix,
+  select,
+  step,
   storage,
   StorageBufferAttribute,
   textureLoad,
@@ -24,6 +29,7 @@ import {
 import { compileJS, compileJSCompute, compileJSRoutine } from "../js";
 import type { CompileCpuRoutine } from "../backends/cpu";
 import {
+  createWasmCompute,
   compileWasm,
   compileWasmCompute,
   compileWasmFn,
@@ -423,6 +429,67 @@ describe("an inline Fn whose value an operation reads more than once", () => {
   });
 });
 
+describe("the operands of an operation that run statements", () => {
+  const counter = instancedArray(1, "float");
+  const count = () => counter.element(int(0));
+  /** An inline `Fn` that adds one to `counter` and returns what it holds then. */
+  const increment = () =>
+    Fn(() => {
+      count().addAssign(1);
+      return count().toVar();
+    })() as any;
+  /** An inline `Fn` that multiplies `counter` by ten and returns a vector of what it holds then. */
+  const scale = () =>
+    Fn(() => {
+      count().mulAssign(10);
+      return vec3(count()).toVar();
+    })() as any;
+  const run = (compile: CompileCpuRoutine, build: () => any) => {
+    const data = new Float64Array([1]);
+    const result = compile(build, none)({ storages: { [counter.name]: data } });
+    return { counter: data[0], result };
+  };
+
+  /**
+   * @canon spec-the-operands-of-an-operation-run-in-the-order-it-takes-them
+   */
+  it.each(cpuTargets)("%s: runs a vector operand before the scalar operand after it", (_, compile) => {
+    expect(run(compile, () => scale().add(increment()).x)).toEqual({ counter: 11, result: 21 });
+  });
+
+  /**
+   * @canon spec-the-operands-of-an-operation-run-in-the-order-it-takes-them
+   */
+  it.each(cpuTargets)("%s: runs the vectors of mix before its scalar weight", (_, compile) => {
+    expect(run(compile, () => mix(scale(), vec3(0, 0, 0), increment()).x)).toEqual({ counter: 11, result: -100 });
+  });
+
+  /**
+   * @canon spec-the-operands-of-an-operation-run-in-the-order-it-takes-them
+   */
+  it.each(cpuTargets)("%s: runs the scalar condition of select before its vectors", (_, compile) => {
+    expect(run(compile, () => select(increment().greaterThan(1), scale(), vec3(0, 0, 0)).x)).toEqual({
+      counter: 20,
+      result: 20,
+    });
+  });
+
+  /**
+   * @canon spec-the-operands-of-an-operation-run-in-the-order-it-takes-them
+   */
+  it.each(cpuTargets)("%s: runs the scalar condition of select before its scalars", (_, compile) => {
+    const pick = () => select(increment().greaterThan(1), scale().x, float(0));
+    expect(run(compile, pick)).toEqual({ counter: 20, result: 20 });
+  });
+
+  /**
+   * @canon spec-the-operands-of-an-operation-run-in-the-order-it-takes-them
+   */
+  it.each(cpuTargets)("%s: runs the edge of step before its value", (_, compile) => {
+    expect(run(compile, () => step(scale().x, increment()))).toEqual({ counter: 11, result: 1 });
+  });
+});
+
 describe("a coordinate far past the edge on WASM", () => {
   /**
    * @canon spec-a-cpu-target-wraps-as-the-texture-asks
@@ -478,5 +545,53 @@ describe("an integer texel on WASM", () => {
     expect(readUnsigned({ textures: { [unsigned.name]: texture(4294967295) } })).toBe(4294967295);
     expect(readSigned({ textures: { [signed.name]: texture(2147483647) } })).toBe(2147483647);
     expect(readSigned({ textures: { [signed.name]: texture(-2147483648) } })).toBe(-2147483648);
+  });
+});
+
+describe("a matrix column read on WASM", () => {
+  /**
+   * One read of a component of a column, at constant indices, adds one load
+   * to the module: a second read beside the first costs that much.
+   *
+   * @canon spec-a-wasm-routine-reads-a-matrix-column-where-it-lies
+   */
+  it("reads a component of a column at constant indices with one load", async () => {
+    const wabt = await wabtInit();
+    const loads = (read: (m: any) => Node<"float">) => {
+      const compiled = compileWasmFn(
+        () =>
+          Fn(() => {
+            const m = mat3(1, 2, 3, 4, 5, 6, 7, 8, 9).toVar();
+            return read(m);
+          })(),
+        { name: "main", params: [] },
+      );
+      return (
+        wabt
+          .readWasm(compiled.bytes, {})
+          .toText({})
+          .match(/f64\.load/g) ?? []
+      ).length;
+    };
+    const once = loads((m) => m.element(int(2)).y);
+    expect(loads((m) => m.element(int(2)).y.add(m.element(int(1)).z)) - once).toBe(1);
+  });
+
+  /**
+   * @canon spec-a-wasm-routine-reads-a-matrix-column-where-it-lies
+   */
+  it("reads a column of a storage element from the buffer, and as zero past its end", () => {
+    const matrices = instancedArray(1, "mat3");
+    const out = instancedArray(2, "vec3");
+    const root = Fn(() => {
+      out.element(int(0)).assign(matrices.element(int(0)).element(int(1)));
+      out.element(int(1)).assign(vec3(matrices.element(int(4)).element(int(1)).y, 0, 0));
+    })();
+    const adapter = createWasmCompute(root, { name: "step" });
+    adapter.setAttribute(matrices.name, Float32Array.of(1, 2, 3, 4, 5, 6, 7, 8, 9));
+    const data = new Float32Array(6);
+    adapter.setAttribute(out.name, data);
+    adapter.compute();
+    expect(Array.from(data)).toEqual([4, 5, 6, 0, 0, 0]);
   });
 });

@@ -6,6 +6,7 @@ import {
   vec2,
   vec3,
   mat2,
+  vec4,
   smoothstep,
   clamp,
   For,
@@ -925,21 +926,60 @@ describe("RMSL evaluation", () => {
     const classify = () =>
       Fn(() => {
         const out = float(0).toVar();
-        Switch(int(1), (s) => {
-          s.Case(0, () => {
+        Switch(int(1))
+          .Case(0, () => {
             out.assign(float(10));
-          });
-          s.Case([1, 2], () => {
+          })
+          .Case(1, 2, () => {
             out.assign(float(20));
-          });
-          s.Default(() => {
+          })
+          .Default(() => {
             out.assign(float(30));
           });
-        });
         return out;
       })();
 
     await expectValue(classify, [], 20);
+  }, 60_000);
+
+  /**
+   * `mat2` of one `vec4` holds its components in column order on every
+   * target, as GLSL builds it.
+   *
+   * @canon spec-a-matrix-is-built-from-its-columns
+   */
+  it("builds a mat2 from the components of a vec4 in column order", async () => {
+    const component = (column: number, row: "x" | "y") => (x: Node<"float">) =>
+      Fn(() =>
+        mat2(vec4(x, x.add(1), x.add(2), x.add(3)))
+          .element(int(column))
+          [row].toVar(),
+      )();
+
+    await expectValue(component(0, "x"), [1], 1);
+    await expectValue(component(0, "y"), [1], 2);
+    await expectValue(component(1, "x"), [1], 3);
+    await expectValue(component(1, "y"), [1], 4);
+  }, 60_000);
+
+  /**
+   * A variable made between `Switch` and its first `Case` is declared before
+   * the chain, so the cases read it on every target.
+   *
+   * @canon spec-a-switch-runs-the-case-its-selector-matches
+   */
+  it("runs a statement made between Switch and its first Case before the chain", async () => {
+    const pick = (x: Node<"float">) =>
+      Fn(() => {
+        const out = float(0).toVar();
+        const s = Switch(int(x));
+        const w = float(5).toVar("w");
+        s.Case(0, () => out.assign(w)).Default(() => out.assign(w.add(1)));
+        return out;
+      })();
+
+    await expectValue(pick, [0], 5);
+    await expectValue(pick, [1], 6);
   }, 60_000);
 
   /**
@@ -997,17 +1037,16 @@ describe("RMSL evaluation", () => {
     const classify = () =>
       Fn(() => {
         const out = float(0).toVar();
-        Switch(int(2), (s) => {
-          s.Case(0, () => {
+        Switch(int(2))
+          .Case(0, () => {
             out.assign(float(10));
-          });
-          s.Case([1, 2], () => {
+          })
+          .Case(1, 2, () => {
             out.assign(float(20));
-          });
-          s.Default(() => {
+          })
+          .Default(() => {
             out.assign(float(30));
           });
-        });
         return out;
       })();
     await expectValue(classify, [], 20);

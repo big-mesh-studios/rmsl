@@ -10,6 +10,7 @@ import {
   bool,
   builtinFragDepth,
   builtinPosition,
+  bvec2,
   bvec3,
   Discard,
   EPSILON,
@@ -22,10 +23,17 @@ import {
   int,
   ivec2,
   ivec3,
+  ivec4,
   Loop,
   mat2,
   mat2x3,
+  mat2x4,
   mat3,
+  mat3x2,
+  mat3x4,
+  mat4,
+  mat4x2,
+  mat4x3,
   outputStruct,
   PI,
   screenSize,
@@ -481,6 +489,40 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
+   * @canon spec-an-integer-or-boolean-column-converts-to-float
+   */
+  it("converts integer and boolean columns of a matrix to float on every target", () => {
+    const build = (a: Node<"float">) => mat3x2(ivec2(a.toInt(), -2), uvec2(3, 4), bvec2(a.greaterThan(0), false));
+    expect(Array.from(evaluateRecording(build, [5]) as Float64Array)).toEqual([5, -2, 3, 4, 1, 0]);
+  });
+
+  /**
+   * @canon spec-an-integer-or-boolean-column-converts-to-float
+   */
+  it("converts the integer vector mat2 splits into columns to float on every target", () => {
+    const build = (a: Node<"float">) => mat2(ivec4(a.toInt(), 2, -3, 4));
+    expect(Array.from(evaluateRecording(build, [5]) as Float64Array)).toEqual([5, 2, -3, 4]);
+  });
+
+  /**
+   * @canon spec-a-matrix-given-nothing-is-the-identity
+   */
+  it.each([
+    ["mat2", mat2, 2, 2],
+    ["mat2x3", mat2x3, 2, 3],
+    ["mat2x4", mat2x4, 2, 4],
+    ["mat3x2", mat3x2, 3, 2],
+    ["mat3", mat3, 3, 3],
+    ["mat3x4", mat3x4, 3, 4],
+    ["mat4x2", mat4x2, 4, 2],
+    ["mat4x3", mat4x3, 4, 3],
+    ["mat4", mat4, 4, 4],
+  ] as const)("builds the identity of a %s given nothing on every target", (_, matrix, columns, rows) => {
+    const identity = Array.from({ length: columns * rows }, (_, i) => (Math.floor(i / rows) === i % rows ? 1 : 0));
+    expect(Array.from(evaluateRecording(() => (matrix as any)() as Node<any>) as Float64Array)).toEqual(identity);
+  });
+
+  /**
    * @canon spec-a-matrix-element-is-a-column
    */
   it("reads a matrix column as a vector on every target", () => {
@@ -639,9 +681,6 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
-   * WASM refuses the inverse for another reason too: it compiles no inverse at
-   * all yet (#65).
-   *
    * @canon spec-only-a-square-matrix-is-inverted
    */
   it("refuses to invert a matrix that is not square on every target", () => {

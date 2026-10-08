@@ -73,7 +73,7 @@ Argument order matches TSL: `step(edge, x)`, `smoothstep(low, high, x)`,
 | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `Fn(() => { … })`                                       | same                                                                                                                                   |
 | `If(cond, () => …).ElseIf(cond, () => …).Else(() => …)` | same                                                                                                                                   |
-| `Switch(x, (s) => { s.Case(…); s.Default(…) })`         | same                                                                                                                                   |
+| `Switch(x).Case(…).Default(…)`                          | same                                                                                                                                   |
 | `Loop(count, ({ i }) => …)`                             | `Loop(count, (i) => …)` — `i` is passed directly rather than destructured                                                              |
 | `While(cond, () => …)`                                  | same; a condition that makes a variable, as with `toVar()`, goes in a function, `While(() => cond, …)`, to be computed every iteration |
 | `For(…)`                                                | same                                                                                                                                   |

@@ -17,7 +17,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@term shader-type`](#term-shader-type) — One of the value types a node can have: a scalar, a vector, a matrix, a sampler, or `void`.
 - [`@term var`](#term-var) — A node that a program can write: a variable, a storage element, a stage output, or a component of one of them.
 - [`@term fn`](#term-fn) — A function made with `Fn`, whose body records the statements of a program.
-- [`@term program`](#term-program) — The roots that a compiler takes, with every node they reach.
+- [`@term root`](#term-root) — A node a compiler takes as an end of a program. A function passed to `Fn` gives one root for the value it returns, or one for each element of an array it returns.
+- [`@term program`](#term-program) — The [roots](#term-root) that a compiler takes, with every node they reach.
 - [`@term stage`](#term-stage) — The part of a pipeline a program is compiled for: vertex, fragment or compute.
 - [`@term uniform`](#term-uniform) — An input that holds one value for a whole draw or dispatch, written by the host.
 - [`@term attribute`](#term-attribute) — An input of the vertex stage that holds one value per vertex.
@@ -48,7 +49,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec wgsl-narrows-a-matrix-through-a-helper`](#spec-wgsl-narrows-a-matrix-through-a-helper) — On WGSL, a matrix built from a larger matrix calls a helper that keeps the leading rows of the leading columns. A matrix built from columns or from a scalar needs none.
   - [`@spec every-node-is-emitted-once`](#spec-every-node-is-emitted-once) — A [node](#term-node) that several roots or statements reach is emitted once, in the place it first runs. A block it holds keeps its variables in scope, and a loop it holds keeps its loop variable.
   - [`@spec a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once) — A node that an operation reads more than once is computed once, where it first runs. Each later read in that block or a block inside it takes the result, until a statement changes what the node reads.
-    - [`@spec output-grows-in-proportion-to-the-levels-of-nested-reads`](#spec-output-grows-in-proportion-to-the-levels-of-nested-reads) — A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract` on JS, counts as two reads.
+    - [`@spec output-grows-in-proportion-to-the-levels-of-nested-reads`](#spec-output-grows-in-proportion-to-the-levels-of-nested-reads) — A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract`, counts as two reads. So does a scalar operand beside a vector in a component-wise function, such as `atan2`.
     - [`@spec a-node-that-is-already-a-name-is-read-where-it-is`](#spec-a-node-that-is-already-a-name-is-read-where-it-is) — A constant, a variable, a uniform, an attribute or a built-in input stays where it is. So does a swizzle or an element of one of them. None gets a variable of its own.
     - [`@spec a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in`](#spec-a-shared-value-is-computed-again-in-a-block-it-is-not-visible-in) — A node that two blocks read, with neither inside the other, is computed in each. A path that skips a block runs none of its statements.
     - [`@spec a-shared-value-is-computed-again-after-what-it-reads-changed`](#spec-a-shared-value-is-computed-again-after-what-it-reads-changed) — A shared node that reads a variable or a storage buffer is computed again at its next read. This holds once a statement has changed it.
@@ -91,6 +92,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-program-runs-its-statements-in-the-order-it-writes-them`](#spec-a-program-runs-its-statements-in-the-order-it-writes-them) — A program runs its statements in the order its body made them, on every target, the statements that compute an index or a value included.
     - [`@spec the-index-of-a-write-is-read-after-the-value-is-computed`](#spec-the-index-of-a-write-is-read-after-the-value-is-computed) — A write through a computed index reads the index after the statements that compute the value it writes.
     - [`@spec a-column-index-runs-before-a-component-index`](#spec-a-column-index-runs-before-a-component-index) — When a program computes both indices of a write to a component of a matrix column, the column index runs first.
+    - [`@spec the-operands-of-an-operation-run-in-the-order-it-takes-them`](#spec-the-operands-of-an-operation-run-in-the-order-it-takes-them) — The statements that compute the operands of an operation run in the order the operation takes its operands. A scalar operand beside a vector runs in its own place among them, not before the vectors.
   - [`@spec a-value-is-computed-where-it-is-read`](#spec-a-value-is-computed-where-it-is-read) — A value that no variable holds computes, where the program reads it, from what its operands hold there. A write to a variable it reads changes what it gives after the write. A branch that first computed it does not keep it from the code outside.
   - [`@spec a-variable-holds-a-copy`](#spec-a-variable-holds-a-copy) — A variable made with `toVar()`, or a variable or stage output assigned a value, holds a copy. A write to the variable or the output leaves the value it was copied from as it was.
   - [`@spec an-assignment-computes-its-value-before-it-writes`](#spec-an-assignment-computes-its-value-before-it-writes) — An assignment computes the whole value it assigns before it writes its target. A value that reads the target, such as `v.assign(cross(v, u))`, `v.assign(v.yx)` or `m.assign(transpose(m))`, reads it as it was before the assignment.
@@ -183,7 +185,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-stage-output-is-assigned-only-in-its-stage`](#spec-a-stage-output-is-assigned-only-in-its-stage) — An assignment to a [varying](#term-varying) or to the position outside the vertex stage, or to the fragment depth outside the fragment stage, is refused.
       - [`@spec a-stage-output-is-refused-in-the-other-render-stage`](#spec-a-stage-output-is-refused-in-the-other-render-stage) — A fragment stage that assigns a [varying](#term-varying) or the position is refused, and so is a vertex stage that assigns the fragment depth. Every target refuses them.
       - [`@spec a-compute-program-cannot-assign-a-stage-output`](#spec-a-compute-program-cannot-assign-a-stage-output) — A compute program that assigns to a varying, to the position or to the fragment depth is refused on every target that compiles one.
-    - [`@spec a-swizzle-that-repeats-a-component-cannot-be-assigned`](#spec-a-swizzle-that-repeats-a-component-cannot-be-assigned) — An assignment through a [swizzle](#term-swizzle) that names a component more than once is refused, also when it is reached through another swizzle.
+    - [`@spec a-swizzle-that-repeats-a-component-cannot-be-assigned`](#spec-a-swizzle-that-repeats-a-component-cannot-be-assigned) — An assignment through a [swizzle](#term-swizzle) that names a component more than once is refused, also when it is reached through another swizzle. So is a write by index through such a swizzle. The graph keeps the swizzle of such a write, so a graph `deserialize` rebuilt is refused alike.
     - [`@spec a-swizzle-that-names-each-component-once-can-be-assigned`](#spec-a-swizzle-that-names-each-component-once-can-be-assigned) — An assignment through a swizzle of a var that names each component once compiles on every target, also when it is reached through another swizzle.
     - [`@spec a-wgsl-variable-is-declared-with-var`](#spec-a-wgsl-variable-is-declared-with-var) — On WGSL, a variable compiles to a `var` declaration, also when the program never assigns it again.
   - [`@spec a-name-is-local-unless-the-user-gave-it`](#spec-a-name-is-local-unless-the-user-gave-it) — A name the compiler generates is local to its program. A name the user gives with a `*Raw` function is absolute.
@@ -229,7 +231,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-wgsl-render-stage-reads-storage-read-only`](#spec-a-wgsl-render-stage-reads-storage-read-only) — On WGSL, a vertex or fragment stage declares a storage buffer read-only, in a group of its own numbered across both stages. It refuses a write to the buffer.
       - [`@exception glsl-has-no-storage-buffers`](#exception-glsl-has-no-storage-buffers) — A GLSL stage that reads a storage buffer is refused. Issue #48 asks to read one through a data texture instead.
       - [`@spec a-wgsl-render-stage-declares-its-storage-in-group-three`](#spec-a-wgsl-render-stage-declares-its-storage-in-group-three) — On WGSL, a vertex or fragment stage declares its storage buffers in group 3.
-  - [`@spec a-constant-index-outside-a-vector-or-matrix-is-refused`](#spec-a-constant-index-outside-a-vector-or-matrix-is-refused) — A constant index outside a vector's components or a matrix's columns is refused on every target: a literal, or an operation of literals that folds to one.
+  - [`@spec a-constant-index-outside-a-vector-or-matrix-is-refused`](#spec-a-constant-index-outside-a-vector-or-matrix-is-refused) — A constant index outside a vector's components or a matrix's columns is refused on every target. Such an index is a literal, or an operation of literals that folds to one. A write by index through a swizzle is refused for an index outside the swizzle, as its read is. So it is in a graph `deserialize` rebuilt.
   - [`@spec a-constant-index-outside-a-uniform-array-is-refused`](#spec-a-constant-index-outside-a-uniform-array-is-refused) — A constant index outside the elements of a uniform array is refused on every target: a literal, or an operation of literals that folds to one.
   - [`@spec an-operation-a-target-cannot-run-is-refused`](#spec-an-operation-a-target-cannot-run-is-refused) — An operation that no target can run where the program puts it is refused on every target.
     - [`@spec break-or-continue-outside-a-loop-is-refused`](#spec-break-or-continue-outside-a-loop-is-refused) — `Break` or `Continue` outside a loop is refused.
@@ -237,10 +239,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec operands-of-different-widths-are-refused`](#spec-operands-of-different-widths-are-refused) — An operation on two vectors of different widths is refused, by the type checker and on every target. A scalar beside a vector broadcasts instead.
     - [`@spec an-arithmetic-result-has-the-width-of-the-wider-operand`](#spec-an-arithmetic-result-has-the-width-of-the-wider-operand) — An arithmetic operation on a scalar and a vector gives a vector of the vector's width, whichever side the scalar is on. The types say so too.
     - [`@spec a-whole-storage-buffer-cannot-be-read`](#spec-a-whole-storage-buffer-cannot-be-read) — A storage node read as a whole, rather than through `element(i)`, is refused.
-      - [`@bug js-and-wgsl-read-a-whole-storage-buffer`](#bug-js-and-wgsl-read-a-whole-storage-buffer) — JS and WGSL compile a storage node read as a whole. JS adds a number to an array, and WGSL emits a shader no driver accepts. Only WASM refuses it.
     - [`@spec a-scalar-argument-beside-a-vector-is-widened-to-it`](#spec-a-scalar-argument-beside-a-vector-is-widened-to-it) — A scalar argument beside a vector in `step`, `smoothstep`, `clamp`, `min`, `max`, `pow` or `mod` is widened to that vector before any target compiles it.
     - [`@spec an-integer-and-a-float-operand-are-refused`](#spec-an-integer-and-a-float-operand-are-refused) — An operation on an integer operand and a float operand is refused, by the type checker and on every target. A bare number takes the type beside it instead.
-    - [`@spec a-for-update-that-holds-a-block-is-refused`](#spec-a-for-update-that-holds-a-block-is-refused) — A `For` whose update holds a block, such as an `If`, is refused on every target.
+    - [`@spec a-for-update-that-holds-a-block-is-refused`](#spec-a-for-update-that-holds-a-block-is-refused) — A `For` whose update holds a block, such as an `If`, is refused where the `For` is built. Every target refuses it again as it compiles, so a graph `deserialize` rebuilt is refused alike. A write to a storage element holds no block, so an update that makes one compiles on every target that has storage buffers.
+    - [`@spec a-for-update-that-jumps-is-refused`](#spec-a-for-update-that-jumps-is-refused) — A `For` whose update holds a `Break`, `Continue`, `Discard` or `Return` is refused where the `For` is built. Every target refuses it again as it compiles, so a graph `deserialize` rebuilt is refused alike.
+  - [`@spec a-case-is-added-in-the-block-of-its-switch`](#spec-a-case-is-added-in-the-block-of-its-switch) — A `Case` or `Default` called from a block other than its `Switch`'s, or after its `Default`, is refused as the program builds it. The error names it. So is one added after a statement that follows the `Case` before it, a variable included.
   - [`@spec a-case-with-no-values-is-refused`](#spec-a-case-with-no-values-is-refused) — A `Case` given no values is refused as the program builds it, with an error that names `Case`.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
   - [`@spec a-loop-follows-tsls-loop`](#spec-a-loop-follows-tsls-loop) — A loop follows TSL's `Loop`. It tests its condition before every iteration, and runs its body while the condition holds. It builds the condition once, before the loop.
@@ -265,8 +268,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec an-operation-means-what-it-means-in-tsl`](#spec-an-operation-means-what-it-means-in-tsl) — An operation computes what the operation of the same name computes in TSL, and takes its arguments in the same order. It compiles to the built-in of each target that computes it.
     - [`@spec arithmetic-compiles-to-the-operators-of-the-target`](#spec-arithmetic-compiles-to-the-operators-of-the-target) — `add`, `sub`, `mul` and `div`, as methods or free functions, compile to the operators of each target.
     - [`@spec a-math-function-compiles-to-the-builtin-of-the-target`](#spec-a-math-function-compiles-to-the-builtin-of-the-target) — A math function, such as `sin`, `floor`, `pow`, `inversesqrt` or `determinant`, compiles to the built-in of each target, under the name that target gives it.
-      - [`@bug wasm-compiles-no-matrix-inverse`](#bug-wasm-compiles-no-matrix-inverse) — The WASM target does not compile `inverse`.
-      - [`@bug wasm-compiles-no-component-wise-math-on-a-vector`](#bug-wasm-compiles-no-component-wise-math-on-a-vector) — The WASM target compiles no component-wise math function of a vector, such as `pow`, `sin`, `floor`, `fract` or `sqrt`.
     - [`@spec a-function-with-an-edge-takes-the-value-last`](#spec-a-function-with-an-edge-takes-the-value-last) — `step(edge, x)`, `smoothstep(low, high, x)`, `clamp(x, low, high)` and `mix(a, b, t)` take their arguments in TSL's order. A method puts its receiver where the function puts the value.
     - [`@spec a-geometric-function-compiles-to-the-builtin-of-the-target`](#spec-a-geometric-function-compiles-to-the-builtin-of-the-target) — `dot`, `length`, `distance`, `normalize`, `cross`, `reflect`, `refract` and `faceForward` compile to the built-ins of each target, `refract` with its three arguments.
     - [`@spec an-operation-no-target-has-is-composed`](#spec-an-operation-no-target-has-is-composed) — `xor`, `saturate`, `oneMinus`, `reciprocal`, `difference`, the powers, `lengthSq` of a scalar, `premultiplyAlpha` and `unpremultiplyAlpha` compile to the operations that make them up.
@@ -292,13 +293,14 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-scalar-fills-every-component-of-a-vector`](#spec-a-scalar-fills-every-component-of-a-vector) — A vector constructor given one scalar puts it in every component.
     - [`@spec parts-fill-a-vector-in-order`](#spec-parts-fill-a-vector-in-order) — A vector constructor given vectors and scalars fills its components with theirs, in order, and keeps the leading components of a longer vector.
     - [`@spec a-scalar-matrix-is-a-diagonal`](#spec-a-scalar-matrix-is-a-diagonal) — A matrix constructor given one scalar builds the matrix with that scalar on its diagonal and zero elsewhere, written out in full on WGSL.
+    - [`@spec a-matrix-given-nothing-is-the-identity`](#spec-a-matrix-given-nothing-is-the-identity) — A matrix constructor given nothing builds the identity of its shape: one on its diagonal and zero elsewhere, as the constructor given `1` builds it. A matrix that is not square has as many ones as its shorter side.
     - [`@spec a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns`](#spec-a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns) — A matrix constructor given a larger matrix keeps the leading rows of its leading columns, on every target.
-      - [`@bug wasm-compiles-no-matrix-narrowing`](#bug-wasm-compiles-no-matrix-narrowing) — The WASM target does not compile a matrix built from a larger matrix.
-      - [`@bug js-narrows-a-matrix-by-its-flat-values`](#bug-js-narrows-a-matrix-by-its-flat-values) — On JS, a matrix built from a larger matrix takes its leading values in flat order. It does not keep the leading rows of the leading columns.
-    - [`@spec a-matrix-is-built-from-its-columns`](#spec-a-matrix-is-built-from-its-columns) — A matrix constructor of any shape, square or not, takes its values column by column, as numbers or as vector columns.
+    - [`@spec a-matrix-is-built-from-its-columns`](#spec-a-matrix-is-built-from-its-columns) — A matrix constructor of any shape, square or not, takes its values column by column, as numbers or as vector columns. A vector column has as many components as the matrix has rows. `mat2` given one `vec4` takes its four components in column order, as GLSL does. A matrix given any other vector alone, or a column of another length, is refused.
+    - [`@spec an-integer-or-boolean-column-converts-to-float`](#spec-an-integer-or-boolean-column-converts-to-float) — A matrix constructor given integer or boolean vectors, as its columns or as the one vector `mat2` splits, converts their components to float on every target. A boolean gives 1 or 0.
     - [`@spec a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number`](#spec-a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number) — A matrix constructor given scalar nodes among its numbers builds the matrix from them, in column order, on every target. A mix of values whose count is not the matrix's is refused.
     - [`@spec a-literal-compiles-to-a-literal-of-its-type`](#spec-a-literal-compiles-to-a-literal-of-its-type) — `int`, `uint`, `bool`, boolean vector and integer vector constructors given literals compile to literals of their type on each target.
-    - [`@spec a-javascript-array-is-a-vector-of-its-length`](#spec-a-javascript-array-is-a-vector-of-its-length) — A JavaScript array given where a node goes is a vector of its length. An array whose length no vector has is refused.
+    - [`@spec a-javascript-array-is-a-vector-of-its-length`](#spec-a-javascript-array-is-a-vector-of-its-length) — A JavaScript array given as an operand or an argument, where a node goes, is a vector of its length, or a `mat3` or `mat4` of 9 or 16 elements. Each element is a number or a node; an array that holds anything else, or whose length no vector has, is refused.
+    - [`@spec a-returned-array-lists-roots`](#spec-a-returned-array-lists-roots) — An array that a function passed to `Fn` returns lists the [roots](#term-root) of the program, not a vector, whatever it holds: `Fn(() => [1, 2, 3, 4])` has four `float` roots. A function returns a vector as `vec4(1, 2, 3, 4)`.
     - [`@spec the-tsl-constants-are-float-literals`](#spec-the-tsl-constants-are-float-literals) — `PI`, `TWO_PI`, `PI2`, `HALF_PI`, `EPSILON` and `INFINITY` are float literals of TSL's values.
     - [`@spec int-min-compiles-to-a-subtraction-of-two-in-range-literals`](#spec-int-min-compiles-to-a-subtraction-of-two-in-range-literals) — On GLSL and WGSL, the `int` literal -2147483648 compiles to `(-2147483647 - 1)`, a subtraction of two literals in range.
     - [`@spec a-vector-converted-to-a-scalar-takes-its-first-component`](#spec-a-vector-converted-to-a-scalar-takes-its-first-component) — Converting a vector to `float`, `int` or `uint` gives its first component, converted to that type.
@@ -315,14 +317,13 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-swizzle-write-writes-the-components-it-names`](#spec-a-swizzle-write-writes-the-components-it-names) — An assignment through a swizzle, or through a swizzle of a swizzle, writes the components it names of the variable it reaches, on every target.
     - [`@spec an-element-reads-a-component-by-index`](#spec-an-element-reads-a-component-by-index) — `element(i)` of a vector reads the component at `i`, and of a matrix the column at `i`, by a literal or a computed index.
     - [`@spec an-element-write-writes-at-its-index`](#spec-an-element-write-writes-at-its-index) — An assignment through `element(i)` of a vector or matrix variable, or through a swizzle or an element of a column, writes at that index.
-      - [`@bug a-write-by-index-through-a-swizzle-differs-by-target`](#bug-a-write-by-index-through-a-swizzle-differs-by-target) — A write by index through a swizzle, such as into a swizzle of a matrix column, differs by target. JS ignores it, WASM refuses it, and WGSL emits a shader no driver accepts.
     - [`@spec a-wgsl-write-through-a-swizzle-of-several-components-stores-its-value-once`](#spec-a-wgsl-write-through-a-swizzle-of-several-components-stores-its-value-once) — On WGSL, a write through a swizzle of several components stores its value in a temporary once, then writes each component from it.
   - [`@spec an-if-chain-runs-the-first-branch-whose-condition-holds`](#spec-an-if-chain-runs-the-first-branch-whose-condition-holds) — `If`, `ElseIf` and `Else` run the first branch whose condition holds, or the `Else` branch when none does.
     - [`@spec an-if-chain-takes-the-branch-its-conditions-select`](#spec-an-if-chain-takes-the-branch-its-conditions-select) — An `If` chain runs the branch of the first condition that holds, and the `Else` branch when none does.
     - [`@spec an-else-if-condition-is-computed-only-when-tested`](#spec-an-else-if-condition-is-computed-only-when-tested) — A variable that an `ElseIf` condition makes is computed when that condition is tested, after the conditions before it failed.
     - [`@spec a-variable-an-else-if-condition-makes-belongs-to-its-chain`](#spec-a-variable-an-else-if-condition-makes-belongs-to-its-chain) — The rest of an `If` chain can read a variable that an `ElseIf` condition makes, and a use of it after the chain is refused.
     - [`@spec an-else-if-follows-its-if-directly`](#spec-an-else-if-follows-its-if-directly) — An `ElseIf` or `Else` written after a statement that follows its `If` or `ElseIf`, a variable or a `Break` included, or called from inside another block, is refused.
-  - [`@spec a-switch-runs-the-case-its-selector-matches`](#spec-a-switch-runs-the-case-its-selector-matches) — `Switch` runs the first `Case` whose values hold its selector, or the `Default` when none does, as a chain of `if` and `else` with no fall-through. A `Switch` with no `Case` and no `Default` runs nothing.
+  - [`@spec a-switch-runs-the-case-its-selector-matches`](#spec-a-switch-runs-the-case-its-selector-matches) — `Switch` runs the first `Case` whose values hold its selector, or the `Default` when none does, as a chain of `if` and `else` with no fall-through. It is written as TSL writes it, `Switch(selector).Case(value, …, body).Default(body)`, and the chain stands where its first `Case` or `Default` is added. A statement made between `Switch` and that call runs before the chain. A `Switch` with no `Case` and no `Default` runs nothing.
   - [`@spec break-continue-return-and-discard-leave-where-tsl-leaves`](#spec-break-continue-return-and-discard-leave-where-tsl-leaves) — `Break` leaves the loop, `Continue` starts its next iteration, `Return` leaves the function, and `Discard` drops the fragment.
     - [`@bug the-wasm-rasterizer-paints-a-discarded-fragment`](#bug-the-wasm-rasterizer-paints-a-discarded-fragment) — The WASM rasterizer writes a colour for a discarded fragment: the colour the fragment stage last left in its memory.
     - [`@bug the-cpu-rasterizers-write-the-depth-of-a-discarded-fragment`](#bug-the-cpu-rasterizers-write-the-depth-of-a-discarded-fragment) — The JS and WASM rasterizers write the depth of a fragment before they run it. A fragment that discards still hides what a later draw puts behind it.
@@ -417,6 +418,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-wasm-routine-loops-inside-its-module`](#spec-a-wasm-routine-loops-inside-its-module) — `draw` and `compute` of a WASM routine run their whole grid or dispatch inside the module, in one call from the host. A program that never reads `invocationIndex()`, or returns a value, still runs once for each invocation.
     - [`@bug wasm-loops-a-program-without-storage-from-the-host`](#bug-wasm-loops-a-program-without-storage-from-the-host) — A program with neither `storage()` nor `invocationIndex()` gets no dispatch export, and `compute` calls its `main` from the host once per invocation.
   - [`@spec a-wasm-routine-copies-a-texture-into-its-memory-once`](#spec-a-wasm-routine-copies-a-texture-into-its-memory-once) — A WASM routine copies a texture into its memory the first time a slot holds it. It copies again only when the slot holds a different texture object. A texture whose data changes without a new object keeps its old copy. The memory grows to fit a larger texture or grid without corrupting what it holds.
+  - [`@spec a-wasm-routine-reads-a-matrix-column-where-it-lies`](#spec-a-wasm-routine-reads-a-matrix-column-where-it-lies) — On WASM, a component of a matrix column is read where the matrix holds it, with one load for a column and a component at constant indices. A column of a storage element is read from the buffer, inside the element's bounds check, and as zero outside it.
   - [`@spec a-wgsl-buffer-feeds-a-draw-without-a-copy`](#spec-a-wgsl-buffer-feeds-a-draw-without-a-copy) — A buffer of a WGSL compute context can feed a draw on the same device. The function `createWgsl` binds the storage nodes of its stages to the context's buffers. A render pipeline can read them as vertex data. A WGSL adapter fills storage of its own through `setAttribute` when it has no context.
   - [`@spec a-program-uses-as-many-storage-buffers-as-the-hardware-binds`](#spec-a-program-uses-as-many-storage-buffers-as-the-hardware-binds) — A WGSL program may use more storage buffers than WebGPU's default, up to what the adapter binds in one stage. A program past that is refused before a device is requested.
   - [`@spec a-wgsl-context-compiles-a-compute-node-once`](#spec-a-wgsl-context-compiles-a-compute-node-once) — A WGSL compute context creates one pipeline for a compute node at its first dispatch, and reuses it at every later one.
@@ -666,7 +668,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact wgsl-has-no-matrix-inverse`](#fact-wgsl-has-no-matrix-inverse) — WGSL has no built-in that inverts a matrix.
 - [`@fact wgsl-percent-truncates`](#fact-wgsl-percent-truncates) — The `%` operator of WGSL truncates the quotient toward zero, where the `mod` of GLSL floors it.
 - [`@fact tsl-joins-the-values-of-a-matrix-constructor-numbers-and-nodes-alike`](#fact-tsl-joins-the-values-of-a-matrix-constructor-numbers-and-nodes-alike) — TSL's `mat2`, `mat3` and `mat4` join the values they are given into one constructor call when any of them is a node, so `mat2(a, 1, 2, 4)` is a call with a node and three numbers.
-- [`@fact a-wgsl-matrix-constructor-takes-no-matrix`](#fact-a-wgsl-matrix-constructor-takes-no-matrix) — A WGSL matrix constructor takes scalars or column vectors, and no matrix.
+- [`@fact a-wgsl-matrix-constructor-takes-no-matrix`](#fact-a-wgsl-matrix-constructor-takes-no-matrix) — A WGSL matrix constructor takes scalars or column vectors, and no matrix. A column vector has as many components as the matrix has rows.
 - [`@fact a-wgsl-texture-is-not-host-shareable`](#fact-a-wgsl-texture-is-not-host-shareable) — A WGSL texture or sampler can be neither a member of a uniform struct nor an element of a uniform array. Each one takes a binding of its own.
 - [`@fact chromium-needs-a-precision-for-every-sampler`](#fact-chromium-needs-a-precision-for-every-sampler) — Chromium rejects a GLSL ES 3.00 shader that uses a sampler type with no declared precision. `sampler3D` and the integer sampler types have no default precision.
 - [`@fact a-derivative-needs-neighbouring-fragments`](#fact-a-derivative-needs-neighbouring-fragments) — A GPU computes `dFdx`, `dFdy` and `fwidth` from the values of neighbouring fragments that run together. A single evaluation of one fragment has no neighbours.
@@ -696,7 +698,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact tsl-swizzles-in-xyzw-rgba-and-stpq`](#fact-tsl-swizzles-in-xyzw-rgba-and-stpq) — A TSL node swizzles with the component names `xyzw`, `rgba` and `stpq`.
 - [`@fact tsl-samples-a-texture-with-texture-and-texture-level`](#fact-tsl-samples-a-texture-with-texture-and-texture-level) — TSL samples a texture with the function `texture(value, uv)`. At a level it uses `textureLevel(value, uv, level)` or `.level(level)`. three.js 0.186 defines no TSL export named `textureLod`. That name appears only in `NodeBuilder`, as the GLSL function it emits.
 - [`@fact tsl-chains-if-elseif-and-else-as-conditions`](#fact-tsl-chains-if-elseif-and-else-as-conditions) — TSL's `If`, `ElseIf` and `Else` build a chain of conditional nodes. Each branch after the first is the `elseNode` of the branch before it, so the first branch whose condition holds runs, and `Else` runs when none does.
-- [`@fact tsl-builds-switch-as-a-chain-of-conditions`](#fact-tsl-builds-switch-as-a-chain-of-conditions) — TSL's `Switch(x)` with `Case(v1, v2, …, body)` and `Default(body)` builds the same chain of conditional nodes. A `Case` is the condition `x == v1 || x == v2 …`, and `Default` is an `Else`, so no case falls through to the next.
+- [`@fact tsl-builds-switch-as-a-chain-of-conditions`](#fact-tsl-builds-switch-as-a-chain-of-conditions) — TSL's `Switch(x)` with `Case(v1, v2, …, body)` and `Default(body)` builds the same chain of conditional nodes. A `Case` is the condition `x == v1 || x == v2 …`, and `Default` is an `Else`, so no case falls through to the next. The first `Case` adds the chain to the stack, after the statements made before it.
 - [`@fact tsl-break-continue-return-and-discard-are-statements`](#fact-tsl-break-continue-return-and-discard-are-statements) — TSL's `Break()`, `Continue()`, `Return()` and `Discard()` each add the statement `break`, `continue`, `return` or `discard` to the current stack. `Discard(condition)` adds it only where the condition holds.
 - [`@fact tsl-fn-runs-its-body-in-a-stack-of-its-own`](#fact-tsl-fn-runs-its-body-in-a-stack-of-its-own) — TSL's `Fn(jsFunction)` wraps a JavaScript function. Calling the result runs it with the arguments in a stack of its own. The stack collects the statements the body makes, and the node the body returns is the result.
 - [`@fact tsl-to-var-takes-a-name`](#fact-tsl-to-var-takes-a-name) — TSL's `toVar(name)` declares a variable that holds the node's value, under `name`. A call with no name leaves the node system to generate one.
@@ -728,6 +730,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact glsl-refuses-a-constant-index-out-of-range`](#fact-glsl-refuses-a-constant-index-out-of-range) — GLSL ES 3.00 refuses a constant index past the components of a vector, the columns of a matrix or the elements of a fixed-size array, also when it indexes a variable.
 - [`@fact wgsl-takes-no-block-in-a-for-update`](#fact-wgsl-takes-no-block-in-a-for-update) — The update of a WGSL `for` is a single statement, so a block such as an `if` in it is a syntax error.
 - [`@fact glsl-takes-no-block-in-a-for-update`](#fact-glsl-takes-no-block-in-a-for-update) — The update of a GLSL `for` is an expression, so a block such as an `if` in it is a syntax error.
+- [`@fact wgsl-takes-no-jump-in-a-for-update`](#fact-wgsl-takes-no-jump-in-a-for-update) — The update of a WGSL `for` is an assignment, an increment, a decrement or a function call. A `break`, `continue`, `discard` or `return` in it is a syntax error.
+- [`@fact glsl-takes-no-jump-in-a-for-update`](#fact-glsl-takes-no-jump-in-a-for-update) — The update of a GLSL `for` is an expression, so a `break`, `continue`, `discard` or `return` in it is a syntax error.
+- [`@fact glsl-fills-a-matrix-from-components-in-column-order`](#fact-glsl-fills-a-matrix-from-components-in-column-order) — GLSL ES 3.00 fills a matrix built from vectors and scalars with their components in column order. So `mat2(vec4(a, b, c, d))` has the columns `(a, b)` and `(c, d)`. Too few components is an error.
+- [`@fact glsl-converts-the-parts-of-a-constructor-to-its-type`](#fact-glsl-converts-the-parts-of-a-constructor-to-its-type) — GLSL ES 3.00 converts a part of a vector or matrix constructor whose basic type differs from the constructor's. It converts by the rules of the scalar constructors. So `mat2(ivec2(1, 2), bvec2(true, false))` has the columns `(1.0, 2.0)` and `(1.0, 0.0)`.
 - [`@fact glsl-scalar-constructor-takes-the-first-component`](#fact-glsl-scalar-constructor-takes-the-first-component) — In GLSL ES 3.00, `float(v)`, `int(v)` and `uint(v)` of a vector `v` take its first component, converted to that type.
 - [`@fact wgsl-has-no-scalar-constructor-from-a-vector`](#fact-wgsl-has-no-scalar-constructor-from-a-vector) — WGSL has no `f32`, `i32` or `u32` constructor that takes a vector.
 - [`@fact wgsl-refuses-a-matrix-product-whose-shapes-do-not-meet`](#fact-wgsl-refuses-a-matrix-product-whose-shapes-do-not-meet) — WGSL has no `*` for two matrices whose shapes do not meet, such as two `mat2x3<f32>`.
@@ -829,9 +835,13 @@ _Avoid_: writable node, lvalue
 
 > A function made with `Fn`, whose body records the statements of a program.
 
+### @term root
+
+> A node a compiler takes as an end of a program. A function passed to `Fn` gives one root for the value it returns, or one for each element of an array it returns.
+
 ### @term program
 
-> The roots that a compiler takes, with every node they reach.
+> The [roots](#term-root) that a compiler takes, with every node they reach.
 
 _Avoid_: shader, when the target is a [CPU target](#term-cpu-target)
 
@@ -995,7 +1005,7 @@ This follows because the output and the work at run time then grow with the node
 
 #### @spec output-grows-in-proportion-to-the-levels-of-nested-reads
 
-> A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract` on JS, counts as two reads.
+> A program whose value reads the level below it twice, nested to `n` levels, compiles to output that grows in proportion to `n` on every target. A formula that uses its operand twice, such as `fract`, counts as two reads. So does a scalar operand beside a vector in a component-wise function, such as `atan2`.
 
 #### @spec a-node-that-is-already-a-name-is-read-where-it-is
 
@@ -1244,6 +1254,10 @@ This follows because a reordered statement can read a value before or after the 
 #### @spec a-column-index-runs-before-a-component-index
 
 > When a program computes both indices of a write to a component of a matrix column, the column index runs first.
+
+#### @spec the-operands-of-an-operation-run-in-the-order-it-takes-them
+
+> The statements that compute the operands of an operation run in the order the operation takes its operands. A scalar operand beside a vector runs in its own place among them, not before the vectors.
 
 ### @spec a-value-is-computed-where-it-is-read
 
@@ -1782,7 +1796,7 @@ This follows because a stage output is what the stage hands on. On WGSL a comput
 
 #### @spec a-swizzle-that-repeats-a-component-cannot-be-assigned
 
-> An assignment through a [swizzle](#term-swizzle) that names a component more than once is refused, also when it is reached through another swizzle.
+> An assignment through a [swizzle](#term-swizzle) that names a component more than once is refused, also when it is reached through another swizzle. So is a write by index through such a swizzle. The graph keeps the swizzle of such a write, so a graph `deserialize` rebuilt is refused alike.
 
 #### @spec a-swizzle-that-names-each-component-once-can-be-assigned
 
@@ -2018,7 +2032,7 @@ This follows because the uniform struct, the textures and the samplers hold grou
 
 ### @spec a-constant-index-outside-a-vector-or-matrix-is-refused
 
-> A constant index outside a vector's components or a matrix's columns is refused on every target: a literal, or an operation of literals that folds to one.
+> A constant index outside a vector's components or a matrix's columns is refused on every target. Such an index is a literal, or an operation of literals that folds to one. A write by index through a swizzle is refused for an index outside the swizzle, as its read is. So it is in a graph `deserialize` rebuilt.
 
 Derives from: [`fact-wgsl-refuses-a-constant-index-out-of-range`](#fact-wgsl-refuses-a-constant-index-out-of-range), [`fact-glsl-refuses-a-constant-index-out-of-range`](#fact-glsl-refuses-a-constant-index-out-of-range)
 
@@ -2062,12 +2076,6 @@ This follows because a scalar beside a vector broadcasts, and the result has the
 
 > A storage node read as a whole, rather than through `element(i)`, is refused.
 
-##### @bug js-and-wgsl-read-a-whole-storage-buffer
-
-> JS and WGSL compile a storage node read as a whole. JS adds a number to an array, and WGSL emits a shader no driver accepts. Only WASM refuses it.
-
-Issue: #67
-
 #### @spec a-scalar-argument-beside-a-vector-is-widened-to-it
 
 > A scalar argument beside a vector in `step`, `smoothstep`, `clamp`, `min`, `max`, `pow` or `mod` is widened to that vector before any target compiles it.
@@ -2086,11 +2094,25 @@ This follows because WGSL converts nothing implicitly and GLSL converts the inte
 
 #### @spec a-for-update-that-holds-a-block-is-refused
 
-> A `For` whose update holds a block, such as an `If`, is refused on every target.
+> A `For` whose update holds a block, such as an `If`, is refused where the `For` is built. Every target refuses it again as it compiles, so a graph `deserialize` rebuilt is refused alike. A write to a storage element holds no block, so an update that makes one compiles on every target that has storage buffers.
 
 Derives from: [`fact-wgsl-takes-no-block-in-a-for-update`](#fact-wgsl-takes-no-block-in-a-for-update), [`fact-glsl-takes-no-block-in-a-for-update`](#fact-glsl-takes-no-block-in-a-for-update)
 
 This follows because the update slot of a GLSL or WGSL `for` takes no block, and the program must run on every target.
+
+#### @spec a-for-update-that-jumps-is-refused
+
+> A `For` whose update holds a `Break`, `Continue`, `Discard` or `Return` is refused where the `For` is built. Every target refuses it again as it compiles, so a graph `deserialize` rebuilt is refused alike.
+
+Derives from: [`fact-wgsl-takes-no-jump-in-a-for-update`](#fact-wgsl-takes-no-jump-in-a-for-update), [`fact-glsl-takes-no-jump-in-a-for-update`](#fact-glsl-takes-no-jump-in-a-for-update)
+
+This follows because the update slot of a GLSL or WGSL `for` takes none of these statements, and the program must run on every target.
+
+### @spec a-case-is-added-in-the-block-of-its-switch
+
+> A `Case` or `Default` called from a block other than its `Switch`'s, or after its `Default`, is refused as the program builds it. The error names it. So is one added after a statement that follows the `Case` before it, a variable included.
+
+This follows because a case added once its block is built could not reach the program, and a mistake is refused before the program runs.
 
 ### @spec a-case-with-no-values-is-refused
 
@@ -2215,18 +2237,6 @@ This follows because a TSL shader ports by changing its import only if each oper
 #### @spec a-math-function-compiles-to-the-builtin-of-the-target
 
 > A math function, such as `sin`, `floor`, `pow`, `inversesqrt` or `determinant`, compiles to the built-in of each target, under the name that target gives it.
-
-##### @bug wasm-compiles-no-matrix-inverse
-
-> The WASM target does not compile `inverse`.
-
-Issue: #65
-
-##### @bug wasm-compiles-no-component-wise-math-on-a-vector
-
-> The WASM target compiles no component-wise math function of a vector, such as `pow`, `sin`, `floor`, `fract` or `sqrt`.
-
-Issue: #130
 
 #### @spec a-function-with-an-edge-takes-the-value-last
 
@@ -2358,25 +2368,31 @@ This follows because TSL builds values with the constructors of the shading lang
 
 > A matrix constructor given one scalar builds the matrix with that scalar on its diagonal and zero elsewhere, written out in full on WGSL.
 
+#### @spec a-matrix-given-nothing-is-the-identity
+
+> A matrix constructor given nothing builds the identity of its shape: one on its diagonal and zero elsewhere, as the constructor given `1` builds it. A matrix that is not square has as many ones as its shorter side.
+
+This follows because TSL's `mat2`, `mat3` and `mat4` given nothing build the identity, and a shape TSL lacks follows the diagonal its scalar constructor builds.
+
 #### @spec a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns
 
 > A matrix constructor given a larger matrix keeps the leading rows of its leading columns, on every target.
 
-##### @bug wasm-compiles-no-matrix-narrowing
-
-> The WASM target does not compile a matrix built from a larger matrix.
-
-Issue: #65
-
-##### @bug js-narrows-a-matrix-by-its-flat-values
-
-> On JS, a matrix built from a larger matrix takes its leading values in flat order. It does not keep the leading rows of the leading columns.
-
-Issue: #64
-
 #### @spec a-matrix-is-built-from-its-columns
 
-> A matrix constructor of any shape, square or not, takes its values column by column, as numbers or as vector columns.
+> A matrix constructor of any shape, square or not, takes its values column by column, as numbers or as vector columns. A vector column has as many components as the matrix has rows. `mat2` given one `vec4` takes its four components in column order, as GLSL does. A matrix given any other vector alone, or a column of another length, is refused.
+
+Derives from: [`fact-glsl-fills-a-matrix-from-components-in-column-order`](#fact-glsl-fills-a-matrix-from-components-in-column-order), [`fact-a-wgsl-matrix-constructor-takes-no-matrix`](#fact-a-wgsl-matrix-constructor-takes-no-matrix)
+
+This follows because WGSL takes only whole columns, while GLSL fills a matrix from any components in column order. Splitting the `vec4` into columns gives every target GLSL's matrix.
+
+#### @spec an-integer-or-boolean-column-converts-to-float
+
+> A matrix constructor given integer or boolean vectors, as its columns or as the one vector `mat2` splits, converts their components to float on every target. A boolean gives 1 or 0.
+
+Derives from: [`fact-glsl-converts-the-parts-of-a-constructor-to-its-type`](#fact-glsl-converts-the-parts-of-a-constructor-to-its-type), [`fact-wgsl-has-no-implicit-numeric-conversion`](#fact-wgsl-has-no-implicit-numeric-conversion)
+
+This follows because GLSL and TSL convert such columns, while WGSL refuses them, so the conversion is spelled out where the program builds the matrix.
 
 #### @spec a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number
 
@@ -2392,7 +2408,13 @@ This follows because a vector constructor takes a node wherever it takes a numbe
 
 #### @spec a-javascript-array-is-a-vector-of-its-length
 
-> A JavaScript array given where a node goes is a vector of its length. An array whose length no vector has is refused.
+> A JavaScript array given as an operand or an argument, where a node goes, is a vector of its length, or a `mat3` or `mat4` of 9 or 16 elements. Each element is a number or a node; an array that holds anything else, or whose length no vector has, is refused.
+
+#### @spec a-returned-array-lists-roots
+
+> An array that a function passed to `Fn` returns lists the [roots](#term-root) of the program, not a vector, whatever it holds: `Fn(() => [1, 2, 3, 4])` has four `float` roots. A function returns a vector as `vec4(1, 2, 3, 4)`.
+
+This follows because a returned array is how a program writes several roots, which the owner ruled in #164 holds for an array of numbers too.
 
 #### @spec the-tsl-constants-are-float-literals
 
@@ -2480,12 +2502,6 @@ This follows because TSL swizzles in these spellings.
 
 > An assignment through `element(i)` of a vector or matrix variable, or through a swizzle or an element of a column, writes at that index.
 
-##### @bug a-write-by-index-through-a-swizzle-differs-by-target
-
-> A write by index through a swizzle, such as into a swizzle of a matrix column, differs by target. JS ignores it, WASM refuses it, and WGSL emits a shader no driver accepts.
-
-Issue: #32
-
 #### @spec a-wgsl-write-through-a-swizzle-of-several-components-stores-its-value-once
 
 > On WGSL, a write through a swizzle of several components stores its value in a temporary once, then writes each component from it.
@@ -2524,7 +2540,7 @@ Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mi
 
 ### @spec a-switch-runs-the-case-its-selector-matches
 
-> `Switch` runs the first `Case` whose values hold its selector, or the `Default` when none does, as a chain of `if` and `else` with no fall-through. A `Switch` with no `Case` and no `Default` runs nothing.
+> `Switch` runs the first `Case` whose values hold its selector, or the `Default` when none does, as a chain of `if` and `else` with no fall-through. It is written as TSL writes it, `Switch(selector).Case(value, …, body).Default(body)`, and the chain stands where its first `Case` or `Default` is added. A statement made between `Switch` and that call runs before the chain. A `Switch` with no `Case` and no `Default` runs nothing.
 
 Derives from: [`fact-tsl-builds-switch-as-a-chain-of-conditions`](#fact-tsl-builds-switch-as-a-chain-of-conditions)
 
@@ -3045,6 +3061,12 @@ Issue: #113
 > A WASM routine copies a texture into its memory the first time a slot holds it. It copies again only when the slot holds a different texture object. A texture whose data changes without a new object keeps its old copy. The memory grows to fit a larger texture or grid without corrupting what it holds.
 
 This follows because copying every texture on every call would cost more than the call itself.
+
+### @spec a-wasm-routine-reads-a-matrix-column-where-it-lies
+
+> On WASM, a component of a matrix column is read where the matrix holds it, with one load for a column and a component at constant indices. A column of a storage element is read from the buffer, inside the element's bounds check, and as zero outside it.
+
+This follows because a copy of a column, or of a whole storage matrix, for each read is work the result does not need, on the target chosen for its speed.
 
 ### @spec a-wgsl-buffer-feeds-a-draw-without-a-copy
 
@@ -4572,7 +4594,7 @@ This is a fact of `ConvertType` in `src/nodes/tsl/TSLCore.js` of three.js 0.186.
 
 ## @fact a-wgsl-matrix-constructor-takes-no-matrix
 
-> A WGSL matrix constructor takes scalars or column vectors, and no matrix.
+> A WGSL matrix constructor takes scalars or column vectors, and no matrix. A column vector has as many components as the matrix has rows.
 
 This is a fact of the WGSL specification, not a choice.
 
@@ -4760,7 +4782,7 @@ This is how three.js's TSL behaves, read from its source (`StackNode`, three.js 
 
 ## @fact tsl-builds-switch-as-a-chain-of-conditions
 
-> TSL's `Switch(x)` with `Case(v1, v2, …, body)` and `Default(body)` builds the same chain of conditional nodes. A `Case` is the condition `x == v1 || x == v2 …`, and `Default` is an `Else`, so no case falls through to the next.
+> TSL's `Switch(x)` with `Case(v1, v2, …, body)` and `Default(body)` builds the same chain of conditional nodes. A `Case` is the condition `x == v1 || x == v2 …`, and `Default` is an `Else`, so no case falls through to the next. The first `Case` adds the chain to the stack, after the statements made before it.
 
 This is how three.js's TSL behaves, read from its source (`StackNode`, three.js 0.186).
 
@@ -4953,6 +4975,32 @@ This is a fact of the WGSL specification, not a choice.
 > The update of a GLSL `for` is an expression, so a block such as an `if` in it is a syntax error.
 
 Chromium's WebGL 2 compiler refuses `for (int i = 0; i < 3; if (true) { i++; }) { }` with `'if' : syntax error`, and accepts `for (int i = 0; i < 3; i++) { }`.
+
+## @fact wgsl-takes-no-jump-in-a-for-update
+
+> The update of a WGSL `for` is an assignment, an increment, a decrement or a function call. A `break`, `continue`, `discard` or `return` in it is a syntax error.
+
+Dawn refuses each of them as the update of `for (var i = 0; i < 3; …) { }` with `expected ')' for for loop`.
+
+This is a fact of the WGSL specification, not a choice.
+
+## @fact glsl-takes-no-jump-in-a-for-update
+
+> The update of a GLSL `for` is an expression, so a `break`, `continue`, `discard` or `return` in it is a syntax error.
+
+Chromium's WebGL 2 compiler refuses each of them as the update of `for (int i = 0; i < 3; …) { }`, as `'break' : syntax error` for `break`.
+
+## @fact glsl-fills-a-matrix-from-components-in-column-order
+
+> GLSL ES 3.00 fills a matrix built from vectors and scalars with their components in column order. So `mat2(vec4(a, b, c, d))` has the columns `(a, b)` and `(c, d)`. Too few components is an error.
+
+This is a fact of the GLSL ES 3.00 specification, section 5.4.2, not a choice.
+
+## @fact glsl-converts-the-parts-of-a-constructor-to-its-type
+
+> GLSL ES 3.00 converts a part of a vector or matrix constructor whose basic type differs from the constructor's. It converts by the rules of the scalar constructors. So `mat2(ivec2(1, 2), bvec2(true, false))` has the columns `(1.0, 2.0)` and `(1.0, 0.0)`.
+
+This is a fact of the GLSL ES 3.00 specification, section 5.4.2, not a choice. WebGL2 compiles such a constructor, and Dawn refuses `mat2x2<f32>(vec2<i32>, vec2<i32>)`.
 
 ## @fact glsl-scalar-constructor-takes-the-first-component
 
