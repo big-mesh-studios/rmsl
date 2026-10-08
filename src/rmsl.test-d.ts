@@ -40,6 +40,19 @@ import { compileWgsl, createWgslCompute } from "./wgsl";
 import { createJsCompute } from "./js";
 import { createWasmCompute } from "./wasm";
 
+describe("what an Fn returns", () => {
+  /**
+   * @canon spec-a-returned-array-lists-roots
+   */
+  it("types an array of numbers it returns as that many float roots", () => {
+    expectTypeOf(Fn(() => [1, 2, 3, 4])()).toEqualTypeOf<
+      [Node<"float">, Node<"float">, Node<"float">, Node<"float">]
+    >();
+    expectTypeOf(Fn(() => [float(1), true])()).toEqualTypeOf<[Node<"float">, Node<"bool">]>();
+    expectTypeOf(Fn(() => 1)()).toEqualTypeOf<Node<"float">>();
+  });
+});
+
 describe("comparison result types", () => {
   /**
    * Only a scalar reduces to a single boolean; a comparison is component-wise,

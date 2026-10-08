@@ -2057,12 +2057,23 @@ type IsAny<T> = 0 extends 1 & T ? true : false;
  */
 type ReturnsNothing<R> = IsAny<R> extends true ? false : [R] extends [void] ? true : false;
 
+/** The node `Fn` makes of a value its body returns, as `wrapValue` makes it; a node stays as it is. */
+type ReturnedNode<V> = IsAny<V> extends true ? V : V extends BaseNode<ShaderType> ? V : Node<ExtractType<V>>;
+
 /**
- * What calling an `Fn` gives back: the body's own return, or `Node<"void">`
- * for a body that returns nothing, since the call still produces the `seq`
- * node holding its statements.
+ * What calling an `Fn` gives back: the node of the body's return, a root for
+ * each element of an array it returns, or `Node<"void">` for a body that
+ * returns nothing, since the call still produces the `seq` node holding its
+ * statements.
  */
-export type FnResult<R> = ReturnsNothing<R> extends true ? Node<"void"> : R;
+export type FnResult<R> =
+  ReturnsNothing<R> extends true
+    ? Node<"void">
+    : IsAny<R> extends true
+      ? R
+      : R extends readonly unknown[]
+        ? { -readonly [K in keyof R]: ReturnedNode<R[K]> }
+        : ReturnedNode<R>;
 
 /** Runs `build` in a block of its own: what it returns, and the statements it made. */
 function captureStatements<T>(build: () => T): { value: T; statements: BaseNode<ShaderType>[] } {

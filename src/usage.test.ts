@@ -3643,6 +3643,15 @@ describe("TSL free-function API", () => {
   });
 
   /**
+   * @canon spec-a-returned-array-lists-roots
+   */
+  it("reads an array of numbers a function returns as that many float roots", () => {
+    const roots = Fn(() => [1, 2, 3, 4])();
+    expect(roots).toHaveLength(4);
+    expect(roots.map((root) => root._t)).toEqual(["float", "float", "float", "float"]);
+  });
+
+  /**
    * @canon spec-a-javascript-array-is-a-vector-of-its-length
    * @canon spec-float-folding-gives-the-run-time-result
    */

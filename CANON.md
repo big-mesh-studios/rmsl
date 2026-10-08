@@ -17,7 +17,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@term shader-type`](#term-shader-type) — One of the value types a node can have: a scalar, a vector, a matrix, a sampler, or `void`.
 - [`@term var`](#term-var) — A node that a program can write: a variable, a storage element, a stage output, or a component of one of them.
 - [`@term fn`](#term-fn) — A function made with `Fn`, whose body records the statements of a program.
-- [`@term program`](#term-program) — The roots that a compiler takes, with every node they reach.
+- [`@term root`](#term-root) — A node a compiler takes as an end of a program. A function passed to `Fn` gives one root for the value it returns, or one for each element of an array it returns.
+- [`@term program`](#term-program) — The [roots](#term-root) that a compiler takes, with every node they reach.
 - [`@term stage`](#term-stage) — The part of a pipeline a program is compiled for: vertex, fragment or compute.
 - [`@term uniform`](#term-uniform) — An input that holds one value for a whole draw or dispatch, written by the host.
 - [`@term attribute`](#term-attribute) — An input of the vertex stage that holds one value per vertex.
@@ -297,7 +298,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-matrix-is-built-from-its-columns`](#spec-a-matrix-is-built-from-its-columns) — A matrix constructor of any shape, square or not, takes its values column by column, as numbers or as vector columns.
     - [`@spec a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number`](#spec-a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number) — A matrix constructor given scalar nodes among its numbers builds the matrix from them, in column order, on every target. A mix of values whose count is not the matrix's is refused.
     - [`@spec a-literal-compiles-to-a-literal-of-its-type`](#spec-a-literal-compiles-to-a-literal-of-its-type) — `int`, `uint`, `bool`, boolean vector and integer vector constructors given literals compile to literals of their type on each target.
-    - [`@spec a-javascript-array-is-a-vector-of-its-length`](#spec-a-javascript-array-is-a-vector-of-its-length) — A JavaScript array given where a node goes is a vector of its length. An array whose length no vector has is refused.
+    - [`@spec a-javascript-array-is-a-vector-of-its-length`](#spec-a-javascript-array-is-a-vector-of-its-length) — A JavaScript array given as an operand or an argument, where a node goes, is a vector of its length. An array whose length no vector has is refused.
+    - [`@spec a-returned-array-lists-roots`](#spec-a-returned-array-lists-roots) — An array that a function passed to `Fn` returns lists the [roots](#term-root) of the program, not a vector, whatever it holds: `Fn(() => [1, 2, 3, 4])` has four `float` roots. A function returns a vector as `vec4(1, 2, 3, 4)`.
     - [`@spec the-tsl-constants-are-float-literals`](#spec-the-tsl-constants-are-float-literals) — `PI`, `TWO_PI`, `PI2`, `HALF_PI`, `EPSILON` and `INFINITY` are float literals of TSL's values.
     - [`@spec int-min-compiles-to-a-subtraction-of-two-in-range-literals`](#spec-int-min-compiles-to-a-subtraction-of-two-in-range-literals) — On GLSL and WGSL, the `int` literal -2147483648 compiles to `(-2147483647 - 1)`, a subtraction of two literals in range.
     - [`@spec a-vector-converted-to-a-scalar-takes-its-first-component`](#spec-a-vector-converted-to-a-scalar-takes-its-first-component) — Converting a vector to `float`, `int` or `uint` gives its first component, converted to that type.
@@ -823,9 +825,13 @@ _Avoid_: writable node, lvalue
 
 > A function made with `Fn`, whose body records the statements of a program.
 
+### @term root
+
+> A node a compiler takes as an end of a program. A function passed to `Fn` gives one root for the value it returns, or one for each element of an array it returns.
+
 ### @term program
 
-> The roots that a compiler takes, with every node they reach.
+> The [roots](#term-root) that a compiler takes, with every node they reach.
 
 _Avoid_: shader, when the target is a [CPU target](#term-cpu-target)
 
@@ -2378,7 +2384,13 @@ This follows because a vector constructor takes a node wherever it takes a numbe
 
 #### @spec a-javascript-array-is-a-vector-of-its-length
 
-> A JavaScript array given where a node goes is a vector of its length. An array whose length no vector has is refused.
+> A JavaScript array given as an operand or an argument, where a node goes, is a vector of its length. An array whose length no vector has is refused.
+
+#### @spec a-returned-array-lists-roots
+
+> An array that a function passed to `Fn` returns lists the [roots](#term-root) of the program, not a vector, whatever it holds: `Fn(() => [1, 2, 3, 4])` has four `float` roots. A function returns a vector as `vec4(1, 2, 3, 4)`.
+
+This follows because a returned array is how a program writes several roots, which the owner ruled in #164 holds for an array of numbers too.
 
 #### @spec the-tsl-constants-are-float-literals
 
