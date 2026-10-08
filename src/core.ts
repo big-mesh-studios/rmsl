@@ -2354,11 +2354,25 @@ function matrixOfValues(t: ShaderType, values: any[]): any {
 }
 
 /**
- * Build a matrix constructor. `columns` is what a "columns of vector nodes"
- * call takes — `mat2(colA, colB)`, not `mat2(4-number-literal)` — the same
- * overload `mat3`/`mat4` hand-write for themselves below. Without it, that
- * call fell through to the number-literal branch and built a broken literal
- * node holding `Node` objects instead of numbers, silently.
+ * The columns of a matrix of type `t` built from one vector node: its
+ * components in column order, which only a vector with one component for
+ * each of the matrix's does, as `mat2(vec4)`.
+ */
+function columnsOfVector(t: ShaderType, vector: BaseNode<ShaderType>): BaseNode<ShaderType>[] {
+  const [columns, rows] = MATRIX_DIMENSIONS[t];
+  if (vector._t !== `vec${columns * rows}`) {
+    throw new Error(`[RMSL] ${t}() takes ${columns} columns of vec${rows}, a matrix or a scalar, not a ${vector._t}.`);
+  }
+  return Array.from(
+    { length: columns },
+    (_, c) => (vector as any)["xyzw".slice(c * rows, (c + 1) * rows)] as BaseNode<ShaderType>,
+  );
+}
+
+/**
+ * Build a matrix constructor: from a matrix, a scalar, a vector holding every
+ * component, its columns as vector nodes, or its values one per component.
+ * A column must be a vector with one component for each row.
  */
 export function makeMatConstructor<T extends ShaderType>(
   t: T,
@@ -2366,11 +2380,19 @@ export function makeMatConstructor<T extends ShaderType>(
   columns: number,
   defaultVal: number[],
 ): (...args: any[]) => Node<T> {
+  const rows = size / columns;
   return (...args: any[]): Node<T> => {
     if (args.length === 1 && isNode(args[0])) {
-      return node({ _t: t, type: "construct", params: [args[0] as BaseNode<ShaderType>] }) as Node<T>;
+      const arg = args[0] as BaseNode<ShaderType>;
+      const params = /^vec[234]$|^[iub]vec[234]$/.test(arg._t) ? columnsOfVector(t, arg) : [arg];
+      return node({ _t: t, type: "construct", params }) as Node<T>;
     }
     if (args.length === columns && args.every((a: any) => isNode(a))) {
+      for (const column of args as BaseNode<ShaderType>[]) {
+        if (column._t !== `vec${rows}`) {
+          throw new Error(`[RMSL] ${t}() takes ${columns} columns of vec${rows}, not a ${column._t}.`);
+        }
+      }
       return node({
         _t: t,
         type: "construct",
@@ -2390,47 +2412,11 @@ export const mat2 = makeMatConstructor("mat2", 4, 2, [1, 0, 0, 1]);
 export const mat2x3 = makeMatConstructor("mat2x3", 6, 2, [1, 0, 0, 0, 1, 0]);
 export const mat2x4 = makeMatConstructor("mat2x4", 8, 2, [1, 0, 0, 0, 0, 1, 0, 0]);
 export const mat3x2 = makeMatConstructor("mat3x2", 6, 3, [1, 0, 0, 0, 1, 0]);
-export function mat3(...args: any[]): Node<"mat3"> {
-  if (args.length === 1 && isNode(args[0])) {
-    return node({ _t: "mat3", type: "construct", params: [args[0] as BaseNode<ShaderType>] }) as Node<"mat3">;
-  }
-  if (args.length === 3 && args.every((a: any) => isNode(a))) {
-    return node({
-      _t: "mat3",
-      type: "construct",
-      params: args.map((a: any) => a as BaseNode<ShaderType>),
-    }) as Node<"mat3">;
-  }
-  if (args.length === 1 && typeof args[0] === "number") {
-    return node({ _t: "mat3", type: "construct", params: [wrapValue(args[0])] }) as Node<"mat3">;
-  }
-  if (args.length === 0) {
-    return node({ _t: "mat3", type: "mat3", value: [1, 0, 0, 0, 1, 0, 0, 0, 1] }) as Node<"mat3">;
-  }
-  return matrixOfValues("mat3", args) as Node<"mat3">;
-}
+export const mat3 = makeMatConstructor("mat3", 9, 3, [1, 0, 0, 0, 1, 0, 0, 0, 1]);
 export const mat3x4 = makeMatConstructor("mat3x4", 12, 3, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);
 export const mat4x2 = makeMatConstructor("mat4x2", 8, 4, [1, 0, 0, 0, 0, 1, 0, 0]);
 export const mat4x3 = makeMatConstructor("mat4x3", 12, 4, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);
-export function mat4(...args: any[]): Node<"mat4"> {
-  if (args.length === 1 && isNode(args[0])) {
-    return node({ _t: "mat4", type: "construct", params: [args[0] as BaseNode<ShaderType>] }) as Node<"mat4">;
-  }
-  if (args.length === 4 && args.every((a: any) => isNode(a))) {
-    return node({
-      _t: "mat4",
-      type: "construct",
-      params: args.map((a: any) => a as BaseNode<ShaderType>),
-    }) as Node<"mat4">;
-  }
-  if (args.length === 1 && typeof args[0] === "number") {
-    return node({ _t: "mat4", type: "construct", params: [wrapValue(args[0])] }) as Node<"mat4">;
-  }
-  if (args.length === 0) {
-    return node({ _t: "mat4", type: "mat4", value: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] }) as Node<"mat4">;
-  }
-  return matrixOfValues("mat4", args) as Node<"mat4">;
-}
+export const mat4 = makeMatConstructor("mat4", 16, 4, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 
 export function makeBoolVecConstructor<T extends ShaderType>(t: T, width: number): (...args: any[]) => Node<T> {
   return (...args: any[]): Node<T> => {

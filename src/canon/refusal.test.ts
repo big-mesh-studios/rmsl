@@ -16,6 +16,7 @@ import {
   int,
   mat2x3,
   mat2x4,
+  mat2,
   mat3,
   outputStruct,
   uniform,
@@ -278,6 +279,30 @@ describe("a mistake is refused before the program runs", () => {
         [triples.name]: [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0],
       });
     }
+  });
+
+  /**
+   * A vector given as a whole matrix, other than a `vec4` to `mat2`, and a
+   * column with a length other than the matrix's rows are refused as the
+   * program builds them, so on every target alike.
+   *
+   * @canon spec-a-matrix-is-built-from-its-columns
+   */
+  it("refuses a matrix built from a vector alone or from columns of the wrong length", () => {
+    const v = (type: "vec2" | "vec3" | "vec4") => uniform(type);
+    const refused: [string, () => unknown][] = [
+      ["mat2(vec2)", () => mat2(v("vec2"))],
+      ["mat2(vec3)", () => mat2(v("vec3"))],
+      ["mat3(vec4)", () => mat3(v("vec4"))],
+      ["mat2x3(vec4)", () => mat2x3(v("vec4"))],
+      ["mat2(vec3, vec3)", () => mat2(v("vec3"), v("vec3"))],
+      ["mat3(vec4, vec4, vec4)", () => mat3(v("vec4"), v("vec4"), v("vec4"))],
+      ["mat2x3(vec2, vec2)", () => mat2x3(v("vec2"), v("vec2"))],
+      ["mat2(float, float)", () => mat2(uniform("float"), uniform("float"))],
+    ];
+    for (const [name, build] of refused) expect(build, name).toThrow(/\[RMSL\] mat\w+\(\) takes/);
+    expect(() => mat2(v("vec4"))).not.toThrow();
+    expect(() => mat2x3(v("vec3"), v("vec3"))).not.toThrow();
   });
 
   /**

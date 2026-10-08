@@ -291,7 +291,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec parts-fill-a-vector-in-order`](#spec-parts-fill-a-vector-in-order) — A vector constructor given vectors and scalars fills its components with theirs, in order, and keeps the leading components of a longer vector.
     - [`@spec a-scalar-matrix-is-a-diagonal`](#spec-a-scalar-matrix-is-a-diagonal) — A matrix constructor given one scalar builds the matrix with that scalar on its diagonal and zero elsewhere, written out in full on WGSL.
     - [`@spec a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns`](#spec-a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns) — A matrix constructor given a larger matrix keeps the leading rows of its leading columns, on every target.
-    - [`@spec a-matrix-is-built-from-its-columns`](#spec-a-matrix-is-built-from-its-columns) — A matrix constructor of any shape, square or not, takes its values column by column, as numbers or as vector columns.
+    - [`@spec a-matrix-is-built-from-its-columns`](#spec-a-matrix-is-built-from-its-columns) — A matrix constructor of any shape, square or not, takes its values column by column, as numbers or as vector columns. A vector column has as many components as the matrix has rows. `mat2` given one `vec4` takes its four components in column order, as GLSL does. A matrix given any other vector alone, or a column of another length, is refused.
     - [`@spec a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number`](#spec-a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number) — A matrix constructor given scalar nodes among its numbers builds the matrix from them, in column order, on every target. A mix of values whose count is not the matrix's is refused.
     - [`@spec a-literal-compiles-to-a-literal-of-its-type`](#spec-a-literal-compiles-to-a-literal-of-its-type) — `int`, `uint`, `bool`, boolean vector and integer vector constructors given literals compile to literals of their type on each target.
     - [`@spec a-javascript-array-is-a-vector-of-its-length`](#spec-a-javascript-array-is-a-vector-of-its-length) — A JavaScript array given as an operand or an argument, where a node goes, is a vector of its length, or a `mat3` or `mat4` of 9 or 16 elements. Each element is a number or a node; an array that holds anything else, or whose length no vector has, is refused.
@@ -662,7 +662,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact wgsl-has-no-matrix-inverse`](#fact-wgsl-has-no-matrix-inverse) — WGSL has no built-in that inverts a matrix.
 - [`@fact wgsl-percent-truncates`](#fact-wgsl-percent-truncates) — The `%` operator of WGSL truncates the quotient toward zero, where the `mod` of GLSL floors it.
 - [`@fact tsl-joins-the-values-of-a-matrix-constructor-numbers-and-nodes-alike`](#fact-tsl-joins-the-values-of-a-matrix-constructor-numbers-and-nodes-alike) — TSL's `mat2`, `mat3` and `mat4` join the values they are given into one constructor call when any of them is a node, so `mat2(a, 1, 2, 4)` is a call with a node and three numbers.
-- [`@fact a-wgsl-matrix-constructor-takes-no-matrix`](#fact-a-wgsl-matrix-constructor-takes-no-matrix) — A WGSL matrix constructor takes scalars or column vectors, and no matrix.
+- [`@fact a-wgsl-matrix-constructor-takes-no-matrix`](#fact-a-wgsl-matrix-constructor-takes-no-matrix) — A WGSL matrix constructor takes scalars or column vectors, and no matrix. A column vector has as many components as the matrix has rows.
 - [`@fact a-wgsl-texture-is-not-host-shareable`](#fact-a-wgsl-texture-is-not-host-shareable) — A WGSL texture or sampler can be neither a member of a uniform struct nor an element of a uniform array. Each one takes a binding of its own.
 - [`@fact chromium-needs-a-precision-for-every-sampler`](#fact-chromium-needs-a-precision-for-every-sampler) — Chromium rejects a GLSL ES 3.00 shader that uses a sampler type with no declared precision. `sampler3D` and the integer sampler types have no default precision.
 - [`@fact a-derivative-needs-neighbouring-fragments`](#fact-a-derivative-needs-neighbouring-fragments) — A GPU computes `dFdx`, `dFdy` and `fwidth` from the values of neighbouring fragments that run together. A single evaluation of one fragment has no neighbours.
@@ -718,6 +718,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact glsl-refuses-a-constant-index-out-of-range`](#fact-glsl-refuses-a-constant-index-out-of-range) — GLSL ES 3.00 refuses a constant index past the components of a vector, the columns of a matrix or the elements of a fixed-size array, also when it indexes a variable.
 - [`@fact wgsl-takes-no-block-in-a-for-update`](#fact-wgsl-takes-no-block-in-a-for-update) — The update of a WGSL `for` is a single statement, so a block such as an `if` in it is a syntax error.
 - [`@fact glsl-takes-no-block-in-a-for-update`](#fact-glsl-takes-no-block-in-a-for-update) — The update of a GLSL `for` is an expression, so a block such as an `if` in it is a syntax error.
+- [`@fact glsl-fills-a-matrix-from-components-in-column-order`](#fact-glsl-fills-a-matrix-from-components-in-column-order) — GLSL ES 3.00 fills a matrix built from vectors and scalars with their components in column order. So `mat2(vec4(a, b, c, d))` has the columns `(a, b)` and `(c, d)`. Too few components is an error.
 - [`@fact glsl-scalar-constructor-takes-the-first-component`](#fact-glsl-scalar-constructor-takes-the-first-component) — In GLSL ES 3.00, `float(v)`, `int(v)` and `uint(v)` of a vector `v` take its first component, converted to that type.
 - [`@fact wgsl-has-no-scalar-constructor-from-a-vector`](#fact-wgsl-has-no-scalar-constructor-from-a-vector) — WGSL has no `f32`, `i32` or `u32` constructor that takes a vector.
 - [`@fact wgsl-refuses-a-matrix-product-whose-shapes-do-not-meet`](#fact-wgsl-refuses-a-matrix-product-whose-shapes-do-not-meet) — WGSL has no `*` for two matrices whose shapes do not meet, such as two `mat2x3<f32>`.
@@ -2340,7 +2341,11 @@ This follows because TSL builds values with the constructors of the shading lang
 
 #### @spec a-matrix-is-built-from-its-columns
 
-> A matrix constructor of any shape, square or not, takes its values column by column, as numbers or as vector columns.
+> A matrix constructor of any shape, square or not, takes its values column by column, as numbers or as vector columns. A vector column has as many components as the matrix has rows. `mat2` given one `vec4` takes its four components in column order, as GLSL does. A matrix given any other vector alone, or a column of another length, is refused.
+
+Derives from: [`fact-glsl-fills-a-matrix-from-components-in-column-order`](#fact-glsl-fills-a-matrix-from-components-in-column-order), [`fact-a-wgsl-matrix-constructor-takes-no-matrix`](#fact-a-wgsl-matrix-constructor-takes-no-matrix)
+
+This follows because WGSL takes only whole columns, while GLSL fills a matrix from any components in column order. Splitting the `vec4` into columns gives every target GLSL's matrix.
 
 #### @spec a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number
 
@@ -4530,7 +4535,7 @@ This is a fact of `ConvertType` in `src/nodes/tsl/TSLCore.js` of three.js 0.186.
 
 ## @fact a-wgsl-matrix-constructor-takes-no-matrix
 
-> A WGSL matrix constructor takes scalars or column vectors, and no matrix.
+> A WGSL matrix constructor takes scalars or column vectors, and no matrix. A column vector has as many components as the matrix has rows.
 
 This is a fact of the WGSL specification, not a choice.
 
@@ -4875,6 +4880,12 @@ This is a fact of the WGSL specification, not a choice.
 > The update of a GLSL `for` is an expression, so a block such as an `if` in it is a syntax error.
 
 Chromium's WebGL 2 compiler refuses `for (int i = 0; i < 3; if (true) { i++; }) { }` with `'if' : syntax error`, and accepts `for (int i = 0; i < 3; i++) { }`.
+
+## @fact glsl-fills-a-matrix-from-components-in-column-order
+
+> GLSL ES 3.00 fills a matrix built from vectors and scalars with their components in column order. So `mat2(vec4(a, b, c, d))` has the columns `(a, b)` and `(c, d)`. Too few components is an error.
+
+This is a fact of the GLSL ES 3.00 specification, section 5.4.2, not a choice.
 
 ## @fact glsl-scalar-constructor-takes-the-first-component
 

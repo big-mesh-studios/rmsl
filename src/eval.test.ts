@@ -6,6 +6,7 @@ import {
   vec2,
   vec3,
   mat2,
+  vec4,
   smoothstep,
   clamp,
   For,
@@ -939,6 +940,26 @@ describe("RMSL evaluation", () => {
       })();
 
     await expectValue(classify, [], 20);
+  }, 60_000);
+
+  /**
+   * `mat2` of one `vec4` holds its components in column order on every
+   * target, as GLSL builds it.
+   *
+   * @canon spec-a-matrix-is-built-from-its-columns
+   */
+  it("builds a mat2 from the components of a vec4 in column order", async () => {
+    const component = (column: number, row: "x" | "y") => (x: Node<"float">) =>
+      Fn(() =>
+        mat2(vec4(x, x.add(1), x.add(2), x.add(3)))
+          .element(int(column))
+          [row].toVar(),
+      )();
+
+    await expectValue(component(0, "x"), [1], 1);
+    await expectValue(component(0, "y"), [1], 2);
+    await expectValue(component(1, "x"), [1], 3);
+    await expectValue(component(1, "y"), [1], 4);
   }, 60_000);
 
   /**
