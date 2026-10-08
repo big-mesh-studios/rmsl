@@ -25,7 +25,13 @@ import {
   Loop,
   mat2,
   mat2x3,
+  mat2x4,
   mat3,
+  mat3x2,
+  mat3x4,
+  mat4,
+  mat4x2,
+  mat4x3,
   outputStruct,
   PI,
   screenSize,
@@ -478,6 +484,24 @@ describe("each leaf on every target it claims", () => {
         .add(m.element(int(2)).z.mul(100));
     };
     expect(evaluateRecording(build, [2])).toBe(202);
+  });
+
+  /**
+   * @canon spec-a-matrix-given-nothing-is-the-identity
+   */
+  it.each([
+    ["mat2", mat2, 2, 2],
+    ["mat2x3", mat2x3, 2, 3],
+    ["mat2x4", mat2x4, 2, 4],
+    ["mat3x2", mat3x2, 3, 2],
+    ["mat3", mat3, 3, 3],
+    ["mat3x4", mat3x4, 3, 4],
+    ["mat4x2", mat4x2, 4, 2],
+    ["mat4x3", mat4x3, 4, 3],
+    ["mat4", mat4, 4, 4],
+  ] as const)("builds the identity of a %s given nothing on every target", (_, matrix, columns, rows) => {
+    const identity = Array.from({ length: columns * rows }, (_, i) => (Math.floor(i / rows) === i % rows ? 1 : 0));
+    expect(Array.from(evaluateRecording(() => (matrix as any)() as Node<any>) as Float64Array)).toEqual(identity);
   });
 
   /**

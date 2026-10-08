@@ -291,6 +291,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-scalar-fills-every-component-of-a-vector`](#spec-a-scalar-fills-every-component-of-a-vector) — A vector constructor given one scalar puts it in every component.
     - [`@spec parts-fill-a-vector-in-order`](#spec-parts-fill-a-vector-in-order) — A vector constructor given vectors and scalars fills its components with theirs, in order, and keeps the leading components of a longer vector.
     - [`@spec a-scalar-matrix-is-a-diagonal`](#spec-a-scalar-matrix-is-a-diagonal) — A matrix constructor given one scalar builds the matrix with that scalar on its diagonal and zero elsewhere, written out in full on WGSL.
+    - [`@spec a-matrix-given-nothing-is-the-identity`](#spec-a-matrix-given-nothing-is-the-identity) — A matrix constructor given nothing builds the identity of its shape: one on its diagonal and zero elsewhere, as the constructor given `1` builds it. A matrix that is not square has as many ones as its shorter side.
     - [`@spec a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns`](#spec-a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns) — A matrix constructor given a larger matrix keeps the leading rows of its leading columns, on every target.
     - [`@spec a-matrix-is-built-from-its-columns`](#spec-a-matrix-is-built-from-its-columns) — A matrix constructor of any shape, square or not, takes its values column by column, as numbers or as vector columns. A vector column has as many components as the matrix has rows. `mat2` given one `vec4` takes its four components in column order, as GLSL does. A matrix given any other vector alone, or a column of another length, is refused.
     - [`@spec a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number`](#spec-a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number) — A matrix constructor given scalar nodes among its numbers builds the matrix from them, in column order, on every target. A mix of values whose count is not the matrix's is refused.
@@ -2339,6 +2340,12 @@ This follows because TSL builds values with the constructors of the shading lang
 #### @spec a-scalar-matrix-is-a-diagonal
 
 > A matrix constructor given one scalar builds the matrix with that scalar on its diagonal and zero elsewhere, written out in full on WGSL.
+
+#### @spec a-matrix-given-nothing-is-the-identity
+
+> A matrix constructor given nothing builds the identity of its shape: one on its diagonal and zero elsewhere, as the constructor given `1` builds it. A matrix that is not square has as many ones as its shorter side.
+
+This follows because TSL's `mat2`, `mat3` and `mat4` given nothing build the identity, and a shape TSL lacks follows the diagonal its scalar constructor builds.
 
 #### @spec a-matrix-built-from-a-larger-matrix-keeps-its-leading-rows-and-columns
 

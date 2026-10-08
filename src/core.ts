@@ -2372,15 +2372,16 @@ function columnsOfVector(t: ShaderType, vector: BaseNode<ShaderType>): BaseNode<
 /**
  * Build a matrix constructor: from a matrix, a scalar, a vector holding every
  * component, its columns as vector nodes, or its values one per component.
- * A column must be a vector with one component for each row.
+ * A column must be a vector with one component for each row. Given nothing,
+ * it builds the identity, column by column.
  */
 export function makeMatConstructor<T extends ShaderType>(
   t: T,
   size: number,
   columns: number,
-  defaultVal: number[],
 ): (...args: any[]) => Node<T> {
   const rows = size / columns;
+  const identity = Array.from({ length: size }, (_, i) => (Math.floor(i / rows) === i % rows ? 1 : 0));
   return (...args: any[]): Node<T> => {
     if (args.length === 1 && isNode(args[0])) {
       const arg = args[0] as BaseNode<ShaderType>;
@@ -2403,20 +2404,20 @@ export function makeMatConstructor<T extends ShaderType>(
       return node({ _t: t, type: "construct", params: [wrapValue(args[0])] }) as Node<T>;
     }
     if (args.length === 0) {
-      return node({ _t: t, type: t, value: defaultVal }) as Node<T>;
+      return node({ _t: t, type: t, value: identity }) as Node<T>;
     }
     return matrixOfValues(t, args) as Node<T>;
   };
 }
-export const mat2 = makeMatConstructor("mat2", 4, 2, [1, 0, 0, 1]);
-export const mat2x3 = makeMatConstructor("mat2x3", 6, 2, [1, 0, 0, 0, 1, 0]);
-export const mat2x4 = makeMatConstructor("mat2x4", 8, 2, [1, 0, 0, 0, 0, 1, 0, 0]);
-export const mat3x2 = makeMatConstructor("mat3x2", 6, 3, [1, 0, 0, 0, 1, 0]);
-export const mat3 = makeMatConstructor("mat3", 9, 3, [1, 0, 0, 0, 1, 0, 0, 0, 1]);
-export const mat3x4 = makeMatConstructor("mat3x4", 12, 3, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);
-export const mat4x2 = makeMatConstructor("mat4x2", 8, 4, [1, 0, 0, 0, 0, 1, 0, 0]);
-export const mat4x3 = makeMatConstructor("mat4x3", 12, 4, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);
-export const mat4 = makeMatConstructor("mat4", 16, 4, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+export const mat2 = makeMatConstructor("mat2", 4, 2);
+export const mat2x3 = makeMatConstructor("mat2x3", 6, 2);
+export const mat2x4 = makeMatConstructor("mat2x4", 8, 2);
+export const mat3x2 = makeMatConstructor("mat3x2", 6, 3);
+export const mat3 = makeMatConstructor("mat3", 9, 3);
+export const mat3x4 = makeMatConstructor("mat3x4", 12, 3);
+export const mat4x2 = makeMatConstructor("mat4x2", 8, 4);
+export const mat4x3 = makeMatConstructor("mat4x3", 12, 4);
+export const mat4 = makeMatConstructor("mat4", 16, 4);
 
 export function makeBoolVecConstructor<T extends ShaderType>(t: T, width: number): (...args: any[]) => Node<T> {
   return (...args: any[]): Node<T> => {
