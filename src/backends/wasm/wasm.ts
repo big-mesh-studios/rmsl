@@ -45,7 +45,7 @@ import {
   resolveSwizzleTarget,
 } from "../shared";
 import { shareNodes } from "../share";
-import { jsHelperSource } from "../js/js";
+import { MATRIX_HELPER_FORMULAS, type Formula, type MatrixHelper } from "../matrix-formulas";
 import {
   f64ConstBytes,
   forLoop,
@@ -554,91 +554,7 @@ function comparisonBytes(type: string, a: number[], b: number[], kind: ScalarKin
  * {@link SCRATCH_NODE_TYPES} describes: it needs its own scratch address
  * materialized before any of its components can be read.
  */
-/** An expression of the JS target's inverse helper, read into a tree. */
-type Formula =
-  | { kind: "number"; value: number }
-  | { kind: "input"; index: number }
-  | { kind: "name"; name: string }
-  | { kind: "negate"; operand: Formula }
-  | { kind: "add" | "sub" | "mul" | "div"; left: Formula; right: Formula };
-
-/** One statement of a JS matrix helper: a local it sets, a component of its result, or the value it returns. */
-type FormulaStatement =
-  | { target: "local"; name: string; value: Formula }
-  | { target: "out"; index: number; value: Formula }
-  | { target: "return"; value: Formula };
-
 const FORMULA_OPCODES = { add: WASM_OP.f64Add, sub: WASM_OP.f64Sub, mul: WASM_OP.f64Mul, div: WASM_OP.f64Div };
-
-/**
- * The statements of a JS target matrix helper, such as `mat3x3inv`, read from
- * its source: `let` declarations of locals, from `m[i]` or from earlier
- * locals, `out[i]` assignments and a `return`. Reading the one source keeps
- * the WASM function the same arithmetic, in the same order, as the JS one.
- */
-function helperFormulas(helper: string): FormulaStatement[] {
-  const source = jsHelperSource(helper);
-  const statements: FormulaStatement[] = [];
-  for (const raw of source.split("\n")) {
-    const line = raw.trim().replace(/;$/, "");
-    const declaration = /^let (.*)$/.exec(line);
-    const assignment = /^out\[(\d+)\] = (.*)$/.exec(line);
-    const result = /^return (?!out$)(.*)$/.exec(line);
-    if (result) {
-      statements.push({ target: "return", value: parseFormula(result[1]!) });
-    } else if (declaration) {
-      for (const part of declaration[1]!.split(/,(?![^(]*\))/)) {
-        const [name, expression] = part.split(" = ").map((t) => t.trim()) as [string, string];
-        statements.push({ target: "local", name, value: parseFormula(expression) });
-      }
-    } else if (assignment) {
-      statements.push({ target: "out", index: Number(assignment[1]), value: parseFormula(assignment[2]!) });
-    }
-  }
-  return statements;
-}
-
-/** Parses an arithmetic expression of the inverse helper, with JS's precedence and left-to-right order. */
-function parseFormula(text: string): Formula {
-  const tokens = text.match(/\d+(?:\.\d+)?|[A-Za-z_]\w*|[-+*/()[\]]/g)!;
-  let at = 0;
-  const peek = () => tokens[at];
-  const take = () => tokens[at++]!;
-  const primary = (): Formula => {
-    const token = take();
-    if (token === "(") {
-      const inner = sum();
-      take();
-      return inner;
-    }
-    if (token === "-") return { kind: "negate", operand: primary() };
-    if (/^\d/.test(token)) return { kind: "number", value: Number(token) };
-    if (token === "m" && peek() === "[") {
-      take();
-      const index = Number(take());
-      take();
-      return { kind: "input", index };
-    }
-    return { kind: "name", name: token };
-  };
-  const product = (): Formula => {
-    let left = primary();
-    while (peek() === "*" || peek() === "/") {
-      const kind = take() === "*" ? "mul" : "div";
-      left = { kind, left, right: primary() };
-    }
-    return left;
-  };
-  const sum = (): Formula => {
-    let left = product();
-    while (peek() === "+" || peek() === "-") {
-      const kind = take() === "+" ? "add" : "sub";
-      left = { kind, left, right: product() };
-    }
-    return left;
-  };
-  return sum();
-}
 
 function isScratchNode(node: any): boolean {
   const t = node._t as string;
@@ -1783,8 +1699,9 @@ export function compileWasmFn(
       case "inverse":
       case "determinant":
         assertSquareMatrix(node.params[0]._t);
-        for (const statement of helperFormulas(matrixHelper(node))) {
-          if (statement.target === "local") addLocal(`$${matrixHelper(node)}_${statement.name}`, "float");
+        for (const statement of MATRIX_HELPER_FORMULAS[matrixHelper(node)]) {
+          if (statement.target !== "locals") continue;
+          for (const [name] of statement.locals) addLocal(`$${matrixHelper(node)}_${name}`, "float");
         }
         break;
 
@@ -3122,15 +3039,15 @@ export function compileWasmFn(
     return out;
   }
 
-  /** The JS helper a matrix function of `node` is computed as, by its name in the JS target. */
-  function matrixHelper(node: any): string {
+  /** The formulas a matrix function of `node` is computed with, named as the JS target names its helper. */
+  function matrixHelper(node: any): MatrixHelper {
     const [cols, rows] = MATRIX_DIMENSIONS[node.params[0]._t as string];
-    return `mat${cols}x${rows}${node.type === "inverse" ? "inv" : "det"}`;
+    return `mat${cols}x${rows}${node.type === "inverse" ? "inv" : "det"}` as MatrixHelper;
   }
 
   /**
    * A matrix function of `node`, computed as the JS target computes it: each
-   * statement of the JS helper, in the same order, on f64 locals, so the two
+   * statement of its formulas, in the same order, on f64 locals, so the two
    * targets agree to the bit. Its result goes to `addr`, or stays on the stack
    * for a helper that returns a number.
    */
@@ -3154,9 +3071,10 @@ export function compileWasmFn(
           return [...bytes(e.left), ...bytes(e.right), FORMULA_OPCODES[e.kind]];
       }
     };
-    for (const statement of helperFormulas(helper)) {
-      if (statement.target === "local") out.push(...bytes(statement.value), WASM_OP.localSet, ...local(statement.name));
-      else if (statement.target === "out")
+    for (const statement of MATRIX_HELPER_FORMULAS[helper]) {
+      if (statement.target === "locals") {
+        for (const [name, value] of statement.locals) out.push(...bytes(value), WASM_OP.localSet, ...local(name));
+      } else if (statement.target === "out")
         out.push(...storeComponent(addr!, "float", statement.index * 8, bytes(statement.value)));
       else out.push(...bytes(statement.value));
     }

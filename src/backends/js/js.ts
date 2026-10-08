@@ -53,6 +53,7 @@ import {
   withoutSemicolon,
   wrapExpr,
 } from "../shared";
+import { matrixHelperSource } from "../matrix-formulas";
 import { shareNodes } from "../share";
 
 /** Which component each swizzle accessor names, in all three spellings. */
@@ -579,17 +580,12 @@ function _texCube(tex, dir, out) {
     case "texSize":
       return `function _texSize(tex, out) {\n  out = out || [0, 0, 0];\n  out[0] = tex.width;\n  out[1] = tex.height;\n  if (tex.depth !== undefined) out[2] = tex.depth;\n  return out;\n}`;
     case "mat2x2inv":
-      return `function _mat2x2inv(m, out) {\n  out = out || new Array(4);\n  let a00 = m[0], a01 = m[1], a10 = m[2], a11 = m[3];\n  let inv = 1 / (a00 * a11 - a01 * a10);\n  out[0] = a11 * inv;\n  out[1] = -a01 * inv;\n  out[2] = -a10 * inv;\n  out[3] = a00 * inv;\n  return out;\n}`;
     case "mat3x3inv":
-      return `function _mat3x3inv(m, out) {\n  out = out || new Array(9);\n  let a00 = m[0], a01 = m[1], a02 = m[2];\n  let a10 = m[3], a11 = m[4], a12 = m[5];\n  let a20 = m[6], a21 = m[7], a22 = m[8];\n  let b01 = a22 * a11 - a12 * a21;\n  let b11 = -a22 * a10 + a12 * a20;\n  let b21 = a21 * a10 - a11 * a20;\n  let det = a00 * b01 + a01 * b11 + a02 * b21;\n  let inv = 1 / det;\n  out[0] = b01 * inv;\n  out[1] = (-a22 * a01 + a02 * a21) * inv;\n  out[2] = (a12 * a01 - a02 * a11) * inv;\n  out[3] = b11 * inv;\n  out[4] = (a22 * a00 - a02 * a20) * inv;\n  out[5] = (-a12 * a00 + a02 * a10) * inv;\n  out[6] = b21 * inv;\n  out[7] = (-a21 * a00 + a01 * a20) * inv;\n  out[8] = (a11 * a00 - a01 * a10) * inv;\n  return out;\n}`;
     case "mat4x4inv":
-      return `function _mat4x4inv(m, out) {\n  out = out || new Array(16);\n  let a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3];\n  let a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7];\n  let a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11];\n  let a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15];\n  let b00 = a00 * a11 - a01 * a10;\n  let b01 = a00 * a12 - a02 * a10;\n  let b02 = a00 * a13 - a03 * a10;\n  let b03 = a01 * a12 - a02 * a11;\n  let b04 = a01 * a13 - a03 * a11;\n  let b05 = a02 * a13 - a03 * a12;\n  let b06 = a20 * a31 - a21 * a30;\n  let b07 = a20 * a32 - a22 * a30;\n  let b08 = a20 * a33 - a23 * a30;\n  let b09 = a21 * a32 - a22 * a31;\n  let b10 = a21 * a33 - a23 * a31;\n  let b11 = a22 * a33 - a23 * a32;\n  let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;\n  let inv = 1 / det;\n  out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * inv;\n  out[1] = (-a01 * b11 + a02 * b10 - a03 * b09) * inv;\n  out[2] = (a31 * b05 - a32 * b04 + a33 * b03) * inv;\n  out[3] = (-a21 * b05 + a22 * b04 - a23 * b03) * inv;\n  out[4] = (-a10 * b11 + a12 * b08 - a13 * b07) * inv;\n  out[5] = (a00 * b11 - a02 * b08 + a03 * b07) * inv;\n  out[6] = (-a30 * b05 + a32 * b02 - a33 * b01) * inv;\n  out[7] = (a20 * b05 - a22 * b02 + a23 * b01) * inv;\n  out[8] = (a10 * b10 - a11 * b08 + a13 * b06) * inv;\n  out[9] = (-a00 * b10 + a01 * b08 - a03 * b06) * inv;\n  out[10] = (a30 * b04 - a31 * b02 + a33 * b00) * inv;\n  out[11] = (-a20 * b04 + a21 * b02 - a23 * b00) * inv;\n  out[12] = (-a10 * b09 + a11 * b07 - a12 * b06) * inv;\n  out[13] = (a00 * b09 - a01 * b07 + a02 * b06) * inv;\n  out[14] = (-a30 * b03 + a31 * b01 - a32 * b00) * inv;\n  out[15] = (a20 * b03 - a21 * b01 + a22 * b00) * inv;\n  return out;\n}`;
     case "mat2x2det":
-      return `function _mat2x2det(m) {\n  return m[0] * m[3] - m[1] * m[2];\n}`;
     case "mat3x3det":
-      return `function _mat3x3det(m) {\n  let a00 = m[0], a01 = m[1], a02 = m[2];\n  let a10 = m[3], a11 = m[4], a12 = m[5];\n  let a20 = m[6], a21 = m[7], a22 = m[8];\n  return a00 * (a11 * a22 - a12 * a21) - a01 * (a10 * a22 - a12 * a20) + a02 * (a10 * a21 - a11 * a20);\n}`;
     case "mat4x4det":
-      return `function _mat4x4det(m) {\n  let a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3];\n  let a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7];\n  let a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11];\n  let a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15];\n  let b00 = a00 * a11 - a01 * a10;\n  let b01 = a00 * a12 - a02 * a10;\n  let b02 = a00 * a13 - a03 * a10;\n  let b03 = a01 * a12 - a02 * a11;\n  let b04 = a01 * a13 - a03 * a11;\n  let b05 = a02 * a13 - a03 * a12;\n  let b06 = a20 * a31 - a21 * a30;\n  let b07 = a20 * a32 - a22 * a30;\n  let b08 = a20 * a33 - a23 * a30;\n  let b09 = a21 * a32 - a22 * a31;\n  let b10 = a21 * a33 - a23 * a31;\n  let b11 = a22 * a33 - a23 * a32;\n  return b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;\n}`;
+      return matrixHelperSource(name);
   }
 
   // A matCLxRL times a matCRxRR (CL === RR) is a matCRxRL product.
