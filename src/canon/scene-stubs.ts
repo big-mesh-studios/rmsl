@@ -124,7 +124,10 @@ export function stubDevice() {
  * read as distinct numbers, shaders compile and programs link, and each
  * uniform location is an object naming its uniform.
  */
-export function stubGl(canvas: { width: number; height: number }) {
+export function stubGl(
+  canvas: { width: number; height: number },
+  overrides: Record<string, (...args: any[]) => unknown> = {},
+) {
   const calls: Call[] = [];
   const constants = new Map<string, number>();
   let location = 0;
@@ -134,6 +137,7 @@ export function stubGl(canvas: { width: number; height: number }) {
     getParameter: () => 16,
     getAttribLocation: () => (location += 4),
     getUniformLocation: (_program: unknown, name: string) => ({ name }),
+    ...overrides,
   };
   const gl = new Proxy(
     {},
@@ -147,7 +151,7 @@ export function stubGl(canvas: { width: number; height: number }) {
         }
         return (...args: any[]) => {
           calls.push({ name, args });
-          return answers[name]?.(...args) ?? {};
+          return name in answers ? answers[name]!(...args) : {};
         };
       },
     },
@@ -156,9 +160,9 @@ export function stubGl(canvas: { width: number; height: number }) {
 }
 
 /** A WebGL renderer drawing through `stubGl`, on a 32×32 canvas. */
-export function stubWebGl() {
+export function stubWebGl(overrides: Record<string, (...args: any[]) => unknown> = {}) {
   const canvas: any = { width: 32, height: 32 };
-  const { gl, calls } = stubGl(canvas);
+  const { gl, calls } = stubGl(canvas, overrides);
   canvas.getContext = () => gl;
   return { renderer: new WebGLRenderer(canvas) as any, gl, calls };
 }

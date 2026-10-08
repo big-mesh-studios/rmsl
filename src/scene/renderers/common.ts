@@ -14,7 +14,14 @@ import type { GLSLPrecision } from "../../glsl";
 
 // The sampling helpers live apart, so a test of a plain shader can read a texture as the renderers do
 // without loading the scene graph.
-export { isIntegerSampler, samplerState, textureChannels, type SamplerState, type TextureWrap } from "./sampling";
+export {
+  isFloatTexture,
+  isIntegerSampler,
+  samplerState,
+  textureChannels,
+  type SamplerState,
+  type TextureWrap,
+} from "./sampling";
 
 /**
  * Which shader precision a program compiles with, mirroring three.js: a

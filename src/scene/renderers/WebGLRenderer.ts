@@ -15,6 +15,7 @@ import { Blending, Side } from "../materials/Material";
 import {
   blankTexture,
   cameraUniformValue,
+  isFloatTexture,
   isIntegerSampler,
   objectUniformValue,
   lightsSignature,
@@ -74,6 +75,8 @@ export class WebGLRenderer {
    * the object, as three.js keeps it per renderer.
    */
   private uploadedVersions = new WeakMap<Texture | BufferAttribute, number>();
+  /** Whether a float texture can filter linearly here; where it cannot, it reads its nearest texel. */
+  private floatLinear = false;
   /** The 1×1 black textures a sampler with no texture reads, one for each dimension and sample type. */
   private blankTextures = new Map<string, DataTexture>();
   /** The framebuffer, color texture, and depth renderbuffer behind each render target, at its bound size. */
@@ -105,6 +108,8 @@ export class WebGLRenderer {
       throw new Error("[RMSL/scene] WebGL2 is not available on this canvas");
     }
     this.gl = gl;
+    // A float texture filters linearly only with this extension, as in three.js.
+    this.floatLinear = gl.getExtension("OES_texture_float_linear") !== null;
   }
 
   setClearColor(color: Color | number, alpha = 1): void {
@@ -471,7 +476,12 @@ export class WebGLRenderer {
         texture.addEventListener("dispose", this.onTextureDispose);
       }
       gl.bindTexture(target, glTexture);
-      const sampling = samplerState(texture, samplerType);
+      const asked = samplerState(texture, samplerType);
+      // A float texture with linear filters it cannot honour would be incomplete and read black.
+      const sampling =
+        isFloatTexture(texture) && !this.floatLinear
+          ? { ...asked, magFilter: "nearest" as const, minFilter: "nearest" as const }
+          : asked;
       gl.texParameteri(target, gl.TEXTURE_WRAP_S, glWrap(gl, sampling.wrapS));
       gl.texParameteri(target, gl.TEXTURE_WRAP_T, glWrap(gl, sampling.wrapT));
       if (is3D) gl.texParameteri(target, gl.TEXTURE_WRAP_R, glWrap(gl, sampling.wrapR));
@@ -483,6 +493,8 @@ export class WebGLRenderer {
         const height = (texture as { height?: number }).height ?? 1;
         if (integer) {
           const singleChannel = textureChannels(texture) === 1;
+          // A single-channel row is as wide as its texels, rarely a multiple of the default alignment of four.
+          gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
           const { internalFormat, format, type } = integerInternalFormat(
             gl,
             samplerType.startsWith("isampler"),
@@ -495,22 +507,18 @@ export class WebGLRenderer {
           } else {
             gl.texImage2D(target, 0, internalFormat, width, height, 0, format, type, image as ArrayBufferView);
           }
-        } else if (is3D) {
-          const depth = (texture as { depth?: number }).depth ?? 1;
-          gl.texImage3D(
-            target,
-            0,
-            gl.RGBA,
-            width,
-            height,
-            depth,
-            0,
-            gl.RGBA,
-            gl.UNSIGNED_BYTE,
-            image as ArrayBufferView,
-          );
+          gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
         } else {
-          gl.texImage2D(target, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, image as ArrayBufferView);
+          // A float texture holds the floats its data gives, a byte texture its bytes.
+          const float = isFloatTexture(texture);
+          const internalFormat = float ? gl.RGBA32F : gl.RGBA;
+          const type = float ? gl.FLOAT : gl.UNSIGNED_BYTE;
+          if (is3D) {
+            const depth = (texture as { depth?: number }).depth ?? 1;
+            gl.texImage3D(target, 0, internalFormat, width, height, depth, 0, gl.RGBA, type, image as ArrayBufferView);
+          } else {
+            gl.texImage2D(target, 0, internalFormat, width, height, 0, gl.RGBA, type, image as ArrayBufferView);
+          }
         }
       } else if (image != null && !is3D && !integer) {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image as TexImageSource);

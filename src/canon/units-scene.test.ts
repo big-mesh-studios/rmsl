@@ -2,8 +2,11 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { vec4 } from "../rmsl";
 import {
   AmbientLight,
+  BufferAttribute,
+  BufferGeometry,
   DataTexture,
   DirectionalLight,
+  FloatType,
   InstancedMesh,
   Line2NodeMaterial,
   LineSegments2,
@@ -14,7 +17,9 @@ import {
   PerspectiveCamera,
   PlaneGeometry,
   PointLight,
+  RGBAFormat,
   Scene,
+  Texture,
   WebGLRenderer,
   WebGLRenderTarget,
   WebGPURenderer,
@@ -40,7 +45,123 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// A three-texel-wide single-channel integer texture: its second row starts three bytes in, which the default unpack alignment of four misreads.
+const ENTRY_R8UI_ROWS = `
+import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
+  MeshBasicMaterial, DataTexture, RedIntegerFormat, UnsignedByteType } from "../scene";
+import { float, uvec2, vec4 } from "../rmsl";
+globalThis.__rmslR8UIRowsRun = () => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 16;
+  canvas.height = 16;
+  const renderer = new WebGLRenderer(canvas, { antialias: false });
+  renderer.setClearColor(0x000000);
+  const texture = new DataTexture(new Uint8Array([10, 20, 30, 40, 50, 60]), 3, 2, 1, RedIntegerFormat, UnsignedByteType);
+  const material = new MeshBasicMaterial();
+  material.fragmentNode = (b) => {
+    const data = b.sampler("data", "usampler2D", () => texture);
+    return vec4(data.texture(uvec2(0, 1)).r.toFloat().div(float(255)), 0, 0, 1);
+  };
+  const scene = new Scene();
+  scene.add(new Mesh(new PlaneGeometry(2, 2), material));
+  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 1);
+  camera.lookAt(0, 0, 0);
+  renderer.render(scene, camera);
+  const gl = renderer.gl;
+  const pixels = new Uint8Array(4);
+  gl.readPixels(8, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+  return { r: pixels[0], error: gl.getError() };
+};
+`;
+
 describe("a scene renderer manages what it uploads", () => {
+  /**
+   * @canon spec-a-texture-uploads-whatever-holds-its-image
+   */
+  it("uploads a texture whose image is an image source on WebGPU", () => {
+    const { device, canvas, textures, queue } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const bitmap = { width: 2, height: 2 } as unknown as ImageBitmap;
+    renderer.ensurePipeline(sampling(new Texture(bitmap)), new Scene(), false, false);
+
+    expect(textures[0]).toMatchObject({ width: 2, height: 2 });
+    expect(queue.map((c) => c.name)).toContain("copyExternalImageToTexture");
+  });
+
+  /**
+   * @canon spec-a-grown-attribute-gets-a-buffer-that-holds-it
+   */
+  it("grows a vertex buffer for an attribute whose array grew on WebGPU", () => {
+    const { device, canvas } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const geometry = new BufferGeometry();
+    geometry.setAttribute("position", new BufferAttribute(new Float32Array(9), 3));
+    renderer.ensureGeometryBuffers(geometry);
+    geometry.attributes.position.setArray(new Float32Array(18));
+
+    expect(() => renderer.ensureGeometryBuffers(geometry)).not.toThrow();
+  });
+
+  /**
+   * @canon spec-a-changed-index-uploads-on-the-next-render
+   */
+  it("uploads a changed index on the next render on WebGPU", () => {
+    const { device, canvas, bufferWrites } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const geometry = new PlaneGeometry();
+    const buffers = renderer.ensureGeometryBuffers(geometry);
+    const before = bufferWrites.filter((w) => w.buffer === buffers.index).length;
+    (geometry.index!.array as Uint16Array).reverse();
+    geometry.index!.needsUpdate = true;
+    renderer.ensureGeometryBuffers(geometry);
+
+    expect(bufferWrites.filter((w) => w.buffer === buffers.index).length).toBe(before + 1);
+  });
+
+  /**
+   * @canon spec-a-data-texture-uploads-in-the-type-it-names
+   */
+  it("uploads a float data texture as floats", () => {
+    const { device, canvas, textures } = stubDevice();
+    const gpu = new WebGPURenderer(canvas, device as any) as any;
+    const { renderer: gl, gl: context, calls } = stubWebGl();
+    const texture = () => new DataTexture(new Float32Array([1, 0.5, 0.25, 1]), 1, 1, 1, RGBAFormat, FloatType);
+    gpu.ensurePipeline(sampling(texture()), new Scene(), false, false);
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(), sampling(texture())));
+    gl.render(scene, camera());
+
+    expect(textures[0].format).toMatch(/float$/);
+    expect(calls.find((c) => c.name === "texImage2D")!.args[7]).toBe(context.FLOAT);
+  });
+
+  /**
+   * @canon spec-a-data-texture-uploads-in-the-type-it-names
+   */
+  it("reads a float texture's nearest texel on WebGL when the context cannot filter floats", () => {
+    const { renderer, gl, calls } = stubWebGl({ getExtension: () => null });
+    const scene = new Scene();
+    const texture = new DataTexture(new Float32Array([1, 0.5, 0.25, 1]), 1, 1, 1, RGBAFormat, FloatType);
+    scene.add(new Mesh(new PlaneGeometry(), sampling(texture)));
+    renderer.render(scene, camera());
+
+    const filters = calls.filter(
+      (c) => c.name === "texParameteri" && (c.args[1] === gl.TEXTURE_MIN_FILTER || c.args[1] === gl.TEXTURE_MAG_FILTER),
+    );
+    const named = (value: number) => (value === gl.NEAREST ? "nearest" : value === gl.LINEAR ? "linear" : value);
+    expect(new Set(filters.map((c) => named(c.args[2])))).toEqual(new Set(["nearest"]));
+  });
+
+  /**
+   * @canon spec-a-material-reads-any-sampler-type
+   */
+  it("reads the second row of a three-texel-wide R8UI texture on WebGL", async () => {
+    const result = await runInGpuPage(ENTRY_R8UI_ROWS, "__rmslR8UIRowsRun", new URL(".", import.meta.url).pathname);
+    expect(result.error).toBe(0);
+    expect(result.r).toBe(40);
+  }, 60_000);
+
   /**
    * @canon spec-a-change-raises-a-version-every-renderer-reads
    */

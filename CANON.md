@@ -385,7 +385,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-material-slot-takes-a-node-or-a-builder`](#spec-a-material-slot-takes-a-node-or-a-builder) — A material slot such as `colorNode` takes a node, or a function of the builder that gives one. `vertexNode` and `fragmentNode` replace a whole stage.
       - [`@spec a-material-uniform-has-a-scope-and-a-live-value`](#spec-a-material-uniform-has-a-scope-and-a-live-value) — A material uniform belongs to the camera, the object, the material or the renderer. It reads its value from the object it belongs to when the renderer uploads it.
       - [`@spec a-material-reads-any-sampler-type`](#spec-a-material-reads-any-sampler-type) — A material reads a float, integer or 3D sampler, and keeps the two-argument sampler form as a 2D sampler.
-        - [`@bug webgl-rejects-a-narrow-r8ui-texture`](#bug-webgl-rejects-a-narrow-r8ui-texture) — The WebGL renderer uploads a single-channel integer texture under the default unpack alignment of four. WebGL rejects a tightly packed image whose width four does not divide, and the texture reads zero.
       - [`@spec a-material-takes-the-renderer-precision-unless-it-sets-one`](#spec-a-material-takes-the-renderer-precision-unless-it-sets-one) — A material compiles at the precision of its renderer unless it sets one of its own, and changing it rebuilds the material.
       - [`@spec ambient-lights-sum-into-one-colour`](#spec-ambient-lights-sum-into-one-colour) — A material sums the ambient lights of its scene, each scaled by its intensity, into one colour uniform.
       - [`@spec a-light-uniform-carries-its-colour-times-its-intensity`](#spec-a-light-uniform-carries-its-colour-times-its-intensity) — A directional or point light gives its colour uniform the light's colour already multiplied by its intensity.
@@ -449,6 +448,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug webgl-keeps-the-sampler-state-of-the-first-sampler-that-uploaded-a-texture`](#bug-webgl-keeps-the-sampler-state-of-the-first-sampler-that-uploaded-a-texture) — The WebGL renderer writes a texture's filters and wrap once, when it uploads the texture, from the type of the sampler that uploaded it. An integer sampler that reads the texture later meets linear filters, an incomplete texture, and reads zero.
     - [`@spec a-webgpu-render-records-what-a-fresh-renderer-records`](#spec-a-webgpu-render-records-what-a-fresh-renderer-records) — A render on the WebGPU renderer records the same pass as the same call on a fresh renderer, whatever the renderer drew before.
   - [`@spec a-scene-renderer-manages-what-it-uploads`](#spec-a-scene-renderer-manages-what-it-uploads) — A renderer of `./scene` uploads each geometry, texture and uniform once, again when it changes, and frees it when it is disposed. It compiles a program once for each light set and kind of mesh.
+    - [`@spec a-texture-uploads-whatever-holds-its-image`](#spec-a-texture-uploads-whatever-holds-its-image) — A texture uploads its image whether the image is data, as a `DataTexture` holds it, or an image element, bitmap or canvas, at the size of that image.
+    - [`@spec a-grown-attribute-gets-a-buffer-that-holds-it`](#spec-a-grown-attribute-gets-a-buffer-that-holds-it) — An attribute whose array grew uploads into a buffer big enough for all of it.
+    - [`@spec a-changed-index-uploads-on-the-next-render`](#spec-a-changed-index-uploads-on-the-next-render) — A geometry's index uploads again on the next render after `index.needsUpdate = true`, whether or not an attribute of the geometry changed.
     - [`@spec a-replaced-attribute-uploads-again`](#spec-a-replaced-attribute-uploads-again) — An attribute that replaces another under its name in a geometry, as `LineSegmentsGeometry.setPositions` replaces them, uploads whole on the next render.
     - [`@spec a-change-raises-a-version-every-renderer-reads`](#spec-a-change-raises-a-version-every-renderer-reads) — `needsUpdate = true` on a texture, a material or a buffer attribute raises its `version` by one, as in three.js, and reading `needsUpdate` gives `undefined`. Each renderer compares the version it last uploaded or built from with the object's, so every renderer that draws the object, and every program built from a shared material, takes the change.
     - [`@spec a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise`](#spec-a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise) — `new WebGLRenderer()` gives a renderer at once, and `WebGPURenderer.init()` gives one through a promise, because WebGPU requests its device asynchronously.
@@ -468,8 +470,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-mesh-draws-the-slice-its-draw-range-selects`](#spec-a-mesh-draws-the-slice-its-draw-range-selects) — A mesh draws only the vertices its `drawRange` selects from its geometry.
       - [`@bug webgpu-ignores-the-draw-range`](#bug-webgpu-ignores-the-draw-range) — The WebGPU renderer draws a mesh's whole geometry, ignoring the slice its `drawRange` selects.
     - [`@spec a-texture-is-bound-to-every-stage-that-samples-it`](#spec-a-texture-is-bound-to-every-stage-that-samples-it) — A renderer binds a texture to every stage that samples it, the vertex stage included.
-    - [`@spec a-data-texture-uploads-in-the-type-it-names`](#spec-a-data-texture-uploads-in-the-type-it-names) — A data texture uploads in the element type its `type` names, so a float texture holds floats.
-      - [`@bug a-float-texture-is-uploaded-as-bytes`](#bug-a-float-texture-is-uploaded-as-bytes) — Both renderers ignore `DataTexture.type`, so a `Float32Array` image is uploaded as unsigned bytes.
+    - [`@spec a-data-texture-uploads-in-the-type-it-names`](#spec-a-data-texture-uploads-in-the-type-it-names) — A data texture uploads in the element type its `type` names, so a float texture holds floats. A float texture filters linearly where the device can, and reads its nearest texel where it cannot.
     - [`@spec a-renderer-blends-and-depth-tests-as-the-material-asks`](#spec-a-renderer-blends-and-depth-tests-as-the-material-asks) — A renderer blends and depth-tests each draw as its material's `transparent`, `blending`, `depthTest` and `depthWrite` ask.
       - [`@bug webgpu-ignores-the-material-blend-and-depth-state`](#bug-webgpu-ignores-the-material-blend-and-depth-state) — The WebGPU renderer builds every pipeline with no blend state, a depth test and depth writes, whatever the material's `transparent`, `blending`, `depthTest` and `depthWrite` ask for.
       - [`@spec a-renderer-draws-transparent-meshes-back-to-front`](#spec-a-renderer-draws-transparent-meshes-back-to-front) — A renderer draws opaque meshes first, then transparent meshes from the farthest to the nearest.
@@ -478,9 +479,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@bug webgpu-leaves-an-empty-scene-uncleared`](#bug-webgpu-leaves-an-empty-scene-uncleared) — The WebGPU renderer clears in the first draw's render pass, so a scene with nothing to draw leaves the canvas as it was.
       - [`@spec render-clears-to-the-scene-background`](#spec-render-clears-to-the-scene-background) — `render` clears to the scene's background colour when the scene has one, and to the clear colour otherwise.
         - [`@bug render-ignores-the-scene-background`](#bug-render-ignores-the-scene-background) — Both renderers ignore `scene.background` and clear to the renderer's clear colour.
-    - [`@bug webgpu-never-uploads-an-image-source`](#bug-webgpu-never-uploads-an-image-source) — The WebGPU renderer uploads only an `ArrayBufferView` image: a texture holding an image element or bitmap becomes a 1×1 texture with nothing written to it.
-    - [`@bug webgpu-never-grows-a-geometry-buffer`](#bug-webgpu-never-grows-a-geometry-buffer) — The WebGPU renderer sizes a geometry's vertex buffer at its first upload and writes a grown attribute into it unchanged, past its end.
-    - [`@bug webgpu-ignores-a-changed-index`](#bug-webgpu-ignores-a-changed-index) — The WebGPU renderer never reads `geometry.index.needsUpdate`, so changed indices are not uploaded unless a vertex attribute changed too.
     - [`@spec the-webgpu-renderer-declares-one-uniform-struct-in-both-stages`](#spec-the-webgpu-renderer-declares-one-uniform-struct-in-both-stages) — The WebGPU renderer declares every uniform of a material in both stages, so the vertex and fragment shaders read one struct at the same offsets.
     - [`@spec a-render-target-takes-its-new-size-on-the-next-render`](#spec-a-render-target-takes-its-new-size-on-the-next-render) — A renderer draws a render target at its new size on the next render after its width or height changes, and frees the old storage.
     - [`@spec a-sampler-without-a-texture-reads-black`](#spec-a-sampler-without-a-texture-reads-black) — A sampler that its material gives no texture reads opaque black on every renderer.
@@ -2848,12 +2846,6 @@ Issue: #97
 
 > A material reads a float, integer or 3D sampler, and keeps the two-argument sampler form as a 2D sampler.
 
-###### @bug webgl-rejects-a-narrow-r8ui-texture
-
-> The WebGL renderer uploads a single-channel integer texture under the default unpack alignment of four. WebGL rejects a tightly packed image whose width four does not divide, and the texture reads zero.
-
-Issue: #95
-
 ##### @spec a-material-takes-the-renderer-precision-unless-it-sets-one
 
 > A material compiles at the precision of its renderer unless it sets one of its own, and changing it rebuilds the material.
@@ -3228,6 +3220,24 @@ Derives from: [`spec-a-render-depends-only-on-what-it-is-given`](#spec-a-render-
 
 This follows because a renderer that owns the drawing of a scene owns its resources too. A copy it kept after the geometry, texture or uniform changed would give pixels that a fresh renderer does not give.
 
+#### @spec a-texture-uploads-whatever-holds-its-image
+
+> A texture uploads its image whether the image is data, as a `DataTexture` holds it, or an image element, bitmap or canvas, at the size of that image.
+
+This follows because three.js draws a texture whose image is either, and a scene ported from it uses both.
+
+#### @spec a-grown-attribute-gets-a-buffer-that-holds-it
+
+> An attribute whose array grew uploads into a buffer big enough for all of it.
+
+This follows because a GPU buffer keeps the size it was made with, and the grown array would not fit the old one.
+
+#### @spec a-changed-index-uploads-on-the-next-render
+
+> A geometry's index uploads again on the next render after `index.needsUpdate = true`, whether or not an attribute of the geometry changed.
+
+This follows because an index changes on its own, as when a mesh is re-triangulated over the same vertices.
+
 #### @spec a-replaced-attribute-uploads-again
 
 > An attribute that replaces another under its name in a geometry, as `LineSegmentsGeometry.setPositions` replaces them, uploads whole on the next render.
@@ -3324,17 +3334,11 @@ This follows because a material may sample a texture in `positionNode` as well a
 
 #### @spec a-data-texture-uploads-in-the-type-it-names
 
-> A data texture uploads in the element type its `type` names, so a float texture holds floats.
+> A data texture uploads in the element type its `type` names, so a float texture holds floats. A float texture filters linearly where the device can, and reads its nearest texel where it cannot.
 
 Derives from: [`spec-the-three-js-constants-carry-three-js-values`](#spec-the-three-js-constants-carry-three-js-values), [`fact-three-js-uploads-a-data-texture-in-its-type`](#fact-three-js-uploads-a-data-texture-in-its-type)
 
 This follows because three.js uploads a data texture in the type it names, and the renderer uploads what the material reads.
-
-##### @bug a-float-texture-is-uploaded-as-bytes
-
-> Both renderers ignore `DataTexture.type`, so a `Float32Array` image is uploaded as unsigned bytes.
-
-Issue: #95
 
 #### @spec a-renderer-blends-and-depth-tests-as-the-material-asks
 
@@ -3391,24 +3395,6 @@ This follows because three.js's renderer clears to `scene.background` when it is
 > Both renderers ignore `scene.background` and clear to the renderer's clear colour.
 
 Issue: #121
-
-#### @bug webgpu-never-uploads-an-image-source
-
-> The WebGPU renderer uploads only an `ArrayBufferView` image: a texture holding an image element or bitmap becomes a 1×1 texture with nothing written to it.
-
-Issue: #95
-
-#### @bug webgpu-never-grows-a-geometry-buffer
-
-> The WebGPU renderer sizes a geometry's vertex buffer at its first upload and writes a grown attribute into it unchanged, past its end.
-
-Issue: #95
-
-#### @bug webgpu-ignores-a-changed-index
-
-> The WebGPU renderer never reads `geometry.index.needsUpdate`, so changed indices are not uploaded unless a vertex attribute changed too.
-
-Issue: #95
 
 #### @spec the-webgpu-renderer-declares-one-uniform-struct-in-both-stages
 

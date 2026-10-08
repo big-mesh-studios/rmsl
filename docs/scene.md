@@ -173,6 +173,11 @@ texture.wrapT = RepeatWrapping;
   `RepeatWrapping` or `MirroredRepeatWrapping`. `wrapR` is the third axis of a
   3D texture and is ignored for a 2D one.
 
+A `DataTexture` of `FloatType` (`new DataTexture(floats, w, h, 1, RGBAFormat,
+FloatType)`) holds its `Float32Array` as 32-bit floats, as in three.js. It
+filters linearly where the device can (`OES_texture_float_linear` on WebGL,
+`float32-filterable` on WebGPU) and reads its nearest texel elsewhere.
+
 Both renderers read these when they upload, so a change made after the first
 render needs `texture.needsUpdate = true` to take effect — the same rule as a
 change to the image.
@@ -396,7 +401,7 @@ See [Testing](testing.md).
 - Custom uniforms must be reachable through the builder so the renderer knows
   their values; a `uniform()` declared deep inside an escape-hatch graph that
   the builder never sees will not be bound.
-- `WebGPURenderer` texture support covers `DataTexture` (and the WebGL renderer
-  additionally accepts `HTMLImageElement`s).
+- Both renderers upload a `DataTexture` and a texture whose image is an image
+  element, bitmap or canvas.
 - The test suite validates every material shader on real Chromium/Dawn drivers
   by default; `RMSL_SKIP_GPU=1` turns that off (see `CONTRIBUTING.md`).

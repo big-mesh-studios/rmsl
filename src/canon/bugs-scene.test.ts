@@ -14,9 +14,7 @@ import {
   MeshBasicMaterial,
   PerspectiveCamera,
   PlaneGeometry,
-  RGBAFormat,
   Scene,
-  Texture,
   WebGLRenderer,
   WebGLRenderTarget,
   WebGPURenderer,
@@ -25,9 +23,6 @@ import { collectNodes } from "../scene/materials/nodes/graph";
 import { camera, offsetOf, sampling, stubDevice, stubWebGl } from "./scene-stubs";
 import { GPU_ENABLED, releaseGpu } from "../testing/gpu";
 import { runInGpuPage } from "../testing/browser";
-
-/** three.js's `FloatType`, which `./scene` does not export. */
-const FloatType = 1015;
 
 beforeEach(() => {
   vi.stubGlobal("navigator", { gpu: { getPreferredCanvasFormat: () => "bgra8unorm" } });
@@ -155,10 +150,11 @@ describe("known bugs of the scene library, each failing until its fix", () => {
    */
   it("uploads a uint, a uvec2 and a bvec3 uniform on WebGL", () => {
     const { renderer, calls } = stubWebGl();
+    const before = calls.length;
     renderer.setUniform({ name: "a" }, "uint", 5);
     renderer.setUniform({ name: "b" }, "uvec2", [5, 6]);
     renderer.setUniform({ name: "c" }, "bvec3", [1, 0, 1]);
-    expect(calls.map((c) => c.name)).toEqual(["uniform1ui", "uniform2ui", "uniform3i"]);
+    expect(calls.slice(before).map((c) => c.name)).toEqual(["uniform1ui", "uniform2ui", "uniform3i"]);
   });
 
   /**
@@ -396,59 +392,6 @@ describe("known bugs of the scene library, each failing until its fix", () => {
   });
 
   /**
-   * The WebGPU renderer uploads only an `ArrayBufferView` image: a texture
-   * holding an image element or bitmap becomes a 1×1 texture with nothing
-   * written to it.
-   *
-   * @canon bug-webgpu-never-uploads-an-image-source
-   */
-  it.fails("uploads a texture whose image is an image source on WebGPU", () => {
-    const { device, canvas, textures, queue } = stubDevice();
-    const renderer = new WebGPURenderer(canvas, device as any) as any;
-    const bitmap = { width: 2, height: 2 } as unknown as ImageBitmap;
-    renderer.ensurePipeline(sampling(new Texture(bitmap)), new Scene(), false, false);
-
-    expect(textures[0]).toMatchObject({ width: 2, height: 2 });
-    expect(queue.map((c) => c.name)).toContain("copyExternalImageToTexture");
-  });
-
-  /**
-   * The WebGPU renderer sizes a geometry's vertex buffer at its first upload
-   * and writes a grown attribute into it unchanged, past its end.
-   *
-   * @canon bug-webgpu-never-grows-a-geometry-buffer
-   */
-  it.fails("grows a vertex buffer for an attribute whose array grew on WebGPU", () => {
-    const { device, canvas } = stubDevice();
-    const renderer = new WebGPURenderer(canvas, device as any) as any;
-    const geometry = new BufferGeometry();
-    geometry.setAttribute("position", new BufferAttribute(new Float32Array(9), 3));
-    renderer.ensureGeometryBuffers(geometry);
-    geometry.attributes.position.setArray(new Float32Array(18));
-
-    expect(() => renderer.ensureGeometryBuffers(geometry)).not.toThrow();
-  });
-
-  /**
-   * The WebGPU renderer never reads `geometry.index.needsUpdate`, so changed
-   * indices are not uploaded unless a vertex attribute changed too.
-   *
-   * @canon bug-webgpu-ignores-a-changed-index
-   */
-  it.fails("uploads a changed index on the next render on WebGPU", () => {
-    const { device, canvas, bufferWrites } = stubDevice();
-    const renderer = new WebGPURenderer(canvas, device as any) as any;
-    const geometry = new PlaneGeometry();
-    const buffers = renderer.ensureGeometryBuffers(geometry);
-    const before = bufferWrites.filter((w) => w.buffer === buffers.index).length;
-    (geometry.index!.array as Uint16Array).reverse();
-    geometry.index!.needsUpdate = true;
-    renderer.ensureGeometryBuffers(geometry);
-
-    expect(bufferWrites.filter((w) => w.buffer === buffers.index).length).toBe(before + 1);
-  });
-
-  /**
    * The WebGL renderer gives the `resolution` uniform the canvas's drawing
    * buffer size even while it draws into a smaller render target, so a line
    * drawn there is the wrong width.
@@ -514,26 +457,6 @@ describe("known bugs of the scene library, each failing until its fix", () => {
     renderer.render(new Scene(), camera());
 
     expect(passes.map((p) => p.descriptor.colorAttachments[0].loadOp)).toEqual(["clear"]);
-  });
-
-  /**
-   * Both renderers ignore `DataTexture.type`, so a `Float32Array` image is
-   * uploaded as unsigned bytes.
-   *
-   * @canon bug-a-float-texture-is-uploaded-as-bytes
-   */
-  it.fails("uploads a float data texture as floats", () => {
-    const { device, canvas, textures } = stubDevice();
-    const gpu = new WebGPURenderer(canvas, device as any) as any;
-    const { renderer: gl, gl: context, calls } = stubWebGl();
-    const texture = () => new DataTexture(new Float32Array([1, 0.5, 0.25, 1]), 1, 1, 1, RGBAFormat, FloatType);
-    gpu.ensurePipeline(sampling(texture()), new Scene(), false, false);
-    const scene = new Scene();
-    scene.add(new Mesh(new PlaneGeometry(), sampling(texture())));
-    gl.render(scene, camera());
-
-    expect(textures[0].format).toMatch(/float$/);
-    expect(calls.find((c) => c.name === "texImage2D")!.args[7]).toBe(context.FLOAT);
   });
 
   /**
@@ -667,35 +590,6 @@ describe("known bugs of the scene library, each failing until its fix", () => {
 
 // A 3×2 single-channel texture: its rows are three bytes long, so the second
 // row starts at byte 3, not at the next multiple of four.
-const ENTRY_R8UI_ROWS = `
-import { WebGLRenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
-  MeshBasicMaterial, DataTexture, RedIntegerFormat, UnsignedByteType } from "../scene";
-import { float, uvec2, vec4 } from "../rmsl";
-globalThis.__rmslR8UIRowsRun = () => {
-  const canvas = document.createElement("canvas");
-  canvas.width = 16;
-  canvas.height = 16;
-  const renderer = new WebGLRenderer(canvas, { antialias: false });
-  renderer.setClearColor(0x000000);
-  const texture = new DataTexture(new Uint8Array([10, 20, 30, 40, 50, 60]), 3, 2, 1, RedIntegerFormat, UnsignedByteType);
-  const material = new MeshBasicMaterial();
-  material.fragmentNode = (b) => {
-    const data = b.sampler("data", "usampler2D", () => texture);
-    return vec4(data.texture(uvec2(0, 1)).r.toFloat().div(float(255)), 0, 0, 1);
-  };
-  const scene = new Scene();
-  scene.add(new Mesh(new PlaneGeometry(2, 2), material));
-  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
-  camera.position.set(0, 0, 1);
-  camera.lookAt(0, 0, 0);
-  renderer.render(scene, camera);
-  const gl = renderer.gl;
-  const pixels = new Uint8Array(4);
-  gl.readPixels(8, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-  return { r: pixels[0], error: gl.getError() };
-};
-`;
-
 // One texture read through a float sampler and then through an integer one. The
 // second read must give what it gives on a renderer that never read the texture
 // as a float.
@@ -745,23 +639,6 @@ globalThis.__rmslFloatThenIntegerRun = () => {
 `;
 
 describe.skipIf(!GPU_ENABLED)("known bugs of the scene library on a real driver", () => {
-  /**
-   * The WebGL renderer uploads a single-channel integer texture under the
-   * default unpack alignment of four, so a tightly packed image whose width is
-   * not a multiple of four is rejected and the texture reads zero.
-   *
-   * @canon bug-webgl-rejects-a-narrow-r8ui-texture
-   */
-  it.fails(
-    "reads the second row of a three-texel-wide R8UI texture on WebGL",
-    async () => {
-      const result = await runInGpuPage(ENTRY_R8UI_ROWS, "__rmslR8UIRowsRun", new URL(".", import.meta.url).pathname);
-      expect(result.error).toBe(0);
-      expect(result.r).toBe(40);
-    },
-    60_000,
-  );
-
   /**
    * The WebGL renderer writes a texture's filters once, from the sampler type
    * that uploaded it, so an integer read after a float read meets linear

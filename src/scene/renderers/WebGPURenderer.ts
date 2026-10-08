@@ -18,6 +18,7 @@ import { Side } from "../materials/Material";
 import {
   blankTexture,
   cameraUniformValue,
+  isFloatTexture,
   isIntegerSampler,
   objectUniformValue,
   lightsSignature,
@@ -172,7 +173,10 @@ export class WebGPURenderer {
     if (!navigator.gpu) throw new Error("[RMSL/scene] WebGPU is not supported by this browser");
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("[RMSL/scene] no WebGPU adapter available");
-    const device = await adapter.requestDevice();
+    // A float texture filters linearly where the adapter can, as in three.js; elsewhere it reads its nearest texel.
+    const device = await adapter.requestDevice({
+      requiredFeatures: adapter.features.has("float32-filterable") ? ["float32-filterable"] : [],
+    });
     const c = canvas ?? document.createElement("canvas");
     return new WebGPURenderer(c, device);
   }
@@ -432,7 +436,9 @@ export class WebGPURenderer {
               binding: t.binding,
               visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
               texture: {
-                sampleType: samplerSampleType(t.type),
+                sampleType: this.unfilterable(entryTexture(program, t.name))
+                  ? "unfilterable-float"
+                  : samplerSampleType(t.type),
                 viewDimension: samplerDimension(t.type),
               },
             })),
@@ -444,7 +450,7 @@ export class WebGPURenderer {
             entries: samplerBindings.map((s) => ({
               binding: s.binding,
               visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-              sampler: { type: "filtering" },
+              sampler: { type: this.unfilterable(entryTexture(program, s.name)) ? "non-filtering" : "filtering" },
             })),
           });
     const groupLayouts = [uniformLayout];
@@ -618,40 +624,39 @@ export class WebGPURenderer {
       this.geometryBuffers.set(geometry, buffers);
       geometry.addEventListener("dispose", this.onGeometryDispose);
     }
-    let needsUpload = buffers.needsUpload;
     for (const name in geometry.attributes) {
-      if (this.uploadedVersions.get(geometry.attributes[name]!) !== geometry.attributes[name]!.version)
-        needsUpload = true;
-    }
-    if (!needsUpload) return buffers;
-
-    for (const [name, attribute] of Object.entries(geometry.attributes)) {
-      let buffer = buffers.attributes.get(name);
-      if (!buffer) {
-        buffer = this.device.createBuffer({
-          size: Math.max(toBufferView(attribute.array).byteLength, 4),
-          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        });
-        buffers.attributes.set(name, buffer);
-      }
-      this.device.queue.writeBuffer(buffer, 0, toBufferView(attribute.array));
+      const attribute = geometry.attributes[name]!;
+      if (!buffers.needsUpload && this.uploadedVersions.get(attribute) === attribute.version) continue;
+      const data = toBufferView(attribute.array);
+      const buffer = this.bufferFitting(buffers.attributes.get(name), data, GPUBufferUsage.VERTEX);
+      buffers.attributes.set(name, buffer);
+      this.device.queue.writeBuffer(buffer, 0, data);
       this.uploadedVersions.set(attribute, attribute.version);
     }
-    if (geometry.index) {
-      if (!buffers.index) {
-        buffers.index = this.device.createBuffer({
-          size: Math.max(toBufferView(geometry.index.array, true).byteLength, 4),
-          usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-        });
-      }
-      this.device.queue.writeBuffer(buffers.index, 0, toBufferView(geometry.index.array, true));
-      buffers.indexFormat =
-        (toBufferView(geometry.index.array, true) as Uint16Array | Uint32Array).BYTES_PER_ELEMENT === 2
-          ? "uint16"
-          : "uint32";
+    const index = geometry.index;
+    if (index && (buffers.needsUpload || this.uploadedVersions.get(index) !== index.version)) {
+      const data = toBufferView(index.array, true);
+      buffers.index = this.bufferFitting(buffers.index ?? undefined, data, GPUBufferUsage.INDEX);
+      this.device.queue.writeBuffer(buffers.index, 0, data);
+      buffers.indexFormat = (data as Uint16Array | Uint32Array).BYTES_PER_ELEMENT === 2 ? "uint16" : "uint32";
+      this.uploadedVersions.set(index, index.version);
     }
     buffers.needsUpload = false;
     return buffers;
+  }
+
+  /**
+   * `buffer` when it holds `data`, or a new buffer of `usage` that does, the
+   * old one destroyed: a buffer's size is fixed when it is made, so an
+   * attribute whose array grew needs a bigger one.
+   */
+  private bufferFitting(buffer: GPUBuffer | undefined, data: ArrayBufferView, usage: number): GPUBuffer {
+    if (buffer && buffer.size >= data.byteLength) return buffer;
+    buffer?.destroy();
+    return this.device.createBuffer({
+      size: Math.max(Math.ceil(data.byteLength / 4) * 4, 4),
+      usage: usage | GPUBufferUsage.COPY_DST,
+    });
   }
 
   /**
@@ -739,16 +744,11 @@ export class WebGPURenderer {
       return buffers.attributes.get(name) ?? null;
     }
     let buffer = this.attributeBuffers.get(attr);
-    const isNew = buffer === undefined;
-    if (!buffer) {
-      buffer = this.device.createBuffer({
-        size: Math.max(toBufferView(attr.array).byteLength, 4),
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-      });
+    if (!buffer || this.uploadedVersions.get(attr) !== attr.version) {
+      const data = toBufferView(attr.array);
+      buffer = this.bufferFitting(buffer, data, GPUBufferUsage.VERTEX);
       this.attributeBuffers.set(attr, buffer);
-    }
-    if (isNew || this.uploadedVersions.get(attr) !== attr.version) {
-      this.device.queue.writeBuffer(buffer, 0, toBufferView(attr.array));
+      this.device.queue.writeBuffer(buffer, 0, data);
       this.uploadedVersions.set(attr, attr.version);
     }
     return buffer;
@@ -764,16 +764,20 @@ export class WebGPURenderer {
     const dimension = samplerDimension(samplerType);
     let gpu = this.textures.get(t);
     if (!gpu || this.uploadedVersions.get(t) !== t.version) {
-      const width = ArrayBuffer.isView(t.image) ? ((t as DataTexture).width ?? 1) : 1;
-      const height = ArrayBuffer.isView(t.image) ? ((t as DataTexture).height ?? 1) : 1;
+      // An image element, bitmap or canvas has a size of its own; a data texture names its size.
+      const source = imageSource(t.image);
+      const width = source ? source.width : ArrayBuffer.isView(t.image) ? ((t as DataTexture).width ?? 1) : 1;
+      const height = source ? source.height : ArrayBuffer.isView(t.image) ? ((t as DataTexture).height ?? 1) : 1;
       const depth = dimension === "3d" ? ((t as DataTexture).depth ?? 1) : 1;
-      const format = integer
+      const format: GPUTextureFormat = integer
         ? textureChannels(t) === 1
           ? samplerType.startsWith("isampler")
             ? "r8sint"
             : "r8uint"
           : integerGpuFormat(samplerType, ArrayBuffer.isView(t.image) ? t.image : null)
-        : "rgba8unorm";
+        : isFloatTexture(t)
+          ? "rgba32float"
+          : "rgba8unorm";
       // A WebGPU texture's size/format is fixed at creation, so a reshaped
       // image gets a new texture — whatever bound the old one must rebind.
       if (
@@ -789,13 +793,23 @@ export class WebGPURenderer {
         gpu = this.device.createTexture({
           size: [width, height, depth],
           format,
-          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+          // Copying an image source in renders into the texture.
+          usage:
+            GPUTextureUsage.TEXTURE_BINDING |
+            GPUTextureUsage.COPY_DST |
+            (source ? GPUTextureUsage.RENDER_ATTACHMENT : 0),
         });
         this.textures.set(t, gpu);
         t.addEventListener("dispose", this.onTextureDispose);
       }
       if (ArrayBuffer.isView(t.image)) {
         this.writeTexture(gpu, t.image as unknown as ArrayBufferView<ArrayBuffer>, width, height, depth, format);
+      } else if (source) {
+        this.device.queue.copyExternalImageToTexture(
+          { source: source as GPUCopyExternalImageSource },
+          { texture: gpu },
+          [width, height],
+        );
       }
       this.uploadedVersions.set(t, t.version);
     }
@@ -816,7 +830,7 @@ export class WebGPURenderer {
     format: GPUTextureFormat,
   ): void {
     const bytesPerTexel =
-      format === "rgba32uint" || format === "rgba32sint"
+      format === "rgba32uint" || format === "rgba32sint" || format === "rgba32float"
         ? 16
         : format === "rgba16uint" || format === "rgba16sint"
           ? 8
@@ -848,10 +862,22 @@ export class WebGPURenderer {
     return blankTexture(this.blankTextures, samplerType);
   }
 
+  /**
+   * Whether `texture` holds 32-bit floats the device cannot filter, so it binds
+   * as an unfilterable texture and reads through a sampler that takes the
+   * nearest texel.
+   */
+  private unfilterable(texture: Texture | null): boolean {
+    return texture !== null && isFloatTexture(texture) && !this.device.features?.has("float32-filterable");
+  }
+
   /** The sampler that reads this texture the way the texture asks to be read. */
   private ensureSampler(texture: Texture | null, samplerType = "sampler2D"): GPUSampler {
     const t = texture ?? this.blankTexture();
-    const state = samplerState(t, samplerType);
+    const asked = samplerState(t, samplerType);
+    const state = this.unfilterable(t)
+      ? { ...asked, magFilter: "nearest" as const, minFilter: "nearest" as const }
+      : asked;
     const key = samplerKey(state);
     this.samplerKeys.set(t, key);
     let sampler = this.samplers.get(key);
@@ -945,6 +971,18 @@ function vertexFormatFromType(type: string): VertexFormat {
  * The WebGPU format for an integer RGBA texture, from the bit depth of its
  * data view and the sampler's signedness.
  */
+/** The texture a program's sampler of that name reads now, or null. */
+function entryTexture(program: MaterialProgram, name: string): Texture | null {
+  return program.samplers.find((s) => s.name === name)?.texture() ?? null;
+}
+
+/** `image` when it is an image element, bitmap or canvas, which has a size of its own, or null for data or nothing. */
+function imageSource(image: Texture["image"]): { width: number; height: number } | null {
+  if (image === null || ArrayBuffer.isView(image)) return null;
+  const { width, height } = image as { width?: number; height?: number };
+  return typeof width === "number" && typeof height === "number" ? { width, height } : null;
+}
+
 function integerGpuFormat(samplerType: string, view: ArrayBufferView | null): GPUTextureFormat {
   const signed = samplerType.startsWith("isampler");
   const bytes = (view as { BYTES_PER_ELEMENT?: number } | null)?.BYTES_PER_ELEMENT ?? 1;
