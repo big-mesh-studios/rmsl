@@ -151,7 +151,7 @@ afterAll(async () => {
  * it hit.
  */
 const STORAGE_SCENE = `
-import { Fn, attribute, builtinPosition, instancedArray, int, vec3, vec4 } from "../rmsl";
+import { Fn, attribute, builtinPosition, instancedArray, int, uniform, vec2, vec3, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
 ${READ_PIXEL}
 const position = attribute("vec3");
@@ -199,6 +199,14 @@ globalThis.__rmslStorageDraw = {
     return draw(Fn(() => colours.element(int(1)))(), (adapter) =>
       adapter.setAttribute(colours.name, Float32Array.of(1, 0, 0, 1, 0, 1, 0, 1)),
     );
+  },
+  setUniformOnStorage: () => {
+    const colours = instancedArray(Float32Array.of(0, 1, 0, 1), "vec4");
+    return draw(Fn(() => colours.element(int(0)))(), (adapter) => adapter.setUniform(colours.name, 1));
+  },
+  setUniformOnTexture: () => {
+    const image = uniform("sampler2D");
+    return draw(Fn(() => image.texture(vec2(0, 0)))(), (adapter) => adapter.setUniform(image.name, 1));
   },
   // A context whose MAX_TEXTURE_SIZE is 4, where 40 texels need a texture 8 wide.
   oversize: () => {
@@ -249,6 +257,22 @@ describe.skipIf(!GPU_ENABLED)("createGlsl reading storage in a render stage", ()
    */
   it("reads an element past the first row of a storage texture with createGlsl", async () => {
     expect(await drawn("wrapped")).toEqual({ r: 147, g: 0, b: 0, a: 255 });
+  }, 120_000);
+
+  /**
+   * @canon spec-the-glsl-adapter-names-the-call-that-sets-a-sampler-slot
+   */
+  it("names setAttribute for setUniform on a storage buffer's slot with createGlsl", async () => {
+    expect(await drawn("setUniformOnStorage")).toEqual({
+      error: expect.stringMatching(/storage buffer.*setAttribute/),
+    });
+  }, 120_000);
+
+  /**
+   * @canon spec-the-glsl-adapter-names-the-call-that-sets-a-sampler-slot
+   */
+  it("names setTexture for setUniform on a texture's slot with createGlsl", async () => {
+    expect(await drawn("setUniformOnTexture")).toEqual({ error: expect.stringMatching(/texture.*setTexture/) });
   }, 120_000);
 
   /**

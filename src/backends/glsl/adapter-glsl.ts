@@ -237,10 +237,20 @@ function uniformSetter(
   }
 }
 
-/** Uploads `value` to a uniform, one element after another for a uniform array, a bool as 0 or 1. */
-function setUniformValue(gl: WebGL2RenderingContext, slot: string, info: UniformInfo, value: unknown): void {
+/**
+ * Uploads `value` to a uniform, one element after another for a uniform array, a bool as 0 or 1.
+ * `storage` says whether the slot is the sampler of a storage buffer, which names the call that sets it.
+ */
+function setUniformValue(
+  gl: WebGL2RenderingContext,
+  slot: string,
+  info: UniformInfo,
+  value: unknown,
+  storage: boolean,
+): void {
   const set = uniformSetter(gl, info.type);
-  if (!set) throw new Error(`[RMSL] setUniform: "${slot}" is a sampler, which setTexture sets`);
+  if (!set && storage) throw new Error(`[RMSL] setUniform: "${slot}" is a storage buffer, which setAttribute sets`);
+  if (!set) throw new Error(`[RMSL] setUniform: "${slot}" is a texture, which setTexture sets`);
   const values = (Array.isArray(value) ? value.flat(2) : [value]).map(Number);
   set(info.location, values);
 }
@@ -347,7 +357,7 @@ export function createGlsl(
     state?.begin(GlState.program);
     try {
       gl.useProgram(program);
-      setUniformValue(gl, slot, info, value);
+      setUniformValue(gl, slot, info, value, storages.has(slot));
     } finally {
       state?.end();
     }

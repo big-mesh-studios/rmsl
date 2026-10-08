@@ -64,6 +64,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-adapter-writes-a-texture-of-the-same-shape-in-place`](#spec-an-adapter-writes-a-texture-of-the-same-shape-in-place) — `setTexture` of a texture of the size and format a sampler's GPU texture already has writes into that GPU texture on `createGlsl` and `createWgsl`, rather than making a new one, and four-channel data of the array type the texture holds goes up without a copy.
     - [`@spec an-adapter-takes-the-texture-a-sampler-reads-from-the-host`](#spec-an-adapter-takes-the-texture-a-sampler-reads-from-the-host) — `setTexture(sampler, texture)` gives a sampler uniform the texture it reads on every adapter that draws: `createGlsl`, `createWgsl`, `createJs` and `createWasm`. The sampler is named by its node or its slot, and the texture is described as a CPU target samples it. A GPU target reads 8-bit data as 0 to 1, and takes an integer array for an integer sampler.
     - [`@spec an-adapter-sets-a-uniform-of-every-type-its-program-declares`](#spec-an-adapter-sets-a-uniform-of-every-type-its-program-declares) — An adapter's `setUniform` uploads a uniform of every value type its program can declare.
+    - [`@spec the-glsl-adapter-names-the-call-that-sets-a-sampler-slot`](#spec-the-glsl-adapter-names-the-call-that-sets-a-sampler-slot) — `setUniform` on `createGlsl` refuses a slot its program declares as a sampler, and names the call that sets it: `setTexture` for a texture, and `setAttribute` for a storage buffer a render stage reads.
     - [`@spec a-wgsl-stage-given-the-program-uniforms-declares-every-one`](#spec-a-wgsl-stage-given-the-program-uniforms-declares-every-one) — A WGSL stage given the program's `uniforms` declares each of them in its struct, whether the stage reads it or not.
     - [`@spec the-uniforms-list-holds-the-uniform-nodes`](#spec-the-uniforms-list-holds-the-uniform-nodes) — The `uniforms` list a WGSL stage takes holds the uniform nodes themselves, not declarations of their slots.
     - [`@spec a-wgsl-stage-refuses-a-uniform-the-given-uniforms-leave-out`](#spec-a-wgsl-stage-refuses-a-uniform-the-given-uniforms-leave-out) — The compiler refuses a WGSL stage that reads a uniform the given `uniforms` leave out, and names that uniform.
@@ -1116,6 +1117,14 @@ This follows because a texture cannot sit in a uniform value, so the host gives 
 > An adapter's `setUniform` uploads a uniform of every value type its program can declare.
 
 This follows because a program may declare a uniform of any value type, and the adapter is how the host gives it a value.
+
+#### @spec the-glsl-adapter-names-the-call-that-sets-a-sampler-slot
+
+> `setUniform` on `createGlsl` refuses a slot its program declares as a sampler, and names the call that sets it: `setTexture` for a texture, and `setAttribute` for a storage buffer a render stage reads.
+
+Derives from: [`spec-a-glsl-stage-declares-a-storage-buffer-as-a-sampler-under-its-slot`](#spec-a-glsl-stage-declares-a-storage-buffer-as-a-sampler-under-its-slot), [`spec-the-glsl-adapter-uploads-each-storage-buffer-it-reads`](#spec-the-glsl-adapter-uploads-each-storage-buffer-it-reads)
+
+This follows because a sampler holds no value that `setUniform` could upload, and both a texture and a storage buffer reach a GLSL stage as a sampler, each through a call of its own.
 
 #### @spec a-wgsl-stage-given-the-program-uniforms-declares-every-one
 
