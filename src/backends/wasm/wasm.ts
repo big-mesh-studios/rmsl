@@ -1850,9 +1850,10 @@ export function compileWasmFn(
 
       case "vertexIndex":
       case "attribute": {
-        const addr = attributeAddress.get(node.type === "vertexIndex" ? VERTEX_INDEX_SLOT : node.value.slot);
+        const slot = node.type === "vertexIndex" ? VERTEX_INDEX_SLOT : node.value.slot;
+        const addr = attributeAddress.get(slot);
         if (addr === undefined)
-          throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed attribute "${node.value.slot}"`);
+          throw new Error(`[RMSL] compileWasmFn: internal error, unaddressed attribute "${slot}"`);
         return addr;
       }
 
