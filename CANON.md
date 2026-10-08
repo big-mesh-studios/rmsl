@@ -226,10 +226,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-compute-program-cannot-read-an-attribute`](#spec-a-compute-program-cannot-read-an-attribute) — A compute program that reads an [attribute](#term-attribute) is refused on every target that compiles one. A compute program reaches a buffer through `storage()`, which reads what an attribute lies over.
     - [`@spec a-compute-program-cannot-read-a-varying`](#spec-a-compute-program-cannot-read-a-varying) — A compute program that reads a [varying](#term-varying) is refused on every target that compiles one. A compute program has no vertex stage to pass a value from.
     - [`@spec a-render-stage-reads-storage-read-only`](#spec-a-render-stage-reads-storage-read-only) — A vertex or fragment stage reads a storage buffer read-only, on WGSL and on GLSL. A write to one from a render stage is refused.
-      - [`@spec a-wgsl-render-stage-reads-storage-read-only`](#spec-a-wgsl-render-stage-reads-storage-read-only) — On WGSL, a vertex or fragment stage declares a storage buffer read-only, in a group of its own numbered across both stages. It refuses a write to the buffer.
+      - [`@spec a-wgsl-render-stage-reads-storage-read-only`](#spec-a-wgsl-render-stage-reads-storage-read-only) — On WGSL, a vertex or fragment stage declares a storage buffer read-only, in a group of its own numbered across both stages. It refuses a write to the buffer, to a whole element or to a component of one.
       - [`@spec a-glsl-render-stage-reads-storage-through-a-data-texture`](#spec-a-glsl-render-stage-reads-storage-through-a-data-texture) — On GLSL, a vertex or fragment stage reads a storage buffer through a texture that holds its elements, declared as a sampler uniform under the buffer's slot name. It refuses a write to the buffer.
         - [`@spec a-glsl-stage-declares-a-storage-buffer-as-a-sampler-under-its-slot`](#spec-a-glsl-stage-declares-a-storage-buffer-as-a-sampler-under-its-slot) — A GLSL render stage declares each storage buffer it reads as a sampler uniform named after the buffer's slot, and reads `element(i)` with `texelFetch`.
-        - [`@spec a-glsl-render-stage-refuses-a-write-to-storage`](#spec-a-glsl-render-stage-refuses-a-write-to-storage) — The GLSL compiler refuses a write to a storage buffer from a vertex or fragment stage.
+        - [`@spec a-glsl-render-stage-refuses-a-write-to-storage`](#spec-a-glsl-render-stage-refuses-a-write-to-storage) — The GLSL compiler refuses a write to a storage buffer from a vertex or fragment stage, to a whole element or to a component of one.
         - [`@spec a-storage-texel-holds-one-element-or-one-column`](#spec-a-storage-texel-holds-one-element-or-one-column) — A texel of a storage texture holds one element, with as many channels as the element has components, of an integer format for an `int` or `uint` element. A matrix element takes one texel for each of its columns, in consecutive texels.
         - [`@spec a-storage-texture-is-a-power-of-two-wide`](#spec-a-storage-texture-is-a-power-of-two-wide) — A storage texture is as wide as the smallest power of two at or above the square root of its texel count, and as tall as its texels need. Texel `t` sits at column `t % width` and row `t / width`, where the stage reads `width` from the texture's size.
         - [`@spec the-glsl-adapter-uploads-each-storage-buffer-it-reads`](#spec-the-glsl-adapter-uploads-each-storage-buffer-it-reads) — `createGlsl` uploads each storage buffer its stages read as a storage texture, from the buffer's contents at `attach`. `setAttribute` on the buffer's slot fills it again.
@@ -2017,7 +2017,7 @@ This follows because a varying is an output of the vertex stage and an input of 
 
 ##### @spec a-wgsl-render-stage-reads-storage-read-only
 
-> On WGSL, a vertex or fragment stage declares a storage buffer read-only, in a group of its own numbered across both stages. It refuses a write to the buffer.
+> On WGSL, a vertex or fragment stage declares a storage buffer read-only, in a group of its own numbered across both stages. It refuses a write to the buffer, to a whole element or to a component of one.
 
 ##### @spec a-glsl-render-stage-reads-storage-through-a-data-texture
 
@@ -2033,7 +2033,7 @@ This follows because WebGL 2 has no storage buffers, and a texture can be read a
 
 ###### @spec a-glsl-render-stage-refuses-a-write-to-storage
 
-> The GLSL compiler refuses a write to a storage buffer from a vertex or fragment stage.
+> The GLSL compiler refuses a write to a storage buffer from a vertex or fragment stage, to a whole element or to a component of one.
 
 ###### @spec a-storage-texel-holds-one-element-or-one-column
 

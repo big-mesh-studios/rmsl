@@ -81,6 +81,28 @@ describe("storage buffers in render stages", () => {
     expect(() => compileGlsl.vertex(vertex)).toThrow(/read-only in a vertex shader/);
   });
   /**
+   * @canon spec-a-glsl-render-stage-refuses-a-write-to-storage
+   */
+  it("rejects a write to a component of a storage element from a render stage on GLSL", () => {
+    const values = instancedArray(4, "vec4");
+    const fragment = Fn(() => {
+      values.element(uint(0)).x.assign(float(1));
+      return vec4(0, 0, 0, 1);
+    })();
+    expect(() => compileGlsl.fragment(fragment)).toThrow(/read-only in a fragment shader/);
+  });
+  /**
+   * @canon spec-a-wgsl-render-stage-reads-storage-read-only
+   */
+  it("rejects a write to a component of a storage element from a render stage", () => {
+    const values = instancedArray(4, "vec4");
+    const fragment = Fn(() => {
+      values.element(uint(0)).x.assign(float(1));
+      return vec4(0, 0, 0, 1);
+    })();
+    expect(() => compileWgsl.fragment(fragment)).toThrow(/read-only in a fragment shader/);
+  });
+  /**
    * @canon spec-the-index-accessors-are-read-only
    */
   it("refuses a write to the instance index on GLSL and WGSL", () => {

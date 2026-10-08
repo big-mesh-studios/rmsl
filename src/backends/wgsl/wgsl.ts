@@ -26,6 +26,7 @@ import {
   assertSquareMatrix,
   assertConstantIndexInRange,
   assertAssignable,
+  assignedStorageElement,
   parameterNode,
   assertStageResult,
   prepareRoots,
@@ -1131,7 +1132,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
         ctx.positionWritten = true;
       }
       assertAssignable(node.params![0], ctx.shaderStage);
-      if ((node.params![0] as any)?.type === "storageElement" && ctx.shaderStage !== "compute") {
+      if (assignedStorageElement(node.params![0]) && ctx.shaderStage !== "compute") {
         throw new Error(
           `[RMSL] storage buffers are read-only in a ${ctx.shaderStage} shader; write them from a compute program`,
         );
