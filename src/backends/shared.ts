@@ -681,7 +681,26 @@ function lowerOutputStruct<T extends BaseNode<ShaderType>>(roots: readonly T[]):
  * {@link fragmentColour}. Any other stage, and a program with no stage,
  * refuses an `outputStruct`, which is a fragment stage's result.
  */
+/**
+ * Refuses a storage node read as a whole value, rather than through
+ * `.element(i)`: a whole buffer has no value a program computes with. An
+ * assignment to one has its own refusal, in `assertAssignable`.
+ */
+export function assertNoWholeStorageRead(roots: readonly unknown[]): void {
+  const refuse = (storage: any): never => {
+    throw new Error(`[RMSL] storage "${storage.value.slot}" is read as a whole; read one element with .element(i).`);
+  };
+  for (const root of roots) if ((root as any)?.type === "storage") refuse(root);
+  someNode(roots, (node) => {
+    node.params?.forEach((param: any, i: number) => {
+      const asBuffer = i === 0 && (node.type === "storageElement" || node.type === "assign");
+      if (param?.type === "storage" && !asBuffer) refuse(param);
+    });
+  });
+}
+
 export function prepareRoots<T extends Node<ShaderType>>(stage: string | undefined, roots: readonly T[]): T[] {
+  assertNoWholeStorageRead(roots);
   if (stage === "fragment")
     return fragmentColour(lowerOutputStruct(roots as readonly BaseNode<ShaderType>[]) as unknown as T[]);
   if (someNode(roots, (n) => n.type === "outputStruct")) {

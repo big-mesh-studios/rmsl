@@ -1,43 +1,13 @@
 import { describe, expect, it } from "vitest";
-import {
-  Fn,
-  float,
-  instancedArray,
-  instanceIndex,
-  int,
-  Loop,
-  mat2,
-  mat3,
-  uniform,
-  vec2,
-  vec3,
-  vec4,
-  vertexIndex,
-  type Node,
-} from "../rmsl";
+import { Fn, float, instanceIndex, int, Loop, mat3, vec4, vertexIndex } from "../rmsl";
 import { compileGlsl } from "../glsl";
-import { compileWgsl } from "../wgsl";
 import { compileJSRoutine, compileJSVertex } from "../js";
-import { compileWasmRoutine, compileWasmVertex } from "../wasm";
-import { evaluateWASM } from "../testing/shader-eval";
+import { compileWasmVertex } from "../wasm";
 
 const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
 const none = { name: "main", params: [] };
 
-const narrow = (a: Node<"float">) => mat2(mat3(vec3(a, 2, 3), vec3(4, 5, 6), vec3(7, 8, 9))).element(int(1)).y;
-
 describe("known bugs, each failing until its fix", () => {
-  /**
-   * @canon bug-js-and-wgsl-read-a-whole-storage-buffer
-   */
-  it.fails("refuses a whole storage buffer read as a value on JS and WGSL", () => {
-    const values = instancedArray(4, "float");
-    expect(() => compileJSRoutine(() => Fn(() => (values as any).add(1).toVar())(), none)).toThrow(/read as a whole/);
-    expect(() => compileWgsl.fragment(Fn(() => vec4((values as any).add(1), 0, 0, 1).toVar())())).toThrow(
-      /read as a whole/,
-    );
-  });
-
   /**
    * @canon bug-the-cpu-targets-compile-no-index-accessors
    */

@@ -237,7 +237,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec operands-of-different-widths-are-refused`](#spec-operands-of-different-widths-are-refused) — An operation on two vectors of different widths is refused, by the type checker and on every target. A scalar beside a vector broadcasts instead.
     - [`@spec an-arithmetic-result-has-the-width-of-the-wider-operand`](#spec-an-arithmetic-result-has-the-width-of-the-wider-operand) — An arithmetic operation on a scalar and a vector gives a vector of the vector's width, whichever side the scalar is on. The types say so too.
     - [`@spec a-whole-storage-buffer-cannot-be-read`](#spec-a-whole-storage-buffer-cannot-be-read) — A storage node read as a whole, rather than through `element(i)`, is refused.
-      - [`@bug js-and-wgsl-read-a-whole-storage-buffer`](#bug-js-and-wgsl-read-a-whole-storage-buffer) — JS and WGSL compile a storage node read as a whole. JS adds a number to an array, and WGSL emits a shader no driver accepts. Only WASM refuses it.
     - [`@spec a-scalar-argument-beside-a-vector-is-widened-to-it`](#spec-a-scalar-argument-beside-a-vector-is-widened-to-it) — A scalar argument beside a vector in `step`, `smoothstep`, `clamp`, `min`, `max`, `pow` or `mod` is widened to that vector before any target compiles it.
     - [`@spec an-integer-and-a-float-operand-are-refused`](#spec-an-integer-and-a-float-operand-are-refused) — An operation on an integer operand and a float operand is refused, by the type checker and on every target. A bare number takes the type beside it instead.
     - [`@spec a-for-update-that-holds-a-block-is-refused`](#spec-a-for-update-that-holds-a-block-is-refused) — A `For` whose update holds a block, such as an `If`, is refused on every target.
@@ -2050,12 +2049,6 @@ This follows because a scalar beside a vector broadcasts, and the result has the
 #### @spec a-whole-storage-buffer-cannot-be-read
 
 > A storage node read as a whole, rather than through `element(i)`, is refused.
-
-##### @bug js-and-wgsl-read-a-whole-storage-buffer
-
-> JS and WGSL compile a storage node read as a whole. JS adds a number to an array, and WGSL emits a shader no driver accepts. Only WASM refuses it.
-
-Issue: #67
 
 #### @spec a-scalar-argument-beside-a-vector-is-widened-to-it
 

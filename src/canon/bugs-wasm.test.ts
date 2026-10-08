@@ -5,28 +5,18 @@ import {
   builtinPosition,
   Discard,
   float,
-  floor,
   Fn,
-  For,
   fragCoord,
   If,
   instancedArray,
   int,
-  invocationIndex,
-  ivec2,
-  pow,
-  sin,
-  textureLoad,
   uniform,
   varying,
-  vec2,
-  vec3,
   vec4,
 } from "../rmsl";
-import { compileWasm, compileWasmFn, compileWasmRoutine, createWasmCompute, createWasmGrid } from "../wasm";
+import { compileWasm, compileWasmFn, createWasmCompute } from "../wasm";
 
 const none = { name: "main", params: [] };
-const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
 
 /** A triangle at depth `z` that covers the whole viewport. */
 const screen = (z = 0) => new Float64Array([-1, -1, z, 3, -1, z, -1, 3, z]);

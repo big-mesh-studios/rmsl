@@ -134,8 +134,8 @@ describe("a mistake is refused before the program runs", () => {
   /**
    * A `Break` outside a loop and a `cross` of vectors that are not `vec3` are
    * each refused on the CPU targets, beside a program that does both the way
-   * a target can run them. WASM also refuses a whole storage buffer read as a
-   * value.
+   * a target can run them. Every target refuses a whole storage buffer read as
+   * a value, beside the element of it the runnable program reads.
    *
    * @canon spec-break-or-continue-outside-a-loop-is-refused
    * @canon spec-cross-of-a-vector-that-is-not-a-vec3-is-refused
@@ -161,8 +161,13 @@ describe("a mistake is refused before the program runs", () => {
         ),
       ).toThrow();
       expect(() => compile(() => Fn(() => (vec2(1, 0) as any).cross(vec2(0, 1)).toVar())())).toThrow();
+      expect(() => compile(() => Fn(() => (values as any).add(1).toVar())())).toThrow(
+        /read as a whole; read one element/,
+      );
     }
-    expect(() => cpuCompilers[1]!(() => Fn(() => (values as any).add(1).toVar())())).toThrow(/read as a whole/);
+    const wholeRead = () => Fn(() => vec4((values as any).add(1), 0, 0, 1).toVar())();
+    expect(() => compileWgsl.fragment(wholeRead())).toThrow(/read as a whole; read one element/);
+    expect(() => compileGlsl.fragment(wholeRead())).toThrow(/read as a whole; read one element/);
   });
 
   /**
