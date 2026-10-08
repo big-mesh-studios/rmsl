@@ -112,8 +112,12 @@ export class WebGLRenderer {
   readonly precision: GLSLPrecision;
   /** Saves the state each call changes and puts it back, when `preserveState` asks for it. */
   private readonly state: GlStateKeeper | null;
-  /** The vertex array every draw binds its buffers and attributes in, so none of the application's changes. */
-  private readonly vertexArray: WebGLVertexArrayObject;
+  /**
+   * The vertex array every draw binds its buffers and attributes in, so none of
+   * the application's changes; made on the first render after construction or
+   * `dispose`.
+   */
+  private vertexArray: WebGLVertexArrayObject | null = null;
 
   /**
    * With `preserveState: true`, each call puts back the WebGL state it changed
@@ -137,7 +141,6 @@ export class WebGLRenderer {
     // A float texture filters linearly only with this extension, as in three.js.
     this.floatLinear = gl.getExtension("OES_texture_float_linear") !== null;
     this.state = options.preserveState ? new GlStateKeeper(gl) : null;
-    this.vertexArray = gl.createVertexArray()!;
   }
 
   setClearColor(color: Color | number, alpha = 1): void {
@@ -184,7 +187,7 @@ export class WebGLRenderer {
 
   private renderFrame(scene: Scene, camera: Camera, target: WebGLRenderTarget | null): void {
     const gl = this.gl;
-    gl.bindVertexArray(this.vertexArray);
+    gl.bindVertexArray((this.vertexArray ??= gl.createVertexArray()));
 
     scene.updateMatrixWorld(true);
     camera.updateMatrixWorld(true);
@@ -931,6 +934,7 @@ export class WebGLRenderer {
     }
     for (const [target, entry] of this.renderTargets) this.deleteRenderTarget(target, entry);
     gl.deleteVertexArray(this.vertexArray);
+    this.vertexArray = null;
     this.programs.clear();
     this.geometryBuffers.clear();
     this.attributeBuffers.clear();

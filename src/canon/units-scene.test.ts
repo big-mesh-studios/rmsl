@@ -577,6 +577,25 @@ describe("a scene renderer manages what it uploads", () => {
   });
 
   /**
+   * @canon spec-the-webgl-renderer-draws-from-its-own-vertex-array
+   */
+  it("draws from a vertex array of its own after it was disposed on WebGL", () => {
+    let made = 0;
+    const { renderer, calls } = stubWebGl({ createVertexArray: () => ({ made: ++made }) });
+    const scene = new Scene();
+    scene.add(new Mesh(new PlaneGeometry(), new MeshBasicMaterial()));
+    renderer.render(scene, camera());
+    renderer.dispose();
+    const before = calls.length;
+    renderer.render(scene, camera());
+
+    const bound = calls.slice(before).find((c) => c.name === "bindVertexArray")!.args[0];
+    const deleted = calls.filter((c) => c.name === "deleteVertexArray").map((c) => c.args[0]);
+    expect(bound).not.toBeNull();
+    expect(deleted).not.toContain(bound);
+  });
+
+  /**
    * @canon exception-preserving-webgl-state-allocates-on-each-call
    */
   it("reads the viewport, the clear colour and the colour mask on each render with preserveState", () => {
