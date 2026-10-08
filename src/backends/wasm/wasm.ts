@@ -2116,11 +2116,6 @@ export function compileWasmFn(
         WASM_OP.end,
       ];
     }
-    if (vector.type === "swizzle") {
-      throw new Error(
-        "[RMSL] compileWasmFn: writing a component by index through a swizzle isn't supported yet; write it through the swizzle's letters, as .x",
-      );
-    }
     const base = nodeAddress(vector);
     if (isLeafLiteral(index)) return storeComponent(base, kind, constantIndex(vector, index) * compSize, walkExpr(rhs));
     return storeDynamic(
