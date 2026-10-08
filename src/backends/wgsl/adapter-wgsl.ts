@@ -734,9 +734,22 @@ export function createWgslCompute(
   let computeUniformBuffer: GPUBuffer | null = null;
   let computeUniformScratch: UniformScratch | null = null;
   let computeBindGroup0: GPUBindGroup | null = null;
+  /** Staging buffers of earlier readbacks that no call has mapped, which a readback takes before it makes one. */
+  let freeStagings: GPUBuffer[] = [];
 
   let pendingUniforms = new Map<string, number | number[]>();
   let pendingAttributes = new Map<string, TypedArray>();
+
+  /** A free staging buffer of at least `bytes`, taken out of the free ones, or else a new one. */
+  function takeStaging(bytes: number): GPUBuffer {
+    const index = freeStagings.findIndex((staging) => staging.size >= bytes);
+    if (index < 0)
+      return device!.createBuffer({ size: bytes, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+    const staging = freeStagings[index]!;
+    freeStagings[index] = freeStagings[freeStagings.length - 1]!;
+    freeStagings.pop();
+    return staging;
+  }
 
   function computeStorageResources(): Extract<WgslResource, { kind: "storage" }>[] {
     return computeResources.filter((r): r is Extract<WgslResource, { kind: "storage" }> => r.kind === "storage");
@@ -901,7 +914,7 @@ export function createWgslCompute(
           computeStorageResources().map((r) => r.name),
         ),
       );
-      // Each call reads back through staging buffers of its own, so a call made
+      // Each call takes staging buffers no other call holds, so a call made
       // before another resolves maps none of the other's.
       let reads = computeStorageResources()
         .filter((r) => requested.has(r.name))
@@ -919,15 +932,17 @@ export function createWgslCompute(
         });
       let readEncoder = device.createCommandEncoder();
       let stagings = reads.map(({ state, bytes }) => {
-        let staging = device!.createBuffer({ size: bytes, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+        let staging = takeStaging(bytes);
         readEncoder.copyBufferToBuffer(state.buffer, 0, staging, 0, bytes);
         return staging;
       });
       device.queue.submit([readEncoder.finish()]);
+      let mapped = false;
       try {
-        await Promise.all(stagings.map((staging) => staging.mapAsync(GPUMapMode.READ)));
-        reads.forEach(({ resource, state, target, valueCount }, i) => {
-          let range = stagings[i]!.getMappedRange();
+        await Promise.all(stagings.map((staging, i) => staging.mapAsync(GPUMapMode.READ, 0, reads[i]!.bytes)));
+        mapped = true;
+        reads.forEach(({ resource, state, target, valueCount, bytes }, i) => {
+          let range = stagings[i]!.getMappedRange(0, bytes);
           let values = elementView(resource.shaderType, {
             f32: new Float32Array(range),
             i32: new Int32Array(range),
@@ -938,7 +953,14 @@ export function createWgslCompute(
           else for (let k = 0; k < valueCount; k++) target[k] = values[state.layout.slot(k)]!;
         });
       } finally {
-        for (let staging of stagings) staging.destroy();
+        // A buffer that failed to map is not given to another call.
+        for (let staging of stagings) {
+          if (!mapped) staging.destroy();
+          else {
+            staging.unmap();
+            freeStagings.push(staging);
+          }
+        }
       }
       return out;
     },
@@ -953,6 +975,8 @@ export function createWgslCompute(
 
     destroy() {
       for (let state of storageSlots.values()) state.buffer.destroy();
+      for (let staging of freeStagings) staging.destroy();
+      freeStagings = [];
       computeUniformBuffer?.destroy();
       device?.destroy();
     },

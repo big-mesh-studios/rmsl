@@ -35,6 +35,39 @@ describe.skipIf(!GPU_ENABLED)("createWgslCompute reading back", () => {
   });
 });
 
+describe.skipIf(!GPU_ENABLED)("createWgslCompute staging buffers", () => {
+  /**
+   * The buffers the device makes are counted from the second call on, after
+   * the first has made what readback needs.
+   *
+   * @canon spec-a-wgsl-compute-call-reuses-its-staging-buffers
+   */
+  it("reads back through the staging buffers of an earlier call", async () => {
+    const values = instancedArray(4, "float");
+    const program = Fn(() => {
+      const i = invocationIndex();
+      values.element(i).assign(values.element(i).add(1));
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    adapter.setAttribute(values.name, new Float32Array(4));
+    const device = adapter.device()!;
+    const out = { [values.name]: new Float32Array(4) };
+    await adapter.compute(out);
+    let made = 0;
+    const createBuffer = device.createBuffer.bind(device);
+    device.createBuffer = (descriptor) => {
+      made++;
+      return createBuffer(descriptor);
+    };
+    await adapter.compute(out);
+    await adapter.compute(out);
+    expect(made).toBe(0);
+    expect(Array.from(out[values.name])).toEqual([3, 3, 3, 3]);
+    adapter.destroy();
+  });
+});
+
 describe.skipIf(!GPU_ENABLED)("createWgslCompute with integer data", () => {
   /**
    * @canon spec-an-integer-reaches-the-host-as-the-integer-it-is
