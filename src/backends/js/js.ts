@@ -1436,15 +1436,16 @@ function jsTypedInput(node: any, result: CompiledNode, ctx: CompileCtx): Compile
 
 /**
  * The lines that copy `read`, a vector or matrix of `type` the host passes,
- * into `out`, one line a component, reading zeros when the host leaves it out.
- * The zeros are an array of their own, so a load that only ever sees the
- * host's arrays stays specialised to them.
+ * into `out`, one line a component, reading zeros when the host leaves it out
+ * and zero for each component past the end of a shorter one. The zeros are an
+ * array of their own, so a load that only ever sees the host's arrays stays
+ * specialised to them.
  */
 function jsCopyInput(read: string, out: string, type: string, ctx: CompileCtx): string[] {
   jsRequireHelper(ctx, "zeros");
   let source = jsNewTemp(ctx, "float");
   let lines = [`${source} = ${jsInputRead(read, ctx)} ?? _zeros;`];
-  for (let i = 0; i < jsArrayLength(type); i++) lines.push(`${out}[${i}] = ${source}[${i}];`);
+  for (let i = 0; i < jsArrayLength(type); i++) lines.push(`${out}[${i}] = ${source}[${i}] ?? 0;`);
   return lines;
 }
 

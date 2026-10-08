@@ -585,8 +585,8 @@ function emitLiteralStores(node: any, addr: number): number[] {
   return out;
 }
 
-/** The components of a vector or matrix the host leaves out. */
-const ZERO_COMPONENTS: readonly number[] = new Array(16).fill(0);
+/** What a vector or matrix the host leaves out is read from: an array with no components, each of which is written as zero. */
+const ZERO_COMPONENTS: readonly number[] = [];
 
 /**
  * Host-side: packs an array value into linear memory. With `narrow` plus a
@@ -604,11 +604,11 @@ function writeAggregateToMemory(
   const kind = elementKindOf(shaderType);
 
   const compSize = narrow && kind === "float" ? 4 : componentSizeOf(kind);
-  // A value the host leaves out is written as zeros.
+  // A value the host leaves out, or a component past the end of a shorter one, is written as zero.
   const arr = (value ?? ZERO_COMPONENTS) as ArrayLike<number | boolean>;
-  const count = value == null ? componentCountOf(shaderType) : arr.length;
+  const count = componentCountOf(shaderType);
   for (let i = 0; i < count; i++) {
-    const raw = arr[i];
+    const raw = i < arr.length ? arr[i] : 0;
     const num = typeof raw === "boolean" ? (raw ? 1 : 0) : (raw as number);
     if (kind === "float") {
       if (narrow) view.setFloat32(address + i * compSize, num, true);

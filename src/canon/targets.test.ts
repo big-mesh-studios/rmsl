@@ -911,6 +911,34 @@ describe("each leaf on every target it claims", () => {
   });
 
   /**
+   * @canon spec-a-component-the-host-leaves-out-reads-zero
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ] as const)(
+    "reads a component the host leaves out of a vector as zero, and leaves an extra one unread, on %s",
+    (_, compile) => {
+      const v = uniform("vec2");
+      const w = uniform("vec2");
+      const pairs = uniformArray("vec2", 2);
+      const build = () =>
+        Fn(() =>
+          v.y
+            .add(w.x)
+            .add(w.y)
+            .add(pairs.element(int(0)).y)
+            .toVar(),
+        )() as any;
+      const routine = compile(build, none);
+      expect(routine({ uniforms: { [v.name]: [1, 2], [w.name]: [3, 4], [pairs.name]: [[5, 6]] } })).toBe(15);
+      // A second call, so a component an earlier call wrote cannot pass for one this call left out.
+      expect(routine({ uniforms: { [v.name]: [1], [w.name]: [3, 4], [pairs.name]: [[5]] } })).toBe(7);
+      expect(routine({ uniforms: { [v.name]: [1, 2, 100, 100], [w.name]: [3, 4], [pairs.name]: [[5, 6]] } })).toBe(15);
+    },
+  );
+
+  /**
    * @canon spec-a-uniform-array-element-the-host-leaves-out-reads-zero
    */
   it.each([

@@ -1268,7 +1268,7 @@ describe("the scalars and inputs of a JS function", () => {
     const source = compileJSFn(() => Fn(() => vec3(v.add(1).x, i.add(1).toFloat()).toVar())() as any, none);
     // Copied one component at a time where it is read, into a slot of the input's kind.
     expect(source).toMatch(
-      /(_rmsl_\w+) = \(ctx\.uniforms \?\? _none\)\["_rmsl_u\d+"\] \?\? _zeros;\s+(_rmsl_t\d+)\[0\] = \1\[0\];/,
+      /(_rmsl_\w+) = \(ctx\.uniforms \?\? _none\)\["_rmsl_u\d+"\] \?\? _zeros;\s+(_rmsl_t\d+)\[0\] = \1\[0\] \?\? 0;/,
     );
     expect(source).toMatch(/= new Int32Array\(_rmsl_slots, \d+, 2\);/);
     const run = compileJSRoutine(() => Fn(() => v.add(1).toVar())() as any, none);

@@ -170,6 +170,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec wgsl-converts-a-shift-amount-to-unsigned`](#spec-wgsl-converts-a-shift-amount-to-unsigned) — On WGSL, the compiler converts a signed shift amount to `u32`, and a scalar amount beside a vector to a `u32` vector of its width.
   - [`@spec wgsl-splats-a-scalar-bitwise-operand-beside-a-vector`](#spec-wgsl-splats-a-scalar-bitwise-operand-beside-a-vector) — On WGSL, the compiler converts a scalar right operand of `&`, `|` or `^` to the type of the vector beside it.
   - [`@spec a-uniform-array-element-the-host-leaves-out-reads-zero`](#spec-a-uniform-array-element-the-host-leaves-out-reads-zero) — An element past the end of a shorter array the host passes for a uniform array reads zero.
+  - [`@spec a-component-the-host-leaves-out-reads-zero`](#spec-a-component-the-host-leaves-out-reads-zero) — A component past the end of a shorter array the host passes for a vector or matrix input, a uniform, parameter, attribute or varying, reads zero, on every call. A component past the end of a longer one is not read.
 - [`@axiom a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs) — A program that cannot work is refused before it runs. The type checker refuses it wherever the types can express the mistake, and the compiler refuses it on every target. The refusal names the cause, and the fix where one exists.
   - [`@spec an-assignment-is-refused-unless-the-program-can-write-its-target`](#spec-an-assignment-is-refused-unless-the-program-can-write-its-target) — An assignment whose target the program cannot write is refused. Every target refuses it with the same message, and the type checker refuses it wherever the type of the target shows it.
     - [`@spec a-var-can-be-assigned`](#spec-a-var-can-be-assigned) — A program can assign a variable, a stage output and a storage element. It can also assign a component, a column or a swizzle of one that names each component once. A var goes wherever a node goes.
@@ -1716,6 +1717,14 @@ This follows because WGSL broadcasts no scalar across a vector for a bitwise ope
 Derives from: [`spec-an-unset-uniform-reads-zero`](#spec-an-unset-uniform-reads-zero)
 
 This follows because an element the host leaves out is a uniform it never set, and an unset uniform reads zero.
+
+### @spec a-component-the-host-leaves-out-reads-zero
+
+> A component past the end of a shorter array the host passes for a vector or matrix input, a uniform, parameter, attribute or varying, reads zero, on every call. A component past the end of a longer one is not read.
+
+Derives from: [`spec-an-unset-uniform-reads-zero`](#spec-an-unset-uniform-reads-zero), [`spec-an-input-the-host-leaves-out-reads-zero`](#spec-an-input-the-host-leaves-out-reads-zero)
+
+This follows because a component the host leaves out has no value, as an input it leaves out has none, and zero is what an unset uniform reads.
 
 ## @axiom a-mistake-is-refused-before-the-program-runs
 
