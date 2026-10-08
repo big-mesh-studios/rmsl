@@ -920,21 +920,25 @@ describe("each leaf on every target it claims", () => {
     "reads a component the host leaves out of a vector as zero, and leaves an extra one unread, on %s",
     (_, compile) => {
       const v = uniform("vec2");
-      const w = uniform("vec2");
       const pairs = uniformArray("vec2", 2);
+      const items = instancedArray(4, "float");
       const build = () =>
         Fn(() =>
           v.y
-            .add(w.x)
-            .add(w.y)
             .add(pairs.element(int(0)).y)
+            .add(items.element(int(2)))
             .toVar(),
         )() as any;
       const routine = compile(build, none);
-      expect(routine({ uniforms: { [v.name]: [1, 2], [w.name]: [3, 4], [pairs.name]: [[5, 6]] } })).toBe(15);
-      // A second call, so a component an earlier call wrote cannot pass for one this call left out.
-      expect(routine({ uniforms: { [v.name]: [1], [w.name]: [3, 4], [pairs.name]: [[5]] } })).toBe(7);
-      expect(routine({ uniforms: { [v.name]: [1, 2, 100, 100], [w.name]: [3, 4], [pairs.name]: [[5, 6]] } })).toBe(15);
+      const storages = { [items.name]: Float64Array.of(1, 2, 3, 4) };
+      const run = (value: unknown[], pair: unknown[]) =>
+        routine({ uniforms: { [v.name]: value, [pairs.name]: [pair] }, storages });
+      expect(run([1, 2], [5, 6])).toBe(11);
+      // Later calls, so a component an earlier call wrote cannot pass for one a call leaves out.
+      expect(run([1], [5])).toBe(3);
+      expect(run([1, undefined], [5, undefined])).toBe(3);
+      // Components past the end are not read, and nothing beside the input is written.
+      expect(run([1, 2, 9, 9, 9, 9, 9, 9, 9, 9], [5, 6, 9, 9])).toBe(11);
     },
   );
 

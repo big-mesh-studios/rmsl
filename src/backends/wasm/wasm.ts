@@ -585,7 +585,10 @@ function emitLiteralStores(node: any, addr: number): number[] {
   return out;
 }
 
-/** What a vector or matrix the host leaves out is read from: an array with no components, each of which is written as zero. */
+/**
+ * What a vector or matrix the host leaves out is read from: an array with no
+ * components, each of which is written as zero.
+ */
 const ZERO_COMPONENTS: readonly number[] = [];
 
 /**
@@ -608,7 +611,7 @@ function writeAggregateToMemory(
   const arr = (value ?? ZERO_COMPONENTS) as ArrayLike<number | boolean>;
   const count = componentCountOf(shaderType);
   for (let i = 0; i < count; i++) {
-    const raw = i < arr.length ? arr[i] : 0;
+    const raw = (i < arr.length ? arr[i] : 0) ?? 0;
     const num = typeof raw === "boolean" ? (raw ? 1 : 0) : (raw as number);
     if (kind === "float") {
       if (narrow) view.setFloat32(address + i * compSize, num, true);
