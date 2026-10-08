@@ -241,6 +241,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-scalar-argument-beside-a-vector-is-widened-to-it`](#spec-a-scalar-argument-beside-a-vector-is-widened-to-it) — A scalar argument beside a vector in `step`, `smoothstep`, `clamp`, `min`, `max`, `pow` or `mod` is widened to that vector before any target compiles it.
     - [`@spec an-integer-and-a-float-operand-are-refused`](#spec-an-integer-and-a-float-operand-are-refused) — An operation on an integer operand and a float operand is refused, by the type checker and on every target. A bare number takes the type beside it instead.
     - [`@spec a-for-update-that-holds-a-block-is-refused`](#spec-a-for-update-that-holds-a-block-is-refused) — A `For` whose update holds a block, such as an `If`, is refused where the `For` is built. Every target refuses it again as it compiles, so a graph `deserialize` rebuilt is refused alike. A write to a storage element holds no block, so an update that makes one compiles on every target that has storage buffers.
+    - [`@spec a-for-update-that-jumps-is-refused`](#spec-a-for-update-that-jumps-is-refused) — A `For` whose update holds a `Break`, `Continue`, `Discard` or `Return` is refused where the `For` is built. Every target refuses it again as it compiles, so a graph `deserialize` rebuilt is refused alike.
   - [`@spec a-case-is-added-in-the-block-of-its-switch`](#spec-a-case-is-added-in-the-block-of-its-switch) — A `Case` or `Default` called from a block other than its `Switch`'s, or after its `Default`, is refused as the program builds it. The error names it. So is one added after a statement that follows the `Case` before it, a variable included.
   - [`@spec a-case-with-no-values-is-refused`](#spec-a-case-with-no-values-is-refused) — A `Case` given no values is refused as the program builds it, with an error that names `Case`.
 - [`@axiom a-tsl-shader-ports-by-changing-its-import`](#axiom-a-tsl-shader-ports-by-changing-its-import) — rmsl follows Three.js TSL in its names, its argument order and its behaviour. A shader written against `three/tsl` ports by changing its import. rmsl departs from TSL only where the departure adds value. That value is one of the other axioms of this canon.
@@ -721,6 +722,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact glsl-refuses-a-constant-index-out-of-range`](#fact-glsl-refuses-a-constant-index-out-of-range) — GLSL ES 3.00 refuses a constant index past the components of a vector, the columns of a matrix or the elements of a fixed-size array, also when it indexes a variable.
 - [`@fact wgsl-takes-no-block-in-a-for-update`](#fact-wgsl-takes-no-block-in-a-for-update) — The update of a WGSL `for` is a single statement, so a block such as an `if` in it is a syntax error.
 - [`@fact glsl-takes-no-block-in-a-for-update`](#fact-glsl-takes-no-block-in-a-for-update) — The update of a GLSL `for` is an expression, so a block such as an `if` in it is a syntax error.
+- [`@fact wgsl-takes-no-jump-in-a-for-update`](#fact-wgsl-takes-no-jump-in-a-for-update) — The update of a WGSL `for` is an assignment, an increment, a decrement or a function call. A `break`, `continue`, `discard` or `return` in it is a syntax error.
+- [`@fact glsl-takes-no-jump-in-a-for-update`](#fact-glsl-takes-no-jump-in-a-for-update) — The update of a GLSL `for` is an expression, so a `break`, `continue`, `discard` or `return` in it is a syntax error.
 - [`@fact glsl-fills-a-matrix-from-components-in-column-order`](#fact-glsl-fills-a-matrix-from-components-in-column-order) — GLSL ES 3.00 fills a matrix built from vectors and scalars with their components in column order. So `mat2(vec4(a, b, c, d))` has the columns `(a, b)` and `(c, d)`. Too few components is an error.
 - [`@fact glsl-converts-the-parts-of-a-constructor-to-its-type`](#fact-glsl-converts-the-parts-of-a-constructor-to-its-type) — GLSL ES 3.00 converts a part of a vector or matrix constructor whose basic type differs from the constructor's. It converts by the rules of the scalar constructors. So `mat2(ivec2(1, 2), bvec2(true, false))` has the columns `(1.0, 2.0)` and `(1.0, 0.0)`.
 - [`@fact glsl-scalar-constructor-takes-the-first-component`](#fact-glsl-scalar-constructor-takes-the-first-component) — In GLSL ES 3.00, `float(v)`, `int(v)` and `uint(v)` of a vector `v` take its first component, converted to that type.
@@ -2082,6 +2085,14 @@ This follows because WGSL converts nothing implicitly and GLSL converts the inte
 Derives from: [`fact-wgsl-takes-no-block-in-a-for-update`](#fact-wgsl-takes-no-block-in-a-for-update), [`fact-glsl-takes-no-block-in-a-for-update`](#fact-glsl-takes-no-block-in-a-for-update)
 
 This follows because the update slot of a GLSL or WGSL `for` takes no block, and the program must run on every target.
+
+#### @spec a-for-update-that-jumps-is-refused
+
+> A `For` whose update holds a `Break`, `Continue`, `Discard` or `Return` is refused where the `For` is built. Every target refuses it again as it compiles, so a graph `deserialize` rebuilt is refused alike.
+
+Derives from: [`fact-wgsl-takes-no-jump-in-a-for-update`](#fact-wgsl-takes-no-jump-in-a-for-update), [`fact-glsl-takes-no-jump-in-a-for-update`](#fact-glsl-takes-no-jump-in-a-for-update)
+
+This follows because the update slot of a GLSL or WGSL `for` takes none of these statements, and the program must run on every target.
 
 ### @spec a-case-is-added-in-the-block-of-its-switch
 
@@ -4902,6 +4913,20 @@ This is a fact of the WGSL specification, not a choice.
 > The update of a GLSL `for` is an expression, so a block such as an `if` in it is a syntax error.
 
 Chromium's WebGL 2 compiler refuses `for (int i = 0; i < 3; if (true) { i++; }) { }` with `'if' : syntax error`, and accepts `for (int i = 0; i < 3; i++) { }`.
+
+## @fact wgsl-takes-no-jump-in-a-for-update
+
+> The update of a WGSL `for` is an assignment, an increment, a decrement or a function call. A `break`, `continue`, `discard` or `return` in it is a syntax error.
+
+Dawn refuses each of them as the update of `for (var i = 0; i < 3; …) { }` with `expected ')' for for loop`.
+
+This is a fact of the WGSL specification, not a choice.
+
+## @fact glsl-takes-no-jump-in-a-for-update
+
+> The update of a GLSL `for` is an expression, so a `break`, `continue`, `discard` or `return` in it is a syntax error.
+
+Chromium's WebGL 2 compiler refuses each of them as the update of `for (int i = 0; i < 3; …) { }`, as `'break' : syntax error` for `break`.
 
 ## @fact glsl-fills-a-matrix-from-components-in-column-order
 

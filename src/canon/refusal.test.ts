@@ -3,11 +3,13 @@ import {
   attribute,
   bool,
   Break,
+  Continue,
   builtinFragDepth,
   builtinPosition,
   Discard,
   float,
   For,
+  Return,
   fragCoord,
   Fn,
   If,
@@ -33,8 +35,14 @@ import {
   serialize,
   deserialize,
 } from "../rmsl";
-import { compileJSCompute, compileJSGrid, compileJSRoutine, compileJSVertex } from "../js";
-import { compileWasmCompute, compileWasmGrid, compileWasmRoutine, compileWasmVertex } from "../wasm";
+import { compileJSCompute, compileJSFragment, compileJSGrid, compileJSRoutine, compileJSVertex } from "../js";
+import {
+  compileWasmCompute,
+  compileWasmFragment,
+  compileWasmGrid,
+  compileWasmRoutine,
+  compileWasmVertex,
+} from "../wasm";
 import {
   assertRecordedShadersValid,
   recordShaderSource,
@@ -245,6 +253,58 @@ describe("a mistake is refused before the program runs", () => {
     expect(() => compileWgsl(deserialize(graph) as Node<"float">)).toThrow(refusal);
     for (const compile of cpuCompilers)
       expect(() => compile(() => deserialize(graph) as Node<"float">)).toThrow(refusal);
+  });
+
+  /**
+   * A `For` whose update leaves the loop or the function is refused as it is
+   * built, and as every target compiles it, a graph `deserialize` rebuilt
+   * included: the update slot of a GLSL, WGSL or JavaScript `for` takes no
+   * `break`, `continue`, `discard` or `return`.
+   *
+   * @canon spec-a-for-update-that-jumps-is-refused
+   */
+  it.each([
+    ["Break", Break],
+    ["Continue", Continue],
+    ["Discard", Discard],
+    ["Return", Return],
+  ] as const)("refuses a For whose update holds a %s on every target", (_, jump) => {
+    const refusal = /update cannot contain a break, continue, discard or return/;
+    const none = { name: "main", params: [] };
+    const compilers: [string, (build: () => Node<any>) => unknown][] = [
+      ["GLSL", (build) => compileGlsl.fragment(build())],
+      ["WGSL", (build) => compileWgsl.fragment(build())],
+      ["JS", (build) => compileJSFragment(build, none)],
+      ["WASM", (build) => compileWasmFragment(build, none)],
+    ];
+    const loop = (update: (i: any) => void) => () =>
+      Fn(() => {
+        const sum = float(0).toVar();
+        // A loop of its own before the For, whose jump a rebuilt update can name.
+        While(sum.lessThan(1), () => {
+          sum.addAssign(1);
+          jump();
+        });
+        For(
+          () => int(0).toVar(),
+          (i) => i.lessThan(3),
+          update,
+          () => sum.addAssign(1),
+        );
+        return vec4(sum);
+      })();
+    expect(
+      loop((i) => {
+        i.addAssign(1);
+        jump();
+      }),
+    ).toThrow(refusal);
+    const graph = serialize(loop((i) => i.addAssign(1))());
+    const update = graph.nodes[graph.nodes.find((n) => n.type === "for")!.params![2]!]!;
+    update.params!.push(graph.nodes.findIndex((n) => n.type === jump.name.toLowerCase()));
+    for (const [name, compile] of compilers) {
+      expect(() => compile(() => deserialize(graph) as Node<"vec4">), name).toThrow(refusal);
+    }
   });
 
   /**

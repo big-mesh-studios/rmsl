@@ -3470,17 +3470,26 @@ function loopCondition(cond: () => BooleanLike) {
 export const FOR_UPDATE_BLOCK_MESSAGE =
   "[RMSL] A for-loop's update cannot contain a block. Move the branch into the loop body, or write the loop with While.";
 
+/** Why a `For` whose update leaves the loop or the function is refused. */
+export const FOR_UPDATE_JUMP_MESSAGE =
+  "[RMSL] A for-loop's update cannot contain a break, continue, discard or return. Move it into the loop body.";
+
 /** The statements that open a block of their own on every target. */
 const BLOCK_STATEMENTS = new Set(["if", "for", "while"]);
 
-/** Whether a statement, or any it holds, is a block. Each node of the graph is visited once. */
-function holdsBlock(statement: unknown): boolean {
-  return someNode(statement, (node) => BLOCK_STATEMENTS.has(node.type));
-}
+/** The statements that leave the loop or the function they are in. */
+const JUMP_STATEMENTS = new Set(["break", "continue", "discard", "return"]);
 
-/** Refuses a `for` node whose update holds a block, which the update slot of a `for` cannot take. */
-export function assertForUpdateHoldsNoBlock(loop: BaseNode<ShaderType>): void {
-  if (holdsBlock(loop.params![2])) throw new Error(FOR_UPDATE_BLOCK_MESSAGE);
+/**
+ * Refuses an update of a `for` that holds a block or a statement that leaves
+ * the loop or the function, neither of which the update slot of a `for` takes.
+ * Each node of the update is visited once.
+ */
+export function assertForUpdate(update: unknown): void {
+  someNode(update, (node) => {
+    if (BLOCK_STATEMENTS.has(node.type)) throw new Error(FOR_UPDATE_BLOCK_MESSAGE);
+    if (JUMP_STATEMENTS.has(node.type)) throw new Error(FOR_UPDATE_JUMP_MESSAGE);
+  });
 }
 
 /**
@@ -3488,8 +3497,9 @@ export function assertForUpdateHoldsNoBlock(loop: BaseNode<ShaderType>): void {
  * tests it before every iteration, `update` steps it after every one. A
  * variable `cond` makes is computed before every test, and stays in scope
  * after the loop, and in `update`. The update is the update slot of a GLSL,
- * WGSL or JavaScript `for`, which takes no block, so an update that holds one
- * is refused here, before any target compiles it.
+ * WGSL or JavaScript `for`, which takes no block and no `break`, `continue`,
+ * `discard` or `return`, so an update that holds one is refused here, before
+ * any target compiles it.
  */
 export function For<T extends Node<ShaderType>>(
   init: () => T,
@@ -3503,7 +3513,7 @@ export function For<T extends Node<ShaderType>>(
     // Condition, update, body: the order they were always built in, which names their variables.
     const { declarations, condition } = loopCondition(() => cond(v));
     let updateNode = buildBlock(() => update(v));
-    if (holdsBlock(updateNode)) throw new Error(FOR_UPDATE_BLOCK_MESSAGE);
+    assertForUpdate(updateNode);
     let bodyNode = buildBlock(() => body(v));
     scope.push(...declarations);
     scope.push(
