@@ -10,8 +10,7 @@ import {
 } from "../cpu";
 import { DrawClearOptions, DrawCountOptions, TRANSPARENT_BLACK, TypedArray } from "../adapter";
 import { compileWasmFn, createWasmInputMarshaller, WasmCompileFields, WasmFloatWidth, WasmParam } from "./wasm";
-import { wasmUleb128 } from "./utils";
-import RASTERIZER_WASM_BYTES from "./rasterizer.wat";
+import RASTERIZER_WASM_BYTES, { shared as RASTERIZER_SHARED_WASM_BYTES } from "./rasterizer.wat";
 
 /**
  * Import name the rasterizer module expects for the vertex stage's exported function.
@@ -75,79 +74,12 @@ const VARYING_DESC_BYTES = 20;
 /**
  * The rasterizer module's bytes — see rasterizer.md for the full
  * vertex-pass/clip-pass/triangle-pass design and its v1 scope, and
- * rasterizer.wat for the module itself.
+ * rasterizer.wat for the module itself. A `shared` module imports its memory
+ * shared, which a shared memory links against; both are built from the one
+ * `.wat` when it is compiled.
  */
-export function buildRasterizerModule(shared?: { maximum: number }): Uint8Array {
-  if (!shared) return RASTERIZER_WASM_BYTES;
-  let variant = sharedVariants.get(shared.maximum);
-  if (!variant)
-    sharedVariants.set(shared.maximum, (variant = declareSharedMemory(RASTERIZER_WASM_BYTES, shared.maximum)));
-  return variant;
-}
-
-/** The module with a shared memory import, by the maximum it declares. */
-const sharedVariants = new Map<number, Uint8Array>();
-
-/** Reads an unsigned LEB128 integer at `at`, and the offset after it. */
-function readUleb(bytes: Uint8Array, at: number): [value: number, next: number] {
-  let value = 0;
-  let shift = 0;
-  for (;;) {
-    const byte = bytes[at++]!;
-    value |= (byte & 0x7f) << shift;
-    if ((byte & 0x80) === 0) return [value >>> 0, at];
-    shift += 7;
-  }
-}
-
-/**
- * The module with its memory import declared shared and bounded by `maximum`
- * pages. A shared memory only links against an import declared shared, and the
- * rasterizer's own import is not, so the limits of that import are rewritten
- * and the import section's size follows them.
- */
-function declareSharedMemory(bytes: Uint8Array, maximum: number): Uint8Array {
-  let at = 8; // after the magic number and the version
-  while (at < bytes.length) {
-    const sectionStart = at;
-    const id = bytes[at++]!;
-    const [size, bodyStart] = readUleb(bytes, at);
-    at = bodyStart;
-    if (id !== 2) {
-      at += size;
-      continue;
-    }
-    let [count, cursor] = readUleb(bytes, at);
-    for (; count > 0; count--) {
-      for (let name = 0; name < 2; name++) {
-        const [length, next] = readUleb(bytes, cursor);
-        cursor = next + length;
-      }
-      const kind = bytes[cursor++]!;
-      if (kind === 0) {
-        cursor = readUleb(bytes, cursor)[1]; // the index of the function's type
-        continue;
-      }
-      if (kind !== 2)
-        throw new Error("[RMSL] the rasterizer module imports something other than functions and a memory");
-      const limitsStart = cursor;
-      const flags = bytes[cursor++]!;
-      const [minimum, afterMinimum] = readUleb(bytes, cursor);
-      cursor = afterMinimum;
-      if (flags & 1) cursor = readUleb(bytes, cursor)[1];
-      const limits = [0x03, ...wasmUleb128(minimum), ...wasmUleb128(maximum)];
-      const body = [...bytes.subarray(bodyStart, limitsStart), ...limits, ...bytes.subarray(cursor, bodyStart + size)];
-      return Uint8Array.from([
-        ...bytes.subarray(0, sectionStart),
-        id,
-        ...wasmUleb128(body.length),
-        ...body,
-        ...bytes.subarray(bodyStart + size),
-      ]);
-    }
-    return bytes;
-  }
-  return bytes;
+export function buildRasterizerModule(shared = false): Uint8Array {
+  return shared ? RASTERIZER_SHARED_WASM_BYTES! : RASTERIZER_WASM_BYTES;
 }
 
 /**
@@ -216,9 +148,8 @@ export function instantiateRasterizer(
   vertexMain: () => void,
   fragmentMain: () => void,
   memory: WebAssembly.Memory,
-  /** The maximum of a shared memory, which the module declares as its import. */
-  shared?: { maximum: number },
 ): { rasterize: (...args: number[]) => void } {
+  const shared = typeof SharedArrayBuffer !== "undefined" && memory.buffer instanceof SharedArrayBuffer;
   const instance = new WebAssembly.Instance(
     new WebAssembly.Module(buildRasterizerModule(shared).buffer as ArrayBuffer),
     {
@@ -434,7 +365,6 @@ export function compileWasm(
     vertexInstance.exports.main as () => void,
     fragmentInstance.exports.main as () => void,
     memory,
-    vertexCompiled.sharedMemory ? { maximum: vertexCompiled.maxMemoryPages } : undefined,
   );
 
   // Each stage's textures sit after both stages' fixed layouts, the vertex

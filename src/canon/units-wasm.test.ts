@@ -29,6 +29,7 @@ import {
 } from "../rmsl";
 import { compileJS, compileJSCompute, compileJSRoutine } from "../js";
 import type { CompileCpuRoutine } from "../backends/cpu";
+import { instantiateRasterizer } from "../backends/wasm/rasterizer";
 import {
   createWasmCompute,
   compileWasm,
@@ -264,6 +265,23 @@ describe("the WASM rasterizer's memory", () => {
     expect(draw(0.6, 1, [1, 0, 0, 1], true)).toEqual([1, 0, 0, 1]);
     expect(draw(0.2, 2, [0, 0, 1, 1])).toEqual([0, 0, 1, 1]);
     expect(draw(0.4, 4, [0, 1, 0, 1])).toEqual([0, 0, 0, 0]);
+  });
+
+  /**
+   * The rasterizer module is built from its `.wat` twice: importing its memory
+   * as it is, and importing it shared.
+   *
+   * @canon spec-compile-wasm-makes-its-memory-as-its-modules-declare
+   */
+  it("links its rasterizer against a memory that is not shared, and a shared one of any maximum, on WASM", () => {
+    const stages = { vertex: { main: () => {} }, fragment: { main: () => {} } };
+    for (const memory of [
+      new WebAssembly.Memory({ initial: 1 }),
+      new WebAssembly.Memory({ initial: 1, maximum: 2, shared: true }),
+      new WebAssembly.Memory({ initial: 1, maximum: 65536, shared: true }),
+    ]) {
+      expect(() => instantiateRasterizer(stages.vertex.main, stages.fragment.main, memory)).not.toThrow();
+    }
   });
 
   /**

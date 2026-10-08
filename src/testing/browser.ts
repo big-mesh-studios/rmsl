@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { build, type Plugin } from "esbuild";
 import wabtInit from "wabt";
+import { watModuleSource } from "../vite/wat-module";
 import { gpuPage, webgpuPage } from "./gpu";
 
 /**
@@ -32,8 +33,7 @@ const watLoader: Plugin = {
     let wabt: Awaited<ReturnType<typeof wabtInit>> | undefined;
     esbuild.onLoad({ filter: /\.wat$/ }, async ({ path }) => {
       wabt ??= await wabtInit();
-      const bytes = new Uint8Array(wabt.parseWat(path, await readFile(path, "utf8")).toBinary({}).buffer);
-      return { contents: `export default new Uint8Array([${bytes.join(",")}]);`, loader: "js" };
+      return { contents: watModuleSource(wabt, path, await readFile(path, "utf8")), loader: "js" };
     });
   },
 };

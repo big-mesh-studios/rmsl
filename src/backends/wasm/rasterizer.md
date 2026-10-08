@@ -16,9 +16,10 @@ via `wabt`, wired into both `vite.config.ts` and `vitest.config.ts`; no
 compiled once regardless of shader, with a `"rasterize"` export
 ({@link RASTERIZE_PARAMS} in `rasterizer.ts` for the exact argument list
 and order).
-Given `{ maximum }`, it returns a copy whose memory import is declared shared
-and bounded by that many pages, because a shared memory links only against an
-import declared shared; the copy is made once for each maximum.
+Given `true`, it returns the same module importing its memory shared, with
+the largest maximum a 32-bit memory has, because a shared memory links only
+against an import declared shared, and against one whose maximum is at least
+its own. `compileWat` builds both modules from the one `.wat`.
 
 `rasterize()` does three passes over one shared `env.memory`:
 
