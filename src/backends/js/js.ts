@@ -1,4 +1,4 @@
-import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, someNode, TYPE_WIDTH } from "../../core";
+import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH } from "../../core";
 import {
   CpuDrawBuffer,
   CpuRoutine,
@@ -1816,6 +1816,7 @@ export function compileJSNode(
         throw new Error("builtinFragDepth() can only be used in fragment shaders");
       }
       ctx.jsNeedsRes = true;
+      ctx.fragDepthUsed = true;
       return { decls: [], body: [], expr: "res.fragDepth" };
     }
 
@@ -2662,7 +2663,7 @@ function compileJSFnDetailed(
   parts.push(`return function ${options.name}(ctx) {\n${body.map((l) => "  " + l).join("\n")}\n};`);
   return {
     source: parts.join("\n\n"),
-    writesDepth: someNode(resultNodes, (node) => node.type === "builtinFragDepth"),
+    writesDepth: ctx.fragDepthUsed,
     resultType: lastType as ShaderType | undefined,
     storageTypes: Object.fromEntries(ctx.storageTypes ?? []) as Record<string, ShaderType>,
     resultTypes: {
