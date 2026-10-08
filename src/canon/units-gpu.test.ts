@@ -311,6 +311,25 @@ describe("where WGSL declares a uniform or a buffer", () => {
   });
 
   /**
+   * The list names a buffer the program does not read first, so the one it
+   * reads binds at 1.
+   *
+   * @canon spec-a-wgsl-compute-program-binds-its-storage-in-the-listed-order
+   */
+  it("binds compute storage at its index in a list that names a buffer it does not read on WGSL", () => {
+    const unread = instancedArray(2, "float");
+    const values = instancedArray(2, "float");
+    const code = compileWgslStage.compute(
+      Fn(() => {
+        values.element(invocationIndex()).assign(float(1));
+      })(),
+      { storages: [unread, values] },
+    );
+    expect(code).toMatch(/@group\(1\) @binding\(1\) var<storage, read_write> _rmsl_s0:/);
+    expect(code).not.toMatch(/@binding\(0\) var<storage/);
+  });
+
+  /**
    * @canon spec-a-wgsl-stage-refuses-a-buffer-the-given-storages-leave-out
    */
   it("refuses a buffer the stage reads that the given storages leave out on WGSL", () => {

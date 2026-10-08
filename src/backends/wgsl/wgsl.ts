@@ -1646,7 +1646,7 @@ export function compileWGSLWithStage(
 
   let lines: string[] = [];
   // A compute program's textures share group 1 with its storage buffers, after them.
-  let texBinding = shaderStage === "compute" ? (ctx.storages?.size ?? 0) : 0;
+  let texBinding = shaderStage === "compute" && ctx.storages ? storageOrder(ctx, options).length : 0;
   let samplerBinding = 0;
   let sortedUniforms = [...ctx.uniforms.entries()].sort((a, b) => a[1].order! - b[1].order!);
 
@@ -1804,10 +1804,12 @@ export function compileWGSLWithStage(
     // Compute resources come from semantic storage() declarations. The
     // compiler owns WGSL binding assignment; ECS/runtime code only needs the
     // reflected semantic resource names.
-    const storages = ctx.storages ? storageOrder(ctx, options).map((name) => ctx.storages!.get(name)!) : [];
+    // A listed buffer the stage does not read keeps its binding, and is left undeclared.
+    const storages = (ctx.storages ? storageOrder(ctx, options) : [])
+      .map((name, binding) => ({ info: ctx.storages!.get(name), binding }))
+      .filter((s): s is { info: NonNullable<typeof s.info>; binding: number } => s.info !== undefined);
 
-    for (let binding = 0; binding < storages.length; binding++) {
-      const info = storages[binding];
+    for (const { info, binding } of storages) {
       lines.push(`@group(1) @binding(${binding}) var<storage, ${info.access}> ${info.wgslName}: array<${info.type}>;`);
     }
 
@@ -1826,7 +1828,7 @@ export function compileWGSLWithStage(
     if (countExpr) {
       lines.push(`  if (_rmsl_index >= ${countExpr}) { return; }`);
     } else if (storages.length > 0) {
-      const lengthStorage = storages[0];
+      const lengthStorage = storages[0]!.info;
       lines.push(`  if (_rmsl_index >= arrayLength(&${lengthStorage.wgslName})) { return; }`);
     }
 
