@@ -299,12 +299,17 @@ const WGSL_UNIFORM_RULES: AllocRules = {
   structAlignMinimum: 4,
 };
 
+/**
+ * The layout of the uniform struct under WGSL's rules. A texture among
+ * `members` is left out, as a stage's struct leaves it out, so the program's
+ * whole uniform list gives the struct a stage given that list declares.
+ */
 export function wgslUniformLayout(members: { slot: string; type: string; length?: number }[]): {
   members: WgslUniformMember[];
   size: number;
 } {
   const placed = planLayout(
-    members.map((m) => ({ slot: m.slot, type: m.type, length: m.length })),
+    members.filter((m) => !isWgslTexture(m.type)).map((m) => ({ slot: m.slot, type: m.type, length: m.length })),
     WGSL_UNIFORM_RULES,
   );
   return {

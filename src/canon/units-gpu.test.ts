@@ -13,7 +13,15 @@ import {
   vec3,
   vec4,
 } from "../rmsl";
-import { compile, compileWgsl as compileWgslStage, compileWgslFn, createWgslCompute, createWgslContext } from "../wgsl";
+import {
+  compile,
+  compileWgsl as compileWgslStage,
+  compileWgslFn,
+  createWgslCompute,
+  createWgslContext,
+  wgslUniformDeclaration,
+  wgslUniformLayout,
+} from "../wgsl";
 import {
   assertRecordedShadersValid,
   recordingGLSL as compileGlsl,
@@ -237,6 +245,21 @@ describe("where WGSL declares a uniform or a buffer", () => {
       uniforms: [read, unread],
     });
     expect(structMembers(code).sort()).toEqual([read.name, unread.name].sort());
+  });
+
+  /**
+   * The program's uniforms, a texture among them, go to the stage and to the
+   * layout alike, as the host packs the buffer.
+   *
+   * @canon spec-the-wgsl-uniform-layout-leaves-out-a-texture
+   */
+  it("lays out the uniforms a WGSL stage is given, leaving out a texture as the stage does", () => {
+    const uniforms = [uniform("sampler2D"), uniform("float")];
+    const [texture, value] = uniforms as [any, any];
+    const code = compileWgslStage.fragment(texture.texture(vec2(0, 0)).add(value), { uniforms });
+    const layout = wgslUniformLayout(uniforms.map(wgslUniformDeclaration));
+    expect(layout.members.map((member) => member.name)).toEqual(structMembers(code));
+    expect(layout.members.map((member) => member.name)).toEqual([value.name]);
   });
 
   /**

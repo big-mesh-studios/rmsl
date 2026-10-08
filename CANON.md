@@ -507,6 +507,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec uniforms-are-ordered-by-alignment-then-by-declaration`](#spec-uniforms-are-ordered-by-alignment-then-by-declaration) — Uniform members are placed in order of descending alignment, and members that align alike keep the order they were declared in.
     - [`@spec an-array-member-has-a-stride-of-sixteen`](#spec-an-array-member-has-a-stride-of-sixteen) — An array member reports a stride of at least 16 bytes, and a `bool` array the stride of what it travels as. The struct rounds its size up to the array's alignment.
     - [`@spec a-matrix-member-pads-each-column`](#spec-a-matrix-member-pads-each-column) — A matrix member takes one aligned column for each of its columns, so a `mat2x3` takes two columns of 16 bytes.
+    - [`@spec the-wgsl-uniform-layout-leaves-out-a-texture`](#spec-the-wgsl-uniform-layout-leaves-out-a-texture) — `wgslUniformLayout` leaves out a texture, as the struct of a WGSL stage does. The program's whole uniform list, mapped through `wgslUniformDeclaration`, gives the layout of the struct a stage given that list declares.
     - [`@spec a-wasm-routine-reads-uniforms-from-the-wgsl-layout`](#spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout) — Given `gpuUniformLayout`, a WASM routine reads each uniform, arrays included, at the offset and stride `wgslUniformLayout` reports, so one buffer serves WGSL and WASM. Without it, a WASM module lays out its own memory and holds each float uniform in 64 bits.
     - [`@spec a-gpu-uniform-layout-needs-32-bit-floats`](#spec-a-gpu-uniform-layout-needs-32-bit-floats) — A WASM compile function or adapter given `gpuUniformLayout` must also be given `float: "f32"`. The type checker refuses the layout beside `float: "f64"`, or beside no `float`, when the options are written in the call. The compile refuses it too, with an error that names both ways out: `float: "f32"` to share the buffer with the GPU, or no layout to keep 64 bits.
     - [`@spec a-type-with-no-layout-is-refused`](#spec-a-type-with-no-layout-is-refused) — A member whose type has no WGSL layout is refused, rather than placed by a guess.
@@ -3614,6 +3615,14 @@ Derives from: [`fact-a-wgsl-uniform-array-has-a-16-byte-stride`](#fact-a-wgsl-un
 #### @spec a-matrix-member-pads-each-column
 
 > A matrix member takes one aligned column for each of its columns, so a `mat2x3` takes two columns of 16 bytes.
+
+#### @spec the-wgsl-uniform-layout-leaves-out-a-texture
+
+> `wgslUniformLayout` leaves out a texture, as the struct of a WGSL stage does. The program's whole uniform list, mapped through `wgslUniformDeclaration`, gives the layout of the struct a stage given that list declares.
+
+Derives from: [`spec-wgsl-packs-every-value-uniform-into-one-binding`](#spec-wgsl-packs-every-value-uniform-into-one-binding), [`spec-a-wgsl-stage-given-the-program-uniforms-declares-every-one`](#spec-a-wgsl-stage-given-the-program-uniforms-declares-every-one)
+
+This follows because a texture holds no value in the uniform buffer, and the host packs the buffer from the same list it gives the stages.
 
 #### @spec a-wasm-routine-reads-uniforms-from-the-wgsl-layout
 
