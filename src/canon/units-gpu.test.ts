@@ -350,6 +350,151 @@ describe.skipIf(!GPU_ENABLED)("an adapter applies what the host set before attac
   );
 });
 
+/**
+ * A full-screen triangle on a 4×4 canvas that a uniform or an attribute of
+ * one type draws green, by entry. Each entry returns what it read, or the
+ * error it hit.
+ */
+const VALUE_TYPES = `
+import { Fn, attribute, builtinPosition, float, uniform, uniformArray, vec2, vec4 } from "../rmsl";
+import { createGlsl } from "../glsl";
+import { createWgsl } from "../wgsl";
+${READ_PIXEL}
+const TRIANGLE = Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
+const canvas = () => {
+  const c = document.createElement("canvas");
+  c.width = 4;
+  c.height = 4;
+  return c;
+};
+const attempt = async (run) => {
+  try {
+    return await run();
+  } catch (error) {
+    return { error: error.message };
+  }
+};
+const position = attribute("vec3");
+const plainVertex = () => Fn(() => { builtinPosition().assign(vec4(position, 1)); })();
+/** Draws \`fragment\` with createGlsl, after \`set\` gives the adapter its values. */
+const glsl = (fragment, set, vertex = plainVertex()) => attempt(() => {
+  const target = canvas();
+  const adapter = createGlsl(vertex, fragment);
+  adapter.attach(target);
+  adapter.setAttribute(position, TRIANGLE);
+  set(adapter);
+  adapter.draw({ count: 3 });
+  return readPixel(target, 1, 2);
+});
+/** The vertex stage of \`glsl\`, moved along x by an integer attribute it reads. */
+const shiftedVertex = (shift) =>
+  Fn(() => { builtinPosition().assign(vec4(position.x.add(shift.toFloat()), position.y, 0, 1)); })();
+const colours = () => uniformArray("vec4", 2);
+globalThis.__rmslValueTypes = {
+  uniformArray: () => {
+    const array = colours();
+    return glsl(Fn(() => array.element(1))(), (a) => a.setUniform(array, [[1, 0, 0, 1], [0, 1, 0, 1]]));
+  },
+  uint: () => {
+    const green = uniform("uint");
+    return glsl(Fn(() => vec4(0, green.toFloat(), 0, 1))(), (a) => a.setUniform(green, 1));
+  },
+  uvec2: () => {
+    const green = uniform("uvec2");
+    return glsl(Fn(() => vec4(0, green.y.toFloat(), 0, 1))(), (a) => a.setUniform(green, [0, 1]));
+  },
+  bvec2: () => {
+    const green = uniform("bvec2");
+    return glsl(Fn(() => vec4(0, green.y.select(float(1), float(0)), 0, 1))(), (a) => a.setUniform(green, [0, 1]));
+  },
+  mat2x3: () => {
+    const columns = uniform("mat2x3");
+    return glsl(Fn(() => vec4(columns.mul(vec2(1, 0)), 1))(), (a) => a.setUniform(columns, [0, 1, 0, 1, 0, 0]));
+  },
+  intAttribute: () => {
+    const shift = attribute("int");
+    return glsl(Fn(() => vec4(0, 1, 0, 1))(), (a) => a.setAttribute(shift, Int32Array.of(0, 0, 0)), shiftedVertex(shift));
+  },
+  uintAttribute: () => {
+    const shift = attribute("uint");
+    return glsl(Fn(() => vec4(0, 1, 0, 1))(), (a) => a.setAttribute(shift, Uint32Array.of(0, 0, 0)), shiftedVertex(shift));
+  },
+  intAttributeWithoutData: () => {
+    const shift = attribute("int");
+    return glsl(Fn(() => vec4(0, 1, 0, 1))(), () => {}, shiftedVertex(shift));
+  },
+  wgslUniformArray: () => attempt(async () => {
+    const array = colours();
+    const target = canvas();
+    const adapter = createWgsl({ vertex: plainVertex(), fragment: Fn(() => array.element(1))() });
+    await adapter.attach(target);
+    adapter.setAttribute(position, TRIANGLE);
+    adapter.setUniform(array, [[1, 0, 0, 1], [0, 1, 0, 1]]);
+    adapter.draw({ count: 3 });
+    await adapter.device().queue.onSubmittedWorkDone();
+    return readPixel(target, 1, 2);
+  }),
+};
+`;
+
+/** Runs the entry `name` of `VALUE_TYPES` in the WebGL page. */
+const glslValueType = (name: string) =>
+  runInGpuPage(
+    `${VALUE_TYPES}\nglobalThis.__rmslValueTypesRun = () => globalThis.__rmslValueTypes.${name}();`,
+    "__rmslValueTypesRun",
+    new URL(".", import.meta.url).pathname,
+  );
+
+describe.skipIf(!GPU_ENABLED)("an adapter takes a value of every type its program declares", () => {
+  /**
+   * @canon spec-an-adapter-sets-a-uniform-array-from-one-value-per-element
+   */
+  it("sets a uniform array with createGlsl", async () => {
+    expect(await glslValueType("uniformArray")).toEqual(GREEN);
+  }, 120_000);
+
+  /**
+   * @canon spec-an-adapter-sets-a-uniform-array-from-one-value-per-element
+   */
+  it.skipIf(!WEBGPU)(
+    "sets a uniform array with createWgsl",
+    async () => {
+      const run = `${VALUE_TYPES}\nglobalThis.__rmslValueTypesRun = () => globalThis.__rmslValueTypes.wgslUniformArray();`;
+      expect(await runInWebGpuPage(run, "__rmslValueTypesRun", new URL(".", import.meta.url).pathname)).toEqual(GREEN);
+    },
+    120_000,
+  );
+
+  /**
+   * @canon spec-an-adapter-sets-a-uniform-of-every-type-its-program-declares
+   */
+  it.each(["uint", "uvec2", "bvec2", "mat2x3"])(
+    "sets a %s uniform with createGlsl",
+    async (type) => {
+      expect(await glslValueType(type)).toEqual(GREEN);
+    },
+    120_000,
+  );
+
+  /**
+   * @canon spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type
+   */
+  it.each(["intAttribute", "uintAttribute"])(
+    "draws with an integer attribute through createGlsl, %s",
+    async (entry) => {
+      expect(await glslValueType(entry)).toEqual(GREEN);
+    },
+    120_000,
+  );
+
+  /**
+   * @canon spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value
+   */
+  it("draws with an integer attribute given no data through createGlsl", async () => {
+    expect(await glslValueType("intAttributeWithoutData")).toEqual(GREEN);
+  }, 120_000);
+});
+
 describe.skipIf(!GPU_ENABLED)("WGSL compute on a Dawn device", () => {
   let uninstall: (() => void) | undefined;
   beforeAll(async () => {

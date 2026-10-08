@@ -40,7 +40,7 @@ const bindingOf = (code: string, name: string) =>
  * entry builds it. Each entry returns what it read, or the error it hit.
  */
 const GLSL_SCENE = `
-import { Fn, attribute, builtinPosition, uniform, uniformArray, vec4 } from "../rmsl";
+import { Fn, attribute, builtinPosition, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
 ${READ_PIXEL}
 const TRIANGLE = Float32Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0);
@@ -60,37 +60,6 @@ const attempt = (run) => {
 const position = attribute("vec3");
 const plainVertex = () => Fn(() => { builtinPosition().assign(vec4(position, 1)); })();
 globalThis.__rmslBugsGlsl = {
-  uniformArray: () => attempt(() => {
-    const target = canvas();
-    const colours = uniformArray("vec4", 2);
-    const adapter = createGlsl(plainVertex(), Fn(() => colours.element(1))());
-    adapter.attach(target);
-    adapter.setAttribute(position, TRIANGLE);
-    adapter.setUniform(colours, [[1, 0, 0, 1], [0, 1, 0, 1]]);
-    adapter.draw({ count: 3 });
-    return readPixel(target, 1, 2);
-  }),
-  uintUniform: () => attempt(() => {
-    const target = canvas();
-    const green = uniform("uint");
-    const adapter = createGlsl(plainVertex(), Fn(() => vec4(0, green.toFloat(), 0, 1))());
-    adapter.attach(target);
-    adapter.setAttribute(position, TRIANGLE);
-    adapter.setUniform(green, 1);
-    adapter.draw({ count: 3 });
-    return readPixel(target, 1, 2);
-  }),
-  intAttribute: () => attempt(() => {
-    const target = canvas();
-    const shift = attribute("int");
-    const vertex = Fn(() => { builtinPosition().assign(vec4(position.x.add(shift.toFloat()), position.y, 0, 1)); })();
-    const adapter = createGlsl(vertex, Fn(() => vec4(0, 1, 0, 1))());
-    adapter.attach(target);
-    adapter.setAttribute(position, TRIANGLE);
-    adapter.setAttribute(shift, Int32Array.of(0, 0, 0));
-    adapter.draw({ count: 3 });
-    return readPixel(target, 1, 2);
-  }),
   firstAttributeCount: () => attempt(() => {
     const target = canvas();
     const offset = attribute("vec2");
@@ -467,48 +436,6 @@ describe.skipIf(!GPU_ENABLED)("known GPU bugs on a WebGPU device, each failing u
 });
 
 describe.skipIf(!GPU_ENABLED)("createGlsl in a browser", () => {
-  /**
-   * WebGL reports a uniform array as `name[0]`, and `createGlsl` looks the
-   * slot up by that name, so `setUniform` on a uniform array never applies.
-   *
-   * @canon bug-the-glsl-adapter-never-sets-a-uniform-array
-   */
-  it.fails(
-    "sets a uniform array with createGlsl",
-    async () => {
-      expect(await glslEntry("uniformArray")).toEqual(GREEN);
-    },
-    120_000,
-  );
-
-  /**
-   * `createGlsl.setUniform` uploads only float, int and bool scalars and
-   * vectors and square matrices, and throws for a `uint` uniform.
-   *
-   * @canon bug-the-glsl-adapter-refuses-a-uint-uniform
-   */
-  it.fails(
-    "sets a uint uniform with createGlsl",
-    async () => {
-      expect(await glslEntry("uintUniform")).toEqual(GREEN);
-    },
-    120_000,
-  );
-
-  /**
-   * `createGlsl` points every attribute at its buffer as floats, so an `int`
-   * attribute mismatches its declaration and the draw is refused.
-   *
-   * @canon bug-the-glsl-adapter-uploads-an-integer-attribute-as-floats
-   */
-  it.fails(
-    "draws with an int attribute through createGlsl",
-    async () => {
-      expect(await glslEntry("intAttribute")).toEqual(GREEN);
-    },
-    120_000,
-  );
-
   /**
    * A `createGlsl` draw that names a first vertex and no count draws the vertices after it.
    *

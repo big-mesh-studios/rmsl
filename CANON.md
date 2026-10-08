@@ -64,7 +64,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-adapter-writes-a-texture-of-the-same-shape-in-place`](#spec-an-adapter-writes-a-texture-of-the-same-shape-in-place) — `setTexture` of a texture of the size and format a sampler's GPU texture already has writes into that GPU texture on `createGlsl` and `createWgsl`, rather than making a new one, and four-channel data of the array type the texture holds goes up without a copy.
     - [`@spec an-adapter-takes-the-texture-a-sampler-reads-from-the-host`](#spec-an-adapter-takes-the-texture-a-sampler-reads-from-the-host) — `setTexture(sampler, texture)` gives a sampler uniform the texture it reads on every adapter that draws: `createGlsl`, `createWgsl`, `createJs` and `createWasm`. The sampler is named by its node or its slot, and the texture is described as a CPU target samples it. A GPU target reads 8-bit data as 0 to 1, and takes an integer array for an integer sampler.
     - [`@spec an-adapter-sets-a-uniform-of-every-type-its-program-declares`](#spec-an-adapter-sets-a-uniform-of-every-type-its-program-declares) — An adapter's `setUniform` uploads a uniform of every value type its program can declare.
-      - [`@bug the-glsl-adapter-refuses-a-uint-uniform`](#bug-the-glsl-adapter-refuses-a-uint-uniform) — `createGlsl.setUniform` uploads only float, int and bool scalars and vectors and square matrices, and throws for a `uint` uniform.
     - [`@spec a-wgsl-stage-given-the-program-uniforms-declares-every-one`](#spec-a-wgsl-stage-given-the-program-uniforms-declares-every-one) — A WGSL stage given the program's `uniforms` declares each of them in its struct, whether the stage reads it or not.
     - [`@spec the-uniforms-list-holds-the-uniform-nodes`](#spec-the-uniforms-list-holds-the-uniform-nodes) — The `uniforms` list a WGSL stage takes holds the uniform nodes themselves, not declarations of their slots.
       - [`@bug wgsl-takes-the-uniforms-list-as-slot-declarations`](#bug-wgsl-takes-the-uniforms-list-as-slot-declarations) — A WGSL stage takes its `uniforms` list as `{ slot, type }` declarations, and refuses a stage whose uniform the list gives as a node.
@@ -74,7 +73,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-uniform-array-element-is-padded-out-of-sight`](#spec-a-uniform-array-element-is-padded-out-of-sight) — On WGSL, a uniform array whose element is narrower than 16 bytes stores each element widened to a `vec4`. It reads the element back out of the leading components.
     - [`@spec a-uniform-array-holds-no-texture`](#spec-a-uniform-array-holds-no-texture) — A uniform array of a texture type, float or integer, is refused.
     - [`@spec a-uniform-array-length-is-a-positive-integer`](#spec-a-uniform-array-length-is-a-positive-integer) — A uniform array whose length is not a positive integer is refused.
-    - [`@bug the-glsl-adapter-never-sets-a-uniform-array`](#bug-the-glsl-adapter-never-sets-a-uniform-array) — WebGL reports a uniform array as `name[0]`, and `createGlsl` looks the slot up by that name, so `setUniform` on a uniform array never applies.
+    - [`@spec an-adapter-sets-a-uniform-array-from-one-value-per-element`](#spec-an-adapter-sets-a-uniform-array-from-one-value-per-element) — An adapter's `setUniform` on a uniform array takes one value for each of its elements, in order, and the program reads each by `element(i)`.
   - [`@spec a-stage-passes-its-values-on-every-target`](#spec-a-stage-passes-its-values-on-every-target) — A fragment stage writes its colour, and a vertex stage passes its varyings on to the fragment stage, the same way on every target.
     - [`@spec a-fragment-result-without-an-output-is-the-colour`](#spec-a-fragment-result-without-an-output-is-the-colour) — A fragment stage that declares no [output](#term-output) writes its result to the colour at location 0. The result converts as it does in TSL.
       - [`@spec a-vec4-result-is-the-colour`](#spec-a-vec4-result-is-the-colour) — A fragment stage that returns a `vec4` writes it to the implicit colour output unchanged.
@@ -166,7 +165,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-test-is-held-to-its-own-programs`](#spec-a-test-is-held-to-its-own-programs) — The evaluation harness compares the programs a test records on every target after that test, so a target that disagrees fails the test that made the program, and the file's last comparison takes only the programs no test compared.
     - [`@spec a-program-wasm-refuses-names-its-issue`](#spec-a-program-wasm-refuses-names-its-issue) — A recorded program the WASM target refuses fails the run, unless the list of known refusals names it with the issue that tracks it. A listed program that compiles fails the run too.
   - [`@spec a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type) — A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A format no buffer of its own can carry, a raw integer array, and a width no format covers are refused.
-    - [`@bug the-glsl-adapter-uploads-an-integer-attribute-as-floats`](#bug-the-glsl-adapter-uploads-an-integer-attribute-as-floats) — `createGlsl` points every attribute at its buffer as floats, so an `int` attribute mismatches its declaration and the draw is refused.
   - [`@spec wgsl-brackets-a-bitwise-operand-that-is-not-unary`](#spec-wgsl-brackets-a-bitwise-operand-that-is-not-unary) — On WGSL, the compiler brackets each operand of a bitwise or shift operator that is not a unary expression.
   - [`@spec wgsl-brackets-a-logical-operator-nested-in-another`](#spec-wgsl-brackets-a-logical-operator-nested-in-another) — On WGSL, the compiler brackets an `&&` or `||` that is the operand of another logical operator.
   - [`@spec wgsl-converts-a-shift-amount-to-unsigned`](#spec-wgsl-converts-a-shift-amount-to-unsigned) — On WGSL, the compiler converts a signed shift amount to `u32`, and a scalar amount beside a vector to a `u32` vector of its width.
@@ -1097,12 +1095,6 @@ This follows because a texture cannot sit in a uniform value, so the host gives 
 
 This follows because a program may declare a uniform of any value type, and the adapter is how the host gives it a value.
 
-##### @bug the-glsl-adapter-refuses-a-uint-uniform
-
-> `createGlsl.setUniform` uploads only float, int and bool scalars and vectors and square matrices, and throws for a `uint` uniform.
-
-Issue: #107
-
 #### @spec a-wgsl-stage-given-the-program-uniforms-declares-every-one
 
 > A WGSL stage given the program's `uniforms` declares each of them in its struct, whether the stage reads it or not.
@@ -1159,11 +1151,11 @@ Derives from: [`fact-a-wgsl-texture-is-not-host-shareable`](#fact-a-wgsl-texture
 
 > A uniform array whose length is not a positive integer is refused.
 
-#### @bug the-glsl-adapter-never-sets-a-uniform-array
+#### @spec an-adapter-sets-a-uniform-array-from-one-value-per-element
 
-> WebGL reports a uniform array as `name[0]`, and `createGlsl` looks the slot up by that name, so `setUniform` on a uniform array never applies.
+> An adapter's `setUniform` on a uniform array takes one value for each of its elements, in order, and the program reads each by `element(i)`.
 
-Issue: #107
+This follows because the array is one uniform, so the host sets it in one call.
 
 ### @spec a-stage-passes-its-values-on-every-target
 
@@ -1679,12 +1671,6 @@ This follows because the suite evaluates every program it records on every targe
 Derives from: [`fact-a-webgpu-vertex-stride-is-a-multiple-of-four`](#fact-a-webgpu-vertex-stride-is-a-multiple-of-four)
 
 This follows because a format one renderer reads as another type would make the two draw differently.
-
-#### @bug the-glsl-adapter-uploads-an-integer-attribute-as-floats
-
-> `createGlsl` points every attribute at its buffer as floats, so an `int` attribute mismatches its declaration and the draw is refused.
-
-Issue: #107
 
 ### @spec wgsl-brackets-a-bitwise-operand-that-is-not-unary
 

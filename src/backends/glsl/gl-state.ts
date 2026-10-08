@@ -87,13 +87,31 @@ export function setRasterState(gl: WebGL2RenderingContext): void {
   gl.frontFace(gl.CCW);
 }
 
+/** The kind of the components a vertex attribute reads. */
+export type AttributeKind = "float" | "int" | "uint";
+
+/** The kind of the components an attribute of the RMSL type `type` reads. */
+export function attributeKindOf(type: string): AttributeKind {
+  if (type === "int" || type.startsWith("ivec")) return "int";
+  if (type === "uint" || type.startsWith("uvec")) return "uint";
+  return "float";
+}
+
 /**
  * Sets the value a vertex attribute with no data reads at `location` to a
- * fresh context's, 0, 0, 0, 1. `state` keeps the value it had.
+ * fresh context's, 0, 0, 0, 1, of the attribute's `kind`. `state` keeps the
+ * value it had.
  */
-export function setAttributeValue(gl: WebGL2RenderingContext, location: number, state: GlStateKeeper | null): void {
+export function setAttributeValue(
+  gl: WebGL2RenderingContext,
+  location: number,
+  kind: AttributeKind,
+  state: GlStateKeeper | null,
+): void {
   state?.keepAttributeValue(location);
-  gl.vertexAttrib4f(location, 0, 0, 0, 1);
+  if (kind === "int") gl.vertexAttribI4i(location, 0, 0, 0, 1);
+  else if (kind === "uint") gl.vertexAttribI4ui(location, 0, 0, 0, 1);
+  else gl.vertexAttrib4f(location, 0, 0, 0, 1);
 }
 
 /** The draw buffers of a canvas that draws into its back buffer, filled on first use. */
