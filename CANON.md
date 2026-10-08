@@ -306,7 +306,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-float-texture-is-sampled-through-a-sampler`](#spec-a-float-texture-is-sampled-through-a-sampler) — A float texture, 2D or 3D, is sampled with filtering, through `texture` or `textureSample` and a sampler of its own on WGSL.
     - [`@spec an-integer-texture-reads-one-texel`](#spec-an-integer-texture-reads-one-texel) — A program reads an integer texture one texel at a time, with `texelFetch` on GLSL and `textureLoad` with no sampler on WGSL.
       - [`@spec an-integer-texture-is-fetched-unfiltered`](#spec-an-integer-texture-is-fetched-unfiltered) — A program reads an integer texture at an integer texel coordinate with no filter, and gets an integer vector.
-        - [`@bug wasm-reads-an-integer-texture-at-a-float-coordinate-as-zero`](#bug-wasm-reads-an-integer-texture-at-a-float-coordinate-as-zero) — An integer texture sampled at a float coordinate reads zero, where the GPU targets and JS truncate the coordinate to a texel.
       - [`@exception an-integer-cube-map-cannot-be-fetched`](#exception-an-integer-cube-map-cannot-be-fetched) — A program that reads an integer cube map, or calls `textureLoad` on a cube map, is refused.
     - [`@spec texture-size-gives-the-dimensions`](#spec-texture-size-gives-the-dimensions) — `textureSize` gives the width and height of a 2D texture or a cube map, and the depth too of a 3D texture.
     - [`@spec texture-load-reads-one-texel-of-a-float-texture`](#spec-texture-load-reads-one-texel-of-a-float-texture) — `textureLoad` reads one texel of a float texture at an integer coordinate, with no filter, and gives a `vec4`.
@@ -2435,12 +2434,6 @@ Derives from: [`fact-an-integer-texture-cannot-be-filtered`](#fact-an-integer-te
 ##### @spec an-integer-texture-is-fetched-unfiltered
 
 > A program reads an integer texture at an integer texel coordinate with no filter, and gets an integer vector.
-
-###### @bug wasm-reads-an-integer-texture-at-a-float-coordinate-as-zero
-
-> An integer texture sampled at a float coordinate reads zero, where the GPU targets and JS truncate the coordinate to a texel.
-
-Issue: #115
 
 ##### @exception an-integer-cube-map-cannot-be-fetched
 

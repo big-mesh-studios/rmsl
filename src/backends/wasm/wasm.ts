@@ -2387,7 +2387,11 @@ export function compileWasmFn(
     const coordKind = elementKindOf(coordsNode._t as string);
     const dims = is3D ? [TEX_META_WIDTH, TEX_META_HEIGHT, TEX_META_DEPTH] : [TEX_META_WIDTH, TEX_META_HEIGHT];
 
-    const rawAxis = (k: number) => loadComponent(coordsAddr, "int", k * 4);
+    // A float coordinate is truncated to the texel it lies in, as the GPU targets convert it.
+    const rawAxis = (k: number) =>
+      coordKind === "float"
+        ? [...loadComponent(coordsAddr, "float", k * 8), ...I32_TRUNC_SAT_F64_S]
+        : loadComponent(coordsAddr, "int", k * 4);
     const dimAxis = (offset: number) => loadComponent(metaAddr, "int", offset);
 
     const targetKind = elementKindOf(node._t as string);

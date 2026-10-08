@@ -201,19 +201,6 @@ describe("known WASM bugs, each failing until its fix", () => {
   });
 
   /**
-   * An integer texture sampled at a float coordinate reads zero, where the
-   * GPU targets and JS truncate the coordinate to a texel.
-   *
-   * @canon bug-wasm-reads-an-integer-texture-at-a-float-coordinate-as-zero
-   */
-  it.fails("fetches the texel a float coordinate truncates to from an integer texture on WASM", () => {
-    const tex = uniform("isampler2D") as any;
-    const routine = compileWasmRoutine(() => Fn(() => tex.texture(vec2(0.75, 0.25)).x.toVar())(), none);
-    const texture = { data: [10, 20, 30, 40], width: 2, height: 2, channels: 1 as const };
-    expect(routine({ textures: { [tex.name]: texture } })).toBe(10);
-  });
-
-  /**
    * The WASM rasterizer shades a pixel centre on an edge two triangles share
    * with both, so the triangle drawn last wins it.
    *

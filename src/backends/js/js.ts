@@ -422,8 +422,8 @@ export function jsHelperSource(name: string): string {
     case "texFetch2d":
       return `function _texFetch2d(tex, uv, out) {
   out = out || [0, 0, 0, 0];
-  let x = Math.floor(uv[0]);
-  let y = Math.floor(uv[1]);
+  let x = Math.trunc(uv[0]);
+  let y = Math.trunc(uv[1]);
   if (x < 0 || y < 0 || x >= tex.width || y >= tex.height) return out.fill(0);
   let c = _chan(tex);
   return _texel(tex, (y * tex.width + x) * c, c, 1, out);
@@ -531,9 +531,9 @@ function _texCube(tex, dir, out) {
     case "texFetch3d":
       return `function _texFetch3d(tex, uvw, out) {
   out = out || [0, 0, 0, 0];
-  let x = Math.floor(uvw[0]);
-  let y = Math.floor(uvw[1]);
-  let z = Math.floor(uvw[2]);
+  let x = Math.trunc(uvw[0]);
+  let y = Math.trunc(uvw[1]);
+  let z = Math.trunc(uvw[2]);
   if (x < 0 || y < 0 || z < 0 || x >= tex.width || y >= tex.height || z >= tex.depth) return out.fill(0);
   let c = _chan(tex);
   return _texel(tex, ((z * tex.height + y) * tex.width + x) * c, c, 1, out);
@@ -541,8 +541,8 @@ function _texCube(tex, dir, out) {
     case "texFetchUnorm2d":
       return `function _texFetchUnorm2d(tex, uv, out) {
   out = out || [0, 0, 0, 0];
-  let x = Math.floor(uv[0]);
-  let y = Math.floor(uv[1]);
+  let x = Math.trunc(uv[0]);
+  let y = Math.trunc(uv[1]);
   if (x < 0 || y < 0 || x >= tex.width || y >= tex.height) return out.fill(0);
   let c = _chan(tex);
   return _texel(tex, (y * tex.width + x) * c, c, _unorm(tex), out);
@@ -550,9 +550,9 @@ function _texCube(tex, dir, out) {
     case "texFetchUnorm3d":
       return `function _texFetchUnorm3d(tex, uvw, out) {
   out = out || [0, 0, 0, 0];
-  let x = Math.floor(uvw[0]);
-  let y = Math.floor(uvw[1]);
-  let z = Math.floor(uvw[2]);
+  let x = Math.trunc(uvw[0]);
+  let y = Math.trunc(uvw[1]);
+  let z = Math.trunc(uvw[2]);
   if (x < 0 || y < 0 || z < 0 || x >= tex.width || y >= tex.height || z >= tex.depth) return out.fill(0);
   let c = _chan(tex);
   return _texel(tex, ((z * tex.height + y) * tex.width + x) * c, c, _unorm(tex), out);
