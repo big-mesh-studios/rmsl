@@ -341,8 +341,11 @@ export function compileJS(
     const { width, height, out } = options;
     const { attributes } = ctx;
     const first = options.first ?? 0;
+    // An attribute the program does not read counts for nothing, as a WebGPU
+    // draw reads no buffer its shader does not declare.
     let firstSlot: string | undefined;
     for (const slot in attributes) {
+      if (widths[slot] === undefined) continue;
       firstSlot = slot;
       break;
     }

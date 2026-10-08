@@ -120,7 +120,7 @@ describe("JS backend: compileJS (vertex+fragment rasterizer pipeline)", () => {
     expect(Array.from(draw(0.5, [0, 0, 1], true).slice(0, 3))).toEqual([0, 0, 1]);
   });
   /**
-   * @canon spec-a-rasterizer-takes-its-count-from-the-first-attribute
+   * @canon spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads
    */
   it("infers count from the first attribute slot when omitted, like GL/WGSL", () => {
     const posAttr = attribute("vec3");

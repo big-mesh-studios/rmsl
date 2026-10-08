@@ -346,7 +346,7 @@ describe.skipIf(!GPU_ENABLED)("createGlsl in a browser", () => {
   /**
    * A `createGlsl` draw that names a first vertex and no count draws the vertices after it.
    *
-   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads
    */
   it("counts a createGlsl draw from the first attribute, less its first vertex", async () => {
     expect(await glslEntry("firstVertex")).toEqual(GREEN);
@@ -356,7 +356,7 @@ describe.skipIf(!GPU_ENABLED)("createGlsl in a browser", () => {
    * A `createGlsl` draw that names no count takes the first attribute's, and
    * so does not draw vertices past its end.
    *
-   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads
    */
   it("takes the count of a createGlsl draw from the first attribute", async () => {
     expect(await glslEntry("firstAttributeCount")).toEqual(GREEN);
@@ -385,7 +385,7 @@ describe.skipIf(!WEBGPU)("createWgsl in a browser", () => {
   /**
    * A `createWgsl` draw that names a first vertex and no count draws the vertices after it.
    *
-   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads
    */
   it("counts a createWgsl draw from the first attribute, less its first vertex", async () => {
     expect(await wgslEntry("firstVertex")).toEqual(GREEN);
@@ -395,7 +395,7 @@ describe.skipIf(!WEBGPU)("createWgsl in a browser", () => {
    * A `createWgsl` draw that names no count takes the first attribute's, and
    * so does not read past a shorter buffer.
    *
-   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads
    */
   it("takes the count of a createWgsl draw from the first attribute", async () => {
     expect(await wgslEntry("firstAttributeCount")).toEqual(GREEN);

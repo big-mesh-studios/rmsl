@@ -477,9 +477,8 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
 
     if (!renderPipeline) {
       pendingAttributes.set(slot, data);
-      return;
     }
-    throw new Error(`[RMSL] unknown attribute "${slot}"`);
+    // Past attach, an attribute the program does not read is taken and counts for nothing, as an unread uniform is.
   }
 
   let adapter: WgslAdapter = {

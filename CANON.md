@@ -443,7 +443,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-effect-with-several-passes-is-a-pass-graph`](#spec-an-effect-with-several-passes-is-a-pass-graph) — An [effect](#term-effect) with several passes returns a [pass graph](#term-pass-graph): its passes, the samplers each pass reads, and the pass that gives the output. The application draws each pass.
     - [`@exception a-scene-renderer-draws-its-scene-graph`](#exception-a-scene-renderer-draws-its-scene-graph) — `render(scene, camera)` on a renderer of `./scene` walks the scene graph, binds the geometry and the [node material](#term-node-material) of each mesh, uploads their uniforms and draws them.
     - [`@spec a-pass-keys-an-input-by-the-pass-that-makes-it`](#spec-a-pass-keys-an-input-by-the-pass-that-makes-it) — A pass keys an input another pass makes by that pass's name, such as `gaussianBlur.horizontal`, and an outside texture by any other name.
-    - [`@spec a-gpu-adapter-takes-its-count-from-the-first-attribute`](#spec-a-gpu-adapter-takes-its-count-from-the-first-attribute) — A `createGlsl` or `createWgsl` draw that names no vertex count takes it from the first attribute the host passes. The count is that attribute's vertices after the draw's first vertex.
+    - [`@spec a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads) — A `createGlsl` or `createWgsl` draw that names no vertex count takes it from the first attribute its program reads, in the order the host passed them. The count is that attribute's vertices after the draw's first vertex. An attribute the program does not read is taken and counts for nothing.
     - [`@spec a-compute-call-dispatches-the-count-it-is-given`](#spec-a-compute-call-dispatches-the-count-it-is-given) — A `compute` call on a compute adapter runs one invocation for each index below its count. The count is the one the caller names, or else the number of elements of the first storage buffer the host passed.
       - [`@spec a-compute-call-takes-the-count-the-caller-names`](#spec-a-compute-call-takes-the-count-the-caller-names) — `compute(out, count)` runs one invocation for each index below `count`, whatever the buffers hold. A count of zero runs none.
       - [`@spec a-compute-call-takes-its-count-from-the-first-storage-buffer`](#spec-a-compute-call-takes-its-count-from-the-first-storage-buffer) — A `compute` call given no count runs one invocation for each element of the first storage buffer the host passed. A buffer the host passes after it does not change that count.
@@ -548,7 +548,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-rasterizer-clips-at-the-near-plane`](#spec-a-rasterizer-clips-at-the-near-plane) — The rasterizer clips a triangle with a vertex behind the eye into the triangles in front of it. A triangle wholly behind the eye draws nothing.
       - [`@spec a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment) — The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles: the depth the fragment stage writes, clamped to 0 to 1, or else its interpolated depth. Its depth buffer persists across draws of one size until a draw asks for `clearDepth`, and a draw of another width or height starts from a cleared one.
       - [`@spec a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one`](#spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one) — In a CPU rasterizer, `builtinFragDepth()` read before the fragment stage writes it gives the fragment's interpolated depth.
-      - [`@spec a-rasterizer-takes-its-count-from-the-first-attribute`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute) — A draw that names no vertex count takes it from the first attribute the host passes.
+      - [`@spec a-rasterizer-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads) — A draw that names no vertex count takes it from the first attribute its program reads, in the order the host passed them. An attribute the program does not read is taken and counts for nothing.
       - [`@spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws) — The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
       - [`@spec a-pixel-on-a-shared-edge-is-shaded-once`](#spec-a-pixel-on-a-shared-edge-is-shaded-once) — A pixel centre on an edge that two triangles share takes the colour of one of them, whatever their order. It takes the colour of the triangle whose top or left edge it is.
       - [`@spec a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge`](#spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge) — A CPU rasterizer shades a pixel centre on a top or a left edge of a triangle, and not one on a bottom or a right edge. This holds whichever way the triangle winds.
@@ -751,6 +751,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact webgpu-draws-nothing-for-a-triangle-off-the-viewport`](#fact-webgpu-draws-nothing-for-a-triangle-off-the-viewport) — WebGPU draws no pixel for a triangle wholly outside the viewport, at any distance from it, and reports no error.
 - [`@fact webgpu-culls-no-face-by-default`](#fact-webgpu-culls-no-face-by-default) — A WebGPU render pipeline culls no face unless it asks to, so a triangle draws whichever way its vertices wind.
 - [`@fact a-webgpu-canvas-configured-opaque-drops-alpha`](#fact-a-webgpu-canvas-configured-opaque-drops-alpha) — A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha the draw wrote.
+- [`@fact a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares`](#fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares) — A WebGPU draw takes its vertex count from the caller, and infers none. It reads only the vertex buffers of its pipeline's vertex layout, which holds the attributes the shader declares, and each of those must hold the vertices the draw reads.
 - [`@fact three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture`](#fact-three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture) — three.js's WebGL renderer reads a storage node in a render stage through a data texture, when the node asks for it with `setPBO(true)`. A texel holds one element, with a channel for each component and an integer format for integer data. The texture is as wide as the smallest power of two at or above the square root of the element count. Element `i` sits at column `i % width` and row `i / width`, the width read with `textureSize`.
 - [`@fact three-js-configures-its-webgpu-canvas-by-its-alpha-parameter`](#fact-three-js-configures-its-webgpu-canvas-by-its-alpha-parameter) — three.js's WebGPU renderer takes an `alpha` parameter, `true` by default. It configures its canvas `premultiplied` when `alpha` is `true`, and `opaque` when it is `false`.
 - [`@fact react-three-fiber-and-threlte-create-their-renderer-with-alpha`](#fact-react-three-fiber-and-threlte-create-their-renderer-with-alpha) — react-three-fiber and Threlte build their `WebGLRenderer` with `alpha: true`, so a canvas they draw on clears to alpha 0.
@@ -3215,19 +3216,19 @@ Derives from: [`spec-an-effect-with-several-passes-is-a-pass-graph`](#spec-an-ef
 
 This follows because the application draws the passes in order. It finds the target a pass reads by the name of the pass that wrote it.
 
-#### @spec a-gpu-adapter-takes-its-count-from-the-first-attribute
+#### @spec a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads
 
-> A `createGlsl` or `createWgsl` draw that names no vertex count takes it from the first attribute the host passes. The count is that attribute's vertices after the draw's first vertex.
+> A `createGlsl` or `createWgsl` draw that names no vertex count takes it from the first attribute its program reads, in the order the host passed them. The count is that attribute's vertices after the draw's first vertex. An attribute the program does not read is taken and counts for nothing.
 
-Derives from: [`spec-an-adapter-draws-one-frame-for-each-call`](#spec-an-adapter-draws-one-frame-for-each-call), [`spec-a-rasterizer-takes-its-count-from-the-first-attribute`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute)
+Derives from: [`spec-an-adapter-draws-one-frame-for-each-call`](#spec-an-adapter-draws-one-frame-for-each-call), [`spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads)
 
-This follows because every adapter draws one program the same way, and the rasterizers count from the first attribute.
+This follows because every adapter draws one program the same way, and the rasterizers count from the first attribute their program reads.
 
 #### @spec a-compute-call-dispatches-the-count-it-is-given
 
 > A `compute` call on a compute adapter runs one invocation for each index below its count. The count is the one the caller names, or else the number of elements of the first storage buffer the host passed.
 
-Derives from: [`spec-what-rmsl-hands-back-draws-nothing-on-its-own`](#spec-what-rmsl-hands-back-draws-nothing-on-its-own), [`spec-compute-follows-tsl`](#spec-compute-follows-tsl), [`fact-tsl-takes-a-compute-count-from-its-caller`](#fact-tsl-takes-a-compute-count-from-its-caller), [`spec-a-rasterizer-takes-its-count-from-the-first-attribute`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute)
+Derives from: [`spec-what-rmsl-hands-back-draws-nothing-on-its-own`](#spec-what-rmsl-hands-back-draws-nothing-on-its-own), [`spec-compute-follows-tsl`](#spec-compute-follows-tsl), [`fact-tsl-takes-a-compute-count-from-its-caller`](#fact-tsl-takes-a-compute-count-from-its-caller), [`spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads)
 
 This follows because the application owns the data it uploads and decides how many invocations run over it. TSL's caller writes the count out. An adapter given none takes it from the first buffer the host passed, where a draw takes its count from the first attribute.
 
@@ -3853,9 +3854,13 @@ Derives from: [`spec-a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer
 
 This follows because a fragment that writes no depth keeps its interpolated depth, so that depth is the one it holds until it writes another.
 
-##### @spec a-rasterizer-takes-its-count-from-the-first-attribute
+##### @spec a-rasterizer-takes-its-count-from-the-first-attribute-it-reads
 
-> A draw that names no vertex count takes it from the first attribute the host passes.
+> A draw that names no vertex count takes it from the first attribute its program reads, in the order the host passed them. An attribute the program does not read is taken and counts for nothing.
+
+Derives from: [`fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares`](#fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares)
+
+This follows because a WebGPU draw reads no buffer its shader does not declare, so such a buffer cannot change what is drawn.
 
 ##### @spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws
 
@@ -5126,6 +5131,12 @@ Chromium's WebGPU draws a counter-clockwise and a clockwise triangle alike with 
 > A WebGPU canvas context configured with `alphaMode: "opaque"` shows every pixel with alpha 1, whatever alpha the draw wrote.
 
 Chromium's WebGPU draws a fragment of alpha 0 into a canvas configured opaque, and the page reads the pixel back with alpha 255.
+
+## @fact a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares
+
+> A WebGPU draw takes its vertex count from the caller, and infers none. It reads only the vertex buffers of its pipeline's vertex layout, which holds the attributes the shader declares, and each of those must hold the vertices the draw reads.
+
+This is a fact of the WebGPU specification: `draw(vertexCount, instanceCount, firstVertex, firstInstance)` in `GPURenderCommandsMixin`, and its validation of the bound vertex buffers against the draw's vertex range.
 
 ## @fact three-js-reads-storage-in-a-webgl-render-stage-through-a-data-texture
 

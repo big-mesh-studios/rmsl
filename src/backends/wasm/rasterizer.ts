@@ -397,9 +397,11 @@ export function compileWasm(
    * or 0 when it passes none the program reads.
    */
   function inferCount(attributes: WasmRasterContext["attributes"], first: number): number {
+    // An attribute the program does not read counts for nothing, as a WebGPU
+    // draw reads no buffer its shader does not declare.
     for (const slot in attributes) {
       const layout = attrLayout.find((a) => a.slot === slot);
-      return layout ? Math.floor(attributes[slot]!.length / layout.componentCount) - first : 0;
+      if (layout) return Math.floor(attributes[slot]!.length / layout.componentCount) - first;
     }
     return 0;
   }

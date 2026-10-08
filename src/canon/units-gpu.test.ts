@@ -490,13 +490,16 @@ const attempt = async (run) => {
 const position = attribute("vec3");
 const plainVertex = () => Fn(() => { builtinPosition().assign(vec4(position, 1)); })();
 /** Draws \`fragment\` with createGlsl, after \`set\` gives the adapter its values. */
-const glsl = (fragment, set, vertex = plainVertex()) => attempt(() => {
+const glsl = (fragment, set, vertex = plainVertex(), drawWith) => attempt(() => {
   const target = canvas();
   const adapter = createGlsl(vertex, fragment);
   adapter.attach(target);
-  adapter.setAttribute(position, TRIANGLE);
-  set(adapter);
-  adapter.draw({ count: 3 });
+  if (drawWith) drawWith(adapter);
+  else {
+    adapter.setAttribute(position, TRIANGLE);
+    set(adapter);
+    adapter.draw({ count: 3 });
+  }
   return readPixel(target, 1, 2);
 });
 /** The vertex stage of \`glsl\`, moved along x by an integer attribute it reads. */
@@ -536,6 +539,25 @@ globalThis.__rmslValueTypes = {
     const shift = attribute("int");
     return glsl(Fn(() => vec4(0, 1, 0, 1))(), () => {}, shiftedVertex(shift));
   },
+  unreadFirst: () => {
+    const unused = attribute("vec2");
+    return glsl(Fn(() => vec4(0, 1, 0, 1))(), () => {}, plainVertex(), (adapter) => {
+      adapter.setAttribute(unused, new Float32Array(12));
+      adapter.setAttribute(position, TRIANGLE);
+      adapter.draw();
+    });
+  },
+  wgslUnreadFirst: () => attempt(async () => {
+    const unused = attribute("vec2");
+    const target = canvas();
+    const adapter = createWgsl({ vertex: plainVertex(), fragment: Fn(() => vec4(0, 1, 0, 1))() });
+    await adapter.attach(target);
+    adapter.setAttribute(unused, new Float32Array(12));
+    adapter.setAttribute(position, TRIANGLE);
+    adapter.draw();
+    await adapter.device().queue.onSubmittedWorkDone();
+    return readPixel(target, 1, 2);
+  }),
   wgslUniformArray: () => attempt(async () => {
     const array = colours();
     const target = canvas();
@@ -573,6 +595,28 @@ describe.skipIf(!GPU_ENABLED)("an adapter takes a value of every type its progra
     "sets a uniform array with createWgsl",
     async () => {
       const run = `${VALUE_TYPES}\nglobalThis.__rmslValueTypesRun = () => globalThis.__rmslValueTypes.wgslUniformArray();`;
+      expect(await runInWebGpuPage(run, "__rmslValueTypesRun", new URL(".", import.meta.url).pathname)).toEqual(GREEN);
+    },
+    120_000,
+  );
+
+  /**
+   * The program reads only \`position\`, so the 12 values of an attribute it
+   * does not read, passed first, count for nothing.
+   *
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads
+   */
+  it("counts a createGlsl draw from the first attribute the program reads", async () => {
+    expect(await glslValueType("unreadFirst")).toEqual(GREEN);
+  }, 120_000);
+
+  /**
+   * @canon spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads
+   */
+  it.skipIf(!WEBGPU)(
+    "counts a createWgsl draw from the first attribute the program reads",
+    async () => {
+      const run = `${VALUE_TYPES}\nglobalThis.__rmslValueTypesRun = () => globalThis.__rmslValueTypes.wgslUnreadFirst();`;
       expect(await runInWebGpuPage(run, "__rmslValueTypesRun", new URL(".", import.meta.url).pathname)).toEqual(GREEN);
     },
     120_000,

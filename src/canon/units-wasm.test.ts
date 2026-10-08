@@ -830,3 +830,25 @@ describe("the index accessors on WASM", () => {
     expect(() => compileWasm(vertex as any, (() => Fn(() => vec4(1))()) as any)).toThrow(/built-in input/);
   });
 });
+
+describe("the count of a draw that names none on WASM", () => {
+  /**
+   * The program reads only \`pos\`, so the 12 values of \`unused\`, passed first, count for nothing.
+   *
+   * @canon spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads
+   */
+  it("counts from the first attribute the program reads on WASM", () => {
+    const unused = attribute("vec2");
+    const pos = attribute("vec3");
+    const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))();
+    const fragment = () => Fn(() => vec4(0, 1, 0, 1))();
+    const routine = compileWasm(vertex as any, fragment as any);
+    const pixel = routine.draw(
+      {
+        attributes: { [unused.name]: new Float64Array(12), [pos.name]: Float64Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0) },
+      },
+      { width: 1, height: 1 },
+    );
+    expect(Array.from(pixel)).toEqual([0, 1, 0, 1]);
+  });
+});
