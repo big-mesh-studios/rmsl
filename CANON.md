@@ -398,6 +398,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-glsl-adapter-attaches-and-draws-synchronously`](#spec-a-glsl-adapter-attaches-and-draws-synchronously) — `attach` and `draw` on a GLSL adapter return `void`, because WebGL 2 creates its context and draws synchronously.
   - [`@spec compute-copies-back-only-the-slots-out-names`](#spec-compute-copies-back-only-the-slots-out-names) — `compute(out)` copies back to the host only the storage slots that `out` names. The other storage buffers stay where the program wrote them. A slot that the program has no storage for is refused.
     - [`@spec compute-copies-back-only-the-named-slots`](#spec-compute-copies-back-only-the-named-slots) — `compute(out)` fills only the slots `out` names.
+    - [`@spec overlapping-compute-calls-each-read-back-their-own-result`](#spec-overlapping-compute-calls-each-read-back-their-own-result) — Two `compute(out)` calls on one WGSL adapter, the second made before the first resolves, each fill their own `out` with what their own dispatch left in the buffers.
     - [`@spec compute-refuses-a-slot-with-no-storage`](#spec-compute-refuses-a-slot-with-no-storage) — `compute(out)` refuses a slot that the program has no storage buffer for.
     - [`@spec a-wasm-routine-copies-back-only-the-buffers-the-program-writes`](#spec-a-wasm-routine-copies-back-only-the-buffers-the-program-writes) — A WASM routine marks a storage buffer as written only when its program assigns to it, and copies back only the buffers so marked.
     - [`@spec setting-one-storage-slot-keeps-the-others`](#spec-setting-one-storage-slot-keeps-the-others) — `setAttribute` on one storage slot of a compute adapter leaves what the other slots hold.
@@ -2943,6 +2944,12 @@ This follows because a copy back from the GPU costs a round trip, and a buffer t
 #### @spec compute-copies-back-only-the-named-slots
 
 > `compute(out)` fills only the slots `out` names.
+
+#### @spec overlapping-compute-calls-each-read-back-their-own-result
+
+> Two `compute(out)` calls on one WGSL adapter, the second made before the first resolves, each fill their own `out` with what their own dispatch left in the buffers.
+
+This follows because each call's promise stands for that call's result.
 
 #### @spec compute-refuses-a-slot-with-no-storage
 

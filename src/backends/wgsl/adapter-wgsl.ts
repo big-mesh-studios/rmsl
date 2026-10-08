@@ -725,7 +725,6 @@ export function createWgslCompute(
   let computeUniformBuffer: GPUBuffer | null = null;
   let computeUniformScratch: UniformScratch | null = null;
   let computeBindGroup0: GPUBindGroup | null = null;
-  let staging: GPUBuffer | null = null;
 
   let pendingUniforms = new Map<string, number | number[]>();
   let pendingAttributes = new Map<string, TypedArray>();
@@ -893,35 +892,44 @@ export function createWgslCompute(
           computeStorageResources().map((r) => r.name),
         ),
       );
-      for (let resource of computeStorageResources().filter((r) => requested.has(r.name))) {
-        const state = storageSlots.get(resource.name)!;
-        const target = out[resource.name]!;
-        const valueCount = state.elements * state.itemSize;
-        // Checked before the staging buffer is mapped, so a refusal leaves it unmapped.
-        if (target.length < valueCount) {
-          throw new RangeError(
-            `[RMSL] out["${resource.name}"] holds ${target.length} values, and the slot has ${valueCount}`,
-          );
-        }
-        const bytes = Math.max(4, state.elements * state.layout.stride * 4);
-        if (!staging || staging.size < bytes) {
-          staging?.destroy();
-          staging = device.createBuffer({ size: bytes, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-        }
-        let readEncoder = device.createCommandEncoder();
-        readEncoder.copyBufferToBuffer(state.buffer, 0, staging, 0, bytes);
-        device.queue.submit([readEncoder.finish()]);
-        await staging.mapAsync(GPUMapMode.READ);
-        let range = staging.getMappedRange();
-        let values = elementView(resource.shaderType, {
-          f32: new Float32Array(range),
-          i32: new Int32Array(range),
-          u32: new Uint32Array(range),
+      // Each call reads back through staging buffers of its own, so a call made
+      // before another resolves maps none of the other's.
+      let reads = computeStorageResources()
+        .filter((r) => requested.has(r.name))
+        .map((resource) => {
+          const state = storageSlots.get(resource.name)!;
+          const target = out[resource.name]!;
+          const valueCount = state.elements * state.itemSize;
+          // Checked before any buffer is copied, so a refusal reads nothing back.
+          if (target.length < valueCount) {
+            throw new RangeError(
+              `[RMSL] out["${resource.name}"] holds ${target.length} values, and the slot has ${valueCount}`,
+            );
+          }
+          return { resource, state, target, valueCount, bytes: Math.max(4, state.elements * state.layout.stride * 4) };
         });
-        // The values come back out of the slots that WGSL's layout gave them, without the padding of a vec3.
-        if (state.layout.identity) target.set(values.subarray(0, valueCount));
-        else for (let k = 0; k < valueCount; k++) target[k] = values[state.layout.slot(k)]!;
-        staging.unmap();
+      let readEncoder = device.createCommandEncoder();
+      let stagings = reads.map(({ state, bytes }) => {
+        let staging = device!.createBuffer({ size: bytes, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+        readEncoder.copyBufferToBuffer(state.buffer, 0, staging, 0, bytes);
+        return staging;
+      });
+      device.queue.submit([readEncoder.finish()]);
+      try {
+        await Promise.all(stagings.map((staging) => staging.mapAsync(GPUMapMode.READ)));
+        reads.forEach(({ resource, state, target, valueCount }, i) => {
+          let range = stagings[i]!.getMappedRange();
+          let values = elementView(resource.shaderType, {
+            f32: new Float32Array(range),
+            i32: new Int32Array(range),
+            u32: new Uint32Array(range),
+          });
+          // The values come back out of the slots that WGSL's layout gave them, without the padding of a vec3.
+          if (state.layout.identity) target.set(values.subarray(0, valueCount));
+          else for (let k = 0; k < valueCount; k++) target[k] = values[state.layout.slot(k)]!;
+        });
+      } finally {
+        for (let staging of stagings) staging.destroy();
       }
       return out;
     },
@@ -937,7 +945,6 @@ export function createWgslCompute(
     destroy() {
       for (let state of storageSlots.values()) state.buffer.destroy();
       computeUniformBuffer?.destroy();
-      staging?.destroy();
       device?.destroy();
     },
   };

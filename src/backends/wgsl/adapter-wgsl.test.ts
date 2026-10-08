@@ -11,6 +11,30 @@ beforeAll(async () => {
 
 afterAll(() => uninstall?.());
 
+describe.skipIf(!GPU_ENABLED)("createWgslCompute reading back", () => {
+  /**
+   * Each dispatch adds 1, so the first call reads 1 and the second 2.
+   *
+   * @canon spec-overlapping-compute-calls-each-read-back-their-own-result
+   */
+  it("fills the out of each of two overlapping compute calls", async () => {
+    const values = instancedArray(4, "float");
+    const program = Fn(() => {
+      const i = invocationIndex();
+      values.element(i).assign(values.element(i).add(1));
+    })();
+    const adapter = createWgslCompute(program);
+    await adapter.attach();
+    adapter.setAttribute(values.name, new Float32Array(4));
+    const first = { [values.name]: new Float32Array(4) };
+    const second = { [values.name]: new Float32Array(4) };
+    await Promise.all([adapter.compute(first), adapter.compute(second)]);
+    expect(Array.from(first[values.name])).toEqual([1, 1, 1, 1]);
+    expect(Array.from(second[values.name])).toEqual([2, 2, 2, 2]);
+    adapter.destroy();
+  });
+});
+
 describe.skipIf(!GPU_ENABLED)("createWgslCompute with integer data", () => {
   /**
    * @canon spec-an-integer-reaches-the-host-as-the-integer-it-is
