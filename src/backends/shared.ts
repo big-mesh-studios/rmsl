@@ -537,30 +537,6 @@ export function mkNode(config: {
   }) as BaseNode<ShaderType>;
 }
 
-/**
- * Render a for-loop's update clause.
- *
- * The clause is authored as statements — `(i) => i.assign(i.add(1))` — so it
- * arrives with its work in `body` and only a bare variable reference in `expr`.
- * Emitting `expr` alone drops the increment and produces an infinite loop.
- *
- * GLSL's update slot accepts a comma expression, so every statement survives.
- * WGSL's grammar allows exactly one update statement, so callers there keep
- * the last.
- */
-export const FOR_UPDATE_BLOCK_MESSAGE =
-  "[RMSL] A for-loop's update cannot contain a block. Move the branch into the loop body, or write the loop with While.";
-
-export function forUpdateStatements(update: CompiledNode): string[] {
-  // A nested block cannot go in either language's update slot: GLSL's takes an
-  // expression, and accepting one in WGSL alone would make a program that runs
-  // on one backend and not the other.
-  if (update.body.some((line) => line.includes("{"))) {
-    throw new Error(FOR_UPDATE_BLOCK_MESSAGE);
-  }
-  return update.body;
-}
-
 /** Drop a trailing semicolon, for the slots that take an expression. */
 export function withoutSemicolon(statement: string): string {
   return statement.endsWith(";") ? statement.slice(0, -1) : statement;

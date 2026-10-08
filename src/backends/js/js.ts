@@ -46,7 +46,6 @@ import {
   assertReadsNoStageInput,
   assertOneDeclarationPerName,
   numberClashingVariables,
-  forUpdateStatements,
   loopTest,
   resolveSwizzleTarget,
   roundHalfToEven,
@@ -2466,7 +2465,7 @@ export function compileJSNode(
         body: [
           ...initBody,
           ...before,
-          `for (${initExpr}; ${header}; ${forUpdateStatements(update).map(withoutSemicolon).join(", ")}) {`,
+          `for (${initExpr}; ${header}; ${update.body.map(withoutSemicolon).join(", ")}) {`,
           ...[...guard, ...body.body].map((l) => "  " + l),
           "}",
         ],

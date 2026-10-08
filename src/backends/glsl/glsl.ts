@@ -16,7 +16,6 @@ import {
   prepareRoots,
   assertOneDeclarationPerName,
   numberClashingVariables,
-  forUpdateStatements,
   loopTest,
   tryFold,
   isIntegerType,
@@ -765,7 +764,7 @@ export function compileGLSLNode(
         decls: [...init.decls, ...cond.decls, ...update.decls, ...body.decls],
         body: [
           ...initBody,
-          `for (${initExpr}; ${header}; ${forUpdateStatements(update).map(withoutSemicolon).join(", ")}) {`,
+          `for (${initExpr}; ${header}; ${update.body.map(withoutSemicolon).join(", ")}) {`,
           ...[...guard, ...body.body].map((l) => "  " + l),
           "}",
         ],

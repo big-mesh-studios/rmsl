@@ -34,7 +34,6 @@ import {
   assertOneDeclarationPerName,
   numberClashingVariables,
   assertAssignable,
-  FOR_UPDATE_BLOCK_MESSAGE,
   assertConstantIndexInRange,
   DEGREES_PER_RADIAN,
   RADIANS_PER_DEGREE,
@@ -884,17 +883,6 @@ function writeTextureToMemory(
 /** Heap bytes for a texture: f64 per component. A cube map is always 6 layers. */
 function textureByteSize(tex: CpuTextureData, isCube: boolean): number {
   return tex.width * tex.height * (isCube ? 6 : tex.depth || 1) * (tex.channels ?? 4) * 8;
-}
-
-/** The statements that hold a block of their own. */
-const BLOCK_STATEMENTS = new Set(["if", "for", "while"]);
-
-/** Whether a statement, or any it holds, is a block. Each node of the graph is visited once. */
-function holdsBlock(node: any, seen = new Set<unknown>()): boolean {
-  if (node === null || typeof node !== "object" || seen.has(node)) return false;
-  seen.add(node);
-  if (BLOCK_STATEMENTS.has(node.type)) return true;
-  return Array.isArray(node.params) && node.params.some((param: unknown) => holdsBlock(param, seen));
 }
 
 /**
@@ -4230,11 +4218,6 @@ export function compileWasmFn(
       }
       case "for": {
         const [initNode, condNode, updateNode, bodyNode] = node.params;
-        // The update slot of a GLSL, WGSL or JavaScript `for` takes no block, so
-        // a program that put one there would run on this target alone.
-        if (holdsBlock(updateNode)) {
-          throw new Error(FOR_UPDATE_BLOCK_MESSAGE);
-        }
         return emitLoop(walkStmt(initNode, depth), condNode, bodyNode, updateNode, depth);
       }
       case "while": {

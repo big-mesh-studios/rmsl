@@ -171,9 +171,9 @@ describe("a mistake is refused before the program runs", () => {
   });
 
   /**
-   * A `For` whose update holds a block, such as an `If`, is refused on every
-   * target, because the update slot of a GLSL, WGSL or JavaScript `for` takes
-   * none. A `For` whose update is a plain statement compiles on each.
+   * A `For` whose update holds a block, such as an `If`, is refused as it is
+   * built, so on every target, because the update slot of a GLSL, WGSL or
+   * JavaScript `for` takes none. A `For` whose update is a plain statement compiles on each.
    *
    * @canon spec-a-for-update-that-holds-a-block-is-refused
    */
@@ -205,6 +205,8 @@ describe("a mistake is refused before the program runs", () => {
       ),
     ];
     for (const block of blocks) {
+      // Refused as the program is built, before any target compiles it.
+      expect(block).toThrow(refusal);
       expect(() => compileGlsl(block())).toThrow(refusal);
       expect(() => compileWgsl(block())).toThrow(refusal);
       for (const compile of cpuCompilers) expect(() => compile(block)).toThrow(refusal);

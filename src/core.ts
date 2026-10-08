@@ -3409,6 +3409,23 @@ function loopCondition(cond: () => BooleanLike) {
  * variable `cond` makes is computed before every test, and stays in scope
  * after the loop, and in `update`.
  */
+/** Why a `For` whose update holds a block is refused. */
+export const FOR_UPDATE_BLOCK_MESSAGE =
+  "[RMSL] A for-loop's update cannot contain a block. Move the branch into the loop body, or write the loop with While.";
+
+/** The statements that open a block of their own on every target. */
+const BLOCK_STATEMENTS = new Set(["if", "for", "while"]);
+
+/** Whether a statement, or any it holds, is a block. Each node of the graph is visited once. */
+function holdsBlock(statement: unknown): boolean {
+  return someNode(statement, (node) => BLOCK_STATEMENTS.has(node.type));
+}
+
+/**
+ * A loop as a JavaScript `for` writes it. Its update is the update slot of a
+ * GLSL, WGSL or JavaScript `for`, which takes no block, so an update that holds
+ * one is refused here, before any target compiles it.
+ */
 export function For<T extends Node<ShaderType>>(
   init: () => T,
   cond: (v: T) => BooleanLike,
@@ -3421,6 +3438,7 @@ export function For<T extends Node<ShaderType>>(
     // Condition, update, body: the order they were always built in, which names their variables.
     const { declarations, condition } = loopCondition(() => cond(v));
     let updateNode = buildBlock(() => update(v));
+    if (holdsBlock(updateNode)) throw new Error(FOR_UPDATE_BLOCK_MESSAGE);
     let bodyNode = buildBlock(() => body(v));
     scope.push(...declarations);
     scope.push(

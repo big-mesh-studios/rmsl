@@ -28,7 +28,6 @@ import {
   prepareRoots,
   assertOneDeclarationPerName,
   numberClashingVariables,
-  forUpdateStatements,
   loopGuard,
   loopTest,
   resolveSwizzleTarget,
@@ -1237,7 +1236,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
           initBody = init.body.slice(0, -1);
         }
       }
-      let updates = forUpdateStatements(update);
+      let updates = update.body;
       let decls = [...init.decls, ...cd.decls, ...update.decls, ...body.decls];
 
       // WGSL's for-header holds a single update statement. More than one goes
