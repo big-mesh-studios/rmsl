@@ -121,51 +121,27 @@ describe("a scene renderer manages what it uploads", () => {
   /**
    * @canon spec-an-attribute-two-geometries-share-uploads-into-each
    */
-  it("uploads an attribute two geometries share into the buffers of both on WebGPU", () => {
-    const { device, canvas, bytesOf } = stubDevice();
+  it("uploads an attribute two geometries share once, into the buffer both draw from, on WebGPU", () => {
+    const { device, canvas, bufferWrites } = stubDevice();
     const renderer = new WebGPURenderer(canvas, device as any) as any;
     const position = new BufferAttribute(new Float32Array(9), 3);
-    const first = new BufferGeometry().setAttribute("position", position);
-    const second = new BufferGeometry().setAttribute("position", position);
-    renderer.ensureGeometryBuffers(first);
-    const buffers = renderer.ensureGeometryBuffers(second);
-    (position.array as Float32Array)[0] = 5;
+    const [first, second] = [0, 1].map(() => new BufferGeometry().setAttribute("position", position));
+    const firstBuffer = renderer.ensureGeometryBuffers(first).attributes.get("position");
+    expect(renderer.ensureGeometryBuffers(second).attributes.get("position")).toBe(firstBuffer);
+
+    (position.array as Float32Array)[3] = 5;
+    position.addUpdateRange(3, 3);
     position.needsUpdate = true;
+    const before = bufferWrites.length;
     renderer.ensureGeometryBuffers(first);
     renderer.ensureGeometryBuffers(second);
-
-    expect(new Float32Array(bytesOf(buffers.attributes.get("position")).buffer)[0]).toBe(5);
+    expect(bufferWrites.slice(before).map((w) => w.offset)).toEqual([12]);
   });
 
   /**
    * @canon spec-an-attribute-two-geometries-share-uploads-into-each
    */
-  it("gives a buffer that missed a range upload every change since its version on WebGPU", () => {
-    const { device, canvas, bytesOf } = stubDevice();
-    const renderer = new WebGPURenderer(canvas, device as any) as any;
-    const position = new BufferAttribute(new Float32Array(12), 3);
-    const first = new BufferGeometry().setAttribute("position", position);
-    const second = new BufferGeometry().setAttribute("position", position);
-    renderer.ensureGeometryBuffers(first);
-    const buffers = renderer.ensureGeometryBuffers(second);
-    const array = position.array as Float32Array;
-    array[0] = 1;
-    position.addUpdateRange(0, 3);
-    position.needsUpdate = true;
-    renderer.ensureGeometryBuffers(first);
-    array[9] = 2;
-    position.addUpdateRange(9, 3);
-    position.needsUpdate = true;
-    renderer.ensureGeometryBuffers(second);
-
-    const held = new Float32Array(bytesOf(buffers.attributes.get("position")).buffer);
-    expect([held[0], held[9]]).toEqual([1, 2]);
-  });
-
-  /**
-   * @canon spec-an-attribute-two-geometries-share-uploads-into-each
-   */
-  it("uploads an attribute two geometries share into the buffers of both on WebGL", () => {
+  it("uploads an attribute two geometries share once, into the buffer both draw from, on WebGL", () => {
     const { renderer, calls } = stubWebGl();
     const position = new BufferAttribute(new Float32Array(9), 3);
     const scene = new Scene();
@@ -173,12 +149,63 @@ describe("a scene renderer manages what it uploads", () => {
       scene.add(new Mesh(new BufferGeometry().setAttribute("position", position), new MeshBasicMaterial()));
     }
     renderer.render(scene, camera());
+    (position.array as Float32Array)[3] = 5;
+    position.addUpdateRange(3, 3);
     position.needsUpdate = true;
     const before = calls.length;
     renderer.render(scene, camera());
 
-    const uploads = calls.slice(before).filter((c) => c.name === "bufferData" || c.name === "bufferSubData");
-    expect(uploads).toHaveLength(2);
+    const frame = calls.slice(before);
+    const uploads = frame.filter((c) => c.name === "bufferData" || c.name === "bufferSubData");
+    expect(uploads.map((c) => [c.name, c.args[1]])).toEqual([["bufferSubData", 12]]);
+    const bound = frame.filter((c) => c.name === "bindBuffer" && c.args[0] === renderer.gl.ARRAY_BUFFER);
+    expect(new Set(bound.map((c) => c.args[1])).size).toBe(1);
+  });
+
+  /**
+   * @canon spec-a-changed-attribute-uploads-only-its-update-range
+   */
+  it("uploads whole into a renderer that missed ranges another renderer cleared on WebGPU", () => {
+    const { device, canvas, bytesOf } = stubDevice();
+    const [first, second] = [0, 1].map(() => new WebGPURenderer(canvas, device as any) as any);
+    const position = new BufferAttribute(new Float32Array(12), 3);
+    const geometry = new BufferGeometry().setAttribute("position", position);
+    first.ensureGeometryBuffers(geometry);
+    const buffers = second.ensureGeometryBuffers(geometry);
+    const array = position.array as Float32Array;
+    array[0] = 1;
+    position.addUpdateRange(0, 3);
+    position.needsUpdate = true;
+    first.ensureGeometryBuffers(geometry);
+    array[9] = 2;
+    position.addUpdateRange(9, 3);
+    position.needsUpdate = true;
+    second.ensureGeometryBuffers(geometry);
+
+    const held = new Float32Array(bytesOf(buffers.attributes.get("position")).buffer);
+    expect([held[0], held[9]]).toEqual([1, 2]);
+  });
+
+  /**
+   * @canon spec-a-changed-attribute-uploads-only-its-update-range
+   */
+  it("uploads whole into a renderer that missed ranges another renderer cleared on WebGL", () => {
+    const [first, second] = [0, 1].map(() => stubWebGl());
+    const position = new BufferAttribute(new Float32Array(12), 3);
+    const scene = new Scene();
+    scene.add(new Mesh(new BufferGeometry().setAttribute("position", position), new MeshBasicMaterial()));
+    first!.renderer.render(scene, camera());
+    second!.renderer.render(scene, camera());
+    position.addUpdateRange(0, 3);
+    position.needsUpdate = true;
+    first!.renderer.render(scene, camera());
+    position.addUpdateRange(9, 3);
+    position.needsUpdate = true;
+    const before = second!.calls.length;
+    second!.renderer.render(scene, camera());
+
+    const uploads = second!.calls.slice(before).filter((c) => c.name === "bufferData" || c.name === "bufferSubData");
+    expect(uploads.map((c) => [c.args[1], c.args[2].length])).toEqual([[0, 12]]);
   });
 
   /**
@@ -843,7 +870,7 @@ describe("a scene renderer manages what it uploads", () => {
     expect(
       bufferWrites
         .slice(gpuWrites)
-        .some((w) => w.buffer === gpu.geometryBuffers.get(geometry).attributes.get("instanceEnd")),
+        .some((w) => w.buffer === gpu.ensureGeometryBuffers(geometry).attributes.get("instanceEnd")),
     ).toBe(true);
     expect(calls.filter((c) => c.name === "bufferData" || c.name === "bufferSubData").length).toBeGreaterThan(
       glUploads,

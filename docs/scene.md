@@ -165,7 +165,7 @@ renderer draws from a vertex array of its own either way, so it never changes
 the application's.
 
 `setClearColor`, `setSize`, `setAnimationLoop`, `render(scene, camera)`.
-Programs are compiled per material and cached; geometry buffers per geometry;
+Programs are compiled per material and cached; vertex and index buffers per attribute;
 uniforms are uploaded per draw, grouped by scope:
 
 - **camera** — `projectionMatrix`, `viewMatrix`, `cameraPosition`
@@ -269,13 +269,16 @@ renderer holds at once.
 ### Geometry lifetime
 
 A renderer creates the vertex and index buffers behind a `BufferGeometry` the
-first time it draws with it, and keys them by the geometry object — so filling
-the same geometry again (`needsUpdate` on an attribute) reuses the buffers it
-already has, and a growing attribute re-allocates only when the data no longer
-fits. Mark the part of an attribute that changed with
+first time it draws with it, one for each attribute and keyed by the attribute
+object, as three.js keys them — so filling the same attribute again
+(`needsUpdate`) reuses the buffer it already has, an attribute that several
+geometries share uploads once into the one buffer they all draw from, and a
+growing attribute re-allocates only when the data no longer fits. Mark the
+part of an attribute that changed with
 `attribute.addUpdateRange(start, count)`, in elements, as in three.js, and the
 renderer uploads only those ranges, merged where they touch; with none marked
-it uploads the whole attribute. It clears the ranges once it uploads them.
+it uploads the whole attribute. It clears the ranges once it uploads them, so a
+second renderer that missed them uploads the whole attribute.
 
 That cache holds the geometry, so a geometry dropped from the scene keeps its
 buffers, and the arrays its attributes point at, alive for as long as the
@@ -288,8 +291,10 @@ geometry.dispose(); // every renderer that uploaded it frees its buffers
 ```
 
 Like a texture's, it dispatches a `dispose` event that each renderer answers for
-its own GPU objects, and the geometry object stays usable: drawing with it again
-uploads its attributes into fresh buffers. Use it for a geometry that leaves the
+its own GPU objects: the buffers of the attributes and the index the geometry
+holds, as three.js frees them. The geometry object stays usable: drawing with
+it, or with another geometry that shares one of its attributes, uploads the
+attribute into a fresh buffer. Use it for a geometry that leaves the
 scene for good — a chunk of terrain scrolled out of the world, a mesh torn down
 — rather than waiting for `renderer.dispose()`.
 

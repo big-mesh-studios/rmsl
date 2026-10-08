@@ -461,7 +461,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-grown-attribute-gets-a-buffer-that-holds-it`](#spec-a-grown-attribute-gets-a-buffer-that-holds-it) — An attribute whose array grew uploads into a buffer big enough for all of it.
     - [`@spec a-changed-index-uploads-on-the-next-render`](#spec-a-changed-index-uploads-on-the-next-render) — A geometry's index uploads again on the next render after `index.needsUpdate = true`, whether or not an attribute of the geometry changed.
     - [`@spec a-replaced-attribute-uploads-again`](#spec-a-replaced-attribute-uploads-again) — An attribute that replaces another under its name in a geometry, as `LineSegmentsGeometry.setPositions` replaces them, uploads whole on the next render.
-    - [`@spec an-attribute-two-geometries-share-uploads-into-each`](#spec-an-attribute-two-geometries-share-uploads-into-each) — A buffer attribute that two geometries share uploads into the buffers of both after it changes, on both renderers, so each geometry draws the new data.
+    - [`@spec an-attribute-two-geometries-share-uploads-into-each`](#spec-an-attribute-two-geometries-share-uploads-into-each) — A buffer attribute that two geometries share has one buffer on each renderer, which both geometries draw from. After a change it uploads into that buffer once, ranges included, so each geometry draws the new data.
     - [`@spec a-change-raises-a-version-every-renderer-reads`](#spec-a-change-raises-a-version-every-renderer-reads) — `needsUpdate = true` on a texture, a material or a buffer attribute raises its `version` by one, as in three.js, and reading `needsUpdate` gives `undefined`. Each renderer compares the version it last uploaded or built from with the object's, so every renderer that draws the object, and every program built from a shared material, takes the change.
     - [`@spec a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise`](#spec-a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise) — `new WebGLRenderer()` gives a renderer at once, and `WebGPURenderer.init()` gives one through a promise, because WebGPU requests its device asynchronously.
     - [`@spec a-webgpu-draw-keeps-its-own-uniforms-however-many-draws-a-frame-has`](#spec-a-webgpu-draw-keeps-its-own-uniforms-however-many-draws-a-frame-has) — Each draw of a frame on the WebGPU renderer reads its own uniforms, whatever the number of draws in the frame.
@@ -489,7 +489,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec the-webgpu-renderer-declares-one-uniform-struct-in-both-stages`](#spec-the-webgpu-renderer-declares-one-uniform-struct-in-both-stages) — The WebGPU renderer declares every uniform of a material in both stages, so the vertex and fragment shaders read one struct at the same offsets.
     - [`@spec a-render-target-takes-its-new-size-on-the-next-render`](#spec-a-render-target-takes-its-new-size-on-the-next-render) — A renderer draws a render target at its new size on the next render after its width or height changes, and frees the old storage.
     - [`@spec a-sampler-without-a-texture-reads-black`](#spec-a-sampler-without-a-texture-reads-black) — A sampler that its material gives no texture reads opaque black on every renderer.
-    - [`@spec a-changed-attribute-uploads-only-its-update-range`](#spec-a-changed-attribute-uploads-only-its-update-range) — A renderer uploads only the ranges of a changed attribute that `addUpdateRange(start, count)` marked, merged where they touch, and the whole attribute when it marked none. It clears the ranges once it uploads them, as three.js does, so another renderer drawing the attribute uploads it whole.
+    - [`@spec a-changed-attribute-uploads-only-its-update-range`](#spec-a-changed-attribute-uploads-only-its-update-range) — A renderer uploads only the ranges of a changed attribute that `addUpdateRange(start, count)` marked, merged where they touch, and the whole attribute when it marked none. It clears the ranges once it uploads them, as three.js does. Another renderer whose buffer lacks a change whose ranges were cleared uploads the attribute whole.
   - [`@spec the-application-reaches-an-input-through-its-node`](#spec-the-application-reaches-an-input-through-its-node) — A uniform, attribute or varying node carries its [slot](#term-slot) name in `.name`, and `isUniformNode`, `isAttributeNode` and `isVaryingNode` tell the kinds apart.
   - [`@spec the-wgsl-uniform-layout-is-reported`](#spec-the-wgsl-uniform-layout-is-reported) — `wgslUniformLayout` reports the [layout](#term-layout) of each uniform under WGSL's rules: its offset, its size and, for an array, its stride. It also reports the size of the whole struct.
     - [`@spec uniforms-are-ordered-by-alignment-then-by-declaration`](#spec-uniforms-are-ordered-by-alignment-then-by-declaration) — Uniform members are placed in order of descending alignment, and members that align alike keep the order they were declared in.
@@ -714,6 +714,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact three-js-uploads-a-changed-attribute-through-update-ranges`](#fact-three-js-uploads-a-changed-attribute-through-update-ranges) — three.js holds the changed part of a `BufferAttribute` as a list `updateRanges`, which `addUpdateRange(start, count)` adds to. It sends those ranges to the GPU, and sends the whole attribute when the list is empty.
 - [`@fact three-js-dithers-in-the-shader-not-through-the-dither-switch`](#fact-three-js-dithers-in-the-shader-not-through-the-dither-switch) — three.js never sets WebGL's `DITHER` switch. A material with `dithering: true` dithers in its fragment shader, through the `DITHERING` define.
 - [`@fact three-js-flips-the-front-face-of-a-mirrored-mesh`](#fact-three-js-flips-the-front-face-of-a-mirrored-mesh) — three.js draws a mesh whose world matrix has a negative determinant with its front face wound clockwise, on both of its renderers. A `BackSide` material flips the winding once more.
+- [`@fact three-js-keeps-one-buffer-for-each-attribute`](#fact-three-js-keeps-one-buffer-for-each-attribute) — three.js's WebGL renderer keeps one GPU buffer for each `BufferAttribute`, keyed by the attribute, whatever geometries hold it. Disposing a geometry deletes the buffers of the attributes and the index it holds then.
 - [`@fact three-js-cuts-a-draw-range-to-its-geometry`](#fact-three-js-cuts-a-draw-range-to-its-geometry) — three.js draws the part of a draw range that lies within the geometry's index, or within its position attribute when it has no index, and the range as it is when the geometry has neither. It draws nothing when that part is empty or has no end.
 - [`@fact three-js-uploads-an-image-once-it-has-loaded`](#fact-three-js-uploads-an-image-once-it-has-loaded) — three.js's `WebGLRenderer` skips the upload of a texture marked for update whose image element has not loaded, and records no version for it. It tries again at each render, and uploads the texture once the image has loaded. A texture never marked for update it does not upload; its `TextureLoader` marks a texture when the image loads.
 - [`@fact three-js-writes-a-texture-sampler-state-when-its-version-changes`](#fact-three-js-writes-a-texture-sampler-state-when-its-version-changes) — three.js's `WebGLRenderer` writes a texture's filters and wrap when it uploads the texture, which it does when the texture's `version` differs from the one it uploaded. A change to `minFilter`, `magFilter` or a wrap mode with no `needsUpdate` leaves the texture read as before.
@@ -3301,13 +3302,15 @@ This follows because an index changes on its own, as when a mesh is re-triangula
 
 > An attribute that replaces another under its name in a geometry, as `LineSegmentsGeometry.setPositions` replaces them, uploads whole on the next render.
 
-This follows because a renderer that kept the buffer it uploaded for the name would draw the old attribute's data.
+This follows because a renderer keeps a buffer for each attribute. The new attribute gets a buffer of its own, and nothing it holds was uploaded before.
 
 #### @spec an-attribute-two-geometries-share-uploads-into-each
 
-> A buffer attribute that two geometries share uploads into the buffers of both after it changes, on both renderers, so each geometry draws the new data.
+> A buffer attribute that two geometries share has one buffer on each renderer, which both geometries draw from. After a change it uploads into that buffer once, ranges included, so each geometry draws the new data.
 
-This follows because a renderer keeps a buffer for each geometry's attribute, and a buffer that missed the change would draw the old data.
+Derives from: [`fact-three-js-keeps-one-buffer-for-each-attribute`](#fact-three-js-keeps-one-buffer-for-each-attribute)
+
+This follows because three.js keys a buffer by its attribute, not by a geometry. A buffer for each geometry would upload one change once for each, and the ranges, which the first upload clears, would reach only the first.
 
 #### @spec a-change-raises-a-version-every-renderer-reads
 
@@ -3477,7 +3480,7 @@ This follows because the WebGPU renderer binds a 1×1 black texture there, and b
 
 #### @spec a-changed-attribute-uploads-only-its-update-range
 
-> A renderer uploads only the ranges of a changed attribute that `addUpdateRange(start, count)` marked, merged where they touch, and the whole attribute when it marked none. It clears the ranges once it uploads them, as three.js does, so another renderer drawing the attribute uploads it whole.
+> A renderer uploads only the ranges of a changed attribute that `addUpdateRange(start, count)` marked, merged where they touch, and the whole attribute when it marked none. It clears the ranges once it uploads them, as three.js does. Another renderer whose buffer lacks a change whose ranges were cleared uploads the attribute whole.
 
 Derives from: [`fact-three-js-uploads-a-changed-attribute-through-update-ranges`](#fact-three-js-uploads-a-changed-attribute-through-update-ranges)
 
@@ -4860,6 +4863,12 @@ This is how three.js behaves, read from its source (`WebGLState`, `WebGLPrograms
 > three.js draws a mesh whose world matrix has a negative determinant with its front face wound clockwise, on both of its renderers. A `BackSide` material flips the winding once more.
 
 This is how three.js behaves, read from its source (`WebGLRenderer` `renderBufferDirect`, `WebGLState` `setMaterial`, and `WebGPUPipelineUtils` `_getPrimitiveState`, three.js 0.186).
+
+## @fact three-js-keeps-one-buffer-for-each-attribute
+
+> three.js's WebGL renderer keeps one GPU buffer for each `BufferAttribute`, keyed by the attribute, whatever geometries hold it. Disposing a geometry deletes the buffers of the attributes and the index it holds then.
+
+This is how three.js behaves, read from its source (`WebGLAttributes` and `WebGLGeometries`, three.js 0.186).
 
 ## @fact three-js-cuts-a-draw-range-to-its-geometry
 

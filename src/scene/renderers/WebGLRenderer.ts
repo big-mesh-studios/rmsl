@@ -45,7 +45,9 @@ import {
   drawSlice,
   imageLoaded,
   isMirrored,
-  HeldBuffers,
+  rangesCover,
+  clearUpdateRanges,
+  type AttributeBuffer,
 } from "./common";
 
 interface ProgramEntry {
@@ -57,6 +59,7 @@ interface ProgramEntry {
   attributeLocations: Map<string, number>;
 }
 
+/** The buffers a geometry draws from, by attribute name, as its last draw found them. */
 interface GeometryBuffers {
   attributes: Map<string, WebGLBuffer>;
   index: WebGLBuffer | null;
@@ -74,25 +77,29 @@ export class WebGLRenderer {
   gl: WebGL2RenderingContext;
 
   private programs = new Map<NodeMaterial, Map<string, ProgramEntry>>();
+  /** The buffers of each geometry this renderer drew, whose attributes it frees when the geometry is disposed. */
   private geometryBuffers = new Map<BufferGeometry, GeometryBuffers>();
   /**
-   * Buffers for attributes that live on the object rather than the geometry —
-   * an `InstancedMesh`'s `instanceMatrix`/`instanceColor`. Keyed by the
-   * attribute so two instanced meshes sharing a geometry keep separate buffers.
+   * The buffer of each attribute this renderer uploaded, and the version it
+   * holds. A buffer belongs to its attribute, as three.js keys it, so an
+   * attribute that several geometries share uploads once.
    */
-  private attributeBuffers = new Map<BufferAttribute, WebGLBuffer>();
+  private attributeBuffers = new WeakMap<BufferAttribute, AttributeBuffer<WebGLBuffer>>();
+  /**
+   * The attributes that live on a mesh rather than a geometry, an
+   * `InstancedMesh`'s `instanceMatrix` and `instanceColor`, which `dispose` frees.
+   */
+  private meshAttributes = new Set<BufferAttribute>();
   /** Bytes allocated per `WebGLBuffer`, so a buffer that grew past its first
    * upload is re-allocated only when the new data no longer fits. */
   private bufferCapacities = new WeakMap<WebGLBuffer, number>();
   private textures = new Map<Texture, WebGLTexture>();
   /**
-   * The `version` of each texture and attribute this renderer last uploaded.
+   * The `version` of each texture this renderer last uploaded.
    * Each renderer keeps its own, so a change reaches every renderer that draws
    * the object, as three.js keeps it per renderer.
    */
   private uploadedVersions = new WeakMap<Texture, number>();
-  /** The attribute each vertex and index buffer holds, and the version of it. */
-  private held = new HeldBuffers<WebGLBuffer>();
   /**
    * Whether each texture was last uploaded for an integer sampler. A sampler of
    * the other kind needs another format and other filters, so it uploads again.
@@ -658,21 +665,31 @@ export class WebGLRenderer {
   };
 
   /**
-   * Free the vertex and index buffers a disposed `BufferGeometry` owns, and
-   * stop listening to it. Drawing with the geometry again is allowed:
-   * `bindGeometry` finds no buffers for it and uploads its attributes into new
-   * ones.
+   * Free the buffers of the attributes and the index a disposed
+   * `BufferGeometry` holds, as three.js frees them, and stop listening to it.
+   * Drawing with the geometry, or another that shares an attribute, again is
+   * allowed: `bindGeometry` finds no buffer for the attribute and uploads it
+   * into a new one.
    */
   private onGeometryDispose = (event: unknown): void => {
-    const geometry = (event as { target: BufferGeometry }).target;
-    const buffers = this.geometryBuffers.get(geometry);
-    if (buffers) {
-      for (const buffer of buffers.attributes.values()) this.gl.deleteBuffer(buffer);
-      if (buffers.index) this.gl.deleteBuffer(buffers.index);
-    }
+    this.releaseGeometry((event as { target: BufferGeometry }).target);
+  };
+
+  /** Frees the buffers of the attributes and the index `geometry` holds, and stops listening to it. */
+  private releaseGeometry(geometry: BufferGeometry): void {
+    for (const name in geometry.attributes) this.releaseAttribute(geometry.attributes[name]!);
+    if (geometry.index) this.releaseAttribute(geometry.index);
     this.geometryBuffers.delete(geometry);
     geometry.removeEventListener("dispose", this.onGeometryDispose);
-  };
+  }
+
+  /** Frees the buffer this renderer holds for `attribute`, if it holds one. */
+  private releaseAttribute(attribute: BufferAttribute): void {
+    const held = this.attributeBuffers.get(attribute);
+    if (!held) return;
+    this.gl.deleteBuffer(held.buffer);
+    this.attributeBuffers.delete(attribute);
+  }
 
   private nextTextureUnit(): number {
     const gl = this.gl;
@@ -788,20 +805,9 @@ export class WebGLRenderer {
         continue;
       }
 
-      // `instanceMatrix`/`instanceColor` live on the object rather than the
-      // geometry, so their buffers are cached per attribute (not per geometry).
-      const ownedByGeometry = geometry.attributes[attribute.name] !== undefined;
-      let buffer = ownedByGeometry ? buffers.attributes.get(attribute.name) : this.attributeBuffers.get(attr);
-      if (!buffer) {
-        buffer = gl.createBuffer()!;
-        if (ownedByGeometry) buffers.attributes.set(attribute.name, buffer);
-        else this.attributeBuffers.set(attr, buffer);
-      }
-      if (!this.held.holds(buffer, attr)) {
-        buffer = this.uploadAttribute(gl, gl.ARRAY_BUFFER, buffer, toBufferView(attr.array), attr);
-        if (ownedByGeometry) buffers.attributes.set(attribute.name, buffer);
-        else this.attributeBuffers.set(attr, buffer);
-      }
+      const buffer = this.attributeBuffer(gl.ARRAY_BUFFER, attr, false);
+      if (geometry.attributes[attribute.name] !== undefined) buffers.attributes.set(attribute.name, buffer);
+      else this.meshAttributes.add(attr);
       // The attribute pointers below capture whatever buffer is bound when
       // they run, so bind this attribute's buffer on every draw, whether or
       // not its data changed this frame.
@@ -844,44 +850,45 @@ export class WebGLRenderer {
 
     const index = geometry.index;
     if (index) {
-      const indexBuffer = buffers.index ?? (buffers.index = gl.createBuffer()!);
-      if (!this.held.holds(indexBuffer, index)) {
-        const data = toBufferView(index.array, true);
-        buffers.index = this.uploadAttribute(gl, gl.ELEMENT_ARRAY_BUFFER, indexBuffer, data, index);
-      }
+      buffers.index = this.attributeBuffer(gl.ELEMENT_ARRAY_BUFFER, index, true);
       // The element buffer binding must name this geometry's indices when the
       // draw runs, whatever the previous draw left bound.
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.index!);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.index);
     }
   }
 
   /**
-   * Uploads `attr`'s data into `buffer`: each range `addUpdateRange` marked,
-   * merged as three.js merges them, when those ranges hold every change the
-   * buffer lacks, and otherwise the whole of it. The ranges are cleared
-   * afterwards, as three.js clears them. Returns the buffer to keep, which
-   * differs from `buffer` when it grew.
+   * The buffer holding `attr`, uploaded first when this renderer holds none
+   * for it or holds an older version. An upload sends each range
+   * `addUpdateRange` marked, merged as three.js merges them, when those ranges
+   * hold every change the buffer lacks, and otherwise the whole attribute. The
+   * ranges are cleared afterwards, as three.js clears them.
    */
-  private uploadAttribute(
-    gl: WebGL2RenderingContext,
-    target: number,
-    buffer: WebGLBuffer,
-    data: ArrayBufferView,
-    attr: BufferAttribute,
-  ): WebGLBuffer {
+  private attributeBuffer(target: number, attr: BufferAttribute, index: boolean): WebGLBuffer {
+    const gl = this.gl;
+    let held = this.attributeBuffers.get(attr);
+    if (held !== undefined && held.version === attr.version) return held.buffer;
+    const data = toBufferView(attr.array, index);
+    const element = (data as unknown as { BYTES_PER_ELEMENT: number }).BYTES_PER_ELEMENT;
     const ranges = mergedUpdateRanges(attr);
-    if (!this.held.rangesSuffice(buffer, attr) || ranges.length === 0) {
-      buffer = this.uploadSlice(gl, target, buffer, data, { byteOffset: 0, byteEnd: data.byteLength });
+    const whole = held === undefined || ranges.length === 0 || !rangesCover(attr, held.version);
+    if (held === undefined) {
+      held = { buffer: gl.createBuffer()!, version: attr.version, elementSize: element };
+      this.attributeBuffers.set(attr, held);
+    }
+    if (whole) {
+      held.buffer = this.uploadSlice(gl, target, held.buffer, data, { byteOffset: 0, byteEnd: data.byteLength });
     } else {
-      const bytes = (data as unknown as { BYTES_PER_ELEMENT: number }).BYTES_PER_ELEMENT;
       for (const range of ranges) {
-        const byteOffset = Math.min(data.byteLength, Math.max(0, range.start) * bytes);
-        const byteEnd = Math.min(data.byteLength, byteOffset + Math.max(0, range.count) * bytes);
-        buffer = this.uploadSlice(gl, target, buffer, data, { byteOffset, byteEnd });
+        const byteOffset = Math.min(data.byteLength, Math.max(0, range.start) * element);
+        const byteEnd = Math.min(data.byteLength, byteOffset + Math.max(0, range.count) * element);
+        held.buffer = this.uploadSlice(gl, target, held.buffer, data, { byteOffset, byteEnd });
       }
     }
-    this.held.record(buffer, attr);
-    return buffer;
+    held.version = attr.version;
+    held.elementSize = element;
+    clearUpdateRanges(attr);
+    return held.buffer;
   }
 
   /**
@@ -942,12 +949,8 @@ export class WebGLRenderer {
     for (const bySignature of this.programs.values()) {
       for (const entry of bySignature.values()) gl.deleteProgram(entry.glProgram);
     }
-    for (const [geometry, buffers] of this.geometryBuffers) {
-      for (const buffer of buffers.attributes.values()) gl.deleteBuffer(buffer);
-      if (buffers.index) gl.deleteBuffer(buffers.index);
-      geometry.removeEventListener("dispose", this.onGeometryDispose);
-    }
-    for (const buffer of this.attributeBuffers.values()) gl.deleteBuffer(buffer);
+    for (const geometry of this.geometryBuffers.keys()) this.releaseGeometry(geometry);
+    for (const attribute of this.meshAttributes) this.releaseAttribute(attribute);
     for (const [texture, glTexture] of this.textures) {
       gl.deleteTexture(glTexture);
       texture.removeEventListener("dispose", this.onTextureDispose);
@@ -956,8 +959,7 @@ export class WebGLRenderer {
     gl.deleteVertexArray(this.vertexArray);
     this.vertexArray = null;
     this.programs.clear();
-    this.geometryBuffers.clear();
-    this.attributeBuffers.clear();
+    this.meshAttributes.clear();
     this.textures.clear();
     this.boundAttributeLocations.clear();
   }

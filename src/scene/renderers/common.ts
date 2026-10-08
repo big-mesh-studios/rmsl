@@ -505,45 +505,30 @@ export function drawSlice(range: { start: number; count: number }, total: number
   return slice;
 }
 
+/** The GPU buffer a renderer keeps for one attribute, the version of the attribute it holds, and the bytes of each element it holds. */
+export interface AttributeBuffer<Buffer> {
+  buffer: Buffer;
+  version: number;
+  elementSize: number;
+}
+
 /**
  * The version of each attribute at which a renderer last cleared its update
- * ranges. The ranges marked since cover every change after that version.
+ * ranges. A renderer whose buffer holds an older version lacks changes whose
+ * ranges another renderer cleared.
  */
 const rangesClearedAt = new WeakMap<BufferAttribute, number>();
 
 /**
- * What each GPU buffer of a renderer holds: an attribute, at a version. A
- * buffer belongs to one geometry, or to one object's instanced attribute, so
- * an attribute two geometries share uploads into each.
+ * Whether the update ranges marked on `attribute` cover every change a buffer
+ * that holds it at `version` lacks. Otherwise the attribute uploads whole.
  */
-export class HeldBuffers<Buffer extends object> {
-  private readonly attributes = new WeakMap<Buffer, BufferAttribute>();
-  private readonly versions = new WeakMap<Buffer, number>();
+export function rangesCover(attribute: BufferAttribute, version: number): boolean {
+  return version >= (rangesClearedAt.get(attribute) ?? -1);
+}
 
-  /** Whether `buffer` holds `attribute` at its current version. */
-  holds(buffer: Buffer, attribute: BufferAttribute): boolean {
-    return this.attributes.get(buffer) === attribute && this.versions.get(buffer) === attribute.version;
-  }
-
-  /**
-   * Whether the update ranges marked on `attribute` cover every change
-   * `buffer` lacks: it holds the attribute at a version no older than the one
-   * at which the ranges were last cleared. Otherwise the attribute uploads whole.
-   */
-  rangesSuffice(buffer: Buffer, attribute: BufferAttribute): boolean {
-    const version = this.versions.get(buffer);
-    return (
-      this.attributes.get(buffer) === attribute &&
-      version !== undefined &&
-      version >= (rangesClearedAt.get(attribute) ?? -1)
-    );
-  }
-
-  /** Records that `buffer` now holds `attribute` at its version, and clears its ranges, as three.js clears them. */
-  record(buffer: Buffer, attribute: BufferAttribute): void {
-    this.attributes.set(buffer, attribute);
-    this.versions.set(buffer, attribute.version);
-    attribute.clearUpdateRanges();
-    rangesClearedAt.set(attribute, attribute.version);
-  }
+/** Clears the update ranges of `attribute` once a renderer uploaded them, as three.js clears them. */
+export function clearUpdateRanges(attribute: BufferAttribute): void {
+  attribute.clearUpdateRanges();
+  rangesClearedAt.set(attribute, attribute.version);
 }
