@@ -356,6 +356,16 @@ describe("a mistake is refused before the program runs", () => {
       expect(() => compile(folded(() => int(1).add(int(3)))), `${name} read 1 + 3`).toThrow(
         /index 4 is outside a vec3's components 0 to 2/,
       );
+      const foldedColumn = () =>
+        Fn(() =>
+          threeColumns()
+            .toVar()
+            .element(int(2).mul(int(2)))
+            .toVar(),
+        )();
+      expect(() => compile(foldedColumn), `${name} mat3 column 2 * 2`).toThrow(
+        /index 4 is outside a mat3's columns 0 to 2/,
+      );
     }
     for (const [name, compile] of compilers) {
       expect(() => compile(read(2)), `${name} read 2`).not.toThrow();
