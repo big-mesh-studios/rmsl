@@ -1,4 +1,4 @@
-import { Color } from "../math/Color";
+import type { Color } from "../math/Color";
 import { Object3D } from "../core/Object3D";
 
 /**
@@ -8,5 +8,9 @@ import { Object3D } from "../core/Object3D";
 export class Scene extends Object3D {
   readonly isScene = true;
 
-  background: Color | null = new Color(0, 0, 0);
+  /**
+   * The colour `render` clears to, or `null` (the default, as in three.js) to
+   * clear to the renderer's clear colour.
+   */
+  background: Color | null = null;
 }

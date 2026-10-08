@@ -59,8 +59,20 @@ export function textureImage(texture: CpuTextureData, samplerType: string): Text
     );
   }
   const Texels = (data instanceof Uint8ClampedArray ? Uint8Array : data.constructor) as new (
-    length: number,
+    ...args: [number] | [ArrayBufferLike, number, number]
   ) => TextureImage["texels"];
+  // Four-channel data is uploaded as it is: a view of the same bytes, not a copy.
+  if (channels === 4) {
+    return {
+      width: texture.width,
+      height: texture.height,
+      depth,
+      texels: new Texels(data.buffer, data.byteOffset, count * 4),
+      bits,
+      signed,
+      normalized,
+    };
+  }
   const texels = new Texels(count * 4);
   const alpha = normalized ? 255 : 1;
   for (let i = 0; i < count; i++) {

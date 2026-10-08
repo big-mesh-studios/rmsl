@@ -61,6 +61,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec wgsl-packs-every-value-uniform-into-one-binding`](#spec-wgsl-packs-every-value-uniform-into-one-binding) — On WGSL, every uniform that holds a value is a member of one struct, bound once. GLSL declares each uniform on its own.
     - [`@spec a-texture-keeps-a-binding-of-its-own`](#spec-a-texture-keeps-a-binding-of-its-own) — On WGSL, a texture, and the sampler that goes with a float texture, each take a binding of their own outside the uniform struct. The stages of a render program number them from the whole set of its textures.
     - [`@spec a-bool-uniform-travels-as-an-unsigned-integer`](#spec-a-bool-uniform-travels-as-an-unsigned-integer) — On WGSL, a `bool` or boolean vector uniform, alone or in an array, travels as `u32`. The program compares it with zero where it reads it, and gets a `bool`.
+    - [`@spec an-adapter-writes-a-texture-of-the-same-shape-in-place`](#spec-an-adapter-writes-a-texture-of-the-same-shape-in-place) — `setTexture` of a texture of the size and format a sampler's GPU texture already has writes into that GPU texture on `createGlsl` and `createWgsl`, rather than making a new one, and four-channel data of the array type the texture holds goes up without a copy.
     - [`@spec an-adapter-takes-the-texture-a-sampler-reads-from-the-host`](#spec-an-adapter-takes-the-texture-a-sampler-reads-from-the-host) — `setTexture(sampler, texture)` gives a sampler uniform the texture it reads on every adapter that draws: `createGlsl`, `createWgsl`, `createJs` and `createWasm`. The sampler is named by its node or its slot, and the texture is described as a CPU target samples it. A GPU target reads 8-bit data as 0 to 1, and takes an integer array for an integer sampler.
     - [`@spec an-adapter-sets-a-uniform-of-every-type-its-program-declares`](#spec-an-adapter-sets-a-uniform-of-every-type-its-program-declares) — An adapter's `setUniform` uploads a uniform of every value type its program can declare.
       - [`@bug the-glsl-adapter-refuses-a-uint-uniform`](#bug-the-glsl-adapter-refuses-a-uint-uniform) — `createGlsl.setUniform` uploads only float, int and bool scalars and vectors and square matrices, and throws for a `uint` uniform.
@@ -379,15 +380,12 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-instanced-mesh-follows-three-js`](#spec-an-instanced-mesh-follows-three-js) — An `InstancedMesh` holds a transform per instance, the identity by default, and a colour per instance once the program sets one. It clones with its geometry, material, transforms and instance data.
     - [`@spec a-material-built-for-an-instanced-mesh-reads-each-instance`](#spec-a-material-built-for-an-instanced-mesh-reads-each-instance) — A material built for an instanced mesh declares the instance matrix, as four column attributes, and the instance colour when the mesh carries colours. It transforms position and normal by the matrix and tints the colour. The same material also builds for a mesh that is not instanced.
     - [`@spec wide-lines-follow-three-js`](#spec-wide-lines-follow-three-js) — `LineSegmentsGeometry`, `LineGeometry`, `Line2NodeMaterial` and `LineSegments2` draw lines of a width in pixels or world units, as three.js's do. They draw dashes and a colour per segment when asked.
-      - [`@bug line-opacity-is-compiled-as-a-literal`](#bug-line-opacity-is-compiled-as-a-literal) — `Line2NodeMaterial` compiles its `opacity` as a literal, so a change to it after the first render does nothing.
     - [`@spec a-node-material-shades-as-three-js-does`](#spec-a-node-material-shades-as-three-js-does) — `MeshBasicMaterial`, `MeshLambertMaterial` and `MeshStandardMaterial` shade as three.js's do, the standard material with a GGX specular term, from a [node material](#term-node-material) graph.
       - [`@spec the-built-in-materials-shade-as-three-js-does`](#spec-the-built-in-materials-shade-as-three-js-does) — `MeshBasicMaterial`, `MeshLambertMaterial` and `MeshStandardMaterial` build programs that shade as three.js's do, to a finite colour.
       - [`@spec a-material-slot-takes-a-node-or-a-builder`](#spec-a-material-slot-takes-a-node-or-a-builder) — A material slot such as `colorNode` takes a node, or a function of the builder that gives one. `vertexNode` and `fragmentNode` replace a whole stage.
       - [`@spec a-material-uniform-has-a-scope-and-a-live-value`](#spec-a-material-uniform-has-a-scope-and-a-live-value) — A material uniform belongs to the camera, the object, the material or the renderer. It reads its value from the object it belongs to when the renderer uploads it.
       - [`@spec a-material-reads-any-sampler-type`](#spec-a-material-reads-any-sampler-type) — A material reads a float, integer or 3D sampler, and keeps the two-argument sampler form as a 2D sampler.
-        - [`@bug webgl-rejects-a-narrow-r8ui-texture`](#bug-webgl-rejects-a-narrow-r8ui-texture) — The WebGL renderer uploads a single-channel integer texture under the default unpack alignment of four. WebGL rejects a tightly packed image whose width four does not divide, and the texture reads zero.
       - [`@spec a-material-takes-the-renderer-precision-unless-it-sets-one`](#spec-a-material-takes-the-renderer-precision-unless-it-sets-one) — A material compiles at the precision of its renderer unless it sets one of its own, and changing it rebuilds the material.
-        - [`@bug a-rebuild-reaches-one-signature-of-a-shared-material`](#bug-a-rebuild-reaches-one-signature-of-a-shared-material) — A rebuild flagged by `needsUpdate` rebuilds only the program of the first kind of mesh drawn after it, and clears the flag. A material shared by a `Mesh` and an `InstancedMesh` keeps the stale program for the other.
       - [`@spec ambient-lights-sum-into-one-colour`](#spec-ambient-lights-sum-into-one-colour) — A material sums the ambient lights of its scene, each scaled by its intensity, into one colour uniform.
       - [`@spec a-light-uniform-carries-its-colour-times-its-intensity`](#spec-a-light-uniform-carries-its-colour-times-its-intensity) — A directional or point light gives its colour uniform the light's colour already multiplied by its intensity.
       - [`@spec position-and-normal-read-object-space-in-both-stages`](#spec-position-and-normal-read-object-space-in-both-stages) — The builder's `position` and `normal` give the object-space position and normal in both stages, as TSL's `positionLocal` and `normalLocal` do.
@@ -444,51 +442,57 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-compute-call-takes-its-count-from-the-first-storage-buffer`](#spec-a-compute-call-takes-its-count-from-the-first-storage-buffer) — A `compute` call given no count runs one invocation for each element of the first storage buffer the host passed. A buffer the host passes after it does not change that count.
       - [`@spec a-vector-storage-buffer-counts-its-elements`](#spec-a-vector-storage-buffer-counts-its-elements) — The elements of a storage buffer are counted as its type says. A buffer of `vec4` holds a quarter as many elements as it has components, and a dispatch over it runs one invocation per element.
     - [`@spec a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte`](#spec-a-cpu-adapter-writes-a-channel-as-a-rounded-clamped-byte) — A JS or WASM routine adapter clamps each channel to 0 to 1 and writes it on its canvas as the nearest byte.
+  - [`@spec a-webgl-caller-restores-the-context-state-only-when-asked`](#spec-a-webgl-caller-restores-the-context-state-only-when-asked) — `WebGLRenderer` and `createGlsl` set the WebGL state each of their calls needs, and leave it as they set it. With `preserveState: true`, each call puts back the state it changed before it returns.
+    - [`@spec a-webgl-call-sets-the-state-it-reads`](#spec-a-webgl-call-sets-the-state-it-reads) — A call of `WebGLRenderer` or `createGlsl` sets every piece of WebGL state it reads, whatever the application left there. An upload sets the unpack parameters and unbinds the pixel-unpack buffer, and a readback sets the pack parameters. A draw sets the colour mask, blend equation, depth function, depth range and front face, and draws a canvas into its back buffer. It turns off the scissor, stencil, discard, polygon offset, coverage and dithering switches. A draw of `createGlsl` also covers its whole canvas, and turns off blending, depth testing and culling, as a WGSL draw has none of them.
+    - [`@spec a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value`](#spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value) — A draw of `WebGLRenderer` or `createGlsl` gives each vertex attribute that its program declares and that has no data the value (0, 0, 0, 1). A fresh context holds that value.
+    - [`@spec a-webgl-call-leaves-the-state-it-set`](#spec-a-webgl-call-leaves-the-state-it-set) — Without `preserveState`, a call of `WebGLRenderer` or `createGlsl` puts back none of the state it set. A texture upload leaves the unpack alignment at 1, and a draw leaves its program bound.
+    - [`@spec a-webgl-renderer-asked-to-preserve-state-puts-it-back`](#spec-a-webgl-renderer-asked-to-preserve-state-puts-it-back) — With `preserveState: true`, `render`, `readPixels` and `readPixelsAsync` of `WebGLRenderer` put back the state they changed before they return. That is the state [a call sets because it reads it](#spec-a-webgl-call-sets-the-state-it-reads) and [the attribute values a draw gives](#spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value). It is also the framebuffer, renderbuffer, program, vertex array, array buffer and pixel-pack buffer bindings. They also put back the viewport, the clear colour, and the depth, blend and cull state they set for each draw. They put back the active texture unit and the textures of each unit they used.
+    - [`@spec a-glsl-adapter-asked-to-preserve-state-puts-it-back`](#spec-a-glsl-adapter-asked-to-preserve-state-puts-it-back) — With `preserveState: true`, `attach`, `draw`, `setUniform`, `setAttribute` and `setTexture` of `createGlsl` put back the state they changed before they return. That is the state [a call sets because it reads it](#spec-a-webgl-call-sets-the-state-it-reads) and [the attribute values a draw gives](#spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value). It is also the program, vertex array and array buffer bindings and the clear colour. They put back the active texture unit and the textures of each unit they used.
+    - [`@spec the-webgl-renderer-draws-from-its-own-vertex-array`](#spec-the-webgl-renderer-draws-from-its-own-vertex-array) — The WebGL renderer draws from a vertex array of its own. It changes no vertex array of the application's, the default one included.
+    - [`@exception preserving-webgl-state-allocates-on-each-call`](#exception-preserving-webgl-state-allocates-on-each-call) — With `preserveState: true`, a `render` or a `draw` reads the viewport, the clear colour, the colour mask, the depth range or a vertex attribute's value into a new array. The call allocates, where [the frame path allocates nothing](#axiom-the-frame-path-allocates-nothing).
   - [`@spec a-render-depends-only-on-what-it-is-given`](#spec-a-render-depends-only-on-what-it-is-given) — `render(scene, camera, target)` on a renderer of `./scene` gives the pixels that the same call gives on a fresh renderer, whatever the renderer drew before.
     - [`@spec a-draw-configures-every-enabled-vertex-attribute`](#spec-a-draw-configures-every-enabled-vertex-attribute) — A draw on the WebGL renderer runs with enabled only the vertex attribute arrays it configured itself, whatever mesh drew before it.
     - [`@spec a-render-clears-the-depth-buffer-whatever-the-last-draw-masked`](#spec-a-render-clears-the-depth-buffer-whatever-the-last-draw-masked) — A render on the WebGL renderer clears the depth buffer, whatever depth mask the last draw left.
     - [`@spec a-texture-reads-as-its-sampler-asks-whichever-sampler-uploaded-it`](#spec-a-texture-reads-as-its-sampler-asks-whichever-sampler-uploaded-it) — A texture on the WebGL renderer reads as the type of the sampler that reads it asks, whichever type of sampler uploaded it.
-      - [`@bug webgl-keeps-the-sampler-state-of-the-first-sampler-that-uploaded-a-texture`](#bug-webgl-keeps-the-sampler-state-of-the-first-sampler-that-uploaded-a-texture) — The WebGL renderer writes a texture's filters and wrap once, when it uploads the texture, from the type of the sampler that uploaded it. An integer sampler that reads the texture later meets linear filters, an incomplete texture, and reads zero.
     - [`@spec a-webgpu-render-records-what-a-fresh-renderer-records`](#spec-a-webgpu-render-records-what-a-fresh-renderer-records) — A render on the WebGPU renderer records the same pass as the same call on a fresh renderer, whatever the renderer drew before.
   - [`@spec a-scene-renderer-manages-what-it-uploads`](#spec-a-scene-renderer-manages-what-it-uploads) — A renderer of `./scene` uploads each geometry, texture and uniform once, again when it changes, and frees it when it is disposed. It compiles a program once for each light set and kind of mesh.
+    - [`@spec a-webgpu-draw-binds-groups-of-the-layout-its-pipeline-has`](#spec-a-webgpu-draw-binds-groups-of-the-layout-its-pipeline-has) — Each draw of a WebGPU render binds texture and sampler groups made for the layout of its pipeline. That holds when a texture a sampler reads changes during the render, so that it can or cannot be filtered.
+    - [`@spec a-texture-uploads-whatever-holds-its-image`](#spec-a-texture-uploads-whatever-holds-its-image) — A texture uploads its image whether the image is data, as a `DataTexture` holds it, or an image element, bitmap or canvas, at the size of that image.
+      - [`@spec a-loaded-image-uploads-at-its-own-size`](#spec-a-loaded-image-uploads-at-its-own-size) — A texture whose image is a loaded image element, video, bitmap or canvas uploads at the size of that image, into a texture the image can be copied into, whatever the texture held before.
+      - [`@spec an-image-uploads-once-it-has-loaded`](#spec-an-image-uploads-once-it-has-loaded) — A texture whose image has not loaded, such as an image element still loading or a video with no frame yet, reads as a blank texture on both renderers. It uploads at the first render after the image has loaded, without `needsUpdate`.
+    - [`@spec a-grown-attribute-gets-a-buffer-that-holds-it`](#spec-a-grown-attribute-gets-a-buffer-that-holds-it) — An attribute whose array grew uploads into a buffer big enough for all of it.
+    - [`@spec an-attribute-whose-elements-changed-size-uploads-whole`](#spec-an-attribute-whose-elements-changed-size-uploads-whole) — An attribute or an index whose elements changed size uploads whole, whatever ranges it marked. A `number[]` index uploads as 32-bit elements once a value in it passes 65535, and as 16-bit ones before.
+    - [`@spec a-changed-index-uploads-on-the-next-render`](#spec-a-changed-index-uploads-on-the-next-render) — A geometry's index uploads again on the next render after `index.needsUpdate = true`, whether or not an attribute of the geometry changed.
+    - [`@spec a-replaced-attribute-uploads-again`](#spec-a-replaced-attribute-uploads-again) — An attribute that replaces another under its name in a geometry, as `LineSegmentsGeometry.setPositions` replaces them, uploads whole on the next render.
+    - [`@spec an-attribute-two-geometries-share-uploads-into-each`](#spec-an-attribute-two-geometries-share-uploads-into-each) — A buffer attribute that two geometries share has one buffer on each renderer, which both geometries draw from. After a change it uploads into that buffer once, ranges included, so each geometry draws the new data.
+    - [`@spec a-change-raises-a-version-every-renderer-reads`](#spec-a-change-raises-a-version-every-renderer-reads) — `needsUpdate = true` on a texture, a material or a buffer attribute raises its `version` by one, as in three.js, and reading `needsUpdate` gives `undefined`. Each renderer compares the version it last uploaded or built from with the object's, so every renderer that draws the object, and every program built from a shared material, takes the change.
     - [`@spec a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise`](#spec-a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise) — `new WebGLRenderer()` gives a renderer at once, and `WebGPURenderer.init()` gives one through a promise, because WebGPU requests its device asynchronously.
     - [`@spec a-webgpu-draw-keeps-its-own-uniforms-however-many-draws-a-frame-has`](#spec-a-webgpu-draw-keeps-its-own-uniforms-however-many-draws-a-frame-has) — Each draw of a frame on the WebGPU renderer reads its own uniforms, whatever the number of draws in the frame.
     - [`@spec a-webgpu-renderer-frees-the-uniform-buffers-it-no-longer-uses`](#spec-a-webgpu-renderer-frees-the-uniform-buffers-it-no-longer-uses) — The WebGPU renderer frees the uniform buffer of a pipeline it replaces, and shrinks a program's uniform ring once a frame needs far fewer slots.
     - [`@spec a-renderer-supplies-the-camera-and-object-uniforms`](#spec-a-renderer-supplies-the-camera-and-object-uniforms) — A renderer gives a program the camera's projection, view and position, the object's world and normal matrices, and its own resolution. It gives nothing for a name it does not know.
-      - [`@bug line-resolution-ignores-the-render-target`](#bug-line-resolution-ignores-the-render-target) — The WebGL renderer gives the `resolution` uniform the canvas's drawing buffer size even while it draws into a smaller render target. A line it draws into the target then has the wrong width.
     - [`@spec a-program-is-compiled-once-per-signature`](#spec-a-program-is-compiled-once-per-signature) — A renderer compiles a material once for each light set, in order, and each instancing flag of the mesh.
     - [`@spec a-uniform-uploads-in-the-shape-its-type-has`](#spec-a-uniform-uploads-in-the-shape-its-type-has) — A renderer uploads a scalar uniform as a scalar and a vector or matrix as an array. An integer uniform goes up as an integer, and each column of a `mat3` is padded to 16 bytes, as WGSL reads it. It places every uniform a material collects in the WGSL layout.
     - [`@spec an-instanced-attribute-comes-from-its-mesh`](#spec-an-instanced-attribute-comes-from-its-mesh) — A renderer reads an instanced attribute from the geometry, or from the mesh that owns it when the geometry has none. Its WGSL locations match the compiler's.
     - [`@spec each-sampler-gets-its-own-texture`](#spec-each-sampler-gets-its-own-texture) — Several samplers in one draw each read their own texture.
-    - [`@spec the-webgpu-renderer-shares-one-sampler-per-state`](#spec-the-webgpu-renderer-shares-one-sampler-per-state) — The WebGPU renderer makes one sampler for each combination of filters and wrap, described as the texture asks, and binds each sampler by its type. It rebinds a texture whose sampler state changes, and leaves alone one whose update changes nothing.
+    - [`@spec the-webgpu-renderer-shares-one-sampler-per-state`](#spec-the-webgpu-renderer-shares-one-sampler-per-state) — The WebGPU renderer makes one sampler for each combination of filters and wrap, described as the texture asks, and binds each sampler by its type. When a texture's version changes, it rebinds the texture only if its sampler state changed.
+    - [`@spec a-sampler-change-takes-effect-after-needs-update`](#spec-a-sampler-change-takes-effect-after-needs-update) — A change to a texture's filters or wrap takes effect on both renderers at the first render after `texture.needsUpdate = true`, and not before, as a change to its image does.
     - [`@spec a-changed-texture-shows-on-the-next-render`](#spec-a-changed-texture-shows-on-the-next-render) — A texture whose image changes uploads again on the next render, and a texture that does not change stays as it is. The renderer replaces and binds again a texture whose size changes.
-      - [`@bug the-first-renderer-consumes-needs-update`](#bug-the-first-renderer-consumes-needs-update) — A renderer clears `needsUpdate` once it uploads a texture, so a second renderer drawing the same texture never sees the change.
     - [`@spec a-disposed-resource-is-freed-by-every-renderer-holding-it`](#spec-a-disposed-resource-is-freed-by-every-renderer-holding-it) — Disposing a geometry or a texture tells every renderer that holds it. Each frees its own copy and uploads it again if it draws it again, and pipelines that do not use it stay as they are. A disposed renderer stops listening.
-    - [`@spec a-render-target-reads-its-pixels-back`](#spec-a-render-target-reads-its-pixels-back) — A renderer draws into a render target and reads its pixels back, at once or, on WebGL, asynchronously without stalling the pipeline.
-      - [`@bug webgpu-has-no-render-target`](#bug-webgpu-has-no-render-target) — The WebGPU renderer takes no render target and has no `readPixels`, so it can only draw to its canvas.
-    - [`@spec a-mesh-draws-the-slice-its-draw-range-selects`](#spec-a-mesh-draws-the-slice-its-draw-range-selects) — A mesh draws only the vertices its `drawRange` selects from its geometry.
-      - [`@bug webgpu-ignores-the-draw-range`](#bug-webgpu-ignores-the-draw-range) — The WebGPU renderer draws a mesh's whole geometry, ignoring the slice its `drawRange` selects.
+    - [`@spec a-render-target-reads-its-pixels-back`](#spec-a-render-target-reads-its-pixels-back) — A renderer draws into a render target and reads its pixels back as RGBA bytes, the bottom row first, alike on both renderers: on WebGL at once, or asynchronously without stalling the pipeline, and on WebGPU through a promise, since WebGPU reads a texture back only asynchronously.
+    - [`@spec a-mesh-draws-the-slice-its-draw-range-selects`](#spec-a-mesh-draws-the-slice-its-draw-range-selects) — A mesh draws only the vertices its `drawRange` selects from its geometry, cut to the geometry's indices, or to its vertices when it has no index. A geometry with neither, whose vertex stage places its vertices itself, draws its range uncut. A range that selects none, or no end, draws nothing.
     - [`@spec a-texture-is-bound-to-every-stage-that-samples-it`](#spec-a-texture-is-bound-to-every-stage-that-samples-it) — A renderer binds a texture to every stage that samples it, the vertex stage included.
-    - [`@spec a-data-texture-uploads-in-the-type-it-names`](#spec-a-data-texture-uploads-in-the-type-it-names) — A data texture uploads in the element type its `type` names, so a float texture holds floats.
-      - [`@bug a-float-texture-is-uploaded-as-bytes`](#bug-a-float-texture-is-uploaded-as-bytes) — Both renderers ignore `DataTexture.type`, so a `Float32Array` image is uploaded as unsigned bytes.
+    - [`@spec a-data-texture-uploads-in-the-type-it-names`](#spec-a-data-texture-uploads-in-the-type-it-names) — A data texture uploads in the element type its `type` names, so a float texture holds floats. A float texture filters linearly where the device can, and reads its nearest texel where it cannot.
     - [`@spec a-renderer-blends-and-depth-tests-as-the-material-asks`](#spec-a-renderer-blends-and-depth-tests-as-the-material-asks) — A renderer blends and depth-tests each draw as its material's `transparent`, `blending`, `depthTest` and `depthWrite` ask.
-      - [`@bug webgpu-ignores-the-material-blend-and-depth-state`](#bug-webgpu-ignores-the-material-blend-and-depth-state) — The WebGPU renderer builds every pipeline with no blend state, a depth test and depth writes, whatever the material's `transparent`, `blending`, `depthTest` and `depthWrite` ask for.
+      - [`@spec a-draw-takes-its-material-blend-and-depth-state`](#spec-a-draw-takes-its-material-blend-and-depth-state) — A draw blends as its material's `transparent` and `blending` ask, and depth-tests and writes depth as its `depthTest` and `depthWrite` ask. A renderer reads them at each draw, so a change to them takes effect without `needsUpdate`.
       - [`@spec a-renderer-draws-transparent-meshes-back-to-front`](#spec-a-renderer-draws-transparent-meshes-back-to-front) — A renderer draws opaque meshes first, then transparent meshes from the farthest to the nearest.
-        - [`@bug transparent-meshes-draw-in-scene-graph-order`](#bug-transparent-meshes-draw-in-scene-graph-order) — Both renderers draw meshes in scene-graph order. A transparent mesh drawn before a farther one hides it instead of blending over it.
+    - [`@spec a-mirrored-mesh-shows-the-faces-its-material-asks-for`](#spec-a-mirrored-mesh-shows-the-faces-its-material-asks-for) — A mesh whose world matrix mirrors it, with a negative determinant, draws with its front face wound clockwise on both renderers. Its material's `side` then culls the faces it culls on a mesh that is not mirrored.
     - [`@spec render-clears-the-canvas-on-every-call`](#spec-render-clears-the-canvas-on-every-call) — `render` clears the canvas to the clear colour on every call, whatever the scene holds.
-      - [`@bug webgpu-leaves-an-empty-scene-uncleared`](#bug-webgpu-leaves-an-empty-scene-uncleared) — The WebGPU renderer clears in the first draw's render pass, so a scene with nothing to draw leaves the canvas as it was.
+      - [`@spec a-scene-that-draws-nothing-still-clears`](#spec-a-scene-that-draws-nothing-still-clears) — `render` of a scene with nothing to draw clears the canvas, as a scene with meshes does.
       - [`@spec render-clears-to-the-scene-background`](#spec-render-clears-to-the-scene-background) — `render` clears to the scene's background colour when the scene has one, and to the clear colour otherwise.
-        - [`@bug render-ignores-the-scene-background`](#bug-render-ignores-the-scene-background) — Both renderers ignore `scene.background` and clear to the renderer's clear colour.
-    - [`@bug webgpu-never-uploads-an-image-source`](#bug-webgpu-never-uploads-an-image-source) — The WebGPU renderer uploads only an `ArrayBufferView` image: a texture holding an image element or bitmap becomes a 1×1 texture with nothing written to it.
-    - [`@bug webgpu-never-grows-a-geometry-buffer`](#bug-webgpu-never-grows-a-geometry-buffer) — The WebGPU renderer sizes a geometry's vertex buffer at its first upload and writes a grown attribute into it unchanged, past its end.
-    - [`@bug webgpu-ignores-a-changed-index`](#bug-webgpu-ignores-a-changed-index) — The WebGPU renderer never reads `geometry.index.needsUpdate`, so changed indices are not uploaded unless a vertex attribute changed too.
-    - [`@bug a-replaced-attribute-keeps-its-old-data`](#bug-a-replaced-attribute-keeps-its-old-data) — Both renderers cache a geometry's buffers by attribute name. They never upload an attribute replaced by a new object after the first render, as `LineSegmentsGeometry.setPositions` does.
     - [`@spec the-webgpu-renderer-declares-one-uniform-struct-in-both-stages`](#spec-the-webgpu-renderer-declares-one-uniform-struct-in-both-stages) — The WebGPU renderer declares every uniform of a material in both stages, so the vertex and fragment shaders read one struct at the same offsets.
     - [`@spec a-render-target-takes-its-new-size-on-the-next-render`](#spec-a-render-target-takes-its-new-size-on-the-next-render) — A renderer draws a render target at its new size on the next render after its width or height changes, and frees the old storage.
     - [`@spec a-sampler-without-a-texture-reads-black`](#spec-a-sampler-without-a-texture-reads-black) — A sampler that its material gives no texture reads opaque black on every renderer.
-    - [`@spec a-changed-attribute-uploads-only-its-update-range`](#spec-a-changed-attribute-uploads-only-its-update-range) — A renderer uploads only the ranges of a changed attribute that `addUpdateRange(start, count)` marked, and the whole attribute when it marked none.
-      - [`@bug an-attribute-has-one-update-range-where-three-js-has-a-list`](#bug-an-attribute-has-one-update-range-where-three-js-has-a-list) — rmsl's `BufferAttribute` has one `updateRange` of an offset and a count, and has no `updateRanges`, `addUpdateRange` or `clearUpdateRanges`. Both renderers read that one range.
-      - [`@bug webgpu-ignores-an-attribute-update-range`](#bug-webgpu-ignores-an-attribute-update-range) — The WebGPU renderer writes a changed attribute whole, from byte 0, ignoring the range it marks.
+    - [`@spec a-changed-attribute-uploads-only-its-update-range`](#spec-a-changed-attribute-uploads-only-its-update-range) — A renderer uploads only the ranges of a changed attribute that `addUpdateRange(start, count)` marked, merged where they touch, and the whole attribute when it marked none. It clears the ranges once it uploads them, as three.js does. Another renderer whose buffer lacks a change whose ranges were cleared uploads the attribute whole.
   - [`@spec the-application-reaches-an-input-through-its-node`](#spec-the-application-reaches-an-input-through-its-node) — A uniform, attribute or varying node carries its [slot](#term-slot) name in `.name`, and `isUniformNode`, `isAttributeNode` and `isVaryingNode` tell the kinds apart.
   - [`@spec the-wgsl-uniform-layout-is-reported`](#spec-the-wgsl-uniform-layout-is-reported) — `wgslUniformLayout` reports the [layout](#term-layout) of each uniform under WGSL's rules: its offset, its size and, for an array, its stride. It also reports the size of the whole struct.
     - [`@spec uniforms-are-ordered-by-alignment-then-by-declaration`](#spec-uniforms-are-ordered-by-alignment-then-by-declaration) — Uniform members are placed in order of descending alignment, and members that align alike keep the order they were declared in.
@@ -602,9 +606,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-js-function-writes-out-what-would-cross-a-call`](#spec-a-js-function-writes-out-what-would-cross-a-call) — A compiled JS function writes an element-wise operation into a slot one component at a time, and a dot product, a length, a distance and a scalar `smoothstep` as expressions of their own, rather than through a call. Each component reads a vector operand's component and a scalar operand as it is, which the compiler knows from their types. A scalar operand that is not a local is read into one before the first component is written, so a component of the slot itself is read as it was. A helper remains for an operation with no slot to write into, written for the shape of each operand.
   - [`@spec a-compiled-js-function-returns-its-result-in-a-slot`](#spec-a-compiled-js-function-returns-its-result-in-a-slot) — The function that `compileJSFn` returns as source, and that `precompileJS` ships, returns a vector or a matrix in a slot it reuses on the next call, and a stage returns its position, varyings and outputs in an object it reuses, so the result of one call is the result of the next. A caller that keeps one copies it, or compiles with `reentrant`. A [routine](#term-cpu-routine), a stage and a grid copy their result, so a later call does not change it.
   - [`@spec a-webgl-renderer-allocates-nothing-per-frame`](#spec-a-webgl-renderer-allocates-nothing-per-frame) — The WebGL renderer draws a frame without allocating. It reuses what it needs between frames, and builds no array, closure or iterator per frame or per draw.
-    - [`@bug webgl-render-allocates-the-clear-colour-per-frame`](#bug-webgl-render-allocates-the-clear-colour-per-frame) — `render` reads the clear colour with `Color.toArray()`, which builds a new array on every frame.
-    - [`@bug webgl-render-allocates-a-traversal-closure-per-frame`](#bug-webgl-render-allocates-a-traversal-closure-per-frame) — `render` builds a new callback for `traverseVisible` on every frame.
-    - [`@bug webgl-draw-allocates-the-attribute-list-per-draw`](#bug-webgl-draw-allocates-the-attribute-list-per-draw) — `bindGeometry` lists the geometry's attributes with `Object.values` and `some` on every draw, which builds an array and a closure.
 - [`@axiom a-user-ships-only-what-runs`](#axiom-a-user-ships-only-what-runs) — An application pays only for what it uses. A program declares only the inputs it reads. An application that compiles ahead of time ships the compiled code, without the compiler and without a toolchain.
   - [`@spec a-precompiled-program-ships-without-the-compiler`](#spec-a-precompiled-program-ships-without-the-compiler) — An application that [precompiles](#term-precompile) its programs with the Vite plugins ships the compiled code without the rmsl compiler.
     - [`@spec a-precompiled-shader-ships-as-a-string`](#spec-a-precompiled-shader-ships-as-a-string) — `precompileShaders` replaces a module with the GLSL and WGSL it compiled to, and the slot names it uses, as one JSON constant that imports nothing.
@@ -641,6 +642,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-wgsl-uniform-array-has-a-16-byte-stride`](#fact-a-wgsl-uniform-array-has-a-16-byte-stride) — The elements of an array in the WGSL uniform address space align to 16 bytes, and a `vec3` takes the 16 bytes of a `vec4`.
 - [`@fact wgsl-takes-an-integer-varying-flat-from-the-first-vertex`](#fact-wgsl-takes-an-integer-varying-flat-from-the-first-vertex) — WGSL requires a vertex output or fragment input of integer type to be `@interpolate(flat)`, and a flat value with no sampling named comes from the first vertex of the primitive.
 - [`@fact glsl-takes-an-integer-varying-flat-from-the-last-vertex`](#fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex) — GLSL ES 3.00 requires a vertex output of integer type to be `flat`, and WebGL 2 takes a flat value from the last vertex of a triangle, its provoking vertex.
+- [`@fact webgl-reads-a-vector-state-into-a-new-array`](#fact-webgl-reads-a-vector-state-into-a-new-array) — WebGL gives a vector state, such as the viewport or the clear colour, only through `getParameter`, which returns a new array on each call. It gives a vertex attribute's value only through `getVertexAttrib`, which does the same.
 - [`@fact webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage) — WebGL 2 has no compute shaders and no storage buffers.
 - [`@fact an-integer-texture-cannot-be-filtered`](#fact-an-integer-texture-cannot-be-filtered) — Neither GLSL nor WGSL filters an integer texture. A shader reads it one texel at a time, with `texelFetch` or `textureLoad`.
 - [`@fact a-mipmapped-texture-without-its-chain-samples-black`](#fact-a-mipmapped-texture-without-its-chain-samples-black) — In WebGL 2, a texture whose minification filter reads mipmaps but which has no mip chain is incomplete, and samples as black.
@@ -708,8 +710,14 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact three-js-sorts-transparent-objects-back-to-front`](#fact-three-js-sorts-transparent-objects-back-to-front) — three.js sorts the transparent objects of a render list by `renderOrder`, then by depth from the farthest to the nearest.
 - [`@fact three-js-clears-before-it-renders-when-auto-clear-is-set`](#fact-three-js-clears-before-it-renders-when-auto-clear-is-set) — A three.js renderer clears its colour, depth and stencil buffers at the start of each `render` when its `autoClear` is `true`, which it is by default.
 - [`@fact three-js-clears-to-a-colour-background`](#fact-three-js-clears-to-a-colour-background) — When `scene.background` is a colour, three.js clears to that colour with alpha 1 and forces the clear, with `autoClear` on or off. With no background it clears to the renderer's clear colour.
-- [`@fact three-js-sets-blending-and-depth-from-the-material`](#fact-three-js-sets-blending-and-depth-from-the-material) — In three.js, `transparent`, `blending`, `depthTest` and `depthWrite` are properties of a material, and the renderer sets its blend and depth state from them for each draw. A material with normal blending that is not transparent draws with no blending.
+- [`@fact three-js-sets-blending-and-depth-from-the-material`](#fact-three-js-sets-blending-and-depth-from-the-material) — In three.js, `transparent`, `blending`, `depthTest` and `depthWrite` are properties of a material, and the renderer sets its blend and depth state from them for each draw. A material with normal blending that is not transparent draws with no blending. Normal blending weighs colour by the source alpha and alpha by one, both over one minus the source alpha. Additive blending adds colour weighed by the source alpha, and adds alpha.
 - [`@fact three-js-uploads-a-changed-attribute-through-update-ranges`](#fact-three-js-uploads-a-changed-attribute-through-update-ranges) — three.js holds the changed part of a `BufferAttribute` as a list `updateRanges`, which `addUpdateRange(start, count)` adds to. It sends those ranges to the GPU, and sends the whole attribute when the list is empty.
+- [`@fact three-js-dithers-in-the-shader-not-through-the-dither-switch`](#fact-three-js-dithers-in-the-shader-not-through-the-dither-switch) — three.js never sets WebGL's `DITHER` switch. A material with `dithering: true` dithers in its fragment shader, through the `DITHERING` define.
+- [`@fact three-js-flips-the-front-face-of-a-mirrored-mesh`](#fact-three-js-flips-the-front-face-of-a-mirrored-mesh) — three.js draws a mesh whose world matrix has a negative determinant with its front face wound clockwise, on both of its renderers. A `BackSide` material flips the winding once more.
+- [`@fact three-js-keeps-one-buffer-for-each-attribute`](#fact-three-js-keeps-one-buffer-for-each-attribute) — three.js's WebGL renderer keeps one GPU buffer for each `BufferAttribute`, keyed by the attribute, whatever geometries hold it. Disposing a geometry deletes the buffers of the attributes and the index it holds then.
+- [`@fact three-js-cuts-a-draw-range-to-its-geometry`](#fact-three-js-cuts-a-draw-range-to-its-geometry) — three.js draws the part of a draw range that lies within the geometry's index, or within its position attribute when it has no index, and the range as it is when the geometry has neither. It draws nothing when that part is empty or has no end.
+- [`@fact three-js-uploads-an-image-once-it-has-loaded`](#fact-three-js-uploads-an-image-once-it-has-loaded) — three.js's `WebGLRenderer` skips the upload of a texture marked for update whose image element has not loaded, and records no version for it. It tries again at each render, and uploads the texture once the image has loaded. A texture never marked for update it does not upload; its `TextureLoader` marks a texture when the image loads.
+- [`@fact three-js-writes-a-texture-sampler-state-when-its-version-changes`](#fact-three-js-writes-a-texture-sampler-state-when-its-version-changes) — three.js's `WebGLRenderer` writes a texture's filters and wrap when it uploads the texture, which it does when the texture's `version` differs from the one it uploaded. A change to `minFilter`, `magFilter` or a wrap mode with no `needsUpdate` leaves the texture read as before.
 - [`@fact three-js-uploads-a-data-texture-in-its-type`](#fact-three-js-uploads-a-data-texture-in-its-type) — A three.js `DataTexture` takes a typed array and a texture `type`, `UnsignedByteType` by default, and uploads its data to the GPU as that type.
 - [`@fact three-js-sums-ambient-lights-into-one-colour`](#fact-three-js-sums-ambient-lights-into-one-colour) — three.js adds the colour of each ambient light, times its intensity, into one ambient colour for the scene.
 - [`@fact three-js-scales-a-light-colour-by-its-intensity`](#fact-three-js-scales-a-light-colour-by-its-intensity) — three.js sets the colour uniform of a directional light and of a point light to the light's colour multiplied by its intensity, on the host.
@@ -769,10 +777,8 @@ The analysis found these places where the code or the documents do not hold the 
 2. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
 3. The documents call `While` and `For` TSL functions, but TSL has only `Loop`. Issue #59.
 4. `var_`, `assertBlockScope` and `compileWat` are exported with no documented purpose. Issue #73 asks whether they are public API.
-5. The WebGL renderer sets a texture's sampler state only when `needsUpdate` uploads the texture, as three.js does, where the WebGPU renderer follows a change at once. Issue #187 asks which rule both renderers keep.
-6. `createWgsl` configures its canvas opaque, so a transparent clear shows as opaque black where the other adapters show the page. Issue #188 asks whether to configure it premultiplied.
-7. rmsl changes the state of a WebGL context that the application hands it, such as the unpack alignment, and does not restore it. The canon says nothing about what rmsl leaves for code that shares the context. Issue #189 asks for a ruling.
-8. On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it, where the other targets take the first. Issue #232 asks whether the GLSL adapter and the WebGL renderer should ask for the first vertex through `WEBGL_provoking_vertex`.
+5. `createWgsl` configures its canvas opaque, so a transparent clear shows as opaque black where the other adapters show the page. Issue #188 asks whether to configure it premultiplied.
+6. On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it, where the other targets take the first. Issue #232 asks whether the GLSL adapter and the WebGL renderer should ask for the first vertex through `WEBGL_provoking_vertex`.
 
 ### Coverage gaps
 
@@ -1068,6 +1074,14 @@ Derives from: [`fact-a-wgsl-texture-is-not-host-shareable`](#fact-a-wgsl-texture
 > On WGSL, a `bool` or boolean vector uniform, alone or in an array, travels as `u32`. The program compares it with zero where it reads it, and gets a `bool`.
 
 Derives from: [`fact-wgsl-cannot-share-a-bool-with-the-host`](#fact-wgsl-cannot-share-a-bool-with-the-host)
+
+#### @spec an-adapter-writes-a-texture-of-the-same-shape-in-place
+
+> `setTexture` of a texture of the size and format a sampler's GPU texture already has writes into that GPU texture on `createGlsl` and `createWgsl`, rather than making a new one, and four-channel data of the array type the texture holds goes up without a copy.
+
+Derives from: [`spec-an-adapter-takes-the-texture-a-sampler-reads-from-the-host`](#spec-an-adapter-takes-the-texture-a-sampler-reads-from-the-host), [`axiom-the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing)
+
+This follows because a host that updates a texture every frame, a video or a canvas read back, would otherwise make and destroy a GPU texture and copy every texel each frame.
 
 #### @spec an-adapter-takes-the-texture-a-sampler-reads-from-the-host
 
@@ -2832,14 +2846,6 @@ This follows because TSL is the shading language of three.js, and its users brin
 
 > `LineSegmentsGeometry`, `LineGeometry`, `Line2NodeMaterial` and `LineSegments2` draw lines of a width in pixels or world units, as three.js's do. They draw dashes and a colour per segment when asked.
 
-##### @bug line-opacity-is-compiled-as-a-literal
-
-> `Line2NodeMaterial` compiles its `opacity` as a literal, so a change to it after the first render does nothing.
-
-Derives from: [`spec-a-render-depends-only-on-what-it-is-given`](#spec-a-render-depends-only-on-what-it-is-given)
-
-Issue: #97
-
 #### @spec a-node-material-shades-as-three-js-does
 
 > `MeshBasicMaterial`, `MeshLambertMaterial` and `MeshStandardMaterial` shade as three.js's do, the standard material with a GGX specular term, from a [node material](#term-node-material) graph.
@@ -2860,23 +2866,9 @@ Issue: #97
 
 > A material reads a float, integer or 3D sampler, and keeps the two-argument sampler form as a 2D sampler.
 
-###### @bug webgl-rejects-a-narrow-r8ui-texture
-
-> The WebGL renderer uploads a single-channel integer texture under the default unpack alignment of four. WebGL rejects a tightly packed image whose width four does not divide, and the texture reads zero.
-
-Issue: #95
-
 ##### @spec a-material-takes-the-renderer-precision-unless-it-sets-one
 
 > A material compiles at the precision of its renderer unless it sets one of its own, and changing it rebuilds the material.
-
-###### @bug a-rebuild-reaches-one-signature-of-a-shared-material
-
-> A rebuild flagged by `needsUpdate` rebuilds only the program of the first kind of mesh drawn after it, and clears the flag. A material shared by a `Mesh` and an `InstancedMesh` keeps the stale program for the other.
-
-Derives from: [`spec-a-render-depends-only-on-what-it-is-given`](#spec-a-render-depends-only-on-what-it-is-given)
-
-Issue: #96
 
 ##### @spec ambient-lights-sum-into-one-colour
 
@@ -3208,6 +3200,52 @@ Derives from: [`spec-an-adapter-draws-one-frame-for-each-call`](#spec-an-adapter
 
 This follows because WebGPU stores a float into an 8-bit canvas by clamping and rounding it, and a CPU target gives what WebGPU gives.
 
+### @spec a-webgl-caller-restores-the-context-state-only-when-asked
+
+> `WebGLRenderer` and `createGlsl` set the WebGL state each of their calls needs, and leave it as they set it. With `preserveState: true`, each call puts back the state it changed before it returns.
+
+This follows because the application owns the context, so it decides what a call leaves there. Code that shares the context knows which state it reads. Putting back every piece of state on every call would cost each application that shares nothing.
+
+#### @spec a-webgl-call-sets-the-state-it-reads
+
+> A call of `WebGLRenderer` or `createGlsl` sets every piece of WebGL state it reads, whatever the application left there. An upload sets the unpack parameters and unbinds the pixel-unpack buffer, and a readback sets the pack parameters. A draw sets the colour mask, blend equation, depth function, depth range and front face, and draws a canvas into its back buffer. It turns off the scissor, stencil, discard, polygon offset, coverage and dithering switches. A draw of `createGlsl` also covers its whole canvas, and turns off blending, depth testing and culling, as a WGSL draw has none of them.
+
+Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target), [`fact-three-js-dithers-in-the-shader-not-through-the-dither-switch`](#fact-three-js-dithers-in-the-shader-not-through-the-dither-switch)
+
+This follows because a WGSL draw neither dithers nor reads such state. A WebGL draw that read it could give other pixels. A fresh context has each switch off but dithering. In three.js the dithering switch stays as the context has it, and a material that asks dithers in its shader. The switch is off here, so that a WebGL frame gives what a WebGPU frame gives.
+
+#### @spec a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value
+
+> A draw of `WebGLRenderer` or `createGlsl` gives each vertex attribute that its program declares and that has no data the value (0, 0, 0, 1). A fresh context holds that value.
+
+Derives from: [`axiom-one-program-means-the-same-on-every-target`](#axiom-one-program-means-the-same-on-every-target)
+
+This follows because a shader reads such an attribute from a value the context keeps for its location. The application can set that value, as it can set any other state a draw reads.
+
+#### @spec a-webgl-call-leaves-the-state-it-set
+
+> Without `preserveState`, a call of `WebGLRenderer` or `createGlsl` puts back none of the state it set. A texture upload leaves the unpack alignment at 1, and a draw leaves its program bound.
+
+#### @spec a-webgl-renderer-asked-to-preserve-state-puts-it-back
+
+> With `preserveState: true`, `render`, `readPixels` and `readPixelsAsync` of `WebGLRenderer` put back the state they changed before they return. That is the state [a call sets because it reads it](#spec-a-webgl-call-sets-the-state-it-reads) and [the attribute values a draw gives](#spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value). It is also the framebuffer, renderbuffer, program, vertex array, array buffer and pixel-pack buffer bindings. They also put back the viewport, the clear colour, and the depth, blend and cull state they set for each draw. They put back the active texture unit and the textures of each unit they used.
+
+#### @spec a-glsl-adapter-asked-to-preserve-state-puts-it-back
+
+> With `preserveState: true`, `attach`, `draw`, `setUniform`, `setAttribute` and `setTexture` of `createGlsl` put back the state they changed before they return. That is the state [a call sets because it reads it](#spec-a-webgl-call-sets-the-state-it-reads) and [the attribute values a draw gives](#spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value). It is also the program, vertex array and array buffer bindings and the clear colour. They put back the active texture unit and the textures of each unit they used.
+
+#### @spec the-webgl-renderer-draws-from-its-own-vertex-array
+
+> The WebGL renderer draws from a vertex array of its own. It changes no vertex array of the application's, the default one included.
+
+This follows because a vertex array holds the element buffer binding and every attribute pointer. Putting back that one binding puts back the element buffer and every pointer.
+
+#### @exception preserving-webgl-state-allocates-on-each-call
+
+> With `preserveState: true`, a `render` or a `draw` reads the viewport, the clear colour, the colour mask, the depth range or a vertex attribute's value into a new array. The call allocates, where [the frame path allocates nothing](#axiom-the-frame-path-allocates-nothing).
+
+Derives from: [`fact-webgl-reads-a-vector-state-into-a-new-array`](#fact-webgl-reads-a-vector-state-into-a-new-array)
+
 ### @spec a-render-depends-only-on-what-it-is-given
 
 > `render(scene, camera, target)` on a renderer of `./scene` gives the pixels that the same call gives on a fresh renderer, whatever the renderer drew before.
@@ -3232,13 +3270,7 @@ This follows because the depth mask applies to `clear`, and the renderer sets th
 
 > A texture on the WebGL renderer reads as the type of the sampler that reads it asks, whichever type of sampler uploaded it.
 
-This follows because [one rule decides how every target samples a texture](#spec-one-rule-decides-how-every-target-samples-a-texture), and reads an integer texture as nearest. A renderer that wrote the filters and wrap once, for the first sampler, would give a later sampler another answer.
-
-##### @bug webgl-keeps-the-sampler-state-of-the-first-sampler-that-uploaded-a-texture
-
-> The WebGL renderer writes a texture's filters and wrap once, when it uploads the texture, from the type of the sampler that uploaded it. An integer sampler that reads the texture later meets linear filters, an incomplete texture, and reads zero.
-
-Issue: #186
+This follows because [one rule decides how every target samples a texture](#spec-one-rule-decides-how-every-target-samples-a-texture), and reads an integer texture as nearest. A renderer that wrote the filters and wrap once, for the first sampler, would give a later sampler another answer. A WebGL texture holds one format and one set of filters, and an integer sampler reads only an integer format. So the renderer uploads the texture again when a sampler of the other kind reads it.
 
 #### @spec a-webgpu-render-records-what-a-fresh-renderer-records
 
@@ -3253,6 +3285,70 @@ This follows because the renderer builds each pass from the scene, and keeps no 
 Derives from: [`spec-a-render-depends-only-on-what-it-is-given`](#spec-a-render-depends-only-on-what-it-is-given)
 
 This follows because a renderer that owns the drawing of a scene owns its resources too. A copy it kept after the geometry, texture or uniform changed would give pixels that a fresh renderer does not give.
+
+#### @spec a-webgpu-draw-binds-groups-of-the-layout-its-pipeline-has
+
+> Each draw of a WebGPU render binds texture and sampler groups made for the layout of its pipeline. That holds when a texture a sampler reads changes during the render, so that it can or cannot be filtered.
+
+This follows because WebGPU refuses a draw whose groups do not match its pipeline's layout. The renderer lays out every program of the render before it builds any pipeline. A later mesh then cannot change the layout of a pipeline an earlier draw holds.
+
+#### @spec a-texture-uploads-whatever-holds-its-image
+
+> A texture uploads its image whether the image is data, as a `DataTexture` holds it, or an image element, bitmap or canvas, at the size of that image.
+
+This follows because three.js draws a texture whose image is either, and a scene ported from it uses both.
+
+##### @spec a-loaded-image-uploads-at-its-own-size
+
+> A texture whose image is a loaded image element, video, bitmap or canvas uploads at the size of that image, into a texture the image can be copied into, whatever the texture held before.
+
+##### @spec an-image-uploads-once-it-has-loaded
+
+> A texture whose image has not loaded, such as an image element still loading or a video with no frame yet, reads as a blank texture on both renderers. It uploads at the first render after the image has loaded, without `needsUpdate`.
+
+Derives from: [`fact-three-js-uploads-an-image-once-it-has-loaded`](#fact-three-js-uploads-an-image-once-it-has-loaded)
+
+This follows because an image that has not loaded has no size, and a texture made from it could hold nothing. A renderer of `./scene` uploads a texture the first time it draws it, marked or not, so it needs no `needsUpdate` where three.js needs one.
+
+#### @spec a-grown-attribute-gets-a-buffer-that-holds-it
+
+> An attribute whose array grew uploads into a buffer big enough for all of it.
+
+This follows because a GPU buffer keeps the size it was made with, and the grown array would not fit the old one.
+
+#### @spec an-attribute-whose-elements-changed-size-uploads-whole
+
+> An attribute or an index whose elements changed size uploads whole, whatever ranges it marked. A `number[]` index uploads as 32-bit elements once a value in it passes 65535, and as 16-bit ones before.
+
+This follows because the buffer holds elements of the old size. A range of the new ones would land among them, and the rest would read as other values.
+
+#### @spec a-changed-index-uploads-on-the-next-render
+
+> A geometry's index uploads again on the next render after `index.needsUpdate = true`, whether or not an attribute of the geometry changed.
+
+This follows because an index changes on its own, as when a mesh is re-triangulated over the same vertices.
+
+#### @spec a-replaced-attribute-uploads-again
+
+> An attribute that replaces another under its name in a geometry, as `LineSegmentsGeometry.setPositions` replaces them, uploads whole on the next render.
+
+This follows because a renderer keeps a buffer for each attribute. The new attribute gets a buffer of its own, and nothing it holds was uploaded before.
+
+#### @spec an-attribute-two-geometries-share-uploads-into-each
+
+> A buffer attribute that two geometries share has one buffer on each renderer, which both geometries draw from. After a change it uploads into that buffer once, ranges included, so each geometry draws the new data.
+
+Derives from: [`fact-three-js-keeps-one-buffer-for-each-attribute`](#fact-three-js-keeps-one-buffer-for-each-attribute)
+
+This follows because three.js keys a buffer by its attribute, not by a geometry. A buffer for each geometry would upload one change once for each, and the ranges, which the first upload clears, would reach only the first.
+
+#### @spec a-change-raises-a-version-every-renderer-reads
+
+> `needsUpdate = true` on a texture, a material or a buffer attribute raises its `version` by one, as in three.js, and reading `needsUpdate` gives `undefined`. Each renderer compares the version it last uploaded or built from with the object's, so every renderer that draws the object, and every program built from a shared material, takes the change.
+
+Derives from: [`spec-the-scene-library-follows-three-js`](#spec-the-scene-library-follows-three-js)
+
+This follows because a flag one renderer clears is a change the others never see, and three.js counts changes in a version for that reason.
 
 #### @spec a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise
 
@@ -3274,12 +3370,6 @@ This follows because a renderer that owns what it uploads frees what nothing rea
 
 > A renderer gives a program the camera's projection, view and position, the object's world and normal matrices, and its own resolution. It gives nothing for a name it does not know.
 
-##### @bug line-resolution-ignores-the-render-target
-
-> The WebGL renderer gives the `resolution` uniform the canvas's drawing buffer size even while it draws into a smaller render target. A line it draws into the target then has the wrong width.
-
-Issue: #97
-
 #### @spec a-program-is-compiled-once-per-signature
 
 > A renderer compiles a material once for each light set, in order, and each instancing flag of the mesh.
@@ -3298,17 +3388,19 @@ Issue: #97
 
 #### @spec the-webgpu-renderer-shares-one-sampler-per-state
 
-> The WebGPU renderer makes one sampler for each combination of filters and wrap, described as the texture asks, and binds each sampler by its type. It rebinds a texture whose sampler state changes, and leaves alone one whose update changes nothing.
+> The WebGPU renderer makes one sampler for each combination of filters and wrap, described as the texture asks, and binds each sampler by its type. When a texture's version changes, it rebinds the texture only if its sampler state changed.
+
+#### @spec a-sampler-change-takes-effect-after-needs-update
+
+> A change to a texture's filters or wrap takes effect on both renderers at the first render after `texture.needsUpdate = true`, and not before, as a change to its image does.
+
+Derives from: [`spec-a-change-raises-a-version-every-renderer-reads`](#spec-a-change-raises-a-version-every-renderer-reads), [`fact-three-js-writes-a-texture-sampler-state-when-its-version-changes`](#fact-three-js-writes-a-texture-sampler-state-when-its-version-changes)
+
+This follows because three.js writes a texture's sampler state only when the texture's version changes. A renderer that compared the state at each draw would pay for it on every sampler of every draw.
 
 #### @spec a-changed-texture-shows-on-the-next-render
 
 > A texture whose image changes uploads again on the next render, and a texture that does not change stays as it is. The renderer replaces and binds again a texture whose size changes.
-
-##### @bug the-first-renderer-consumes-needs-update
-
-> A renderer clears `needsUpdate` once it uploads a texture, so a second renderer drawing the same texture never sees the change.
-
-Issue: #96
 
 #### @spec a-disposed-resource-is-freed-by-every-renderer-holding-it
 
@@ -3316,23 +3408,15 @@ Issue: #96
 
 #### @spec a-render-target-reads-its-pixels-back
 
-> A renderer draws into a render target and reads its pixels back, at once or, on WebGL, asynchronously without stalling the pipeline.
-
-##### @bug webgpu-has-no-render-target
-
-> The WebGPU renderer takes no render target and has no `readPixels`, so it can only draw to its canvas.
-
-Issue: #92
+> A renderer draws into a render target and reads its pixels back as RGBA bytes, the bottom row first, alike on both renderers: on WebGL at once, or asynchronously without stalling the pipeline, and on WebGPU through a promise, since WebGPU reads a texture back only asynchronously.
 
 #### @spec a-mesh-draws-the-slice-its-draw-range-selects
 
-> A mesh draws only the vertices its `drawRange` selects from its geometry.
+> A mesh draws only the vertices its `drawRange` selects from its geometry, cut to the geometry's indices, or to its vertices when it has no index. A geometry with neither, whose vertex stage places its vertices itself, draws its range uncut. A range that selects none, or no end, draws nothing.
 
-##### @bug webgpu-ignores-the-draw-range
+Derives from: [`fact-three-js-cuts-a-draw-range-to-its-geometry`](#fact-three-js-cuts-a-draw-range-to-its-geometry)
 
-> The WebGPU renderer draws a mesh's whole geometry, ignoring the slice its `drawRange` selects.
-
-Issue: #92
+This follows because a draw past the end of a buffer is refused, which on WebGPU loses the whole frame.
 
 #### @spec a-texture-is-bound-to-every-stage-that-samples-it
 
@@ -3342,17 +3426,11 @@ This follows because a material may sample a texture in `positionNode` as well a
 
 #### @spec a-data-texture-uploads-in-the-type-it-names
 
-> A data texture uploads in the element type its `type` names, so a float texture holds floats.
+> A data texture uploads in the element type its `type` names, so a float texture holds floats. A float texture filters linearly where the device can, and reads its nearest texel where it cannot.
 
 Derives from: [`spec-the-three-js-constants-carry-three-js-values`](#spec-the-three-js-constants-carry-three-js-values), [`fact-three-js-uploads-a-data-texture-in-its-type`](#fact-three-js-uploads-a-data-texture-in-its-type)
 
 This follows because three.js uploads a data texture in the type it names, and the renderer uploads what the material reads.
-
-##### @bug a-float-texture-is-uploaded-as-bytes
-
-> Both renderers ignore `DataTexture.type`, so a `Float32Array` image is uploaded as unsigned bytes.
-
-Issue: #95
 
 #### @spec a-renderer-blends-and-depth-tests-as-the-material-asks
 
@@ -3362,11 +3440,11 @@ Derives from: [`fact-three-js-sets-blending-and-depth-from-the-material`](#fact-
 
 This follows because these properties are the material's in three.js, and both renderers draw the same scene.
 
-##### @bug webgpu-ignores-the-material-blend-and-depth-state
+##### @spec a-draw-takes-its-material-blend-and-depth-state
 
-> The WebGPU renderer builds every pipeline with no blend state, a depth test and depth writes, whatever the material's `transparent`, `blending`, `depthTest` and `depthWrite` ask for.
+> A draw blends as its material's `transparent` and `blending` ask, and depth-tests and writes depth as its `depthTest` and `depthWrite` ask. A renderer reads them at each draw, so a change to them takes effect without `needsUpdate`.
 
-Issue: #92
+This follows because the WebGL renderer sets them for each draw, and a renderer that read them once would draw a changed material as it was.
 
 ##### @spec a-renderer-draws-transparent-meshes-back-to-front
 
@@ -3376,11 +3454,13 @@ Derives from: [`fact-three-js-renders-opaque-before-transparent-objects`](#fact-
 
 This follows because three.js sorts its transparent list back to front, so each transparent mesh blends over what lies behind it.
 
-###### @bug transparent-meshes-draw-in-scene-graph-order
+#### @spec a-mirrored-mesh-shows-the-faces-its-material-asks-for
 
-> Both renderers draw meshes in scene-graph order. A transparent mesh drawn before a farther one hides it instead of blending over it.
+> A mesh whose world matrix mirrors it, with a negative determinant, draws with its front face wound clockwise on both renderers. Its material's `side` then culls the faces it culls on a mesh that is not mirrored.
 
-Issue: #121
+Derives from: [`fact-three-js-flips-the-front-face-of-a-mirrored-mesh`](#fact-three-js-flips-the-front-face-of-a-mirrored-mesh)
+
+This follows because a mirror reverses the winding of every triangle. A renderer that kept the winding would cull the faces a `FrontSide` material shows.
 
 #### @spec render-clears-the-canvas-on-every-call
 
@@ -3390,11 +3470,11 @@ Derives from: [`fact-three-js-clears-before-it-renders-when-auto-clear-is-set`](
 
 This follows because a frame shows only the scene it renders, as three.js's `autoClear` does.
 
-##### @bug webgpu-leaves-an-empty-scene-uncleared
+##### @spec a-scene-that-draws-nothing-still-clears
 
-> The WebGPU renderer clears in the first draw's render pass, so a scene with nothing to draw leaves the canvas as it was.
+> `render` of a scene with nothing to draw clears the canvas, as a scene with meshes does.
 
-Issue: #92
+This follows because a frame that drew nothing still shows, and it must not show the frame before it.
 
 ##### @spec render-clears-to-the-scene-background
 
@@ -3403,36 +3483,6 @@ Issue: #92
 Derives from: [`fact-three-js-clears-to-a-colour-background`](#fact-three-js-clears-to-a-colour-background)
 
 This follows because three.js's renderer clears to `scene.background` when it is a colour.
-
-###### @bug render-ignores-the-scene-background
-
-> Both renderers ignore `scene.background` and clear to the renderer's clear colour.
-
-Issue: #121
-
-#### @bug webgpu-never-uploads-an-image-source
-
-> The WebGPU renderer uploads only an `ArrayBufferView` image: a texture holding an image element or bitmap becomes a 1×1 texture with nothing written to it.
-
-Issue: #95
-
-#### @bug webgpu-never-grows-a-geometry-buffer
-
-> The WebGPU renderer sizes a geometry's vertex buffer at its first upload and writes a grown attribute into it unchanged, past its end.
-
-Issue: #95
-
-#### @bug webgpu-ignores-a-changed-index
-
-> The WebGPU renderer never reads `geometry.index.needsUpdate`, so changed indices are not uploaded unless a vertex attribute changed too.
-
-Issue: #95
-
-#### @bug a-replaced-attribute-keeps-its-old-data
-
-> Both renderers cache a geometry's buffers by attribute name. They never upload an attribute replaced by a new object after the first render, as `LineSegmentsGeometry.setPositions` does.
-
-Issue: #95
 
 #### @spec the-webgpu-renderer-declares-one-uniform-struct-in-both-stages
 
@@ -3460,23 +3510,11 @@ This follows because the WebGPU renderer binds a 1×1 black texture there, and b
 
 #### @spec a-changed-attribute-uploads-only-its-update-range
 
-> A renderer uploads only the ranges of a changed attribute that `addUpdateRange(start, count)` marked, and the whole attribute when it marked none.
+> A renderer uploads only the ranges of a changed attribute that `addUpdateRange(start, count)` marked, merged where they touch, and the whole attribute when it marked none. It clears the ranges once it uploads them, as three.js does. Another renderer whose buffer lacks a change whose ranges were cleared uploads the attribute whole.
 
 Derives from: [`fact-three-js-uploads-a-changed-attribute-through-update-ranges`](#fact-three-js-uploads-a-changed-attribute-through-update-ranges)
 
 This follows because a port changes its import and nothing else, so a scene must mark the changed part of an attribute as three.js does.
-
-##### @bug an-attribute-has-one-update-range-where-three-js-has-a-list
-
-> rmsl's `BufferAttribute` has one `updateRange` of an offset and a count, and has no `updateRanges`, `addUpdateRange` or `clearUpdateRanges`. Both renderers read that one range.
-
-Issue: #140
-
-##### @bug webgpu-ignores-an-attribute-update-range
-
-> The WebGPU renderer writes a changed attribute whole, from byte 0, ignoring the range it marks.
-
-Issue: #122
 
 ### @spec the-application-reaches-an-input-through-its-node
 
@@ -4188,24 +4226,6 @@ This follows because a value returned in a slot allocates nothing, and the funct
 
 > The WebGL renderer draws a frame without allocating. It reuses what it needs between frames, and builds no array, closure or iterator per frame or per draw.
 
-#### @bug webgl-render-allocates-the-clear-colour-per-frame
-
-> `render` reads the clear colour with `Color.toArray()`, which builds a new array on every frame.
-
-Issue: #134
-
-#### @bug webgl-render-allocates-a-traversal-closure-per-frame
-
-> `render` builds a new callback for `traverseVisible` on every frame.
-
-Issue: #134
-
-#### @bug webgl-draw-allocates-the-attribute-list-per-draw
-
-> `bindGeometry` lists the geometry's attributes with `Object.values` and `some` on every draw, which builds an array and a closure.
-
-Issue: #134
-
 ## @axiom a-user-ships-only-what-runs
 
 > An application pays only for what it uses. A program declares only the inputs it reads. An application that compiles ahead of time ships the compiled code, without the compiler and without a toolchain.
@@ -4417,6 +4437,12 @@ This is a fact of the WGSL specification, section Interpolation, and Dawn gives 
 > GLSL ES 3.00 requires a vertex output of integer type to be `flat`, and WebGL 2 takes a flat value from the last vertex of a triangle, its provoking vertex.
 
 This is a fact of the GLSL ES 3.00 and OpenGL ES 3.0 specifications, and Chromium's WebGL 2 gives a triangle's last vertex.
+
+## @fact webgl-reads-a-vector-state-into-a-new-array
+
+> WebGL gives a vector state, such as the viewport or the clear colour, only through `getParameter`, which returns a new array on each call. It gives a vertex attribute's value only through `getVertexAttrib`, which does the same.
+
+This is how WebGL behaves. The WebGL 2 specification has `getParameter` return an `Int32Array` for `VIEWPORT` and a `Float32Array` for `COLOR_CLEAR_VALUE` and `DEPTH_RANGE`. It has `getVertexAttrib` return a `Float32Array` for `CURRENT_VERTEX_ATTRIB`. It has no call that reads them into an array the caller gives, and Chromium returns a different array on each call.
 
 ## @fact webgl2-has-no-compute-stage
 
@@ -4830,15 +4856,51 @@ This is how three.js behaves, read from its source (`WebGLBackground`, three.js 
 
 ## @fact three-js-sets-blending-and-depth-from-the-material
 
-> In three.js, `transparent`, `blending`, `depthTest` and `depthWrite` are properties of a material, and the renderer sets its blend and depth state from them for each draw. A material with normal blending that is not transparent draws with no blending.
+> In three.js, `transparent`, `blending`, `depthTest` and `depthWrite` are properties of a material, and the renderer sets its blend and depth state from them for each draw. A material with normal blending that is not transparent draws with no blending. Normal blending weighs colour by the source alpha and alpha by one, both over one minus the source alpha. Additive blending adds colour weighed by the source alpha, and adds alpha.
 
-This is how three.js behaves, read from its source (`Material` and `WebGLState`, `setMaterial`, three.js 0.186).
+This is how three.js behaves, read from its source (`Material` and `WebGLState`, `setMaterial` and `setBlending` without premultiplied alpha, three.js 0.186).
 
 ## @fact three-js-uploads-a-changed-attribute-through-update-ranges
 
 > three.js holds the changed part of a `BufferAttribute` as a list `updateRanges`, which `addUpdateRange(start, count)` adds to. It sends those ranges to the GPU, and sends the whole attribute when the list is empty.
 
 This is how three.js behaves, read from its source (`BufferAttribute` and `WebGLAttributes`, three.js 0.186).
+
+## @fact three-js-dithers-in-the-shader-not-through-the-dither-switch
+
+> three.js never sets WebGL's `DITHER` switch. A material with `dithering: true` dithers in its fragment shader, through the `DITHERING` define.
+
+This is how three.js behaves, read from its source (`WebGLState`, `WebGLPrograms` and `WebGLProgram`, three.js 0.186).
+
+## @fact three-js-flips-the-front-face-of-a-mirrored-mesh
+
+> three.js draws a mesh whose world matrix has a negative determinant with its front face wound clockwise, on both of its renderers. A `BackSide` material flips the winding once more.
+
+This is how three.js behaves, read from its source (`WebGLRenderer` `renderBufferDirect`, `WebGLState` `setMaterial`, and `WebGPUPipelineUtils` `_getPrimitiveState`, three.js 0.186).
+
+## @fact three-js-keeps-one-buffer-for-each-attribute
+
+> three.js's WebGL renderer keeps one GPU buffer for each `BufferAttribute`, keyed by the attribute, whatever geometries hold it. Disposing a geometry deletes the buffers of the attributes and the index it holds then.
+
+This is how three.js behaves, read from its source (`WebGLAttributes` and `WebGLGeometries`, three.js 0.186).
+
+## @fact three-js-cuts-a-draw-range-to-its-geometry
+
+> three.js draws the part of a draw range that lies within the geometry's index, or within its position attribute when it has no index, and the range as it is when the geometry has neither. It draws nothing when that part is empty or has no end.
+
+This is how three.js behaves, read from its source (`WebGLRenderer`, `renderBufferDirect`, three.js 0.186).
+
+## @fact three-js-uploads-an-image-once-it-has-loaded
+
+> three.js's `WebGLRenderer` skips the upload of a texture marked for update whose image element has not loaded, and records no version for it. It tries again at each render, and uploads the texture once the image has loaded. A texture never marked for update it does not upload; its `TextureLoader` marks a texture when the image loads.
+
+This is how three.js behaves, read from its source (`WebGLTextures`, `setTexture2D`, which skips an image whose `complete` is `false` when `version > 0`, and `TextureLoader`, three.js 0.186).
+
+## @fact three-js-writes-a-texture-sampler-state-when-its-version-changes
+
+> three.js's `WebGLRenderer` writes a texture's filters and wrap when it uploads the texture, which it does when the texture's `version` differs from the one it uploaded. A change to `minFilter`, `magFilter` or a wrap mode with no `needsUpdate` leaves the texture read as before.
+
+This is how three.js behaves, read from its source (`WebGLTextures`, `setTexture2D`, `uploadTexture` and `setTextureParameters`, three.js 0.186).
 
 ## @fact three-js-uploads-a-data-texture-in-its-type
 

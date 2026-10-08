@@ -44,6 +44,27 @@ globalThis.__rmslAdapterFlatIndexRun = async () => {
 };
 `;
 
+const ENTRY_RETEXTURE = `
+${QUAD}
+globalThis.__rmslAdapterRetextureRun = async () => {
+  const context = await createWgslContext();
+  let created = 0;
+  const createTexture = context.device.createTexture.bind(context.device);
+  context.device.createTexture = (descriptor) => (created++, createTexture(descriptor));
+  const image = uniform("sampler2D");
+  const adapter = createWgsl({ context, vertex: quad(-1, -1, 1, 1), fragment: Fn(() => image.texture(vec2(0.5, 0.5)))() });
+  const target = canvas();
+  await adapter.attach(target);
+  const texels = (r, g, b) => ({ data: Uint8Array.of(r, g, b, 255, r, g, b, 255, r, g, b, 255, r, g, b, 255), width: 2, height: 2 });
+  const before = created;
+  adapter.setTexture(image, texels(0, 255, 0));
+  adapter.setTexture(image, texels(255, 0, 0));
+  adapter.draw({ count: 6 });
+  await context.device.queue.onSubmittedWorkDone();
+  return { pixel: readPixel(target, 2, 2), created: created - before };
+};
+`;
+
 const ENTRY_CONTEXT = `
 ${QUAD}
 globalThis.__rmslAdapterContextRun = async () => {
@@ -134,6 +155,15 @@ describe.skipIf(!WEBGPU)("createWgsl drawing storage buffers on a real adapter",
    */
   it("reads an integer varying as the triangle's first vertex wrote it on WGSL", async () => {
     expect(await run(ENTRY_FLAT_INDEX, "__rmslAdapterFlatIndexRun")).toEqual({ r: 0, g: 0, b: 0, a: 255 });
+  }, 60_000);
+
+  /**
+   * @canon spec-an-adapter-writes-a-texture-of-the-same-shape-in-place
+   */
+  it("writes a texture of the same shape into the texture it has", async () => {
+    const result = await run(ENTRY_RETEXTURE, "__rmslAdapterRetextureRun");
+    expect(result.pixel).toEqual({ r: 255, g: 0, b: 0, a: 255 });
+    expect(result.created).toBe(1);
   }, 60_000);
 
   /**

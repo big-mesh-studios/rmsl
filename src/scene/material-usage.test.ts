@@ -342,8 +342,8 @@ describe("shader precision", () => {
    */
   it("flags a rebuild when the precision changes", () => {
     const material = new MeshBasicMaterial();
-    expect(material.needsUpdate).toBe(false);
+    expect(material.version).toBe(0);
     material.precision = "lowp";
-    expect(material.needsUpdate).toBe(true);
+    expect(material.version).toBe(1);
   });
 });

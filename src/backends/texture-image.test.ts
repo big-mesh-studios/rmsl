@@ -12,6 +12,19 @@ describe("textureImage", () => {
   });
 
   /**
+   * @canon spec-an-adapter-writes-a-texture-of-the-same-shape-in-place
+   */
+  it("hands four-channel data of the right array type on without copying it", () => {
+    const data = Uint8Array.of(1, 2, 3, 4, 5, 6, 7, 8);
+    const image = textureImage({ data, width: 2, height: 1 }, "sampler2D");
+    expect(image.texels.buffer).toBe(data.buffer);
+    expect(Array.from(image.texels)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+
+    const clamped = Uint8ClampedArray.of(9, 9, 9, 9);
+    expect(textureImage({ data: clamped, width: 1, height: 1 }, "sampler2D").texels.buffer).toBe(clamped.buffer);
+  });
+
+  /**
    * @canon spec-an-adapter-takes-the-texture-a-sampler-reads-from-the-host
    */
   it("keeps the width of the integers an integer sampler reads", () => {
