@@ -47,6 +47,8 @@ interface PipelineEntry {
   program: MaterialProgram;
   /** The `version` of the material the pipeline was built from. */
   version: number;
+  /** Which samplers, by bit, read a float texture the device cannot filter, as the layout was built for. */
+  unfilterable: number;
   /** The uniform buffer's group, which nothing invalidates. */
   bindGroup: GPUBindGroup;
   /**
@@ -423,7 +425,11 @@ export class WebGPURenderer {
     const signature = programSignature(lightsSignature(scene), instancing, instancingColor);
     let bySignature = this.pipelines.get(material);
     const entry = bySignature?.get(signature);
-    if (entry && entry.version === material.version) {
+    if (
+      entry &&
+      entry.version === material.version &&
+      entry.unfilterable === this.unfilterableSamplers(entry.program)
+    ) {
       this.refreshTextures(entry);
       // A texture disposed since the last draw took this entry's texture and
       // sampler groups with it, and so does one re-created at a new size;
@@ -518,6 +524,7 @@ export class WebGPURenderer {
     const built: PipelineEntry = {
       program,
       version: material.version,
+      unfilterable: this.unfilterableSamplers(program),
       pipelineDescriptor: {
         layout: pipelineLayout,
         vertexModule,
@@ -613,7 +620,7 @@ export class WebGPURenderer {
       if (!texture || this.uploadedVersions.get(texture) === texture.version) continue;
       // Filtering or wrapping changed with it means a different sampler, and
       // this bind group holds the old one.
-      const key = samplerKey(samplerState(texture, t.type));
+      const key = samplerKey(this.samplingOf(texture, t.type));
       if (this.samplerKeys.has(texture) && this.samplerKeys.get(texture) !== key) {
         this.invalidateBindGroups(texture);
       }
@@ -993,13 +1000,30 @@ export class WebGPURenderer {
     return texture !== null && isFloatTexture(texture) && !this.device.features?.has("float32-filterable");
   }
 
+  /**
+   * The bits of the samplers of `program` that read a float texture the device
+   * cannot filter. A layout built for other textures cannot bind it.
+   */
+  private unfilterableSamplers(program: MaterialProgram): number {
+    let bits = 0;
+    for (let i = 0; i < program.samplers.length; i++) {
+      if (this.unfilterable(program.samplers[i]!.texture())) bits |= 1 << i;
+    }
+    return bits;
+  }
+
+  /** How a sampler reads `texture`: as it asks, or nearest where the device cannot filter it. */
+  private samplingOf(texture: Texture, samplerType: string) {
+    const asked = samplerState(texture, samplerType);
+    return this.unfilterable(texture)
+      ? { ...asked, magFilter: "nearest" as const, minFilter: "nearest" as const }
+      : asked;
+  }
+
   /** The sampler that reads this texture the way the texture asks to be read. */
   private ensureSampler(texture: Texture | null, samplerType = "sampler2D"): GPUSampler {
     const t = texture ?? this.blankTexture();
-    const asked = samplerState(t, samplerType);
-    const state = this.unfilterable(t)
-      ? { ...asked, magFilter: "nearest" as const, minFilter: "nearest" as const }
-      : asked;
+    const state = this.samplingOf(t, samplerType);
     const key = samplerKey(state);
     this.samplerKeys.set(t, key);
     let sampler = this.samplers.get(key);

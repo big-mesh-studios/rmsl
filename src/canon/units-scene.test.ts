@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { vec4 } from "../rmsl";
+import { vec2, vec4 } from "../rmsl";
 import {
   AmbientLight,
   BufferAttribute,
@@ -382,6 +382,38 @@ describe("a scene renderer manages what it uploads", () => {
 
     expect(textures[0].format).toMatch(/float$/);
     expect(calls.find((c) => c.name === "texImage2D")!.args[7]).toBe(context.FLOAT);
+  });
+
+  /**
+   * @canon spec-a-data-texture-uploads-in-the-type-it-names
+   */
+  it("lays a sampler out for the float texture put in it after the first draw on WebGPU", () => {
+    const { device, canvas, layouts } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    let current = new DataTexture(new Uint8Array([0, 0, 255, 255]), 1, 1);
+    const material = new MeshBasicMaterial();
+    material.fragmentNode = (b) => b.sampler("map", () => current).texture(vec2(0.5, 0.5));
+    renderer.ensurePipeline(material, new Scene(), false, false);
+    current = new DataTexture(new Float32Array([1, 0.5, 0.25, 1]), 1, 1, 1, RGBAFormat, FloatType);
+    renderer.ensurePipeline(material, new Scene(), false, false);
+
+    const entries = layouts.flatMap((l) => l.entries);
+    expect(entries.filter((e) => e.texture).at(-1).texture.sampleType).toBe("unfilterable-float");
+    expect(entries.filter((e) => e.sampler).at(-1).sampler.type).toBe("non-filtering");
+  });
+
+  /**
+   * @canon spec-the-webgpu-renderer-shares-one-sampler-per-state
+   */
+  it("keeps the bind groups of a float texture it cannot filter when the texture updates on WebGPU", () => {
+    const { device, canvas } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const texture = new DataTexture(new Float32Array([1, 0.5, 0.25, 1]), 1, 1, 1, RGBAFormat, FloatType);
+    const material = sampling(texture);
+    const first = renderer.ensurePipeline(material, new Scene(), false, false).samplerBindGroup;
+    texture.needsUpdate = true;
+
+    expect(renderer.ensurePipeline(material, new Scene(), false, false).samplerBindGroup).toBe(first);
   });
 
   /**
