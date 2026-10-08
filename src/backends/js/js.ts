@@ -829,7 +829,8 @@ function jsStorageIndex(node: any, index: string): string {
 /**
  * A vector or matrix element of a storage buffer, which holds its components
  * one after another: they lie in `buffer` from `start`, evaluated once.
- * `inRange` holds when the buffer holds every one of them.
+ * `inRange`, computed once beside `start`, holds when the buffer holds every
+ * one of them.
  */
 function jsStorageElement(
   node: any,
@@ -838,14 +839,20 @@ function jsStorageElement(
   let buffer = jsCompileOperand(node.params![0], ctx);
   let idx = jsCompileOperand(node.params![1], ctx);
   let start = jsNewTemp(ctx, "int");
+  let inRange = jsNewTemp(ctx, "bool");
   let count = componentCountOf(node._t);
   return {
     decls: [...buffer.decls, ...idx.decls],
-    body: [...buffer.body, ...idx.body, `${start} = ${jsStorageIndex(node, idx.expr)} * ${count};`],
+    body: [
+      ...buffer.body,
+      ...idx.body,
+      `${start} = ${jsStorageIndex(node, idx.expr)} * ${count};`,
+      `${inRange} = ${start} >= 0 && ${start} + ${count} <= ${buffer.expr}.length;`,
+    ],
     expr: start,
     buffer: buffer.expr,
     start,
-    inRange: `${start} >= 0 && ${start} + ${count} <= ${buffer.expr}.length`,
+    inRange,
   };
 }
 
