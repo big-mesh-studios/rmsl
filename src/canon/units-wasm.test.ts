@@ -27,7 +27,7 @@ import {
   vec4,
   type Node,
 } from "../rmsl";
-import { compileJS, compileJSCompute, compileJSRoutine } from "../js";
+import { compileJS, compileJSFragment, compileJSCompute, compileJSRoutine } from "../js";
 import type { CompileCpuRoutine } from "../backends/cpu";
 import { instantiateRasterizer } from "../backends/wasm/rasterizer";
 import {
@@ -354,6 +354,26 @@ describe("a WASM routine's results", () => {
         return float(1);
       })();
     expect(compileWasmFragment(build, { ...none })({})).toBeNull();
+  });
+
+  /**
+   * A stage that returns nothing ends in the value of an inline `Fn` that
+   * discards; the inline `Fn`'s statements run where it is called, so the
+   * discard runs though the final value holds nothing.
+   *
+   * @canon spec-a-fragment-stage-returns-its-colour-and-outputs
+   */
+  it("discards through an inline Fn that a stage writing no colour ends in, on JS and WASM", () => {
+    const drop = uniform("float");
+    const discarder = Fn(() => {
+      If(drop.greaterThan(0.5), () => Discard());
+    });
+    const build = () => Fn(() => discarder())();
+    for (const compile of [compileWasmFragment, compileJSFragment]) {
+      const stage = (compile as any)(build, { ...none });
+      expect(stage({ uniforms: { [drop.name]: 1 } })).toBeNull();
+      expect(stage({ uniforms: { [drop.name]: 0 } })).not.toBeNull();
+    }
   });
 });
 
