@@ -301,6 +301,7 @@ export function compileJS(
         }
         fragCoord[0] = px;
         fragCoord[1] = py;
+        fragmentCtx.fragDepth = pixelDepth;
 
         const raw = fragmentStage.runInPlace(fragmentCtx);
         // A fragment that discards leaves the pixel and its depth as they were.

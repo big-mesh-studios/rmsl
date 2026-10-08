@@ -2611,11 +2611,16 @@ function compileJSFnDetailed(
   const res = ctx.jsNeedsRes
     ? `var res = { outputs: ${outputKeys ? `{ ${outputKeys} }` : "{}"}, varyings: ${varyingKeys ? `{ ${varyingKeys} }` : "{}"}, position: undefined, fragDepth: undefined, value: undefined };`
     : "";
-  if (res && reentrant) body.push(res);
+  // A fragment's depth starts as the one its context holds, which a rasterizer sets to its interpolated depth.
+  const initialDepth = ctx.fragDepthUsed ? "ctx.fragDepth" : "undefined";
+  if (res && reentrant) {
+    body.push(res);
+    if (ctx.fragDepthUsed) body.push(`res.fragDepth = ${initialDepth};`);
+  }
   if (res && !reentrant) {
     // A stage output the program does not write on a call is undefined in what that call returns.
     for (const o of ctx.outputs.values()) body.push(`res.outputs[${JSON.stringify(o.slot)}] = undefined;`);
-    body.push("res.position = undefined;", "res.fragDepth = undefined;", "res.value = undefined;");
+    body.push("res.position = undefined;", `res.fragDepth = ${initialDepth};`, "res.value = undefined;");
   }
   // A varying the program does not write on a call is 0, a vector one a slot of zeros of its own.
   // One every call writes whole before anything else touches it needs no clearing.

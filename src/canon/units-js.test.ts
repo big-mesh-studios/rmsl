@@ -1549,6 +1549,27 @@ describe("the fragments a CPU rasterizer draws", () => {
   });
 
   /**
+   * The triangle lies at depth 0.5, and the fragment writes the depth it reads
+   * plus 0.25 and draws it as red.
+   *
+   * @canon spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one
+   */
+  it.each(rasterizers)("%s: reads the interpolated depth before the fragment writes one", (_, compileRaster) => {
+    const pos = attribute("vec3");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos, 1)))() as any,
+      () =>
+        Fn(() => {
+          builtinFragDepth().assign(builtinFragDepth().add(0.25));
+          return vec4(builtinFragDepth(), 0, 0, 1);
+        })() as any,
+      { attributeTypes: { [pos.name]: "vec3" } },
+    );
+    const got = routine.draw({ attributes: { [pos.name]: new Float64Array(screenAt(0.5)) } }, { width: 1, height: 1 });
+    expect(Array.from(got)).toEqual([0.75, 0, 0, 1]);
+  });
+
+  /**
    * Each shape is drawn into a 4×4 target in both windings, its edges given in
    * pixels. Each pattern is what Chromium's WebGPU shades for the same shape,
    * a row of `#` for each row of pixels from the top.

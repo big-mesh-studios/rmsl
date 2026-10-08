@@ -539,6 +539,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec the-wasm-rasterizer-links-its-stages-in-one-memory`](#spec-the-wasm-rasterizer-links-its-stages-in-one-memory) — The WASM rasterizer calls the vertex module, then the fragment module, as imports that share one memory.
       - [`@spec a-rasterizer-clips-at-the-near-plane`](#spec-a-rasterizer-clips-at-the-near-plane) — The rasterizer clips a triangle with a vertex behind the eye into the triangles in front of it. A triangle wholly behind the eye draws nothing.
       - [`@spec a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment) — The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles: the depth the fragment stage writes, clamped to 0 to 1, or else its interpolated depth. Its depth buffer persists across draws of one size until a draw asks for `clearDepth`, and a draw of another width or height starts from a cleared one.
+      - [`@spec a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one`](#spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one) — In a CPU rasterizer, `builtinFragDepth()` read before the fragment stage writes it gives the fragment's interpolated depth.
       - [`@spec a-rasterizer-takes-its-count-from-the-first-attribute`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute) — A draw that names no vertex count takes it from the first attribute the host passes.
       - [`@spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws) — The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
       - [`@spec a-pixel-on-a-shared-edge-is-shaded-once`](#spec-a-pixel-on-a-shared-edge-is-shaded-once) — A pixel centre on an edge two triangles share takes the colour of one of them, whatever the order of the triangles: the one whose top or left edge it is.
@@ -761,7 +762,7 @@ GLSL sets precision two ways: a statement that sets the default for a type, and 
 
 ### Fragment depth
 
-A fragment program can write depth on one path only. What depth the other paths give is open: WGSL gives 0 and GLSL leaves it undefined. TSL avoids the question by writing depth as an expression on every path, and its `depth` reads the fragment's own depth. Issue #132 holds the question.
+A fragment program can write depth on one path only. What depth the other paths give is open: WGSL gives 0 and GLSL leaves it undefined. TSL avoids the question by writing depth as an expression on every path, and its `depth` reads the fragment's own depth. The CPU rasterizers give the interpolated depth both to such a path and to a read of the depth before a write, under [`spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one`](#spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one), where WGSL reads 0. Issue #132 holds the question.
 
 ### Divergences found
 
@@ -3775,6 +3776,14 @@ This follows because the vector a JS function computes lives in a slot that the 
 > The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles: the depth the fragment stage writes, clamped to 0 to 1, or else its interpolated depth. Its depth buffer persists across draws of one size until a draw asks for `clearDepth`, and a draw of another width or height starts from a cleared one.
 
 Derives from: [`fact-webgpu-clamps-a-written-depth-to-the-depth-range`](#fact-webgpu-clamps-a-written-depth-to-the-depth-range)
+
+##### @spec a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one
+
+> In a CPU rasterizer, `builtinFragDepth()` read before the fragment stage writes it gives the fragment's interpolated depth.
+
+Derives from: [`spec-a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment)
+
+This follows because a fragment that writes no depth keeps its interpolated depth, so that depth is the one it holds until it writes another.
 
 ##### @spec a-rasterizer-takes-its-count-from-the-first-attribute
 
