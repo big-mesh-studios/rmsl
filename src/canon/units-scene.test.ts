@@ -78,6 +78,24 @@ globalThis.__rmslR8UIRowsRun = () => {
 
 describe("a scene renderer manages what it uploads", () => {
   /**
+   * @canon spec-a-changed-attribute-uploads-only-its-update-range
+   */
+  it("uploads only the range addUpdateRange marked of a changed attribute on WebGPU", () => {
+    const { device, canvas, bufferWrites } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const geometry = new BufferGeometry();
+    geometry.setAttribute("position", new BufferAttribute(new Float32Array(9), 3));
+    const buffers = renderer.ensureGeometryBuffers(geometry);
+    const before = bufferWrites.length;
+    geometry.attributes.position.addUpdateRange(3, 3);
+    geometry.attributes.position.needsUpdate = true;
+    renderer.ensureGeometryBuffers(geometry);
+
+    const writes = bufferWrites.slice(before).filter((w) => w.buffer === buffers.attributes.get("position"));
+    expect(writes.map((w) => w.offset)).toEqual([12]);
+  });
+
+  /**
    * @canon spec-a-renderer-supplies-the-camera-and-object-uniforms
    */
   it("gives a line the render target's resolution when drawing into one on WebGL", () => {

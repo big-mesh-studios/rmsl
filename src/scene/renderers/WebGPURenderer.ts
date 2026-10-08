@@ -24,6 +24,7 @@ import {
   FrameOrder,
   isFloatTexture,
   isIntegerSampler,
+  mergedUpdateRanges,
   objectUniformValue,
   lightsSignature,
   samplerDimension,
@@ -676,21 +677,50 @@ export class WebGPURenderer {
       const attribute = geometry.attributes[name]!;
       if (!buffers.needsUpload && this.uploadedVersions.get(attribute) === attribute.version) continue;
       const data = toBufferView(attribute.array);
-      const buffer = this.bufferFitting(buffers.attributes.get(name), data, GPUBufferUsage.VERTEX);
+      const previous = buffers.attributes.get(name);
+      const buffer = this.bufferFitting(previous, data, GPUBufferUsage.VERTEX);
       buffers.attributes.set(name, buffer);
-      this.device.queue.writeBuffer(buffer, 0, data);
+      this.writeAttribute(buffer, data, attribute, buffer !== previous);
       this.uploadedVersions.set(attribute, attribute.version);
     }
     const index = geometry.index;
     if (index && (buffers.needsUpload || this.uploadedVersions.get(index) !== index.version)) {
       const data = toBufferView(index.array, true);
-      buffers.index = this.bufferFitting(buffers.index ?? undefined, data, GPUBufferUsage.INDEX);
-      this.device.queue.writeBuffer(buffers.index, 0, data);
+      const previous = buffers.index ?? undefined;
+      buffers.index = this.bufferFitting(previous, data, GPUBufferUsage.INDEX);
+      this.writeAttribute(buffers.index, data, index, buffers.index !== previous);
       buffers.indexFormat = (data as Uint16Array | Uint32Array).BYTES_PER_ELEMENT === 2 ? "uint16" : "uint32";
       this.uploadedVersions.set(index, index.version);
     }
     buffers.needsUpload = false;
     return buffers;
+  }
+
+  /**
+   * Writes `attribute`'s data into `buffer`: whole when the buffer is new or
+   * when no range is marked, and otherwise each range `addUpdateRange` marked,
+   * merged as three.js merges them. The ranges are cleared afterwards, as
+   * three.js clears them.
+   */
+  private writeAttribute(
+    buffer: GPUBuffer,
+    data: ArrayBufferView<ArrayBuffer>,
+    attribute: BufferAttribute,
+    whole: boolean,
+  ): void {
+    const ranges = mergedUpdateRanges(attribute);
+    if (whole || ranges.length === 0) {
+      this.device.queue.writeBuffer(buffer, 0, data);
+    } else {
+      const bytes = (data as unknown as { BYTES_PER_ELEMENT: number }).BYTES_PER_ELEMENT;
+      const length = data.byteLength / bytes;
+      for (const range of ranges) {
+        const start = Math.min(length, Math.max(0, range.start));
+        const count = Math.min(length - start, Math.max(0, range.count));
+        if (count > 0) this.device.queue.writeBuffer(buffer, start * bytes, data, start, count);
+      }
+    }
+    attribute.clearUpdateRanges();
   }
 
   /**
@@ -805,9 +835,10 @@ export class WebGPURenderer {
     let buffer = this.attributeBuffers.get(attr);
     if (!buffer || this.uploadedVersions.get(attr) !== attr.version) {
       const data = toBufferView(attr.array);
+      const previous = buffer;
       buffer = this.bufferFitting(buffer, data, GPUBufferUsage.VERTEX);
       this.attributeBuffers.set(attr, buffer);
-      this.device.queue.writeBuffer(buffer, 0, data);
+      this.writeAttribute(buffer, data, attr, buffer !== previous);
       this.uploadedVersions.set(attr, attr.version);
     }
     return buffer;

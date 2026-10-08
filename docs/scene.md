@@ -242,7 +242,10 @@ A renderer creates the vertex and index buffers behind a `BufferGeometry` the
 first time it draws with it, and keys them by the geometry object — so filling
 the same geometry again (`needsUpdate` on an attribute) reuses the buffers it
 already has, and a growing attribute re-allocates only when the data no longer
-fits.
+fits. Mark the part of an attribute that changed with
+`attribute.addUpdateRange(start, count)`, in elements, as in three.js, and the
+renderer uploads only those ranges, merged where they touch; with none marked
+it uploads the whole attribute. It clears the ranges once it uploads them.
 
 That cache holds the geometry, so a geometry dropped from the scene keeps its
 buffers, and the arrays its attributes point at, alive for as long as the

@@ -20,6 +20,7 @@ import {
   FrameOrder,
   isFloatTexture,
   isIntegerSampler,
+  mergedUpdateRanges,
   objectUniformValue,
   lightsSignature,
   shaderPrecision,
@@ -704,7 +705,7 @@ export class WebGLRenderer {
       if (isNewBuffer || uploaded !== attr.version) {
         const data = toBufferView(attr.array);
         const full = isNewBuffer || uploaded === undefined;
-        buffer = this.uploadSlice(gl, gl.ARRAY_BUFFER, buffer, data, this.uploadRangeOf(data, attr, full));
+        buffer = this.uploadAttribute(gl, gl.ARRAY_BUFFER, buffer, data, attr, full);
         if (ownedByGeometry) buffers.attributes.set(attribute.name, buffer);
         else this.attributeBuffers.set(attr, buffer);
         this.uploadedVersions.set(attr, attr.version);
@@ -760,13 +761,7 @@ export class WebGLRenderer {
       if (isNewIndex || buffers.needsUpload || uploaded !== geometry.index.version) {
         const data = toBufferView(geometry.index.array, true);
         const full = isNewIndex || buffers.needsUpload || uploaded === undefined;
-        buffers.index = this.uploadSlice(
-          gl,
-          gl.ELEMENT_ARRAY_BUFFER,
-          indexBuffer,
-          data,
-          this.uploadRangeOf(data, geometry.index, full),
-        );
+        buffers.index = this.uploadAttribute(gl, gl.ELEMENT_ARRAY_BUFFER, indexBuffer, data, geometry.index, full);
         this.uploadedVersions.set(geometry.index, geometry.index.version);
       }
       // The element buffer binding must name this geometry's indices when the
@@ -776,19 +771,33 @@ export class WebGLRenderer {
     buffers.needsUpload = false;
   }
 
-  /** The byte window of `data` an update should send, per `updateRange`. */
-  private uploadRangeOf(
+  /**
+   * Uploads `attr`'s data into `buffer`: whole when `full` or when no range is
+   * marked, and otherwise each range `addUpdateRange` marked, merged as
+   * three.js merges them. The ranges are cleared afterwards, as three.js clears
+   * them. Returns the buffer to keep, which differs from `buffer` when it grew.
+   */
+  private uploadAttribute(
+    gl: WebGL2RenderingContext,
+    target: number,
+    buffer: WebGLBuffer,
     data: ArrayBufferView,
     attr: BufferAttribute,
     full: boolean,
-  ): { byteOffset: number; byteEnd: number } {
-    if (full || attr.updateRange.count === -1) {
-      return { byteOffset: 0, byteEnd: data.byteLength };
+  ): WebGLBuffer {
+    const ranges = mergedUpdateRanges(attr);
+    if (full || ranges.length === 0) {
+      buffer = this.uploadSlice(gl, target, buffer, data, { byteOffset: 0, byteEnd: data.byteLength });
+    } else {
+      const bytes = (data as unknown as { BYTES_PER_ELEMENT: number }).BYTES_PER_ELEMENT;
+      for (const range of ranges) {
+        const byteOffset = Math.min(data.byteLength, Math.max(0, range.start) * bytes);
+        const byteEnd = Math.min(data.byteLength, byteOffset + Math.max(0, range.count) * bytes);
+        buffer = this.uploadSlice(gl, target, buffer, data, { byteOffset, byteEnd });
+      }
     }
-    const bytes = (data as unknown as { BYTES_PER_ELEMENT: number }).BYTES_PER_ELEMENT;
-    const byteOffset = Math.min(data.byteLength, Math.max(0, attr.updateRange.offset) * bytes);
-    const byteEnd = Math.min(data.byteLength, byteOffset + Math.max(0, attr.updateRange.count) * bytes);
-    return { byteOffset, byteEnd };
+    attr.clearUpdateRanges();
+    return buffer;
   }
 
   /**

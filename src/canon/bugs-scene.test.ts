@@ -354,27 +354,6 @@ describe("known bugs of the scene library, each failing until its fix", () => {
   });
 
   /**
-   * The WebGPU renderer writes a changed attribute whole, from byte 0, ignoring
-   * the slice its `updateRange` selects.
-   *
-   * @canon bug-webgpu-ignores-an-attribute-update-range
-   */
-  it.fails("uploads only the updateRange of a changed attribute on WebGPU", () => {
-    const { device, canvas, bufferWrites } = stubDevice();
-    const renderer = new WebGPURenderer(canvas, device as any) as any;
-    const geometry = new BufferGeometry();
-    geometry.setAttribute("position", new BufferAttribute(new Float32Array(9), 3));
-    const buffers = renderer.ensureGeometryBuffers(geometry);
-    const before = bufferWrites.length;
-    geometry.attributes.position.updateRange = { offset: 3, count: 3 };
-    geometry.attributes.position.needsUpdate = true;
-    renderer.ensureGeometryBuffers(geometry);
-
-    const writes = bufferWrites.slice(before).filter((w) => w.buffer === buffers.attributes.get("position"));
-    expect(writes.map((w) => w.offset)).toEqual([12]);
-  });
-
-  /**
    * The builder's `position` and `normal` read the attributes in object space
    * in the vertex stage, but the world-space `positionWorld` and `normalWorld`
    * varyings in the fragment stage.

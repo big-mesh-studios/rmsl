@@ -419,3 +419,25 @@ export function clearColourOf(
 
 /** The value `clearColourOf` hands back, reused across frames. */
 const CLEAR = { r: 0, g: 0, b: 0, a: 1 };
+
+/**
+ * The ranges of `attribute` to upload, sorted and merged where they touch, as
+ * three.js's `WebGLAttributes` merges them, in place. Empty means the whole
+ * attribute.
+ */
+export function mergedUpdateRanges(attribute: BufferAttribute): readonly { start: number; count: number }[] {
+  const ranges = attribute.updateRanges;
+  ranges.sort((a, b) => a.start - b.start);
+  let merged = 0;
+  for (let i = 1; i < ranges.length; i++) {
+    const previous = ranges[merged]!;
+    const range = ranges[i]!;
+    if (range.start <= previous.start + previous.count + 1) {
+      previous.count = Math.max(previous.count, range.start + range.count - previous.start);
+    } else {
+      ranges[++merged] = range;
+    }
+  }
+  if (ranges.length > 0) ranges.length = merged + 1;
+  return ranges;
+}

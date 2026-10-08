@@ -476,9 +476,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec the-webgpu-renderer-declares-one-uniform-struct-in-both-stages`](#spec-the-webgpu-renderer-declares-one-uniform-struct-in-both-stages) — The WebGPU renderer declares every uniform of a material in both stages, so the vertex and fragment shaders read one struct at the same offsets.
     - [`@spec a-render-target-takes-its-new-size-on-the-next-render`](#spec-a-render-target-takes-its-new-size-on-the-next-render) — A renderer draws a render target at its new size on the next render after its width or height changes, and frees the old storage.
     - [`@spec a-sampler-without-a-texture-reads-black`](#spec-a-sampler-without-a-texture-reads-black) — A sampler that its material gives no texture reads opaque black on every renderer.
-    - [`@spec a-changed-attribute-uploads-only-its-update-range`](#spec-a-changed-attribute-uploads-only-its-update-range) — A renderer uploads only the ranges of a changed attribute that `addUpdateRange(start, count)` marked, and the whole attribute when it marked none.
-      - [`@bug an-attribute-has-one-update-range-where-three-js-has-a-list`](#bug-an-attribute-has-one-update-range-where-three-js-has-a-list) — rmsl's `BufferAttribute` has one `updateRange` of an offset and a count, and has no `updateRanges`, `addUpdateRange` or `clearUpdateRanges`. Both renderers read that one range.
-      - [`@bug webgpu-ignores-an-attribute-update-range`](#bug-webgpu-ignores-an-attribute-update-range) — The WebGPU renderer writes a changed attribute whole, from byte 0, ignoring the range it marks.
+    - [`@spec a-changed-attribute-uploads-only-its-update-range`](#spec-a-changed-attribute-uploads-only-its-update-range) — A renderer uploads only the ranges of a changed attribute that `addUpdateRange(start, count)` marked, merged where they touch, and the whole attribute when it marked none. It clears the ranges once it uploads them, as three.js does, so another renderer drawing the attribute uploads it whole.
   - [`@spec the-application-reaches-an-input-through-its-node`](#spec-the-application-reaches-an-input-through-its-node) — A uniform, attribute or varying node carries its [slot](#term-slot) name in `.name`, and `isUniformNode`, `isAttributeNode` and `isVaryingNode` tell the kinds apart.
   - [`@spec the-wgsl-uniform-layout-is-reported`](#spec-the-wgsl-uniform-layout-is-reported) — `wgslUniformLayout` reports the [layout](#term-layout) of each uniform under WGSL's rules: its offset, its size and, for an array, its stride. It also reports the size of the whole struct.
     - [`@spec uniforms-are-ordered-by-alignment-then-by-declaration`](#spec-uniforms-are-ordered-by-alignment-then-by-declaration) — Uniform members are placed in order of descending alignment, and members that align alike keep the order they were declared in.
@@ -3376,23 +3374,11 @@ This follows because the WebGPU renderer binds a 1×1 black texture there, and b
 
 #### @spec a-changed-attribute-uploads-only-its-update-range
 
-> A renderer uploads only the ranges of a changed attribute that `addUpdateRange(start, count)` marked, and the whole attribute when it marked none.
+> A renderer uploads only the ranges of a changed attribute that `addUpdateRange(start, count)` marked, merged where they touch, and the whole attribute when it marked none. It clears the ranges once it uploads them, as three.js does, so another renderer drawing the attribute uploads it whole.
 
 Derives from: [`fact-three-js-uploads-a-changed-attribute-through-update-ranges`](#fact-three-js-uploads-a-changed-attribute-through-update-ranges)
 
 This follows because a port changes its import and nothing else, so a scene must mark the changed part of an attribute as three.js does.
-
-##### @bug an-attribute-has-one-update-range-where-three-js-has-a-list
-
-> rmsl's `BufferAttribute` has one `updateRange` of an offset and a count, and has no `updateRanges`, `addUpdateRange` or `clearUpdateRanges`. Both renderers read that one range.
-
-Issue: #140
-
-##### @bug webgpu-ignores-an-attribute-update-range
-
-> The WebGPU renderer writes a changed attribute whole, from byte 0, ignoring the range it marks.
-
-Issue: #122
 
 ### @spec the-application-reaches-an-input-through-its-node
 

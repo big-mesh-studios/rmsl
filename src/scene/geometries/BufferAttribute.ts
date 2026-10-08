@@ -33,14 +33,24 @@ export class BufferAttribute {
    */
   format?: VertexFormat;
   /**
-   * The slice of `array` to re-upload when `needsUpdate` is set, in array
-   * elements: `offset` is where the new data begins and `count` how many
-   * elements of it. `count` of `-1` (the default) uploads the whole array.
-   * The renderer grows the GPU buffer as needed, so an attribute whose array
-   * only grew can re-send just its tail; the caller promises the leading
-   * elements still hold what the GPU already has.
+   * The slices of `array` to upload when `needsUpdate` is set, in array
+   * elements, as three.js keeps them: each from `start`, `count` elements
+   * long. Empty (the default) uploads the whole array. A renderer merges the
+   * ranges that touch, uploads them, and clears the list. The renderer grows
+   * the GPU buffer as needed, so an attribute whose array only grew can mark
+   * just its tail; the caller promises the rest still holds what the GPU has.
    */
-  updateRange = { offset: 0, count: -1 };
+  readonly updateRanges: { start: number; count: number }[] = [];
+
+  /** Marks `count` elements from `start` as changed, as three.js's `addUpdateRange` does. */
+  addUpdateRange(start: number, count: number): void {
+    this.updateRanges.push({ start, count });
+  }
+
+  /** Forgets the marked ranges, as three.js's `clearUpdateRanges` does. */
+  clearUpdateRanges(): void {
+    this.updateRanges.length = 0;
+  }
 
   constructor(
     array: ArrayLike<number>,
