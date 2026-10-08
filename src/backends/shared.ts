@@ -142,6 +142,8 @@ export interface CompileCtx {
   jsHelpers: Set<string>;
   /** The constant vectors and matrices a JS function reads, by the name each is declared under once. */
   jsConstants?: Map<string, string>;
+  /** The kinds of input a JS function reads by name, `uniforms` or `varyings`, each read into a local once a call. */
+  jsInputKinds?: Set<string>;
   /**
    * Slot a vector/matrix-typed expression should be written into, when the JS
    * target is lowering an assignment. `null` means a plain expression.

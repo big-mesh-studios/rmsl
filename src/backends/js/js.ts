@@ -1451,14 +1451,22 @@ function jsCopyInput(read: string, out: string, type: string, ctx: CompileCtx): 
 
 /**
  * `read`, a read of an input the host passes by name, which is undefined when
- * the host leaves out the input or every input of its kind. It reads through an
- * empty object rather than optional chaining, which V8 can box a number through.
+ * the host leaves out the input or every input of its kind. It reads through
+ * the object of its kind, or an empty one when the host leaves that out, which
+ * the function takes into a local once a call. An empty object rather than
+ * optional chaining, which V8 can box a number through.
  */
 function jsInputRead(read: string, ctx: CompileCtx): string {
   let match = /^ctx\.(\w+)(\[.*)$/.exec(read);
   if (!match) return read;
   jsRequireHelper(ctx, "none");
-  return `(ctx.${match[1]} ?? _none)${match[2]}`;
+  (ctx.jsInputKinds ??= new Set()).add(match[1]!);
+  return `${jsInputObject(match[1]!)}${match[2]}`;
+}
+
+/** The local a JS function holds the object of inputs of `kind` in, such as `uniforms`. */
+function jsInputObject(kind: string): string {
+  return `_rmsl_in_${kind}`;
 }
 
 /** `read`, a scalar input the host passes by name, which reads zero, or false for a bool, when the host leaves it out. */
@@ -2606,6 +2614,8 @@ function compileJSFnDetailed(
     return [reentrant ? `${key} = ${zeros};` : `${zeros}.fill(0); ${key} = ${zeros};`];
   });
   const slots = jsSlotDeclarations(ctx.varDefs, ctx.jsFloat32 === true, reentrant ? "var" : "let");
+  // Each object of inputs is read once, rather than at every read of an input it holds.
+  for (const kind of ctx.jsInputKinds ?? []) body.push(`const ${jsInputObject(kind)} = ctx.${kind} ?? _none;`);
   body.push(...slots.scalars);
   if (reentrant) body.push(...slots.views);
   body.push(...varyingResets);
