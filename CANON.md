@@ -91,6 +91,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec a-program-runs-its-statements-in-the-order-it-writes-them`](#spec-a-program-runs-its-statements-in-the-order-it-writes-them) — A program runs its statements in the order its body made them, on every target, the statements that compute an index or a value included.
     - [`@spec the-index-of-a-write-is-read-after-the-value-is-computed`](#spec-the-index-of-a-write-is-read-after-the-value-is-computed) — A write through a computed index reads the index after the statements that compute the value it writes.
     - [`@spec a-column-index-runs-before-a-component-index`](#spec-a-column-index-runs-before-a-component-index) — When a program computes both indices of a write to a component of a matrix column, the column index runs first.
+    - [`@spec the-operands-of-an-operation-run-in-the-order-it-takes-them`](#spec-the-operands-of-an-operation-run-in-the-order-it-takes-them) — The statements that compute the operands of an operation run in the order the operation takes its operands. A scalar operand beside a vector runs in its own place among them, not before the vectors.
   - [`@spec a-value-is-computed-where-it-is-read`](#spec-a-value-is-computed-where-it-is-read) — A value that no variable holds computes, where the program reads it, from what its operands hold there. A write to a variable it reads changes what it gives after the write. A branch that first computed it does not keep it from the code outside.
   - [`@spec a-variable-holds-a-copy`](#spec-a-variable-holds-a-copy) — A variable made with `toVar()`, or a variable or stage output assigned a value, holds a copy. A write to the variable or the output leaves the value it was copied from as it was.
   - [`@spec an-assignment-computes-its-value-before-it-writes`](#spec-an-assignment-computes-its-value-before-it-writes) — An assignment computes the whole value it assigns before it writes its target. A value that reads the target, such as `v.assign(cross(v, u))`, `v.assign(v.yx)` or `m.assign(transpose(m))`, reads it as it was before the assignment.
@@ -1233,6 +1234,10 @@ This follows because a reordered statement can read a value before or after the 
 #### @spec a-column-index-runs-before-a-component-index
 
 > When a program computes both indices of a write to a component of a matrix column, the column index runs first.
+
+#### @spec the-operands-of-an-operation-run-in-the-order-it-takes-them
+
+> The statements that compute the operands of an operation run in the order the operation takes its operands. A scalar operand beside a vector runs in its own place among them, not before the vectors.
 
 ### @spec a-value-is-computed-where-it-is-read
 

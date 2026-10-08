@@ -533,41 +533,6 @@ const SCRATCH_NODE_TYPES = new Set([
   "notEqual",
 ]);
 
-/** The vector and matrix operations a loop over components computes, which read a scalar operand at every component. */
-const COMPONENT_LOOP_TYPES = new Set([
-  ...COMPONENT_MATH_TYPES,
-  "add",
-  "sub",
-  "mul",
-  "div",
-  "mod",
-  "bitAnd",
-  "bitOr",
-  "bitXor",
-  "bitNot",
-  "shiftLeft",
-  "shiftRight",
-  "negate",
-  "abs",
-  "radians",
-  "degrees",
-  "min",
-  "max",
-  "lessThan",
-  "greaterThan",
-  "lessThanEqual",
-  "greaterThanEqual",
-  "equal",
-  "notEqual",
-  "not",
-  "clamp",
-  "mix",
-  "select",
-]);
-
-/** The scalar operations whose formula reads an operand more than once. */
-const SCALAR_REREAD_TYPES = new Set(["sign", "fract", "mix", "mod", "smoothstep", "min", "max", "abs", "clamp"]);
-
 /** The comparison opcodes for each comparison node: `[float, int, uint]`. */
 const COMPARISON_OPCODES: Record<string, [number, number, number]> = {
   lessThan: [WASM_OP.f64Lt, WASM_OP.i32LtS, WASM_OP.i32LtU],
@@ -889,10 +854,6 @@ export function compileWasmFn(
   const localSlots: string[] = [];
   const localIndex = new Map<string, number>();
   const localType = new Map<string, ScalarKind>();
-  /** The local each operand of an operation that reads it more than once is computed into, by operand index. */
-  const operandLocals = new Map<any, (string | undefined)[]>();
-  /** The bytes that read an operand while its operation is emitted: the local it was computed into. */
-  const operandReads = new Map<any, number[]>();
   const importsUsed = new Set<string>();
 
   // memory-kind params, host-written before the call (or read after)
@@ -1750,18 +1711,6 @@ export function compileWasmFn(
         if (MATH_UNARY_IMPORTS.has(node.type) || MATH_BINARY_IMPORTS.has(node.type)) importsUsed.add(node.type);
         break;
     }
-    const rereads = isAggregate(node._t) ? COMPONENT_LOOP_TYPES.has(node.type) : SCALAR_REREAD_TYPES.has(node.type);
-    if (rereads && !operandLocals.has(node)) {
-      const id = operandLocals.size;
-      operandLocals.set(
-        node,
-        (node.params as any[]).map((p, i) => {
-          if (isAggregate(p._t) || !Array.isArray(p.params) || p.params.length === 0) return undefined;
-          addLocal(`$operand_${id}_${i}`, scalarKindOf(p._t));
-          return `$operand_${id}_${i}`;
-        }),
-      );
-    }
     if (isScratchNode(node) && !scratchAddress.has(node)) {
       const addr = allocateFor(node._t as string);
 
@@ -1807,10 +1756,9 @@ export function compileWasmFn(
   }
 
   /**
-   * The bytes of a math function of one component: `args` emits each
-   * operand's component, in `kind`, once for each time the function reads it,
-   * so an operand's statements run where its first read runs. A scalar applies
-   * the function once, and a vector once for each component.
+   * The bytes of a math function of one component: `args` reads each
+   * operand's component, in `kind`, each time the function reads it. A scalar
+   * applies the function once, and a vector once for each component.
    */
   function mathBytes(type: string, args: (() => number[])[], kind: ScalarKind): number[] {
     const [readX, readY] = args as [() => number[], () => number[]];
@@ -2233,7 +2181,7 @@ export function compileWasmFn(
    * `float: "f32"`, the float components a node computes are rounded there.
    */
   function materializeIfNeeded(node: any): number[] {
-    const bytes = withOperandsOnce(node, () => materializeValue(node));
+    const bytes = materializeValue(node);
     if (!float32 || bytes.length === 0 || elementKindOf(node._t as string) !== "float") return bytes;
     return [...bytes, ...roundFloatsInMemory(nodeAddress(node), componentCountOf(node._t as string))];
   }
@@ -2412,17 +2360,19 @@ export function compileWasmFn(
           }
         return out;
       }
-      const out: number[] = [];
       if (node.params.length === 1) {
         // single scalar param -> diagonal matrix (identity-scaled)
+        const scalar = readOnce(node.params[0], "float");
+        const out = [...scalar.setup];
         for (let c = 0; c < cols; c++) {
           for (let r = 0; r < rows; r++) {
-            const valueBytes = c === r ? walkExpr(node.params[0]) : f64ConstBytes(0);
+            const valueBytes = c === r ? scalar.at(0) : f64ConstBytes(0);
             out.push(...storeComponent(addr, "float", (c * rows + r) * 8, valueBytes));
           }
         }
         return out;
       }
+      const out: number[] = [];
 
       node.params.forEach((colNode: any, c: number) => {
         out.push(...materializeIfNeeded(colNode));
@@ -2990,10 +2940,9 @@ export function compileWasmFn(
 
   /**
    * Element-wise op over same-width vectors — binary, or unary for `bitNot`,
-   * `negate` and `abs` — with scalar operands broadcast by re-evaluating them
-   * (walkExpr) per component; aggregate operands are materialized once and
-   * loaded per component. A comparison reads operands of its first operand's
-   * kind and stores a boolean vector.
+   * `negate` and `abs` — with a scalar operand applying to every component.
+   * A comparison reads operands of its first operand's kind and stores a
+   * boolean vector.
    */
   function emitComponentwiseStores(node: any, addr: number): number[] {
     const [a, b] = node.params;
@@ -3007,13 +2956,8 @@ export function compileWasmFn(
       : aWidth > 1
         ? elementKindOf(a._t as string)
         : scalarKindOf(a._t as string);
-    const operandSize = componentSizeOf(operandKind);
-    const bWidth = b === undefined ? 0 : componentCountOf(b._t);
-    const out: number[] = [];
-    if (aWidth > 1) out.push(...materializeIfNeeded(a));
-    if (bWidth > 1) out.push(...materializeIfNeeded(b));
-    const aAddr = aWidth > 1 ? nodeAddress(a) : undefined;
-    const bAddr = bWidth > 1 ? nodeAddress(b) : undefined;
+    const { setup, reads } = readEachOnce(node, operandKind);
+    const out = [...setup];
     const combine = (aBytes: number[], bBytes: number[]): number[] => {
       const float = operandKind === "float";
       if (COMPARISON_OPCODES[node.type]) return comparisonBytes(node.type, aBytes, bBytes, operandKind);
@@ -3048,10 +2992,9 @@ export function compileWasmFn(
       return [...aBytes, ...bBytes, opcode];
     };
     for (let k = 0; k < width; k++) {
-      const aBytes = aWidth > 1 ? loadComponent(aAddr!, operandKind, k * operandSize) : walkExpr(a);
-      const bBytes =
-        b === undefined ? [] : bWidth > 1 ? loadComponent(bAddr!, operandKind, k * operandSize) : walkExpr(b);
-      out.push(...storeComponent(addr, targetKind, k * compSize, combine(aBytes, bBytes)));
+      out.push(
+        ...storeComponent(addr, targetKind, k * compSize, combine(reads[0](k), b === undefined ? [] : reads[1](k))),
+      );
     }
     return out;
   }
@@ -3060,16 +3003,10 @@ export function compileWasmFn(
   function emitMathStores(node: any, addr: number): number[] {
     const kind = elementKindOf(node._t as string);
     const size = componentSizeOf(kind);
-    const out: number[] = [];
-    const operands = (node.params as any[]).map((p) => {
-      const wide = componentCountOf(p._t) > 1;
-      if (wide) out.push(...materializeIfNeeded(p));
-      return { node: p, address: wide ? nodeAddress(p) : undefined };
-    });
+    const { setup, reads } = readEachOnce(node, kind);
+    const out = [...setup];
     for (let k = 0; k < componentCountOf(node._t as string); k++) {
-      const args = operands.map(
-        (o) => () => (o.address === undefined ? walkExpr(o.node) : loadComponent(o.address, kind, k * size)),
-      );
+      const args = reads.map((read) => () => read(k));
       out.push(...storeComponent(addr, kind, k * size, mathBytes(node.type, args, kind)));
     }
     return out;
@@ -3241,24 +3178,15 @@ export function compileWasmFn(
     return out;
   }
 
-  /** clamp = max(x, lo) then min(hi); an core guarantee keeps all three params the same width. */
+  /** clamp = max(x, lo) then min(hi); a scalar bound applies to every component. */
   function emitClampStores(node: any, addr: number): number[] {
-    const [x, lo, hi] = node.params;
     const targetKind = elementKindOf(node._t as string);
     const compSize = componentSizeOf(targetKind);
     const width = componentCountOf(node._t as string);
-    // A scalar bound applies to every component, and is re-evaluated for each.
-    const component = (n: any) => {
-      if (componentCountOf(n._t) === 1) return { setup: [], at: () => walkExpr(n) };
-      const nAddr = nodeAddress(n);
-      return { setup: materializeIfNeeded(n), at: (k: number) => loadComponent(nAddr, targetKind, k * compSize) };
-    };
-    const [xc, loc, hic] = [component(x), component(lo), component(hi)];
-    const out = [...xc.setup, ...loc.setup, ...hic.setup];
+    const { setup, reads } = readEachOnce(node, targetKind);
+    const out = [...setup];
     for (let k = 0; k < width; k++) {
-      const xk = xc.at(k);
-      const lok = loc.at(k);
-      const hik = hic.at(k);
+      const [xk, lok, hik] = reads.map((read) => read(k));
       out.push(
         ...storeComponent(
           addr,
@@ -3271,20 +3199,13 @@ export function compileWasmFn(
     return out;
   }
 
-  /** mix(a, b, t) = a + t*(b - a) per component; t may be scalar (re-evaluated) or same-width vector. */
+  /** mix(a, b, t) = a + t*(b - a) per component; a scalar t weighs every component. */
   function emitMixStores(node: any, addr: number): number[] {
-    const [a, b, t] = node.params;
     const width = componentCountOf(node._t as string);
-    const tWidth = componentCountOf(t._t as string);
-    const out = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
-    if (tWidth > 1) out.push(...materializeIfNeeded(t));
-    const aAddr = nodeAddress(a),
-      bAddr = nodeAddress(b);
-    const tAddr = tWidth > 1 ? nodeAddress(t) : undefined;
+    const { setup, reads } = readEachOnce(node, "float");
+    const out = [...setup];
     for (let k = 0; k < width; k++) {
-      const ak = loadComponent(aAddr, "float", k * 8);
-      const bk = loadComponent(bAddr, "float", k * 8);
-      const tk = tWidth > 1 ? loadComponent(tAddr!, "float", k * 8) : walkExpr(t);
+      const [ak, bk, tk] = reads.map((read) => read(k));
       out.push(
         ...storeComponent(addr, "float", k * 8, [
           ...ak,
@@ -3302,14 +3223,11 @@ export function compileWasmFn(
 
   /** step(edge, x) = 0.0 when x < edge, else 1.0. */
   function emitStepStores(node: any, addr: number): number[] {
-    const [edge, x] = node.params;
     const width = componentCountOf(node._t as string);
-    const out = [...materializeIfNeeded(edge), ...materializeIfNeeded(x)];
-    const edgeAddr = nodeAddress(edge),
-      xAddr = nodeAddress(x);
+    const { setup, reads } = readEachOnce(node, "float");
+    const out = [...setup];
     for (let k = 0; k < width; k++) {
-      const ek = loadComponent(edgeAddr, "float", k * 8);
-      const xk = loadComponent(xAddr, "float", k * 8);
+      const [ek, xk] = reads.map((read) => read(k));
       out.push(
         ...storeComponent(
           addr,
@@ -3332,36 +3250,22 @@ export function compileWasmFn(
     const targetKind = elementKindOf(node._t as string);
     const compSize = componentSizeOf(targetKind);
     const width = componentCountOf(node._t as string);
-    const condWidth = componentCountOf(cond._t as string);
-    const out = [...materializeIfNeeded(a), ...materializeIfNeeded(b)];
-    if (condWidth > 1) out.push(...materializeIfNeeded(cond));
-    const aAddr = nodeAddress(a),
-      bAddr = nodeAddress(b);
-    const condAddr = condWidth > 1 ? nodeAddress(cond) : undefined;
+    const [c, x, y] = [readOnce(cond, "bool"), readOnce(a, targetKind), readOnce(b, targetKind)];
+    const out = [...c.setup, ...x.setup, ...y.setup];
     for (let k = 0; k < width; k++) {
-      const ak = loadComponent(aAddr, targetKind, k * compSize);
-      const bk = loadComponent(bAddr, targetKind, k * compSize);
-      const condK = condWidth > 1 ? loadComponent(condAddr!, "bool", k * componentSizeOf("bool")) : walkExpr(cond);
-      out.push(...storeComponent(addr, targetKind, k * compSize, selectExpr(ak, bk, condK)));
+      out.push(...storeComponent(addr, targetKind, k * compSize, selectExpr(x.at(k), y.at(k), c.at(k))));
     }
     return out;
   }
 
   /** smoothstep(e0, e1, x) per component, via the shared t computation in emitSmoothstepValue. */
   function emitSmoothstepStores(node: any, addr: number): number[] {
-    const [e0, e1, x] = node.params;
     const width = componentCountOf(node._t as string);
-    const out = [...materializeIfNeeded(e0), ...materializeIfNeeded(e1), ...materializeIfNeeded(x)];
-    const e0Addr = nodeAddress(e0),
-      e1Addr = nodeAddress(e1),
-      xAddr = nodeAddress(x);
+    const { setup, reads } = readEachOnce(node, "float");
+    const out = [...setup];
     for (let k = 0; k < width; k++) {
-      const value = emitSmoothstepValue(
-        loadComponent(e0Addr, "float", k * 8),
-        loadComponent(e1Addr, "float", k * 8),
-        loadComponent(xAddr, "float", k * 8),
-      );
-      out.push(...storeComponent(addr, "float", k * 8, value));
+      const [e0k, e1k, xk] = reads.map((read) => read(k));
+      out.push(...storeComponent(addr, "float", k * 8, emitSmoothstepValue(e0k, e1k, xk)));
     }
     return out;
   }
@@ -3565,22 +3469,6 @@ export function compileWasmFn(
     return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), op];
   }
 
-  /** float min/max use native f64.min/max; int/uint fall back to a compare + select. */
-  function minOrMax(a: any, b: any, kind: ScalarKind, pick: "min" | "max"): number[] {
-    if (kind === "float") {
-      return [...walkExpr(a), ...walkExpr(b), pick === "min" ? WASM_OP.f64Min : WASM_OP.f64Max];
-    }
-    const cmp =
-      kind === "uint"
-        ? pick === "min"
-          ? WASM_OP.i32LtU
-          : WASM_OP.i32GtU
-        : pick === "min"
-          ? WASM_OP.i32LtS
-          : WASM_OP.i32GtS;
-    return selectExpr(walkExpr(a), walkExpr(b), [...walkExpr(a), ...walkExpr(b), cmp]);
-  }
-
   /**
    * Integer `/` or `%` of the two operands on the stack, with WGSL's results
    * where WASM would trap: `x / 0` is `x`, `x % 0` is `0`, and `INT_MIN / -1`
@@ -3659,40 +3547,36 @@ export function compileWasmFn(
    * value is rounded to 32 bits and widened back, so it holds what an f32 holds.
    */
   function walkExpr(node: any): number[] {
-    const read = operandReads.get(node);
-    if (read !== undefined) return read;
-    const bytes = withOperandsOnce(node, () => walkExprValue(node));
+    const bytes = walkExprValue(node);
     if (!float32 || node._t !== "float" || node.type === "float" || node.type === "var") return bytes;
     return [...bytes, WASM_OP.f32DemoteF64, WASM_OP.f64PromoteF32];
   }
 
   /**
-   * The bytes `emit` gives for `node`, after each scalar operand `node` reads
-   * more than once, or once for each component, is computed into a local of
-   * its own. While `emit` runs, a read of that operand reads the local, so the
-   * operand runs once, as on JS.
+   * How an operation reads `operand`: `setup` computes it, once and in its
+   * place among the operands, and `at(k)` reads its component `k` as `kind`.
+   * A scalar gives the same value at every `k`. One that is not already a name
+   * is computed into a local of its own, so a second read does not compute it again.
    */
-  function withOperandsOnce(node: any, emit: () => number[]): number[] {
-    const locals = operandLocals.get(node);
-    if (locals === undefined) return emit();
-    const setup: number[] = [];
-    const replaced: [any, number[] | undefined][] = [];
-    (node.params as any[]).forEach((operand, i) => {
-      const name = locals[i];
-      if (name === undefined) return;
-      const slot = wasmUleb128(localSlotIndex(name));
-      setup.push(...walkExpr(operand), WASM_OP.localSet, ...slot);
-      replaced.push([operand, operandReads.get(operand)]);
-      operandReads.set(operand, [WASM_OP.localGet, ...slot]);
-    });
-    try {
-      return [...setup, ...emit()];
-    } finally {
-      for (const [operand, before] of replaced.reverse()) {
-        if (before === undefined) operandReads.delete(operand);
-        else operandReads.set(operand, before);
-      }
+  function readOnce(operand: any, kind?: ScalarKind): { setup: number[]; at(k: number): number[] } {
+    if (isAggregate(operand._t)) {
+      const elementKind = kind ?? elementKindOf(operand._t as string);
+      const setup = materializeIfNeeded(operand);
+      const address = nodeAddress(operand);
+      return { setup, at: (k) => loadComponent(address, elementKind, k * componentSizeOf(elementKind)) };
     }
+    if (!Array.isArray(operand.params) || operand.params.length === 0)
+      return { setup: [], at: () => walkExpr(operand) };
+    const name = `$operand${localSlots.length}`;
+    addLocal(name, scalarKindOf(operand._t));
+    const slot = wasmUleb128(localSlotIndex(name));
+    return { setup: [...walkExpr(operand), WASM_OP.localSet, ...slot], at: () => [WASM_OP.localGet, ...slot] };
+  }
+
+  /** `readOnce` of each operand of `node`, with the setup of every one, in the order `node` takes them. */
+  function readEachOnce(node: any, kind?: ScalarKind): { setup: number[]; reads: ((k: number) => number[])[] } {
+    const operands = (node.params as any[]).map((p) => readOnce(p, kind));
+    return { setup: operands.flatMap((o) => o.setup), reads: operands.map((o) => o.at) };
   }
 
   /**
@@ -3767,47 +3651,44 @@ export function compileWasmFn(
       case "div":
       case "mod": {
         const kind = scalarKindOf(node.params[0]._t);
-        const a = walkExpr(node.params[0]);
-        const b = walkExpr(node.params[1]);
-        if (kind === "int" || kind === "uint") return [...a, ...b, ...integerDivision(kind, node.type)];
-        if (node.type === "div") return [...a, ...b, WASM_OP.f64Div];
-        return flooredModulo(a, b);
+        if (kind === "int" || kind === "uint") {
+          return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), ...integerDivision(kind, node.type)];
+        }
+        if (node.type === "div") return [...walkExpr(node.params[0]), ...walkExpr(node.params[1]), WASM_OP.f64Div];
+        const { setup, reads } = readEachOnce(node);
+        return [...setup, ...flooredModulo(reads[0](0), reads[1](0))];
       }
       case "min":
-        return minOrMax(node.params[0], node.params[1], scalarKindOf(node.params[0]._t), "min");
-      case "max":
-        return minOrMax(node.params[0], node.params[1], scalarKindOf(node.params[0]._t), "max");
+      case "max": {
+        const { setup, reads } = readEachOnce(node);
+        return [...setup, ...minMaxBytes(reads[0](0), reads[1](0), scalarKindOf(node.params[0]._t), node.type)];
+      }
 
       case "clamp": {
         const kind = scalarKindOf(node._t as string);
-        const x = walkExpr(node.params[0]);
-        const lo = walkExpr(node.params[1]);
-        const hi = walkExpr(node.params[2]);
-        return minMaxBytes(minMaxBytes(x, lo, kind, "max"), hi, kind, "min");
+        const { setup, reads } = readEachOnce(node);
+        const [x, lo, hi] = reads.map((read) => read(0));
+        return [...setup, ...minMaxBytes(minMaxBytes(x, lo, kind, "max"), hi, kind, "min")];
       }
       case "mix": {
-        const [a, b, t] = node.params;
-        return [
-          ...walkExpr(a),
-          ...walkExpr(t),
-          ...walkExpr(b),
-          ...walkExpr(a),
-          WASM_OP.f64Sub,
-          WASM_OP.f64Mul,
-          WASM_OP.f64Add,
-        ];
+        const { setup, reads } = readEachOnce(node);
+        const [a, b, t] = reads.map((read) => read(0));
+        return [...setup, ...a, ...t, ...b, ...a, WASM_OP.f64Sub, WASM_OP.f64Mul, WASM_OP.f64Add];
       }
       case "step": {
-        const [edge, x] = node.params;
-        return selectExpr(f64ConstBytes(0), f64ConstBytes(1), [...walkExpr(x), ...walkExpr(edge), WASM_OP.f64Lt]);
+        const { setup, reads } = readEachOnce(node);
+        const [edge, x] = reads.map((read) => read(0));
+        return [...setup, ...selectExpr(f64ConstBytes(0), f64ConstBytes(1), [...x, ...edge, WASM_OP.f64Lt])];
       }
       case "smoothstep": {
-        const [e0, e1, x] = node.params;
-        return emitSmoothstepValue(walkExpr(e0), walkExpr(e1), walkExpr(x));
+        const { setup, reads } = readEachOnce(node);
+        const [e0, e1, x] = reads.map((read) => read(0));
+        return [...setup, ...emitSmoothstepValue(e0, e1, x)];
       }
       case "select": {
-        const [cond, a, b] = node.params;
-        return selectExpr(walkExpr(a), walkExpr(b), walkExpr(cond));
+        const { setup, reads } = readEachOnce(node);
+        const [cond, a, b] = reads.map((read) => read(0));
+        return [...setup, ...selectExpr(a, b, cond)];
       }
 
       case "negate": {
@@ -3818,10 +3699,10 @@ export function compileWasmFn(
       case "abs": {
         const kind = scalarKindOf(node.params[0]._t);
         if (kind === "float") return [...walkExpr(node.params[0]), WASM_OP.f64Abs];
-        const x = node.params[0];
-        const negated = [...i32ConstBytes(0), ...walkExpr(x), WASM_OP.i32Sub];
-        const isNeg = [...walkExpr(x), ...i32ConstBytes(0), WASM_OP.i32LtS];
-        return selectExpr(negated, walkExpr(x), isNeg);
+        const x = readOnce(node.params[0]);
+        const negated = [...i32ConstBytes(0), ...x.at(0), WASM_OP.i32Sub];
+        const isNeg = [...x.at(0), ...i32ConstBytes(0), WASM_OP.i32LtS];
+        return [...x.setup, ...selectExpr(negated, x.at(0), isNeg)];
       }
       case "sign":
       case "floor":
@@ -3850,12 +3731,17 @@ export function compileWasmFn(
       case "log":
       case "log2":
       case "pow":
-      case "atan2":
-        return mathBytes(
-          node.type,
-          node.params.map((p: any) => () => walkExpr(p)),
-          scalarKindOf(node.params[0]._t),
-        );
+      case "atan2": {
+        const { setup, reads } = readEachOnce(node);
+        return [
+          ...setup,
+          ...mathBytes(
+            node.type,
+            reads.map((read) => () => read(0)),
+            scalarKindOf(node.params[0]._t),
+          ),
+        ];
+      }
 
       case "lessThan":
         return comparison(node, WASM_OP.f64Lt, WASM_OP.i32LtS, WASM_OP.i32LtU);

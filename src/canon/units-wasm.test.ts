@@ -13,6 +13,9 @@ import {
   invocationIndex,
   ivec2,
   mat3,
+  mix,
+  select,
+  step,
   storage,
   StorageBufferAttribute,
   textureLoad,
@@ -423,6 +426,67 @@ describe("an inline Fn whose value an operation reads more than once", () => {
    */
   it.each(cpuTargets)("%s: runs it once when mix takes it as the weight of every component", (_, compile) => {
     expect(run(compile, () => vec3(0, 0, 0).mix(vec3(4, 4, 4), counted(0.5)).z)).toEqual({ runs: 1, result: 2 });
+  });
+});
+
+describe("the operands of an operation that run statements", () => {
+  const counter = instancedArray(1, "float");
+  const count = () => counter.element(int(0));
+  /** An inline `Fn` that adds one to `counter` and returns what it holds then. */
+  const increment = () =>
+    Fn(() => {
+      count().addAssign(1);
+      return count().toVar();
+    })() as any;
+  /** An inline `Fn` that multiplies `counter` by ten and returns a vector of what it holds then. */
+  const scale = () =>
+    Fn(() => {
+      count().mulAssign(10);
+      return vec3(count()).toVar();
+    })() as any;
+  const run = (compile: CompileCpuRoutine, build: () => any) => {
+    const data = new Float64Array([1]);
+    const result = compile(build, none)({ storages: { [counter.name]: data } });
+    return { counter: data[0], result };
+  };
+
+  /**
+   * @canon spec-the-operands-of-an-operation-run-in-the-order-it-takes-them
+   */
+  it.each(cpuTargets)("%s: runs a vector operand before the scalar operand after it", (_, compile) => {
+    expect(run(compile, () => scale().add(increment()).x)).toEqual({ counter: 11, result: 21 });
+  });
+
+  /**
+   * @canon spec-the-operands-of-an-operation-run-in-the-order-it-takes-them
+   */
+  it.each(cpuTargets)("%s: runs the vectors of mix before its scalar weight", (_, compile) => {
+    expect(run(compile, () => mix(scale(), vec3(0, 0, 0), increment()).x)).toEqual({ counter: 11, result: -100 });
+  });
+
+  /**
+   * @canon spec-the-operands-of-an-operation-run-in-the-order-it-takes-them
+   */
+  it.each(cpuTargets)("%s: runs the scalar condition of select before its vectors", (_, compile) => {
+    expect(run(compile, () => select(increment().greaterThan(1), scale(), vec3(0, 0, 0)).x)).toEqual({
+      counter: 20,
+      result: 20,
+    });
+  });
+
+  /**
+   * @canon spec-the-operands-of-an-operation-run-in-the-order-it-takes-them
+   */
+  it.each(cpuTargets)("%s: runs the scalar condition of select before its scalars", (_, compile) => {
+    const pick = () => select(increment().greaterThan(1), scale().x, float(0));
+    expect(run(compile, pick)).toEqual({ counter: 20, result: 20 });
+  });
+
+  /**
+   * @canon spec-the-operands-of-an-operation-run-in-the-order-it-takes-them
+   */
+  it.each(cpuTargets)("%s: runs the edge of step before its value", (_, compile) => {
+    expect(run(compile, () => step(scale().x, increment()))).toEqual({ counter: 11, result: 1 });
   });
 });
 

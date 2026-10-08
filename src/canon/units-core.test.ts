@@ -327,6 +327,7 @@ describe("what a program does with a node it reads more than once", () => {
     ["atan2 of a vector and a scalar", (x: any) => vec3(1, 2, 3).atan(x).y],
     ["atan2 of a scalar and a vector", (x: any) => x.atan(vec3(1, 2, 3)).y],
     ["a sum of a vector and a scalar", (x: any) => vec3(1, 2, 3).add(x).y],
+    ["a matrix of a scalar", (x: any) => mat3(x).element(int(1)).y],
   ] as const)(
     "compiles a chain of %s that each level reads once in output that grows in proportion to the levels on JS and WASM",
     (_op, step) => {
