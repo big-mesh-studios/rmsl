@@ -53,6 +53,17 @@ describe("what an Fn returns", () => {
   });
 });
 
+describe("a JavaScript array given as a vector", () => {
+  /**
+   * @canon spec-a-javascript-array-is-a-vector-of-its-length
+   */
+  it("takes the lengths a vector or matrix has, and refuses any other as it is written", () => {
+    expectTypeOf(dot(vec3(1, 0, 0), [1, 2, 3])).toEqualTypeOf<Node<"float">>();
+    // @ts-expect-error an array of five numbers is no vector
+    dot(vec3(1, 0, 0), [1, 2, 3, 4, 5]);
+  });
+});
+
 describe("comparison result types", () => {
   /**
    * Only a scalar reduces to a single boolean; a comparison is component-wise,

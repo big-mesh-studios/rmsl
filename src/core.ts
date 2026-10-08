@@ -52,8 +52,22 @@ export type IVec4Like = [number, number, number, number] | BaseNode<"ivec4">;
 export type UVec2Like = [number, number] | BaseNode<"uvec2">;
 export type UVec3Like = [number, number, number] | BaseNode<"uvec3">;
 export type UVec4Like = [number, number, number, number] | BaseNode<"uvec4">;
-export type Mat3Like = number[] | BaseNode<"mat3">;
-export type Mat4Like = number[] | BaseNode<"mat4">;
+/** Nine numbers, a `mat3`'s columns one after another. */
+type Mat3Array = readonly [number, number, number, number, number, number, number, number, number];
+/** Sixteen numbers, a `mat4`'s columns one after another. */
+type Mat4Array = readonly [...Mat3Array, number, number, number, number, number, number, number];
+/**
+ * A JavaScript array given where a node goes: the lengths a vector, a `mat3`
+ * or a `mat4` has, so an array of another length is refused as it is written.
+ */
+export type VectorArray =
+  | readonly [number, number]
+  | readonly [number, number, number]
+  | readonly [number, number, number, number]
+  | Mat3Array
+  | Mat4Array;
+export type Mat3Like = Mat3Array | BaseNode<"mat3">;
+export type Mat4Like = Mat4Array | BaseNode<"mat4">;
 export type Sampler2DLike = BaseNode<"sampler2D"> | Node<"sampler2D">;
 export type Sampler3DLike = BaseNode<"sampler3D"> | Node<"sampler3D">;
 export type ISampler2DLike = BaseNode<"isampler2D"> | Node<"isampler2D">;
@@ -836,8 +850,8 @@ export interface NodeMethods<A extends ShaderType> {
    * boolean vector, in which case the selection is component-wise.
    */
   select<T extends ShaderType>(
-    ifTrue: BaseNode<T> | number | readonly number[],
-    ifFalse: BaseNode<T> | number | readonly number[],
+    ifTrue: BaseNode<T> | number | VectorArray,
+    ifFalse: BaseNode<T> | number | VectorArray,
   ): Node<T>;
 }
 
@@ -2408,7 +2422,7 @@ export const bvec4 = makeBoolVecConstructor<"bvec4">("bvec4", 4);
  * The argument order follows TSL — `step(edge, x)`, `smoothstep(low, high, x)`
  * and `mix(a, b, t)` all take the value last, as both GLSL and WGSL spell them.
  */
-export type MathLike = number | boolean | readonly number[] | Node<ShaderType>;
+export type MathLike = number | boolean | VectorArray | Node<ShaderType>;
 
 /**
  * Wrap a raw value as a node for method delegation. The free functions then
