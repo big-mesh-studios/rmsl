@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Fn, float, instanceIndex, int, Loop, mat3, vec4, vertexIndex } from "../rmsl";
-import { compileGlsl } from "../glsl";
+import { Fn, float, instanceIndex, int, mat3, vec4, vertexIndex } from "../rmsl";
 import { compileJSRoutine, compileJSVertex } from "../js";
 import { compileWasmVertex } from "../wasm";
 
@@ -15,19 +14,5 @@ describe("known bugs, each failing until its fix", () => {
     const build = () => Fn(() => vec4(vertexIndex().toFloat(), instanceIndex().toFloat(), 0, 1))();
     expect(() => compileJSVertex(build, { ...none })).not.toThrow();
     expect(() => compileWasmVertex(build, { ...none })).not.toThrow();
-  });
-
-  /**
-   * @canon bug-a-bool-count-compiles-into-a-comparison-no-driver-accepts
-   */
-  it.fails("refuses a bool given to Loop as its count", () => {
-    const program = Fn(() => {
-      const m = float(0).toVar();
-      Loop(m.lessThan(10) as any, () => {
-        m.assign(m.add(1));
-      });
-      return m;
-    });
-    expect(() => compileGlsl(program())).toThrow();
   });
 });

@@ -101,7 +101,7 @@ for (const backend of backends) {
         values.element(i).assign(i.mul(3));
       })().compute(8);
       const sum = Fn(() => {
-        Loop(8, (i) => {
+        Loop(8, ({ i }) => {
           total.element(0).assign(total.element(0).add(values.element(i)));
         });
       })().compute(1);

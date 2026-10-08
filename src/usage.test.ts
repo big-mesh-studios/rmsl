@@ -3291,7 +3291,7 @@ describe("TSL control flow", () => {
   });
 
   /**
-   * @canon exception-for-is-a-name-tsl-lacks
+   * @canon spec-for-is-a-loop-of-rmsls-own
    */
   it("For runs a counted loop", () => {
     let prog = Fn(() => {
@@ -3311,7 +3311,7 @@ describe("TSL control flow", () => {
   });
 
   /**
-   * @canon exception-while-is-a-name-tsl-lacks
+   * @canon spec-while-is-a-loop-of-rmsls-own
    */
   it("While runs a conditional loop", () => {
     let prog = Fn(() => {
@@ -3326,12 +3326,12 @@ describe("TSL control flow", () => {
   });
 
   /**
-   * @canon exception-loop-passes-its-index-directly
+   * @canon spec-loop-runs-its-body-count-times
    */
-  it("Loop(count, (i) => ...) iterates like TSL's counting loop", () => {
+  it("Loop(count, ({ i }) => ...) iterates like TSL's counting loop", () => {
     let prog = Fn(() => {
       let total = float(0).toVar();
-      Loop(int(4), (i) => {
+      Loop(int(4), ({ i }) => {
         total.assign(total.add(float(i)));
       });
       return total;

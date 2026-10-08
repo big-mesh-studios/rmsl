@@ -3479,7 +3479,7 @@ export function assertForUpdateNode(node: { type?: string }): void {
 }
 
 /**
- * A counting loop, as TSL's `For`: `init` makes the loop variable, `cond`
+ * A loop of rmsl's own, beside TSL's `Loop`: `init` makes the loop variable, `cond`
  * tests it before every iteration, `update` steps it after every one. A
  * variable `cond` makes is computed before every test, and stays in scope
  * after the loop, and in `update`. The update is the update slot of a GLSL,
@@ -3512,23 +3512,129 @@ export function For<T extends Node<ShaderType>>(
   });
 }
 
+/** The type of a `Loop` range's index. */
+export type LoopIndexType = "int" | "uint" | "float";
+
 /**
- * TSL's counting loop: `Loop(count, (i) => { ... })` iterates `count` times
- * with `i` an `int` index from 0. Lowered to the same `For` machinery.
+ * A range of TSL's object shape of `Loop`. With only `end`, it counts up from
+ * 0; with only `start`, it counts down from `start - 1` to 0. Its `update` is
+ * a step in the direction of its `condition`, or a function that steps the
+ * index itself.
  */
-export function Loop(count: IntLike | FloatLike, body: (i: Node<"int">) => void): void {
-  For(
-    () => int(0).toVar(),
-    (i) => i.lessThan(count as any),
-    (i) => {
-      i.assign(i.add(int(1)));
-    },
-    (i) => body(i),
-  );
+export type LoopRange<T extends LoopIndexType = LoopIndexType, N extends string = string> = {
+  start?: number | Node<ShaderType>;
+  end?: number | Node<ShaderType>;
+  type?: T;
+  name?: N;
+  condition?: "<" | "<=" | ">" | ">=";
+  update?: number | Node<ShaderType> | ((indices: Record<string, Node<any>>) => void);
+};
+
+/** The index a `Loop` range of type `T` gives its body. */
+type LoopIndex<T> = T extends "float" ? Var<"float"> : T extends "uint" ? Var<"uint"> : Var<"int">;
+
+/**
+ * TSL's `Loop`, in each of its shapes, with its indices passed as `{ i }`:
+ *
+ *   Loop(count, ({ i }) => { ... })                      // i from 0 while i < count
+ *   Loop(condition, () => { ... })                       // while the bool holds
+ *   Loop({ start, end, type, condition, update }, ({ i }) => { ... })
+ *   Loop(4, 2, ({ i, j }) => { ... })                    // one nested loop per range
+ *
+ * A `bool` condition is built once, before the loop, as TSL builds it.
+ */
+export function Loop(condition: Node<"bool">, body: () => void): void;
+export function Loop(count: IntLike | FloatLike, body: (indices: { i: Var<"int"> }) => void): void;
+export function Loop<T extends LoopIndexType = "int", N extends string = "i">(
+  range: LoopRange<T, N>,
+  body: (indices: { [K in N]: LoopIndex<T> }) => void,
+): void;
+export function Loop(
+  ...params: [...ranges: (IntLike | FloatLike | LoopRange)[], body: (indices: Record<string, Var<"int">>) => void]
+): void;
+export function Loop(...params: any[]): void {
+  const body = params.pop() as (indices: Record<string, Node<any>>) => void;
+  const ranges = params as (IntLike | FloatLike | Node<"bool"> | LoopRange)[];
+  const indices: Record<string, Node<any>> = {};
+  const nest = (depth: number): void => {
+    if (depth === ranges.length) return body(indices);
+    const range = ranges[depth];
+    if (isNode(range) && (range as BaseNode<ShaderType>)._t === "bool") {
+      return While(range as Node<"bool">, () => nest(depth + 1));
+    }
+    const name = (isLoopRange(range) && range.name) || "ijklmnopqrstuvwxyz"[depth]!;
+    const { start, end, condition, step } = loopBounds(range as IntLike | FloatLike | LoopRange);
+    For(
+      () => start.toVar(),
+      (index) => compare(index, condition, end),
+      (index) => {
+        // The update is built before the body, so it records the index itself.
+        indices[name] = index;
+        if (typeof step === "function") step(indices);
+        else index.assign(condition.includes("<") ? index.add(step) : index.sub(step));
+      },
+      (index) => {
+        indices[name] = index;
+        nest(depth + 1);
+      },
+    );
+  };
+  nest(0);
+}
+
+/** Whether a `Loop` param is TSL's object of `start`, `end` and the rest, rather than a count. */
+function isLoopRange(range: unknown): range is LoopRange {
+  return typeof range === "object" && range !== null && !isNode(range) && !Array.isArray(range);
+}
+
+/** A comparison of a `Loop` index with its end, by TSL's operator. */
+function compare(index: Node<any>, condition: string, end: Node<any>): Node<"bool"> {
+  if (condition === "<") return index.lessThan(end);
+  if (condition === "<=") return index.lessThanEqual(end);
+  if (condition === ">") return index.greaterThan(end);
+  return index.greaterThanEqual(end);
+}
+
+/** The start, end, condition and step of a `Loop` range, with what TSL fills in where the range gives none. */
+function loopBounds(range: IntLike | FloatLike | LoopRange) {
+  if (!isLoopRange(range)) {
+    return { start: int(0), end: range as Node<any>, condition: "<", step: int(1) as Node<any> };
+  }
+  const type = range.type ?? "int";
+  if (type !== "int" && type !== "uint" && type !== "float") {
+    throw new Error(`[RMSL] Loop: an index is an int, a uint or a float, not ${JSON.stringify(type)}`);
+  }
+  const of = (value: number | Node<ShaderType>): Node<any> =>
+    isNode(value) ? value : type === "float" ? float(value) : type === "uint" ? uint(value) : int(value);
+  let start = range.start;
+  let end = range.end;
+  let condition: string | undefined = range.condition;
+  if (start !== undefined && end === undefined) {
+    // Only a start counts down to 0, from the value below it.
+    start = isNode(start) ? (start as any).sub(1) : start - 1;
+    end = 0;
+    condition = ">=";
+  } else if (start === undefined) {
+    start = 0;
+    condition ??= "<";
+  }
+  condition ??= typeof start === "number" && typeof end === "number" && start > end ? ">=" : "<";
+  if (!["<", "<=", ">", ">="].includes(condition)) {
+    throw new Error(`[RMSL] Loop: a condition is "<", "<=", ">" or ">=", not ${JSON.stringify(condition)}`);
+  }
+  const update = range.update;
+  if (typeof update === "string") {
+    throw new Error(
+      "[RMSL] Loop: an update is a number, a node or a function, not a string: TSL writes a string into the shader it emits, which the JS and WASM targets have none of",
+    );
+  }
+  const step = typeof update === "function" ? update : of(update ?? 1);
+  return { start: of(start!), end: of(end ?? 0), condition, step };
 }
 
 /**
- * A loop that runs `body` while `cond` holds, as TSL's `While`. A condition
+ * A loop of rmsl's own that runs `body` while `cond` holds, beside TSL's
+ * `Loop(condition, body)`. A condition
  * given as a node is built before the loop, so a variable it makes is
  * computed once; given as a function, a variable it makes is computed before
  * every test, and stays in scope after the loop.

@@ -69,16 +69,17 @@ Argument order matches TSL: `step(edge, x)`, `smoothstep(low, high, x)`,
 
 ## Control flow
 
-| TSL                                                     | RMSL                                                                                                                                   |
-| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `Fn(() => { … })`                                       | same                                                                                                                                   |
-| `If(cond, () => …).ElseIf(cond, () => …).Else(() => …)` | same                                                                                                                                   |
-| `Switch(x).Case(…).Default(…)`                          | same                                                                                                                                   |
-| `Loop(count, ({ i }) => …)`                             | `Loop(count, (i) => …)` — `i` is passed directly rather than destructured                                                              |
-| `While(cond, () => …)`                                  | same; a condition that makes a variable, as with `toVar()`, goes in a function, `While(() => cond, …)`, to be computed every iteration |
-| `For(…)`                                                | same                                                                                                                                   |
-| `Break()` / `Continue()`                                | same                                                                                                                                   |
-| `Discard()` / `Return()`                                | same                                                                                                                                   |
+| TSL                                                     | RMSL                                                                                       |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `Fn(() => { … })`                                       | same                                                                                       |
+| `If(cond, () => …).ElseIf(cond, () => …).Else(() => …)` | same                                                                                       |
+| `Switch(x).Case(…).Default(…)`                          | same                                                                                       |
+| `Loop(count, ({ i }) => …)`                             | same                                                                                       |
+| `Loop(cond, () => …)`                                   | same                                                                                       |
+| `Loop({ start, end, type, condition, update }, …)`      | same, except that a string `update` is refused: give a number, a node or a function        |
+| —                                                       | `While(cond, () => …)` and `For(init, cond, update, body)` are rmsl's own; TSL has neither |
+| `Break()` / `Continue()`                                | same                                                                                       |
+| `Discard()` / `Return()`                                | same                                                                                       |
 
 ## Behavioural differences
 

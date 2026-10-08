@@ -423,15 +423,38 @@ To compute a value the chain reads:
 
 ### Loop
 
-TSL's counting loop:
+TSL's `Loop`, in each of its shapes. Its indices reach the body as an object:
 
 ```typescript
-Loop(int(10), (i) => {
-  // body, `i` is the int index from 0 to 9
+Loop(int(10), ({ i }) => {
+  // `i` is the int index from 0 to 9
+});
+
+Loop(value.lessThan(10), () => {
+  // runs while the bool holds; the condition is built once, before the loop
+  value.addAssign(1);
+});
+
+Loop({ start: 10, end: 0 }, ({ i }) => {
+  // counts down 10, 9, …, 0: a start above the end tests `>=`
+});
+
+Loop({ start: 0, end: 1, type: "float", update: 0.25, name: "t" }, ({ t }) => {
+  // a float index named `t`: 0, 0.25, 0.5, 0.75
+});
+
+Loop(4, 2, ({ i, j }) => {
+  // nested: i from 0 to 3, j from 0 to 1
 });
 ```
 
-It lowers to the same `For` machinery.
+A range given only `end` counts up from 0. Given only `start`, it counts down
+from `start - 1` to 0. With no `condition`, it counts up with `<`, or down with
+`>=` when `start` and `end` are numbers and `start` is the greater. With no
+`update`, it steps by 1. A number or a node `update` is the step, and a function
+`update` steps the index itself, as in `update: ({ i }) => i.mulAssign(2)`. An
+`update` given as a string, which TSL writes into the shader as text, is
+refused: the JS and WASM targets have no shader text.
 
 ### Switch
 
@@ -456,6 +479,8 @@ after a statement that follows the case before it, or after the `Default`, is
 refused.
 
 ### For
+
+`For` and `While` are loops of rmsl's own; TSL has neither.
 
 ```typescript
 For(

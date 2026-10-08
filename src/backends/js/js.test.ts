@@ -1399,7 +1399,7 @@ describe("JS backend: TSL loop and return", () => {
       () =>
         Fn(() => {
           let total = float(0).toVar();
-          Loop(int(4), (i) => {
+          Loop(int(4), ({ i }) => {
             total.assign(total.add(float(i)));
           });
           return total;

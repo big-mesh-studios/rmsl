@@ -617,7 +617,7 @@ describe("WASM backend: loops", () => {
     const build = (n: Node<"float">) =>
       Fn(() => {
         const sum = float(0).toVar();
-        Loop(n.toInt(), (i) => {
+        Loop(n.toInt(), ({ i }) => {
           sum.assign(sum.add(i.toFloat()));
         });
         return sum;
