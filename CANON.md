@@ -613,17 +613,13 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-precompiled-js-program-ships-as-a-plain-function`](#spec-a-precompiled-js-program-ships-as-a-plain-function) — `precompileJS` replaces each program of a module with the plain JavaScript function it compiled to, which imports nothing and calls no `eval`.
     - [`@spec a-precompiled-wasm-program-ships-as-an-asset`](#spec-a-precompiled-wasm-program-ships-as-an-asset) — `precompileWasm` emits each program of a module as a `.wasm` asset, and replaces the program with code that fetches and instantiates it.
       - [`@spec precompile-wasm-emits-each-program-as-an-asset`](#spec-precompile-wasm-emits-each-program-as-an-asset) — `precompileWasm` emits each program of a module as a `.wasm` asset and replaces it with code that fetches and instantiates it into a working routine.
-        - [`@bug precompile-wasm-emits-no-asset-on-a-cached-transform`](#bug-precompile-wasm-emits-no-asset-on-a-cached-transform) — `precompileWasm` emits its assets only on the first transform of a source. A later build answers from its cache, with a reference to an asset that build never emitted.
       - [`@exception a-precompiled-wasm-program-ships-with-its-instantiation-glue`](#exception-a-precompiled-wasm-program-ships-with-its-instantiation-glue) — A precompiled WASM program imports `instantiateWasmRoutine` from `@random-mesh/rmsl/wasm`, which moves its inputs and outputs in and out of the module's memory. It does not import the compiler.
       - [`@spec a-precompiled-wasm-program-is-ready-when-its-module-loads`](#spec-a-precompiled-wasm-program-is-ready-when-its-module-loads) — A precompiled WASM program is fetched and instantiated before its module finishes loading, so its routine runs at once.
     - [`@spec a-plugin-rewrites-only-the-modules-it-includes`](#spec-a-plugin-rewrites-only-the-modules-it-includes) — A Vite plugin leaves a module its `include` option does not match as it is.
     - [`@spec a-plugin-reads-the-export-it-is-told-to`](#spec-a-plugin-reads-the-export-it-is-told-to) — `precompileJS` and `precompileWasm` read the map of programs from the export their option names, `__RMSL_JS_CODE` or `__RMSL_WASM_CODE` by default.
     - [`@spec a-plugin-fails-the-build-on-a-module-it-cannot-compile`](#spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile) — A Vite plugin fails the build on a module it includes when the export it reads is unusable. That export may be missing, not JSON, not a map of strings, or hold no bytes.
-      - [`@bug precompile-shaders-drops-a-function-silently`](#bug-precompile-shaders-drops-a-function-silently) — `precompileShaders` checks only that `JSON.stringify` gives a string, which it does after dropping a function, so a default export holding one ships without it.
-      - [`@bug precompile-js-writes-a-key-that-is-no-identifier`](#bug-precompile-js-writes-a-key-that-is-no-identifier) — `precompileJS` writes each key of the code map as `export const <key>` without checking it is an identifier, so `my-fn` gives a module that does not parse.
     - [`@spec a-wasm-module-is-compiled-and-instantiated-in-separate-steps`](#spec-a-wasm-module-is-compiled-and-instantiated-in-separate-steps) — `compileWasmFn` gives the bytes of a module, and `instantiateWasmRoutine` turns them into a routine that behaves as `compileWasmRoutine` would. The same bytes instantiate any number of times, each instance independent of the others.
     - [`@spec a-plugin-compiles-a-module-again-when-an-import-changes`](#spec-a-plugin-compiles-a-module-again-when-an-import-changes) — A plugin compiles a module again when the module or any module it imports changes.
-      - [`@bug a-plugin-serves-a-stale-result-after-an-import-changes`](#bug-a-plugin-serves-a-stale-result-after-an-import-changes) — The plugins cache a result by the source of the module alone. A module whose import changed gives the result it gave before the change.
     - [`@spec the-glsl-entry-point-loads-where-no-graphics-api-exists`](#spec-the-glsl-entry-point-loads-where-no-graphics-api-exists) — The GLSL entry point imports and compiles where no graphics API exists, such as under Node.
     - [`@spec the-wgsl-entry-point-loads-where-no-graphics-api-exists`](#spec-the-wgsl-entry-point-loads-where-no-graphics-api-exists) — The WGSL entry point imports and compiles where no graphics API exists, such as under Node.
     - [`@spec a-plugin-with-no-include-rewrites-nothing`](#spec-a-plugin-with-no-include-rewrites-nothing) — A Vite plugin given no `include` rewrites no module.
@@ -4236,12 +4232,6 @@ This follows because the compiled code is all the application runs.
 
 > `precompileWasm` emits each program of a module as a `.wasm` asset and replaces it with code that fetches and instantiates it into a working routine.
 
-###### @bug precompile-wasm-emits-no-asset-on-a-cached-transform
-
-> `precompileWasm` emits its assets only on the first transform of a source. A later build answers from its cache, with a reference to an asset that build never emitted.
-
-Issue: #100
-
 ##### @exception a-precompiled-wasm-program-ships-with-its-instantiation-glue
 
 > A precompiled WASM program imports `instantiateWasmRoutine` from `@random-mesh/rmsl/wasm`, which moves its inputs and outputs in and out of the module's memory. It does not import the compiler.
@@ -4270,18 +4260,6 @@ This follows because the precompiled program stands in for a routine of `compile
 
 Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
 
-##### @bug precompile-shaders-drops-a-function-silently
-
-> `precompileShaders` checks only that `JSON.stringify` gives a string, which it does after dropping a function, so a default export holding one ships without it.
-
-Issue: #100
-
-##### @bug precompile-js-writes-a-key-that-is-no-identifier
-
-> `precompileJS` writes each key of the code map as `export const <key>` without checking it is an identifier, so `my-fn` gives a module that does not parse.
-
-Issue: #100
-
 #### @spec a-wasm-module-is-compiled-and-instantiated-in-separate-steps
 
 > `compileWasmFn` gives the bytes of a module, and `instantiateWasmRoutine` turns them into a routine that behaves as `compileWasmRoutine` would. The same bytes instantiate any number of times, each instance independent of the others.
@@ -4291,12 +4269,6 @@ Issue: #100
 > A plugin compiles a module again when the module or any module it imports changes.
 
 This follows because a program holds everything its module imports. A result kept past a change to an import is no longer that program's.
-
-##### @bug a-plugin-serves-a-stale-result-after-an-import-changes
-
-> The plugins cache a result by the source of the module alone. A module whose import changed gives the result it gave before the change.
-
-Issue: #100
 
 #### @spec the-glsl-entry-point-loads-where-no-graphics-api-exists
 

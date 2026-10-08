@@ -1,6 +1,9 @@
 /// <reference types="vite/client" />
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { build } from "esbuild";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Fn, bool, outputStruct, uniform, varying, vec2, vec3, vec4, builtinPosition, type Node } from "../rmsl";
 import { compileGlsl } from "../glsl";
 import { compileWgsl } from "../wgsl";
@@ -24,6 +27,8 @@ afterAll(async () => {
   await assertRecordedEvaluationsAgree();
   await closeEvaluators();
 }, 120_000);
+
+const FIXTURES = new URL("../vite/fixtures/", import.meta.url).pathname;
 
 type TransformResult = { code: string; map: null } | null;
 type Transform = { transform: { call(context: unknown, code: string, id: string): Promise<TransformResult> } };
@@ -423,6 +428,56 @@ describe("./test", () => {
 });
 
 describe("the Vite plugins", () => {
+  /**
+   * @canon spec-a-plugin-compiles-a-module-again-when-an-import-changes
+   */
+  it("compiles a module again when a module it imports changes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "rmsl-vite-"));
+    try {
+      const entry = join(dir, "entry.ts");
+      const source = `import value from "./value";\nexport default { value };\n`;
+      writeFileSync(join(dir, "value.ts"), "export default 1;\n");
+      const plugin = precompileShaders({ include: entry }) as unknown as Transform;
+      expect((await plugin.transform.call({}, source, entry))!.code).toBe('export default {"value":1};');
+      writeFileSync(join(dir, "value.ts"), "export default 2;\n");
+      expect((await plugin.transform.call({}, source, entry))!.code).toBe('export default {"value":2};');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * @canon spec-precompile-wasm-emits-each-program-as-an-asset
+   */
+  it("emits the assets of a cached module again in every build", async () => {
+    const id = `${FIXTURES}wasm-fns.ts`;
+    const plugin = precompileWasm({ include: "fixtures/wasm-fns.ts" }) as unknown as Transform;
+    const first = pluginContext();
+    await plugin.transform.call(first.context, wasmFnsSource, id);
+    const second = pluginContext();
+    await plugin.transform.call(second.context, wasmFnsSource, id);
+    expect(second.emitted).toHaveLength(first.emitted.length);
+  });
+
+  /**
+   * @canon spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile
+   */
+  it("fails the build on a default export holding a function", async () => {
+    const id = `${FIXTURES}fn-member.ts`;
+    const plugin = precompileShaders({ include: "fn-member.ts" }) as unknown as Transform;
+    await expect(plugin.transform.call({}, "export default { f: () => 1 };\n", id)).rejects.toThrow();
+  });
+
+  /**
+   * @canon spec-a-plugin-fails-the-build-on-a-module-it-cannot-compile
+   */
+  it("fails the build on a program named by no identifier", async () => {
+    const id = `${FIXTURES}bad-name.ts`;
+    const plugin = precompileJS({ include: "bad-name.ts" }) as unknown as Transform;
+    const source = `export const __RMSL_JS_CODE = { "my-fn": "return () => 1;" };\n`;
+    await expect(plugin.transform.call({}, source, id)).rejects.toThrow();
+  });
+
   const plugins = [
     ["precompileShaders", precompileShaders],
     ["precompileJS", precompileJS],

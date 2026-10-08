@@ -21,7 +21,7 @@ export default defineConfig({
       fileName: (_format, entryName) => `${entryName}.js`,
     },
     rollupOptions: {
-      external: ["esbuild", "vite", "wabt", "fs/promises"],
+      external: ["esbuild", "vite", "wabt", "fs/promises", "path"],
     },
   },
   plugins: [
