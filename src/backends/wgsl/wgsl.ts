@@ -1694,7 +1694,11 @@ export function compileWGSLWithStage(
       lines.push(`@group(2) @binding(${samplerBinding++}) var ${info.slot}_s: sampler;`);
     }
   } else {
-    for (let info of [...ctx.wgslSamplers.values()].sort((a, b) => a.textureSlot.localeCompare(b.textureSlot))) {
+    // In the order of the textures they sample, so the n-th sampler goes with the n-th float texture.
+    let textureOrder = declaredTextures.map((t) => t.slot);
+    for (let info of [...ctx.wgslSamplers.values()].sort(
+      (a, b) => textureOrder.indexOf(a.textureSlot) - textureOrder.indexOf(b.textureSlot),
+    )) {
       lines.push(`@group(2) @binding(${samplerBinding++}) var ${info.samplerSlot}: sampler;`);
     }
   }

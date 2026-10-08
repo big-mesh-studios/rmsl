@@ -243,12 +243,13 @@ describe("known GPU bugs, each failing until its fix", () => {
   /**
    * A texture sampled in the vertex stage is read at level 0, because only a
    * fragment stage has the derivatives that pick a level, and a stage
-   * numbers the samplers of the textures it samples in the order of their
-   * names.
+   * numbers the samplers of the textures it samples in the order the program
+   * made the textures.
    *
    * @canon spec-a-texture-is-bound-to-every-stage-that-samples-it
+   * @canon spec-a-wgsl-stage-given-no-samplers-binds-its-textures-in-creation-order
    */
-  it("samples a texture in the vertex stage at level 0, and numbers samplers by name on WGSL", () => {
+  it("samples a texture in the vertex stage at level 0, and numbers samplers in creation order on WGSL", () => {
     const zebra = uniformRaw("zebra", "sampler2D");
     const apple = uniformRaw("apple", "sampler2D");
     const vertex = Fn(() => {
@@ -257,8 +258,8 @@ describe("known GPU bugs, each failing until its fix", () => {
     const code = compileWgsl.vertex(vertex);
     expect(code).toContain("textureSampleLevel(");
     expect(code).not.toMatch(/textureSample\(/);
-    expect(bindingOf(code, `${apple.name}_s`)).toBe("2:0");
-    expect(bindingOf(code, `${zebra.name}_s`)).toBe("2:1");
+    expect(bindingOf(code, `${zebra.name}_s`)).toBe("2:0");
+    expect(bindingOf(code, `${apple.name}_s`)).toBe("2:1");
   });
 
   /**

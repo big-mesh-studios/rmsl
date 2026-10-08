@@ -9,6 +9,7 @@ import {
   select,
   uniform,
   uniformRaw,
+  vec2,
   vec3,
   vec4,
 } from "../rmsl";
@@ -364,6 +365,23 @@ describe("where WGSL declares a uniform or a buffer", () => {
       expect(bindingOfRead(code, 0)).toBe("0");
       expect(bindingOfRead(code, 1)).toBe("1");
     }
+  });
+
+  /**
+   * The last two of the textures made sort the other way round as strings, as
+   * `_rmsl_u10` sorts before `_rmsl_u9`.
+   *
+   * @canon spec-a-wgsl-stage-given-no-samplers-binds-its-textures-in-creation-order
+   */
+  it("binds textures and their samplers in the order the program made them on WGSL", () => {
+    const made = [uniform("sampler2D"), uniform("sampler2D")];
+    while (made.at(-1)!.name.localeCompare(made.at(-2)!.name) > 0) made.push(uniform("sampler2D"));
+    const [first, second] = made.slice(-2);
+    const code = compileWgslStage.fragment(Fn(() => first!.texture(vec2(0, 0)).add(second!.texture(vec2(0, 0))))());
+    expect(code).toContain(`@group(1) @binding(0) var ${first!.name}:`);
+    expect(code).toContain(`@group(1) @binding(1) var ${second!.name}:`);
+    expect(code).toContain(`@group(2) @binding(0) var ${first!.name}_s:`);
+    expect(code).toContain(`@group(2) @binding(1) var ${second!.name}_s:`);
   });
 
   /**

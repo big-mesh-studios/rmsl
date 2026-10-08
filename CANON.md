@@ -508,6 +508,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-wasm-routine-reads-uniforms-from-the-wgsl-layout`](#spec-a-wasm-routine-reads-uniforms-from-the-wgsl-layout) — Given `gpuUniformLayout`, a WASM routine reads each uniform, arrays included, at the offset and stride `wgslUniformLayout` reports, so one buffer serves WGSL and WASM. Without it, a WASM module lays out its own memory and holds each float uniform in 64 bits.
     - [`@spec a-gpu-uniform-layout-needs-32-bit-floats`](#spec-a-gpu-uniform-layout-needs-32-bit-floats) — A WASM compile function or adapter given `gpuUniformLayout` must also be given `float: "f32"`. The type checker refuses the layout beside `float: "f64"`, or beside no `float`, when the options are written in the call. The compile refuses it too, with an error that names both ways out: `float: "f32"` to share the buffer with the GPU, or no layout to keep 64 bits.
     - [`@spec a-type-with-no-layout-is-refused`](#spec-a-type-with-no-layout-is-refused) — A member whose type has no WGSL layout is refused, rather than placed by a guess.
+    - [`@spec a-wgsl-stage-given-no-samplers-binds-its-textures-in-creation-order`](#spec-a-wgsl-stage-given-no-samplers-binds-its-textures-in-creation-order) — A WGSL stage given no `samplers` list binds its textures in group 1, and the samplers of its float textures in group 2, in the order the program created the textures.
     - [`@spec a-wgsl-stage-hands-its-uniforms-to-the-layout-in-creation-order`](#spec-a-wgsl-stage-hands-its-uniforms-to-the-layout-in-creation-order) — A WGSL stage given no uniform list declares its uniforms to the layout in the order the program created them.
   - [`@spec a-function-compiles-on-its-own`](#spec-a-function-compiles-on-its-own) — `compileGlslFn` and `compileWgslFn` compile one function, under the name and the typed parameters the caller gives. The application places it in a shader of its own. A function compiled on its own returns one value, and a function that returns several is refused.
   - [`@spec the-glsl-adapter-applies-a-value-set-before-attach`](#spec-the-glsl-adapter-applies-a-value-set-before-attach) — A uniform or attribute the host sets on `createGlsl` before `attach` applies from the first draw after it.
@@ -3611,6 +3612,14 @@ This follows because a layout shares its bytes with a WGSL uniform buffer, which
 #### @spec a-type-with-no-layout-is-refused
 
 > A member whose type has no WGSL layout is refused, rather than placed by a guess.
+
+#### @spec a-wgsl-stage-given-no-samplers-binds-its-textures-in-creation-order
+
+> A WGSL stage given no `samplers` list binds its textures in group 1, and the samplers of its float textures in group 2, in the order the program created the textures.
+
+Derives from: [`spec-a-wgsl-program-given-no-storage-list-binds-in-creation-order`](#spec-a-wgsl-program-given-no-storage-list-binds-in-creation-order)
+
+This follows because a texture and its sampler are found by the same place in their groups.
 
 #### @spec a-wgsl-stage-hands-its-uniforms-to-the-layout-in-creation-order
 
