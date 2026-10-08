@@ -142,6 +142,8 @@ export interface CompileCtx {
   jsHelpers: Set<string>;
   /** The constant vectors and matrices a JS function reads, by the name each is declared under once. */
   jsConstants?: Map<string, string>;
+  /** The kinds of input a JS function reads by name, `uniforms` or `varyings`, each read into a local once a call. */
+  jsInputKinds?: Set<string>;
   /**
    * Slot a vector/matrix-typed expression should be written into, when the JS
    * target is lowering an assignment. `null` means a plain expression.
@@ -770,20 +772,29 @@ export function resolveSwizzleTarget(target: any): { base: BaseNode<ShaderType>;
 }
 
 /**
- * A literal index outside the components of a vector or the columns of a matrix
- * is refused by every target, so the same program is not refused on one and
- * compiled to a read of nothing on another. Asked wherever an element is
- * compiled, which also reaches a graph that `deserialize` rebuilt. Returns the
- * index when it is inside, and `undefined` when it is not a literal.
+ * A constant index outside the components of a vector, the columns of a
+ * matrix or the elements of a uniform array is refused by every target, so the
+ * same program is not refused on one and compiled to a read of nothing on
+ * another. A constant index is a literal, or an operation of literals that
+ * folds to one. Asked wherever an element is compiled, which also reaches a
+ * graph that `deserialize` rebuilt. Returns the index when it is inside, and
+ * `undefined` when it is not constant.
  */
-export function assertLiteralIndexInRange(target: { _t?: string }, index: BaseNode<ShaderType>): number | undefined {
-  if (!isLeafLiteral(index)) return undefined;
+export function assertConstantIndexInRange(
+  target: { _t?: string; type?: string; value?: unknown },
+  index: BaseNode<ShaderType>,
+): number | undefined {
+  const constant = isLeafLiteral(index) ? index : tryFold(index);
+  if (!constant || !isLeafLiteral(constant)) return undefined;
   const type = target._t as string;
+  const array = target.type === "uniformArray" ? (target.value as { length: number }).length : undefined;
   const shape = MATRIX_DIMENSIONS[type];
-  const count = shape ? shape[0] : componentCountOf(type);
-  const k = Math.trunc(Number(index.value));
+  const count = array ?? (shape ? shape[0] : componentCountOf(type));
+  const what = array !== undefined ? `${type}[${array}]` : type;
+  const items = array !== undefined ? "elements" : shape ? "columns" : "components";
+  const k = Math.trunc(Number(constant.value));
   if (!(k >= 0 && k < count)) {
-    throw new Error(`[RMSL] index ${k} is outside a ${type}'s ${shape ? "columns" : "components"} 0 to ${count - 1}`);
+    throw new Error(`[RMSL] index ${k} is outside a ${what}'s ${items} 0 to ${count - 1}`);
   }
   return k;
 }

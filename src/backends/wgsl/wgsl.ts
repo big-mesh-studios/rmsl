@@ -21,7 +21,7 @@ import {
   COMPUTE_REFUSES,
   assertPositionIsReadable,
   assertSquareMatrix,
-  assertLiteralIndexInRange,
+  assertConstantIndexInRange,
   assertAssignable,
   parameterNode,
   assertStageResult,
@@ -569,6 +569,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     }
 
     case "uniformArrayElement": {
+      assertConstantIndexInRange(node.params![0], node.params![1]);
       let arr = compileWGSLStage(node.params![0], ctx);
       let index = compileWGSLStage(node.params![1], ctx);
       // WGSL indexes with i32 or u32; a float loop counter has to be converted.
@@ -983,7 +984,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     }
 
     case "matrixElement": {
-      assertLiteralIndexInRange(node.params![0], node.params![1]);
+      assertConstantIndexInRange(node.params![0], node.params![1]);
       let mat = compileWGSLStage(node.params![0], ctx);
       let idx = compileWGSLStage(node.params![1], ctx);
       let idxExpr = idx.expr;
@@ -999,7 +1000,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
     }
 
     case "vectorElement": {
-      assertLiteralIndexInRange(node.params![0], node.params![1]);
+      assertConstantIndexInRange(node.params![0], node.params![1]);
       let src = compileWGSLStage(node.params![0], ctx);
       let idx = compileWGSLStage(node.params![1], ctx);
       let idxExpr = idx.expr;

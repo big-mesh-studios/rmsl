@@ -8,20 +8,14 @@ import {
   If,
   instancedArray,
   int,
-  ivec2,
   mat2,
-  mat3,
-  textureLoad,
   uniform,
-  uniformArray,
   vec3,
   vec4,
   type Node,
 } from "../rmsl";
 import { compileJS, compileJSFn, compileJSRoutine, createJsGrid } from "../js";
-import { evaluateJS } from "../testing/shader-eval";
 
-const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
 const none = { name: "main", params: [] };
 
 /** A JS rasterizer drawing one flat-coloured triangle list, its colour a uniform. */
@@ -46,8 +40,6 @@ function flatRasterizer(fragment?: (color: Node<"vec4">, drop: Node<"float">) =>
 }
 
 const screenAt = (z: number) => [-1, -1, z, 3, -1, z, -1, 3, z];
-
-const checker = { data: Float32Array.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16), width: 2, height: 2 };
 
 describe("known bugs of the JS target, each failing until its fix", () => {
   /**
@@ -106,72 +98,6 @@ describe("known bugs of the JS target, each failing until its fix", () => {
   });
 
   /**
-   * On JS, `textureLoad` outside the texture into a variable leaves the
-   * variable as it was, rather than writing zero into it.
-   *
-   * @canon bug-js-keeps-a-stale-texel-out-of-range
-   */
-  it.fails("reads zero for a texel out of range into a variable that held a texel on JS", () => {
-    const tex = uniform("sampler2D");
-    const build = (a: any) =>
-      Fn(() => {
-        const v = textureLoad(tex, ivec2(0, 0)).toVar();
-        v.assign(textureLoad(tex, ivec2(a.toInt(), 0)));
-        return v;
-      })();
-    const run = compileJSRoutine(build, param);
-    expect(run({ params: { a: 5 }, textures: { [tex.name]: checker } })).toEqual([0, 0, 0, 0]);
-  });
-
-  /**
-   * On JS, a vector component read by a run-time index past the end gives
-   * `undefined`.
-   *
-   * @canon bug-js-reads-a-vector-component-out-of-range-as-undefined
-   */
-  it.fails("reads the last component for a run-time index past a vector on JS", () => {
-    expect(evaluateJS((a) => vec4(1, 2, 3, 4).element(a.toInt()), [9])).toBe(4);
-  });
-
-  /**
-   * On JS, a matrix column read by a run-time index past the end gives an
-   * empty array.
-   *
-   * @canon bug-js-reads-a-matrix-column-out-of-range-as-empty
-   */
-  it.fails("reads the last column for a run-time index past a matrix on JS", () => {
-    const m = () => mat3(1, 2, 3, 4, 5, 6, 7, 8, 9);
-    expect(evaluateJS((a) => m().element(a.toInt()), [9])).toEqual(new Float64Array([7, 8, 9]));
-  });
-
-  /**
-   * On JS, a write to a vector component by a run-time index past the end
-   * adds a component to the vector instead of writing the last one.
-   *
-   * @canon bug-js-writes-a-vector-component-out-of-range-past-its-end
-   */
-  it.fails("writes the last component for a run-time index past a vector on JS", () => {
-    const write = Fn((a: Node<"float">) => {
-      const v = vec4(1, 2, 3, 4).toVar();
-      v.element(a.toInt()).assign(float(20));
-      return v;
-    });
-    expect(evaluateJS((a) => write(a), [9])).toEqual(new Float64Array([1, 2, 3, 20]));
-  });
-
-  /**
-   * On JS, a uniform array element read by a run-time index past the end
-   * gives `undefined`.
-   *
-   * @canon bug-js-reads-a-uniform-array-element-out-of-range-as-undefined
-   */
-  it.fails("reads the last element for a run-time index past a uniform array on JS", () => {
-    const items = uniformArray("float", 4);
-    const run = compileJSRoutine((a: any) => Fn(() => items.element(a.toInt()).add(0).toVar())(), param);
-    expect(run({ params: { a: 9 }, uniforms: { [items.name]: [1, 2, 3, 4] } })).toBe(4);
-  });
-
-  /**
    * The JS rasterizer shades a pixel centre on an edge two triangles share
    * with both, so the triangle drawn last wins it.
    *
@@ -199,17 +125,5 @@ describe("known bugs of the JS target, each failing until its fix", () => {
     const draw = flatRasterizer();
     const image = draw(screenAt(-0.5), [1, 0, 0, 1]);
     expect(Array.from(image)).toEqual(new Array(16).fill(0));
-  });
-
-  /**
-   * On JS, an element past the end of a shorter array the call passes reads
-   * as `undefined`, which makes `NaN`.
-   *
-   * @canon bug-js-reads-a-uniform-array-element-the-host-leaves-out-as-nan
-   */
-  it.fails("reads a uniform array element the call leaves out as zero on JS", () => {
-    const items = uniformArray("float", 3);
-    const run = compileJSRoutine(() => Fn(() => items.element(int(2)).add(0).toVar())(), none);
-    expect(run({ uniforms: { [items.name]: [1, 2] } })).toBe(0);
   });
 });

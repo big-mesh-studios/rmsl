@@ -18,6 +18,7 @@ import {
   mat3,
   outputStruct,
   uniform,
+  uniformArray,
   Switch,
   uint,
   varying,
@@ -268,14 +269,45 @@ describe("a mistake is refused before the program runs", () => {
   });
 
   /**
-   * A literal index outside the components of a vector or the columns of a
+   * A constant index outside the elements of a uniform array is refused by
+   * every target, a literal or an operation of literals that folds to one, and
+   * an index inside them compiles.
+   *
+   * @canon spec-a-constant-index-outside-a-uniform-array-is-refused
+   */
+  it("refuses a constant index outside a uniform array on every target", () => {
+    const items = uniformArray("float", 3);
+    const read = (index: () => any) => () => Fn(() => vec4(items.element(index()), 0, 0, 1).toVar())();
+    const compilers: Array<[string, (build: () => any) => unknown]> = [
+      ["GLSL", (build) => compileGlsl.fragment(build())],
+      ["WGSL", (build) => compileWgsl.fragment(build())],
+      ["JS", (build) => cpuCompilers[0]!(build)],
+      ["WASM", (build) => cpuCompilers[1]!(build)],
+    ];
+    for (const [name, compile] of compilers) {
+      expect(() => compile(read(() => int(2))), `${name} read 2`).not.toThrow();
+      expect(() => compile(read(() => int(3))), `${name} read 3`).toThrow(
+        /index 3 is outside a float\[3\]'s elements 0 to 2/,
+      );
+      expect(() => compile(read(() => int(-1))), `${name} read -1`).toThrow(
+        /index -1 is outside a float\[3\]'s elements 0 to 2/,
+      );
+      expect(() => compile(read(() => int(1).add(int(4)))), `${name} read 1 + 4`).toThrow(
+        /index 5 is outside a float\[3\]'s elements 0 to 2/,
+      );
+    }
+  });
+
+  /**
+   * A constant index outside the components of a vector or the columns of a
    * matrix is refused by every target when it compiles the element, for a read
-   * and for a write, and for the component of a column too. An index inside
+   * and for a write, and for the component of a column too, whether it is a
+   * literal or an operation of literals that folds to one. An index inside
    * them compiles on every target.
    *
    * @canon spec-a-constant-index-outside-a-vector-or-matrix-is-refused
    */
-  it("refuses a literal index outside a vector or matrix on every target", () => {
+  it("refuses a constant index outside a vector or matrix on every target", () => {
     const read = (index: number) => () => Fn(() => vec4(vec3(1, 2, 3).toVar().element(int(index)), 0, 0, 1).toVar())();
     const write = (index: number) => () =>
       Fn(() => {
@@ -315,6 +347,24 @@ describe("a mistake is refused before the program runs", () => {
       );
       expect(() => compile(writeComponent(0, 3)), `${name} write component 3`).toThrow(
         /index 3 is outside a vec3's components 0 to 2/,
+      );
+    }
+    const folded = (index: () => any) => () =>
+      Fn(() => vec4(vec3(1, 2, 3).toVar().element(index()), 0, 0, 1).toVar())();
+    for (const [name, compile] of compilers) {
+      expect(() => compile(folded(() => int(1).add(int(1)))), `${name} read 1 + 1`).not.toThrow();
+      expect(() => compile(folded(() => int(1).add(int(3)))), `${name} read 1 + 3`).toThrow(
+        /index 4 is outside a vec3's components 0 to 2/,
+      );
+      const foldedColumn = () =>
+        Fn(() =>
+          threeColumns()
+            .toVar()
+            .element(int(2).mul(int(2)))
+            .toVar(),
+        )();
+      expect(() => compile(foldedColumn), `${name} mat3 column 2 * 2`).toThrow(
+        /index 4 is outside a mat3's columns 0 to 2/,
       );
     }
     for (const [name, compile] of compilers) {

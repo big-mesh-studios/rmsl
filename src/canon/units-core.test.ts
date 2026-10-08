@@ -169,7 +169,7 @@ describe("units of the core", () => {
     expect(glsl).toMatch(/vec4\(_rmsl_u\d+, 0\.0, 0\.0, 1\.0\)/);
     expect(wgsl).not.toContain("select(");
     expect(wgsl).toMatch(/vec4<f32>\(_rmsl_uniforms\._rmsl_u\d+, 0f, 0f, 1f\)/);
-    expect(js).not.toContain("?");
+    expect(js).not.toMatch(/ \? /);
     expect(evaluateRecording((a) => select(int(1).lessThan(int(2)), a, float(6)), [3])).toBe(3);
   });
 

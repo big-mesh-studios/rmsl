@@ -1180,7 +1180,9 @@ describe("the element-wise operations of a JS function", () => {
     expect(source).not.toMatch(/function _v3(mul|mix)/);
     expect(source).not.toContain("typeof");
     // A scalar that is not a local is read into one once, before the components are written.
-    expect(source).toMatch(/(_rmsl_t\d+) = ctx\.uniforms\["_rmsl_u\d+"\];[\s\S]*\[0\] = _rmsl_\w+\[0\] \* \1;/);
+    expect(source).toMatch(
+      /(_rmsl_t\d+) = \(_rmsl_in_uniforms\["_rmsl_u\d+"\] \?\? 0\);[\s\S]*\[0\] = _rmsl_\w+\[0\] \* \1;/,
+    );
     expect(compileJSRoutine(build, none)({ uniforms: { [v.name]: [1, 2, 3], [t.name]: 0.5 } })).toEqual(
       new Float64Array([0.5, 1, 1.5]),
     );
@@ -1265,7 +1267,9 @@ describe("the scalars and inputs of a JS function", () => {
     const i = uniform("ivec2");
     const source = compileJSFn(() => Fn(() => vec3(v.add(1).x, i.add(1).toFloat()).toVar())() as any, none);
     // Copied one component at a time where it is read, into a slot of the input's kind.
-    expect(source).toMatch(/(_rmsl_t\d+)\[2\] = ctx\.uniforms\["_rmsl_u\d+"\]\[2\];/);
+    expect(source).toMatch(
+      /(_rmsl_\w+) = _rmsl_in_uniforms\["_rmsl_u\d+"\] \?\? _zeros;\s+(_rmsl_t\d+)\[0\] = \1\[0\] \?\? 0;/,
+    );
     expect(source).toMatch(/= new Int32Array\(_rmsl_slots, \d+, 2\);/);
     const run = compileJSRoutine(() => Fn(() => v.add(1).toVar())() as any, none);
     expect(run({ uniforms: { [v.name]: [1, 2, 3] } })).toEqual(new Float64Array([2, 3, 4]));
@@ -1288,7 +1292,7 @@ describe("the scalars and inputs of a JS function", () => {
       })() as any;
     const source = compileJSFn(build, none);
     // Once: the copy made before the block has run when the block runs.
-    expect(source.match(/\[0\] = ctx\.uniforms\["_rmsl_u\d+"\]\[0\];/g)).toHaveLength(1);
+    expect(source.match(/= _rmsl_in_uniforms\["_rmsl_u\d+"\] \?\? _zeros;/g)).toHaveLength(1);
     expect(compileJSRoutine(build, none)({ uniforms: { [v.name]: [1, 2, 3] } })).toEqual(new Float64Array([3, 10, 21]));
   });
 
@@ -1308,7 +1312,7 @@ describe("the scalars and inputs of a JS function", () => {
         return sum.add(v);
       })() as any;
     const source = compileJSFn(build, none);
-    const copies = source.match(/\[0\] = \(ctx\.uniforms\?\.\["_rmsl_u\d+"\]\?\.\[0\] \?\? 0\);/g);
+    const copies = source.match(/= _rmsl_in_uniforms\["_rmsl_u\d+"\] \?\? _zeros;/g);
     expect(copies).toHaveLength(1);
     expect(source.indexOf(copies![0]!)).toBeLessThan(source.indexOf("for ("));
     expect(compileJSRoutine(build, none)({ uniforms: { [v.name]: [1, 2, 3] } })).toEqual(new Float64Array([7, 14, 21]));

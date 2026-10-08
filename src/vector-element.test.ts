@@ -3,6 +3,7 @@ import { float, Fn, int, ivec3, vec4, type Node } from "./rmsl";
 import {
   assertRecordedEvaluationsAgree,
   closeEvaluators,
+  evaluateJS,
   evaluateRecording,
   evaluateWASM,
 } from "./testing/shader-eval";
@@ -63,18 +64,24 @@ describe("a vector's component by index", () => {
   /**
    * @canon spec-a-cpu-target-reaches-the-last-element-out-of-range
    */
-  it("clamps an index computed past the vector's end, or below zero, to its last component on WASM", () => {
-    expect(evaluateWASM((a) => vec4(1, 2, 3, 4).element(a.toInt()), [9])).toBe(4);
-    expect(evaluateWASM((a) => vec4(1, 2, 3, 4).element(a.toInt()), [-1])).toBe(4);
-    const write = Fn((a: Node<"float">) => {
-      const v = vec4(1, 2, 3, 4).toVar();
-      const w = vec4(5, 6, 7, 8).toVar();
-      v.element(a.toInt()).assign(float(20));
-      return v.add(w);
-    });
-    expect(evaluateWASM((a) => write(a), [9])).toEqual(new Float64Array([6, 8, 10, 28]));
-    expect(evaluateWASM((a) => write(a), [-1])).toEqual(new Float64Array([6, 8, 10, 28]));
-  });
+  it.each([
+    ["JS", evaluateJS],
+    ["WASM", evaluateWASM],
+  ] as const)(
+    "clamps an index computed past the vector's end, or below zero, to its last component on %s",
+    (_, evaluate) => {
+      expect(evaluate((a) => vec4(1, 2, 3, 4).element(a.toInt()), [9])).toBe(4);
+      expect(evaluate((a) => vec4(1, 2, 3, 4).element(a.toInt()), [-1])).toBe(4);
+      const write = Fn((a: Node<"float">) => {
+        const v = vec4(1, 2, 3, 4).toVar();
+        const w = vec4(5, 6, 7, 8).toVar();
+        v.element(a.toInt()).assign(float(20));
+        return v.add(w);
+      });
+      expect(evaluate((a) => write(a), [9])).toEqual(new Float64Array([6, 8, 10, 28]));
+      expect(evaluate((a) => write(a), [-1])).toEqual(new Float64Array([6, 8, 10, 28]));
+    },
+  );
 
   /**
    * @canon spec-a-constant-index-outside-a-vector-or-matrix-is-refused

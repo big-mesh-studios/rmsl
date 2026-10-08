@@ -106,12 +106,4 @@ describe("known bugs, each failing until its fix", () => {
       })();
     expect(compileJSRoutine(build, param)({ params: { a: 0 } })).toEqual([4, 0, 6]);
   });
-
-  /**
-   * @canon bug-js-reads-an-unset-uniform-as-nan
-   */
-  it.fails("reads a uniform the host never set as zero on JS", () => {
-    const u = uniform("float");
-    expect(compileJSRoutine(() => Fn(() => u.add(1).toVar())(), none)({ uniforms: {} })).toBe(1);
-  });
 });

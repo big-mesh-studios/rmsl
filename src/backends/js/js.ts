@@ -38,7 +38,7 @@ import {
   RADIANS_PER_DEGREE,
   assertPositionIsReadable,
   assertSquareMatrix,
-  assertLiteralIndexInRange,
+  assertConstantIndexInRange,
   assertAssignable,
   parameterNode,
   assertStageResult,
@@ -371,6 +371,11 @@ export function jsHelperSource(name: string): string {
       return `function _udiv(a, b) {\n  return b === 0 ? a : (a / b) >>> 0;\n}`;
     case "umod":
       return `function _umod(a, b) {\n  return b === 0 ? 0 : a % b;\n}`;
+    // What an input the host leaves out is read from: no inputs of a kind, and the components of a vector or matrix.
+    case "none":
+      return `const _none = {};`;
+    case "zeros":
+      return `const _zeros = new Float64Array(16);`;
     // A typed array's own set copies without boxing what it reads, whatever kind of array the source is.
     case "copy":
       return `function _copy(src, out) {\n  if (src.length === out.length && ArrayBuffer.isView(out)) out.set(src);\n  else for (let i = 0; i < src.length; i++) out[i] = src[i];\n  return out;\n}`;
@@ -417,9 +422,9 @@ export function jsHelperSource(name: string): string {
     case "texFetch2d":
       return `function _texFetch2d(tex, uv, out) {
   out = out || [0, 0, 0, 0];
-  let x = Math.floor(uv[0]);
-  let y = Math.floor(uv[1]);
-  if (x < 0 || y < 0 || x >= tex.width || y >= tex.height) return out;
+  let x = Math.trunc(uv[0]);
+  let y = Math.trunc(uv[1]);
+  if (x < 0 || y < 0 || x >= tex.width || y >= tex.height) return out.fill(0);
   let c = _chan(tex);
   return _texel(tex, (y * tex.width + x) * c, c, 1, out);
 }`;
@@ -526,29 +531,29 @@ function _texCube(tex, dir, out) {
     case "texFetch3d":
       return `function _texFetch3d(tex, uvw, out) {
   out = out || [0, 0, 0, 0];
-  let x = Math.floor(uvw[0]);
-  let y = Math.floor(uvw[1]);
-  let z = Math.floor(uvw[2]);
-  if (x < 0 || y < 0 || z < 0 || x >= tex.width || y >= tex.height || z >= tex.depth) return out;
+  let x = Math.trunc(uvw[0]);
+  let y = Math.trunc(uvw[1]);
+  let z = Math.trunc(uvw[2]);
+  if (x < 0 || y < 0 || z < 0 || x >= tex.width || y >= tex.height || z >= tex.depth) return out.fill(0);
   let c = _chan(tex);
   return _texel(tex, ((z * tex.height + y) * tex.width + x) * c, c, 1, out);
 }`;
     case "texFetchUnorm2d":
       return `function _texFetchUnorm2d(tex, uv, out) {
   out = out || [0, 0, 0, 0];
-  let x = Math.floor(uv[0]);
-  let y = Math.floor(uv[1]);
-  if (x < 0 || y < 0 || x >= tex.width || y >= tex.height) return out;
+  let x = Math.trunc(uv[0]);
+  let y = Math.trunc(uv[1]);
+  if (x < 0 || y < 0 || x >= tex.width || y >= tex.height) return out.fill(0);
   let c = _chan(tex);
   return _texel(tex, (y * tex.width + x) * c, c, _unorm(tex), out);
 }`;
     case "texFetchUnorm3d":
       return `function _texFetchUnorm3d(tex, uvw, out) {
   out = out || [0, 0, 0, 0];
-  let x = Math.floor(uvw[0]);
-  let y = Math.floor(uvw[1]);
-  let z = Math.floor(uvw[2]);
-  if (x < 0 || y < 0 || z < 0 || x >= tex.width || y >= tex.height || z >= tex.depth) return out;
+  let x = Math.trunc(uvw[0]);
+  let y = Math.trunc(uvw[1]);
+  let z = Math.trunc(uvw[2]);
+  if (x < 0 || y < 0 || z < 0 || x >= tex.width || y >= tex.height || z >= tex.depth) return out.fill(0);
   let c = _chan(tex);
   return _texel(tex, ((z * tex.height + y) * tex.width + x) * c, c, _unorm(tex), out);
 }`;
@@ -760,6 +765,11 @@ function jsBoundedIndex(index: string, count: number): string {
   return `Math.min((${index}) >>> 0, ${count - 1})`;
 }
 
+/** Whether `index` is a literal index, which the compiler has already checked lies inside what it indexes. */
+function jsIsLiteralIndex(index: string): boolean {
+  return /^\d+$/.test(index);
+}
+
 /**
  * A target written component by component: `at(k)` is component `k`. A matrix
  * column's components are addressed in the matrix itself, through its index
@@ -782,7 +792,7 @@ function jsAssignable(node: any, ctx: CompileCtx): CompiledNode & { at(k: string
     let target = jsCompileTarget(node, ctx);
     return { ...target, at: (k) => `${target.expr}[${k}]` };
   }
-  assertLiteralIndexInRange(node.params![0], node.params![1]);
+  assertConstantIndexInRange(node.params![0], node.params![1]);
   let mat = jsAssignable(node.params![0], ctx);
   let idx = compileJSStage(node.params![1], ctx);
   let [columns, rows] = MATRIX_DIMENSIONS[node.params![0]._t];
@@ -884,6 +894,9 @@ export function jsCompileOperand(node: any, ctx: CompileCtx): CompiledNode {
 /** A leaf reference read as a value — copied into the target under out-mode. */
 export function jsLeafRef(expr: string, brand: string | undefined, ctx: CompileCtx): CompiledNode {
   if (ctx.outTarget && jsIsArrayType(brand)) {
+    if (JS_INPUT_BY_NAME.test(expr)) {
+      return { decls: [], body: jsCopyInput(expr, ctx.outTarget, brand!, ctx), expr: ctx.outTarget };
+    }
     jsRequireHelper(ctx, "copy");
     return { decls: [], body: [`_copy(${expr}, ${ctx.outTarget});`], expr: ctx.outTarget };
   }
@@ -1317,6 +1330,9 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
     ctx.jsReadsSlot = outer || ctx.jsReadsSlot;
     return result;
   }
+  if (JS_INPUT_BY_NAME.test(result.expr) && !jsIsArrayType(node?._t) && node?.type !== "uniformArray") {
+    result = { ...result, expr: jsInputScalar(result.expr, node._t, ctx), prec: PREC_ATOM };
+  }
   let read = result.expr;
   result = jsTypedInput(node, result, ctx);
   if (ctx.jsFloat32) result = jsRound32(node, result, ctx);
@@ -1415,18 +1431,47 @@ function jsTypedInput(node: any, result: CompiledNode, ctx: CompileCtx): Compile
   let temp = jsNewTemp(ctx, t);
   // Copied here, one line a component: this load sees only the arrays this input arrives in, so it
   // stays specialised, where one shared copy would see every kind and box what it read.
-  let source = jsIsReference(result.expr) ? result.expr : null;
-  let body = [...result.body];
-  if (!source) {
-    source = jsNewTemp(ctx, "float");
-    body.push(`${source} = ${result.expr};`);
-  }
-  // A copy made before a loop runs whether the read in it does or not, so it reads an input left out as zero.
-  let hoisted = ctx.jsLoopCopies !== undefined && JS_INPUT_BY_NAME.test(source);
-  let at = (i: number) =>
-    hoisted ? `(${source!.replace(/^ctx\.(\w+)\[/, "ctx.$1?.[")}?.[${i}] ?? 0)` : `${source}[${i}]`;
-  for (let i = 0; i < jsArrayLength(t); i++) body.push(`${temp}[${i}] = ${at(i)};`);
-  return { ...result, body, expr: temp };
+  return { ...result, body: [...result.body, ...jsCopyInput(result.expr, temp, t, ctx)], expr: temp };
+}
+
+/**
+ * The lines that copy `read`, a vector or matrix of `type` the host passes,
+ * into `out`, one line a component, reading zeros when the host leaves it out
+ * and zero for each component past the end of a shorter one. The zeros are an
+ * array of their own, so a load that only ever sees the host's arrays stays
+ * specialised to them.
+ */
+function jsCopyInput(read: string, out: string, type: string, ctx: CompileCtx): string[] {
+  jsRequireHelper(ctx, "zeros");
+  let source = jsNewTemp(ctx, "float");
+  let lines = [`${source} = ${jsInputRead(read, ctx)} ?? _zeros;`];
+  for (let i = 0; i < jsArrayLength(type); i++) lines.push(`${out}[${i}] = ${source}[${i}] ?? 0;`);
+  return lines;
+}
+
+/**
+ * `read`, a read of an input the host passes by name, which is undefined when
+ * the host leaves out the input or every input of its kind. It reads through
+ * the object of its kind, or an empty one when the host leaves that out, which
+ * the function takes into a local once a call. An empty object rather than
+ * optional chaining, which V8 can box a number through.
+ */
+function jsInputRead(read: string, ctx: CompileCtx): string {
+  let match = /^ctx\.(\w+)(\[.*)$/.exec(read);
+  if (!match) return read;
+  jsRequireHelper(ctx, "none");
+  (ctx.jsInputKinds ??= new Set()).add(match[1]!);
+  return `${jsInputObject(match[1]!)}${match[2]}`;
+}
+
+/** The local a JS function holds the object of inputs of `kind` in, such as `uniforms`. */
+function jsInputObject(kind: string): string {
+  return `_rmsl_in_${kind}`;
+}
+
+/** `read`, a scalar input the host passes by name, which reads zero, or false for a bool, when the host leaves it out. */
+function jsInputScalar(read: string, type: string | undefined, ctx: CompileCtx): string {
+  return `(${jsInputRead(read, ctx)} ?? ${type === "bool" ? "false" : "0"})`;
 }
 
 /**
@@ -1659,18 +1704,33 @@ export function compileJSNode(
     }
 
     case "uniformArrayElement": {
+      assertConstantIndexInRange(node.params![0], node.params![1]);
       let arr = jsCompileOperand(node.params![0], ctx);
       let idx = jsCompileOperand(node.params![1], ctx);
-      let element = `${arr.expr}[${idx.expr}]`;
-      if (ctx.outTarget && jsIsArrayType(node._t)) {
-        jsRequireHelper(ctx, "copy");
+      let body = [...arr.body, ...idx.body];
+      // An index below zero or past the end reaches the last element.
+      let last = (node.params![0].value as any).length - 1;
+      let at = idx.expr;
+      if (!jsIsLiteralIndex(at)) {
+        at = jsNewTemp(ctx, "int");
+        body.push(`${at} = ${jsBoundedIndex(idx.expr, last + 1)};`);
+      }
+      // An element past the end of a shorter array the host passes, or of one it leaves out, reads zero.
+      jsRequireHelper(ctx, "none");
+      let element = `(${jsInputRead(arr.expr, ctx)} ?? _none)[${at}]`;
+      if (!jsIsArrayType(node._t)) {
         return {
           decls: [...arr.decls, ...idx.decls],
-          body: [...arr.body, ...idx.body, `_copy(${element}, ${ctx.outTarget});`],
-          expr: ctx.outTarget,
+          body,
+          expr: jsInputScalar(element, node._t, ctx),
+          prec: PREC_ATOM,
         };
       }
-      return { decls: [...arr.decls, ...idx.decls], body: [...arr.body, ...idx.body], expr: element };
+      if (ctx.outTarget) {
+        body.push(...jsCopyInput(element, ctx.outTarget, node._t, ctx));
+        return { decls: [...arr.decls, ...idx.decls], body, expr: ctx.outTarget };
+      }
+      return { decls: [...arr.decls, ...idx.decls], body, expr: element };
     }
 
     case "storage": {
@@ -2088,25 +2148,31 @@ export function compileJSNode(
     }
 
     case "matrixElement": {
-      assertLiteralIndexInRange(node.params![0], node.params![1]);
+      assertConstantIndexInRange(node.params![0], node.params![1]);
       let mat = jsComponents(node.params![0], ctx, ctx.jsTarget === node);
       let idx = jsCompileOperand(node.params![1], ctx);
       let brand = node.params![0]?._t;
       let [columns, rows] = MATRIX_DIMENSIONS[brand];
-      let column = mat.inBuffer ? jsBoundedIndex(idx.expr, columns) : `(${idx.expr})`;
+      let column = jsIsLiteralIndex(idx.expr) ? idx.expr : jsNewTemp(ctx, "int");
+      let bound = column === idx.expr ? [] : [`${column} = ${jsBoundedIndex(idx.expr, columns)};`];
       let target = ctx.outTarget ?? jsNewTemp(ctx, node._t);
       let lines = Array.from(
         { length: rows },
         (_, row) => `${target}[${row}] = ${mat.at(`${column} * ${rows} + ${row}`)};`,
       );
-      return { decls: [...mat.decls, ...idx.decls], body: [...mat.body, ...idx.body, ...lines], expr: target };
+      return {
+        decls: [...mat.decls, ...idx.decls],
+        body: [...mat.body, ...idx.body, ...bound, ...lines],
+        expr: target,
+      };
     }
 
     case "vectorElement": {
-      assertLiteralIndexInRange(node.params![0], node.params![1]);
+      assertConstantIndexInRange(node.params![0], node.params![1]);
       let src = jsComponents(node.params![0], ctx, ctx.jsTarget === node);
       let idx = jsCompileOperand(node.params![1], ctx);
-      let component = src.inBuffer ? jsBoundedIndex(idx.expr, TYPE_WIDTH[node.params![0]._t]) : idx.expr;
+      // A run-time index below zero or past the end reaches the last component.
+      let component = jsIsLiteralIndex(idx.expr) ? idx.expr : jsBoundedIndex(idx.expr, TYPE_WIDTH[node.params![0]._t]);
       let read = { decls: [...src.decls, ...idx.decls], body: [...src.body, ...idx.body], expr: src.at(component) };
       return jsBooleanComponent(node, read, ctx);
     }
@@ -2242,7 +2308,7 @@ export function compileJSNode(
         let base = jsAssignable(parts.base, ctx);
         let components = parts.components ?? [];
         if (parts.index) {
-          assertLiteralIndexInRange(parts.base, parts.index);
+          assertConstantIndexInRange(parts.base, parts.index);
           let idx = compileJSStage(parts.index, ctx);
           base = { ...base, decls: [...base.decls, ...idx.decls], body: [...base.body, ...idx.body] };
           components = [jsBoundedIndex(idx.expr, TYPE_WIDTH[parts.base._t])];
@@ -2548,6 +2614,8 @@ function compileJSFnDetailed(
     return [reentrant ? `${key} = ${zeros};` : `${zeros}.fill(0); ${key} = ${zeros};`];
   });
   const slots = jsSlotDeclarations(ctx.varDefs, ctx.jsFloat32 === true, reentrant ? "var" : "let");
+  // Each object of inputs is read once, rather than at every read of an input it holds.
+  for (const kind of ctx.jsInputKinds ?? []) body.push(`const ${jsInputObject(kind)} = ctx.${kind} ?? _none;`);
   body.push(...slots.scalars);
   if (reentrant) body.push(...slots.views);
   body.push(...varyingResets);

@@ -1786,7 +1786,7 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
       return vec4(0, 0, 0, 1);
     });
     let src = compileJSFn(() => vertex(), { name: "main", params: [], stage: "vertex" });
-    expect(src).toContain('ctx.attributes["tex"]');
+    expect(src).toContain('_rmsl_in_attributes["tex"]');
     expect(src).toContain('res.varyings["myNormal"]');
   });
 
@@ -3846,7 +3846,7 @@ describe("JS target", () => {
       return u.mul(2);
     });
     let src = compileJSFn(() => prog(), { name: "main", params: [] });
-    expect(src).toContain(`ctx.uniforms["${u.name}"]`);
+    expect(src).toContain(`_rmsl_in_uniforms["${u.name}"]`);
   });
 
   /**

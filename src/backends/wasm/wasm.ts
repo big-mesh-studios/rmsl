@@ -34,7 +34,7 @@ import {
   numberClashingVariables,
   assertAssignable,
   FOR_UPDATE_BLOCK_MESSAGE,
-  assertLiteralIndexInRange,
+  assertConstantIndexInRange,
   DEGREES_PER_RADIAN,
   RADIANS_PER_DEGREE,
   assignedStorageElement,
@@ -404,11 +404,6 @@ function storeDynamic(addrBytes: number[], kind: ScalarKind, valueBytes: number[
   return [...addrBytes, ...valueBytes, kind === "float" ? WASM_OP.f64Store : WASM_OP.i32Store, 0x00, 0x00];
 }
 
-/** Bytes computing `base + index * elementStride` — a uniform array element's first component address. */
-function uniformArrayElementAddress(base: number, elementStride: number, indexBytes: number[]): number[] {
-  return [...i32ConstBytes(base), ...indexBytes, ...i32ConstBytes(elementStride), WASM_OP.i32Mul, WASM_OP.i32Add];
-}
-
 /** The largest `int` and `uint` a 32-bit float holds exactly, which a float converted to an integer clamps to. */
 const INT_MAX_OF_F32 = 2147483520;
 const UINT_MAX_OF_F32 = 4294967040;
@@ -591,6 +586,12 @@ function emitLiteralStores(node: any, addr: number): number[] {
 }
 
 /**
+ * What a vector or matrix the host leaves out is read from: an array with no
+ * components, each of which is written as zero.
+ */
+const ZERO_COMPONENTS: readonly number[] = [];
+
+/**
  * Host-side: packs an array value into linear memory. With `narrow` plus a
  * float type, components are stored as f32 (truncating to match the GPU
  * layout); otherwise they mirror the WASM f64/i32 layout exactly.
@@ -606,9 +607,11 @@ function writeAggregateToMemory(
   const kind = elementKindOf(shaderType);
 
   const compSize = narrow && kind === "float" ? 4 : componentSizeOf(kind);
-  const arr = value as ArrayLike<number | boolean>;
-  for (let i = 0; i < arr.length; i++) {
-    const raw = arr[i];
+  // A value the host leaves out, or a component past the end of a shorter one, is written as zero.
+  const arr = (value ?? ZERO_COMPONENTS) as ArrayLike<number | boolean>;
+  const count = componentCountOf(shaderType);
+  for (let i = 0; i < count; i++) {
+    const raw = (i < arr.length ? arr[i] : 0) ?? 0;
     const num = typeof raw === "boolean" ? (raw ? 1 : 0) : (raw as number);
     if (kind === "float") {
       if (narrow) view.setFloat32(address + i * compSize, num, true);
@@ -633,13 +636,13 @@ function writeArrayToMemory(
   const kind = isAggregate(shaderType) ? elementKindOf(shaderType) : scalarKindOf(shaderType);
   const compSize = narrow && kind === "float" ? 4 : componentSizeOf(kind);
   const width = componentCountOf(shaderType);
-  const arr = value as ArrayLike<any>;
-  const n = Math.min(arr.length, length); // a shorter host array leaves the tail untouched
-  for (let i = 0; i < n; i++) {
-    const el = arr[i];
+  // An element past the end of a shorter array the host passes, or of one it leaves out, is written as zero.
+  const arr = (value ?? ZERO_COMPONENTS) as ArrayLike<any>;
+  for (let i = 0; i < length; i++) {
+    const el = i < arr.length ? arr[i] : undefined;
     const base = address + i * elementStride;
     if (width === 1) {
-      const num = typeof el === "boolean" ? (el ? 1 : 0) : (el as number);
+      const num = typeof el === "boolean" ? (el ? 1 : 0) : ((el as number | undefined) ?? 0);
       if (kind === "float") {
         if (narrow) view.setFloat32(base, num, true);
         else view.setFloat64(base, round32 ? Math.fround(num) : num, true);
@@ -648,8 +651,8 @@ function writeArrayToMemory(
       }
     } else {
       for (let k = 0; k < width; k++) {
-        const raw = el[k];
-        const num = typeof raw === "boolean" ? (raw ? 1 : 0) : (raw as number);
+        const raw = el?.[k];
+        const num = typeof raw === "boolean" ? (raw ? 1 : 0) : ((raw as number | undefined) ?? 0);
         const at = base + k * compSize;
         if (kind === "float") {
           if (narrow) view.setFloat32(at, num, true);
@@ -1661,10 +1664,17 @@ export function compileWasmFn(
         break;
 
       case "vectorElement":
+        assertConstantIndexInRange(node.params[0], node.params[1]);
+        addLocal("$element_index", "int");
+        break;
+
+      case "uniformArrayElement":
+        assertConstantIndexInRange(node.params[0], node.params[1]);
         addLocal("$element_index", "int");
         break;
 
       case "matrixElement":
+        assertConstantIndexInRange(node.params[0], node.params[1]);
         addLocal("$element_index", "int");
         addLocal("$column_address", "int");
         break;
@@ -1884,7 +1894,7 @@ export function compileWasmFn(
    * WGSL and GLSL compile it.
    */
   function constantIndex(target: any, index: any): number {
-    return assertLiteralIndexInRange(target, index)!;
+    return assertConstantIndexInRange(target, index)!;
   }
 
   /**
@@ -2125,14 +2135,14 @@ export function compileWasmFn(
         const compSize = componentSizeOf(kind);
         const rawCompSize = info.narrow && kind === "float" ? 4 : compSize;
         const width = componentCountOf(node._t as string);
-        const index = node.params[1];
-        const indexBytes =
-          scalarKindOf(index._t as string) === "float" ? [...walkExpr(index), ...I32_TRUNC_SAT_F64_S] : walkExpr(index);
+        const elementOffset = clampedIndexOffset(node.params[1], node.params[0].value.length, info.elementStride);
         const baseAddr = nodeAddress(node);
         const out: number[] = [];
         for (let k = 0; k < width; k++) {
           const addrBytes = [
-            ...uniformArrayElementAddress(info.base, info.elementStride, indexBytes),
+            ...i32ConstBytes(info.base),
+            ...elementOffset,
+            WASM_OP.i32Add,
             ...i32ConstBytes(k * rawCompSize),
             WASM_OP.i32Add,
           ];
@@ -2386,7 +2396,11 @@ export function compileWasmFn(
     const coordKind = elementKindOf(coordsNode._t as string);
     const dims = is3D ? [TEX_META_WIDTH, TEX_META_HEIGHT, TEX_META_DEPTH] : [TEX_META_WIDTH, TEX_META_HEIGHT];
 
-    const rawAxis = (k: number) => loadComponent(coordsAddr, "int", k * 4);
+    // A float coordinate is truncated to the texel it lies in, as the GPU targets convert it.
+    const rawAxis = (k: number) =>
+      coordKind === "float"
+        ? [...loadComponent(coordsAddr, "float", k * 8), ...I32_TRUNC_SAT_F64_S]
+        : loadComponent(coordsAddr, "int", k * 4);
     const dimAxis = (offset: number) => loadComponent(metaAddr, "int", offset);
 
     const targetKind = elementKindOf(node._t as string);
@@ -3643,10 +3657,11 @@ export function compileWasmFn(
         }
         const type = node._t as string;
         const kind = isAggregate(type) ? elementKindOf(type) : scalarKindOf(type);
-        const index = node.params[1];
-        const indexBytes =
-          scalarKindOf(index._t as string) === "float" ? [...walkExpr(index), ...I32_TRUNC_SAT_F64_S] : walkExpr(index);
-        const addrBytes = uniformArrayElementAddress(info.base, info.elementStride, indexBytes);
+        const addrBytes = [
+          ...i32ConstBytes(info.base),
+          ...clampedIndexOffset(node.params[1], node.params[0].value.length, info.elementStride),
+          WASM_OP.i32Add,
+        ];
         if (info.narrow && kind === "float") {
           return [...addrBytes, WASM_OP.f32Load, 0x00, 0x00, WASM_OP.f64PromoteF32];
         }
@@ -4072,18 +4087,18 @@ export function createWasmInputMarshaller(
       switch (p.kind) {
         case "textureMemory":
           break;
+        // An input the host leaves out reads zero, as an unset uniform does in a zeroed GPU uniform buffer.
         case "param":
-          args[argCount++] = scalarArg(p.shaderType, (ctx.params as any)?.[p.name] as number);
+          args[argCount++] = scalarArg(p.shaderType, (ctx.params as any)?.[p.name] ?? 0);
           break;
         case "uniform":
-          // An unset uniform reads zero, as in a zeroed GPU uniform buffer.
-          args[argCount++] = scalarArg(p.shaderType, ((ctx.uniforms as any)?.[p.slot] as number | undefined) ?? 0);
+          args[argCount++] = scalarArg(p.shaderType, (ctx.uniforms as any)?.[p.slot] ?? 0);
           break;
         case "attribute":
-          args[argCount++] = scalarArg(p.shaderType, (ctx.attributes as any)?.[p.slot] as number);
+          args[argCount++] = scalarArg(p.shaderType, (ctx.attributes as any)?.[p.slot] ?? 0);
           break;
         case "varying":
-          args[argCount++] = scalarArg(p.shaderType, (ctx.varyings as any)?.[p.slot] as number);
+          args[argCount++] = scalarArg(p.shaderType, (ctx.varyings as any)?.[p.slot] ?? 0);
           break;
         case "invocationIndex":
           args[argCount++] = ctx.index ?? 0;
@@ -4094,8 +4109,7 @@ export function createWasmInputMarshaller(
         case "uniformMemory": {
           // Read once: each read of a float the host set boxes it anew.
           const value = (ctx.uniforms as any)?.[p.slot];
-          if (value === undefined) break; // left as the zeroed memory it starts as
-          if (typeof value !== "number" || isAggregate(p.shaderType)) {
+          if (value === undefined || typeof value !== "number" || isAggregate(p.shaderType)) {
             writeValueToMemory(view, p.address, p.shaderType, value, p.narrow, float32);
           } else if (scalarKindOf(p.shaderType) !== "float") view.setInt32(p.address, value, true);
           else if (p.narrow) view.setFloat32(p.address, value, true);
@@ -4103,7 +4117,6 @@ export function createWasmInputMarshaller(
           break;
         }
         case "uniformArrayMemory":
-          if ((ctx.uniforms as any)?.[p.slot] === undefined) break;
           writeArrayToMemory(
             view,
             p.address,

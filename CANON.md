@@ -105,13 +105,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cube-map-is-sampled-on-the-face-its-direction-picks`](#spec-a-cube-map-is-sampled-on-the-face-its-direction-picks) — A cube map is sampled on the face its direction points to, and a filter blends within that face, never across its edge.
     - [`@spec a-texel-fetched-out-of-range-reads-zero`](#spec-a-texel-fetched-out-of-range-reads-zero) — `textureLoad` at a coordinate outside the texture, a negative one included, reads zero in every channel.
       - [`@spec a-cpu-target-reads-zero-for-a-texel-out-of-range`](#spec-a-cpu-target-reads-zero-for-a-texel-out-of-range) — On a CPU target, `textureLoad` outside the texture, at a negative coordinate too, reads zero in every channel.
-        - [`@bug js-keeps-a-stale-texel-out-of-range`](#bug-js-keeps-a-stale-texel-out-of-range) — On JS, `textureLoad` outside the texture into a variable leaves the variable as it was, rather than writing zero into it.
       - [`@exception a-gpu-target-lets-the-driver-pick-a-texel-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-a-texel-out-of-range) — On GLSL and WGSL, a texel fetched out of range reads what the driver gives.
     - [`@spec a-cpu-target-filters-by-the-magnification-filter-alone`](#spec-a-cpu-target-filters-by-the-magnification-filter-alone) — A CPU target filters a texture as its magnification filter asks, and ignores its minification filter.
   - [`@spec every-root-of-a-program-keeps-its-effects`](#spec-every-root-of-a-program-keeps-its-effects) — A program compiled from several roots runs the statements of every root, each once, the statements they share included.
   - [`@spec an-unset-uniform-reads-zero`](#spec-an-unset-uniform-reads-zero) — A uniform the host never set reads as zero on every target.
-    - [`@bug js-reads-an-unset-uniform-as-nan`](#bug-js-reads-an-unset-uniform-as-nan) — On JS, a uniform the host never set reads as `NaN`, and a context with no `uniforms` throws.
-    - [`@bug wasm-keeps-an-aggregate-uniform-the-call-leaves-out`](#bug-wasm-keeps-an-aggregate-uniform-the-call-leaves-out) — A routine keeps a vector or matrix uniform the call does not set as the last call wrote it. An unset scalar uniform reads zero.
   - [`@spec an-integer-reaches-the-host-as-the-integer-it-is`](#spec-an-integer-reaches-the-host-as-the-integer-it-is) — An `int` or `uint` passes between the host and a program as the integer it is. A `uint` above the largest `int` stays unsigned, in a uniform and in a storage buffer read back.
   - [`@axiom a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives) — Where the targets could give different results, the CPU targets give the result WebGPU gives. Where WebGL and WebGPU differ, rmsl follows WebGPU, and an exception names where WebGL departs. Where WebGPU itself leaves a result open, rmsl picks one, and the GPU targets are the exception.
     - [`@spec a-float-converted-to-an-integer-clamps-to-its-range`](#spec-a-float-converted-to-an-integer-clamps-to-its-range) — Converting a float to `int` or `uint` truncates it toward zero and clamps the result to the range WebGPU clamps to, and a NaN gives 0. For `int`, that range runs from -2147483648 to 2147483520, the largest `int` a 32-bit float holds exactly.
@@ -141,13 +138,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-cpu-target-at-f32-rounds-every-float-value-it-computes`](#spec-a-cpu-target-at-f32-rounds-every-float-value-it-computes) — At `float: "f32"`, a CPU target rounds every float value of its program to 32 bits: each input as it reads it, each literal, each constant it folds, and the value of each operation. A storage element it does not write keeps the value the host gave it. A built-in function, such as `dot`, `normalize`, `sin` or a texture sample, computes its value at 64 bits and rounds it once.
     - [`@spec a-run-time-index-past-the-end-reaches-the-last-element`](#spec-a-run-time-index-past-the-end-reaches-the-last-element) — A vector component or matrix column reached by a run-time index below zero or past its end reads and writes the last component or column.
       - [`@spec a-cpu-target-reaches-the-last-element-out-of-range`](#spec-a-cpu-target-reaches-the-last-element-out-of-range) — On a CPU target, a run-time index below zero or past the end reaches the last component or column of a vector or a matrix. This holds for a vector or matrix held in a storage element too. An index past the end of the storage buffer itself is a storage access outside its buffer.
-        - [`@bug js-reads-a-vector-component-out-of-range-as-undefined`](#bug-js-reads-a-vector-component-out-of-range-as-undefined) — On JS, a vector component read by a run-time index past the end gives `undefined`.
-        - [`@bug js-reads-a-matrix-column-out-of-range-as-empty`](#bug-js-reads-a-matrix-column-out-of-range-as-empty) — On JS, a matrix column read by a run-time index past the end gives an empty array.
-        - [`@bug js-writes-a-vector-component-out-of-range-past-its-end`](#bug-js-writes-a-vector-component-out-of-range-past-its-end) — On JS, a write to a vector component by a run-time index past the end adds a component, rather than writing the last one.
       - [`@exception a-gpu-target-lets-the-driver-pick-an-element-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range) — On GLSL and WGSL, a run-time index out of range reaches whatever element the driver picks.
       - [`@spec a-run-time-index-past-a-uniform-array-reaches-its-last-element`](#spec-a-run-time-index-past-a-uniform-array-reaches-its-last-element) — On a CPU target, a uniform array element read by a run-time index past the end reads the last element.
-        - [`@bug js-reads-a-uniform-array-element-out-of-range-as-undefined`](#bug-js-reads-a-uniform-array-element-out-of-range-as-undefined) — On JS, a uniform array element read by a run-time index past the end gives `undefined`.
-        - [`@bug wasm-reads-a-uniform-array-element-out-of-range-from-foreign-memory`](#bug-wasm-reads-a-uniform-array-element-out-of-range-from-foreign-memory) — A uniform array element at a run-time index out of range reads whatever memory lies there, and traps below zero.
     - [`@spec length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one`](#spec-length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one) — `length` of a scalar is its absolute value, `distance` of two scalars is the absolute value of their difference, and `dot` of two scalars is their product, on every target.
     - [`@spec length-distance-and-dot-take-only-floats`](#spec-length-distance-and-dot-take-only-floats) — `length`, `distance` and `dot` take a float or a float vector, and `distance` and `dot` take two of one type. An integer, unsigned or boolean argument, scalar or vector, a matrix, or a scalar beside a vector is a type error, and building the graph throws, naming the conversion where one exists.
     - [`@spec normalizing-a-zero-vector-gives-it-back`](#spec-normalizing-a-zero-vector-gives-it-back) — `normalize` of a vector of length zero gives the zero vector.
@@ -178,8 +170,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec wgsl-converts-a-shift-amount-to-unsigned`](#spec-wgsl-converts-a-shift-amount-to-unsigned) — On WGSL, the compiler converts a signed shift amount to `u32`, and a scalar amount beside a vector to a `u32` vector of its width.
   - [`@spec wgsl-splats-a-scalar-bitwise-operand-beside-a-vector`](#spec-wgsl-splats-a-scalar-bitwise-operand-beside-a-vector) — On WGSL, the compiler converts a scalar right operand of `&`, `|` or `^` to the type of the vector beside it.
   - [`@spec a-uniform-array-element-the-host-leaves-out-reads-zero`](#spec-a-uniform-array-element-the-host-leaves-out-reads-zero) — An element past the end of a shorter array the host passes for a uniform array reads zero.
-    - [`@bug wasm-keeps-a-uniform-array-element-the-call-leaves-out`](#bug-wasm-keeps-a-uniform-array-element-the-call-leaves-out) — A WASM routine keeps an element past the end of a shorter array the call passes as an earlier call wrote it.
-    - [`@bug js-reads-a-uniform-array-element-the-host-leaves-out-as-nan`](#bug-js-reads-a-uniform-array-element-the-host-leaves-out-as-nan) — On JS, an element past the end of a shorter array the call passes reads as `undefined`, which makes `NaN`.
+  - [`@spec a-component-the-host-leaves-out-reads-zero`](#spec-a-component-the-host-leaves-out-reads-zero) — A component past the end of a shorter array the host passes for a vector or matrix input, a uniform, parameter, attribute or varying, reads zero, on every call. A component past the end of a longer one is not read.
 - [`@axiom a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs) — A program that cannot work is refused before it runs. The type checker refuses it wherever the types can express the mistake, and the compiler refuses it on every target. The refusal names the cause, and the fix where one exists.
   - [`@spec an-assignment-is-refused-unless-the-program-can-write-its-target`](#spec-an-assignment-is-refused-unless-the-program-can-write-its-target) — An assignment whose target the program cannot write is refused. Every target refuses it with the same message, and the type checker refuses it wherever the type of the target shows it.
     - [`@spec a-var-can-be-assigned`](#spec-a-var-can-be-assigned) — A program can assign a variable, a stage output and a storage element. It can also assign a component, a column or a swizzle of one that names each component once. A var goes wherever a node goes.
@@ -238,7 +229,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-wgsl-render-stage-reads-storage-read-only`](#spec-a-wgsl-render-stage-reads-storage-read-only) — On WGSL, a vertex or fragment stage declares a storage buffer read-only, in a group of its own numbered across both stages. It refuses a write to the buffer.
       - [`@exception glsl-has-no-storage-buffers`](#exception-glsl-has-no-storage-buffers) — A GLSL stage that reads a storage buffer is refused. Issue #48 asks to read one through a data texture instead.
       - [`@spec a-wgsl-render-stage-declares-its-storage-in-group-three`](#spec-a-wgsl-render-stage-declares-its-storage-in-group-three) — On WGSL, a vertex or fragment stage declares its storage buffers in group 3.
-  - [`@spec a-constant-index-outside-a-vector-or-matrix-is-refused`](#spec-a-constant-index-outside-a-vector-or-matrix-is-refused) — A literal index outside a vector's components or a matrix's columns is refused on every target.
+  - [`@spec a-constant-index-outside-a-vector-or-matrix-is-refused`](#spec-a-constant-index-outside-a-vector-or-matrix-is-refused) — A constant index outside a vector's components or a matrix's columns is refused on every target: a literal, or an operation of literals that folds to one.
+  - [`@spec a-constant-index-outside-a-uniform-array-is-refused`](#spec-a-constant-index-outside-a-uniform-array-is-refused) — A constant index outside the elements of a uniform array is refused on every target: a literal, or an operation of literals that folds to one.
   - [`@spec an-operation-a-target-cannot-run-is-refused`](#spec-an-operation-a-target-cannot-run-is-refused) — An operation that no target can run where the program puts it is refused on every target.
     - [`@spec break-or-continue-outside-a-loop-is-refused`](#spec-break-or-continue-outside-a-loop-is-refused) — `Break` or `Continue` outside a loop is refused.
     - [`@spec cross-of-a-vector-that-is-not-a-vec3-is-refused`](#spec-cross-of-a-vector-that-is-not-a-vec3-is-refused) — `cross` of vectors that are not `vec3` is refused.
@@ -316,7 +308,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-float-texture-is-sampled-through-a-sampler`](#spec-a-float-texture-is-sampled-through-a-sampler) — A float texture, 2D or 3D, is sampled with filtering, through `texture` or `textureSample` and a sampler of its own on WGSL.
     - [`@spec an-integer-texture-reads-one-texel`](#spec-an-integer-texture-reads-one-texel) — A program reads an integer texture one texel at a time, with `texelFetch` on GLSL and `textureLoad` with no sampler on WGSL.
       - [`@spec an-integer-texture-is-fetched-unfiltered`](#spec-an-integer-texture-is-fetched-unfiltered) — A program reads an integer texture at an integer texel coordinate with no filter, and gets an integer vector.
-        - [`@bug wasm-reads-an-integer-texture-at-a-float-coordinate-as-zero`](#bug-wasm-reads-an-integer-texture-at-a-float-coordinate-as-zero) — An integer texture sampled at a float coordinate reads zero, where the GPU targets and JS truncate the coordinate to a texel.
       - [`@exception an-integer-cube-map-cannot-be-fetched`](#exception-an-integer-cube-map-cannot-be-fetched) — A program that reads an integer cube map, or calls `textureLoad` on a cube map, is refused.
     - [`@spec texture-size-gives-the-dimensions`](#spec-texture-size-gives-the-dimensions) — `textureSize` gives the width and height of a 2D texture or a cube map, and the depth too of a 3D texture.
     - [`@spec texture-load-reads-one-texel-of-a-float-texture`](#spec-texture-load-reads-one-texel-of-a-float-texture) — `textureLoad` reads one texel of a float texture at an integer coordinate, with no filter, and gives a `vec4`.
@@ -589,8 +580,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec render-draws-the-only-member-of-an-output-struct`](#spec-render-draws-the-only-member-of-an-output-struct) — `render` draws the member of an `outputStruct` that a fragment stage returns, when it has exactly one member.
     - [`@spec a-grid-writes-a-discarded-pixel-as-zero`](#spec-a-grid-writes-a-discarded-pixel-as-zero) — `fill` of a CPU grid writes a pixel whose fragment discards as zero in every channel.
     - [`@spec an-input-the-host-leaves-out-reads-zero`](#spec-an-input-the-host-leaves-out-reads-zero) — A parameter, attribute or varying the host leaves out of the context reads zero.
-      - [`@bug wasm-reads-an-unset-scalar-input-as-nan`](#bug-wasm-reads-an-unset-scalar-input-as-nan) — A scalar varying the host leaves out reads as `NaN`.
-      - [`@bug wasm-throws-on-an-unset-aggregate-input`](#bug-wasm-throws-on-an-unset-aggregate-input) — A vector varying the host leaves out throws a `TypeError` while the routine writes it into memory.
     - [`@spec a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array`](#spec-a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array) — A CPU routine returns a matrix as one flat typed array, which holds its columns one after another.
     - [`@spec a-cpu-compiler-calls-its-builder-once`](#spec-a-cpu-compiler-calls-its-builder-once) — `compileJSRoutine` and `compileWasmRoutine` call the builder the caller passes once for each compile.
     - [`@spec a-grid-fills-a-float64-array-for-a-float-result`](#spec-a-grid-fills-a-float64-array-for-a-float-result) — `fill` of a CPU grid whose result is a float or a float vector returns a `Float64Array`, or a `Float32Array` at `float: "f32"`. An `out` the caller passes is that array too, and is filled with the same values wherever it lies, in the WASM module's own memory included. An `out` of another kind of array is refused.
@@ -740,8 +729,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact three-js-sums-ambient-lights-into-one-colour`](#fact-three-js-sums-ambient-lights-into-one-colour) — three.js adds the colour of each ambient light, times its intensity, into one ambient colour for the scene.
 - [`@fact three-js-scales-a-light-colour-by-its-intensity`](#fact-three-js-scales-a-light-colour-by-its-intensity) — three.js sets the colour uniform of a directional light and of a point light to the light's colour multiplied by its intensity, on the host.
 - [`@fact three-js-declares-one-precision-for-every-sampler`](#fact-three-js-declares-one-precision-for-every-sampler) — The `WebGLProgram` of three.js declares one precision for `float`, `int` and every sampler type, the integer samplers `isampler2D`, `isampler3D` and `isamplerCube` included.
-- [`@fact wgsl-refuses-a-constant-index-out-of-range`](#fact-wgsl-refuses-a-constant-index-out-of-range) — WGSL refuses a constant index past the components of a vector or the columns of a matrix, also when it indexes a variable.
-- [`@fact glsl-refuses-a-constant-index-out-of-range`](#fact-glsl-refuses-a-constant-index-out-of-range) — GLSL ES 3.00 refuses a constant index past the components of a vector or the columns of a matrix, also when it indexes a variable.
+- [`@fact wgsl-refuses-a-constant-index-out-of-range`](#fact-wgsl-refuses-a-constant-index-out-of-range) — WGSL refuses a constant index past the components of a vector, the columns of a matrix or the elements of a fixed-size array, also when it indexes a variable.
+- [`@fact glsl-refuses-a-constant-index-out-of-range`](#fact-glsl-refuses-a-constant-index-out-of-range) — GLSL ES 3.00 refuses a constant index past the components of a vector, the columns of a matrix or the elements of a fixed-size array, also when it indexes a variable.
 - [`@fact wgsl-takes-no-block-in-a-for-update`](#fact-wgsl-takes-no-block-in-a-for-update) — The update of a WGSL `for` is a single statement, so a block such as an `if` in it is a syntax error.
 - [`@fact glsl-takes-no-block-in-a-for-update`](#fact-glsl-takes-no-block-in-a-for-update) — The update of a GLSL `for` is an expression, so a block such as an `if` in it is a syntax error.
 - [`@fact glsl-scalar-constructor-takes-the-first-component`](#fact-glsl-scalar-constructor-takes-the-first-component) — In GLSL ES 3.00, `float(v)`, `int(v)` and `uint(v)` of a vector `v` take its first component, converted to that type.
@@ -1331,12 +1320,6 @@ Derives from: [`axiom-a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target
 
 > On a CPU target, `textureLoad` outside the texture, at a negative coordinate too, reads zero in every channel.
 
-###### @bug js-keeps-a-stale-texel-out-of-range
-
-> On JS, `textureLoad` outside the texture into a variable leaves the variable as it was, rather than writing zero into it.
-
-Issue: #84
-
 ##### @exception a-gpu-target-lets-the-driver-pick-a-texel-out-of-range
 
 > On GLSL and WGSL, a texel fetched out of range reads what the driver gives.
@@ -1362,18 +1345,6 @@ This follows because a root that lost its statements would compute something els
 > A uniform the host never set reads as zero on every target.
 
 This follows because a value the host left out must not make the targets disagree.
-
-#### @bug js-reads-an-unset-uniform-as-nan
-
-> On JS, a uniform the host never set reads as `NaN`, and a context with no `uniforms` throws.
-
-Issue: #71
-
-#### @bug wasm-keeps-an-aggregate-uniform-the-call-leaves-out
-
-> A routine keeps a vector or matrix uniform the call does not set as the last call wrote it. An unset scalar uniform reads zero.
-
-Issue: #114
 
 ### @spec an-integer-reaches-the-host-as-the-integer-it-is
 
@@ -1554,24 +1525,6 @@ This follows because an index out of range must reach the same element on every 
 
 > On a CPU target, a run-time index below zero or past the end reaches the last component or column of a vector or a matrix. This holds for a vector or matrix held in a storage element too. An index past the end of the storage buffer itself is a storage access outside its buffer.
 
-###### @bug js-reads-a-vector-component-out-of-range-as-undefined
-
-> On JS, a vector component read by a run-time index past the end gives `undefined`.
-
-Issue: #85
-
-###### @bug js-reads-a-matrix-column-out-of-range-as-empty
-
-> On JS, a matrix column read by a run-time index past the end gives an empty array.
-
-Issue: #85
-
-###### @bug js-writes-a-vector-component-out-of-range-past-its-end
-
-> On JS, a write to a vector component by a run-time index past the end adds a component, rather than writing the last one.
-
-Issue: #85
-
 ##### @exception a-gpu-target-lets-the-driver-pick-an-element-out-of-range
 
 > On GLSL and WGSL, a run-time index out of range reaches whatever element the driver picks.
@@ -1583,18 +1536,6 @@ Derives from: [`fact-an-index-out-of-range-is-left-to-the-gpu`](#fact-an-index-o
 > On a CPU target, a uniform array element read by a run-time index past the end reads the last element.
 
 This follows because a uniform array is indexed as a vector is, and its parent gives every run-time index past the end the last element.
-
-###### @bug js-reads-a-uniform-array-element-out-of-range-as-undefined
-
-> On JS, a uniform array element read by a run-time index past the end gives `undefined`.
-
-Issue: #85
-
-###### @bug wasm-reads-a-uniform-array-element-out-of-range-from-foreign-memory
-
-> A uniform array element at a run-time index out of range reads whatever memory lies there, and traps below zero.
-
-Issue: #85
 
 #### @spec length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one
 
@@ -1778,17 +1719,13 @@ Derives from: [`spec-an-unset-uniform-reads-zero`](#spec-an-unset-uniform-reads-
 
 This follows because an element the host leaves out is a uniform it never set, and an unset uniform reads zero.
 
-#### @bug wasm-keeps-a-uniform-array-element-the-call-leaves-out
+### @spec a-component-the-host-leaves-out-reads-zero
 
-> A WASM routine keeps an element past the end of a shorter array the call passes as an earlier call wrote it.
+> A component past the end of a shorter array the host passes for a vector or matrix input, a uniform, parameter, attribute or varying, reads zero, on every call. A component past the end of a longer one is not read.
 
-Issue: #125
+Derives from: [`spec-an-unset-uniform-reads-zero`](#spec-an-unset-uniform-reads-zero), [`spec-an-input-the-host-leaves-out-reads-zero`](#spec-an-input-the-host-leaves-out-reads-zero)
 
-#### @bug js-reads-a-uniform-array-element-the-host-leaves-out-as-nan
-
-> On JS, an element past the end of a shorter array the call passes reads as `undefined`, which makes `NaN`.
-
-Issue: #125
+This follows because a component the host leaves out has no value, as an input it leaves out has none, and zero is what an unset uniform reads.
 
 ## @axiom a-mistake-is-refused-before-the-program-runs
 
@@ -2086,11 +2023,19 @@ This follows because the uniform struct, the textures and the samplers hold grou
 
 ### @spec a-constant-index-outside-a-vector-or-matrix-is-refused
 
-> A literal index outside a vector's components or a matrix's columns is refused on every target.
+> A constant index outside a vector's components or a matrix's columns is refused on every target: a literal, or an operation of literals that folds to one.
 
 Derives from: [`fact-wgsl-refuses-a-constant-index-out-of-range`](#fact-wgsl-refuses-a-constant-index-out-of-range), [`fact-glsl-refuses-a-constant-index-out-of-range`](#fact-glsl-refuses-a-constant-index-out-of-range)
 
 This follows because GLSL and WGSL both refuse such an index, so the program could not run on them.
+
+### @spec a-constant-index-outside-a-uniform-array-is-refused
+
+> A constant index outside the elements of a uniform array is refused on every target: a literal, or an operation of literals that folds to one.
+
+Derives from: [`fact-wgsl-refuses-a-constant-index-out-of-range`](#fact-wgsl-refuses-a-constant-index-out-of-range), [`fact-glsl-refuses-a-constant-index-out-of-range`](#fact-glsl-refuses-a-constant-index-out-of-range)
+
+This follows because GLSL and WGSL both refuse such an index into a fixed-size array, which a uniform array compiles to, so the program could not run on them.
 
 ### @spec an-operation-a-target-cannot-run-is-refused
 
@@ -2507,12 +2452,6 @@ Derives from: [`fact-an-integer-texture-cannot-be-filtered`](#fact-an-integer-te
 ##### @spec an-integer-texture-is-fetched-unfiltered
 
 > A program reads an integer texture at an integer texel coordinate with no filter, and gets an integer vector.
-
-###### @bug wasm-reads-an-integer-texture-at-a-float-coordinate-as-zero
-
-> An integer texture sampled at a float coordinate reads zero, where the GPU targets and JS truncate the coordinate to a texel.
-
-Issue: #115
 
 ##### @exception an-integer-cube-map-cannot-be-fetched
 
@@ -4086,18 +4025,6 @@ Derives from: [`spec-a-cpu-program-reads-its-inputs-by-slot`](#spec-a-cpu-progra
 
 This follows because an input the host leaves out has no value, and zero is what an unset uniform reads.
 
-##### @bug wasm-reads-an-unset-scalar-input-as-nan
-
-> A scalar varying the host leaves out reads as `NaN`.
-
-Issue: #114
-
-##### @bug wasm-throws-on-an-unset-aggregate-input
-
-> A vector varying the host leaves out throws a `TypeError` while the routine writes it into memory.
-
-Issue: #114
-
 #### @spec a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array
 
 > A CPU routine returns a matrix as one flat typed array, which holds its columns one after another.
@@ -5030,17 +4957,17 @@ This is how three.js behaves, read from its source (`WebGLProgram`, three.js 0.1
 
 ## @fact wgsl-refuses-a-constant-index-out-of-range
 
-> WGSL refuses a constant index past the components of a vector or the columns of a matrix, also when it indexes a variable.
+> WGSL refuses a constant index past the components of a vector, the columns of a matrix or the elements of a fixed-size array, also when it indexes a variable.
 
-Dawn refuses `vec3<f32>(…)[3]` and `v[3]` with `index 3 out of bounds [0..2]`, and `m[2]` of a `mat2x2<f32>` with `index 2 out of bounds [0..1]`.
+Dawn refuses `vec3<f32>(…)[3]` and `v[3]` with `index 3 out of bounds [0..2]`, and `m[2]` of a `mat2x2<f32>` with `index 2 out of bounds [0..1]`. It refuses `u.a[5]`, `u.a[1 + 4]` and `u.a[-1]` of an `array<vec4<f32>, 3>` in a uniform buffer with `index 5 out of bounds [0..2]` and `index -1 out of bounds [0..2]`.
 
 This is a fact of the WGSL specification, not a choice.
 
 ## @fact glsl-refuses-a-constant-index-out-of-range
 
-> GLSL ES 3.00 refuses a constant index past the components of a vector or the columns of a matrix, also when it indexes a variable.
+> GLSL ES 3.00 refuses a constant index past the components of a vector, the columns of a matrix or the elements of a fixed-size array, also when it indexes a variable.
 
-Chromium's WebGL 2 compiler refuses `v[3]` of a `vec3` with `vector field selection out of range`, and `m[2]` of a `mat2` with `matrix field selection out of range`.
+Chromium's WebGL 2 compiler refuses `v[3]` of a `vec3` with `vector field selection out of range`, and `m[2]` of a `mat2` with `matrix field selection out of range`. It refuses `a[5]` and `a[1 + 4]` of a `uniform float a[3]` with `array index out of range`, and `a[-1]` with `index expression is negative`.
 
 ## @fact wgsl-takes-no-block-in-a-for-update
 
