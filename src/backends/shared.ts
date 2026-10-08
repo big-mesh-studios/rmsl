@@ -8,6 +8,7 @@ import {
   TYPE_WIDTH,
   node,
   someNode,
+  swizzleWriteOrigin,
   var_,
   vec4,
 } from "../core";
@@ -677,6 +678,7 @@ export function assertNoWholeStorageRead(roots: readonly unknown[]): void {
 
 export function prepareRoots<T extends Node<ShaderType>>(stage: string | undefined, roots: readonly T[]): T[] {
   assertNoWholeStorageRead(roots);
+  assertSwizzleWrites(roots);
   if (stage === "fragment")
     return fragmentColour(lowerOutputStruct(roots as readonly BaseNode<ShaderType>[]) as unknown as T[]);
   if (someNode(roots, (n) => n.type === "outputStruct")) {
@@ -1053,6 +1055,32 @@ function assignmentRoot(target: any): any {
   return target;
 }
 
+/** Throws when a swizzle an assignment to `target` writes through names a component more than once. */
+function assertNoRepeatedSwizzle(target: any): void {
+  for (let node = target; ASSIGNMENT_PATH.has(node?.type); node = node.params[0]) {
+    if (node.type === "swizzle" && new Set(node.value).size !== node.value.length) {
+      throw new Error(
+        `[RMSL] can't assign through the swizzle .${node.value}, which names a component more than once; name each component once`,
+      );
+    }
+  }
+}
+
+/**
+ * Refuses a write by index through a swizzle as the read of it is refused:
+ * through a swizzle that names a component more than once, or at a constant
+ * index outside the swizzle. The assignment made it a write into the vector
+ * the swizzle reads, and {@link swizzleWriteOrigin} keeps the write it was.
+ */
+export function assertSwizzleWrites(roots: readonly unknown[]): void {
+  someNode(roots, (node) => {
+    const origin = node.type === "assign" ? swizzleWriteOrigin.get(node.params[0]) : undefined;
+    if (origin === undefined) return;
+    assertNoRepeatedSwizzle(origin);
+    assertConstantIndexInRange(origin.params![0]!, origin.params![1]!);
+  });
+}
+
 /**
  * Throws unless an assignment to `target`, compiled for `stage`, writes
  * something writable: a variable, a storage element or a stage output,
@@ -1064,13 +1092,7 @@ function assignmentRoot(target: any): any {
  * function.
  */
 export function assertAssignable(target: any, stage: "vertex" | "fragment" | "compute"): void {
-  for (let node = target; ASSIGNMENT_PATH.has(node?.type); node = node.params[0]) {
-    if (node.type === "swizzle" && new Set(node.value).size !== node.value.length) {
-      throw new Error(
-        `[RMSL] can't assign through the swizzle .${node.value}, which names a component more than once; name each component once`,
-      );
-    }
-  }
+  assertNoRepeatedSwizzle(target);
   const root = assignmentRoot(target);
   if (root?.type === "storage") {
     throw new Error("[RMSL] can't assign to a whole storage buffer; assign to one of its elements with .element(i)");

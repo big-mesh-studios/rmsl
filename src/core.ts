@@ -2121,12 +2121,19 @@ function swizzleComponent(letter: string): number {
 }
 
 /**
+ * The write by index through a swizzle that each place {@link assignmentPlace}
+ * made stands for. Every compiler refuses it as it refuses the read of it.
+ */
+export const swizzleWriteOrigin = new WeakMap<BaseNode<ShaderType>, BaseNode<ShaderType>>();
+
+/**
  * The place an assignment to `target` writes. A write by index through a
  * swizzle, as `m.element(1).yx.element(i)`, becomes a write by index into the
  * vector the swizzle reads: index `k` of `.yx` is component `"yx"[k]` of it.
  * Every target writes by index into a vector, so each writes the same
  * component. A run-time index outside the swizzle reaches its last component,
- * as a CPU target reaches the last element.
+ * as a CPU target reaches the last element. {@link swizzleWriteOrigin} keeps
+ * the write it stands for, which the compilers check.
  */
 function assignmentPlace(target: BaseNode<ShaderType>): BaseNode<ShaderType> {
   if (target.type !== "vectorElement" || target.params![0]?.type !== "swizzle") return target;
@@ -2150,7 +2157,9 @@ function assignmentPlace(target: BaseNode<ShaderType>): BaseNode<ShaderType> {
       mapped = (comp("equal", index, component(k)) as any).select(component(components[k]!), mapped);
     }
   }
-  return node({ _t: target._t, type: "vectorElement", params: [base, mapped] });
+  const place = node({ _t: target._t, type: "vectorElement", params: [base, mapped] }) as BaseNode<ShaderType>;
+  swizzleWriteOrigin.set(place, target);
+  return place;
 }
 
 export function buildBlock(body: () => void): Node<"void"> {

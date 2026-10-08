@@ -1114,12 +1114,13 @@ export const compileGlsl: {
  */
 export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options: CompileFnOptions): string {
   const paramNodes = options.params.map((p) => parameterNode(p.name, p.type));
-  const result = numberClashingVariables(shareNodes(fn(...paramNodes)));
-  if (Array.isArray(result)) {
+  const built = fn(...paramNodes);
+  if (Array.isArray(built)) {
     throw new Error(
       "compileGlslFn does not support multi-return functions. Define separate functions for each return value.",
     );
   }
+  const result = numberClashingVariables(shareNodes(prepareRoots(undefined, [built])[0]!));
 
   const ctx: CompileCtx = {
     nextId: 0,

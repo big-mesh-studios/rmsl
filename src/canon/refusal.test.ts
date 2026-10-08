@@ -396,8 +396,9 @@ describe("a mistake is refused before the program runs", () => {
    * A constant index outside the components of a vector or the columns of a
    * matrix is refused by every target when it compiles the element, for a read
    * and for a write, and for the component of a column too, whether it is a
-   * literal or an operation of literals that folds to one. An index inside
-   * them compiles on every target.
+   * literal or an operation of literals that folds to one. So is a write by
+   * index through a swizzle at a constant index outside the swizzle. An index
+   * inside them compiles on every target.
    *
    * @canon spec-a-constant-index-outside-a-vector-or-matrix-is-refused
    */
@@ -460,6 +461,24 @@ describe("a mistake is refused before the program runs", () => {
       expect(() => compile(foldedColumn), `${name} mat3 column 2 * 2`).toThrow(
         /index 4 is outside a mat3's columns 0 to 2/,
       );
+    }
+    const throughSwizzle = (index: () => any) => () =>
+      Fn(() => {
+        const v = vec3(1, 2, 3).toVar();
+        v.zy.element(index()).assign(float(5));
+        return v;
+      })();
+    for (const [name, compile] of compilers) {
+      expect(() => compile(throughSwizzle(() => int(1))), `${name} write .zy 1`).not.toThrow();
+      for (const [index, k] of [
+        [() => int(5), 5],
+        [() => int(-1), -1],
+        [() => int(1).add(int(1)), 2],
+      ] as const) {
+        expect(() => compile(throughSwizzle(index)), `${name} write .zy ${k}`).toThrow(
+          new RegExp(`index ${k} is outside a vec2's components 0 to 1`),
+        );
+      }
     }
     for (const [name, compile] of compilers) {
       expect(() => compile(read(2)), `${name} read 2`).not.toThrow();

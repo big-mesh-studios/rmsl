@@ -209,6 +209,16 @@ describe("an assignment's target", () => {
       // @ts-expect-error: refused at run time, and by its type
       v.xxy.z.assign(float(1));
     }, refused("xxy"));
+    expectRefusedEverywhere(() => {
+      const v = vec3(1, 2, 3).toVar();
+      // @ts-expect-error: refused at run time, and by its type
+      v.xx.element(int(1)).assign(float(1));
+    }, refused("xx"));
+    expectRefusedEverywhere(() => {
+      const v = vec3(1, 2, 3).toVar();
+      // @ts-expect-error: refused at run time, and by its type
+      v.xxy.element(int(uniform("float"))).assign(float(1));
+    }, refused("xxy"));
   });
 
   /**
