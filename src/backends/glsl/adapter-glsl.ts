@@ -72,19 +72,29 @@ const GL_MODE: Record<Required<GlslDrawOptions>["mode"], number> = {
   "triangle-fan": 6,
 };
 
+/** The components each location of an attribute of `type` reads: a matrix reads one column at each. */
 function componentCountForType(gl: WebGL2RenderingContext, type: number): number {
   switch (type) {
     case gl.FLOAT_VEC2:
     case gl.INT_VEC2:
     case gl.UNSIGNED_INT_VEC2:
+    case gl.FLOAT_MAT2:
+    case gl.FLOAT_MAT3x2:
+    case gl.FLOAT_MAT4x2:
       return 2;
     case gl.FLOAT_VEC3:
     case gl.INT_VEC3:
     case gl.UNSIGNED_INT_VEC3:
+    case gl.FLOAT_MAT3:
+    case gl.FLOAT_MAT2x3:
+    case gl.FLOAT_MAT4x3:
       return 3;
     case gl.FLOAT_VEC4:
     case gl.INT_VEC4:
     case gl.UNSIGNED_INT_VEC4:
+    case gl.FLOAT_MAT4:
+    case gl.FLOAT_MAT2x4:
+    case gl.FLOAT_MAT3x4:
       return 4;
     default:
       return 1;
@@ -95,10 +105,16 @@ function componentCountForType(gl: WebGL2RenderingContext, type: number): number
 function locationCountForType(gl: WebGL2RenderingContext, type: number): number {
   switch (type) {
     case gl.FLOAT_MAT2:
+    case gl.FLOAT_MAT2x3:
+    case gl.FLOAT_MAT2x4:
       return 2;
     case gl.FLOAT_MAT3:
+    case gl.FLOAT_MAT3x2:
+    case gl.FLOAT_MAT3x4:
       return 3;
     case gl.FLOAT_MAT4:
+    case gl.FLOAT_MAT4x2:
+    case gl.FLOAT_MAT4x3:
       return 4;
     default:
       return 1;
@@ -387,14 +403,26 @@ export function createGlsl(
     try {
       gl.bindVertexArray(vao);
       gl.bindBuffer(gl.ARRAY_BUFFER, info.buffer);
-      gl.enableVertexAttribArray(info.location);
       if (info.kind === "float") {
         gl.bufferData(gl.ARRAY_BUFFER, data as Float32Array, gl.STATIC_DRAW);
-        gl.vertexAttribPointer(info.location, info.componentCount, gl.FLOAT, false, 0, 0);
+        // A matrix holds a location for each column, which reads its column of each vertex's matrix.
+        const stride = info.locations > 1 ? info.locations * info.componentCount * 4 : 0;
+        for (let column = 0; column < info.locations; column++) {
+          gl.enableVertexAttribArray(info.location + column);
+          gl.vertexAttribPointer(
+            info.location + column,
+            info.componentCount,
+            gl.FLOAT,
+            false,
+            stride,
+            column * info.componentCount * 4,
+          );
+        }
       } else {
         const integers = info.kind === "int" ? Int32Array.from(data) : Uint32Array.from(data);
         gl.bufferData(gl.ARRAY_BUFFER, integers, gl.STATIC_DRAW);
         const type = info.kind === "int" ? gl.INT : gl.UNSIGNED_INT;
+        gl.enableVertexAttribArray(info.location);
         gl.vertexAttribIPointer(info.location, info.componentCount, type, 0, 0);
       }
       info.hasData = true;
@@ -402,7 +430,7 @@ export function createGlsl(
       state?.end();
     }
     countSlot ??= slot;
-    if (slot === countSlot) vertexCount = Math.floor(data.length / info.componentCount);
+    if (slot === countSlot) vertexCount = Math.floor(data.length / (info.componentCount * info.locations));
   }
 
   function setTexture(sampler: UniformNode<ShaderType> | string, data: CpuTextureData): void {

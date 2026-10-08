@@ -548,7 +548,7 @@ describe.skipIf(!GPU_ENABLED)("an adapter applies what the host set before attac
  * error it hit.
  */
 const VALUE_TYPES = `
-import { Fn, attribute, builtinPosition, float, uniform, uniformArray, vec2, vec4 } from "../rmsl";
+import { Fn, attribute, builtinPosition, float, uniform, uniformArray, varying, vec2, vec4 } from "../rmsl";
 import { createGlsl } from "../glsl";
 import { createWgsl } from "../wgsl";
 ${READ_PIXEL}
@@ -613,6 +613,21 @@ globalThis.__rmslValueTypes = {
   uintAttribute: () => {
     const shift = attribute("uint");
     return glsl(Fn(() => vec4(0, 1, 0, 1))(), (a) => a.setAttribute(shift, Uint32Array.of(0, 0, 0)), shiftedVertex(shift));
+  },
+  // Each vertex's matrix has columns (0, 0) and (1, 0), so its second column
+  // gives the green. The draw names no count, so it counts by the matrix.
+  matrixAttribute: () => {
+    const columns = attribute("mat2");
+    const green = varying("float");
+    const vertex = Fn(() => {
+      green.assign(columns.mul(vec2(0, 1)).x);
+      builtinPosition().assign(vec4(position, 1));
+    })();
+    return glsl(Fn(() => vec4(0, green, 0, 1))(), () => {}, vertex, (adapter) => {
+      adapter.setAttribute(columns, Float32Array.of(0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0));
+      adapter.setAttribute(position, TRIANGLE);
+      adapter.draw();
+    });
   },
   intAttributeWithoutData: () => {
     const shift = attribute("int");
@@ -722,6 +737,13 @@ describe.skipIf(!GPU_ENABLED)("an adapter takes a value of every type its progra
     },
     120_000,
   );
+
+  /**
+   * @canon spec-the-glsl-adapter-points-each-column-of-a-matrix-attribute-at-its-column
+   */
+  it("draws with a mat2 attribute through createGlsl, counted by the matrix", async () => {
+    expect(await glslValueType("matrixAttribute")).toEqual(GREEN);
+  }, 120_000);
 
   /**
    * @canon spec-a-webgl-draw-gives-an-attribute-with-no-data-a-fresh-value

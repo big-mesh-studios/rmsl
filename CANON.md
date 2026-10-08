@@ -165,6 +165,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-test-is-held-to-its-own-programs`](#spec-a-test-is-held-to-its-own-programs) — The evaluation harness compares the programs a test records on every target after that test, so a target that disagrees fails the test that made the program, and the file's last comparison takes only the programs no test compared.
     - [`@spec a-program-wasm-refuses-names-its-issue`](#spec-a-program-wasm-refuses-names-its-issue) — A recorded program the WASM target refuses fails the run, unless the list of known refusals names it with the issue that tracks it. A listed program that compiles fails the run too.
   - [`@spec a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type) — A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A format no buffer of its own can carry, a raw integer array, and a width no format covers are refused.
+  - [`@spec the-glsl-adapter-points-each-column-of-a-matrix-attribute-at-its-column`](#spec-the-glsl-adapter-points-each-column-of-a-matrix-attribute-at-its-column) — `createGlsl` takes a matrix attribute as one flat array that holds each vertex's columns one after another. It points the location of each column at that column, and counts a draw's vertices by the whole matrix.
   - [`@spec wgsl-brackets-a-bitwise-operand-that-is-not-unary`](#spec-wgsl-brackets-a-bitwise-operand-that-is-not-unary) — On WGSL, the compiler brackets each operand of a bitwise or shift operator that is not a unary expression.
   - [`@spec wgsl-brackets-a-logical-operator-nested-in-another`](#spec-wgsl-brackets-a-logical-operator-nested-in-another) — On WGSL, the compiler brackets an `&&` or `||` that is the operand of another logical operator.
   - [`@spec wgsl-converts-a-shift-amount-to-unsigned`](#spec-wgsl-converts-a-shift-amount-to-unsigned) — On WGSL, the compiler converts a signed shift amount to `u32`, and a scalar amount beside a vector to a `u32` vector of its width.
@@ -1700,6 +1701,14 @@ This follows because the suite evaluates every program it records on every targe
 Derives from: [`fact-a-webgpu-vertex-stride-is-a-multiple-of-four`](#fact-a-webgpu-vertex-stride-is-a-multiple-of-four)
 
 This follows because a format one renderer reads as another type would make the two draw differently.
+
+### @spec the-glsl-adapter-points-each-column-of-a-matrix-attribute-at-its-column
+
+> `createGlsl` takes a matrix attribute as one flat array that holds each vertex's columns one after another. It points the location of each column at that column, and counts a draw's vertices by the whole matrix.
+
+Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads)
+
+This follows because GLSL gives a matrix attribute one location for each column, and each location reads only its own column.
 
 ### @spec wgsl-brackets-a-bitwise-operand-that-is-not-unary
 
