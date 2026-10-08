@@ -1,6 +1,7 @@
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, afterAll, afterEach } from "vitest";
 import {
   evaluateRecording,
+  assertEvaluationsOfTheTestAgree,
   assertRecordedEvaluationsAgree,
   closeEvaluators,
   type CpuOnlyReason,
@@ -124,6 +125,9 @@ function evalScalar(
 function evalMatrix(build: (...args: Node<"float">[]) => any, args: number[] = []): Float64Array {
   return evaluateRecording(build as any, args) as Float64Array;
 }
+
+// Each test's programs are compared after it, so a disagreement fails the test that made the program.
+afterEach(assertEvaluationsOfTheTestAgree, 120_000);
 
 afterAll(async () => {
   await assertRecordedEvaluationsAgree();

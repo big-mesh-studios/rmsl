@@ -11,6 +11,7 @@ import { fxaa, gaussianBlur, getGaussianCoefficients, rgbShift, transition } fro
 import { fromProgram, render, runner } from "../test";
 import { compileWat, precompileJS, precompileShaders, precompileWasm } from "../vite/vite";
 import {
+  assertEvaluationsOfTheTestAgree,
   assertRecordedEvaluationsAgree,
   closeEvaluators,
   evaluateRecording,
@@ -21,6 +22,9 @@ import { GPU_ENABLED } from "../testing/gpu";
 import { sweepWGSL } from "../testing/integer-sweep";
 import cpuFnsSource from "../vite/fixtures/cpu-fns.ts?raw";
 import wasmFnsSource from "../vite/fixtures/wasm-fns.ts?raw";
+
+// Each test's programs are compared after it, so a disagreement fails the test that made the program.
+afterEach(assertEvaluationsOfTheTestAgree, 120_000);
 
 afterAll(async () => {
   await assertRecordedShadersValid();
@@ -114,6 +118,21 @@ describe("the harness checks what it recorded", () => {
     },
     120_000,
   );
+
+  /**
+   * @canon spec-a-test-is-held-to-its-own-programs
+   */
+  it("compares the programs recorded since the last comparison, and only those", async () => {
+    const { harness } = await freshHarness(true);
+    // The build reads the sign when a target compiles it, so JS and WASM compile programs that disagree.
+    let sign = -1;
+    harness.evaluateRecording((a) => a.mul(sign), [0]);
+    sign = 1;
+    await expect(harness.assertEvaluationsOfTheTestAgree()).rejects.toThrow(/WASM computed 0, CPU computed 0/);
+    harness.evaluateRecording((a) => a.add(1), [3]);
+    await expect(harness.assertEvaluationsOfTheTestAgree()).resolves.toBeUndefined();
+    await expect(harness.assertRecordedEvaluationsAgree()).resolves.toBeUndefined();
+  });
 
   /**
    * @canon spec-a-program-wasm-refuses-names-its-issue

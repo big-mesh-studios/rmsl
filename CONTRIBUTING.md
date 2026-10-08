@@ -59,6 +59,12 @@ computes the answer before codegen runs.
 Add a case here when operands could plausibly be emitted in the wrong order:
 `min`/`max`, the edge order in `step(edge, x)`.
 
+A file that records programs with `evaluateRecording` registers
+`afterEach(assertEvaluationsOfTheTestAgree)` and
+`afterAll(assertRecordedEvaluationsAgree)`. Each test's programs are compared
+on JS, WASM, GLSL and WGSL right after it, so a target that disagrees fails the
+test that made the program; the `afterAll` fails a file that recorded none.
+
 **Types.** `src/rmsl.test-d.ts` asserts what the signatures promise, with
 `expectTypeOf`. Several defects here were a signature saying one thing while
 the node was another — a comparison declared as returning a single boolean

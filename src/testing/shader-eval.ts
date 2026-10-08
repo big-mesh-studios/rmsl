@@ -588,8 +588,25 @@ function currentTestName(): string {
   return expect.getState().currentTestName ?? "<unknown test>";
 }
 
+/** How many of `recordedEvaluations` have been compared, from the start: those recorded since are the current test's. */
+let compared = 0;
+
 /**
- * Replay every recorded program on the GPU backends and report disagreements.
+ * Compare the programs recorded since the last comparison, which are the
+ * current test's, on every target. Called from a file's `afterEach`, so a
+ * disagreement fails the test whose program caused it, and a tool that maps
+ * tests to what they check sees the comparison in that test.
+ */
+export async function assertEvaluationsOfTheTestAgree(): Promise<void> {
+  const items = recordedEvaluations.slice(compared);
+  compared = recordedEvaluations.length;
+  await compareEvaluations(items);
+}
+
+/**
+ * Compare every recorded program not compared yet on every target, and refuse
+ * a file that recorded none. Called from a file's `afterAll`, after its
+ * `afterEach` has compared each test's own programs.
  *
  * Compared against the CPU result rather than against a separately written
  * expectation, because the caller already pinned that result with an assertion
@@ -597,7 +614,6 @@ function currentTestName(): string {
  * whose answer is already known to be right.
  */
 export async function assertRecordedEvaluationsAgree(): Promise<void> {
-  const runnable = recordedEvaluations.filter((r) => r.cpuOnly === undefined);
   // Recording nothing is not the same as everything agreeing. A file that
   // stopped going through the shared helper would otherwise finish green having
   // checked one backend of three, which is the arrangement this replaced.
@@ -606,7 +622,20 @@ export async function assertRecordedEvaluationsAgree(): Promise<void> {
       `Evaluated no programs at all. Either the run was filtered down to tests that evaluate nothing, or a test file stopped calling the shared evaluation helper in src/testing/shader-eval.ts. Set RMSL_SKIP_SHADER_EVALUATION=1 if skipping evaluation is what you meant.`,
     );
   }
+  const items = recordedEvaluations.slice(compared);
+  compared = recordedEvaluations.length;
+  await compareEvaluations(items);
+  if (GPU_EVALUATION_SKIPPED) {
+    const runnable = recordedEvaluations.filter((r) => r.cpuOnly === undefined).length;
+    process.stderr.write(
+      `\n[shader-eval] SKIPPED — ${runnable} programs ran on the CPU and WASM targets only; neither shading language was evaluated.\n`,
+    );
+  }
+}
 
+/** Compare `items` on every target, and throw naming each one a target disagrees about. */
+async function compareEvaluations(items: readonly RecordedEvaluation[]): Promise<void> {
+  const runnable = items.filter((r) => r.cpuOnly === undefined);
   const failures: string[] = [];
 
   // WASM needs neither a browser nor a graphics device, so — unlike GLSL/WGSL
@@ -636,11 +665,7 @@ export async function assertRecordedEvaluationsAgree(): Promise<void> {
     }
   }
 
-  if (GPU_EVALUATION_SKIPPED) {
-    process.stderr.write(
-      `\n[shader-eval] SKIPPED — ${runnable.length} programs ran on the CPU and WASM targets only; neither shading language was evaluated.\n`,
-    );
-  } else if (runnable.length > 0) {
+  if (!GPU_EVALUATION_SKIPPED && runnable.length > 0) {
     for (const item of runnable) {
       let glsl: number | number[];
       let wgsl: number | number[];

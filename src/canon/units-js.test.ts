@@ -1,7 +1,7 @@
 import { Session } from "node:inspector/promises";
 import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   attribute,
   bool,
@@ -59,8 +59,16 @@ import {
   createWasmGrid,
   createWasmRoutine,
 } from "../wasm";
-import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } from "../testing/shader-eval";
+import {
+  assertEvaluationsOfTheTestAgree,
+  assertRecordedEvaluationsAgree,
+  closeEvaluators,
+  evaluateRecording,
+} from "../testing/shader-eval";
 import type { ComputeStage, FragmentStage, VertexStage } from "../backends/cpu";
+
+// Each test's programs are compared after it, so a disagreement fails the test that made the program.
+afterEach(assertEvaluationsOfTheTestAgree, 120_000);
 
 afterAll(async () => {
   profiler?.disconnect();

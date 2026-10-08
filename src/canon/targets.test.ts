@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   attribute,
   cross,
@@ -50,7 +50,15 @@ import { compileGlsl } from "../glsl";
 import { compileWgsl } from "../wgsl";
 import { compileJS, compileJSRoutine, createJsGrid, compileJSFragment, compileJSVertex } from "../js";
 import { compileWasm, compileWasmRoutine, createWasmGrid, compileWasmFragment, compileWasmVertex } from "../wasm";
-import { assertRecordedEvaluationsAgree, closeEvaluators, evaluateRecording } from "../testing/shader-eval";
+import {
+  assertEvaluationsOfTheTestAgree,
+  assertRecordedEvaluationsAgree,
+  closeEvaluators,
+  evaluateRecording,
+} from "../testing/shader-eval";
+
+// Each test's programs are compared after it, so a disagreement fails the test that made the program.
+afterEach(assertEvaluationsOfTheTestAgree, 120_000);
 
 afterAll(async () => {
   await assertRecordedEvaluationsAgree();
