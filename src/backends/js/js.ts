@@ -371,6 +371,11 @@ export function jsHelperSource(name: string): string {
       return `function _udiv(a, b) {\n  return b === 0 ? a : (a / b) >>> 0;\n}`;
     case "umod":
       return `function _umod(a, b) {\n  return b === 0 ? 0 : a % b;\n}`;
+    // What an input the host leaves out is read from: no inputs of a kind, and the components of a vector or matrix.
+    case "none":
+      return `const _none = {};`;
+    case "zeros":
+      return `const _zeros = new Float64Array(16);`;
     // A typed array's own set copies without boxing what it reads, whatever kind of array the source is.
     case "copy":
       return `function _copy(src, out) {\n  if (src.length === out.length && ArrayBuffer.isView(out)) out.set(src);\n  else for (let i = 0; i < src.length; i++) out[i] = src[i];\n  return out;\n}`;
@@ -884,6 +889,9 @@ export function jsCompileOperand(node: any, ctx: CompileCtx): CompiledNode {
 /** A leaf reference read as a value — copied into the target under out-mode. */
 export function jsLeafRef(expr: string, brand: string | undefined, ctx: CompileCtx): CompiledNode {
   if (ctx.outTarget && jsIsArrayType(brand)) {
+    if (JS_INPUT_BY_NAME.test(expr)) {
+      return { decls: [], body: jsCopyInput(expr, ctx.outTarget, brand!, ctx), expr: ctx.outTarget };
+    }
     jsRequireHelper(ctx, "copy");
     return { decls: [], body: [`_copy(${expr}, ${ctx.outTarget});`], expr: ctx.outTarget };
   }
@@ -1317,6 +1325,9 @@ export function compileJSStage(node: any, ctx: CompileCtx): CompiledNode {
     ctx.jsReadsSlot = outer || ctx.jsReadsSlot;
     return result;
   }
+  if (JS_INPUT_BY_NAME.test(result.expr) && !jsIsArrayType(node?._t) && node?.type !== "uniformArray") {
+    result = { ...result, expr: jsInputScalar(result.expr, node._t, ctx), prec: PREC_ATOM };
+  }
   let read = result.expr;
   result = jsTypedInput(node, result, ctx);
   if (ctx.jsFloat32) result = jsRound32(node, result, ctx);
@@ -1415,18 +1426,38 @@ function jsTypedInput(node: any, result: CompiledNode, ctx: CompileCtx): Compile
   let temp = jsNewTemp(ctx, t);
   // Copied here, one line a component: this load sees only the arrays this input arrives in, so it
   // stays specialised, where one shared copy would see every kind and box what it read.
-  let source = jsIsReference(result.expr) ? result.expr : null;
-  let body = [...result.body];
-  if (!source) {
-    source = jsNewTemp(ctx, "float");
-    body.push(`${source} = ${result.expr};`);
-  }
-  // A copy made before a loop runs whether the read in it does or not, so it reads an input left out as zero.
-  let hoisted = ctx.jsLoopCopies !== undefined && JS_INPUT_BY_NAME.test(source);
-  let at = (i: number) =>
-    hoisted ? `(${source!.replace(/^ctx\.(\w+)\[/, "ctx.$1?.[")}?.[${i}] ?? 0)` : `${source}[${i}]`;
-  for (let i = 0; i < jsArrayLength(t); i++) body.push(`${temp}[${i}] = ${at(i)};`);
-  return { ...result, body, expr: temp };
+  return { ...result, body: [...result.body, ...jsCopyInput(result.expr, temp, t, ctx)], expr: temp };
+}
+
+/**
+ * The lines that copy `read`, a vector or matrix of `type` the host passes,
+ * into `out`, one line a component, reading zeros when the host leaves it out.
+ * The zeros are an array of their own, so a load that only ever sees the
+ * host's arrays stays specialised to them.
+ */
+function jsCopyInput(read: string, out: string, type: string, ctx: CompileCtx): string[] {
+  jsRequireHelper(ctx, "zeros");
+  let source = jsNewTemp(ctx, "float");
+  let lines = [`${source} = ${jsInputRead(read, ctx)} ?? _zeros;`];
+  for (let i = 0; i < jsArrayLength(type); i++) lines.push(`${out}[${i}] = ${source}[${i}];`);
+  return lines;
+}
+
+/**
+ * `read`, a read of an input the host passes by name, which is undefined when
+ * the host leaves out the input or every input of its kind. It reads through an
+ * empty object rather than optional chaining, which V8 can box a number through.
+ */
+function jsInputRead(read: string, ctx: CompileCtx): string {
+  let match = /^ctx\.(\w+)(\[.*)$/.exec(read);
+  if (!match) return read;
+  jsRequireHelper(ctx, "none");
+  return `(ctx.${match[1]} ?? _none)${match[2]}`;
+}
+
+/** `read`, a scalar input the host passes by name, which reads zero, or false for a bool, when the host leaves it out. */
+function jsInputScalar(read: string, type: string | undefined, ctx: CompileCtx): string {
+  return `(${jsInputRead(read, ctx)} ?? ${type === "bool" ? "false" : "0"})`;
 }
 
 /**
@@ -1661,16 +1692,30 @@ export function compileJSNode(
     case "uniformArrayElement": {
       let arr = jsCompileOperand(node.params![0], ctx);
       let idx = jsCompileOperand(node.params![1], ctx);
-      let element = `${arr.expr}[${idx.expr}]`;
-      if (ctx.outTarget && jsIsArrayType(node._t)) {
-        jsRequireHelper(ctx, "copy");
+      let body = [...arr.body, ...idx.body];
+      // An index below zero or past the end reaches the last element.
+      let last = (node.params![0].value as any).length - 1;
+      let at = idx.expr;
+      if (!/^\d+$/.test(at)) {
+        at = jsNewTemp(ctx, "int");
+        body.push(`${at} = ${idx.expr};`, `if (${at} < 0 || ${at} > ${last}) ${at} = ${last};`);
+      }
+      // An element past the end of a shorter array the host passes, or of one it leaves out, reads zero.
+      jsRequireHelper(ctx, "none");
+      let element = `(${jsInputRead(arr.expr, ctx)} ?? _none)[${at}]`;
+      if (!jsIsArrayType(node._t)) {
         return {
           decls: [...arr.decls, ...idx.decls],
-          body: [...arr.body, ...idx.body, `_copy(${element}, ${ctx.outTarget});`],
-          expr: ctx.outTarget,
+          body,
+          expr: jsInputScalar(element, node._t, ctx),
+          prec: PREC_ATOM,
         };
       }
-      return { decls: [...arr.decls, ...idx.decls], body: [...arr.body, ...idx.body], expr: element };
+      if (ctx.outTarget) {
+        body.push(...jsCopyInput(element, ctx.outTarget, node._t, ctx));
+        return { decls: [...arr.decls, ...idx.decls], body, expr: ctx.outTarget };
+      }
+      return { decls: [...arr.decls, ...idx.decls], body, expr: element };
     }
 
     case "storage": {

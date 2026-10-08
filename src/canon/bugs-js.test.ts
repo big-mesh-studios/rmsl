@@ -13,7 +13,6 @@ import {
   mat3,
   textureLoad,
   uniform,
-  uniformArray,
   vec3,
   vec4,
   type Node,
@@ -160,18 +159,6 @@ describe("known bugs of the JS target, each failing until its fix", () => {
   });
 
   /**
-   * On JS, a uniform array element read by a run-time index past the end
-   * gives `undefined`.
-   *
-   * @canon bug-js-reads-a-uniform-array-element-out-of-range-as-undefined
-   */
-  it.fails("reads the last element for a run-time index past a uniform array on JS", () => {
-    const items = uniformArray("float", 4);
-    const run = compileJSRoutine((a: any) => Fn(() => items.element(a.toInt()).add(0).toVar())(), param);
-    expect(run({ params: { a: 9 }, uniforms: { [items.name]: [1, 2, 3, 4] } })).toBe(4);
-  });
-
-  /**
    * The JS rasterizer shades a pixel centre on an edge two triangles share
    * with both, so the triangle drawn last wins it.
    *
@@ -199,17 +186,5 @@ describe("known bugs of the JS target, each failing until its fix", () => {
     const draw = flatRasterizer();
     const image = draw(screenAt(-0.5), [1, 0, 0, 1]);
     expect(Array.from(image)).toEqual(new Array(16).fill(0));
-  });
-
-  /**
-   * On JS, an element past the end of a shorter array the call passes reads
-   * as `undefined`, which makes `NaN`.
-   *
-   * @canon bug-js-reads-a-uniform-array-element-the-host-leaves-out-as-nan
-   */
-  it.fails("reads a uniform array element the call leaves out as zero on JS", () => {
-    const items = uniformArray("float", 3);
-    const run = compileJSRoutine(() => Fn(() => items.element(int(2)).add(0).toVar())(), none);
-    expect(run({ uniforms: { [items.name]: [1, 2] } })).toBe(0);
   });
 });

@@ -18,20 +18,12 @@ import {
   sin,
   textureLoad,
   uniform,
-  uniformArray,
   varying,
   vec2,
   vec3,
   vec4,
 } from "../rmsl";
-import {
-  compileWasm,
-  compileWasmFn,
-  compileWasmRoutine,
-  createWasmCompute,
-  createWasmGrid,
-  compileWasmFragment,
-} from "../wasm";
+import { compileWasm, compileWasmFn, compileWasmRoutine, createWasmCompute, createWasmGrid } from "../wasm";
 
 const none = { name: "main", params: [] };
 const param = { name: "main", params: [{ name: "a", type: "float" as const }] };
@@ -92,23 +84,6 @@ describe("known WASM bugs, each failing until its fix", () => {
     expect(Array.from(routine.draw({ attributes: { [pos.name]: screen() } }, { width: 1, height: 1 }))).toEqual([
       5, 0, 0, 1,
     ]);
-  });
-
-  /**
-   * A uniform array element at a run-time index out of range reads whatever
-   * memory lies there, and traps below zero.
-   *
-   * @canon bug-wasm-reads-a-uniform-array-element-out-of-range-from-foreign-memory
-   */
-  it.fails("reads the last element of a uniform array for an index out of range on WASM", () => {
-    const arr = uniformArray("float", 2);
-    const routine = compileWasmRoutine((i: any) => Fn(() => arr.element(i).add(0).toVar())(), {
-      name: "main",
-      params: [{ name: "i", type: "int" }],
-    });
-    const uniforms = { [arr.name]: [3, 4] };
-    expect(routine({ params: { i: 2 }, uniforms })).toBe(4);
-    expect(routine({ params: { i: -1 }, uniforms })).toBe(4);
   });
 
   /**
@@ -226,19 +201,6 @@ describe("known WASM bugs, each failing until its fix", () => {
   });
 
   /**
-   * A routine leaves a vector or matrix uniform the call does not set as the
-   * last call wrote it, where an unset scalar uniform reads zero.
-   *
-   * @canon bug-wasm-keeps-an-aggregate-uniform-the-call-leaves-out
-   */
-  it.fails("reads a vector uniform the call leaves out as zero on WASM", () => {
-    const u = uniform("vec2");
-    const routine = compileWasmRoutine(() => Fn(() => u.x.add(0).toVar())(), none);
-    routine({ uniforms: { [u.name]: [3, 0] } });
-    expect(routine({ uniforms: {} })).toBe(0);
-  });
-
-  /**
    * An integer texture sampled at a float coordinate reads zero, where the
    * GPU targets and JS truncate the coordinate to a texel.
    *
@@ -249,42 +211,6 @@ describe("known WASM bugs, each failing until its fix", () => {
     const routine = compileWasmRoutine(() => Fn(() => tex.texture(vec2(0.75, 0.25)).x.toVar())(), none);
     const texture = { data: [10, 20, 30, 40], width: 2, height: 2, channels: 1 as const };
     expect(routine({ textures: { [tex.name]: texture } })).toBe(10);
-  });
-
-  /**
-   * A scalar varying the host leaves out reads as `NaN`.
-   *
-   * @canon bug-wasm-reads-an-unset-scalar-input-as-nan
-   */
-  it.fails("reads a scalar varying the host leaves out as zero on WASM", () => {
-    const v = varying("float");
-    const routine = compileWasmFragment(() => Fn(() => v.add(1).toVar())(), { ...none });
-    expect(routine({})).toBe(1);
-  });
-
-  /**
-   * A vector varying the host leaves out throws a `TypeError` while the
-   * routine writes it into memory.
-   *
-   * @canon bug-wasm-throws-on-an-unset-aggregate-input
-   */
-  it.fails("reads a vector varying the host leaves out as zero on WASM", () => {
-    const v = varying("vec2");
-    const routine = compileWasmFragment(() => Fn(() => v.x.add(1).toVar())(), { ...none });
-    expect(routine({})).toBe(1);
-  });
-
-  /**
-   * An element past the end of a shorter array the call passes keeps the
-   * value an earlier call wrote there.
-   *
-   * @canon bug-wasm-keeps-a-uniform-array-element-the-call-leaves-out
-   */
-  it.fails("reads a uniform array element the call leaves out as zero on WASM", () => {
-    const arr = uniformArray("float", 3);
-    const routine = compileWasmRoutine(() => Fn(() => arr.element(int(2)).add(0).toVar())(), none);
-    routine({ uniforms: { [arr.name]: [1, 2, 3] } });
-    expect(routine({ uniforms: { [arr.name]: [1, 2] } })).toBe(0);
   });
 
   /**

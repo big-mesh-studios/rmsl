@@ -32,7 +32,9 @@ import {
   TWO_PI,
   uint,
   uniform,
+  uniformArray,
   uvec2,
+  varying,
   vec2,
   vec3,
   vec4,
@@ -867,10 +869,96 @@ describe("each leaf on every target it claims", () => {
   /**
    * @canon spec-an-unset-uniform-reads-zero
    */
-  it("reads a uniform the host never set as zero on WASM", () => {
-    const u = uniform("float");
-    const build = () => Fn(() => u.add(1).toVar())();
-    expect(compileWasmRoutine(build, none)({})).toBe(1);
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ] as const)("reads a scalar, vector or matrix uniform the host never set as zero on %s", (_, compile) => {
+    const s = uniform("float");
+    const v = uniform("vec2");
+    const m = uniform("mat2");
+    const build = () =>
+      Fn(() =>
+        s
+          .add(v.x)
+          .add(m.element(int(1)).y)
+          .add(1)
+          .toVar(),
+      )() as any;
+    const routine = compile(build, none);
+    expect(routine({})).toBe(1);
+    expect(routine({ uniforms: {} })).toBe(1);
+    // A call that leaves out what an earlier call set reads zero too.
+    expect(routine({ uniforms: { [s.name]: 2, [v.name]: [3, 0], [m.name]: [0, 0, 0, 4] } })).toBe(10);
+    expect(routine({ uniforms: {} })).toBe(1);
+  });
+
+  /**
+   * @canon spec-a-uniform-array-element-the-host-leaves-out-reads-zero
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ] as const)("reads an element past the end of a shorter uniform array as zero on %s", (_, compile) => {
+    const items = uniformArray("float", 3);
+    const pairs = uniformArray("vec2", 2);
+    const build = () =>
+      Fn(() =>
+        items
+          .element(int(2))
+          .add(pairs.element(int(1)).y)
+          .toVar(),
+      )() as any;
+    const routine = compile(build, none);
+    expect(
+      routine({
+        uniforms: {
+          [items.name]: [1, 2, 3],
+          [pairs.name]: [
+            [0, 0],
+            [0, 4],
+          ],
+        },
+      }),
+    ).toBe(7);
+    expect(routine({ uniforms: { [items.name]: [1, 2], [pairs.name]: [[0, 0]] } })).toBe(0);
+    expect(routine({})).toBe(0);
+  });
+
+  /**
+   * @canon spec-a-run-time-index-past-a-uniform-array-reaches-its-last-element
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as typeof compileJSRoutine],
+  ] as const)("reads the last element of a uniform array for a run-time index out of range on %s", (_, compile) => {
+    const items = uniformArray("float", 2);
+    const pairs = uniformArray("vec2", 2);
+    const build = (i: any) => Fn(() => items.element(i).add(pairs.element(i).y).toVar())() as any;
+    const routine = compile(build, { name: "main", params: [{ name: "i", type: "int" }] });
+    const uniforms = {
+      [items.name]: [3, 4],
+      [pairs.name]: [
+        [0, 10],
+        [0, 20],
+      ],
+    };
+    expect(routine({ params: { i: 2 }, uniforms })).toBe(24);
+    expect(routine({ params: { i: -1 }, uniforms })).toBe(24);
+    expect(routine({ params: { i: 0 }, uniforms })).toBe(13);
+  });
+
+  /**
+   * @canon spec-an-input-the-host-leaves-out-reads-zero
+   */
+  it.each([
+    ["JS", compileJSFragment],
+    ["WASM", compileWasmFragment as typeof compileJSFragment],
+  ] as const)("reads a varying or parameter the host leaves out as zero on %s", (_, compile) => {
+    const s = varying("float");
+    const v = varying("vec2");
+    const build = (p: any) => Fn(() => vec4(s.add(v.y).add(p).add(1), 0, 0, 1))() as any;
+    const fragment = compile(build, { name: "main", params: [{ name: "p", type: "float" }] }) as any;
+    expect(Array.from(fragment({}).value)).toEqual([1, 0, 0, 1]);
   });
 
   /**

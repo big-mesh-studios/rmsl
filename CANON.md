@@ -110,8 +110,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cpu-target-filters-by-the-magnification-filter-alone`](#spec-a-cpu-target-filters-by-the-magnification-filter-alone) — A CPU target filters a texture as its magnification filter asks, and ignores its minification filter.
   - [`@spec every-root-of-a-program-keeps-its-effects`](#spec-every-root-of-a-program-keeps-its-effects) — A program compiled from several roots runs the statements of every root, each once, the statements they share included.
   - [`@spec an-unset-uniform-reads-zero`](#spec-an-unset-uniform-reads-zero) — A uniform the host never set reads as zero on every target.
-    - [`@bug js-reads-an-unset-uniform-as-nan`](#bug-js-reads-an-unset-uniform-as-nan) — On JS, a uniform the host never set reads as `NaN`, and a context with no `uniforms` throws.
-    - [`@bug wasm-keeps-an-aggregate-uniform-the-call-leaves-out`](#bug-wasm-keeps-an-aggregate-uniform-the-call-leaves-out) — A routine keeps a vector or matrix uniform the call does not set as the last call wrote it. An unset scalar uniform reads zero.
   - [`@spec an-integer-reaches-the-host-as-the-integer-it-is`](#spec-an-integer-reaches-the-host-as-the-integer-it-is) — An `int` or `uint` passes between the host and a program as the integer it is. A `uint` above the largest `int` stays unsigned, in a uniform and in a storage buffer read back.
   - [`@axiom a-cpu-target-gives-what-webgpu-gives`](#axiom-a-cpu-target-gives-what-webgpu-gives) — Where the targets could give different results, the CPU targets give the result WebGPU gives. Where WebGL and WebGPU differ, rmsl follows WebGPU, and an exception names where WebGL departs. Where WebGPU itself leaves a result open, rmsl picks one, and the GPU targets are the exception.
     - [`@spec a-float-converted-to-an-integer-clamps-to-its-range`](#spec-a-float-converted-to-an-integer-clamps-to-its-range) — Converting a float to `int` or `uint` truncates it toward zero and clamps the result to the range WebGPU clamps to, and a NaN gives 0. For `int`, that range runs from -2147483648 to 2147483520, the largest `int` a 32-bit float holds exactly.
@@ -146,8 +144,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@bug js-writes-a-vector-component-out-of-range-past-its-end`](#bug-js-writes-a-vector-component-out-of-range-past-its-end) — On JS, a write to a vector component by a run-time index past the end adds a component, rather than writing the last one.
       - [`@exception a-gpu-target-lets-the-driver-pick-an-element-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range) — On GLSL and WGSL, a run-time index out of range reaches whatever element the driver picks.
       - [`@spec a-run-time-index-past-a-uniform-array-reaches-its-last-element`](#spec-a-run-time-index-past-a-uniform-array-reaches-its-last-element) — On a CPU target, a uniform array element read by a run-time index past the end reads the last element.
-        - [`@bug js-reads-a-uniform-array-element-out-of-range-as-undefined`](#bug-js-reads-a-uniform-array-element-out-of-range-as-undefined) — On JS, a uniform array element read by a run-time index past the end gives `undefined`.
-        - [`@bug wasm-reads-a-uniform-array-element-out-of-range-from-foreign-memory`](#bug-wasm-reads-a-uniform-array-element-out-of-range-from-foreign-memory) — A uniform array element at a run-time index out of range reads whatever memory lies there, and traps below zero.
     - [`@spec length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one`](#spec-length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one) — `length` of a scalar is its absolute value, `distance` of two scalars is the absolute value of their difference, and `dot` of two scalars is their product, on every target.
     - [`@spec length-distance-and-dot-take-only-floats`](#spec-length-distance-and-dot-take-only-floats) — `length`, `distance` and `dot` take a float or a float vector, and `distance` and `dot` take two of one type. An integer, unsigned or boolean argument, scalar or vector, a matrix, or a scalar beside a vector is a type error, and building the graph throws, naming the conversion where one exists.
     - [`@spec normalizing-a-zero-vector-gives-it-back`](#spec-normalizing-a-zero-vector-gives-it-back) — `normalize` of a vector of length zero gives the zero vector.
@@ -178,8 +174,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
   - [`@spec wgsl-converts-a-shift-amount-to-unsigned`](#spec-wgsl-converts-a-shift-amount-to-unsigned) — On WGSL, the compiler converts a signed shift amount to `u32`, and a scalar amount beside a vector to a `u32` vector of its width.
   - [`@spec wgsl-splats-a-scalar-bitwise-operand-beside-a-vector`](#spec-wgsl-splats-a-scalar-bitwise-operand-beside-a-vector) — On WGSL, the compiler converts a scalar right operand of `&`, `|` or `^` to the type of the vector beside it.
   - [`@spec a-uniform-array-element-the-host-leaves-out-reads-zero`](#spec-a-uniform-array-element-the-host-leaves-out-reads-zero) — An element past the end of a shorter array the host passes for a uniform array reads zero.
-    - [`@bug wasm-keeps-a-uniform-array-element-the-call-leaves-out`](#bug-wasm-keeps-a-uniform-array-element-the-call-leaves-out) — A WASM routine keeps an element past the end of a shorter array the call passes as an earlier call wrote it.
-    - [`@bug js-reads-a-uniform-array-element-the-host-leaves-out-as-nan`](#bug-js-reads-a-uniform-array-element-the-host-leaves-out-as-nan) — On JS, an element past the end of a shorter array the call passes reads as `undefined`, which makes `NaN`.
 - [`@axiom a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs) — A program that cannot work is refused before it runs. The type checker refuses it wherever the types can express the mistake, and the compiler refuses it on every target. The refusal names the cause, and the fix where one exists.
   - [`@spec an-assignment-is-refused-unless-the-program-can-write-its-target`](#spec-an-assignment-is-refused-unless-the-program-can-write-its-target) — An assignment whose target the program cannot write is refused. Every target refuses it with the same message, and the type checker refuses it wherever the type of the target shows it.
     - [`@spec a-var-can-be-assigned`](#spec-a-var-can-be-assigned) — A program can assign a variable, a stage output and a storage element. It can also assign a component, a column or a swizzle of one that names each component once. A var goes wherever a node goes.
@@ -589,8 +583,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec render-draws-the-only-member-of-an-output-struct`](#spec-render-draws-the-only-member-of-an-output-struct) — `render` draws the member of an `outputStruct` that a fragment stage returns, when it has exactly one member.
     - [`@spec a-grid-writes-a-discarded-pixel-as-zero`](#spec-a-grid-writes-a-discarded-pixel-as-zero) — `fill` of a CPU grid writes a pixel whose fragment discards as zero in every channel.
     - [`@spec an-input-the-host-leaves-out-reads-zero`](#spec-an-input-the-host-leaves-out-reads-zero) — A parameter, attribute or varying the host leaves out of the context reads zero.
-      - [`@bug wasm-reads-an-unset-scalar-input-as-nan`](#bug-wasm-reads-an-unset-scalar-input-as-nan) — A scalar varying the host leaves out reads as `NaN`.
-      - [`@bug wasm-throws-on-an-unset-aggregate-input`](#bug-wasm-throws-on-an-unset-aggregate-input) — A vector varying the host leaves out throws a `TypeError` while the routine writes it into memory.
     - [`@spec a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array`](#spec-a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array) — A CPU routine returns a matrix as one flat typed array, which holds its columns one after another.
     - [`@spec a-cpu-compiler-calls-its-builder-once`](#spec-a-cpu-compiler-calls-its-builder-once) — `compileJSRoutine` and `compileWasmRoutine` call the builder the caller passes once for each compile.
     - [`@spec a-grid-fills-a-float64-array-for-a-float-result`](#spec-a-grid-fills-a-float64-array-for-a-float-result) — `fill` of a CPU grid whose result is a float or a float vector returns a `Float64Array`, or a `Float32Array` at `float: "f32"`. An `out` the caller passes is that array too, and is filled with the same values wherever it lies, in the WASM module's own memory included. An `out` of another kind of array is refused.
@@ -1363,18 +1355,6 @@ This follows because a root that lost its statements would compute something els
 
 This follows because a value the host left out must not make the targets disagree.
 
-#### @bug js-reads-an-unset-uniform-as-nan
-
-> On JS, a uniform the host never set reads as `NaN`, and a context with no `uniforms` throws.
-
-Issue: #71
-
-#### @bug wasm-keeps-an-aggregate-uniform-the-call-leaves-out
-
-> A routine keeps a vector or matrix uniform the call does not set as the last call wrote it. An unset scalar uniform reads zero.
-
-Issue: #114
-
 ### @spec an-integer-reaches-the-host-as-the-integer-it-is
 
 > An `int` or `uint` passes between the host and a program as the integer it is. A `uint` above the largest `int` stays unsigned, in a uniform and in a storage buffer read back.
@@ -1584,18 +1564,6 @@ Derives from: [`fact-an-index-out-of-range-is-left-to-the-gpu`](#fact-an-index-o
 
 This follows because a uniform array is indexed as a vector is, and its parent gives every run-time index past the end the last element.
 
-###### @bug js-reads-a-uniform-array-element-out-of-range-as-undefined
-
-> On JS, a uniform array element read by a run-time index past the end gives `undefined`.
-
-Issue: #85
-
-###### @bug wasm-reads-a-uniform-array-element-out-of-range-from-foreign-memory
-
-> A uniform array element at a run-time index out of range reads whatever memory lies there, and traps below zero.
-
-Issue: #85
-
 #### @spec length-distance-and-dot-of-a-scalar-treat-it-as-a-vector-of-one
 
 > `length` of a scalar is its absolute value, `distance` of two scalars is the absolute value of their difference, and `dot` of two scalars is their product, on every target.
@@ -1777,18 +1745,6 @@ This follows because WGSL broadcasts no scalar across a vector for a bitwise ope
 Derives from: [`spec-an-unset-uniform-reads-zero`](#spec-an-unset-uniform-reads-zero)
 
 This follows because an element the host leaves out is a uniform it never set, and an unset uniform reads zero.
-
-#### @bug wasm-keeps-a-uniform-array-element-the-call-leaves-out
-
-> A WASM routine keeps an element past the end of a shorter array the call passes as an earlier call wrote it.
-
-Issue: #125
-
-#### @bug js-reads-a-uniform-array-element-the-host-leaves-out-as-nan
-
-> On JS, an element past the end of a shorter array the call passes reads as `undefined`, which makes `NaN`.
-
-Issue: #125
 
 ## @axiom a-mistake-is-refused-before-the-program-runs
 
@@ -4085,18 +4041,6 @@ This follows because the grid has a slot for every pixel, and a discarded fragme
 Derives from: [`spec-a-cpu-program-reads-its-inputs-by-slot`](#spec-a-cpu-program-reads-its-inputs-by-slot), [`spec-an-unset-uniform-reads-zero`](#spec-an-unset-uniform-reads-zero)
 
 This follows because an input the host leaves out has no value, and zero is what an unset uniform reads.
-
-##### @bug wasm-reads-an-unset-scalar-input-as-nan
-
-> A scalar varying the host leaves out reads as `NaN`.
-
-Issue: #114
-
-##### @bug wasm-throws-on-an-unset-aggregate-input
-
-> A vector varying the host leaves out throws a `TypeError` while the routine writes it into memory.
-
-Issue: #114
 
 #### @spec a-cpu-routine-returns-a-matrix-as-its-columns-in-one-array
 
