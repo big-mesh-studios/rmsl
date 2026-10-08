@@ -406,11 +406,6 @@ export function compileWasm(
     return 0;
   }
 
-  function clearDepthBuffer(depthBufferBase: number): void {
-    const view = new DataView(memory.buffer);
-    for (let i = 0; i < frameCapacityPixels; i++) view.setFloat64(depthBufferBase + i * 8, Infinity, true);
-  }
-
   function draw(ctx: WasmRasterContext, options: WasmRasterDrawOptions): CpuDrawBuffer {
     const { width, height, out } = options;
     const first = options.first ?? 0;
@@ -469,7 +464,7 @@ export function compileWasm(
     if (movesTo !== undefined && previousBase !== undefined) {
       new Uint8Array(memory.buffer).copyWithin(movesTo, previousBase, previousBase + previousBytes);
     }
-    if (needsClear) clearDepthBuffer(depthBufferBase);
+    if (needsClear) new Float64Array(memory.buffer, depthBufferBase, frameCapacityPixels).fill(Infinity);
     // An image of another size lies at other pixels, so a draw of that size starts from a transparent one.
     if (!out && (width !== imageWidth || height !== imageHeight)) {
       new Float64Array(memory.buffer, imageBase, neededPixels * 4).fill(0);
