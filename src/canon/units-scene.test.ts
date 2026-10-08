@@ -139,6 +139,31 @@ describe("a scene renderer manages what it uploads", () => {
   /**
    * @canon spec-an-attribute-two-geometries-share-uploads-into-each
    */
+  it("gives a buffer that missed a range upload every change since its version on WebGPU", () => {
+    const { device, canvas, bytesOf } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const position = new BufferAttribute(new Float32Array(12), 3);
+    const first = new BufferGeometry().setAttribute("position", position);
+    const second = new BufferGeometry().setAttribute("position", position);
+    renderer.ensureGeometryBuffers(first);
+    const buffers = renderer.ensureGeometryBuffers(second);
+    const array = position.array as Float32Array;
+    array[0] = 1;
+    position.addUpdateRange(0, 3);
+    position.needsUpdate = true;
+    renderer.ensureGeometryBuffers(first);
+    array[9] = 2;
+    position.addUpdateRange(9, 3);
+    position.needsUpdate = true;
+    renderer.ensureGeometryBuffers(second);
+
+    const held = new Float32Array(bytesOf(buffers.attributes.get("position")).buffer);
+    expect([held[0], held[9]]).toEqual([1, 2]);
+  });
+
+  /**
+   * @canon spec-an-attribute-two-geometries-share-uploads-into-each
+   */
   it("uploads an attribute two geometries share into the buffers of both on WebGL", () => {
     const { renderer, calls } = stubWebGl();
     const position = new BufferAttribute(new Float32Array(9), 3);

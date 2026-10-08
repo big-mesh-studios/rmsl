@@ -45,6 +45,7 @@ import {
   imageHeight,
   imageLoaded,
   imageWidth,
+  HeldBuffers,
 } from "./common";
 
 interface PipelineEntry {
@@ -153,13 +154,9 @@ export class WebGPURenderer {
    * Each renderer keeps its own, so a change reaches every renderer that draws
    * the object, as three.js keeps it per renderer.
    */
-  private uploadedVersions = new WeakMap<Texture | BufferAttribute, number>();
-  /**
-   * The attribute each buffer holds, and the version of it. A buffer belongs to
-   * one geometry, so an attribute two geometries share uploads into each.
-   */
-  private heldAttributes = new WeakMap<GPUBuffer, BufferAttribute>();
-  private heldVersions = new WeakMap<GPUBuffer, number>();
+  private uploadedVersions = new WeakMap<Texture, number>();
+  /** The attribute each vertex and index buffer holds, and the version of it. */
+  private held = new HeldBuffers<GPUBuffer>();
   /**
    * Samplers by the state they were made for, not by texture: a sampler holds
    * no image, so every texture filtered and wrapped the same way shares one.
@@ -690,37 +687,32 @@ export class WebGPURenderer {
     for (const name in geometry.attributes) {
       const attribute = geometry.attributes[name]!;
       const previous = buffers.attributes.get(name);
-      if (previous && this.holds(previous, attribute)) continue;
+      if (previous && this.held.holds(previous, attribute)) continue;
       const data = toBufferView(attribute.array);
       const buffer = this.bufferFitting(previous, data, GPUBufferUsage.VERTEX);
       buffers.attributes.set(name, buffer);
-      this.writeAttribute(buffer, data, attribute, this.heldAttributes.get(buffer) !== attribute);
+      this.writeAttribute(buffer, data, attribute);
     }
     const index = geometry.index;
-    if (index && !(buffers.index && this.holds(buffers.index, index))) {
+    if (index && !(buffers.index && this.held.holds(buffers.index, index))) {
       const data = toBufferView(index.array, true);
       buffers.index = this.bufferFitting(buffers.index ?? undefined, data, GPUBufferUsage.INDEX);
-      this.writeAttribute(buffers.index, data, index, this.heldAttributes.get(buffers.index) !== index);
+      this.writeAttribute(buffers.index, data, index);
       buffers.indexFormat = (data as Uint16Array | Uint32Array).BYTES_PER_ELEMENT === 2 ? "uint16" : "uint32";
     }
     return buffers;
   }
 
   /**
-   * Writes `attribute`'s data into `buffer`: whole when the buffer is new or
-   * when no range is marked, and otherwise each range `addUpdateRange` marked,
-   * merged as three.js merges them. The ranges are cleared afterwards, as
-   * three.js clears them.
+   * Writes `attribute`'s data into `buffer`: each range `addUpdateRange`
+   * marked, merged as three.js merges them, when those ranges hold every change
+   * the buffer lacks, and otherwise the whole of it. The ranges are cleared
+   * afterwards, as three.js clears them.
    */
-  private writeAttribute(
-    buffer: GPUBuffer,
-    data: ArrayBufferView<ArrayBuffer>,
-    attribute: BufferAttribute,
-    whole: boolean,
-  ): void {
+  private writeAttribute(buffer: GPUBuffer, data: ArrayBufferView<ArrayBuffer>, attribute: BufferAttribute): void {
     const ranges = mergedUpdateRanges(attribute);
     const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-    if (whole || ranges.length === 0) {
+    if (!this.held.rangesSuffice(buffer, attribute) || ranges.length === 0) {
       this.writeBytes(buffer, bytes, 0, bytes.length);
     } else {
       const element = (data as unknown as { BYTES_PER_ELEMENT: number }).BYTES_PER_ELEMENT;
@@ -731,14 +723,7 @@ export class WebGPURenderer {
         if (count > 0) this.writeBytes(buffer, bytes, start * element, (start + count) * element);
       }
     }
-    attribute.clearUpdateRanges();
-    this.heldAttributes.set(buffer, attribute);
-    this.heldVersions.set(buffer, attribute.version);
-  }
-
-  /** Whether `buffer` holds `attribute` at its current version. */
-  private holds(buffer: GPUBuffer, attribute: BufferAttribute): boolean {
-    return this.heldAttributes.get(buffer) === attribute && this.heldVersions.get(buffer) === attribute.version;
+    this.held.record(buffer, attribute);
   }
 
   /** The last word of a write that runs past its data, padded with zeros; `writeBuffer` copies it at once. */
@@ -874,13 +859,11 @@ export class WebGPURenderer {
       return buffers.attributes.get(name) ?? null;
     }
     let buffer = this.attributeBuffers.get(attr);
-    if (!buffer || this.uploadedVersions.get(attr) !== attr.version) {
+    if (!buffer || !this.held.holds(buffer, attr)) {
       const data = toBufferView(attr.array);
-      const previous = buffer;
       buffer = this.bufferFitting(buffer, data, GPUBufferUsage.VERTEX);
       this.attributeBuffers.set(attr, buffer);
-      this.writeAttribute(buffer, data, attr, buffer !== previous);
-      this.uploadedVersions.set(attr, attr.version);
+      this.writeAttribute(buffer, data, attr);
     }
     return buffer;
   }

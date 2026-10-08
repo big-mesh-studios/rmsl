@@ -36,6 +36,7 @@ import {
   vertexFormatOf,
   drawSlice,
   imageLoaded,
+  HeldBuffers,
 } from "./common";
 
 interface ProgramEntry {
@@ -81,12 +82,8 @@ export class WebGLRenderer {
    * the object, as three.js keeps it per renderer.
    */
   private uploadedVersions = new WeakMap<Texture, number>();
-  /**
-   * The attribute each buffer holds, and the version of it. A buffer belongs to
-   * one geometry, so an attribute two geometries share uploads into each.
-   */
-  private heldAttributes = new WeakMap<WebGLBuffer, BufferAttribute>();
-  private heldVersions = new WeakMap<WebGLBuffer, number>();
+  /** The attribute each vertex and index buffer holds, and the version of it. */
+  private held = new HeldBuffers<WebGLBuffer>();
   /**
    * Whether each texture was last uploaded for an integer sampler. A sampler of
    * the other kind needs another format and other filters, so it uploads again.
@@ -767,10 +764,8 @@ export class WebGLRenderer {
         if (ownedByGeometry) buffers.attributes.set(attribute.name, buffer);
         else this.attributeBuffers.set(attr, buffer);
       }
-      // An attribute the buffer does not hold, one that replaced another under its name included, goes up whole.
-      const held = this.heldAttributes.get(buffer) === attr;
-      if (!held || this.heldVersions.get(buffer) !== attr.version) {
-        buffer = this.uploadAttribute(gl, gl.ARRAY_BUFFER, buffer, toBufferView(attr.array), attr, !held);
+      if (!this.held.holds(buffer, attr)) {
+        buffer = this.uploadAttribute(gl, gl.ARRAY_BUFFER, buffer, toBufferView(attr.array), attr);
         if (ownedByGeometry) buffers.attributes.set(attribute.name, buffer);
         else this.attributeBuffers.set(attr, buffer);
       }
@@ -821,10 +816,9 @@ export class WebGLRenderer {
     const index = geometry.index;
     if (index) {
       const indexBuffer = buffers.index ?? (buffers.index = gl.createBuffer()!);
-      const held = this.heldAttributes.get(indexBuffer) === index;
-      if (!held || this.heldVersions.get(indexBuffer) !== index.version) {
+      if (!this.held.holds(indexBuffer, index)) {
         const data = toBufferView(index.array, true);
-        buffers.index = this.uploadAttribute(gl, gl.ELEMENT_ARRAY_BUFFER, indexBuffer, data, index, !held);
+        buffers.index = this.uploadAttribute(gl, gl.ELEMENT_ARRAY_BUFFER, indexBuffer, data, index);
       }
       // The element buffer binding must name this geometry's indices when the
       // draw runs, whatever the previous draw left bound.
@@ -833,11 +827,11 @@ export class WebGLRenderer {
   }
 
   /**
-   * Uploads `attr`'s data into `buffer`: whole when `full` or when no range is
-   * marked, and otherwise each range `addUpdateRange` marked, merged as
-   * three.js merges them. The ranges are cleared afterwards, as three.js clears
-   * them, so another buffer holding `attr` takes it whole. Returns the buffer to
-   * keep, which differs from `buffer` when it grew.
+   * Uploads `attr`'s data into `buffer`: each range `addUpdateRange` marked,
+   * merged as three.js merges them, when those ranges hold every change the
+   * buffer lacks, and otherwise the whole of it. The ranges are cleared
+   * afterwards, as three.js clears them. Returns the buffer to keep, which
+   * differs from `buffer` when it grew.
    */
   private uploadAttribute(
     gl: WebGL2RenderingContext,
@@ -845,10 +839,9 @@ export class WebGLRenderer {
     buffer: WebGLBuffer,
     data: ArrayBufferView,
     attr: BufferAttribute,
-    full: boolean,
   ): WebGLBuffer {
     const ranges = mergedUpdateRanges(attr);
-    if (full || ranges.length === 0) {
+    if (!this.held.rangesSuffice(buffer, attr) || ranges.length === 0) {
       buffer = this.uploadSlice(gl, target, buffer, data, { byteOffset: 0, byteEnd: data.byteLength });
     } else {
       const bytes = (data as unknown as { BYTES_PER_ELEMENT: number }).BYTES_PER_ELEMENT;
@@ -858,9 +851,7 @@ export class WebGLRenderer {
         buffer = this.uploadSlice(gl, target, buffer, data, { byteOffset, byteEnd });
       }
     }
-    attr.clearUpdateRanges();
-    this.heldAttributes.set(buffer, attr);
-    this.heldVersions.set(buffer, attr.version);
+    this.held.record(buffer, attr);
     return buffer;
   }
 

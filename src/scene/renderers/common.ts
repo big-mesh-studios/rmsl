@@ -492,3 +492,46 @@ export function drawSlice(range: { start: number; count: number }, total: number
   slice.count = Math.max(0, Math.min(range.start + range.count, total) - slice.start);
   return slice;
 }
+
+/**
+ * The version of each attribute at which a renderer last cleared its update
+ * ranges. The ranges marked since cover every change after that version.
+ */
+const rangesClearedAt = new WeakMap<BufferAttribute, number>();
+
+/**
+ * What each GPU buffer of a renderer holds: an attribute, at a version. A
+ * buffer belongs to one geometry, or to one object's instanced attribute, so
+ * an attribute two geometries share uploads into each.
+ */
+export class HeldBuffers<Buffer extends object> {
+  private readonly attributes = new WeakMap<Buffer, BufferAttribute>();
+  private readonly versions = new WeakMap<Buffer, number>();
+
+  /** Whether `buffer` holds `attribute` at its current version. */
+  holds(buffer: Buffer, attribute: BufferAttribute): boolean {
+    return this.attributes.get(buffer) === attribute && this.versions.get(buffer) === attribute.version;
+  }
+
+  /**
+   * Whether the update ranges marked on `attribute` cover every change
+   * `buffer` lacks: it holds the attribute at a version no older than the one
+   * at which the ranges were last cleared. Otherwise the attribute uploads whole.
+   */
+  rangesSuffice(buffer: Buffer, attribute: BufferAttribute): boolean {
+    const version = this.versions.get(buffer);
+    return (
+      this.attributes.get(buffer) === attribute &&
+      version !== undefined &&
+      version >= (rangesClearedAt.get(attribute) ?? -1)
+    );
+  }
+
+  /** Records that `buffer` now holds `attribute` at its version, and clears its ranges, as three.js clears them. */
+  record(buffer: Buffer, attribute: BufferAttribute): void {
+    this.attributes.set(buffer, attribute);
+    this.versions.set(buffer, attribute.version);
+    attribute.clearUpdateRanges();
+    rangesClearedAt.set(attribute, attribute.version);
+  }
+}
