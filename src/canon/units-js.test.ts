@@ -440,6 +440,36 @@ describe("a varying a CPU vertex stage does not write", () => {
       expect(Array.from(skipped.varyings[pair.name])).toEqual([0, 0]);
     }
   });
+
+  /**
+   * @canon spec-a-cpu-vertex-stage-gives-zero-for-a-varying-a-call-does-not-write
+   */
+  it("is 0 for the vertices of a draw that do not write it, on both rasterizers", () => {
+    const position = attribute("vec3");
+    const flag = attribute("float");
+    const shade = varying("float");
+    const vertex = () =>
+      Fn(() => {
+        If(flag.greaterThan(0.5), () => {
+          shade.assign(float(1));
+        });
+        builtinPosition().assign(vec4(position, 1));
+      })() as any;
+    const fragment = () => Fn(() => vec4(shade, 0, 0, 1))() as any;
+    const ctx = {
+      attributes: {
+        [position.name]: Float64Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0),
+        [flag.name]: Float64Array.of(1, 0, 0),
+      },
+    };
+    const options = { width: 4, height: 4 };
+    const js = compileJS(vertex, fragment, { attributeTypes: { [position.name]: "vec3", [flag.name]: "float" } });
+    const wasm = compileWasm(vertex, fragment);
+    const drawn = Array.from(js.draw(ctx, options));
+    // Only the first vertex writes the varying, so it fades from 1 there to 0 at the others.
+    expect(drawn.filter((_, i) => i % 4 === 0).some((red) => red < 1)).toBe(true);
+    expect(Array.from(wasm.draw(ctx, options))).toEqual(drawn);
+  });
 });
 
 describe("the varyings a JS rasterizer interpolates", () => {
