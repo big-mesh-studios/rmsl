@@ -5,7 +5,7 @@ sketch, not a committed roadmap item — no phase number depends on it. It
 came out of a conversation about where RMSL's CPU/GPU backend split could
 go next, starting from the observation that a byte layout derived from a
 `ShaderType` is a real code entity (`src/backends/wasm/wasm.ts`'s Phase 3 memory
-design, `src/backends/rmsl-wgsl.ts`'s `wgslUniformLayout`) that today gets computed
+design, `src/backends/wgsl/wgsl.ts`'s `wgslUniformLayout`) that today gets computed
 independently, and slightly differently, in more than one place. Stage 1
 (the behavior-preserving refactor, `src/layout.ts`) proved the
 placement _algorithm_ can be shared. Stage 2 tried to prove the actual
@@ -30,7 +30,7 @@ WASM), but "the byte layout of a `vec3`/`mat4`/instance struct" is not one
 of the things that gets shared across them. Three real, separate
 implementations already exist:
 
-- **`wgslUniformLayout`** (`src/backends/rmsl-wgsl.ts:216`) computes WGSL's
+- **`wgslUniformLayout`** (`src/backends/wgsl/wgsl.ts`) computes WGSL's
   uniform-address-space layout rules (16-byte array-stride rounding, widened
   storage for anything too narrow to align) so the generated `struct` and
   whatever writes the actual uniform buffer agree on offsets. Its own
@@ -50,7 +50,7 @@ implementations already exist:
   attribute would take both numbers from the attribute rather than deriving
   them here"), so there's no multi-member placement problem here yet, only
   a third place computing one value's own byte size. GLSL/WebGL uniforms
-  don't go through a packed buffer at all — `rmsl-glsl.ts` emits one
+  don't go through a packed buffer at all — `src/backends/glsl/glsl.ts` emits one
   `uniform` declaration per value, set individually via `gl.uniformXfv`,
   so there's nothing to pack there either, unless this ever adopts WebGL2
   uniform buffer objects.
@@ -188,7 +188,7 @@ changing what address an existing packed-only value gets today.
 ## Stage 1 — landed
 
 `src/layout.ts` now has `planLayout(members, rules)`.
-`wgslUniformLayout` (`src/backends/rmsl-wgsl.ts`) is a thin wrapper over
+`wgslUniformLayout` (`src/backends/wgsl/wgsl.ts`) is a thin wrapper over
 `planLayout(members, WGSL_UNIFORM_RULES)` — same reordering, same
 array-widening, same offsets it always produced, now expressed as an
 `AllocRules` value instead of hard-coded into the function. Phase 3's WASM
@@ -246,10 +246,10 @@ parts:
   a GPU-placed uniform gets _two_ addresses — the caller's raw, narrow one
   (touched only by one small promotion step) and an ordinary packed
   scratch address like every other uniform gets (touched by everything
-  else, exactly as before). No other emit function in `rmsl-wasm.ts` (the
+  else, exactly as before). No other emit function in `src/backends/wasm/wasm.ts` (the
   ones for `dot`, swizzles, `emitConstructStores`, ...) needed to change at
   all — they were never aware a narrower representation existed, and still
-  aren't. `GpuUniformLayout`'s doc comment in `rmsl-wasm.ts` has the full
+  aren't. `GpuUniformLayout`'s doc comment in `src/backends/wasm/wasm.ts` has the full
   before/after.
 - **What's left is real, not a bug**: reading a GPU-placed uniform is only
   as precise as `f32` allows — `0.1` comes back as `Math.fround(0.1)`, not
