@@ -330,10 +330,11 @@ export function compileWasm(
   let attrCursor = 0;
   const attrLayout = attrParams.map((p) => {
     const kind = componentKindOf(p.shaderType);
-    const sizeBytes = componentCountOf(p.shaderType) * componentBytes(kind);
+    const componentCount = componentCountOf(p.shaderType);
+    const sizeBytes = componentCount * componentBytes(kind);
     const offset = attrCursor;
     attrCursor += sizeBytes;
-    return { slot: p.slot, offset, sizeBytes, kind, destAddress: p.address };
+    return { slot: p.slot, offset, sizeBytes, componentCount, kind, destAddress: p.address };
   });
   const attrStrideBytes = attrCursor;
 
@@ -391,6 +392,18 @@ export function compileWasm(
   let depthWidth = 0;
   let depthHeight = 0;
 
+  /**
+   * The vertices from `first` on that the first attribute the host passes holds,
+   * or 0 when it passes none the program reads.
+   */
+  function inferCount(attributes: WasmRasterContext["attributes"], first: number): number {
+    for (const slot in attributes) {
+      const layout = attrLayout.find((a) => a.slot === slot);
+      return layout ? Math.floor(attributes[slot]!.length / layout.componentCount) - first : 0;
+    }
+    return 0;
+  }
+
   function clearDepthBuffer(): void {
     if (depthBufferBase === undefined) return;
     const view = new DataView(memory.buffer);
@@ -400,11 +413,7 @@ export function compileWasm(
   function draw(ctx: WasmRasterContext, options: WasmRasterDrawOptions): CpuDrawBuffer {
     const { width, height, out } = options;
     const first = options.first ?? 0;
-    const firstAttr = attrLayout[0];
-    const inferredCount = firstAttr
-      ? Math.floor(ctx.attributes[firstAttr.slot]!.length / (firstAttr.sizeBytes / 8)) - first
-      : 0;
-    const vertexCount = options.count ?? inferredCount;
+    const vertexCount = options.count ?? inferCount(ctx.attributes, first);
     const sharedCtx = { uniforms: ctx.uniforms, textures: ctx.textures } as CpuShaderContext;
     // Every region is sized before anything is written, so the depth buffer can
     // be moved out of the way of the others first.
@@ -464,8 +473,7 @@ export function compileWasm(
     for (const a of attrLayout) {
       const src = ctx.attributes[a.slot];
       if (!src) throw new Error(`[RMSL] compileWasm: draw() is missing attribute "${a.slot}"`);
-      const size = componentBytes(a.kind);
-      const componentCount = a.sizeBytes / size;
+      const componentCount = a.componentCount;
       for (let v = 0; v < vertexCount; v++) {
         const base = attrSrcBase + v * attrStrideBytes + a.offset;
         const srcIndex = (v + first) * componentCount;

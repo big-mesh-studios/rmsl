@@ -1549,6 +1549,32 @@ describe("the fragments a CPU rasterizer draws", () => {
   });
 
   /**
+   * The host passes the integer attribute first, which holds one triangle, and
+   * the positions, which the program reads first, two. A count taken from
+   * anything but the integer attribute's components draws the second.
+   *
+   * @canon spec-a-rasterizer-takes-its-count-from-the-first-attribute
+   */
+  it.each(rasterizers)("%s: counts the vertices of an integer first attribute", (_, compileRaster) => {
+    const id = attribute("int");
+    const pos = attribute("vec2");
+    const routine = compileRaster(
+      () => Fn(() => builtinPosition().assign(vec4(pos.x, pos.y, id.toFloat().mul(0), 1)))() as any,
+      () => Fn(() => vec4(1, 0, 0, 1))() as any,
+      { attributeTypes: { [id.name]: "int", [pos.name]: "vec2" } },
+    );
+    const left = [-1, -1, 0, -1, -1, 3];
+    const right = [0, -1, 2, -1, 0, 3];
+    const reds = Array.from(
+      routine.draw(
+        { attributes: { [id.name]: Int32Array.of(0, 0, 0), [pos.name]: new Float64Array([...left, ...right]) } },
+        { width: 2, height: 1 },
+      ),
+    ).filter((_, i) => i % 4 === 0);
+    expect(reds).toEqual([1, 0]);
+  });
+
+  /**
    * @canon spec-a-cpu-rasterizer-draws-no-pixel-for-a-fragment-stage-that-writes-no-colour
    * @canon spec-a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear
    */
