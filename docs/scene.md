@@ -124,12 +124,48 @@ object, material) and build the WebGPU uniform-buffer layout.
 
 ## Renderers
 
+Both renderers clear to `scene.background` when it is a `Color`, and to the
+colour `setClearColor` set when it is `null`, the default, as in three.js. They
+clear even when the scene has nothing to draw. They draw opaque meshes in
+scene-graph order, then transparent meshes (`material.transparent = true`) from
+the farthest to the nearest, so each blends over what lies behind it. A mesh
+whose world matrix mirrors it, such as one scaled by -1 along an axis, winds
+its front face clockwise, as in three.js, so its material's `side` shows the
+same faces it shows unmirrored.
+
 ### WebGLRenderer
 
 `new WebGLRenderer(canvas?, options?)` — WebGL2. Options: `antialias`,
-`depth`, and `precision` (`"highp" | "mediump" | "lowp"`, default `"highp"`).
+`depth`, `precision` (`"highp" | "mediump" | "lowp"`, default `"highp"`), and
+`preserveState`.
+
+The renderer sets each piece of WebGL state it reads, so it draws over any
+state the application left. Before a frame it sets the colour mask, blend
+equation, depth function and depth range as a fresh context has them, and the
+front face for each draw, and turns off the scissor, stencil, discard, polygon offset, coverage and
+dithering switches, as a WebGPU draw has them. It gives each attribute a shader
+declares that the geometry lacks the value (0, 0, 0, 1), draws to the canvas's
+back buffer, sets the unpack parameters before a texture upload, and sets the
+pack parameters before a readback. It leaves
+that state as it set it: after `render`, its program, its framebuffer and its
+blend and depth state are still bound, and a texture upload leaves the unpack
+alignment at 1. Code that shares the context sets what it reads.
+
+With `preserveState: true`, `render`, `readPixels` and `readPixelsAsync` put
+back the state they changed before they return: the framebuffer, program,
+vertex array and buffer bindings, the viewport, clear colour, colour mask,
+scissor, depth, blend and cull state, the attribute values they set, the
+active texture unit and the textures of each unit they used, and the pack and
+unpack parameters. That costs a few state queries per call, and the viewport,
+clear colour, colour mask, depth range and each attribute value come back as a
+new array. `createGlsl(vertex, fragment, { preserveState: true
+})` does the same for its own calls; a `createGlsl` draw covers its canvas and
+blends, depth-tests and culls nothing, as a `createWgsl` draw does. The
+renderer draws from a vertex array of its own either way, so it never changes
+the application's.
+
 `setClearColor`, `setSize`, `setAnimationLoop`, `render(scene, camera)`.
-Programs are compiled per material and cached; geometry buffers per geometry;
+Programs are compiled per material and cached; vertex and index buffers per attribute;
 uniforms are uploaded per draw, grouped by scope:
 
 - **camera** — `projectionMatrix`, `viewMatrix`, `cameraPosition`
@@ -148,7 +184,10 @@ confirms the transfer landed, typically a frame or a few later.
 
 ### WebGPURenderer
 
-`await WebGPURenderer.init(canvas?)`. Same API. Uniform values are packed into
+`await WebGPURenderer.init(canvas?)`. Same API, except that `readPixels(target,
+out?)` returns a promise, since WebGPU reads a texture back only
+asynchronously; it gives the same RGBA bytes, the bottom row first, as the
+WebGL renderer's. Uniform values are packed into
 per-program ring buffers using the same layout the WGSL compiler emits, so
 per-draw writes never race the previous draw.
 
@@ -173,6 +212,11 @@ texture.wrapT = RepeatWrapping;
   `RepeatWrapping` or `MirroredRepeatWrapping`. `wrapR` is the third axis of a
   3D texture and is ignored for a 2D one.
 
+A `DataTexture` of `FloatType` (`new DataTexture(floats, w, h, 1, RGBAFormat,
+FloatType)`) holds its `Float32Array` as 32-bit floats, as in three.js. It
+filters linearly where the device can (`OES_texture_float_linear` on WebGL,
+`float32-filterable` on WebGPU) and reads its nearest texel elsewhere.
+
 Both renderers read these when they upload, so a change made after the first
 render needs `texture.needsUpdate = true` to take effect — the same rule as a
 change to the image.
@@ -196,11 +240,15 @@ Three things to know:
 ### Texture lifetime
 
 A renderer creates the GPU texture behind a `Texture` the first time it draws
-with it, and uploads the image again on the next render whenever
-`needsUpdate` is set, at a new size if the image changed shape. Pointing a
-material at a _different_ `Texture` object instead needs
-`material.needsUpdate = true`, so the renderer rebuilds what the shader reads
-from.
+with it, and uploads the image again on the next render after
+`texture.needsUpdate = true`, at a new size if the image changed shape. As in
+three.js, setting `needsUpdate` raises the texture's `version`, and each
+renderer compares it with the version it uploaded, so every renderer that draws
+the texture takes the change; reading `needsUpdate` gives `undefined`. The same
+holds for a material and a buffer attribute. Pointing a material at a
+_different_ `Texture` object instead needs `material.needsUpdate = true`, so
+the renderer rebuilds what the shader reads from, for every kind of mesh that
+draws the material.
 
 `texture.dispose()` gives the GPU texture back:
 
@@ -221,10 +269,16 @@ renderer holds at once.
 ### Geometry lifetime
 
 A renderer creates the vertex and index buffers behind a `BufferGeometry` the
-first time it draws with it, and keys them by the geometry object — so filling
-the same geometry again (`needsUpdate` on an attribute) reuses the buffers it
-already has, and a growing attribute re-allocates only when the data no longer
-fits.
+first time it draws with it, one for each attribute and keyed by the attribute
+object, as three.js keys them — so filling the same attribute again
+(`needsUpdate`) reuses the buffer it already has, an attribute that several
+geometries share uploads once into the one buffer they all draw from, and a
+growing attribute re-allocates only when the data no longer fits. Mark the
+part of an attribute that changed with
+`attribute.addUpdateRange(start, count)`, in elements, as in three.js, and the
+renderer uploads only those ranges, merged where they touch; with none marked
+it uploads the whole attribute. It clears the ranges once it uploads them, so a
+second renderer that missed them uploads the whole attribute.
 
 That cache holds the geometry, so a geometry dropped from the scene keeps its
 buffers, and the arrays its attributes point at, alive for as long as the
@@ -237,8 +291,10 @@ geometry.dispose(); // every renderer that uploaded it frees its buffers
 ```
 
 Like a texture's, it dispatches a `dispose` event that each renderer answers for
-its own GPU objects, and the geometry object stays usable: drawing with it again
-uploads its attributes into fresh buffers. Use it for a geometry that leaves the
+its own GPU objects: the buffers of the attributes and the index the geometry
+holds, as three.js frees them. The geometry object stays usable: drawing with
+it, or with another geometry that shares one of its attributes, uploads the
+attribute into a fresh buffer. Use it for a geometry that leaves the
 scene for good — a chunk of terrain scrolled out of the world, a mesh torn down
 — rather than waiting for `renderer.dispose()`.
 
@@ -392,7 +448,9 @@ See [Testing](testing.md).
 - Custom uniforms must be reachable through the builder so the renderer knows
   their values; a `uniform()` declared deep inside an escape-hatch graph that
   the builder never sees will not be bound.
-- `WebGPURenderer` texture support covers `DataTexture` (and the WebGL renderer
-  additionally accepts `HTMLImageElement`s).
+- Both renderers upload a `DataTexture` and a texture whose image is an image
+  element, video, bitmap or canvas. An image still loading, or a video with no
+  frame yet, reads as blank and uploads at the first render after it has
+  loaded, without `needsUpdate`, as in three.js.
 - The test suite validates every material shader on real Chromium/Dawn drivers
   by default; `RMSL_SKIP_GPU=1` turns that off (see `CONTRIBUTING.md`).

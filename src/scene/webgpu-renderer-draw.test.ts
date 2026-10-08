@@ -181,6 +181,28 @@ globalThis.__rmslGpuInstancedRun = async () => {
 };
 `;
 
+// A red plane over the top half of a render target the clear colour fills, read
+// back: the bottom row comes first, as the WebGL renderer's readPixels gives it.
+const ENTRY_RENDER_TARGET = `
+import { WebGPURenderer, Scene, Mesh, PerspectiveCamera, PlaneGeometry,
+  MeshBasicMaterial, WebGLRenderTarget, Color } from "./index";
+globalThis.__rmslGpuRenderTargetRun = async () => {
+  const renderer = await WebGPURenderer.init();
+  renderer.setClearColor(0x0000ff);
+  const scene = new Scene();
+  const plane = new Mesh(new PlaneGeometry(8, 2), new MeshBasicMaterial({ color: new Color(1, 0, 0) }));
+  plane.position.y = 1;
+  scene.add(plane);
+  const camera = new PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 4);
+  camera.lookAt(0, 0, 0);
+  const target = new WebGLRenderTarget(4, 4);
+  renderer.render(scene, camera, target);
+  const pixels = await renderer.readPixels(target);
+  return { length: pixels.length, bottom: Array.from(pixels.slice(0, 4)), top: Array.from(pixels.slice(12 * 4, 13 * 4)) };
+};
+`;
+
 /** Bundle an entry, run it in the WebGPU page, and hand back what it returned. */
 function runInBrowser(source: string, entryPoint: string): Promise<any> {
   return runInWebGpuPage(source, entryPoint, new URL(".", import.meta.url).pathname);
@@ -237,6 +259,15 @@ describe.skipIf(!WEBGPU)("WebGPURenderer on a real adapter", () => {
     expect(result.left.b).toBeLessThan(60);
     expect(result.right.b).toBeGreaterThan(100);
     expect(result.right.r).toBeLessThan(60);
+  }, 60_000);
+  /**
+   * @canon spec-a-render-target-reads-its-pixels-back
+   */
+  it("draws into a render target and reads its pixels back, the bottom row first", async () => {
+    const result = await runInBrowser(ENTRY_RENDER_TARGET, "__rmslGpuRenderTargetRun");
+    expect(result.length).toBe(4 * 4 * 4);
+    expect(result.bottom).toEqual([0, 0, 255, 255]);
+    expect(result.top).toEqual([255, 0, 0, 255]);
   }, 60_000);
   /**
    * @canon spec-a-changed-texture-shows-on-the-next-render

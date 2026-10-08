@@ -40,6 +40,7 @@ export class Line2NodeMaterial extends NodeMaterial {
   offsetNode?: SlotValue<Node<"float">>;
 
   protected colorUniform?: UniformNode<"vec3">;
+  protected opacityUniform?: UniformNode<"float">;
   protected lineWidthUniform?: UniformNode<"float">;
   protected resolutionUniform?: UniformNode<"vec2">;
   protected dashScaleUniform?: UniformNode<"float">;
@@ -139,6 +140,8 @@ export class Line2NodeMaterial extends NodeMaterial {
 
   protected setup(b: Builder, _scene: Scene): void {
     this.colorUniform = b.materialUniform("materialColor", "vec3", () => this.color.toArray());
+    // A uniform, so an opacity changed after the first render shows without a rebuild.
+    this.opacityUniform = b.materialUniform("materialOpacity", "float", () => this.opacity);
     this.lineWidthUniform = b.materialUniform("materialLineWidth", "float", () => this.linewidth);
     this.resolutionUniform = b.rendererUniform("resolution", "vec2");
     if (this._dashed) {
@@ -345,7 +348,7 @@ export class Line2NodeMaterial extends NodeMaterial {
     if (this._vertexColors) {
       color = color.mul(b.varying("instanceColor", "vec3"));
     }
-    const opacity = resolveSlot(this.opacityNode, b) ?? float(this.opacity);
+    const opacity = resolveSlot(this.opacityNode, b) ?? this.opacityUniform!;
     return vec4(color, opacity);
   }
 }

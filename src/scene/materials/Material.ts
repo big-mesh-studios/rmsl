@@ -44,8 +44,13 @@ export class Material {
   }
 
   private _precision: GLSLPrecision | null = null;
-  /** Whether the renderer should rebuild this material's program. */
-  needsUpdate = false;
+  /** How many times the material was marked changed, as three.js counts it: a renderer rebuilds a program built from an earlier version. */
+  version = 0;
+
+  /** Marks the material changed, raising `version`, as in three.js. Reading it gives `undefined`, as in three.js. */
+  set needsUpdate(value: boolean) {
+    if (value) this.version++;
+  }
 
   readonly isMaterial = true;
 }
