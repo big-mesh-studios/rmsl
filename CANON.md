@@ -368,7 +368,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec bloom-follows-tsl`](#spec-bloom-follows-tsl) — `bloom` gives TSL's pass graph of twelve passes. Its high pass keeps what is brighter than a luminance threshold, or applies a filter the caller gives. Its composite sums five tinted mips, scaled by its strength. `luminosityHighPass` is also available on its own.
     - [`@spec gaussian-blur-weights-follow-tsl`](#spec-gaussian-blur-weights-follow-tsl) — `getGaussianCoefficients(radius)` gives the weights TSL's Gaussian blur uses: for each offset `i` below the radius, `0.39894 · exp(-i² / 2σ²) / σ`, with `σ` a third of the radius.
     - [`@spec an-effect-compiles-as-a-function-of-its-own`](#spec-an-effect-compiles-as-a-function-of-its-own) — An effect compiles with `compileGlslFn` and `compileWgslFn` into a function the application places in its own shader.
-    - [`@bug fxaa-samples-in-non-uniform-control-flow-on-wgsl`](#bug-fxaa-samples-in-non-uniform-control-flow-on-wgsl) — `fxaa` samples its input inside a branch whose condition depends on a sampled value, which WGSL refuses as sampling outside uniform control flow.
     - [`@spec a-number-given-to-an-effect-compiles-as-a-literal`](#spec-a-number-given-to-an-effect-compiles-as-a-literal) — A number given as a parameter of an effect compiles as a literal in the effect's code.
     - [`@spec a-node-given-to-an-effect-is-read-as-given`](#spec-a-node-given-to-an-effect-is-read-as-given) — An effect reads a node the caller passes as a parameter, so a uniform can drive that parameter.
   - [`@spec the-scene-library-follows-three-js`](#spec-the-scene-library-follows-three-js) — The classes of `./scene` behave as the three.js classes of the same names, so a three.js scene ports by changing its import.
@@ -2781,12 +2780,6 @@ This follows because a TSL shader that uses a display effect ports only if the e
 #### @spec an-effect-compiles-as-a-function-of-its-own
 
 > An effect compiles with `compileGlslFn` and `compileWgslFn` into a function the application places in its own shader.
-
-#### @bug fxaa-samples-in-non-uniform-control-flow-on-wgsl
-
-> `fxaa` samples its input inside a branch whose condition depends on a sampled value, which WGSL refuses as sampling outside uniform control flow.
-
-Issue: #98
 
 #### @spec a-number-given-to-an-effect-compiles-as-a-literal
 

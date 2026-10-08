@@ -98,6 +98,18 @@ describe("effects", () => {
   });
 
   /**
+   * FXAA samples where its control flow depends on what it sampled before, so
+   * it reads the base level explicitly, which WGSL allows there. The recorded
+   * shaders are compiled by the GPU compilers after the file.
+   *
+   * @canon spec-a-single-pass-effect-gives-a-colour-node
+   */
+  it("compiles fxaa on GLSL and WGSL", () => {
+    expect(recordingGLSL.fragment(fxaa(uniform("sampler2D")))).toContain("textureLod(");
+    expect(recordingWGSL.fragment(fxaa(uniform("sampler2D")))).toContain("textureSampleLevel(");
+  });
+
+  /**
    * @canon spec-a-number-given-to-an-effect-compiles-as-a-literal
    */
   it.each([

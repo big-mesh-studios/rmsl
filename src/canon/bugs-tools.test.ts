@@ -3,13 +3,9 @@ import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { build } from "esbuild";
-import { Fn, uniform, vec4, type Node } from "../rmsl";
-import { render } from "../test";
-import { compileWgsl } from "../wgsl";
-import { fxaa } from "../effects";
+import { type Node } from "../rmsl";
 import { precompileJS, precompileShaders, precompileWasm } from "../vite/vite";
-import { GPU_ENABLED, gpuDevice, releaseGpu } from "../testing/gpu";
+import { GPU_ENABLED, releaseGpu } from "../testing/gpu";
 import { sweepWGSL } from "../testing/integer-sweep";
 import wasmFnsSource from "../vite/fixtures/wasm-fns.ts?raw";
 
@@ -22,15 +18,6 @@ const FIXTURES = new URL("../vite/fixtures/", import.meta.url).pathname;
 function pluginContext() {
   const emitted: unknown[] = [];
   return { context: { emitFile: (asset: unknown) => `ref${emitted.push(asset) - 1}` }, emitted };
-}
-
-/** What Dawn says about a WGSL shader, or null when it compiles. */
-async function wgslError(code: string): Promise<string | null> {
-  const device = await gpuDevice();
-  device.pushErrorScope("validation");
-  device.createShaderModule({ code });
-  const error = await device.popErrorScope();
-  return error ? error.message : null;
 }
 
 /**
@@ -57,17 +44,6 @@ afterAll(async () => {
 }, 120_000);
 
 describe("known bugs of the tools, each failing until its fix", () => {
-  /**
-   * FXAA samples its texture inside the branch that skips a pixel off an edge,
-   * which depends on sampled luminance, so Dawn refuses the WGSL: "textureSample
-   * must only be called from uniform control flow".
-   *
-   * @canon bug-fxaa-samples-in-non-uniform-control-flow-on-wgsl
-   */
-  it.skipIf(!GPU_ENABLED).fails("compiles fxaa on WGSL", async () => {
-    expect(await wgslError(compileWgsl.fragment(fxaa(uniform("sampler2D"))))).toBeNull();
-  });
-
   /**
    * The plugins cache a result by the source of the module alone, so a module
    * whose import changed gives the result it gave before the change.
