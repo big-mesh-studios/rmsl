@@ -5,6 +5,7 @@ import {
   attachUniformArrayElement,
   claimVarName,
   node,
+  NODE_TYPES,
   someNode,
   storage,
   StorageBufferAttribute,
@@ -41,7 +42,36 @@ export interface SerializedBuffer {
   count: number;
   itemSize: number;
   arrayClass: "Float32Array" | "Int32Array" | "Uint32Array";
-  array: number[];
+  array: (number | NonFiniteNumber)[];
+}
+
+/** A number JSON cannot hold, NaN or an infinity, written out so it survives a round-trip. */
+export interface NonFiniteNumber {
+  nonFinite: "NaN" | "Infinity" | "-Infinity";
+}
+
+/** `value` with every number JSON cannot hold, at any depth, written as a {@link NonFiniteNumber}. */
+function encodeNumbers(value: unknown): unknown {
+  if (typeof value === "number") return Number.isFinite(value) ? value : { nonFinite: String(value) };
+  if (Array.isArray(value)) return value.map(encodeNumbers);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, v]) => [key, encodeNumbers(v)]));
+  }
+  return value;
+}
+
+/** `value` with every {@link NonFiniteNumber}, at any depth, read back as the number it stands for. */
+function decodeNumbers(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(decodeNumbers);
+  if (value !== null && typeof value === "object") {
+    const keys = Object.keys(value);
+    const nonFinite = (value as Partial<NonFiniteNumber>).nonFinite;
+    if (keys.length === 1 && (nonFinite === "NaN" || nonFinite === "Infinity" || nonFinite === "-Infinity")) {
+      return Number(nonFinite);
+    }
+    return Object.fromEntries(Object.entries(value).map(([key, v]) => [key, decodeNumbers(v)]));
+  }
+  return value;
 }
 
 type Root = Node<ShaderType> | readonly Node<ShaderType>[];
@@ -85,7 +115,7 @@ export function serialize(root: Root | (() => Root)): SerializedGraph {
     count: attribute.count,
     itemSize: attribute.itemSize,
     arrayClass: attribute.arrayClass.name as SerializedBuffer["arrayClass"],
-    array: Array.from(attribute.array),
+    array: Array.from(attribute.array, (v) => encodeNumbers(v) as number | NonFiniteNumber),
   }));
 
   // A generated name is saved as a number local to this graph, the same for every node that had it.
@@ -110,7 +140,7 @@ export function serialize(root: Root | (() => Root)): SerializedGraph {
       const { id: _, slot, ...rest } = n.value as { id: number; slot: string };
       entry.value = isGenerated(slot) ? { ...rest, local: local(slot) } : { ...rest, slot };
     } else if (n.value !== undefined) {
-      entry.value = n.value;
+      entry.value = encodeNumbers(n.value);
     }
     if (params) entry.params = params;
     const index = nodes.length;
@@ -137,8 +167,9 @@ export function serialize(root: Root | (() => Root)): SerializedGraph {
  * `uniformRaw()` and `toVar("x")` take, is kept.
  *
  * Throws on data `serialize()` could not have produced: a child, buffer or
- * root index that names nothing, a child listed after the node using it, or
- * an unknown array type.
+ * root index that names nothing, a child listed after the node using it, an
+ * unknown array type, a kind of node rmsl does not have, or a named input
+ * without a name.
  */
 export function deserialize(graph: SerializedGraph): Node<ShaderType> | Node<ShaderType>[] {
   if (!Array.isArray(graph?.nodes) || !Array.isArray(graph.buffers)) {
@@ -152,7 +183,7 @@ export function deserialize(graph: SerializedGraph): Node<ShaderType> | Node<Sha
         `[RMSL] deserialize: buffer ${i} holds a ${b.arrayClass}, not a Float32Array, Int32Array or Uint32Array`,
       );
     }
-    return new Attribute(ArrayClass.from(b.array), b.itemSize);
+    return new Attribute(ArrayClass.from(b.array.map((v) => decodeNumbers(v) as number)), b.itemSize);
   });
 
   const nodes: Node<ShaderType>[] = [];
@@ -186,6 +217,11 @@ function deserializeNode(
   names: Map<number, { id?: number; name: string }>,
   total: number,
 ): Node<ShaderType> {
+  if (!NODE_TYPES.has(entry.type)) {
+    throw new Error(
+      `[RMSL] deserialize: node ${nodes.length} is a "${entry.type}", which is not a kind of node rmsl has`,
+    );
+  }
   if (entry.type === "storage") {
     const value = entry.value as { shaderType: ShaderType; access: StorageAccess; buffer: number };
     const buffer = indexInto(value.buffer, buffers.length, `node ${nodes.length}`, "a buffer");
@@ -202,7 +238,7 @@ function deserializeNode(
     }
     return nodes[indexInto(i, total, `node ${nodes.length}`, "a child")]! as BaseNode<ShaderType>;
   });
-  let value = entry.value as Record<string, unknown> | undefined;
+  let value = decodeNumbers(entry.value) as Record<string, unknown> | undefined;
   let name: string | undefined;
   if (entry.type === "var") {
     const { local, ...rest } = value as { local?: number; varName?: string; varType: string };
@@ -214,8 +250,9 @@ function deserializeNode(
   const named = NAMED[entry.type];
   if (named) {
     const { local, slot, ...rest } = value as { local?: number; slot?: string };
-    if (local === undefined && slot === "")
-      throw new Error(`[RMSL] deserialize: a ${entry.type} node has an empty name`);
+    if (local === undefined && (typeof slot !== "string" || slot === "")) {
+      throw new Error(`[RMSL] deserialize: a ${entry.type} node has no name, neither a slot nor a local one`);
+    }
     const fresh =
       local === undefined
         ? { id: named.draw(), name: slot! }

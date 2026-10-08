@@ -590,11 +590,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-wasm-function-returns-a-vector-result-through-memory`](#spec-a-wasm-function-returns-a-vector-result-through-memory) — A WASM function whose program returns a vector or matrix returns nothing itself and writes the value to a slot in memory.
   - [`@spec a-graph-survives-json`](#spec-a-graph-survives-json) — The function `serialize` turns the graph an `Fn` builds into JSON. Then `deserialize` turns that JSON back into a graph that compiles to the same code, in another process or on another machine.
     - [`@spec a-graph-compiles-the-same-after-json`](#spec-a-graph-compiles-the-same-after-json) — A graph restored from JSON compiles to the same code as the graph it came from, and `serialize` takes the callable an `Fn` returns.
-      - [`@bug a-non-finite-literal-does-not-survive-json`](#bug-a-non-finite-literal-does-not-survive-json) — A literal that is NaN or infinite becomes `null` in JSON, and comes back as a float with no value, so a restored `u + Infinity` computes `u`.
     - [`@spec a-restored-graph-keeps-its-shape`](#spec-a-restored-graph-keeps-its-shape) — A node read in several places stays one node, and what several roots share stays shared. A storage buffer is rebuilt once, with its layout, its contents or none, and its access. A uniform array keeps its length.
-      - [`@bug a-non-finite-buffer-value-does-not-survive-json`](#bug-a-non-finite-buffer-value-does-not-survive-json) — A buffer's contents that are NaN or infinite become `null` in JSON, and the restored buffer holds 0 in their place.
     - [`@spec deserialize-refuses-data-serialize-could-not-have-produced`](#spec-deserialize-refuses-data-serialize-could-not-have-produced) — `deserialize` refuses data that `serialize` could not have produced.
-      - [`@bug deserialize-accepts-unknown-and-unnamed-nodes`](#bug-deserialize-accepts-unknown-and-unnamed-nodes) — `deserialize` accepts a node type no node has, and a uniform with neither a slot nor a local name, and rebuilds a node from each.
 - [`@axiom the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing) — Code that runs once per frame, or once per call of a routine that runs every frame, allocates no memory.
   - [`@spec a-js-routine-allocates-nothing-per-call`](#spec-a-js-routine-allocates-nothing-per-call) — A compiled JS function keeps each vector and matrix it computes in a slot it declares once, outside the function: a variable's, an operation's, and the value it returns. A helper writes into the slot it is given as its last argument. A constant vector or matrix is declared once beside the function. A stage keeps the object it returns its position, varyings and outputs in beside the function too, and clears each of them as a call starts, so a stage output or depth the program does not write on a call is `undefined` in what that call returns, and a varying 0. With `reentrant`, the function declares its slots and that object inside itself, and each call has its own.
   - [`@spec a-js-draw-allocates-nothing-per-vertex-or-fragment`](#spec-a-js-draw-allocates-nothing-per-vertex-or-fragment) — A draw of the JS rasterizer, `compileJS`, allocates nothing for each vertex or fragment it shades. It keeps each vertex's position and varyings, each varying it interpolates for a fragment, and the context it passes each stage in arrays and objects it makes once, and it reads a stage's result where the stage left it. A triangle clipped at the near plane makes the vertices the clip adds.
@@ -4093,33 +4090,15 @@ This follows because a program that runs everywhere has to travel to where it ru
 
 > A graph restored from JSON compiles to the same code as the graph it came from, and `serialize` takes the callable an `Fn` returns.
 
-##### @bug a-non-finite-literal-does-not-survive-json
-
-> A literal that is NaN or infinite becomes `null` in JSON, and comes back as a float with no value, so a restored `u + Infinity` computes `u`.
-
-Issue: #80
-
 #### @spec a-restored-graph-keeps-its-shape
 
 > A node read in several places stays one node, and what several roots share stays shared. A storage buffer is rebuilt once, with its layout, its contents or none, and its access. A uniform array keeps its length.
-
-##### @bug a-non-finite-buffer-value-does-not-survive-json
-
-> A buffer's contents that are NaN or infinite become `null` in JSON, and the restored buffer holds 0 in their place.
-
-Issue: #80
 
 #### @spec deserialize-refuses-data-serialize-could-not-have-produced
 
 > `deserialize` refuses data that `serialize` could not have produced.
 
 Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
-
-##### @bug deserialize-accepts-unknown-and-unnamed-nodes
-
-> `deserialize` accepts a node type no node has, and a uniform with neither a slot nor a local name, and rebuilds a node from each.
-
-Issue: #80
 
 ## @axiom the-frame-path-allocates-nothing
 
