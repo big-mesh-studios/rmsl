@@ -184,6 +184,13 @@ describe.skipIf(!GPU_ENABLED)("adapters drawing into a canvas in a browser", () 
   }, 120_000);
 
   /**
+   * @canon spec-a-webgl-call-sets-the-state-it-reads
+   */
+  it("turns dithering off over a page that turned it on with createGlsl", async () => {
+    expect(await drawn("glslStateKept")).toContain("DITHER");
+  }, 120_000);
+
+  /**
    * @canon spec-a-glsl-adapter-asked-to-preserve-state-puts-it-back
    */
   it("puts back every piece of state it changed with preserveState with createGlsl", async () => {

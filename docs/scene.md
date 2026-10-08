@@ -137,12 +137,13 @@ the farthest to the nearest, so each blends over what lies behind it.
 `preserveState`.
 
 The renderer sets each piece of WebGL state it reads, so it draws over any
-state the application left as on a fresh context: the scissor test, colour
-mask, blend equation, depth function, depth range, front face, and the
-stencil, discard, polygon offset, coverage and dithering switches before a
-frame, the value (0, 0, 0, 1) of each attribute a shader declares that the
-geometry lacks, the canvas's back buffer when it draws to the canvas, the unpack parameters
-before a texture upload, and the pack parameters before a readback. It leaves
+state the application left. Before a frame it sets the colour mask, blend
+equation, depth function, depth range and front face as a fresh context has
+them, and turns off the scissor, stencil, discard, polygon offset, coverage and
+dithering switches, as a WebGPU draw has them. It gives each attribute a shader
+declares that the geometry lacks the value (0, 0, 0, 1), draws to the canvas's
+back buffer, sets the unpack parameters before a texture upload, and sets the
+pack parameters before a readback. It leaves
 that state as it set it: after `render`, its program, its framebuffer and its
 blend and depth state are still bound, and a texture upload leaves the unpack
 alignment at 1. Code that shares the context sets what it reads.

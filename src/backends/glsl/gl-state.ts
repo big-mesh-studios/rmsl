@@ -28,7 +28,10 @@ export const GlState = {
   raster: 1 << 13,
 } as const;
 
-/** The switches a draw reads, with the state each draw of rmsl's sets them to. */
+/**
+ * The switches a draw reads, with the state each draw of rmsl's sets them to:
+ * off, as a fresh context has all but dithering, and as a WGSL draw has them.
+ */
 const SWITCHES = [
   ["SCISSOR_TEST", false],
   ["STENCIL_TEST", false],
@@ -36,7 +39,7 @@ const SWITCHES = [
   ["POLYGON_OFFSET_FILL", false],
   ["SAMPLE_ALPHA_TO_COVERAGE", false],
   ["SAMPLE_COVERAGE", false],
-  ["DITHER", true],
+  ["DITHER", false],
 ] as const;
 
 /** The unpack parameters, with the value each upload of rmsl's reads: tight rows, read as they are. */
@@ -74,7 +77,7 @@ export function setPackState(gl: WebGL2RenderingContext): void {
   for (const [name, value] of PACK) gl.pixelStorei(gl[name], value);
 }
 
-/** Sets the state a clear and a draw read that rmsl never changes per draw, as a fresh context has it. */
+/** Sets the state a clear and a draw read that rmsl never changes per draw, as a WGSL draw has it. */
 export function setRasterState(gl: WebGL2RenderingContext): void {
   for (const [name, on] of SWITCHES) switchTo(gl, gl[name], on);
   gl.colorMask(true, true, true, true);

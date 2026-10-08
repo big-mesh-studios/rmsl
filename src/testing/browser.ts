@@ -131,7 +131,7 @@ const dirtyGlState = (gl) => {
   gl.enable(gl.SAMPLE_ALPHA_TO_COVERAGE);
   gl.enable(gl.SAMPLE_COVERAGE);
   gl.sampleCoverage(0.5, false);
-  gl.disable(gl.DITHER);
+  gl.enable(gl.DITHER);
   gl.depthRange(1, 0);
   for (let i = 0; i < 8; i++) gl.vertexAttrib4f(i, 0.5, 0.5, 0.5, 0.5);
 };

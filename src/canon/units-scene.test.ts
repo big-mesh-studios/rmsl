@@ -1140,6 +1140,18 @@ describe.skipIf(!GPU_ENABLED)("a render depends only on what it is given, on a r
   }, 60_000);
 
   /**
+   * @canon spec-a-webgl-call-sets-the-state-it-reads
+   */
+  it("turns dithering off over a page that turned it on on WebGL", async () => {
+    const changed = await runInGpuPage(
+      ENTRY_PRESERVE_STATE,
+      "__rmslPreserveStateOff",
+      new URL(".", import.meta.url).pathname,
+    );
+    expect(changed).toContain("DITHER");
+  }, 60_000);
+
+  /**
    * @canon spec-a-webgl-renderer-asked-to-preserve-state-puts-it-back
    */
   it("puts back every piece of state it changed with preserveState on WebGL", async () => {
