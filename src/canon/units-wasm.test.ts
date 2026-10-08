@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import wabtInit from "wabt";
 import {
   attribute,
+  builtinFragDepth,
   builtinPosition,
   Discard,
   float,
@@ -593,5 +594,108 @@ describe("a matrix column read on WASM", () => {
     adapter.setAttribute(out.name, data);
     adapter.compute();
     expect(Array.from(data)).toEqual([4, 5, 6, 0, 0, 0]);
+  });
+});
+
+describe("the fragments the WASM rasterizer draws", () => {
+  /**
+   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   */
+  it("lets a discarded fragment leave the depth buffer as it was on WASM", () => {
+    const pos = attribute("vec3");
+    const drop = uniform("float");
+    const color = uniform("vec4");
+    const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))();
+    const fragment = () =>
+      Fn(() => {
+        If(drop.greaterThan(0.5), () => Discard());
+        return color;
+      })();
+    const routine = compileWasm(vertex as any, fragment as any);
+    const draw = (z: number, dropped: number, rgba: number[], clearDepth = false) =>
+      routine.draw(
+        { attributes: { [pos.name]: screen(z) }, uniforms: { [drop.name]: dropped, [color.name]: rgba } },
+        { width: 1, height: 1, clear: true, clearDepth },
+      );
+    draw(0.25, 1, [1, 0, 0, 1], true);
+    expect(Array.from(draw(0.5, 0, [0, 0, 1, 1]))).toEqual([0, 0, 1, 1]);
+  });
+
+  /**
+   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   */
+  it("leaves the pixel of a discarded fragment cleared on WASM", () => {
+    const pos = attribute("vec3");
+    const side = varying("float");
+    const vertex = () =>
+      Fn(() => {
+        side.assign(pos.x);
+        builtinPosition().assign(vec4(pos, 1));
+      })();
+    const fragment = () =>
+      Fn(() => {
+        If(side.greaterThan(0), () => Discard());
+        return vec4(1, 0, 0, 1);
+      })();
+    const routine = compileWasm(vertex as any, fragment as any);
+    const got = routine.draw({ attributes: { [pos.name]: screen() } }, { width: 2, height: 1, clear: true });
+    expect(Array.from(got)).toEqual([1, 0, 0, 1, 0, 0, 0, 0]);
+  });
+
+  /**
+   * @canon spec-a-rasterizer-keeps-the-closer-fragment
+   */
+  it("tests the depth the fragment stage writes on WASM", () => {
+    const pos = attribute("vec3");
+    const depth = uniform("float");
+    const color = uniform("vec4");
+    const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))();
+    const fragment = () =>
+      Fn(() => {
+        builtinFragDepth().assign(depth);
+        return color;
+      })();
+    const routine = compileWasm(vertex as any, fragment as any);
+    const draw = (z: number, d: number, rgba: number[], clearDepth = false) =>
+      routine.draw(
+        { attributes: { [pos.name]: screen(z) }, uniforms: { [depth.name]: d, [color.name]: rgba } },
+        { width: 1, height: 1, clear: true, clearDepth },
+      );
+    // Each depth the fragment writes reverses the order its triangle's own depth gives.
+    draw(0.25, 0.9, [1, 0, 0, 1], true);
+    expect(Array.from(draw(0.5, 0, [0, 0, 1, 1]))).toEqual([0, 0, 1, 1]);
+  });
+
+  /**
+   * @canon spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws
+   */
+  it("gives each fragment the centre of its pixel as fragCoord on WASM", () => {
+    const pos = attribute("vec3");
+    const vertex = () => Fn(() => builtinPosition().assign(vec4(pos, 1)))();
+    const fragment = () => Fn(() => vec4(fragCoord(), 0, 1))();
+    const routine = compileWasm(vertex as any, fragment as any);
+    const got = routine.draw({ attributes: { [pos.name]: screen() } }, { width: 2, height: 1 });
+    expect(Array.from(got)).toEqual([0.5, 0.5, 0, 1, 1.5, 0.5, 0, 1]);
+  });
+
+  /**
+   * @canon spec-a-pixel-on-a-shared-edge-is-shaded-once
+   */
+  it("gives a pixel on a shared edge to one triangle whatever their order on WASM", () => {
+    const { pos, color, routine } = flat();
+    const upper = new Float64Array([-1, 1, 0, 1, -1, 0, 1, 1, 0]);
+    const lower = new Float64Array([-1, 1, 0, -1, -1, 0, 1, -1, 0]);
+    const draw = (triangle: Float64Array, rgba: number[], clear: boolean) =>
+      Array.from(
+        routine.draw(
+          { attributes: { [pos.name]: triangle }, uniforms: { [color.name]: rgba } },
+          { width: 3, height: 3, clear, clearDepth: clear },
+        ),
+      );
+    draw(upper, [1, 0, 0, 1], true);
+    const upperFirst = draw(lower, [0, 0, 1, 1], false);
+    draw(lower, [0, 0, 1, 1], true);
+    const lowerFirst = draw(upper, [1, 0, 0, 1], false);
+    expect(upperFirst).toEqual(lowerFirst);
   });
 });

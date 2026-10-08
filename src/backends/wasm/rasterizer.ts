@@ -39,10 +39,14 @@ export const RASTERIZE_PARAMS = [
   "clippedPositionsOutBase",
   "clippedVaryingsOutBase",
   "depthBufferBase",
+  "writesColour",
+  "fragCoordAddress",
+  "writesFragCoord",
+  "fragDepthAddress",
+  "writesDepth",
+  "discardAddress",
+  "mayDiscard",
 ] as const;
-
-/** The address `rasterize` takes for a fragment stage that writes no colour. */
-const NO_COLOUR = -1;
 
 /**
  * A `vec4` position or fragment color, stored as 4 f64 components.
@@ -336,9 +340,15 @@ export function compileWasm(
     throw new Error("[RMSL] compileWasm: the rasterizer draws a vec4 colour, so fragmentFn cannot declare outputs");
   }
   const positionAddress = positionParam.address;
-  // A fragment stage that writes no colour has no value to copy out: -1 tells
-  // the rasterizer to leave the pixel as it is.
-  const fragmentValueAddress = fragmentValueParam?.address ?? NO_COLOUR;
+  /** The address of what the fragment stage writes or reads, and 1 when it does, 0 when it does not. */
+  const fragmentInput = (kind: "valueMemory" | "fragCoordMemory" | "fragDepthMemory" | "discardMemory") => {
+    const param = fragmentCompiled.params.find((p) => p.kind === kind) as { address: number } | undefined;
+    return [param?.address ?? 0, param ? 1 : 0] as const;
+  };
+  const [fragmentValueAddress, writesColour] = fragmentInput("valueMemory");
+  const [fragCoordAddress, writesFragCoord] = fragmentInput("fragCoordMemory");
+  const [fragDepthAddress, writesDepth] = fragmentInput("fragDepthMemory");
+  const [discardAddress, mayDiscard] = fragmentInput("discardMemory");
 
   const missingInFragment = vertexVaryingParams.filter((v) => !fragmentVaryingParams.some((f) => f.slot === v.slot));
   if (missingInFragment.length > 0) {
@@ -422,6 +432,9 @@ export function compileWasm(
 
   let depthBufferBase: number | undefined;
   let depthCapacityPixels = 0;
+  /** The size of the draw the depth buffer holds, whose pixels another size would read at the wrong places. */
+  let depthWidth = 0;
+  let depthHeight = 0;
 
   function clearDepthBuffer(): void {
     if (depthBufferBase === undefined) return;
@@ -471,7 +484,10 @@ export function compileWasm(
     // size without a copy on each draw.
     const neededDepthPixels = width * height;
     const outgrown = neededDepthPixels > depthCapacityPixels;
-    const needsClear = depthBufferBase === undefined || outgrown || options.clearDepth !== false;
+    const resized = width !== depthWidth || height !== depthHeight;
+    const needsClear = depthBufferBase === undefined || outgrown || resized || options.clearDepth !== false;
+    depthWidth = width;
+    depthHeight = height;
     const movesTo = depthBufferBase === undefined || cursor > depthBufferBase ? cursor : undefined;
     const previous = { base: depthBufferBase, pixels: depthCapacityPixels };
     if (movesTo !== undefined) depthBufferBase = movesTo;
@@ -518,7 +534,10 @@ export function compileWasm(
       })),
     );
 
-    if (options.clear !== false) {
+    if (options.clear === false && out) {
+      // A draw that keeps what lies under it, given a buffer, draws over what that buffer holds.
+      new Float64Array(memory.buffer, outputBase, width * height * 4).set(out.subarray(0, width * height * 4));
+    } else if (options.clear !== false) {
       const [r, g, b, a] = options.clearColor ?? TRANSPARENT_BLACK;
       const output = new Float64Array(memory.buffer, outputBase, width * height * 4);
       for (let i = 0; i < output.length; i += 4) {
@@ -549,6 +568,13 @@ export function compileWasm(
       clippedPositionsOutBase,
       clippedVaryingsOutBase,
       depthBufferBase!,
+      writesColour,
+      fragCoordAddress,
+      writesFragCoord,
+      fragDepthAddress,
+      writesDepth,
+      discardAddress,
+      mayDiscard,
     );
 
     const result = new Float64Array(memory.buffer, outputBase, width * height * 4);

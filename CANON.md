@@ -324,8 +324,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-else-if-follows-its-if-directly`](#spec-an-else-if-follows-its-if-directly) — An `ElseIf` or `Else` written after a statement that follows its `If` or `ElseIf`, a variable or a `Break` included, or called from inside another block, is refused.
   - [`@spec a-switch-runs-the-case-its-selector-matches`](#spec-a-switch-runs-the-case-its-selector-matches) — `Switch` runs the first `Case` whose values hold its selector, or the `Default` when none does, as a chain of `if` and `else` with no fall-through. It is written as TSL writes it, `Switch(selector).Case(value, …, body).Default(body)`, and the chain stands where its first `Case` or `Default` is added. A statement made between `Switch` and that call runs before the chain. A `Switch` with no `Case` and no `Default` runs nothing.
   - [`@spec break-continue-return-and-discard-leave-where-tsl-leaves`](#spec-break-continue-return-and-discard-leave-where-tsl-leaves) — `Break` leaves the loop, `Continue` starts its next iteration, `Return` leaves the function, and `Discard` drops the fragment.
-    - [`@bug the-wasm-rasterizer-paints-a-discarded-fragment`](#bug-the-wasm-rasterizer-paints-a-discarded-fragment) — The WASM rasterizer writes a colour for a discarded fragment: the colour the fragment stage last left in its memory.
-    - [`@bug the-cpu-rasterizers-write-the-depth-of-a-discarded-fragment`](#bug-the-cpu-rasterizers-write-the-depth-of-a-discarded-fragment) — The JS and WASM rasterizers write the depth of a fragment before they run it. A fragment that discards still hides what a later draw puts behind it.
   - [`@spec an-fn-records-the-statements-of-its-body`](#spec-an-fn-records-the-statements-of-its-body) — `Fn` records the statements its body makes into the [fn](#term-fn) it returns. An `Fn` may be empty, return one value or several, and call another `Fn`.
     - [`@spec an-fn-returns-what-its-body-returns`](#spec-an-fn-returns-what-its-body-returns) — A call of an `Fn` gives what its body returns: nothing, one value, or several. An empty body and a body that calls another `Fn` compile.
     - [`@spec an-inline-fn-runs-where-it-is-called`](#spec-an-inline-fn-runs-where-it-is-called) — A variable that a called `Fn` makes is declared where the call is, not where its value is first read.
@@ -433,7 +431,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-clear-colour-is-transparent-black-unless-the-draw-gives-one`](#spec-a-clear-colour-is-transparent-black-unless-the-draw-gives-one) — A draw that gives no `clearColor` clears to transparent black, `[0, 0, 0, 0]`.
         - [`@spec a-glsl-js-and-wasm-draw-clears-to-transparent-black`](#spec-a-glsl-js-and-wasm-draw-clears-to-transparent-black) — A draw of the GLSL adapter, and of a JS or WASM rasterizer routine, that gives no `clearColor` leaves the cleared pixels at `[0, 0, 0, 0]`.
         - [`@exception a-wgsl-canvas-shows-a-transparent-clear-as-opaque-black`](#exception-a-wgsl-canvas-shows-a-transparent-clear-as-opaque-black) — The WGSL adapter clears to `[0, 0, 0, 0]` as well, but its canvas shows every pixel with alpha 1, so the clear reads as opaque black.
-      - [`@spec a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear`](#spec-a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear) — A draw that passes `clear: false` leaves the colour of the pixels it does not cover as an earlier draw left them.
+      - [`@spec a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear`](#spec-a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear) — A draw that passes `clear: false` leaves the colour of the pixels it does not cover as an earlier draw left them. A CPU rasterizer draw given an output buffer draws over what that buffer holds.
       - [`@spec a-cpu-draw-clears-its-depth-first-unless-it-asks-not-to`](#spec-a-cpu-draw-clears-its-depth-first-unless-it-asks-not-to) — A draw of a CPU rasterizer routine clears its depth buffer before it draws, so no depth of an earlier draw hides it. With `clearDepth: false` it tests against the depth an earlier draw left.
     - [`@spec several-adapters-draw-on-one-canvas`](#spec-several-adapters-draw-on-one-canvas) — Several adapters can draw on one canvas. An adapter ignores a uniform its program does not read.
     - [`@spec an-effect-with-several-passes-is-a-pass-graph`](#spec-an-effect-with-several-passes-is-a-pass-graph) — An [effect](#term-effect) with several passes returns a [pass graph](#term-pass-graph): its passes, the samplers each pass reads, and the pass that gives the output. The application draws each pass.
@@ -539,16 +537,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-cpu-target-rasterizes-a-vertex-and-fragment-pair`](#spec-a-cpu-target-rasterizes-a-vertex-and-fragment-pair) — `compileJS` and `compileWasm` link a vertex and a fragment program with a triangle rasterizer. It interpolates varyings in perspective, clips at the near plane, and keeps the closer fragment.
       - [`@spec the-wasm-rasterizer-links-its-stages-in-one-memory`](#spec-the-wasm-rasterizer-links-its-stages-in-one-memory) — The WASM rasterizer calls the vertex module, then the fragment module, as imports that share one memory.
       - [`@spec a-rasterizer-clips-at-the-near-plane`](#spec-a-rasterizer-clips-at-the-near-plane) — The rasterizer clips a triangle with a vertex behind the eye into the triangles in front of it. A triangle wholly behind the eye draws nothing.
-      - [`@spec a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment) — The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles. Its depth buffer persists across draws until a draw asks for `clearDepth`.
-        - [`@bug wasm-rasterizer-ignores-the-fragment-depth`](#bug-wasm-rasterizer-ignores-the-fragment-depth) — The WASM rasterizer tests and stores the interpolated depth, ignoring the depth the fragment stage writes.
+      - [`@spec a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment) — The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles: the depth the fragment stage writes, or else its interpolated depth. Its depth buffer persists across draws of one size until a draw asks for `clearDepth`, and a draw of another width or height starts from a cleared one.
       - [`@spec a-rasterizer-takes-its-count-from-the-first-attribute`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute) — A draw that names no vertex count takes it from the first attribute the host passes.
       - [`@spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws) — The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
-        - [`@bug wasm-rasterizer-gives-every-fragment-coordinate-zero`](#bug-wasm-rasterizer-gives-every-fragment-coordinate-zero) — The WASM rasterizer never writes `fragCoord()`, so every fragment reads it as `[0, 0]`, where the JS rasterizer passes the pixel's centre.
       - [`@spec a-pixel-on-a-shared-edge-is-shaded-once`](#spec-a-pixel-on-a-shared-edge-is-shaded-once) — A pixel centre on an edge two triangles share takes the colour of one of them. WebGPU's rasterization rules pick which one, whatever the order of the triangles.
-        - [`@bug js-rasterizer-shades-a-shared-edge-twice`](#bug-js-rasterizer-shades-a-shared-edge-twice) — The JS rasterizer shades a pixel centre on an edge two triangles share with both, so the triangle drawn last wins it.
-        - [`@bug wasm-rasterizer-shades-a-shared-edge-twice`](#bug-wasm-rasterizer-shades-a-shared-edge-twice) — The WASM rasterizer shades a pixel centre on an edge two triangles share with both, so the triangle drawn last wins it.
       - [`@spec a-rasterizer-clips-outside-the-depth-range`](#spec-a-rasterizer-clips-outside-the-depth-range) — The rasterizer clips a triangle at depth 0 and depth 1, so it draws nothing whose depth lies outside that range.
-        - [`@bug js-rasterizer-draws-a-triangle-below-zero-depth`](#bug-js-rasterizer-draws-a-triangle-below-zero-depth) — The JS rasterizer draws a triangle whose depth lies below zero, which WebGPU clips away.
       - [`@spec a-triangle-off-screen-draws-nothing`](#spec-a-triangle-off-screen-draws-nothing) — A triangle wholly outside the viewport draws nothing, at any distance from it.
       - [`@spec a-rasterizer-gives-each-vertex-its-own-position`](#spec-a-rasterizer-gives-each-vertex-its-own-position) — A CPU rasterizer places each vertex of a draw at the position its own vertex call returned, whatever the vertex program keeps in variables.
       - [`@spec a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds`](#spec-a-cpu-rasterizer-draws-a-triangle-whichever-way-it-winds) — A CPU rasterizer draws a triangle whether its vertices run clockwise or counter-clockwise on the screen.
@@ -2540,18 +2533,6 @@ Derives from: [`fact-tsl-break-continue-return-and-discard-are-statements`](#fac
 
 This follows because TSL's statements of the same name do.
 
-#### @bug the-wasm-rasterizer-paints-a-discarded-fragment
-
-> The WASM rasterizer writes a colour for a discarded fragment: the colour the fragment stage last left in its memory.
-
-Issue: #81
-
-#### @bug the-cpu-rasterizers-write-the-depth-of-a-discarded-fragment
-
-> The JS and WASM rasterizers write the depth of a fragment before they run it. A fragment that discards still hides what a later draw puts behind it.
-
-Issue: #81
-
 ### @spec an-fn-records-the-statements-of-its-body
 
 > `Fn` records the statements its body makes into the [fn](#term-fn) it returns. An `Fn` may be empty, return one value or several, and call another `Fn`.
@@ -3148,7 +3129,7 @@ Derives from: [`fact-a-webgpu-canvas-configured-opaque-drops-alpha`](#fact-a-web
 
 ##### @spec a-draw-keeps-what-is-under-it-when-it-asks-not-to-clear
 
-> A draw that passes `clear: false` leaves the colour of the pixels it does not cover as an earlier draw left them.
+> A draw that passes `clear: false` leaves the colour of the pixels it does not cover as an earlier draw left them. A CPU rasterizer draw given an output buffer draws over what that buffer holds.
 
 ##### @spec a-cpu-draw-clears-its-depth-first-unless-it-asks-not-to
 
@@ -3776,13 +3757,7 @@ This follows because the vector a JS function computes lives in a slot that the 
 
 ##### @spec a-rasterizer-keeps-the-closer-fragment
 
-> The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles. Its depth buffer persists across draws until a draw asks for `clearDepth`.
-
-###### @bug wasm-rasterizer-ignores-the-fragment-depth
-
-> The WASM rasterizer tests and stores the interpolated depth, ignoring the depth the fragment stage writes.
-
-Issue: #112
+> The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles: the depth the fragment stage writes, or else its interpolated depth. Its depth buffer persists across draws of one size until a draw asks for `clearDepth`, and a draw of another width or height starts from a cleared one.
 
 ##### @spec a-rasterizer-takes-its-count-from-the-first-attribute
 
@@ -3792,12 +3767,6 @@ Issue: #112
 
 > The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
 
-###### @bug wasm-rasterizer-gives-every-fragment-coordinate-zero
-
-> The WASM rasterizer never writes `fragCoord()`, so every fragment reads it as `[0, 0]`, where the JS rasterizer passes the pixel's centre.
-
-Issue: #112
-
 ##### @spec a-pixel-on-a-shared-edge-is-shaded-once
 
 > A pixel centre on an edge two triangles share takes the colour of one of them. WebGPU's rasterization rules pick which one, whatever the order of the triangles.
@@ -3806,18 +3775,6 @@ Derives from: [`fact-webgpu-shades-a-pixel-on-a-shared-edge-once`](#fact-webgpu-
 
 This follows because WebGPU gives such a pixel to exactly one triangle, and a CPU target gives what WebGPU gives.
 
-###### @bug js-rasterizer-shades-a-shared-edge-twice
-
-> The JS rasterizer shades a pixel centre on an edge two triangles share with both, so the triangle drawn last wins it.
-
-Issue: #88
-
-###### @bug wasm-rasterizer-shades-a-shared-edge-twice
-
-> The WASM rasterizer shades a pixel centre on an edge two triangles share with both, so the triangle drawn last wins it.
-
-Issue: #88
-
 ##### @spec a-rasterizer-clips-outside-the-depth-range
 
 > The rasterizer clips a triangle at depth 0 and depth 1, so it draws nothing whose depth lies outside that range.
@@ -3825,12 +3782,6 @@ Issue: #88
 Derives from: [`fact-webgpu-clips-a-triangle-outside-the-depth-range`](#fact-webgpu-clips-a-triangle-outside-the-depth-range)
 
 This follows because WebGPU clips to the depth range from 0 to 1, and a CPU target gives what WebGPU gives.
-
-###### @bug js-rasterizer-draws-a-triangle-below-zero-depth
-
-> The JS rasterizer draws a triangle whose depth lies below zero, which WebGPU clips away.
-
-Issue: #88
 
 ##### @spec a-triangle-off-screen-draws-nothing
 

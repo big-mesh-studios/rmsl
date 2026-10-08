@@ -1,4 +1,4 @@
-import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH } from "../../core";
+import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, someNode, TYPE_WIDTH } from "../../core";
 import {
   CpuDrawBuffer,
   CpuRoutine,
@@ -2539,6 +2539,7 @@ function compileJSFnDetailed(
   resultType: ShaderType | undefined;
   storageTypes: Record<string, ShaderType>;
   resultTypes: JsResultTypes;
+  writesDepth: boolean;
 } {
   let stage = options.stage ?? "fragment";
   let derivatives = options.derivatives ?? "throw";
@@ -2661,6 +2662,7 @@ function compileJSFnDetailed(
   parts.push(`return function ${options.name}(ctx) {\n${body.map((l) => "  " + l).join("\n")}\n};`);
   return {
     source: parts.join("\n\n"),
+    writesDepth: someNode(resultNodes, (node) => node.type === "builtinFragDepth"),
     resultType: lastType as ShaderType | undefined,
     storageTypes: Object.fromEntries(ctx.storageTypes ?? []) as Record<string, ShaderType>,
     resultTypes: {
@@ -2688,6 +2690,8 @@ export interface JsProgram extends CpuProgram {
   runInPlace(ctx: CpuShaderContext): CpuValue<ShaderType> | CpuProgramResult | null;
   /** The type of each varying a vertex stage writes, by slot. */
   readonly varyingTypes: Readonly<Record<string, string>>;
+  /** Whether a fragment stage can write its depth, so a rasterizer tests the depth it writes. */
+  readonly writesDepth: boolean;
 }
 
 /** The types of what a compiled JS function returns: its value, and the varyings and outputs it writes by slot. */
@@ -2791,7 +2795,7 @@ export function compileJSProgram(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileJSOptions,
 ): JsProgram {
-  const { source, resultType, storageTypes, resultTypes } = compileJSFnDetailed(fn, options);
+  const { source, resultType, storageTypes, resultTypes, writesDepth } = compileJSFnDetailed(fn, options);
   const factory = new Function(source) as () => (ctx: CpuShaderContext) => number | boolean | CpuProgramResult | null;
   const runScratch = factory();
 
@@ -2873,7 +2877,7 @@ export function compileJSProgram(
   }
 
   // A reentrant routine declares its variables per call, so nothing is shared to copy out of.
-  return { run, runInPlace: runScratch, draw, compute, storageTypes, varyingTypes: resultTypes.varyings };
+  return { run, runInPlace: runScratch, draw, compute, storageTypes, varyingTypes: resultTypes.varyings, writesDepth };
 }
 
 /** What a stage compile function takes: the options of a routine, without the stage, which the function names. */

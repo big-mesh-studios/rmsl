@@ -48,15 +48,34 @@ Results land in `clippedPositionsOutBase`/`clippedVaryingsOutBase`, using
 
 For each clipped triangle: perspective divide and screen-space mapping, a
 degenerate-area skip, a clamped bounding box, and per pixel in that box an
-edge-function coverage test. A covered pixel's depth (NDC `z/w`,
-interpolated with the same plain barycentric weights screen coordinates
-use — already affine in screen space, no perspective correction needed) is
-compared against `depthBufferBase`; only a closer-or-equal pixel writes
-both the new depth and, after perspective-correct interpolating the
-varying blob into the imported fragment function's varying-input address
-and calling it, its `vec4` result into `outputBase`. A fragment function that writes no colour has no result to copy: the host passes `fragmentValueAddress` as -1, and the pixel is left as it was. The host must
-pre-clear `depthBufferBase` to a large value before the first draw over
-it.
+edge-function coverage test. A pixel centre that lies on an edge belongs to
+the triangle whose edge, wound so its inside is positive, runs down the
+screen or left along it, so a pixel on an edge two triangles share is shaded
+once.
+
+A covered pixel's depth is NDC `z/w`, interpolated with the plain
+barycentric weights screen coordinates use, since it is affine in screen
+space. A triangle wholly outside depth 0 to 1 draws nothing, and one that
+crosses that range drops each pixel outside it, which is what clipping at
+depth 0 and 1 drops. A pixel then:
+
+1. fails early when its depth is farther than the stored one, unless the
+   fragment function writes its own depth;
+2. has the varying blob interpolated, perspective-correct, into the
+   fragment function's varying-input address, its centre written to the
+   `fragCoord` address, the discard flag cleared, and the interpolated depth
+   written to the fragment depth address;
+3. runs the fragment function;
+4. is dropped when the function discarded, or when the depth it wrote is
+   farther than the stored one;
+5. stores its depth, and its `vec4` result into `outputBase`.
+
+Each address the fragment function writes or reads besides its varyings
+comes with a flag, 1 when the function has it and 0 when it does not:
+`writesColour` for `fragmentValueAddress`, `writesFragCoord`, `writesDepth`
+and `mayDiscard`. A function that writes no colour leaves the pixel as it
+was. The host must pre-clear `depthBufferBase` to a large value before the
+first draw over it, and again before a draw of another size.
 
 `$byteCopy` (in `rasterizer.wat`) is the one raw-byte copy primitive both
 passes reuse. Any number of attribute slots are supported via a runtime descriptor
@@ -78,6 +97,5 @@ stage, matched by the shared node's slot name.
 - No index buffer, no antialiasing.
 - Depth test is a plain LEQUAL z-buffer — no depth write mask, no
   stencil, no blending (a passing pixel always overwrites).
-- Clipping is near-plane (`w`) only — no far-plane or screen-bounds
-  frustum clipping (the per-pixel bbox clamp still handles screen
-  bounds, as before).
+- Geometric clipping is near-plane (`w`) only; depth 0 to 1 is held per
+  pixel, and the per-pixel bbox clamp handles screen bounds.
