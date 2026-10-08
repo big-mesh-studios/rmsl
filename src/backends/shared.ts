@@ -654,12 +654,6 @@ function lowerOutputStruct<T extends BaseNode<ShaderType>>(roots: readonly T[]):
 }
 
 /**
- * The roots of a stage, ready to compile. A fragment stage has its
- * `outputStruct` written out and its implicit colour converted, see
- * {@link fragmentColour}. Any other stage, and a program with no stage,
- * refuses an `outputStruct`, which is a fragment stage's result.
- */
-/**
  * Refuses a storage node read as a whole value, rather than through
  * `.element(i)`: a whole buffer has no value a program computes with. An
  * assignment to one has its own refusal, in `assertAssignable`.
@@ -677,6 +671,14 @@ export function assertNoWholeStorageRead(roots: readonly unknown[]): void {
   });
 }
 
+/**
+ * The roots of a stage, ready to compile, once every compiler's shared
+ * refusals have checked them: a whole storage buffer read as a value, a write
+ * by index through a swizzle, and a `for` update that holds a block. A fragment
+ * stage has its `outputStruct` written out and its implicit colour converted,
+ * see {@link fragmentColour}. Any other stage, and a program with no stage,
+ * refuses an `outputStruct`, which is a fragment stage's result.
+ */
 export function prepareRoots<T extends Node<ShaderType>>(stage: string | undefined, roots: readonly T[]): T[] {
   assertNoWholeStorageRead(roots);
   assertSwizzleWrites(roots);

@@ -3478,12 +3478,6 @@ function loopCondition(cond: () => BooleanLike) {
   return { declarations, condition: withStatements(assignments, wrapValue(value) as BaseNode<ShaderType>) };
 }
 
-/**
- * A counting loop, as TSL's `For`: `init` makes the loop variable, `cond`
- * tests it before every iteration, `update` steps it after every one. A
- * variable `cond` makes is computed before every test, and stays in scope
- * after the loop, and in `update`.
- */
 /** Why a `For` whose update holds a block is refused. */
 export const FOR_UPDATE_BLOCK_MESSAGE =
   "[RMSL] A for-loop's update cannot contain a block. Move the branch into the loop body, or write the loop with While.";
@@ -3502,9 +3496,12 @@ export function assertForUpdateHoldsNoBlock(loop: BaseNode<ShaderType>): void {
 }
 
 /**
- * A loop as a JavaScript `for` writes it. Its update is the update slot of a
- * GLSL, WGSL or JavaScript `for`, which takes no block, so an update that holds
- * one is refused here, before any target compiles it.
+ * A counting loop, as TSL's `For`: `init` makes the loop variable, `cond`
+ * tests it before every iteration, `update` steps it after every one. A
+ * variable `cond` makes is computed before every test, and stays in scope
+ * after the loop, and in `update`. The update is the update slot of a GLSL,
+ * WGSL or JavaScript `for`, which takes no block, so an update that holds one
+ * is refused here, before any target compiles it.
  */
 export function For<T extends Node<ShaderType>>(
   init: () => T,

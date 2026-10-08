@@ -461,11 +461,6 @@ function minMaxBytes(a: number[], b: number[], kind: ScalarKind, pick: "min" | "
   return selectExpr(a, b, [...a, ...b, cmp]);
 }
 
-/**
- * True for aggregate-typed expressions that are anonymous results (not a
- * var/uniform/param...) and therefore need their own fixed address to be
- * materialized into before any component can be read.
- */
 /** The math functions that apply to each component of a vector, through {@link mathBytes} in the compiler. */
 const COMPONENT_MATH_TYPES = new Set([
   "sign",
@@ -481,6 +476,11 @@ const COMPONENT_MATH_TYPES = new Set([
   ...MATH_BINARY_IMPORTS,
 ]);
 
+/**
+ * True for aggregate-typed expressions that are anonymous results (not a
+ * var/uniform/param...) and therefore need their own fixed address to be
+ * materialized into before any component can be read.
+ */
 const SCRATCH_NODE_TYPES = new Set([
   ...COMPONENT_MATH_TYPES,
   "inverse",
@@ -549,13 +549,14 @@ function comparisonBytes(type: string, a: number[], b: number[], kind: ScalarKin
   return [...a, ...b, kind === "float" ? f64op : kind === "uint" ? i32uOp : i32sOp];
 }
 
+/** The WASM instruction of each binary operation of a matrix formula. */
+const FORMULA_OPCODES = { add: WASM_OP.f64Add, sub: WASM_OP.f64Sub, mul: WASM_OP.f64Mul, div: WASM_OP.f64Div };
+
 /**
  * True when `node` is one of the anonymous aggregate results
  * {@link SCRATCH_NODE_TYPES} describes: it needs its own scratch address
  * materialized before any of its components can be read.
  */
-const FORMULA_OPCODES = { add: WASM_OP.f64Add, sub: WASM_OP.f64Sub, mul: WASM_OP.f64Mul, div: WASM_OP.f64Div };
-
 function isScratchNode(node: any): boolean {
   const t = node._t as string;
   if (!isAggregate(t)) return false;
@@ -1766,9 +1767,6 @@ export function compileWasmFn(
   }
 
   /**
-   * Emits a `call` to a math/transcendental import by name (`sin`, `pow`, ...).
-   */
-  /**
    * The bytes of a math function of one component: `args` emits each
    * operand's component, in `kind`, once for each time the function reads it,
    * so an operand's statements run where its first read runs. A scalar applies
@@ -1822,6 +1820,9 @@ export function compileWasmFn(
     }
   }
 
+  /**
+   * Emits a `call` to a math/transcendental import by name (`sin`, `pow`, ...).
+   */
   function callImport(name: string): number[] {
     return [WASM_OP.call, ...wasmUleb128(importIndexOf.get(name)!)];
   }
