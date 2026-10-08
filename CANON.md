@@ -457,6 +457,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-grown-attribute-gets-a-buffer-that-holds-it`](#spec-a-grown-attribute-gets-a-buffer-that-holds-it) — An attribute whose array grew uploads into a buffer big enough for all of it.
     - [`@spec a-changed-index-uploads-on-the-next-render`](#spec-a-changed-index-uploads-on-the-next-render) — A geometry's index uploads again on the next render after `index.needsUpdate = true`, whether or not an attribute of the geometry changed.
     - [`@spec a-replaced-attribute-uploads-again`](#spec-a-replaced-attribute-uploads-again) — An attribute that replaces another under its name in a geometry, as `LineSegmentsGeometry.setPositions` replaces them, uploads whole on the next render.
+    - [`@spec an-attribute-two-geometries-share-uploads-into-each`](#spec-an-attribute-two-geometries-share-uploads-into-each) — A buffer attribute that two geometries share uploads into the buffers of both after it changes, on both renderers, so each geometry draws the new data.
     - [`@spec a-change-raises-a-version-every-renderer-reads`](#spec-a-change-raises-a-version-every-renderer-reads) — `needsUpdate = true` on a texture, a material or a buffer attribute raises its `version` by one, as in three.js, and reading `needsUpdate` gives `undefined`. Each renderer compares the version it last uploaded or built from with the object's, so every renderer that draws the object, and every program built from a shared material, takes the change.
     - [`@spec a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise`](#spec-a-webgl-renderer-is-made-at-once-and-a-webgpu-renderer-through-a-promise) — `new WebGLRenderer()` gives a renderer at once, and `WebGPURenderer.init()` gives one through a promise, because WebGPU requests its device asynchronously.
     - [`@spec a-webgpu-draw-keeps-its-own-uniforms-however-many-draws-a-frame-has`](#spec-a-webgpu-draw-keeps-its-own-uniforms-however-many-draws-a-frame-has) — Each draw of a frame on the WebGPU renderer reads its own uniforms, whatever the number of draws in the frame.
@@ -3264,6 +3265,12 @@ This follows because an index changes on its own, as when a mesh is re-triangula
 > An attribute that replaces another under its name in a geometry, as `LineSegmentsGeometry.setPositions` replaces them, uploads whole on the next render.
 
 This follows because a renderer that kept the buffer it uploaded for the name would draw the old attribute's data.
+
+#### @spec an-attribute-two-geometries-share-uploads-into-each
+
+> A buffer attribute that two geometries share uploads into the buffers of both after it changes, on both renderers, so each geometry draws the new data.
+
+This follows because a renderer keeps a buffer for each geometry's attribute, and a buffer that missed the change would draw the old data.
 
 #### @spec a-change-raises-a-version-every-renderer-reads
 

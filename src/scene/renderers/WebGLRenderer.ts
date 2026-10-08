@@ -48,7 +48,6 @@ interface ProgramEntry {
 interface GeometryBuffers {
   attributes: Map<string, WebGLBuffer>;
   index: WebGLBuffer | null;
-  needsUpload: boolean;
 }
 
 /**
@@ -79,7 +78,13 @@ export class WebGLRenderer {
    * Each renderer keeps its own, so a change reaches every renderer that draws
    * the object, as three.js keeps it per renderer.
    */
-  private uploadedVersions = new WeakMap<Texture | BufferAttribute, number>();
+  private uploadedVersions = new WeakMap<Texture, number>();
+  /**
+   * The attribute each buffer holds, and the version of it. A buffer belongs to
+   * one geometry, so an attribute two geometries share uploads into each.
+   */
+  private heldAttributes = new WeakMap<WebGLBuffer, BufferAttribute>();
+  private heldVersions = new WeakMap<WebGLBuffer, number>();
   /**
    * Whether each texture was last uploaded for an integer sampler. A sampler of
    * the other kind needs another format and other filters, so it uploads again.
@@ -725,7 +730,7 @@ export class WebGLRenderer {
     const gl = this.gl;
     let buffers = this.geometryBuffers.get(geometry);
     if (!buffers) {
-      buffers = { attributes: new Map(), index: null, needsUpload: true };
+      buffers = { attributes: new Map(), index: null };
       this.geometryBuffers.set(geometry, buffers);
       geometry.addEventListener("dispose", this.onGeometryDispose);
     }
@@ -743,21 +748,17 @@ export class WebGLRenderer {
       // geometry, so their buffers are cached per attribute (not per geometry).
       const ownedByGeometry = geometry.attributes[attribute.name] !== undefined;
       let buffer = ownedByGeometry ? buffers.attributes.get(attribute.name) : this.attributeBuffers.get(attr);
-      const isNewBuffer = buffer === undefined;
       if (!buffer) {
         buffer = gl.createBuffer()!;
         if (ownedByGeometry) buffers.attributes.set(attribute.name, buffer);
         else this.attributeBuffers.set(attr, buffer);
       }
-      // An attribute this renderer has not uploaded, one that replaced another under its name included, goes up whole.
-      const uploaded = this.uploadedVersions.get(attr);
-      if (isNewBuffer || uploaded !== attr.version) {
-        const data = toBufferView(attr.array);
-        const full = isNewBuffer || uploaded === undefined;
-        buffer = this.uploadAttribute(gl, gl.ARRAY_BUFFER, buffer, data, attr, full);
+      // An attribute the buffer does not hold, one that replaced another under its name included, goes up whole.
+      const held = this.heldAttributes.get(buffer) === attr;
+      if (!held || this.heldVersions.get(buffer) !== attr.version) {
+        buffer = this.uploadAttribute(gl, gl.ARRAY_BUFFER, buffer, toBufferView(attr.array), attr, !held);
         if (ownedByGeometry) buffers.attributes.set(attribute.name, buffer);
         else this.attributeBuffers.set(attr, buffer);
-        this.uploadedVersions.set(attr, attr.version);
       }
       // The attribute pointers below capture whatever buffer is bound when
       // they run, so bind this attribute's buffer on every draw, whether or
@@ -803,28 +804,26 @@ export class WebGLRenderer {
     }
     this.boundAttributeLocations = usedLocations;
 
-    if (geometry.index) {
-      const isNewIndex = buffers.index === null;
+    const index = geometry.index;
+    if (index) {
       const indexBuffer = buffers.index ?? (buffers.index = gl.createBuffer()!);
-      const uploaded = this.uploadedVersions.get(geometry.index);
-      if (isNewIndex || buffers.needsUpload || uploaded !== geometry.index.version) {
-        const data = toBufferView(geometry.index.array, true);
-        const full = isNewIndex || buffers.needsUpload || uploaded === undefined;
-        buffers.index = this.uploadAttribute(gl, gl.ELEMENT_ARRAY_BUFFER, indexBuffer, data, geometry.index, full);
-        this.uploadedVersions.set(geometry.index, geometry.index.version);
+      const held = this.heldAttributes.get(indexBuffer) === index;
+      if (!held || this.heldVersions.get(indexBuffer) !== index.version) {
+        const data = toBufferView(index.array, true);
+        buffers.index = this.uploadAttribute(gl, gl.ELEMENT_ARRAY_BUFFER, indexBuffer, data, index, !held);
       }
       // The element buffer binding must name this geometry's indices when the
       // draw runs, whatever the previous draw left bound.
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.index!);
     }
-    buffers.needsUpload = false;
   }
 
   /**
    * Uploads `attr`'s data into `buffer`: whole when `full` or when no range is
    * marked, and otherwise each range `addUpdateRange` marked, merged as
    * three.js merges them. The ranges are cleared afterwards, as three.js clears
-   * them. Returns the buffer to keep, which differs from `buffer` when it grew.
+   * them, so another buffer holding `attr` takes it whole. Returns the buffer to
+   * keep, which differs from `buffer` when it grew.
    */
   private uploadAttribute(
     gl: WebGL2RenderingContext,
@@ -846,6 +845,8 @@ export class WebGLRenderer {
       }
     }
     attr.clearUpdateRanges();
+    this.heldAttributes.set(buffer, attr);
+    this.heldVersions.set(buffer, attr.version);
     return buffer;
   }
 

@@ -117,6 +117,60 @@ describe("a scene renderer manages what it uploads", () => {
   });
 
   /**
+   * @canon spec-an-attribute-two-geometries-share-uploads-into-each
+   */
+  it("uploads an attribute two geometries share into the buffers of both on WebGPU", () => {
+    const { device, canvas, bytesOf } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const position = new BufferAttribute(new Float32Array(9), 3);
+    const first = new BufferGeometry().setAttribute("position", position);
+    const second = new BufferGeometry().setAttribute("position", position);
+    renderer.ensureGeometryBuffers(first);
+    const buffers = renderer.ensureGeometryBuffers(second);
+    (position.array as Float32Array)[0] = 5;
+    position.needsUpdate = true;
+    renderer.ensureGeometryBuffers(first);
+    renderer.ensureGeometryBuffers(second);
+
+    expect(new Float32Array(bytesOf(buffers.attributes.get("position")).buffer)[0]).toBe(5);
+  });
+
+  /**
+   * @canon spec-an-attribute-two-geometries-share-uploads-into-each
+   */
+  it("uploads an attribute two geometries share into the buffers of both on WebGL", () => {
+    const { renderer, calls } = stubWebGl();
+    const position = new BufferAttribute(new Float32Array(9), 3);
+    const scene = new Scene();
+    for (let i = 0; i < 2; i++) {
+      scene.add(new Mesh(new BufferGeometry().setAttribute("position", position), new MeshBasicMaterial()));
+    }
+    renderer.render(scene, camera());
+    position.needsUpdate = true;
+    const before = calls.length;
+    renderer.render(scene, camera());
+
+    const uploads = calls.slice(before).filter((c) => c.name === "bufferData" || c.name === "bufferSubData");
+    expect(uploads).toHaveLength(2);
+  });
+
+  /**
+   * @canon spec-a-replaced-attribute-uploads-again
+   */
+  it("uploads whole an attribute that replaced another of its size on WebGPU", () => {
+    const { device, canvas, bytesOf } = stubDevice();
+    const renderer = new WebGPURenderer(canvas, device as any) as any;
+    const geometry = new BufferGeometry().setAttribute("position", new BufferAttribute(new Float32Array(9), 3));
+    const buffers = renderer.ensureGeometryBuffers(geometry);
+    const replacement = new BufferAttribute(new Float32Array(9).fill(2), 3);
+    replacement.addUpdateRange(0, 3);
+    geometry.setAttribute("position", replacement);
+    renderer.ensureGeometryBuffers(geometry);
+
+    expect(Array.from(new Float32Array(bytesOf(buffers.attributes.get("position")).buffer))).toEqual(Array(9).fill(2));
+  });
+
+  /**
    * @canon spec-a-renderer-supplies-the-camera-and-object-uniforms
    */
   it("gives a line the render target's resolution when drawing into one on WebGL", () => {
