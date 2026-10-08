@@ -6,6 +6,7 @@ import {
   CpuDrawBuffer,
   CpuShaderContext,
   isResultObject,
+  ScalarKind,
   vertexPosition,
 } from "../cpu";
 import { compileJSProgram, CompileJSOptions } from "./js";
@@ -91,6 +92,14 @@ function ownsEdge(dx: number, dy: number): boolean {
   return dy < 0 || (dy === 0 && dx > 0);
 }
 
+/**
+ * A host's value as an attribute component of `kind` reads it: an integer one
+ * as a typed array of 32-bit integers of its type stores it, as the WASM rasterizer writes it.
+ */
+function attributeComponent(kind: ScalarKind, value: number): number {
+  return kind === "int" ? value | 0 : kind === "uint" ? value >>> 0 : value;
+}
+
 /** A vertex with room for a position and varyings of these widths. */
 function makeVertex(widths: readonly number[]): ClipVertex {
   return { position: new Float64Array(4), varyings: widths.map((w) => new Float64Array(w)) };
@@ -166,6 +175,7 @@ export function compileJS(
 
   const attributeSlots = Object.keys(options.attributeTypes);
   const attributeWidths = attributeSlots.map((slot) => componentCountOf(options.attributeTypes[slot]!));
+  const attributeKinds = attributeSlots.map((slot) => componentKindOf(options.attributeTypes[slot]!));
   const widths: Record<string, number> = {};
   attributeSlots.forEach((slot, i) => (widths[slot] = attributeWidths[i]!));
   /** The attributes of the vertex being shaded: a vector in an array of its own, filled for each vertex. */
@@ -357,12 +367,13 @@ export function compileJS(
         const slot = attributeSlots[a]!;
         const buffer = attributes[slot];
         const w = attributeWidths[a]!;
+        const kind = attributeKinds[a]!;
         if (buffer === undefined) vertexAttributes[slot] = undefined;
-        else if (w === 1) vertexAttributes[slot] = buffer[i + first]!;
+        else if (w === 1) vertexAttributes[slot] = attributeComponent(kind, buffer[i + first]!);
         else {
           let into = vertexAttributes[slot];
           if (!(into instanceof Float64Array)) into = vertexAttributes[slot] = new Float64Array(w);
-          for (let k = 0; k < w; k++) into[k] = buffer[(i + first) * w + k]!;
+          for (let k = 0; k < w; k++) into[k] = attributeComponent(kind, buffer[(i + first) * w + k]!);
         }
       }
       const raw = vertexStage.runInPlace(vertexCtx);

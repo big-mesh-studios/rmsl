@@ -1756,6 +1756,39 @@ describe("the fragments a CPU rasterizer draws", () => {
   });
 
   /**
+   * The triangle's colour is what its integer attributes read: a fraction in
+   * a scalar `int`, and a negative `uint` and a fraction in a vector one.
+   *
+   * @canon spec-a-cpu-rasterizer-reads-an-integer-attribute-as-a-32-bit-integer
+   */
+  it.each(rasterizers)("%s: reads an integer attribute as a 32-bit integer of its type", (_, compileRaster) => {
+    const pos = attribute("vec2");
+    const signed = attribute("int");
+    const unsigned = attribute("uvec2");
+    const shade = varying("vec3");
+    const routine = compileRaster(
+      () =>
+        Fn(() => {
+          shade.assign(vec3(signed.toFloat(), unsigned.x.toFloat(), unsigned.y.toFloat()));
+          builtinPosition().assign(vec4(pos, 0, 1));
+        })() as any,
+      () => Fn(() => vec4(shade, 1))() as any,
+      { attributeTypes: { [pos.name]: "vec2", [signed.name]: "int", [unsigned.name]: "uvec2" } },
+    );
+    const got = routine.draw(
+      {
+        attributes: {
+          [pos.name]: new Float64Array([-1, -1, 3, -1, -1, 3]),
+          [signed.name]: new Float64Array([-1.5, -1.5, -1.5]),
+          [unsigned.name]: new Float64Array([-1, 2.5, -1, 2.5, -1, 2.5]),
+        },
+      },
+      { width: 1, height: 1 },
+    );
+    expect(Array.from(got)).toEqual([-1, 4294967295, 2, 1]);
+  });
+
+  /**
    * A depth kept from a draw of another size would be read at another pixel.
    *
    * @canon spec-a-rasterizer-keeps-the-closer-fragment

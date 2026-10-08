@@ -547,6 +547,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-rasterizer-keeps-the-closer-fragment`](#spec-a-rasterizer-keeps-the-closer-fragment) — The rasterizer keeps the fragment of least or equal depth, whatever the order of the triangles: the depth the fragment stage writes, clamped to 0 to 1, or else its interpolated depth. Its depth buffer persists across draws of one size until a draw asks for `clearDepth`, and a draw of another width or height starts from a cleared one.
       - [`@spec a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one`](#spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one) — In a CPU rasterizer, `builtinFragDepth()` read before the fragment stage writes it gives the fragment's interpolated depth.
       - [`@spec a-rasterizer-takes-its-count-from-the-first-attribute`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute) — A draw that names no vertex count takes it from the first attribute the host passes.
+      - [`@spec a-cpu-rasterizer-reads-an-integer-attribute-as-a-32-bit-integer`](#spec-a-cpu-rasterizer-reads-an-integer-attribute-as-a-32-bit-integer) — A CPU rasterizer reads each component of an `int` attribute as an `Int32Array` stores the host's value, and each component of a `uint` attribute as a `Uint32Array` stores it. A fraction truncates toward zero, and a value outside the type's range wraps.
       - [`@spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws) — The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
       - [`@spec a-pixel-on-a-shared-edge-is-shaded-once`](#spec-a-pixel-on-a-shared-edge-is-shaded-once) — A pixel centre on an edge that two triangles share takes the colour of one of them, whatever their order. It takes the colour of the triangle whose top or left edge it is.
       - [`@spec a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge`](#spec-a-rasterizer-shades-a-pixel-centre-on-a-top-or-left-edge) — A CPU rasterizer shades a pixel centre on a top or a left edge of a triangle, and not one on a bottom or a right edge. This holds whichever way the triangle winds.
@@ -3845,6 +3846,14 @@ This follows because a fragment that writes no depth keeps its interpolated dept
 ##### @spec a-rasterizer-takes-its-count-from-the-first-attribute
 
 > A draw that names no vertex count takes it from the first attribute the host passes.
+
+##### @spec a-cpu-rasterizer-reads-an-integer-attribute-as-a-32-bit-integer
+
+> A CPU rasterizer reads each component of an `int` attribute as an `Int32Array` stores the host's value, and each component of a `uint` attribute as a `Uint32Array` stores it. A fraction truncates toward zero, and a value outside the type's range wraps.
+
+Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws)
+
+This follows because a GPU renderer uploads an integer attribute in a buffer of 32-bit integers, which stores a host's value so. The WASM rasterizer writes each component into its memory as a 32-bit integer, and the JS rasterizer gives what the WASM rasterizer gives.
 
 ##### @spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws
 
