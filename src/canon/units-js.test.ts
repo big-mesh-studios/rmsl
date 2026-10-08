@@ -23,6 +23,7 @@ import {
   select,
   smoothstep,
   outputStruct,
+  Return,
   uint,
   textureLoad,
   uniform,
@@ -461,6 +462,32 @@ describe("a varying a CPU vertex stage does not write", () => {
     );
     expect(source.match(/\.fill\(0\)/g)).toHaveLength(1);
     expect(source).toContain(`res.varyings["${sometimes.name}"] = `);
+  });
+
+  /**
+   * @canon spec-a-cpu-vertex-stage-gives-zero-for-a-varying-a-call-does-not-write
+   */
+  it("is 0 when the call returns before the statement that writes it", () => {
+    const shade = varying("float");
+    const pair = varying("vec2");
+    const stop = uniform("int");
+    const build = () =>
+      Fn(() => {
+        builtinPosition().assign(vec4(0, 0, 0, 1));
+        If(stop.equal(int(1)), () => {
+          Return();
+        });
+        shade.assign(float(0.25));
+        pair.assign(vec2(1, 2));
+      })() as any;
+    const source = compileJSFn(build, { name: "main", params: [], stage: "vertex" });
+    expect(source).toContain(`res.varyings["${shade.name}"] = 0;`);
+    expect(source.match(/\.fill\(0\)/g)).toHaveLength(1);
+    const stage = (compileWasmVertex as any)(build, { name: "main", params: [] });
+    expect(stage({ uniforms: { [stop.name]: 0 } }).varyings[shade.name]).toBe(0.25);
+    const returned = stage({ uniforms: { [stop.name]: 1 } });
+    expect(returned.varyings[shade.name]).toBe(0);
+    expect(Array.from(returned.varyings[pair.name])).toEqual([0, 0]);
   });
 
   /**

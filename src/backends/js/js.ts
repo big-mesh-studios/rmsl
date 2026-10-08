@@ -2648,23 +2648,27 @@ function ownedResult(raw: unknown, types: JsResultTypes): unknown {
 
 /**
  * The slots of the varyings that `roots` write whole, in a statement at their
- * top level, before any statement reads or writes them otherwise: every call
- * writes each of them before it can be read.
+ * top level, before any statement reads or writes them otherwise or may
+ * return: every call writes each of them before it can be read.
  */
 function jsVaryingsWrittenFirst(roots: readonly any[]): Set<string> {
   const written = new Set<string>();
   const touched = new Set<string>();
+  let mayHaveReturned = false;
   const mention = (node: any, seen: Set<unknown>): void => {
     if (!node || typeof node !== "object" || seen.has(node)) return;
     seen.add(node);
     if (node.type === "varying") touched.add(node.value.slot);
+    if (node.type === "return") mayHaveReturned = true;
     for (const p of node.params ?? []) mention(p, seen);
   };
   for (const root of roots) {
     for (const statement of root?.type === "seq" ? root.params : [root]) {
       const target = statement?.type === "assign" ? statement.params[0] : undefined;
       mention(target?.type === "varying" ? statement.params[1] : statement, new Set());
-      if (target?.type === "varying" && !touched.has(target.value.slot)) written.add(target.value.slot);
+      if (target?.type === "varying" && !touched.has(target.value.slot) && !mayHaveReturned) {
+        written.add(target.value.slot);
+      }
       if (target?.type === "varying") touched.add(target.value.slot);
     }
   }
