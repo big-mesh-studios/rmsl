@@ -46,6 +46,22 @@ const drawTextured = (adapter) => {
   adapter.draw({ count: 3 });
   return readPixel(target, 1, 2);
 };
+// Two textures of one shape, the second set over the first: the draw shows the
+// second, written into the GL texture the first made.
+const drawRetextured = (adapter) => {
+  const target = canvas();
+  const gl = target.getContext("webgl2");
+  let created = 0;
+  const createTexture = gl.createTexture.bind(gl);
+  gl.createTexture = () => (created++, createTexture());
+  adapter.attach(target);
+  adapter.setAttribute(position, TRIANGLE);
+  const texels = (r, g, b) => ({ data: Uint8Array.of(r, g, b, 255, r, g, b, 255, r, g, b, 255, r, g, b, 255), width: 2, height: 2 });
+  adapter.setTexture(image, texels(0, 255, 0));
+  adapter.setTexture(image, texels(255, 0, 0));
+  adapter.draw({ count: 3 });
+  return { pixel: readPixel(target, 1, 2), created };
+};
 const routine = () => vec4(fragCoord().x.div(4), 0, 0, 1);
 const drawRoutine = (adapter) => {
   const target = canvas();
@@ -58,6 +74,7 @@ globalThis.__rmslAdapterDraw = {
   js: () => drawWith(createJs(vertex, fragment, { attributeTypes: { [position.name]: "vec3" } })),
   wasm: () => drawWith(createWasm(vertex, fragment, { attributeTypes: { [position.name]: "vec3" } })),
   glslTexture: () => drawTextured(createGlsl(vertex(), texturedFragment())),
+  glslRetexture: () => drawRetextured(createGlsl(vertex(), texturedFragment())),
   jsTexture: () => drawTextured(createJs(vertex, texturedFragment, { attributeTypes: { [position.name]: "vec3" } })),
   wasmTexture: () => drawTextured(createWasm(vertex, texturedFragment, { attributeTypes: { [position.name]: "vec3" } })),
   jsRoutine: () => drawRoutine(createJsGrid({ draw: routine() })),
@@ -111,6 +128,15 @@ describe.skipIf(!GPU_ENABLED)("adapters drawing into a canvas in a browser", () 
    */
   it("samples the texture set with setTexture with createGlsl", async () => {
     expect(await drawn("glslTexture")).toEqual({ r: 0, g: 255, b: 0, a: 255 });
+  }, 120_000);
+
+  /**
+   * @canon spec-an-adapter-writes-a-texture-of-the-same-shape-in-place
+   */
+  it("writes a texture of the same shape into the texture it has with createGlsl", async () => {
+    const result = await drawn("glslRetexture");
+    expect(result.pixel).toEqual({ r: 255, g: 0, b: 0, a: 255 });
+    expect(result.created).toBe(1);
   }, 120_000);
 
   /**

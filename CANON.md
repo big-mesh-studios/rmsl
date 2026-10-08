@@ -60,6 +60,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec wgsl-packs-every-value-uniform-into-one-binding`](#spec-wgsl-packs-every-value-uniform-into-one-binding) — On WGSL, every uniform that holds a value is a member of one struct, bound once. GLSL declares each uniform on its own.
     - [`@spec a-texture-keeps-a-binding-of-its-own`](#spec-a-texture-keeps-a-binding-of-its-own) — On WGSL, a texture, and the sampler that goes with a float texture, each take a binding of their own outside the uniform struct. The stages of a render program number them from the whole set of its textures.
     - [`@spec a-bool-uniform-travels-as-an-unsigned-integer`](#spec-a-bool-uniform-travels-as-an-unsigned-integer) — On WGSL, a `bool` or boolean vector uniform, alone or in an array, travels as `u32`. The program compares it with zero where it reads it, and gets a `bool`.
+    - [`@spec an-adapter-writes-a-texture-of-the-same-shape-in-place`](#spec-an-adapter-writes-a-texture-of-the-same-shape-in-place) — `setTexture` of a texture of the size and format a sampler's GPU texture already has writes into that GPU texture on `createGlsl` and `createWgsl`, rather than making a new one, and four-channel data of the array type the texture holds goes up without a copy.
     - [`@spec an-adapter-takes-the-texture-a-sampler-reads-from-the-host`](#spec-an-adapter-takes-the-texture-a-sampler-reads-from-the-host) — `setTexture(sampler, texture)` gives a sampler uniform the texture it reads on every adapter that draws: `createGlsl`, `createWgsl`, `createJs` and `createWasm`. The sampler is named by its node or its slot, and the texture is described as a CPU target samples it. A GPU target reads 8-bit data as 0 to 1, and takes an integer array for an integer sampler.
     - [`@spec an-adapter-sets-a-uniform-of-every-type-its-program-declares`](#spec-an-adapter-sets-a-uniform-of-every-type-its-program-declares) — An adapter's `setUniform` uploads a uniform of every value type its program can declare.
       - [`@bug the-glsl-adapter-refuses-a-uint-uniform`](#bug-the-glsl-adapter-refuses-a-uint-uniform) — `createGlsl.setUniform` uploads only float, int and bool scalars and vectors and square matrices, and throws for a `uint` uniform.
@@ -1046,6 +1047,14 @@ Derives from: [`fact-a-wgsl-texture-is-not-host-shareable`](#fact-a-wgsl-texture
 > On WGSL, a `bool` or boolean vector uniform, alone or in an array, travels as `u32`. The program compares it with zero where it reads it, and gets a `bool`.
 
 Derives from: [`fact-wgsl-cannot-share-a-bool-with-the-host`](#fact-wgsl-cannot-share-a-bool-with-the-host)
+
+#### @spec an-adapter-writes-a-texture-of-the-same-shape-in-place
+
+> `setTexture` of a texture of the size and format a sampler's GPU texture already has writes into that GPU texture on `createGlsl` and `createWgsl`, rather than making a new one, and four-channel data of the array type the texture holds goes up without a copy.
+
+Derives from: [`spec-an-adapter-takes-the-texture-a-sampler-reads-from-the-host`](#spec-an-adapter-takes-the-texture-a-sampler-reads-from-the-host), [`axiom-the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing)
+
+This follows because a host that updates a texture every frame, a video or a canvas read back, would otherwise make and destroy a GPU texture and copy every texel each frame.
 
 #### @spec an-adapter-takes-the-texture-a-sampler-reads-from-the-host
 

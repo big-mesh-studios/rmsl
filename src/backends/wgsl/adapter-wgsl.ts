@@ -313,7 +313,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
   /** The textures the program reads, in binding order. */
   let textureDeclarations: ReturnType<typeof sharedSamplerDeclarations> = [];
   /** The GPU texture, and sampler for a float one, of each sampler the host has set. */
-  let gpuTextures = new Map<string, { texture: GPUTexture; sampler: GPUSampler | null }>();
+  let gpuTextures = new Map<string, { texture: GPUTexture; sampler: GPUSampler | null; samplerKey: string }>();
   /** Whether a texture was set since the bind groups of groups 1 and 2 were built, or they were never built. */
   let texturesChanged = true;
 
@@ -328,15 +328,26 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
     if (!declaration) return;
     const image = textureImage(data, declaration.shaderType);
     const volume = declaration.shaderType.endsWith("3D");
-    gpuTextures.get(slot)?.texture.destroy();
-    const texture = device.createTexture({
-      size: [image.width, image.height, image.depth],
-      dimension: volume ? "3d" : "2d",
-      format: image.normalized
-        ? "rgba8unorm"
-        : (`rgba${image.bits}${image.signed ? "sint" : "uint"}` as GPUTextureFormat),
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-    });
+    const format: GPUTextureFormat = image.normalized
+      ? "rgba8unorm"
+      : (`rgba${image.bits}${image.signed ? "sint" : "uint"}` as GPUTextureFormat);
+    const held = gpuTextures.get(slot);
+    // A texture of the shape the sampler already holds is written in place.
+    const reuse =
+      held !== undefined &&
+      held.texture.width === image.width &&
+      held.texture.height === image.height &&
+      held.texture.depthOrArrayLayers === image.depth &&
+      held.texture.format === format;
+    if (!reuse) held?.texture.destroy();
+    const texture = reuse
+      ? held!.texture
+      : device.createTexture({
+          size: [image.width, image.height, image.depth],
+          dimension: volume ? "3d" : "2d",
+          format,
+          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        });
     device.queue.writeTexture(
       { texture },
       image.texels as BufferSource,
@@ -346,18 +357,23 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
     const address = (wrap: CpuTextureData["wrapS"]): GPUAddressMode =>
       wrap === "repeat" ? "repeat" : wrap === "mirror" ? "mirror-repeat" : "clamp-to-edge";
     // An integer texture is read with textureLoad and takes no sampler.
+    const filter: GPUFilterMode = data.magFilter === "linear" ? "linear" : "nearest";
+    const samplerKey = `${filter},${address(data.wrapS)},${address(data.wrapT)},${address(data.wrapR)}`;
     const sampler = declaration.integer
       ? null
-      : device.createSampler({
-          // A CPU target has no footprint to minify by, so both filters follow `magFilter`.
-          magFilter: data.magFilter === "linear" ? "linear" : "nearest",
-          minFilter: data.magFilter === "linear" ? "linear" : "nearest",
-          addressModeU: address(data.wrapS),
-          addressModeV: address(data.wrapT),
-          addressModeW: address(data.wrapR),
-        });
-    gpuTextures.set(slot, { texture, sampler });
-    texturesChanged = true;
+      : reuse && held!.samplerKey === samplerKey
+        ? held!.sampler
+        : device.createSampler({
+            // A CPU target has no footprint to minify by, so both filters follow `magFilter`.
+            magFilter: filter,
+            minFilter: filter,
+            addressModeU: address(data.wrapS),
+            addressModeV: address(data.wrapT),
+            addressModeW: address(data.wrapR),
+          });
+    // The bind groups name the texture and sampler, so they are built again only when either is new.
+    if (!reuse || sampler !== held!.sampler) texturesChanged = true;
+    gpuTextures.set(slot, { texture, sampler, samplerKey });
   }
 
   /** Builds the bind groups of the textures (group 1) and the samplers of the float ones (group 2). */

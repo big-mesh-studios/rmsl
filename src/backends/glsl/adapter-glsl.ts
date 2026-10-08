@@ -6,7 +6,16 @@ import { textureImage } from "../texture-image";
 import { compileGlsl, CompileGLSLOptions } from "./glsl";
 
 type UniformInfo = { location: WebGLUniformLocation; type: number };
-type TextureSlot = { texture: WebGLTexture; target: number; unit: number };
+/** A sampler's GL texture, with the shape and internal format it was made with. */
+type TextureSlot = {
+  texture: WebGLTexture;
+  target: number;
+  unit: number;
+  width: number;
+  height: number;
+  depth: number;
+  internal: number;
+};
 type AttributeInfo = { location: number; buffer: WebGLBuffer; componentCount: number };
 
 /**
@@ -216,20 +225,43 @@ export function createGlsl(
     if (!samplerType) throw new Error(`[RMSL] setTexture: "${slot}" is not a sampler`);
     const image = textureImage(data, samplerType);
     const target = samplerType.endsWith("3D") ? gl.TEXTURE_3D : gl.TEXTURE_2D;
-    let held = textures.get(slot);
-    if (held) gl.deleteTexture(held.texture);
-    held = { texture: gl.createTexture()!, target, unit: held?.unit ?? textures.size };
-    textures.set(slot, held);
-
-    gl.activeTexture(gl.TEXTURE0 + held.unit);
-    gl.bindTexture(target, held.texture);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     const { internal, format, type } = texelFormat(gl, image.bits, image.signed, image.normalized);
-    if (target === gl.TEXTURE_3D) {
+    let held = textures.get(slot);
+    // A texture of the shape the sampler already holds is written in place.
+    const reuse =
+      held !== undefined &&
+      held.target === target &&
+      held.width === image.width &&
+      held.height === image.height &&
+      held.depth === image.depth &&
+      held.internal === internal;
+    if (!reuse) {
+      if (held) gl.deleteTexture(held.texture);
+      held = {
+        texture: gl.createTexture()!,
+        target,
+        unit: held?.unit ?? textures.size,
+        width: image.width,
+        height: image.height,
+        depth: image.depth,
+        internal,
+      };
+      textures.set(slot, held);
+    }
+
+    gl.activeTexture(gl.TEXTURE0 + held!.unit);
+    gl.bindTexture(target, held!.texture);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    if (reuse && target === gl.TEXTURE_3D) {
+      gl.texSubImage3D(target, 0, 0, 0, 0, image.width, image.height, image.depth, format, type, image.texels);
+    } else if (reuse) {
+      gl.texSubImage2D(target, 0, 0, 0, image.width, image.height, format, type, image.texels);
+    } else if (target === gl.TEXTURE_3D) {
       gl.texImage3D(target, 0, internal, image.width, image.height, image.depth, 0, format, type, image.texels);
     } else {
       gl.texImage2D(target, 0, internal, image.width, image.height, 0, format, type, image.texels);
     }
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
     // An integer texture cannot be filtered.
     const context = gl;
     const filter = (name: CpuTextureData["magFilter"]) =>
@@ -241,7 +273,7 @@ export function createGlsl(
     gl.texParameteri(target, gl.TEXTURE_WRAP_T, wrapMode(gl, data.wrapT));
     if (target === gl.TEXTURE_3D) gl.texParameteri(target, gl.TEXTURE_WRAP_R, wrapMode(gl, data.wrapR));
     gl.useProgram(program);
-    gl.uniform1i(info.location, held.unit);
+    gl.uniform1i(info.location, held!.unit);
   }
 
   const adapter: GlslAdapter = {
