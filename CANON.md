@@ -294,7 +294,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-matrix-is-built-from-its-columns`](#spec-a-matrix-is-built-from-its-columns) — A matrix constructor of any shape, square or not, takes its values column by column, as numbers or as vector columns.
     - [`@spec a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number`](#spec-a-matrix-constructor-takes-a-scalar-node-wherever-it-takes-a-number) — A matrix constructor given scalar nodes among its numbers builds the matrix from them, in column order, on every target. A mix of values whose count is not the matrix's is refused.
     - [`@spec a-literal-compiles-to-a-literal-of-its-type`](#spec-a-literal-compiles-to-a-literal-of-its-type) — `int`, `uint`, `bool`, boolean vector and integer vector constructors given literals compile to literals of their type on each target.
-    - [`@spec a-javascript-array-is-a-vector-of-its-length`](#spec-a-javascript-array-is-a-vector-of-its-length) — A JavaScript array given as an operand or an argument, where a node goes, is a vector of its length. An array whose length no vector has is refused.
+    - [`@spec a-javascript-array-is-a-vector-of-its-length`](#spec-a-javascript-array-is-a-vector-of-its-length) — A JavaScript array given as an operand or an argument, where a node goes, is a vector of its length, or a `mat3` or `mat4` of 9 or 16 elements. Each element is a number or a node; an array that holds anything else, or whose length no vector has, is refused.
     - [`@spec a-returned-array-lists-roots`](#spec-a-returned-array-lists-roots) — An array that a function passed to `Fn` returns lists the [roots](#term-root) of the program, not a vector, whatever it holds: `Fn(() => [1, 2, 3, 4])` has four `float` roots. A function returns a vector as `vec4(1, 2, 3, 4)`.
     - [`@spec the-tsl-constants-are-float-literals`](#spec-the-tsl-constants-are-float-literals) — `PI`, `TWO_PI`, `PI2`, `HALF_PI`, `EPSILON` and `INFINITY` are float literals of TSL's values.
     - [`@spec int-min-compiles-to-a-subtraction-of-two-in-range-literals`](#spec-int-min-compiles-to-a-subtraction-of-two-in-range-literals) — On GLSL and WGSL, the `int` literal -2147483648 compiles to `(-2147483647 - 1)`, a subtraction of two literals in range.
@@ -2356,7 +2356,7 @@ This follows because a vector constructor takes a node wherever it takes a numbe
 
 #### @spec a-javascript-array-is-a-vector-of-its-length
 
-> A JavaScript array given as an operand or an argument, where a node goes, is a vector of its length. An array whose length no vector has is refused.
+> A JavaScript array given as an operand or an argument, where a node goes, is a vector of its length, or a `mat3` or `mat4` of 9 or 16 elements. Each element is a number or a node; an array that holds anything else, or whose length no vector has, is refused.
 
 #### @spec a-returned-array-lists-roots
 

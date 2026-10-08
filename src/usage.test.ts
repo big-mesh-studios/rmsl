@@ -3651,6 +3651,38 @@ describe("TSL free-function API", () => {
 
   /**
    * @canon spec-a-javascript-array-is-a-vector-of-its-length
+   */
+  it("refuses an array that holds anything but numbers and nodes, naming what it holds", () => {
+    expect(() => vec4(0).add([1, 2, "x", 4] as any)).toThrow(
+      /vec4 holds numbers or nodes, and this one holds a string, "x"/,
+    );
+    expect(() => vec4(0).add([1, 2, undefined, 4] as any)).toThrow(/holds an empty or undefined element/);
+    expect(() => vec3(0).add([[1], [2], [3]] as any)).toThrow(
+      /vec3 holds numbers or nodes, and this one holds a nested array/,
+    );
+  });
+
+  /**
+   * @canon spec-a-javascript-array-is-a-vector-of-its-length
+   */
+  it("builds an array that holds nodes as the vector of its elements", () => {
+    const run = compileJSRoutine(
+      (a: any) =>
+        Fn(() =>
+          vec3(0)
+            .add([a, 1, a.mul(2)] as any)
+            .toVar(),
+        )(),
+      {
+        name: "main",
+        params: [{ name: "a", type: "float" }],
+      },
+    );
+    expect(Array.from(run({ params: { a: 3 } }) as ArrayLike<number>)).toEqual([3, 1, 6]);
+  });
+
+  /**
+   * @canon spec-a-javascript-array-is-a-vector-of-its-length
    * @canon spec-float-folding-gives-the-run-time-result
    */
   it("accepts raw numbers and arrays as operands", () => {

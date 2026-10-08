@@ -1577,6 +1577,22 @@ export type ExtractType<V> = V extends FloatLike
                   ? "mat4"
                   : "void";
 
+/** The vector or matrix type a JavaScript array of each length is. */
+const ARRAY_TYPES: Record<number, "vec2" | "vec3" | "vec4" | "mat3" | "mat4"> = {
+  2: "vec2",
+  3: "vec3",
+  4: "vec4",
+  9: "mat3",
+  16: "mat4",
+};
+
+/** What an element of an array is, for the message that refuses it. */
+function describeElement(element: unknown): string {
+  if (element === undefined) return "an empty or undefined element";
+  if (Array.isArray(element)) return "a nested array";
+  return `a ${typeof element}, ${JSON.stringify(element)}`;
+}
+
 export function wrapValue<V>(x: V): Node<ExtractType<V>> {
   if (x === undefined || x === null) {
     return node({ _t: "void", type: "void" }) as any;
@@ -1588,24 +1604,22 @@ export function wrapValue<V>(x: V): Node<ExtractType<V>> {
     return node({ _t: "float", type: "float", value: x }) as any;
   }
   if (Array.isArray(x)) {
-    if (x.length === 3) {
-      return node({ _t: "vec3", type: "vec3", value: x }) as any;
+    const type = ARRAY_TYPES[x.length];
+    if (type === undefined) {
+      throw new Error(
+        `[RMSL] A JavaScript array of length ${x.length} is no vector or matrix. Give 2, 3 or 4 numbers for a vector, or 9 or 16 for a mat3 or mat4. Other matrices come from mat2, mat2x3 and the other matrix constructors.`,
+      );
     }
-    if (x.length === 4) {
-      return node({ _t: "vec4", type: "vec4", value: x }) as any;
+    const at = x.findIndex((element) => typeof element !== "number" && !isNode(element));
+    if (at >= 0) {
+      throw new Error(
+        `[RMSL] A JavaScript array given as a ${type} holds numbers or nodes, and this one holds ${describeElement(x[at])}. Build the ${type} from nodes with ${type}(...) instead.`,
+      );
     }
-    if (x.length === 2) {
-      return node({ _t: "vec2", type: "vec2", value: x }) as any;
-    }
-    if (x.length === 9) {
-      return node({ _t: "mat3", type: "mat3", value: x }) as any;
-    }
-    if (x.length === 16) {
-      return node({ _t: "mat4", type: "mat4", value: x }) as any;
-    }
-    throw new Error(
-      `[RMSL] A JavaScript array of length ${x.length} is no vector or matrix. Give 2, 3 or 4 numbers for a vector, or 9 or 16 for a mat3 or mat4. Other matrices come from mat2, mat2x3 and the other matrix constructors.`,
-    );
+    if (x.every((element) => typeof element === "number")) return node({ _t: type, type, value: x }) as any;
+    // An array that holds nodes is built as its constructor builds it.
+    const construct = { vec2, vec3, vec4, mat3, mat4 }[type] as (...elements: unknown[]) => unknown;
+    return construct(...x) as any;
   }
   return x as any;
 }
