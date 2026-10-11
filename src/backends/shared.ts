@@ -155,6 +155,10 @@ export interface CompileCtx {
   fragDepthWritten?: boolean;
   /** Whether the shader reads the fragment's screen position. */
   fragCoordUsed: boolean;
+  /** What a `Return()` compiles to on GLSL and WGSL, given the function's return type, where `return;` would not do. */
+  returnStatement?: string;
+  /** On JS, the type a function returns, whose zero value an early `Return()` gives. */
+  jsReturnType?: string;
   /** Whether a vertex stage reads `vertexIndex()` / `instanceIndex()`. */
   vertexIndexUsed?: boolean;
   instanceIndexUsed?: boolean;
@@ -730,6 +734,13 @@ function checkRoots(roots: readonly unknown[]): { swizzleWrites: Map<any, any>; 
  */
 export function prepareRoots<T extends Node<ShaderType>>(stage: string | undefined, roots: readonly T[]): T[] {
   const { swizzleWrites, holdsOutputStruct } = checkRoots(roots);
+  if ((stage === "vertex" || stage === "fragment") && someNode(roots, (node) => node.type === "return")) {
+    throw new Error(
+      `[RMSL] Return() would end the ${stage} stage, which then writes none of its outputs on any target. ` +
+        `Write the rest of the stage in an If or Else instead` +
+        (stage === "fragment" ? ", or drop the fragment with Discard()." : "."),
+    );
+  }
   roots = substituteNodes(roots, swizzleWrites);
   if (stage === "fragment")
     return fragmentColour(lowerOutputStruct(roots as readonly BaseNode<ShaderType>[]) as unknown as T[]);

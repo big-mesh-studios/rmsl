@@ -646,7 +646,8 @@ describe("JS backend: control flow", () => {
     expect(fn({})).toBe(20);
   });
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-break-leaves-its-loop
+   * @canon spec-continue-starts-the-next-iteration
    */
   it("honours break_ and continue_", () => {
     const sumUntilBreak = (limit: Node<"float">) =>
@@ -1409,7 +1410,7 @@ describe("JS backend: TSL loop and return", () => {
     expect(fn({})).toBe(6);
   });
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
    */
   it("Return() exits the function early", () => {
     const fn = compileJSRoutine(
@@ -1424,9 +1425,9 @@ describe("JS backend: TSL loop and return", () => {
         })(),
       { name: "ret", params: [] },
     );
-    // The `return;` fires before the trailing return, so the function is
-    // undefined rather than 1.
-    expect(fn({})).toBeUndefined();
+    // The early return fires before the trailing one, so the function gives
+    // the zero value of its type rather than 1.
+    expect(fn({})).toBe(0);
   });
   /**
    * @canon spec-a-cpu-routine-returns-its-value

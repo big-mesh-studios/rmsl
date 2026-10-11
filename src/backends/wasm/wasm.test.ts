@@ -642,7 +642,7 @@ describe("WASM backend: loops", () => {
     expect(run(build, [5])).toBe(10);
   });
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-break-leaves-its-loop
    */
   it("breaks a loop directly, and from inside a nested If", () => {
     const directBreak = (n: Node<"float">) =>
@@ -710,7 +710,7 @@ describe("WASM backend: loops", () => {
     expect(run(build, [5])).toBe(8);
   });
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-break-leaves-its-loop
    */
   it("breaks only the innermost loop when loops are nested", () => {
     const build = (n: Node<"float">) =>
@@ -774,7 +774,7 @@ describe("WASM backend: loops", () => {
 
 describe("WASM backend: Return and Discard", () => {
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
    */
   it("returns early with a zero sentinel from inside an If", () => {
     const build = (x: Node<"float">) =>

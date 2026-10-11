@@ -476,18 +476,17 @@ describe("a varying a CPU vertex stage does not write", () => {
   /**
    * @canon spec-a-cpu-vertex-stage-gives-zero-for-a-varying-a-call-does-not-write
    */
-  it("is 0 when the call returns before the statement that writes it", () => {
+  it("is 0 when the call takes a path that does not write it", () => {
     const shade = varying("float");
     const pair = varying("vec2");
     const stop = uniform("int");
     const build = () =>
       Fn(() => {
         builtinPosition().assign(vec4(0, 0, 0, 1));
-        If(stop.equal(int(1)), () => {
-          Return();
+        If(stop.notEqual(int(1)), () => {
+          shade.assign(float(0.25));
+          pair.assign(vec2(1, 2));
         });
-        shade.assign(float(0.25));
-        pair.assign(vec2(1, 2));
       })() as any;
     const source = compileJSFn(build, { name: "main", params: [], stage: "vertex" });
     expect(source).toContain(`res.varyings["${shade.name}"] = 0;`);
@@ -587,7 +586,7 @@ describe("the varyings a JS rasterizer interpolates", () => {
 
 describe("a JS rasterizer's discarded fragment", () => {
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-discard-drops-the-fragment
    */
   it("leaves the colour under a discarded fragment as it was", () => {
     const draw = flatRasterizer((color, drop) => {
@@ -1874,7 +1873,7 @@ describe("the fragments a CPU rasterizer draws", () => {
   });
 
   /**
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-discard-drops-the-fragment
    */
   it("writes no depth for a discarded fragment in the JS rasterizer", () => {
     const draw = flatRasterizer((color, drop) => {

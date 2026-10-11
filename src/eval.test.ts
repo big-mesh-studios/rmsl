@@ -1053,10 +1053,30 @@ describe("RMSL evaluation", () => {
   }, 60_000);
 
   /**
+   * The early return fires for a positive argument, before the variable is set.
+   *
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
+   */
+  it("gives the zero value of the function's type for an early Return", async () => {
+    const early = (x: Node<"float">) =>
+      Fn(() => {
+        const out = float(5).toVar();
+        If(x.greaterThan(0), () => {
+          Return();
+        });
+        out.assign(x.add(10));
+        return out;
+      })();
+    await expectValue(early, [1], 0);
+    await expectValue(early, [-1], 9);
+  }, 60_000);
+
+  /**
    * break_ and continue_ change which iterations contribute, so the sum says
    * whether they landed.
    *
-   * @canon spec-break-continue-return-and-discard-leave-where-tsl-leaves
+   * @canon spec-break-leaves-its-loop
+   * @canon spec-continue-starts-the-next-iteration
    */
   it("honours break_ and continue_", async () => {
     const sumUntilBreak = (limit: Node<"float">) =>

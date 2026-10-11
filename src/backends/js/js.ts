@@ -1,4 +1,4 @@
-import { BaseNode, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH } from "../../core";
+import { BaseNode, float, MATRIX_DIMENSIONS, Node, ShaderType, TYPE_WIDTH } from "../../core";
 import {
   CpuDrawBuffer,
   CpuRoutine,
@@ -55,6 +55,14 @@ import {
 } from "../shared";
 import { matrixHelperSource } from "../matrix-formulas";
 import { shareNodes } from "../share";
+
+/** Marks the return statement of an early `Return()`, rewritten into the shape the function's last return takes. */
+const JS_RETURN_VALUE = "return /*rmsl:value*/";
+
+/** `text` with every character a regular expression gives a meaning escaped. */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 /** Which component each swizzle accessor names, in all three spellings. */
 export const JS_COMPONENT_INDEX: Record<string, number> = {
@@ -2507,7 +2515,11 @@ export function compileJSNode(
     }
 
     case "return": {
-      return { decls: [], body: ["return;"], expr: "0" };
+      // An early return gives the zero value of the function's type, in the shape its last return takes.
+      const type = ctx.jsReturnType;
+      if (!type || type === "void") return { decls: [], body: ["return;"], expr: "0" };
+      const zero = compileJSStage((float(0) as any).convert(type), ctx);
+      return { decls: zero.decls, body: [...zero.body, `${JS_RETURN_VALUE} ${zero.expr};`], expr: "0" };
     }
 
     default:
@@ -2590,6 +2602,7 @@ function compileJSFnDetailed(
   };
 
   assertOneDeclarationPerName(resultNodes);
+  ctx.jsReturnType = (resultNodes[resultNodes.length - 1] as any)?._t;
   // The value of the function is written into a hoisted slot too, so a vector or a matrix result allocates nothing.
   const compiledList = resultNodes.map((n, i) => {
     if (i !== resultNodes.length - 1 || !jsIsArrayType((n as any)?._t) || isJSArrayLeaf(n))
@@ -2648,7 +2661,23 @@ function compileJSFnDetailed(
   body.push(...slots.scalars);
   if (reentrant) body.push(...slots.views);
   body.push(...varyingResets);
-  for (const compiled of compiledList) body.push(...compiled.decls, ...compiled.body);
+  // An early return takes the shape of the function's last return, known once the body is built.
+  const returnValue = (value: string) =>
+    ctx.jsNeedsRes
+      ? `res.value = ${value}; return res;`
+      : scalarResult
+        ? `_rmsl_result[0] = ${value}; return _rmsl_result;`
+        : `return ${value};`;
+  for (const compiled of compiledList) {
+    body.push(
+      ...compiled.decls,
+      ...compiled.body.map((line) =>
+        line.includes(JS_RETURN_VALUE)
+          ? line.replace(new RegExp(`${escapeRegExp(JS_RETURN_VALUE)} (.*);`), (_, v) => returnValue(v))
+          : line,
+      ),
+    );
+  }
   if (ctx.jsNeedsRes) {
     // a program that returns nothing has no value
     if (lastType !== "void") body.push(`res.value = ${lastCompiled.expr};`);
