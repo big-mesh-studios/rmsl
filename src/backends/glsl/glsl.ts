@@ -1242,11 +1242,9 @@ export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options:
   for (const line of [...compiled.decls, ...compiled.body]) {
     code += `  ${line}\n`;
   }
-  if (compiled.expr !== "0.0") {
-    code += `  return ${compiled.expr};\n`;
-  } else {
-    code += `  return ${returnType}(0);\n`;
-  }
+  // A function that returns nothing ends; one with no value of its own gives its zero value, as an early return does.
+  if (returnType !== "void")
+    code += `  ${compiled.expr !== "0.0" ? `return ${compiled.expr};` : ctx.returnStatement}\n`;
   code += `}`;
   return code;
 }

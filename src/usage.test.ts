@@ -3532,6 +3532,23 @@ describe("TSL control flow", () => {
   });
 
   /**
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
+   */
+  it("ends a GLSL or WGSL function that returns nothing at an early Return", () => {
+    const body = (x: any) =>
+      Fn(() => {
+        const v = x.toVar();
+        If(x.greaterThan(0), () => {
+          Return();
+        });
+        v.assign(1);
+      })();
+    const options = { name: "f", params: [{ name: "x", type: "float" as const }] };
+    expect(compileWgslFn(body, options)).toMatch(/\{\s*return;\s*\}/);
+    expect(compileGlslFn(body, options)).toMatch(/\{\s*return;\s*\}/);
+  });
+
+  /**
    * The helper is an `Fn` the stage calls inline, so its `Return()` would end
    * the stage too.
    *

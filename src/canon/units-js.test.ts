@@ -1996,3 +1996,67 @@ describe("the count of a draw that names none on JS", () => {
     expect(() => wasm.draw(inputs, { width: 1, height: 1 })).toThrow(missing);
   });
 });
+
+describe("an early Return in a function on the CPU targets", () => {
+  /**
+   * The call that takes the early return comes after one that writes the
+   * vector, so a result left unwritten would show the earlier call's value.
+   *
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
+   */
+  it.each([
+    ["JS", compileJSRoutine],
+    ["WASM", compileWasmRoutine as CompileCpuRoutine],
+  ])("gives a vector function the zero vector on %s", (_name, compile) => {
+    const routine = compile(
+      (x: any) =>
+        Fn(() => {
+          If(x.greaterThan(0), () => {
+            Return();
+          });
+          return vec2(x, 1);
+        })(),
+      { name: "early", params: [{ name: "x", type: "float" }] },
+    );
+    expect(Array.from(routine({ params: { x: -1 } }) as ArrayLike<number>)).toEqual([-1, 1]);
+    expect(Array.from(routine({ params: { x: 1 } }) as ArrayLike<number>)).toEqual([0, 0]);
+  });
+
+  /**
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
+   */
+  it("gives a reentrant JS grid's pixel the zero value on an early return", () => {
+    const grid = compileJSGrid(
+      () =>
+        Fn(() => {
+          If(fragCoord().x.greaterThan(1), () => {
+            Return();
+          });
+          return float(7);
+        })() as any,
+      { name: "main", params: [], reentrant: true },
+    );
+    expect(Array.from(grid({}, 2, 1) as ArrayLike<number>)).toEqual([7, 0]);
+  });
+
+  /**
+   * A program that writes its depth returns its result object, so an early
+   * return returns that object too.
+   *
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
+   */
+  it("returns the result object of a JS program that returns nothing", () => {
+    const gate = uniform("float");
+    const source = compileJSFn(
+      () =>
+        Fn(() => {
+          builtinFragDepth().assign(float(0.5));
+          If(gate.greaterThan(0), () => {
+            Return();
+          });
+        })() as any,
+      { name: "main", params: [] },
+    );
+    expect(source).toMatch(/\{\s*return res;\s*\}/);
+  });
+});

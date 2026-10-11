@@ -159,6 +159,8 @@ export interface CompileCtx {
   returnStatement?: string;
   /** On JS, the type a function returns, whose zero value an early `Return()` gives. */
   jsReturnType?: string;
+  /** On JS, the statement that returns `value`, or nothing, in the shape the function's last return takes. */
+  jsReturn?: (value: string | undefined) => string;
   /** Whether a vertex stage reads `vertexIndex()` / `instanceIndex()`. */
   vertexIndexUsed?: boolean;
   instanceIndexUsed?: boolean;
@@ -691,9 +693,14 @@ function refuseWholeStorageRead(storage: any): never {
  * made a write into the vector the swizzle reads, see {@link swizzleWritePlace},
  * and whether the program holds an `outputStruct`.
  */
-function checkRoots(roots: readonly unknown[]): { swizzleWrites: Map<any, any>; holdsOutputStruct: boolean } {
+function checkRoots(roots: readonly unknown[]): {
+  swizzleWrites: Map<any, any>;
+  holdsOutputStruct: boolean;
+  holdsReturn: boolean;
+} {
   const swizzleWrites = new Map<any, any>();
   let holdsOutputStruct = false;
+  let holdsReturn = false;
   for (const root of roots) if ((root as any)?.type === "storage") refuseWholeStorageRead(root);
   // A node is visited once outside every update and once inside one.
   const visited = [new Set<unknown>(), new Set<unknown>()];
@@ -703,6 +710,7 @@ function checkRoots(roots: readonly unknown[]): { swizzleWrites: Map<any, any>; 
     if (Array.isArray(node)) return node.forEach((n) => visit(n, inUpdate));
     if (inUpdate) assertForUpdateNode(node);
     if (node.type === "outputStruct") holdsOutputStruct = true;
+    if (node.type === "return") holdsReturn = true;
     if (node.type === "assign" && isSwizzleWrite(node.params[0])) {
       const target = node.params[0];
       assertNoRepeatedSwizzle(target);
@@ -721,7 +729,7 @@ function checkRoots(roots: readonly unknown[]): { swizzleWrites: Map<any, any>; 
     });
   };
   visit(roots, false);
-  return { swizzleWrites, holdsOutputStruct };
+  return { swizzleWrites, holdsOutputStruct, holdsReturn };
 }
 
 /**
@@ -733,8 +741,8 @@ function checkRoots(roots: readonly unknown[]): { swizzleWrites: Map<any, any>; 
  * no stage, refuses an `outputStruct`, which is a fragment stage's result.
  */
 export function prepareRoots<T extends Node<ShaderType>>(stage: string | undefined, roots: readonly T[]): T[] {
-  const { swizzleWrites, holdsOutputStruct } = checkRoots(roots);
-  if ((stage === "vertex" || stage === "fragment") && someNode(roots, (node) => node.type === "return")) {
+  const { swizzleWrites, holdsOutputStruct, holdsReturn } = checkRoots(roots);
+  if ((stage === "vertex" || stage === "fragment") && holdsReturn) {
     throw new Error(
       `[RMSL] Return() would end the ${stage} stage, which then writes none of its outputs on any target. ` +
         `Write the rest of the stage in an If or Else instead` +

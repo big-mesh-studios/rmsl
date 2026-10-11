@@ -4173,11 +4173,25 @@ export function compileWasmFn(
         // after it raises the flag the host reads.
         const sentinel = needsResult ? [] : resultKind === "float" ? f64ConstBytes(0) : i32ConstBytes(0); // needsResult exits a void block; otherwise carry a zero for the block's result type
         const raise = node.type === "discard" ? storeComponent(discardAddress!, "int", 0, i32ConstBytes(1)) : [];
-        return [...raise, ...sentinel, WASM_OP.br, ...wasmUleb128(depth - EXIT_BLOCK_DEPTH)];
+        // A result kept in memory gives the zero value of its type, rather than what an earlier call left there.
+        const zeroResult = node.type === "return" && needsResult ? zeroValueBytes() : [];
+        return [...raise, ...zeroResult, ...sentinel, WASM_OP.br, ...wasmUleb128(depth - EXIT_BLOCK_DEPTH)];
       }
       default:
         throw new Error(`[RMSL] compileWasmFn: unsupported node type in statement position: "${node.type}"`);
     }
+  }
+
+  /** Writes the zero value of the function's type to valueAddress, where an early return leaves the result. */
+  function zeroValueBytes(): number[] {
+    if (valueAddress === undefined || root._t === "void") return [];
+    const type = root._t as string;
+    const kind = isAggregate(type) ? elementKindOf(type) : scalarKindOf(type);
+    const compSize = componentSizeOf(kind);
+    const zero = kind === "float" ? f64ConstBytes(0) : i32ConstBytes(0);
+    return Array.from({ length: componentCountOf(type) }, (_, k) =>
+      storeComponent(valueAddress!, kind, k * compSize, zero),
+    ).flat();
   }
 
   /** Puts the function's result where expected: the stack (scalar mode) or valueAddress (aggregate/stage mode). */

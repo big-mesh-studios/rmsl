@@ -385,8 +385,6 @@ function wgslLiteralPrec(literal: string): number {
   return literal.startsWith("-") ? PREC_UNARY : PREC_ATOM;
 }
 
-/** What an early `Return()` in a fragment stage emits until its `main` is known to return a struct. */
-
 export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCtx): CompiledNode {
   // Constant folding
   let folded = tryFold(node);
@@ -2104,10 +2102,12 @@ export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options:
     jsNeedsRes: false,
   };
   assertOneDeclarationPerName(result);
-  const returnType = wgslType((result as any)._t || "float");
+  const resultType = (result as any)._t || "float";
+  const returnType = wgslType(resultType);
+  const returnsNothing = resultType === "void";
   // An early `Return()` has no value to give, so it returns the zero value of
   // the function's type, as the function does when its body ends.
-  ctx.returnStatement = `return ${returnType}();`;
+  ctx.returnStatement = returnsNothing ? "return;" : `return ${returnType}();`;
   const compiled = compileWGSLStage(result, ctx);
   const paramStr = options.params.map((p) => `${p.name}: ${wgslType(p.type)}`).join(", ");
 
@@ -2120,18 +2120,15 @@ export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options:
   for (const helper of [...ctx.wgslHelpers].sort()) {
     code += `${WGSL_HELPERS[helper]}\n\n`;
   }
-  code += `fn ${options.name}(${paramStr}) -> ${returnType} {\n`;
+  code += `fn ${options.name}(${paramStr})${returnsNothing ? "" : ` -> ${returnType}`} {\n`;
   for (const line of compiled.decls) {
     code += `  ${line}\n`;
   }
   for (const line of compiled.body) {
     code += `  ${line}\n`;
   }
-  if (compiled.expr !== "0.0") {
-    code += `  return ${compiled.expr};\n`;
-  } else {
-    code += `  return ${returnType}();\n`;
-  }
+  // A function that returns nothing ends; one with no value of its own gives its zero value, as an early return does.
+  if (!returnsNothing) code += `  ${compiled.expr !== "0.0" ? `return ${compiled.expr};` : ctx.returnStatement}\n`;
   code += `}\n`;
 
   // Same single-struct packing as a full shader, for the same reason: one

@@ -113,7 +113,15 @@ value)`, `attribute(name, type)` and `varying(name, type)` are bound to a
   `update` given as a string, which TSL writes into the shader as text: give a
   number, a node or a function.
 - **`Fn` return values** are implicit — the value the body returns is the
-  result. `Return()` only emits a void early-return.
+  result. `Return()` takes no value: in a function that returns one, an early
+  `Return()` gives the zero value of its type on every target, where TSL's bare
+  `return` does not compile. A `Return()` that would end a vertex or fragment
+  stage, in the stage itself or in a helper `Fn` it calls, is refused, where TSL
+  leaves the stage's outputs unwritten: use `If`/`Else`, or `Discard()` to drop
+  a fragment.
+- **`builtinFragDepth()`** starts from the fragment's own depth, so a path that
+  writes none keeps it, where TSL gives such a path 0 on WebGPU and an
+  undefined depth on WebGL.
 - **`mul(mat4, vec3)`** promotes the position with an implied `w = 1` and drops
   the homogeneous component, as TSL's matrix·vector multiply does. Other
   vector widths narrower than the matrix's columns are not supported.
