@@ -155,6 +155,8 @@ type ReflectedUniform = {
   slot: string;
   type: string;
   length?: number;
+  /** The uniform's place in the order the program created its uniforms. */
+  order: number;
   node: UniformNode<ShaderType> | UniformArrayNode<ShaderType>;
 };
 
@@ -174,12 +176,15 @@ function reflectStage(
       .map(([, info]) => ({ slot: info.slot, type: info.type })),
     uniforms: [...ctx.uniforms.values()]
       .sort((a, b) => a.order! - b.order!)
-      .map((u) => ({ slot: u.slot, type: u.type, length: u.length, node: u.node as ReflectedUniform["node"] })),
+      .map((u) => ({
+        slot: u.slot,
+        type: u.type,
+        length: u.length,
+        order: u.order!,
+        node: u.node as ReflectedUniform["node"],
+      })),
   };
 }
-
-/** The place of a uniform in the order the program created its uniforms. */
-const creationOf = (node: ReflectedUniform["node"]) => (node as unknown as { value: { id: number } }).value.id;
 
 /** Scalar/vector f32 only — a matrix attribute arrives as several columns
  * (see wgslMatrixColumns in wgsl.ts) with no single `GPUVertexFormat` of
@@ -519,7 +524,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       for (let u of [...vertexReflection.uniforms, ...fragmentReflection.uniforms]) {
         (isWgslTexture(u.type) ? sharedTextures : sharedUniforms).set(u.slot, u);
       }
-      let renderDeclarations = [...sharedUniforms.values()].sort((a, b) => creationOf(a.node) - creationOf(b.node));
+      let renderDeclarations = [...sharedUniforms.values()].sort((a, b) => a.order - b.order);
       let renderUniforms = renderDeclarations.map((u) => u.node);
       // A texture takes a binding of its own, in the order of the whole program's textures.
       textureDeclarations = sharedSamplerDeclarations(
@@ -528,8 +533,8 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
           type: Object.keys(typeToWGSL).find((key) => /sampler/.test(key) && typeToWGSL[key] === u.type) ?? u.type,
         })),
       );
-      storages = storageAttributes([options.vertex, options.fragment]);
       let storageNodes = storageNodesOf([options.vertex, options.fragment]);
+      storages = new Map(storageNodes.map((node) => [node.name, node.attribute]));
       let storageOrder = storageNodes.map((node) => node.name);
       let stageOptions = {
         ...(renderUniforms.length > 0 ? { uniforms: renderUniforms } : {}),
