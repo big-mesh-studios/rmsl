@@ -2145,10 +2145,9 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
         posNode.element(i).addAssign(i.toFloat().mul(dt));
       })();
     const compiled = compileWasmFn(build as any, { name: "step", params: [] });
-    expect(compiled.compute).toBe(true);
     expect(
       WebAssembly.Module.exports(new WebAssembly.Module(compiled.bytes.buffer as ArrayBuffer)).map((e) => e.name),
-    ).toContain("compute");
+    ).toContain("_rmsl_compute");
 
     const fn = instantiateWasmProgram(compiled, "step");
     const pos = new Float64Array([1, 1, 1, 1]);
@@ -2178,7 +2177,6 @@ describe("WASM backend: instantiateWasmRoutine — compile and instantiate as se
     const src = instancedArray(3, "float").toReadOnly();
     const build = () => Fn(() => src.element(invocationIndex()).mul(2))();
     const compiled = compileWasmFn(build as any, { name: "step", params: [] });
-    expect(compiled.compute).toBe(true);
     const fn = instantiateWasmProgram(compiled, "step");
     expect(() => fn.compute({ storages: { [src.name]: new Float64Array([1, 2, 3]) } }, 3)).not.toThrow();
   });

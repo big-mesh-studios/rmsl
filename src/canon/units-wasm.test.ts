@@ -308,6 +308,53 @@ describe("the WASM rasterizer's memory", () => {
   });
 });
 
+describe("the exports of a WASM module", () => {
+  /** The names a module compiled from `build` exports. */
+  const exportsOf = (build: () => any, name: string) =>
+    WebAssembly.Module.exports(new WebAssembly.Module(compileWasmFn(build, { name, params: [] }).bytes as any)).map(
+      (entry) => entry.name,
+    );
+
+  /**
+   * @canon spec-a-wasm-module-exports-its-loops-under-the-reserved-prefix
+   */
+  it.each(["draw", "compute"])("exports a program named %s beside its own loops", (name) => {
+    expect(exportsOf(() => Fn(() => fragCoord().x)(), name).sort()).toEqual(
+      ["_rmsl_compute", "_rmsl_draw", name].sort(),
+    );
+  });
+
+  /**
+   * @canon spec-a-wasm-module-exports-its-loops-under-the-reserved-prefix
+   */
+  it("refuses a program name in the reserved prefix", () => {
+    expect(() => exportsOf(() => Fn(() => float(1))(), "_rmsl_draw")).toThrow(/"_rmsl_draw".*reserve/);
+  });
+
+  /**
+   * @canon spec-a-wasm-routine-loops-inside-its-module
+   */
+  it("exports a dispatch loop for a program that reads neither storage nor invocationIndex", () => {
+    expect(exportsOf(() => Fn(() => float(1).toVar())(), "main")).toContain("_rmsl_compute");
+  });
+
+  /**
+   * @canon spec-a-cpu-adapter-computes-synchronously
+   */
+  it("creates a compute adapter under its default name, and computes", () => {
+    const buf = instancedArray(2, "float");
+    const adapter = createWasmCompute(
+      Fn(() => {
+        buf.element(invocationIndex()).assign(float(3));
+      })(),
+    );
+    const data = new Float32Array(2);
+    adapter.setAttribute(buf.name, data);
+    adapter.compute();
+    expect(Array.from(data)).toEqual([3, 3]);
+  });
+});
+
 describe("bytes compiled with compileWasmFn", () => {
   /**
    * @canon spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel

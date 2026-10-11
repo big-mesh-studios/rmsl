@@ -1,4 +1,4 @@
-import { MATRIX_DIMENSIONS, Node, ShaderType, StorageAccess } from "../../core";
+import { MATRIX_DIMENSIONS, Node, RESERVED_VAR_PREFIX, ShaderType, StorageAccess } from "../../core";
 import { AllocRules, planLayout } from "../../layout";
 import {
   componentCountOf,
@@ -143,9 +143,7 @@ export type CompiledWasm = {
 
   maxMemoryPages: number; // the maximum this module's memory import declared — only enforced when sharedMemory is true
 
-  draw?: { componentCount: number; kind: "float" | "int" | "uint" | "bool" }; // set when "draw" is exported
-  /** Whether the module exports `compute(...params, count)`, which runs `main` once per invocation index. */
-  compute?: boolean;
+  draw?: { componentCount: number; kind: "float" | "int" | "uint" | "bool" }; // set when "_rmsl_draw" is exported
   /** Whether the program computes every float in 32 bits, so the host rounds each float input it passes. */
   float32?: boolean;
 };
@@ -813,6 +811,11 @@ export function compileWasmFn(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmFnOptions,
 ): CompiledWasm {
+  if (options.name.startsWith(RESERVED_VAR_PREFIX)) {
+    throw new Error(
+      `[RMSL] compileWasmFn: the name "${options.name}" starts with "${RESERVED_VAR_PREFIX}", which the compiler reserves for the module's own exports. Give the program another name`,
+    );
+  }
   if (options.gpuUniformLayout && options.float !== "f32") {
     throw new Error(
       `[RMSL] compileWasmFn: gpuUniformLayout shares a uniform buffer with the GPU, which holds 32-bit floats, ` +
@@ -1232,13 +1235,13 @@ export function compileWasmFn(
     typeEntries.push([WASM_FUNC, ...wasmVec([...paramTypes, [WASM_I32], [WASM_I32], [WASM_I32]]), ...wasmVec([])]);
   }
 
-  let computeTypeIdx: number | undefined;
-  let computeFuncBody: number[] | undefined;
+  let computeTypeIdx: number;
+  let computeFuncBody: number[];
 
-  // A "compute(count)" export for a compute program: runs main once per
+  // The "_rmsl_compute(count)" export of every program: runs main once per
   // index in 0..count, passing the index as invocationIndex() and every other
   // param through unchanged, so a whole dispatch is one call from the host.
-  if (paramIndex.has("invocationIndex") || storageMetadataAddress.size > 0) {
+  {
     const countIdx = params.length;
     const indexIdx = params.length + 1;
     const invocationIndexParam = paramIndex.get("invocationIndex");
@@ -1261,8 +1264,8 @@ export function compileWasmFn(
 
   /** The module's own functions after main, in function-index order: draw, then compute, each when emitted. */
   const extraFunctions = [
-    { name: "draw", typeIdx: drawTypeIdx, body: drawFuncBody },
-    { name: "compute", typeIdx: computeTypeIdx, body: computeFuncBody },
+    { name: `${RESERVED_VAR_PREFIX}draw`, typeIdx: drawTypeIdx, body: drawFuncBody },
+    { name: `${RESERVED_VAR_PREFIX}compute`, typeIdx: computeTypeIdx, body: computeFuncBody },
   ].filter((f): f is { name: string; typeIdx: number; body: number[] } => f.typeIdx !== undefined);
 
   /** 65536 bytes per WASM memory page. */
@@ -1372,7 +1375,6 @@ export function compileWasmFn(
     sharedMemory,
     maxMemoryPages,
     draw: drawTypeIdx === undefined ? undefined : { componentCount: drawComponentCount, kind: drawComponentKind },
-    compute: computeTypeIdx !== undefined,
     float32,
   };
 
@@ -4547,7 +4549,6 @@ export function instantiateWasmProgram(
     sharedMemory,
     maxMemoryPages,
     draw: drawOutput,
-    compute: hasCompute,
     float32,
   } = compiled;
 
@@ -4566,8 +4567,10 @@ export function instantiateWasmProgram(
     env: { memory },
   });
   const wasmMain = instance.exports[name] as (...args: number[]) => number;
-  const wasmDraw = drawOutput ? (instance.exports.draw as (...args: number[]) => void) : undefined;
-  const wasmCompute = hasCompute ? (instance.exports.compute as (...args: number[]) => void) : undefined;
+  const wasmDraw = drawOutput
+    ? (instance.exports[`${RESERVED_VAR_PREFIX}draw`] as (...args: number[]) => void)
+    : undefined;
+  const wasmCompute = instance.exports[`${RESERVED_VAR_PREFIX}compute`] as (...args: number[]) => void;
 
   // outputs read back after each call; textures repacked per call
   const outputParams = params.filter(
@@ -4703,17 +4706,14 @@ export function instantiateWasmProgram(
 
   /**
    * `CpuRoutine.compute`: marshals `ctx` once, runs every invocation in one
-   * call to the module's own `compute` export, and copies the storage
-   * buffers back once at the end. A program with neither `storage()` nor
-   * `invocationIndex()` has no such export, and loops `main` from here.
+   * call to the module's own `_rmsl_compute` export, and copies the storage
+   * buffers back once at the end.
    */
   function compute(ctx: CpuShaderContext, count: number): void {
     const { args } = marshalInputs(ctx);
-    if (wasmCompute) {
-      const n = copyArgs(computeArgs, args);
-      computeArgs[n] = count;
-      callExport(wasmCompute, computeArgs, n + 1);
-    } else for (let i = 0; i < count; i++) callExport(wasmMain, args, args.length);
+    const n = copyArgs(computeArgs, args);
+    computeArgs[n] = count;
+    callExport(wasmCompute, computeArgs, n + 1);
     writeBackStorages(ctx);
   }
 

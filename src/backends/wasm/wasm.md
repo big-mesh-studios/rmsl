@@ -88,17 +88,21 @@ type, and how much linear memory the compile-time layout used
 time).
 
 The module always exports `main` (`options.name`) and, when the `Fn`'s
-result isn't `void`, a second export, `draw(width, height, bufferBase)` —
+result isn't `void`, a second export, `_rmsl_draw(width, height, bufferBase)` —
 a WASM-side pixel loop that calls `main` once per pixel (feeding it
 `fragCoord()`) and writes results into the caller's buffer, so a whole-image
 evaluation only pays the JS↔WASM marshalling cost once instead of once per
 pixel (see "A whole grid in one call" in `docs/wasm-benchmarks.md`).
 
-A program that uses `storage()` or `invocationIndex()` also gets a
-`compute(...params, count)` export: a WASM-side loop that calls `main` once
+Every program also gets a
+`_rmsl_compute(...params, count)` export: a WASM-side loop that calls `main` once
 per index in `0..count`, passing the index as the `invocationIndex` param and
 every other param through unchanged. A whole compute dispatch is then a single
 call from the host.
+
+The module's own exports carry the `_rmsl_` prefix the compiler reserves, and
+`compileWasmFn` refuses an `options.name` that starts with it, so the caller's
+name never collides with them.
 
 Memory is _imported_, not owned by the module (`env.memory`) — this is what
 lets `instantiateWasmRoutine` hand multiple instances the same memory, and
@@ -136,7 +140,7 @@ It does three things:
    `CpuProgramResult` — or, when there are no memory outputs at all, just
    reinterpret the WASM call's own return value (with a `>>> 0` for `uint`,
    since the boundary always returns a signed i32). `compute(ctx, count)`
-   marshals once, makes one call to the module's `compute` export, and
+   marshals once, makes one call to the module's `_rmsl_compute` export, and
    copies the storage buffers back once. A scalar storage buffer held in a
    typed array is copied in and out with one typed-array `set()`; vector,
    matrix and bool storage is copied one element at a time.
