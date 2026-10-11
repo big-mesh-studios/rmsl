@@ -355,6 +355,40 @@ describe("the exports of a WASM module", () => {
   });
 });
 
+describe("the imports of a WASM module", () => {
+  /** What a module compiled from `build` imports, as `module.name`, sorted. */
+  const importsOf = (build: () => any, stage?: "compute") =>
+    WebAssembly.Module.imports(
+      new WebAssembly.Module(compileWasmFn(build, { name: "main", params: [], stage }).bytes as any),
+    )
+      .map((entry) => `${entry.module}.${entry.name}`)
+      .sort();
+
+  /**
+   * @canon spec-a-wasm-program-without-a-transcendental-imports-its-memory-alone
+   */
+  it("imports its memory alone, whatever the program reads or writes", () => {
+    const gain = uniform("float");
+    const image = uniform("sampler2D");
+    const values = instancedArray(4, "float");
+    expect(importsOf(() => Fn(() => texture(image, vec2(0.5, 0.5)).x.mul(gain))())).toEqual(["env.memory"]);
+    expect(importsOf(() => Fn(() => vec4(fragCoord().x, 0, 0, 1))())).toEqual(["env.memory"]);
+    const write = () =>
+      Fn(() => {
+        values.element(invocationIndex()).assign(gain);
+      })();
+    expect(importsOf(write, "compute")).toEqual(["env.memory"]);
+  });
+
+  /**
+   * @canon exception-a-wasm-transcendental-is-imported-from-the-host
+   */
+  it("imports from math each transcendental it calls, and nothing else", () => {
+    const x = uniform("float");
+    expect(importsOf(() => Fn(() => x.sin().add(x.pow(2)))())).toEqual(["env.memory", "math.pow", "math.sin"]);
+  });
+});
+
 describe("bytes compiled with compileWasmFn", () => {
   /**
    * @canon spec-a-cpu-grid-evaluates-a-fragment-for-each-pixel
