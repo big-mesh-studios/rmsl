@@ -1980,4 +1980,19 @@ describe("the count of a draw that names none on JS", () => {
     );
     expect(Array.from(pixel)).toEqual([0, 1, 0, 1]);
   });
+
+  /**
+   * @canon spec-a-cpu-rasterizer-refuses-a-draw-missing-an-attribute-it-reads
+   */
+  it("refuses a draw missing an attribute the program reads on JS and WASM", async () => {
+    const pos = attribute("vec3");
+    const tint = attribute("vec3");
+    const vertex = () => Fn(() => builtinPosition().assign(vec4(pos.add(tint), 1)))();
+    const fragment = () => Fn(() => vec4(0, 1, 0, 1))();
+    const inputs = { attributes: { [pos.name]: Float64Array.of(-1, -1, 0, 3, -1, 0, -1, 3, 0) } };
+    const missing = new RegExp(`missing attribute "${tint.name}"`);
+    expect(() => compileJS(vertex as any, fragment as any).draw(inputs, { width: 1, height: 1 })).toThrow(missing);
+    const wasm = await compileWasm(vertex as any, fragment as any);
+    expect(() => wasm.draw(inputs, { width: 1, height: 1 })).toThrow(missing);
+  });
 });

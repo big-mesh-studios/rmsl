@@ -347,6 +347,9 @@ export function compileJS(
     const { width, height, out } = options;
     const { attributes } = ctx;
     const first = options.first ?? 0;
+    for (const slot of attributeSlots) {
+      if (!attributes[slot]) throw new Error(`[RMSL] compileJS: draw() is missing attribute "${slot}"`);
+    }
     // An attribute the program does not read counts for nothing, as a WebGPU
     // draw reads no buffer its shader does not declare.
     let firstSlot: string | undefined;
@@ -365,8 +368,7 @@ export function compileJS(
         const buffer = attributes[slot];
         const w = attributeWidths[a]!;
         const kind = attributeKinds[a]!;
-        if (buffer === undefined) vertexAttributes[slot] = undefined;
-        else if (w === 1) vertexAttributes[slot] = attributeComponent(kind, buffer[i + first]!);
+        if (w === 1) vertexAttributes[slot] = attributeComponent(kind, buffer[i + first]!);
         else {
           let into = vertexAttributes[slot];
           if (!(into instanceof Float64Array)) into = vertexAttributes[slot] = new Float64Array(w);
