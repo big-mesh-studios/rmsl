@@ -157,7 +157,7 @@ describe("a CPU rasterizer's triangles", () => {
   const counterClockwise = new Float64Array([-1, -1, 0, 1, -1, 0, -1, 1, 0]);
   const clockwise = new Float64Array([-1, -1, 0, -1, 1, 0, 1, -1, 0]);
   const rasterizers = [
-    ["JS", () => compileJS(vertex as any, fragment as any, { attributeTypes: { [position.name]: "vec3" } })],
+    ["JS", () => compileJS(vertex as any, fragment as any)],
     ["WASM", () => compileWasm(vertex as any, fragment as any)],
   ] as const;
 

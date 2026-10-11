@@ -160,7 +160,7 @@ export interface JsAdapter extends Adapter<void, JsDrawOptions> {
 export function createJs(
   vertexFn: (...args: any[]) => any,
   fragmentFn: (...args: any[]) => any,
-  options: CompileJSRasterOptions,
+  options: CompileJSRasterOptions = {},
 ): JsAdapter {
   const routine = compileJS(vertexFn, fragmentFn, options);
 

@@ -1788,6 +1788,7 @@ export function compileJSNode(
     case "attribute": {
       let v = node.value as any;
       assertNotInAComputeStage(ctx.shaderStage, COMPUTE_REFUSES.attribute);
+      ctx.attributes.set(v.slot, { id: v.id, type: v.shaderType ?? node._t, slot: v.slot });
       return jsLeafRef(`ctx.attributes[${JSON.stringify(v.slot)}]`, v.shaderType ?? node._t, ctx);
     }
 
@@ -2681,6 +2682,7 @@ function compileJSFnDetailed(
     storageTypes: Object.fromEntries(ctx.storageTypes ?? []) as Record<string, ShaderType>,
     resultTypes: {
       value: lastType as ShaderType | undefined,
+      attributes: Object.fromEntries([...ctx.attributes.values()].map((a) => [a.slot, a.type as ShaderType])),
       varyings: Object.fromEntries([...ctx.varyings.values()].map((v) => [v.slot, v.type])),
       outputs: Object.fromEntries([...ctx.outputs.values()].map((o) => [o.slot, o.type])),
       float32: ctx.jsFloat32 === true,
@@ -2702,6 +2704,8 @@ export interface JsProgram extends CpuProgram {
    * overwrites. For a caller that reads each result at once.
    */
   runInPlace(ctx: CpuShaderContext): CpuValue<ShaderType> | CpuProgramResult | null;
+  /** The type of each attribute a vertex stage reads, by slot. */
+  readonly attributeTypes: Readonly<Record<string, ShaderType>>;
   /** The type of each varying a vertex stage writes, by slot. */
   readonly varyingTypes: Readonly<Record<string, string>>;
   /** Whether a fragment stage can write its depth, so a rasterizer tests the depth it writes. */
@@ -2711,6 +2715,7 @@ export interface JsProgram extends CpuProgram {
 /** The types of what a compiled JS function returns: its value, and the varyings and outputs it writes by slot. */
 type JsResultTypes = {
   value: ShaderType | undefined;
+  attributes: Record<string, ShaderType>;
   varyings: Record<string, string>;
   outputs: Record<string, string>;
   float32: boolean;
@@ -2891,7 +2896,16 @@ export function compileJSProgram(
   }
 
   // A reentrant routine declares its variables per call, so nothing is shared to copy out of.
-  return { run, runInPlace: runScratch, draw, compute, storageTypes, varyingTypes: resultTypes.varyings, writesDepth };
+  return {
+    run,
+    runInPlace: runScratch,
+    draw,
+    compute,
+    storageTypes,
+    attributeTypes: resultTypes.attributes,
+    varyingTypes: resultTypes.varyings,
+    writesDepth,
+  };
 }
 
 /** What a stage compile function takes: the options of a routine, without the stage, which the function names. */

@@ -17,7 +17,7 @@ describe("JS backend: compileJS (vertex+fragment rasterizer pipeline)", () => {
       })();
     const fragmentFn = () => Fn(() => vec4(colorVarying.x, colorVarying.y, colorVarying.z, 1))();
 
-    const routine = compileJS(vertexFn as any, fragmentFn as any, { attributeTypes: { [posAttr.name]: "vec3" } });
+    const routine = compileJS(vertexFn as any, fragmentFn as any);
 
     const width = 4;
     const height = 4;
@@ -46,7 +46,7 @@ describe("JS backend: compileJS (vertex+fragment rasterizer pipeline)", () => {
     const vertexFn = () => Fn(() => builtinPosition().assign(vec4(posAttr.x, posAttr.y, posAttr.z, 1)))();
     const fragmentFn = () => Fn(() => vec4(colorUniform.x, colorUniform.y, colorUniform.z, 1))();
 
-    const routine = compileJS(vertexFn as any, fragmentFn as any, { attributeTypes: { [posAttr.name]: "vec3" } });
+    const routine = compileJS(vertexFn as any, fragmentFn as any);
     const positions = new Float64Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]);
 
     const result = routine.draw(
@@ -65,7 +65,7 @@ describe("JS backend: compileJS (vertex+fragment rasterizer pipeline)", () => {
     const vertexFn = () => Fn(() => builtinPosition().assign(vec4(posAttr.x, posAttr.y, posAttr.z, 1)))();
     const fragmentFn = () => Fn(() => vec4(colorUniform.x, colorUniform.y, colorUniform.z, 1))();
 
-    const routine = compileJS(vertexFn as any, fragmentFn as any, { attributeTypes: { [posAttr.name]: "vec3" } });
+    const routine = compileJS(vertexFn as any, fragmentFn as any);
     const width = 4;
     const height = 4;
 
@@ -100,7 +100,7 @@ describe("JS backend: compileJS (vertex+fragment rasterizer pipeline)", () => {
     const vertexFn = () => Fn(() => builtinPosition().assign(vec4(posAttr.x, posAttr.y, posAttr.z, 1)))();
     const fragmentFn = () => Fn(() => vec4(colorUniform.x, colorUniform.y, colorUniform.z, 1))();
 
-    const routine = compileJS(vertexFn as any, fragmentFn as any, { attributeTypes: { [posAttr.name]: "vec3" } });
+    const routine = compileJS(vertexFn as any, fragmentFn as any);
     const width = 2;
     const height = 2;
     const triangleAt = (z: number) => new Float64Array([-1, -1, z, 3, -1, z, -1, 3, z]);
@@ -129,7 +129,7 @@ describe("JS backend: compileJS (vertex+fragment rasterizer pipeline)", () => {
     const vertexFn = () => Fn(() => builtinPosition().assign(vec4(posAttr.x, posAttr.y, posAttr.z, 1)))();
     const fragmentFn = () => Fn(() => vec4(colorUniform.x, colorUniform.y, colorUniform.z, 1))();
 
-    const routine = compileJS(vertexFn as any, fragmentFn as any, { attributeTypes: { [posAttr.name]: "vec3" } });
+    const routine = compileJS(vertexFn as any, fragmentFn as any);
     // 6 vertices (2 triangles) worth of vec3 data — no `count` passed below.
     const positions = new Float64Array([-1, -1, 0, 3, -1, 0, -1, 3, 0, -1, -1, 0.5, 3, -1, 0.5, -1, 3, 0.5]);
 

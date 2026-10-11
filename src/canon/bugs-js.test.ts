@@ -26,7 +26,6 @@ function flatRasterizer(fragment?: (color: Node<"vec4">, drop: Node<"float">) =>
   const routine = compileJS(
     () => Fn(() => builtinPosition().assign(vec4(position.x, position.y, position.z, 1)))() as any,
     () => Fn(() => (fragment ? fragment(color, drop) : color).toVar())() as any,
-    { attributeTypes: { [position.name]: "vec3" } },
   );
   const draw = (triangles: number[], rgba: number[], options: Record<string, unknown> = {}, dropped = 0) =>
     routine.draw(

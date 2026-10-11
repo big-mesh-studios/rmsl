@@ -153,7 +153,6 @@ describe("a CPU compile at float: f32", () => {
     };
     const draw = { width: 4, height: 4, clear: true, clearDepth: true };
     const js = compileJS(vertex, fragment, {
-      attributeTypes: { [position.name]: "vec3", [colour.name]: "vec3" },
       float: "f32",
     }).draw({ attributes }, draw);
     const wasm = await compileWasm(vertex, fragment, { float: "f32" }).draw({ attributes }, draw);
@@ -182,7 +181,6 @@ describe("a CPU compile at float: f32", () => {
     };
     const draw = { width: 4, height: 4, clear: true, clearDepth: true };
     const js = compileJS(vertex, fragment, {
-      attributeTypes: { [position.name]: "vec3", [colour.name]: "vec3" },
       float: "f32",
     }).draw({ attributes }, draw);
     const wasm = await compileWasm(vertex, fragment, { float: "f32" }).draw({ attributes }, draw);

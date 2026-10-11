@@ -18,15 +18,8 @@ const W_CLIP_EPS = 1e-5;
  * Options shared by both stages of a {@link compileJS} pair — the same
  * fields `compileJSRoutine` itself takes, minus `name`/`stage`/`params`,
  * which `compileJS` fixes itself.
- *
- * `attributeTypes` exists because — unlike `compileWasmFn`, whose `params`
- * list carries each attribute's `ShaderType` for `compileWasm` to read back
- * — `compileJSFn` exposes no such metadata (JS has no fixed-address layout
- * to describe): the caller has to say how many components each attribute
- * slot packs.
  */
 export interface CompileJSRasterOptions {
-  attributeTypes: Record<string, ShaderType>;
   derivatives?: CompileJSOptions["derivatives"];
   reentrant?: CompileJSOptions["reentrant"];
   float?: CompileJSOptions["float"];
@@ -161,7 +154,7 @@ function clipTriangle(v0: ClipVertex, v1: ClipVertex, v2: ClipVertex, out: ClipV
 export function compileJS(
   vertexFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   fragmentFn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
-  options: CompileJSRasterOptions,
+  options: CompileJSRasterOptions = {},
 ): JsRasterRoutine {
   const stageOptions = {
     params: [],
@@ -173,9 +166,10 @@ export function compileJS(
   const fragmentStage = compileJSProgram(fragmentFn, { ...stageOptions, name: "frag", stage: "fragment" });
   const writesDepth = fragmentStage.writesDepth;
 
-  const attributeSlots = Object.keys(options.attributeTypes);
-  const attributeWidths = attributeSlots.map((slot) => componentCountOf(options.attributeTypes[slot]!));
-  const attributeKinds = attributeSlots.map((slot) => componentKindOf(options.attributeTypes[slot]!));
+  /** The attribute slots the vertex stage reads, as its program declares them. */
+  const attributeSlots = Object.keys(vertexStage.attributeTypes);
+  const attributeWidths = attributeSlots.map((slot) => componentCountOf(vertexStage.attributeTypes[slot]!));
+  const attributeKinds = attributeSlots.map((slot) => componentKindOf(vertexStage.attributeTypes[slot]!));
   const widths: Record<string, number> = {};
   attributeSlots.forEach((slot, i) => (widths[slot] = attributeWidths[i]!));
   /** The attributes of the vertex being shaded: a vector in an array of its own, filled for each vertex. */

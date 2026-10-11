@@ -560,6 +560,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one`](#spec-a-cpu-fragment-reads-its-interpolated-depth-until-it-writes-one) — In a CPU rasterizer, `builtinFragDepth()` read before the fragment stage writes it gives the fragment's interpolated depth.
       - [`@spec a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects`](#spec-a-cpu-rasterizer-runs-no-fragment-stage-the-depth-test-rejects) — A CPU rasterizer tests a fragment's interpolated depth before it runs the fragment stage, and runs no stage for a fragment that test rejects. A stage that writes its depth is tested once it has run instead. A stage that only reads its depth is tested before it runs.
       - [`@spec a-rasterizer-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads) — A draw that names no vertex count takes it from the first attribute its program reads, in the order the host passed them. An attribute the program does not read is taken and counts for nothing.
+      - [`@spec a-cpu-rasterizer-takes-its-attributes-from-its-vertex-stage`](#spec-a-cpu-rasterizer-takes-its-attributes-from-its-vertex-stage) — `compileJS` and `compileWasm` read which attributes the vertex stage reads, and the type of each, from the compiled stage. The host names neither.
       - [`@spec a-cpu-rasterizer-reads-an-integer-attribute-as-a-32-bit-integer`](#spec-a-cpu-rasterizer-reads-an-integer-attribute-as-a-32-bit-integer) — A CPU rasterizer reads each component of an `int` attribute as an `Int32Array` stores the host's value, and each component of a `uint` attribute as a `Uint32Array` stores it. A fraction truncates toward zero, and a value outside the type's range wraps.
       - [`@spec the-wasm-rasterizer-draws-what-the-js-rasterizer-draws`](#spec-the-wasm-rasterizer-draws-what-the-js-rasterizer-draws) — The WASM rasterizer gives the same pixels as the JS rasterizer for the same programs and inputs. This holds with several attributes, several varyings, or a scalar uniform.
       - [`@spec a-pixel-on-a-shared-edge-is-shaded-once`](#spec-a-pixel-on-a-shared-edge-is-shaded-once) — A pixel centre on an edge that two triangles share takes the colour of one of them, whatever their order. It takes the colour of the triangle whose top or left edge it is.
@@ -3965,6 +3966,14 @@ This follows because a stage that does not write its depth cannot change what th
 Derives from: [`fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares`](#fact-a-webgpu-draw-names-its-count-and-reads-only-the-buffers-its-shader-declares)
 
 This follows because a WebGPU draw reads no buffer its shader does not declare, so such a buffer cannot change what is drawn.
+
+##### @spec a-cpu-rasterizer-takes-its-attributes-from-its-vertex-stage
+
+> `compileJS` and `compileWasm` read which attributes the vertex stage reads, and the type of each, from the compiled stage. The host names neither.
+
+Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-rasterizer-takes-its-count-from-the-first-attribute-it-reads)
+
+This follows because each attribute node carries its type, and the compiled stage knows which it reads. A list from the host could leave out an attribute the stage reads, or name one it does not, and count a draw from it.
 
 ##### @spec a-cpu-rasterizer-reads-an-integer-attribute-as-a-32-bit-integer
 

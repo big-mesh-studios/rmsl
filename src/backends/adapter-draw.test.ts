@@ -126,12 +126,12 @@ const drawRoutine = (adapter) => {
 };
 globalThis.__rmslAdapterDraw = {
   glsl: () => drawWith(createGlsl(vertex(), fragment())),
-  js: () => drawWith(createJs(vertex, fragment, { attributeTypes: { [position.name]: "vec3" } })),
-  wasm: () => drawWith(createWasm(vertex, fragment, { attributeTypes: { [position.name]: "vec3" } })),
+  js: () => drawWith(createJs(vertex, fragment)),
+  wasm: () => drawWith(createWasm(vertex, fragment)),
   glslTexture: () => drawTextured(createGlsl(vertex(), texturedFragment())),
   glslRetexture: () => drawRetextured(createGlsl(vertex(), texturedFragment())),
-  jsTexture: () => drawTextured(createJs(vertex, texturedFragment, { attributeTypes: { [position.name]: "vec3" } })),
-  wasmTexture: () => drawTextured(createWasm(vertex, texturedFragment, { attributeTypes: { [position.name]: "vec3" } })),
+  jsTexture: () => drawTextured(createJs(vertex, texturedFragment)),
+  wasmTexture: () => drawTextured(createWasm(vertex, texturedFragment)),
   jsRoutine: () => drawRoutine(createJsGrid({ draw: routine() })),
   wasmRoutine: () => drawRoutine(createWasmGrid({ draw: routine() })),
   glslFlatIndex: () => flatIndex(),
