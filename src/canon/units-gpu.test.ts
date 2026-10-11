@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  attribute,
   builtinPosition,
   Fn,
   float,
@@ -546,6 +547,39 @@ describe("setUniform on a sampler slot of createGlsl before attach", () => {
     );
     expect(() => adapter.setUniform(colours.name, 1)).toThrow(/storage buffer.*setAttribute/);
     expect(() => adapter.setUniform(image.name, 1)).toThrow(/texture.*setTexture/);
+  });
+});
+
+describe("an integer attribute of createGlsl", () => {
+  /**
+   * The stub context reports one active attribute of each kind.
+   *
+   * @canon spec-the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given
+   */
+  it("uploads an Int32Array or Uint32Array of its kind as given", () => {
+    const ids = attribute("int");
+    const flags = attribute("uint");
+    const { gl, calls } = stubGl(
+      { width: 1, height: 1 },
+      {
+        getProgramParameter: (_program: unknown, name: number) =>
+          name === gl.ACTIVE_ATTRIBUTES ? 2 : name === gl.ACTIVE_UNIFORMS ? 0 : true,
+        getActiveAttrib: (_program: unknown, i: number) =>
+          i === 0 ? { name: ids.name, type: gl.INT, size: 1 } : { name: flags.name, type: gl.UNSIGNED_INT, size: 1 },
+      },
+    );
+    const adapter = createGlsl(
+      Fn(() => builtinPosition().assign(vec4(ids.toFloat(), flags.toFloat(), 0, 1)))() as any,
+      Fn(() => vec4(0, 1, 0, 1))() as any,
+    );
+    adapter.attach({ getContext: () => gl } as any);
+    const idData = Int32Array.of(1, 2, 3);
+    const flagData = Uint32Array.of(4, 5, 6);
+    adapter.setAttribute(ids.name, idData);
+    adapter.setAttribute(flags.name, flagData);
+    const uploads = calls.filter((c) => c.name === "bufferData").map((c) => c.args[1]);
+    expect(uploads).toContain(idData);
+    expect(uploads).toContain(flagData);
   });
 });
 

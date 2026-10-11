@@ -425,7 +425,14 @@ export function createGlsl(
           );
         }
       } else {
-        const integers = info.kind === "int" ? Int32Array.from(data) : Uint32Array.from(data);
+        const integers =
+          info.kind === "int"
+            ? data instanceof Int32Array
+              ? data
+              : Int32Array.from(data)
+            : data instanceof Uint32Array
+              ? data
+              : Uint32Array.from(data);
         gl.bufferData(gl.ARRAY_BUFFER, integers, gl.STATIC_DRAW);
         const type = info.kind === "int" ? gl.INT : gl.UNSIGNED_INT;
         gl.enableVertexAttribArray(info.location);

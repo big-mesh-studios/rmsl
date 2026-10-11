@@ -169,6 +169,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-program-wasm-refuses-names-its-issue`](#spec-a-program-wasm-refuses-names-its-issue) — A recorded program the WASM target refuses fails the run, unless the list of known refusals names it with the issue that tracks it. A listed program that compiles fails the run too.
   - [`@spec a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type) — A vertex attribute reaches the shader as the type it declares on both GPU renderers. Its format comes from its width and array type, or from a format it declares, and survives a clone. A format no buffer of its own can carry, a raw integer array, and a width no format covers are refused.
   - [`@spec the-glsl-adapter-points-each-column-of-a-matrix-attribute-at-its-column`](#spec-the-glsl-adapter-points-each-column-of-a-matrix-attribute-at-its-column) — `createGlsl` takes a matrix attribute as one flat array that holds each vertex's columns one after another. It points the location of each column at that column, and counts a draw's vertices by the whole matrix.
+  - [`@spec the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given`](#spec-the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given) — `setAttribute` on `createGlsl` uploads an `int` attribute given as an `Int32Array`, or a `uint` attribute given as a `Uint32Array`, from the array it is given. An array of another type is converted into a new array first.
   - [`@spec wgsl-brackets-a-bitwise-operand-that-is-not-unary`](#spec-wgsl-brackets-a-bitwise-operand-that-is-not-unary) — On WGSL, the compiler brackets each operand of a bitwise or shift operator that is not a unary expression.
   - [`@spec wgsl-brackets-a-logical-operator-nested-in-another`](#spec-wgsl-brackets-a-logical-operator-nested-in-another) — On WGSL, the compiler brackets an `&&` or `||` that is the operand of another logical operator.
   - [`@spec wgsl-converts-a-shift-amount-to-unsigned`](#spec-wgsl-converts-a-shift-amount-to-unsigned) — On WGSL, the compiler converts a signed shift amount to `u32`, and a scalar amount beside a vector to a `u32` vector of its width.
@@ -1740,6 +1741,14 @@ This follows because a format one renderer reads as another type would make the 
 Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads`](#spec-a-gpu-adapter-takes-its-count-from-the-first-attribute-it-reads)
 
 This follows because GLSL gives a matrix attribute one location for each column, and each location reads only its own column.
+
+### @spec the-glsl-adapter-uploads-an-integer-attribute-of-its-own-array-type-as-given
+
+> `setAttribute` on `createGlsl` uploads an `int` attribute given as an `Int32Array`, or a `uint` attribute given as a `Uint32Array`, from the array it is given. An array of another type is converted into a new array first.
+
+Derives from: [`spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type`](#spec-a-vertex-attribute-reaches-the-shader-as-its-declared-type), [`axiom-the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing)
+
+This follows because a host can refill an attribute on every frame. An array that already holds 32-bit integers of the attribute's kind is what the buffer takes.
 
 ### @spec wgsl-brackets-a-bitwise-operand-that-is-not-unary
 
