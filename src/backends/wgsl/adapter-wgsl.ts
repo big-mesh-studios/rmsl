@@ -27,6 +27,7 @@ import {
   compileWGSLWithStage,
   isWgslTexture,
   sharedSamplerDeclarations,
+  type WgslTextureType,
   typeToWGSL,
   WGSL_RENDER_STORAGE_GROUP,
   wgslMatrixColumns,
@@ -529,7 +530,7 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       // A texture takes a binding of its own, in the order of the whole program's textures.
       let textureNodes = [...sharedTextures.values()]
         .sort((a, b) => a.order - b.order)
-        .map((u) => u.node as UniformNode<ShaderType>);
+        .map((u) => u.node as UniformNode<WgslTextureType>);
       textureDeclarations = sharedSamplerDeclarations(textureNodes);
       let storageNodes = storageNodesOf([options.vertex, options.fragment]);
       storages = new Map(storageNodes.map((node) => [node.name, node.attribute]));

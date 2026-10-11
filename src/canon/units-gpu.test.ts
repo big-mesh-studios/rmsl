@@ -444,8 +444,9 @@ describe("where WGSL declares a uniform or a buffer", () => {
 
   /**
    * The last two of the textures made sort the other way round as strings, as
-   * `_rmsl_u10` sorts before `_rmsl_u9`, and the list names them in the order
-   * they were made.
+   * `_rmsl_u10` sorts before `_rmsl_u9`. The list puts the integer texture,
+   * made last, first, so its order is neither their creation order nor the
+   * order of their names.
    *
    * @canon spec-a-wgsl-stage-binds-its-textures-in-the-listed-order
    * @canon spec-the-samplers-list-holds-the-texture-nodes
@@ -455,18 +456,46 @@ describe("where WGSL declares a uniform or a buffer", () => {
     while (made.at(-1)!.name.localeCompare(made.at(-2)!.name) > 0) made.push(uniform("sampler2D"));
     const [first, second] = made.slice(-2) as [UniformNode<"sampler2D">, UniformNode<"sampler2D">];
     const integer = uniform("usampler2D");
+    const samplers = [integer, first, second];
+    expect(samplers.map((t) => t.name)).not.toEqual(samplers.map((t) => t.name).sort());
     const fragment = () =>
       Fn(() =>
         texture(first, vec2(0, 0))
           .add(texture(second, vec2(0, 0)))
           .add(texture(integer, uvec2(0, 0)).toVec4()),
       )();
-    const code = compileWgslStage.fragment(fragment(), { samplers: [second, integer, first] });
-    expect(code).toContain(`@group(1) @binding(0) var ${second.name}:`);
-    expect(code).toContain(`@group(1) @binding(1) var ${integer.name}:`);
-    expect(code).toContain(`@group(1) @binding(2) var ${first.name}:`);
-    expect(code).toContain(`@group(2) @binding(0) var ${second.name}_s:`);
-    expect(code).toContain(`@group(2) @binding(1) var ${first.name}_s:`);
+    const code = compileWgslStage.fragment(fragment(), { samplers });
+    expect(code).toContain(`@group(1) @binding(0) var ${integer.name}:`);
+    expect(code).toContain(`@group(1) @binding(1) var ${first.name}:`);
+    expect(code).toContain(`@group(1) @binding(2) var ${second.name}:`);
+    expect(code).toContain(`@group(2) @binding(0) var ${first.name}_s:`);
+    expect(code).toContain(`@group(2) @binding(1) var ${second.name}_s:`);
+  });
+
+  /**
+   * @canon spec-a-wgsl-stage-refuses-a-samplers-list-of-anything-but-textures-each-once
+   */
+  it("refuses a samplers list that holds a value uniform or one texture twice on WGSL", () => {
+    const image = uniform("sampler2D");
+    const gain = uniform("float");
+    const fragment = Fn(() => texture(image, vec2(0, 0)))();
+    // @ts-expect-error: the samplers list takes only texture uniforms
+    expect(() => compileWgslStage.fragment(fragment, { samplers: [image, gain] })).toThrow(
+      `"${gain.name}" is a float uniform, not a texture`,
+    );
+    expect(() => compileWgslStage.fragment(fragment, { samplers: [image, image] })).toThrow(
+      `the samplers passed to the compiler list the texture "${image.name}" twice`,
+    );
+  });
+
+  /**
+   * @canon spec-a-wgsl-stage-refuses-a-storage-buffer-listed-twice
+   */
+  it("refuses a storages list that holds one buffer twice on WGSL", () => {
+    const values = instancedArray(2, "float");
+    expect(() =>
+      compileWgslStage.fragment(vec4(values.element(int(0)), 0, 0, 1), { storages: [values, values] }),
+    ).toThrow(`the storages passed to the compiler list the storage buffer "${values.name}" twice`);
   });
 
   /**
@@ -477,7 +506,7 @@ describe("where WGSL declares a uniform or a buffer", () => {
     const missing = uniform("sampler2D");
     const fragment = Fn(() => texture(listed, vec2(0, 0)).add(texture(missing, vec2(0, 0))))();
     expect(() => compileWgslStage.fragment(fragment, { samplers: [listed] })).toThrow(
-      `the texture "${missing.name}" is not in the program's samplers`,
+      `the texture "${missing.name}" is read by this stage but missing from the samplers passed to the compiler`,
     );
   });
 

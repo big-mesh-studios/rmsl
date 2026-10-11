@@ -1656,11 +1656,12 @@ export function compileWGSLWithStage(
   let declaredTextures: { slot: string; type: string; integer: boolean }[];
   if (options?.samplers) {
     declaredTextures = sharedSamplerDeclarations(options.samplers);
-    for (let [, info] of textures) {
-      if (!declaredTextures.some((t) => t.slot === info.slot)) {
-        throw new Error(`[RMSL] the texture "${info.slot}" is not in the program's samplers`);
-      }
-    }
+    listedOrder(
+      "samplers",
+      "texture",
+      declaredTextures.map((t) => t.slot),
+      textures.map(([, info]) => info.slot),
+    );
   } else {
     declaredTextures = textures.map(([, i]) => ({ slot: i.slot, type: i.type, integer: false }));
   }
@@ -1928,23 +1929,53 @@ export function wgslUniformDeclaration(
 function storageOrder(ctx: CompileCtx, options: CompileWGSLOptions | undefined): string[] {
   let read = [...ctx.storages!.values()];
   if (!options?.storages) return read.sort((a, b) => a.order - b.order).map((info) => info.name);
-  let order = options.storages.map((node) => node.name);
-  for (let info of read) {
-    if (!order.includes(info.name)) {
+  return listedOrder(
+    "storages",
+    "storage buffer",
+    options.storages.map((node) => node.name),
+    read.map((info) => info.name),
+  );
+}
+
+/**
+ * The names a caller's binding list gives, in its order. Throws for a name the
+ * list holds twice, and for a name the stage reads that the list leaves out,
+ * since neither has one binding.
+ */
+function listedOrder(list: string, what: string, listed: readonly string[], read: Iterable<string>): string[] {
+  const repeated = listed.find((name, i) => listed.indexOf(name) !== i);
+  if (repeated !== undefined) {
+    throw new Error(`[RMSL] the ${list} passed to the compiler list the ${what} "${repeated}" twice`);
+  }
+  for (const name of read) {
+    if (!listed.includes(name)) {
       throw new Error(
-        `[RMSL] the storage buffer "${info.name}" is read by this stage but missing from the storages passed to the compiler`,
+        `[RMSL] the ${what} "${name}" is read by this stage but missing from the ${list} passed to the compiler`,
       );
     }
   }
-  return order;
+  return [...listed];
 }
+
+/** The sampler types of a texture uniform, which the `samplers` list holds. */
+export type WgslTextureType =
+  | "sampler2D"
+  | "sampler3D"
+  | "samplerCube"
+  | "isampler2D"
+  | "isampler3D"
+  | "isamplerCube"
+  | "usampler2D"
+  | "usampler3D"
+  | "usamplerCube";
 
 /** The textures of a render program in binding order, as the WGSL declares them: each at its index in `samplers`. */
 export function sharedSamplerDeclarations(
-  samplers: readonly UniformNode<ShaderType>[],
+  samplers: readonly UniformNode<WgslTextureType>[],
 ): { slot: string; shaderType: string; type: string; integer: boolean }[] {
   return samplers.map((node) => {
     const shaderType = node._t as string;
+    if (!isSamplerType(shaderType)) throw new Error(`[RMSL] "${node.name}" is a ${shaderType} uniform, not a texture`);
     if (!(shaderType in typeToWGSL))
       throw new Error(`[RMSL] "${node.name}" has the sampler type "${shaderType}", which WGSL has no texture for`);
     return { slot: node.name, shaderType, type: wgslType(shaderType), integer: isIntegerSamplerType(shaderType) };
@@ -1977,7 +2008,7 @@ export type CompileWGSLOptions = {
    * group 2 in the order of the float textures. As with `storages`, both stages
    * number them from the whole set, so a texture has one binding in the pipeline.
    */
-  samplers?: readonly UniformNode<ShaderType>[];
+  samplers?: readonly UniformNode<WgslTextureType>[];
   workgroupSize?: number;
   /**
    * A compute stage's dispatch count: invocations at or past it return
