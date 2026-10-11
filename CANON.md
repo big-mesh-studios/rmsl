@@ -90,7 +90,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-varying-passes-from-the-vertex-to-the-fragment-stage`](#spec-a-varying-passes-from-the-vertex-to-the-fragment-stage) — A varying is an output of the vertex stage and an input of the fragment stage.
     - [`@spec an-integer-varying-is-flat`](#spec-an-integer-varying-is-flat) — An integer varying is not interpolated. Each fragment of a triangle reads the value one vertex of the triangle wrote. GLSL and WGSL declare it `flat`.
       - [`@spec a-flat-varying-takes-the-first-vertex`](#spec-a-flat-varying-takes-the-first-vertex) — On WGSL, JS and WASM, a fragment reads an integer varying as the first vertex of its triangle wrote it. A triangle clipped at the near plane keeps that vertex's value.
-      - [`@exception a-glsl-flat-varying-takes-the-last-vertex`](#exception-a-glsl-flat-varying-takes-the-last-vertex) — On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it.
+      - [`@exception a-glsl-flat-varying-takes-the-last-vertex`](#exception-a-glsl-flat-varying-takes-the-last-vertex) — On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it. `createGlsl` and `WebGLRenderer` leave the `WEBGL_provoking_vertex` extension off.
     - [`@spec an-attribute-is-an-input-of-the-vertex-stage`](#spec-an-attribute-is-an-input-of-the-vertex-stage) — An attribute is an input of the vertex stage, read once for each vertex.
   - [`@spec a-program-runs-its-statements-in-the-order-it-writes-them`](#spec-a-program-runs-its-statements-in-the-order-it-writes-them) — A program runs its statements in the order its body made them, on every target, the statements that compute an index or a value included.
     - [`@spec the-index-of-a-write-is-read-after-the-value-is-computed`](#spec-the-index-of-a-write-is-read-after-the-value-is-computed) — A write through a computed index reads the index after the statements that compute the value it writes.
@@ -688,6 +688,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-wgsl-uniform-array-has-a-16-byte-stride`](#fact-a-wgsl-uniform-array-has-a-16-byte-stride) — The elements of an array in the WGSL uniform address space align to 16 bytes, and a `vec3` takes the 16 bytes of a `vec4`.
 - [`@fact wgsl-takes-an-integer-varying-flat-from-the-first-vertex`](#fact-wgsl-takes-an-integer-varying-flat-from-the-first-vertex) — WGSL requires a vertex output or fragment input of integer type to be `@interpolate(flat)`, and a flat value with no sampling named comes from the first vertex of the primitive.
 - [`@fact glsl-takes-an-integer-varying-flat-from-the-last-vertex`](#fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex) — GLSL ES 3.00 requires a vertex output of integer type to be `flat`, and WebGL 2 takes a flat value from the last vertex of a triangle, its provoking vertex.
+- [`@fact three-js-asks-for-no-provoking-vertex`](#fact-three-js-asks-for-no-provoking-vertex) — three.js's `WebGLRenderer` does not ask for the `WEBGL_provoking_vertex` extension, so a flat varying takes the last vertex of a triangle, as WebGL 2 sets it.
 - [`@fact webgl-reads-a-vector-state-into-a-new-array`](#fact-webgl-reads-a-vector-state-into-a-new-array) — WebGL gives a vector state, such as the viewport or the clear colour, only through `getParameter`, which returns a new array on each call. It gives a vertex attribute's value only through `getVertexAttrib`, which does the same.
 - [`@fact webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage) — WebGL 2 has no compute shaders and no storage buffers.
 - [`@fact an-integer-texture-cannot-be-filtered`](#fact-an-integer-texture-cannot-be-filtered) — Neither GLSL nor WGSL filters an integer texture. A shader reads it one texel at a time, with `texelFetch` or `textureLoad`.
@@ -831,7 +832,6 @@ The analysis found these places where the code or the documents do not hold the 
 
 1. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
 2. `var_`, `assertBlockScope` and `compileWat` are exported with no documented purpose. Issue #73 asks whether they are public API.
-3. On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it, where the other targets take the first. Issue #232 asks whether the GLSL adapter and the WebGL renderer should ask for the first vertex through `WEBGL_provoking_vertex`.
 
 ### Coverage gaps
 
@@ -1311,9 +1311,11 @@ This follows because WebGPU takes a flat value from the first vertex, and a CPU 
 
 ##### @exception a-glsl-flat-varying-takes-the-last-vertex
 
-> On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it.
+> On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it. `createGlsl` and `WebGLRenderer` leave the `WEBGL_provoking_vertex` extension off.
 
-Derives from: [`fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex`](#fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex)
+Derives from: [`fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex`](#fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex), [`fact-three-js-asks-for-no-provoking-vertex`](#fact-three-js-asks-for-no-provoking-vertex)
+
+This follows because the GLSL paths draw as WebGL 2 and three.js's `WebGLRenderer` draw, and three.js leaves the provoking vertex where WebGL 2 sets it. Issue #232 settled this.
 
 #### @spec an-attribute-is-an-input-of-the-vertex-stage
 
@@ -4851,6 +4853,12 @@ This is a fact of the WGSL specification, section Interpolation, and Dawn gives 
 > GLSL ES 3.00 requires a vertex output of integer type to be `flat`, and WebGL 2 takes a flat value from the last vertex of a triangle, its provoking vertex.
 
 This is a fact of the GLSL ES 3.00 and OpenGL ES 3.0 specifications, and Chromium's WebGL 2 gives a triangle's last vertex.
+
+## @fact three-js-asks-for-no-provoking-vertex
+
+> three.js's `WebGLRenderer` does not ask for the `WEBGL_provoking_vertex` extension, so a flat varying takes the last vertex of a triangle, as WebGL 2 sets it.
+
+This is how three.js behaves, read from its source: neither `WebGLRenderer` nor `WebGLExtensions` names the extension, in three.js 0.186.
 
 ## @fact webgl-reads-a-vector-state-into-a-new-array
 
