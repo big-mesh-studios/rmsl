@@ -192,7 +192,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-generated-name-is-local-to-its-program`](#spec-a-generated-name-is-local-to-its-program) — A name the compiler generates for an input or an output connects every reference to it inside its program. The same generated name in another program names a different input.
     - [`@spec a-raw-name-is-absolute`](#spec-a-raw-name-is-absolute) — A name given to `uniformRaw`, `attributeRaw` or `varyingRaw` is used as given. Every node that carries it, in any program and any process, is one input, declared once.
       - [`@spec a-raw-name-declares-one-input-under-that-name`](#spec-a-raw-name-declares-one-input-under-that-name) — `uniformRaw`, `attributeRaw` and `varyingRaw` declare their input under the name given, once however many nodes carry it, and every target reads it by that name. An empty name is refused.
-      - [`@spec a-raw-name-names-one-type`](#spec-a-raw-name-names-one-type) — Two inputs that share a name but not a type are refused on every target.
+      - [`@spec a-raw-name-names-one-type`](#spec-a-raw-name-names-one-type) — Two inputs that share a name but not a type are refused on every target. So are two uniforms that share a name but not a precision.
+      - [`@spec create-glsl-checks-the-names-of-its-two-stages-together`](#spec-create-glsl-checks-the-names-of-its-two-stages-together) — `createGlsl` refuses a vertex and a fragment stage that declare one name differently: by type, or by the precision of a uniform.
       - [`@spec time-is-one-uniform-everywhere`](#spec-time-is-one-uniform-everywhere) — `time()` gives one uniform, named `_rmsl_time`, in every program and every process, so every program that reads it reads one clock.
       - [`@spec screen-size-is-one-uniform-everywhere`](#spec-screen-size-is-one-uniform-everywhere) — `screenSize()` gives one `vec2` uniform, named `_rmsl_screenSize`, in every program and every process, and its type names it a uniform, so the host binds it by its `.name`. `screenUV()` and `uv()` read it.
     - [`@spec a-location-is-numbered-within-its-program`](#spec-a-location-is-numbered-within-its-program) — The locations of a program's outputs, and of the values a vertex stage passes on, count from 0 within that program, each used once.
@@ -424,7 +425,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-float-sampler-declares-the-asked-precision`](#spec-a-float-sampler-declares-the-asked-precision) — A GLSL shader declares the precision the caller asks for on each float sampler it uses.
     - [`@spec an-integer-sampler-declares-the-asked-precision`](#spec-an-integer-sampler-declares-the-asked-precision) — A GLSL shader declares the precision the caller asks for on each integer sampler it uses, `highp` when the caller asks for none.
     - [`@spec glsl-refuses-an-unknown-precision`](#spec-glsl-refuses-an-unknown-precision) — A GLSL compile refuses a precision other than `lowp`, `mediump` or `highp`, and the types refuse it before the program runs.
-    - [`@spec a-uniform-can-set-a-precision-of-its-own`](#spec-a-uniform-can-set-a-precision-of-its-own) — `setPrecision(precision)` on a uniform or a uniform array, with `"low"`, `"medium"` or `"high"`, sets the precision of its GLSL declaration to `lowp`, `mediump` or `highp`, over the shader's default, and returns the uniform. Another value is refused. WGSL, which has no precision, declares the uniform as it would without one.
+    - [`@spec a-uniform-can-set-a-precision-of-its-own`](#spec-a-uniform-can-set-a-precision-of-its-own) — `setPrecision(precision)` on a uniform or a uniform array takes `"low"`, `"medium"` or `"high"`, and returns the uniform. Its GLSL declaration then carries `lowp`, `mediump` or `highp`, over the shader's default. `compileGlsl` and `compileGlslFn` both declare it so. Another value is refused, and so is any precision on a `bool` or boolean vector uniform. WGSL, which has no precision, declares the uniform as it would without one.
     - [`@spec every-glsl-call-shape-takes-a-precision`](#spec-every-glsl-call-shape-takes-a-precision) — `compileGlsl`, `compileGlsl.fragment` and `compileGlsl.vertex` each take a `precision` option.
   - [`@spec a-wasm-routine-loops-inside-its-module`](#spec-a-wasm-routine-loops-inside-its-module) — `draw` and `compute` of a WASM routine run their whole grid or dispatch inside the module, in one call from the host. A program that never reads `invocationIndex()`, or returns a value, still runs once for each invocation.
     - [`@bug wasm-loops-a-program-without-storage-from-the-host`](#bug-wasm-loops-a-program-without-storage-from-the-host) — A program with neither `storage()` nor `invocationIndex()` gets no dispatch export, and `compute` calls its `main` from the host once per invocation.
@@ -744,6 +745,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact three-js-uploads-a-data-texture-in-its-type`](#fact-three-js-uploads-a-data-texture-in-its-type) — A three.js `DataTexture` takes a typed array and a texture `type`, `UnsignedByteType` by default, and uploads its data to the GPU as that type.
 - [`@fact three-js-sums-ambient-lights-into-one-colour`](#fact-three-js-sums-ambient-lights-into-one-colour) — three.js adds the colour of each ambient light, times its intensity, into one ambient colour for the scene.
 - [`@fact three-js-scales-a-light-colour-by-its-intensity`](#fact-three-js-scales-a-light-colour-by-its-intensity) — three.js sets the colour uniform of a directional light and of a point light to the light's colour multiplied by its intensity, on the host.
+- [`@fact glsl-takes-no-precision-on-a-boolean`](#fact-glsl-takes-no-precision-on-a-boolean) — GLSL ES 3.00 takes a precision qualifier only on a float, an integer or a sampler type, or a vector or matrix of them. A shader that writes one on a `bool` or boolean vector does not compile.
+- [`@fact glsl-links-a-uniform-of-both-stages-only-if-they-match`](#fact-glsl-links-a-uniform-of-both-stages-only-if-they-match) — GLSL ES 3.00 links a program only if a uniform that both of its shaders declare has one type and one precision in both.
 - [`@fact tsl-lets-an-input-set-its-own-precision`](#fact-tsl-lets-an-input-set-its-own-precision) — TSL's `setPrecision(precision)` on an input node, a uniform among them, takes `"low"`, `"medium"` or `"high"` and returns the node. Its GLSL builder writes `lowp`, `mediump` or `highp` on that uniform's declaration, and declares every default at `highp`.
 - [`@fact three-js-declares-one-precision-for-every-sampler`](#fact-three-js-declares-one-precision-for-every-sampler) — The `WebGLProgram` of three.js declares one precision for `float`, `int` and every sampler type, the integer samplers `isampler2D`, `isampler3D` and `isamplerCube` included.
 - [`@fact wgsl-refuses-a-constant-index-out-of-range`](#fact-wgsl-refuses-a-constant-index-out-of-range) — WGSL refuses a constant index past the components of a vector, the columns of a matrix or the elements of a fixed-size array, also when it indexes a variable.
@@ -1839,7 +1842,15 @@ This follows because two inputs that share a name by accident read one value, a 
 
 ##### @spec a-raw-name-names-one-type
 
-> Two inputs that share a name but not a type are refused on every target.
+> Two inputs that share a name but not a type are refused on every target. So are two uniforms that share a name but not a precision.
+
+##### @spec create-glsl-checks-the-names-of-its-two-stages-together
+
+> `createGlsl` refuses a vertex and a fragment stage that declare one name differently: by type, or by the precision of a uniform.
+
+Derives from: [`spec-a-raw-name-names-one-type`](#spec-a-raw-name-names-one-type), [`fact-glsl-links-a-uniform-of-both-stages-only-if-they-match`](#fact-glsl-links-a-uniform-of-both-stages-only-if-they-match)
+
+This follows because each stage compiles on its own, and sees only its own nodes. Only the program that holds both can see that they differ.
 
 ##### @spec time-is-one-uniform-everywhere
 
@@ -3135,11 +3146,11 @@ This follows because three.js's `WebGLRenderer` declares its one precision for e
 
 #### @spec a-uniform-can-set-a-precision-of-its-own
 
-> `setPrecision(precision)` on a uniform or a uniform array, with `"low"`, `"medium"` or `"high"`, sets the precision of its GLSL declaration to `lowp`, `mediump` or `highp`, over the shader's default, and returns the uniform. Another value is refused. WGSL, which has no precision, declares the uniform as it would without one.
+> `setPrecision(precision)` on a uniform or a uniform array takes `"low"`, `"medium"` or `"high"`, and returns the uniform. Its GLSL declaration then carries `lowp`, `mediump` or `highp`, over the shader's default. `compileGlsl` and `compileGlslFn` both declare it so. Another value is refused, and so is any precision on a `bool` or boolean vector uniform. WGSL, which has no precision, declares the uniform as it would without one.
 
-Derives from: [`fact-tsl-lets-an-input-set-its-own-precision`](#fact-tsl-lets-an-input-set-its-own-precision)
+Derives from: [`fact-tsl-lets-an-input-set-its-own-precision`](#fact-tsl-lets-an-input-set-its-own-precision), [`fact-glsl-takes-no-precision-on-a-boolean`](#fact-glsl-takes-no-precision-on-a-boolean)
 
-This follows because a TSL material that lowers the precision of one uniform ports by changing its import, and the caller's precision stays the default for the rest, as three.js's `WebGLRenderer` sets it.
+This follows because a TSL material that lowers the precision of one uniform ports by changing its import. The caller's precision stays the default for the rest, as three.js's `WebGLRenderer` sets it.
 
 #### @spec every-glsl-call-shape-takes-a-precision
 
@@ -5090,6 +5101,18 @@ This is how three.js behaves, read from its source (`WebGLLights`, three.js 0.18
 > three.js sets the colour uniform of a directional light and of a point light to the light's colour multiplied by its intensity, on the host.
 
 This is how three.js behaves, read from its source (`WebGLLights`, three.js 0.186).
+
+## @fact glsl-takes-no-precision-on-a-boolean
+
+> GLSL ES 3.00 takes a precision qualifier only on a float, an integer or a sampler type, or a vector or matrix of them. A shader that writes one on a `bool` or boolean vector does not compile.
+
+This is a fact of the GLSL ES 3.00 specification, in its section on precision qualifiers.
+
+## @fact glsl-links-a-uniform-of-both-stages-only-if-they-match
+
+> GLSL ES 3.00 links a program only if a uniform that both of its shaders declare has one type and one precision in both.
+
+This is a fact of the GLSL ES 3.00 specification, in its sections on uniforms and on precision qualifiers.
 
 ## @fact tsl-lets-an-input-set-its-own-precision
 

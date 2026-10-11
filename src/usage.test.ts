@@ -99,7 +99,7 @@ import {
   texture,
   textureLevel,
 } from "./rmsl";
-import { compileGlslFn } from "./glsl";
+import { compileGlslFn, createGlsl } from "./glsl";
 import { compileWgslFn, wgslUniformLayout } from "./wgsl";
 import { compileJSRoutine, compileJSFn } from "./js";
 import { compileWasmRoutine } from "./wasm";
@@ -1742,6 +1742,32 @@ void main(void) { outColor = vec4(scale(2.0)); }`,
   });
 
   /**
+   * @canon spec-a-raw-name-names-one-type
+   */
+  it("refuses one name for uniforms of different precisions on every backend", () => {
+    let build = () =>
+      Fn(() => uniformRaw("brightness", "float").add(uniformRaw("brightness", "float").setPrecision("low")))();
+    let message =
+      '[RMSL] "brightness" names a float uniform and a float uniform of precision "low": one name is one declaration. Give them different names';
+    let options = { name: "main", params: [] };
+    expect(() => compileGlslFn(build as any, options)).toThrow(message);
+    expect(() => compileWgslFn(build as any, options)).toThrow(message);
+    expect(() => compileJSRoutine(build as any, options)).toThrow(message);
+    expect(() => compileWasmRoutine(build as any, options)).toThrow(message);
+  });
+
+  /**
+   * @canon spec-create-glsl-checks-the-names-of-its-two-stages-together
+   */
+  it("refuses a createGlsl whose stages declare one uniform at two precisions", () => {
+    let vertex = Fn(() => vec4(uniformRaw("brightness", "float").setPrecision("low"), 0, 0, 1))();
+    let fragment = Fn(() => vec4(uniformRaw("brightness", "float"), 0, 0, 1))();
+    expect(() => createGlsl(vertex as any, fragment as any)).toThrow(
+      '[RMSL] "brightness" names a float uniform of precision "low" and a float uniform: one name is one declaration',
+    );
+  });
+
+  /**
    * @canon spec-a-raw-name-declares-one-input-under-that-name
    */
   it("varyingRaw emits its name in both stages", () => {
@@ -3004,6 +3030,23 @@ describe("GLSL precision", () => {
   it("refuses a precision other than low, medium or high on a uniform", () => {
     // @ts-expect-error: a uniform's precision is "low", "medium" or "high"
     expect(() => uniform("float").setPrecision("mediump")).toThrow(/precision/);
+  });
+
+  /**
+   * @canon spec-a-uniform-can-set-a-precision-of-its-own
+   */
+  it("refuses a precision on a bool or boolean vector uniform", () => {
+    expect(() => uniform("bool").setPrecision("low")).toThrow(/bool uniform takes no precision/);
+    expect(() => uniformArray("bvec2", 2).setPrecision("high")).toThrow(/bvec2 uniform takes no precision/);
+  });
+
+  /**
+   * @canon spec-a-uniform-can-set-a-precision-of-its-own
+   */
+  it("qualifies a uniform that sets its own precision in a compileGlslFn function", () => {
+    const gain = uniform("float").setPrecision("low");
+    const glsl = compileGlslFn((v: any) => v.mul(gain), { name: "scale", params: [{ name: "v", type: "float" }] });
+    expect(glsl).toContain(`uniform lowp float ${gain.name};`);
   });
 });
 

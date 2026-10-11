@@ -968,8 +968,9 @@ export function storageAttributes(roots: unknown): Map<string, StorageBufferAttr
 function describeNamed(node: any): string | undefined {
   const value = node.value;
   const article = /^[aeiou]/.test(value?.shaderType ?? "") ? "an" : "a";
-  if (node.type === "uniform") return `${article} ${value.shaderType} uniform`;
-  if (node.type === "uniformArray") return `a uniform array of ${value.length} ${value.shaderType}`;
+  const precision = value?.precision ? ` of precision "${value.precision}"` : "";
+  if (node.type === "uniform") return `${article} ${value.shaderType} uniform${precision}`;
+  if (node.type === "uniformArray") return `a uniform array of ${value.length} ${value.shaderType}${precision}`;
   if (node.type === "attribute") return `${article} ${value.shaderType} attribute`;
   if (node.type === "varying") return `${article} ${value.shaderType} varying`;
   return undefined;

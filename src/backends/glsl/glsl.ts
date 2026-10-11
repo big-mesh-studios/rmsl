@@ -937,6 +937,17 @@ export type GLSLPrecision = "lowp" | "mediump" | "highp";
 /** The GLSL qualifier for each precision a uniform can set on itself. */
 const UNIFORM_PRECISION: Record<UniformPrecision, GLSLPrecision> = { low: "lowp", medium: "mediump", high: "highp" };
 
+/** The declaration of a uniform, with the precision qualifier it sets on itself, which GLSL ES 3.00 puts after `uniform`. */
+function uniformDeclaration(info: {
+  type: string;
+  slot: string;
+  length?: number;
+  precision?: UniformPrecision;
+}): string {
+  const type = info.precision ? `${UNIFORM_PRECISION[info.precision]} ${info.type}` : info.type;
+  return info.length !== undefined ? `uniform ${type} ${info.slot}[${info.length}];` : `uniform ${type} ${info.slot};`;
+}
+
 /** Options for the GLSL shader compilers. */
 export interface CompileGLSLOptions {
   /**
@@ -1028,13 +1039,7 @@ export function compileGLSLWithStage(
   }
   lines.push("");
 
-  ctx.uniforms.forEach((info) => {
-    // GLSL ES 3.00 puts a precision qualifier after the storage qualifier.
-    const type = info.precision ? `${UNIFORM_PRECISION[info.precision]} ${info.type}` : info.type;
-    lines.push(
-      info.length !== undefined ? `uniform ${type} ${info.slot}[${info.length}];` : `uniform ${type} ${info.slot};`,
-    );
-  });
+  ctx.uniforms.forEach((info) => lines.push(uniformDeclaration(info)));
   ctx.attributes.forEach((info) => {
     lines.push(`in ${info.type} ${info.slot};`);
   });
@@ -1156,10 +1161,7 @@ export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options:
   const paramStr = options.params.map((p) => `${glslType(p.type)} ${p.name}`).join(", ");
   let code = "";
   ctx.uniforms.forEach((info) => {
-    code +=
-      info.length !== undefined
-        ? `uniform ${info.type} ${info.slot}[${info.length}];\n`
-        : `uniform ${info.type} ${info.slot};\n`;
+    code += `${uniformDeclaration(info)}\n`;
   });
   if (ctx.uniforms.size > 0) {
     code += "\n";

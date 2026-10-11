@@ -1,6 +1,6 @@
 import { AttributeNode, Node, ShaderType, UniformArrayNode, UniformNode, UniformValue } from "../../core";
 import { Adapter, DrawClearOptions, DrawCountOptions, slotOf, TRANSPARENT_BLACK, TypedArray } from "../adapter";
-import { VertexRoot } from "../shared";
+import { assertOneDeclarationPerName, VertexRoot } from "../shared";
 import type { CpuTextureData } from "../cpu";
 import { textureImage } from "../texture-image";
 import { compileGlsl, CompileGLSLOptions } from "./glsl";
@@ -207,6 +207,8 @@ export function createGlsl(
   fragmentRoot: Node<ShaderType> | readonly Node<ShaderType>[],
   options?: GlslAdapterOptions,
 ): GlslAdapter {
+  // Each stage compiles on its own, so a name the two declare differently shows only here.
+  assertOneDeclarationPerName([vertexRoot, fragmentRoot]);
   let gl: WebGL2RenderingContext | null = null;
   let state: GlStateKeeper | null = null;
   let program: WebGLProgram | null = null;

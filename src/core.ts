@@ -1297,6 +1297,12 @@ export class NodeImpl<A extends ShaderType> implements BaseNode<A> {
         `[RMSL] setPrecision: a precision is "low", "medium" or "high", not ${JSON.stringify(precision)}`,
       );
     }
+    const shaderType = (this.value as { shaderType: string }).shaderType;
+    if (shaderType === "bool" || shaderType.startsWith("bvec")) {
+      throw new Error(
+        `[RMSL] setPrecision: a ${shaderType} uniform takes no precision, which GLSL gives only to numbers`,
+      );
+    }
     (this.value as { precision?: UniformPrecision }).precision = precision;
     return this;
   }
