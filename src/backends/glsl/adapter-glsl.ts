@@ -353,6 +353,10 @@ export function createGlsl(
   const pendingTextures = new Map<string, CpuTextureData>();
   /** The WebGL texture and texture unit each sampler the host has set reads, a storage buffer's included. */
   const textures = new Map<string, TextureSlot>();
+  /** The array each storage buffer's texels are uploaded through, by slot, kept for refills of one size. */
+  const storageTexels = new Map<string, Float32Array | Int32Array | Uint32Array>();
+  /** The context's MAX_TEXTURE_SIZE, read once it links. */
+  let maxTextureSize = 0;
   /** The storage buffers the stages read, by slot. */
   const storages = new Map<string, StorageNode<ShaderType>>(
     storageNodesOf([vertexRoot, fragmentRoot]).map((node) => [node.name, node]),
@@ -541,15 +545,21 @@ export function createGlsl(
     data: ArrayLike<number>,
   ): void {
     const { width, height, components, kind } = storageTextureShape(shaderType, data.length);
-    const limit = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
-    if (width > limit || height > limit) {
+    if (width > maxTextureSize || height > maxTextureSize) {
       throw new Error(
-        `[RMSL] the storage buffer "${slot}" needs a ${width}×${height} texture to be read in a render stage, past this context's MAX_TEXTURE_SIZE of ${limit}`,
+        `[RMSL] the storage buffer "${slot}" needs a ${width}×${height} texture to be read in a render stage, past this context's MAX_TEXTURE_SIZE of ${maxTextureSize}`,
       );
     }
     const { internal, format, type, array } = storageFormat(gl, kind, components);
-    const texels = new array(width * height * components);
+    const size = width * height * components;
+    let texels = storageTexels.get(slot);
+    if (!(texels instanceof array) || texels.length !== size) {
+      texels = new array(size);
+      storageTexels.set(slot, texels);
+    }
     texels.set(data);
+    // The texels past `data` hold zeros, as in a texture made for it alone.
+    texels.fill(0, data.length);
     const { held, reuse } = holdTexture(gl, slot, gl.TEXTURE_2D, width, height, 1, internal);
     if (reuse) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, format, type, texels);
     else gl.texImage2D(gl.TEXTURE_2D, 0, internal, width, height, 0, format, type, texels);
@@ -563,6 +573,7 @@ export function createGlsl(
 
   /** Compiles and links the program on `gl`, reflects its inputs, and applies what the host set before. */
   function link(gl: WebGL2RenderingContext): void {
+    maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
     const vertexSource = compileGlsl.vertex(vertexRoot, options);
     const fragmentSource = compileGlsl.fragment(fragmentRoot, options);
 

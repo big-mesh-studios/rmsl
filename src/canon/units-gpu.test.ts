@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  builtinPosition,
   Fn,
   float,
   instancedArray,
@@ -29,6 +30,8 @@ import {
 } from "../testing/shader-validity";
 import { GPU_ENABLED, installWebGpuGlobals, releaseGpu, webgpuAvailable } from "../testing/gpu";
 import { READ_PIXEL, runInGpuPage, runInWebGpuPage } from "../testing/browser";
+import { stubGl } from "./scene-stubs";
+import { createGlsl } from "../glsl";
 
 const WEBGPU = await webgpuAvailable();
 
@@ -519,6 +522,39 @@ globalThis.__rmslUnitsWgsl = async () => {
 `;
 
 const GREEN = { r: 0, g: 255, b: 0, a: 255 };
+
+describe("refilling a GLSL storage buffer", () => {
+  /**
+   * The stub context reports one active uniform, the buffer's sampler. Each
+   * refill holds the same four elements, so the texture keeps its size.
+   *
+   * @canon spec-a-glsl-storage-refill-of-one-size-allocates-nothing
+   */
+  it("uploads each refill of one size through one array, reading the size limit once", () => {
+    const colours = instancedArray(4, "float");
+    const position = uniform("vec4");
+    const { gl, calls } = stubGl(
+      { width: 1, height: 1 },
+      {
+        getProgramParameter: (_program: unknown, name: number) =>
+          name === gl.ACTIVE_UNIFORMS ? 1 : name === gl.ACTIVE_ATTRIBUTES ? 0 : true,
+        getActiveUniform: () => ({ name: colours.name, type: gl.SAMPLER_2D, size: 1 }),
+      },
+    );
+    const adapter = createGlsl(
+      Fn(() => builtinPosition().assign(position))() as any,
+      Fn(() => vec4(colours.element(int(0)), 0, 0, 1))() as any,
+    );
+    adapter.attach({ getContext: () => gl } as any);
+    adapter.setAttribute(colours.name, Float32Array.of(1, 2, 3, 4));
+    adapter.setAttribute(colours.name, Float32Array.of(5, 6, 7, 8));
+    adapter.setAttribute(colours.name, Float32Array.of(9, 10, 11, 12));
+    const uploads = calls.filter((c) => c.name === "texSubImage2D").map((c) => c.args[8]);
+    expect(uploads).toHaveLength(3);
+    expect(uploads[1]).toBe(uploads[2]);
+    expect(calls.filter((c) => c.name === "getParameter" && c.args[0] === gl.MAX_TEXTURE_SIZE)).toHaveLength(1);
+  });
+});
 
 describe.skipIf(!GPU_ENABLED)("an adapter applies what the host set before attach", () => {
   /**

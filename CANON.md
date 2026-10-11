@@ -238,6 +238,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
         - [`@spec a-storage-texture-is-a-power-of-two-wide`](#spec-a-storage-texture-is-a-power-of-two-wide) — A storage texture is as wide as the smallest power of two at or above the square root of its texel count, and as tall as its texels need. Texel `t` sits at column `t % width` and row `t / width`, where the stage reads `width` from the texture's size.
         - [`@spec the-glsl-adapter-refuses-a-storage-texture-past-the-size-limit`](#spec-the-glsl-adapter-refuses-a-storage-texture-past-the-size-limit) — `createGlsl` refuses a storage buffer too large for the textures of its context. The error names the buffer, the size of texture it needs, and the context's `MAX_TEXTURE_SIZE`.
         - [`@spec the-glsl-adapter-uploads-each-storage-buffer-it-reads`](#spec-the-glsl-adapter-uploads-each-storage-buffer-it-reads) — `createGlsl` uploads each storage buffer its stages read as a storage texture, from the buffer's contents at `attach`. `setAttribute` on the buffer's slot fills it again.
+        - [`@spec a-glsl-storage-refill-of-one-size-allocates-nothing`](#spec-a-glsl-storage-refill-of-one-size-allocates-nothing) — `setAttribute` on a storage buffer's slot uploads its texels through an array `createGlsl` keeps for the slot, as long as the texture keeps its size. The adapter reads the context's `MAX_TEXTURE_SIZE` once, when it links.
         - [`@spec a-glsl-stage-reads-a-storage-element-in-one-expression`](#spec-a-glsl-stage-reads-a-storage-element-in-one-expression) — A GLSL render stage reads a storage element by calling a function it declares for the element's type. The function takes the sampler and the index. The read adds no statement to the stage, so it compiles wherever an expression stands, a `For` update included.
         - [`@spec a-glsl-stage-reads-storage-at-highp`](#spec-a-glsl-stage-reads-storage-at-highp) — A GLSL render stage declares each storage sampler with its own `highp` qualifier, and reads its elements at `highp`, whatever precision the program is compiled at.
       - [`@spec a-wgsl-render-stage-declares-its-storage-in-group-three`](#spec-a-wgsl-render-stage-declares-its-storage-in-group-three) — On WGSL, a vertex or fragment stage declares its storage buffers in group 3.
@@ -2110,6 +2111,14 @@ This follows because the target cannot carry such a texture, and a stage would r
 > `createGlsl` uploads each storage buffer its stages read as a storage texture, from the buffer's contents at `attach`. `setAttribute` on the buffer's slot fills it again.
 
 Derives from: [`spec-setting-one-storage-slot-keeps-the-others`](#spec-setting-one-storage-slot-keeps-the-others)
+
+###### @spec a-glsl-storage-refill-of-one-size-allocates-nothing
+
+> `setAttribute` on a storage buffer's slot uploads its texels through an array `createGlsl` keeps for the slot, as long as the texture keeps its size. The adapter reads the context's `MAX_TEXTURE_SIZE` once, when it links.
+
+Derives from: [`spec-the-glsl-adapter-uploads-each-storage-buffer-it-reads`](#spec-the-glsl-adapter-uploads-each-storage-buffer-it-reads), [`axiom-the-frame-path-allocates-nothing`](#axiom-the-frame-path-allocates-nothing)
+
+This follows because a host can refill a buffer on every frame. The texture's rows are padded to a power of two, so the texels need an array of their own, and a new one for each refill would leave the collector one buffer's worth of memory per frame.
 
 ###### @spec a-glsl-stage-reads-a-storage-element-in-one-expression
 
