@@ -5,6 +5,7 @@ import {
   Node,
   NodeImpl,
   ShaderType,
+  StorageAccess,
   StorageNode,
   StorageBufferAttribute,
   TYPE_WIDTH,
@@ -966,23 +967,25 @@ export function assertReadsNoStageInput(roots: unknown, kind: "routine" | "grid"
   });
 }
 
-/** Every storage attribute reachable from the roots, keyed by the slot name its nodes compile to. */
-export function storageAttributes(roots: unknown): Map<string, StorageBufferAttribute> {
-  const attributes = new Map<string, StorageBufferAttribute>();
+/**
+ * One entry for each storage buffer reachable from the roots, in the order the
+ * program created the buffers: a node over the buffer, and the widest access
+ * any node over it needs.
+ */
+export function storageBuffersOf(roots: unknown): { node: StorageNode<ShaderType>; access: StorageAccess }[] {
+  const buffers = new Map<string, { node: StorageNode<ShaderType>; access: StorageAccess }>();
   someNode(roots, (node) => {
-    if (node.type === "storage") attributes.set(node.value.slot, node.value.attribute);
+    if (node.type !== "storage") return;
+    const buffer = buffers.get(node.value.slot);
+    if (!buffer) buffers.set(node.value.slot, { node: node as StorageNode<ShaderType>, access: node.value.access });
+    else if (buffer.access !== node.value.access) buffer.access = "read_write";
   });
-  return attributes;
+  return [...buffers.values()].sort((a, b) => a.node.attribute.id - b.node.attribute.id);
 }
 
 /** One storage node for each buffer reachable from the roots, in the order the program created the buffers. */
 export function storageNodesOf(roots: unknown): StorageNode<ShaderType>[] {
-  const nodes = new Map<string, StorageNode<ShaderType>>();
-  someNode(roots, (node) => {
-    if (node.type === "storage" && !nodes.has(node.value.slot))
-      nodes.set(node.value.slot, node as StorageNode<ShaderType>);
-  });
-  return [...nodes.values()].sort((a, b) => a.attribute.id - b.attribute.id);
+  return storageBuffersOf(roots).map((buffer) => buffer.node);
 }
 
 /** What a uniform, attribute or varying node declares, in the words of an error about its name. */

@@ -19,7 +19,7 @@ import {
 } from "../adapter";
 import { componentCountOf, componentKindOf, type CpuTextureData } from "../cpu";
 import { textureImage } from "../texture-image";
-import { CompileCtx, storageAttributes, storageNodesOf, VertexRoot } from "../shared";
+import { CompileCtx, storageNodesOf, VertexRoot } from "../shared";
 import type { WgslContext } from "./context-wgsl";
 import { spread, storageLayout, type StorageLayout } from "./storage-layout";
 import {
@@ -875,7 +875,7 @@ export function createWgslCompute(
 
       // A slot the host never sets, such as one the program only writes, is as long as the program declared it:
       // `instancedArray(count, type)`, as TSL's buffer is. It has a buffer to bind either way.
-      const declared = storageAttributes(compute);
+      const declared = new Map(storageNodesOf(compute).map((node) => [node.name, node.attribute]));
       for (const resource of computeStorageResources())
         sizeStorageSlot(resource, declared.get(resource.name)?.count ?? 0);
       // A program with no storage binds an empty group, which its compute() still dispatches against.
