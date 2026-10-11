@@ -423,7 +423,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@axiom each-target-keeps-what-makes-it-worth-choosing`](#axiom-each-target-keeps-what-makes-it-worth-choosing) — An interface over several targets keeps what each target does better than the others. A call that a target answers at once stays synchronous. Data that lives on the GPU stays there until the host asks for it. No target fakes a capability it lacks.
   - [`@spec an-adapter-call-is-synchronous-where-its-target-answers-at-once`](#spec-an-adapter-call-is-synchronous-where-its-target-answers-at-once) — An [adapter](#term-adapter) method returns its result directly where its target answers at once, and returns a promise only where its target cannot.
     - [`@spec a-cpu-adapter-computes-synchronously`](#spec-a-cpu-adapter-computes-synchronously) — `compute` on a JS or WASM adapter has run the dispatch and filled `out` when it returns.
-      - [`@bug wasm-compute-names-its-routine-as-its-dispatch-loop`](#bug-wasm-compute-names-its-routine-as-its-dispatch-loop) — `createWasmCompute` names its routine `compute` by default, the name of the module's own dispatch export, so a program with storage fails to compile.
     - [`@spec a-cpu-routine-adapter-calls-its-routine-with-what-it-was-given`](#spec-a-cpu-routine-adapter-calls-its-routine-with-what-it-was-given) — `createJsRoutine` and `createWasmRoutine` give an adapter that keeps the uniforms and the textures the host sets. `run(params)` calls the routine with them and the parameters it is given, returns its value at once, and calls it again with whatever the host has set since.
     - [`@spec a-wgsl-adapter-attaches-and-computes-through-a-promise`](#spec-a-wgsl-adapter-attaches-and-computes-through-a-promise) — `attach` and `compute` on a WGSL adapter return promises, because WebGPU requests its device and reads its buffers back asynchronously.
     - [`@spec a-glsl-adapter-attaches-and-draws-synchronously`](#spec-a-glsl-adapter-attaches-and-draws-synchronously) — `attach` and `draw` on a GLSL adapter return `void`, because WebGL 2 creates its context and draws synchronously.
@@ -444,8 +443,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec glsl-refuses-an-unknown-precision`](#spec-glsl-refuses-an-unknown-precision) — A GLSL compile refuses a precision other than `lowp`, `mediump` or `highp`, and the types refuse it before the program runs.
     - [`@spec a-uniform-can-set-a-precision-of-its-own`](#spec-a-uniform-can-set-a-precision-of-its-own) — `setPrecision(precision)` on a uniform or a uniform array takes `"low"`, `"medium"` or `"high"`, and returns the uniform. Its GLSL declaration then carries `lowp`, `mediump` or `highp`, over the shader's default. `compileGlsl` and `compileGlslFn` both declare it so. Another value is refused, and so is any precision on a `bool` or boolean vector uniform. WGSL, which has no precision, declares the uniform as it would without one.
     - [`@spec every-glsl-call-shape-takes-a-precision`](#spec-every-glsl-call-shape-takes-a-precision) — `compileGlsl`, `compileGlsl.fragment` and `compileGlsl.vertex` each take a `precision` option.
-  - [`@spec a-wasm-routine-loops-inside-its-module`](#spec-a-wasm-routine-loops-inside-its-module) — `draw` and `compute` of a WASM routine run their whole grid or dispatch inside the module, in one call from the host. A program that never reads `invocationIndex()`, or returns a value, still runs once for each invocation.
-    - [`@bug wasm-loops-a-program-without-storage-from-the-host`](#bug-wasm-loops-a-program-without-storage-from-the-host) — A program with neither `storage()` nor `invocationIndex()` gets no dispatch export, and `compute` calls its `main` from the host once per invocation.
+  - [`@spec a-wasm-routine-loops-inside-its-module`](#spec-a-wasm-routine-loops-inside-its-module) — `draw` and `compute` of a WASM routine run their whole grid or dispatch inside the module, in one call from the host. A program that never reads `invocationIndex()` or a storage buffer, or that returns a value, still runs once for each invocation.
+  - [`@spec a-wasm-module-exports-its-loops-under-the-reserved-prefix`](#spec-a-wasm-module-exports-its-loops-under-the-reserved-prefix) — A WASM module exports its grid loop as `_rmsl_draw` and its dispatch loop as `_rmsl_compute`. The name a caller gives its program is exported beside them, so `createWasmGrid` keeps its default name `draw` and `createWasmCompute` its default `compute`. A name that starts with `_rmsl_` is refused, when the program compiles and when a module is instantiated.
+  - [`@spec a-wasm-stage-module-exports-no-loop-of-its-own`](#spec-a-wasm-stage-module-exports-no-loop-of-its-own) — A module compiled as a vertex or a fragment stage exports neither `_rmsl_draw` nor `_rmsl_compute`. `instantiateWasmGrid` refuses a module without `_rmsl_draw`, and `instantiateWasmCompute` one without `_rmsl_compute`, when they instantiate it.
   - [`@spec a-wasm-routine-copies-a-texture-into-its-memory-once`](#spec-a-wasm-routine-copies-a-texture-into-its-memory-once) — A WASM routine copies a texture into its memory the first time a slot holds it. It copies again only when the slot holds a different texture object. A texture whose data changes without a new object keeps its old copy. The memory grows to fit a larger texture or grid without corrupting what it holds.
   - [`@spec a-wasm-routine-reads-a-matrix-column-where-it-lies`](#spec-a-wasm-routine-reads-a-matrix-column-where-it-lies) — On WASM, a component of a matrix column is read where the matrix holds it, with one load for a column and a component at constant indices. A column of a storage element is read from the buffer, inside the element's bounds check, and as zero outside it.
   - [`@spec a-wgsl-buffer-feeds-a-draw-without-a-copy`](#spec-a-wgsl-buffer-feeds-a-draw-without-a-copy) — A buffer of a WGSL compute context can feed a draw on the same device. The function `createWgsl` binds the storage nodes of its stages to the context's buffers. A render pipeline can read them as vertex data. A WGSL adapter fills storage of its own through `setAttribute` when it has no context.
@@ -454,7 +454,6 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@axiom rmsl-compiles-and-the-application-drives`](#axiom-rmsl-compiles-and-the-application-drives) — rmsl hands the application what it compiled: shader source, callables, adapters and node graphs. The application decides when to draw and when to dispatch. It owns the canvas, the frame loop and the data it uploads.
   - [`@spec what-rmsl-hands-back-draws-nothing-on-its-own`](#spec-what-rmsl-hands-back-draws-nothing-on-its-own) — What rmsl hands back draws nothing until the application calls it. An adapter draws or dispatches once for each call.
     - [`@spec an-adapter-draws-one-frame-for-each-call`](#spec-an-adapter-draws-one-frame-for-each-call) — `draw()` on an adapter draws one frame into the canvas it attached, and nothing more until the next call. This holds for the GLSL adapter, the JS and WASM rasterizers, and the JS and WASM grids.
-      - [`@bug create-wasm-grid-fails-under-its-default-name`](#bug-create-wasm-grid-fails-under-its-default-name) — `createWasmGrid` names its program `draw` by default, which collides with the grid loop the module exports as `draw`, so the module does not instantiate.
     - [`@spec a-draw-clears-its-target-first-unless-it-asks-not-to`](#spec-a-draw-clears-its-target-first-unless-it-asks-not-to) — A draw of an adapter, and of a CPU rasterizer routine, clears the colour of its target before it draws, to its `clearColor`. A draw that passes `clear: false` draws over what is there. A CPU draw also clears its depth buffer, unless it passes `clearDepth: false`.
       - [`@spec a-draw-clears-the-colour-of-its-target-to-its-clear-colour`](#spec-a-draw-clears-the-colour-of-its-target-to-its-clear-colour) — A draw clears the colour of its target to its `clearColor` before it draws, so no pixel of an earlier draw remains.
       - [`@spec a-clear-colour-is-transparent-black-unless-the-draw-gives-one`](#spec-a-clear-colour-is-transparent-black-unless-the-draw-gives-one) — A draw that gives no `clearColor` clears to transparent black, `[0, 0, 0, 0]`.
@@ -628,6 +627,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec an-element-no-invocation-writes-keeps-the-host-value`](#spec-an-element-no-invocation-writes-keeps-the-host-value) — On a CPU target, a storage element that no invocation writes keeps the value the host passed in.
     - [`@spec a-runner-shares-its-scratch-unless-asked`](#spec-a-runner-shares-its-scratch-unless-asked) — A `runner` keeps the variables of its graph in one scratch block that its calls share, unless its options set `reentrant`.
   - [`@spec a-wasm-module-imports-only-its-memory`](#spec-a-wasm-module-imports-only-its-memory) — A program compiled to WebAssembly imports only its memory from the host. Any host that runs WebAssembly can run it, outside JavaScript included.
+    - [`@spec a-wasm-program-without-a-transcendental-imports-its-memory-alone`](#spec-a-wasm-program-without-a-transcendental-imports-its-memory-alone) — A program compiled to WebAssembly that calls no transcendental function imports one thing, `env.memory`. This holds whatever it reads or writes: uniforms, a texture, a storage buffer, a grid or a dispatch.
     - [`@exception a-wasm-transcendental-is-imported-from-the-host`](#exception-a-wasm-transcendental-is-imported-from-the-host) — A program compiled to WebAssembly that calls a transcendental function, such as `sin`, `exp` or `pow`, imports that function from the host, and the host gives it JavaScript's `Math`.
     - [`@spec several-wasm-modules-can-share-one-memory`](#spec-several-wasm-modules-can-share-one-memory) — With `memoryBase`, a WASM module keeps its addresses in its own region of the memory. Modules with different bases share one memory without overlap.
     - [`@spec a-wasm-program-can-take-one-call-shape`](#spec-a-wasm-program-can-take-one-call-shape) — With `scalarsInMemory`, a WASM program reads its scalar uniforms, attributes and varyings from memory and takes no arguments. Without it, a program of scalars only takes them as arguments.
@@ -670,7 +670,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-plugin-with-no-include-rewrites-nothing`](#spec-a-plugin-with-no-include-rewrites-nothing) — A Vite plugin given no `include` rewrites no module.
     - [`@spec a-plugin-leaves-a-module-its-exclude-matches`](#spec-a-plugin-leaves-a-module-its-exclude-matches) — A Vite plugin leaves a module its `exclude` matches as it is, though its `include` matches it too.
   - [`@spec a-material-program-holds-only-what-its-graph-reads`](#spec-a-material-program-holds-only-what-its-graph-reads) — A `MaterialProgram` holds only the uniforms, attributes and varyings its graph reads. A scene with no lights declares no light uniforms.
-  - [`@spec the-main-entry-exports-no-compiler`](#spec-the-main-entry-exports-no-compiler) — The main entry exports the graph functions and serialization, and no compiler, so each target is imported from its own subpath.
+  - [`@spec the-main-entry-exports-no-compiler`](#spec-the-main-entry-exports-no-compiler) — The main entry exports the graph functions and serialization, and no compiler, so each target is imported from its own subpath. It exports neither `var_` nor `assertBlockScope`, the compiler's own helpers for a parameter and for a statement outside an `Fn`.
   - [`@spec compile-wat-loads-every-wat-module`](#spec-compile-wat-loads-every-wat-module) — `compileWat` given no `include` loads every `.wat` module as its WebAssembly bytes.
   - [`@spec a-wat-module-exports-its-shared-variant-or-undefined`](#spec-a-wat-module-exports-its-shared-variant-or-undefined) — A loaded `.wat` module exports `shared`: the bytes of the same module importing its memory shared, or `undefined` when the module imports no memory.
   - [`@spec compile-wat-refuses-a-memory-import-it-cannot-make-shared`](#spec-compile-wat-refuses-a-memory-import-it-cannot-make-shared) — `compileWat` fails to load a `.wat` module that imports a memory in a form it cannot rewrite to import shared, with an error that names the module.
@@ -833,7 +833,6 @@ A fragment program can write depth on one path only. What depth the other paths 
 The analysis found these places where the code or the documents do not hold the canon, and no spec decides the fix yet. Each has an issue. A defect that breaks a spec is a bug unit inside that spec instead.
 
 1. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
-2. `var_`, `assertBlockScope` and `compileWat` are exported with no documented purpose. Issue #73 asks whether they are public API.
 
 ### Coverage gaps
 
@@ -842,8 +841,7 @@ These units hold a claim that no test checks yet.
 1. [`spec-glsl-gives-the-wgsl-result-for-a-defined-integer-operation`](#spec-glsl-gives-the-wgsl-result-for-a-defined-integer-operation): no test reads an integer result back from GLSL. The integer tests hold GLSL only to compiling. Issue #54.
 2. [`exception-dawn-on-metal-divides-some-u32-constants-wrongly`](#exception-dawn-on-metal-divides-some-u32-constants-wrongly): the integer sweep sets the wrong quotients aside, but no `test.fails` pins them. Such a test runs only on Metal, and starts failing once Dawn is fixed. Issue #55.
 3. [`exception-a-cpu-target-computes-floats-in-64-bits`](#exception-a-cpu-target-computes-floats-in-64-bits): `src/eval.test.ts` holds the GPU targets to the CPU result in an `afterAll`, so a mismatch fails the file rather than the test that built the program. Issue #56.
-4. [`spec-a-wasm-module-imports-only-its-memory`](#spec-a-wasm-module-imports-only-its-memory): no test reads which imports a compiled module declares. Issue #61.
-5. [`exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range), [`exception-a-gpu-target-lets-the-driver-pick-a-texel-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-a-texel-out-of-range) and [`exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver`](#exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver): a test can only pin them as reading some value, because the driver picks which.
+4. [`exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-an-element-out-of-range), [`exception-a-gpu-target-lets-the-driver-pick-a-texel-out-of-range`](#exception-a-gpu-target-lets-the-driver-pick-a-texel-out-of-range) and [`exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver`](#exception-a-gpu-target-leaves-a-zero-vector-normalized-to-the-driver): a test can only pin them as reading some value, because the driver picks which.
 
 ## Terms
 
@@ -3206,12 +3204,6 @@ This follows because a promise where none is needed costs a synchronous caller i
 
 > `compute` on a JS or WASM adapter has run the dispatch and filled `out` when it returns.
 
-##### @bug wasm-compute-names-its-routine-as-its-dispatch-loop
-
-> `createWasmCompute` names its routine `compute` by default, the name of the module's own dispatch export, so a program with storage fails to compile.
-
-Issue: #113
-
 #### @spec a-cpu-routine-adapter-calls-its-routine-with-what-it-was-given
 
 > `createJsRoutine` and `createWasmRoutine` give an adapter that keeps the uniforms and the textures the host sets. `run(params)` calls the routine with them and the parameters it is given, returns its value at once, and calls it again with whatever the host has set since.
@@ -3324,15 +3316,25 @@ This follows because a TSL material that lowers the precision of one uniform por
 
 ### @spec a-wasm-routine-loops-inside-its-module
 
-> `draw` and `compute` of a WASM routine run their whole grid or dispatch inside the module, in one call from the host. A program that never reads `invocationIndex()`, or returns a value, still runs once for each invocation.
+> `draw` and `compute` of a WASM routine run their whole grid or dispatch inside the module, in one call from the host. A program that never reads `invocationIndex()` or a storage buffer, or that returns a value, still runs once for each invocation.
 
 This follows because a call into WebAssembly costs more than a call within it. A host call per pixel would spend the advantage of the module.
 
-#### @bug wasm-loops-a-program-without-storage-from-the-host
+### @spec a-wasm-module-exports-its-loops-under-the-reserved-prefix
 
-> A program with neither `storage()` nor `invocationIndex()` gets no dispatch export, and `compute` calls its `main` from the host once per invocation.
+> A WASM module exports its grid loop as `_rmsl_draw` and its dispatch loop as `_rmsl_compute`. The name a caller gives its program is exported beside them, so `createWasmGrid` keeps its default name `draw` and `createWasmCompute` its default `compute`. A name that starts with `_rmsl_` is refused, when the program compiles and when a module is instantiated.
 
-Issue: #113
+Derives from: [`spec-a-wasm-routine-loops-inside-its-module`](#spec-a-wasm-routine-loops-inside-its-module), [`spec-a-variable-name-must-be-an-identifier`](#spec-a-variable-name-must-be-an-identifier)
+
+This follows because the compiler keeps the `_rmsl_` prefix for everything it invents. Two exports of one name would keep the module from compiling.
+
+### @spec a-wasm-stage-module-exports-no-loop-of-its-own
+
+> A module compiled as a vertex or a fragment stage exports neither `_rmsl_draw` nor `_rmsl_compute`. `instantiateWasmGrid` refuses a module without `_rmsl_draw`, and `instantiateWasmCompute` one without `_rmsl_compute`, when they instantiate it.
+
+Derives from: [`spec-a-wasm-module-exports-its-loops-under-the-reserved-prefix`](#spec-a-wasm-module-exports-its-loops-under-the-reserved-prefix), [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+This follows because the rasterizer calls a stage once for each vertex or fragment, and never through a loop of the module. A module without the loop a grid or a dispatch needs could only fail at its first call.
 
 ### @spec a-wasm-routine-copies-a-texture-into-its-memory-once
 
@@ -3379,12 +3381,6 @@ This follows because the application decides when to draw.
 #### @spec an-adapter-draws-one-frame-for-each-call
 
 > `draw()` on an adapter draws one frame into the canvas it attached, and nothing more until the next call. This holds for the GLSL adapter, the JS and WASM rasterizers, and the JS and WASM grids.
-
-##### @bug create-wasm-grid-fails-under-its-default-name
-
-> `createWasmGrid` names its program `draw` by default, which collides with the grid loop the module exports as `draw`, so the module does not instantiate.
-
-Issue: #72
 
 #### @spec a-draw-clears-its-target-first-unless-it-asks-not-to
 
@@ -4482,6 +4478,10 @@ This follows because a runner evaluates one graph many times, and a JS routine a
 
 This follows because a module that imports a function only JavaScript provides runs only in JavaScript.
 
+#### @spec a-wasm-program-without-a-transcendental-imports-its-memory-alone
+
+> A program compiled to WebAssembly that calls no transcendental function imports one thing, `env.memory`. This holds whatever it reads or writes: uniforms, a texture, a storage buffer, a grid or a dispatch.
+
 #### @exception a-wasm-transcendental-is-imported-from-the-host
 
 > A program compiled to WebAssembly that calls a transcendental function, such as `sin`, `exp` or `pow`, imports that function from the host, and the host gives it JavaScript's `Math`.
@@ -4750,9 +4750,9 @@ This follows because a binding the program never reads still costs an upload on 
 
 ### @spec the-main-entry-exports-no-compiler
 
-> The main entry exports the graph functions and serialization, and no compiler, so each target is imported from its own subpath.
+> The main entry exports the graph functions and serialization, and no compiler, so each target is imported from its own subpath. It exports neither `var_` nor `assertBlockScope`, the compiler's own helpers for a parameter and for a statement outside an `Fn`.
 
-This follows because an application that uses one target pays nothing for the compilers of the others.
+This follows because an application that uses one target pays nothing for the compilers of the others. A program makes a variable with `toVar()` and a block with `Fn`, as TSL's does, so the helpers are no part of the API.
 
 ### @spec compile-wat-loads-every-wat-module
 

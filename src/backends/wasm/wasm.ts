@@ -1,4 +1,4 @@
-import { MATRIX_DIMENSIONS, Node, ShaderType, StorageAccess } from "../../core";
+import { MATRIX_DIMENSIONS, Node, RESERVED_VAR_PREFIX, ShaderType, StorageAccess } from "../../core";
 import { AllocRules, planLayout } from "../../layout";
 import {
   componentCountOf,
@@ -143,9 +143,8 @@ export type CompiledWasm = {
 
   maxMemoryPages: number; // the maximum this module's memory import declared — only enforced when sharedMemory is true
 
-  draw?: { componentCount: number; kind: "float" | "int" | "uint" | "bool" }; // set when "draw" is exported
-  /** Whether the module exports `compute(...params, count)`, which runs `main` once per invocation index. */
-  compute?: boolean;
+  /** The shape of the program's value, set when it returns one. A module that is no stage exports `_rmsl_draw` to fill a grid with it. */
+  draw?: { componentCount: number; kind: "float" | "int" | "uint" | "bool" };
   /** Whether the program computes every float in 32 bits, so the host rounds each float input it passes. */
   float32?: boolean;
 };
@@ -809,10 +808,20 @@ function textureByteSize(tex: CpuTextureData, isCube: boolean): number {
  * against a known answer, not quoted from memory: a wrong-but-valid opcode
  * runs and silently miscompiles.
  */
+/** Throws for a program name in the prefix the module's own exports, `_rmsl_draw` and `_rmsl_compute`, carry. */
+function assertProgramName(caller: string, name: string): void {
+  if (name.startsWith(RESERVED_VAR_PREFIX)) {
+    throw new Error(
+      `[RMSL] ${caller}: the name "${name}" starts with "${RESERVED_VAR_PREFIX}", which the compiler reserves for the module's own exports. Give the program another name`,
+    );
+  }
+}
+
 export function compileWasmFn(
   fn: (...args: any[]) => Node<ShaderType> | readonly Node<ShaderType>[],
   options: CompileWasmFnOptions,
 ): CompiledWasm {
+  assertProgramName("compileWasmFn", options.name);
   if (options.gpuUniformLayout && options.float !== "f32") {
     throw new Error(
       `[RMSL] compileWasmFn: gpuUniformLayout shares a uniform buffer with the GPU, which holds 32-bit floats, ` +
@@ -1105,10 +1114,13 @@ export function compileWasmFn(
   /** Whether `draw` writes its float components as f32, as `float: "f32"` asks of the buffer it fills. */
   const drawFloat32 = float32 && drawComponentKind === "float";
 
-  // A "draw(width, height, bufferBase)" export: loops every pixel, runs the
-  // main function (feeding the pixel in as fragCoord), and stores the output
+  /** A vertex or fragment stage runs once per vertex or fragment from the rasterizer, and needs neither loop. */
+  const stageModule = options.stage === "vertex" || options.stage === "fragment";
+
+  // The "_rmsl_draw(width, height, bufferBase)" export: loops every pixel, runs
+  // the main function (feeding the pixel in as fragCoord), and stores the output
   // into the caller's buffer — the CPU path for whole-image evaluation.
-  if (root._t !== "void") {
+  if (root._t !== "void" && !stageModule) {
     const widthIdx = params.length;
     const heightIdx = params.length + 1;
     const bufferBaseIdx = params.length + 2;
@@ -1235,10 +1247,10 @@ export function compileWasmFn(
   let computeTypeIdx: number | undefined;
   let computeFuncBody: number[] | undefined;
 
-  // A "compute(count)" export for a compute program: runs main once per
-  // index in 0..count, passing the index as invocationIndex() and every other
-  // param through unchanged, so a whole dispatch is one call from the host.
-  if (paramIndex.has("invocationIndex") || storageMetadataAddress.size > 0) {
+  // The "_rmsl_compute(...params, count)" export of every program but a stage:
+  // runs main once per index in 0..count, passing the index as invocationIndex()
+  // and every other param through unchanged, so a whole dispatch is one call.
+  if (!stageModule) {
     const countIdx = params.length;
     const indexIdx = params.length + 1;
     const invocationIndexParam = paramIndex.get("invocationIndex");
@@ -1259,10 +1271,10 @@ export function compileWasmFn(
     typeEntries.push([WASM_FUNC, ...wasmVec([...paramTypes, [WASM_I32]]), ...wasmVec([])]);
   }
 
-  /** The module's own functions after main, in function-index order: draw, then compute, each when emitted. */
+  /** The module's own functions after main, in function-index order: `_rmsl_draw`, then `_rmsl_compute`, each when emitted. */
   const extraFunctions = [
-    { name: "draw", typeIdx: drawTypeIdx, body: drawFuncBody },
-    { name: "compute", typeIdx: computeTypeIdx, body: computeFuncBody },
+    { name: `${RESERVED_VAR_PREFIX}draw`, typeIdx: drawTypeIdx, body: drawFuncBody },
+    { name: `${RESERVED_VAR_PREFIX}compute`, typeIdx: computeTypeIdx, body: computeFuncBody },
   ].filter((f): f is { name: string; typeIdx: number; body: number[] } => f.typeIdx !== undefined);
 
   /** 65536 bytes per WASM memory page. */
@@ -1371,8 +1383,7 @@ export function compileWasmFn(
     memoryPages, // initial page count a default (non-shared) memory should be created with
     sharedMemory,
     maxMemoryPages,
-    draw: drawTypeIdx === undefined ? undefined : { componentCount: drawComponentCount, kind: drawComponentKind },
-    compute: computeTypeIdx !== undefined,
+    draw: root._t === "void" ? undefined : { componentCount: drawComponentCount, kind: drawComponentKind },
     float32,
   };
 
@@ -4533,11 +4544,18 @@ function storageElementSize(shaderType: ShaderType): number {
   return componentCountOf(shaderType) * componentSizeOf(kind);
 }
 
+/**
+ * Instantiates a compiled module as a `CpuProgram`. `needs` names the loop of
+ * the module's own the caller is built on, which a module without it is refused
+ * for here rather than at its first call.
+ */
 export function instantiateWasmProgram(
   compiled: CompiledWasm,
   name: string,
   externalMemory?: WebAssembly.Memory,
+  needs?: { caller: string; loop: "draw" | "compute" },
 ): CpuProgram {
+  assertProgramName("instantiateWasmProgram", name);
   const {
     bytes,
     params,
@@ -4547,7 +4565,6 @@ export function instantiateWasmProgram(
     sharedMemory,
     maxMemoryPages,
     draw: drawOutput,
-    compute: hasCompute,
     float32,
   } = compiled;
 
@@ -4566,8 +4583,17 @@ export function instantiateWasmProgram(
     env: { memory },
   });
   const wasmMain = instance.exports[name] as (...args: number[]) => number;
-  const wasmDraw = drawOutput ? (instance.exports.draw as (...args: number[]) => void) : undefined;
-  const wasmCompute = hasCompute ? (instance.exports.compute as (...args: number[]) => void) : undefined;
+  const wasmDraw = drawOutput
+    ? (instance.exports[`${RESERVED_VAR_PREFIX}draw`] as (...args: number[]) => void)
+    : undefined;
+  const wasmCompute = instance.exports[`${RESERVED_VAR_PREFIX}compute`] as ((...args: number[]) => void) | undefined;
+  // A grid whose program returns nothing has no draw loop either, and is refused when it fills, as on JS.
+  const needed = needs && (needs.loop === "compute" || drawOutput);
+  if (needed && !instance.exports[`${RESERVED_VAR_PREFIX}${needs.loop}`]) {
+    throw new Error(
+      `[RMSL] ${needs.caller}: this module exports no "${RESERVED_VAR_PREFIX}${needs.loop}" loop, as a module compiled as a vertex or fragment stage does not`,
+    );
+  }
 
   // outputs read back after each call; textures repacked per call
   const outputParams = params.filter(
@@ -4647,7 +4673,7 @@ export function instantiateWasmProgram(
 
   /**
    * `CpuRoutine.draw`: marshals `ctx` once, then calls the module's own
-   * `draw` export to render the whole `width x height` grid in one call
+   * `_rmsl_draw` export to render the whole `width x height` grid in one call
    * (growing the buffer if needed) — see "A whole grid in one call" in
    * docs/wasm-benchmarks.md for why this exists.
    */
@@ -4703,17 +4729,19 @@ export function instantiateWasmProgram(
 
   /**
    * `CpuRoutine.compute`: marshals `ctx` once, runs every invocation in one
-   * call to the module's own `compute` export, and copies the storage
-   * buffers back once at the end. A program with neither `storage()` nor
-   * `invocationIndex()` has no such export, and loops `main` from here.
+   * call to the module's own `_rmsl_compute` export, and copies the storage
+   * buffers back once at the end.
    */
   function compute(ctx: CpuShaderContext, count: number): void {
+    if (!wasmCompute) {
+      throw new Error(
+        `[RMSL] this module exports no "${RESERVED_VAR_PREFIX}compute" loop: it was compiled as a vertex or fragment stage`,
+      );
+    }
     const { args } = marshalInputs(ctx);
-    if (wasmCompute) {
-      const n = copyArgs(computeArgs, args);
-      computeArgs[n] = count;
-      callExport(wasmCompute, computeArgs, n + 1);
-    } else for (let i = 0; i < count; i++) callExport(wasmMain, args, args.length);
+    const n = copyArgs(computeArgs, args);
+    computeArgs[n] = count;
+    callExport(wasmCompute, computeArgs, n + 1);
     writeBackStorages(ctx);
   }
 
@@ -4765,7 +4793,10 @@ export function instantiateWasmCompute(
   name: string,
   externalMemory?: WebAssembly.Memory,
 ): ComputeStage {
-  const program = instantiateWasmProgram(compiled, name, externalMemory);
+  const program = instantiateWasmProgram(compiled, name, externalMemory, {
+    caller: "instantiateWasmCompute",
+    loop: "compute",
+  });
   return Object.assign((ctx: CpuShaderContext, count: number) => program.compute(ctx, count), {
     storageTypes: program.storageTypes ?? {},
   });
@@ -4777,7 +4808,10 @@ export function instantiateWasmGrid<A extends ShaderType = ShaderType>(
   name: string,
   externalMemory?: WebAssembly.Memory,
 ): CpuGrid<A> {
-  const program = instantiateWasmProgram(compiled, name, externalMemory);
+  const program = instantiateWasmProgram(compiled, name, externalMemory, {
+    caller: "instantiateWasmGrid",
+    loop: "draw",
+  });
   return (ctx, width, height, out) => program.draw(ctx, width, height, out) as GridBuffer<A>;
 }
 

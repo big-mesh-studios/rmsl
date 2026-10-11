@@ -44,6 +44,7 @@ import {
   compileWasmGrid,
   instantiateWasmCompute,
   instantiateWasmGrid,
+  instantiateWasmRoutine,
 } from "../wasm";
 
 const none = { name: "main", params: [] };
@@ -305,6 +306,113 @@ describe("the WASM rasterizer's memory", () => {
     expect(Array.from(routine.draw({ attributes: { [pos.name]: screen() } }, { width: 1, height: 1 }))).toEqual([
       1, 0, 0, 1,
     ]);
+  });
+});
+
+describe("the exports of a WASM module", () => {
+  /** The names a module compiled from `build` exports. */
+  const exportsOf = (build: () => any, name: string) =>
+    WebAssembly.Module.exports(new WebAssembly.Module(compileWasmFn(build, { name, params: [] }).bytes as any)).map(
+      (entry) => entry.name,
+    );
+
+  /**
+   * @canon spec-a-wasm-module-exports-its-loops-under-the-reserved-prefix
+   */
+  it.each(["draw", "compute"])("exports a program named %s beside its own loops", (name) => {
+    expect(exportsOf(() => Fn(() => fragCoord().x)(), name).sort()).toEqual(
+      ["_rmsl_compute", "_rmsl_draw", name].sort(),
+    );
+  });
+
+  /**
+   * @canon spec-a-wasm-module-exports-its-loops-under-the-reserved-prefix
+   */
+  it("refuses a program name in the reserved prefix", () => {
+    expect(() => exportsOf(() => Fn(() => float(1))(), "_rmsl_draw")).toThrow(/"_rmsl_draw".*reserve/);
+  });
+
+  /**
+   * @canon spec-a-wasm-module-exports-its-loops-under-the-reserved-prefix
+   */
+  it("refuses to instantiate a program under a name in the reserved prefix", () => {
+    const compiled = compileWasmFn(() => Fn(() => float(1))(), { name: "main", params: [] });
+    expect(() => instantiateWasmRoutine(compiled, "_rmsl_compute")).toThrow(/"_rmsl_compute".*reserve/);
+  });
+
+  /**
+   * @canon spec-a-wasm-stage-module-exports-no-loop-of-its-own
+   */
+  it.each(["vertex", "fragment"] as const)("exports no loop of its own from a %s stage module", (stage) => {
+    const compiled = compileWasmFn(() => Fn(() => vec4(1, 0, 0, 1))(), { name: "main", params: [], stage });
+    const names = WebAssembly.Module.exports(new WebAssembly.Module(compiled.bytes as any)).map((e) => e.name);
+    expect(names).toEqual(["main"]);
+  });
+
+  /**
+   * @canon spec-a-wasm-stage-module-exports-no-loop-of-its-own
+   */
+  it("refuses to instantiate a stage module as a grid or a compute stage", () => {
+    const compiled = compileWasmFn(() => Fn(() => vec4(1, 0, 0, 1))(), { name: "main", params: [], stage: "fragment" });
+    expect(() => instantiateWasmGrid(compiled, "main")).toThrow(/exports no "_rmsl_draw"/);
+    expect(() => instantiateWasmCompute(compiled, "main")).toThrow(/exports no "_rmsl_compute"/);
+  });
+
+  /**
+   * @canon spec-a-wasm-routine-loops-inside-its-module
+   */
+  it("exports a dispatch loop for a program that reads neither storage nor invocationIndex", () => {
+    expect(exportsOf(() => Fn(() => float(1).toVar())(), "main")).toContain("_rmsl_compute");
+  });
+
+  /**
+   * @canon spec-a-cpu-adapter-computes-synchronously
+   */
+  it("creates a compute adapter under its default name, and computes", () => {
+    const buf = instancedArray(2, "float");
+    const adapter = createWasmCompute(
+      Fn(() => {
+        buf.element(invocationIndex()).assign(float(3));
+      })(),
+    );
+    const data = new Float32Array(2);
+    adapter.setAttribute(buf.name, data);
+    adapter.compute();
+    expect(Array.from(data)).toEqual([3, 3]);
+  });
+});
+
+describe("the imports of a WASM module", () => {
+  /** What a module compiled from `build` imports, as `module.name`, sorted. */
+  const importsOf = (build: () => any, stage?: "compute") =>
+    WebAssembly.Module.imports(
+      new WebAssembly.Module(compileWasmFn(build, { name: "main", params: [], stage }).bytes as any),
+    )
+      .map((entry) => `${entry.module}.${entry.name}`)
+      .sort();
+
+  /**
+   * @canon spec-a-wasm-program-without-a-transcendental-imports-its-memory-alone
+   */
+  it("imports its memory alone, whatever the program reads or writes", () => {
+    const gain = uniform("float");
+    const image = uniform("sampler2D");
+    const values = instancedArray(4, "float");
+    expect(importsOf(() => Fn(() => texture(image, vec2(0.5, 0.5)).x.mul(gain))())).toEqual(["env.memory"]);
+    expect(importsOf(() => Fn(() => vec4(fragCoord().x, 0, 0, 1))())).toEqual(["env.memory"]);
+    const write = () =>
+      Fn(() => {
+        values.element(invocationIndex()).assign(gain);
+      })();
+    expect(importsOf(write, "compute")).toEqual(["env.memory"]);
+  });
+
+  /**
+   * @canon exception-a-wasm-transcendental-is-imported-from-the-host
+   */
+  it("imports from math each transcendental it calls, and nothing else", () => {
+    const x = uniform("float");
+    expect(importsOf(() => Fn(() => x.sin().add(x.pow(2)))())).toEqual(["env.memory", "math.pow", "math.sin"]);
   });
 });
 
