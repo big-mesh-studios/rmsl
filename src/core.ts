@@ -3556,13 +3556,25 @@ export function Loop(...params: any[]): void {
   const body = params.pop() as (indices: Record<string, Node<any>>) => void;
   const ranges = params as (IntLike | FloatLike | Node<"bool"> | LoopRange)[];
   const indices: Record<string, Node<any>> = {};
+  const names = ranges.map((range, depth) =>
+    isNode(range) && (range as BaseNode<ShaderType>)._t === "bool"
+      ? undefined
+      : (isLoopRange(range) && range.name) || "ijklmnopqrstuvwxyz"[depth]!,
+  );
+  const named = names.filter((name) => name !== undefined);
+  const repeated = named.find((name, i) => named.indexOf(name) !== i);
+  if (repeated !== undefined) {
+    throw new Error(
+      `[RMSL] Loop: two ranges name their index "${repeated}", so the inner one hides the outer from the body`,
+    );
+  }
   const nest = (depth: number): void => {
     if (depth === ranges.length) return body(indices);
     const range = ranges[depth];
     if (isNode(range) && (range as BaseNode<ShaderType>)._t === "bool") {
       return While(range as Node<"bool">, () => nest(depth + 1));
     }
-    const name = (isLoopRange(range) && range.name) || "ijklmnopqrstuvwxyz"[depth]!;
+    const name = names[depth]!;
     const { start, end, condition, step } = loopBounds(range as IntLike | FloatLike | LoopRange);
     For(
       () => start.toVar(),
@@ -3605,6 +3617,7 @@ function compare(index: Node<any>, condition: string, end: Node<any>): Node<"boo
 /** The start, end, condition and step of a `Loop` range, with what TSL fills in where the range gives none. */
 function loopBounds(range: IntLike | FloatLike | LoopRange) {
   if (!isLoopRange(range)) {
+    if (typeof range === "number") assertWholeBound(range, "int");
     // A count is built as the index's type, as TSL builds it.
     const end = isNode(range) && range._t !== "int" ? int(range as Node<"float">) : range;
     return { start: int(0), end: end as Node<any>, condition: "<", step: int(1) as Node<any> };
@@ -3613,15 +3626,15 @@ function loopBounds(range: IntLike | FloatLike | LoopRange) {
   if (type !== "int" && type !== "uint" && type !== "float") {
     throw new Error(`[RMSL] Loop: an index is an int, a uint or a float, not ${JSON.stringify(type)}`);
   }
+  if (range.start === undefined && range.end === undefined) {
+    throw new Error('[RMSL] Loop: a range names neither "start" nor "end", so it has nothing to count from or to');
+  }
   // Each bound is built as the index's type, as TSL builds it.
-  const of = (value: number | Node<ShaderType>): Node<any> =>
-    isNode(value) && value._t === type
-      ? value
-      : type === "float"
-        ? float(value as number)
-        : type === "uint"
-          ? uint(value as number)
-          : int(value as number);
+  const of = (value: number | Node<ShaderType>): Node<any> => {
+    if (typeof value === "number" && type !== "float") assertWholeBound(value, type);
+    if (isNode(value) && value._t === type) return value;
+    return type === "float" ? float(value as number) : type === "uint" ? uint(value as number) : int(value as number);
+  };
   let start = range.start;
   let end = range.end;
   let condition: string | undefined = range.condition;
@@ -3646,7 +3659,21 @@ function loopBounds(range: IntLike | FloatLike | LoopRange) {
     );
   }
   const step = typeof update === "function" ? update : of(update ?? 1);
+  if (type === "uint" && condition === ">=" && constantOf(end!) === 0) {
+    throw new Error(
+      '[RMSL] Loop: a uint range that tests ">=" against an end of 0 never ends, since every uint is at least 0. Give the index the type "int"',
+    );
+  }
   return { start: of(start!), end: of(end ?? 0), condition, step };
+}
+
+/** Throws for a number with a fraction given as a bound of an integer `Loop` index, which TSL would round. */
+function assertWholeBound(value: number, type: string): void {
+  if (!Number.isInteger(value)) {
+    throw new Error(
+      `[RMSL] Loop: ${value} is not a whole number, but the index is ${type === "int" ? "an" : "a"} ${type}. Use a whole number, or a float node, which converts to the index's type`,
+    );
+  }
 }
 
 /**

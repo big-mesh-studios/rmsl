@@ -254,6 +254,10 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
       - [`@spec loop-steps-by-its-update`](#spec-loop-steps-by-its-update) — With no `update`, a range steps by 1 in the direction of its `condition`: up for `<` or `<=`, down for `>` or `>=`. A number or a node `update` is the step in that direction. A function `update` runs as the step, given the indices.
       - [`@spec loop-nests-a-loop-for-each-range`](#spec-loop-nests-a-loop-for-each-range) — `Loop(a, b, …, body)` nests a loop for each of `a`, `b` and on, the first outermost, and names their indices `i`, `j`, `k` and on.
       - [`@exception a-loop-update-is-not-shader-text`](#exception-a-loop-update-is-not-shader-text) — `Loop` refuses an `update` given as a string.
+      - [`@exception loop-refuses-a-range-with-neither-start-nor-end`](#exception-loop-refuses-a-range-with-neither-start-nor-end) — `Loop` refuses a range that names neither `start` nor `end`.
+      - [`@exception loop-refuses-a-uint-range-that-never-ends`](#exception-loop-refuses-a-uint-range-that-never-ends) — `Loop` refuses a `uint` range that tests `>=` against an `end` of 0. A `uint` range given only `start` is one.
+      - [`@exception loop-refuses-a-fraction-for-an-integer-bound`](#exception-loop-refuses-a-fraction-for-an-integer-bound) — For an `int` or `uint` index, `Loop` refuses a count, `start`, `end` or `update` that is a number with a fraction. A node of another type converts to the index's type, as `int(float(2.5))` truncates to 2.
+      - [`@exception loop-refuses-two-ranges-of-one-name`](#exception-loop-refuses-two-ranges-of-one-name) — `Loop` refuses two ranges whose indices take one name, whether a range names it or `Loop` fills it in.
     - [`@spec while-runs-while-its-condition-holds`](#spec-while-runs-while-its-condition-holds) — `While(condition, body)` tests `condition` before every iteration, and runs `body` while it holds, as TSL's `Loop(condition, body)` does.
       - [`@spec a-while-loop-stops-when-its-condition-fails`](#spec-a-while-loop-stops-when-its-condition-fails) — A `While` runs its body as long as its condition holds when tested, and not at all when it fails at the start.
       - [`@spec while-is-a-loop-of-rmsls-own`](#spec-while-is-a-loop-of-rmsls-own) — rmsl has `While` beside TSL's `Loop(condition, body)`. TSL has no `While`.
@@ -661,6 +665,9 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact dawn-on-metal-divides-some-u32-constants-wrongly`](#fact-dawn-on-metal-divides-some-u32-constants-wrongly) — Dawn on Metal computes the wrong quotient when a constant `u32` numerator from `0xFFFFFF80` to `0xFFFFFFFE` is divided by a run-time value.
 - [`@fact tsl-to-read-only-changes-the-node-it-is-called-on`](#fact-tsl-to-read-only-changes-the-node-it-is-called-on) — TSL's `toReadOnly()` on a storage node sets the access of that node to read-only and returns the same node.
 - [`@fact tsl-fills-in-a-loop-range-it-is-not-given`](#fact-tsl-fills-in-a-loop-range-it-is-not-given) — TSL's `Loop` given only `end` starts at 0 and tests `<`, whatever condition it is given. Given only `start`, it starts at `start - 1`, ends at 0 and tests `>=`. Given both and no condition, it tests `>=` when the code built for `start` reads as the greater number, as a literal does, and `<` otherwise. It builds a count, `start` and `end` as the index's type. With no `update`, an `int` or `uint` index steps by 1 up for a condition with `<` and down otherwise, and a `float` index by `1.`. A number or a node `update` is the step in that direction, and a function `update` is built as the step. Several ranges nest, their indices named `i`, `j`, `k` and on, unless a range names its own.
+- [`@fact tsl-emits-no-bounds-for-a-range-that-names-none`](#fact-tsl-emits-no-bounds-for-a-range-that-names-none) — TSL's `Loop` given a range with neither `start` nor `end` fills in neither, and writes `undefined` as each bound of the loop it emits.
+- [`@fact tsl-names-loop-indices-without-checking-them`](#fact-tsl-names-loop-indices-without-checking-them) — TSL's `Loop` names each range's index by its `name`, or else `i`, `j`, `k` and on by its place. It does not check that two names differ, so two ranges of one name emit nested loops whose inner index hides the outer one.
+- [`@fact tsl-rounds-a-number-it-builds-as-an-integer`](#fact-tsl-rounds-a-number-it-builds-as-an-integer) — TSL writes a number it builds as an `int` or a `uint` rounded to the nearest whole number. It writes 0 for a negative number it builds as a `uint`.
 - [`@fact tsl-writes-a-string-loop-update-as-shader-text`](#fact-tsl-writes-a-string-loop-update-as-shader-text) — TSL's `Loop` writes an `update` given as a string into the loop it emits, after the index's name, as shader text.
 - [`@fact tsl-has-one-loop-function-in-three-shapes`](#fact-tsl-has-one-loop-function-in-three-shapes) — Three.js TSL has one loop function, `Loop`, and no `While` or `For`. `Loop` takes a count, a `bool` condition, or an object of `start`, `end`, `type`, `condition` and `update`. It passes the loop index to its body as `{ i }`.
 - [`@fact tsl-builds-a-loop-condition-once`](#fact-tsl-builds-a-loop-condition-once) — TSL builds the `bool` condition of a `Loop`, and its `start` and `end`, before it emits the loop. A variable they make is computed once, before the first test.
@@ -2181,6 +2188,38 @@ Derives from: [`fact-tsl-fills-in-a-loop-range-it-is-not-given`](#fact-tsl-fills
 Derives from: [`fact-tsl-writes-a-string-loop-update-as-shader-text`](#fact-tsl-writes-a-string-loop-update-as-shader-text), [`axiom-rmsl-runs-everywhere`](#axiom-rmsl-runs-everywhere)
 
 This follows because the JS and WASM targets have no shader text to write the string into.
+
+##### @exception loop-refuses-a-range-with-neither-start-nor-end
+
+> `Loop` refuses a range that names neither `start` nor `end`.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs), [`fact-tsl-emits-no-bounds-for-a-range-that-names-none`](#fact-tsl-emits-no-bounds-for-a-range-that-names-none)
+
+This follows because such a range has no bound to count from or to. TSL fills in neither, and emits a loop that no shader compiler takes.
+
+##### @exception loop-refuses-a-uint-range-that-never-ends
+
+> `Loop` refuses a `uint` range that tests `>=` against an `end` of 0. A `uint` range given only `start` is one.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs), [`fact-wgsl-defines-every-integer-edge-case`](#fact-wgsl-defines-every-integer-edge-case)
+
+This follows because every `uint` is at least 0. Past 0 the index wraps to the largest `uint`, so the loop never ends. On a CPU target it hangs the thread.
+
+##### @exception loop-refuses-a-fraction-for-an-integer-bound
+
+> For an `int` or `uint` index, `Loop` refuses a count, `start`, `end` or `update` that is a number with a fraction. A node of another type converts to the index's type, as `int(float(2.5))` truncates to 2.
+
+Derives from: [`spec-a-fraction-beside-an-integer-is-refused`](#spec-a-fraction-beside-an-integer-is-refused), [`fact-tsl-rounds-a-number-it-builds-as-an-integer`](#fact-tsl-rounds-a-number-it-builds-as-an-integer)
+
+This follows because TSL rounds such a number, where rmsl refuses a fraction beside an integer anywhere else.
+
+##### @exception loop-refuses-two-ranges-of-one-name
+
+> `Loop` refuses two ranges whose indices take one name, whether a range names it or `Loop` fills it in.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs), [`fact-tsl-names-loop-indices-without-checking-them`](#fact-tsl-names-loop-indices-without-checking-them)
+
+This follows because the body takes its indices by name, so the inner index would hide the outer one.
 
 #### @spec while-runs-while-its-condition-holds
 
@@ -4569,6 +4608,24 @@ This is how TSL behaves, read from its source: `toReadOnly()` in `src/nodes/acce
 > TSL's `Loop` given only `end` starts at 0 and tests `<`, whatever condition it is given. Given only `start`, it starts at `start - 1`, ends at 0 and tests `>=`. Given both and no condition, it tests `>=` when the code built for `start` reads as the greater number, as a literal does, and `<` otherwise. It builds a count, `start` and `end` as the index's type. With no `update`, an `int` or `uint` index steps by 1 up for a condition with `<` and down otherwise, and a `float` index by `1.`. A number or a node `update` is the step in that direction, and a function `update` is built as the step. Several ranges nest, their indices named `i`, `j`, `k` and on, unless a range names its own.
 
 This is how TSL behaves, read from its source: `generate` and `getVarName` of `LoopNode`, in `src/nodes/utils/LoopNode.js` of three.js.
+
+## @fact tsl-emits-no-bounds-for-a-range-that-names-none
+
+> TSL's `Loop` given a range with neither `start` nor `end` fills in neither, and writes `undefined` as each bound of the loop it emits.
+
+This is how TSL behaves, read from its source: `generate` of `LoopNode`, in `src/nodes/utils/LoopNode.js` of three.js 0.186.
+
+## @fact tsl-names-loop-indices-without-checking-them
+
+> TSL's `Loop` names each range's index by its `name`, or else `i`, `j`, `k` and on by its place. It does not check that two names differ, so two ranges of one name emit nested loops whose inner index hides the outer one.
+
+This is how TSL behaves, read from its source: `getVarName` and `generate` of `LoopNode`, in `src/nodes/utils/LoopNode.js` of three.js 0.186.
+
+## @fact tsl-rounds-a-number-it-builds-as-an-integer
+
+> TSL writes a number it builds as an `int` or a `uint` rounded to the nearest whole number. It writes 0 for a negative number it builds as a `uint`.
+
+This is how TSL behaves, read from its source: `generateConst` of `NodeBuilder`, in `src/nodes/core/NodeBuilder.js` of three.js 0.186.
 
 ## @fact tsl-writes-a-string-loop-update-as-shader-text
 

@@ -749,6 +749,54 @@ describe("each leaf on every target it claims", () => {
     expect(evaluateRecording(build, [0])).toBe(1.5);
   });
 
+  /** Builds a program whose one loop is `loop`. */
+  const buildLoop = (loop: () => void) => () => Fn(() => (loop(), float(0)))();
+
+  /**
+   * @canon exception-loop-refuses-a-range-with-neither-start-nor-end
+   */
+  it("refuses a Loop range with neither start nor end", () => {
+    expect(buildLoop(() => Loop({ name: "t" }, () => {}))).toThrow(/neither "start" nor "end"/);
+  });
+
+  /**
+   * @canon exception-loop-refuses-a-uint-range-that-never-ends
+   */
+  it.each([
+    ["a start counting down to 0", { start: 5, end: 0, type: "uint" }],
+    ["only a start", { start: 3, type: "uint" }],
+    ["a node end of 0", { start: 5, end: uint(0), type: "uint", condition: ">=" }],
+  ] as const)("refuses a uint Loop range given %s, which never ends", (_, range) => {
+    expect(buildLoop(() => Loop(range as any, () => {}))).toThrow(/uint.*never ends/);
+  });
+
+  /**
+   * A float node converts to the index's type, and truncates.
+   *
+   * @canon exception-loop-refuses-a-fraction-for-an-integer-bound
+   */
+  it("refuses a fraction for an integer Loop bound, and truncates a float node", () => {
+    expect(buildLoop(() => Loop(2.5, () => {}))).toThrow(/2\.5 is not a whole number/);
+    expect(buildLoop(() => Loop({ end: 2.5 }, () => {}))).toThrow(/2\.5 is not a whole number/);
+    expect(buildLoop(() => Loop({ start: 0.5, end: 3, type: "uint" }, () => {}))).toThrow(/0\.5 is not a whole number/);
+    expect(buildLoop(() => Loop({ end: 4, update: 1.5 }, () => {}))).toThrow(/1\.5 is not a whole number/);
+    const build = (a: Node<"float">) =>
+      Fn(() => {
+        const count = a.toVar();
+        Loop(float(2.5), () => count.addAssign(1));
+        return count;
+      })();
+    expect(evaluateRecording(build, [0])).toBe(2);
+  });
+
+  /**
+   * @canon exception-loop-refuses-two-ranges-of-one-name
+   */
+  it("refuses two Loop ranges whose indices take one name", () => {
+    expect(buildLoop(() => Loop({ end: 2, name: "j" }, 3, () => {}))).toThrow(/two ranges.*"j"/);
+    expect(buildLoop(() => Loop({ end: 2, name: "k" }, { end: 2, name: "k" }, () => {}))).toThrow(/two ranges.*"k"/);
+  });
+
   /**
    * @canon spec-loop-steps-by-its-update
    */
