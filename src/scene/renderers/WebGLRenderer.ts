@@ -3,6 +3,7 @@ import {
   drawToCanvas,
   GlState,
   GlStateKeeper,
+  attributeKindOf,
   setAttributeValue,
   setPackState,
   setRasterState,
@@ -801,7 +802,8 @@ export class WebGLRenderer {
       const locationSize = attribute.node._t === "mat4" ? 4 : 1;
       if (!attr) {
         // The shader reads an attribute with no data from the value its location holds.
-        if (location >= 0) for (let i = 0; i < locationSize; i++) setAttributeValue(gl, location + i, this.state);
+        const kind = attributeKindOf(attribute.node._t);
+        if (location >= 0) for (let i = 0; i < locationSize; i++) setAttributeValue(gl, location + i, kind, this.state);
         continue;
       }
 

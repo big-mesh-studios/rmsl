@@ -22,7 +22,8 @@ import {
   withoutSemicolon,
   wrapExpr,
 } from "../shared";
-import { shareNodes } from "../share";
+import { componentCountOf, componentKindOf } from "../cpu";
+import { SHARED_NAME_PREFIX, shareNodes } from "../share";
 
 export const typeToGLSL: Record<string, string> = {
   float: "float",
@@ -206,7 +207,11 @@ export function compileGLSLNode(
     case "uniform": {
       let v = node.value as any;
       if (!ctx.uniforms.has(v.slot)) {
-        ctx.uniforms.set(v.slot, { type: glslType(v.shaderType), slot: v.slot, precision: v.precision });
+        ctx.uniforms.set(v.slot, {
+          type: glslType(v.shaderType),
+          slot: v.slot,
+          precision: v.precision && UNIFORM_PRECISION[v.precision as UniformPrecision],
+        });
       }
       return { decls: [], body: [], expr: v.slot };
     }
@@ -220,7 +225,7 @@ export function compileGLSLNode(
           type: glslType(v.shaderType),
           slot: v.slot,
           length: v.length,
-          precision: v.precision,
+          precision: v.precision && UNIFORM_PRECISION[v.precision as UniformPrecision],
         });
       }
       return { decls: [], body: [], expr: v.slot };
@@ -687,6 +692,11 @@ export function compileGLSLNode(
       if (vt === "float" && (rhsType === "int" || rhsType === "uint")) {
         rhsExpr = `float(${rhsExpr})`;
       }
+      // A shared node is read inline at its operands' precision, which can be
+      // above the default the stage is compiled at.
+      if (lhs.expr.startsWith(SHARED_NAME_PREFIX) && /^(float|u?int|[iu]?vec\d|mat\d(x\d)?)$/.test(t)) {
+        t = `highp ${t}`;
+      }
       return {
         decls: [...lhs.decls, ...rhs.decls],
         body: [...lhs.body, ...rhs.body, `${t} ${lhs.expr} = ${rhsExpr};`],
@@ -700,7 +710,7 @@ export function compileGLSLNode(
       if ((node.params![0] as any)?.type === "builtinPosition") {
         ctx.positionWritten = true;
       }
-      assertAssignable(node.params![0], ctx.shaderStage);
+      assertAssignable(node.params![0], ctx.shaderStage, true);
       let lhs = compileGLSLStage(node.params![0], ctx);
       let rhs = compileGLSLStage(node.params![1], ctx);
       return {
@@ -800,9 +810,29 @@ export function compileGLSLNode(
       return { decls: [], body: ["return;"], expr: "0.0" };
     }
 
-    case "storage":
-    case "storageElement":
-      throw new Error("[RMSL] GLSL has no storage buffers (WebGL2 doesn't support them); use the WGSL backend");
+    case "storage": {
+      // WebGL 2 has no storage buffers, so a render stage reads one through a
+      // texture of its elements, under the buffer's slot name.
+      let v = node.value as { slot: string; shaderType: string };
+      if (!ctx.uniforms.has(v.slot)) {
+        ctx.uniforms.set(v.slot, { type: storageSamplerOf(v.shaderType), slot: v.slot, precision: "highp" });
+      }
+      return { decls: [], body: [], expr: v.slot };
+    }
+
+    case "storageElement": {
+      let texture = compileGLSLStage(node.params![0], ctx);
+      let index = compileGLSLStage(node.params![1], ctx);
+      let helper = storageReader(node._t);
+      ctx.glslHelpers ??= new Map();
+      ctx.glslHelpers.set(helper.name, helper.source);
+      return {
+        decls: [...texture.decls, ...index.decls],
+        body: [...texture.body, ...index.body],
+        expr: `${helper.name}(${texture.expr}, int(${index.expr}))`,
+        prec: PREC_ATOM,
+      };
+    }
 
     default:
       // Emitting a placeholder here would silently corrupt the shader: an
@@ -811,6 +841,52 @@ export function compileGLSLNode(
       // this means the compiler lost one.
       throw new Error(`[RMSL] Unsupported node type in GLSL compiler: "${node.type}"`);
   }
+}
+
+/** The sampler type of the texture that holds a storage buffer of `elementType`. */
+function storageSamplerOf(elementType: string): string {
+  let kind = componentKindOf(elementType);
+  return kind === "float" ? "sampler2D" : `${kind[0]}sampler2D`;
+}
+
+/**
+ * How a storage texture holds one element of `elementType`: a texel for each
+ * of its `columns`, each with a channel for each of its `components`.
+ */
+export function storageTexelsOf(elementType: string): { columns: number; components: number } {
+  let [columns, components] = MATRIX_DIMENSIONS[elementType] ?? [1, componentCountOf(elementType)];
+  return { columns, components };
+}
+
+/**
+ * The function that reads element `i` of a storage texture of `elementType`, so
+ * that a read is one expression. A matrix element takes a texel for each
+ * column, one after another.
+ */
+function storageReader(elementType: string): { name: string; source: string } {
+  let { columns, components: rows } = storageTexelsOf(elementType);
+  let name = `_rmsl_storage_${elementType}`;
+  let swizzle = rows === 4 ? "" : `.${"xyzw".slice(0, rows)}`;
+  let fetch = (column: number) => {
+    let texel = column === 0 ? "t" : `(t + ${column})`;
+    return `texelFetch(s, ivec2(${texel} % w, ${texel} / w), 0)${swizzle}`;
+  };
+  let type = glslType(elementType);
+  let value = columns > 1 ? `${type}(${Array.from({ length: columns }, (_, c) => fetch(c)).join(", ")})` : fetch(0);
+  let source = [
+    `highp ${type} ${name}(highp ${storageSamplerOf(elementType)} s, highp int i) {`,
+    `  highp int w = textureSize(s, 0).x;`,
+    `  highp int t = i${columns > 1 ? ` * ${columns}` : ""};`,
+    `  return ${value};`,
+    `}`,
+  ].join("\n");
+  return { name, source };
+}
+
+/** The declaration of a uniform, with its own precision qualifier when it carries one. */
+function uniformDeclaration(info: { type: string; slot: string; length?: number; precision?: string }): string {
+  let type = info.precision ? `${info.precision} ${info.type}` : info.type;
+  return info.length !== undefined ? `uniform ${type} ${info.slot}[${info.length}];` : `uniform ${type} ${info.slot};`;
 }
 
 export function binaryGLSL(node: BaseNode<ShaderType>, ctx: CompileCtx, op: string, isFn?: boolean): CompiledNode {
@@ -937,17 +1013,6 @@ export type GLSLPrecision = "lowp" | "mediump" | "highp";
 /** The GLSL qualifier for each precision a uniform can set on itself. */
 const UNIFORM_PRECISION: Record<UniformPrecision, GLSLPrecision> = { low: "lowp", medium: "mediump", high: "highp" };
 
-/** The declaration of a uniform, with the precision qualifier it sets on itself, which GLSL ES 3.00 puts after `uniform`. */
-function uniformDeclaration(info: {
-  type: string;
-  slot: string;
-  length?: number;
-  precision?: UniformPrecision;
-}): string {
-  const type = info.precision ? `${UNIFORM_PRECISION[info.precision]} ${info.type}` : info.type;
-  return info.length !== undefined ? `uniform ${type} ${info.slot}[${info.length}];` : `uniform ${type} ${info.slot};`;
-}
-
 /** Options for the GLSL shader compilers. */
 export interface CompileGLSLOptions {
   /**
@@ -1044,11 +1109,9 @@ export function compileGLSLWithStage(
     lines.push(`in ${info.type} ${info.slot};`);
   });
   ctx.varyings.forEach((info) => {
-    if (shaderStage === "vertex") {
-      lines.push(`out ${info.type} ${info.slot};`);
-    } else {
-      lines.push(`in ${info.type} ${info.slot};`);
-    }
+    // GLSL ES 3.00 passes an integer varying flat, and refuses one declared otherwise.
+    const flat = /^(u?int|[iu]vec[234])$/.test(info.type) ? "flat " : "";
+    lines.push(`${flat}${shaderStage === "vertex" ? "out" : "in"} ${info.type} ${info.slot};`);
   });
   // Numbered per shader, not from the id the output was declared with.
   let outputLocation = 0;
@@ -1070,6 +1133,7 @@ export function compileGLSLWithStage(
   if (ctx.uniforms.size > 0 || ctx.attributes.size > 0 || ctx.outputs.size > 0 || emitImplicitColor) {
     lines.push("");
   }
+  for (let helper of ctx.glslHelpers?.values() ?? []) lines.push(helper, "");
 
   if (shaderStage === "vertex") {
     lines.push("void main(void) {");
@@ -1166,6 +1230,7 @@ export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options:
   if (ctx.uniforms.size > 0) {
     code += "\n";
   }
+  for (const helper of ctx.glslHelpers?.values() ?? []) code += `${helper}\n\n`;
   code += `${returnType} ${options.name}(${paramStr}) {\n`;
   for (const line of [...compiled.decls, ...compiled.body]) {
     code += `  ${line}\n`;

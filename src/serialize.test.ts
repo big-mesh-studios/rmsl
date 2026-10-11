@@ -76,6 +76,22 @@ describe("serialize/deserialize", () => {
     expect(normalized(compute(restored).code)).toBe(normalized(compute(original).code));
   });
   /**
+   * The graph reads its uniforms in the other order from the one it made
+   * them in, which a restored graph lays out by.
+   *
+   * @canon spec-a-graph-compiles-the-same-after-json
+   */
+  it("lays out uniforms read out of the order they were made the same after JSON", () => {
+    const made = [uniform("float"), uniformRaw("zeta", "float"), uniformRaw("alpha", "float"), uniform("float")];
+    const out = instancedArray(1, "float");
+    const original = Fn(() => {
+      out.element(invocationIndex()).assign(made[3].add(made[2]).add(made[1]).add(made[0]));
+    })();
+    const restored = roundTrip(serialize(original)) as Node<ShaderType>;
+    expect(normalized(compute(restored).code)).toBe(normalized(compute(original).code));
+  });
+
+  /**
    * A graph whose raw-named uniform has an empty name is refused when it is rebuilt.
    *
    * @canon spec-a-raw-name-declares-one-input-under-that-name

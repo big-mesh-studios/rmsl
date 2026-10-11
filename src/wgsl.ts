@@ -1,12 +1,18 @@
+import { storageBuffersOf } from "./backends/shared";
 import {
-  someNode,
   type ComputeNode,
   type Node,
   type ShaderType,
   type StorageAccess,
   type StorageBufferAttribute,
 } from "./core";
-import { compileWgsl, typeToWGSL, wgslUniformLayout, WGSL_UNIFORM_STRUCT } from "./backends/wgsl/wgsl";
+import {
+  compileWgsl,
+  typeToWGSL,
+  wgslUniformDeclaration,
+  wgslUniformLayout,
+  WGSL_UNIFORM_STRUCT,
+} from "./backends/wgsl/wgsl";
 
 export type WgslStage = "compute" | "vertex" | "fragment";
 
@@ -51,33 +57,21 @@ export interface WgslCompileOptions {
 /**
  * Storage resources are collected from the node graph itself, not the
  * generated code: the WGSL backend's binding declarations carry only the
- * internal `_rmsl_sN` name it invents per binding (see `compileWGSLWithStage`
- * in `src/backends/wgsl.ts`), never the storage node's slot name (its `.name`,
- * one per buffer attribute) — that name exists only on the graph's nodes.
- * Binding order is reproduced exactly as the backend assigns it: every
- * distinct `storage()` slot reachable from `root`, sorted by slot name.
+ * internal `_rmsl_sN` name it invents per binding, never the storage node's
+ * slot name (its `.name`, one per buffer attribute), which exists only on the
+ * graph's nodes. The bindings follow the order `storageBuffersOf` gives, which
+ * the backend binds them in.
  */
 function collectStorageResources(root: Node<ShaderType> | readonly Node<ShaderType>[]): WgslResource[] {
-  const seen = new Map<string, { shaderType: ShaderType; access: StorageAccess; attribute: StorageBufferAttribute }>();
-  someNode(root, (node) => {
-    if (node.type !== "storage") return;
-    const v = node.value;
-    const existing = seen.get(v.slot);
-    if (!existing) seen.set(v.slot, { shaderType: v.shaderType, access: v.access, attribute: v.attribute });
-    else if (existing.access !== v.access) existing.access = "read_write";
-  });
-
-  return [...seen.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([name, info], binding) => ({
-      kind: "storage" as const,
-      name,
-      shaderType: info.shaderType,
-      access: info.access,
-      attribute: info.attribute,
-      group: 1,
-      binding,
-    }));
+  return storageBuffersOf(root).map(({ node, access }, binding) => ({
+    kind: "storage" as const,
+    name: node.name,
+    shaderType: node._t as ShaderType,
+    access,
+    attribute: node.attribute,
+    group: 1,
+    binding,
+  }));
 }
 
 /** The rmsl type a WGSL uniform member type stands for: `i32` is `int`, `vec2<u32>` is `uvec2`. */
@@ -156,7 +150,7 @@ export function compile(
   };
 }
 
-export { compileWgsl, wgslUniformLayout };
+export { compileWgsl, wgslUniformDeclaration, wgslUniformLayout };
 export type {
   CompileWGSLOptions,
   WgslSamplerDeclaration,
@@ -175,6 +169,7 @@ export type {
   CreateWgslAdapterOptions,
   CreateWgslComputeOptions,
   WgslAdapter,
+  WgslAttachOptions,
   WgslComputeAdapter,
   WgslDrawOptions,
 } from "./backends/wgsl/adapter-wgsl";

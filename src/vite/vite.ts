@@ -3,6 +3,7 @@ import { readFile } from "fs/promises";
 import { resolve } from "path";
 import type { Plugin } from "vite";
 import wabtInit from "wabt";
+import { watModuleSource } from "./wat-module";
 
 export type ViteFilter = string | RegExp | Array<string | RegExp>;
 
@@ -192,7 +193,9 @@ export function precompileWasm(options: PrecompileWasmOptions = {}): Plugin {
 
 /**
  * Loads every `.wat` (WebAssembly Text Format) file as `export default`ing
- * its compiled bytes (a `Uint8Array`), via `wabt`'s `wat2wasm`.
+ * its compiled bytes (a `Uint8Array`), via `wabt`'s `wat2wasm`. A module that
+ * imports a memory also exports `shared`: the same module importing it shared,
+ * which a shared memory links against.
  *
  * Meant for a module whose WASM is entirely static — unlike rmsl's own
  * graph-driven backends, which compile bytecode at runtime for whatever
@@ -212,9 +215,7 @@ export function compileWat(options: PrecompileShadersOptions = {}): Plugin {
       if (matches(filePath, options.exclude)) return null;
 
       wabt ??= await wabtInit();
-      const source = await readFile(id, "utf8");
-      const bytes = new Uint8Array(wabt.parseWat(filePath, source).toBinary({}).buffer);
-      return `export default new Uint8Array([${bytes.join(",")}]);`;
+      return watModuleSource(wabt, filePath, await readFile(id, "utf8"));
     },
   };
 }
@@ -361,9 +362,7 @@ async function bundleModule(code: string, filePath: string): Promise<{ text: str
           setup(pluginBuild) {
             pluginBuild.onLoad({ filter: /\.wat$/ }, async (args) => {
               const wabt = await wabtInit();
-              const source = await readFile(args.path, "utf8");
-              const bytes = new Uint8Array(wabt.parseWat(args.path, source).toBinary({}).buffer);
-              return { contents: `export default new Uint8Array([${bytes.join(",")}]);`, loader: "js" };
+              return { contents: watModuleSource(wabt, args.path, await readFile(args.path, "utf8")), loader: "js" };
             });
           },
         },

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { Fn, vec3, vec4, mix, ivec2, ivec3, uvec2, uvec3, texture } from "../rmsl";
+import { Fn, vec3, vec4, mix, instancedArray, int, ivec2, ivec3, uvec2, uvec3, texture } from "../rmsl";
 import { compileJSFragment } from "../js";
 import {
   recordingGLSL as compileGlsl,
@@ -298,6 +298,21 @@ describe("node materials", () => {
     expect(wgsl).toContain("texture_2d<f32>");
     expect(wgsl).toContain("texture_3d<f32>");
     expect(wgsl).toContain("volume_s: sampler");
+  });
+});
+
+describe("a material that reads storage", () => {
+  /**
+   * Both renderers build a material through `build`, so the refusal there
+   * holds for each.
+   *
+   * @canon spec-a-scene-renderer-refuses-a-material-that-reads-storage
+   */
+  it("is refused as it is built, naming the buffer", () => {
+    const colours = instancedArray(Float32Array.of(0, 1, 0, 1), "vec4");
+    const material = new NodeMaterial();
+    material.fragmentNode = () => colours.element(int(0));
+    expect(() => material.build(new Scene())).toThrow(new RegExp(`storage buffer "${colours.name}"`));
   });
 });
 

@@ -3,7 +3,10 @@ import {
   MATRIX_DIMENSIONS,
   Node,
   ShaderType,
+  StorageNode,
   TYPE_WIDTH,
+  UniformArrayNode,
+  UniformNode,
   isIntegerSamplerType,
   isSamplerType,
 } from "../../core";
@@ -295,12 +298,17 @@ const WGSL_UNIFORM_RULES: AllocRules = {
   structAlignMinimum: 4,
 };
 
+/**
+ * The layout of the uniform struct under WGSL's rules. A texture among
+ * `members` is left out, as a stage's struct leaves it out, so the program's
+ * whole uniform list gives the struct a stage given that list declares.
+ */
 export function wgslUniformLayout(members: { slot: string; type: string; length?: number }[]): {
   members: WgslUniformMember[];
   size: number;
 } {
   const placed = planLayout(
-    members.map((m) => ({ slot: m.slot, type: m.type, length: m.length })),
+    members.filter((m) => !isWgslTexture(m.type)).map((m) => ({ slot: m.slot, type: m.type, length: m.length })),
     WGSL_UNIFORM_RULES,
   );
   return {
@@ -532,15 +540,9 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       // carried as unsigned integers and compared back on read — the difference
       // stays inside the compiler. The comparison is component-wise for a
       // vector, so it gives back a boolean vector of the same width.
-      let width = TYPE_WIDTH[v?.shaderType] ?? 1;
-      let isBoolean = v?.shaderType === "bool" || v?.shaderType?.startsWith("bvec");
-      let carrier = width === 1 ? "u32" : `vec${width}<u32>`;
-      let zero = width === 1 ? "0u" : `${carrier}(0u)`;
+      let carrier = v?.shaderType ? booleanCarrier(v.shaderType) : undefined;
       if (v && v.id != null && !ctx.uniforms.has(v.slot)) {
-        ctx.uniforms.set(v.slot, {
-          type: isBoolean ? carrier : wgslType(v.shaderType),
-          slot: v.slot,
-        });
+        ctx.uniforms.set(v.slot, { ...wgslUniformDeclaration(node as UniformNode<ShaderType>), order: v.id, node });
       }
       if (!v?.slot) return { decls: [], body: [], expr: "uniform<f32>" };
       // Value uniforms are members of one struct rather than a binding each, so
@@ -551,7 +553,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       return {
         decls: [],
         body: [],
-        expr: isBoolean ? `(${ref} != ${zero})` : ref,
+        expr: carrier ? `(${ref} != ${carrier === "u32" ? "0u" : `${carrier}(0u)`})` : ref,
       };
     }
 
@@ -559,9 +561,9 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       let v = node.value as any;
       if (v && v.id != null && !ctx.uniforms.has(v.slot)) {
         ctx.uniforms.set(v.slot, {
-          type: wgslType(v.shaderType),
-          slot: v.slot,
-          length: v.length,
+          ...wgslUniformDeclaration(node as UniformArrayNode<ShaderType>),
+          order: v.id,
+          node,
         });
       }
       return { decls: [], body: [], expr: `${WGSL_UNIFORM_BINDING}.${v.slot}` };
@@ -622,6 +624,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
         type,
         access,
         wgslName,
+        order: (node.value as { attribute: { id: number } }).attribute.id,
       });
 
       return { decls: [], body: [], expr: wgslName };
@@ -1129,12 +1132,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       if ((node.params![0] as any)?.type === "builtinPosition") {
         ctx.positionWritten = true;
       }
-      assertAssignable(node.params![0], ctx.shaderStage);
-      if ((node.params![0] as any)?.type === "storageElement" && ctx.shaderStage !== "compute") {
-        throw new Error(
-          `[RMSL] storage buffers are read-only in a ${ctx.shaderStage} shader; write them from a compute program`,
-        );
-      }
+      assertAssignable(node.params![0], ctx.shaderStage, true);
       let rhs = compileWGSLStage(node.params![1], ctx);
 
       // WGSL only makes a single component assignable: `v.x = e` is a
@@ -1645,9 +1643,9 @@ export function compileWGSLWithStage(
 
   let lines: string[] = [];
   // A compute program's textures share group 1 with its storage buffers, after them.
-  let texBinding = shaderStage === "compute" ? (ctx.storages?.size ?? 0) : 0;
+  let texBinding = shaderStage === "compute" && ctx.storages ? storageOrder(ctx, options).length : 0;
   let samplerBinding = 0;
-  let sortedUniforms = [...ctx.uniforms.entries()].sort((a, b) => a[1].slot.localeCompare(b[1].slot));
+  let sortedUniforms = [...ctx.uniforms.entries()].sort((a, b) => a[1].order! - b[1].order!);
 
   // Textures keep their own bindings; everything else goes in one struct,
   // because WGSL allows only 12 uniform buffers per stage.
@@ -1693,7 +1691,11 @@ export function compileWGSLWithStage(
       lines.push(`@group(2) @binding(${samplerBinding++}) var ${info.slot}_s: sampler;`);
     }
   } else {
-    for (let info of [...ctx.wgslSamplers.values()].sort((a, b) => a.textureSlot.localeCompare(b.textureSlot))) {
+    // In the order of the textures they sample, so the n-th sampler goes with the n-th float texture.
+    let textureOrder = declaredTextures.map((t) => t.slot);
+    for (let info of [...ctx.wgslSamplers.values()].sort(
+      (a, b) => textureOrder.indexOf(a.textureSlot) - textureOrder.indexOf(b.textureSlot),
+    )) {
       lines.push(`@group(2) @binding(${samplerBinding++}) var ${info.samplerSlot}: sampler;`);
     }
   }
@@ -1705,7 +1707,7 @@ export function compileWGSLWithStage(
   // textures and samplers. Both stages number them from the program's whole
   // set, so a buffer has one binding in the pipeline.
   if (shaderStage !== "compute" && ctx.storages && ctx.storages.size > 0) {
-    let order = options?.storages ?? [...ctx.storages.keys()].sort();
+    let order = storageOrder(ctx, options);
     for (let info of ctx.storages.values()) {
       lines.push(
         `@group(${WGSL_RENDER_STORAGE_GROUP}) @binding(${order.indexOf(info.name)}) var<storage, read> ${info.wgslName}: array<${info.type}>;`,
@@ -1759,7 +1761,7 @@ export function compileWGSLWithStage(
     let outgoingLocation = 0;
     for (let [, info] of sortedVaryings) {
       outgoingLocation = Math.max(outgoingLocation, varyingLocation(info) + 1);
-      lines.push(`  @location(${varyingLocation(info)}) ${info.slot}: ${info.type},`);
+      lines.push(`  @location(${varyingLocation(info)})${interpolation(info.type)} ${info.slot}: ${info.type},`);
     }
     ctx.outputs.forEach((info) => {
       if (info && info.slot && info.type) {
@@ -1799,10 +1801,12 @@ export function compileWGSLWithStage(
     // Compute resources come from semantic storage() declarations. The
     // compiler owns WGSL binding assignment; ECS/runtime code only needs the
     // reflected semantic resource names.
-    const storages = ctx.storages ? [...ctx.storages.values()].sort((a, b) => a.name.localeCompare(b.name)) : [];
+    // A listed buffer the stage does not read keeps its binding, and is left undeclared.
+    const storages = (ctx.storages ? storageOrder(ctx, options) : [])
+      .map((name, binding) => ({ info: ctx.storages!.get(name), binding }))
+      .filter((s): s is { info: NonNullable<typeof s.info>; binding: number } => s.info !== undefined);
 
-    for (let binding = 0; binding < storages.length; binding++) {
-      const info = storages[binding];
+    for (const { info, binding } of storages) {
       lines.push(`@group(1) @binding(${binding}) var<storage, ${info.access}> ${info.wgslName}: array<${info.type}>;`);
     }
 
@@ -1821,7 +1825,7 @@ export function compileWGSLWithStage(
     if (countExpr) {
       lines.push(`  if (_rmsl_index >= ${countExpr}) { return; }`);
     } else if (storages.length > 0) {
-      const lengthStorage = storages[0];
+      const lengthStorage = storages[0]!.info;
       lines.push(`  if (_rmsl_index >= arrayLength(&${lengthStorage.wgslName})) { return; }`);
     }
 
@@ -1862,7 +1866,7 @@ export function compileWGSLWithStage(
     let sortedFVaryings = [...ctx.varyings.entries()].sort((a, b) => a[1].slot.localeCompare(b[1].slot));
     for (let [, info] of sortedFVaryings) {
       if (fragParams) fragParams += ", ";
-      fragParams += `@location(${varyingLocation(info)}) ${info.slot}: ${info.type}`;
+      fragParams += `@location(${varyingLocation(info)})${interpolation(info.type)} ${info.slot}: ${info.type}`;
     }
     // fragCoord() reads the fragment's position in the framebuffer, which WGSL
     // passes in as a builtin parameter rather than a global.
@@ -1898,6 +1902,43 @@ export function compileWGSLWithStage(
  */
 export type WgslUniformDeclaration = { slot: string; type: string; length?: number };
 
+/** The `u32` type a `bool` or boolean vector travels as in the uniform struct, or undefined for any other type. */
+function booleanCarrier(shaderType: string): string | undefined {
+  if (shaderType !== "bool" && !shaderType.startsWith("bvec")) return undefined;
+  let width = TYPE_WIDTH[shaderType as ShaderType] ?? 1;
+  return width === 1 ? "u32" : `vec${width}<u32>`;
+}
+
+/**
+ * The struct member a uniform or uniform array is declared as. A `bool` or
+ * boolean vector travels as `u32`s, which the uniform address space allows.
+ */
+export function wgslUniformDeclaration(
+  node: UniformNode<ShaderType> | UniformArrayNode<ShaderType>,
+): WgslUniformDeclaration {
+  let v = (node as any).value as { slot: string; shaderType: string; length?: number };
+  let type = booleanCarrier(v.shaderType) ?? wgslType(v.shaderType);
+  return (node as any).type === "uniformArray" ? { slot: v.slot, type, length: v.length } : { slot: v.slot, type };
+}
+
+/**
+ * The slots of the storage buffers a stage binds, in binding order: the
+ * caller's `storages` list, or else the order the program created them.
+ */
+function storageOrder(ctx: CompileCtx, options: CompileWGSLOptions | undefined): string[] {
+  let read = [...ctx.storages!.values()];
+  if (!options?.storages) return read.sort((a, b) => a.order - b.order).map((info) => info.name);
+  let order = options.storages.map((node) => node.name);
+  for (let info of read) {
+    if (!order.includes(info.name)) {
+      throw new Error(
+        `[RMSL] the storage buffer "${info.name}" is read by this stage but missing from the storages passed to the compiler`,
+      );
+    }
+  }
+  return order;
+}
+
 /** A texture of the program being compiled: the name of its uniform node and its RMSL sampler type. */
 export type WgslSamplerDeclaration = { slot: string; type: string };
 
@@ -1925,13 +1966,15 @@ export type CompileWGSLOptions = {
    * another offset in the other. Pass the whole set to both stages, and to
    * `wgslUniformLayout` when packing the buffer, and all three agree.
    */
-  uniforms?: WgslUniformDeclaration[];
+  uniforms?: readonly (UniformNode<ShaderType> | UniformArrayNode<ShaderType>)[];
   /**
-   * Every storage slot of a render program, in binding order. As with
-   * `uniforms`, a vertex and a fragment stage reading different buffers only
-   * agree on their bindings when both are numbered from the whole set.
+   * Every storage buffer of the program, in binding order: each binds at its
+   * index in the list. As with `uniforms`, a vertex and a fragment stage
+   * reading different buffers only agree on their bindings when both are
+   * numbered from the whole set. Without it, a program binds its buffers in
+   * the order it created them.
    */
-  storages?: string[];
+  storages?: readonly StorageNode<ShaderType>[];
   /**
    * Every texture of a render program, not only the ones this stage samples.
    * Both stages number the textures of group 1, and the samplers of group 2
@@ -1978,9 +2021,10 @@ export const compileWgsl: {
  * syntax error somewhere in generated code. Saying so here names the slot.
  */
 export function sharedUniformMembers(
-  declared: WgslUniformDeclaration[],
+  uniforms: readonly (UniformNode<ShaderType> | UniformArrayNode<ShaderType>)[],
   used: { slot: string; type: string; length?: number }[],
 ): WgslUniformDeclaration[] {
+  let declared = uniforms.filter((node) => !isSamplerType((node as any).value.shaderType)).map(wgslUniformDeclaration);
   let names = new Set(declared.map((u) => u.slot));
   for (let uniform of used) {
     if (!names.has(uniform.slot)) {
@@ -2067,19 +2111,24 @@ export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options:
 
   // Same single-struct packing as a full shader, for the same reason: one
   // binding per uniform runs out at twelve.
-  let sortedUniforms = [...ctx.uniforms.entries()].sort((a, b) => a[1].slot.localeCompare(b[1].slot));
+  let sortedUniforms = [...ctx.uniforms.entries()].sort((a, b) => a[1].order! - b[1].order!);
   // A texture is sampled through a companion sampler, so both are declared
   // or neither resolves. The whole-shader path does the same, in the same
   // binding groups.
-  let samplerDecls = "";
-  let samplerBinding = 0;
-  ctx.wgslSamplers.forEach((info) => {
-    samplerDecls += `@group(2) @binding(${samplerBinding++}) var ${info.samplerSlot}: sampler;\n`;
-  });
+  let textures = sortedUniforms.filter(([, i]) => isWgslTexture(i.type)).map(([, info]) => info);
   let textureDecls = "";
   let texBinding = 0;
-  for (let [, info] of sortedUniforms.filter(([, i]) => isWgslTexture(i.type))) {
+  for (let info of textures) {
     textureDecls += `@group(1) @binding(${texBinding++}) var ${info.slot}: ${info.type};\n`;
+  }
+  // In the order of the textures they sample, so the n-th sampler goes with the n-th float texture.
+  let textureOrder = textures.map((info) => info.slot);
+  let samplerDecls = "";
+  let samplerBinding = 0;
+  for (let info of [...ctx.wgslSamplers.values()].sort(
+    (a, b) => textureOrder.indexOf(a.textureSlot) - textureOrder.indexOf(b.textureSlot),
+  )) {
+    samplerDecls += `@group(2) @binding(${samplerBinding++}) var ${info.samplerSlot}: sampler;\n`;
   }
   if (textureDecls || samplerDecls) code = textureDecls + samplerDecls + "\n" + code;
   let plainUniforms = sortedUniforms.filter(([, i]) => !isWgslTexture(i.type));
@@ -2093,4 +2142,9 @@ export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options:
     code = struct + code;
   }
   return code;
+}
+
+/** The interpolation of a varying of WGSL type `type`: flat for an integer one, which WGSL refuses otherwise. */
+function interpolation(type: string): string {
+  return /[iu]32/.test(type) ? " @interpolate(flat)" : "";
 }

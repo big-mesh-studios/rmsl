@@ -87,13 +87,14 @@ export interface Adapter<TBuffer, TDrawOptions = void> {
  * (`GlslDrawOptions`, `WgslDrawOptions`, `WasmDrawOptions`,
  * `JsDrawOptions` all extend this), so each backend's own `count`/`first`
  * mean the same thing instead of just happening to be spelled the same.
- * `count` left unset defaults to the first attribute the host
- * passed, less `first` — every backend that draws infers it that way.
+ * `count` left unset defaults to the vertices of the first attribute the
+ * program reads, in the order the host passed them, less `first` — every
+ * backend that draws infers it that way.
  */
 export interface DrawCountOptions {
   /** First vertex to draw. Defaults to 0. */
   first?: number;
-  /** Vertices to draw. Defaults to the first attribute the host passed, less `first`. */
+  /** Vertices to draw. Defaults to those of the first attribute the program reads, in the order the host passed them, less `first`. */
   count?: number;
 }
 

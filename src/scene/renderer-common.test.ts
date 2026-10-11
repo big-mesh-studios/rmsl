@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { wgslUniformLayout } from "../wgsl";
+import { wgslUniformDeclaration, wgslUniformLayout } from "../wgsl";
 import {
   Scene,
   Mesh,
@@ -32,7 +32,6 @@ import {
   cameraUniformValue,
   objectUniformValue,
   lightsSignature,
-  wgslTypeName,
   isIntegerSampler,
   samplerSampleType,
   samplerDimension,
@@ -235,19 +234,6 @@ describe("geometryAttribute", () => {
   });
 });
 
-describe("wgslTypeName", () => {
-  /**
-   * @canon spec-the-webgpu-renderer-shares-one-sampler-per-state
-   */
-  it("maps RMSL shader types to WGSL", () => {
-    expect(wgslTypeName("float")).toBe("f32");
-    expect(wgslTypeName("vec3")).toBe("vec3<f32>");
-    expect(wgslTypeName("mat4")).toBe("mat4x4<f32>");
-    expect(wgslTypeName("mat3")).toBe("mat3x3<f32>");
-    expect(wgslTypeName("ivec2")).toBe("vec2<i32>");
-  });
-});
-
 describe("sampler classification", () => {
   /**
    * @canon spec-the-webgpu-renderer-shares-one-sampler-per-state
@@ -333,9 +319,7 @@ describe("material program → uniform layout", () => {
     scene.add(mesh);
     const program = (mesh.material as MeshStandardMaterial).build(scene);
 
-    const layout = wgslUniformLayout(
-      program.uniforms.map((u) => ({ slot: u.node.name, type: wgslTypeName(u.node._t) })),
-    );
+    const layout = wgslUniformLayout(program.uniforms.map((u) => wgslUniformDeclaration(u.node)));
     expect(layout.members.length).toBe(program.uniforms.length);
     expect(layout.size).toBeGreaterThan(0);
 

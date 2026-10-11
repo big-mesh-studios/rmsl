@@ -1,4 +1,4 @@
-import { compileWgsl, wgslUniformLayout } from "@random-mesh/rmsl/wgsl";
+import { compileWgsl, wgslUniformDeclaration, wgslUniformLayout } from "@random-mesh/rmsl/wgsl";
 import {
   calcColourAndDepth,
   cameraPosition,
@@ -17,15 +17,15 @@ import {
 // Every uniform lives in one struct at binding 0. Both stages declare all of
 // them, so the struct each reads is the one wgslUniformLayout packs below.
 const uniforms = [
-  { slot: cameraProjectionMatrix.name, type: "mat4x4<f32>" },
-  { slot: cameraViewMatrix.name, type: "mat4x4<f32>" },
-  { slot: cameraProjectionMatrixInverse.name, type: "mat4x4<f32>" },
-  { slot: cameraWorldMatrix.name, type: "mat4x4<f32>" },
-  { slot: cameraPosition.name, type: "vec3<f32>" },
+  cameraProjectionMatrix,
+  cameraViewMatrix,
+  cameraProjectionMatrixInverse,
+  cameraWorldMatrix,
+  cameraPosition,
 ];
 const vsWGSL = compileWgsl.vertex(vertexMain(), { uniforms });
 const fsWGSL = compileWgsl.fragment(calcColourAndDepth(), { uniforms });
-const uniformLayout = wgslUniformLayout(uniforms);
+const uniformLayout = wgslUniformLayout(uniforms.map(wgslUniformDeclaration));
 /** Where a uniform starts in the buffer, in floats. */
 const uniformAt = (slot: string) => uniformLayout.members.find((m) => m.name === slot)!.offset / 4;
 

@@ -132,44 +132,6 @@ export function programSignature(lights: string, instancing: boolean, instancing
   return `${lights}|${instancing ? "i" : ""}${instancingColor ? "c" : ""}`;
 }
 
-/** The WGSL spelling of an RMSL shader type, for uniform struct members. */
-export function wgslTypeName(type: string): string {
-  switch (type) {
-    case "float":
-      return "f32";
-    case "int":
-      return "i32";
-    case "uint":
-      return "u32";
-    case "vec2":
-      return "vec2<f32>";
-    case "vec3":
-      return "vec3<f32>";
-    case "vec4":
-      return "vec4<f32>";
-    case "ivec2":
-      return "vec2<i32>";
-    case "ivec3":
-      return "vec3<i32>";
-    case "ivec4":
-      return "vec4<i32>";
-    case "uvec2":
-      return "vec2<u32>";
-    case "uvec3":
-      return "vec3<u32>";
-    case "uvec4":
-      return "vec4<u32>";
-    case "mat2":
-      return "mat2x2<f32>";
-    case "mat3":
-      return "mat3x3<f32>";
-    case "mat4":
-      return "mat4x4<f32>";
-    default:
-      return "f32";
-  }
-}
-
 /**
  * The WebGPU `GPUTextureSampleType` a sampler type requires: integer textures
  * are `sint`/`uint`, everything else samples as floats.
