@@ -354,7 +354,9 @@ export function createGlsl(
   /** The WebGL texture and texture unit each sampler the host has set reads, a storage buffer's included. */
   const textures = new Map<string, TextureSlot>();
   /** The storage buffers the stages read, by slot. */
-  const storages = new Map<string, StorageNode<ShaderType>>();
+  const storages = new Map<string, StorageNode<ShaderType>>(
+    storageNodesOf([vertexRoot, fragmentRoot]).map((node) => [node.name, node]),
+  );
 
   function setUniform<T extends ShaderType>(uniform: UniformNode<T>, value: UniformValue<T>): void;
   function setUniform<T extends ShaderType>(uniform: UniformArrayNode<T>, value: UniformValue<T>[]): void;
@@ -435,6 +437,8 @@ export function createGlsl(
 
   function setTexture(sampler: UniformNode<ShaderType> | string, data: CpuTextureData): void {
     const slot = slotOf(sampler);
+    if (storages.has(slot))
+      throw new Error(`[RMSL] setTexture: "${slot}" is a storage buffer, which setAttribute sets`);
     const info = uniforms.get(slot);
     if (!gl || !program || !info) {
       pendingTextures.set(slot, data);
@@ -612,8 +616,7 @@ export function createGlsl(
       });
     }
 
-    for (const node of storageNodesOf([vertexRoot, fragmentRoot])) {
-      storages.set(node.name, node);
+    for (const node of storages.values()) {
       const sampler = uniforms.get(node.name);
       if (sampler) uploadStorage(gl, program, node.name, sampler, node._t, node.attribute.array);
     }

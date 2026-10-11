@@ -204,6 +204,12 @@ globalThis.__rmslStorageDraw = {
     const colours = instancedArray(Float32Array.of(0, 1, 0, 1), "vec4");
     return draw(Fn(() => colours.element(int(0)))(), (adapter) => adapter.setUniform(colours.name, 1));
   },
+  setTextureOnStorage: () => {
+    const colours = instancedArray(Float32Array.of(0, 1, 0, 1), "vec4");
+    return draw(Fn(() => colours.element(int(0)))(), (adapter) =>
+      adapter.setTexture(colours.name, { width: 1, height: 1, data: Uint8Array.of(255, 0, 0, 255) }),
+    );
+  },
   setUniformOnTexture: () => {
     const image = uniform("sampler2D");
     return draw(Fn(() => image.texture(vec2(0, 0)))(), (adapter) => adapter.setUniform(image.name, 1));
@@ -280,6 +286,15 @@ describe.skipIf(!GPU_ENABLED)("createGlsl reading storage in a render stage", ()
    */
   it("names setAttribute for setUniform on a storage buffer's slot with createGlsl", async () => {
     expect(await drawn("setUniformOnStorage")).toEqual({
+      error: expect.stringMatching(/storage buffer.*setAttribute/),
+    });
+  }, 120_000);
+
+  /**
+   * @canon spec-the-glsl-adapter-refuses-set-texture-on-a-storage-slot
+   */
+  it("names setAttribute for setTexture on a storage buffer's slot with createGlsl", async () => {
+    expect(await drawn("setTextureOnStorage")).toEqual({
       error: expect.stringMatching(/storage buffer.*setAttribute/),
     });
   }, 120_000);
