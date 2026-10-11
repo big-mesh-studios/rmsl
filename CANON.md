@@ -663,7 +663,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-plugin-with-no-include-rewrites-nothing`](#spec-a-plugin-with-no-include-rewrites-nothing) — A Vite plugin given no `include` rewrites no module.
     - [`@spec a-plugin-leaves-a-module-its-exclude-matches`](#spec-a-plugin-leaves-a-module-its-exclude-matches) — A Vite plugin leaves a module its `exclude` matches as it is, though its `include` matches it too.
   - [`@spec a-material-program-holds-only-what-its-graph-reads`](#spec-a-material-program-holds-only-what-its-graph-reads) — A `MaterialProgram` holds only the uniforms, attributes and varyings its graph reads. A scene with no lights declares no light uniforms.
-  - [`@spec the-main-entry-exports-no-compiler`](#spec-the-main-entry-exports-no-compiler) — The main entry exports the graph functions and serialization, and no compiler, so each target is imported from its own subpath.
+  - [`@spec the-main-entry-exports-no-compiler`](#spec-the-main-entry-exports-no-compiler) — The main entry exports the graph functions and serialization, and no compiler, so each target is imported from its own subpath. It exports neither `var_` nor `assertBlockScope`, the compiler's own helpers for a parameter and for a statement outside an `Fn`.
   - [`@spec compile-wat-loads-every-wat-module`](#spec-compile-wat-loads-every-wat-module) — `compileWat` given no `include` loads every `.wat` module as its WebAssembly bytes.
   - [`@spec a-wat-module-exports-its-shared-variant-or-undefined`](#spec-a-wat-module-exports-its-shared-variant-or-undefined) — A loaded `.wat` module exports `shared`: the bytes of the same module importing its memory shared, or `undefined` when the module imports no memory.
   - [`@spec compile-wat-refuses-a-memory-import-it-cannot-make-shared`](#spec-compile-wat-refuses-a-memory-import-it-cannot-make-shared) — `compileWat` fails to load a `.wat` module that imports a memory in a form it cannot rewrite to import shared, with an error that names the module.
@@ -825,8 +825,7 @@ A fragment program can write depth on one path only. What depth the other paths 
 The analysis found these places where the code or the documents do not hold the canon, and no spec decides the fix yet. Each has an issue. A defect that breaks a spec is a bug unit inside that spec instead.
 
 1. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
-2. `var_`, `assertBlockScope` and `compileWat` are exported with no documented purpose. Issue #73 asks whether they are public API.
-3. On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it, where the other targets take the first. Issue #232 asks whether the GLSL adapter and the WebGL renderer should ask for the first vertex through `WEBGL_provoking_vertex`.
+2. On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it, where the other targets take the first. Issue #232 asks whether the GLSL adapter and the WebGL renderer should ask for the first vertex through `WEBGL_provoking_vertex`.
 
 ### Coverage gaps
 
@@ -4692,9 +4691,9 @@ This follows because a binding the program never reads still costs an upload on 
 
 ### @spec the-main-entry-exports-no-compiler
 
-> The main entry exports the graph functions and serialization, and no compiler, so each target is imported from its own subpath.
+> The main entry exports the graph functions and serialization, and no compiler, so each target is imported from its own subpath. It exports neither `var_` nor `assertBlockScope`, the compiler's own helpers for a parameter and for a statement outside an `Fn`.
 
-This follows because an application that uses one target pays nothing for the compilers of the others.
+This follows because an application that uses one target pays nothing for the compilers of the others. A program makes a variable with `toVar()` and a block with `Fn`, as TSL's does, so the helpers are no part of the API.
 
 ### @spec compile-wat-loads-every-wat-module
 
