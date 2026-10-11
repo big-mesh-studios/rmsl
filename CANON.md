@@ -57,6 +57,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads`](#spec-a-shared-value-is-computed-again-inside-a-loop-that-changes-what-it-reads) — A shared node made before a loop is computed again inside the loop, when the loop body changes what the node reads.
     - [`@spec an-expression-of-constants-is-folded-not-shared`](#spec-an-expression-of-constants-is-folded-not-shared) — An expression of constants gets no variable of its own. The target folds it into one literal.
     - [`@spec a-shared-value-gets-a-generated-name`](#spec-a-shared-value-gets-a-generated-name) — The variable of a shared node is named `_rmsl_gen_` and a number. It cannot clash with a name the user gave, or with a `toVar()` name.
+    - [`@spec a-glsl-shared-value-is-held-at-highp`](#spec-a-glsl-shared-value-is-held-at-highp) — On GLSL, the variable of a shared node of a number, vector or matrix type is declared `highp`, whatever precision the program is compiled at.
   - [`@spec an-operand-that-is-an-expression-keeps-its-grouping`](#spec-an-operand-that-is-an-expression-keeps-its-grouping) — An operand that is itself an expression computes as a whole before the operation that takes it. This holds on every target, whatever the precedence of its operators.
   - [`@spec a-program-declares-any-number-of-uniforms-on-every-target`](#spec-a-program-declares-any-number-of-uniforms-on-every-target) — A [program](#term-program) declares every [uniform](#term-uniform) it reads, whatever their number, and compiles on every target.
     - [`@spec wgsl-packs-every-value-uniform-into-one-binding`](#spec-wgsl-packs-every-value-uniform-into-one-binding) — On WGSL, every uniform that holds a value is a member of one struct, bound once. GLSL declares each uniform on its own.
@@ -693,6 +694,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-wgsl-texture-is-not-host-shareable`](#fact-a-wgsl-texture-is-not-host-shareable) — A WGSL texture or sampler can be neither a member of a uniform struct nor an element of a uniform array. Each one takes a binding of its own.
 - [`@fact chromium-needs-a-precision-for-every-sampler`](#fact-chromium-needs-a-precision-for-every-sampler) — Chromium rejects a GLSL ES 3.00 shader that uses a sampler type with no declared precision. `sampler3D` and the integer sampler types have no default precision.
 - [`@fact a-glsl-sampler-returns-values-at-its-own-precision`](#fact-a-glsl-sampler-returns-values-at-its-own-precision) — In GLSL ES 3.00, a texture lookup returns its value at the precision of its sampler. A `mediump` value need only hold an integer of 16 bits, or a float with a mantissa of 10 bits.
+- [`@fact a-glsl-expression-computes-at-the-highest-precision-of-its-operands`](#fact-a-glsl-expression-computes-at-the-highest-precision-of-its-operands) — In GLSL ES 3.00, an operation with no precision of its own computes at the highest precision of its operands. A variable holds its value at the precision it is declared with, or at the default for its type.
 - [`@fact a-derivative-needs-neighbouring-fragments`](#fact-a-derivative-needs-neighbouring-fragments) — A GPU computes `dFdx`, `dFdy` and `fwidth` from the values of neighbouring fragments that run together. A single evaluation of one fragment has no neighbours.
 - [`@fact an-index-out-of-range-is-left-to-the-gpu`](#fact-an-index-out-of-range-is-left-to-the-gpu) — GLSL ES 3.00 leaves undefined what a run-time index out of range reaches in a vector or a matrix. It also leaves undefined what a texel fetch out of range reads. WGSL lets the implementation choose an element or texel within range, or zero.
 - [`@fact a-cube-map-has-no-texel-fetch`](#fact-a-cube-map-has-no-texel-fetch) — GLSL ES 3.00 has no `texelFetch` for a cube map, and WGSL has no `textureLoad` for one. A program reads an integer cube map only through them.
@@ -1082,6 +1084,14 @@ This follows because a variable would hide the literal from the folding that giv
 > The variable of a shared node is named `_rmsl_gen_` and a number. It cannot clash with a name the user gave, or with a `toVar()` name.
 
 This follows because the compiler keeps the `_rmsl_` prefix for everything it invents, and a user name may not use it.
+
+#### @spec a-glsl-shared-value-is-held-at-highp
+
+> On GLSL, the variable of a shared node of a number, vector or matrix type is declared `highp`, whatever precision the program is compiled at.
+
+Derives from: [`spec-a-node-read-more-than-once-is-computed-once`](#spec-a-node-read-more-than-once-is-computed-once), [`fact-a-glsl-expression-computes-at-the-highest-precision-of-its-operands`](#fact-a-glsl-expression-computes-at-the-highest-precision-of-its-operands)
+
+This follows because a read that stays inline keeps the precision of its operands, such as a `highp` storage element. A variable at the default precision could hold less than the read it stands for.
 
 ### @spec an-operand-that-is-an-expression-keeps-its-grouping
 
@@ -4819,6 +4829,12 @@ This is a fact of the GLSL ES 3.00 specification as Chromium applies it, not a c
 > In GLSL ES 3.00, a texture lookup returns its value at the precision of its sampler. A `mediump` value need only hold an integer of 16 bits, or a float with a mantissa of 10 bits.
 
 This is a fact of the GLSL ES 3.00 specification, in its sections on range and precision and on texture lookup functions.
+
+## @fact a-glsl-expression-computes-at-the-highest-precision-of-its-operands
+
+> In GLSL ES 3.00, an operation with no precision of its own computes at the highest precision of its operands. A variable holds its value at the precision it is declared with, or at the default for its type.
+
+This is a fact of the GLSL ES 3.00 specification, in its section on precision qualifiers.
 
 ## @fact a-derivative-needs-neighbouring-fragments
 

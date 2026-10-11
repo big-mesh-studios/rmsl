@@ -23,7 +23,7 @@ import {
   wrapExpr,
 } from "../shared";
 import { componentCountOf, componentKindOf } from "../cpu";
-import { shareNodes } from "../share";
+import { SHARED_NAME_PREFIX, shareNodes } from "../share";
 
 export const typeToGLSL: Record<string, string> = {
   float: "float",
@@ -686,6 +686,11 @@ export function compileGLSLNode(
       let rhsExpr = rhs.expr;
       if (vt === "float" && (rhsType === "int" || rhsType === "uint")) {
         rhsExpr = `float(${rhsExpr})`;
+      }
+      // A shared node is read inline at its operands' precision, which can be
+      // above the default the stage is compiled at.
+      if (lhs.expr.startsWith(SHARED_NAME_PREFIX) && /^(float|u?int|[iu]?vec\d|mat\d(x\d)?)$/.test(t)) {
+        t = `highp ${t}`;
       }
       return {
         decls: [...lhs.decls, ...rhs.decls],

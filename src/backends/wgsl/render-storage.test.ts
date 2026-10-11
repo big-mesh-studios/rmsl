@@ -82,6 +82,17 @@ describe("storage buffers in render stages", () => {
     expect(code).toMatch(/highp int \w+\(highp isampler2D \w+, highp int \w+\)/);
   });
   /**
+   * @canon spec-a-glsl-shared-value-is-held-at-highp
+   */
+  it("holds a storage element read twice in a highp variable on GLSL compiled at mediump", () => {
+    const counts = instancedArray(Int32Array.of(1, 2), "int");
+    const count = counts.element(int(1));
+    const code = compileGlsl.fragment(Fn(() => vec4(count.toFloat(), count.mul(2).toFloat(), 0, 1))(), {
+      precision: "mediump",
+    });
+    expect(code).toMatch(/highp int _rmsl_gen_\d+ = /);
+  });
+  /**
    * @canon spec-a-glsl-render-stage-refuses-a-write-to-storage
    */
   it("rejects a write from a render stage on GLSL", () => {

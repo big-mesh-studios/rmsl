@@ -1,7 +1,7 @@
 import { node, var_ } from "../core";
 
 /** The prefix of the variable a shared node gets, under the `_rmsl_` prefix the compiler keeps for its own names. */
-const SHARED_NAME_PREFIX = "_rmsl_gen_";
+export const SHARED_NAME_PREFIX = "_rmsl_gen_";
 
 /** Node types that are statements, whose parameters are blocks or expressions the pass places by kind. */
 const STATEMENTS = new Set(["seq", "let", "assign", "if", "for", "while", "break", "continue", "return", "discard"]);
