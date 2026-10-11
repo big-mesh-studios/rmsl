@@ -108,7 +108,7 @@ function materialWorkload(name: string, material: any): Workload {
   };
 }
 
-const { uv } = rmsl;
+const { texture, uv } = rmsl;
 const sample = (tex: any) => texture(tex, uv());
 const workloads = [
   effectWorkload("sepia", (tex) => effects.sepia(sample(tex))),
