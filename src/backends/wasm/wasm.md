@@ -88,13 +88,14 @@ type, and how much linear memory the compile-time layout used
 time).
 
 The module always exports `main` (`options.name`) and, when the `Fn`'s
-result isn't `void`, a second export, `_rmsl_draw(width, height, bufferBase)` —
+result isn't `void` and it is no stage, a second export, `_rmsl_draw(width, height, bufferBase)` —
 a WASM-side pixel loop that calls `main` once per pixel (feeding it
 `fragCoord()`) and writes results into the caller's buffer, so a whole-image
 evaluation only pays the JS↔WASM marshalling cost once instead of once per
 pixel (see "A whole grid in one call" in `docs/wasm-benchmarks.md`).
 
-Every program also gets a
+Every program but a vertex or fragment stage, which the rasterizer calls once
+per vertex or fragment, also gets a
 `_rmsl_compute(...params, count)` export: a WASM-side loop that calls `main` once
 per index in `0..count`, passing the index as the `invocationIndex` param and
 every other param through unchanged. A whole compute dispatch is then a single

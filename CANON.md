@@ -444,7 +444,8 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-uniform-can-set-a-precision-of-its-own`](#spec-a-uniform-can-set-a-precision-of-its-own) — `setPrecision(precision)` on a uniform or a uniform array takes `"low"`, `"medium"` or `"high"`, and returns the uniform. Its GLSL declaration then carries `lowp`, `mediump` or `highp`, over the shader's default. `compileGlsl` and `compileGlslFn` both declare it so. Another value is refused, and so is any precision on a `bool` or boolean vector uniform. WGSL, which has no precision, declares the uniform as it would without one.
     - [`@spec every-glsl-call-shape-takes-a-precision`](#spec-every-glsl-call-shape-takes-a-precision) — `compileGlsl`, `compileGlsl.fragment` and `compileGlsl.vertex` each take a `precision` option.
   - [`@spec a-wasm-routine-loops-inside-its-module`](#spec-a-wasm-routine-loops-inside-its-module) — `draw` and `compute` of a WASM routine run their whole grid or dispatch inside the module, in one call from the host. A program that never reads `invocationIndex()` or a storage buffer, or that returns a value, still runs once for each invocation.
-  - [`@spec a-wasm-module-exports-its-loops-under-the-reserved-prefix`](#spec-a-wasm-module-exports-its-loops-under-the-reserved-prefix) — A WASM module exports its grid loop as `_rmsl_draw` and its dispatch loop as `_rmsl_compute`. The name a caller gives its program is exported beside them, so `createWasmGrid` keeps its default name `draw` and `createWasmCompute` its default `compute`. A name that starts with `_rmsl_` is refused.
+  - [`@spec a-wasm-module-exports-its-loops-under-the-reserved-prefix`](#spec-a-wasm-module-exports-its-loops-under-the-reserved-prefix) — A WASM module exports its grid loop as `_rmsl_draw` and its dispatch loop as `_rmsl_compute`. The name a caller gives its program is exported beside them, so `createWasmGrid` keeps its default name `draw` and `createWasmCompute` its default `compute`. A name that starts with `_rmsl_` is refused, when the program compiles and when a module is instantiated.
+  - [`@spec a-wasm-stage-module-exports-no-loop-of-its-own`](#spec-a-wasm-stage-module-exports-no-loop-of-its-own) — A module compiled as a vertex or a fragment stage exports neither `_rmsl_draw` nor `_rmsl_compute`. `instantiateWasmGrid` refuses a module without `_rmsl_draw`, and `instantiateWasmCompute` one without `_rmsl_compute`, when they instantiate it.
   - [`@spec a-wasm-routine-copies-a-texture-into-its-memory-once`](#spec-a-wasm-routine-copies-a-texture-into-its-memory-once) — A WASM routine copies a texture into its memory the first time a slot holds it. It copies again only when the slot holds a different texture object. A texture whose data changes without a new object keeps its old copy. The memory grows to fit a larger texture or grid without corrupting what it holds.
   - [`@spec a-wasm-routine-reads-a-matrix-column-where-it-lies`](#spec-a-wasm-routine-reads-a-matrix-column-where-it-lies) — On WASM, a component of a matrix column is read where the matrix holds it, with one load for a column and a component at constant indices. A column of a storage element is read from the buffer, inside the element's bounds check, and as zero outside it.
   - [`@spec a-wgsl-buffer-feeds-a-draw-without-a-copy`](#spec-a-wgsl-buffer-feeds-a-draw-without-a-copy) — A buffer of a WGSL compute context can feed a draw on the same device. The function `createWgsl` binds the storage nodes of its stages to the context's buffers. A render pipeline can read them as vertex data. A WGSL adapter fills storage of its own through `setAttribute` when it has no context.
@@ -3313,11 +3314,19 @@ This follows because a call into WebAssembly costs more than a call within it. A
 
 ### @spec a-wasm-module-exports-its-loops-under-the-reserved-prefix
 
-> A WASM module exports its grid loop as `_rmsl_draw` and its dispatch loop as `_rmsl_compute`. The name a caller gives its program is exported beside them, so `createWasmGrid` keeps its default name `draw` and `createWasmCompute` its default `compute`. A name that starts with `_rmsl_` is refused.
+> A WASM module exports its grid loop as `_rmsl_draw` and its dispatch loop as `_rmsl_compute`. The name a caller gives its program is exported beside them, so `createWasmGrid` keeps its default name `draw` and `createWasmCompute` its default `compute`. A name that starts with `_rmsl_` is refused, when the program compiles and when a module is instantiated.
 
 Derives from: [`spec-a-wasm-routine-loops-inside-its-module`](#spec-a-wasm-routine-loops-inside-its-module), [`spec-a-variable-name-must-be-an-identifier`](#spec-a-variable-name-must-be-an-identifier)
 
 This follows because the compiler keeps the `_rmsl_` prefix for everything it invents. Two exports of one name would keep the module from compiling.
+
+### @spec a-wasm-stage-module-exports-no-loop-of-its-own
+
+> A module compiled as a vertex or a fragment stage exports neither `_rmsl_draw` nor `_rmsl_compute`. `instantiateWasmGrid` refuses a module without `_rmsl_draw`, and `instantiateWasmCompute` one without `_rmsl_compute`, when they instantiate it.
+
+Derives from: [`spec-a-wasm-module-exports-its-loops-under-the-reserved-prefix`](#spec-a-wasm-module-exports-its-loops-under-the-reserved-prefix), [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+This follows because the rasterizer calls a stage once for each vertex or fragment, and never through a loop of the module. A module without the loop a grid or a dispatch needs could only fail at its first call.
 
 ### @spec a-wasm-routine-copies-a-texture-into-its-memory-once
 

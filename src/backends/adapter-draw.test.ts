@@ -446,9 +446,9 @@ describe.skipIf(!GPU_ENABLED)("adapters drawing into a canvas in a browser", () 
   }, 120_000);
 
   /**
-   * @canon spec-an-adapter-draws-one-frame-for-each-call
+   * @canon spec-a-wasm-module-exports-its-loops-under-the-reserved-prefix
    */
-  it("draws a fragCoord program over its canvas with createWasmGrid", async () => {
+  it("draws a fragCoord program over its canvas with createWasmGrid under its default name", async () => {
     expect(await drawn("wasmRoutine")).toEqual({ r: Math.round((3.5 / 4) * 255), g: 0, b: 0, a: 255 });
   }, 120_000);
 });

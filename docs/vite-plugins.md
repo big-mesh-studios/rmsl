@@ -2,7 +2,7 @@
 
 RMSL compiles node graphs at runtime by default: `compileGlsl`/`compileWgsl`/`compileJSRoutine`/`compileWasmRoutine` all run in the browser. For an app with a large shader, that means shipping rmsl itself (the whole DSL) to every client just to produce output that never changes.
 
-Three plugins in `@random-mesh/rmsl/vite` move that compilation to build time, and a fourth, [`compileWat`](#compilewat--hand-written-wat-modules), assembles hand-written `.wat` modules. Each targets a module you write, bundles it with esbuild, executes it once in the Node process running Vite, and rewrites the module so the browser gets only the finished result — no rmsl, no `eval`, just constants, plain functions, or (for WASM) a real binary module.
+Three plugins in `@random-mesh/rmsl/vite` move that compilation to build time. Each targets a module you write, bundles it with esbuild, executes it once in the Node process running Vite, and rewrites the module so the browser gets only the finished result — no rmsl, no `eval`, just constants, plain functions, or (for WASM) a real binary module. A fourth, [`compileWat`](#compilewat--hand-written-wat-modules), does something else: it assembles a hand-written `.wat` module into its bytes.
 
 ```typescript
 import { defineConfig } from "vite";
@@ -17,7 +17,7 @@ export default defineConfig({
 });
 ```
 
-All three plugins share the same matching options:
+The three plugins share the same matching options, and rewrite nothing given no `include`:
 
 | Option    | Type                                          | Meaning                                                                                                            |
 | --------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |

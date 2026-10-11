@@ -44,6 +44,7 @@ import {
   compileWasmGrid,
   instantiateWasmCompute,
   instantiateWasmGrid,
+  instantiateWasmRoutine,
 } from "../wasm";
 
 const none = { name: "main", params: [] };
@@ -329,6 +330,32 @@ describe("the exports of a WASM module", () => {
    */
   it("refuses a program name in the reserved prefix", () => {
     expect(() => exportsOf(() => Fn(() => float(1))(), "_rmsl_draw")).toThrow(/"_rmsl_draw".*reserve/);
+  });
+
+  /**
+   * @canon spec-a-wasm-module-exports-its-loops-under-the-reserved-prefix
+   */
+  it("refuses to instantiate a program under a name in the reserved prefix", () => {
+    const compiled = compileWasmFn(() => Fn(() => float(1))(), { name: "main", params: [] });
+    expect(() => instantiateWasmRoutine(compiled, "_rmsl_compute")).toThrow(/"_rmsl_compute".*reserve/);
+  });
+
+  /**
+   * @canon spec-a-wasm-stage-module-exports-no-loop-of-its-own
+   */
+  it.each(["vertex", "fragment"] as const)("exports no loop of its own from a %s stage module", (stage) => {
+    const compiled = compileWasmFn(() => Fn(() => vec4(1, 0, 0, 1))(), { name: "main", params: [], stage });
+    const names = WebAssembly.Module.exports(new WebAssembly.Module(compiled.bytes as any)).map((e) => e.name);
+    expect(names).toEqual(["main"]);
+  });
+
+  /**
+   * @canon spec-a-wasm-stage-module-exports-no-loop-of-its-own
+   */
+  it("refuses to instantiate a stage module as a grid or a compute stage", () => {
+    const compiled = compileWasmFn(() => Fn(() => vec4(1, 0, 0, 1))(), { name: "main", params: [], stage: "fragment" });
+    expect(() => instantiateWasmGrid(compiled, "main")).toThrow(/exports no "_rmsl_draw"/);
+    expect(() => instantiateWasmCompute(compiled, "main")).toThrow(/exports no "_rmsl_compute"/);
   });
 
   /**
