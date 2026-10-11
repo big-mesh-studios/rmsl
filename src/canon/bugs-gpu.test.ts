@@ -232,7 +232,7 @@ describe("known GPU bugs, each failing until its fix", () => {
       builtinPosition().assign(vec4(texture(near, ivec2(0, 0)).x.toFloat(), 0, 0, 1));
     })();
     const fragment = Fn(() => vec4(texture(far, ivec2(0, 0)).x.toFloat(), 0, 0, 1))();
-    const samplers = [near, far].map((node) => ({ slot: node.name, type: "isampler2D" }));
+    const samplers = [near, far];
     const vertexCode = compileWgsl.vertex(vertex, { samplers });
     const fragmentCode = compileWgsl.fragment(fragment, { samplers });
     expect(bindingOf(vertexCode, near.name)).toBeDefined();
@@ -272,7 +272,9 @@ describe("known GPU bugs, each failing until its fix", () => {
     const vertex = Fn(() => {
       builtinPosition().assign(vec4(0, 0, 0, 1));
     })();
-    expect(() => compileWgsl.vertex(vertex, { samplers: [{ slot: "map", type: "sampler9D" }] })).toThrow(/sampler9D/);
+    expect(() => compileWgsl.vertex(vertex, { samplers: [uniformRaw("map", "sampler9D" as any)] })).toThrow(
+      /sampler9D/,
+    );
   });
 
   /**

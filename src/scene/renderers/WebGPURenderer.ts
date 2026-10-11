@@ -479,7 +479,7 @@ export class WebGPURenderer {
     // alone reads a different subset of the uniforms.
     const declaredUniforms = program.uniforms.map((u) => u.node);
     const layout = wgslUniformLayout(declaredUniforms.map(wgslUniformDeclaration));
-    const declaredSamplers = program.samplers.map((s) => ({ slot: s.name, type: s.type }));
+    const declaredSamplers = program.samplers.map((s) => s.node);
 
     const vertexModule = device.createShaderModule({
       code: compileWgsl.vertex(program.vertexRoot, { uniforms: declaredUniforms, samplers: declaredSamplers }),
@@ -498,17 +498,17 @@ export class WebGPURenderer {
 
     // Both stages number the textures (group 1) and the samplers of the float
     // ones (group 2) from the program's whole set, as the compiler does.
+    // The list follows program.samplers, so a texture's binding is its index there.
     const sharedSamplers = sharedSamplerDeclarations(declaredSamplers);
-    const samplerIndex = (name: string) => program.samplers.findIndex((s) => s.name === name);
     const textureBindings = sharedSamplers.map((t, binding) => ({
       name: t.slot,
-      sampler: samplerIndex(t.slot),
+      sampler: binding,
       type: t.shaderType as SamplerShaderType,
       binding,
     }));
-    const samplerBindings = sharedSamplers
-      .filter((t) => !t.integer)
-      .map((t, binding) => ({ name: t.slot, sampler: samplerIndex(t.slot), binding }));
+    const samplerBindings = textureBindings
+      .filter((_, i) => !sharedSamplers[i]!.integer)
+      .map((t, binding) => ({ name: t.name, sampler: t.sampler, binding }));
 
     // One layout per group the WGSL declares: uniforms in group 0, textures
     // in group 1, samplers in group 2.

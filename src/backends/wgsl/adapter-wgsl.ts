@@ -27,6 +27,7 @@ import {
   compileWGSLWithStage,
   isWgslTexture,
   sharedSamplerDeclarations,
+  type WgslTextureType,
   typeToWGSL,
   WGSL_RENDER_STORAGE_GROUP,
   wgslMatrixColumns,
@@ -527,21 +528,17 @@ export function createWgsl(options: CreateWgslAdapterOptions): WgslAdapter {
       let renderDeclarations = [...sharedUniforms.values()].sort((a, b) => a.order - b.order);
       let renderUniforms = renderDeclarations.map((u) => u.node);
       // A texture takes a binding of its own, in the order of the whole program's textures.
-      textureDeclarations = sharedSamplerDeclarations(
-        [...sharedTextures.values()].map((u) => ({
-          slot: u.slot,
-          type: Object.keys(typeToWGSL).find((key) => /sampler/.test(key) && typeToWGSL[key] === u.type) ?? u.type,
-        })),
-      );
+      let textureNodes = [...sharedTextures.values()]
+        .sort((a, b) => a.order - b.order)
+        .map((u) => u.node as UniformNode<WgslTextureType>);
+      textureDeclarations = sharedSamplerDeclarations(textureNodes);
       let storageNodes = storageNodesOf([options.vertex, options.fragment]);
       storages = new Map(storageNodes.map((node) => [node.name, node.attribute]));
       let storageOrder = storageNodes.map((node) => node.name);
       let stageOptions = {
         ...(renderUniforms.length > 0 ? { uniforms: renderUniforms } : {}),
         ...(storageNodes.length > 0 ? { storages: storageNodes } : {}),
-        ...(textureDeclarations.length > 0
-          ? { samplers: textureDeclarations.map((t) => ({ slot: t.slot, type: t.shaderType })) }
-          : {}),
+        ...(textureNodes.length > 0 ? { samplers: textureNodes } : {}),
       };
 
       let vertexCode = compileWGSLWithStage(options.vertex as Node<ShaderType>, "vertex", stageOptions);

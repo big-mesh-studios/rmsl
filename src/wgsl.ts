@@ -1,11 +1,5 @@
 import { storageBuffersOf } from "./backends/shared";
-import {
-  type ComputeNode,
-  type Node,
-  type ShaderType,
-  type StorageAccess,
-  type StorageBufferAttribute,
-} from "./core";
+import { type ComputeNode, type Node, type ShaderType, type StorageAccess, type StorageBufferAttribute } from "./core";
 import {
   compileWgsl,
   typeToWGSL,
@@ -153,7 +147,7 @@ export function compile(
 export { compileWgsl, wgslUniformDeclaration, wgslUniformLayout };
 export type {
   CompileWGSLOptions,
-  WgslSamplerDeclaration,
+  WgslTextureType,
   WgslUniformDeclaration,
   WgslUniformMember,
 } from "./backends/wgsl/wgsl";

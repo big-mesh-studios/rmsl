@@ -90,7 +90,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-varying-passes-from-the-vertex-to-the-fragment-stage`](#spec-a-varying-passes-from-the-vertex-to-the-fragment-stage) — A varying is an output of the vertex stage and an input of the fragment stage.
     - [`@spec an-integer-varying-is-flat`](#spec-an-integer-varying-is-flat) — An integer varying is not interpolated. Each fragment of a triangle reads the value one vertex of the triangle wrote. GLSL and WGSL declare it `flat`.
       - [`@spec a-flat-varying-takes-the-first-vertex`](#spec-a-flat-varying-takes-the-first-vertex) — On WGSL, JS and WASM, a fragment reads an integer varying as the first vertex of its triangle wrote it. A triangle clipped at the near plane keeps that vertex's value.
-      - [`@exception a-glsl-flat-varying-takes-the-last-vertex`](#exception-a-glsl-flat-varying-takes-the-last-vertex) — On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it.
+      - [`@exception a-glsl-flat-varying-takes-the-last-vertex`](#exception-a-glsl-flat-varying-takes-the-last-vertex) — On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it. `createGlsl` and `WebGLRenderer` leave the `WEBGL_provoking_vertex` extension off.
     - [`@spec an-attribute-is-an-input-of-the-vertex-stage`](#spec-an-attribute-is-an-input-of-the-vertex-stage) — An attribute is an input of the vertex stage, read once for each vertex.
   - [`@spec a-program-runs-its-statements-in-the-order-it-writes-them`](#spec-a-program-runs-its-statements-in-the-order-it-writes-them) — A program runs its statements in the order its body made them, on every target, the statements that compute an index or a value included.
     - [`@spec the-index-of-a-write-is-read-after-the-value-is-computed`](#spec-the-index-of-a-write-is-read-after-the-value-is-computed) — A write through a computed index reads the index after the statements that compute the value it writes.
@@ -547,7 +547,13 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-wgsl-render-stage-binds-its-storage-in-the-listed-order`](#spec-a-wgsl-render-stage-binds-its-storage-in-the-listed-order) — A WGSL vertex or fragment stage binds each storage buffer at its index in the `storages` list.
     - [`@spec a-wgsl-compute-program-binds-its-storage-in-the-listed-order`](#spec-a-wgsl-compute-program-binds-its-storage-in-the-listed-order) — A WGSL compute program binds each storage buffer at its index in the `storages` list.
     - [`@spec a-wgsl-stage-refuses-a-buffer-the-given-storages-leave-out`](#spec-a-wgsl-stage-refuses-a-buffer-the-given-storages-leave-out) — The compiler refuses a WGSL stage that reads a storage buffer the given `storages` leave out, and names that buffer.
+    - [`@spec a-wgsl-stage-refuses-a-storage-buffer-listed-twice`](#spec-a-wgsl-stage-refuses-a-storage-buffer-listed-twice) — The compiler refuses a `storages` list that holds one storage buffer twice, and names it.
     - [`@spec a-wgsl-program-given-no-storage-list-binds-in-creation-order`](#spec-a-wgsl-program-given-no-storage-list-binds-in-creation-order) — Given no `storages` list, a WGSL program binds its storage buffers in the order the program created them.
+  - [`@spec a-wgsl-program-binds-its-textures-in-the-order-the-caller-lists`](#spec-a-wgsl-program-binds-its-textures-in-the-order-the-caller-lists) — A WGSL render program given a `samplers` list binds each texture in group 1 at its index in the list. It binds the sampler of each float texture in group 2, in the order of the float textures in the list.
+    - [`@spec the-samplers-list-holds-the-texture-nodes`](#spec-the-samplers-list-holds-the-texture-nodes) — The `samplers` list holds the texture uniform nodes themselves, as the `storages` and `uniforms` lists hold nodes.
+    - [`@spec a-wgsl-stage-binds-its-textures-in-the-listed-order`](#spec-a-wgsl-stage-binds-its-textures-in-the-listed-order) — A WGSL vertex or fragment stage binds each texture at its index in the `samplers` list, whatever the order of their names or of their creation.
+    - [`@spec a-wgsl-stage-refuses-a-texture-the-given-samplers-leave-out`](#spec-a-wgsl-stage-refuses-a-texture-the-given-samplers-leave-out) — The compiler refuses a WGSL stage that samples a texture the given `samplers` leave out, and names that texture.
+    - [`@spec a-wgsl-stage-refuses-a-samplers-list-of-anything-but-textures-each-once`](#spec-a-wgsl-stage-refuses-a-samplers-list-of-anything-but-textures-each-once) — The compiler refuses a `samplers` list that holds a uniform that is not a texture, or one texture twice, and names it. The list's type takes only texture uniforms.
 - [`@axiom rmsl-runs-everywhere`](#axiom-rmsl-runs-everywhere) — A program written in rmsl runs everywhere code runs. It runs on a GPU through a graphics API, and on the CPU, as JavaScript source or as a WebAssembly module. A WebAssembly module carries it further: a tool such as `wasm2c` turns the module into C, which builds for any environment.
   - [`@axiom a-program-runs-without-a-graphics-api`](#axiom-a-program-runs-without-a-graphics-api) — A program also runs in the host's own JavaScript, with no [graphics API](#term-graphics-api). The application gets its answer within the same call, and can run the program where no graphics API exists.
     - [`@spec a-cpu-target-draws-within-the-call`](#spec-a-cpu-target-draws-within-the-call) — A program compiled for a CPU target draws a grid of fragments and returns the pixels within the same call, with no graphics API.
@@ -684,6 +690,7 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
 - [`@fact a-wgsl-uniform-array-has-a-16-byte-stride`](#fact-a-wgsl-uniform-array-has-a-16-byte-stride) — The elements of an array in the WGSL uniform address space align to 16 bytes, and a `vec3` takes the 16 bytes of a `vec4`.
 - [`@fact wgsl-takes-an-integer-varying-flat-from-the-first-vertex`](#fact-wgsl-takes-an-integer-varying-flat-from-the-first-vertex) — WGSL requires a vertex output or fragment input of integer type to be `@interpolate(flat)`, and a flat value with no sampling named comes from the first vertex of the primitive.
 - [`@fact glsl-takes-an-integer-varying-flat-from-the-last-vertex`](#fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex) — GLSL ES 3.00 requires a vertex output of integer type to be `flat`, and WebGL 2 takes a flat value from the last vertex of a triangle, its provoking vertex.
+- [`@fact three-js-asks-for-no-provoking-vertex`](#fact-three-js-asks-for-no-provoking-vertex) — three.js's `WebGLRenderer` does not ask for the `WEBGL_provoking_vertex` extension, so a flat varying takes the last vertex of a triangle, as WebGL 2 sets it.
 - [`@fact webgl-reads-a-vector-state-into-a-new-array`](#fact-webgl-reads-a-vector-state-into-a-new-array) — WebGL gives a vector state, such as the viewport or the clear colour, only through `getParameter`, which returns a new array on each call. It gives a vertex attribute's value only through `getVertexAttrib`, which does the same.
 - [`@fact webgl2-has-no-compute-stage`](#fact-webgl2-has-no-compute-stage) — WebGL 2 has no compute shaders and no storage buffers.
 - [`@fact an-integer-texture-cannot-be-filtered`](#fact-an-integer-texture-cannot-be-filtered) — Neither GLSL nor WGSL filters an integer texture. A shader reads it one texel at a time, with `texelFetch` or `textureLoad`.
@@ -826,7 +833,6 @@ A fragment program can write depth on one path only. What depth the other paths 
 The analysis found these places where the code or the documents do not hold the canon, and no spec decides the fix yet. Each has an issue. A defect that breaks a spec is a bug unit inside that spec instead.
 
 1. Several documents name exports and files that do not exist, such as `compileGLSL` imported from `"rmsl"`. Issue #53.
-2. On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it, where the other targets take the first. Issue #232 asks whether the GLSL adapter and the WebGL renderer should ask for the first vertex through `WEBGL_provoking_vertex`.
 
 ### Coverage gaps
 
@@ -1305,9 +1311,11 @@ This follows because WebGPU takes a flat value from the first vertex, and a CPU 
 
 ##### @exception a-glsl-flat-varying-takes-the-last-vertex
 
-> On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it.
+> On GLSL, a fragment reads an integer varying as the last vertex of its triangle wrote it. `createGlsl` and `WebGLRenderer` leave the `WEBGL_provoking_vertex` extension off.
 
-Derives from: [`fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex`](#fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex)
+Derives from: [`fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex`](#fact-glsl-takes-an-integer-varying-flat-from-the-last-vertex), [`fact-three-js-asks-for-no-provoking-vertex`](#fact-three-js-asks-for-no-provoking-vertex)
+
+This follows because the GLSL paths draw as WebGL 2 and three.js's `WebGLRenderer` draw, and three.js leaves the provoking vertex where WebGL 2 sets it. Issue #232 settled this.
 
 #### @spec an-attribute-is-an-input-of-the-vertex-stage
 
@@ -3948,6 +3956,14 @@ This follows because a node cannot be misspelled, and a graph restored from JSON
 
 This follows because the buffer has no index in the list, and so no binding.
 
+#### @spec a-wgsl-stage-refuses-a-storage-buffer-listed-twice
+
+> The compiler refuses a `storages` list that holds one storage buffer twice, and names it.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+This follows because a buffer has one binding, and the second index would hold a binding no buffer fills.
+
 #### @spec a-wgsl-program-given-no-storage-list-binds-in-creation-order
 
 > Given no `storages` list, a WGSL program binds its storage buffers in the order the program created them.
@@ -3955,6 +3971,40 @@ This follows because the buffer has no index in the list, and so no binding.
 Derives from: [`spec-a-graph-compiles-the-same-after-json`](#spec-a-graph-compiles-the-same-after-json)
 
 This follows because a graph restored from JSON keeps its buffers in creation order, so it binds them as the original did.
+
+### @spec a-wgsl-program-binds-its-textures-in-the-order-the-caller-lists
+
+> A WGSL render program given a `samplers` list binds each texture in group 1 at its index in the list. It binds the sampler of each float texture in group 2, in the order of the float textures in the list.
+
+Derives from: [`spec-a-wgsl-program-binds-its-storage-in-the-order-the-caller-lists`](#spec-a-wgsl-program-binds-its-storage-in-the-order-the-caller-lists)
+
+This follows because the application builds the bind groups, so it decides where each texture goes, as it does for a storage buffer. Two stages of one program must also bind a texture at one place.
+
+#### @spec the-samplers-list-holds-the-texture-nodes
+
+> The `samplers` list holds the texture uniform nodes themselves, as the `storages` and `uniforms` lists hold nodes.
+
+Derives from: [`spec-the-storages-list-holds-the-storage-nodes`](#spec-the-storages-list-holds-the-storage-nodes)
+
+This follows because a node carries its name and its sampler type, and cannot be misspelled.
+
+#### @spec a-wgsl-stage-binds-its-textures-in-the-listed-order
+
+> A WGSL vertex or fragment stage binds each texture at its index in the `samplers` list, whatever the order of their names or of their creation.
+
+#### @spec a-wgsl-stage-refuses-a-texture-the-given-samplers-leave-out
+
+> The compiler refuses a WGSL stage that samples a texture the given `samplers` leave out, and names that texture.
+
+This follows because the texture has no index in the list, and so no binding.
+
+#### @spec a-wgsl-stage-refuses-a-samplers-list-of-anything-but-textures-each-once
+
+> The compiler refuses a `samplers` list that holds a uniform that is not a texture, or one texture twice, and names it. The list's type takes only texture uniforms.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+This follows because a value uniform has no texture binding. A texture listed twice would be declared twice, and every later texture would move off the binding the host gives it.
 
 ## @axiom rmsl-runs-everywhere
 
@@ -4821,6 +4871,12 @@ This is a fact of the WGSL specification, section Interpolation, and Dawn gives 
 > GLSL ES 3.00 requires a vertex output of integer type to be `flat`, and WebGL 2 takes a flat value from the last vertex of a triangle, its provoking vertex.
 
 This is a fact of the GLSL ES 3.00 and OpenGL ES 3.0 specifications, and Chromium's WebGL 2 gives a triangle's last vertex.
+
+## @fact three-js-asks-for-no-provoking-vertex
+
+> three.js's `WebGLRenderer` does not ask for the `WEBGL_provoking_vertex` extension, so a flat varying takes the last vertex of a triangle, as WebGL 2 sets it.
+
+This is how three.js behaves, read from its source: neither `WebGLRenderer` nor `WebGLExtensions` names the extension, in three.js 0.186.
 
 ## @fact webgl-reads-a-vector-state-into-a-new-array
 

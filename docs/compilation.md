@@ -235,6 +235,27 @@ the list leaves out is an error, named by slot, rather than a shader that fails
 to compile in the driver. `@random-mesh/rmsl/scene`'s WebGPU renderer does this
 for every material it draws.
 
+### Two stages, one set of textures and buffers
+
+The same holds for textures and storage buffers. Pass the program's textures as
+`samplers`, in the order the host binds them: each texture binds in group 1 at
+its index in the list, and the sampler of each float texture binds in group 2,
+in the order of the float textures. `storages` binds each storage buffer of a
+render stage in group 3 at its index. Both lists hold the nodes themselves:
+
+```typescript
+const samplers = [albedoMap, normalMap];
+const storages = [instanceOffsets];
+
+const vertex = compileWgsl.vertex(vertexRoot, { uniforms, samplers, storages });
+const fragment = compileWgsl.fragment(fragmentRoot, { uniforms, samplers, storages });
+// albedoMap at @group(1) @binding(0), its sampler at @group(2) @binding(0)
+```
+
+A stage that samples a texture, or reads a buffer, its list leaves out is an
+error that names it. Without a list, a stage binds its textures and buffers in
+the order the program created them.
+
 ## Standalone Function Compilers
 
 For use with Three.js `glslFn`/`wgslFn` or other embedding scenarios, RMSL provides `compileGlslFn` and `compileWgslFn` to compile individual functions with custom names and parameters:
