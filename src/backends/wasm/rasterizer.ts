@@ -400,8 +400,9 @@ export function compileWasm(
   }
 
   /**
-   * The vertices from `first` on that the first attribute the host passes holds,
-   * or 0 when it passes none the program reads.
+   * The vertices from `first` on that the first attribute the program reads
+   * holds, in the order the host passes them, or 0 when it passes none the
+   * program reads.
    */
   function inferCount(attributes: WasmRasterContext["attributes"], first: number): number {
     // An attribute the program does not read counts for nothing, as a WebGPU
