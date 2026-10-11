@@ -9,6 +9,7 @@ import {
   outputStruct,
   select,
   uniform,
+  uniformArray,
   uniformRaw,
   vec2,
   vec3,
@@ -263,6 +264,14 @@ describe("where WGSL declares a uniform or a buffer", () => {
     const layout = wgslUniformLayout(uniforms.map(wgslUniformDeclaration));
     expect(layout.members.map((member) => member.name)).toEqual(structMembers(code));
     expect(layout.members.map((member) => member.name)).toEqual([value.name]);
+  });
+
+  /**
+   * @canon spec-a-bool-uniform-travels-as-an-unsigned-integer
+   */
+  it("declares a bool uniform array and a boolean vector one as u32s for the WGSL layout", () => {
+    expect(wgslUniformDeclaration(uniformArray("bool", 4)).type).toBe("u32");
+    expect(wgslUniformDeclaration(uniformArray("bvec2", 2)).type).toBe("vec2<u32>");
   });
 
   /**

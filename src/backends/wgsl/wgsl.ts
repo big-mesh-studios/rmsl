@@ -1913,10 +1913,10 @@ export function wgslUniformDeclaration(
   node: UniformNode<ShaderType> | UniformArrayNode<ShaderType>,
 ): WgslUniformDeclaration {
   let v = (node as any).value as { slot: string; shaderType: string; length?: number };
-  if ((node as any).type === "uniformArray") return { slot: v.slot, type: wgslType(v.shaderType), length: v.length };
   let width = TYPE_WIDTH[v.shaderType as ShaderType] ?? 1;
   let isBoolean = v.shaderType === "bool" || v.shaderType.startsWith("bvec");
-  return { slot: v.slot, type: isBoolean ? (width === 1 ? "u32" : `vec${width}<u32>`) : wgslType(v.shaderType) };
+  let type = isBoolean ? (width === 1 ? "u32" : `vec${width}<u32>`) : wgslType(v.shaderType);
+  return (node as any).type === "uniformArray" ? { slot: v.slot, type, length: v.length } : { slot: v.slot, type };
 }
 
 /**
