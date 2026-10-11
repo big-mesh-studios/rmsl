@@ -188,6 +188,8 @@ describe("units of the core", () => {
     const names = Object.keys(rmsl);
     expect(names).toEqual(expect.arrayContaining(["Fn", "serialize", "deserialize"]));
     expect(names.filter((name) => /^(compile|create|instantiate)/.test(name))).toEqual([]);
+    expect(names).not.toContain("var_");
+    expect(names).not.toContain("assertBlockScope");
   });
 });
 

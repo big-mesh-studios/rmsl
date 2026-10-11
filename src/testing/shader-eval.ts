@@ -1,10 +1,10 @@
 import { expect } from "vitest";
-import { var_, type Node } from "../rmsl";
+import { type Node } from "../rmsl";
 import { compileGlslFn } from "../glsl";
 import { compileWgslFn } from "../wgsl";
 import { compileJSFn } from "../js";
 import { compileWasmRoutine } from "../wasm";
-import { MATRIX_DIMENSIONS, TYPE_WIDTH } from "../core";
+import { MATRIX_DIMENSIONS, TYPE_WIDTH, var_ } from "../core";
 import { isVector } from "../backends/cpu";
 
 // Written to rather than console.warn: vitest intercepts console output and

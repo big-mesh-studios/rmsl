@@ -2,7 +2,7 @@
 
 RMSL compiles node graphs at runtime by default: `compileGlsl`/`compileWgsl`/`compileJSRoutine`/`compileWasmRoutine` all run in the browser. For an app with a large shader, that means shipping rmsl itself (the whole DSL) to every client just to produce output that never changes.
 
-The three plugins in `@random-mesh/rmsl/vite` move that compilation to build time. Each targets a module you write, bundles it with esbuild, executes it once in the Node process running Vite, and rewrites the module so the browser gets only the finished result — no rmsl, no `eval`, just constants, plain functions, or (for WASM) a real binary module.
+Three plugins in `@random-mesh/rmsl/vite` move that compilation to build time. Each targets a module you write, bundles it with esbuild, executes it once in the Node process running Vite, and rewrites the module so the browser gets only the finished result — no rmsl, no `eval`, just constants, plain functions, or (for WASM) a real binary module. A fourth, [`compileWat`](#compilewat--hand-written-wat-modules), does something else: it assembles a hand-written `.wat` module into its bytes.
 
 ```typescript
 import { defineConfig } from "vite";
@@ -17,7 +17,7 @@ export default defineConfig({
 });
 ```
 
-All three plugins share the same matching options:
+The three plugins share the same matching options, and rewrite nothing given no `include`:
 
 | Option    | Type                                          | Meaning                                                                                                            |
 | --------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
@@ -150,6 +150,35 @@ mixColours({ params: { a: [0, 0, 0], b: [1, 1, 1], t: 0.5 } }); // [0.5, 0.5, 0.
 | Option       | Type     | Default            | Meaning                                                 |
 | ------------ | -------- | ------------------ | ------------------------------------------------------- |
 | `codeExport` | `string` | `__RMSL_WASM_CODE` | The named export carrying the `{ name: compiled }` map. |
+
+## compileWat — hand-written `.wat` modules
+
+`compileWat` is not about rmsl's node graphs. It loads a WebAssembly Text Format file you wrote by hand, assembles it with `wabt`, and gives the module its bytes as the default export. A module that imports a memory also exports `shared`, the same module importing that memory shared, or `undefined` when it imports none. It takes the same `include` and `exclude` options, and given no `include` it loads every `.wat` file.
+
+```typescript
+// vite.config.ts
+import { defineConfig } from "vite";
+import { compileWat } from "@random-mesh/rmsl/vite";
+
+export default defineConfig({ plugins: [compileWat()] });
+```
+
+```typescript
+import bytes, { shared } from "./blend.wat";
+
+const memory = new WebAssembly.Memory({ initial: 1 });
+const instance = new WebAssembly.Instance(new WebAssembly.Module(bytes), { env: { memory } });
+```
+
+For TypeScript, declare the module shape once, as `src/vite/wat.d.ts` in this repository does:
+
+```typescript
+declare module "*.wat" {
+  const bytes: Uint8Array;
+  export default bytes;
+  export const shared: Uint8Array | undefined;
+}
+```
 
 ## How it works
 
