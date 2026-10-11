@@ -313,10 +313,11 @@ This document is the project. It holds the theory of rmsl: why it is the way it 
     - [`@spec a-vector-converted-to-a-scalar-takes-its-first-component`](#spec-a-vector-converted-to-a-scalar-takes-its-first-component) — Converting a vector to `float`, `int` or `uint` gives its first component, converted to that type.
   - [`@spec sampling-reads-a-texture-at-a-coordinate`](#spec-sampling-reads-a-texture-at-a-coordinate) — `texture(sampler, uv)` and `textureLevel(sampler, uv, level)` read a texture at a coordinate of its dimension.
     - [`@spec texture-and-texture-level-are-functions-of-the-sampler`](#spec-texture-and-texture-level-are-functions-of-the-sampler) — rmsl exports `texture` and `textureLevel` as functions that take the sampler first. A sampler node has no sampling method.
+    - [`@spec texture-refuses-a-value-that-is-not-a-texture`](#spec-texture-refuses-a-value-that-is-not-a-texture) — `texture` and `textureLevel` refuse a first argument that is not a sampler, with an error that names its type.
     - [`@spec a-float-texture-is-sampled-through-a-sampler`](#spec-a-float-texture-is-sampled-through-a-sampler) — A float texture, 2D or 3D, is sampled with filtering, through `texture` or `textureSample` and a sampler of its own on WGSL.
     - [`@spec an-integer-texture-reads-one-texel`](#spec-an-integer-texture-reads-one-texel) — A program reads an integer texture one texel at a time, with `texelFetch` on GLSL and `textureLoad` with no sampler on WGSL.
       - [`@spec an-integer-texture-is-fetched-unfiltered`](#spec-an-integer-texture-is-fetched-unfiltered) — A program reads an integer texture at an integer texel coordinate with no filter, and gets an integer vector.
-      - [`@exception an-integer-cube-map-cannot-be-fetched`](#exception-an-integer-cube-map-cannot-be-fetched) — A program that reads an integer cube map, or calls `textureLoad` on a cube map, is refused.
+      - [`@exception an-integer-cube-map-cannot-be-fetched`](#exception-an-integer-cube-map-cannot-be-fetched) — Every target refuses a program that reads an integer cube map. It refuses `textureLoad` on any cube map too. `texture` and `textureLevel` refuse an integer cube map at once, and their types take none.
     - [`@spec texture-size-gives-the-dimensions`](#spec-texture-size-gives-the-dimensions) — `textureSize` gives the width and height of a 2D texture or a cube map, and the depth too of a 3D texture.
     - [`@spec texture-load-reads-one-texel-of-a-float-texture`](#spec-texture-load-reads-one-texel-of-a-float-texture) — `textureLoad` reads one texel of a float texture at an integer coordinate, with no filter, and gives a `vec4`.
   - [`@spec a-swizzle-reads-and-writes-the-components-it-names`](#spec-a-swizzle-reads-and-writes-the-components-it-names) — A swizzle reads the components it names, in its order, in any of the spellings `xyzw`, `rgba` and `stpq`. Written through, it writes the same components of the variable it reaches.
@@ -2518,6 +2519,14 @@ This follows because a port changes its import and nothing else, so a shader tha
 
 > rmsl exports `texture` and `textureLevel` as functions that take the sampler first. A sampler node has no sampling method.
 
+#### @spec texture-refuses-a-value-that-is-not-a-texture
+
+> `texture` and `textureLevel` refuse a first argument that is not a sampler, with an error that names its type.
+
+Derives from: [`axiom-a-mistake-is-refused-before-the-program-runs`](#axiom-a-mistake-is-refused-before-the-program-runs)
+
+This follows because a value of another type has no texture to read. A program built without types would otherwise reach a shader compiler that refuses it in its own words.
+
 #### @spec a-float-texture-is-sampled-through-a-sampler
 
 > A float texture, 2D or 3D, is sampled with filtering, through `texture` or `textureSample` and a sampler of its own on WGSL.
@@ -2534,7 +2543,7 @@ Derives from: [`fact-an-integer-texture-cannot-be-filtered`](#fact-an-integer-te
 
 ##### @exception an-integer-cube-map-cannot-be-fetched
 
-> A program that reads an integer cube map, or calls `textureLoad` on a cube map, is refused.
+> Every target refuses a program that reads an integer cube map. It refuses `textureLoad` on any cube map too. `texture` and `textureLevel` refuse an integer cube map at once, and their types take none.
 
 Derives from: [`fact-a-cube-map-has-no-texel-fetch`](#fact-a-cube-map-has-no-texel-fetch)
 

@@ -561,6 +561,26 @@ describe("RMSL", () => {
   });
 
   /**
+   * @canon spec-texture-refuses-a-value-that-is-not-a-texture
+   */
+  it("refuses a value that is not a texture in texture and textureLevel", () => {
+    expect(() => texture(vec4(1) as any, vec2(0, 0))).toThrow(/texture: its first argument is a vec4, not a sampler/);
+    expect(() => textureLevel(float(1) as any, vec2(0, 0), float(0))).toThrow(
+      /textureLevel: its first argument is a float, not a sampler/,
+    );
+  });
+
+  /**
+   * @canon exception-an-integer-cube-map-cannot-be-fetched
+   */
+  it("refuses an integer cube map in texture and textureLevel", () => {
+    // @ts-expect-error: texture takes no integer cube map
+    expect(() => texture(uniform("isamplerCube"), ivec3(0, 0, 0))).toThrow(/isamplerCube.*cube map/);
+    // @ts-expect-error: textureLevel takes no integer cube map
+    expect(() => textureLevel(uniform("usamplerCube"), uvec3(0, 0, 0), int(0))).toThrow(/usamplerCube.*cube map/);
+  });
+
+  /**
    * @canon spec-a-float-texture-is-sampled-through-a-sampler
    */
   it("compiles textureLod to GLSL", () => {

@@ -1800,16 +1800,14 @@ describe("WASM backend: texture()/textureLod() — filtered sampling", () => {
   /**
    * @canon exception-an-integer-cube-map-cannot-be-fetched
    */
-  it("throws for isamplerCube/usamplerCube — not supported yet", () => {
+  it("throws for isamplerCube", () => {
     let tex: any;
     const build = () =>
       Fn(() => {
         tex = uniform("isamplerCube");
         return texture(tex, ivec3(0, 0, 0)).x;
       })();
-    expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrow(
-      /isamplerCube\/usamplerCube aren't supported/,
-    );
+    expect(() => compileWasmRoutine(build as any, { name: "main", params: [] })).toThrow(/isamplerCube.*cube map/);
   });
 });
 

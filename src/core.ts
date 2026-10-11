@@ -2777,6 +2777,21 @@ export function unpremultiplyAlpha(color: MathLike): any {
 }
 
 /**
+ * Throws unless `value` is a sampler that `texture` and `textureLevel` can read:
+ * an integer cube map has no texel fetch on GLSL or WGSL.
+ */
+function assertSampledTexture(fn: string, value: BaseNode<ShaderType>): void {
+  const type = (value as { _t?: string } | undefined)?._t;
+  if (type === undefined || !isSamplerType(type)) {
+    const what = type === undefined ? "not a node" : `${/^[aeiou]/.test(type) ? "an" : "a"} ${type}`;
+    throw new Error(`[RMSL] ${fn}: its first argument is ${what}, not a sampler`);
+  }
+  if (type === "isamplerCube" || type === "usamplerCube") {
+    throw new Error(`[RMSL] ${fn}: an ${type} is an integer cube map, which neither GLSL nor WGSL can read a texel of`);
+  }
+}
+
+/**
  * Samples a texture at a coordinate of its dimension, as TSL's `texture(value,
  * uv)`. A cube map takes a direction. An integer texture cannot be filtered,
  * so it is read unfiltered (`texelFetch` in GLSL, `textureLoad` in WGSL) at
@@ -2785,10 +2800,11 @@ export function unpremultiplyAlpha(color: MathLike): any {
 export function texture(value: Sampler2DLike, uv: Vec2Like): Node<"vec4">;
 export function texture(value: Sampler3DLike | SamplerCubeLike, uv: Vec3Like): Node<"vec4">;
 export function texture(value: ISampler2DLike, uv: IVec2Like): Node<"ivec4">;
-export function texture(value: ISampler3DLike | ISamplerCubeLike, uv: IVec3Like): Node<"ivec4">;
+export function texture(value: ISampler3DLike, uv: IVec3Like): Node<"ivec4">;
 export function texture(value: USampler2DLike, uv: UVec2Like): Node<"uvec4">;
-export function texture(value: USampler3DLike | USamplerCubeLike, uv: UVec3Like): Node<"uvec4">;
+export function texture(value: USampler3DLike, uv: UVec3Like): Node<"uvec4">;
 export function texture(value: BaseNode<ShaderType>, uv: unknown): any {
+  assertSampledTexture("texture", value);
   return node({
     _t: textureResultType(value._t),
     type: "texture",
@@ -2804,10 +2820,11 @@ export function texture(value: BaseNode<ShaderType>, uv: unknown): any {
 export function textureLevel(value: Sampler2DLike, uv: Vec2Like, level: FloatLike): Node<"vec4">;
 export function textureLevel(value: Sampler3DLike | SamplerCubeLike, uv: Vec3Like, level: FloatLike): Node<"vec4">;
 export function textureLevel(value: ISampler2DLike, uv: IVec2Like, level: IntLike): Node<"ivec4">;
-export function textureLevel(value: ISampler3DLike | ISamplerCubeLike, uv: IVec3Like, level: IntLike): Node<"ivec4">;
+export function textureLevel(value: ISampler3DLike, uv: IVec3Like, level: IntLike): Node<"ivec4">;
 export function textureLevel(value: USampler2DLike, uv: UVec2Like, level: IntLike): Node<"uvec4">;
-export function textureLevel(value: USampler3DLike | USamplerCubeLike, uv: UVec3Like, level: IntLike): Node<"uvec4">;
+export function textureLevel(value: USampler3DLike, uv: UVec3Like, level: IntLike): Node<"uvec4">;
 export function textureLevel(value: BaseNode<ShaderType>, uv: unknown, level: unknown): any {
+  assertSampledTexture("textureLevel", value);
   return node({
     _t: textureResultType(value._t),
     type: "textureLod",

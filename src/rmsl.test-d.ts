@@ -473,7 +473,7 @@ describe("integer samplers", () => {
   it("types isampler and usampler samples as integer vectors", () => {
     expectTypeOf(texture(uniform("isampler2D"), ivec2(1, 2))).toEqualTypeOf<Node<"ivec4">>();
     expectTypeOf(texture(uniform("isampler3D"), ivec3(1, 2, 3))).toEqualTypeOf<Node<"ivec4">>();
-    expectTypeOf(textureLevel(uniform("isamplerCube"), ivec3(1, 2, 3), int(0))).toEqualTypeOf<Node<"ivec4">>();
+    expectTypeOf(textureLevel(uniform("isampler3D"), ivec3(1, 2, 3), int(0))).toEqualTypeOf<Node<"ivec4">>();
     expectTypeOf(texture(uniform("usampler2D"), uvec2(1, 2))).toEqualTypeOf<Node<"uvec4">>();
     expectTypeOf(texture(uniform("usampler3D"), uvec3(1, 2, 3))).toEqualTypeOf<Node<"uvec4">>();
   });
