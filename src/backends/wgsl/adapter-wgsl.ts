@@ -147,7 +147,6 @@ function freshCtx(shaderStage: CompileCtx["shaderStage"]): CompileCtx {
     jsReadsSlot: false,
     derivatives: "throw",
     reentrant: false,
-    jsNeedsRes: false,
   };
 }
 

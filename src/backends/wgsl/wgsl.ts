@@ -1609,7 +1609,6 @@ export function compileWGSLWithStage(
     jsReadsSlot: false,
     derivatives: "throw",
     reentrant: false,
-    jsNeedsRes: false,
   };
 
   let nodes = Array.isArray(root) ? root : [root];
@@ -2099,7 +2098,6 @@ export function compileWgslFn(fn: (...args: any[]) => Node<ShaderType>, options:
     jsReadsSlot: false,
     derivatives: "throw",
     reentrant: false,
-    jsNeedsRes: false,
   };
   assertOneDeclarationPerName(result);
   const resultType = (result as any)._t || "float";

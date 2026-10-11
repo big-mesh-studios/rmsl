@@ -3571,7 +3571,9 @@ describe("TSL control flow", () => {
     });
     const fragment = () => Fn(() => vec4(helper(), 0, 0, 1))();
     const none = { name: "main", params: [] };
-    expect(() => compileGlsl.vertex(vertex())).toThrow(/Return\(\) would end the vertex stage/);
+    expect(() => compileGlsl.vertex(vertex())).toThrow(
+      /Return\(\) would end the vertex stage, leaving the outputs it writes after it unwritten/,
+    );
     expect(() => compileWgsl.vertex(vertex() as any)).toThrow(/Return\(\) would end the vertex stage/);
     expect(() => compileJSFn(vertex as any, { ...none, stage: "vertex" })).toThrow(
       /Return\(\) would end the vertex stage/,

@@ -155,12 +155,8 @@ export interface CompileCtx {
   fragDepthWritten?: boolean;
   /** Whether the shader reads the fragment's screen position. */
   fragCoordUsed: boolean;
-  /** What a `Return()` compiles to on GLSL and WGSL, given the function's return type, where `return;` would not do. */
+  /** What an early `Return()` compiles to: the function's zero value, in the form its last return takes. */
   returnStatement?: string;
-  /** On JS, the type a function returns, whose zero value an early `Return()` gives. */
-  jsReturnType?: string;
-  /** On JS, the statement that returns `value`, or nothing, in the shape the function's last return takes. */
-  jsReturn?: (value: string | undefined) => string;
   /** Whether a vertex stage reads `vertexIndex()` / `instanceIndex()`. */
   vertexIndexUsed?: boolean;
   instanceIndexUsed?: boolean;
@@ -196,8 +192,6 @@ export interface CompileCtx {
   derivatives: "throw" | "zero";
   /** Per-call variable bindings instead of hoisted per-program scratch. */
   reentrant: boolean;
-  /** Whether the program writes outputs/position/fragDepth via a result object. */
-  jsNeedsRes: boolean;
   /** JS target: whether the program computes every float in 32 bits, as `float: "f32"` asks. */
   jsFloat32?: boolean;
   /** JS target: the node being compiled as the target of an assignment, which is written, not read. */
@@ -697,10 +691,14 @@ function checkRoots(roots: readonly unknown[]): {
   swizzleWrites: Map<any, any>;
   holdsOutputStruct: boolean;
   holdsReturn: boolean;
+  holdsStageWrite: boolean;
+  holdsVarying: boolean;
 } {
   const swizzleWrites = new Map<any, any>();
   let holdsOutputStruct = false;
   let holdsReturn = false;
+  let holdsStageWrite = false;
+  let holdsVarying = false;
   for (const root of roots) if ((root as any)?.type === "storage") refuseWholeStorageRead(root);
   // A node is visited once outside every update and once inside one.
   const visited = [new Set<unknown>(), new Set<unknown>()];
@@ -711,6 +709,8 @@ function checkRoots(roots: readonly unknown[]): {
     if (inUpdate) assertForUpdateNode(node);
     if (node.type === "outputStruct") holdsOutputStruct = true;
     if (node.type === "return") holdsReturn = true;
+    if (STAGE_WRITES.has(node.type)) holdsStageWrite = true;
+    if (node.type === "varying") holdsVarying = true;
     if (node.type === "assign" && isSwizzleWrite(node.params[0])) {
       const target = node.params[0];
       assertNoRepeatedSwizzle(target);
@@ -729,8 +729,23 @@ function checkRoots(roots: readonly unknown[]): {
     });
   };
   visit(roots, false);
-  return { swizzleWrites, holdsOutputStruct, holdsReturn };
+  return { swizzleWrites, holdsOutputStruct, holdsReturn, holdsStageWrite, holdsVarying };
 }
+
+/** The node types a stage writes its result through, rather than through the value it returns. */
+const STAGE_WRITES = new Set(["output", "outputStruct", "builtinPosition", "builtinFragDepth"]);
+
+/** What the shared walk of {@link prepareRoots} found in a program, for a compiler that asks. */
+export type FoundInRoots = {
+  /** Whether the program holds a `Return()`. */
+  holdsReturn?: boolean;
+  /**
+   * Whether the program writes what only a stage's result object holds: an
+   * output, the position, the depth, or a vertex stage's varying. It holds
+   * every write compiling reaches, and a write in a branch that folds away too.
+   */
+  writesStageResult?: boolean;
+};
 
 /**
  * The roots of a stage, ready to compile, once every compiler's shared
@@ -740,11 +755,19 @@ function checkRoots(roots: readonly unknown[]): {
  * converted, see {@link fragmentColour}. Any other stage, and a program with
  * no stage, refuses an `outputStruct`, which is a fragment stage's result.
  */
-export function prepareRoots<T extends Node<ShaderType>>(stage: string | undefined, roots: readonly T[]): T[] {
-  const { swizzleWrites, holdsOutputStruct, holdsReturn } = checkRoots(roots);
+export function prepareRoots<T extends Node<ShaderType>>(
+  stage: string | undefined,
+  roots: readonly T[],
+  found?: FoundInRoots,
+): T[] {
+  const { swizzleWrites, holdsOutputStruct, holdsReturn, holdsStageWrite, holdsVarying } = checkRoots(roots);
+  if (found) {
+    found.holdsReturn = holdsReturn;
+    found.writesStageResult = holdsStageWrite || (stage === "vertex" && holdsVarying);
+  }
   if ((stage === "vertex" || stage === "fragment") && holdsReturn) {
     throw new Error(
-      `[RMSL] Return() would end the ${stage} stage, which then writes none of its outputs on any target. ` +
+      `[RMSL] Return() would end the ${stage} stage, leaving the outputs it writes after it unwritten on every target. ` +
         `Write the rest of the stage in an If or Else instead` +
         (stage === "fragment" ? ", or drop the fragment with Discard()." : "."),
     );

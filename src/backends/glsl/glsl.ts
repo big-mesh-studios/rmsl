@@ -1055,7 +1055,6 @@ export function compileGLSLWithStage(
     jsReadsSlot: false,
     derivatives: "throw",
     reentrant: false,
-    jsNeedsRes: false,
   };
 
   let nodes = Array.isArray(root) ? root : [root];
@@ -1221,7 +1220,6 @@ export function compileGlslFn(fn: (...args: any[]) => Node<ShaderType>, options:
     jsReadsSlot: false,
     derivatives: "throw",
     reentrant: false,
-    jsNeedsRes: false,
   };
   assertOneDeclarationPerName(result);
   const returnType = glslType((result as any)._t || "float");

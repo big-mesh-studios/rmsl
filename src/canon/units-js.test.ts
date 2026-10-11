@@ -2040,6 +2040,61 @@ describe("an early Return in a function on the CPU targets", () => {
   });
 
   /**
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
+   */
+  it("ends a JS routine that returns nothing the same way early and at its end", () => {
+    const gate = uniform("float");
+    const routine = compileJSRoutine(
+      () =>
+        Fn(() => {
+          const v = float(1).toVar();
+          If(gate.greaterThan(0), () => {
+            Return();
+          });
+          v.assign(float(2));
+        })() as any,
+      { name: "main", params: [] },
+    );
+    expect(routine({ uniforms: { [gate.name]: 1 } })).toBeUndefined();
+    expect(routine({ uniforms: { [gate.name]: 0 } })).toBeUndefined();
+  });
+
+  /**
+   * Both early returns zero the slot the function returns its matrix in.
+   *
+   * @canon exception-a-return-in-a-function-gives-the-zero-value-of-its-type
+   */
+  it("returns a JS matrix function's own result slot zeroed at an early return", () => {
+    const source = compileJSFn(
+      (x: any) =>
+        Fn(() => {
+          If(x.greaterThan(1), () => {
+            Return();
+          });
+          If(x.greaterThan(0), () => {
+            Return();
+          });
+          return mat2(x, 0, 0, x);
+        })(),
+      { name: "early", params: [{ name: "x", type: "float" }] },
+    );
+    const early = [...source.matchAll(/return (\w+)\.fill\(0\);/g)].map((m) => m[1]);
+    expect(early).toHaveLength(2);
+    expect(source).toContain(`return ${early[0]};`);
+    expect(new Set(early).size).toBe(1);
+  });
+
+  /**
+   * The constant condition drops the branch that reads the depth.
+   *
+   * @canon spec-a-fragment-stage-returns-its-colour-and-outputs
+   */
+  it("compiles a JS fragment whose depth is read only in a select branch it folds away", () => {
+    const build = () => Fn(() => vec4(select(bool(false), builtinFragDepth(), float(0.5)), 0, 0, 1))() as any;
+    expect(() => compileJSFn(build, { name: "main", params: [], stage: "fragment" })).not.toThrow();
+  });
+
+  /**
    * A program that writes its depth returns its result object, so an early
    * return returns that object too.
    *
