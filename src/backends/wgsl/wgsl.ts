@@ -540,10 +540,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       // carried as unsigned integers and compared back on read — the difference
       // stays inside the compiler. The comparison is component-wise for a
       // vector, so it gives back a boolean vector of the same width.
-      let width = TYPE_WIDTH[v?.shaderType] ?? 1;
-      let isBoolean = v?.shaderType === "bool" || v?.shaderType?.startsWith("bvec");
-      let carrier = width === 1 ? "u32" : `vec${width}<u32>`;
-      let zero = width === 1 ? "0u" : `${carrier}(0u)`;
+      let carrier = v?.shaderType ? booleanCarrier(v.shaderType) : undefined;
       if (v && v.id != null && !ctx.uniforms.has(v.slot)) {
         ctx.uniforms.set(v.slot, { ...wgslUniformDeclaration(node as UniformNode<ShaderType>), order: v.id, node });
       }
@@ -556,7 +553,7 @@ export function compileWGSLNode(node: BaseNode<ShaderType> | any, ctx: CompileCt
       return {
         decls: [],
         body: [],
-        expr: isBoolean ? `(${ref} != ${zero})` : ref,
+        expr: carrier ? `(${ref} != ${carrier === "u32" ? "0u" : `${carrier}(0u)`})` : ref,
       };
     }
 
@@ -1905,6 +1902,13 @@ export function compileWGSLWithStage(
  */
 export type WgslUniformDeclaration = { slot: string; type: string; length?: number };
 
+/** The `u32` type a `bool` or boolean vector travels as in the uniform struct, or undefined for any other type. */
+function booleanCarrier(shaderType: string): string | undefined {
+  if (shaderType !== "bool" && !shaderType.startsWith("bvec")) return undefined;
+  let width = TYPE_WIDTH[shaderType as ShaderType] ?? 1;
+  return width === 1 ? "u32" : `vec${width}<u32>`;
+}
+
 /**
  * The struct member a uniform or uniform array is declared as. A `bool` or
  * boolean vector travels as `u32`s, which the uniform address space allows.
@@ -1913,9 +1917,7 @@ export function wgslUniformDeclaration(
   node: UniformNode<ShaderType> | UniformArrayNode<ShaderType>,
 ): WgslUniformDeclaration {
   let v = (node as any).value as { slot: string; shaderType: string; length?: number };
-  let width = TYPE_WIDTH[v.shaderType as ShaderType] ?? 1;
-  let isBoolean = v.shaderType === "bool" || v.shaderType.startsWith("bvec");
-  let type = isBoolean ? (width === 1 ? "u32" : `vec${width}<u32>`) : wgslType(v.shaderType);
+  let type = booleanCarrier(v.shaderType) ?? wgslType(v.shaderType);
   return (node as any).type === "uniformArray" ? { slot: v.slot, type, length: v.length } : { slot: v.slot, type };
 }
 
